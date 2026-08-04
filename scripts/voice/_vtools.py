@@ -4,8 +4,9 @@
 Subcommands:
   transcribe <file_id> <state_dir>
       Download a Telegram voice file by file_id using the bot token in
-      <state_dir>/.env, transcribe it (Hungarian, faster-whisper small),
-      print the transcript to stdout.
+      <state_dir>/.env, transcribe it (Hungarian; Groq cloud Whisper if
+      GROQ_API_KEY is configured, else local faster-whisper), print the
+      transcript to stdout.
 
   speak <voice_onnx> <state_dir> <chat_id> <text...>
       Synthesize <text> with the given Piper voice model, convert to
@@ -73,10 +74,89 @@ def _token(state_dir):
     return m.group(1).strip().strip('"').strip("'")
 
 
+def _groq_key():
+    """GROQ_API_KEY from this toolkit's own .env (fleet-wide, not per-agent)."""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(p) as f:
+            m = re.search(r"^GROQ_API_KEY=(.+)$", f.read(), re.M)
+        return m.group(1).strip().strip('"').strip("'") if m else None
+    except Exception:
+        return None
+
+
+def _groq_transcribe(path):
+    """Cloud STT via Groq's free Whisper endpoint. Returns None on any failure
+    (missing key, network, bad response) so the caller falls back to local whisper."""
+    key = _groq_key()
+    if not key:
+        return None
+    try:
+        model = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3-turbo")
+        boundary = "----marveengroq"
+        with open(path, "rb") as f:
+            audio = f.read()
+        body = (
+            ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n" + model + "\r\n").encode()
+            + ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nhu\r\n").encode()
+            + ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.ogg\"\r\nContent-Type: application/octet-stream\r\n\r\n").encode()
+            + audio + b"\r\n" + ("--" + boundary + "--\r\n").encode()
+        )
+        req = urllib.request.Request("https://api.groq.com/openai/v1/audio/transcriptions", data=body)
+        req.add_header("Authorization", "Bearer " + key)
+        req.add_header("Content-Type", "multipart/form-data; boundary=" + boundary)
+        # Cloudflare (in front of api.groq.com) fingerprints the default
+        # "Python-urllib/x.y" UA as bot traffic and returns 403 (Cloudflare
+        # error 1010) before the request ever reaches Groq. A normal UA
+        # string clears it -- measured 2026-08-04.
+        req.add_header("User-Agent", "curl/8.5.0")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.load(r)
+        return (data.get("text") or "").strip() or None
+    except Exception:
+        return None
+
+
+def _audio_duration(path):
+    """Seconds of audio via ffprobe; None if it can't be determined."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=15)
+        return float(out.stdout.strip())
+    except Exception:
+        return None
+
+
+def _pick_model(path):
+    """Adaptive STT model: quality on short clips, speed on long ones.
+
+    CPU inference scales ~1.5x audio length. "small" is accurate but on a 26s
+    clip takes ~40s -- unusable. "base" does the same clip in ~10s and stays
+    intelligible. So: short messages get "small" (accurate, still <~10s wall),
+    long messages get "base" (small would be a 30-40s wait). Threshold and
+    models are overridable via env for tuning.
+    """
+    forced = os.environ.get("MARVEEN_STT_MODEL")
+    if forced:
+        return forced
+    threshold = float(os.environ.get("MARVEEN_STT_THRESHOLD", "10"))
+    dur = _audio_duration(path)
+    if dur is not None and dur >= threshold:
+        return os.environ.get("MARVEEN_STT_MODEL_LONG", "medium")
+    return os.environ.get("MARVEEN_STT_MODEL_SHORT", "medium")
+
+
 def _whisper(path):
+    groq_text = _groq_transcribe(path)
+    if groq_text:
+        print(groq_text)
+        return
     from faster_whisper import WhisperModel
-    m = WhisperModel("small", device="cpu", compute_type="int8")
-    segs, _ = m.transcribe(path, language="hu", beam_size=5)
+    model = _pick_model(path)
+    m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=8)
+    segs, _ = m.transcribe(path, language="hu", beam_size=5, condition_on_previous_text=False, vad_filter=True)
     print(" ".join(s.text.strip() for s in segs).strip())
 
 
@@ -156,7 +236,7 @@ def canary(voice_onnx, expected_text):
                        input=expected_text.encode(), check=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         from faster_whisper import WhisperModel
-        m = WhisperModel("small", device="cpu", compute_type="int8")
+        m = WhisperModel("medium", device="cpu", compute_type="int8")
         segs, _ = m.transcribe(wav, language="hu", beam_size=5)
         transcript = " ".join(s.text.strip() for s in segs).strip()
         exp_words = _normalize(expected_text).split()
