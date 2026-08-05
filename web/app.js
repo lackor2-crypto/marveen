@@ -632,8 +632,8 @@ function renderStaticI18n() {
   }
   // Kanban column titles
   const colTitles = document.querySelectorAll('.kanban-col-title')
-  const statusKeys = ['kanban.col.planned', 'kanban.col.in_progress', 'kanban.col.waiting', 'kanban.col.testing', 'kanban.col.done']
-  const statuses = ['planned', 'in_progress', 'waiting', 'testing', 'done']
+  const statusKeys = ['kanban.col.planned', 'kanban.col.in_progress', 'kanban.col.testing', 'kanban.col.waiting', 'kanban.col.done']
+  const statuses = ['planned', 'in_progress', 'testing', 'waiting', 'done']
   colTitles.forEach((el) => {
     const status = el.closest('[data-status]')?.dataset?.status
     if (status) {
@@ -1690,7 +1690,7 @@ function kanbanColBodyAt(x, y) {
 // Instead, committing to a drag raises a fixed bar of status targets over the
 // bottom of the screen: the same gesture, with somewhere to drop. Column
 // hit-testing stays active for viewports where the target column IS visible.
-const KANBAN_TOUCH_STATUSES = ['planned', 'in_progress', 'waiting', 'testing', 'done']
+const KANBAN_TOUCH_STATUSES = ['planned', 'in_progress', 'testing', 'waiting', 'done']
 
 function buildTouchDropBar(currentStatus) {
   const bar = document.createElement('div')
