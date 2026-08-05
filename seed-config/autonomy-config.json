@@ -6,56 +6,56 @@
     {
       "key": "kanban_archive_done",
       "label": "7+ napos done kartya archivalas",
-      "level": 1,
+      "level": 3,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "kanban_stuck_nudge",
       "label": "Beakadt task: assignee nudge (2 kor utan eszkalal)",
-      "level": 1,
+      "level": 3,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "memory_maintenance",
       "label": "Memoria rendberakas (vektorizalas, teszt-spam cold-ba)",
-      "level": 1,
+      "level": 3,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "routine_trivial_fix",
       "label": "Deli/reggeli rutin trivialis javitasai",
-      "level": 1,
+      "level": 3,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "deploy_retry",
       "label": "Elbukott deploy/CI ujraprobalkozas",
-      "level": 1,
+      "level": 2,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "kanban_restructure",
       "label": "Kanban kartya atstrukturlas / sub-task bontas",
-      "level": 1,
+      "level": 3,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "skill_patch",
       "label": "Skill-patch alkalmazas",
-      "level": 1,
+      "level": 3,
       "locked": false,
       "maxLevel": 3
     },
     {
       "key": "email_send",
       "label": "Email kuldes / valasz",
-      "level": 1,
+      "level": 2,
       "locked": false,
       "maxLevel": 2,
       "timeout_minutes": 30
@@ -63,37 +63,140 @@
     {
       "key": "publish_content",
       "label": "Publikalas (Skool / blog / kozosseg)",
-      "level": 1,
-      "locked": true,
-      "maxLevel": 1
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
     },
     {
       "key": "payment",
       "label": "Vasarlas / penzmozgas",
-      "level": 1,
-      "locked": true,
-      "maxLevel": 1
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
     },
     {
       "key": "data_delete",
       "label": "Fajl / adat torles",
-      "level": 1,
-      "locked": true,
-      "maxLevel": 1
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
     },
     {
       "key": "permission_change",
       "label": "Jogosultsag-valtoztatas / megosztas",
-      "level": 1,
-      "locked": true,
-      "maxLevel": 1
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
     },
     {
       "key": "external_message",
       "label": "Kulso uzenet kuldes",
-      "level": 1,
-      "locked": true,
-      "maxLevel": 1
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "system_diagnostics",
+      "label": "Diagnosztika (log, service-allapot, folyamatok, config, PATH, halozat) -- csak olvasas",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "system_safe_fix",
+      "label": "Biztonsagos, visszafordithato javitas (sajat user-service restart, beragadt tmux session, sajat fajl-jog, retry)",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "package_install",
+      "label": "Csomag telepites (apt/pip/npm/snap)",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "service_systemd_change",
+      "label": "Service / systemd modositas (unit szerkesztes, enable/disable, daemon-reload)",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "privileged_sudo",
+      "label": "Root / sudo jogosultsagot igenylo muvelet",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "system_config_change",
+      "label": "Fajlrendszer / rendszerkonfiguracio modositas (rendszerfajlok, PATH-profil, halozati config)",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "system_reboot",
+      "label": "Ujrainditas (gep vagy WSL distro)",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "kanban_read",
+      "label": "Kanban olvasas (listazas, statusz lekerdezes)",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "memory_read",
+      "label": "Memoria olvasas (kereses, lekerdezes)",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "gdrive_read",
+      "label": "Google Drive olvasas (listazas, kereses, letoltes)",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "gdrive_organize",
+      "label": "Google Drive rendezes (atnevezes, mappaba mozgatas, cimke) -- nem torol, nem oszt meg",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "gdrive_modify",
+      "label": "Google Drive modositas (tartalom szerkesztes, feltoltes, uj fajl)",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
+    },
+    {
+      "key": "gdrive_share",
+      "label": "Google Drive kulso megosztas (link/jogosultsag) -- erzekeny",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 2,
+      "timeout_minutes": 60
     }
   ]
 }

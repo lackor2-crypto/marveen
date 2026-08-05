@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, MAIN_AGENT_ID } from '../../config.js'
 import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
-  createAgentMessage,
+  createAgentMessage, moveKanbanCard, getKanbanCard,
   type Approval,
 } from '../../db.js'
 import { logger } from '../../logger.js'
@@ -48,6 +48,27 @@ function notifyMainAgent(approval: Approval): void {
   } catch (err) {
     // Non-fatal: the approval is created regardless; main-agent notification is best-effort
     logger.warn({ err, approvalId: approval.id }, 'Failed to notify main agent of approval request')
+  }
+}
+
+// Push the decision straight to the agent that asked -- Boss 2026-08-05: a
+// rejection with no reason left the requester (usually this same main agent)
+// with nothing to act on except polling and guessing. The requester is
+// notified regardless of who resolved it (self-notify when agent_id ==
+// MAIN_AGENT_ID is harmless and keeps this one code path for every case).
+function notifyRequester(approval: Approval): void {
+  try {
+    const content = [
+      `[APPROVAL_RESOLVED]`,
+      `id=${approval.id}`,
+      `status=${approval.status}`,
+      `category=${approval.category}`,
+      `resolved_by=${approval.resolved_by ?? 'unknown'}`,
+      `reason=${approval.resolution_reason ?? ''}`,
+    ].join(' ')
+    createAgentMessage('system', approval.agent_id, content)
+  } catch (err) {
+    logger.warn({ err, approvalId: approval.id }, 'Failed to notify requester of approval resolution')
   }
 }
 
@@ -137,7 +158,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
 
   // PATCH /api/approvals/:id -- resolve (approve/reject/timeout)
   if (idMatch && method === 'PATCH') {
-    let body: { status?: unknown; resolved_by?: unknown; telegram_message_id?: unknown }
+    let body: { status?: unknown; resolved_by?: unknown; telegram_message_id?: unknown; reason?: unknown }
     try {
       body = JSON.parse((await readBody(req)).toString())
     } catch {
@@ -145,7 +166,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    const { status, resolved_by, telegram_message_id } = body
+    const { status, resolved_by, telegram_message_id, reason } = body
     if (status !== 'approved' && status !== 'rejected' && status !== 'timeout') {
       json(res, { error: 'status must be approved, rejected, or timeout' }, 400)
       return true
@@ -155,6 +176,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const msgId = typeof telegram_message_id === 'number' ? telegram_message_id : null
+    const resolutionReason = typeof reason === 'string' && reason.trim() ? reason.trim() : null
 
     // Self-approval guard: the requesting agent cannot approve its own request.
     // This is a best-effort check on the self-declared resolved_by value (all fleet
@@ -167,7 +189,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    const updated = resolveApproval(idMatch[1], status, resolved_by.trim(), msgId)
+    const updated = resolveApproval(idMatch[1], status, resolved_by.trim(), msgId, resolutionReason)
     if (!updated) {
       // Either not found or already resolved
       const existing = getApproval(idMatch[1])
@@ -180,7 +202,25 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     }
 
     const approval = getApproval(idMatch[1])
-    logger.info({ id: idMatch[1], status, resolved_by }, 'Approval resolved')
+    logger.info({ id: idMatch[1], status, resolved_by, reason: resolutionReason }, 'Approval resolved')
+    if (approval) notifyRequester(approval)
+    // Closes the loop Boss asked for (2026-08-05): "amikor en ott nyomom hogy
+    // ok, akkor kerüljön at a kesz dobozba" -- clicking approve on a
+    // kanban_done request is itself what moves the card to "done", not a
+    // separate agent poll-then-PUT step. action_payload carries
+    // {"kanban_card_id": "..."} (see the "Jóváhagyásra küldés" button on the
+    // kanban card detail modal, web/app.js). Best-effort: a malformed/missing
+    // payload or an already-archived card just skips this, never blocks the
+    // approval response itself.
+    if (approval && status === 'approved' && approval.category === 'kanban_done' && approval.action_payload) {
+      try {
+        const payload = JSON.parse(approval.action_payload) as { kanban_card_id?: unknown }
+        if (typeof payload.kanban_card_id === 'string') {
+          const card = getKanbanCard(payload.kanban_card_id)
+          if (card) moveKanbanCard(card.id, 'done', card.sort_order, resolved_by.trim())
+        }
+      } catch { /* malformed payload -- approval itself already succeeded, don't fail the request over this */ }
+    }
     json(res, approval)
     return true
   }

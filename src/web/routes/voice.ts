@@ -100,7 +100,7 @@ export async function transcribeVoiceFile(fileId: string, stateDir: string): Pro
   if (!isVoiceInstalled()) return null
   if (!SAFE_FILE_ID_RE.test(fileId)) return null
   if (!isSafeStateDir(stateDir)) return null
-  const result = await runProc(VENV_PY, [VTOOLS_PY, 'transcribe', fileId, stateDir], { timeoutMs: 60_000 })
+  const result = await runProc(VENV_PY, [VTOOLS_PY, 'transcribe', fileId, stateDir], { timeoutMs: 240_000 })
   if (result.code !== 0) {
     logger.warn({ fileId, stderr: result.stderr.slice(0, 200) }, 'transcribeVoiceFile: whisper failed')
     return null
@@ -143,7 +143,7 @@ export async function tryHandleVoice(ctx: RouteContext): Promise<boolean> {
 
     let transcript: string | null = null
     if (inboundWasAudio && isVoiceInstalled()) {
-      const sttResult = await runProc(VENV_PY, [VTOOLS_PY, 'transcribe', fileParam, stateDir], { timeoutMs: 60_000 })
+      const sttResult = await runProc(VENV_PY, [VTOOLS_PY, 'transcribe', fileParam, stateDir], { timeoutMs: 240_000 })
       if (sttResult.code === 0) {
         transcript = sttResult.stdout.trim() || null
       } else {

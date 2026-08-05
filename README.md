@@ -53,6 +53,7 @@ Részletes, funkciónkénti leírások a [`docs/`](docs/README.md) mappában —
 | Channel reply-guard | [docs/channel-reply-guard.md](docs/channel-reply-guard.md) |
 | Telegram haladásjelző | [docs/telegram-progress-indicator.md](docs/telegram-progress-indicator.md) |
 | Új asszisztens onboarding | [docs/onboarding-uj-asszisztens.md](docs/onboarding-uj-asszisztens.md) |
+| Indítás/vezérlés + hibakezelés (`claude-env`) | [docs/claude-env.md](docs/claude-env.md) |
 
 ## Öntanulás & Seed-ek
 

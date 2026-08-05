@@ -1,4 +1,5 @@
 import os from 'node:os'
+import { execFile } from 'node:child_process'
 
 // Pick the best LAN IPv4 address for reaching this host from another device on
 // the same network (e.g. a phone scanning the mobile-login QR). The desktop
@@ -49,4 +50,34 @@ export function pickLanIp(ifaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>): strin
 
 export function detectLanIp(): string | null {
   return pickLanIp(os.networkInterfaces())
+}
+
+// If `tailscale serve` is already proxying this port (see the
+// mobile-dashboard-access skill/docs/mobil-dashboard.md), that HTTPS tailnet
+// URL is a far more reliable QR target under WSL2 than the guessed LAN IP:
+// os.networkInterfaces() inside WSL2 reports the WSL-internal NAT adapter,
+// not the Windows host's real WiFi IP, so a phone on the same WiFi can never
+// reach it (Boss, 2026-08-05, this exact bug -- QR scan just hung forever).
+// Best-effort: resolves null (not an error) if the `tailscale` binary is
+// missing, times out, or there's no active serve config for this port --
+// the caller falls back to the LAN-IP guess in all of those cases.
+export function detectTailscaleServeUrl(port: number): Promise<string | null> {
+  return new Promise(resolve => {
+    execFile('tailscale', ['serve', 'status', '--json'], { timeout: 3000 }, (err, stdout) => {
+      if (err) { resolve(null); return }
+      try {
+        const parsed = JSON.parse(stdout) as { Web?: Record<string, { Handlers?: Record<string, { Proxy?: string }> }> }
+        const target = `127.0.0.1:${port}`
+        for (const [hostPort, web] of Object.entries(parsed.Web || {})) {
+          const proxiesToUs = Object.values(web.Handlers || {}).some(h => h.Proxy?.includes(target))
+          if (proxiesToUs) {
+            const host = hostPort.replace(/:\d+$/, '')
+            resolve(`https://${host}/`)
+            return
+          }
+        }
+        resolve(null)
+      } catch { resolve(null) }
+    })
+  })
 }

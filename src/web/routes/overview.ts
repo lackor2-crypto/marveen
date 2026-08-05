@@ -96,13 +96,18 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       }
     }
 
+    // Raw agent ids (e.g. "lackor2-bot") used to get baked straight into this
+    // feed's text server-side, with nothing on the frontend able to resolve
+    // them afterward (Boss, 2026-08-05: saw the raw id instead of "Marvin"
+    // on the Overview page).
+    const displayNameFor = (id: string): string => id === MAIN_AGENT_ID ? currentBotName() : (readAgentDisplayName(id) || id)
     const activity: Array<{ icon: string; text: string; at: number }> = []
     try {
       const memRows = db0.prepare("SELECT content, created_at, agent_id FROM memories ORDER BY created_at DESC LIMIT 6").all() as { content: string; created_at: number; agent_id: string }[]
       for (const r of memRows) {
         activity.push({
           icon: 'memory',
-          text: `${r.agent_id}: ${r.content.slice(0, 80)}${r.content.length > 80 ? '…' : ''}`,
+          text: `${displayNameFor(r.agent_id)}: ${r.content.slice(0, 80)}${r.content.length > 80 ? '…' : ''}`,
           at: r.created_at * 1000,
         })
       }
@@ -112,7 +117,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       for (const r of msgRows) {
         activity.push({
           icon: 'delegate',
-          text: `${r.from_agent} → ${r.to_agent}: ${r.content.slice(0, 60)}${r.content.length > 60 ? '…' : ''}`,
+          text: `${displayNameFor(r.from_agent)} → ${displayNameFor(r.to_agent)}: ${r.content.slice(0, 60)}${r.content.length > 60 ? '…' : ''}`,
           at: r.created_at * 1000,
         })
       }

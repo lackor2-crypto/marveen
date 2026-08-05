@@ -194,3 +194,29 @@ def open_question(agent_id):
     or None. Returns (chat_id, message_id, text, ts)."""
     oq = open_question_with_age(agent_id)
     return oq[:4] if oq else None
+
+
+def _escape_like(s):
+    """Escape a user-supplied search term for a SQL LIKE '%...%' pattern so
+    literal % or _ in the query don't act as wildcards."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search(agent_id, query, limit=20):
+    """On-demand keyword search over the FULL ledger (not just the recent
+    replay window), for when the owner refers back to something older than
+    what SessionStart injected. Case-insensitive substring match on `text`.
+    Returns up to `limit` matches, most-recent-first-in-DB but returned
+    oldest-first for readable chronological output. Rows: (direction,
+    chat_id, text, ts)."""
+    con = connect()
+    try:
+        like = "%" + _escape_like(query) + "%"
+        rows = con.execute(
+            "SELECT direction, chat_id, text, ts FROM conversation_log"
+            " WHERE agent_id=? AND text LIKE ? ESCAPE '\\' ORDER BY created_at DESC, id DESC LIMIT ?",
+            (str(agent_id), like, int(limit)),
+        ).fetchall()
+        return list(reversed(rows))
+    finally:
+        con.close()

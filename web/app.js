@@ -358,8 +358,9 @@ function switchPage(pageId) {
   pages.forEach((p) => (p.hidden = p.id !== pageId + 'Page'))
   navLinks.forEach((l) => l.classList.toggle('active', l.dataset.page === pageId))
   openSidebarGroupForPage(pageId)
-  // Kanban needs full-width layout (overrides main's max-width: 1200px)
+  // Kanban and Email need full-width layout (overrides main's max-width: 1200px)
   document.querySelector('main').classList.toggle('kanban-active', pageId === 'kanban')
+  document.querySelector('main').classList.toggle('email-active', pageId === 'email')
   // Activity page runs a live poll; stop it whenever we navigate away.
   if (pageId !== 'activity') stopActivityPoll()
   if (pageId === 'activity') startActivityPoll()
@@ -393,6 +394,7 @@ function switchPage(pageId) {
   if (pageId === 'archived') loadArchivedPage()
   if (pageId === 'naplo') loadNaplo()
   if (pageId === 'federation') loadFederationPage()
+  if (pageId === 'email') loadEmailPage()
 }
 
 // Mobile off-canvas sidebar toggle. No-op visual effect on desktop (the
@@ -420,6 +422,64 @@ navLinks.forEach((link) => {
     setSidebarOpen(false) // close the drawer after navigating on mobile
   })
 })
+
+// === Workspace switch (Marvin / Iroda) ===
+// Two fully separate <nav> trees so Iroda-side additions (email today, more
+// later) never touch the upstream Szotász sidebar markup -- a future
+// `git pull` from upstream can't conflict with anything added here.
+const WORKSPACE_LS_KEY = 'marveen.workspace'
+const IRODA_PAGES = { email: true }
+function setWorkspace(ws, opts) {
+  const persist = !opts || opts.persist !== false
+  const navMarvinEl = document.getElementById('navMarvin')
+  const navIrodaEl = document.getElementById('navIroda')
+  if (navMarvinEl) navMarvinEl.hidden = ws !== 'marvin'
+  if (navIrodaEl) navIrodaEl.hidden = ws !== 'iroda'
+  if (ws === 'iroda') ensureEmailAccountNav()
+  document.getElementById('wsBtnMarvin')?.classList.toggle('active', ws === 'marvin')
+  document.getElementById('wsBtnIroda')?.classList.toggle('active', ws === 'iroda')
+  if (persist) { try { localStorage.setItem(WORKSPACE_LS_KEY, ws) } catch {} }
+  // Switching workspace while the visible page belongs to the OTHER one would
+  // leave an orphaned page on screen with no matching nav link lit up --
+  // land on that workspace's first page instead.
+  const activeLink = document.querySelector('.sb-link.active[data-page]')
+  const activePage = activeLink?.dataset?.page
+  const activeIsIroda = !!IRODA_PAGES[activePage]
+  if (ws === 'iroda' && !activeIsIroda) location.hash = 'email'
+  if (ws === 'marvin' && activeIsIroda) location.hash = 'overview'
+}
+document.getElementById('wsBtnMarvin')?.addEventListener('click', () => setWorkspace('marvin'))
+document.getElementById('wsBtnIroda')?.addEventListener('click', () => setWorkspace('iroda'))
+
+// Email sidebar accordion (Iroda -> Email): click toggles the account submenu
+// open/closed, same visual language as the Marvin-side .sb-group sections but
+// kept independent of SIDEBAR_GROUPS since it lists dynamic accounts, not a
+// fixed set of pages.
+document.getElementById('emailNavToggle')?.addEventListener('click', () => {
+  const group = document.querySelector('.sb-group[data-group="email-accounts"]')
+  if (!group) return
+  const open = !group.classList.contains('open')
+  group.classList.toggle('open', open)
+  document.getElementById('emailNavToggle')?.setAttribute('aria-expanded', open ? 'true' : 'false')
+})
+{
+  let savedWs = 'marvin'
+  try { savedWs = localStorage.getItem(WORKSPACE_LS_KEY) || 'marvin' } catch {}
+  // Deferred to a macrotask: this runs very early in the script (line ~460s),
+  // but setWorkspace('iroda') now calls ensureEmailAccountNav(), which reads
+  // the module-level `let emailAccounts` declared thousands of lines further
+  // down. `let` is hoisted but stays in the temporal dead zone until its own
+  // declaration line executes -- reading it this early throws
+  // "Cannot access 'emailAccounts' before initialization", silently breaking
+  // this whole restore call for anyone whose saved workspace is 'iroda'
+  // (Boss, 2026-08-05: exactly this -- the Email account list never
+  // appeared, on desktop OR phone, because this is the common case: he'd
+  // been on Iroda most of the day). setTimeout(...,0) runs after the
+  // rest of this script has finished executing top-to-bottom, by which
+  // point every top-level declaration -- emailAccounts included -- is safely
+  // initialized.
+  setTimeout(() => setWorkspace(savedWs, { persist: false }), 0)
+}
 
 // === Collapsible sidebar groups ===
 // Open/closed state lives in localStorage (marveen.sidebarGroups) as a JSON
@@ -765,7 +825,7 @@ function renderActivity(entries) {
     return (
       '<div class="activity-card ' + meta.cls + (canOpen ? ' act-clickable' : '') + '" data-agent="' + escapeHtml(a.name) + '">' +
         '<div class="activity-card-head">' +
-          '<span class="activity-name">' + escapeHtml(a.name) + mainBadge + '</span>' +
+          '<span class="activity-name">' + escapeHtml(a.displayName || a.name) + mainBadge + '</span>' +
           '<span style="display:flex;align-items:center;gap:8px">' +
             modeChip +
             termIcon +
@@ -1208,11 +1268,19 @@ function renderKanban() {
   }
 }
 
+// Order here IS the left-to-right column order on the board. Boss,
+// 2026-08-05: testing used to sit AFTER waiting, which is backwards --
+// "waiting" means waiting for Boss's approve/reject decision (see
+// kanban-done-requires-approval workflow), and a card should be tested
+// BEFORE it's ready to ask for that decision, not after. Researched first
+// (kanban best-practice sources agree columns should mirror the team's
+// actual chronological workflow): planned -> in_progress -> testing ->
+// waiting (for the decision) -> done.
 const KANBAN_STATUS_DEFS = [
   { status: 'planned', title: () => t('kanban.col.planned') },
   { status: 'in_progress', title: () => t('kanban.col.in_progress') },
-  { status: 'waiting', title: () => t('kanban.col.waiting') },
   { status: 'testing', title: () => t('kanban.col.testing') },
+  { status: 'waiting', title: () => t('kanban.col.waiting') },
   { status: 'done', title: () => t('kanban.col.done') },
 ]
 const KANBAN_PRIORITY_LABELS = { urgent: () => t('kanban.priority.urgent'), high: () => t('kanban.priority.high'), normal: () => t('kanban.priority.normal'), low: () => t('kanban.priority.low') }
@@ -2070,6 +2138,12 @@ async function showCardDetail(card) {
   })
 
   // Inline edit for assignee on detail view
+  // Boss, 2026-08-05: this box showed the raw assignee id (e.g. "lackor2-bot")
+  // instead of the display name once the select collapsed back to text --
+  // kanbanAssignees (already in scope, already has .displayName, used
+  // correctly to BUILD the <select> options above) just wasn't consulted
+  // again when writing the collapsed textContent back out.
+  const resolveAssigneeLabel = (name) => kanbanAssignees.find(a => a.name === name)?.displayName || name
   const assigneeValueEl = document.getElementById('metaAssigneeValue')
   assigneeValueEl.addEventListener('click', () => {
     if (assigneeValueEl.querySelector('select')) return
@@ -2090,7 +2164,7 @@ async function showCardDetail(card) {
     const save = async () => {
       const newVal = sel.value || null
       if (newVal === current || (newVal === null && !current)) {
-        assigneeValueEl.textContent = current ? current : '-- nincs --'
+        assigneeValueEl.textContent = current ? resolveAssigneeLabel(current) : '-- nincs --'
         return
       }
       try {
@@ -2101,18 +2175,18 @@ async function showCardDetail(card) {
         })
         if (!r.ok) throw new Error('PUT failed')
         card.assignee = newVal
-        assigneeValueEl.textContent = newVal ? newVal : '-- nincs --'
+        assigneeValueEl.textContent = newVal ? resolveAssigneeLabel(newVal) : '-- nincs --'
         showToast(t('kanban.toast.assignee_updated'))
         loadKanban && loadKanban()
       } catch {
-        assigneeValueEl.textContent = current ? current : '-- nincs --'
+        assigneeValueEl.textContent = current ? resolveAssigneeLabel(current) : '-- nincs --'
         showToast(t('kanban.toast.save_error'))
       }
     }
     sel.addEventListener('change', save)
     sel.addEventListener('blur', () => {
       if (assigneeValueEl.querySelector('select')) {
-        assigneeValueEl.textContent = card.assignee ? card.assignee : '-- nincs --'
+        assigneeValueEl.textContent = card.assignee ? resolveAssigneeLabel(card.assignee) : '-- nincs --'
       }
     })
   })
@@ -2166,8 +2240,12 @@ async function showCardDetail(card) {
       const date = new Date(c.created_at * 1000).toLocaleString('hu-HU')
       const div = document.createElement('div')
       div.className = 'comment-item'
+      // c.author is stored as the raw agent id -- resolve through
+      // kanbanAssignees the same way the assignee <select> above does
+      // (Boss, 2026-08-05: comments showed the raw id, not the display name).
+      const authorLabel = kanbanAssignees.find(a => a.name === c.author)?.displayName || c.author
       div.innerHTML = `
-        <div><span class="comment-author">${escapeHtml(c.author)}</span><span class="comment-date">${date}</span></div>
+        <div><span class="comment-author">${escapeHtml(authorLabel)}</span><span class="comment-date">${date}</span></div>
         <div class="comment-body">${escapeHtml(c.content)}</div>
       `
       list.appendChild(div)
@@ -2228,6 +2306,42 @@ async function showCardDetail(card) {
     populateAssigneeSelect('cardAssignee', card.assignee)
     populateProjectSuggestions()
     openModal(cardModalOverlay)
+  }
+
+  // Send for approval -- Boss, 2026-08-05: "kellene ide egy jóváhagyásra
+  // küldeni gomb", the missing UI piece for the kanban_done workflow
+  // (planned -> in_progress -> waiting -> [this button] -> Boss approves in
+  // the Jóváhagyások page -> the card moves itself to "done" server-side,
+  // see the PATCH /api/approvals/:id handler in src/web/routes/approvals.ts).
+  // Only offered on "waiting" cards -- that status IS "I think this is done,
+  // waiting on sign-off", so anything else showing this button would be
+  // asking Boss to approve work that was never marked ready in the first
+  // place.
+  const requestApprovalBtn = document.getElementById('cardRequestApprovalBtn')
+  if (requestApprovalBtn) {
+    requestApprovalBtn.style.display = card.status === 'waiting' ? '' : 'none'
+    requestApprovalBtn.onclick = async () => {
+      requestApprovalBtn.disabled = true
+      try {
+        const res = await fetch('/api/approvals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: card.assignee || mainAgentId(),
+            category: 'kanban_done',
+            action_description: `Kártya kész, jóváhagyásra vár: "${card.title}"`,
+            action_payload: JSON.stringify({ kanban_card_id: card.id }),
+          }),
+        })
+        if (!res.ok) throw new Error('request failed')
+        showToast(t('kanban.toast.approval_requested'))
+        closeModal(cardDetailOverlay)
+      } catch {
+        showToast(t('kanban.toast.approval_error'))
+      } finally {
+        requestApprovalBtn.disabled = false
+      }
+    }
   }
 
   // Archive
@@ -2299,8 +2413,13 @@ async function showCardDetail(card) {
         div.style.cssText = 'cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px'
         const info = document.createElement('div')
         info.style.flex = '1'
+        // ch.assignee is the raw agent id -- same kanbanAssignees resolution
+        // as the parent card's assignee field (Boss, 2026-08-05: subtasks
+        // showed the raw id here, unlike the board's own mini-cards which
+        // already resolved it correctly).
+        const childAssigneeLabel = ch.assignee ? (kanbanAssignees.find(a => a.name === ch.assignee)?.displayName || ch.assignee) : ''
         info.innerHTML = `<div><strong>${escapeHtml(ch.title)}</strong> <span style="color:var(--text-muted)">[${statusLabelsShort[ch.status] || ch.status}]</span></div>
-          <div style="font-size:0.85em;color:var(--text-muted)">${ch.assignee ? escapeHtml(ch.assignee) : ''}${ch.description ? ' -- ' + escapeHtml(ch.description).slice(0, 80) : ''}</div>`
+          <div style="font-size:0.85em;color:var(--text-muted)">${escapeHtml(childAssigneeLabel)}${ch.description ? ' -- ' + escapeHtml(ch.description).slice(0, 80) : ''}</div>`
         info.onclick = () => { closeModal(cardDetailOverlay); showCardDetail(ch) }
         div.appendChild(info)
         if (canDeleteChild) {
@@ -5840,7 +5959,7 @@ function renderPendingRetries(container, rows) {
       <div class="pending-retry-info">
         <div class="pending-retry-title">
           ${escapeHtml(r.taskName)}
-          <span class="badge badge-paused">${escapeHtml(r.agentName)}</span>
+          <span class="badge badge-paused">${escapeHtml(chatDisplayName(r.agentName))}</span>
           ${r.alertSentAt
             ? `<span class="badge badge-heartbeat" title="${t('tasks.heartbeat.alert_badge_sent')}">⚠️ ${t('tasks.heartbeat.alert_sent')}</span>`
             : r.alertDue
@@ -6661,7 +6780,8 @@ function renderMemories(memories) {
     const tierBadge = tierLabels[tier] || tier
     const badgeClass = 'badge-' + tier
     const shortContent = mem.content.length > 120 ? mem.content.slice(0, 120) + '...' : mem.content
-    const agentLabel = mem.agent_id || mainAgentId()
+    // Boss, 2026-08-05: this badge showed the raw agent id, e.g. "lackor2-bot".
+    const agentLabel = chatDisplayName(mem.agent_id || mainAgentId())
 
     // Build keywords HTML
     let keywordsHtml = ''
@@ -7195,7 +7315,7 @@ function renderGraph() {
   if (graphHover && !graphSelectedNode) {
     const node = graphHover
     const tLabels = { hot: 'Hot', warm: 'Warm', cold: 'Cold', shared: 'Shared' }
-    const text = `${tLabels[node.tier] || node.tier} | ${node.agent}`
+    const text = `${tLabels[node.tier] || node.tier} | ${chatDisplayName(node.agent)}`
     const kw = node.keywords.length > 0 ? node.keywords.join(', ') : ''
     const conns = `${Math.round(node.connectionCount)} connections`
 
@@ -7260,7 +7380,7 @@ function showGraphPanel(node) {
   panel.innerHTML = `
     <div class="graph-panel-header">
       <span class="badge badge-${node.tier}">${tierLabelsMap[node.tier] || node.tier}</span>
-      <span class="graph-panel-agent">${escapeHtml(node.agent)}</span>
+      <span class="graph-panel-agent">${escapeHtml(chatDisplayName(node.agent))}</span>
       <button class="graph-panel-close" id="graphPanelCloseBtn">&times;</button>
     </div>
     ${created ? `<div class="graph-panel-date">${escapeHtml(created)}</div>` : ''}
@@ -10490,7 +10610,7 @@ function renderGlobalSkillsGrid() {
     card.className = isLocal ? 'skills-card skills-card--local' : 'skills-card'
     const icon = getSkillIcon(skill.name)
     const sourceBadge = isLocal
-      ? `<span class="connector-source-badge skills-badge--agent">${escapeHtml(skill.agentId)}</span>`
+      ? `<span class="connector-source-badge skills-badge--agent">${escapeHtml(chatDisplayName(skill.agentId))}</span>`
       : (skill.source ? `<span class="connector-source-badge">${escapeHtml(sourceLabels[skill.source] || skill.source)}</span>` : '')
 
     const hasDesc = !!skill.description
@@ -10502,7 +10622,7 @@ function renderGlobalSkillsGrid() {
 
     const agents = skill.agents || []
     const agentBadges = agents.length > 0
-      ? `<span class="skills-agent-badge skill-agent-count" title="${escapeHtml(agents.join(', '))}">&#x1F916; ${agents.length} ${t('skills.agents.count')}</span>`
+      ? `<span class="skills-agent-badge skill-agent-count" title="${escapeHtml(agents.map(chatDisplayName).join(', '))}">&#x1F916; ${agents.length} ${t('skills.agents.count')}</span>`
       : ''
 
     const mtimeStr = skill.mtime ? formatMtime(skill.mtime) : ''
@@ -11027,10 +11147,20 @@ function mainAgentDisplayName() {
   return window._marveen?.name || window._brandTokens?.bot || mainAgentId()
 }
 // Map a routing agent id to its user-facing label: the main agent's id becomes
-// its BOT_NAME display name; every other agent already carries a human name as
-// its id, so it passes through unchanged.
+// its BOT_NAME display name; every other agent is looked up in the fetched
+// `agents` list (/api/agents, each entry has .name = raw id, .displayName =
+// human name) and falls back to the raw id only if that agent isn't in the
+// list (e.g. it's been removed since the page loaded).
+// Regression #519/#520: keep the four Messages-view display points routing the
+// main agent id through chatDisplayName -- a later refactor once stripped this
+// and leaked the raw routing id again. Guarded by messages-view-display-name.test.ts.
+// Boss, 2026-08-05: the old "every other agent's id IS its display name"
+// assumption was wrong -- sub-agents (e.g. "lackor2-bot" itself shown from
+// another agent's perspective, or any bot with a separate BRAND_NAME) leaked
+// their raw routing id all over the Messages view.
 function chatDisplayName(name) {
-  return name === mainAgentId() ? mainAgentDisplayName() : name
+  if (name === mainAgentId()) return mainAgentDisplayName()
+  return agents.find(a => a.name === name)?.displayName || name
 }
 
 function chatLastSeenKey(agentName) { return 'chat_last_seen_' + agentName }
@@ -12404,7 +12534,7 @@ function renderRecallSummary(el, data) {
   }
   parts.push(t('recall.summary.log_count', { n: s.logCount }))
   parts.push(t('recall.summary.memory_count', { n: s.memoryCount }))
-  if (s.agents.length) parts.push(`${t('recall.summary.agents')}: ${s.agents.map(esc).join(', ')}`)
+  if (s.agents.length) parts.push(`${t('recall.summary.agents')}: ${s.agents.map(a => esc(chatDisplayName(a))).join(', ')}`)
   el.innerHTML = `<div class="recall-summary-row">${parts.map(p => `<span>${p}</span>`).join('')}</div>`
 }
 
@@ -12416,8 +12546,11 @@ function renderRecallTimeline(el, data) {
   }
 
   const items = []
-  logs.forEach(l => items.push({ type: 'log', ts: l.created_at, agent: l.agent_id, date: l.date, content: l.content, label: l.created_label }))
-  memories.forEach(m => items.push({ type: 'memory', ts: m.created_at, agent: m.agent_id, category: m.category, content: m.content, keywords: m.keywords, label: m.created_label }))
+  // agent is resolved to a display name here, once, rather than at each of
+  // the two render sites below (Boss, 2026-08-05: raw ids shown in the
+  // timeline's agent badges).
+  logs.forEach(l => items.push({ type: 'log', ts: l.created_at, agent: chatDisplayName(l.agent_id), date: l.date, content: l.content, label: l.created_label }))
+  memories.forEach(m => items.push({ type: 'memory', ts: m.created_at, agent: chatDisplayName(m.agent_id), category: m.category, content: m.content, keywords: m.keywords, label: m.created_label }))
   // #52/#53: apply sort order (desc = newest first, default)
   items.sort((a, b) => recallSortDesc ? b.ts - a.ts : a.ts - b.ts)
 
@@ -12780,7 +12913,7 @@ function _renderApprovalsStats() {
       const timeoutMin = oldest.timeout_at ? Math.max(0, Math.round((oldest.timeout_at - Date.now() / 1000) / 60)) : null
       const timeoutPart = timeoutMin !== null ? ` ${t('approvals.banner.timeout', { n: timeoutMin })}` : ''
       banner.hidden = false
-      banner.textContent = `${t('approvals.banner.notice', { n: counts.pending, age: ageMin, agent: oldest.agent_id, category: oldest.category })}${timeoutPart}`
+      banner.textContent = `${t('approvals.banner.notice', { n: counts.pending, age: ageMin, agent: chatDisplayName(oldest.agent_id), category: oldest.category })}${timeoutPart}`
     }
   }
 }
@@ -12820,12 +12953,13 @@ function _renderApprovalsTable() {
          </div>`
       : (() => {
           const resolvedBy = escapeHtml(a.resolved_by || '')
-          if (!a.resolved_at) return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}</span>`
+          const reasonHtml = a.resolution_reason ? `<br><span style="font-size:11px;color:var(--text-secondary)" title="${escapeAttr(a.resolution_reason)}">"${escapeHtml(a.resolution_reason.length > 40 ? a.resolution_reason.slice(0, 40) + '...' : a.resolution_reason)}"</span>` : ''
+          if (!a.resolved_at) return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}${reasonHtml}</span>`
           const resolvedDate = new Date(a.resolved_at * 1000)
           const requestedDate = a.requested_at ? new Date(a.requested_at * 1000) : null
           const sameDay = requestedDate && resolvedDate.toDateString() === requestedDate.toDateString()
           const resolvedStr = resolvedDate.toLocaleString('hu-HU', sameDay ? { timeStyle: 'short' } : { dateStyle: 'short', timeStyle: 'short' })
-          return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}<br><span style="font-size:11px;opacity:0.7">${escapeHtml(resolvedStr)}</span></span>`
+          return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}<br><span style="font-size:11px;opacity:0.7">${escapeHtml(resolvedStr)}</span>${reasonHtml}</span>`
         })()
     return `<tr style="${rowStyle}">
       <td style="white-space:nowrap;font-size:12px">${escapeHtml(time)}</td>
@@ -12842,7 +12976,17 @@ function _renderApprovalsTable() {
   _renderApprovalsPagination(filtered.length)
 
   tbody.querySelectorAll('.approvals-decide').forEach(btn => {
-    btn.addEventListener('click', () => _resolveApproval(btn.dataset.id, btn.dataset.decision))
+    btn.addEventListener('click', () => {
+      const decision = btn.dataset.decision
+      // Elutasításnál indoklás kell -- Boss 2026-08-05: e nélkül a kérő ágens
+      // nem tudja, min múlt. Üresen hagyva/Mégse-re a döntés nem történik meg.
+      let reason = null
+      if (decision === 'rejected') {
+        reason = window.prompt('Elutasítás indoka (a kérő ágens ezt meg fogja kapni):', '')
+        if (reason === null) return
+      }
+      _resolveApproval(btn.dataset.id, decision, reason)
+    })
   })
 }
 
@@ -12891,12 +13035,12 @@ function _renderApprovalsPagination(total) {
   })
 }
 
-async function _resolveApproval(id, decision) {
+async function _resolveApproval(id, decision, reason) {
   try {
     const res = await fetch(`/api/approvals/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: decision, resolved_by: 'dashboard' }),
+      body: JSON.stringify({ status: decision, resolved_by: 'dashboard', reason: reason || undefined }),
     })
     const data = await res.json()
     if (!res.ok) { showToast(t('approvals.toast.error', { msg: data.error || ('HTTP ' + res.status) })); return }
@@ -13874,7 +14018,7 @@ async function loadTokenUsage() {
     for (const s of summary) {
       const opt = document.createElement('option')
       opt.value = s.agent
-      opt.textContent = s.agent
+      opt.textContent = chatDisplayName(s.agent)
       agentSelect.appendChild(opt)
     }
   }
@@ -13927,7 +14071,7 @@ function renderTuSummary(summary) {
     return `
       <div class="overview-stat tu-agent-card${isActive ? ' tu-active' : ''}" data-agent="${escapeHtml(s.agent)}"
         style="border-left:3px solid ${tuGetColor(s.agent)};cursor:pointer;${dimmed ? 'opacity:0.4;' : ''}transition:opacity 0.2s">
-        <div class="overview-stat-label">${escapeHtml(s.agent)}</div>
+        <div class="overview-stat-label">${escapeHtml(chatDisplayName(s.agent))}</div>
         <div class="overview-stat-value">${tuFormatTokens(totalIn)}</div>
         <div class="overview-stat-sub">${t('tokenUsage.calls_sub', { calls: (s.totalCalls || 0).toLocaleString(), out: tuFormatTokens(s.totalOutput) })}</div>
         <div class="overview-stat-sub" style="margin-top:4px;color:var(--text-secondary)">${tuFormatCostUSD(costUSD)} &middot; ${sessions} sess</div>
@@ -14426,7 +14570,7 @@ function renderTuDetailsTable() {
     const taskInfo = d.task_title ? `<span style="color:var(--text-secondary);font-size:11px"> [${escapeHtml(d.task_title)}]</span>` : ''
     return `<tr>
       <td style="white-space:nowrap">${timeStr}</td>
-      <td><span style="color:${tuGetColor(d.agent)};font-weight:600">${escapeHtml(d.agent)}</span>${taskInfo}</td>
+      <td><span style="color:${tuGetColor(d.agent)};font-weight:600">${escapeHtml(chatDisplayName(d.agent))}</span>${taskInfo}</td>
       <td style="text-align:right;font-variant-numeric:tabular-nums">${tuFormatTokens(totalIn)}</td>
       <td style="text-align:right;font-variant-numeric:tabular-nums">${tuFormatTokens(d.output_tokens)}</td>
       <td style="font-size:12px;color:var(--text-secondary);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(preview || '')}">${d.tool_name ? '<code>' + escapeHtml(d.tool_name) + '</code> ' : ''}${escapeHtml(preview)}</td>
@@ -14694,6 +14838,1044 @@ function renderTuToolStats(data) {
 }
 
 // ============================================================
+// Email (Iroda workspace)
+// ============================================================
+let emailAccount = null
+let emailMailbox = 'Inbox'
+let emailEnvelopes = []
+let emailActiveId = null
+let emailActiveMailbox = null
+// Envelope data for nested Sent-reply sibling rows (keyed by id), populated
+// alongside the list so loadEmailMessage can show a subrow's subject/date
+// without a second round trip. See loadEmailEnvelopes.
+let emailSiblingEnvelopes = {}
+let emailLoaded = false
+let emailAccounts = []
+// Map, not Set: id -> mailbox. Nested subrows can live in a different
+// mailbox than the list's own (a Sent reply while browsing Inbox), so bulk
+// actions need to know each selected row's OWN mailbox, not just its id
+// (Boss, 2026-08-05: "tedd oda a jelolonegyzetet a kicsikhez is").
+let emailSelectedIds = new Map()
+// Custom-label names checked in the mailbox column for bulk delete -- system
+// folders (Inbox, Sent, ...) never get a checkbox at all, only user labels
+// can end up in here (Boss, 2026-08-05: "cimkeket lehet torolni, letrehozni").
+let emailSelectedLabels = new Set()
+
+// Gmail's built-in mailboxes (already Hungarian-labeled by the account's own
+// locale) in the order a normal mail client shows them. Everything else is a
+// user label/folder and sorts alphabetically below a divider -- see Boss
+// 2026-08-05: the raw himalaya list interleaves "[Gmail]/Kuka" alphabetically
+// with dozens of personal labels (Bankok, Nav, ...), unreadable at a glance.
+const EMAIL_SENT_MAILBOX = '[Gmail]/Elküldött levelek'
+const EMAIL_SYSTEM_MAILBOX_ORDER = [
+  'Inbox',
+  EMAIL_SENT_MAILBOX,
+  '[Gmail]/Piszkozatok',
+  '[Gmail]/Spam',
+  '[Gmail]/Kuka',
+  '[Gmail]/Fontos',
+  '[Gmail]/Csillagozott',
+  '[Gmail]/Beszélgetések',
+  '[Gmail]/Összes levél',
+]
+
+// Display-only relabeling -- the underlying himalaya mailbox name (e.g.
+// "Inbox", "[Gmail]/Piszkozatok") must stay untouched in data-mailbox/API
+// calls since that's the literal IMAP folder path the backend expects; only
+// the rendered label changes. Boss 2026-08-05: checked Gmail directly, the
+// inbox label there is "Beérkező levelek"; the "[Gmail]/" prefix on the other
+// system folders is IMAP plumbing, not something Gmail's own UI shows.
+const EMAIL_MAILBOX_DISPLAY_NAME = { 'Inbox': 'Beérkező levelek' }
+function emailMailboxDisplayName(name) {
+  return EMAIL_MAILBOX_DISPLAY_NAME[name] || name.replace(/^\[Gmail\]\//, '')
+}
+
+function sortEmailMailboxes(mailboxes) {
+  const rank = new Map(EMAIL_SYSTEM_MAILBOX_ORDER.map((name, i) => [name, i]))
+  const system = []
+  const custom = []
+  mailboxes.forEach(m => (rank.has(m.name) ? system : custom).push(m))
+  system.sort((a, b) => rank.get(a.name) - rank.get(b.name))
+  custom.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+  return { system, custom }
+}
+
+function emailFmtSize(bytes) {
+  if (!bytes && bytes !== 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// Persists which account/mailbox/message was open, so an F5 (or any full
+// page reload) lands back where Boss was instead of resetting to Inbox with
+// an empty reader pane (Boss, 2026-08-05: "ne masszkaljon el frissites
+// miatt mindig az elejere, hanem maradjon ott, ahol tartott a user").
+const EMAIL_UI_STATE_KEY = 'marveen_email_ui_state'
+function saveEmailUiState() {
+  try {
+    localStorage.setItem(EMAIL_UI_STATE_KEY, JSON.stringify({
+      account: emailAccount, mailbox: emailMailbox, activeId: emailActiveId, activeMailbox: emailActiveMailbox,
+    }))
+  } catch { /* localStorage unavailable/full -- state just won't survive a refresh */ }
+}
+function loadEmailUiState() {
+  try { return JSON.parse(localStorage.getItem(EMAIL_UI_STATE_KEY) || 'null') } catch { return null }
+}
+
+// Resets the 3rd/4th columns to their empty placeholder -- switching
+// account or mailbox already cleared the emailActiveId/emailActiveMailbox
+// STATE, but not what was still on screen, so the old message's content
+// kept showing even though it no longer belonged to the mailbox now open
+// in the 2nd column (Boss, 2026-08-05: "Admiral Marketsre kattintok, de a
+// harmadik oszlop meg mindig a masik level tartalmat mutatja").
+function clearEmailReaderPane() {
+  const readerPane = document.getElementById('emailReaderPane')
+  const attachmentsList = document.getElementById('emailAttachmentsList')
+  const downloadAllBtn = document.getElementById('emailAttachmentsDownloadAllBtn')
+  // Reader column's header is dynamic (built fresh per-message, showing the
+  // subject) unlike the other 3 columns' static ones -- resetting to empty
+  // must rebuild its own placeholder header too, or the "A levél tartalma"
+  // column title just disappears until a message is opened again (Boss,
+  // 2026-08-05: noticed it missing entirely).
+  if (readerPane) readerPane.innerHTML = `
+    <div class="email-column-header email-list-header">
+      <span></span>
+      <span class="email-list-header-title">A levél tartalma</span>
+      <span></span>
+    </div>
+    <div class="email-reader-empty">Válassz egy levelet a listából.</div>
+  `
+  if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
+  if (downloadAllBtn) downloadAllBtn.hidden = true
+}
+
+// Fetches the account list (once, shared with loadEmailPage below) and
+// renders the sidebar accordion -- called as soon as the Iroda workspace
+// opens, not only after the Email PAGE itself has been visited. Boss,
+// 2026-08-05: switched to Iroda without ever having opened Email this
+// session, the sidebar showed "Email" with nothing listed under it, because
+// renderEmailAccountNav() used to only ever run from inside loadEmailPage().
+let emailAccountsFetchPromise = null
+function ensureEmailAccountNav() {
+  if (emailAccounts.length) { renderEmailAccountNav(); return }
+  if (!emailAccountsFetchPromise) {
+    emailAccountsFetchPromise = fetch('/api/email/accounts')
+      .then(r => r.json())
+      .then(data => { emailAccounts = Array.isArray(data) ? data : []; renderEmailAccountNav() })
+      .catch(() => { emailAccountsFetchPromise = null })
+  }
+}
+
+async function loadEmailPage() {
+  if (!emailLoaded) {
+    emailLoaded = true
+    if (!emailAccounts.length) emailAccounts = await (await fetch('/api/email/accounts')).json()
+    const saved = loadEmailUiState()
+    emailAccount = (saved?.account && emailAccounts.some(a => a.id === saved.account)) ? saved.account : (emailAccounts[0]?.id || null)
+    if (saved?.mailbox) emailMailbox = saved.mailbox
+    renderEmailAccountNav()
+    if (emailAccount) {
+      await loadEmailMailboxes()
+      if (saved?.activeId) await loadEmailMessage(saved.activeId, saved.activeMailbox || emailMailbox)
+    }
+    return
+  }
+  if (emailAccount) loadEmailMailboxes()
+}
+
+// Left-sidebar accordion under Iroda -> Email, replacing the old single-account
+// top dropdown: Boss 2026-08-05 wants every account listed at once in the
+// sidebar submenu (accordion open/close on the "Email" header), not hidden one
+// at a time behind a <select>.
+function renderEmailAccountNav() {
+  const list = document.getElementById('emailAccountNavItems')
+  if (!list || !Array.isArray(emailAccounts)) return
+  list.innerHTML = emailAccounts.map(a =>
+    `<a href="#" class="sb-link email-account-link${a.id === emailAccount ? ' active' : ''}" data-page="email" data-account="${escapeHtml(a.id)}">
+      <span class="sb-label">${escapeHtml(a.label)}</span>
+    </a>`
+  ).join('')
+  list.querySelectorAll('.email-account-link').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault()
+      emailAccount = el.dataset.account
+      emailMailbox = 'Inbox'
+      emailSelectedIds = new Map()
+      emailActiveId = null
+      emailActiveMailbox = null
+      saveEmailUiState()
+      clearEmailReaderPane()
+      list.querySelectorAll('.email-account-link').forEach(x => x.classList.toggle('active', x === el))
+      if (location.hash.slice(1) === 'email') loadEmailMailboxes()
+      else location.hash = 'email'
+    })
+  })
+}
+
+async function loadEmailMailboxes() {
+  // Targets the inner list wrapper, not the whole #emailMailboxPane box --
+  // the sticky header now lives inside that box as a persistent sibling
+  // (Boss, 2026-08-05), and innerHTML-replacing the whole box on every
+  // reload would wipe it out.
+  const pane = document.getElementById('emailMailboxList')
+  if (!pane || !emailAccount) return
+  pane.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  const mailboxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json()
+  if (!Array.isArray(mailboxes)) { pane.innerHTML = '<div class="email-reader-empty">Hiba a mappák betöltésekor.</div>'; return }
+  const { system, custom } = sortEmailMailboxes(mailboxes)
+  // System folders (Inbox, Sent, ...) never get a checkbox -- only user
+  // labels can be deleted, an IMAP DELETE on a system folder would break
+  // Gmail's own folder structure (Boss, 2026-08-05, backend has the same
+  // guard: SYSTEM_MAILBOXES in src/web/routes/email.ts).
+  const item = m => `<div class="email-mailbox-item${m.name === emailMailbox ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">${escapeHtml(emailMailboxDisplayName(m.name))}</div>`
+  const labelItem = m => `<div class="email-mailbox-item email-mailbox-item-label${m.name === emailMailbox ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">
+    <input type="checkbox" class="email-mailbox-check" data-mailbox="${escapeHtml(m.name)}"${emailSelectedLabels.has(m.name) ? ' checked' : ''}>
+    <span>${escapeHtml(emailMailboxDisplayName(m.name))}</span>
+  </div>`
+  emailSelectedLabels = new Set([...emailSelectedLabels].filter(n => custom.some(m => m.name === n)))
+  pane.innerHTML = system.map(item).join('')
+    + (system.length && custom.length ? '<div class="email-mailbox-section-label">Címkék</div>' : '')
+    + custom.map(labelItem).join('')
+    + '<div class="email-mailbox-item email-mailbox-new" id="emailNewMailboxBtn">+ Új címke</div>'
+  pane.querySelectorAll('.email-mailbox-item[data-mailbox]').forEach(el => {
+    // loadEmailMailboxes() already calls loadEmailEnvelopes() itself at the
+    // end -- calling it again here used to just re-render the same list
+    // harmlessly, but now double-fires the thread-siblings fetch, which
+    // appended every nested subrow twice (Boss, 2026-08-05, screenshot showed
+    // duplicated "Te" rows).
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.email-mailbox-check')) return
+      emailMailbox = el.dataset.mailbox
+      emailSelectedIds = new Map()
+      emailActiveId = null
+      emailActiveMailbox = null
+      saveEmailUiState()
+      clearEmailReaderPane()
+      loadEmailMailboxes()
+    })
+  })
+  pane.querySelectorAll('.email-mailbox-check').forEach(cb => {
+    cb.addEventListener('click', (e) => e.stopPropagation())
+    cb.addEventListener('change', () => {
+      if (cb.checked) emailSelectedLabels.add(cb.dataset.mailbox)
+      else emailSelectedLabels.delete(cb.dataset.mailbox)
+      emailUpdateMailboxBulkDeleteUI()
+    })
+  })
+  emailUpdateMailboxBulkDeleteUI()
+  document.getElementById('emailNewMailboxBtn')?.addEventListener('click', async () => {
+    const name = window.prompt('Új címke neve:', '')
+    if (!name || !name.trim()) return
+    const res = await fetch('/api/email/mailboxes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, name: name.trim() }),
+    })
+    const data = await res.json()
+    if (!res.ok) { showToast(data.error || 'Hiba a címke létrehozásakor'); return }
+    loadEmailMailboxes()
+  })
+  await loadEmailEnvelopes()
+}
+
+function emailFmtDate(iso) {
+  try { return new Date(iso).toLocaleString('hu-HU', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return iso }
+}
+
+function emailUpdateBulkDeleteUI() {
+  const btn = document.getElementById('emailBulkDeleteBtn')
+  if (btn) { btn.hidden = emailSelectedIds.size === 0; btn.textContent = `Törlés (${emailSelectedIds.size})` }
+  const selectAll = document.getElementById('emailSelectAllCheckbox')
+  if (selectAll) {
+    const total = document.querySelectorAll('.email-envelope-check').length
+    selectAll.checked = total > 0 && emailSelectedIds.size === total
+    selectAll.indeterminate = emailSelectedIds.size > 0 && emailSelectedIds.size < total
+  }
+}
+
+function emailUpdateMailboxBulkDeleteUI() {
+  const btn = document.getElementById('emailMailboxBulkDeleteBtn')
+  if (btn) { btn.hidden = emailSelectedLabels.size === 0; btn.textContent = `Törlés (${emailSelectedLabels.size})` }
+  const selectAll = document.getElementById('emailMailboxSelectAllCheckbox')
+  if (selectAll) {
+    const total = document.querySelectorAll('.email-mailbox-check').length
+    selectAll.checked = total > 0 && emailSelectedLabels.size === total
+    selectAll.indeterminate = emailSelectedLabels.size > 0 && emailSelectedLabels.size < total
+  }
+}
+
+document.getElementById('emailMailboxSelectAllCheckbox')?.addEventListener('change', (e) => {
+  emailSelectedLabels = new Set()
+  document.querySelectorAll('.email-mailbox-check').forEach(cb => {
+    cb.checked = e.target.checked
+    if (e.target.checked) emailSelectedLabels.add(cb.dataset.mailbox)
+  })
+  emailUpdateMailboxBulkDeleteUI()
+})
+
+document.getElementById('emailMailboxBulkDeleteBtn')?.addEventListener('click', async () => {
+  const names = Array.from(emailSelectedLabels)
+  if (!names.length) return
+  // Deleting a Gmail label is permanent (IMAP DELETE, no undo) -- a native
+  // confirm is the minimum guardrail for a destructive action like this,
+  // same weight as e.g. a kanban card delete elsewhere in the dashboard.
+  if (!window.confirm(`Biztosan törlöd ${names.length === 1 ? `a(z) "${names[0]}" címkét` : `ezt a ${names.length} címkét`}? Ez nem vonható vissza.`)) return
+  const btn = document.getElementById('emailMailboxBulkDeleteBtn')
+  if (btn) btn.disabled = true
+  try {
+    const res = await fetch('/api/email/mailboxes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, names }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { showToast(data.error || 'Hiba a címke törlésekor'); return }
+    if (names.includes(emailMailbox)) { emailMailbox = 'Inbox'; saveEmailUiState() }
+    emailSelectedLabels = new Set()
+    loadEmailMailboxes()
+  } finally {
+    if (btn) btn.disabled = false
+  }
+})
+
+document.getElementById('emailSelectAllCheckbox')?.addEventListener('change', (e) => {
+  emailSelectedIds = new Map()
+  document.querySelectorAll('.email-envelope-check').forEach(cb => {
+    cb.checked = e.target.checked
+    if (e.target.checked) emailSelectedIds.set(cb.dataset.id, cb.dataset.mailbox)
+  })
+  emailUpdateBulkDeleteUI()
+})
+
+// Removes just the deleted rows from the DOM instead of a full
+// loadEmailEnvelopes() reload -- same flicker Boss flagged for the
+// mark-as-read case (Boss, 2026-08-05: "ne az egeszet toltse ujra, csak
+// azt az egy e-mailt onnan kivegye"). Returns true if a full reload is
+// still needed because a case here can't be patched in cleanly (deleting a
+// thread's anchor row while replies remain nested under it -- promoting
+// the next one to anchor needs a real re-render).
+function removeEmailRowsLocally(deleted) {
+  let needsFullReload = false
+  for (const { id, mailbox } of deleted) {
+    const subrow = document.querySelector(`.email-envelope-subrow[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)
+    if (subrow) { subrow.remove(); continue }
+    const item = document.querySelector(`.email-envelope-item[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)
+    if (item) {
+      const group = item.closest('.email-envelope-group')
+      if (group && group.querySelector('.email-envelope-subrow')) needsFullReload = true
+      else (group || item).remove()
+      continue
+    }
+    needsFullReload = true // not found in the DOM -- state drifted, be safe
+  }
+  return needsFullReload
+}
+
+document.getElementById('emailBulkDeleteBtn')?.addEventListener('click', async () => {
+  // This button is static markup (unlike the per-message action buttons,
+  // which get recreated on every loadEmailMessage render) -- disabling it
+  // without ever resetting it back left it permanently unusable after the
+  // first use, looking like "delete stopped working" (Boss, 2026-08-05:
+  // "egyszer sikerult torolni, masodjara mar nem").
+  const btn = document.getElementById('emailBulkDeleteBtn')
+  if (btn) btn.disabled = true
+  try {
+    const entries = Array.from(emailSelectedIds.entries())
+    const results = await Promise.all(entries.map(([id, mailbox]) =>
+      fetch('/api/email/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id }) })
+        .then(res => res.ok)
+        .catch(() => false)
+    ))
+    if (results.some(ok => !ok)) showToast('Néhány levél törlése nem sikerült')
+    const deleted = entries.filter((_, i) => results[i]).map(([id, mailbox]) => ({ id, mailbox }))
+    const ids = deleted.map(d => d.id)
+    if (ids.includes(emailActiveId)) {
+      clearEmailReaderPane()
+      emailActiveId = null
+      emailActiveMailbox = null
+      saveEmailUiState()
+    }
+    emailSelectedIds = new Map()
+    if (removeEmailRowsLocally(deleted)) loadEmailEnvelopes()
+    else emailUpdateBulkDeleteUI()
+  } finally {
+    if (btn) btn.disabled = false
+  }
+})
+
+// Mirrors the backend's normalizeThreadSubject (src/web/routes/email.ts) --
+// used here to also fold duplicate-subject rows WITHIN the same mailbox into
+// one group (see below), not just to match against Sent siblings.
+function emailNormalizeSubject(subject) {
+  let s = (subject || '').trim()
+  while (/^(re|fwd|fw|aw|wg)\s*:\s*/i.test(s)) s = s.replace(/^(re|fwd|fw|aw|wg)\s*:\s*/i, '')
+  return s.trim().toLowerCase()
+}
+
+function emailSubrowHtml(s) {
+  // Always "FROM -> TO", never a bare name -- a received row without the
+  // arrow looked inconsistent next to the Sent rows' "Te -> X" (Boss,
+  // 2026-08-05: "a nyil az mindig legyen ott, tol, ig").
+  //
+  // Whether a row is "received" depends on the row's OWN mailbox being the
+  // Sent one, never on comparing it to ownMailbox -- that comparison only
+  // happens to work while browsing Inbox (where nested same-mailbox extras
+  // are genuinely received, and pulled-in Sent-siblings genuinely aren't).
+  // Browsing Sent directly breaks it: a same-mailbox "extra" there (e.g.
+  // "Re: Fwd: jegy" folded under "Fwd: jegy") has s.mailbox === ownMailbox
+  // (both Sent), which the old check read as "received" and mislabeled as
+  // "lackor2@gmail.com -> Te" -- a message the user sent TO Cecília,
+  // labeled as if it arrived FROM himself (Boss, 2026-08-05, screenshot:
+  // "hogy lehet az, hogy Lackor2 kuldi Lackor2-nek").
+  const isReceived = s.mailbox !== EMAIL_SENT_MAILBOX
+  const label = isReceived
+    ? `${escapeHtml(s.from?.[0]?.name || s.from?.[0]?.email || '(ismeretlen)')} &rarr; Te`
+    : `Te &rarr; ${escapeHtml((s.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || '(ismeretlen)')}`
+  const active = String(s.id) === emailActiveId && emailActiveMailbox === s.mailbox
+  // Star/important toggles used to exist only on the top anchor row -- every
+  // nested reply (the account's OWN older replies, or a thread's earlier
+  // received messages) had no button at all, which read as "only the newest
+  // message can be marked" (Boss, 2026-08-05).
+  const starred = !!s.flags?.some(f => f.iana === 'flagged')
+  return `<div class="email-envelope-subrow${active ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}">
+    <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}"${emailSelectedIds.has(String(s.id)) ? ' checked' : ''}>
+    <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-starred="${starred ? '1' : '0'}" title="Csillagozás">
+      <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+    </button>
+    <button class="email-important-btn" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-message-id="${escapeAttr(s['message-id'] || '')}" data-important="0" style="display:none" title="Fontos">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h13l-2.5 5L17 13H6v8H4z"/></svg>
+    </button>
+    <span class="email-envelope-subrow-label">${label}</span>
+    <svg class="email-envelope-attachment-flag email-envelope-subrow-attachment-flag" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" style="display:none" title="Van melléklete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+    <span class="email-envelope-subrow-date">${emailFmtDate(s.date)}</span>
+  </div>`
+}
+
+async function loadEmailEnvelopes() {
+  // Inner list wrapper, not the whole #emailListPane box -- see the same
+  // note in loadEmailMailboxes() above (sticky header lives inside the box
+  // now, must survive reloads).
+  const pane = document.getElementById('emailEnvelopeList')
+  if (!pane || !emailAccount) return
+  pane.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  // No selection reset here -- opening a message marks it read, which
+  // silently reloads this same list a moment later (see loadEmailMessage
+  // below); wiping the selection on every such refresh made a bulk pick
+  // vanish right after opening one of the picked rows (Boss, 2026-08-05:
+  // "nem kellene hogy eltunjon a kijeloles"). Only an actual mailbox/account
+  // switch clears it now (see those click handlers above).
+  emailUpdateBulkDeleteUI()
+  const params = new URLSearchParams({ account: emailAccount, mailbox: emailMailbox })
+  const list = await (await fetch(`/api/email/envelopes?${params}`)).json()
+  if (!Array.isArray(list)) { pane.innerHTML = '<div class="email-reader-empty">Hiba a levelek betöltésekor.</div>'; return }
+  emailEnvelopes = list
+  if (!list.length) { pane.innerHTML = '<div class="email-reader-empty">Nincs levél ebben a mappában.</div>'; return }
+  emailSiblingEnvelopes = {}
+  // Fold same-subject duplicates WITHIN this mailbox into one group instead
+  // of separate top-level rows -- e.g. a self-addressed test reply lands
+  // back in Inbox as its own message and used to show up as a second/third
+  // "TUV toyota corolla" row (Boss, 2026-08-05: "nem harom Toyota Corolla,
+  // hanem vissza az egyikhez"). First occurrence in the list (himalaya lists
+  // Inbox newest-first) stays the anchor/top-level row; later ones become
+  // nested subrows under it.
+  // A blank subject isn't a real thread key -- every no-subject message
+  // would otherwise bucket together (Boss, 2026-08-05, screenshot showed an
+  // unrelated Cecilia Nemeth message merged into an unrelated thread because
+  // both happened to have an empty subject). Give each one its own unique
+  // key so it always stays a standalone anchor.
+  const emailGroupKey = e => emailNormalizeSubject(e.subject) || `__blank_${e.id}`
+  const anchors = []
+  const nestedBySubject = new Map()
+  list.forEach(e => {
+    const key = emailGroupKey(e)
+    if (!nestedBySubject.has(key)) { nestedBySubject.set(key, []); anchors.push(e) }
+    else nestedBySubject.get(key).push(e)
+  })
+  // Sent-reply siblings are fetched (one batched call) BEFORE rendering, not
+  // patched in afterwards -- merging them with the same-mailbox extras above
+  // needs both sets in hand to sort the whole nested list chronologically in
+  // one pass (Boss, 2026-08-05: "időrendi sorrendbe kéne rakni").
+  // Only pull them in while browsing Inbox -- that's the original ask ("nem
+  // kell az Elküldöttbe menni a saját válaszért"). Doing it for every mailbox
+  // meant a Sent reply also showed up nested under an unrelated Trash/Spam
+  // anchor of the same thread, which read as "this got deleted too" even
+  // though the Sent copy was untouched (Boss, 2026-08-05: "ezt en nem
+  // toroltem ki, hogy kerul ide a kukaba?").
+  let siblingsMap = {}
+  if (emailMailbox === 'Inbox') {
+    try {
+      siblingsMap = await (await fetch('/api/email/thread-siblings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, items: anchors.map(e => ({ id: e.id, subject: e.subject || '' })) }),
+      })).json()
+      if (!siblingsMap || typeof siblingsMap !== 'object') siblingsMap = {}
+    } catch { siblingsMap = {} }
+  }
+  pane.innerHTML = anchors.map(e => {
+    const unread = !e.flags?.some(f => f.iana === 'seen')
+    const starred = !!e.flags?.some(f => f.iana === 'flagged')
+    // Browsing Sent, e.from is always the account's own address -- showing
+    // it is redundant/uninformative (Boss, 2026-08-05: "Korpás László
+    // elkuldte. De kinek? Sehol nem latom"). The useful info there is who it
+    // went TO instead.
+    const from = emailMailbox === EMAIL_SENT_MAILBOX
+      ? `Címzett: ${(e.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || '(ismeretlen)'}`
+      : (e.from?.[0]?.name || e.from?.[0]?.email || '(ismeretlen)')
+    const active = String(e.id) === emailActiveId && emailActiveMailbox === emailMailbox
+    const extras = (nestedBySubject.get(emailGroupKey(e)) || [])
+      // `to` was missing here -- emailSubrowHtml's "Te -> X" label needs it
+      // for any same-mailbox nested extra (not just Sent-siblings pulled in
+      // from another mailbox, which already carried it), so every such row
+      // fell back to "Te -> (ismeretlen)" regardless of who it actually went
+      // to (Boss, 2026-08-05: "ez a te ismeretlen... nagyon sok helyen ezt
+      // latom").
+      .map(x => ({ id: x.id, mailbox: emailMailbox, date: x.date, from: x.from, to: x.to, flags: x.flags, 'message-id': x['message-id'] }))
+    const sentSiblings = Array.isArray(siblingsMap[e.id]) ? siblingsMap[e.id] : []
+    sentSiblings.forEach(s => { emailSiblingEnvelopes[s.id] = s })
+    // Newest first, matching the anchor row above it and the mailbox's own
+    // newest-first order (Boss, 2026-08-05: "felülre a 0805, alulra a 0601").
+    const nested = [...extras, ...sentSiblings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    return `<div class="email-envelope-group" data-group-id="${escapeHtml(e.id)}">
+      <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}">
+        <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}"${emailSelectedIds.has(String(e.id)) ? ' checked' : ''}>
+        <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="Csillagozás">
+          <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        </button>
+        <button class="email-important-btn" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-message-id="${escapeAttr(e['message-id'] || '')}" data-important="0" style="display:none" title="Fontos">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h13l-2.5 5L17 13H6v8H4z"/></svg>
+        </button>
+        <div class="email-envelope-body">
+          <div class="email-envelope-from">${escapeHtml(from)}</div>
+          <div class="email-envelope-subject">${escapeHtml(e.subject || '(nincs tárgy)')}</div>
+          <div class="email-envelope-date">${emailFmtDate(e.date)}</div>
+        </div>
+        <svg class="email-envelope-attachment-flag" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" style="display:none" title="Van melléklete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+      </div>
+      ${nested.map(s => emailSubrowHtml(s)).join('')}
+    </div>`
+  }).join('')
+  pane.querySelectorAll('.email-envelope-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('.email-envelope-check, .email-star-btn, .email-important-btn')) return
+      loadEmailMessage(el.dataset.id, el.dataset.mailbox)
+    })
+  })
+  // Star: a plain IMAP flag, already in envelope.flags -- no extra fetch,
+  // just toggle + optimistic UI (Boss, 2026-08-05 plan: "csillagozott").
+  pane.querySelectorAll('.email-star-btn').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation()
+      const starred = btn.dataset.starred === '1'
+      btn.disabled = true
+      const res = await fetch('/api/email/star', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, starred: !starred }),
+      }).catch(() => null)
+      btn.disabled = false
+      if (!res || !res.ok) { showToast('Hiba a csillagozás során'); return }
+      btn.dataset.starred = starred ? '0' : '1'
+      btn.classList.toggle('active', !starred)
+      const svg = btn.querySelector('svg')
+      svg.setAttribute('fill', starred ? 'none' : 'currentColor')
+    })
+  })
+  // Important: a Gmail label, not a flag -- toggle button starts hidden per
+  // row (display:none) until the batched /api/email/important-flags check
+  // below tells us which anchors are already in Fontos, same "patch after
+  // the fact" shape as the paperclip/attachments-flags check.
+  pane.querySelectorAll('.email-important-btn').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation()
+      const important = btn.dataset.important === '1'
+      btn.disabled = true
+      const res = await fetch('/api/email/important', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, important: !important, messageId: btn.dataset.messageId }),
+      }).catch(() => null)
+      btn.disabled = false
+      if (!res || !res.ok) { showToast('Hiba a "Fontos" jelölés során'); return }
+      btn.dataset.important = important ? '0' : '1'
+      btn.classList.toggle('active', !important)
+      btn.style.display = ''
+    })
+  })
+  // Every rendered button, not just anchors -- nested subrows (the account's
+  // own older replies, or earlier received messages in the thread) need the
+  // same important-status check, now that they have a button at all.
+  const importantCheckIds = Array.from(new Set(
+    Array.from(pane.querySelectorAll('.email-important-btn[data-message-id]')).map(btn => btn.dataset.messageId).filter(Boolean)
+  ))
+  if (importantCheckIds.length) {
+    fetch('/api/email/important-flags', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, messageIds: importantCheckIds }),
+    }).then(r => r.json()).then(flags => {
+      if (!flags || typeof flags !== 'object') return
+      pane.querySelectorAll('.email-important-btn[data-message-id]').forEach(btn => {
+        const isImportant = !!flags[btn.dataset.messageId]
+        btn.style.display = ''
+        btn.dataset.important = isImportant ? '1' : '0'
+        btn.classList.toggle('active', isImportant)
+      })
+    }).catch(() => {})
+  }
+  pane.querySelectorAll('.email-envelope-subrow').forEach(sub => {
+    sub.addEventListener('click', (ev) => { ev.stopPropagation(); loadEmailMessage(sub.dataset.id, sub.dataset.mailbox) })
+  })
+  pane.querySelectorAll('.email-envelope-check').forEach(cb => {
+    cb.addEventListener('click', (e) => e.stopPropagation())
+    cb.addEventListener('change', () => {
+      if (cb.checked) emailSelectedIds.set(cb.dataset.id, cb.dataset.mailbox)
+      else emailSelectedIds.delete(cb.dataset.id)
+      emailUpdateBulkDeleteUI()
+    })
+  })
+  // Paperclip markers load in the background after the list is already on
+  // screen -- himalaya has no cheap has-attachment field, so this is one
+  // extra CLI call per message server-side; too slow to block the list on.
+  // The SVG starts with an inline display:none (not the `hidden` attribute --
+  // the [hidden] UA rule doesn't reliably apply to inline <svg>, which showed
+  // the icon on every row regardless of flag state; Boss, 2026-08-05).
+  // Matched by [data-id][data-mailbox] together, not id alone -- IMAP ids are
+  // only unique per mailbox, so a Sent id could collide with an Inbox one.
+  const applyAttachmentFlags = (mailbox, ids) => {
+    if (!ids.length) return
+    fetch('/api/email/attachments-flags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, mailbox, ids }),
+    }).then(r => r.json()).then(flags => {
+      if (!flags || typeof flags !== 'object') return
+      Object.keys(flags).forEach(id => {
+        if (!flags[id]) return
+        const el = pane.querySelector(`.email-envelope-attachment-flag[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)
+        if (el) el.style.display = ''
+      })
+    }).catch(() => {})
+  }
+  applyAttachmentFlags(emailMailbox, list.map(e => e.id))
+  // Nested Sent-sibling rows (see above) need their own paperclip check too --
+  // that PDF-bearing "TUV toyota corolla" original was buried as a subrow and
+  // had no flag element at all before this (Boss, 2026-08-05: "a kovetkezo
+  // mar elfelejtette a kapcsot").
+  const sentSiblingIds = Object.values(siblingsMap).flat().map(s => s.id)
+  applyAttachmentFlags(EMAIL_SENT_MAILBOX, sentSiblingIds)
+}
+
+// A plain-text alternative on an HTML newsletter is often just a
+// "your client doesn't support HTML" stub (Boss, 2026-08-05: "parom.hu"
+// mail showed exactly that instead of the real content) -- prefer the HTML
+// part when there is one, same as every normal mail client, instead of
+// picking text first. The HTML is untrusted third-party content, so it's
+// never injected via innerHTML: it renders inside a sandboxed iframe.
+// Sandbox deliberately excludes allow-scripts (so embedded <script>/tracking
+// JS can never run, no matter what else is granted) but DOES include
+// allow-same-origin -- without allow-scripts that grants no exploitable
+// power, it only lets this page's own JS measure the child document's real
+// height. Without it, reading contentWindow.document throws (opaque
+// cross-origin sandbox doc), silently leaving the iframe at its CSS
+// min-height -- exactly the "keskeny csík, kell görgetni" Boss saw
+// (2026-08-05): the body was there, just squashed into an 80px scroll box.
+// A link clicked inside the sandboxed body iframe with no target of its own
+// tries to navigate the IFRAME ITSELF to that URL -- for a site like
+// YouTube, which refuses to be framed at all (X-Frame-Options/CSP), that
+// just shows Chrome's blank "can't embed this" page instead of going
+// anywhere (Boss, 2026-08-05, screenshot: clicked a YouTube link in the
+// mail body, got a gray box with a broken-page icon). DOMParser here builds
+// a detached, INERT document -- per spec it never executes embedded
+// <script> tags -- so this transform is safe to run on the same untrusted
+// HTML before it ever reaches the iframe. Forcing target="_blank" turns the
+// click into a real new-tab open, which sandbox="allow-popups" already
+// permits.
+function forceEmailLinksNewTab(html) {
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    doc.querySelectorAll('a[href]').forEach(a => {
+      a.setAttribute('target', '_blank')
+      a.setAttribute('rel', 'noopener noreferrer')
+    })
+    return doc.documentElement.outerHTML
+  } catch {
+    return html
+  }
+}
+
+function renderEmailMessageBody(msg) {
+  const slot = document.getElementById('emailReaderBodySlot')
+  if (!slot) return
+  const html = (msg.html || '').trim()
+  if (!html) {
+    slot.innerHTML = `<div class="email-reader-body">${escapeHtml(msg.text || '(üres törzs)')}</div>`
+    return
+  }
+  const frame = document.createElement('iframe')
+  frame.className = 'email-reader-body-frame'
+  frame.sandbox = 'allow-same-origin allow-popups allow-popups-to-escape-sandbox'
+  frame.referrerPolicy = 'no-referrer'
+  // A ResizeObserver here used to watch the frame's OWN document for height
+  // changes and, on each one, grow the frame to match -- but many HTML
+  // newsletters use height:100%/100vh in their markup, so growing the frame
+  // grows ITS OWN internal viewport, which such content then fills
+  // completely, reporting a taller scrollHeight, triggering another grow --
+  // an unbounded feedback loop (Boss, 2026-08-05: scrollbar shrank to a
+  // sliver, could keep scrolling into empty space forever). Same class of
+  // bug as the terminal-modal fitAddon resize above, just cross-document.
+  // Fix: collapse to 0 before every measurement (so % / vh content can't
+  // inflate the reading), and only measure twice total -- once on load,
+  // once after a short delay for late-loading images -- never continuously.
+  const sizeToContent = () => {
+    try {
+      frame.style.height = '0px'
+      const h = frame.contentWindow.document.documentElement.scrollHeight
+      frame.style.height = `${h + 16}px`
+    } catch { /* best-effort only */ }
+  }
+  frame.addEventListener('load', () => {
+    sizeToContent()
+    setTimeout(sizeToContent, 800)
+    // A photo-heavy mail can have several images still loading well past
+    // that fixed 800ms guess -- the iframe ends up sized to a too-short
+    // content height, so its own content overflows it, growing a SECOND,
+    // iframe-internal scrollbar alongside the outer column one (Boss,
+    // 2026-08-05: "megint ketto van", this time with an image-heavy mail).
+    // Each <img> load/error fires at most once (native, {once:true} also
+    // detaches it), so unlike the earlier ResizeObserver this can't loop --
+    // it's bounded by the number of images in the mail. Debounced so
+    // several images settling close together coalesce into one resize
+    // instead of visibly jumping in steps.
+    try {
+      let debounceTimer = null
+      const onImgSettle = () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(sizeToContent, 150) }
+      frame.contentWindow.document.querySelectorAll('img').forEach(img => {
+        if (img.complete) return
+        img.addEventListener('load', onImgSettle, { once: true })
+        img.addEventListener('error', onImgSettle, { once: true })
+      })
+    } catch { /* best-effort only */ }
+  })
+  slot.innerHTML = ''
+  slot.appendChild(frame)
+  frame.srcdoc = forceEmailLinksNewTab(html)
+}
+
+// `mailbox` defaults to the list's current mailbox for a normal row click,
+// but a nested reply-sibling row (see loadEmailEnvelopes) lives in Sent and
+// passes it explicitly -- the reader always shows exactly one message's
+// content; conversation grouping is the list pane's job (Boss, 2026-08-05).
+async function loadEmailMessage(id, mailbox = emailMailbox) {
+  emailActiveId = id
+  emailActiveMailbox = mailbox
+  saveEmailUiState()
+  document.querySelectorAll('.email-envelope-item, .email-envelope-subrow').forEach(el =>
+    el.classList.toggle('active', el.dataset.id === id && (el.dataset.mailbox || emailMailbox) === mailbox))
+  // e.id comes straight off the server's envelope JSON (a number, per
+  // himalaya) while `id` here is always the string form (dataset.id at the
+  // call site, or the saved-state string on an F5 restore) -- same
+  // string-vs-number Map/equality mismatch already fixed elsewhere in this
+  // file for the checkbox/active-row checks (Boss, 2026-08-05).
+  const envelope = mailbox === emailMailbox ? emailEnvelopes.find(e => String(e.id) === id) : emailSiblingEnvelopes[id]
+  const pane = document.getElementById('emailReaderPane')
+  if (!pane) return
+  pane.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  const attachmentsList = document.getElementById('emailAttachmentsList')
+  if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  const params = new URLSearchParams({ account: emailAccount, mailbox, id })
+  const msg = await (await fetch(`/api/email/message?${params}`)).json()
+  // A himalaya failure (e.g. timeout on a message with a large attachment --
+  // Boss, 2026-08-05: a video-attached mail took 30+s and hit the old 20s
+  // limit) used to render silently as if the mail were just empty --
+  // msg.text/html/attachments all undefined, no visible error at all,
+  // indistinguishable from an actually-blank message. Surface it instead.
+  if (msg.error) {
+    pane.innerHTML = `<div class="email-reader-empty">Hiba a levél betöltésekor: ${escapeHtml(msg.error)}</div>`
+    if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
+    showToast('Hiba a levél betöltésekor')
+    return
+  }
+  const from = envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '(ismeretlen)'
+  const attachments = Array.isArray(msg.attachments) ? msg.attachments : []
+  pane.innerHTML = `
+    <div class="email-column-header email-reader-header">
+      <div class="email-reader-subject-row">
+        <div class="email-reader-subject">${escapeHtml(envelope?.subject || '(nincs tárgy)')}</div>
+        <div class="email-reader-meta">${escapeHtml(from)} -- ${emailFmtDate(envelope?.date || '')}</div>
+      </div>
+      <div class="email-reader-actions">
+        <button class="btn-secondary btn-compact" id="emailReplyBtn">Válasz</button>
+        <button class="btn-secondary btn-compact" id="emailForwardBtn">Továbbítás</button>
+        <button class="btn-secondary btn-compact" id="emailArchiveBtn">Archiválás</button>
+        <button class="btn-danger btn-compact" id="emailDeleteBtn">Törlés</button>
+      </div>
+    </div>
+    <div class="email-reader-body-slot" id="emailReaderBodySlot"></div>
+    <div id="emailComposeSlot"></div>
+  `
+  renderEmailMessageBody(msg)
+  renderEmailAttachments(attachments, id, mailbox)
+  // Mark seen as soon as it's opened -- mirrors how every normal mail client behaves.
+  // Used to re-fetch and re-render the WHOLE middle list on completion, which
+  // flashed the entire pane blank-then-back a moment after every click (Boss,
+  // 2026-08-05: "miert tunik el, es frissit ujra a masodik doboz"). The only
+  // visible effect of marking-read is one row losing its bold "unread" look,
+  // so patch that row's class locally instead of reloading the whole list.
+  fetch('/api/email/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id, read: true }) })
+    .then((res) => {
+      if (!res.ok) return
+      if (envelope?.flags && !envelope.flags.some(f => f.iana === 'seen')) envelope.flags.push({ iana: 'seen' })
+      document.querySelector(`.email-envelope-item[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)?.classList.remove('unread')
+    })
+  const archiveBtn = document.getElementById('emailArchiveBtn')
+  if (archiveBtn) archiveBtn.addEventListener('click', async () => {
+    archiveBtn.disabled = true
+    const res = await fetch('/api/email/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id }) })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      showToast(data.error || 'Hiba az archiválás során')
+      archiveBtn.disabled = false
+      return
+    }
+    clearEmailReaderPane()
+    emailActiveId = null
+    emailActiveMailbox = null
+    saveEmailUiState()
+    if (removeEmailRowsLocally([{ id, mailbox }])) loadEmailEnvelopes()
+  })
+  const deleteBtn = document.getElementById('emailDeleteBtn')
+  if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+    deleteBtn.disabled = true
+    const res = await fetch('/api/email/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id }) })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      showToast(data.error || 'Hiba a törlés során')
+      deleteBtn.disabled = false
+      return
+    }
+    clearEmailReaderPane()
+    emailActiveId = null
+    emailActiveMailbox = null
+    saveEmailUiState()
+    if (removeEmailRowsLocally([{ id, mailbox }])) loadEmailEnvelopes()
+  })
+  const replyBtn = document.getElementById('emailReplyBtn')
+  if (replyBtn) replyBtn.addEventListener('click', () => emailShowCompose('reply', id, envelope, mailbox))
+  const forwardBtn = document.getElementById('emailForwardBtn')
+  if (forwardBtn) forwardBtn.addEventListener('click', () => emailShowCompose('forward', id, envelope, mailbox))
+}
+
+// Inline reply/forward form -- recipients for reply are derived by himalaya
+// itself from the source message's Reply-To/From, so only forward needs a
+// "Címzett" field. Sends via SMTP immediately on click (same directness as
+// Archiválás/Törlés -- Boss is the one clicking it, not an autonomous action).
+function emailShowCompose(kind, id, envelope, mailbox = emailMailbox) {
+  const slot = document.getElementById('emailComposeSlot')
+  if (!slot) return
+  const isForward = kind === 'forward'
+  slot.innerHTML = `
+    <div class="email-compose-form">
+      <div class="email-compose-title">${isForward ? 'Továbbítás' : 'Válasz'}${isForward ? '' : ` -- ${escapeHtml(envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '')}`}</div>
+      ${isForward ? '<input type="text" class="input" id="emailComposeTo" placeholder="Címzett email címe">' : ''}
+      <textarea class="input" id="emailComposeText" rows="6" placeholder="Szöveg..."></textarea>
+      <div class="email-compose-actions">
+        <button class="btn-primary btn-compact" id="emailComposeSendBtn">Küldés</button>
+        <button class="btn-secondary btn-compact" id="emailComposeCancelBtn">Mégse</button>
+      </div>
+    </div>
+  `
+  document.getElementById('emailComposeCancelBtn').addEventListener('click', () => { slot.innerHTML = '' })
+  document.getElementById('emailComposeSendBtn').addEventListener('click', async () => {
+    const text = document.getElementById('emailComposeText').value.trim()
+    const to = isForward ? document.getElementById('emailComposeTo').value.trim() : null
+    if (!text) { showToast('Írj be szöveget.'); return }
+    if (isForward && !to) { showToast('Add meg a címzettet.'); return }
+    const sendBtn = document.getElementById('emailComposeSendBtn')
+    sendBtn.disabled = true
+    sendBtn.textContent = 'Küldés...'
+    const body = isForward
+      ? { account: emailAccount, mailbox, id, to, text }
+      : { account: emailAccount, mailbox, id, text }
+    const res = await fetch(`/api/email/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = await res.json()
+    if (!res.ok) { showToast(data.error || 'Hiba a küldés során'); sendBtn.disabled = false; sendBtn.textContent = 'Küldés'; return }
+    showToast(isForward ? 'Továbbítva' : 'Válasz elküldve')
+    slot.innerHTML = ''
+  })
+}
+
+// Previewable mime types render inline (image <img>, pdf <iframe>); anything
+// else just gets a download button, since browsers can't render e.g. .docx
+// without a plugin anyway. Both the preview and the download MUST go through
+// fetch()+Blob rather than a plain <img src>/<a href> -- this dashboard's API
+// is Bearer-token gated and the global fetch() shim is what injects that
+// header (see the exportAgentBtn handler above for the same pattern); a raw
+// browser-initiated resource load carries no auth and 401s (hit live
+// 2026-08-05: Boss saw "Unauthorized" inside the PDF preview iframe).
+function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) {
+  // Inner list wrapper, not the whole #emailAttachmentsPane box -- its
+  // sticky header (with the "Letöltés mind" button) lives inside that box
+  // as a persistent sibling now (Boss, 2026-08-05).
+  const pane = document.getElementById('emailAttachmentsList')
+  const downloadAllBtn = document.getElementById('emailAttachmentsDownloadAllBtn')
+  if (!pane) return
+  if (!attachments.length) {
+    pane.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
+    if (downloadAllBtn) downloadAllBtn.hidden = true
+    return
+  }
+  if (downloadAllBtn) downloadAllBtn.hidden = false
+  // Word/.docx and other office formats aren't in here -- browsers can't
+  // render those natively (no plugin, no built-in viewer like PDF/image/
+  // video get), so they still fall through to download-only. Video added
+  // 2026-08-05 (Boss: "hogyha video van, azt is") -- <video controls> is a
+  // native browser element same as <img>/PDF-iframe, no extra work needed.
+  const previewable = a => a.mime === 'application/pdf' || (a.mime && (a.mime.startsWith('image/') || a.mime.startsWith('video/')))
+  // Populated as each preview's blob loads (see the .forEach below) so the
+  // lightbox can reuse the same object URL instead of re-fetching.
+  const objectUrls = {}
+  pane.innerHTML = attachments.map((a, i) => `<div class="email-attachment-card">
+      ${previewable(a) ? `<div class="email-attachment-preview email-attachment-preview-loading" id="emailAttPreview-${i}">Betöltés...</div>` : ''}
+      <div class="email-attachment-info">
+        <span class="email-attachment-name" title="${escapeAttr(a.filename)}">📎 ${escapeHtml(a.filename)}</span>
+        <span class="email-attachment-size">${emailFmtSize(a.size)}</span>
+        <div class="email-attachment-actions">
+          ${previewable(a) ? `<button class="btn-secondary btn-compact email-attachment-zoom" data-i="${i}" title="Nagyítás">🔍 Nagyítás</button>` : ''}
+          <button class="btn-secondary btn-compact email-attachment-download" data-i="${i}">Letöltés</button>
+        </div>
+      </div>
+    </div>`).join('')
+
+  // `mailbox` is the message's OWN mailbox, not the list's current one -- a
+  // nested subrow (e.g. a Sent reply opened while browsing Trash) lives in a
+  // different mailbox than emailMailbox, and using the wrong one 404s the
+  // attachment fetch (Boss, 2026-08-05: "nem sikerult betolteni az elonezetet").
+  const fetchAttachmentBlob = async (a) => {
+    const href = `/api/email/attachment?${new URLSearchParams({ account: emailAccount, mailbox, id: messageId, attachmentId: a.id })}`
+    const res = await fetch(href)
+    if (!res.ok) throw new Error('attachment fetch failed')
+    return res.blob()
+  }
+
+  attachments.forEach((a, i) => {
+    if (!previewable(a)) return
+    const slot = document.getElementById(`emailAttPreview-${i}`)
+    if (!slot) return
+    fetchAttachmentBlob(a).then(blob => {
+      const objectUrl = URL.createObjectURL(blob)
+      objectUrls[i] = objectUrl
+      slot.classList.remove('email-attachment-preview-loading')
+      slot.innerHTML = a.mime === 'application/pdf'
+        ? `<iframe src="${objectUrl}" title="${escapeAttr(a.filename)}"></iframe>`
+        : a.mime.startsWith('video/')
+          ? `<video src="${objectUrl}" controls></video>`
+          : `<img src="${objectUrl}" alt="${escapeAttr(a.filename)}">`
+      // Clicking the image itself also zooms -- a plain in-page <img>, no
+      // iframe click-bubbling issue there. PDF/video still need the
+      // explicit 🔍 button below: a PDF iframe hosts Chrome's own built-in
+      // viewer (a separate browsing context), which swallows clicks before
+      // they ever reach this page's JS, and a <video controls> element's
+      // clicks are mostly its own play/pause/seek chrome, not free for a
+      // wrapping click handler either.
+      if (a.mime.startsWith('image/')) {
+        const img = slot.querySelector('img')
+        if (img) { img.style.cursor = 'zoom-in'; img.addEventListener('click', () => openEmailAttachmentLightbox(a, objectUrl)) }
+      }
+    }).catch(() => {
+      slot.classList.remove('email-attachment-preview-loading')
+      slot.textContent = 'Nem sikerült betölteni az előnézetet.'
+    })
+  })
+
+  const downloadOne = async (a) => {
+    const blob = await fetchAttachmentBlob(a)
+    const objectUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = objectUrl
+    link.download = a.filename || 'attachment'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(objectUrl)
+  }
+
+  pane.querySelectorAll('.email-attachment-download').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true
+      try {
+        await downloadOne(attachments[Number(btn.dataset.i)])
+      } catch {
+        showToast('Hiba a melléklet letöltésekor')
+      } finally {
+        btn.disabled = false
+      }
+    })
+  })
+
+  pane.querySelectorAll('.email-attachment-zoom').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const i = Number(btn.dataset.i)
+      const a = attachments[i]
+      btn.disabled = true
+      try {
+        const objectUrl = objectUrls[i] || URL.createObjectURL(await fetchAttachmentBlob(a))
+        objectUrls[i] = objectUrl
+        openEmailAttachmentLightbox(a, objectUrl)
+      } catch {
+        showToast('Hiba a melléklet megnyitásakor')
+      } finally {
+        btn.disabled = false
+      }
+    })
+  })
+
+  if (downloadAllBtn) {
+    // Replaces itself to drop any listener from a previous message's render
+    // -- this button is static markup (like emailBulkDeleteBtn), reused
+    // across every loadEmailMessage call instead of being recreated.
+    const freshBtn = downloadAllBtn.cloneNode(true)
+    downloadAllBtn.replaceWith(freshBtn)
+    freshBtn.addEventListener('click', async () => {
+      freshBtn.disabled = true
+      try {
+        // Sequential, not Promise.all -- triggering many simultaneous
+        // browser downloads at once is what gets flagged as a popup/download
+        // flood by some browsers' safety heuristics.
+        for (const a of attachments) {
+          try { await downloadOne(a) } catch { showToast(`Hiba: ${a.filename}`) }
+        }
+      } finally {
+        freshBtn.disabled = false
+      }
+    })
+  }
+}
+
+// Enlarged in-app view for an image/PDF/video attachment -- reuses the
+// object URL already created for the small inline preview when there is
+// one, no re-fetch. Boss, 2026-08-05: clicking a preview used to do nothing
+// of its own -- for a PDF, a click inside the iframe hits Chrome's own
+// built-in PDF-viewer chrome, which can pop the file into a real new
+// browser tab; he wants it to stay inside the app, large and scrollable,
+// instead.
+function openEmailAttachmentLightbox(attachment, objectUrl) {
+  const overlay = document.getElementById('emailAttachmentLightboxOverlay')
+  const title = document.getElementById('emailAttachmentLightboxTitle')
+  const body = document.getElementById('emailAttachmentLightboxBody')
+  if (!overlay || !body) return
+  if (title) title.textContent = attachment.filename || ''
+  body.innerHTML = attachment.mime === 'application/pdf'
+    ? `<iframe src="${escapeAttr(objectUrl)}" title="${escapeAttr(attachment.filename)}"></iframe>`
+    : attachment.mime && attachment.mime.startsWith('video/')
+      ? `<video src="${escapeAttr(objectUrl)}" controls autoplay></video>`
+      : `<img src="${escapeAttr(objectUrl)}" alt="${escapeAttr(attachment.filename)}">`
+  openModal(overlay)
+}
+document.getElementById('emailAttachmentLightboxClose')?.addEventListener('click', () => closeModal(document.getElementById('emailAttachmentLightboxOverlay')))
+document.getElementById('emailAttachmentLightboxOverlay')?.addEventListener('click', (e) => {
+  if (e.target.id === 'emailAttachmentLightboxOverlay') closeModal(e.target)
+})
+
+// ============================================================
 // Ideas (Ötletláda)
 // ============================================================
 let ideas = []
@@ -14921,7 +16103,9 @@ async function loadIdeaComments(id) {
       const date = new Date(c.created_at * 1000).toLocaleString('hu-HU', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
       const div = document.createElement('div')
       div.className = 'comment-item'
-      div.innerHTML = `<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px"><span class="comment-author">${escapeHtml(c.author)}</span><span class="comment-date">${date}</span></div><div class="comment-body">${escapeHtml(c.content)}</div>`
+      // c.author is the raw agent id -- resolve to a display name the same
+      // way the Messages view does (Boss, 2026-08-05: raw id shown here too).
+      div.innerHTML = `<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:4px"><span class="comment-author">${escapeHtml(chatDisplayName(c.author))}</span><span class="comment-date">${date}</span></div><div class="comment-body">${escapeHtml(c.content)}</div>`
       list.appendChild(div)
     }
   } catch {
@@ -15074,7 +16258,10 @@ function openTerminalModal(agentName) {
   const title = document.getElementById('terminalModalTitle')
   if (!overlay || !container) return
 
-  title.textContent = agentName + ' - Terminal'
+  // agentName is the raw routing id (needed below for the actual terminal
+  // connection) -- the title should show the human name instead (Boss,
+  // 2026-08-05: terminal modal always showed the raw "lackor2-bot"-style id).
+  title.textContent = chatDisplayName(agentName) + ' - Terminal'
 
   // Read the current server-side gate so the modal reflects reality on open.
   fetch('/api/terminal-input')
@@ -15849,7 +17036,7 @@ async function loadResearch() {
     return
   }
   listEl.innerHTML = groups.map(g =>
-    '<div class="docs-list-group-label">' + escapeHtml(g.agent) + '</div>' +
+    '<div class="docs-list-group-label">' + escapeHtml(chatDisplayName(g.agent)) + '</div>' +
     g.docs.map(d =>
       '<a href="#" class="docs-list-item" data-agent="' + escapeAttr(g.agent) + '" data-doc="' + escapeAttr(d.name) + '">' +
         '<span class="docs-list-title">' + escapeHtml(d.title || d.name) + '</span>' +
@@ -15924,7 +17111,15 @@ async function openResearchDoc(agent, name) {
       try {
         const r = await fetch('/api/network-info', { headers: { 'Authorization': 'Bearer ' + token } })
         const info = r.ok ? await r.json() : {}
-        if (info.lan_ip) {
+        // Prefer the Tailscale serve URL when one is configured -- under WSL2,
+        // the LAN-IP guess below picks up the WSL-internal NAT adapter, not
+        // the Windows host's real WiFi IP, so a phone on the same WiFi can
+        // never reach it (Boss, 2026-08-05: QR scan just hung forever). The
+        // Tailscale URL is the server's OWN confirmation that it's actually
+        // reachable, not a guess.
+        if (info.tailscale_url) {
+          base = info.tailscale_url.replace(/\/$/, '')
+        } else if (info.lan_ip) {
           base = 'http://' + info.lan_ip + ':' + (info.port || window.location.port || '3420')
         } else {
           qrBox.innerHTML = `<p class="mobile-login-warn">${t('mobile_login.localhost_warn')}</p>`

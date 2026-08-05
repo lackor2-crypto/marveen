@@ -16,7 +16,7 @@ Ennek a viselkedésnek a kulcsa a **fokozatos autonómia**: egy bizalmi-létra, 
 
 Egy dashboard-felületen, kategóriánként húzod feljebb-lejjebb a szintet — projekt-fázistól függően lazíthatsz vagy szigoríthatsz. Például a "régi, lezárt feladatok archiválása" mehet teljes autonómiára, miközben a "publikálás" vagy "pénzmozgás" mindig jóváhagyás-köteles marad.
 
-**A biztonsági korlát beépített:** a visszafordíthatatlan, kifelé menő műveletek (email-küldés, publikálás, vásárlás, törlés, jogosultság-változtatás) **zárolva** vannak — akármit állítasz, ezek sosem válhatnak teljesen autonómmá. Ez nem opció, hanem kódba égetett határ.
+**A biztonsági korlát beépített:** a visszafordíthatatlan, kifelé menő műveletek (email-küldés, publikálás, vásárlás, törlés, jogosultság-változtatás, külső üzenet) **jóváhagyás-kötelesek** és `maxLevel: 2`-vel meg vannak sapkázva — kérnek engedélyt, de akármit állítasz, **sosem válhatnak teljesen autonómmá** (level 3). Ez a felső korlát a védőháló; hogy ezen belül csak-jelez (1) vagy jóváhagyásos (2) módban futnak, azt te döntöd el.
 
 **Kuriózum:** ez a minta lényegében az, amit az Anthropic 2025-ben hivatalosan "Routines" névvel mutatott be — proaktív, ütemezett ügynökök, kategóriánként állítható autonómiával. Marveen ezt a mintát már korábban élesben futtatta, saját ütemezett-feladat + heartbeat infrastruktúrán. Nem konceptként, hanem valódi termelési rendszerként, amely naponta fut.
 
@@ -66,3 +66,19 @@ A default config a `seed-config/` mappában van; az install kimásolja `store/`-
 ### Bővítés
 
 Új autonómia-kategória: vedd fel a `seed-config/autonomy-config.json`-ba (`key`, `label`, `level`, `locked`, `maxLevel`), és a releváns heartbeat-prompt olvassa be a szintet a cselekvés előtt. A hard-safety határt mindig tartsd: kifelé menő / visszafordíthatatlan művelet sosem kap `maxLevel > 1`-et (az email a kivétel, `maxLevel: 2`).
+
+### Önálló diagnosztizáló-javító üzemmód
+
+A gépi hibakeresés/javítás külön kategóriákon fut, hogy Marveen kontrolláltan legyen önálló: előbb felderít és biztonságosan javít, és csak a kockázatos lépésnél kér engedélyt. A viselkedést az [`autonomous-diagnose-repair`](../skills/) skill kodifikálja (felderít → ért → biztonságos javítás → batch-elt engedélykérés a kockázatosra → jóváhagyás után végigcsinál → naplóz).
+
+| Kategória | Default | Mit fed |
+|-----------|:-------:|---------|
+| `system_diagnostics` | 3 (autonóm) | log, service-állapot, folyamatok, config, PATH, hálózat — csak olvasás |
+| `system_safe_fix` | 3 (autonóm) | visszafordítható, saját-hatókörű javítás (user-service restart, beragadt session, saját fájl-jog, retry) |
+| `package_install` | 2 (jóváhagyás) | apt/pip/npm/snap telepítés |
+| `service_systemd_change` | 2 (jóváhagyás) | unit szerkesztés, enable/disable, daemon-reload |
+| `privileged_sudo` | 2 (jóváhagyás, max 2) | root/sudo művelet |
+| `system_config_change` | 2 (jóváhagyás) | rendszerfájl, PATH-profil, hálózati config |
+| `system_reboot` | 2 (jóváhagyás, max 2) | gép vagy WSL distro újraindítás |
+
+Engedélykéréskor sosem csak „permission needed”, hanem: **mit / miért / hatás / pontosan mire kér engedélyt / kockázat** — batch-elve, hogy ne álljon meg apróságonként.

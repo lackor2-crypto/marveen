@@ -10,7 +10,7 @@ import { sweepExpiredSessions } from './web/auth-sessions.js'
 import { sweepExpiredDeviceKeys } from './web/auth-device-keys.js'
 import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-origin.js'
 import { json } from './web/http-helpers.js'
-import { detectLanIp } from './web/network-info.js'
+import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
 import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGateCommands, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
@@ -66,6 +66,7 @@ import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/ap
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
+import { tryHandleEmail } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
 import { tryHandleSkillUsage } from './web/routes/skill-usage.js'
@@ -164,7 +165,8 @@ export function startWebServer(port = 3420): http.Server {
     // server for its LAN IP and builds the QR from that. Auth is already
     // enforced by the /api/* gate above.
     if (path === '/api/network-info' && method === 'GET') {
-      return json(res, { lan_ip: detectLanIp(), port })
+      const tailscaleUrl = await detectTailscaleServeUrl(port)
+      return json(res, { lan_ip: detectLanIp(), port, tailscale_url: tailscaleUrl })
     }
 
     try {
@@ -202,6 +204,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleTokenUsage(routeCtx)) return
       if (await tryHandleCosts(routeCtx)) return
       if (await tryHandleIdeas(routeCtx)) return
+      if (await tryHandleEmail(routeCtx)) return
       if (await tryHandleSpans(routeCtx)) return
       if (await tryHandleToolLog(routeCtx)) return
       if (await tryHandleSkillUsage(routeCtx)) return

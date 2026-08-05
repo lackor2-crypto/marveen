@@ -121,7 +121,7 @@ def main():
     try:
         req = urllib.request.Request(url)
         req.add_header("Authorization", "Bearer " + token)
-        with urllib.request.urlopen(req, timeout=55) as r:
+        with urllib.request.urlopen(req, timeout=240) as r:
             data = json.load(r)
     except Exception:
         sys.exit(0)  # dashboard unavailable -- fail-safe, no injection

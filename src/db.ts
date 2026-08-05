@@ -855,6 +855,10 @@ export function initDatabase(dbPathOverride?: string): void {
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approvals(agent_id, requested_at)`)
+  // Optional free-text reason the resolver (usually a rejection) attaches when
+  // deciding -- Boss 2026-08-05: rejecting with no reason left the requesting
+  // agent with nothing to act on.
+  try { db.exec('ALTER TABLE approvals ADD COLUMN resolution_reason TEXT') } catch { /* already exists */ }
 
   // --- Dashboard browser login (OPTIONAL; the bearer token stays primary) ---
   // Zero rows here = exactly the token-only behavior. A row is created only when
@@ -3173,6 +3177,7 @@ export interface Approval {
   requested_at: number
   resolved_at: number | null
   resolved_by: string | null
+  resolution_reason: string | null
 }
 
 export function createApproval(params: {
@@ -3208,6 +3213,7 @@ export function createApproval(params: {
     requested_at: now,
     resolved_at: null,
     resolved_by: null,
+    resolution_reason: null,
   }
 }
 
@@ -3215,14 +3221,15 @@ export function getApproval(id: string): Approval | undefined {
   return db.prepare('SELECT * FROM approvals WHERE id = ?').get(id) as Approval | undefined
 }
 
-export function resolveApproval(id: string, status: 'approved' | 'rejected' | 'timeout', resolvedBy: string, telegramMessageId?: number | null): boolean {
+export function resolveApproval(id: string, status: 'approved' | 'rejected' | 'timeout', resolvedBy: string, telegramMessageId?: number | null, resolutionReason?: string | null): boolean {
   const now = Math.floor(Date.now() / 1000)
   return db.prepare(`
     UPDATE approvals
     SET status = ?, resolved_at = ?, resolved_by = ?,
-        telegram_message_id = COALESCE(?, telegram_message_id)
+        telegram_message_id = COALESCE(?, telegram_message_id),
+        resolution_reason = ?
     WHERE id = ? AND status = 'pending'
-  `).run(status, now, resolvedBy, telegramMessageId ?? null, id).changes > 0
+  `).run(status, now, resolvedBy, telegramMessageId ?? null, resolutionReason ?? null, id).changes > 0
 }
 
 export function listApprovals(opts: {
