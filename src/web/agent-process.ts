@@ -16,6 +16,8 @@ import {
   parkedInputRowCount,
   parkedClearSequence,
   stripGhostSuggestion,
+  stripSessionTitleBanner,
+  stripAllAnsi,
   paneShowsContextSaturation,
   paneShowsContextSaturationHardError,
   idleConsideringDimGhost,
@@ -2652,7 +2654,13 @@ export function capturePaneAsync(session: string): Promise<string | null> {
 // the caller can treat "capture failed" as "not ready".
 export function capturePane(session: string, host: string | null = null): string | null {
   try {
-    return captureTmux(host, ['capture-pane', '-t', session, '-p'])
+    // Capture WITH colour, strip a trailing /rename session-title banner, then
+    // remove all remaining ANSI. For a pane without a banner this is byte-for-byte
+    // the old `capture-pane -p` output; when a pathological rename-banner is pinned
+    // to the bottom it is removed so the live footer/spinner classifies normally
+    // (a banner otherwise pins detectPaneState 'unknown', blocking scheduler +
+    // inter-agent delivery). See stripSessionTitleBanner.
+    return stripAllAnsi(stripSessionTitleBanner(captureTmux(host, ['capture-pane', '-t', session, '-e', '-p'])))
   } catch {
     return null
   }
