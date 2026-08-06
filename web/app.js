@@ -16377,11 +16377,17 @@ function openTerminalModal(agentName) {
     if (!isAtBottom()) return // user scrolled up — keep their view put
     paintedPane = latestPane
     // Bottom-anchor: drop the blank tail rows, then pad the TOP with the
-    // difference so real content lands flush against the bottom, like a
-    // normal terminal — history above, latest line at the bottom.
+    // difference so real content lands near the bottom, like a normal
+    // terminal — history above, latest line near the bottom. Target one row
+    // short of term.rows, not term.rows itself: content landing on the very
+    // last row risks the container's overflow:hidden clipping a sliver of it
+    // (Boss, 2026-08-06: "egy vagy ket sor eltunik alul" right after this
+    // started filling the full height) — Boss confirmed a small gap at the
+    // bottom is fine, it's the clipped text that's the actual problem.
     const lines = latestPane.split('\n')
     while (lines.length && isBlankLine(lines[lines.length - 1])) lines.pop()
-    const padRows = Math.max(0, term.rows - lines.length)
+    const targetRows = Math.max(1, term.rows - 1)
+    const padRows = Math.max(0, targetRows - lines.length)
     term.write('\x1b[3J\x1b[2J\x1b[H' + '\n'.repeat(padRows) + lines.join('\n'))
   }
   // EventSource cannot set an Authorization header. In token mode we pass the
