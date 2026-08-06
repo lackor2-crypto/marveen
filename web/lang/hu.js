@@ -1026,6 +1026,12 @@ window._i18n.hu = {
   'settings.meta.range':         'Tartomány',
   'settings.meta.format':        'Formátum',
   'settings.meta.default':       'Alapérték',
+
+  // --- Iroda Settings ---
+  'irodaSettings.nav_label':     'Beállítások',
+  'irodaSettings.page_title':    'Beállítások',
+  'irodaSettings.page_subtitle': 'Iroda-specifikus konfiguráció',
+  'irodaSettings.placeholder':   'Hamarosan: email-fiók beállítások (IMAP/SMTP).',
   'status.error.fetch':          'Hiba a státusz lekérésnél',
   'recall.summary.agents':       'Ágensek',
   'recall.summary.log_count':    '{n} naplóbejegyzés',

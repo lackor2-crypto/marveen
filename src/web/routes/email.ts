@@ -1,9 +1,11 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { simpleParser } from 'mailparser'
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { readMessageBodyDirect, messageStillExists } from '../email-imap.js'
@@ -92,6 +94,118 @@ function isKnownAccount(id: string | null): boolean {
 
 function accountEmail(id: string): string {
   return ACCOUNTS.find(a => a.id === id)?.label ?? ''
+}
+
+// === Iroda "Beallitasok" -> IMAP/SMTP account settings =====================
+// Researched first (Boss's standing rule, 2026-08-06): a same-machine key
+// can't defend a stored secret against full machine compromise -- that's the
+// accepted limit for self-hosted single-user tools (Thunderbird/Roundcube
+// have the identical constraint). AES-256-GCM with the key in a separate
+// 0600 file is the realistic bar for this class of app, matching that
+// prior art rather than reaching for cloud-KMS-grade infrastructure this
+// single-user install has no use for.
+//
+// himalaya already supports a `password.command` secret backend (see
+// config.toml today: `cat <plaintext secrets file>`) -- swapping that
+// command to invoke scripts/email-secret.mjs's `decrypt` mode, instead of
+// `cat`-ing a plaintext file, is the entire integration: himalaya itself
+// needs zero changes, it just runs a different command and gets the
+// password on stdout either way. The encrypt/decrypt cipher lives in that
+// one script, invoked by both himalaya (decrypt, at IMAP/SMTP connect time)
+// and this route (encrypt, when the Iroda settings form saves a password) --
+// a single source of truth for the AES layout instead of duplicating it.
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const EMAIL_SECRET_SCRIPT = join(__dirname, '../../../scripts/email-secret.mjs')
+const EMAIL_SECRETS_ENC_DIR = `${process.env.HOME}/.local/share/marveen-himalaya/secrets-enc`
+
+function hasEncryptedSecret(account: string): boolean {
+  return existsSync(join(EMAIL_SECRETS_ENC_DIR, `${account}.enc`))
+}
+
+// Pipes the password over stdin only -- it must never appear in argv (a
+// live `ps` on this machine already lists other himalaya invocations by
+// their full command line; a password there would leak to anyone who can
+// run `ps`).
+function encryptAccountPassword(account: string, password: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', [EMAIL_SECRET_SCRIPT, 'encrypt', account], { stdio: ['pipe', 'ignore', 'pipe'] })
+    let stderr = ''
+    child.stderr.on('data', (d) => { stderr += d })
+    child.on('error', reject)
+    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(stderr || `exit ${code}`))))
+    child.stdin.write(password)
+    child.stdin.end()
+  })
+}
+
+type AccountConfigBody = {
+  account?: string
+  imapHost?: string; imapPort?: number; imapTls?: boolean; imapUsername?: string
+  smtpHost?: string; smtpPort?: number; smtpTls?: boolean; smtpUsername?: string
+  password?: string
+}
+
+function parseServerUrl(serverUrl: unknown): { scheme: string; host: string; port: number } {
+  const m = typeof serverUrl === 'string' ? /^(\w+):\/\/([^:]+):(\d+)$/.exec(serverUrl) : null
+  return m ? { scheme: m[1], host: m[2], port: Number(m[3]) } : { scheme: '', host: '', port: 0 }
+}
+
+function validateAccountConfigBody(body: AccountConfigBody): string | null {
+  if (!body.imapHost?.trim() || !body.imapPort || !body.imapUsername?.trim()) return 'IMAP host/port/felhasznalonev kotelezo'
+  if (!body.smtpHost?.trim() || !body.smtpPort || !body.smtpUsername?.trim()) return 'SMTP host/port/felhasznalonev kotelezo'
+  if (!Number.isInteger(body.imapPort) || body.imapPort < 1 || body.imapPort > 65535) return 'Ervenytelen IMAP port'
+  if (!Number.isInteger(body.smtpPort) || body.smtpPort < 1 || body.smtpPort > 65535) return 'Ervenytelen SMTP port'
+  return null
+}
+
+// Builds the FULL updated config (every account, not just the one being
+// edited) by merging the edited account's block into whatever config.toml
+// already parses to -- so saving one account's settings can never drop
+// another account's block. Reuses the existing password.command untouched
+// when the form didn't submit a new password (so editing just the host/port
+// never requires re-entering a password that hasn't changed).
+async function buildUpdatedTomlConfig(account: string, body: AccountConfigBody): Promise<{ toml: string; passwordChanged: boolean }> {
+  const existing = existsSync(HIMALAYA_CONFIG) ? (parseToml(readFileSync(HIMALAYA_CONFIG, 'utf8')) as any) : { accounts: {} }
+  const existingAccount = existing.accounts?.[account] || {}
+  const passwordChanged = !!body.password
+  if (passwordChanged) await encryptAccountPassword(account, body.password as string)
+  const passwordCommand = passwordChanged
+    ? `node ${EMAIL_SECRET_SCRIPT} decrypt ${account}`
+    : (existingAccount.imap?.sasl?.plain?.password?.command || existingAccount.smtp?.sasl?.plain?.password?.command)
+  if (!passwordCommand) throw new Error('nincs mentett jelszo -- eloszor add meg a jelszot')
+  const imapScheme = body.imapTls === false ? 'imap' : 'imaps'
+  const smtpScheme = body.smtpTls === false ? 'smtp' : 'smtps'
+  const updatedAccount = {
+    ...existingAccount,
+    mailbox: existingAccount.mailbox || { alias: { inbox: 'Inbox' } },
+    imap: { server: `${imapScheme}://${body.imapHost}:${body.imapPort}`, sasl: { plain: { username: body.imapUsername, password: { command: passwordCommand } } } },
+    smtp: { server: `${smtpScheme}://${body.smtpHost}:${body.smtpPort}`, sasl: { plain: { username: body.smtpUsername, password: { command: passwordCommand } } } },
+  }
+  const updated = { ...existing, accounts: { ...existing.accounts, [account]: updatedAccount } }
+  return { toml: stringifyToml(updated), passwordChanged }
+}
+
+// Runs a cheap, read-only IMAP probe against a CANDIDATE config (a temp file,
+// never the live one) before anything real gets overwritten -- a typo'd
+// host/port/password fails against the sandbox copy, live email keeps
+// working, and the user sees the actual himalaya error instead of a
+// silently broken account discovered next time mail is opened.
+async function testAccountConfigToml(account: string, toml: string): Promise<{ ok: boolean; error?: string }> {
+  const work = mkdtempSync(join(tmpdir(), 'marveen-email-test-'))
+  const configPath = join(work, 'config.toml')
+  try {
+    writeFileSync(configPath, toml, { mode: 0o600 })
+    return await new Promise((resolve) => {
+      execFile(HIMALAYA_BIN, ['-c', configPath, '-a', account, 'envelope', 'list', '-m', 'Inbox', '--page-size', '1', '--json'],
+        { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 },
+        (err, stdout, stderr) => {
+          if (err) { resolve({ ok: false, error: (stderr || stdout || err.message || '').toString().slice(0, 500) }); return }
+          resolve({ ok: true })
+        })
+    })
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
 }
 
 // Persistent, per-install disk cache for downloaded attachment bytes --
@@ -424,6 +538,104 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  if (path === '/api/email/account-config' && method === 'GET') {
+    const account = url.searchParams.get('account')
+    if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
+    try {
+      const config = existsSync(HIMALAYA_CONFIG) ? (parseToml(readFileSync(HIMALAYA_CONFIG, 'utf8')) as any) : { accounts: {} }
+      const acc = config.accounts?.[account as string]
+      if (!acc) { json(res, { error: 'fiok nem talalhato a config-ban' }, 404); return true }
+      const imap = parseServerUrl(acc.imap?.server)
+      const smtp = parseServerUrl(acc.smtp?.server)
+      json(res, {
+        account,
+        imapHost: imap.host, imapPort: imap.port, imapTls: imap.scheme === 'imaps',
+        imapUsername: acc.imap?.sasl?.plain?.username || '',
+        smtpHost: smtp.host, smtpPort: smtp.port, smtpTls: smtp.scheme === 'smtps',
+        smtpUsername: acc.smtp?.sasl?.plain?.username || '',
+        hasStoredPassword: hasEncryptedSecret(account as string) || !!acc.imap?.sasl?.plain?.password?.command,
+      })
+    } catch (err) {
+      logger.warn(`[email] account-config read failed: ${err}`)
+      json(res, { error: 'nem sikerult beolvasni a konfiguraciot' }, 500)
+    }
+    return true
+  }
+
+  // Test-only: builds the same candidate TOML as a save would and runs the
+  // himalaya probe against it, but never writes to the real config or
+  // touches the encrypted secret store unless the caller then calls the
+  // save endpoint below. Lets the "Kapcsolat tesztelese" button in the UI
+  // validate before committing to anything.
+  if (path === '/api/email/account-config/test' && method === 'POST') {
+    const raw = await readBody(req)
+    let body: AccountConfigBody
+    try { body = JSON.parse(raw.toString()) } catch { json(res, { error: 'ervenytelen JSON' }, 400); return true }
+    if (!isKnownAccount(body.account ?? null)) { json(res, { error: 'unknown account' }, 400); return true }
+    const validationError = validateAccountConfigBody(body)
+    if (validationError) { json(res, { error: validationError }, 400); return true }
+    try {
+      // A test never wants to permanently overwrite the real encrypted
+      // secret just because "Kapcsolat tesztelese" was clicked -- only a
+      // real save should do that. If a new password was typed, encrypt it
+      // under a throwaway account id so the probe can still use it, and
+      // clean that up either way afterward.
+      const testAccountId = body.password ? `${body.account}__test__` : (body.account as string)
+      let toml: string
+      if (body.password) {
+        await encryptAccountPassword(testAccountId, body.password)
+        const imapScheme = body.imapTls === false ? 'imap' : 'imaps'
+        const smtpScheme = body.smtpTls === false ? 'smtp' : 'smtps'
+        const passwordCommand = `node ${EMAIL_SECRET_SCRIPT} decrypt ${testAccountId}`
+        toml = stringifyToml({
+          accounts: {
+            [testAccountId]: {
+              mailbox: { alias: { inbox: 'Inbox' } },
+              imap: { server: `${imapScheme}://${body.imapHost}:${body.imapPort}`, sasl: { plain: { username: body.imapUsername, password: { command: passwordCommand } } } },
+              smtp: { server: `${smtpScheme}://${body.smtpHost}:${body.smtpPort}`, sasl: { plain: { username: body.smtpUsername, password: { command: passwordCommand } } } },
+            },
+          },
+        })
+      } else {
+        const built = await buildUpdatedTomlConfig(body.account as string, body)
+        toml = built.toml
+      }
+      const result = await testAccountConfigToml(testAccountId, toml)
+      if (body.password) rmSync(join(EMAIL_SECRETS_ENC_DIR, `${testAccountId}.enc`), { force: true })
+      json(res, result)
+    } catch (err: any) {
+      json(res, { ok: false, error: err?.message || 'teszt sikertelen' }, 200)
+    }
+    return true
+  }
+
+  if (path === '/api/email/account-config' && method === 'POST') {
+    const raw = await readBody(req)
+    let body: AccountConfigBody
+    try { body = JSON.parse(raw.toString()) } catch { json(res, { error: 'ervenytelen JSON' }, 400); return true }
+    if (!isKnownAccount(body.account ?? null)) { json(res, { error: 'unknown account' }, 400); return true }
+    const validationError = validateAccountConfigBody(body)
+    if (validationError) { json(res, { error: validationError }, 400); return true }
+    const account = body.account as string
+    try {
+      const { toml } = await buildUpdatedTomlConfig(account, body)
+      const testResult = await testAccountConfigToml(account, toml)
+      if (!testResult.ok) { json(res, { ok: false, error: testResult.error || 'kapcsolat teszt sikertelen, nincs mentve' }); return true }
+      // Backup before overwrite -- belt-and-suspenders alongside the
+      // pre-write connection test, in case of a bug in the TOML merge logic
+      // itself rather than a bad credential.
+      if (existsSync(HIMALAYA_CONFIG)) {
+        writeFileSync(`${HIMALAYA_CONFIG}.bak-${Date.now()}`, readFileSync(HIMALAYA_CONFIG))
+      }
+      writeFileSync(HIMALAYA_CONFIG, toml, { mode: 0o600 })
+      json(res, { ok: true })
+    } catch (err: any) {
+      logger.warn(`[email] account-config save failed: ${err}`)
+      json(res, { ok: false, error: err?.message || 'mentes sikertelen' }, 200)
+    }
+    return true
+  }
+
   if (path === '/api/email/mailboxes' && method === 'GET') {
     const account = url.searchParams.get('account')
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
@@ -641,7 +853,14 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     }
     const work = mkdtempSync(join(tmpdir(), 'marveen-attachment-dl-'))
     try {
-      const r = await himalaya(['-a', account as string, 'attachment', 'download', id, attachmentId, '-m', mailbox, '--dir', work, '--json'])
+      // himalayaRead (not the bare himalaya() alias) -- attachment download is
+      // read-only same as message/attachment list, so the transient-IMAP-error
+      // retry is safe here too. Was previously the one himalaya call in this
+      // file with no retry, so it alone could fail when a sibling attachment's
+      // concurrent fetch tripped Gmail's 15-connection IMAP cap (Boss screenshot
+      // 2026-08-06: one attachment preview loaded, the other on the same email
+      // didn't).
+      const r = await himalayaRead(['-a', account as string, 'attachment', 'download', id, attachmentId, '-m', mailbox, '--dir', work, '--json'])
       if (!r.ok) { logger.warn(`[email] attachment download failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); rmSync(work, { recursive: true, force: true }); return true }
       const parsed = JSON.parse(r.stdout)
       const att = (parsed.attachments || [])[0]

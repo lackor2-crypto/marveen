@@ -720,6 +720,12 @@ window._i18n.en = {
   'settings.meta.range':         'Range',
   'settings.meta.format':        'Format',
   'settings.meta.default':       'Default',
+
+  // --- Iroda Settings ---
+  'irodaSettings.nav_label':     'Settings',
+  'irodaSettings.page_title':    'Settings',
+  'irodaSettings.page_subtitle': 'Office-specific configuration',
+  'irodaSettings.placeholder':   'Coming soon: email account settings (IMAP/SMTP).',
   'status.error.fetch':          'Failed to load status',
   'recall.summary.agents':       'Agents',
   'recall.summary.log_count':    '{n} log entries',

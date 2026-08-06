@@ -395,6 +395,7 @@ function switchPage(pageId) {
   if (pageId === 'naplo') loadNaplo()
   if (pageId === 'federation') loadFederationPage()
   if (pageId === 'email') loadEmailPage()
+  if (pageId === 'irodaSettings') loadIrodaSettings()
 }
 
 // Mobile off-canvas sidebar toggle. No-op visual effect on desktop (the
@@ -428,7 +429,7 @@ navLinks.forEach((link) => {
 // later) never touch the upstream Szotász sidebar markup -- a future
 // `git pull` from upstream can't conflict with anything added here.
 const WORKSPACE_LS_KEY = 'marveen.workspace'
-const IRODA_PAGES = { email: true }
+const IRODA_PAGES = { email: true, irodaSettings: true }
 function setWorkspace(ws, opts) {
   const persist = !opts || opts.persist !== false
   const navMarvinEl = document.getElementById('navMarvin')
@@ -14987,6 +14988,105 @@ function ensureEmailAccountNav() {
   }
 }
 
+// === Iroda "Beallitasok" -> IMAP/SMTP account settings form ================
+let irodaSettingsActiveAccount = null
+async function loadIrodaSettings() {
+  ensureEmailAccountNav()
+  if (emailAccountsFetchPromise) await emailAccountsFetchPromise
+  const tabNav = document.getElementById('irodaSettingsAccountTabs')
+  if (!tabNav) return
+  if (!irodaSettingsActiveAccount && emailAccounts.length) irodaSettingsActiveAccount = emailAccounts[0].id
+  tabNav.innerHTML = emailAccounts.map(a =>
+    `<button type="button" class="tab-btn${a.id === irodaSettingsActiveAccount ? ' active' : ''}" data-account="${escapeAttr(a.id)}">${escapeHtml(a.label)}</button>`
+  ).join('')
+  tabNav.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      irodaSettingsActiveAccount = btn.dataset.account
+      tabNav.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn))
+      renderIrodaSettingsForm(irodaSettingsActiveAccount)
+    })
+  })
+  if (irodaSettingsActiveAccount) renderIrodaSettingsForm(irodaSettingsActiveAccount)
+}
+
+async function renderIrodaSettingsForm(account) {
+  const wrap = document.getElementById('irodaSettingsFormWrap')
+  if (!wrap) return
+  wrap.innerHTML = `<p>${t('common.loading') || 'Betöltés...'}</p>`
+  let cfg
+  try {
+    const res = await fetch(`/api/email/account-config?${new URLSearchParams({ account })}`)
+    cfg = await res.json()
+    if (!res.ok) throw new Error(cfg.error || `HTTP ${res.status}`)
+  } catch (err) {
+    wrap.innerHTML = `<p style="color:var(--danger)">Nem sikerült betölteni: ${escapeHtml(err.message)}</p>`
+    return
+  }
+  // Same command/password for IMAP+SMTP is the pattern every account here
+  // already uses (see config.toml) -- one password field covers both.
+  wrap.innerHTML = `
+    <div class="form-row">
+      <div class="form-group form-half"><label class="form-label">IMAP host</label><input type="text" class="input" id="irodaImapHost" value="${escapeAttr(cfg.imapHost || '')}"></div>
+      <div class="form-group" style="width:100px"><label class="form-label">Port</label><input type="number" class="input" id="irodaImapPort" value="${cfg.imapPort || 993}"></div>
+      <div class="form-group" style="width:70px"><label class="form-label">TLS</label><input type="checkbox" id="irodaImapTls" ${cfg.imapTls !== false ? 'checked' : ''} style="width:20px;height:20px;margin-top:8px"></div>
+    </div>
+    <div class="form-group"><label class="form-label">IMAP felhasználónév</label><input type="text" class="input" id="irodaImapUsername" value="${escapeAttr(cfg.imapUsername || '')}"></div>
+    <div class="form-row">
+      <div class="form-group form-half"><label class="form-label">SMTP host</label><input type="text" class="input" id="irodaSmtpHost" value="${escapeAttr(cfg.smtpHost || '')}"></div>
+      <div class="form-group" style="width:100px"><label class="form-label">Port</label><input type="number" class="input" id="irodaSmtpPort" value="${cfg.smtpPort || 465}"></div>
+      <div class="form-group" style="width:70px"><label class="form-label">TLS</label><input type="checkbox" id="irodaSmtpTls" ${cfg.smtpTls !== false ? 'checked' : ''} style="width:20px;height:20px;margin-top:8px"></div>
+    </div>
+    <div class="form-group"><label class="form-label">SMTP felhasználónév</label><input type="text" class="input" id="irodaSmtpUsername" value="${escapeAttr(cfg.smtpUsername || '')}"></div>
+    <div class="form-group">
+      <label class="form-label">Jelszó${cfg.hasStoredPassword ? ' (változatlan hagyáshoz üresen hagyd)' : ''}</label>
+      <input type="password" class="input" id="irodaPassword" placeholder="${cfg.hasStoredPassword ? 'Üresen hagyva a mostani marad' : 'Add meg a jelszót / app-jelszót'}" autocomplete="new-password">
+      <p style="font-size:12px;color:var(--text-muted);margin-top:4px">Gmail-fióknál app-jelszó kell, nem a sima Gmail-jelszó -- google.com/myaccount/apppasswords.</p>
+    </div>
+    <div id="irodaSettingsStatus" style="margin:8px 0;font-size:13px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn-secondary btn-compact" id="irodaTestBtn">Kapcsolat tesztelése</button>
+      <button class="btn-primary" id="irodaSaveBtn">Mentés</button>
+    </div>`
+  const readForm = () => ({
+    account,
+    imapHost: document.getElementById('irodaImapHost').value.trim(),
+    imapPort: Number(document.getElementById('irodaImapPort').value),
+    imapTls: document.getElementById('irodaImapTls').checked,
+    imapUsername: document.getElementById('irodaImapUsername').value.trim(),
+    smtpHost: document.getElementById('irodaSmtpHost').value.trim(),
+    smtpPort: Number(document.getElementById('irodaSmtpPort').value),
+    smtpTls: document.getElementById('irodaSmtpTls').checked,
+    smtpUsername: document.getElementById('irodaSmtpUsername').value.trim(),
+    password: document.getElementById('irodaPassword').value || undefined,
+  })
+  const statusEl = document.getElementById('irodaSettingsStatus')
+  const setStatus = (text, ok) => {
+    statusEl.textContent = text
+    statusEl.style.color = ok === false ? 'var(--danger)' : ok === true ? 'var(--success)' : 'var(--text-muted)'
+  }
+  document.getElementById('irodaTestBtn').addEventListener('click', async () => {
+    setStatus('Tesztelés...')
+    try {
+      const res = await fetch('/api/email/account-config/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(readForm()) })
+      const result = await res.json()
+      setStatus(result.ok ? 'Kapcsolat OK.' : `Sikertelen: ${result.error || 'ismeretlen hiba'}`, result.ok)
+    } catch (err) {
+      setStatus(`Hiba: ${err.message}`, false)
+    }
+  })
+  document.getElementById('irodaSaveBtn').addEventListener('click', async () => {
+    setStatus('Mentés...')
+    try {
+      const res = await fetch('/api/email/account-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(readForm()) })
+      const result = await res.json()
+      setStatus(result.ok ? 'Mentve.' : `Sikertelen: ${result.error || 'ismeretlen hiba'}`, result.ok)
+      if (result.ok) renderIrodaSettingsForm(account)
+    } catch (err) {
+      setStatus(`Hiba: ${err.message}`, false)
+    }
+  })
+}
+
 async function loadEmailPage() {
   if (!emailLoaded) {
     emailLoaded = true
@@ -15544,6 +15644,10 @@ function renderEmailMessageBody(msg) {
   frame.className = 'email-reader-body-frame'
   frame.sandbox = 'allow-same-origin allow-popups allow-popups-to-escape-sandbox'
   frame.referrerPolicy = 'no-referrer'
+  // Belt-and-suspenders alongside the CSS overflow:hidden on this class --
+  // deprecated but every engine still honors it, and it's one more thing
+  // standing between a sizing miscalculation and a visible inner scrollbar.
+  frame.scrolling = 'no'
   // A ResizeObserver here used to watch the frame's OWN document for height
   // changes and, on each one, grow the frame to match -- but many HTML
   // newsletters use height:100%/100vh in their markup, so growing the frame
@@ -15563,6 +15667,15 @@ function renderEmailMessageBody(msg) {
     } catch { /* best-effort only */ }
   }
   frame.addEventListener('load', () => {
+    // Newsletter markup commonly ships `loading="lazy"` images -- inside a
+    // frame collapsed to 0px height for measurement (see sizeToContent
+    // above), every image starts off-screen, so the browser never fires
+    // their 'load' event at all, and the height-settle logic below waits
+    // forever for images that were never going to report in. Force them
+    // eager before the first measurement so they actually load and count.
+    try {
+      frame.contentWindow.document.querySelectorAll('img[loading="lazy"]').forEach(img => { img.loading = 'eager' })
+    } catch { /* best-effort only */ }
     sizeToContent()
     setTimeout(sizeToContent, 800)
     // A photo-heavy mail can have several images still loading well past
@@ -15804,7 +15917,10 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
   const fetchAttachmentBlob = async (a) => {
     const href = `/api/email/attachment?${new URLSearchParams({ account: emailAccount, mailbox, id: messageId, attachmentId: a.id })}`
     const res = await fetch(href)
-    if (!res.ok) throw new Error('attachment fetch failed')
+    if (!res.ok) {
+      const body = await res.json().catch(() => null)
+      throw new Error(body?.error || `attachment fetch failed (${res.status})`)
+    }
     return res.blob()
   }
 
@@ -15832,7 +15948,8 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
         const img = slot.querySelector('img')
         if (img) { img.style.cursor = 'zoom-in'; img.addEventListener('click', () => openEmailAttachmentLightbox(a, objectUrl)) }
       }
-    }).catch(() => {
+    }).catch((err) => {
+      console.error('[email] attachment preview failed:', err)
       slot.classList.remove('email-attachment-preview-loading')
       slot.textContent = 'Nem sikerült betölteni az előnézetet.'
     })

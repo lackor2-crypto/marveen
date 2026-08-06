@@ -26,7 +26,8 @@
     "imapflow": "^1.6.5",
     "mailparser": "^3.9.14",
     "pino": "^9.6.0",
-    "pino-pretty": "^13.0.0"
+    "pino-pretty": "^13.0.0",
+    "smol-toml": "^1.7.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.0",

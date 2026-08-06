@@ -271,8 +271,29 @@ body {
 .sb-link .sb-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .sb-link:hover { color: var(--text); background: var(--accent-soft); }
 .sb-link.active { color: var(--text); background: var(--accent-soft); }
+/* The browser's default post-click focus ring draws OUTSIDE the link's box,
+ * which `.sidebar-nav`'s overflow-x:hidden (needed to stop a landscape
+ * sideways-scroll bug, see that rule's own comment) then clips unevenly at
+ * the left/right edges -- reads as a "damaged frame" on whichever nav item
+ * was just clicked (Boss, 2026-08-06, screenshot of the just-clicked
+ * "Beállítások" link: "meg mindig a fekete keret a ket szelen karosodik").
+ * A negative outline-offset draws the ring INSIDE the box instead, so it can
+ * never be clipped by the container regardless of overflow settings. */
+.sb-link:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .sb-link.active svg { color: var(--accent); }
 .sb-badge { margin-left: auto; }
+/* Iroda's standalone "Beallitasok" link (no group to sit inside, unlike
+ * Marvin's which lives in the RENDSZER group) -- a top border + gap separates
+ * it from the email-accounts group above (Boss, 2026-08-06: "tegyél egy
+ * vízszintes vonalat... elválasztás"), same pattern as .sidebar-docs below
+ * the scrolling nav. Slightly smaller/muted than a primary nav item since
+ * it's a secondary, settings-style action. */
+.sb-link-settings {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
 
 /* === Collapsible sidebar groups === */
 .sb-group { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
@@ -7451,6 +7472,15 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow-y: auto;
+  /* CSS quirk: overflow-y:auto with overflow-x left unset computes overflow-x
+     to auto too (not visible), per spec -- any sub-pixel-wide content (flex
+     rounding, a long unwrapped string) then draws a second, horizontal
+     scrollbar under the vertical one. Nothing in any pane is meant to scroll
+     sideways, so pin it off explicitly (Boss, 2026-08-06: "meg mindig lattam
+     dupla gorgetosavot" -- the earlier fixes only addressed a *page-level*
+     double-scroll, this is a different, still-open one: two axes on the SAME
+     pane). */
+  overflow-x: hidden;
   /* No padding here -- every column's sticky header bar needs to sit flush
      against this box's own edge (see .email-column-header); the content
      below it (list items, envelope list, attachment cards) gets its own
@@ -7631,7 +7661,17 @@ body {
    the app-wide default and looked "3x akkora" (3x too big) next to them. */
 .email-column-header .btn-compact { padding: 4px 10px; font-size: 12px; gap: 4px; }
 .email-reader-body { white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
-.email-reader-body-frame { position: relative; z-index: 0; width: 100%; min-height: 80px; border: 0; background: #fff; }
+/* overflow:hidden as a safety net -- sizeToContent() (web/app.js) measures
+ * the frame's own content height and grows the frame to fit, but that
+ * measurement can still land short (lazy-loaded images below the fold that
+ * never fire 'load' inside a zero-height frame, fonts reflowing after
+ * measurement, etc.). When it does, the iframe's OWN scrollbar used to show
+ * up alongside the outer reader column's (Boss, 2026-08-05/06: "megint ketto
+ * van" / "meg mindig lattam dupla gorgetosavot"). Clipping a few stray
+ * pixels in that rare case is a much smaller issue than a second, permanent
+ * scrollbar the outer pane already covers the same content via its own
+ * overflow-y:auto regardless. */
+.email-reader-body-frame { position: relative; z-index: 0; width: 100%; min-height: 80px; border: 0; background: #fff; overflow: hidden; }
 #emailComposeSlot:not(:empty) { padding: 0 8px 8px 8px; }
 .email-compose-form {
   margin-top: 16px;
