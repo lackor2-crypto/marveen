@@ -14941,22 +14941,17 @@ function loadEmailUiState() {
 // in the 2nd column (Boss, 2026-08-05: "Admiral Marketsre kattintok, de a
 // harmadik oszlop meg mindig a masik level tartalmat mutatja").
 function clearEmailReaderPane() {
-  const readerPane = document.getElementById('emailReaderPane')
+  const content = document.getElementById('emailReaderContent')
+  const subjectRow = document.getElementById('emailReaderSubjectRow')
   const attachmentsList = document.getElementById('emailAttachmentsList')
   const downloadAllBtn = document.getElementById('emailAttachmentsDownloadAllBtn')
-  // Reader column's header is dynamic (built fresh per-message, showing the
-  // subject) unlike the other 3 columns' static ones -- resetting to empty
-  // must rebuild its own placeholder header too, or the "A levél tartalma"
-  // column title just disappears until a message is opened again (Boss,
-  // 2026-08-05: noticed it missing entirely).
-  if (readerPane) readerPane.innerHTML = `
-    <div class="email-column-header email-list-header">
-      <span></span>
-      <span class="email-list-header-title">A levél tartalma</span>
-      <span></span>
-    </div>
-    <div class="email-reader-empty">Válassz egy levelet a listából.</div>
-  `
+  // The "A levél tartalma" column title lives in index.html's static markup
+  // now and is never touched here (Boss, 2026-08-06: wanted it permanently
+  // visible like the other 3 columns' titles, not swapped out for the
+  // per-message subject) -- only the subject row and the body content below
+  // it reset to their empty placeholders.
+  if (subjectRow) subjectRow.innerHTML = ''
+  if (content) content.innerHTML = '<div class="email-reader-empty">Válassz egy levelet a listából.</div>'
   if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
   if (downloadAllBtn) downloadAllBtn.hidden = true
 }
@@ -15609,8 +15604,16 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   // file for the checkbox/active-row checks (Boss, 2026-08-05).
   const envelope = mailbox === emailMailbox ? emailEnvelopes.find(e => String(e.id) === id) : emailSiblingEnvelopes[id]
   const pane = document.getElementById('emailReaderPane')
-  if (!pane) return
-  pane.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  const content = document.getElementById('emailReaderContent')
+  const subjectRow = document.getElementById('emailReaderSubjectRow')
+  if (!pane || !content) return
+  // "A levél tartalma" (the static column title, in index.html) is never
+  // touched from here -- only the subject row and the body content below it
+  // are (re)populated per message (Boss, 2026-08-06: wanted the column title
+  // permanently visible like the other 3 columns', not replaced by the
+  // per-message subject).
+  if (subjectRow) subjectRow.innerHTML = ''
+  content.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
   const attachmentsList = document.getElementById('emailAttachmentsList')
   if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
   const params = new URLSearchParams({ account: emailAccount, mailbox, id })
@@ -15621,26 +15624,26 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   // msg.text/html/attachments all undefined, no visible error at all,
   // indistinguishable from an actually-blank message. Surface it instead.
   if (msg.error) {
-    pane.innerHTML = `<div class="email-reader-empty">Hiba a levél betöltésekor: ${escapeHtml(msg.error)}</div>`
+    content.innerHTML = `<div class="email-reader-empty">Hiba a levél betöltésekor: ${escapeHtml(msg.error)}</div>`
     if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
     showToast('Hiba a levél betöltésekor')
     return
   }
   const from = envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '(ismeretlen)'
   const attachments = Array.isArray(msg.attachments) ? msg.attachments : []
-  pane.innerHTML = `
-    <div class="email-column-header email-reader-header">
-      <div class="email-reader-subject-row">
-        <div class="email-reader-subject">${escapeHtml(envelope?.subject || '(nincs tárgy)')}</div>
-        <div class="email-reader-meta">${escapeHtml(from)} -- ${emailFmtDate(envelope?.date || '')}</div>
-      </div>
-      <div class="email-reader-actions">
-        <button class="btn-secondary btn-compact" id="emailReplyBtn">Válasz</button>
-        <button class="btn-secondary btn-compact" id="emailForwardBtn">Továbbítás</button>
-        <button class="btn-secondary btn-compact" id="emailArchiveBtn">Archiválás</button>
-        <button class="btn-danger btn-compact" id="emailDeleteBtn">Törlés</button>
-      </div>
+  if (subjectRow) subjectRow.innerHTML = `
+    <div class="email-reader-subject-row">
+      <div class="email-reader-subject">${escapeHtml(envelope?.subject || '(nincs tárgy)')}</div>
+      <div class="email-reader-meta">${escapeHtml(from)} -- ${emailFmtDate(envelope?.date || '')}</div>
     </div>
+    <div class="email-reader-actions">
+      <button class="btn-secondary btn-compact" id="emailReplyBtn">Válasz</button>
+      <button class="btn-secondary btn-compact" id="emailForwardBtn">Továbbítás</button>
+      <button class="btn-secondary btn-compact" id="emailArchiveBtn">Archiválás</button>
+      <button class="btn-danger btn-compact" id="emailDeleteBtn">Törlés</button>
+    </div>
+  `
+  content.innerHTML = `
     <div class="email-reader-body-slot" id="emailReaderBodySlot"></div>
     <div id="emailComposeSlot"></div>
   `

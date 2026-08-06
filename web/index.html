@@ -1393,12 +1393,17 @@
           <div id="emailEnvelopeList"></div>
         </div>
         <div class="email-pane email-pane-reader" id="emailReaderPane">
-          <div class="email-column-header email-list-header">
-            <span></span>
-            <span class="email-list-header-title">A levél tartalma</span>
-            <span></span>
+          <div class="email-column-header email-reader-sticky-header">
+            <div class="email-list-header">
+              <span></span>
+              <span class="email-list-header-title">A levél tartalma</span>
+              <span></span>
+            </div>
+            <div id="emailReaderSubjectRow"></div>
           </div>
-          <div class="email-reader-empty">Válassz egy levelet a listából.</div>
+          <div id="emailReaderContent">
+            <div class="email-reader-empty">Válassz egy levelet a listából.</div>
+          </div>
         </div>
         <div class="email-pane email-pane-attachments" id="emailAttachmentsPane">
           <div class="email-column-header email-list-header" id="emailAttachmentsHeader">

@@ -7483,7 +7483,7 @@ body {
    flush to the box's own top edge, background + bottom border so scrolled
    content never shows through (Boss, 2026-08-05). Column-specific internal
    layout (checkbox/title/button vs subject+action-buttons) comes from
-   .email-list-header / .email-reader-header alongside this class. */
+   .email-list-header / .email-reader-sticky-header alongside this class. */
 .email-column-header {
   position: sticky;
   top: 0;
@@ -7598,10 +7598,19 @@ body {
 .email-reader-empty { color: var(--text-muted); font-size: 13px; padding: 24px; text-align: center; }
 /* Sticky, not scrolling away with the body -- otherwise reaching Törlés on a
    long email means scrolling all the way back up first (Boss, 2026-08-05).
-   Base sticky/background/padding now comes from the shared
-   .email-column-header class (applied alongside this one in app.js) -- see
-   that rule for why .email-pane itself carries no padding of its own. */
-.email-reader-header { padding-bottom: 10px; margin-bottom: 10px; }
+   Base sticky/background/padding comes from the shared .email-column-header
+   class (applied alongside this one in index.html) -- see that rule for why
+   .email-pane itself carries no padding of its own.
+   Two stacked rows now, not one (Boss, 2026-08-06: wanted the "A levél
+   tartalma" column title -- shared by the other 3 columns -- to stay
+   permanently visible instead of being replaced by the per-message subject,
+   see clearEmailReaderPane()/loadEmailMessage() in app.js): the static
+   title row (.email-list-header, unchanged markup) always renders, and
+   #emailReaderSubjectRow is populated/cleared per message underneath it,
+   both inside this one sticky box so there's no second sticky element to
+   position against the first. */
+.email-reader-sticky-header { display: flex; flex-direction: column; }
+#emailReaderSubjectRow:not(:empty) { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .email-reader-body-slot { padding: 0 8px 8px 8px; }
 /* Subject + from/date on one row instead of stacked -- shorter header means
    less to scroll past before the action buttons (Boss, 2026-08-05). */
