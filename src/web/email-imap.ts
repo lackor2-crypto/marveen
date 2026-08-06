@@ -429,5 +429,39 @@ export async function readMessageBodyDirect(accountId: string, mailbox: string, 
   }
 }
 
+// Confirms a UID still resolves to a real message before a caller trusts a
+// CACHED body for it -- a bare UID-only fetch (no BODYSTRUCTURE, no content),
+// so this stays cheap even for a huge-attachment message; it exists purely to
+// answer "is this UID still here" (Boss, 2026-08-06: deleted a mail straight
+// in Gmail, Marveen's reader pane kept showing it after an F5 refresh because
+// the cached body was served without ever re-checking IMAP). Returns false
+// ONLY when the fetch cleanly came back empty (message genuinely gone) --
+// returns true on ANY other outcome (transient timeout, connection drop, no
+// client available) so a momentary blip evicts nothing; worst case this
+// behaves exactly like the check didn't run at all, never worse.
+export async function messageStillExists(accountId: string, mailbox: string, uid: string): Promise<boolean> {
+  const uidNum = Number(uid)
+  if (!Number.isInteger(uidNum) || uidNum <= 0) return true
+
+  const client = await getClient(accountId)
+  if (!client) return true
+
+  let lock
+  try {
+    lock = await withTimeout(client.getMailboxLock(mailbox), FETCH_TIMEOUT_MS)
+  } catch {
+    return true
+  }
+  try {
+    const found = await withTimeout(client.fetchOne(uid, { uid: true }, { uid: true }), FETCH_TIMEOUT_MS)
+    return !!found
+  } catch (e) {
+    logger.warn(`[email-imap] existence check failed for account "${accountId}" uid=${uid}: ${e instanceof Error ? e.message : e}`)
+    return true
+  } finally {
+    lock.release()
+  }
+}
+
 // Exported for tests only -- not part of the module's real entry point.
 export const _internal = { parseHimalayaToml, parseImapServer }

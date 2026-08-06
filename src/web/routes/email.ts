@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { simpleParser } from 'mailparser'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
-import { readMessageBodyDirect } from '../email-imap.js'
+import { readMessageBodyDirect, messageStillExists } from '../email-imap.js'
 import type { RouteContext } from './types.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -281,18 +281,33 @@ function purgeMessageBodyCache(account: string, mailbox: string, id: string): vo
 }
 
 async function readMessageBody(account: string, mailbox: string, id: string): Promise<
-  { text: string; html: string; attachments: Array<{ id: string; filename: string; mime: string; size: number; inline?: boolean }> } | { error: string }
+  { text: string; html: string; attachments: Array<{ id: string; filename: string; mime: string; size: number; inline?: boolean }> } | { error: string; notFound?: boolean }
 > {
   const cacheKey = messageBodyCacheKey(account, mailbox, id)
   const cached = messageBodyCache.get(cacheKey)
   if (cached) {
-    messageBodyCache.delete(cacheKey)
     if (Date.now() <= cached.expires) {
-      // Bump recency: re-set moves it to the end of Map's insertion order,
-      // which the eviction below reads as "most recently used".
-      messageBodyCache.set(cacheKey, cached)
-      return cached.data
+      // A cache hit only proves the body was real WHEN IT WAS FETCHED -- the
+      // message can have been deleted since, including entirely outside
+      // Marveen (straight in Gmail's own web client), which leaves no local
+      // signal to purge on. So a hit still pays for one cheap UID-only
+      // existence probe before being trusted (Boss, 2026-08-06: deleted a
+      // mail in Gmail, F5-refreshed Marveen, the reader pane kept showing it
+      // -- a bare TTL alone wasn't enough, this was well inside the window).
+      // Only a CONFIRMED-gone result evicts the entry; any other outcome
+      // (timeout, connection blip) trusts the cache exactly like before.
+      if (await messageStillExists(account, mailbox, id)) {
+        // Bump recency: delete + re-set moves it to the end of Map's
+        // insertion order, which the eviction below reads as "most recently
+        // used".
+        messageBodyCache.delete(cacheKey)
+        messageBodyCache.set(cacheKey, cached)
+        return cached.data
+      }
+      messageBodyCache.delete(cacheKey)
+      return { error: 'A levél már nem érhető el.', notFound: true }
     }
+    messageBodyCache.delete(cacheKey)
     // Expired -- fall through and re-fetch fresh instead of trusting a body
     // that may no longer exist server-side.
   }
@@ -325,6 +340,15 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
       return result
     }
     logger.warn(`[email] direct IMAP body fetch unavailable for uid=${id} mailbox=${mailbox}, falling back to himalaya`)
+    // The direct path returns null both for "message is gone" and for other
+    // failures (unsupported shape, timeout, ...) -- disambiguate with the same
+    // cheap existence probe used for cache-hit revalidation above, so a
+    // deleted message reports as gone instead of running the full (and, for
+    // a gone message, pointless) himalaya fallback below only to fail there
+    // too with a raw command-error string.
+    if (!(await messageStillExists(account, mailbox, id))) {
+      return { error: 'A levél már nem érhető el.', notFound: true }
+    }
   }
 
   // FALLBACK PATH: only reached when the direct-IMAP fast path above is
@@ -515,7 +539,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const id = url.searchParams.get('id')
     if (!isKnownAccount(account) || !id) { json(res, { error: 'account and id required' }, 400); return true }
     const body = await readMessageBody(account as string, mailbox, id)
-    if ('error' in body) { json(res, { error: body.error }, 502); return true }
+    if ('error' in body) { json(res, { error: body.error, notFound: body.notFound }, 502); return true }
     json(res, body)
     return true
   }

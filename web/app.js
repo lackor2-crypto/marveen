@@ -15622,6 +15622,19 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
   const params = new URLSearchParams({ account: emailAccount, mailbox, id })
   const msg = await (await fetch(`/api/email/message?${params}`)).json()
+  // The message this id pointed to is confirmed gone server-side (deleted,
+  // including straight in Gmail's own web client, outside Marveen entirely --
+  // Boss, 2026-08-06: F5-refreshed after doing exactly that and the reader
+  // pane kept showing the deleted mail's content). Not a load failure worth
+  // alarming over -- fall back to the same empty state a fresh page load
+  // shows, and stop remembering this id so a future F5 doesn't retry it.
+  if (msg.notFound) {
+    clearEmailReaderPane()
+    emailActiveId = null
+    emailActiveMailbox = null
+    saveEmailUiState()
+    return
+  }
   // A himalaya failure (e.g. timeout on a message with a large attachment --
   // Boss, 2026-08-05: a video-attached mail took 30+s and hit the old 20s
   // limit) used to render silently as if the mail were just empty --
