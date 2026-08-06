@@ -16364,11 +16364,25 @@ function openTerminalModal(agentName) {
     const buf = term.buffer.active
     return buf.viewportY >= buf.baseY
   }
+  // tmux capture-pane returns a full-height grid: real content plus blank
+  // tail rows for whatever's still empty on the live screen. Written as-is
+  // that pins short output to the top with a big empty gap below (Boss,
+  // 2026-08-06: "csak 3 sor lathato" when the modal is tall enough for 30).
+  // ANSI_RE strips color/style codes only for the blank-line test below —
+  // a row can carry a background-fill escape and still be visually empty.
+  const ANSI_RE = /\x1b\[[0-9;]*[a-zA-Z]/g
+  const isBlankLine = (line) => line.replace(ANSI_RE, '').trim() === ''
   const repaint = () => {
     if (latestPane === null || latestPane === paintedPane) return
     if (!isAtBottom()) return // user scrolled up — keep their view put
     paintedPane = latestPane
-    term.write('\x1b[3J\x1b[2J\x1b[H' + latestPane)
+    // Bottom-anchor: drop the blank tail rows, then pad the TOP with the
+    // difference so real content lands flush against the bottom, like a
+    // normal terminal — history above, latest line at the bottom.
+    const lines = latestPane.split('\n')
+    while (lines.length && isBlankLine(lines[lines.length - 1])) lines.pop()
+    const padRows = Math.max(0, term.rows - lines.length)
+    term.write('\x1b[3J\x1b[2J\x1b[H' + '\n'.repeat(padRows) + lines.join('\n'))
   }
   // EventSource cannot set an Authorization header. In token mode we pass the
   // token via ?token=; in password-login (session-cookie) mode there is no
