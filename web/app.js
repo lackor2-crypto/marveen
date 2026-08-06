@@ -14961,16 +14961,37 @@ function ensureEmailAccountNav() {
   if (emailAccounts.length) { renderEmailAccountNav(); return }
   if (!emailAccountsFetchPromise) {
     emailAccountsFetchPromise = fetch('/api/email/accounts')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error(`GET /api/email/accounts -> ${r.status}`)
+        return r.json()
+      })
       .then(data => { emailAccounts = Array.isArray(data) ? data : []; renderEmailAccountNav() })
-      .catch(() => { emailAccountsFetchPromise = null })
+      .catch((err) => {
+        // Boss, 2026-08-06: a non-200 response body still parses as JSON, so
+        // this used to be silently swallowed into an empty account list with
+        // no visible error anywhere -- the sidebar just showed nothing. Log
+        // it so a failure is at least visible in devtools, and let a future
+        // ensureEmailAccountNav() call retry instead of caching the failure.
+        console.error('[email] failed to load accounts:', err)
+        emailAccountsFetchPromise = null
+      })
   }
 }
 
 async function loadEmailPage() {
   if (!emailLoaded) {
     emailLoaded = true
-    if (!emailAccounts.length) emailAccounts = await (await fetch('/api/email/accounts')).json()
+    if (!emailAccounts.length) {
+      try {
+        const r = await fetch('/api/email/accounts')
+        if (!r.ok) throw new Error(`GET /api/email/accounts -> ${r.status}`)
+        const data = await r.json()
+        emailAccounts = Array.isArray(data) ? data : []
+      } catch (err) {
+        console.error('[email] failed to load accounts:', err)
+        emailAccounts = []
+      }
+    }
     const saved = loadEmailUiState()
     emailAccount = (saved?.account && emailAccounts.some(a => a.id === saved.account)) ? saved.account : (emailAccounts[0]?.id || null)
     if (saved?.mailbox) emailMailbox = saved.mailbox
