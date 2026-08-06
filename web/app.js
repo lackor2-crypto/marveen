@@ -14908,9 +14908,26 @@ const EMAIL_SYSTEM_MAILBOX_ORDER = [
 // the rendered label changes. Boss 2026-08-05: checked Gmail directly, the
 // inbox label there is "Beérkező levelek"; the "[Gmail]/" prefix on the other
 // system folders is IMAP plumbing, not something Gmail's own UI shows.
-const EMAIL_MAILBOX_DISPLAY_NAME = { 'Inbox': 'Beérkező levelek' }
+// Gmail's system folders (Sent/Drafts/Spam/...) are IMAP-path constants
+// above, matching the account's own Gmail-locale names (Hungarian, here) --
+// they must stay untouched for data-mailbox/API calls, but the RENDERED
+// label should follow the dashboard's own language regardless of what
+// language the Gmail account itself is set to.
+const EMAIL_MAILBOX_DISPLAY_KEY = {
+  'Inbox': 'email.mailbox.inbox',
+  [EMAIL_SENT_MAILBOX]: 'email.mailbox.sent',
+  '[Gmail]/Piszkozatok': 'email.mailbox.drafts',
+  '[Gmail]/Spam': 'email.mailbox.spam',
+  '[Gmail]/Kuka': 'email.mailbox.trash',
+  '[Gmail]/Fontos': 'email.mailbox.important',
+  '[Gmail]/Csillagozott': 'email.mailbox.starred',
+  '[Gmail]/Beszélgetések': 'email.mailbox.chats',
+  '[Gmail]/Összes levél': 'email.mailbox.all_mail',
+}
 function emailMailboxDisplayName(name) {
-  return EMAIL_MAILBOX_DISPLAY_NAME[name] || name.replace(/^\[Gmail\]\//, '')
+  const key = EMAIL_MAILBOX_DISPLAY_KEY[name]
+  if (key) return t(key)
+  return name.replace(/^\[Gmail\]\//, '')
 }
 
 function sortEmailMailboxes(mailboxes) {
@@ -14966,8 +14983,8 @@ function clearEmailReaderPane() {
   // content reset to their empty placeholders.
   if (actions) actions.innerHTML = ''
   if (subjectRow) subjectRow.innerHTML = ''
-  if (content) content.innerHTML = '<div class="email-reader-empty">Válassz egy levelet a listából.</div>'
-  if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
+  if (content) content.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.reader_empty'))}</div>`
+  if (attachmentsList) attachmentsList.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.no_attachments'))}</div>`
   if (downloadAllBtn) downloadAllBtn.hidden = true
 }
 
@@ -15252,9 +15269,9 @@ async function loadEmailMailboxes() {
   // reload would wipe it out.
   const pane = document.getElementById('emailMailboxList')
   if (!pane || !emailAccount) return
-  pane.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   const mailboxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json()
-  if (!Array.isArray(mailboxes)) { pane.innerHTML = '<div class="email-reader-empty">Hiba a mappák betöltésekor.</div>'; return }
+  if (!Array.isArray(mailboxes)) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailboxes_load_error'))}</div>`; return }
   const { system, custom } = sortEmailMailboxes(mailboxes)
   // System folders (Inbox, Sent, ...) never get a checkbox -- only user
   // labels can be deleted, an IMAP DELETE on a system folder would break
@@ -15267,9 +15284,9 @@ async function loadEmailMailboxes() {
   </div>`
   emailSelectedLabels = new Set([...emailSelectedLabels].filter(n => custom.some(m => m.name === n)))
   pane.innerHTML = system.map(item).join('')
-    + (system.length && custom.length ? '<div class="email-mailbox-section-label">Címkék</div>' : '')
+    + (system.length && custom.length ? `<div class="email-mailbox-section-label">${escapeHtml(t('email.labels_section'))}</div>` : '')
     + custom.map(labelItem).join('')
-    + '<div class="email-mailbox-item email-mailbox-new" id="emailNewMailboxBtn">+ Új címke</div>'
+    + `<div class="email-mailbox-item email-mailbox-new" id="emailNewMailboxBtn">${escapeHtml(t('email.new_label'))}</div>`
   pane.querySelectorAll('.email-mailbox-item[data-mailbox]').forEach(el => {
     // loadEmailMailboxes() already calls loadEmailEnvelopes() itself at the
     // end -- calling it again here used to just re-render the same list
@@ -15297,7 +15314,7 @@ async function loadEmailMailboxes() {
   })
   emailUpdateMailboxBulkDeleteUI()
   document.getElementById('emailNewMailboxBtn')?.addEventListener('click', async () => {
-    const name = window.prompt('Új címke neve:', '')
+    const name = window.prompt(t('email.new_label_prompt'), '')
     if (!name || !name.trim()) return
     const res = await fetch('/api/email/mailboxes', {
       method: 'POST',
@@ -15305,19 +15322,21 @@ async function loadEmailMailboxes() {
       body: JSON.stringify({ account: emailAccount, name: name.trim() }),
     })
     const data = await res.json()
-    if (!res.ok) { showToast(data.error || 'Hiba a címke létrehozásakor'); return }
+    if (!res.ok) { showToast(data.error || t('email.label_create_error')); return }
     loadEmailMailboxes()
   })
   await loadEmailEnvelopes()
 }
 
 function emailFmtDate(iso) {
-  try { return new Date(iso).toLocaleString('hu-HU', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return iso }
+  // Boss switched the dashboard to English and still saw Hungarian-format
+  // dates here -- this locale was hardcoded independent of window._lang.
+  try { return new Date(iso).toLocaleString(window._lang === 'en' ? 'en-US' : 'hu-HU', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return iso }
 }
 
 function emailUpdateBulkDeleteUI() {
   const btn = document.getElementById('emailBulkDeleteBtn')
-  if (btn) { btn.hidden = emailSelectedIds.size === 0; btn.textContent = `Törlés (${emailSelectedIds.size})` }
+  if (btn) { btn.hidden = emailSelectedIds.size === 0; btn.textContent = t('email.delete_count', { n: emailSelectedIds.size }) }
   const selectAll = document.getElementById('emailSelectAllCheckbox')
   if (selectAll) {
     const total = document.querySelectorAll('.email-envelope-check').length
@@ -15328,7 +15347,7 @@ function emailUpdateBulkDeleteUI() {
 
 function emailUpdateMailboxBulkDeleteUI() {
   const btn = document.getElementById('emailMailboxBulkDeleteBtn')
-  if (btn) { btn.hidden = emailSelectedLabels.size === 0; btn.textContent = `Törlés (${emailSelectedLabels.size})` }
+  if (btn) { btn.hidden = emailSelectedLabels.size === 0; btn.textContent = t('email.delete_count', { n: emailSelectedLabels.size }) }
   const selectAll = document.getElementById('emailMailboxSelectAllCheckbox')
   if (selectAll) {
     const total = document.querySelectorAll('.email-mailbox-check').length
@@ -15352,7 +15371,10 @@ document.getElementById('emailMailboxBulkDeleteBtn')?.addEventListener('click', 
   // Deleting a Gmail label is permanent (IMAP DELETE, no undo) -- a native
   // confirm is the minimum guardrail for a destructive action like this,
   // same weight as e.g. a kanban card delete elsewhere in the dashboard.
-  if (!window.confirm(`Biztosan törlöd ${names.length === 1 ? `a(z) "${names[0]}" címkét` : `ezt a ${names.length} címkét`}? Ez nem vonható vissza.`)) return
+  const confirmMsg = names.length === 1
+    ? t('email.confirm_delete_label_one', { name: names[0] })
+    : t('email.confirm_delete_label_many', { n: names.length })
+  if (!window.confirm(confirmMsg)) return
   const btn = document.getElementById('emailMailboxBulkDeleteBtn')
   if (btn) btn.disabled = true
   try {
@@ -15362,7 +15384,7 @@ document.getElementById('emailMailboxBulkDeleteBtn')?.addEventListener('click', 
       body: JSON.stringify({ account: emailAccount, names }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) { showToast(data.error || 'Hiba a címke törlésekor'); return }
+    if (!res.ok) { showToast(data.error || t('email.label_delete_error')); return }
     if (names.includes(emailMailbox)) { emailMailbox = 'Inbox'; saveEmailUiState() }
     emailSelectedLabels = new Set()
     loadEmailMailboxes()
@@ -15419,7 +15441,7 @@ document.getElementById('emailBulkDeleteBtn')?.addEventListener('click', async (
         .then(res => res.ok)
         .catch(() => false)
     ))
-    if (results.some(ok => !ok)) showToast('Néhány levél törlése nem sikerült')
+    if (results.some(ok => !ok)) showToast(t('email.bulk_delete_partial_fail'))
     const deleted = entries.filter((_, i) => results[i]).map(([id, mailbox]) => ({ id, mailbox }))
     const ids = deleted.map(d => d.id)
     if (ids.includes(emailActiveId)) {
@@ -15461,9 +15483,10 @@ function emailSubrowHtml(s) {
   // labeled as if it arrived FROM himself (Boss, 2026-08-05, screenshot:
   // "hogy lehet az, hogy Lackor2 kuldi Lackor2-nek").
   const isReceived = s.mailbox !== EMAIL_SENT_MAILBOX
+  const you = escapeHtml(t('email.you'))
   const label = isReceived
-    ? `${escapeHtml(s.from?.[0]?.name || s.from?.[0]?.email || '(ismeretlen)')} &rarr; Te`
-    : `Te &rarr; ${escapeHtml((s.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || '(ismeretlen)')}`
+    ? `${escapeHtml(s.from?.[0]?.name || s.from?.[0]?.email || t('email.unknown_sender'))} &rarr; ${you}`
+    : `${you} &rarr; ${escapeHtml((s.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || t('email.unknown_sender'))}`
   const active = String(s.id) === emailActiveId && emailActiveMailbox === s.mailbox
   // Star/important toggles used to exist only on the top anchor row -- every
   // nested reply (the account's OWN older replies, or a thread's earlier
@@ -15472,14 +15495,14 @@ function emailSubrowHtml(s) {
   const starred = !!s.flags?.some(f => f.iana === 'flagged')
   return `<div class="email-envelope-subrow${active ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}">
     <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}"${emailSelectedIds.has(String(s.id)) ? ' checked' : ''}>
-    <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-starred="${starred ? '1' : '0'}" title="Csillagozás">
+    <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
       <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
     </button>
-    <button class="email-important-btn" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-message-id="${escapeAttr(s['message-id'] || '')}" data-important="0" style="display:none" title="Fontos">
+    <button class="email-important-btn" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-message-id="${escapeAttr(s['message-id'] || '')}" data-important="0" style="display:none" title="${escapeAttr(t('email.important_tooltip'))}">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h13l-2.5 5L17 13H6v8H4z"/></svg>
     </button>
     <span class="email-envelope-subrow-label">${label}</span>
-    <svg class="email-envelope-attachment-flag email-envelope-subrow-attachment-flag" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" style="display:none" title="Van melléklete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+    <svg class="email-envelope-attachment-flag email-envelope-subrow-attachment-flag" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" style="display:none" title="${escapeAttr(t('email.has_attachment_tooltip'))}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
     <span class="email-envelope-subrow-date">${emailFmtDate(s.date)}</span>
   </div>`
 }
@@ -15490,7 +15513,7 @@ async function loadEmailEnvelopes() {
   // now, must survive reloads).
   const pane = document.getElementById('emailEnvelopeList')
   if (!pane || !emailAccount) return
-  pane.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   // No selection reset here -- opening a message marks it read, which
   // silently reloads this same list a moment later (see loadEmailMessage
   // below); wiping the selection on every such refresh made a bulk pick
@@ -15500,9 +15523,9 @@ async function loadEmailEnvelopes() {
   emailUpdateBulkDeleteUI()
   const params = new URLSearchParams({ account: emailAccount, mailbox: emailMailbox })
   const list = await (await fetch(`/api/email/envelopes?${params}`)).json()
-  if (!Array.isArray(list)) { pane.innerHTML = '<div class="email-reader-empty">Hiba a levelek betöltésekor.</div>'; return }
+  if (!Array.isArray(list)) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`; return }
   emailEnvelopes = list
-  if (!list.length) { pane.innerHTML = '<div class="email-reader-empty">Nincs levél ebben a mappában.</div>'; return }
+  if (!list.length) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailbox_empty'))}</div>`; return }
   emailSiblingEnvelopes = {}
   // Fold same-subject duplicates WITHIN this mailbox into one group instead
   // of separate top-level rows -- e.g. a self-addressed test reply lands
@@ -15553,8 +15576,8 @@ async function loadEmailEnvelopes() {
     // elkuldte. De kinek? Sehol nem latom"). The useful info there is who it
     // went TO instead.
     const from = emailMailbox === EMAIL_SENT_MAILBOX
-      ? `Címzett: ${(e.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || '(ismeretlen)'}`
-      : (e.from?.[0]?.name || e.from?.[0]?.email || '(ismeretlen)')
+      ? t('email.recipient_prefix', { name: (e.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || t('email.unknown_sender') })
+      : (e.from?.[0]?.name || e.from?.[0]?.email || t('email.unknown_sender'))
     const active = String(e.id) === emailActiveId && emailActiveMailbox === emailMailbox
     const extras = (nestedBySubject.get(emailGroupKey(e)) || [])
       // `to` was missing here -- emailSubrowHtml's "Te -> X" label needs it
@@ -15572,18 +15595,18 @@ async function loadEmailEnvelopes() {
     return `<div class="email-envelope-group" data-group-id="${escapeHtml(e.id)}">
       <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}">
         <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}"${emailSelectedIds.has(String(e.id)) ? ' checked' : ''}>
-        <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="Csillagozás">
+        <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
           <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
         </button>
-        <button class="email-important-btn" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-message-id="${escapeAttr(e['message-id'] || '')}" data-important="0" style="display:none" title="Fontos">
+        <button class="email-important-btn" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-message-id="${escapeAttr(e['message-id'] || '')}" data-important="0" style="display:none" title="${escapeAttr(t('email.important_tooltip'))}">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h13l-2.5 5L17 13H6v8H4z"/></svg>
         </button>
         <div class="email-envelope-body">
           <div class="email-envelope-from">${escapeHtml(from)}</div>
-          <div class="email-envelope-subject">${escapeHtml(e.subject || '(nincs tárgy)')}</div>
+          <div class="email-envelope-subject">${escapeHtml(e.subject || t('email.no_subject'))}</div>
           <div class="email-envelope-date">${emailFmtDate(e.date)}</div>
         </div>
-        <svg class="email-envelope-attachment-flag" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" style="display:none" title="Van melléklete" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+        <svg class="email-envelope-attachment-flag" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" style="display:none" title="${escapeAttr(t('email.has_attachment_tooltip'))}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
       </div>
       ${nested.map(s => emailSubrowHtml(s)).join('')}
     </div>`
@@ -15606,7 +15629,7 @@ async function loadEmailEnvelopes() {
         body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, starred: !starred }),
       }).catch(() => null)
       btn.disabled = false
-      if (!res || !res.ok) { showToast('Hiba a csillagozás során'); return }
+      if (!res || !res.ok) { showToast(t('email.star_error')); return }
       btn.dataset.starred = starred ? '0' : '1'
       btn.classList.toggle('active', !starred)
       const svg = btn.querySelector('svg')
@@ -15627,7 +15650,7 @@ async function loadEmailEnvelopes() {
         body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, important: !important, messageId: btn.dataset.messageId }),
       }).catch(() => null)
       btn.disabled = false
-      if (!res || !res.ok) { showToast('Hiba a "Fontos" jelölés során'); return }
+      if (!res || !res.ok) { showToast(t('email.important_error')); return }
       btn.dataset.important = important ? '0' : '1'
       btn.classList.toggle('active', !important)
       btn.style.display = ''
@@ -15739,7 +15762,7 @@ function renderEmailMessageBody(msg) {
   if (!slot) return
   const html = (msg.html || '').trim()
   if (!html) {
-    slot.innerHTML = `<div class="email-reader-body">${escapeHtml(msg.text || '(üres törzs)')}</div>`
+    slot.innerHTML = `<div class="email-reader-body">${escapeHtml(msg.text || t('email.empty_body'))}</div>`
     return
   }
   const frame = document.createElement('iframe')
@@ -15832,9 +15855,9 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   // row, and the body content below it are (re)populated per message.
   if (actions) actions.innerHTML = ''
   if (subjectRow) subjectRow.innerHTML = ''
-  content.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  content.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   const attachmentsList = document.getElementById('emailAttachmentsList')
-  if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
+  if (attachmentsList) attachmentsList.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   const params = new URLSearchParams({ account: emailAccount, mailbox, id })
   const msg = await (await fetch(`/api/email/message?${params}`)).json()
   // The message this id pointed to is confirmed gone server-side (deleted,
@@ -15856,24 +15879,24 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   // msg.text/html/attachments all undefined, no visible error at all,
   // indistinguishable from an actually-blank message. Surface it instead.
   if (msg.error) {
-    content.innerHTML = `<div class="email-reader-empty">Hiba a levél betöltésekor: ${escapeHtml(msg.error)}</div>`
-    if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
-    showToast('Hiba a levél betöltésekor')
+    content.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.load_message_error_prefix', { error: msg.error }))}</div>`
+    if (attachmentsList) attachmentsList.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.no_attachments'))}</div>`
+    showToast(t('email.load_message_error'))
     return
   }
-  const from = envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '(ismeretlen)'
+  const from = envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || t('email.unknown_sender')
   const attachments = Array.isArray(msg.attachments) ? msg.attachments : []
   if (subjectRow) subjectRow.innerHTML = `
     <div class="email-reader-subject-row">
-      <div class="email-reader-subject">${escapeHtml(envelope?.subject || '(nincs tárgy)')}</div>
+      <div class="email-reader-subject">${escapeHtml(envelope?.subject || t('email.no_subject'))}</div>
       <div class="email-reader-meta">${escapeHtml(from)} -- ${emailFmtDate(envelope?.date || '')}</div>
     </div>
   `
   if (actions) actions.innerHTML = `
-    <button class="btn-secondary btn-compact" id="emailReplyBtn">Válasz</button>
-    <button class="btn-secondary btn-compact" id="emailForwardBtn">Továbbítás</button>
-    <button class="btn-secondary btn-compact" id="emailArchiveBtn">Archiválás</button>
-    <button class="btn-danger btn-compact" id="emailDeleteBtn">Törlés</button>
+    <button class="btn-secondary btn-compact" id="emailReplyBtn">${escapeHtml(t('email.btn.reply'))}</button>
+    <button class="btn-secondary btn-compact" id="emailForwardBtn">${escapeHtml(t('email.btn.forward'))}</button>
+    <button class="btn-secondary btn-compact" id="emailArchiveBtn">${escapeHtml(t('email.btn.archive'))}</button>
+    <button class="btn-danger btn-compact" id="emailDeleteBtn">${escapeHtml(t('common.delete'))}</button>
   `
   content.innerHTML = `
     <div class="email-reader-body-slot" id="emailReaderBodySlot"></div>
@@ -15899,7 +15922,7 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
     const res = await fetch('/api/email/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id }) })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      showToast(data.error || 'Hiba az archiválás során')
+      showToast(data.error || t('email.archive_error'))
       archiveBtn.disabled = false
       return
     }
@@ -15915,7 +15938,7 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
     const res = await fetch('/api/email/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: emailAccount, mailbox, id }) })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      showToast(data.error || 'Hiba a törlés során')
+      showToast(data.error || t('email.delete_error'))
       deleteBtn.disabled = false
       return
     }
@@ -15941,12 +15964,12 @@ function emailShowCompose(kind, id, envelope, mailbox = emailMailbox) {
   const isForward = kind === 'forward'
   slot.innerHTML = `
     <div class="email-compose-form">
-      <div class="email-compose-title">${isForward ? 'Továbbítás' : 'Válasz'}${isForward ? '' : ` -- ${escapeHtml(envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '')}`}</div>
-      ${isForward ? '<input type="text" class="input" id="emailComposeTo" placeholder="Címzett email címe">' : ''}
-      <textarea class="input" id="emailComposeText" rows="6" placeholder="Szöveg..."></textarea>
+      <div class="email-compose-title">${isForward ? escapeHtml(t('email.btn.forward')) : escapeHtml(t('email.btn.reply'))}${isForward ? '' : ` -- ${escapeHtml(envelope?.from?.[0]?.name || envelope?.from?.[0]?.email || '')}`}</div>
+      ${isForward ? `<input type="text" class="input" id="emailComposeTo" placeholder="${escapeAttr(t('email.compose_recipient_placeholder'))}">` : ''}
+      <textarea class="input" id="emailComposeText" rows="6" placeholder="${escapeAttr(t('email.compose_text_placeholder'))}"></textarea>
       <div class="email-compose-actions">
-        <button class="btn-primary btn-compact" id="emailComposeSendBtn">Küldés</button>
-        <button class="btn-secondary btn-compact" id="emailComposeCancelBtn">Mégse</button>
+        <button class="btn-primary btn-compact" id="emailComposeSendBtn">${escapeHtml(t('email.btn.send'))}</button>
+        <button class="btn-secondary btn-compact" id="emailComposeCancelBtn">${escapeHtml(t('email.btn.cancel'))}</button>
       </div>
     </div>
   `
@@ -15954,18 +15977,18 @@ function emailShowCompose(kind, id, envelope, mailbox = emailMailbox) {
   document.getElementById('emailComposeSendBtn').addEventListener('click', async () => {
     const text = document.getElementById('emailComposeText').value.trim()
     const to = isForward ? document.getElementById('emailComposeTo').value.trim() : null
-    if (!text) { showToast('Írj be szöveget.'); return }
-    if (isForward && !to) { showToast('Add meg a címzettet.'); return }
+    if (!text) { showToast(t('email.compose_empty_text')); return }
+    if (isForward && !to) { showToast(t('email.compose_missing_recipient')); return }
     const sendBtn = document.getElementById('emailComposeSendBtn')
     sendBtn.disabled = true
-    sendBtn.textContent = 'Küldés...'
+    sendBtn.textContent = t('email.sending')
     const body = isForward
       ? { account: emailAccount, mailbox, id, to, text }
       : { account: emailAccount, mailbox, id, text }
     const res = await fetch(`/api/email/${kind}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = await res.json()
-    if (!res.ok) { showToast(data.error || 'Hiba a küldés során'); sendBtn.disabled = false; sendBtn.textContent = 'Küldés'; return }
-    showToast(isForward ? 'Továbbítva' : 'Válasz elküldve')
+    if (!res.ok) { showToast(data.error || t('email.send_error')); sendBtn.disabled = false; sendBtn.textContent = t('email.btn.send'); return }
+    showToast(isForward ? t('email.forwarded_toast') : t('email.reply_sent_toast'))
     slot.innerHTML = ''
   })
 }
@@ -15986,7 +16009,7 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
   const downloadAllBtn = document.getElementById('emailAttachmentsDownloadAllBtn')
   if (!pane) return
   if (!attachments.length) {
-    pane.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
+    pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.no_attachments'))}</div>`
     if (downloadAllBtn) downloadAllBtn.hidden = true
     return
   }
@@ -16001,13 +16024,13 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
   // lightbox can reuse the same object URL instead of re-fetching.
   const objectUrls = {}
   pane.innerHTML = attachments.map((a, i) => `<div class="email-attachment-card">
-      ${previewable(a) ? `<div class="email-attachment-preview email-attachment-preview-loading" id="emailAttPreview-${i}">Betöltés...</div>` : ''}
+      ${previewable(a) ? `<div class="email-attachment-preview email-attachment-preview-loading" id="emailAttPreview-${i}">${escapeHtml(t('common.loading'))}</div>` : ''}
       <div class="email-attachment-info">
         <span class="email-attachment-name" title="${escapeAttr(a.filename)}">📎 ${escapeHtml(a.filename)}</span>
         <span class="email-attachment-size">${emailFmtSize(a.size)}</span>
         <div class="email-attachment-actions">
-          ${previewable(a) ? `<button class="btn-secondary btn-compact email-attachment-zoom" data-i="${i}" title="Nagyítás">🔍 Nagyítás</button>` : ''}
-          <button class="btn-secondary btn-compact email-attachment-download" data-i="${i}">Letöltés</button>
+          ${previewable(a) ? `<button class="btn-secondary btn-compact email-attachment-zoom" data-i="${i}" title="${escapeAttr(t('email.zoom_tooltip'))}">🔍 ${escapeHtml(t('email.zoom_tooltip'))}</button>` : ''}
+          <button class="btn-secondary btn-compact email-attachment-download" data-i="${i}">${escapeHtml(t('email.btn.download'))}</button>
         </div>
       </div>
     </div>`).join('')
@@ -16053,7 +16076,7 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
     }).catch((err) => {
       console.error('[email] attachment preview failed:', err)
       slot.classList.remove('email-attachment-preview-loading')
-      slot.textContent = 'Nem sikerült betölteni az előnézetet.'
+      slot.textContent = t('email.attachment_preview_error')
     })
   })
 
@@ -16075,7 +16098,7 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
       try {
         await downloadOne(attachments[Number(btn.dataset.i)])
       } catch {
-        showToast('Hiba a melléklet letöltésekor')
+        showToast(t('email.attachment_download_error'))
       } finally {
         btn.disabled = false
       }
@@ -16092,7 +16115,7 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
         objectUrls[i] = objectUrl
         openEmailAttachmentLightbox(a, objectUrl)
       } catch {
-        showToast('Hiba a melléklet megnyitásakor')
+        showToast(t('email.attachment_open_error'))
       } finally {
         btn.disabled = false
       }
@@ -16112,7 +16135,7 @@ function renderEmailAttachments(attachments, messageId, mailbox = emailMailbox) 
         // browser downloads at once is what gets flagged as a popup/download
         // flood by some browsers' safety heuristics.
         for (const a of attachments) {
-          try { await downloadOne(a) } catch { showToast(`Hiba: ${a.filename}`) }
+          try { await downloadOne(a) } catch { showToast(t('email.attachment_download_all_error_prefix', { filename: a.filename })) }
         }
       } finally {
         freshBtn.disabled = false

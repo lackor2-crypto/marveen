@@ -1401,24 +1401,24 @@
         <div class="page-header-row">
           <div>
             <h1>Email</h1>
-            <p class="subtitle">Egységes postafiók-nézet</p>
+            <p class="subtitle" data-i18n="email.subtitle">Egységes postafiók-nézet</p>
           </div>
         </div>
       </div>
       <div class="email-layout" id="emailLayout">
         <div class="email-pane email-pane-mailboxes" id="emailMailboxPane">
           <div class="email-column-header email-list-header" id="emailMailboxHeader">
-            <label class="email-select-all"><input type="checkbox" id="emailMailboxSelectAllCheckbox">Kijelöl</label>
-            <span class="email-list-header-title">Mappák</span>
-            <button class="btn-danger btn-compact" id="emailMailboxBulkDeleteBtn" hidden>Törlés</button>
+            <label class="email-select-all"><input type="checkbox" id="emailMailboxSelectAllCheckbox"><span data-i18n="email.select_all">Kijelöl</span></label>
+            <span class="email-list-header-title" data-i18n="email.folders_title">Mappák</span>
+            <button class="btn-danger btn-compact" id="emailMailboxBulkDeleteBtn" hidden data-i18n="common.delete">Törlés</button>
           </div>
           <div id="emailMailboxList"></div>
         </div>
         <div class="email-pane email-pane-list" id="emailListPane">
           <div class="email-column-header email-list-header" id="emailListHeader">
-            <label class="email-select-all"><input type="checkbox" id="emailSelectAllCheckbox">Kijelöl</label>
-            <span class="email-list-header-title">Levelek</span>
-            <button class="btn-danger btn-compact" id="emailBulkDeleteBtn" hidden>Törlés</button>
+            <label class="email-select-all"><input type="checkbox" id="emailSelectAllCheckbox"><span data-i18n="email.select_all">Kijelöl</span></label>
+            <span class="email-list-header-title" data-i18n="email.messages_title">Levelek</span>
+            <button class="btn-danger btn-compact" id="emailBulkDeleteBtn" hidden data-i18n="common.delete">Törlés</button>
           </div>
           <div id="emailEnvelopeList"></div>
         </div>
@@ -1426,22 +1426,22 @@
           <div class="email-column-header email-reader-sticky-header">
             <div class="email-list-header">
               <span></span>
-              <span class="email-list-header-title">A levél tartalma</span>
+              <span class="email-list-header-title" data-i18n="email.reader_title">A levél tartalma</span>
               <div id="emailReaderActions" class="email-reader-actions"></div>
             </div>
             <div id="emailReaderSubjectRow"></div>
           </div>
           <div id="emailReaderContent">
-            <div class="email-reader-empty">Válassz egy levelet a listából.</div>
+            <div class="email-reader-empty" data-i18n="email.reader_empty">Válassz egy levelet a listából.</div>
           </div>
         </div>
         <div class="email-pane email-pane-attachments" id="emailAttachmentsPane">
           <div class="email-column-header email-list-header" id="emailAttachmentsHeader">
             <span></span>
-            <span class="email-list-header-title">Mellékletek</span>
-            <button class="btn-secondary btn-compact" id="emailAttachmentsDownloadAllBtn" hidden>Letöltés mind</button>
+            <span class="email-list-header-title" data-i18n="email.attachments_title">Mellékletek</span>
+            <button class="btn-secondary btn-compact" id="emailAttachmentsDownloadAllBtn" hidden data-i18n="email.download_all">Letöltés mind</button>
           </div>
-          <div id="emailAttachmentsList"><div class="email-reader-empty">Nincs melléklet.</div></div>
+          <div id="emailAttachmentsList"><div class="email-reader-empty" data-i18n="email.no_attachments">Nincs melléklet.</div></div>
         </div>
       </div>
     </div>
