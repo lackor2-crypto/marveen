@@ -390,7 +390,13 @@ export async function readMessageBodyDirect(accountId: string, mailbox: string, 
 
     const partIds = [body.textPart, body.htmlPart].filter((p): p is string => !!p)
     const bodyParts: Array<string | { key: string }> = []
-    for (const p of partIds) { bodyParts.push(p, `${p}.MIME`) }
+    // Lowercase "mime", not "MIME": confirmed live -- whatever case is
+    // requested, imapflow's response Map always keys the MIME-header part as
+    // "<part>.mime" (lowercase). Requesting/looking up "MIME" silently
+    // returns undefined for that key, which used to make every message with
+    // a body fall through to `!mime || !content` and return null (fall back
+    // to himalaya) even though the fetch itself succeeded.
+    for (const p of partIds) { bodyParts.push(p, `${p}.mime`) }
     const fetched = await withTimeout(client.fetchOne(uid, { bodyParts }, { uid: true }), FETCH_TIMEOUT_MS)
     if (!fetched || !fetched.bodyParts) return null
 
@@ -404,7 +410,7 @@ export async function readMessageBodyDirect(accountId: string, mailbox: string, 
     let text = ''
     let html = ''
     for (const p of partIds) {
-      const mime = fetched.bodyParts.get(`${p}.MIME`)
+      const mime = fetched.bodyParts.get(`${p}.mime`)
       const content = fetched.bodyParts.get(p)
       if (!mime || !content) continue
       const synthetic = Buffer.concat([mime, content])
