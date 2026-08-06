@@ -79,11 +79,16 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
     // currently-open page updates live, not just after a manual reload.
     if (typeof renderStaticI18n === 'function') renderStaticI18n()
     // Re-render the active page by re-triggering the switchPage handler.
-    const activeLink = document.querySelector('.sb-link.active[data-page]')
-    if (activeLink) {
-      const pageId = activeLink.dataset.page
-      if (typeof switchPage === 'function') switchPage(pageId)
-    }
+    // location.hash (not a `.active` nav-link query) is the source of truth
+    // for the current page -- dynamically-added nav links (e.g. each email
+    // account's own sidebar link, rendered by renderEmailAccountNav() long
+    // after this IIFE's `navLinks` snapshot was taken) never get their
+    // `.active` class cleared by switchPage(), so querying `.active` could
+    // match one of THOSE instead of the real current page and silently
+    // navigate away on every language switch (Boss, 2026-08-06/07: "a
+    // nyelvvalasztonak csak a nyelvet kellene modositania nem az oldalt").
+    const pageId = location.hash.slice(1) || 'overview'
+    if (typeof switchPage === 'function') switchPage(pageId)
   }
 })()
 
@@ -356,7 +361,13 @@ function switchPage(pageId) {
   // Guard unsaved settings before leaving the settings page
   if (!document.getElementById('settingsPage').hidden && pageId !== 'settings' && !confirmSettingsLeave()) return
   pages.forEach((p) => (p.hidden = p.id !== pageId + 'Page'))
-  navLinks.forEach((l) => l.classList.toggle('active', l.dataset.page === pageId))
+  // Re-queried live, NOT the module-level `navLinks` snapshot -- that const
+  // was captured once at script load, before dynamically-rendered nav links
+  // (each email account's own sidebar entry, added later by
+  // renderEmailAccountNav()) existed, so it can never clear THEIR .active
+  // class and they'd stay visually "active" forever after first being
+  // selected once, regardless of which page is actually open.
+  document.querySelectorAll('.sb-link[data-page], .nav-link[data-page]').forEach((l) => l.classList.toggle('active', l.dataset.page === pageId))
   openSidebarGroupForPage(pageId)
   // Kanban and Email need full-width layout (overrides main's max-width: 1200px)
   document.querySelector('main').classList.toggle('kanban-active', pageId === 'kanban')
@@ -14988,74 +14999,144 @@ function ensureEmailAccountNav() {
   }
 }
 
-// === Iroda "Beallitasok" -> IMAP/SMTP account settings form ================
+// === Iroda "Beallitasok" -> category menu, drilling into each category's
+// own form. Email is the only category today; more join this list later
+// without email settings needing to be the whole page (Boss, 2026-08-06).
 let irodaSettingsActiveAccount = null
-async function loadIrodaSettings() {
-  ensureEmailAccountNav()
-  if (emailAccountsFetchPromise) await emailAccountsFetchPromise
+let irodaSettingsCategoryWired = false
+let irodaSettingsInDetailView = false
+function loadIrodaSettings() {
+  // switchPage('irodaSettings') re-fires on every language switch too (see
+  // setLang() -- it re-triggers the current page's loader so translated
+  // static text picks up), which used to unconditionally reset this page
+  // back to the category list even mid-way through filling out the email
+  // form (Boss, 2026-08-06/07: "atkerultem a beallitasokba... miert nem
+  // marad ugyanott az oldal"). Re-render the SAME sub-view in place instead
+  // of resetting it.
+  if (irodaSettingsInDetailView) {
+    renderIrodaSettingsTabs()
+    renderIrodaSettingsForm(irodaSettingsActiveAccount)
+    return
+  }
+  document.getElementById('irodaSettingsCategoryList').hidden = false
+  document.getElementById('irodaSettingsDetailView').hidden = true
+  if (irodaSettingsCategoryWired) return
+  irodaSettingsCategoryWired = true
+  document.querySelectorAll('#irodaSettingsCategoryList .iroda-settings-category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.category === 'email') openIrodaEmailSettings()
+    })
+  })
+  document.getElementById('irodaSettingsBackBtn').addEventListener('click', () => {
+    irodaSettingsInDetailView = false
+    document.getElementById('irodaSettingsCategoryList').hidden = false
+    document.getElementById('irodaSettingsDetailView').hidden = true
+  })
+}
+
+function renderIrodaSettingsTabs() {
   const tabNav = document.getElementById('irodaSettingsAccountTabs')
   if (!tabNav) return
-  if (!irodaSettingsActiveAccount && emailAccounts.length) irodaSettingsActiveAccount = emailAccounts[0].id
-  tabNav.innerHTML = emailAccounts.map(a =>
+  const accountTabs = emailAccounts.map(a =>
     `<button type="button" class="tab-btn${a.id === irodaSettingsActiveAccount ? ' active' : ''}" data-account="${escapeAttr(a.id)}">${escapeHtml(a.label)}</button>`
   ).join('')
+  tabNav.innerHTML = accountTabs + `<button type="button" class="tab-btn tab-btn-new${irodaSettingsActiveAccount === null ? ' active' : ''}" data-account="">+ ${escapeHtml(t('irodaSettings.new_account'))}</button>`
   tabNav.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      irodaSettingsActiveAccount = btn.dataset.account
+      irodaSettingsActiveAccount = btn.dataset.account || null
       tabNav.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn))
       renderIrodaSettingsForm(irodaSettingsActiveAccount)
     })
   })
-  if (irodaSettingsActiveAccount) renderIrodaSettingsForm(irodaSettingsActiveAccount)
 }
 
+async function openIrodaEmailSettings() {
+  irodaSettingsInDetailView = true
+  document.getElementById('irodaSettingsCategoryList').hidden = true
+  document.getElementById('irodaSettingsDetailView').hidden = false
+  ensureEmailAccountNav()
+  if (emailAccountsFetchPromise) await emailAccountsFetchPromise
+  if (!irodaSettingsActiveAccount && emailAccounts.length) irodaSettingsActiveAccount = emailAccounts[0].id
+  renderIrodaSettingsTabs()
+  renderIrodaSettingsForm(irodaSettingsActiveAccount)
+}
+
+// account === null means the "+ Uj fiok" tab -- an empty form with an extra
+// Email cim field (the account id is derived from it server-side) instead of
+// loading an existing account's saved config.
 async function renderIrodaSettingsForm(account) {
   const wrap = document.getElementById('irodaSettingsFormWrap')
   if (!wrap) return
-  wrap.innerHTML = `<p>${t('common.loading') || 'Betöltés...'}</p>`
-  let cfg
-  try {
-    const res = await fetch(`/api/email/account-config?${new URLSearchParams({ account })}`)
-    cfg = await res.json()
-    if (!res.ok) throw new Error(cfg.error || `HTTP ${res.status}`)
-  } catch (err) {
-    wrap.innerHTML = `<p style="color:var(--danger)">Nem sikerült betölteni: ${escapeHtml(err.message)}</p>`
-    return
+  const isNew = account === null
+  let cfg = { imapHost: 'imap.gmail.com', imapPort: 993, imapEncryption: 'tls', imapUsername: '', smtpHost: 'smtp.gmail.com', smtpPort: 465, smtpEncryption: 'tls', smtpUsername: '', hasStoredPassword: false }
+  if (!isNew) {
+    wrap.innerHTML = `<p>${t('common.loading')}</p>`
+    try {
+      const res = await fetch(`/api/email/account-config?${new URLSearchParams({ account })}`)
+      cfg = await res.json()
+      if (!res.ok) throw new Error(cfg.error || `HTTP ${res.status}`)
+    } catch (err) {
+      wrap.innerHTML = `<p style="color:var(--danger)">${t('irodaSettings.load_error')} ${escapeHtml(err.message)}</p>`
+      return
+    }
   }
   // Same command/password for IMAP+SMTP is the pattern every account here
   // already uses (see config.toml) -- one password field covers both.
+  const tip = (text) => `<span class="field-tip" tabindex="0" title="${escapeAttr(text)}">?</span>`
+  const encryptionOptions = (selected) => ['tls', 'starttls', 'none']
+    .map(v => `<option value="${v}"${v === selected ? ' selected' : ''}>${escapeHtml(t(`irodaSettings.encryption.${v}`))}</option>`).join('')
   wrap.innerHTML = `
+    ${isNew ? `<div class="form-group"><label class="form-label">${t('irodaSettings.field.email')} ${tip(t('irodaSettings.tip.email'))}</label><input type="email" class="input" id="irodaNewEmail" placeholder="${escapeAttr(t('irodaSettings.placeholder.email'))}"></div>` : ''}
     <div class="form-row">
-      <div class="form-group form-half"><label class="form-label">IMAP host</label><input type="text" class="input" id="irodaImapHost" value="${escapeAttr(cfg.imapHost || '')}"></div>
-      <div class="form-group" style="width:100px"><label class="form-label">Port</label><input type="number" class="input" id="irodaImapPort" value="${cfg.imapPort || 993}"></div>
-      <div class="form-group" style="width:70px"><label class="form-label">TLS</label><input type="checkbox" id="irodaImapTls" ${cfg.imapTls !== false ? 'checked' : ''} style="width:20px;height:20px;margin-top:8px"></div>
+      <div class="form-group form-half"><label class="form-label">${t('irodaSettings.field.imap_host')} ${tip(t('irodaSettings.tip.imap_host'))}</label><input type="text" class="input" id="irodaImapHost" placeholder="imap.gmail.com" value="${escapeAttr(cfg.imapHost || '')}"></div>
+      <div class="form-group" style="width:100px"><label class="form-label">${t('irodaSettings.field.port')} ${tip(t('irodaSettings.tip.imap_port'))}</label><input type="number" class="input" id="irodaImapPort" value="${cfg.imapPort || 993}"></div>
+      <div class="form-group" style="width:130px"><label class="form-label">${t('irodaSettings.field.encryption')} ${tip(t('irodaSettings.tip.encryption'))}</label><select class="input" id="irodaImapEncryption">${encryptionOptions(cfg.imapEncryption || 'tls')}</select></div>
     </div>
-    <div class="form-group"><label class="form-label">IMAP felhasználónév</label><input type="text" class="input" id="irodaImapUsername" value="${escapeAttr(cfg.imapUsername || '')}"></div>
+    <div class="form-group"><label class="form-label">${t('irodaSettings.field.imap_username')} ${tip(t('irodaSettings.tip.imap_username'))}</label><input type="text" class="input" id="irodaImapUsername" placeholder="${escapeAttr(t('irodaSettings.placeholder.username'))}" value="${escapeAttr(cfg.imapUsername || '')}"></div>
     <div class="form-row">
-      <div class="form-group form-half"><label class="form-label">SMTP host</label><input type="text" class="input" id="irodaSmtpHost" value="${escapeAttr(cfg.smtpHost || '')}"></div>
-      <div class="form-group" style="width:100px"><label class="form-label">Port</label><input type="number" class="input" id="irodaSmtpPort" value="${cfg.smtpPort || 465}"></div>
-      <div class="form-group" style="width:70px"><label class="form-label">TLS</label><input type="checkbox" id="irodaSmtpTls" ${cfg.smtpTls !== false ? 'checked' : ''} style="width:20px;height:20px;margin-top:8px"></div>
+      <div class="form-group form-half"><label class="form-label">${t('irodaSettings.field.smtp_host')} ${tip(t('irodaSettings.tip.smtp_host'))}</label><input type="text" class="input" id="irodaSmtpHost" placeholder="smtp.gmail.com" value="${escapeAttr(cfg.smtpHost || '')}"></div>
+      <div class="form-group" style="width:100px"><label class="form-label">${t('irodaSettings.field.port')} ${tip(t('irodaSettings.tip.smtp_port'))}</label><input type="number" class="input" id="irodaSmtpPort" value="${cfg.smtpPort || 465}"></div>
+      <div class="form-group" style="width:130px"><label class="form-label">${t('irodaSettings.field.encryption')} ${tip(t('irodaSettings.tip.encryption'))}</label><select class="input" id="irodaSmtpEncryption">${encryptionOptions(cfg.smtpEncryption || 'tls')}</select></div>
     </div>
-    <div class="form-group"><label class="form-label">SMTP felhasználónév</label><input type="text" class="input" id="irodaSmtpUsername" value="${escapeAttr(cfg.smtpUsername || '')}"></div>
+    <div class="form-group"><label class="form-label">${t('irodaSettings.field.smtp_username')} ${tip(t('irodaSettings.tip.smtp_username'))}</label><input type="text" class="input" id="irodaSmtpUsername" placeholder="${escapeAttr(t('irodaSettings.placeholder.username'))}" value="${escapeAttr(cfg.smtpUsername || '')}"></div>
     <div class="form-group">
-      <label class="form-label">Jelszó${cfg.hasStoredPassword ? ' (változatlan hagyáshoz üresen hagyd)' : ''}</label>
-      <input type="password" class="input" id="irodaPassword" placeholder="${cfg.hasStoredPassword ? 'Üresen hagyva a mostani marad' : 'Add meg a jelszót / app-jelszót'}" autocomplete="new-password">
-      <p style="font-size:12px;color:var(--text-muted);margin-top:4px">Gmail-fióknál app-jelszó kell, nem a sima Gmail-jelszó -- google.com/myaccount/apppasswords.</p>
+      <label class="form-label">${t('irodaSettings.field.password')}${cfg.hasStoredPassword ? t('irodaSettings.field.password_keep_suffix') : ''} ${tip(t('irodaSettings.tip.password'))}</label>
+      <input type="password" class="input" id="irodaPassword" placeholder="${cfg.hasStoredPassword ? escapeAttr(t('irodaSettings.placeholder.password_keep')) : escapeAttr(t('irodaSettings.placeholder.password_new'))}" autocomplete="new-password">
+      <p style="font-size:12px;color:var(--text-muted);margin-top:4px">
+        ${escapeHtml(t('irodaSettings.password_help_gmail'))} <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>.<br>
+        ${escapeHtml(t('irodaSettings.password_help_missing'))} <a href="https://myaccount.google.com/security" target="_blank" rel="noopener">myaccount.google.com</a> ${escapeHtml(t('irodaSettings.password_help_2fa'))}
+      </p>
     </div>
     <div id="irodaSettingsStatus" style="margin:8px 0;font-size:13px"></div>
     <div style="display:flex;gap:8px">
-      <button class="btn-secondary btn-compact" id="irodaTestBtn">Kapcsolat tesztelése</button>
-      <button class="btn-primary" id="irodaSaveBtn">Mentés</button>
+      <button class="btn-secondary btn-compact" id="irodaTestBtn">${t('irodaSettings.btn.test')}</button>
+      <button class="btn-primary" id="irodaSaveBtn">${isNew ? t('irodaSettings.btn.add_account') : t('irodaSettings.btn.save')}</button>
     </div>`
+  // Typing the new-account email auto-fills both username fields (still
+  // freely editable after) -- only while they still match the last
+  // auto-filled value, so a manual edit isn't silently overwritten.
+  if (isNew) {
+    const emailInput = document.getElementById('irodaNewEmail')
+    let lastAutoUsername = ''
+    emailInput.addEventListener('input', () => {
+      const imapUser = document.getElementById('irodaImapUsername')
+      const smtpUser = document.getElementById('irodaSmtpUsername')
+      if (imapUser.value === lastAutoUsername) imapUser.value = emailInput.value
+      if (smtpUser.value === lastAutoUsername) smtpUser.value = emailInput.value
+      lastAutoUsername = emailInput.value
+    })
+  }
   const readForm = () => ({
-    account,
+    account: isNew ? undefined : account,
+    isNew,
+    email: isNew ? document.getElementById('irodaNewEmail').value.trim() : undefined,
     imapHost: document.getElementById('irodaImapHost').value.trim(),
     imapPort: Number(document.getElementById('irodaImapPort').value),
-    imapTls: document.getElementById('irodaImapTls').checked,
+    imapEncryption: document.getElementById('irodaImapEncryption').value,
     imapUsername: document.getElementById('irodaImapUsername').value.trim(),
     smtpHost: document.getElementById('irodaSmtpHost').value.trim(),
     smtpPort: Number(document.getElementById('irodaSmtpPort').value),
-    smtpTls: document.getElementById('irodaSmtpTls').checked,
+    smtpEncryption: document.getElementById('irodaSmtpEncryption').value,
     smtpUsername: document.getElementById('irodaSmtpUsername').value.trim(),
     password: document.getElementById('irodaPassword').value || undefined,
   })
@@ -15065,26 +15146,47 @@ async function renderIrodaSettingsForm(account) {
     statusEl.style.color = ok === false ? 'var(--danger)' : ok === true ? 'var(--success)' : 'var(--text-muted)'
   }
   document.getElementById('irodaTestBtn').addEventListener('click', async () => {
-    setStatus('Tesztelés...')
+    if (isNew && !document.getElementById('irodaNewEmail').value.trim()) { setStatus(t('irodaSettings.status.email_first'), false); return }
+    setStatus(t('irodaSettings.status.testing'))
     try {
       const res = await fetch('/api/email/account-config/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(readForm()) })
       const result = await res.json()
-      setStatus(result.ok ? 'Kapcsolat OK.' : `Sikertelen: ${result.error || 'ismeretlen hiba'}`, result.ok)
+      setStatus(result.ok ? t('irodaSettings.status.test_ok') : `${t('irodaSettings.status.fail_prefix')} ${result.error || t('irodaSettings.status.unknown_error')}`, result.ok)
     } catch (err) {
-      setStatus(`Hiba: ${err.message}`, false)
+      setStatus(`${t('irodaSettings.status.error_prefix')} ${err.message}`, false)
     }
   })
   document.getElementById('irodaSaveBtn').addEventListener('click', async () => {
-    setStatus('Mentés...')
+    if (isNew && !document.getElementById('irodaNewEmail').value.trim()) { setStatus(t('irodaSettings.status.email_first'), false); return }
+    setStatus(t('irodaSettings.status.saving'))
     try {
       const res = await fetch('/api/email/account-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(readForm()) })
       const result = await res.json()
-      setStatus(result.ok ? 'Mentve.' : `Sikertelen: ${result.error || 'ismeretlen hiba'}`, result.ok)
-      if (result.ok) renderIrodaSettingsForm(account)
+      setStatus(result.ok ? t('irodaSettings.status.saved') : `${t('irodaSettings.status.fail_prefix')} ${result.error || t('irodaSettings.status.unknown_error')}`, result.ok)
+      if (result.ok && isNew) {
+        // A new account was just created -- re-fetch the account list (the
+        // sidebar's cached copy is now stale too) and land the tabs on it.
+        const r = await fetch('/api/email/accounts')
+        emailAccounts = r.ok ? await r.json() : emailAccounts
+        renderEmailAccountNav()
+        irodaSettingsActiveAccount = slugifyAccountIdClient(document.getElementById('irodaNewEmail').value)
+        renderIrodaSettingsTabs()
+        renderIrodaSettingsForm(irodaSettingsActiveAccount)
+      } else if (result.ok) {
+        renderIrodaSettingsForm(account)
+      }
     } catch (err) {
-      setStatus(`Hiba: ${err.message}`, false)
+      setStatus(`${t('irodaSettings.status.error_prefix')} ${err.message}`, false)
     }
   })
+}
+
+// Mirrors slugifyAccountId in src/web/routes/email.ts -- only used here to
+// guess which tab to land on right after creating an account; the server's
+// own slugification (run again there) is the actual source of truth for the
+// id, this is just UI convenience.
+function slugifyAccountIdClient(email) {
+  return email.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
 async function loadEmailPage() {

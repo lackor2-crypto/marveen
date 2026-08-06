@@ -38,10 +38,24 @@ const TIMEOUT = 90_000
 // pattern). usalackor added 2026-08-06: the corporate account shared with
 // Botond (freelance programmer, freeberischeaper), so his emails are
 // readable here instead of Boss pasting them in manually.
-const ACCOUNTS = [
-  { id: 'lackor2', label: 'lackor2@gmail.com' },
-  { id: 'usalackor', label: 'usalackor@gmail.com' },
-]
+//
+// Derived fresh from config.toml on every call (not a hardcoded list, and
+// not cached) -- the Iroda "Beallitasok" account-config POST route can add a
+// brand new [accounts.X] block at runtime, and every caller here (nav list,
+// isKnownAccount, ...) needs to see it immediately, not just after a
+// restart. config.toml is a handful of lines; re-parsing it per request is
+// not a real cost.
+function getAccounts(): Array<{ id: string; label: string }> {
+  try {
+    const config = existsSync(HIMALAYA_CONFIG) ? (parseToml(readFileSync(HIMALAYA_CONFIG, 'utf8')) as any) : { accounts: {} }
+    return Object.keys(config.accounts || {}).map(id => ({
+      id,
+      label: config.accounts[id]?.imap?.sasl?.plain?.username || id,
+    }))
+  } catch {
+    return []
+  }
+}
 
 function himalayaOnce(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise(resolve => {
@@ -89,11 +103,11 @@ async function himalayaRead(args: string[]): Promise<{ ok: boolean; stdout: stri
 const himalaya = himalayaOnce
 
 function isKnownAccount(id: string | null): boolean {
-  return !!id && ACCOUNTS.some(a => a.id === id)
+  return !!id && getAccounts().some(a => a.id === id)
 }
 
 function accountEmail(id: string): string {
-  return ACCOUNTS.find(a => a.id === id)?.label ?? ''
+  return getAccounts().find(a => a.id === id)?.label ?? ''
 }
 
 // === Iroda "Beallitasok" -> IMAP/SMTP account settings =====================
@@ -138,10 +152,29 @@ function encryptAccountPassword(account: string, password: string): Promise<void
   })
 }
 
+// Researched first (himalaya's own config.sample.toml, github.com/pimalaya/himalaya):
+// encryption is NOT just the imap(s)/smtp(s) URL scheme -- that alone can't
+// tell "cleartext" and "STARTTLS-upgraded cleartext" apart, both use the
+// plain imap://smtp:// scheme, distinguished only by a separate `starttls`
+// boolean. A single TLS on/off checkbox would silently produce a truly
+// unencrypted config for any provider needing STARTTLS on port 587 (common
+// outside Gmail) -- so encryption is a 3-way mode, not a boolean.
+type EmailEncryption = 'tls' | 'starttls' | 'none'
+function encryptionToServerUrl(host: string, port: number, encryption: EmailEncryption, kind: 'imap' | 'smtp'): { server: string; starttls: boolean } {
+  if (encryption === 'tls') return { server: `${kind}s://${host}:${port}`, starttls: false }
+  return { server: `${kind}://${host}:${port}`, starttls: encryption === 'starttls' }
+}
+function serverUrlToEncryption(scheme: string, starttls: unknown): EmailEncryption {
+  if (scheme === 'imaps' || scheme === 'smtps') return 'tls'
+  return starttls === true ? 'starttls' : 'none'
+}
+
 type AccountConfigBody = {
   account?: string
-  imapHost?: string; imapPort?: number; imapTls?: boolean; imapUsername?: string
-  smtpHost?: string; smtpPort?: number; smtpTls?: boolean; smtpUsername?: string
+  email?: string // new accounts only -- account id is derived from this, server-side
+  isNew?: boolean
+  imapHost?: string; imapPort?: number; imapEncryption?: EmailEncryption; imapUsername?: string
+  smtpHost?: string; smtpPort?: number; smtpEncryption?: EmailEncryption; smtpUsername?: string
   password?: string
 }
 
@@ -150,12 +183,25 @@ function parseServerUrl(serverUrl: unknown): { scheme: string; host: string; por
   return m ? { scheme: m[1], host: m[2], port: Number(m[3]) } : { scheme: '', host: '', port: 0 }
 }
 
-function validateAccountConfigBody(body: AccountConfigBody): string | null {
+const VALID_ENCRYPTIONS = new Set(['tls', 'starttls', 'none'])
+function validateAccountConfigBody(body: AccountConfigBody, isNew: boolean): string | null {
   if (!body.imapHost?.trim() || !body.imapPort || !body.imapUsername?.trim()) return 'IMAP host/port/felhasznalonev kotelezo'
   if (!body.smtpHost?.trim() || !body.smtpPort || !body.smtpUsername?.trim()) return 'SMTP host/port/felhasznalonev kotelezo'
   if (!Number.isInteger(body.imapPort) || body.imapPort < 1 || body.imapPort > 65535) return 'Ervenytelen IMAP port'
   if (!Number.isInteger(body.smtpPort) || body.smtpPort < 1 || body.smtpPort > 65535) return 'Ervenytelen SMTP port'
+  if (body.imapEncryption && !VALID_ENCRYPTIONS.has(body.imapEncryption)) return 'Ervenytelen IMAP titkositas'
+  if (body.smtpEncryption && !VALID_ENCRYPTIONS.has(body.smtpEncryption)) return 'Ervenytelen SMTP titkositas'
+  if (isNew && !body.password?.trim()) return 'Uj fioknal a jelszo kotelezo'
   return null
+}
+
+// New-account ids are derived from the typed email address server-side
+// (never trust a client-supplied id outright) -- lowercased, non-alphanumeric
+// collapsed to underscores, so "Someone@Example.com" and a stray space both
+// land on the same predictable id instead of himalaya seeing two subtly
+// different account names.
+function slugifyAccountId(email: string): string {
+  return email.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
 // Builds the FULL updated config (every account, not just the one being
@@ -173,13 +219,13 @@ async function buildUpdatedTomlConfig(account: string, body: AccountConfigBody):
     ? `node ${EMAIL_SECRET_SCRIPT} decrypt ${account}`
     : (existingAccount.imap?.sasl?.plain?.password?.command || existingAccount.smtp?.sasl?.plain?.password?.command)
   if (!passwordCommand) throw new Error('nincs mentett jelszo -- eloszor add meg a jelszot')
-  const imapScheme = body.imapTls === false ? 'imap' : 'imaps'
-  const smtpScheme = body.smtpTls === false ? 'smtp' : 'smtps'
+  const imapUrl = encryptionToServerUrl(body.imapHost as string, body.imapPort as number, body.imapEncryption || 'tls', 'imap')
+  const smtpUrl = encryptionToServerUrl(body.smtpHost as string, body.smtpPort as number, body.smtpEncryption || 'tls', 'smtp')
   const updatedAccount = {
     ...existingAccount,
     mailbox: existingAccount.mailbox || { alias: { inbox: 'Inbox' } },
-    imap: { server: `${imapScheme}://${body.imapHost}:${body.imapPort}`, sasl: { plain: { username: body.imapUsername, password: { command: passwordCommand } } } },
-    smtp: { server: `${smtpScheme}://${body.smtpHost}:${body.smtpPort}`, sasl: { plain: { username: body.smtpUsername, password: { command: passwordCommand } } } },
+    imap: { server: imapUrl.server, starttls: imapUrl.starttls, sasl: { plain: { username: body.imapUsername, password: { command: passwordCommand } } } },
+    smtp: { server: smtpUrl.server, starttls: smtpUrl.starttls, sasl: { plain: { username: body.smtpUsername, password: { command: passwordCommand } } } },
   }
   const updated = { ...existing, accounts: { ...existing.accounts, [account]: updatedAccount } }
   return { toml: stringifyToml(updated), passwordChanged }
@@ -534,7 +580,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
 
   if (path === '/api/email/accounts' && method === 'GET') {
-    json(res, ACCOUNTS)
+    json(res, getAccounts())
     return true
   }
 
@@ -549,9 +595,9 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       const smtp = parseServerUrl(acc.smtp?.server)
       json(res, {
         account,
-        imapHost: imap.host, imapPort: imap.port, imapTls: imap.scheme === 'imaps',
+        imapHost: imap.host, imapPort: imap.port, imapEncryption: serverUrlToEncryption(imap.scheme, acc.imap?.starttls),
         imapUsername: acc.imap?.sasl?.plain?.username || '',
-        smtpHost: smtp.host, smtpPort: smtp.port, smtpTls: smtp.scheme === 'smtps',
+        smtpHost: smtp.host, smtpPort: smtp.port, smtpEncryption: serverUrlToEncryption(smtp.scheme, acc.smtp?.starttls),
         smtpUsername: acc.smtp?.sasl?.plain?.username || '',
         hasStoredPassword: hasEncryptedSecret(account as string) || !!acc.imap?.sasl?.plain?.password?.command,
       })
@@ -571,8 +617,15 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const raw = await readBody(req)
     let body: AccountConfigBody
     try { body = JSON.parse(raw.toString()) } catch { json(res, { error: 'ervenytelen JSON' }, 400); return true }
-    if (!isKnownAccount(body.account ?? null)) { json(res, { error: 'unknown account' }, 400); return true }
-    const validationError = validateAccountConfigBody(body)
+    const isNew = !!body.isNew
+    if (isNew) {
+      const slug = slugifyAccountId(body.email || '')
+      if (!slug) { json(res, { error: 'ervenytelen email cim' }, 400); return true }
+      body.account = slug
+    } else if (!isKnownAccount(body.account ?? null)) {
+      json(res, { error: 'unknown account' }, 400); return true
+    }
+    const validationError = validateAccountConfigBody(body, isNew)
     if (validationError) { json(res, { error: validationError }, 400); return true }
     try {
       // A test never wants to permanently overwrite the real encrypted
@@ -584,15 +637,15 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       let toml: string
       if (body.password) {
         await encryptAccountPassword(testAccountId, body.password)
-        const imapScheme = body.imapTls === false ? 'imap' : 'imaps'
-        const smtpScheme = body.smtpTls === false ? 'smtp' : 'smtps'
+        const imapUrl = encryptionToServerUrl(body.imapHost as string, body.imapPort as number, body.imapEncryption || 'tls', 'imap')
+        const smtpUrl = encryptionToServerUrl(body.smtpHost as string, body.smtpPort as number, body.smtpEncryption || 'tls', 'smtp')
         const passwordCommand = `node ${EMAIL_SECRET_SCRIPT} decrypt ${testAccountId}`
         toml = stringifyToml({
           accounts: {
             [testAccountId]: {
               mailbox: { alias: { inbox: 'Inbox' } },
-              imap: { server: `${imapScheme}://${body.imapHost}:${body.imapPort}`, sasl: { plain: { username: body.imapUsername, password: { command: passwordCommand } } } },
-              smtp: { server: `${smtpScheme}://${body.smtpHost}:${body.smtpPort}`, sasl: { plain: { username: body.smtpUsername, password: { command: passwordCommand } } } },
+              imap: { server: imapUrl.server, starttls: imapUrl.starttls, sasl: { plain: { username: body.imapUsername, password: { command: passwordCommand } } } },
+              smtp: { server: smtpUrl.server, starttls: smtpUrl.starttls, sasl: { plain: { username: body.smtpUsername, password: { command: passwordCommand } } } },
             },
           },
         })
@@ -613,8 +666,16 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const raw = await readBody(req)
     let body: AccountConfigBody
     try { body = JSON.parse(raw.toString()) } catch { json(res, { error: 'ervenytelen JSON' }, 400); return true }
-    if (!isKnownAccount(body.account ?? null)) { json(res, { error: 'unknown account' }, 400); return true }
-    const validationError = validateAccountConfigBody(body)
+    const isNew = !!body.isNew
+    if (isNew) {
+      const slug = slugifyAccountId(body.email || '')
+      if (!slug) { json(res, { error: 'ervenytelen email cim' }, 400); return true }
+      if (isKnownAccount(slug)) { json(res, { error: 'mar letezik ilyen fiok' }, 409); return true }
+      body.account = slug
+    } else if (!isKnownAccount(body.account ?? null)) {
+      json(res, { error: 'unknown account' }, 400); return true
+    }
+    const validationError = validateAccountConfigBody(body, isNew)
     if (validationError) { json(res, { error: validationError }, 400); return true }
     const account = body.account as string
     try {

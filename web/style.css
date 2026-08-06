@@ -189,26 +189,44 @@ body {
 .sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 6px 18px;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 2px 18px;
   border-bottom: 1px solid var(--border);
 }
 .sidebar-brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  /* 34px -> 26px (Boss, 2026-08-06/07): freed the few px the Marvin/Iroda
+     workspace-switch pills needed to stay on the SAME row as the avatar
+     without wrapping to a second, taller row -- Boss preferred a slightly
+     smaller icon over the extra vertical space the wrap cost ("inkabb a
+     robot ikonbol vagj le mindket oldalabol egy kveset"). */
+  width: 26px;
+  height: 26px;
+  /* Flex children shrink by default (flex-shrink:1) -- once the Marvin/Iroda
+     workspace-switch pills (.workspace-switch) joined this same flex row,
+     the avatar could get squeezed narrower than its own width on a tight
+     sidebar width, squashing the square source image into a visibly
+     "narrow" rectangle (Boss, 2026-08-06/07: "nem tul keskeny? / az ikon
+     fele nem latszik"). Pin it so only the OTHER children give up space. */
+  flex-shrink: 0;
+  border-radius: 7px;
   background: var(--text);
   color: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 13px;
   overflow: hidden;
 }
 .sidebar-brand-mark img { width: 100%; height: 100%; object-fit: cover; }
-.sidebar-brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
-.sidebar-brand-sub { font-size: 11px; color: var(--text-muted); }
+/* Last in line for space after the fixed-size avatar and the workspace-switch
+ * pills (both pinned to their own size) -- min-width:0 lets this shrink and
+ * truncate instead of being what pushes the switch pills past the sidebar's
+ * right edge (Boss, 2026-08-06/07: "kilog az iroda jobbra"). */
+.sidebar-brand-text { min-width: 0; overflow: hidden; }
+.sidebar-brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-brand-sub { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -239,10 +257,11 @@ body {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 600;
-  padding: 4px 8px;
+  padding: 4px 6px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: var(--transition);
+  flex-shrink: 0;
 }
 .ws-btn:hover { color: var(--text); }
 .ws-btn.active {
@@ -289,11 +308,62 @@ body {
  * the scrolling nav. Slightly smaller/muted than a primary nav item since
  * it's a secondary, settings-style action. */
 .sb-link-settings {
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 14px;
+  /* var(--border) is a very light, low-contrast gray -- fine for subtle card
+   * outlines, but Boss kept reporting "no line" even after this was
+   * genuinely live (2026-08-06 screenshots), most likely because a thin
+   * near-white-on-white line doesn't survive Telegram's JPEG re-compression
+   * of a screenshot. var(--text-muted) has real contrast against the
+   * sidebar's white background, not just technically-a-different-color. */
+  border-top: 2px solid var(--text-muted);
   font-size: 13px;
 }
+
+/* Iroda "Beallitasok" category grid -- Boss, 2026-08-06: the email
+ * IMAP/SMTP form shouldn't be the whole page, it's one entry in a menu of
+ * settings categories (more will join it later), same "pick a category,
+ * then drill into its form" shape as Marvin's own Beallitasok tabs. */
+.iroda-settings-categories { display: flex; flex-wrap: wrap; gap: 12px; }
+.iroda-settings-category-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  width: 220px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: var(--transition);
+}
+.iroda-settings-category-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.iroda-settings-category-label { font-size: 14px; font-weight: 600; }
+.iroda-settings-category-desc { font-size: 12px; color: var(--text-muted); }
+#irodaSettingsBackBtn { display: inline-flex; align-items: center; gap: 6px; }
+/* Hover-tooltip "?" next to a field label -- Boss, 2026-08-06: wants each
+ * IMAP/SMTP field explained inline (where to find the value, what it means)
+ * without cluttering the form with permanent help text. Native `title`
+ * attribute: no JS needed, works on hover AND on keyboard focus/tab (the
+ * tabindex makes it reachable without a mouse too). */
+.field-tip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+  cursor: help;
+  user-select: none;
+}
+.field-tip:hover, .field-tip:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
 
 /* === Collapsible sidebar groups === */
 .sb-group { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
@@ -1848,6 +1918,18 @@ main.email-active .page-header { flex-shrink: 0; }
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+/* "+ New account" tab -- Boss, 2026-08-06: as a plain muted .tab-btn it
+ * blended into the account-email tabs next to it ("szinte egybeolvad"),
+ * looked like just another account instead of an action. Accent color +
+ * bold + a background pill make it read as a distinct "add" affordance. */
+.tab-btn-new {
+  color: var(--accent);
+  font-weight: 700;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+.tab-btn-new:hover { background: var(--accent); color: #fff; }
+.tab-btn-new.active { border-bottom-color: var(--accent); }
 
 .tab-panel { padding: 0 24px 24px; }
 .tab-panel[hidden] { display: none; }

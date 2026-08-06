@@ -1379,8 +1379,21 @@
           </div>
         </div>
       </div>
-      <nav class="tab-nav" id="irodaSettingsAccountTabs" style="margin-bottom:0"></nav>
-      <div class="card" id="irodaSettingsFormWrap"></div>
+      <div class="iroda-settings-categories" id="irodaSettingsCategoryList">
+        <button type="button" class="iroda-settings-category-btn" data-category="email">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 6 10-6"/></svg>
+          <span class="iroda-settings-category-label" data-i18n="irodaSettings.category.email">Email beállítások</span>
+          <span class="iroda-settings-category-desc" data-i18n="irodaSettings.category.email_desc">IMAP/SMTP fiókok kezelése</span>
+        </button>
+      </div>
+      <div id="irodaSettingsDetailView" hidden>
+        <button type="button" class="btn-secondary btn-compact" id="irodaSettingsBackBtn" style="margin-bottom:12px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          <span data-i18n="irodaSettings.back">Vissza</span>
+        </button>
+        <nav class="tab-nav" id="irodaSettingsAccountTabs" style="margin-bottom:0"></nav>
+        <div class="card" id="irodaSettingsFormWrap"></div>
+      </div>
     </div>
 
     <div class="page" id="emailPage" hidden>
