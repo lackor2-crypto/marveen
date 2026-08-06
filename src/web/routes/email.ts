@@ -250,20 +250,34 @@ function invalidateEnvelopeCache(account: string, mailbox: string): void {
 
 // A message's text/html/attachment-list is immutable once sent (only flags
 // like read/starred change, which live in the separate envelope/flags
-// endpoints, never touched here) -- so caching it for the process lifetime
-// is always safe, not just a TTL-bounded convenience. Small LRU-ish cap
-// (insertion order = recency; a cache hit is deleted+re-set to bump it) so
-// re-opening the same message stays instant instead of re-running the
-// 30-90s himalaya fetch every time (Boss, 2026-08-05: re-opened a message
-// with a 22MB video attachment and watched the WHOLE fetch -- including the
-// attachment listing -- restart from scratch, "ez nonsensz, ha mar egyszer
-// letoltotte... akkor mar azonnal be tud jonni"). Capped by entry count, not
-// bytes -- a handful of large-attachment messages is the realistic worst
-// case for one account's session, not worth a byte-budget tracker.
+// endpoints, never touched here) -- so the CONTENT never needs invalidating.
+// Its EXISTENCE at this (account, mailbox, id) key can still change though:
+// delete/archive routes below purge the entry explicitly, same pattern as
+// purgeAttachmentCacheForMessage. That only covers deletes made through
+// Marveen itself -- a message removed straight from Gmail's own web client
+// (Boss, 2026-08-06: deleted a lottery-spam mail in Gmail, F5-refreshed
+// Marveen, the now-gone mail still rendered in the reader pane "like it was
+// never deleted") leaves no signal here at all, so MESSAGE_BODY_CACHE_TTL_MS
+// is the backstop for that case -- long enough to keep the reopen-instant
+// win (re-opening a message with a 22MB video attachment used to re-run the
+// whole 30-90s himalaya fetch, "ez nonsensz, ha mar egyszer letoltotte...
+// akkor mar azonnal be tud jonni") within one working session, short enough
+// that a ghost entry can't outlive it indefinitely. Small LRU-ish cap
+// (insertion order = recency; a cache hit is deleted+re-set to bump it) on
+// top -- a handful of large-attachment messages is the realistic worst case
+// for one account's session, not worth a byte-budget tracker.
 const MESSAGE_BODY_CACHE_MAX = 20
-const messageBodyCache = new Map<string, { text: string; html: string; attachments: Array<{ id: string; filename: string; mime: string; size: number; inline?: boolean }> }>()
+const MESSAGE_BODY_CACHE_TTL_MS = 15 * 60_000
+type MessageBody = { text: string; html: string; attachments: Array<{ id: string; filename: string; mime: string; size: number; inline?: boolean }> }
+const messageBodyCache = new Map<string, { data: MessageBody; expires: number }>()
 function messageBodyCacheKey(account: string, mailbox: string, id: string): string {
   return `${account}::${mailbox}::${id}`
+}
+// Mirrors purgeAttachmentCacheForMessage: a message that's been removed
+// (deleted or archived, not just re-read) shouldn't keep serving its old
+// body from cache under this (account, mailbox, id) key.
+function purgeMessageBodyCache(account: string, mailbox: string, id: string): void {
+  messageBodyCache.delete(messageBodyCacheKey(account, mailbox, id))
 }
 
 async function readMessageBody(account: string, mailbox: string, id: string): Promise<
@@ -272,11 +286,15 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
   const cacheKey = messageBodyCacheKey(account, mailbox, id)
   const cached = messageBodyCache.get(cacheKey)
   if (cached) {
-    // Bump recency: delete + re-set moves it to the end of Map's insertion
-    // order, which the eviction below reads as "most recently used".
     messageBodyCache.delete(cacheKey)
-    messageBodyCache.set(cacheKey, cached)
-    return cached
+    if (Date.now() <= cached.expires) {
+      // Bump recency: re-set moves it to the end of Map's insertion order,
+      // which the eviction below reads as "most recently used".
+      messageBodyCache.set(cacheKey, cached)
+      return cached.data
+    }
+    // Expired -- fall through and re-fetch fresh instead of trusting a body
+    // that may no longer exist server-side.
   }
 
   // Direct-IMAP fast path (2026-08-06): himalaya's `message read` below
@@ -299,7 +317,7 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
     if (direct) {
       const result = { text: direct.text, html: direct.html, attachments: direct.attachments.filter(a => !a.inline) }
       logger.info(`[email] imap body uid=${id} mailbox=${mailbox} parts=${direct.attachments.length} ms=${Date.now() - t0}`)
-      messageBodyCache.set(cacheKey, result)
+      messageBodyCache.set(cacheKey, { data: result, expires: Date.now() + MESSAGE_BODY_CACHE_TTL_MS })
       if (messageBodyCache.size > MESSAGE_BODY_CACHE_MAX) {
         const oldest = messageBodyCache.keys().next().value
         if (oldest !== undefined) messageBodyCache.delete(oldest)
@@ -366,7 +384,7 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
     try { attachments = (JSON.parse(attR.stdout).attachments || []).filter((a: { inline?: boolean }) => !a.inline) } catch { /* no-op, keep empty */ }
   }
   const result = { text, html, attachments }
-  messageBodyCache.set(cacheKey, result)
+  messageBodyCache.set(cacheKey, { data: result, expires: Date.now() + MESSAGE_BODY_CACHE_TTL_MS })
   if (messageBodyCache.size > MESSAGE_BODY_CACHE_MAX) {
     const oldest = messageBodyCache.keys().next().value
     if (oldest !== undefined) messageBodyCache.delete(oldest)
@@ -747,12 +765,14 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
       if (!expunge.ok) { logger.warn(`[email] permanent delete expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
       purgeAttachmentCacheForMessage(data.account as string, mailbox, data.id)
+      purgeMessageBodyCache(data.account as string, mailbox, data.id)
       invalidateEnvelopeCache(data.account as string, mailbox)
       json(res, { ok: true })
       return true
     }
     const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', '[Gmail]/Kuka'])
     if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
     invalidateEnvelopeCache(data.account as string, '[Gmail]/Kuka')
     json(res, { ok: true })
@@ -773,6 +793,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (!store.ok) { logger.warn(`[email] archive store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
     const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
     if (!expunge.ok) { logger.warn(`[email] archive expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
+    purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
     return true
