@@ -16252,11 +16252,49 @@ function syncTerminalInputToggleUI() {
   }
 }
 
+// Boss, 2026-08-06: wants to be able to grab the terminal modal by its
+// header and move it wherever on screen, like a normal window -- the modal
+// overlay centers it via flexbox by default, so dragging switches it to
+// `position: fixed` with explicit left/top (removes it from the centered
+// flex flow, positioned exactly where the mouse leaves it). Wired once
+// (module-level flag), not per-open, since the header element is static.
+let terminalDragWired = false
+function initTerminalModalDrag() {
+  if (terminalDragWired) return
+  terminalDragWired = true
+  const modal = document.querySelector('#terminalOverlay .terminal-modal')
+  const header = modal?.querySelector('.modal-header')
+  if (!modal || !header) return
+  header.style.cursor = 'move'
+  let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0
+  header.addEventListener('mousedown', (e) => {
+    // Don't start a drag when the click is on the close button or the
+    // input-toggle checkbox/label -- those need their own click to land.
+    if (e.target.closest('button, input, label')) return
+    const rect = modal.getBoundingClientRect()
+    dragging = true
+    startX = e.clientX; startY = e.clientY
+    startLeft = rect.left; startTop = rect.top
+    modal.style.position = 'fixed'
+    modal.style.left = startLeft + 'px'
+    modal.style.top = startTop + 'px'
+    modal.style.margin = '0'
+    e.preventDefault()
+  })
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return
+    modal.style.left = (startLeft + e.clientX - startX) + 'px'
+    modal.style.top = (startTop + e.clientY - startY) + 'px'
+  })
+  document.addEventListener('mouseup', () => { dragging = false })
+}
+
 function openTerminalModal(agentName) {
   const overlay = document.getElementById('terminalOverlay')
   const container = document.getElementById('terminalContainer')
   const title = document.getElementById('terminalModalTitle')
   if (!overlay || !container) return
+  initTerminalModalDrag()
 
   // agentName is the raw routing id (needed below for the actual terminal
   // connection) -- the title should show the human name instead (Boss,
@@ -16274,7 +16312,8 @@ function openTerminalModal(agentName) {
   if (terminalInstance) { terminalInstance.dispose(); terminalInstance = null }
   container.innerHTML = ''
 
-  // Init xterm — fontSize 12 + wider modal fits ~140 chars of tmux output
+  // Init xterm — fontSize 12; column count fits whatever the (narrower as
+  // of 2026-08-06, see .terminal-modal) modal width allows, via FitAddon.
   const term = new window.Terminal({
     theme: { background: '#1a1a1a', foreground: '#e8e4da' },
     fontFamily: 'JetBrains Mono, Menlo, monospace',
@@ -16293,7 +16332,23 @@ function openTerminalModal(agentName) {
   terminalFit = fitAddon
 
   openModal(overlay)
-  setTimeout(() => term.focus(), 50)
+  // Re-fit AFTER the modal's open ANIMATION actually finishes, not just
+  // "shortly after" -- Boss, 2026-08-06: the black terminal area only had
+  // its top half filled with rows, the bottom half empty, and a flat 50ms
+  // delay didn't fix it (confirmed live: still broken after that first
+  // attempt). The modal's open transition (`transform: scale()`,
+  // .modal-overlay.active .modal in style.css) runs for 0.25s -- a fit()
+  // that lands mid-transition can still measure the wrong box. `transitionend`
+  // fires exactly when the animation completes, which is more reliable than
+  // guessing a timeout long enough to always outlast it. The old 50ms
+  // setTimeout stays as a fallback for the (rare) case a transition event
+  // never fires, e.g. if `prefers-reduced-motion` skips the transition
+  // entirely.
+  const fitTargetEl = overlay.querySelector('.terminal-modal')
+  const refit = () => { try { fitAddon.fit() } catch {} }
+  if (fitTargetEl) fitTargetEl.addEventListener('transitionend', refit, { once: true })
+  setTimeout(() => { refit(); term.focus() }, 50)
+  setTimeout(refit, 300)
 
   // SSE pane stream.
   // The pane snapshot now includes scrollback history (server uses
