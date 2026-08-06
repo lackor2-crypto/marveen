@@ -1411,6 +1411,17 @@ main {
 #kanbanPage { max-width: none; }
 /* Full-width layout for the kanban board (overrides main's 1200px cap) */
 main.kanban-active, main.email-active { max-width: none; padding-left: 16px; padding-right: 16px; }
+/* Caps the email page to the viewport instead of letting `main`'s content
+   grow past 100vh (see the long comment on .email-layout for why the
+   previous calc(100vh - Npx) approach kept recurring) -- the whole chain
+   (main -> #emailPage -> .email-layout) is a flex column down to the point
+   where .email-layout's own grid panes take over with their own
+   overflow-y:auto, so there is exactly ONE scroll owner per region, never a
+   page-level scrollbar stacked on top of a pane's own one. Scoped to
+   .email-active only -- kanban's own height handling is untouched. */
+main.email-active { height: 100vh; overflow: hidden; display: flex; flex-direction: column; box-sizing: border-box; }
+main.email-active #emailPage { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+main.email-active .page-header { flex-shrink: 0; }
 
 .page-header-row {
   display: flex;
@@ -7417,26 +7428,23 @@ body {
    row for (Boss, 2026-08-05: "nem ott a mappak felirat mellett legyen a
    gomb, hanem ebbe a keskeny fejlecbe" -- wants every column's controls to
    look like the same attached strip as the reader column's). */
+/* height was previously a `calc(100vh - Npx)` magic-number guess -- widened
+   twice (Boss, 2026-08-05 then 2026-08-06) for the same "dupla gorgetosav"
+   symptom and still recurred, because it was fighting `main`'s natural
+   grid-row auto-sizing instead of working with it: `body` is `display:grid`
+   with no `grid-template-rows`, so `main`'s row grows to fit whatever content
+   it holds, and no fixed vh-subtraction can track that (it's brittle against
+   font-metric/zoom/window-chrome differences by construction). Fixed instead
+   by capping `main.email-active` itself to the viewport (see the `main`
+   rules) and letting `.email-layout` fill exactly what's left via flex --
+   no magic number anywhere in this chain now. */
 .email-layout {
   display: grid;
   grid-template-columns: 230px 320px 1fr 360px;
   grid-template-rows: 1fr;
   gap: 12px;
-  /* -160px undercounted the chrome above/below it (main's own 32px+64px
-     padding, plus the "Email" page-header block) by ~20-30px, so the whole
-     PAGE (body has no fixed height, just min-height:100vh, so it grows to
-     fit its content) ended up a hair taller than one screen -- an outer
-     page-level scrollbar alongside each column's own inner one (Boss,
-     2026-08-05: "2 gorgeto sav van a 3. oszlopban"). -190px still wasn't
-     enough margin on Boss's actual browser (2026-08-06: same "dupla
-     gorgetosav" symptom recurred in the reader column) -- widened to -220px.
-     This stays a heuristic guess, not a measured value (brittle against
-     font-metric/zoom differences across browsers/OSes by design, see the
-     original note above) -- if it recurs again the real fix is dropping the
-     vh-calc entirely for a flex:1/min-height:0 layout that fills whatever
-     height main actually has, no magic number at all. */
-  height: calc(100vh - 220px);
-  min-height: 400px;
+  flex: 1;
+  min-height: 0; /* flex/grid items default to min-height:auto (content-based) and refuse to shrink below their content -- this override is what actually lets the row fill "flex:1" instead of overflowing main and re-creating the page-level scrollbar */
 }
 .email-pane {
   background: var(--bg-card);
@@ -7674,8 +7682,14 @@ body {
 .email-attachment-name { color: var(--text-secondary); overflow-wrap: anywhere; }
 .email-attachment-size { color: var(--text-muted); }
 @media (max-width: 900px) {
-  .email-layout { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
+  /* Stacked columns want normal page scroll, not the desktop single-screen
+     flex cap (each .email-pane already caps its own height below and
+     scrolls internally) -- undo the viewport-height chain from the
+     main.email-active rules above. */
+  main.email-active { height: auto; overflow: visible; display: block; }
+  main.email-active #emailPage { display: block; }
+  .email-layout { display: block; grid-template-columns: 1fr; grid-template-rows: none; flex: none; min-height: 0; height: auto; }
   .email-pane-header { display: none; }
-  .email-pane { max-height: 260px; }
+  .email-pane { max-height: 260px; margin-bottom: 12px; }
 }
 
