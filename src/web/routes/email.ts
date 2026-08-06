@@ -26,10 +26,16 @@ const HIMALAYA_CONFIG = `${process.env.HOME}/.local/share/marveen-himalaya/confi
 // spuriously fail.
 const TIMEOUT = 90_000
 
-// Static for now -- one account (lackor2). Multi-account (freeberischeaper.com
-// domain accounts) adds entries here once their IMAP credentials are wired in;
-// the UI/route logic below is already account-parametrized.
-const ACCOUNTS = [{ id: 'lackor2', label: 'lackor2@gmail.com' }]
+// The UI/route logic below is already account-parametrized -- adding an
+// account here is just wiring its IMAP credentials into
+// ~/.local/share/marveen-himalaya/config.toml (see lackor2/usalackor for the
+// pattern). usalackor added 2026-08-06: the corporate account shared with
+// Botond (freelance programmer, freeberischeaper), so his emails are
+// readable here instead of Boss pasting them in manually.
+const ACCOUNTS = [
+  { id: 'lackor2', label: 'lackor2@gmail.com' },
+  { id: 'usalackor', label: 'usalackor@gmail.com' },
+]
 
 function himalayaOnce(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise(resolve => {
