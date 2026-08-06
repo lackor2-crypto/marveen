@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { simpleParser } from 'mailparser'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
+import { readMessageBodyDirect } from '../email-imap.js'
 import type { RouteContext } from './types.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -14,6 +15,9 @@ import type { RouteContext } from './types.js'
 // themselves live in a 700-permission directory outside git entirely.
 const HIMALAYA_BIN = `${process.env.HOME}/.local/bin/himalaya`
 const HIMALAYA_CONFIG = `${process.env.HOME}/.local/share/marveen-himalaya/config.toml`
+// Presence-only marker: revert readMessageBody() to the himalaya-only path
+// with no rebuild/restart. `touch` to disable, `rm` to re-enable.
+const IMAP_DIRECT_KILL_SWITCH = `${process.env.HOME}/.local/share/marveen-himalaya/disable-imap-direct`
 // `message read` fetches the WHOLE message body over IMAP -- including every
 // attachment's bytes -- regardless of --json/--raw or of whether the caller
 // only wants the text/html part; himalaya has no "skip attachments" flag.
@@ -274,17 +278,54 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
     messageBodyCache.set(cacheKey, cached)
     return cached
   }
+
+  // Direct-IMAP fast path (2026-08-06): himalaya's `message read` below
+  // always downloads the WHOLE message including attachment bytes -- see the
+  // comment on that call for the incident that documented it. email-imap.ts
+  // fetches only the BODYSTRUCTURE + the text/html MIME parts via IMAP
+  // BODY.PEEK, so a message with a 22MB video attachment now returns its
+  // text in ~1-2s instead of ~30-90s (live-measured). Kill switch: create
+  // ~/.local/share/marveen-himalaya/disable-imap-direct to revert to the
+  // himalaya-only path below with no rebuild/restart -- a marker file, not an
+  // env var, because .env values never reach process.env in this process
+  // (see src/config.ts). readMessageBodyDirect() returns null on ANY
+  // failure (unsupported message shape, connection error, timeout, ...) and
+  // never throws, so falling through to the unchanged himalaya path below is
+  // always safe -- this can only make a message load AS SLOW AS today, never
+  // slower, never broken.
+  if (!existsSync(IMAP_DIRECT_KILL_SWITCH)) {
+    const t0 = Date.now()
+    const direct = await readMessageBodyDirect(account, mailbox, id)
+    if (direct) {
+      const result = { text: direct.text, html: direct.html, attachments: direct.attachments.filter(a => !a.inline) }
+      logger.info(`[email] imap body uid=${id} mailbox=${mailbox} parts=${direct.attachments.length} ms=${Date.now() - t0}`)
+      messageBodyCache.set(cacheKey, result)
+      if (messageBodyCache.size > MESSAGE_BODY_CACHE_MAX) {
+        const oldest = messageBodyCache.keys().next().value
+        if (oldest !== undefined) messageBodyCache.delete(oldest)
+      }
+      return result
+    }
+    logger.warn(`[email] direct IMAP body fetch unavailable for uid=${id} mailbox=${mailbox}, falling back to himalaya`)
+  }
+
+  // FALLBACK PATH: only reached when the direct-IMAP fast path above is
+  // disabled (kill switch) or returned null for this message. himalaya's
+  // `message read` always fetches the whole body over IMAP no matter the
+  // output format -- there's no "text only" mode -- which is exactly why
+  // email-imap.ts's BODYSTRUCTURE + BODY.PEEK path exists. This block is kept
+  // as-is, not a performance fix: large attachments are still slow here, just
+  // no longer the ONLY path, and no longer spuriously failing outright.
+  //
   // `--raw` (RFC 5322 source, base64 for binary parts, ~1.37x the original
   // attachment size) instead of `--json` (himalaya's parsed struct, which
   // serializes attachment bytes as a JSON array of decimal numbers -- ~3.67x
   // the original size, measured live on a 22MB attachment: 81MB of JSON).
   // Parsed here with `mailparser` instead of relying on himalaya's own JSON
-  // shape. This alone doesn't make a large-attachment message load faster
-  // (himalaya's `message read` always fetches the whole body over IMAP no
-  // matter the output format -- there's no "text only" mode), but it lifts
-  // the maxBuffer ceiling from ~25MB of attachment to ~65-70MB (Boss,
-  // 2026-08-05: a 22MB video attachment nearly filled the old 96MB buffer at
-  // the 3.67x rate; this format leaves real headroom at the same buffer size).
+  // shape. This lifts the maxBuffer ceiling from ~25MB of attachment to
+  // ~65-70MB (Boss, 2026-08-05: a 22MB video attachment nearly filled the old
+  // 96MB buffer at the 3.67x rate; this format leaves real headroom at the
+  // same buffer size).
   //
   // Run alongside `attachment list` (already a separate, himalaya-native-id
   // call, needed for /api/email/attachment downloads to work) rather than
