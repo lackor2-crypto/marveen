@@ -497,7 +497,18 @@ const SIDEBAR_GROUPS = [
   { key: 'system',      labelKey: 'nav.group.system',      pages: ['status', 'naplo', 'updates', 'settings', 'vault'] },
   { key: 'connections', labelKey: 'nav.group.connections', pages: ['connectors', 'federation', 'migrate'] },
 ]
-const sidebarGroupEls = document.querySelectorAll('.sb-group[data-group]')
+// Scoped to #navMarvin: the Iroda-side email-accounts group (index.html:208)
+// also matches a bare `.sb-group[data-group]` selector, but SIDEBAR_GROUPS
+// above only knows the 5 Marvin groups. Unscoped, this collection silently
+// swept up the email group too: the boot loop below (openKeys.includes(...))
+// always resolves false for 'email-accounts' (nothing ever persists that key
+// -- the dedicated toggle at line ~458 doesn't call setSidebarGroupOpen), so
+// every load stripped the `open` class the HTML shipped with, and the click
+// listener registered here doubled up with the dedicated #emailNavToggle
+// listener, cancelling every click (open -> close -> open nets to no-op).
+// Result: #emailAccountNavItems was correctly populated but `display:none`
+// forever (Boss, 2026-08-06: "Email" header visible, nothing listed under it).
+const sidebarGroupEls = document.querySelectorAll('#navMarvin .sb-group[data-group]')
 // data-page -> group key, derived from the map (not the DOM) so the map wins.
 const PAGE_SIDEBAR_GROUP = {}
 SIDEBAR_GROUPS.forEach((def) => def.pages.forEach((p) => { PAGE_SIDEBAR_GROUP[p] = def.key }))
