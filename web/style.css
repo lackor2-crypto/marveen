@@ -7427,10 +7427,15 @@ body {
      PAGE (body has no fixed height, just min-height:100vh, so it grows to
      fit its content) ended up a hair taller than one screen -- an outer
      page-level scrollbar alongside each column's own inner one (Boss,
-     2026-08-05: "2 gorgeto sav van a 3. oszlopban"). -190px leaves a safety
-     margin instead of matching to the exact pixel, which would be brittle
-     against font-metric differences across browsers/OSes. */
-  height: calc(100vh - 190px);
+     2026-08-05: "2 gorgeto sav van a 3. oszlopban"). -190px still wasn't
+     enough margin on Boss's actual browser (2026-08-06: same "dupla
+     gorgetosav" symptom recurred in the reader column) -- widened to -220px.
+     This stays a heuristic guess, not a measured value (brittle against
+     font-metric/zoom differences across browsers/OSes by design, see the
+     original note above) -- if it recurs again the real fix is dropping the
+     vh-calc entirely for a flex:1/min-height:0 layout that fills whatever
+     height main actually has, no magic number at all. */
+  height: calc(100vh - 220px);
   min-height: 400px;
 }
 .email-pane {
