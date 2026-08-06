@@ -14943,13 +14943,16 @@ function loadEmailUiState() {
 function clearEmailReaderPane() {
   const content = document.getElementById('emailReaderContent')
   const subjectRow = document.getElementById('emailReaderSubjectRow')
+  const actions = document.getElementById('emailReaderActions')
   const attachmentsList = document.getElementById('emailAttachmentsList')
   const downloadAllBtn = document.getElementById('emailAttachmentsDownloadAllBtn')
   // The "A levél tartalma" column title lives in index.html's static markup
   // now and is never touched here (Boss, 2026-08-06: wanted it permanently
   // visible like the other 3 columns' titles, not swapped out for the
-  // per-message subject) -- only the subject row and the body content below
-  // it reset to their empty placeholders.
+  // per-message subject) -- only the action buttons (next to the title, like
+  // the other 2 columns' own Törlés button), the subject row, and the body
+  // content reset to their empty placeholders.
+  if (actions) actions.innerHTML = ''
   if (subjectRow) subjectRow.innerHTML = ''
   if (content) content.innerHTML = '<div class="email-reader-empty">Válassz egy levelet a listából.</div>'
   if (attachmentsList) attachmentsList.innerHTML = '<div class="email-reader-empty">Nincs melléklet.</div>'
@@ -15606,12 +15609,13 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   const pane = document.getElementById('emailReaderPane')
   const content = document.getElementById('emailReaderContent')
   const subjectRow = document.getElementById('emailReaderSubjectRow')
+  const actions = document.getElementById('emailReaderActions')
   if (!pane || !content) return
   // "A levél tartalma" (the static column title, in index.html) is never
-  // touched from here -- only the subject row and the body content below it
-  // are (re)populated per message (Boss, 2026-08-06: wanted the column title
-  // permanently visible like the other 3 columns', not replaced by the
-  // per-message subject).
+  // touched from here -- only the action buttons (next to the title, like
+  // the other 2 columns' own Törlés button -- Boss, 2026-08-06), the subject
+  // row, and the body content below it are (re)populated per message.
+  if (actions) actions.innerHTML = ''
   if (subjectRow) subjectRow.innerHTML = ''
   content.innerHTML = '<div class="email-reader-empty">Betöltés...</div>'
   const attachmentsList = document.getElementById('emailAttachmentsList')
@@ -15636,12 +15640,12 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
       <div class="email-reader-subject">${escapeHtml(envelope?.subject || '(nincs tárgy)')}</div>
       <div class="email-reader-meta">${escapeHtml(from)} -- ${emailFmtDate(envelope?.date || '')}</div>
     </div>
-    <div class="email-reader-actions">
-      <button class="btn-secondary btn-compact" id="emailReplyBtn">Válasz</button>
-      <button class="btn-secondary btn-compact" id="emailForwardBtn">Továbbítás</button>
-      <button class="btn-secondary btn-compact" id="emailArchiveBtn">Archiválás</button>
-      <button class="btn-danger btn-compact" id="emailDeleteBtn">Törlés</button>
-    </div>
+  `
+  if (actions) actions.innerHTML = `
+    <button class="btn-secondary btn-compact" id="emailReplyBtn">Válasz</button>
+    <button class="btn-secondary btn-compact" id="emailForwardBtn">Továbbítás</button>
+    <button class="btn-secondary btn-compact" id="emailArchiveBtn">Archiválás</button>
+    <button class="btn-danger btn-compact" id="emailDeleteBtn">Törlés</button>
   `
   content.innerHTML = `
     <div class="email-reader-body-slot" id="emailReaderBodySlot"></div>

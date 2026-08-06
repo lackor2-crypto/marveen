@@ -7617,7 +7617,12 @@ body {
 .email-reader-subject-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .email-reader-subject { font-size: 16px; font-weight: 600; color: var(--text); }
 .email-reader-meta { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-.email-reader-actions { display: flex; gap: 8px; margin-top: 8px; }
+/* Moved up next to "A levél tartalma" (Boss, 2026-08-06: wanted these
+   matching the other 2 columns' Törlés-next-to-title placement) -- lives in
+   the title row's grid 3rd column now, so it aligns/justifies like that slot
+   (see .email-list-header button justify-self:end above), not stacked under
+   the subject with a top margin like before. */
+.email-reader-actions { display: flex; gap: 8px; justify-self: end; }
 /* Smaller than the app-wide .btn-compact default (10px 20px padding) --
    scoped to .email-column-header so it covers every column's header button
    (Törlés on mappák/levelek, Letöltés mind on mellékletek, and this row),
