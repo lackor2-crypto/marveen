@@ -554,7 +554,7 @@ $TMUX set-environment -g CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION false 2>/dev/null 
 # just THIS session first -- never the server, never another agent's session --
 # otherwise new-session below fails with "duplicate session".
 $TMUX kill-session -t "$SESSION" 2>/dev/null || true
-$TMUX new-session -d -s "$SESSION" -c "$INSTALL_DIR" \
+$TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$INSTALL_DIR" \
   "${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
 
 # Session startup guard: a Claude Code first-run dialogusait auto-accept-eljuk
@@ -595,7 +595,7 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
         # invasive change (a stable fallback dir + a seeded ~/.claude.json project
         # entry); see the PR description / card 7EB18437.
         [ -e "$INSTALL_DIR/CLAUDE.md" ] && ln -sf "$INSTALL_DIR/CLAUDE.md" "$_CHANNELS_STARTDIR/CLAUDE.md" 2>/dev/null || true
-        $TMUX new-session -d -s "$SESSION" -c "$_CHANNELS_STARTDIR" \
+        $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$_CHANNELS_STARTDIR" \
           "${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
         unset _CHANNELS_STARTDIR
       fi
