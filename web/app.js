@@ -16383,10 +16383,12 @@ function openTerminalModal(agentName) {
     // last row risks the container's overflow:hidden clipping a sliver of it
     // (Boss, 2026-08-06: "egy vagy ket sor eltunik alul" right after this
     // started filling the full height) — Boss confirmed a small gap at the
-    // bottom is fine, it's the clipped text that's the actual problem.
+    // bottom is fine, it's the clipped text that's the actual problem. Margin
+    // is 2 rows, not 1 -- Boss asked for one more row of headroom after the
+    // first pass still looked borderline.
     const lines = latestPane.split('\n')
     while (lines.length && isBlankLine(lines[lines.length - 1])) lines.pop()
-    const targetRows = Math.max(1, term.rows - 1)
+    const targetRows = Math.max(1, term.rows - 2)
     const padRows = Math.max(0, targetRows - lines.length)
     term.write('\x1b[3J\x1b[2J\x1b[H' + '\n'.repeat(padRows) + lines.join('\n'))
   }
