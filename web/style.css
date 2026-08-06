@@ -7463,7 +7463,22 @@ body {
      showing through/past it (Boss, 2026-08-05, screenshot: a fragment of
      the email body visible bleeding above the fixed header). */
   isolation: isolate;
+  /* Boss, 2026-08-06: with 3-4 columns each independently scrollable, several
+     scrollbar tracks visible on screen at once read as "duplicated" even
+     though each one is correct and independent -- thin, unobtrusive bars
+     instead of the fat OS default cut down the visual clutter everywhere. */
+  scrollbar-width: thin;
 }
+.email-pane::-webkit-scrollbar { width: 8px; }
+.email-pane::-webkit-scrollbar-track { background: transparent; }
+.email-pane::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.email-pane::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+/* The folder/label list (Mappák) is navigation, not the thing being actively
+   read -- Boss asked to "turn one off" outright rather than just thin it
+   down. Still fully scrollable (wheel/trackpad/keyboard), the track is just
+   never drawn, so it can't visually compete with the reader column's. */
+.email-pane-mailboxes { scrollbar-width: none; }
+.email-pane-mailboxes::-webkit-scrollbar { display: none; }
 /* Shared "attached toolbar strip" look for every column's header -- sticky,
    flush to the box's own top edge, background + bottom border so scrolled
    content never shows through (Boss, 2026-08-05). Column-specific internal
