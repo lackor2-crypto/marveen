@@ -31,7 +31,7 @@ const TIMEOUT = 90_000
 // the UI/route logic below is already account-parametrized.
 const ACCOUNTS = [{ id: 'lackor2', label: 'lackor2@gmail.com' }]
 
-function himalaya(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+function himalayaOnce(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise(resolve => {
     execFile(HIMALAYA_BIN, ['-c', HIMALAYA_CONFIG, ...args], { timeout: TIMEOUT, maxBuffer: 96 * 1024 * 1024 }, (err, stdout, stderr) => {
       // A timeout/maxBuffer kill leaves himalaya's own stdout/stderr empty
@@ -45,6 +45,36 @@ function himalaya(args: string[]): Promise<{ ok: boolean; stdout: string; stderr
     })
   })
 }
+
+// Every himalaya call opens a BRAND NEW IMAP/TLS connection from scratch
+// (no persistent/pooled session) -- Gmail allows 15 concurrent IMAP
+// connections per account, and under fast repeated use (folder-hopping,
+// reopening messages) this occasionally trips that limit, surfacing as
+// "Resource temporarily unavailable (os error 11)". Confirmed live
+// 2026-08-05: the exact same command failed once, then succeeded twice in a
+// row a few seconds later -- transient, not a real break. Researched first
+// (Boss's standing rule): exponential backoff + jitter is the standard
+// pattern for a transient provider-side throttle (same shape as retrying a
+// 429) -- fixed-interval retries risk repeatedly landing on the same
+// throttle window. Only used for read-only calls, where retrying is always
+// safe (no risk of double-sending like a retried `message reply --send`
+// would have).
+const TRANSIENT_RETRY_ATTEMPTS = 2
+const TRANSIENT_RETRY_BASE_MS = 400
+function isTransientImapError(text: string): boolean {
+  return /resource temporarily unavailable|os error 11/i.test(text)
+}
+async function himalayaRead(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  let attempt = await himalayaOnce(args)
+  for (let i = 0; i < TRANSIENT_RETRY_ATTEMPTS; i++) {
+    if (attempt.ok || !isTransientImapError(attempt.stderr || attempt.stdout)) break
+    const delay = TRANSIENT_RETRY_BASE_MS * 2 ** i + Math.random() * 200
+    await new Promise(r => setTimeout(r, delay))
+    attempt = await himalayaOnce(args)
+  }
+  return attempt
+}
+const himalaya = himalayaOnce
 
 function isKnownAccount(id: string | null): boolean {
   return !!id && ACCOUNTS.some(a => a.id === id)
@@ -167,6 +197,47 @@ function normalizeThreadSubject(subject: string): string {
   return s.trim().toLowerCase()
 }
 
+// Short-TTL caches for the two hottest, most-repeated read calls (mailbox
+// list on every sidebar render, envelope list on every folder open) --
+// Boss, 2026-08-05: "ha háttér-cacheled... akkor be is gyorsulna a
+// menüpontokban való átkattintás is." Folder-hopping back and forth (Inbox
+// -> label -> Inbox) previously re-ran a fresh IMAP round-trip every single
+// time; now a repeat within the TTL is served from memory, instant, and
+// doesn't count against Gmail's connection throttle at all.
+//
+// Mailbox list: himalaya's `mailbox list --json` always reports
+// total/unread as null on this account (verified live) -- the ONLY thing
+// that actually changes it is a label being created/deleted, which this
+// route already handles explicitly, so its TTL can be long.
+// Envelope list: message flags (seen/starred/important) and membership
+// (delete/archive/move) DO change what a mailbox listing should show, so
+// its TTL is short AND every mutating route below explicitly evicts the
+// affected (account, mailbox) entry rather than waiting out the TTL.
+const MAILBOX_LIST_TTL_MS = 5 * 60_000
+const ENVELOPE_LIST_TTL_MS = 20_000
+type CacheEntry<T> = { data: T; expires: number }
+const mailboxListCache = new Map<string, CacheEntry<unknown[]>>()
+const envelopeListCache = new Map<string, CacheEntry<unknown[]>>()
+
+function cacheGet<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
+  const entry = cache.get(key)
+  if (!entry) return undefined
+  if (Date.now() > entry.expires) { cache.delete(key); return undefined }
+  return entry.data
+}
+function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T, ttlMs: number): void {
+  cache.set(key, { data, expires: Date.now() + ttlMs })
+}
+// Envelope list is paginated (`-p`) -- a mutation doesn't know which page(s)
+// the frontend currently has open, so every cached page for this
+// (account, mailbox) is dropped rather than tracking pages individually.
+function invalidateEnvelopeCache(account: string, mailbox: string): void {
+  const prefix = `${account}::${mailbox}::`
+  for (const key of envelopeListCache.keys()) {
+    if (key.startsWith(prefix)) envelopeListCache.delete(key)
+  }
+}
+
 // A message's text/html/attachment-list is immutable once sent (only flags
 // like read/starred change, which live in the separate envelope/flags
 // endpoints, never touched here) -- so caching it for the process lifetime
@@ -217,8 +288,8 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
   // them sequentially would double the wait for every large-attachment
   // message. In parallel, total wait stays bounded by the slower of the two.
   const [bodyR, attR] = await Promise.all([
-    himalaya(['-a', account, 'message', 'read', id, '-m', mailbox, '--raw']),
-    himalaya(['-a', account, 'attachment', 'list', id, '-m', mailbox, '--json']),
+    himalayaRead(['-a', account, 'message', 'read', id, '-m', mailbox, '--raw']),
+    himalayaRead(['-a', account, 'attachment', 'list', id, '-m', mailbox, '--json']),
   ])
   if (!bodyR.ok) { logger.warn(`[email] message read failed: ${bodyR.stderr || bodyR.stdout}`); return { error: bodyR.stderr || bodyR.stdout || 'himalaya failed' } }
   let text = ''
@@ -267,11 +338,15 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/email/mailboxes' && method === 'GET') {
     const account = url.searchParams.get('account')
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
-    const r = await himalaya(['-a', account as string, 'mailbox', 'list', '--json'])
+    const cached = cacheGet(mailboxListCache, account as string)
+    if (cached) { json(res, cached); return true }
+    const r = await himalayaRead(['-a', account as string, 'mailbox', 'list', '--json'])
     if (!r.ok) { logger.warn(`[email] mailbox list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     try {
       const parsed = JSON.parse(r.stdout)
-      json(res, parsed.mailboxes || [])
+      const mailboxes = parsed.mailboxes || []
+      cacheSet(mailboxListCache, account as string, mailboxes, MAILBOX_LIST_TTL_MS)
+      json(res, mailboxes)
     } catch {
       json(res, { error: 'unparseable himalaya output' }, 502)
     }
@@ -287,6 +362,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // a label, so this is the same as adding a label from Gmail's own UI.
     const r = await himalaya(['-a', data.account as string, 'imap', 'create', data.name.trim()])
     if (!r.ok) { logger.warn(`[email] mailbox create failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    mailboxListCache.delete(data.account as string)
     json(res, { ok: true })
     return true
   }
@@ -306,6 +382,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       return { name, ok: r.ok }
     }))
     if (results.some(r => !r.ok)) { json(res, { error: 'Néhány címke törlése nem sikerült', results }, 502); return true }
+    mailboxListCache.delete(data.account as string)
     json(res, { ok: true })
     return true
   }
@@ -315,11 +392,16 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const mailbox = url.searchParams.get('mailbox') || 'Inbox'
     const page = url.searchParams.get('page') || '1'
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
-    const r = await himalaya(['-a', account as string, 'envelope', 'list', '-m', mailbox, '-p', page, '-s', '50', '--json'])
+    const envelopeCacheKey = `${account}::${mailbox}::${page}`
+    const cachedEnvelopes = cacheGet(envelopeListCache, envelopeCacheKey)
+    if (cachedEnvelopes) { json(res, cachedEnvelopes); return true }
+    const r = await himalayaRead(['-a', account as string, 'envelope', 'list', '-m', mailbox, '-p', page, '-s', '50', '--json'])
     if (!r.ok) { logger.warn(`[email] envelope list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     try {
       const parsed = JSON.parse(r.stdout)
-      json(res, parsed.envelopes || [])
+      const envelopes = parsed.envelopes || []
+      cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
+      json(res, envelopes)
     } catch {
       json(res, { error: 'unparseable himalaya output' }, 502)
     }
@@ -345,7 +427,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     async function worker() {
       while (cursor < ids.length) {
         const id = ids[cursor++]
-        const r = await himalaya(['-a', data.account as string, 'attachment', 'list', id, '-m', mailbox, '--json'])
+        const r = await himalayaRead(['-a', data.account as string, 'attachment', 'list', id, '-m', mailbox, '--json'])
         if (r.ok) {
           // Inline parts (signature logos, tracking pixels referenced by the
           // HTML body via cid:) come back in this list too -- only count real,
@@ -383,7 +465,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString()) as { account?: string; messageIds?: unknown }
     if (!isKnownAccount(data.account ?? null) || !Array.isArray(data.messageIds)) { json(res, { error: 'account and messageIds required' }, 400); return true }
     const messageIds = data.messageIds.filter((x): x is string => typeof x === 'string').slice(0, 50)
-    const r = await himalaya(['-a', data.account as string, 'envelope', 'list', '-m', IMPORTANT_MAILBOX, '-p', '1', '-s', '50', '--json'])
+    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', IMPORTANT_MAILBOX, '-p', '1', '-s', '50', '--json'])
     const result: Record<string, boolean> = {}
     if (r.ok) {
       try {
@@ -414,7 +496,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       .slice(0, 50)
 
     let sentEnvelopes: Array<{ id: string; subject?: string; date: string; from?: Array<{ email?: string }>; to?: Array<{ name?: string | null; email?: string }>; flags?: Array<{ iana?: string }>; 'message-id'?: string }> = []
-    const r = await himalaya(['-a', data.account as string, 'envelope', 'list', '-m', SENT_MAILBOX, '-p', '1', '-s', '50', '--json'])
+    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', SENT_MAILBOX, '-p', '1', '-s', '50', '--json'])
     if (r.ok) {
       try { sentEnvelopes = JSON.parse(r.stdout).envelopes || [] } catch { /* report no siblings rather than fail the list */ }
     }
@@ -537,6 +619,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const sub = data.read === false ? 'remove' : 'add'
     const r = await himalaya(['-a', data.account as string, 'flag', sub, '-m', mailbox, '-f', 'seen', data.id])
     if (!r.ok) { logger.warn(`[email] flag ${sub} failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
     return true
   }
@@ -551,6 +634,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const sub = data.starred === false ? 'remove' : 'add'
     const r = await himalaya(['-a', data.account as string, 'flag', sub, '-m', mailbox, '-f', 'flagged', data.id])
     if (!r.ok) { logger.warn(`[email] flag ${sub} (flagged) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
     return true
   }
@@ -586,11 +670,13 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       if (!store.ok) { logger.warn(`[email] unmark important store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', IMPORTANT_MAILBOX])
       if (!expunge.ok) { logger.warn(`[email] unmark important expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
+      invalidateEnvelopeCache(data.account as string, IMPORTANT_MAILBOX)
       json(res, { ok: true })
       return true
     }
     const r = await himalaya(['-a', data.account as string, 'message', 'copy', data.id, '-f', mailbox, '-t', IMPORTANT_MAILBOX])
     if (!r.ok) { logger.warn(`[email] mark important failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    invalidateEnvelopeCache(data.account as string, IMPORTANT_MAILBOX)
     json(res, { ok: true })
     return true
   }
@@ -614,11 +700,14 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
       if (!expunge.ok) { logger.warn(`[email] permanent delete expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
       purgeAttachmentCacheForMessage(data.account as string, mailbox, data.id)
+      invalidateEnvelopeCache(data.account as string, mailbox)
       json(res, { ok: true })
       return true
     }
     const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', '[Gmail]/Kuka'])
     if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    invalidateEnvelopeCache(data.account as string, mailbox)
+    invalidateEnvelopeCache(data.account as string, '[Gmail]/Kuka')
     json(res, { ok: true })
     return true
   }
@@ -637,6 +726,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (!store.ok) { logger.warn(`[email] archive store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
     const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
     if (!expunge.ok) { logger.warn(`[email] archive expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
+    invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
     return true
   }
