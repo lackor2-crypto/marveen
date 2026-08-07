@@ -4091,7 +4091,8 @@ async function loadAvailableModels() {
       for (const m of orManual) {
         const opt = document.createElement('option')
         opt.value = m.id
-        opt.textContent = `🔀 ${m.name || m.id}`
+        const priceTag = m.free === true ? ` (${t('debateModels.modal.free_label')})` : ''
+        opt.textContent = `🔀 ${m.name || m.id}${priceTag}`
         g.appendChild(opt)
       }
     }
@@ -4186,7 +4187,7 @@ function renderOpenrouterList() {
     cb.type = 'checkbox'
     cb.checked = checked
     cb.style.cssText = 'margin-top:3px;flex:0 0 auto'
-    cb.addEventListener('change', () => toggleCuratedModel(m.id, m.name, cb.checked))
+    cb.addEventListener('change', () => toggleCuratedModel(m.id, m.name, cb.checked, m.free))
     const info = document.createElement('div')
     info.style.cssText = 'flex:1 1 auto;min-width:0'
     info.innerHTML = `<div style="font-weight:600">${escapeHtml(m.name)}</div>`
@@ -4202,7 +4203,7 @@ function renderOpenrouterList() {
 
 // Tick/untick a model into the curated manual list. Persists server-side, then
 // refreshes the shared dropdown so the "kézi" optgroup reflects the change.
-async function toggleCuratedModel(id, name, checked) {
+async function toggleCuratedModel(id, name, checked, free) {
   // Optimistic local update so the checkbox + counter feel instant.
   if (checked) openrouterCurated.add(id); else openrouterCurated.delete(id)
   const countEl = document.getElementById('openrouterModalCount')
@@ -4214,7 +4215,7 @@ async function toggleCuratedModel(id, name, checked) {
     const res = await fetch('/api/openrouter/manual', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, name, checked }),
+      body: JSON.stringify({ id, name, checked, free }),
     })
     if (!res.ok) throw new Error('save failed')
     const data = await res.json()

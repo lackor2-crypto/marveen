@@ -120,6 +120,10 @@ export async function fetchAllOpenRouterModels(nowMs: number): Promise<OpenRoute
 export interface CuratedModel {
   id: string
   name: string
+  // Pricing snapshot at curation time (OpenRouter prices rarely flip a model
+  // between free/paid). Optional/undefined for entries curated before this
+  // field existed -- the UI just shows no price badge for those.
+  free?: boolean
 }
 
 export function loadCuratedManual(): CuratedModel[] {
@@ -141,10 +145,10 @@ function saveCuratedManual(models: CuratedModel[]): void {
 }
 
 // Add a model to the curated list (no-op if already present). Returns the new list.
-export function addCuratedManual(id: string, name: string): CuratedModel[] {
+export function addCuratedManual(id: string, name: string, free?: boolean): CuratedModel[] {
   const list = loadCuratedManual()
   if (!list.some(m => m.id === id)) {
-    list.push({ id, name: name || id })
+    list.push({ id, name: name || id, ...(typeof free === 'boolean' ? { free } : {}) })
     list.sort((a, b) => a.id.localeCompare(b.id))
     saveCuratedManual(list)
   }

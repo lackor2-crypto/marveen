@@ -613,9 +613,9 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       return true
     }
     const body = await readBody(req)
-    const { id, name, checked } = JSON.parse(body.toString()) as { id?: string; name?: string; checked?: boolean }
+    const { id, name, checked, free } = JSON.parse(body.toString()) as { id?: string; name?: string; checked?: boolean; free?: boolean }
     if (!id || typeof id !== 'string') { json(res, { error: 'id is required' }, 400); return true }
-    const models = checked ? addCuratedManual(id, name || id) : removeCuratedManual(id)
+    const models = checked ? addCuratedManual(id, name || id, free) : removeCuratedManual(id)
     json(res, { ok: true, models })
     return true
   }
