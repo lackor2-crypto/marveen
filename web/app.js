@@ -15512,6 +15512,40 @@ function emailMailboxDisplayName(name) {
   return name.replace(/^\[Gmail\]\//, '')
 }
 
+// Gmail-style nested-label tree (Boss, approved design 2026-08-06/07): a
+// custom label like "Freeber/Developp/Peter Botond" used to render as one
+// flat row showing the whole path, which was unreadable once there were a
+// few dozen of them. Builds a tree from the "/"-delimited names -- every
+// ancestor segment is itself a real IMAP mailbox in this data (Gmail always
+// creates the full ancestor chain), so no synthetic/virtual nodes are
+// needed, but the code tolerates a missing ancestor (mailbox: null) by
+// rendering it as a plain, non-interactive group header.
+function buildEmailLabelTree(custom) {
+  const root = { children: new Map() }
+  for (const m of custom) {
+    const parts = m.name.split('/')
+    let node = root
+    let pathSoFar = ''
+    for (const part of parts) {
+      pathSoFar = pathSoFar ? pathSoFar + '/' + part : part
+      if (!node.children.has(part)) node.children.set(part, { segment: part, path: pathSoFar, mailbox: null, children: new Map() })
+      node = node.children.get(part)
+    }
+    node.mailbox = m
+  }
+  return root
+}
+
+function renderEmailLabelTree(node, depth, labelItem) {
+  const entries = [...node.children.values()].sort((a, b) => a.segment.localeCompare(b.segment, 'hu'))
+  return entries.map(child => {
+    const selfHtml = child.mailbox
+      ? labelItem(child.mailbox, child.segment, depth)
+      : `<div class="email-mailbox-item email-mailbox-item-group" style="padding-left:${10 + depth * 16}px">${escapeHtml(child.segment)}</div>`
+    return selfHtml + renderEmailLabelTree(child, depth + 1, labelItem)
+  }).join('')
+}
+
 function sortEmailMailboxes(mailboxes) {
   const rank = new Map(EMAIL_SYSTEM_MAILBOX_ORDER.map((name, i) => [name, i]))
   const system = []
@@ -15860,14 +15894,18 @@ async function loadEmailMailboxes() {
   // Gmail's own folder structure (Boss, 2026-08-05, backend has the same
   // guard: SYSTEM_MAILBOXES in src/web/routes/email.ts).
   const item = m => `<div class="email-mailbox-item${m.name === emailMailbox ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">${escapeHtml(emailMailboxDisplayName(m.name))}</div>`
-  const labelItem = m => `<div class="email-mailbox-item email-mailbox-item-label${m.name === emailMailbox ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">
+  // depth-indented, "/" tree: only the LAST path segment is shown as the
+  // label text (the full path stays in data-mailbox for click/checkbox/API
+  // use) -- a left border on the indent gives the Gmail-style guide line,
+  // and nowrap+ellipsis keeps a deep/long name from breaking the column.
+  const labelItem = (m, displaySegment, depth) => `<div class="email-mailbox-item email-mailbox-item-label${m.name === emailMailbox ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}" style="padding-left:${10 + depth * 16}px">
     <input type="checkbox" class="email-mailbox-check" data-mailbox="${escapeHtml(m.name)}"${emailSelectedLabels.has(m.name) ? ' checked' : ''}>
-    <span>${escapeHtml(emailMailboxDisplayName(m.name))}</span>
+    <span class="email-mailbox-label-text" title="${escapeAttr(m.name)}">${escapeHtml(displaySegment)}</span>
   </div>`
   emailSelectedLabels = new Set([...emailSelectedLabels].filter(n => custom.some(m => m.name === n)))
   pane.innerHTML = system.map(item).join('')
     + (system.length && custom.length ? `<div class="email-mailbox-section-label">${escapeHtml(t('email.labels_section'))}</div>` : '')
-    + custom.map(labelItem).join('')
+    + renderEmailLabelTree(buildEmailLabelTree(custom), 0, labelItem)
     + `<div class="email-mailbox-item email-mailbox-new" id="emailNewMailboxBtn">${escapeHtml(t('email.new_label'))}</div>`
   pane.querySelectorAll('.email-mailbox-item[data-mailbox]').forEach(el => {
     // loadEmailMailboxes() already calls loadEmailEnvelopes() itself at the

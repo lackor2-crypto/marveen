@@ -7853,6 +7853,33 @@ body {
 .email-mailbox-item:hover { background: var(--bg-card-hover); color: var(--text); }
 .email-mailbox-item-label { display: flex; align-items: center; gap: 6px; }
 .email-mailbox-check { flex-shrink: 0; }
+/* Nested-label tree indentation (Boss, approved design 2026-08-06/07): each
+ * depth level gets a left border as a Gmail-style guide line down to its
+ * children, drawn via the item's own padding-left (set inline per depth in
+ * app.js) rather than nested DOM, since the tree is flattened into sibling
+ * divs. Label text truncates with an ellipsis instead of wrapping, so a
+ * deep/long name can't break the column width -- full name is in the
+ * title="" tooltip. */
+.email-mailbox-item-label,
+.email-mailbox-item-group {
+  border-left: 2px solid var(--border);
+  margin-left: 4px;
+}
+.email-mailbox-item-group {
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: default;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.email-mailbox-item-group:hover { background: none; }
+.email-mailbox-label-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .email-mailbox-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .email-mailbox-new { color: var(--text-muted); border: 1px dashed var(--border); margin-top: 8px; text-align: center; }
 .email-mailbox-new:hover { color: var(--accent); border-color: var(--accent); }
