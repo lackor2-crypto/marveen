@@ -1,11 +1,13 @@
-// Read-only API for the multi-model "vitaztatas" (debate/cross-check)
-// feature. scripts/debate.mjs is the only writer (append-only JSONL); this
-// route just parses store/debate-log.jsonl on each request -- no DB table,
-// no schema migration, matches the file's size (a handful of debates, not a
+// Mostly-read-only API for the multi-model "vitaztatas" (debate/cross-check)
+// feature. scripts/debate.mjs is the primary writer (append-only JSONL); this
+// route parses store/debate-log.jsonl on each GET -- no DB table, no schema
+// migration, matches the file's size (a handful of debates, not a
 // high-volume log) and keeps the whole feature a self-contained add rather
-// than touching the shared SQLite schema.
+// than touching the shared SQLite schema. DELETE is the one exception: it
+// lets Boss prune stray one-round connectivity-test sessions (logged the same
+// as real debates, but never reach a `conclude` entry) out of the archive.
 
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
@@ -63,6 +65,29 @@ function readLog(): LogEntry[] {
   return out
 }
 
+// Rewrites the log with all lines for `sessionId` removed. Atomic (tmp file
+// + rename in the same directory) so a crash mid-write can't half-truncate
+// the file out from under a concurrent GET.
+function deleteSession(sessionId: string): boolean {
+  if (!existsSync(LOG_PATH)) return false
+  const raw = readFileSync(LOG_PATH, 'utf-8')
+  const lines = raw.split('\n').filter(l => l.trim())
+  const kept: string[] = []
+  let removed = false
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line)
+      if (parsed && parsed.session === sessionId) { removed = true; continue }
+    } catch { /* keep malformed lines as-is */ }
+    kept.push(line)
+  }
+  if (!removed) return false
+  const tmpPath = `${LOG_PATH}.tmp-${process.pid}-${Date.now()}`
+  writeFileSync(tmpPath, kept.length ? kept.join('\n') + '\n' : '')
+  renameSync(tmpPath, LOG_PATH)
+  return true
+}
+
 export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
   const { res, path, method } = ctx
 
@@ -103,6 +128,17 @@ export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
   }
 
   const sessionMatch = path.match(/^\/api\/debate\/sessions\/([^/]+)$/)
+  if (sessionMatch && method === 'DELETE') {
+    try {
+      const id = decodeURIComponent(sessionMatch[1])
+      if (deleteSession(id)) { json(res, { ok: true }); return true }
+      json(res, { error: 'Not found' }, 404)
+    } catch (err) {
+      logger.error({ err }, 'debate session delete failed')
+      json(res, { error: 'Failed to delete debate session' }, 500)
+    }
+    return true
+  }
   if (sessionMatch && method === 'GET') {
     try {
       const id = decodeURIComponent(sessionMatch[1])

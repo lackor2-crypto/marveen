@@ -2975,6 +2975,7 @@ main.email-active .page-header { flex-shrink: 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   text-align: center;
+  overflow: hidden;
 }
 .stat-value {
   font-size: 24px;
@@ -2988,6 +2989,7 @@ main.email-active .page-header { flex-shrink: 0; }
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 /* === Approvals === */

@@ -13521,15 +13521,38 @@ function _renderDebateSessionList(sessions) {
           ${s.models.map(escapeHtml).join(', ')}
         </div>
       </div>
-      ${_debateConsensusBadge(s)}
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        ${_debateConsensusBadge(s)}
+        <button type="button" class="btn-icon debate-session-delete" data-id="${escapeAttr(s.id)}" title="${escapeAttr(t('debate.delete_tooltip'))}" aria-label="${escapeAttr(t('debate.delete_tooltip'))}">&times;</button>
+      </div>
     </div>`).join('')
 
   listEl.querySelectorAll('.debate-session-row').forEach(row => {
     row.addEventListener('click', () => _openDebateSession(row.dataset.id))
   })
+  listEl.querySelectorAll('.debate-session-delete').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      _deleteDebateSession(btn.dataset.id)
+    })
+  })
 }
 
+async function _deleteDebateSession(id) {
+  if (!confirm(t('debate.delete_confirm'))) return
+  try {
+    const res = await fetch(`/api/debate/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('HTTP error')
+    await loadDebatePage()
+  } catch (err) {
+    showToast(t('debate.delete_error'))
+  }
+}
+
+let _currentDebateSessionId = null
+
 async function _openDebateSession(id) {
+  _currentDebateSessionId = id
   document.getElementById('debateListView').hidden = true
   document.getElementById('debateDetailView').hidden = false
   const detailEl = document.getElementById('debateSessionDetail')
@@ -13544,6 +13567,20 @@ async function _openDebateSession(id) {
     detailEl.innerHTML = `<p style="color:var(--danger)">${t('debate.load_error')}</p>`
   }
 }
+
+document.getElementById('debateDetailDeleteBtn')?.addEventListener('click', async () => {
+  if (!_currentDebateSessionId) return
+  if (!confirm(t('debate.delete_confirm'))) return
+  try {
+    const res = await fetch(`/api/debate/sessions/${encodeURIComponent(_currentDebateSessionId)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('HTTP error')
+    document.getElementById('debateDetailView').hidden = true
+    document.getElementById('debateListView').hidden = false
+    await loadDebatePage()
+  } catch (err) {
+    showToast(t('debate.delete_error'))
+  }
+})
 
 function _renderDebateSessionDetail(session) {
   const detailEl = document.getElementById('debateSessionDetail')

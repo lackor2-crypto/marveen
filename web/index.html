@@ -1950,7 +1950,10 @@
       </div>
 
       <div id="debateDetailView" hidden>
-        <button class="btn-secondary btn-compact" id="debateDetailBackBtn">&larr; <span data-i18n="debate.back_to_list">Vissza a listához</span></button>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+          <button class="btn-secondary btn-compact" id="debateDetailBackBtn">&larr; <span data-i18n="debate.back_to_list">Vissza a listához</span></button>
+          <button class="btn-secondary btn-compact" id="debateDetailDeleteBtn" data-i18n="debate.delete_tooltip">Vita törlése</button>
+        </div>
         <div id="debateSessionDetail"></div>
       </div>
     </div>
