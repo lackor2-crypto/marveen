@@ -62,6 +62,7 @@ window._i18n.en = {
   'accounts.github.label':       'GitHub',
   'accounts.github.desc':        'Repo access, PRs, code operations. Login-based (device code), so this isn\'t a one-click connect either.',
   'accounts.github.agent_hint':  'You can set this up with me right now: tell me in chat "connect my GitHub account" and I\'ll give you a code and a link to log in.',
+  'accounts.connected_accounts': '{n} accounts connected: {names}',
   'common.error_save':        'Error saving',
   'common.error_delete':      'Error deleting',
   'common.error_network':     'Network error: {msg}',

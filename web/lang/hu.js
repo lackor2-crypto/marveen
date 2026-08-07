@@ -62,6 +62,7 @@ window._i18n.hu = {
   'accounts.github.label':       'GitHub',
   'accounts.github.desc':        'Repók elérése, PR-ek, kód-műveletek. Bejelentkezés-alapú (device-code), ezért ez sem egy gombnyomás.',
   'accounts.github.agent_hint':  'Ezt jelenleg velem tudod bekötni: írd be a chatben "kösd be a GitHub-fiókomat", és kapsz egy kódot és egy linket a bejelentkezéshez.',
+  'accounts.connected_accounts': '{n} fiók csatlakoztatva: {names}',
   'common.error_save':        'Hiba a mentés során',
   'common.error_delete':      'Hiba a törlés során',
   'common.error_network':     'Hálózati hiba: {msg}',

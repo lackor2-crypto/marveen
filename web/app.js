@@ -11837,11 +11837,15 @@ function _renderAccountItem(entry) {
     help = `<div class="vault-known-help"><div class="vault-known-steps">${escapeHtml(t(info.agentHintKey))}</div></div>`
   }
   const statusText = configured ? t('vault.known.configured') : (info.flow === 'vault' ? t('vault.known.missing') : t('accounts.status.not_configured'))
+  const accountsNote = configured && Array.isArray(entry.accounts) && entry.accounts.length
+    ? `<div class="vault-known-desc">${escapeHtml(t('accounts.connected_accounts', { n: entry.accounts.length, names: entry.accounts.join(', ') }))}</div>`
+    : ''
   return `<div class="vault-known-item${clickable ? ' accounts-item-clickable' : ''}"${clickable ? ` data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}"` : ''}>
     <div class="vault-known-row">
       <div class="vault-known-text">
         <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
         <div class="vault-known-desc">${escapeHtml(t(info.descKey))}</div>
+        ${accountsNote}
       </div>
       <div class="vault-known-status ${configured ? 'vault-known-status-ok' : 'vault-known-status-missing'}">${statusText}</div>
     </div>

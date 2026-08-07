@@ -13,14 +13,17 @@ import { getSecret } from '../vault.js'
 import { json } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 
-function hasGithubTokens(): boolean {
+// GitHub already supports multiple accounts under the hood (.github-tokens.json
+// is keyed by account name) -- surface the names too, not just a yes/no, so
+// Boss's "how many GitHub accounts are actually connected?" has a real answer.
+function githubAccountNames(): string[] {
   const p = join(PROJECT_ROOT, 'store', '.github-tokens.json')
-  if (!existsSync(p)) return false
+  if (!existsSync(p)) return []
   try {
     const data = JSON.parse(readFileSync(p, 'utf-8'))
-    return data && typeof data === 'object' && Object.keys(data).length > 0
+    return data && typeof data === 'object' ? Object.keys(data) : []
   } catch {
-    return false
+    return []
   }
 }
 
@@ -28,6 +31,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   const { res, path, method } = ctx
 
   if (path === '/api/accounts' && method === 'GET') {
+    const githubAccounts = githubAccountNames()
     json(res, {
       core: [
         { id: 'claude-code', configured: true },
@@ -35,7 +39,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
       ],
       optional: [
         { id: 'google', configured: existsSync(join(PROJECT_ROOT, 'store', 'google-token.json')) },
-        { id: 'github', configured: hasGithubTokens() },
+        { id: 'github', configured: githubAccounts.length > 0, accounts: githubAccounts },
         { id: 'openrouter', configured: getSecret('openrouter-fleet-key') !== null },
         { id: 'groq-stt', configured: getSecret('groq-stt-key') !== null },
       ],
