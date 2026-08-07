@@ -1196,15 +1196,22 @@ if [ -d "$SCHED_TPL_DIR" ]; then
       continue
     fi
     mkdir -p "$target"
-    for f in "$tpl"*; do
-      [ -f "$f" ] || continue
+    # find (not a top-level glob) so a template with its own subdirectory
+    # (e.g. a scripts/ or threat-intel/ folder) is not silently dropped --
+    # this bit an actual seed-skills copy loop before it was fixed, see git
+    # log; scheduled-task templates use the same "*/" glob shape so they
+    # were exposed to the identical bug even though no template happened to
+    # have a subdirectory yet.
+    while IFS= read -r -d '' f; do
+      rel="${f#"$tpl"}"
+      mkdir -p "$target/$(dirname "$rel")"
       sed -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
           -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
           -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
           -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
           -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
-          "$f" > "$target/$(basename "$f")"
-    done
+          "$f" > "$target/$rel"
+    done < <(find "$tpl" -type f -print0)
     ok "Utemezett feladat scaffoldolva: $task_name"
   done
 fi
@@ -1227,15 +1234,20 @@ if [ -d "$SEED_SCHED_DIR" ]; then
       continue
     fi
     mkdir -p "$target"
-    for f in "$tpl"*; do
-      [ -f "$f" ] || continue
+    # find, not a top-level glob -- see the matching comment on the
+    # scaffold loop above; this is the loop that would have silently
+    # dropped bumblebee-hygiene-scan's threat-intel/ subfolder had that
+    # task not been explicitly skip-listed above.
+    while IFS= read -r -d '' f; do
+      rel="${f#"$tpl"}"
+      mkdir -p "$target/$(dirname "$rel")"
       sed -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
           -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
           -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
           -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
           -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
-          "$f" > "$target/$(basename "$f")"
-    done
+          "$f" > "$target/$rel"
+    done < <(find "$tpl" -type f -print0)
     SCHED_NEW=$((SCHED_NEW + 1))
   done
   if [ "$SCHED_NEW" -gt 0 ] || [ "$SCHED_SKIP" -gt 0 ]; then

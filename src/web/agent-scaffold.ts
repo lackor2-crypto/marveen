@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
@@ -695,10 +695,13 @@ export function ensureDefaultScheduledTasks(): void {
     for (const file of readdirSync(src)) {
       const srcFile = join(src, file)
       const destFile = join(dest, file)
-      // Seeded task dirs are flat; skip any nested directory rather than
-      // letting readFileSync/copyFileSync throw EISDIR and abort the whole
-      // seed for every remaining task.
-      if (statSync(srcFile).isDirectory()) continue
+      // A seeded task dir isn't always flat (e.g. bumblebee-hygiene-scan's
+      // threat-intel/ subfolder) -- this used to silently skip any nested
+      // directory instead of copying it (same bug class found and fixed in
+      // the install-linux.sh/install-macos.sh seed loops, 2026-08-07).
+      // cpSync recurses on its own; no placeholder substitution inside a
+      // subdirectory, same as the install scripts only sed top-level files.
+      if (statSync(srcFile).isDirectory()) { cpSync(srcFile, destFile, { recursive: true }); continue }
       if (file === 'task-config.json') {
         copyTaskConfigWithAgentRewrite(srcFile, destFile)
       } else {

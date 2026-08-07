@@ -558,10 +558,7 @@ if [ -d "$SEED_SKILLS_DIR" ]; then
       fi
     fi
     mkdir -p "$target"
-    for f in "$skill_dir"*; do
-      [ -f "$f" ] || continue
-      cp "$f" "$target/$(basename "$f")"
-    done
+    cp -r "$skill_dir"* "$target/"
     if [ "$forced" = "1" ]; then SEED_FORCED=$((SEED_FORCED + 1)); else SEED_NEW=$((SEED_NEW + 1)); fi
   done
   if [ "$SEED_NEW" -gt 0 ] || [ "$SEED_SKIP" -gt 0 ] || [ "$SEED_FORCED" -gt 0 ]; then
@@ -598,14 +595,15 @@ if [ -d "$SEED_SCHED_DIR" ]; then
         fi
       fi
       mkdir -p "$target"
-      for f in "$tpl"*; do
-        [ -f "$f" ] || continue
+      while IFS= read -r -d '' f; do
+        rel="${f#"$tpl"}"
+        mkdir -p "$target/$(dirname "$rel")"
         sed -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
             -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
             -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
             -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
-            "$f" > "$target/$(basename "$f")"
-      done
+            "$f" > "$target/$rel"
+      done < <(find "$tpl" -type f -print0)
       if [ "$forced" = "1" ]; then SCHED_FORCED=$((SCHED_FORCED + 1)); else SCHED_NEW=$((SCHED_NEW + 1)); fi
     done
     if [ "$SCHED_NEW" -gt 0 ] || [ "$SCHED_SKIP" -gt 0 ] || [ "$SCHED_FORCED" -gt 0 ]; then

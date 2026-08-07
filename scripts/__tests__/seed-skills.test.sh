@@ -30,10 +30,7 @@ for skill_dir in "$SEED_SKILLS_DIR"/*/; do
   skill_name=$(basename "$skill_dir")
   target="$SKILLS_TARGET/$skill_name"
   mkdir -p "$target"
-  for f in "$skill_dir"*; do
-    [ -f "$f" ] || continue
-    cp "$f" "$target/$(basename "$f")"
-  done
+  cp -r "$skill_dir"* "$target/"
   SEED_NEW=$((SEED_NEW + 1))
 done
 
@@ -69,10 +66,7 @@ for skill_dir in "$SEED_SKILLS_DIR"/*/; do
     continue
   fi
   mkdir -p "$target"
-  for f in "$skill_dir"*; do
-    [ -f "$f" ] || continue
-    cp "$f" "$target/$(basename "$f")"
-  done
+  cp -r "$skill_dir"* "$target/"
   SEED_NEW=$((SEED_NEW + 1))
 done
 
@@ -104,14 +98,15 @@ for tpl in "$SEED_SCHED_DIR"/*/; do
   task_name=$(basename "$tpl")
   target="$SCHED_TARGET/$task_name"
   mkdir -p "$target"
-  for f in "$tpl"*; do
-    [ -f "$f" ] || continue
+  while IFS= read -r -d '' f; do
+    rel="${f#"$tpl"}"
+    mkdir -p "$target/$(dirname "$rel")"
     sed -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
         -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
         -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
         -e "s|{{INSTALL_DIR}}|/opt/testbot|g" \
-        "$f" > "$target/$(basename "$f")"
-  done
+        "$f" > "$target/$rel"
+  done < <(find "$tpl" -type f -print0)
 done
 
 if [ -f "$SCHED_TARGET/kanban-audit/SKILL.md" ]; then
@@ -177,14 +172,15 @@ for tpl in "$SEED_SCHED_DIR"/*/; do
     continue
   fi
   mkdir -p "$target"
-  for f in "$tpl"*; do
-    [ -f "$f" ] || continue
+  while IFS= read -r -d '' f; do
+    rel="${f#"$tpl"}"
+    mkdir -p "$target/$(dirname "$rel")"
     sed -e "s/{{MAIN_AGENT_ID}}/testbot/g" \
         -e "s/{{BOT_NAME}}/TestBot/g" \
         -e "s/{{OWNER_NAME}}/Tester/g" \
         -e "s|{{INSTALL_DIR}}|/opt/testbot|g" \
-        "$f" > "$target/$(basename "$f")"
-  done
+        "$f" > "$target/$rel"
+  done < <(find "$tpl" -type f -print0)
   SCHED_NEW=$((SCHED_NEW + 1))
 done
 
@@ -243,6 +239,65 @@ if echo "$STATE_CONTENT2" | grep -q '"last_audit_at":1700000000'; then
   pass "existing state file preserved on second run"
 else
   fail "existing state file was overwritten"
+fi
+
+# --- Test 6: skill/task subdirectories are NOT silently dropped ---
+# Regression test for the 2026-08-07 bug: the seed loops used to iterate
+# only "$dir"* with [ -f "$f" ] || continue, which skips directory entries
+# entirely -- a skill's scripts/ folder (fleet-helper) or a scheduled
+# task's own subfolder (bumblebee-hygiene-scan/threat-intel) vanished
+# with no error. Fixed to `cp -r` (skills) / a `find -type f` walk that
+# preserves relative subpaths (scheduled tasks, which still need per-file
+# sed substitution).
+echo ""
+echo "Test 6: skill/task subdirectories are not silently dropped"
+SKILLS_TARGET6="$TMPDIR_BASE/t6-skills"
+mkdir -p "$SKILLS_TARGET6"
+for skill_dir in "$SEED_SKILLS_DIR"/*/; do
+  [ -d "$skill_dir" ] || continue
+  skill_name=$(basename "$skill_dir")
+  target="$SKILLS_TARGET6/$skill_name"
+  mkdir -p "$target"
+  cp -r "$skill_dir"* "$target/"
+done
+
+if [ -d "$SEED_SKILLS_DIR/fleet-helper/scripts" ]; then
+  if [ -f "$SKILLS_TARGET6/fleet-helper/scripts/fleet.py" ]; then
+    pass "fleet-helper/scripts/fleet.py copied (subdirectory preserved)"
+  else
+    fail "fleet-helper/scripts/fleet.py missing -- subdirectory was dropped"
+  fi
+else
+  echo "  SKIP: fleet-helper/scripts/ not present in seed-skills/ (nothing to regress against)"
+fi
+
+SCHED_TARGET6="$TMPDIR_BASE/t6-sched"
+mkdir -p "$SCHED_TARGET6"
+for tpl in "$SEED_SCHED_DIR"/*/; do
+  [ -d "$tpl" ] || continue
+  task_name=$(basename "$tpl")
+  target="$SCHED_TARGET6/$task_name"
+  mkdir -p "$target"
+  while IFS= read -r -d '' f; do
+    rel="${f#"$tpl"}"
+    mkdir -p "$target/$(dirname "$rel")"
+    sed -e "s/{{MAIN_AGENT_ID}}/testbot/g" \
+        -e "s/{{BOT_NAME}}/TestBot/g" \
+        -e "s/{{OWNER_NAME}}/Tester/g" \
+        -e "s|{{INSTALL_DIR}}|/opt/testbot|g" \
+        "$f" > "$target/$rel"
+  done < <(find "$tpl" -type f -print0)
+done
+
+if [ -d "$SEED_SCHED_DIR/bumblebee-hygiene-scan/threat-intel" ]; then
+  found=$(find "$SCHED_TARGET6/bumblebee-hygiene-scan/threat-intel" -type f 2>/dev/null | wc -l)
+  if [ "$found" -ge 1 ]; then
+    pass "bumblebee-hygiene-scan/threat-intel/ copied ($found file(s), subdirectory preserved)"
+  else
+    fail "bumblebee-hygiene-scan/threat-intel/ missing -- subdirectory was dropped"
+  fi
+else
+  echo "  SKIP: bumblebee-hygiene-scan/threat-intel/ not present in seed-scheduled-tasks/ (nothing to regress against)"
 fi
 
 # --- Summary ---
