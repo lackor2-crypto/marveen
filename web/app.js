@@ -11826,7 +11826,11 @@ function _renderAccountItem(entry) {
   const info = _accountInfoFor(entry.id)
   if (!info) return ''
   const configured = entry.configured
-  const clickable = !configured && info.flow === 'vault'
+  // Vault-backed items are always clickable -- Vault is genuinely where they
+  // live, configured or not. Agent-flow items (Google/GitHub) have no
+  // dashboard destination yet (no OAuth-callback page exists), so clicking
+  // just reminds the user how to reach Marvin instead of faking a link.
+  const clickable = info.flow === 'vault' || info.flow === 'agent'
   let help = ''
   if (!configured && info.flow === 'vault') {
     help = `<div class="vault-known-help">
@@ -11840,7 +11844,12 @@ function _renderAccountItem(entry) {
   const accountsNote = configured && Array.isArray(entry.accounts) && entry.accounts.length
     ? `<div class="vault-known-desc">${escapeHtml(t('accounts.connected_accounts', { n: entry.accounts.length, names: entry.accounts.join(', ') }))}</div>`
     : ''
-  return `<div class="vault-known-item${clickable ? ' accounts-item-clickable' : ''}"${clickable ? ` data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}"` : ''}>
+  const clickAttrs = clickable
+    ? (info.flow === 'vault'
+        ? ` data-flow="vault" data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}"`
+        : ` data-flow="agent" data-agent-hint-key="${escapeHtml(info.agentHintKey)}"`)
+    : ''
+  return `<div class="vault-known-item${clickable ? ' accounts-item-clickable' : ''}"${clickAttrs}>
     <div class="vault-known-row">
       <div class="vault-known-text">
         <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
@@ -11863,9 +11872,15 @@ async function loadAccountsPage() {
     optEl.innerHTML = (data.optional || []).map(_renderAccountItem).join('')
     optEl.querySelectorAll('.accounts-item-clickable').forEach(el => {
       el.addEventListener('click', () => {
+        if (el.getAttribute('data-flow') === 'agent') {
+          showToast(t(el.getAttribute('data-agent-hint-key')))
+          return
+        }
         const id = el.getAttribute('data-vault-id')
         const labelKey = el.getAttribute('data-label-key')
+        const alreadySet = el.querySelector('.vault-known-status-ok') !== null
         switchPage('vault')
+        if (alreadySet) return
         setTimeout(() => {
           const addPanel = document.getElementById('vaultAddPanel')
           if (!addPanel) return
