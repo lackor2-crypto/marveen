@@ -697,6 +697,37 @@ main {
   color: var(--text-muted);
 }
 
+.overview-capabilities {
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  border-radius: var(--radius);
+  background: #dc2626;
+}
+.overview-capabilities-title {
+  color: #000;
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.overview-capabilities-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.overview-capability-item {
+  display: block;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity var(--transition);
+}
+.overview-capability-item:hover { opacity: 0.8; }
+.overview-capability-label { font-weight: 700; font-size: 13px; }
+.overview-capability-desc { font-size: 12px; color: #ccc; margin-top: 2px; }
+
 .overview-grid {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
@@ -4320,6 +4351,50 @@ main.email-active .page-header { flex-shrink: 0; }
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
+.vault-known-panel {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+.vault-known-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.vault-known-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vault-known-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.vault-known-label { font-weight: 600; font-size: 13px; }
+.vault-known-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.vault-known-status {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.vault-known-status-ok { background: var(--success); color: #fff; }
+.vault-known-status-missing {
+  background: var(--danger);
+  color: #fff;
+  cursor: pointer;
+}
+.vault-known-item:has(.vault-known-status-missing) { cursor: pointer; }
+.vault-known-item:has(.vault-known-status-missing):hover { border-color: var(--danger); }
 
 /* === Debate (Vitaztatas) page === */
 .debate-stats {

@@ -41,6 +41,9 @@ window._i18n.en = {
   'overview.no_activity':           'No recent activity.',
   'overview.error':                 'Error: {msg}',
   'overview.updates_subtitle':      'version check',
+  'overview.capabilities.title':    'Not using these yet',
+  'overview.capability.openrouter.label': 'OpenRouter',
+  'overview.capability.openrouter.desc':  'Multiple AI models at once (debate feature) — click to set up',
   'common.error_save':        'Error saving',
   'common.error_delete':      'Error deleting',
   'common.error_network':     'Network error: {msg}',
@@ -975,6 +978,9 @@ window._i18n.en = {
   'vault.stat.encryption':       'Encryption',
   'vault.stat.bindings':         'Bindings',
   'vault.stat.storage':          'Local',
+  'vault.known.title':           'Known integrations -- these need a key',
+  'vault.known.configured':      'Configured',
+  'vault.known.missing':         'Missing -- click',
 
 
   // --- Token Usage ---

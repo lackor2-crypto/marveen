@@ -8,8 +8,19 @@ import {
 } from '../agent-config.js'
 import { readAgentTeam } from '../agent-team.js'
 import { isAgentRunning } from '../agent-process.js'
+import { getSecret } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
+
+// Known optional capabilities the system supports but that need a per-user
+// setup step (a vault key, a token, ...) before they actually work. The
+// Overview page surfaces whichever of these are still unconfigured so the
+// user doesn't have to already know they exist. Add new entries here as more
+// opt-in integrations show up; the frontend owns the id -> label/desc/link
+// mapping (i18n strings live in web/lang/*.js, not baked in here).
+const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
+  { id: 'openrouter', configured: () => getSecret('openrouter-fleet-key') !== null },
+]
 
 // Count "real" user turns (operator prompts, Telegram messages) in every
 // Claude Code session JSONL under ~/.claude/projects/. Filters out
@@ -148,6 +159,8 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         avatarUrl: `/api/agents/${encodeURIComponent(a)}/avatar`,
       })
     }
+    const unconfiguredCapabilities = CAPABILITY_CHECKS.filter(c => !c.configured()).map(c => c.id)
+
     jsonMaybeGzip(req, res, {
       agents: { total, running },
       tasksToday,
@@ -156,6 +169,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       skills: { count: skillCount, today: skillsToday },
       team: agentsForTeam,
       activity: activity.slice(0, 8),
+      unconfiguredCapabilities,
     })
     return true
   }

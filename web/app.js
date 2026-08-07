@@ -9186,8 +9186,43 @@ async function loadVaultPage() {
     document.getElementById('vaultStatTotal').textContent = String(_vaultSecrets.length)
     document.getElementById('vaultStatBindings').textContent = String(_vaultBindings.length)
     renderVaultGrid(_vaultSecrets)
+    renderVaultKnownIntegrations()
     await Promise.all([loadSshKeys(), loadSshServers()])
   } catch { /* ignore */ }
+}
+
+// Self-documenting list of integrations Marveen knows about that live in the
+// Vault, so landing here (e.g. from the Overview "unused capabilities" box)
+// explains WHAT each key is for instead of a bare free-text field. Reuses
+// CAPABILITY_INFO -- add new entries there (with a vaultId) and they show
+// up here automatically.
+function renderVaultKnownIntegrations() {
+  const panel = document.getElementById('vaultKnownPanel')
+  if (!panel) return
+  const configuredIds = new Set(_vaultSecrets.map(s => s.id))
+  const items = Object.values(CAPABILITY_INFO).map(info => {
+    const configured = configuredIds.has(info.vaultId)
+    return `<div class="vault-known-item" data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}">
+      <div class="vault-known-text">
+        <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
+        <div class="vault-known-desc">${escapeHtml(t(info.descKey))}</div>
+      </div>
+      <div class="vault-known-status ${configured ? 'vault-known-status-ok' : 'vault-known-status-missing'}">${configured ? t('vault.known.configured') : t('vault.known.missing')}</div>
+    </div>`
+  }).join('')
+  panel.innerHTML = `<div class="vault-known-title">${escapeHtml(t('vault.known.title'))}</div><div class="vault-known-list">${items}</div>`
+  panel.querySelectorAll('.vault-known-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.getAttribute('data-vault-id')
+      if (configuredIds.has(id)) return
+      const labelKey = el.getAttribute('data-label-key')
+      const addPanel = document.getElementById('vaultAddPanel')
+      addPanel.hidden = false
+      document.getElementById('vaultPageIdInput').value = id
+      document.getElementById('vaultPageLabelInput').value = t(labelKey)
+      document.getElementById('vaultPageValueInput').focus()
+    })
+  })
 }
 
 function renderVaultGrid(secrets) {
@@ -11731,6 +11766,29 @@ function formatRelative(ts) {
   return t('common.time.day_abbr', { n: day })
 }
 
+// Overview "unused capabilities" widget: maps a capability id (as returned
+// by /api/overview's unconfiguredCapabilities) to its display strings and
+// the page it should link to. Add new opt-in integrations here as they gain
+// a CAPABILITY_CHECKS entry server-side (src/web/routes/overview.ts).
+const CAPABILITY_INFO = {
+  openrouter: { labelKey: 'overview.capability.openrouter.label', descKey: 'overview.capability.openrouter.desc', vaultId: 'openrouter-fleet-key' },
+}
+
+function renderOverviewCapabilities(ids) {
+  const box = document.getElementById('overviewCapabilities')
+  const list = document.getElementById('overviewCapabilitiesList')
+  const known = (ids || []).filter(id => CAPABILITY_INFO[id])
+  if (!known.length) { box.hidden = true; list.innerHTML = ''; return }
+  box.hidden = false
+  list.innerHTML = known.map(id => {
+    const info = CAPABILITY_INFO[id]
+    return `<a href="#" class="overview-capability-item" onclick="switchPage('vault');return false">
+      <div class="overview-capability-label">${escapeHtml(t(info.labelKey))}</div>
+      <div class="overview-capability-desc">${escapeHtml(t(info.descKey))}</div>
+    </a>`
+  }).join('')
+}
+
 async function loadOverview() {
   try {
     const res = await fetch('/api/overview')
@@ -11746,6 +11804,7 @@ async function loadOverview() {
     document.getElementById('statMemoriesSub').textContent = `${t('overview.stat.sub.memories')} · ${d.memories.categories} category`
     document.getElementById('statSkills').textContent = d.skills.count
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
+    renderOverviewCapabilities(d.unconfiguredCapabilities)
     // Team: reuse the hierarchy graph renderer so the overview card shows
     // exactly what the Csapat page does (avatars + reports-to tree).
     try {

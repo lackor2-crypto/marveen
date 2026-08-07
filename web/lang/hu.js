@@ -41,6 +41,9 @@ window._i18n.hu = {
   'overview.no_activity':           'Nincs friss esemény.',
   'overview.error':                 'Hiba: {msg}',
   'overview.updates_subtitle':      'verzió ellenőrzés',
+  'overview.capabilities.title':    'Ezeket még nem használod ki',
+  'overview.capability.openrouter.label': 'OpenRouter',
+  'overview.capability.openrouter.desc':  'Több AI-modell egyszerre (vitáztatás funkció) — kattints a beállításhoz',
   'common.error_save':        'Hiba a mentés során',
   'common.error_delete':      'Hiba a törlés során',
   'common.error_network':     'Hálózati hiba: {msg}',
@@ -1281,6 +1284,9 @@ window._i18n.hu = {
   'vault.stat.encryption':       'Titkosítás',
   'vault.stat.bindings':         'Kötés',
   'vault.stat.storage':          'Helyi',
+  'vault.known.title':           'Ismert integrációk -- ezekhez kell kulcs',
+  'vault.known.configured':      'Beállítva',
+  'vault.known.missing':         'Hiányzik -- kattints',
 
 
   // --- Token Usage ---
