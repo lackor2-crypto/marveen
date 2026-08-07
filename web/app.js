@@ -15465,6 +15465,10 @@ let emailSelectedIds = new Map()
 // folders (Inbox, Sent, ...) never get a checkbox at all, only user labels
 // can end up in here (Boss, 2026-08-05: "cimkeket lehet torolni, letrehozni").
 let emailSelectedLabels = new Set()
+// Cached on every loadEmailMailboxes() so the bulk "Mozgat" picker and the
+// drag-and-drop drop targets don't need their own fetch -- reuses the exact
+// list already shown in the folder column.
+let emailCustomMailboxesCache = []
 
 // Gmail's built-in mailboxes (already Hungarian-labeled by the account's own
 // locale) in the order a normal mail client shows them. Everything else is a
@@ -15510,6 +15514,12 @@ function emailMailboxDisplayName(name) {
   const key = EMAIL_MAILBOX_DISPLAY_KEY[name]
   if (key) return t(key)
   return name.replace(/^\[Gmail\]\//, '')
+}
+// Just the leaf segment of a nested label path, for toasts/messages where
+// the full "Freeber/Developp/Peter Botond" would be noise -- matches what
+// the label tree itself shows as the item's own text.
+function emailMailboxDisplayNameFromTree(name) {
+  return name.split('/').pop()
 }
 
 // Gmail-style nested-label tree (Boss, approved design 2026-08-06/07): a
@@ -15903,6 +15913,7 @@ async function loadEmailMailboxes() {
     <span class="email-mailbox-label-text" title="${escapeAttr(m.name)}">${escapeHtml(displaySegment)}</span>
   </div>`
   emailSelectedLabels = new Set([...emailSelectedLabels].filter(n => custom.some(m => m.name === n)))
+  emailCustomMailboxesCache = custom
   pane.innerHTML = system.map(item).join('')
     + (system.length && custom.length ? `<div class="email-mailbox-section-label">${escapeHtml(t('email.labels_section'))}</div>` : '')
     + renderEmailLabelTree(buildEmailLabelTree(custom), 0, labelItem)
@@ -15922,6 +15933,27 @@ async function loadEmailMailboxes() {
       saveEmailUiState()
       clearEmailReaderPane()
       loadEmailMailboxes()
+    })
+  })
+  // Drag-and-drop onto a label (Boss, 2026-08-07): scoped to CUSTOM labels
+  // only, not system folders (Inbox/Trash/Spam/...) -- dropping is a
+  // Gmail-style "add this label" copy, not a move, so it only makes sense
+  // for the user's own labels.
+  pane.querySelectorAll('.email-mailbox-item-label').forEach(el => {
+    el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('email-drop-target-active') })
+    el.addEventListener('dragleave', () => el.classList.remove('email-drop-target-active'))
+    el.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      el.classList.remove('email-drop-target-active')
+      const target = el.dataset.mailbox
+      let payload
+      try { payload = JSON.parse(e.dataTransfer.getData('application/x-marveen-email')) } catch { return }
+      if (!payload?.id || !payload?.mailbox) return
+      const res = await fetch('/api/email/label', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, mailbox: payload.mailbox, ids: [payload.id], target }),
+      })
+      showToast(res.ok ? t('email.drag_move_success', { target: emailMailboxDisplayNameFromTree(target) }) : t('email.drag_move_fail'))
     })
   })
   pane.querySelectorAll('.email-mailbox-check').forEach(cb => {
@@ -15957,6 +15989,9 @@ function emailFmtDate(iso) {
 function emailUpdateBulkDeleteUI() {
   const btn = document.getElementById('emailBulkDeleteBtn')
   if (btn) { btn.hidden = emailSelectedIds.size === 0; btn.textContent = t('email.delete_count', { n: emailSelectedIds.size }) }
+  const moveBtn = document.getElementById('emailBulkMoveBtn')
+  if (moveBtn) { moveBtn.hidden = emailSelectedIds.size === 0; moveBtn.textContent = t('email.move_count', { n: emailSelectedIds.size }) }
+  if (emailSelectedIds.size === 0) document.getElementById('emailMovePicker')?.setAttribute('hidden', '')
   const selectAll = document.getElementById('emailSelectAllCheckbox')
   if (selectAll) {
     const total = document.querySelectorAll('.email-envelope-check').length
@@ -16090,6 +16125,53 @@ document.getElementById('emailBulkDeleteBtn')?.addEventListener('click', async (
   }
 })
 
+// Bulk "Mozgat" (Boss, 2026-08-07): same target-picker tree as the folder
+// column (buildEmailLabelTree/renderEmailLabelTree), but a plain clickable
+// list instead of checkboxes -- picking a label copies every checked
+// message into it (Gmail add-label semantics, same endpoint the
+// drag-and-drop drop handler in loadEmailMailboxes uses).
+document.getElementById('emailBulkMoveBtn')?.addEventListener('click', (e) => {
+  e.stopPropagation()
+  const picker = document.getElementById('emailMovePicker')
+  if (!picker) return
+  if (!picker.hidden) { picker.hidden = true; return }
+  if (emailCustomMailboxesCache.length === 0) {
+    picker.innerHTML = `<div class="email-move-picker-empty">${escapeHtml(t('email.move_picker_empty'))}</div>`
+  } else {
+    const pickItem = (m, displaySegment, depth) => `<div class="email-move-picker-item" data-mailbox="${escapeHtml(m.name)}" style="padding-left:${8 + depth * 14}px" title="${escapeAttr(m.name)}">${escapeHtml(displaySegment)}</div>`
+    picker.innerHTML = renderEmailLabelTree(buildEmailLabelTree(emailCustomMailboxesCache), 0, pickItem)
+  }
+  picker.hidden = false
+  picker.querySelectorAll('.email-move-picker-item').forEach(item => {
+    item.addEventListener('click', () => emailBulkMoveTo(item.dataset.mailbox))
+  })
+})
+document.addEventListener('click', (e) => {
+  const picker = document.getElementById('emailMovePicker')
+  if (picker && !picker.hidden && !e.target.closest('.email-bulk-move-wrap')) picker.hidden = true
+})
+
+async function emailBulkMoveTo(target) {
+  document.getElementById('emailMovePicker').hidden = true
+  const entries = Array.from(emailSelectedIds.entries())
+  const byMailbox = new Map()
+  for (const [id, mailbox] of entries) {
+    if (!byMailbox.has(mailbox)) byMailbox.set(mailbox, [])
+    byMailbox.get(mailbox).push(id)
+  }
+  const results = await Promise.all([...byMailbox.entries()].map(([mailbox, ids]) =>
+    fetch('/api/email/label', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, mailbox, ids, target }),
+    }).then(res => res.ok).catch(() => false)
+  ))
+  showToast(results.every(Boolean)
+    ? t('email.bulk_move_success', { n: entries.length, target: emailMailboxDisplayNameFromTree(target) })
+    : t('email.bulk_move_partial_fail'))
+  emailSelectedIds = new Map()
+  emailUpdateBulkDeleteUI()
+}
+
 // Mirrors the backend's normalizeThreadSubject (src/web/routes/email.ts) --
 // used here to also fold duplicate-subject rows WITHIN the same mailbox into
 // one group (see below), not just to match against Sent siblings.
@@ -16125,7 +16207,7 @@ function emailSubrowHtml(s) {
   // received messages) had no button at all, which read as "only the newest
   // message can be marked" (Boss, 2026-08-05).
   const starred = !!s.flags?.some(f => f.iana === 'flagged')
-  return `<div class="email-envelope-subrow${active ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}">
+  return `<div class="email-envelope-subrow${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}">
     <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}"${emailSelectedIds.has(String(s.id)) ? ' checked' : ''}>
     <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
       <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
@@ -16137,6 +16219,17 @@ function emailSubrowHtml(s) {
     <svg class="email-envelope-attachment-flag email-envelope-subrow-attachment-flag" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" style="display:none" title="${escapeAttr(t('email.has_attachment_tooltip'))}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
     <span class="email-envelope-subrow-date">${emailFmtDate(s.date)}</span>
   </div>`
+}
+
+// Shared dragstart for both the top-level envelope row and its nested
+// subrows (Boss, 2026-08-07: drag a message onto a label to add it,
+// Gmail-style). Payload travels as JSON in a custom MIME type so the drop
+// handler on a label item (loadEmailMailboxes) never has to guess which
+// element started the drag.
+function emailEnvelopeDragStart(e) {
+  const el = e.currentTarget
+  e.dataTransfer.effectAllowed = 'copy'
+  e.dataTransfer.setData('application/x-marveen-email', JSON.stringify({ id: el.dataset.id, mailbox: el.dataset.mailbox }))
 }
 
 async function loadEmailEnvelopes() {
@@ -16225,7 +16318,7 @@ async function loadEmailEnvelopes() {
     // newest-first order (Boss, 2026-08-05: "felülre a 0805, alulra a 0601").
     const nested = [...extras, ...sentSiblings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     return `<div class="email-envelope-group" data-group-id="${escapeHtml(e.id)}">
-      <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}">
+      <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}">
         <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}"${emailSelectedIds.has(String(e.id)) ? ' checked' : ''}>
         <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
           <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
@@ -16248,6 +16341,7 @@ async function loadEmailEnvelopes() {
       if (e.target.closest('.email-envelope-check, .email-star-btn, .email-important-btn')) return
       loadEmailMessage(el.dataset.id, el.dataset.mailbox)
     })
+    el.addEventListener('dragstart', emailEnvelopeDragStart)
   })
   // Star: a plain IMAP flag, already in envelope.flags -- no extra fetch,
   // just toggle + optimistic UI (Boss, 2026-08-05 plan: "csillagozott").
@@ -16310,6 +16404,7 @@ async function loadEmailEnvelopes() {
   }
   pane.querySelectorAll('.email-envelope-subrow').forEach(sub => {
     sub.addEventListener('click', (ev) => { ev.stopPropagation(); loadEmailMessage(sub.dataset.id, sub.dataset.mailbox) })
+    sub.addEventListener('dragstart', emailEnvelopeDragStart)
   })
   pane.querySelectorAll('.email-envelope-check').forEach(cb => {
     cb.addEventListener('click', (e) => e.stopPropagation())

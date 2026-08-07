@@ -7902,6 +7902,43 @@ body {
    text sitting off-center (Boss, 2026-08-05: "tul szeles, kozepre kene a
    szoveg"). Covering both by tag instead of just .btn-danger. */
 .email-list-header button { justify-self: end; }
+/* Mozgat + Törlés share the header's 3rd grid cell (Boss, 2026-08-07: wanted
+ * both, shrink Törlés if it doesn't fit) -- wrapped in one flex row so the
+ * grid still only sees a single item there. */
+.email-list-header-actions { display: flex; align-items: center; gap: 6px; justify-self: end; }
+.email-bulk-move-wrap { position: relative; }
+.email-move-picker {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  max-height: 280px;
+  overflow-y: auto;
+  min-width: 200px;
+  z-index: 50;
+  padding: 4px;
+}
+.email-move-picker-item {
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.email-move-picker-item:hover { background: var(--bg-card-hover); color: var(--text); }
+.email-move-picker-empty { padding: 8px; font-size: 12px; color: var(--text-muted); }
+/* Drag-and-drop-onto-a-label visual feedback (Boss, 2026-08-07). */
+.email-drop-target-active {
+  background: var(--accent-soft) !important;
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
 .email-select-all { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 /* Thicker + darker than the default --border -- the thin, light default
    border became nearly invisible crossing the active row's highlighted

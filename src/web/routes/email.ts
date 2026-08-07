@@ -1050,6 +1050,32 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Drag-and-drop / bulk "move to label" (Boss, 2026-08-07): same UID-COPY
+  // mechanism as /api/email/important above, generalized to any target
+  // mailbox. Gmail-IMAP label semantics -- copying INTO the target adds
+  // that label without removing the message from its source mailbox, same
+  // as dragging a message onto a label in Gmail's own UI. Accepts multiple
+  // ids for the bulk "Mozgat" button (one himalaya call per id -- the CLI
+  // has no multi-id copy that reports partial failure per-id, and partial
+  // failure needs to be visible per message, not all-or-nothing).
+  if (path === '/api/email/label' && method === 'POST') {
+    const body = await readBody(req)
+    const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; ids?: string[]; target?: string }
+    if (!isKnownAccount(data.account ?? null) || !data.target?.trim() || !Array.isArray(data.ids) || data.ids.length === 0) {
+      json(res, { error: 'account, target and ids required' }, 400); return true
+    }
+    const mailbox = data.mailbox || 'Inbox'
+    const failed: string[] = []
+    for (const id of data.ids) {
+      const r = await himalaya(['-a', data.account as string, 'message', 'copy', id, '-f', mailbox, '-t', data.target])
+      if (!r.ok) { logger.warn(`[email] label (copy to ${data.target}) failed for ${id}: ${r.stderr || r.stdout}`); failed.push(id) }
+    }
+    invalidateEnvelopeCache(data.account as string, data.target)
+    if (failed.length === data.ids.length) { json(res, { error: 'himalaya failed for all messages' }, 502); return true }
+    json(res, { ok: true, failed })
+    return true
+  }
+
   if (path === '/api/email/delete' && method === 'POST') {
     const body = await readBody(req)
     const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string }

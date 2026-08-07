@@ -1455,7 +1455,13 @@
           <div class="email-column-header email-list-header" id="emailListHeader">
             <label class="email-select-all"><input type="checkbox" id="emailSelectAllCheckbox"><span data-i18n="email.select_all">Kijelöl</span></label>
             <span class="email-list-header-title" data-i18n="email.messages_title">Levelek</span>
-            <button class="btn-danger btn-compact" id="emailBulkDeleteBtn" hidden data-i18n="common.delete">Törlés</button>
+            <div class="email-list-header-actions">
+              <div class="email-bulk-move-wrap">
+                <button class="btn-secondary btn-compact" id="emailBulkMoveBtn" hidden data-i18n="email.move_btn">Mozgat</button>
+                <div class="email-move-picker" id="emailMovePicker" hidden></div>
+              </div>
+              <button class="btn-danger btn-compact" id="emailBulkDeleteBtn" hidden data-i18n="common.delete">Törlés</button>
+            </div>
           </div>
           <div id="emailEnvelopeList"></div>
         </div>
