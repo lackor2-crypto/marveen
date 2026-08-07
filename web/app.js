@@ -4091,7 +4091,10 @@ async function loadAvailableModels() {
       for (const m of orManual) {
         const opt = document.createElement('option')
         opt.value = m.id
-        const priceTag = m.free === true ? ` (${t('debateModels.modal.free_label')})` : ''
+        // Some OpenRouter model names already say "(free)" themselves -- don't
+        // pile a second, redundant tag on top of those (Boss 2026-08-07).
+        const alreadySaysFree = /\bfree\b/i.test(m.name || '')
+        const priceTag = (m.free === true && !alreadySaysFree) ? ` (${t('debateModels.modal.free_label')})` : ''
         opt.textContent = `🔀 ${m.name || m.id}${priceTag}`
         g.appendChild(opt)
       }
