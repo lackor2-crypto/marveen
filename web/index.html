@@ -938,6 +938,26 @@
         </div>
       </div>
 
+      <!-- Debate ("vitáztatás") settings: OpenRouter model picker for DEBATE_MODELS -->
+      <div class="modal-overlay" id="debateModelsModal" hidden>
+        <div class="modal-content" style="max-width:660px">
+          <div class="modal-header">
+            <h3 data-i18n="debateModels.modal.title">🔀 Modellek kiválasztása vitáztatáshoz</h3>
+            <button class="modal-close" id="debateModelsModalClose">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-desc" data-i18n="debateModels.modal.desc">Pipáld be a modelleket, amiket a vitáztatás használjon. A választás a DEBATE_MODELS mezőt tölti ki.</p>
+            <input type="text" id="debateModelsModalSearch" data-i18n-placeholder="debateModels.modal.search_placeholder" placeholder="Keresés: név, provider, id..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:8px">
+            <label style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;margin-bottom:8px"><input type="checkbox" id="debateModelsModalFreeOnly"> <span data-i18n="debateModels.modal.free_only">Csak ingyenes (:free)</span></label>
+            <div id="debateModelsModalCount" style="font-size:11px;color:var(--text-muted);margin-bottom:4px"></div>
+            <div id="debateModelsModalList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:6px"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" id="debateModelsModalDone" data-i18n="debateModels.modal.done_btn">Kész</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Gallery tab -->
       <div class="connector-tab-content" id="connectorGalleryTab" hidden>
         <div class="catalog-filters" id="catalogFilters">

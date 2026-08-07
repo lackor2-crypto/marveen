@@ -4237,6 +4237,112 @@ document.getElementById('openrouterModalCancel')?.addEventListener('click', clos
 document.getElementById('openrouterModalSearch')?.addEventListener('input', renderOpenrouterList)
 document.getElementById('openrouterModalFreeOnly')?.addEventListener('change', renderOpenrouterList)
 
+// --- DEBATE_MODELS picker: same OpenRouter catalog, but ticks write straight
+// into the settings text input as a comma-separated list (no server-side
+// curated list involved -- unlike the "kézi" modal above, this selection is
+// specific to the debate feature, not shared with agent model dropdowns).
+let debateModelsSelected = new Set()
+let debateModelsTargetInput = null
+
+function openDebateModelsModal(inputEl) {
+  const modal = document.getElementById('debateModelsModal')
+  const listEl = document.getElementById('debateModelsModalList')
+  const searchEl = document.getElementById('debateModelsModalSearch')
+  const freeEl = document.getElementById('debateModelsModalFreeOnly')
+  if (!modal || !listEl || !inputEl) return
+  debateModelsTargetInput = inputEl
+  debateModelsSelected = new Set(
+    inputEl.value.split(',').map(s => s.trim()).filter(Boolean)
+  )
+  if (modal.parentElement !== document.body) document.body.appendChild(modal)
+  modal.hidden = false
+  modal.classList.add('active')
+  listEl.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:13px">${t('debateModels.modal.loading')}</div>`
+  if (searchEl) searchEl.value = ''
+  if (freeEl) freeEl.checked = false
+  ;(async () => {
+    try {
+      if (!openrouterAllModels) {
+        const res = await fetch('/api/openrouter/models')
+        if (!res.ok) throw new Error('fetch failed')
+        const data = await res.json()
+        openrouterAllModels = Array.isArray(data.models) ? data.models : []
+      }
+      renderDebateModelsList()
+    } catch {
+      listEl.innerHTML = `<div style="padding:14px;color:var(--danger,#dc2626);font-size:13px">${t('debateModels.modal.load_error')}</div>`
+    }
+  })()
+}
+
+function renderDebateModelsList() {
+  const listEl = document.getElementById('debateModelsModalList')
+  const countEl = document.getElementById('debateModelsModalCount')
+  const q = (document.getElementById('debateModelsModalSearch')?.value || '').toLowerCase().trim()
+  const freeOnly = !!document.getElementById('debateModelsModalFreeOnly')?.checked
+  if (!listEl || !openrouterAllModels) return
+  const rows = openrouterAllModels.filter(m => {
+    if (freeOnly && !m.free) return false
+    if (!q) return true
+    return (m.id + ' ' + m.name).toLowerCase().includes(q)
+  })
+  rows.sort((a, b) => {
+    const sa = debateModelsSelected.has(a.id), sb = debateModelsSelected.has(b.id)
+    if (sa !== sb) return sa ? -1 : 1
+    return a.id.localeCompare(b.id)
+  })
+  if (countEl) countEl.textContent = t('debateModels.modal.count', { count: debateModelsSelected.size })
+  listEl.innerHTML = ''
+  for (const m of rows.slice(0, 400)) {
+    const checked = debateModelsSelected.has(m.id)
+    const row = document.createElement('label')
+    row.className = 'openrouter-model-row'
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;font-size:13px'
+    const price = m.free ? `<span style="color:var(--success,#16a34a);font-weight:600">${t('debateModels.modal.free_label')}</span>`
+      : `$${m.promptPrice.toFixed(2)}/$${m.completionPrice.toFixed(2)} /M`
+    const ctx = m.contextLength ? ` · ${Math.round(m.contextLength / 1000)}k ctx` : ''
+    const cb = document.createElement('input')
+    cb.type = 'checkbox'
+    cb.checked = checked
+    cb.style.cssText = 'margin-top:3px;flex:0 0 auto'
+    cb.addEventListener('change', () => toggleDebateModelSelection(m.id, cb.checked))
+    const info = document.createElement('div')
+    info.style.cssText = 'flex:1 1 auto;min-width:0'
+    info.innerHTML = `<div style="font-weight:600">${escapeHtml(m.name)}</div>`
+      + `<div style="color:var(--text-muted);font-size:11.5px"><code>${escapeHtml(m.id)}</code> · ${price}${ctx}</div>`
+    row.appendChild(cb)
+    row.appendChild(info)
+    row.addEventListener('mouseenter', () => { row.style.background = 'var(--surface-hover, #f1f5f9)' })
+    row.addEventListener('mouseleave', () => { row.style.background = '' })
+    listEl.appendChild(row)
+  }
+  if (rows.length === 0) listEl.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:13px">${t('debateModels.modal.empty')}</div>`
+}
+
+// Tick/untick a model for the debate list. Writes straight through to the
+// target settings input (comma-separated ids) and fires 'input' so the
+// existing settings-dirty tracking (markSettingDirty) picks it up.
+function toggleDebateModelSelection(id, checked) {
+  if (checked) debateModelsSelected.add(id); else debateModelsSelected.delete(id)
+  const countEl = document.getElementById('debateModelsModalCount')
+  if (countEl) countEl.textContent = t('debateModels.modal.count', { count: debateModelsSelected.size })
+  if (debateModelsTargetInput) {
+    debateModelsTargetInput.value = [...debateModelsSelected].join(',')
+    debateModelsTargetInput.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+}
+
+function closeDebateModelsModal() {
+  const modal = document.getElementById('debateModelsModal')
+  if (modal) { modal.hidden = true; modal.classList.remove('active') }
+  debateModelsTargetInput = null
+}
+
+document.getElementById('debateModelsModalClose')?.addEventListener('click', closeDebateModelsModal)
+document.getElementById('debateModelsModalDone')?.addEventListener('click', closeDebateModelsModal)
+document.getElementById('debateModelsModalSearch')?.addEventListener('input', renderDebateModelsList)
+document.getElementById('debateModelsModalFreeOnly')?.addEventListener('change', renderDebateModelsList)
+
 let modelRestartPollTimer = null
 let modelRestartPollName = null
 
@@ -14017,6 +14123,15 @@ function buildSettingRow(def) {
   valueInput.dataset.settingType = def.type
   valueInput.dataset.originalValue = originalValue
   editor.appendChild(valueInput)
+
+  if (def.key === 'DEBATE_MODELS') {
+    const browseBtn = document.createElement('button')
+    browseBtn.type = 'button'
+    browseBtn.className = 'btn-secondary btn-compact'
+    browseBtn.textContent = t('settings.debate_models.browse_btn')
+    browseBtn.addEventListener('click', () => openDebateModelsModal(valueInput))
+    editor.appendChild(browseBtn)
+  }
 
   const errorEl = document.createElement('div')
   errorEl.className = 'settings-row-error'
