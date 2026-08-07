@@ -3001,8 +3001,9 @@ document.getElementById('wizardCreateBtn').addEventListener('click', async () =>
 })
 
 // === Toast ===
-function showToast(msg, duration = 3000) {
+function showToast(msg, duration = 3000, big = false) {
   toast.textContent = msg
+  toast.classList.toggle('toast-big', big)
   toast.classList.add('visible')
   setTimeout(() => toast.classList.remove('visible'), duration)
 }
@@ -9242,6 +9243,7 @@ function renderVaultGrid(secrets) {
   for (const s of secrets) {
     const card = document.createElement('div')
     card.className = 'vault-card'
+    card.dataset.id = s.id
     const date = new Date(s.updatedAt).toLocaleDateString('hu-HU')
     const bindingCount = _vaultBindings.filter(b => b.vaultSecretId === s.id).length
     const bindingBadge = bindingCount > 0 ? `<span class="vault-binding-badge" title="${bindingCount} kotes">${bindingCount} kotes</span>` : ''
@@ -11873,14 +11875,23 @@ async function loadAccountsPage() {
     optEl.querySelectorAll('.accounts-item-clickable').forEach(el => {
       el.addEventListener('click', () => {
         if (el.getAttribute('data-flow') === 'agent') {
-          showToast(t(el.getAttribute('data-agent-hint-key')))
+          showToast(t(el.getAttribute('data-agent-hint-key')), 8000, true)
           return
         }
         const id = el.getAttribute('data-vault-id')
         const labelKey = el.getAttribute('data-label-key')
         const alreadySet = el.querySelector('.vault-known-status-ok') !== null
         switchPage('vault')
-        if (alreadySet) return
+        if (alreadySet) {
+          setTimeout(() => {
+            const card = document.querySelector(`.vault-card[data-id="${CSS.escape(id)}"]`)
+            if (!card) return
+            card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            card.classList.add('vault-card-highlight')
+            setTimeout(() => card.classList.remove('vault-card-highlight'), 2000)
+          }, 400)
+          return
+        }
         setTimeout(() => {
           const addPanel = document.getElementById('vaultAddPanel')
           if (!addPanel) return

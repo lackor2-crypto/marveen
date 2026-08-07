@@ -2733,6 +2733,15 @@ main.email-active .page-header { flex-shrink: 0; }
   white-space: nowrap;
 }
 .toast.visible { transform: translateX(-50%) translateY(0); }
+.toast-big {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 16px 28px;
+  white-space: normal;
+  max-width: min(90vw, 480px);
+  text-align: center;
+  line-height: 1.5;
+}
 
 /* === Tasks === */
 .tasks-empty {
@@ -4602,6 +4611,13 @@ main.email-active .page-header { flex-shrink: 0; }
   border-radius: var(--radius);
   transition: all var(--transition);
   gap: 8px;
+}
+.vault-card-highlight {
+  animation: vaultCardPulse 2s ease;
+}
+@keyframes vaultCardPulse {
+  0%, 100% { border-color: var(--border); box-shadow: none; }
+  20%, 60% { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
 }
 .vault-card:hover {
   border-color: var(--accent);
