@@ -1180,6 +1180,7 @@ window._i18n.hu = {
   'settings.desc.KANBAN_WIP_OVER_COLOR':       'A WIP-badge színe, amikor az oszlop túllépte a limitet.',
   'settings.desc.DEBATE_MODELS':               'A vitáztatáshoz használt OpenRouter modell-azonosítók, vesszővel elválasztva (pl. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Üresen hagyva a fő-agens minden vitáztatás-kérésnél megkérdezi, melyik modelleket használja.',
   'settings.desc.DEBATE_MAX_ROUNDS':           'Hány kör után adja fel a fő-agens az egyetértés keresését egy vitáztatásnál, ha a modellek addig nem jutnak konszenzusra. Minden kör = N valódi API-hívás, ezért van felső korlát.',
+  'settings.desc.DEBATE_LOG_MAX_MB':           'A vitaelőzmények naplójának (store/debate-log.jsonl) legnagyobb mérete megabájtban. Ha a napló ezt túllépi, a legrégebbi vita-körök automatikusan törlődnek elölről (önmagát tisztító, "körkörös" napló) -- az újak mindig megmaradnak.',
   'settings.desc.KANBAN_ARCHIVE_DONE_DAYS':    'Ennyi napnál régebbi "done" kártyák automatikusan archiválódnak a listKanbanCards() hívásakor.',
   'settings.desc.KANBAN_AGING_WARN_H':         'Ennyi óra inaktivitás után jelenik meg az első (sárga) aging-jelzés a kártyán.',
   'settings.desc.KANBAN_AGING_CAUTION_H':      'Ennyi óra inaktivitás után vált narancssárgára az aging-jelzés.',

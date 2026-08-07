@@ -874,6 +874,7 @@ window._i18n.en = {
   'settings.desc.KANBAN_WIP_OVER_COLOR':       'WIP badge color when the column has exceeded the limit.',
   'settings.desc.DEBATE_MODELS':               'Comma-separated OpenRouter model ids used for debates (e.g. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Left empty, the main agent asks which models to use on every debate request.',
   'settings.desc.DEBATE_MAX_ROUNDS':           'How many rounds the main agent tries for agreement in a debate before giving up if the models never converge. Every round is N real API calls, hence the cap.',
+  'settings.desc.DEBATE_LOG_MAX_MB':           'Maximum size, in megabytes, of the debate history log (store/debate-log.jsonl). Once exceeded, the oldest debate rounds are automatically deleted from the front (a self-cleaning, "ring buffer" log) -- newer ones are always kept.',
   'settings.desc.KANBAN_ARCHIVE_DONE_DAYS':    'Cards in "done" older than this many days are automatically archived when listKanbanCards() is called.',
   'settings.desc.KANBAN_AGING_WARN_H':         'Hours of inactivity after which the first (yellow) aging indicator appears on a card.',
   'settings.desc.KANBAN_AGING_CAUTION_H':      'Hours of inactivity after which the aging indicator turns orange.',

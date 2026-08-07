@@ -26,6 +26,16 @@
 // reviewable, not just a call-count). Logging lives here, not in the caller,
 // so no invocation path can skip it.
 //
+// The log is a bounded ring buffer, not an unbounded append (Boss,
+// 2026-08-07: "legyen olyan hogy maximum mennyi mehet abba a kosárba, és
+// hogyha tele van a kosár, a régiek törlődnek, az újak megmaradnak"). After
+// every write the file size is checked against the DEBATE_LOG_MAX_MB setting
+// (Beallitasok -> Vitaztatas fül); if over, the OLDEST lines are dropped
+// until it fits. This can silently orphan a session's later rounds/conclude
+// marker from its aged-out earlier rounds -- an accepted trade-off of a
+// simple oldest-out/newest-in cap, not something worth a more complex
+// per-session-atomic eviction for a feature this low-volume.
+//
 // Subcommands:
 //
 //   ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>]
@@ -45,7 +55,7 @@
 
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync, statSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -55,6 +65,35 @@ const LOG_PATH = join(projectRoot, 'store', 'debate-log.jsonl')
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const PER_MODEL_TIMEOUT_MS = 90_000
 const VAULT_SECRET_ID = 'openrouter-fleet-key'
+const DEFAULT_LOG_MAX_MB = 20
+
+// Settings-store read is best-effort: if the dist build is stale/missing
+// (fresh checkout, not yet `npm run build`) the log just keeps the default
+// cap instead of failing the whole debate call over a housekeeping detail.
+async function readLogMaxMb() {
+  try {
+    const { getEffectiveSettingValue } = await import(join(projectRoot, 'dist', 'settings-store.js'))
+    const v = getEffectiveSettingValue('DEBATE_LOG_MAX_MB')
+    const n = typeof v === 'number' ? v : parseInt(String(v), 10)
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_LOG_MAX_MB
+  } catch {
+    return DEFAULT_LOG_MAX_MB
+  }
+}
+
+async function trimLogIfNeeded() {
+  if (!existsSync(LOG_PATH)) return
+  const maxBytes = (await readLogMaxMb()) * 1024 * 1024
+  const stat = statSync(LOG_PATH)
+  if (stat.size <= maxBytes) return
+  const lines = readFileSync(LOG_PATH, 'utf-8').split('\n').filter(Boolean)
+  let totalBytes = lines.reduce((sum, l) => sum + Buffer.byteLength(l, 'utf-8') + 1, 0)
+  while (totalBytes > maxBytes && lines.length > 0) {
+    const dropped = lines.shift()
+    totalBytes -= Buffer.byteLength(dropped, 'utf-8') + 1
+  }
+  writeFileSync(LOG_PATH, lines.length ? lines.join('\n') + '\n' : '')
+}
 
 function parseAskArgs(argv) {
   const args = { models: [], session: null, round: null, prompt: null }
@@ -144,6 +183,7 @@ async function runAsk(argv) {
       error: r.ok ? null : r.error,
     })
   }
+  await trimLogIfNeeded()
 
   console.log(JSON.stringify({ session, round, models: args.models, responses }, null, 2))
 }
@@ -155,6 +195,7 @@ async function runConclude(argv) {
     process.exit(1)
   }
   logLine({ ts: Math.floor(Date.now() / 1000), session: args.session, type: 'conclude', consensus: args.consensus, summary: args.summary })
+  await trimLogIfNeeded()
   console.log(JSON.stringify({ ok: true, session: args.session }))
 }
 

@@ -454,6 +454,17 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
   },
+  {
+    key: 'DEBATE_LOG_MAX_MB',
+    type: 'int',
+    default: 20,
+    min: 1,
+    max: 500,
+    description: 'A vitaelőzmények naplójának (store/debate-log.jsonl) legnagyobb mérete megabájtban. Ha a napló ezt túllépi, a legrégebbi vita-körök automatikusan törlődnek elölről (önmagát tisztító, "körkörös" napló) -- az újak mindig megmaradnak.',
+    module: 'debate',
+    secret: false,
+    requiresRestart: false,
+  },
 ]
 
 export function getSettingDefinition(key: string): SettingDefinition | undefined {
