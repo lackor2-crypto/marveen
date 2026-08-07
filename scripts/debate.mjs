@@ -19,20 +19,29 @@
 // resolve.mjs uses), not a subprocess -- this script already runs in Node,
 // no need for a second hop.
 //
-// Usage:
-//   node scripts/debate.mjs "<prompt>" --models openai/gpt-5,x-ai/grok-4 [--session <id>] [--round <n>]
+// Every call (and the closing summary) is appended to store/debate-log.jsonl
+// -- full prompt + full response text, not just token counts, so the
+// dashboard's "Vitaztatas" page can show the whole back-and-forth verbatim,
+// not just aggregate stats (Boss, 2026-08-07: wants the process itself to be
+// reviewable, not just a call-count). Logging lives here, not in the caller,
+// so no invocation path can skip it.
 //
-// Output (stdout): one JSON object --
-//   { session, round, models, responses: [{ model, ok, text?, error?, tokensIn?, tokensOut? }] }
+// Subcommands:
 //
-// Every per-model result (success or failure) is also appended as one JSON
-// line to store/debate-log.jsonl -- this is the raw data a future "Vitaztatas"
-// dashboard stats page reads (call count/tokens per model, success rate).
-// Logging lives here (not in the caller) so no invocation path can skip it.
+//   ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>]
+//     Fires the prompt at every model in parallel, prints their answers as
+//     JSON. Omit --session on round 1 -- a fresh id is generated and printed
+//     back; pass that same id on every later round of the same debate.
+//     --round defaults to 1.
 //
-// --session groups rounds of the same debate together for that future
-// history view. Omit it on round 1 -- a fresh session id is generated and
-// printed back; pass it on every later round of the same debate.
+//   conclude --session <id> --consensus true|false --summary "<text>"
+//     Appends a closing marker for the session (no model calls) -- the
+//     agent's final synthesis and whether the models converged. Without this
+//     a session in the log just trails off after its last round with no
+//     visible outcome.
+//
+// Output (stdout, `ask`): { session, round, models, responses:
+//   [{ model, ok, text?, error?, tokensIn?, tokensOut? }] }
 
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -47,7 +56,7 @@ const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 const PER_MODEL_TIMEOUT_MS = 90_000
 const VAULT_SECRET_ID = 'openrouter-fleet-key'
 
-function parseArgs(argv) {
+function parseAskArgs(argv) {
   const args = { models: [], session: null, round: null, prompt: null }
   const rest = []
   for (let i = 0; i < argv.length; i++) {
@@ -58,6 +67,17 @@ function parseArgs(argv) {
     rest.push(a)
   }
   args.prompt = rest.join(' ')
+  return args
+}
+
+function parseConcludeArgs(argv) {
+  const args = { session: null, consensus: null, summary: null }
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    if (a === '--session') { args.session = argv[++i]; continue }
+    if (a === '--consensus') { args.consensus = argv[++i] === 'true'; continue }
+    if (a === '--summary') { args.summary = argv[++i]; continue }
+  }
   return args
 }
 
@@ -93,19 +113,23 @@ async function callModel(model, prompt, apiKey) {
   }
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
-  if (!args.prompt || !args.models.length) {
-    console.error('Usage: node scripts/debate.mjs "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>]')
-    process.exit(1)
-  }
-
+async function loadApiKey() {
   const { getSecret } = await import(join(projectRoot, 'dist', 'web', 'vault.js'))
   const apiKey = getSecret(VAULT_SECRET_ID)
   if (!apiKey) {
     console.error(`No OpenRouter key in vault (secret id: ${VAULT_SECRET_ID}). Add it on the dashboard's Vault page first.`)
     process.exit(1)
   }
+  return apiKey
+}
+
+async function runAsk(argv) {
+  const args = parseAskArgs(argv)
+  if (!args.prompt || !args.models.length) {
+    console.error('Usage: node scripts/debate.mjs ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>]')
+    process.exit(1)
+  }
+  const apiKey = await loadApiKey()
 
   const session = args.session || randomUUID()
   const round = args.round ?? 1
@@ -114,10 +138,32 @@ async function main() {
   const responses = await Promise.all(args.models.map(m => callModel(m, args.prompt, apiKey)))
 
   for (const r of responses) {
-    logLine({ ts, session, round, model: r.model, ok: r.ok, tokensIn: r.tokensIn ?? null, tokensOut: r.tokensOut ?? null, error: r.ok ? null : r.error })
+    logLine({
+      ts, session, round, type: 'round', prompt: args.prompt, model: r.model, ok: r.ok,
+      text: r.ok ? r.text : null, tokensIn: r.tokensIn ?? null, tokensOut: r.tokensOut ?? null,
+      error: r.ok ? null : r.error,
+    })
   }
 
   console.log(JSON.stringify({ session, round, models: args.models, responses }, null, 2))
+}
+
+async function runConclude(argv) {
+  const args = parseConcludeArgs(argv)
+  if (!args.session || args.consensus === null || !args.summary) {
+    console.error('Usage: node scripts/debate.mjs conclude --session <id> --consensus true|false --summary "<text>"')
+    process.exit(1)
+  }
+  logLine({ ts: Math.floor(Date.now() / 1000), session: args.session, type: 'conclude', consensus: args.consensus, summary: args.summary })
+  console.log(JSON.stringify({ ok: true, session: args.session }))
+}
+
+async function main() {
+  const [cmd, ...rest] = process.argv.slice(2)
+  if (cmd === 'ask') return runAsk(rest)
+  if (cmd === 'conclude') return runConclude(rest)
+  console.error('Usage: node scripts/debate.mjs <ask|conclude> ...')
+  process.exit(1)
 }
 
 main().catch(err => { console.error('debate.mjs failed:', err); process.exit(1) })
