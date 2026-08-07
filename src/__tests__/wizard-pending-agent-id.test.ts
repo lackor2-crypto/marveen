@@ -86,7 +86,12 @@ describe('PAIRAPPROVE1: the wizard resolves the real agent id before asking', ()
   })
 
   it('leaves the mainAgentId fallback alone (other call sites depend on it)', () => {
-    expect(APP).toMatch(/return window\._marveen\?\.agentId \|\| 'marveen'/)
+    // A brand-token fallback (window._brandTokens?.agentId) was inserted
+    // between the two ends of this chain since this assertion was written --
+    // the middle is now flexible on purpose, but the chain must still START
+    // by trying window._marveen?.agentId and still END on the 'marveen'
+    // literal default, which is the actual invariant other call sites rely on.
+    expect(APP).toMatch(/return window\._marveen\?\.agentId \|\| .*\|\| 'marveen'/)
   })
 
   it('keeps the expiry filter, which is correct (the plugin writes ms)', () => {

@@ -110,12 +110,18 @@ describe('the ERR-trap abort is real (guards the premise of the tests above)', (
   ]
 
   // Same shape as the installer's auth gate: an assignment whose command
-  // substitution fails, inside the `then` branch of an `if`. bash blames the
-  // enclosing `fi`, which is why the installer reported line 658 for a command
-  // that lives on line 644.
-  it('an unguarded capture aborts, and bash blames the enclosing `fi`', () => {
+  // substitution fails, inside the `then` branch of an `if`. On the bash that
+  // diagnosed the original incident (an old GPLv2 bash 3.2, macOS's default),
+  // the ERR trap blamed the enclosing `fi` -- which is why the installer
+  // reported line 658 for a command that lives on line 644. Re-verified here
+  // (2026-08-08) on bash 5.2.21: this build attributes it to the failing
+  // command's own line instead. The exact line is a bash-version quirk, not a
+  // contract anything else depends on (no other assertion in this file pins a
+  // specific number) -- what actually matters, and is what "tests above" rely
+  // on, is just that the trap fires and aborts at all for this construct.
+  it('an unguarded capture aborts (bash may blame the failing line or its enclosing `fi`, version-dependent)', () => {
     const r = runScriptFile([...TRAP, 'if [ -n "x" ]; then', '  out="$(false)"', 'fi', 'echo REACHED'])
-    expect(r.out).toBe('TRAP:6')
+    expect(['TRAP:5', 'TRAP:6']).toContain(r.out)
     expect(r.out).not.toContain('REACHED')
     expect(r.code).toBe(9)
   })

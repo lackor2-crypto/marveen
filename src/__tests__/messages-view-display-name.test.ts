@@ -31,8 +31,12 @@ function extractFn(name: string): string | null {
 
 // Instantiate the real mainAgentDisplayName()/chatDisplayName() from source
 // against a mock window + a stubbed mainAgentId(), so the assertions exercise the
-// actual fallback chain the browser runs.
-function loadHelpers(win: Record<string, unknown>, mainId: string) {
+// actual fallback chain the browser runs. chatDisplayName also reads the
+// module-level `agents` list (/api/agents, Boss 2026-08-05: sub-agents need a
+// real display-name lookup too, not just an unchanged-id passthrough) -- that
+// list is injected the same way mainId is, defaulting to empty so callers that
+// don't care about it keep testing the plain fallback-to-raw-id path.
+function loadHelpers(win: Record<string, unknown>, mainId: string, agentsList: Array<{ name: string; displayName?: string }> = []) {
   const displayFn = extractFn('mainAgentDisplayName')
   const chatFn = extractFn('chatDisplayName')
   if (!displayFn || !chatFn) {
@@ -40,12 +44,13 @@ function loadHelpers(win: Record<string, unknown>, mainId: string) {
   }
   const body = `
     function mainAgentId() { return MAIN_ID }
+    const agents = AGENTS
     ${displayFn}
     ${chatFn}
     return { mainAgentDisplayName, chatDisplayName }
   `
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  return new Function('window', 'MAIN_ID', body)(win, mainId) as {
+  return new Function('window', 'MAIN_ID', 'AGENTS', body)(win, mainId, agentsList) as {
     mainAgentDisplayName: () => string
     chatDisplayName: (name: string) => string
   }
@@ -57,8 +62,16 @@ describe('Messages view maps the main agent id to BOT_NAME (regression #519/#520
     expect(chatDisplayName('nova')).toBe('Nova')
   })
 
-  it('passes every other agent id through unchanged (they already carry a human name)', () => {
-    const { chatDisplayName } = loadHelpers({ _marveen: { name: 'Nova' } }, 'nova')
+  it('looks up a non-main agent in the fetched agents list and shows its displayName', () => {
+    const { chatDisplayName } = loadHelpers(
+      { _marveen: { name: 'Nova' } }, 'nova',
+      [{ name: 'ysahyarik', displayName: 'Samu' }],
+    )
+    expect(chatDisplayName('ysahyarik')).toBe('Samu')
+  })
+
+  it('falls back to the raw id for a non-main agent missing from the agents list (e.g. removed since page load)', () => {
+    const { chatDisplayName } = loadHelpers({ _marveen: { name: 'Nova' } }, 'nova', [])
     expect(chatDisplayName('ysahyarik')).toBe('ysahyarik')
   })
 
