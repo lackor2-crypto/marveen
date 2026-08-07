@@ -2076,6 +2076,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
   if (agentMatch && method === 'DELETE') {
     const name = decodeURIComponent(agentMatch[1])
+    // The UI hides the delete button for the main agent (its own detail view
+    // is a special-cased, read-only panel), but that's a frontend nicety, not
+    // a guarantee -- this is the only thing standing between a stray request
+    // and rmSync-ing the coordinator's own directory out from under itself.
+    if (name === MAIN_AGENT_ID) { json(res, { error: 'A fő ágens nem törölhető' }, 400); return true }
     const dir = agentDir(name)
     if (!existsSync(dir)) { json(res, { error: 'Agent not found' }, 404); return true }
     rmSync(dir, { recursive: true, force: true })

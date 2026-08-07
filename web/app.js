@@ -15976,10 +15976,11 @@ async function loadEmailMailboxes() {
       loadEmailMailboxes()
     })
   })
-  // Drag-and-drop onto a label (Boss, 2026-08-07): scoped to CUSTOM labels
-  // only, not system folders (Inbox/Trash/Spam/...) -- dropping is a
-  // Gmail-style "add this label" copy, not a move, so it only makes sense
-  // for the user's own labels.
+  // Drag-and-drop onto a label (Boss, 2026-08-07, corrected same day): scoped
+  // to CUSTOM labels only, not system folders (Inbox/Trash/Spam/...). This is
+  // a real move (like dragging onto a label in Gmail's own sidebar) -- the
+  // message leaves its current mailbox, so the currently-open list needs a
+  // reload afterward or the dragged row keeps sitting there looking unmoved.
   pane.querySelectorAll('.email-mailbox-item-label').forEach(el => {
     el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('email-drop-target-active') })
     el.addEventListener('dragleave', () => el.classList.remove('email-drop-target-active'))
@@ -15995,6 +15996,7 @@ async function loadEmailMailboxes() {
         body: JSON.stringify({ account: emailAccount, mailbox: payload.mailbox, ids: [payload.id], target }),
       })
       showToast(res.ok ? t('email.drag_move_success', { target: emailMailboxDisplayNameFromTree(target) }) : t('email.drag_move_fail'))
+      if (res.ok && payload.mailbox === emailMailbox) await loadEmailEnvelopes()
     })
   })
   pane.querySelectorAll('.email-mailbox-check').forEach(cb => {
@@ -16211,6 +16213,7 @@ async function emailBulkMoveTo(target) {
     : t('email.bulk_move_partial_fail'))
   emailSelectedIds = new Map()
   emailUpdateBulkDeleteUI()
+  if (results.some(Boolean) && byMailbox.has(emailMailbox)) await loadEmailEnvelopes()
 }
 
 // Mirrors the backend's normalizeThreadSubject (src/web/routes/email.ts) --
