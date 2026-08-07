@@ -15190,13 +15190,13 @@ async function renderIrodaSettingsForm(account) {
     <div class="form-row">
       <div class="form-group form-half"><label class="form-label">${t('irodaSettings.field.imap_host')} ${tip(t('irodaSettings.tip.imap_host'))}</label><input type="text" class="input" id="irodaImapHost" placeholder="imap.gmail.com" value="${escapeAttr(cfg.imapHost || '')}"></div>
       <div class="form-group" style="width:100px"><label class="form-label">${t('irodaSettings.field.port')} ${tip(t('irodaSettings.tip.imap_port'))}</label><input type="number" class="input" id="irodaImapPort" value="${cfg.imapPort || 993}"></div>
-      <div class="form-group" style="width:130px"><label class="form-label">${t('irodaSettings.field.encryption')} ${tip(t('irodaSettings.tip.encryption'))}</label><select class="input" id="irodaImapEncryption">${encryptionOptions(cfg.imapEncryption || 'tls')}</select></div>
+      <div class="form-group" style="width:190px"><label class="form-label">${t('irodaSettings.field.encryption')} ${tip(t('irodaSettings.tip.encryption'))}</label><select class="input" id="irodaImapEncryption">${encryptionOptions(cfg.imapEncryption || 'tls')}</select></div>
     </div>
     <div class="form-group"><label class="form-label">${t('irodaSettings.field.imap_username')} ${tip(t('irodaSettings.tip.imap_username'))}</label><input type="text" class="input" id="irodaImapUsername" placeholder="${escapeAttr(t('irodaSettings.placeholder.username'))}" value="${escapeAttr(cfg.imapUsername || '')}"></div>
     <div class="form-row">
       <div class="form-group form-half"><label class="form-label">${t('irodaSettings.field.smtp_host')} ${tip(t('irodaSettings.tip.smtp_host'))}</label><input type="text" class="input" id="irodaSmtpHost" placeholder="smtp.gmail.com" value="${escapeAttr(cfg.smtpHost || '')}"></div>
       <div class="form-group" style="width:100px"><label class="form-label">${t('irodaSettings.field.port')} ${tip(t('irodaSettings.tip.smtp_port'))}</label><input type="number" class="input" id="irodaSmtpPort" value="${cfg.smtpPort || 465}"></div>
-      <div class="form-group" style="width:130px"><label class="form-label">${t('irodaSettings.field.encryption')} ${tip(t('irodaSettings.tip.encryption'))}</label><select class="input" id="irodaSmtpEncryption">${encryptionOptions(cfg.smtpEncryption || 'tls')}</select></div>
+      <div class="form-group" style="width:190px"><label class="form-label">${t('irodaSettings.field.encryption')} ${tip(t('irodaSettings.tip.encryption'))}</label><select class="input" id="irodaSmtpEncryption">${encryptionOptions(cfg.smtpEncryption || 'tls')}</select></div>
     </div>
     <div class="form-group"><label class="form-label">${t('irodaSettings.field.smtp_username')} ${tip(t('irodaSettings.tip.smtp_username'))}</label><input type="text" class="input" id="irodaSmtpUsername" placeholder="${escapeAttr(t('irodaSettings.placeholder.username'))}" value="${escapeAttr(cfg.smtpUsername || '')}"></div>
     <div class="form-group">
@@ -15499,9 +15499,21 @@ function removeEmailRowsLocally(deleted) {
     if (subrow) { subrow.remove(); continue }
     const item = document.querySelector(`.email-envelope-item[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)
     if (item) {
+      // Boss 2026-08-07: deleting the group's anchor row (the top message of
+      // a same-subject fold, e.g. an ordinary reply thread -- see the
+      // "Fold same-subject duplicates" comment above in loadEmailEnvelopes)
+      // used to force a full loadEmailEnvelopes() reload here whenever
+      // sibling subrows were still present, because nothing promoted one of
+      // them into the anchor's place. That made the WHOLE middle column
+      // flash-reload for what should have been a one-row removal, since any
+      // ordinary reply chain lands in this grouped state. Just remove the
+      // anchor node instead -- the remaining subrows already carry their own
+      // sender/date/star/delete affordances and keep working; only drop the
+      // now-empty group wrapper when nothing is left in it, so no stray
+      // divider line lingers for a lone (non-threaded) message.
       const group = item.closest('.email-envelope-group')
-      if (group && group.querySelector('.email-envelope-subrow')) needsFullReload = true
-      else (group || item).remove()
+      item.remove()
+      if (group && !group.querySelector('.email-envelope-subrow')) group.remove()
       continue
     }
     needsFullReload = true // not found in the DOM -- state drifted, be safe
@@ -16056,6 +16068,23 @@ function emailShowCompose(kind, id, envelope, mailbox = emailMailbox) {
       </div>
     </div>
   `
+  // Boss 2026-08-07: Reply/Forward inserted this form at the bottom of the
+  // reader pane, below the (often long) message body -- on anything but a
+  // short mail the textarea was scrolled out of view with no visual cue it
+  // existed at all ("nem lattam hogy hol kell beirni a szoveget... le kell
+  // tekerni az oldal aljara"). Jump the pane's scroll to the form and focus
+  // its first field the moment it appears, same as any normal mail client's
+  // reply box. rAF so the browser has laid the new DOM out before measuring
+  // scroll position -- scrollIntoView right after innerHTML can measure the
+  // pre-insert layout and undershoot. behavior:'auto' (instant), not
+  // 'smooth' -- a long message body means a long scroll distance, and a
+  // smooth scroll still animating when the user starts typing/tabbing reads
+  // as janky; Boss asked for it to "jump" there, not glide.
+  requestAnimationFrame(() => {
+    const form = slot.querySelector('.email-compose-form')
+    form?.scrollIntoView({ behavior: 'auto', block: 'start' })
+    document.getElementById(isForward ? 'emailComposeTo' : 'emailComposeText')?.focus()
+  })
   document.getElementById('emailComposeCancelBtn').addEventListener('click', () => { slot.innerHTML = '' })
   document.getElementById('emailComposeSendBtn').addEventListener('click', async () => {
     const text = document.getElementById('emailComposeText').value.trim()
