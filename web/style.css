@@ -318,7 +318,11 @@ body {
 .sb-divider {
   height: 2px;
   background: var(--text);
-  margin: 20px 14px;
+  /* No extra horizontal margin -- .sidebar already insets 14px, and .sb-link
+   * has no additional side margin, so 0 here makes the line exactly as wide
+   * as the Beallitasok button's own hover highlight (Boss, 2026-08-07: "lehetne
+   * ugy hogy addig tartson mint a beallitasoknak a rozsaszin resze"). */
+  margin: 20px 0;
 }
 .sb-link-settings {
   font-size: 13px;
