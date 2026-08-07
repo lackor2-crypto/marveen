@@ -4320,6 +4320,107 @@ main.email-active .page-header { flex-shrink: 0; }
   margin-bottom: 20px;
   flex-wrap: wrap;
 }
+
+/* === Debate (Vitaztatas) page === */
+.debate-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.debate-section-title {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+.debate-session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.debate-session-row:hover { background: var(--bg-card-hover); }
+.debate-session-question {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.debate-session-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.debate-badge {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.debate-badge-pending { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+.debate-badge-consensus { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
+.debate-badge-disagree { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.debate-round {
+  margin-bottom: 24px;
+}
+.debate-round-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.debate-round-prompt {
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.debate-round-responses {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.debate-response-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--bg-card);
+}
+.debate-response-model {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.debate-response-text {
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.debate-response-error {
+  font-size: 13px;
+  color: var(--danger);
+}
+.debate-summary {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.debate-summary-consensus { border-color: var(--success); background: color-mix(in srgb, var(--success) 8%, transparent); }
+.debate-summary-disagree { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.debate-summary-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
 .vault-add-panel {
   background: var(--bg-card);
   border: 1px solid var(--border);

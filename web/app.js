@@ -405,6 +405,7 @@ function switchPage(pageId) {
   if (pageId === 'bgTasks') loadBgTasksPage()
   if (pageId === 'vault') loadVaultPage()
   if (pageId === 'approvals') loadApprovalsPage()
+  if (pageId === 'debate') loadDebatePage()
   if (pageId === 'settings') loadSettings()
   if (pageId === 'updates') loadUpdates()
   // 'team' page is merged into 'agents' -- redirect for any lingering deep-links
@@ -606,6 +607,7 @@ const NAV_I18N = {
   docs: 'nav.docs', research: 'nav.research', status: 'nav.status',
   settings: 'nav.settings', vault: 'nav.vault', tokenUsage: 'nav.tokenUsage',
   ideas: 'nav.ideas', federation: 'nav.federation', updates: 'nav.updates', costs: 'nav.costs',
+  debate: 'nav.debate',
 }
 
 function renderNav() {
@@ -13160,6 +13162,138 @@ async function _resolveApproval(id, decision, reason) {
     showToast(t('approvals.toast.error', { msg: String(err.message || err) }))
   }
 }
+
+// ============================================================
+// === Debate (Vitaztatas) -- read-only view over scripts/debate.mjs's log ===
+// ============================================================
+// The main agent runs debates from the CLI (Bash tool), narrating live
+// progress in Telegram -- this page is the reviewable archive + usage stats
+// Boss asked for (2026-08-07), not a way to start/control a debate from the
+// dashboard. All three /api/debate/* endpoints are GET-only (see
+// src/web/routes/debate.ts) for exactly that reason.
+
+let _debateSessionsCache = []
+
+async function loadDebatePage() {
+  const statsEl = document.getElementById('debateStats')
+  const listEl = document.getElementById('debateSessionList')
+  document.getElementById('debateDetailView').hidden = true
+  document.getElementById('debateListView').hidden = false
+  statsEl.innerHTML = ''
+  listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('common.loading')}</p>`
+
+  try {
+    const [statsRes, sessionsRes] = await Promise.all([
+      fetch('/api/debate/stats'),
+      fetch('/api/debate/sessions'),
+    ])
+    if (!statsRes.ok || !sessionsRes.ok) throw new Error('HTTP error')
+    const stats = await statsRes.json()
+    const { sessions } = await sessionsRes.json()
+    _debateSessionsCache = sessions
+    _renderDebateStats(stats)
+    _renderDebateSessionList(sessions)
+  } catch (err) {
+    listEl.innerHTML = `<p style="color:var(--danger)">${t('debate.load_error')}</p>`
+  }
+}
+
+function _renderDebateStats(stats) {
+  const statsEl = document.getElementById('debateStats')
+  if (!stats.totalCalls) {
+    statsEl.innerHTML = `<div class="stat-card"><div class="stat-value">0</div><div class="stat-label">${t('debate.stat.total_calls')}</div></div>`
+    return
+  }
+  const totalCard = `<div class="stat-card"><div class="stat-value">${stats.totalCalls}</div><div class="stat-label">${t('debate.stat.total_calls')}</div></div>`
+  const modelCards = stats.models.map(m => `
+    <div class="stat-card">
+      <div class="stat-value">${m.sharePct}%</div>
+      <div class="stat-label" title="${escapeAttr(m.model)}">${escapeHtml(m.model)}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+        ${t('debate.stat.calls_n', { n: m.calls })} &middot; ${t('debate.stat.tokens_io', { in: m.tokensIn, out: m.tokensOut })}
+        ${m.fail ? ` &middot; <span style="color:var(--danger)">${t('debate.stat.failed_n', { n: m.fail })}</span>` : ''}
+      </div>
+    </div>`).join('')
+  statsEl.innerHTML = totalCard + modelCards
+}
+
+function _debateConsensusBadge(session) {
+  if (!session.concluded) return `<span class="debate-badge debate-badge-pending">${t('debate.status.in_progress')}</span>`
+  if (session.consensus) return `<span class="debate-badge debate-badge-consensus">${t('debate.status.consensus')}</span>`
+  return `<span class="debate-badge debate-badge-disagree">${t('debate.status.no_consensus')}</span>`
+}
+
+function _renderDebateSessionList(sessions) {
+  const listEl = document.getElementById('debateSessionList')
+  if (!sessions.length) {
+    listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('debate.empty')}</p>`
+    return
+  }
+  listEl.innerHTML = sessions.map(s => `
+    <div class="debate-session-row" data-id="${escapeAttr(s.id)}">
+      <div class="debate-session-row-main">
+        <div class="debate-session-question">${escapeHtml(s.questionPreview) || t('debate.no_question_preview')}</div>
+        <div class="debate-session-meta">
+          ${escapeHtml(new Date(s.startedAt * 1000).toLocaleString())} &middot;
+          ${t('debate.session.rounds_n', { n: s.rounds })} &middot;
+          ${s.models.map(escapeHtml).join(', ')}
+        </div>
+      </div>
+      ${_debateConsensusBadge(s)}
+    </div>`).join('')
+
+  listEl.querySelectorAll('.debate-session-row').forEach(row => {
+    row.addEventListener('click', () => _openDebateSession(row.dataset.id))
+  })
+}
+
+async function _openDebateSession(id) {
+  document.getElementById('debateListView').hidden = true
+  document.getElementById('debateDetailView').hidden = false
+  const detailEl = document.getElementById('debateSessionDetail')
+  detailEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('common.loading')}</p>`
+
+  try {
+    const res = await fetch(`/api/debate/sessions/${encodeURIComponent(id)}`)
+    if (!res.ok) throw new Error('HTTP error')
+    const session = await res.json()
+    _renderDebateSessionDetail(session)
+  } catch (err) {
+    detailEl.innerHTML = `<p style="color:var(--danger)">${t('debate.load_error')}</p>`
+  }
+}
+
+function _renderDebateSessionDetail(session) {
+  const detailEl = document.getElementById('debateSessionDetail')
+  const roundsHtml = session.rounds.map(r => `
+    <div class="debate-round">
+      <div class="debate-round-title">${t('debate.round_n', { n: r.round })}</div>
+      <div class="debate-round-prompt">${escapeHtml(r.prompt)}</div>
+      <div class="debate-round-responses">
+        ${r.responses.map(resp => `
+          <div class="debate-response-card">
+            <div class="debate-response-model">${escapeHtml(resp.model)}</div>
+            ${resp.ok
+              ? `<div class="debate-response-text">${escapeHtml(resp.text || '')}</div>`
+              : `<div class="debate-response-error">${escapeHtml(resp.error || t('debate.unknown_error'))}</div>`}
+          </div>`).join('')}
+      </div>
+    </div>`).join('')
+
+  const summaryHtml = session.summary
+    ? `<div class="debate-summary ${session.consensus ? 'debate-summary-consensus' : 'debate-summary-disagree'}">
+         <div class="debate-summary-title">${session.consensus ? t('debate.status.consensus') : t('debate.status.no_consensus')}</div>
+         <div>${escapeHtml(session.summary)}</div>
+       </div>`
+    : ''
+
+  detailEl.innerHTML = roundsHtml + summaryHtml
+}
+
+document.getElementById('debateDetailBackBtn')?.addEventListener('click', () => {
+  document.getElementById('debateDetailView').hidden = true
+  document.getElementById('debateListView').hidden = false
+})
 
 // ============================================================
 // === Settings (central config registry) ===

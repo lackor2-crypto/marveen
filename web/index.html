@@ -181,6 +181,10 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>
             <span class="sb-label">Vault</span>
           </a>
+          <a href="#" class="sb-link" data-page="debate">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="sb-label">Vitáztatás</span>
+          </a>
         </div>
       </div>
       <div class="sb-group" data-group="connections">
@@ -1867,6 +1871,28 @@
             <button class="btn-primary" id="vaultScanImportBtn">Kivalasztottak importalasa</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- === Debate (Vitaztatas) Page === -->
+    <div class="page" id="debatePage" hidden>
+      <div class="page-header">
+        <div>
+          <h1 data-i18n="debate.page_title">Vitáztatás</h1>
+          <p class="subtitle" data-i18n="debate.page_subtitle">Több AI-modell kereszt-ellenőrzése ugyanarra a kérdésre</p>
+        </div>
+      </div>
+
+      <div class="debate-stats" id="debateStats"></div>
+
+      <div id="debateListView">
+        <h2 class="debate-section-title" data-i18n="debate.sessions_title">Korábbi viták</h2>
+        <div id="debateSessionList"></div>
+      </div>
+
+      <div id="debateDetailView" hidden>
+        <button class="btn-secondary btn-compact" id="debateDetailBackBtn">&larr; <span data-i18n="debate.back_to_list">Vissza a listához</span></button>
+        <div id="debateSessionDetail"></div>
       </div>
     </div>
 
