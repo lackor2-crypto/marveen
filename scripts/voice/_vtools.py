@@ -5,8 +5,8 @@ Subcommands:
   transcribe <file_id> <state_dir>
       Download a Telegram voice file by file_id using the bot token in
       <state_dir>/.env, transcribe it (Hungarian; Groq cloud Whisper if
-      GROQ_API_KEY is configured, else local faster-whisper), print the
-      transcript to stdout.
+      a "groq-stt-key" secret is configured in the dashboard Vault, else
+      local faster-whisper), print the transcript to stdout.
 
   speak <voice_onnx> <state_dir> <chat_id> <text...>
       Synthesize <text> with the given Piper voice model, convert to
@@ -75,12 +75,29 @@ def _token(state_dir):
 
 
 def _groq_key():
-    """GROQ_API_KEY from this toolkit's own .env (fleet-wide, not per-agent)."""
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    """GROQ_API_KEY from the encrypted Vault (fleet-wide, not per-agent), fetched
+    through the dashboard's own API so the secret only ever lives decrypted in
+    the Node process -- this script never touches the master key or ciphertext.
+    Returns None on any failure (dashboard down, key not configured, network),
+    so the caller falls back to local whisper. Boss, 2026-08-07: this used to
+    read a plaintext scripts/voice/.env that nothing in the UI explained or
+    even offered to configure -- unified into the same Vault the dashboard's
+    Vault page documents (id "groq-stt-key")."""
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
-        with open(p) as f:
-            m = re.search(r"^GROQ_API_KEY=(.+)$", f.read(), re.M)
-        return m.group(1).strip().strip('"').strip("'") if m else None
+        with open(os.path.join(project_root, "store", ".dashboard-token")) as f:
+            dashboard_token = f.read().strip()
+    except Exception:
+        return None
+    port = os.environ.get("WEB_PORT", "3420")
+    try:
+        req = urllib.request.Request(
+            f"http://localhost:{port}/api/vault/groq-stt-key",
+            headers={"Authorization": f"Bearer {dashboard_token}"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        return data.get("value") or None
     except Exception:
         return None
 

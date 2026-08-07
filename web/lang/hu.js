@@ -43,7 +43,9 @@ window._i18n.hu = {
   'overview.updates_subtitle':      'verzió ellenőrzés',
   'overview.capabilities.title':    'Ezeket még nem használod ki',
   'overview.capability.openrouter.label': 'OpenRouter',
-  'overview.capability.openrouter.desc':  'Több AI-modell egyszerre (vitáztatás funkció) — kattints a beállításhoz',
+  'overview.capability.openrouter.desc':  'Egyetlen kulccsal bármilyen AI-modellt használhatsz a Marvinban (GPT, Gemini és még tucatnyi más) — kattints a beállításhoz',
+  'overview.capability.groq_stt.label':   'Groq gyors hangátirat',
+  'overview.capability.groq_stt.desc':    'Gyorsabb, felhő-alapú hangátirat Telegram hangüzenetekhez (nélküle helyi, lassabb átirat fut) — kattints a beállításhoz',
   'common.error_save':        'Hiba a mentés során',
   'common.error_delete':      'Hiba a törlés során',
   'common.error_network':     'Hálózati hiba: {msg}',
@@ -1287,6 +1289,9 @@ window._i18n.hu = {
   'vault.known.title':           'Ismert integrációk -- ezekhez kell kulcs',
   'vault.known.configured':      'Beállítva',
   'vault.known.missing':         'Hiányzik -- kattints',
+  'vault.known.get_key_link':    'Kulcs igénylése itt',
+  'vault.known.openrouter.steps': '1. Nyisd meg az OpenRouter oldalát, regisztrálj vagy jelentkezz be.\n2. Az "API Keys" menüben hozz létre egy új kulcsot.\n3. Másold ki a kulcsot.\n4. Illeszd be a lenti Érték mezőbe, adj neki nevet, és mentsd el.',
+  'vault.known.groq_stt.steps':   '1. Nyisd meg a Groq Console oldalát, regisztrálj vagy jelentkezz be (ingyenes).\n2. Az "API Keys" menüben hozz létre egy új kulcsot.\n3. Másold ki a kulcsot.\n4. Illeszd be a lenti Érték mezőbe, adj neki nevet, és mentsd el.',
 
 
   // --- Token Usage ---

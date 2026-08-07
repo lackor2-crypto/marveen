@@ -9202,12 +9202,19 @@ function renderVaultKnownIntegrations() {
   const configuredIds = new Set(_vaultSecrets.map(s => s.id))
   const items = Object.values(CAPABILITY_INFO).map(info => {
     const configured = configuredIds.has(info.vaultId)
+    const help = configured ? '' : `<div class="vault-known-help">
+        <div class="vault-known-steps">${escapeHtml(t(info.stepsKey))}</div>
+        <a class="vault-known-link" href="${info.helpUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('vault.known.get_key_link'))} →</a>
+      </div>`
     return `<div class="vault-known-item" data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}">
-      <div class="vault-known-text">
-        <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
-        <div class="vault-known-desc">${escapeHtml(t(info.descKey))}</div>
+      <div class="vault-known-row">
+        <div class="vault-known-text">
+          <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
+          <div class="vault-known-desc">${escapeHtml(t(info.descKey))}</div>
+        </div>
+        <div class="vault-known-status ${configured ? 'vault-known-status-ok' : 'vault-known-status-missing'}">${configured ? t('vault.known.configured') : t('vault.known.missing')}</div>
       </div>
-      <div class="vault-known-status ${configured ? 'vault-known-status-ok' : 'vault-known-status-missing'}">${configured ? t('vault.known.configured') : t('vault.known.missing')}</div>
+      ${help}
     </div>`
   }).join('')
   panel.innerHTML = `<div class="vault-known-title">${escapeHtml(t('vault.known.title'))}</div><div class="vault-known-list">${items}</div>`
@@ -11771,7 +11778,14 @@ function formatRelative(ts) {
 // the page it should link to. Add new opt-in integrations here as they gain
 // a CAPABILITY_CHECKS entry server-side (src/web/routes/overview.ts).
 const CAPABILITY_INFO = {
-  openrouter: { labelKey: 'overview.capability.openrouter.label', descKey: 'overview.capability.openrouter.desc', vaultId: 'openrouter-fleet-key' },
+  openrouter: {
+    labelKey: 'overview.capability.openrouter.label', descKey: 'overview.capability.openrouter.desc', vaultId: 'openrouter-fleet-key',
+    stepsKey: 'vault.known.openrouter.steps', helpUrl: 'https://openrouter.ai/keys',
+  },
+  'groq-stt': {
+    labelKey: 'overview.capability.groq_stt.label', descKey: 'overview.capability.groq_stt.desc', vaultId: 'groq-stt-key',
+    stepsKey: 'vault.known.groq_stt.steps', helpUrl: 'https://console.groq.com/keys',
+  },
 }
 
 function renderOverviewCapabilities(ids) {

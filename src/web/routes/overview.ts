@@ -20,6 +20,7 @@ import type { RouteContext } from './types.js'
 // mapping (i18n strings live in web/lang/*.js, not baked in here).
 const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
   { id: 'openrouter', configured: () => getSecret('openrouter-fleet-key') !== null },
+  { id: 'groq-stt', configured: () => getSecret('groq-stt-key') !== null },
 ]
 
 // Count "real" user turns (operator prompts, Telegram messages) in every

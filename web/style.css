@@ -4370,16 +4370,36 @@ main.email-active .page-header { flex-shrink: 0; }
   gap: 8px;
 }
 .vault-known-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+.vault-known-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
 .vault-known-label { font-weight: 600; font-size: 13px; }
 .vault-known-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.vault-known-help {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+.vault-known-steps {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: pre-line;
+  line-height: 1.6;
+}
+.vault-known-link {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
 .vault-known-status {
   font-size: 11px;
   font-weight: 600;

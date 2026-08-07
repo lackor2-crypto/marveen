@@ -43,7 +43,9 @@ window._i18n.en = {
   'overview.updates_subtitle':      'version check',
   'overview.capabilities.title':    'Not using these yet',
   'overview.capability.openrouter.label': 'OpenRouter',
-  'overview.capability.openrouter.desc':  'Multiple AI models at once (debate feature) — click to set up',
+  'overview.capability.openrouter.desc':  'One key unlocks any AI model in Marvin (GPT, Gemini, and dozens more) — click to set up',
+  'overview.capability.groq_stt.label':   'Groq fast voice transcription',
+  'overview.capability.groq_stt.desc':    'Faster, cloud-based transcription for Telegram voice messages (without it, a slower local transcript runs instead) — click to set up',
   'common.error_save':        'Error saving',
   'common.error_delete':      'Error deleting',
   'common.error_network':     'Network error: {msg}',
@@ -981,6 +983,9 @@ window._i18n.en = {
   'vault.known.title':           'Known integrations -- these need a key',
   'vault.known.configured':      'Configured',
   'vault.known.missing':         'Missing -- click',
+  'vault.known.get_key_link':    'Get a key here',
+  'vault.known.openrouter.steps': '1. Open OpenRouter, sign up or log in.\n2. Under "API Keys", create a new key.\n3. Copy the key.\n4. Paste it into the Value field below, name it, and save.',
+  'vault.known.groq_stt.steps':   '1. Open Groq Console, sign up or log in (free).\n2. Under "API Keys", create a new key.\n3. Copy the key.\n4. Paste it into the Value field below, name it, and save.',
 
 
   // --- Token Usage ---
