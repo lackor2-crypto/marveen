@@ -104,7 +104,17 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
 // fleet name, so the dashboard works on non-"marveen" installs. Falls back to
 // "marveen" only before /api/marveen has resolved (or on a legacy backend).
 function mainAgentId() {
-  return window._marveen?.agentId || 'marveen'
+  // window._marveen only populates on pages that happen to call loadAgents()/
+  // ensureMarveenLoaded() (Agents, Kanban, Messages) -- on any OTHER page
+  // (Activity notably) it's still undefined when this runs, so this used to
+  // fall straight to the literal 'marveen', breaking the id-vs-display-name
+  // comparison in chatDisplayName() and showing the raw agent id ("lackor2-
+  // bot") instead of the configured display name in e.g. the Terminal modal
+  // title (Boss, 2026-08-06/07: reported 3 separate times, always from the
+  // Activity page). window._brandTokens.agentId is set unconditionally on
+  // EVERY page by initSidebarBrand() -- same data, already loaded everywhere,
+  // just never consulted here before.
+  return window._marveen?.agentId || window._brandTokens?.agentId || 'marveen'
 }
 
 (() => {
@@ -12886,6 +12896,11 @@ document.getElementById('approvalsFilterCategory').addEventListener('input', (e)
 })
 
 let _approvalsAll = []
+// Row ids currently showing their full (untruncated) action_description --
+// Boss 2026-08-07: the description was cut at 80 chars with only a hover
+// tooltip to see the rest. Click-to-expand shows the full text inline
+// instead, for every approval (not just ones with a linked kanban card).
+const _approvalsExpanded = new Set()
 
 async function loadApprovalsPage() {
   const tbody = document.getElementById('approvalsTbody')
@@ -12984,11 +12999,23 @@ function _renderApprovalsTable() {
           const resolvedStr = resolvedDate.toLocaleString('hu-HU', sameDay ? { timeStyle: 'short' } : { dateStyle: 'short', timeStyle: 'short' })
           return `<span style="font-size:12px;color:var(--text-muted)">${resolvedBy}<br><span style="font-size:11px;opacity:0.7">${escapeHtml(resolvedStr)}</span>${reasonHtml}</span>`
         })()
+    const rowId = String(a.id)
+    const isExpanded = _approvalsExpanded.has(rowId)
+    const fullDesc = escapeHtml(a.action_description)
+    const shortDesc = escapeHtml(a.action_description.length > 80 ? a.action_description.slice(0, 80) + '...' : a.action_description)
+    const cardId = _approvalKanbanCardId(a)
+    const openCardHtml = cardId ? `<button class="btn-secondary btn-compact approvals-open-card" data-card-id="${escapeAttr(cardId)}" style="font-size:11px;margin-top:6px">${t('approvals.btn.open_card')}</button>` : ''
+    const descHtml = isExpanded
+      ? `<div style="white-space:pre-wrap;word-break:break-word">${fullDesc}</div>${openCardHtml}`
+      : shortDesc
+    const descCellStyle = isExpanded
+      ? 'max-width:420px;font-size:12px;cursor:pointer;white-space:normal'
+      : 'max-width:280px;font-size:12px;cursor:pointer'
     return `<tr style="${rowStyle}">
       <td style="white-space:nowrap;font-size:12px">${escapeHtml(time)}</td>
       <td><code style="font-size:12px">${escapeHtml(a.agent_id)}</code></td>
       <td style="font-size:12px">${escapeHtml(a.category)}</td>
-      <td style="max-width:280px;font-size:12px" title="${escapeAttr(a.action_description)}">${escapeHtml(a.action_description.length > 80 ? a.action_description.slice(0, 80) + '...' : a.action_description)}</td>
+      <td class="approvals-desc-cell" data-id="${escapeAttr(rowId)}" style="${descCellStyle}" title="${isExpanded ? '' : escapeAttr(a.action_description)}">${descHtml}</td>
       <td>${badge}</td>
       <td style="font-size:12px;white-space:nowrap">${countdown}</td>
       <td>${actions}</td>
@@ -12998,8 +13025,29 @@ function _renderApprovalsTable() {
   _updateCountdowns()
   _renderApprovalsPagination(filtered.length)
 
+  // Click-to-expand: toggles the full, untruncated action_description inline.
+  // Boss 2026-08-07: previously only a hover tooltip showed the rest, easy to
+  // miss. Re-renders the whole table so the Set-based expanded state stays
+  // authoritative across filter/page changes instead of drifting from the DOM.
+  tbody.querySelectorAll('.approvals-desc-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const id = cell.dataset.id
+      if (_approvalsExpanded.has(id)) _approvalsExpanded.delete(id)
+      else _approvalsExpanded.add(id)
+      _renderApprovalsTable()
+    })
+  })
+
+  tbody.querySelectorAll('.approvals-open-card').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      _openKanbanCardFromApproval(btn.dataset.cardId)
+    })
+  })
+
   tbody.querySelectorAll('.approvals-decide').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
       const decision = btn.dataset.decision
       // Elutasításnál indoklás kell -- Boss 2026-08-05: e nélkül a kérő ágens
       // nem tudja, min múlt. Üresen hagyva/Mégse-re a döntés nem történik meg.
@@ -13011,6 +13059,41 @@ function _renderApprovalsTable() {
       _resolveApproval(btn.dataset.id, decision, reason)
     })
   })
+}
+
+// Approvals created via the kanban-approval-workflow carry
+// action_payload = '{"kanban_card_id":"<id>"}' (a JSON STRING, not an object --
+// see kanban-approval-workflow skill) so the dashboard's own auto-resolve can
+// move the card to done. Reused here to link back to the card. Most other
+// categories (email_send, payment, ...) have no payload at all, hence the
+// try/catch -- absence is normal, not an error.
+function _approvalKanbanCardId(a) {
+  if (!a.action_payload) return null
+  try {
+    const parsed = typeof a.action_payload === 'string' ? JSON.parse(a.action_payload) : a.action_payload
+    return parsed && parsed.kanban_card_id ? String(parsed.kanban_card_id) : null
+  } catch {
+    return null
+  }
+}
+
+// Boss 2026-08-07: from an approval row, jump to the linked kanban card and
+// flash it a few times so it's obvious which one it is instead of hunting
+// through the board. switchPage('kanban') already kicks off its own
+// loadKanban(); awaiting a second call here is cheap and guarantees the DOM
+// has the card before we search for it.
+async function _openKanbanCardFromApproval(cardId) {
+  switchPage('kanban')
+  await loadKanban()
+  const el = document.querySelector(`.kanban-card[data-id="${CSS.escape(cardId)}"]`)
+  if (!el) { showToast(t('approvals.toast.card_not_found')); return }
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.remove('kanban-card-flash')
+  // Force reflow so re-adding the class restarts the animation even if the
+  // card was flashed once already this session.
+  void el.offsetWidth
+  el.classList.add('kanban-card-flash')
+  setTimeout(() => el.classList.remove('kanban-card-flash'), 2400)
 }
 
 function _approvalBadge(status) {

@@ -1251,6 +1251,16 @@ main {
   animation: aging-pulse 2.2s ease-in-out infinite;
 }
 
+/* Flash a card after jumping to it from the Approvals page (Boss 2026-08-07)
+   -- box-shadow only, so it never fights the priority/aging left border. */
+@keyframes kanban-card-flash-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); }
+}
+.kanban-card-flash {
+  animation: kanban-card-flash-pulse 0.6s ease-in-out 4;
+}
+
 /* === Kanban Swimlanes === */
 .kanban-swimlane-board {
   display: flex;

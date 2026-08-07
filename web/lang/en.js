@@ -700,6 +700,8 @@ window._i18n.en = {
   'approvals.toast.rejected':    'Rejected.',
   'approvals.toast.error':       'Error: {msg}',
   'approvals.countdown.expired': 'expired',
+  'approvals.btn.open_card':     'Open card',
+  'approvals.toast.card_not_found': 'Card not found with the current kanban filters.',
   'approvals.banner.notice':  '{n} approval(s) awaiting decision. Oldest arrived {age} min ago ({agent} / {category}).',
   'approvals.banner.timeout': 'Timeout: {n} min.',
   'autonomy.level.2':            '2 Propose, awaits approval',

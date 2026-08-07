@@ -994,6 +994,8 @@ window._i18n.hu = {
   'approvals.toast.rejected':    'Elutasítva.',
   'approvals.toast.error':       'Hiba: {msg}',
   'approvals.countdown.expired': 'lejárt',
+  'approvals.btn.open_card':     'Kártya megnyitása',
+  'approvals.toast.card_not_found': 'A kártya nem található a jelenlegi kanban-szűrőkkel.',
   'approvals.banner.notice':  '{n} jóváhagyás vár döntésre. Legrégebbi {age} perce érkezett ({agent} / {category}).',
   'approvals.banner.timeout': 'Timeout: {n} perc.',
   'autonomy.loading':            'Betöltés...',
