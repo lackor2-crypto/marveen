@@ -133,6 +133,11 @@ async function callModel(model, prompt, apiKey) {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
+        // X-Title is optional per OpenRouter's docs -- labels these calls in
+        // their own dashboard instead of showing up unattributed. Skipping
+        // HTTP-Referer: that's meant to be the calling app's real public URL,
+        // and this install doesn't have a stable public one to give.
+        'X-Title': 'Marveen debate',
       },
       body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
       signal: controller.signal,
