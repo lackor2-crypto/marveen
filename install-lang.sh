@@ -62,6 +62,16 @@ _t() {
     hu:prompt_pair_code) echo "  Párosító kód (vagy hagyd üresen, ha később csinálod): " ;;
     en:prompt_migrate) echo "  Would you like to run the migration now? (y/n) [n]: " ;;
     hu:prompt_migrate) echo "  Szeretnéd most futtatni a költöztetést? (i/n) [n]: " ;;
+    en:section_openrouter) echo "OpenRouter (optional)" ;;
+    hu:section_openrouter) echo "OpenRouter (opcionális)" ;;
+    en:desc_openrouter) echo "Lets sub-agents run on OpenRouter models and enables the multi-model debate feature. Skippable, set up later on the dashboard's Vault page." ;;
+    hu:desc_openrouter) echo "Ettől tudnak a sub-agensek OpenRouter-modelleken futni, és ez adja a több-modelles vitáztatás funkciót is. Kihagyható, később is beállítható a dashboard Vault oldalán." ;;
+    en:prompt_openrouter) echo "  Set up an OpenRouter API key now? (y/n) [n]: " ;;
+    hu:prompt_openrouter) echo "  Beállítasz most egy OpenRouter API-kulcsot? (i/n) [n]: " ;;
+    en:hint_openrouter_url) echo "  Get a key at: https://openrouter.ai/settings/keys" ;;
+    hu:hint_openrouter_url) echo "  Kulcsot itt szerezhetsz: https://openrouter.ai/settings/keys" ;;
+    en:hint_openrouter_later) echo "  Skipped. Add it later: Dashboard -> Vault page." ;;
+    hu:hint_openrouter_later) echo "  Kihagyva. Később itt állíthatod be: Dashboard -> Vault oldal." ;;
     en:prompt_whisper) echo "  Would you like to install Whisper? (y/n) [n]: " ;;
     hu:prompt_whisper) echo "  Szeretnéd telepíteni a Whisper-t? (i/n) [n]: " ;;
     en:prompt_swap) echo "  Create a 2 GB swap file? (y/n) [y]: " ;;

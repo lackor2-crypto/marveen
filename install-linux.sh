@@ -2013,6 +2013,38 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ "$CHAT_ID" = "0" ]; then
 fi
 
 # ─────────────────────────────────────────────
+# OpenRouter (opcionalis)
+# ─────────────────────────────────────────────
+# Optional, skippable, mirrors the "Korabbi rendszer koltoztetese" pattern
+# above. Runs AFTER `npm run build` (dist/ exists) so it can write straight
+# into the same encrypted Vault (src/web/vault.ts) the dashboard's Vault page
+# uses -- no separate/parallel storage, no plaintext .env entry.
+echo ""
+echo -e "${BOLD}$(_t section_openrouter)${NC}"
+echo -e "${DIM}  $(_t desc_openrouter)${NC}"
+read -rp "$(_t prompt_openrouter)" DO_OPENROUTER
+DO_OPENROUTER=${DO_OPENROUTER:-n}
+if [[ "$DO_OPENROUTER" == "i" || "$DO_OPENROUTER" == "y" ]]; then
+  echo -e "  ${DIM}$(_t hint_openrouter_url)${NC}"
+  read -p "  OPENROUTER_API_KEY: " OPENROUTER_KEY_INPUT
+  if [ -n "$OPENROUTER_KEY_INPUT" ]; then
+    if "$NODE_PATH" -e "
+      import('$INSTALL_DIR/dist/web/vault.js').then(({ setSecret }) => {
+        setSecret('openrouter-fleet-key', 'OpenRouter (telepitokor)', process.argv[1])
+      })
+    " "$OPENROUTER_KEY_INPUT" 2>/dev/null; then
+      ok "OpenRouter API-kulcs elmentve a Vault-ba"
+    else
+      warn "Nem sikerult elmenteni a kulcsot -- add meg kesobb a dashboard Vault oldalan."
+    fi
+  else
+    warn "Kulcs nem lett megadva, kihagyas."
+  fi
+else
+  echo -e "  ${DIM}$(_t hint_openrouter_later)${NC}"
+fi
+
+# ─────────────────────────────────────────────
 # Kesz!
 # ─────────────────────────────────────────────
 echo ""
@@ -2042,6 +2074,9 @@ echo -e "  ${DIM}Kovetkezo lepesek:${NC}"
 echo -e "  ${DIM}1. Nyisd meg a dashboardot a fenti URL-lel${NC}"
 echo -e "  ${DIM}2. Irj a botodnak Telegramon -- mar valaszolnia kell${NC}"
 echo -e "  ${DIM}3. A Csapat oldalon hozhatsz letre tobb agenst${NC}"
+if [[ "$DO_OPENROUTER" != "i" && "$DO_OPENROUTER" != "y" ]]; then
+  echo -e "  ${DIM}4. Opcionalis: OpenRouter/egyeb API-kulcsok a dashboard Vault oldalan${NC}"
+fi
 echo ""
 echo -e "  ${DIM}Hasznos parancsok:${NC}"
 echo -e "  ${DIM}  systemctl --user status ${DASH_UNIT} ${CHAN_UNIT} --no-pager${NC}"
