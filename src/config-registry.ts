@@ -427,6 +427,33 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
       'claude-haiku-4-5-20251001',
     ],
   },
+  // --- Debate module (multi-model cross-check via scripts/debate.mjs) ---
+  // Neither entry needs requiresRestart: debate.mjs is a one-shot CLI the
+  // main agent invokes fresh each time (no long-lived process to restart),
+  // it just reads these via GET /api/settings before deciding what to pass
+  // on the command line. The OpenRouter API key itself is NOT here -- it's
+  // secret, so it lives in the Vault page like every other API credential,
+  // never duplicated into this registry (see settings.ts route comment).
+  {
+    key: 'DEBATE_MODELS',
+    type: 'string',
+    default: '',
+    description: 'A vitáztatáshoz használt OpenRouter modell-azonosítók, vesszővel elválasztva (pl. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Üresen hagyva a fő-agens minden vitáztatás-kérésnél megkérdezi, melyik modelleket használja.',
+    module: 'debate',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
+    key: 'DEBATE_MAX_ROUNDS',
+    type: 'int',
+    default: 4,
+    min: 1,
+    max: 10,
+    description: 'Hány kör után adja fel a fő-agens az egyetértés keresését egy vitáztatásnál, ha a modellek addig nem jutnak konszenzusra. Minden kör = N valódi API-hívás, ezért van felső korlát.',
+    module: 'debate',
+    secret: false,
+    requiresRestart: false,
+  },
 ]
 
 export function getSettingDefinition(key: string): SettingDefinition | undefined {
