@@ -66,6 +66,7 @@ import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/ap
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
 import { tryHandleDebate } from './web/routes/debate.js'
+import { tryHandleOpenRouterOverview } from './web/routes/openrouter-overview.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
 import { tryHandleEmail } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
@@ -205,6 +206,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleTokenUsage(routeCtx)) return
       if (await tryHandleCosts(routeCtx)) return
       if (await tryHandleDebate(routeCtx)) return
+      if (await tryHandleOpenRouterOverview(routeCtx)) return
       if (await tryHandleIdeas(routeCtx)) return
       if (await tryHandleEmail(routeCtx)) return
       if (await tryHandleSpans(routeCtx)) return

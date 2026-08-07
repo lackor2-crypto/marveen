@@ -185,6 +185,10 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
             <span class="sb-label">Vitáztatás</span>
           </a>
+          <a href="#" class="sb-link" data-page="openrouter">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+            <span class="sb-label">OpenRouter</span>
+          </a>
         </div>
       </div>
       <div class="sb-group" data-group="connections">
@@ -1894,6 +1898,25 @@
         <button class="btn-secondary btn-compact" id="debateDetailBackBtn">&larr; <span data-i18n="debate.back_to_list">Vissza a listához</span></button>
         <div id="debateSessionDetail"></div>
       </div>
+    </div>
+
+    <!-- === OpenRouter Overview Page === -->
+    <div class="page" id="openrouterPage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 data-i18n="openrouterPage.page_title">OpenRouter</h1>
+            <p class="subtitle" data-i18n="openrouterPage.page_subtitle">Modellek, mai használat és becsült költség egy helyen</p>
+          </div>
+          <button class="btn-secondary btn-compact" id="openrouterPageBrowseBtn" data-i18n="openrouterPage.browse_btn">Modellek böngészése</button>
+        </div>
+      </div>
+
+      <div id="openrouterPageKeyStatus"></div>
+      <div class="debate-stats" id="openrouterPageStats"></div>
+
+      <h2 class="debate-section-title" data-i18n="openrouterPage.usage_title">Mai felhasználás modellenként</h2>
+      <div id="openrouterPageModelList"></div>
     </div>
 
     <!-- === Token Usage Page === -->

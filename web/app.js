@@ -406,6 +406,7 @@ function switchPage(pageId) {
   if (pageId === 'vault') loadVaultPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
+  if (pageId === 'openrouter') loadOpenRouterPage()
   if (pageId === 'settings') loadSettings()
   if (pageId === 'updates') loadUpdates()
   // 'team' page is merged into 'agents' -- redirect for any lingering deep-links
@@ -607,7 +608,7 @@ const NAV_I18N = {
   docs: 'nav.docs', research: 'nav.research', status: 'nav.status',
   settings: 'nav.settings', vault: 'nav.vault', tokenUsage: 'nav.tokenUsage',
   ideas: 'nav.ideas', federation: 'nav.federation', updates: 'nav.updates', costs: 'nav.costs',
-  debate: 'nav.debate',
+  debate: 'nav.debate', openrouter: 'nav.openrouter',
 }
 
 function renderNav() {
@@ -13294,6 +13295,80 @@ document.getElementById('debateDetailBackBtn')?.addEventListener('click', () => 
   document.getElementById('debateDetailView').hidden = true
   document.getElementById('debateListView').hidden = false
 })
+
+// ============================================================
+// === OpenRouter overview -- consolidated status page ===
+// ============================================================
+// Boss (2026-08-07): wants ONE place that shows OpenRouter status instead of
+// it being scattered (model browser buried in an agent's model picker, key
+// in the generic Vault page, usage split across Token Monitor). This page
+// does NOT duplicate those -- "Browse models" opens the SAME
+// openOpenrouterModal() the Agents page uses, and the usage/cost numbers
+// come from a new backend aggregation (GET /api/openrouter/overview) that
+// joins the existing token_usage table against live OpenRouter pricing,
+// not a new tracking system.
+
+async function loadOpenRouterPage() {
+  const keyStatusEl = document.getElementById('openrouterPageKeyStatus')
+  const statsEl = document.getElementById('openrouterPageStats')
+  const listEl = document.getElementById('openrouterPageModelList')
+  keyStatusEl.innerHTML = ''
+  statsEl.innerHTML = ''
+  listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('common.loading')}</p>`
+
+  try {
+    const res = await fetch('/api/openrouter/overview')
+    if (!res.ok) throw new Error('HTTP error')
+    const data = await res.json()
+    _renderOpenRouterKeyStatus(data)
+    _renderOpenRouterStats(data)
+    _renderOpenRouterModelList(data)
+  } catch (err) {
+    listEl.innerHTML = `<p style="color:var(--danger)">${t('openrouterPage.load_error')}</p>`
+  }
+}
+
+function _renderOpenRouterKeyStatus(data) {
+  const el = document.getElementById('openrouterPageKeyStatus')
+  if (data.configured) {
+    el.innerHTML = `<div class="info-box">${t('openrouterPage.key_configured')}</div>`
+    return
+  }
+  el.innerHTML = `<div class="info-box" style="border-color:var(--warning);color:var(--warning)">
+    ${t('openrouterPage.key_missing')} <a href="#" onclick="switchPage('vault');return false">${t('openrouterPage.key_missing_link')}</a>
+  </div>`
+}
+
+function _renderOpenRouterStats(data) {
+  const statsEl = document.getElementById('openrouterPageStats')
+  const costText = data.todayEstCost === null ? t('openrouterPage.cost_unknown') : `$${data.todayEstCost.toFixed(4)}`
+  statsEl.innerHTML = `
+    <div class="stat-card"><div class="stat-value">${data.todayTokensIn.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_in')}</div></div>
+    <div class="stat-card"><div class="stat-value">${data.todayTokensOut.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_out')}</div></div>
+    <div class="stat-card"><div class="stat-value">${costText}</div><div class="stat-label">${t('openrouterPage.stat.est_cost')}</div></div>
+  `
+}
+
+function _renderOpenRouterModelList(data) {
+  const listEl = document.getElementById('openrouterPageModelList')
+  if (!data.models.length) {
+    listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('openrouterPage.no_usage_today')}</p>`
+    return
+  }
+  listEl.innerHTML = data.models.map(m => `
+    <div class="debate-session-row" style="cursor:default">
+      <div class="debate-session-row-main">
+        <div class="debate-session-question">${escapeHtml(m.model)}</div>
+        <div class="debate-session-meta">
+          ${t('debate.stat.calls_n', { n: m.calls })} &middot;
+          ${t('debate.stat.tokens_io', { in: m.tokensIn, out: m.tokensOut })}
+        </div>
+      </div>
+      <div class="debate-badge debate-badge-pending">${m.estCost === null ? t('openrouterPage.cost_unknown') : '$' + m.estCost.toFixed(4)}</div>
+    </div>`).join('')
+}
+
+document.getElementById('openrouterPageBrowseBtn')?.addEventListener('click', () => openOpenrouterModal())
 
 // ============================================================
 // === Settings (central config registry) ===
