@@ -311,12 +311,14 @@ body {
   margin-top: 16px;
   padding-top: 14px;
   /* var(--border) is a very light, low-contrast gray -- fine for subtle card
-   * outlines, but Boss kept reporting "no line" even after this was
-   * genuinely live (2026-08-06 screenshots), most likely because a thin
-   * near-white-on-white line doesn't survive Telegram's JPEG re-compression
-   * of a screenshot. var(--text-muted) has real contrast against the
-   * sidebar's white background, not just technically-a-different-color. */
-  border-top: 2px solid var(--text-muted);
+   * outlines. var(--text-muted) (2026-08-06 fix) IS genuinely visible on
+   * inspection (confirmed via screenshot crop 2026-08-07), but reads as
+   * "not there" at a glance in a busy screenshot -- a 2px mid-gray line just
+   * doesn't carry enough weight to register as a deliberate separator.
+   * var(--text) is the sidebar's darkest color (near-black/near-white per
+   * theme), same contrast tier as the nav labels themselves, so this reads
+   * unambiguously as "a line was put here on purpose". */
+  border-top: 2px solid var(--text);
   font-size: 13px;
 }
 
