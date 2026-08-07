@@ -15996,7 +15996,7 @@ async function loadEmailMailboxes() {
         body: JSON.stringify({ account: emailAccount, mailbox: payload.mailbox, ids: [payload.id], target }),
       })
       showToast(res.ok ? t('email.drag_move_success', { target: emailMailboxDisplayNameFromTree(target) }) : t('email.drag_move_fail'))
-      if (res.ok && payload.mailbox === emailMailbox) await loadEmailEnvelopes()
+      if (res.ok && payload.mailbox === emailMailbox) emailRemoveRowFromList(payload.id)
     })
   })
   pane.querySelectorAll('.email-mailbox-check').forEach(cb => {
@@ -16202,7 +16202,8 @@ async function emailBulkMoveTo(target) {
     if (!byMailbox.has(mailbox)) byMailbox.set(mailbox, [])
     byMailbox.get(mailbox).push(id)
   }
-  const results = await Promise.all([...byMailbox.entries()].map(([mailbox, ids]) =>
+  const groups = [...byMailbox.entries()]
+  const results = await Promise.all(groups.map(([mailbox, ids]) =>
     fetch('/api/email/label', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ account: emailAccount, mailbox, ids, target }),
@@ -16211,9 +16212,13 @@ async function emailBulkMoveTo(target) {
   showToast(results.every(Boolean)
     ? t('email.bulk_move_success', { n: entries.length, target: emailMailboxDisplayNameFromTree(target) })
     : t('email.bulk_move_partial_fail'))
+  // Only drop rows for groups that actually succeeded and belong to the
+  // currently-open mailbox -- no full reload for a bulk move either.
+  groups.forEach(([mailbox, ids], i) => {
+    if (results[i] && mailbox === emailMailbox) ids.forEach(emailRemoveRowFromList)
+  })
   emailSelectedIds = new Map()
   emailUpdateBulkDeleteUI()
-  if (results.some(Boolean) && byMailbox.has(emailMailbox)) await loadEmailEnvelopes()
 }
 
 // Mirrors the backend's normalizeThreadSubject (src/web/routes/email.ts) --
@@ -16272,8 +16277,23 @@ function emailSubrowHtml(s) {
 // element started the drag.
 function emailEnvelopeDragStart(e) {
   const el = e.currentTarget
-  e.dataTransfer.effectAllowed = 'copy'
+  e.dataTransfer.effectAllowed = 'move'
   e.dataTransfer.setData('application/x-marveen-email', JSON.stringify({ id: el.dataset.id, mailbox: el.dataset.mailbox }))
+}
+
+// Drop a single moved message's row out of the currently-open list without a
+// full reload (Boss, 2026-08-07: moving one message was reloading the whole
+// right-hand column). Covers both the top-level anchor row (whose group may
+// also carry unrelated nested/thread subrows -- only the group wrapper for
+// THIS id's own anchor gets removed, not siblings) and a nested subrow.
+function emailRemoveRowFromList(id) {
+  const pane = document.getElementById('emailEnvelopeList')
+  if (!pane) return
+  const idStr = String(id)
+  const item = pane.querySelector(`.email-envelope-item[data-id="${CSS.escape(idStr)}"]`)
+  if (item) { (item.closest('.email-envelope-group') || item).remove(); return }
+  const sub = pane.querySelector(`.email-envelope-subrow[data-id="${CSS.escape(idStr)}"]`)
+  if (sub) sub.remove()
 }
 
 async function loadEmailEnvelopes() {
