@@ -31,7 +31,11 @@ const KNOWN_PLACEHOLDERS = ['PROJECT_ROOT', 'INSTALL_DIR', 'MAIN_AGENT_ID', 'BOT
 // still caught. A `<...>` segment (e.g. /Users/<user>/marveen) is a doc
 // placeholder, not a real path, so it is allowed. URL lines are skipped by the
 // caller so a link like https://host/home/x is not mistaken for a home path.
-const HOME_PATH_RX = /\/(Users|home)\/(?!<)[A-Za-z0-9._-]+/
+// `Public` is excluded on purpose: `/mnt/c/Users/Public/...` is Windows' own
+// fixed, universal shared-profile folder (identical on every Windows install,
+// not tied to whoever is logged in) -- the windows-desktop-* skills use it
+// deliberately as a WSL<->Windows drop location, it is not a leaked username.
+const HOME_PATH_RX = /\/(Users|home)\/(?!<)(?!Public\b)[A-Za-z0-9._-]+/
 // A personal mailbox baked into a shipped file would leak / break on every
 // other install. example.com and the noreply providers are not listed.
 const PERSONAL_EMAIL_RX = /[A-Za-z0-9._%+-]+@(gmail|outlook|icloud|yahoo|hotmail)\.[A-Za-z]+/i

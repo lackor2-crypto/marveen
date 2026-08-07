@@ -16247,7 +16247,7 @@ function emailSubrowHtml(s) {
   // Browsing Sent directly breaks it: a same-mailbox "extra" there (e.g.
   // "Re: Fwd: jegy" folded under "Fwd: jegy") has s.mailbox === ownMailbox
   // (both Sent), which the old check read as "received" and mislabeled as
-  // "lackor2@gmail.com -> Te" -- a message the user sent TO Cecília,
+  // "<own address> -> Te" -- a message the user sent TO someone else,
   // labeled as if it arrived FROM himself (Boss, 2026-08-05, screenshot:
   // "hogy lehet az, hogy Lackor2 kuldi Lackor2-nek").
   const isReceived = s.mailbox !== EMAIL_SENT_MAILBOX
