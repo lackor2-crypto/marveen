@@ -308,8 +308,12 @@ body {
  * the scrolling nav. Slightly smaller/muted than a primary nav item since
  * it's a secondary, settings-style action. */
 .sb-link-settings {
+  /* Boss, 2026-08-07: live test -- the LINE stays at its original distance
+   * from the group above (margin-top), only the button content should drop
+   * further below it (padding-top), so the gap opens up BELOW the line,
+   * not around it. */
   margin-top: 16px;
-  padding-top: 14px;
+  padding-top: 60px;
   /* var(--border) is a very light, low-contrast gray -- fine for subtle card
    * outlines. var(--text-muted) (2026-08-06 fix) IS genuinely visible on
    * inspection (confirmed via screenshot crop 2026-08-07), but reads as
