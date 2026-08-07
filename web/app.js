@@ -13296,8 +13296,13 @@ function _renderApprovalsTable() {
     const descHtml = isExpanded
       ? `<div style="white-space:pre-wrap;word-break:break-word">${fullDesc}</div>${openCardHtml}`
       : shortDesc
+    // Fixed max-width regardless of expand state (Boss 2026-08-07: widening
+    // this on expand made the whole table's OTHER columns jump size too --
+    // auto table-layout resizes every column to fit the widest cell in its
+    // column, so this cell growing wider on click reflowed the whole row).
+    // Expanding now only wraps the same-width cell taller, never wider.
     const descCellStyle = isExpanded
-      ? 'max-width:420px;font-size:12px;cursor:pointer;white-space:normal'
+      ? 'max-width:280px;font-size:12px;cursor:pointer;white-space:normal'
       : 'max-width:280px;font-size:12px;cursor:pointer'
     return `<tr style="${rowStyle}">
       <td style="white-space:nowrap;font-size:12px">${escapeHtml(time)}</td>
