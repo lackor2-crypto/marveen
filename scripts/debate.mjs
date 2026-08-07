@@ -124,10 +124,35 @@ function logLine(entry) {
   try { appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n') } catch { /* stats are best-effort, never block the actual call */ }
 }
 
-async function callModelOnce(model, prompt, apiKey) {
+// A DEBATE_MODELS entry ending in ":online" (our own convention, not an
+// OpenRouter model id) opts that model into OpenRouter's web-search plugin
+// ($0.005/request, Exa backend -- see openrouter.ai/docs/guides/features/
+// plugins/web-search). Stripped before the id is sent to OpenRouter; the
+// plugin is requested explicitly via the `plugins` array instead of relying
+// on any undocumented-to-us model-slug shorthand.
+const ONLINE_SUFFIX = ':online'
+
+function parseModelSpec(spec) {
+  if (spec.endsWith(ONLINE_SUFFIX)) {
+    return { model: spec.slice(0, -ONLINE_SUFFIX.length), webSearch: true }
+  }
+  return { model: spec, webSearch: false }
+}
+
+async function callModelOnce(modelSpec, prompt, apiKey) {
+  const { model, webSearch } = parseModelSpec(modelSpec)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS)
   try {
+    const body = {
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      // reasoning: low caps how much of the token budget a reasoning model
+      // (e.g. openai/gpt-5.5) spends thinking before it has to start writing
+      // the actual answer.
+      reasoning: { effort: 'low' },
+    }
+    if (webSearch) body.plugins = [{ id: 'web' }]
     const resp = await fetch(OPENROUTER_URL, {
       method: 'POST',
       headers: {
@@ -139,22 +164,19 @@ async function callModelOnce(model, prompt, apiKey) {
         // and this install doesn't have a stable public one to give.
         'X-Title': 'Marveen debate',
       },
-      // reasoning: low caps how much of the token budget a reasoning model
-      // (e.g. openai/gpt-5.5) spends thinking before it has to start writing
-      // the actual answer.
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], reasoning: { effort: 'low' } }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     })
     const data = await resp.json().catch(() => null)
     if (!resp.ok) {
       const msg = data?.error?.message || `HTTP ${resp.status}`
-      return { model, ok: false, error: msg }
+      return { model: modelSpec, ok: false, error: msg }
     }
     const text = data?.choices?.[0]?.message?.content ?? ''
     const usage = data?.usage || {}
-    return { model, ok: true, text, tokensIn: usage.prompt_tokens ?? null, tokensOut: usage.completion_tokens ?? null }
+    return { model: modelSpec, ok: true, text, tokensIn: usage.prompt_tokens ?? null, tokensOut: usage.completion_tokens ?? null }
   } catch (err) {
-    return { model, ok: false, error: err.name === 'AbortError' ? `timeout after ${PER_MODEL_TIMEOUT_MS}ms` : String(err.message || err) }
+    return { model: modelSpec, ok: false, error: err.name === 'AbortError' ? `timeout after ${PER_MODEL_TIMEOUT_MS}ms` : String(err.message || err) }
   } finally {
     clearTimeout(timer)
   }

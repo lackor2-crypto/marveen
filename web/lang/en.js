@@ -904,7 +904,7 @@ window._i18n.en = {
   'settings.desc.KANBAN_WIP_WARN_COLOR':       'WIP badge color above the warning threshold (WARN_PCT), before the limit.',
   'settings.desc.KANBAN_WIP_FULL_COLOR':       'WIP badge color when the column is exactly at the limit.',
   'settings.desc.KANBAN_WIP_OVER_COLOR':       'WIP badge color when the column has exceeded the limit.',
-  'settings.desc.DEBATE_MODELS':               'Comma-separated OpenRouter model ids used for debates (e.g. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Left empty, the main agent asks which models to use on every debate request.',
+  'settings.desc.DEBATE_MODELS':               'Comma-separated OpenRouter model ids used for debates (e.g. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Left empty, the main agent asks which models to use on every debate request. Appending ":online" to an id (e.g. "meta-llama/llama-3.3-70b-instruct:free:online") turns on live web search for that model (~$0.005/request).',
   'settings.debate_models.browse_btn':         'Browse',
   'debateModels.modal.title':                  '🔀 Select models for debate',
   'debateModels.modal.desc':                   'Tick the models the debate should use. The selection fills the DEBATE_MODELS field.',

@@ -1210,7 +1210,7 @@ window._i18n.hu = {
   'settings.desc.KANBAN_WIP_WARN_COLOR':       'A WIP-badge színe a figyelmeztetési küszöb (WARN_PCT) felett, limit előtt.',
   'settings.desc.KANBAN_WIP_FULL_COLOR':       'A WIP-badge színe, amikor az oszlop pontosan a limiten áll.',
   'settings.desc.KANBAN_WIP_OVER_COLOR':       'A WIP-badge színe, amikor az oszlop túllépte a limitet.',
-  'settings.desc.DEBATE_MODELS':               'A vitáztatáshoz használt OpenRouter modell-azonosítók, vesszővel elválasztva (pl. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Üresen hagyva a fő-agens minden vitáztatás-kérésnél megkérdezi, melyik modelleket használja.',
+  'settings.desc.DEBATE_MODELS':               'A vitáztatáshoz használt OpenRouter modell-azonosítók, vesszővel elválasztva (pl. "openai/gpt-5,x-ai/grok-4,google/gemini-3-pro"). Üresen hagyva a fő-agens minden vitáztatás-kérésnél megkérdezi, melyik modelleket használja. Egy azonosító végére írt ":online" (pl. "meta-llama/llama-3.3-70b-instruct:free:online") bekapcsolja az élő webes keresést annál a modellnél (kb. 0,005 USD / kérés).',
   'settings.debate_models.browse_btn':         'Böngészés',
   'debateModels.modal.title':                  '🔀 Modellek kiválasztása vitáztatáshoz',
   'debateModels.modal.desc':                   'Pipáld be a modelleket, amiket a vitáztatás használjon. A választás a DEBATE_MODELS mezőt tölti ki.',
