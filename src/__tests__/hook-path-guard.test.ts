@@ -9,9 +9,9 @@
 //   (b) ensureAgentHooks / scaffold never emits /tmp-rooted commands
 //   (c) boot-time prune detects and removes a planted /tmp hook
 //   (d) fail-open wrapper: a missing hook script exits 0, not non-zero
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync, existsSync, copyFileSync } from 'node:fs'
+import { tmpdir, homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { spawnSync, execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -19,7 +19,34 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..', '..')
 const PRUNE_SCRIPT = join(ROOT, 'scripts', 'boot-hook-prune.py')
-const STALENESS_HOOK = join(ROOT, 'scripts', 'hooks', 'staleness-guard.py')
+
+// isUnsafeHookCommand() rejects any command whose path string contains a
+// /tmp-like prefix, unconditionally -- see its own comment and this file's
+// header (the 2026-07-14 fleet-freeze it exists to prevent). Run from a git
+// worktree (this project's own mandated safe way to test, see
+// assert-not-live-install.ts), the CHECKOUT ITSELF lives under /tmp, so a
+// hook path built from ROOT (e.g. ROOT/scripts/hooks/staleness-guard.py) is
+// legitimately, correctly flagged unsafe by that same guard -- not a bug,
+// but it means these "accepts a real script" fixtures can't be built from
+// ROOT either. Real copies are made under the tester's actual home
+// directory instead (never /tmp on any real machine, and it's the same
+// class of location -- ~/.claude/... -- the real code already writes to),
+// so the guard's file-existence check stays real while the tmp-prefix
+// check has something genuinely non-tmp to approve. See
+// marveen-test-suite-triage skill / kanban #b33afe71 for the full writeup.
+const FIXTURE_DIR = join(homedir(), '.marveen-test-fixtures-hook-path-guard')
+const STALENESS_HOOK = join(FIXTURE_DIR, 'staleness-guard.py')
+const VOICE_HOOK_FIXTURE = join(FIXTURE_DIR, 'voice-reply-directive.py')
+
+beforeAll(() => {
+  mkdirSync(FIXTURE_DIR, { recursive: true })
+  copyFileSync(join(ROOT, 'scripts', 'hooks', 'staleness-guard.py'), STALENESS_HOOK)
+  copyFileSync(join(ROOT, 'scripts', 'hooks', 'voice-reply-directive.py'), VOICE_HOOK_FIXTURE)
+})
+
+afterAll(() => {
+  rmSync(FIXTURE_DIR, { recursive: true, force: true })
+})
 
 import { isUnsafeHookCommand, upgradeLegacyHookCommands } from '../web/agent-scaffold.js'
 
@@ -205,8 +232,7 @@ describe('fail-open wrapper (UserPromptSubmit)', () => {
 // (e) upgradeLegacyHookCommands: automatic in-place migration
 // ---------------------------------------------------------------------------
 describe('upgradeLegacyHookCommands (automatic migration)', () => {
-  const SCRIPT_DIR = join(ROOT, 'scripts', 'hooks')
-  const VOICE_HOOK = join(SCRIPT_DIR, 'voice-reply-directive.py')
+  const VOICE_HOOK = VOICE_HOOK_FIXTURE
   const WRAPPER_STALENESS = `bash -c '[ -f ${STALENESS_HOOK} ] && exec python3 ${STALENESS_HOOK}; exit 0'`
   const WRAPPER_VOICE = `bash -c '[ -f ${VOICE_HOOK} ] && exec python3 ${VOICE_HOOK}; exit 0'`
   const OLD_STALENESS = `python3 ${STALENESS_HOOK}`

@@ -1,6 +1,16 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 // @ts-expect-error -- plain .mjs hook script, no types
 import { gateDecision as selfPaceDecision, stripDataPayloads, stripGitCommitMessages } from '../../scripts/self-pace-gate.mjs'
+
+// See helpers/fake-project-root.ts: injectSelfPaceGate builds its hook
+// command from the real PROJECT_ROOT, which trips the tmp-path registration
+// guard when tests run from a worktree (this project's own mandated safe way
+// to test). Point PROJECT_ROOT at a real, non-tmp mirror instead.
+vi.mock('../config.js', async (importOriginal) => {
+  const { buildFakeProjectRootConfig } = await import('./helpers/fake-project-root.js')
+  return buildFakeProjectRootConfig(await importOriginal())
+})
+
 import {
   agentGetsGovernanceGates,
   injectSelfPaceGate,

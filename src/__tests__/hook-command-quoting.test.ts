@@ -1,6 +1,19 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { mkdirSync, rmSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+
+// See helpers/fake-project-root.ts: every function under test here builds a
+// hook command from the real PROJECT_ROOT, which trips the tmp-path
+// registration guard when tests run from a worktree (this project's own
+// mandated safe way to test). Point PROJECT_ROOT at a real, non-tmp mirror
+// instead. Must be declared before the imports below -- vitest hoists
+// vi.mock calls above them regardless of source order, but keeping it first
+// here matches that and avoids confusion reading top to bottom.
+vi.mock('../config.js', async (importOriginal) => {
+  const { buildFakeProjectRootConfig } = await import('./helpers/fake-project-root.js')
+  return buildFakeProjectRootConfig(await importOriginal())
+})
+
 import {
   HOOK_NODE_BIN,
   hookCommand,
