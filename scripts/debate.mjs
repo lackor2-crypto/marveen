@@ -124,7 +124,7 @@ function logLine(entry) {
   try { appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n') } catch { /* stats are best-effort, never block the actual call */ }
 }
 
-async function callModel(model, prompt, apiKey) {
+async function callModelOnce(model, prompt, apiKey) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), PER_MODEL_TIMEOUT_MS)
   try {
@@ -139,7 +139,10 @@ async function callModel(model, prompt, apiKey) {
         // and this install doesn't have a stable public one to give.
         'X-Title': 'Marveen debate',
       },
-      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }] }),
+      // reasoning: low caps how much of the token budget a reasoning model
+      // (e.g. openai/gpt-5.5) spends thinking before it has to start writing
+      // the actual answer.
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], reasoning: { effort: 'low' } }),
       signal: controller.signal,
     })
     const data = await resp.json().catch(() => null)
@@ -155,6 +158,26 @@ async function callModel(model, prompt, apiKey) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+const EMPTY_RESPONSE_MAX_RETRIES = 2
+
+// Live incident, 2026-08-07: openai/gpt-5.5 (a reasoning model) intermittently
+// returns HTTP 200 / finish_reason 'stop' with a completely EMPTY message on
+// the FIRST call for a given prompt, then answers correctly (fast, as if
+// served from a provider-side cache) on a repeat of the exact same request.
+// Root cause on OpenRouter/upstream's side is unconfirmed, but the pattern is
+// consistent enough that a bounded retry-on-empty is the practical fix: ok:true
+// with blank text is treated as a transient failure here, not a real answer,
+// and retried before giving up.
+async function callModel(model, prompt, apiKey) {
+  let last = null
+  for (let attempt = 0; attempt <= EMPTY_RESPONSE_MAX_RETRIES; attempt++) {
+    last = await callModelOnce(model, prompt, apiKey)
+    if (last.ok && last.text && last.text.trim()) return last
+  }
+  if (last.ok) return { ...last, ok: false, error: `empty response after ${EMPTY_RESPONSE_MAX_RETRIES + 1} attempts` }
+  return last
 }
 
 async function loadApiKey() {
