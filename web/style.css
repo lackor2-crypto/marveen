@@ -4407,6 +4407,12 @@ main.email-active .page-header { flex-shrink: 0; }
   padding: 4px 10px;
   border-radius: 999px;
 }
+.accounts-section { margin-bottom: 24px; }
+.accounts-section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; }
+.accounts-list { display: flex; flex-direction: column; gap: 10px; }
+.accounts-item-clickable { cursor: pointer; }
+.accounts-item-clickable:hover { border-color: var(--accent); }
+
 .vault-known-status-ok { background: var(--success); color: #fff; }
 .vault-known-status-missing {
   background: var(--danger);

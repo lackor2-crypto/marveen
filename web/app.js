@@ -404,6 +404,7 @@ function switchPage(pageId) {
   if (pageId === 'recall') loadRecallPage()
   if (pageId === 'bgTasks') loadBgTasksPage()
   if (pageId === 'vault') loadVaultPage()
+  if (pageId === 'accounts') loadAccountsPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
   if (pageId === 'openrouter') loadOpenRouterPage()
@@ -11796,11 +11797,82 @@ function renderOverviewCapabilities(ids) {
   box.hidden = false
   list.innerHTML = known.map(id => {
     const info = CAPABILITY_INFO[id]
-    return `<a href="#" class="overview-capability-item" onclick="switchPage('vault');return false">
+    return `<a href="#" class="overview-capability-item" onclick="switchPage('accounts');return false">
       <div class="overview-capability-label">${escapeHtml(t(info.labelKey))}</div>
       <div class="overview-capability-desc">${escapeHtml(t(info.descKey))}</div>
     </a>`
   }).join('')
+}
+
+// Non-Vault entries for the Fiokok (Accounts) page: core items that always
+// run (no setup action possible/needed) and the two OAuth/CLI-driven
+// integrations that -- unlike OpenRouter/Groq -- have no self-service
+// dashboard flow yet, so the honest instruction is "ask Marvin in chat"
+// rather than a broken "Connect" button. See CAPABILITY_INFO above for the
+// Vault-backed entries (openrouter, groq-stt) this page also lists.
+const ACCOUNT_EXTRA_INFO = {
+  'claude-code': { labelKey: 'accounts.claude_code.label', descKey: 'accounts.claude_code.desc' },
+  telegram: { labelKey: 'accounts.telegram.label', descKey: 'accounts.telegram.desc' },
+  google: { labelKey: 'accounts.google.label', descKey: 'accounts.google.desc', flow: 'agent', agentHintKey: 'accounts.google.agent_hint' },
+  github: { labelKey: 'accounts.github.label', descKey: 'accounts.github.desc', flow: 'agent', agentHintKey: 'accounts.github.agent_hint' },
+}
+
+function _accountInfoFor(id) {
+  const vaultInfo = CAPABILITY_INFO[id]
+  return vaultInfo ? { ...vaultInfo, flow: 'vault' } : ACCOUNT_EXTRA_INFO[id]
+}
+
+function _renderAccountItem(entry) {
+  const info = _accountInfoFor(entry.id)
+  if (!info) return ''
+  const configured = entry.configured
+  const clickable = !configured && info.flow === 'vault'
+  let help = ''
+  if (!configured && info.flow === 'vault') {
+    help = `<div class="vault-known-help">
+      <div class="vault-known-steps">${escapeHtml(t(info.stepsKey))}</div>
+      <a class="vault-known-link" href="${info.helpUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('vault.known.get_key_link'))} →</a>
+    </div>`
+  } else if (!configured && info.flow === 'agent') {
+    help = `<div class="vault-known-help"><div class="vault-known-steps">${escapeHtml(t(info.agentHintKey))}</div></div>`
+  }
+  const statusText = configured ? t('vault.known.configured') : (info.flow === 'vault' ? t('vault.known.missing') : t('accounts.status.not_configured'))
+  return `<div class="vault-known-item${clickable ? ' accounts-item-clickable' : ''}"${clickable ? ` data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}"` : ''}>
+    <div class="vault-known-row">
+      <div class="vault-known-text">
+        <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
+        <div class="vault-known-desc">${escapeHtml(t(info.descKey))}</div>
+      </div>
+      <div class="vault-known-status ${configured ? 'vault-known-status-ok' : 'vault-known-status-missing'}">${statusText}</div>
+    </div>
+    ${help}
+  </div>`
+}
+
+async function loadAccountsPage() {
+  const coreEl = document.getElementById('accountsCoreList')
+  const optEl = document.getElementById('accountsOptionalList')
+  try {
+    const res = await fetch('/api/accounts')
+    const data = await res.json()
+    coreEl.innerHTML = (data.core || []).map(_renderAccountItem).join('')
+    optEl.innerHTML = (data.optional || []).map(_renderAccountItem).join('')
+    optEl.querySelectorAll('.accounts-item-clickable').forEach(el => {
+      el.addEventListener('click', () => {
+        const id = el.getAttribute('data-vault-id')
+        const labelKey = el.getAttribute('data-label-key')
+        switchPage('vault')
+        setTimeout(() => {
+          const addPanel = document.getElementById('vaultAddPanel')
+          if (!addPanel) return
+          addPanel.hidden = false
+          document.getElementById('vaultPageIdInput').value = id
+          document.getElementById('vaultPageLabelInput').value = t(labelKey)
+          document.getElementById('vaultPageValueInput').focus()
+        }, 400)
+      })
+    })
+  } catch { /* ignore */ }
 }
 
 async function loadOverview() {
