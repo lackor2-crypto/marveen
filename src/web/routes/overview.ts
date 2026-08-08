@@ -11,6 +11,8 @@ import { isAgentRunning } from '../agent-process.js'
 import { getSecret } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
+import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
+import { tierForSnapshot, isStale } from '../../rate-limit-status.js'
 
 // Known optional capabilities the system supports but that need a per-user
 // setup step (a vault key, a token, ...) before they actually work. The
@@ -162,6 +164,17 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     }
     const unconfiguredCapabilities = CAPABILITY_CHECKS.filter(c => !c.configured()).map(c => c.id)
 
+    const rlSnapshot = readRateLimitSnapshot(MAIN_AGENT_ID)
+    const rateLimit = rlSnapshot ? {
+      model: rlSnapshot.model,
+      contextPct: rlSnapshot.contextPct,
+      fiveHour: rlSnapshot.fiveHour,
+      sevenDay: rlSnapshot.sevenDay,
+      tier: tierForSnapshot(rlSnapshot),
+      updatedAt: rlSnapshot.updatedAt,
+      stale: isStale(rlSnapshot.updatedAt, Date.now()),
+    } : null
+
     jsonMaybeGzip(req, res, {
       agents: { total, running },
       tasksToday,
@@ -171,6 +184,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       team: agentsForTeam,
       activity: activity.slice(0, 8),
       unconfiguredCapabilities,
+      rateLimit,
     })
     return true
   }
