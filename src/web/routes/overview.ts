@@ -194,6 +194,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       activity: activity.slice(0, 8),
       unconfiguredCapabilities,
       rateLimit,
+      openrouterCredits,
     })
     return true
   }
