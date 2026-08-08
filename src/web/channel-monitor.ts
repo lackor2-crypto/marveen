@@ -1370,7 +1370,15 @@ function handleMarveenUp(): void {
     const stage = marveenDownState.stage
     const providerLabel = getMainAgentProvider()
     logger.info({ stage, downedFor, provider: providerLabel }, 'Marveen channel plugin recovered')
-    if (stage !== 'soft' && stage !== 'save' && stage !== 'resume') {
+    // 'resume' respawns the main claude process (--continue) -- Boss loses
+    // liveness for the outage window and has no way to tell "still working"
+    // from "actually stuck" until he pokes the chat himself (kanban #27310abb,
+    // 2026-08-08: this happened live, twice, mid-session -- he had to ask
+    // Gypsy to check on Marvin because no recovery ping ever came). Only
+    // 'soft' and 'save' are genuinely silent-worthy: neither one has
+    // restarted the session yet, so there is nothing Boss would notice from
+    // his side to explain.
+    if (stage !== 'soft' && stage !== 'save') {
       sendAlert(`✅ ${BOT_NAME} ${providerLabel} plugin helyrealt (${stage} utan, ${downedFor}s kieses).`)
     }
     marveenDownState = null

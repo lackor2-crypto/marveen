@@ -130,6 +130,42 @@ describe('channel-monitor: post-respawn cold-start guard (2026-06-01 480s outage
   })
 })
 
+describe('channel-monitor: recovery alert fires after a session respawn (kanban #27310abb)', () => {
+  // Background (2026-08-08): handleMarveenUp() suppressed the recovery alert
+  // for stage 'resume' along with the genuinely-silent 'soft'/'save' stages.
+  // But 'resume' is exactly the stage that respawns the whole claude process
+  // (--continue) -- Boss loses liveness for the outage window and, with no
+  // recovery ping, has no way to tell "still working" from "actually stuck"
+  // until he pokes the chat himself. Lived twice in one session on
+  // 2026-08-08 (02:06-02:08 and earlier), confirmed via dashboard.log: stage
+  // reached 'resume', "Marveen channel plugin recovered" logged, but no
+  // sendAlert ever fired because of this exact filter.
+  const src = readFileSync(MONITOR_PATH, 'utf-8')
+
+  const fnStart = src.indexOf('function handleMarveenUp')
+  expect(fnStart, 'handleMarveenUp not found').toBeGreaterThan(0)
+  const fnEnd = src.indexOf('\nfunction ', fnStart + 1)
+  const fnBody = src.slice(fnStart, fnEnd > fnStart ? fnEnd : undefined)
+
+  it('does NOT special-case the resume stage out of the recovery alert', () => {
+    // The exact regression shape: a condition that lists all three
+    // early/silent stages together would once again swallow 'resume'.
+    expect(fnBody).not.toMatch(/stage\s*!==\s*['"]soft['"]\s*&&\s*stage\s*!==\s*['"]save['"]\s*&&\s*stage\s*!==\s*['"]resume['"]/)
+  })
+
+  it('still stays silent for the soft and save stages (nothing visibly interrupted yet)', () => {
+    expect(fnBody).toMatch(/stage\s*!==\s*['"]soft['"]\s*&&\s*stage\s*!==\s*['"]save['"]/)
+  })
+
+  it('sendAlert is reachable inside the recovery guard (not dead code)', () => {
+    const guardIdx = fnBody.indexOf("stage !== 'soft'")
+    const alertIdx = fnBody.indexOf('sendAlert(')
+    expect(guardIdx, 'stage guard missing from handleMarveenUp').toBeGreaterThan(0)
+    expect(alertIdx, 'sendAlert call missing from handleMarveenUp').toBeGreaterThan(0)
+    expect(guardIdx).toBeLessThan(alertIdx)
+  })
+})
+
 describe('channel-monitor: periodic detached-claude reap (CB6CF755 durable fix)', () => {
   const src = readFileSync(MONITOR_PATH, 'utf-8')
 
