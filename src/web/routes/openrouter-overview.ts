@@ -8,10 +8,21 @@
 //   does not re-fetch or re-render that, the page just opens the same modal.
 // - API key state + editing: already the Vault page (generic secret store).
 // This route adds the ONE genuinely missing piece: "how much OpenRouter
-// usage/cost has happened today", computed by joining the existing token-
-// usage table (already recording every model Claude Code CLI ran, including
-// OpenRouter-routed sub-agent calls) against live OpenRouter pricing --
-// no new usage-tracking table needed.
+// usage/cost has happened today".
+//
+// The cost total is NOT derived from the token_usage table (Boss, 2026-08-08:
+// caught this understating real spend by ~10x -- $0.84 shown vs $7.81 actual
+// after a round of Gypsy usage in "high effort"/deep-reasoning mode). Root
+// cause: OpenRouter exposes an ANTHROPIC-COMPATIBLE endpoint, and Claude
+// Code's own transcript only records the translated usage.output_tokens
+// count -- for a reasoning model this does not include the (still-billed)
+// reasoning/thinking tokens, so any price-per-token estimate built from that
+// count silently undercounts. There is no local number that can be trusted
+// for cost, so todayEstCost is now read directly from OpenRouter's own
+// account API (GET /v1/key -> usage_daily), which is the actual amount
+// charged -- the one place this can't be wrong. The per-model token/call
+// breakdown below stays token_usage-derived (still fine for "which model got
+// used how often"), it just no longer drives the headline cost number.
 
 import { getModelDistribution } from '../token-usage.js'
 import { fetchAllOpenRouterModels } from '../openrouter-models.js'
@@ -19,6 +30,27 @@ import { getSecret } from '../vault.js'
 import { json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import type { RouteContext } from './types.js'
+
+interface OpenRouterKeyInfo {
+  usage_daily?: number
+}
+
+// GET /v1/key returns the calling key's own real usage, billed-dollar-accurate
+// (it is OpenRouter's own account ledger, not a client-side estimate).
+export async function fetchRealDailyCostUSD(apiKey: string): Promise<number | null> {
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/key', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!resp.ok) return null
+    const data = await resp.json() as { data?: OpenRouterKeyInfo }
+    const v = data.data?.usage_daily
+    return typeof v === 'number' ? v : null
+  } catch (err) {
+    logger.warn({ err }, 'openrouter overview: real key-usage fetch failed')
+    return null
+  }
+}
 
 function startOfTodayEpoch(): number {
   const now = new Date()
@@ -31,7 +63,8 @@ export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<bo
 
   if (path === '/api/openrouter/overview' && method === 'GET') {
     try {
-      const configured = getSecret('openrouter-fleet-key') !== null
+      const apiKey = getSecret('openrouter-fleet-key')
+      const configured = apiKey !== null
 
       // OpenRouter model ids are always "provider/model" (same discriminator
       // agent-process.ts uses to route to the OpenRouter env branch); plain
@@ -53,22 +86,27 @@ export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<bo
 
       let todayTokensIn = 0
       let todayTokensOut = 0
-      let todayEstCost = 0
-      let anyCostKnown = false
+      // Per-model estCost is still token_usage-derived -- fine for relative
+      // "which model got used how much" volume, but see the header comment:
+      // it undercounts reasoning models, so it is NOT summed into the
+      // headline todayEstCost below.
       const models = dist.map(d => {
         const price = priceByModel.get(d.model)
         const estCost = price ? (d.totalInput / 1_000_000) * price.promptPrice + (d.totalOutput / 1_000_000) * price.completionPrice : null
         todayTokensIn += d.totalInput
         todayTokensOut += d.totalOutput
-        if (estCost !== null) { todayEstCost += estCost; anyCostKnown = true }
         return { model: d.model, calls: d.count, tokensIn: d.totalInput, tokensOut: d.totalOutput, estCost }
       })
+
+      const realDailyCost = configured ? await fetchRealDailyCostUSD(apiKey) : null
+      if (configured && realDailyCost === null) priceLookupFailed = true
 
       json(res, {
         configured,
         todayTokensIn,
         todayTokensOut,
-        todayEstCost: anyCostKnown ? todayEstCost : null,
+        todayEstCost: realDailyCost,
+        costSource: 'openrouter_account',
         priceLookupFailed,
         models,
       })

@@ -13674,6 +13674,8 @@ function _renderOpenRouterStats(data) {
     <div class="stat-card"><div class="stat-value">${data.todayTokensOut.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_out')}</div></div>
     <div class="stat-card"><div class="stat-value">${costText}</div><div class="stat-label">${t('openrouterPage.stat.est_cost')}</div></div>
   `
+  const noteEl = document.getElementById('openrouterPageCostNote')
+  if (noteEl) noteEl.textContent = t('openrouterPage.per_model_cost_note')
 }
 
 function _renderOpenRouterModelList(data) {
@@ -13691,7 +13693,7 @@ function _renderOpenRouterModelList(data) {
           ${t('debate.stat.tokens_io', { in: m.tokensIn, out: m.tokensOut })}
         </div>
       </div>
-      <div class="debate-badge debate-badge-pending">${m.estCost === null ? t('openrouterPage.cost_unknown') : '$' + m.estCost.toFixed(4)}</div>
+      <div class="debate-badge debate-badge-pending" title="${escapeAttr(t('openrouterPage.per_model_cost_note'))}">${m.estCost === null ? t('openrouterPage.cost_unknown') : '~$' + m.estCost.toFixed(4)}</div>
     </div>`).join('')
 }
 
