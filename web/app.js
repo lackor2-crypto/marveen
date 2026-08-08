@@ -14575,12 +14575,43 @@ const TU_MODEL_PRICING = {
   default:               { in: 3.0,   out: 15.0,  cw: 3.75,  cr: 0.30 },
 }
 
+// OpenRouter model ids (always "provider/model", e.g. "openai/gpt-5.6-sol")
+// used to silently fall through to the Claude-Sonnet-shaped `default` row
+// above, which is wrong for them -- an OpenRouter model's real per-token
+// price (fetched from /api/openrouter/models, same catalog the browse modal
+// uses) is usually quite different (Boss, 2026-08-08: caught Token Monitor
+// showing $3.41 for Gypsy/debate usage that OpenRouter's own account billed
+// well above $7). Fetched once, lazily, cached for the page's lifetime.
+let tuOpenRouterPriceMap = null
+let tuOpenRouterPriceMapLoading = null
+async function tuLoadOpenRouterPriceMap() {
+  if (tuOpenRouterPriceMap) return tuOpenRouterPriceMap
+  if (tuOpenRouterPriceMapLoading) return tuOpenRouterPriceMapLoading
+  tuOpenRouterPriceMapLoading = (async () => {
+    const map = new Map()
+    try {
+      const res = await fetch('/api/openrouter/models')
+      if (res.ok) {
+        const data = await res.json()
+        for (const m of (data.models || [])) map.set(m.id, m)
+      }
+    } catch { /* best-effort -- falls back to the flat default price */ }
+    tuOpenRouterPriceMap = map
+    return map
+  })()
+  return tuOpenRouterPriceMapLoading
+}
+
 // Longest-prefix wins. A plain first-match loop is order-dependent and silently
 // wrong here: 'claude-opus-4-8' also startsWith 'claude-opus-4', so whichever
 // key the object happens to list first decides the price -- that is how Opus 4.8
 // was billed at the Opus 4.1 rate even once it had its own row.
 function tuPriceForModel(model) {
   if (!model) return TU_MODEL_PRICING.default
+  if (model.includes('/') && tuOpenRouterPriceMap) {
+    const m = tuOpenRouterPriceMap.get(model)
+    if (m) return { in: m.promptPrice, out: m.completionPrice, cw: m.promptPrice, cr: m.promptPrice }
+  }
   const keys = Object.keys(TU_MODEL_PRICING)
     .filter((k) => k !== 'default')
     .sort((a, b) => b.length - a.length)
@@ -14588,6 +14619,18 @@ function tuPriceForModel(model) {
     if (model.startsWith(key)) return TU_MODEL_PRICING[key]
   }
   return TU_MODEL_PRICING.default
+}
+
+// True when the cost for this model can only ever be an under-estimate, no
+// matter how correct the per-token price is: OpenRouter's Anthropic-
+// compatible endpoint does not surface reasoning/thinking tokens in what
+// Claude Code logs locally, but still bills for them (see the OpenRouter
+// overview page fix, commit 2fcbb12, for the full story -- that page's
+// headline number now reads OpenRouter's own account API instead of this
+// kind of local estimate; Token Monitor has no per-agent equivalent to read
+// from, so it stays a marked estimate here).
+function tuIsUnreliableEstimate(model) {
+  return !!model && model.includes('/')
 }
 
 function tuCalcCostUSD(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model) {
@@ -14649,6 +14692,7 @@ function tuGetTimeRange() {
 }
 
 async function loadTokenUsage() {
+  await tuLoadOpenRouterPriceMap()
   const { from, to } = tuGetTimeRange()
   const agent = tuSelectedAgent
 
@@ -14718,6 +14762,9 @@ function renderTuSummary(summary) {
     const costUSD = Array.isArray(s.perModel) && s.perModel.length
       ? s.perModel.reduce((sum, m) => sum + tuCalcCostUSD(m.totalInput || 0, m.totalOutput || 0, m.totalCacheRead || 0, m.totalCacheCreation || 0, m.model && m.model !== '(unknown)' ? m.model : null), 0)
       : tuCalcCostUSD(s.totalInput, s.totalOutput, s.totalCacheRead, s.totalCacheCreation, null)
+    const isEstimate = Array.isArray(s.perModel) && s.perModel.some(m => tuIsUnreliableEstimate(m.model))
+    const costPrefix = isEstimate ? '~' : ''
+    const costTitle = isEstimate ? ` title="${escapeAttr(t('tokenUsage.openrouter_estimate_note'))}"` : ''
     const sessions = s.totalSessions || 0
     const tokPerSession = sessions > 0 ? Math.round(totalIn / sessions) : 0
     const costPerSession = sessions > 0 ? costUSD / sessions : 0
@@ -14727,8 +14774,8 @@ function renderTuSummary(summary) {
         <div class="overview-stat-label">${escapeHtml(chatDisplayName(s.agent))}</div>
         <div class="overview-stat-value">${tuFormatTokens(totalIn)}</div>
         <div class="overview-stat-sub">${t('tokenUsage.calls_sub', { calls: (s.totalCalls || 0).toLocaleString(), out: tuFormatTokens(s.totalOutput) })}</div>
-        <div class="overview-stat-sub" style="margin-top:4px;color:var(--text-secondary)">${tuFormatCostUSD(costUSD)} &middot; ${sessions} sess</div>
-        <div class="overview-stat-sub" style="font-size:11px;color:var(--text-secondary)">${tuFormatTokens(tokPerSession)} tok/sess &middot; ${tuFormatCostUSD(costPerSession)}/sess</div>
+        <div class="overview-stat-sub" style="margin-top:4px;color:var(--text-secondary)"${costTitle}>${costPrefix}${tuFormatCostUSD(costUSD)} &middot; ${sessions} sess</div>
+        <div class="overview-stat-sub" style="font-size:11px;color:var(--text-secondary)">${tuFormatTokens(tokPerSession)} tok/sess &middot; ${costPrefix}${tuFormatCostUSD(costPerSession)}/sess</div>
       </div>`
   }).join('')
 
@@ -15393,6 +15440,7 @@ function renderTuModelDist(data) {
   let rows = data.map((d, i) => {
     const pct = total > 0 ? ((d.count / total) * 100).toFixed(1) : '0.0'
     const costUSD = tuCalcCostUSD(d.totalInput, d.totalOutput, d.totalCacheRead, d.totalCacheCreation, d.model !== '(unknown)' ? d.model : null)
+    const costPrefix = tuIsUnreliableEstimate(d.model) ? '~' : ''
     return `<tr>
       <td style="${tdStyle}">
         <span style="display:inline-block;width:10px;height:10px;background:${tuGetModelColor(i)};border-radius:2px;margin-right:6px;vertical-align:middle"></span>
@@ -15400,7 +15448,7 @@ function renderTuModelDist(data) {
       </td>
       <td style="${tdRStyle}">${(d.count || 0).toLocaleString()}</td>
       <td style="${tdRStyle}">${pct}%</td>
-      <td style="${tdRStyle}">${tuFormatCostUSD(costUSD)}</td>
+      <td style="${tdRStyle}">${costPrefix}${tuFormatCostUSD(costUSD)}</td>
     </tr>`
   }).join('')
 

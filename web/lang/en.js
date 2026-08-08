@@ -1022,6 +1022,7 @@ window._i18n.en = {
   'tokenUsage.no_data':          'No data',
   'tokenUsage.collect_hint':     'Click the "Collect" button',
   'tokenUsage.calls_sub':        '{calls} calls, out: {out}',
+  'tokenUsage.openrouter_estimate_note': 'Includes an OpenRouter model -- this is an estimate and can understate the real cost due to reasoning tokens. See the OpenRouter page for the exact daily total.',
   'tokenUsage.total':            'Total:',
   'tokenUsage.window_5h_label':  '5h window',
   'tokenUsage.window_weekly_label': 'Weekly window',

@@ -1328,6 +1328,7 @@ window._i18n.hu = {
   'tokenUsage.no_data':          'Nincs adat',
   'tokenUsage.collect_hint':     'Kattints a "Gyűjtés" gombra',
   'tokenUsage.calls_sub':        '{calls} hívás, out: {out}',
+  'tokenUsage.openrouter_estimate_note': 'OpenRouter-modellt is tartalmaz -- ez becslés, a gondolkodási (reasoning) tokenek miatt alulbecsülheti a valós költséget. A pontos napi összeg az OpenRouter oldalon látható.',
   'tokenUsage.total':            'Összesen:',
   'tokenUsage.window_5h_label':  '5 órás ablak',
   'tokenUsage.window_weekly_label': 'Heti ablak',
