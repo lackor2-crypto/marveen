@@ -52,10 +52,19 @@ export async function fetchRealDailyCostUSD(apiKey: string): Promise<number | nu
   }
 }
 
+// UTC, not local midnight (Boss, 2026-08-08): OpenRouter's own usage_daily
+// (fetched below) resets at UTC midnight. Filtering the local per-model
+// breakdown on a LOCAL "today" boundary meant the two numbers disagreed
+// about which rows even count as "today" -- a debate round that ran after
+// local midnight-minus-N-hours but before UTC midnight showed up in
+// OpenRouter's real total but silently dropped out of the per-model list
+// (or vice versa), which read as "some of the spend just isn't shown
+// anywhere". Matching the boundary OpenRouter itself uses keeps the two
+// numbers describing the same window.
 function startOfTodayEpoch(): number {
   const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  return Math.floor(start.getTime() / 1000)
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  return Math.floor(start / 1000)
 }
 
 export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<boolean> {

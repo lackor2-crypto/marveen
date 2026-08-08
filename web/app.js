@@ -14610,7 +14610,16 @@ function tuPriceForModel(model) {
   if (!model) return TU_MODEL_PRICING.default
   if (model.includes('/') && tuOpenRouterPriceMap) {
     const m = tuOpenRouterPriceMap.get(model)
-    if (m) return { in: m.promptPrice, out: m.completionPrice, cw: m.promptPrice, cr: m.promptPrice }
+    // /api/openrouter/models has no cache-write/cache-read price fields (only
+    // promptPrice/completionPrice) -- charging cache tokens at the FULL
+    // prompt price (an earlier version of this did exactly that) massively
+    // over-counts any model with heavy cache usage, e.g. it alone put
+    // openai/gpt-5.6-sol's estimate near $37 today from ~7M cached tokens.
+    // 0 is a real under-count for cache-heavy OpenRouter models, but an
+    // unknown-but-nonzero guess is worse: it looks precise and isn't. This
+    // whole row is already marked "~" (tuIsUnreliableEstimate) for exactly
+    // this kind of gap.
+    if (m) return { in: m.promptPrice, out: m.completionPrice, cw: 0, cr: 0 }
   }
   const keys = Object.keys(TU_MODEL_PRICING)
     .filter((k) => k !== 'default')
