@@ -52,6 +52,30 @@ export async function fetchRealDailyCostUSD(apiKey: string): Promise<number | nu
   }
 }
 
+// GET /v1/credits returns the ACCOUNT-WIDE remaining balance (total_credits
+// minus total_usage) -- distinct from GET /v1/key above, which only reports
+// a single key's own usage/limit. OpenRouter requires a management/
+// provisioning key for this endpoint (Boss confirmed live, 2026-08-08): the
+// regular runtime key the fleet uses for completions returns limit=null
+// here and cannot answer "how much money is left". Optional -- if no
+// management key is in the vault, the overview route just omits this field.
+export async function fetchOpenRouterCredits(managementKey: string): Promise<{ totalCredits: number; totalUsage: number } | null> {
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/credits', {
+      headers: { Authorization: `Bearer ${managementKey}` },
+    })
+    if (!resp.ok) return null
+    const data = await resp.json() as { data?: { total_credits?: number; total_usage?: number } }
+    const totalCredits = data.data?.total_credits
+    const totalUsage = data.data?.total_usage
+    if (typeof totalCredits !== 'number' || typeof totalUsage !== 'number') return null
+    return { totalCredits, totalUsage }
+  } catch (err) {
+    logger.warn({ err }, 'openrouter overview: credits fetch failed')
+    return null
+  }
+}
+
 // UTC, not local midnight (Boss, 2026-08-08): OpenRouter's own usage_daily
 // (fetched below) resets at UTC midnight. Filtering the local per-model
 // breakdown on a LOCAL "today" boundary meant the two numbers disagreed

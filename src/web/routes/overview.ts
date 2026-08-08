@@ -13,6 +13,8 @@ import { json, jsonMaybeGzip } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { tierForSnapshot, isStale } from '../../rate-limit-status.js'
+import { fetchOpenRouterCredits } from './openrouter-overview.js'
+import { deriveOpenRouterCreditsView } from '../../openrouter-credits.js'
 
 // Known optional capabilities the system supports but that need a per-user
 // setup step (a vault key, a token, ...) before they actually work. The
@@ -174,6 +176,13 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       updatedAt: rlSnapshot.updatedAt,
       stale: isStale(rlSnapshot.updatedAt, Date.now()),
     } : null
+
+    // OpenRouter remaining balance (Boss, 2026-08-08: "ugyanaz mint a keret-%,
+    // meddig dolgozhatok"). Needs a management/provisioning key, separate
+    // from the regular fleet key -- omitted entirely until one is configured.
+    const openrouterManagementKey = getSecret('openrouter-management-key')
+    const openrouterCreditsRaw = openrouterManagementKey ? await fetchOpenRouterCredits(openrouterManagementKey) : null
+    const openrouterCredits = openrouterCreditsRaw ? deriveOpenRouterCreditsView(openrouterCreditsRaw) : null
 
     jsonMaybeGzip(req, res, {
       agents: { total, running },
