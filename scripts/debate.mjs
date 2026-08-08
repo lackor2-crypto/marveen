@@ -124,6 +124,33 @@ function logLine(entry) {
   try { appendFileSync(LOG_PATH, JSON.stringify(entry) + '\n') } catch { /* stats are best-effort, never block the actual call */ }
 }
 
+// This script calls OpenRouter directly (no Claude Code session behind it),
+// so its token usage was invisible to the Token Monitor / OpenRouter overview
+// pages, which both read the token_usage table populated by
+// collectTokenUsage() from Claude Code's own session JSONL transcripts (Boss,
+// 2026-08-08: noticed the dashboard's OpenRouter total was way under the real
+// OpenRouter account usage after a round of debate testing -- $0.09 shown vs
+// $1.27 actual). Write each round's usage straight into that same table under
+// a distinct 'debate' agent bucket, so it shows up as its own row instead of
+// silently vanishing. Best-effort: a DB write failure must never block the
+// actual debate call, same spirit as logLine above.
+async function recordTokenUsage(session, ts, model, tokensIn, tokensOut) {
+  try {
+    const { getDb, initDatabase } = await import(join(projectRoot, 'dist', 'db.js'))
+    // getDb() returns undefined until initDatabase() has opened a handle in
+    // THIS process -- the dashboard server's own handle lives in a different
+    // process. initDatabase() is idempotent (safe to call every invocation)
+    // and defaults to the real store/claudeclaw.db path with no args.
+    initDatabase()
+    const db = getDb()
+    db.prepare(`
+      INSERT INTO token_usage (agent, session_id, timestamp, input_tokens, output_tokens, model, content_preview, tool_name)
+      VALUES ('debate', ?, ?, ?, ?, ?, NULL, 'debate.mjs')
+      ON CONFLICT(agent, session_id, timestamp, input_tokens, output_tokens) DO NOTHING
+    `).run(session, ts, tokensIn ?? 0, tokensOut ?? 0, model)
+  } catch { /* best-effort, never block the actual debate call */ }
+}
+
 // A DEBATE_MODELS entry ending in ":online" (our own convention, not an
 // OpenRouter model id) opts that model into OpenRouter's web-search plugin
 // ($0.005/request, Exa backend -- see openrouter.ai/docs/guides/features/
@@ -232,6 +259,7 @@ async function runAsk(argv) {
       text: r.ok ? r.text : null, tokensIn: r.tokensIn ?? null, tokensOut: r.tokensOut ?? null,
       error: r.ok ? null : r.error,
     })
+    if (r.ok && (r.tokensIn || r.tokensOut)) await recordTokenUsage(session, ts, r.model, r.tokensIn, r.tokensOut)
   }
   await trimLogIfNeeded()
 
