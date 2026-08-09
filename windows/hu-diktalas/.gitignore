@@ -1,0 +1,12 @@
+# ⛔SOHA nem kerulhet a repoba
+groq.key
+*token*
+*.pat
+*secret*
+*credential*
+
+# gepspecifikus / futasi melléktermek
+mikrofon.txt
+diktal-auto.log
+*.bak-*
+*.lnk

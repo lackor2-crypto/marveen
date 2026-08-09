@@ -309,6 +309,31 @@ try {
   if ($envPort) { $WebPort = $envPort }
 } catch { }
 
+# ---------------------------------------------------------------------------
+# [6/6] Magyar diktalas (opcionalis) -- mikrofon -> magyar szoveg
+# ---------------------------------------------------------------------------
+# Miert itt: ha a Boss ujratelepiti a gepet, a Marveen felrakasaval EZ IS
+# automatikusan visszaall -- nem kell ujra megirni/beallitani.
+# Nem fatalis: ha barmi elhasal, a Marveen telepitese ettol meg sikeres.
+Write-Host ""
+Write-Host "[6/6] Magyar diktalas beallitasa..." -ForegroundColor White
+try {
+  # a WSL-oldali repo Windows-utja (a $installPath tartalmazhat ~-t, ezert wslpath)
+  $winRepo = (wsl bash -c "cd $installPath && wslpath -w .") -replace "`0", ""
+  $winRepo = $winRepo.Trim()
+  # Join-Path lancolva, hogy NE kelljen visszaperjel a stringbe (az konnyen
+  # elromlik szerkesztes/generalas kozben -- egyszer mar tabulator lett a "\t"-bol).
+  $dikt = Join-Path (Join-Path (Join-Path $winRepo 'windows') 'hu-diktalas') 'telepit.ps1'
+  if (Test-Path $dikt) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$dikt"
+  } else {
+    Write-Host "  (kihagyva: nincs meg $dikt)" -ForegroundColor DarkGray
+  }
+} catch {
+  Write-Host "  A diktalas beallitasa nem sikerult: $($_.Exception.Message)" -ForegroundColor Yellow
+  Write-Host "  Kesobb kezzel: windows/hu-diktalas/telepit.ps1" -ForegroundColor Yellow
+}
+
 # Done!
 Write-Host ""
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Green

@@ -1,0 +1,6 @@
+# A .cmd fajlok CRLF-fel kell hogy kicheckoutolodjanak: egy LF sorvegu .cmd-bol a
+# cmd.exe AZONNAL KILEP (a felhasznalo csak egy felvillano fekete ablakot lat).
+# Ov: a telepit.ps1 amugy is ujrairja oket -- ez csak a masodik halo.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.vbs text eol=crlf
