@@ -56,7 +56,27 @@ Write-Host "  [1/3] Rendszer-alapertelmezett beallitva: $res" -ForegroundColor G
 
 # --- 2. nemitas fel + szint ---
 $vol = [MicGain]::SetVolume($Nev, $Szint)
-Write-Host "  [2/3] Bemeneti szint: $vol%  (szandekosan NEM 100% -- a vagas rontja a felismerest)" -ForegroundColor Green
+Write-Host "  [2/3] Bemeneti szint: $vol%" -ForegroundColor Green
+
+# --- 2b. AUTOMATIKUS EROSITES (AGC) KI ---
+# Merve (2026-08-09): a webkamera mikrofonjaban BE volt kapcsolva egy AGC, ami a
+# csucsokat a plafonra nyomta (csucs 100%, allandoan) es rontotta az atirast.
+# Kikapcsolas utan a csucs 33.9%-ra esett es a felismeres erzekelhetoen javult.
+# A fejhallgatonak nincs is AGC-je -- ezert volt eleve tisztabb.
+# Ezt minden valtaskor ujra beallitjuk, mert egy driver-reset visszakapcsolhatja.
+try {
+  $agc = [MicGain]::AgcScan($Nev, $true)
+  if ($agc -match 'AGC MEGTALALVA') {
+    $allap = if ($agc -match '-> most: KI') { 'kikapcsolva' }
+             elseif ($agc -match 'allapot: KI') { 'mar ki volt' }
+             else { 'NEM sikerult kikapcsolni' }
+    Write-Host "  [2b ] Automatikus erosites (AGC): $allap" -ForegroundColor Green
+  } else {
+    Write-Host "  [2b ] Ennek az eszkoznek nincs allithato AGC-je (ez jo jel)" -ForegroundColor DarkGray
+  }
+} catch {
+  Write-Host "  [2b ] Az AGC-t nem sikerult ellenorizni: $($_.Exception.Message)" -ForegroundColor Yellow
+}
 
 # --- 3. a diktalas is ugyanazt hasznalja ---
 $Nev | Set-Content -Path $micFile -Encoding UTF8 -NoNewline

@@ -254,8 +254,15 @@ public static extern short GetAsyncKeyState(int vKey);
   }
   # A lapos dinamika onmagaban nem hiba, de ROSSZABB atirast ad -- naplozzuk, hogy
   # kesobb is lassuk, melyik felvetelek voltak osszenyomva.
+  # !2026-08-09: ez az uzenet KORABBAN azt allitotta, hogy az alacsony dinamikat az
+  # AGC okozza es AZ rontja a felismerest. MERESSEL CAFOLVA: az AGC kikapcsolasa utan
+  # a csucs 100%-rol 33.9%-ra esett (tehat az AGC tenyleg nyomta) es az atiras
+  # ERZEKELHETOEN JAVULT -- de a dinamika VALTOZATLAN maradt (2.8-3.5x -> 2.55x).
+  # Vagyis nem a dinamika a mechanizmus, hanem a hullamcsucsok LIMITALASA; a dinamika
+  # -mutatot itt inkabb a szoba alapzaja hatarozza meg. Ezert az uzenet mar csak TENYT
+  # kozol, okot nem allit -- egy rossz magyarazat rosszabb, mint semmi.
   if ($dyn -lt 4.0) {
-    Log "megjegyzes: alacsony dinamika (${dyn}x) -- a mikrofon AGC-je osszenyomja a hangot, ez rontja a felismerest"
+    Log "megjegyzes: alacsony dinamika (${dyn}x) -- onmagaban nem hiba, de erdemes figyelni"
   }
 
   # *SZOFTVERES NORMALIZALAS -- ez teszi lehetove az 1 meteres tavolsagot.

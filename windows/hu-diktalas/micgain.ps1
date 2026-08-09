@@ -130,6 +130,172 @@ public static class MicGain
     return sb.ToString();
   }
 
+  // ===== AGC (automatikus erosites) -- 2026-08-09 =====
+  // !EGY PELDANYBAN. Eloszor kulon fajlba tettem, es a ket Add-Type blokk
+  // MINDKETTO definialta ugyanazokat a COM-tipusokat -> egy folyamatban a CLR
+  // ket kulonbozo tipusnak latta oket, es a cast elhasalt ezzel az uzenettel:
+  //   "Unable to cast object of type 'MMDeviceEnumerator' to type 'MMDeviceEnumerator'"
+  // Pontosan az a hiba, amire a sajat kommentemben figyelmeztettem.
+  // --- DeviceTopology: az eszkoz belso alkatreszei ---
+  [ComImport, Guid("2A07407E-6497-4A18-9787-32F79BD0D98F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IDeviceTopology {
+    int GetConnectorCount(out uint c);
+    int GetConnector(uint i, out IConnector conn);
+    int GetSubunitCount(out uint c);
+    int GetSubunit(uint i, out ISubunit su);
+    int GetPartById(uint id, out IPart part);
+    int GetDeviceId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetSignalPath(IntPtr from, IntPtr to, bool rejectMixed, out IntPtr parts);
+  }
+  [ComImport, Guid("82149A85-DBA6-4487-86BB-EA8F7FEFCC71"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface ISubunit { }
+
+  // !Az ENDPOINT topologiaja jellemzoen URES (0 subunit) -- az alkatreszek az
+  // ESZKOZ-OLDALI topologian ulnek. Oda a csatlakozon (IConnector) at lehet
+  // atlepni: GetConnectedTo -> IPart -> GetTopologyObject. Elsore ezt kihagytam,
+  // es ezert jelentett a szkript "0 alkatreszt" -- a sajat bejarasom hibaja volt,
+  // nem az eszkoze.
+  [ComImport, Guid("9c2c4058-23f5-41de-877a-df3af236a09e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IConnector {
+    int GetType(out int type);
+    int GetDataFlow(out int flow);
+    int ConnectTo(IConnector to);
+    int Disconnect();
+    int IsConnected([MarshalAs(UnmanagedType.Bool)] out bool connected);
+    int GetConnectedTo(out IConnector con);
+    int GetConnectorIdConnectedTo([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetDeviceIdConnectedTo([MarshalAs(UnmanagedType.LPWStr)] out string id);
+  }
+
+  [ComImport, Guid("AE2DE0E4-5BCA-4F2D-AA46-5D13F8FDB3A9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IPart {
+    int GetName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+    int GetLocalId(out uint id);
+    int GetGlobalId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetPartType(out int type);
+    int GetSubType(out Guid sub);
+    int GetControlInterfaceCount(out uint c);
+    int GetControlInterface(uint i, out IControlInterface ci);
+    int EnumPartsIncoming(out IntPtr parts);
+    int EnumPartsOutgoing(out IntPtr parts);
+    int GetTopologyObject(out IDeviceTopology topo);
+    int Activate(int ctx, ref Guid iid, [MarshalAs(UnmanagedType.IUnknown)] out object o);
+    int RegisterControlChangeCallback(ref Guid iid, IntPtr cb);
+    int UnregisterControlChangeCallback(IntPtr cb);
+  }
+  [ComImport, Guid("45D37C3F-5140-444A-AE24-400789F3CBF3"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IControlInterface {
+    int GetName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+    int GetIID(out Guid iid);
+  }
+  [ComImport, Guid("85401FD4-6DE4-4b9d-9869-2D6753A82F3C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IAudioAutoGainControl {
+    int GetEnabled([MarshalAs(UnmanagedType.Bool)] out bool enabled);
+    int SetEnabled([MarshalAs(UnmanagedType.Bool)] bool enable, ref Guid ctx);
+  }
+
+
+  /// Vegigjarja a bemeneti eszkozok alkatreszeit, es jelenti, hol talalt AGC-t.
+  /// apply=true eseten ki is kapcsolja.
+  public static string AgcScan(string match, bool apply)
+  {
+    var sb = new StringBuilder();
+    var en = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
+    IMMDeviceCollection col; en.EnumAudioEndpoints(1, 1, out col);
+    int n; col.GetCount(out n);
+    var ctx = Guid.Empty;
+
+    for (int i = 0; i < n; i++) {
+     try {
+      IMMDevice d; col.Item(i, out d);
+      string nm = Name(d);
+      if (!string.IsNullOrEmpty(match) &&
+          nm.IndexOf(match, StringComparison.OrdinalIgnoreCase) < 0) continue;
+      sb.AppendLine("  " + nm);
+
+      object o; var tiid = typeof(IDeviceTopology).GUID;
+      if (d.Activate(ref tiid, 1, IntPtr.Zero, out o) != 0 || o == null) {
+        sb.AppendLine("      (a topologia nem elerheto)"); continue;
+      }
+      var topo = (IDeviceTopology)o;
+
+      // Atlepes az ESZKOZ-OLDALI topologiara (ld. az IConnector fenti megjegyzeset).
+      // Vedve: ha barmelyik COM-lepes elhasal, NEM visszuk el az egesz vizsgalatot --
+      // inkabb az endpoint-topologiaval dolgozunk tovabb, es ezt meg is mondjuk.
+      try {
+        uint cnt; topo.GetConnectorCount(out cnt);
+        sb.AppendLine("      csatlakozo: " + cnt);
+        for (uint ci2 = 0; ci2 < cnt; ci2++) {
+          IConnector conn; if (topo.GetConnector(ci2, out conn) != 0) continue;
+          bool linked; if (conn.IsConnected(out linked) != 0 || !linked) continue;
+          IConnector other; if (conn.GetConnectedTo(out other) != 0 || other == null) continue;
+          var opart = other as IPart; if (opart == null) continue;
+          IDeviceTopology dtopo;
+          if (opart.GetTopologyObject(out dtopo) == 0 && dtopo != null) {
+            topo = dtopo; sb.AppendLine("      -> atleptem az eszkoz-oldali topologiara"); break;
+          }
+        }
+      } catch (Exception ex) {
+        sb.AppendLine("      (az eszkoz-oldali topologia nem jarhato be: " + ex.Message + ")");
+      }
+
+      uint sc; topo.GetSubunitCount(out sc);
+      sb.AppendLine("      belso alkatresz (subunit): " + sc);
+
+      bool found = false;
+      for (uint s = 0; s < sc; s++) {
+        IPart part = null;
+        try {
+          ISubunit su; if (topo.GetSubunit(s, out su) != 0) continue;
+          part = su as IPart;
+        } catch (Exception ex) {
+          sb.AppendLine("        [" + s + "] nem olvashato: " + ex.Message); continue;
+        }
+        if (part == null) continue;
+        string pn = ""; part.GetName(out pn);
+
+        // Mit tud ez az alkatresz? Vegigkerdezzuk a vezerlo-feluleteit.
+        uint cc; part.GetControlInterfaceCount(out cc);
+        var caps = new StringBuilder();
+        for (uint c = 0; c < cc; c++) {
+          IControlInterface ci; if (part.GetControlInterface(c, out ci) != 0) continue;
+          string cn; ci.GetName(out cn);
+          caps.Append((caps.Length > 0 ? ", " : "") + cn);
+        }
+        sb.AppendLine("        [" + s + "] " + pn + "   ->  " + (caps.Length > 0 ? caps.ToString() : "(nincs vezerlo)"));
+
+        // !Az Activate SIKERT jelezhet ugy is, hogy a visszaadott objektum NEM
+        // castolhato -- ilyenkor InvalidCastException repul, ami korabban elvitte
+        // az egesz vizsgalatot a tobbi alkatresz elol. Alkatreszenkent kerites.
+        try {
+          object ao; var aiid = typeof(IAudioAutoGainControl).GUID;
+          if (part.Activate(1, ref aiid, out ao) == 0 && ao != null) {
+            var agc = ao as IAudioAutoGainControl;
+            if (agc != null) {
+              bool on; agc.GetEnabled(out on);
+              found = true;
+              sb.AppendLine("            *** AGC MEGTALALVA -- allapot: " + (on ? "BE" : "KI") + " ***");
+              if (apply && on) {
+                int hr = agc.SetEnabled(false, ref ctx);
+                bool after; agc.GetEnabled(out after);
+                sb.AppendLine("            kikapcsolas: hr=0x" + hr.ToString("X8")
+                              + "  -> most: " + (after ? "MEG MINDIG BE" : "KI"));
+              }
+            }
+          }
+        } catch (Exception) { /* ez az alkatresz nem tud AGC-t -- normalis */ }
+      }
+      if (!found)
+        sb.AppendLine("      => Ez az eszkoz NEM vezeti ki az AGC-t a Windowsnak.");
+     } catch (Exception ex) {
+      // !A gyujtott szoveget SOSE veszitjuk el egy kivetel miatt: eddig a hiba
+      // elvitte az egesz kimenetet, es ugy nezett ki, mintha semmi nem futott volna.
+      sb.AppendLine("      (megszakadt: " + ex.GetType().Name + " -- " + ex.Message + ")");
+     }
+    }
+    return sb.ToString();
+  }
+
   static string Name(IMMDevice d) {
     IPropertyStore ps; d.OpenPropertyStore(0, out ps);
     var k = new PROPERTYKEY();

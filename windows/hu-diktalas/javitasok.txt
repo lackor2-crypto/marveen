@@ -12,3 +12,12 @@ pussol=pushol
 lacskot kettő=lackor2
 lackot kettő=lackor2
 FreeBel is CheatBelfis=freeberischeaper
+# --- 2026-08-09: elesben megfigyelt betuszo-hibak (AGC-teszt) ---
+IDC=AGC
+A4C=AGC
+ADC-je=AGC-je
+az IDC=az AGC
+endpoint-on=endpointon
+altatrészt=alkatrészt
+kibálya=hibája
+plakon=plafon
