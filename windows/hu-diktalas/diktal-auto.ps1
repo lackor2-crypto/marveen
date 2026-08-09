@@ -235,14 +235,20 @@ public static extern short GetAsyncKeyState(int vKey);
   # Helyes logika: a dinamika CSAK akkor dontson, ha a szint ALACSONY -- ott
   # valoban az valasztja el a tavoli beszedet a szoba alapzajatol. Ha a felvetel
   # HANGOS (RMS >= 3%), az bizonyosan nem csend, barmilyen lapos is.
-  $nema = $false; $ok = ''
-  if ($pk -lt 2 -or $rms -lt 0.25) {
-    $nema = $true; $ok = "tul halk (csucs<2 vagy RMS<0.25)"
-  } elseif ($rms -lt 3.0 -and $dyn -lt 3.5) {
-    $nema = $true; $ok = "halk ES lapos (RMS<3 es dinamika<3.5) -- valoszinuleg csak alapzaj"
-  }
-  if ($nema) {
-    Log "NINCS ERTELMES BESZED -- nem kuldom fel, nem illesztek be semmit ($ok)"
+  # ***2026-08-09, HARMADIK NEKIFUTAS -- ES A TANULSAG.
+  # Ketszer allitottam rosszul ezt a kaput, mindketszer VALODI BESZEDET dobott el:
+  #   - eloszor a dinamika-kuszob (AGC-s mikrofonnal a dinamika mindig alacsony),
+  #   - masodszor a "halk ES lapos" szabaly (a fejhallgato az asztalrol RMS 0.9%,
+  #     dinamika 2.5x -- a Boss beszelt, en meg eldobtam).
+  # A hiba a MODSZERBEN volt: ket szambol probaltam eldonteni, beszed-e. Erre
+  # viszont MAGANAK A WHISPERNEK van beepitett merteke (no_speech_prob,
+  # avg_logprob) -- pontosan erre valo. Ezert:
+  #   itt CSAK azt nezzuk, van-e egyaltalan jel (nehogy tiszta csendet kuldjunk fel),
+  #   a "beszed-e" kerdest pedig a felismero sajat magabiztossagara bizzuk (lentebb).
+  # Igy a halk, tavoli beszed ATMEGY -- a normalizalas amugy is felhozza -,
+  # a csendbol kitalalt szoveget viszont a modell sajat jelzese alapjan dobjuk el.
+  if ($pk -lt 2 -or $rms -lt 0.2) {
+    Log "NINCS JEL -- nem kuldom fel (csucs $pk% / RMS $rms%, gyakorlatilag csend)"
     Beep2 220 400
     throw "nema"
   }
@@ -302,12 +308,52 @@ public static extern short GetAsyncKeyState(int vKey);
   $http = & curl.exe -s --max-time 120 -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
       -H "Authorization: Bearer $Key" `
       -F "file=@$Wav" -F "model=$Model" -F "language=hu" -F "temperature=0" `
-      -F "response_format=json" @promptArg
+      -F "response_format=verbose_json" @promptArg
 
   if ("$http" -ne "200") { Log "Groq HTTP $http"; Beep2 220 400; throw "http $http" }
   $resp = [System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8)
   Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
-  $txt = ("" + ($resp | ConvertFrom-Json).text).Trim()
+  $parsed = $resp | ConvertFrom-Json
+  $txt = ("" + $parsed.text).Trim()
+
+  # ***A "BESZED-E?" DONTES A MODELL SAJAT MERTEKEVEL (verbose_json) ***
+  # Ket sajat kudarc utan (mindketto VALODI beszedet dobott el a hangero/dinamika
+  # alapjan) ide kerult a dontes. A Whisper szegmensenkent visszaadja:
+  #   no_speech_prob - mennyire valoszinu, hogy ott NINCS beszed (0..1)
+  #   avg_logprob    - mennyire volt magabiztos az atirasban (0 fele = jo,
+  #                    -1 alatt jellemzoen halandzsa/hallucinacio)
+  # Ez tavolsag- es hangero-fuggetlen, es pont erre a celra keszult.
+  # A kuszobok az OpenAI referencia-implementaciojabol valok (0.6 / -1.0).
+  $nsp = $null; $alp = $null; $crx = $null; $segs = @()
+  if ($parsed.segments) {
+    $segs = @($parsed.segments)
+    if ($segs.Count -gt 0) {
+      $nsp = [math]::Round((($segs | Measure-Object -Property no_speech_prob    -Average).Average), 3)
+      $alp = [math]::Round((($segs | Measure-Object -Property avg_logprob       -Average).Average), 3)
+      $crx = [math]::Round((($segs | Measure-Object -Property compression_ratio -Maximum).Maximum), 2)
+    }
+  }
+  if ($nsp -ne $null) {
+    Log "modell: no_speech=$nsp  avg_logprob=$alp  tomorites=$crx  ($($segs.Count) szegmens)"
+
+    # ***MERT KORLAT -- ez a kapu NEM mindenhato, es ezt tudni kell rola.
+    # Proba tiszta zajjal: a Whisper magabiztosan kitalalta, hogy "Koszonom."
+    # (no_speech=0.26, avg_logprob=-0.157) -- vagyis a sajat magabiztossaga
+    # NEM fogja meg a rovid hallucinaciot. Ezert:
+    #   - a ket bizonytalansag-jelzo VAGY kapcsolatban all (nem ES), es
+    #   - mellejuk jon a TOMORITESI ARANY, ami az ISMETLODEST fogja meg -- pont
+    #     azt a hibat, amit eleben lattunk ("tozsdei aranyt... tozsdei aranyt").
+    #     A 2.4-es hatar az OpenAI referencia-implementaciojabol valo.
+    $dobd = $false; $miert = ''
+    if ($nsp -gt 0.75)      { $dobd = $true; $miert = "a modell szerint nincs beszed (no_speech=$nsp)" }
+    elseif ($alp -lt -1.0)  { $dobd = $true; $miert = "a modell bizonytalan volt (avg_logprob=$alp)" }
+    elseif ($crx -gt 2.4)   { $dobd = $true; $miert = "ismetlodo szoveg = hallucinacios hurok (tomorites=$crx)" }
+    if ($dobd) {
+      Log "ELDOBVA: $miert  -- a szoveg NEM kerul a szerkesztobe: $txt"
+      Beep2 220 400
+      throw "nem beszed"
+    }
+  }
 
   # ***UTOLAGOS JAVITASOK a `javitasok.txt`-bol ("hibas=helyes" soronkent).
   # A szotar (prompt) a legtobbet megoldja, de nehany nev makacs -- azokat itt
