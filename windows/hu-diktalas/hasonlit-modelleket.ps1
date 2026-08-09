@@ -55,27 +55,38 @@ Write-Host ""
 
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
 
+# HAROM valtozat UGYANAZON a felvetelen. A harmadik azert kell, mert felmerult a
+# gyanu, hogy a SZOTAR (prompt) maga ront: a Whisper a promptot elozmenyszovegkent
+# kapja, es a STILUSAT is atveszi -- egy puszta vesszos szolista arra biztatja, hogy
+# "listat folytasson", darabos mondatokat gyartva. Ezt nem tippelni kell, hanem merni.
+$variants = @(
+  @{ nev = 'pontos + szotar';     model = 'whisper-large-v3';       prompt = $true  },
+  @{ nev = 'pontos, szotar NELKUL'; model = 'whisper-large-v3';     prompt = $false },
+  @{ nev = 'gyors (turbo) + szotar'; model = 'whisper-large-v3-turbo'; prompt = $true }
+)
+
 $results = @{}
-foreach ($mdl in @('whisper-large-v3-turbo','whisper-large-v3')) {
-  $json = Join-Path $env:TEMP "hu_modell_$mdl.json"
+foreach ($v in $variants) {
+  $json = Join-Path $env:TEMP "hu_modell_teszt.json"
   Remove-Item $json -Force -ErrorAction SilentlyContinue
   $promptArg = @()
-  if (Test-Path $Szotar) { $promptArg = @("-F", "prompt=<$Szotar") }
+  if ($v.prompt -and (Test-Path $Szotar)) { $promptArg = @("-F", "prompt=<$Szotar") }
 
   $sw = [Diagnostics.Stopwatch]::StartNew()
   $http = & curl.exe -s --max-time 120 -o "$json" -w "%{http_code}" `
       https://api.groq.com/openai/v1/audio/transcriptions `
       -H "Authorization: Bearer $Key" `
-      -F "file=@$Wav" -F "model=$mdl" -F "language=hu" -F "response_format=json" @promptArg
+      -F "file=@$Wav" -F "model=$($v.model)" -F "language=hu" -F "temperature=0" `
+      -F "response_format=json" @promptArg
   $sw.Stop()
 
   if ("$http" -ne "200") {
-    Write-Host "  $mdl -> HTTP $http" -ForegroundColor Red
-    $results[$mdl] = "(hiba: HTTP $http)"
+    Write-Host "  $($v.nev) -> HTTP $http" -ForegroundColor Red
+    $results[$v.nev] = "(hiba: HTTP $http)"
   } else {
     $t = ("" + (([System.IO.File]::ReadAllText($json,[Text.Encoding]::UTF8) | ConvertFrom-Json).text)).Trim()
-    $results[$mdl] = $t
-    Write-Host "  --- $mdl   ($([math]::Round($sw.Elapsed.TotalSeconds,1)) mp) ---" -ForegroundColor Cyan
+    $results[$v.nev] = $t
+    Write-Host "  --- $($v.nev)   ($([math]::Round($sw.Elapsed.TotalSeconds,1)) mp) ---" -ForegroundColor Cyan
     Write-Host "  $t" -ForegroundColor White
     Write-Host ""
   }
@@ -84,17 +95,25 @@ foreach ($mdl in @('whisper-large-v3-turbo','whisper-large-v3')) {
 Remove-Item $Wav -Force -ErrorAction SilentlyContinue
 
 Write-Host "  ================================================================" -ForegroundColor Cyan
-Write-Host "    Melyik lett a jobb?" -ForegroundColor Cyan
-Write-Host "      [1] whisper-large-v3-turbo   (gyorsabb)" -ForegroundColor White
-Write-Host "      [2] whisper-large-v3         (pontosabb, ez a jelenlegi alap)" -ForegroundColor White
+Write-Host "    Melyik lett a legjobb?" -ForegroundColor Cyan
+Write-Host "      [1] pontos + szotar          (ez a jelenlegi beallitas)" -ForegroundColor White
+Write-Host "      [2] pontos, szotar NELKUL    -> a szotarat kikapcsolom" -ForegroundColor White
+Write-Host "      [3] gyors (turbo) + szotar   -> a gyors modellre valtok" -ForegroundColor White
 Write-Host "      [Enter] = hagyd ugy, ahogy van" -ForegroundColor DarkGray
 $v = Read-Host "    Valassz"
-if ($v -eq '1') {
-  'whisper-large-v3-turbo' | Set-Content (Join-Path $Base 'modell.txt') -Encoding ASCII -NoNewline
-  Write-Host "    Beallitva: whisper-large-v3-turbo" -ForegroundColor Green
-} elseif ($v -eq '2') {
+if ($v -eq '2') {
+  # A szotar kikapcsolasa = atnevezzuk. Igy nem vesz el, barmikor visszatehato.
+  if (Test-Path $Szotar) { Move-Item $Szotar (Join-Path $Base 'szotar.txt.ki') -Force }
   'whisper-large-v3' | Set-Content (Join-Path $Base 'modell.txt') -Encoding ASCII -NoNewline
-  Write-Host "    Beallitva: whisper-large-v3" -ForegroundColor Green
+  Write-Host "    Szotar KIKAPCSOLVA (szotar.txt.ki nevre atnevezve), modell: pontos" -ForegroundColor Green
+  Write-Host "    Visszakapcsolas: nevezd vissza szotar.txt-re." -ForegroundColor DarkGray
+} elseif ($v -eq '3') {
+  'whisper-large-v3-turbo' | Set-Content (Join-Path $Base 'modell.txt') -Encoding ASCII -NoNewline
+  Write-Host "    Beallitva: whisper-large-v3-turbo (a szotar marad)" -ForegroundColor Green
+} elseif ($v -eq '1') {
+  if (Test-Path (Join-Path $Base 'szotar.txt.ki')) { Move-Item (Join-Path $Base 'szotar.txt.ki') $Szotar -Force }
+  'whisper-large-v3' | Set-Content (Join-Path $Base 'modell.txt') -Encoding ASCII -NoNewline
+  Write-Host "    Beallitva: pontos modell + szotar" -ForegroundColor Green
 } else {
   Write-Host "    Valtozatlan." -ForegroundColor DarkGray
 }

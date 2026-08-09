@@ -16,7 +16,8 @@
 #  tud magyarul, es a motorja nem cserelheto -- a bovitmeny 15 beallitasa kozt
 #  egyetlen beszed-, hang- vagy nyelv-kulcs sincs (ellenorizve a 2.1.226-on).
 #
-#  MOTOR: Groq whisper-large-v3-turbo, language=hu
+#  MOTOR: Groq Cloud, whisper-large-v3 (a pontos; a turbo 12% vs 10.3% WER),
+#         language=hu, temperature=0, domain-szotar a prompt parameteren.
 #  ***CSAK ASCII karakterek! (a PowerShell 5.1 ANSI-kent olvassa a .ps1-et)
 # =====================================================================
 $ErrorActionPreference = 'Stop'
@@ -165,7 +166,21 @@ public static extern short GetAsyncKeyState(int vKey);
     if ($lo -gt 1) { $dyn = [math]::Round($hi / $lo, 2) }
   }
   $secs = [math]::Round($n / 16000.0, 1)
-  Log "felvetel: $secs mp, csucs $pk%, RMS $rms%, dinamika ${dyn}x"
+
+  # ***VAGAS-MERES (2026-08-09) ***
+  # A csucs ONMAGABAN nem arulja el, van-e baj: egyetlen hangos szotag is 100%-ot ad.
+  # Ami szamit: HANY MINTA ul a plafonon. Ha ez ezrelek alatt van, az normalis
+  # beszed-csucs; ha szazalekokban merheto, a hullamforma teteje LE VAN VAGVA, es
+  # abbol a felismeres nem tudja kiolvasni a hangokat. Eddig ezt tippeltem -- most merjuk.
+  $clip = 0
+  for ($k = 44; $k -lt $b.Length - 1; $k += 2) {
+    if ([Math]::Abs([int][BitConverter]::ToInt16($b, $k)) -ge 32700) { $clip++ }
+  }
+  $clipPct = if ($n) { [math]::Round(100.0 * $clip / $n, 3) } else { 0 }
+  Log "felvetel: $secs mp, csucs $pk%, RMS $rms%, dinamika ${dyn}x, vagott minta ${clipPct}%"
+  if ($clipPct -gt 0.5) {
+    Log "FIGYELEM: a mintak ${clipPct}%-a a plafonon ul = VALODI VAGAS. Ez rontja a felismerest."
+  }
 
   # ***ONHANGOLO BEMENETI SZINT (2026-08-09) ***
   # Miert kell: a webkamera mikrofonjat 40%-rol 100%-ra vittem, hogy 1 meterrol is
@@ -211,10 +226,30 @@ public static extern short GetAsyncKeyState(int vKey);
   # !A ket also korlat megmarad, mert ez a valtozat AUTOMATIKUSAN BEILLESZT:
   #   ha csendet kuldenenk fel, a Whisper KITALALNA egy szoveget, es az egyenesen
   #   a szerkesztodbe kerulne. (Elt mereskor: a csendre "NAMASTE"-t adott.)
-  if ($pk -lt 2 -or $rms -lt 0.25 -or $dyn -lt 3.5) {
-    Log "NINCS ERTELMES BESZED -- nem kuldom fel, nem illesztek be semmit (csucs<2 / RMS<0.25 / dinamika<3.5)"
+  # ***2026-08-09 HELYESBITES -- SAJAT HIBA.
+  # A dinamika-kuszob (3.5x) AGC-s mikrofonra ROSSZ. Elutasitott egy felvetelt,
+  # amiben RMS 18%-kal, vagyis HANGOSAN beszelt a Boss -- csak epp a webkamera
+  # automatikus erositese (AGC) szetlapitotta a dinamikat 2.78x-re. Az AGC dolga
+  # PONTOSAN a dinamika csokkentese, tehat ott ez a merce ertelmetlen.
+  #
+  # Helyes logika: a dinamika CSAK akkor dontson, ha a szint ALACSONY -- ott
+  # valoban az valasztja el a tavoli beszedet a szoba alapzajatol. Ha a felvetel
+  # HANGOS (RMS >= 3%), az bizonyosan nem csend, barmilyen lapos is.
+  $nema = $false; $ok = ''
+  if ($pk -lt 2 -or $rms -lt 0.25) {
+    $nema = $true; $ok = "tul halk (csucs<2 vagy RMS<0.25)"
+  } elseif ($rms -lt 3.0 -and $dyn -lt 3.5) {
+    $nema = $true; $ok = "halk ES lapos (RMS<3 es dinamika<3.5) -- valoszinuleg csak alapzaj"
+  }
+  if ($nema) {
+    Log "NINCS ERTELMES BESZED -- nem kuldom fel, nem illesztek be semmit ($ok)"
     Beep2 220 400
     throw "nema"
+  }
+  # A lapos dinamika onmagaban nem hiba, de ROSSZABB atirast ad -- naplozzuk, hogy
+  # kesobb is lassuk, melyik felvetelek voltak osszenyomva.
+  if ($dyn -lt 4.0) {
+    Log "megjegyzes: alacsony dinamika (${dyn}x) -- a mikrofon AGC-je osszenyomja a hangot, ez rontja a felismerest"
   }
 
   # *SZOFTVERES NORMALIZALAS -- ez teszi lehetove az 1 meteres tavolsagot.
@@ -249,11 +284,25 @@ public static extern short GetAsyncKeyState(int vKey);
   $SzotarFile = Join-Path $Base 'szotar.txt'
   $promptArg = @()
   if (Test-Path $SzotarFile) {
+    # !A `prompt` HATARA 224 TOKEN (Groq/OpenAI dokumentacio). Ami tullog, azt a
+    # szolgaltatas CSENDBEN eldobja -- vagyis a szotar egy resze eszrevetlenul nem
+    # ervenyesulne. Ez pontosan az a "hamis atmenet", amibol ma mar kettot fogtam,
+    # ezert MERJUK es SZOLUNK. A becsles ~2.5 karakter/token magyar szovegre;
+    # 520 karakter felett mar veszelyes a kozelseg.
+    $szChars = (Get-Item $SzotarFile).Length
+    if ($szChars -gt 520) {
+      Log "FIGYELEM: a szotar.txt $szChars karakter (~$([math]::Round($szChars/2.5)) token), a limit 224 token. Rovidits rajta, kulonben a vege NEM ervenyesul!"
+    }
     $promptArg = @("-F", "prompt=<$SzotarFile")
   }
+  # temperature=0 -> moho (greedy) dekodolas: a legdeterministikusabb, es ez keruli el
+  # leginkabb a hallucinaciot csendes/zajos reszeken. A Groq alapertelmezese is 0, de
+  # EXPLICITEN adjuk meg, hogy egy szolgaltatoi default-valtozas ne csendben rontson el.
+  # A `language=hu` nem csak a pontossagot, a KESLELTETEST is javitja (Groq doksi).
   $http = & curl.exe -s --max-time 120 -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
       -H "Authorization: Bearer $Key" `
-      -F "file=@$Wav" -F "model=$Model" -F "language=hu" -F "response_format=json" @promptArg
+      -F "file=@$Wav" -F "model=$Model" -F "language=hu" -F "temperature=0" `
+      -F "response_format=json" @promptArg
 
   if ("$http" -ne "200") { Log "Groq HTTP $http"; Beep2 220 400; throw "http $http" }
   $resp = [System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8)

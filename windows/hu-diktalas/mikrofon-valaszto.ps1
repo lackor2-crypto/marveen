@@ -31,18 +31,37 @@ function Get-WavLevel([string]$path) {
     if ($id -eq 'data') { $data = $i + 8; $dataLen = $sz; break }
     $i += 8 + $sz + ($sz % 2)
   }
-  if ($fmt -lt 0 -or $data -lt 0) { return [pscustomobject]@{ Peak = 0.0; Rms = 0.0 } }
+  if ($fmt -lt 0 -or $data -lt 0) { return [pscustomobject]@{ Peak=0.0; Rms=0.0; Dyn=0.0 } }
   $peak = 0.0; $sum = 0.0; $n = 0
+  # ***A DINAMIKA a donto mutato (2026-08-09-en merve): a fejhallgato 9.6-11.8x-en
+  # jol atirodott, a webkamera 2.8-3.5x-en rosszul -- HOLOTT ott a HANGERO otszoros
+  # volt. Az AGC-s mikrofon felhuzza a csendet es lenyomja a csucsokat; a felismero
+  # ebbol nehezebben olvas. Ezert keret-RMS-eket is gyujtunk, es a 90/10 percentilis
+  # aranyat nezzuk -- ez mutatja, mennyire "hullamzik" a jel, azaz mennyire beszed.
+  $FRAME = 800
+  $frames = New-Object System.Collections.ArrayList
+  $fsum = 0.0; $fn = 0
   $end = [Math]::Min($data + $dataLen - 1, $b.Length - 1)
   for ($k = $data; $k -lt $end; $k += 2) {
     $v = [Math]::Abs([int][BitConverter]::ToInt16($b, $k))
     if ($v -gt $peak) { $peak = $v }
-    $sum += [double]$v * $v; $n++
+    $sq = [double]$v * $v
+    $sum += $sq; $n++; $fsum += $sq; $fn++
+    if ($fn -ge $FRAME) { [void]$frames.Add([Math]::Sqrt($fsum/$fn)); $fsum = 0; $fn = 0 }
   }
+  if ($fn -gt 0) { [void]$frames.Add([Math]::Sqrt($fsum/$fn)) }
   $rms = if ($n -gt 0) { [Math]::Sqrt($sum / $n) } else { 0 }
+  $dyn = 0.0
+  if ($frames.Count -ge 8) {
+    $srt = @($frames | Sort-Object)
+    $lo = $srt[[int]([Math]::Floor($srt.Count * 0.10))]
+    $hi = $srt[[int]([Math]::Floor($srt.Count * 0.90))]
+    if ($lo -gt 1) { $dyn = [Math]::Round($hi / $lo, 2) }
+  }
   [pscustomobject]@{
     Peak = [Math]::Round($peak / 32768.0 * 100, 1)
     Rms  = [Math]::Round($rms  / 32768.0 * 100, 2)
+    Dyn  = $dyn
   }
 }
 
@@ -84,8 +103,8 @@ while ($true) {
 
   $lv = Get-WavLevel $wav
   Remove-Item $wav -Force -ErrorAction SilentlyContinue
-  Write-Host ("`r      csucs {0,5}%   RMS {1,5}%                    " -f $lv.Peak, $lv.Rms) -ForegroundColor Green
-  $results += [pscustomobject]@{ Index = $n; Name = $nm; Peak = $lv.Peak; Rms = $lv.Rms }
+  Write-Host ("`r      csucs {0,5}%   RMS {1,5}%   DINAMIKA {2,5}x        " -f $lv.Peak, $lv.Rms, $lv.Dyn) -ForegroundColor Green
+  $results += [pscustomobject]@{ Index=$n; Name=$nm; Peak=$lv.Peak; Rms=$lv.Rms; Dyn=$lv.Dyn }
   Write-Host ""
   $n++
 }
@@ -94,21 +113,32 @@ Write-Host "  ================================================================" 
 Write-Host "    EREDMENY" -ForegroundColor Cyan
 Write-Host "  ================================================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host ("    {0,-40} {1,8} {2,8}" -f "eszkoz", "csucs%", "RMS%") -ForegroundColor White
+Write-Host ("    {0,-36} {1,8} {2,8} {3,10}" -f "eszkoz", "csucs%", "RMS%", "dinamika") -ForegroundColor White
 foreach ($r in $results) {
-  Write-Host ("    [{0}] {1,-36} {2,8} {3,8}" -f $r.Index, $r.Name, $r.Peak, $r.Rms)
+  Write-Host ("    [{0}] {1,-32} {2,8} {3,8} {4,10}" -f $r.Index, $r.Name, $r.Peak, $r.Rms, $r.Dyn)
 }
 Write-Host ""
 
-# A DONTES ALAPJA az RMS (az atlagos jelenlet), NEM a csucs: a csucs egyetlen
-# hangos szotagtol is felugorhat, az RMS viszont azt meri, mennyi jel van vegig.
-$best = $results | Sort-Object -Property Rms -Descending | Select-Object -First 1
+# ***A DONTES ALAPJA A DINAMIKA (2026-08-09-i meres alapjan javitva).
+# Eredetileg az RMS-t neztem -- TEVESEN. Eles adat: a fejhallgato RMS 2.4% /
+# dinamika 9.6-11.8x mellett JOL irodott at, a webkamera RMS 15-18% / dinamika
+# 2.8-3.5x mellett ROSSZUL, holott ott a hangero OTSZOROS volt. Az AGC-s mikrofon
+# felhuzza a csendet es lenyomja a csucsokat; a felismero ebbol nehezebben olvas.
+# Tehat a dinamika josolja a minoseget, nem a hangero. Az RMS csak akkor dont,
+# ha a dinamika gyakorlatilag egyforma (a jel egyaltalan meglegyen).
+$best = $results | Sort-Object -Property @{E='Dyn';Descending=$true}, @{E='Rms';Descending=$true} | Select-Object -First 1
 if (-not $best -or $best.Rms -le 0) {
   Write-Host "    EGYIK MIKROFON SEM ADOTT JELET. Nezd meg a hangbemenetet." -ForegroundColor Red
 } else {
   Write-Host "    >>> NYERTES: [$($best.Index)] $($best.Name)" -ForegroundColor Green
-  Write-Host "        RMS $($best.Rms)%  (csucs $($best.Peak)%)" -ForegroundColor Green
+  Write-Host "        dinamika $($best.Dyn)x   RMS $($best.Rms)%   csucs $($best.Peak)%" -ForegroundColor Green
   Write-Host ""
+  if ($best.Dyn -lt 5) {
+    Write-Host "    FIGYELEM: a nyertes dinamikaja is alacsony ($($best.Dyn)x)." -ForegroundColor Yellow
+    Write-Host "    Ez jellemzoen a mikrofon sajat automatikus erositese (AGC), ami" -ForegroundColor Yellow
+    Write-Host "    osszenyomja a hangot. Ez a felismeres pontossaganak a plafonja." -ForegroundColor Yellow
+    Write-Host ""
+  }
   if ($best.Rms -lt 0.8) {
     Write-Host "    FIGYELEM: a nyertes is HALK (RMS < 0.8%). A szoftveres eroesites" -ForegroundColor Yellow
     Write-Host "    felhozza, de zajosabb lesz. Erdemes kozelebb ulni vagy" -ForegroundColor Yellow
