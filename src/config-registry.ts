@@ -465,6 +465,67 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
   },
+
+  // --- Hang (beszédfelismerés) modul -------------------------------------
+  // Boss 2026-08-09: a hangfelismerés minden kapcsolója kódban vagy .env-ben ült,
+  // és semmi nem mutatta meg, MI fut éppen. Ezek a bejegyzések teszik láthatóvá és
+  // állíthatóvá őket a Beállítások alatt egy "hang" fülön.
+  //
+  // ⚠️A `scripts/voice/_vtools.py` egy KÜLÖN folyamat, ami eredetileg csak az
+  // `os.environ`-t nézte -- a Beállítások viszont a `store/config-overrides.json`-be
+  // ír. Ezért a szkript kapott egy `_setting()` hidat, ami ugyanazt a fájlt olvassa.
+  // Enélkül ezek a beállítások megjelennének, mentődnének, ÉS SEMMIT NEM CSINÁLNÁNAK.
+  {
+    key: 'MARVEEN_STT_ENGINE',
+    type: 'string',
+    default: 'auto',
+    valueSet: ['auto', 'groq', 'local'],
+    description: 'Melyik motor írja át a Telegram hangüzeneteket. "auto" = előbb a Groq felhő, ha az nem elérhető, a gépen futó helyi motor (ez az ajánlott). "groq" = csak felhő, helyi tartalék nélkül. "local" = a hang SOHA nem hagyja el a gépet (lassabb: a CPU-s átírás nagyjából a hanghossz 1,5-szerese).',
+    module: 'hang',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
+    key: 'GROQ_STT_MODEL',
+    type: 'string',
+    default: 'whisper-large-v3',
+    valueSet: ['whisper-large-v3', 'whisper-large-v3-turbo'],
+    description: 'A felhőben futó Whisper modell. A Groq saját adatai szerint a teljes "whisper-large-v3" hibaaránya 10,3%, a "turbo"-é 12% -- vagyis a turbo nagyjából 17%-kal többet téveszt, miközben a sebességkülönbség (189x vs 216x valós idő) egy hangüzenetnél észrevehetetlen. Ezért a pontos az alapértelmezés.',
+    module: 'hang',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
+    key: 'MARVEEN_STT_MODEL_SHORT',
+    type: 'string',
+    default: 'medium',
+    valueSet: ['tiny', 'base', 'small', 'medium', 'large-v3'],
+    description: 'A HELYI motor modellje RÖVID hangüzenetekhez (a küszöb alatt). Nagyobb modell = pontosabb, de lassabb: a processzoron az átírás nagyjából a hanghossz 1,5-szerese, és ez modellmérettel nő. Csak akkor számít, ha a helyi ág fut (nincs net, vagy a motor "local").',
+    module: 'hang',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
+    key: 'MARVEEN_STT_MODEL_LONG',
+    type: 'string',
+    default: 'medium',
+    valueSet: ['tiny', 'base', 'small', 'medium', 'large-v3'],
+    description: 'A HELYI motor modellje HOSSZÚ hangüzenetekhez (a küszöb felett). Itt érdemes kisebbet választani, különben egy hosszabb üzenetre percekig kellene várni.',
+    module: 'hang',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
+    key: 'MARVEEN_STT_THRESHOLD',
+    type: 'int',
+    default: 10,
+    min: 1,
+    max: 600,
+    description: 'Hány másodperctől számít "hosszúnak" egy hangüzenet a helyi motornál. Ez alatt a RÖVID, felette a HOSSZÚ modell fut.',
+    module: 'hang',
+    secret: false,
+    requiresRestart: false,
+  },
 ]
 
 export function getSettingDefinition(key: string): SettingDefinition | undefined {

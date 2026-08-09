@@ -102,6 +102,88 @@ def _groq_key():
         return None
 
 
+_SETTINGS_CACHE = {}
+
+
+def _setting(key, default):
+    """One config value, resolved the SAME way the Node side resolves it.
+
+    This bridge exists because of a trap worth spelling out: the dashboard's
+    Settings page does NOT write environment variables -- `setOverride()` writes
+    `store/config-overrides.json`, and Node reads it through
+    `getEffectiveSettingValue()`. This script, however, is a separate process
+    spawned per voice message and only ever saw `os.environ`. So a setting added
+    to SETTINGS_REGISTRY would have rendered in the UI, saved without error, and
+    changed NOTHING here -- the worst kind of failure, because it looks like it
+    worked. Reading the same file closes that gap.
+
+    Precedence:  os.environ  >  config-overrides.json  >  .env  >  default
+    (environ first so a one-off `VAR=x stt.sh ...` still overrides for testing.)
+    """
+    if key in os.environ and os.environ[key].strip():
+        return os.environ[key].strip()
+    if key in _SETTINGS_CACHE:
+        return _SETTINGS_CACHE[key] if _SETTINGS_CACHE[key] is not None else default
+
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    val = None
+    try:
+        with open(os.path.join(root, "store", "config-overrides.json"), encoding="utf-8") as f:
+            val = json.load(f).get(key)
+    except Exception:
+        val = None
+    if val is None:
+        try:
+            with open(os.path.join(root, ".env"), encoding="utf-8") as f:
+                m = re.search(r"^" + re.escape(key) + r"=(.*)$", f.read(), re.M)
+            if m:
+                val = m.group(1).strip().strip('"').strip("'")
+        except Exception:
+            val = None
+    _SETTINGS_CACHE[key] = val
+    return val if val not in (None, "") else default
+
+
+_VOCAB_CACHE = []
+
+
+def _stt_vocabulary():
+    """Domain words fed to the recogniser as prior context (Whisper `prompt` /
+    faster-whisper `initial_prompt`).
+
+    Why this exists: measured on real dictation, ordinary Hungarian came back
+    clean and ONLY proper nouns broke -- "Marveen" became "Marlin", "lackor2"
+    became "lacskot ketto". Those are not words any general model has seen; the
+    prompt parameter is the documented remedy.
+
+    Source: scripts/voice/szotar.txt (or STT_VOCAB_FILE), one comma-separated
+    list. Editable by hand -- no rebuild, no restart.
+
+    The 224-token cap is enforced HERE because the API drops the overflow
+    SILENTLY: half a vocabulary would look like it was applied. We approximate
+    2.5 characters per token for Hungarian and cut on a comma boundary.
+    """
+    if _VOCAB_CACHE:
+        return _VOCAB_CACHE[0]
+    p = _setting("STT_VOCAB_FILE", "") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "szotar.txt")
+    text = ""
+    try:
+        with open(p, encoding="utf-8") as f:
+            text = " ".join(line.strip() for line in f
+                            if line.strip() and not line.startswith("#"))
+    except Exception:
+        text = ""
+    limit = 224 * 2.5           # ~560 characters
+    if len(text) > limit:
+        cut = text.rfind(",", 0, int(limit))
+        text = text[:cut if cut > 0 else int(limit)].rstrip(" ,") + "."
+        sys.stderr.write("[stt] szotar.txt exceeds the 224-token prompt cap; "
+                         "truncated at a comma boundary\n")
+    _VOCAB_CACHE.append(text)
+    return text
+
+
 def _groq_transcribe(path):
     """Cloud STT via Groq's free Whisper endpoint. Returns None on any failure
     (missing key, network, bad response) so the caller falls back to local whisper."""
@@ -109,13 +191,34 @@ def _groq_transcribe(path):
     if not key:
         return None
     try:
-        model = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3-turbo")
+        # Boss 2026-08-09: default was "whisper-large-v3-turbo". Groq's own docs put
+        # turbo at 12% WER vs 10.3% for the full model -- ~17% more errors -- while the
+        # speed difference (216x vs 189x realtime) is irrelevant for a voice message.
+        # Accuracy is what Boss asked for, so the full model is the default now.
+        model = _setting("GROQ_STT_MODEL", "whisper-large-v3")
         boundary = "----marveengroq"
         with open(path, "rb") as f:
             audio = f.read()
+
+        def _part(name, value):
+            return ("--" + boundary + "\r\nContent-Disposition: form-data; name=\""
+                    + name + "\"\r\n\r\n" + value + "\r\n").encode()
+
         body = (
-            ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n" + model + "\r\n").encode()
-            + ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nhu\r\n").encode()
+            _part("model", model)
+            + _part("language", "hu")
+            # temperature=0 = greedy decoding: the most deterministic setting and the
+            # one that best avoids hallucinated text on silent/noisy stretches.
+            # Groq defaults to 0 too, but we state it so a provider-side default
+            # change cannot quietly degrade us.
+            + _part("temperature", "0")
+            # Domain vocabulary. Measured on Boss's own dictation: ordinary Hungarian
+            # sentences came back clean and ONLY the proper nouns broke
+            # (Marveen -> "Marlin", lackor2 -> "lacskot ketto", pusholni -> "pussolni").
+            # Whisper cannot guess names it has never seen; the prompt is the documented
+            # fix for exactly this. Limit is 224 tokens -- anything beyond is dropped
+            # SILENTLY, so _stt_vocabulary() truncates on a word boundary and says so.
+            + (_part("prompt", _stt_vocabulary()) if _stt_vocabulary() else b"")
             + ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.ogg\"\r\nContent-Type: application/octet-stream\r\n\r\n").encode()
             + audio + b"\r\n" + ("--" + boundary + "--\r\n").encode()
         )
@@ -155,25 +258,50 @@ def _pick_model(path):
     long messages get "base" (small would be a 30-40s wait). Threshold and
     models are overridable via env for tuning.
     """
-    forced = os.environ.get("MARVEEN_STT_MODEL")
+    forced = _setting("MARVEEN_STT_MODEL", "")
     if forced:
         return forced
-    threshold = float(os.environ.get("MARVEEN_STT_THRESHOLD", "10"))
+    threshold = float(_setting("MARVEEN_STT_THRESHOLD", "10"))
     dur = _audio_duration(path)
     if dur is not None and dur >= threshold:
-        return os.environ.get("MARVEEN_STT_MODEL_LONG", "medium")
-    return os.environ.get("MARVEEN_STT_MODEL_SHORT", "medium")
+        return _setting("MARVEEN_STT_MODEL_LONG", "medium")
+    return _setting("MARVEEN_STT_MODEL_SHORT", "medium")
 
 
 def _whisper(path):
-    groq_text = _groq_transcribe(path)
-    if groq_text:
-        print(groq_text)
-        return
+    # Boss 2026-08-09: which engine runs was hardcoded as "cloud first, local on
+    # failure". That is the right default -- Groq is both more accurate and far
+    # faster than CPU inference on this box -- but it left no way to say "stay
+    # offline" (no network, or simply not wanting audio to leave the machine).
+    #   auto  = Groq, fall back to local   (default, unchanged behaviour)
+    #   groq  = cloud only, no local fallback
+    #   local = never leave the machine
+    engine = _setting("MARVEEN_STT_ENGINE", "auto").strip().lower()
+    if engine not in ("auto", "groq", "local"):
+        engine = "auto"
+
+    if engine in ("auto", "groq"):
+        groq_text = _groq_transcribe(path)
+        if groq_text:
+            print(groq_text)
+            return
+        if engine == "groq":
+            sys.stderr.write("[stt] MARVEEN_STT_ENGINE=groq and the cloud call "
+                             "failed; not falling back to local\n")
+            return
+
     from faster_whisper import WhisperModel
     model = _pick_model(path)
     m = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=8)
-    segs, _ = m.transcribe(path, language="hu", beam_size=5, condition_on_previous_text=False, vad_filter=True)
+    # temperature=0 pins greedy decoding (no fallback sampling), which is what the
+    # literature recommends when accuracy matters more than "always produce
+    # something": sampling is where hallucinated text on silence comes from.
+    # initial_prompt gives the local engine the same domain vocabulary the cloud
+    # path gets -- otherwise the two engines would spell Boss's names differently
+    # depending on which one happened to run.
+    segs, _ = m.transcribe(path, language="hu", beam_size=5,
+                           condition_on_previous_text=False, vad_filter=True,
+                           temperature=0, initial_prompt=(_stt_vocabulary() or None))
     print(" ".join(s.text.strip() for s in segs).strip())
 
 
