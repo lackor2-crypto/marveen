@@ -43,6 +43,43 @@ kitűzést, ezért kézzel kell — és ezért `wscript.exe` a parancsikon célj
 A `MIKROFON-*.cmd` mindkettőt egyszerre állítja: a **rendszer alapértelmezettjét** (hogy a Zoom,
 Teams és a böngésző is ezt lássa) **és** a diktálás beállítását — így a kettő nem csúszhat szét.
 
+## Szótár — ha elrontja a neveket
+
+A felismerés a **normál magyar mondatokat hibátlanul** írja át; ami elromlik, az szinte
+kizárólag a **tulajdonnév**: `Marveen` → „Marlin", `usalackor` → „hús alacsok",
+`lackor2` → „lacskot kettő", `pusholni` → „pussolni". Ezek nem magyar szavak, a Whisper
+sosem találja el őket magától. Két helyen lehet segíteni rajta — mindkettő sima szövegfájl:
+
+| fájl | mit csinál |
+|---|---|
+| **`szotar.txt`** | a Whisper `prompt` paramétere — **előre** ráveztjük a szakszavakra |
+| **`javitasok.txt`** | **utólagos** csere, `hibás=helyes` soronként (kis/nagybetű mindegy) |
+
+Bővítsd bátran őket; nem kell hozzá semmit újraindítani. A `javitasok.txt`-ben a hosszabb
+minták futnak előbb, különben egy rövid minta szétvágná a hosszabbat (`Marlin` a `Marlinban`
+belsejében).
+
+> A `prompt`-ot a curl `-F "prompt=<fájl"` alakjával adjuk át, **nem** parancssori
+> szövegként — így a shell és a konzol kódlapja nem tud belerontani az ékezetekbe.
+
+## Melyik modell?
+
+A Groq Cloud **két** átírási modellt kínál (ellenőrizve a `/v1/models` végponton):
+
+| modell | mikor |
+|---|---|
+| `whisper-large-v3` | **ez az alapértelmezés** — pontosabb nem-angol nyelven és tulajdonneveken |
+| `whisper-large-v3-turbo` | gyorsabb, de pontatlanabb |
+
+Felülírható a **`modell.txt`**-ből. Ha el akarod dönteni a saját hangodon:
+
+```
+hasonlit-modelleket.cmd
+```
+
+Egyetlen felvételt küld fel **mindkét** modellnek, egymás alatt kiírja a két eredményt
+(a szótárat mindkettő megkapja, hogy fair legyen), és a választásodat beírja a `modell.txt`-be.
+
 ## Buktatók, amiket már megoldottunk
 
 Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk beléjük megint.
@@ -86,7 +123,11 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
 | `recorder.ps1` | 16 bites waveIn felvevő, **név szerinti** eszközválasztással |
 | `micgain.ps1` | **közös** COM-modul: hangerő + alapértelmezett eszköz (`IPolicyConfig`) |
 | `diktal.ps1` | régi, vágólapos változat (Enter = kész, `Ctrl+V` bárhová) |
+| `szotar.txt` | szakszavak, amiket a felismerés kapjon meg előre (`prompt`) |
+| `javitasok.txt` | utólagos `hibás=helyes` cserék |
+| `hasonlit-modelleket.ps1` | A/B próba: egy felvétel, mindkét modell |
 | `mikrofon.txt` | melyik eszközt nyissa (a telepítő / a váltók írják) — **nincs a repóban**, gépspecifikus |
+| `modell.txt` | melyik Whisper modell — **nincs a repóban**, gépspecifikus |
 | `groq.key` | az API-kulcs — **soha nem kerül a repóba** |
 
 ## Napló
