@@ -1,7 +1,6 @@
 # Magyar diktálás (Windows)
 
-Mikrofon → magyar szöveg → oda illesztve, ahová kattintasz. Groq `whisper-large-v3-turbo`,
-`language=hu`. Nem kell hozzá telepíteni semmit: a felvétel a Windows beépített `waveIn`
+Mikrofon → magyar szöveg → oda illesztve, ahová kattintasz. Groq `whisper-large-v3`, `language=hu`, `temperature=0`. Nem kell hozzá telepíteni semmit: a felvétel a Windows beépített `waveIn`
 API-jával megy, a HTTPS a rendszer `curl.exe`-jével.
 
 **Miért van rá szükség:** a Claude Code beépített mikrofonja nem tud magyarul, és a motorja
@@ -43,24 +42,43 @@ kitűzést, ezért kézzel kell — és ezért `wscript.exe` a parancsikon célj
 A `MIKROFON-*.cmd` mindkettőt egyszerre állítja: a **rendszer alapértelmezettjét** (hogy a Zoom,
 Teams és a böngésző is ezt lássa) **és** a diktálás beállítását — így a kettő nem csúszhat szét.
 
-## Szótár — ha elrontja a neveket
+## ★A legfontosabb: a MIKROFON dönt, nem a hangerő
 
-A felismerés a **normál magyar mondatokat hibátlanul** írja át; ami elromlik, az szinte
-kizárólag a **tulajdonnév**: `Marveen` → „Marlin", `usalackor` → „hús alacsok",
-`lackor2` → „lacskot kettő", `pusholni` → „pussolni". Ezek nem magyar szavak, a Whisper
-sosem találja el őket magától. Két helyen lehet segíteni rajta — mindkettő sima szövegfájl:
+Élesen mérve (2026-08-09), ugyanazzal a beszélővel és modellel:
 
-| fájl | mit csinál |
-|---|---|
-| **`szotar.txt`** | a Whisper `prompt` paramétere — **előre** ráveztjük a szakszavakra |
-| **`javitasok.txt`** | **utólagos** csere, `hibás=helyes` soronként (kis/nagybetű mindegy) |
+| | webkamera mikrofonja | **headset karmikrofon** |
+|---|---|---|
+| csúcs | 100% (mindig a plafonon) | **87,5%** |
+| RMS | 15–18% | 8% |
+| **dinamika** | **2,8–3,5×** | **27,5×** |
+| vágott minta | 0,03–0,27% | **0%** |
+| átírás | széteső, hibás | **hibátlan** |
 
-Bővítsd bátran őket; nem kell hozzá semmit újraindítani. A `javitasok.txt`-ben a hosszabb
-minták futnak előbb, különben egy rövid minta szétvágná a hosszabbat (`Marlin` a `Marlinban`
-belsejében).
+A webkamera **ötször hangosabb volt, mégis rosszabb.** A benne lévő automatikus
+erősítés (AGC) felhúzza a csendet a szavak közt és lenyomja a csúcsokat —
+szétlapítja a beszédet. **A dinamika a mérce, nem a hangerő**; ezért dönt eszerint
+a `mikrofon-valaszto.cmd`.
 
-> A `prompt`-ot a curl `-F "prompt=<fájl"` alakjával adjuk át, **nem** parancssori
-> szövegként — így a shell és a konzol kódlapja nem tud belerontani az ékezetekbe.
+> Ez egyben azt is jelenti, hogy a **kényelem és a pontosság között választani kell**:
+> 1 méterről a webkamera hallja, de rosszul; a headset pontos, de viselni kell.
+
+## ⛔Szótár (prompt) — alapból KI, és jó okkal
+
+A `szotar.txt` **nem aktív** (a repóban `szotar.txt.pelda` néven van). Mérésen
+kiderült, hogy **rontott**: a leiratban megjelent egy ismétlődő hurok
+(„tőzsdei arányt… tőzsdei arányt"), aminek a szavai **szó szerint a promptból**
+származtak.
+
+A Whisper a promptot **előzményszövegnek** kapja. Ha a hang bizonytalan — például
+mert egy AGC-s mikrofon lapította szét —, a dekóder inkább **folytatja a promptot**,
+ahelyett hogy átírná a beszédet. A rossz hang és a prompt tehát **erősítik egymást**.
+
+Bekapcsolni csak akkor érdemes, ha a hang már **tiszta** (dinamika 10× felett), és
+akkor is méréssel: `hasonlit-modelleket.cmd` — ugyanaz a felvétel szótárral és anélkül.
+Aktiválás: nevezd át `szotar.txt`-re.
+
+A **`javitasok.txt` viszont marad**: az determinisztikus `hibás=helyes` csere, ami
+nem tud kitalálni semmit.
 
 ## Melyik modell?
 
@@ -77,8 +95,8 @@ Felülírható a **`modell.txt`**-ből. Ha el akarod dönteni a saját hangodon:
 hasonlit-modelleket.cmd
 ```
 
-Egyetlen felvételt küld fel **mindkét** modellnek, egymás alatt kiírja a két eredményt
-(a szótárat mindkettő megkapja, hogy fair legyen), és a választásodat beírja a `modell.txt`-be.
+Egyetlen felvételt küld fel **három** változatban — pontos+szótár, pontos szótár nélkül,
+gyors+szótár —, egymás alatt kiírja őket, és a választásodat be is állítja.
 
 ## Buktatók, amiket már megoldottunk
 
@@ -100,9 +118,11 @@ Ezek mind éles hibából származnak; ha újra kell építeni, ne fussunk belé
    az eszközt, és a naplóba is beírjuk, melyikről vettünk fel.
    Ráadásul a **waveIn indexek átrendeződnek**, ha az alapértelmezett eszköz változik
    (mérve: a Realtek 1-ről 0-ra ment) — index alapján választani ezért eleve törékeny.
-7. **A 100% túl sok: vágás.** Mérve: a kamera mikrofonja 100%-on `csúcs 100%, RMS 16,7%` = klippel,
-   és ez rontja a felismerést. A cél a **vágás alatti** legnagyobb szint (60–85% csúcs). A diktálás
-   önhangoló: vág → ×0,75, túl halk → +12 pont.
+7. **„A 100% csúcs = vágás" — EZ TÉVEDÉS VOLT, méréssel cáfolva.** A csúcs önmagában semmit
+   nem árul el: egyetlen hangos szótag is 100%. Ami számít, hány **minta** ül a plafonon —
+   mérve 0,03–0,27%, ami normális beszédcsúcs. A napló ezért írja ki a *vágott minta* értékét.
+   Ugyanez buktatta meg az önhangolót is: a hangerő-csúszkát 55%→10%-ig tekerte le, miközben
+   az RMS **változatlan** maradt (a webkamera AGC-je kiegyenlíti) — halott gombot tekert.
 8. **A távolság nem a szinten múlik, hanem a küszöbön.** A régi kapu `RMS < 0,8%`-nál elutasított,
    ami közelről helyes, de 1 méterről a **valódi beszédet** is eldobta. Az új logika a **dinamikára**
    épül (a beszéd hullámzik, a zaj egyenletes) — az távolság-független.
