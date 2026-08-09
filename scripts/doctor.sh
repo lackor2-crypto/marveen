@@ -249,6 +249,42 @@ else
   ok "No failure log"
 fi
 
+# --- GitHub push identity -------------------------------------------------
+# Boss 2026-08-09: "a marveen mindig ezt a lackor2 gitet hasznalja alapbol,
+# ne az usalackort." Ket fiok van bejelentkezve a gh CLI-be, es egy csendes
+# `gh auth switch` (vagy egy ujratelepites) visszabillentheti a regire -- akkor
+# minden push 403-mal hal el, latszolag ok nelkul. Ez a check ezt kifogja.
+#
+# Miert a gh dont, es nem a repo-config: a ~/.gitconfig-ban HOST-SPECIFIKUS helper van
+#   credential.https://github.com.helper = !gh auth git-credential
+# ami FELULIRJA a sima credential.helper-t. Ezen buktunk 2026-08-09-en.
+echo ""
+echo -e "${BOLD}GitHub push-fiok${RESET}"
+GH_BIN="$(command -v gh || echo "$HOME/.local/bin/gh")"
+WANT_ACCOUNT="lackor2-crypto"
+if [ -x "$GH_BIN" ]; then
+  # A gh auth status kimenetet NEM parsoljuk (formatuma valtozhat) -- megkerdezzuk
+  # magat a GitHubot: ez egyben azt is igazolja, hogy a token EL es ERVENYES.
+  WHOAMI="$("$GH_BIN" api user --jq .login 2>/dev/null)"
+  if [ -z "$WHOAMI" ]; then
+    warn "gh: nem sikerult lekerdezni a bejelentkezett fiokot (halozat? lejart token?)"
+  elif [ "$WHOAMI" = "$WANT_ACCOUNT" ]; then
+    ok "GitHub: $WHOAMI (a vart fiok)"
+  else
+    fail "GitHub: a(z) '$WHOAMI' fiok az aktiv, de '$WANT_ACCOUNT' kellene!"
+    echo "      javitas:  gh auth switch --user $WANT_ACCOUNT"
+  fi
+else
+  warn "gh CLI nem talalhato ($GH_BIN) -- a push-fiok nem ellenorizheto"
+fi
+# a remote is a jo szervezetre mutasson
+ORIGIN="$(git remote get-url origin 2>/dev/null)"   # a szkript mar az INSTALL_DIR-ben all
+case "$ORIGIN" in
+  *"$WANT_ACCOUNT"*) ok "origin remote: $ORIGIN" ;;
+  "")                warn "origin remote: nincs beallitva" ;;
+  *)                 fail "origin remote NEM a(z) $WANT_ACCOUNT szervezetre mutat: $ORIGIN" ;;
+esac
+
 # --- Summary ---
 echo ""
 if [ "$FAIL" -eq 0 ]; then

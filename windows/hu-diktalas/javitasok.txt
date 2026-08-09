@@ -1,0 +1,14 @@
+# hibas=helyes  (kis/nagybetu-fuggetlen, soronkent egy par; a # -es sorok kommentek)
+# Ide barmit felvehetsz, amit a felismeres rendszeresen elront.
+Marlin=Marveen
+Marlinban=Marveenben
+Marlinba=Marveenbe
+Marlint=Marveent
+hús alacsok=usalackor
+hús alacsokat=usalackort
+húsoljuk=pusholjuk
+pussolni=pusholni
+pussol=pushol
+lacskot kettő=lackor2
+lackot kettő=lackor2
+FreeBel is CheatBelfis=freeberischeaper

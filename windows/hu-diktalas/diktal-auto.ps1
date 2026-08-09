@@ -26,7 +26,19 @@ $KeyFile = Join-Path $Base 'groq.key'
 $Wav     = Join-Path $env:TEMP 'hu_diktalas_auto.wav'
 $Lock    = Join-Path $env:TEMP 'hu_diktalas.lock'
 $Log     = Join-Path $Base 'diktal-auto.log'
-$Model   = 'whisper-large-v3-turbo'
+# ***2026-08-09: TURBO -> TELJES MODELL ***
+# A Groq Cloud KET atirasi modellt kinal (ellenorizve a /v1/models vegponton):
+#     whisper-large-v3-turbo  - gyorsabb, de pontatlanabb
+#     whisper-large-v3        - a TELJES modell, pontosabb nem-angol nyelven es
+#                               kulonosen TULAJDONNEVEKEN (nalunk pont ez romlott el)
+# A sebessegkulonbseg a Groq-on kicsi, a pontossag viszont szamit -> a teljes az alap.
+# Felulirhato a `modell.txt`-bol, ujraforditas nelkul (A/B: hasonlit-modelleket.cmd).
+$Model   = 'whisper-large-v3'
+$ModelFile = Join-Path $PSScriptRoot 'modell.txt'
+if (Test-Path $ModelFile) {
+  $m = (Get-Content $ModelFile -Raw).Trim()
+  if ($m) { $Model = $m }
+}
 
 function Log($m) { "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" | Out-File -FilePath $Log -Append -Encoding UTF8 }
 function Beep2($f,$d) { try { [console]::Beep($f,$d) } catch { } }
@@ -169,8 +181,16 @@ public static extern short GetAsyncKeyState(int vKey);
     $curVol = [MicGain]::GetVolume($want)
     if ($curVol -ge 0) {
       $newVol = $null
-      if     ($pk -ge 99)              { $newVol = [Math]::Max(10, [Math]::Round($curVol * 0.75)) }
-      elseif ($pk -lt 25 -and $rms -lt 3) { $newVol = [Math]::Min(100, $curVol + 12) }
+      # ***2026-08-09 HELYESBITES: a csucs ONMAGABAN NEM jelent vagast.
+      # Merve: a webkamera mikrofonjanal a szint 55% -> 23% -> 17% -> 13% ment le,
+      # es az RMS KOZBEN VALTOZATLAN maradt (16.8 -> 17.1%). A Windows hangero-csuszka
+      # NEM hat erre az eszkozre: a webkameraban sajat automatikus erosites (AGC) van,
+      # ami kiegyenliti. A szabalyozom tehat egy HALOTT GOMBOT tekert a padloig.
+      # Ratetel: a `csucs 100% / RMS 17% / dinamika 14x` NORMALIS beszed-dinamika
+      # (a beszed cresztfaktora nagy) -- nem torzitas. Ezert a vagast csak akkor
+      # allapitjuk meg, ha a csucs ES az RMS is magas.
+      if     ($pk -ge 99 -and $rms -gt 25) { $newVol = [Math]::Max(20, [Math]::Round($curVol * 0.8)) }
+      elseif ($pk -lt 25 -and $rms -lt 3)  { $newVol = [Math]::Min(100, $curVol + 12) }
       if ($newVol -ne $null -and $newVol -ne $curVol) {
         $set = [MicGain]::SetVolume($want, $newVol)
         Log ("bemeneti szint hangolva: {0}% -> {1}%  (ok: csucs {2}%)" -f $curVol, $set, $pk)
@@ -217,14 +237,50 @@ public static extern short GetAsyncKeyState(int vKey);
 
   $JsonFile = Join-Path $env:TEMP 'hu_diktalas_auto.json'
   Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
+  # ***2026-08-09: SZOTAR (prompt-torzitas) ***
+  # A hiba NEM a hangminoseg volt. Merve: a normal magyar mondatokat hibatlanul irta at,
+  # es KIZAROLAG a tulajdonnevek romlottak el:
+  #     Marveen -> "Marlin",  usalackor -> "hus alacsok",  lackor2 -> "lacskot ketto",
+  #     pusholni -> "pussolni",  freeberischeaper -> "FreeBel is CheatBelfis"
+  # Ezek nem magyar szavak, a Whisper sosem talalja el oket magatol. A megoldas a
+  # `prompt` parameter: raveztjuk a szakszavakra. A szoveget a `szotar.txt`-bol
+  # olvassuk (UTF-8, a felhasznalo barmikor bovitheti), es a curl `-F "nev=<fajl"`
+  # alakjaval adjuk at -- igy a shell/kodlap NEM tud belerontani az ekezetekbe.
+  $SzotarFile = Join-Path $Base 'szotar.txt'
+  $promptArg = @()
+  if (Test-Path $SzotarFile) {
+    $promptArg = @("-F", "prompt=<$SzotarFile")
+  }
   $http = & curl.exe -s --max-time 120 -o "$JsonFile" -w "%{http_code}" https://api.groq.com/openai/v1/audio/transcriptions `
       -H "Authorization: Bearer $Key" `
-      -F "file=@$Wav" -F "model=$Model" -F "language=hu" -F "response_format=json"
+      -F "file=@$Wav" -F "model=$Model" -F "language=hu" -F "response_format=json" @promptArg
 
   if ("$http" -ne "200") { Log "Groq HTTP $http"; Beep2 220 400; throw "http $http" }
   $resp = [System.IO.File]::ReadAllText($JsonFile, [System.Text.Encoding]::UTF8)
   Remove-Item $JsonFile -Force -ErrorAction SilentlyContinue
   $txt = ("" + ($resp | ConvertFrom-Json).text).Trim()
+
+  # ***UTOLAGOS JAVITASOK a `javitasok.txt`-bol ("hibas=helyes" soronkent).
+  # A szotar (prompt) a legtobbet megoldja, de nehany nev makacs -- azokat itt
+  # cserejuk ki. Kis/nagybetu-fuggetlen. A HOSSZABB mintakat eloszor, kulonben egy
+  # rovid minta szetvagna a hosszabbat (pl. "Marlin" a "Marlinban" belsejeben).
+  $JavFile = Join-Path $Base 'javitasok.txt'
+  if ($txt -and (Test-Path $JavFile)) {
+    $n = 0
+    Get-Content $JavFile -Encoding UTF8 |
+      Where-Object { $_ -and -not $_.StartsWith('#') -and $_.Contains('=') } |
+      Sort-Object { -($_.Split('=')[0].Length) } |
+      ForEach-Object {
+        $p = $_.Split('=', 2)
+        $bad = $p[0].Trim(); $good = $p[1].Trim()
+        if ($bad) {
+          $new = [regex]::Replace($txt, [regex]::Escape($bad), $good,
+                                  [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+          if ($new -ne $txt) { $txt = $new; $n++ }
+        }
+      }
+    if ($n -gt 0) { Log "szotar-javitas: $n csere" }
+  }
   if ([string]::IsNullOrWhiteSpace($txt)) { Log "ures atirat"; Beep2 220 400; throw "ures" }
 
   Set-Clipboard -Value $txt
