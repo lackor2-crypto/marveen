@@ -840,10 +840,21 @@ function renderActivity(entries) {
     list.innerHTML = '<p class="activity-empty">' + t('activity.empty') + '</p>'
     return
   }
-  list.innerHTML = entries.map((a) => {
+  // Same paid/free split as the Agents grid (renderAgents) -- otherwise the
+  // two tiers render interleaved with no way to tell at a glance which cards
+  // share a rate-limited free pool. Reuses .agent-tier-divider's styling.
+  const paidEntries = entries.filter(a => !isFreeModel(a.model))
+  const freeEntries = entries.filter(a => isFreeModel(a.model))
+  const sortedEntries = [...paidEntries, ...freeEntries]
+  const dividerHtml = freeEntries.length
+    ? '<div class="agent-tier-divider"><span>' + escapeHtml(t('agents.tier_divider.free')) + '</span></div>'
+    : ''
+
+  list.innerHTML = sortedEntries.map((a, i) => {
+    const divider = (freeEntries.length && a === freeEntries[0]) ? dividerHtml : ''
     const metaRaw = ACTIVITY_STATE_META[a.state] || ACTIVITY_STATE_META.unknown
     const meta = { ...metaRaw, label: typeof metaRaw.label === 'function' ? metaRaw.label() : metaRaw.label }
-    const tail = (a.tail || []).map((l) => escapeHtml(l)).join('\n')
+    const tail = (a.tail || []).map((l) => linkifyKanbanRefs(l)).join('\n')
     const mainBadge = a.isMain ? '<span class="act-main-badge">' + t('activity.badge.main') + '</span>' : ''
     // Permission-mode chip. Shown for every mode EXCEPT the ones that let the
     // agent work on its own -- inverted on purpose: an unfamiliar mode is
@@ -860,6 +871,7 @@ function renderActivity(entries) {
       ? '<svg class="act-term-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" title="' + t('activity.tooltip.terminal') + '"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'
       : ''
     return (
+      divider +
       '<div class="activity-card ' + meta.cls + (canOpen ? ' act-clickable' : '') + '" data-agent="' + escapeHtml(a.name) + '">' +
         '<div class="activity-card-head">' +
           '<span class="activity-name">' + escapeHtml(a.displayName || a.name) + mainBadge + '</span>' +
@@ -906,6 +918,12 @@ let kanbanAllLabels = []
 // localStorage alongside the swimlane groupBy choice.
 let kanbanLabelFilter = new Set()
 let kanbanProjectFilter = ''
+// Free-text search over the board (Boss 2026-08-10): a live filter, not a
+// jump-to -- when non-empty, only cards whose id, title OR description contain
+// this (already lowercased) substring stay visible. Combined AND with the
+// project/assignee/label filters via kanbanCardMatchesBaseFilters. '' = no
+// search constraint.
+let kanbanSearchQuery = ''
 // Assignee filter for the kanban board. '' = show all. Set via the
 // assignee dropdown / "Csak Gábor" toggle injected by setupAssigneeFilter().
 // Matched case-insensitively against card.assignee so a casing mismatch
@@ -1007,6 +1025,47 @@ document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
   localStorage.setItem('marveen.kanbanGroupBy', kanbanGroupBy)
   renderKanban()
 })
+
+// Kanban card search box: Enter jumps + announces misses; typing does a lightly
+// debounced silent jump so a matched card is found without a toast per keystroke.
+;(() => {
+  const searchEl = document.getElementById('kanbanSearchInput')
+  if (!searchEl) return
+  // Belt-and-suspenders against browser form restoration: even with
+  // autocomplete="off" and no `name` attribute, Chromium restores a
+  // previously-typed value into a bare <input> on reload / bfcache restore
+  // (Boss 2026-08-10: "lackor2" kept reappearing after F5). Clearing it once
+  // synchronously at parse time is NOT enough -- Chrome's restoration pass runs
+  // AFTER our script and overwrites the empty value. So also clear it on a
+  // deferred tick (after restoration) and on every pageshow (covers bfcache /
+  // back-forward). kanbanSearchQuery is '' at this point, so these only make the
+  // visible input agree with it.
+  const forceEmptySearch = () => {
+    if (searchEl.value !== '') searchEl.value = ''
+  }
+  forceEmptySearch()
+  // Runs after the browser's synchronous restoration pass on initial load.
+  requestAnimationFrame(forceEmptySearch)
+  setTimeout(forceEmptySearch, 0)
+  // pageshow fires on normal load AND when the page is restored from bfcache
+  // (persisted === true) -- the case a plain load handler misses.
+  window.addEventListener('pageshow', forceEmptySearch)
+  const apply = (raw) => {
+    const next = (raw || '').trim().toLowerCase()
+    if (next === kanbanSearchQuery) return
+    kanbanSearchQuery = next
+    renderKanban()
+  }
+  let _searchTimer = null
+  searchEl.addEventListener('input', (e) => {
+    clearTimeout(_searchTimer)
+    _searchTimer = setTimeout(() => apply(e.target.value), 350)
+  })
+  // Enter applies immediately (skip the debounce wait).
+  searchEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); clearTimeout(_searchTimer); apply(e.target.value) }
+  })
+})()
 
 function populateProjectFilter() {
   const sel = document.getElementById('kanbanProjectFilter')
@@ -1155,6 +1214,13 @@ function kanbanCardMatchesBaseFilters(card) {
   if (kanbanProjectFilter && (card.project || '') !== kanbanProjectFilter) return false
   const assigneeFilter = kanbanAssigneeFilter.toLowerCase()
   if (assigneeFilter && String(card.assignee || '').trim().toLowerCase() !== assigneeFilter) return false
+  if (kanbanSearchQuery) {
+    const q = kanbanSearchQuery
+    const hit = (card.id && String(card.id).toLowerCase().includes(q)) ||
+      (card.title && String(card.title).toLowerCase().includes(q)) ||
+      (card.description && String(card.description).toLowerCase().includes(q))
+    if (!hit) return false
+  }
   return true
 }
 
@@ -1264,12 +1330,12 @@ function renderKanban() {
     for (const [status, cards] of Object.entries(grouped)) {
       const col = document.querySelector(`#kanbanBoard .kanban-col-body[data-status="${status}"]`)
       col.innerHTML = ''
-      cards.sort((a, b) => a.sort_order - b.sort_order)
+      cards.sort(kanbanUrgencySort)
 
       for (const card of cards) {
         const embeddedChildren = kanbanCards
           .filter(c => c.parent_id === card.id && embeddedSubtaskIds.has(c.id))
-          .sort((a, b) => a.sort_order - b.sort_order)
+          .sort(kanbanUrgencySort)
         col.appendChild(createCardEl(card, embeddedChildren))
       }
     }
@@ -1322,6 +1388,23 @@ const KANBAN_STATUS_DEFS = [
 ]
 const KANBAN_PRIORITY_LABELS = { urgent: () => t('kanban.priority.urgent'), high: () => t('kanban.priority.high'), normal: () => t('kanban.priority.normal'), low: () => t('kanban.priority.low') }
 const KANBAN_PRIORITY_ORDER = ['urgent', 'high', 'normal', 'low']
+
+// Boss 2026-08-09: cards within a column should surface urgency automatically
+// instead of relying purely on manual drag order -- soonest due_date first,
+// cards with no due_date sink below ones that have one, ties broken by
+// priority (urgent>high>normal>low), and only cards that are equally urgent
+// by both measures fall back to manual sort_order.
+function kanbanUrgencySort(a, b) {
+  const dueA = a.due_date ?? Infinity
+  const dueB = b.due_date ?? Infinity
+  if (dueA !== dueB) return dueA - dueB
+  const prioA = KANBAN_PRIORITY_ORDER.indexOf(a.priority)
+  const prioB = KANBAN_PRIORITY_ORDER.indexOf(b.priority)
+  const rankA = prioA === -1 ? KANBAN_PRIORITY_ORDER.length : prioA
+  const rankB = prioB === -1 ? KANBAN_PRIORITY_ORDER.length : prioB
+  if (rankA !== rankB) return rankA - rankB
+  return a.sort_order - b.sort_order
+}
 
 // Which swimlane a card belongs to under the current grouping. Returns a
 // stable string key: the matched assignee's canonical name, '__unassigned__'
@@ -1412,11 +1495,11 @@ function renderSwimlaneBoard(grouped, embeddedSubtaskIds) {
       colBody.className = 'kanban-col-body kanban-swimlane-col-body'
       colBody.dataset.status = def.status
 
-      const cards = laneCardsByStatus[def.status].sort((a, b) => a.sort_order - b.sort_order)
+      const cards = laneCardsByStatus[def.status].sort(kanbanUrgencySort)
       for (const card of cards) {
         const embeddedChildren = kanbanCards
           .filter(c => c.parent_id === card.id && embeddedSubtaskIds.has(c.id))
-          .sort((a, b) => a.sort_order - b.sort_order)
+          .sort(kanbanUrgencySort)
         colBody.appendChild(createCardEl(card, embeddedChildren))
       }
       wireKanbanColumnDnD(colBody)
@@ -1589,14 +1672,14 @@ function createCardEl(card, embeddedChildren = []) {
       const caLabel = ca ? (ca.displayName || ca.name) : rawCa
       const caHtml = caLabel ? `<span class="kanban-embedded-assignee">${escapeHtml(caLabel)}</span>` : ''
       const cSeq = c.seq != null ? `<span class="kanban-embedded-seq">#${c.seq}</span> ` : ''
-      return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${escapeHtml(c.title)}${caHtml}</div>`
+      return `<div class="kanban-embedded-subtask" data-id="${escapeHtml(c.id)}">${cSeq}${linkifyKanbanRefs(c.title)}${caHtml}</div>`
     }).join('')
     embeddedHtml = `<div class="kanban-embedded-subtasks">${items}</div>`
   }
 
   el.innerHTML = `
     ${projectHtml}
-    <div class="kanban-card-title">${seqHtml}${escapeHtml(card.title)}</div>
+    <div class="kanban-card-title">${seqHtml}${linkifyKanbanRefs(card.title)}</div>
     <div class="kanban-card-footer">${assigneeHtml}${dueHtml}</div>
     ${labelsHtml}
     <div class="kanban-card-actions">
@@ -2084,7 +2167,7 @@ async function renderCardLabelsSection(card) {
 async function showCardDetail(card) {
   // Running number (#N) in the title bar, plus the stable hex id in the meta.
   const seqPrefix = card.seq != null ? `#${card.seq} ` : ''
-  document.getElementById('cardDetailTitle').textContent = `${seqPrefix}${card.title}`
+  document.getElementById('cardDetailTitle').innerHTML = linkifyKanbanRefs(`${seqPrefix}${card.title}`)
 
   // Case-insensitive match; fall back to the raw stored name so a casing
   // mismatch (or an unregistered assignee) shows the actual name, not "nincs".
@@ -2228,7 +2311,7 @@ async function showCardDetail(card) {
     })
   })
 
-  document.getElementById('cardDetailDesc').textContent = card.description || ''
+  document.getElementById('cardDetailDesc').innerHTML = linkifyKanbanRefs(card.description || '')
 
   renderCardLabelsSection(card)
 
@@ -2283,7 +2366,7 @@ async function showCardDetail(card) {
       const authorLabel = kanbanAssignees.find(a => a.name === c.author)?.displayName || c.author
       div.innerHTML = `
         <div><span class="comment-author">${escapeHtml(authorLabel)}</span><span class="comment-date">${date}</span></div>
-        <div class="comment-body">${escapeHtml(c.content)}</div>
+        <div class="comment-body">${linkifyKanbanRefs(c.content)}</div>
       `
       list.appendChild(div)
     }
@@ -2983,7 +3066,16 @@ document.getElementById('wizardCreateBtn').addEventListener('click', async () =>
     }
 
     closeModal(agentWizardOverlay)
-    showToast('Ugynok letrehozva. Kosd be a csatornat a parosatashoz.')
+    // Boss 2026-08-08: the generic success toast looked identical whether the
+    // personality was really generated or is still the unedited placeholder
+    // template -- the only warning was the banner one screen earlier in step
+    // 3, easy to click past straight to "Létrehozás". Say it again, louder,
+    // right when the flow actually closes.
+    if (wizardPersonalityPending) {
+      showToast(t('agents.wizard.created_template_warning'), 6000, true)
+    } else {
+      showToast('Ugynok letrehozva. Kosd be a csatornat a parosatashoz.')
+    }
     await loadAgents()
     // Drop the operator straight into the Telegram tab of the new agent so
     // the pairing step is in front of them -- easy to miss otherwise.
@@ -3101,6 +3193,9 @@ async function openMarveenDetail() {
   document.getElementById('agentDetailDesc').textContent = m.description || ''
   document.getElementById('agentDetailModel').textContent = m.model || '-'
   document.getElementById('agentDetailChStatus').innerHTML = `<span class="tg-status"><span class="tg-dot connected"></span>${t('agents.channel.connected')}</span>`
+  // Marveen's own name goes through the self-rename skill, not this PUT route.
+  document.getElementById('agentNameEditBtn').hidden = true
+  document.getElementById('agentDetailNameEdit').hidden = true
   // Populate the Skills tab for the main agent too: the endpoint returns the
   // global ~/.claude/skills under its real id (agentId), which every agent
   // inherits. Previously this was hard-set to '-' and loadSkills was never
@@ -3282,8 +3377,60 @@ function attachTmuxCopyButtons(card, agent) {
   card.appendChild(row)
 }
 
+// A model id like "google/gemma-4-31b-it:free" is a free-tier OpenRouter
+// model; anything else (including 'inherit'/'opus'/undefined for Claude-auth
+// agents) counts as paid/unrestricted.
+function isFreeModel(model) {
+  return typeof model === 'string' && model.toLowerCase().endsWith(':free')
+}
+
+// Green "$X.XX/M" badge for a paid agent's card (Agents grid only -- Boss
+// 2026-08-08: wants to see at a glance which paid agent "eats" how much).
+// Only rendered when the backend actually knows the price (costPerMInput is
+// a known Claude-tier lookup, never a guess) -- omitted entirely rather than
+// showing a wrong number for an OpenRouter/unknown paid model.
+function costBadgeHtml(costPerMInput) {
+  if (typeof costPerMInput !== 'number') return ''
+  const label = '$' + costPerMInput.toFixed(2) + '/M'
+  return `<span class="agent-cost-badge" title="${escapeAttr(t('agents.cost_badge_tip'))}">${escapeHtml(label)}</span>`
+}
+
+// Neutral-grey account badge (Boss 2026-08-10): which Claude/OpenRouter login
+// the agent runs under, so the card shows the ACCOUNT, not just the model.
+// Sits to the LEFT of the $/M cost badge in the same top-right corner (both
+// wrapped in .agent-card-badges). Main agent -> "Lackor2"; claudePlan
+// 'usalackor'/'lackor3' -> the matching named plan; everything else has no
+// Claude plan (it runs an OpenRouter model) -> "OpenRouter".
+function accountBadgeHtml(claudePlan, isMain) {
+  let label
+  if (isMain) label = 'Lackor2'
+  else if (claudePlan === 'usalackor') label = 'Usalackor'
+  else if (claudePlan === 'lackor3') label = 'Lackor3'
+  else label = 'OpenRouter'
+  return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
+}
+
 function renderAgents() {
+  // Hide for the duration of THIS render too (not just the very first paint,
+  // covered by the `hidden` attribute already on the static HTML) -- while
+  // it's mid-reparent below (briefly a plain last child of agentsGrid again,
+  // still carrying last render's positioning class) a repaint landing in
+  // that window would show it full-size top-left before it snaps onto the
+  // divider (Boss, 2026-08-08, second report -- still flashed after the
+  // first fix, which only covered the initial pageload case).
+  addBtn.hidden = true
   agentsGrid.querySelectorAll('.agent-card:not(.add-card)').forEach((el) => el.remove())
+  // The divider (and addBtn re-parented into it, see below) survive from the
+  // previous render -- clear it before rebuilding, and move addBtn back to
+  // being a direct child of agentsGrid first. Every insertBefore(x, addBtn)
+  // call below requires addBtn to be a DIRECT child of agentsGrid; leaving it
+  // nested inside a stale divider throws (NotFoundError) on the very first
+  // insertBefore call, aborting the whole render with an empty grid -- this
+  // silently wiped every agent card on the second render pass (Boss,
+  // 2026-08-08, screenshot: only the "+" button visible, 7 agents in the
+  // data but zero cards on screen).
+  agentsGrid.appendChild(addBtn)
+  agentsGrid.querySelectorAll('.agent-tier-divider').forEach((el) => el.remove())
 
   // Marveen card (always first)
   if (window._marveen) {
@@ -3298,6 +3445,7 @@ function renderAgents() {
     const mCard = document.createElement('div')
     mCard.className = 'agent-card marveen-card'
     mCard.innerHTML = `
+      <div class="agent-card-badges">${accountBadgeHtml(null, true)}${costBadgeHtml(m.costPerMInput)}</div>
       <div class="agent-card-top">
         <div class="agent-avatar gradient-1"><img src="/api/marveen/avatar${avatarBust()}" alt="${escapeHtml(displayName)}"></div>
         <div class="agent-card-info">
@@ -3331,7 +3479,20 @@ function renderAgents() {
     agentsGrid.insertBefore(mCard, addBtn)
   }
 
-  for (const agent of agents) {
+  // Paid/unrestricted agents first, then a divider, then free-tier OpenRouter
+  // agents -- otherwise the two tiers render interleaved and there's no way
+  // to tell at a glance which cards are on a shared, rate-limited free pool.
+  const paidAgents = agents.filter(a => !isFreeModel(a.model))
+  const freeAgents = agents.filter(a => isFreeModel(a.model))
+  const sortedAgents = [...paidAgents, ...freeAgents]
+  let dividerEl = null
+  for (const agent of sortedAgents) {
+    if (!dividerEl && freeAgents.length && agent === freeAgents[0]) {
+      dividerEl = document.createElement('div')
+      dividerEl.className = 'agent-tier-divider'
+      dividerEl.innerHTML = `<span>${escapeHtml(t('agents.tier_divider.free'))}</span>`
+      agentsGrid.insertBefore(dividerEl, addBtn)
+    }
     // agent.name is the sanitized id (API/filesystem); displayName keeps the
     // original accented/cased input the user typed.
     const label = agent.displayName || agent.name
@@ -3354,6 +3515,7 @@ function renderAgents() {
     const runLabel = isRunning ? t('agents.status.running') : t('agents.status.stopped')
 
     card.innerHTML = `
+      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}</div>
       <div class="agent-card-top">
         <div class="agent-avatar ${gradientClass}">${avatarHtml}</div>
         <div class="agent-card-info">
@@ -3401,6 +3563,24 @@ function renderAgents() {
     agentsGrid.insertBefore(card, addBtn)
   }
   renderFederatedAgentCards(agentsGrid, addBtn)
+  // Straddle the "+ new agent" button on the divider line itself (half in the
+  // paid section, half in the free one) -- otherwise it only ever lands after
+  // the last card in DOM order, i.e. visually inside the free section, which
+  // reads as "new agents can only be added there" (Boss, 2026-08-08).
+  // insertBefore(card, addBtn) above needs addBtn to stay a direct child of
+  // agentsGrid for the whole loop, so it can only be re-parented onto the
+  // divider afterwards, once nothing else is anchoring off it.
+  if (dividerEl) {
+    addBtn.classList.add('add-card-on-divider')
+    dividerEl.appendChild(addBtn)
+  } else {
+    addBtn.classList.remove('add-card-on-divider')
+  }
+  // Starts `hidden` in the static HTML so a page load/refresh doesn't flash
+  // it full-size in its default top-left slot before this function has had a
+  // chance to size and position it (Boss, 2026-08-08: saw it "land big, then
+  // snap into place"). Reveal only now that it's correctly classed/placed.
+  addBtn.hidden = false
   // Re-apply the live busy tint right after a re-render (renderAgents rebuilds
   // the cards from scratch, dropping the class), so it never blinks off while
   // the page is open.
@@ -3536,6 +3716,9 @@ async function openAgentDetail(agentName) {
   document.getElementById('agentDetailDesc').textContent = currentAgent.description || ''
   document.getElementById('agentDetailModel').textContent = currentAgent.activeModel || currentAgent.model || 'inherit'
   document.getElementById('agentDetailModelRestarting').hidden = true
+  document.getElementById('agentNameEditBtn').hidden = false
+  document.getElementById('agentDetailNameEdit').hidden = true
+  document.getElementById('agentDetailNameRow').hidden = false
 
   const chConnected = agentIsConnected(currentAgent)
   document.getElementById('agentDetailChStatus').innerHTML = `<span class="tg-status"><span class="tg-dot ${chConnected ? 'connected' : 'disconnected'}"></span>${chConnected ? t('agents.channel.connected') : t('agents.channel.disconnected')}</span>`
@@ -3691,6 +3874,60 @@ function populateDetailAvatarGrid() {
     grid.appendChild(item)
   }
 }
+
+function showAgentNameEdit() {
+  document.getElementById('agentDetailNameRow').hidden = true
+  const editRow = document.getElementById('agentDetailNameEdit')
+  editRow.hidden = false
+  const input = document.getElementById('agentNameEditInput')
+  input.value = (currentAgent && (currentAgent.displayName || currentAgent.name)) || ''
+  input.focus()
+  input.select()
+}
+
+function hideAgentNameEdit() {
+  document.getElementById('agentDetailNameEdit').hidden = true
+  document.getElementById('agentDetailNameRow').hidden = false
+}
+
+async function saveAgentNameEdit() {
+  if (!currentAgent || !currentAgent.name) return
+  const input = document.getElementById('agentNameEditInput')
+  const newName = input.value.trim()
+  if (!newName) { showToast(t('agents.detail.name_empty_error')); return }
+
+  const saveBtn = document.getElementById('agentNameSaveBtn')
+  saveBtn.disabled = true
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(currentAgent.name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: newName }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || t('agents.detail.name_save_error'))
+    }
+    currentAgent.displayName = newName
+    document.getElementById('agentDetailTitle').textContent = newName
+    document.getElementById('agentDetailName').textContent = newName
+    hideAgentNameEdit()
+    showToast(t('agents.detail.name_saved'))
+    loadAgents()
+  } catch (err) {
+    showToast(err.message || t('agents.detail.name_save_error'))
+  } finally {
+    saveBtn.disabled = false
+  }
+}
+
+document.getElementById('agentNameEditBtn').addEventListener('click', showAgentNameEdit)
+document.getElementById('agentNameCancelBtn').addEventListener('click', hideAgentNameEdit)
+document.getElementById('agentNameSaveBtn').addEventListener('click', saveAgentNameEdit)
+document.getElementById('agentNameEditInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') saveAgentNameEdit()
+  else if (e.key === 'Escape') hideAgentNameEdit()
+})
 
 document.getElementById('avatarChangeBtn').addEventListener('click', () => {
   const gallery = document.getElementById('detailAvatarGallery')
@@ -4480,13 +4717,13 @@ document.getElementById('analyzeAllModelsBtn').addEventListener('click', async (
       html += '<ul style="margin:0 0 10px;padding-left:18px">'
       for (const r of changes) {
         const safeReason = r.reason.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        html += `<li style="margin-bottom:6px"><strong>${r.agent}</strong>: ${r.currentModel} &rarr; ${r.suggestedModel}`
+        html += `<li style="margin-bottom:6px"><strong>${escapeHtml(chatDisplayName(r.agent))}</strong>: ${r.currentModel} &rarr; ${r.suggestedModel}`
         html += ` <details style="display:inline-block;vertical-align:top;margin-left:4px"><summary style="cursor:pointer;font-size:11px;color:var(--text-muted)">${t('agents.model.details')}</summary>`
         html += `<pre style="white-space:pre-wrap;font-size:11px;margin:4px 0 0;background:var(--surface);padding:6px 8px;border-radius:4px;color:var(--text-muted)">${safeReason}</pre></details></li>`
       }
       html += '</ul>'
       if (ok.length > 0) {
-        html += `<p style="color:var(--text-muted);margin:0;font-size:12px">${t('agents.model.ok_agents', { list: ok.map(r => r.agent).join(', ') })}</p>`
+        html += `<p style="color:var(--text-muted);margin:0;font-size:12px">${t('agents.model.ok_agents', { list: ok.map(r => escapeHtml(chatDisplayName(r.agent))).join(', ') })}</p>`
       }
       html += `<button class="btn-secondary btn-compact" id="createModelChangeCardsBtn" style="margin-top:10px">${t('agents.model.create_cards_btn')}</button>`
     }
@@ -9907,6 +10144,28 @@ function escapeHtml(str) {
   return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+function linkifyKanbanRefs(str) {
+  if (!str) return '';
+  const escaped = escapeHtml(str);
+  return escaped.replace(/#([0-9a-f]{8})/gi, '<span class="kanban-link" data-card-id="$1" role="link" tabindex="0">#$1</span>');
+}
+
+// linkifyKanbanRefs() injects .kanban-link spans via innerHTML in many places
+// (activity feed, approvals, card titles/descriptions/comments) -- a single
+// delegated listener on document covers all of them without re-wiring after
+// every re-render. Reuses the existing approvals-page jump/flash behavior
+// (switchPage + scrollIntoView + flash) instead of a real <a href> nav target,
+// since this is a hash-routed SPA with no server-side /kanban/:id route.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('.kanban-link')
+  if (el) _openKanbanCardFromApproval(el.dataset.cardId)
+})
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return
+  const el = e.target.closest('.kanban-link')
+  if (el) { e.preventDefault(); _openKanbanCardFromApproval(el.dataset.cardId) }
+})
+
 // ============================================================
 // === Status ===
 // ============================================================
@@ -11100,7 +11359,9 @@ function renderTeamGraph(container, data, opts = {}) {
     const avatarUrl = node.id === mainAgentId
       ? `/api/marveen/avatar${avatarBust()}`
       : `/api/agents/${encodeURIComponent(node.id)}/avatar${avatarBust()}`
+    const isFreeNode = isFreeModel(node.model)
     div.innerHTML = `
+      ${isFreeNode ? `<span class="team-node-free-badge">${escapeHtml(t('agents.free_badge'))}</span>` : costBadgeHtml(node.costPerMInput)}
       <div class="team-node-avatar"><img src="${avatarUrl}" alt="${escapeHtml(node.label || node.id)}" onerror="this.style.display='none'"></div>
       <div class="team-node-name">${escapeHtml(node.label || node.id)}</div>
       <div class="team-node-meta">${escapeHtml(roleLabel)}</div>
@@ -11810,6 +12071,87 @@ function renderOverviewCapabilities(ids) {
   }).join('')
 }
 
+// Rate-limit / usage-window widget (kanban ef06b18d): shows the main
+// assistant's Claude plan usage (5h + 7d windows) captured by
+// scripts/hooks/statusline.py, zero token cost since it's a local CLI tick,
+// not a model turn. Boss's own thresholds: >=90% only small tasks, >=95% no
+// programming, info/search only (see src/rate-limit-status.ts).
+function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
+  const box = document.getElementById('overviewRateLimit')
+  const bars = document.getElementById('overviewRateLimitBars')
+  const meta = document.getElementById('overviewRateLimitMeta')
+  const hasRateLimit = rateLimit && (rateLimit.fiveHour || rateLimit.sevenDay)
+  const hasAccounts = Array.isArray(claudeAccounts) && claudeAccounts.some(a => a.fiveHourPct !== null)
+  if (!hasRateLimit && !openrouterCredits && !hasAccounts) { box.hidden = true; return }
+  box.hidden = false
+
+  const locale = (window._lang === 'en') ? 'en-US' : 'hu-HU'
+  const fmtReset = (ms) => ms ? t('overview.ratelimit.resets', { time: new Date(ms).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) }) : ''
+  const tierOf = (pct) => pct >= 95 ? 'critical' : (pct >= 90 ? 'caution' : 'normal')
+
+  const row = (labelKey, win) => {
+    if (!win || win.usedPct === null) return ''
+    const pct = Math.max(0, Math.min(100, Math.round(win.usedPct)))
+    return `<div class="overview-ratelimit-row">
+      <div class="overview-ratelimit-row-head">
+        <span>${escapeHtml(t(labelKey))}</span>
+        <span><strong>${pct}%</strong>${win.resetsAt ? ' · ' + escapeHtml(fmtReset(win.resetsAt)) : ''}</span>
+      </div>
+      <div class="overview-ratelimit-track"><div class="overview-ratelimit-fill ${tierOf(pct)}" style="width:${pct}%"></div></div>
+    </div>`
+  }
+
+  // Boss 2026-08-09 (multi-account project): one row per named Claude account
+  // (main + every store/claude-plans.json entry), each labelled with the
+  // account name and its currently active model -- not just a single
+  // "the assistant" bar. Falls back to the old single-account row set when no
+  // plans are registered, so an install with only the main agent is unchanged.
+  const accountRow = (acc) => {
+    if (acc.fiveHourPct === null) return ''
+    const pct = Math.max(0, Math.min(100, Math.round(acc.fiveHourPct)))
+    const modelSuffix = acc.model ? ` · ${escapeHtml(acc.model)}` : ''
+    const resetSuffix = acc.fiveHourResetsAt ? ' · ' + escapeHtml(fmtReset(acc.fiveHourResetsAt)) : ''
+    // Boss 2026-08-10: while an account is actively working the live "used
+    // X%" banner can scroll out of the scrape window, so this row falls back
+    // to the last successfully read value (see scrapeClaudeAccountUsage's
+    // lastKnownUsage cache) rather than disappearing entirely -- marked with
+    // a "~" so it doesn't read as a fresh number.
+    const staleMark = acc.stale ? '~' : ''
+    return `<div class="overview-ratelimit-row">
+      <div class="overview-ratelimit-row-head">
+        <span>${escapeHtml(acc.label)}${modelSuffix}</span>
+        <span><strong>${staleMark}${pct}%</strong>${resetSuffix}</span>
+      </div>
+      <div class="overview-ratelimit-track"><div class="overview-ratelimit-fill ${tierOf(pct)}" style="width:${pct}%"></div></div>
+    </div>`
+  }
+
+  let html = hasAccounts
+    ? claudeAccounts.map(accountRow).join('')
+    : (hasRateLimit ? (row('overview.ratelimit.five_hour', rateLimit.fiveHour) + row('overview.ratelimit.seven_day', rateLimit.sevenDay)) : '')
+
+  // OpenRouter remaining balance (Boss, 2026-08-08: "ugyanaz mint a keret-%,
+  // meddig dolgozhatok") -- same bar treatment, but $ instead of a plan window.
+  if (openrouterCredits) {
+    const pct = Math.max(0, Math.min(100, Math.round(openrouterCredits.usedPct ?? 0)))
+    const fmtUsd = (n) => '$' + n.toFixed(2)
+    html += `<div class="overview-ratelimit-row">
+      <div class="overview-ratelimit-row-head">
+        <span>${escapeHtml(t('overview.ratelimit.openrouter_balance'))}</span>
+        <span><strong>${escapeHtml(fmtUsd(openrouterCredits.remaining))}</strong> ${escapeHtml(t('overview.ratelimit.openrouter_of', { total: fmtUsd(openrouterCredits.totalCredits) }))}</span>
+      </div>
+      <div class="overview-ratelimit-track"><div class="overview-ratelimit-fill ${tierOf(pct)}" style="width:${pct}%"></div></div>
+    </div>`
+  }
+  bars.innerHTML = html
+
+  meta.textContent = (hasRateLimit && rateLimit.stale) ? t('overview.ratelimit.stale') : t('overview.meta.live')
+  // Boss 2026-08-10: dropped the on-page caution/critical banner -- with 3+
+  // accounts shown in this same box it read as ambiguous (which account did
+  // it mean?), and it's now redundant with the proactive Telegram alert
+  // (store/ratelimit-telegram-alert.sh) that fires at 90%/99% per account.
+}
+
 // Non-Vault entries for the Fiokok (Accounts) page: core items that always
 // run (no setup action possible/needed) and the two OAuth/CLI-driven
 // integrations that -- unlike OpenRouter/Groq -- have no self-service
@@ -11925,6 +12267,7 @@ async function loadOverview() {
     document.getElementById('statSkills').textContent = d.skills.count
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
     renderOverviewCapabilities(d.unconfiguredCapabilities)
+    renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
     // Team: reuse the hierarchy graph renderer so the overview card shows
     // exactly what the Csapat page does (avatars + reports-to tree).
     try {
@@ -13193,9 +13536,10 @@ const _approvalsExpanded = new Set()
 async function loadApprovalsPage() {
   const tbody = document.getElementById('approvalsTbody')
   const statsEl = document.getElementById('approvalsStats')
-  tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.loading')}</td></tr>`
+  tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.loading')}</td></tr>`
   statsEl.innerHTML = ''
   if (_approvalsCountdownInterval) { clearInterval(_approvalsCountdownInterval); _approvalsCountdownInterval = null }
+  if (_approvalsVerifyPollInterval) { clearInterval(_approvalsVerifyPollInterval); _approvalsVerifyPollInterval = null }
 
   try {
     const res = await fetch('/api/approvals?limit=500')
@@ -13204,8 +13548,24 @@ async function loadApprovalsPage() {
     _renderApprovalsStats()
     _renderApprovalsTable()
     _approvalsCountdownInterval = setInterval(_updateCountdowns, 1000)
+    // Only poll while something is actually pending review -- no point
+    // hitting the endpoint every 5s once every dispatched agent has reported.
+    if (_approvalsHasPendingVerification()) {
+      _approvalsVerifyPollInterval = setInterval(async () => {
+        try {
+          const r = await fetch('/api/approvals?limit=500')
+          if (!r.ok) return
+          _approvalsAll = await r.json()
+          _renderApprovalsTable()
+          if (!_approvalsHasPendingVerification()) {
+            clearInterval(_approvalsVerifyPollInterval)
+            _approvalsVerifyPollInterval = null
+          }
+        } catch { /* transient fetch failure, next tick retries */ }
+      }, 5000)
+    }
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--danger);padding:24px;text-align:center">${t('approvals.error')}</td></tr>`
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--danger);padding:24px;text-align:center">${t('approvals.error')}</td></tr>`
   }
 }
 
@@ -13261,7 +13621,7 @@ function _renderApprovalsTable() {
   const tbody = document.getElementById('approvalsTbody')
 
   if (!page.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.empty')}</td></tr>`
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.empty')}</td></tr>`
     _renderApprovalsPagination(filtered.length)
     return
   }
@@ -13289,8 +13649,8 @@ function _renderApprovalsTable() {
         })()
     const rowId = String(a.id)
     const isExpanded = _approvalsExpanded.has(rowId)
-    const fullDesc = escapeHtml(a.action_description)
-    const shortDesc = escapeHtml(a.action_description.length > 80 ? a.action_description.slice(0, 80) + '...' : a.action_description)
+    const fullDesc = linkifyKanbanRefs(a.action_description)
+    const shortDesc = linkifyKanbanRefs(a.action_description.length > 80 ? a.action_description.slice(0, 80) + '...' : a.action_description)
     const cardId = _approvalKanbanCardId(a)
     const openCardHtml = cardId ? `<button class="btn-secondary btn-compact approvals-open-card" data-card-id="${escapeAttr(cardId)}" style="font-size:11px;margin-top:6px">${t('approvals.btn.open_card')}</button>` : ''
     const descHtml = isExpanded
@@ -13310,6 +13670,7 @@ function _renderApprovalsTable() {
       <td style="font-size:12px">${escapeHtml(a.category)}</td>
       <td class="approvals-desc-cell" data-id="${escapeAttr(rowId)}" style="${descCellStyle}" title="${isExpanded ? '' : escapeAttr(a.action_description)}">${descHtml}</td>
       <td>${badge}</td>
+      <td style="font-size:12px">${_approvalVerifyCellHtml(a)}</td>
       <td style="font-size:12px;white-space:nowrap">${countdown}</td>
       <td>${actions}</td>
     </tr>`
@@ -13352,6 +13713,133 @@ function _renderApprovalsTable() {
       _resolveApproval(btn.dataset.id, decision, reason)
     })
   })
+
+  tbody.querySelectorAll('.approvals-verify-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      _openVerifyPicker(btn, btn.dataset.id, btn.dataset.agent)
+    })
+  })
+}
+
+// === Approvals: "verify before you approve" (Boss 2026-08-08) ===
+// Dispatches a review of a pending approval to 1+ agents (usually the free
+// OpenRouter test agents). Each gets an inter-agent task instructing it to
+// review the change and POST its pass/fail back to
+// /api/approvals/:id/verify-result -- the table cell then shows per-agent
+// status and an overall green check (all pass) or red X (any fail).
+function _approvalVerifyCellHtml(a) {
+  const verifications = a.verifications || []
+  if (verifications.length === 0) {
+    return `<button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:11px">${t('approvals.verify.start_btn')}</button>`
+  }
+  const pending = verifications.filter(v => v.status === 'pending')
+  const failed = verifications.filter(v => v.status === 'fail')
+  const passed = verifications.filter(v => v.status === 'pass')
+  const perAgent = verifications.map(v => {
+    const icon = v.status === 'pass' ? '✅' : v.status === 'fail' ? '❌' : '⏳'
+    const title = escapeAttr(v.report || '')
+    return `<span title="${title}" style="white-space:nowrap">${icon} ${escapeHtml(chatDisplayName(v.agent))}</span>`
+  }).join('<br>')
+  let summary
+  if (failed.length > 0) {
+    summary = `<div style="color:var(--danger);font-weight:700">${t('approvals.verify.summary_fail', { n: failed.length })}</div>`
+  } else if (pending.length > 0) {
+    summary = `<div style="color:var(--text-muted)">${t('approvals.verify.summary_pending', { done: passed.length, total: verifications.length })}</div>`
+  } else {
+    summary = `<div style="color:var(--success);font-weight:700">${t('approvals.verify.summary_pass')}</div>`
+  }
+  return `<div style="font-size:11px;line-height:1.5">${summary}<div style="margin-top:2px">${perAgent}</div>
+    <button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:10px;margin-top:4px">${t('approvals.verify.rerun_btn')}</button>
+  </div>`
+}
+
+let _verifyPickerPopover = null
+function _closeVerifyPicker() {
+  if (_verifyPickerPopover) { _verifyPickerPopover.remove(); _verifyPickerPopover = null }
+  document.removeEventListener('click', _verifyPickerOutsideClick, true)
+}
+function _verifyPickerOutsideClick(e) {
+  if (_verifyPickerPopover && !_verifyPickerPopover.contains(e.target)) _closeVerifyPicker()
+}
+
+async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
+  _closeVerifyPicker()
+  const pop = document.createElement('div')
+  pop.className = 'verify-picker-popover'
+  pop.innerHTML = `<p style="margin:0 0 8px;font-size:12px;color:var(--text-muted)">${t('approvals.verify.picker_loading')}</p>`
+  document.body.appendChild(pop)
+  _verifyPickerPopover = pop
+  const rect = anchorBtn.getBoundingClientRect()
+  pop.style.position = 'fixed'
+  pop.style.top = `${rect.bottom + 4}px`
+  pop.style.left = `${Math.max(8, rect.left - 100)}px`
+  setTimeout(() => document.addEventListener('click', _verifyPickerOutsideClick, true), 0)
+
+  let agentList
+  try {
+    const res = await fetch('/api/agents')
+    agentList = (await res.json()).filter(ag => ag.name !== requesterAgentId)
+  } catch {
+    pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--danger)">${t('common.error_save')}</p>`
+    return
+  }
+  if (!agentList.length) {
+    pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--text-muted)">${t('approvals.verify.no_agents')}</p>`
+    return
+  }
+  const freeNames = agentList.filter(ag => isFreeModel(ag.model)).map(ag => ag.name)
+  pop.innerHTML = `
+    <p style="margin:0 0 6px;font-size:12px;font-weight:600">${t('approvals.verify.picker_title')}</p>
+    <div class="verify-picker-list">
+      ${agentList.map(ag => `
+        <label class="verify-picker-item">
+          <input type="checkbox" value="${escapeAttr(ag.name)}" ${isFreeModel(ag.model) ? 'data-free="1"' : ''}>
+          ${escapeHtml(ag.displayName || ag.name)}${isFreeModel(ag.model) ? ` <span class="team-node-free-badge" style="position:static;display:inline-block">${escapeHtml(t('agents.free_badge'))}</span>` : ''}
+        </label>
+      `).join('')}
+    </div>
+    ${freeNames.length ? `<button class="btn-secondary btn-compact" id="verifyPickAllFree" style="font-size:11px;margin-top:6px;width:100%">${t('approvals.verify.pick_all_free')}</button>` : ''}
+    <button class="btn-primary btn-compact" id="verifyPickerGo" style="font-size:11px;margin-top:8px;width:100%">${t('approvals.verify.picker_go')}</button>
+  `
+  pop.querySelector('#verifyPickAllFree')?.addEventListener('click', () => {
+    pop.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = cb.dataset.free === '1' })
+  })
+  pop.querySelector('#verifyPickerGo').addEventListener('click', async () => {
+    const chosen = Array.from(pop.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value)
+    if (!chosen.length) return
+    const goBtn = pop.querySelector('#verifyPickerGo')
+    goBtn.disabled = true
+    goBtn.textContent = t('approvals.verify.dispatching')
+    try {
+      const res = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agents: chosen }),
+      })
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.error || 'HTTP ' + res.status)
+      if (result.failed && result.failed.length) {
+        showToast(t('approvals.verify.some_failed', { list: result.failed.map(f => `${f.agent}: ${f.error}`).join('; ') }))
+      } else {
+        showToast(t('approvals.verify.dispatched_ok', { n: result.dispatched.length }))
+      }
+      _closeVerifyPicker()
+      await loadApprovalsPage()
+    } catch (err) {
+      showToast(`${t('common.error_save')}: ${err.message}`)
+      goBtn.disabled = false
+      goBtn.textContent = t('approvals.verify.picker_go')
+    }
+  })
+}
+
+// Poll while any approval on the current page has a pending verification --
+// so the picker's pending spinners resolve to check/X marks without a manual
+// refresh once the dispatched agents report back.
+let _approvalsVerifyPollInterval = null
+function _approvalsHasPendingVerification() {
+  return (_approvalsAll || []).some(a => (a.verifications || []).some(v => v.status === 'pending'))
 }
 
 // Approvals created via the kanban-approval-workflow carry
@@ -13361,13 +13849,28 @@ function _renderApprovalsTable() {
 // categories (email_send, payment, ...) have no payload at all, hence the
 // try/catch -- absence is normal, not an error.
 function _approvalKanbanCardId(a) {
-  if (!a.action_payload) return null
-  try {
-    const parsed = typeof a.action_payload === 'string' ? JSON.parse(a.action_payload) : a.action_payload
-    return parsed && parsed.kanban_card_id ? String(parsed.kanban_card_id) : null
-  } catch {
-    return null
+  if (a.action_payload) {
+    try {
+      const parsed = typeof a.action_payload === 'string' ? JSON.parse(a.action_payload) : a.action_payload
+      if (parsed && parsed.kanban_card_id) return String(parsed.kanban_card_id)
+    } catch { /* fall through to the text-scrape fallback below */ }
   }
+  // Boss 2026-08-09/10: the kanban_done category (above) is the only one
+  // that carries a structured payload, but other categories (mostly
+  // marveen_kod_modositas review/verification requests) still reference a
+  // card in free text -- and not always the same way: leading "Kartya
+  // a67de6ad: ..." / "Karyta ef06b18d (..." (typo variants both seen live),
+  // but also mid-sentence "Kiegeszites cd992de5-hoz" or a trailing
+  // "kartya #cd992de5" with no fixed anchor point. First attempt anchored the
+  // match to the start of the description and still missed that second
+  // group -- Boss caught it live ("ezeknel megsincs"). Kanban card ids are
+  // consistently 8 lowercase-hex chars in this app (see linkifyKanbanRefs'
+  // own #([0-9a-f]{8}) pattern) while the git short-hashes these same
+  // descriptions mention ("Commit bccab9f", "Commit 7467cb6") are 7 chars,
+  // so an UNANCHORED 8-hex-char scan is unambiguous here -- no need to also
+  // require a "kartya" word or a leading '#'.
+  const m = a.action_description && a.action_description.match(/\b([0-9a-f]{8})\b/i)
+  return m ? m[1] : null
 }
 
 // Boss 2026-08-07: from an approval row, jump to the linked kanban card and
@@ -13684,7 +14187,17 @@ function _renderOpenRouterModelList(data) {
     listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('openrouterPage.no_usage_today')}</p>`
     return
   }
-  listEl.innerHTML = data.models.map(m => `
+  // Paid models first, then a divider, then free-tier (":free") models --
+  // same split as the Agents grid/org-chart/Activity tab, so "which of
+  // today's usage was actually free" is visible at a glance here too.
+  const paidModels = data.models.filter(m => !isFreeModel(m.model))
+  const freeModels = data.models.filter(m => isFreeModel(m.model))
+  const sortedModels = [...paidModels, ...freeModels]
+  listEl.innerHTML = sortedModels.map(m => {
+    const divider = (freeModels.length && m === freeModels[0])
+      ? `<div class="agent-tier-divider"><span>${escapeHtml(t('agents.tier_divider.free'))}</span></div>`
+      : ''
+    return divider + `
     <div class="debate-session-row" style="cursor:default">
       <div class="debate-session-row-main">
         <div class="debate-session-question">${escapeHtml(m.model)}</div>
@@ -13694,7 +14207,8 @@ function _renderOpenRouterModelList(data) {
         </div>
       </div>
       <div class="debate-badge debate-badge-pending" title="${escapeAttr(t('openrouterPage.per_model_cost_note'))}">${m.estCost === null ? t('openrouterPage.cost_unknown') : '~$' + m.estCost.toFixed(4)}</div>
-    </div>`).join('')
+    </div>`
+  }).join('')
 }
 
 document.getElementById('openrouterPageBrowseBtn')?.addEventListener('click', () => openOpenrouterModal())
@@ -15552,6 +16066,11 @@ function renderTuToolStats(data) {
 // ============================================================
 let emailAccount = null
 let emailMailbox = 'Inbox'
+// Promóciók view (kanban 8449bbac): a filtered view of Inbox, not a real
+// mailbox -- emailMailbox stays 'Inbox' (so read/reply/flag/move keep
+// working unchanged), this just tells the envelope fetch to ask for the
+// promo-only subset instead of the normal (promo-excluded) Inbox listing.
+let emailPromoOnly = false
 let emailEnvelopes = []
 let emailActiveId = null
 let emailActiveMailbox = null
@@ -15561,6 +16080,8 @@ let emailActiveMailbox = null
 let emailSiblingEnvelopes = {}
 let emailLoaded = false
 let emailAccounts = []
+let emailEnvelopeRequestId = 0
+let emailEnvelopeAbortController = null
 // Map, not Set: id -> mailbox. Nested subrows can live in a different
 // mailbox than the list's own (a Sent reply while browsing Inbox), so bulk
 // actions need to know each selected row's OWN mailbox, not just its id
@@ -15686,7 +16207,7 @@ const EMAIL_UI_STATE_KEY = 'marveen_email_ui_state'
 function saveEmailUiState() {
   try {
     localStorage.setItem(EMAIL_UI_STATE_KEY, JSON.stringify({
-      account: emailAccount, mailbox: emailMailbox, activeId: emailActiveId, activeMailbox: emailActiveMailbox,
+      account: emailAccount, mailbox: emailMailbox, promoOnly: emailPromoOnly, activeId: emailActiveId, activeMailbox: emailActiveMailbox,
     }))
   } catch { /* localStorage unavailable/full -- state just won't survive a refresh */ }
 }
@@ -15954,6 +16475,7 @@ async function loadEmailPage() {
     const saved = loadEmailUiState()
     emailAccount = (saved?.account && emailAccounts.some(a => a.id === saved.account)) ? saved.account : (emailAccounts[0]?.id || null)
     if (saved?.mailbox) emailMailbox = saved.mailbox
+    emailPromoOnly = !!saved?.promoOnly
     renderEmailAccountNav()
     if (emailAccount) {
       await loadEmailMailboxes()
@@ -15981,6 +16503,12 @@ function renderEmailAccountNav() {
       e.preventDefault()
       emailAccount = el.dataset.account
       emailMailbox = 'Inbox'
+      emailPromoOnly = false
+      const searchInput = document.getElementById('emailSearchInput')
+      if (searchInput) searchInput.value = ''
+      emailCloseSearchDropdown()
+      emailScopedMailboxCache = {}
+      emailAllMailboxNamesCache = null
       emailSelectedIds = new Map()
       emailActiveId = null
       emailActiveMailbox = null
@@ -16008,7 +16536,13 @@ async function loadEmailMailboxes() {
   // labels can be deleted, an IMAP DELETE on a system folder would break
   // Gmail's own folder structure (Boss, 2026-08-05, backend has the same
   // guard: SYSTEM_MAILBOXES in src/web/routes/email.ts).
-  const item = m => `<div class="email-mailbox-item${m.name === emailMailbox ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">${escapeHtml(emailMailboxDisplayName(m.name))}</div>`
+  const item = m => `<div class="email-mailbox-item${(m.name === emailMailbox && !(m.name === 'Inbox' && emailPromoOnly)) ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">${escapeHtml(emailMailboxDisplayName(m.name))}</div>`
+  // Promóciók (kanban 8449bbac): a FILTERED view of Inbox, not a real IMAP
+  // mailbox -- data-mailbox stays "Inbox" (so clicking it, then reading/
+  // replying/flagging a message, keeps working exactly like Inbox), the
+  // data-promo="1" marker is what the click handler below reads to flip
+  // emailPromoOnly instead of the mailbox itself.
+  const promoItem = `<div class="email-mailbox-item email-mailbox-item-promo${emailPromoOnly ? ' active' : ''}" data-mailbox="Inbox" data-promo="1">${escapeHtml(t('email.mailbox.promotions'))}</div>`
   // depth-indented, "/" tree: only the LAST path segment is shown as the
   // label text (the full path stays in data-mailbox for click/checkbox/API
   // use) -- a left border on the indent gives the Gmail-style guide line,
@@ -16019,7 +16553,11 @@ async function loadEmailMailboxes() {
   </div>`
   emailSelectedLabels = new Set([...emailSelectedLabels].filter(n => custom.some(m => m.name === n)))
   emailCustomMailboxesCache = custom
-  pane.innerHTML = system.map(item).join('')
+  // Boss, 2026-08-08: Bejövő/Elküldött/Piszkozatok kell hogy egymás után
+  // kövessék egymást szétválasztás nélkül -- Promóciók a Piszkozatok UTÁN,
+  // Spam ELŐTT megy.
+  const systemHtml = system.map(m => item(m) + (m.name === '[Gmail]/Piszkozatok' ? promoItem : '')).join('')
+  pane.innerHTML = systemHtml
     + (system.length && custom.length ? `<div class="email-mailbox-section-label">${escapeHtml(t('email.labels_section'))}</div>` : '')
     + renderEmailLabelTree(buildEmailLabelTree(custom), 0, labelItem)
     + `<div class="email-mailbox-item email-mailbox-new" id="emailNewMailboxBtn">${escapeHtml(t('email.new_label'))}</div>`
@@ -16032,6 +16570,10 @@ async function loadEmailMailboxes() {
     el.addEventListener('click', (e) => {
       if (e.target.closest('.email-mailbox-check')) return
       emailMailbox = el.dataset.mailbox
+      emailPromoOnly = el.dataset.promo === '1'
+      const searchInput = document.getElementById('emailSearchInput')
+      if (searchInput) searchInput.value = ''
+      emailCloseSearchDropdown()
       emailSelectedIds = new Map()
       emailActiveId = null
       emailActiveMailbox = null
@@ -16087,10 +16629,263 @@ async function loadEmailMailboxes() {
   await loadEmailEnvelopes()
 }
 
+document.getElementById('emailSearchForm')?.addEventListener('submit', (e) => {
+  e.preventDefault()
+  const input = document.getElementById('emailSearchInput')
+  if (emailCurrentSearchScope() === 'content') emailRunContentSearch(input?.value)
+})
+
+document.getElementById('emailSearchScope')?.addEventListener('change', () => {
+  const scope = emailCurrentSearchScope()
+  // Pre-warm the target data the moment it's picked, not the moment the
+  // first character lands -- by the time Boss starts typing there's usually
+  // already something to filter instead of a loading blip. Field scopes
+  // warm every mailbox at once since they all search the whole account.
+  if (scope.startsWith('mailbox:')) emailFetchMailboxEnvelopes(scope.slice(8))
+  else if (scope !== 'content') emailFetchAllMailboxEnvelopes()
+  emailUpdateSearchDropdown(document.getElementById('emailSearchInput')?.value || '')
+})
+
+// Every keystroke updates the results panel instantly (see
+// emailUpdateSearchDropdown) -- no debounce for from/to/subject/date/mailbox
+// scopes, plain in-memory filtering (mailbox scopes hit the network once per
+// target mailbox, then read from cache). Content is the one scope that
+// can't resolve client-side (IMAP body search): Enter/Keresés only, never
+// per keystroke. NONE of this ever touches column 2 or column 3 -- see the
+// comment on emailUpdateSearchDropdown for why.
+document.getElementById('emailSearchInput')?.addEventListener('input', (e) => {
+  const value = e.currentTarget.value
+  if (emailCurrentSearchScope() !== 'content') emailUpdateSearchDropdown(value)
+})
+
+document.getElementById('emailSearchInput')?.addEventListener('search', (e) => {
+  if (e.currentTarget.value) return
+  emailCloseSearchDropdown()
+})
+
+document.getElementById('emailSearchInput')?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return
+  e.currentTarget.value = ''
+  emailCloseSearchDropdown()
+})
+
 function emailFmtDate(iso) {
   // Boss switched the dashboard to English and still saw Hungarian-format
   // dates here -- this locale was hardcoded independent of window._lang.
   try { return new Date(iso).toLocaleString(window._lang === 'en' ? 'en-US' : 'hu-HU', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) } catch { return iso }
+}
+
+// Same accent-fold as buildHimalayaSearchArgs server-side (src/web/email-search.ts)
+// plus lowercasing, so "TÜV"/"tuv" and "videó"/"video" are equivalent here too.
+function emailFoldSearchText(value) {
+  return (value || '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+function emailPeopleText(people) {
+  return (people || []).map(p => `${p?.name || ''} ${p?.email || ''}`).join(' ')
+}
+
+// One envelope's searchable text for a given field scope, used by the
+// results panel (emailUpdateSearchDropdown) against raw envelope objects --
+// either the currently loaded emailEnvelopes, or a fetched-on-demand mailbox
+// (emailFetchMailboxEnvelopes) for the mailbox: scopes.
+function emailEnvelopeScopeText(e, scope) {
+  if (scope === 'from') return emailPeopleText(e.from)
+  if (scope === 'to') return emailPeopleText(e.to)
+  if (scope === 'subject') return e.subject || ''
+  if (scope === 'date') return `${e.date || ''} ${emailFmtDate(e.date)}`
+  return [emailPeopleText(e.from), emailPeopleText(e.to), e.subject || '', e.date || '', emailFmtDate(e.date)].join(' ')
+}
+
+function emailCurrentSearchScope() {
+  return document.getElementById('emailSearchScope')?.value || 'all'
+}
+
+// One page-load's worth of "search this specific mailbox regardless of what
+// column 1/2 is currently browsing" (Boss, 2026-08-09 voice messages: "hogy
+// a beérkező levelekből keressen csak, az elküldöttekből keressen... a
+// kukából"), keyed by account+mailbox so switching accounts doesn't leak the
+// old account's mail into a still-cached mailbox name. Cleared on account
+// switch (see the account-link click handler above).
+let emailScopedMailboxCache = {}
+async function emailFetchMailboxEnvelopes(mailboxName) {
+  const cacheKey = `${emailAccount}::${mailboxName}`
+  if (emailScopedMailboxCache[cacheKey]) return emailScopedMailboxCache[cacheKey]
+  const params = new URLSearchParams({ account: emailAccount, mailbox: mailboxName })
+  let list
+  try { list = await (await fetch(`/api/email/envelopes?${params}`)).json() } catch { list = null }
+  const result = Array.isArray(list) ? list : []
+  emailScopedMailboxCache[cacheKey] = result
+  return result
+}
+
+// Boss, 2026-08-09: "ha feladóra keresek, vagy címzetre, akkor az egész
+// levéltárba keressen" -- from/to/subject/date/all (everything except the
+// explicit mailbox: shortcuts and content) search EVERY mailbox on the
+// account, not just whatever column 1/2 happens to be browsing. Cached
+// per-mailbox via emailFetchMailboxEnvelopes so this is a one-time warm-up
+// (see the scope-change listener's pre-warm call) rather than a per-
+// keystroke cost.
+let emailAllMailboxNamesCache = null
+async function emailGetAllMailboxNames() {
+  if (emailAllMailboxNamesCache) return emailAllMailboxNamesCache
+  let list
+  try { list = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json() } catch { list = null }
+  emailAllMailboxNamesCache = Array.isArray(list) ? list.map(m => m.name).filter(Boolean) : []
+  return emailAllMailboxNamesCache
+}
+async function emailFetchAllMailboxEnvelopes() {
+  const names = await emailGetAllMailboxNames()
+  const lists = await Promise.all(names.map(emailFetchMailboxEnvelopes))
+  const merged = []
+  names.forEach((name, i) => { (lists[i] || []).forEach(e => merged.push({ ...e, mailbox: name })) })
+  return merged
+}
+
+// Boss, 2026-08-09 (several voice messages, correcting the first attempt at
+// this): himalaya/IMAP SEARCH is whole-word only, so a from/to/subject/date
+// search needs to run client-side to feel like real character-by-character
+// narrowing -- but it must ONLY ever write into this results panel. Column 2
+// (the mailbox list) and column 3 (whatever message is open) stay exactly
+// as they were: "ne szűküljön... addig a pillanatig, amíg rá nem
+// kattintottam az egyik levélre" -- only actually clicking a result in this
+// panel (see emailRenderSearchDropdown) is allowed to change what they show.
+// "mailbox:X" scopes search a SPECIFIC mailbox regardless of which one is
+// currently browsed; the plain field scopes (all/from/to/subject/date)
+// search EVERY mailbox on the account (emailFetchAllMailboxEnvelopes).
+// "content" is the one scope that can't resolve here at all -- see
+// emailRunContentSearch, Enter/Keresés only.
+let emailSearchDropdownToken = 0
+async function emailUpdateSearchDropdown(rawValue) {
+  const folded = emailFoldSearchText(rawValue)
+  const scope = emailCurrentSearchScope()
+  const token = ++emailSearchDropdownToken
+  if (!folded) { emailCloseSearchDropdown(); return }
+  if (scope === 'content') return
+  // A cold cache (first search after opening the page, or after switching
+  // scope) can take a moment across many mailboxes -- show that instead of
+  // leaving stale/no content sitting there while it loads.
+  const dropdown = document.getElementById('emailSearchResultsDropdown')
+  if (dropdown) dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('common.loading'))}</div>`
+  if (scope.startsWith('mailbox:')) {
+    const targetMailbox = scope.slice(8)
+    const list = await emailFetchMailboxEnvelopes(targetMailbox)
+    if (token !== emailSearchDropdownToken) return // superseded by a newer keystroke/scope change
+    const matches = list.filter(e => emailFoldSearchText(emailEnvelopeScopeText(e, 'all')).includes(folded))
+    emailRenderSearchDropdown(matches, targetMailbox)
+    return
+  }
+  const all = await emailFetchAllMailboxEnvelopes()
+  if (token !== emailSearchDropdownToken) return
+  const matches = all.filter(e => emailFoldSearchText(emailEnvelopeScopeText(e, scope)).includes(folded))
+  emailRenderSearchDropdown(matches, null)
+}
+
+// `defaultMailbox` is used when the items in `list` don't already carry
+// their own -- a single mailbox: target, or a current-mailbox content
+// search. The cross-mailbox field-scope search tags every item with its own
+// `.mailbox` already (see emailFetchAllMailboxEnvelopes), which takes
+// priority since results there can span several different mailboxes at once.
+function emailRenderSearchDropdown(list, defaultMailbox) {
+  const dropdown = document.getElementById('emailSearchResultsDropdown')
+  if (!dropdown) return
+  if (!list.length) {
+    dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_empty'))}</div>`
+    return
+  }
+  dropdown.innerHTML = list.map(e => {
+    const from = e.from?.[0]?.name || e.from?.[0]?.email || t('email.unknown_sender')
+    const mailbox = e.mailbox || defaultMailbox
+    return `<div class="email-search-result-item" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(mailbox)}">
+      <span class="email-search-result-from">${escapeHtml(from)}</span>
+      <span class="email-search-result-subject">${escapeHtml(e.subject || t('email.no_subject'))}</span>
+      <span class="email-search-result-date">${emailFmtDate(e.date)}</span>
+    </div>`
+  }).join('')
+  // Same order as the list.map() above -- passing the envelope straight
+  // through covers loadEmailMessage's cross-mailbox case (see its comment)
+  // without a redundant re-fetch of data this panel already has.
+  dropdown.querySelectorAll('.email-search-result-item').forEach((el, i) => {
+    el.addEventListener('click', () => emailOpenSearchResult(el.dataset.id, el.dataset.mailbox, list[i]))
+  })
+}
+
+// Clicking a result should look exactly like actually navigating there by
+// hand (Boss, 2026-08-09: "mintha én bementem volna... és kijelölök" --
+// column 1's mailbox/label highlighted, column 2 showing that mailbox's own
+// list with the row selected, THEN column 3 open), not just column 3 popping
+// up content with columns 1/2 left showing wherever they happened to be.
+async function emailOpenSearchResult(id, mailbox, envelopeHint) {
+  // Search results are always fetched promo-EXCLUDED (see
+  // emailFetchMailboxEnvelopes / emailFetchAllMailboxEnvelopes -- neither
+  // one passes promoOnly), so a result landing in "Inbox" while column 2 is
+  // showing the Promóciók-filtered subset (emailPromoOnly=true) would look
+  // like a mailbox "match" but the row still isn't in that DOM. Silently
+  // missing from removeEmailRowsLocally's lookup later forced its full-column
+  // reload fallback on delete (Boss, 2026-08-09: "nem csak az az egy
+  // törlődött ki, hanem betöltődött az egész második oszlop") -- always
+  // dropping back to the non-promo view here keeps column 2 actually
+  // containing whatever was just opened, so that fallback never has to fire.
+  if (mailbox && (mailbox !== emailMailbox || emailPromoOnly)) {
+    emailMailbox = mailbox
+    emailPromoOnly = false
+    emailSelectedIds = new Map()
+    await loadEmailMailboxes() // re-renders column 1 (active mailbox) + column 2 (its list), see its own comment
+    // With dozens of labels, the newly-active one can land off-screen in
+    // column 1's own scroll area -- same "tekeljen bele, hozzá föl" ask as
+    // loadEmailMessage's column-2 scroll below. 'center' (not 'nearest') --
+    // Boss, 2026-08-09: 'nearest' only scrolled the bare minimum, so a
+    // long-way-down label landed pinned right at the bottom edge instead of
+    // somewhere actually comfortable to look at.
+    document.querySelector(`.email-mailbox-item[data-mailbox="${CSS.escape(mailbox)}"]`)?.scrollIntoView({ block: 'center' })
+  }
+  await loadEmailMessage(id, mailbox, envelopeHint)
+  // Scrolling only happens here, on a search-driven open -- NOT inside
+  // loadEmailMessage itself, which also runs on a plain in-list click where
+  // the row is already visible and re-centering it would just be an
+  // unwanted jump every time. Same 'center' reasoning as column 1 above.
+  document.querySelector(`.email-envelope-item[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"], .email-envelope-subrow[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)?.scrollIntoView({ block: 'center' })
+}
+
+// Resets the panel to its idle hint -- NOT a popover close, this panel is
+// always visible (Boss: "fix panel"), only its content ever changes.
+// Idle state is just empty -- the "start typing" hint lives in the search
+// input's own placeholder now (Boss, 2026-08-09: he read it as an
+// instruction to type INTO this panel, when the actual typing happens in
+// the input box to its left).
+// Boss, 2026-08-09: the idle box needs a label saying what it's FOR, not
+// the "start typing" instruction (that already lives in the input's own
+// placeholder -- see index.html) -- a description of the box's purpose,
+// distinct from the typing prompt, matching standard empty-state UX
+// practice (describe what belongs here, don't just leave it blank/generic).
+function emailCloseSearchDropdown() {
+  const dropdown = document.getElementById('emailSearchResultsDropdown')
+  if (dropdown) dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('email.search_results_placeholder'))}</div>`
+}
+
+// Content scope: the one thing that has to leave the machine (IMAP body
+// search), so it only runs on Enter/Keresés (not per keystroke) and only
+// ever populates this panel -- see emailUpdateSearchDropdown's comment for
+// why column 2 and the open reader pane are never touched by it. Same "az
+// egész levéltárba keressen" rule as the field scopes -- fires one himalaya
+// search per mailbox in parallel and merges the results, rather than only
+// searching whatever's currently browsed.
+async function emailRunContentSearch(rawValue) {
+  const query = (rawValue || '').trim().slice(0, 200)
+  const dropdown = document.getElementById('emailSearchResultsDropdown')
+  const token = ++emailSearchDropdownToken
+  if (!query || !dropdown || !emailAccount) { emailCloseSearchDropdown(); return }
+  dropdown.innerHTML = `<div class="email-search-results-empty">${escapeHtml(t('common.loading'))}</div>`
+  const names = await emailGetAllMailboxNames()
+  if (token !== emailSearchDropdownToken) return
+  const lists = await Promise.all(names.map(async name => {
+    const params = new URLSearchParams({ account: emailAccount, mailbox: name, q: query })
+    let list
+    try { list = await (await fetch(`/api/email/envelopes?${params}`)).json() } catch { list = null }
+    return Array.isArray(list) ? list.map(e => ({ ...e, mailbox: name })) : []
+  }))
+  if (token !== emailSearchDropdownToken) return
+  emailRenderSearchDropdown(lists.flat(), null)
 }
 
 function emailUpdateBulkDeleteUI() {
@@ -16366,6 +17161,10 @@ async function loadEmailEnvelopes() {
   // now, must survive reloads).
   const pane = document.getElementById('emailEnvelopeList')
   if (!pane || !emailAccount) return
+  const requestId = ++emailEnvelopeRequestId
+  emailEnvelopeAbortController?.abort()
+  const controller = new AbortController()
+  emailEnvelopeAbortController = controller
   pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   // No selection reset here -- opening a message marks it read, which
   // silently reloads this same list a moment later (see loadEmailMessage
@@ -16374,8 +17173,20 @@ async function loadEmailEnvelopes() {
   // "nem kellene hogy eltunjon a kijeloles"). Only an actual mailbox/account
   // switch clears it now (see those click handlers above).
   emailUpdateBulkDeleteUI()
+  // No `q` param here anymore -- this always loads the plain mailbox
+  // listing now. Search (all scopes) only ever writes into the results
+  // panel (emailUpdateSearchDropdown / emailRunContentSearch), never here.
   const params = new URLSearchParams({ account: emailAccount, mailbox: emailMailbox })
-  const list = await (await fetch(`/api/email/envelopes?${params}`)).json()
+  if (emailPromoOnly) params.set('promoOnly', '1')
+  let list
+  try {
+    list = await (await fetch(`/api/email/envelopes?${params}`, { signal: controller.signal })).json()
+  } catch (err) {
+    if (err?.name === 'AbortError' || requestId !== emailEnvelopeRequestId) return
+    pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`
+    return
+  }
+  if (requestId !== emailEnvelopeRequestId) return
   if (!Array.isArray(list)) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`; return }
   emailEnvelopes = list
   if (!list.length) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailbox_empty'))}</div>`; return }
@@ -16687,7 +17498,7 @@ function renderEmailMessageBody(msg) {
 // but a nested reply-sibling row (see loadEmailEnvelopes) lives in Sent and
 // passes it explicitly -- the reader always shows exactly one message's
 // content; conversation grouping is the list pane's job (Boss, 2026-08-05).
-async function loadEmailMessage(id, mailbox = emailMailbox) {
+async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null) {
   emailActiveId = id
   emailActiveMailbox = mailbox
   saveEmailUiState()
@@ -16698,7 +17509,14 @@ async function loadEmailMessage(id, mailbox = emailMailbox) {
   // call site, or the saved-state string on an F5 restore) -- same
   // string-vs-number Map/equality mismatch already fixed elsewhere in this
   // file for the checkbox/active-row checks (Boss, 2026-08-05).
-  const envelope = mailbox === emailMailbox ? emailEnvelopes.find(e => String(e.id) === id) : emailSiblingEnvelopes[id]
+  // envelopeHint covers a THIRD case beyond the two below: a result opened
+  // straight from the header search panel (emailRenderSearchDropdown) can
+  // point at a mailbox that's neither the one currently browsed nor a
+  // cached Sent-sibling -- e.g. a "mailbox:[Gmail]/Kuka" match while
+  // browsing Inbox. The panel already has the full envelope object in hand
+  // from its own fetch, so it just hands it straight through instead of
+  // this function needing yet another round trip to re-fetch it.
+  const envelope = mailbox === emailMailbox ? emailEnvelopes.find(e => String(e.id) === id) : (emailSiblingEnvelopes[id] || envelopeHint)
   const pane = document.getElementById('emailReaderPane')
   const content = document.getElementById('emailReaderContent')
   const subjectRow = document.getElementById('emailReaderSubjectRow')
@@ -18450,7 +19268,7 @@ async function openResearchDoc(agent, name) {
   // comments -- no editing affordances. Restore button mirrors the card button.
   async function showArchivedDetail(card) {
     const seqPrefix = card.seq != null ? `#${card.seq} ` : ''
-    document.getElementById('archivedDetailTitle').textContent = `${seqPrefix}${card.title}`
+    document.getElementById('archivedDetailTitle').innerHTML = linkifyKanbanRefs(`${seqPrefix}${card.title}`)
     const meta = document.getElementById('archivedDetailMeta')
     const idLabel = (card.seq != null ? `#${card.seq} · ` : '') + card.id
     meta.innerHTML = `
@@ -18471,7 +19289,7 @@ async function openResearchDoc(agent, name) {
     } else {
       labelsWrap.style.display = 'none'
     }
-    document.getElementById('archivedDetailDesc').textContent = card.description || ''
+    document.getElementById('archivedDetailDesc').innerHTML = linkifyKanbanRefs(card.description || '')
 
     const commentsWrap = document.getElementById('archivedDetailCommentsWrap')
     const commentsBox = document.getElementById('archivedDetailComments')
@@ -18484,7 +19302,7 @@ async function openResearchDoc(agent, name) {
           const date = new Date(c.created_at * 1000).toLocaleString('hu-HU')
           const div = document.createElement('div')
           div.className = 'comment-item'
-          div.innerHTML = `<div><span class="comment-author">${esc(c.author)}</span><span class="comment-date">${date}</span></div><div class="comment-body">${esc(c.content)}</div>`
+          div.innerHTML = `<div><span class="comment-author">${esc(c.author)}</span><span class="comment-date">${date}</span></div><div class="comment-body">${linkifyKanbanRefs(c.content)}</div>`
           commentsBox.appendChild(div)
         }
         commentsWrap.style.display = ''

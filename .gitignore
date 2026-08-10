@@ -38,6 +38,12 @@ CLAUDE.md
 # Agent persona / soul (per-operator personality; never ship upstream)
 SOUL.md
 
+# Exception: this operator's personal-backup/ snapshot of CLAUDE.md/SOUL.md
+# (personal-backup/backup.sh) is deliberately tracked -- see personal-backup/
+# README.md. The live, gitignored CLAUDE.md/SOUL.md above are unaffected.
+!personal-backup/config/CLAUDE.md
+!personal-backup/config/SOUL.md
+
 # Custom MCP servers and config (user-specific)
 mcp-servers/
 .mcp.json

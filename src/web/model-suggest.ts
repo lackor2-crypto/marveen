@@ -72,6 +72,30 @@ const MODEL_COST_PER_M: Record<string, number> = {
   'claude-haiku-4-5': 0.80,
 }
 
+// Like modelCostPerM() below, but returns null for anything not in the known
+// Claude-tier table instead of silently defaulting to Sonnet's $3/M -- used
+// where the number is shown to Boss as a fact (the paid-agent cost badge on
+// the Agents grid), where a wrong guess is worse than no badge at all. Not
+// used by the internal cost-comparison in buildReason(), which only needs a
+// consistent baseline for a relative "cheaper/pricier" delta, not a real price.
+export function knownModelCostPerM(model: string): number | null {
+  const base = model.replace(/\[.*\]$/, '').trim()
+  for (const [prefix, cost] of Object.entries(MODEL_COST_PER_M)) {
+    if (base.startsWith(prefix)) return cost
+  }
+  return null
+}
+
+// CLAUDE.md files carry auto-generated boilerplate between these markers
+// (fleet-roster, autonomy-wiring -- see agent-scaffold.ts) that's identical
+// across every agent, not persona-authored content. Left in, its own wording
+// ("Döntés lekérdezése", the approval-request curl examples) falsely counts
+// as an opus-tier "dönt/decision" signal for every single agent, Claude or
+// OpenRouter alike -- strip it before keyword scoring.
+function stripGeneratedSections(text: string): string {
+  return text.replace(/<!-- BEGIN GENERATED:[\s\S]*?<!-- END GENERATED:[^\n]*-->/g, '')
+}
+
 function countKeywordHits(text: string, keywords: string[]): number {
   const lower = text.toLowerCase()
   return keywords.filter(kw => {
@@ -235,6 +259,7 @@ export function classifyPersona(
   personaText: string,
   contextTokens = 0,
 ): ModelSuggestion {
+  personaText = stripGeneratedSections(personaText)
   const opusHits = countKeywordHits(personaText, OPUS_KEYWORDS)
   const haikuHits = countKeywordHits(personaText, HAIKU_KEYWORDS)
 
@@ -299,17 +324,31 @@ export function suggestForAgent(
     }
   }
 
-  // Keyword scoring (persona-based)
+  // Keyword scoring (persona-based) -- strip auto-generated boilerplate
+  // (fleet-roster/autonomy-wiring) first, see stripGeneratedSections().
+  personaText = stripGeneratedSections(personaText)
   const opusKeyHits = countKeywordHits(personaText, OPUS_KEYWORDS)
   const haikuKeyHits = countKeywordHits(personaText, HAIKU_KEYWORDS)
 
-  // Signal scoring (runtime observations)
+  // Signal scoring (runtime observations). Skipped for agents already on a
+  // free OpenRouter model: tokenAvgInputPerCall/mcpServerCount/etc. exist to
+  // flag when a PAID agent's workload has outgrown its tier -- cost and
+  // capacity tradeoffs that don't apply to a $0 model. Boss 2026-08-08:
+  // Ling and North (free-tier test agents) got pushed to "suggest Opus"
+  // purely because a couple of verification tasks happened to read large
+  // git diffs (high tokens/call) -- that's not a reason to steer someone
+  // off a model they're deliberately using for free. Persona-keyword signals
+  // (opusKeyHits/haikuKeyHits) still apply -- those describe what the agent
+  // IS, not how much text one particular call happened to move.
+  const isCurrentlyFree = /\/.*:free$/i.test(currentModel)
   let opusSignalHits = 0
   let haikuSignalHits = 0
-  if ((s.tokenAvgInputPerCall ?? 0) > 10_000) opusSignalHits++
-  if ((s.mcpServerCount ?? 0) >= 4) opusSignalHits++
-  if ((s.kanbanUrgentCount ?? 0) >= 2) opusSignalHits++
-  if ((s.scheduledFreqPerDay ?? 0) >= 10) haikuSignalHits++
+  if (!isCurrentlyFree) {
+    if ((s.tokenAvgInputPerCall ?? 0) > 10_000) opusSignalHits++
+    if ((s.mcpServerCount ?? 0) >= 4) opusSignalHits++
+    if ((s.kanbanUrgentCount ?? 0) >= 2) opusSignalHits++
+    if ((s.scheduledFreqPerDay ?? 0) >= 10) haikuSignalHits++
+  }
 
   const totalOpus = opusKeyHits + opusSignalHits
   const totalHaiku = haikuKeyHits + haikuSignalHits
@@ -317,7 +356,15 @@ export function suggestForAgent(
   let suggestedModel: ModelId
   if (totalOpus >= 2) suggestedModel = 'claude-opus-4-8[1m]'
   else if (totalHaiku >= 2 && totalOpus === 0) suggestedModel = 'claude-haiku-4-5-20251001'
-  else suggestedModel = 'claude-sonnet-5'
+  // No strong signal either way. Defaulting to Sonnet here used to flag every
+  // non-Claude agent (any OpenRouter model, e.g. "google/gemma-4-31b-it:free")
+  // as needing a change purely because it isn't literally 'claude-sonnet-5' --
+  // Boss 2026-08-08: caught this recommending Opus for agents deliberately
+  // running free OpenRouter models for testing, with no actual signal behind
+  // it. Absent a real complexity/haiku signal, stay on whatever the agent is
+  // already running (Claude or OpenRouter) instead of asserting a Claude
+  // default onto a deliberate provider choice.
+  else suggestedModel = currentModel
 
   const changeAdvised = normalize(suggestedModel) !== normalize(currentModel)
 

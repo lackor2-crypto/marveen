@@ -8,7 +8,9 @@ import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
-import { readMessageBodyDirect, messageStillExists } from '../email-imap.js'
+import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect } from '../email-imap.js'
+import { buildHimalayaSearchArgs, normalizeEmailSearchQuery } from '../email-search.js'
+import { isPromotionalEnvelope } from '../../email-promo-classify.js'
 import type { RouteContext } from './types.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -702,6 +704,15 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
     const cached = cacheGet(mailboxListCache, account as string)
     if (cached) { json(res, cached); return true }
+    // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
+    if (!existsSync(IMAP_DIRECT_KILL_SWITCH)) {
+      const direct = await listMailboxesDirect(account as string)
+      if (direct) {
+        cacheSet(mailboxListCache, account as string, direct, MAILBOX_LIST_TTL_MS)
+        json(res, direct)
+        return true
+      }
+    }
     const r = await himalayaRead(['-a', account as string, 'mailbox', 'list', '--json'])
     if (!r.ok) { logger.warn(`[email] mailbox list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     try {
@@ -752,16 +763,44 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/email/envelopes' && method === 'GET') {
     const account = url.searchParams.get('account')
     const mailbox = url.searchParams.get('mailbox') || 'Inbox'
-    const page = url.searchParams.get('page') || '1'
+    const page = parseInt(url.searchParams.get('page') || '1', 10)
+    const pageSize = 50
+    const query = normalizeEmailSearchQuery(url.searchParams.get('q'))
+    // Promóciók view (kanban 8449bbac): Gmail's Promotions category isn't an
+    // IMAP folder, so it's a rule-based filter over the Inbox listing rather
+    // than a separate mailbox -- promoOnly=1 shows ONLY the matches, and the
+    // normal Inbox listing (promoOnly unset) excludes them so they stop
+    // showing up mixed into the regular inbox. Only applies to Inbox; other
+    // mailboxes (Sent, labels, ...) are returned unfiltered regardless of the
+    // param, since the heuristic was only ever validated against Inbox mail.
+    const promoOnly = url.searchParams.get('promoOnly') === '1'
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
-    const envelopeCacheKey = `${account}::${mailbox}::${page}`
+    const envelopeCacheKey = `${account}::${mailbox}::${page}::${query}::${mailbox === 'Inbox' ? (promoOnly ? 'promo' : 'nopromo') : 'all'}`
     const cachedEnvelopes = cacheGet(envelopeListCache, envelopeCacheKey)
     if (cachedEnvelopes) { json(res, cachedEnvelopes); return true }
-    const r = await himalayaRead(['-a', account as string, 'envelope', 'list', '-m', mailbox, '-p', page, '-s', '50', '--json'])
+    // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
+    if (!existsSync(IMAP_DIRECT_KILL_SWITCH)) {
+      const direct = await listEnvelopesDirect(account as string, mailbox, page, pageSize, query || undefined)
+      if (direct) {
+        let envelopes = direct
+        if (mailbox === 'Inbox') {
+          envelopes = envelopes.filter((e: unknown) => isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0]) === promoOnly)
+        }
+        cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
+        json(res, envelopes)
+        return true
+      }
+    }
+    const envelopeCommand = query ? ['envelope', 'search'] : ['envelope', 'list']
+    const searchArgs = query ? buildHimalayaSearchArgs(query) : []
+    const r = await himalayaRead(['-a', account as string, ...envelopeCommand, '-m', mailbox, '-p', String(page), '-s', '50', '--json', ...searchArgs])
     if (!r.ok) { logger.warn(`[email] envelope list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     try {
       const parsed = JSON.parse(r.stdout)
-      const envelopes = parsed.envelopes || []
+      let envelopes = parsed.envelopes || []
+      if (mailbox === 'Inbox') {
+        envelopes = envelopes.filter((e: unknown) => isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0]) === promoOnly)
+      }
       cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
       json(res, envelopes)
     } catch {

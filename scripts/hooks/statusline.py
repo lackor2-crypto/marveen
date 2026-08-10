@@ -39,6 +39,30 @@ def read_env_value(env_path, key):
     return None
 
 
+def find_project_root(cwd):
+    """Walk upward from cwd looking for the Marveen project root, identified
+    by a .env file containing MAIN_AGENT_ID -- the standard "marker file"
+    root-detection pattern (same idea as git/npm/eslint climbing to find
+    .git/package.json), used here because __file__ can't do this job: this
+    script gets copied into ~/.claude/hooks/ at install time
+    (install-statusline.sh), completely detached from the repo it came from.
+    A fixed "__file__ is two dirs below project root" assumption pointed at
+    the wrong directory once installed there, which is why
+    store/rate-limit-status/ stayed empty forever (Boss, 2026-08-09) instead
+    of just needing time to fill in."""
+    if not cwd:
+        return None
+    d = os.path.abspath(cwd)
+    while True:
+        env_path = os.path.join(d, '.env')
+        if os.path.isfile(env_path) and read_env_value(env_path, 'MAIN_AGENT_ID') is not None:
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
 def resolve_agent_id(cwd, project_root, agents_base):
     if not cwd:
         return None
@@ -113,12 +137,10 @@ def main():
     five_hour = window_or_none(rate_limits.get('five_hour'))
     seven_day = window_or_none(rate_limits.get('seven_day'))
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(script_dir))  # scripts/hooks -> scripts -> project root
-    agents_base = os.path.join(project_root, 'agents')
+    project_root = find_project_root(cwd)
 
     try:
-        agent_id = resolve_agent_id(cwd, project_root, agents_base)
+        agent_id = resolve_agent_id(cwd, project_root, os.path.join(project_root, 'agents')) if project_root else None
         if agent_id:
             snapshot = {
                 'agent': agent_id,

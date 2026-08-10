@@ -57,4 +57,15 @@ describe('dashboard modal CSS contract', () => {
       expect(body!).toMatch(/display\s*:\s*none/i)
     },
   )
+
+  it('hides email attachments before the primary reader at narrow desktop widths', () => {
+    const breakpoint = css.indexOf('@media (max-width: 1300px)')
+    const stackedBreakpoint = css.indexOf('@media (max-width: 900px)', breakpoint)
+    expect(breakpoint, 'missing narrow-desktop email breakpoint').toBeGreaterThanOrEqual(0)
+    expect(stackedBreakpoint, 'missing stacked email breakpoint').toBeGreaterThan(breakpoint)
+
+    const narrowDesktopCss = css.slice(breakpoint, stackedBreakpoint)
+    expect(narrowDesktopCss).toMatch(/\.email-pane-attachments\s*{[^}]*display\s*:\s*none/i)
+    expect(narrowDesktopCss).not.toMatch(/\.email-pane-reader\s*{[^}]*display\s*:\s*none/i)
+  })
 })

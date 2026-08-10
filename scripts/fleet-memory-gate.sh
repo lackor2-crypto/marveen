@@ -58,7 +58,12 @@ MAIN_AGENT_ID="$(_env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-marve
 
 WARN_PCT="${MARVEEN_MEM_WARN_PCT:-80}"
 HARD_PCT="${MARVEEN_MEM_HARD_PCT:-90}"
-AGENT_CAP="${MARVEEN_AGENT_CAP:-12}"
+# Real env var wins (lets an operator override per-invocation without touching
+# .env); otherwise fall back to .env, like MAIN_AGENT_ID above -- a hand-edited
+# .env is the documented way to configure this script (see file header), but
+# only MAIN_AGENT_ID actually read it until now.
+_AGENT_CAP_ENV="$(_env_val MARVEEN_AGENT_CAP)"
+AGENT_CAP="${MARVEEN_AGENT_CAP:-${_AGENT_CAP_ENV:-12}}"
 # Core = never-throttled agents. Defaults to THIS install's main agent so the
 # primary bot always survives the safe-mode band; override with MARVEEN_CORE_AGENTS.
 CORE_AGENTS="${MARVEEN_CORE_AGENTS:-$MAIN_AGENT_ID}"

@@ -106,7 +106,7 @@ import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
-import { detectPaneState, detectPermissionMode } from '../../pane-state.js'
+import { detectPaneState, detectPermissionMode, paneShowsLiveWork } from '../../pane-state.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
 import { readAutoRestartConfig, writeAutoRestartConfig } from '../auto-restart-store.js'
@@ -133,7 +133,29 @@ import {
   fleetBundleFilename,
 } from '../agent-bundle.js'
 import type { RouteContext } from './types.js'
-import { suggestForAgent, type AgentSignals } from '../model-suggest.js'
+import { suggestForAgent, knownModelCostPerM, type AgentSignals } from '../model-suggest.js'
+
+// Real $/1M-input-token price for a paid agent's cost badge. Claude tiers are
+// a fast, static lookup (knownModelCostPerM); anything else that looks like
+// an OpenRouter id (has a '/') and isn't a ":free" model goes through the
+// SAME cached (6h TTL) OpenRouter catalog fetch the model-browser popup
+// already uses -- real, live pricing, not a guess, and only one actual
+// network call per cache window no matter how many agents ask.
+// Boss 2026-08-08: caught that Gypsy (a genuinely paid ~openai/gpt-latest
+// agent) showed no badge at all -- it just wasn't a Claude id, so
+// knownModelCostPerM correctly returned null, but nothing tried the
+// OpenRouter catalog as a second source.
+async function resolveCostPerMInput(model: string): Promise<number | null> {
+  const known = knownModelCostPerM(model)
+  if (known !== null) return known
+  if (!model.includes('/') || model.toLowerCase().endsWith(':free')) return null
+  try {
+    const models = await fetchAllOpenRouterModels(Date.now())
+    return models.find(m => m.id === model)?.promptPrice ?? null
+  } catch {
+    return null
+  }
+}
 import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
 
@@ -383,6 +405,10 @@ interface AgentSummary {
   /** The concrete model id this agent resolves to. Unchanged meaning: for a
    *  config that names a `model`, this is exactly what it always was. */
   model: string
+  /** $/1M input tokens for `model`, only when it's a known Claude tier --
+   *  null (never guessed) for OpenRouter/unknown models. Drives the paid-
+   *  agent cost badge on the Agents grid. */
+  costPerMInput: number | null
   /** Card c755f4b2 Block B: how `model` was arrived at. Metadata only -- it
    *  reports the existing resolution, it does not change it. */
   modelProfile: string | null
@@ -430,7 +456,7 @@ interface AgentDetail extends AgentSummary {
   hasApiKey: boolean
 }
 
-function getAgentSummary(name: string): AgentSummary {
+async function getAgentSummary(name: string): Promise<AgentSummary> {
   const dir = agentDir(name)
   const configRoot = agentConfigRoot(name)
   const claudeMd = readFileOr(join(configRoot, 'CLAUDE.md'), '')
@@ -466,6 +492,7 @@ function getAgentSummary(name: string): AgentSummary {
     displayName: readAgentDisplayName(name),
     description: extractDescriptionFromClaudeMd(claudeMd),
     model: modelResolution.model,
+    costPerMInput: await resolveCostPerMInput(modelResolution.model),
     modelProfile: typeof agentModelConfig.modelProfile === 'string' ? agentModelConfig.modelProfile : null,
     modelSource: modelResolution.source,
     modelProfileError: modelResolution.error ?? null,
@@ -494,10 +521,10 @@ function getAgentSummary(name: string): AgentSummary {
   }
 }
 
-function getAgentDetail(name: string): AgentDetail {
+async function getAgentDetail(name: string): Promise<AgentDetail> {
   const dir = agentDir(name)
   const configRoot = agentConfigRoot(name)
-  const summary = getAgentSummary(name)
+  const summary = await getAgentSummary(name)
   const claudeMd = readFileOr(join(configRoot, 'CLAUDE.md'), '')
   const soulMd = readFileOr(join(dir, 'SOUL.md'), '')
   const mcpJson = readFileOr(join(dir, '.mcp.json'), '{}')
@@ -527,8 +554,8 @@ function getAgentDetail(name: string): AgentDetail {
   }
 }
 
-function listAgentSummaries(): AgentSummary[] {
-  return listAgentNames().map(getAgentSummary)
+function listAgentSummaries(): Promise<AgentSummary[]> {
+  return Promise.all(listAgentNames().map(getAgentSummary))
 }
 
 // Max inter-agent messages a single main-agent inbox drain returns. The rest
@@ -639,7 +666,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
   }
 
   if (path === '/api/agents' && method === 'GET') {
-    jsonMaybeGzip(req, res, listAgentSummaries())
+    jsonMaybeGzip(req, res, await listAgentSummaries())
     return true
   }
 
@@ -662,8 +689,13 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const label = (running: boolean, pane: string | null): string => {
       if (!running) return 'stopped'
       if (pane === null) return 'unknown'
+      // A backgrounded sub-agent task can still be ticking (elapsed time +
+      // token counter in the FleetView tail below the footer) even once the
+      // parent's own turn has ended and its prompt box is free -- detectPaneState
+      // correctly reads that as 'idle' (the prompt IS free), but the Activity
+      // page means "is something happening", not "can I type here right now".
+      if (paneShowsLiveWork(pane)) return 'working'
       const s = detectPaneState(pane)
-      if (s === 'busy' || s === 'typing') return 'working'
       if (s === 'idle') return 'idle'
       return s // 'unknown' | 'error'
     }
@@ -684,7 +716,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[] }> = []
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string }> = []
 
     // Main agent runs in the --channels session, not agent-<name>.
     {
@@ -714,7 +746,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           : capturePane(agentSessionName(name))
       }
       const state = runState === 'unreachable' ? 'unreachable' : label(running, pane)
-      entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane) })
+      entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name) })
     }
 
     jsonMaybeGzip(req, res, entries)
@@ -1312,6 +1344,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       delegatesTo: string[]
       running?: boolean
       securityProfile?: string
+      model?: string
+      costPerMInput?: number | null
     }> = []
     nodes.push({
       id: MAIN_AGENT_ID,
@@ -1320,9 +1354,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       reportsTo: null,
       delegatesTo: [],
       running: true,
+      model: readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown',
+      costPerMInput: knownModelCostPerM(readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown'),
     })
     for (const agentName of listAgentNames()) {
       const team = readAgentTeam(agentName)
+      const nodeModel = readAgentModel(agentName)
       nodes.push({
         id: agentName,
         label: readAgentDisplayName(agentName),
@@ -1331,6 +1368,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         delegatesTo: team.delegatesTo,
         running: isAgentRunning(agentName),
         securityProfile: readAgentSecurityProfile(agentName),
+        model: nodeModel,
+        costPerMInput: await resolveCostPerMInput(nodeModel),
       })
     }
     const knownIds = new Set(nodes.map(n => n.id))
@@ -1970,7 +2009,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
   if (agentMatch && method === 'GET') {
     const name = decodeURIComponent(agentMatch[1])
     if (!isKnownAgent(name)) { json(res, { error: 'Agent not found' }, 404); return true }
-    json(res, getAgentDetail(name))
+    json(res, await getAgentDetail(name))
     return true
   }
 
@@ -1986,7 +2025,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const data = JSON.parse(body.toString()) as {
       claudeMd?: string; soulMd?: string; mcpJson?: string; model?: string
       authMode?: AuthMode; apiKey?: string; claudePlan?: string; memoryIsolation?: boolean
-      modelProfile?: string | null
+      modelProfile?: string | null; displayName?: string
     }
 
     // Unknown fields are rejected rather than silently dropped -- see
@@ -2006,6 +2045,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         return true
       }
       writeAgentMemoryIsolation(name, data.memoryIsolation === true)
+    }
+    if (data.displayName !== undefined) {
+      const dn = data.displayName.trim()
+      if (!dn) { json(res, { error: 'displayName cannot be empty' }, 400); return true }
+      writeAgentDisplayName(name, dn)
     }
     if (data.claudeMd !== undefined) {
       atomicWriteFileSync(join(configRoot, 'CLAUDE.md'), data.claudeMd)

@@ -4,12 +4,18 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, MAIN_AGENT_ID } from '../../config.js'
 import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
-  createAgentMessage, moveKanbanCard, getKanbanCard,
+  createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
+  createOrResetApprovalVerification, listApprovalVerifications, resolveApprovalVerification,
   type Approval,
 } from '../../db.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
+import { agentDir, readAgentModel } from '../agent-config.js'
+import { startAgentProcess, isAgentRunning } from '../agent-process.js'
+import { throttleDelayMs, isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
 import type { RouteContext } from './types.js'
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
 
@@ -72,6 +78,21 @@ function notifyRequester(approval: Approval): void {
   }
 }
 
+// action_payload carries {"kanban_card_id": "..."} for approvals raised from
+// a kanban card (see the "Jóváhagyásra küldés" button, web/app.js). Shared by
+// the PATCH resolve handler (moves the card to done) and the verify-result
+// handler (posts the finding as a comment) -- malformed/missing payload just
+// means "no linked card", never an error worth surfacing.
+function kanbanCardIdFromApproval(approval: Approval): string | null {
+  if (!approval.action_payload) return null
+  try {
+    const payload = JSON.parse(approval.action_payload) as { kanban_card_id?: unknown }
+    return typeof payload.kanban_card_id === 'string' ? payload.kanban_card_id : null
+  } catch {
+    return null
+  }
+}
+
 export function startApprovalTimeoutSweeper(): NodeJS.Timeout {
   return setInterval(() => {
     try {
@@ -88,7 +109,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
 
   // POST /api/approvals -- create new approval request
   if (path === '/api/approvals' && method === 'POST') {
-    let body: { agent_id?: unknown; category?: unknown; action_description?: unknown; action_payload?: unknown }
+    let body: { agent_id?: unknown; category?: unknown; action_description?: unknown; action_payload?: unknown; noKanbanCard?: unknown }
     try {
       body = JSON.parse((await readBody(req)).toString())
     } catch {
@@ -96,7 +117,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    const { agent_id, category, action_description, action_payload } = body
+    const { agent_id, category, action_description, action_payload, noKanbanCard } = body
     if (typeof agent_id !== 'string' || !agent_id.trim()) {
       json(res, { error: 'agent_id is required' }, 400)
       return true
@@ -112,6 +133,35 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     if (action_payload !== undefined && typeof action_payload !== 'string') {
       json(res, { error: 'action_payload must be a string (JSON) if provided' }, 400)
       return true
+    }
+
+    // Boss 2026-08-10 ("ne is jöhessen létre kártya nélkül"): every
+    // approval must be traceable back to a kanban card, either via the
+    // structured payload (kanban_done's own contract, see the
+    // kanban-approval-workflow skill) or a bare 8-hex-char id somewhere in
+    // the description (the fallback the dashboard's "Kártya megnyitása"
+    // button now also scrapes for, web/app.js _approvalKanbanCardId).
+    // A handful of approval categories genuinely have nothing to do with a
+    // kanban card (e.g. an autonomy-level email/payment approval from the
+    // CLAUDE.md Level 2 flow) -- those must pass `noKanbanCard: true`
+    // explicitly rather than being silently exempted by category name,
+    // so the choice is always a deliberate one, not a default.
+    if (noKanbanCard !== true) {
+      let hasCardRef = false
+      if (typeof action_payload === 'string') {
+        try {
+          const parsed = JSON.parse(action_payload) as { kanban_card_id?: unknown }
+          hasCardRef = typeof parsed?.kanban_card_id === 'string' && parsed.kanban_card_id.length > 0
+        } catch { /* not JSON / no kanban_card_id -> falls through to the text scrape below */ }
+      }
+      if (!hasCardRef) hasCardRef = /\b[0-9a-f]{8}\b/i.test(action_description)
+      if (!hasCardRef) {
+        json(res, {
+          error: 'Ez a jóváhagyás-kérés nem hivatkozik kanban kártyára (se action_payload.kanban_card_id, se 8-jegyű azonosító a leírásban). ' +
+            'Ha tényleg nincs kapcsolódó kártya (pl. email/fizetés jóváhagyás), küldd el "noKanbanCard": true mezővel is.',
+        }, 400)
+        return true
+      }
     }
 
     const id = randomUUID()
@@ -140,7 +190,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const limit = limitRaw ? Math.min(parseInt(limitRaw, 10) || 100, 500) : 100
 
     const items = listApprovals({ agent_id, category, status, limit })
-    json(res, items)
+    // Embed each approval's verification rows so the dashboard list can show
+    // the green-check/red-X state without an extra round trip per row.
+    const withVerifications = items.map(a => ({ ...a, verifications: listApprovalVerifications(a.id) }))
+    json(res, withVerifications)
     return true
   }
 
@@ -152,7 +205,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       json(res, { error: 'Not found' }, 404)
       return true
     }
-    json(res, approval)
+    json(res, { ...approval, verifications: listApprovalVerifications(approval.id) })
     return true
   }
 
@@ -212,16 +265,156 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // kanban card detail modal, web/app.js). Best-effort: a malformed/missing
     // payload or an already-archived card just skips this, never blocks the
     // approval response itself.
-    if (approval && status === 'approved' && approval.category === 'kanban_done' && approval.action_payload) {
-      try {
-        const payload = JSON.parse(approval.action_payload) as { kanban_card_id?: unknown }
-        if (typeof payload.kanban_card_id === 'string') {
-          const card = getKanbanCard(payload.kanban_card_id)
+    if (approval && status === 'approved' && approval.category === 'kanban_done') {
+      const linkedCardId = kanbanCardIdFromApproval(approval)
+      if (linkedCardId) {
+        try {
+          const card = getKanbanCard(linkedCardId)
           if (card) moveKanbanCard(card.id, 'done', card.sort_order, resolved_by.trim())
-        }
-      } catch { /* malformed payload -- approval itself already succeeded, don't fail the request over this */ }
+        } catch { /* malformed payload -- approval itself already succeeded, don't fail the request over this */ }
+      }
     }
     json(res, approval)
+    return true
+  }
+
+  // POST /api/approvals/:id/verify -- dispatch a review of this approval to
+  // 1+ agents (Boss 2026-08-08: "jóváhagyás előtt ellenőriztessük le
+  // ingyenes modellekkel"). Each named agent gets a fresh 'pending' row and
+  // an inter-agent task instructing it to review the change and report back
+  // via POST .../verify-result -- decoupled from any particular session
+  // being alive to relay the answer (unlike a plain inter-agent reply, which
+  // only the ORIGINAL requester's live session would see).
+  const verifyMatch = path.match(/^\/api\/approvals\/([^/]+)\/verify$/)
+  if (verifyMatch && method === 'POST') {
+    const approvalId = verifyMatch[1]
+    const approval = getApproval(approvalId)
+    if (!approval) { json(res, { error: 'Not found' }, 404); return true }
+
+    let body: { agents?: unknown }
+    try {
+      body = JSON.parse((await readBody(req)).toString())
+    } catch {
+      json(res, { error: 'Invalid JSON' }, 400)
+      return true
+    }
+    const agents = Array.isArray(body.agents) ? body.agents.filter((a): a is string => typeof a === 'string' && a.trim().length > 0) : []
+    if (agents.length === 0) { json(res, { error: 'agents (non-empty string array) is required' }, 400); return true }
+
+    const dispatched: string[] = []
+    const failed: Array<{ agent: string; error: string }> = []
+    // OpenRouter's :free models share a single 20 req/min budget ACROSS THE
+    // WHOLE ACCOUNT, not per agent (kanban 45c3cfad, Boss 2026-08-08: several
+    // agents 429'd simultaneously when a 14-agent verification round fired
+    // near-instantly). Stagger free-tier dispatches so they stay under that
+    // shared ceiling; paid models don't share the pool, so they dispatch
+    // immediately and don't affect (or get affected by) the free-tier pacing.
+    let lastFreeDispatchAtMs: number | null = null
+    for (const agent of agents) {
+      if (agent === approval.agent_id) {
+        // The requester verifying its own work defeats the point -- same
+        // guard as the self-approval check on PATCH, applied here too.
+        failed.push({ agent, error: 'The requesting agent cannot verify its own request' })
+        continue
+      }
+      if (!existsSync(agentDir(agent))) {
+        failed.push({ agent, error: 'Agent not found' })
+        continue
+      }
+      if (!isAgentRunning(agent)) {
+        const startResult = startAgentProcess(agent)
+        if (!startResult.ok) {
+          failed.push({ agent, error: startResult.error || 'Failed to start agent' })
+          continue
+        }
+      }
+      if (isFreeOpenRouterModel(readAgentModel(agent))) {
+        const delay = throttleDelayMs(lastFreeDispatchAtMs, Date.now())
+        if (delay > 0) await sleep(delay)
+        lastFreeDispatchAtMs = Date.now()
+      }
+      createOrResetApprovalVerification(approvalId, agent)
+      const prompt = [
+        `Ellenorzesi feladat (Boss kerte, jovahagyas elott): nezd at ezt a fuggo jovahagyast alaposan.`,
+        `Kategoria: ${approval.category}`,
+        `Leiras: ${approval.action_description}`,
+        ``,
+        `Ellenorizd a KODOT (git log/git show/git diff a relevans commitra, ha a leiras emlit egyet) ES ha a valtoztatas`,
+        `dashboardon lathato UI-funkciot erint, probald ki tenylegesen is amennyire tudod (pl. curl-lel a relevans API vegpontokat, `,
+        `vagy a fajlokban keresve hogy a UI-elem tenyleg megvan-e amit a leiras allit).`,
+        ``,
+        `Amikor kesz vagy, jelentsd vissza az eredmenyt EZZEL a hivassal (KOTELEZO, ne csak inter-agent uzenettel):`,
+        `curl -s -X POST http://localhost:3420/api/approvals/${approvalId}/verify-result \\`,
+        `  -H "Content-Type: application/json" \\`,
+        `  -H "Authorization: Bearer $(cat /home/boss/marveen/store/.dashboard-token)" \\`,
+        `  -d '{"agent":"${agent}","status":"pass","report":"rovid osszefoglalo"}'`,
+        ``,
+        `status legyen "pass" ha minden rendben, vagy "fail" ha barmi problemat talalsz -- a report mezoben`,
+        `RÖVIDEN indokold (max nehany mondat), fail eseten konkretan mit talaltal hibasnak.`,
+      ].join('\n')
+      try {
+        createAgentMessage(MAIN_AGENT_ID, agent, prompt)
+        dispatched.push(agent)
+      } catch (err) {
+        failed.push({ agent, error: err instanceof Error ? err.message : 'Failed to dispatch' })
+      }
+    }
+    logger.info({ approvalId, dispatched, failed }, 'Approval verification dispatched')
+    json(res, { ok: true, dispatched, failed })
+    return true
+  }
+
+  // POST /api/approvals/:id/verify-result -- an agent reports its verification
+  // finding. Any agent can call this for itself (same bearer-token trust model
+  // as every other fleet-facing endpoint); it only ever resolves the row for
+  // the (approval, agent) pair named in the body, never someone else's.
+  const verifyResultMatch = path.match(/^\/api\/approvals\/([^/]+)\/verify-result$/)
+  if (verifyResultMatch && method === 'POST') {
+    const approvalId = verifyResultMatch[1]
+    if (!getApproval(approvalId)) { json(res, { error: 'Not found' }, 404); return true }
+
+    let body: { agent?: unknown; status?: unknown; report?: unknown }
+    try {
+      body = JSON.parse((await readBody(req)).toString())
+    } catch {
+      json(res, { error: 'Invalid JSON' }, 400)
+      return true
+    }
+    const { agent, status, report } = body
+    if (typeof agent !== 'string' || !agent.trim()) { json(res, { error: 'agent is required' }, 400); return true }
+    if (status !== 'pass' && status !== 'fail') { json(res, { error: 'status must be pass or fail' }, 400); return true }
+    const reportText = typeof report === 'string' ? report.trim().slice(0, 2000) : null
+
+    const updated = resolveApprovalVerification(approvalId, agent.trim(), status, reportText)
+    if (!updated) { json(res, { error: 'No pending verification for this approval/agent -- was it dispatched via /verify?' }, 404); return true }
+    logger.info({ approvalId, agent, status }, 'Approval verification resolved')
+
+    // Boss 2026-08-08: "el is lehetne azt is tárolni, hogy mit talált, és a
+    // kártyába is tegye hozzá" -- if this approval traces back to a kanban
+    // card, leave the finding as a comment there too, not just on the
+    // approval row, so the context lives next to the actual task. Best-effort:
+    // no linked card (most approvals) or a comment-write failure never blocks
+    // the verify-result response itself.
+    const approvalForComment = getApproval(approvalId)
+    const linkedCardId = approvalForComment ? kanbanCardIdFromApproval(approvalForComment) : null
+    if (linkedCardId) {
+      try {
+        const icon = status === 'pass' ? '✅' : '❌'
+        addKanbanComment(linkedCardId, agent.trim(), `${icon} Ellenőrzés (${status}): ${reportText || '(nincs indoklás)'}`)
+      } catch (err) {
+        logger.warn({ err, approvalId, linkedCardId }, 'Failed to post verification result as a kanban comment')
+      }
+    }
+    json(res, { ok: true })
+    return true
+  }
+
+  // GET /api/approvals/:id/verify -- list verification rows for this approval
+  // (poll target for the dashboard while agents are still reviewing).
+  if (verifyMatch && method === 'GET') {
+    const approvalId = verifyMatch[1]
+    if (!getApproval(approvalId)) { json(res, { error: 'Not found' }, 404); return true }
+    json(res, listApprovalVerifications(approvalId))
     return true
   }
 

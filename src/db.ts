@@ -860,6 +860,28 @@ export function initDatabase(dbPathOverride?: string): void {
   // agent with nothing to act on.
   try { db.exec('ALTER TABLE approvals ADD COLUMN resolution_reason TEXT') } catch { /* already exists */ }
 
+  // --- Approval verifications (Boss 2026-08-08): before approving, dispatch
+  // the review to 1+ agents (usually the free-tier ones) and let each report
+  // pass/fail + a short write-up, so the "Jóváhagyások" page can show a green
+  // check once every dispatched agent came back clean. One row per
+  // (approval, agent) pair -- re-verifying replaces that agent's row rather
+  // than piling up history, since only the LATEST check matters for the
+  // green-check gate.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS approval_verifications (
+      id TEXT PRIMARY KEY,
+      approval_id TEXT NOT NULL,
+      agent TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','pass','fail')),
+      report TEXT,
+      requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      resolved_at INTEGER,
+      UNIQUE(approval_id, agent)
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_approval_verifications_approval ON approval_verifications(approval_id)`)
+
   // --- Dashboard browser login (OPTIONAL; the bearer token stays primary) ---
   // Zero rows here = exactly the token-only behavior. A row is created only when
   // the operator opts in (Settings card or the dashboard-user CLI). No seeded
@@ -3263,6 +3285,48 @@ export function stampMessageTrace(
        SET trace_id = ?, span_id = ?, parent_span_id = ?
      WHERE id = ? AND status = 'pending' AND trace_id IS NULL
   `).run(traceId, spanId, parentSpanId, id).changes > 0
+}
+
+export interface ApprovalVerification {
+  id: string
+  approval_id: string
+  agent: string
+  status: 'pending' | 'pass' | 'fail'
+  report: string | null
+  requested_at: number
+  resolved_at: number | null
+}
+
+// One row per (approval, agent). Dispatching a second verification to an
+// agent that already has a row for this approval REPLACES it (fresh
+// 'pending' state) rather than duplicating -- re-running a check should not
+// leave a stale pass/fail sitting next to the new pending one.
+export function createOrResetApprovalVerification(approvalId: string, agent: string): ApprovalVerification {
+  const id = `${approvalId}:${agent}`
+  const now = Math.floor(Date.now() / 1000)
+  db.prepare(`
+    INSERT INTO approval_verifications (id, approval_id, agent, status, report, requested_at, resolved_at)
+    VALUES (?, ?, ?, 'pending', NULL, ?, NULL)
+    ON CONFLICT(approval_id, agent) DO UPDATE SET
+      status = 'pending', report = NULL, requested_at = excluded.requested_at, resolved_at = NULL
+  `).run(id, approvalId, agent, now)
+  return { id, approval_id: approvalId, agent, status: 'pending', report: null, requested_at: now, resolved_at: null }
+}
+
+export function listApprovalVerifications(approvalId: string): ApprovalVerification[] {
+  return db.prepare('SELECT * FROM approval_verifications WHERE approval_id = ? ORDER BY requested_at ASC')
+    .all(approvalId) as ApprovalVerification[]
+}
+
+// Resolves the (approval, agent) row regardless of which approval_verifications
+// id format was used -- looked up by the natural key, not the synthetic id,
+// so a caller only needs to know which approval/agent it is reporting for.
+export function resolveApprovalVerification(approvalId: string, agent: string, status: 'pass' | 'fail', report: string | null): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  return db.prepare(`
+    UPDATE approval_verifications SET status = ?, report = ?, resolved_at = ?
+    WHERE approval_id = ? AND agent = ?
+  `).run(status, report ?? null, now, approvalId, agent).changes > 0
 }
 
 export function expireTimedOutApprovals(): number {

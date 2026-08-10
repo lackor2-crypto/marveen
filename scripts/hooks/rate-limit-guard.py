@@ -46,10 +46,32 @@ def read_env_value(env_path, key):
     return None
 
 
+def find_project_root(cwd):
+    """Walk upward from cwd looking for the Marveen project root, identified
+    by a .env file containing MAIN_AGENT_ID. __file__ can't do this job here
+    either -- same bug as statusline.py, this script is also copied into
+    ~/.claude/hooks/ at install time, detached from the repo it came from,
+    so the old "__file__ is two dirs below project root" assumption pointed
+    at the wrong directory once installed there (Boss, 2026-08-09: the
+    self-guard warning silently never fired for the same reason)."""
+    if not cwd:
+        return None
+    d = os.path.abspath(cwd)
+    while True:
+        env_path = os.path.join(d, '.env')
+        if os.path.isfile(env_path) and read_env_value(env_path, 'MAIN_AGENT_ID') is not None:
+            return d
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
 def main():
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(script_dir))
     cwd = os.getcwd()
+    project_root = find_project_root(cwd)
+    if not project_root:
+        return
 
     agent_id = None
     if os.path.abspath(cwd) == os.path.abspath(project_root):

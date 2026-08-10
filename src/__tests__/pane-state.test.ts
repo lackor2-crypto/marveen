@@ -18,6 +18,8 @@ import {
   parkedInputRowCount,
   submitLanded,
   paneShowsContextSaturation,
+  detectsBackgroundAgentActivity,
+  paneShowsLiveWork,
 } from '../pane-state.js'
 
 // Realistic pane fixtures modelled on actual `tmux capture-pane -p`
@@ -744,6 +746,162 @@ describe('detectPaneState', () => {
     expect(detectPaneState(snap)).toBe('busy')
   })
 
+  it('busy indicator matches once elapsed time crosses into minutes ("Xm Ys")', () => {
+    // Regression (Boss 2026-08-09): a background tool call running past a
+    // minute renders "(10m 41s · ↓ 36.7k tokens)" instead of "(41s · ↓...)".
+    // The bare `\d+s` anchor never matched the "Xm Ys" shape, so a session
+    // busy for 10+ minutes read as idle on the Activity page the whole
+    // time it ran a background task with a free prompt below it (same
+    // shape as the "busy wins over a visible idle footer" case above).
+    const snap = [
+      '✶ Zigzagging… (10m 41s · ↓ 36.7k tokens)',
+      '  Tip: Use /btw to ask a quick side question without interrupting',
+      '  current work',
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  Sonnet 5 | Ctx 17% | 5h 35% | 7d 66%',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+    ].join('\n')
+    expect(detectPaneState(snap)).toBe('busy')
+  })
+
+  it('busy indicator matches the no-token-count "still thinking" tail', () => {
+    // Regression (Boss 2026-08-09, live screenshot minutes after the
+    // "Xm Ys" fix shipped): "✻ Pouncing… (17s · still thinking)" -- no
+    // "↓ N tokens" counter at all yet, just a duration and a middot. The
+    // previous fix still required a `↓\s*\d` tail and missed this shape;
+    // the pattern now stops at the middot instead of requiring a specific
+    // tail (see the comment on the regex itself).
+    const snap = [
+      '✻ Pouncing… (17s · still thinking)',
+      SEP,
+      '❯ ',
+      SEP,
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
+    ].join('\n')
+    expect(detectPaneState(snap)).toBe('busy')
+  })
+
+  it('busy indicator survives a FleetView agent list rendered BELOW the footer', () => {
+    // Regression (Boss 2026-08-09, third report; root cause found by capturing
+    // the live main channels session rather than by widening another regex).
+    //
+    // The busy scan used to take a flat `lines.slice(-12)` -- the last 12 lines
+    // of the capture -- which quietly assumed the FOOTER was the last line.
+    // Claude Code's FleetView renders a background-agent list UNDERNEATH the
+    // footer, so every listed agent shifts that window one line further down
+    // and eventually pushes the live spinner out of the top of it. Measured on
+    // the real capture: with ONE sub-agent listed the spinner sat at exactly
+    // position 12 from the bottom -- the last position that still worked. This
+    // fixture has TWO listed agents, i.e. the very next frame, and it read
+    // 'idle' while the session had been working for nine minutes.
+    //
+    // Shape below is the live capture (agent descriptions kept, they are the
+    // load-bearing part: no parentheses around the duration down there).
+    const snap = [
+      '✻ Pouncing… (9m 45s · ↓ 26.6k tokens · thinking)',
+      '  ⎿  Tip: Use /btw to ask a quick side question without interrupting',
+      '     current work',
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  Sonnet 5 | Ctx 28% | 5h 63% | 7d 69%',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+      '',
+      '  ● main',
+      '  ◯ general-purpose  Comprehensive pane-state busy-det… 25s · ↓ 70.3k tokens',
+      '  ◯ Explore  Find hardcoded Hungarian text in email UI   30s · ↓ 29.2k tokens',
+    ].join('\n')
+    expect(detectPaneState(snap)).toBe('busy')
+  })
+
+  it('a stale counter far above the footer stays excluded even with a FleetView tail', () => {
+    // Adversarial pair for the test above: anchoring the window on the footer
+    // must NOT have widened it UPWARDS. This is the 94-retry starvation shape
+    // (2026-06-30) -- a completed turn's final spinner frame left rendered high
+    // in scrollback above an empty idle box -- with the FleetView tail added
+    // below the footer. The stale counter is 12 lines above the footer, i.e.
+    // just outside BUSY_LIVE_REGION_LINES, and must stay out.
+    const snap = [
+      '✶ Accomplishing… (3m 8s · ↓ 9.3k tokens)',
+      '  ⎿  Tip: Use /btw to ask a quick side question',
+      '⏺ Done: rebuilt and restarted the dashboard.',
+      '⏺ Verified all endpoints return 200.',
+      '⏺ Logged the fix to the daily log.',
+      '⏺ Another line of completed scrollback output.',
+      '⏺ And one more, pushing the counter out of the live region.',
+      '⏺ Final trailing summary line before the idle box.',
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+      '',
+      '  ● main',
+    ].join('\n')
+    expect(detectPaneState(snap)).toBe('idle')
+  })
+
+  it.each([
+    '✻ Baked for 12s',
+    '✻ Brewed for 1m 45s',
+    '✻ Churned for 3m 5s',
+    '✻ Cogitated for 16s',
+    '✻ Cooked for 8m 19s',
+    '✻ Crunched for 1m 40s',
+    '✻ Sautéed for 1m 54s',
+    '✻ Worked for 0s',
+  ])('does NOT read the past-tense turn stamp as busy: %s', (stamp) => {
+    // Regression (Boss 2026-08-09). This shape -- an elapsed time with no
+    // parentheses, no middot and no token counter -- was proposed as a fifth
+    // busy variant because it looks exactly like a live counter. It is the
+    // opposite: Claude Code renders it when a turn has FINISHED.
+    //
+    // Two proofs taken the same day. (a) The shipped 2.1.226 binary carries a
+    // dedicated PAST-TENSE verb list ["Baked","Brewed","Churned","Cogitated",
+    // "Cooked","Crunched","Sautéed","Worked"] used only for the turn_duration
+    // message, separate from the present-participle spinner list. (b) All 12
+    // OpenRouter-routed fleet sessions were captured at once and every single
+    // one showed this stamp above an EMPTY input box under an idle footer.
+    // Matching it would have pinned the whole free-agent fleet busy forever.
+    const snap = [
+      '● Kész, a jelentést elküldtem.',
+      '',
+      stamp,
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  poolside/laguna-s-2.1:free | Ctx 64%',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+    ].join('\n')
+    expect(detectPaneState(snap)).toBe('idle')
+  })
+
+  it('does NOT read the end-of-turn "Thought for Ns" / background-wait stamps as busy', () => {
+    // Same family as the past-tense stamps above, captured live on 2026-08-09.
+    // Both lines persist in scrollback after the turn ends and neither is ever
+    // overwritten, so either one as a busy signal would starve the session.
+    for (const stamp of [
+      '  Thought for 15s, ran 1 shell command',
+      '  Thought for 1m 41s, ran 6 shell commands',
+      '✻ Waiting for 1 background agent to finish',
+    ]) {
+      const snap = [
+        stamp,
+        '',
+        SEP,
+        '❯ ',
+        SEP,
+        '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+      ].join('\n')
+      expect(detectPaneState(snap)).toBe('idle')
+    }
+  })
+
   it('does not match the token-count pattern in unrelated numeric text', () => {
     const snap = [
       'Some unrelated log line: latency 5s, count 42',
@@ -771,6 +929,186 @@ describe('detectPaneState', () => {
       '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
     ].join('\n')
     expect(detectPaneState(snap)).toBe('idle')
+  })
+})
+
+// The exact frame behind Boss's 2026-08-09 "why does it say várakozik while I
+// can see it working" report, captured verbatim from the main channels session
+// while a sub-agent was mid-task (only the agent description is truncated the
+// way the TUI truncates it). Note what is NOT here: no spinner, no `esc to
+// interrupt`, an EMPTY input box under a normal idle footer. The parent's own
+// turn really has ended -- it is waiting on a backgrounded agent, and the only
+// ticking thing on screen is the FleetView row under the footer, whose duration
+// carries NO parentheses.
+const IDLE_WITH_BACKGROUND_AGENT = [
+  '● All four queued inter-agent messages are ones I already handled.',
+  '',
+  '✻ Waiting for 1 background agent to finish',
+  '',
+  SEP,
+  '❯ ',
+  SEP,
+  '  Sonnet 5 | Ctx 33% | 5h 73% | 7d 70%',
+  '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+  '',
+  '  ● main',
+  '  ◯ general-purpose  Comprehensive pane-state busy-det… 8m 27s · ↓ 109.2k tokens',
+].join('\n')
+
+describe('detectsBackgroundAgentActivity', () => {
+  it('matches the live FleetView row captured on 2026-08-09', () => {
+    expect(detectsBackgroundAgentActivity(IDLE_WITH_BACKGROUND_AGENT)).toBe(true)
+  })
+
+  it.each([
+    // Boss's screenshot: hollow bullet, run-together spacing, bare seconds.
+    '  ○ Explore Find hardcoded Hungarian text in email UI   30s · ↓ 29.2k tokens',
+    // The same row two samples apart, once the counter crosses a minute.
+    '  ◯ general-purpose  Comprehensive pane-state busy-det… 1m 46s · ↓ 76.0k tokens',
+    // Multi-hour and multi-day durations (the formatter walks d -> h -> m -> s).
+    '  ◯ general-purpose  Long grind… 1h 5m 3s · ↓ 402.1k tokens',
+    '  ◯ general-purpose  Very long grind… 2d 1h 5m 3s · ↓ 1.2m tokens',
+    // The token meter flips to an UP arrow when the agent has no recent
+    // activity (verified in the 2.1.226 row formatter: arrowDown/arrowUp).
+    '  ◯ Explore  Sweeping the repo   45s · ↑ 12.0k tokens',
+    // A queued-message segment is appended AFTER the token text.
+    '  ◯ Explore  Sweeping the repo   45s · ↓ 12.0k tokens · 2 queued',
+    // A SELECTED row is prefixed with the ❯ pointer glyph.
+    '❯ ◯ Explore  Sweeping the repo   45s · ↓ 12.0k tokens',
+    // Bare token count with no k/m suffix (short-lived agent).
+    '  ◯ Explore  Sweeping the repo   3s · ↓ 812 tokens',
+  ])('matches FleetView row variant: %s', (row) => {
+    const snap = [
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+      '',
+      '  ● main',
+      row,
+    ].join('\n')
+    expect(detectsBackgroundAgentActivity(snap)).toBe(true)
+  })
+
+  it.each([
+    // The formatter emits these WORDS instead of a duration when the agent is
+    // not actually running, and blanks the token text with them. None of them
+    // may register as work in flight.
+    '  ◯ general-purpose  Some task   waiting',
+    '  ◯ general-purpose  Some task   idle',
+    '  ◯ general-purpose  Some task   awaiting approval',
+    // Duration but no token meter at all.
+    '  ◯ general-purpose  Some task   30s',
+    // Token meter but no duration.
+    '  ◯ general-purpose  Some task   ↓ 29.2k tokens',
+    // Duration and a count, but no arrow glyph -- this is the /goal widget's
+    // "running 5m · 3 turns · 12.4k tokens" family, which is NOT a sub-agent.
+    '  running 30s · 3 turns · 12.4k tokens',
+  ])('does NOT match non-working FleetView row: %s', (row) => {
+    const snap = [
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+      '',
+      '  ● main',
+      row,
+    ].join('\n')
+    expect(detectsBackgroundAgentActivity(snap)).toBe(false)
+  })
+
+  it('does NOT match the same text quoted ABOVE the footer', () => {
+    // Adversarial guard for the broadening. These agents routinely paste tmux
+    // captures at each other and discuss this very detector, so the row text
+    // WILL show up in transcript scrollback. Only the region strictly BELOW
+    // the live footer -- where FleetView actually draws -- may count. Both a
+    // quoted row and a stale one from a previous FleetView render are covered
+    // by the same rule.
+    const snap = [
+      '● A dashboard szerint ez a sor a gond:',
+      '  ◯ general-purpose  Comprehensive pane-state busy-det… 8m 27s · ↓ 109.2k tokens',
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+    ].join('\n')
+    expect(detectsBackgroundAgentActivity(snap)).toBe(false)
+    expect(detectPaneState(snap)).toBe('idle')
+  })
+
+  it('does NOT reach past the bounded below-footer window', () => {
+    // The below-footer scope is bounded rather than "everything after the
+    // footer", so a footer-shaped line quoted mid-capture cannot silently widen
+    // the scan across the whole remaining pane.
+    const filler = Array.from({ length: 12 }, (_, i) => `  ⏺ trailing output line ${i}`)
+    const snap = [
+      '',
+      SEP,
+      '❯ ',
+      SEP,
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+      ...filler,
+      '  ◯ general-purpose  Some task   30s · ↓ 29.2k tokens',
+    ].join('\n')
+    expect(detectsBackgroundAgentActivity(snap)).toBe(false)
+  })
+
+  it('returns false without a footer, and on empty input', () => {
+    expect(detectsBackgroundAgentActivity(NON_CLAUDE)).toBe(false)
+    expect(detectsBackgroundAgentActivity('')).toBe(false)
+    expect(detectsBackgroundAgentActivity('   \n  \n')).toBe(false)
+  })
+
+  it('leaves detectPaneState (and therefore delivery) untouched', () => {
+    // DELIBERATE: the FleetView row is display-only and must NOT become a
+    // BUSY_INDICATOR. BUSY_INDICATORS gates message delivery AND the whole
+    // stuck-input recovery stack (shouldRetrySubmit / stuckInputSignature /
+    // parkedPasteSignature all bail out on a busy pane), so promoting it would
+    // blind the recovery watcher for the entire lifetime of every background
+    // agent. It is also not self-clearing: a COMPLETED sub-agent whose output
+    // the parent has not consumed yet keeps its row with a FROZEN duration and
+    // the token total still attached, and plain `capture-pane -p` has no way to
+    // tell that apart from a running one (only the bullet's colour differs).
+    expect(detectPaneState(IDLE_WITH_BACKGROUND_AGENT)).toBe('idle')
+    expect(isReadyForPrompt(IDLE_WITH_BACKGROUND_AGENT)).toBe(true)
+    expect(shouldRetrySubmit(IDLE_WITH_BACKGROUND_AGENT, '')).toBe(false)
+  })
+})
+
+describe('paneShowsLiveWork', () => {
+  it('is true for a pane whose own turn is mid-flight', () => {
+    expect(paneShowsLiveWork(BUSY_FULL_FOOTER)).toBe(true)
+    expect(paneShowsLiveWork(BUSY_FOOTER_FRAME_GAP)).toBe(true)
+    expect(paneShowsLiveWork(BUSY_TOKENS_ONLY)).toBe(true)
+    expect(paneShowsLiveWork(BUSY_TOOL_USE_ACTIVE)).toBe(true)
+  })
+
+  it('is true for an idle prompt with a backgrounded sub-agent still ticking', () => {
+    // The whole point of the predicate: the Activity panel asks "is this agent
+    // working", which is broader than "can this pane accept a prompt".
+    expect(paneShowsLiveWork(IDLE_WITH_BACKGROUND_AGENT)).toBe(true)
+  })
+
+  it('is true while text is parked in the input box', () => {
+    expect(paneShowsLiveWork(TYPING_PARKED)).toBe(true)
+  })
+
+  it('is false for a genuinely idle pane', () => {
+    expect(paneShowsLiveWork(IDLE_BYPASS)).toBe(false)
+    expect(paneShowsLiveWork(IDLE_STRICT)).toBe(false)
+    expect(paneShowsLiveWork(IDLE_AFTER_TOOL_USE)).toBe(false)
+    expect(paneShowsLiveWork(IDLE_BYPASS_FLEETVIEW)).toBe(false)
+  })
+
+  it('does not swallow the error / unknown states', () => {
+    // Those are their own colours on the panel and must stay visible rather
+    // than collapsing into a green "working" dot.
+    expect(paneShowsLiveWork(ERROR_THINKING_BLOCK)).toBe(false)
+    expect(paneShowsLiveWork(NON_CLAUDE)).toBe(false)
+    expect(paneShowsLiveWork('')).toBe(false)
   })
 })
 

@@ -69,7 +69,7 @@
       </div>
       <div class="workspace-switch" id="workspaceSwitch">
         <button type="button" class="ws-btn active" id="wsBtnMarvin" data-ws="marvin">Marvin</button>
-        <button type="button" class="ws-btn" id="wsBtnIroda" data-ws="iroda">Iroda</button>
+        <button type="button" class="ws-btn" id="wsBtnIroda" data-ws="iroda" data-i18n="nav.workspace_iroda">Iroda</button>
       </div>
     </div>
     <nav class="sidebar-nav" id="navMarvin">
@@ -220,7 +220,7 @@
       <div class="sb-group open" data-group="email-accounts">
         <button type="button" class="sb-group-header sb-link" id="emailNavToggle" aria-expanded="true" aria-controls="emailAccountNavItems">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 6 10-6"/></svg>
-          <span class="sb-label" style="flex:1">Email</span>
+          <span class="sb-label" style="flex:1" data-i18n="nav.email_group">Email</span>
           <svg class="sb-group-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
         <div class="sb-group-items" id="emailAccountNavItems"></div>
@@ -306,6 +306,13 @@
         <div class="overview-capabilities-title" data-i18n="overview.capabilities.title">Ezeket még nem használod ki</div>
         <div class="overview-capabilities-list" id="overviewCapabilitiesList"></div>
       </div>
+      <div class="overview-card overview-ratelimit" id="overviewRateLimit" hidden>
+        <div class="overview-card-head">
+          <h3 data-i18n="overview.ratelimit.title">Keret-figyelő</h3>
+          <span class="overview-card-meta" id="overviewRateLimitMeta"></span>
+        </div>
+        <div class="overview-ratelimit-bars" id="overviewRateLimitBars"></div>
+      </div>
       <div class="overview-grid">
         <div class="overview-card">
           <div class="overview-card-head">
@@ -329,7 +336,8 @@
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
         <button class="view-btn active" id="kanbanViewBoard" style="width:auto;padding:0 12px;" data-i18n="kanban.view.board">Tábla</button>
         <button class="view-btn" id="kanbanViewGantt" style="width:auto;padding:0 12px;" data-i18n="kanban.view.gantt">Idővonal</button>
-        <button class="view-btn" id="kanbanViewArchived" style="width:auto;padding:0 12px;margin-left:auto;" data-i18n="kanban.view.archived">Archiváltak</button>
+        <input type="text" id="kanbanSearchInput" autocomplete="off" style="width:auto;flex:0 1 260px;margin-left:auto;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input,var(--bg));color:var(--text);font-size:13px;" data-i18n-placeholder="kanban.search.placeholder" placeholder="Kártya keresése (id, cím vagy leírás)...">
+        <button class="view-btn" id="kanbanViewArchived" style="width:auto;padding:0 12px;" data-i18n="kanban.view.archived">Archiváltak</button>
       </div>
 
       <!-- Board-specific filter row (hidden when gantt active) -->
@@ -460,7 +468,7 @@
       <!-- Grid view -->
       <div id="agentsGridView">
         <div class="agents-grid" id="agentsGrid">
-          <button class="agent-card add-card" id="addAgentBtn">
+          <button class="agent-card add-card" id="addAgentBtn" hidden>
             <div class="add-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -1221,6 +1229,7 @@
               <th data-i18n="approvals.col.category">Kategória</th>
               <th data-i18n="approvals.col.action">Tevékenység</th>
               <th data-i18n="approvals.col.status">Státusz</th>
+              <th data-i18n="approvals.col.verify">Ellenőrzés</th>
               <th data-i18n="approvals.col.timeout">Határidő</th>
               <th data-i18n="approvals.col.actions">Döntés</th>
             </tr>
@@ -1435,10 +1444,30 @@
 
     <div class="page" id="emailPage" hidden>
       <div class="page-header">
-        <div class="page-header-row">
+        <div class="page-header-row email-page-header-row">
           <div>
-            <h1>Email</h1>
+            <h1 data-i18n="email.page_title">Email</h1>
             <p class="subtitle" data-i18n="email.subtitle">Egységes postafiók-nézet</p>
+          </div>
+          <div class="email-header-search-wrap">
+            <form class="email-search-form" id="emailSearchForm" role="search">
+              <select class="email-search-scope" id="emailSearchScope" data-i18n-title="email.search_scope_title">
+                <option value="all" data-i18n="email.search_scope.all">Mind</option>
+                <option value="mailbox:Inbox" data-i18n="email.search_scope.inbox">Beérkező levelek</option>
+                <option value="mailbox:[Gmail]/Elküldött levelek" data-i18n="email.search_scope.sent">Elküldött levelek</option>
+                <option value="mailbox:[Gmail]/Kuka" data-i18n="email.search_scope.trash">Kuka</option>
+                <option value="from" data-i18n="email.search_scope.from">Feladó</option>
+                <option value="to" data-i18n="email.search_scope.to">Címzett</option>
+                <option value="subject" data-i18n="email.search_scope.subject">Tárgy</option>
+                <option value="date" data-i18n="email.search_scope.date">Dátum</option>
+                <option value="content" data-i18n="email.search_scope.content">Tartalom</option>
+              </select>
+              <input class="email-search-input" id="emailSearchInput" type="search" maxlength="200" autocomplete="off" data-i18n-placeholder="email.search_placeholder" placeholder="Kezdj el gépelni a kereséshez">
+              <button class="btn-secondary btn-compact" type="submit" data-i18n="email.search_btn">Keresés</button>
+            </form>
+            <div class="email-search-results-dropdown" id="emailSearchResultsDropdown">
+              <div class="email-search-results-empty" data-i18n="email.search_results_placeholder">A találatok itt jelennek meg.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1452,15 +1481,17 @@
           <div id="emailMailboxList"></div>
         </div>
         <div class="email-pane email-pane-list" id="emailListPane">
-          <div class="email-column-header email-list-header" id="emailListHeader">
-            <label class="email-select-all"><input type="checkbox" id="emailSelectAllCheckbox"><span data-i18n="email.select_all">Kijelöl</span></label>
-            <span class="email-list-header-title" data-i18n="email.messages_title">Levelek</span>
-            <div class="email-list-header-actions">
-              <div class="email-bulk-move-wrap">
-                <button class="btn-secondary btn-compact" id="emailBulkMoveBtn" hidden data-i18n="email.move_btn">Mozgat</button>
-                <div class="email-move-picker" id="emailMovePicker" hidden></div>
+          <div class="email-column-header" id="emailListHeader">
+            <div class="email-list-header">
+              <label class="email-select-all"><input type="checkbox" id="emailSelectAllCheckbox"><span data-i18n="email.select_all">Kijelöl</span></label>
+              <span class="email-list-header-title" data-i18n="email.messages_title">Levelek</span>
+              <div class="email-list-header-actions">
+                <div class="email-bulk-move-wrap">
+                  <button class="btn-secondary btn-compact" id="emailBulkMoveBtn" hidden data-i18n="email.move_btn">Mozgat</button>
+                  <div class="email-move-picker" id="emailMovePicker" hidden></div>
+                </div>
+                <button class="btn-danger btn-compact" id="emailBulkDeleteBtn" hidden data-i18n="common.delete">Törlés</button>
               </div>
-              <button class="btn-danger btn-compact" id="emailBulkDeleteBtn" hidden data-i18n="common.delete">Törlés</button>
             </div>
           </div>
           <div id="emailEnvelopeList"></div>
@@ -2519,7 +2550,19 @@
               </button>
             </div>
             <div class="detail-info">
-              <h3 id="agentDetailName"></h3>
+              <div class="detail-name-row" id="agentDetailNameRow">
+                <h3 id="agentDetailName"></h3>
+                <button class="name-edit-btn" id="agentNameEditBtn" title="Név szerkesztése" data-i18n-title="agents.detail.edit_name" hidden>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="detail-name-edit-row" id="agentDetailNameEdit" hidden>
+                <input type="text" id="agentNameEditInput" class="detail-name-input" maxlength="60">
+                <button class="btn-primary btn-compact" id="agentNameSaveBtn" data-i18n="common.btn.save">Mentés</button>
+                <button class="btn-secondary btn-compact" id="agentNameCancelBtn" data-i18n="common.btn.cancel">Mégse</button>
+              </div>
               <p id="agentDetailDesc"></p>
             </div>
           </div>
