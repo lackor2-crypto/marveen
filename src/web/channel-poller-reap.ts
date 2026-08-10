@@ -46,10 +46,24 @@ const STATE_ENV_VAR: Record<ChannelProviderType, string> = {
 // `TELEGRAM_STATE_DIR=/path-elsewhere` is acceptable because the value is an
 // absolute path, but we still anchor on the env-var literal to avoid
 // matching a row that just *mentions* the path string in its argv.
+//
+// Two things in that scan are NEVER pollers, and killing either is a
+// self-inflicted outage (2026-08-10): the dashboard is normally launched from
+// a shell that already has an agent's channel environment exported -- an agent
+// tmux pane, or the main agent's own Bash -- so `node dist/index.js` INHERITS
+// `TELEGRAM_STATE_DIR=<that agent's chan dir>` and matches the needle exactly.
+// The reap then SIGTERMs it, the dashboard shuts down gracefully (exit 0, no
+// crash, no stacktrace) the moment anyone restarts that agent, and every
+// scheduled task, watcher and message delivery stops with it. The dashboard is
+// also the process RUNNING this scan, so an unguarded kill list is a suicide
+// note. Excluding both is cheap and there is no case where killing them helps.
+const DASHBOARD_BINARY_PATTERN = /(?:^|[\s/])(?:dist\/index\.js|src\/index\.ts)(?:\s|$)/
+
 export function parsePollerPidsFromPs(
   psOutput: string,
   envVar: string,
   value: string,
+  selfPid: number = process.pid,
 ): number[] {
   const needle = `${envVar}=${value}`
   const out: number[] = []
@@ -58,7 +72,18 @@ export function parsePollerPidsFromPs(
     const m = line.match(/^\s*(\d+)\s/)
     if (!m) continue
     const pid = parseInt(m[1]!, 10)
-    if (pid > 1) out.push(pid)
+    if (pid <= 1) continue
+    if (pid === selfPid) {
+      logger.warn({ pid, needle },
+        'channel-poller-reap: this process matched the poller scan -- it inherited an agent channel env from its launcher. Skipping (killing it would take the dashboard down); start the dashboard with a clean environment.')
+      continue
+    }
+    if (DASHBOARD_BINARY_PATTERN.test(line)) {
+      logger.warn({ pid, needle },
+        'channel-poller-reap: a dashboard process matched the poller scan -- skipping, it is not a channel poller')
+      continue
+    }
+    out.push(pid)
   }
   return out
 }
@@ -213,6 +238,12 @@ export function reapChannelOrphans(
   for (const pid of [fromBotPid, ...fromEnvScan]) {
     if (pid && !seen.has(pid)) {
       seen.add(pid)
+      // Belt and braces: the env scan already drops our own pid, but a stale or
+      // clobbered bot.pid must not be able to route a SIGKILL back at us either.
+      if (pid === process.pid) {
+        logger.warn({ pid }, 'channel-poller-reap: refusing to reap our own pid')
+        continue
+      }
       all.push(pid)
     }
   }

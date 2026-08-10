@@ -149,3 +149,40 @@ describe('findOrphanChannelClaudes', () => {
     expect(findOrphanChannelClaudes(allLive, new Set([76621]))).toEqual([])
   })
 })
+
+// The dashboard is normally launched from a shell that already exports an
+// agent's channel environment (an agent tmux pane, or the main agent's Bash),
+// so `node dist/index.js` inherits TELEGRAM_STATE_DIR=<that agent's chan dir>
+// and matches the poller needle exactly. Reaping that pid takes the whole
+// dashboard down -- gracefully, exit 0, no crash log -- the next time anyone
+// restarts the agent, and since the reap RUNS inside the dashboard it is a
+// suicide. Reproduced live on 2026-08-10: the running dashboard's own pid was
+// in the scan's match set.
+const DASHBOARD_PS_SAMPLE = [
+  '  55501 ??  Ss  0:12.00 node /home/boss/marveen/dist/index.js HOME=/home/boss TELEGRAM_STATE_DIR=/home/boss/marveen/agents/usalackor/.claude/channels/telegram',
+  '  55502 ??  Ss  0:00.10 bun run --cwd /home/boss/.claude/plugins/cache/claude-plugins-official/telegram/0.0.6 --silent start TELEGRAM_STATE_DIR=/home/boss/marveen/agents/usalackor/.claude/channels/telegram',
+].join('\n')
+const USALACKOR_CHAN = '/home/boss/marveen/agents/usalackor/.claude/channels/telegram'
+
+describe('parsePollerPidsFromPs dashboard guards', () => {
+  it('never reaps the process running the scan, however well it matches', () => {
+    const pids = parsePollerPidsFromPs(DASHBOARD_PS_SAMPLE, 'TELEGRAM_STATE_DIR', USALACKOR_CHAN, 55501)
+    expect(pids).toEqual([55502])
+  })
+
+  it('never reaps a dashboard process even when it is a different instance', () => {
+    // selfPid is some unrelated pid here: the argv guard has to carry it.
+    const pids = parsePollerPidsFromPs(DASHBOARD_PS_SAMPLE, 'TELEGRAM_STATE_DIR', USALACKOR_CHAN, 999999)
+    expect(pids).toEqual([55502])
+  })
+
+  it('still reaps the real poller it was called for', () => {
+    const pids = parsePollerPidsFromPs(DASHBOARD_PS_SAMPLE, 'TELEGRAM_STATE_DIR', USALACKOR_CHAN, 999999)
+    expect(pids).toContain(55502)
+  })
+
+  it('does not mistake a sibling file for the dashboard binary', () => {
+    const row = '  55503 ??  Ss  0:00.01 node /home/boss/marveen/dist/index.js.bak TELEGRAM_STATE_DIR=' + USALACKOR_CHAN
+    expect(parsePollerPidsFromPs(row, 'TELEGRAM_STATE_DIR', USALACKOR_CHAN, 999999)).toEqual([55503])
+  })
+})

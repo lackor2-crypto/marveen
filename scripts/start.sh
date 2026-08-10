@@ -67,7 +67,21 @@ elif [ "$OS" = "Linux" ]; then
       exit 1
     fi
     [ -f "$INSTALL_DIR/dist/index.js" ] || (cd "$INSTALL_DIR" && npm run build)
-    nohup "$NODE_BIN" "$INSTALL_DIR/dist/index.js" > "$INSTALL_DIR/store/dashboard.log" 2>&1 &
+    # Launch with the channel-poller env vars STRIPPED. Whoever runs this script
+    # may be inside an agent tmux pane or the main agent's Bash, whose env has
+    # *_STATE_DIR / CLAUDE_PLUGIN_ROOT exported; the dashboard would inherit them
+    # and start matching the channel-orphan reaps (both the one in channels.sh
+    # and reapChannelOrphans in src/web/channel-poller-reap.ts) as if it were a
+    # stray poller. It then gets SIGTERMed on the next agent or channels restart
+    # and exits cleanly with nothing in any log to explain the outage
+    # (2026-08-10). Both reaps now skip the dashboard binary as well; this keeps
+    # it from ever looking like a poller in the first place.
+    #
+    # Appending, not truncating: the previous instance's log is the only record
+    # of why it died, and `>` erased exactly that during the 2026-08-10 restart.
+    nohup env -u TELEGRAM_STATE_DIR -u SLACK_STATE_DIR -u WHATSAPP_STATE_DIR \
+      -u TEAMS_STATE_DIR -u DISCORD_STATE_DIR -u CLAUDE_PLUGIN_ROOT \
+      "$NODE_BIN" "$INSTALL_DIR/dist/index.js" >> "$INSTALL_DIR/store/dashboard.log" 2>&1 &
     echo $! > "$INSTALL_DIR/store/dashboard.pid"
     nohup bash "$INSTALL_DIR/scripts/channels.sh" > "$INSTALL_DIR/store/channels.log" 2>&1 &
     echo $! > "$INSTALL_DIR/store/channels.pid"

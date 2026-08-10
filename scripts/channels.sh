@@ -468,7 +468,16 @@ case "$CHANNEL_PROVIDER" in
   discord)  STATE_ENV_VAR="DISCORD_STATE_DIR" ;;
   *)        STATE_ENV_VAR="TELEGRAM_STATE_DIR" ;;
 esac
-ORPHAN_PIDS="$(/bin/ps eww -e 2>/dev/null | awk -v needle="${STATE_ENV_VAR}=${MAIN_CHAN_DIR}" '$0 ~ needle { print $1 }')"
+# The dashboard (`node dist/index.js`) is excluded from both passes. It is
+# normally launched from a shell that already exports the main agent's channel
+# env, so it INHERITS *_STATE_DIR=<main chan dir> and matches this needle
+# exactly -- and a restart of the channels unit then SIGTERM/SIGKILLs it. The
+# dashboard exits gracefully (code 0, no crash, no stacktrace) and every
+# scheduled task, watcher and inter-agent delivery stops with it, with nothing
+# in any log to say why (2026-08-10 incident). It is never a channel poller, so
+# skipping it costs nothing. Same guard as parsePollerPidsFromPs in
+# src/web/channel-poller-reap.ts, which had the identical hole.
+ORPHAN_PIDS="$(/bin/ps eww -e 2>/dev/null | awk -v needle="${STATE_ENV_VAR}=${MAIN_CHAN_DIR}" '$0 ~ needle && index($0, "dist/index.js") == 0 && index($0, "src/index.ts") == 0 { print $1 }')"
 if [ -n "$ORPHAN_PIDS" ]; then
   # shellcheck disable=SC2086
   /bin/kill -TERM $ORPHAN_PIDS 2>/dev/null || true
@@ -495,7 +504,7 @@ fi
 # an install path with regex metacharacters can't break the exclusion. The var
 # is named `subdir` (not `sub`) because `sub` is a reserved awk function name and
 # BSD/macOS awk syntax-errors on it.
-ORPHAN_PIDS2="$(/bin/ps eww -e 2>/dev/null | awk -v needle="CLAUDE_PLUGIN_ROOT=" -v prov="/${CHANNEL_PROVIDER}" -v subdir="${INSTALL_DIR}/agents/" '$0 ~ needle && $0 ~ prov && index($0, subdir) == 0 { print $1 }')"
+ORPHAN_PIDS2="$(/bin/ps eww -e 2>/dev/null | awk -v needle="CLAUDE_PLUGIN_ROOT=" -v prov="/${CHANNEL_PROVIDER}" -v subdir="${INSTALL_DIR}/agents/" '$0 ~ needle && $0 ~ prov && index($0, subdir) == 0 && index($0, "dist/index.js") == 0 && index($0, "src/index.ts") == 0 { print $1 }')"
 if [ -n "$ORPHAN_PIDS2" ]; then
   # shellcheck disable=SC2086
   /bin/kill -TERM $ORPHAN_PIDS2 2>/dev/null || true
