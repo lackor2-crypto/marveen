@@ -8935,3 +8935,50 @@ body {
    row is reading what the other card is about (Boss: "bov magyarazatot"). */
 .card-detail-related-name { flex: 1; overflow-wrap: anywhere; }
 .card-detail-related-status { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+/* === Vault: structured fields on an entry (kanban 85eafd56) ===
+   Same editor markup in the add panel and in an open card, so a field looks
+   and behaves identically wherever it is edited. */
+.vault-fields-editor { margin: 10px 0; padding-top: 8px; border-top: 1px solid var(--border); }
+.vault-fields-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.03em; color: var(--text-muted); margin-bottom: 6px;
+}
+.vault-field-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-bottom: 6px;
+}
+.vault-field-row-top,
+.vault-field-row-value { display: flex; gap: 6px; margin-bottom: 6px; }
+/* The name and the value take the room; the kind selector and the icon
+   buttons stay at their natural width instead of squeezing the inputs. */
+.vault-field-row-top .vault-f-label,
+.vault-field-row-value .vault-f-value,
+.vault-field-row-value .vault-edit-value { flex: 1; min-width: 0; }
+.vault-field-row-top .vault-f-kind { flex: 0 0 auto; width: auto; }
+.vault-field-row .vault-f-note { width: 100%; font-size: 12px; }
+.vault-field-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.vault-field-presets button { font-size: 11px; }
+
+/* Closed card: what the entry holds, never what it holds it in. */
+.vault-card-fields { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.vault-card-field {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11px; padding: 1px 7px;
+  border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-secondary);
+}
+.vault-card-field-empty { color: var(--text-muted); }
+.vault-card-field-note-dot { color: var(--accent, var(--text-muted)); }
+/* The technical id a field answers to, when it has one. Monospace because it
+   is a literal string code looks up, not prose. */
+.vault-field-row .vault-f-binding { width: 100%; font-size: 11px; font-family: var(--font-mono, monospace); margin-top: 6px; }
+.vault-card-field-binding {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-muted);
+  border-left: 1px solid var(--border);
+  padding-left: 4px;
+}

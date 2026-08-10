@@ -9686,6 +9686,121 @@ function applyVaultFilters() {
   renderVaultGrid(filtered)
 }
 
+// === Vault: structured fields on an entry (kanban 85eafd56) ===
+// One encrypted value per id is right for an API key the fleet reads through
+// getSecret(); it is not a password manager. Boss, 2026-08-10: "egy olyan
+// tarolora [gondoltam] amiben ha akarom irok: linket, api kulcsot, tokent,
+// felhasznaloi nevet es jelszot, esetleg egy egyeb beviteli mezo masnak. es
+// mindegyikhez ugye megjegyzest lehessen irni magyarazatokat" -- and, on
+// opening a card, "barmit amit a felvetelkor bevittem lehessen modositani!
+// barmit!". So the same editor builds the add panel and the edit panel, and
+// every stored field is editable in both.
+const VAULT_FIELD_PRESETS = [
+  { key: 'username', kind: 'text',   i18n: 'vault.preset.username' },
+  { key: 'password', kind: 'secret', i18n: 'vault.preset.password' },
+  { key: 'apikey',   kind: 'secret', i18n: 'vault.preset.apikey' },
+  { key: 'token',    kind: 'secret', i18n: 'vault.preset.token' },
+  { key: 'totp',     kind: 'secret', i18n: 'vault.preset.totp' },
+  { key: 'recovery', kind: 'secret', i18n: 'vault.preset.recovery' },
+  { key: 'seed',     kind: 'secret', i18n: 'vault.preset.seed' },
+  { key: 'pin',      kind: 'secret', i18n: 'vault.preset.pin' },
+  { key: 'account',  kind: 'text',   i18n: 'vault.preset.account' },
+  { key: 'cardnum',  kind: 'secret', i18n: 'vault.preset.cardnum' },
+  { key: 'cardexp',  kind: 'text',   i18n: 'vault.preset.cardexp' },
+  { key: 'cvc',      kind: 'secret', i18n: 'vault.preset.cvc' },
+  { key: 'iban',     kind: 'secret', i18n: 'vault.preset.iban' },
+  { key: 'wifi',     kind: 'secret', i18n: 'vault.preset.wifi' },
+  { key: 'license',  kind: 'secret', i18n: 'vault.preset.license' },
+  { key: 'question', kind: 'text',   i18n: 'vault.preset.question' },
+  { key: 'contact',  kind: 'text',   i18n: 'vault.preset.contact' },
+  { key: 'link',     kind: 'url',    i18n: 'vault.preset.link' },
+  { key: 'expires',  kind: 'date',   i18n: 'vault.preset.expires' },
+  { key: 'custom',   kind: 'text',   i18n: 'vault.preset.custom' },
+]
+
+function _vaultFieldRowHtml(field) {
+  const f = field || { label: '', kind: 'text', value: '', note: '' }
+  const kinds = ['text', 'secret', 'url', 'date']
+  return `
+    <div class="vault-field-row">
+      <div class="vault-field-row-top">
+        <input type="text" class="input vault-f-label" value="${escapeAttr(f.label || '')}" placeholder="${escapeAttr(t('vault.field.row_name'))}">
+        <select class="input vault-f-kind">
+          ${kinds.map(k => `<option value="${k}"${(f.kind || 'text') === k ? ' selected' : ''}>${escapeHtml(t('vault.kind.' + k))}</option>`).join('')}
+        </select>
+        <button type="button" class="btn-secondary btn-compact vault-f-remove" title="${escapeAttr(t('vault.field.remove'))}">✕</button>
+      </div>
+      <div class="vault-field-row-value">
+        <input type="${(f.kind || 'text') === 'secret' ? 'password' : 'text'}" class="input vault-f-value" value="${escapeAttr(f.value || '')}" placeholder="${escapeAttr(t('vault.field.row_value'))}">
+        <button type="button" class="btn-secondary btn-compact vault-f-eye" title="${escapeAttr(t('vault.btn.show'))}">👁</button>
+        <button type="button" class="btn-secondary btn-compact vault-f-copy" title="${escapeAttr(t('vault.field.copy'))}">⧉</button>
+      </div>
+      <input type="text" class="input vault-f-note" value="${escapeAttr(f.note || '')}" placeholder="${escapeAttr(t('vault.field.row_note'))}">
+      <input type="text" class="input vault-f-binding" value="${escapeAttr(f.bindingId || '')}" placeholder="${escapeAttr(t('vault.field.row_binding'))}" title="${escapeAttr(t('vault.field.row_binding_tip'))}">
+    </div>`
+}
+
+// Wires one editor instance: preset buttons append rows, each row can be
+// revealed, copied and removed. Kept per-container so the add panel and any
+// open card editor never fight over the same handlers.
+function _initVaultFieldEditor(container) {
+  const rows = container.querySelector('.vault-fields-rows')
+  const presets = container.querySelector('.vault-field-presets')
+  presets?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-preset]')
+    if (!btn) return
+    const preset = VAULT_FIELD_PRESETS.find(p => p.key === btn.dataset.preset)
+    if (!preset) return
+    // 'custom' stays unnamed on purpose: the point of it is a name the user
+    // picks, so prefilling one would just be something to delete first.
+    const label = preset.key === 'custom' ? '' : t(preset.i18n)
+    rows.insertAdjacentHTML('beforeend', _vaultFieldRowHtml({ label, kind: preset.kind, value: '', note: '' }))
+    rows.lastElementChild.querySelector(preset.key === 'custom' ? '.vault-f-label' : '.vault-f-value')?.focus()
+  })
+  rows?.addEventListener('click', (e) => {
+    const row = e.target.closest('.vault-field-row')
+    if (!row) return
+    if (e.target.closest('.vault-f-remove')) { row.remove(); return }
+    if (e.target.closest('.vault-f-eye')) {
+      const inp = row.querySelector('.vault-f-value')
+      inp.type = inp.type === 'password' ? 'text' : 'password'
+      return
+    }
+    if (e.target.closest('.vault-f-copy')) {
+      navigator.clipboard?.writeText(row.querySelector('.vault-f-value').value)
+      showToast(t('vault.field.copied'))
+    }
+  })
+  // Switching a row to "secret" masks it immediately, rather than leaving the
+  // password visible until the card is reopened.
+  rows?.addEventListener('change', (e) => {
+    if (!e.target.classList?.contains('vault-f-kind')) return
+    const row = e.target.closest('.vault-field-row')
+    row.querySelector('.vault-f-value').type = e.target.value === 'secret' ? 'password' : 'text'
+  })
+}
+
+function _collectVaultFields(container) {
+  return [...container.querySelectorAll('.vault-field-row')].map(row => ({
+    label: row.querySelector('.vault-f-label').value.trim(),
+    kind: row.querySelector('.vault-f-kind').value,
+    value: row.querySelector('.vault-f-value').value,
+    note: row.querySelector('.vault-f-note').value.trim(),
+    bindingId: row.querySelector('.vault-f-binding').value.trim(),
+  })).filter(f => f.label || f.value || f.note)
+}
+
+function _vaultFieldEditorHtml(fields) {
+  return `
+    <div class="vault-fields-editor">
+      <div class="vault-fields-title">${escapeHtml(t('vault.fields.title'))}</div>
+      <div class="vault-fields-rows">${(fields || []).map(f => _vaultFieldRowHtml(f)).join('')}</div>
+      <div class="vault-field-presets">
+        ${VAULT_FIELD_PRESETS.map(p => `<button type="button" class="btn-secondary btn-compact" data-preset="${p.key}">+ ${escapeHtml(t(p.i18n))}</button>`).join('')}
+      </div>
+    </div>`
+}
+
 function renderVaultGrid(secrets) {
   const list = document.getElementById('vaultPageList')
   const empty = document.getElementById('vaultPageEmpty')
@@ -9702,7 +9817,19 @@ function renderVaultGrid(secrets) {
     const categoryBadge = s.category ? `<span class="vault-category-badge">${escapeHtml(s.category)}</span>` : ''
     const urlLine = s.url ? `<a class="vault-card-url" href="${escapeAttr(/^https?:\/\//i.test(s.url) ? s.url : 'https://' + s.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeHtml(s.url)}</a>` : ''
     const notesLine = s.notes ? `<div class="vault-card-notes">${escapeHtml(s.notes)}</div>` : ''
-    card.innerHTML = `<div class="vault-card-header"><div class="vault-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="vault-card-title"><div class="vault-card-id">${escapeHtml(s.id)} ${bindingBadge}${categoryBadge}</div>${s.label !== s.id ? `<div class="vault-card-label">${escapeHtml(s.label)}</div>` : ''}${urlLine}${notesLine}</div><div class="vault-card-meta">${date}</div></div><div class="vault-card-actions"><button class="btn-secondary btn-compact vault-card-reveal" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${t('vault.btn.show')}</button><button class="btn-secondary btn-compact vault-card-edit" data-id="${escapeHtml(s.id)}" data-label="${escapeHtml(s.label)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>${t('vault.btn.edit')}</button><button class="btn-secondary btn-compact vault-card-delete" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>${t('vault.btn.delete')}</button></div>`
+    // Field STRUCTURE on the closed card: what this entry holds and why, with
+    // no values -- the list endpoint never sends them. Open the card to see or
+    // change a value.
+    const fieldsLine = (s.fields && s.fields.length)
+      ? `<div class="vault-card-fields">${s.fields.map(f => `
+          <span class="vault-card-field" title="${escapeAttr(f.note || '')}">
+            <span class="vault-card-field-name">${escapeHtml(f.label || t('vault.field.unnamed'))}</span>
+            ${f.hasValue ? '' : `<span class="vault-card-field-empty">${escapeHtml(t('vault.field.empty'))}</span>`}
+            ${f.bindingId ? `<span class="vault-card-field-binding">${escapeHtml(f.bindingId)}</span>` : ''}
+            ${f.note ? '<span class="vault-card-field-note-dot">•</span>' : ''}
+          </span>`).join('')}</div>`
+      : ''
+    card.innerHTML = `<div class="vault-card-header"><div class="vault-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="vault-card-title"><div class="vault-card-id">${escapeHtml(s.id)} ${bindingBadge}${categoryBadge}</div>${s.label !== s.id ? `<div class="vault-card-label">${escapeHtml(s.label)}</div>` : ''}${urlLine}${notesLine}${fieldsLine}</div><div class="vault-card-meta">${date}</div></div><div class="vault-card-actions"><button class="btn-secondary btn-compact vault-card-reveal" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${t('vault.btn.show')}</button><button class="btn-secondary btn-compact vault-card-edit" data-id="${escapeHtml(s.id)}" data-label="${escapeHtml(s.label)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>${t('vault.btn.edit')}</button><button class="btn-secondary btn-compact vault-card-delete" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>${t('vault.btn.delete')}</button></div>`
     list.appendChild(card)
   }
   list.querySelectorAll('.vault-card-reveal').forEach(btn => {
@@ -9736,13 +9863,32 @@ function renderVaultGrid(secrets) {
       const secret = _vaultSecrets.find(s => s.id === id) || {}
       const form = document.createElement('div')
       form.className = 'vault-card-edit-form'
+      // Everything the entry holds, editable in place -- name, description,
+      // category, link, notes, the primary value AND every extra field. Boss,
+      // 2026-08-10: "ne csak azt lassam hogy a kulcsot lehet valtoztatni es
+      // semmi mast ... barmit amit a felvetelkor bevittem lehessen modositani".
       form.innerHTML = `
-        <input type="password" class="input vault-edit-value" value="${escapeHtml(data.value)}" placeholder="${escapeAttr(t('vault.field.value_label'))}" style="font-size:13px;margin-bottom:6px">
-        <input type="text" class="input vault-edit-category" value="${escapeHtml(secret.category || '')}" placeholder="${escapeAttr(t('vault.field.category_label'))}" style="font-size:13px;margin-bottom:6px" list="vaultCategoryOptions">
-        <input type="text" class="input vault-edit-url" value="${escapeHtml(secret.url || '')}" placeholder="${escapeAttr(t('vault.field.url_label'))}" style="font-size:13px;margin-bottom:6px">
-        <textarea class="input vault-edit-notes" rows="2" placeholder="${escapeAttr(t('vault.field.notes_label'))}" style="font-size:13px;margin-bottom:6px">${escapeHtml(secret.notes || '')}</textarea>
+        <label class="vault-field-label">${escapeHtml(t('vault.field.desc_label'))}</label>
+        <input type="text" class="input vault-edit-label" value="${escapeAttr(secret.label || '')}" style="font-size:13px;margin-bottom:6px">
+        <label class="vault-field-label">${escapeHtml(t('vault.field.value_label'))}</label>
+        <div class="vault-field-row-value" style="margin-bottom:6px">
+          <input type="password" class="input vault-edit-value" value="${escapeAttr(data.value)}" style="font-size:13px">
+          <button type="button" class="btn-secondary btn-compact vault-edit-value-eye" title="${escapeAttr(t('vault.btn.show'))}">👁</button>
+        </div>
+        <label class="vault-field-label">${escapeHtml(t('vault.field.category_label'))}</label>
+        <input type="text" class="input vault-edit-category" value="${escapeAttr(secret.category || '')}" style="font-size:13px;margin-bottom:6px" list="vaultCategoryOptions">
+        <label class="vault-field-label">${escapeHtml(t('vault.field.url_label'))}</label>
+        <input type="text" class="input vault-edit-url" value="${escapeAttr(secret.url || '')}" style="font-size:13px;margin-bottom:6px">
+        <label class="vault-field-label">${escapeHtml(t('vault.field.notes_label'))}</label>
+        <textarea class="input vault-edit-notes" rows="2" style="font-size:13px;margin-bottom:6px">${escapeHtml(secret.notes || '')}</textarea>
+        ${_vaultFieldEditorHtml(data.fields || [])}
         <button class="btn-primary btn-compact vault-edit-save">${t('vault.btn.save')}</button> <button class="btn-secondary btn-compact vault-edit-cancel">${t('vault.btn.cancel')}</button>`
       card.appendChild(form)
+      _initVaultFieldEditor(form)
+      form.querySelector('.vault-edit-value-eye').addEventListener('click', () => {
+        const inp = form.querySelector('.vault-edit-value')
+        inp.type = inp.type === 'password' ? 'text' : 'password'
+      })
       const input = form.querySelector('.vault-edit-value')
       input.focus()
       input.select()
@@ -9753,13 +9899,15 @@ function renderVaultGrid(secrets) {
         const category = form.querySelector('.vault-edit-category').value.trim()
         const url = form.querySelector('.vault-edit-url').value.trim()
         const notes = form.querySelector('.vault-edit-notes').value.trim()
+        const newLabel = form.querySelector('.vault-edit-label').value.trim() || id
+        const fields = _collectVaultFields(form)
         const saveBtn = form.querySelector('.vault-edit-save')
         saveBtn.disabled = true
         saveBtn.textContent = '...'
         const res = await fetch('/api/vault', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, label, value: newVal, category, url, notes }),
+          body: JSON.stringify({ id, label: newLabel, value: newVal, category, url, notes, fields }),
         })
         if (!res.ok) {
           const e = await res.json().catch(() => ({}))
@@ -9797,6 +9945,12 @@ function renderVaultGrid(secrets) {
   const addBtn = document.getElementById('vaultPageAddBtn')
   if (!newBtn || !panel) return
 
+  const fieldsHost = document.getElementById('vaultPageFields')
+  if (fieldsHost) {
+    fieldsHost.innerHTML = _vaultFieldEditorHtml([])
+    _initVaultFieldEditor(fieldsHost)
+  }
+
   newBtn.addEventListener('click', () => {
     panel.hidden = !panel.hidden
     if (!panel.hidden) document.getElementById('vaultPageIdInput').focus()
@@ -9810,12 +9964,18 @@ function renderVaultGrid(secrets) {
     const category = document.getElementById('vaultPageCategoryInput').value.trim()
     const url = document.getElementById('vaultPageUrlInput').value.trim()
     const notes = document.getElementById('vaultPageNotesInput').value.trim()
-    if (!id || !value) return
+    const fields = fieldsHost ? _collectVaultFields(fieldsHost) : []
+    // A card is "one place", not "one key" (Boss 2026-08-10: an Erste Bank card
+    // holds card number, PIN and a login, and no single value is THE value). So
+    // a name plus at least one filled field is enough; the primary value stays
+    // required only for the fleet-readable keys that getSecret() reads by id.
+    if (!id) return
+    if (!value && !fields.some(f => f.value)) { showToast(t('vault.err.need_value')); return }
     addBtn.disabled = true
     await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, label, value, category, url, notes }),
+      body: JSON.stringify({ id, label, value, category, url, notes, fields }),
     })
     document.getElementById('vaultPageIdInput').value = ''
     document.getElementById('vaultPageLabelInput').value = ''
@@ -9823,6 +9983,7 @@ function renderVaultGrid(secrets) {
     document.getElementById('vaultPageCategoryInput').value = ''
     document.getElementById('vaultPageUrlInput').value = ''
     document.getElementById('vaultPageNotesInput').value = ''
+    if (fieldsHost) fieldsHost.querySelector('.vault-fields-rows').innerHTML = ''
     addBtn.disabled = false
     panel.hidden = true
     loadVaultPage()

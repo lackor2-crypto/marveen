@@ -5,6 +5,10 @@ import { PROJECT_ROOT } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { isKeychainAvailable, keychainStore, keychainRetrieve } from './keychain.js'
 import { logger } from '../logger.js'
+import {
+  normalizeVaultFields, fieldsToMeta,
+  type VaultField, type VaultFieldMeta,
+} from '../vault-fields.js'
 
 const VAULT_PATH = join(PROJECT_ROOT, 'store', 'vault.json')
 const VAULT_KEY_PATH = join(PROJECT_ROOT, 'store', '.vault-key')
@@ -28,6 +32,12 @@ interface VaultEntry {
   category?: string
   url?: string
   notes?: string
+  // Structured extra fields (username/password/token/...), encrypted with the
+  // same master key as `encrypted` above -- a password manager's contents are
+  // no less sensitive than the primary value. Stored as one blob rather than
+  // per-field so a card is a single encrypt/decrypt, and absent on every entry
+  // written before this (readSecretFields returns [] for those).
+  encryptedFields?: string
 }
 
 export interface VaultEntryMeta {
@@ -112,11 +122,49 @@ function writeVault(store: VaultStore): void {
   atomicWriteFileSync(VAULT_PATH, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 })
 }
 
-export function listSecrets(): Array<{ id: string, label: string, createdAt: string, updatedAt: string, category?: string, url?: string, notes?: string }> {
-  return readVault().entries.map(({ id, label, createdAt, updatedAt, category, url, notes }) => ({ id, label, createdAt, updatedAt, category, url, notes }))
+export function listSecrets(): Array<{ id: string, label: string, createdAt: string, updatedAt: string, category?: string, url?: string, notes?: string, fields?: VaultFieldMeta[] }> {
+  return readVault().entries.map(e => ({
+    id: e.id, label: e.label, createdAt: e.createdAt, updatedAt: e.updatedAt,
+    category: e.category, url: e.url, notes: e.notes,
+    // Structure only, never values: the list endpoint is read by the whole
+    // dashboard, and a card must be able to show "has a password" without
+    // handing the password to every page that renders a list.
+    fields: fieldsToMeta(decodeFields(e.encryptedFields)),
+  }))
 }
 
-export function setSecret(id: string, label: string, value: string, meta?: VaultEntryMeta): void {
+function decodeFields(blob: string | undefined): VaultField[] {
+  if (!blob) return []
+  try {
+    return normalizeVaultFields(JSON.parse(decrypt(blob)))
+  } catch (err) {
+    logger.warn({ err }, 'vault: stored fields unreadable, treating entry as field-less')
+    return []
+  }
+}
+
+/** Full field list WITH values. Only for the single-entry read path. */
+export function getSecretFields(id: string): VaultField[] {
+  const entry = readVault().entries.find(e => e.id === id)
+  if (!entry) return []
+  return decodeFields(entry.encryptedFields)
+}
+
+/** Replace an entry's field list. Leaves the primary value untouched. */
+export function setSecretFields(id: string, fields: unknown): boolean {
+  const store = readVault()
+  const idx = store.entries.findIndex(e => e.id === id)
+  if (idx < 0) return false
+  const normalized = normalizeVaultFields(fields)
+  const entry = store.entries[idx]
+  entry.encryptedFields = normalized.length ? encrypt(JSON.stringify(normalized)) : undefined
+  entry.updatedAt = new Date().toISOString()
+  store.entries[idx] = entry
+  writeVault(store)
+  return true
+}
+
+export function setSecret(id: string, label: string, value: string, meta?: VaultEntryMeta & { fields?: unknown }): void {
   const store = readVault()
   const now = new Date().toISOString()
   const idx = store.entries.findIndex(e => e.id === id)
@@ -134,11 +182,22 @@ export function setSecret(id: string, label: string, value: string, meta?: Vault
     if (meta?.category === undefined) entry.category = store.entries[idx].category
     if (meta?.url === undefined) entry.url = store.entries[idx].url
     if (meta?.notes === undefined) entry.notes = store.entries[idx].notes
+    // Same rule as the meta fields: not passing `fields` edits nothing rather
+    // than silently deleting every field on the card.
+    entry.encryptedFields = meta?.fields === undefined
+      ? store.entries[idx].encryptedFields
+      : encodeFields(meta.fields)
     store.entries[idx] = entry
   } else {
+    if (meta?.fields !== undefined) entry.encryptedFields = encodeFields(meta.fields)
     store.entries.push(entry)
   }
   writeVault(store)
+}
+
+function encodeFields(fields: unknown): string | undefined {
+  const normalized = normalizeVaultFields(fields)
+  return normalized.length ? encrypt(JSON.stringify(normalized)) : undefined
 }
 
 // Editing the label/category/URL/notes on an existing entry shouldn't force
@@ -162,8 +221,25 @@ export function updateSecretMeta(id: string, meta: { label?: string } & VaultEnt
 export function getSecret(id: string): string | null {
   const store = readVault()
   const entry = store.entries.find(e => e.id === id)
-  if (!entry) return null
-  return decrypt(entry.encrypted)
+  if (entry) return decrypt(entry.encrypted)
+  // Not a top-level entry: it may be a FIELD on a card, bound to this id. That
+  // is what lets one human "OpenRouter" card carry the fleet key, the
+  // management key and the account email while every getSecret() caller keeps
+  // asking for the same technical name it always did.
+  for (const e of store.entries) {
+    const bound = decodeFields(e.encryptedFields).find(f => f.bindingId === id)
+    if (bound) return bound.value
+  }
+  return null
+}
+
+/** Which card+field currently answers for a bound id (diagnostics/UI). */
+export function findSecretBinding(id: string): { entryId: string; label: string } | null {
+  for (const e of readVault().entries) {
+    const bound = decodeFields(e.encryptedFields).find(f => f.bindingId === id)
+    if (bound) return { entryId: e.id, label: bound.label }
+  }
+  return null
 }
 
 export function deleteSecret(id: string): boolean {
