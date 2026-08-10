@@ -151,6 +151,26 @@ bejelentkezett konzol-session.
   2. a cél-ablak EXPLICIT előtérbe hozása a scriptben a kattintás előtt
      (`SetForegroundWindow` a `MainWindowHandle`-re), nem elég feltételezni
      hogy az app látszik.
+- **A `SetForegroundWindow` KÉRÉS, nem parancs -- ellenőrizd hogy sikerült-e.**
+  A Windows megtagadja az előtérbe-hozást, ha a felhasználó épp aktívan
+  dolgozik egy másik ablakban. 2026-08-10-en pontosan ez történt: a
+  MetaTrader-re kért fókusz nem jött létre (Boss épp a böngészőben volt), a
+  script viszont ettől függetlenül kattintott a chart-koordinátára -- ami így
+  BOSS CHROME-JÁNAK a könyvjelző-sávjára ment. Kattintás ELŐTT kötelező:
+  ```powershell
+  [Win32X]::SetForegroundWindow($h) | Out-Null
+  Start-Sleep -Milliseconds 800
+  if ([Win32X]::GetForegroundWindow() -ne $h) { "not-foreground" | Out-File $status -Force; exit }
+  ```
+  Inkább maradjon el a művelet, mint hogy vakon kattintsunk valaki más
+  ablakába. (A `GetLastInputInfo`-s tétlenség-ellenőrzés ehhez képest csak
+  kiegészítés: 4 másodperc kevés, mert a felhasználó lehet aktív úgy is, hogy
+  épp nem mozgatja az egeret -- olvas, gépel máshol.)
+- **Talcára rejtett ablakot nem lehet lefotózni.** Ha az MT4 (vagy más
+  tray-be rejtő app) el van rejtve, a `PrintWindow` fekete/üres képet ad --
+  élőben megmértem. Ilyenkor vagy láthatóvá kell tenni (ami zavarja a
+  felhasználót), vagy a futást el kell halasztani; némán hibás képet
+  elemezni a legrosszabb választás.
 - A Store-appok (pl. WhatsApp Desktop) processz-neve nem feltétlenül az
   amire számítasz (`WhatsApp.Root.exe`, a valódi ablak egy
   `msedgewebview2` process alatt van), és `tasklist /FI "IMAGENAME eq
