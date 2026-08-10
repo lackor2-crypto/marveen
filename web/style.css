@@ -9019,3 +9019,20 @@ body {
 .vault-guide-body { padding: 8px 16px 16px; overflow-y: auto; }
 .vault-guide-body h3 { font-size: 13px; margin: 14px 0 4px; }
 .vault-guide-body p { font-size: 13px; line-height: 1.55; margin: 0 0 8px; color: var(--text-secondary); }
+
+/* The guide button lives in the search row. The wrap was built for a single
+   full-width input with an absolutely positioned icon, so a second child just
+   collided with it (Boss 2026-08-10: "a hasznalati utmutato gomb kicsit fent
+   van. beleer a kerese a kulcsok kozott beviteli mezobe"). Make the row a real
+   flex line: the input takes the space, the button keeps its own width, both
+   centred. The icon stays absolute against the wrap, which still lines up
+   because the input remains the first item at the wrap's left edge. */
+.vault-search-wrap { display: flex; align-items: center; gap: 8px; }
+.vault-search-wrap .vault-search { flex: 1; min-width: 0; width: auto; }
+.vault-search-wrap #vaultGuideBtn { flex: 0 0 auto; white-space: nowrap; }
+/* On a phone the two do not fit side by side; let the button drop under the
+   input instead of shrinking it to nothing. */
+@media (max-width: 560px) {
+  .vault-search-wrap { flex-wrap: wrap; }
+  .vault-search-wrap .vault-search { flex: 1 1 100%; }
+}
