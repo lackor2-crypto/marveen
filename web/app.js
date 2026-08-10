@@ -537,7 +537,7 @@ const SIDEBAR_GROUPS = [
   // agenseket dolgoztatjuk egymas ellen egy jobb valaszert -- ugyanaz a fajta
   // dolog mint az Ugynokok/Aktivitas/Uzenetek, nem rendszer-adminisztracio
   // (Boss dontese, 2026-08-10).
-  { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'messages', 'tasks', 'bgTasks', 'debate'] },
+  { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'debate', 'messages', 'tasks', 'bgTasks'] },
   { key: 'knowledge',   labelKey: 'nav.group.knowledge',   pages: ['memories', 'skills', 'research', 'ideas'] },
   { key: 'stats',       labelKey: 'nav.group.stats',       pages: ['costs', 'tokenUsage'] },
   // 'drive' szandekosan NINCS itt: a Drive fajlbongeszo tartalom, nem
@@ -11868,6 +11868,20 @@ function chatDisplayName(name) {
   return agents.find(a => a.name === name)?.displayName || name
 }
 
+// A nev-feloldas a modul-szintu `agents` listabol dolgozik, amit viszont CSAK
+// az Ugynokok oldal betoltese tolt fel. Ezert barmelyik masik oldal, ami nevet
+// akar mutatni (pl. a Jovahagyasok ellenorzes-oszlopa), a nyers azonositora
+// esett vissza: Boss "usalackor"-t latott ott, ahol mellette "Szakerto" all
+// (2026-08-10). Ez a helper behuzza a listat, ha meg ures -- egyetlen kis
+// keres, es csak egyszer.
+async function ensureAgentsLoaded() {
+  if (agents.length) return
+  try {
+    const r = await fetch('/api/agents')
+    if (r.ok) agents = await r.json()
+  } catch { /* marad a nyers azonosito, ez csak megjelenites */ }
+}
+
 function chatLastSeenKey(agentName) { return 'chat_last_seen_' + agentName }
 function chatGetLastSeen(agentName) { return parseInt(localStorage.getItem(chatLastSeenKey(agentName)) || '0', 10) }
 function chatMarkSeen(agentName, maxId) {
@@ -13875,6 +13889,7 @@ let _approvalsAll = []
 const _approvalsExpanded = new Set()
 
 async function loadApprovalsPage() {
+  await ensureAgentsLoaded()   // kulonben az ellenorzes-oszlop nyers agens-id-t mutat
   const tbody = document.getElementById('approvalsTbody')
   const statsEl = document.getElementById('approvalsStats')
   tbody.innerHTML = `<tr><td colspan="8" style="color:var(--text-muted);padding:24px;text-align:center">${t('approvals.loading')}</td></tr>`
@@ -14007,7 +14022,7 @@ function _renderApprovalsTable() {
       : 'max-width:280px;font-size:12px;cursor:pointer'
     return `<tr style="${rowStyle}">
       <td style="white-space:nowrap;font-size:12px">${escapeHtml(time)}</td>
-      <td><code style="font-size:12px">${escapeHtml(a.agent_id)}</code></td>
+      <td><code style="font-size:12px" title="${escapeAttr(a.agent_id)}">${escapeHtml(chatDisplayName(a.agent_id))}</code></td>
       <td style="font-size:12px">${escapeHtml(a.category)}</td>
       <td class="approvals-desc-cell" data-id="${escapeAttr(rowId)}" style="${descCellStyle}" title="${isExpanded ? '' : escapeAttr(a.action_description)}">${descHtml}</td>
       <td>${badge}</td>
