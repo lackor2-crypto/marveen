@@ -9681,18 +9681,29 @@ const VAULT_GUIDE_HU = [
   ]],
   ['Új kártya felvétele', [
     'Kattints az Új gombra. A Kulcs neve az azonosító, ez látszik a kártya tetején, például erste-bank. A Leírás az emberi név, például Erste Bank.',
-    'Válassz sablont: weboldal belépés, netbank, bankkártya, API szolgáltatás, kripto tárca, wifi vagy szoftver licenc. A sablon behúzza a szokásos mezőket, de bármit átnevezhetsz, törölhetsz vagy hozzáadhatsz utána.',
+    'Válassz sablont: weboldal belépés, netbank, bankkártya, API szolgáltatás, kripto tárca, wifi vagy szoftver licenc. A sablon nem szór szét mezőket a kártyán, hanem létrehoz egy dobozt a saját nevével, és abba teszi a szokásos mezőket.',
     'Nem kötelező fő értéket megadni. Ha csak felhasználónév és jelszó van, az is elég.',
+  ]],
+  ['Csoportok', [
+    'A mezők nevesített dobozokban élnek. Ez azért fontos, mert egy lapos listában nem derül ki, hogy egy Jelszó mihez tartozik. Ha a Bankkártya dobozban van, akkor a bankkártya jelszava, ha a Weboldal belépés dobozban, akkor a weboldalé.',
+    'Minden dobozban van egy saját mező-hozzáadó sor. Oda kattints, ha abba a dologba akarsz még adatot tenni. Az Új csoport gombbal üres dobozt hozol létre, aminek te adsz nevet.',
+    'Ha ugyanazt a sablont kétszer használod, a második Bankkártya 2 néven jön létre, tehát két bankkártya nem folyik össze. A doboz neve bármikor átírható, és ha kitöltött értékek vannak benne, törlés előtt rákérdez.',
+    'A dobozokat piros vonal választja el egymástól, hogy ránézésre lásd hol ér véget az egyik és hol kezdődik a másik.',
   ]],
   ['Mezők', [
     'Minden mezőnek van neve, típusa, értéke és megjegyzése. A megjegyzésbe azt írd, amit fél év múlva nem fogsz fejből tudni: melyik fiókhoz tartozik, hol kell használni, mire vigyázz.',
     'A típus dönti el, hogy az érték maszkolva jelenik-e meg. A titkos mezők mellett szem ikon a felfedéshez és egy gomb a vágólapra másoláshoz.',
     'A Rendszer-azonosító mezőt csak akkor töltsd ki, ha a kódnak is olvasnia kell azt az értéket. Ilyen például az openrouter-fleet-key. Ez az ami miatt egy kártyán lehet az összes OpenRouter adat úgy, hogy a flotta közben megtalálja a kulcsot.',
   ]],
-  ['Címkék és keresés', [
-    'Egy kártya több címkét is kaphat, vesszővel elválasztva. Egy netbank egyszerre lehet bank és személyes, nem kell választanod.',
+  ['Címkék', [
+    'Egy kártya több címkét is kaphat. Egy netbank egyszerre lehet bank és személyes, nem kell választanod.',
+    'A címkéket nem gépeled be újra minden kártyán. A szerkesztőben ott vannak gombként a már létező címkék, egy kattintás hozzáadja. Új címkét külön, tudatos lépéssel veszel fel.',
+    'Ha az új címke elgépelésnek tűnik, a rendszer nem hoz létre másodikat, hanem felajánlja a meglévőt: van már hasonló címke, Személyes. Ha tényleg új akarsz, azt külön megerősíted. Az ékezet, a kis- és nagybetű meg a szóköz eltérése automatikusan a már használt írásmódra áll.',
     'A rács fölött a címke-gombokkal szűrsz, mellettük a darabszám. Az Összes gomb visszaad mindent.',
-    'A kereső a kártya nevében, leírásában, címkéiben, jegyzetében, webcímében és a mezők NEVÉBEN keres. Tehát a wifi szóra megtalálod azt a kártyát, amin van egy Wifi jelszó nevű mező. Magukban az értékekben nem keres, azok nem hagyják el a széfet.',
+  ]],
+  ['Keresés', [
+    'A kereső a kártya nevében, leírásában, címkéiben, jegyzetében, webcímében és a mezők NEVÉBEN keres. Tehát a wifi szóra megtalálod azt a kártyát, amin van egy Wifi jelszó nevű mező.',
+    'Magukban az értékekben nem keres. Azok nem hagyják el a széfet, csak akkor kapod meg őket, amikor konkrétan megnyitod a kártyát.',
   ]],
   ['Korábbi jelszavak', [
     'Ha felülírsz egy titkos mezőt, a régi érték megmarad a kártya alján, dátummal. Erre akkor van szükség, amikor egy oldal nem fogadja el a változtatást, vagy egy integráció elkezd hibázni a csere után.',
@@ -9710,18 +9721,29 @@ const VAULT_GUIDE_EN = [
   ]],
   ['Adding a card', [
     'Press New. The key name is the identifier shown at the top of the card, e.g. erste-bank. The description is the human name, e.g. Erste Bank.',
-    'Pick a template: website login, online banking, bank card, API service, crypto wallet, Wi-Fi or software licence. A template adds the usual rows; rename, remove or add to them freely.',
+    'Pick a template: website login, online banking, bank card, API service, crypto wallet, Wi-Fi or software licence. A template does not scatter rows across the card -- it creates a box with its own name and puts the usual fields inside it.',
     'A primary value is not required. A username and a password is enough.',
+  ]],
+  ['Groups', [
+    'Fields live in named boxes, because a flat list cannot say what a password belongs to. In the Bank card box it is the bank card password; in the Website login box it is the website one.',
+    'Each box has its own add-a-field row: use the one belonging to the thing you are describing. New group gives you an empty box to name yourself.',
+    'Using the same template twice creates "Bank card 2", so two cards do not merge. A box can be renamed at any time, and removing one with values in it asks first.',
+    'A red rule separates the boxes so you can see at a glance where one ends and the next begins.',
   ]],
   ['Fields', [
     'Each field has a name, a kind, a value and a note. Put in the note what you will not remember in six months: which account it belongs to, where it is used, what to watch out for.',
     'The kind decides whether the value is masked. Secret fields get an eye icon to reveal and a button to copy.',
     'Fill in the system id only when code has to read that value, e.g. openrouter-fleet-key. That is what lets one card hold every OpenRouter value while the fleet still finds its key.',
   ]],
-  ['Tags and search', [
-    'A card can carry several tags, comma separated. An online bank can be both bank and personal; you do not have to choose.',
+  ['Tags', [
+    'A card can carry several tags. An online bank can be both bank and personal; you do not have to choose.',
+    'You do not retype tags on every card: the editor shows the ones that already exist as one-click chips, and adding a new one is a deliberate step.',
+    'If a new tag looks like a mistyping, it is not created -- the existing one is offered instead, and keeping the new spelling takes a second confirmation. Case, accent and spacing differences snap to the spelling already in use.',
     'The chips above the grid filter by tag, with a count on each. All brings everything back.',
-    'Search covers the card name, description, tags, notes, URL and field NAMES. Searching for wifi finds the card that has a field called Wi-Fi password. Values themselves are not searched: they never leave the vault.',
+  ]],
+  ['Search', [
+    'Search covers the card name, description, tags, notes, URL and field NAMES. Searching for wifi finds the card that has a field called Wi-Fi password.',
+    'Values themselves are not searched. They never leave the vault; you get them only when you open a specific card.',
   ]],
   ['Previous passwords', [
     'Overwriting a secret field keeps the old value at the bottom of the card with a date. You need this when a site rejects the change, or an integration starts failing after a rotation.',
