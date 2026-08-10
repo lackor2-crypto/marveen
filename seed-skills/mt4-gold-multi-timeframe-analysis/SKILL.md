@@ -93,6 +93,14 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
   pedig az ablak ráugrasztása a felhasználó munkájára. Ha ez ismétlődik, a
   hosszú távú megoldás a kanban bd02805a kártyán van: a chart-adat
   MQL4-oldali fájl-exportból jöjjön, ne képernyőképből.
+- **A fájl-alapú kiolvasás (`scripts/gold-data.py`) SEM friss, amíg az MT4 a
+  tálcán van.** Mérve 2026-08-10 15:01-kor: mind a négy idősík history-fájlja
+  149 perce változatlan volt, miközben az MT4 futott, csak rejtve. Vagyis a
+  fájl-alapú út az ÜTKÖZÉST szünteti meg (nincs fókusz-lopás, nincs kattintás),
+  a FRISSESSÉGET nem. A script mindig kiírja a fájl korát: ha az több tíz perc,
+  inkább hagyd ki a kört, mint hogy régi adatot küldj ki friss jelzésként --
+  Kiss Zoltán nem lát chartot, csak a számokat hallja, nála egy csendben
+  elavult ár rosszabb mint a hallgatás.
 
 ## Ellenőrzés
 - Mind a 4 PNG friss időbélyegű és tényleg a várt idősík-címet mutatja
