@@ -8737,3 +8737,59 @@ body {
   .team-children:not(.team-roots) { max-width: 330px; }
   .team-node { min-width: 140px; max-width: 170px; }
 }
+
+/* === Jóváhagyások telefonon: kártyák táblázat helyett =====================
+   A tábla 1131 pixel széles, a telefon 356 -- vagyis az Ellenőrzés oszlop (a
+   gombbal és az ágens-választóval) 690 pixelnél kezdődött, jóval a képernyőn
+   kívül. Oldalra lehetett ugyan görgetni, de a gyakorlatban ez azt jelentette,
+   hogy Boss nem találta meg (2026-08-10: "mobilnézetben nincs benne az
+   ellenőrzés gomb, amivel a munkákat le tudnám más agentekkel ellenőriztetni,
+   és persze a hozzá tartozó legördülő menü").
+
+   Telefonon a sorok kártyává állnak össze: minden cella egymás alá kerül, a
+   fejléc eltűnik (a tartalom magától beszédes: ágens, tevékenység, státusz,
+   ellenőrzés, gombok), és nincs oldalra görgetés. Nem rejtünk el adatot, csak
+   más elrendezésben mutatjuk. Az asztali tábla érintetlen.
+
+   A felső darabszám-dobozok is: négy doboz 100px minimum-szélességgel nem fér
+   ki 358 pixelre, ezért lógott ki az "ELUTASÍTOTT" felirat a dobozából --
+   telefonon kettesével sorakoznak. */
+@media (max-width: 768px) {
+  .approvals-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .approvals-stats .stat-card { min-width: 0; padding: 12px 10px; }
+
+  #approvalsPage .ssh-table-wrap {
+    overflow-x: visible;
+    border: none;
+    border-radius: 0;
+  }
+  #approvalsTable,
+  #approvalsTable tbody,
+  #approvalsTable tr,
+  #approvalsTable td {
+    display: block;
+    width: auto;
+  }
+  #approvalsTable thead { display: none; }
+  #approvalsTable tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  #approvalsTable td {
+    border: none;
+    padding: 3px 0;
+    white-space: normal;
+    max-width: none;
+  }
+  /* Üres cella (pl. nincs határidő) ne hagyjon lyukat a kártyában. */
+  #approvalsTable td:empty { display: none; }
+  /* A döntés-gombok egymás mellett maradjanak, de férjenek is ki. */
+  #approvalsTable td .approvals-decide { flex: 1 1 auto; }
+}
