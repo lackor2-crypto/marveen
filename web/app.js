@@ -1029,27 +1029,53 @@ document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
 // Kanban card search box: Enter jumps + announces misses; typing does a lightly
 // debounced silent jump so a matched card is found without a toast per keystroke.
 ;(() => {
-  const searchEl = document.getElementById('kanbanSearchInput')
-  if (!searchEl) return
-  // Belt-and-suspenders against browser form restoration: even with
-  // autocomplete="off" and no `name` attribute, Chromium restores a
-  // previously-typed value into a bare <input> on reload / bfcache restore
-  // (Boss 2026-08-10: "lackor2" kept reappearing after F5). Clearing it once
-  // synchronously at parse time is NOT enough -- Chrome's restoration pass runs
-  // AFTER our script and overwrites the empty value. So also clear it on a
-  // deferred tick (after restoration) and on every pageshow (covers bfcache /
-  // back-forward). kanbanSearchQuery is '' at this point, so these only make the
-  // visible input agree with it.
-  const forceEmptySearch = () => {
-    if (searchEl.value !== '') searchEl.value = ''
+  const slot = document.getElementById('kanbanSearchSlot')
+  if (!slot) return
+  // The input is CREATED HERE instead of living in index.html, and that is the
+  // actual fix for the query that kept coming back into the box (Boss:
+  // "lackor2" was still there after every reload). Chromium restores form
+  // control state -- the previously typed value -- for controls that exist in
+  // the parsed document; autocomplete="off" does not disable it, and clearing
+  // the value from script is a race we cannot win, because the restore pass may
+  // run after parse time, after rAF and after setTimeout(0). An element built at
+  // runtime has no parse-time signature for the browser to restore into, so
+  // there is nothing to race against: the box starts empty because it starts
+  // non-existent.
+  const searchEl = document.createElement('input')
+  searchEl.type = 'text'
+  searchEl.id = 'kanbanSearchInput'
+  searchEl.autocomplete = 'off'
+  searchEl.spellcheck = false
+  searchEl.setAttribute('autocorrect', 'off')
+  searchEl.setAttribute('autocapitalize', 'off')
+  // Opt-outs for the password managers, which otherwise treat a lone text field
+  // as a username box and fill it on load (1Password / LastPass / Bitwarden /
+  // Dashlane read these).
+  searchEl.setAttribute('data-1p-ignore', '')
+  searchEl.setAttribute('data-lpignore', 'true')
+  searchEl.setAttribute('data-bwignore', '')
+  searchEl.setAttribute('data-form-type', 'other')
+  searchEl.dataset.i18nPlaceholder = 'kanban.search.placeholder'
+  searchEl.placeholder = 'Kártya keresése (id, cím vagy leírás)...'
+  searchEl.style.cssText = 'width:auto;flex:1 1 auto;min-width:0;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input,var(--bg));color:var(--text);font-size:13px;'
+  searchEl.value = ''
+  slot.appendChild(searchEl)
+  // Last line of defence against ANY late writer we do not control (an
+  // extension, a browser autofill pass): while the user is not typing in the
+  // box, its visible value must equal the query we actually filter by. Only
+  // enforced for a few seconds after load, plus whenever the page is shown
+  // again -- it syncs to kanbanSearchQuery, so a query the user really typed is
+  // never wiped, only a value nobody asked for is.
+  const reconcile = () => {
+    if (document.activeElement === searchEl) return
+    if (searchEl.value !== kanbanSearchQuery) searchEl.value = kanbanSearchQuery
   }
-  forceEmptySearch()
-  // Runs after the browser's synchronous restoration pass on initial load.
-  requestAnimationFrame(forceEmptySearch)
-  setTimeout(forceEmptySearch, 0)
-  // pageshow fires on normal load AND when the page is restored from bfcache
-  // (persisted === true) -- the case a plain load handler misses.
-  window.addEventListener('pageshow', forceEmptySearch)
+  reconcile()
+  let ticks = 0
+  const watchdog = setInterval(() => { reconcile(); if (++ticks >= 20) clearInterval(watchdog) }, 250)
+  // pageshow fires on normal load AND on bfcache restore (back / forward).
+  window.addEventListener('pageshow', reconcile)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) reconcile() })
   const apply = (raw) => {
     const next = (raw || '').trim().toLowerCase()
     if (next === kanbanSearchQuery) return
@@ -1065,6 +1091,10 @@ document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
   searchEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); clearTimeout(_searchTimer); apply(e.target.value) }
   })
+  // Leaving the box flushes the pending debounce, so kanbanSearchQuery is never
+  // behind the visible text once the box is unfocused -- which is exactly the
+  // state reconcile() above assumes when it syncs the two.
+  searchEl.addEventListener('blur', () => { clearTimeout(_searchTimer); apply(searchEl.value) })
 })()
 
 function populateProjectFilter() {
