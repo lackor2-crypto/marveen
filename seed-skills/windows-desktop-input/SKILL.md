@@ -88,6 +88,39 @@ bejelentkezett konzol-session.
    szöveghez: SendKeys karakterenként küld, és összezavarodik ékezetes/
    Unicode szövegen (magyar!) -- a vágólap-beillesztés robusztus.
 
+   **Udvariasság Boss felé -- KÖTELEZŐ minden kurzor-alapú kattintásnál.**
+   A `SetCursorPos` + `mouse_event` a KÖZÖS, fizikai egérkurzort mozgatja: ha
+   Boss épp maga is használja az egeret, összeütköztök, és az utolsó mozdulat
+   nyer -- a kattintás rossz helyre mehet (2026-08-10-en több ilyen gyanús
+   eset volt). Két sor, ami ezt kezeli, tedd bele minden ilyen scriptbe:
+
+   ```powershell
+   # 1) Ha Boss az elmúlt 4 másodpercben használta a gépet, NE kattints most.
+   Add-Type @"
+   using System; using System.Runtime.InteropServices;
+   public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+   public class Idle {
+     [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO p);
+     [DllImport("kernel32.dll")] public static extern uint GetTickCount();
+     [DllImport("user32.dll")] public static extern bool GetCursorPos(out System.Drawing.Point p);
+   }
+   "@ -ReferencedAssemblies System.Drawing
+   $lii = New-Object LASTINPUTINFO; $lii.cbSize = [uint32][System.Runtime.InteropServices.Marshal]::SizeOf($lii)
+   [Idle]::GetLastInputInfo([ref]$lii) | Out-Null
+   $idleMs = [Idle]::GetTickCount() - $lii.dwTime
+   if ($idleMs -lt 4000) { "user active, skipping" | Out-File $status -Force; exit }
+
+   # 2) Jegyezd meg hol volt a kurzor, és tedd vissza a kattintás után.
+   $before = New-Object System.Drawing.Point
+   [Idle]::GetCursorPos([ref]$before) | Out-Null
+   # ... ide jön a SetCursorPos + mouse_event + a művelet ...
+   [Win32X]::SetCursorPos($before.X, $before.Y) | Out-Null
+   ```
+
+   Hosszabb távon a kurzor teljes elkerülése a cél (`PostMessage` közvetlenül
+   az ablak handle-jének) -- lásd a Buktatók utolsó pontját, hogy ez hol
+   működik és hol nem. Kanban: 88d8f9d8.
+
 3. **Regisztráld + futtasd Task Scheduler-rel** (a wrapper .ps1-et
    argumentum nélkül hívva -- nincs beágyazott idézőjel-probléma, mert
    minden érték már a fájlban van):
@@ -156,6 +189,17 @@ bejelentkezett konzol-session.
 - `SendKeys::SendWait("{ENTER}")` néhány appban új sort szúr be küldés
   helyett (pl. ha Shift+Enter a "submit" és sima Enter új sor) -- ha nem
   megy el az üzenet, nézd meg az app saját küldés-billentyűjét.
+
+- **`PostMessage`/`SendMessage` NEM univerzális alternatíva a kurzor helyett.**
+  Kézenfekvő ötlet, hogy `WM_LBUTTONDOWN`/`WM_LBUTTONUP`-ot küldjünk
+  közvetlenül az ablak handle-jének (így a közös egérhez hozzá sem nyúlnánk),
+  és sima Win32-vezérlőknél (pl. MetaTrader toolbar) ez általában működik is.
+  DE a modern, Chromium/WebView2-alapú appok (pl. a WhatsApp Desktop, ami
+  `msedgewebview2` alatt fut) jellemzően NEM dolgozzák fel a szintetikusan
+  küldött egér-üzeneteket: saját input-pipeline-t használnak, és/vagy valódi
+  input-állapotot (fókusz, `GetKeyState`) ellenőriznek. Ezért ez app-onként
+  MÉRENDŐ, nem feltételezhető -- amíg nincs megmérve az adott appra, marad a
+  kurzor-alapú út a fenti udvariassági lépésekkel. Kanban: 88d8f9d8.
 
 ## Ellenőrzés
 
