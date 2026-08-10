@@ -12155,7 +12155,21 @@ function renderOverviewCapabilities(ids) {
 // scripts/hooks/statusline.py, zero token cost since it's a local CLI tick,
 // not a model turn. Boss's own thresholds: >=90% only small tasks, >=95% no
 // programming, info/search only (see src/rate-limit-status.ts).
+let _rateLimitLast = null
+let _rateLimitTicker = null
+
 function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
+  // The rows count DOWN to each reset, so they go wrong just by sitting there --
+  // and the overview only fetches when the page is opened. Redraw once a minute
+  // from the data already in hand (no network, skipped while hidden).
+  _rateLimitLast = { rateLimit, openrouterCredits, claudeAccounts }
+  if (!_rateLimitTicker) {
+    _rateLimitTicker = setInterval(() => {
+      if (!document.hidden && _rateLimitLast) {
+        renderOverviewRateLimit(_rateLimitLast.rateLimit, _rateLimitLast.openrouterCredits, _rateLimitLast.claudeAccounts)
+      }
+    }, 60_000)
+  }
   const box = document.getElementById('overviewRateLimit')
   const bars = document.getElementById('overviewRateLimitBars')
   const meta = document.getElementById('overviewRateLimitMeta')
@@ -12169,7 +12183,22 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   box.hidden = false
 
   const locale = (window._lang === 'en') ? 'en-US' : 'hu-HU'
-  const fmtReset = (ms) => ms ? t('overview.ratelimit.resets', { time: new Date(ms).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) }) : ''
+  // Boss 2026-08-10: a clock time answers the wrong question here -- "visszaall
+  // 4:30" leaves you working out whether that is tonight or the day after. What
+  // he wants to read off the row is HOW LONG he still has to wait, the way the
+  // AI consoles put it. The absolute moment stays as the title tooltip.
+  const fmtResetIn = (ms) => {
+    if (!ms) return ''
+    const mins = Math.round((ms - Date.now()) / 60_000)
+    if (mins <= 0) return t('overview.ratelimit.resets_now')
+    const d = Math.floor(mins / 1440)
+    const h = Math.floor((mins % 1440) / 60)
+    const m = mins % 60
+    if (d) return h ? t('overview.ratelimit.in_days_hours', { d, h }) : t('overview.ratelimit.in_days', { d })
+    if (h) return m ? t('overview.ratelimit.in_hours_mins', { h, m }) : t('overview.ratelimit.in_hours', { h })
+    return t('overview.ratelimit.in_mins', { m })
+  }
+  const fmtResetAt = (ms) => ms ? t('overview.ratelimit.resets', { time: new Date(ms).toLocaleString(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit' }) }) : ''
   const tierOf = (pct) => pct >= 95 ? 'critical' : (pct >= 90 ? 'caution' : 'normal')
 
   const row = (labelKey, win) => {
@@ -12178,7 +12207,7 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
     return `<div class="overview-ratelimit-row">
       <div class="overview-ratelimit-row-head">
         <span>${escapeHtml(t(labelKey))}</span>
-        <span><strong>${pct}%</strong>${win.resetsAt ? ' · ' + escapeHtml(fmtReset(win.resetsAt)) : ''}</span>
+        <span><strong>${pct}%</strong>${win.resetsAt ? ` · <span title="${escapeHtml(fmtResetAt(win.resetsAt))}">${escapeHtml(fmtResetIn(win.resetsAt))}</span>` : ''}</span>
       </div>
       <div class="overview-ratelimit-track"><div class="overview-ratelimit-fill ${tierOf(pct)}" style="width:${pct}%"></div></div>
     </div>`
@@ -12209,7 +12238,9 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
       </div>`
     }
     const p = Math.max(0, Math.min(100, Math.round(pct)))
-    const resetSuffix = resetsAt ? ' · ' + escapeHtml(fmtReset(resetsAt)) : ''
+    const resetSuffix = resetsAt
+      ? ` · <span title="${escapeHtml(fmtResetAt(resetsAt))}">${escapeHtml(fmtResetIn(resetsAt))}</span>`
+      : ''
     return `<div class="overview-ratelimit-row">
       <div class="overview-ratelimit-row-head">
         <span>${label}</span>

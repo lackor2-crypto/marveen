@@ -820,6 +820,13 @@ main {
   flex-direction: column;
   gap: 12px;
 }
+/* One faint rule between accounts (and before the OpenRouter balance row):
+   with four bars stacked at an even gap the whole widget read as one block and
+   you could not tell where one account ended (Boss, 2026-08-10). */
+.overview-ratelimit-bars > * + * {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
 .overview-ratelimit-row {
   display: flex;
   flex-direction: column;

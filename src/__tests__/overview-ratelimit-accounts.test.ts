@@ -17,6 +17,7 @@ const APP = readFileSync(join(__dirname, '../../web/app.js'), 'utf-8')
 const OVERVIEW = readFileSync(join(__dirname, '../web/routes/overview.ts'), 'utf-8')
 const HU = readFileSync(join(__dirname, '../../web/lang/hu.js'), 'utf-8')
 const EN = readFileSync(join(__dirname, '../../web/lang/en.js'), 'utf-8')
+const CSS = readFileSync(join(__dirname, '../../web/style.css'), 'utf-8')
 
 describe('usage-limit widget: account rows', () => {
   it('every account shows BOTH windows, not just the 5-hour one', () => {
@@ -35,6 +36,29 @@ describe('usage-limit widget: account rows', () => {
   it('which rows to draw follows the configured accounts, not the data', () => {
     expect(APP).toContain('accounts.map(accountBlock)')
     expect(APP).toMatch(/const anyAccountData = accounts\.some\(/)
+  })
+})
+
+describe('usage-limit widget: reading the rows', () => {
+  it('resets are shown as time REMAINING, with the clock time only as a tooltip', () => {
+    // "visszaall 4:30" made Boss work out whether that meant tonight or the day
+    // after; what the row has to answer is how long the wait is.
+    expect(APP).toContain('const fmtResetIn = (ms) =>')
+    expect(APP).toMatch(/title="\$\{escapeHtml\(fmtResetAt\(resetsAt\)\)\}">\$\{escapeHtml\(fmtResetIn\(resetsAt\)\)\}/)
+    for (const lang of [HU, EN]) {
+      for (const key of ['in_days_hours', 'in_days', 'in_hours_mins', 'in_hours', 'in_mins', 'resets_now']) {
+        expect(lang).toContain(`'overview.ratelimit.${key}'`)
+      }
+    }
+  })
+
+  it('the countdown is redrawn on a timer -- the overview only fetches on open', () => {
+    expect(APP).toContain('_rateLimitTicker = setInterval(')
+    expect(APP).toContain('if (!document.hidden && _rateLimitLast)')
+  })
+
+  it('a rule separates the accounts (and the OpenRouter row) from each other', () => {
+    expect(CSS).toMatch(/\.overview-ratelimit-bars > \* \+ \* \{[^}]*border-top/)
   })
 })
 
