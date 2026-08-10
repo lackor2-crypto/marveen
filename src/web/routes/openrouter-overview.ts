@@ -29,6 +29,10 @@ import { fetchAllOpenRouterModels } from '../openrouter-models.js'
 import { getSecret } from '../vault.js'
 import { json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
+import {
+  aggregateActivityByModel, totalSpend,
+  type ModelSpend, type OpenRouterActivityRow,
+} from '../../openrouter-activity.js'
 import type { RouteContext } from './types.js'
 
 interface OpenRouterKeyInfo {
@@ -72,6 +76,31 @@ export async function fetchOpenRouterCredits(managementKey: string): Promise<{ t
     return { totalCredits, totalUsage }
   } catch (err) {
     logger.warn({ err }, 'openrouter overview: credits fetch failed')
+    return null
+  }
+}
+
+// GET /v1/activity: daily, per-model rows with the USD OpenRouter actually
+// billed. Management key only (the fleet inference key gets a 403), and only
+// COMPLETED UTC days -- today is never in the response. Optional in exactly
+// the same way as credits above: no management key, no real numbers, and the
+// page falls back to the token estimate it always had.
+async function fetchActivitySpend(sinceEpochSec: number): Promise<Map<string, ModelSpend> | null> {
+  const managementKey = getSecret('openrouter-management-key')
+  if (!managementKey) return null
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/activity', {
+      headers: { Authorization: `Bearer ${managementKey}` },
+    })
+    if (!resp.ok) {
+      logger.warn({ status: resp.status }, 'openrouter overview: activity fetch rejected')
+      return null
+    }
+    const data = await resp.json() as { data?: OpenRouterActivityRow[] }
+    if (!Array.isArray(data.data)) return null
+    return aggregateActivityByModel(data.data, sinceEpochSec)
+  } catch (err) {
+    logger.warn({ err }, 'openrouter overview: activity fetch failed')
     return null
   }
 }
@@ -159,15 +188,64 @@ export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<bo
       if (isToday && configured && realDailyCost === null) priceLookupFailed = true
       const estTotal = models.reduce((sum, m) => sum + (m.estCost ?? 0), 0)
 
+      // Real, provider-billed spend per model (kanban: Boss 2026-08-10, our
+      // estimate said $0.7772 where OpenRouter billed $7.22). Needs the
+      // MANAGEMENT key and only covers completed UTC days, so it never has
+      // today -- realCost stays null there and the estimate is all we have.
+      const activity = await fetchActivitySpend(periodStartEpoch(validPeriod))
+      const modelsOut = models.map(m => {
+        const real = activity?.get(m.model)
+        return {
+          ...m,
+          realCost: real ? real.cost : null,
+          // OpenRouter counts what it billed for; our token_usage table misses
+          // cached and reasoning tokens entirely. Surfacing the reasoning count
+          // explains WHY the two numbers differ instead of just contradicting.
+          reasoningTokens: real ? real.reasoningTokens : null,
+        }
+      })
+      // Models OpenRouter billed for that produced no local token_usage rows at
+      // all would otherwise be invisible -- exactly the blind spot that let the
+      // headline undercount go unnoticed for so long.
+      if (activity) {
+        const seen = new Set(models.map(m => m.model))
+        for (const [model, spend] of activity) {
+          if (seen.has(model) || spend.cost <= 0) continue
+          modelsOut.push({
+            model, calls: spend.requests, tokensIn: spend.tokensIn, tokensOut: spend.tokensOut,
+            estCost: null, realCost: spend.cost, reasoningTokens: spend.reasoningTokens,
+          })
+        }
+      }
+      modelsOut.sort((a, b) => (b.realCost ?? b.estCost ?? 0) - (a.realCost ?? a.estCost ?? 0))
+
+      const realPeriodTotal = activity ? totalSpend(activity) : null
+      // Balance needs the MANAGEMENT key; the fleet inference key cannot
+      // answer "how much money is left" (it reports limit=null).
+      const mgmtKey = getSecret('openrouter-management-key')
+      const credits = mgmtKey ? await fetchOpenRouterCredits(mgmtKey) : null
+
       json(res, {
         configured,
         period: validPeriod,
         todayTokensIn,
         todayTokensOut,
-        todayEstCost: isToday ? realDailyCost : (models.some(m => m.estCost !== null) ? estTotal : null),
-        costSource: isToday ? 'openrouter_account' : 'token_estimate',
+        // Real money wins wherever we have it: OpenRouter's own daily total for
+        // today, its billed activity for any completed-day period.
+        todayEstCost: isToday ? realDailyCost : (realPeriodTotal ?? (models.some(m => m.estCost !== null) ? estTotal : null)),
+        costSource: isToday ? 'openrouter_account' : (realPeriodTotal !== null ? 'openrouter_activity' : 'token_estimate'),
         priceLookupFailed,
-        models,
+        // Remaining balance, so it is readable on the page that is about
+        // spending it (Boss: "az egyenleget ... ezt sehol nem latom").
+        // Which OpenRouter account this is. OpenRouter's API does not expose
+        // the account email (only an opaque user id and a truncated key
+        // label), so it is a plain vault entry the operator edits on the Vault
+        // page -- deliberately NOT hardcoded (Boss 2026-08-10: "de most nehogy
+        // fixre odaird. Hanem az apikulcs megadasanal kell bekerni").
+        accountEmail: getSecret('openrouter-account-email'),
+        creditsRemaining: credits ? credits.totalCredits - credits.totalUsage : null,
+        creditsTotal: credits ? credits.totalCredits : null,
+        models: modelsOut,
       })
     } catch (err) {
       logger.error({ err }, 'openrouter overview failed')
