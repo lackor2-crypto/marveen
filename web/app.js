@@ -9653,20 +9653,123 @@ function renderVaultKnownIntegrations() {
   })
 }
 
+
+// The guide Boss asked for: "csinalj hozza egy hasznalati utmutatot is, amit
+// itt egy gombbal valahol megnyit ... hogy az indulastol kezdve a keresesig
+// mindent hogy kell hasznalni". Written as content, not as tooltips scattered
+// across the page, so it can be read start to finish once and then forgotten.
+const VAULT_GUIDE_HU = [
+  ['Mi ez', [
+    'A széf a belépési adataid titkosított tárolója. Egy kártya egy helyet jelent, nem egy jelszót: az "OpenRouter" kártyán ott van a fiók email címe, a jelszó és minden kulcs ami ahhoz a szolgáltatáshoz tartozik.',
+    'Minden érték titkosítva van a lemezen. A listában soha nem utaznak értékek, csak az hogy egy kártyán milyen mezők vannak. Értéket csak akkor kapsz vissza, amikor konkrétan megnyitod a kártyát.',
+  ]],
+  ['Új kártya felvétele', [
+    'Kattints az Új gombra. A Kulcs neve az azonosító, ez látszik a kártya tetején, például erste-bank. A Leírás az emberi név, például Erste Bank.',
+    'Válassz sablont: weboldal belépés, netbank, bankkártya, API szolgáltatás, kripto tárca, wifi vagy szoftver licenc. A sablon behúzza a szokásos mezőket, de bármit átnevezhetsz, törölhetsz vagy hozzáadhatsz utána.',
+    'Nem kötelező fő értéket megadni. Ha csak felhasználónév és jelszó van, az is elég.',
+  ]],
+  ['Mezők', [
+    'Minden mezőnek van neve, típusa, értéke és megjegyzése. A megjegyzésbe azt írd, amit fél év múlva nem fogsz fejből tudni: melyik fiókhoz tartozik, hol kell használni, mire vigyázz.',
+    'A típus dönti el, hogy az érték maszkolva jelenik-e meg. A titkos mezők mellett szem ikon a felfedéshez és egy gomb a vágólapra másoláshoz.',
+    'A Rendszer-azonosító mezőt csak akkor töltsd ki, ha a kódnak is olvasnia kell azt az értéket. Ilyen például az openrouter-fleet-key. Ez az ami miatt egy kártyán lehet az összes OpenRouter adat úgy, hogy a flotta közben megtalálja a kulcsot.',
+  ]],
+  ['Címkék és keresés', [
+    'Egy kártya több címkét is kaphat, vesszővel elválasztva. Egy netbank egyszerre lehet bank és személyes, nem kell választanod.',
+    'A rács fölött a címke-gombokkal szűrsz, mellettük a darabszám. Az Összes gomb visszaad mindent.',
+    'A kereső a kártya nevében, leírásában, címkéiben, jegyzetében, webcímében és a mezők NEVÉBEN keres. Tehát a wifi szóra megtalálod azt a kártyát, amin van egy Wifi jelszó nevű mező. Magukban az értékekben nem keres, azok nem hagyják el a széfet.',
+  ]],
+  ['Korábbi jelszavak', [
+    'Ha felülírsz egy titkos mezőt, a régi érték megmarad a kártya alján, dátummal. Erre akkor van szükség, amikor egy oldal nem fogadja el a változtatást, vagy egy integráció elkezd hibázni a csere után.',
+    'Az utolsó tíz cserét tartjuk meg kártyánként.',
+  ]],
+  ['Amire figyelj', [
+    'Kripto tárca visszaállítási szavait a szakma nem javasolja hálózatra kötött gépen tárolni. Ha mégis beteszed, tudd hogy ez a kockázat. Megfontolandó helyette csak egy utalást írni ide arról, hogy hol van a valódi.',
+    'Ha a jelszó és a kétlépcsős azonosítás titka ugyanazon a kártyán van, akkor egy feltört széf mindkét faktort viszi. Kényelmes, de ez az ára.',
+  ]],
+]
+const VAULT_GUIDE_EN = [
+  ['What this is', [
+    'The vault is an encrypted store for your credentials. A card is a PLACE, not a password: the OpenRouter card holds the account email, the password and every key belonging to that service.',
+    'Every value is encrypted on disk. Listing pages never receive values, only which fields a card has. Values are returned only when you open a specific card.',
+  ]],
+  ['Adding a card', [
+    'Press New. The key name is the identifier shown at the top of the card, e.g. erste-bank. The description is the human name, e.g. Erste Bank.',
+    'Pick a template: website login, online banking, bank card, API service, crypto wallet, Wi-Fi or software licence. A template adds the usual rows; rename, remove or add to them freely.',
+    'A primary value is not required. A username and a password is enough.',
+  ]],
+  ['Fields', [
+    'Each field has a name, a kind, a value and a note. Put in the note what you will not remember in six months: which account it belongs to, where it is used, what to watch out for.',
+    'The kind decides whether the value is masked. Secret fields get an eye icon to reveal and a button to copy.',
+    'Fill in the system id only when code has to read that value, e.g. openrouter-fleet-key. That is what lets one card hold every OpenRouter value while the fleet still finds its key.',
+  ]],
+  ['Tags and search', [
+    'A card can carry several tags, comma separated. An online bank can be both bank and personal; you do not have to choose.',
+    'The chips above the grid filter by tag, with a count on each. All brings everything back.',
+    'Search covers the card name, description, tags, notes, URL and field NAMES. Searching for wifi finds the card that has a field called Wi-Fi password. Values themselves are not searched: they never leave the vault.',
+  ]],
+  ['Previous passwords', [
+    'Overwriting a secret field keeps the old value at the bottom of the card with a date. You need this when a site rejects the change, or an integration starts failing after a rotation.',
+    'The last ten replacements per card are kept.',
+  ]],
+  ['Things to watch', [
+    'Storing crypto wallet recovery words on a networked machine is against common professional advice. If you do it anyway, know the risk; consider storing only a hint about where the real one is.',
+    'If the password and the two-factor secret live on the same card, one compromised vault takes both factors. Convenient, but that is the price.',
+  ]],
+]
+
+function openVaultGuide() {
+  const sections = (window._lang || 'hu') === 'en' ? VAULT_GUIDE_EN : VAULT_GUIDE_HU
+  const overlay = document.createElement('div')
+  overlay.className = 'vault-guide-overlay'
+  overlay.innerHTML = `
+    <div class="vault-guide-modal" role="dialog" aria-modal="true">
+      <div class="vault-guide-head">
+        <h2>${escapeHtml(t('vault.guide.title'))}</h2>
+        <button class="btn-secondary btn-compact vault-guide-close">✕</button>
+      </div>
+      <div class="vault-guide-body">
+        ${sections.map(([h, ps]) => `
+          <h3>${escapeHtml(h)}</h3>
+          ${ps.map(x => `<p>${escapeHtml(x)}</p>`).join('')}`).join('')}
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('.vault-guide-close').addEventListener('click', close)
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc) }
+  })
+  document.body.appendChild(overlay)
+}
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#vaultGuideBtn')) openVaultGuide()
+})
+
 // Kanban 85eafd56: chip row above the grid so a folder like "Taxi cég" can be
 // isolated from "Személyes" at a glance, not just via free-text search.
+// Tags, not one folder. A card belongs to several groups at once -- an Erste
+// Bank card is both "bank" and "personal" -- and a single category forces a
+// choice that is always slightly wrong (Boss agreed after seeing why:
+// "igazadban cimkezni jobb, mert egy valami tobb helyhez is tartozhat").
+// Entries written before tags existed surface their old category as their
+// first tag, so nothing loses its grouping.
 let _vaultActiveCategory = null
+function _vaultTagsOf(s) {
+  if (s.tags && s.tags.length) return s.tags
+  return s.category ? [s.category] : []
+}
 function renderVaultCategoryFilter(secrets) {
   const bar = document.getElementById('vaultCategoryFilter')
   const datalist = document.getElementById('vaultCategoryOptions')
   if (!bar) return
-  const categories = [...new Set(secrets.map(s => s.category).filter(Boolean))].sort()
-  if (datalist) datalist.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">`).join('')
-  if (categories.length === 0) { bar.innerHTML = ''; bar.hidden = true; return }
+  const tags = [...new Set(secrets.flatMap(_vaultTagsOf))].sort((a, b) => a.localeCompare(b, 'hu'))
+  if (datalist) datalist.innerHTML = tags.map(c => `<option value="${escapeHtml(c)}">`).join('')
+  if (tags.length === 0) { bar.innerHTML = ''; bar.hidden = true; return }
   bar.hidden = false
-  if (_vaultActiveCategory && !categories.includes(_vaultActiveCategory)) _vaultActiveCategory = null
-  const chip = (label, value) => `<button type="button" class="vault-category-chip${_vaultActiveCategory === value ? ' active' : ''}" data-cat="${escapeAttr(value ?? '')}">${escapeHtml(label)}</button>`
-  bar.innerHTML = chip(t('vault.category.all'), null) + categories.map(c => chip(c, c)).join('')
+  if (_vaultActiveCategory && !tags.includes(_vaultActiveCategory)) _vaultActiveCategory = null
+  const counts = new Map(tags.map(tag => [tag, secrets.filter(s => _vaultTagsOf(s).includes(tag)).length]))
+  const chip = (label, value) => `<button type="button" class="vault-category-chip${_vaultActiveCategory === value ? ' active' : ''}" data-cat="${escapeAttr(value ?? '')}">${escapeHtml(label)}${value ? ` <span class="vault-tag-count">${counts.get(value)}</span>` : ''}</button>`
+  bar.innerHTML = chip(t('vault.category.all'), null) + tags.map(c => chip(c, c)).join('')
   bar.querySelectorAll('.vault-category-chip').forEach(btn => {
     btn.addEventListener('click', () => {
       _vaultActiveCategory = btn.dataset.cat || null
@@ -9681,8 +9784,16 @@ function renderVaultCategoryFilter(secrets) {
 function applyVaultFilters() {
   const q = (document.getElementById('vaultSearchInput')?.value || '').toLowerCase().trim()
   let filtered = _vaultSecrets
-  if (_vaultActiveCategory) filtered = filtered.filter(s => s.category === _vaultActiveCategory)
-  if (q) filtered = filtered.filter(s => s.id.toLowerCase().includes(q) || s.label.toLowerCase().includes(q))
+  if (_vaultActiveCategory) filtered = filtered.filter(s => _vaultTagsOf(s).includes(_vaultActiveCategory))
+  // Search covers everything readable about a card -- name, description, tags,
+  // notes, URL and field NAMES -- because "hol volt az a wifi jelszo" is a
+  // search for a field, not for the card's technical id. Field VALUES are not
+  // searched: the list endpoint never receives them.
+  if (q) filtered = filtered.filter(s => [
+    s.id, s.label, s.url, s.notes,
+    ..._vaultTagsOf(s),
+    ...(s.fields || []).flatMap(f => [f.label, f.note, f.bindingId]),
+  ].some(v => typeof v === 'string' && v.toLowerCase().includes(q)))
   renderVaultGrid(filtered)
 }
 
@@ -9718,6 +9829,20 @@ const VAULT_FIELD_PRESETS = [
   { key: 'custom',   kind: 'text',   i18n: 'vault.preset.custom' },
 ]
 
+// Whole-card starting points. A card is a PLACE, and most places come in a few
+// familiar shapes -- Boss: "ott kerheto, csak kivalaszthato minden ... azt adja
+// meg, amit eppen meg tud adni". A template just adds the usual rows; every one
+// of them can be renamed, removed or added to afterwards.
+const VAULT_TEMPLATES = [
+  { key: 'website',  i18n: 'vault.tpl.website',  fields: ['link', 'username', 'password', 'totp'] },
+  { key: 'bank',     i18n: 'vault.tpl.bank',     fields: ['link', 'username', 'password', 'account', 'pin'] },
+  { key: 'card',     i18n: 'vault.tpl.card',     fields: ['cardnum', 'cardexp', 'cvc', 'pin', 'iban'] },
+  { key: 'api',      i18n: 'vault.tpl.api',      fields: ['link', 'apikey', 'token', 'expires'] },
+  { key: 'wallet',   i18n: 'vault.tpl.wallet',   fields: ['link', 'password', 'seed', 'recovery'] },
+  { key: 'wifi',     i18n: 'vault.tpl.wifi',     fields: ['username', 'wifi'] },
+  { key: 'software', i18n: 'vault.tpl.software', fields: ['license', 'contact', 'link'] },
+]
+
 function _vaultFieldRowHtml(field) {
   const f = field || { label: '', kind: 'text', value: '', note: '' }
   const kinds = ['text', 'secret', 'url', 'date']
@@ -9746,6 +9871,29 @@ function _vaultFieldRowHtml(field) {
 function _initVaultFieldEditor(container) {
   const rows = container.querySelector('.vault-fields-rows')
   const presets = container.querySelector('.vault-field-presets')
+  container.querySelector('.vault-field-templates')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-template]')
+    if (!btn) return
+    const tpl = VAULT_TEMPLATES.find(x => x.key === btn.dataset.template)
+    if (!tpl) return
+    // Additive: a template never wipes rows the user already filled in.
+    for (const key of tpl.fields) {
+      const preset = VAULT_FIELD_PRESETS.find(p => p.key === key)
+      if (!preset) continue
+      rows.insertAdjacentHTML('beforeend', _vaultFieldRowHtml({ label: t(preset.i18n), kind: preset.kind, value: '', note: '' }))
+    }
+  })
+  container.querySelector('.vault-history')?.addEventListener('click', (e) => {
+    const row = e.target.closest('.vault-history-row')
+    if (!row) return
+    if (e.target.closest('.vault-h-eye')) {
+      const inp = row.querySelector('.vault-history-value')
+      inp.type = inp.type === 'password' ? 'text' : 'password'
+    } else if (e.target.closest('.vault-h-copy')) {
+      navigator.clipboard?.writeText(row.querySelector('.vault-history-value').value)
+      showToast(t('vault.field.copied'))
+    }
+  })
   presets?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-preset]')
     if (!btn) return
@@ -9790,11 +9938,33 @@ function _collectVaultFields(container) {
   })).filter(f => f.label || f.value || f.note)
 }
 
+// Superseded secrets, newest first. Values stay masked until asked for: the
+// point is being able to get an old password back, not to have it on screen.
+function _vaultHistoryHtml(history) {
+  if (!history || !history.length) return ''
+  return `
+    <div class="vault-history">
+      <div class="vault-fields-title">${escapeHtml(t('vault.history.title'))}</div>
+      ${history.map(h => `
+        <div class="vault-history-row">
+          <span class="vault-history-label">${escapeHtml(h.label)}</span>
+          <span class="vault-history-at">${escapeHtml((h.at || '').slice(0, 16).replace('T', ' '))}</span>
+          <input type="password" class="input vault-history-value" value="${escapeAttr(h.value)}" readonly>
+          <button type="button" class="btn-secondary btn-compact vault-h-eye">👁</button>
+          <button type="button" class="btn-secondary btn-compact vault-h-copy">⧉</button>
+        </div>`).join('')}
+    </div>`
+}
+
 function _vaultFieldEditorHtml(fields) {
   return `
     <div class="vault-fields-editor">
       <div class="vault-fields-title">${escapeHtml(t('vault.fields.title'))}</div>
       <div class="vault-fields-rows">${(fields || []).map(f => _vaultFieldRowHtml(f)).join('')}</div>
+      <div class="vault-field-templates">
+        <span class="vault-tpl-hint">${escapeHtml(t('vault.tpl.hint'))}</span>
+        ${VAULT_TEMPLATES.map(tp => `<button type="button" class="btn-secondary btn-compact" data-template="${tp.key}">${escapeHtml(t(tp.i18n))}</button>`).join('')}
+      </div>
       <div class="vault-field-presets">
         ${VAULT_FIELD_PRESETS.map(p => `<button type="button" class="btn-secondary btn-compact" data-preset="${p.key}">+ ${escapeHtml(t(p.i18n))}</button>`).join('')}
       </div>
@@ -9875,13 +10045,14 @@ function renderVaultGrid(secrets) {
           <input type="password" class="input vault-edit-value" value="${escapeAttr(data.value)}" style="font-size:13px">
           <button type="button" class="btn-secondary btn-compact vault-edit-value-eye" title="${escapeAttr(t('vault.btn.show'))}">👁</button>
         </div>
-        <label class="vault-field-label">${escapeHtml(t('vault.field.category_label'))}</label>
-        <input type="text" class="input vault-edit-category" value="${escapeAttr(secret.category || '')}" style="font-size:13px;margin-bottom:6px" list="vaultCategoryOptions">
+        <label class="vault-field-label">${escapeHtml(t('vault.field.tags_label'))}</label>
+        <input type="text" class="input vault-edit-category" value="${escapeAttr(_vaultTagsOf(secret).join(', '))}" placeholder="${escapeAttr(t('vault.field.tags_ph'))}" style="font-size:13px;margin-bottom:6px" list="vaultCategoryOptions">
         <label class="vault-field-label">${escapeHtml(t('vault.field.url_label'))}</label>
         <input type="text" class="input vault-edit-url" value="${escapeAttr(secret.url || '')}" style="font-size:13px;margin-bottom:6px">
         <label class="vault-field-label">${escapeHtml(t('vault.field.notes_label'))}</label>
         <textarea class="input vault-edit-notes" rows="2" style="font-size:13px;margin-bottom:6px">${escapeHtml(secret.notes || '')}</textarea>
         ${_vaultFieldEditorHtml(data.fields || [])}
+        ${_vaultHistoryHtml(data.history)}
         <button class="btn-primary btn-compact vault-edit-save">${t('vault.btn.save')}</button> <button class="btn-secondary btn-compact vault-edit-cancel">${t('vault.btn.cancel')}</button>`
       card.appendChild(form)
       _initVaultFieldEditor(form)
@@ -9896,7 +10067,7 @@ function renderVaultGrid(secrets) {
       form.querySelector('.vault-edit-save').addEventListener('click', async () => {
         const newVal = input.value
         if (!newVal) return
-        const category = form.querySelector('.vault-edit-category').value.trim()
+        const tags = form.querySelector('.vault-edit-category').value
         const url = form.querySelector('.vault-edit-url').value.trim()
         const notes = form.querySelector('.vault-edit-notes').value.trim()
         const newLabel = form.querySelector('.vault-edit-label').value.trim() || id
@@ -9907,7 +10078,7 @@ function renderVaultGrid(secrets) {
         const res = await fetch('/api/vault', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, label: newLabel, value: newVal, category, url, notes, fields }),
+          body: JSON.stringify({ id, label: newLabel, value: newVal, tags, url, notes, fields }),
         })
         if (!res.ok) {
           const e = await res.json().catch(() => ({}))
@@ -9961,7 +10132,7 @@ function renderVaultGrid(secrets) {
     const id = document.getElementById('vaultPageIdInput').value.trim()
     const label = document.getElementById('vaultPageLabelInput').value.trim() || id
     const value = document.getElementById('vaultPageValueInput').value
-    const category = document.getElementById('vaultPageCategoryInput').value.trim()
+    const tags = document.getElementById('vaultPageCategoryInput').value
     const url = document.getElementById('vaultPageUrlInput').value.trim()
     const notes = document.getElementById('vaultPageNotesInput').value.trim()
     const fields = fieldsHost ? _collectVaultFields(fieldsHost) : []
@@ -9975,7 +10146,7 @@ function renderVaultGrid(secrets) {
     await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, label, value, category, url, notes, fields }),
+      body: JSON.stringify({ id, label, value, tags, url, notes, fields }),
     })
     document.getElementById('vaultPageIdInput').value = ''
     document.getElementById('vaultPageLabelInput').value = ''

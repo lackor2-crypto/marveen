@@ -6,6 +6,12 @@ import {
   MAX_FIELDS_PER_ENTRY,
   MAX_FIELD_VALUE_LEN,
   MAX_FIELD_LABEL_LEN,
+  normalizeTags,
+  pushHistory,
+  secretValuesReplaced,
+  MAX_TAGS_PER_ENTRY,
+  MAX_TAG_LEN,
+  MAX_HISTORY_ENTRIES,
 } from '../vault-fields.js'
 
 describe('normalizeVaultFields', () => {
@@ -122,5 +128,74 @@ describe('field binding ids', () => {
     ]))
     expect(meta[0].bindingId).toBe('openrouter-fleet-key')
     expect(JSON.stringify(meta)).not.toContain('sk-secret')
+  })
+})
+
+describe('normalizeTags', () => {
+  it('accepts an array and keeps the typed order', () => {
+    expect(normalizeTags(['Bank', 'Személyes'])).toEqual(['Bank', 'Személyes'])
+  })
+
+  it('accepts a comma-separated string, which is what a plain input gives back', () => {
+    expect(normalizeTags(' bank , személyes ,, ')).toEqual(['bank', 'személyes'])
+  })
+
+  it('de-duplicates case-insensitively but keeps the first spelling', () => {
+    expect(normalizeTags(['Bank', 'bank', 'BANK'])).toEqual(['Bank'])
+  })
+
+  it('is empty for anything that is not tags', () => {
+    expect(normalizeTags(undefined)).toEqual([])
+    expect(normalizeTags(42)).toEqual([])
+    expect(normalizeTags([1, null, {}])).toEqual([])
+  })
+
+  it('caps the count and the length', () => {
+    expect(normalizeTags(Array.from({ length: 50 }, (_, i) => 't' + i))).toHaveLength(MAX_TAGS_PER_ENTRY)
+    expect(normalizeTags(['x'.repeat(200)])[0]).toHaveLength(MAX_TAG_LEN)
+  })
+})
+
+describe('password history', () => {
+  const T1 = '2026-08-10T10:00:00.000Z'
+  const T2 = '2026-08-10T11:00:00.000Z'
+
+  it('records a replaced secret, newest first', () => {
+    const h1 = pushHistory([], [{ label: 'Jelszó', value: 'regi' }], T1)
+    const h2 = pushHistory(h1, [{ label: 'Jelszó', value: 'kozepso' }], T2)
+    expect(h2.map(e => e.value)).toEqual(['kozepso', 'regi'])
+    expect(h2[0].at).toBe(T2)
+  })
+
+  it('does not record filling in a blank for the first time', () => {
+    expect(pushHistory([], [{ label: 'Jelszó', value: '' }], T1)).toEqual([])
+  })
+
+  it('caps the list so a chatty integration cannot grow it forever', () => {
+    let h: ReturnType<typeof pushHistory> = []
+    for (let i = 0; i < 40; i++) h = pushHistory(h, [{ label: 'p', value: 'v' + i }], T1)
+    expect(h).toHaveLength(MAX_HISTORY_ENTRIES)
+    expect(h[0].value).toBe('v39')
+  })
+
+  it('spots exactly the secret values a save replaces', () => {
+    const before = normalizeVaultFields([
+      { label: 'Jelszó', kind: 'secret', value: 'regi' },
+      { label: 'Felhasználónév', kind: 'text', value: 'boss' },
+      { label: 'Token', kind: 'secret', value: 'valtozatlan' },
+    ])
+    const after = normalizeVaultFields([
+      { label: 'Jelszó', kind: 'secret', value: 'uj' },
+      { label: 'Felhasználónév', kind: 'text', value: 'masik' },
+      { label: 'Token', kind: 'secret', value: 'valtozatlan' },
+    ])
+    // Only the changed SECRET counts: a username is not worth a second copy.
+    expect(secretValuesReplaced(before, after)).toEqual([{ label: 'Jelszó', value: 'regi' }])
+  })
+
+  it('records nothing when a field is renamed, rather than misattributing it', () => {
+    const before = normalizeVaultFields([{ label: 'Jelszó', kind: 'secret', value: 'regi' }])
+    const after = normalizeVaultFields([{ label: 'Belépési jelszó', kind: 'secret', value: 'uj' }])
+    expect(secretValuesReplaced(before, after)).toEqual([])
   })
 })

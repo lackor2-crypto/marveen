@@ -6,8 +6,8 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { isKeychainAvailable, keychainStore, keychainRetrieve } from './keychain.js'
 import { logger } from '../logger.js'
 import {
-  normalizeVaultFields, fieldsToMeta,
-  type VaultField, type VaultFieldMeta,
+  normalizeVaultFields, fieldsToMeta, normalizeTags, pushHistory, secretValuesReplaced,
+  type VaultField, type VaultFieldMeta, type VaultHistoryEntry,
 } from '../vault-fields.js'
 
 const VAULT_PATH = join(PROJECT_ROOT, 'store', 'vault.json')
@@ -38,12 +38,17 @@ interface VaultEntry {
   // per-field so a card is a single encrypt/decrypt, and absent on every entry
   // written before this (readSecretFields returns [] for those).
   encryptedFields?: string
+  /** Multiple tags replace the single category; see normalizeTags. */
+  tags?: string[]
+  /** Superseded secret values, newest first, encrypted like everything else. */
+  encryptedHistory?: string
 }
 
 export interface VaultEntryMeta {
   category?: string
   url?: string
   notes?: string
+  tags?: unknown
 }
 
 interface VaultStore {
@@ -126,11 +131,37 @@ export function listSecrets(): Array<{ id: string, label: string, createdAt: str
   return readVault().entries.map(e => ({
     id: e.id, label: e.label, createdAt: e.createdAt, updatedAt: e.updatedAt,
     category: e.category, url: e.url, notes: e.notes,
+    // An entry written before tags existed still has its category; surfacing it
+    // as a tag means no card silently loses its grouping on the way over.
+    tags: effectiveTags(e),
     // Structure only, never values: the list endpoint is read by the whole
     // dashboard, and a card must be able to show "has a password" without
     // handing the password to every page that renders a list.
     fields: fieldsToMeta(decodeFields(e.encryptedFields)),
   }))
+}
+
+/** Tags as the UI should see them: stored tags, or the legacy category. */
+function effectiveTags(e: { tags?: string[]; category?: string }): string[] {
+  if (e.tags && e.tags.length) return e.tags
+  return e.category ? [e.category] : []
+}
+
+function decodeHistory(blob: string | undefined): VaultHistoryEntry[] {
+  if (!blob) return []
+  try {
+    const parsed = JSON.parse(decrypt(blob))
+    return Array.isArray(parsed) ? parsed as VaultHistoryEntry[] : []
+  } catch (err) {
+    logger.warn({ err }, 'vault: stored history unreadable, dropping it')
+    return []
+  }
+}
+
+/** Superseded secret values for one entry, newest first. */
+export function getSecretHistory(id: string): VaultHistoryEntry[] {
+  const entry = readVault().entries.find(e => e.id === id)
+  return entry ? decodeHistory(entry.encryptedHistory) : []
 }
 
 function decodeFields(blob: string | undefined): VaultField[] {
@@ -157,8 +188,16 @@ export function setSecretFields(id: string, fields: unknown): boolean {
   if (idx < 0) return false
   const normalized = normalizeVaultFields(fields)
   const entry = store.entries[idx]
+  const now = new Date().toISOString()
+  // Keep whatever secret values this save overwrites: a rejected password
+  // change or a broken integration is exactly when the old one is needed.
+  const replaced = secretValuesReplaced(decodeFields(entry.encryptedFields), normalized)
+  if (replaced.length) {
+    const history = pushHistory(decodeHistory(entry.encryptedHistory), replaced, now)
+    entry.encryptedHistory = encrypt(JSON.stringify(history))
+  }
   entry.encryptedFields = normalized.length ? encrypt(JSON.stringify(normalized)) : undefined
-  entry.updatedAt = new Date().toISOString()
+  entry.updatedAt = now
   store.entries[idx] = entry
   writeVault(store)
   return true
@@ -173,6 +212,7 @@ export function setSecret(id: string, label: string, value: string, meta?: Vault
     category: meta?.category || undefined,
     url: meta?.url || undefined,
     notes: meta?.notes || undefined,
+    tags: meta?.tags === undefined ? undefined : normalizeTags(meta.tags),
   }
   if (idx >= 0) {
     entry.createdAt = store.entries[idx].createdAt
@@ -182,6 +222,14 @@ export function setSecret(id: string, label: string, value: string, meta?: Vault
     if (meta?.category === undefined) entry.category = store.entries[idx].category
     if (meta?.url === undefined) entry.url = store.entries[idx].url
     if (meta?.notes === undefined) entry.notes = store.entries[idx].notes
+    if (meta?.tags === undefined) entry.tags = store.entries[idx].tags
+    // The primary value is a secret too, so replacing it is history as well.
+    const prevPrimary = decrypt(store.entries[idx].encrypted)
+    entry.encryptedHistory = store.entries[idx].encryptedHistory
+    if (prevPrimary && prevPrimary !== value) {
+      const history = pushHistory(decodeHistory(entry.encryptedHistory), [{ label: PRIMARY_VALUE_LABEL, value: prevPrimary }], entry.updatedAt)
+      entry.encryptedHistory = encrypt(JSON.stringify(history))
+    }
     // Same rule as the meta fields: not passing `fields` edits nothing rather
     // than silently deleting every field on the card.
     entry.encryptedFields = meta?.fields === undefined
@@ -203,6 +251,8 @@ function encodeFields(fields: unknown): string | undefined {
 // Editing the label/category/URL/notes on an existing entry shouldn't force
 // re-typing (and re-encrypting) the secret value itself -- this rewrites
 // only the metadata fields in place.
+export const PRIMARY_VALUE_LABEL = '(fo ertek)'
+
 export function updateSecretMeta(id: string, meta: { label?: string } & VaultEntryMeta): boolean {
   const store = readVault()
   const idx = store.entries.findIndex(e => e.id === id)
@@ -212,6 +262,7 @@ export function updateSecretMeta(id: string, meta: { label?: string } & VaultEnt
   if (meta.category !== undefined) entry.category = meta.category || undefined
   if (meta.url !== undefined) entry.url = meta.url || undefined
   if (meta.notes !== undefined) entry.notes = meta.notes || undefined
+  if (meta.tags !== undefined) entry.tags = normalizeTags(meta.tags)
   entry.updatedAt = new Date().toISOString()
   store.entries[idx] = entry
   writeVault(store)

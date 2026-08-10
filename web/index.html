@@ -1680,8 +1680,8 @@
             <input type="password" id="vaultPageValueInput" class="input" placeholder="sk-...">
           </div>
           <div class="vault-field-group">
-            <label class="vault-field-label" data-i18n="vault.field.category_label">Kategória (opcionális)</label>
-            <input type="text" id="vaultPageCategoryInput" class="input" list="vaultCategoryOptions" placeholder="pl. Taxi cég, Személyes">
+            <label class="vault-field-label" data-i18n="vault.field.tags_label">Címkék (vesszővel elválasztva)</label>
+            <input type="text" id="vaultPageCategoryInput" class="input" list="vaultCategoryOptions" placeholder="pl. bank, személyes" data-i18n-placeholder="vault.field.tags_ph">
             <datalist id="vaultCategoryOptions"></datalist>
           </div>
           <div class="vault-field-group">
@@ -1710,6 +1710,7 @@
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
         <input type="text" id="vaultSearchInput" class="vault-search" placeholder="Kereses a kulcsok kozott..." data-i18n-placeholder="vault.search_placeholder">
+        <button class="btn-secondary btn-compact" id="vaultGuideBtn" data-i18n="vault.guide.btn">Használati útmutató</button>
       </div>
       <div class="vault-category-filter" id="vaultCategoryFilter"></div>
 

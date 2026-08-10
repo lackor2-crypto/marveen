@@ -114,3 +114,92 @@ export function fieldsToMeta(fields: VaultField[]): VaultFieldMeta[] {
 export function isSecretField(field: { kind: VaultFieldKind }): boolean {
   return field.kind === 'secret'
 }
+
+// ---- tags -------------------------------------------------------------------
+//
+// One category forces a card into a single drawer, and Boss agreed with the
+// professional practice after seeing why: "igazadban cimkezni jobb, mert egy
+// valami tobb helyhez is tartozhat" -- an Erste Bank card is both "bank" and
+// "personal". The old single `category` is migrated in as the first tag, so no
+// existing entry loses its grouping.
+
+export const MAX_TAGS_PER_ENTRY = 20
+export const MAX_TAG_LEN = 60
+
+/** Trim, drop blanks, de-duplicate case-insensitively, keep the typed order. */
+export function normalizeTags(input: unknown): string[] {
+  const raw: unknown[] = Array.isArray(input)
+    ? input
+    // A comma-separated string is what a plain text input gives back, and it is
+    // the shape the UI sends before any chip editor exists.
+    : (typeof input === 'string' ? input.split(',') : [])
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const tag = (item.length > MAX_TAG_LEN ? item.slice(0, MAX_TAG_LEN) : item).trim()
+    if (!tag) continue
+    const key = tag.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(tag)
+    if (out.length >= MAX_TAGS_PER_ENTRY) break
+  }
+  return out
+}
+
+// ---- password history -------------------------------------------------------
+//
+// Standard in every serious password manager, and for a concrete reason: a site
+// rejects the change, or an integration keeps failing, and the previous value is
+// the only way back. Only SECRET values are kept -- a username is not worth the
+// extra copy of sensitive data lying around.
+
+export const MAX_HISTORY_ENTRIES = 10
+
+export interface VaultHistoryEntry {
+  /** Which field this used to be the value of. */
+  label: string
+  value: string
+  /** ISO timestamp of when it was REPLACED. */
+  at: string
+}
+
+/**
+ * Record superseded values, newest first, capped.
+ *
+ * An empty previous value is not history -- filling in a blank field for the
+ * first time has replaced nothing.
+ */
+export function pushHistory(
+  existing: VaultHistoryEntry[],
+  replaced: Array<{ label: string; value: string }>,
+  atIso: string,
+  cap: number = MAX_HISTORY_ENTRIES,
+): VaultHistoryEntry[] {
+  const additions = replaced
+    .filter(r => r.value.length > 0)
+    .map(r => ({ label: r.label, value: r.value, at: atIso }))
+  if (additions.length === 0) return existing.slice(0, cap)
+  return [...additions, ...existing].slice(0, cap)
+}
+
+/**
+ * Which secret values are being replaced by this save.
+ *
+ * Fields are matched by label, because that is the only stable identity a
+ * user-editable row has -- renaming a field is therefore treated as a new
+ * field rather than a value change, which is the safe direction: it records
+ * nothing rather than attributing an old password to the wrong name.
+ */
+export function secretValuesReplaced(before: VaultField[], after: VaultField[]): Array<{ label: string; value: string }> {
+  const nextByLabel = new Map(after.filter(f => f.label).map(f => [f.label, f]))
+  const out: Array<{ label: string; value: string }> = []
+  for (const prev of before) {
+    if (prev.kind !== 'secret' || !prev.value || !prev.label) continue
+    const next = nextByLabel.get(prev.label)
+    if (!next) continue
+    if (next.value !== prev.value) out.push({ label: prev.label, value: prev.value })
+  }
+  return out
+}

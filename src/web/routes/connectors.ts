@@ -15,7 +15,7 @@ import { getMcpListCache, refreshMcpListCache, purgeFromMcpListCache } from '../
 import { readBody, json } from '../http-helpers.js'
 import { shellEscape } from '../sanitize.js'
 import { getExternalProjectPaths, addExternalProjectPath, removeExternalProjectPath, getGitHubRepos, installGitHubRepo, removeGitHubRepo, updateGitHubRepo, detectRequiredEnvVars } from '../dashboard-settings.js'
-import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta, getSecretFields, setSecretFields } from '../vault.js'
+import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta, getSecretFields, setSecretFields, getSecretHistory } from '../vault.js'
 import { normalizeVaultFields } from '../../vault-fields.js'
 import {
   getBindings, addBinding, removeBinding, removeBindingsForSecret,
@@ -728,8 +728,8 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/vault' && method === 'POST') {
     const body = await readBody(req)
-    const { id, label, value, category, url, notes, fields } = JSON.parse(body.toString()) as
-      { id: string, label: string, value: string, category?: string, url?: string, notes?: string, fields?: unknown }
+    const { id, label, value, category, url, notes, fields, tags } = JSON.parse(body.toString()) as
+      { id: string, label: string, value: string, category?: string, url?: string, notes?: string, fields?: unknown, tags?: unknown }
     // A vault entry is "one place", not "one key" (Boss 2026-08-10: an Erste
     // Bank card holds a card number, a PIN and a login, and none of them is
     // THE value). So the primary value is optional as long as the card carries
@@ -741,7 +741,7 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
       json(res, { error: 'id and at least one value (primary or field) required' }, 400)
       return true
     }
-    setSecret(id.trim(), label || id.trim(), value ?? '', { category, url, notes, fields })
+    setSecret(id.trim(), label || id.trim(), value ?? '', { category, url, notes, fields, tags })
     const syncResult = syncSecret(id.trim())
     json(res, { ok: true, synced: syncResult.updated })
     return true
@@ -754,9 +754,9 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
   if (vaultPatchMatch && method === 'PATCH') {
     const id = decodeURIComponent(vaultPatchMatch[1])
     const body = await readBody(req)
-    const { label, category, url, notes, fields } = JSON.parse(body.toString()) as
-      { label?: string, category?: string, url?: string, notes?: string, fields?: unknown }
-    if (!updateSecretMeta(id, { label, category, url, notes })) { json(res, { error: 'Not found' }, 404); return true }
+    const { label, category, url, notes, fields, tags } = JSON.parse(body.toString()) as
+      { label?: string, category?: string, url?: string, notes?: string, fields?: unknown, tags?: unknown }
+    if (!updateSecretMeta(id, { label, category, url, notes, tags })) { json(res, { error: 'Not found' }, 404); return true }
     // Fields ride on the same metadata edit: renaming a field or fixing its
     // note must not require re-typing the primary secret either.
     if (fields !== undefined) setSecretFields(id, fields)
@@ -778,7 +778,9 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
     // Single-entry read is the ONLY place field values leave the vault: the
     // editor needs them to show what is already stored. The list endpoint
     // above deliberately returns structure without values.
-    json(res, { id, value: val, fields: getSecretFields(id) })
+    // History rides along with the values: the editor shows superseded secrets
+    // right where the current one is, which is where they are wanted.
+    json(res, { id, value: val, fields: getSecretFields(id), history: getSecretHistory(id) })
     return true
   }
 
