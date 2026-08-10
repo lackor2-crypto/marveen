@@ -124,6 +124,19 @@ bejelentkezett konzol-session.
   WhatsApp.exe"` üres listát ad akkor is, ha az app fut. Ablakot keress,
   ne processz-nevet: `Get-Process | Where-Object { $_.MainWindowTitle -eq
   'WhatsApp' }`.
+- **Tálcára minimalizált ablaknál a fenti keresés IS csődöt mond**: a
+  `MainWindowHandle` 0 lesz ÉS a `MainWindowTitle` üres (mérve 2026-08-10-en
+  MetaTraderrel és WhatsApp.Root-tal is), tehát se processz-név, se ablak-cím
+  alapján nem találod meg. Ilyenkor `EnumWindows` + a talált ablak
+  process-id-jének visszafejtése (`GetWindowThreadProcessId`) az egyetlen
+  megbízható út, utána `ShowWindow(hWnd, 9)` (SW_RESTORE) hozza vissza:
+  ```powershell
+  # EnumWindows callback: minden ablakra lekérdezzük melyik processzé,
+  # és az elsőt vesszük ami a keresett processz-névhez tartozik.
+  [Win32F]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
+  [Win32F]::ShowWindow($target, 9) | Out-Null      # SW_RESTORE
+  [Win32F]::SetWindowPos($target, [IntPtr]::Zero, $x, $y, $w, $h, 0x0004)
+  ```
 - Ha a Store-app egyáltalán nem fut, az AppUserModelID-vel indítható:
   `Get-StartApps | Where-Object { $_.Name -like '*WhatsApp*' }` adja az
   AppID-t, majd `explorer.exe shell:AppsFolder\<AppID>` a task Execute/
