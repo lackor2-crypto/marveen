@@ -468,7 +468,9 @@ navLinks.forEach((link) => {
 // later) never touch the upstream Szotász sidebar markup -- a future
 // `git pull` from upstream can't conflict with anything added here.
 const WORKSPACE_LS_KEY = 'marveen.workspace'
-const IRODA_PAGES = { email: true, irodaSettings: true }
+// A Drive is ide tartozik: enelkul az Iroda-ra valtas a Drive oldalrol
+// atdobna a #email-re (a lenti 'nem ehhez a munkateruletehez tartozik' ag).
+const IRODA_PAGES = { email: true, irodaSettings: true, drive: true }
 function setWorkspace(ws, opts) {
   const persist = !opts || opts.persist !== false
   const navMarvinEl = document.getElementById('navMarvin')
@@ -534,6 +536,10 @@ const SIDEBAR_GROUPS = [
   { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'messages', 'tasks', 'bgTasks'] },
   { key: 'knowledge',   labelKey: 'nav.group.knowledge',   pages: ['memories', 'skills', 'research', 'ideas'] },
   { key: 'stats',       labelKey: 'nav.group.stats',       pages: ['costs', 'tokenUsage'] },
+  // 'drive' szandekosan NINCS itt: a Drive fajlbongeszo tartalom, nem
+  // rendszer-adminisztracio, ezert az Iroda munkateruletre kerult (Boss,
+  // 2026-08-10). Ha ide visszakerulne, a lenti re-parent ciklus visszarantana
+  // a RENDSZER csoportba, fuggetlenul attol hova teszi az index.html.
   { key: 'system',      labelKey: 'nav.group.system',      pages: ['status', 'naplo', 'updates', 'settings', 'vault'] },
   { key: 'connections', labelKey: 'nav.group.connections', pages: ['connectors', 'federation', 'migrate'] },
 ]
