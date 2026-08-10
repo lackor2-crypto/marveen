@@ -13946,10 +13946,41 @@ function _approvalVerifyCellHtml(a) {
 }
 
 let _verifyPickerPopover = null
+let _verifyPickerAnchor = null
 function _closeVerifyPicker() {
   if (_verifyPickerPopover) { _verifyPickerPopover.remove(); _verifyPickerPopover = null }
+  _verifyPickerAnchor = null
   document.removeEventListener('click', _verifyPickerOutsideClick, true)
+  window.removeEventListener('resize', _repositionVerifyPicker)
+  window.removeEventListener('scroll', _repositionVerifyPicker, true)
 }
+// The popover is position:fixed, so anything that hangs below the viewport is
+// unreachable -- the page cannot be scrolled to it. Boss hit exactly that on
+// the approvals page: opened from the last row, the popover's own "Indít"
+// button sat under the bottom edge with no way to get at it. So: flip above
+// the anchor when there is more room there, and cap the height to the space
+// actually available, letting the list inside scroll.
+function _placeVerifyPicker() {
+  const pop = _verifyPickerPopover
+  const anchor = _verifyPickerAnchor
+  if (!pop || !anchor) return
+  const MARGIN = 8
+  const GAP = 4
+  const rect = anchor.getBoundingClientRect()
+  pop.style.maxHeight = ''
+  const natural = pop.offsetHeight
+  const below = window.innerHeight - rect.bottom - GAP - MARGIN
+  const above = rect.top - GAP - MARGIN
+  const openUp = natural > below && above > below
+  const room = Math.max(140, openUp ? above : below)
+  const capped = Math.min(natural, room)
+  pop.style.maxHeight = `${room}px`
+  pop.style.top = openUp
+    ? `${Math.max(MARGIN, rect.top - GAP - capped)}px`
+    : `${rect.bottom + GAP}px`
+  pop.style.left = `${Math.min(Math.max(MARGIN, rect.left - 100), window.innerWidth - pop.offsetWidth - MARGIN)}px`
+}
+function _repositionVerifyPicker() { _placeVerifyPicker() }
 function _verifyPickerOutsideClick(e) {
   if (_verifyPickerPopover && !_verifyPickerPopover.contains(e.target)) _closeVerifyPicker()
 }
@@ -13961,11 +13992,14 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   pop.innerHTML = `<p style="margin:0 0 8px;font-size:12px;color:var(--text-muted)">${t('approvals.verify.picker_loading')}</p>`
   document.body.appendChild(pop)
   _verifyPickerPopover = pop
-  const rect = anchorBtn.getBoundingClientRect()
+  _verifyPickerAnchor = anchorBtn
   pop.style.position = 'fixed'
-  pop.style.top = `${rect.bottom + 4}px`
-  pop.style.left = `${Math.max(8, rect.left - 100)}px`
+  pop.style.overflowY = 'auto'
+  _placeVerifyPicker()
   setTimeout(() => document.addEventListener('click', _verifyPickerOutsideClick, true), 0)
+  window.addEventListener('resize', _repositionVerifyPicker)
+  // Capture phase: the approvals table is its own scroll container.
+  window.addEventListener('scroll', _repositionVerifyPicker, true)
 
   let agentList
   try {
@@ -13973,10 +14007,12 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
     agentList = (await res.json()).filter(ag => ag.name !== requesterAgentId)
   } catch {
     pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--danger)">${t('common.error_save')}</p>`
+    _placeVerifyPicker()
     return
   }
   if (!agentList.length) {
     pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--text-muted)">${t('approvals.verify.no_agents')}</p>`
+    _placeVerifyPicker()
     return
   }
   const freeNames = agentList.filter(ag => isFreeModel(ag.model)).map(ag => ag.name)
@@ -13993,6 +14029,8 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
     ${freeNames.length ? `<button class="btn-secondary btn-compact" id="verifyPickAllFree" style="font-size:11px;margin-top:6px;width:100%">${t('approvals.verify.pick_all_free')}</button>` : ''}
     <button class="btn-primary btn-compact" id="verifyPickerGo" style="font-size:11px;margin-top:8px;width:100%">${t('approvals.verify.picker_go')}</button>
   `
+  // The popover only gets its real height here, once the agent list is in it.
+  _placeVerifyPicker()
   pop.querySelector('#verifyPickAllFree')?.addEventListener('click', () => {
     pop.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = cb.dataset.free === '1' })
   })
