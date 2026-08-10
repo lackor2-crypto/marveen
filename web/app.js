@@ -13947,9 +13947,11 @@ function _approvalVerifyCellHtml(a) {
 
 let _verifyPickerPopover = null
 let _verifyPickerAnchor = null
+let _verifyPickerApprovalId = null
 function _closeVerifyPicker() {
   if (_verifyPickerPopover) { _verifyPickerPopover.remove(); _verifyPickerPopover = null }
   _verifyPickerAnchor = null
+  _verifyPickerApprovalId = null
   document.removeEventListener('click', _verifyPickerOutsideClick, true)
   window.removeEventListener('resize', _repositionVerifyPicker)
   window.removeEventListener('scroll', _repositionVerifyPicker, true)
@@ -13960,13 +13962,30 @@ function _closeVerifyPicker() {
 // button sat under the bottom edge with no way to get at it. So: flip above
 // the anchor when there is more room there, and cap the height to the space
 // actually available, letting the list inside scroll.
+// The approvals table re-renders itself every 5s while a verification is
+// running, which DETACHES the button this popover is anchored to. A detached
+// node reports an all-zero rect, and repositioning against that threw the
+// popover into the top-left corner of the screen (Boss, 2026-08-10: "hirtelen
+// felkerult a kepernyo bal felso sarkaba"). The button is re-created with the
+// same data-id, so re-acquire it rather than trusting the stale node.
+function _currentVerifyAnchor() {
+  if (_verifyPickerAnchor?.isConnected) return _verifyPickerAnchor
+  if (!_verifyPickerApprovalId) return null
+  const fresh = document.querySelector(`.approvals-verify-btn[data-id="${CSS.escape(_verifyPickerApprovalId)}"]`)
+  if (fresh) _verifyPickerAnchor = fresh
+  return fresh
+}
+
 function _placeVerifyPicker() {
   const pop = _verifyPickerPopover
-  const anchor = _verifyPickerAnchor
+  const anchor = _currentVerifyAnchor()
   if (!pop || !anchor) return
   const MARGIN = 8
   const GAP = 4
   const rect = anchor.getBoundingClientRect()
+  // Anchor present but not laid out (hidden/collapsed): leave the popover
+  // where it is instead of computing a position from zeros.
+  if (!rect.width && !rect.height) return
   pop.style.maxHeight = ''
   const natural = pop.offsetHeight
   const below = window.innerHeight - rect.bottom - GAP - MARGIN
@@ -13980,7 +13999,11 @@ function _placeVerifyPicker() {
     : `${rect.bottom + GAP}px`
   pop.style.left = `${Math.min(Math.max(MARGIN, rect.left - 100), window.innerWidth - pop.offsetWidth - MARGIN)}px`
 }
-function _repositionVerifyPicker() { _placeVerifyPicker() }
+function _repositionVerifyPicker(e) {
+  // Scrolling the popover's OWN list must not move the popover.
+  if (e?.target instanceof Node && _verifyPickerPopover?.contains(e.target)) return
+  _placeVerifyPicker()
+}
 function _verifyPickerOutsideClick(e) {
   if (_verifyPickerPopover && !_verifyPickerPopover.contains(e.target)) _closeVerifyPicker()
 }
@@ -13993,6 +14016,7 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   document.body.appendChild(pop)
   _verifyPickerPopover = pop
   _verifyPickerAnchor = anchorBtn
+  _verifyPickerApprovalId = approvalId
   pop.style.position = 'fixed'
   pop.style.overflowY = 'auto'
   _placeVerifyPicker()

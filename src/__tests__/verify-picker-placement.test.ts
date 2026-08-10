@@ -34,6 +34,20 @@ describe('verify-picker popover placement', () => {
     expect(APP).toContain("window.removeEventListener('scroll', _repositionVerifyPicker, true)")
   })
 
+  it('scrolling the popover\'s own list does not move the popover', () => {
+    expect(APP).toContain('if (e?.target instanceof Node && _verifyPickerPopover?.contains(e.target)) return')
+  })
+
+  it('survives the approvals table re-rendering under it', () => {
+    // The table rebuilds every 5s while a verification runs, detaching the
+    // anchor button. A detached node reports an all-zero rect, and placing
+    // against that threw the popover into the top-left corner.
+    expect(APP).toContain('function _currentVerifyAnchor()')
+    expect(APP).toContain('if (_verifyPickerAnchor?.isConnected) return _verifyPickerAnchor')
+    expect(APP).toContain('.approvals-verify-btn[data-id="${CSS.escape(_verifyPickerApprovalId)}"]')
+    expect(APP).toContain('if (!rect.width && !rect.height) return')
+  })
+
   it('is re-placed after the agent list arrives, when its height is real', () => {
     // The popover is opened with a one-line "loading" body and filled in after
     // a fetch; placing it only at open time would measure the wrong height.
