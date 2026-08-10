@@ -14555,7 +14555,27 @@ document.getElementById('debateDetailBackBtn')?.addEventListener('click', () => 
 // joins the existing token_usage table against live OpenRouter pricing,
 // not a new tracking system.
 
+// Kivalasztott idoszak az OpenRouter lapon. 'today' az alapertelmezes, tehat a
+// lap ugyanugy indul mint eddig; a hosszabb idoszakok teszik lathatova a
+// korabbi kolteseket (Boss 2026-08-10: "csinaljunk mar ide heti havi eves
+// nezetet is"). Kanban edc0c617.
+let _orPeriod = 'today'
+
+function _initOpenRouterPeriodButtons() {
+  const row = document.getElementById('openrouterPagePeriod')
+  if (!row || row.dataset.wired) return
+  row.dataset.wired = '1'
+  row.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-period]')
+    if (!btn || btn.dataset.period === _orPeriod) return
+    _orPeriod = btn.dataset.period
+    row.querySelectorAll('[data-period]').forEach(b => b.classList.toggle('active', b === btn))
+    loadOpenRouterPage()
+  })
+}
+
 async function loadOpenRouterPage() {
+  _initOpenRouterPeriodButtons()
   const keyStatusEl = document.getElementById('openrouterPageKeyStatus')
   const statsEl = document.getElementById('openrouterPageStats')
   const listEl = document.getElementById('openrouterPageModelList')
@@ -14564,7 +14584,7 @@ async function loadOpenRouterPage() {
   listEl.innerHTML = `<p style="color:var(--text-muted);padding:16px 0">${t('common.loading')}</p>`
 
   try {
-    const res = await fetch('/api/openrouter/overview')
+    const res = await fetch('/api/openrouter/overview?period=' + encodeURIComponent(_orPeriod))
     if (!res.ok) throw new Error('HTTP error')
     const data = await res.json()
     _renderOpenRouterKeyStatus(data)
@@ -14586,14 +14606,27 @@ function _renderOpenRouterKeyStatus(data) {
   </div>`
 }
 
+// A dobozok felirata KOVETI az idoszakot. Enelkul egy 7 napos, token-alapu
+// becslest "MAI KOLTSEG (OPENROUTER FIOK, VALOS)" cimke alatt mutatnank --
+// ket hazugsag egyszerre (nem mai, es nem a fiok valos adata).
+function _orPeriodLabel() {
+  return t('openrouterPage.period.' + ({ today: 'today', '7d': 'week', '30d': 'month', '365d': 'year' }[_orPeriod] || 'today'))
+}
+
 function _renderOpenRouterStats(data) {
   const statsEl = document.getElementById('openrouterPageStats')
   const costText = data.todayEstCost === null ? t('openrouterPage.cost_unknown') : `$${data.todayEstCost.toFixed(4)}`
+  const per = _orPeriodLabel()
+  const costLabel = data.costSource === 'token_estimate'
+    ? t('openrouterPage.stat.cost_estimated', { period: per })
+    : t('openrouterPage.stat.cost_real', { period: per })
   statsEl.innerHTML = `
-    <div class="stat-card"><div class="stat-value">${data.todayTokensIn.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_in')}</div></div>
-    <div class="stat-card"><div class="stat-value">${data.todayTokensOut.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_out')}</div></div>
-    <div class="stat-card"><div class="stat-value">${costText}</div><div class="stat-label">${t('openrouterPage.stat.est_cost')}</div></div>
+    <div class="stat-card"><div class="stat-value">${data.todayTokensIn.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_in_period', { period: per })}</div></div>
+    <div class="stat-card"><div class="stat-value">${data.todayTokensOut.toLocaleString()}</div><div class="stat-label">${t('openrouterPage.stat.tokens_out_period', { period: per })}</div></div>
+    <div class="stat-card"><div class="stat-value">${costText}</div><div class="stat-label">${costLabel}</div></div>
   `
+  const title = document.querySelector('#openrouterPage .debate-section-title')
+  if (title) title.textContent = t('openrouterPage.usage_title_period', { period: per })
   const noteEl = document.getElementById('openrouterPageCostNote')
   if (noteEl) noteEl.textContent = t('openrouterPage.per_model_cost_note')
 }

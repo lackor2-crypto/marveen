@@ -2057,6 +2057,14 @@
       </div>
 
       <div id="openrouterPageKeyStatus"></div>
+      <!-- Idoszak-valaszto: a lap eddig csak a mai forgalmat mutatta, igy egy
+           agens korabbi koltese sehol nem latszott (kanban edc0c617). -->
+      <div class="or-period-row" id="openrouterPagePeriod">
+        <button class="view-btn active" data-period="today" data-i18n="openrouterPage.period.today">Ma</button>
+        <button class="view-btn" data-period="7d" data-i18n="openrouterPage.period.week">7 nap</button>
+        <button class="view-btn" data-period="30d" data-i18n="openrouterPage.period.month">30 nap</button>
+        <button class="view-btn" data-period="365d" data-i18n="openrouterPage.period.year">1 év</button>
+      </div>
       <div class="debate-stats" id="openrouterPageStats"></div>
       <p class="subtitle" id="openrouterPageCostNote" style="margin-top:-8px"></p>
 

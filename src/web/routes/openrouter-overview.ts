@@ -91,8 +91,24 @@ function startOfTodayEpoch(): number {
   return Math.floor(start / 1000)
 }
 
+// Boss 2026-08-10: "csinaljunk mar ide heti havi eves nezetet is". A lap eddig
+// csak a MAI forgalmat mutatta, ezert egy agens korabbi koltese (pl. Gypsy 10
+// dollarja) sehol nem latszott -- a kerdesre, hogy "mennyit koltottem eddig
+// erre", a lap nem tudott valaszolni. A periodus a lekerdezes kezdo-idopontjat
+// tolja vissza; az alapertelmezes tovabbra is 'today', tehat aki parameter
+// nelkul hivja, ugyanazt kapja mint eddig.
+const PERIOD_DAYS: Record<string, number> = { today: 0, '7d': 7, '30d': 30, '365d': 365 }
+
+function periodStartEpoch(period: string): number {
+  const days = PERIOD_DAYS[period] ?? 0
+  if (days === 0) return startOfTodayEpoch()
+  // Egesz napokra visszafele: a mai nap kezdete minusz N nap, igy a hatar nem
+  // csuszik el a futtatas oraja szerint.
+  return startOfTodayEpoch() - days * 86_400
+}
+
 export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<boolean> {
-  const { res, path, method } = ctx
+  const { req, res, path, method } = ctx
 
   if (path === '/api/openrouter/overview' && method === 'GET') {
     try {
@@ -103,7 +119,9 @@ export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<bo
       // agent-process.ts uses to route to the OpenRouter env branch); plain
       // Claude/DeepSeek/Ollama ids never contain '/', so this cleanly isolates
       // OpenRouter-routed rows out of the shared token_usage table.
-      const dist = getModelDistribution(startOfTodayEpoch()).filter(d => d.model.includes('/'))
+      const period = new URL(req.url ?? '/', 'http://x').searchParams.get('period') ?? 'today'
+      const validPeriod = period in PERIOD_DAYS ? period : 'today'
+      const dist = getModelDistribution(periodStartEpoch(validPeriod)).filter(d => d.model.includes('/'))
 
       const priceByModel = new Map<string, { promptPrice: number, completionPrice: number }>()
       let priceLookupFailed = false
@@ -131,15 +149,23 @@ export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<bo
         return { model: d.model, calls: d.count, tokensIn: d.totalInput, tokensOut: d.totalOutput, estCost }
       })
 
-      const realDailyCost = configured ? await fetchRealDailyCostUSD(apiKey) : null
-      if (configured && realDailyCost === null) priceLookupFailed = true
+      // Az OpenRouter fiok-API-ja a MAI koltseget adja vissza -- hosszabb
+      // idoszakra nincs ilyen hiteles szam, ezert ott a token-alapu becslest
+      // adjuk, es a costSource meg is mondja melyikrol van szo. Egy mai
+      // szamot "30 napos koltseg" cimke alatt mutatni rosszabb lenne, mint
+      // vallalni hogy ez becsles.
+      const isToday = validPeriod === 'today'
+      const realDailyCost = isToday && configured ? await fetchRealDailyCostUSD(apiKey) : null
+      if (isToday && configured && realDailyCost === null) priceLookupFailed = true
+      const estTotal = models.reduce((sum, m) => sum + (m.estCost ?? 0), 0)
 
       json(res, {
         configured,
+        period: validPeriod,
         todayTokensIn,
         todayTokensOut,
-        todayEstCost: realDailyCost,
-        costSource: 'openrouter_account',
+        todayEstCost: isToday ? realDailyCost : (models.some(m => m.estCost !== null) ? estTotal : null),
+        costSource: isToday ? 'openrouter_account' : 'token_estimate',
         priceLookupFailed,
         models,
       })

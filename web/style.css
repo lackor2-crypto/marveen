@@ -8854,3 +8854,12 @@ body {
     overflow-wrap: anywhere;
   }
 }
+
+/* OpenRouter idoszak-valaszto gombsor (kanban edc0c617). */
+.or-period-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.or-period-row .view-btn { width: auto; padding: 0 12px; }
