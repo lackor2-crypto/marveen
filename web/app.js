@@ -3249,7 +3249,7 @@ async function openMarveenDetail() {
   const displayName = m.name || 'Marveen'
   document.getElementById('agentDetailTitle').textContent = displayName
   const avatar = document.getElementById('agentDetailAvatar')
-  avatar.className = 'detail-avatar gradient-1'
+  avatar.className = 'detail-avatar'
   avatar.innerHTML = `<img src="/api/marveen/avatar${avatarBust()}" alt="${escapeHtml(displayName)}">`
   document.getElementById('agentDetailName').textContent = displayName
   document.getElementById('agentDetailDesc').textContent = m.description || ''
@@ -3384,11 +3384,6 @@ function applyMarveenReadonlyMode(readOnly) {
 }
 
 
-function getAvatarGradient(name) {
-  const hash = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0)
-  return 'gradient-' + ((hash % 3) + 1)
-}
-
 // Tint for the monogram shown instead of a missing avatar image. Shared, so the
 // same agent gets the same colour in the chat list and in the team view.
 const MONOGRAM_COLORS = ['#d97757', '#00C2A8', '#818cf8', '#22c55e', '#f59e0b', '#ec4899']
@@ -3516,7 +3511,7 @@ function renderAgents() {
     mCard.innerHTML = `
       <div class="agent-card-badges">${accountBadgeHtml(null, true)}${costBadgeHtml(m.costPerMInput)}</div>
       <div class="agent-card-top">
-        <div class="agent-avatar gradient-1"><img src="/api/marveen/avatar${avatarBust()}" alt="${escapeHtml(displayName)}"></div>
+        <div class="agent-avatar"><img src="/api/marveen/avatar${avatarBust()}" alt="${escapeHtml(displayName)}"></div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(displayName)} <span class="marveen-badge">${t('agents.main_badge')}</span></div>
           <div class="agent-desc">${escapeHtml(m.description || '')}</div>
@@ -3568,11 +3563,14 @@ function renderAgents() {
     const card = document.createElement('div')
     card.className = 'agent-card'
     card.dataset.name = agent.name
-    const initial = label.charAt(0).toUpperCase()
-    const gradientClass = getAvatarGradient(agent.name)
-    const avatarHtml = (agent.hasImage || agent.hasAvatar)
+    const hasImg = agent.hasImage || agent.hasAvatar
+    const avatarHtml = hasImg
       ? `<img src="/api/agents/${encodeURIComponent(agent.name)}/avatar${avatarBust()}" alt="${escapeHtml(label)}">`
-      : initial
+      : label.charAt(0).toUpperCase()
+    // No image -> the same coloured monogram the team view and the chat list
+    // use, keyed off the agent id so one agent keeps one colour everywhere.
+    const avatarClass = hasImg ? 'agent-avatar' : 'agent-avatar avatar-mono'
+    const avatarStyle = hasImg ? '' : ` style="background:${monogramColor(agent.name)}"`
 
     const modelClass = agent.model && agent.model !== 'inherit' ? agent.model : ''
     const modelLabel = agent.model || 'inherit'
@@ -3586,7 +3584,7 @@ function renderAgents() {
     card.innerHTML = `
       <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}</div>
       <div class="agent-card-top">
-        <div class="agent-avatar ${gradientClass}">${avatarHtml}</div>
+        <div class="${avatarClass}"${avatarStyle}>${avatarHtml}</div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(label)}</div>
           <div class="agent-desc">${escapeHtml(agent.description || '')}</div>
@@ -3723,10 +3721,11 @@ function renderFederatedAgentCards(agentsGrid, addBtn) {
     // go through escapeHtml; NOTHING peer-controlled may land in an attribute
     // (escapeHtml does not encode quotes). The model badge is a plain text
     // span WITHOUT a model-derived class.
-    const gradientClass = 'gradient-' + ((fa.qualified.charCodeAt(0) % 3) + 1)
+    // monogramColor returns one of our own fixed hex values, so nothing
+    // peer-controlled reaches the style attribute.
     card.innerHTML = `
       <div class="agent-card-top">
-        <div class="agent-avatar ${gradientClass}">${escapeHtml(fa.displayName.charAt(0).toUpperCase())}</div>
+        <div class="agent-avatar avatar-mono" style="background:${monogramColor(fa.qualified)}">${escapeHtml(fa.displayName.charAt(0).toUpperCase())}</div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(fa.displayName)} <span class="federated-badge">${t('federation.badge', { peer: fa.peer })}</span></div>
           <div class="agent-desc">${escapeHtml(fa.qualified)}</div>
@@ -3774,13 +3773,13 @@ async function openAgentDetail(agentName) {
   document.getElementById('agentDetailTitle').textContent = detailLabel
 
   // Overview tab
-  const initial = detailLabel.charAt(0).toUpperCase()
-  const gradientClass = getAvatarGradient(currentAgent.name)
+  const detailHasImg = currentAgent.hasImage || currentAgent.hasAvatar
   const avatar = document.getElementById('agentDetailAvatar')
-  avatar.className = 'detail-avatar ' + gradientClass
-  avatar.innerHTML = (currentAgent.hasImage || currentAgent.hasAvatar)
+  avatar.className = detailHasImg ? 'detail-avatar' : 'detail-avatar avatar-mono'
+  avatar.style.background = detailHasImg ? '' : monogramColor(currentAgent.name)
+  avatar.innerHTML = detailHasImg
     ? `<img src="/api/agents/${encodeURIComponent(currentAgent.name)}/avatar" alt="${escapeHtml(detailLabel)}">`
-    : initial
+    : detailLabel.charAt(0).toUpperCase()
   document.getElementById('agentDetailName').textContent = detailLabel
   document.getElementById('agentDetailDesc').textContent = currentAgent.description || ''
   document.getElementById('agentDetailModel').textContent = currentAgent.activeModel || currentAgent.model || 'inherit'
@@ -11436,7 +11435,7 @@ function renderTeamGraph(container, data, opts = {}) {
     // response) is treated as "has one", i.e. the previous behaviour.
     const nodeLabel = node.label || node.id
     const avatarInner = node.hasAvatar === false
-      ? `<span class="team-node-mono" style="background:${monogramColor(nodeLabel)}">${escapeHtml(nodeLabel.charAt(0).toUpperCase())}</span>`
+      ? `<span class="team-node-mono" style="background:${monogramColor(node.id)}">${escapeHtml(nodeLabel.charAt(0).toUpperCase())}</span>`
       : `<img src="${avatarUrl}" alt="${escapeHtml(nodeLabel)}" onerror="this.style.display='none'">`
     const isFreeNode = isFreeModel(node.model)
     div.innerHTML = `
@@ -11608,8 +11607,11 @@ async function resolveOwnerName() {
 const chatAgentHasAvatar = new Map() // name -> true|false
 let chatSelectedAgent = null
 
-function chatMonogramEl(agentName, size) {
-  const letter = agentName.charAt(0).toUpperCase()
+// The letter comes from the label the user sees, the colour from the agent id
+// -- the same pairing the agent cards and the team tree use, so an avatar-less
+// agent looks identical in all three.
+function chatMonogramEl(agentName, size, label) {
+  const letter = (label || agentName).charAt(0).toUpperCase()
   const color = monogramColor(agentName)
   return `<div class="chat-avatar chat-avatar-mono" style="width:${size}px;height:${size}px;background:${color};font-size:${Math.round(size*0.4)}px">${letter}</div>`
 }
@@ -11618,7 +11620,7 @@ function chatMonogramEl(agentName, size) {
 window.chatImgError = function(img) {
   const name = img.getAttribute('data-agent-name') || img.alt || '?'
   const size = parseInt(img.width) || 32
-  const letter = name.charAt(0).toUpperCase()
+  const letter = (img.getAttribute('data-agent-label') || name).charAt(0).toUpperCase()
   const color = monogramColor(name)
   const div = document.createElement('div')
   div.className = 'chat-avatar chat-avatar-mono'
@@ -11630,11 +11632,11 @@ window.chatImgError = function(img) {
 function chatAvatarHtml(agentName, size = 32) {
   const lower = agentName.toLowerCase()
   const hasAvatar = chatAgentHasAvatar.get(lower)
-  if (!hasAvatar) return chatMonogramEl(agentName, size)
+  if (!hasAvatar) return chatMonogramEl(agentName, size, chatDisplayName(agentName))
   const src = lower === mainAgentId().toLowerCase()
     ? `/api/marveen/avatar${avatarBust()}`
     : `/api/agents/${encodeURIComponent(lower)}/avatar${avatarBust()}`
-  return `<img class="chat-avatar" src="${src}" width="${size}" height="${size}" alt="${escapeHtml(agentName)}" data-agent-name="${escapeHtml(agentName)}" onerror="chatImgError(this)">`
+  return `<img class="chat-avatar" src="${src}" width="${size}" height="${size}" alt="${escapeHtml(agentName)}" data-agent-name="${escapeHtml(agentName)}" data-agent-label="${escapeHtml(chatDisplayName(agentName))}" onerror="chatImgError(this)">`
 }
 
 // Guard against the boot race: the Messages page can be opened before the
