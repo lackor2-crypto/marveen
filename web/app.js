@@ -10965,7 +10965,14 @@ function escapeHtml(str) {
 // (# or a card word in front of it) OR when it is a REAL card id -- the id set
 // below is the only reliable way to tell a card id from any other hex blob
 // (git sha, colour, hash), and it also catches the bare and mistyped forms.
-const KANBAN_REF_RE = /(#|\b(?:kanban|k[áa]rtya|card)\s+)?\b([0-9a-f]{8})\b/gi
+// Two shapes, because both are written in practice. The 8-hex id is the
+// canonical one; "#46" is the BOARD NUMBER, and it is what a human reaches for
+// first -- proven the hard way five minutes after this linker shipped, when the
+// autofill card was cross-referenced as "#46" and therefore linked to nothing
+// (Boss caught it: "az autofill kulonkartyan be van linkelve ebbe a kartyaba,
+// igaz?"). A bare number only becomes a link when a card with that seq exists,
+// so a price or a version number is left alone.
+const KANBAN_REF_RE = /(#|\b(?:kanban|k[áa]rtya|card)\s+)?\b([0-9a-f]{8})\b|#(\d{1,4})\b/gi
 let kanbanKnownIds = new Set()
 // id -> { seq, title, status }, so a reference can be rendered with its SUBJECT
 // and not as a bare "e88fd8e2" that tells the reader nothing (Boss 2026-08-10:
@@ -10987,6 +10994,15 @@ async function loadKanbanCardIds() {
 // "#23 Level kereses a postafiokban" instead of "e88fd8e2". Falls back to the
 // raw id whenever the card is unknown (a git sha, a deleted card) -- rewriting
 // text we cannot explain would be worse than leaving it alone.
+/** The card carrying a given board number, or null. */
+function kanbanRefBySeq(seq) {
+  if (!Number.isFinite(seq)) return null
+  for (const [id, meta] of kanbanRefMeta) {
+    if (meta.seq === seq) return { id, ...meta }
+  }
+  return null
+}
+
 function kanbanRefLabel(id) {
   const meta = kanbanRefMeta.get(id)
   if (!meta) return id
@@ -10997,7 +11013,13 @@ function kanbanRefLabel(id) {
 function linkifyKanbanRefs(str) {
   if (!str) return ''
   const escaped = escapeHtml(str)
-  return escaped.replace(KANBAN_REF_RE, (match, marker, id) => {
+  return escaped.replace(KANBAN_REF_RE, (match, marker, id, seq) => {
+    if (seq !== undefined) {
+      const bySeq = kanbanRefBySeq(Number(seq))
+      return bySeq
+        ? `<span class="kanban-link" data-card-id="${bySeq.id}" role="link" tabindex="0" title="${escapeAttr(kanbanRefLabel(bySeq.id) + ' — ' + (t('kanban.status.' + bySeq.status) || bySeq.status))}">${escapeHtml(kanbanRefLabel(bySeq.id))}</span>`
+        : match
+    }
     const known = kanbanKnownIds.has(id.toLowerCase())
     if (!marker && !known) return match
     const prefix = marker || ''
@@ -11017,7 +11039,13 @@ function kanbanRefIdsIn(text) {
   const re = new RegExp(KANBAN_REF_RE.source, 'gi')
   const out = new Set()
   for (const m of text.matchAll(re)) {
-    const id = m[2].toLowerCase()
+    if (m[3] !== undefined) {
+      // Board number: only a reference if a card actually wears that number.
+      const bySeq = kanbanRefBySeq(Number(m[3]))
+      if (bySeq) out.add(bySeq.id)
+      continue
+    }
+    const id = (m[2] || '').toLowerCase()
     if (kanbanKnownIds.has(id)) out.add(id)
   }
   return [...out]

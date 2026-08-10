@@ -102,3 +102,25 @@ describe('following a reference', () => {
     expect(APP).toContain('function callPageLoader(name)')
   })
 })
+
+// The board number is what a human reaches for. Proven the hard way five
+// minutes after the linker shipped: the Chrome-autofill card was cross-
+// referenced as "#46", the linker only understood the 8-hex id, and the two
+// cards ended up linked to nothing (Boss: "az autofill kulonkartyan be van
+// linkelve ebbe a kartyaba, igaz?" -- it was not).
+describe('board-number references', () => {
+  it('the pattern accepts a #<seq> form alongside the 8-hex id', () => {
+    expect(APP).toContain('{1,4}')
+  })
+
+  it('a bare number is only a link when a card wears that number', () => {
+    // kanbanRefBySeq returning null must leave the text untouched, so a price
+    // or a version number never turns into a link.
+    expect(APP).toContain('function kanbanRefBySeq(seq)')
+    expect(APP).toContain(': match')
+  })
+
+  it('the related-cards scan understands the same two shapes', () => {
+    expect(APP).toContain('const bySeq = kanbanRefBySeq(Number(m[3]))')
+  })
+})

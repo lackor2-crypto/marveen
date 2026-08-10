@@ -17,6 +17,7 @@ import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KAN
 import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
+import { findSimilarCards, referencedCardIds, withCrossLink } from '../../kanban-related.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
@@ -244,10 +245,59 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     // instructions.
     const labels = resolveCardLabels(data.labels ?? data.labelId, { parentId: data.parent_id })
     if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
-    const { labels: _labels, labelId: _labelId, ...cardFields } = data
+
+    // The same enforcement the label rule needed, for the same reason. A card
+    // that belongs with an existing one must SAY so, in both descriptions, or
+    // neither side can be reached from the other -- the failure that made Boss
+    // think five email cards ought to be merged when all that was missing was a
+    // visible link. Written guidance was not enough there and will not be here
+    // ("csinald az AI-oknak hulye biztosra ... szazszazalekosan"), so: if the
+    // title looks related to existing cards and nothing in the request links
+    // them, refuse and list the candidates.
+    //
+    // The caller answers with `related`: a list of card ids/seqs to link, or an
+    // empty array meaning "I checked, nothing relates". A subtask (parent_id)
+    // is already linked by definition and skips the check.
+    const existing = listKanbanCards().map(c => ({ id: c.id, seq: c.seq ?? null, title: c.title, status: c.status }))
+    const alreadyLinked = referencedCardIds(`${data.title ?? ''} ${data.description ?? ''}`, existing)
+    const relatedRaw: unknown = data.related
+    const declared = Array.isArray(relatedRaw)
+    if (!data.parent_id && !declared && alreadyLinked.length === 0) {
+      const similar = findSimilarCards(String(data.title ?? ''), existing)
+      if (similar.length > 0) {
+        json(res, {
+          error: 'Kapcsolodo kartyak lehetnek -- linkeld be oket, vagy jelezd hogy nincs kapcsolat. '
+            + 'Kuldd ujra a "related" mezovel: related: ["<id>", ...] a kapcsolodokkal, vagy related: [] ha tenyleg nincs kapcsolat. '
+            + 'A szerver mindket iranyba beirja a hivatkozast.',
+          similar: similar.map(c => ({ id: c.id, seq: c.seq, title: c.title, status: c.status })),
+        }, 400)
+        return true
+      }
+    }
+
+    // Resolve whatever the caller named (id or #seq) to real cards.
+    const relatedCards = declared
+      ? existing.filter(c => (relatedRaw as unknown[]).some(r => {
+          const v = String(r).replace(/^#/, '').toLowerCase()
+          return c.id.toLowerCase() === v || String(c.seq ?? '') === v
+        }))
+      : existing.filter(c => alreadyLinked.includes(c.id))
+
+    const { labels: _labels, labelId: _labelId, related: _related, ...cardFields } = data
+    // Write the link into THIS card, then into each of the others. Doing the
+    // reverse direction here is the point: a caller that remembers one way and
+    // forgets the other is exactly what happened in practice.
+    cardFields.description = withCrossLink(String(cardFields.description ?? ''), relatedCards)
     createKanbanCard({ id, ...cardFields })
     applyCardLabels(id, labels.labelIds)
-    json(res, { ok: true, id, labels: labels.labelIds })
+    const selfRef = [{ id, seq: null, title: String(data.title ?? ''), status: String(data.status ?? 'planned') }]
+    for (const other of relatedCards) {
+      const card = getKanbanCard(other.id)
+      if (!card) continue
+      const updated = withCrossLink(card.description ?? '', selfRef)
+      if (updated !== (card.description ?? '')) updateKanbanCard(other.id, { description: updated })
+    }
+    json(res, { ok: true, id, labels: labels.labelIds, linked: relatedCards.map(c => c.id) })
     return true
   }
 
