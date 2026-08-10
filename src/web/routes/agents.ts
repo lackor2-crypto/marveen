@@ -1346,7 +1346,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       securityProfile?: string
       model?: string
       costPerMInput?: number | null
+      hasAvatar: boolean
     }> = []
+    // Sub-agents 404 when they have no avatar file, which is why the flag has to
+    // travel with the node: the team view draws a monogram instead of firing a
+    // request that cannot succeed. The main agent is always true -- its own
+    // endpoint falls back to a bundled robot image, so it never 404s.
     nodes.push({
       id: MAIN_AGENT_ID,
       label: currentBotName(),
@@ -1354,6 +1359,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       reportsTo: null,
       delegatesTo: [],
       running: true,
+      hasAvatar: true,
       model: readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown',
       costPerMInput: knownModelCostPerM(readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown'),
     })
@@ -1370,6 +1376,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         securityProfile: readAgentSecurityProfile(agentName),
         model: nodeModel,
         costPerMInput: await resolveCostPerMInput(nodeModel),
+        hasAvatar: findAvatarForAgent(agentName) !== null,
       })
     }
     const knownIds = new Set(nodes.map(n => n.id))

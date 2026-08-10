@@ -3389,6 +3389,13 @@ function getAvatarGradient(name) {
   return 'gradient-' + ((hash % 3) + 1)
 }
 
+// Tint for the monogram shown instead of a missing avatar image. Shared, so the
+// same agent gets the same colour in the chat list and in the team view.
+const MONOGRAM_COLORS = ['#d97757', '#00C2A8', '#818cf8', '#22c55e', '#f59e0b', '#ec4899']
+function monogramColor(name) {
+  return MONOGRAM_COLORS[name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % MONOGRAM_COLORS.length]
+}
+
 // Tooltip text for the "Fut" / "Leállva" footer indicator (process state).
 function processTip(isRunning) {
   return isRunning
@@ -11421,10 +11428,20 @@ function renderTeamGraph(container, data, opts = {}) {
     const avatarUrl = node.id === mainAgentId
       ? `/api/marveen/avatar${avatarBust()}`
       : `/api/agents/${encodeURIComponent(node.id)}/avatar${avatarBust()}`
+    // Only request an avatar the agent actually has. An agent with no avatar
+    // file 404s, and this view asked for every node unconditionally -- one dead
+    // request per avatar-less agent on every load (11 of them on this install),
+    // each leaving an empty grey disc behind. hasAvatar rides along on the
+    // /api/team/graph node; a payload without the field (older server, cached
+    // response) is treated as "has one", i.e. the previous behaviour.
+    const nodeLabel = node.label || node.id
+    const avatarInner = node.hasAvatar === false
+      ? `<span class="team-node-mono" style="background:${monogramColor(nodeLabel)}">${escapeHtml(nodeLabel.charAt(0).toUpperCase())}</span>`
+      : `<img src="${avatarUrl}" alt="${escapeHtml(nodeLabel)}" onerror="this.style.display='none'">`
     const isFreeNode = isFreeModel(node.model)
     div.innerHTML = `
       ${isFreeNode ? `<span class="team-node-free-badge">${escapeHtml(t('agents.free_badge'))}</span>` : costBadgeHtml(node.costPerMInput)}
-      <div class="team-node-avatar"><img src="${avatarUrl}" alt="${escapeHtml(node.label || node.id)}" onerror="this.style.display='none'"></div>
+      <div class="team-node-avatar">${avatarInner}</div>
       <div class="team-node-name">${escapeHtml(node.label || node.id)}</div>
       <div class="team-node-meta">${escapeHtml(roleLabel)}</div>
       <div class="team-node-meta">${running}</div>
@@ -11593,8 +11610,7 @@ let chatSelectedAgent = null
 
 function chatMonogramEl(agentName, size) {
   const letter = agentName.charAt(0).toUpperCase()
-  const colors = ['#d97757','#00C2A8','#818cf8','#22c55e','#f59e0b','#ec4899']
-  const color = colors[agentName.split('').reduce((a,c)=>a+c.charCodeAt(0),0) % colors.length]
+  const color = monogramColor(agentName)
   return `<div class="chat-avatar chat-avatar-mono" style="width:${size}px;height:${size}px;background:${color};font-size:${Math.round(size*0.4)}px">${letter}</div>`
 }
 
@@ -11603,8 +11619,7 @@ window.chatImgError = function(img) {
   const name = img.getAttribute('data-agent-name') || img.alt || '?'
   const size = parseInt(img.width) || 32
   const letter = name.charAt(0).toUpperCase()
-  const colors = ['#d97757','#00C2A8','#818cf8','#22c55e','#f59e0b','#ec4899']
-  const color = colors[name.split('').reduce((a,c)=>a+c.charCodeAt(0),0) % colors.length]
+  const color = monogramColor(name)
   const div = document.createElement('div')
   div.className = 'chat-avatar chat-avatar-mono'
   div.style.cssText = `width:${size}px;height:${size}px;background:${color};font-size:${Math.round(size*0.4)}px`
