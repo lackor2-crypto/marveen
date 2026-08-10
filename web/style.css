@@ -8793,3 +8793,48 @@ body {
   /* A döntés-gombok egymás mellett maradjanak, de férjenek is ki. */
   #approvalsTable td .approvals-decide { flex: 1 1 auto; }
 }
+
+/* === Mobil: fejléc-gombsorok és keresők ne lógjanak ki ====================
+   Végigmérve mind a 28 oldalt 390 pixeles nézetben (Boss kérése 2026-08-10:
+   "nézd át az egész mobil részt hogy még mi nem ugyanolyan mint a
+   számítógépen"). Ami kilógott, az mind ugyanaz a minta volt: a fejlécben egy
+   inline `display:flex` gombsor, tördelés nélkül -- asztali szélességen elfér,
+   telefonon a jobb széle egyszerűen kicsúszik a képernyőről, és mivel nincs
+   görgethető ős, oda nem is lehet eljutni. Érintett: Kanban nézetváltó sor
+   (Archiváltak gomb 69px-szel), Ötletláda (92px), Vault (184px), Email fejléc-
+   kereső (105px, plusz a találati lista 349px-szel). */
+@media (max-width: 768px) {
+  .page-header-row > div { flex-wrap: wrap; }
+
+  /* Kanban nézetváltó sor: a kereső-slot inline stílusa (flex:0 1 260px +
+     margin-left:auto) erősebb minden osztály-szabálynál, ezért kell ide a
+     felülírás -- telefonon a kereső saját sorba kerül a gombok alá. */
+  #kanbanPage > div:first-child { flex-wrap: wrap; }
+  #kanbanSearchSlot { flex: 1 1 100% !important; margin-left: 0 !important; order: 1; }
+
+  .email-header-search-wrap { max-width: 100%; margin-left: 0; }
+  .email-search-form { flex-wrap: wrap; }
+  .email-search-input { min-width: 0; flex: 1 1 140px; }
+  /* A találati lista asztali nézetben a kereső MELLÉ nyílik (left:100% + 380px
+     széles) -- telefonon ez a képernyőn kívülre esik. Itt a kereső ALÁ kerül,
+     a szélessége a képernyőhöz igazodik. */
+  .email-search-results-dropdown {
+    left: 0;
+    top: 100%;
+    margin-left: 0;
+    margin-top: 6px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Hosszú, szóköz nélküli tartalom (útvonal, azonosító) tördeljen, ne
+     feszítse szét a kártyát. */
+  .naplo-entry code, .naplo-diary-content, .settings-row-editor { overflow-wrap: anywhere; }
+  .settings-row-editor { flex-wrap: wrap; }
+  .settings-row-editor .input { min-width: 0; flex: 1 1 100%; }
+
+  /* Ötlet-kártya: a szöveg és a gombcsoport egy space-between sorban ül, a
+     gombcsoporton inline flex-shrink:0 -- telefonon nincs mit zsugorítani,
+     ezért a gombok kicsúsztak. Tördeléssel a gombok a szöveg alá kerülnek. */
+  #ideasPage .card > div { flex-wrap: wrap; }
+}
