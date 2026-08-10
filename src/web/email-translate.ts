@@ -22,7 +22,7 @@ const HUNGARIAN_PATTERNS = [
   /\b(a|az|egy|és|vagy|de|hogy|mint|nem|van|volt|lesz|lenne|kell|kellene|lehet|szokott)\b/i,
   /\b(en|te|ő|mi|ti|ők|magam|magad|maga|magunk|magatok|maguk)\b/i,
   /\b(ezt|azt|ezt|amit|ami|aki|ahol|amikor|miért|hogyan|mennyi)\b/i,
-  /[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/,
+  /[áéíóőúűÁÉÍÓŐÚŰ]/, // Hungarian-specific: ő, ű (not ö, ü which are also German)
 ]
 
 const GERMAN_PATTERNS = [
@@ -55,8 +55,9 @@ function detectLanguage(text: string): 'hu' | 'de' | 'en' | 'unknown' {
     if (matches) enScore += matches.length
   }
 
-  // Hungarian has distinctive chars, give it a boost
-  if (/[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]/.test(sample)) huScore += 5
+  // Hungarian-specific chars (ő, ű) - not ö, ü which are also German
+  if (/[őűŐŰ]/.test(sample)) huScore += 5
+  // German-specific chars (ä, ö, ü, ß)
   if (/[äöüßÄÖÜẞ]/.test(sample)) deScore += 5
 
   const max = Math.max(huScore, deScore, enScore)

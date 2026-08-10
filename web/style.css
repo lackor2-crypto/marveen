@@ -1918,10 +1918,35 @@ main.email-active .page-header { flex-shrink: 0; }
   z-index: 1;
 }
 .agent-card-badges .agent-cost-badge,
-.agent-card-badges .agent-account-badge {
+.agent-card-badges .agent-account-badge,
+.agent-card-badges .agent-reliability-badge {
   position: static;
   top: auto;
   right: auto;
+}
+/* Kanban 502005f0: free-agent dispatch-reliability gauge, 0-10. A tiny
+   track+fill bar (not just a number) so a glance at the grid tells you
+   which agents are worth bothering to dispatch right now. */
+.agent-reliability-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.agent-reliability-track {
+  width: 28px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 25%, transparent);
+  overflow: hidden;
+}
+.agent-reliability-fill { display: block; height: 100%; border-radius: 999px; background: var(--success, #2f9e5b); }
+.agent-reliability-badge.reliability-low .agent-reliability-fill { background: var(--danger, #d64545); }
+.agent-reliability-badge.reliability-mid .agent-reliability-fill { background: var(--warning, #d4a52c); }
+.agent-reliability-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 11px;
 }
 .agent-account-badge {
   font-size: 11px;

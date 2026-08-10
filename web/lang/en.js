@@ -325,6 +325,7 @@ window._i18n.en = {
   'agents.free_badge':           'free',
   'agents.cost_badge_tip':       'Estimated $ / 1M input tokens (known Claude models only)',
   'agents.account_badge_tip':    'Which account/plan the agent runs under (Claude account or OpenRouter)',
+  'agents.reliability_tip':      'Usability: {score}/10 (based on the last {n} verification attempts -- not a quality score, just whether it answers without errors/rate-limits)',
   'agents.detail.select_avatar':   'Select new avatar',
   'agents.detail.edit_name':        'Edit name',
   'agents.detail.name_empty_error': 'Name cannot be empty.',

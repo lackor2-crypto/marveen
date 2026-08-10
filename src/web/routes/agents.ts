@@ -5,7 +5,9 @@ import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
 import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT } from '../../config.js'
-import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed } from '../../db.js'
+import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent } from '../../db.js'
+import { computeReliabilityScore, type ReliabilityScore } from '../../agent-reliability.js'
+import { isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from '../agent-message-wrap.js'
 import { ensureFederationClaudeMdSection } from '../federation/onboarding.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
@@ -444,6 +446,9 @@ interface AgentSummary {
    *  drives the dashboard "reauth needed" badge + one-click /login button. */
   needsReauth: boolean
   reauthReason?: string
+  /** Dispatch-success badge for free-tier agents (kanban 502005f0) -- null
+   *  for paid agents, where this signal doesn't apply the same way. */
+  reliability: ReliabilityScore | null
 }
 
 interface AgentDetail extends AgentSummary {
@@ -487,6 +492,13 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
   // no pane to inspect). One capture-pane per running agent on the list poll.
   const reauth = running ? detectReauthNeeded(capturePane(agentSessionName(name))) : { needsReauth: false }
 
+  // Kanban 502005f0: only free-tier OpenRouter agents get the badge -- a
+  // paid Claude account failing to dispatch is an incident worth its own
+  // alert, not a "how usable is this one generally" gauge like the free pool.
+  const reliability = isFreeOpenRouterModel(modelResolution.model)
+    ? computeReliabilityScore(getRecentVerificationsForAgent(name, Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60), Date.now())
+    : null
+
   return {
     name,
     displayName: readAgentDisplayName(name),
@@ -518,6 +530,7 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     contextTokens: running ? readContextTokensFromProjectDir(dir, resolveAgentConfigDir(name).configDir ?? undefined) : null,
     needsReauth: reauth.needsReauth,
     reauthReason: reauth.reason,
+    reliability,
   }
 }
 

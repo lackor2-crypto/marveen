@@ -3547,6 +3547,23 @@ function accountBadgeHtml(claudePlan, isMain) {
   return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
 }
 
+// Kanban 502005f0: 0-10 "can this free agent actually be reached" gauge --
+// NOT a quality/trust score, purely dispatch-success (see agent-reliability.ts
+// on the backend). null/no-sample agents render nothing rather than a
+// misleading "0" for an agent that simply has no history yet.
+function reliabilityBadgeHtml(reliability) {
+  if (!reliability || reliability.score === null) return ''
+  const pct = Math.round((reliability.score / 10) * 100)
+  const cls = reliability.score <= 2 ? 'reliability-low' : reliability.score <= 6 ? 'reliability-mid' : 'reliability-high'
+  const tip = t('agents.reliability_tip', { score: reliability.score, n: reliability.sampleSize })
+  return `
+    <span class="agent-reliability-badge ${cls}" title="${escapeAttr(tip)}">
+      <span class="agent-reliability-track"><span class="agent-reliability-fill" style="width:${pct}%"></span></span>
+      <span class="agent-reliability-num">${reliability.score}</span>
+    </span>
+  `
+}
+
 function renderAgents() {
   // Hide for the duration of THIS render too (not just the very first paint,
   // covered by the `hidden` attribute already on the static HTML) -- while
@@ -3655,7 +3672,7 @@ function renderAgents() {
     const runLabel = isRunning ? t('agents.status.running') : t('agents.status.stopped')
 
     card.innerHTML = `
-      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}</div>
+      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}${reliabilityBadgeHtml(agent.reliability)}</div>
       <div class="agent-card-top">
         <div class="${avatarClass}"${avatarStyle}>${avatarHtml}</div>
         <div class="agent-card-info">

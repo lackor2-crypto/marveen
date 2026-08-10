@@ -3333,6 +3333,14 @@ export function resolveApprovalVerification(approvalId: string, agent: string, s
   `).run(status, report ?? null, now, approvalId, agent).changes > 0
 }
 
+// Kanban 502005f0: raw material for the per-agent reliability badge on the
+// Csapat/Ügynökök grid. Pure data fetch -- the pending/pass/fail -> score
+// math lives in agent-reliability.ts so it stays unit-testable without a DB.
+export function getRecentVerificationsForAgent(agent: string, sinceEpochSec: number): ApprovalVerification[] {
+  return db.prepare('SELECT * FROM approval_verifications WHERE agent = ? AND requested_at >= ? ORDER BY requested_at DESC')
+    .all(agent, sinceEpochSec) as ApprovalVerification[]
+}
+
 export function expireTimedOutApprovals(): number {
   const now = Math.floor(Date.now() / 1000)
   return db.prepare(`
