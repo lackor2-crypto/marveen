@@ -11,6 +11,8 @@ import { logger } from '../../logger.js'
 import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect } from '../email-imap.js'
 import { buildHimalayaSearchArgs, normalizeEmailSearchQuery } from '../email-search.js'
 import { isPromotionalEnvelope } from '../../email-promo-classify.js'
+import { translateEmailContent } from '../email-translate.js'
+import { getSecret } from '../vault.js'
 import type { RouteContext } from './types.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -1170,6 +1172,37 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
+    return true
+  }
+
+  // POST /api/email/translate -- translate email content to Hungarian
+  // Body: { account, mailbox, id, text?, html? } -- text/html optional, will fetch from message if not provided
+  if (path === '/api/email/translate' && method === 'POST') {
+    const body = await readBody(req)
+    let data: { account?: string; mailbox?: string; id?: string; text?: string; html?: string }
+    try { data = JSON.parse(body.toString()) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
+    const { account, mailbox, id, text, html } = data
+    if (!isKnownAccount(account ?? null) || !id) { json(res, { error: 'account and id required' }, 400); return true }
+    const mb = mailbox || 'Inbox'
+    const apiKey = getSecret('openrouter-fleet-key')
+    if (!apiKey) { json(res, { error: 'OpenRouter API key not configured' }, 503); return true }
+
+    // Fetch message body if not provided
+    let msgText = text || ''
+    let msgHtml = html || ''
+    if (!msgText && !msgHtml) {
+      const msg = await readMessageBody(account as string, mb, id)
+      if ('error' in msg) { json(res, { error: msg.error, notFound: msg.notFound }, 502); return true }
+      msgText = msg.text
+      msgHtml = msg.html
+    }
+
+    const result = await translateEmailContent(msgText, msgHtml, apiKey)
+    json(res, {
+      translation: result.translation,
+      sourceLang: result.sourceLang,
+      fromCache: result.fromCache,
+    })
     return true
   }
 

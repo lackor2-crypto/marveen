@@ -19,6 +19,7 @@ import { execFileSync } from 'node:child_process'
 import { readClaudePlans } from '../claude-plans.js'
 import { readAgentModel } from '../agent-config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
+import { readUpstreamSyncStatus } from '../upstream-sync-status-io.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -403,6 +404,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       rateLimit,
       claudeAccounts,
       openrouterCredits,
+      upstreamSync: readUpstreamSyncStatus(),
     })
     return true
   }

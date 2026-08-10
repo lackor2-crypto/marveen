@@ -815,6 +815,14 @@ main {
 .overview-card-meta { font-size: 12px; color: var(--text-muted); }
 
 .overview-ratelimit { margin-bottom: 20px; }
+.overview-upstream-sync { margin-bottom: 20px; }
+.upstream-sync-row { display: flex; flex-wrap: wrap; gap: 16px; }
+.upstream-stat { font-size: 13px; color: var(--text-muted); }
+.upstream-stat strong { color: var(--text); font-size: 15px; margin-right: 4px; }
+.upstream-stat.upstream-badge-warn strong { color: var(--danger); }
+.upstream-stat.upstream-badge-ok strong { color: var(--success, #2e9e5b); }
+.upstream-conflict-files { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); }
+.upstream-conflict-files li { font-family: var(--font-mono, monospace); }
 .overview-ratelimit-bars {
   display: flex;
   flex-direction: column;

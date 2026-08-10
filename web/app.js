@@ -12484,6 +12484,36 @@ async function loadAccountsPage() {
   } catch { /* ignore */ }
 }
 
+function renderOverviewUpstreamSync(upstreamSync) {
+  const box = document.getElementById('overviewUpstreamSync')
+  const body = document.getElementById('overviewUpstreamBody')
+  const meta = document.getElementById('overviewUpstreamMeta')
+  if (!upstreamSync || upstreamSync.aheadCount === null && upstreamSync.behindCount === null) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  const locale = (window._lang === 'en') ? 'en-US' : 'hu-HU'
+  meta.textContent = upstreamSync.checkedAt
+    ? new Date(upstreamSync.checkedAt).toLocaleString(locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : ''
+  const behind = upstreamSync.behindCount ?? 0
+  const conflicts = upstreamSync.conflictCount ?? upstreamSync.conflictingFiles.length
+  const clean = behind > 0 ? Math.max(0, behind - conflicts) : 0
+  const badgeClass = conflicts === 0 ? 'upstream-badge-ok' : 'upstream-badge-warn'
+  const fileList = upstreamSync.conflictingFiles.length
+    ? `<ul class="upstream-conflict-files">${upstreamSync.conflictingFiles.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>`
+    : ''
+  body.innerHTML = `
+    <div class="upstream-sync-row">
+      <span class="upstream-stat"><strong>${behind}</strong> ${escapeHtml(t('overview.upstream.new'))}</span>
+      <span class="upstream-stat ${badgeClass}"><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
+      <span class="upstream-stat"><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
+    </div>
+    ${fileList}
+  `
+}
+
 async function loadOverview() {
   try {
     const res = await fetch('/api/overview')
@@ -12501,6 +12531,7 @@ async function loadOverview() {
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
     renderOverviewCapabilities(d.unconfiguredCapabilities)
     renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
+    renderOverviewUpstreamSync(d.upstreamSync)
     // Team: reuse the hierarchy graph renderer so the overview card shows
     // exactly what the Csapat page does (avatars + reports-to tree).
     try {
@@ -17890,6 +17921,7 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   if (actions) actions.innerHTML = `
     <button class="btn-secondary btn-compact" id="emailReplyBtn">${escapeHtml(t('email.btn.reply'))}</button>
     <button class="btn-secondary btn-compact" id="emailForwardBtn">${escapeHtml(t('email.btn.forward'))}</button>
+    <button class="btn-secondary btn-compact" id="emailTranslateBtn">${escapeHtml(t('email.btn.translate'))}</button>
     <button class="btn-secondary btn-compact" id="emailArchiveBtn">${escapeHtml(t('email.btn.archive'))}</button>
     <button class="btn-danger btn-compact" id="emailDeleteBtn">${escapeHtml(t('common.delete'))}</button>
   `
@@ -17947,6 +17979,133 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   if (replyBtn) replyBtn.addEventListener('click', () => emailShowCompose('reply', id, envelope, mailbox))
   const forwardBtn = document.getElementById('emailForwardBtn')
   if (forwardBtn) forwardBtn.addEventListener('click', () => emailShowCompose('forward', id, envelope, mailbox))
+  const translateBtn = document.getElementById('emailTranslateBtn')
+  if (translateBtn) {
+    translateBtn.dataset.translated = '0'
+    translateBtn.addEventListener('click', () => emailHandleTranslateClick(id, mailbox, msg))
+  }
+}
+
+// Translate email message to Hungarian
+async function emailTranslateMessage(id, mailbox, msg) {
+  const translateBtn = document.getElementById('emailTranslateBtn')
+  if (!translateBtn) return
+  translateBtn.disabled = true
+  translateBtn.textContent = t('common.loading')
+
+  try {
+    const res = await fetch('/api/email/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, mailbox, id, text: msg.text, html: msg.html })
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      showToast(data.error || t('email.translate_error'))
+      translateBtn.disabled = false
+      translateBtn.textContent = t('email.btn.translate')
+      return
+    }
+
+    // Store original content for toggle
+    emailTranslationCache.set(id, {
+      originalHtml: msg.html,
+      originalText: msg.text,
+      translation: data.translation,
+      sourceLang: data.sourceLang,
+      fromCache: data.fromCache,
+    })
+
+    // Show translation
+    renderEmailTranslation(data.translation, data.sourceLang, data.fromCache)
+    translateBtn.textContent = t('email.btn.show_original')
+    translateBtn.dataset.translated = '1'
+    showToast(data.fromCache ? t('email.translate_cached') : t('email.translate_done'))
+  } catch (err) {
+    showToast(t('email.translate_error', { msg: err.message }))
+  } finally {
+    translateBtn.disabled = false
+  }
+}
+
+// Render translation in the email body slot
+function renderEmailTranslation(translation, sourceLang, fromCache) {
+  const slot = document.getElementById('emailReaderBodySlot')
+  if (!slot) return
+  const frame = document.createElement('iframe')
+  frame.className = 'email-reader-body-frame'
+  frame.sandbox = 'allow-same-origin allow-popups allow-popups-to-escape-sandbox'
+  frame.referrerPolicy = 'no-referrer'
+  frame.scrolling = 'no'
+  const sizeToContent = () => {
+    try {
+      frame.style.height = '0px'
+      const h = frame.contentWindow.document.documentElement.scrollHeight
+      frame.style.height = `${h + 16}px`
+    } catch { /* best-effort */ }
+  }
+  frame.addEventListener('load', () => {
+    try {
+      frame.contentWindow.document.querySelectorAll('img[loading="lazy"]').forEach(img => { img.loading = 'eager' })
+    } catch { /* best-effort */ }
+    sizeToContent()
+    setTimeout(sizeToContent, 800)
+    try {
+      let debounceTimer = null
+      const onImgSettle = () => { clearTimeout(debounceTimer); debounceTimer = setTimeout(sizeToContent, 150) }
+      frame.contentWindow.document.querySelectorAll('img').forEach(img => {
+        if (img.complete) return
+        img.addEventListener('load', onImgSettle, { once: true })
+        img.addEventListener('error', onImgSettle, { once: true })
+      })
+    } catch { /* best-effort */ }
+  })
+  slot.innerHTML = ''
+  slot.appendChild(frame)
+  // Wrap translation in a simple HTML structure with language badge
+  const langNames = { de: 'német', en: 'angol', hu: 'magyar', unknown: 'ismeretlen' }
+  const langLabel = langNames[sourceLang] || sourceLang
+  const cacheBadge = fromCache ? `<span style="margin-left:8px;font-size:11px;color:var(--text-muted)">${escapeHtml(t('email.translate_from_cache'))}</span>` : ''
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; padding: 16px; margin: 0; color: var(--text, #111); background: var(--bg, #fff); }
+    .translation-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--accent-bg, #eef); border-radius: 6px; margin-bottom: 16px; font-size: 13px; color: var(--accent, #6366f1); }
+    .translation-content { white-space: pre-wrap; word-wrap: break-word; }
+  </style></head><body>
+    <div class="translation-header">
+      <span>🌐</span>
+      <span>${escapeHtml(t('email.translated_from', { lang: langLabel }))}</span>
+      ${cacheBadge}
+    </div>
+    <div class="translation-content">${escapeHtml(translation)}</div>
+  </body></html>`
+  frame.srcdoc = html
+}
+
+// Toggle back to original content
+function emailShowOriginalContent(id) {
+  const cached = emailTranslationCache.get(id)
+  if (!cached) return
+  const msg = { html: cached.originalHtml, text: cached.originalText }
+  renderEmailMessageBody(msg)
+  const translateBtn = document.getElementById('emailTranslateBtn')
+  if (translateBtn) {
+    translateBtn.textContent = t('email.btn.translate')
+    translateBtn.dataset.translated = '0'
+  }
+}
+
+// Cache for translations (in-memory, per session)
+const emailTranslationCache = new Map()
+
+// Handle translate button click (toggle between original and translation)
+function emailHandleTranslateClick(id, mailbox, msg) {
+  const translateBtn = document.getElementById('emailTranslateBtn')
+  if (!translateBtn) return
+  if (translateBtn.dataset.translated === '1') {
+    emailShowOriginalContent(id)
+  } else {
+    emailTranslateMessage(id, mailbox, msg)
+  }
 }
 
 // Inline reply/forward form -- recipients for reply are derived by himalaya
