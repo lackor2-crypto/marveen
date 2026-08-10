@@ -1815,9 +1815,13 @@ export function listArchivedKanbanCards(opts: {
   if (from)    { sql += ' AND kc.archived_at >= ?'; params.push(from) }
   if (to)      { sql += ' AND kc.archived_at <= ?'; params.push(to) }
   if (q) {
-    sql += ' AND (kc.title LIKE ? OR kc.project LIKE ? OR kc.assignee LIKE ?)'
+    // Id is searchable too: card references are written as ids, so "find the
+    // archived card this id points at" has to work -- both for the operator
+    // typing an id into the archive search and for the dashboard following a
+    // #<id> reference to a card that has since been archived.
+    sql += ' AND (kc.title LIKE ? OR kc.project LIKE ? OR kc.assignee LIKE ? OR kc.id LIKE ?)'
     const like = `%${q}%`
-    params.push(like, like, like)
+    params.push(like, like, like, like)
   }
   sql += ' ORDER BY kc.archived_at DESC LIMIT ?'
   params.push(limit)

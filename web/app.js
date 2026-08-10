@@ -415,11 +415,26 @@ function switchPage(pageId) {
   if (pageId === 'tokenUsage') loadTokenUsage()
   if (pageId === 'costs') loadCosts()
   if (pageId === 'ideas') loadIdeasPage()
-  if (pageId === 'archived') loadArchivedPage()
-  if (pageId === 'naplo') loadNaplo()
+  // These two loaders live in IIFEs further down this file, so a DIRECT load of
+  // their hash (a refresh, or a link straight to #naplo / #archived) reaches
+  // switchPage before the definition has been parsed: that threw a
+  // ReferenceError and left the page blank -- found 2026-08-10 while checking
+  // where card references lead. callPageLoader retries once parsing is done.
+  if (pageId === 'archived') callPageLoader('loadArchivedPage')
+  if (pageId === 'naplo') callPageLoader('loadNaplo')
   if (pageId === 'federation') loadFederationPage()
   if (pageId === 'email') loadEmailPage()
   if (pageId === 'irodaSettings') loadIrodaSettings()
+}
+
+// Calls a page loader that may not be defined yet (see the naplo/archived note
+// in switchPage). Runs it immediately when it exists, otherwise once the
+// document has finished parsing -- by which point every IIFE in this file has.
+function callPageLoader(name) {
+  if (typeof window[name] === 'function') { window[name](); return }
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof window[name] === 'function') window[name]()
+  }, { once: true })
 }
 
 // Mobile off-canvas sidebar toggle. No-op visual effect on desktop (the
@@ -1008,6 +1023,9 @@ async function loadKanban() {
       fetch('/api/kanban/labels'),
     ])
     kanbanCards = await cardsRes.json()
+    // Board cards are ids we know for sure -- keeps references linkable even if
+    // the boot-time id fetch failed, and picks up cards created since.
+    for (const c of kanbanCards) kanbanKnownIds.add(c.id)
     kanbanAssignees = await assigneesRes.json()
     kanbanProjects = await projectsRes.json()
     kanbanAllLabels = await labelsRes.json()
@@ -7310,8 +7328,8 @@ function renderMemories(memories) {
         <span class="mem-date">${escapeHtml(mem.created_label || '')}</span>
         ${typeof mem.salience === 'number' ? `<span class="mem-salience" title="Relevancia ertek">S: ${mem.salience.toFixed(2)}</span>` : ''}
       </div>
-      <div class="mem-content-short">${escapeHtml(shortContent)}</div>
-      <div class="mem-content-full">${escapeHtml(mem.content)}</div>
+      <div class="mem-content-short">${linkifyKanbanRefs(shortContent)}</div>
+      <div class="mem-content-full">${linkifyKanbanRefs(mem.content)}</div>
       ${keywordsHtml}
       <div class="mem-item-footer">
         <button class="btn-secondary" data-edit-memid="${mem.id}" style="padding:6px 14px; font-size:12px;">${t('common.btn.edit')}</button>
@@ -7895,7 +7913,7 @@ function showGraphPanel(node) {
       <button class="graph-panel-close" id="graphPanelCloseBtn">&times;</button>
     </div>
     ${created ? `<div class="graph-panel-date">${escapeHtml(created)}</div>` : ''}
-    <div class="graph-panel-content">${escapeHtml(node.mem.content)}</div>
+    <div class="graph-panel-content">${linkifyKanbanRefs(node.mem.content)}</div>
     <div class="graph-panel-meta">
       ${node.keywords.length ? '<div class="graph-panel-keywords">' + node.keywords.map(k => '<span class="mem-keyword-tag">' + escapeHtml(k) + '</span>').join('') + '</div>' : ''}
     </div>
@@ -8155,7 +8173,7 @@ function renderLogEntries(entries) {
     div.className = 'log-entry'
     div.innerHTML = `
       <div class="log-entry-time">${time}</div>
-      <div class="log-entry-content">${escapeHtml(entry.content)}</div>
+      <div class="log-entry-content">${linkifyKanbanRefs(entry.content)}</div>
     `
     el.appendChild(div)
   }
@@ -10270,10 +10288,34 @@ function escapeHtml(str) {
   return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+// Card ids as they REALLY appear in text. Measured on live data (2026-08-10):
+// of the card references in the approvals list, 8 of 9 were written WITHOUT a
+// leading '#' -- "Kartya 16911a38", "kanban b380afac", or just the bare id --
+// while the linkifier only matched '#<id>'. That is why references were
+// clickable "sometimes" (Boss: "kaotikus"): the pattern matched a form almost
+// nobody writes. So an 8-hex token is linked when it is marked as a reference
+// (# or a card word in front of it) OR when it is a REAL card id -- the id set
+// below is the only reliable way to tell a card id from any other hex blob
+// (git sha, colour, hash), and it also catches the bare and mistyped forms.
+const KANBAN_REF_RE = /(#|\b(?:kanban|k[áa]rtya|card)\s+)?\b([0-9a-f]{8})\b/gi
+let kanbanKnownIds = new Set()
+
+async function loadKanbanCardIds() {
+  try {
+    const r = await fetch('/api/kanban/card-ids')
+    if (r.ok) kanbanKnownIds = new Set(await r.json())
+  } catch { /* links fall back to the marked forms only */ }
+}
+
 function linkifyKanbanRefs(str) {
-  if (!str) return '';
-  const escaped = escapeHtml(str);
-  return escaped.replace(/#([0-9a-f]{8})/gi, '<span class="kanban-link" data-card-id="$1" role="link" tabindex="0">#$1</span>');
+  if (!str) return ''
+  const escaped = escapeHtml(str)
+  return escaped.replace(KANBAN_REF_RE, (match, marker, id) => {
+    const known = kanbanKnownIds.has(id.toLowerCase())
+    if (!marker && !known) return match
+    const prefix = marker || ''
+    return `${prefix}<span class="kanban-link" data-card-id="${id.toLowerCase()}" role="link" tabindex="0">${id}</span>`
+  })
 }
 
 // linkifyKanbanRefs() injects .kanban-link spans via innerHTML in many places
@@ -11960,7 +12002,7 @@ function buildBubbleHtml(m) {
         ${m.status === 'pending' && m.to_agent === mainAgentId() ? `<span style="font-size:10px;color:var(--text-muted)">${escapeHtml(t('messages.pending_main_hint'))}</span>` : ''}
         ${m.origin_note ? `<span class="badge" style="font-size:10px" title="Self-declared by the sender, not verified (card 06f062e4)">origin: ${escapeHtml(m.origin_note)}</span>` : ''}
       </div>
-      <div class="bubble-text">${escapeHtml(m.content || '')}</div>
+      <div class="bubble-text">${linkifyKanbanRefs(m.content || '')}</div>
       <div class="bubble-time">${when}</div>
     </div>
     ${isOutgoing ? `<div class="chat-bubble-avatar">${chatAvatarHtml(mainAgentId(), 28)}</div>` : ''}
@@ -12483,7 +12525,7 @@ async function loadOverview() {
         item.innerHTML = `
           <div class="overview-activity-icon">${icon}</div>
           <div class="overview-activity-body">
-            <div class="overview-activity-title">${escapeHtml(a.text)}</div>
+            <div class="overview-activity-title">${linkifyKanbanRefs(a.text)}</div>
             <div class="overview-activity-time">${formatRelative(a.at)}</div>
           </div>
         `
@@ -13139,6 +13181,9 @@ function wireOnboarding(step) {
 }
 
 // === Init ===
+// First: the card-id set the reference linkifier needs (ids only, tiny). Fired
+// before the page loads below so most first renders already have it.
+loadKanbanCardIds()
 populateAvatarGrid()
 loadMemAgents()
 loadOverview()
@@ -14131,11 +14176,35 @@ function _approvalKanbanCardId(a) {
 // through the board. switchPage('kanban') already kicks off its own
 // loadKanban(); awaiting a second call here is cheap and guarantees the DOM
 // has the card before we search for it.
+// Opens an archived card's read-only detail modal by id. Returns false when the
+// id is not in the archive either, so the caller can report a real miss.
+async function _openArchivedCardById(cardId) {
+  try {
+    const r = await fetch('/api/kanban/archived?q=' + encodeURIComponent(cardId))
+    if (!r.ok) return false
+    const data = await r.json()
+    const card = (data.cards || []).find(c => c.id === cardId)
+    if (!card || typeof window._showArchivedDetail !== 'function') return false
+    switchPage('archived')
+    await window._showArchivedDetail(card)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function _openKanbanCardFromApproval(cardId) {
   switchPage('kanban')
   await loadKanban()
   const el = document.querySelector(`.kanban-card[data-id="${CSS.escape(cardId)}"]`)
-  if (!el) { showToast(t('approvals.toast.card_not_found')); return }
+  if (!el) {
+    // Not on the board: the card may simply be archived. A reference that dies
+    // the moment its card is archived is exactly the "sometimes it works,
+    // sometimes it doesn't" Boss reported, so follow it there instead.
+    if (await _openArchivedCardById(cardId)) return
+    showToast(t('approvals.toast.card_not_found'))
+    return
+  }
   el.scrollIntoView({ behavior: 'smooth', block: 'center' })
   el.classList.remove('kanban-card-flash')
   // Force reflow so re-adding the class restarts the animation even if the
@@ -18181,7 +18250,7 @@ function ideaScoreBadge(idea) {
 function renderIdeaCard(idea) {
   const statusColor = STATUS_COLORS[idea.status] || 'var(--text-muted)'
   const statusLabelRaw = STATUS_LABELS[idea.status]; const statusLabel = statusLabelRaw ? (typeof statusLabelRaw === 'function' ? statusLabelRaw() : statusLabelRaw) : idea.status
-  const desc = idea.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${escapeHtml(idea.description.slice(0, 120))}${idea.description.length > 120 ? '…' : ''}</div>` : ''
+  const desc = idea.description ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">${linkifyKanbanRefs(idea.description.slice(0, 120))}${idea.description.length > 120 ? '…' : ''}</div>` : ''
   const staleBadge = idea.stale ? `<span style="font-size:11px;background:#92400e22;color:#d97706;border:1px solid #d97706;border-radius:4px;padding:2px 5px" title="${t('ideas.stale_tooltip')}">${t('ideas.stale_badge')}</span>` : ''
   return `<div class="card" style="padding:12px 16px;margin-bottom:4px${idea.stale ? ';border-left:3px solid #d97706' : ''}">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
@@ -18275,7 +18344,7 @@ async function openIdeaDetail(id) {
   const statusLabel = STATUS_LABELS[idea.status] || idea.status
   document.getElementById('ideaDetailTitle').textContent = idea.title
   document.getElementById('ideaDetailMeta').textContent = `${idea.category} · ${statusLabel}`
-  document.getElementById('ideaDetailDesc').textContent = idea.description || t('ideas.no_description')
+  document.getElementById('ideaDetailDesc').innerHTML = linkifyKanbanRefs(idea.description || t('ideas.no_description'))
   document.getElementById('ideaDetailImpact').value = idea.impact ?? ''
   document.getElementById('ideaDetailEffort').value = idea.effort ?? ''
   updateDetailScoreChip()
@@ -19527,6 +19596,9 @@ async function openResearchDoc(agent, name) {
 
   // Read-only detail modal for an archived card: meta grid, labels, description,
   // comments -- no editing affordances. Restore button mirrors the card button.
+  // Exposed so a #<id> reference elsewhere in the app can open an archived
+  // card too (see _openArchivedCardById).
+  window._showArchivedDetail = (card) => showArchivedDetail(card)
   async function showArchivedDetail(card) {
     const seqPrefix = card.seq != null ? `#${card.seq} ` : ''
     document.getElementById('archivedDetailTitle').innerHTML = linkifyKanbanRefs(`${seqPrefix}${card.title}`)
@@ -19736,8 +19808,12 @@ async function openResearchDoc(agent, name) {
       const entryLabelRaw = DIARY_ENTRY_LABELS[e.entry_type]; const entryLabel = entryLabelRaw ? (typeof entryLabelRaw === 'function' ? entryLabelRaw() : entryLabelRaw) : e.entry_type
       const entryBadge = `<span class="naplo-badge" style="background:${entryColor};font-size:10px">${entryLabel}</span>`
       const agentStr = e.agent_id ? ` <span class="naplo-actor">${esc(e.agent_id)}</span>` : ''
-      let contentSnippet = esc(e.content || '').replace(/\n/g, ' ').slice(0, 200)
-      if ((e.content || '').length > 200) contentSnippet += '…'
+      // Slice the RAW text and escape after, via the reference linkifier: the
+      // old order (escape, then slice at 200) could cut an HTML entity in half,
+      // and it left card ids in diary entries unclickable.
+      const rawContent = (e.content || '').replace(/\n/g, ' ')
+      let contentSnippet = linkifyKanbanRefs(rawContent.slice(0, 200))
+      if (rawContent.length > 200) contentSnippet += '…'
       const keywordsStr = e.keywords ? `<div class="naplo-note" style="margin-top:2px">Kulcsszavak: ${esc(e.keywords)}</div>` : ''
       const catStr = e.category ? ` <span class="naplo-event-type">${esc(e.category)}</span>` : ''
       detail = `${entryBadge}${catStr}${agentStr}<div class="naplo-diary-content">${contentSnippet}</div>${keywordsStr}`

@@ -121,6 +121,17 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Just the ids, board + archive. The frontend turns a card id appearing in
+  // ANY text (activity feed, messages, approvals, comments, memories...) into a
+  // link, and agents write those references inconsistently -- "#<id>", "Kartya
+  // <id>", or the bare id -- so the only reliable test of "is this hex blob a
+  // card?" is membership in this set. Ids only: one cheap query, no card bodies.
+  if (path === '/api/kanban/card-ids' && method === 'GET') {
+    const rows = getDb().prepare('SELECT id FROM kanban_cards').all() as { id: string }[]
+    jsonMaybeGzip(req, res, rows.map(r => r.id))
+    return true
+  }
+
   if (path === '/api/kanban/labels' && method === 'POST') {
     const body = await readBody(req)
     const { name, color } = JSON.parse(body.toString()) as { name?: string; color?: string }
