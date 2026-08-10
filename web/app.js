@@ -18404,6 +18404,52 @@ document.getElementById('emailAttachmentLightboxOverlay')?.addEventListener('cli
   if (e.target.id === 'emailAttachmentLightboxOverlay') closeModal(e.target)
 })
 
+// Brand-new message, not tied to any existing one -- unlike emailShowCompose()
+// above (reply/forward, which render inline in the reader pane below a
+// source message), there's no source message here, so this is its own modal
+// rather than a slot inside #emailReaderContent.
+function emailShowComposeNew() {
+  const overlay = document.getElementById('emailComposeNewOverlay')
+  if (!overlay) return
+  ;['emailComposeNewTo', 'emailComposeNewCc', 'emailComposeNewSubject', 'emailComposeNewText'].forEach(id => {
+    const el = document.getElementById(id)
+    if (el) el.value = ''
+  })
+  openModal(overlay)
+  requestAnimationFrame(() => document.getElementById('emailComposeNewTo')?.focus())
+}
+document.getElementById('emailComposeNewBtn')?.addEventListener('click', emailShowComposeNew)
+document.getElementById('emailComposeNewClose')?.addEventListener('click', () => closeModal(document.getElementById('emailComposeNewOverlay')))
+document.getElementById('emailComposeNewCancelBtn')?.addEventListener('click', () => closeModal(document.getElementById('emailComposeNewOverlay')))
+document.getElementById('emailComposeNewOverlay')?.addEventListener('click', (e) => {
+  if (e.target.id === 'emailComposeNewOverlay') closeModal(e.target)
+})
+document.getElementById('emailComposeNewSendBtn')?.addEventListener('click', async () => {
+  const to = document.getElementById('emailComposeNewTo')?.value.trim()
+  const cc = document.getElementById('emailComposeNewCc')?.value.trim()
+  const subject = document.getElementById('emailComposeNewSubject')?.value.trim()
+  const text = document.getElementById('emailComposeNewText')?.value.trim()
+  if (!to) { showToast(t('email.compose_missing_recipient')); return }
+  if (!text) { showToast(t('email.compose_empty_text')); return }
+  const sendBtn = document.getElementById('emailComposeNewSendBtn')
+  sendBtn.disabled = true
+  sendBtn.textContent = t('email.sending')
+  try {
+    const res = await fetch('/api/email/compose', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, to, cc, subject, text }),
+    })
+    const data = await res.json()
+    if (!res.ok) { showToast(data.error || t('email.send_error')); return }
+    showToast(t('email.new_message_sent_toast'))
+    closeModal(document.getElementById('emailComposeNewOverlay'))
+    if (emailMailbox === EMAIL_SENT_MAILBOX) loadEmailEnvelopes()
+  } finally {
+    sendBtn.disabled = false
+    sendBtn.textContent = t('email.btn.send')
+  }
+})
+
 // ============================================================
 // Ideas (Ötletláda)
 // ============================================================

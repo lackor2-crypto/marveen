@@ -1021,6 +1021,28 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // POST /api/email/compose -- brand-new message, not tied to any existing
+  // one (unlike /reply and /forward above, which both derive recipients/
+  // subject from a source message id). `message compose` is himalaya's own
+  // flag-based composer; --send pushes it straight through SMTP, --save
+  // additionally appends a copy into the account's Sent mailbox so it shows
+  // up in the dashboard's own Sent list right away (Gmail itself does this
+  // automatically over its own web client, but a raw SMTP send bypasses
+  // that -- IMAP APPEND is the only way to get the same effect here).
+  if (path === '/api/email/compose' && method === 'POST') {
+    const body = await readBody(req)
+    const data = JSON.parse(body.toString()) as { account?: string; to?: string; cc?: string; subject?: string; text?: string }
+    if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || !data.text?.trim()) { json(res, { error: 'account, to and text required' }, 400); return true }
+    const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text, '--send', '--save', SENT_MAILBOX]
+    if (data.cc?.trim()) args.push('--cc', data.cc.trim())
+    if (data.subject?.trim()) args.push('-s', data.subject.trim())
+    const r = await himalaya(args)
+    if (!r.ok) { logger.warn(`[email] compose failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    invalidateEnvelopeCache(data.account as string, SENT_MAILBOX)
+    json(res, { ok: true })
+    return true
+  }
+
   if (path === '/api/email/read' && method === 'POST') {
     const body = await readBody(req)
     const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string; read?: boolean }

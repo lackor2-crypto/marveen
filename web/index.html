@@ -1492,6 +1492,9 @@
       </div>
       <div class="email-layout" id="emailLayout">
         <div class="email-pane email-pane-mailboxes" id="emailMailboxPane">
+          <div class="email-compose-new-row">
+            <button class="btn-primary" id="emailComposeNewBtn" data-i18n="email.compose_new_btn">+ Új levél</button>
+          </div>
           <div class="email-column-header email-list-header" id="emailMailboxHeader">
             <label class="email-select-all"><input type="checkbox" id="emailMailboxSelectAllCheckbox"><span data-i18n="email.select_all">Kijelöl</span></label>
             <span class="email-list-header-title" data-i18n="email.folders_title">Mappák</span>
@@ -1535,6 +1538,25 @@
             <button class="btn-secondary btn-compact" id="emailAttachmentsDownloadAllBtn" hidden data-i18n="email.download_all">Letöltés mind</button>
           </div>
           <div id="emailAttachmentsList"><div class="email-reader-empty" data-i18n="email.no_attachments">Nincs melléklet.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="emailComposeNewOverlay">
+      <div class="modal">
+        <div class="modal-header">
+          <h2 data-i18n="email.compose_new_btn">+ Új levél</h2>
+          <button class="modal-close" id="emailComposeNewClose">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="text" class="input" id="emailComposeNewTo" data-i18n-placeholder="email.compose_recipient_placeholder" placeholder="Címzett email címe">
+          <input type="text" class="input" id="emailComposeNewCc" data-i18n-placeholder="email.compose_cc_placeholder" placeholder="Cc (opcionális)">
+          <input type="text" class="input" id="emailComposeNewSubject" data-i18n-placeholder="email.compose_subject_placeholder" placeholder="Tárgy">
+          <textarea class="input" id="emailComposeNewText" rows="10" data-i18n-placeholder="email.compose_text_placeholder" placeholder="Szöveg..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-primary" id="emailComposeNewSendBtn" data-i18n="email.btn.send">Küldés</button>
+          <button class="btn-secondary" id="emailComposeNewCancelBtn" data-i18n="email.btn.cancel">Mégse</button>
         </div>
       </div>
     </div>

@@ -8263,6 +8263,12 @@ body {
    never drawn, so it can't visually compete with the reader column's. */
 .email-pane-mailboxes { scrollbar-width: none; }
 .email-pane-mailboxes::-webkit-scrollbar { display: none; }
+/* Gmail-style compose entry point, always visible above the folder list
+   regardless of what's selected in the other columns. */
+.email-compose-new-row { padding: 10px 8px; border-bottom: 1px solid var(--border); }
+.email-compose-new-row .btn-primary { width: 100%; }
+#emailComposeNewOverlay .modal-body { display: flex; flex-direction: column; gap: 10px; }
+#emailComposeNewOverlay textarea.input { resize: vertical; font-family: inherit; }
 /* Shared "attached toolbar strip" look for every column's header -- sticky,
    flush to the box's own top edge, background + bottom border so scrolled
    content never shows through (Boss, 2026-08-05). Column-specific internal
