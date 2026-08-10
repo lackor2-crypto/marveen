@@ -1,6 +1,6 @@
 ---
 name: win-browser-control
-description: Amikor Boss Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl. "indits el egy videot a szamitogepemen", "nyisd meg a bongeszot es menj fel X oldalra". Marveen WSL2-ben fut Boss sajat Windows gepen, tehat kepes kozvetlenul a Windows asztalra hatni, nem csak linket kuldeni.
+description: Amikor Boss Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl. "indits el egy videot a szamitogepemen", "nyisd meg a bongeszot es menj fel X oldalra" -- vagy hogy ALLITSD LE amit korabban elinditottal ("allitsd le a videot"). Marveen WSL2-ben fut Boss sajat Windows gepen, tehat kepes kozvetlenul a Windows asztalra hatni, nem csak linket kuldeni. Uj nyitasnal az elozo ablakot automatikusan bezarja, hogy ne szoljon ket hang egyszerre.
 ---
 
 # Windows böngésző-vezérlés WSL-ből
@@ -60,6 +60,7 @@ sikerrel bukik.
 
 ```bash
 python3 ~/.claude/skills/win-browser-control/scripts/open_url.py "https://..."
+python3 ~/.claude/skills/win-browser-control/scripts/open_url.py --close   # csak leállítás
 ```
 
 Ez regisztrál/frissít egy `MarvinOpenUrl` nevű ütemezett feladatot
@@ -67,6 +68,30 @@ Ez regisztrál/frissít egy `MarvinOpenUrl` nevű ütemezett feladatot
 majd azonnal lefuttatja. VADONATÚJ, önálló Chrome-ablakot nyit -- nem egy
 meglévő ablak egy háttér-fülét --, hogy Boss biztosan lássa/hallja, ne kelljen
 fület váltania, és a meglévő (sokszor 10+) nyitott fülét ne zavarja.
+
+**Az ELŐZŐ ablakot automatikusan bezárja, mielőtt az újat megnyitja**
+(Boss 2026-08-06: "ket hang egyszerre nem szabad hogy beszeljen").
+Ehhez Marvin ablakai SAJÁT Chrome-profilban futnak
+(`%LOCALAPPDATA%\MarvinChromeProfile`) -- ez nem kozmetika, hanem ez teszi
+egyáltalán lehetővé a funkciót:
+
+- A Chrome profilonként egy-példányos. Boss saját profiljával indítva (az ő
+  Chrome-ja MINDIG fut) a `--new-window` csak átadja az URL-t a MEGLÉVŐ
+  folyamatnak és kilép -- nincs saját folyamatunk amit bezárhatnánk, a
+  "chrome.exe" kilövése pedig Boss 20+ fülét vinné magával.
+- Saját profillal viszont van saját folyamatfánk, és a bezárás szűrője
+  pontos: KIZÁRÓLAG olyan chrome.exe-t érint, aminek a parancssorában ott a
+  `MarvinChromeProfile` marker. Boss böngészőjéhez így véletlenül sem nyúl.
+- Ára: ez a profil nincs bejelentkezve Boss Google-fiókjába (nyilvános
+  YouTube-videóhoz nem kell). Ha valamihez tényleg a bejelentkezett profil
+  kell, azt külön kell kezelni -- és ott az automatikus bezárás nem működhet.
+
+A leállítás előbb `CloseMainWindow()`-t próbál (szabályos ablak-bezárás), és
+csak ha az nem megy, akkor kényszerít. Az állapot (mely PID-eket nyitottuk,
+milyen URL-re, mikor) ide kerül:
+`~/.claude/skills/win-browser-control/state/last-window.json` -- ez napló és
+hibakereséshez van, a bezárás NEM függ tőle: elveszett vagy elavult
+állapotfájl sem hagyhat nyitva ablakot, és nem lőhet ki idegen folyamatot.
 
 YouTube kereséshez: előbb `WebSearch`-csel találd meg a konkrét
 `watch?v=...` linket, azt add át a script-nek -- ne magát a keresőoldalt
@@ -76,6 +101,11 @@ Ne közvetlen `cmd.exe`/`Start-Process` hívást írj újra -- lásd fent, ez a
 látszólag egyszerűbb út a néma hibát adja.
 
 ## Buktatók
+
+- NE próbáld PID vagy ablakcím alapján bezárni Boss saját Chrome-jában
+  megnyitott lapot: a Session 0-ból (WSL interop) az ablak-felsorolás és a
+  WM_CLOSE nem éri el a konzol-session ablakait, PID-re lőni pedig Boss
+  összes fülét kilövi. A saját profil az egyetlen biztonságos út (lásd fent).
 
 - `Get-Process | Where MainWindowTitle` és `AppActivate` WSL interop alól
   megbízhatatlan/üres, MÉG SIKERES indítás esetén IS (session-izoláció
@@ -92,6 +122,17 @@ látszólag egyszerűbb út a néma hibát adja.
   bash-ből adja át.
 
 ## Ellenőrzés
+
+Automatikus bezárás élő ellenőrzése (2026-08-10-en így mértem le):
+```bash
+# hany Marvin-ablak van eppen (a szam a chrome.exe folyamatok szama, nem 1)
+/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -Command \
+  "(Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | Where-Object { \$_.CommandLine -like '*MarvinChromeProfile*' } | Measure-Object).Count"
+```
+Nyiss egy videót, kérdezd le a PID-eket, nyiss egy másikat: a script kiírja
+mely PID-eket zárta be, és a lekérdezés után egyetlen régi PID sem élhet.
+Boss saját Chrome-jának PID-jei (pl. `tasklist /FI "IMAGENAME eq chrome.exe"`)
+változatlanul életben kell maradjanak.
 
 Self-teszt (session-probe, nem nyit semmit, csak fájlba írja a
 munkamenet-azonosítót -- ha `MarvinOpenUrl` feladat esetleg hibázna, ezzel
