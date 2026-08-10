@@ -533,7 +533,11 @@ const SIDEBAR_GROUPS_LS_KEY = 'marveen.sidebarGroups'
 // into their group containers per this map, so regrouping a page (say, moving
 // naplo under system) or relabeling a group is a one-line change right here.
 const SIDEBAR_GROUPS = [
-  { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'messages', 'tasks', 'bgTasks'] },
+  // 'debate' (Vitaztatas) itt es nem a RENDSZER alatt: ez eszkoz amivel az
+  // agenseket dolgoztatjuk egymas ellen egy jobb valaszert -- ugyanaz a fajta
+  // dolog mint az Ugynokok/Aktivitas/Uzenetek, nem rendszer-adminisztracio
+  // (Boss dontese, 2026-08-10).
+  { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'messages', 'tasks', 'bgTasks', 'debate'] },
   { key: 'knowledge',   labelKey: 'nav.group.knowledge',   pages: ['memories', 'skills', 'research', 'ideas'] },
   { key: 'stats',       labelKey: 'nav.group.stats',       pages: ['costs', 'tokenUsage'] },
   // 'drive' szandekosan NINCS itt: a Drive fajlbongeszo tartalom, nem
