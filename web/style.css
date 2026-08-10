@@ -9105,3 +9105,22 @@ body {
 .vault-tag-force { border-style: solid; }
 .vault-card-edit-form .vault-tag-add { flex-direction: row; }
 .vault-card-edit-form .vault-tag-input { flex: 1; width: auto; }
+
+/* A red rule between adjacent groups. The tinted background alone reads as too
+   faint a boundary when two templates sit on one card (Boss 2026-08-10: "tegyel
+   egy vizszintes piros vonalat a sablonok koze"), and the whole point of groups
+   is that you can see at a glance where one thing ends and the next begins.
+   Drawn in the gap with a pseudo-element so it separates the boxes without
+   touching either box's own border. */
+.vault-sections { gap: 16px; }
+.vault-sections .vault-section + .vault-section { position: relative; }
+.vault-sections .vault-section + .vault-section::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -9px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--danger, #dc2626);
+}
