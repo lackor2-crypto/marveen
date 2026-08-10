@@ -8,6 +8,7 @@ import {
 } from '../agent-config.js'
 import { readAgentTeam } from '../agent-team.js'
 import { isAgentRunning } from '../agent-process.js'
+import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
@@ -96,6 +97,29 @@ function writeScrapeCache(planId: string, v: { usedPct: number; model: string | 
   } catch { /* best-effort cache -- a write failure just means the next call retries live */ }
 }
 
+// A five-hour window cannot reset more than five hours from now. Anything
+// further out came from a banner about a DIFFERENT window (the weekly one) or
+// from a stale line deep in the scrollback, and pairing it with a five-hour
+// label produces the contradiction Boss spotted: 100% used, resetting in 23
+// hours. Slack allows for clock skew and the minute-granularity of the banner
+// text. Exported for tests: this is a pure guard over an already-parsed row.
+export const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000
+const FIVE_HOUR_RESET_SLACK_MS = 20 * 60 * 1000
+
+export function sanityCheckFiveHour<T extends { usedPct: number | null; resetsAt: number | null }>(
+  row: T,
+  nowMs: number = Date.now(),
+): T {
+  if (row.usedPct === null || row.resetsAt === null) return row
+  const ahead = row.resetsAt - nowMs
+  if (ahead > FIVE_HOUR_WINDOW_MS + FIVE_HOUR_RESET_SLACK_MS) {
+    logger.warn({ resetsAt: row.resetsAt, aheadMs: ahead },
+      'overview: discarding scraped usage -- reset is too far out to be the five-hour window')
+    return { ...row, usedPct: null, resetsAt: null }
+  }
+  return row
+}
+
 function scrapeClaudeAccountUsage(planId: string): { usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean } {
   let pane: string | null = null
   try {
@@ -107,14 +131,21 @@ function scrapeClaudeAccountUsage(planId: string): { usedPct: number | null; mod
     pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', `agent-${planId}`, '-p', '-S', '-2000'], { timeout: 3000 }).toString()
   } catch { /* pane unavailable, fall through with nulls */ }
 
-  const fresh = pane ? scrapeFreshUsage(pane) : { usedPct: null, model: null, resetsAt: null }
+  const fresh = pane ? sanityCheckFiveHour(scrapeFreshUsage(pane)) : { usedPct: null, model: null, resetsAt: null }
   if (fresh.usedPct !== null) {
     const v = { usedPct: fresh.usedPct, model: fresh.model, resetsAt: fresh.resetsAt }
     writeScrapeCache(planId, v)
     return { ...fresh, stale: false }
   }
+  // The cache can hold a row written before the guard above existed (or by an
+  // older build), so it gets the same check on the way out -- otherwise a
+  // poisoned entry keeps serving the impossible "100% / resets in 23h" pairing
+  // forever, since nothing overwrites it while the fresh scrape finds nothing.
   const cached = readScrapeCache(planId)
-  if (cached) return { usedPct: cached.usedPct, model: cached.model, resetsAt: cached.resetsAt, stale: true }
+  if (cached) {
+    const checked = sanityCheckFiveHour(cached)
+    if (checked.usedPct !== null) return { usedPct: checked.usedPct, model: cached.model, resetsAt: checked.resetsAt, stale: true }
+  }
   return { usedPct: null, model: null, resetsAt: null, stale: false }
 }
 
@@ -123,7 +154,16 @@ function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string
   // "You've hit your session/weekly limit" banner means the window is fully
   // exhausted (100%); neither repeats the "used X%" text the regex below
   // needs.
-  if (/Stop and wait for limit to reset|hit your (?:session|weekly) limit/i.test(pane)) {
+  //
+  // Only a SESSION-limit banner speaks for the five-hour window. "hit your
+  // weekly limit" used to match here too, so a weekly banner anywhere in the
+  // 2000 lines of scrollback pinned the FIVE-HOUR row to 100% and paired it
+  // with the WEEKLY reset time. Boss caught the contradiction on the widget
+  // (2026-08-10): "~100% · 23 óra 19 perc múlva" on a window that can never
+  // be more than five hours from resetting, while the statusline snapshot for
+  // the same agent said 8% used and ~5h to go. The weekly figure has its own
+  // row fed from that snapshot; it must not overwrite this one.
+  if (/Stop and wait for limit to reset|hit your session limit/i.test(pane)) {
     return { usedPct: 100, model: null, resetsAt: parseResetsAt(pane) }
   }
   const usedMatch = [...pane.matchAll(/used (\d+)% of your session limit/g)].pop()
