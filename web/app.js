@@ -2064,9 +2064,54 @@ function openNewCardModal(status) {
   document.getElementById('cardEditId').value = ''
   document.getElementById('cardEditStatus').value = status || 'planned'
   populateAssigneeSelect('cardAssignee')
+  renderNewCardLabelPicker()
   populateProjectSuggestions()
   openModal(cardModalOverlay)
   setTimeout(() => document.getElementById('cardTitle').focus(), 200)
+}
+
+// Label chips in the NEW-card modal. A card without a label is not allowed
+// (see the POST /api/kanban handler for why the rule lives in the server), so
+// picking one is part of writing the card, not a follow-up step someone can
+// forget. Editing an existing card still manages labels in the detail modal,
+// hence the picker is hidden there.
+let newCardLabels = []
+// Draws the chips into `wrapId` and keeps `selected` (an array the caller
+// owns) in sync with what is clicked. Shared by the new-card modal and the
+// idea-promote modal, which are the two places a card is born in the UI.
+function renderLabelPicker(wrapId, selected) {
+  selected.length = 0
+  const wrap = document.getElementById(wrapId)
+  if (!wrap) return
+  wrap.innerHTML = ''
+  for (const l of kanbanAllLabels) {
+    const chip = document.createElement('button')
+    chip.type = 'button'
+    chip.className = 'card-label-chip'
+    chip.textContent = l.name
+    chip.style.setProperty('--chip-color', l.color)
+    chip.addEventListener('click', () => {
+      const i = selected.indexOf(l.id)
+      if (i >= 0) selected.splice(i, 1)
+      else selected.push(l.id)
+      chip.classList.toggle('selected', selected.includes(l.id))
+    })
+    wrap.appendChild(chip)
+  }
+}
+
+// The label list is loaded as part of the kanban board; the ideas page can be
+// opened without ever touching it, and a card is created from there too.
+const breakdownLabels = []
+async function ensureKanbanLabelsLoaded() {
+  if (kanbanAllLabels.length) return
+  try { kanbanAllLabels = await (await fetch('/api/kanban/labels')).json() } catch { /* picker just stays empty */ }
+}
+
+function renderNewCardLabelPicker() {
+  const group = document.getElementById('cardLabelPickGroup')
+  if (group) group.hidden = false
+  renderLabelPicker('cardLabelPick', newCardLabels)
 }
 
 function populateAssigneeSelect(selectId, selected) {
@@ -2110,6 +2155,11 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
       showToast(t('kanban.toast.card_updated'))
     } else {
       data.status = document.getElementById('cardEditStatus').value
+      if (kanbanAllLabels.length && !newCardLabels.length) {
+        showToast(t('kanban.toast.label_required'))
+        return
+      }
+      data.labels = newCardLabels
       const res = await fetch('/api/kanban', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2486,6 +2536,10 @@ async function showCardDetail(card) {
     document.getElementById('cardEditId').value = card.id
     document.getElementById('cardEditStatus').value = card.status
     populateAssigneeSelect('cardAssignee', card.assignee)
+    // Editing: labels are managed in the detail modal, so the create-time
+    // picker (and its mandatory-label check) does not apply here.
+    document.getElementById('cardLabelPickGroup').hidden = true
+    newCardLabels = []
     populateProjectSuggestions()
     openModal(cardModalOverlay)
   }
@@ -2733,10 +2787,11 @@ document.getElementById('breakdownAcceptBtn').addEventListener('click', async ()
   try {
     if (breakdownMode === 'idea') {
       const successCriteria = document.getElementById('breakdownSuccessCriteria')?.value.trim() || undefined
+      if (kanbanAllLabels.length && !breakdownLabels.length) { showToast(t('kanban.toast.label_required')); return }
       const res = await fetch(`/api/ideas/${encodeURIComponent(breakdownIdeaId)}/promote-breakdown`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subtasks: accepted, success_criteria: successCriteria }),
+        body: JSON.stringify({ subtasks: accepted, success_criteria: successCriteria, labels: breakdownLabels }),
       })
       const data = await res.json()
       if (!res.ok) { showToast(data.error || 'Hiba'); return }
@@ -4815,6 +4870,9 @@ document.getElementById('analyzeAllModelsBtn').addEventListener('click', async (
                 assignee: 'marveen',
                 priority: 'normal',
                 status: 'planned',
+                // Cards about the fleet's own models are Marveen development.
+                // Sent by NAME: label ids are per-install, the name is not.
+                labels: ['marveen_fejlesztese'],
               }),
             })
             created++
@@ -18254,15 +18312,20 @@ document.getElementById('ideaDetailEditBtn')?.addEventListener('click', () => {
   openIdeaEdit(ideaDetailId)
 })
 
-function openIdeaPromote(id) {
+const ideaPromoteLabels = []
+async function openIdeaPromote(id) {
   ideasPromoteId = id
+  await ensureKanbanLabelsLoaded()
+  renderLabelPicker('ideaPromoteLabelPick', ideaPromoteLabels)
   openModal(document.getElementById('ideaPromoteOverlay'))
 }
 
 async function promoteIdea(phase) {
   if (!ideasPromoteId) return
-  const res = await fetch(`/api/ideas/${ideasPromoteId}/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phase }) })
+  if (kanbanAllLabels.length && !ideaPromoteLabels.length) { showToast(t('kanban.toast.label_required')); return }
+  const res = await fetch(`/api/ideas/${ideasPromoteId}/promote`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phase, labels: ideaPromoteLabels }) })
   const data = await res.json()
+  if (!data.ok) { showToast(data.error || t('kanban.toast.save_error_msg', { msg: res.status })); return }
   ideasPromoteId = null
   closeModal(document.getElementById('ideaPromoteOverlay'))
   if (data.ok) showToast(t('kanban.toast.card_created') + ': ' + data.kanban_id)
@@ -18301,6 +18364,9 @@ async function openIdeaBreakdown(id) {
     // Show DoD field only in idea mode
     const dodSection = document.getElementById('breakdownDoDSection')
     if (dodSection) { dodSection.style.display = ''; document.getElementById('breakdownSuccessCriteria').value = '' }
+    // Idea mode creates a card, so it needs the mandatory label picker.
+    await ensureKanbanLabelsLoaded()
+    renderLabelPicker('breakdownLabelPick', breakdownLabels)
   } catch {
     showToast('Breakdown hiba')
   }

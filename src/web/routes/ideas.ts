@@ -3,6 +3,7 @@ import { MAIN_AGENT_ID, BOT_NAME } from '../../config.js'
 import { listIdeas, createIdea, updateIdea, deleteIdea, listIdeaCategories, createKanbanCard, getDb, getIdeaComments, addIdeaComment, logIdeaStatusChange, getIdeaStatusLog } from '../../db.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
+import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { readBody, json } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import type { RouteContext } from './types.js'
@@ -149,11 +150,16 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
   if (promoteMatch && method === 'POST') {
     const ideaId = decodeURIComponent(promoteMatch[1])
     const body = await readBody(req)
-    const data = JSON.parse(body.toString()) as { phase?: 'detail' | 'plan' }
+    const data = JSON.parse(body.toString()) as { phase?: 'detail' | 'plan'; labels?: unknown }
     const phase = data.phase ?? 'detail'
 
     const idea = (getDb().prepare('SELECT * FROM idea_box WHERE id = ?').get(ideaId) as import('../../db.js').IdeaBoxRow | undefined)
     if (!idea) { json(res, { error: 'Ötlet nem található' }, 404); return true }
+
+    // An idea reaching the board becomes a card like any other, so it needs a
+    // label like any other -- see src/web/kanban-labels.ts.
+    const labels = resolveCardLabels(data.labels)
+    if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
 
     const cardId = randomUUID().slice(0, 8)
     const status = phase === 'plan' ? 'planned' : 'waiting'
@@ -167,6 +173,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       assignee: BOT_NAME,
       project: 'Fejlesztési ötletek',
     })
+    applyCardLabels(cardId, labels.labelIds)
     logIdeaStatusChange(ideaId, idea.status, 'kanban', MAIN_AGENT_ID, `promote:${phase}`)
     updateIdea(ideaId, { status: 'kanban', kanban_id: cardId })
     json(res, { ok: true, kanban_id: cardId })
@@ -198,14 +205,19 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     const idea = getIdea(ideaId)
     if (!idea) { json(res, { error: 'Ötlet nem található' }, 404); return true }
     const body = await readBody(req)
-    const { subtasks, success_criteria } = JSON.parse(body.toString()) as {
+    const { subtasks, success_criteria, labels: requestedLabels } = JSON.parse(body.toString()) as {
       subtasks: Array<{ title: string; description?: string; assignee?: string | null; priority?: string }>
       success_criteria?: string
+      labels?: unknown
     }
     if (!Array.isArray(subtasks) || subtasks.length === 0) {
       json(res, { error: 'Legalább egy jóváhagyott alfeladat kötelező' }, 400)
       return true
     }
+    // Same rule as everywhere else: no card without a label. The children
+    // inherit the parent's, so only the parent needs a choice.
+    const labels = resolveCardLabels(requestedLabels)
+    if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
     const baseDesc = idea.description ?? ''
     const parentDesc = success_criteria?.trim()
       ? `${baseDesc}\n\n## Siker-kritérium\n${success_criteria.trim()}`.trimStart()
@@ -220,6 +232,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       assignee: BOT_NAME,
       project: 'Fejlesztési ötletek',
     })
+    applyCardLabels(parentId, labels.labelIds)
     const childIds: string[] = []
     for (const st of subtasks) {
       if (!st.title) continue
@@ -234,6 +247,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
         project: 'Fejlesztési ötletek',
         parent_id: parentId,
       })
+      applyCardLabels(childId, labels.labelIds)
       childIds.push(childId)
     }
     logIdeaStatusChange(ideaId, idea.status, 'kanban', MAIN_AGENT_ID, `promote-breakdown:${childIds.length} subtasks`)

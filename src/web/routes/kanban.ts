@@ -21,6 +21,7 @@ import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
+import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
 
 // A headless agent cannot "drag" a card to done, so the dispatch hands it the
@@ -218,8 +219,15 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const body = await readBody(req)
     const data = JSON.parse(body.toString())
     const id = randomUUID().slice(0, 8)
-    createKanbanCard({ id, ...data })
-    json(res, { ok: true, id })
+    // A card is never written without a label -- see src/web/kanban-labels.ts
+    // for why that rule lives at the creation point rather than in the caller's
+    // instructions.
+    const labels = resolveCardLabels(data.labels ?? data.labelId, { parentId: data.parent_id })
+    if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
+    const { labels: _labels, labelId: _labelId, ...cardFields } = data
+    createKanbanCard({ id, ...cardFields })
+    applyCardLabels(id, labels.labelIds)
+    json(res, { ok: true, id, labels: labels.labelIds })
     return true
   }
 
@@ -358,6 +366,9 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
           project: parent.project ?? undefined,
           parent_id: parentId,
         })
+        // Subtasks inherit the parent's labels -- a generated breakdown must
+        // not be able to put label-less cards on the board either.
+        applyCardLabels(id, getLabelsForCard(parentId).map(l => l.id))
         ids.push(id)
       }
       addKanbanComment(parentId, BOT_NAME, `Auto-breakdown: ${ids.length} subtask létrehozva (${ids.join(', ')})`)

@@ -1359,6 +1359,12 @@
         <div class="modal" style="max-width:400px">
           <div class="modal-header"><h2 data-i18n="ideas.promote.title">Kanbanba küldés</h2><button class="modal-close" id="ideaPromoteClose">&times;</button></div>
           <div class="modal-body">
+            <!-- Same mandatory label rule as any other card: the server rejects
+                 a promote without one, so the choice is made here, up front. -->
+            <div class="form-group">
+              <label data-i18n="kanban.modal.label_required">Címke</label>
+              <div id="ideaPromoteLabelPick" class="card-label-pick"></div>
+            </div>
             <p style="margin-bottom:16px;font-size:14px" data-i18n="ideas.promote.question">Melyik fázisban?</p>
             <div style="display:flex;flex-direction:column;gap:8px">
               <button class="btn-secondary" id="ideaPromoteDetail" style="text-align:left;padding:12px 16px"><strong data-i18n="ideas.promote.detail">Részlet kidolgozás (Várakozik)</strong></button>
@@ -2292,6 +2298,13 @@
             <datalist id="projectSuggestions"></datalist>
           </div>
         </div>
+        <!-- Label is mandatory on a new card (the server rejects a card-create
+             without one). Shown only in create mode -- while editing, labels
+             are managed in the card detail modal. -->
+        <div class="form-group" id="cardLabelPickGroup">
+          <label data-i18n="kanban.modal.label_required">Címke <span class="hint">(kötelező)</span></label>
+          <div id="cardLabelPick" class="card-label-pick"></div>
+        </div>
         <input type="hidden" id="cardEditId">
         <input type="hidden" id="cardEditStatus">
         <button class="btn-primary" id="saveCardBtn">
@@ -2407,6 +2420,10 @@
         <div id="breakdownDoDSection" style="display:none;margin-top:12px">
           <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px" data-i18n="kanban.breakdown.success_label">Siker-kritérium (opcionális)</label>
           <textarea id="breakdownSuccessCriteria" class="input" rows="2" placeholder="Mikor tekinthető sikeresnek a feladat?" data-i18n-placeholder="kanban.breakdown.success_placeholder" style="width:100%;resize:vertical;font-size:13px"></textarea>
+          <!-- Promoting an idea creates a real card, so the mandatory label is
+               chosen here; the generated subtasks inherit it. -->
+          <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin:12px 0 4px" data-i18n="kanban.modal.label_required">Címke</label>
+          <div id="breakdownLabelPick" class="card-label-pick"></div>
         </div>
         <div class="detail-actions" style="gap:8px; margin-top:16px">
           <button class="btn-primary" id="breakdownAcceptBtn" data-i18n="kanban.breakdown.accept_btn">Subtask-ok létrehozása</button>
