@@ -8690,6 +8690,13 @@ body {
   .email-layout { display: block; grid-template-columns: 1fr; grid-template-rows: none; flex: none; min-height: 0; height: auto; }
   .email-pane-header { display: none; }
   .email-pane { max-height: 260px; margin-bottom: 12px; }
+  /* Undo the 1300px rule above. It drops the attachments column so the
+     reader's 1fr track cannot collapse between three fixed-width columns --
+     a grid problem that stops existing here, where the layout is stacked
+     blocks. Leaving it hidden meant a phone could never see an attachment at
+     all: Boss opened a mail he knew had one and found nothing anywhere
+     (2026-08-10). Stacked, it simply sits under the reader. */
+  .email-pane-attachments { display: block; }
 }
 
 
@@ -8869,3 +8876,33 @@ body {
    Egy sornyi felirat alatta eldonti a kerdest, tovabbra is olvashato marad. */
 .or-model-cost { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
 .or-model-cost-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* OpenRouter page header: the sign-in link and the model browser sit together
+   as one cluster on the right (Boss 2026-08-10: a gomb a "Modellek bongeszese"
+   TOL BALRA). Without the wrapper, page-header-row's space-between would push
+   the two buttons to opposite ends of the header. */
+.or-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* The sign-in control is an <a> so it opens in a new tab natively; strip the
+   link styling the button classes don't cover. */
+#openrouterPageLoginBtn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* OpenRouter remaining balance, in the page header next to the sign-in link.
+   Turns red under a dollar: an empty OpenRouter account stops the whole free
+   fleet with a 402 per agent and no other warning. */
+.or-balance {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  align-self: center;
+}
+.or-balance-low { color: var(--danger); }

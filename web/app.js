@@ -14612,12 +14612,36 @@ async function loadOpenRouterPage() {
     const res = await fetch('/api/openrouter/overview?period=' + encodeURIComponent(_orPeriod))
     if (!res.ok) throw new Error('HTTP error')
     const data = await res.json()
+    _renderOpenRouterAccount(data)
+    _renderOpenRouterBalance(data)
     _renderOpenRouterKeyStatus(data)
     _renderOpenRouterStats(data)
     _renderOpenRouterModelList(data)
   } catch (err) {
     listEl.innerHTML = `<p style="color:var(--danger)">${t('openrouterPage.load_error')}</p>`
   }
+}
+
+function _renderOpenRouterAccount(data) {
+  const el = document.getElementById('openrouterPageAccount')
+  if (!el) return
+  if (!data.accountEmail) { el.hidden = true; return }
+  el.hidden = false
+  el.textContent = t('openrouterPage.signed_in_label') + ' ' + data.accountEmail
+}
+
+function _renderOpenRouterBalance(data) {
+  const el = document.getElementById('openrouterPageBalance')
+  if (!el) return
+  if (typeof data.creditsRemaining !== 'number') { el.hidden = true; return }
+  const total = typeof data.creditsTotal === 'number' ? data.creditsTotal : null
+  // Under a dollar left is worth shouting about: the fleet just stops working
+  // when it runs out, with a 402 per agent and no other warning.
+  const low = data.creditsRemaining < 1
+  el.hidden = false
+  el.classList.toggle('or-balance-low', low)
+  el.textContent = t('openrouterPage.balance_label') + ' $' + data.creditsRemaining.toFixed(2)
+    + (total !== null ? ' / $' + total.toFixed(2) : '')
 }
 
 function _renderOpenRouterKeyStatus(data) {
@@ -14672,6 +14696,16 @@ function _renderOpenRouterModelList(data) {
     const divider = (freeModels.length && m === freeModels[0])
       ? `<div class="agent-tier-divider"><span>${escapeHtml(t('agents.tier_divider.free'))}</span></div>`
       : ''
+    // realCost is what OpenRouter actually billed (its activity ledger); estCost
+    // is our token-derived guess, which undercounts reasoning and cached tokens
+    // by an order of magnitude (Boss, 2026-08-10: ~$0.7772 shown against $7.22
+    // billed). Show the real number without the "~" whenever we have it, and
+    // only fall back to the estimate where OpenRouter has no completed-day data
+    // yet -- i.e. today.
+    const hasReal = typeof m.realCost === 'number'
+    const costText = hasReal
+      ? '$' + m.realCost.toFixed(4)
+      : (m.estCost === null ? t('openrouterPage.cost_unknown') : '~$' + m.estCost.toFixed(4))
     return divider + `
     <div class="debate-session-row" style="cursor:default">
       <div class="debate-session-row-main">
@@ -14681,9 +14715,9 @@ function _renderOpenRouterModelList(data) {
           ${t('debate.stat.tokens_io', { in: m.tokensIn, out: m.tokensOut })}
         </div>
       </div>
-      <div class="or-model-cost" title="${escapeAttr(t('openrouterPage.per_model_cost_note'))}">
-        <div class="debate-badge debate-badge-pending">${m.estCost === null ? t('openrouterPage.cost_unknown') : '~$' + m.estCost.toFixed(4)}</div>
-        <div class="or-model-cost-label">${escapeHtml(t('openrouterPage.spent_label'))}</div>
+      <div class="or-model-cost" title="${escapeAttr(hasReal ? t('openrouterPage.per_model_real_note') : t('openrouterPage.per_model_cost_note'))}">
+        <div class="debate-badge ${hasReal ? 'debate-badge-done' : 'debate-badge-pending'}">${costText}</div>
+        <div class="or-model-cost-label">${escapeHtml(hasReal ? t('openrouterPage.spent_real_label') : t('openrouterPage.spent_label'))}</div>
       </div>
     </div>`
   }).join('')

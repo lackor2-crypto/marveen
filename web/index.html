@@ -2068,7 +2068,16 @@
             <h1 data-i18n="openrouterPage.page_title">OpenRouter</h1>
             <p class="subtitle" data-i18n="openrouterPage.page_subtitle">Modellek, mai használat és becsült költség egy helyen</p>
           </div>
-          <button class="btn-secondary btn-compact" id="openrouterPageBrowseBtn" data-i18n="openrouterPage.browse_btn">Modellek böngészése</button>
+          <!-- Action cluster: the two buttons stay side by side (and wrap
+               together on a phone) instead of being split by space-between. -->
+          <div class="or-header-actions">
+            <!-- Remaining balance, right where the spending is (Boss 2026-08-10:
+                 "az egyenleget ... ezt sehol nem latom a marveen ban. sehol"). -->
+            <span class="or-balance" id="openrouterPageAccount" hidden></span>
+            <span class="or-balance" id="openrouterPageBalance" hidden></span>
+            <a class="btn-secondary btn-compact" id="openrouterPageLoginBtn" href="https://openrouter.ai/sign-in" target="_blank" rel="noopener noreferrer" data-i18n="openrouterPage.login_btn">OpenRouter belépés</a>
+            <button class="btn-secondary btn-compact" id="openrouterPageBrowseBtn" data-i18n="openrouterPage.browse_btn">Modellek böngészése</button>
+          </div>
         </div>
       </div>
 
