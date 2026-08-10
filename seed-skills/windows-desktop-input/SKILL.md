@@ -108,6 +108,27 @@ bejelentkezett konzol-session.
 
 - Ugyanaz a Session 0 csapda mint a másik két skillnél -- lásd
   `win-browser-control`/`windows-desktop-screenshot`.
+- **A Task Schedulerből indított PowerShell KONZOLABLAKA előtérbe ugrik és
+  elnyeli a kattintást** (2026-08-10, élőben): a WhatsApp chat-listájára
+  szánt kattintás a saját konzolomba ment, ami ettől még "Select" módba is
+  került. Kívülről ez néma hiba: a script lefut, a screenshot elkészül, csak
+  éppen semmi nem történt a cél-appban. Két dolog kell EGYÜTT:
+  1. `-WindowStyle Hidden` a task argumentumában
+     (`-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ...`),
+  2. a cél-ablak EXPLICIT előtérbe hozása a scriptben a kattintás előtt
+     (`SetForegroundWindow` a `MainWindowHandle`-re), nem elég feltételezni
+     hogy az app látszik.
+- A Store-appok (pl. WhatsApp Desktop) processz-neve nem feltétlenül az
+  amire számítasz (`WhatsApp.Root.exe`, a valódi ablak egy
+  `msedgewebview2` process alatt van), és `tasklist /FI "IMAGENAME eq
+  WhatsApp.exe"` üres listát ad akkor is, ha az app fut. Ablakot keress,
+  ne processz-nevet: `Get-Process | Where-Object { $_.MainWindowTitle -eq
+  'WhatsApp' }`.
+- Ha a Store-app egyáltalán nem fut, az AppUserModelID-vel indítható:
+  `Get-StartApps | Where-Object { $_.Name -like '*WhatsApp*' }` adja az
+  AppID-t, majd `explorer.exe shell:AppsFolder\<AppID>` a task Execute/
+  Argument párosaként. Indulás után a tálca-ikonra kattintás hozza elő az
+  ablakot.
 - **Ne ismételd meg "biztonságból" ha bizonytalan vagy hogy lement-e** --
   2026-08-07-én egy "Exit code 2" hibaüzenet után megismételtem a
   futtatást, de valójában az ELSŐ próbálkozás is elment, csak a
