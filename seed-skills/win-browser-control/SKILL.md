@@ -87,7 +87,23 @@ egyáltalán lehetővé a funkciót:
   kell, azt külön kell kezelni -- és ott az automatikus bezárás nem működhet.
 
 A leállítás előbb `CloseMainWindow()`-t próbál (szabályos ablak-bezárás), és
-csak ha az nem megy, akkor kényszerít. Az állapot (mely PID-eket nyitottuk,
+csak ha az nem megy, akkor kényszerít -- és ad 2,5 másodpercet a Chrome-nak
+kiírni a profilját, MIELŐTT kényszerítene. Ez nem kozmetika: az azonnali
+kilövés elvesztette az utolsó cookie-írást, és ettől jött vissza a YouTube
+cookie-elfogadó fal egy olyan profilon, ami már elfogadta.
+
+**YouTube: cookie-fal és autoplay** (Boss 2026-08-10: "nem megy, mert el kell
+előbb fogadni valamit"). Olyan gépen, ahol senki nem ül a billentyűzetnél, egy
+elfogadó fal vagy egy autoplay-blokk néma hiba: az ablak megnyílik, de nem
+szól semmi. Két lépés kezeli:
+
+- A `watch?v=` / `youtu.be/` / `shorts/` linkeket a script a nocookie-s
+  beágyazott lejátszóra fordítja (`youtube-nocookie.com/embed/<id>?autoplay=1`),
+  ahol nincs cookie-elfogadó fal. Ha az uploader letiltotta a beágyazást (ezt
+  az oEmbed API előre megmondja), marad a normál watch-link.
+- A Chrome `--autoplay-policy=no-user-gesture-required` kapcsolóval indul, mert
+  egy frissen nyitott ablakon nem történt felhasználói gesztus, és e nélkül a
+  Chrome nem indítja el a hangot. Az állapot (mely PID-eket nyitottuk,
 milyen URL-re, mikor) ide kerül:
 `~/.claude/skills/win-browser-control/state/last-window.json` -- ez napló és
 hibakereséshez van, a bezárás NEM függ tőle: elveszett vagy elavult
@@ -120,6 +136,22 @@ látszólag egyszerűbb út a néma hibát adja.
   Windows oldalon, PowerShell-ből kérdezi le
   (`[System.Security.Principal.WindowsIdentity]::GetCurrent().Name`), nem
   bash-ből adja át.
+
+- **ELSŐ videó a friss `MarvinChromeProfile`-on: YouTube cookie-fal + nincs autoplay** (2026-08-10, élesben megfogva, Boss jelenlétében). Amíg usalackor be nem építi ezt közvetlenül az `open_url.py`-ba (lásd kártya #101fffd0 #150/#151 komment), KÉZI UTÓLAGOS lépésként számolj vele:
+  1. Nyitás után 3-5 mp múlva végy egy screenshotot (`windows-desktop-screenshot` skill mintája) -- **NE Boss telefonon küldött fotójából olvasd le a koordinátákat**, az Telegram-tömörítés miatt más felbontású/skálázású, mint a valódi képernyő. Mindig a saját, frissen készített screenshotodból számolj.
+  2. Ha megjelenik a "Before you continue to YouTube" cookie-fal (csak az ELSŐ indításnál fordul elő adott profilon, utána a cookie megjegyzi): koordináta-kattintás helyett UIAutomation `InvokePattern`-nel keresd meg és nyomd meg az "Accept all" gombot -- ez megbízhatóbb, mint pixel-koordináta (a dialógus mérete/elhelyezkedése változó volt két egymást követő screenshoton is). Minta:
+     ```powershell
+     Add-Type -AssemblyName UIAutomationClient
+     Add-Type -AssemblyName UIAutomationTypes
+     $p = Get-Process -Name chrome | Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero -and $_.MainWindowTitle -like "*<cím-részlet>*" } | Select-Object -First 1
+     $root = [System.Windows.Automation.AutomationElement]::FromHandle($p.MainWindowHandle)
+     $btnCond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
+     $btn = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCond) | Where-Object { $_.Current.Name -eq "Accept all" } | Select-Object -First 1
+     if ($btn) { $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke() }
+     ```
+     (A window handle megszerzéséhez előbb `ShowWindow(hWnd, 9)` + `SetForegroundWindow(hWnd)` kellhet, hogy Chrome felépítse a teljes accessibility-fát.)
+  3. Autoplay: MINDEN új ablaknál (nem csak elsőnél) előfordulhat, hogy a videó betölt de nem indul el magától, mert Chrome user-gesztust vár arra a konkrét ablakra. Nyitás után küldj egy kattintást a lejátszó közepére (vagy a `k`/space billentyűt), és csak EZUTÁN jelentsd sikeresnek a nyitást.
+  4. A "Chrome didn't shut down correctly / Restore pages?" buborék ártalmatlan (nem blokkolja a lejátszást), figyelmen kívül hagyható -- kozmetikai, a kényszerített bezárás mellékhatása.
 
 ## Ellenőrzés
 

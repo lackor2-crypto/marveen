@@ -62,11 +62,14 @@ Usage:
 """
 import base64
 import json
-import os
+import re
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
+from urllib.parse import quote
 
 POWERSHELL = "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 CHROME_ARG = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
@@ -85,7 +88,7 @@ def build_ps_script(url: str | None) -> str:
     ps_url = url.replace("'", "''") if url else ""  # PowerShell single-quote escaping
     open_block = f"""
 # 2) Open the new window in the INTERACTIVE session (see the Session 0 note).
-$chromeArgs = '--user-data-dir="' + $profileDir + '" --no-first-run --no-default-browser-check --disable-session-crashed-bubble --new-window ' + '{ps_url}'
+$chromeArgs = '--user-data-dir="' + $profileDir + '" --no-first-run --no-default-browser-check --disable-session-crashed-bubble --autoplay-policy=no-user-gesture-required --new-window ' + '{ps_url}'
 $action = New-ScheduledTaskAction -Execute '{CHROME_ARG}' -Argument $chromeArgs
 $id = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $principal = New-ScheduledTaskPrincipal -UserId $id -LogonType Interactive
@@ -115,7 +118,11 @@ foreach ($p in Get-MarvinChrome) {{
   }} catch {{ }}
 }}
 if ($closed.Count -gt 0) {{
-  Start-Sleep -Milliseconds 900
+  # Chrome writes cookies/preferences to disk on its way out. Killing it too
+  # early loses the last write -- which is how the YouTube consent wall came
+  # BACK on a profile that had already accepted it. Give the graceful close
+  # time to land before forcing anything.
+  Start-Sleep -Milliseconds 2500
   foreach ($p in Get-MarvinChrome) {{
     try {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }} catch {{ }}
   }}
@@ -128,6 +135,47 @@ if ($closed.Count -gt 0) {{
 'MARVIN_OPENED=' + ((Get-MarvinChrome | Select-Object -ExpandProperty ProcessId) -join ',')
 'MARVIN_TASKRESULT=' + (Get-ScheduledTaskInfo -TaskName '{TASK_NAME}').LastTaskResult
 """
+
+
+YOUTUBE_ID_RE = re.compile(
+    r"^https?://(?:www\.|m\.)?(?:youtube\.com/watch\?(?:.*&)?v=|youtu\.be/|youtube\.com/shorts/)([A-Za-z0-9_-]{11})"
+)
+
+
+def playable_url(url: str) -> str:
+    """YouTube watch pages open behind the EU cookie-consent wall, which stops
+    playback dead until someone clicks it by hand -- on a machine nobody is
+    sitting at, that is a silent failure (Boss, 2026-08-10: "nem megy, mert el
+    kell elobb fogadni valamit"). The privacy-enhanced embed host never shows
+    that wall, so a watch/shorts/youtu.be link is played through it, with
+    autoplay asked for explicitly.
+
+    If the uploader disabled embedding, the embed would show "Watch on
+    YouTube" instead of playing -- oEmbed says so up front, and that case falls
+    back to the normal watch URL (where the profile's stored consent, once
+    given, still applies).
+    """
+    m = YOUTUBE_ID_RE.match(url)
+    if not m:
+        return url
+    video_id = m.group(1)
+    if not embeddable(url):
+        return url
+    return f"https://www.youtube-nocookie.com/embed/{video_id}?autoplay=1&rel=0"
+
+
+def embeddable(url: str) -> bool:
+    """False only when YouTube explicitly refuses to describe the video for
+    embedding. A network hiccup returns True: the embed is the better default,
+    and a wrong guess here only costs the consent-wall click."""
+    try:
+        api = "https://www.youtube.com/oembed?url=" + quote(url, safe="") + "&format=json"
+        with urllib.request.urlopen(api, timeout=8) as r:
+            return r.status == 200
+    except urllib.error.HTTPError:
+        return False
+    except Exception:
+        return True
 
 
 def parse_marked(stdout: str, key: str) -> list:
@@ -150,7 +198,8 @@ def main():
         print("refusing to open non-http(s) url", file=sys.stderr)
         sys.exit(1)
 
-    encoded = base64.b64encode(build_ps_script(url).encode("utf-16-le")).decode("ascii")
+    launch_url = playable_url(url) if url else None
+    encoded = base64.b64encode(build_ps_script(launch_url).encode("utf-16-le")).decode("ascii")
     result = subprocess.run(
         [POWERSHELL, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
         capture_output=True, text=True,
@@ -166,6 +215,7 @@ def main():
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         STATE_PATH.write_text(json.dumps({
             "url": url,
+            "launch_url": launch_url,
             "closed_only": close_only,
             "pids": opened,
             "closed_pids": closed,
