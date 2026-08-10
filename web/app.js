@@ -1059,23 +1059,51 @@ document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
   searchEl.placeholder = 'Kártya keresése (id, cím vagy leírás)...'
   searchEl.style.cssText = 'width:auto;flex:1 1 auto;min-width:0;padding:5px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input,var(--bg));color:var(--text);font-size:13px;'
   searchEl.value = ''
+  // Chrome's own autofill is the writer that actually put "lackor2" in the box
+  // -- the screenshot showed the pale-blue autofilled-field tint, and it happens
+  // on the KANBAN PAGE BECOMING VISIBLE, not on load (the page div starts
+  // `hidden`, so a one-shot clear right after load is long finished by then).
+  // Chrome does not autofill a readonly field, and readonly fields are still
+  // focusable and still show the caret, so the box is readonly whenever it is
+  // empty and unfocused, and writable from the moment the user touches it.
+  const lock = () => { if (!searchEl.value) searchEl.readOnly = true }
+  const unlock = () => { if (searchEl.readOnly) searchEl.readOnly = false }
+  lock()
+  searchEl.addEventListener('pointerdown', unlock)
+  searchEl.addEventListener('focus', unlock)
   slot.appendChild(searchEl)
-  // Last line of defence against ANY late writer we do not control (an
-  // extension, a browser autofill pass): while the user is not typing in the
-  // box, its visible value must equal the query we actually filter by. Only
-  // enforced for a few seconds after load, plus whenever the page is shown
-  // again -- it syncs to kanbanSearchQuery, so a query the user really typed is
-  // never wiped, only a value nobody asked for is.
+  // Backstop against ANY writer we do not control (autofill, a password-manager
+  // extension): while the user is not typing in the box, its visible value must
+  // equal the query we actually filter by. This runs for as long as the tab is
+  // visible -- a string compare twice a second -- because the earlier bounded
+  // version stopped before Chrome's autofill pass ever ran. It syncs TO
+  // kanbanSearchQuery, so a query the user really typed is never wiped, only a
+  // value nobody asked for is.
   const reconcile = () => {
     if (document.activeElement === searchEl) return
-    if (searchEl.value !== kanbanSearchQuery) searchEl.value = kanbanSearchQuery
+    if (searchEl.value === kanbanSearchQuery) return
+    const foreign = searchEl.value
+    searchEl.value = kanbanSearchQuery
+    lock()
+    // Kept for the next time this comes back: window.__kanbanSearchTrace names
+    // what was written and when, so the culprit does not have to be guessed at.
+    ;(window.__kanbanSearchTrace ||= []).push({ at: new Date().toISOString(), foreign })
+    if (window.__kanbanSearchTrace.length === 1) {
+      console.warn('[kanban] foreign write into the search box:', JSON.stringify(foreign), '-- cleared (see window.__kanbanSearchTrace)')
+    }
   }
+  let watchdog = null
+  const startWatch = () => { if (!watchdog) watchdog = setInterval(reconcile, 500) }
+  const stopWatch = () => { if (watchdog) { clearInterval(watchdog); watchdog = null } }
   reconcile()
-  let ticks = 0
-  const watchdog = setInterval(() => { reconcile(); if (++ticks >= 20) clearInterval(watchdog) }, 250)
+  startWatch()
   // pageshow fires on normal load AND on bfcache restore (back / forward).
   window.addEventListener('pageshow', reconcile)
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) reconcile() })
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { stopWatch(); return }
+    reconcile()
+    startWatch()
+  })
   const apply = (raw) => {
     const next = (raw || '').trim().toLowerCase()
     if (next === kanbanSearchQuery) return
@@ -1094,7 +1122,11 @@ document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
   // Leaving the box flushes the pending debounce, so kanbanSearchQuery is never
   // behind the visible text once the box is unfocused -- which is exactly the
   // state reconcile() above assumes when it syncs the two.
-  searchEl.addEventListener('blur', () => { clearTimeout(_searchTimer); apply(searchEl.value) })
+  searchEl.addEventListener('blur', () => {
+    clearTimeout(_searchTimer)
+    apply(searchEl.value)
+    lock() // empty + unfocused again -> autofill-proof again
+  })
 })()
 
 function populateProjectFilter() {

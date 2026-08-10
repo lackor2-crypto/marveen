@@ -41,14 +41,32 @@ describe('kanban search box cannot be repopulated by the browser', () => {
     expect(APP).toContain("setAttribute('data-bwignore'")
   })
 
+  it('the box is readonly whenever it is empty and unfocused', () => {
+    // Chrome does not autofill a readonly field, and THAT is what actually put
+    // "lackor2" in the box (the field showed Chrome's autofilled tint). It
+    // re-locks on blur, so the guard is back up as soon as the box is empty.
+    expect(APP).toContain('const lock = () => { if (!searchEl.value) searchEl.readOnly = true }')
+    expect(APP).toContain('const unlock = () => { if (searchEl.readOnly) searchEl.readOnly = false }')
+    expect(APP).toContain("searchEl.addEventListener('pointerdown', unlock)")
+    expect(APP).toContain("searchEl.addEventListener('focus', unlock)")
+  })
+
   it('the visible value is reconciled to the query state, incl. bfcache restore', () => {
-    expect(APP).toContain('if (searchEl.value !== kanbanSearchQuery) searchEl.value = kanbanSearchQuery')
+    expect(APP).toContain('searchEl.value = kanbanSearchQuery')
     expect(APP).toContain("window.addEventListener('pageshow', reconcile)")
     // Reconciling must never fight a user who is typing in the box.
     expect(APP).toContain('if (document.activeElement === searchEl) return')
   })
 
-  it('blur flushes the debounce, so the reconciler never trails the typed text', () => {
-    expect(APP).toMatch(/addEventListener\('blur', \(\) => \{ clearTimeout\(_searchTimer\); apply\(searchEl\.value\) \}\)/)
+  it('the reconciler is NOT time-boxed -- autofill fires when the page is shown', () => {
+    // The bounded version (20 ticks after load) was already finished by the time
+    // the kanban page became visible, which is when Chrome filled the field.
+    expect(APP).toContain('const startWatch = () => { if (!watchdog) watchdog = setInterval(reconcile, 500) }')
+    expect(APP).toMatch(/if \(document\.hidden\) \{ stopWatch\(\); return \}/)
+    expect(APP).not.toMatch(/ticks >= 20/)
+  })
+
+  it('blur flushes the debounce and re-locks, so the box never trails or unlocks', () => {
+    expect(APP).toMatch(/addEventListener\('blur', \(\) => \{\s+clearTimeout\(_searchTimer\)\s+apply\(searchEl\.value\)\s+lock\(\)/)
   })
 })
