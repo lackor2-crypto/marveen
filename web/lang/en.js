@@ -1884,6 +1884,7 @@ window._i18n.en = {
   'overview.ratelimit.seven_day':    'Weekly window',
   'overview.ratelimit.resets':       'resets: {time}',
   'overview.ratelimit.stale':        'no fresh data',
+  'overview.ratelimit.no_data':      'no data',
   'overview.ratelimit.note_caution': 'Your usage is above 90% — only take on smaller tasks for now.',
   'overview.ratelimit.note_critical':'Your usage is above 95% — no coding right now, info and search only.',
   'overview.ratelimit.openrouter_balance': 'OpenRouter balance',

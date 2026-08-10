@@ -12160,8 +12160,12 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   const bars = document.getElementById('overviewRateLimitBars')
   const meta = document.getElementById('overviewRateLimitMeta')
   const hasRateLimit = rateLimit && (rateLimit.fiveHour || rateLimit.sevenDay)
-  const hasAccounts = Array.isArray(claudeAccounts) && claudeAccounts.some(a => a.fiveHourPct !== null)
-  if (!hasRateLimit && !openrouterCredits && !hasAccounts) { box.hidden = true; return }
+  const accounts = Array.isArray(claudeAccounts) ? claudeAccounts : []
+  // Whether to show the box at all is a question about DATA; which rows to draw
+  // is a question about CONFIGURED ACCOUNTS. Conflating the two is what made an
+  // account disappear from the list the moment its numbers went missing.
+  const anyAccountData = accounts.some(a => a.fiveHourPct !== null || a.sevenDayPct !== null)
+  if (!hasRateLimit && !openrouterCredits && !anyAccountData) { box.hidden = true; return }
   box.hidden = false
 
   const locale = (window._lang === 'en') ? 'en-US' : 'hu-HU'
@@ -12185,28 +12189,47 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   // account name and its currently active model -- not just a single
   // "the assistant" bar. Falls back to the old single-account row set when no
   // plans are registered, so an install with only the main agent is unchanged.
-  const accountRow = (acc) => {
-    if (acc.fiveHourPct === null) return ''
-    const pct = Math.max(0, Math.min(100, Math.round(acc.fiveHourPct)))
-    const modelSuffix = acc.model ? ` · ${escapeHtml(acc.model)}` : ''
-    const resetSuffix = acc.fiveHourResetsAt ? ' · ' + escapeHtml(fmtReset(acc.fiveHourResetsAt)) : ''
-    // Boss 2026-08-10: while an account is actively working the live "used
-    // X%" banner can scroll out of the scrape window, so this row falls back
-    // to the last successfully read value (see scrapeClaudeAccountUsage's
-    // lastKnownUsage cache) rather than disappearing entirely -- marked with
-    // a "~" so it doesn't read as a fresh number.
-    const staleMark = acc.stale ? '~' : ''
+  // One bar per usage window. A window with no number keeps its bar (empty
+  // track + "nincs adat") instead of being dropped: the account list has to
+  // stay the same height whether or not the data happens to be there.
+  // Boss 2026-08-10: while an account is actively working the live "used X%"
+  // banner can scroll out of the scrape window, so the server falls back to
+  // the last successfully read value (see scrapeClaudeAccountUsage's cache and
+  // the stale-snapshot fallback) -- marked with a "~" so it does not read as a
+  // fresh number.
+  const windowBar = (labelKey, pct, resetsAt, stale) => {
+    const label = escapeHtml(t(labelKey))
+    if (pct === null || pct === undefined) {
+      return `<div class="overview-ratelimit-row">
+        <div class="overview-ratelimit-row-head">
+          <span>${label}</span>
+          <span class="overview-ratelimit-nodata">${escapeHtml(t('overview.ratelimit.no_data'))}</span>
+        </div>
+        <div class="overview-ratelimit-track"></div>
+      </div>`
+    }
+    const p = Math.max(0, Math.min(100, Math.round(pct)))
+    const resetSuffix = resetsAt ? ' · ' + escapeHtml(fmtReset(resetsAt)) : ''
     return `<div class="overview-ratelimit-row">
       <div class="overview-ratelimit-row-head">
-        <span>${escapeHtml(acc.label)}${modelSuffix}</span>
-        <span><strong>${staleMark}${pct}%</strong>${resetSuffix}</span>
+        <span>${label}</span>
+        <span><strong>${stale ? '~' : ''}${p}%</strong>${resetSuffix}</span>
       </div>
-      <div class="overview-ratelimit-track"><div class="overview-ratelimit-fill ${tierOf(pct)}" style="width:${pct}%"></div></div>
+      <div class="overview-ratelimit-track"><div class="overview-ratelimit-fill ${tierOf(p)}" style="width:${p}%"></div></div>
     </div>`
   }
 
-  let html = hasAccounts
-    ? claudeAccounts.map(accountRow).join('')
+  // Boss 2026-08-10: the weekly window was missing from the per-account view --
+  // only the 5-hour one was drawn, even though the 7-day number is what says
+  // whether an account can work at all tomorrow. Every account now shows both.
+  const accountBlock = (acc) => `<div class="overview-ratelimit-acct">
+      <div class="overview-ratelimit-acct-head">${escapeHtml(acc.label)}${acc.model ? ' · ' + escapeHtml(acc.model) : ''}</div>
+      ${windowBar('overview.ratelimit.five_hour', acc.fiveHourPct, acc.fiveHourResetsAt, acc.stale)}
+      ${windowBar('overview.ratelimit.seven_day', acc.sevenDayPct, acc.sevenDayResetsAt, acc.stale)}
+    </div>`
+
+  let html = accounts.length
+    ? accounts.map(accountBlock).join('')
     : (hasRateLimit ? (row('overview.ratelimit.five_hour', rateLimit.fiveHour) + row('overview.ratelimit.seven_day', rateLimit.sevenDay)) : '')
 
   // OpenRouter remaining balance (Boss, 2026-08-08: "ugyanaz mint a keret-%,

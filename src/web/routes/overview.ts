@@ -305,6 +305,13 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // Boss 2026-08-09: show every named Claude account (lackor2 + any plan
     // registered in store/claude-plans.json) side by side, each labelled and
     // with its own usage% + active model -- not just the main agent.
+    // A configured label may carry a hardcoded model in parentheses
+    // ("Usalackor (Opus 4.8)" in store/claude-plans.json). The row shows the
+    // LIVE model next to the name, so that parenthetical is duplicated at best
+    // and wrong at worst -- that config still said Opus 4.8 while the account
+    // was actually running Opus 5. Drop it whenever a live model is known.
+    const accountLabel = (label: string, model: string | null) =>
+      model ? label.replace(/\s*\([^)]*\)\s*$/, '').trim() || label : label
     const claudeAccounts = [
       {
         id: MAIN_AGENT_ID,
@@ -314,12 +321,15 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // used for the other two rows ("Usalackor (Opus 4.8)", "Lackor3
         // (Haiku)"). The org-chart's own main-node label (a few lines above,
         // `agentsForTeam`) is a SEPARATE field and correctly stays "Marvin".
-        label: `Lackor2${rlSnapshot?.model ? ` (${rlSnapshot.model})` : ''}`,
+        label: 'Lackor2',
         model: rlSnapshot?.model ?? null,
         fiveHourPct: rlSnapshot?.fiveHour?.usedPct ?? null,
         sevenDayPct: rlSnapshot?.sevenDay?.usedPct ?? null,
         fiveHourResetsAt: rlSnapshot?.fiveHour?.resetsAt ?? null,
         sevenDayResetsAt: rlSnapshot?.sevenDay?.resetsAt ?? null,
+        // The other rows mark a stale reading with a "~"; this one used to
+        // present an hours-old snapshot as a fresh number.
+        stale: rlSnapshot ? isStale(rlSnapshot.updatedAt, Date.now()) : false,
       },
       ...readClaudePlans().map(plan => {
         // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok
@@ -339,7 +349,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         if (snapFresh && snap.fiveHour?.usedPct != null) {
           return {
             id: plan.id,
-            label: plan.label,
+            label: accountLabel(plan.label, snap.model ?? readAgentModel(plan.id)),
             model: snap.model ?? readAgentModel(plan.id),
             fiveHourPct: snap.fiveHour.usedPct,
             sevenDayPct: snap.sevenDay?.usedPct ?? null,
@@ -349,15 +359,34 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
           }
         }
         const scraped = scrapeClaudeAccountUsage(plan.id)
+        if (scraped.usedPct !== null) {
+          return {
+            id: plan.id,
+            label: accountLabel(plan.label, scraped.model ?? snap?.model ?? readAgentModel(plan.id)),
+            model: scraped.model ?? snap?.model ?? readAgentModel(plan.id),
+            fiveHourPct: scraped.usedPct,
+            // The pane banner only ever states the session (5h) window, so the
+            // weekly number can only come from the snapshot -- worth showing
+            // even when it is old, marked stale like everything else here.
+            sevenDayPct: snap?.sevenDay?.usedPct ?? null,
+            fiveHourResetsAt: scraped.resetsAt,
+            sevenDayResetsAt: snap?.sevenDay?.resetsAt ?? null,
+            stale: scraped.stale || !snapFresh,
+          }
+        }
+        // Nothing scrapeable either (idle pane, banner scrolled away). An old
+        // snapshot marked "~" beats dropping the account: a row that vanishes
+        // whenever its session goes quiet is what Boss kept seeing
+        // ("az usalackor bejon, neha eltunik", 2026-08-10).
         return {
           id: plan.id,
-          label: plan.label,
-          model: scraped.model ?? readAgentModel(plan.id),
-          fiveHourPct: scraped.usedPct,
-          sevenDayPct: null,
-          fiveHourResetsAt: scraped.resetsAt,
-          sevenDayResetsAt: null,
-          stale: scraped.stale,
+          label: accountLabel(plan.label, snap?.model ?? readAgentModel(plan.id)),
+          model: snap?.model ?? readAgentModel(plan.id),
+          fiveHourPct: snap?.fiveHour?.usedPct ?? null,
+          sevenDayPct: snap?.sevenDay?.usedPct ?? null,
+          fiveHourResetsAt: snap?.fiveHour?.resetsAt ?? null,
+          sevenDayResetsAt: snap?.sevenDay?.resetsAt ?? null,
+          stale: true,
         }
       }),
     ]

@@ -1887,6 +1887,7 @@ window._i18n.hu = {
   'overview.ratelimit.seven_day':    'Heti keret',
   'overview.ratelimit.resets':       'visszaáll: {time}',
   'overview.ratelimit.stale':        'nincs friss adat',
+  'overview.ratelimit.no_data':      'nincs adat',
   'overview.ratelimit.note_caution': 'A felhasznált kereted 90% fölött van — csak kisebb feladatokba érdemes belefogni.',
   'overview.ratelimit.note_critical':'A felhasznált kereted 95% fölött van — programozás/kódolás most nem, csak infó és keresés.',
   'overview.ratelimit.openrouter_balance': 'OpenRouter egyenleg',

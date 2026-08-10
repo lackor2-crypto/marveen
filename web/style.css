@@ -825,6 +825,19 @@ main {
   flex-direction: column;
   gap: 4px;
 }
+/* One account = a name line plus its two window bars (5h + weekly), kept
+   together so three accounts read as three blocks, not six loose bars. */
+.overview-ratelimit-acct {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.overview-ratelimit-acct-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.overview-ratelimit-nodata { color: var(--text-muted); }
 .overview-ratelimit-row-head {
   display: flex;
   justify-content: space-between;
