@@ -2,7 +2,11 @@
 <html lang="hu" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- Nagyitas telefonon: a meresek szerint eddig sem volt tiltva (a visual
+     viewport skalaja 1 -> 2.5-re ment egy szintetikus csippentesre), de Boss
+     nem tudta hasznalni, ezert EXPLICITTE tesszuk -- igy egy kesobbi
+     "user-scalable=no" sem csuszhat vissza eszrevetlenul (2026-08-10). -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
   <title>Marveen</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.css">

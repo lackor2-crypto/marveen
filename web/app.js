@@ -14662,7 +14662,10 @@ function _renderOpenRouterModelList(data) {
           ${t('debate.stat.tokens_io', { in: m.tokensIn, out: m.tokensOut })}
         </div>
       </div>
-      <div class="debate-badge debate-badge-pending" title="${escapeAttr(t('openrouterPage.per_model_cost_note'))}">${m.estCost === null ? t('openrouterPage.cost_unknown') : '~$' + m.estCost.toFixed(4)}</div>
+      <div class="or-model-cost" title="${escapeAttr(t('openrouterPage.per_model_cost_note'))}">
+        <div class="debate-badge debate-badge-pending">${m.estCost === null ? t('openrouterPage.cost_unknown') : '~$' + m.estCost.toFixed(4)}</div>
+        <div class="or-model-cost-label">${escapeHtml(t('openrouterPage.spent_label'))}</div>
+      </div>
     </div>`
   }).join('')
 }

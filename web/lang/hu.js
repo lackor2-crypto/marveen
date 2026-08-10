@@ -1074,6 +1074,7 @@ window._i18n.hu = {
   'openrouterPage.page_subtitle':   'Modellek, mai használat és becsült költség egy helyen',
   'openrouterPage.browse_btn':      'Modellek böngészése',
   'openrouterPage.usage_title':     'Mai felhasználás modellenként',
+  'openrouterPage.spent_label':          'elköltve',
   'openrouterPage.stat.tokens_in_period': 'Bemeneti tokenek ({period})',
   'openrouterPage.stat.tokens_out_period': 'Kimeneti tokenek ({period})',
   'openrouterPage.stat.cost_real':       'Költség ({period}, OpenRouter fiók, valós)',

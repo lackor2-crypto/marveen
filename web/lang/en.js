@@ -779,6 +779,7 @@ window._i18n.en = {
   'openrouterPage.page_subtitle':   'Models, today\'s usage and estimated cost in one place',
   'openrouterPage.browse_btn':      'Browse models',
   'openrouterPage.usage_title':     'Today\'s usage by model',
+  'openrouterPage.spent_label':          'spent',
   'openrouterPage.stat.tokens_in_period': 'Input tokens ({period})',
   'openrouterPage.stat.tokens_out_period': 'Output tokens ({period})',
   'openrouterPage.stat.cost_real':       'Cost ({period}, OpenRouter account, real)',
