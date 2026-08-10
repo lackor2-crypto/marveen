@@ -27,18 +27,43 @@ function githubAccountNames(): string[] {
   }
 }
 
+// Google went multi-account the same way (kanban b0c697ce, 2026-08-10):
+// store/google-tokens.json keyed by account name, with a "_default" pointer
+// that isn't itself an account -- excluded here same as githubAccountNames()
+// excludes nothing extra (GitHub's file has no such marker key).
+function googleAccountNames(): { accounts: string[]; default: string | null } {
+  const p = join(PROJECT_ROOT, 'store', 'google-tokens.json')
+  if (!existsSync(p)) {
+    // Pre-migration installs (or a fresh one that never ran google-auth.py
+    // token/test yet, so the auto-migration hasn't fired) still have the
+    // legacy single-file token -- report it as one unnamed-but-configured
+    // account rather than showing "not configured" for a working setup.
+    const legacy = join(PROJECT_ROOT, 'store', 'google-token.json')
+    return { accounts: existsSync(legacy) ? ['lackor2'] : [], default: existsSync(legacy) ? 'lackor2' : null }
+  }
+  try {
+    const data = JSON.parse(readFileSync(p, 'utf-8'))
+    if (!data || typeof data !== 'object') return { accounts: [], default: null }
+    const accounts = Object.keys(data).filter(k => k !== '_default')
+    return { accounts, default: typeof data._default === 'string' ? data._default : null }
+  } catch {
+    return { accounts: [], default: null }
+  }
+}
+
 export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   const { res, path, method } = ctx
 
   if (path === '/api/accounts' && method === 'GET') {
     const githubAccounts = githubAccountNames()
+    const google = googleAccountNames()
     json(res, {
       core: [
         { id: 'claude-code', configured: true },
         { id: 'telegram', configured: TELEGRAM_BOT_TOKEN.trim() !== '' },
       ],
       optional: [
-        { id: 'google', configured: existsSync(join(PROJECT_ROOT, 'store', 'google-token.json')) },
+        { id: 'google', configured: google.accounts.length > 0, accounts: google.accounts, defaultAccount: google.default },
         { id: 'github', configured: githubAccounts.length > 0, accounts: githubAccounts },
         { id: 'openrouter', configured: getSecret('openrouter-fleet-key') !== null },
         { id: 'groq-stt', configured: getSecret('groq-stt-key') !== null },

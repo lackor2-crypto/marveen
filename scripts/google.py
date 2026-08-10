@@ -14,6 +14,11 @@ Parancsok:
   olvasatlan [N]       olvasatlan / fontos emailek (alap 10)
   drive-legutobbi [N]  Drive legutobb modositott fajlok (alap 10)
   napi-osszefoglalo    rovid napi riport: fontos olvasatlan + kovetkezo esemeny
+
+Tobb-fiokos hasznalat (kanban b0c697ce): barmelyik parancshoz hozzafuzheto
+`--account <nev>` (vagy `--account=<nev>`), pl. `drive-legutobbi 10 --account=masikfiok`.
+Fiok nelkul a google-auth.py sajat "_default" fiokja szamit (lasd `python3
+scripts/google-auth.py list`).
 """
 import json, os, sys, subprocess, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
@@ -38,9 +43,34 @@ def _log(op, status, msg=""):
         pass  # a log sose bukjon el a fo muvelet miatt
 
 
+def _extract_account():
+    """--account X / --account=X kiszedese sys.argv-bol, MIELOTT a tobbi
+    parancs a pozicionalis argumentumokat (cmd, N) ertelmezi -- igy egy
+    tobb-fiokos hivas (pl. `olvasatlan 10 --account=masikfiok`) nem zavarja
+    ossze a letezo pozicionalis parsingot. Fiok nelkul (a legtobb meglevo
+    hivas, pl. az utemezett feladatok / CLAUDE.md peldak) a google-auth.py
+    sajat "_default" fiokjara esik vissza -- nulla valtozas a mai
+    viselkedeshez kepest."""
+    kept, i = [], 0
+    account = None
+    while i < len(sys.argv):
+        a = sys.argv[i]
+        if a.startswith("--account="):
+            account = a.split("=", 1)[1]; i += 1; continue
+        if a == "--account" and i + 1 < len(sys.argv):
+            account = sys.argv[i + 1]; i += 2; continue
+        kept.append(a); i += 1
+    sys.argv[:] = kept
+    return account
+
+
+ACCOUNT = _extract_account()
+
+
 def _token():
-    out = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "google-auth.py"), "token"],
-                         capture_output=True, text=True)
+    cmd = [sys.executable, os.path.join(ROOT, "scripts", "google-auth.py"), "token"]
+    if ACCOUNT: cmd.append(ACCOUNT)
+    out = subprocess.run(cmd, capture_output=True, text=True)
     if out.returncode != 0 or not out.stdout.strip():
         raise RuntimeError("nem sikerult access_token (lehet lejart -- ujra: python3 scripts/google-auth.py auth). " + out.stderr.strip()[:120])
     return out.stdout.strip()

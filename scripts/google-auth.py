@@ -4,27 +4,42 @@
 Nincs kulso fuggoseg (csak Python stdlib) es nincs desktop app: egy egyszeri
 loopback OAuth-folyam szerzi meg a refresh tokent, amit a store/-ba ment.
 
+Tobb-fiokos (2026-08-10, kanban b0c697ce): a token-tarolas fiok-kulcsolt,
+ugyanaz a minta mint a GitHub-integracio (store/.github-tokens.json).
+Az elso valaha bekotott fiok automatikusan "_default" lesz -- minden
+parancs, ami nem kap explicit fiok-azonositot, erre esik vissza, igy a
+meglevo hivok (scripts/google.py alapertelmezett hasznalata, ha nincs
+--account flag) valtozas nelkul tovabb mukodnek. Uj fiok hozzaadasa:
+  python3 scripts/google-auth.py auth <uj-fiok-nev>
+A regi, nem-fiok-kulcsolt store/google-token.json-t az elso futaskor
+automatikusan atmigraljuk (a Gmail cim helyi resze lesz a kulcs, pl.
+"lackor2@gmail.com" -> "lackor2").
+
 WSL-baratsag: FIX loopback port + kezi-beillesztes fallback. Ha a Windows-bongeszo
 localhost-atiranyitasa nem eri el a WSL-szervert, a felhasznalo bemasolja a
 cimsorbol a teljes redirect-URL-t (vagy a code-ot), es az `exchange` beváltja.
 
 Fajlok:
   store/google-oauth-client.json    -- Google Cloud "Desktop app" OAuth kliens (Boss teszi ide)
-  store/google-token.json           -- megszerzett token (refresh_token), chmod 600, gitignore
-  store/.google-auth-pending.json   -- ideiglenes (state + redirect_uri), az exchange olvassa
+  store/google-tokens.json          -- fiok-kulcsolt tokenek (refresh_token), chmod 600, gitignore
+  store/google-token.json           -- LEGACY egy-fiokos token, csak migraciohoz olvasva
+  store/.google-auth-pending.json   -- ideiglenes (state + redirect_uri + fiok), az exchange olvassa
 
 Hasznalat:
-  python3 scripts/google-auth.py auth              # link + 10 perc varakozas (auto ha a loopback atmegy)
-  python3 scripts/google-auth.py exchange "<URL>"  # kezi: a bongesző cimsorabol bemasolt redirect-URL vagy code
-  python3 scripts/google-auth.py token             # ervenyes access_token (auto-refresh)
-  python3 scripts/google-auth.py test              # gyors ellenorzes: Gmail/Calendar/Drive read
+  python3 scripts/google-auth.py auth [fiok]              # link + 10 perc varakozas (auto ha a loopback atmegy)
+  python3 scripts/google-auth.py exchange "<URL>" [fiok]  # kezi: a bongesző cimsorabol bemasolt redirect-URL vagy code
+  python3 scripts/google-auth.py token [fiok]              # ervenyes access_token (auto-refresh)
+  python3 scripts/google-auth.py test [fiok]                # gyors ellenorzes: Gmail/Calendar/Drive read
+  python3 scripts/google-auth.py list                      # bekotott fiokok listaja
+Fiok nelkul = az aktualis "_default" fiok (elso bekotott fiok, altalaban lackor2).
 """
-import json, os, sys, time, urllib.parse, urllib.request, http.server, threading, secrets
+import json, os, re, sys, time, urllib.parse, urllib.request, http.server, threading, secrets
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CLIENT  = os.path.join(ROOT, "store", "google-oauth-client.json")
-TOKEN   = os.path.join(ROOT, "store", "google-token.json")
-PENDING = os.path.join(ROOT, "store", ".google-auth-pending.json")
+CLIENT       = os.path.join(ROOT, "store", "google-oauth-client.json")
+TOKENS       = os.path.join(ROOT, "store", "google-tokens.json")
+LEGACY_TOKEN = os.path.join(ROOT, "store", "google-token.json")
+PENDING      = os.path.join(ROOT, "store", ".google-auth-pending.json")
 
 FIXED_PORT = 47921
 REDIRECT   = f"http://localhost:{FIXED_PORT}/"
@@ -52,11 +67,56 @@ def _load_client():
     return d
 
 
-def _save_token(tok):
-    tok["saved_at"] = int(time.time())
-    with open(TOKEN, "w") as f:
-        json.dump(tok, f, indent=2)
-    os.chmod(TOKEN, 0o600)
+def _slugify(email):
+    local = email.split("@", 1)[0] if "@" in email else email
+    slug = re.sub(r"[^a-z0-9]+", "_", local.lower()).strip("_")
+    return slug or "account"
+
+
+def _load_tokens():
+    if os.path.exists(TOKENS):
+        try:
+            return json.load(open(TOKENS))
+        except Exception:
+            return {}
+    # Elso futas: ha van regi, nem-fiok-kulcsolt token, migraljuk automatikusan
+    # -- a Gmail cim (profile lekerdezessel) adja a kulcsot, nem egy talalt nev.
+    if os.path.exists(LEGACY_TOKEN):
+        legacy = json.load(open(LEGACY_TOKEN))
+        try:
+            c = _load_client()
+            fresh = _post(TOKEN_URI, {
+                "refresh_token": legacy["refresh_token"], "client_id": c["client_id"],
+                "client_secret": c["client_secret"], "grant_type": "refresh_token",
+            })
+            at = fresh["access_token"]
+            prof = _get("https://gmail.googleapis.com/gmail/v1/users/me/profile", at)
+            key = _slugify(prof.get("emailAddress", "lackor2"))
+        except Exception:
+            key = "lackor2"  # ismert, meglevo fiok -- biztonsagos fallback ha a profil-lekerdezes megbukik
+        data = {"_default": key, key: legacy}
+        _save_tokens(data)
+        print(f"(migracio: {LEGACY_TOKEN} -> {TOKENS}, fiok='{key}')", file=sys.stderr)
+        return data
+    return {}
+
+
+def _save_tokens(data):
+    with open(TOKENS, "w") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(TOKENS, 0o600)
+
+
+def _default_account(data=None):
+    data = data if data is not None else _load_tokens()
+    d = data.get("_default")
+    if d and d in data:
+        return d
+    # Nincs (meg) explicit default, de pontosan egy fiok van -- egyertelmu.
+    keys = [k for k in data.keys() if k != "_default"]
+    if len(keys) == 1:
+        return keys[0]
+    return None
 
 
 def _post(url, data):
@@ -69,7 +129,13 @@ def _post(url, data):
         sys.exit(f"HIBA: token-vegpont {e.code}: {e.read().decode('utf-8', 'replace')[:300]}")
 
 
-def _exchange_code(code):
+def _get(url, at):
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {at}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+
+
+def _exchange_code(code, account):
     c = _load_client()
     tok = _post(TOKEN_URI, {
         "code": code, "client_id": c["client_id"], "client_secret": c["client_secret"],
@@ -77,16 +143,22 @@ def _exchange_code(code):
     })
     if "refresh_token" not in tok:
         sys.exit("HIBA: nem jott refresh_token. A Google-fioknal vond vissza a Marveen hozzaferest, majd ujra 'auth'.")
-    _save_token(tok)
+    tok["saved_at"] = int(time.time())
+    data = _load_tokens()
+    is_first = not any(k != "_default" for k in data.keys())
+    data[account] = tok
+    if is_first:
+        data["_default"] = account
+    _save_tokens(data)
     try: os.remove(PENDING)
     except OSError: pass
-    print("OK: token mentve ->", TOKEN)
+    print(f"OK: token mentve -> {TOKENS} (fiok='{account}')")
 
 
-def _build_url():
+def _build_url(account):
     c = _load_client()
     state = secrets.token_urlsafe(16)
-    json.dump({"state": state, "redirect_uri": REDIRECT}, open(PENDING, "w"))
+    json.dump({"state": state, "redirect_uri": REDIRECT, "account": account}, open(PENDING, "w"))
     os.chmod(PENDING, 0o600)
     return state, AUTH_URI + "?" + urllib.parse.urlencode({
         "client_id": c["client_id"], "redirect_uri": REDIRECT, "response_type": "code",
@@ -94,9 +166,11 @@ def _build_url():
     })
 
 
-def cmd_auth():
-    state, url = _build_url()
-    print("NYISD MEG EZT A BONGESZOBEN es hagyd jova:\n", url, "\n", flush=True)
+def cmd_auth(account):
+    account = account or _default_account() or sys.exit(
+        "HIBA: elso fiok bekotesekor add meg a fiok nevet: google-auth.py auth <nev>")
+    state, url = _build_url(account)
+    print(f"NYISD MEG EZT A BONGESZOBEN es hagyd jova ({account} fiokhoz):\n", url, "\n", flush=True)
     holder = {}
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -115,56 +189,61 @@ def cmd_auth():
             time.sleep(1)
         srv.server_close()
     if holder.get("code") and holder.get("state") == state:
-        _exchange_code(holder["code"]); return
+        _exchange_code(holder["code"], account); return
     sys.exit("HIBA: nem erkezett ervenyes kod (idotullepes vagy a loopback-atiranyitas nem ert ide).\n"
              "Javaslat: hasznald a kezi utat -- masold ki a bongesző cimsorabol a teljes URL-t a jovahagyas utan, es futtasd:\n"
-             "  python3 scripts/google-auth.py exchange \"<bemasolt URL vagy code>\"")
+             f"  python3 scripts/google-auth.py exchange \"<bemasolt URL vagy code>\" {account}")
 
 
-def cmd_exchange(arg):
+def cmd_exchange(arg, account):
     if not arg:
         sys.exit("HIBA: add meg a bemasolt redirect-URL-t vagy a code-ot argumentumkent.")
     code = arg.strip()
+    pending = json.load(open(PENDING)) if os.path.exists(PENDING) else {}
+    account = account or pending.get("account") or _default_account()
+    if not account:
+        sys.exit("HIBA: nem sikerult megallapitani, melyik fiokhoz tartozik -- add meg explicit: exchange \"<url>\" <fiok>")
     if "code=" in code:  # teljes URL bemasolva
         q = urllib.parse.urlparse(code).query or code.split("?", 1)[-1]
         params = urllib.parse.parse_qs(q)
-        if os.path.exists(PENDING):
-            want = json.load(open(PENDING)).get("state")
-            if want and params.get("state", [None])[0] not in (None, want):
-                sys.exit("HIBA: state-eltres (nem ehhez a folyamathoz tartozik a link). Inditsd ujra: auth")
+        want = pending.get("state")
+        if want and params.get("state", [None])[0] not in (None, want):
+            sys.exit("HIBA: state-eltres (nem ehhez a folyamathoz tartozik a link). Inditsd ujra: auth")
         code = params.get("code", [""])[0]
     if not code:
         sys.exit("HIBA: nem talaltam code-ot a bemasolt szovegben.")
-    _exchange_code(code)
+    _exchange_code(code, account)
 
 
-def cmd_token():
-    if not os.path.exists(TOKEN):
-        sys.exit("HIBA: nincs token. Futtasd eloszor: python3 scripts/google-auth.py auth")
-    c = _load_client(); t = json.load(open(TOKEN))
+def cmd_token(account):
+    data = _load_tokens()
+    account = account or _default_account(data)
+    if not account or account not in data:
+        sys.exit(f"HIBA: nincs token a(z) '{account}' fiokhoz. Futtasd eloszor: python3 scripts/google-auth.py auth {account or ''}".rstrip())
+    c = _load_client(); t = data[account]
     fresh = _post(TOKEN_URI, {
         "refresh_token": t["refresh_token"], "client_id": c["client_id"],
         "client_secret": c["client_secret"], "grant_type": "refresh_token",
     })
     t.update({k: fresh[k] for k in ("access_token", "expires_in") if k in fresh})
-    _save_token(t)
+    t["saved_at"] = int(time.time())
+    data[account] = t
+    _save_tokens(data)
     print(t["access_token"])
 
 
-def _get(url, at):
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {at}"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
-
-
-def cmd_test():
-    c = _load_client(); t = json.load(open(TOKEN))
+def cmd_test(account):
+    data = _load_tokens()
+    account = account or _default_account(data)
+    if not account or account not in data:
+        sys.exit(f"HIBA: nincs token a(z) '{account}' fiokhoz.")
+    c = _load_client(); t = data[account]
     at = _post(TOKEN_URI, {
         "refresh_token": t["refresh_token"], "client_id": c["client_id"],
         "client_secret": c["client_secret"], "grant_type": "refresh_token",
     })["access_token"]
     prof = _get("https://gmail.googleapis.com/gmail/v1/users/me/profile", at)
-    print("Gmail:", prof.get("emailAddress"), "-", prof.get("messagesTotal"), "uzenet")
+    print(f"[{account}] Gmail:", prof.get("emailAddress"), "-", prof.get("messagesTotal"), "uzenet")
     cals = _get("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=3", at)
     print("Calendar naptarak:", len(cals.get("items", [])))
     files = _get("https://www.googleapis.com/drive/v3/files?pageSize=3", at)
@@ -172,10 +251,28 @@ def cmd_test():
     print("OK: mindharom API elerheto.")
 
 
+def cmd_list():
+    data = _load_tokens()
+    default = _default_account(data)
+    accounts = [k for k in data.keys() if k != "_default"]
+    if not accounts:
+        print("Nincs bekotott Google-fiok.")
+        return
+    for a in accounts:
+        print(f"  {a}{'  (alapertelmezett)' if a == default else ''}")
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "auth"
-    arg = sys.argv[2] if len(sys.argv) > 2 else ""
-    if cmd == "exchange": cmd_exchange(arg)
-    elif cmd == "token":  cmd_token()
-    elif cmd == "test":   cmd_test()
-    else:                 cmd_auth()
+    if cmd == "list":
+        cmd_list()
+    elif cmd == "exchange":
+        arg = sys.argv[2] if len(sys.argv) > 2 else ""
+        acct = sys.argv[3] if len(sys.argv) > 3 else None
+        cmd_exchange(arg, acct)
+    elif cmd == "token":
+        cmd_token(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "test":
+        cmd_test(sys.argv[2] if len(sys.argv) > 2 else None)
+    else:
+        cmd_auth(sys.argv[2] if len(sys.argv) > 2 else None)
