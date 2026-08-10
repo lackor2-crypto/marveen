@@ -1559,9 +1559,15 @@
           <button class="modal-close" id="emailComposeNewClose">&times;</button>
         </div>
         <div class="modal-body">
-          <input type="text" class="input" id="emailComposeNewTo" data-i18n-placeholder="email.compose_recipient_placeholder" placeholder="Címzett email címe">
-          <input type="text" class="input" id="emailComposeNewCc" data-i18n-placeholder="email.compose_cc_placeholder" placeholder="Cc (opcionális)">
-          <input type="text" class="input" id="emailComposeNewSubject" data-i18n-placeholder="email.compose_subject_placeholder" placeholder="Tárgy">
+          <!-- A Chrome autofill cim-urlapkent ismerte fel ezt a harom mezot, es egy
+               kivalasztott cim MINDHARMAT kitoltotte -- meg a Targyat is (Boss,
+               2026-08-10). Az autocomplete="off"-ot a Chrome figyelmen kivul hagyja,
+               ezert ugyanaz a bevalt vedelem kell mint a kanban kereso mezonel: a
+               mezo readonly amig ures es nincs benne a kurzor (readonly mezot a
+               Chrome nem tolt ki), kattintasra azonnal irhato. -->
+          <input type="text" class="input" id="emailComposeNewTo" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" readonly onfocus="this.readOnly=false" onblur="if(!this.value)this.readOnly=true" data-i18n-placeholder="email.compose_recipient_placeholder" placeholder="Címzett email címe">
+          <input type="text" class="input" id="emailComposeNewCc" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" readonly onfocus="this.readOnly=false" onblur="if(!this.value)this.readOnly=true" data-i18n-placeholder="email.compose_cc_placeholder" placeholder="Cc (opcionális)">
+          <input type="text" class="input" id="emailComposeNewSubject" autocomplete="off" data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other" readonly onfocus="this.readOnly=false" onblur="if(!this.value)this.readOnly=true" data-i18n-placeholder="email.compose_subject_placeholder" placeholder="Tárgy">
           <textarea class="input" id="emailComposeNewText" rows="10" data-i18n-placeholder="email.compose_text_placeholder" placeholder="Szöveg..."></textarea>
         </div>
         <div class="modal-actions">
