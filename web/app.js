@@ -9590,6 +9590,12 @@ function openSshInfoModal(preselectedServerId, { keyOnly = false } = {}) {
 
 // --- Vault Page ---
 let _vaultSecrets = []
+// Every tag already in use, served alongside the list. The editor offers these
+// to pick from instead of asking for them to be retyped -- typing "szemelyes"
+// next to an existing "Személyes" silently forks the group, and a filter row
+// with fifty near-duplicate chips is worse than no tags at all (Boss,
+// 2026-08-10: "ha lesz 50 cimke, vagy csak 15, az mar problema").
+let _vaultAllTags = []
 
 let _vaultBindings = []
 
@@ -9602,6 +9608,7 @@ async function loadVaultPage() {
     const secretsData = await secretsRes.json()
     const bindingsData = await bindingsRes.json()
     _vaultSecrets = secretsData.secrets || []
+    _vaultAllTags = secretsData.allTags || []
     _vaultBindings = bindingsData.bindings || []
     document.getElementById('vaultStatTotal').textContent = String(_vaultSecrets.length)
     document.getElementById('vaultStatBindings').textContent = String(_vaultBindings.length)
@@ -9620,7 +9627,16 @@ async function loadVaultPage() {
 function renderVaultKnownIntegrations() {
   const panel = document.getElementById('vaultKnownPanel')
   if (!panel) return
-  const configuredIds = new Set(_vaultSecrets.map(s => s.id))
+  // A key can live as a top-level entry OR as a bound field on a card -- that
+  // is the whole point of bindings, and it is how the three openrouter-* keys
+  // now sit on one "OpenRouter" card. Checking entry ids alone reported the
+  // fleet key as missing while it was right there and working (Boss:
+  // "openruternel meg mindig api kulcsot hianyol"). An empty bound field does
+  // NOT count as configured: the binding exists, the key does not.
+  const configuredIds = new Set(_vaultSecrets.flatMap(s => [
+    s.id,
+    ...(s.fields || []).filter(f => f.bindingId && f.hasValue).map(f => f.bindingId),
+  ]))
   const items = Object.values(CAPABILITY_INFO).map(info => {
     const configured = configuredIds.has(info.vaultId)
     const help = configured ? '' : `<div class="vault-known-help">
@@ -9868,44 +9884,218 @@ function _vaultFieldRowHtml(field) {
 // Wires one editor instance: preset buttons append rows, each row can be
 // revealed, copied and removed. Kept per-container so the add panel and any
 // open card editor never fight over the same handlers.
+
+// ---- tag picker -------------------------------------------------------------
+// Chips for what this card carries, one click to apply a tag that already
+// exists, and a deliberate "add" step for a genuinely new one -- with a warning
+// when the new one looks like a mistyping of an existing tag. The server snaps
+// case/accent variants onto the spelling already in use regardless; this is the
+// part that stops a typo from becoming a permanent second group.
+
+function _vaultTagKey(tag) {
+  return (tag || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+// Damerau-Levenshtein: a swapped pair of letters is one typo, not two.
+function _vaultEditDistance(a, b) {
+  if (a === b) return 0
+  if (Math.abs(a.length - b.length) > 2) return 3
+  const d = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)))
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1)
+    }
+  }
+  return d[a.length][b.length]
+}
+
+function _vaultSimilarTags(tag, known) {
+  const key = _vaultTagKey(tag)
+  if (key.length < 3) return []
+  return known.filter(k => {
+    const other = _vaultTagKey(k)
+    return other && other !== key && _vaultEditDistance(key, other) <= (key.length <= 5 ? 1 : 2)
+  })
+}
+
+function _vaultTagEditorHtml(tags) {
+  const current = tags || []
+  return `
+    <div class="vault-tag-editor" data-tags="${escapeAttr(JSON.stringify(current))}">
+      <div class="vault-tag-chips"></div>
+      <div class="vault-tag-known"></div>
+      <div class="vault-tag-add">
+        <input type="text" class="input vault-tag-input" placeholder="${escapeAttr(t('vault.tag.new_ph'))}">
+        <button type="button" class="btn-secondary btn-compact vault-tag-add-btn">+ ${escapeHtml(t('vault.tag.add'))}</button>
+      </div>
+      <div class="vault-tag-warn" hidden></div>
+    </div>`
+}
+
+function _initVaultTagEditor(container) {
+  const root = container.querySelector('.vault-tag-editor')
+  if (!root) return
+  let tags = []
+  try { tags = JSON.parse(root.dataset.tags || '[]') } catch { tags = [] }
+
+  const chips = root.querySelector('.vault-tag-chips')
+  const known = root.querySelector('.vault-tag-known')
+  const input = root.querySelector('.vault-tag-input')
+  const warn = root.querySelector('.vault-tag-warn')
+
+  const has = (tag) => tags.some(x => _vaultTagKey(x) === _vaultTagKey(tag))
+  const render = () => {
+    root.dataset.tags = JSON.stringify(tags)
+    chips.innerHTML = tags.length
+      ? tags.map(tag => `<span class="vault-tag-chip">${escapeHtml(tag)}<button type="button" class="vault-tag-chip-x" data-tag="${escapeAttr(tag)}">✕</button></span>`).join('')
+      : `<span class="vault-tag-none">${escapeHtml(t('vault.tag.none'))}</span>`
+    const available = _vaultAllTags.filter(x => !has(x))
+    known.innerHTML = available.length
+      ? `<span class="vault-tag-known-hint">${escapeHtml(t('vault.tag.pick'))}</span>` +
+        available.map(x => `<button type="button" class="vault-tag-known-btn" data-tag="${escapeAttr(x)}">${escapeHtml(x)}</button>`).join('')
+      : ''
+  }
+  const add = (raw) => {
+    const tag = (raw || '').trim()
+    if (!tag || has(tag)) { input.value = ''; warn.hidden = true; return }
+    // Snap to an existing spelling when it is the same tag written differently.
+    const existing = _vaultAllTags.find(x => _vaultTagKey(x) === _vaultTagKey(tag))
+    if (existing) { tags.push(existing); input.value = ''; warn.hidden = true; render(); return }
+    const close = _vaultSimilarTags(tag, _vaultAllTags)
+    if (close.length) {
+      // Never rewrite silently: offer the existing one, and let the new one
+      // through only if it is confirmed by pressing Add again.
+      warn.hidden = false
+      warn.innerHTML = `${escapeHtml(t('vault.tag.similar'))} ` +
+        close.map(c => `<button type="button" class="vault-tag-known-btn" data-tag="${escapeAttr(c)}">${escapeHtml(c)}</button>`).join('') +
+        ` <button type="button" class="vault-tag-known-btn vault-tag-force" data-tag="${escapeAttr(tag)}">${escapeHtml(t('vault.tag.keep_new'))}</button>`
+      return
+    }
+    tags.push(tag); input.value = ''; warn.hidden = true; render()
+  }
+
+  root.addEventListener('click', (e) => {
+    const x = e.target.closest('.vault-tag-chip-x')
+    if (x) { tags = tags.filter(tag => tag !== x.dataset.tag); render(); return }
+    const pick = e.target.closest('.vault-tag-known-btn')
+    if (pick) {
+      if (!has(pick.dataset.tag)) tags.push(pick.dataset.tag)
+      input.value = ''; warn.hidden = true; render(); return
+    }
+    if (e.target.closest('.vault-tag-add-btn')) add(input.value)
+  })
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(input.value) }
+  })
+  render()
+}
+
+function _collectVaultTags(container) {
+  const root = container.querySelector('.vault-tag-editor')
+  if (!root) return []
+  try { return JSON.parse(root.dataset.tags || '[]') } catch { return [] }
+}
+
+// A card's fields live in named GROUPS. A flat list cannot answer the question
+// that matters when you read the card back (Boss, 2026-08-10): "azon a jelszo
+// mihez tartozik?" -- a password under a bank card and a password under a
+// website login look identical in one column. A template now creates a box with
+// its name on it, and the fields it adds live inside that box; extra fields are
+// added into a specific box too, so "Jelszó" is always visibly the password OF
+// something. This is the same "sections" idea the big managers use.
+
+function _vaultSectionHtml(section, fields) {
+  return `
+    <div class="vault-section">
+      <div class="vault-section-head">
+        <input type="text" class="input vault-section-name" value="${escapeAttr(section || '')}" placeholder="${escapeAttr(t('vault.section.name_ph'))}">
+        <button type="button" class="btn-secondary btn-compact vault-section-remove" title="${escapeAttr(t('vault.section.remove'))}">✕</button>
+      </div>
+      <div class="vault-fields-rows">${(fields || []).map(f => _vaultFieldRowHtml(f)).join('')}</div>
+      <div class="vault-field-presets">
+        ${VAULT_FIELD_PRESETS.map(p => `<button type="button" class="btn-secondary btn-compact" data-preset="${p.key}">+ ${escapeHtml(t(p.i18n))}</button>`).join('')}
+      </div>
+    </div>`
+}
+
+/** Group stored fields the way they were arranged, unnamed group first. */
+function _vaultGroupFields(fields) {
+  const order = []
+  const bySection = new Map()
+  for (const f of (fields || [])) {
+    const key = f.section || ''
+    if (!bySection.has(key)) { bySection.set(key, []); order.push(key) }
+    bySection.get(key).push(f)
+  }
+  if (order.length === 0) order.push('') , bySection.set('', [])
+  return order.map(section => ({ section, fields: bySection.get(section) }))
+}
+
+function _vaultUniqueSectionName(base, existing) {
+  const taken = new Set(existing.map(x => (x || '').toLowerCase()))
+  if (!taken.has(base.toLowerCase())) return base
+  for (let n = 2; n < 100; n++) {
+    const c = `${base} ${n}`
+    if (!taken.has(c.toLowerCase())) return c
+  }
+  return `${base} ${Date.now()}`
+}
+
+function _vaultSectionNames(container) {
+  return [...container.querySelectorAll('.vault-section-name')].map(i => i.value.trim())
+}
+
 function _initVaultFieldEditor(container) {
-  const rows = container.querySelector('.vault-fields-rows')
-  const presets = container.querySelector('.vault-field-presets')
+  const sections = container.querySelector('.vault-sections')
+
+  // Templates create a WHOLE box, named after the template, so the fields it
+  // brings are visibly the fields of that thing.
   container.querySelector('.vault-field-templates')?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-template]')
     if (!btn) return
     const tpl = VAULT_TEMPLATES.find(x => x.key === btn.dataset.template)
     if (!tpl) return
-    // Additive: a template never wipes rows the user already filled in.
-    for (const key of tpl.fields) {
-      const preset = VAULT_FIELD_PRESETS.find(p => p.key === key)
-      if (!preset) continue
-      rows.insertAdjacentHTML('beforeend', _vaultFieldRowHtml({ label: t(preset.i18n), kind: preset.kind, value: '', note: '' }))
+    const name = _vaultUniqueSectionName(t(tpl.i18n), _vaultSectionNames(container))
+    const rows = tpl.fields
+      .map(k => VAULT_FIELD_PRESETS.find(p => p.key === k))
+      .filter(Boolean)
+      .map(p => ({ label: t(p.i18n), kind: p.kind, value: '', note: '' }))
+    sections.insertAdjacentHTML('beforeend', _vaultSectionHtml(name, rows))
+    sections.lastElementChild.scrollIntoView({ block: 'nearest' })
+  })
+
+  container.querySelector('.vault-add-section')?.addEventListener('click', () => {
+    sections.insertAdjacentHTML('beforeend', _vaultSectionHtml('', []))
+    sections.lastElementChild.querySelector('.vault-section-name').focus()
+  })
+
+  sections?.addEventListener('click', (e) => {
+    const section = e.target.closest('.vault-section')
+    if (!section) return
+    // Add a single field INTO this box, not into a shared pile.
+    const presetBtn = e.target.closest('[data-preset]')
+    if (presetBtn) {
+      const preset = VAULT_FIELD_PRESETS.find(p => p.key === presetBtn.dataset.preset)
+      if (!preset) return
+      const label = preset.key === 'custom' ? '' : t(preset.i18n)
+      const rows = section.querySelector('.vault-fields-rows')
+      rows.insertAdjacentHTML('beforeend', _vaultFieldRowHtml({ label, kind: preset.kind, value: '', note: '' }))
+      rows.lastElementChild.querySelector(preset.key === 'custom' ? '.vault-f-label' : '.vault-f-value')?.focus()
+      return
     }
-  })
-  container.querySelector('.vault-history')?.addEventListener('click', (e) => {
-    const row = e.target.closest('.vault-history-row')
-    if (!row) return
-    if (e.target.closest('.vault-h-eye')) {
-      const inp = row.querySelector('.vault-history-value')
-      inp.type = inp.type === 'password' ? 'text' : 'password'
-    } else if (e.target.closest('.vault-h-copy')) {
-      navigator.clipboard?.writeText(row.querySelector('.vault-history-value').value)
-      showToast(t('vault.field.copied'))
+    if (e.target.closest('.vault-section-remove')) {
+      // Removing a box removes its fields with it, so require the box to be
+      // empty of values first -- deleting a password by tidying up a group
+      // would be a nasty surprise.
+      const hasValue = [...section.querySelectorAll('.vault-f-value')].some(i => i.value)
+      if (hasValue && !confirm(t('vault.section.remove_confirm'))) return
+      section.remove()
+      if (!sections.querySelector('.vault-section')) sections.insertAdjacentHTML('beforeend', _vaultSectionHtml('', []))
+      return
     }
-  })
-  presets?.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-preset]')
-    if (!btn) return
-    const preset = VAULT_FIELD_PRESETS.find(p => p.key === btn.dataset.preset)
-    if (!preset) return
-    // 'custom' stays unnamed on purpose: the point of it is a name the user
-    // picks, so prefilling one would just be something to delete first.
-    const label = preset.key === 'custom' ? '' : t(preset.i18n)
-    rows.insertAdjacentHTML('beforeend', _vaultFieldRowHtml({ label, kind: preset.kind, value: '', note: '' }))
-    rows.lastElementChild.querySelector(preset.key === 'custom' ? '.vault-f-label' : '.vault-f-value')?.focus()
-  })
-  rows?.addEventListener('click', (e) => {
     const row = e.target.closest('.vault-field-row')
     if (!row) return
     if (e.target.closest('.vault-f-remove')) { row.remove(); return }
@@ -9919,27 +10109,45 @@ function _initVaultFieldEditor(container) {
       showToast(t('vault.field.copied'))
     }
   })
-  // Switching a row to "secret" masks it immediately, rather than leaving the
-  // password visible until the card is reopened.
-  rows?.addEventListener('change', (e) => {
+
+  sections?.addEventListener('change', (e) => {
     if (!e.target.classList?.contains('vault-f-kind')) return
     const row = e.target.closest('.vault-field-row')
     row.querySelector('.vault-f-value').type = e.target.value === 'secret' ? 'password' : 'text'
   })
+
+  container.querySelector('.vault-history')?.addEventListener('click', (e) => {
+    const row = e.target.closest('.vault-history-row')
+    if (!row) return
+    if (e.target.closest('.vault-h-eye')) {
+      const inp = row.querySelector('.vault-history-value')
+      inp.type = inp.type === 'password' ? 'text' : 'password'
+    } else if (e.target.closest('.vault-h-copy')) {
+      navigator.clipboard?.writeText(row.querySelector('.vault-history-value').value)
+      showToast(t('vault.field.copied'))
+    }
+  })
 }
 
 function _collectVaultFields(container) {
-  return [...container.querySelectorAll('.vault-field-row')].map(row => ({
-    label: row.querySelector('.vault-f-label').value.trim(),
-    kind: row.querySelector('.vault-f-kind').value,
-    value: row.querySelector('.vault-f-value').value,
-    note: row.querySelector('.vault-f-note').value.trim(),
-    bindingId: row.querySelector('.vault-f-binding').value.trim(),
-  })).filter(f => f.label || f.value || f.note)
+  const out = []
+  for (const section of container.querySelectorAll('.vault-section')) {
+    const name = section.querySelector('.vault-section-name').value.trim()
+    for (const row of section.querySelectorAll('.vault-field-row')) {
+      const f = {
+        label: row.querySelector('.vault-f-label').value.trim(),
+        kind: row.querySelector('.vault-f-kind').value,
+        value: row.querySelector('.vault-f-value').value,
+        note: row.querySelector('.vault-f-note').value.trim(),
+        bindingId: row.querySelector('.vault-f-binding').value.trim(),
+        section: name,
+      }
+      if (f.label || f.value || f.note) out.push(f)
+    }
+  }
+  return out
 }
 
-// Superseded secrets, newest first. Values stay masked until asked for: the
-// point is being able to get an old password back, not to have it on screen.
 function _vaultHistoryHtml(history) {
   if (!history || !history.length) return ''
   return `
@@ -9957,19 +10165,19 @@ function _vaultHistoryHtml(history) {
 }
 
 function _vaultFieldEditorHtml(fields) {
+  const groups = _vaultGroupFields(fields)
   return `
     <div class="vault-fields-editor">
       <div class="vault-fields-title">${escapeHtml(t('vault.fields.title'))}</div>
-      <div class="vault-fields-rows">${(fields || []).map(f => _vaultFieldRowHtml(f)).join('')}</div>
+      <div class="vault-sections">${groups.map(g => _vaultSectionHtml(g.section, g.fields)).join('')}</div>
       <div class="vault-field-templates">
         <span class="vault-tpl-hint">${escapeHtml(t('vault.tpl.hint'))}</span>
         ${VAULT_TEMPLATES.map(tp => `<button type="button" class="btn-secondary btn-compact" data-template="${tp.key}">${escapeHtml(t(tp.i18n))}</button>`).join('')}
-      </div>
-      <div class="vault-field-presets">
-        ${VAULT_FIELD_PRESETS.map(p => `<button type="button" class="btn-secondary btn-compact" data-preset="${p.key}">+ ${escapeHtml(t(p.i18n))}</button>`).join('')}
+        <button type="button" class="btn-secondary btn-compact vault-add-section">+ ${escapeHtml(t('vault.section.add'))}</button>
       </div>
     </div>`
 }
+
 
 function renderVaultGrid(secrets) {
   const list = document.getElementById('vaultPageList')
@@ -10057,7 +10265,7 @@ function renderVaultGrid(secrets) {
           <button type="button" class="btn-secondary btn-compact vault-edit-value-eye" title="${escapeAttr(t('vault.btn.show'))}">👁</button>
         </div>
         <label class="vault-field-label">${escapeHtml(t('vault.field.tags_label'))}</label>
-        <input type="text" class="input vault-edit-category" value="${escapeAttr(_vaultTagsOf(secret).join(', '))}" placeholder="${escapeAttr(t('vault.field.tags_ph'))}" style="font-size:13px;margin-bottom:6px" list="vaultCategoryOptions">
+        ${_vaultTagEditorHtml(_vaultTagsOf(secret))}
         <label class="vault-field-label">${escapeHtml(t('vault.field.url_label'))}</label>
         <input type="text" class="input vault-edit-url" value="${escapeAttr(secret.url || '')}" style="font-size:13px;margin-bottom:6px">
         <label class="vault-field-label">${escapeHtml(t('vault.field.notes_label'))}</label>
@@ -10067,6 +10275,7 @@ function renderVaultGrid(secrets) {
         <button class="btn-primary btn-compact vault-edit-save">${t('vault.btn.save')}</button> <button class="btn-secondary btn-compact vault-edit-cancel">${t('vault.btn.cancel')}</button>`
       card.appendChild(form)
       _initVaultFieldEditor(form)
+      _initVaultTagEditor(form)
       form.querySelector('.vault-edit-value-eye').addEventListener('click', () => {
         const inp = form.querySelector('.vault-edit-value')
         inp.type = inp.type === 'password' ? 'text' : 'password'
@@ -10079,7 +10288,7 @@ function renderVaultGrid(secrets) {
         const newVal = input.value
         const fieldsForCheck = _collectVaultFields(form)
         if (!newVal && !fieldsForCheck.some(f => f.value)) { showToast(t('vault.err.need_value')); return }
-        const tags = form.querySelector('.vault-edit-category').value
+        const tags = _collectVaultTags(form)
         const url = form.querySelector('.vault-edit-url').value.trim()
         const notes = form.querySelector('.vault-edit-notes').value.trim()
         const newLabel = form.querySelector('.vault-edit-label').value.trim() || id
@@ -10133,10 +10342,23 @@ function renderVaultGrid(secrets) {
     fieldsHost.innerHTML = _vaultFieldEditorHtml([])
     _initVaultFieldEditor(fieldsHost)
   }
+  const tagsHost = document.getElementById('vaultPageTags')
+  const resetTagsHost = () => {
+    if (!tagsHost) return
+    tagsHost.innerHTML = _vaultTagEditorHtml([])
+    _initVaultTagEditor(tagsHost)
+  }
+  resetTagsHost()
 
   newBtn.addEventListener('click', () => {
     panel.hidden = !panel.hidden
-    if (!panel.hidden) document.getElementById('vaultPageIdInput').focus()
+    if (!panel.hidden) {
+      // Re-render on open: this panel is wired once at page init, before the
+      // vault list (and with it the known-tag set) has been fetched, so a
+      // picker built at that moment would offer nothing to pick from.
+      resetTagsHost()
+      document.getElementById('vaultPageIdInput').focus()
+    }
   })
   closeBtn?.addEventListener('click', () => { panel.hidden = true })
 
@@ -10144,7 +10366,7 @@ function renderVaultGrid(secrets) {
     const id = document.getElementById('vaultPageIdInput').value.trim()
     const label = document.getElementById('vaultPageLabelInput').value.trim() || id
     const value = document.getElementById('vaultPageValueInput').value
-    const tags = document.getElementById('vaultPageCategoryInput').value
+    const tags = tagsHost ? _collectVaultTags(tagsHost) : []
     const url = document.getElementById('vaultPageUrlInput').value.trim()
     const notes = document.getElementById('vaultPageNotesInput').value.trim()
     const fields = fieldsHost ? _collectVaultFields(fieldsHost) : []
@@ -10163,10 +10385,10 @@ function renderVaultGrid(secrets) {
     document.getElementById('vaultPageIdInput').value = ''
     document.getElementById('vaultPageLabelInput').value = ''
     document.getElementById('vaultPageValueInput').value = ''
-    document.getElementById('vaultPageCategoryInput').value = ''
     document.getElementById('vaultPageUrlInput').value = ''
     document.getElementById('vaultPageNotesInput').value = ''
-    if (fieldsHost) fieldsHost.querySelector('.vault-fields-rows').innerHTML = ''
+    if (fieldsHost) { fieldsHost.innerHTML = _vaultFieldEditorHtml([]); _initVaultFieldEditor(fieldsHost) }
+    resetTagsHost()
     addBtn.disabled = false
     panel.hidden = true
     loadVaultPage()

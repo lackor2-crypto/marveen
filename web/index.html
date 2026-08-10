@@ -1680,8 +1680,10 @@
             <input type="password" id="vaultPageValueInput" class="input" placeholder="sk-...">
           </div>
           <div class="vault-field-group">
-            <label class="vault-field-label" data-i18n="vault.field.tags_label">Címkék (vesszővel elválasztva)</label>
-            <input type="text" id="vaultPageCategoryInput" class="input" list="vaultCategoryOptions" placeholder="pl. bank, személyes" data-i18n-placeholder="vault.field.tags_ph">
+            <label class="vault-field-label" data-i18n="vault.field.tags_label">Címkék</label>
+            <!-- Filled by _vaultTagEditorHtml: pick from the tags that already
+                 exist, add a new one deliberately. -->
+            <div id="vaultPageTags"></div>
             <datalist id="vaultCategoryOptions"></datalist>
           </div>
           <div class="vault-field-group">

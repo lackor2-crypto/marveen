@@ -9056,3 +9056,52 @@ body {
 .vault-card-edit-form .vault-field-templates,
 .vault-card-edit-form .vault-field-presets { flex-direction: row; }
 .vault-card-value-empty { color: var(--text-muted); font-style: italic; }
+
+/* Field groups. A box with its name on it, so a "Jelszó" inside the "Bankkártya"
+   box is visibly the bank card's password and not a loose row (Boss: "azon a
+   jelszo mihez tartozik?"). */
+.vault-sections { display: flex; flex-direction: column; gap: 10px; }
+.vault-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  background: var(--bg-hover, rgba(127,127,127,0.04));
+}
+.vault-section-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.vault-section-name { flex: 1; min-width: 0; font-weight: 700; font-size: 12px; }
+.vault-section-remove { flex: 0 0 auto; }
+/* Rows sit on the card background so they read as contents of the box. */
+.vault-section .vault-field-row { background: var(--bg-card); }
+.vault-card-edit-form .vault-section-head { flex-direction: row; }
+.vault-card-edit-form .vault-section-name { flex: 1; width: auto; }
+
+/* Tag picker. Pick what exists, add a new one on purpose. */
+.vault-tag-editor { margin-bottom: 8px; }
+.vault-tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.vault-tag-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 6px 2px 9px;
+  border-radius: 999px; background: var(--accent, #3b82f6); color: #fff;
+}
+.vault-tag-chip-x { background: none; border: none; color: inherit; cursor: pointer; padding: 0; font-size: 11px; opacity: 0.8; }
+.vault-tag-chip-x:hover { opacity: 1; }
+.vault-tag-none { font-size: 11px; color: var(--text-muted); }
+.vault-tag-known { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
+.vault-tag-known-hint { font-size: 11px; color: var(--text-muted); }
+.vault-tag-known-btn {
+  font-size: 11px; padding: 1px 8px; cursor: pointer;
+  border: 1px dashed var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-secondary);
+}
+.vault-tag-known-btn:hover { border-style: solid; color: var(--text); }
+.vault-tag-add { display: flex; gap: 6px; }
+.vault-tag-add .vault-tag-input { flex: 1; min-width: 0; font-size: 12px; }
+/* The near-miss warning: offering the existing spelling beats silently
+   creating a second group for a typo. */
+.vault-tag-warn {
+  margin-top: 6px; font-size: 11px; color: var(--warning, #d97706);
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+}
+.vault-tag-force { border-style: solid; }
+.vault-card-edit-form .vault-tag-add { flex-direction: row; }
+.vault-card-edit-form .vault-tag-input { flex: 1; width: auto; }

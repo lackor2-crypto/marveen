@@ -12,6 +12,11 @@ import {
   MAX_TAGS_PER_ENTRY,
   MAX_TAG_LEN,
   MAX_HISTORY_ENTRIES,
+  groupFieldsBySection,
+  uniqueSectionName,
+  canonicalTagKey,
+  canonicalizeTags,
+  similarTags,
 } from '../vault-fields.js'
 
 describe('normalizeVaultFields', () => {
@@ -197,5 +202,92 @@ describe('password history', () => {
     const before = normalizeVaultFields([{ label: 'Jelszó', kind: 'secret', value: 'regi' }])
     const after = normalizeVaultFields([{ label: 'Belépési jelszó', kind: 'secret', value: 'uj' }])
     expect(secretValuesReplaced(before, after)).toEqual([])
+  })
+})
+
+// A flat list cannot say what a password belongs to. Boss, looking at a card
+// with a "Fiók email" and a bare "Jelszó" under it: "azon a jelszo mihez
+// tartozik? Kihez, mihez tartozik? Ez a problema." Sections are the answer: a
+// template creates a named box and its fields live inside it.
+describe('sections', () => {
+  it('keeps the section on a field', () => {
+    const out = normalizeVaultFields([{ label: 'Jelszó', kind: 'secret', value: 'x', section: 'Bankkártya' }])
+    expect(out[0].section).toBe('Bankkártya')
+  })
+
+  it('treats a blank section as no section rather than a group named ""', () => {
+    expect(normalizeVaultFields([{ label: 'a', value: 'b', section: '   ' }])[0]).not.toHaveProperty('section')
+  })
+
+  it('groups fields, keeping section order and field order inside each', () => {
+    const fields = normalizeVaultFields([
+      { label: 'Megjegyzés', value: 'x' },
+      { label: 'Kártyaszám', value: '1', section: 'Bankkártya' },
+      { label: 'Felhasználónév', value: 'u', section: 'Netbank' },
+      { label: 'CVC', value: '2', section: 'Bankkártya' },
+    ])
+    expect(groupFieldsBySection(fields)).toEqual([
+      { section: '', fields: [expect.objectContaining({ label: 'Megjegyzés' })] },
+      { section: 'Bankkártya', fields: [expect.objectContaining({ label: 'Kártyaszám' }), expect.objectContaining({ label: 'CVC' })] },
+      { section: 'Netbank', fields: [expect.objectContaining({ label: 'Felhasználónév' })] },
+    ])
+  })
+
+  it('exposes the section in meta so a closed card can group its chips', () => {
+    const meta = fieldsToMeta(normalizeVaultFields([{ label: 'CVC', kind: 'secret', value: '123', section: 'Bankkártya' }]))
+    expect(meta[0].section).toBe('Bankkártya')
+    expect(JSON.stringify(meta)).not.toContain('123')
+  })
+
+  it('names a repeated template apart so two bank cards do not merge', () => {
+    expect(uniqueSectionName('Bankkártya', [])).toBe('Bankkártya')
+    expect(uniqueSectionName('Bankkártya', ['Bankkártya'])).toBe('Bankkártya 2')
+    expect(uniqueSectionName('Bankkártya', ['Bankkártya', 'Bankkártya 2'])).toBe('Bankkártya 3')
+  })
+
+  it('matches an existing section case-insensitively when picking a new name', () => {
+    expect(uniqueSectionName('Wifi', ['wifi'])).toBe('Wifi 2')
+  })
+})
+
+// Hand-typing tags on every card makes "Személyes", "szemelyes" and a typo
+// three separate groups, and the filter row stops being usable (Boss: "ha lesz
+// 50 cimke, vagy csak 15, az mar problema").
+describe('tag canonicalisation', () => {
+  it('treats case, accents, spacing and punctuation as the same tag', () => {
+    const key = canonicalTagKey('Személyes')
+    expect(canonicalTagKey('szemelyes')).toBe(key)
+    expect(canonicalTagKey('SZEMÉLYES')).toBe(key)
+    expect(canonicalTagKey(' személyes ')).toBe(key)
+    expect(canonicalTagKey('személyes!')).toBe(key)
+  })
+
+  it('snaps a variant onto the spelling already in use', () => {
+    expect(canonicalizeTags(['szemelyes', 'MUNKA'], ['Személyes', 'munka'])).toEqual(['Személyes', 'munka'])
+  })
+
+  it('leaves a genuinely new tag exactly as typed', () => {
+    expect(canonicalizeTags(['Bank'], ['Személyes'])).toEqual(['Bank'])
+  })
+
+  it('collapses variants of the same tag within one save', () => {
+    expect(canonicalizeTags(['Bank', 'bank', 'BANK'], [])).toEqual(['Bank'])
+  })
+
+  it('does NOT silently rewrite a typo -- that is a suggestion, not a fact', () => {
+    expect(canonicalizeTags(['szemelyess'], ['Személyes'])).toEqual(['szemelyess'])
+  })
+
+  it('offers close existing tags as likely typos', () => {
+    expect(similarTags('szemelyess', ['Személyes', 'munka'])).toEqual(['Személyes'])
+    expect(similarTags('bnak', ['Bank'])).toEqual(['Bank'])
+  })
+
+  it('does not flag a different tag as a typo', () => {
+    expect(similarTags('bank', ['munka', 'Személyes'])).toEqual([])
+  })
+
+  it('stays quiet for very short input, where everything looks similar', () => {
+    expect(similarTags('ba', ['Bank'])).toEqual([])
   })
 })

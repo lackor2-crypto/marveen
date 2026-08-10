@@ -15,7 +15,7 @@ import { getMcpListCache, refreshMcpListCache, purgeFromMcpListCache } from '../
 import { readBody, json } from '../http-helpers.js'
 import { shellEscape } from '../sanitize.js'
 import { getExternalProjectPaths, addExternalProjectPath, removeExternalProjectPath, getGitHubRepos, installGitHubRepo, removeGitHubRepo, updateGitHubRepo, detectRequiredEnvVars } from '../dashboard-settings.js'
-import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta, getSecretFields, setSecretFields, getSecretHistory } from '../vault.js'
+import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta, getSecretFields, setSecretFields, getSecretHistory, listAllTags } from '../vault.js'
 import { normalizeVaultFields } from '../../vault-fields.js'
 import {
   getBindings, addBinding, removeBinding, removeBindingsForSecret,
@@ -722,7 +722,9 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/vault' && method === 'GET') {
     // ssh-key-* entries are managed exclusively via the SSH key pool
     // (/api/vault/ssh-keys) and must not appear as generic secret cards too.
-    json(res, { secrets: listSecrets().filter(s => !s.id.startsWith('ssh-key-')) })
+    // allTags drives the tag picker: the editor offers what already exists
+    // instead of asking the user to retype it and risk a near-miss duplicate.
+    json(res, { secrets: listSecrets().filter(s => !s.id.startsWith('ssh-key-')), allTags: listAllTags() })
     return true
   }
 

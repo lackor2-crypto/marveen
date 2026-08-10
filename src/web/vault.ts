@@ -7,6 +7,7 @@ import { isKeychainAvailable, keychainStore, keychainRetrieve } from './keychain
 import { logger } from '../logger.js'
 import {
   normalizeVaultFields, fieldsToMeta, normalizeTags, pushHistory, secretValuesReplaced,
+  canonicalizeTags,
   type VaultField, type VaultFieldMeta, type VaultHistoryEntry,
 } from '../vault-fields.js'
 
@@ -141,6 +142,38 @@ export function listSecrets(): Array<{ id: string, label: string, createdAt: str
   }))
 }
 
+/** Every tag in use across the vault, for canonicalisation and for the UI. */
+export function listAllTags(): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const e of readVault().entries) {
+    for (const tag of effectiveTags(e)) {
+      const key = tag.toLowerCase()
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(tag)
+    }
+  }
+  return out.sort((a, b) => a.localeCompare(b, 'hu'))
+}
+
+/**
+ * Tags for storage: normalized, then snapped onto the spelling already used
+ * elsewhere in the vault so "szemelyes" does not become a second "Személyes".
+ */
+function tagsForStorage(input: unknown, selfId: string): string[] {
+  const known: string[] = []
+  const seen = new Set<string>()
+  for (const e of readVault().entries) {
+    if (e.id === selfId) continue
+    for (const tag of effectiveTags(e)) {
+      const key = tag.toLowerCase()
+      if (!seen.has(key)) { seen.add(key); known.push(tag) }
+    }
+  }
+  return canonicalizeTags(normalizeTags(input), known)
+}
+
 /** Tags as the UI should see them: stored tags, or the legacy category. */
 function effectiveTags(e: { tags?: string[]; category?: string }): string[] {
   if (e.tags && e.tags.length) return e.tags
@@ -212,7 +245,7 @@ export function setSecret(id: string, label: string, value: string, meta?: Vault
     category: meta?.category || undefined,
     url: meta?.url || undefined,
     notes: meta?.notes || undefined,
-    tags: meta?.tags === undefined ? undefined : normalizeTags(meta.tags),
+    tags: meta?.tags === undefined ? undefined : tagsForStorage(meta.tags, id),
   }
   if (idx >= 0) {
     entry.createdAt = store.entries[idx].createdAt
@@ -262,7 +295,7 @@ export function updateSecretMeta(id: string, meta: { label?: string } & VaultEnt
   if (meta.category !== undefined) entry.category = meta.category || undefined
   if (meta.url !== undefined) entry.url = meta.url || undefined
   if (meta.notes !== undefined) entry.notes = meta.notes || undefined
-  if (meta.tags !== undefined) entry.tags = normalizeTags(meta.tags)
+  if (meta.tags !== undefined) entry.tags = tagsForStorage(meta.tags, id)
   entry.updatedAt = new Date().toISOString()
   store.entries[idx] = entry
   writeVault(store)
