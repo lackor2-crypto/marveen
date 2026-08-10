@@ -2405,6 +2405,10 @@
           <select id="parentSelect" style="flex:1; width:100%; padding:5px 8px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:13px" title="Szülő feladat módosítása"></select>
         </div>
         <div class="card-detail-desc" id="cardDetailDesc"></div>
+        <!-- Cards that mention this one (or that this one mentions) in prose.
+             Parent/child links are already drawn elsewhere; these text-only
+             connections were invisible until now. -->
+        <div class="card-detail-related" id="cardDetailRelated" hidden></div>
         <div class="card-detail-labels">
           <h4 data-i18n="kanban.modal.labels_title">Címkék</h4>
           <div class="label-pill-list" id="cardLabelList"></div>

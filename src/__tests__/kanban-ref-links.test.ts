@@ -57,10 +57,15 @@ describe('kanban reference linkifier', () => {
 
   it('the id set comes from a dedicated ids-only endpoint', () => {
     expect(KANBAN_ROUTE).toContain("path === '/api/kanban/card-ids'")
-    expect(KANBAN_ROUTE).toContain("SELECT id FROM kanban_cards")
+    // The endpoint carries enough to LABEL a reference, not just to detect one:
+    // a bare "e88fd8e2" says nothing to a reader (Boss 2026-08-10). seq is the
+    // rowid, matching how listKanbanCards() derives the number the board shows.
+    expect(KANBAN_ROUTE).toContain("SELECT id, rowid AS seq, title, status FROM kanban_cards")
     expect(APP).toContain("fetch('/api/kanban/card-ids')")
-    // Board loads keep it fresh without another request.
-    expect(APP).toContain('for (const c of kanbanCards) kanbanKnownIds.add(c.id)')
+    expect(APP).toContain('kanbanRefMeta = new Map(')
+    // Board loads keep both the id set and the labels fresh without another request.
+    expect(APP).toContain('kanbanKnownIds.add(c.id)')
+    expect(APP).toContain('kanbanRefMeta.set(c.id, { seq: c.seq, title: c.title, status: c.status })')
   })
 })
 

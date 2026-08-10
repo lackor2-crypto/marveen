@@ -213,6 +213,7 @@ window._i18n.hu = {
   'kanban.priority.normal':      'Normál',
   'kanban.priority.high':        'Magas',
   'kanban.priority.urgent':      'Sürgős',
+  'kanban.related.title':        'Kapcsolódó kártyák',
   'kanban.status.planned':       'Tervezett',
   'kanban.status.in_progress':   'Folyamatban',
   'kanban.status.testing':       'Tesztelés',

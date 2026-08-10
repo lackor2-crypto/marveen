@@ -1035,7 +1035,12 @@ async function loadKanban() {
     kanbanCards = await cardsRes.json()
     // Board cards are ids we know for sure -- keeps references linkable even if
     // the boot-time id fetch failed, and picks up cards created since.
-    for (const c of kanbanCards) kanbanKnownIds.add(c.id)
+    for (const c of kanbanCards) {
+      kanbanKnownIds.add(c.id)
+      // Label data too, or a card created since boot would linkify as a bare
+      // hex id until the next full card-ids fetch.
+      kanbanRefMeta.set(c.id, { seq: c.seq, title: c.title, status: c.status })
+    }
     kanbanAssignees = await assigneesRes.json()
     kanbanProjects = await projectsRes.json()
     kanbanAllLabels = await labelsRes.json()
@@ -2452,6 +2457,7 @@ async function showCardDetail(card) {
   })
 
   document.getElementById('cardDetailDesc').innerHTML = linkifyKanbanRefs(card.description || '')
+  renderCardRelated(card)
 
   renderCardLabelsSection(card)
 
@@ -10373,12 +10379,31 @@ function escapeHtml(str) {
 // (git sha, colour, hash), and it also catches the bare and mistyped forms.
 const KANBAN_REF_RE = /(#|\b(?:kanban|k[áa]rtya|card)\s+)?\b([0-9a-f]{8})\b/gi
 let kanbanKnownIds = new Set()
+// id -> { seq, title, status }, so a reference can be rendered with its SUBJECT
+// and not as a bare "e88fd8e2" that tells the reader nothing (Boss 2026-08-10:
+// "minden egyes szam utan legyen egy targymezo leiras"). Populated from the
+// same endpoint as the id set, so labels work on the pages that linkify
+// references without ever loading the kanban board itself.
+let kanbanRefMeta = new Map()
 
 async function loadKanbanCardIds() {
   try {
     const r = await fetch('/api/kanban/card-ids')
-    if (r.ok) kanbanKnownIds = new Set(await r.json())
+    if (!r.ok) return
+    const rows = await r.json()
+    kanbanKnownIds = new Set(rows.map(c => c.id))
+    kanbanRefMeta = new Map(rows.map(c => [c.id, { seq: c.seq, title: c.title, status: c.status }]))
   } catch { /* links fall back to the marked forms only */ }
+}
+
+// "#23 Level kereses a postafiokban" instead of "e88fd8e2". Falls back to the
+// raw id whenever the card is unknown (a git sha, a deleted card) -- rewriting
+// text we cannot explain would be worse than leaving it alone.
+function kanbanRefLabel(id) {
+  const meta = kanbanRefMeta.get(id)
+  if (!meta) return id
+  const seq = meta.seq != null ? '#' + meta.seq + ' ' : ''
+  return seq + meta.title
 }
 
 function linkifyKanbanRefs(str) {
@@ -10388,8 +10413,67 @@ function linkifyKanbanRefs(str) {
     const known = kanbanKnownIds.has(id.toLowerCase())
     if (!marker && !known) return match
     const prefix = marker || ''
-    return `${prefix}<span class="kanban-link" data-card-id="${id.toLowerCase()}" role="link" tabindex="0">${id}</span>`
+    const lc = id.toLowerCase()
+    const meta = kanbanRefMeta.get(lc)
+    const label = escapeHtml(kanbanRefLabel(lc))
+    const tip = meta ? escapeAttr(kanbanRefLabel(lc) + ' — ' + (t('kanban.status.' + meta.status) || meta.status)) : ''
+    return `${prefix}<span class="kanban-link" data-card-id="${lc}" role="link" tabindex="0"${tip ? ` title="${tip}"` : ''}>${label}</span>`
   })
+}
+
+// Every known card id mentioned in a piece of text. Same 8-hex token rule the
+// linkifier uses, restricted to ids that are actually cards -- a git sha or a
+// colour must not become a relation.
+function kanbanRefIdsIn(text) {
+  if (!text) return []
+  const re = new RegExp(KANBAN_REF_RE.source, 'gi')
+  const out = new Set()
+  for (const m of text.matchAll(re)) {
+    const id = m[2].toLowerCase()
+    if (kanbanKnownIds.has(id)) out.add(id)
+  }
+  return [...out]
+}
+
+// "Kapcsolodo kartyak": the cards this one mentions in prose, plus the cards
+// that mention it. Boss asked for this after noticing one id tying together
+// five cards with no way to see them from each other -- and specifically NOT
+// as an automatic merge: #22 is still waiting while its four siblings are
+// done, and a merged card cannot show that. Parent and children are excluded
+// because the board already draws those; what was invisible is exactly the
+// free-text connection.
+function renderCardRelated(card) {
+  const el = document.getElementById('cardDetailRelated')
+  if (!el) return
+  const skip = new Set([card.id, card.parent_id].filter(Boolean))
+  for (const c of kanbanCards) if (c.parent_id === card.id) skip.add(c.id)
+
+  const related = new Map()
+  for (const id of kanbanRefIdsIn((card.title || '') + ' ' + (card.description || ''))) {
+    if (!skip.has(id)) related.set(id, true)
+  }
+  for (const c of kanbanCards) {
+    if (skip.has(c.id) || c.id === card.id || c.archived_at) continue
+    if (kanbanRefIdsIn((c.title || '') + ' ' + (c.description || '')).includes(card.id)) related.set(c.id, true)
+  }
+
+  if (related.size === 0) { el.hidden = true; el.innerHTML = ''; return }
+  const byId = new Map(kanbanCards.map(c => [c.id, c]))
+  const rows = [...related.keys()]
+    .map(id => byId.get(id))
+    .filter(Boolean)
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+  if (rows.length === 0) { el.hidden = true; el.innerHTML = ''; return }
+  el.hidden = false
+  el.innerHTML = `
+    <div class="card-detail-related-title">${escapeHtml(t('kanban.related.title'))} (${rows.length})</div>
+    ${rows.map(c => `
+      <div class="card-detail-related-row kanban-link" data-card-id="${escapeAttr(c.id)}" role="link" tabindex="0">
+        <span class="card-detail-related-seq">${c.seq != null ? '#' + c.seq : ''}</span>
+        <span class="card-detail-related-name">${escapeHtml(c.title || '')}</span>
+        <span class="card-detail-related-status status-${escapeAttr(c.status)}">${escapeHtml(t('kanban.status.' + c.status) || c.status)}</span>
+      </div>`).join('')}
+  `
 }
 
 // linkifyKanbanRefs() injects .kanban-link spans via innerHTML in many places

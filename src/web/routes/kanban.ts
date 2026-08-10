@@ -126,9 +126,18 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   // link, and agents write those references inconsistently -- "#<id>", "Kartya
   // <id>", or the bare id -- so the only reliable test of "is this hex blob a
   // card?" is membership in this set. Ids only: one cheap query, no card bodies.
+  // Every card id, plus just enough to LABEL a reference. The linkifier used
+  // to render a bare "e88fd8e2", which tells the reader nothing -- Boss asked
+  // for the subject next to the number ("minden egyes szam utan legyen egy
+  // targymezo leiras"). Seq/title/status live here rather than being looked up
+  // from the kanban page's own card array because references are linkified on
+  // pages that never load that array (approvals, activity feed).
   if (path === '/api/kanban/card-ids' && method === 'GET') {
-    const rows = getDb().prepare('SELECT id FROM kanban_cards').all() as { id: string }[]
-    jsonMaybeGzip(req, res, rows.map(r => r.id))
+    // seq is the rowid, exactly as listKanbanCards() derives it -- there is no
+    // seq column, and the number the board shows has to match this one.
+    const rows = getDb().prepare('SELECT id, rowid AS seq, title, status FROM kanban_cards').all() as
+      { id: string; seq: number | null; title: string; status: string }[]
+    jsonMaybeGzip(req, res, rows)
     return true
   }
 

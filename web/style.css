@@ -8906,3 +8906,32 @@ body {
   align-self: center;
 }
 .or-balance-low { color: var(--danger); }
+
+/* "Kapcsolodo kartyak" on a card's detail panel: the free-text references
+   between cards, which the board never drew (parent/child it already does).
+   Rows are clickable via the shared .kanban-link delegated handler. */
+.card-detail-related { margin-top: 14px; }
+.card-detail-related-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 6px;
+}
+.card-detail-related-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 4px;
+  cursor: pointer;
+}
+.card-detail-related-row:hover { background: var(--bg-hover, rgba(127,127,127,0.08)); }
+.card-detail-related-seq { font-weight: 700; color: var(--text-muted); flex-shrink: 0; }
+/* The subject wraps in full rather than being clipped: the whole point of the
+   row is reading what the other card is about (Boss: "bov magyarazatot"). */
+.card-detail-related-name { flex: 1; overflow-wrap: anywhere; }
+.card-detail-related-status { font-size: 11px; color: var(--text-muted); flex-shrink: 0; }

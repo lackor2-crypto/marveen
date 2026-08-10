@@ -213,6 +213,7 @@ window._i18n.en = {
   'kanban.priority.normal':      'Normal',
   'kanban.priority.high':        'High',
   'kanban.priority.urgent':      'Urgent',
+  'kanban.related.title':        'Related cards',
   'kanban.status.planned':       'Planned',
   'kanban.status.in_progress':   'In Progress',
   'kanban.status.testing':       'Testing',
