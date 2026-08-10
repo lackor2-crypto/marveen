@@ -10010,10 +10010,19 @@ function renderVaultGrid(secrets) {
       if (existing) { existing.remove(); btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> ${t('vault.btn.show')}`; return }
       const res = await fetch(`/api/vault/${encodeURIComponent(id)}`)
       const data = await res.json()
-      if (data.value) {
+      // A place-card keeps its values in FIELDS and may have no primary value
+      // at all -- this used to bail silently, so Mutat did nothing on exactly
+      // the cards the new model encourages (Boss: "az openruter modositja es
+      // mutatja nem mukodik"). Say so instead of doing nothing.
+      {
         const valEl = document.createElement('div')
         valEl.className = 'vault-card-value'
-        valEl.textContent = data.value
+        if (data.value) {
+          valEl.textContent = data.value
+        } else {
+          valEl.classList.add('vault-card-value-empty')
+          valEl.textContent = t('vault.value.in_fields')
+        }
         card.appendChild(valEl)
         btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg> ${t('vault.btn.hide')}`
       }
@@ -10029,7 +10038,9 @@ function renderVaultGrid(secrets) {
       card.querySelector('.vault-card-value')?.remove()
       const res = await fetch(`/api/vault/${encodeURIComponent(id)}`)
       const data = await res.json()
-      if (!data.value) return
+      // No `if (!data.value) return` here: a card with no primary value is now
+      // normal, and refusing to open its editor made the whole card read-only.
+      if (data.error) { showToast(data.error); return }
       const secret = _vaultSecrets.find(s => s.id === id) || {}
       const form = document.createElement('div')
       form.className = 'vault-card-edit-form'
@@ -10066,12 +10077,13 @@ function renderVaultGrid(secrets) {
       form.querySelector('.vault-edit-cancel').addEventListener('click', () => form.remove())
       form.querySelector('.vault-edit-save').addEventListener('click', async () => {
         const newVal = input.value
-        if (!newVal) return
+        const fieldsForCheck = _collectVaultFields(form)
+        if (!newVal && !fieldsForCheck.some(f => f.value)) { showToast(t('vault.err.need_value')); return }
         const tags = form.querySelector('.vault-edit-category').value
         const url = form.querySelector('.vault-edit-url').value.trim()
         const notes = form.querySelector('.vault-edit-notes').value.trim()
         const newLabel = form.querySelector('.vault-edit-label').value.trim() || id
-        const fields = _collectVaultFields(form)
+        const fields = fieldsForCheck
         const saveBtn = form.querySelector('.vault-edit-save')
         saveBtn.disabled = true
         saveBtn.textContent = '...'

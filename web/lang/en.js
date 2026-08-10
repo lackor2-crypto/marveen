@@ -1116,6 +1116,7 @@ window._i18n.en = {
   'vault.tpl.software':                'Software licence',
   'vault.guide.btn':                   'How to use',
   'vault.guide.title':                 'Vault: how to use',
+  'vault.value.in_fields':               'This card has no separate primary value; the data lives in its fields. Open it with Edit.',
   'vault.preset.custom':               'Custom field',
   'vault.field.name_label':      'Key name',
   'vault.field.desc_label':      'Description (optional)',

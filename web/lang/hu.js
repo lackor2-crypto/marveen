@@ -1423,6 +1423,7 @@ window._i18n.hu = {
   'vault.tpl.software':                'Szoftver licenc',
   'vault.guide.btn':                   'Használati útmutató',
   'vault.guide.title':                 'Széf: használati útmutató',
+  'vault.value.in_fields':               'Ennek a kártyának nincs külön fő értéke, az adatok a mezőkben vannak. Nyisd meg a Módosít gombbal.',
   'vault.preset.custom':               'Egyéb mező',
   'vault.field.name_label':      'Kulcs neve',
   'vault.field.desc_label':      'Leírás (opcionális)',
