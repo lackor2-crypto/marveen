@@ -1933,6 +1933,38 @@ main.email-active .page-header { flex-shrink: 0; }
   line-height: 1.4;
   white-space: nowrap;
 }
+/* 0-10 reliability badge (card 502005f0): compact progress bar with the
+   score overlaid. The fill colour and width are driven by CSS custom
+   properties set inline per-agent (red → amber → green). */
+.agent-reliability-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 16px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  overflow: hidden;
+}
+.agent-reliability-badge .rel-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: var(--rel-pct, 0%);
+  background: var(--rel-color, #d32b32);
+  border-radius: 1px;
+  transition: width 0.3s ease;
+}
+.agent-reliability-badge .rel-num {
+  position: relative;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  z-index: 1;
+}
 .agent-card:hover {
   background: var(--bg-card-hover);
   border-color: var(--accent);

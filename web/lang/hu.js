@@ -325,6 +325,7 @@ window._i18n.hu = {
   'agents.free_badge':           'ingyenes',
   'agents.cost_badge_tip':       'Becsült ár $ / 1 millió input token (csak ismert Claude-modelleknél)',
   'agents.account_badge_tip':    'Melyik fiók/előfizetés alatt fut az agent (Claude-fiók vagy OpenRouter)',
+  'agents.reliability_tip':       'Megbízhatóság: {score}/10 — {pct}% sikerarány az elmúlt {total} feladatból (utolsó 7 nap)',
   'agents.detail.select_avatar':   'Válassz új avatart',
   'agents.detail.edit_name':        'Név szerkesztése',
   'agents.detail.name_empty_error': 'A név nem lehet üres.',

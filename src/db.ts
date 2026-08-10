@@ -882,6 +882,33 @@ export function initDatabase(dbPathOverride?: string): void {
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_approval_verifications_approval ON approval_verifications(approval_id)`)
 
+  // --- Agent dispatch reliability log (card 502005f0) ---
+  // Tracks every dispatch of a task to a sub-agent and its outcome, so the
+  // dashboard can show a 0-10 reliability score for each agent. A 'dispatched'
+  // row is written at dispatch time; resolveAgentDispatch() flips it to
+  // success / failed / rate_limited / credit_exhausted / provider_error /
+  // timeout once the agent reports back (or the orchestrator detects the
+  // failure). Unresolved 'dispatched' rows age out as implicit failures when
+  // computing the rolling score (an agent that never answered did not succeed).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_dispatch_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      dispatch_type TEXT NOT NULL DEFAULT 'verification'
+        CHECK(dispatch_type IN ('verification','inter_agent','scheduled_task')),
+      target_id TEXT,
+      status TEXT NOT NULL DEFAULT 'dispatched'
+        CHECK(status IN ('dispatched','success','failed','rate_limited','credit_exhausted','provider_error','timeout')),
+      error_type TEXT,
+      error_detail TEXT,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      resolved_at INTEGER,
+      duration_ms INTEGER
+    )
+  `)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_dispatch_agent_created ON agent_dispatch_log(agent_id, created_at)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_dispatch_status ON agent_dispatch_log(status, created_at)`)
+
   // --- Dashboard browser login (OPTIONAL; the bearer token stays primary) ---
   // Zero rows here = exactly the token-only behavior. A row is created only when
   // the operator opts in (Settings card or the dashboard-user CLI). No seeded
@@ -3339,6 +3366,116 @@ export function expireTimedOutApprovals(): number {
     UPDATE approvals SET status = 'timeout', resolved_at = ?
     WHERE status = 'pending' AND timeout_at IS NOT NULL AND timeout_at <= ?
   `).run(now, now).changes
+}
+
+// --- Agent dispatch reliability (card 502005f0) ---
+
+export interface AgentReliability {
+  /** 0-10 reliability score, or null when no dispatches exist in the window. */
+  score: number | null
+  /** Total dispatches in the rolling window. */
+  total: number
+  /** Dispatches that reported 'success' (agent reported pass). */
+  successes: number
+  /** Every non-success outcome, including unresolved 'dispatched' rows. */
+  failures: number
+  /** successes / total (0 when total is 0). */
+  successRate: number
+}
+
+export function logAgentDispatch(
+  agentId: string,
+  dispatchType: 'verification' | 'inter_agent' | 'scheduled_task' = 'verification',
+  targetId?: string,
+): number {
+  return db.prepare(`
+    INSERT INTO agent_dispatch_log (agent_id, dispatch_type, target_id, status, created_at)
+    VALUES (?, ?, ?, 'dispatched', ?)
+  `).run(agentId, dispatchType, targetId ?? null, Math.floor(Date.now() / 1000)).lastInsertRowid as number
+}
+
+export function resolveAgentDispatch(
+  dispatchId: number,
+  status: 'success' | 'failed' | 'rate_limited' | 'credit_exhausted' | 'provider_error' | 'timeout',
+  errorType?: string,
+  errorDetail?: string,
+  durationMs?: number,
+): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  return db.prepare(`
+    UPDATE agent_dispatch_log
+       SET status = ?, error_type = ?, error_detail = ?, resolved_at = ?, duration_ms = ?
+     WHERE id = ?
+  `).run(status, errorType ?? null, errorDetail ?? null, now, durationMs ?? null, dispatchId).changes > 0
+}
+
+// Find and resolve the latest 'dispatched' row for a given agent + target
+// (e.g. approvalId from the verification flow), so the orchestrator can log the
+// outcome without having been handed the row id back at dispatch time.
+export function resolveLatestAgentDispatch(
+  agentId: string,
+  targetId: string,
+  status: 'success' | 'failed' | 'rate_limited' | 'credit_exhausted' | 'provider_error' | 'timeout',
+  errorType?: string,
+  errorDetail?: string,
+  durationMs?: number,
+): boolean {
+  const now = Math.floor(Date.now() / 1000)
+  const row = db.prepare(`
+    SELECT id FROM agent_dispatch_log
+    WHERE agent_id = ? AND target_id = ? AND status = 'dispatched'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(agentId, targetId) as { id: number } | undefined
+  if (!row) return false
+  return db.prepare(`
+    UPDATE agent_dispatch_log
+       SET status = ?, error_type = ?, error_detail = ?, resolved_at = ?, duration_ms = ?
+     WHERE id = ?
+  `).run(status, errorType ?? null, errorDetail ?? null, now, durationMs ?? null, row.id).changes > 0
+}
+
+export function getAgentReliability(agentId: string, windowDays = 7): AgentReliability {
+  const cutoff = Math.floor(Date.now() / 1000) - windowDays * 86400
+  const row = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successes
+    FROM agent_dispatch_log
+    WHERE agent_id = ? AND created_at >= ?
+  `).get(agentId, cutoff) as { total: number; successes: number | null }
+
+  const total = Number(row.total) || 0
+  if (total === 0) return { score: null, total: 0, successes: 0, failures: 0, successRate: 0 }
+  const successes = Number(row.successes) || 0
+  const failures = total - successes
+  const successRate = successes / total
+  const score = Math.round(successRate * 10)
+  return { score, total, successes, failures, successRate }
+}
+
+export function getAgentReliabilities(windowDays = 7): Record<string, AgentReliability> {
+  const cutoff = Math.floor(Date.now() / 1000) - windowDays * 86400
+  const rows = db.prepare(`
+    SELECT
+      agent_id,
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successes
+    FROM agent_dispatch_log
+    WHERE created_at >= ? AND agent_id IS NOT NULL
+    GROUP BY agent_id
+  `).all(cutoff) as Array<{ agent_id: string; total: number; successes: number | null }>
+
+  const result: Record<string, AgentReliability> = {}
+  for (const row of rows) {
+    const total = Number(row.total) || 0
+    const successes = Number(row.successes) || 0
+    const failures = total - successes
+    const successRate = total > 0 ? successes / total : 0
+    const score = Math.round(successRate * 10)
+    result[row.agent_id] = { score, total, successes, failures, successRate }
+  }
+  return result
 }
 
 // --- OTel Distributed Tracing (card def5a189) ---

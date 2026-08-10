@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initDatabase, createApproval, createKanbanCard, getKanbanComments } from '../db.js'
+import { initDatabase, createApproval, createKanbanCard, getKanbanComments, getDb } from '../db.js'
 
 vi.mock('../config.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../config.js')>()
@@ -150,5 +150,40 @@ describe('approval verifications', () => {
     await tryHandleApprovals(ctx)
     expect(out.body).toHaveLength(1)
     expect(out.body[0]).toMatchObject({ status: 'pending', report: null })
+  })
+
+  it('logs a dispatch entry when verifying, and resolves it when the agent reports', async () => {
+    const approval = createApproval({ id: 'a9', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'Fix X' })
+
+    // Dispatch a verification to gemma
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
+
+    // A 'dispatched' row should have been written
+    const dispatched = getDb().prepare(
+      `SELECT * FROM agent_dispatch_log WHERE agent_id = 'gemma' AND status = 'dispatched' ORDER BY id DESC LIMIT 1`
+    ).get() as any
+    expect(dispatched).toBeDefined()
+    expect(dispatched.target_id).toBe(approval.id)
+
+    // Agent reports pass → dispatch resolves to 'success'
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify-result`, { agent: 'gemma', status: 'pass', report: 'all good' }).ctx)
+
+    const resolved = getDb().prepare(
+      `SELECT * FROM agent_dispatch_log WHERE agent_id = 'gemma' AND target_id = ? ORDER BY id DESC LIMIT 1`
+    ).get(approval.id) as any
+    expect(resolved.status).toBe('success')
+  })
+
+  it('logs a failed dispatch when verify-result reports fail', async () => {
+    const approval = createApproval({ id: 'a10', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'Fix Y' })
+
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify-result`, { agent: 'gemma', status: 'fail', report: 'broken' }).ctx)
+
+    const row = getDb().prepare(
+      `SELECT * FROM agent_dispatch_log WHERE agent_id = 'gemma' AND target_id = ? ORDER BY id DESC LIMIT 1`
+    ).get(approval.id) as any
+    expect(row.status).toBe('failed')
+    expect(row.error_type).toBe('verification_failed')
   })
 })

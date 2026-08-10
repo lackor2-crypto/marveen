@@ -6,6 +6,7 @@ import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
   createOrResetApprovalVerification, listApprovalVerifications, resolveApprovalVerification,
+  logAgentDispatch, resolveAgentDispatch, resolveLatestAgentDispatch,
   type Approval,
 } from '../../db.js'
 import { logger } from '../../logger.js'
@@ -334,6 +335,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         lastFreeDispatchAtMs = Date.now()
       }
       createOrResetApprovalVerification(approvalId, agent)
+      // Track this dispatch for the agent's reliability score (card 502005f0).
+      // target_id stores the approvalId so verify-result can correlate back.
+      const dispatchId = logAgentDispatch(agent, 'verification', approvalId)
+      const startTimeMs = Date.now()
       const prompt = [
         `Ellenorzesi feladat (Boss kerte, jovahagyas elott): nezd at ezt a fuggo jovahagyast alaposan.`,
         `Kategoria: ${approval.category}`,
@@ -356,6 +361,8 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         createAgentMessage(MAIN_AGENT_ID, agent, prompt)
         dispatched.push(agent)
       } catch (err) {
+        // Dispatch failed -- record the failure in the reliability log.
+        resolveAgentDispatch(dispatchId, 'failed', 'dispatch_error', err instanceof Error ? err.message : 'Failed to dispatch', Date.now() - startTimeMs)
         failed.push({ agent, error: err instanceof Error ? err.message : 'Failed to dispatch' })
       }
     }
@@ -388,6 +395,17 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const updated = resolveApprovalVerification(approvalId, agent.trim(), status, reportText)
     if (!updated) { json(res, { error: 'No pending verification for this approval/agent -- was it dispatched via /verify?' }, 404); return true }
     logger.info({ approvalId, agent, status }, 'Approval verification resolved')
+
+    // Resolve the dispatch log entry (card 502005f0): pass → success, fail → failed.
+    // Best-effort: a missing or stale dispatch row must never block the response.
+    try {
+      const dispatchStatus = status === 'pass' ? 'success' : 'failed'
+      const dispatchError = status === 'fail' ? 'verification_failed' : undefined
+      const dispatchReport = status === 'fail' ? (reportText || 'Agent reported failure') : undefined
+      resolveLatestAgentDispatch(agent.trim(), approvalId, dispatchStatus, dispatchError, dispatchReport)
+    } catch (err) {
+      logger.warn({ err, approvalId, agent, status }, 'Failed to resolve agent dispatch log entry')
+    }
 
     // Boss 2026-08-08: "el is lehetne azt is tárolni, hogy mit talált, és a
     // kártyába is tegye hozzá" -- if this approval traces back to a kanban

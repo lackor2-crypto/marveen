@@ -3547,6 +3547,23 @@ function accountBadgeHtml(claudePlan, isMain) {
   return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
 }
 
+// 0-10 reliability badge for free agents (card 502005f0). A compact progress
+// bar whose fill colour goes red → amber → green along the score, with the
+// integer score overlaid. Only rendered when the backend has collected at least
+// one dispatch for the agent; otherwise the badge is omitted entirely.
+function reliabilityBadgeHtml(reliability) {
+  if (!reliability || reliability.total === 0 || reliability.score === null) return ''
+  const score = reliability.score
+  const pct = score * 10 // 0-100 for the bar fill width
+  // Red at 0 → amber at 5 → green at 10.
+  const color = score >= 8 ? '#2f9e5b' : score >= 5 ? '#d39423' : '#d32b32'
+  const tip = t('agents.reliability_tip')
+    .replace('{score}', score)
+    .replace('{pct}', Math.round(reliability.successRate * 100))
+    .replace('{total}', reliability.total)
+  return `<span class="agent-reliability-badge" title="${escapeAttr(tip)}" style="--rel-color:${color};--rel-pct:${pct}%"><span class="rel-fill"></span><span class="rel-num">${escapeHtml(score.toString())}</span></span>`
+}
+
 function renderAgents() {
   // Hide for the duration of THIS render too (not just the very first paint,
   // covered by the `hidden` attribute already on the static HTML) -- while
@@ -3655,7 +3672,7 @@ function renderAgents() {
     const runLabel = isRunning ? t('agents.status.running') : t('agents.status.stopped')
 
     card.innerHTML = `
-      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}</div>
+      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}${reliabilityBadgeHtml(agent.reliability)}</div>
       <div class="agent-card-top">
         <div class="${avatarClass}"${avatarStyle}>${avatarHtml}</div>
         <div class="agent-card-info">

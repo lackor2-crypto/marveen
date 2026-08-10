@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
 import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT } from '../../config.js'
-import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed } from '../../db.js'
+import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getAgentReliability, type AgentReliability } from '../../db.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from '../agent-message-wrap.js'
 import { ensureFederationClaudeMdSection } from '../federation/onboarding.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
@@ -444,6 +444,9 @@ interface AgentSummary {
    *  drives the dashboard "reauth needed" badge + one-click /login button. */
   needsReauth: boolean
   reauthReason?: string
+  /** 0-10 reliability score from recent dispatch outcomes (card 502005f0).
+   *  null when no dispatches exist in the rolling window. */
+  reliability: AgentReliability | null
 }
 
 interface AgentDetail extends AgentSummary {
@@ -518,6 +521,7 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     contextTokens: running ? readContextTokensFromProjectDir(dir, resolveAgentConfigDir(name).configDir ?? undefined) : null,
     needsReauth: reauth.needsReauth,
     reauthReason: reauth.reason,
+    reliability: getAgentReliability(name),
   }
 }
 
