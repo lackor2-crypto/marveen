@@ -1641,6 +1641,19 @@
             <label class="vault-field-label" data-i18n="vault.field.value_label">Ertek</label>
             <input type="password" id="vaultPageValueInput" class="input" placeholder="sk-...">
           </div>
+          <div class="vault-field-group">
+            <label class="vault-field-label" data-i18n="vault.field.category_label">Kategória (opcionális)</label>
+            <input type="text" id="vaultPageCategoryInput" class="input" list="vaultCategoryOptions" placeholder="pl. Taxi cég, Személyes">
+            <datalist id="vaultCategoryOptions"></datalist>
+          </div>
+          <div class="vault-field-group">
+            <label class="vault-field-label" data-i18n="vault.field.url_label">URL (opcionális)</label>
+            <input type="text" id="vaultPageUrlInput" class="input" placeholder="https://...">
+          </div>
+          <div class="vault-field-group">
+            <label class="vault-field-label" data-i18n="vault.field.notes_label">Jegyzet (opcionális)</label>
+            <textarea id="vaultPageNotesInput" class="input" rows="2" placeholder="pl. itt találom, erre használjuk..."></textarea>
+          </div>
         </div>
         <div class="vault-add-actions">
           <button class="btn-primary" id="vaultPageAddBtn">
@@ -1656,6 +1669,7 @@
         </svg>
         <input type="text" id="vaultSearchInput" class="vault-search" placeholder="Kereses a kulcsok kozott..." data-i18n-placeholder="vault.search_placeholder">
       </div>
+      <div class="vault-category-filter" id="vaultCategoryFilter"></div>
 
       <div class="vault-grid" id="vaultPageList"></div>
       <div id="vaultPageEmpty" class="vault-empty" hidden>

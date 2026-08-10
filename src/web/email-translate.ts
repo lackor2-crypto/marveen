@@ -145,8 +145,11 @@ function pruneCache(): void {
 
 // Strip HTML tags for translation (preserve structure markers)
 function stripHtmlForTranslation(html: string): string {
-  // Replace block elements with newlines
+  // Remove style and script blocks entirely (including their content)
   let text = html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    // Replace block elements with newlines
     .replace(/<\/(div|p|br|h[1-6]|li|tr|table|ul|ol|blockquote)>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')

@@ -21,6 +21,19 @@ interface VaultEntry {
   encrypted: string  // base64(salt + iv + tag + ciphertext)
   createdAt: string
   updatedAt: string
+  // Kanban 85eafd56: category/URL/notes so the vault can hold more than raw
+  // key-value pairs (Boss, 2026-08-07 -- e.g. a "Taxi cég" folder for company
+  // API keys, separate from personal logins). All optional/absent on entries
+  // written before this -- readVaultEntry() below is what normalizes that.
+  category?: string
+  url?: string
+  notes?: string
+}
+
+export interface VaultEntryMeta {
+  category?: string
+  url?: string
+  notes?: string
 }
 
 interface VaultStore {
@@ -99,22 +112,51 @@ function writeVault(store: VaultStore): void {
   atomicWriteFileSync(VAULT_PATH, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 })
 }
 
-export function listSecrets(): Array<{ id: string, label: string, createdAt: string, updatedAt: string }> {
-  return readVault().entries.map(({ id, label, createdAt, updatedAt }) => ({ id, label, createdAt, updatedAt }))
+export function listSecrets(): Array<{ id: string, label: string, createdAt: string, updatedAt: string, category?: string, url?: string, notes?: string }> {
+  return readVault().entries.map(({ id, label, createdAt, updatedAt, category, url, notes }) => ({ id, label, createdAt, updatedAt, category, url, notes }))
 }
 
-export function setSecret(id: string, label: string, value: string): void {
+export function setSecret(id: string, label: string, value: string, meta?: VaultEntryMeta): void {
   const store = readVault()
   const now = new Date().toISOString()
   const idx = store.entries.findIndex(e => e.id === id)
-  const entry: VaultEntry = { id, label, encrypted: encrypt(value), createdAt: now, updatedAt: now }
+  const entry: VaultEntry = {
+    id, label, encrypted: encrypt(value), createdAt: now, updatedAt: now,
+    category: meta?.category || undefined,
+    url: meta?.url || undefined,
+    notes: meta?.notes || undefined,
+  }
   if (idx >= 0) {
     entry.createdAt = store.entries[idx].createdAt
+    // A meta field left out of THIS call (undefined) keeps the previous
+    // value rather than wiping it -- e.g. editing just the notes shouldn't
+    // silently drop the category. Pass an explicit '' to clear a field.
+    if (meta?.category === undefined) entry.category = store.entries[idx].category
+    if (meta?.url === undefined) entry.url = store.entries[idx].url
+    if (meta?.notes === undefined) entry.notes = store.entries[idx].notes
     store.entries[idx] = entry
   } else {
     store.entries.push(entry)
   }
   writeVault(store)
+}
+
+// Editing the label/category/URL/notes on an existing entry shouldn't force
+// re-typing (and re-encrypting) the secret value itself -- this rewrites
+// only the metadata fields in place.
+export function updateSecretMeta(id: string, meta: { label?: string } & VaultEntryMeta): boolean {
+  const store = readVault()
+  const idx = store.entries.findIndex(e => e.id === id)
+  if (idx < 0) return false
+  const entry = store.entries[idx]
+  if (meta.label !== undefined) entry.label = meta.label
+  if (meta.category !== undefined) entry.category = meta.category || undefined
+  if (meta.url !== undefined) entry.url = meta.url || undefined
+  if (meta.notes !== undefined) entry.notes = meta.notes || undefined
+  entry.updatedAt = new Date().toISOString()
+  store.entries[idx] = entry
+  writeVault(store)
+  return true
 }
 
 export function getSecret(id: string): string | null {

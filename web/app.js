@@ -9589,6 +9589,7 @@ async function loadVaultPage() {
     _vaultBindings = bindingsData.bindings || []
     document.getElementById('vaultStatTotal').textContent = String(_vaultSecrets.length)
     document.getElementById('vaultStatBindings').textContent = String(_vaultBindings.length)
+    renderVaultCategoryFilter(_vaultSecrets)
     renderVaultGrid(_vaultSecrets)
     renderVaultKnownIntegrations()
     await Promise.all([loadSshKeys(), loadSshServers()])
@@ -9636,6 +9637,39 @@ function renderVaultKnownIntegrations() {
   })
 }
 
+// Kanban 85eafd56: chip row above the grid so a folder like "Taxi cég" can be
+// isolated from "Személyes" at a glance, not just via free-text search.
+let _vaultActiveCategory = null
+function renderVaultCategoryFilter(secrets) {
+  const bar = document.getElementById('vaultCategoryFilter')
+  const datalist = document.getElementById('vaultCategoryOptions')
+  if (!bar) return
+  const categories = [...new Set(secrets.map(s => s.category).filter(Boolean))].sort()
+  if (datalist) datalist.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}">`).join('')
+  if (categories.length === 0) { bar.innerHTML = ''; bar.hidden = true; return }
+  bar.hidden = false
+  if (_vaultActiveCategory && !categories.includes(_vaultActiveCategory)) _vaultActiveCategory = null
+  const chip = (label, value) => `<button type="button" class="vault-category-chip${_vaultActiveCategory === value ? ' active' : ''}" data-cat="${escapeAttr(value ?? '')}">${escapeHtml(label)}</button>`
+  bar.innerHTML = chip(t('vault.category.all'), null) + categories.map(c => chip(c, c)).join('')
+  bar.querySelectorAll('.vault-category-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _vaultActiveCategory = btn.dataset.cat || null
+      renderVaultCategoryFilter(_vaultSecrets)
+      applyVaultFilters()
+    })
+  })
+}
+
+// Combines the free-text search box with the active category chip -- both
+// narrow the same list rather than being separate modes.
+function applyVaultFilters() {
+  const q = (document.getElementById('vaultSearchInput')?.value || '').toLowerCase().trim()
+  let filtered = _vaultSecrets
+  if (_vaultActiveCategory) filtered = filtered.filter(s => s.category === _vaultActiveCategory)
+  if (q) filtered = filtered.filter(s => s.id.toLowerCase().includes(q) || s.label.toLowerCase().includes(q))
+  renderVaultGrid(filtered)
+}
+
 function renderVaultGrid(secrets) {
   const list = document.getElementById('vaultPageList')
   const empty = document.getElementById('vaultPageEmpty')
@@ -9649,7 +9683,10 @@ function renderVaultGrid(secrets) {
     const date = new Date(s.updatedAt).toLocaleDateString('hu-HU')
     const bindingCount = _vaultBindings.filter(b => b.vaultSecretId === s.id).length
     const bindingBadge = bindingCount > 0 ? `<span class="vault-binding-badge" title="${bindingCount} kotes">${bindingCount} kotes</span>` : ''
-    card.innerHTML = `<div class="vault-card-header"><div class="vault-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="vault-card-title"><div class="vault-card-id">${escapeHtml(s.id)} ${bindingBadge}</div>${s.label !== s.id ? `<div class="vault-card-label">${escapeHtml(s.label)}</div>` : ''}</div><div class="vault-card-meta">${date}</div></div><div class="vault-card-actions"><button class="btn-secondary btn-compact vault-card-reveal" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${t('vault.btn.show')}</button><button class="btn-secondary btn-compact vault-card-edit" data-id="${escapeHtml(s.id)}" data-label="${escapeHtml(s.label)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>${t('vault.btn.edit')}</button><button class="btn-secondary btn-compact vault-card-delete" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>${t('vault.btn.delete')}</button></div>`
+    const categoryBadge = s.category ? `<span class="vault-category-badge">${escapeHtml(s.category)}</span>` : ''
+    const urlLine = s.url ? `<a class="vault-card-url" href="${escapeAttr(/^https?:\/\//i.test(s.url) ? s.url : 'https://' + s.url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${escapeHtml(s.url)}</a>` : ''
+    const notesLine = s.notes ? `<div class="vault-card-notes">${escapeHtml(s.notes)}</div>` : ''
+    card.innerHTML = `<div class="vault-card-header"><div class="vault-card-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="vault-card-title"><div class="vault-card-id">${escapeHtml(s.id)} ${bindingBadge}${categoryBadge}</div>${s.label !== s.id ? `<div class="vault-card-label">${escapeHtml(s.label)}</div>` : ''}${urlLine}${notesLine}</div><div class="vault-card-meta">${date}</div></div><div class="vault-card-actions"><button class="btn-secondary btn-compact vault-card-reveal" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${t('vault.btn.show')}</button><button class="btn-secondary btn-compact vault-card-edit" data-id="${escapeHtml(s.id)}" data-label="${escapeHtml(s.label)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>${t('vault.btn.edit')}</button><button class="btn-secondary btn-compact vault-card-delete" data-id="${escapeHtml(s.id)}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>${t('vault.btn.delete')}</button></div>`
     list.appendChild(card)
   }
   list.querySelectorAll('.vault-card-reveal').forEach(btn => {
@@ -9680,9 +9717,15 @@ function renderVaultGrid(secrets) {
       const res = await fetch(`/api/vault/${encodeURIComponent(id)}`)
       const data = await res.json()
       if (!data.value) return
+      const secret = _vaultSecrets.find(s => s.id === id) || {}
       const form = document.createElement('div')
       form.className = 'vault-card-edit-form'
-      form.innerHTML = `<input type="password" class="input vault-edit-value" value="${escapeHtml(data.value)}" style="font-size:13px;margin-bottom:6px"><button class="btn-primary btn-compact vault-edit-save">${t('vault.btn.save')}</button> <button class="btn-secondary btn-compact vault-edit-cancel">${t('vault.btn.cancel')}</button>`
+      form.innerHTML = `
+        <input type="password" class="input vault-edit-value" value="${escapeHtml(data.value)}" placeholder="${escapeAttr(t('vault.field.value_label'))}" style="font-size:13px;margin-bottom:6px">
+        <input type="text" class="input vault-edit-category" value="${escapeHtml(secret.category || '')}" placeholder="${escapeAttr(t('vault.field.category_label'))}" style="font-size:13px;margin-bottom:6px" list="vaultCategoryOptions">
+        <input type="text" class="input vault-edit-url" value="${escapeHtml(secret.url || '')}" placeholder="${escapeAttr(t('vault.field.url_label'))}" style="font-size:13px;margin-bottom:6px">
+        <textarea class="input vault-edit-notes" rows="2" placeholder="${escapeAttr(t('vault.field.notes_label'))}" style="font-size:13px;margin-bottom:6px">${escapeHtml(secret.notes || '')}</textarea>
+        <button class="btn-primary btn-compact vault-edit-save">${t('vault.btn.save')}</button> <button class="btn-secondary btn-compact vault-edit-cancel">${t('vault.btn.cancel')}</button>`
       card.appendChild(form)
       const input = form.querySelector('.vault-edit-value')
       input.focus()
@@ -9691,13 +9734,16 @@ function renderVaultGrid(secrets) {
       form.querySelector('.vault-edit-save').addEventListener('click', async () => {
         const newVal = input.value
         if (!newVal) return
+        const category = form.querySelector('.vault-edit-category').value.trim()
+        const url = form.querySelector('.vault-edit-url').value.trim()
+        const notes = form.querySelector('.vault-edit-notes').value.trim()
         const saveBtn = form.querySelector('.vault-edit-save')
         saveBtn.disabled = true
         saveBtn.textContent = '...'
         const res = await fetch('/api/vault', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, label, value: newVal }),
+          body: JSON.stringify({ id, label, value: newVal, category, url, notes }),
         })
         if (!res.ok) {
           const e = await res.json().catch(() => ({}))
@@ -9712,7 +9758,6 @@ function renderVaultGrid(secrets) {
         loadVault()
       })
       input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') form.querySelector('.vault-edit-save').click()
         if (e.key === 'Escape') form.remove()
       })
     })
@@ -9746,16 +9791,22 @@ function renderVaultGrid(secrets) {
     const id = document.getElementById('vaultPageIdInput').value.trim()
     const label = document.getElementById('vaultPageLabelInput').value.trim() || id
     const value = document.getElementById('vaultPageValueInput').value
+    const category = document.getElementById('vaultPageCategoryInput').value.trim()
+    const url = document.getElementById('vaultPageUrlInput').value.trim()
+    const notes = document.getElementById('vaultPageNotesInput').value.trim()
     if (!id || !value) return
     addBtn.disabled = true
     await fetch('/api/vault', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, label, value }),
+      body: JSON.stringify({ id, label, value, category, url, notes }),
     })
     document.getElementById('vaultPageIdInput').value = ''
     document.getElementById('vaultPageLabelInput').value = ''
     document.getElementById('vaultPageValueInput').value = ''
+    document.getElementById('vaultPageCategoryInput').value = ''
+    document.getElementById('vaultPageUrlInput').value = ''
+    document.getElementById('vaultPageNotesInput').value = ''
     addBtn.disabled = false
     panel.hidden = true
     loadVaultPage()
@@ -9763,11 +9814,7 @@ function renderVaultGrid(secrets) {
   })
   document.getElementById('vaultPageValueInput')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click() })
 
-  document.getElementById('vaultSearchInput')?.addEventListener('input', (e) => {
-    const q = e.target.value.toLowerCase().trim()
-    if (!q) { renderVaultGrid(_vaultSecrets); return }
-    renderVaultGrid(_vaultSecrets.filter(s => s.id.toLowerCase().includes(q) || s.label.toLowerCase().includes(q)))
-  })
+  document.getElementById('vaultSearchInput')?.addEventListener('input', applyVaultFilters)
 })()
 
 // --- Vault Binding modal ---

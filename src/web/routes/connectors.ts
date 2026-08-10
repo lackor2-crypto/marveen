@@ -15,7 +15,7 @@ import { getMcpListCache, refreshMcpListCache, purgeFromMcpListCache } from '../
 import { readBody, json } from '../http-helpers.js'
 import { shellEscape } from '../sanitize.js'
 import { getExternalProjectPaths, addExternalProjectPath, removeExternalProjectPath, getGitHubRepos, installGitHubRepo, removeGitHubRepo, updateGitHubRepo, detectRequiredEnvVars } from '../dashboard-settings.js'
-import { listSecrets, setSecret, getSecret, deleteSecret } from '../vault.js'
+import { listSecrets, setSecret, getSecret, deleteSecret, updateSecretMeta } from '../vault.js'
 import {
   getBindings, addBinding, removeBinding, removeBindingsForSecret,
   syncSecret, syncAllBindings, scanMcpConfigs, unsyncBinding,
@@ -727,11 +727,26 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/vault' && method === 'POST') {
     const body = await readBody(req)
-    const { id, label, value } = JSON.parse(body.toString()) as { id: string, label: string, value: string }
+    const { id, label, value, category, url, notes } = JSON.parse(body.toString()) as
+      { id: string, label: string, value: string, category?: string, url?: string, notes?: string }
     if (!id?.trim() || !value) { json(res, { error: 'id and value required' }, 400); return true }
-    setSecret(id.trim(), label || id.trim(), value)
+    setSecret(id.trim(), label || id.trim(), value, { category, url, notes })
     const syncResult = syncSecret(id.trim())
     json(res, { ok: true, synced: syncResult.updated })
+    return true
+  }
+
+  // Metadata-only edit (label/category/URL/notes) -- does not touch the
+  // encrypted value, so it doesn't ask Boss to re-type a password just to
+  // fix a typo in the notes field (kanban 85eafd56).
+  const vaultPatchMatch = path.match(/^\/api\/vault\/([^/]+)$/)
+  if (vaultPatchMatch && method === 'PATCH') {
+    const id = decodeURIComponent(vaultPatchMatch[1])
+    const body = await readBody(req)
+    const { label, category, url, notes } = JSON.parse(body.toString()) as
+      { label?: string, category?: string, url?: string, notes?: string }
+    if (!updateSecretMeta(id, { label, category, url, notes })) { json(res, { error: 'Not found' }, 404); return true }
+    json(res, { ok: true })
     return true
   }
 

@@ -5099,6 +5099,51 @@ main.email-active .page-header { flex-shrink: 0; }
   margin-left: 6px;
 }
 
+/* Kanban 85eafd56: category/URL/notes on the vault entries. */
+.vault-category-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.vault-card-url {
+  display: block;
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 2px;
+  word-break: break-all;
+}
+.vault-card-notes {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.vault-category-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.vault-category-chip {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.vault-category-chip:hover { border-color: var(--accent); color: var(--text); }
+.vault-category-chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 .vault-card-edit-form {
   padding: 10px 12px;
   border-top: 1px solid var(--border);
