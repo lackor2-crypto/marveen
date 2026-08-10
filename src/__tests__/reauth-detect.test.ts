@@ -183,3 +183,78 @@ describe('detectReauthNeeded: browser sign-in screen', () => {
     expect(detectReauthNeeded(pane).needsReauth).toBe(false)
   })
 })
+
+// 2026-08-08 incident: a CLAUDE_CODE_OAUTH_TOKEN env var that was not a valid
+// Claude token. The CLI believed it was authenticated, so the live status line
+// stayed healthy and only the per-request rejection showed -- in the
+// TRANSCRIPT, dozens of blank rows above the input box. The old live-region
+// rule returned false and Marvin sat wedged for hours with no escalation.
+describe('detectReauthNeeded: 401 rendered in the transcript (env-token family)', () => {
+  // The pane exactly as tmux captured it while the main agent was wedged.
+  const wedged = [
+    ' ▐▛███▜▌   Claude Code v2.1.226',
+    '▝▜█████▛▘  Sonnet 5 · Claude API',
+    '  ▘▘ ▝▝    ~/marveen',
+    '',
+    '← telegram · 8736799466: hi',
+    '',
+    '● Please run /login · API Error: 401 Invalid bearer token',
+    '',
+    '✻ Cooked for 2s',
+    ...Array.from({ length: 40 }, () => ''),
+    '─────────────────────────────────────────────────────────── Marvin ──',
+    '❯ ',
+    '─────────────────────────────────────────────────────────────────────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents',
+  ].join('\n')
+
+  it('DOES fire on the real wedged pane (regression: used to return false)', () => {
+    const r = detectReauthNeeded(wedged)
+    expect(r.needsReauth).toBe(true)
+    expect(r.reason).toMatch(/login|401/i)
+  })
+
+  it('stops firing once a later login succeeds in the same transcript', () => {
+    const healed = [
+      '● Please run /login · API Error: 401 Invalid bearer token',
+      '❯ /login',
+      '  ⎿  Login successful',
+      ...Array.from({ length: 40 }, () => ''),
+      '─────────────────────────────────────────────────────────── Marvin ──',
+      '❯ ',
+      '─────────────────────────────────────────────────────────────────────',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
+    ].join('\n')
+    expect(detectReauthNeeded(healed).needsReauth).toBe(false)
+  })
+
+  it('does NOT fire when the agent merely DISCUSSES the error in a reply', () => {
+    // The reopened false-positive hole: prose that contains the marker. The
+    // bullet anchor requires the error to START the rendered line.
+    const chat = [
+      '❯ mi volt a baj tegnap?',
+      '● Tegnap egy "API Error: 401 Invalid bearer token" hibád volt, mert a .env-ben',
+      '  rossz token állt. Már javítottuk, most rendben van.',
+      ...Array.from({ length: 40 }, () => ''),
+      '─────────────────────────────────────────────────────────── Marvin ──',
+      '❯ ',
+      '─────────────────────────────────────────────────────────────────────',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
+    ].join('\n')
+    expect(detectReauthNeeded(chat).needsReauth).toBe(false)
+  })
+
+  it('does NOT fire on a first-run picker mentioned deep in scrollback', () => {
+    // firstRunGate markers stay live-region-only: that screen is full-screen
+    // state, and matching it in scrollback is the 2026-07-15 false positive.
+    const chat = [
+      '● A "Select login method" képernyőt láttad korábban.',
+      ...Array.from({ length: 40 }, () => ''),
+      '─────────────────────────────────────────────────────────── Marvin ──',
+      '❯ ',
+      '─────────────────────────────────────────────────────────────────────',
+      '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
+    ].join('\n')
+    expect(detectReauthNeeded(chat).needsReauth).toBe(false)
+  })
+})

@@ -13,6 +13,7 @@ import { parseMultipart } from '../multipart.js'
 import { readBody, json, serveFile } from '../http-helpers.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
+import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
 import type { RouteContext } from './types.js'
 
@@ -77,6 +78,7 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
       ownerName: currentOwnerName(),
       description,
       model: getActiveMarveenModel(),
+      costPerMInput: knownModelCostPerM(getActiveMarveenModel()),
       tmuxSession: MAIN_CHANNELS_SESSION,
       running: true,
       // Auto-restart applies to the main channels session too; key it by the

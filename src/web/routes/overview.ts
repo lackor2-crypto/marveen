@@ -15,6 +15,124 @@ import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { tierForSnapshot, isStale } from '../../rate-limit-status.js'
 import { fetchOpenRouterCredits } from './openrouter-overview.js'
 import { deriveOpenRouterCreditsView } from '../../openrouter-credits.js'
+import { execFileSync } from 'node:child_process'
+import { readClaudePlans } from '../claude-plans.js'
+import { readAgentModel } from '../agent-config.js'
+import { atomicWriteFileSync } from '../atomic-write.js'
+
+// Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
+// multi-account project): these run as full interactive Claude Code TUI
+// sessions but were never wired to the statusline.py JSON-snapshot hook (that
+// hook lives in the SHARED ~/.claude/hooks, not per-plan config dirs), so
+// there is no store/rate-limit-status/<id>.json to read for them the way
+// readRateLimitSnapshot() does for the main agent. Cheaper fallback: scrape
+// Claude Code's own native "You've used X% of your session limit" line and
+// the welcome-box model line straight out of the live tmux pane -- same
+// technique already used for auth/init's URL scrape. Best-effort: any parse
+// miss just omits that field rather than failing the whole overview call.
+const MONTH_ABBRS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+// Claude Code prints the reset moment as either a bare time ("resets 6:20pm")
+// or a dated time once the window is more than a day out ("resets Aug 14,
+// 9am") -- both followed by a timezone parenthetical this parser ignores (the
+// host clock is already Europe/Budapest, see CLAUDE.md time-handling rules).
+// Best-effort: any miss returns null rather than throwing, same contract as
+// the usedPct/model scrape above.
+function parseResetsAt(pane: string, nowMs: number = Date.now()): number | null {
+  // The minute part is only printed when non-zero -- "resets 9pm" and
+  // "resets Aug 14, 9am" are both real, observed forms alongside the
+  // "resets 6:20pm" form, so `:MM` must be optional here.
+  const m = pane.match(/resets\s+(?:([A-Za-z]{3})\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i)
+  if (!m) return null
+  const [, monAbbr, dayStr, hStr, minStr, ap] = m
+  let hours = Number(hStr) % 12
+  if (/pm/i.test(ap)) hours += 12
+  const minutes = minStr ? Number(minStr) : 0
+  const now = new Date(nowMs)
+  let year = now.getFullYear()
+  let month = now.getMonth()
+  let day = now.getDate()
+  if (monAbbr) {
+    const mi = MONTH_ABBRS.indexOf(monAbbr.toLowerCase())
+    if (mi >= 0) { month = mi; day = Number(dayStr) }
+  }
+  let dt = new Date(year, month, day, hours, minutes, 0, 0)
+  // Bare time (no month/day) that already lies in the past means the window
+  // rolls over past midnight -- it means tomorrow, not today.
+  if (!monAbbr && dt.getTime() <= nowMs) {
+    dt = new Date(year, month, day + 1, hours, minutes, 0, 0)
+  }
+  return dt.getTime()
+}
+
+// Last successful scrape per plan, persisted to disk (store/rate-limit-status/
+// scraped-<planId>.json) so it survives a dashboard restart, not just kept
+// in memory. Boss 2026-08-10, TWO live incidents the same night: (1) while
+// Usalackor was actively mid-turn, the "used X%" banner had scrolled out of
+// even a widened scrollback window, scrapeClaudeAccountUsage returned
+// all-null, and accountRow() in web/app.js drops a row entirely when
+// fiveHourPct is null -- so the whole account seemed to vanish from the
+// widget ("eltunt az usalackor. mi lett vele?") right when it was busiest,
+// not idle; (2) an in-memory-only version of this same cache was tried
+// first and didn't survive the dashboard restarts this session kept doing
+// (build+restart is routine while iterating), so it never actually had a
+// chance to seed before the next restart wiped it. A stale reading (clearly
+// marked, see `stale` below) beats no reading.
+const SCRAPE_CACHE_DIR = join(PROJECT_ROOT, 'store', 'rate-limit-status')
+function scrapeCachePath(planId: string): string {
+  return join(SCRAPE_CACHE_DIR, `scraped-${planId}.json`)
+}
+function readScrapeCache(planId: string): { usedPct: number; model: string | null; resetsAt: number | null } | null {
+  try {
+    const raw = JSON.parse(readFileSync(scrapeCachePath(planId), 'utf-8'))
+    if (typeof raw?.usedPct === 'number') return { usedPct: raw.usedPct, model: raw.model ?? null, resetsAt: raw.resetsAt ?? null }
+  } catch { /* no cache yet, or unreadable -- treat as no cache */ }
+  return null
+}
+function writeScrapeCache(planId: string, v: { usedPct: number; model: string | null; resetsAt: number | null }): void {
+  try {
+    atomicWriteFileSync(scrapeCachePath(planId), JSON.stringify({ ...v, capturedAt: Date.now() }))
+  } catch { /* best-effort cache -- a write failure just means the next call retries live */ }
+}
+
+function scrapeClaudeAccountUsage(planId: string): { usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean } {
+  let pane: string | null = null
+  try {
+    // -S -2000: the "used X%" banner is transient (only shown right after it
+    // renders, then scrolls out of the default single-screen capture once the
+    // agent replies to anything) -- read back deep into scrollback so a long
+    // busy stretch (lots of tool-call output) doesn't push it out of range.
+    // Best-effort: any tmux failure (session not found, etc) -> nulls.
+    pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', `agent-${planId}`, '-p', '-S', '-2000'], { timeout: 3000 }).toString()
+  } catch { /* pane unavailable, fall through with nulls */ }
+
+  const fresh = pane ? scrapeFreshUsage(pane) : { usedPct: null, model: null, resetsAt: null }
+  if (fresh.usedPct !== null) {
+    const v = { usedPct: fresh.usedPct, model: fresh.model, resetsAt: fresh.resetsAt }
+    writeScrapeCache(planId, v)
+    return { ...fresh, stale: false }
+  }
+  const cached = readScrapeCache(planId)
+  if (cached) return { usedPct: cached.usedPct, model: cached.model, resetsAt: cached.resetsAt, stale: true }
+  return { usedPct: null, model: null, resetsAt: null, stale: false }
+}
+
+function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string | null; resetsAt: number | null } {
+  // Either the "stop and wait for limit to reset" dialog or the plain
+  // "You've hit your session/weekly limit" banner means the window is fully
+  // exhausted (100%); neither repeats the "used X%" text the regex below
+  // needs.
+  if (/Stop and wait for limit to reset|hit your (?:session|weekly) limit/i.test(pane)) {
+    return { usedPct: 100, model: null, resetsAt: parseResetsAt(pane) }
+  }
+  const usedMatch = [...pane.matchAll(/used (\d+)% of your session limit/g)].pop()
+  const modelMatch = pane.match(/([A-Za-z][A-Za-z0-9. ]*?)\s*[·•]\s*Claude (?:Pro|Team|Max)/)
+  return {
+    usedPct: usedMatch ? Number(usedMatch[1]) : null,
+    model: modelMatch ? modelMatch[1].trim() : null,
+    resetsAt: parseResetsAt(pane),
+  }
+}
 
 // Known optional capabilities the system supports but that need a per-user
 // setup step (a vault key, a token, ...) before they actually work. The
@@ -184,6 +302,66 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     const openrouterCreditsRaw = openrouterManagementKey ? await fetchOpenRouterCredits(openrouterManagementKey) : null
     const openrouterCredits = openrouterCreditsRaw ? deriveOpenRouterCreditsView(openrouterCreditsRaw) : null
 
+    // Boss 2026-08-09: show every named Claude account (lackor2 + any plan
+    // registered in store/claude-plans.json) side by side, each labelled and
+    // with its own usage% + active model -- not just the main agent.
+    const claudeAccounts = [
+      {
+        id: MAIN_AGENT_ID,
+        // Boss 2026-08-09: this row is about WHICH LOGIN is running low, not
+        // the assistant's persona -- so it deliberately says "Lackor2", not
+        // currentBotName() ("Marvin"), matching the account-style labels
+        // used for the other two rows ("Usalackor (Opus 4.8)", "Lackor3
+        // (Haiku)"). The org-chart's own main-node label (a few lines above,
+        // `agentsForTeam`) is a SEPARATE field and correctly stays "Marvin".
+        label: `Lackor2${rlSnapshot?.model ? ` (${rlSnapshot.model})` : ''}`,
+        model: rlSnapshot?.model ?? null,
+        fiveHourPct: rlSnapshot?.fiveHour?.usedPct ?? null,
+        sevenDayPct: rlSnapshot?.sevenDay?.usedPct ?? null,
+        fiveHourResetsAt: rlSnapshot?.fiveHour?.resetsAt ?? null,
+        sevenDayResetsAt: rlSnapshot?.sevenDay?.resetsAt ?? null,
+      },
+      ...readClaudePlans().map(plan => {
+        // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok
+        // csatlakozva van"): he was right -- the pane-scrape below was
+        // always a workaround for these two plans never having had
+        // statusline.py wired into their (isolated) CLAUDE_CONFIG_DIR, so
+        // Claude Code's own real usage numbers just weren't being captured
+        // anywhere, the same way they already are for the main agent (and
+        // this is the SAME script/snapshot format, readRateLimitSnapshot is
+        // agent-id-generic). Wired it in tonight (store/accounts/<plan>/
+        // settings.json statusLine key) -- prefer that real snapshot now,
+        // scraping the pane is only the fallback for the window before a
+        // plan's session has taken its first turn (fresh restart, no
+        // rate_limits in Claude Code's statusline payload yet).
+        const snap = readRateLimitSnapshot(plan.id)
+        const snapFresh = snap && !isStale(snap.updatedAt, Date.now())
+        if (snapFresh && snap.fiveHour?.usedPct != null) {
+          return {
+            id: plan.id,
+            label: plan.label,
+            model: snap.model ?? readAgentModel(plan.id),
+            fiveHourPct: snap.fiveHour.usedPct,
+            sevenDayPct: snap.sevenDay?.usedPct ?? null,
+            fiveHourResetsAt: snap.fiveHour.resetsAt ?? null,
+            sevenDayResetsAt: snap.sevenDay?.resetsAt ?? null,
+            stale: false,
+          }
+        }
+        const scraped = scrapeClaudeAccountUsage(plan.id)
+        return {
+          id: plan.id,
+          label: plan.label,
+          model: scraped.model ?? readAgentModel(plan.id),
+          fiveHourPct: scraped.usedPct,
+          sevenDayPct: null,
+          fiveHourResetsAt: scraped.resetsAt,
+          sevenDayResetsAt: null,
+          stale: scraped.stale,
+        }
+      }),
+    ]
+
     jsonMaybeGzip(req, res, {
       agents: { total, running },
       tasksToday,
@@ -194,6 +372,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       activity: activity.slice(0, 8),
       unconfiguredCapabilities,
       rateLimit,
+      claudeAccounts,
       openrouterCredits,
     })
     return true

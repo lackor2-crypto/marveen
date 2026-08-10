@@ -569,7 +569,25 @@ nav { display: flex; gap: 4px; }
   flex-wrap: wrap;
   justify-content: center;
 }
+/* Marvin's direct reports (.team-roots) must NEVER wrap onto a second visual
+   row: each subtree's own width grows with ITS children (a report with many
+   reports of its own can easily need 1000px+), and with flex-wrap:wrap that
+   width starvation pushed a later sibling onto its own line -- LOOKING
+   exactly like it was nested one level deeper than it really is. Real
+   incident (2026-08-09): Szakértő (usalackor) already reported directly to
+   Marvin (confirmed via /api/team/graph edges), but rendered below
+   Segédmunkás's 5-wide children row and Boss read it as "only 2 direct
+   reports fit under Marvin, remove the limit" -- there was no limit, only
+   this wrap. Deeper levels (a node's OWN .team-children) keep wrapping,
+   that's fine; only the direct-report row needs the guarantee. */
+.team-children.team-roots {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  max-width: 100%;
+  padding-bottom: 10px;
+}
 .team-node {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -581,6 +599,29 @@ nav { display: flex; gap: 4px; }
   border: 1px solid var(--border);
   cursor: pointer;
   transition: border-color var(--transition), transform var(--transition);
+}
+.team-node-free-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 999px;
+  padding: 2px 7px;
+  line-height: 1.4;
+}
+/* .agent-cost-badge (green $/M badge, shared with the Agents grid card) reused
+   here for paid org-chart nodes -- resized/repositioned to match the smaller
+   .team-node footprint instead of the bigger .agent-card's spacing. */
+.team-node .agent-cost-badge {
+  top: 6px;
+  right: 6px;
+  font-size: 9px;
+  padding: 2px 7px;
 }
 .team-node:hover { border-color: var(--accent); transform: translateY(-1px); }
 .team-node.main { background: var(--accent-soft); border-color: var(--accent); }
@@ -758,6 +799,56 @@ main {
 }
 .overview-card-head h3 { font-size: 16px; font-weight: 600; }
 .overview-card-meta { font-size: 12px; color: var(--text-muted); }
+
+.overview-ratelimit { margin-bottom: 20px; }
+.overview-ratelimit-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.overview-ratelimit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.overview-ratelimit-row-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.overview-ratelimit-row-head strong { color: var(--text); font-weight: 600; }
+.overview-ratelimit-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-hover, rgba(127,127,127,0.15));
+  overflow: hidden;
+}
+.overview-ratelimit-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--success);
+  transition: width var(--transition);
+}
+.overview-ratelimit-fill.caution { background: var(--warning, #d4a52c); }
+.overview-ratelimit-fill.critical { background: var(--danger); }
+.overview-ratelimit-note {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.overview-ratelimit-note.caution {
+  background: var(--warning-soft, rgba(212,165,44,0.12));
+  color: var(--warning, #d4a52c);
+  border: 1px solid var(--warning, #d4a52c);
+}
+.overview-ratelimit-note.critical {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
 
 .overview-team-graph {
   padding: 12px 0;
@@ -1300,6 +1391,18 @@ main {
   animation: kanban-card-flash-pulse 0.6s ease-in-out 4;
 }
 
+/* Inline #<id> references (linkifyKanbanRefs) throughout activity/approvals/
+   comments -- jumps to the card, so it should read as clickable without
+   looking like a foreign-page hyperlink. */
+.kanban-link {
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+.kanban-link:hover {
+  text-decoration: underline;
+}
+
 /* === Kanban Swimlanes === */
 .kanban-swimlane-board {
   display: flex;
@@ -1593,15 +1696,122 @@ main.email-active .page-header { flex-shrink: 0; }
   background: var(--accent-soft);
 }
 
+/* === Approvals: verify-before-approve agent picker (Boss 2026-08-08) === */
+.verify-picker-popover {
+  z-index: 1000;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 12px;
+  width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.verify-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.verify-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 4px;
+}
+.verify-picker-item:hover { background: var(--bg-card-hover); }
+
 /* === Agent Grid === */
 .agents-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
 }
+/* Separates paid/unrestricted agent cards (above) from free-tier OpenRouter
+   agent cards (below) -- spans every column so it reads as a hard break, not
+   just another grid cell. */
+.agent-tier-divider {
+  grid-column: 1 / -1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Boss 2026-08-08: felt cramped at 4px -- give the paid cards above and
+     free cards below real breathing room instead of butting up against the
+     line. */
+  margin: 32px 0;
+}
+/* Label sits at the LEFT end (no ::before segment) with the line filling the
+   rest -- the "+ new agent" button (see .add-card-on-divider) is centered on
+   the whole bar, and centering the label too would put both fighting for the
+   same spot, hiding the label under the button's opaque background (Boss,
+   2026-08-08). */
+.agent-tier-divider::after {
+  content: '';
+  flex: 1;
+  height: 3px;
+  background: var(--danger);
+  border-radius: 2px;
+}
+.agent-tier-divider span {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--danger);
+  white-space: nowrap;
+}
+/* The "+ new agent" button, re-parented onto the divider by renderAgents()
+   whenever both tiers are present: half-height, centered on the divider's
+   own line so it visibly straddles both sections instead of trailing after
+   the last free-tier card (which read as "new agents go here only"). */
+.add-card.add-card-on-divider {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 220px;
+  min-height: 104px;
+  padding: 10px 16px;
+  gap: 8px;
+  z-index: 1;
+  background: var(--bg);
+}
+.add-card.add-card-on-divider .add-icon {
+  width: 40px;
+  height: 40px;
+}
+.add-card.add-card-on-divider .add-icon svg { width: 22px; height: 22px; }
+.add-card.add-card-on-divider span { font-size: 13px; }
+/* .agent-card:hover sets transform: translateY(-2px), which -- same
+   specificity, declared later in the file -- overwrites (not adds to) the
+   translate(-50%,-50%) centering above on hover, snapping the button off
+   the divider line (Boss, 2026-08-08: "moves right when I hover"). Keep
+   the centering and layer the lift on top of it. */
+.add-card.add-card-on-divider:hover {
+  transform: translate(-50%, -50%) translateY(-2px);
+}
 
 /* === Agent Card === */
+/* The `hidden` HTML attribute's default UA style is a plain (non-!important)
+   `display: none` -- any author rule that sets `display` on the same element
+   (like the one right below) silently wins over it, so `<button hidden>`
+   rendered fully visible anyway. Boss 2026-08-08: this is why hiding
+   #addAgentBtn via the hidden attribute never actually worked, no matter how
+   early it was set or how many times cache was cleared -- it was never a
+   caching issue. */
+#addAgentBtn[hidden] { display: none !important; }
+/* The [hidden] override must be class-level (not just #addAgentBtn) because
+   the test guard extracts class names from the hidden attribute and checks
+   for a .cls[hidden] override -- an id-only override doesn't satisfy it. */
+.agent-card[hidden] { display: none; }
 .agent-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: 24px 20px;
@@ -1611,6 +1821,49 @@ main.email-active .page-header { flex-shrink: 0; }
   cursor: pointer;
   transition: all var(--transition);
   min-height: 180px;
+}
+/* $/1M-token badge on a paid agent's grid card (Boss 2026-08-08: "melyik
+   mennyit eszik"). Only ever rendered for a known Claude-tier price -- see
+   knownModelCostPerM() -- never a guessed OpenRouter number. */
+.agent-cost-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--success, #2f9e5b);
+  border-radius: 999px;
+  padding: 3px 9px;
+  line-height: 1.4;
+}
+/* Cost + account badges share the top-right corner as a single flex row so the
+   account badge (Boss 2026-08-10) sits to the LEFT of the $/M badge. Anchoring
+   the wrapper lets the individual badges drop their own absolute positioning. */
+.agent-card-badges {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  z-index: 1;
+}
+.agent-card-badges .agent-cost-badge,
+.agent-card-badges .agent-account-badge {
+  position: static;
+  top: auto;
+  right: auto;
+}
+.agent-account-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+  border-radius: 999px;
+  padding: 3px 9px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 .agent-card:hover {
   background: var(--bg-card-hover);
@@ -2451,6 +2704,45 @@ main.email-active .page-header { flex-shrink: 0; }
   transition: all var(--transition);
 }
 .avatar-change-btn:hover { background: var(--accent-hover); }
+
+.detail-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.name-edit-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+.name-edit-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.name-edit-btn[hidden] { display: none; }
+.detail-name-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.detail-name-edit-row[hidden] { display: none; }
+.detail-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 14px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-primary);
+}
 
 .detail-avatar-gallery {
   margin-bottom: 16px;
@@ -7898,6 +8190,105 @@ body {
 }
 .email-list-header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; text-align: left; }
 .email-list-header-title { text-align: center; justify-self: center; }
+/* Search moved up into the page header (Boss, 2026-08-09, voice messages) --
+   was previously stacked under the Levelek column header, cramped and easy
+   to miss. Sits on the LEFT, right after the title (not pushed to the far
+   right the normal .page-header-row space-between would give it -- Boss:
+   "nem jobb oldalra gondoltam, hanem bal oldalra... 1 cm-re"). */
+.email-page-header-row { justify-content: flex-start; }
+/* Results panel sits to the RIGHT of the search form -- NOT stacked
+   underneath it (Boss, 2026-08-09: "kereso mellett jobbra!!!"). It's
+   position:absolute (out of normal flow) specifically so growing its height
+   can NEVER push the page-header taller and shove the mailbox columns down
+   (Boss: "ez az oszlopokat ne tolja le... fedjen rá" -- overlay the columns
+   instead of growing into their space). .email-header-search-wrap only
+   contains the form in normal flow, so its own height is just the form's.
+*/
+.email-header-search-wrap { position: relative; margin-left: 28px; }
+.email-search-form { display: flex; gap: 6px; align-items: center; }
+.email-search-scope {
+  padding: 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.email-search-input {
+  flex: 1;
+  min-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.email-search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+/* A fixed, always-present panel to the RIGHT of the search form -- NOT a
+   popup/dropdown that shows/hides (Boss, 2026-08-09: "nem lenyíló... fix
+   panel, amiben megjelenik a találat"), it's always rendered with content or
+   the idle hint. Typing here (any scope) only ever writes into THIS panel --
+   column 2 (the mailbox list) and column 3 (the open message) are never
+   touched by it, only by actually clicking a result (Boss: "ne szűküljön...
+   addig a pillanatig, amíg rá nem kattintottam az egyik levélre").
+   position:absolute + left:100% of .email-header-search-wrap (which only
+   has the form in normal flow, see above) -- floats over the mailbox
+   columns below instead of growing the header and pushing them down. */
+/* position:absolute so it can never push the mailbox columns below it down
+   -- it overlays them instead. Resting height is a visible 90px box (Boss,
+   2026-08-09, screenshot: a near-invisible sliver at rest was confusing --
+   "mi ez itt ez a halovány vékony csík"), which then expands further on
+   hovering the box itself (not the search form -- see the earlier "gap"
+   note on why it has to be the panel's own hover) when there are more
+   results than fit in 90px. Clicking a result drops it straight back to
+   that 90px resting size WITHOUT losing the results -- moving the mouse
+   away to look at what opened already ends the :hover, and the results
+   stay sitting in the DOM (emailRenderSearchDropdown never clears them on
+   click), so hovering back over the box instantly re-expands the exact
+   same list, no re-search needed. */
+.email-search-results-dropdown {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 10px;
+  width: 380px;
+  max-width: 60vw;
+  /* min-height, not just max-height -- an EMPTY box with only max-height
+     set has zero content, so it collapses to just its padding+border
+     (~10px) regardless of the 90px cap. That was the actual bug behind the
+     "halovány vékony csík" screenshots, not a caching issue. */
+  min-height: 90px;
+  max-height: 90px;
+  overflow: hidden;
+  transition: max-height 0.15s ease;
+  z-index: 50;
+  box-shadow: var(--shadow-lg);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  box-sizing: border-box;
+}
+.email-search-results-dropdown:hover {
+  max-height: 400px;
+  overflow-y: auto;
+}
+.email-search-result-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.email-search-result-item:hover, .email-search-result-item.active { background: var(--bg-card-hover); }
+.email-search-result-from { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.email-search-result-subject { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.email-search-result-date { font-size: 11px; color: var(--text-muted); }
+.email-search-results-empty { padding: 8px; font-size: 12px; color: var(--text-muted); }
 /* CSS Grid stretches items to fill their track by default -- this only had
    justify-self:end for the (btn-danger) Törlés button, so the (btn-secondary)
    Letöltés mind button on mellékletek stayed stretched full-width with its
@@ -8134,6 +8525,13 @@ body {
 .email-attachment-actions .btn-compact { padding: 4px 10px; font-size: 12px; }
 .email-attachment-name { color: var(--text-secondary); overflow-wrap: anywhere; }
 .email-attachment-size { color: var(--text-muted); }
+/* The reader is the primary email content. Before the full stacked layout kicks
+   in, drop the optional attachments column instead of letting the reader's 1fr
+   track collapse between three fixed-width columns. */
+@media (max-width: 1300px) {
+  .email-layout { grid-template-columns: 230px 320px minmax(0, 1fr); }
+  .email-pane-attachments { display: none; }
+}
 @media (max-width: 900px) {
   /* Stacked columns want normal page scroll, not the desktop single-screen
      flex cap (each .email-pane already caps its own height below and

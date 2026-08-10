@@ -35,9 +35,9 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
   try {
     const filePath = join(webDir, 'index.html')
     const s = statSync(filePath)
-    // Both versioned asset tokens are part of the index ETag: a cached
-    // index.html must be invalidated whenever the rewritten ?v= URLs change.
-    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}"`
+    // Every versioned asset token is part of the index ETag: a cached
+    // index.html must be invalidated whenever any rewritten ?v= URL changes.
+    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}"`
     const ifNoneMatch = req.headers['if-none-match']
     if (ifNoneMatch === etag) {
       res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' })
@@ -54,6 +54,17 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
       .replace(
         /(<link\s+rel="stylesheet"\s+href=")\/style\.css(")/,
         `$1/style.css?v=${assetVersion(webDir, 'style.css')}$2`,
+      )
+      // lang/*.js get the same ?v= cache-busting so they too can be served with
+      // a long max-age (see tryHandleStatic below) instead of revalidating on
+      // every load.
+      .replace(
+        /(<script\s+src=")\/lang\/hu\.js(")/,
+        `$1/lang/hu.js?v=${assetVersion(webDir, 'lang/hu.js')}$2`,
+      )
+      .replace(
+        /(<script\s+src=")\/lang\/en\.js(")/,
+        `$1/lang/en.js?v=${assetVersion(webDir, 'lang/en.js')}$2`,
       )
       // Bake the iOS home-screen label into apple-mobile-web-app-title so an
       // installed PWA shows the configured main-agent name (BRAND_NAME), not the
@@ -130,7 +141,9 @@ export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promis
     const langFile = path.replace('/lang/', '')
     // Allowlist: only the two known language files (no path traversal).
     if (langFile === 'hu.js' || langFile === 'en.js') {
-      serveFile(req, res, join(webDir, 'lang', langFile))
+      // Versioned ?v= URLs (rewritten into index.html), so a long max-age is
+      // safe: any content change produces a new URL.
+      serveFile(req, res, join(webDir, 'lang', langFile), { cacheSeconds: 86400 })
       return true
     }
     res.writeHead(404); res.end()

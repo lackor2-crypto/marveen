@@ -61,6 +61,49 @@ describe('suggestForAgent -- base (no signals)', () => {
     const result = suggestForAgent('rick', 'claude-opus-4-8[1m]', text)
     expect(result.changeAdvised).toBe(false)
   })
+
+  it('does not force a Claude default onto an OpenRouter free-tier agent absent a real signal', () => {
+    // Boss 2026-08-08: caught this suggesting Opus for every OpenRouter test
+    // agent (Gemma, GptOss, ...) purely because the fallback tier was
+    // hardcoded to 'claude-sonnet-5', with zero opus/haiku signal behind it.
+    const text = 'Ingyenes OpenRouter modell teszt-ügynök. Tömör válaszok, lényegre törően.'
+    const result = suggestForAgent('gemma', 'google/gemma-4-31b-it:free', text)
+    expect(result.suggestedModel).toBe('google/gemma-4-31b-it:free')
+    expect(result.changeAdvised).toBe(false)
+  })
+
+  it('still suggests Opus for an OpenRouter agent when persona signals genuinely warrant it', () => {
+    const text = 'IT architekt. Komplex elosztott rendszerterv, mikroszolgáltatás, stratégiai döntések.'
+    const result = suggestForAgent('gemma', 'google/gemma-4-31b-it:free', text)
+    expect(result.suggestedModel).toBe('claude-opus-4-8[1m]')
+    expect(result.changeAdvised).toBe(true)
+  })
+
+  it('ignores runtime usage signals (token/mcp/kanban/sched) for a free-tier agent', () => {
+    // Boss 2026-08-08: Ling and North (both on OpenRouter :free models) got
+    // flagged as "suggest Opus" purely because one verification task read a
+    // large git diff (high tokens/call) -- a cost/capacity signal that
+    // doesn't mean anything for a $0 model. 1 persona keyword hit
+    // ('összetett') + what would have been 1 signal hit must NOT cross the
+    // >=2 threshold once the signal is correctly ignored.
+    const text = 'Ingyenes OpenRouter modell teszt-ügynök -- ha egy feladat túl összetett, jelezd.'
+    const result = suggestForAgent('ling', 'inclusionai/ling-3.0-tiny:free', text, 0, {
+      tokenAvgInputPerCall: 44_000,
+      mcpServerCount: 5,
+      kanbanUrgentCount: 3,
+    })
+    expect(result.suggestedModel).toBe('inclusionai/ling-3.0-tiny:free')
+    expect(result.changeAdvised).toBe(false)
+  })
+
+  it('still applies the same runtime usage signals to a Claude agent (unchanged behaviour)', () => {
+    const text = 'Általános asszisztens -- ha egy feladat túl összetett, jelezd.'
+    const result = suggestForAgent('rick', 'claude-sonnet-5', text, 0, {
+      tokenAvgInputPerCall: 15_000,
+    })
+    expect(result.suggestedModel).toBe('claude-opus-4-8[1m]')
+    expect(result.changeAdvised).toBe(true)
+  })
 })
 
 describe('suggestForAgent -- AgentSignals thresholds', () => {

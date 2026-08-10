@@ -120,13 +120,62 @@ const BUSY_INDICATORS: RegExp[] = [
   // 2026-06-30). The live spinner/token line renders just above the input
   // box during a real turn, so the bottom-region scope still catches it.
   //
-  // Tokens-down-arrow counter: "(52s · ↓ 2.6k tokens ..."
-  /\(\s*\d+s\s*·\s*↓\s*\d/,
-  // Known spinner labels paired with the turn-scoped `(Ns · ↓` tail on
-  // the same line. The tail requirement kills the "Thinking…" prose
-  // false positive. Non-exhaustive by design; the bare tokens pattern
-  // above is the authoritative fallback.
-  /\b(?:Combobulating|Beaming|Thinking|Pondering|Reticulating|Configuring|Noodling|Ruminating|Percolating|Cogitating|Deliberating|Contemplating|Musing|Brewing|Synthesizing|Distilling|Refining|Simmering|Crafting|Formulating|Consulting|Unfurling|Unspooling|Unraveling)…\s*\(\s*\d+s\s*·\s*↓/,
+  // Elapsed-time counter: "(52s · ↓ 2.6k tokens ...)". Past 60s Claude Code
+  // switches the elapsed-time format to "Xm Ys" (and, for very long turns,
+  // "Xh Ym Zs", "Xd Yh Zm") -- e.g. "(3m 8s · ↓ 9.3k tokens)", the exact frame quoted
+  // in the comment above. The bare `\d+s` anchor never matched that once
+  // minutes appeared, so any turn running past a minute silently fell out
+  // of the busy scan (Boss 2026-08-09: own session showed "várakozik" on
+  // the Activity page after 10+ minutes of live work). Optional
+  // hour/minute prefixes fix that without touching the region-scoping this
+  // regex depends on for the stale-counter exclusion above.
+  //
+  // The trailing content after the middot varies -- "↓ 9.3k tokens",
+  // "still thinking" (observed live the same day, no token count at all
+  // yet), and presumably others -- so the match stops at the middot
+  // instead of requiring a specific tail. The `(<duration> ·` shape itself
+  // (opening paren immediately followed by an elapsed-time counter) is
+  // distinctive UI chrome that does not occur in reply prose, so dropping
+  // the tail requirement does not reopen the prose false-positive this
+  // regex originally guarded against (that guard lives in the label regex
+  // below, via the `…` + `(Ns ·` pairing).
+  //
+  // The optional `\d+d` prefix mirrors Claude Code's own duration formatter,
+  // which walks d -> h -> m -> s (verified 2026-08-09 by reading the shipped
+  // 2.1.226 binary: `if(r>0) return \`${r}d ${n}h ${o}m\``). The SECONDS
+  // component stays REQUIRED on purpose: the formatter also has a
+  // `mostSignificantOnly` mode that emits a single bare unit ("1m", "2h"),
+  // and that mode is what renders the COMPLETED `/goal` summary
+  // "(1m · 3 turns · 24.2k tokens)". Accepting a seconds-less duration would
+  // therefore match a finished, permanently-rendered summary line -- exactly
+  // the stale-counter starvation class this regex is region-scoped to avoid.
+  // Known, accepted gap: a single turn running past 24h renders "1d 3h 12m"
+  // (no seconds) and would be missed. No turn in this fleet has ever come
+  // close, and closing it would cost the guard above.
+  /\(\s*(?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·/,
+  // Known spinner labels paired with the turn-scoped `(Ns ·` tail on the
+  // same line. The tail requirement kills the "Thinking…" prose false
+  // positive. Non-exhaustive by design; the bare counter pattern above is
+  // the authoritative fallback.
+  /\b(?:Combobulating|Beaming|Thinking|Pondering|Reticulating|Configuring|Noodling|Ruminating|Percolating|Cogitating|Deliberating|Contemplating|Musing|Brewing|Synthesizing|Distilling|Refining|Simmering|Crafting|Formulating|Consulting|Unfurling|Unspooling|Unraveling|Pouncing)…\s*\(\s*(?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·/,
+  //
+  // DELIBERATELY ABSENT: the past-tense turn stamp "✻ Cooked for 3m 34s".
+  // It LOOKS like a live elapsed counter and was proposed as a busy signal on
+  // 2026-08-09, but it is the exact opposite -- it is what Claude Code renders
+  // when a turn has FINISHED. Two independent proofs, both taken that day:
+  //   (a) the shipped 2.1.226 binary carries a dedicated PAST-TENSE verb list
+  //       ["Baked","Brewed","Churned","Cogitated","Cooked","Crunched",
+  //        "Sautéed","Worked"] used only for the `turn_duration` message,
+  //       separate from the present-participle spinner list ("Sautéing",
+  //       "Simmering", ...);
+  //   (b) all 12 OpenRouter-routed fleet sessions were captured at once and
+  //       EVERY one showed "✻ <PastVerb> for <duration>" sitting above an
+  //       EMPTY input box under an idle footer ("✻ Cooked for 8m 19s",
+  //       "✻ Sautéed for 1m 54s", "✻ Worked for 0s").
+  // Matching it would have pinned the entire free-agent fleet busy forever.
+  // The same applies to "Thought for 15s, ran 1 shell command" and to
+  // "✻ Waiting for 1 background agent to finish": both are end-of-turn stamps
+  // that persist in scrollback and never clear on their own.
 ]
 
 // `esc to interrupt` is a footer-region-only busy signal: Claude Code
@@ -139,13 +188,148 @@ const BUSY_INDICATORS: RegExp[] = [
 const BUSY_ESC_TO_INTERRUPT_RX = /\besc to interrupt\b/
 const LIVE_FOOTER_REGION_LINES = 5
 
-// How many trailing lines the BUSY_INDICATORS (spinner / token-counter)
-// scan inspects. During a live turn the status line renders just above the
-// input box (footer ~3 lines + box ~2 lines + the spinner line + a little
-// tool-output tail), comfortably inside this window. Must exceed
-// LIVE_FOOTER_REGION_LINES so the spinner line above the box is included,
-// while a stale counter scrolled higher (from a completed turn) is excluded.
+// How many lines the BUSY_INDICATORS (spinner / token-counter) scan inspects,
+// counted UP FROM THE FOOTER (inclusive). During a live turn the status line
+// renders just above the input box (footer ~3 lines + box ~2 lines + the
+// spinner line + a little tool-output tail), comfortably inside this window.
+// Must exceed LIVE_FOOTER_REGION_LINES so the spinner line above the box is
+// included, while a stale counter scrolled higher (from a completed turn) is
+// excluded -- pane-looks-idle.test.ts pins that boundary at 13 lines up, so
+// this number must NOT be grown to "buy margin".
 const BUSY_LIVE_REGION_LINES = 12
+
+// How many lines BELOW the footer the busy scan also keeps. Claude Code's
+// FleetView renders a background-agent list UNDER the footer, at the very
+// bottom of the pane:
+//   ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+//   (blank)
+//   ● main
+//   ◯ general-purpose  Comprehensive pane-state busy-det… 8m 27s · ↓ 109.2k tokens
+// Bounded (rather than "everything after the footer") so a footer-shaped line
+// quoted mid-scrollback on a pane with no real footer cannot silently widen
+// the scan across the whole remaining capture.
+const BUSY_BELOW_FOOTER_LINES = 8
+
+// The live region the busy scan runs against: BUSY_LIVE_REGION_LINES ending at
+// the footer, plus up to BUSY_BELOW_FOOTER_LINES of FleetView tail below it.
+//
+// THIS ANCHORING IS THE 2026-08-09 FIX. The scan used to take a flat
+// `lines.slice(-BUSY_LIVE_REGION_LINES)` -- the last 12 lines of the pane --
+// which silently assumed the footer was the LAST line. Once FleetView started
+// rendering the background-agent list below the footer, every listed agent
+// pushed the window down by a line and the live spinner fell out of the top of
+// it. Measured on the real capture that triggered Boss's third report: the
+// spinner "✻ Pouncing… (9m 45s · ↓ 26.6k tokens · thinking)" sat at EXACTLY
+// position 12 from the bottom with one sub-agent listed -- one more listed
+// agent, or one more line of wrapped `⎿ Tip:` text, and a session that had been
+// working for ten minutes reads 'idle' on the Activity page. Anchoring on the
+// footer restores the window the comment above always described, without
+// widening it (the stale-counter exclusion is unchanged), and additionally
+// brings the FleetView tail itself into view for detectsBackgroundAgentActivity.
+//
+// The footer is located from the BOTTOM (same discipline as
+// detectsThinkingBlockError) so a footer-looking line quoted higher up in
+// scrollback cannot shift the scope. No footer at all -> fall back to the
+// original trailing-lines behaviour.
+function busyLiveRegion(lines: string[]): string {
+  const footerIdx = lastIdleFooterIndex(lines)
+  if (footerIdx < 0) return lines.slice(-BUSY_LIVE_REGION_LINES).join('\n')
+  return lines
+    .slice(
+      Math.max(0, footerIdx - (BUSY_LIVE_REGION_LINES - 1)),
+      footerIdx + 1 + BUSY_BELOW_FOOTER_LINES,
+    )
+    .join('\n')
+}
+
+// Index of the BOTTOM-most idle footer line, or -1. Shared by every
+// footer-anchored scope in this module so "which footer" is decided in exactly
+// one place: the live footer is always the lowest one on screen.
+function lastIdleFooterIndex(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (IDLE_FOOTER_RX.test(lines[i])) return i
+  }
+  return -1
+}
+
+// A FleetView background-agent row: an elapsed-time counter followed by the
+// token meter, with NO PARENTHESES around either -- the shape Boss reported on
+// 2026-08-09 as the fourth missed variant:
+//   ○ Explore Find hardcoded Hungarian text in email UI   30s · ↓ 29.2k tokens
+// and captured live the same evening from the main channels session:
+//   ◯ general-purpose  Comprehensive pane-state busy-det… 8m 27s · ↓ 109.2k tokens
+//
+// Reading the shipped 2.1.226 binary pins the exact format: the row status is
+// `[elapsed, tokenText, queuedText].filter(Boolean).join(" · ")` where
+// `tokenText` is `${arrowDown|arrowUp} ${formatted} tokens`. Hence BOTH arrows
+// are accepted (the up arrow renders when the agent has no recent activity),
+// and the trailing `· N queued` segment is simply not required. The bullet
+// glyph is deliberately NOT part of the pattern: it is `figures.circle` (◯,
+// U+25EF) normally but swaps to a different glyph for the viewed row, and a
+// SELECTED row is additionally prefixed with `❯ `.
+//
+// The pattern demands duration + `·` + arrow + digits + the literal word
+// `tokens`. That is dense UI chrome; reply prose does not reproduce it.
+const FLEETVIEW_AGENT_ROW_RX =
+  /(?:^|\s)(?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?\d+s\s*·\s*[↓↑]\s*[\d.]+[kKmMgG]?\s*tokens\b/
+
+/**
+ * True when the pane's FleetView tail shows a BACKGROUNDED sub-agent whose
+ * elapsed/token counters are being rendered -- i.e. the session has work in
+ * flight even though its own transcript may be finished and its input box
+ * empty and idle.
+ *
+ * This is the state behind Boss's 2026-08-09 report. Captured verbatim from
+ * the main channels session while a sub-agent was mid-task:
+ *
+ *   ✻ Waiting for 1 background agent to finish
+ *   ─────────────────────────────────────────
+ *   ❯
+ *   ─────────────────────────────────────────
+ *     Sonnet 5 | Ctx 33% | 5h 73% | 7d 70%
+ *     ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+ *
+ *     ● main
+ *     ◯ general-purpose  Comprehensive pane-state busy-det… 8m 27s · ↓ 109.2k tokens
+ *
+ * There is NO spinner and NO `esc to interrupt`: the parent's own turn really
+ * has ended. The only ticking thing on screen is the FleetView row.
+ *
+ * ### Why this is NOT in BUSY_INDICATORS
+ *
+ * Tempting, and wrong. BUSY_INDICATORS does not just colour a dashboard dot --
+ * it gates delivery AND the whole stuck-input recovery stack: shouldRetrySubmit,
+ * stuckInputSignature and parkedPasteSignature all bail out early on a busy
+ * pane. Feeding this row into it would mean that for the entire lifetime of any
+ * background agent (routinely 10+ minutes here, sometimes far longer) the
+ * router/scheduler would defer every message AND a genuinely stranded prompt
+ * parked in the input box would be invisible to the recovery watcher. That is
+ * the "message stranded forever" class this module has repeatedly been burned
+ * by, traded for a dashboard colour.
+ *
+ * The second reason is that the row is NOT self-clearing. Reading the 2.1.226
+ * row formatter: a task in a terminal state is dropped from the list only once
+ * its output has been consumed (`!isTerminal(status) || (status === "completed"
+ * && unreadOutput > 0)`), and while it lingers its elapsed time is computed from
+ * `endTime` -- a FROZEN counter with the token total still attached. A completed
+ * sub-agent whose result the parent has not read yet therefore renders exactly
+ * the same text as a running one, with no textual discriminator (the only
+ * difference is the bullet's COLOUR, which `capture-pane -p` strips). Pinning
+ * 'busy' on that would be the 94-retry starvation incident all over again.
+ *
+ * Display surfaces have no such exposure -- the worst case there is a green dot
+ * held a few seconds too long -- so this predicate is exported separately and
+ * combined via paneShowsLiveWork() for the Activity panel only.
+ */
+export function detectsBackgroundAgentActivity(pane: string): boolean {
+  if (!pane || !pane.trim()) return false
+  const lines = pane.split('\n')
+  const footerIdx = lastIdleFooterIndex(lines)
+  if (footerIdx < 0) return false
+  return lines
+    .slice(footerIdx + 1, footerIdx + 1 + BUSY_BELOW_FOOTER_LINES)
+    .some(l => FLEETVIEW_AGENT_ROW_RX.test(l))
+}
 
 // Pasted-text placeholder. Claude Code lifts a single large input write
 // (empirically a tmux send-keys -l of more than ~700 chars) into a
@@ -465,7 +649,7 @@ const FIRST_RUN_GATES: Array<{ kind: FirstRunGateKind; rx: RegExp }> = [
 export function detectsFirstRunGate(pane: string): FirstRunGateKind | null {
   if (!pane || !pane.trim()) return null
   const lines = pane.split('\n')
-  const busyRegion = lines.slice(-BUSY_LIVE_REGION_LINES).join('\n')
+  const busyRegion = busyLiveRegion(lines)
   for (const rx of BUSY_INDICATORS) {
     if (rx.test(busyRegion)) return null
   }
@@ -514,7 +698,7 @@ const MODEL_CONSENT_CONFIRM_RX = /Enter to confirm/
 export function detectsModelConsentDialog(pane: string): boolean {
   if (!pane || !pane.trim()) return false
   const lines = pane.split('\n')
-  const busyRegion = lines.slice(-BUSY_LIVE_REGION_LINES).join('\n')
+  const busyRegion = busyLiveRegion(lines)
   for (const rx of BUSY_INDICATORS) {
     if (rx.test(busyRegion)) return false
   }
@@ -583,7 +767,7 @@ export function detectPaneState(
   // Spinner / token-counter busy signals, scoped to the live bottom region.
   // Whole-pane scanning let a completed turn's stale token-counter line pin
   // an idle session busy (see BUSY_LIVE_REGION_LINES).
-  const busyRegion = paneLines.slice(-BUSY_LIVE_REGION_LINES).join('\n')
+  const busyRegion = busyLiveRegion(paneLines)
   for (const rx of BUSY_INDICATORS) {
     if (rx.test(busyRegion)) return 'busy'
   }
@@ -670,6 +854,32 @@ export function paneLooksIdle(capture: string): boolean {
  */
 export function isReadyForPrompt(pane: string): boolean {
   return paneLooksIdle(pane)
+}
+
+/**
+ * DISPLAY-ONLY predicate: "is this session doing work right now", as the
+ * Activity panel means the question -- which is a strictly broader question
+ * than detectPaneState's 'busy'.
+ *
+ * 'busy' answers "is this pane's own turn mid-flight", and that is the right
+ * question for DELIVERY (can a prompt land, is a parked message stranded).
+ * The Activity panel asks something else: Boss looking at a green/grey dot
+ * wants to know whether the agent is working, and an agent sitting at an empty
+ * prompt while a background sub-agent grinds away IS working -- that mismatch
+ * is what produced the 2026-08-09 "why does it say várakozik while I can see it
+ * working" report (see detectsBackgroundAgentActivity for the captured frame
+ * and for why that signal must not be promoted into BUSY_INDICATORS).
+ *
+ * Keeping the union here rather than in the route means the rule stays in this
+ * module with the rest of the pane vocabulary, and the route stays a one-liner.
+ * 'error' and 'unknown' deliberately do NOT collapse into "working" -- those
+ * are their own states on the panel and must remain visible.
+ */
+export function paneShowsLiveWork(pane: string): boolean {
+  const state = detectPaneState(pane)
+  if (state === 'busy' || state === 'typing') return true
+  if (state !== 'idle') return false
+  return detectsBackgroundAgentActivity(pane)
 }
 
 /**
@@ -814,7 +1024,7 @@ export function shouldRetrySubmit(
   // Busy pane: the turn is mid-flight, no retry needed. Region-scoped (same
   // as detectPaneState) so a stale token-counter line does not suppress a
   // legitimate retry on an idle pane.
-  const retryBusyRegion = retryPaneLines.slice(-BUSY_LIVE_REGION_LINES).join('\n')
+  const retryBusyRegion = busyLiveRegion(retryPaneLines)
   for (const rx of BUSY_INDICATORS) {
     if (rx.test(retryBusyRegion)) return false
   }
@@ -1093,7 +1303,7 @@ export function stuckInputSignature(pane: string): string | null {
 export function parkedPasteSignature(pane: string): string | null {
   if (!pane || !pane.trim()) return null
   const lines = pane.split('\n')
-  const busyRegion = lines.slice(-BUSY_LIVE_REGION_LINES).join('\n')
+  const busyRegion = busyLiveRegion(lines)
   for (const rx of BUSY_INDICATORS) {
     if (rx.test(busyRegion)) return null
   }

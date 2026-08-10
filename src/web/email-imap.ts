@@ -463,5 +463,232 @@ export async function messageStillExists(accountId: string, mailbox: string, uid
   }
 }
 
+// === Mailbox list (strangler fig: fast path with himalaya fallback) ============
+// Returns array of { id: string; name: string; total: null; unread: null } matching
+// himalaya's `mailbox list --json` output exactly. Returns null on ANY failure
+// so the caller falls back to himalaya.
+export interface DirectMailbox {
+  id: string
+  name: string
+  total: null
+  unread: null
+}
+
+export async function listMailboxesDirect(accountId: string): Promise<DirectMailbox[] | null> {
+  const client = await getClient(accountId)
+  if (!client) return null
+
+  try {
+    const mailboxes = await withTimeout(client.list(), FETCH_TIMEOUT_MS)
+    if (!mailboxes) return null
+    // imapflow returns MailboxObject[] with .name, .flags, .delimiter, .exists, .unseen
+    // Map to himalaya's format: id=name, name=name, total=null, unread=null
+    // (himalaya reports null for total/unread on this account)
+    return mailboxes
+      .filter(mb => !mb.flags?.has('\\Noselect')) // skip non-selectable pseudo-mailboxes
+      .map(mb => ({ id: mb.name, name: mb.name, total: null, unread: null }))
+  } catch (e) {
+    logger.warn(`[email-imap] mailbox list failed for account "${accountId}": ${e instanceof Error ? e.message : e}`)
+    return null
+  }
+}
+
+// === Envelope list / search (strangler fig: fast path with himalaya fallback) ===
+// Returns array of envelope objects matching himalaya's `envelope list --json` /
+// `envelope search --json` output exactly. Returns null on ANY failure so the
+// caller falls back to himalaya.
+// searchQuery: if provided, uses IMAP SEARCH with TEXT/SUBJECT/FROM/TO criteria
+// (translated from the same normalized query the himalaya path uses).
+export interface DirectEnvelope {
+  id: string
+  'message-id': string
+  flags: Array<{ raw: string; iana: string }>
+  subject: string
+  from: Array<{ name: string | null; email: string }>
+  to: Array<{ name: string | null; email: string }>
+  date: string
+  size: number
+  'has-attachment': null
+}
+
+function parseImapFlags(imapFlags: string[]): Array<{ raw: string; iana: string }> {
+  const mapping: Record<string, string> = {
+    '\\Seen': 'seen',
+    '\\Flagged': 'flagged',
+    '\\Answered': 'answered',
+    '\\Draft': 'draft',
+    '\\Deleted': 'deleted',
+    'Junk': 'junk',
+    'NonJunk': 'nonjunk',
+    '$Forwarded': 'forwarded',
+    '$MDNSent': 'mdnsent',
+  }
+  return imapFlags
+    .filter(f => mapping[f])
+    .map(f => ({ raw: f, iana: mapping[f] }))
+}
+
+function buildImapSearchCriteria(query: string): Record<string, string | string[]> {
+  // The normalized query from routes/email.ts is already in a simple format:
+  // "from:foo subject:bar to:baz date:2024-01-01 content:qux"
+  // Parse into IMAP SEARCH criteria object for imapflow
+  const criteria: Record<string, string | string[]> = {}
+  const parts = query.split(' ').filter(Boolean)
+  for (const part of parts) {
+    const colon = part.indexOf(':')
+    if (colon <= 0) continue
+    const field = part.slice(0, colon).toLowerCase()
+    const value = part.slice(colon + 1)
+    if (!value) continue
+    switch (field) {
+      case 'from':
+        criteria.from = value
+        break
+      case 'to':
+        criteria.to = value
+        break
+      case 'subject':
+        criteria.subject = value
+        break
+      case 'date':
+        // IMAP SEARCH expects DD-MON-YYYY format
+        const d = new Date(value)
+        if (!isNaN(d.getTime())) {
+          const day = String(d.getDate()).padStart(2, '0')
+          const month = d.toLocaleString('en-US', { month: 'short' }).toUpperCase()
+          const year = d.getFullYear()
+          criteria.on = `${day}-${month}-${year}`
+        }
+        break
+      case 'content':
+      case 'body':
+        criteria.body = value
+        break
+      default:
+        criteria.text = value
+    }
+  }
+  return criteria
+}
+
+export async function listEnvelopesDirect(
+  accountId: string,
+  mailbox: string,
+  page: number,
+  pageSize: number,
+  searchQuery?: string
+): Promise<DirectEnvelope[] | null> {
+  const client = await getClient(accountId)
+  if (!client) return null
+
+  let lock
+  try {
+    lock = await withTimeout(client.getMailboxLock(mailbox), FETCH_TIMEOUT_MS)
+  } catch (e) {
+    logger.warn(`[email-imap] failed to open mailbox "${mailbox}" for account "${accountId}": ${e instanceof Error ? e.message : e}`)
+    return null
+  }
+
+  try {
+    // Get total count for pagination
+    let uids: number[]
+    if (searchQuery) {
+      const criteria = buildImapSearchCriteria(searchQuery)
+      if (Object.keys(criteria).length === 0) return []
+      const searchResult = await withTimeout(client.search(criteria, { uid: true }), FETCH_TIMEOUT_MS)
+      if (searchResult === false) return null
+      uids = searchResult
+    } else {
+      const searchResult = await withTimeout(client.search({ all: true }, { uid: true }), FETCH_TIMEOUT_MS)
+      if (searchResult === false) return null
+      uids = searchResult
+    }
+    if (!uids || uids.length === 0) return []
+
+    // Sort by UID descending (newest first) to match himalaya's default
+    uids.sort((a, b) => b - a)
+
+    // Pagination
+    const start = (page - 1) * pageSize
+    const end = start + pageSize
+    const pageUids = uids.slice(start, end)
+    if (pageUids.length === 0) return []
+
+    // Fetch ENVELOPE + FLAGS + BODYSTRUCTURE (for size/attachment detection)
+    const fetchOptions = { envelope: true, flags: true, bodyStructure: true }
+    const messages = await withTimeout(
+      client.fetchAll(pageUids, fetchOptions, { uid: true }),
+      FETCH_TIMEOUT_MS
+    )
+
+    // Build a map for quick lookup
+    const msgMap = new Map<number, any>()
+    for (const msg of messages) {
+      if (msg.uid) msgMap.set(msg.uid, msg)
+    }
+    if (msgMap.size === 0) return null
+
+    const results: DirectEnvelope[] = []
+    for (const uid of pageUids) {
+      const msg = msgMap.get(uid)
+      if (!msg || !msg.envelope) continue
+
+      const env = msg.envelope
+      const flags = msg.flags || []
+      const struct = msg.bodyStructure
+
+      // Extract size from BODYSTRUCTURE if available
+      const size = struct?.size ?? 0
+
+      // Parse addresses
+      const parseAddresses = (addrs: any[]): Array<{ name: string | null; email: string }> => {
+        if (!addrs) return []
+        return addrs.map(a => ({
+          name: a.name ? Buffer.from(a.name, 'binary').toString('utf8') : null,
+          email: a.mailbox && a.host ? `${a.mailbox}@${a.host}` : ''
+        })).filter(a => a.email)
+      }
+
+      // Parse date
+      let dateStr = ''
+      if (env.date) {
+        try {
+          dateStr = new Date(env.date).toISOString()
+        } catch {
+          dateStr = String(env.date)
+        }
+      }
+
+      // Parse message-id
+      const messageId = env.messageId || `no-message-id-${uid}`
+
+      // Extract subject
+      const subject = env.subject ? Buffer.from(env.subject, 'binary').toString('utf8') : '(no subject)'
+
+      // Parse from/to
+      const from = parseAddresses(env.from)
+      const to = parseAddresses(env.to)
+
+      results.push({
+        id: String(uid),
+        'message-id': messageId,
+        flags: parseImapFlags(flags),
+        subject,
+        from,
+        to,
+        date: dateStr,
+        size,
+        'has-attachment': null,
+      })
+    }
+    return results
+  } catch (e) {
+    logger.warn(`[email-imap] envelope list failed for account "${accountId}" mailbox="${mailbox}": ${e instanceof Error ? e.message : e}`)
+    return null
+  } finally {
+    lock.release()
+  }
+}
+
 // Exported for tests only -- not part of the module's real entry point.
 export const _internal = { parseHimalayaToml, parseImapServer }

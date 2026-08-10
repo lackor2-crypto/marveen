@@ -50,9 +50,25 @@ export function readFileOr(path: string, fallback: string): string {
 }
 
 export function extractDescriptionFromClaudeMd(content: string): string {
-  // Try to grab first meaningful paragraph after any heading
-  const lines = content.split('\n').filter((l) => l.trim() && !l.startsWith('#'))
-  return lines[0]?.trim().slice(0, 200) || ''
+  // Grab the first meaningful PARAGRAPH after any heading, not just its first
+  // line. Markdown source is often hand-wrapped at ~70-80 chars for
+  // readability, and a bare split('\n') used to take only the wrapped
+  // fragment up to the first line break -- e.g. "...Sokoldalu ugynok, akit"
+  // with the rest of the sentence ("Boss ilyen jellegu feladatokra...") on
+  // the next source line, cutting the description off mid-sentence in the
+  // dashboard (Boss, 2026-08-08, spotted on gypsy's card). Join lines until
+  // the first blank line (paragraph boundary) instead.
+  const lines = content.split('\n')
+  const bodyStart = lines.findIndex((l) => l.trim() && !l.startsWith('#'))
+  if (bodyStart === -1) return ''
+  const paragraphLines: string[] = []
+  for (let i = bodyStart; i < lines.length; i++) {
+    const line = lines[i]
+    if (!line.trim()) break
+    if (line.startsWith('#')) break
+    paragraphLines.push(line.trim())
+  }
+  return paragraphLines.join(' ').slice(0, 200)
 }
 
 export function findAvatarForAgent(name: string): string | null {

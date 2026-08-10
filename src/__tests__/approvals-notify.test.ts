@@ -56,6 +56,7 @@ describe('approvals notification target', () => {
       agent_id: 'agent-b',
       category: 'email_send',
       action_description: 'Send weekly digest',
+      noKanbanCard: true,
     })
 
     const handled = await tryHandleApprovals(ctx)
@@ -86,6 +87,7 @@ describe('approvals self-approval guard', () => {
       agent_id: 'agent-b',
       category: 'email_send',
       action_description: 'Send report',
+      noKanbanCard: true,
     })
     await tryHandleApprovals(postCtx)
     expect(postOut.status).toBe(201)
@@ -107,6 +109,7 @@ describe('approvals self-approval guard', () => {
       agent_id: 'agent-b',
       category: 'email_send',
       action_description: 'Send report',
+      noKanbanCard: true,
     })
     await tryHandleApprovals(postCtx)
     const id = postOut.body.id
