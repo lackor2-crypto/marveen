@@ -17,7 +17,8 @@ import {
 import { isQualifiedId } from './federation/address.js'
 import { sendFederatedMessage } from './federation/bridge.js'
 import { getFederationConfig, abandonWindowMsForPeer } from './federation/config.js'
-import { readAgentRemoteHost, readAgentVoiceConfig } from './agent-config.js'
+import { readAgentRemoteHost, readAgentVoiceConfig, readAgentModel } from './agent-config.js'
+import { isFreeOpenRouterModel, tryConsumeFreeDispatchSlot } from '../openrouter-dispatch-throttle.js'
 import {
   agentSessionName,
   isSessionReadyForPrompt,
@@ -389,11 +390,16 @@ export async function runMessageRouterTick(): Promise<void> {
     const presentNow = new Set<string>()
     // agent -> {exists: bool, host, session} cached lookup for the main loop.
     const agentSessionCache = new Map<string, {host: string | null, session: string, exists: boolean}>()
+    // Which receivers run on an OpenRouter :free model, resolved once per unique
+    // receiver per tick (same reason as the session cache: one config read, not
+    // one per message) so the rate-limit gate below is a map lookup.
+    const freeTierReceivers = new Set<string>()
     for (const agent of receiversInTick) {
       const host = readAgentRemoteHost(agent)
       const session = agentSessionName(agent)
       const exists = sessionExistsOnHost(host, session)
       agentSessionCache.set(agent, { host, session, exists })
+      if (isFreeOpenRouterModel(readAgentModel(agent))) freeTierReceivers.add(agent)
       if (exists) {
         presentNow.add(agent)
       } else {
@@ -556,6 +562,27 @@ export async function runMessageRouterTick(): Promise<void> {
       const { category, safeFrom: safeFromAgent } = cls
       const isChannelInbound = category === 'channel-inbound'
       const trusted = category === 'trusted-peer'
+
+      // ---- account-wide free-tier rate limit (kanban 45c3cfad) ----
+      // Every :free agent in the fleet draws on ONE 20 req/min OpenRouter
+      // budget. This is the only place a prompt actually reaches an agent, so
+      // it is the only place that can hold the whole fleet to that ceiling --
+      // no matter which path queued the message (verification round, kanban
+      // dispatch, /api/messages, schedule runner) or how many are in flight at
+      // once. No slot right now means: leave the message pending and try again
+      // on the next tick. Nothing sleeps, nothing is dropped, and a 429 that
+      // would have burned daily quota never goes out. Waiting here is bounded
+      // by MESSAGE_ABANDON_WINDOW_MS (1h) and a full fleet drains in ~1min, so
+      // pacing can never turn into abandonment.
+      if (freeTierReceivers.has(msg.to_agent)) {
+        if (!tryConsumeFreeDispatchSlot(Date.now(), isChannelInbound ? 'interactive' : 'normal')) {
+          if (!routerLoggedMisses.has(msg.id)) {
+            logger.info({ id: msg.id, to: msg.to_agent }, 'message-router: free-tier budget spent, pacing delivery to the next tick')
+            routerLoggedMisses.add(msg.id)
+          }
+          continue
+        }
+      }
 
       // Stamp trace context onto inter-agent messages (not channel-inbound).
       // Uses the in-memory deliveredTraceCtx to inherit from the last delivered

@@ -10,12 +10,9 @@ import {
 } from '../../db.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
-import { agentDir, readAgentModel } from '../agent-config.js'
+import { agentDir } from '../agent-config.js'
 import { startAgentProcess, isAgentRunning } from '../agent-process.js'
-import { throttleDelayMs, isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
 import type { RouteContext } from './types.js'
-
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
 
@@ -306,10 +303,14 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     // OpenRouter's :free models share a single 20 req/min budget ACROSS THE
     // WHOLE ACCOUNT, not per agent (kanban 45c3cfad, Boss 2026-08-08: several
     // agents 429'd simultaneously when a 14-agent verification round fired
-    // near-instantly). Stagger free-tier dispatches so they stay under that
-    // shared ceiling; paid models don't share the pool, so they dispatch
-    // immediately and don't affect (or get affected by) the free-tier pacing.
-    let lastFreeDispatchAtMs: number | null = null
+    // near-instantly). This loop used to sleep between free-tier sends to pace
+    // them, which paced only ITSELF -- a second round overlapping this one blew
+    // the shared ceiling anyway, and a 12-agent pick held the HTTP response open
+    // for ~44s. The pacing now lives in the message router, on process-wide
+    // state every dispatch path shares (see src/openrouter-dispatch-throttle.ts),
+    // so this endpoint just queues the work and answers immediately. The
+    // verification rows below are created up front, so the UI shows each agent
+    // as pending while the router feeds them out under the shared budget.
     for (const agent of agents) {
       if (agent === approval.agent_id) {
         // The requester verifying its own work defeats the point -- same
@@ -327,11 +328,6 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
           failed.push({ agent, error: startResult.error || 'Failed to start agent' })
           continue
         }
-      }
-      if (isFreeOpenRouterModel(readAgentModel(agent))) {
-        const delay = throttleDelayMs(lastFreeDispatchAtMs, Date.now())
-        if (delay > 0) await sleep(delay)
-        lastFreeDispatchAtMs = Date.now()
       }
       createOrResetApprovalVerification(approvalId, agent)
       const prompt = [

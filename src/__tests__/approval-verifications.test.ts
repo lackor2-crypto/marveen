@@ -15,8 +15,11 @@ vi.mock('../web/agent-process.js', () => ({
 const existingAgentDirs = new Set<string>()
 vi.mock('../web/agent-config.js', () => ({
   agentDir: (name: string) => `/fake/agents/${name}`,
-  // Non-free default: keeps these tests' dispatch timing unaffected by the
-  // free-tier throttle added in src/web/routes/approvals.ts (kanban 45c3cfad).
+  // The free-tier rate limit no longer lives on this path at all -- it moved to
+  // the message router's delivery loop (kanban 45c3cfad) -- so dispatch here is
+  // unpaced regardless of model. Kept as a non-free default anyway: it is what
+  // the fleet's Claude agents actually run, and it documents the expectation
+  // that this endpoint never blocks on the model an agent happens to use.
   readAgentModel: () => 'claude-sonnet-5',
 }))
 vi.mock('node:fs', async (importOriginal) => {
