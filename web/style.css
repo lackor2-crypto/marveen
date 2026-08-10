@@ -8838,3 +8838,19 @@ body {
      ezért a gombok kicsúsztak. Tördeléssel a gombok a szöveg alá kerülnek. */
   #ideasPage .card > div { flex-wrap: wrap; }
 }
+
+/* === Számláló-dobozok: a szám soha ne érjen a doboz széléhez ==============
+   Boss, 2026-08-10 (OpenRouter oldal, telefonon): "hosszú az a 14 352 523,
+   az beleér a doboz szélébe... ne érjen bele soha, inkább legyen kisebb a
+   betűméret benne." A .stat-value fix 24px volt, a doboz viszont telefonon
+   egy három-oszlopos rácsban ~110px -- egy hétjegyű, ezres-tagolt szám
+   ennyibe nem fér bele. Telefonon a szám a képernyő szélességéhez skálázódik
+   (clamp), és a doboz oldalsó bélése is kisebb, hogy legyen hely. Asztali
+   nézetben marad a 24px. */
+@media (max-width: 768px) {
+  .stat-card { padding: 12px 10px; }
+  .stat-value {
+    font-size: clamp(13px, 4vw, 24px);
+    overflow-wrap: anywhere;
+  }
+}
