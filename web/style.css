@@ -8692,3 +8692,48 @@ body {
   .email-pane { max-height: 260px; margin-bottom: 12px; }
 }
 
+
+/* === Csapat-fa telefonon: legyen mihez húzni ===============================
+   A fa szélesebb mint egy telefon képernyője, ez rendben van -- oldalra
+   húzva kellene elérni a többi ágenst. Nem lehetett: a beágyazott szintek
+   (.team-subtree / .team-children) KILÓGTAK a saját dobozukból ahelyett hogy
+   megnövelték volna, így a görgető konténer scrollWidth-e pontosan annyi
+   maradt mint a clientWidth-e -- vagyis a böngésző szerint nem volt mit
+   görgetni. Mérve 390px széles nézetben: 15 csomópontból 12 kilógott a
+   képernyőről, és egyik sem volt elérhető (Boss, 2026-08-10: "le van vágva és
+   nem tudom mobilon húzni, görgetni oda").
+
+   A javítás: a görgetés a .team-graph-ra kerül (annak a szélességét a kártya
+   fogja), a tartalom pedig max-content széles lesz, tehát TÉNYLEGESEN
+   túlnyúlik rajta -- ettől lesz mit görgetni. Az align-items:center-t is
+   fel kell oldani, mert egy a konténernél szélesebb flex-gyereket középre
+   igazítva a bal széle elérhetetlen marad. Csak telefonon hat, az asztali
+   elrendezés érintetlen. */
+@media (max-width: 768px) {
+  /* A kártya rács-elemként alapból min-width:auto, ezért a benne lévő
+     max-content széles fa MEGNOVELTE a kártyát a rács-sáv fölé, az meg a
+     main overflow-x:hidden alatt egyszerűen levágódott -- se nem látszott,
+     se nem lehetett odagörgetni. A min-width:0 az, ami visszaadja a
+     szélesség-kontrollt a rácsnak, és így a görgetés a fán belül történik. */
+  .overview-grid > .overview-card { min-width: 0; }
+  .team-graph {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    align-items: flex-start;
+    padding-bottom: 8px;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .team-children.team-roots {
+    width: max-content;
+    max-width: none;
+    overflow-x: visible;
+  }
+  .team-subtree { flex: 0 0 auto; }
+  /* A mélyebb szintek tördelhetnek tovább (ez a szándék az asztali nézetben
+     is), csak kapjanak egy telefonhoz mért korlátot, hogy egy sokgyerekes
+     ág ne nyúljon 2000 pixelre. */
+  .team-children:not(.team-roots) { max-width: 330px; }
+  .team-node { min-width: 140px; max-width: 170px; }
+}
