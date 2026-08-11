@@ -50,6 +50,7 @@ window._i18n.en = {
   'accounts.page_title':         'Accounts',
   'accounts.page_subtitle':      'Every account and API key connected to Marvin — in one place',
   'claudeauth.title':           'Accounts and keys',
+  'claudeauth.acct_default':   'default',
   'claudeauth.kind_account':   'account',
   'claudeauth.other_link':     'Go to the Vault',
   'claudeauth.other_hint':     'This list shows what Marveen itself uses to work. Any other account (YouTube, a bank, a website login) belongs in the Vault, where you can create a card for anything.',

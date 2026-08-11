@@ -13703,6 +13703,11 @@ function _keyServicesFromAccounts(data) {
       return {
         id: item.id,
         kind,
+        // The names, not just "configured": GitHub already carries three
+        // accounts here and Google is multi-account too, and a single yes/no
+        // row hid that completely (Boss, 2026-08-12: "tobb fiokosak vagyunk").
+        accounts: Array.isArray(item.accounts) ? item.accounts : [],
+        defaultAccount: item.defaultAccount || null,
         vaultId: vaultInfo ? vaultInfo.vaultId : null,
         label: info.labelKey ? t(info.labelKey) : item.id,
         helpUrl: info.helpUrl || null,
@@ -13754,9 +13759,19 @@ function _claudeAuthRenderList(accounts) {
     </div>`
   })
   const keyRows = _claudeAuthKeyServices.map(k => {
-    const who = k.configured
-      ? `<span class="claude-auth-plan">${escapeHtml(t('claudeauth.key_set'))}</span>`
-      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.key_unset'))}</span>`
+    let who
+    if (!k.configured) {
+      who = `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.key_unset'))}</span>`
+    } else if (k.accounts.length) {
+      // Name them, marking which one is used by default when there is a choice.
+      who = k.accounts.map(name => {
+        const mark = name === k.defaultAccount && k.accounts.length > 1
+          ? ` <span class="claude-auth-plan">${escapeHtml(t('claudeauth.acct_default'))}</span>` : ''
+        return escapeHtml(name) + mark
+      }).join(', ')
+    } else {
+      who = `<span class="claude-auth-plan">${escapeHtml(t('claudeauth.key_set'))}</span>`
+    }
     return `<div class="claude-auth-row">
       <span class="claude-auth-rowlabel">${escapeHtml(k.label)}</span>
       <span class="claude-auth-rowwho">${who}</span>
