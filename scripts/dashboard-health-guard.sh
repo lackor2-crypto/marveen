@@ -23,10 +23,22 @@
 
 set -uo pipefail
 
-PORT="${WEB_PORT:-3420}"
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Read the install's own identity rather than assuming the author's. SERVICE_ID
+# names the systemd units (see resolveServiceId in src/config.ts); hardcoding it
+# meant this guard tried to restart a unit that does not exist on any other
+# machine -- and always exiting 0, it would have reported that as healthy.
+env_val() { sed -n "s/^$1=//p" "$BASE/.env" 2>/dev/null | tail -1 | tr -d '"'"'"'\r'; }
+SERVICE_ID="${SERVICE_ID:-$(env_val SERVICE_ID)}"
+[ -n "$SERVICE_ID" ] || SERVICE_ID="$(env_val MAIN_AGENT_ID)"
+[ -n "$SERVICE_ID" ] || SERVICE_ID="marveen"
+
+PORT="${WEB_PORT:-$(env_val WEB_PORT)}"
+PORT="${PORT:-3420}"
 URL="http://localhost:${PORT}/"
-UNIT="lackor2-bot-dashboard.service"
-STATE_DIR="${MARVEEN_STORE:-$HOME/marveen/store}"
+UNIT="${SERVICE_ID}-dashboard.service"
+STATE_DIR="${MARVEEN_STORE:-$BASE/store}"
 LOG="$STATE_DIR/dashboard-health-guard.log"
 PROBES=3
 PROBE_GAP_SECONDS=5

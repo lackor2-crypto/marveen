@@ -261,8 +261,14 @@ fi
 echo ""
 echo -e "${BOLD}GitHub push-fiok${RESET}"
 GH_BIN="$(command -v gh || echo "$HOME/.local/bin/gh")"
-WANT_ACCOUNT="lackor2-crypto"
-if [ -x "$GH_BIN" ]; then
+# Which GitHub account is the RIGHT one is per-install. Baked in as a literal
+# this check told every other operator that their own correct account was wrong,
+# and handed them a `gh auth switch` command for a user they do not have. Set
+# GITHUB_PUSH_ACCOUNT in .env to enable the check; unset means skip it.
+WANT_ACCOUNT="${GITHUB_PUSH_ACCOUNT:-$(sed -n 's/^GITHUB_PUSH_ACCOUNT=//p' "$INSTALL_DIR/.env" 2>/dev/null | tail -1 | tr -d '"'"'"'\r')}"
+if [ -z "$WANT_ACCOUNT" ]; then
+  ok "GitHub push-fiok: nincs beallitva (GITHUB_PUSH_ACCOUNT a .env-ben), ellenorzes kihagyva"
+elif [ -x "$GH_BIN" ]; then
   # A gh auth status kimenetet NEM parsoljuk (formatuma valtozhat) -- megkerdezzuk
   # magat a GitHubot: ez egyben azt is igazolja, hogy a token EL es ERVENYES.
   WHOAMI="$("$GH_BIN" api user --jq .login 2>/dev/null)"

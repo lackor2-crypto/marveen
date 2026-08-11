@@ -30,7 +30,10 @@ MESSAGE="${MARVEEN_WAKE_MESSAGE:-Jo reggelt. Ebreszto -- valaszolj egy rovid sor
 # The main agent runs as the channels service, not as one of the listed agents,
 # so it comes from the install config rather than the API.
 MAIN_AGENT="$(grep -E '^MAIN_AGENT_ID=' "$PROJECT_ROOT/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' "')"
-MAIN_AGENT="${MAIN_AGENT:-lackor2-bot}"
+# Last-resort fallback matches src/config.ts (MAIN_AGENT_ID default), not one
+# install's agent id -- naming a specific one here would wake nothing on a host
+# whose .env is missing or unreadable.
+MAIN_AGENT="${MAIN_AGENT:-marveen}"
 SENDER="${MARVEEN_WAKE_SENDER:-$MAIN_AGENT}"
 
 # Which agents to wake is DISCOVERED, never hardcoded (Boss, 2026-08-11: "remelem

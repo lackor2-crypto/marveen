@@ -1729,7 +1729,7 @@ window._i18n.en = {
   'agents.channel.connected':    'Connected',
   'agents.channel.disconnected': 'Not connected',
   'agents.strict_mode':          ' (strict)',
-  'agents.marveen_boss':         '{bot} Boss',
+  'agents.marveen_boss':         '{bot} & {owner}',
   'agents.btn.login':            'Login',
 
   // --- Agent model switch card ---

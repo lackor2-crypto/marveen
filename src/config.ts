@@ -132,6 +132,13 @@ export const OWNER_NAME = env['OWNER_NAME'] ?? OWNER_NAME_PLACEHOLDER
 // install's generated agent CLAUDE.md); set OWNER_DRIVE_FOLDER in .env to wire
 // the default shared drive for this install.
 export const OWNER_DRIVE_FOLDER = env['OWNER_DRIVE_FOLDER'] ?? ''
+
+// Private git repo the Windows layout / settings backup pushes to. Empty by
+// default for the same distribution-safety reason as OWNER_DRIVE_FOLDER above,
+// and here the stakes are higher: a baked-in URL does not merely fail on
+// someone else's machine, it aims their desktop backups at the author's repo.
+export const WINDOW_BACKUP_REPO_URL = env['WINDOW_BACKUP_REPO_URL'] ?? ''
+
 export const BOT_NAME = env['BOT_NAME'] ?? 'Marveen'
 
 // Product / system brand shown in the dashboard chrome (browser tab title,

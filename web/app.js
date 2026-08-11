@@ -114,7 +114,7 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
   // name, {agentId} = canonical slug) are filled from /api/marveen once it
   // resolves (see initSidebarBrand). Until then these defaults keep a stock
   // install byte-identical. Explicit params passed to t() still win over them.
-  window._brandTokens = window._brandTokens || { brand: 'Marveen', bot: 'Marveen', agentId: 'marveen' }
+  window._brandTokens = window._brandTokens || { brand: 'Marveen', bot: 'Marveen', agentId: 'marveen', owner: '' }
 
   window.t = function t(key, params = {}) {
     const lang = window._lang || 'hu'
@@ -3643,17 +3643,33 @@ function costBadgeHtml(costPerMInput) {
   return `<span class="agent-cost-badge" title="${escapeAttr(t('agents.cost_badge_tip'))}">${escapeHtml(label)}</span>`
 }
 
-// Neutral-grey account badge (Boss 2026-08-10): which Claude/OpenRouter login
-// the agent runs under, so the card shows the ACCOUNT, not just the model.
-// Sits to the LEFT of the $/M cost badge in the same top-right corner (both
-// wrapped in .agent-card-badges). Main agent -> "Lackor2"; claudePlan
-// 'usalackor'/'lackor3' -> the matching named plan; everything else has no
-// Claude plan (it runs an OpenRouter model) -> "OpenRouter".
+// Plan id -> human label, from the /api/claude-plans registry. Cached because
+// the badge renders once per agent card. Populated opportunistically; until it
+// arrives the badge falls back to the raw plan id, which is still this
+// install's own identifier rather than a guess.
+let _planLabelCache = null
+function primePlanLabels() {
+  if (_planLabelCache) return
+  _planLabelCache = {}
+  fetch('/api/claude-plans')
+    .then(res => (res.ok ? res.json() : []))
+    .catch(() => [])
+    .then((plans) => { for (const p of plans) _planLabelCache[p.id] = p.label })
+}
+
+// Neutral-grey account badge: which Claude/OpenRouter login the agent runs
+// under, so the card shows the ACCOUNT, not just the model. Sits to the LEFT of
+// the $/M cost badge in the same top-right corner (both wrapped in
+// .agent-card-badges).
+//
+// The plan names come from this install's own registry. They used to be an
+// if-chain of three literals from the author's machine, which on anyone else's
+// install labelled every agent with accounts they do not have.
 function accountBadgeHtml(claudePlan, isMain) {
+  primePlanLabels()
   let label
-  if (isMain) label = 'Lackor2'
-  else if (claudePlan === 'usalackor') label = 'Usalackor'
-  else if (claudePlan === 'lackor3') label = 'Lackor3'
+  if (isMain) label = mainAgentDisplayName()
+  else if (claudePlan) label = (_planLabelCache && _planLabelCache[claudePlan]) || claudePlan
   else label = 'OpenRouter'
   return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
 }
@@ -13675,6 +13691,10 @@ async function initSidebarBrand() {
         brand: brand || 'Marveen',
         bot: m.name || brand || 'Marveen',
         agentId: m.agentId || 'marveen',
+        // {owner} alongside {bot}/{brand}: labels that name the operator must
+        // render THIS install's OWNER_NAME. One of them used to ship the
+        // author's own name as an English literal.
+        owner: m.ownerName || '',
       }
       if (typeof renderStaticI18n === 'function') renderStaticI18n()
       if (brand) {

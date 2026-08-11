@@ -37,6 +37,13 @@ REPORT_ONLY=0
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STORE="${MARVEEN_STORE:-$BASE/store}"
 TOKEN_FILE="$STORE/.dashboard-token"
+
+# The main agent's id is per-install (MAIN_AGENT_ID in .env). Hardcoding one
+# would send this report to an agent that does not exist on any other machine,
+# and agent-msg.sh would fail the send -- silently, as far as the board is
+# concerned.
+MAIN_AGENT="${MAIN_AGENT_ID:-$(sed -n 's/^MAIN_AGENT_ID=//p' "$BASE/.env" 2>/dev/null | tail -1 | tr -d '"'"'"'\r')}"
+MAIN_AGENT="${MAIN_AGENT:-marveen}"
 API="${MARVEEN_API:-http://localhost:3420}"
 STALE_DAYS="${KANBAN_AUDIT_STALE_DAYS:-7}"
 
@@ -141,7 +148,7 @@ fi
 # success without writing, an Explorer kill with no start).
 LOG="$STORE/kanban-audit.log"
 send_out="$(printf '[KANBAN-AUDIT] A tabla es a jovahagyasok elternek egymastol:\n\n%s\n\nNezd at: amelyik tenyleg kesz, add fel jovahagyasra; amelyik nem, told vissza vagy kommenteld.' "$report" \
-  | bash "$BASE/scripts/agent-msg.sh" lackor2-bot lackor2-bot - 2>&1)"
+  | bash "$BASE/scripts/agent-msg.sh" "$MAIN_AGENT" "$MAIN_AGENT" - 2>&1)"
 
 {
   printf '%s findings:\n%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$report"

@@ -1732,7 +1732,7 @@ window._i18n.hu = {
   'agents.channel.connected':    'Csatlakozva',
   'agents.channel.disconnected': 'Nincs bekötve',
   'agents.strict_mode':          ' (szigorú)',
-  'agents.marveen_boss':         '{bot} Főnök',
+  'agents.marveen_boss':         '{bot} & {owner}',
   'agents.btn.login':            'Bejelentkezés',
 
   // --- Agent model switch card ---

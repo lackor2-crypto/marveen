@@ -451,7 +451,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         `Amikor kesz vagy, jelentsd vissza az eredmenyt EZZEL a hivassal (KOTELEZO, ne csak inter-agent uzenettel):`,
         `curl -s -X POST http://localhost:3420/api/approvals/${approvalId}/verify-result \\`,
         `  -H "Content-Type: application/json" \\`,
-        `  -H "Authorization: Bearer $(cat /home/boss/marveen/store/.dashboard-token)" \\`,
+        `  -H "Authorization: Bearer $(cat ${join(PROJECT_ROOT, 'store', '.dashboard-token')})" \\`,
         `  -d '{"agent":"${agent}","status":"pass","report":"rovid osszefoglalo"}'`,
         ``,
         `status legyen "pass" ha minden rendben, vagy "fail" ha barmi problemat talalsz -- a report mezoben`,

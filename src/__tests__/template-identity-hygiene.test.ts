@@ -38,6 +38,16 @@ const KNOWN_PLACEHOLDERS = ['PROJECT_ROOT', 'INSTALL_DIR', 'MAIN_AGENT_ID', 'BOT
 const HOME_PATH_RX = /\/(Users|home)\/(?!<)(?!Public\b)[A-Za-z0-9._-]+/
 // A personal mailbox baked into a shipped file would leak / break on every
 // other install. example.com and the noreply providers are not listed.
+// Linuxbrew's prefix is a fixed, universal path present identically on every
+// machine that has it -- the same reason /mnt/c/Users/Public is exempted above.
+// It sits under /home only by Homebrew's own convention and belongs to no user,
+// so a PATH export mentioning it is not leaked identity.
+const UNIVERSAL_HOME_PATH = /\/home\/linuxbrew\b/g
+/** True when the line names a real user's home dir, linuxbrew aside. */
+function hasHomePath(line: string): boolean {
+  return HOME_PATH_RX.test(line.replace(UNIVERSAL_HOME_PATH, ''))
+}
+
 const PERSONAL_EMAIL_RX = /[A-Za-z0-9._%+-]+@(gmail|outlook|icloud|yahoo|hotmail)\.[A-Za-z]+/i
 
 // The canonical default OWNER_NAME from src/config.ts (`?? 'Szabolcs'`) and its
@@ -112,7 +122,7 @@ describe('shipped templates carry no hardcoded identity', () => {
         if (text === null) continue
         const rel = file.slice(REPO_ROOT.length + 1)
         text.split('\n').forEach((line, i) => {
-          if (!line.includes('://') && HOME_PATH_RX.test(line)) {
+          if (!line.includes('://') && hasHomePath(line)) {
             violations.push(`${rel}:${i + 1} absolute home path (use {{INSTALL_DIR}}): ${line.trim().slice(0, 100)}`)
           }
           if (PERSONAL_EMAIL_RX.test(line)) {
@@ -305,8 +315,117 @@ describe('runtime-seeded placeholders are all substituted', () => {
     }
     for (const line of updateSh.split('\n')) {
       if (/https?:\/\//.test(line)) continue
-      expect(HOME_PATH_RX.test(line), `update.sh embeds an absolute home path: ${line.trim()}`).toBe(false)
+      expect(hasHomePath(line), `update.sh embeds an absolute home path: ${line.trim()}`).toBe(false)
       expect(PERSONAL_EMAIL_RX.test(line), `update.sh embeds a personal email: ${line.trim()}`).toBe(false)
     }
+  })
+
+  // ---------------------------------------------------------------------
+  // The shipped RUNTIME, not just the templates.
+  //
+  // The owner's instruction after the seed-skills leak (2026-08-11): "keszitsd
+  // fel a marveen t hogy ilyen tobbet ne forduljon elo! kenyszeritsd ki hogy
+  // mindig ugy kell egy fejlesztest megirni, valtozo nevekkel. tehat nem csak
+  // itt a nevnel, hanem barhol mashol!" -- the point being that Marveen is open
+  // source, so anything baked in works here and misbehaves on every install
+  // that is not this one.
+  //
+  // Deliberately scoped to EXECUTABLE lines. A comment naming the person who
+  // asked for a change is development history and breaks nothing; a string
+  // literal naming them ships wrong behaviour. Tests are excluded too -- a
+  // fixture id is data, not deployment identity.
+  // ---------------------------------------------------------------------
+  const RUNTIME_TREES = ['src', 'scripts', 'web']
+  const RUNTIME_EXT = new Set(['.ts', '.js', '.py', '.sh', '.mjs'])
+  const COMMENT_LINE = /^\s*(\/\/|#|\*|\/\*)/
+  const SKIP_PART = new Set(['node_modules', 'dist', '__pycache__', 'store', '__tests__'])
+
+  /**
+   * Executable lines only. A comment naming a person is history; a string
+   * literal naming them is behaviour. Python carries most of its documentation
+   * in triple-quoted docstrings rather than `#` lines, so those blocks are
+   * tracked and skipped too -- without this the check drowns in module headers
+   * and gets switched off, which is how a rule stops protecting anything.
+   */
+  function codeLines(text: string, isPython: boolean): Array<{ line: string; n: number }> {
+    const out: Array<{ line: string; n: number }> = []
+    let inDoc = false
+    text.split('\n').forEach((line, idx) => {
+      if (isPython) {
+        const fences = (line.match(/"""|'''/g) ?? []).length
+        if (inDoc) {
+          if (fences > 0) inDoc = false
+          return
+        }
+        if (fences === 1) { inDoc = true; return }
+        if (fences >= 2 && /^\s*("""|''')/.test(line)) return
+      }
+      if (COMMENT_LINE.test(line)) return
+      out.push({ line, n: idx + 1 })
+    })
+    return out
+  }
+
+  function runtimeFiles(): string[] {
+    const out: string[] = []
+    for (const tree of RUNTIME_TREES) {
+      for (const f of walk(join(REPO_ROOT, tree))) {
+        const rel = f.slice(REPO_ROOT.length + 1)
+        if (rel.split('/').some(part => SKIP_PART.has(part))) continue
+        if (f.endsWith('.test.ts')) continue
+        if (!RUNTIME_EXT.has(f.slice(f.lastIndexOf('.')))) continue
+        out.push(f)
+      }
+    }
+    return out
+  }
+
+  it('no executable line in src/, scripts/ or web/ hardcodes this install\'s identity', () => {
+    const owner = currentOwnerNameLiteral()
+    const envText = readText(join(REPO_ROOT, '.env')) ?? ''
+    const envVal = (key: string): string => {
+      const line = envText.split('\n').filter(l => l.trim().startsWith(`${key}=`)).pop()
+      return line ? line.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '') : ''
+    }
+    // Every identity this install configures. Whatever the value is here, it
+    // must not appear as a literal in shipped, executable code.
+    const identities = ([
+      ['OWNER_NAME', owner ?? ''],
+      ['MAIN_AGENT_ID', envVal('MAIN_AGENT_ID')],
+      ['SERVICE_ID', envVal('SERVICE_ID')],
+      ['GITHUB_PUSH_ACCOUNT', envVal('GITHUB_PUSH_ACCOUNT')],
+    ] as Array<[string, string]>)
+      .filter(([, v]) => v.length >= 3 && v.toLowerCase() !== 'owner' && v.toLowerCase() !== 'marveen')
+
+    const violations: string[] = []
+    for (const file of runtimeFiles()) {
+      const text = readText(file)
+      if (text === null) continue
+      const rel = file.slice(REPO_ROOT.length + 1)
+      for (const { line, n } of codeLines(text, file.endsWith('.py'))) {
+        for (const [key, value] of identities) {
+          if (new RegExp(`\\b${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(line)) {
+            violations.push(`${rel}:${n} hardcodes ${key} ("${value}") -- read it from config/.env instead: ${line.trim().slice(0, 90)}`)
+          }
+        }
+      }
+    }
+    expect(violations, `Deployment identity baked into shipped code:\n${violations.join('\n')}`).toEqual([])
+  })
+
+  it('no executable line in src/, scripts/ or web/ hardcodes an absolute home path', () => {
+    const violations: string[] = []
+    for (const file of runtimeFiles()) {
+      const text = readText(file)
+      if (text === null) continue
+      const rel = file.slice(REPO_ROOT.length + 1)
+      for (const { line, n } of codeLines(text, file.endsWith('.py'))) {
+        if (line.includes('://')) continue
+        if (hasHomePath(line)) {
+          violations.push(`${rel}:${n} absolute home path (derive it from PROJECT_ROOT / the script's own dir): ${line.trim().slice(0, 90)}`)
+        }
+      }
+    }
+    expect(violations, `Absolute home paths baked into shipped code:\n${violations.join('\n')}`).toEqual([])
   })
 })

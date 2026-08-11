@@ -112,13 +112,13 @@ def main():
     if worst >= CRITICAL_THRESHOLD_PCT:
         print(
             f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%). "
-            "Boss szabalya: most NE vegezz kodolast/programozast -- csak info, kereses, egyeztetes. "
+            "A tulajdonos szabalya: most NE vegezz kodolast/programozast -- csak info, kereses, egyeztetes. "
             "Ha kodolasi feladatot kernek, jelezd hogy a keret miatt most csak arra van mod hogy megbeszeljetek/felkesziljetek ra."
         )
     elif worst >= CAUTION_THRESHOLD_PCT:
         print(
             f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CAUTION_THRESHOLD_PCT}%). "
-            "Boss szabalya: csak kisebb, gyors feladatokba fogj bele, nagy/hosszu munkat most ne kezdj el."
+            "A tulajdonos szabalya: csak kisebb, gyors feladatokba fogj bele, nagy/hosszu munkat most ne kezdj el."
         )
 
 

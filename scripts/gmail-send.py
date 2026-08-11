@@ -13,8 +13,13 @@ Prints the created draft/message id on success.
 import sys, os, json, base64, mimetypes, urllib.request, urllib.error
 from email.message import EmailMessage
 
-TOKEN = "/home/boss/marveen/store/google-token.json"
-CLIENT = "/home/boss/marveen/store/google-oauth-client.json"
+# Repo root = this script's parent dir, so it works from any CWD and any
+# install path. Absolute paths here pointed at one author's home directory and
+# simply failed to open on every other machine.
+_BASE = os.environ.get("MARVEEN_STORE") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "store")
+TOKEN = os.path.join(_BASE, "google-token.json")
+CLIENT = os.path.join(_BASE, "google-oauth-client.json")
 
 
 def _access_token():

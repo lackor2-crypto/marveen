@@ -15,20 +15,22 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { join, basename, dirname } from 'node:path'
-import { PROJECT_ROOT } from './config.js'
+import { PROJECT_ROOT, WINDOW_BACKUP_REPO_URL } from './config.js'
 import { logger } from './logger.js'
 import { readPwStatus, backupLayouts, runPwAction, PW_DATA_DIR_FALLBACK, type PwStatus, type PwRunResult } from './persistent-windows.js'
 import { WIN_SETTINGS_DIR } from './windows-settings.js'
 
 /**
- * The dedicated, private backup repo (NOT the Marvin fork).
+ * The dedicated, private backup repo (NOT the Marveen fork).
  *
- * Renamed from marveen-window-layouts on Boss's instruction (2026-08-11) once it
- * started holding the registry settings too, so the name stops describing only
- * half its contents. GitHub redirects the old URL, so an install that has
- * already cloned keeps working -- and ensureRepo() rewrites the remote anyway.
+ * Which repo receives the backup is per-install, not per-author. As a baked-in
+ * literal it pointed every install at ONE operator's private repo: on anybody
+ * else's machine the push either fails outright or, worse, aims at a stranger's
+ * backups. It comes from WINDOW_BACKUP_REPO_URL in .env instead; empty means
+ * the feature was never configured on this host, and ensureRepo() says exactly
+ * that rather than guessing a URL.
  */
-export const BACKUP_REPO_URL = 'https://github.com/lackor2-crypto/marveen-windows-backup.git'
+export const BACKUP_REPO_URL = WINDOW_BACKUP_REPO_URL
 const REPO_DIR = join(PROJECT_ROOT, 'store', 'window-layout-repo')
 const LAYOUTS_SUBDIR = 'layouts'
 const MANIFEST_NAME = 'manifest.json'
@@ -64,6 +66,12 @@ function git(args: string[], cwd: string): Promise<GitResult> {
 
 /** Clone the backup repo on first use; make sure the remote is the right one. */
 async function ensureRepo(): Promise<void> {
+  if (!BACKUP_REPO_URL) {
+    throw new Error(
+      'A Windows-mentes celrepoja nincs beallitva ezen a gepen. '
+      + 'Vedd fel a .env-be: WINDOW_BACKUP_REPO_URL=https://github.com/<fiok>/<repo>.git',
+    )
+  }
   if (existsSync(join(REPO_DIR, '.git'))) {
     await git(['remote', 'set-url', 'origin', BACKUP_REPO_URL], REPO_DIR)
     return

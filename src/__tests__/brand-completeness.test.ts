@@ -19,8 +19,8 @@ function substitute(str: string, tokens: Record<string, string>): string {
 // Stock defaults (BRAND_NAME == BOT_NAME == 'Marveen', slug 'marveen') and a
 // distinct brand/agent split, to prove both that a default install is unchanged
 // and that a renamed install carries its own names on every touched string.
-const DEFAULT_TOKENS = { brand: 'Marveen', bot: 'Marveen', agentId: 'marveen' }
-const BRANDED_TOKENS = { brand: 'Acme', bot: 'Nova', agentId: 'nova' }
+const DEFAULT_TOKENS = { brand: 'Marveen', bot: 'Marveen', agentId: 'marveen', owner: 'Owner' }
+const BRANDED_TOKENS = { brand: 'Acme', bot: 'Nova', agentId: 'nova', owner: 'Geza' }
 
 // Load a real dashboard lang file. The files assign to a `window` global with
 // no exports, so shim it, import for the side effect, and read the table back.
@@ -115,7 +115,7 @@ describe('i18n brand tokens keep a stock install byte-identical (en)', () => {
   it('renders the original English strings with default tokens', async () => {
     const en = await loadLang('en')
     expect(substitute(en['updates.brand_subtitle'], DEFAULT_TOKENS)).toBe('Marveen version check')
-    expect(substitute(en['agents.marveen_boss'], DEFAULT_TOKENS)).toBe('Marveen Boss')
+    expect(substitute(en['agents.marveen_boss'], DEFAULT_TOKENS)).toBe('Marveen & Owner')
     expect(substitute(en['agents.toast.marveen_restarted'], DEFAULT_TOKENS)).toBe('Marveen channels restarted')
     expect(substitute(en['agents.confirm.hard_restart'], DEFAULT_TOKENS)).toBe(
       'Hard restart the marveen-channels session. The ongoing Marveen conversation will be lost (memory is preserved). Continue?',
@@ -127,7 +127,7 @@ describe('i18n brand tokens keep a stock install byte-identical (en)', () => {
 
   it('carries the brand/agent names with non-default tokens and drops Marveen', async () => {
     const en = await loadLang('en')
-    expect(substitute(en['agents.marveen_boss'], BRANDED_TOKENS)).toBe('Nova Boss')
+    expect(substitute(en['agents.marveen_boss'], BRANDED_TOKENS)).toBe('Nova & Geza')
     expect(substitute(en['updates.brand_subtitle'], BRANDED_TOKENS)).toBe('Acme version check')
     const restart = substitute(en['agents.confirm.hard_restart'], BRANDED_TOKENS)
     expect(restart).toContain('nova-channels')
@@ -142,7 +142,7 @@ describe('i18n brand tokens keep a stock install byte-identical (hu)', () => {
   it('renders the original Hungarian strings with default tokens', async () => {
     const hu = await loadLang('hu')
     expect(substitute(hu['updates.brand_subtitle'], DEFAULT_TOKENS)).toBe('Marveen verzió ellenőrzés')
-    expect(substitute(hu['agents.marveen_boss'], DEFAULT_TOKENS)).toBe('Marveen Főnök')
+    expect(substitute(hu['agents.marveen_boss'], DEFAULT_TOKENS)).toBe('Marveen & Owner')
     expect(substitute(hu['agents.toast.marveen_restarted'], DEFAULT_TOKENS)).toBe('Marveen channels újraindítva')
     expect(substitute(hu['agents.confirm.hard_restart'], DEFAULT_TOKENS)).toBe(
       'Hard restart a marveen-channels session-ön. A folyamatban lévő Marveen beszélgetés elveszik (memória megmarad). Folytatod?',
@@ -151,7 +151,7 @@ describe('i18n brand tokens keep a stock install byte-identical (hu)', () => {
 
   it('carries the brand/agent names with non-default tokens and drops Marveen', async () => {
     const hu = await loadLang('hu')
-    expect(substitute(hu['agents.marveen_boss'], BRANDED_TOKENS)).toBe('Nova Főnök')
+    expect(substitute(hu['agents.marveen_boss'], BRANDED_TOKENS)).toBe('Nova & Geza')
     expect(substitute(hu['updates.brand_subtitle'], BRANDED_TOKENS)).toBe('Acme verzió ellenőrzés')
     expect(substitute(hu['agents.confirm.hard_restart'], BRANDED_TOKENS)).not.toMatch(/marveen/i)
   })
