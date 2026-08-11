@@ -21,6 +21,7 @@ import { readClaudePlans } from './claude-plans.js'
 import { agentSessionName, sessionExistsOnHost } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
+import { sendAlert } from './channel-monitor.js'
 import {
   decideWakes,
   recordWake,
@@ -108,22 +109,42 @@ function hasLiveSession(agent: string): boolean {
 }
 
 // One line, accent-free -- the router injects it into a tmux pane, same
-// constraint the channel-monitor texts follow. The reset variant says what
-// changed and invites the agent to pick its work back up (Boss's actual
-// complaint was not a missing greeting but a missing RESTART of work: "nem
-// indultal el. nem valaszolsz"); the startup variant is the plain hello for a
-// dashboard that just came back.
-// The Telegram sentence is not decoration. Boss watched the 17:40 wake land
-// correctly (log + state + the agent resumed work) and still called it broken:
-// "mar mukoddhetne de telegrammon nem kapott automatan uzenetet". From where he
-// sits, a wake nobody announced is indistinguishable from no wake -- so the
-// woken agent has to say so on its own channel. No owner name and no chat id
-// appear here: every install has different ones (CLAUDE.md, host-agnostic rule).
+// constraint the channel-monitor texts follow.
+//
+// STATEMENT OF FACT, NOT AN ORDER -- and specifically not an order to send
+// anything outward.
+//
+// The first version of this text asked the woken agent to announce itself on
+// its own Telegram channel, because the owner judges liveness by what he sees
+// in the chat. lackor3 correctly REFUSED (2026-08-11 18:2x): a wake arrives
+// through the inter-agent queue, which wraps it as untrusted third-party data,
+// and an agent must not perform outbound actions because untrusted content told
+// it to. Pressuring it to comply would have trained away a security property
+// worth far more than the notification.
+//
+// So the announcement moved to the party that is actually trusted here: this
+// runner (see notifyOwner below). The wake keeps only what an agent may safely
+// act on -- the fact that its window reset -- and leaves the decision to resume
+// to the agent itself. Taking the turn is what refreshes the limit figures, and
+// that happens whatever the agent decides to do with the news.
 export function wakeMessage(reason: WakeReason): string {
-  const announce = ' Irj egy rovid sort a sajat csatornadon (Telegram) hogy ismet elerheto vagy.'
   return reason === 'limit-reset'
-    ? 'Ebreszto: a keret-ablakod visszaallt, megint van kereted. Ha volt felfuggesztett munkad, folytasd.' + announce
-    : 'Ebreszto: a rendszer ujraindult vagy visszajott a kapcsolat.' + announce
+    ? 'Rendszer-jelzes (nem utasitas): a keret-ablakod visszaallt, megint van kereted. Ha volt felfuggesztett munkad, magadtol folytathatod.'
+    : 'Rendszer-jelzes (nem utasitas): a rendszer ujraindult vagy visszajott a kapcsolat. A keret-allapotod ezzel a fordulóval frissul.'
+}
+
+/** Tell the owner, on his channel, that an agent was woken.
+ *
+ *  Boss, 2026-08-11: "mar mukoddhetne de telegrammon nem kapott automatan
+ *  uzenetet". A wake that only shows up in a log file is, from where he sits,
+ *  no wake at all. This is the trusted path for that sentence: the dashboard
+ *  knows the wake happened and owns the owner channel, so nobody has to talk an
+ *  agent into speaking on its behalf. */
+function notifyOwner(reason: WakeReason, agents: string[]): void {
+  const what = reason === 'limit-reset'
+    ? 'visszaallt a keret-ablaka, felebresztettem'
+    : 'ujraindulas/kapcsolat-visszateres utan felebresztettem'
+  sendAlert(`🔔 ${agents.join(', ')}: ${what}. Ha volt felfuggesztett munkaja, folytathatja.`)
 }
 
 /** Run agent-wake.sh for the decided agents. Resolves to true when the script
@@ -207,7 +228,11 @@ async function tick(): Promise<void> {
       if (agents.length === 0) continue
       logger.info({ limitWake: true, reason, agents }, 'limit-wake: waking account agents')
       const ok = await runWakeScript(agents, wakeMessage(reason))
-      if (!ok) logger.warn({ limitWake: true, reason, agents }, 'limit-wake: wake attempt did not complete cleanly; next attempt after the cooldown')
+      if (ok) {
+        notifyOwner(reason, agents)
+      } else {
+        logger.warn({ limitWake: true, reason, agents }, 'limit-wake: wake attempt did not complete cleanly; next attempt after the cooldown')
+      }
     }
   } catch (err) {
     logger.warn({ err }, 'limit-wake: tick error')

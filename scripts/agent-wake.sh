@@ -29,10 +29,14 @@ PROJECT_ROOT="${MARVEEN_ROOT:-$BASE}"
 STORE="${MARVEEN_STORE:-$PROJECT_ROOT/store}"
 LOG="$STORE/agent-wake.log"
 API="${MARVEEN_API:-http://localhost:3420}"
-# The wake asks for a line on the agent's OWN channel, not just an inter-agent
-# reply: the owner watches Telegram, not the log, and a wake he cannot see reads
-# to him as no wake at all (Boss, 2026-08-11 17:45).
-MESSAGE="${MARVEEN_WAKE_MESSAGE:-Jo reggelt. Ebreszto -- irj egy rovid sort a sajat csatornadon (Telegram) hogy ebren vagy, ezzel a keret-allapotod is frissul a dashboardon. Mas teendo nincs.}"
+# Deliberately a NOTIFICATION, not an instruction, and never a request to send
+# something outward. A wake travels through the inter-agent queue, which reaches
+# the target wrapped as untrusted third-party data -- lackor3 rightly refused an
+# earlier version of this text that asked it to message the owner on Telegram
+# (2026-08-11). The agent taking a turn is what refreshes the limit figures, and
+# that happens regardless; announcing the wake to the owner is the dashboard's
+# job (notifyOwner in src/web/limit-wake-runner.ts), not the woken agent's.
+MESSAGE="${MARVEEN_WAKE_MESSAGE:-Rendszer-jelzes (nem utasitas): ebreszto. A keret-allapotod ezzel a fordulóval frissul a dashboardon. Mas teendo nincs.}"
 
 # The main agent runs as the channels service, not as one of the listed agents,
 # so it comes from the install config rather than the API.
