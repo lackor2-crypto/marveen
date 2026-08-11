@@ -3,7 +3,7 @@
 desktop -- from WSL, over Telegram, with no one touching the keyboard -- and
 close the window this script opened last time first.
 
-Boss controls Marvin over Telegram (phone), but the request is for the
+{{OWNER_NAME}} controls Marvin over Telegram (phone), but the request is for the
 actual physical screen on the PC Marvin runs on ("indits el egy videot a
 gepemen", not "kuldd el a linket").
 
@@ -16,7 +16,7 @@ process: it printed 0, while the real interactive desktop (explorer.exe,
 the logged-in user) is the Console session. Session 0 is the isolated
 services session -- anything opened there is invisible and inaudible to
 the person sitting at the PC. No error, no exception, just silent nothing
-(Boss: "semmi nem tortent"). AppActivate/AllWindows enumeration from a
+({{OWNER_NAME}}: "semmi nem tortent"). AppActivate/AllWindows enumeration from a
 Session-0 process also can't see the console session's windows, so you
 can't detect this failure mode by probing after the fact -- you have to
 route around it up front.
@@ -29,19 +29,19 @@ logged-in user. Verified by the same SessionId probe: a task launched this
 way reports the console session, not 0.
 
 CLOSING THE PREVIOUS WINDOW (2026-08-06 card, implemented 2026-08-10).
-Boss: "ket hang egyszerre nem szabad hogy beszeljen... automatikusan
+{{OWNER_NAME}}: "ket hang egyszerre nem szabad hogy beszeljen... automatikusan
 kellene ezt csinalni, hogyha kerlek egy masik videot inditani". Two things
 make that hard, and both are handled here:
 
-1. Chrome is single-instance PER PROFILE. Launched against Boss's normal
+1. Chrome is single-instance PER PROFILE. Launched against {{OWNER_NAME}}'s normal
    profile while his Chrome is already running (it always is -- 20+ tabs),
    `chrome.exe --new-window` just hands the URL to the EXISTING browser
    process and exits. There is then no process of ours to close, and
-   killing "chrome.exe" would take Boss's own tabs with it. So Marvin's
+   killing "chrome.exe" would take {{OWNER_NAME}}'s own tabs with it. So Marvin's
    windows run in their OWN user-data-dir (MARKER below). That gives this
    script a process tree it owns, and makes the kill filter exact: only a
    chrome.exe whose command line carries the marker is ever touched, so
-   Boss's own browser cannot be hit even by accident.
+   {{OWNER_NAME}}'s own browser cannot be hit even by accident.
 2. Closing needs the window, not just the PID -- but WM_CLOSE across
    sessions is exactly what Session 0 cannot do. CloseMainWindow() is
    attempted first anyway (it works when the caller can reach the window
@@ -145,7 +145,7 @@ YOUTUBE_ID_RE = re.compile(
 def playable_url(url: str) -> str:
     """YouTube watch pages open behind the EU cookie-consent wall, which stops
     playback dead until someone clicks it by hand -- on a machine nobody is
-    sitting at, that is a silent failure (Boss, 2026-08-10: "nem megy, mert el
+    sitting at, that is a silent failure ({{OWNER_NAME}}, 2026-08-10: "nem megy, mert el
     kell elobb fogadni valamit"). The privacy-enhanced embed host never shows
     that wall, so a watch/shorts/youtu.be link is played through it, with
     autoplay asked for explicitly.

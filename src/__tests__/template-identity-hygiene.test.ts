@@ -52,6 +52,32 @@ const PERSONAL_EMAIL_RX = /[A-Za-z0-9._%+-]+@(gmail|outlook|icloud|yahoo|hotmail
 // szabad / szabas.
 const FOREIGN_DEFAULT_OWNER_RX = /\bSzab(olcs|i)/i
 
+// The name above is one specific deployment's operator. THIS checkout has an
+// operator too, and baking their name into a shipped template is the same bug
+// wearing different clothes -- it just cannot be caught by a fixed regex,
+// because the name differs per install. So the rule is derived instead: read
+// OWNER_NAME from .env and forbid that literal in shipped templates.
+//
+// The regression it pins (2026-08-11): seed-skills addressed the owner by name
+// 151 times across 21 files, and the seed-skills install loop copied them with
+// a plain `cp -r` -- no placeholder substitution at all, unlike the
+// scheduled-task loop next to it. On anyone else's machine those skills told
+// the agent to notify a person who does not exist there. The owner's own
+// question was the right one: "mi van ha aki letelepiti azt ugy hivjak hogy
+// geza. akkor nala nem fog mukodni?"
+//
+// Skipped when the value is missing, short, or the neutral placeholder from
+// src/config.ts: a 1-2 character or generic name would match ordinary words and
+// turn this into noise.
+function currentOwnerNameLiteral(): string | null {
+  const envText = readText(join(REPO_ROOT, '.env'))
+  if (envText === null) return null
+  const line = envText.split('\n').find(l => l.trim().startsWith('OWNER_NAME='))
+  const value = line?.slice(line.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '') ?? ''
+  if (value.length < 3 || value.toLowerCase() === 'owner') return null
+  return value
+}
+
 // A hardcoded numeric chat id (e.g. a Telegram chat id, 5+ digits) is one
 // operator's personal channel. Seeded into a task it would make every other
 // install post to that one person's chat. Use chat_id: 0 (the bound channel)
@@ -102,6 +128,31 @@ describe('shipped templates carry no hardcoded identity', () => {
       }
     }
     expect(violations, `Hardcoded identity found in shipped templates:\n${violations.join('\n')}`).toEqual([])
+  })
+
+  it('does not bake THIS install\'s owner name into any shipped template', () => {
+    const owner = currentOwnerNameLiteral()
+    if (owner === null) return
+    const ownerRx = new RegExp(`\\b${owner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i')
+    const violations: string[] = []
+    for (const dir of TEMPLATE_DIRS) {
+      for (const file of walk(join(REPO_ROOT, dir))) {
+        const text = readText(file)
+        if (text === null) continue
+        const rel = file.slice(REPO_ROOT.length + 1)
+        text.split('\n').forEach((line, i) => {
+          // A documentation address on a reserved example domain is a
+          // placeholder, not identity -- and it stays a placeholder even when
+          // the operator's name happens to be an ordinary English noun, which
+          // is exactly how "boss@work.example" first tripped this check.
+          if (/@[\w.-]*\bexample\b/i.test(line)) return
+          if (ownerRx.test(line)) {
+            violations.push(`${rel}:${i + 1} this install's owner name (use {{OWNER_NAME}}): ${line.trim().slice(0, 100)}`)
+          }
+        })
+      }
+    }
+    expect(violations, `This install's owner name is baked into shipped templates:\n${violations.join('\n')}`).toEqual([])
   })
 
   // web/app.js is the dashboard bundle, shipped verbatim to every install. It

@@ -1,19 +1,19 @@
 ---
 name: win-browser-control
-description: Amikor Boss Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl. "indits el egy videot a szamitogepemen", "nyisd meg a bongeszot es menj fel X oldalra" -- vagy hogy ALLITSD LE amit korabban elinditottal ("allitsd le a videot"). Marveen WSL2-ben fut Boss sajat Windows gepen, tehat kepes kozvetlenul a Windows asztalra hatni, nem csak linket kuldeni. Uj nyitasnal az elozo ablakot automatikusan bezarja, hogy ne szoljon ket hang egyszerre.
+description: Amikor {{OWNER_NAME}} Telegramon (telefonrol) arra ker, hogy nyisd meg a bongeszot / egy weboldalt / egy Youtube videot A GEPEN (nem a telefonjan) -- pl. "indits el egy videot a szamitogepemen", "nyisd meg a bongeszot es menj fel X oldalra" -- vagy hogy ALLITSD LE amit korabban elinditottal ("allitsd le a videot"). Marveen WSL2-ben fut {{OWNER_NAME}} sajat Windows gepen, tehat kepes kozvetlenul a Windows asztalra hatni, nem csak linket kuldeni. Uj nyitasnal az elozo ablakot automatikusan bezarja, hogy ne szoljon ket hang egyszerre.
 ---
 
 # Windows böngésző-vezérlés WSL-ből
 
 ## Mikor használd
 
-Boss Telegramon egy URL-t / keresést kér, és **explicit vagy kontextusból
+{{OWNER_NAME}} Telegramon egy URL-t / keresést kér, és **explicit vagy kontextusból
 egyértelmű, hogy a saját Windows gépén** (nem a telefonján) akarja
 megnyitva látni -- pl. "indíts el egy videót a gépemen", "nyisd meg a
 böngészőt és menj fel az emailemre". Ez MÁS, mint amikor csak egy linket
 kér elküldeni Telegramon (azt simán a `reply` tool-lal, sima linkkel intézd).
 
-Boss, 2026-08-05: eredetileg csak egy YouTube-linket küldtem neki
+{{OWNER_NAME}}, 2026-08-05: eredetileg csak egy YouTube-linket küldtem neki
 Telegramon, ő visszaszólt hangüzenetben, hogy ez nem jó, a GÉPÉN akarja
 látni (telefonról vezérel, de a gépén, nagy képernyőn néz). Az is
 elhangzott, hogy ez legyen általános képesség ("nyisd meg a böngészőt és
@@ -23,10 +23,10 @@ menj fel az emailemre, vagy bármi") -- ne csak a YouTube-esetre.
 
 Az első próbálkozás `cmd.exe /c start "" "URL"` / közvetlen
 `powershell.exe Start-Process` volt WSL interop-on át. Lefutott hibátlanul,
-Boss mégsem látott/hallott semmit ("semmi nem tortent"). Ok, bebizonyítva
+{{OWNER_NAME}} mégsem látott/hallott semmit ("semmi nem tortent"). Ok, bebizonyítva
 egy önteszttel (lásd lent): a WSL interop által indított Windows-folyamat
 **Session 0**-ban fut ezen a gépen -- a szolgáltatások láthatatlan
-munkamenetében --, míg Boss tényleges bejelentkezett asztala **Session
+munkamenetében --, míg {{OWNER_NAME}} tényleges bejelentkezett asztala **Session
 2** ("Console"). Session 0-ból nyitott ablak sosem jelenik meg és sosem
 hallható a fizikai képernyőn/hangszórón, hibaüzenet nélkül. Ebből
 következik az is, hogy utólagos ellenőrzés (`Get-Process | Where
@@ -54,7 +54,7 @@ sikerrel bukik.
   /mnt/c/Windows/System32/tasklist.exe /V /FI "IMAGENAME eq explorer.exe"
   ```
   Ha nincs `explorer.exe` `Console` session-ben, senki nincs bejelentkezve
-  -- szólj Boss-nak, hogy a gép nem abban az állapotban van.
+  -- szólj a tulajdonosnak ({{OWNER_NAME}}), hogy a gép nem abban az állapotban van.
 
 ## Eljárás
 
@@ -66,23 +66,23 @@ python3 ~/.claude/skills/win-browser-control/scripts/open_url.py --close   # csa
 Ez regisztrál/frissít egy `MarvinOpenUrl` nevű ütemezett feladatot
 (`LogonType Interactive`, a Chrome-ot `--new-window <url>`-lel indítva),
 majd azonnal lefuttatja. VADONATÚJ, önálló Chrome-ablakot nyit -- nem egy
-meglévő ablak egy háttér-fülét --, hogy Boss biztosan lássa/hallja, ne kelljen
+meglévő ablak egy háttér-fülét --, hogy {{OWNER_NAME}} biztosan lássa/hallja, ne kelljen
 fület váltania, és a meglévő (sokszor 10+) nyitott fülét ne zavarja.
 
 **Az ELŐZŐ ablakot automatikusan bezárja, mielőtt az újat megnyitja**
-(Boss 2026-08-06: "ket hang egyszerre nem szabad hogy beszeljen").
+({{OWNER_NAME}} 2026-08-06: "ket hang egyszerre nem szabad hogy beszeljen").
 Ehhez Marvin ablakai SAJÁT Chrome-profilban futnak
 (`%LOCALAPPDATA%\MarvinChromeProfile`) -- ez nem kozmetika, hanem ez teszi
 egyáltalán lehetővé a funkciót:
 
-- A Chrome profilonként egy-példányos. Boss saját profiljával indítva (az ő
+- A Chrome profilonként egy-példányos. {{OWNER_NAME}} saját profiljával indítva (az ő
   Chrome-ja MINDIG fut) a `--new-window` csak átadja az URL-t a MEGLÉVŐ
   folyamatnak és kilép -- nincs saját folyamatunk amit bezárhatnánk, a
-  "chrome.exe" kilövése pedig Boss 20+ fülét vinné magával.
+  "chrome.exe" kilövése pedig {{OWNER_NAME}} 20+ fülét vinné magával.
 - Saját profillal viszont van saját folyamatfánk, és a bezárás szűrője
   pontos: KIZÁRÓLAG olyan chrome.exe-t érint, aminek a parancssorában ott a
-  `MarvinChromeProfile` marker. Boss böngészőjéhez így véletlenül sem nyúl.
-- Ára: ez a profil nincs bejelentkezve Boss Google-fiókjába (nyilvános
+  `MarvinChromeProfile` marker. {{OWNER_NAME}} böngészőjéhez így véletlenül sem nyúl.
+- Ára: ez a profil nincs bejelentkezve {{OWNER_NAME}} Google-fiókjába (nyilvános
   YouTube-videóhoz nem kell). Ha valamihez tényleg a bejelentkezett profil
   kell, azt külön kell kezelni -- és ott az automatikus bezárás nem működhet.
 
@@ -92,7 +92,7 @@ kiírni a profilját, MIELŐTT kényszerítene. Ez nem kozmetika: az azonnali
 kilövés elvesztette az utolsó cookie-írást, és ettől jött vissza a YouTube
 cookie-elfogadó fal egy olyan profilon, ami már elfogadta.
 
-**YouTube: cookie-fal és autoplay** (Boss 2026-08-10: "nem megy, mert el kell
+**YouTube: cookie-fal és autoplay** ({{OWNER_NAME}} 2026-08-10: "nem megy, mert el kell
 előbb fogadni valamit"). Olyan gépen, ahol senki nem ül a billentyűzetnél, egy
 elfogadó fal vagy egy autoplay-blokk néma hiba: az ablak megnyílik, de nem
 szól semmi. Két lépés kezeli:
@@ -111,23 +111,23 @@ hibakereséshez van, a bezárás NEM függ tőle: elveszett vagy elavult
 
 YouTube kereséshez: előbb `WebSearch`-csel találd meg a konkrét
 `watch?v=...` linket, azt add át a script-nek -- ne magát a keresőoldalt
-nyisd meg, hacsak Boss nem kifejezetten a találati listát kérte.
+nyisd meg, hacsak {{OWNER_NAME}} nem kifejezetten a találati listát kérte.
 
 Ne közvetlen `cmd.exe`/`Start-Process` hívást írj újra -- lásd fent, ez a
 látszólag egyszerűbb út a néma hibát adja.
 
 ## Buktatók
 
-- NE próbáld PID vagy ablakcím alapján bezárni Boss saját Chrome-jában
+- NE próbáld PID vagy ablakcím alapján bezárni {{OWNER_NAME}} saját Chrome-jában
   megnyitott lapot: a Session 0-ból (WSL interop) az ablak-felsorolás és a
-  WM_CLOSE nem éri el a konzol-session ablakait, PID-re lőni pedig Boss
+  WM_CLOSE nem éri el a konzol-session ablakait, PID-re lőni pedig {{OWNER_NAME}}
   összes fülét kilövi. A saját profil az egyetlen biztonságos út (lásd fent).
 
 - `Get-Process | Where MainWindowTitle` és `AppActivate` WSL interop alól
   megbízhatatlan/üres, MÉG SIKERES indítás esetén IS (session-izoláció
   miatt a lekérdező folyamat maga sem látja a Session 2 ablakait) -- ne
   ebből ítéld meg a sikert.
-- Miután elindítottad, MINDIG kérj vissza visszajelzést Boss-tól
+- Miután elindítottad, MINDIG kérj vissza visszajelzést a tulajdonostól ({{OWNER_NAME}})
   Telegramon ("nézd meg a képernyőt"), mert innen nincs teljesen
   megbízható módod ellenőrizni, hogy ténylegesen megjelent-e/hallható-e.
 - Ha egy user-neve ékezetes (pl. "László"), NE told át bash/WSL szövegként
@@ -137,8 +137,8 @@ látszólag egyszerűbb út a néma hibát adja.
   (`[System.Security.Principal.WindowsIdentity]::GetCurrent().Name`), nem
   bash-ből adja át.
 
-- **ELSŐ videó a friss `MarvinChromeProfile`-on: YouTube cookie-fal + nincs autoplay** (2026-08-10, élesben megfogva, Boss jelenlétében). Amíg usalackor be nem építi ezt közvetlenül az `open_url.py`-ba (lásd kártya #101fffd0 #150/#151 komment), KÉZI UTÓLAGOS lépésként számolj vele:
-  1. Nyitás után 3-5 mp múlva végy egy screenshotot (`windows-desktop-screenshot` skill mintája) -- **NE Boss telefonon küldött fotójából olvasd le a koordinátákat**, az Telegram-tömörítés miatt más felbontású/skálázású, mint a valódi képernyő. Mindig a saját, frissen készített screenshotodból számolj.
+- **ELSŐ videó a friss `MarvinChromeProfile`-on: YouTube cookie-fal + nincs autoplay** (2026-08-10, élesben megfogva, {{OWNER_NAME}} jelenlétében). Amíg usalackor be nem építi ezt közvetlenül az `open_url.py`-ba (lásd kártya #101fffd0 #150/#151 komment), KÉZI UTÓLAGOS lépésként számolj vele:
+  1. Nyitás után 3-5 mp múlva végy egy screenshotot (`windows-desktop-screenshot` skill mintája) -- **NE {{OWNER_NAME}} telefonon küldött fotójából olvasd le a koordinátákat**, az Telegram-tömörítés miatt más felbontású/skálázású, mint a valódi képernyő. Mindig a saját, frissen készített screenshotodból számolj.
   2. Ha megjelenik a "Before you continue to YouTube" cookie-fal (csak az ELSŐ indításnál fordul elő adott profilon, utána a cookie megjegyzi): koordináta-kattintás helyett UIAutomation `InvokePattern`-nel keresd meg és nyomd meg az "Accept all" gombot -- ez megbízhatóbb, mint pixel-koordináta (a dialógus mérete/elhelyezkedése változó volt két egymást követő screenshoton is). Minta:
      ```powershell
      Add-Type -AssemblyName UIAutomationClient
@@ -163,7 +163,7 @@ Automatikus bezárás élő ellenőrzése (2026-08-10-en így mértem le):
 ```
 Nyiss egy videót, kérdezd le a PID-eket, nyiss egy másikat: a script kiírja
 mely PID-eket zárta be, és a lekérdezés után egyetlen régi PID sem élhet.
-Boss saját Chrome-jának PID-jei (pl. `tasklist /FI "IMAGENAME eq chrome.exe"`)
+{{OWNER_NAME}} saját Chrome-jának PID-jei (pl. `tasklist /FI "IMAGENAME eq chrome.exe"`)
 változatlanul életben kell maradjanak.
 
 Self-teszt (session-probe, nem nyit semmit, csak fájlba írja a
@@ -183,5 +183,5 @@ cat /mnt/c/Users/Public/marvin_probe.txt   # 2 = jó (interaktív), 0 = rossz (S
 ```
 
 Rendes használat: `open_url.py` sikeres kimenete `opened (new Chrome
-window, interactive session): <url>`, és Boss visszaigazolja Telegramon,
+window, interactive session): <url>`, és {{OWNER_NAME}} visszaigazolja Telegramon,
 hogy megjelent a gépén.

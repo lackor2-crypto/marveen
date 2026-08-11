@@ -40,7 +40,7 @@ elolvasni" -- ez tévedés, csak a hook nem futott le automatikusan rá.**
 
 ## Buktatók
 
-- Ha egyszerre TÖBB hangüzenet érkezik mid-turn (pl. Boss egymás után küld
+- Ha egyszerre TÖBB hangüzenet érkezik mid-turn (pl. {{OWNER_NAME}} egymás után küld
   3-at), mindegyikre KÜLÖN hívd meg a végpontot a saját `file_id`-jével --
   ne csak az utolsóra.
 - Ne próbáld a `Read` tool-lal beolvasni a letöltött `.oga` fájlt, az bináris,
@@ -48,7 +48,7 @@ elolvasni" -- ez tévedés, csak a hook nem futott le automatikusan rá.**
 - A végpont a szerver oldali letöltést + Groq/whisper hívást is elvégzi,
   szóval nem kell előtte `download_attachment`-et hívni -- a `file` paraméter
   elég neki.
-- 2026-08-07: pont ez a hiányosság okozott zavart (Boss nem értette miért nem
+- 2026-08-07: pont ez a hiányosság okozott zavart ({{OWNER_NAME}} nem értette miért nem
   jött át 2 hangüzenete), miközben a Groq STT valójában működik, csak a
   hook-időzítés hagyta ki őket. Lásd [[groq-stt-hook-timing]] ha lesz belőle
   külön memória.

@@ -5,12 +5,12 @@ description: Heti egyszeri, automatikus Windows karbantartas WSL alol: rendszerh
 # Weekly System Maintenance (Windows, WSL alol)
 
 ## Mikor használd
-Heti automatikus futas (scheduled task: weekly-system-maintenance), vagy ha Boss Windows-karbantartast/gyorsitast ker.
+Heti automatikus futas (scheduled task: weekly-system-maintenance), vagy ha {{OWNER_NAME}} Windows-karbantartast/gyorsitast ker.
 
 ## Környezet (FONTOS)
 - Ez WSL2 a Windows host felett. A Windows-eszkozoket interop-on hivod. A `powershell.exe` gyakran NINCS a PATH-ban, ezert TELJES ut:
   `PS="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"`  majd `"$PS" -NoProfile -Command "..."`
-- A WSL user NEM admin Windows oldalon (`IsInRole(Administrator)=False`). Ezert az admin-igenyu lepesek UAC-elevaciot kernek -> ezek JOVAHAGYAS-kotelesek (Boss futtatja emelt joggal / rabolint a UAC-ra). Autonomy-config leképzes: admin/rendszermodositas ~ `system_config_change` (level 2), ujrainditas ~ `system_reboot` (level 2), a szinteket olvasd a `store/autonomy-config.json`-bol. Lasd [[autonomous-diagnose-repair]].
+- A WSL user NEM admin Windows oldalon (`IsInRole(Administrator)=False`). Ezert az admin-igenyu lepesek UAC-elevaciot kernek -> ezek JOVAHAGYAS-kotelesek ({{OWNER_NAME}} futtatja emelt joggal / rabolint a UAC-ra). Autonomy-config leképzes: admin/rendszermodositas ~ `system_config_change` (level 2), ujrainditas ~ `system_reboot` (level 2), a szinteket olvasd a `store/autonomy-config.json`-bol. Lasd [[autonomous-diagnose-repair]].
 
 ## Eljárás
 ### 1. Diagnosztika (AUTONOM, csak olvas, nem kell admin)
@@ -32,7 +32,7 @@ Heti automatikus futas (scheduled task: weekly-system-maintenance), vagy ha Boss
 - Minden tisztitas UTAN merd ujra a nyert helyet, jegyezd a riporthoz.
 
 ### 3. Kockazatos / admin / reboot -> JOVAHAGYAS (batch, teljes sablon)
-Ezek admin-elevaciot (UAC) igenyelnek. Kerj engedelyt EGY korben (Mit/Miert/Hatas/Pontosan mire/Kockazat), majd add at Bossnak a parancsot emelt PowerShellben, VAGY: `"$PS" -Command "Start-Process powershell -Verb RunAs -ArgumentList '-Command','...'"` (UAC-t dob, Boss kattint):
+Ezek admin-elevaciot (UAC) igenyelnek. Kerj engedelyt EGY korben (Mit/Miert/Hatas/Pontosan mire/Kockazat), majd add at a tulajdonosnak ({{OWNER_NAME}}) a parancsot emelt PowerShellben, VAGY: `"$PS" -Command "Start-Process powershell -Verb RunAs -ArgumentList '-Command','...'"` (UAC-t dob, {{OWNER_NAME}} kattint):
 - Rendszerfajl-javitas: `sfc /scannow`
 - Windows-kep javitas: `DISM /Online /Cleanup-Image /RestoreHealth`
 - Lemez-ellenorzes: `chkdsk C: /scan` (online). FIGYELEM: `/f` vagy `/r` ujrainditast utemez -> az mar reboot-approval.
@@ -47,12 +47,12 @@ A futas fo lepeseit naplozd a kozos esemeny-logba (visszanezheto: `tail store/ev
 (pl. `weekly-maint:temp-clean` ok "320 MB", `weekly-maint:sfc` warn "jovahagyasra var"). Hibanal `error` + a rovid hibauzenet.
 
 ## Buktatók
-- WSL user NEM admin -> admin parancs headless NEM fut le; UAC kell (Boss). Ne probald csendben, ne talalj ki elevaciot.
+- WSL user NEM admin -> admin parancs headless NEM fut le; UAC kell ({{OWNER_NAME}}). Ne probald csendben, ne talalj ki elevaciot.
 - `powershell.exe` sokszor nincs PATH-ban -> teljes ut (lasd fent).
 - SSD-n NE defragmentalj (feleslegesen koptat) -> csak `ReTrim`. Eloszor MediaType!
 - `chkdsk /f` es `/r` rebootot utemez -> az mar reboot-approval, ne inditsd el figyelmeztetes nelkul.
 - Recycle Bin urites es a >nap temp-torles: a temp biztonsagos, a Recycle Bin NEM (approval).
-- Esemenynaplo: a legtobb Error zaj (indulasi warning, mar megoldott) -> ne riasszd Bosst minden sorra, csak ismetlodo/kritikus mintara.
+- Esemenynaplo: a legtobb Error zaj (indulasi warning, mar megoldott) -> ne riasszd a tulajdonost ({{OWNER_NAME}}) minden sorra, csak ismetlodo/kritikus mintara.
 - A cache/temp tisztitas ritkan gyorsit erdemben ha nincs lemez-szukosseg -- a riportban legy oszinte errol (lasd a Linux-oldali [[autonomous-diagnose-repair]] tanulsagot).
 
 ## Ellenőrzés

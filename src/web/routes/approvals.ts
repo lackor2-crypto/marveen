@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { PROJECT_ROOT, MAIN_AGENT_ID } from '../../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID, currentOwnerName } from '../../config.js'
 import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
@@ -144,7 +144,7 @@ export function ensureApprovalForWaitingCard(cardId: string, actor?: string | nu
       action_description:
         `Kártya: ${card.title} (${card.id}) -- várakozóba került, tehát a munka elkészült rajta. `
         + 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: '
-        + 'a felelős ágens egészítse ki, mielőtt Boss dönt.',
+        + `a felelős ágens egészítse ki, mielőtt ${currentOwnerName()} dönt.`,
       action_payload: JSON.stringify({ kanban_card_id: card.id }),
       timeout_at: getTimeoutAt('kanban_done'),
     })
@@ -440,7 +440,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       }
       createOrResetApprovalVerification(approvalId, agent)
       const prompt = [
-        `Ellenorzesi feladat (Boss kerte, jovahagyas elott): nezd at ezt a fuggo jovahagyast alaposan.`,
+        `Ellenorzesi feladat (${currentOwnerName()} kerte, jovahagyas elott): nezd at ezt a fuggo jovahagyast alaposan.`,
         `Kategoria: ${approval.category}`,
         `Leiras: ${approval.action_description}`,
         ``,

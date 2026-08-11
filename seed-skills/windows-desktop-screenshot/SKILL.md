@@ -1,19 +1,19 @@
 ---
 name: windows-desktop-screenshot
-description: Valódi képernyőkép készítése Boss Windows asztaláról (nem böngésző-URL, hanem BÁRMILYEN futó desktop-app, pl. MetaTrader) WSL-ből, Task Scheduler Interactive-mintával. Akkor használd, ha egy már FUTÓ Windows alkalmazás tartalmát kell látnod/elemezned (chart, ablak, bármi vizuális), vagy azt előtérbe kell hoznod.
+description: Valódi képernyőkép készítése {{OWNER_NAME}} Windows asztaláról (nem böngésző-URL, hanem BÁRMILYEN futó desktop-app, pl. MetaTrader) WSL-ből, Task Scheduler Interactive-mintával. Akkor használd, ha egy már FUTÓ Windows alkalmazás tartalmát kell látnod/elemezned (chart, ablak, bármi vizuális), vagy azt előtérbe kell hoznod.
 ---
 
 # Windows desktop screenshot WSL-ből
 
 ## Mikor használd
 
-Boss kér egy elemzést/leolvasást egy már futó Windows desktop-appról (pl.
+{{OWNER_NAME}} kér egy elemzést/leolvasást egy már futó Windows desktop-appról (pl.
 "nézd meg a MetaTradert", "mi van a képernyőn"), és nem elég a
 `win-browser-control` skill (az csak URL-t nyit Chrome-ban, nem lát
 vissza semmit). Ez a skill a MÁSIK irány: KÉPERNYŐKÉPET hoz vissza WSL-be,
 amit aztán a saját vision-eddel el tudsz olvasni/elemezni.
 
-Felfedezve 2026-08-07: Boss ragaszkodott hozzá hogy egy MetaTrader
+Felfedezve 2026-08-07: {{OWNER_NAME}} ragaszkodott hozzá hogy egy MetaTrader
 arany-chart elemzést saját magam csináljak meg, screenshot nélkül tőle.
 Kiderült hogy a `terminal.exe` (MT4) MÁR FUTOTT a gépén (Session 4,
 Console) -- nem kellett elindítani, csak előtérbe hozni és lefotózni.
@@ -83,7 +83,7 @@ ugyanazon a Windows gépen, WSL interop bekapcsolva, `/mnt/c/...` elérhető,
 - Ha a célapp `MainWindowHandle`-je 0 (pl. minimalizálva van a tálcára,
   nem a taskbarra), az előtérbe-hozás csendben kimarad, de a teljes
   képernyőkép attól még elkészül -- nézd meg mi látszik rajta, lehet hogy
-  elég úgy is, vagy manuálisan kell Boss-nak visszaállítania az ablakot.
+  elég úgy is, vagy manuálisan kell a tulajdonosnak ({{OWNER_NAME}}) visszaállítania az ablakot.
 - A kimeneti PNG felülíródik minden futtatáskor (nincs verziózás) -- ha
   meg akarod őrizni egy adott pillanat képét, másold el más névvel mielőtt
   újra futtatod.

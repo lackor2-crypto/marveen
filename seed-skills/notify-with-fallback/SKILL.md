@@ -1,13 +1,13 @@
 ---
 name: notify-with-fallback
-description: Szöveges üzenet kézbesítése egy elsődleges csatornán (pl. WhatsApp Desktop, Telegram), saját magadnak ellenőrizve hogy sikerült-e, és csak sikertelenség esetén másodlagos csatornára (pl. email) esve vissza. Akkor használd, ha Boss egy adott kontaktnak/csatornának ad küldési sorrendet ("előbb X-en, ha nem megy Y-on"), nem csak egy csatornát.
+description: Szöveges üzenet kézbesítése egy elsődleges csatornán (pl. WhatsApp Desktop, Telegram), saját magadnak ellenőrizve hogy sikerült-e, és csak sikertelenség esetén másodlagos csatornára (pl. email) esve vissza. Akkor használd, ha {{OWNER_NAME}} egy adott kontaktnak/csatornának ad küldési sorrendet ("előbb X-en, ha nem megy Y-on"), nem csak egy csatornát.
 ---
 
 # Elsődleges csatorna + fallback küldés
 
 ## Mikor használd
 
-Boss egy adott kontaktra vagy helyzetre megad egy KÜLDÉSI SORRENDET, nem
+{{OWNER_NAME}} egy adott kontaktra vagy helyzetre megad egy KÜLDÉSI SORRENDET, nem
 csak egy csatornát -- pl. "előbb WhatsAppon, ha nem megy át, akkor
 emailen". Ez a skill az ÁLTALÁNOS mintát írja le, függetlenül attól hogy
 melyik két csatornáról van szó és kinek szól -- a konkrét kontakt
@@ -53,7 +53,7 @@ bármilyen két csatornára/kontaktra alkalmazható.
 
 ## Buktatók
 
-- Ne cseréld fel a sorrendet -- ha Boss "előbb X, ha nem megy Y"-t mond,
+- Ne cseréld fel a sorrendet -- ha {{OWNER_NAME}} "előbb X, ha nem megy Y"-t mond,
   az NEM azt jelenti hogy mindkettőre menjen mindig, csak hogy Y a
   biztonsági háló, nem az alapértelmezett út.
 - A "sikeres küldés" ellenőrzése NEM ugyanaz mint "a parancs hibaüzenet

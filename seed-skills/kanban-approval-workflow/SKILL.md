@@ -1,6 +1,6 @@
 ---
 name: kanban-approval-workflow
-description: Amikor egy kanban kártyához tartozó munka elkészült és sikeresen le lett tesztelve (élesben kipróbálva), ugyanabban a lépésben: (1) git commit helyben, (2) kártya waiting-be, (3) azonnal jóváhagyás-kérés az API-n, (4) Telegram-jelzés Bossnak. Egyik lépés se maradjon ki és ne csússzon későbbre.
+description: Amikor egy kanban kártyához tartozó munka elkészült és sikeresen le lett tesztelve (élesben kipróbálva), ugyanabban a lépésben: (1) git commit helyben, (2) kártya waiting-be, (3) azonnal jóváhagyás-kérés az API-n, (4) Telegram-jelzés a tulajdonosnak ({{OWNER_NAME}}). Egyik lépés se maradjon ki és ne csússzon későbbre.
 ---
 
 # Kanban -> tesztelés -> jóváhagyás -> commit
@@ -9,17 +9,17 @@ description: Amikor egy kanban kártyához tartozó munka elkészült és sikere
 
 Trigger: egy kártyához tartozó fejlesztői munka KÉSZ és SIKERESEN TESZTELVE
 (élesben kipróbálva, működik). Ez az a pillanat, ahol korábban két hiba is
-történt (Boss 2026-08-05 este észlelte mindkettőt):
+történt ({{OWNER_NAME}} 2026-08-05 este észlelte mindkettőt):
 1. a kártya "waiting"-be került, de jóváhagyás-kérés nélkül maradt ott --
-   Bossnak kellett észrevennie és szólnia
+   a tulajdonosnak ({{OWNER_NAME}}) kellett észrevennie és szólnia
 2. a kész, tesztelt kódváltozás órákig/napokig commit nélkül maradt a
    munkakönyvtárban, csak külön rákérdezésre lett commitolva
 
 ## Munka INDÍTÁSAKOR (nem csak záráskor)
 
 **Hiba (2026-08-06):** egy kártyához (imapflow/IMAP body-fetch terv) a tervezés
-után Boss rábólintott ("csinald"), elkezdtem az implementációt, de a kártya
-"planned" állapotban maradt -- Boss kérdezte rá: "elvileg most folyamatban
+után {{OWNER_NAME}} rábólintott ("csinald"), elkezdtem az implementációt, de a kártya
+"planned" állapotban maradt -- {{OWNER_NAME}} kérdezte rá: "elvileg most folyamatban
 van a munka de megsem tetted at a folyamatban mappaba. miert?"
 
 **Szabály:** amint egy kártyához (akár a tervezés/jóváhagyás UTÁN) ténylegesen
@@ -34,7 +34,7 @@ Ez ugyanúgy vonatkozik akkor is, ha a kártya korábban "planned"-ben volt egy
 külön tervező-kör után -- a tervezés önmagában NEM viszi automatikusan
 "in_progress"-be, a tényleges implementáció-kezdés igen.
 
-## Tesztelés fázis (Boss, 2026-08-06)
+## Tesztelés fázis ({{OWNER_NAME}}, 2026-08-06)
 
 Amikor a kódolás/implementáció kész és rákezdesz a tesztelésre (unit tesztek
 futtatása, élő ellenőrzés, stb.): MIELŐTT elkezdenéd a tesztelést, told a
@@ -50,13 +50,13 @@ Amikor a tesztelésnek VÉGE (sikeres vagy sikertelen, de lezárult), told
 "waiting"-re (a lenti fő eljárás szerint, jóváhagyás-kéréssel együtt).
 Tehát a teljes út egy tipikus kártyán: planned -> in_progress (munka
 kezdetekor) -> testing (teszt/ellenőrzés kezdetekor) -> waiting (teszt
-után, jóváhagyásra várva) -> done (csak Boss jóváhagyása után).
+után, jóváhagyásra várva) -> done (csak {{OWNER_NAME}} jóváhagyása után).
 
 ## Eljárás
 
 Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
 
-0. **Hibakeresés a logban, MIELŐTT bármit "késznek" jelentesz** (Boss
+0. **Hibakeresés a logban, MIELŐTT bármit "késznek" jelentesz** ({{OWNER_NAME}}
    2026-08-06, kötelező szabály: "amikor programozol valamit, a végén
    bármilyen kicsi is, indíts egy hibakeresést"). Ha a munka egy futó
    szolgáltatást érint (dashboard/web/channels), újraindítás/deploy UTÁN
@@ -71,12 +71,12 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
    NEM jelenik meg sehol a szerver logban (a szerver csak statikus fájlt
    szolgál ki, 200-at ad rá, minden "rendben" onnan nézve), viszont a
    böngészőben az EGÉSZ oldal JS-e leáll, semmi gomb/menü nem reagál.
-   KÖTELEZŐ, minden app.js-szerkesztés után, MIELŐTT szólsz Bossnak:
+   KÖTELEZŐ, minden app.js-szerkesztés után, MIELŐTT szólsz a tulajdonosnak ({{OWNER_NAME}}):
    ```bash
    node --check web/app.js
    ```
    (2026-08-06: pont ez történt -- egy duplikált `const` deklaráció miatt
-   az egész menü használhatatlanná vált, Boss vette észre, nem én.)
+   az egész menü használhatatlanná vált, {{OWNER_NAME}} vette észre, nem én.)
    Ha ismert, már dokumentált hibát látsz (pl. a Gmail IMAP throttling),
    azt szűrd ki és NE tévezd össze új hibával -- de mindig NÉZD MEG előbb,
    ne feltételezd hogy nincs semmi új.
@@ -94,26 +94,26 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
      -H "Authorization: Bearer $(cat store/.dashboard-token)" \
      -d '{"status":"waiting","sort_order":0,"actor":"<agent_id>"}'
    ```
-   **A waiting-be mozgatás ÖNMAGÁBAN felvesz egy jóváhagyás-kérést** (Boss,
+   **A waiting-be mozgatás ÖNMAGÁBAN felvesz egy jóváhagyás-kérést** ({{OWNER_NAME}},
    2026-08-11: "az hogy betesz barki barmit a varakozoba, az valtja ki hogy a
    jovairasba is bekeruljon"). Ebből következik a másik fele is: **kártya CSAK
    akkor kerülhet a waiting-be, ha a munka tényleg kész rajta.** A waiting
-   jelentése "kész, Bossra vár", nem "félretettem".
+   jelentése "kész, a tulajdonosra ({{OWNER_NAME}}) vár", nem "félretettem".
 
    Ez nem teszi feleslegessé a 3. lépést: az automatikusan felvett kérés
    szövege nem tudhatja, mi lett tesztelve, ezért kifejezetten azt írja, hogy
    a felelős ágens egészítse ki. A 3. lépés a te szövegedre CSERÉLI a
    meglévőt, nem hoz létre másodikat.
 
-3. **Jóváhagyás-kérés AZONNAL, ugyanitt** (ne várj arra hogy Boss rákérdezzen)
+3. **Jóváhagyás-kérés AZONNAL, ugyanitt** (ne várj arra hogy {{OWNER_NAME}} rákérdezzen)
 
-   **KÖTELEZŐ: `action_payload` benne legyen a kártya id-vel!** (Boss,
+   **KÖTELEZŐ: `action_payload` benne legyen a kártya id-vel!** ({{OWNER_NAME}},
    2026-08-06: "a jóváhagyás gomb az tegye át kézbe, mert nem került át" --
    kiderült hogy az automata kártya→done mozgatás MÁR LÉTEZIK a szerverben
    (`src/web/routes/approvals.ts`, a PATCH resolve-ág), DE csak akkor fut le,
    ha az approval `action_payload` mezője tartalmazza
    `{"kanban_card_id":"<id>"}`-t. Ha ez hiányzik -- ahogy korábban minden
-   kézi approval-kérésemből hiányzott -- Boss jóváhagyás-gombja csendben
+   kézi approval-kérésemből hiányzott -- {{OWNER_NAME}} jóváhagyás-gombja csendben
    nem csinál semmit a kártyával, nekem kell utólag észrevennem és kézzel
    áttolnom. `action_payload` egy JSON-STRING legyen (nem objektum).):
    ```bash
@@ -123,7 +123,7 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
      -d '{"agent_id":"<agent_id>","category":"kanban_done","action_description":"Kártya: <cím> (<id>) - mit csinál, hogyan lett tesztelve. Jóváhagyás után viheto done-ra.","action_payload":"{\"kanban_card_id\":\"<id>\"}","timeout_seconds":86400}'
    ```
    **Ha erre 400-at kapsz `similar` listával**: a szerver megtalálta a hasonló,
-   MÉG NYITOTT kártyákat, és addig nem engedi lezárni ezt (Boss, 2026-08-11:
+   MÉG NYITOTT kártyákat, és addig nem engedi lezárni ezt ({{OWNER_NAME}}, 2026-08-11:
    öt kártyát kapott munkára, háromból már régen kész volt a munka, csak soha
    senki nem mozdította -- "kenyszeritsd ki hogy vegye eszre"). A 400 NEM hiba,
    hanem kérdés. Nézd át egyenként a felsorolt kártyákat, és mindegyikkel
@@ -138,7 +138,7 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
    végignézted őket. Ez a mező az egyetlen kulcs a záráshoz, ne kerüld meg
    `noKanbanCard: true`-val -- az teljesen más esetre való (nincs kártya).
 
-4. **Telegram-jelzés** -- rövid emberi nyelvű üzenet Bossnak, hogy mi készült
+4. **Telegram-jelzés** -- rövid emberi nyelvű üzenet a tulajdonosnak ({{OWNER_NAME}}), hogy mi készült
    el, mi lett tesztelve, és hogy jóváhagyásra vár.
 
 A push GitHub-ra ettől független, KÜLÖN engedély kell hozzá mindig -- ezt a
@@ -154,7 +154,7 @@ lépést a fenti négyes NEM tartalmazza automatikusan.
 ## Buktatók
 
 - Ha egyszerre több kártya is készen van, mindegyikhez KÜLÖN jóváhagyás-kérés
-  kell, ne vonj össze többet egybe -- Boss egyenként dönt.
+  kell, ne vonj össze többet egybe -- {{OWNER_NAME}} egyenként dönt.
 - A commit üzenet legyen tényleges, konkrét (mi változott, miért), ne
   általános "fixes" vagy "update" szöveg.
 
@@ -166,4 +166,4 @@ lépést a fenti négyes NEM tartalmazza automatikusan.
 - [ ] Van hozzá pending approval bejegyzés (GET /api/approvals ellenőrzi)
 - [ ] A hasonló nyitott kártyák át lettek nézve (`similar_reviewed`), és
       amelyiket ez a munka érinti, az is kapott jóváhagyás-kérést vagy kommentet
-- [ ] Boss kapott róla Telegram-üzenetet
+- [ ] {{OWNER_NAME}} kapott róla Telegram-üzenetet

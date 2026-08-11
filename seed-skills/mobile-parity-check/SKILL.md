@@ -1,14 +1,14 @@
 ---
 name: mobile-parity-check
-description: KOTELEZO lepes minden Marveen dashboard-fejlesztes vegen (web/app.js, web/index.html, web/style.css, vagy barmi ami a dashboardon lathato UI-t erint) -- a valtoztatast MOBIL nezetben is ellenorizni es igazitani kell, nem csak asztalin. Boss telefonrol hasznalja a dashboardot, es tobbszor talalt olyan funkciot ami asztalin jo volt, mobilon viszont elerhetetlen. Trigger: barmilyen dashboard-UI valtoztatas elkeszult, vagy Boss mobil-hibat jelez.
+description: KOTELEZO lepes minden Marveen dashboard-fejlesztes vegen (web/app.js, web/index.html, web/style.css, vagy barmi ami a dashboardon lathato UI-t erint) -- a valtoztatast MOBIL nezetben is ellenorizni es igazitani kell, nem csak asztalin. {{OWNER_NAME}} telefonrol hasznalja a dashboardot, es tobbszor talalt olyan funkciot ami asztalin jo volt, mobilon viszont elerhetetlen. Trigger: barmilyen dashboard-UI valtoztatas elkeszult, vagy {{OWNER_NAME}} mobil-hibat jelez.
 ---
 
 # Mobil-paritás: amit asztalin megcsinálsz, mobilon is meg kell csinálni
 
-Boss állandó szabálya (2026-08-10): **ha a Marvint fejlesztjük, a mobil
+{{OWNER_NAME}} állandó szabálya (2026-08-10): **ha a Marvint fejlesztjük, a mobil
 nézetet is módosítani kell. Soha ne felejtsük el.**
 
-Ez nem stílus-kérdés. Boss a telefonjáról vezérli a rendszert, és egy nap
+Ez nem stílus-kérdés. {{OWNER_NAME}} a telefonjáról vezérli a rendszert, és egy nap
 alatt négy olyan dolgot talált, ami asztali gépen tökéletes volt, telefonon
 viszont használhatatlan: a csapat-fa fele levágva és nem görgethető, a
 jóváhagyások ellenőrzés-gombja a képernyőn kívül, kilógó feliratok a
@@ -19,7 +19,7 @@ látszott az asztali fejlesztés közben.
 
 - MINDEN dashboard-UI változtatás után (`web/app.js`, `web/index.html`,
   `web/style.css`), mielőtt késznek jelented.
-- Ha Boss mobil-hibát jelez.
+- Ha {{OWNER_NAME}} mobil-hibát jelez.
 - Új oldal/panel/modális bevezetésekor -- ott a legnagyobb az esély, hogy
   csak asztali szélességre lett kitalálva.
 
@@ -59,7 +59,7 @@ látszott az asztali fejlesztés közben.
 
 ## Buktatók
 
-- **A "nem látszik" nem mindig kód-hiba.** Boss telefonján többször egy
+- **A "nem látszik" nem mindig kód-hiba.** {{OWNER_NAME}} telefonján többször egy
   RÉGI, betöltve maradt oldal volt (a `?v=` cache-buster csak új
   oldalbetöltéskor hat). Mielőtt kódot javítasz, ellenőrizd hogy a kiszolgált
   fájl tartalmazza-e már a javítást:

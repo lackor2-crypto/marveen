@@ -1,11 +1,11 @@
 ---
 name: mt4-gold-multi-timeframe-analysis
-description: Ütemezett arany (GOLD) technikai elemzés az ActivTrades MT4 terminal.exe-ből, top-down D1/H1/M15/M5 idősíkokkal, majd WhatsApp+email küldés Kiss Zoltánnak. Három sávos gyakoriság (Boss 2026-08-10): hosszú táv (D1) 1x/nap reggel, középtáv (H1) 2x/nap 8h+15h, rövidtáv (M15/M5) 45 percenként. Trigger -- scheduled-task "arany-elemzes-30perc" vagy "arany-kozeptav-15h" heartbeat, vagy bármikor amikor MT4 chart idősíkot kell váltani koordináta-kattintással screenshothoz.
+description: Ütemezett arany (GOLD) technikai elemzés az ActivTrades MT4 terminal.exe-ből, top-down D1/H1/M15/M5 idősíkokkal, majd WhatsApp+email küldés Kiss Zoltánnak. Három sávos gyakoriság ({{OWNER_NAME}} 2026-08-10): hosszú táv (D1) 1x/nap reggel, középtáv (H1) 2x/nap 8h+15h, rövidtáv (M15/M5) 45 percenként. Trigger -- scheduled-task "arany-elemzes-30perc" vagy "arany-kozeptav-15h" heartbeat, vagy bármikor amikor MT4 chart idősíkot kell váltani koordináta-kattintással screenshothoz.
 ---
 # MT4 arany multi-timeframe elemzés
 
 ## Mikor használd
-Két ütemezett feladat fedi le a három sávot (Boss 2026-08-10 explicit kérése
+Két ütemezett feladat fedi le a három sávot ({{OWNER_NAME}} 2026-08-10 explicit kérése
 -- "a hosszú távot elég egy nap egyszer reggel, a közép távot elég egyszer
 reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"):
 
@@ -44,7 +44,7 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    hosszú távú (D1/H1) iránnyal. Ha a rövid táv csak pihen/korrigál
    tulaldott/tulvett állapotban a hosszú távú irány mentén, az "gyenge"
    jelzés, nem "erős".
-   **Kimenet hossza (2026-08-10, Boss hangüzenet):** a TELJES, 4 idősíkot
+   **Kimenet hossza (2026-08-10, {{OWNER_NAME}} hangüzenet):** a TELJES, 4 idősíkot
    külön kifejtő szöveg csak NAPONTA EGYSZER menjen ki (az első futáskor --
    lásd a scheduled-task `last-full-date.txt` state-fájlját). Minden további
    aznapi futásnál csak egy 2-3 soros RÖVID üzenet: LONG / SHORT / OLDALAZÁS
@@ -56,7 +56,7 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    utána SAJÁT MAGADNAK screenshot a pipa-ellenőrzéshez (azt NE küldd
    tovább). Csak ha ez sikertelen, jöhet az email fallback.
 7. Ha minden rendben (MT4 elindult/futott, mind a 4 screenshot sikerült,
-   WhatsApp vagy email kiment), NE írj Bossnak Telegramon -- csendes
+   WhatsApp vagy email kiment), NE írj a tulajdonosnak ({{OWNER_NAME}}) Telegramon -- csendes
    heartbeat. Csak hibánál (MT4 nem tölt be, sem WhatsApp sem email nem
    megy) szólj.
 
@@ -82,7 +82,7 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
   a visszavétel előtt Marvin szól, nem párhuzamosan módosítunk.
 - **Kattintás előtt ELLENŐRIZD a fókuszt.** A `SetForegroundWindow` kérés,
   nem parancs: ha a felhasználó épp aktívan dolgozik, a Windows megtagadja,
-  és a kattintás az ő ablakába megy (ma élőben: Boss Chrome könyvjelző-
+  és a kattintás az ő ablakába megy (ma élőben: {{OWNER_NAME}} Chrome könyvjelző-
   sávjára). `GetForegroundWindow()` összehasonlítás a cél-handle-lel, és
   eltérés esetén KIHAGYNI a kört -- részletek a `windows-desktop-input`
   skill Buktatók szekciójában.

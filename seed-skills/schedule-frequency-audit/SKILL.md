@@ -1,14 +1,14 @@
 ---
 name: schedule-frequency-audit
-description: Boss arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat (~/.claude/scheduled-tasks/), mert sok/gyakori automatizálás fut, vagy session-limitbe ütköztünk. Feltárja a leírás-vs-cron eltéréseket és a duplikált gyakoriságokat.
+description: {{OWNER_NAME}} arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat (~/.claude/scheduled-tasks/), mert sok/gyakori automatizálás fut, vagy session-limitbe ütköztünk. Feltárja a leírás-vs-cron eltéréseket és a duplikált gyakoriságokat.
 ---
 
 # Ütemezett feladatok gyakoriság-audit
 
 ## Mikor használd
 
-- Boss panaszkodik hogy sokat fogyott a session-limit / túl sok háttér-aktivitás fut.
-- Boss kifejezetten kéri: "nézd át az ütemezéseket, ritkítsd ami nem fontos".
+- {{OWNER_NAME}} panaszkodik hogy sokat fogyott a session-limit / túl sok háttér-aktivitás fut.
+- {{OWNER_NAME}} kifejezetten kéri: "nézd át az ütemezéseket, ritkítsd ami nem fontos".
 - Új heartbeat/scheduled-task hozzáadása előtt (megelőzésképp: nem lesz-e duplikált egy meglévővel).
 
 ## Eljárás
@@ -40,7 +40,7 @@ description: Boss arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat 
 5. A `~/.claude/scheduled-tasks/<nev>/task-config.json` `schedule` mezeje
    szabadon szerkeszthető (Edit tool) -- ez gitignore-olt, per-install fájl,
    NEM esik a Marveen-kód-módosítás STOP-szabálya alá.
-6. Jelentsd Bossnak tömören: mit találtál (különösen a leírás-vs-cron
+6. Jelentsd a tulajdonosnak ({{OWNER_NAME}}) tömören: mit találtál (különösen a leírás-vs-cron
    eltéréseket, mert azok VALÓDI hibák, nem csak optimalizálás), mit
    változtattál, és miért nem veszít funkcionalitást a ritkítás.
 
@@ -63,5 +63,5 @@ description: Boss arra kér, hogy nézd át/ritkítsd az ütemezett feladatokat 
   visszaadja az új `schedule` értéket.
 - A SKILL.md leírás (ha van benne konkrét időintervallum-szöveg) egyezik a
   tényleges cronnal.
-- Boss kapott egy rövid, konkrét összefoglalót (mi változott, mennyivel
+- {{OWNER_NAME}} kapott egy rövid, konkrét összefoglalót (mi változott, mennyivel
   csökken a terhelés, miért nem veszít funkcióból).

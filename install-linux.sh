@@ -1401,7 +1401,22 @@ if [ -d "$SEED_SKILLS_DIR" ]; then
       continue
     fi
     mkdir -p "$target"
-    cp -r "$skill_dir"* "$target/"
+    # Substitute the identity placeholders, exactly like the scheduled-task
+    # seeding above. A plain `cp -r` here was the bug: seed skills address the
+    # owner by name and point at the install dir, so on any machine other than
+    # the one they were written on they told the agent to notify a person who
+    # does not exist there. Whoever installs Marveen is the owner of THEIR
+    # install; the skills have to say their name, not the author's.
+    while IFS= read -r -d '' f; do
+      rel="${f#"$skill_dir"}"
+      mkdir -p "$target/$(dirname "$rel")"
+      sed -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
+          -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
+          -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
+          -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+          -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
+          "$f" > "$target/$rel"
+    done < <(find "$skill_dir" -type f -print0)
     SEED_NEW=$((SEED_NEW + 1))
   done
   if [ "$SEED_NEW" -gt 0 ] || [ "$SEED_SKIP" -gt 0 ]; then

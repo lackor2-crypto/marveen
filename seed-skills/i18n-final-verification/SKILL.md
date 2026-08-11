@@ -1,6 +1,6 @@
 ---
 name: i18n-final-verification
-description: Marveen dashboard UI-fejlesztés (új oldal, form, szöveg) LEZÁRÓ lépéseként kötelező HU/EN teljesség-ellenőrzés, mielőtt "kész"-nek jelented Bossnak. Trigger -- bármilyen web/index.html, web/app.js vagy web/style.css módosítás ami felhasználónak látható szöveget hoz létre vagy változtat.
+description: Marveen dashboard UI-fejlesztés (új oldal, form, szöveg) LEZÁRÓ lépéseként kötelező HU/EN teljesség-ellenőrzés, mielőtt "kész"-nek jelented a tulajdonosnak ({{OWNER_NAME}}). Trigger -- bármilyen web/index.html, web/app.js vagy web/style.css módosítás ami felhasználónak látható szöveget hoz létre vagy változtat.
 ---
 
 # i18n végső ellenőrzés
@@ -9,7 +9,7 @@ description: Marveen dashboard UI-fejlesztés (új oldal, form, szöveg) LEZÁR�
 
 A LEGUTOLSÓ lépésként, minden olyan Marveen dashboard-fejlesztés végén, ahol
 új vagy módosított felhasználó-néző szöveg született (label, gomb, tooltip,
-placeholder, hibaüzenet, státusz-szöveg). Boss kétszer is ugyanezt a hibát
+placeholder, hibaüzenet, státusz-szöveg). {{OWNER_NAME}} kétszer is ugyanezt a hibát
 találta meg (2026-08-06, email-felület, majd ugyanaznap este az
 Iroda-Beállítások form) -- a szabály puszta ismerete nem volt elég, konkrét
 zárólépés kell. Lásd [[i18n-required-for-new-features]] memória.
@@ -44,7 +44,7 @@ NE hagyd ki még akkor sem ha "biztos jó" -- pont ez volt a hiba mindkétszer.
    lang-fájlban (grep `t('` és `data-i18n="` az érintett fájlokban, vesd
    össze a kulcslistával).
 
-4. Csak ha mindhárom check tiszta, jelentsd készre Bossnak.
+4. Csak ha mindhárom check tiszta, jelentsd készre a tulajdonosnak ({{OWNER_NAME}}).
 
 ## Buktatók
 

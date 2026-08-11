@@ -5,7 +5,7 @@ description: Élő szabály-gyűjtemény a Marveen-en elkövetett hibákból. MI
 # Marveen tanult szabályok (élő rulebook)
 
 ## Mi ez és miért
-Boss kérése (2026-08-03): ne kelljen minden hibánál külön szólnia. Ha egyszer
+{{OWNER_NAME}} kérése (2026-08-03): ne kelljen minden hibánál külön szólnia. Ha egyszer
 elkövetek egy elkerülhető hibát és kijavítom, a tanulság ide kerül SZABÁLYKÉNT,
 és a jövőben ezt a szabályt betartva a hiba nem ismétlődik. Ez a fájl automatikusan
 gyűlik: minden error->recovery ciklus után egy új sor.
@@ -22,7 +22,7 @@ gyűlik: minden error->recovery ciklus után egy új sor.
 id nélkül hoztam létre. A `kanban_cards.id` TEXT (NEM autoincrement), így az id
 `NULL` lett. A kártya látszólag létrejött, DE: a címke-kötés (`kanban_card_labels`),
 a promote, és a dashboard címke-választója MIND csendben elbukott, mert a
-`POST /api/kanban/<id>/labels` üres/NULL id-nél 404-et ad. Boss nem tudott címkét
+`POST /api/kanban/<id>/labels` üres/NULL id-nél 404-et ad. {{OWNER_NAME}} nem tudott címkét
 tenni a kártyára.
 **Szabály:** kanban/ötletláda kártyát VAGY a dashboard API-n át hozz létre, VAGY
 ha muszáj SQL, mindig adj rendes id-t: `id = uuid4()[:8]` (a frontend is
@@ -58,17 +58,17 @@ eltérhet egymástól, a szabály ugyanaz marad: NE fejből -- mindig a
 ### R3 -- Telegram MCP kiesésekor Bot API a mentőöv
 **Helyzet (2026-08-04):** a `plugin:telegram:telegram` MCP menet közben lekapcsolt
 (limit vagy csatorna-restart), a `mcp__plugin_telegram_telegram__reply` tool
-eltűnt, egy kész válasz nem ment ki -- Boss várt.
+eltűnt, egy kész válasz nem ment ki -- {{OWNER_NAME}} várt.
 **Szabály:** ha a Telegram reply MCP tool nem elérhető, NE ragadj be. Küldd a
 választ közvetlenül a Telegram Bot API-n (ahogy a rendszer saját szkriptjei is,
 pl. limit-monitor.sh), token-mentesen model-oldalról:
 ```bash
 TG=$(python3 -c "import json,glob,os;[ (print(d[k]),exit()) for p in glob.glob(os.path.expanduser('~/.claude/channels/telegram/*.json')) for d in [json.load(open(p))] for k in ('TELEGRAM_BOT_TOKEN','bot_token','token','botToken') if isinstance(d,dict) and d.get(k)]" 2>/dev/null)
 curl -s -X POST "https://api.telegram.org/bot${TG}/sendMessage" \
-  --data-urlencode "chat_id=<BOSS_CHAT_ID>" --data-urlencode "text=..."
+  --data-urlencode "chat_id=<OWNER_CHAT_ID>" --data-urlencode "text=..."
 # siker: HTTP 200 + {"ok":true,"result":{"message_id":...}}
 ```
-Ellenőrizd az `ok:true`-t és a `message_id`-t. A `<BOSS_CHAT_ID>`-t a saját
+Ellenőrizd az `ok:true`-t és a `message_id`-t. A `<OWNER_CHAT_ID>`-t a saját
 telegram csatorna-konfigból vedd (pl. `~/.claude/channels/telegram/access.json`
 vagy a korábbi bejövő üzenetek `chat_id` mezője).
 
@@ -79,7 +79,7 @@ JS tömböt (web/app.js), ami a swimlane nézetet vezérli. A default FLAT board
 oszlop-sorrendje viszont a `web/index.html` statikus `<div class="kanban-col">`
 markup sorrendjéből jön, egy teljesen külön helyről -- azt nem érintettem. Egy
 harmadik és negyedik hely (i18n cím-lookup tömb, mobil touch drop-bar tömb) is
-a régi sorrendet tartalmazta. Amikor Boss megnézte a kódot és azt mondtam
+a régi sorrendet tartalmazta. Amikor {{OWNER_NAME}} megnézte a kódot és azt mondtam
 "már javítva van", ez FÉLREVEZETŐ volt: a látott hiba (flat board sorrendje)
 valójában NEM lett javítva, csak egy másik, nem látott nézet.
 **Szabály:** mielőtt egy kódjavítást késznek jelentek, `grep`-eld át a teljes
@@ -125,13 +125,13 @@ EGÉSZ app.js-t elutasította futtatni, ezért a teljes dashboard-menü
 használhatatlanná vált (semmi nem reagált kattintásra), miközben a szerver
 oldalon (dashboard.log) semmilyen hiba nem jelent meg, mert a szerver csak
 statikus fájlt szolgál ki, HTTP 200-at ad rá attól függetlenül hogy a
-tartalma szintaktikailag helyes-e. Boss vette észre élesben ("egyik menübe
+tartalma szintaktikailag helyes-e. {{OWNER_NAME}} vette észre élesben ("egyik menübe
 sem tudok bemenni"), nem én -- pedig épp aznap este írtam fel R-ként a
 "mindig hibakeress a végén" szabályt, és ekkor sem tartottam be helyesen
 (a log-ellenőrzés a szerver oldalára nézett, nem a frontend JS
 érvényességére).
 **Szabály:** minden `web/app.js` (vagy bármelyik böngészőben futó JS)
-szerkesztés után, MIELŐTT késznek jelented vagy szólsz Bossnak, futtasd:
+szerkesztés után, MIELŐTT késznek jelented vagy szólsz a tulajdonosnak ({{OWNER_NAME}}), futtasd:
 ```bash
 node --check web/app.js
 ```
@@ -160,11 +160,11 @@ előbb `GET /api/approvals?status=pending`-del (vagy a friss
 `GET /api/messages?to=<sajat_agent_id>&status=pending`-del), hogy a rendszer
 MÁR létrehozott-e approval-t az adott `kanban_card_id`-hez
 (`action_payload.kanban_card_id` egyezés). Ha IGEN, NE hozz létre kézzel
-másikat -- a Telegram-értesítés Boss felé ekkor is szükséges (a rendszer ezt
+másikat -- a Telegram-értesítés {{OWNER_NAME}} felé ekkor is szükséges (a rendszer ezt
 NEM küldi ki automatikusan), csak a kézi `POST /api/approvals` hívás maradjon
 el. Ha egy korábbi menetben mégis duplikátum keletkezett, ne próbáld
 API-val törölni (nincs rá endpoint agent-oldalról) -- hagyd mindkettőt
-pending-en és jelezd Bossnak hogy egy döntésre két bejegyzés tartozik,
+pending-en és jelezd a tulajdonosnak ({{OWNER_NAME}}) hogy egy döntésre két bejegyzés tartozik,
 bármelyiket lezárva a másik is elavul funkcionálisan.
 Mellékes megfigyelés: `POST /api/messages/<id>/complete` NEM létező
 végpont (404) -- az önmagamnak szóló automatikus kanban/approval

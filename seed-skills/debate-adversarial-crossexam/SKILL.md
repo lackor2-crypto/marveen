@@ -1,6 +1,6 @@
 ---
 name: debate-adversarial-crossexam
-description: Hogyan vezess egy VALÓDI, adverzariális multi-model vitáztatást (scripts/debate.mjs) egy komoly, valós tétű kérdésen -- nem csak "kérdezd meg N modellt egyszer, fogadd el a választ". Használd, ha Boss egy valódi döntést/jogi kérdést/tényállást akar körbejáratni több AI-modellel, és explicit vitát kér ("vitáztassuk meg", "ne csak egy kör legyen", "mondj ellent nekik").
+description: Hogyan vezess egy VALÓDI, adverzariális multi-model vitáztatást (scripts/debate.mjs) egy komoly, valós tétű kérdésen -- nem csak "kérdezd meg N modellt egyszer, fogadd el a választ". Használd, ha {{OWNER_NAME}} egy valódi döntést/jogi kérdést/tényállást akar körbejáratni több AI-modellel, és explicit vitát kér ("vitáztassuk meg", "ne csak egy kör legyen", "mondj ellent nekik").
 ---
 
 # Adverzariális vitáztatás -- ne csak kérdezz, mondj ellent
@@ -13,7 +13,7 @@ egyszerű "melyik jobb X vagy Y") kell körbejáratni `scripts/debate.mjs`-sel,
 modellek TÉNYLEG megcáfolják vagy megerősítsék egymást, ahogy egy valódi
 jogi/szakmai vitában történne.
 
-Boss (2026-08-07) explicit visszajelzése erről: "ha adnak egy választ, hogy
+{{OWNER_NAME}} (2026-08-07) explicit visszajelzése erről: "ha adnak egy választ, hogy
 nem, szerintük nem, akkor nem elég visszakérdezni hogy egyetértesz-e -- a
 vita az, amikor tényleg belekötsz, konkrét ellenpéldát/ítéletet/adatot
 keresel ami mást mond, és azzal szorítod sarokba őket."
@@ -27,7 +27,7 @@ megerősítés-keresés -- a modellek hajlamosak simán rábólintani egy
 
 ## Jobb alternatíva/kiegészítés: SZEREPOSZTÁS már az 1. körben
 
-Boss (2026-08-07) továbbfejlesztette a módszert: ha minden modellnek
+{{OWNER_NAME}} (2026-08-07) továbbfejlesztette a módszert: ha minden modellnek
 UGYANAZT a semleges kérdést teszed fel, mind ugyanoda fognak nézni
 keresés közben és ugyanarra a "nyilvánvaló" válaszra jutnak (ahogy ma is
 történt -- mindhárom modell egyhangúan pesszimista volt 1. körben). Hogy
@@ -106,8 +106,8 @@ konvergenciáért/finomításért.
 
 ## Ha egy modell visszakozik -- ELLENŐRIZD MIÉRT, ne fogadd el automatikusan
 
-Boss (2026-08-07, egy konkrét jogi ügyben): amikor az egyik modell jelentősen
-visszavette a korábbi becslését a másik modell érvelése után, Boss NEM
+{{OWNER_NAME}} (2026-08-07, egy konkrét jogi ügyben): amikor az egyik modell jelentősen
+visszavette a korábbi becslését a másik modell érvelése után, {{OWNER_NAME}} NEM
 fogadta el készpénznek a visszakozást -- leellenőrizte a győztes érv
 MÖGÖTTES TÉNYÁLLÍTÁSÁT egy önálló számolással (egy konkrét összeget/arányt
 átszámolt, és összevetette egy hivatalos referenciaértékkel) -- kiderült,
@@ -125,7 +125,7 @@ alapon nem (ami más, érvényes okra épült). Ez egy újabb kör, ne hagyd ki.
 
 ## Ha a vita eredményéből később DOKUMENTUM (beadvány, jelentés, döntés-előkészítő anyag) készül
 
-Boss (2026-08-07, egy konkrét jogi ügyben): a vita eddigi eredménye önmagában
+{{OWNER_NAME}} (2026-08-07, egy konkrét jogi ügyben): a vita eddigi eredménye önmagában
 NEM elég egy bírósági beadvány (vagy bármilyen komoly dokumentum) megírásához,
 mert a chatben csak HIVATKOZÁSOK vannak (pl. egy konkrét ügyszám), nem a
 tényleges ítéletSZÖVEG. Ha a cél végül egy konkrét dokumentum megírása, két
@@ -151,7 +151,7 @@ dolgot tegyél másképp:
 
 ## Forrás-fegyelem: linket mindig, kutatási dosszié, végső "mi maradt ki?" kör
 
-Boss (2026-08-07) további finomítása, ez legyen alapértelmezett gyakorlat
+{{OWNER_NAME}} (2026-08-07) további finomítása, ez legyen alapértelmezett gyakorlat
 minden komolyabb vitánál:
 
 1. **Minden hivatkozáshoz linket kérj.** A vita-promptban explicit kérd meg
@@ -173,12 +173,12 @@ minden komolyabb vitánál:
    beadványban NEM hivatkozol rá (lásd lent), mert felkészít arra hogy a
    másik fél mit hozhat fel.
 
-4. **Stratégiai szabály a végleges dokumentumhoz (Boss, valódi jogi
+4. **Stratégiai szabály a végleges dokumentumhoz ({{OWNER_NAME}}, valódi jogi
    gyakorlat): csak MEGBÍZHATÓ, KEDVEZŐ forrásra szabad hivatkozni a
    beadványban, kevés (2-3), de biztos.** Sok, bizonytalan hivatkozás
    veszélyes -- ha az ellenérdekű fél egyet meg tud kérdőjelezni, az
    ronthatja az egész beadvány hitelességét. A kedvezőtlen forrásokat NE
-   idézd a dokumentumban, azok csak a te (Boss/Marvin) belső
+   idézd a dokumentumban, azok csak a te ({{OWNER_NAME}}/Marvin) belső
    felkészüléséhez kellenek, nem a bíróságnak/címzettnek szóló szövegbe.
    Mielőtt bármit beírsz egy tényleges beadványba, ELLENŐRIZD hogy a már
    meglévő dokumentum (pl. egy korábbi Klage) hivatkozik-e valamelyik
@@ -280,7 +280,7 @@ tudor eredményét -- Khan et al. ICML 2024, DEBATE/Devil's Advocate ACL
   jelentsd a hiányzó résztvevőt, és folytasd a többi modellel. Ne várd meg
   vég nélkül egy modellre, a többi résztvevő önmagában is értékes vitát ad.
 - **Ha a retry sem elég (tartósan üres marad egy hosszú/összetett
-  kérdésen), darabold a bemenetet.** Boss javaslata (2026-08-07): ahelyett
+  kérdésen), darabold a bemenetet.** {{OWNER_NAME}} javaslata (2026-08-07): ahelyett
   hogy egy 250+ pontos mega-promptot küldenél egyben, mondd meg a modellnek
   ELŐRE hogy több üzenetben jön a szöveg, és ne csináljon semmit amíg meg
   nem kapta mind: "Most be fogok neked másolni 2-3-4 szöveget egymás után.
@@ -291,7 +291,7 @@ tudor eredményét -- Khan et al. ICML 2024, DEBATE/Devil's Advocate ACL
   te (a fő-agens) döntőd el mikor és hogyan darabolod a bemenetet egy adott
   modellnek, a script maga nem darabol automatikusan.
 - **Hosszú promptok + retry = percekig futhat.** Mindig `run_in_background`
-  a Bash híváson, ne várakoztasd élőben Bosst egy szinkron hívással -- a
+  a Bash híváson, ne várakoztasd élőben a tulajdonost ({{OWNER_NAME}}) egy szinkron hívással -- a
   visszajelzés Telegramon menjen, amint megvan az eredmény, ne közben.
 - **Ne fogadj el egy modell-választ vakon.** A cél nem az, hogy 3 vélemény
   legyen egymás mellett, hanem hogy TE (a fő-agens) is aktívan részt végy
@@ -330,7 +330,7 @@ ellenőrzés, GPT-5.5 darabolt beküldés, záró dosszié-kör, lezárás).
       (nem csak a te összefoglalóddal)?
 - [ ] Ha volt módosítás egy modell álláspontjában, konkrét indokot adott-e
       rá (nem csak "igazad van")?
-- [ ] A végső jelentés Bossnak őszinte-e a fennmaradó bizonytalanságról,
+- [ ] A végső jelentés a tulajdonosnak ({{OWNER_NAME}}) őszinte-e a fennmaradó bizonytalanságról,
       nem sminkelt-e hamis konszenzussá?
 - [ ] Ha a cél egy konkrét dokumentum (beadvány, jelentés) megírása: a
       hivatkozott források TELJES SZÖVEGE bekerült-e a beszélgetésbe (nem

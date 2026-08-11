@@ -1,19 +1,19 @@
 ---
 name: win-window-layout
-description: Boss Windows-asztalanak ablak-elrendezeset menti el es allitja vissza WSL-bol (PersistentWindows + Task Scheduler Interactive). Akkor hasznald, ha Boss azt keri hogy "mentsd el az ablakok allasat", "allitsd vissza az iroda-elrendezest", vagy ha egy tobb-ablakos munkakornyezetet kell reprodukalni (pl. monitor-valtas / RDP utan szethullott ablakok).
+description: {{OWNER_NAME}} Windows-asztalanak ablak-elrendezeset menti el es allitja vissza WSL-bol (PersistentWindows + Task Scheduler Interactive). Akkor hasznald, ha {{OWNER_NAME}} azt keri hogy "mentsd el az ablakok allasat", "allitsd vissza az iroda-elrendezest", vagy ha egy tobb-ablakos munkakornyezetet kell reprodukalni (pl. monitor-valtas / RDP utan szethullott ablakok).
 ---
 
 # Windows ablak-elrendezés mentése és visszaállítása
 
 ## Mikor használd
 
-Boss több alkalmazást használ egyszerre, és az ablakok elrendezése munka
+{{OWNER_NAME}} több alkalmazást használ egyszerre, és az ablakok elrendezése munka
 közben szétesik (monitor le/vissza, RDP, felébredés alvásból), vagy egy adott
 munkához mindig ugyanaz az elrendezés kell ("iroda", "tőzsde"). Ez a skill
 elmenti a jelenlegi állást névre, és később visszaállítja.
 
 Alapja a PersistentWindows (kangyu-california/PersistentWindows, v5.76,
-wingettel telepítve, Boss jóváhagyásával -- kanban 6ccb5ced).
+wingettel telepítve, {{OWNER_NAME}} jóváhagyásával -- kanban 6ccb5ced).
 
 ## Eljárás
 
@@ -59,7 +59,7 @@ idézőjelezést igényelne, ahelyett hogy köré kerülgetné.
   az ablakra, de nem a mentett téglalapba tette vissza, hanem tálcára
   minimalizálva hagyta (`MainWindowHandle` 0 lett). Az ilyen appot utána
   kézzel kell visszahozni (`ShowWindow SW_RESTORE` + `SetWindowPos`). Mielőtt
-  egy elrendezést élesben ráengedsz Boss asztalára, mondd meg neki mi fog
+  egy elrendezést élesben ráengedsz {{OWNER_NAME}} asztalára, mondd meg neki mi fog
   történni, és ne futtasd amikor épp dolgozik.
 - Emelt jogú (adminként futó) ablakok visszaállításához maga a
   PersistentWindows is emelt jogot igényel -- ilyen ablakok kimaradhatnak.

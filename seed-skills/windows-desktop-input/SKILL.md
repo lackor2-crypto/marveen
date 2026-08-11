@@ -1,29 +1,29 @@
 ---
 name: windows-desktop-input
-description: Valódi kattintás + gépelés + Enter szimulálása egy Windows desktop-appban (pl. WhatsApp Desktop üzenetküldés) WSL-ből, Task Scheduler Interactive-mintával. KOCKÁZATOSABB mint a windows-desktop-screenshot skill -- ez ténylegesen KÜLDHET/MÓDOSÍTHAT valamit, harmadik fél felé is látható lehet (pl. egy WhatsApp-kontaktnak). Csak akkor használd, ha Boss explicit engedélyezte az adott konkrét küldést/kattintást.
+description: Valódi kattintás + gépelés + Enter szimulálása egy Windows desktop-appban (pl. WhatsApp Desktop üzenetküldés) WSL-ből, Task Scheduler Interactive-mintával. KOCKÁZATOSABB mint a windows-desktop-screenshot skill -- ez ténylegesen KÜLDHET/MÓDOSÍTHAT valamit, harmadik fél felé is látható lehet (pl. egy WhatsApp-kontaktnak). Csak akkor használd, ha {{OWNER_NAME}} explicit engedélyezte az adott konkrét küldést/kattintást.
 ---
 
 # Windows desktop input (kattintás + gépelés) WSL-ből
 
 ## Mikor használd
 
-Boss kér egy KONKRÉT műveletet egy már futó Windows desktop-appban, ami
+{{OWNER_NAME}} kér egy KONKRÉT műveletet egy már futó Windows desktop-appban, ami
 nem csak megnézés (arra lásd `windows-desktop-screenshot`), hanem tényleges
 beavatkozás: szöveg beírása egy mezőbe, gomb megnyomása, üzenet elküldése.
 
-Felfedezve/bevált 2026-08-07: Boss kérte, hogy a WhatsApp Desktopon (már
+Felfedezve/bevált 2026-08-07: {{OWNER_NAME}} kérte, hogy a WhatsApp Desktopon (már
 nyitva, "Kiss Zoltán" cseten) írjak be és küldjek el egy szöveget --
 sikerült, ténylegesen megérkezett a kontaktnak.
 
 **FONTOS -- ez outward-facing, visszafordíthatatlan akció.** Egy elküldött
 WhatsApp/email/stb. üzenetet nem lehet visszavonni, és harmadik fél látja.
 Mielőtt ezt a skillt bevetnéd:
-- Boss-nak KONKRÉTAN és EXPLICITEN engedélyeznie kell az adott küldést
+- a tulajdonosnak ({{OWNER_NAME}}) KONKRÉTAN és EXPLICITEN engedélyeznie kell az adott küldést
   (nem elég egy általános "csinálj desktop-automatizálást" -- lásd a
   system prompt "Executing actions with care" szakaszát).
-- Ha van bármi esély hogy a cél már meg lett csinálva (pl. Boss maga is
+- Ha van bármi esély hogy a cél már meg lett csinálva (pl. {{OWNER_NAME}} maga is
   beírta közben), ELŐSZÖR nézd meg screenshottal (`windows-desktop-screenshot`),
-  NE küldj vakon -- 2026-08-07-én pont ez történt, Boss már bediktálta
+  NE küldj vakon -- 2026-08-07-én pont ez történt, {{OWNER_NAME}} már bediktálta
   Zoltánnak amit kértem volna elküldeni.
 
 ## Előfeltétel
@@ -88,14 +88,14 @@ bejelentkezett konzol-session.
    szöveghez: SendKeys karakterenként küld, és összezavarodik ékezetes/
    Unicode szövegen (magyar!) -- a vágólap-beillesztés robusztus.
 
-   **Udvariasság Boss felé -- KÖTELEZŐ minden kurzor-alapú kattintásnál.**
+   **Udvariasság {{OWNER_NAME}} felé -- KÖTELEZŐ minden kurzor-alapú kattintásnál.**
    A `SetCursorPos` + `mouse_event` a KÖZÖS, fizikai egérkurzort mozgatja: ha
-   Boss épp maga is használja az egeret, összeütköztök, és az utolsó mozdulat
+   {{OWNER_NAME}} épp maga is használja az egeret, összeütköztök, és az utolsó mozdulat
    nyer -- a kattintás rossz helyre mehet (2026-08-10-en több ilyen gyanús
    eset volt). Két sor, ami ezt kezeli, tedd bele minden ilyen scriptbe:
 
    ```powershell
-   # 1) Ha Boss az elmúlt 4 másodpercben használta a gépet, NE kattints most.
+   # 1) Ha {{OWNER_NAME}} az elmúlt 4 másodpercben használta a gépet, NE kattints most.
    Add-Type @"
    using System; using System.Runtime.InteropServices;
    public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
@@ -154,9 +154,9 @@ bejelentkezett konzol-session.
 - **A `SetForegroundWindow` KÉRÉS, nem parancs -- ellenőrizd hogy sikerült-e.**
   A Windows megtagadja az előtérbe-hozást, ha a felhasználó épp aktívan
   dolgozik egy másik ablakban. 2026-08-10-en pontosan ez történt: a
-  MetaTrader-re kért fókusz nem jött létre (Boss épp a böngészőben volt), a
+  MetaTrader-re kért fókusz nem jött létre ({{OWNER_NAME}} épp a böngészőben volt), a
   script viszont ettől függetlenül kattintott a chart-koordinátára -- ami így
-  BOSS CHROME-JÁNAK a könyvjelző-sávjára ment. Kattintás ELŐTT kötelező:
+  A TULAJDONOS CHROME-JÁNAK a könyvjelző-sávjára ment. Kattintás ELŐTT kötelező:
   ```powershell
   [Win32X]::SetForegroundWindow($h) | Out-Null
   Start-Sleep -Milliseconds 800
@@ -225,5 +225,5 @@ bejelentkezett konzol-session.
 
 - Az "after" screenshot ténylegesen mutatja a beírt/elküldött tartalmat
   a cél alkalmazásban.
-- Boss visszaigazolja hogy a másik fél (pl. a WhatsApp-kontakt) tényleg
+- {{OWNER_NAME}} visszaigazolja hogy a másik fél (pl. a WhatsApp-kontakt) tényleg
   megkapta.

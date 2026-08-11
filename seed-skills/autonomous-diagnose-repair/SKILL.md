@@ -34,7 +34,7 @@ jq -r '.categories[]|select(.key=="KULCS")|"\(.key) level=\(.level) max=\(.maxLe
 4. **Jovahagyas utan: VEGIG csinald.** A jovahagyott lepest teljesen hajtsd vegre, majd folytasd a javitast a kovetkezo kockazatos kapuig vagy a megoldasig. Ne allj meg feluton.
 5. **Naplozz** minden fontos lepest (daily-log), es hiba eseten emberi, ertheto magyar uzenetet adj (mi tortent, mi az ok, mi a kovetkezo lepes).
 
-## Engedelykeres sablon (Telegram reply Boss-nak, vagy /api/approvals)
+## Engedelykeres sablon (Telegram reply a tulajdonosnak ({{OWNER_NAME}}), vagy /api/approvals)
 Sose csak "permission needed". Mindig:
 ```
 [ENGEDELYKERES]
@@ -53,7 +53,7 @@ Tobb kockazatos lepest egy uzenetben sorolj fel (batch), ne kerdezz kulon apronk
 - WSL: a "reboot" a WSL distro ujrainditasa; jelezd hogy ez az egesz kornyezetet lekapcsolja.
 - Titkot (token, jelszo) SOSE irj ki logba/uzenetbe; `.env`-nel csak a kulcs neveket nezd.
 - **100% CPU processz elott ellenorizd a PPID-t!** Egy busy-loopolo bun/node lehet ARVA, beragadt peldany egy regi sessionbol (PPID=1 vagy a systemd user manager, pl. 255), NEM az aktiv szolgaltatas. Ilyenkor a sima `kill <PID>` biztonsagos es NEM szakitja meg az elo csatornat -- nincs szukseg a teljes service restartra (ami viszont a sajat sessionodet is ujrainditana). Kulonitsd el: `ps -eo pid,ppid,pcpu,etime,args --sort=-pcpu | grep server.ts`. Az aktiv plugin PPID-je egy elo claude/tmux lanc; az arva-e egy regi etime + systemd szulo. Busy-loop gyakran ignoralja a SIGTERM-et -> `kill -9` kell.
-- `sudo` gyakran JELSZOT ker (`sudo -n true` -> "password required"). Headless nem tudod megcsinalni es a jelszohoz NE nyulj. Add at Bossnak a pontos parancsot, hogy o futtassa (Telegramon a `! sudo ...` prefixszel a sajat sessionjeben, vagy terminalban).
+- `sudo` gyakran JELSZOT ker (`sudo -n true` -> "password required"). Headless nem tudod megcsinalni es a jelszohoz NE nyulj. Add at a tulajdonosnak ({{OWNER_NAME}}) a pontos parancsot, hogy o futtassa (Telegramon a `! sudo ...` prefixszel a sajat sessionjeben, vagy terminalban).
 - Ha az engedely elutasitva/timeout -> ne csinald, naplozd az okot, es adj alternativat ha van.
 
 ## Ellenőrzés
