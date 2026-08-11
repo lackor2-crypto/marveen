@@ -13695,8 +13695,14 @@ function _keyServicesFromAccounts(data) {
     .map(item => {
       const info = _accountInfoFor(item.id) || {}
       const vaultInfo = CAPABILITY_INFO[item.id]
+      // What KIND of thing this is, in the operator's words rather than ours.
+      // Calling Google and GitHub "kulcs" was wrong -- Boss said it plainly:
+      // "a telegram is csak egy fiok... a github is! a google is". Only the
+      // pasted-key ones are keys; the rest are accounts you sign in to.
+      const kind = vaultInfo ? 'key' : 'account'
       return {
         id: item.id,
+        kind,
         vaultId: vaultInfo ? vaultInfo.vaultId : null,
         label: info.labelKey ? t(info.labelKey) : item.id,
         helpUrl: info.helpUrl || null,
@@ -13705,6 +13711,218 @@ function _keyServicesFromAccounts(data) {
         addable: !!vaultInfo,
       }
     })
+}
+
+// --- Claude accounts (kanban #52) -------------------------------------------
+// PARALLEL logins, not a switch (Boss, 2026-08-12): every account keeps its own
+// credentials directory, so adding one leaves the others signed in. The flow the
+// CLI imposes: it prints an authorize URL and then WAITS for a code that
+// Anthropic's page shows the user. There is no callback we can intercept, so one
+// paste is unavoidable -- but the waiting, the detecting and the registering all
+// happen here instead of in a terminal, which is what the card was about.
+let _claudeAuthPoll = null
+
+function _claudeAuthSetState(text, kind) {
+  const el = document.getElementById('claudeAuthState')
+  if (!el) return
+  el.textContent = text || ''
+  el.className = 'claude-auth-state' + (kind ? ' claude-auth-state-' + kind : '')
+}
+
+// One place for both kinds of account. A login and a key are not the same
+// thing -- one is a browser sign-in that yields credentials on disk, the other
+// is a string you paste -- but from the operator's side they answer the same
+// question ("what is Marveen connected to?"), and having them on two different
+// pages was one concept in two places (Boss, 2026-08-12: "jo otlet, csinald ugy").
+let _claudeAuthKeyServices = []
+
+function _claudeAuthRenderList(accounts) {
+  const el = document.getElementById('claudeAuthList')
+  if (!el) return
+  const loginRows = (accounts || []).map(a => {
+    const id = a.identity || {}
+    const who = id.loggedIn && id.email
+      ? escapeHtml(id.email) + (id.subscriptionType ? ` <span class="claude-auth-plan">${escapeHtml(id.subscriptionType)}</span>` : '')
+      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.row_empty'))}</span>`
+    // The default row is NAMED here rather than by the backend: the server
+    // should not be shipping a Hungarian word to an English dashboard.
+    const name = a.isDefault ? t('claudeauth.row_default') : (a.label || a.id || '')
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(name)}</span>
+      <span class="claude-auth-rowwho">${who}</span>
+      <span class="claude-auth-kind">${escapeHtml(t('claudeauth.kind_login'))}</span>
+    </div>`
+  })
+  const keyRows = _claudeAuthKeyServices.map(k => {
+    const who = k.configured
+      ? `<span class="claude-auth-plan">${escapeHtml(t('claudeauth.key_set'))}</span>`
+      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.key_unset'))}</span>`
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(k.label)}</span>
+      <span class="claude-auth-rowwho">${who}</span>
+      <span class="claude-auth-kind">${escapeHtml(t(k.kind === 'key' ? 'claudeauth.kind_key' : 'claudeauth.kind_account'))}</span>
+    </div>`
+  })
+  el.innerHTML = loginRows.concat(keyRows).join('')
+}
+
+// Which services can be added, and how. A login entry needs the provider's own
+// CLI on this machine, which is why only the one we can actually drive is
+// offered rather than a row of buttons that would fail on click.
+function _claudeAuthServices() {
+  const out = [{ value: 'claude', kind: 'login', label: t('claudeauth.svc_claude') }]
+  for (const k of _claudeAuthKeyServices) {
+    // Listed-but-not-addable services (Telegram, Google, GitHub) are configured
+    // by their own flows elsewhere; offering them here would be a menu entry
+    // that cannot finish the job.
+    if (!k.addable) continue
+    out.push({ value: 'key:' + k.vaultId, kind: 'key', label: k.label, vaultId: k.vaultId, helpUrl: k.helpUrl, stepsKey: k.stepsKey })
+  }
+  return out
+}
+
+function _claudeAuthSyncServiceUi() {
+  const sel = document.getElementById('claudeAuthService')
+  if (!sel) return
+  const services = _claudeAuthServices()
+  const current = sel.value
+  sel.innerHTML = services.map(sv => `<option value="${escapeAttr(sv.value)}">${escapeHtml(sv.label)}</option>`).join('')
+  if (services.some(sv => sv.value === current)) sel.value = current
+  const chosen = services.find(sv => sv.value === sel.value) || services[0]
+  const isKey = chosen && chosen.kind === 'key'
+  document.getElementById('claudeAuthLoginMode').hidden = !!isKey
+  document.getElementById('claudeAuthKeyMode').hidden = !isKey
+  if (isKey) {
+    const help = document.getElementById('claudeAuthKeyHelp')
+    help.href = chosen.helpUrl || '#'
+    document.getElementById('claudeAuthKeySteps').textContent = chosen.stepsKey ? t(chosen.stepsKey) : ''
+    document.getElementById('claudeAuthKeyMode').dataset.vaultId = chosen.vaultId
+    document.getElementById('claudeAuthKeyMode').dataset.label = chosen.label
+  }
+}
+
+function _claudeAuthStopPoll() {
+  if (_claudeAuthPoll) { clearInterval(_claudeAuthPoll); _claudeAuthPoll = null }
+}
+
+async function _claudeAuthTick() {
+  let s
+  try {
+    const res = await fetch('/api/accounts/claude')
+    s = await res.json()
+  } catch { return }
+  _claudeAuthRenderList(s.accounts)
+
+  const link = document.getElementById('claudeAuthLink')
+  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+
+  if (s.done) {
+    _claudeAuthStopPoll()
+    document.getElementById('claudeAuthFlow').hidden = true
+    document.getElementById('claudeAuthLabel').value = ''
+    document.getElementById('claudeAuthEmail').value = ''
+    _claudeAuthSetState('', null)
+    if (s.error) showToast(s.error, 10000, true)
+    else showToast(t('claudeauth.done', { label: s.label || '' }), 8000, true)
+    return
+  }
+  if (!s.active) {
+    _claudeAuthStopPoll()
+    if (s.error) _claudeAuthSetState(s.error, 'bad')
+    return
+  }
+  if (s.phase === 'starting') _claudeAuthSetState(t('claudeauth.state_starting'), null)
+  else if (s.phase === 'awaiting-code') _claudeAuthSetState(t('claudeauth.state_awaiting'), null)
+  else if (s.phase === 'working') _claudeAuthSetState(t('claudeauth.state_working'), null)
+  else if (s.phase === 'failed') _claudeAuthSetState(s.error || t('claudeauth.state_failed'), 'bad')
+}
+
+async function renderClaudeAccountPanel(keyServices) {
+  const panel = document.getElementById('claudeAccountPanel')
+  if (!panel) return
+  _claudeAuthKeyServices = keyServices || []
+  _claudeAuthSyncServiceUi()
+  if (panel.dataset.wired === '1') { _claudeAuthTick(); return }
+  panel.dataset.wired = '1'
+
+  document.getElementById('claudeAuthStartBtn').addEventListener('click', async () => {
+    const label = document.getElementById('claudeAuthLabel').value.trim()
+    const email = document.getElementById('claudeAuthEmail').value.trim()
+    if (!label) { showToast(t('claudeauth.need_label'), 6000, true); return }
+    document.getElementById('claudeAuthFlow').hidden = false
+    _claudeAuthSetState(t('claudeauth.state_starting'), null)
+    try {
+      const res = await fetch('/api/accounts/claude/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(email ? { label, email } : { label }),
+      })
+      const data = await res.json()
+      if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return }
+    } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad'); return }
+    _claudeAuthStopPoll()
+    _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
+    _claudeAuthTick()
+  })
+
+  document.getElementById('claudeAuthService').addEventListener('change', _claudeAuthSyncServiceUi)
+
+  // The page itself says where the OTHER accounts go, instead of that answer
+  // living only in a chat message.
+  document.getElementById('claudeAuthVaultLink')?.addEventListener('click', (e) => {
+    e.preventDefault()
+    switchPage('vault')
+  })
+
+  document.getElementById('claudeAuthKeySaveBtn').addEventListener('click', async () => {
+    const host = document.getElementById('claudeAuthKeyMode')
+    const input = document.getElementById('claudeAuthKeyValue')
+    const value = input.value.trim()
+    const id = host.dataset.vaultId
+    if (!value || !id) return
+    try {
+      const res = await fetch('/api/vault', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, label: host.dataset.label || id, value }),
+      })
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      input.value = ''
+      showToast(t('claudeauth.key_saved', { label: host.dataset.label || id }), 6000, true)
+      loadAccountsPage()
+    } catch (err) { showToast(`${t('common.error_save')}: ${err.message}`) }
+  })
+
+  document.getElementById('claudeAuthCopyBtn').addEventListener('click', () => {
+    const url = document.getElementById('claudeAuthLink').dataset.url
+    if (!url) return
+    navigator.clipboard?.writeText(url)
+    showToast(t('claudeauth.copied'), 3000, true)
+  })
+
+  document.getElementById('claudeAuthCodeBtn').addEventListener('click', async () => {
+    const input = document.getElementById('claudeAuthCode')
+    const code = input.value.trim()
+    if (!code) return
+    _claudeAuthSetState(t('claudeauth.state_working'), null)
+    try {
+      const res = await fetch('/api/accounts/claude/login/code', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await res.json()
+      if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return }
+      input.value = ''
+    } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad') }
+  })
+
+  document.getElementById('claudeAuthCancelBtn').addEventListener('click', async () => {
+    _claudeAuthStopPoll()
+    try { await fetch('/api/accounts/claude/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+    document.getElementById('claudeAuthFlow').hidden = true
+    _claudeAuthSetState('', null)
+    _claudeAuthTick()
+  })
+
+  _claudeAuthTick()
 }
 
 function renderOverviewUpstreamSync(upstreamSync) {
