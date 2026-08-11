@@ -126,15 +126,6 @@ export const SETUP_ITEMS: SetupItem[] = [
     required: false,
   },
   {
-    id: 'google-api-key',
-    group: 'google',
-    kind: 'secret',
-    envKey: 'GOOGLE_API_KEY',
-    labelKey: 'wizard.item.google_api_key',
-    descKey: 'wizard.item.google_api_key_desc',
-    required: false,
-  },
-  {
     id: 'calendar-id',
     group: 'google',
     kind: 'env',

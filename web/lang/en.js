@@ -327,6 +327,8 @@ window._i18n.en = {
   'agents.free_badge':           'free',
   'agents.cost_badge_tip':       'Estimated $ / 1M input tokens (known Claude models only)',
   'settings.module.wizard': 'Setup wizard',
+  'overview.setup.title': 'Setup',
+  'overview.setup.open_wizard': 'Open the setup wizard',
   'wizard.button': 'Set up all of Marveen with the wizard',
   'wizard.title': 'Setup wizard',
   'wizard.subtitle': 'Everything Marveen can do, and what this install still needs.',

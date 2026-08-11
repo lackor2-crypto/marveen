@@ -13318,6 +13318,37 @@ const CAPABILITY_INFO = {
   },
 }
 
+// Setup state on the Overview, because that is where you look first. The
+// wizard itself lives under Settings, but a gap nobody walks past stays a gap
+// -- Boss asked for the required-vs-optional line to surface here too. Silent
+// when the install is fully configured: a permanent green banner is noise.
+async function renderOverviewSetupStatus() {
+  const box = document.getElementById('overviewSetupStatus')
+  const list = document.getElementById('overviewSetupStatusList')
+  if (!box || !list) return
+  let d
+  try {
+    const res = await fetch('/api/setup-wizard')
+    if (!res.ok) throw new Error('fetch failed')
+    d = await res.json()
+  } catch { box.hidden = true; return }
+
+  const rows = []
+  if (d.missingRequired > 0) {
+    rows.push({ cls: 'danger', text: t('wizard.summary.missing_required', { n: d.missingRequired }) })
+  }
+  if (d.availableUnused > 0) {
+    rows.push({ cls: '', text: t('wizard.summary.available', { n: d.availableUnused }) })
+  }
+  if (rows.length === 0) { box.hidden = true; list.innerHTML = ''; return }
+
+  box.hidden = false
+  list.innerHTML = rows.map(r => `<a href="#" class="overview-capability-item" onclick="switchPage('settings');activateSettingsTab('wizard');return false">
+      <div class="overview-capability-label"${r.cls === 'danger' ? ' style="color:var(--danger)"' : ''}>${escapeHtml(r.text)}</div>
+      <div class="overview-capability-desc">${escapeHtml(t('overview.setup.open_wizard'))}</div>
+    </a>`).join('')
+}
+
 function renderOverviewCapabilities(ids) {
   const box = document.getElementById('overviewCapabilities')
   const list = document.getElementById('overviewCapabilitiesList')
@@ -13628,6 +13659,7 @@ async function loadOverview() {
     document.getElementById('statSkills').textContent = d.skills.count
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
     renderOverviewCapabilities(d.unconfiguredCapabilities)
+    renderOverviewSetupStatus()
     renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
     renderOverviewUpstreamSync(d.upstreamSync)
     // Team: reuse the hierarchy graph renderer so the overview card shows

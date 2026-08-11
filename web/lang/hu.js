@@ -327,6 +327,8 @@ window._i18n.hu = {
   'agents.free_badge':           'ingyenes',
   'agents.cost_badge_tip':       'Becsült ár $ / 1 millió input token (csak ismert Claude-modelleknél)',
   'settings.module.wizard': 'Beállítás varázsló',
+  'overview.setup.title': 'Beállítás',
+  'overview.setup.open_wizard': 'Beállítás varázsló megnyitása',
   'wizard.button': 'Marveen teljes beállítása varázslóval',
   'wizard.title': 'Beállítás varázsló',
   'wizard.subtitle': 'Mindaz amit a Marveen tud, és amit ez a telepítés még nem tud.',
