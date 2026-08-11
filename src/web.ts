@@ -69,6 +69,7 @@ import { tryHandleStatus } from './web/routes/status.js'
 import { tryHandleAutonomy } from './web/routes/autonomy.js'
 import { tryHandleFileClaims } from './web/routes/file-claims.js'
 import { sweepExpiredClaims } from './web/file-claims-store.js'
+import { startUncommittedWorkWatcher } from './web/uncommitted-work-runner.js'
 import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/approvals.js'
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
@@ -427,6 +428,9 @@ export function startWebServer(port = 3420): http.Server {
   const reauthHealerInterval = webOnly ? undefined : startReauthHealer()
   if (!webOnly && reauthHealerInterval) logger.info('Reauth healer started (3min poll, 90s offset)')
 
+  const uncommittedInterval = webOnly ? undefined : startUncommittedWorkWatcher()
+  if (!webOnly) logger.info('Uncommitted-work watcher started (1h poll, 6min offset)')
+
   const limitWakeInterval = webOnly ? undefined : startLimitWakeRunner()
   if (!webOnly && limitWakeInterval) {
     logger.info(`Limit-reset wake runner started (${LIMIT_WAKE_INTERVAL_MS / 1000}s poll, ${LIMIT_WAKE_INITIAL_DELAY_MS / 1000}s offset)`)
@@ -605,6 +609,7 @@ export function startWebServer(port = 3420): http.Server {
     if (inboxNudgeInterval) clearInterval(inboxNudgeInterval)
     if (reauthHealerInterval) clearInterval(reauthHealerInterval)
     if (limitWakeInterval) clearInterval(limitWakeInterval)
+    if (uncommittedInterval) clearInterval(uncommittedInterval)
     clearInterval(autoRestartInterval)
     clearInterval(modelFallbackInterval)
     clearInterval(contextGuardInterval)

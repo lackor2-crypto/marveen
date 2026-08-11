@@ -1,0 +1,51 @@
+{
+  "id": "reviewer",
+  "label": "Ellenőr / elemző",
+  "description": "Olvassa a kódot, jelentést ír a saját mappájába, de a közös checkoutba NEM ír. Ez a legolcsóbb módja az ütközés megelőzésének: ami fizikailag nem tud írni, az nem is írhat felül semmit (kanban 18bf8b2c, write partitioning). Review, elemzés, kutatás típusú ágenseknek.",
+  "permissionMode": "strict",
+  "filesystem": {
+    "allow": [
+      "Read(${INSTALL_DIR}/**)",
+      "Read(${AGENT_DIR}/**)",
+      "Write(${AGENT_DIR}/**)",
+      "Edit(${AGENT_DIR}/**)",
+      "Read(/tmp/**)",
+      "Write(/tmp/**)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git worktree:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(pwd:*)",
+      "Bash(node:*)",
+      "Bash(python3:*)",
+      "Bash(npx vitest:*)",
+      "WebFetch(*)",
+      "WebSearch(*)"
+    ],
+    "deny": [
+      "Write(${INSTALL_DIR}/src/**)",
+      "Write(${INSTALL_DIR}/web/**)",
+      "Write(${INSTALL_DIR}/scripts/**)",
+      "Edit(${INSTALL_DIR}/src/**)",
+      "Edit(${INSTALL_DIR}/web/**)",
+      "Edit(${INSTALL_DIR}/scripts/**)",
+      "Read(${HOME}/.ssh/**)",
+      "Read(${HOME}/.aws/**)",
+      "Read(${HOME}/.gnupg/**)",
+      "Read(${HOME}/.env)",
+      "Read(**/.env)",
+      "Bash(sudo:*)",
+      "Bash(rm:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

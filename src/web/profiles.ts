@@ -48,9 +48,15 @@ export function loadProfileTemplate(id: string): ProfileTemplate {
   return HARDCODED_DEFAULT_PROFILE
 }
 
-export function resolveProfilePlaceholders(value: string, ctx: { HOME: string; AGENT_DIR: string }): string {
+export function resolveProfilePlaceholders(
+  value: string,
+  ctx: { HOME: string; AGENT_DIR: string; INSTALL_DIR?: string },
+): string {
   return value
     .replace(/\$\{HOME\}/g, ctx.HOME)
     .replace(/\$\{AGENT_DIR\}/g, ctx.AGENT_DIR)
     .replace(/\$\{WORKDIR\}/g, ctx.AGENT_DIR)
+    // The install root, so a profile can say "may read the code, may not write
+    // it" without naming anyone's directory layout (kanban 18bf8b2c).
+    .replace(/\$\{INSTALL_DIR\}/g, ctx.INSTALL_DIR ?? PROJECT_ROOT)
 }

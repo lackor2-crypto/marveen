@@ -33,9 +33,33 @@ export async function tryHandleFileClaims(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/file-claims' && method === 'POST') {
     try {
       const body = JSON.parse((await readBody(req)).toString() || '{}')
-      const relPath = normalizeRelPath(body.path)
       const agent = typeof body.agent === 'string' ? body.agent.trim() : ''
       const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 200) : null
+
+      // Batch form, for ASSIGNING work rather than reacting to an edit. The
+      // industry pattern behind it is write partitioning: the orchestrator hands
+      // each agent a disjoint set of files up front, so collisions are prevented
+      // instead of detected (see kanban 18bf8b2c). One call claims the whole set
+      // and reports which parts someone else already holds.
+      if (Array.isArray(body.paths)) {
+        if (!agent) {
+          json(res, { error: 'agent is required' }, 400)
+          return true
+        }
+        const claimed: string[] = []
+        const rejected: Array<{ path: string; holder: string; message: string }> = []
+        for (const raw of body.paths.slice(0, 200)) {
+          const p = normalizeRelPath(raw)
+          if (!p) continue
+          const d = claimPath(p, agent, note)
+          if (d.allowed) claimed.push(p)
+          else rejected.push({ path: p, holder: d.holder, message: describeBlock(p, d.holder, d.heldForMs, d.note) })
+        }
+        json(res, { agent, claimed, rejected, allAvailable: rejected.length === 0 })
+        return true
+      }
+
+      const relPath = normalizeRelPath(body.path)
       if (!relPath || !agent) {
         json(res, { error: 'path and agent are required' }, 400)
         return true
