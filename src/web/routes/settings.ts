@@ -4,6 +4,9 @@ import { SETTINGS_REGISTRY, validateSettingValue } from '../../config-registry.j
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { logConfigChange } from '../../db.js'
 import { setStoreWriteActor } from '../../store-watcher.js'
+import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
+import { listAgentNames } from '../agent-config.js'
+import { MAIN_AGENT_ID } from '../../config.js'
 import type { RouteContext } from './types.js'
 
 export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
@@ -75,6 +78,42 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
     } catch (err) {
       logger.error({ err }, 'Failed to update setting')
       json(res, { error: 'Failed to update setting' }, 500)
+    }
+    return true
+  }
+
+  // Per-agent config for the proactive context-restart (/clear) gate. The gate
+  // ships OFF for every agent (enabled defaults to false); this is the surface
+  // the owner uses to turn it on and pick a per-agent threshold by hand, rather
+  // than editing store/context-restart-gate.json directly.
+  if (path === '/api/context-restart-gate' && method === 'GET') {
+    const names = [MAIN_AGENT_ID, ...listAgentNames()]
+    const agents = names.map((name) => ({ agent: name, ...readGateConfig(name) }))
+    json(res, { agents })
+    return true
+  }
+
+  if (path === '/api/context-restart-gate' && method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString())
+      const agent = typeof body?.agent === 'string' ? body.agent : ''
+      const known = new Set([MAIN_AGENT_ID, ...listAgentNames()])
+      if (!agent || !known.has(agent)) {
+        json(res, { error: 'Unknown or missing "agent"' }, 400)
+        return true
+      }
+      // writeGateConfig normalizes (enabled must be strictly true; thresholdTokens
+      // a positive int, else the documented default), so partial/garbage input
+      // can never produce a half-valid config on disk.
+      const saved = writeGateConfig(agent, {
+        enabled: body?.enabled,
+        thresholdTokens: body?.thresholdTokens,
+      })
+      logger.info({ agent, saved }, 'Context-restart gate config updated')
+      json(res, { ok: true, agent, config: saved })
+    } catch (err) {
+      logger.error({ err }, 'Failed to update context-restart gate config')
+      json(res, { error: 'Failed to update gate config' }, 500)
     }
     return true
   }
