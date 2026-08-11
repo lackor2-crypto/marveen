@@ -75,7 +75,7 @@ function fleetTokenPresent(): boolean {
   } catch { return false }
 }
 
-function claudeAuthPresent(): boolean {
+export function claudeAuthPresent(): boolean {
   if (readEnvValue('CLAUDE_CODE_OAUTH_TOKEN')) return true
   if (readEnvValue('ANTHROPIC_API_KEY')) return true
   try {
@@ -93,11 +93,11 @@ function claudeAuthPresent(): boolean {
 // Discord-switched (or Slack/etc.) install has no telegram/ state dir, so a
 // telegram-only probe would report "not configured" forever and pop the wizard
 // over a working dashboard. readChannelToken knows each provider's env key.
-function channelConfigured(): boolean {
+export function channelConfigured(): boolean {
   return readChannelToken(CHANNEL_PROVIDER, join(channelStateDir(CHANNEL_PROVIDER), '.env')) != null
 }
 
-function paired(): boolean {
+export function paired(): boolean {
   try {
     const a = JSON.parse(readFileSync(join(channelStateDir(CHANNEL_PROVIDER), 'access.json'), 'utf-8')) as {
       allowFrom?: unknown[]; groups?: Record<string, unknown>

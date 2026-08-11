@@ -15753,7 +15753,7 @@ window.addEventListener('beforeunload', (e) => {
 // entry never requires a frontend change just to render a sane heading.
 function settingsModuleLabel(mod) {
   const key = `settings.module.${mod}`
-  const known = { kanban: true, system: true, heartbeat: true, audit: true, ideabox: true, channels: true, security: true, autonomy: true, debate: true, windows: true }
+  const known = { kanban: true, system: true, heartbeat: true, audit: true, ideabox: true, channels: true, security: true, autonomy: true, debate: true, windows: true, wizard: true }
   return known[mod] ? t(key) : (mod.charAt(0).toUpperCase() + mod.slice(1))
 }
 
@@ -16179,7 +16179,7 @@ async function loadSettings() {
     const securityDefs = byModule.get('security') ?? []
     byModule.delete('security')
 
-    const allModules = [...byModule.keys(), 'security', 'autonomy', 'windows']
+    const allModules = [...byModule.keys(), 'security', 'autonomy', 'windows', 'wizard']
     const savedTab = localStorage.getItem(SETTINGS_ACTIVE_TAB_KEY) || allModules[0]
     const activeTab = allModules.includes(savedTab) ? savedTab : allModules[0]
 
@@ -16316,6 +16316,32 @@ async function loadSettings() {
         renderWindowLayoutPanel(body)
         renderWindowsSettingsPanel(settingsBody)
       }
+    }
+
+    // Setup wizard tab (synthetic). The first-run overlay only covers what an
+    // install cannot run without; everything else Marveen can do stays
+    // invisible until someone knows to look for it. Boss asked for one place
+    // that shows the whole picture: "mindent amit tud a marveen de meg nincs
+    // beallitva!"
+    {
+      const mod = 'wizard'
+      const btn = document.createElement('button')
+      btn.className = 'tab-btn' + (mod === activeTab ? ' active' : '')
+      btn.dataset.tab = mod
+      btn.textContent = settingsModuleLabel(mod)
+      btn.addEventListener('click', () => activateSettingsTab(mod))
+      tabNav.appendChild(btn)
+
+      const panel = document.createElement('div')
+      panel.className = 'tab-panel'
+      panel.id = `settings-panel-${mod}`
+      panel.hidden = mod !== activeTab
+      const body = document.createElement('div')
+      body.id = 'setupWizardPanel'
+      panel.appendChild(body)
+      tabPanels.appendChild(panel)
+
+      if (mod === activeTab) renderSetupWizardPanel(body)
     }
   } catch (err) {
     tabPanels.innerHTML = `<p style="padding:24px;color:var(--danger)">${t('settings.error')}</p>`
@@ -16547,6 +16573,132 @@ function activateSettingsTab(mod) {
     if (body && !body.innerHTML.trim()) renderWindowLayoutPanel(body)
     const settingsBody = document.getElementById('windowsSettingsPanel')
     if (settingsBody && !settingsBody.innerHTML.trim()) renderWindowsSettingsPanel(settingsBody)
+  }
+
+  if (mod === 'wizard') {
+    const body = document.getElementById('setupWizardPanel')
+    if (body && !body.innerHTML.trim()) renderSetupWizardPanel(body)
+  }
+}
+
+// === Setup wizard panel ===
+// One screen answering "what can Marveen do, and what has this install been
+// told?" -- the gap the portability work opened up. Moving a value into .env
+// stops it being wrong on other machines, and leaves the feature silently
+// inert with nothing explaining why. Required items are what the install
+// cannot run without; the rest are capabilities sitting unused, and the panel
+// says which is which rather than nagging equally about both.
+const WIZARD_GROUP_ORDER = ['identity', 'channel', 'google', 'backup', 'maintenance', 'models']
+
+async function renderSetupWizardPanel(host) {
+  if (!host) return
+  host.innerHTML = `<p style="padding:16px;color:var(--text-muted);font-size:13px">${t('settings.loading')}</p>`
+  let data
+  try {
+    const res = await fetch('/api/setup-wizard')
+    if (!res.ok) throw new Error('fetch failed')
+    data = await res.json()
+  } catch {
+    host.innerHTML = `<p style="padding:16px;color:var(--danger);font-size:13px">${t('settings.error')}</p>`
+    return
+  }
+
+  const byGroup = new Map()
+  for (const item of data.items || []) {
+    if (!byGroup.has(item.group)) byGroup.set(item.group, [])
+    byGroup.get(item.group).push(item)
+  }
+
+  const summary = data.missingRequired > 0
+    ? `<span style="color:var(--danger)">${escapeHtml(t('wizard.summary.missing_required', { n: data.missingRequired }))}</span>`
+    : (data.availableUnused > 0
+      ? `<span style="color:var(--text-muted)">${escapeHtml(t('wizard.summary.available', { n: data.availableUnused }))}</span>`
+      : `<span style="color:var(--success,#22c55e)">${escapeHtml(t('wizard.summary.all_done'))}</span>`)
+
+  const sections = WIZARD_GROUP_ORDER
+    .filter(g => byGroup.has(g))
+    .map((g) => {
+      const rows = byGroup.get(g).map(item => wizardRowHtml(item)).join('')
+      return `<div class="card" style="margin-bottom:16px">
+        <h3>${escapeHtml(t('wizard.group.' + g))}</h3>
+        ${rows}
+      </div>`
+    }).join('')
+
+  host.innerHTML = `
+    <div style="padding:4px 0 12px">
+      <h3 style="margin:0 0 4px">${escapeHtml(t('wizard.title'))}</h3>
+      <p style="margin:0 0 8px;color:var(--text-muted);font-size:13px">${escapeHtml(t('wizard.subtitle'))}</p>
+      <p style="margin:0;font-size:13px">${summary}</p>
+    </div>
+    ${sections}
+    <div class="card">
+      <p style="margin:0 0 10px;color:var(--text-muted);font-size:12px">${escapeHtml(t('wizard.restart_note'))}</p>
+      <button class="btn-primary" id="wizardSaveBtn">${escapeHtml(t('wizard.save'))}</button>
+      <span id="wizardSaveMsg" style="margin-left:10px;font-size:13px"></span>
+    </div>`
+
+  const btn = document.getElementById('wizardSaveBtn')
+  if (btn) btn.addEventListener('click', () => saveSetupWizard(host))
+}
+
+function wizardRowHtml(item) {
+  const badge = item.configured
+    ? `<span class="agent-account-badge" style="background:var(--success,#22c55e);color:#fff">${escapeHtml(t('wizard.status.configured'))}</span>`
+    : `<span class="agent-account-badge"${item.required ? ' style="background:var(--danger);color:#fff"' : ''}>${escapeHtml(t(item.required ? 'wizard.status.required' : 'wizard.status.missing'))}</span>`
+
+  // An external item has no field on purpose: it is configured by a login or a
+  // file drop, and a text box promising otherwise would be a lie.
+  const control = item.kind === 'external'
+    ? `<p style="margin:6px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.external_note'))}</p>`
+    : `<input type="${item.kind === 'secret' ? 'password' : 'text'}" class="input" style="margin-top:6px"
+         data-wizard-key="${escapeAttr(item.envKey || '')}"
+         placeholder="${escapeAttr(item.placeholder || '')}"
+         value="${escapeAttr(item.kind === 'secret' ? '' : (item.value || ''))}"
+         autocomplete="off">
+       ${item.kind === 'secret' && item.configured ? `<p style="margin:4px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.secret_set'))}</p>` : ''}`
+
+  return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:8px">
+      <strong style="font-size:13px">${escapeHtml(t(item.labelKey))}</strong>${badge}
+    </div>
+    <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t(item.descKey))}</p>
+    ${control}
+  </div>`
+}
+
+async function saveSetupWizard(host) {
+  const msg = document.getElementById('wizardSaveMsg')
+  const values = {}
+  host.querySelectorAll('[data-wizard-key]').forEach((el) => {
+    const key = el.dataset.wizardKey
+    const val = (el.value || '').trim()
+    // Empty means "leave it alone", never "erase it" -- a blank password field
+    // is the normal state for an already-configured secret.
+    if (key && val) values[key] = val
+  })
+
+  if (Object.keys(values).length === 0) {
+    if (msg) { msg.textContent = t('wizard.saved_none'); msg.style.color = 'var(--text-muted)' }
+    return
+  }
+
+  try {
+    const res = await fetch('/api/setup-wizard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values }),
+    })
+    if (!res.ok) throw new Error('save failed')
+    const out = await res.json()
+    if (msg) {
+      msg.textContent = t('wizard.saved', { n: (out.written || []).length })
+      msg.style.color = 'var(--success,#22c55e)'
+    }
+    host.innerHTML = ''
+    renderSetupWizardPanel(host)
+  } catch {
+    if (msg) { msg.textContent = t('wizard.save_failed'); msg.style.color = 'var(--danger)' }
   }
 }
 

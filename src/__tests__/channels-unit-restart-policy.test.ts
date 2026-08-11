@@ -123,9 +123,24 @@ describe('installer unit template', () => {
     expect(chanUnit).toMatch(/StartLimitBurst=\d+/)
   })
 
-  it('leaves the dashboard unit policy alone (scope pin)', () => {
+  // This used to pin the dashboard unit at Restart=on-failure, as a scope
+  // marker for a change that only meant to touch the channels unit. The pin
+  // outlived its reason: on 2026-08-11 the dashboard was SIGTERMed during a
+  // deploy, systemd read the clean exit as an intentional stop, and the whole
+  // fleet sat dead for 11.5 hours until it was started by hand. on-failure is
+  // exactly what missed it. The installer now writes always for BOTH units, so
+  // a fresh install gets the fixed behaviour -- and the assertion has to follow
+  // the intent rather than freeze the version that caused the outage.
+  it('writes Restart=always for the dashboard unit too', () => {
     const dashUnit = sliceBetween(LINUX, 'cat >"$SYSTEMD_DIR/${DASH_UNIT}.service" <<EOF', '\nEOF')
-    expect(dashUnit).toMatch(/^Restart=on-failure$/m)
+    expect(dashUnit).toMatch(/^Restart=always$/m)
+    expect(dashUnit).not.toMatch(/^Restart=on-failure$/m)
+  })
+
+  it('bounds the dashboard retry loop as well, so always cannot spin forever', () => {
+    const dashUnit = sliceBetween(LINUX, 'cat >"$SYSTEMD_DIR/${DASH_UNIT}.service" <<EOF', '\nEOF')
+    expect(dashUnit).toMatch(/StartLimitIntervalSec=\d+/)
+    expect(dashUnit).toMatch(/StartLimitBurst=\d+/)
   })
 
   it('the macOS side already restarts regardless of exit code -- this is the symmetry being restored', () => {
