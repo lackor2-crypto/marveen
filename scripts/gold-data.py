@@ -41,6 +41,11 @@ from datetime import datetime, timezone
 
 # A telepites portable modban fut, a history a telepitesi mappaban van.
 MT4_HISTORY = "/mnt/d/Tozsde_telepitesi_mappa/Activtrades_Mt4/history/ActivTradesCorp-5"
+# A GOLD_Live_Export EA ide irja a friss snapshotot (kanban #93). Ha ez a fajl
+# letezik es ervenyes, ELSOBBSEGET elvez a .hst-vel szemben, mert az MT4 a .hst-t
+# csak ritkan flusholja lemezre -> a live-fajl a formalodo (shift=0) gyertyat is
+# tartalmazza, tehat masodperc-friss. Ha nincs vagy serult, a .hst a tartalek.
+MT4_LIVE = "/mnt/d/Tozsde_telepitesi_mappa/Activtrades_Mt4/MQL4/Files/gold_live.txt"
 SYMBOL = "GOLD"
 # MT4 a PERCEK szamaval nevezi el a fajlt: M5 -> GOLD5.hst, D1 -> GOLD1440.hst
 TIMEFRAMES = {"D1": 1440, "H1": 60, "M15": 15, "M5": 5}
@@ -69,6 +74,53 @@ def read_hst(path, max_bars=1200):
                 ctm, o, l, h, c, vol = struct.unpack("<iddddd", raw)
             bars.append({"t": int(ctm), "o": o, "h": h, "l": l, "c": c})
     return bars, version, total
+
+
+def read_live(path=MT4_LIVE):
+    """A GOLD_Live_Export EA snapshot-fajljanak beolvasasa. Visszaad egy dict-et
+    {generated, iso, bid, ask, digits, tf:{NEV:[bars]}} vagy None-t, ha a fajl
+    hianyzik / serult / nem a mienk. A serules elleni vedelem az utolso "END <n>"
+    sor: ha hianyzik vagy nem egyezik a beolvasott B-sorok szamaval, a fajl eppen
+    iras kozben van (vagy csonka) -> None, es a hivo a .hst-re esik vissza."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="ascii", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    meta = None
+    tf = {}
+    bar_count = 0
+    end_n = None
+    for line in lines:
+        p = line.split()
+        if not p:
+            continue
+        tag = p[0]
+        if tag == "META" and len(p) >= 8:
+            meta = {
+                "symbol": p[1],
+                "generated": int(p[2]),
+                "iso": p[3] + " " + p[4],
+                "bid": float(p[5]),
+                "ask": float(p[6]),
+                "digits": int(p[7]),
+            }
+        elif tag == "TF" and len(p) >= 4:
+            tf.setdefault(p[1], [])
+        elif tag == "B" and len(p) >= 8:
+            tf.setdefault(p[1], []).append({
+                "t": int(p[2]), "o": float(p[3]), "h": float(p[4]),
+                "l": float(p[5]), "c": float(p[6]),
+            })
+            bar_count += 1
+        elif tag == "END" and len(p) >= 2:
+            end_n = int(p[1])
+    if meta is None or end_n is None or end_n != bar_count:
+        return None  # csonka vagy eppen-iras-alatti fajl
+    meta["tf"] = tf
+    return meta
 
 
 def sma(values, n):
@@ -150,23 +202,34 @@ def stochastic(bars, k=5, d=3, slowing=3):
     return round(smooth[-1], 2), round(sum(smooth[-d:]) / d, 2)
 
 
-def analyse(tf, minutes):
-    path = os.path.join(MT4_HISTORY, f"{SYMBOL}{minutes}.hst")
-    if not os.path.exists(path):
-        return {"tf": tf, "error": f"nincs history fajl: {path}"}
-    bars, version, total = read_hst(path)
+def analyse(tf, minutes, live=None):
+    # ELSOBBSEG a live snapshotnak (kanban #93): ha az EA-fajl ervenyes es erre az
+    # idosikra eleg gyertyat tartalmaz, abbol szamolunk -- ez a shift=0 formalodo
+    # gyertyat is hozza, tehat friss. Kulonben a .hst a tartalek.
+    version = None
+    if live is not None and len(live.get("tf", {}).get(tf, [])) >= 30:
+        bars = live["tf"][tf]
+        source = "live"
+        stamp = live["generated"]
+    else:
+        path = os.path.join(MT4_HISTORY, f"{SYMBOL}{minutes}.hst")
+        if not os.path.exists(path):
+            return {"tf": tf, "error": f"nincs history fajl: {path}"}
+        bars, version, total = read_hst(path)
+        source = "hst"
+        stamp = os.path.getmtime(path)
     if len(bars) < 30:
         return {"tf": tf, "error": f"tul keves gyertya ({len(bars)})"}
     closes = [b["c"] for b in bars]
     last = bars[-1]
     macd_line, macd_sig = macd(closes)
     k, d = stochastic(bars)
-    file_mtime = os.path.getmtime(path)
-    return {
+    out = {
         "tf": tf,
+        "forras": source,
         "utolso_gyertya": datetime.fromtimestamp(last["t"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
-        "fajl_frissitve": datetime.fromtimestamp(file_mtime).strftime("%Y-%m-%d %H:%M"),
-        "fajl_kora_perc": round((time.time() - file_mtime) / 60),
+        "fajl_frissitve": datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "fajl_kora_perc": round((time.time() - stamp) / 60),
         "o": round(last["o"], 2), "h": round(last["h"], 2),
         "l": round(last["l"], 2), "c": round(last["c"], 2),
         "ma20": round(sma(closes, 20), 2) if sma(closes, 20) else None,
@@ -175,8 +238,14 @@ def analyse(tf, minutes):
         "macd": macd_line, "macd_signal": macd_sig,
         "atr14": atr(bars),
         "stoch_k": k, "stoch_d": d,
-        "gyertyak": len(bars), "hst_verzio": version,
+        "gyertyak": len(bars),
     }
+    if source == "live":
+        out["elo_bid"] = round(live["bid"], 2)
+        out["elo_ask"] = round(live["ask"], 2)
+    else:
+        out["hst_verzio"] = version
+    return out
 
 
 def main():
@@ -186,18 +255,24 @@ def main():
     args = ap.parse_args()
 
     wanted = {args.tf: TIMEFRAMES[args.tf]} if args.tf else TIMEFRAMES
-    out = [analyse(tf, m) for tf, m in wanted.items()]
+    live = read_live()
+    out = [analyse(tf, m, live) for tf, m in wanted.items()]
 
     if args.human:
+        if live is not None:
+            print(f"[live] EA snapshot {live['iso']} | bid {round(live['bid'],2)} ask {round(live['ask'],2)} | "
+                  f"{round((time.time()-live['generated'])/60)} perce")
+        else:
+            print("[hst] nincs ervenyes live snapshot -- .hst tartalekbol")
         for r in out:
             if "error" in r:
                 print(f"{r['tf']:>4}: HIBA -- {r['error']}")
                 continue
-            print(f"{r['tf']:>4}: ar {r['c']}  (O {r['o']} H {r['h']} L {r['l']})  "
+            print(f"{r['tf']:>4} ({r['forras']}): ar {r['c']}  (O {r['o']} H {r['h']} L {r['l']})  "
                   f"MA20 {r['ma20']} MA100 {r['ma100']}  RSI {r['rsi14']}  "
                   f"MACD {r['macd']}/{r['macd_signal']}  ATR {r['atr14']}  "
                   f"Stoch {r['stoch_k']}/{r['stoch_d']}")
-            print(f"      utolso gyertya: {r['utolso_gyertya']} | fajl {r['fajl_kora_perc']} perce frissult")
+            print(f"      utolso gyertya: {r['utolso_gyertya']} | {r['fajl_kora_perc']} perce")
         return
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
