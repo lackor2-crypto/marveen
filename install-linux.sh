@@ -1641,8 +1641,18 @@ WorkingDirectory=$INSTALL_DIR
 # restarts, StartLimit hit, dashboard + channels down ~42 min).
 ExecStartPre=$INSTALL_DIR/scripts/ensure-native-modules.sh
 ExecStart=$NODE_PATH $INSTALL_DIR/dist/index.js
-Restart=on-failure
+# always, not on-failure: on-failure does NOT cover a clean exit, and a SIGTERM
+# counts as one. The dashboard was killed that way during a deploy and systemd
+# read it as an intentional stop -- the fleet then sat dead for 11.5 hours
+# overnight, until Boss started it by hand (2026-08-11). Nothing about that was
+# a "failure" as systemd defines it, which is exactly why on-failure missed it.
+# A deliberate `systemctl --user stop` is still honoured.
+Restart=always
 RestartSec=5
+# Bound the retry loop so a genuinely broken build cannot spin forever
+# (2026-07-03: ~350 restarts before this existed).
+StartLimitIntervalSec=300
+StartLimitBurst=10
 # Raise the file-descriptor limit: the dashboard makes many tmux subprocess
 # calls + holds MCP/SSE connections; the default soft limit (often 1024, or 256
 # under launchd on macOS) is exhausted once enough agents are active -> EMFILE,

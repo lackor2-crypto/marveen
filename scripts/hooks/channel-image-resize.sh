@@ -18,9 +18,29 @@
 
 set -u
 
+# Hooks can run with a minimal PATH; guarantee the interpreters we rely on
+# (python3 for JSON-parse + PIL resize) are findable, or the hook silently
+# no-ops and images pass through full-size.
+export PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin:$PATH"
+
 INPUT=$(cat)
-TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+# Parse tool_name / file_path. jq is NOT present on every host (this Linux/WSL
+# box has no jq), and without a parser the hook exited at the first guard and
+# never ran at all -- so channel images were never resized. Fall back to
+# python3, which is always here.
+if command -v jq >/dev/null 2>&1; then
+  TOOL_NAME=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)
+  FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+else
+  TOOL_NAME=$(printf '%s' "$INPUT" | python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: d={}
+print(d.get("tool_name",""))' 2>/dev/null)
+  FILE_PATH=$(printf '%s' "$INPUT" | python3 -c 'import sys,json
+try: d=json.load(sys.stdin)
+except Exception: d={}
+print((d.get("tool_input") or {}).get("file_path","") or (d.get("tool_input") or {}).get("path",""))' 2>/dev/null)
+fi
 
 # Csak Read tool-ra reagáljunk
 [ "$TOOL_NAME" = "Read" ] || exit 0
@@ -56,8 +76,32 @@ if [ ! -f "$ORIG_PATH" ]; then
   cp "$FILE_PATH" "$ORIG_PATH" 2>/dev/null || true
 fi
 
-# Resize sips-pal max 1024x1024 (a nagyobb oldal lesz 1024, arány marad)
-sips -Z 1024 "$FILE_PATH" >/dev/null 2>&1 || true
+# Resize to max 1024 on the long edge (aspect kept). sips is macOS-ONLY -- on a
+# Linux/WSL box it does not exist and the resize silently no-op'd (the `|| true`
+# hid it), so channel images were never actually shrunk here (Boss 2026-08-10:
+# images bloating the context). Prefer PIL (present on this host), then
+# ImageMagick, then sips, so the same hook works on every platform.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import PIL' >/dev/null 2>&1; then
+  python3 - "$FILE_PATH" >/dev/null 2>&1 <<'PY' || true
+import sys
+from PIL import Image
+p = sys.argv[1]
+with Image.open(p) as im:
+    im.load()
+    w, h = im.size
+    m = max(w, h)
+    if m > 1024:
+        s = 1024.0 / m
+        out = im.resize((max(1, round(w * s)), max(1, round(h * s))), Image.LANCZOS)
+        if p.lower().endswith(('.jpg', '.jpeg')) and out.mode not in ('RGB', 'L'):
+            out = out.convert('RGB')
+        out.save(p)
+PY
+elif command -v mogrify >/dev/null 2>&1; then
+  mogrify -resize '1024x1024>' "$FILE_PATH" >/dev/null 2>&1 || true
+elif command -v sips >/dev/null 2>&1; then
+  sips -Z 1024 "$FILE_PATH" >/dev/null 2>&1 || true
+fi
 
 NEW_SIZE=$(stat -f%z "$FILE_PATH" 2>/dev/null || stat -c%s "$FILE_PATH" 2>/dev/null || echo 0)
 
