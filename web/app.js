@@ -14979,6 +14979,16 @@ document.getElementById('approvalsFilterSearch').addEventListener('input', (e) =
 // name as it appears everywhere else) matched nothing against the id
 // "usalackor" and the filters read as broken. A list you pick from cannot be
 // typed wrong.
+// The agent filter lists NAMES, not ids, and one name covers every id that
+// resolves to it. History holds both "lackor2-bot" and "Marvin" for the same
+// agent (older requests filed under the persona), which showed up as two
+// separate agents in the dropdown -- Boss, 2026-08-11: "a ketto ugyanaz nem? de
+// a lackor2 bot nevet ne is hasznaljuk". New requests are canonicalised on the
+// server; this makes the existing rows read correctly too.
+function _approvalAgentLabel(agentId) {
+  return chatDisplayName(agentId) || agentId
+}
+
 function _syncApprovalFilterOptions() {
   for (const [id, field, allKey] of [
     ['approvalsFilterAgent', 'agent_id', 'approvals.filter.all_agents'],
@@ -14986,7 +14996,9 @@ function _syncApprovalFilterOptions() {
   ]) {
     const sel = document.getElementById(id)
     if (!sel) continue
-    const values = [...new Set(_approvalsAll.map(a => a[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    const raw = _approvalsAll.map(a => a[field]).filter(Boolean)
+    const values = [...new Set(field === 'agent_id' ? raw.map(_approvalAgentLabel) : raw)]
+      .sort((a, b) => a.localeCompare(b))
     const current = sel.value
     sel.innerHTML = `<option value="">${escapeHtml(t(allKey))}</option>`
       + values.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('')
@@ -15083,8 +15095,9 @@ function _filterApprovals() {
   const { status, agent, category, search } = _approvalsState
   return _approvalsAll.filter(a => {
     if (status && a.status !== status) return false
-    // Exact match now that both come from a dropdown fed by these same values.
-    if (agent && a.agent_id !== agent) return false
+    // The agent option carries a display NAME, and several ids can resolve to
+    // it (see _approvalAgentLabel).
+    if (agent && _approvalAgentLabel(a.agent_id) !== agent) return false
     if (category && a.category !== category) return false
     if (search) {
       const haystack = [a.id, a.agent_id, a.category, a.action_description, a.decided_by, a.decision_note]

@@ -11,7 +11,8 @@ import {
 } from '../../db.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
-import { agentDir } from '../agent-config.js'
+import { agentDir, listAgentNames, readAgentDisplayName } from '../agent-config.js'
+import { currentBotName } from '../../config.js'
 import { startAgentProcess, isAgentRunning } from '../agent-process.js'
 import { listKanbanCards } from '../../db.js'
 import { similarCardsBeforeClose, approvalCardId } from '../../kanban-related.js'
@@ -159,6 +160,29 @@ export function ensureApprovalForWaitingCard(cardId: string, actor?: string | nu
   }
 }
 
+
+/**
+ * Map whatever the caller called itself to this install's canonical agent id.
+ *
+ * Accepts the id itself (unchanged), the main agent's display name, or any
+ * sub-agent's display name. Anything unrecognised is returned as-is: a wrong
+ * guess here would misfile the request, and an unknown name is more likely a
+ * new agent than a typo.
+ */
+export function canonicalAgentId(raw: string): string {
+  const value = raw.trim()
+  if (!value) return value
+  if (value === MAIN_AGENT_ID) return value
+  if (value.toLowerCase() === currentBotName().toLowerCase()) return MAIN_AGENT_ID
+  try {
+    for (const name of listAgentNames()) {
+      if (name === value) return name
+      if (readAgentDisplayName(name).toLowerCase() === value.toLowerCase()) return name
+    }
+  } catch { /* agent listing unavailable -- fall through to the raw value */ }
+  return value
+}
+
 export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
 
@@ -178,6 +202,12 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       json(res, { error: 'agent_id is required' }, 400)
       return true
     }
+    // An agent that files a request under its PERSONA ("Marvin") instead of its
+    // id ("lackor2-bot") splits its own history in two: the approvals list then
+    // offers both as separate agents, and the verification dispatch -- which
+    // addresses a real agent id -- cannot reach "Marvin" at all. Canonicalise on
+    // the way in, so the id is the id no matter what the caller typed.
+    const requesterId = canonicalAgentId(agent_id.trim())
     if (typeof category !== 'string' || !category.trim()) {
       json(res, { error: 'category is required' }, 400)
       return true
@@ -274,7 +304,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const timeout_at = getTimeoutAt(category)
     const approval = createApproval({
       id,
-      agent_id: agent_id.trim(),
+      agent_id: requesterId,
       category: category.trim(),
       action_description: action_description.trim(),
       action_payload: typeof action_payload === 'string' ? action_payload : null,
