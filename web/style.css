@@ -9356,3 +9356,18 @@ body {
   white-space: nowrap;
 }
 .claude-auth-empty { color: var(--text-muted); font-style: italic; }
+.claude-auth-kind {
+  margin-left: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+}
+.claude-auth-keysteps {
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+.claude-auth-mode[hidden] { display: none; }

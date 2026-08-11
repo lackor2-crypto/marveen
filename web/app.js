@@ -13630,6 +13630,7 @@ async function loadAccountsPage() {
   try {
     const res = await fetch('/api/accounts')
     const data = await res.json()
+    _lastAccountsData = data
     coreEl.innerHTML = (data.core || []).map(_renderAccountItem).join('')
     optEl.innerHTML = (data.optional || []).map(_renderAccountItem).join('')
     optEl.querySelectorAll('.accounts-item-clickable').forEach(el => {
@@ -13663,7 +13664,24 @@ async function loadAccountsPage() {
       })
     })
   } catch { /* ignore */ }
-  renderClaudeAccountPanel()
+  renderClaudeAccountPanel(_keyServicesFromAccounts(_lastAccountsData))
+}
+
+// The key-backed services the Accounts payload already reports, paired with the
+// "where do I get this" metadata the setup wizard defined -- reused rather than
+// restated, so a new integration is described in exactly one place.
+let _lastAccountsData = null
+function _keyServicesFromAccounts(data) {
+  if (!data) return []
+  return (data.optional || [])
+    .filter(item => CAPABILITY_INFO[item.id])
+    .map(item => ({
+      vaultId: CAPABILITY_INFO[item.id].vaultId,
+      label: t(CAPABILITY_INFO[item.id].labelKey),
+      helpUrl: CAPABILITY_INFO[item.id].helpUrl,
+      stepsKey: CAPABILITY_INFO[item.id].stepsKey,
+      configured: !!item.configured,
+    }))
 }
 
 // --- Claude accounts (kanban #52) -------------------------------------------
@@ -13682,25 +13700,72 @@ function _claudeAuthSetState(text, kind) {
   el.className = 'claude-auth-state' + (kind ? ' claude-auth-state-' + kind : '')
 }
 
+// One place for both kinds of account. A login and a key are not the same
+// thing -- one is a browser sign-in that yields credentials on disk, the other
+// is a string you paste -- but from the operator's side they answer the same
+// question ("what is Marveen connected to?"), and having them on two different
+// pages was one concept in two places (Boss, 2026-08-12: "jo otlet, csinald ugy").
+let _claudeAuthKeyServices = []
+
 function _claudeAuthRenderList(accounts) {
   const el = document.getElementById('claudeAuthList')
   if (!el) return
-  if (!accounts || !accounts.length) { el.innerHTML = ''; return }
-  el.innerHTML = accounts.map(a => {
+  const loginRows = (accounts || []).map(a => {
     const id = a.identity || {}
     const who = id.loggedIn && id.email
       ? escapeHtml(id.email) + (id.subscriptionType ? ` <span class="claude-auth-plan">${escapeHtml(id.subscriptionType)}</span>` : '')
       : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.row_empty'))}</span>`
     // The default row is NAMED here rather than by the backend: the server
-    // should not be shipping a Hungarian word to an English dashboard. No
-    // separate "default" badge either -- next to the identical label word it
-    // read as a stutter.
+    // should not be shipping a Hungarian word to an English dashboard.
     const name = a.isDefault ? t('claudeauth.row_default') : (a.label || a.id || '')
     return `<div class="claude-auth-row">
       <span class="claude-auth-rowlabel">${escapeHtml(name)}</span>
       <span class="claude-auth-rowwho">${who}</span>
+      <span class="claude-auth-kind">${escapeHtml(t('claudeauth.kind_login'))}</span>
     </div>`
-  }).join('')
+  })
+  const keyRows = _claudeAuthKeyServices.map(k => {
+    const who = k.configured
+      ? `<span class="claude-auth-plan">${escapeHtml(t('claudeauth.key_set'))}</span>`
+      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.key_unset'))}</span>`
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(k.label)}</span>
+      <span class="claude-auth-rowwho">${who}</span>
+      <span class="claude-auth-kind">${escapeHtml(t('claudeauth.kind_key'))}</span>
+    </div>`
+  })
+  el.innerHTML = loginRows.concat(keyRows).join('')
+}
+
+// Which services can be added, and how. A login entry needs the provider's own
+// CLI on this machine, which is why only the one we can actually drive is
+// offered rather than a row of buttons that would fail on click.
+function _claudeAuthServices() {
+  const out = [{ value: 'claude', kind: 'login', label: t('claudeauth.svc_claude') }]
+  for (const k of _claudeAuthKeyServices) {
+    out.push({ value: 'key:' + k.vaultId, kind: 'key', label: k.label, vaultId: k.vaultId, helpUrl: k.helpUrl, stepsKey: k.stepsKey })
+  }
+  return out
+}
+
+function _claudeAuthSyncServiceUi() {
+  const sel = document.getElementById('claudeAuthService')
+  if (!sel) return
+  const services = _claudeAuthServices()
+  const current = sel.value
+  sel.innerHTML = services.map(sv => `<option value="${escapeAttr(sv.value)}">${escapeHtml(sv.label)}</option>`).join('')
+  if (services.some(sv => sv.value === current)) sel.value = current
+  const chosen = services.find(sv => sv.value === sel.value) || services[0]
+  const isKey = chosen && chosen.kind === 'key'
+  document.getElementById('claudeAuthLoginMode').hidden = !!isKey
+  document.getElementById('claudeAuthKeyMode').hidden = !isKey
+  if (isKey) {
+    const help = document.getElementById('claudeAuthKeyHelp')
+    help.href = chosen.helpUrl || '#'
+    document.getElementById('claudeAuthKeySteps').textContent = chosen.stepsKey ? t(chosen.stepsKey) : ''
+    document.getElementById('claudeAuthKeyMode').dataset.vaultId = chosen.vaultId
+    document.getElementById('claudeAuthKeyMode').dataset.label = chosen.label
+  }
 }
 
 function _claudeAuthStopPoll() {
@@ -13739,9 +13804,11 @@ async function _claudeAuthTick() {
   else if (s.phase === 'failed') _claudeAuthSetState(s.error || t('claudeauth.state_failed'), 'bad')
 }
 
-async function renderClaudeAccountPanel() {
+async function renderClaudeAccountPanel(keyServices) {
   const panel = document.getElementById('claudeAccountPanel')
   if (!panel) return
+  _claudeAuthKeyServices = keyServices || []
+  _claudeAuthSyncServiceUi()
   if (panel.dataset.wired === '1') { _claudeAuthTick(); return }
   panel.dataset.wired = '1'
 
@@ -13762,6 +13829,26 @@ async function renderClaudeAccountPanel() {
     _claudeAuthStopPoll()
     _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
     _claudeAuthTick()
+  })
+
+  document.getElementById('claudeAuthService').addEventListener('change', _claudeAuthSyncServiceUi)
+
+  document.getElementById('claudeAuthKeySaveBtn').addEventListener('click', async () => {
+    const host = document.getElementById('claudeAuthKeyMode')
+    const input = document.getElementById('claudeAuthKeyValue')
+    const value = input.value.trim()
+    const id = host.dataset.vaultId
+    if (!value || !id) return
+    try {
+      const res = await fetch('/api/vault', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, label: host.dataset.label || id, value }),
+      })
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      input.value = ''
+      showToast(t('claudeauth.key_saved', { label: host.dataset.label || id }), 6000, true)
+      loadAccountsPage()
+    } catch (err) { showToast(`${t('common.error_save')}: ${err.message}`) }
   })
 
   document.getElementById('claudeAuthCopyBtn').addEventListener('click', () => {

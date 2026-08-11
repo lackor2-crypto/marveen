@@ -1624,20 +1624,40 @@
            piros -- enelkul is minden mukodik, csak terminalbol kell bejelentkezni.
            PARHUZAMOS fiokok: az uj bejelentkezes a meglevoket nem bantja. -->
       <div class="accounts-section" id="claudeAccountPanel">
-        <div class="accounts-section-title" data-i18n="claudeauth.title">Bejelentkezett fiókok</div>
+        <div class="accounts-section-title" data-i18n="claudeauth.title">Fiókok és kulcsok</div>
         <div class="claude-auth-box">
-          <p class="claude-auth-lead" data-i18n="claudeauth.lead">Több fiók lehet egyszerre bejelentkezve, és mindegyik megmarad. Itt látod, melyik van most bent, és itt tudsz újat hozzáadni anélkül, hogy terminált nyitnál. A meglévőkhöz nem nyúl hozzá semmi.</p>
+          <p class="claude-auth-lead" data-i18n="claudeauth.lead">Itt van egy helyen minden, amivel a Marveen dolgozik: a bejelentkezett fiókok és a beállított kulcsok. Több fiók lehet egyszerre bent, és mindegyik megmarad. Új hozzáadásához válaszd ki alul, melyik szolgáltatóhoz.</p>
 
           <div class="claude-auth-list" id="claudeAuthList"></div>
 
           <div class="claude-auth-actions">
-            <input class="input-sm" type="text" id="claudeAuthLabel" style="min-width:200px"
-                   data-i18n-placeholder="claudeauth.label_ph" placeholder="A fiók neve (pl. Munkahelyi)">
-            <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:200px"
-                   data-i18n-placeholder="claudeauth.email_ph" placeholder="E-mail cím (nem kötelező)">
-            <button class="btn-secondary" id="claudeAuthStartBtn" data-i18n="claudeauth.start">Új fiók hozzáadása</button>
+            <select class="input-sm" id="claudeAuthService" style="min-width:200px"></select>
           </div>
-          <p class="claude-auth-warn" data-i18n="claudeauth.warn">A nevet te találod ki, csak neked szól: ezen a néven fogod látni a listában és az ágensek beállításánál. Az e-mail cím megadása nem kötelező, csak előre kitölti a bejelentkezési oldalon.</p>
+
+          <!-- Bejelentkezeses szolgaltato (bongeszos OAuth): nev + opcionalis email -->
+          <div class="claude-auth-mode" id="claudeAuthLoginMode">
+            <div class="claude-auth-actions">
+              <input class="input-sm" type="text" id="claudeAuthLabel" style="min-width:200px"
+                     data-i18n-placeholder="claudeauth.label_ph" placeholder="A fiók neve (pl. Munkahelyi)">
+              <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:200px"
+                     data-i18n-placeholder="claudeauth.email_ph" placeholder="E-mail cím (nem kötelező)">
+              <button class="btn-secondary" id="claudeAuthStartBtn" data-i18n="claudeauth.start">Új fiók hozzáadása</button>
+            </div>
+            <p class="claude-auth-warn" data-i18n="claudeauth.warn">A nevet te találod ki, csak neked szól: ezen a néven fogod látni a listában és az ágensek beállításánál. Az e-mail cím megadása nem kötelező, csak előre kitölti a bejelentkezési oldalon.</p>
+          </div>
+
+          <!-- Kulcsos szolgaltato: ide beilleszted a kulcsot, es ott a link hogy honnan -->
+          <div class="claude-auth-mode" id="claudeAuthKeyMode" hidden>
+            <p class="claude-auth-keysteps" id="claudeAuthKeySteps"></p>
+            <div class="claude-auth-actions">
+              <input class="input-sm" type="password" id="claudeAuthKeyValue" style="flex:1;min-width:220px"
+                     data-i18n-placeholder="claudeauth.key_ph" placeholder="Ide illeszd be a kulcsot">
+              <button class="btn-secondary" id="claudeAuthKeySaveBtn" data-i18n="claudeauth.key_save">Kulcs mentése</button>
+            </div>
+            <p class="claude-auth-warn">
+              <a id="claudeAuthKeyHelp" href="#" target="_blank" rel="noopener noreferrer" data-i18n="claudeauth.key_where">Itt tudod beszerezni a kulcsot</a>
+            </p>
+          </div>
 
           <div class="claude-auth-flow" id="claudeAuthFlow" hidden>
             <ol class="claude-auth-steps">
