@@ -105,6 +105,44 @@ export function referencedCardIds(text: string, cards: RelatedCandidate[]): stri
   return [...out]
 }
 
+/**
+ * The same "look at the neighbours" question the create path asks, asked again
+ * at the moment a card is declared finished.
+ *
+ * Boss, 2026-08-11: he was handed five cards as work, and three of them had
+ * been finished long before and simply never moved or submitted. The rule to
+ * check had been written in the kanban-approval-workflow skill since
+ * 2026-08-05 and was still skipped, so it moved here where it is enforced
+ * rather than remembered: "kenyszeritsd ki hogy vegye eszre".
+ *
+ * Lives here, next to findSimilarCards, rather than inline in the route, so the
+ * decision is testable on its own -- including the way OUT of it. An
+ * enforcement whose escape hatch is untested is one nobody can satisfy, and
+ * that is the kind that gets routed around instead of followed.
+ *
+ * @param cardId       card the approval is about; an 8-hex id or a `#seq`
+ * @param cards        the whole open board (done/archived cards are ignored)
+ * @param alreadyReviewed  the caller's answer; any array (even empty) means
+ *                     the question was asked and answered, so nothing blocks
+ * @returns the open cards that must be looked at first, or [] if none do
+ */
+export function similarCardsBeforeClose<T extends RelatedCandidate>(
+  cardId: string | null,
+  cards: T[],
+  alreadyReviewed: unknown,
+): T[] {
+  // Any array is an answer -- including []. The caller has seen the list.
+  if (Array.isArray(alreadyReviewed)) return []
+  if (!cardId) return []
+  // referencedCardIds resolves both spellings Boss uses on the board (the
+  // 8-hex id and the #seq board number), so `#97` is not a silent miss.
+  const [resolved] = referencedCardIds(cardId, cards)
+  const self = cards.find(c => c.id === (resolved ?? cardId))
+  if (!self) return []
+  const open = cards.filter(c => c.status !== 'done' && c.id !== self.id)
+  return findSimilarCards(self.title, open)
+}
+
 /** The line appended to a description to record a cross-link. */
 export function crossLinkLine(cards: RelatedCandidate[]): string {
   if (cards.length === 0) return ''

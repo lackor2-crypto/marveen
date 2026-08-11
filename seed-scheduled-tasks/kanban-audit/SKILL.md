@@ -38,6 +38,16 @@ Ha a config hiányzik vagy a kulcs nincs benne → default level 3 (régi viselk
    "Kanban-audit: a {card_id} ({title}) {hours_stale}h-ja in_progress mozgás nélkül (előző audit óta). Frissítsd a státuszt (done/waiting) vagy adj komment-et hogy mit blokkol."
    ```
 
+4b. **Várakozó kártya jóváhagyás-kérés nélkül** (a tábla és a jóváhagyások eltérése):
+   ```bash
+   bash {{INSTALL_DIR}}/scripts/kanban-audit.sh --report-only
+   ```
+   `waiting` státusz azt jelenti "kész, jóváhagyásra vár" -- ha nincs hozzá `pending`
+   jóváhagyás-kérés, akkor senki nem várja, csak parkol. Minden találatnál nézd meg
+   a kártyát: ami tényleg kész, add fel jóváhagyásra; ami nem, told vissza
+   `in_progress`-be vagy kommenteld meg mi hiányzik. NE mozgasd a kártyát vakon --
+   a script pont azért csak jelent, mert ezt a döntést meg kell nézni.
+
 5. **State-fájl frissítés** (a futás VÉGÉN): `store/kanban-audit-state.json` -> `{"last_audit_at": <current Unix timestamp>}`.
 
 6. **Delegálatlan kártyák**: in_progress/waiting/planned amiknek assignee NULL/üres -> log + Telegram csak akkor ha 3+ ilyen van.
@@ -45,6 +55,7 @@ Ha a config hiányzik vagy a kulcs nincs benne → default level 3 (régi viselk
 7. **Telegram csak akkor írj ha**:
    - 3+ beakadt task van (kritikus)
    - Új blokker (waiting > 48h)
+   - 3+ várakozó kártya jóváhagyás-kérés nélkül (4b. lépés)
    - Egyébként csendben (heartbeat-stílus)
 
 ## Buktatók

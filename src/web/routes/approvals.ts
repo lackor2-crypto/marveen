@@ -12,6 +12,8 @@ import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import { agentDir } from '../agent-config.js'
 import { startAgentProcess, isAgentRunning } from '../agent-process.js'
+import { listKanbanCards } from '../../db.js'
+import { similarCardsBeforeClose } from '../../kanban-related.js'
 import type { RouteContext } from './types.js'
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
@@ -101,12 +103,24 @@ export function startApprovalTimeoutSweeper(): NodeJS.Timeout {
   }, 60_000)
 }
 
+/** The card this approval is about: payload first, then an 8-hex id in the text. */
+function kanbanCardIdFromRequest(actionPayload: unknown, actionDescription: string): string | null {
+  if (typeof actionPayload === 'string') {
+    try {
+      const parsed = JSON.parse(actionPayload) as { kanban_card_id?: unknown }
+      if (typeof parsed?.kanban_card_id === 'string' && parsed.kanban_card_id) return parsed.kanban_card_id
+    } catch { /* fall through to the text scrape */ }
+  }
+  const m = actionDescription.match(/\b[0-9a-f]{8}\b/i)
+  return m ? m[0] : null
+}
+
 export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
 
   // POST /api/approvals -- create new approval request
   if (path === '/api/approvals' && method === 'POST') {
-    let body: { agent_id?: unknown; category?: unknown; action_description?: unknown; action_payload?: unknown; noKanbanCard?: unknown }
+    let body: { agent_id?: unknown; category?: unknown; action_description?: unknown; action_payload?: unknown; noKanbanCard?: unknown; similar_reviewed?: unknown }
     try {
       body = JSON.parse((await readBody(req)).toString())
     } catch {
@@ -115,6 +129,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     }
 
     const { agent_id, category, action_description, action_payload, noKanbanCard } = body
+    const similarReviewedRaw = body.similar_reviewed
     if (typeof agent_id !== 'string' || !agent_id.trim()) {
       json(res, { error: 'agent_id is required' }, 400)
       return true
@@ -156,6 +171,34 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         json(res, {
           error: 'Ez a jóváhagyás-kérés nem hivatkozik kanban kártyára (se action_payload.kanban_card_id, se 8-jegyű azonosító a leírásban). ' +
             'Ha tényleg nincs kapcsolódó kártya (pl. email/fizetés jóváhagyás), küldd el "noKanbanCard": true mezővel is.',
+        }, 400)
+        return true
+      }
+    }
+
+    // A card is not finished when its code is finished -- it is finished when the
+    // BOARD says so, and that includes the cards next to it. Boss, 2026-08-11:
+    // five cards were handed out as work, three of them were long done and
+    // simply never moved or submitted. His instruction after that was blunt:
+    // "kenyszeritsd ki hogy vegye eszre" -- a rule written in a skill had been
+    // in place since 2026-08-05 and was still skipped, so this is the same
+    // enforcement the create path already applies, moved to the moment a card
+    // is declared done.
+    //
+    // The caller answers with `similar_reviewed`: the ids it looked at, or an
+    // empty array meaning "checked, nothing else is covered by this work".
+    if (noKanbanCard !== true) {
+      // One listKanbanCards() call, not one per lookup: it also runs the
+      // done-card auto-archive UPDATE, so each call is a write.
+      const board = listKanbanCards().map(c => ({ id: c.id, seq: c.seq ?? null, title: c.title, status: c.status }))
+      const cardId = kanbanCardIdFromRequest(action_payload, action_description)
+      const similar = similarCardsBeforeClose(cardId, board, similarReviewedRaw)
+      if (similar.length > 0) {
+        json(res, {
+          error: 'Mielőtt lezárod: nézd át a hasonló, MÉG NYITOTT kártyákat -- lehet hogy ezt a munkát már lefedi valamelyik, '
+            + 'vagy részben lefedi. Mindegyikkel csinálj valamit: add fel jóváhagyásra, vagy fűzd hozzá kommentben mi készült el belőle. '
+            + 'Aztán küldd újra a "similar_reviewed" mezővel: similar_reviewed: ["<id>", ...] az átnézettekkel, vagy [] ha egyik sem kapcsolódik.',
+          similar,
         }, 400)
         return true
       }

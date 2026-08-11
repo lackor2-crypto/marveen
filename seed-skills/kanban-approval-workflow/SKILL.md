@@ -111,6 +111,22 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
      -H "Authorization: Bearer $(cat store/.dashboard-token)" \
      -d '{"agent_id":"<agent_id>","category":"kanban_done","action_description":"Kártya: <cím> (<id>) - mit csinál, hogyan lett tesztelve. Jóváhagyás után viheto done-ra.","action_payload":"{\"kanban_card_id\":\"<id>\"}","timeout_seconds":86400}'
    ```
+   **Ha erre 400-at kapsz `similar` listával**: a szerver megtalálta a hasonló,
+   MÉG NYITOTT kártyákat, és addig nem engedi lezárni ezt (Boss, 2026-08-11:
+   öt kártyát kapott munkára, háromból már régen kész volt a munka, csak soha
+   senki nem mozdította -- "kenyszeritsd ki hogy vegye eszre"). A 400 NEM hiba,
+   hanem kérdés. Nézd át egyenként a felsorolt kártyákat, és mindegyikkel
+   csinálj valamit: amit ez a munka lefed, azt add fel jóváhagyásra is, amit
+   részben, ahhoz fűzz kommentet mi készült el belőle. Aztán küldd újra a
+   kérést a `similar_reviewed` mezővel:
+   ```bash
+   # az átnézett kártyák id-jei -- vagy [] ha egyik sem kapcsolódik
+   -d '{... , "similar_reviewed":["<id1>","<id2>"]}'
+   ```
+   A `similar_reviewed: []` legális válasz, de csak akkor, ha tényleg
+   végignézted őket. Ez a mező az egyetlen kulcs a záráshoz, ne kerüld meg
+   `noKanbanCard: true`-val -- az teljesen más esetre való (nincs kártya).
+
 4. **Telegram-jelzés** -- rövid emberi nyelvű üzenet Bossnak, hogy mi készült
    el, mi lett tesztelve, és hogy jóváhagyásra vár.
 
@@ -137,4 +153,6 @@ lépést a fenti négyes NEM tartalmazza automatikusan.
 - [ ] A kész, tesztelt változás benne van egy git commitban (helyi)
 - [ ] A kártya "waiting" állapotban van
 - [ ] Van hozzá pending approval bejegyzés (GET /api/approvals ellenőrzi)
+- [ ] A hasonló nyitott kártyák át lettek nézve (`similar_reviewed`), és
+      amelyiket ez a munka érinti, az is kapott jóváhagyás-kérést vagy kommentet
 - [ ] Boss kapott róla Telegram-üzenetet
