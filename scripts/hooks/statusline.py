@@ -93,6 +93,17 @@ def window_or_none(w):
     }
 
 
+def read_snapshot(out_dir, agent_id):
+    """Previous snapshot for this agent, or None. Never raises: a missing or
+    corrupt file just means there is nothing to preserve."""
+    try:
+        with open(os.path.join(out_dir, f'{agent_id}.json')) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
 def write_snapshot(out_dir, agent_id, snapshot):
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f'{agent_id}.json')
@@ -142,15 +153,36 @@ def main():
     try:
         agent_id = resolve_agent_id(cwd, project_root, os.path.join(project_root, 'agents')) if project_root else None
         if agent_id:
+            out_dir = os.path.join(project_root, 'store', 'rate-limit-status')
+            # Keep the last KNOWN window figures when this refresh carries none.
+            #
+            # The statusline fires on every prompt render, but rate_limits is only
+            # present when Claude actually reported it. Overwriting with None on
+            # the empty refreshes wiped a perfectly good reading, and the
+            # dashboard then showed "nincs adat" for an agent that was simply
+            # idle -- Boss watched lackor3 sit like that all morning and only saw
+            # it recover after messaging the agent by hand (2026-08-11).
+            #
+            # windowsUpdatedAt records when the FIGURES last changed, separately
+            # from updatedAt (when this file was last touched), so a consumer can
+            # tell a fresh reading from a preserved one instead of guessing.
+            prev = read_snapshot(out_dir, agent_id)
+            now_ms = int(time.time() * 1000)
+            windows_updated_at = now_ms
+            if five_hour is None and seven_day is None and prev:
+                five_hour = prev.get('fiveHour')
+                seven_day = prev.get('sevenDay')
+                windows_updated_at = prev.get('windowsUpdatedAt') or prev.get('updatedAt') or now_ms
             snapshot = {
                 'agent': agent_id,
                 'model': model_name,
                 'contextPct': ctx_pct,
                 'fiveHour': five_hour,
                 'sevenDay': seven_day,
-                'updatedAt': int(time.time() * 1000),
+                'updatedAt': now_ms,
+                'windowsUpdatedAt': windows_updated_at,
             }
-            write_snapshot(os.path.join(project_root, 'store', 'rate-limit-status'), agent_id, snapshot)
+            write_snapshot(out_dir, agent_id, snapshot)
     except Exception:
         pass
 

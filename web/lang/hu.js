@@ -2060,6 +2060,7 @@ window._i18n.hu = {
   'overview.ratelimit.seven_day':    'Heti keret',
   'overview.ratelimit.resets':       'visszaáll: {time}',
   'overview.ratelimit.resets_now':   'bármelyik pillanatban',
+  'overview.ratelimit.reset_done':   'visszaállt (új adat az ügynök következő munkájakor)',
   'overview.ratelimit.in_days_hours':'{d} nap {h} óra múlva',
   'overview.ratelimit.in_days':      '{d} nap múlva',
   'overview.ratelimit.in_hours_mins':'{h} óra {m} perc múlva',

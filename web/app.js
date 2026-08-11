@@ -13404,6 +13404,21 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
         <div class="overview-ratelimit-track"></div>
       </div>`
     }
+    // A window whose reset time has PASSED no longer describes reality: the
+    // allowance has rolled over, but our percentage is whatever was last
+    // scraped from the agent's pane, and an idle agent never produces a fresh
+    // one. Left alone this shows a stale 100% next to "bármelyik pillanatban"
+    // indefinitely -- Boss watched exactly that all morning (2026-08-11) and
+    // reasonably read it as the limit never resetting.
+    if (resetsAt && resetsAt <= Date.now()) {
+      return `<div class="overview-ratelimit-row">
+        <div class="overview-ratelimit-row-head">
+          <span>${label}</span>
+          <span class="overview-ratelimit-nodata">${escapeHtml(t('overview.ratelimit.reset_done'))}</span>
+        </div>
+        <div class="overview-ratelimit-track"></div>
+      </div>`
+    }
     const p = Math.max(0, Math.min(100, Math.round(pct)))
     const resetSuffix = resetsAt
       ? ` · <span title="${escapeHtml(fmtResetAt(resetsAt))}">${escapeHtml(fmtResetIn(resetsAt))}</span>`
