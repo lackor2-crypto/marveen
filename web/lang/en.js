@@ -509,6 +509,7 @@ window._i18n.en = {
   'activity.loading':            'Loading…',
   'activity.state.working':      'working',
   'activity.state.idle':         'idle',
+  'activity.state.limited':      'out of quota',
   'activity.state.unknown':      'unknown',
   'activity.state.error':        'error',
   'activity.state.stopped':      'stopped',

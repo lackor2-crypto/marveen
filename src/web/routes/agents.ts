@@ -108,7 +108,7 @@ import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
-import { detectPaneState, detectPermissionMode, paneShowsLiveWork } from '../../pane-state.js'
+import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
 import { readAutoRestartConfig, writeAutoRestartConfig } from '../auto-restart-store.js'
@@ -702,14 +702,23 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const label = (running: boolean, pane: string | null): string => {
       if (!running) return 'stopped'
       if (pane === null) return 'unknown'
+      // An exhausted account does nothing until its window rolls over, however
+      // busy the pane looks. Checked FIRST: Boss found the main agent's Terminal
+      // button glowing green ("working") while its pane read "You've hit your
+      // weekly limit -- resets Aug 14" (2026-08-11).
+      if (paneShowsLimitBlock(pane)) return 'limited'
+      const s = detectPaneState(pane)
+      // 'busy' is the model actually generating or running a tool.
+      if (s === 'busy') return 'working'
       // A backgrounded sub-agent task can still be ticking (elapsed time +
       // token counter in the FleetView tail below the footer) even once the
-      // parent's own turn has ended and its prompt box is free -- detectPaneState
-      // correctly reads that as 'idle' (the prompt IS free), but the Activity
-      // page means "is something happening", not "can I type here right now".
-      if (paneShowsLiveWork(pane)) return 'working'
-      const s = detectPaneState(pane)
-      if (s === 'idle') return 'idle'
+      // parent's own turn has ended and its prompt box is free -- that counts
+      // as something happening.
+      if (detectsBackgroundAgentActivity(pane)) return 'working'
+      // 'typing' means TEXT IS PARKED IN THE INPUT BOX, which is not work: it is
+      // usually a prompt nobody submitted, or a stuck line left behind. Treating
+      // it as "working" is what lit the button green on a dead agent.
+      if (s === 'idle' || s === 'typing') return 'idle'
       return s // 'unknown' | 'error'
     }
     const tailOf = (pane: string | null): string[] =>

@@ -875,6 +875,20 @@ export function isReadyForPrompt(pane: string): boolean {
  * 'error' and 'unknown' deliberately do NOT collapse into "working" -- those
  * are their own states on the panel and must remain visible.
  */
+/**
+ * True when the pane is sitting on a rate-limit wall rather than working.
+ *
+ * Claude Code prints one of these when the account's window is exhausted, and
+ * the session then does nothing at all until the window rolls over. It still
+ * LOOKS busy to a naive reader -- the box often holds parked text and the
+ * footer keeps its spinner line -- which is exactly what Boss caught on
+ * 2026-08-11: "a marvin terminal ablaka zolden vilagit. na de! a marvin
+ * meghalt mert elfogyott a %. hogy dolgozhat ha nem dolgozik?"
+ */
+export function paneShowsLimitBlock(pane: string): boolean {
+  return /hit your (?:session|weekly) limit|Stop and wait for limit to reset|limit reached .* resets/i.test(pane)
+}
+
 export function paneShowsLiveWork(pane: string): boolean {
   const state = detectPaneState(pane)
   if (state === 'busy' || state === 'typing') return true

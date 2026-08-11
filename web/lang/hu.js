@@ -648,6 +648,7 @@ window._i18n.hu = {
   'activity.loading':            'Betöltés…',
   'activity.state.working':      'dolgozik',
   'activity.state.idle':         'várakozik',
+  'activity.state.limited':      'keret elfogyott',
   'activity.state.unknown':      'ismeretlen',
   'activity.state.error':        'hiba',
   'activity.state.stopped':      'leállt',

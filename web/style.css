@@ -7363,6 +7363,7 @@ main.email-active .page-header { flex-shrink: 0; }
 .activity-badge.act-error   { background: rgba(239,68,68,0.15); color: #dc2626; }
 .activity-badge.act-unknown { background: rgba(234,179,8,0.18); color: #ca8a04; }
 .activity-badge.act-stopped { background: rgba(107,114,128,0.15); color: #6b7280; }
+.activity-badge.act-limited { background: rgba(245,158,11,0.16); color: #b45309; }
 
 /* Green "breathing" glow for the working badge: saturates the pill and pulses a
    soft halo at peak, then settles. */
