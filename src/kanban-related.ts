@@ -106,6 +106,27 @@ export function referencedCardIds(text: string, cards: RelatedCandidate[]): stri
 }
 
 /**
+ * The card an approval is about: the structured payload first, then an 8-hex id
+ * in the description text.
+ *
+ * Shared rather than duplicated because two routes now need the same answer --
+ * the approval endpoint, and the card-move endpoint that has to find out
+ * whether a waiting card already has an approval on it. Two copies of this
+ * would drift, and the failure mode of drift here is silent: a card looks
+ * unsubmitted to one side and submitted to the other.
+ */
+export function approvalCardId(actionPayload: unknown, actionDescription: string): string | null {
+  if (typeof actionPayload === 'string') {
+    try {
+      const parsed = JSON.parse(actionPayload) as { kanban_card_id?: unknown }
+      if (typeof parsed?.kanban_card_id === 'string' && parsed.kanban_card_id) return parsed.kanban_card_id
+    } catch { /* fall through to the text scrape */ }
+  }
+  const m = (actionDescription || '').match(/\b[0-9a-f]{8}\b/i)
+  return m ? m[0] : null
+}
+
+/**
  * The same "look at the neighbours" question the create path asks, asked again
  * at the moment a card is declared finished.
  *

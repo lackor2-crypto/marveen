@@ -18,6 +18,7 @@ import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
 import { findSimilarCards, referencedCardIds, withCrossLink } from '../../kanban-related.js'
+import { ensureApprovalForWaitingCard } from './approvals.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
@@ -327,6 +328,14 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
       // Wake the assigned agent once when the card enters in_progress.
       if (status === 'in_progress') fireKanbanDispatch(id)
+      // A card only belongs in waiting once the work on it is finished, so
+      // waiting MEANS "done, awaiting Boss" -- and then Boss must actually have
+      // something to decide about. Raising the approval here rather than
+      // leaving it as a second, forgettable step is Boss's instruction of
+      // 2026-08-11: "az hogy betesz barki barmit a varakozoba, az valtja ki
+      // hogy a jovairasba is bekeruljon". Covers the dashboard drag too, not
+      // just agents following the workflow by hand.
+      if (status === 'waiting') ensureApprovalForWaitingCard(id, actor)
       json(res, { ok: true })
       return true
     }

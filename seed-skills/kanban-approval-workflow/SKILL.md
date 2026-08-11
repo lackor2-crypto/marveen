@@ -94,6 +94,17 @@ Amint a teszt sikeres, EGY menetben, ne szét-szórtan:
      -H "Authorization: Bearer $(cat store/.dashboard-token)" \
      -d '{"status":"waiting","sort_order":0,"actor":"<agent_id>"}'
    ```
+   **A waiting-be mozgatás ÖNMAGÁBAN felvesz egy jóváhagyás-kérést** (Boss,
+   2026-08-11: "az hogy betesz barki barmit a varakozoba, az valtja ki hogy a
+   jovairasba is bekeruljon"). Ebből következik a másik fele is: **kártya CSAK
+   akkor kerülhet a waiting-be, ha a munka tényleg kész rajta.** A waiting
+   jelentése "kész, Bossra vár", nem "félretettem".
+
+   Ez nem teszi feleslegessé a 3. lépést: az automatikusan felvett kérés
+   szövege nem tudhatja, mi lett tesztelve, ezért kifejezetten azt írja, hogy
+   a felelős ágens egészítse ki. A 3. lépés a te szövegedre CSERÉLI a
+   meglévőt, nem hoz létre másodikat.
+
 3. **Jóváhagyás-kérés AZONNAL, ugyanitt** (ne várj arra hogy Boss rákérdezzen)
 
    **KÖTELEZŐ: `action_payload` benne legyen a kártya id-vel!** (Boss,

@@ -6,6 +6,7 @@ import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
   createOrResetApprovalVerification, listApprovalVerifications, resolveApprovalVerification,
+  listPendingApprovals, updateApprovalDescription,
   type Approval,
 } from '../../db.js'
 import { logger } from '../../logger.js'
@@ -13,7 +14,7 @@ import { readBody, json } from '../http-helpers.js'
 import { agentDir } from '../agent-config.js'
 import { startAgentProcess, isAgentRunning } from '../agent-process.js'
 import { listKanbanCards } from '../../db.js'
-import { similarCardsBeforeClose } from '../../kanban-related.js'
+import { similarCardsBeforeClose, approvalCardId } from '../../kanban-related.js'
 import type { RouteContext } from './types.js'
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
@@ -103,16 +104,59 @@ export function startApprovalTimeoutSweeper(): NodeJS.Timeout {
   }, 60_000)
 }
 
-/** The card this approval is about: payload first, then an 8-hex id in the text. */
-function kanbanCardIdFromRequest(actionPayload: unknown, actionDescription: string): string | null {
-  if (typeof actionPayload === 'string') {
-    try {
-      const parsed = JSON.parse(actionPayload) as { kanban_card_id?: unknown }
-      if (typeof parsed?.kanban_card_id === 'string' && parsed.kanban_card_id) return parsed.kanban_card_id
-    } catch { /* fall through to the text scrape */ }
+/** The pending approval already open for this card, if there is one. */
+export function pendingApprovalForCard(cardId: string): Approval | undefined {
+  return listPendingApprovals().find(a => {
+    const id = approvalCardId(a.action_payload, a.action_description)
+    return id != null && (id === cardId || cardId.startsWith(id) || id.startsWith(cardId))
+  })
+}
+
+/**
+ * Raise the approval that a card entering `waiting` implies.
+ *
+ * Boss, 2026-08-11: "ha mar egyszer bekerult a varakozo kanban dobozba akkor
+ * mar bent kellene lennie a jovairasokban!!! az hogy betesz barki barmit a
+ * varakozoba, az valtja ki hogy a jovairasba is bekeruljon!" -- and he is
+ * right about the semantics too: a card may only enter waiting once the work
+ * on it is finished. `waiting` therefore MEANS "done, awaiting Boss", and a
+ * waiting card with nobody being asked is a card parked in silence.
+ *
+ * The audit found four of those on the live board, which is what a
+ * separate-step design produces: the move and the request were two actions,
+ * and the second one is the one that gets forgotten. So the move raises it
+ * itself, from the dashboard drag just as much as from the API.
+ *
+ * Idempotent on purpose -- a card dragged out of waiting and back must not
+ * stack up requests, and an agent that afterwards files its own properly
+ * written request updates this one rather than adding a second.
+ */
+export function ensureApprovalForWaitingCard(cardId: string, actor?: string | null): Approval | null {
+  try {
+    if (pendingApprovalForCard(cardId)) return null
+    const card = getKanbanCard(cardId)
+    if (!card) return null
+    const requester = (actor || card.assignee || MAIN_AGENT_ID).trim()
+    const approval = createApproval({
+      id: randomUUID(),
+      agent_id: requester,
+      category: 'kanban_done',
+      action_description:
+        `Kártya: ${card.title} (${card.id}) -- várakozóba került, tehát a munka elkészült rajta. `
+        + 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: '
+        + 'a felelős ágens egészítse ki, mielőtt Boss dönt.',
+      action_payload: JSON.stringify({ kanban_card_id: card.id }),
+      timeout_at: getTimeoutAt('kanban_done'),
+    })
+    notifyMainAgent(approval)
+    logger.info({ cardId, requester, approvalId: approval.id }, 'Approval auto-raised for card entering waiting')
+    return approval
+  } catch (err) {
+    // Non-fatal: the move itself already succeeded and must not be undone by a
+    // bookkeeping failure. The kanban-audit sweep catches what slips through.
+    logger.warn({ err, cardId }, 'Failed to auto-raise approval for waiting card')
+    return null
   }
-  const m = actionDescription.match(/\b[0-9a-f]{8}\b/i)
-  return m ? m[0] : null
 }
 
 export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
@@ -187,12 +231,13 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     //
     // The caller answers with `similar_reviewed`: the ids it looked at, or an
     // empty array meaning "checked, nothing else is covered by this work".
+    const requestCardId = noKanbanCard === true ? null : approvalCardId(action_payload, action_description)
+
     if (noKanbanCard !== true) {
       // One listKanbanCards() call, not one per lookup: it also runs the
       // done-card auto-archive UPDATE, so each call is a write.
       const board = listKanbanCards().map(c => ({ id: c.id, seq: c.seq ?? null, title: c.title, status: c.status }))
-      const cardId = kanbanCardIdFromRequest(action_payload, action_description)
-      const similar = similarCardsBeforeClose(cardId, board, similarReviewedRaw)
+      const similar = similarCardsBeforeClose(requestCardId, board, similarReviewedRaw)
       if (similar.length > 0) {
         json(res, {
           error: 'Mielőtt lezárod: nézd át a hasonló, MÉG NYITOTT kártyákat -- lehet hogy ezt a munkát már lefedi valamelyik, '
@@ -200,6 +245,27 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
             + 'Aztán küldd újra a "similar_reviewed" mezővel: similar_reviewed: ["<id>", ...] az átnézettekkel, vagy [] ha egyik sem kapcsolódik.',
           similar,
         }, 400)
+        return true
+      }
+    }
+
+    // Moving a card to waiting now raises an approval by itself, so by the time
+    // the responsible agent files its own -- with the description that actually
+    // says what was built and how it was tested -- one is usually already open.
+    // Update that row instead of adding a second: Boss decides about a piece of
+    // work once, not twice, and two rows for one card is exactly the confusion
+    // this whole mechanism exists to remove.
+    if (requestCardId) {
+      const existing = pendingApprovalForCard(requestCardId)
+      if (existing) {
+        updateApprovalDescription(
+          existing.id,
+          action_description.trim(),
+          typeof action_payload === 'string' ? action_payload : null,
+        )
+        const refreshed = getApproval(existing.id) ?? existing
+        logger.info({ id: existing.id, agent_id, cardId: requestCardId }, 'Existing pending approval updated instead of duplicated')
+        json(res, refreshed, 200)
         return true
       }
     }

@@ -3247,6 +3247,36 @@ export function getApproval(id: string): Approval | undefined {
   return db.prepare('SELECT * FROM approvals WHERE id = ?').get(id) as Approval | undefined
 }
 
+/**
+ * Pending approvals, newest first -- the set a "does this card already have one
+ * open?" check has to look through. Kept as a plain listing rather than a
+ * card-id query because the card reference lives in two shapes (the
+ * action_payload JSON and a bare id in the text); matching them is
+ * approvalCardId's job in kanban-related.ts, and it should stay in one place.
+ */
+export function listPendingApprovals(): Approval[] {
+  return db
+    .prepare("SELECT * FROM approvals WHERE status = 'pending' ORDER BY requested_at DESC")
+    .all() as Approval[]
+}
+
+/**
+ * Replace the text of an approval that is still pending.
+ *
+ * Used when a card is moved to waiting (which raises an approval by itself, so
+ * one always exists) and the agent then files its own properly written request
+ * for the same card: the better description wins, instead of Boss getting two
+ * rows to decide about the same work.
+ */
+export function updateApprovalDescription(id: string, actionDescription: string, actionPayload?: string | null): boolean {
+  return db.prepare(`
+    UPDATE approvals
+       SET action_description = ?,
+           action_payload = COALESCE(?, action_payload)
+     WHERE id = ? AND status = 'pending'
+  `).run(actionDescription, actionPayload ?? null, id).changes > 0
+}
+
 export function resolveApproval(id: string, status: 'approved' | 'rejected' | 'timeout', resolvedBy: string, telegramMessageId?: number | null, resolutionReason?: string | null): boolean {
   const now = Math.floor(Date.now() / 1000)
   return db.prepare(`
