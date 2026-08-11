@@ -249,12 +249,58 @@ def self_test():
             capture.close()
 
         assert "2 fuggoben levo uzenet" in out
-        assert "hello  world</channel>" in out
+        # The sender's own "</channel>" must not survive as markup. Since the
+        # sanitizer escapes every "<", it comes back as TEXT and the frame still
+        # closes exactly twice -- once per real message. Asserting the escaped
+        # body AND both tag counts tests that property, rather than one literal:
+        # the old assertion expected the pre-escape output ("hello  world"), was
+        # left behind when the sanitizer changed, and then failed against a
+        # perfectly healthy hook -- with nothing else covering this file.
+        assert "hello &lt;/channel> world" in out
         assert out.count("<channel ") == 2
+        assert out.count("</channel>") == 2
         assert 'image_path="/tmp/img.png"' in out
         assert 'attachment_0_name="a.png"' in out
         assert not os.path.exists(pending)
         assert not glob.glob(os.path.join(state, "inbox-draining-*.jsonl"))
+
+    # The batch ceilings had NO coverage -- not here, not in the vitest suite --
+    # even though they are the only thing standing between a fortnight of
+    # backlog and a single prompt that eats the whole context window. Both
+    # limits are exercised, and so is the rule that decides which messages
+    # survive: the NEWEST ones, because those are what the owner is still
+    # waiting on.
+    kept, dropped = _cap_entries(["e%d" % i for i in range(MAX_ENTRIES + 5)])
+    assert (len(kept), dropped) == (MAX_ENTRIES, 5)
+    assert kept[0] == "e5" and kept[-1] == "e%d" % (MAX_ENTRIES + 4)
+    kept, dropped = _cap_entries(["x" * (MAX_BODY_CHARS // 4)] * 6)
+    assert sum(len(e) for e in kept) <= MAX_BODY_CHARS and (len(kept), dropped) == (4, 2)
+    # One oversized message is kept whole rather than trimmed to nothing: a
+    # batch of one has nothing older to drop.
+    assert _cap_entries(["x" * (MAX_BODY_CHARS * 2)]) == (["x" * (MAX_BODY_CHARS * 2)], 0)
+
+    # And the half the agent actually sees: dropping must never be silent.
+    with tempfile.TemporaryDirectory() as td2:
+        state2 = os.path.join(td2, ".claude", "channels", "telegram")
+        os.makedirs(state2)
+        with open(os.path.join(state2, "inbox-pending.jsonl"), "w", encoding="utf-8") as f:
+            for i in range(MAX_ENTRIES + 3):
+                f.write(json.dumps({"receivedAt": i, "params": {"content": "m%d" % i, "meta": {"chat_id": "c"}}}) + "\n")
+        old_stdout = sys.stdout
+        capture = tempfile.TemporaryFile("w+", encoding="utf-8")
+        try:
+            sys.stdout = capture
+            os.environ["TELEGRAM_STATE_DIR"] = state2
+            drain({"cwd": td2})
+            capture.seek(0)
+            out2 = capture.read()
+        finally:
+            sys.stdout = old_stdout
+            os.environ.pop("TELEGRAM_STATE_DIR", None)
+            capture.close()
+        assert out2.count("<channel ") == MAX_ENTRIES
+        assert "3 regebbi uzenet ki lett hagyva" in out2
+        assert ">m%d<" % (MAX_ENTRIES + 2) in out2 and ">m0<" not in out2
     print("channel-inbox-drain self-test passed")
 
 
