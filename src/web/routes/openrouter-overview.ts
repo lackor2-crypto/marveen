@@ -128,6 +128,29 @@ function startOfTodayEpoch(): number {
 // nelkul hivja, ugyanazt kapja mint eddig.
 const PERIOD_DAYS: Record<string, number> = { today: 0, '7d': 7, '30d': 30, '365d': 365 }
 
+/**
+ * What a cached prompt token costs relative to a fresh one, by provider.
+ *
+ * These are the providers' own published cache-read rates. They matter because
+ * with prompt caching the cache column dwarfs the input column -- 7.1M cached
+ * against 306 fresh on one model here -- so the multiplier, not the token count,
+ * decides whether the estimate lands anywhere near the invoice.
+ *
+ * A token-derived figure stays an ESTIMATE: our counts come from the agents'
+ * own logs, not from OpenRouter's billing. The headline number on the page is
+ * still the account API's real spend, which is why this one is only used for
+ * the per-model breakdown.
+ */
+function cacheReadMultiplier(model: string): number {
+  const provider = model.split('/')[0]?.toLowerCase() ?? ''
+  if (provider === 'anthropic') return 0.1
+  if (provider === 'openai') return 0.5
+  if (provider === 'google') return 0.25
+  // Unknown provider: half price is the middle of the published range, and
+  // being wrong by 2x here is noise next to the bug this replaced.
+  return 0.5
+}
+
 function periodStartEpoch(period: string): number {
   const days = PERIOD_DAYS[period] ?? 0
   if (days === 0) return startOfTodayEpoch()
@@ -172,10 +195,24 @@ export async function tryHandleOpenRouterOverview(ctx: RouteContext): Promise<bo
       // headline todayEstCost below.
       const models = dist.map(d => {
         const price = priceByModel.get(d.model)
-        const estCost = price ? (d.totalInput / 1_000_000) * price.promptPrice + (d.totalOutput / 1_000_000) * price.completionPrice : null
-        todayTokensIn += d.totalInput
+        // Cached prompt tokens ARE prompt tokens. Counting only input_tokens is
+        // what made gpt-5.6-sol read as $0.77 against ~$12 actually spent
+        // (kanban 3b8bb1c5): with prompt caching, almost the whole prompt lands
+        // in cache_read_tokens and input_tokens keeps only the delta -- 102
+        // calls showed 306 input tokens next to 7.1M cached ones, i.e. 3 tokens
+        // per call, which no real prompt can be. The card assumed the tokens
+        // were missing from the log; they were in the log, missing from THIS sum.
+        //
+        // Cached reads are billed at a fraction of the prompt rate, and the
+        // fraction is provider-specific. Charging them at full price overshot
+        // badly in the other direction (gpt-5.6-sol estimated at $37.6 against
+        // ~$9 of account-wide spend), so the published multipliers are applied.
+        // OpenRouter's pricing table carries no cache rate, hence the table here.
+        const promptTokens = d.totalInput + d.totalCacheRead * cacheReadMultiplier(d.model) + d.totalCacheCreation
+        const estCost = price ? (promptTokens / 1_000_000) * price.promptPrice + (d.totalOutput / 1_000_000) * price.completionPrice : null
+        todayTokensIn += promptTokens
         todayTokensOut += d.totalOutput
-        return { model: d.model, calls: d.count, tokensIn: d.totalInput, tokensOut: d.totalOutput, estCost }
+        return { model: d.model, calls: d.count, tokensIn: promptTokens, tokensOut: d.totalOutput, estCost }
       })
 
       // Az OpenRouter fiok-API-ja a MAI koltseget adja vissza -- hosszabb

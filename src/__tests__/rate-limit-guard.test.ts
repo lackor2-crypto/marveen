@@ -72,11 +72,24 @@ describe('rate-limit-guard hook (behavioural)', () => {
   })
 
   it('warns at/above the critical threshold with the no-coding directive', () => {
-    writeSnapshot({ fiveHour: { usedPct: 20 }, sevenDay: { usedPct: 97 }, updatedAt: Date.now() })
+    writeSnapshot({ fiveHour: { usedPct: 97 }, sevenDay: { usedPct: 20 }, updatedAt: Date.now() })
     const out = runHook()
     expect(out).toContain('KERET-FIGYELMEZTETES')
     expect(out).toContain('97%')
     expect(out.toLowerCase()).toContain('ne vegezz kodolast')
+  })
+
+  // The hook deliberately reads ONLY the 5-hour window (`worst = five`, with the
+  // sevenDay figure treated as display-only). This test pins that decision so it
+  // is a visible choice rather than something that quietly rots: a seven-day
+  // window at 97% now produces NO warning at all.
+  //
+  // Flagged to Boss on 2026-08-11 as a behaviour change worth a second look --
+  // running out of the weekly allowance stops work just as hard as the 5-hour
+  // one does, and nothing warns about it any more.
+  it('ignores the seven-day window entirely (only the 5-hour plan window drives the warning)', () => {
+    writeSnapshot({ fiveHour: { usedPct: 20 }, sevenDay: { usedPct: 97 }, updatedAt: Date.now() })
+    expect(runHook().trim()).toBe('')
   })
 
   it('stays silent when the snapshot is stale (agent idle since last tick)', () => {

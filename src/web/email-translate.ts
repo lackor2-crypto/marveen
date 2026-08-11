@@ -13,8 +13,14 @@ const TRANSLATION_CACHE_DIR = join(homedir(), '.local', 'share', 'marveen-email'
 const CACHE_MAX_ENTRIES = 5000
 const CACHE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000 // 90 days
 
-// Free model to use for translation (Nemotron 3 Ultra - this agent's model)
-const TRANSLATION_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free'
+// Cheap PAID model for translation (Boss 2026-08-10). The former :free model
+// shared OpenRouter's account-wide free-tier daily quota (1000/day), which is
+// routinely exhausted by the fleet -- once it is, every translate 429s and the
+// feature "stops working". A paid model at fractions of a cent per email is
+// independent of that quota, so Translate is always available. gpt-4o-mini was
+// picked over gemini-flash on a side-by-side: it rendered idiomatic Hungarian
+// where flash mistranslated ("shipped" -> "feladtuk").
+const TRANSLATION_MODEL = 'openai/gpt-4o-mini'
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 
 // Language detection patterns (simple, fast, no external deps)
@@ -67,8 +73,13 @@ function detectLanguage(text: string): 'hu' | 'de' | 'en' | 'unknown' {
   return 'en'
 }
 
-function cacheKey(text: string): string {
-  return createHash('sha256').update(text).digest('hex').slice(0, 32)
+// The cache key is per (source language, target language, content). Target must
+// be in the key so HU and ES results do not collide; SOURCE must be too, or an
+// explicit "this is German" request would be answered by an earlier auto-detect
+// run that gave up as "unknown" and returned the text barely changed (Boss
+// 2026-08-10: picked Nemet -> Magyar, still saw "ismeretlen" and no translation).
+function cacheKey(text: string, sourceLang: string, targetLang: string): string {
+  return createHash('sha256').update(`${sourceLang}>${targetLang} ${text}`).digest('hex').slice(0, 32)
 }
 
 function cachePaths(key: string): { data: string; meta: string } {
@@ -159,20 +170,57 @@ function stripHtmlForTranslation(html: string): string {
     .replace(/>/g, '>')
     .replace(/"/g, '"')
     .replace(/'/g, "'")
-    .replace(/\s+/g, ' ')
+    // Collapse only horizontal whitespace, and keep the newlines that the block
+    // elements above turned into paragraph breaks. The old `/\s+/ -> ' '` erased
+    // exactly those newlines, so the model received one endless line and gave one
+    // endless blob back (Boss 2026-08-10: "egy omlesztett valami"). The reader
+    // renders the result with white-space: pre-wrap, so these breaks survive to
+    // the screen and the translation keeps the original's paragraph shape.
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
   return text
 }
 
-// Build translation prompt
-function buildTranslationPrompt(sourceText: string, sourceLang: string): string {
-  const langNames: Record<string, string> = { de: 'német', en: 'angol', unknown: 'ismeretlen' }
-  const sourceLangName = langNames[sourceLang] || sourceLang
-  return `Fordítsd le az alábbi ${sourceLangName} nyelvű e-mail tartalmát magyarra. Csak a fordítást add vissza, semmi mást (nincs bevezető, nincs magyarázat, nincs formázás). Ha a szöveg már magyar, írd vissza változatlanul.
+// Languages the translator offers, with English names for the model prompt.
+// The frontend mirrors this list with localized labels -- keep the codes in
+// sync. English names in the prompt because this is open-source and the pair
+// is arbitrary (Boss 2026-08-10: an English speaker may need Spanish, or the
+// reverse) -- "always to Hungarian" was too narrow.
+export const SUPPORTED_TRANSLATION_LANGS: Record<string, string> = {
+  hu: 'Hungarian', en: 'English', de: 'German', es: 'Spanish', fr: 'French',
+  it: 'Italian', pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ro: 'Romanian',
+  ru: 'Russian', uk: 'Ukrainian', zh: 'Chinese', ja: 'Japanese', tr: 'Turkish',
+  ar: 'Arabic',
+}
 
---- KEZDET ---
+export const DEFAULT_TARGET_LANG = 'hu'
+
+/** Coerce a requested target code to a supported one, defaulting to Hungarian. */
+export function resolveTargetLang(code: string | null | undefined): string {
+  return code && SUPPORTED_TRANSLATION_LANGS[code] ? code : DEFAULT_TARGET_LANG
+}
+
+/** A source override is honored only if it names a language we know. */
+function resolveSourceLang(code: string | null | undefined): string {
+  return code && SUPPORTED_TRANSLATION_LANGS[code] ? code : 'unknown'
+}
+
+// Build translation prompt. The old version ended with "If the text is already
+// in X, return it unchanged" -- which made the model lazy on a lone compound or
+// a one-word subject and hand the source straight back (Boss 2026-08-10:
+// "Einwurf-Einschreiben" came back untranslated). Dropping that clause and
+// demanding EVERYTHING be translated makes the same input render reliably.
+function buildTranslationPrompt(sourceText: string, sourceLang: string, targetLang: string): string {
+  const targetName = SUPPORTED_TRANSLATION_LANGS[targetLang] || 'Hungarian'
+  const sourceName = SUPPORTED_TRANSLATION_LANGS[sourceLang]
+  const fromClause = sourceName ? `from ${sourceName} ` : ''
+  return `You are a professional translator. Translate the email content below ${fromClause}into ${targetName}. Translate EVERYTHING, including single words, compound terms and subject lines; never leave any text in the source language. Output ONLY the ${targetName} translation, with no preamble, no explanation, and no code fences. Preserve line breaks and paragraph structure.
+
+--- BEGIN ---
 ${sourceText}
---- VÉGE ---`
+--- END ---`
 }
 
 // Call OpenRouter API for translation
@@ -219,48 +267,78 @@ async function callTranslationApi(prompt: string, apiKey: string): Promise<strin
 export async function translateEmailContent(
   text: string,
   html: string,
-  apiKey: string
-): Promise<{ translation: string; sourceLang: string; fromCache: boolean }> {
+  apiKey: string,
+  opts: { targetLang?: string; sourceLang?: string } = {}
+): Promise<{ translation: string; sourceLang: string; targetLang: string; fromCache: boolean }> {
+  const targetLang = resolveTargetLang(opts.targetLang)
   // Use HTML if available (richer), otherwise text
   const sourceContent = html && html.trim() ? stripHtmlForTranslation(html) : (text || '').trim()
   if (!sourceContent) {
-    return { translation: '', sourceLang: 'unknown', fromCache: false }
+    return { translation: '', sourceLang: 'unknown', targetLang, fromCache: false }
   }
 
-  // Detect language
-  const sourceLang = detectLanguage(sourceContent)
-  if (sourceLang === 'hu') {
-    // Already Hungarian -- return original (HTML preferred for display)
-    return { translation: html && html.trim() ? html : text, sourceLang: 'hu', fromCache: false }
+  // Source language: an explicit override (from the picker) wins over
+  // auto-detection; 'auto' or an unknown code falls back to detection.
+  const override = opts.sourceLang && opts.sourceLang !== 'auto' ? resolveSourceLang(opts.sourceLang) : null
+  const sourceLang = override && override !== 'unknown' ? override : detectLanguage(sourceContent)
+  if (sourceLang === targetLang) {
+    // Already in the target language -- return original (HTML preferred for display)
+    return { translation: html && html.trim() ? html : text, sourceLang, targetLang, fromCache: false }
   }
 
   // Check cache
-  const key = cacheKey(sourceContent)
+  const key = cacheKey(sourceContent, sourceLang, targetLang)
   const cached = readCache(key)
   if (cached) {
-    return { translation: cached.translation, sourceLang: cached.meta.sourceLang, fromCache: true }
+    return { translation: cached.translation, sourceLang: cached.meta.sourceLang, targetLang, fromCache: true }
   }
 
   // Translate
-  const prompt = buildTranslationPrompt(sourceContent, sourceLang)
+  const prompt = buildTranslationPrompt(sourceContent, sourceLang, targetLang)
   let translation: string
   try {
     translation = await callTranslationApi(prompt, apiKey)
+    // One retry when the model handed the source straight back: a firmer nudge
+    // reliably gets a real translation for lone terms and one-word subjects.
+    if (translation.trim() === sourceContent.trim()) {
+      const targetName = SUPPORTED_TRANSLATION_LANGS[targetLang] || 'the target language'
+      const retry = await callTranslationApi(
+        `${prompt}\n\nThe previous attempt returned the text unchanged. It is NOT ${targetName}; translate it in full now.`,
+        apiKey,
+      )
+      if (retry.trim() && retry.trim() !== sourceContent.trim()) translation = retry
+    }
   } catch (e) {
     logger.warn(`[email-translate] translation failed: ${e instanceof Error ? e.message : e}`)
-    // Fallback: return original with note
-    translation = `[Fordítás sikertelen: ${e instanceof Error ? e.message : 'ismeretlen hiba'}]\n\n${sourceContent}`
+    // Fallback: return original with note. Deliberately NOT cached -- a failure
+    // is transient (a 429, a timeout), and caching the error string used to
+    // poison that email permanently: every later attempt returned the cached
+    // "[Fordítás sikertelen]" instead of retrying once the cause cleared.
+    return {
+      translation: `[Fordítás sikertelen: ${e instanceof Error ? e.message : 'ismeretlen hiba'}]\n\n${sourceContent}`,
+      sourceLang,
+      targetLang,
+      fromCache: false,
+    }
   }
 
-  // Cache result
-  writeCache(key, translation, {
-    sourceLang,
-    sourceLength: sourceContent.length,
-    createdAt: Date.now(),
-    model: TRANSLATION_MODEL,
-  })
+  // A result identical to the input is the model declining to translate -- a
+  // lone compound term, a proper noun, a one-word subject -- not a real
+  // translation. Return it, but do NOT cache it: caching a no-op pinned the
+  // email as permanently untranslated, and a retry (the model is not fully
+  // deterministic, and more context often helps) could still succeed (Boss
+  // 2026-08-10: "elraktarozta a nemet verziot ... most nem akarja").
+  const changed = translation.trim() !== sourceContent.trim()
+  if (changed) {
+    writeCache(key, translation, {
+      sourceLang,
+      sourceLength: sourceContent.length,
+      createdAt: Date.now(),
+      model: TRANSLATION_MODEL,
+    })
+  }
 
-  return { translation, sourceLang, fromCache: false }
+  return { translation, sourceLang, targetLang, fromCache: false }
 }
 
 // For testing: expose internals

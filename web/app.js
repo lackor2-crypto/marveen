@@ -1,3 +1,96 @@
+// === Autofill shield ===
+// The browser's own password manager -- not this app -- was writing into the
+// dashboard's fields: the credentials saved for localhost:3420 turned up as the
+// username in the Vault "new key" panel's DESCRIPTION box and as the password in
+// its VALUE box (Boss, 2026-08-10; the screenshot showed Chrome's pale autofill
+// tint on both). Chrome reads any text input sitting next to a type=password
+// input as a sign-in form, and a lone text box (the email search) as a username
+// box. Saving that panel would have filed Boss's own dashboard password into the
+// Vault under whatever key name was typed, so this is a correctness problem, not
+// only a cosmetic one.
+//
+// Every field is therefore opted out ONCE, here, rather than patched one at a
+// time as each new offender is spotted:
+//   - autocomplete: "new-password" on password fields (Chrome honours that and
+//     refuses to fill saved credentials into it -- it ignores "off" there),
+//     "off" on the rest.
+//   - data-1p-ignore / data-lpignore / data-bwignore / data-form-type: the
+//     opt-out attributes 1Password, LastPass, Bitwarden and Dashlane read.
+//   - readonly while empty and unfocused: Chrome does not autofill a readonly
+//     field, and the flag is dropped the moment the user points at or focuses
+//     the box, so typing is untouched. This is the part that actually stops the
+//     fill -- the attributes above are advisory and Chrome overrules them at
+//     will. Same trick the kanban search box already uses (see below); this
+//     generalises it instead of leaving the next field to be found by Boss.
+// A MutationObserver covers everything rendered later, which is most of this UI
+// (it is built from JS strings), so a field added tomorrow is protected without
+// being listed anywhere.
+//
+// NOT shielded on purpose: inputs that ask for a credential deliberately, i.e.
+// the ones declaring autocomplete="username" or "current-password" (the login
+// card, the change-password form). There the fill is the feature.
+;(() => {
+  const WANTED = new Set(['username', 'current-password'])
+  // Input types a credential can be filled into. checkbox/radio/file/date/etc.
+  // are skipped -- nothing fills those, and readonly means other things there.
+  const FILLABLE = new Set(['text', 'search', 'email', 'tel', 'url', 'number', 'password', ''])
+
+  function shield(el) {
+    if (!el || el.dataset.afShield) return
+    const tag = el.tagName
+    if (tag !== 'INPUT' && tag !== 'TEXTAREA') return
+    const type = tag === 'INPUT' ? (el.getAttribute('type') || 'text').toLowerCase() : 'text'
+    if (tag === 'INPUT' && !FILLABLE.has(type)) return
+    if (WANTED.has((el.getAttribute('autocomplete') || '').toLowerCase())) {
+      el.dataset.afShield = 'wanted'
+      return
+    }
+    el.dataset.afShield = '1'
+    el.setAttribute('autocomplete', type === 'password' ? 'new-password' : 'off')
+    el.setAttribute('data-1p-ignore', '')
+    el.setAttribute('data-lpignore', 'true')
+    el.setAttribute('data-bwignore', '')
+    if (!el.hasAttribute('data-form-type')) el.setAttribute('data-form-type', 'other')
+    // A field that arrives readonly is readonly because its own code wants it
+    // that way (the vault password-history rows, for one) -- never unlock it.
+    if (el.readOnly) return
+    // Only ever unlock a lock this shield put on (afLocked). Other code locks
+    // fields for its own reasons while they are on screen -- applyMarveenReadonlyMode
+    // makes the main agent's CLAUDE.md / SOUL.md textareas readonly -- and a
+    // blanket unlock-on-focus would quietly hand those back for editing.
+    const lock = () => {
+      if (el.readOnly || el.value || document.activeElement === el) return
+      el.readOnly = true
+      el.dataset.afLocked = '1'
+    }
+    const unlock = () => {
+      if (el.dataset.afLocked !== '1') return
+      el.readOnly = false
+      delete el.dataset.afLocked
+    }
+    el.addEventListener('pointerdown', unlock)
+    el.addEventListener('focus', unlock)
+    el.addEventListener('blur', lock)
+    lock()
+  }
+
+  function scan(root) {
+    if (!root || root.nodeType !== 1) return
+    shield(root)
+    if (root.querySelectorAll) for (const el of root.querySelectorAll('input,textarea')) shield(el)
+  }
+
+  function start() {
+    scan(document.body)
+    new MutationObserver(records => {
+      for (const r of records) for (const n of r.addedNodes) scan(n)
+    }).observe(document.body, { childList: true, subtree: true })
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true })
+  else start()
+})()
+
 // === Avatar cache-busting epoch ===
 // Avatar URLs used to carry ?t=Date.now() on every render, which defeated the
 // browser cache and re-downloaded ~1MB per avatar on each rerender (brutal on
@@ -404,6 +497,7 @@ function switchPage(pageId) {
   if (pageId === 'recall') loadRecallPage()
   if (pageId === 'bgTasks') loadBgTasksPage()
   if (pageId === 'vault') loadVaultPage()
+  if (pageId === 'drive') loadDrivePage()
   if (pageId === 'accounts') loadAccountsPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
@@ -632,7 +726,7 @@ const NAV_I18N = {
   skills: 'nav.skills', connectors: 'nav.connectors', migrate: 'nav.migrate',
   approvals: 'nav.approvals',
   docs: 'nav.docs', research: 'nav.research', status: 'nav.status',
-  settings: 'nav.settings', vault: 'nav.vault', tokenUsage: 'nav.tokenUsage',
+  settings: 'nav.settings', vault: 'nav.vault', drive: 'nav.drive', tokenUsage: 'nav.tokenUsage',
   ideas: 'nav.ideas', federation: 'nav.federation', updates: 'nav.updates', costs: 'nav.costs',
   debate: 'nav.debate', openrouter: 'nav.openrouter',
 }
@@ -674,6 +768,7 @@ const PAGE_HEADER_I18N = {
   settingsPage:   { title: 'settings.page_title',    sub: 'settings.page_subtitle' },
   ideasPage:      { title: 'ideas.page_title',       sub: 'ideas.page_subtitle' },
   vaultPage:      { title: 'vault.page_title',       sub: 'vault.page_subtitle' },
+  drivePage:      { title: 'drive.page_title',       sub: 'drive.page_subtitle' },
   tokenUsagePage: { title: 'tokenUsage.page_title',  sub: 'tokenUsage.page_subtitle' },
   updatesPage:    { title: 'updates.page_title',     sub: null },
   naploPage:      { title: 'naplo.page_title',       sub: 'naplo.page_subtitle' },
@@ -9619,6 +9714,190 @@ async function loadVaultPage() {
   } catch { /* ignore */ }
 }
 
+// === Drive fajlbongeszo (kanban aa55180c) ===
+// Az OAuth/token-kezeles mar megvan (scripts/google-auth.py, tobb-fiokos) --
+// ez a panel csak a mar bekotott fiok(ok) Drive-tartalmat listazza/kezeli a
+// src/web/routes/drive-browser.ts vegpontokon keresztul. Torles = kosarba
+// helyezes (trashed=true), soha nem vegleges -- lasd az info-box szoveget.
+let _driveAccount = ''
+let _driveFolderStack = [{ id: 'root', name: '' }]
+
+async function loadDrivePage() {
+  _driveFolderStack = [{ id: 'root', name: t('drive.root_label') }]
+  try {
+    const accRes = await fetch('/api/drive/accounts')
+    const accData = await accRes.json()
+    const select = document.getElementById('driveAccountSelect')
+    const accounts = accData.accounts || []
+    if (accounts.length === 0) {
+      select.innerHTML = ''
+      document.getElementById('driveList').innerHTML = ''
+      document.getElementById('driveEmpty').hidden = true
+      renderDriveError(t('drive.no_account'))
+      return
+    }
+    if (!_driveAccount || !accounts.includes(_driveAccount)) {
+      _driveAccount = (accData.default && accounts.includes(accData.default)) ? accData.default : accounts[0]
+    }
+    select.innerHTML = accounts.map(a => `<option value="${escapeHtml(a)}" ${a === _driveAccount ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')
+    select.onchange = () => {
+      _driveAccount = select.value
+      _driveFolderStack = [{ id: 'root', name: t('drive.root_label') }]
+      loadDriveFolder()
+    }
+    await loadDriveFolder()
+  } catch {
+    renderDriveError(t('drive.load_error'))
+  }
+}
+
+function currentDriveFolder() {
+  return _driveFolderStack[_driveFolderStack.length - 1]
+}
+
+async function loadDriveFolder() {
+  const folder = currentDriveFolder()
+  renderDriveBreadcrumb()
+  const list = document.getElementById('driveList')
+  const empty = document.getElementById('driveEmpty')
+  renderDriveError('')
+  list.innerHTML = `<div class="drive-loading">${escapeHtml(t('drive.loading'))}</div>`
+  try {
+    const res = await fetch(`/api/drive/list?folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(_driveAccount)}`)
+    const data = await res.json()
+    if (!res.ok) { renderDriveError(data.error || t('drive.load_error')); list.innerHTML = ''; return }
+    const files = data.files || []
+    if (files.length === 0) {
+      list.innerHTML = ''
+      empty.hidden = false
+      return
+    }
+    empty.hidden = true
+    list.innerHTML = files.map(f => driveRowHtml(f)).join('')
+    bindDriveRowActions(list)
+  } catch {
+    renderDriveError(t('drive.load_error'))
+    list.innerHTML = ''
+  }
+}
+
+function renderDriveError(msg) {
+  const box = document.getElementById('driveError')
+  if (!box) return
+  if (!msg) { box.hidden = true; box.innerHTML = ''; return }
+  box.hidden = false
+  box.innerHTML = `<p>${escapeHtml(msg)}</p>`
+}
+
+function renderDriveBreadcrumb() {
+  const bc = document.getElementById('driveBreadcrumb')
+  bc.innerHTML = _driveFolderStack.map((f, i) => {
+    const isLast = i === _driveFolderStack.length - 1
+    return `<span class="drive-crumb${isLast ? ' drive-crumb-current' : ''}" data-idx="${i}">${escapeHtml(f.name)}</span>`
+      + (isLast ? '' : '<span class="drive-crumb-sep">/</span>')
+  }).join('')
+  bc.querySelectorAll('.drive-crumb:not(.drive-crumb-current)').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = Number(el.getAttribute('data-idx'))
+      _driveFolderStack = _driveFolderStack.slice(0, idx + 1)
+      loadDriveFolder()
+    })
+  })
+}
+
+function fmtDriveSize(bytes) {
+  if (bytes === null || bytes === undefined) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+}
+
+function driveRowHtml(f) {
+  const icon = f.isFolder
+    ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+    : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+  const modified = f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : ''
+  return `<div class="drive-row" data-id="${escapeHtml(f.id)}" data-folder="${f.isFolder ? '1' : '0'}" data-name="${escapeHtml(f.name)}">
+    <div class="drive-row-name">${icon}<span>${escapeHtml(f.name)}</span></div>
+    <div class="drive-row-meta">${escapeHtml(modified)}</div>
+    <div class="drive-row-meta">${escapeHtml(fmtDriveSize(f.size))}</div>
+    <div class="drive-row-actions">
+      ${f.isFolder ? '' : `<button class="btn-icon" data-action="download" title="${escapeHtml(t('drive.action.download'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>`}
+      <button class="btn-icon" data-action="rename" title="${escapeHtml(t('drive.action.rename'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>
+      <button class="btn-icon" data-action="move" title="${escapeHtml(t('drive.action.move'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l3 3 3-3"/><path d="M19 9l3 3-3 3"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg></button>
+      <button class="btn-icon btn-icon-danger" data-action="trash" title="${escapeHtml(t('drive.action.trash'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+    </div>
+  </div>`
+}
+
+function bindDriveRowActions(list) {
+  list.querySelectorAll('.drive-row').forEach(row => {
+    const id = row.getAttribute('data-id')
+    const name = row.getAttribute('data-name')
+    const isFolder = row.getAttribute('data-folder') === '1'
+    row.querySelector('.drive-row-name').addEventListener('click', () => {
+      if (isFolder) {
+        _driveFolderStack.push({ id, name })
+        loadDriveFolder()
+      }
+    })
+    row.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation()
+        const action = btn.getAttribute('data-action')
+        if (action === 'download') {
+          window.open(`/api/drive/download?fileId=${encodeURIComponent(id)}&account=${encodeURIComponent(_driveAccount)}&name=${encodeURIComponent(name)}`, '_blank')
+          return
+        }
+        if (action === 'rename') {
+          const newName = prompt(t('drive.prompt.rename'), name)
+          if (!newName || newName === name) return
+          const res = await fetch('/api/drive/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, name: newName, account: _driveAccount }) })
+          if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+          loadDriveFolder()
+          return
+        }
+        if (action === 'move') {
+          const targetId = prompt(t('drive.prompt.move'))
+          if (!targetId) return
+          const res = await fetch('/api/drive/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, newParentId: targetId.trim(), account: _driveAccount }) })
+          if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+          loadDriveFolder()
+          return
+        }
+        if (action === 'trash') {
+          if (!confirm(t('drive.confirm.trash', { name }))) return
+          const res = await fetch('/api/drive/trash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, account: _driveAccount }) })
+          if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+          loadDriveFolder()
+        }
+      })
+    })
+  })
+}
+
+document.getElementById('driveNewFolderBtn')?.addEventListener('click', async () => {
+  const name = prompt(t('drive.prompt.new_folder'))
+  if (!name) return
+  const res = await fetch('/api/drive/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, parentId: currentDriveFolder().id, account: _driveAccount }) })
+  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+  loadDriveFolder()
+})
+
+document.getElementById('driveUploadInput')?.addEventListener('change', async (ev) => {
+  const file = ev.target.files[0]
+  if (!file) return
+  const form = new FormData()
+  form.append('file', file)
+  form.append('parentId', currentDriveFolder().id)
+  form.append('account', _driveAccount)
+  ev.target.value = ''
+  const res = await fetch('/api/drive/upload', { method: 'POST', body: form })
+  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+  loadDriveFolder()
+})
+
 // Self-documenting list of integrations Marveen knows about that live in the
 // Vault, so landing here (e.g. from the Overview "unused capabilities" box)
 // explains WHAT each key is for instead of a bare free-text field. Reuses
@@ -15439,7 +15718,7 @@ window.addEventListener('beforeunload', (e) => {
 // entry never requires a frontend change just to render a sane heading.
 function settingsModuleLabel(mod) {
   const key = `settings.module.${mod}`
-  const known = { kanban: true, system: true, heartbeat: true, audit: true, ideabox: true, channels: true, security: true, autonomy: true, debate: true }
+  const known = { kanban: true, system: true, heartbeat: true, audit: true, ideabox: true, channels: true, security: true, autonomy: true, debate: true, windows: true }
   return known[mod] ? t(key) : (mod.charAt(0).toUpperCase() + mod.slice(1))
 }
 
@@ -15865,7 +16144,7 @@ async function loadSettings() {
     const securityDefs = byModule.get('security') ?? []
     byModule.delete('security')
 
-    const allModules = [...byModule.keys(), 'security', 'autonomy']
+    const allModules = [...byModule.keys(), 'security', 'autonomy', 'windows']
     const savedTab = localStorage.getItem(SETTINGS_ACTIVE_TAB_KEY) || allModules[0]
     const activeTab = allModules.includes(savedTab) ? savedTab : allModules[0]
 
@@ -15972,9 +16251,245 @@ async function loadSettings() {
         renderAutonomyContent(grid, footer)
       }
     }
+
+    // Window layout tab (synthetic, like security/autonomy). Boss asked for the
+    // PersistentWindows controls to live under Settings rather than as a nav
+    // entry of their own -- he had just had two empty menu items removed and did
+    // not want a third (kanban 79, 2026-08-10).
+    {
+      const mod = 'windows'
+      const btn = document.createElement('button')
+      btn.className = 'tab-btn' + (mod === activeTab ? ' active' : '')
+      btn.dataset.tab = mod
+      btn.textContent = settingsModuleLabel(mod)
+      btn.addEventListener('click', () => activateSettingsTab(mod))
+      tabNav.appendChild(btn)
+
+      const panel = document.createElement('div')
+      panel.className = 'tab-panel'
+      panel.id = `settings-panel-${mod}`
+      panel.hidden = mod !== activeTab
+      const body = document.createElement('div')
+      body.id = 'windowLayoutPanel'
+      panel.appendChild(body)
+      const settingsBody = document.createElement('div')
+      settingsBody.id = 'windowsSettingsPanel'
+      panel.appendChild(settingsBody)
+      tabPanels.appendChild(panel)
+
+      if (mod === activeTab) {
+        renderWindowLayoutPanel(body)
+        renderWindowsSettingsPanel(settingsBody)
+      }
+    }
   } catch (err) {
     tabPanels.innerHTML = `<p style="padding:24px;color:var(--danger)">${t('settings.error')}</p>`
   }
+}
+
+// === Window layout (PersistentWindows) panel ===
+// Save / restore Boss's desktop window arrangement. Three actions, deliberately
+// distinct because they carry different risk:
+//   Save      -- captures the CURRENT desktop over the stored layout, then pushes
+//                to the private GitHub repo. Destructive to the stored layout,
+//                which is why the server takes a copy of the old DB first.
+//   Restore   -- re-applies the layout already on THIS machine. The everyday
+//                button: nudge a window, click, get the arrangement back.
+//   From GitHub -- the new-machine case: pull the backup, then apply it.
+async function renderWindowLayoutPanel(host) {
+  if (!host) return
+  host.innerHTML = `<p style="padding:16px;color:var(--text-muted);font-size:13px">${t('settings.loading')}</p>`
+  let data
+  try {
+    const res = await fetch('/api/persistent-windows')
+    if (!res.ok) throw new Error('fetch failed')
+    data = await res.json()
+  } catch {
+    host.innerHTML = `<p style="padding:16px;color:var(--danger);font-size:13px">${t('winlayout.error.status')}</p>`
+    return
+  }
+
+  const fmt = (unixSeconds) => unixSeconds
+    ? new Date(unixSeconds * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU')
+    : t('winlayout.never')
+  const newest = data.layouts?.[0] ?? null
+
+  // Not a Windows host, or the tool is missing: say which, and stop. Rendering
+  // buttons that cannot work is how a page ends up looking broken rather than
+  // inapplicable.
+  if (!data.supported || !data.installed) {
+    host.innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <h3>${t('winlayout.title')}</h3>
+        <p style="color:var(--text-muted);font-size:13px">${data.supported ? t('winlayout.not_installed') : t('winlayout.not_windows')}</p>
+      </div>`
+    return
+  }
+
+  host.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <h3>${t('winlayout.title')}</h3>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">${t('winlayout.desc')}</p>
+      <div style="margin-bottom:12px">
+        <div class="winlayout-row"><span class="winlayout-label">${t('winlayout.row.local_saved')}</span><span class="winlayout-value">${escapeHtml(fmt(newest?.updatedAt))}</span></div>
+        <div class="winlayout-row"><span class="winlayout-label">${t('winlayout.row.github_saved')}</span><span class="winlayout-value">${escapeHtml(fmt(data.sync?.lastBackupAt))}</span></div>
+        <div class="winlayout-row"><span class="winlayout-label">${t('winlayout.row.running')}</span><span class="winlayout-value">${data.running ? t('winlayout.running.yes') : t('winlayout.running.no')}</span></div>
+        <div class="winlayout-row"><span class="winlayout-label">${t('winlayout.row.windows_user')}</span><span class="winlayout-value">${escapeHtml(data.windowsUser ?? '-')}</span></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-primary btn-compact" id="winLayoutSaveBtn">${t('winlayout.btn.save')}</button>
+        <button class="btn-secondary btn-compact" id="winLayoutRestoreBtn">${t('winlayout.btn.restore')}</button>
+        <button class="btn-secondary btn-compact" id="winLayoutGithubBtn">${t('winlayout.btn.from_github')}</button>
+      </div>
+      <p id="winLayoutResult" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></p>
+    </div>`
+
+  const resultEl = host.querySelector('#winLayoutResult')
+  const buttons = [...host.querySelectorAll('button')]
+  const run = async (url, pendingKey) => {
+    buttons.forEach(b => { b.disabled = true })
+    resultEl.style.color = 'var(--text-muted)'
+    resultEl.textContent = t(pendingKey)
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const body = await res.json().catch(() => ({}))
+      // A click that had to start the tool first says so, because the first few
+      // seconds after a cold start are when a command is most likely to be missed.
+      const prefix = body.startedTool ? t('winlayout.result.started') : ''
+      if (body.ok) {
+        resultEl.style.color = 'var(--success)'
+        // A capture whose push failed is a partial success -- the layout IS saved
+        // locally, and hiding that behind a green tick would be a lie.
+        resultEl.textContent = prefix + (body.pushed && body.pushed.ok === false
+          ? t('winlayout.result.saved_no_push', { error: body.pushed.error ?? '' })
+          : t('winlayout.result.ok'))
+      } else {
+        resultEl.style.color = 'var(--danger)'
+        // layoutChanged === false is the specific failure that used to be reported
+        // as success: the command returned 0 but the saved layout never changed.
+        resultEl.textContent = prefix + (body.layoutChanged === false
+          ? t('winlayout.result.no_write')
+          : body.timedOut
+            ? t('winlayout.result.timeout')
+            : t('winlayout.result.failed', { error: body.error ?? '' }))
+      }
+    } catch {
+      resultEl.style.color = 'var(--danger)'
+      resultEl.textContent = t('winlayout.result.failed', { error: 'network' })
+    } finally {
+      buttons.forEach(b => { b.disabled = false })
+      // Re-read timestamps so the panel reflects what just happened.
+      const fresh = await fetch('/api/persistent-windows').then(r => r.json()).catch(() => null)
+      if (fresh) {
+        const rows = host.querySelectorAll('.winlayout-value')
+        if (rows[0]) rows[0].textContent = fmt(fresh.layouts?.[0]?.updatedAt)
+        if (rows[1]) rows[1].textContent = fmt(fresh.sync?.lastBackupAt)
+        if (rows[2]) rows[2].textContent = fresh.running ? t('winlayout.running.yes') : t('winlayout.running.no')
+      }
+    }
+  }
+
+  host.querySelector('#winLayoutSaveBtn').addEventListener('click', () => run('/api/persistent-windows/capture', 'winlayout.pending.save'))
+  host.querySelector('#winLayoutRestoreBtn').addEventListener('click', () => run('/api/persistent-windows/restore', 'winlayout.pending.restore'))
+  host.querySelector('#winLayoutGithubBtn').addEventListener('click', () => run('/api/persistent-windows/restore-from-github', 'winlayout.pending.github'))
+}
+
+// === Windows settings panel ===
+// The second half of the Settings > Window layout tab (Boss, 2026-08-11: keep
+// PersistentWindows for windows, add a separate section for "Windows stílus").
+// Two buttons only -- no pull-from-GitHub, by his instruction: Marveen holds the
+// saved copy itself and publishes it as part of saving.
+async function renderWindowsSettingsPanel(host) {
+  if (!host) return
+  let data
+  try {
+    const res = await fetch('/api/windows-settings')
+    if (!res.ok) throw new Error('fetch failed')
+    data = await res.json()
+  } catch {
+    host.innerHTML = `<p style="padding:16px;color:var(--danger);font-size:13px">${t('winset.error.status')}</p>`
+    return
+  }
+  if (!data.supported) {
+    host.innerHTML = `<div class="card"><h3>${t('winset.title')}</h3><p style="color:var(--text-muted);font-size:13px">${t('winlayout.not_windows')}</p></div>`
+    return
+  }
+
+  const fmt = (unixSeconds) => unixSeconds
+    ? new Date(unixSeconds * 1000).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU')
+    : t('winlayout.never')
+  const savedIds = new Set((data.files || []).map(f => f.id))
+  // The undo button only exists once there is something to undo TO -- i.e. after
+  // a restore has run and left a safety copy behind.
+  const lastBackup = (data.backupList || [])[0] || null
+  const groupRows = (data.groups || []).map(g =>
+    `<div class="winlayout-row"><span class="winlayout-label">${escapeHtml(g.label)}</span><span class="winlayout-value">${savedIds.has(g.id) ? '✓' : '--'}</span></div>`
+  ).join('')
+
+  host.innerHTML = `
+    <div class="card">
+      <h3>${t('winset.title')}</h3>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px">${t('winset.desc')}</p>
+      <div style="margin-bottom:12px">
+        <div class="winlayout-row"><span class="winlayout-label">${t('winset.row.last_saved')}</span><span class="winlayout-value">${escapeHtml(fmt(data.lastSavedAt))}</span></div>
+        ${groupRows}
+        <div class="winlayout-row"><span class="winlayout-label">${t('winset.row.folder_icons')}</span><span class="winlayout-value">${data.folderIcons?.scanning
+          ? t('winset.folder_icons.scanning')
+          : t('winset.folder_icons.count', { count: data.folderIcons?.count ?? 0 })}</span></div>
+      </div>
+      <p style="color:var(--text-muted);font-size:12px;margin-bottom:12px">${t('winset.warning')}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-primary btn-compact" id="winSetSaveBtn">${t('winlayout.btn.save')}</button>
+        <button class="btn-secondary btn-compact" id="winSetRestoreBtn">${t('winlayout.btn.restore')}</button>
+        ${lastBackup ? `<button class="btn-secondary btn-compact" id="winSetUndoBtn">${t('winset.btn.undo')}</button>` : ''}
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:var(--text-muted)">${lastBackup
+        ? t('winset.undo_hint', { when: escapeHtml(fmt(lastBackup.takenAt)) })
+        : t('winset.undo_none')}</p>
+      <p id="winSetResult" style="margin-top:12px;font-size:13px;color:var(--text-muted)"></p>
+    </div>`
+
+  const resultEl = host.querySelector('#winSetResult')
+  const buttons = [...host.querySelectorAll('button')]
+  const run = async (url, pendingKey, confirmKey) => {
+    // Restoring rewrites registry values and closes open Explorer windows, so it
+    // asks first. Saving is additive and does not.
+    if (confirmKey && !confirm(t(confirmKey))) return
+    buttons.forEach(b => { b.disabled = true })
+    resultEl.style.color = 'var(--text-muted)'
+    resultEl.textContent = t(pendingKey)
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const body = await res.json().catch(() => ({}))
+      if (body.ok) {
+        resultEl.style.color = 'var(--success)'
+        const count = (body.saved || body.restored || []).length
+        const failed = (body.failed || []).length
+        resultEl.textContent = failed
+          ? t('winset.result.partial', { count, failed })
+          : t('winset.result.ok', { count })
+      } else {
+        resultEl.style.color = 'var(--danger)'
+        const first = (body.failed || [])[0]
+        resultEl.textContent = t('winlayout.result.failed', { error: first ? `${first.id}: ${first.error}` : (body.error ?? '') })
+      }
+    } catch {
+      resultEl.style.color = 'var(--danger)'
+      resultEl.textContent = t('winlayout.result.failed', { error: 'network' })
+    } finally {
+      buttons.forEach(b => { b.disabled = false })
+      renderWindowsSettingsPanel(host)
+    }
+  }
+
+  // A full-machine icon scan runs for minutes in the background; poll while it
+  // does so the row stops saying "scanning" on its own.
+  if (data.folderIcons?.scanning) setTimeout(() => renderWindowsSettingsPanel(host), 15_000)
+
+  host.querySelector('#winSetSaveBtn').addEventListener('click', () => run('/api/windows-settings/save', 'winset.pending.save'))
+  host.querySelector('#winSetRestoreBtn').addEventListener('click', () => run('/api/windows-settings/restore', 'winset.pending.restore', 'winset.confirm.restore'))
+  const undoBtn = host.querySelector('#winSetUndoBtn')
+  if (undoBtn) undoBtn.addEventListener('click', () => run('/api/windows-settings/undo', 'winset.pending.undo', 'winset.confirm.undo'))
 }
 
 function activateSettingsTab(mod) {
@@ -15990,6 +16505,13 @@ function activateSettingsTab(mod) {
     const grid = document.getElementById('settingsAutonomyGrid')
     const footer = document.getElementById('settingsAutonomyUpdatedAt')
     if (grid && !grid.innerHTML.trim()) renderAutonomyContent(grid, footer)
+  }
+
+  if (mod === 'windows') {
+    const body = document.getElementById('windowLayoutPanel')
+    if (body && !body.innerHTML.trim()) renderWindowLayoutPanel(body)
+    const settingsBody = document.getElementById('windowsSettingsPanel')
+    if (settingsBody && !settingsBody.innerHTML.trim()) renderWindowsSettingsPanel(settingsBody)
   }
 }
 
@@ -18777,12 +19299,23 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
       <div class="email-reader-meta">${escapeHtml(from)} -- ${emailFmtDate(envelope?.date || '')}</div>
     </div>
   `
-  if (actions) actions.innerHTML = `
+  // Boss 2026-08-10: the message actions (reply/forward/archive/delete) crowded
+  // the translate control on the right, so they move to the LEFT of the "A levél
+  // tartalma" title; only the compact translate group stays on the right.
+  const actionsLeft = document.getElementById('emailReaderActionsLeft')
+  if (actionsLeft) actionsLeft.innerHTML = `
     <button class="btn-secondary btn-compact" id="emailReplyBtn">${escapeHtml(t('email.btn.reply'))}</button>
     <button class="btn-secondary btn-compact" id="emailForwardBtn">${escapeHtml(t('email.btn.forward'))}</button>
-    <button class="btn-secondary btn-compact" id="emailTranslateBtn">${escapeHtml(t('email.btn.translate'))}</button>
     <button class="btn-secondary btn-compact" id="emailArchiveBtn">${escapeHtml(t('email.btn.archive'))}</button>
     <button class="btn-danger btn-compact" id="emailDeleteBtn">${escapeHtml(t('common.delete'))}</button>
+  `
+  if (actions) actions.innerHTML = `
+    <span class="email-translate-group">
+      <select class="btn-secondary btn-compact email-translate-lang" id="emailTranslateSourceLang" title="${escapeAttr(t('email.translate_source_title'))}"></select>
+      <span class="email-translate-arrow" aria-hidden="true">&rarr;</span>
+      <select class="btn-secondary btn-compact email-translate-lang" id="emailTranslateTargetLang" title="${escapeAttr(t('email.translate_target_title'))}"></select>
+      <button class="btn-secondary btn-compact" id="emailTranslateBtn">${escapeHtml(t('email.btn.translate'))}</button>
+    </span>
   `
   content.innerHTML = `
     <div class="email-reader-body-slot" id="emailReaderBodySlot"></div>
@@ -18843,6 +19376,48 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
     translateBtn.dataset.translated = '0'
     translateBtn.addEventListener('click', () => emailHandleTranslateClick(id, mailbox, msg))
   }
+  emailPopulateLangSelects()
+}
+
+// Languages the translator offers. Codes MUST match SUPPORTED_TRANSLATION_LANGS
+// in src/web/email-translate.ts. Names are localized to the dashboard language.
+const EMAIL_TRANSLATE_CODES = ['en', 'de', 'hu', 'es', 'fr', 'it', 'pt', 'nl', 'pl', 'ro', 'ru', 'uk', 'tr', 'ar', 'zh', 'ja']
+const EMAIL_TRANSLATE_LANG_NAMES = {
+  hu: { auto: 'Automatikus', unknown: 'ismeretlen', en: 'Angol', de: 'Német', hu: 'Magyar', es: 'Spanyol', fr: 'Francia', it: 'Olasz', pt: 'Portugál', nl: 'Holland', pl: 'Lengyel', ro: 'Román', ru: 'Orosz', uk: 'Ukrán', tr: 'Török', ar: 'Arab', zh: 'Kínai', ja: 'Japán' },
+  en: { auto: 'Auto-detect', unknown: 'unknown', en: 'English', de: 'German', hu: 'Hungarian', es: 'Spanish', fr: 'French', it: 'Italian', pt: 'Portuguese', nl: 'Dutch', pl: 'Polish', ro: 'Romanian', ru: 'Russian', uk: 'Ukrainian', tr: 'Turkish', ar: 'Arabic', zh: 'Chinese', ja: 'Japanese' },
+}
+function emailLangName(code) {
+  const table = EMAIL_TRANSLATE_LANG_NAMES[window._lang === 'en' ? 'en' : 'hu']
+  return table[code] || code
+}
+// Short label shown INSIDE the tiny picker button (Boss 2026-08-10: "pici kis
+// gomb", space-saving). The dropdown list shows these codes too; the full name
+// only appears in the translation header and the select's title tooltip.
+function emailLangCode(code) {
+  if (code === 'auto') return t('email.translate_auto_short')
+  return code.toUpperCase()
+}
+// The source picker defaults to auto-detect; the target picker defaults to the
+// dashboard's own language, so an English user gets English out of the box.
+function emailDefaultTargetLang() { return window._lang === 'en' ? 'en' : 'hu' }
+
+function emailPopulateLangSelects() {
+  const src = document.getElementById('emailTranslateSourceLang')
+  const tgt = document.getElementById('emailTranslateTargetLang')
+  if (!src || !tgt) return
+  const savedSrc = localStorage.getItem('marveen.email.srcLang') || 'auto'
+  const savedTgt = localStorage.getItem('marveen.email.tgtLang') || emailDefaultTargetLang()
+  const opt = (code, sel) => `<option value="${code}"${sel === code ? ' selected' : ''} title="${escapeAttr(emailLangName(code))}">${escapeHtml(emailLangCode(code))}</option>`
+  src.innerHTML = opt('auto', savedSrc) + EMAIL_TRANSLATE_CODES.map(c => opt(c, savedSrc)).join('')
+  tgt.innerHTML = EMAIL_TRANSLATE_CODES.map(c => opt(c, savedTgt)).join('')
+  src.addEventListener('change', () => { localStorage.setItem('marveen.email.srcLang', src.value); emailOnLangChange() })
+  tgt.addEventListener('change', () => { localStorage.setItem('marveen.email.tgtLang', tgt.value); emailOnLangChange() })
+}
+// Changing either language while a translation is shown reverts to the original,
+// so the next Translate click runs with the new pair (no stale translation).
+function emailOnLangChange() {
+  const btn = document.getElementById('emailTranslateBtn')
+  if (btn && btn.dataset.translated === '1' && emailActiveId != null) emailShowOriginalContent(emailActiveId)
 }
 
 // Translate email message to Hungarian
@@ -18853,10 +19428,12 @@ async function emailTranslateMessage(id, mailbox, msg) {
   translateBtn.textContent = t('common.loading')
 
   try {
+    const targetLang = localStorage.getItem('marveen.email.tgtLang') || emailDefaultTargetLang()
+    const sourceLang = localStorage.getItem('marveen.email.srcLang') || 'auto'
     const res = await fetch('/api/email/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: emailAccount, mailbox, id, text: msg.text, html: msg.html })
+      body: JSON.stringify({ account: emailAccount, mailbox, id, text: msg.text, html: msg.html, targetLang, sourceLang })
     })
     const data = await res.json()
     if (!res.ok) {
@@ -18872,11 +19449,12 @@ async function emailTranslateMessage(id, mailbox, msg) {
       originalText: msg.text,
       translation: data.translation,
       sourceLang: data.sourceLang,
+      targetLang: data.targetLang,
       fromCache: data.fromCache,
     })
 
     // Show translation
-    renderEmailTranslation(data.translation, data.sourceLang, data.fromCache)
+    renderEmailTranslation(data.translation, data.sourceLang, data.targetLang, data.fromCache)
     translateBtn.textContent = t('email.btn.show_original')
     translateBtn.dataset.translated = '1'
     showToast(data.fromCache ? t('email.translate_cached') : t('email.translate_done'))
@@ -18888,7 +19466,7 @@ async function emailTranslateMessage(id, mailbox, msg) {
 }
 
 // Render translation in the email body slot
-function renderEmailTranslation(translation, sourceLang, fromCache) {
+function renderEmailTranslation(translation, sourceLang, targetLang, fromCache) {
   const slot = document.getElementById('emailReaderBodySlot')
   if (!slot) return
   const frame = document.createElement('iframe')
@@ -18922,8 +19500,8 @@ function renderEmailTranslation(translation, sourceLang, fromCache) {
   slot.innerHTML = ''
   slot.appendChild(frame)
   // Wrap translation in a simple HTML structure with language badge
-  const langNames = { de: 'német', en: 'angol', hu: 'magyar', unknown: 'ismeretlen' }
-  const langLabel = langNames[sourceLang] || sourceLang
+  const fromLabel = emailLangName(sourceLang || 'unknown')
+  const toLabel = emailLangName(targetLang || emailDefaultTargetLang())
   const cacheBadge = fromCache ? `<span style="margin-left:8px;font-size:11px;color:var(--text-muted)">${escapeHtml(t('email.translate_from_cache'))}</span>` : ''
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; padding: 16px; margin: 0; color: var(--text, #111); background: var(--bg, #fff); }
@@ -18932,7 +19510,7 @@ function renderEmailTranslation(translation, sourceLang, fromCache) {
   </style></head><body>
     <div class="translation-header">
       <span>🌐</span>
-      <span>${escapeHtml(t('email.translated_from', { lang: langLabel }))}</span>
+      <span>${escapeHtml(t('email.translated_pair', { from: fromLabel, to: toLabel }))}</span>
       ${cacheBadge}
     </div>
     <div class="translation-content">${escapeHtml(translation)}</div>

@@ -194,7 +194,12 @@ describe('first-run gate wiring contracts', () => {
 
   it('startAgentProcess stamps per-project trust in the config root the session boots from', () => {
     const stampIdx = AGENT_PROCESS.indexOf('stampProjectTrustForDir(\n      claudeConfigDir')
-    const launchIdx = AGENT_PROCESS.indexOf("runTmux(null, ['new-session', '-d', '-s', session, cmd]")
+    // Matched loosely on purpose. This assertion is about ORDER (trust stamped
+    // before the session spawns), not about the exact tmux argument list -- and
+    // pinning the literal array broke the moment `-x 80 -y 60` was added to give
+    // panes the same height as the main session (2026-08-10). A contract test
+    // that fails on an unrelated flag is testing the wrong thing.
+    const launchIdx = AGENT_PROCESS.search(/runTmux\(null, \['new-session',[^\]]*'-s', session, cmd\]/)
     expect(stampIdx).toBeGreaterThan(0)
     // The stamp must happen BEFORE the tmux session is spawned.
     expect(launchIdx).toBeGreaterThan(stampIdx)

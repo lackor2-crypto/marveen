@@ -152,7 +152,16 @@
           <svg class="sb-group-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
         <div class="sb-group-items" id="sbGroupStats">
-          <a href="#" class="sb-link" data-page="costs">
+          <!-- Hidden on Boss's call (2026-08-10): the page renders, but it has
+               nothing to render. CostOps v0.1 reads a hand-edited
+               store/costops-config.json that does not exist and has no editor UI,
+               so every figure was 0 Ft, and the Token Monitor + OpenRouter pages
+               already cover what Boss actually watches. The page, its route and
+               /api/costs/* are all left in place -- only the menu entry is gone,
+               so #costs still opens it and nothing has to be rebuilt if a config
+               editor lands later. .sb-link sets display:flex, which outranks the
+               UA [hidden] rule, hence the explicit override in style.css. -->
+          <a href="#" class="sb-link" data-page="costs" hidden>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             <span class="sb-label">Költségek</span>
           </a>
@@ -1531,7 +1540,7 @@
         <div class="email-pane email-pane-reader" id="emailReaderPane">
           <div class="email-column-header email-reader-sticky-header">
             <div class="email-list-header">
-              <span></span>
+              <div id="emailReaderActionsLeft" class="email-reader-actions email-reader-actions-left"></div>
               <span class="email-list-header-title" data-i18n="email.reader_title">A levél tartalma</span>
               <div id="emailReaderActions" class="email-reader-actions"></div>
             </div>
@@ -2040,6 +2049,40 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- === Drive fajlbongeszo Page (kanban aa55180c) === -->
+    <div class="page" id="drivePage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 data-i18n="drive.page_title">Drive fájlok</h1>
+            <p class="subtitle" data-i18n="drive.page_subtitle">Google Drive böngésző -- mappák, feltöltés, letöltés</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="driveAccountSelect" class="input" style="width:auto"></select>
+            <label class="btn-secondary btn-compact" for="driveUploadInput" style="cursor:pointer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span data-i18n="drive.upload_btn">Feltöltés</span>
+            </label>
+            <input type="file" id="driveUploadInput" hidden>
+            <button class="btn-secondary btn-compact" id="driveNewFolderBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+              <span data-i18n="drive.new_folder_btn">Új mappa</span>
+            </button>
+          </div>
+        </div>
+        <div class="info-box" data-i18n="drive.info_box">Törlés a Drive kosarába kerül, nem végleges -- a Drive weben visszaállítható, ha véletlen volt.</div>
+      </div>
+
+      <div class="drive-breadcrumb" id="driveBreadcrumb"></div>
+
+      <div id="driveList" class="drive-list"></div>
+      <div id="driveEmpty" class="vault-empty" hidden>
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <p data-i18n="drive.empty_msg">Ez a mappa üres</p>
+      </div>
+      <div id="driveError" class="vault-empty" hidden></div>
     </div>
 
     <!-- === Debate (Vitaztatas) Page === -->

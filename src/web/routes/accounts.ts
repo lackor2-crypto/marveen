@@ -31,7 +31,7 @@ function githubAccountNames(): string[] {
 // store/google-tokens.json keyed by account name, with a "_default" pointer
 // that isn't itself an account -- excluded here same as githubAccountNames()
 // excludes nothing extra (GitHub's file has no such marker key).
-function googleAccountNames(): { accounts: string[]; default: string | null } {
+export function googleAccountNames(): { accounts: string[]; default: string | null } {
   const p = join(PROJECT_ROOT, 'store', 'google-tokens.json')
   if (!existsSync(p)) {
     // Pre-migration installs (or a fresh one that never ran google-auth.py

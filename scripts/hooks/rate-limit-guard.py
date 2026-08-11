@@ -105,19 +105,19 @@ def main():
 
     five = pct_of('fiveHour')
     seven = pct_of('sevenDay')
-    worst = max([p for p in (five, seven) if p is not None], default=None)
+    worst = five  # Only fiveHour (5-hour) plan window counts for rate-limit behavior; sevenDay is display-only
     if worst is None:
         return
 
     if worst >= CRITICAL_THRESHOLD_PCT:
         print(
-            f"KERET-FIGYELMEZTETES: a Claude terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%). "
+            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CRITICAL_THRESHOLD_PCT}%). "
             "Boss szabalya: most NE vegezz kodolast/programozast -- csak info, kereses, egyeztetes. "
             "Ha kodolasi feladatot kernek, jelezd hogy a keret miatt most csak arra van mod hogy megbeszeljetek/felkesziljetek ra."
         )
     elif worst >= CAUTION_THRESHOLD_PCT:
         print(
-            f"KERET-FIGYELMEZTETES: a Claude terv-keret {round(worst)}%-on all (>= {CAUTION_THRESHOLD_PCT}%). "
+            f"KERET-FIGYELMEZTETES: az 5 ORAS terv-keret {round(worst)}%-on all (>= {CAUTION_THRESHOLD_PCT}%). "
             "Boss szabalya: csak kisebb, gyors feladatokba fogj bele, nagy/hosszu munkat most ne kezdj el."
         )
 

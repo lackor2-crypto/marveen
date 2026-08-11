@@ -1201,9 +1201,9 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   // Body: { account, mailbox, id, text?, html? } -- text/html optional, will fetch from message if not provided
   if (path === '/api/email/translate' && method === 'POST') {
     const body = await readBody(req)
-    let data: { account?: string; mailbox?: string; id?: string; text?: string; html?: string }
+    let data: { account?: string; mailbox?: string; id?: string; text?: string; html?: string; targetLang?: string; sourceLang?: string }
     try { data = JSON.parse(body.toString()) } catch { json(res, { error: 'Invalid JSON' }, 400); return true }
-    const { account, mailbox, id, text, html } = data
+    const { account, mailbox, id, text, html, targetLang, sourceLang } = data
     if (!isKnownAccount(account ?? null) || !id) { json(res, { error: 'account and id required' }, 400); return true }
     const mb = mailbox || 'Inbox'
     const apiKey = getSecret('openrouter-fleet-key')
@@ -1219,10 +1219,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       msgHtml = msg.html
     }
 
-    const result = await translateEmailContent(msgText, msgHtml, apiKey)
+    const result = await translateEmailContent(msgText, msgHtml, apiKey, { targetLang, sourceLang })
     json(res, {
       translation: result.translation,
       sourceLang: result.sourceLang,
+      targetLang: result.targetLang,
       fromCache: result.fromCache,
     })
     return true

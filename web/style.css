@@ -281,6 +281,10 @@ body {
   font-weight: 500;
   transition: all var(--transition);
 }
+/* display:flex above outranks the browser's [hidden] default, so a nav entry
+   marked hidden in the markup (see the Costs link in index.html) would still be
+   drawn without this. Same reason as .sidebar-nav[hidden] and .kanban-col[hidden]. */
+.sb-link[hidden] { display: none; }
 .sb-link svg { flex-shrink: 0; color: currentColor; }
 /* min-width:0 lets a long label wrap inside the column instead of forcing the
  * link wider than the nav (which is what produced the landscape overflow);
@@ -5000,6 +5004,11 @@ main.email-active .page-header { flex-shrink: 0; }
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 12px;
+  /* Each card keeps its own height. Without this the grid's default
+     align-items: stretch makes every card in a row grow to match the tallest,
+     so opening one card's edit form stretched its two row-mates down into empty
+     boxes (Boss 2026-08-10: "minek nyilik ki az osszes kartya lefele"). */
+  align-items: start;
 }
 .vault-card {
   display: flex;
@@ -5086,6 +5095,52 @@ main.email-active .page-header { flex-shrink: 0; }
 .vault-empty svg { margin-bottom: 12px; opacity: 0.4; }
 .vault-empty p { margin: 4px 0; font-size: 14px; }
 .vault-empty-hint { font-size: 12px !important; opacity: 0.6; }
+
+/* === Drive fajlbongeszo (kanban aa55180c) === */
+.drive-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.drive-crumb { cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.drive-crumb:hover { background: var(--accent-soft); color: var(--accent); }
+.drive-crumb-current { color: var(--text); font-weight: 500; cursor: default; }
+.drive-crumb-current:hover { background: none; }
+.drive-crumb-sep { opacity: 0.5; }
+
+.drive-list { display: flex; flex-direction: column; gap: 2px; }
+.drive-loading { padding: 24px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+.drive-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 90px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+.drive-row:hover { background: var(--surface-hover, var(--accent-soft)); border-color: var(--border); }
+.drive-row-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+.drive-row-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drive-row-name svg { flex-shrink: 0; opacity: 0.7; }
+.drive-row-meta { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.drive-row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+@media (max-width: 720px) {
+  .drive-row { grid-template-columns: 1fr auto; }
+  .drive-row-meta { display: none; }
+}
 
 .vault-binding-badge {
   display: inline-block;
@@ -6936,6 +6991,22 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 
 /* === Settings page === */
+/* Window-layout panel status rows. The first cut reused .setting-row/.setting-label
+   class names that do not exist in this stylesheet, so the label and the value
+   ran together with no gap at all ("Windows felhasználóLászló" -- Boss, 2026-08-11). */
+.winlayout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.winlayout-row:last-child { border-bottom: none; }
+.winlayout-row .winlayout-label { color: var(--text-muted); }
+.winlayout-row .winlayout-value { color: var(--text); text-align: right; overflow-wrap: anywhere; }
+
 .settings-group { margin-bottom: 28px; }
 .settings-group:last-child { margin-bottom: 0; }
 .settings-group-title {
@@ -8575,7 +8646,17 @@ body {
    the title row's grid 3rd column now, so it aligns/justifies like that slot
    (see .email-list-header button justify-self:end above), not stacked under
    the subject with a top margin like before. */
-.email-reader-actions { display: flex; gap: 8px; justify-self: end; }
+.email-reader-actions { display: flex; gap: 8px; justify-self: end; align-items: center; flex-wrap: wrap; }
+/* Compact translate control: [src] -> [tgt] [Translate], all in one box that
+   never splits across lines (Boss 2026-08-10: "pici kis gomb", space-saving).
+   The two pickers show just a short code (auto/EN/DE/HU...) so they stay tiny;
+   the full language name lives in the option's title and the result header. */
+/* Reply/Forward/Archive/Delete sit in the header's left cell (Boss 2026-08-10:
+   move them before the "A level tartalma" title, translate stays on the right). */
+.email-reader-actions-left { justify-self: start; flex-wrap: wrap; }
+.email-translate-group { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; white-space: nowrap; }
+.email-translate-lang { padding: 4px 2px 4px 6px; cursor: pointer; text-align: center; }
+.email-translate-arrow { color: var(--text-muted); font-size: 12px; line-height: 1; }
 /* Smaller than the app-wide .btn-compact default (10px 20px padding) --
    scoped to .email-column-header so it covers every column's header button
    (Törlés on mappák/levelek, Letöltés mind on mellékletek, and this row),
@@ -9112,14 +9193,17 @@ body {
    is that you can see at a glance where one thing ends and the next begins.
    Drawn in the gap with a pseudo-element so it separates the boxes without
    touching either box's own border. */
-.vault-sections { gap: 16px; }
+.vault-sections { gap: 40px; }
 .vault-sections .vault-section + .vault-section { position: relative; }
 .vault-sections .vault-section + .vault-section::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
-  top: -9px;
+  /* Reach out to the form's own edges so the rule runs the full width of the
+     panel, not just the inner box (Boss 2026-08-10: "teljes szelesseg... meg
+     hoszabbra"). -12px cancels the form's 10px 12px padding exactly. */
+  left: -12px;
+  right: -12px;
+  top: -21px;
   height: 2px;
   border-radius: 2px;
   background: var(--danger, #dc2626);

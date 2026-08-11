@@ -59,6 +59,7 @@ import { tryHandleRecall } from './web/routes/recall.js'
 import { tryHandleBackgroundTasks, sweepOrphanedBackgroundTasks } from './web/routes/background-tasks.js'
 import { tryHandleOverview } from './web/routes/overview.js'
 import { tryHandleAccounts } from './web/routes/accounts.js'
+import { tryHandleDriveBrowser } from './web/routes/drive-browser.js'
 import { tryHandleUpdates } from './web/routes/updates.js'
 import { tryHandleOnboarding } from './web/routes/onboarding.js'
 import { tryHandleStatus } from './web/routes/status.js'
@@ -66,6 +67,9 @@ import { tryHandleAutonomy } from './web/routes/autonomy.js'
 import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/approvals.js'
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
+import { tryHandlePersistentWindows } from './web/routes/persistent-windows.js'
+import { tryHandleWindowsSettings } from './web/routes/windows-settings.js'
+import { startWindowLayoutSyncTask } from './persistent-windows-sync.js'
 import { tryHandleDebate } from './web/routes/debate.js'
 import { tryHandleOpenRouterOverview } from './web/routes/openrouter-overview.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
@@ -200,6 +204,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleRecall(routeCtx)) return
       if (await tryHandleOverview(routeCtx)) return
       if (await tryHandleAccounts(routeCtx)) return
+      if (await tryHandleDriveBrowser(routeCtx)) return
       if (await tryHandleUpdates(routeCtx)) return
       if (await tryHandleOnboarding(routeCtx)) return
       if (await tryHandleStatus(routeCtx)) return
@@ -207,6 +212,8 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleApprovals(routeCtx)) return
       if (await tryHandleTokenUsage(routeCtx)) return
       if (await tryHandleCosts(routeCtx)) return
+      if (await tryHandlePersistentWindows(routeCtx)) return
+      if (await tryHandleWindowsSettings(routeCtx)) return
       if (await tryHandleDebate(routeCtx)) return
       if (await tryHandleOpenRouterOverview(routeCtx)) return
       if (await tryHandleIdeas(routeCtx)) return
@@ -395,6 +402,12 @@ export function startWebServer(port = 3420): http.Server {
   const costsSyncInterval = webOnly ? undefined : startCostsSyncTask()
   if (!webOnly) logger.info('CostOps fixed-cost sync started (10min poll + startup)')
 
+  // Window layout: keep the off-machine GitHub copy fresh twice a day. Pushes
+  // only -- it never captures, so a timer can never overwrite Boss's deliberate
+  // arrangement with whatever is on screen when it fires (kanban 79).
+  const windowLayoutSyncInterval = webOnly ? undefined : startWindowLayoutSyncTask()
+  if (!webOnly) logger.info('Window-layout GitHub backup started (12h poll, 5min startup delay)')
+
   const stuckInputInterval = webOnly ? undefined : startStuckInputWatcher()
   if (!webOnly) logger.info('Stuck-input watcher started (15s poll, 20s offset)')
 
@@ -554,6 +567,7 @@ export function startWebServer(port = 3420): http.Server {
     if (workerLivenessInterval) clearInterval(workerLivenessInterval)
     clearInterval(channelHealthInterval)
     if (costsSyncInterval) clearInterval(costsSyncInterval)
+    if (windowLayoutSyncInterval) clearInterval(windowLayoutSyncInterval)
     clearInterval(stuckInputInterval)
     clearInterval(stuckToolCallInterval)
     if (inboxNudgeInterval) clearInterval(inboxNudgeInterval)

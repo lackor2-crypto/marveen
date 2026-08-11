@@ -73,9 +73,18 @@ test.describe('Dashboard smoke', () => {
   test('costs page loads and renders live summary data without errors', async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', (err) => errors.push(err.message))
-    await page.goto(`/?token=${TOKEN}`)
-    await page.click('.sb-link[data-page="costs"]')
+    // Reached by hash, not by clicking the nav: the Costs menu entry is hidden
+    // on purpose (Boss, 2026-08-10 -- nothing to show without a costops config,
+    // and Token Monitor / OpenRouter cover it). The page and /api/costs/* stay
+    // live, which is exactly what this test still guards, so a hidden menu entry
+    // never becomes a quietly rotting page.
+    await page.goto(`/?token=${TOKEN}#costs`)
     await page.waitForTimeout(500)
+    // The menu entry must stay invisible even with its group open -- .sb-link is
+    // display:flex, which beats the UA [hidden] rule, so this fails loudly if the
+    // style.css override for it is ever dropped.
+    await page.click('.sb-group[data-group="stats"] .sb-group-header')
+    await expect(page.locator('.sb-link[data-page="costs"]')).toBeHidden()
     const content = page.locator('#costsContent')
     await expect(content).toBeVisible()
     // The summary always includes a "month" stat (YYYY-MM), regardless of whether

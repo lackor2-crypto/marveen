@@ -69,6 +69,13 @@ test.describe('kanban card move on touch', () => {
 
     const el = page.locator(`.kanban-card[data-id="${card.id}"]`)
     await expect(el).toBeVisible()
+    // toBeVisible() only means rendered and non-empty -- on a phone viewport the
+    // card can still sit below the fold, and the CDP touch events below are
+    // dispatched at VIEWPORT coordinates, so an off-screen card gets pressed
+    // somewhere else entirely and no drag ever starts. Scroll it into view first;
+    // which card this picks depends on live board contents, so the test must not
+    // assume the first planned card happens to be near the top.
+    await el.scrollIntoViewIfNeeded()
     const from = await el.boundingBox()
     expect(from).toBeTruthy()
 

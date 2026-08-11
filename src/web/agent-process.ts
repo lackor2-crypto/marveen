@@ -896,7 +896,7 @@ function startRemoteAgentProcess(
   const cmd = buildRemoteLaunchCommand({ workdir, model, continue: hasPriorSession })
 
   try {
-    runTmux(host, ['new-session', '-d', '-s', session, cmd], { timeout: 10000 })
+    runTmux(host, ['new-session', '-d', '-x', '80', '-y', '60', '-s', session, cmd], { timeout: 10000 })
     logger.info({ name, session, host, workdir }, 'Remote agent tmux session started')
     // Fire-and-forget: scheduleIdentitySetup only schedules delayed timers and
     // resolves immediately; startRemoteAgentProcess stays synchronous (out of scope).
@@ -1295,7 +1295,14 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // Single-quote `${model}` so values like `claude-opus-4-8[1m]` (1M-context
     // suffix) are not glob-expanded by the shell that tmux spawns the command in.
     const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}--model '${model}' ${channelFlag}`.trimEnd()
-    runTmux(null, ['new-session', '-d', '-s', session, cmd], { timeout: 10000 })
+    // -x 80 -y 60 gives the pane the same 60-row height as the main channel
+    // session (lackor2-bot-channels), instead of tmux's detached default of
+    // 80x24. The dashboard Terminal viewer bottom-anchors a pane snapshot, so a
+    // 24-row pane left the output crammed into the lower third with a big empty
+    // gap above it; matching 60 rows fills the viewer for EVERY agent, and being
+    // here in the shared spawn path it applies to any newly added agent too
+    // (Boss 2026-08-10: "globalisan kell ... ha uj agentet hozzaadok").
+    runTmux(null, ['new-session', '-d', '-x', '80', '-y', '60', '-s', session, cmd], { timeout: 10000 })
 
     logger.info({ name, session, channelDir: agentChannelDir }, 'Agent tmux session started')
 
