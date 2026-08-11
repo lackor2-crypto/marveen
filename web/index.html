@@ -1615,12 +1615,14 @@
         <p class="subtitle" data-i18n="accounts.page_subtitle">Minden fiók és API-kulcs, ami a Marvinhoz kapcsolódik -- egy helyen</p>
       </div>
 
-      <div class="accounts-section">
-        <div class="accounts-section-title" data-i18n="accounts.core_title">Alapvető -- ezek nélkül el sem indulna</div>
-        <div class="accounts-list" id="accountsCoreList"></div>
-      </div>
+      <!-- The page's two old lists ("core" and "optional") are retired: the panel
+           below is the single list now, and keeping them meant OpenRouter and Groq
+           appearing twice on one screen (Boss spotted it, 2026-08-12). The empty
+           holders stay so the code that still writes to them cannot throw. -->
+      <div class="accounts-list" id="accountsCoreList" hidden></div>
+      <div class="accounts-list" id="accountsOptionalList" hidden></div>
 
-      <!-- Bejelentkezett fiokok (kanban #52). Kenyelmi funkcio: SEMLEGES szinek, semmi
+      <!-- Fiokok es kulcsok (kanban #52). Kenyelmi funkcio: SEMLEGES szinek, semmi
            piros -- enelkul is minden mukodik, csak terminalbol kell bejelentkezni.
            PARHUZAMOS fiokok: az uj bejelentkezes a meglevoket nem bantja. -->
       <div class="accounts-section" id="claudeAccountPanel">
