@@ -1620,6 +1620,46 @@
         <div class="accounts-list" id="accountsCoreList"></div>
       </div>
 
+      <!-- Claude-fiok valtas (kanban #52). Kenyelmi funkcio: SEMLEGES szinek,
+           semmi piros -- enelkul is minden mukodik, csak terminalbol kell
+           bejelentkezni. -->
+      <div class="accounts-section" id="claudeAccountPanel">
+        <div class="accounts-section-title" data-i18n="claudeauth.title">Claude-fiók váltása</div>
+        <div class="claude-auth-box">
+          <p class="claude-auth-current" id="claudeAuthCurrent"></p>
+          <p class="claude-auth-lead" data-i18n="claudeauth.lead">Itt átválthatsz egy másik Claude-fiókra anélkül, hogy terminált kellene nyitnod. Erre akkor van szükség, ha az egyik fiók kerete elfogyott, vagy másik előfizetéssel akarsz dolgozni.</p>
+          <p class="claude-auth-warn" data-i18n="claudeauth.warn">Fontos: ez a fő asszisztens saját bejelentkezését cseréli le. A váltás alatt a futó munka megszakadhat, ezért olyankor csináld, amikor nem futtatsz semmit.</p>
+          <div class="claude-auth-actions">
+            <button class="btn-secondary" id="claudeAuthStartBtn" data-i18n="claudeauth.start">Bejelentkezés másik fiókkal</button>
+            <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:220px"
+                   data-i18n-placeholder="claudeauth.email_ph" placeholder="E-mail cím (nem kötelező)">
+          </div>
+
+          <div class="claude-auth-flow" id="claudeAuthFlow" hidden>
+            <ol class="claude-auth-steps">
+              <li>
+                <span data-i18n="claudeauth.step1">Nyisd meg ezt a linket, és jelentkezz be azzal a fiókkal, amit használni szeretnél:</span>
+                <div class="claude-auth-linkrow">
+                  <a id="claudeAuthLink" href="#" target="_blank" rel="noopener noreferrer" data-i18n="claudeauth.open_link">Bejelentkezési oldal megnyitása</a>
+                  <button class="btn-secondary btn-compact" id="claudeAuthCopyBtn" data-i18n="claudeauth.copy_link">Link másolása</button>
+                </div>
+              </li>
+              <li>
+                <span data-i18n="claudeauth.step2">A böngésző a végén ad egy kódot. Másold ki, és illeszd be ide:</span>
+                <div class="claude-auth-linkrow">
+                  <input class="input-sm" type="text" id="claudeAuthCode" style="flex:1;min-width:180px"
+                         data-i18n-placeholder="claudeauth.code_ph" placeholder="Ide illeszd be a kódot">
+                  <button class="btn-primary btn-compact" id="claudeAuthCodeBtn" data-i18n="claudeauth.send_code">Küldés</button>
+                </div>
+              </li>
+              <li data-i18n="claudeauth.step3">Ennyi. A többit magamtól észreveszem, nem kell semmit visszamásolnod.</li>
+            </ol>
+            <p class="claude-auth-state" id="claudeAuthState"></p>
+            <button class="btn-secondary btn-compact" id="claudeAuthCancelBtn" data-i18n="claudeauth.cancel">Mégsem</button>
+          </div>
+        </div>
+      </div>
+
       <div class="accounts-section">
         <div class="accounts-section-title" data-i18n="accounts.optional_title">Opcionális</div>
         <div class="accounts-list" id="accountsOptionalList"></div>

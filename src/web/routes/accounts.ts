@@ -10,7 +10,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret } from '../vault.js'
-import { json } from '../http-helpers.js'
+import { json, readBody } from '../http-helpers.js'
+import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity } from '../claude-auth-runner.js'
 import type { RouteContext } from './types.js'
 
 // GitHub already supports multiple accounts under the hood (.github-tokens.json
@@ -52,14 +53,56 @@ export function googleAccountNames(): { accounts: string[]; default: string | nu
 }
 
 export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
-  const { res, path, method } = ctx
+  const { req, res, path, method } = ctx
+
+  // --- Claude Code account switch (kanban #52) ------------------------------
+  // Everything under /api/accounts/claude is behind the same /api/ auth gate as
+  // the rest (auth-gate.ts: every /api/ path requires a principal), which is the
+  // only reason it is safe to expose a login here at all.
+  //
+  // Nothing on this path ever logs the authorize URL or the pasted code: the URL
+  // carries the PKCE challenge and state, the code is a one-time secret, and a
+  // dashboard log is not the place for either.
+
+  if (path === '/api/accounts/claude' && method === 'GET') {
+    json(res, loginStatus())
+    return true
+  }
+
+  if (path === '/api/accounts/claude/login' && method === 'POST') {
+    let body: { email?: unknown; useConsole?: unknown } = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
+    const result = startLogin({
+      email: typeof body.email === 'string' ? body.email.trim() : undefined,
+      useConsole: body.useConsole === true,
+    })
+    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 500)
+    return true
+  }
+
+  if (path === '/api/accounts/claude/login/code' && method === 'POST') {
+    let body: { code?: unknown } = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
+    if (typeof body.code !== 'string') { json(res, { ok: false, error: 'code required' }, 400); return true }
+    const result = submitCode(body.code)
+    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/accounts/claude/login/cancel' && method === 'POST') {
+    cancelLogin()
+    json(res, { ok: true, identity: readIdentity() })
+    return true
+  }
 
   if (path === '/api/accounts' && method === 'GET') {
     const githubAccounts = githubAccountNames()
     const google = googleAccountNames()
     json(res, {
       core: [
-        { id: 'claude-code', configured: true },
+        // Which login, not just "yes there is one": the whole point of #52 is
+        // that Boss can see and change the account from here.
+        { id: 'claude-code', configured: true, identity: readIdentity() },
         { id: 'telegram', configured: TELEGRAM_BOT_TOKEN.trim() !== '' },
       ],
       optional: [

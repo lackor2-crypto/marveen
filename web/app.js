@@ -13663,6 +13663,122 @@ async function loadAccountsPage() {
       })
     })
   } catch { /* ignore */ }
+  renderClaudeAccountPanel()
+}
+
+// --- Claude account switch (kanban #52) -------------------------------------
+// The flow the CLI actually imposes: it prints an authorize URL and then WAITS
+// for a code that Anthropic's page shows the user. There is no callback we can
+// intercept (the redirect goes to platform.claude.com, not to us), so one paste
+// is unavoidable -- but the waiting, the detecting and the confirming all happen
+// here instead of in a terminal, which is what the card was really about.
+let _claudeAuthPoll = null
+
+function _claudeAuthSetState(text, kind) {
+  const el = document.getElementById('claudeAuthState')
+  if (!el) return
+  el.textContent = text || ''
+  el.className = 'claude-auth-state' + (kind ? ' claude-auth-state-' + kind : '')
+}
+
+function _claudeAuthShowIdentity(identity) {
+  const el = document.getElementById('claudeAuthCurrent')
+  if (!el) return
+  if (identity && identity.loggedIn && identity.email) {
+    const plan = identity.subscriptionType ? ` (${identity.subscriptionType})` : ''
+    el.textContent = t('claudeauth.current', { email: identity.email }) + plan
+  } else {
+    el.textContent = t('claudeauth.current_none')
+  }
+}
+
+function _claudeAuthStopPoll() {
+  if (_claudeAuthPoll) { clearInterval(_claudeAuthPoll); _claudeAuthPoll = null }
+}
+
+async function _claudeAuthTick() {
+  let s
+  try {
+    const res = await fetch('/api/accounts/claude')
+    s = await res.json()
+  } catch { return }
+  _claudeAuthShowIdentity(s.identity)
+
+  const link = document.getElementById('claudeAuthLink')
+  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+
+  if (s.switched || s.phase === 'done') {
+    _claudeAuthStopPoll()
+    document.getElementById('claudeAuthFlow').hidden = true
+    _claudeAuthSetState('', null)
+    showToast(t('claudeauth.done', { email: (s.identity && s.identity.email) || '' }), 8000, true)
+    return
+  }
+  if (!s.active) {
+    _claudeAuthStopPoll()
+    if (s.error) _claudeAuthSetState(s.error, 'bad')
+    return
+  }
+  if (s.phase === 'starting') _claudeAuthSetState(t('claudeauth.state_starting'), null)
+  else if (s.phase === 'awaiting-code') _claudeAuthSetState(t('claudeauth.state_awaiting'), null)
+  else if (s.phase === 'working') _claudeAuthSetState(t('claudeauth.state_working'), null)
+  else if (s.phase === 'failed') _claudeAuthSetState(s.error || t('claudeauth.state_failed'), 'bad')
+}
+
+async function renderClaudeAccountPanel() {
+  const panel = document.getElementById('claudeAccountPanel')
+  if (!panel || panel.dataset.wired === '1') { if (panel) _claudeAuthTick(); return }
+  panel.dataset.wired = '1'
+
+  document.getElementById('claudeAuthStartBtn').addEventListener('click', async () => {
+    const email = document.getElementById('claudeAuthEmail').value.trim()
+    _claudeAuthSetState(t('claudeauth.state_starting'), null)
+    document.getElementById('claudeAuthFlow').hidden = false
+    try {
+      const res = await fetch('/api/accounts/claude/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(email ? { email } : {}),
+      })
+      const data = await res.json()
+      if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return }
+    } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad'); return }
+    _claudeAuthStopPoll()
+    _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
+    _claudeAuthTick()
+  })
+
+  document.getElementById('claudeAuthCopyBtn').addEventListener('click', () => {
+    const url = document.getElementById('claudeAuthLink').dataset.url
+    if (!url) return
+    navigator.clipboard?.writeText(url)
+    showToast(t('claudeauth.copied'), 3000, true)
+  })
+
+  document.getElementById('claudeAuthCodeBtn').addEventListener('click', async () => {
+    const input = document.getElementById('claudeAuthCode')
+    const code = input.value.trim()
+    if (!code) return
+    _claudeAuthSetState(t('claudeauth.state_working'), null)
+    try {
+      const res = await fetch('/api/accounts/claude/login/code', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await res.json()
+      if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return }
+      input.value = ''
+    } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad') }
+  })
+
+  document.getElementById('claudeAuthCancelBtn').addEventListener('click', async () => {
+    _claudeAuthStopPoll()
+    try { await fetch('/api/accounts/claude/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+    document.getElementById('claudeAuthFlow').hidden = true
+    _claudeAuthSetState('', null)
+    _claudeAuthTick()
+  })
+
+  _claudeAuthTick()
 }
 
 function renderOverviewUpstreamSync(upstreamSync) {
