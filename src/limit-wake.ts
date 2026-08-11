@@ -86,20 +86,31 @@ export const STARTUP_STALE_AFTER_MS = 30 * 60_000
 export const WAKE_MIN_USED_PCT = 50
 
 /**
- * The most recently crossed window boundary, or null if none has passed.
+ * The most recently crossed boundary that is WORTH waking for, or null.
  *
- * "Most recent" rather than "first": after a long silence both the five-hour
- * and the weekly boundary may lie in the past, and the newer one is the edge
- * that describes the current state. Windows without a usage figure are
- * ignored -- a boundary with no percentage behind it says nothing about
- * whether the agent was ever held up.
+ * "Worth waking for" is part of the selection, not a filter applied after it.
+ * The first version picked the most recent crossed boundary and only then
+ * checked its percentage -- so a weekly window sitting at 20% that rolled over
+ * an hour after an exhausted five-hour window SUPPRESSED the wake the exhausted
+ * window had earned (lackor3's review, 2026-08-11): windows =
+ * [5h{100%, 10:00}, 7d{20%, 11:00}] at 12:00 picked the weekly row, 20 < 50,
+ * and the agent stayed dead with a reset window. Exactly the failure this
+ * module exists to prevent, reintroduced by the ranking.
+ *
+ * Windows without a usage figure are ignored -- a boundary with no percentage
+ * behind it says nothing about whether the agent was ever held up.
  */
-export function crossedWindow(windows: LimitWindow[], now: number): { resetsAt: number; usedPct: number } | null {
+export function crossedWindow(
+  windows: LimitWindow[],
+  now: number,
+  minUsedPct: number = WAKE_MIN_USED_PCT,
+): { resetsAt: number; usedPct: number } | null {
   let best: { resetsAt: number; usedPct: number } | null = null
   for (const w of windows) {
     if (w.resetsAt === null || w.usedPct === null) continue
     if (!Number.isFinite(w.resetsAt) || !Number.isFinite(w.usedPct)) continue
     if (w.resetsAt > now) continue
+    if (w.usedPct < minUsedPct) continue
     if (!best || w.resetsAt > best.resetsAt) best = { resetsAt: w.resetsAt, usedPct: w.usedPct }
   }
   return best
@@ -112,10 +123,15 @@ export function decideWake(
   now: number,
   startupPass: boolean,
 ): WakeDecision | null {
-  if (now - state.lastWakeAt < MIN_WAKE_GAP_MS) return null
+  // A lastWakeAt in the FUTURE means the clock moved backwards (WSL2 resume
+  // drift, an NTP correction, a manual change). Subtracting it would make the
+  // gap negative and silence every wake until real time caught up -- possibly
+  // for days (lackor3's review). An impossible timestamp is treated as "never".
+  const sinceLastWake = state.lastWakeAt > now ? Number.POSITIVE_INFINITY : now - state.lastWakeAt
+  if (sinceLastWake < MIN_WAKE_GAP_MS) return null
 
   const crossed = crossedWindow(candidate.windows, now)
-  if (crossed && crossed.usedPct >= WAKE_MIN_USED_PCT && state.lastResetAt !== crossed.resetsAt) {
+  if (crossed && state.lastResetAt !== crossed.resetsAt) {
     // Data that arrived AFTER the boundary means the agent already took a turn
     // in the new window: the figures are current and nothing is stuck.
     const dataSinceReset = candidate.lastDataAt !== null && candidate.lastDataAt >= crossed.resetsAt
@@ -130,15 +146,34 @@ export function decideWake(
   return null
 }
 
-/** Advance an agent's state for a wake that was actually sent. */
-export function recordWake(state: WakeState, decision: WakeDecision, now: number): WakeState {
-  return {
-    lastWakeAt: now,
-    // A startup wake must not consume a pending boundary: the reset edge is
-    // still unreported, and the next tick should be free to fire for it once
-    // the gap has elapsed.
-    lastResetAt: decision.reason === 'limit-reset' ? decision.resetAt : state.lastResetAt,
-  }
+/**
+ * Advance state for a wake ATTEMPT, before anything is sent.
+ *
+ * This consumes the 30-minute gap and nothing else: it is the throttle that
+ * stops a failing send from being retried every tick. The boundary is NOT
+ * consumed here -- see recordWakeSuccess.
+ */
+export function recordWakeAttempt(state: WakeState, now: number): WakeState {
+  return { ...state, lastWakeAt: now }
+}
+
+/**
+ * Consume the boundary, once the wake is known to have been accepted.
+ *
+ * Split from the attempt after lackor3's review (2026-08-11) found that a
+ * single transient failure -- a 500 from the dashboard, a curl timeout, tmux
+ * hiccuping -- permanently swallowed the wake: the boundary was marked as
+ * reported before the send, and no new boundary can appear while the agent is
+ * asleep (an asleep agent takes no turn, so its snapshot never advances). The
+ * agent stayed silent until the next dashboard restart, in precisely the
+ * situation this feature exists for.
+ *
+ * A startup wake never consumes a boundary: the reset edge is still unreported
+ * and must remain free to fire once the gap elapses.
+ */
+export function recordWakeSuccess(state: WakeState, decision: WakeDecision): WakeState {
+  if (decision.reason !== 'limit-reset') return state
+  return { ...state, lastResetAt: decision.resetAt }
 }
 
 /** Batch form: the runner's whole decision, given every candidate at once. */

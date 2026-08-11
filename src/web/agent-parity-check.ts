@@ -73,25 +73,29 @@ function agentsMissingSharedSkills(): string[] {
   return missing
 }
 
-/** Compare the main agent's hooks with the fleet template; alert on drift.
- *  Returns the drift found (empty when the fleet is uniform). */
-export function checkAgentParity(): ParityDrift[] {
+/** Compare the main agent's hooks with the fleet template AND check that every
+ *  agent shares the skill library; alert on either kind of gap. Both lists are
+ *  empty when the fleet is uniform. */
+export function checkAgentParity(): { drift: ParityDrift[]; skillGaps: string[] } {
+  // The skill check does not depend on the hook comparison, so it runs even
+  // when the settings files are missing or unparseable -- an unreadable main
+  // settings.json used to take the skill-library check down with it, hiding a
+  // second, unrelated gap (lackor3's review).
+  const skillGaps = agentsMissingSharedSkills()
   const mainSettings = agentSettingsPath(MAIN_AGENT_ID)
-  if (!existsSync(mainSettings) || !existsSync(TEMPLATE_PATH)) return []
-
-  const mainScripts = hookScriptNames(readJsonHooks(mainSettings))
-  const templateScripts = hookScriptNames(readJsonHooks(TEMPLATE_PATH))
+  const comparable = existsSync(mainSettings) && existsSync(TEMPLATE_PATH)
+  const mainScripts = comparable ? hookScriptNames(readJsonHooks(mainSettings)) : new Set<string>()
+  const templateScripts = comparable ? hookScriptNames(readJsonHooks(TEMPLATE_PATH)) : new Set<string>()
   // A settings file we could not parse yields an empty set, which would read as
   // "everything is missing" and alert about the whole fleet. Say nothing rather
   // than cry wolf.
-  if (mainScripts.size === 0 || templateScripts.size === 0) return []
+  const canCompare = mainScripts.size > 0 && templateScripts.size > 0
 
-  const drift = findParityDrift(mainScripts, templateScripts)
-  const skillGaps = agentsMissingSharedSkills()
+  const drift = canCompare ? findParityDrift(mainScripts, templateScripts) : []
   const sig = signature(drift) + '|skills:' + skillGaps.slice().sort().join(',')
   if (drift.length === 0 && skillGaps.length === 0) {
     if (existsSync(MARKER_PATH)) rememberAlert('')
-    return []
+    return { drift, skillGaps }
   }
 
   logger.warn({ parityDrift: drift, skillGaps }, 'agent parity: a capability is not wired for every agent')
@@ -105,5 +109,5 @@ export function checkAgentParity(): ParityDrift[] {
     )
     rememberAlert(sig)
   }
-  return drift
+  return { drift, skillGaps }
 }

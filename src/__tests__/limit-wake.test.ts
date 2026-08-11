@@ -11,7 +11,8 @@ import {
   crossedWindow,
   decideWake,
   decideWakes,
-  recordWake,
+  recordWakeAttempt,
+  recordWakeSuccess,
   INITIAL_WAKE_STATE,
   MIN_WAKE_GAP_MS,
   STARTUP_STALE_AFTER_MS,
@@ -70,13 +71,34 @@ describe('decideWake', () => {
   it('fires at most once per boundary', () => {
     const c = candidate()
     const first = decideWake(c, INITIAL_WAKE_STATE, NOW, false)!
-    const after = recordWake(INITIAL_WAKE_STATE, first, NOW)
+    const after = recordWakeSuccess(recordWakeAttempt(INITIAL_WAKE_STATE, NOW), first)
     // Same boundary, a day later: the gap has long elapsed, the edge has not
     // moved -- still nothing to do.
     expect(decideWake(c, after, NOW + 24 * 3_600_000, false)).toBeNull()
     // A NEW boundary is a new edge.
     const nextWindow = candidate({ windows: [{ usedPct: 100, resetsAt: NOW + 5 * 3_600_000 }] })
     expect(decideWake(nextWindow, after, NOW + 6 * 3_600_000, false)?.reason).toBe('limit-reset')
+  })
+
+  it('a calm weekly window cannot suppress an exhausted five-hour reset', () => {
+    // lackor3's review: ranking by recency alone picked the weekly row, whose
+    // 20% failed the threshold, and the dead agent stayed dead.
+    const both = candidate({
+      windows: [
+        { usedPct: 100, resetsAt: NOW - 2 * 3_600_000 }, // five-hour, exhausted
+        { usedPct: 20, resetsAt: NOW - 3_600_000 },      // weekly, calm, more recent
+      ],
+    })
+    expect(decideWake(both, INITIAL_WAKE_STATE, NOW, false)).toEqual({
+      agent: 'someaccount', reason: 'limit-reset', resetAt: NOW - 2 * 3_600_000,
+    })
+  })
+
+  it('survives a clock that jumped backwards', () => {
+    // A lastWakeAt in the future would otherwise block every wake until real
+    // time caught up -- days, after a suspend-resume drift.
+    const future = { lastWakeAt: NOW + 7 * 24 * 3_600_000, lastResetAt: null }
+    expect(decideWake(candidate(), future, NOW, false)?.reason).toBe('limit-reset')
   })
 
   it('honours the per-agent gap whatever the reason', () => {
@@ -109,15 +131,30 @@ describe('decideWake', () => {
   })
 })
 
-describe('recordWake', () => {
-  it('consumes the boundary for a limit-reset wake', () => {
-    const s = recordWake(INITIAL_WAKE_STATE, { agent: 'a', reason: 'limit-reset', resetAt: NOW - 60_000 }, NOW)
-    expect(s).toEqual({ lastWakeAt: NOW, lastResetAt: NOW - 60_000 })
+describe('recordWakeAttempt / recordWakeSuccess', () => {
+  const resetDecision = { agent: 'a', reason: 'limit-reset' as const, resetAt: NOW - 60_000 }
+
+  it('the attempt takes the gap but not the boundary', () => {
+    expect(recordWakeAttempt(INITIAL_WAKE_STATE, NOW)).toEqual({ lastWakeAt: NOW, lastResetAt: null })
+  })
+
+  it('only success consumes the boundary', () => {
+    const attempted = recordWakeAttempt(INITIAL_WAKE_STATE, NOW)
+    expect(recordWakeSuccess(attempted, resetDecision)).toEqual({ lastWakeAt: NOW, lastResetAt: NOW - 60_000 })
+  })
+
+  it('a failed send leaves the boundary for the next attempt (the swallowed-wake bug)', () => {
+    const c = candidate()
+    const attempted = recordWakeAttempt(INITIAL_WAKE_STATE, NOW) // send then fails: no success call
+    // Within the gap: throttled, as intended.
+    expect(decideWake(c, attempted, NOW + 60_000, false)).toBeNull()
+    // After the gap: the same boundary is retried rather than lost forever.
+    expect(decideWake(c, attempted, NOW + MIN_WAKE_GAP_MS + 1, false)?.resetAt).toBe(NOW - 60_000)
   })
 
   it('leaves a pending boundary unconsumed for a startup wake', () => {
     const prev = { lastWakeAt: 0, lastResetAt: 1234 }
-    const s = recordWake(prev, { agent: 'a', reason: 'startup', resetAt: null }, NOW)
+    const s = recordWakeSuccess(recordWakeAttempt(prev, NOW), { agent: 'a', reason: 'startup', resetAt: null })
     expect(s).toEqual({ lastWakeAt: NOW, lastResetAt: 1234 })
   })
 })

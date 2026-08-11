@@ -1091,12 +1091,30 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     if (SUBAGENT_INBOX_TEE && hasChannel && agentProvider === 'telegram' && name !== MAIN_AGENT_ID) {
       try {
         const pluginCacheDir = join(homedir(), '.claude', 'plugins', 'cache', 'claude-plugins-official', 'telegram')
+        // NUMERIC compare, not lexicographic: string sort puts "0.0.6" above
+        // "0.0.10", so the day the plugin reaches 0.0.10 every agent would pin
+        // itself to the older build, permanently and silently (lackor3's review).
         const versions = existsSync(pluginCacheDir)
-          ? readdirSync(pluginCacheDir).filter(v => /^\d+\.\d+\.\d+$/.test(v)).sort().reverse()
+          ? readdirSync(pluginCacheDir)
+              .filter(v => /^\d+\.\d+\.\d+$/.test(v))
+              .sort((a, b) => {
+                const pa = a.split('.').map(Number)
+                const pb = b.split('.').map(Number)
+                return (pb[0] - pa[0]) || (pb[1] - pa[1]) || (pb[2] - pa[2])
+              })
           : []
         const pluginVersion = versions[0] ?? '0.0.6'
         const pluginDir = join(pluginCacheDir, pluginVersion)
         const bunBin = join(homedir(), '.bun', 'bin', 'bun')
+        // Committing to mcp.json ALSO disables the marketplace plugin path below,
+        // so writing a config that points at something absent leaves the agent
+        // with neither: no bun starts, no plugin loads, and it goes deaf to
+        // Telegram without a single error (lackor3's review). Verify the target
+        // exists before taking that path; otherwise fall through to --channels,
+        // which is exactly what the catch below already does.
+        if (!existsSync(pluginDir) || !existsSync(bunBin)) {
+          throw new Error(`telegram plugin path missing (pluginDir=${existsSync(pluginDir)}, bun=${existsSync(bunBin)})`)
+        }
         // The agent working-dir .mcp.json (NOT .claude/mcp.json) is what Claude Code
         // loads as project-scope MCP config. An empty .mcp.json already present would
         // override .claude/mcp.json, so write to the same file Claude Code reads.

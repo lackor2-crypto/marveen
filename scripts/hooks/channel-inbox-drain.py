@@ -56,8 +56,13 @@ def _is_main_session(payload):
     main_id = os.environ.get("MAIN_AGENT_ID", "")
     if not cwd or not main_id:
         return False
-    agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(cwd))), "agents")
-    return not cwd.startswith(agents_dir)
+    # ONE dirname: a sub-agent runs in <install>/agents/<name>, so its parent IS
+    # the agents dir. Three dirnames walked up to the install's grandparent and
+    # produced a path no cwd can start with, so the fallback answered "main" for
+    # EVERY agent -- with ledger_lib unimportable, no sub-agent would ever have
+    # drained its inbox, silently (lackor3's review, 2026-08-11).
+    agents_dir = os.path.dirname(cwd)
+    return os.path.basename(agents_dir) != "agents"
 
 
 def _state_dir(payload):
@@ -106,7 +111,14 @@ def _format_entry(entry):
     content = params.get("content")
     if content is None:
         content = ""
-    body = str(content).replace("</channel>", "")
+    # The sender controls this text, so it must not be able to forge structure.
+    # Stripping the literal "</channel>" was not enough (lackor3's review):
+    # "</Channel>" and "</channel >" walked straight through, and an unescaped
+    # "<" let a sender open a FAKE <channel ... user="someone-else"> block and
+    # impersonate another chat inside the model's view. Escaping every "<" costs
+    # nothing in readability -- the model reads "&lt;" fine -- and removes the
+    # whole class.
+    body = str(content).replace("&", "&amp;").replace("<", "&lt;")
 
     attrs = [('source', 'telegram')]
     for key in ("chat_id", "message_id", "user", "ts", "image_path"):
@@ -118,6 +130,16 @@ def _format_entry(entry):
 
     attr_text = " ".join('%s="%s"' % (key, _attr(value)) for key, value in attrs)
     return "<channel %s>%s</channel>" % (attr_text, body)
+
+
+# Ceilings on one drained batch. Nothing else caps this: the tee only appends,
+# and the watcher only nudges -- so a sub-agent that takes no turn for two weeks
+# in a busy group would have poured thousands of <channel> blocks into a SINGLE
+# prompt, blowing its context and burning the window in one shot (lackor3's
+# review). The newest messages are the ones worth keeping; older ones are
+# dropped with a visible line so the loss is never silent.
+MAX_ENTRIES = 40
+MAX_BODY_CHARS = 60000
 
 
 def _read_entries(path):
@@ -136,6 +158,24 @@ def _read_entries(path):
     return out
 
 
+def _cap_entries(entries):
+    """Trim a batch to the newest MAX_ENTRIES / MAX_BODY_CHARS.
+
+    Returns (kept, dropped). Keeps the TAIL: when a backlog has to be cut, the
+    most recent instructions are the ones the owner is still waiting on.
+    """
+    dropped = 0
+    if len(entries) > MAX_ENTRIES:
+        dropped = len(entries) - MAX_ENTRIES
+        entries = entries[-MAX_ENTRIES:]
+    total = sum(len(e) for e in entries)
+    while len(entries) > 1 and total > MAX_BODY_CHARS:
+        total -= len(entries[0])
+        entries = entries[1:]
+        dropped += 1
+    return entries, dropped
+
+
 def drain(payload):
     state_dir = _state_dir(payload)
     if not state_dir or not os.path.isdir(state_dir):
@@ -152,7 +192,11 @@ def drain(payload):
             pass
         return ""
 
-    text = PREFIX % len(entries) + "\n" + "\n".join(entries)
+    entries, dropped = _cap_entries(entries)
+    header = PREFIX % len(entries)
+    if dropped:
+        header += "\n[Figyelem: %d regebbi uzenet ki lett hagyva, hogy a koteg elferjen. A legfrissebbek maradtak.]" % dropped
+    text = header + "\n" + "\n".join(entries)
     sys.stdout.write(text)
     sys.stdout.write("\n")
     os.unlink(claimed)

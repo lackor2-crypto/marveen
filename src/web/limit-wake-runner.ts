@@ -24,7 +24,8 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { sendAlert } from './channel-monitor.js'
 import {
   decideWakes,
-  recordWake,
+  recordWakeAttempt,
+  recordWakeSuccess,
   INITIAL_WAKE_STATE,
   type LimitWindow,
   type WakeCandidate,
@@ -48,6 +49,22 @@ export const LIMIT_WAKE_INTERVAL_MS = 20_000
 
 const STATE_PATH = join(STORE_DIR, 'limit-wake-state.json')
 const WAKE_SCRIPT = join(PROJECT_ROOT, 'scripts', 'agent-wake.sh')
+
+// The in-memory copy is the AUTHORITY; the file is best-effort persistence.
+//
+// It used to be the other way round -- every tick re-read the file -- and
+// lackor3's review found the consequence: if the store is not writable (full
+// disk, read-only mount, a permissions slip), writeStates only warns, the file
+// keeps whatever it had, and lastWakeAt stays 0 forever. The 30-minute gap then
+// never engages and the watcher spawns a wake plus an owner notification every
+// 20 seconds, indefinitely. Memory-first degrades the same failure into "the
+// throttle is lost across restarts", which is survivable.
+let states: Record<string, WakeState> | null = null
+
+function loadStates(): Record<string, WakeState> {
+  if (states === null) states = readStates()
+  return states
+}
 
 function readStates(): Record<string, WakeState> {
   try {
@@ -186,6 +203,7 @@ let startupPassDone = false
 /** Test seam. */
 export function _resetLimitWakeForTest(): void {
   startupPassDone = false
+  states = null
 }
 
 async function tick(): Promise<void> {
@@ -195,30 +213,40 @@ async function tick(): Promise<void> {
   try {
     const now = Date.now()
     const startupPass = !startupPassDone
-    startupPassDone = true
 
     const candidates = collectCandidates()
-    const states = readStates()
-    const proposed = decideWakes(candidates, states, now, startupPass)
-    if (proposed.length === 0) return
+    const current = loadStates()
+    const proposed = decideWakes(candidates, current, now, startupPass)
+    if (proposed.length === 0) {
+      startupPassDone = true
+      return
+    }
 
     // Only now does anything cost a process spawn. An agent with no session is
     // dropped WITHOUT recording anything: its boundary stays unconsumed, so the
     // wake still happens once the session is back, instead of being silently
     // swallowed while it was down.
+    let startupDeferred = false
     const decisions = proposed.filter((d: WakeDecision) => {
       if (hasLiveSession(d.agent)) return true
+      // The startup pass fires ONCE, so a session that is still coming up (45s
+      // after a boot is not always enough) would lose its wake entirely -- the
+      // limit-reset branch keeps its trigger, the startup branch had nothing to
+      // keep. Defer the whole pass instead (lackor3's review).
+      if (d.reason === 'startup') startupDeferred = true
       logger.info({ limitWake: true, agent: d.agent, reason: d.reason }, 'limit-wake: no session to wake; leaving the trigger pending')
       return false
     })
+    startupPassDone = !startupDeferred
     if (decisions.length === 0) return
 
-    // State advances BEFORE the send: a script failure must not leave the
-    // watcher free to retry on every tick forever. The 30-minute gap is the
-    // retry cadence, deliberately.
-    const next = { ...states }
-    for (const d of decisions) next[d.agent] = recordWake(states[d.agent] ?? INITIAL_WAKE_STATE, d, now)
-    writeStates(next)
+    // The ATTEMPT is recorded before the send -- that is the throttle, so a
+    // failing send cannot be retried every tick. The boundary is consumed only
+    // after the script reports the wake accepted (recordWakeSuccess below).
+    for (const d of decisions) {
+      states![d.agent] = recordWakeAttempt(states![d.agent] ?? INITIAL_WAKE_STATE, now)
+    }
+    writeStates(states!)
 
     // Grouped by reason: the two wakes say different things, and a batch can
     // legitimately contain both (one account's window rolled over in the same
@@ -229,9 +257,14 @@ async function tick(): Promise<void> {
       logger.info({ limitWake: true, reason, agents }, 'limit-wake: waking account agents')
       const ok = await runWakeScript(agents, wakeMessage(reason))
       if (ok) {
+        // Only a wake the script actually delivered consumes the boundary.
+        for (const d of decisions.filter((x: WakeDecision) => x.reason === reason)) {
+          states![d.agent] = recordWakeSuccess(states![d.agent] ?? INITIAL_WAKE_STATE, d)
+        }
+        writeStates(states!)
         notifyOwner(reason, agents)
       } else {
-        logger.warn({ limitWake: true, reason, agents }, 'limit-wake: wake attempt did not complete cleanly; next attempt after the cooldown')
+        logger.warn({ limitWake: true, reason, agents }, 'limit-wake: wake attempt did not complete cleanly; the boundary stays unconsumed, retry after the cooldown')
       }
     }
   } catch (err) {

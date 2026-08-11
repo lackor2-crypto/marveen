@@ -551,8 +551,13 @@ export function startWebServer(port = 3420): http.Server {
       // agent has BEYOND it means the fleet is drifting apart again (Boss,
       // 2026-08-11: "nincs ilyen hogy az egyik igy fog viselkedni a masik meg
       // ugy"). Reported, never silently patched -- the fix belongs in the repo.
-      const parityDrift = checkAgentParity()
-      if (parityDrift.length === 0) logger.info('Agent parity verified: every agent-facing hook is fleet-wide')
+      // Both halves must be clean before claiming parity: the log used to say
+      // "verified" while agents were running without the shared skill library,
+      // because only the hook drift was consulted (lackor3's review).
+      const parity = checkAgentParity()
+      if (parity.drift.length === 0 && parity.skillGaps.length === 0) {
+        logger.info('Agent parity verified: every agent shares the same hooks and skill library')
+      }
     } catch (err) {
       logger.warn({ err }, 'Agent hook backfill skipped')
     }
