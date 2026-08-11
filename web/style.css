@@ -9208,3 +9208,19 @@ body {
   border-radius: 2px;
   background: var(--danger, #dc2626);
 }
+
+/* Compact toolbar controls (approvals filters + search).
+   The class was used in the markup but never defined, so these four controls
+   rendered at the browser default 13.33px. Anything under 16px makes iOS Safari
+   ZOOM the page when the field takes focus, and the owner works from a phone --
+   a search box you have to pinch back out of is a search box you stop using.
+   16px is the smallest size that does not trigger it. */
+.input-sm {
+  font-size: 16px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input, var(--bg-card));
+  color: var(--text);
+  max-width: 100%;
+}

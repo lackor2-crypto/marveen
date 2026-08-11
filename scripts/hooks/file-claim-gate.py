@@ -70,12 +70,25 @@ def post_claim(install_dir, body, method="POST"):
 
 
 def resolve_agent(install_dir, cwd):
-    """(agent id, own-directory prefix) for the process that is editing."""
-    agents_root = os.path.join(install_dir, "agents") + os.sep
-    abs_cwd = os.path.abspath(cwd)
-    if abs_cwd.startswith(agents_root):
-        agent = abs_cwd[len(agents_root):].split(os.sep)[0]
-        return agent, os.path.join("agents", agent) + os.sep
+    """(agent id, own-directory prefix) for the process that is editing.
+
+    Both homes an agent can have are recognised: <install>/agents/<name> and its
+    own worktree <install>/.worktrees/<name>. Missing the worktree case was a
+    real hole (lackor3's second review): the agent was then taken for the MAIN
+    agent, which claimed files under the wrong name, walked straight through the
+    main agent's own claims on "own" grounds, and -- worst -- released ALL of the
+    main agent's claims at the end of every turn.
+    """
+    abs_cwd = os.path.realpath(cwd)
+    for parent, owns_dir in ((os.path.join(install_dir, "agents"), True),
+                             (os.path.join(install_dir, ".worktrees"), False)):
+        root = parent + os.sep
+        if abs_cwd.startswith(root):
+            agent = abs_cwd[len(root):].split(os.sep)[0]
+            # A worktree is a separate checkout: nothing in the live tree is
+            # "its own directory", so it gets no exemption.
+            own = os.path.join("agents", agent) + os.sep if owns_dir else None
+            return agent, own
     main_id = os.environ.get("MAIN_AGENT_ID") or read_env_value(os.path.join(install_dir, ".env"), "MAIN_AGENT_ID")
     return main_id, None
 
@@ -110,8 +123,12 @@ def main():
 
     # The install root is derived from THIS script's location, never a fixed
     # path: Marveen is open source and $HOME/marveen is one machine's layout.
-    install_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    abs_path = os.path.abspath(os.path.join(cwd, file_path))
+    install_dir = os.path.realpath(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    # realpath, not abspath: the agents' .claude/skills are SYMLINKS to one
+    # shared library, so two agents editing the same physical file arrived here
+    # with two different paths and never collided (lackor3's second review).
+    # Resolving first gives one key per real file.
+    abs_path = os.path.realpath(os.path.join(cwd, file_path))
     if not abs_path.startswith(install_dir + os.sep):
         allow()  # outside the shared checkout: not shared work
     rel_path = os.path.relpath(abs_path, install_dir)
@@ -134,7 +151,15 @@ def main():
 
     data = post_claim(install_dir, {"path": rel_path, "agent": agent})
     if data is None:
-        allow()  # registry unreachable -> never block work
+        # Fail open, but not silently: a registry that is down means the whole
+        # protection is off, and "only visible in a log" is how the parity bug
+        # stayed invisible for weeks. One line per occurrence, best-effort.
+        try:
+            with open(os.path.join(install_dir, "store", "file-claim-gate.log"), "a") as f:
+                f.write("%s fail-open agent=%s path=%s\n" % (__import__("datetime").datetime.now().isoformat(timespec="seconds"), agent, rel_path))
+        except OSError:
+            pass
+        allow()
 
     if data.get("allowed") is False:
         deny(

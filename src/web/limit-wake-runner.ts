@@ -198,11 +198,21 @@ function runWakeScript(agents: string[], message: string): Promise<boolean> {
   })
 }
 
-let startupPassDone = false
+// The startup trigger is consumed PER AGENT and only inside a short window
+// after the process came up. A single global "done" flag was the bug lackor3
+// found in the second review: one account with no tmux session kept the flag
+// permanently un-set, which left the startup branch armed forever and re-woke
+// every other idle account about twice an hour. Two independent bounds now
+// close that: an agent is struck off once its startup wake has been attempted,
+// and the whole window expires regardless.
+const STARTUP_WINDOW_MS = 5 * 60_000
+let startupDeadline: number | null = null
+const startupDone = new Set<string>()
 
 /** Test seam. */
 export function _resetLimitWakeForTest(): void {
-  startupPassDone = false
+  startupDeadline = null
+  startupDone.clear()
   states = null
 }
 
@@ -212,32 +222,33 @@ async function tick(): Promise<void> {
   // dashboard down over a missing tmux binary.
   try {
     const now = Date.now()
-    const startupPass = !startupPassDone
+    if (startupDeadline === null) startupDeadline = now + STARTUP_WINDOW_MS
+    const startupOpen = now < startupDeadline
+    const startupPassFor = (agent: string) => startupOpen && !startupDone.has(agent)
 
     const candidates = collectCandidates()
     const current = loadStates()
-    const proposed = decideWakes(candidates, current, now, startupPass)
-    if (proposed.length === 0) {
-      startupPassDone = true
-      return
-    }
+    const proposed = decideWakes(candidates, current, now, startupPassFor)
+    if (proposed.length === 0) return
 
     // Only now does anything cost a process spawn. An agent with no session is
     // dropped WITHOUT recording anything: its boundary stays unconsumed, so the
     // wake still happens once the session is back, instead of being silently
     // swallowed while it was down.
-    let startupDeferred = false
     const decisions = proposed.filter((d: WakeDecision) => {
-      if (hasLiveSession(d.agent)) return true
-      // The startup pass fires ONCE, so a session that is still coming up (45s
-      // after a boot is not always enough) would lose its wake entirely -- the
-      // limit-reset branch keeps its trigger, the startup branch had nothing to
-      // keep. Defer the whole pass instead (lackor3's review).
-      if (d.reason === 'startup') startupDeferred = true
+      if (hasLiveSession(d.agent)) {
+        // Struck off here rather than after the send: whether the script
+        // succeeds or not, this agent has had its one startup evaluation.
+        if (d.reason === 'startup') startupDone.add(d.agent)
+        return true
+      }
+      // No session yet (45s after a boot is not always enough for the fleet to
+      // come up). The agent keeps its startup slot so a later tick can retry --
+      // but only until the window closes, which is what stops this from
+      // becoming a permanent re-wake loop.
       logger.info({ limitWake: true, agent: d.agent, reason: d.reason }, 'limit-wake: no session to wake; leaving the trigger pending')
       return false
     })
-    startupPassDone = !startupDeferred
     if (decisions.length === 0) return
 
     // The ATTEMPT is recorded before the send -- that is the throttle, so a

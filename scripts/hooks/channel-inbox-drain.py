@@ -16,6 +16,7 @@ agent. All errors are fail-open so prompt submission is never blocked.
 import glob
 import html
 import json
+import re
 import os
 import sys
 import tempfile
@@ -61,8 +62,10 @@ def _is_main_session(payload):
     # produced a path no cwd can start with, so the fallback answered "main" for
     # EVERY agent -- with ledger_lib unimportable, no sub-agent would ever have
     # drained its inbox, silently (lackor3's review, 2026-08-11).
-    agents_dir = os.path.dirname(cwd)
-    return os.path.basename(agents_dir) != "agents"
+    parent = os.path.basename(os.path.dirname(os.path.normpath(cwd)))
+    # "agents/<name>" and ".worktrees/<name>" are both sub-agent homes; anything
+    # else is the install root, i.e. the main agent.
+    return parent not in ("agents", ".worktrees")
 
 
 def _state_dir(payload):
@@ -111,14 +114,16 @@ def _format_entry(entry):
     content = params.get("content")
     if content is None:
         content = ""
-    # The sender controls this text, so it must not be able to forge structure.
-    # Stripping the literal "</channel>" was not enough (lackor3's review):
-    # "</Channel>" and "</channel >" walked straight through, and an unescaped
-    # "<" let a sender open a FAKE <channel ... user="someone-else"> block and
-    # impersonate another chat inside the model's view. Escaping every "<" costs
-    # nothing in readability -- the model reads "&lt;" fine -- and removes the
-    # whole class.
-    body = str(content).replace("&", "&amp;").replace("<", "&lt;")
+    # The sender controls this text, so it must not be able to forge structure:
+    # an unescaped "<" let a sender open a FAKE <channel ... user="someone-else">
+    # block and impersonate another chat inside the model's view.
+    #
+    # Only TAG-LIKE "<" is neutralised, not every "<". Escaping all of them was
+    # correct but unfaithful (lackor3's second review): the owner writing
+    # "if a < b" or pasting code saw it come back as "a &lt; b", and the agent
+    # would quote it that way. A "<" followed by a letter, "/" or "!" is markup;
+    # a "<" followed by a space or a digit is arithmetic.
+    body = re.sub(r"<(?=[A-Za-z/!])", "&lt;", str(content))
 
     attrs = [('source', 'telegram')]
     for key in ("chat_id", "message_id", "user", "ts", "image_path"):

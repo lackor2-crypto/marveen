@@ -27,6 +27,19 @@
  *  before anyone is blocked for real. */
 export const CLAIM_TTL_MS = 20 * 60_000
 
+/**
+ * Most files one agent may hold at once.
+ *
+ * Not a performance limit -- a safety one. The gate promises to fail OPEN when
+ * it is unsure, but a registry full of claims is not unsure: it answers "held"
+ * with confidence, and a few thousand claims from one runaway (or injected)
+ * agent would stop every other agent from editing anything for the whole TTL
+ * (lackor3's second review). Past the ceiling, claims simply stop being
+ * recorded, so the protection degrades to "no protection" rather than to
+ * "nobody may work".
+ */
+export const MAX_CLAIMS_PER_AGENT = 40
+
 /** A live claim on one repo-relative path. */
 export interface FileClaim {
   path: string

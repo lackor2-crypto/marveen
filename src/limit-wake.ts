@@ -177,15 +177,26 @@ export function recordWakeSuccess(state: WakeState, decision: WakeDecision): Wak
 }
 
 /** Batch form: the runner's whole decision, given every candidate at once. */
+/**
+ * Batch form. `startupPass` is asked PER AGENT, not once for the whole sweep.
+ *
+ * It used to be a single boolean the runner kept in a global flag, and lackor3's
+ * second review found what that costs: one account with no tmux session keeps
+ * proposing a startup wake, the flag can never be marked done, and the startup
+ * branch therefore stays armed forever -- re-waking every OTHER idle account
+ * about twice an hour, each time a paid turn and an owner notification. That is
+ * the "state-based waking pings an idle account forever" failure this module's
+ * header warns about, returning through the back door.
+ */
 export function decideWakes(
   candidates: WakeCandidate[],
   states: Record<string, WakeState>,
   now: number,
-  startupPass: boolean,
+  startupPass: (agent: string) => boolean,
 ): WakeDecision[] {
   const out: WakeDecision[] = []
   for (const c of candidates) {
-    const decision = decideWake(c, states[c.agent] ?? INITIAL_WAKE_STATE, now, startupPass)
+    const decision = decideWake(c, states[c.agent] ?? INITIAL_WAKE_STATE, now, startupPass(c.agent))
     if (decision) out.push(decision)
   }
   return out

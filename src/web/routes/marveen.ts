@@ -14,6 +14,7 @@ import { readBody, json, serveFile } from '../http-helpers.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
 import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
+import { isStale } from '../../rate-limit-status.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
 import type { RouteContext } from './types.js'
@@ -27,7 +28,13 @@ import type { RouteContext } from './types.js'
 export function modelIdFromStatuslineLabel(label: string): string | null {
   const slug = label.trim().toLowerCase().replace(/\s+/g, '-')
   if (!slug) return null
-  return MODEL_ALIASES[slug] ?? MODEL_ALIASES[slug.split('-')[0]] ?? null
+  // EXACT alias only. Falling back to the family word ('sonnet-4.5' -> 'sonnet')
+  // resolved to whatever version the alias map happens to point at today, so a
+  // statusline reading "Sonnet 4.5" would have been reported as Sonnet 5 -- with
+  // Sonnet 5's price attached, shown to the owner as fact (lackor3's second
+  // review). An unknown label is better answered with "unknown" than with a
+  // confident wrong version.
+  return MODEL_ALIASES[slug] ?? null
 }
 
 /**
@@ -42,9 +49,14 @@ export function modelIdFromStatuslineLabel(label: string): string | null {
 function getActiveMarveenModel(): string {
   const fromTranscript = readActiveModelFromProjectDir(PROJECT_ROOT)
   if (fromTranscript) return fromTranscript
-  const snapshotLabel = readRateLimitSnapshot(MAIN_AGENT_ID)?.model
-  const fromSnapshot = snapshotLabel ? modelIdFromStatuslineLabel(snapshotLabel) : null
-  return fromSnapshot ?? 'unknown'
+  // Only a FRESH snapshot may answer. Without the freshness bound this happily
+  // reported the model the agent used hours ago -- and, worse, its price -- as
+  // the current one, which is the same class of quiet-wrong-number bug this
+  // fallback was added to fix (lackor3's second review). The 30-minute line is
+  // the one the Overview already uses to stop trusting a reading.
+  const snap = readRateLimitSnapshot(MAIN_AGENT_ID)
+  if (!snap || isStale(snap.updatedAt, Date.now())) return 'unknown'
+  return (snap.model ? modelIdFromStatuslineLabel(snap.model) : null) ?? 'unknown'
 }
 
 // Pure identity-core of the /api/marveen payload: the brand-relevant fields the

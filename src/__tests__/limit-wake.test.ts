@@ -160,6 +160,22 @@ describe('recordWakeAttempt / recordWakeSuccess', () => {
 })
 
 describe('decideWakes', () => {
+  it('asks about the startup pass per agent, so one stuck agent cannot keep it open for the rest', () => {
+    // The regression lackor3 found: a global flag stayed un-set because of ONE
+    // agent, and every other idle account got re-woken forever.
+    const stale = { windows: [], lastDataAt: NOW - 3 * 3_600_000 }
+    const out = decideWakes(
+      [
+        { agent: 'no-session', ...stale },
+        { agent: 'already-done', ...stale },
+      ],
+      {},
+      NOW,
+      (agent) => agent === 'no-session',
+    )
+    expect(out.map(d => d.agent)).toEqual(['no-session'])
+  })
+
   it('decides per agent and skips the ones with nothing to do', () => {
     const out = decideWakes(
       [
@@ -168,7 +184,7 @@ describe('decideWakes', () => {
       ],
       { 'reset-account': INITIAL_WAKE_STATE },
       NOW,
-      false,
+      () => false,
     )
     expect(out.map(d => d.agent)).toEqual(['reset-account'])
   })

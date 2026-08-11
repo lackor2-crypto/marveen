@@ -68,6 +68,7 @@ import { tryHandleSetupWizard } from './web/routes/setup-wizard.js'
 import { tryHandleStatus } from './web/routes/status.js'
 import { tryHandleAutonomy } from './web/routes/autonomy.js'
 import { tryHandleFileClaims } from './web/routes/file-claims.js'
+import { sweepExpiredClaims } from './web/file-claims-store.js'
 import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/approvals.js'
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
@@ -459,6 +460,10 @@ export function startWebServer(port = 3420): http.Server {
   // and keeps auth_sessions from growing unboundedly on any instance.
   const authSessionSweepInterval = setInterval(() => {
     try {
+      // File claims decay by timestamp, so a stale row never affects a decision
+      // -- but nothing deleted them unless someone opened the dashboard page.
+      const sweptClaims = sweepExpiredClaims()
+      if (sweptClaims > 0) logger.info({ swept: sweptClaims }, 'Expired file claims swept')
       const swept = sweepExpiredSessions()
       if (swept > 0) logger.info({ swept }, 'Expired auth sessions swept')
       const sweptKeys = sweepExpiredDeviceKeys()

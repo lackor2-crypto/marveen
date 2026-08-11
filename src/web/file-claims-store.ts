@@ -6,8 +6,12 @@
 // better-sqlite3's single-writer locking is exactly the serialisation this
 // needs -- two agents claiming the same path in the same millisecond must not
 // both win.
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { PROJECT_ROOT } from '../config.js'
+import { logger } from '../logger.js'
 import { getDb } from '../db.js'
-import { CLAIM_TTL_MS, decideClaim, type ClaimDecision, type FileClaim } from '../file-claims.js'
+import { CLAIM_TTL_MS, MAX_CLAIMS_PER_AGENT, decideClaim, type ClaimDecision, type FileClaim } from '../file-claims.js'
 
 let ensured = false
 
@@ -61,19 +65,41 @@ export function claimPath(
   ttlMs: number = CLAIM_TTL_MS,
 ): ClaimDecision {
   ensureTable()
+  // A claim for a file that does not exist is not coordination, it is noise --
+  // and it is how a runaway (or injected) agent could carpet the repo with
+  // claims. Refusing them costs nothing legitimate: you cannot be editing a
+  // path that is not there.
+  if (!existsSync(join(PROJECT_ROOT, path))) {
+    return { allowed: true, reason: 'free' }
+  }
   const db = getDb()
+  // IMMEDIATE, not the default DEFERRED: with two dashboard processes, two
+  // deferred transactions can both read "free" and then collide on write, one
+  // gets SQLITE_BUSY, the route answers "allowed" -- and both agents edit
+  // (lackor3's second review). An immediate transaction takes the write lock up
+  // front, so the loser waits instead of being told it won.
   const tx = db.transaction((): ClaimDecision => {
     const row = db.prepare('SELECT path, agent, claimed_at, note FROM file_claims WHERE path = ?').get(path) as
       { path: string; agent: string; claimed_at: number; note: string | null } | undefined
     const decision = decideClaim(row ? rowToClaim(row) : null, agent, now, ttlMs)
     if (decision.allowed) {
+      // Ceiling per agent: beyond this the claims stop being a working set and
+      // start being a fleet-wide lockout, and the gate's fail-open promise is
+      // worthless because the registry answers "held" with full confidence.
+      const live = db.prepare('SELECT COUNT(*) AS n FROM file_claims WHERE agent = ? AND claimed_at > ? AND path <> ?')
+        .get(agent, now - ttlMs, path) as { n: number }
+      if (live.n >= MAX_CLAIMS_PER_AGENT) {
+        logger.warn({ agent, path, live: live.n, cap: MAX_CLAIMS_PER_AGENT },
+          'file-claims: agent is over the claim ceiling; allowing the edit without recording a claim')
+        return { allowed: true, reason: 'free' }
+      }
       db.prepare(
         `INSERT INTO file_claims (path, agent, claimed_at, note) VALUES (?, ?, ?, ?)
          ON CONFLICT(path) DO UPDATE SET agent = excluded.agent, claimed_at = excluded.claimed_at, note = excluded.note`,
       ).run(path, agent, now, note)
     }
     return decision
-  })
+  }).immediate
   return tx()
 }
 

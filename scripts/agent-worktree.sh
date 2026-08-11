@@ -40,11 +40,25 @@ list_worktrees() {
 
 remove_worktree() {
   local agent="$1"
+  local force="${2:-}"
   local dir="$WORKTREE_ROOT/$agent"
   [ -d "$dir" ] || { echo "Nincs ilyen worktree: $dir" >&2; return 1; }
-  # The symlink must go first: `git worktree remove` refuses a dirty tree, and a
-  # node_modules symlink counts as an untracked file.
+  # The symlink must go first: it counts as an untracked file and would show up
+  # as "dirty" in the check below.
   rm -f "$dir/node_modules"
+  # `git worktree remove --force` throws away uncommitted work without a word.
+  # Say what would be lost and require a second, explicit --force -- an agent in
+  # a hurry (or anyone who is not a programmer) should not lose an evening's
+  # edits to a convenience flag.
+  local dirty
+  dirty="$(git -C "$dir" status --porcelain 2>/dev/null)"
+  if [ -n "$dirty" ] && [ "$force" != "--force" ]; then
+    echo "NEM tavolitottam el: commitolatlan valtozas van benne." >&2
+    echo "$dirty" | sed 's/^/  /' >&2
+    echo "Ha tenyleg eldobhato: scripts/agent-worktree.sh --remove $agent --force" >&2
+    [ -d "$BASE/node_modules" ] && ln -sfn "$BASE/node_modules" "$dir/node_modules"
+    return 1
+  fi
   git -C "$BASE" worktree remove --force "$dir" || return 1
   echo "Eltavolitva: $dir"
 }
@@ -52,7 +66,7 @@ remove_worktree() {
 case "${1:-}" in
   ''|-h|--help) usage 0 ;;
   --list) list_worktrees; exit 0 ;;
-  --remove) [ -n "${2:-}" ] || usage 1; remove_worktree "$2"; exit $? ;;
+  --remove) [ -n "${2:-}" ] || usage 1; remove_worktree "$2" "${3:-}"; exit $? ;;
 esac
 
 AGENT="$1"

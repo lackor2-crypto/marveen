@@ -15000,13 +15000,16 @@ function _syncApprovalFilterOptions() {
     const values = [...new Set(field === 'agent_id' ? raw.map(_approvalAgentLabel) : raw)]
       .sort((a, b) => a.localeCompare(b))
     const current = sel.value
-    sel.innerHTML = `<option value="">${escapeHtml(t(allKey))}</option>`
-      + values.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('')
-    // Keep the operator's selection across refreshes, unless it disappeared.
-    sel.value = values.includes(current) ? current : ''
-    if (sel.value !== current) {
-      _approvalsState[id === 'approvalsFilterAgent' ? 'agent' : 'category'] = sel.value
-    }
+    // The option list is rebuilt on every refresh, so the i18n attribute has to
+    // be rebuilt with it -- without it a later language switch left the "all"
+    // label frozen in the old language until the next data refresh.
+    // A value that has dropped out of the newest page is KEPT as an option
+    // rather than silently reset: losing your filter and suddenly seeing every
+    // row, with no explanation, is worse than an option that matches nothing.
+    const options = values.includes(current) || !current ? values : [...values, current].sort((a, b) => a.localeCompare(b))
+    sel.innerHTML = `<option value="" data-i18n="${escapeAttr(allKey)}">${escapeHtml(t(allKey))}</option>`
+      + options.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('')
+    sel.value = current
   }
 }
 
