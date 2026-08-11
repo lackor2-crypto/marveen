@@ -3,7 +3,9 @@ import {
   extractAuthUrl,
   readLoginPane,
   parseAuthStatus,
-  isSwitchComplete,
+  isLoginComplete,
+  planIdFromLabel,
+  buildPlanEntry,
   UNKNOWN_IDENTITY,
 } from '../claude-auth.js'
 
@@ -83,26 +85,53 @@ describe('parseAuthStatus', () => {
   })
 })
 
-describe('isSwitchComplete', () => {
-  const acct = (email: string | null, loggedIn = true) => ({
-    ...UNKNOWN_IDENTITY, loggedIn, email,
+describe('isLoginComplete', () => {
+  const acct = (email: string | null, loggedIn = true) => ({ ...UNKNOWN_IDENTITY, loggedIn, email })
+
+  it('is true once the fresh directory reports an account', () => {
+    expect(isLoginComplete(acct('new@x.hu'))).toBe(true)
   })
 
-  it('is true when the email changed', () => {
-    expect(isSwitchComplete(acct('old@x.hu'), acct('new@x.hu'))).toBe(true)
+  it('is false while the directory is still empty', () => {
+    expect(isLoginComplete(acct(null, false))).toBe(false)
   })
 
-  it('is FALSE while the old account is still the one logged in', () => {
-    // Without this, a flow that has not finished yet reads as instant success,
-    // because loggedIn was true the entire time.
-    expect(isSwitchComplete(acct('old@x.hu'), acct('old@x.hu'))).toBe(false)
+  it('is false for a logged-in flag with no account behind it', () => {
+    expect(isLoginComplete(acct(null, true))).toBe(false)
+  })
+})
+
+describe('planIdFromLabel', () => {
+  it('turns a human label into a registry-safe id', () => {
+    expect(planIdFromLabel('Munkahelyi fiok')).toBe('munkahelyi-fiok')
   })
 
-  it('is true when there was nobody logged in before', () => {
-    expect(isSwitchComplete(acct(null, false), acct('new@x.hu'))).toBe(true)
+  it('strips accents rather than dropping the whole word', () => {
+    // "Munkahelyi fiók" must not become "munkahelyi-fi-k".
+    expect(planIdFromLabel('Céges fiók')).toBe('ceges-fiok')
   })
 
-  it('is false when the new state is logged out', () => {
-    expect(isSwitchComplete(acct('old@x.hu'), acct(null, false))).toBe(false)
+  it('never collides with an id already in the registry', () => {
+    expect(planIdFromLabel('Lackor3', ['lackor3'])).toBe('lackor3-2')
+    expect(planIdFromLabel('Lackor3', ['lackor3', 'lackor3-2'])).toBe('lackor3-3')
+  })
+
+  it('falls back to something usable for a label with nothing safe in it', () => {
+    expect(planIdFromLabel('###')).toBe('fiok')
+  })
+})
+
+describe('buildPlanEntry', () => {
+  it('defaults to personal and channels-OFF', () => {
+    // A team seat that quietly starts answering Telegram is the mistake this
+    // conservative default avoids; the operator can widen it afterwards.
+    const e = buildPlanEntry('ceges', 'Ceges', '/x/ceges')
+    expect(e.planType).toBe('personal')
+    expect(e.channelsAllowed).toBe(false)
+    expect(e.id).toBe('ceges')
+  })
+
+  it('falls back to the id when the label is blank', () => {
+    expect(buildPlanEntry('ceges', '   ', '/x/ceges').label).toBe('ceges')
   })
 })

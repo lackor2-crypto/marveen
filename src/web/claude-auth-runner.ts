@@ -1,4 +1,4 @@
-// I/O half of the dashboard-driven Claude account switch (kanban #52, 61e9ed2b).
+// I/O half of the dashboard-driven Claude account login (kanban #52, 61e9ed2b).
 // The parsing -- and the measurements that justify this shape -- live in
 // ../claude-auth.ts.
 //
@@ -8,16 +8,27 @@
 // rest of this fork talks to Claude processes, so the same capture/send-keys
 // vocabulary applies.
 //
-// ONE login at a time, deliberately. This switches the identity of the account
-// the whole install runs on; two concurrent flows racing to write the same
-// credentials file is not a feature anyone needs.
+// PARALLEL, NOT SWAPPED. Each account owns a CLAUDE_CONFIG_DIR and is listed in
+// store/claude-plans.json; a new login goes into a NEW directory, so the ones
+// already signed in are never touched. That is the whole reason ten accounts can
+// be logged in at once (Boss, 2026-08-12).
+//
+// ONE login flow at a time, though: they all drive the same tmux window, and two
+// people pasting codes into one pane helps nobody.
 import { execFileSync, execFile } from 'node:child_process'
+import { mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { logger } from '../logger.js'
 import { resolveFromPath } from '../platform.js'
+import { STORE_DIR } from '../config.js'
+import { atomicWriteFileSync } from './atomic-write.js'
+import { readClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import {
   parseAuthStatus,
   readLoginPane,
-  isSwitchComplete,
+  isLoginComplete,
+  planIdFromLabel,
+  buildPlanEntry,
   UNKNOWN_IDENTITY,
   type AuthIdentity,
   type LoginPaneState,
@@ -26,8 +37,8 @@ import {
 const TMUX = resolveFromPath('tmux')
 const CLAUDE = resolveFromPath('claude')
 
-// Not derived from an agent id: this is the INSTALL's own login, not any one
-// agent's. Prefixed so it is obvious in `tmux ls` what it belongs to.
+// Not derived from an agent id: this is the INSTALL's own login flow, not any
+// one agent's. Prefixed so it is obvious in `tmux ls` what it belongs to.
 const LOGIN_SESSION = 'marveen-claude-login'
 
 // The authorize URL is ~500 characters. A default-width pane wraps it, and even
@@ -36,13 +47,20 @@ const LOGIN_SESSION = 'marveen-claude-login'
 const PANE_WIDTH = 400
 const PANE_HEIGHT = 40
 
-/** A login attempt in flight. Null when nothing is running. */
+/** Where a new account's credentials go. Same convention the existing plans
+ *  already use (store/accounts/<id>), so nothing here invents a second layout. */
+function accountsRoot(): string {
+  return join(STORE_DIR, 'accounts')
+}
+
 interface LoginSession {
   startedAt: number
-  /** Identity BEFORE the switch, so success can be told from "same account". */
-  before: AuthIdentity
+  /** Config dir this flow is logging INTO -- never an existing account's. */
+  configDir: string
+  planId: string
+  label: string
   codeSubmitted: boolean
-  lastPhase: LoginPaneState['phase']
+  registered: boolean
 }
 let current: LoginSession | null = null
 
@@ -50,20 +68,65 @@ let current: LoginSession | null = null
  *  challenge, and leaving it open forever is neither tidy nor safe. */
 const LOGIN_MAX_AGE_MS = 15 * 60_000
 
-export function readIdentity(): AuthIdentity {
+/** Ask the CLI who is logged in. `configDir` selects WHICH account -- omitted,
+ *  it reports the install's default (~/.claude), which is where the main agent
+ *  lives unless it was given a plan of its own. */
+export function readIdentity(configDir?: string | null): AuthIdentity {
   try {
+    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
+    if (configDir) env.CLAUDE_CONFIG_DIR = configDir
     const out = execFileSync(CLAUDE, ['auth', 'status', '--json'], {
-      timeout: 20_000,
-      encoding: 'utf-8',
-      env: { ...process.env, NO_COLOR: '1' },
+      timeout: 20_000, encoding: 'utf-8', env,
     })
     return parseAuthStatus(out)
   } catch (err) {
-    // A missing CLI, a timeout, a broken install: the page still renders, it
-    // just cannot claim anyone is logged in.
-    logger.debug({ err }, 'claude-auth: status probe failed')
+    // A missing CLI, a timeout, a directory never logged into: the page still
+    // renders, it just cannot claim anyone is signed in there.
+    logger.debug({ err, configDir }, 'claude-auth: status probe failed')
     return UNKNOWN_IDENTITY
   }
+}
+
+export interface AccountRow {
+  /** Plan id, or null for the install default. */
+  id: string | null
+  label: string
+  configDir: string | null
+  isDefault: boolean
+  planType: string | null
+  channelsAllowed: boolean | null
+  identity: AuthIdentity
+}
+
+/**
+ * Every Claude login this install has, the default plus each registered plan.
+ *
+ * One `claude auth status` per account. That is a handful of ~100ms probes on a
+ * page the operator opens by hand, not a polling loop, so the simplicity is
+ * worth more than a cache that could show a stale account after a fresh login.
+ */
+export function listAccounts(): AccountRow[] {
+  const rows: AccountRow[] = [{
+    id: null,
+    label: 'Alapértelmezett',
+    configDir: null,
+    isDefault: true,
+    planType: null,
+    channelsAllowed: null,
+    identity: readIdentity(null),
+  }]
+  for (const plan of readClaudePlans()) {
+    rows.push({
+      id: plan.id,
+      label: plan.label,
+      configDir: plan.configDir,
+      isDefault: false,
+      planType: plan.planType,
+      channelsAllowed: plan.channelsAllowed,
+      identity: readIdentity(plan.configDir),
+    })
+  }
+  return rows
 }
 
 function sessionExists(): boolean {
@@ -86,57 +149,88 @@ function capturePane(): string {
     // -e keeps the escape sequences, which is where the OSC-8 hyperlink (and
     // therefore the clean URL) lives; -J joins the wrapped lines.
     return execFileSync(TMUX, ['capture-pane', '-p', '-e', '-J', '-t', LOGIN_SESSION], {
-      timeout: 5_000,
-      encoding: 'utf-8',
-      maxBuffer: 4 * 1024 * 1024,
+      timeout: 5_000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024,
     })
   } catch {
     return ''
   }
 }
 
+/** Append the finished login to the registry, so an agent can be pointed at it.
+ *  Read-modify-write of a small operator-owned file; the reader validates, so a
+ *  malformed row would simply be ignored rather than breaking the fleet. */
+function registerPlan(id: string, label: string, configDir: string): boolean {
+  try {
+    let raw: unknown = []
+    if (existsSync(CLAUDE_PLANS_PATH)) raw = JSON.parse(readFileSync(CLAUDE_PLANS_PATH, 'utf-8'))
+    const list = Array.isArray(raw) ? raw : []
+    if (list.some(p => p && typeof p === 'object' && (p as { id?: unknown }).id === id)) return true
+    list.push(buildPlanEntry(id, label, configDir))
+    atomicWriteFileSync(CLAUDE_PLANS_PATH, JSON.stringify(list, null, 2))
+    logger.info({ planId: id }, 'claude-auth: new account registered')
+    return true
+  } catch (err) {
+    logger.warn({ err, planId: id }, 'claude-auth: could not register the new account')
+    return false
+  }
+}
+
 export interface StartLoginResult {
   ok: boolean
   error?: string
+  planId?: string
 }
 
 /**
- * Begin a login. `email` only pre-fills the address on Anthropic's page; it is
- * a convenience, never a credential.
+ * Begin a login for a NEW account.
  *
- * `useConsole` picks the API-billing account type instead of the subscription,
- * mirroring the CLI's own --console flag rather than inventing a second concept.
+ * `label` is what the operator will see in the agent dropdown; the id is derived
+ * from it. `email` only pre-fills the address on Anthropic's page -- a
+ * convenience, never a credential.
  */
-export function startLogin(opts: { email?: string; useConsole?: boolean } = {}): StartLoginResult {
+export function startLogin(opts: { label?: string; email?: string; useConsole?: boolean } = {}): StartLoginResult {
+  const label = (opts.label ?? '').trim()
+  if (!label) return { ok: false, error: 'Adj nevet a fióknak (pl. "Munkahelyi" vagy az e-mail címed).' }
+
+  const taken = readClaudePlans().map(p => p.id)
+  const planId = planIdFromLabel(label, taken)
+  const configDir = join(accountsRoot(), planId)
+  if (existsSync(configDir)) {
+    // Never log INTO an existing account's directory: that would overwrite a
+    // working login, which is the exact opposite of adding one.
+    return { ok: false, error: 'Ilyen nevű fiók már van. Válassz másik nevet.' }
+  }
+
   killSession()
-  const before = readIdentity()
+  try {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 })
+  } catch (err) {
+    logger.warn({ err, configDir }, 'claude-auth: could not create the account directory')
+    return { ok: false, error: 'A fiók mappáját nem sikerült létrehozni.' }
+  }
+
   const args = ['auth', 'login', opts.useConsole ? '--console' : '--claudeai']
   if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
-
+  const quoted = [CLAUDE, ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
   // Wrapped in a shell that outlives the command, so a failure leaves its
   // message ON the pane instead of taking the window down with it.
-  const inner = [CLAUDE, ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
-  const command = `${inner}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
+  const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   try {
     execFileSync(TMUX, [
       'new-session', '-d', '-s', LOGIN_SESSION,
       '-x', String(PANE_WIDTH), '-y', String(PANE_HEIGHT),
+      '-e', `CLAUDE_CONFIG_DIR=${configDir}`,
+      '-e', 'NO_COLOR=1',
       'sh', '-c', command,
-    ], {
-      timeout: 10_000,
-      // BROWSER: the CLI tries to open one on the host. That is welcome on a
-      // desktop install and pointless on a headless one, but either way the
-      // dashboard shows the link itself, so nothing depends on it.
-      env: { ...process.env, NO_COLOR: '1' },
-    })
+    ], { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
   }
-  current = { startedAt: Date.now(), before, codeSubmitted: false, lastPhase: 'starting' }
+  current = { startedAt: Date.now(), configDir, planId, label, codeSubmitted: false, registered: false }
   // Deliberately no URL, no email, no code in this line.
-  logger.info({ session: LOGIN_SESSION }, 'claude-auth: login session started')
-  return { ok: true }
+  logger.info({ planId }, 'claude-auth: login session started for a new account')
+  return { ok: true, planId }
 }
 
 export interface LoginStatus {
@@ -144,46 +238,53 @@ export interface LoginStatus {
   phase: LoginPaneState['phase']
   url: string | null
   error: string | null
-  /** Identity as the CLI reports it right now. */
-  identity: AuthIdentity
-  /** True once the CLI reports a different account than before the flow. */
-  switched: boolean
+  /** The account being added, while a flow is running. */
+  label: string | null
+  planId: string | null
+  /** True once the new directory reports a signed-in account. */
+  done: boolean
+  /** Every login this install has, refreshed on each poll. */
+  accounts: AccountRow[]
 }
 
-/**
- * Where the flow stands. Called by the dashboard on a poll, so it must be cheap
- * and must never throw: two tmux calls and, only while a login is in flight, one
- * status probe.
- */
-export function loginStatus(): LoginStatus {
-  const identity = readIdentity()
-  if (!current) {
-    return { active: false, phase: 'starting', url: null, error: null, identity, switched: false }
-  }
-  if (Date.now() - current.startedAt > LOGIN_MAX_AGE_MS) {
-    killSession()
-    current = null
-    return { active: false, phase: 'failed', url: null, error: 'A bejelentkezés túl sokáig tartott, megszakítottam.', identity, switched: false }
-  }
-  if (!sessionExists()) {
-    const switched = isSwitchComplete(current.before, identity)
-    current = null
-    return { active: false, phase: switched ? 'done' : 'failed', url: null,
-      error: switched ? null : 'A bejelentkezési ablak bezárult, mielőtt befejeződött volna.', identity, switched }
-  }
-  const pane = readLoginPane(capturePane(), current.codeSubmitted)
-  current.lastPhase = pane.phase
+function idle(accounts: AccountRow[], phase: LoginPaneState['phase'] = 'starting', error: string | null = null): LoginStatus {
+  return { active: false, phase, url: null, error, label: null, planId: null, done: false, accounts }
+}
 
-  // The CLI's own status is the authority on success, not the pane text: the
-  // account is switched when `claude auth status` says a different one is
-  // logged in, whatever the terminal happens to be rendering.
-  if (isSwitchComplete(current.before, identity)) {
-    killSession()
-    current = null
-    logger.info('claude-auth: account switch completed')
-    return { active: false, phase: 'done', url: null, error: null, identity, switched: true }
+/** Where the flow stands. Cheap enough to poll: two tmux calls plus one status
+ *  probe per known account, and it must never throw. */
+export function loginStatus(): LoginStatus {
+  if (!current) return idle(listAccounts())
+
+  if (Date.now() - current.startedAt > LOGIN_MAX_AGE_MS) {
+    killSession(); current = null
+    return idle(listAccounts(), 'failed', 'A bejelentkezés túl sokáig tartott, megszakítottam.')
   }
-  return { active: true, phase: pane.phase, url: pane.url, error: pane.error, identity, switched: false }
+
+  // The CLI's own status in the NEW directory is the authority on success, not
+  // the pane text: the account is in once `claude auth status` says so there.
+  const identity = readIdentity(current.configDir)
+  if (isLoginComplete(identity)) {
+    const { planId, label, configDir } = current
+    const registered = current.registered || registerPlan(planId, label, configDir)
+    killSession(); current = null
+    const status = idle(listAccounts(), 'done')
+    return {
+      ...status, done: true, planId, label,
+      error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
+    }
+  }
+
+  if (!sessionExists()) {
+    current = null
+    return idle(listAccounts(), 'failed', 'A bejelentkezési ablak bezárult, mielőtt befejeződött volna.')
+  }
+
+  const pane = readLoginPane(capturePane(), current.codeSubmitted)
+  return {
+    active: true, phase: pane.phase, url: pane.url, error: pane.error,
+    label: current.label, planId: current.planId, done: false, accounts: listAccounts(),
+  }
 }
 
 /** Hand the pasted code to the waiting CLI. */
@@ -206,7 +307,9 @@ export function submitCode(code: string): { ok: boolean; error?: string } {
   return { ok: true }
 }
 
-/** Give up on the flow and clean the pane away. */
+/** Give up on the flow and clean the pane away. The half-created directory is
+ *  left alone: it holds no credentials, and removing directories on a cancel is
+ *  a worse failure mode than an empty folder. */
 export function cancelLogin(): void {
   killSession()
   current = null

@@ -70,13 +70,14 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/accounts/claude/login' && method === 'POST') {
-    let body: { email?: unknown; useConsole?: unknown } = {}
+    let body: { label?: unknown; email?: unknown; useConsole?: unknown } = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
     const result = startLogin({
+      label: typeof body.label === 'string' ? body.label : undefined,
       email: typeof body.email === 'string' ? body.email.trim() : undefined,
       useConsole: body.useConsole === true,
     })
-    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 500)
+    json(res, result.ok ? { ok: true, planId: result.planId } : { ok: false, error: result.error }, result.ok ? 200 : 400)
     return true
   }
 
@@ -91,7 +92,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/accounts/claude/login/cancel' && method === 'POST') {
     cancelLogin()
-    json(res, { ok: true, identity: readIdentity() })
+    json(res, { ok: true })
     return true
   }
 

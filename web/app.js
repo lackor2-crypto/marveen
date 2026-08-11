@@ -13666,12 +13666,13 @@ async function loadAccountsPage() {
   renderClaudeAccountPanel()
 }
 
-// --- Claude account switch (kanban #52) -------------------------------------
-// The flow the CLI actually imposes: it prints an authorize URL and then WAITS
-// for a code that Anthropic's page shows the user. There is no callback we can
-// intercept (the redirect goes to platform.claude.com, not to us), so one paste
-// is unavoidable -- but the waiting, the detecting and the confirming all happen
-// here instead of in a terminal, which is what the card was really about.
+// --- Claude accounts (kanban #52) -------------------------------------------
+// PARALLEL logins, not a switch (Boss, 2026-08-12): every account keeps its own
+// credentials directory, so adding one leaves the others signed in. The flow the
+// CLI imposes: it prints an authorize URL and then WAITS for a code that
+// Anthropic's page shows the user. There is no callback we can intercept, so one
+// paste is unavoidable -- but the waiting, the detecting and the registering all
+// happen here instead of in a terminal, which is what the card was about.
 let _claudeAuthPoll = null
 
 function _claudeAuthSetState(text, kind) {
@@ -13681,15 +13682,23 @@ function _claudeAuthSetState(text, kind) {
   el.className = 'claude-auth-state' + (kind ? ' claude-auth-state-' + kind : '')
 }
 
-function _claudeAuthShowIdentity(identity) {
-  const el = document.getElementById('claudeAuthCurrent')
+function _claudeAuthRenderList(accounts) {
+  const el = document.getElementById('claudeAuthList')
   if (!el) return
-  if (identity && identity.loggedIn && identity.email) {
-    const plan = identity.subscriptionType ? ` (${identity.subscriptionType})` : ''
-    el.textContent = t('claudeauth.current', { email: identity.email }) + plan
-  } else {
-    el.textContent = t('claudeauth.current_none')
-  }
+  if (!accounts || !accounts.length) { el.innerHTML = ''; return }
+  el.innerHTML = accounts.map(a => {
+    const id = a.identity || {}
+    const who = id.loggedIn && id.email
+      ? escapeHtml(id.email) + (id.subscriptionType ? ` <span class="claude-auth-plan">${escapeHtml(id.subscriptionType)}</span>` : '')
+      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.row_empty'))}</span>`
+    // No "default" tag on the default row: its label already says so, and the
+    // badge next to the identical word read as a stutter.
+    const tag = ''
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(a.label || a.id || '')}${tag}</span>
+      <span class="claude-auth-rowwho">${who}</span>
+    </div>`
+  }).join('')
 }
 
 function _claudeAuthStopPoll() {
@@ -13702,16 +13711,19 @@ async function _claudeAuthTick() {
     const res = await fetch('/api/accounts/claude')
     s = await res.json()
   } catch { return }
-  _claudeAuthShowIdentity(s.identity)
+  _claudeAuthRenderList(s.accounts)
 
   const link = document.getElementById('claudeAuthLink')
   if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
 
-  if (s.switched || s.phase === 'done') {
+  if (s.done) {
     _claudeAuthStopPoll()
     document.getElementById('claudeAuthFlow').hidden = true
+    document.getElementById('claudeAuthLabel').value = ''
+    document.getElementById('claudeAuthEmail').value = ''
     _claudeAuthSetState('', null)
-    showToast(t('claudeauth.done', { email: (s.identity && s.identity.email) || '' }), 8000, true)
+    if (s.error) showToast(s.error, 10000, true)
+    else showToast(t('claudeauth.done', { label: s.label || '' }), 8000, true)
     return
   }
   if (!s.active) {
@@ -13727,17 +13739,20 @@ async function _claudeAuthTick() {
 
 async function renderClaudeAccountPanel() {
   const panel = document.getElementById('claudeAccountPanel')
-  if (!panel || panel.dataset.wired === '1') { if (panel) _claudeAuthTick(); return }
+  if (!panel) return
+  if (panel.dataset.wired === '1') { _claudeAuthTick(); return }
   panel.dataset.wired = '1'
 
   document.getElementById('claudeAuthStartBtn').addEventListener('click', async () => {
+    const label = document.getElementById('claudeAuthLabel').value.trim()
     const email = document.getElementById('claudeAuthEmail').value.trim()
-    _claudeAuthSetState(t('claudeauth.state_starting'), null)
+    if (!label) { showToast(t('claudeauth.need_label'), 6000, true); return }
     document.getElementById('claudeAuthFlow').hidden = false
+    _claudeAuthSetState(t('claudeauth.state_starting'), null)
     try {
       const res = await fetch('/api/accounts/claude/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(email ? { email } : {}),
+        body: JSON.stringify(email ? { label, email } : { label }),
       })
       const data = await res.json()
       if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return }

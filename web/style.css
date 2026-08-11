@@ -9322,3 +9322,37 @@ body {
   min-height: 1.2em;
 }
 .claude-auth-state-bad { color: #b45309; }
+
+/* The account list: one row per parallel login. Plain rows, no status colours --
+   an account that is not signed in is a fact, not a fault. */
+.claude-auth-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+.claude-auth-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg);
+  font-size: 13px;
+}
+.claude-auth-rowlabel { font-weight: 600; }
+.claude-auth-rowwho { color: var(--text-secondary); }
+.claude-auth-tag,
+.claude-auth-plan {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.claude-auth-empty { color: var(--text-muted); font-style: italic; }

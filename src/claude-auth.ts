@@ -1,10 +1,14 @@
 // Pure parsing for the dashboard-driven Claude Code account switch (kanban #52,
 // 61e9ed2b).
 //
-// Why this exists (Boss, 2026-08-07): switching the main agent to another Claude
-// account meant opening the WSL terminal and running a login by hand. He wanted
-// it on the Accounts page instead, one button, "ne kelljen Ubuntu terminalba
-// menni".
+// Why this exists (Boss, 2026-08-07): logging a Claude account in meant opening
+// the WSL terminal and running the login by hand. He wanted it on the Accounts
+// page instead, one button, "ne kelljen Ubuntu terminalba menni".
+//
+// NOT a switch (Boss, 2026-08-12, correcting the card): accounts run in
+// PARALLEL here -- three are logged in as this is written, and he wants to be
+// able to add a tenth. Adding a login must therefore leave every existing one
+// untouched. See the "parallel accounts" section at the bottom.
 //
 // What the CLI actually does, measured before any of this was written (2026-08-12,
 // `claude auth login --claudeai` under a PTY with an isolated CLAUDE_CONFIG_DIR):
@@ -156,16 +160,62 @@ export function parseAuthStatus(raw: string): AuthIdentity {
 }
 
 /**
- * Did the account actually change?
+ * Is the NEW login finished?
  *
- * This is the automatic success detection Boss asked for: the dashboard polls
- * the CLI's own status instead of making him confirm anything. Comparing the
- * EMAIL rather than just `loggedIn` matters -- logging into the same account
- * again leaves loggedIn true the whole way through and would otherwise read as
- * an instant, false success.
+ * This is the automatic success detection: the dashboard polls the CLI's own
+ * status instead of making anyone confirm anything.
+ *
+ * The check runs against a FRESH, empty config dir (see below on why accounts
+ * are parallel rather than swapped), so "logged in at all" is the whole signal
+ * -- there is no previous account in that directory to distinguish it from.
  */
-export function isSwitchComplete(before: AuthIdentity, now: AuthIdentity): boolean {
-  if (!now.loggedIn) return false
-  if (!before.loggedIn) return true
-  return now.email !== null && now.email !== before.email
+export function isLoginComplete(now: AuthIdentity): boolean {
+  return now.loggedIn && now.email !== null
+}
+
+// --- parallel accounts ------------------------------------------------------
+//
+// Boss, 2026-08-12, correcting the card's own title: "itt nem fiokot akarok
+// valtani, hanem egy ilyen parhuzamos bejelentkezest, tehat hogy ha akarom,
+// akkor tiz fiokkal is be tudjak jelentkezni". Right now three accounts are
+// logged in at once, and that is the point -- an account is not a mode the
+// install switches between.
+//
+// The mechanism already exists: store/claude-plans.json gives every named login
+// its own CLAUDE_CONFIG_DIR, and agents reference a plan by id. So "add an
+// account" means log in inside a NEW config dir and register it. Nothing
+// existing is touched, which is exactly why ten of them can coexist.
+
+/** Plan ids are HTML option values and are looked up by string equality, so the
+ *  registry restricts them to a boring charset. Derive one from whatever the
+ *  operator typed rather than making them invent an identifier. */
+export function planIdFromLabel(label: string, taken: string[] = []): string {
+  const base = label
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // ekezet -> ASCII
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+  const seed = base || 'fiok'
+  if (!taken.includes(seed)) return seed
+  for (let i = 2; i < 100; i++) {
+    if (!taken.includes(`${seed}-${i}`)) return `${seed}-${i}`
+  }
+  return `${seed}-${Date.now()}`
+}
+
+export interface NewPlanEntry {
+  id: string
+  label: string
+  configDir: string
+  planType: 'personal' | 'team'
+  channelsAllowed: boolean
+}
+
+/** The registry row for a freshly logged-in account. Conservative defaults:
+ *  a new login is personal and NOT cleared for channels until the operator says
+ *  so -- a team seat that quietly starts answering Telegram is the mistake this
+ *  avoids. */
+export function buildPlanEntry(id: string, label: string, configDir: string): NewPlanEntry {
+  return { id, label: label.trim() || id, configDir, planType: 'personal', channelsAllowed: false }
 }

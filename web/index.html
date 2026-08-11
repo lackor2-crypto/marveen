@@ -1620,25 +1620,29 @@
         <div class="accounts-list" id="accountsCoreList"></div>
       </div>
 
-      <!-- Claude-fiok valtas (kanban #52). Kenyelmi funkcio: SEMLEGES szinek,
-           semmi piros -- enelkul is minden mukodik, csak terminalbol kell
-           bejelentkezni. -->
+      <!-- Claude-fiokok (kanban #52). Kenyelmi funkcio: SEMLEGES szinek, semmi
+           piros -- enelkul is minden mukodik, csak terminalbol kell bejelentkezni.
+           PARHUZAMOS fiokok: az uj bejelentkezes a meglevoket nem bantja. -->
       <div class="accounts-section" id="claudeAccountPanel">
-        <div class="accounts-section-title" data-i18n="claudeauth.title">Claude-fiók váltása</div>
+        <div class="accounts-section-title" data-i18n="claudeauth.title">Claude-fiókok</div>
         <div class="claude-auth-box">
-          <p class="claude-auth-current" id="claudeAuthCurrent"></p>
-          <p class="claude-auth-lead" data-i18n="claudeauth.lead">Itt átválthatsz egy másik Claude-fiókra anélkül, hogy terminált kellene nyitnod. Erre akkor van szükség, ha az egyik fiók kerete elfogyott, vagy másik előfizetéssel akarsz dolgozni.</p>
-          <p class="claude-auth-warn" data-i18n="claudeauth.warn">Fontos: ez a fő asszisztens saját bejelentkezését cseréli le. A váltás alatt a futó munka megszakadhat, ezért olyankor csináld, amikor nem futtatsz semmit.</p>
+          <p class="claude-auth-lead" data-i18n="claudeauth.lead">Több Claude-fiók lehet egyszerre bejelentkezve, és mindegyik megmarad. Itt látod, melyik van most bent, és itt tudsz újat hozzáadni anélkül, hogy terminált nyitnál. A meglévőkhöz nem nyúl hozzá semmi.</p>
+
+          <div class="claude-auth-list" id="claudeAuthList"></div>
+
           <div class="claude-auth-actions">
-            <button class="btn-secondary" id="claudeAuthStartBtn" data-i18n="claudeauth.start">Bejelentkezés másik fiókkal</button>
-            <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:220px"
+            <input class="input-sm" type="text" id="claudeAuthLabel" style="min-width:200px"
+                   data-i18n-placeholder="claudeauth.label_ph" placeholder="A fiók neve (pl. Munkahelyi)">
+            <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:200px"
                    data-i18n-placeholder="claudeauth.email_ph" placeholder="E-mail cím (nem kötelező)">
+            <button class="btn-secondary" id="claudeAuthStartBtn" data-i18n="claudeauth.start">Új fiók hozzáadása</button>
           </div>
+          <p class="claude-auth-warn" data-i18n="claudeauth.warn">A nevet te találod ki, csak neked szól: ezen a néven fogod látni a listában és az ágensek beállításánál. Az e-mail cím megadása nem kötelező, csak előre kitölti a bejelentkezési oldalon.</p>
 
           <div class="claude-auth-flow" id="claudeAuthFlow" hidden>
             <ol class="claude-auth-steps">
               <li>
-                <span data-i18n="claudeauth.step1">Nyisd meg ezt a linket, és jelentkezz be azzal a fiókkal, amit használni szeretnél:</span>
+                <span data-i18n="claudeauth.step1">Nyisd meg ezt a linket, és jelentkezz be azzal a fiókkal, amit hozzá akarsz adni:</span>
                 <div class="claude-auth-linkrow">
                   <a id="claudeAuthLink" href="#" target="_blank" rel="noopener noreferrer" data-i18n="claudeauth.open_link">Bejelentkezési oldal megnyitása</a>
                   <button class="btn-secondary btn-compact" id="claudeAuthCopyBtn" data-i18n="claudeauth.copy_link">Link másolása</button>
@@ -1658,11 +1662,6 @@
             <button class="btn-secondary btn-compact" id="claudeAuthCancelBtn" data-i18n="claudeauth.cancel">Mégsem</button>
           </div>
         </div>
-      </div>
-
-      <div class="accounts-section">
-        <div class="accounts-section-title" data-i18n="accounts.optional_title">Opcionális</div>
-        <div class="accounts-list" id="accountsOptionalList"></div>
       </div>
     </div>
 
