@@ -15347,27 +15347,36 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   let agentList
   try {
     const res = await fetch('/api/agents')
-    agentList = (await res.json()).filter(ag => ag.name !== requesterAgentId)
+    agentList = await res.json()
   } catch {
     pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--danger)">${t('common.error_save')}</p>`
     _placeVerifyPicker()
     return
   }
-  if (!agentList.length) {
+  // The agent who ASKED for the approval cannot verify it -- that is the whole
+  // point of a second pair of eyes. It used to be filtered out of the list
+  // silently, which reads as "that agent is missing/broken" rather than as a
+  // rule (Boss, 2026-08-11: "miert nincs benne a listaban az usalackor?" -- he
+  // had been looking at approvals that agent had requested itself). So it stays
+  // ON the list, shown but not selectable, with the reason next to it.
+  const selectable = agentList.filter(ag => ag.name !== requesterAgentId)
+  if (!selectable.length) {
     pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--text-muted)">${t('approvals.verify.no_agents')}</p>`
     _placeVerifyPicker()
     return
   }
-  const freeNames = agentList.filter(ag => isFreeModel(ag.model)).map(ag => ag.name)
+  const freeNames = selectable.filter(ag => isFreeModel(ag.model)).map(ag => ag.name)
   pop.innerHTML = `
     <p style="margin:0 0 6px;font-size:12px;font-weight:600">${t('approvals.verify.picker_title')}</p>
     <div class="verify-picker-list">
-      ${agentList.map(ag => `
-        <label class="verify-picker-item">
-          <input type="checkbox" value="${escapeAttr(ag.name)}" ${isFreeModel(ag.model) ? 'data-free="1"' : ''}>
-          ${escapeHtml(ag.displayName || ag.name)}${isFreeModel(ag.model) ? ` <span class="team-node-free-badge" style="position:static;display:inline-block">${escapeHtml(t('agents.free_badge'))}</span>` : ''}
+      ${agentList.map(ag => {
+        const isRequester = ag.name === requesterAgentId
+        return `
+        <label class="verify-picker-item"${isRequester ? ' style="opacity:0.55"' : ''}>
+          <input type="checkbox" value="${escapeAttr(ag.name)}" ${isRequester ? 'disabled' : ''} ${!isRequester && isFreeModel(ag.model) ? 'data-free="1"' : ''}>
+          ${escapeHtml(ag.displayName || ag.name)}${isRequester ? ` <span style="font-size:11px;color:var(--text-muted)">${escapeHtml(t('approvals.verify.self_note'))}</span>` : ''}${!isRequester && isFreeModel(ag.model) ? ` <span class="team-node-free-badge" style="position:static;display:inline-block">${escapeHtml(t('agents.free_badge'))}</span>` : ''}
         </label>
-      `).join('')}
+      `}).join('')}
     </div>
     ${freeNames.length ? `<button class="btn-secondary btn-compact" id="verifyPickAllFree" style="font-size:11px;margin-top:6px;width:100%">${t('approvals.verify.pick_all_free')}</button>` : ''}
     <button class="btn-primary btn-compact" id="verifyPickerGo" style="font-size:11px;margin-top:8px;width:100%">${t('approvals.verify.picker_go')}</button>
@@ -15375,10 +15384,13 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   // The popover only gets its real height here, once the agent list is in it.
   _placeVerifyPicker()
   pop.querySelector('#verifyPickAllFree')?.addEventListener('click', () => {
-    pop.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = cb.dataset.free === '1' })
+    pop.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(cb => { cb.checked = cb.dataset.free === '1' })
   })
   pop.querySelector('#verifyPickerGo').addEventListener('click', async () => {
-    const chosen = Array.from(pop.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value)
+    // :not(:disabled) belt-and-braces -- a disabled box cannot be ticked by
+    // hand, but it CAN be ticked by script, and the requester must never end up
+    // dispatched to verify its own approval.
+    const chosen = Array.from(pop.querySelectorAll('input[type=checkbox]:checked:not(:disabled)')).map(cb => cb.value)
     if (!chosen.length) return
     const goBtn = pop.querySelector('#verifyPickerGo')
     goBtn.disabled = true

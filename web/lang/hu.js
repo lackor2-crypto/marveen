@@ -1173,6 +1173,7 @@ window._i18n.hu = {
   'approvals.verify.dispatched_ok':   '{n} ágens elindítva az ellenőrzésre',
   'approvals.verify.some_failed':     'Néhány ágenshez nem sikerült: {list}',
   'approvals.verify.no_agents':       'Nincs másik elérhető ágens az ellenőrzéshez',
+  'approvals.verify.self_note':       '(ő kérte -- a sajátját nem ellenőrizheti)',
   'approvals.btn.approve':       'Jóváhagyás',
   'approvals.btn.reject':        'Elutasítás',
   'approvals.status.pending':    'Várakozó',

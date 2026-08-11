@@ -878,6 +878,7 @@ window._i18n.en = {
   'approvals.verify.dispatched_ok':   '{n} agent(s) dispatched for verification',
   'approvals.verify.some_failed':     'Some agents failed to dispatch: {list}',
   'approvals.verify.no_agents':       'No other agent available to verify',
+  'approvals.verify.self_note':       '(requested it -- cannot verify their own)',
   'approvals.btn.approve':       'Approve',
   'approvals.btn.reject':        'Reject',
   'approvals.status.pending':    'Pending',
