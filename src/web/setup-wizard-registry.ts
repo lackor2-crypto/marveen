@@ -47,6 +47,30 @@ export interface SetupItem {
    * capabilities, and the wizard says so rather than nagging.
    */
   required: boolean
+  /**
+   * How loudly a missing item may shout.
+   *
+   * Boss, 2026-08-11, after three missing EXTRAS painted the Overview
+   * blood-red with a black button: it read as "the system is broken" when
+   * nothing was wrong. Colour is information, and spending alarm-red on a
+   * convenience feature teaches the operator to ignore red.
+   */
+  tier: 'essential' | 'recommended' | 'extra'
+  /**
+   * Plain-language answer to "what is this and why would I want it?" -- no
+   * jargon, and it must say what happens if the operator skips it. The user
+   * is not a programmer; see the user-is-not-a-programmer skill.
+   */
+  helpKey: string
+  /** Numbered, do-this-then-that instructions for obtaining the value. */
+  stepKeys?: string[]
+  /**
+   * Real, clickable destinations. "See the description" with nothing to click
+   * is what this replaces -- if we send someone to a website, we link it.
+   */
+  links?: Array<{ url: string; labelKey: string }>
+  /** A concrete example of the value, shown as "looks like this". */
+  exampleKey?: string
   /** Example value shown as the input placeholder, never a real one. */
   placeholder?: string
 }
@@ -62,136 +86,118 @@ export interface SetupItem {
  */
 export const SETUP_ITEMS: SetupItem[] = [
   {
-    id: 'owner-name',
-    group: 'identity',
-    kind: 'env',
-    envKey: 'OWNER_NAME',
-    labelKey: 'wizard.item.owner_name',
-    descKey: 'wizard.item.owner_name_desc',
-    required: true,
-    placeholder: 'Géza',
+    id: 'owner-name', group: 'identity', kind: 'env', envKey: 'OWNER_NAME',
+    labelKey: 'wizard.item.owner_name', descKey: 'wizard.item.owner_name_desc',
+    helpKey: 'wizard.item.owner_name_help', exampleKey: 'wizard.item.owner_name_example',
+    required: true, tier: 'essential', placeholder: 'Géza',
   },
   {
-    id: 'bot-name',
-    group: 'identity',
-    kind: 'env',
-    envKey: 'BOT_NAME',
-    labelKey: 'wizard.item.bot_name',
-    descKey: 'wizard.item.bot_name_desc',
-    required: true,
-    placeholder: 'Marveen',
+    id: 'bot-name', group: 'identity', kind: 'env', envKey: 'BOT_NAME',
+    labelKey: 'wizard.item.bot_name', descKey: 'wizard.item.bot_name_desc',
+    helpKey: 'wizard.item.bot_name_help', exampleKey: 'wizard.item.bot_name_example',
+    required: true, tier: 'essential', placeholder: 'Marveen',
   },
   {
-    id: 'brand-name',
-    group: 'identity',
-    kind: 'env',
-    envKey: 'BRAND_NAME',
-    labelKey: 'wizard.item.brand_name',
-    descKey: 'wizard.item.brand_name_desc',
-    required: false,
-    placeholder: 'Marveen',
+    id: 'claude-auth', group: 'identity', kind: 'external',
+    labelKey: 'wizard.item.claude_auth', descKey: 'wizard.item.claude_auth_desc',
+    helpKey: 'wizard.item.claude_auth_help',
+    stepKeys: ['wizard.item.claude_auth_step1', 'wizard.item.claude_auth_step2', 'wizard.item.claude_auth_step3'],
+    links: [{ url: 'https://claude.ai/login', labelKey: 'wizard.link.claude_login' }],
+    required: true, tier: 'essential',
   },
   {
-    id: 'claude-auth',
-    group: 'identity',
-    kind: 'external',
-    labelKey: 'wizard.item.claude_auth',
-    descKey: 'wizard.item.claude_auth_desc',
-    required: true,
+    id: 'brand-name', group: 'identity', kind: 'env', envKey: 'BRAND_NAME',
+    labelKey: 'wizard.item.brand_name', descKey: 'wizard.item.brand_name_desc',
+    helpKey: 'wizard.item.brand_name_help', exampleKey: 'wizard.item.brand_name_example',
+    required: false, tier: 'extra', placeholder: 'Marveen',
   },
   {
-    id: 'telegram-token',
-    group: 'channel',
-    kind: 'secret',
-    envKey: 'TELEGRAM_BOT_TOKEN',
-    labelKey: 'wizard.item.telegram_token',
-    descKey: 'wizard.item.telegram_token_desc',
-    required: false,
-    placeholder: '123456:ABC-DEF...',
+    id: 'telegram-token', group: 'channel', kind: 'secret', envKey: 'TELEGRAM_BOT_TOKEN',
+    labelKey: 'wizard.item.telegram_token', descKey: 'wizard.item.telegram_token_desc',
+    helpKey: 'wizard.item.telegram_token_help',
+    stepKeys: [
+      'wizard.item.telegram_token_step1', 'wizard.item.telegram_token_step2',
+      'wizard.item.telegram_token_step3', 'wizard.item.telegram_token_step4',
+    ],
+    links: [{ url: 'https://t.me/BotFather', labelKey: 'wizard.link.botfather' }],
+    exampleKey: 'wizard.item.telegram_token_example',
+    required: false, tier: 'recommended', placeholder: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw',
   },
   {
-    id: 'telegram-pairing',
-    group: 'channel',
-    kind: 'external',
-    labelKey: 'wizard.item.telegram_pairing',
-    descKey: 'wizard.item.telegram_pairing_desc',
-    required: false,
+    id: 'telegram-pairing', group: 'channel', kind: 'external',
+    labelKey: 'wizard.item.telegram_pairing', descKey: 'wizard.item.telegram_pairing_desc',
+    helpKey: 'wizard.item.telegram_pairing_help',
+    stepKeys: ['wizard.item.telegram_pairing_step1', 'wizard.item.telegram_pairing_step2', 'wizard.item.telegram_pairing_step3'],
+    required: false, tier: 'recommended',
   },
   {
-    id: 'google-oauth',
-    group: 'google',
-    kind: 'external',
-    labelKey: 'wizard.item.google_oauth',
-    descKey: 'wizard.item.google_oauth_desc',
-    required: false,
+    id: 'google-oauth', group: 'google', kind: 'external',
+    labelKey: 'wizard.item.google_oauth', descKey: 'wizard.item.google_oauth_desc',
+    helpKey: 'wizard.item.google_oauth_help',
+    stepKeys: [
+      'wizard.item.google_oauth_step1', 'wizard.item.google_oauth_step2',
+      'wizard.item.google_oauth_step3', 'wizard.item.google_oauth_step4',
+      'wizard.item.google_oauth_step5',
+    ],
+    links: [{ url: 'https://console.cloud.google.com/apis/credentials', labelKey: 'wizard.link.google_console' }],
+    required: false, tier: 'recommended',
   },
   {
-    id: 'calendar-id',
-    group: 'google',
-    kind: 'env',
-    envKey: 'HEARTBEAT_CALENDAR_ID',
-    labelKey: 'wizard.item.calendar_id',
-    descKey: 'wizard.item.calendar_id_desc',
-    required: false,
-    placeholder: 'primary',
+    id: 'calendar-id', group: 'google', kind: 'env', envKey: 'HEARTBEAT_CALENDAR_ID',
+    labelKey: 'wizard.item.calendar_id', descKey: 'wizard.item.calendar_id_desc',
+    helpKey: 'wizard.item.calendar_id_help',
+    stepKeys: ['wizard.item.calendar_id_step1', 'wizard.item.calendar_id_step2'],
+    links: [{ url: 'https://calendar.google.com/calendar/r/settings', labelKey: 'wizard.link.google_calendar' }],
+    exampleKey: 'wizard.item.calendar_id_example',
+    required: false, tier: 'recommended', placeholder: 'primary',
   },
   {
-    id: 'drive-folder',
-    group: 'google',
-    kind: 'env',
-    envKey: 'OWNER_DRIVE_FOLDER',
-    labelKey: 'wizard.item.drive_folder',
-    descKey: 'wizard.item.drive_folder_desc',
-    required: false,
+    id: 'drive-folder', group: 'google', kind: 'env', envKey: 'OWNER_DRIVE_FOLDER',
+    labelKey: 'wizard.item.drive_folder', descKey: 'wizard.item.drive_folder_desc',
+    helpKey: 'wizard.item.drive_folder_help',
+    stepKeys: ['wizard.item.drive_folder_step1', 'wizard.item.drive_folder_step2', 'wizard.item.drive_folder_step3'],
+    links: [{ url: 'https://drive.google.com', labelKey: 'wizard.link.google_drive' }],
+    exampleKey: 'wizard.item.drive_folder_example',
+    required: false, tier: 'extra',
   },
   {
-    id: 'window-backup-repo',
-    group: 'backup',
-    kind: 'env',
-    envKey: 'WINDOW_BACKUP_REPO_URL',
-    labelKey: 'wizard.item.window_backup',
-    descKey: 'wizard.item.window_backup_desc',
-    required: false,
-    placeholder: 'https://github.com/<account>/<repo>.git',
+    id: 'window-backup-repo', group: 'backup', kind: 'env', envKey: 'WINDOW_BACKUP_REPO_URL',
+    labelKey: 'wizard.item.window_backup', descKey: 'wizard.item.window_backup_desc',
+    helpKey: 'wizard.item.window_backup_help',
+    stepKeys: ['wizard.item.window_backup_step1', 'wizard.item.window_backup_step2', 'wizard.item.window_backup_step3'],
+    links: [{ url: 'https://github.com/new', labelKey: 'wizard.link.github_new_repo' }],
+    exampleKey: 'wizard.item.window_backup_example',
+    required: false, tier: 'extra', placeholder: 'https://github.com/<fiok>/<repo>.git',
   },
   {
-    id: 'github-push-account',
-    group: 'backup',
-    kind: 'env',
-    envKey: 'GITHUB_PUSH_ACCOUNT',
-    labelKey: 'wizard.item.github_account',
-    descKey: 'wizard.item.github_account_desc',
-    required: false,
+    id: 'github-push-account', group: 'backup', kind: 'env', envKey: 'GITHUB_PUSH_ACCOUNT',
+    labelKey: 'wizard.item.github_account', descKey: 'wizard.item.github_account_desc',
+    helpKey: 'wizard.item.github_account_help',
+    stepKeys: ['wizard.item.github_account_step1', 'wizard.item.github_account_step2'],
+    links: [{ url: 'https://github.com/settings/profile', labelKey: 'wizard.link.github_profile' }],
+    exampleKey: 'wizard.item.github_account_example',
+    required: false, tier: 'extra',
   },
   {
-    id: 'auto-update',
-    group: 'maintenance',
-    kind: 'env',
-    envKey: 'AUTO_UPDATE_ENABLED',
-    labelKey: 'wizard.item.auto_update',
-    descKey: 'wizard.item.auto_update_desc',
-    required: false,
-    placeholder: '0',
+    id: 'auto-update', group: 'maintenance', kind: 'env', envKey: 'AUTO_UPDATE_ENABLED',
+    labelKey: 'wizard.item.auto_update', descKey: 'wizard.item.auto_update_desc',
+    helpKey: 'wizard.item.auto_update_help', exampleKey: 'wizard.item.auto_update_example',
+    required: false, tier: 'extra', placeholder: '0',
   },
   {
-    id: 'main-agent-model',
-    group: 'models',
-    kind: 'env',
-    envKey: 'MAIN_AGENT_MODEL',
-    labelKey: 'wizard.item.main_model',
-    descKey: 'wizard.item.main_model_desc',
-    required: false,
-    placeholder: 'claude-opus-5',
+    id: 'main-agent-model', group: 'models', kind: 'env', envKey: 'MAIN_AGENT_MODEL',
+    labelKey: 'wizard.item.main_model', descKey: 'wizard.item.main_model_desc',
+    helpKey: 'wizard.item.main_model_help', exampleKey: 'wizard.item.main_model_example',
+    required: false, tier: 'extra', placeholder: 'claude-opus-5',
   },
   {
-    id: 'ollama-url',
-    group: 'models',
-    kind: 'env',
-    envKey: 'OLLAMA_URL',
-    labelKey: 'wizard.item.ollama',
-    descKey: 'wizard.item.ollama_desc',
-    required: false,
-    placeholder: 'http://localhost:11434',
+    id: 'ollama-url', group: 'models', kind: 'env', envKey: 'OLLAMA_URL',
+    labelKey: 'wizard.item.ollama', descKey: 'wizard.item.ollama_desc',
+    helpKey: 'wizard.item.ollama_help',
+    stepKeys: ['wizard.item.ollama_step1', 'wizard.item.ollama_step2'],
+    links: [{ url: 'https://ollama.com/download', labelKey: 'wizard.link.ollama_download' }],
+    exampleKey: 'wizard.item.ollama_example',
+    required: false, tier: 'extra', placeholder: 'http://localhost:11434',
   },
 ]
 
@@ -212,6 +218,13 @@ export interface SetupSummary {
   missingRequired: number
   /** Optional capabilities not yet set up -- things Marveen could do but is not doing. */
   availableUnused: number
+  /** Missing count per tier, so the UI can colour by the worst one rather than by any gap at all. */
+  missingByTier: { essential: number; recommended: number; extra: number }
+  /**
+   * The loudest colour this install has earned. 'none' means nothing is
+   * missing; 'extra' must never be shown in an alarm colour.
+   */
+  worstTier: 'none' | 'extra' | 'recommended' | 'essential'
 }
 
 /**
@@ -237,10 +250,24 @@ export function buildSetupSummary(
     return { ...item, configured, value: raw }
   })
 
+  const missing = items.filter(i => !i.configured)
+  const missingByTier = {
+    essential: missing.filter(i => i.tier === 'essential').length,
+    recommended: missing.filter(i => i.tier === 'recommended').length,
+    extra: missing.filter(i => i.tier === 'extra').length,
+  }
+  const worstTier: SetupSummary['worstTier'] =
+    missingByTier.essential > 0 ? 'essential'
+      : missingByTier.recommended > 0 ? 'recommended'
+        : missingByTier.extra > 0 ? 'extra'
+          : 'none'
+
   return {
     items,
     missingRequired: items.filter(i => i.required && !i.configured).length,
     availableUnused: items.filter(i => !i.required && !i.configured).length,
+    missingByTier,
+    worstTier,
   }
 }
 

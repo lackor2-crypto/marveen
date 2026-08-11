@@ -13318,10 +13318,12 @@ const CAPABILITY_INFO = {
   },
 }
 
-// Setup state on the Overview, because that is where you look first. The
-// wizard itself lives under Settings, but a gap nobody walks past stays a gap
-// -- Boss asked for the required-vs-optional line to surface here too. Silent
-// when the install is fully configured: a permanent green banner is noise.
+// Setup state on the Overview, because that is where you look first. The card
+// is coloured by the WORST missing tier, not by "something is missing":
+// three unset EXTRAS used to paint this blood-red with a black button, which
+// read as "the system is broken" when nothing was wrong. Alarm colours spent
+// on convenience features teach the operator to ignore alarm colours.
+// Silent once nothing is missing -- a permanent green banner is noise.
 async function renderOverviewSetupStatus() {
   const box = document.getElementById('overviewSetupStatus')
   const list = document.getElementById('overviewSetupStatusList')
@@ -13333,20 +13335,31 @@ async function renderOverviewSetupStatus() {
     d = await res.json()
   } catch { box.hidden = true; return }
 
-  const rows = []
-  if (d.missingRequired > 0) {
-    rows.push({ cls: 'danger', text: t('wizard.summary.missing_required', { n: d.missingRequired }) })
-  }
-  if (d.availableUnused > 0) {
-    rows.push({ cls: '', text: t('wizard.summary.available', { n: d.availableUnused }) })
-  }
-  if (rows.length === 0) { box.hidden = true; list.innerHTML = ''; return }
+  const worst = d.worstTier || 'none'
+  if (worst === 'none') { box.hidden = true; list.innerHTML = ''; return }
+
+  const TONE = {
+    essential: { bg: 'var(--danger)', fg: '#fff', itemBg: 'rgba(0,0,0,.25)' },
+    recommended: { bg: '#f59e0b', fg: '#111', itemBg: 'rgba(255,255,255,.35)' },
+    extra: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', itemBg: 'rgba(127,127,127,.12)' },
+  }[worst]
+
+  const n = d.missingByTier ? d.missingByTier[worst] : 0
+  const headline = worst === 'essential'
+    ? t('wizard.summary.missing_required', { n })
+    : t('wizard.summary.available', { n: (d.availableUnused || n) })
 
   box.hidden = false
-  list.innerHTML = rows.map(r => `<a href="#" class="overview-capability-item" onclick="switchPage('settings');activateSettingsTab('wizard');return false">
-      <div class="overview-capability-label"${r.cls === 'danger' ? ' style="color:var(--danger)"' : ''}>${escapeHtml(r.text)}</div>
-      <div class="overview-capability-desc">${escapeHtml(t('overview.setup.open_wizard'))}</div>
-    </a>`).join('')
+  box.style.background = TONE.bg
+  box.style.border = worst === 'extra' ? '1px solid var(--border)' : 'none'
+  const titleEl = box.querySelector('.overview-capabilities-title')
+  if (titleEl) titleEl.style.color = TONE.fg
+  list.innerHTML = `<a href="#" class="overview-capability-item"
+      style="background:${TONE.itemBg};color:${TONE.fg}"
+      onclick="switchPage('settings');activateSettingsTab('wizard');return false">
+      <div class="overview-capability-label">${escapeHtml(headline)}</div>
+      <div class="overview-capability-desc">${escapeHtml(worst === 'extra' ? t('wizard.tier.extra_note') : t('overview.setup.open_wizard'))}</div>
+    </a>`
 }
 
 function renderOverviewCapabilities(ids) {
@@ -16620,118 +16633,172 @@ function activateSettingsTab(mod) {
 // inert with nothing explaining why. Required items are what the install
 // cannot run without; the rest are capabilities sitting unused, and the panel
 // says which is which rather than nagging equally about both.
-const WIZARD_GROUP_ORDER = ['identity', 'channel', 'google', 'backup', 'maintenance', 'models']
+const WIZARD_TIER_ORDER = ['essential', 'recommended', 'extra']
+
+// Colour carries meaning, so it is spent carefully. A missing EXTRA gets a
+// neutral badge -- never red. Boss watched three missing extras paint the
+// Overview blood-red and reasonably read it as "the system is broken".
+const WIZARD_TIER_COLOR = {
+  essential: 'var(--danger)',
+  recommended: '#f59e0b',
+  extra: 'var(--text-muted)',
+}
+
+let _wizardData = null
+let _wizardStepIdx = 0
+let _wizardPending = {}
 
 async function renderSetupWizardPanel(host) {
   if (!host) return
   host.innerHTML = `<p style="padding:16px;color:var(--text-muted);font-size:13px">${t('settings.loading')}</p>`
-  let data
   try {
     const res = await fetch('/api/setup-wizard')
     if (!res.ok) throw new Error('fetch failed')
-    data = await res.json()
+    _wizardData = await res.json()
   } catch {
     host.innerHTML = `<p style="padding:16px;color:var(--danger);font-size:13px">${t('settings.error')}</p>`
     return
   }
+  _wizardPending = {}
+  renderWizardHome(host)
+}
 
-  const byGroup = new Map()
-  for (const item of data.items || []) {
-    if (!byGroup.has(item.group)) byGroup.set(item.group, [])
-    byGroup.get(item.group).push(item)
-  }
+// Landing view: reassurance first, then the three tiers as separate blocks, so
+// "you must fix this" and "you could also have this" never look alike.
+function renderWizardHome(host) {
+  const d = _wizardData
+  const todo = (d.items || []).filter(i => !i.configured)
 
-  const summary = data.missingRequired > 0
-    ? `<span style="color:var(--danger)">${escapeHtml(t('wizard.summary.missing_required', { n: data.missingRequired }))}</span>`
-    : (data.availableUnused > 0
-      ? `<span style="color:var(--text-muted)">${escapeHtml(t('wizard.summary.available', { n: data.availableUnused }))}</span>`
-      : `<span style="color:var(--success,#22c55e)">${escapeHtml(t('wizard.summary.all_done'))}</span>`)
+  const banner = d.missingByTier && d.missingByTier.essential > 0
+    ? `<div style="padding:12px 14px;border-radius:8px;background:var(--danger);color:#fff;font-size:13px">
+         ${escapeHtml(t('wizard.summary.missing_required', { n: d.missingByTier.essential }))}
+       </div>`
+    : `<div style="padding:12px 14px;border-radius:8px;background:rgba(34,197,94,.12);font-size:13px">
+         ${escapeHtml(t('wizard.all_good'))}
+       </div>`
 
-  const sections = WIZARD_GROUP_ORDER
-    .filter(g => byGroup.has(g))
-    .map((g) => {
-      const rows = byGroup.get(g).map(item => wizardRowHtml(item)).join('')
-      return `<div class="card" style="margin-bottom:16px">
-        <h3>${escapeHtml(t('wizard.group.' + g))}</h3>
-        ${rows}
-      </div>`
-    }).join('')
+  const tiers = WIZARD_TIER_ORDER.map((tier) => {
+    const items = (d.items || []).filter(i => i.tier === tier)
+    if (!items.length) return ''
+    const rows = items.map(item => wizardRowHtml(item)).join('')
+    return `<div class="card" style="margin-bottom:16px;border-left:3px solid ${WIZARD_TIER_COLOR[tier]}">
+      <h3 style="margin-bottom:2px">${escapeHtml(t('wizard.tier.' + tier))}</h3>
+      <p style="margin:0 0 8px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.tier.' + tier + '_note'))}</p>
+      ${rows}
+    </div>`
+  }).join('')
 
   host.innerHTML = `
     <div style="padding:4px 0 12px">
       <h3 style="margin:0 0 4px">${escapeHtml(t('wizard.title'))}</h3>
-      <p style="margin:0 0 8px;color:var(--text-muted);font-size:13px">${escapeHtml(t('wizard.subtitle'))}</p>
-      <p style="margin:0;font-size:13px">${summary}</p>
+      <p style="margin:0 0 10px;color:var(--text-muted);font-size:13px">${escapeHtml(t('wizard.subtitle'))}</p>
+      ${banner}
     </div>
-    ${sections}
+    <div class="card" style="margin-bottom:16px">
+      <p style="margin:0 0 10px;font-size:13px">${escapeHtml(t('wizard.start_desc'))}</p>
+      <button class="btn-primary" id="wizardStartBtn"${todo.length ? '' : ' disabled'}>${escapeHtml(t('wizard.start'))}</button>
+      ${todo.length ? '' : `<span style="margin-left:10px;font-size:13px;color:var(--text-muted)">${escapeHtml(t('wizard.nothing_todo'))}</span>`}
+    </div>
+    ${tiers}`
+
+  const btn = document.getElementById('wizardStartBtn')
+  if (btn) btn.addEventListener('click', () => { _wizardStepIdx = 0; renderWizardStep(host) })
+}
+
+// One capability per screen: what it is, why you might want it, what to click,
+// where to go, what to type. That is the difference between a wizard and a
+// settings list with a wizard label on top of it.
+function renderWizardStep(host) {
+  const todo = (_wizardData.items || []).filter(i => !i.configured)
+  if (_wizardStepIdx >= todo.length) return renderWizardDone(host)
+
+  const item = todo[_wizardStepIdx]
+  const steps = (item.stepKeys || []).map(k => `<li style="margin-bottom:6px">${escapeHtml(t(k))}</li>`).join('')
+  const links = (item.links || []).map(l =>
+    `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-compact" style="margin-right:8px;display:inline-block;margin-top:6px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
+
+  const example = item.exampleKey ? t(item.exampleKey) : (item.placeholder || '')
+  const field = item.kind === 'external' ? '' : `
+    <label style="display:block;margin-top:12px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.example'))}: ${escapeHtml(example)}</label>
+    <input type="${item.kind === 'secret' ? 'password' : 'text'}" class="input" id="wizardStepInput"
+      placeholder="${escapeAttr(item.placeholder || '')}"
+      value="${escapeAttr(item.kind === 'secret' ? '' : (_wizardPending[item.envKey] ?? item.value ?? ''))}"
+      autocomplete="off" style="margin-top:4px">`
+
+  const badgeFg = item.tier === 'extra' ? 'var(--bg)' : '#fff'
+  host.innerHTML = `
     <div class="card">
-      <p style="margin:0 0 10px;color:var(--text-muted);font-size:12px">${escapeHtml(t('wizard.restart_note'))}</p>
-      <button class="btn-primary" id="wizardSaveBtn">${escapeHtml(t('wizard.save'))}</button>
-      <span id="wizardSaveMsg" style="margin-left:10px;font-size:13px"></span>
+      <p style="margin:0 0 6px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.step_of', { i: _wizardStepIdx + 1, n: todo.length }))}</p>
+      <h3 style="margin:0 0 8px">${escapeHtml(t(item.labelKey))}
+        <span class="agent-account-badge" style="background:${WIZARD_TIER_COLOR[item.tier]};color:${badgeFg}">${escapeHtml(t('wizard.tier.' + item.tier))}</span>
+      </h3>
+      <p style="margin:0 0 10px;font-size:13px;line-height:1.55">${escapeHtml(t(item.helpKey || item.descKey))}</p>
+      ${steps ? `<p style="margin:10px 0 4px;font-size:13px;font-weight:600">${escapeHtml(t('wizard.howto'))}</p><ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.55">${steps}</ol>` : ''}
+      ${links}
+      ${field}
+      <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+        ${_wizardStepIdx > 0 ? `<button class="btn-secondary" id="wizardBackBtn">${escapeHtml(t('wizard.back'))}</button>` : ''}
+        <button class="btn-secondary" id="wizardSkipBtn">${escapeHtml(t('wizard.skip'))}</button>
+        <button class="btn-primary" id="wizardNextBtn">${escapeHtml(_wizardStepIdx === todo.length - 1 ? t('wizard.finish') : t('wizard.next'))}</button>
+      </div>
     </div>`
 
-  const btn = document.getElementById('wizardSaveBtn')
-  if (btn) btn.addEventListener('click', () => saveSetupWizard(host))
+  // Keep what was typed when moving between steps: a wizard that loses your
+  // input the moment you press Back is worse than a form.
+  const stash = () => {
+    const input = document.getElementById('wizardStepInput')
+    if (input && item.envKey) {
+      const v = (input.value || '').trim()
+      if (v) _wizardPending[item.envKey] = v
+      else delete _wizardPending[item.envKey]
+    }
+  }
+  const back = document.getElementById('wizardBackBtn')
+  if (back) back.addEventListener('click', () => { stash(); _wizardStepIdx--; renderWizardStep(host) })
+  document.getElementById('wizardSkipBtn').addEventListener('click', () => { _wizardStepIdx++; renderWizardStep(host) })
+  document.getElementById('wizardNextBtn').addEventListener('click', () => { stash(); _wizardStepIdx++; renderWizardStep(host) })
+}
+
+// Everything is saved at the END, in one request: a half-finished walkthrough
+// should not leave the install half-configured.
+async function renderWizardDone(host) {
+  let saved = 0
+  if (Object.keys(_wizardPending).length > 0) {
+    try {
+      const res = await fetch('/api/setup-wizard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: _wizardPending }),
+      })
+      if (res.ok) saved = ((await res.json()).written || []).length
+    } catch { /* falls through to the "nothing saved" message */ }
+  }
+  host.innerHTML = `
+    <div class="card">
+      <h3 style="margin:0 0 8px">${escapeHtml(t('wizard.done_title'))}</h3>
+      <p style="margin:0 0 6px;font-size:13px">${escapeHtml(saved > 0 ? t('wizard.saved', { n: saved }) : t('wizard.saved_none'))}</p>
+      <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.restart_note'))}</p>
+      <button class="btn-primary" id="wizardDoneBtn">${escapeHtml(t('wizard.list_view'))}</button>
+    </div>`
+  document.getElementById('wizardDoneBtn').addEventListener('click', () => renderSetupWizardPanel(host))
 }
 
 function wizardRowHtml(item) {
-  const badge = item.configured
-    ? `<span class="agent-account-badge" style="background:var(--success,#22c55e);color:#fff">${escapeHtml(t('wizard.status.configured'))}</span>`
-    : `<span class="agent-account-badge"${item.required ? ' style="background:var(--danger);color:#fff"' : ''}>${escapeHtml(t(item.required ? 'wizard.status.required' : 'wizard.status.missing'))}</span>`
+  const color = item.configured ? 'var(--success,#22c55e)' : WIZARD_TIER_COLOR[item.tier]
+  const label = item.configured ? t('wizard.status.configured') : t('wizard.status.missing')
+  const fg = (!item.configured && item.tier === 'extra') ? 'var(--bg)' : '#fff'
+  const badge = `<span class="agent-account-badge" style="background:${color};color:${fg}">${escapeHtml(label)}</span>`
 
-  // An external item has no field on purpose: it is configured by a login or a
-  // file drop, and a text box promising otherwise would be a lie.
-  const control = item.kind === 'external'
-    ? `<p style="margin:6px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.external_note'))}</p>`
-    : `<input type="${item.kind === 'secret' ? 'password' : 'text'}" class="input" style="margin-top:6px"
-         data-wizard-key="${escapeAttr(item.envKey || '')}"
-         placeholder="${escapeAttr(item.placeholder || '')}"
-         value="${escapeAttr(item.kind === 'secret' ? '' : (item.value || ''))}"
-         autocomplete="off">
-       ${item.kind === 'secret' && item.configured ? `<p style="margin:4px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.secret_set'))}</p>` : ''}`
+  const links = (item.links || []).map(l =>
+    `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;margin-right:10px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
 
   return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:8px">
       <strong style="font-size:13px">${escapeHtml(t(item.labelKey))}</strong>${badge}
     </div>
-    <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t(item.descKey))}</p>
-    ${control}
+    <p style="margin:4px 0 0;font-size:12px;color:var(--text-muted);line-height:1.55">${escapeHtml(t(item.helpKey || item.descKey))}</p>
+    ${links ? `<div style="margin-top:4px">${links}</div>` : ''}
   </div>`
-}
-
-async function saveSetupWizard(host) {
-  const msg = document.getElementById('wizardSaveMsg')
-  const values = {}
-  host.querySelectorAll('[data-wizard-key]').forEach((el) => {
-    const key = el.dataset.wizardKey
-    const val = (el.value || '').trim()
-    // Empty means "leave it alone", never "erase it" -- a blank password field
-    // is the normal state for an already-configured secret.
-    if (key && val) values[key] = val
-  })
-
-  if (Object.keys(values).length === 0) {
-    if (msg) { msg.textContent = t('wizard.saved_none'); msg.style.color = 'var(--text-muted)' }
-    return
-  }
-
-  try {
-    const res = await fetch('/api/setup-wizard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values }),
-    })
-    if (!res.ok) throw new Error('save failed')
-    const out = await res.json()
-    if (msg) {
-      msg.textContent = t('wizard.saved', { n: (out.written || []).length })
-      msg.style.color = 'var(--success,#22c55e)'
-    }
-    host.innerHTML = ''
-    renderSetupWizardPanel(host)
-  } catch {
-    if (msg) { msg.textContent = t('wizard.save_failed'); msg.style.color = 'var(--danger)' }
-  }
 }
 
 function buildSettingRow(def) {

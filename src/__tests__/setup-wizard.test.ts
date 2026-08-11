@@ -26,6 +26,48 @@ describe('setup registry', () => {
     }
   })
 
+  it('gives every item a plain-language explanation', () => {
+    // The user is not a programmer: a label and an empty box is not a setting
+    // anyone can fill in. See the user-is-not-a-programmer skill.
+    for (const item of SETUP_ITEMS) {
+      expect(item.helpKey, `${item.id} needs a plain-language helpKey`).toMatch(/^wizard\.item\./)
+    }
+  })
+
+  it('tells the operator where to get the value when it comes from elsewhere', () => {
+    // Anything obtained from a website or another program must carry steps AND
+    // a real link. "See the description" with nothing to click is the failure
+    // this replaces.
+    for (const item of SETUP_ITEMS) {
+      if (!item.stepKeys?.length) continue
+      const needsLink = ['claude-auth', 'telegram-token', 'google-oauth', 'drive-folder', 'window-backup-repo', 'github-push-account', 'ollama-url', 'calendar-id']
+      if (needsLink.includes(item.id)) {
+        expect(item.links?.length, `${item.id} sends the user somewhere but links nowhere`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('gives every writable item a concrete example of what to type', () => {
+    for (const item of SETUP_ITEMS) {
+      if (item.kind === 'external') continue
+      expect(item.exampleKey || item.placeholder, `${item.id} shows no example value`).toBeTruthy()
+    }
+  })
+
+  it('assigns every item a priority tier', () => {
+    for (const item of SETUP_ITEMS) {
+      expect(['essential', 'recommended', 'extra']).toContain(item.tier)
+    }
+  })
+
+  it('never marks a required item as an extra', () => {
+    // The two would contradict each other: required means the install is
+    // broken without it, extra means it is safe to ignore.
+    for (const item of SETUP_ITEMS) {
+      if (item.required) expect(item.tier, `${item.id}`).toBe('essential')
+    }
+  })
+
   it('has no duplicate ids or env keys', () => {
     const ids = SETUP_ITEMS.map(i => i.id)
     expect(new Set(ids).size, 'duplicate id').toBe(ids.length)
@@ -114,5 +156,38 @@ describe('classifying an install', () => {
     const s = buildSetupSummary(env, ext)
     expect(s.missingRequired).toBe(0)
     expect(s.availableUnused).toBe(0)
+  })
+
+  it('never lets a missing EXTRA raise the alarm level', () => {
+    // The regression Boss caught: three unset extras painted the Overview
+    // blood-red, which reads as "the system is broken". worstTier is what the
+    // UI colours by, so an extras-only gap must stay 'extra'.
+    const env: Record<string, string> = {}
+    const ext: Record<string, boolean> = {}
+    for (const item of SETUP_ITEMS) {
+      if (item.tier === 'extra') continue
+      if (item.envKey) env[item.envKey] = 'x'
+      if (item.kind === 'external') ext[item.id] = true
+    }
+    const s = buildSetupSummary(env, ext)
+    expect(s.missingByTier.essential).toBe(0)
+    expect(s.missingByTier.recommended).toBe(0)
+    expect(s.missingByTier.extra).toBeGreaterThan(0)
+    expect(s.worstTier).toBe('extra')
+  })
+
+  it('raises the alarm to essential when a basic setting is missing', () => {
+    const s = buildSetupSummary({}, {})
+    expect(s.worstTier).toBe('essential')
+  })
+
+  it('reports no tier at all once everything is configured', () => {
+    const env: Record<string, string> = {}
+    const ext: Record<string, boolean> = {}
+    for (const item of SETUP_ITEMS) {
+      if (item.envKey) env[item.envKey] = 'x'
+      if (item.kind === 'external') ext[item.id] = true
+    }
+    expect(buildSetupSummary(env, ext).worstTier).toBe('none')
   })
 })
