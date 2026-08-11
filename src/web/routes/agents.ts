@@ -1075,6 +1075,75 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     return true
   }
 
+  // POST /api/agents/:name/context-action -- manual /clear or /compact from the
+  // agent's dashboard card. /clear wipes the conversation, so it is guarded: a
+  // sub-agent whose local drain queue (inbox-pending / inbox-draining) still
+  // holds unprocessed inbound messages would lose them to the cleared context --
+  // the same failure the automatic gate's de5c046f safeguard prevents. We refuse
+  // unless force:true and report the pending count so the card can confirm.
+  // /compact summarizes rather than deletes, so it needs no such guard. Both go
+  // through sendPromptToSession with waitForIdle, so a busy agent is never
+  // interrupted mid-work.
+  const contextActionMatch = path.match(/^\/api\/agents\/([^/]+)\/context-action$/)
+  if (contextActionMatch && method === 'POST') {
+    const name = decodeURIComponent(contextActionMatch[1])
+    const isMain = isMainChannelsAgent(name)
+    if (!isMain && !existsSync(agentDir(name))) { json(res, { error: 'Agent not found' }, 404); return true }
+    if (!isMain && !isAgentRunning(name)) { json(res, { error: 'Agent is not running' }, 400); return true }
+    const body = JSON.parse((await readBody(req)).toString())
+    const action = body?.action
+    if (action !== 'clear' && action !== 'compact') {
+      json(res, { error: 'action must be "clear" or "compact"' }, 400); return true
+    }
+    const session = isMain ? MAIN_CHANNELS_SESSION : agentSessionName(name)
+    const host = isMain ? null : readAgentRemoteHost(name)
+
+    // Count unprocessed inbound sitting in the sub-agent's local drain queue.
+    // Both inbox-pending.jsonl AND inbox-draining-*.jsonl count -- an interrupted
+    // earlier drain leaves a claimed draining file that still holds real
+    // messages (lackor3, 2026-08-11). Provider-agnostic: sweeps every channel.
+    const countPendingInbox = (): number => {
+      try {
+        const chDir = join(agentDir(name), '.claude', 'channels')
+        if (!existsSync(chDir)) return 0
+        let count = 0
+        for (const provider of readdirSync(chDir)) {
+          const dir = join(chDir, provider)
+          try { if (!statSync(dir).isDirectory()) continue } catch { continue }
+          let files: string[] = []
+          try { files = readdirSync(dir) } catch { files = [] }
+          for (const f of files) {
+            if (f === 'inbox-pending.jsonl' || f.startsWith('inbox-draining-')) {
+              try {
+                count += readFileSync(join(dir, f), 'utf-8').split('\n').filter(l => l.trim()).length
+              } catch { /* unreadable file -> ignore */ }
+            }
+          }
+        }
+        return count
+      } catch { return 0 }
+    }
+
+    if (action === 'clear' && !isMain && body?.force !== true) {
+      const pending = countPendingInbox()
+      if (pending > 0) { json(res, { ok: false, needsConfirm: true, pending }); return true }
+    }
+
+    const cmd = action === 'clear' ? '/clear' : '/compact'
+    try {
+      const result = await sendPromptToSession(session, cmd, host, {
+        waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
+      })
+      if (result === 'aborted-busy') { json(res, { ok: false, busy: true }); return true }
+      logger.info({ name, action }, 'Manual context-action sent to agent session')
+      json(res, { ok: true, action })
+    } catch (err) {
+      logger.error({ err, name, action }, 'Manual context-action failed')
+      json(res, { error: 'Failed to send command' }, 500)
+    }
+    return true
+  }
+
   // GET /api/agents/:name/channel/health
   const healthMatch = path.match(/^\/api\/agents\/([^/]+)\/channel\/health$/)
   if (healthMatch && method === 'GET') {

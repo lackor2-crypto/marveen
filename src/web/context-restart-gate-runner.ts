@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { logger } from '../logger.js'
@@ -335,6 +335,32 @@ function hasLiveTaskStateFile(name: string, nowMs: number): boolean {
 }
 
 /**
+ * True if the agent's local drain queue still holds unprocessed inbound. Sweeps
+ * every channel provider under <workingDir>/.claude/channels and counts both
+ * inbox-pending.jsonl AND any claimed inbox-draining-*.jsonl (an interrupted
+ * earlier drain leaves the latter, still holding real messages). Card de5c046f:
+ * a /clear fired while these are non-empty would silently eat them.
+ */
+function hasPendingInboxQueue(workingDir: string): boolean {
+  const chDir = join(workingDir, '.claude', 'channels')
+  if (!existsSync(chDir)) return false
+  try {
+    for (const provider of readdirSync(chDir)) {
+      let files: string[] = []
+      try { files = readdirSync(join(chDir, provider)) } catch { continue }
+      for (const f of files) {
+        if (f === 'inbox-pending.jsonl' || f.startsWith('inbox-draining-')) {
+          try {
+            if (readFileSync(join(chDir, provider, f), 'utf-8').split('\n').some(l => l.trim())) return true
+          } catch { /* unreadable -> ignore */ }
+        }
+      }
+    }
+  } catch { /* channels dir vanished mid-sweep -> treat as none */ }
+  return false
+}
+
+/**
  * Collect args strings of live work children for diagnostic logging.
  * Called only on the alert path (infrequent) so the extra ps calls are fine.
  */
@@ -417,6 +443,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     hasChildProcesses:      childProcesses,
     hasOpenQuestion:        openQuestion,
     hasLiveTaskState:       liveTaskState,
+    hasPendingInbox:        hasPendingInboxQueue(workingDir),
   }
 
   const runState = readGateRunState(name)

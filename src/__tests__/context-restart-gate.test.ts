@@ -32,6 +32,7 @@ const CLEAR_INPUTS: GateInputs = {
   hasChildProcesses:    false,
   hasOpenQuestion:      false,
   hasLiveTaskState:     false,
+  hasPendingInbox:      false,
 }
 const ENABLED: GateConfig = { ...DEFAULT_GATE_CONFIG, enabled: true }
 
@@ -200,6 +201,20 @@ describe('decideGate -- live task state', () => {
     const d = decide({ hasLiveTaskState: true })
     expect(d.action).toBe('block')
     expect(d.reason).toMatch(/live-task-state/)
+  })
+})
+
+describe('decideGate -- pending inbox (de5c046f safeguard)', () => {
+  it('blocks when unprocessed inbound is queued, so /clear cannot eat it', () => {
+    const d = decide({ hasPendingInbox: true })
+    expect(d.action).toBe('block')
+    expect(d.reason).toMatch(/pending-inbox/)
+  })
+
+  it('otherwise-clear inputs with an empty inbox still allow', () => {
+    // Guards against the block being unconditional: the fully-clear baseline
+    // (hasPendingInbox:false) must remain an allow.
+    expect(decide({}).action).toBe('allow')
   })
 })
 

@@ -119,6 +119,19 @@ export interface GateInputs {
    * non-empty nextAction -- the agent has an in-flight structured task.
    */
   hasLiveTaskState: boolean
+
+  /**
+   * The agent's local drain queue (inbox-pending.jsonl and any claimed
+   * inbox-draining-*.jsonl) still holds unprocessed inbound messages.
+   *
+   * Fork-specific safeguard (card de5c046f): /clear is delivered as a normal
+   * prompt, and this fork's channel-inbox-drain hook empties + unlinks the queue
+   * on that prompt without reading it -- so a /clear fired while messages are
+   * pending would drop them into the wiped context and nothing would bring them
+   * back. A pending inbound is live work, exactly like an open ledger question,
+   * so it blocks.
+   */
+  hasPendingInbox: boolean
 }
 
 export type GateAction = 'allow' | 'block' | 'block-alert'
@@ -208,6 +221,11 @@ export function decideGate(
   // Structured in-flight task state.
   if (inputs.hasLiveTaskState) {
     return block(firstBlockedAt, inputs.nowMs, cfg, 'live-task-state (nextAction set, not consumed)')
+  }
+
+  // Unprocessed inbound in the local drain queue -- /clear would eat it (de5c046f).
+  if (inputs.hasPendingInbox) {
+    return block(firstBlockedAt, inputs.nowMs, cfg, 'pending-inbox (unprocessed inbound would be lost to /clear)')
   }
 
   // All gate conditions clear.
