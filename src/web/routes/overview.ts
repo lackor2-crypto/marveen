@@ -12,7 +12,7 @@ import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
-import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
+import { readRateLimitSnapshot, readScrapedUsage, writeScrapedUsage } from '../rate-limit-status-io.js'
 import { tierForSnapshot, isStale } from '../../rate-limit-status.js'
 import { fetchOpenRouterCredits } from './openrouter-overview.js'
 import { deriveOpenRouterCreditsView } from '../../openrouter-credits.js'
@@ -80,22 +80,11 @@ function parseResetsAt(pane: string, nowMs: number = Date.now()): number | null 
 // (build+restart is routine while iterating), so it never actually had a
 // chance to seed before the next restart wiped it. A stale reading (clearly
 // marked, see `stale` below) beats no reading.
-const SCRAPE_CACHE_DIR = join(PROJECT_ROOT, 'store', 'rate-limit-status')
-function scrapeCachePath(planId: string): string {
-  return join(SCRAPE_CACHE_DIR, `scraped-${planId}.json`)
-}
-function readScrapeCache(planId: string): { usedPct: number; model: string | null; resetsAt: number | null } | null {
-  try {
-    const raw = JSON.parse(readFileSync(scrapeCachePath(planId), 'utf-8'))
-    if (typeof raw?.usedPct === 'number') return { usedPct: raw.usedPct, model: raw.model ?? null, resetsAt: raw.resetsAt ?? null }
-  } catch { /* no cache yet, or unreadable -- treat as no cache */ }
-  return null
-}
-function writeScrapeCache(planId: string, v: { usedPct: number; model: string | null; resetsAt: number | null }): void {
-  try {
-    atomicWriteFileSync(scrapeCachePath(planId), JSON.stringify({ ...v, capturedAt: Date.now() }))
-  } catch { /* best-effort cache -- a write failure just means the next call retries live */ }
-}
+//
+// The read/write pair itself moved to ../rate-limit-status-io.ts (2026-08-11):
+// the limit-wake watcher needs the same cache to tell whether an account has
+// worked since its window reset, and two copies of the path would be one copy
+// too many.
 
 // A five-hour window cannot reset more than five hours from now. Anything
 // further out came from a banner about a DIFFERENT window (the weekly one) or
@@ -134,14 +123,14 @@ function scrapeClaudeAccountUsage(planId: string): { usedPct: number | null; mod
   const fresh = pane ? sanityCheckFiveHour(scrapeFreshUsage(pane)) : { usedPct: null, model: null, resetsAt: null }
   if (fresh.usedPct !== null) {
     const v = { usedPct: fresh.usedPct, model: fresh.model, resetsAt: fresh.resetsAt }
-    writeScrapeCache(planId, v)
+    writeScrapedUsage(planId, v)
     return { ...fresh, stale: false }
   }
   // The cache can hold a row written before the guard above existed (or by an
   // older build), so it gets the same check on the way out -- otherwise a
   // poisoned entry keeps serving the impossible "100% / resets in 23h" pairing
   // forever, since nothing overwrites it while the fresh scrape finds nothing.
-  const cached = readScrapeCache(planId)
+  const cached = readScrapedUsage(planId)
   if (cached) {
     const checked = sanityCheckFiveHour(cached)
     if (checked.usedPct !== null) return { usedPct: checked.usedPct, model: cached.model, resetsAt: checked.resetsAt, stale: true }

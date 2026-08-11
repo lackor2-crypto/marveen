@@ -12,7 +12,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGateCommands, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGateCommands, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -23,6 +23,8 @@ import { startInboundProber } from './web/inbound-probe.js'
 import { startChannelHealthMonitor } from './web/channel-health-monitor.js'
 import { startStuckInputWatcher } from './web/stuck-input-watcher.js'
 import { startInboxNudgeWatcher } from './web/inbox-nudge-watcher.js'
+import { startLimitWakeRunner, LIMIT_WAKE_INTERVAL_MS, LIMIT_WAKE_INITIAL_DELAY_MS } from './web/limit-wake-runner.js'
+import { checkAgentParity } from './web/agent-parity-check.js'
 import { startStuckToolCallWatcher } from './web/stuck-tool-call-watcher.js'
 import { startReauthHealer } from './web/reauth-healer.js'
 import { startAutoRestartRunner } from './web/auto-restart-runner.js'
@@ -422,6 +424,11 @@ export function startWebServer(port = 3420): http.Server {
   const reauthHealerInterval = webOnly ? undefined : startReauthHealer()
   if (!webOnly && reauthHealerInterval) logger.info('Reauth healer started (3min poll, 90s offset)')
 
+  const limitWakeInterval = webOnly ? undefined : startLimitWakeRunner()
+  if (!webOnly && limitWakeInterval) {
+    logger.info(`Limit-reset wake runner started (${LIMIT_WAKE_INTERVAL_MS / 1000}s poll, ${LIMIT_WAKE_INITIAL_DELAY_MS / 1000}s offset)`)
+  }
+
   const autoRestartInterval = webOnly ? undefined : startAutoRestartRunner()
   if (!webOnly) logger.info('Auto-restart runner started (60s poll, 40s offset)')
 
@@ -516,6 +523,7 @@ export function startWebServer(port = 3420): http.Server {
       const stalePatched: string[] = []
       const egressPatched: string[] = []
       const govPatched: string[] = []
+      const skillsLinked: string[] = []
       const pruned: string[] = []
       // Include the main agent (MAIN_AGENT_ID) so the voice hook is also seeded
       // into ~/.claude/settings.json alongside existing hooks (e.g. telegram_progress.py).
@@ -528,6 +536,9 @@ export function startWebServer(port = 3420): http.Server {
         if (ensureAgentStalenessHook(agentName)) stalePatched.push(agentName)
         if (ensureEgressGate(agentName)) egressPatched.push(agentName)
         if (ensureGovernanceGateCommands(agentName)) govPatched.push(agentName)
+        // Same knowledge for everyone, not just the supervisor (CLAUDE.md,
+        // agens-paritas): link the agent at the shared skill library.
+        if (ensureAgentSkills(agentName)) skillsLinked.push(agentName)
         ensureQuarantineReader(agentName)
       }
       if (pruned.length) logger.info({ pruned }, 'Stale hook entries pruned from agent settings.json')
@@ -535,6 +546,13 @@ export function startWebServer(port = 3420): http.Server {
       if (stalePatched.length) logger.info({ patched: stalePatched }, 'staleness-guard UserPromptSubmit hook backfilled into agent settings.json')
       if (egressPatched.length) logger.info({ patched: egressPatched }, 'egress-gate WebFetch hook backfilled into agent settings.json')
       if (govPatched.length) logger.info({ patched: govPatched }, 'governance gate hook commands upgraded to absolute node path in agent settings.json')
+      if (skillsLinked.length) logger.info({ linked: skillsLinked }, 'shared skill library linked into agent .claude/skills')
+      // Every agent has just been brought up to the template; anything the main
+      // agent has BEYOND it means the fleet is drifting apart again (Boss,
+      // 2026-08-11: "nincs ilyen hogy az egyik igy fog viselkedni a masik meg
+      // ugy"). Reported, never silently patched -- the fix belongs in the repo.
+      const parityDrift = checkAgentParity()
+      if (parityDrift.length === 0) logger.info('Agent parity verified: every agent-facing hook is fleet-wide')
     } catch (err) {
       logger.warn({ err }, 'Agent hook backfill skipped')
     }
@@ -574,6 +592,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(stuckToolCallInterval)
     if (inboxNudgeInterval) clearInterval(inboxNudgeInterval)
     if (reauthHealerInterval) clearInterval(reauthHealerInterval)
+    if (limitWakeInterval) clearInterval(limitWakeInterval)
     clearInterval(autoRestartInterval)
     clearInterval(modelFallbackInterval)
     clearInterval(contextGuardInterval)

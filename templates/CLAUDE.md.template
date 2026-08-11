@@ -299,3 +299,33 @@ Utasítások:
 3. AI hírek: WebSearch a tegnapi dátummal
 4. Telegram küldés: a reply tool-lal (chat_id: {{CHAT_ID}})
 5. Ha nincs esemény valamelyik kategóriában, hagyd ki a szekciót teljesen
+
+## ⛔ AGENS-PARITÁS: AMI AZ EGYIKNEK JÁR, AZ MINDNEK JÁR
+
+Ha egy képességet bekötsz EGY ágenshez, ugyanabban a munkamenetben be kell
+kötnöd MINDEGYIKHEZ. Nem létezik olyan, hogy az egyik ágens így viselkedik, a
+másik meg úgy, és az ágensek tudásának egységesnek kell lennie.
+
+Valós eset (2026-08-11): a csatorna-képek kicsinyítése és a rate-limit-guard
+csak a fő ágensnél volt bekötve, mert egy önálló telepítő szkript a
+`~/.claude/settings.json`-be írta őket. A sub-ágensek hónapokig teljes
+felbontású képeket olvastak be a kontextusukba, és sosem tudták meg, hogy a
+keretük végén járnak. Senki nem hibázott, egyszerűen MÁSKÉNT működtek.
+
+Hogyan kösd be helyesen:
+1. **Hook** -> `templates/settings.json.template`. Ez az egyetlen forrás: az
+   `ensureAgentHooks()` minden dashboard-induláskor kiosztja minden ágensnek
+   (a fő ágenst is beleértve), visszamenőleg és az új ágensekre is.
+2. **Ágensenként épített parancs** -> `ensure*()` függvény a
+   `src/web/agent-scaffold.ts`-ben, a teljes ágenslistán végigfutva, plusz
+   felvétel a `FLEET_WIDE_BY_CODE` listába indoklással.
+3. **Skill / tudás** -> a közös skill-könyvtárba, ne egyetlen ágens mappájába.
+4. **Kivétel** -> `MAIN_ONLY_HOOKS` / `SUBAGENT_ONLY_HOOKS` a
+   `src/agent-parity.ts`-ben, kötelező indoklással. Indoklás nélküli kivétel
+   nincs.
+
+Kikényszerítve: `npx vitest run src/__tests__/agent-parity.test.ts` elhasal, ha
+valaki kimarad, és a dashboard induláskor is ellenőrzi (`checkAgentParity()`),
+eltérésnél szól a tulajdonosnak a csatornán.
+
+Részletes eljárás: `fleet-wide-capability` skill.

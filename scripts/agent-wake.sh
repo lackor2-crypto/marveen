@@ -21,11 +21,18 @@
 
 set -uo pipefail
 
-STORE="${MARVEEN_STORE:-$HOME/marveen/store}"
+# The repo root is derived from where THIS script lives, never from a fixed
+# path: Marveen is open source and $HOME/marveen is one install's layout, not
+# everyone's (CLAUDE.md, 2026-08-11 -- no hardcoded host identifiers).
+BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="${MARVEEN_ROOT:-$BASE}"
+STORE="${MARVEEN_STORE:-$PROJECT_ROOT/store}"
 LOG="$STORE/agent-wake.log"
 API="${MARVEEN_API:-http://localhost:3420}"
-PROJECT_ROOT="${MARVEEN_ROOT:-$HOME/marveen}"
-MESSAGE="${MARVEEN_WAKE_MESSAGE:-Jo reggelt. Ebreszto -- valaszolj egy rovid sorral hogy ebren vagy, es ezzel frissul a keret-allapotod a dashboardon. Mas teendo nincs.}"
+# The wake asks for a line on the agent's OWN channel, not just an inter-agent
+# reply: the owner watches Telegram, not the log, and a wake he cannot see reads
+# to him as no wake at all (Boss, 2026-08-11 17:45).
+MESSAGE="${MARVEEN_WAKE_MESSAGE:-Jo reggelt. Ebreszto -- irj egy rovid sort a sajat csatornadon (Telegram) hogy ebren vagy, ezzel a keret-allapotod is frissul a dashboardon. Mas teendo nincs.}"
 
 # The main agent runs as the channels service, not as one of the listed agents,
 # so it comes from the install config rather than the API.
@@ -94,7 +101,7 @@ for agent in $TARGETS; do
     log "skip ${agent}: no tmux session"
     continue
   fi
-  out="$(printf '%s' "$MESSAGE" | bash "$HOME/marveen/scripts/agent-msg.sh" "$SENDER" "$agent" - 2>&1)"
+  out="$(printf '%s' "$MESSAGE" | bash "$PROJECT_ROOT/scripts/agent-msg.sh" "$SENDER" "$agent" - 2>&1)"
   case "$out" in
     *OK\ id=*) sent=$((sent + 1)); log "woke ${agent}: ${out}" ;;
     *)         failed=$((failed + 1)); log "FAILED ${agent}: ${out}" ;;

@@ -381,6 +381,17 @@ export const SUBAGENT_INBOX_TEE =
 export const SUBAGENT_TELEGRAM_WAKE_ENABLED =
   ['1', 'true', 'yes', 'on'].includes((cfg('SUBAGENT_TELEGRAM_WAKE_ENABLED') ?? '').trim().toLowerCase())
 
+// Limit-reset wake (DEFAULT ON, kill switch LIMIT_WAKE_ENABLED=0).
+// When a named Claude account's usage window rolls over, the account agent does
+// not notice by itself: it just sits there, and its dashboard figures stay
+// frozen at whatever they were when it stopped. src/web/limit-wake-runner.ts
+// sends it one short wake line (scripts/agent-wake.sh) on that edge, and once
+// more when the dashboard comes up to stale data (boot / connection back).
+// Ships ON because a blocked-forever agent is the failure Boss actually hit
+// (2026-08-11); the cost ceiling is one short turn per window per account.
+export const LIMIT_WAKE_ENABLED =
+  !['0', 'false', 'no', 'off'].includes((cfg('LIMIT_WAKE_ENABLED') ?? '').trim().toLowerCase())
+
 // Google Calendar account the heartbeat summarises (next 2h). Empty (the
 // default) means the agent uses whatever calendar its MCP server is
 // authenticated as, so no personal address is baked into the shipped

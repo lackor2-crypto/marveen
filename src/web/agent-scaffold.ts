@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
@@ -119,6 +119,67 @@ export function resolveTemplatePlaceholders(content: string): string {
 export function agentSettingsPath(name: string): string {
   if (name === MAIN_AGENT_ID) return join(homedir(), '.claude', 'settings.json')
   return join(agentDir(name), '.claude', 'settings.json')
+}
+
+/** The skill library every agent shares: the main agent's ~/.claude/skills,
+ *  which is where the installer renders seed-skills/ with this install's own
+ *  identity substituted in. */
+export function fleetSkillsDir(): string {
+  return join(homedir(), '.claude', 'skills')
+}
+
+/**
+ * Give an agent the SAME skill library the main agent has, by linking its
+ * project-level .claude/skills at the shared one.
+ *
+ * Boss, 2026-08-11: "egysegesnek kel lennie az agentek tudasanak". Until this
+ * existed, seed-skills were rendered once at install time into ~/.claude/skills
+ * -- the MAIN agent's config dir -- and no sub-agent ever saw them. A delegate
+ * was therefore missing the very procedures it is judged by (kanban-card-creation,
+ * host-agnostic-development, this repo's own rules), while the supervisor had
+ * them all. Nothing reported the gap: each agent simply knew less.
+ *
+ * A symlink rather than a copy, deliberately: a copy is a fork that drifts the
+ * moment a skill is patched (skills ARE patched at runtime -- see the skill-patch
+ * rule in CLAUDE.md), and the fleet would silently split into per-agent
+ * dialects again, which is the bug this fixes.
+ *
+ * Safety: never touches a real directory that already holds an agent's own
+ * skills, and never links an agent to itself.
+ */
+export function ensureAgentSkills(name: string): boolean {
+  if (name === MAIN_AGENT_ID) return false
+  const shared = fleetSkillsDir()
+  if (!existsSync(shared)) return false
+  // Project-level skills live under <cwd>/.claude/skills, next to the agent's
+  // settings.json -- the same directory Claude Code reads for this agent.
+  const claudeDir = join(agentConfigRoot(name), '.claude')
+  const link = join(claudeDir, 'skills')
+  try {
+    const current = lstatSync(link, { throwIfNoEntry: false })
+    if (current) {
+      // Already linked (to anywhere): leave it alone -- re-pointing an operator's
+      // deliberate link is not this function's business.
+      if (current.isSymbolicLink()) return false
+      // An EMPTY real directory is just the scaffold's placeholder (every agent
+      // is created with one), and leaving it is what kept the whole OpenRouter
+      // pool skill-less. Replacing it loses nothing.
+      if (current.isDirectory() && readdirSync(link).length === 0) {
+        rmdirSync(link)
+        symlinkSync(shared, link, 'dir')
+        return true
+      }
+      // A real directory with the agent's own skills in it: linking would hide
+      // them. Report nothing and let the parity check surface it instead.
+      return false
+    }
+    mkdirSync(claudeDir, { recursive: true })
+    symlinkSync(shared, link, 'dir')
+    return true
+  } catch {
+    // Best-effort: a filesystem that refuses symlinks must not break startup.
+    return false
+  }
 }
 
 // Volatile tmpfs prefixes: a hook command referencing these directories is

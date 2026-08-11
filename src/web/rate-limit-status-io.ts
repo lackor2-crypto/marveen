@@ -5,6 +5,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT } from '../config.js'
+import { atomicWriteFileSync } from './atomic-write.js'
 import type { RateLimitSnapshot } from '../rate-limit-status.js'
 
 const SNAPSHOT_DIR = join(PROJECT_ROOT, 'store', 'rate-limit-status')
@@ -41,4 +42,43 @@ export function readRateLimitSnapshot(agentId: string): RateLimitSnapshot | null
   } catch {
     return null
   }
+}
+
+/** Last successful pane scrape for a named Claude account (see
+ *  scrapeClaudeAccountUsage in routes/overview.ts), persisted so it survives a
+ *  dashboard restart. Lives here rather than in the route because it is the
+ *  second source of rate-limit truth for the accounts whose statusline
+ *  snapshot may not exist yet, and the limit-wake watcher reads it too. */
+export interface ScrapedUsage {
+  usedPct: number
+  model: string | null
+  resetsAt: number | null
+  /** When the scrape was taken (ms), or null for entries written before this
+   *  field existed. */
+  capturedAt: number | null
+}
+
+function scrapeCachePath(planId: string): string {
+  return join(SNAPSHOT_DIR, `scraped-${planId}.json`)
+}
+
+export function readScrapedUsage(planId: string): ScrapedUsage | null {
+  try {
+    const raw = JSON.parse(readFileSync(scrapeCachePath(planId), 'utf-8'))
+    if (typeof raw?.usedPct === 'number') {
+      return {
+        usedPct: raw.usedPct,
+        model: raw.model ?? null,
+        resetsAt: raw.resetsAt ?? null,
+        capturedAt: typeof raw.capturedAt === 'number' && Number.isFinite(raw.capturedAt) ? raw.capturedAt : null,
+      }
+    }
+  } catch { /* no cache yet, or unreadable -- treat as no cache */ }
+  return null
+}
+
+export function writeScrapedUsage(planId: string, v: { usedPct: number; model: string | null; resetsAt: number | null }): void {
+  try {
+    atomicWriteFileSync(scrapeCachePath(planId), JSON.stringify({ ...v, capturedAt: Date.now() }))
+  } catch { /* best-effort cache -- a write failure just means the next call retries live */ }
 }
