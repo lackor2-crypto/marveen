@@ -855,6 +855,7 @@ window._i18n.en = {
   'approvals.filter.all_status': 'All statuses',
   'approvals.filter.all_agents': 'All agents',
   'approvals.filter.all_cats':   'All categories',
+  'approvals.filter.search':     'Search: card id, approval id, description...',
   'approvals.col.time':          'Time',
   'approvals.col.agent':         'Agent',
   'approvals.col.category':      'Category',

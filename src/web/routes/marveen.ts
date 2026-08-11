@@ -8,17 +8,43 @@ import {
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { readMarveenTelegramConfig, readMarveenDiscordConfig, readMarveenSlackConfig, readMarveenGooglechatConfig, readMarveenTeamsConfig, sendMarveenAvatarChange } from '../telegram.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
-import { readFileOr } from '../agent-config.js'
+import { readFileOr, MODEL_ALIASES } from '../agent-config.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, serveFile } from '../http-helpers.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
+import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
 import type { RouteContext } from './types.js'
 
+/**
+ * Turn the statusline's human model label ("Sonnet 5", "Opus 5", "Haiku 4.5")
+ * into the canonical id the cost table is keyed by. The alias map already knows
+ * "sonnet-5"; this only bridges the spacing/case difference, then falls back to
+ * the family word so a point-release label ("Haiku 4.5") still resolves.
+ */
+export function modelIdFromStatuslineLabel(label: string): string | null {
+  const slug = label.trim().toLowerCase().replace(/\s+/g, '-')
+  if (!slug) return null
+  return MODEL_ALIASES[slug] ?? MODEL_ALIASES[slug.split('-')[0]] ?? null
+}
+
+/**
+ * The main agent's live model.
+ *
+ * The transcript is the first source, but it goes quiet: the newest JSONL in the
+ * project dir can be a session with no `message.model` line at all, and then the
+ * card showed "UNKNOWN" and lost its $/M badge with it (Boss, 2026-08-11, with a
+ * screenshot). The statusline snapshot is the same data Claude Code renders on
+ * every tick, so it answers whenever the agent has taken a turn at all.
+ */
 function getActiveMarveenModel(): string {
-  return readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown'
+  const fromTranscript = readActiveModelFromProjectDir(PROJECT_ROOT)
+  if (fromTranscript) return fromTranscript
+  const snapshotLabel = readRateLimitSnapshot(MAIN_AGENT_ID)?.model
+  const fromSnapshot = snapshotLabel ? modelIdFromStatuslineLabel(snapshotLabel) : null
+  return fromSnapshot ?? 'unknown'
 }
 
 // Pure identity-core of the /api/marveen payload: the brand-relevant fields the

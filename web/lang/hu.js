@@ -1150,6 +1150,7 @@ window._i18n.hu = {
   'approvals.filter.all_status': 'Összes státusz',
   'approvals.filter.all_agents': 'Összes ágens',
   'approvals.filter.all_cats':   'Összes kategória',
+  'approvals.filter.search':     'Keresés: kártyaszám, azonosító, leírás...',
   'approvals.col.time':          'Időpont',
   'approvals.col.agent':         'Ágens',
   'approvals.col.category':      'Kategória',

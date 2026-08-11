@@ -3665,11 +3665,37 @@ function primePlanLabels() {
 // The plan names come from this install's own registry. They used to be an
 // if-chain of three literals from the author's machine, which on anyone else's
 // install labelled every agent with accounts they do not have.
+// A model name baked into a registry label ("Usalackor (Opus 4.8)") is wrong on
+// this badge twice over: the card already shows the LIVE model right below it,
+// and the baked one goes stale the moment the account is re-pointed -- Boss saw
+// "Lackor3 (Haiku)" on a card whose live badge said CLAUDE-OPUS-5, minutes after
+// he switched it (2026-08-11). Only a MODEL-looking parenthetical is dropped:
+// stripping every "(...)" would erase deliberate distinctions like
+// "Account (personal)" vs "Account (work)".
+const MODEL_SUFFIX_RE = /\s*\((?:claude[\s-]*)?(?:opus|sonnet|haiku|fable|gpt|gemini|llama|mistral|grok|deepseek|qwen|nemotron)[^)]*\)\s*$/i
+function stripModelSuffix(label) {
+  return String(label || '').replace(MODEL_SUFFIX_RE, '').trim() || label
+}
+
+// The main agent's ACCOUNT name, derived from its agent id -- never the persona.
+// The badge said "Marvin" on a card already titled "Marvin" (Boss, 2026-08-11:
+// "minek ketszer kiirni a marvint?"), which also hid the one thing the badge is
+// for: WHICH LOGIN this agent runs on. The id is the install's own
+// (MAIN_AGENT_ID, e.g. "lackor2-bot"); the "-bot" suffix is plumbing, so it is
+// dropped and the first letter raised -> "Lackor2". Nothing here is hardcoded to
+// one install's names.
+function mainAccountLabel() {
+  const id = (window._marveen && window._marveen.agentId) || ''
+  const base = String(id).replace(/[-_]?bot$/i, '').trim()
+  if (!base) return mainAgentDisplayName()
+  return base.charAt(0).toUpperCase() + base.slice(1)
+}
+
 function accountBadgeHtml(claudePlan, isMain) {
   primePlanLabels()
   let label
-  if (isMain) label = mainAgentDisplayName()
-  else if (claudePlan) label = (_planLabelCache && _planLabelCache[claudePlan]) || claudePlan
+  if (isMain) label = mainAccountLabel()
+  else if (claudePlan) label = stripModelSuffix((_planLabelCache && _planLabelCache[claudePlan]) || claudePlan)
   else label = 'OpenRouter'
   return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
 }
@@ -14921,7 +14947,7 @@ async function setAutonomyLevel(key, level) {
 const APPROVALS_PAGE_LIMIT = 50
 
 let _approvalsCountdownInterval = null
-const _approvalsState = { status: '', agent: '', category: '', offset: 0 }
+const _approvalsState = { status: '', agent: '', category: '', search: '', offset: 0 }
 
 document.getElementById('refreshApprovalsBtn').addEventListener('click', loadApprovalsPage)
 document.getElementById('approvalsFilterStatus').addEventListener('change', (e) => {
@@ -14929,16 +14955,48 @@ document.getElementById('approvalsFilterStatus').addEventListener('change', (e) 
   _approvalsState.offset = 0
   _renderApprovalsTable()
 })
-document.getElementById('approvalsFilterAgent').addEventListener('input', (e) => {
-  _approvalsState.agent = e.target.value.trim()
+document.getElementById('approvalsFilterAgent').addEventListener('change', (e) => {
+  _approvalsState.agent = e.target.value
   _approvalsState.offset = 0
   _renderApprovalsTable()
 })
-document.getElementById('approvalsFilterCategory').addEventListener('input', (e) => {
-  _approvalsState.category = e.target.value.trim()
+document.getElementById('approvalsFilterCategory').addEventListener('change', (e) => {
+  _approvalsState.category = e.target.value
   _approvalsState.offset = 0
   _renderApprovalsTable()
 })
+// Free-text search across everything printed on the row. Boss, 2026-08-11: an
+// agent quotes a card id ("7951be7d") in chat and he then has to FIND that
+// approval in a list of ninety -- there was no way to look one up.
+document.getElementById('approvalsFilterSearch').addEventListener('input', (e) => {
+  _approvalsState.search = e.target.value.trim().toLowerCase()
+  _approvalsState.offset = 0
+  _renderApprovalsTable()
+})
+
+// Fill the two filter dropdowns from the values that actually occur. They used
+// to be free-text inputs matched case-SENSITIVELY, so typing "Usalackor" (the
+// name as it appears everywhere else) matched nothing against the id
+// "usalackor" and the filters read as broken. A list you pick from cannot be
+// typed wrong.
+function _syncApprovalFilterOptions() {
+  for (const [id, field, allKey] of [
+    ['approvalsFilterAgent', 'agent_id', 'approvals.filter.all_agents'],
+    ['approvalsFilterCategory', 'category', 'approvals.filter.all_cats'],
+  ]) {
+    const sel = document.getElementById(id)
+    if (!sel) continue
+    const values = [...new Set(_approvalsAll.map(a => a[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+    const current = sel.value
+    sel.innerHTML = `<option value="">${escapeHtml(t(allKey))}</option>`
+      + values.map(v => `<option value="${escapeAttr(v)}">${escapeHtml(v)}</option>`).join('')
+    // Keep the operator's selection across refreshes, unless it disappeared.
+    sel.value = values.includes(current) ? current : ''
+    if (sel.value !== current) {
+      _approvalsState[id === 'approvalsFilterAgent' ? 'agent' : 'category'] = sel.value
+    }
+  }
+}
 
 let _approvalsAll = []
 // Row ids currently showing their full (untruncated) action_description --
@@ -14960,6 +15018,7 @@ async function loadApprovalsPage() {
     const res = await fetch('/api/approvals?limit=500')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     _approvalsAll = await res.json()
+    _syncApprovalFilterOptions()
     _renderApprovalsStats()
     _renderApprovalsTable()
     _approvalsCountdownInterval = setInterval(_updateCountdowns, 1000)
@@ -14971,6 +15030,7 @@ async function loadApprovalsPage() {
           const r = await fetch('/api/approvals?limit=500')
           if (!r.ok) return
           _approvalsAll = await r.json()
+          _syncApprovalFilterOptions()
           _renderApprovalsTable()
           if (!_approvalsHasPendingVerification()) {
             clearInterval(_approvalsVerifyPollInterval)
@@ -15020,11 +15080,17 @@ function _renderApprovalsStats() {
 }
 
 function _filterApprovals() {
-  const { status, agent, category } = _approvalsState
+  const { status, agent, category, search } = _approvalsState
   return _approvalsAll.filter(a => {
     if (status && a.status !== status) return false
-    if (agent && !a.agent_id.includes(agent)) return false
-    if (category && !a.category.includes(category)) return false
+    // Exact match now that both come from a dropdown fed by these same values.
+    if (agent && a.agent_id !== agent) return false
+    if (category && a.category !== category) return false
+    if (search) {
+      const haystack = [a.id, a.agent_id, a.category, a.action_description, a.decided_by, a.decision_note]
+        .filter(Boolean).join(' ').toLowerCase()
+      if (!haystack.includes(search)) return false
+    }
     return true
   })
 }
