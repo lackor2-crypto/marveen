@@ -1407,7 +1407,19 @@ function kanbanCardMatchesBaseFilters(card) {
   if (assigneeFilter && String(card.assignee || '').trim().toLowerCase() !== assigneeFilter) return false
   if (kanbanSearchQuery) {
     const q = kanbanSearchQuery
-    const hit = (card.id && String(card.id).toLowerCase().includes(q)) ||
+    // The board labels every card "#103", so that is the number the owner types
+    // when he wants it back -- with or without the hash. Until this, the search
+    // read the id, the title and the description but never the SERIAL, so the
+    // one number printed on the card was the one thing that could not find it.
+    //
+    // The serial is matched EXACTLY, never as a substring: "10" must not drag in
+    // 103, 104 and 105. The text fields keep their "contains" behaviour and run
+    // on the ORIGINAL query, so "#103" still finds the cards whose description
+    // cross-links to 103 -- the mandatory linking rule puts that reference in a
+    // lot of descriptions, and losing it would trade one gap for another.
+    const qSeq = q.replace(/^#/, '')
+    const hit = (/^\d+$/.test(qSeq) && String(card.seq != null ? card.seq : '') === qSeq) ||
+      (card.id && String(card.id).toLowerCase().includes(q)) ||
       (card.title && String(card.title).toLowerCase().includes(q)) ||
       (card.description && String(card.description).toLowerCase().includes(q))
     if (!hit) return false
