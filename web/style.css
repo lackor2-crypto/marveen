@@ -2105,6 +2105,38 @@ main.email-active .page-header { flex-shrink: 0; }
   border-radius: 4px;
   margin-left: 4px;
 }
+/* The label sits on its OWN line under the name, at double size (Boss,
+   2026-08-11: "ezt a fo aszisztens szot tehetned a Marvin ala kozvetlenul. es
+   ketszer akkor nagy betukkel."). Dropping the flex row is what puts it there:
+   as a block-level pill in normal flow it starts a new line by itself, and
+   width:max-content keeps the background hugging the text instead of stretching
+   across the card. This also retires the earlier relative nudge -- the label no
+   longer shares a row with the absolutely positioned account pill, so there is
+   nothing left to collide with. */
+.marveen-card .agent-name {
+  display: block;
+  margin-bottom: 6px;
+}
+/* Measured against the card, not the viewport: "FŐASSZISZTENS" is one word now
+   (Boss, 2026-08-11 -- and he is right, "fo" as a rank prefix compounds:
+   fooorvos, fomernok), so there is no space left to break at. On the grid's
+   narrowest column the full-size label would therefore spill out of its own
+   pill instead of wrapping. He asked not to shrink it if avoidable, so the
+   reduction is conditional: 20px everywhere it fits -- every phone width and
+   every normal desktop column -- and one step down only inside a card too
+   narrow to hold it. */
+.marveen-card .agent-card-info { container-type: inline-size; }
+.marveen-card .marveen-badge {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 6px 0 0;
+  font-size: 20px;
+  padding: 2px 8px;
+}
+@container (max-width: 185px) {
+  .marveen-card .marveen-badge { font-size: 17px; }
+}
 
 /* === Telegram status dot === */
 .tg-status {

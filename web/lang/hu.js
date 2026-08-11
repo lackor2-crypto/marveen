@@ -501,7 +501,7 @@ window._i18n.hu = {
   'agents.team.auto_approve_hint':  'Ha nincs bepipálva, a vezető csak javaslatot ad, te hagyod jóvá Telegramon.',
   'agents.team.trusted_label':      'Explicit megbízható kapcsolatok (opcionális)',
   'agents.team.trusted_hint':       'A router alapból a jelent-kapcsolat és a delegálási lista alapján dönti el, hogy egy üzenet megbízható csapattárstól jön-e. Itt további ügynököket jelölhetsz kézzel -- pl. egy cross-team együttműködő partner, akivel nincs hierarchikus kapcsolat, de a levelezése mégis csapattársi.',
-  'agents.main_badge':             'fo asszisztens',
+  'agents.main_badge':             'főasszisztens',
   'agents.status.running':         'Fut',
   'agents.status.stopped':         'Leállva',
   'agents.reauth.reason':          'Újrabejelentkezés szükséges',
