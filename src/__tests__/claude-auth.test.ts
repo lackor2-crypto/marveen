@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { resolveClaudePlans } from '../web/claude-plans.js'
 import {
   extractAuthUrl,
   readLoginPane,
@@ -133,5 +134,25 @@ describe('buildPlanEntry', () => {
 
   it('falls back to the id when the label is blank', () => {
     expect(buildPlanEntry('ceges', '   ', '/x/ceges').label).toBe('ceges')
+  })
+})
+
+describe('a regiszterbe irt bejegyzes', () => {
+  it('atmegy a nyilvantartas sajat validalasan', () => {
+    // The silent failure this guards: registerPlan writes a row the reader
+    // rejects, so the account logs in fine and then simply never appears in the
+    // list or the agent dropdown, with nothing anywhere saying why.
+    const id = planIdFromLabel('Munkahelyi fiók', [])
+    const entry = buildPlanEntry(id, 'Munkahelyi fiók', `/home/boss/marveen/store/accounts/${id}`)
+    const plans = resolveClaudePlans(JSON.stringify([entry]), '/home/boss')
+    expect(plans).toHaveLength(1)
+    expect(plans[0].id).toBe(id)
+    expect(plans[0].configDir).toBe(`/home/boss/marveen/store/accounts/${id}`)
+  })
+
+  it('a hosszu nevbol vagott id nem vegzodik kotojellel', () => {
+    const id = planIdFromLabel('a'.repeat(39) + ' masodik szo')
+    expect(id.endsWith('-')).toBe(false)
+    expect(resolveClaudePlans(JSON.stringify([buildPlanEntry(id, 'x', '/tmp/x')]), '/home/boss')).toHaveLength(1)
   })
 })

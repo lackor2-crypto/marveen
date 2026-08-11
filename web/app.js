@@ -13691,11 +13691,13 @@ function _claudeAuthRenderList(accounts) {
     const who = id.loggedIn && id.email
       ? escapeHtml(id.email) + (id.subscriptionType ? ` <span class="claude-auth-plan">${escapeHtml(id.subscriptionType)}</span>` : '')
       : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.row_empty'))}</span>`
-    // No "default" tag on the default row: its label already says so, and the
-    // badge next to the identical word read as a stutter.
-    const tag = ''
+    // The default row is NAMED here rather than by the backend: the server
+    // should not be shipping a Hungarian word to an English dashboard. No
+    // separate "default" badge either -- next to the identical label word it
+    // read as a stutter.
+    const name = a.isDefault ? t('claudeauth.row_default') : (a.label || a.id || '')
     return `<div class="claude-auth-row">
-      <span class="claude-auth-rowlabel">${escapeHtml(a.label || a.id || '')}${tag}</span>
+      <span class="claude-auth-rowlabel">${escapeHtml(name)}</span>
       <span class="claude-auth-rowwho">${who}</span>
     </div>`
   }).join('')

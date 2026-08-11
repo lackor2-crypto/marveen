@@ -195,7 +195,10 @@ export function planIdFromLabel(label: string, taken: string[] = []): string {
     .toLowerCase()
     .replace(/[^a-z0-9_.-]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
+    // Trim again AFTER the cut: slicing a long label can land mid-word and
+    // leave a trailing hyphen, which is legal in the registry but reads as a
+    // typo in a dropdown the operator has to choose from.
+    .slice(0, 40).replace(/-+$/, '')
   const seed = base || 'fiok'
   if (!taken.includes(seed)) return seed
   for (let i = 2; i < 100; i++) {

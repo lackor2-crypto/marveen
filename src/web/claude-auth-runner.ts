@@ -15,7 +15,7 @@
 //
 // ONE login flow at a time, though: they all drive the same tmux window, and two
 // people pasting codes into one pane helps nobody.
-import { execFileSync, execFile } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
@@ -105,10 +105,29 @@ export interface AccountRow {
  * page the operator opens by hand, not a polling loop, so the simplicity is
  * worth more than a cache that could show a stale account after a fresh login.
  */
-export function listAccounts(): AccountRow[] {
+// Cached because loginStatus() is polled every two seconds while a login runs,
+// and listing means one `claude auth status` PROCESS per account. Without this a
+// two-minute login spawned the CLI roughly two hundred times for a list that
+// changes once. Ten seconds is short enough that a freshly added account appears
+// on the next tick, and registering one invalidates the cache outright.
+let accountCache: { at: number; rows: AccountRow[] } | null = null
+const ACCOUNT_CACHE_MS = 10_000
+
+export function invalidateAccountCache(): void { accountCache = null }
+
+export function listAccounts(force = false): AccountRow[] {
+  if (!force && accountCache && Date.now() - accountCache.at < ACCOUNT_CACHE_MS) return accountCache.rows
+  const rows = buildAccountRows()
+  accountCache = { at: Date.now(), rows }
+  return rows
+}
+
+function buildAccountRows(): AccountRow[] {
   const rows: AccountRow[] = [{
     id: null,
-    label: 'Alapértelmezett',
+    // No label from here: the row is marked isDefault and the PAGE names it, so
+    // an English dashboard never gets a Hungarian word out of the backend.
+    label: '',
     configDir: null,
     isDefault: true,
     planType: null,
@@ -167,6 +186,7 @@ function registerPlan(id: string, label: string, configDir: string): boolean {
     if (list.some(p => p && typeof p === 'object' && (p as { id?: unknown }).id === id)) return true
     list.push(buildPlanEntry(id, label, configDir))
     atomicWriteFileSync(CLAUDE_PLANS_PATH, JSON.stringify(list, null, 2))
+    invalidateAccountCache()
     logger.info({ planId: id }, 'claude-auth: new account registered')
     return true
   } catch (err) {
@@ -195,10 +215,16 @@ export function startLogin(opts: { label?: string; email?: string; useConsole?: 
   const taken = readClaudePlans().map(p => p.id)
   const planId = planIdFromLabel(label, taken)
   const configDir = join(accountsRoot(), planId)
-  if (existsSync(configDir)) {
-    // Never log INTO an existing account's directory: that would overwrite a
-    // working login, which is the exact opposite of adding one.
-    return { ok: false, error: 'Ilyen nevű fiók már van. Válassz másik nevet.' }
+  if (existsSync(configDir) && readIdentity(configDir).loggedIn) {
+    // Never log INTO an account that is actually signed in: that would overwrite
+    // a working login, the exact opposite of adding one.
+    //
+    // An EMPTY directory is a different thing entirely. A cancelled attempt
+    // leaves one behind (removing directories on a cancel is the worse failure
+    // mode), and refusing that name forever afterwards -- with "that account
+    // already exists", which was not even true -- is a trap the operator can
+    // neither see nor clear from the page.
+    return { ok: false, error: 'Ilyen nevű fiók már be van jelentkezve. Válassz másik nevet.' }
   }
 
   killSession()
@@ -256,23 +282,28 @@ function idle(accounts: AccountRow[], phase: LoginPaneState['phase'] = 'starting
 export function loginStatus(): LoginStatus {
   if (!current) return idle(listAccounts())
 
-  if (Date.now() - current.startedAt > LOGIN_MAX_AGE_MS) {
-    killSession(); current = null
-    return idle(listAccounts(), 'failed', 'A bejelentkezés túl sokáig tartott, megszakítottam.')
-  }
-
-  // The CLI's own status in the NEW directory is the authority on success, not
-  // the pane text: the account is in once `claude auth status` says so there.
+  // Completion is tested BEFORE the age limit, deliberately: a login that
+  // finished at 14:59 must not be reported as a timeout because the poll landed
+  // at 15:01. The credentials are on disk either way, and calling that a failure
+  // would leave a working account unregistered.
+  //
+  // The CLI's own status in the NEW directory is the authority here, not the
+  // pane text: the account is in once `claude auth status` says so there.
   const identity = readIdentity(current.configDir)
   if (isLoginComplete(identity)) {
     const { planId, label, configDir } = current
     const registered = current.registered || registerPlan(planId, label, configDir)
     killSession(); current = null
-    const status = idle(listAccounts(), 'done')
+    const status = idle(listAccounts(true), 'done')
     return {
       ...status, done: true, planId, label,
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
+  }
+
+  if (Date.now() - current.startedAt > LOGIN_MAX_AGE_MS) {
+    killSession(); current = null
+    return idle(listAccounts(), 'failed', 'A bejelentkezés túl sokáig tartott, megszakítottam.')
   }
 
   if (!sessionExists()) {
@@ -297,7 +328,9 @@ export function submitCode(code: string): { ok: boolean; error?: string } {
     return { ok: false, error: 'A beillesztett kód formátuma nem megfelelő.' }
   }
   try {
-    execFileSync(TMUX, ['send-keys', '-t', LOGIN_SESSION, '-l', clean], { timeout: 5_000 })
+    // '--' so a code that happens to begin with a hyphen is read as the literal
+    // text it is, not as an option.
+    execFileSync(TMUX, ['send-keys', '-t', LOGIN_SESSION, '-l', '--', clean], { timeout: 5_000 })
     execFileSync(TMUX, ['send-keys', '-t', LOGIN_SESSION, 'Enter'], { timeout: 5_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not deliver the pasted code')
@@ -318,9 +351,5 @@ export function cancelLogin(): void {
 /** Test seam. */
 export function _resetClaudeAuthForTest(): void {
   current = null
-}
-
-/** Fire-and-forget cleanup for a login left running when the dashboard stops. */
-export function stopLoginSessionAsync(): void {
-  execFile(TMUX, ['kill-session', '-t', LOGIN_SESSION], () => {})
+  invalidateAccountCache()
 }
