@@ -65,3 +65,13 @@ for f in ['~/.claude/settings.json'] + sorted(glob.glob('agents/*/.claude/settin
     print(p, sorted(names))
 PY
 ```
+
+## Kapcsolódó: ágens-ütközés (kanban 37129602)
+Ha ketten ugyanazt a fájlt szerkesztenétek, három réteg véd:
+- `scripts/agent-worktree.sh <agens>` -- saját munkakönyvtár nagy munkához
+- `/api/file-claims` -- ki tartja épp a fájlt (20 perces lejárat, forduló végén felszabadul)
+- `file-claim-gate.py` PreToolUse hook -- megtagadja a felülírást, megmondja ki és mióta
+
+A kapu bizonytalanságnál MINDIG enged (dashboard nem elérhető, `store/`, saját
+ágens-mappa, repón kívüli fájl). Kikapcsoló: `MARVEEN_FILE_CLAIMS=0`.
+Tiltásnál ne kerüld meg: várj, egyeztess, vagy worktree-zz.

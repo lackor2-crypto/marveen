@@ -98,3 +98,6 @@ __pycache__/
 # Claude Code Channels runtime config/session dir (sessions, history, tokens,
 # plugins, skills). Per-install runtime state -- never source, never commit.
 .channels-config/
+
+# Per-agent git worktrees (scripts/agent-worktree.sh, kanban 37129602)
+.worktrees/

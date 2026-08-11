@@ -329,3 +329,29 @@ valaki kimarad, és a dashboard induláskor is ellenőrzi (`checkAgentParity()`)
 eltérésnél szól a tulajdonosnak a csatornán.
 
 Részletes eljárás: `fleet-wide-capability` skill.
+
+
+## ⛔ AGENSEK NE ÜTKÖZZENEK: HÁROM RÉTEG
+
+Ha több ágens EGY checkoutban dolgozik, a párhuzamos szerkesztés csendes
+felülírást okoz: mindenki gyorsan ír, részleges kontextussal, és semmi nem szól.
+Három réteg véd, egymást kiegészítve:
+
+**A) Saját git worktree nagy munkához** -- `scripts/agent-worktree.sh <agens>`
+saját munkakönyvtárat és branchet ad. Az ütközés merge-időre tolódik, ahol a git
+látja. Több órás/több fájlos vagy kockázatos feladatnál ez az alapértelmezett.
+
+**B) Fájl-igénylés** -- aki szerkeszt, igényli a fájlt (`/api/file-claims`); az
+igénylés lejár és a forduló végén felszabadul, tehát egy összeomlott ágens nem
+zárol semmit örökre.
+
+**C) Kikényszerítés** -- a `file-claim-gate.py` PreToolUse hook megtagadja az
+Edit/Write-ot, ha a fájlt másik ágens tartja, és megmondja ki és mióta.
+
+A kapu MINDIG enged, ha bizonytalan (dashboard nem elérhető, időtúllépés,
+ismeretlen ágens, repón kívüli fájl, `store/`, saját ágens-mappa, `.env`, logok):
+egy koordinációs funkció soha nem foghatja meg a flottát. Kikapcsoló:
+`MARVEEN_FILE_CLAIMS=0`.
+
+Ha tiltásba futsz, ne kerüld meg: várj, egyeztess agens-üzenetben, vagy dolgozz
+saját worktree-ben és merge-elj később.

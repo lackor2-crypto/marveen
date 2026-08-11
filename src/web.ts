@@ -67,6 +67,7 @@ import { tryHandleOnboarding } from './web/routes/onboarding.js'
 import { tryHandleSetupWizard } from './web/routes/setup-wizard.js'
 import { tryHandleStatus } from './web/routes/status.js'
 import { tryHandleAutonomy } from './web/routes/autonomy.js'
+import { tryHandleFileClaims } from './web/routes/file-claims.js'
 import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/approvals.js'
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
@@ -213,6 +214,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleSetupWizard(routeCtx)) return
       if (await tryHandleStatus(routeCtx)) return
       if (await tryHandleAutonomy(routeCtx)) return
+      if (await tryHandleFileClaims(routeCtx)) return
       if (await tryHandleApprovals(routeCtx)) return
       if (await tryHandleTokenUsage(routeCtx)) return
       if (await tryHandleCosts(routeCtx)) return

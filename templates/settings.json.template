@@ -69,6 +69,16 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/file-claim-gate.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/file-claim-gate.py; exit 0'",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
@@ -78,6 +88,11 @@
             "type": "command",
             "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/telegram_progress_clear.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/telegram_progress_clear.py; exit 0'",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/file-claim-gate.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/file-claim-gate.py --release; exit 0'",
+            "timeout": 10
           }
         ]
       }
