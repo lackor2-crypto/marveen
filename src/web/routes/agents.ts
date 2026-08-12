@@ -111,7 +111,8 @@ import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
 import { isCompactionInFlight, markCompactionStarted, settleCompaction } from '../compaction-inflight.js'
 import { followUpManualCompaction } from '../manual-compact-followup.js'
-import { readGateConfig } from '../context-restart-gate-store.js'
+import { readGateConfig, readGateRunState, writeGateRunState } from '../context-restart-gate-store.js'
+import { COMPACT_RETRY_WINDOW_MS } from '../../context-restart-gate.js'
 import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
@@ -1217,6 +1218,77 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     } catch (err) {
       logger.error({ err, name, action }, 'Manual context-action failed')
       json(res, { error: 'Failed to send command' }, 500)
+    }
+    return true
+  }
+
+  // POST /api/agents/:name/context-ceiling -- "the threshold must be a ceiling".
+  //
+  // Boss, 2026-08-12, at 328k against an 80k setting: "csinald mar meg
+  // normalisan hogy ne legyen tobb a kontextus mint 80. igy elfogyok nagyon
+  // hamar!!!!!!" He is right, and explaining the mechanism is not an answer.
+  //
+  // The gate can only act on an idle agent, and it samples on a timer. An agent
+  // that works in bursts is idle precisely BETWEEN turns -- the moments the
+  // timer keeps missing. So the agent's own Stop hook calls this the instant a
+  // turn ends: at that point it is idle by definition, no sampling involved.
+  //
+  // All policy stays here, where it is tested; the hook is a doorbell. /compact
+  // (never /clear) is what this sends: it summarizes rather than discards, so
+  // firing it on a pending inbox cannot lose messages the way a wipe would.
+  const ceilingMatch = path.match(/^\/api\/agents\/([^/]+)\/context-ceiling$/)
+  if (ceilingMatch && method === 'POST') {
+    const name = decodeURIComponent(ceilingMatch[1])
+    const isMain = isMainChannelsAgent(name)
+    if (!isMain && !existsSync(agentDir(name))) { json(res, { error: 'Agent not found' }, 404); return true }
+    const cfg = readGateConfig(name)
+    if (!cfg.enabled) { json(res, { ok: true, action: 'none', reason: 'gate-disabled' }); return true }
+    if (isCompactionInFlight(name)) { json(res, { ok: true, action: 'none', reason: 'compaction-already-running' }); return true }
+    const dir = isMain ? PROJECT_ROOT : agentDir(name)
+    const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+    const readTokens = () => readContextReadingFromProjectDir(dir, cfgDir).tokens
+    const tokens = readTokens()
+    if (tokens === null) { json(res, { ok: true, action: 'none', reason: 'context-unmeasurable' }); return true }
+    if (tokens < cfg.thresholdTokens) {
+      json(res, { ok: true, action: 'none', reason: `under-threshold (${tokens} < ${cfg.thresholdTokens})`, contextTokens: tokens })
+      return true
+    }
+    // Do not re-compact a context that just proved it will not shrink: the same
+    // evidence rule the gate uses, so an agent whose size is one huge turn does
+    // not get a compaction at the end of every single turn forever.
+    const runState = readGateRunState(name)
+    const stalled = runState.lastCompactTokens != null && runState.lastCompactAt != null
+      && (Date.now() - runState.lastCompactAt) < COMPACT_RETRY_WINDOW_MS
+      && (runState.lastCompactTokens - tokens) / runState.lastCompactTokens < 0.1
+    if (stalled) {
+      json(res, { ok: true, action: 'none', reason: `compaction-stalled (${runState.lastCompactTokens} -> ${tokens})`, contextTokens: tokens })
+      return true
+    }
+    const session = isMain ? MAIN_CHANNELS_SESSION : agentSessionName(name)
+    const host = isMain ? null : readAgentRemoteHost(name)
+    try {
+      const result = await sendPromptToSession(session, '/compact', host, {
+        waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
+      })
+      if (result === 'aborted-busy') { json(res, { ok: true, action: 'none', reason: 'busy' }); return true }
+      markCompactionStarted(name, tokens)
+      writeGateRunState(name, { ...runState, lastCompactAt: Date.now(), lastCompactTokens: tokens })
+      void followUpManualCompaction(name, {
+        readTokens,
+        thresholdTokens: () => readGateConfig(name).thresholdTokens,
+        sendCompact: async () => {
+          const r = await sendPromptToSession(session, '/compact', host, {
+            waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
+          })
+          return r !== 'aborted-busy'
+        },
+      })
+      logger.info({ agent: name, contextTokens: tokens, threshold: cfg.thresholdTokens },
+        'context-ceiling: /compact sent at end of turn')
+      json(res, { ok: true, action: 'compact', contextTokens: tokens })
+    } catch (err) {
+      logger.warn({ err, agent: name }, 'context-ceiling: send failed')
+      json(res, { ok: false, error: 'send failed' }, 500)
     }
     return true
   }
