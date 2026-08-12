@@ -190,7 +190,10 @@ export function ensureAgentSkills(name: string): boolean {
 const _TMP_PREFIXES = ['/tmp/', '/var/tmp/', '/private/tmp/', '/dev/shm/']
 
 // Shared hook-entry type used by ensureAgentHooks and upgradeLegacyHookCommands.
-type HookEntry = { hooks?: Array<{ command?: string; timeout?: number; [k: string]: unknown }> }
+type HookEntry = {
+  matcher?: string
+  hooks?: Array<{ command?: string; type?: string; prompt?: string; timeout?: number; [k: string]: unknown }>
+}
 
 /**
  * Returns true when the command is unsafe to register in shared settings:
@@ -257,6 +260,67 @@ export function upgradeLegacyHookCommands(
   return changed
 }
 
+/**
+ * Sync prompt-carrying hooks (`type: "agent"`, e.g. the PreCompact checkpoint)
+ * from the template into an agent's settings.
+ *
+ * Why this exists (found 2026-08-12, kanban 55af1bfe): every other merge pass in
+ * ensureAgentHooks keys on `hook.command`. A `type: "agent"` hook has no command
+ * -- only a prompt -- so it matched nothing: the upgrade pass skipped it, the add
+ * pass filtered it out (`h.command && ...`), and the timeout sync never saw it.
+ * The practical effect was that the PreCompact prompt was copied into each
+ * agent's settings.json once, at scaffold time, and then FROZE there forever.
+ * Editing templates/settings.json.template -- documented as the single source of
+ * truth for fleet-wide hooks -- silently changed nothing for every existing
+ * agent. Confirmed on the live fleet: main, lackor3 and usalackor all still
+ * carried the original prompt.
+ *
+ * Matching is by event + matcher, then by hook type: at most one agent-type hook
+ * per entry is expected. The template wins, deliberately -- a per-agent edit of
+ * a fleet-wide prompt is exactly the divergence the parity rule forbids.
+ *
+ * Exported for unit testing.
+ */
+export function syncAgentPromptHooks(
+  existingHooks: Record<string, unknown>,
+  tplHooks: Record<string, unknown>,
+): boolean {
+  let changed = false
+  for (const [event, tplEntriesRaw] of Object.entries(tplHooks)) {
+    const tplEntries = tplEntriesRaw as HookEntry[]
+    const existEntries = existingHooks[event]
+    if (!Array.isArray(existEntries)) continue
+    for (const tplEntry of tplEntries) {
+      const tplPromptHooks = (tplEntry.hooks ?? []).filter((h) => h.type === 'agent' && typeof h.prompt === 'string')
+      if (tplPromptHooks.length === 0) continue
+      const sameMatcher = (existEntries as HookEntry[]).filter((e) => (e.matcher ?? '') === (tplEntry.matcher ?? ''))
+      for (const tplHook of tplPromptHooks) {
+        let landed = false
+        for (const existEntry of sameMatcher) {
+          for (const existHook of existEntry.hooks ?? []) {
+            if (existHook.type !== 'agent') continue
+            landed = true
+            if (existHook.prompt !== tplHook.prompt) {
+              existHook.prompt = tplHook.prompt
+              changed = true
+            }
+            if (tplHook.timeout != null && existHook.timeout !== tplHook.timeout) {
+              existHook.timeout = tplHook.timeout
+              changed = true
+            }
+          }
+        }
+        if (!landed) {
+          // The agent has this event but no agent-type hook in it at all.
+          ;(existEntries as HookEntry[]).push({ ...tplEntry, hooks: [tplHook] })
+          changed = true
+        }
+      }
+    }
+  }
+  return changed
+}
+
 // Idempotent migration: every agent's settings.json should carry the
 // PreCompact hook (memory save + skill reflection). Pre-refactor agents
 // were scaffolded before scaffoldAgentDir seeded the template, so their
@@ -293,6 +357,9 @@ export function ensureAgentHooks(name: string): boolean {
     //   3. Sync the timeout of any command hook whose command matches but timeout differs.
     const existingHooks = existing.hooks as Record<string, unknown>
     let changed = upgradeLegacyHookCommands(existingHooks, tplHooks)
+    // Prompt-carrying (type:agent) hooks are command-less, so the command-keyed
+    // passes below cannot see them. Sync them from the template first.
+    if (syncAgentPromptHooks(existingHooks, tplHooks)) changed = true
     for (const [event, handlers] of Object.entries(tplHooks)) {
       if (!existingHooks[event]) {
         existingHooks[event] = handlers

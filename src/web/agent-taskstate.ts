@@ -39,6 +39,16 @@ export const TASKSTATE_TTL_MS = 12 * 60 * 60 * 1000
 // costs one short injected block that the agent can discard.
 const REPLAY_SOURCES = new Set(['compact', 'resume', 'startup'])
 
+// Structured state fields (Boss's context-management knowledge base, kanban
+// 55af1bfe -> docs/context-compaction-knowledge.md). A one-line summary plus a
+// done-list is not enough state to resume on: the document's points 5-7, 10, 30
+// and 62 call out exactly what a rolling summary loses first -- the decisions,
+// the approaches already ruled out, the user's hard constraints and the exact
+// technical values. Those are extracted into their own fields so the compaction
+// model cannot "prose them away".
+//
+// All of them are OPTIONAL and additive: a pre-existing 5-field record still
+// reads, replays and behaves exactly as before.
 export interface AgentTaskState {
   agent: string
   doneSteps: string[]        // completed -- do NOT repeat
@@ -46,9 +56,21 @@ export interface AgentTaskState {
   nextAction: string         // where to resume
   pendingDecision: string    // open decision/blocker, if any
   summary: string            // one-line what-am-I-doing
+  objective: string          // the overarching goal (survives many sub-tasks)
+  phase: string              // PLANNING|IMPLEMENTING|TESTING|DEBUGGING|BLOCKED|WAITING_USER
+  constraints: string[]      // pinned user requirements -- never negotiable
+  decisions: string[]        // decision + reason, so "why?" survives
+  rejected: string[]         // tried and ruled out -- do NOT retry
+  filesChanged: string[]     // file + what changed (the file itself stays on disk)
+  exactValues: string[]      // numbers/paths/ports/versions, verbatim, never rounded
+  openQuestions: string[]    // unresolved, still needs an answer
   ts: number                 // epoch ms, written at PreCompact
   consumed: boolean          // set true AFTER a successful replay injection
 }
+
+/** The content-bearing half of a record: what emptiness and replay are judged on. */
+export type TaskStateContent = Pick<AgentTaskState, 'doneSteps' | 'alreadyDelegated' | 'nextAction' | 'pendingDecision'> &
+  Partial<Pick<AgentTaskState, 'objective' | 'phase' | 'constraints' | 'decisions' | 'rejected' | 'filesChanged' | 'exactValues' | 'openQuestions' | 'summary'>>
 
 function sanitizeAgent(agent: string): string {
   // Defense: the agent name becomes a filename. Allow only the safe charset.
@@ -64,13 +86,35 @@ function asStringArray(v: unknown): string[] {
   return v.map((x) => String(x).trim()).filter(Boolean).slice(0, 50)
 }
 
+// The checkpoint must not become the thing it is defending against: a state
+// record that grows without bound is just context by another name. The added
+// fields are therefore capped per item and per list -- one line each, index-like.
+const STATE_ITEM_MAX = 300
+const STATE_LIST_MAX = 25
+
+function asStateList(v: unknown): string[] {
+  if (!Array.isArray(v)) return []
+  return v
+    .map((x) => String(x).trim().replace(/\s+/g, ' ').slice(0, STATE_ITEM_MAX))
+    .filter(Boolean)
+    .slice(0, STATE_LIST_MAX)
+}
+
 /** True when the record carries no actual in-flight task (so nothing to replay). */
-export function isEmptyTaskState(r: Pick<AgentTaskState, 'doneSteps' | 'alreadyDelegated' | 'nextAction' | 'pendingDecision'>): boolean {
+export function isEmptyTaskState(r: TaskStateContent): boolean {
   return (
     r.doneSteps.length === 0 &&
     r.alreadyDelegated.length === 0 &&
     !r.nextAction.trim() &&
-    !r.pendingDecision.trim()
+    !r.pendingDecision.trim() &&
+    // Structured state alone is worth replaying: a session whose only surviving
+    // artefact is "we ruled out X" or "the user requires Y" must not silently
+    // drop it just because there is no next action recorded.
+    !(r.decisions?.length) &&
+    !(r.rejected?.length) &&
+    !(r.constraints?.length) &&
+    !(r.filesChanged?.length) &&
+    !(r.openQuestions?.length)
   )
 }
 
@@ -108,11 +152,24 @@ export function buildTaskStateInjection(r: AgentTaskState): string {
     // not claim a compact happened.
     'A sessiond ujraindult egy FOLYAMATBAN LEVO feladat kozben (tomorites, resume vagy osszeomlas utani ujraindulas). Ez NEM uj feladat -- FOLYTASD onnan ahol abbamaradt. NE INDITSD ujra a mar kesz lepeseket, es NE delegald ujra amit mar atadtal.',
   ]
+  // Order is deliberate (knowledge base points 39, 60, 61): models use the head
+  // and the tail of a block far better than its middle, so the non-negotiable
+  // constraints go near the top and the single NEXT ACTION goes last, where the
+  // agent reads it right before acting. Everything in between is reference.
+  const bullets = (items: string[]) => items.map((s) => `  - ${s}`).join('\n')
+  if (r.objective?.trim()) lines.push(`CEL (a teljes feladat): ${r.objective.trim()}`)
+  if (r.constraints?.length) lines.push('KOTOTT KOVETELMENYEK (a felhasznalo mondta ki, NEM alkuképes):\n' + bullets(r.constraints))
   if (r.summary.trim()) lines.push(`FELADAT: ${r.summary.trim()}`)
-  if (r.doneSteps.length) lines.push('MAR KESZ (NE ismeteld meg):\n' + r.doneSteps.map((s) => `  - ${s}`).join('\n'))
-  if (r.alreadyDelegated.length) lines.push('MAR DELEGALVA (NE kuldd ujra):\n' + r.alreadyDelegated.map((s) => `  - ${s}`).join('\n'))
-  if (r.nextAction.trim()) lines.push(`KOVETKEZO AKCIO (innen folytasd): ${r.nextAction.trim()}`)
+  if (r.phase?.trim()) lines.push(`FAZIS: ${r.phase.trim()}`)
+  if (r.doneSteps.length) lines.push('MAR KESZ (NE ismeteld meg):\n' + bullets(r.doneSteps))
+  if (r.alreadyDelegated.length) lines.push('MAR DELEGALVA (NE kuldd ujra):\n' + bullets(r.alreadyDelegated))
+  if (r.rejected?.length) lines.push('MAR ELVETVE (NE probald ujra, hacsak a feltetel nem valtozott):\n' + bullets(r.rejected))
+  if (r.decisions?.length) lines.push('DONTESEK (es miert):\n' + bullets(r.decisions))
+  if (r.exactValues?.length) lines.push('PONTOS ERTEKEK (szo szerint, SOHA ne kerekitsd):\n' + bullets(r.exactValues))
+  if (r.filesChanged?.length) lines.push('ERINTETT FAJLOK (a fajl maga a lemezen van, olvasd ujra ha kell):\n' + bullets(r.filesChanged))
+  if (r.openQuestions?.length) lines.push('NYITOTT KERDESEK:\n' + bullets(r.openQuestions))
   if (r.pendingDecision.trim()) lines.push(`NYITOTT DONTES / BLOKKOLO: ${r.pendingDecision.trim()}`)
+  if (r.nextAction.trim()) lines.push(`KOVETKEZO AKCIO (innen folytasd): ${r.nextAction.trim()}`)
   return lines.join('\n\n')
 }
 
@@ -128,6 +185,14 @@ export function readTaskState(agent: string): AgentTaskState | null {
       nextAction: String(raw.nextAction ?? '').trim(),
       pendingDecision: String(raw.pendingDecision ?? '').trim(),
       summary: String(raw.summary ?? '').trim(),
+      objective: String(raw.objective ?? '').trim(),
+      phase: String(raw.phase ?? '').trim(),
+      constraints: asStateList(raw.constraints),
+      decisions: asStateList(raw.decisions),
+      rejected: asStateList(raw.rejected),
+      filesChanged: asStateList(raw.filesChanged),
+      exactValues: asStateList(raw.exactValues),
+      openQuestions: asStateList(raw.openQuestions),
       ts: typeof raw.ts === 'number' ? raw.ts : 0,
       consumed: raw.consumed === true,
     }
@@ -141,7 +206,7 @@ export function readTaskState(agent: string): AgentTaskState | null {
 // new compact's record supersedes (and re-arms) any prior one.
 export function writeTaskState(
   agent: string,
-  fields: Partial<Pick<AgentTaskState, 'doneSteps' | 'alreadyDelegated' | 'nextAction' | 'pendingDecision' | 'summary'>>,
+  fields: Partial<Omit<AgentTaskState, 'agent' | 'ts' | 'consumed'>>,
   nowMs: number,
 ): AgentTaskState {
   if (!existsSync(STORE_DIR)) mkdirSync(STORE_DIR, { recursive: true })
@@ -152,6 +217,14 @@ export function writeTaskState(
     nextAction: String(fields.nextAction ?? '').trim(),
     pendingDecision: String(fields.pendingDecision ?? '').trim(),
     summary: String(fields.summary ?? '').trim(),
+    objective: String(fields.objective ?? '').trim(),
+    phase: String(fields.phase ?? '').trim(),
+    constraints: asStateList(fields.constraints),
+    decisions: asStateList(fields.decisions),
+    rejected: asStateList(fields.rejected),
+    filesChanged: asStateList(fields.filesChanged),
+    exactValues: asStateList(fields.exactValues),
+    openQuestions: asStateList(fields.openQuestions),
     ts: nowMs,
     consumed: false,
   }

@@ -20,6 +20,14 @@ const rec = (over: Partial<AgentTaskState> = {}): AgentTaskState => ({
   nextAction: 'do B',
   pendingDecision: '',
   summary: 'building X',
+  objective: '',
+  phase: '',
+  constraints: [],
+  decisions: [],
+  rejected: [],
+  filesChanged: [],
+  exactValues: [],
+  openQuestions: [],
   ts: NOW,
   consumed: false,
   ...over,
@@ -131,5 +139,74 @@ describe('task-state store I/O', () => {
     const r = readTaskState('../../etc/passwd')
     expect(r).not.toBeNull()
     clearTaskState('../../etc/passwd')
+  })
+})
+
+// Structured state fields (kanban 55af1bfe): decisions, ruled-out approaches,
+// pinned constraints and exact values are what a rolling summary loses first.
+describe('structured state fields', () => {
+  const A = 'structured-tester'
+  afterEach(() => clearTaskState(A))
+
+  it('round-trips the new fields through write/read', () => {
+    writeTaskState(A, {
+      objective: 'ship the checkpoint',
+      phase: 'IMPLEMENTING',
+      constraints: ['no schema changes'],
+      decisions: ['additive fields, because old records must still replay'],
+      rejected: ['a second store -- the record already exists'],
+      filesChanged: ['src/web/agent-taskstate.ts -- new fields'],
+      exactValues: ['STATE_ITEM_MAX=300'],
+      openQuestions: ['threshold tiers?'],
+      nextAction: 'run the suite',
+    }, NOW)
+    const r = readTaskState(A)!
+    expect(r.objective).toBe('ship the checkpoint')
+    expect(r.phase).toBe('IMPLEMENTING')
+    expect(r.constraints).toEqual(['no schema changes'])
+    expect(r.rejected).toEqual(['a second store -- the record already exists'])
+    expect(r.exactValues).toEqual(['STATE_ITEM_MAX=300'])
+  })
+
+  // Backward compatibility: a record written before this change has none of the
+  // new keys and must still read, replay and render exactly as before.
+  it('reads a legacy 5-field record without the new keys', () => {
+    writeTaskState(A, { summary: 'legacy', doneSteps: ['a'], nextAction: 'b' }, NOW)
+    const r = readTaskState(A)!
+    expect(r.constraints).toEqual([])
+    expect(r.objective).toBe('')
+    expect(shouldReplayTaskState(r, 'compact', NOW + 1)).toBe(true)
+    expect(buildTaskStateInjection(r)).toContain('KOVETKEZO AKCIO')
+  })
+
+  it('treats decisions/rejected/constraints alone as worth replaying', () => {
+    const r = rec({ doneSteps: [], alreadyDelegated: [], nextAction: '', pendingDecision: '', rejected: ['tried X, failed'] })
+    expect(isEmptyTaskState(r)).toBe(false)
+    expect(shouldReplayTaskState(r, 'compact', NOW + 1)).toBe(true)
+  })
+
+  it('still treats a genuinely empty record as empty', () => {
+    const r = rec({ doneSteps: [], alreadyDelegated: [], nextAction: '', pendingDecision: '' })
+    expect(isEmptyTaskState(r)).toBe(true)
+  })
+
+  // Lost-in-the-middle defense: constraints near the top, the single next action last.
+  it('orders the injection with constraints first and next action last', () => {
+    const text = buildTaskStateInjection(rec({
+      constraints: ['never touch prod'],
+      rejected: ['polling -- too slow'],
+      nextAction: 'run the suite',
+    }))
+    expect(text.indexOf('KOTOTT KOVETELMENYEK')).toBeLessThan(text.indexOf('MAR KESZ'))
+    expect(text.indexOf('MAR ELVETVE')).toBeLessThan(text.indexOf('KOVETKEZO AKCIO'))
+    expect(text.trimEnd().endsWith('run the suite')).toBe(true)
+  })
+
+  // The checkpoint must not become a context hog itself.
+  it('caps list length and item length', () => {
+    writeTaskState(A, { decisions: Array.from({ length: 40 }, (_, i) => `d${i}`), exactValues: ['x'.repeat(500)] }, NOW)
+    const r = readTaskState(A)!
+    expect(r.decisions).toHaveLength(25)
+    expect(r.exactValues[0]).toHaveLength(300)
   })
 })

@@ -53,6 +53,16 @@ export async function tryHandleAgentTaskState(ctx: RouteContext): Promise<boolea
       nextAction: fields.nextAction as string | undefined,
       pendingDecision: fields.pendingDecision as string | undefined,
       summary: fields.summary as string | undefined,
+      // Structured state (kanban 55af1bfe). Unknown/omitted keys stay empty, so
+      // a hook that still posts only the original five fields is unaffected.
+      objective: fields.objective as string | undefined,
+      phase: fields.phase as string | undefined,
+      constraints: fields.constraints as string[] | undefined,
+      decisions: fields.decisions as string[] | undefined,
+      rejected: fields.rejected as string[] | undefined,
+      filesChanged: fields.filesChanged as string[] | undefined,
+      exactValues: fields.exactValues as string[] | undefined,
+      openQuestions: fields.openQuestions as string[] | undefined,
     }, Date.now())
     json(res, { ok: true, record })
     return true
