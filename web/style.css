@@ -246,11 +246,34 @@ body {
 /* The class display:flex rule above outranks the browser's [hidden] default -- explicit
    override needed so the workspace-switch (Marvin/Iroda) can actually hide a nav. */
 .sidebar-nav[hidden] { display: none; }
+/* Its own line under the brand, so the refresh button can sit beside the name
+   without squeezing the pills (Boss, 2026-08-12: "a Marvin Irodat lejjebb
+   kellene vinni, es a fole"). */
 .workspace-switch {
   display: flex;
   gap: 4px;
-  margin-left: auto;
+  flex: 0 0 100%;
+  margin-top: 6px;
 }
+/* Beside the brand name, always on screen: the sidebar footer is below the fold
+   in a tall window, which is exactly where this button must not be. */
+.brand-refresh {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.brand-refresh:hover { color: var(--accent); border-color: var(--accent); }
+.brand-refresh:disabled { opacity: 0.5; cursor: default; }
 .ws-btn {
   border: 1px solid var(--border);
   background: var(--bg-input);
