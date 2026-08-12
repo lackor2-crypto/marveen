@@ -9388,11 +9388,28 @@ body {
      JS, and the default cursor here says so before you click. */
   cursor: default;
 }
-.ctx-btn-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+/* Four buttons on ONE line (Boss, 2026-08-12: "ferjen ki egy sorban, ne
+   kettoben"). They can shrink and their labels ellipsize rather than wrapping
+   the row -- a card is narrow on a phone, and a fifth of a button hanging on a
+   second line is what he was looking at. */
+.agent-card-actions {
+  flex-wrap: nowrap;
 }
+.agent-card-actions .btn-compact {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  justify-content: center;
+}
+/* The icons go, the words stay. Four buttons plus four icons do not fit a grid
+   column, and the first attempt clipped "Beszelgetes" to "Beszelget" with half
+   its icon showing -- worse than the two rows it replaced. The label carries the
+   meaning; the icon was decoration, and the tooltip still explains each one. */
+.agent-card-actions .btn-compact svg { display: none; }
 .ctx-gate-row {
   display: flex;
   flex-wrap: wrap;

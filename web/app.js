@@ -3748,15 +3748,22 @@ function reliabilityBadgeHtml(reliability) {
 // Backed by /api/agents/:name/context-action and /api/context-restart-gate. The
 // gate config comes from gateCfgByAgent (loaded in loadAgents); a missing entry
 // renders as "off" at the documented 400k default.
+// The two context buttons live in the card's EXISTING action row, next to
+// Conversation and Terminal, rather than in a second row of their own: Boss,
+// 2026-08-12, looking at the live card -- "ezt csinal ugy, hogy ferjen ki egy
+// sorban, ne kettoben". Only the auto-clear switch stays on its own line, since
+// it is a setting rather than an action.
+function contextButtonsHtml(name) {
+  return `
+        <button class="btn-secondary btn-compact ctx-compact-btn" title="${escapeAttr(t('agents.ctx.compact_tip'))}">${escapeHtml(t('agents.ctx.compact'))}</button>
+        <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>`
+}
+
 function contextControlsHtml(name) {
   const cfg = gateCfgByAgent.get(name) || { enabled: false, thresholdTokens: 400000 }
   const kThreshold = Math.max(1, Math.round((cfg.thresholdTokens || 400000) / 1000))
   return `
     <div class="agent-context-controls">
-      <div class="ctx-btn-row">
-        <button class="btn-secondary btn-compact ctx-compact-btn" title="${escapeAttr(t('agents.ctx.compact_tip'))}">${escapeHtml(t('agents.ctx.compact'))}</button>
-        <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>
-      </div>
       <label class="ctx-gate-row" title="${escapeAttr(t('agents.ctx.auto_tip'))}">
         <input type="checkbox" class="ctx-gate-toggle"${cfg.enabled ? ' checked' : ''}>
         <span class="ctx-gate-text">${escapeHtml(t('agents.ctx.auto'))}</span>
@@ -3771,8 +3778,11 @@ function wireContextControls(card, name) {
   if (!root) return
   // The card itself opens the detail modal on click; keep control clicks local.
   root.addEventListener('click', (e) => e.stopPropagation())
-  root.querySelector('.ctx-compact-btn')?.addEventListener('click', () => doContextAction(name, 'compact'))
-  root.querySelector('.ctx-clear-btn')?.addEventListener('click', () => doContextAction(name, 'clear'))
+  // The buttons now sit in the card's action row, not inside root, so they are
+  // looked up on the CARD -- and each stops propagation on its own, the same
+  // way the Conversation and Terminal buttons beside them do.
+  card.querySelector('.ctx-compact-btn')?.addEventListener('click', (e) => { e.stopPropagation(); doContextAction(name, 'compact') })
+  card.querySelector('.ctx-clear-btn')?.addEventListener('click', (e) => { e.stopPropagation(); doContextAction(name, 'clear') })
   const toggle = root.querySelector('.ctx-gate-toggle')
   const threshold = root.querySelector('.ctx-gate-threshold')
   toggle?.addEventListener('change', () => {
@@ -3874,6 +3884,7 @@ function renderAgents() {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           Terminal
         </button>
+        ${contextButtonsHtml(mainAgentId())}
       </div>
       ${contextControlsHtml(mainAgentId())}
     `
@@ -3954,6 +3965,7 @@ function renderAgents() {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
           Terminal
         </button>
+        ${contextButtonsHtml(agent.name)}
       </div>
       ${contextControlsHtml(agent.name)}
     `
