@@ -8709,7 +8709,29 @@ body {
    the full language name lives in the option's title and the result header. */
 /* Reply/Forward/Archive/Delete sit in the header's left cell (Boss 2026-08-10:
    move them before the "A level tartalma" title, translate stays on the right). */
-.email-reader-actions-left { justify-self: start; flex-wrap: wrap; }
+.email-reader-actions-left { justify-self: start; flex-wrap: nowrap; }
+/* Boss 2026-08-12 (screenshot): Törlés dropped onto a SECOND line, alone under
+   Válasz/Továbbítás/Archiválás. The four actions belong on one row -- a delete
+   button that moves depending on the window width is exactly the kind of thing
+   a non-technical user misreads as "the page is broken".
+   The header is a 1fr auto 1fr grid, so the left cell only ever got a third of
+   the reader pane and the 4th button wrapped out of it. The action cells now
+   take the width they actually need (auto) and the decorative centre title is
+   the part that gives way (minmax(0,1fr) + ellipsis): losing a few characters
+   of "A levél tartalma" costs the user nothing, losing the row costs a click. */
+.email-reader-sticky-header .email-list-header { grid-template-columns: auto minmax(0, 1fr) auto; }
+.email-reader-sticky-header .email-list-header-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Phone / narrow pane: even with the title gone the two groups can exceed the
+   width, and a squeezed grid would start wrapping again. Stack them instead --
+   actions on their own full-width row (scrolled sideways if truly cramped, so
+   Törlés is never clipped away), translate underneath. Boss uses the dashboard
+   from his phone, so this row has to survive there too. */
+@media (max-width: 900px) {
+  .email-reader-sticky-header .email-list-header { grid-template-columns: 1fr; }
+  .email-reader-sticky-header .email-list-header-title { display: none; }
+  .email-reader-sticky-header .email-reader-actions-left { overflow-x: auto; justify-self: stretch; }
+  .email-reader-sticky-header .email-reader-actions { justify-self: start; }
+}
 .email-translate-group { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; white-space: nowrap; }
 .email-translate-lang { padding: 4px 2px 4px 6px; cursor: pointer; text-align: center; }
 .email-translate-arrow { color: var(--text-muted); font-size: 12px; line-height: 1; }

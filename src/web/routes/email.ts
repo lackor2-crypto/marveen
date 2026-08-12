@@ -21,9 +21,20 @@ import type { RouteContext } from './types.js'
 // themselves live in a 700-permission directory outside git entirely.
 const HIMALAYA_BIN = `${process.env.HOME}/.local/bin/himalaya`
 const HIMALAYA_CONFIG = `${process.env.HOME}/.local/share/marveen-himalaya/config.toml`
-// Presence-only marker: revert readMessageBody() to the himalaya-only path
-// with no rebuild/restart. `touch` to disable, `rm` to re-enable.
-const IMAP_DIRECT_KILL_SWITCH = `${process.env.HOME}/.local/share/marveen-himalaya/disable-imap-direct`
+// There used to be a manual kill switch here: a marker file
+// (~/.local/share/marveen-himalaya/disable-imap-direct) whose mere presence
+// reverted body reads, the mailbox list AND the envelope list to himalaya.
+// REMOVED on Boss's instruction (2026-08-12) after it cost two days of silent
+// slowness: someone created the marker on 2026-08-10, nothing logged it,
+// nothing showed it, and mail simply went back to downloading every attachment
+// with every body -- a 55-character message with a 22MB video took 37s instead
+// of 0.8s. It was found only because Boss complained.
+//
+// Nothing is lost by removing it: the escape hatch that matters is AUTOMATIC
+// and still here. Each direct-IMAP helper returns null on any failure
+// (unsupported message shape, connection error, timeout) and the caller falls
+// through to the himalaya path for that one request. A manual global off-switch
+// only added a way to silently degrade everything at once.
 // `message read` fetches the WHOLE message body over IMAP -- including every
 // attachment's bytes -- regardless of --json/--raw or of whether the caller
 // only wants the text/html part; himalaya has no "skip attachments" flag.
@@ -481,42 +492,38 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
   // comment on that call for the incident that documented it. email-imap.ts
   // fetches only the BODYSTRUCTURE + the text/html MIME parts via IMAP
   // BODY.PEEK, so a message with a 22MB video attachment now returns its
-  // text in ~1-2s instead of ~30-90s (live-measured). Kill switch: create
-  // ~/.local/share/marveen-himalaya/disable-imap-direct to revert to the
-  // himalaya-only path below with no rebuild/restart -- a marker file, not an
-  // env var, because .env values never reach process.env in this process
-  // (see src/config.ts). readMessageBodyDirect() returns null on ANY
+  // text in ~1-2s instead of ~30-90s (live-measured). It is unconditional now
+  // (Boss, 2026-08-12: the old marker-file kill switch is gone -- see the note
+  // where it used to be declared). readMessageBodyDirect() returns null on ANY
   // failure (unsupported message shape, connection error, timeout, ...) and
   // never throws, so falling through to the unchanged himalaya path below is
   // always safe -- this can only make a message load AS SLOW AS today, never
   // slower, never broken.
-  if (!existsSync(IMAP_DIRECT_KILL_SWITCH)) {
-    const t0 = Date.now()
-    const direct = await readMessageBodyDirect(account, mailbox, id)
-    if (direct) {
-      const result = { text: direct.text, html: direct.html, attachments: direct.attachments.filter(a => !a.inline) }
-      logger.info(`[email] imap body uid=${id} mailbox=${mailbox} parts=${direct.attachments.length} ms=${Date.now() - t0}`)
-      messageBodyCache.set(cacheKey, { data: result, expires: Date.now() + MESSAGE_BODY_CACHE_TTL_MS })
-      if (messageBodyCache.size > MESSAGE_BODY_CACHE_MAX) {
-        const oldest = messageBodyCache.keys().next().value
-        if (oldest !== undefined) messageBodyCache.delete(oldest)
-      }
-      return result
+  const t0 = Date.now()
+  const direct = await readMessageBodyDirect(account, mailbox, id)
+  if (direct) {
+    const result = { text: direct.text, html: direct.html, attachments: direct.attachments.filter(a => !a.inline) }
+    logger.info(`[email] imap body uid=${id} mailbox=${mailbox} parts=${direct.attachments.length} ms=${Date.now() - t0}`)
+    messageBodyCache.set(cacheKey, { data: result, expires: Date.now() + MESSAGE_BODY_CACHE_TTL_MS })
+    if (messageBodyCache.size > MESSAGE_BODY_CACHE_MAX) {
+      const oldest = messageBodyCache.keys().next().value
+      if (oldest !== undefined) messageBodyCache.delete(oldest)
     }
-    logger.warn(`[email] direct IMAP body fetch unavailable for uid=${id} mailbox=${mailbox}, falling back to himalaya`)
-    // The direct path returns null both for "message is gone" and for other
-    // failures (unsupported shape, timeout, ...) -- disambiguate with the same
-    // cheap existence probe used for cache-hit revalidation above, so a
-    // deleted message reports as gone instead of running the full (and, for
-    // a gone message, pointless) himalaya fallback below only to fail there
-    // too with a raw command-error string.
-    if (!(await messageStillExists(account, mailbox, id))) {
-      return { error: 'A levél már nem érhető el.', notFound: true }
-    }
+    return result
+  }
+  logger.warn(`[email] direct IMAP body fetch unavailable for uid=${id} mailbox=${mailbox}, falling back to himalaya`)
+  // The direct path returns null both for "message is gone" and for other
+  // failures (unsupported shape, timeout, ...) -- disambiguate with the same
+  // cheap existence probe used for cache-hit revalidation above, so a
+  // deleted message reports as gone instead of running the full (and, for
+  // a gone message, pointless) himalaya fallback below only to fail there
+  // too with a raw command-error string.
+  if (!(await messageStillExists(account, mailbox, id))) {
+    return { error: 'A levél már nem érhető el.', notFound: true }
   }
 
-  // FALLBACK PATH: only reached when the direct-IMAP fast path above is
-  // disabled (kill switch) or returned null for this message. himalaya's
+  // FALLBACK PATH: only reached when the direct-IMAP fast path above returned
+  // null for this message (unsupported shape, connection error, ...). himalaya's
   // `message read` always fetches the whole body over IMAP no matter the
   // output format -- there's no "text only" mode -- which is exactly why
   // email-imap.ts's BODYSTRUCTURE + BODY.PEEK path exists. This block is kept
@@ -707,13 +714,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const cached = cacheGet(mailboxListCache, account as string)
     if (cached) { json(res, cached); return true }
     // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
-    if (!existsSync(IMAP_DIRECT_KILL_SWITCH)) {
-      const direct = await listMailboxesDirect(account as string)
-      if (direct) {
-        cacheSet(mailboxListCache, account as string, direct, MAILBOX_LIST_TTL_MS)
-        json(res, direct)
-        return true
-      }
+    const direct = await listMailboxesDirect(account as string)
+    if (direct) {
+      cacheSet(mailboxListCache, account as string, direct, MAILBOX_LIST_TTL_MS)
+      json(res, direct)
+      return true
     }
     const r = await himalayaRead(['-a', account as string, 'mailbox', 'list', '--json'])
     if (!r.ok) { logger.warn(`[email] mailbox list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
@@ -781,17 +786,15 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const cachedEnvelopes = cacheGet(envelopeListCache, envelopeCacheKey)
     if (cachedEnvelopes) { json(res, cachedEnvelopes); return true }
     // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
-    if (!existsSync(IMAP_DIRECT_KILL_SWITCH)) {
-      const direct = await listEnvelopesDirect(account as string, mailbox, page, pageSize, query || undefined)
-      if (direct) {
-        let envelopes = direct
-        if (mailbox === 'Inbox') {
-          envelopes = envelopes.filter((e: unknown) => isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0]) === promoOnly)
-        }
-        cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
-        json(res, envelopes)
-        return true
+    const directEnvelopes = await listEnvelopesDirect(account as string, mailbox, page, pageSize, query || undefined)
+    if (directEnvelopes) {
+      let envelopes = directEnvelopes
+      if (mailbox === 'Inbox') {
+        envelopes = envelopes.filter((e: unknown) => isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0]) === promoOnly)
       }
+      cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
+      json(res, envelopes)
+      return true
     }
     const envelopeCommand = query ? ['envelope', 'search'] : ['envelope', 'list']
     const searchArgs = query ? buildHimalayaSearchArgs(query) : []
