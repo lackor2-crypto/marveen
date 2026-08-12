@@ -474,6 +474,58 @@ export interface DirectMailbox {
   unread: null
 }
 
+/**
+ * The name himalaya would have printed for an IMAP mailbox path.
+ *
+ * This is a CONTRACT, not a cosmetic choice. The mailbox name travels: the
+ * folder column pins the system folders by name, every read/move/flag call
+ * sends the name back, and the himalaya fallback must accept the same string.
+ * himalaya prints the inbox as "Inbox" and every other folder at its full path
+ * ("[Gmail]/Kuka"), so this path must produce exactly that.
+ *
+ * Boss, 2026-08-12: "mar megint eltunt az elso oszlopbol a beerkezo levelek meg
+ * a tobbi!" The direct path had been mapping imapflow's `name` (the LEAF
+ * segment: "Kuka") instead of its `path` (the full "[Gmail]/Kuka"), so not one
+ * system folder matched the frontend's list, all of them fell through to the
+ * custom-label bucket, and the column turned into a flat alphabetical list with
+ * a raw "INBOX" buried in the middle of it.
+ */
+export function himalayaMailboxName(path: string): string {
+  // IMAP folder names are case-sensitive EXCEPT the inbox, which RFC 3501
+  // defines case-insensitively -- servers answer to INBOX/Inbox/inbox alike.
+  return path.toUpperCase() === 'INBOX' ? 'Inbox' : path
+}
+
+/**
+ * Map an IMAP LIST response to himalaya's mailbox-list shape, or null when the
+ * result is not fit to serve.
+ *
+ * Pure and exported so the contract can be tested without a mail server: the
+ * folder column is the part of the email view that broke twice, and both times
+ * it broke in a way no type check could see (a real list of real folders, just
+ * not the names the rest of the system speaks).
+ */
+export function mapDirectMailboxes(
+  mailboxes: Array<{ path: string; flags?: Set<string> | string[] }>,
+): DirectMailbox[] | null {
+  const hasFlag = (mb: { flags?: Set<string> | string[] }, flag: string): boolean =>
+    mb.flags instanceof Set ? mb.flags.has(flag) : Array.isArray(mb.flags) ? mb.flags.includes(flag) : false
+  const mapped = mailboxes
+    .filter(mb => !hasFlag(mb, '\\Noselect'))   // non-selectable pseudo-mailboxes
+    .map(mb => {
+      const name = himalayaMailboxName(mb.path)
+      return { id: name, name, total: null, unread: null } as DirectMailbox
+    })
+  // Refuse a list that lost the inbox. Whatever went wrong -- a server that
+  // answers differently, a library upgrade that renames a field -- a folder
+  // column without "Beérkező levelek" in it is not an improvement over the
+  // slower path, and the fallback costs about a second. This is the guard Boss
+  // asked for after the same column broke twice: not "we tested it", but "it
+  // cannot ship broken" (2026-08-12).
+  if (!mapped.some(mb => mb.name === 'Inbox')) return null
+  return mapped
+}
+
 export async function listMailboxesDirect(accountId: string): Promise<DirectMailbox[] | null> {
   const client = await getClient(accountId)
   if (!client) return null
@@ -481,12 +533,14 @@ export async function listMailboxesDirect(accountId: string): Promise<DirectMail
   try {
     const mailboxes = await withTimeout(client.list(), FETCH_TIMEOUT_MS)
     if (!mailboxes) return null
-    // imapflow returns MailboxObject[] with .name, .flags, .delimiter, .exists, .unseen
-    // Map to himalaya's format: id=name, name=name, total=null, unread=null
-    // (himalaya reports null for total/unread on this account)
-    return mailboxes
-      .filter(mb => !mb.flags?.has('\\Noselect')) // skip non-selectable pseudo-mailboxes
-      .map(mb => ({ id: mb.name, name: mb.name, total: null, unread: null }))
+    // imapflow returns MailboxObject[] with .path (full), .name (leaf segment),
+    // .flags, .delimiter.
+    const mapped = mapDirectMailboxes(mailboxes)
+    if (mapped === null) {
+      logger.warn(`[email-imap] mailbox list for account "${accountId}" is unusable (no Inbox among ${mailboxes.length} entries); falling back to himalaya`)
+      return null
+    }
+    return mapped
   } catch (e) {
     logger.warn(`[email-imap] mailbox list failed for account "${accountId}": ${e instanceof Error ? e.message : e}`)
     return null

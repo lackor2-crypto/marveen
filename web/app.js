@@ -3807,6 +3807,11 @@ function contextControlsHtml(name, contextTokens = null, running = true, context
   else if (running && (contextState === 'no-usage' || contextState === 'unknown')) {
     currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_unmeasured'))}</div>`
   } else if (running) currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_empty'))}</div>`
+  // A stopped agent used to show NOTHING here, and a missing line reads as a
+  // missing feature: Boss, 2026-08-12, seeing it on one card but not another --
+  // "es akor ez miert nem mukodik a szakertonel?? nem globalisan oldottad meg?"
+  // It works everywhere; a stopped session simply has no context. Say so.
+  else currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_stopped'))}</div>`
   return `
     <div class="agent-context-controls">
       <label class="ctx-gate-row" title="${escapeAttr(t('agents.ctx.auto_tip'))}">
@@ -20114,7 +20119,20 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   const attachmentsList = document.getElementById('emailAttachmentsList')
   if (attachmentsList) attachmentsList.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   const params = new URLSearchParams({ account: emailAccount, mailbox, id })
-  const msg = await (await fetch(`/api/email/message?${params}`)).json()
+  // A request that never comes back as JSON -- the dashboard restarting under
+  // the click, a proxy error page, a dropped connection -- used to reject right
+  // here, and an unhandled rejection leaves BOTH panes sitting on "Betöltés..."
+  // with no error and no toast, forever. Boss, 2026-08-12, photographed exactly
+  // that and asked what was hanging: nothing was; the answer had simply been
+  // thrown away. Failures are shown, never swallowed.
+  let msg
+  try {
+    const res = await fetch(`/api/email/message?${params}`)
+    msg = await res.json()
+    if (!res.ok && !msg?.error) msg = { error: `HTTP ${res.status}` }
+  } catch (err) {
+    msg = { error: (err && err.message) || t('email.load_message_error') }
+  }
   // The message this id pointed to is confirmed gone server-side (deleted,
   // including straight in Gmail's own web client, outside Marveen entirely --
   // Boss, 2026-08-06: F5-refreshed after doing exactly that and the reader
