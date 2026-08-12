@@ -110,6 +110,8 @@ import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
 import { isCompactionInFlight, markCompactionStarted, settleCompaction } from '../compaction-inflight.js'
+import { followUpManualCompaction } from '../manual-compact-followup.js'
+import { readGateConfig } from '../context-restart-gate-store.js'
 import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
@@ -1193,7 +1195,22 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       if (action === 'compact') {
         const dir = isMain ? PROJECT_ROOT : agentDir(name)
         const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
-        markCompactionStarted(name, readContextReadingFromProjectDir(dir, cfgDir).tokens)
+        const readTokens = () => readContextReadingFromProjectDir(dir, cfgDir).tokens
+        markCompactionStarted(name, readTokens())
+        // One /compact is not a promise about the result. Boss asked for the
+        // button to honour the number beside it: if the context is still over
+        // the agent's threshold once this round lands, compact again (bounded,
+        // and never against a context that refuses to shrink).
+        void followUpManualCompaction(name, {
+          readTokens,
+          thresholdTokens: () => readGateConfig(name).thresholdTokens,
+          sendCompact: async () => {
+            const r = await sendPromptToSession(session, '/compact', host, {
+              waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
+            })
+            return r !== 'aborted-busy'
+          },
+        })
       }
       logger.info({ name, action }, 'Manual context-action sent to agent session')
       json(res, { ok: true, action })
