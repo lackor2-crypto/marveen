@@ -7626,6 +7626,7 @@ async function loadMemStats() {
       ).join('')}
       <div class="stat-card"><div class="stat-value">${embCount}</div><div class="stat-label">${t('memories.stat.vectors_pct', { pct: embPct })}</div></div>
       <button class="btn-secondary btn-compact" id="memBackfillBtn" style="margin-left:auto;font-size:11px;padding:6px 12px;align-self:center">${t('memories.stat.vectors_btn')}</button>
+      ${embCount === 0 && stats.total > 0 ? `<div class="mem-vectors-note">${escapeHtml(t('memories.vectors_off_note'))}</div>` : ''}
     `
     document.getElementById('memBackfillBtn')?.addEventListener('click', async () => {
       const btn = document.getElementById('memBackfillBtn')
@@ -7633,7 +7634,12 @@ async function loadMemStats() {
       try {
         const r = await fetch('/api/memories/backfill', { method: 'POST' })
         const data = await r.json()
-        showToast(t('memories.toast.vector_count', { count: data.count }))
+        // A zero count is not a result, it is a failure with a friendly face:
+        // the embedding backend is not running. Saying "0 generated" left the
+        // owner with a button that did nothing and no idea why.
+        showToast(data.count > 0
+          ? t('memories.toast.vector_count', { count: data.count })
+          : t('memories.toast.vector_none'))
         loadMemStats()
       } catch { showToast(t('memories.toast.vector_error')) }
     })

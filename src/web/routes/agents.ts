@@ -111,6 +111,7 @@ import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
 import { isCompactionInFlight, markCompactionStarted, settleCompaction } from '../compaction-inflight.js'
 import { followUpManualCompaction } from '../manual-compact-followup.js'
+import { COMPACT_COMMAND } from '../../context-compaction-instructions.js'
 import { readGateConfig, readGateRunState, writeGateRunState } from '../context-restart-gate-store.js'
 import { COMPACT_RETRY_WINDOW_MS } from '../../context-restart-gate.js'
 import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
@@ -1184,7 +1185,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       if (pending > 0) { json(res, { ok: false, needsConfirm: true, pending }); return true }
     }
 
-    const cmd = action === 'clear' ? '/clear' : '/compact'
+    const cmd = action === 'clear' ? '/clear' : COMPACT_COMMAND
     try {
       const result = await sendPromptToSession(session, cmd, host, {
         waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
@@ -1206,7 +1207,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           readTokens,
           thresholdTokens: () => readGateConfig(name).thresholdTokens,
           sendCompact: async () => {
-            const r = await sendPromptToSession(session, '/compact', host, {
+            const r = await sendPromptToSession(session, COMPACT_COMMAND, host, {
               waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
             })
             return r !== 'aborted-busy'
@@ -1267,7 +1268,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const session = isMain ? MAIN_CHANNELS_SESSION : agentSessionName(name)
     const host = isMain ? null : readAgentRemoteHost(name)
     try {
-      const result = await sendPromptToSession(session, '/compact', host, {
+      const result = await sendPromptToSession(session, COMPACT_COMMAND, host, {
         waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
       })
       if (result === 'aborted-busy') { json(res, { ok: true, action: 'none', reason: 'busy' }); return true }
@@ -1277,7 +1278,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         readTokens,
         thresholdTokens: () => readGateConfig(name).thresholdTokens,
         sendCompact: async () => {
-          const r = await sendPromptToSession(session, '/compact', host, {
+          const r = await sendPromptToSession(session, COMPACT_COMMAND, host, {
             waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
           })
           return r !== 'aborted-busy'

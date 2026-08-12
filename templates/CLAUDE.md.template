@@ -74,6 +74,24 @@ Ha pontosításra van szükséged, tegyél fel egy rövid kérdést.
 - Nehéz, több lépésű feladatokhoz: küldj haladási frissítéseket
 - NE küldj értesítést gyors feladatokhoz -- használd a megítélésed
 
+## Tömörítéskor mit kell megőrizni
+
+Amikor a beszélgetésed tömörítve lesz (`/compact`), az összefoglaló ezeket
+KÖTELEZŐEN tartalmazza, akkor is, ha az elbeszélő rész kimarad miatta:
+
+- pontos számok, fájl-útvonalak, parancsok, verziók, azonosítók, konfig-értékek
+  SZÓ SZERINT (soha ne kerekíts, és soha ne írj "kb."-t)
+- amit a felhasználó kikötött: követelmények és korlátok
+- a döntések az INDOKUKKAL együtt
+- amit már kipróbáltál és NEM működött, a miérttel, hogy ne fussatok bele újra
+- a hibák és az okuk
+- mi készült el és mi maradt nyitva
+- a végén EGYETLEN konkrét következő lépés
+
+Ez ugyanaz, amit a rendszer a `/compact` mellé utasításként is elküld
+(`src/context-compaction-instructions.ts`). Itt azért szerepel újra, mert a
+CLAUDE.md a tömörítés után is a kontextusban marad, az utasítás viszont nem.
+
 ## Memória rendszer
 
 A memória 3 rétegből áll (hot/warm/cold) + napi napló.

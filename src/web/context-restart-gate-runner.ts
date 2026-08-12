@@ -9,6 +9,7 @@ import { detectPaneState } from '../pane-state.js'
 import { detectsUsageLimit } from '../model-fallback.js'
 import { readContextReadingFromProjectDir } from './active-model.js'
 import { markCompactionStarted } from './compaction-inflight.js'
+import { COMPACT_COMMAND } from '../context-compaction-instructions.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { withSessionSendLock } from './session-send-lock.js'
 import { getHardGuardPhase } from './context-guard-runner.js'
@@ -515,14 +516,16 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         lastCompactTokens: runState.lastCompactTokens,
         nowMs,
       })
-      const command = reclaim.action === 'compact' ? '/compact' : '/clear'
+      // Compaction runs with OUR instructions, not a bare summarize (see
+      // context-compaction-instructions.ts).
+      const command = reclaim.action === 'compact' ? COMPACT_COMMAND : '/clear'
       try {
         await withSessionSendLock(session, null, 'deliver', async () => {
           execFileSync(TMUX, ['send-keys', '-t', session, '-l', command], { timeout: 5000 })
           execFileSync(TMUX, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
         })
         logger.info({ agent: name, contextTokens, command, why: reclaim.reason },
-          `context-restart-gate: ${command} sent`)
+          `context-restart-gate: ${reclaim.action} sent`)
         // The card's Terminal button reads "working" from the pane, and the
         // compaction spinner carries none of the busy signals a normal turn
         // does. Record that we started one so the agent does not look idle for
@@ -547,7 +550,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
           aboveThreshold: true,
         })
       } catch (err) {
-        logger.warn({ err, agent: name, command }, `context-restart-gate: ${command} send failed`)
+        logger.warn({ err, agent: name }, 'context-restart-gate: reclaim command send failed')
       }
       break
     }

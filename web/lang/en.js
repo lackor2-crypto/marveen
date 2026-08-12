@@ -1705,6 +1705,8 @@ window._i18n.en = {
   'memories.agent_all':			'All agents',
   'memories.stat.total':			'Total',
   'memories.stat.vectors_btn':			'Generate vectors',
+  'memories.vectors_off_note':         'Meaning-based (semantic) search is not switched on. Search works without it, but only on keywords, not on related words. Turning it on needs a local model server (Ollama) on your machine; until then this button cannot build vectors. This is a convenience, not a core feature.',
+  'memories.toast.vector_none':        'No vectors were built: the local model server (Ollama) is not reachable. Keyword search keeps working.',
   'memories.stat.vectors_gen':			'Generating...',
   'memories.toast.vector_count':			'{count} memories vectorized',
   'messages.empty':			'No messages',

@@ -9481,3 +9481,18 @@ body {
 .ctx-gate-unit { flex: 0 1 auto; color: var(--text-muted); }
 /* Live context size under the threshold, so the owner can judge the cut-off. */
 .ctx-current { margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+
+/* Explains, in plain language, why the vector count is zero. Deliberately
+   neutral: a missing convenience must never look like a fault (Boss, 2026-08-11
+   -- three optional capabilities rendered as a blood-red bar read as a broken
+   system). */
+.mem-vectors-note {
+  flex-basis: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+  color: var(--text-secondary, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+}

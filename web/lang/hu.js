@@ -815,6 +815,8 @@ window._i18n.hu = {
   'memories.agent_all':          'Minden ügynök',
   'memories.stat.total':         'Osszes',
   'memories.stat.vectors_btn':   'Vektorok generalasa',
+  'memories.vectors_off_note':         'A jelentés szerinti (szemantikus) keresés nincs bekapcsolva. A keresés enélkül is működik, csak kulcsszavakra keres, nem rokon értelmű szavakra. Bekapcsolásához egy helyi modell-szerver kell a gépeden (Ollama); amíg az nincs, a gomb nem tud vektorokat készíteni. Ez kényelmi funkció, nem alapfunkció.',
+  'memories.toast.vector_none':        'Egy vektor sem készült: a helyi modell-szerver (Ollama) nem érhető el. A keresés kulcsszavakkal tovább működik.',
   'memories.stat.vectors_gen':   'Generálás...',
   'memories.toast.vector_count': '{count} emlekhez vektor generalva',
   'memories.btn.new':            'Új emlék',
