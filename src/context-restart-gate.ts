@@ -47,6 +47,18 @@ export interface GateConfig {
    * this long. A permanently-blocked gate is itself a signal something is wrong.
    */
   persistentBlockAlertMs: number
+  /**
+   * Reclaim context with /compact (keeps a summary) before falling back to
+   * /clear (wipes). Boss approved the switch on 2026-08-12 after reporting that
+   * a threshold which only ever wipes is not what he wanted: "az AUTOMATIKUS
+   * tisztitas is elsonek a nagy fajlokat vegye ki, tegye irasba, ugy tomoritsen".
+   *
+   * Default true. /clear remains the fallback for the case /compact cannot fix:
+   * Claude Code refuses to compact a short session ("Not enough messages to
+   * compact"), and a session whose bulk is a single huge turn may stay above the
+   * threshold afterwards.
+   */
+  preferCompact: boolean
 }
 
 export function normalizeGateConfig(raw: unknown): GateConfig {
@@ -59,6 +71,8 @@ export function normalizeGateConfig(raw: unknown): GateConfig {
     staleCutoffMs:           posInt(o.staleCutoffMs,           DEFAULT_STALE_CUTOFF_MS),
     retryIntervalMs:         posInt(o.retryIntervalMs,         DEFAULT_RETRY_INTERVAL_MS),
     persistentBlockAlertMs:  posInt(o.persistentBlockAlertMs,  DEFAULT_PERSISTENT_BLOCK_ALERT_MS),
+    // Opt-OUT, unlike `enabled`: once the gate is on, summarising beats wiping.
+    preferCompact: o.preferCompact !== false,
   }
 }
 
@@ -245,4 +259,66 @@ function block(
   const elapsed = firstBlockedAt !== null ? nowMs - firstBlockedAt : 0
   const action: GateAction = elapsed >= cfg.persistentBlockAlertMs ? 'block-alert' : 'block'
   return { action, reason }
+}
+
+// ---- Reclaim strategy: compact first, clear as the fallback -----------------
+
+export type ReclaimAction = 'compact' | 'clear'
+
+/**
+ * A compaction that did not shrink the context by at least this fraction is
+ * treated as having failed. 0.1 is deliberately forgiving: a real compaction on
+ * this install went 101222 -> 5597 tokens (94%), so anything under a tenth means
+ * the summariser could not do its job, not that it did it modestly.
+ */
+export const COMPACT_MIN_REDUCTION = 0.1
+
+/**
+ * How long a previous compaction stays relevant. Past this, a still-high context
+ * is new growth rather than evidence that compaction failed, so we compact again
+ * rather than escalating to a wipe.
+ */
+export const COMPACT_RETRY_WINDOW_MS = 60 * 60_000
+
+/**
+ * Which command should reclaim this session's context? Pure.
+ *
+ * The gate only reaches here when every safety condition already passed, so the
+ * question is not "is it safe" but "what is the least destructive thing that can
+ * work". /compact keeps a summary and costs one round of latency; /clear is
+ * instant and total. We prefer the first and escalate only on evidence that it
+ * did not help.
+ */
+export function chooseReclaimAction(params: {
+  contextTokens: number
+  preferCompact: boolean
+  lastCompactAt: number | null
+  lastCompactTokens: number | null
+  nowMs: number
+}): { action: ReclaimAction; reason: string } {
+  const { contextTokens, preferCompact, lastCompactAt, lastCompactTokens, nowMs } = params
+  if (!preferCompact) {
+    return { action: 'clear', reason: 'preferCompact disabled' }
+  }
+  if (lastCompactAt === null) {
+    return { action: 'compact', reason: 'no previous compaction' }
+  }
+  if (nowMs - lastCompactAt > COMPACT_RETRY_WINDOW_MS) {
+    return { action: 'compact', reason: 'previous compaction is outside the retry window' }
+  }
+  if (lastCompactTokens === null || lastCompactTokens <= 0) {
+    // Legacy state with no recorded size: no evidence of failure, so no wipe.
+    return { action: 'compact', reason: 'previous compaction size unknown' }
+  }
+  const reduction = (lastCompactTokens - contextTokens) / lastCompactTokens
+  if (reduction < COMPACT_MIN_REDUCTION) {
+    return {
+      action: 'clear',
+      reason: `previous compaction did not reduce the context (${lastCompactTokens} -> ${contextTokens})`,
+    }
+  }
+  return {
+    action: 'compact',
+    reason: `previous compaction worked (${lastCompactTokens} -> ${contextTokens}), compacting again`,
+  }
 }

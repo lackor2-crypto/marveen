@@ -20,6 +20,7 @@ import {
 } from '../db.js'
 import {
   decideGate,
+  chooseReclaimAction,
   type GateInputs,
 } from '../context-restart-gate.js'
 
@@ -489,22 +490,52 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         logger.info({ agent: name },
           'context-restart-gate: opening despite stale dispatched messages (beyond staleCutoffMs)')
       }
-      // Send /clear via the send lane. A pane that is truly idle should accept
-      // it immediately; the SessionStart hooks fire on the next boot and inject
-      // the fresh context snapshot.
+      // Compact before wiping (Boss approved 2026-08-12). /compact keeps a
+      // summary of the session; /clear keeps nothing, and the threshold was
+      // never meant to mean "throw the conversation away". /clear stays as the
+      // fallback for what compaction cannot fix -- Claude Code refuses to
+      // compact a short session, and a context dominated by one huge turn can
+      // survive it. The choice is made from evidence: whether the PREVIOUS
+      // compaction actually shrank this session (see chooseReclaimAction).
+      //
+      // A pane that is truly idle accepts either immediately. After a compact
+      // the SessionStart(compact) hooks re-inject the task-state snapshot; after
+      // a clear they do the same on the fresh session.
+      const reclaim = chooseReclaimAction({
+        contextTokens: contextTokens as number,  // non-null: decideGate allowed
+        preferCompact: cfg.preferCompact,
+        lastCompactAt: runState.lastCompactAt,
+        lastCompactTokens: runState.lastCompactTokens,
+        nowMs,
+      })
+      const command = reclaim.action === 'compact' ? '/compact' : '/clear'
       try {
         await withSessionSendLock(session, null, 'deliver', async () => {
-          execFileSync(TMUX, ['send-keys', '-t', session, '-l', '/clear'], { timeout: 5000 })
+          execFileSync(TMUX, ['send-keys', '-t', session, '-l', command], { timeout: 5000 })
           execFileSync(TMUX, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
         })
-        logger.info({ agent: name, contextTokens }, 'context-restart-gate: /clear sent')
+        logger.info({ agent: name, contextTokens, command, why: reclaim.reason },
+          `context-restart-gate: ${command} sent`)
         writeGateRunState(name, {
           ...runState,
           firstBlockedAt: null,
-          lastClearAt: nowMs,
+          ...(reclaim.action === 'compact'
+            // Record the size we compacted FROM: the next sweep compares against
+            // it to tell a working compaction from a useless one.
+            ? { lastCompactAt: nowMs, lastCompactTokens: contextTokens }
+            : { lastClearAt: nowMs }),
+        })
+        writeGateStatus(name, {
+          ts: nowMs,
+          action: reclaim.action,
+          reason: `${command} sent -- ${reclaim.reason}`,
+          contextTokens,
+          thresholdTokens: cfg.thresholdTokens,
+          enabled: cfg.enabled,
+          aboveThreshold: true,
         })
       } catch (err) {
-        logger.warn({ err, agent: name }, 'context-restart-gate: /clear send failed')
+        logger.warn({ err, agent: name, command }, `context-restart-gate: ${command} send failed`)
       }
       break
     }

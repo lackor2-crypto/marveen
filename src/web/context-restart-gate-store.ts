@@ -42,12 +42,18 @@ export interface GateRunState {
   lastAlertAt: number | null
   /** Epoch ms when the last /clear was successfully sent. */
   lastClearAt: number | null
+  /** Epoch ms when the last /compact was successfully sent. */
+  lastCompactAt: number | null
+  /** Context size at that moment, so the NEXT sweep can tell whether it worked. */
+  lastCompactTokens: number | null
 }
 
 const EMPTY_STATE: GateRunState = {
   firstBlockedAt: null,
   lastAlertAt: null,
   lastClearAt: null,
+  lastCompactAt: null,
+  lastCompactTokens: null,
 }
 
 function readStateRaw(): Record<string, unknown> {
@@ -62,9 +68,11 @@ function normalizeState(raw: unknown): GateRunState {
   const msOrNull = (v: unknown): number | null =>
     (typeof v === 'number' && Number.isFinite(v) && v > 0) ? Math.floor(v) : null
   return {
-    firstBlockedAt: msOrNull(o.firstBlockedAt),
-    lastAlertAt:    msOrNull(o.lastAlertAt),
-    lastClearAt:    msOrNull(o.lastClearAt),
+    firstBlockedAt:    msOrNull(o.firstBlockedAt),
+    lastAlertAt:       msOrNull(o.lastAlertAt),
+    lastClearAt:       msOrNull(o.lastClearAt),
+    lastCompactAt:     msOrNull(o.lastCompactAt),
+    lastCompactTokens: msOrNull(o.lastCompactTokens),
   }
 }
 
