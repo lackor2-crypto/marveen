@@ -78,3 +78,42 @@ export function writeGateRunState(name: string, state: GateRunState): void {
   raw[name] = state
   atomicWriteFileSync(STATE_PATH, JSON.stringify(raw, null, 2))
 }
+
+// ---- Live status (observability only, never an input to a decision) ---------
+//
+// The gate evaluates every few minutes and logs its decision at debug level,
+// which the info-level logger drops -- so from the outside an enabled gate with
+// a 100000 threshold and an agent sitting at 300207 looked identical to a
+// broken one (Boss, 2026-08-12: "ezt mondtam hogy nem mukodik"). This file is
+// the answer to "why has it not cleared?": last decision, its reason, and the
+// numbers it was made from, one entry per agent.
+
+const STATUS_PATH = join(PROJECT_ROOT, 'store', 'context-restart-gate-status.json')
+
+export interface GateStatus {
+  ts: number
+  action: string
+  reason: string
+  contextTokens: number | null
+  thresholdTokens: number
+  enabled: boolean
+  aboveThreshold: boolean
+}
+
+export function writeGateStatus(name: string, status: GateStatus): void {
+  let raw: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(readFileSync(STATUS_PATH, 'utf-8'))
+    if (parsed && typeof parsed === 'object') raw = parsed as Record<string, unknown>
+  } catch { /* first write */ }
+  raw[name] = status
+  try { atomicWriteFileSync(STATUS_PATH, JSON.stringify(raw, null, 2)) } catch { /* observability must never break the gate */ }
+}
+
+export function readGateStatus(name: string): GateStatus | null {
+  try {
+    const parsed = JSON.parse(readFileSync(STATUS_PATH, 'utf-8'))
+    const entry = (parsed && typeof parsed === 'object') ? (parsed as Record<string, unknown>)[name] : null
+    return (entry && typeof entry === 'object') ? entry as GateStatus : null
+  } catch { return null }
+}

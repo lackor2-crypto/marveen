@@ -11,7 +11,8 @@ import { readContextTokensFromProjectDir } from './active-model.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { withSessionSendLock } from './session-send-lock.js'
 import { getHardGuardPhase } from './context-guard-runner.js'
-import { readGateConfig, readGateRunState, writeGateRunState } from './context-restart-gate-store.js'
+import { resolveAgentConfigDir } from './claude-plans.js'
+import { readGateConfig, readGateRunState, writeGateRunState, writeGateStatus } from './context-restart-gate-store.js'
 import {
   getDispatchedPendingStats,
   hasOpenInboundQuestion,
@@ -406,7 +407,16 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
 
   const hardGuardPhase = getHardGuardPhase(name)
 
-  const contextTokens = readContextTokensFromProjectDir(workingDir)
+  // The config dir is NOT optional here. An agent launched on its own Claude
+  // account runs with CLAUDE_CONFIG_DIR pointing at store/accounts/<acct>, and
+  // its transcripts live under that root -- so reading without it finds no
+  // transcript, returns null, and the gate blocks on
+  // "context-tokens-unmeasurable (fail-closed)" forever. That is exactly what
+  // happened: lackor3 sat at 300207 tokens against a 100000 threshold with the
+  // gate enabled, and every sweep for months reported null. The hard guard
+  // (context-guard-runner) always passed it; this runner never did.
+  const configDir = name === MAIN_AGENT_ID ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+  const contextTokens = readContextTokensFromProjectDir(workingDir, configDir)
 
   const dispatchedStats = (() => {
     try { return getDispatchedPendingStats(name, nowMs, cfg.staleCutoffMs) }
@@ -451,6 +461,27 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
 
   logger.debug({ agent: name, action: decision.action, reason: decision.reason,
     contextTokens, paneState, hardGuardPhase }, 'context-restart-gate: decision')
+
+  // Publish the live decision so the mechanism stops being invisible.
+  //
+  // Boss reported twice (2026-08-12) that "the cleanup does not work": the
+  // dashboard showed a 100000 threshold while the agent sat at 165000, and by
+  // the afternoon at 300207 -- three times over, with the gate enabled. Nothing
+  // was wrong with the gate's logic; it is fail-closed and a working agent is
+  // almost never idle-with-nothing-pending, so it blocked every five minutes for
+  // hours. But every one of those decisions was logged at DEBUG while the
+  // logger runs at info, so there was no way to see that, or why. A number
+  // presented as a threshold, with no sign that it is conditional, reads as a
+  // promise -- and the user was right to call it broken.
+  writeGateStatus(name, {
+    ts: Date.now(),
+    action: decision.action,
+    reason: decision.reason,
+    contextTokens,
+    thresholdTokens: cfg.thresholdTokens,
+    enabled: cfg.enabled,
+    aboveThreshold: contextTokens !== null && contextTokens >= cfg.thresholdTokens,
+  })
 
   switch (decision.action) {
     case 'allow': {
