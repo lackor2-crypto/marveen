@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fleet-memory-gate.sh  --check <agent> | --verdict | --status  [--dry-run]
+# fleet-memory-gate.sh  --check <agent> | --verdict | --status | --shed  [--dry-run]
 #
 # Commit 3 v1 -- SAFE-MODE / MEMORY GATE (decision logic, single source of truth).
 #
@@ -36,6 +36,7 @@ while [[ $# -gt 0 ]]; do
     --check)   MODE="check"; ARG="${2:-}"; shift 2 ;;
     --verdict) MODE="verdict"; shift ;;
     --status)  MODE="status"; shift ;;
+    --shed)    MODE="shed"; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     *) shift ;;
   esac
@@ -121,6 +122,59 @@ is_core() {
   return 1
 }
 
+# --- shedding helpers (--shed) ----------------------------------------------
+# The bands above only gate NEW starts. That was not enough on 2026-08-12: 14
+# agents were already running when the VM ran out of memory, the kernel hit a
+# page-allocation failure, and the whole WSL VM stalled and went down -- the
+# gate said "band=ok" the entire time because nothing new was trying to start.
+# Shedding closes that hole by parking an already-running agent.
+# Real env var wins over .env (same convention as MARVEEN_AGENT_CAP above), so a
+# test can point the gate at a stub dashboard without touching the install.
+DASH_PORT="${WEB_PORT:-$(_env_val WEB_PORT)}"; DASH_PORT="${DASH_PORT:-3420}"
+PARK_LOG="$STATE_DIR/.fleet-parked-agents"
+
+dash_token() {
+  local f="$STATE_DIR/.dashboard-token"
+  [[ -f "$f" ]] && tr -d ' \r\n' <"$f" || true
+}
+
+# Resident footprint (KB) of a tmux session's process tree; 0 when unmeasurable,
+# which just means the session sorts last as a shed candidate.
+session_rss_kb() {
+  local session="$1" pane_pid kids total=0 p r
+  command -v tmux >/dev/null 2>&1 || { echo 0; return; }
+  pane_pid="$(tmux list-panes -t "$session" -F '#{pane_pid}' 2>/dev/null | head -1)"
+  [[ -z "${pane_pid:-}" ]] && { echo 0; return; }
+  kids="$(ps --ppid "$pane_pid" -o pid= 2>/dev/null)"
+  for p in $pane_pid $kids; do
+    r="$(ps -p "$p" -o rss= 2>/dev/null | tr -dc '0-9')"
+    total=$(( total + ${r:-0} ))
+  done
+  echo "$total"
+}
+
+# Agents that may be parked: running AND idle, per the dashboard's own pane-state
+# classifier (/api/agents/activity). Deliberately NOT re-derived here: "is this
+# pane busy?" is a screenful of hard-won regexes in src/pane-state.ts, and a
+# second, cruder copy in shell is how a fleet ends up pinned busy forever (or,
+# worse, how a working agent gets killed mid-turn). No dashboard, no python3, or
+# no token -> empty list -> nothing is shed. Fail-safe, like the rest of the gate.
+shed_candidates() {
+  local token; token="$(dash_token)"
+  [[ -z "$token" ]] && return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s --max-time 10 -H "Authorization: Bearer $token" \
+    "http://127.0.0.1:${DASH_PORT}/api/agents/activity" 2>/dev/null \
+    | python3 -c 'import json,sys
+try: rows = json.load(sys.stdin)
+except Exception: sys.exit(0)
+for r in rows if isinstance(rows, list) else []:
+    if r.get("running") and r.get("state") == "idle" and not r.get("isMain"):
+        n = r.get("name")
+        if n: print(n)' 2>/dev/null
+}
+
 # Best-effort deduped Telegram alert (band-cooldown).
 send_alert() {
   local band="$1" msg="$2"
@@ -190,6 +244,48 @@ case "$MODE" in
     if [[ "$band" == "warn" ]]; then exit 10; fi
     if (( running >= AGENT_CAP )); then exit 10; fi
     exit 0
+    ;;
+  shed)
+    # Only ever fires in a genuine hard pause. In warn/ok the fleet is not in
+    # danger and stopping someone's agent would be a surprise, not a rescue.
+    if [[ "$band" != "hard" ]]; then
+      echo "no-shed (band=${band}, needs >=${HARD_PCT}%): $status_line"; exit 0
+    fi
+    best=""; best_rss=0
+    while read -r cand; do
+      [[ -z "$cand" ]] && continue
+      is_core "$cand" && continue
+      cand_rss="$(session_rss_kb "agent-${cand}")"
+      # First candidate always wins the empty slot: an unmeasurable footprint
+      # (0 KB) must not make an idle agent unsheddable, or a broken `ps` would
+      # silently switch shedding off exactly when the VM needs it.
+      if [[ -z "$best" ]] || (( cand_rss > best_rss )); then best="$cand"; best_rss="$cand_rss"; fi
+    done < <(shed_candidates)
+
+    if [[ -z "$best" ]]; then
+      send_alert shed "Marveen memória-kapu: a memória ${used_pct}%-on áll (elérhető ${avail_mb} MB), de nincs tétlen agens amit le lehetne állítani -- minden futó agens dolgozik. Kézi döntés kell, mielőtt a gép elfogy."
+      echo "no-idle-candidate: $status_line"; exit 0
+    fi
+
+    best_mb=$(( best_rss / 1024 ))
+    if (( DRY_RUN )); then
+      echo "would-shed ${best} (${best_mb}MB): $status_line"; exit 0
+    fi
+
+    # Stop through the dashboard's own route: it also clears the desired
+    # run-state, so the 60s reconcile loop does not start the agent right back
+    # up and turn this into an oscillation.
+    stop_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
+      -H "Authorization: Bearer $(dash_token)" \
+      "http://127.0.0.1:${DASH_PORT}/api/agents/${best}/stop" 2>/dev/null)"
+    if [[ "$stop_code" == "200" ]]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') ${best} rss=${best_mb}MB used=${used_pct}% avail=${avail_mb}MB" \
+        >>"$PARK_LOG" 2>/dev/null || true
+      send_alert shed "Marveen memória-kapu: a memória ${used_pct}%-ra ment fel (elérhető ${avail_mb} MB), ezért leállítottam a(z) ${best} agenst. Tétlen volt, nem veszett el munka, és kb. ${best_mb} MB szabadult fel. Ha kell, a dashboard Ügynökök oldalán visszaindíthatod."
+      echo "shed ${best} (${best_mb}MB): $status_line"; exit 0
+    fi
+    log "stop request for ${best} failed (HTTP ${stop_code:-?})"
+    echo "shed-failed ${best} (HTTP ${stop_code:-?}): $status_line"; exit 0
     ;;
   check)
     agent="$ARG"
