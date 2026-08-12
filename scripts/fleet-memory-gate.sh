@@ -57,8 +57,15 @@ INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _env_val() { [[ -f "$INSTALL_DIR/.env" ]] && grep -E "^$1=" "$INSTALL_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"'"'"'\r'; }
 MAIN_AGENT_ID="$(_env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
 
-WARN_PCT="${MARVEEN_MEM_WARN_PCT:-80}"
-HARD_PCT="${MARVEEN_MEM_HARD_PCT:-90}"
+# The bands follow the same rule as AGENT_CAP below: a real env var wins, then
+# .env, then the built-in default. Reading .env matters because the systemd
+# timer that runs --shed does NOT source it -- without this, a threshold written
+# into .env would look configured and silently do nothing (Boss lowered HARD to
+# 85 on 2026-08-12 and it would have kept firing at 90).
+_WARN_PCT_ENV="$(_env_val MARVEEN_MEM_WARN_PCT)"
+_HARD_PCT_ENV="$(_env_val MARVEEN_MEM_HARD_PCT)"
+WARN_PCT="${MARVEEN_MEM_WARN_PCT:-${_WARN_PCT_ENV:-80}}"
+HARD_PCT="${MARVEEN_MEM_HARD_PCT:-${_HARD_PCT_ENV:-90}}"
 # Real env var wins (lets an operator override per-invocation without touching
 # .env); otherwise fall back to .env, like MAIN_AGENT_ID above -- a hand-edited
 # .env is the documented way to configure this script (see file header), but
