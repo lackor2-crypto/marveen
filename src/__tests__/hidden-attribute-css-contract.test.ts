@@ -57,17 +57,13 @@ describe('[hidden] stays effective for class-styled containers', () => {
     expect(hasHiddenOverride('auth-setup-banner')).toBe(true)
   })
 
-  // Pre-existing offenders found by the sweep when this guard was added. They
-  // are NOT fixed here (each needs its own visual check -- some may never be
-  // toggled via the attribute at all); the allowlist exists so the guard can
-  // ship now and still fail on any NEW one. Shrink it as they get verified.
-  const KNOWN = [
-    'kanban-swimlane-board',
-    'modal-footer',
-    'badge',
-    'skill-detail-agents-coverage',
-    'skill-detail-edit-actions',
-  ]
+  // The allowlist is EMPTY and should stay that way. The five original offenders
+  // were fixed on 2026-08-12 (Boss: "javitsd"), each verified in a real browser
+  // via computed style -- one of them, .skill-detail-edit-actions, really was
+  // rendering 580x37 px of buttons while carrying the `hidden` attribute. Adding
+  // a name back here means shipping a container whose `hidden` does nothing, so
+  // add the one-line `.cls[hidden] { display: none }` override instead.
+  const KNOWN: string[] = []
 
   it('no NEW hidden-by-default container silently ignores [hidden]', () => {
     const offenders = hiddenClassNames()

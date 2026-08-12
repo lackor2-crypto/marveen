@@ -1456,6 +1456,9 @@ main {
   flex-direction: column;
   gap: 0;
 }
+/* `display: flex` beats the UA `[hidden]{display:none}`; without this the board
+   stays laid out when the code hides it (see hidden-attribute-css-contract). */
+.kanban-swimlane-board[hidden] { display: none; }
 .kanban-swimlane {
   border-bottom: 2px dashed var(--border);
   padding-bottom: 16px;
@@ -3224,6 +3227,8 @@ main.email-active .page-header { flex-shrink: 0; }
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
+/* A count badge is hidden by attribute when there is nothing to report. */
+.badge[hidden] { display: none; }
 .badge-active {
   background: var(--success-soft);
   color: var(--success);
@@ -4859,6 +4864,11 @@ main.email-active .page-header { flex-shrink: 0; }
 .accounts-section { margin-bottom: 24px; }
 .accounts-section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; }
 .accounts-list { display: flex; flex-direction: column; gap: 10px; }
+/* An author `display: flex` outranks the UA stylesheet's `[hidden]{display:none}`,
+   so the two retired holders in index.html were marked `hidden` and stayed in the
+   layout anyway -- the same inert-`hidden` bug that once left the auth banner
+   permanently on screen with a dead close button. */
+.accounts-list[hidden] { display: none; }
 .accounts-item-clickable { cursor: pointer; }
 .accounts-item-clickable:hover { border-color: var(--accent); }
 
@@ -5675,6 +5685,8 @@ main.email-active .page-header { flex-shrink: 0; }
   padding: 12px 20px;
   border-top: 1px solid var(--border);
 }
+/* Two .modal-footer rules exist (dialog variants); one override covers both. */
+.modal-footer[hidden] { display: none; }
 .env-var-row {
   display: flex;
   flex-direction: column;
@@ -6485,6 +6497,8 @@ main.email-active .page-header { flex-shrink: 0; }
   margin-bottom: 14px;
   font-size: 13px;
 }
+.skill-detail-keywords[hidden],
+.skill-detail-agents-coverage[hidden] { display: none; }
 
 .skill-kw-label {
   font-size: 12px;
@@ -6514,6 +6528,10 @@ main.email-active .page-header { flex-shrink: 0; }
   gap: 8px;
   margin-top: 10px;
 }
+/* Confirmed visible-while-hidden in a real browser on 2026-08-12: 580x37 px of
+   edit buttons rendered inside the skill detail panel despite the `hidden`
+   attribute in the markup. */
+.skill-detail-edit-actions[hidden] { display: none; }
 
 .skill-detail-rendered {
   white-space: normal;
@@ -9221,6 +9239,9 @@ body {
   margin-top: 6px; font-size: 11px; color: var(--warning, #d97706);
   display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
 }
+/* Found by a live [hidden] sweep on 2026-08-12: the warning row is toggled by
+   attribute, so it needs the override or it stays in the layout. */
+.vault-tag-warn[hidden] { display: none; }
 .vault-tag-force { border-style: solid; }
 .vault-card-edit-form .vault-tag-add { flex-direction: row; }
 .vault-card-edit-form .vault-tag-input { flex: 1; width: auto; }
