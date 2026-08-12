@@ -45,17 +45,48 @@ describe('syncAgentPromptHooks', () => {
     expect(existing.PreCompact[0].hooks[0]).toEqual({ command: 'bash /x.sh' })
   })
 
-  // A different matcher is a different hook: 'manual' must not be overwritten
-  // by the template's 'auto' entry.
-  it('does not cross matcher boundaries', () => {
-    const existing = { PreCompact: [{ matcher: 'manual', hooks: [{ type: 'agent', prompt: 'MANUAL' }] }] }
+  // The template owns the matcher set for events it declares a prompt hook in:
+  // an agent-type hook under a matcher the template dropped goes away, rather
+  // than lingering and firing a second time.
+  it('drops an agent hook under a matcher the template no longer declares', () => {
+    const existing = { PreCompact: [{ matcher: 'manual', hooks: [{ type: 'agent', prompt: 'STALE' }] }] }
     expect(syncAgentPromptHooks(existing, tpl('NEW'))).toBe(true)
-    expect(existing.PreCompact[0].hooks[0].prompt).toBe('MANUAL')
-    expect(existing.PreCompact).toHaveLength(2)
+    expect(existing.PreCompact).toHaveLength(1)
+    expect(existing.PreCompact[0].matcher).toBe('auto')
+    expect(existing.PreCompact[0].hooks[0].prompt).toBe('NEW')
   })
 
   it('ignores events the agent does not have (the add pass seeds those)', () => {
     const existing = { SessionStart: [{ matcher: 'compact', hooks: [{ command: 'python3 /y.py' }] }] }
     expect(syncAgentPromptHooks(existing, tpl('NEW'))).toBe(false)
+  })
+})
+
+// Matcher widening (F2, kanban 55af1bfe): the PreCompact checkpoint went from
+// matcher 'auto' to 'auto|manual' so a hand-typed /compact also checkpoints. The
+// agents' settings still carried the narrow 'auto' entry, and leaving it there
+// would have fired the hook twice on every automatic compact.
+describe('syncAgentPromptHooks matcher reconciliation', () => {
+  it('replaces a narrower matcher instead of adding a second entry', () => {
+    const existing = { PreCompact: [{ matcher: 'auto', hooks: [{ type: 'agent', prompt: 'OLD' }] }] }
+    expect(syncAgentPromptHooks(existing, { PreCompact: [{ matcher: 'auto|manual', hooks: [{ type: 'agent', prompt: 'NEW' }] }] })).toBe(true)
+    expect(existing.PreCompact).toHaveLength(1)
+    expect(existing.PreCompact[0].matcher).toBe('auto|manual')
+    expect(existing.PreCompact[0].hooks[0].prompt).toBe('NEW')
+  })
+
+  it('keeps command hooks that share the stale matcher entry', () => {
+    const existing = {
+      PreCompact: [{ matcher: 'auto', hooks: [{ command: 'bash /x.sh' }, { type: 'agent', prompt: 'OLD' }] }],
+    }
+    syncAgentPromptHooks(existing, { PreCompact: [{ matcher: 'auto|manual', hooks: [{ type: 'agent', prompt: 'NEW' }] }] })
+    expect(existing.PreCompact[0].hooks).toEqual([{ command: 'bash /x.sh' }])
+    expect(existing.PreCompact).toHaveLength(2)
+  })
+
+  it('leaves events the template says nothing about untouched', () => {
+    const existing = { SessionEnd: [{ matcher: 'x', hooks: [{ type: 'agent', prompt: 'MINE' }] }] }
+    expect(syncAgentPromptHooks(existing, { PreCompact: [{ matcher: 'auto', hooks: [{ type: 'agent', prompt: 'NEW' }] }] })).toBe(false)
+    expect(existing.SessionEnd[0].hooks[0].prompt).toBe('MINE')
   })
 })

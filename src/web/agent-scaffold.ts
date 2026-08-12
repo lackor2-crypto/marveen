@@ -279,6 +279,13 @@ export function upgradeLegacyHookCommands(
  * per entry is expected. The template wins, deliberately -- a per-agent edit of
  * a fleet-wide prompt is exactly the divergence the parity rule forbids.
  *
+ * For the same reason the template is authoritative about WHICH matchers exist:
+ * an agent-type hook sitting under a matcher the template no longer declares is
+ * dropped. Without that, widening a matcher (the PreCompact checkpoint went from
+ * `auto` to `auto|manual` so a hand-typed /compact also checkpoints) would leave
+ * the old narrow entry in place beside the new one and fire the hook twice on an
+ * automatic compact.
+ *
  * Exported for unit testing.
  */
 export function syncAgentPromptHooks(
@@ -290,6 +297,27 @@ export function syncAgentPromptHooks(
     const tplEntries = tplEntriesRaw as HookEntry[]
     const existEntries = existingHooks[event]
     if (!Array.isArray(existEntries)) continue
+
+    // Prune pass: only runs for events where the template actually declares a
+    // prompt hook, so an event we say nothing about is left completely alone.
+    const tplPromptMatchers = new Set(
+      tplEntries
+        .filter((e) => (e.hooks ?? []).some((h) => h.type === 'agent' && typeof h.prompt === 'string'))
+        .map((e) => e.matcher ?? ''),
+    )
+    if (tplPromptMatchers.size > 0) {
+      const entries = existEntries as HookEntry[]
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const entry = entries[i]
+        if (tplPromptMatchers.has(entry.matcher ?? '')) continue
+        const kept = (entry.hooks ?? []).filter((h) => h.type !== 'agent')
+        if (kept.length === (entry.hooks ?? []).length) continue
+        changed = true
+        if (kept.length === 0) entries.splice(i, 1)
+        else entry.hooks = kept
+      }
+    }
+
     for (const tplEntry of tplEntries) {
       const tplPromptHooks = (tplEntry.hooks ?? []).filter((h) => h.type === 'agent' && typeof h.prompt === 'string')
       if (tplPromptHooks.length === 0) continue
