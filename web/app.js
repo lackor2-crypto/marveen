@@ -3786,9 +3786,13 @@ function contextButtonsHtml(name) {
         <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>`
 }
 
-function contextControlsHtml(name) {
+function contextControlsHtml(name, contextTokens = null) {
   const cfg = gateCfgByAgent.get(name) || { enabled: false, thresholdTokens: 400000 }
   const kThreshold = Math.max(1, Math.round((cfg.thresholdTokens || 400000) / 1000))
+  // Show the live context size next to the threshold so the owner can pick a
+  // sensible cut-off (Boss, 2026-08-12). Only when known (running agent, >0);
+  // hidden otherwise rather than printing a bare "-".
+  const curValid = typeof contextTokens === 'number' && contextTokens > 0
   return `
     <div class="agent-context-controls">
       <label class="ctx-gate-row" title="${escapeAttr(t('agents.ctx.auto_tip'))}">
@@ -3797,6 +3801,7 @@ function contextControlsHtml(name) {
         <input type="number" class="ctx-gate-threshold" min="50" max="1000" step="10" value="${kThreshold}"${cfg.enabled ? '' : ' disabled'}>
         <span class="ctx-gate-unit">${escapeHtml(t('agents.ctx.unit'))}</span>
       </label>
+      ${curValid ? `<div class="ctx-current">${escapeHtml(t('agents.ctx.current'))} ${escapeHtml(formatContextTokens(contextTokens))}</div>` : ''}
     </div>`
 }
 
@@ -3913,7 +3918,7 @@ function renderAgents() {
         </button>
         ${contextButtonsHtml(mainAgentId())}
       </div>
-      ${contextControlsHtml(mainAgentId())}
+      ${contextControlsHtml(mainAgentId(), m.contextTokens)}
     `
     mCard.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openTerminalModal(mainAgentId())
@@ -3994,7 +3999,7 @@ function renderAgents() {
         </button>
         ${contextButtonsHtml(agent.name)}
       </div>
-      ${contextControlsHtml(agent.name)}
+      ${contextControlsHtml(agent.name, agent.contextTokens)}
     `
     // Login button handler (start → confirm flow)
     card.querySelectorAll('.agent-login-btn').forEach(btn => {

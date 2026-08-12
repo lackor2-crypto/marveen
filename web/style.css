@@ -9436,3 +9436,5 @@ body {
 }
 .ctx-gate-threshold:disabled { opacity: 0.5; }
 .ctx-gate-unit { flex: 0 1 auto; color: var(--text-muted); }
+/* Live context size under the threshold, so the owner can judge the cut-off. */
+.ctx-current { margin-top: 4px; font-size: 11px; color: var(--text-muted); }

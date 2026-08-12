@@ -550,6 +550,7 @@ window._i18n.hu = {
   'agents.ctx.clear_confirm_pending':  'Figyelem: {n} még fel nem dolgozott bejövő üzenet van. A törlés ezeket is elvesztené. Mégis törlöd?',
   'agents.ctx.busy':                   'Az ágens épp dolgozik, most nem lehet. Próbáld újra amikor tétlen.',
   'agents.ctx.cleared':                'Kontextus kiürítve.',
+  'agents.ctx.current':                'Jelenleg:',
   'agents.ctx.compacted':              'Kontextus tömörítve.',
   'agents.ctx.saved':                  'Beállítás mentve.',
   'agents.ctx.failed':                 'Nem sikerült. Próbáld újra.',

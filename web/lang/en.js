@@ -1527,6 +1527,7 @@ window._i18n.en = {
   'agents.ctx.clear_confirm_pending':  'Warning: {n} unprocessed incoming message(s). Clearing would lose them too. Clear anyway?',
   'agents.ctx.busy':                   'The agent is working; not possible now. Try again when it is idle.',
   'agents.ctx.cleared':                'Context cleared.',
+  'agents.ctx.current':                'Currently:',
   'agents.ctx.compacted':              'Context compacted.',
   'agents.ctx.saved':                  'Setting saved.',
   'agents.ctx.failed':                 'Failed. Please try again.',
