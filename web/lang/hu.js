@@ -543,6 +543,7 @@ window._i18n.hu = {
   'agents.ctx.clear':                  'Törlés',
   'agents.ctx.clear_tip':              'Teljesen kiüríti a beszélgetést, az ágens friss lappal indul. Visszavonhatatlan.',
   'agents.ctx.auto':                   'Automatikus tisztítás',
+  'app.hard_refresh_tip':            'Frissítés: eldobja a böngészőben tárolt régi változatot, és újratölti az oldalt. Akkor használd, ha valami nem frissült.',
   'agents.ctx.auto_tip':               'Ha bekapcsolod, a rendszer magától kiüríti a beszélgetést, ha az túl nagyra nő (a lenti ezer-token határ fölött), de csak amikor az ágens épp nem dolgozik.',
   'agents.ctx.unit':                   'ezer token fölött',
   'agents.ctx.clear_confirm':          'Biztosan kiüríted a beszélgetést? Az ágens elveszti a jelenlegi kontextusát.',

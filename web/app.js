@@ -415,6 +415,33 @@ function mainAgentId() {
 
 // === Theme ===
 const html = document.documentElement
+// Hard refresh, for the installed-app window that has no browser controls.
+//
+// JavaScript cannot press Ctrl+Shift+R, and location.reload() may serve the
+// cached copy -- which is the whole problem, since index.html links /app.js and
+// /style.css without a version, so a plain reload can keep showing yesterday's
+// page. What it CAN do is what the shortcut does underneath: throw away the
+// stored copies, then load again.
+//
+// Both layers are cleared: any Cache Storage left behind by the retired service
+// worker, and the ordinary HTTP cache, by re-fetching the shell with
+// cache:'reload' (which forces a trip to the server) before reloading.
+async function hardRefresh() {
+  const btn = document.getElementById('hardRefreshBtn')
+  if (btn) btn.disabled = true
+  try {
+    if (window.caches) {
+      const keys = await caches.keys()
+      await Promise.all(keys.map(k => caches.delete(k)))
+    }
+  } catch { /* best-effort: a failure here must not block the reload */ }
+  try {
+    await Promise.all(['/', '/app.js', '/style.css'].map(u => fetch(u, { cache: 'reload' }).catch(() => {})))
+  } catch { /* same */ }
+  location.reload()
+}
+document.getElementById('hardRefreshBtn')?.addEventListener('click', hardRefresh)
+
 const themeToggle = document.getElementById('themeToggle')
 const savedTheme = localStorage.getItem('cc-theme')
 if (savedTheme) {

@@ -1520,6 +1520,7 @@ window._i18n.en = {
   'agents.ctx.clear':                  'Clear',
   'agents.ctx.clear_tip':              'Wipes the conversation completely; the agent starts fresh. Cannot be undone.',
   'agents.ctx.auto':                   'Auto-clear',
+  'app.hard_refresh_tip':            'Refresh: discards the copy stored in the browser and loads the page again. Use it when something did not update.',
   'agents.ctx.auto_tip':               'When on, the system clears the conversation by itself once it grows too large (above the thousand-token limit below), but only while the agent is idle.',
   'agents.ctx.unit':                   'thousand tokens',
   'agents.ctx.clear_confirm':          'Clear the conversation? The agent loses its current context.',
