@@ -1525,6 +1525,7 @@ window._i18n.en = {
   'agents.ctx.unit':                   'thousand tokens',
   'agents.ctx.current':                'Currently:',
   'agents.ctx.current_empty':          'Currently: 0 (fresh session)',
+  'agents.ctx.current_unmeasured':     'Currently: not measurable (its recent turns returned no numbers, usually a usage limit)',
   'agents.ctx.clear_confirm':          'Clear the conversation? The agent loses its current context.',
   'agents.ctx.clear_confirm_pending':  'Warning: {n} unprocessed incoming message(s). Clearing would lose them too. Clear anyway?',
   'agents.ctx.busy':                   'The agent is working; not possible now. Try again when it is idle.',

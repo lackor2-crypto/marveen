@@ -3786,13 +3786,27 @@ function contextButtonsHtml(name) {
         <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>`
 }
 
-function contextControlsHtml(name, contextTokens = null) {
+function contextControlsHtml(name, contextTokens = null, running = true, contextState = null) {
   const cfg = gateCfgByAgent.get(name) || { enabled: false, thresholdTokens: 400000 }
   const kThreshold = Math.max(1, Math.round((cfg.thresholdTokens || 400000) / 1000))
   // Show the live context size next to the threshold so the owner can pick a
-  // sensible cut-off (Boss, 2026-08-12). Only when known (running agent, >0);
-  // hidden otherwise rather than printing a bare "-".
-  const curValid = typeof contextTokens === 'number' && contextTokens > 0
+  // sensible cut-off (Boss, 2026-08-12). For a RUNNING agent we always print a
+  // line: a real value when known, or an explicit "0 (fresh session)" when the
+  // context is empty -- e.g. right after a Clear, whose new transcript carries
+  // no usage yet. Boss, 2026-08-12: a blank line looked like the number was
+  // missing, so a completed Clear was indistinguishable from "unknown". Only a
+  // stopped agent (no live session at all) hides the line entirely.
+  //
+  // "0 (fresh session)" is only true when the session really has not run a turn.
+  // An agent whose every turn died on a usage limit has no numbers either, and
+  // printing 0 for its 113 KB session read as "empty" when it was simply not
+  // measurable (Boss, 2026-08-12). The backend now says which case it is.
+  const hasValue = typeof contextTokens === 'number' && contextTokens > 0
+  let currentHtml = ''
+  if (hasValue) currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current'))} ${escapeHtml(formatContextTokens(contextTokens))}</div>`
+  else if (running && (contextState === 'no-usage' || contextState === 'unknown')) {
+    currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_unmeasured'))}</div>`
+  } else if (running) currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_empty'))}</div>`
   return `
     <div class="agent-context-controls">
       <label class="ctx-gate-row" title="${escapeAttr(t('agents.ctx.auto_tip'))}">
@@ -3801,7 +3815,7 @@ function contextControlsHtml(name, contextTokens = null) {
         <input type="number" class="ctx-gate-threshold" min="50" max="1000" step="10" value="${kThreshold}"${cfg.enabled ? '' : ' disabled'}>
         <span class="ctx-gate-unit">${escapeHtml(t('agents.ctx.unit'))}</span>
       </label>
-      ${curValid ? `<div class="ctx-current">${escapeHtml(t('agents.ctx.current'))} ${escapeHtml(formatContextTokens(contextTokens))}</div>` : ''}
+      ${currentHtml}
     </div>`
 }
 
@@ -3918,7 +3932,7 @@ function renderAgents() {
         </button>
         ${contextButtonsHtml(mainAgentId())}
       </div>
-      ${contextControlsHtml(mainAgentId(), m.contextTokens)}
+      ${contextControlsHtml(mainAgentId(), m.contextTokens, true, m.contextState)}
     `
     mCard.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openTerminalModal(mainAgentId())
@@ -3999,7 +4013,7 @@ function renderAgents() {
         </button>
         ${contextButtonsHtml(agent.name)}
       </div>
-      ${contextControlsHtml(agent.name, agent.contextTokens)}
+      ${contextControlsHtml(agent.name, agent.contextTokens, isRunning, agent.contextState)}
     `
     // Login button handler (start → confirm flow)
     card.querySelectorAll('.agent-login-btn').forEach(btn => {

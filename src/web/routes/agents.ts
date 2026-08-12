@@ -108,7 +108,7 @@ import {
 import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
-import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
+import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
 import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
@@ -451,6 +451,10 @@ interface AgentSummary {
   /** Live context size in tokens (input+cache_read+cache_creation of the last
    *  turn), or null when not running / no transcript yet. */
   contextTokens: number | null
+  /** Why contextTokens is null: 'fresh' (session has not run a turn yet),
+   *  'no-usage' (turns exist but carry no token counts, i.e. quota-limited),
+   *  'unknown' (transcript unreadable, or the agent is not running). */
+  contextState: 'measured' | 'fresh' | 'no-usage' | 'unknown'
   /** True when the running session's pane shows a login/401 auth failure --
    *  drives the dashboard "reauth needed" badge + one-click /login button. */
   needsReauth: boolean
@@ -508,6 +512,10 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     ? computeReliabilityScore(getRecentVerificationsForAgent(name, Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60), Date.now())
     : null
 
+  const contextReading = running
+    ? readContextReadingFromProjectDir(dir, resolveAgentConfigDir(name).configDir ?? undefined)
+    : { tokens: null, state: 'unknown' as const }
+
   return {
     name,
     displayName: readAgentDisplayName(name),
@@ -536,7 +544,11 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     session,
     hasAvatar: findAvatarForAgent(name) !== null,
     autoRestart: readAutoRestartConfig(name),
-    contextTokens: running ? readContextTokensFromProjectDir(dir, resolveAgentConfigDir(name).configDir ?? undefined) : null,
+    contextTokens: contextReading.tokens,
+    // Why there is no number, when there is none. Without this the card printed
+    // "fresh session, 0 tokens" for an agent whose every turn had died on a
+    // usage limit -- a 113 KB session shown as empty (Boss, 2026-08-12).
+    contextState: contextReading.state,
     needsReauth: reauth.needsReauth,
     reauthReason: reauth.reason,
     reliability,

@@ -548,6 +548,7 @@ window._i18n.hu = {
   'agents.ctx.unit':                   'ezer token fölött',
   'agents.ctx.current':                'Jelenleg:',
   'agents.ctx.current_empty':          'Jelenleg: 0 (friss munkamenet)',
+  'agents.ctx.current_unmeasured':     'Jelenleg: nem mérhető (a legutóbbi fordulói nem adtak vissza számot, jellemzően kvóta-limit miatt)',
   'agents.ctx.clear_confirm':          'Biztosan kiüríted a beszélgetést? Az ágens elveszti a jelenlegi kontextusát.',
   'agents.ctx.clear_confirm_pending':  'Figyelem: {n} még fel nem dolgozott bejövő üzenet van. A törlés ezeket is elvesztené. Mégis törlöd?',
   'agents.ctx.busy':                   'Az ágens épp dolgozik, most nem lehet. Próbáld újra amikor tétlen.',

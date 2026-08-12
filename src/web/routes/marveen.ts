@@ -12,7 +12,7 @@ import { readFileOr, MODEL_ALIASES } from '../agent-config.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, serveFile } from '../http-helpers.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
-import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
+import { readActiveModelFromProjectDir, readContextReadingFromProjectDir } from '../active-model.js'
 import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { isStale } from '../../rate-limit-status.js'
 import { knownModelCostPerM } from '../model-suggest.js'
@@ -123,7 +123,10 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
       // orchestrator id (autoRestartId, part of idCore) so the UI PUTs to the
       // right store entry.
       autoRestart: readAutoRestartConfig(MAIN_AGENT_ID),
-      contextTokens: readContextTokensFromProjectDir(PROJECT_ROOT),
+      contextTokens: readContextReadingFromProjectDir(PROJECT_ROOT).tokens,
+      // Why there is no number, when there is none: a session that has not
+      // run a turn is not the same thing as one we cannot measure.
+      contextState: readContextReadingFromProjectDir(PROJECT_ROOT).state,
       hasTelegram: tg.hasTelegram,
       hasDiscord: dc.hasDiscord,
       hasSlack: sl.hasSlack,
