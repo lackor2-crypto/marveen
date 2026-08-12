@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, lstatSync, symlinkSync, rmSync, realpathSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { execSync, execFileSync } from 'node:child_process'
+import { execSync, execFileSync, execFile } from 'node:child_process'
 import { OLLAMA_URL } from '../config.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
@@ -24,6 +24,7 @@ import { resolveAgentConfigDir } from './claude-plans.js'
 import { provisionMemoryBoundaryDir } from './memory-boundary.js'
 import { renameSharedCredentialsIfSafe } from './claude-credentials-guard.js'
 import { atomicWriteFileSync } from './atomic-write.js'
+import { SessionListCache } from './tmux-session-cache.js'
 import {
   buildTmuxInvocation,
   buildSshExec,
@@ -774,8 +775,19 @@ function runTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: numb
   // makes tmux emit `can't find session: agent-X` / `no server running`; without
   // this those leaked as ~450 bare (non-pino) lines into store/dashboard.log.
   // Callers that care read err.stderr via logger.warn({ err }).
-  execFileSync(inv.file, inv.args, { timeout: opts.timeout ?? (host ? 8000 : 3000), stdio: ['ignore', 'ignore', 'pipe'] })
+  try {
+    execFileSync(inv.file, inv.args, { timeout: opts.timeout ?? (host ? 8000 : 3000), stdio: ['ignore', 'ignore', 'pipe'] })
+  } finally {
+    // Any local command that can add or remove a session makes the cached
+    // listing a lie, including one that threw half-way. Invalidating here
+    // rather than at each call site means no start/stop/restart path can
+    // forget to do it -- the listing is only ever stale about changes made
+    // OUTSIDE this process.
+    if (!host && SESSION_MUTATING_TMUX_VERBS.has(tmuxArgs[0])) localSessions.invalidate()
+  }
 }
+
+const SESSION_MUTATING_TMUX_VERBS = new Set(['new-session', 'kill-session', 'kill-server', 'rename-session'])
 
 function captureTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: number } = {}): string {
   if (host) ensureControlDir()
@@ -789,10 +801,28 @@ function captureTmux(host: string | null, tmuxArgs: string[], opts: { timeout?: 
 // 'unreachable' (the session is almost certainly still alive on the laptop --
 // an SSH drop must never read as 'stopped', which would trigger a wrong
 // auto-restart or a duplicate start). See classifyRunState.
+// The local tmux session list is the same answer for every local agent, so it is
+// fetched once per window instead of once per agent per caller. Any start/stop in
+// this process invalidates it immediately (see invalidateLocalSessionCache), so
+// only an outside change can be up to TTL stale.
+const LOCAL_SESSION_TTL_MS = 1500
+const localSessions = new SessionListCache(LOCAL_SESSION_TTL_MS)
+
+/** Drop the cached local session list -- after any start, stop or kill. */
+export function invalidateLocalSessionCache(): void {
+  localSessions.invalidate()
+}
+
+function listLocalSessions(): string {
+  return localSessions.get(Date.now(), () => captureTmux(null, ['list-sessions', '-F', '#{session_name}']))
+}
+
 export function agentRunState(name: string): AgentRunState {
   const host = readAgentRemoteHost(name)
   try {
-    const out = captureTmux(host, ['list-sessions', '-F', '#{session_name}'])
+    const out = host
+      ? captureTmux(host, ['list-sessions', '-F', '#{session_name}'])
+      : listLocalSessions()
     return classifyRunState(out, agentSessionName(name), host != null)
   } catch (err) {
     // tmux list-sessions exits non-zero ("no server running") when there are
@@ -816,7 +846,7 @@ export function isAgentRunning(name: string): boolean {
 // matching the local "session not found" semantics.
 export function sessionExistsOnHost(host: string | null, session: string): boolean {
   try {
-    return sessionInList(captureTmux(host, ['list-sessions', '-F', '#{session_name}']), session)
+    return sessionInList(host ? captureTmux(host, ['list-sessions', '-F', '#{session_name}']) : listLocalSessions(), session)
   } catch {
     return false
   }
@@ -1884,6 +1914,18 @@ export function sendEnterToSession(session: string, host: string | null = null):
     logger.warn({ err, session }, 'sendEnterToSession: failed to send recovery Enter')
     return false
   }
+}
+
+// Local-only, non-blocking twin of capturePane: same output, but the fork runs
+// off the event loop, so a polled endpoint can refresh a pane without the server
+// going deaf for the duration. Null on any error, exactly like capturePane.
+export function capturePaneAsync(session: string): Promise<string | null> {
+  const inv = buildTmuxInvocation(null, tmuxBin(), ['capture-pane', '-t', session, '-p'])
+  return new Promise((resolve) => {
+    execFile(inv.file, inv.args, { timeout: 3000, encoding: 'utf-8' }, (err, stdout) => {
+      resolve(err ? null : stdout)
+    })
+  })
 }
 
 // Capture a pane snapshot with an execSync timeout. Null on any error so

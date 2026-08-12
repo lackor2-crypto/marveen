@@ -44,3 +44,49 @@ export class RemoteStatusCache<T> {
     this.store.delete(key)
   }
 }
+
+/**
+ * The deferred idea above, delivered (2026-08-12). Same short-TTL shape, but the
+ * refresh happens OFF the event loop: a stale entry is served immediately and a
+ * promise is kicked to replace it. Only the very first call for a key pays a
+ * synchronous fetch, so a polled endpoint never forks a child process while a
+ * request is waiting on it.
+ *
+ * Boss reported the dashboard as frozen; /api/agents/activity was spending
+ * 131 ms of every 3-second poll inside synchronous tmux captures, and that time
+ * is time the whole server answers nobody.
+ */
+export class BackgroundCache<T> {
+  private store = new Map<string, { value: T; at: number }>()
+  private inFlight = new Set<string>()
+
+  constructor(private readonly ttlMs: number) {}
+
+  /**
+   * Last known value, refreshed in the background when stale. `coldFetch` runs
+   * synchronously exactly once per key (the first ever call) so a fresh process
+   * still answers with real data instead of a placeholder. A rejected refresh
+   * keeps the previous value and is retried on the next call.
+   */
+  get(key: string, nowMs: number, refresh: () => Promise<T>, coldFetch: () => T): T {
+    const entry = this.store.get(key)
+    if (!entry) {
+      let value: T
+      try { value = coldFetch() } catch { value = undefined as T }
+      this.store.set(key, { value, at: nowMs })
+      return value
+    }
+    if (nowMs - entry.at >= this.ttlMs && !this.inFlight.has(key)) {
+      this.inFlight.add(key)
+      void refresh()
+        .then((value) => { this.store.set(key, { value, at: Date.now() }) })
+        .catch(() => { /* keep the last known value; retried next call */ })
+        .finally(() => { this.inFlight.delete(key) })
+    }
+    return entry.value
+  }
+
+  invalidate(key: string): void {
+    this.store.delete(key)
+  }
+}

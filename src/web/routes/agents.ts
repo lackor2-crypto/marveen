@@ -103,9 +103,10 @@ import {
   agentSessionName,
   sendPromptToSession,
   capturePane,
+  capturePaneAsync,
 } from '../agent-process.js'
 import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
-import { RemoteStatusCache } from '../remote-status-cache.js'
+import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
 import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
@@ -230,6 +231,14 @@ itt írhatod meg.
 // local agents fetch fresh (sub-ms tmux). See remote-status-cache.ts.
 const remoteRunStateCache = new RemoteStatusCache<AgentRunState>(5000)
 const remotePaneCache = new RemoteStatusCache<string | null>(3000)
+
+// Local panes are cheap per call but not free, and /api/agents/activity captures
+// one per RUNNING agent every 3 seconds. Measured on this install with a single
+// agent up: 131 ms median per poll, all of it synchronous, all of it time the
+// server answers no one. Refreshing in the background keeps the same data with
+// the forks off the request path -- the numbers the owner sees are at most one
+// poll old, which is what they already were.
+const localPaneCache = new BackgroundCache<string | null>(2500)
 
 // Resolve an agent's run state, cached for remote agents to avoid blocking on
 // ssh. `isRemote` is passed by the caller (it already read the remote config).
@@ -742,7 +751,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
 
     // Main agent runs in the --channels session, not agent-<name>.
     {
-      const mainPane = capturePane(MAIN_CHANNELS_SESSION)
+      const mainPane = localPaneCache.get(
+        MAIN_CHANNELS_SESSION,
+        Date.now(),
+        () => capturePaneAsync(MAIN_CHANNELS_SESSION),
+        () => capturePane(MAIN_CHANNELS_SESSION),
+      )
       const running = mainPane !== null
       entries.push({
         name: MAIN_AGENT_ID,
@@ -765,7 +779,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       if (running) {
         pane = host
           ? remotePaneCache.getOrRefresh(name, Date.now(), () => capturePane(agentSessionName(name), host), null)
-          : capturePane(agentSessionName(name))
+          : localPaneCache.get(
+              name,
+              Date.now(),
+              () => capturePaneAsync(agentSessionName(name)),
+              () => capturePane(agentSessionName(name)),
+            )
       }
       const state = runState === 'unreachable' ? 'unreachable' : label(running, pane)
       entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name) })
