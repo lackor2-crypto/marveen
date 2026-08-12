@@ -2987,6 +2987,10 @@ const AVATARS = [
 let selectedAvatar = null
 let selectedAvatarFile = null // custom upload chosen in the create wizard (deferred until the agent exists)
 let agents = []
+// Per-agent context-restart gate config (agent name -> {enabled, thresholdTokens}),
+// refreshed by loadAgents from /api/context-restart-gate. Drives the per-card
+// context controls; empty/missing entry renders as "off".
+const gateCfgByAgent = new Map()
 let currentAgent = null
 // API-safe agent id for the currently open detail modal. Sub-agents key off
 // their name; the main agent's detail object carries name:'marveen' for legacy
@@ -3365,13 +3369,21 @@ async function loadAgents() {
     // The federation status fetch is deliberately failure-proof (.catch ->
     // null): it must NEVER take down the Agents page -- including on an
     // older backend where the route 404s.
-    const [agentsRes, marveenRes, fedStatus] = await Promise.all([
+    const [agentsRes, marveenRes, fedStatus, gateStatus] = await Promise.all([
       fetch('/api/agents'),
       fetch('/api/marveen'),
       fetch('/api/federation/status').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      // Failure-proof like fedStatus: an older backend without the gate config
+      // route must never break the Agents page -- the controls just fall back to
+      // "off" everywhere.
+      fetch('/api/context-restart-gate').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
     agents = await agentsRes.json()
     if (fedStatus && Array.isArray(fedStatus.peers)) federatedPeerStatus = fedStatus.peers
+    gateCfgByAgent.clear()
+    if (gateStatus && Array.isArray(gateStatus.agents)) {
+      for (const a of gateStatus.agents) gateCfgByAgent.set(a.agent, a)
+    }
     if (marveenRes.ok) {
       window._marveen = await marveenRes.json()
       // A backend CHANNEL_PROVIDER-éhez igazitsuk a kliens-default-ot,
@@ -3730,6 +3742,81 @@ function reliabilityBadgeHtml(reliability) {
   `
 }
 
+// === Per-agent context controls (Agents cards) ===
+// Manual "compact" (/compact -- summarize, keep info) and "clear" (/clear -- wipe
+// the conversation) buttons, plus the automatic-clear gate toggle + threshold.
+// Backed by /api/agents/:name/context-action and /api/context-restart-gate. The
+// gate config comes from gateCfgByAgent (loaded in loadAgents); a missing entry
+// renders as "off" at the documented 400k default.
+function contextControlsHtml(name) {
+  const cfg = gateCfgByAgent.get(name) || { enabled: false, thresholdTokens: 400000 }
+  const kThreshold = Math.max(1, Math.round((cfg.thresholdTokens || 400000) / 1000))
+  return `
+    <div class="agent-context-controls">
+      <div class="ctx-btn-row">
+        <button class="btn-secondary btn-compact ctx-compact-btn" title="${escapeAttr(t('agents.ctx.compact_tip'))}">${escapeHtml(t('agents.ctx.compact'))}</button>
+        <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>
+      </div>
+      <label class="ctx-gate-row" title="${escapeAttr(t('agents.ctx.auto_tip'))}">
+        <input type="checkbox" class="ctx-gate-toggle"${cfg.enabled ? ' checked' : ''}>
+        <span class="ctx-gate-text">${escapeHtml(t('agents.ctx.auto'))}</span>
+        <input type="number" class="ctx-gate-threshold" min="50" max="1000" step="10" value="${kThreshold}"${cfg.enabled ? '' : ' disabled'}>
+        <span class="ctx-gate-unit">${escapeHtml(t('agents.ctx.unit'))}</span>
+      </label>
+    </div>`
+}
+
+function wireContextControls(card, name) {
+  const root = card.querySelector('.agent-context-controls')
+  if (!root) return
+  // The card itself opens the detail modal on click; keep control clicks local.
+  root.addEventListener('click', (e) => e.stopPropagation())
+  root.querySelector('.ctx-compact-btn')?.addEventListener('click', () => doContextAction(name, 'compact'))
+  root.querySelector('.ctx-clear-btn')?.addEventListener('click', () => doContextAction(name, 'clear'))
+  const toggle = root.querySelector('.ctx-gate-toggle')
+  const threshold = root.querySelector('.ctx-gate-threshold')
+  toggle?.addEventListener('change', () => {
+    if (threshold) threshold.disabled = !toggle.checked
+    saveGateConfig(name, toggle.checked, threshold)
+  })
+  threshold?.addEventListener('change', () => saveGateConfig(name, !!toggle?.checked, threshold))
+}
+
+async function doContextAction(name, action, force = false) {
+  // /clear is irreversible for the conversation -- always confirm before the
+  // first attempt, and a second time (with the count) if the backend reports
+  // unprocessed inbound that the clear would eat.
+  if (action === 'clear' && !force && !confirm(t('agents.ctx.clear_confirm'))) return
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(name)}/context-action`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, force }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (data.needsConfirm) {
+      if (confirm(t('agents.ctx.clear_confirm_pending', { n: data.pending }))) return doContextAction(name, action, true)
+      return
+    }
+    if (data.busy) { showToast(t('agents.ctx.busy')); return }
+    if (data.ok) { showToast(t(action === 'clear' ? 'agents.ctx.cleared' : 'agents.ctx.compacted')); return }
+    showToast(t('agents.ctx.failed'))
+  } catch { showToast(t('agents.ctx.failed')) }
+}
+
+async function saveGateConfig(name, enabled, thresholdEl) {
+  const kv = thresholdEl ? parseInt(thresholdEl.value, 10) : NaN
+  const thresholdTokens = Number.isFinite(kv) && kv > 0 ? kv * 1000 : undefined
+  try {
+    const res = await fetch('/api/context-restart-gate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: name, enabled: !!enabled, thresholdTokens }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (data.ok && data.config) { gateCfgByAgent.set(name, data.config); showToast(t('agents.ctx.saved')) }
+    else showToast(t('agents.ctx.failed'))
+  } catch { showToast(t('agents.ctx.failed')) }
+}
+
 function renderAgents() {
   // Hide for the duration of THIS render too (not just the very first paint,
   // covered by the `hidden` attribute already on the static HTML) -- while
@@ -3788,6 +3875,7 @@ function renderAgents() {
           Terminal
         </button>
       </div>
+      ${contextControlsHtml(mainAgentId())}
     `
     mCard.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openTerminalModal(mainAgentId())
@@ -3796,6 +3884,7 @@ function renderAgents() {
       e.stopPropagation(); openConversationModal(mainAgentId(), t('agents.marveen_boss'))
     })
     mCard.addEventListener('click', () => openMarveenDetail())
+    wireContextControls(mCard, mainAgentId())
     agentsGrid.insertBefore(mCard, addBtn)
   }
 
@@ -3866,6 +3955,7 @@ function renderAgents() {
           Terminal
         </button>
       </div>
+      ${contextControlsHtml(agent.name)}
     `
     // Login button handler (start → confirm flow)
     card.querySelectorAll('.agent-login-btn').forEach(btn => {
@@ -3883,6 +3973,7 @@ function renderAgents() {
     // Only running agents have a live session to look at, so only they get the
     // copy-the-tmux-command buttons.
     if (isRunning) attachTmuxCopyButtons(card, agent)
+    wireContextControls(card, agent.name)
     agentsGrid.insertBefore(card, addBtn)
   }
   renderFederatedAgentCards(agentsGrid, addBtn)

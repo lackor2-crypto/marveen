@@ -9371,3 +9371,51 @@ body {
   white-space: pre-line;
 }
 .claude-auth-mode[hidden] { display: none; }
+
+/* === Per-agent context controls (kanban dbe5bcce + 14a1d048) ===
+   Sits at the bottom of an agent card, under the action buttons, separated the
+   same way .agent-card-actions separates itself. Everything wraps: an agent
+   card is narrow on a phone, and a number input that overflows its card is the
+   failure mode this layout is written to avoid. */
+.agent-context-controls {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* The card opens a detail modal on click; the controls stop propagation in
+     JS, and the default cursor here says so before you click. */
+  cursor: default;
+}
+.ctx-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ctx-gate-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ctx-gate-row input[type="checkbox"] { cursor: pointer; flex: 0 0 auto; }
+.ctx-gate-text { flex: 0 1 auto; }
+/* Capped and non-growing: the threshold is at most four digits, and letting it
+   flex is what would push the unit label off a narrow card. */
+.ctx-gate-threshold {
+  width: 64px;
+  max-width: 64px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+.ctx-gate-threshold:disabled { opacity: 0.5; }
+.ctx-gate-unit { flex: 0 1 auto; color: var(--text-muted); }
