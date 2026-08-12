@@ -30,13 +30,25 @@ set -uo pipefail
 
 # base dir = the parent of this script's dir, so it works from any CWD / any install
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PORT="${MARVEEN_WEB_PORT:-3420}"
+# Port resolution follows the hooks (WEB_PORT env, then .env, then the default),
+# so an install on a non-default port works without setting anything extra.
+# MARVEEN_WEB_PORT is honoured too because other scripts in the repo use it.
+PORT="${WEB_PORT:-${MARVEEN_WEB_PORT:-}}"
+if [ -z "$PORT" ] && [ -r "$BASE/.env" ]; then
+  PORT="$(sed -n 's/^WEB_PORT=//p' "$BASE/.env" | head -n1 | tr -d '"' | tr -d "'" | tr -d '[:space:]')"
+fi
+PORT="${PORT:-3420}"
 TOKEN_FILE="$BASE/store/.dashboard-token"
 
 AGENT="${1:?agent required}"
 ARG="${2:?json required (or - for STDIN, or --clear)}"
-[ -r "$TOKEN_FILE" ] || { echo "FAIL: no token file at $TOKEN_FILE"; exit 1; }
-TOKEN="$(cat "$TOKEN_FILE")"
+# Env first, same as the hooks: lets a test point at another dashboard without
+# writing a token file into the checkout (that file marks a LIVE install).
+TOKEN="${MARVEEN_DASHBOARD_TOKEN:-}"
+if [ -z "$TOKEN" ]; then
+  [ -r "$TOKEN_FILE" ] || { echo "FAIL: no token file at $TOKEN_FILE"; exit 1; }
+  TOKEN="$(cat "$TOKEN_FILE")"
+fi
 URL="http://localhost:${PORT}/api/agent-taskstate/${AGENT}"
 
 if [ "$ARG" = "--clear" ]; then
