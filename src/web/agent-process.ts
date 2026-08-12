@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, lstatS
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { execSync, execFileSync, execFile } from 'node:child_process'
-import { OLLAMA_URL } from '../config.js'
+import { OLLAMA_URL, AUTOCOMPACT_TOKENS } from '../config.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import {
@@ -57,6 +57,27 @@ import { notifyChannel } from '../notify.js'
 // first use; see makeLazyBinResolver.
 const tmuxBin = makeLazyBinResolver('tmux')
 const claudeBin = makeLazyBinResolver('claude')
+
+// --autocompact is Claude Code's own mid-turn compaction window, and it is the
+// only ceiling that works while an agent is busy. Probe the installed CLI once
+// before using it: an unknown flag would make every agent fail to start, and a
+// context-size convenience must never be able to take the fleet down. Cached
+// for the process lifetime -- the binary does not change under us.
+let _autocompactSupported: boolean | null = null
+function autocompactFlag(): string {
+  if (AUTOCOMPACT_TOKENS <= 0) return ''
+  if (_autocompactSupported === null) {
+    try {
+      const help = execFileSync(claudeBin(), ['--help'], { encoding: 'utf-8', timeout: 20_000 })
+      _autocompactSupported = help.includes('--autocompact')
+    } catch { _autocompactSupported = false }
+    if (!_autocompactSupported) {
+      logger.info('claude CLI has no --autocompact flag; relying on the gate and the end-of-turn hook alone')
+    }
+  }
+  return _autocompactSupported ? `--autocompact ${AUTOCOMPACT_TOKENS} ` : ''
+}
+
 
 // Shared async pacing helper. Replaces the blocking synchronous `/bin/sleep`
 // (execFileSync) pauses in the tmux-driving injection hot-path so a pacing wait
@@ -1342,7 +1363,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     const promptSuggestionEnv = 'export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false && '
     // Single-quote `${model}` so values like `claude-opus-4-8[1m]` (1M-context
     // suffix) are not glob-expanded by the shell that tmux spawns the command in.
-    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}--model '${model}' ${channelFlag}`.trimEnd()
+    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
     // -x 80 -y 60 gives the pane the same 60-row height as the main channel
     // session (lackor2-bot-channels), instead of tmux's detached default of
     // 80x24. The dashboard Terminal viewer bottom-anchors a pane snapshot, so a

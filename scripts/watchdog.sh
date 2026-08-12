@@ -171,7 +171,22 @@ for AGENT_DIR in "$INSTALL_DIR/agents"/*/; do
     continue
   fi
 
-  CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:\$PATH\" && unset TELEGRAM_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN DISCORD_BOT_TOKEN && export ${STATE_ENV_VAR}=\"$CHAN_DIR\" && cd \"$AGENT_DIR\" && ${CLAUDE_BIN} --dangerously-skip-permissions --model '$MODEL' --channels plugin:${AGENT_PROVIDER}@claude-plugins-official"
+
+# Claude Code's own auto-compaction window (--autocompact). The only ceiling
+# that can act mid-turn: everything the dashboard does needs an idle agent, and
+# an agent working for an hour straight is never idle in that hour (Boss watched
+# a session reach 354000 tokens against an 80000 setting, 2026-08-12).
+# Probed, never assumed: an unknown flag would stop the agent from starting at
+# all, and a convenience must not be able to do that. Empty AUTOCOMPACT_TOKENS
+# or an older CLI simply means no flag.
+AUTOCOMPACT_FLAG=""
+_ac_tokens="$(grep -E '^AUTOCOMPACT_TOKENS=' "$INSTALL_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
+[ -z "$_ac_tokens" ] && _ac_tokens=100000
+if [ "$_ac_tokens" -gt 0 ] 2>/dev/null && "$CLAUDE_BIN" --help 2>/dev/null | grep -q -- '--autocompact'; then
+  AUTOCOMPACT_FLAG="--autocompact $_ac_tokens "
+fi
+
+  CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:\$PATH\" && unset TELEGRAM_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN DISCORD_BOT_TOKEN && export ${STATE_ENV_VAR}=\"$CHAN_DIR\" && cd \"$AGENT_DIR\" && ${CLAUDE_BIN} --dangerously-skip-permissions ${AUTOCOMPACT_FLAG}--model '$MODEL' --channels plugin:${AGENT_PROVIDER}@claude-plugins-official"
 
   tmux new-session -d -s "$SESSION_NAME" "$CMD" 2>/dev/null
   sleep 2

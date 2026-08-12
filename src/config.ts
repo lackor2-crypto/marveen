@@ -261,6 +261,26 @@ export const WEB_PORT = parseInt(env['WEB_PORT'] ?? '3420', 10)
 
 export const WEB_HOST = env['WEB_HOST'] ?? '127.0.0.1'
 
+// Claude Code's OWN auto-compaction window, passed as --autocompact when the
+// installed CLI supports it.
+//
+// This is the only ceiling that can act DURING a turn. Everything this fork
+// does -- the gate, the end-of-turn hook, the card's button -- needs the agent
+// to be idle, and an agent that works for an hour straight is not idle once in
+// that hour: Boss watched a session climb to 354000 tokens against an 80000
+// setting on 2026-08-12 for exactly that reason.
+//
+// Set ABOVE the soft threshold on purpose. Our own compaction carries our
+// instructions (see context-compaction-instructions.ts); this one does not, so
+// it should be the net underneath, not the first thing to fire. The CLI accepts
+// 100k-1M; 0 or an empty value disables the flag entirely.
+const AUTOCOMPACT_MIN = 100_000
+const AUTOCOMPACT_MAX = 1_000_000
+const autocompactRaw = parseInt(env['AUTOCOMPACT_TOKENS'] ?? '100000', 10)
+export const AUTOCOMPACT_TOKENS = Number.isFinite(autocompactRaw) && autocompactRaw > 0
+  ? Math.min(AUTOCOMPACT_MAX, Math.max(AUTOCOMPACT_MIN, autocompactRaw))
+  : 0
+
 // Kanban card aging visual thresholds (hours since last update) and colours.
 // Override per-install via .env; defaults match the design spec (24/72/168h).
 export const KANBAN_AGING_WARN_H = parseInt(env['KANBAN_AGING_WARN_H'] ?? '24', 10)

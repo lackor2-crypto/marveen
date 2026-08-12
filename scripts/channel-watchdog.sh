@@ -197,9 +197,24 @@ if [ -n "$NODE_BIN" ] && [ -f "$INSTALL_DIR/dist/web/agent-process.js" ]; then
   unset _cfg_line _cfg_mode _cfg_dir
 fi
 
+
+# Claude Code's own auto-compaction window (--autocompact). The only ceiling
+# that can act mid-turn: everything the dashboard does needs an idle agent, and
+# an agent working for an hour straight is never idle in that hour (Boss watched
+# a session reach 354000 tokens against an 80000 setting, 2026-08-12).
+# Probed, never assumed: an unknown flag would stop the agent from starting at
+# all, and a convenience must not be able to do that. Empty AUTOCOMPACT_TOKENS
+# or an older CLI simply means no flag.
+AUTOCOMPACT_FLAG=""
+_ac_tokens="$(grep -E '^AUTOCOMPACT_TOKENS=' "$INSTALL_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"'"'"' ')"
+[ -z "$_ac_tokens" ] && _ac_tokens=100000
+if [ "$_ac_tokens" -gt 0 ] 2>/dev/null && "$CLAUDE" --help 2>/dev/null | grep -q -- '--autocompact'; then
+  AUTOCOMPACT_FLAG="--autocompact $_ac_tokens "
+fi
+
 # Full PATH with .bun/bin -- without it the respawned bun telegram bridge does
 # not come up and the session is channel-less.
-RESPAWN_CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin\" && export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false && ${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${CHANNEL_PROVIDER}@claude-plugins-official${EXTRA_CHANNELS}"
+RESPAWN_CMD="export PATH=\"/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:\$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin\" && export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false && ${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${AUTOCOMPACT_FLAG}${MODEL_FLAG}--channels plugin:${CHANNEL_PROVIDER}@claude-plugins-official${EXTRA_CHANNELS}"
 
 reason="keepalive stale ${age}s"
 [ "$STALE" != true ] && reason=""
