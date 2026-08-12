@@ -1524,7 +1524,7 @@ window._i18n.en = {
   'agents.ctx.auto_tip':               'When on, the system compacts the conversation by itself once it grows too large (above the thousand-token limit below). It writes a summary rather than throwing everything away; a full wipe only happens when compacting did not help. Note: it can only run while the agent is NOT working, so on a continuously busy agent the number can climb past the limit until it goes idle.',
   'agents.ctx.unit':                   'thousand tokens',
   'agents.ctx.current':                'Currently:',
-  'agents.ctx.current_empty':          'Currently: 0 (fresh session)',
+  'agents.ctx.current_empty':          'Currently: has not worked yet (started, but no turn run)',
   'agents.ctx.current_unmeasured':     'Currently: not measurable (its recent turns returned no numbers, usually a usage limit)',
   'agents.ctx.current_stopped':        'Currently: not running (stopped, nothing to measure)',
   'agents.ctx.clear_confirm':          'Clear the conversation? The agent loses its current context.',

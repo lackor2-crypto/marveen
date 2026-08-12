@@ -547,7 +547,7 @@ window._i18n.hu = {
   'agents.ctx.auto_tip':               'Ha bekapcsolod, a rendszer magától tömöríti a beszélgetést, ha az túl nagyra nő (a lenti ezer-token határ fölött). Összefoglalót készít, nem dob el mindent; teljes törlés csak akkor van, ha a tömörítés nem segített. Fontos: csak akkor tud lefutni, amikor az ágens épp NEM dolgozik, tehát egy folyamatosan dolgozó ágensnél a szám a határ fölé mehet, amíg le nem áll.',
   'agents.ctx.unit':                   'ezer token fölött',
   'agents.ctx.current':                'Jelenleg:',
-  'agents.ctx.current_empty':          'Jelenleg: 0 (friss munkamenet)',
+  'agents.ctx.current_empty':          'Jelenleg: még nem dolgozott (elindult, de egy fordulót sem futtatott)',
   'agents.ctx.current_unmeasured':     'Jelenleg: nem mérhető (a legutóbbi fordulói nem adtak vissza számot, jellemzően kvóta-limit miatt)',
   'agents.ctx.current_stopped':        'Jelenleg: nem fut (leállítva, nincs mit mérni)',
   'agents.ctx.clear_confirm':          'Biztosan kiüríted a beszélgetést? Az ágens elveszti a jelenlegi kontextusát.',
