@@ -29,7 +29,6 @@ import {
 import { setLastInboundModality } from './voice-modality.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from './agent-message-wrap.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
-import { maybeWakeSubAgentsForTelegram } from './telegram-inbox-wake.js'
 
 // A message that cannot be delivered within this window (target session never
 // exists / stays busy) is marked failed so it stops clogging the pending
@@ -673,12 +672,10 @@ export async function runMessageRouterTick(): Promise<void> {
       }
     }
 
-    // Independently of the inter-agent queue above: wake idle sub-agents whose
-    // Telegram inbox (inbox-pending.jsonl) has stuck inbound messages the drain
-    // hook cannot pull without a turn. No-op unless SUBAGENT_TELEGRAM_WAKE_ENABLED
-    // (default off); when enabled it is cheap statSync-gated so an empty fleet
-    // costs one stat per agent and no tmux I/O.
-    void maybeWakeSubAgentsForTelegram(now)
+    // The Telegram inbox wake-nudge used to run from this tick. It moved to its
+    // own sub-second watcher (startTelegramInboxWakeWatcher, telegram-inbox-wake.ts)
+    // because piggybacking on the 5s router cadence added up to 5s of latency to
+    // every inbound message an idle sub-agent receives.
 }
 
 // ---- voice helpers (message-router level) ----------------------------------

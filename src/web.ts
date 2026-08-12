@@ -16,6 +16,7 @@ import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGov
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
+import { startTelegramInboxWakeWatcher } from './web/telegram-inbox-wake.js'
 import { startUpdateChecker } from './web/update-checker.js'
 import { startScheduleRunner } from './web/schedule-runner.js'
 import { startChannelPluginMonitor } from './web/channel-monitor.js'
@@ -354,6 +355,12 @@ export function startWebServer(port = 3420): http.Server {
   const routerInterval = webOnly ? undefined : startMessageRouter()
   if (!webOnly) logger.info('Agent message router started (5s poll)')
 
+  // Telegram inbox wake-nudge for sub-agents, on its own sub-second cadence so an
+  // inbound message never waits on the router tick. No-op unless
+  // SUBAGENT_TELEGRAM_WAKE_ENABLED (the watcher early-outs on a boolean).
+  const telegramWakeInterval = webOnly ? undefined : startTelegramInboxWakeWatcher()
+  if (!webOnly) logger.info('Telegram inbox wake watcher started (500ms poll)')
+
   const scheduleInterval = webOnly ? undefined : startScheduleRunner()
   if (!webOnly) logger.info('Schedule runner started (60s poll)')
 
@@ -603,6 +610,7 @@ export function startWebServer(port = 3420): http.Server {
   const origClose = server.close.bind(server)
   server.close = (cb?: (err?: Error) => void) => {
     clearInterval(routerInterval)
+    clearInterval(telegramWakeInterval)
     clearInterval(scheduleInterval)
     if (pluginMonitorInterval) clearInterval(pluginMonitorInterval)
     workerLivenessCancelled = true

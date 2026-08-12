@@ -41,9 +41,25 @@ import {
 
 // How long the pending inbox must have sat untouched before the first wake-nudge.
 // Measured as now - mtime(inbox-pending.jsonl): the age of the LAST inbound. A
-// fresh file means a message just arrived (let the natural drain try first, or
-// let a burst finish arriving before we nudge once for the whole batch).
-const SUB_TELEGRAM_WAKE_MIN_AGE_MS = 25 * 1000
+// fresh file means a message just arrived, so this is purely a burst-batching
+// window: wait a beat so two messages typed back-to-back wake the agent once.
+//
+// It used to be 25s, on the theory that a "natural" turn might drain the inbox
+// without a nudge. For an IDLE session that theory is empty -- no turn is coming
+// -- and the owner measured the cost: a plain text message sat ~40s before the
+// pane moved (25s here + up to 5s of router tick + the idle probe). The wake is
+// now the fast path it always should have been: ~1s of batching, then nudge.
+const SUB_TELEGRAM_WAKE_MIN_AGE_MS = 1000
+// Watcher cadence. The wake used to piggyback on the 5s message-router tick,
+// which added up to 5s of pure latency to every inbound. It runs on its own
+// sub-second timer now; the per-tick cost of a quiet fleet is one statSync per
+// sub-agent and ZERO tmux I/O (see the cheap-gate ordering below).
+const SUB_TELEGRAM_WAKE_TICK_MS = 500
+// Per-agent cooldown after an idle probe found the session BUSY. The probe costs
+// two capture-panes plus a settle delay, so re-probing a long-running turn every
+// 500ms would fork tmux continuously for minutes. A busy session is re-probed at
+// most this often; the moment it goes idle the next probe nudges it.
+const SUB_TELEGRAM_WAKE_BUSY_RETRY_MS = 3000
 // Base gap between wake-nudges per agent. One nudge starts a turn whose drain
 // claims the WHOLE pending file, so re-nudging sooner just piles redundant
 // prompts on a session already handling its inbox. This is the FIRST-retry gap;
@@ -74,6 +90,9 @@ interface SubWakeState {
   lastWakeAt: number
   attempts: number
   inboxMtimeMs: number
+  // When the idle probe last found this agent's session BUSY. Throttles the
+  // tmux-forking probe while a turn is running (see BUSY_RETRY_MS).
+  lastBusyProbeAt?: number
 }
 const _subWakeState = new Map<string, SubWakeState>()
 
@@ -188,6 +207,9 @@ export async function maybeWakeSubAgentsForTelegram(now: number): Promise<void> 
       // Budget + backoff cheap gates (no tmux I/O yet).
       if (state.attempts >= SUB_TELEGRAM_WAKE_MAX_ATTEMPTS) continue
       if (now - state.lastWakeAt < wakeBackoffMs(state.attempts, SUB_TELEGRAM_WAKE_DEBOUNCE_MS, SUB_TELEGRAM_WAKE_MAX_DEBOUNCE_MS)) continue
+      // Busy-probe throttle: last time we looked, this session was mid-turn.
+      // Cheap gate, still no tmux I/O.
+      if (now - (state.lastBusyProbeAt ?? 0) < SUB_TELEGRAM_WAKE_BUSY_RETRY_MS) continue
 
       const host = readAgentRemoteHost(name)
       const session = agentSessionName(name)
@@ -196,6 +218,10 @@ export async function maybeWakeSubAgentsForTelegram(now: number): Promise<void> 
       // pane as NOT ready, so a TodoWrite-widget session is conservatively left
       // alone rather than nudged mid-widget -- the safe default for injection.
       const sessionIdle = sessionExists && await isSessionReadyForPrompt(session, host)
+      // Remember a busy pane so the next few ticks skip the probe entirely; a
+      // pane that came back idle clears the throttle.
+      if (sessionExists && !sessionIdle) state.lastBusyProbeAt = now
+      else delete state.lastBusyProbeAt
 
       if (!shouldWakeForTelegramInbox({
         inboxAgeMs,
@@ -219,6 +245,24 @@ export async function maybeWakeSubAgentsForTelegram(now: number): Promise<void> 
       logger.warn({ err, agent: name }, 'telegram-inbox-wake: wake check failed')
     }
   }
+}
+
+// Re-entrancy guard: one tick awaits the idle probe (capture-pane + settle), so
+// at the sub-second cadence a slow tmux could otherwise start a second pass over
+// the same agents and double-nudge.
+let _wakeTickRunning = false
+
+/**
+ * Start the dedicated wake watcher. Separate from the 5s message-router tick on
+ * purpose: an inbound Telegram message must not wait on the inter-agent queue's
+ * cadence (that was up to 5s of the owner-measured ~40s delay).
+ */
+export function startTelegramInboxWakeWatcher(): NodeJS.Timeout {
+  return setInterval(() => {
+    if (_wakeTickRunning) return
+    _wakeTickRunning = true
+    void maybeWakeSubAgentsForTelegram(Date.now()).finally(() => { _wakeTickRunning = false })
+  }, SUB_TELEGRAM_WAKE_TICK_MS)
 }
 
 // Test-only: reset the per-agent wake state between unit tests.
