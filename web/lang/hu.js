@@ -540,7 +540,7 @@ window._i18n.hu = {
   'agents.main_badge':             'főasszisztens',
   'agents.ctx.compact':                'Tömörítés',
   'app.hard_refresh_tip':            'Frissítés: eldobja a böngészőben tárolt régi változatot, és újratölti az oldalt. Akkor használd, ha valami nem frissült.',
-  'agents.ctx.compact_tip':            'Összefoglalja a beszélgetést, hogy kevesebb helyet foglaljon. Nem veszik el információ.',
+  'agents.ctx.compact_tip':            'Most azonnal összefoglalja a beszélgetést, hogy kevesebb helyet foglaljon. A lényeg megmarad, a részletek egy része összevonódik. Az itt beírt ezer-token szám NEM ehhez a gombhoz tartozik: az az automatikus tömörítés határa.',
   'agents.ctx.clear':                  'Törlés',
   'agents.ctx.clear_tip':              'Teljesen kiüríti a beszélgetést, az ágens friss lappal indul. Visszavonhatatlan.',
   'agents.ctx.auto':                   'Automatikus tömörítés',

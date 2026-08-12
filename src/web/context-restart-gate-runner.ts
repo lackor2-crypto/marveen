@@ -8,11 +8,12 @@ import { agentSessionName, capturePane } from './agent-process.js'
 import { detectPaneState } from '../pane-state.js'
 import { detectsUsageLimit } from '../model-fallback.js'
 import { readContextReadingFromProjectDir } from './active-model.js'
+import { markCompactionStarted } from './compaction-inflight.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { withSessionSendLock } from './session-send-lock.js'
 import { getHardGuardPhase } from './context-guard-runner.js'
 import { resolveAgentConfigDir } from './claude-plans.js'
-import { readGateConfig, readGateRunState, writeGateRunState, writeGateStatus } from './context-restart-gate-store.js'
+import { readGateConfig, readGateRunState, readGateStatus, writeGateRunState, writeGateStatus } from './context-restart-gate-store.js'
 import {
   getDispatchedPendingStats,
   hasOpenInboundQuestion,
@@ -39,6 +40,9 @@ import {
 // agent's configured retryIntervalMs.
 
 const INITIAL_DELAY_MS = 3 * 60_000   // 3 min
+// How often to re-check an agent that is ALREADY over its threshold, so a short
+// idle gap is not missed for another five minutes (Boss, 2026-08-12).
+const ABOVE_THRESHOLD_INTERVAL_MS = 60_000   // 1 min
 
 // tmux path (matches other runners).
 const TMUX = process.env.TMUX_BIN ?? '/usr/bin/tmux'
@@ -519,6 +523,11 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         })
         logger.info({ agent: name, contextTokens, command, why: reclaim.reason },
           `context-restart-gate: ${command} sent`)
+        // The card's Terminal button reads "working" from the pane, and the
+        // compaction spinner carries none of the busy signals a normal turn
+        // does. Record that we started one so the agent does not look idle for
+        // the minute it runs (Boss, 2026-08-12).
+        if (reclaim.action === 'compact') markCompactionStarted(name, contextTokens, nowMs)
         writeGateRunState(name, {
           ...runState,
           firstBlockedAt: null,
@@ -613,7 +622,16 @@ function scheduleSweep(name: string, delayMs: number): void {
     try { await checkAgent(name, Date.now()) }
     catch (err) { logger.debug({ err, agent: name }, 'context-restart-gate: sweep error') }
     // Re-schedule using the agent's current retryIntervalMs (may have changed).
-    scheduleSweep(name, readGateConfig(name).retryIntervalMs)
+    //
+    // Above the threshold, look every minute instead (Boss approved, 2026-08-12).
+    // Compaction can only run while the agent is idle, and an agent that works
+    // in bursts is idle in gaps far shorter than five minutes -- so the sweep
+    // interval, not the idleness, was what kept a heavy session heavy. Below the
+    // threshold nothing changes: there is nothing to catch, and the sweep costs
+    // a pane capture plus a transcript read per agent.
+    const next = readGateConfig(name)
+    const heavy = readGateStatus(name)?.aboveThreshold === true
+    scheduleSweep(name, heavy ? Math.min(ABOVE_THRESHOLD_INTERVAL_MS, next.retryIntervalMs) : next.retryIntervalMs)
   }, delayMs))
 }
 

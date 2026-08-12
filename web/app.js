@@ -4067,13 +4067,37 @@ function renderAgents() {
 // endpoint. The main (Marveen) card matches on mainAgentId(); sub-agent cards
 // match on their data-name.
 let agentsBusyTimer = null
+// Card data (context size, model, run state) refreshed on its own slower beat.
+// Boss, 2026-08-12: the gate compacted his session from 195k to 59k and the card
+// kept showing 195k until he pressed Ctrl-Shift-R. "a tokenokat azonnal a
+// legfrissebbet akarom latni." A page that only loads once is a page that lies
+// as soon as anything changes.
+let agentsDataTimer = null
+const AGENTS_DATA_REFRESH_MS = 60000
+// Agents seen mid-compaction on the previous 3s poll. When one drops off the
+// list the compaction just landed, so the new (smaller) number exists NOW --
+// that is the moment to refresh, rather than waiting out the minute.
+let compactingAgents = new Set()
 function startAgentsBusyPoll() {
   refreshAgentTerminalBusy()
   if (agentsBusyTimer) clearInterval(agentsBusyTimer)
   agentsBusyTimer = setInterval(refreshAgentTerminalBusy, 3000)
+  if (agentsDataTimer) clearInterval(agentsDataTimer)
+  agentsDataTimer = setInterval(() => {
+    // Skip while the tab is hidden: a background tab polling forever is how a
+    // laptop fan and a rate limit meet.
+    if (document.hidden) return
+    if ((location.hash.slice(1) || 'overview') !== 'agents') return
+    // Never redraw under someone's hands: the cards carry a threshold input, and
+    // a refresh mid-typing would swallow the number being entered.
+    if (agentsGrid && agentsGrid.contains(document.activeElement)) return
+    loadAgents()
+  }, AGENTS_DATA_REFRESH_MS)
 }
 function stopAgentsBusyPoll() {
   if (agentsBusyTimer) { clearInterval(agentsBusyTimer); agentsBusyTimer = null }
+  if (agentsDataTimer) { clearInterval(agentsDataTimer); agentsDataTimer = null }
+  compactingAgents = new Set()
 }
 async function refreshAgentTerminalBusy() {
   if (!agentsGrid) return
@@ -4085,6 +4109,13 @@ async function refreshAgentTerminalBusy() {
   } catch { return }
   if (!Array.isArray(entries)) return
   const stateByName = new Map(entries.map((e) => [e.name, e.state]))
+  // A compaction that finished since the last poll: pull the fresh numbers now.
+  const nowCompacting = new Set(entries.filter((e) => e.compacting).map((e) => e.name))
+  let justFinished = false
+  for (const name of compactingAgents) if (!nowCompacting.has(name)) justFinished = true
+  compactingAgents = nowCompacting
+  if (justFinished && (location.hash.slice(1) || 'overview') === 'agents'
+      && !(agentsGrid && agentsGrid.contains(document.activeElement))) loadAgents()
   const mainId = mainAgentId()
   agentsGrid.querySelectorAll('.agent-card:not(.add-card)').forEach((card) => {
     const btn = card.querySelector('.agent-terminal-btn')

@@ -109,6 +109,7 @@ import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
+import { isCompactionInFlight, markCompactionStarted, settleCompaction } from '../compaction-inflight.js'
 import { detectPaneState, detectPermissionMode, paneShowsLimitBlock, detectsBackgroundAgentActivity } from '../../pane-state.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
@@ -759,7 +760,22 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string }> = []
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null }> = []
+
+    // A compaction the dashboard itself started (gate or card button). The pane
+    // shows none of the usual busy signals while it runs, so without this the
+    // agent reads idle for the whole minute (Boss, 2026-08-12). Measuring the
+    // context is only worth it for an agent that HAS a mark, so the read stays
+    // off the path for everyone else -- and that same read is what clears the
+    // mark the instant the smaller number lands, which is the signal the cards
+    // use to refresh themselves without waiting for the next minute.
+    const compactionOf = (name: string, isMain: boolean): { compacting: boolean; contextTokens: number | null } => {
+      if (!isCompactionInFlight(name)) return { compacting: false, contextTokens: null }
+      const dir = isMain ? PROJECT_ROOT : agentDir(name)
+      const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+      const tokens = readContextReadingFromProjectDir(dir, cfgDir).tokens
+      return { compacting: settleCompaction(name, tokens), contextTokens: tokens }
+    }
 
     // Main agent runs in the --channels session, not agent-<name>.
     {
@@ -770,14 +786,16 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         () => capturePane(MAIN_CHANNELS_SESSION),
       )
       const running = mainPane !== null
+      const mainCompaction = compactionOf(MAIN_AGENT_ID, true)
       entries.push({
         name: MAIN_AGENT_ID,
         displayName: currentBotName(),
         isMain: true,
         running,
-        state: label(running, mainPane),
+        state: running && mainCompaction.compacting ? 'working' : label(running, mainPane),
         mode: modeOf(running, mainPane),
         tail: tailOf(mainPane),
+        compacting: mainCompaction.compacting,
       })
     }
 
@@ -798,8 +816,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
               () => capturePane(agentSessionName(name)),
             )
       }
-      const state = runState === 'unreachable' ? 'unreachable' : label(running, pane)
-      entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name) })
+      const compaction = compactionOf(name, false)
+      const state = runState === 'unreachable'
+        ? 'unreachable'
+        : (running && compaction.compacting ? 'working' : label(running, pane))
+      entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name), compacting: compaction.compacting })
     }
 
     jsonMaybeGzip(req, res, entries)
@@ -1166,6 +1187,14 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         waitForIdle: true, onBusyTimeout: 'abort', idleTimeoutMs: 4000,
       })
       if (result === 'aborted-busy') { json(res, { ok: false, busy: true }); return true }
+      // Same reason as the gate's send: the compaction runs for about a minute
+      // with a pane that shows none of the usual busy signals, so record it or
+      // the card reads idle for the whole of it (Boss, 2026-08-12).
+      if (action === 'compact') {
+        const dir = isMain ? PROJECT_ROOT : agentDir(name)
+        const cfgDir = isMain ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
+        markCompactionStarted(name, readContextReadingFromProjectDir(dir, cfgDir).tokens)
+      }
       logger.info({ name, action }, 'Manual context-action sent to agent session')
       json(res, { ok: true, action })
     } catch (err) {
