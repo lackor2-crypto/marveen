@@ -7,7 +7,7 @@ import { listAgentNames } from './agent-config.js'
 import { agentSessionName, capturePane } from './agent-process.js'
 import { detectPaneState } from '../pane-state.js'
 import { detectsUsageLimit } from '../model-fallback.js'
-import { readContextTokensFromProjectDir } from './active-model.js'
+import { readContextReadingFromProjectDir } from './active-model.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { withSessionSendLock } from './session-send-lock.js'
 import { getHardGuardPhase } from './context-guard-runner.js'
@@ -417,7 +417,8 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   // gate enabled, and every sweep for months reported null. The hard guard
   // (context-guard-runner) always passed it; this runner never did.
   const configDir = name === MAIN_AGENT_ID ? undefined : (resolveAgentConfigDir(name).configDir ?? undefined)
-  const contextTokens = readContextTokensFromProjectDir(workingDir, configDir)
+  const contextReading = readContextReadingFromProjectDir(workingDir, configDir)
+  const contextTokens = contextReading.tokens
 
   const dispatchedStats = (() => {
     try { return getDispatchedPendingStats(name, nowMs, cfg.staleCutoffMs) }
@@ -446,6 +447,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   const inputs: GateInputs = {
     nowMs,
     contextTokens,
+    contextState:           contextReading.state,
     paneState,
     paneUsageLimited,
     hardGuardPhase,
@@ -479,6 +481,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     action: decision.action,
     reason: decision.reason,
     contextTokens,
+    contextState: contextReading.state,
     thresholdTokens: cfg.thresholdTokens,
     enabled: cfg.enabled,
     aboveThreshold: contextTokens !== null && contextTokens >= cfg.thresholdTokens,

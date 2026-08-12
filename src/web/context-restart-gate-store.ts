@@ -103,6 +103,10 @@ export interface GateStatus {
   action: string
   reason: string
   contextTokens: number | null
+  /** Why contextTokens is null: 'fresh' = live session that has not run a turn,
+   *  'no-usage' = turns exist but carry no token counts (quota-limited agent),
+   *  'unknown' = transcript unreadable. Absent on entries written before this. */
+  contextState?: 'measured' | 'fresh' | 'no-usage' | 'unknown'
   thresholdTokens: number
   enabled: boolean
   aboveThreshold: boolean

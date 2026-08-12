@@ -39,7 +39,10 @@ describe('context readers are account-aware', () => {
   for (const file of ['context-restart-gate-runner.ts', 'context-guard-runner.ts']) {
     it(`${file} passes a resolved config dir to the token reader`, () => {
       const src = source(file)
-      const calls = [...src.matchAll(/readContextTokensFromProjectDir\(([^)]*)\)/g)].map((m) => m[1])
+      // Either reader is fine (the gate uses the state-carrying one so it can
+      // tell a fresh session from a broken measurement), but neither may be
+      // called without the config root.
+      const calls = [...src.matchAll(/readContext(?:Tokens|Reading)FromProjectDir\(([^)]*)\)/g)].map((m) => m[1])
       expect(calls.length).toBeGreaterThan(0)
       for (const args of calls) {
         expect(args).toContain(',')

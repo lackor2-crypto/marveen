@@ -88,6 +88,20 @@ export interface GateInputs {
   contextTokens: number | null
 
   /**
+   * Why contextTokens is null, when it is (see ContextReadingState):
+   *   'fresh'    -- live transcript found, no turn run yet. The SMALLEST
+   *                 possible context, so it blocks WITHOUT the fail-closed
+   *                 alert escalation, exactly like below-threshold. Reporting
+   *                 this as "unmeasurable" is what made the gate alert about
+   *                 sessions that had nothing to reclaim.
+   *   'no-usage' -- turns exist but carry no token numbers (a quota-limited
+   *                 agent: every turn is a <synthetic> reply). Size genuinely
+   *                 unknown -> stays fail-closed, with a reason that names it.
+   *   'unknown'/absent -- unreadable transcript -> fail-closed.
+   */
+  contextState?: 'measured' | 'fresh' | 'no-usage' | 'unknown'
+
+  /**
    * Pane state from detectPaneState() / detectsUsageLimit().
    *
    * The TypeScript PaneState ('idle'|'busy'|'typing'|'unknown'|'error') does
@@ -179,7 +193,13 @@ export function decideGate(
   // Trigger check first: no point evaluating the gate conditions if we are
   // still below the threshold.
   if (inputs.contextTokens === null) {
-    return block(firstBlockedAt, inputs.nowMs, cfg, 'context-tokens-unmeasurable (fail-closed)')
+    if (inputs.contextState === 'fresh') {
+      return { action: 'block', reason: 'fresh-session (no turn run yet, nothing to reclaim)' }
+    }
+    const why = inputs.contextState === 'no-usage'
+      ? 'context-tokens-unmeasurable (turns carry no token counts -- fail-closed)'
+      : 'context-tokens-unmeasurable (fail-closed)'
+    return block(firstBlockedAt, inputs.nowMs, cfg, why)
   }
   if (inputs.contextTokens < cfg.thresholdTokens) {
     return { action: 'block', reason: `below-threshold (${inputs.contextTokens} < ${cfg.thresholdTokens})` }
