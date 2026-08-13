@@ -7392,6 +7392,10 @@ main.email-active .page-header { flex-shrink: 0; }
 .activity-card.act-error   { border-left-color: #ef4444; }
 .activity-card.act-unknown { border-left-color: #eab308; }
 .activity-card.act-stopped { border-left-color: #6b7280; opacity: 0.7; }
+/* Out of quota: the agent is alive but cannot work until its window resets.
+   Amber, and deliberately NOT the green 'working' treatment -- the whole point
+   is that a dead agent must not look busy. */
+.activity-card.act-limited { border-left-color: #f59e0b; }
 .activity-card.act-clickable { cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
 .activity-card.act-clickable:hover { background: var(--bg-card-hover, var(--bg-card)); box-shadow: 0 0 0 2px var(--accent); }
 .act-term-icon { color: var(--text-muted); flex-shrink: 0; opacity: 0.6; }
@@ -9481,6 +9485,17 @@ body {
 .ctx-gate-unit { flex: 0 1 auto; color: var(--text-muted); }
 /* Live context size under the threshold, so the owner can judge the cut-off. */
 .ctx-current { margin-top: 4px; font-size: 11px; color: var(--text-muted); }
+.ctx-broker-row { margin-top: 4px; }
+/* Says who prepares the work packages while the designated agent cannot. It is
+   information, not a fault -- the fleet keeps working either way -- so it stays
+   in the muted colour and never borrows a warning tint (Boss, 2026-08-11: three
+   missing EXTRA capabilities painted red read as a broken system). */
+.ctx-broker-note {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
 
 /* Explains, in plain language, why the vector count is zero. Deliberately
    neutral: a missing convenience must never look like a fault (Boss, 2026-08-11

@@ -3018,6 +3018,11 @@ let agents = []
 // refreshed by loadAgents from /api/context-restart-gate. Drives the per-card
 // context controls; empty/missing entry renders as "off".
 const gateCfgByAgent = new Map()
+// Who prepares the work packages for the fleet (/api/context-broker). Exactly
+// one agent holds the role, so this is a single object, not a per-agent map:
+// `designated` is what the checkboxes show, `effective` is who is doing it right
+// now (they differ while the designated agent is stopped or out of quota).
+let brokerState = { designated: null, effective: null, reason: 'unset', steppedOver: null }
 let currentAgent = null
 // API-safe agent id for the currently open detail modal. Sub-agents key off
 // their name; the main agent's detail object carries name:'marveen' for legacy
@@ -3396,7 +3401,7 @@ async function loadAgents() {
     // The federation status fetch is deliberately failure-proof (.catch ->
     // null): it must NEVER take down the Agents page -- including on an
     // older backend where the route 404s.
-    const [agentsRes, marveenRes, fedStatus, gateStatus] = await Promise.all([
+    const [agentsRes, marveenRes, fedStatus, gateStatus, brokerStatus] = await Promise.all([
       fetch('/api/agents'),
       fetch('/api/marveen'),
       fetch('/api/federation/status').then((r) => (r.ok ? r.json() : null)).catch(() => null),
@@ -3404,6 +3409,7 @@ async function loadAgents() {
       // route must never break the Agents page -- the controls just fall back to
       // "off" everywhere.
       fetch('/api/context-restart-gate').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch('/api/context-broker').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ])
     agents = await agentsRes.json()
     if (fedStatus && Array.isArray(fedStatus.peers)) federatedPeerStatus = fedStatus.peers
@@ -3411,6 +3417,12 @@ async function loadAgents() {
     if (gateStatus && Array.isArray(gateStatus.agents)) {
       for (const a of gateStatus.agents) gateCfgByAgent.set(a.agent, a)
     }
+    // Nobody designated is a valid, working state (everyone prepares their own
+    // context), so an older backend answering null renders as exactly that
+    // rather than as an error.
+    brokerState = brokerStatus && typeof brokerStatus === 'object'
+      ? brokerStatus
+      : { designated: null, effective: null, reason: 'unset', steppedOver: null }
     if (marveenRes.ok) {
       window._marveen = await marveenRes.json()
       // A backend CHANNEL_PROVIDER-éhez igazitsuk a kliens-default-ot,
@@ -3820,8 +3832,44 @@ function contextControlsHtml(name, contextTokens = null, running = true, context
         <input type="number" class="ctx-gate-threshold" min="50" max="1000" step="10" value="${kThreshold}"${cfg.enabled ? '' : ' disabled'}>
         <span class="ctx-gate-unit">${escapeHtml(t('agents.ctx.unit'))}</span>
       </label>
+      ${brokerRowHtml(name)}
       ${currentHtml}
     </div>`
+}
+
+// === Context generator (broker) checkbox ===
+// Boss, 2026-08-13: "a kartyakra tenni kell egy kapcsolot hogy ha bejelolom
+// mint itt az automata tomorites nel, akkor az lesz a kontextusgenerator. ha
+// egy masikat jelolok be akkor ennel eltunik a jeloles es a masiknal lesz
+// bejelolve. egyszerre csak egynel legyen." The exclusivity is enforced by the
+// BACKEND (one field in store/context-broker.json), not by clearing the other
+// boxes here -- this only re-renders after the save so the display follows.
+//
+// The role is optional, so it is an EXTRA, never an error: with nobody
+// designated every agent simply prepares its own context, exactly as before
+// this feature existed. Nothing here goes red.
+function brokerRowHtml(name) {
+  const isDesignated = brokerState.designated === name
+  const isStandIn = brokerState.effective === name && brokerState.designated !== name
+  let noteHtml = ''
+  // Only the two cards involved say anything: the designated one explains why
+  // it is not doing the job right now, the stand-in explains why it is.
+  if (isDesignated && brokerState.effective !== name) {
+    const who = brokerState.effective ? chatDisplayName(brokerState.effective) : ''
+    let key = 'agents.ctx.broker_paused_none'
+    if (brokerState.reason === 'fallback-stopped') key = 'agents.ctx.broker_paused_stopped'
+    else if (brokerState.reason === 'fallback-quota') key = 'agents.ctx.broker_paused_quota'
+    noteHtml = `<div class="ctx-broker-note">${escapeHtml(t(key, { agent: who }))}</div>`
+  } else if (isStandIn) {
+    const who = brokerState.designated ? chatDisplayName(brokerState.designated) : ''
+    noteHtml = `<div class="ctx-broker-note">${escapeHtml(t('agents.ctx.broker_standin', { agent: who }))}</div>`
+  }
+  return `
+      <label class="ctx-gate-row ctx-broker-row" title="${escapeAttr(t('agents.ctx.broker_tip'))}">
+        <input type="checkbox" class="ctx-broker-toggle"${isDesignated ? ' checked' : ''}>
+        <span class="ctx-gate-text">${escapeHtml(t('agents.ctx.broker'))}</span>
+      </label>
+      ${noteHtml}`
 }
 
 function wireContextControls(card, name) {
@@ -3841,6 +3889,32 @@ function wireContextControls(card, name) {
     saveGateConfig(name, toggle.checked, threshold)
   })
   threshold?.addEventListener('change', () => saveGateConfig(name, !!toggle?.checked, threshold))
+  const broker = root.querySelector('.ctx-broker-toggle')
+  broker?.addEventListener('change', () => saveBrokerConfig(name, broker.checked))
+}
+
+// Designate (or un-designate) the context generator. The POST replaces the
+// single stored name, so the previously-checked card loses its tick -- but only
+// the re-render below makes that VISIBLE, which is why this redraws every card
+// instead of just this one.
+async function saveBrokerConfig(name, checked) {
+  try {
+    const res = await fetch('/api/context-broker', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: checked ? name : null, enabled: checked }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (data.ok) {
+      brokerState = {
+        designated: data.designated ?? null,
+        effective: data.effective ?? null,
+        reason: data.reason || 'unset',
+        steppedOver: data.steppedOver ?? null,
+      }
+      showToast(t('agents.ctx.saved'))
+      renderAgents()
+    } else showToast(t('agents.ctx.failed'))
+  } catch { showToast(t('agents.ctx.failed')) }
 }
 
 async function doContextAction(name, action, force = false) {
@@ -3859,7 +3933,20 @@ async function doContextAction(name, action, force = false) {
       return
     }
     if (data.busy) { showToast(t('agents.ctx.busy')); return }
-    if (data.ok) { showToast(t(action === 'clear' ? 'agents.ctx.cleared' : 'agents.ctx.compacted')); return }
+    if (data.ok) {
+      showToast(t(action === 'clear' ? 'agents.ctx.cleared' : 'agents.ctx.compacted'))
+      // The backend returns as soon as the slash command is typed, NOT when it
+      // finishes. /clear wipes instantly, but /compact runs ~1 min and only then
+      // writes the new (smaller) size. There is no periodic agents refresh, so
+      // pull fresh cards a few times to let the number drop on its own -- no
+      // manual page reload needed. Guard on the hash so we don't refetch after
+      // the operator has navigated away.
+      const delays = action === 'clear' ? [1500] : [8000, 20000, 45000, 75000, 95000]
+      for (const ms of delays) {
+        setTimeout(() => { if ((location.hash.slice(1) || 'overview') === 'agents') loadAgents() }, ms)
+      }
+      return
+    }
     showToast(t('agents.ctx.failed'))
   } catch { showToast(t('agents.ctx.failed')) }
 }
@@ -13568,10 +13655,14 @@ async function renderOverviewSetupStatus() {
   const worst = d.worstTier || 'none'
   if (worst === 'none') { box.hidden = true; list.innerHTML = ''; return }
 
+  // descFg is set explicitly per tone because .overview-capability-desc carries
+  // a hardcoded light grey (#ccc) from when this card was always dark-on-red.
+  // On the calm backgrounds it became grey-on-grey -- Boss could see that text
+  // was there and could not read it.
   const TONE = {
-    essential: { bg: 'var(--danger)', fg: '#fff', itemBg: 'rgba(0,0,0,.25)' },
-    recommended: { bg: '#f59e0b', fg: '#111', itemBg: 'rgba(255,255,255,.35)' },
-    extra: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', itemBg: 'rgba(127,127,127,.12)' },
+    essential: { bg: 'var(--danger)', fg: '#fff', descFg: 'rgba(255,255,255,.85)', itemBg: 'rgba(0,0,0,.25)' },
+    recommended: { bg: '#f59e0b', fg: '#111', descFg: 'rgba(0,0,0,.75)', itemBg: 'rgba(255,255,255,.45)' },
+    extra: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', descFg: 'var(--text-muted)', itemBg: 'rgba(127,127,127,.12)' },
   }[worst]
 
   const n = d.missingByTier ? d.missingByTier[worst] : 0
@@ -13588,7 +13679,7 @@ async function renderOverviewSetupStatus() {
       style="background:${TONE.itemBg};color:${TONE.fg}"
       onclick="switchPage('settings');activateSettingsTab('wizard');return false">
       <div class="overview-capability-label">${escapeHtml(headline)}</div>
-      <div class="overview-capability-desc">${escapeHtml(worst === 'extra' ? t('wizard.tier.extra_note') : t('overview.setup.open_wizard'))}</div>
+      <div class="overview-capability-desc" style="color:${TONE.descFg}">${escapeHtml(worst === 'extra' ? t('wizard.tier.extra_note') : t('overview.setup.open_wizard'))}</div>
     </a>`
 }
 
@@ -17172,6 +17263,14 @@ async function renderWindowsSettingsPanel(host) {
 }
 
 function activateSettingsTab(mod) {
+  // Leaving a wizard that has unsaved entries: ask BEFORE anything moves.
+  // Saving happens once at the end (so a half-finished walkthrough cannot
+  // leave the install half-configured), which is right -- but it also means a
+  // stray tab click would silently drop what was typed.
+  if (mod !== 'wizard' && Object.keys(_wizardPending || {}).length > 0) {
+    if (!window.confirm(t('wizard.leave_confirm'))) return
+    _wizardPending = {}
+  }
   document.querySelectorAll('#settingsTabNav .tab-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === mod)
   })
@@ -17197,6 +17296,7 @@ function activateSettingsTab(mod) {
     const body = document.getElementById('setupWizardPanel')
     if (body && !body.innerHTML.trim()) renderSetupWizardPanel(body)
   }
+
 }
 
 // === Setup wizard panel ===
@@ -17299,6 +17399,11 @@ function renderWizardStep(host) {
       autocomplete="off" style="margin-top:4px">`
 
   const badgeFg = item.tier === 'extra' ? 'var(--bg)' : '#fff'
+  // Saving happens once, at the end. That is right -- a half-finished
+  // walkthrough should not leave the install half-configured -- but it means
+  // leaving early silently drops what was typed. So say so while there IS
+  // something to lose, and offer the way out that keeps it.
+  const hasPending = Object.keys(_wizardPending).length > 0
   host.innerHTML = `
     <div class="card">
       <p style="margin:0 0 6px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.step_of', { i: _wizardStepIdx + 1, n: todo.length }))}</p>
@@ -17313,7 +17418,11 @@ function renderWizardStep(host) {
         ${_wizardStepIdx > 0 ? `<button class="btn-secondary" id="wizardBackBtn">${escapeHtml(t('wizard.back'))}</button>` : ''}
         <button class="btn-secondary" id="wizardSkipBtn">${escapeHtml(t('wizard.skip'))}</button>
         <button class="btn-primary" id="wizardNextBtn">${escapeHtml(_wizardStepIdx === todo.length - 1 ? t('wizard.finish') : t('wizard.next'))}</button>
+        ${hasPending ? `<button class="btn-secondary" id="wizardSaveNowBtn">${escapeHtml(t('wizard.save_now'))}</button>` : ''}
       </div>
+      ${hasPending
+        ? `<p style="margin:10px 0 0;font-size:12px;color:#f59e0b;line-height:1.5">${escapeHtml(t('wizard.unsaved_warning'))}</p>`
+        : `<p style="margin:10px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.unsaved_warning_short'))}</p>`}
     </div>`
 
   // Keep what was typed when moving between steps: a wizard that loses your
@@ -17330,6 +17439,8 @@ function renderWizardStep(host) {
   if (back) back.addEventListener('click', () => { stash(); _wizardStepIdx--; renderWizardStep(host) })
   document.getElementById('wizardSkipBtn').addEventListener('click', () => { _wizardStepIdx++; renderWizardStep(host) })
   document.getElementById('wizardNextBtn').addEventListener('click', () => { stash(); _wizardStepIdx++; renderWizardStep(host) })
+  const saveNow = document.getElementById('wizardSaveNowBtn')
+  if (saveNow) saveNow.addEventListener('click', () => { stash(); renderWizardDone(host) })
 }
 
 // Everything is saved at the END, in one request: a half-finished walkthrough

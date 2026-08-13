@@ -5,6 +5,12 @@ import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { logConfigChange } from '../../db.js'
 import { setStoreWriteActor } from '../../store-watcher.js'
 import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
+import {
+  listBrokerCandidates,
+  readBrokerConfig,
+  resolveEffectiveBroker,
+  writeBrokerConfig,
+} from '../context-broker-store.js'
 import { listAgentNames } from '../agent-config.js'
 import { MAIN_AGENT_ID } from '../../config.js'
 import type { RouteContext } from './types.js'
@@ -114,6 +120,45 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
     } catch (err) {
       logger.error({ err }, 'Failed to update context-restart gate config')
       json(res, { error: 'Failed to update gate config' }, 500)
+    }
+    return true
+  }
+
+  // Who prepares the work packages for the fleet (kanban 90d945b5). Exactly one
+  // agent holds the role, so this endpoint takes a single name rather than a
+  // per-agent flag -- POSTing a new name clears the previous holder in the same
+  // write. The response also carries who is ACTUALLY doing it right now, which
+  // differs from the designation when the designated agent is stopped or out of
+  // quota, and agents read it to know where to send a "send me more context"
+  // request.
+  if (path === '/api/context-broker' && method === 'GET') {
+    const resolution = resolveEffectiveBroker()
+    json(res, { ...resolution, candidates: listBrokerCandidates() })
+    return true
+  }
+
+  if (path === '/api/context-broker' && method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString())
+      const raw = typeof body?.agent === 'string' ? body.agent.trim() : ''
+      // enabled:false (unchecking the box) and agent:null both mean "nobody",
+      // which is a valid state: the fleet falls back to every agent preparing
+      // its own context, exactly as it did before this feature existed.
+      const clearing = body?.enabled === false || body?.agent === null || raw === ''
+      if (!clearing) {
+        const known = new Set(listBrokerCandidates().map((c) => c.agent))
+        if (!known.has(raw)) {
+          json(res, { error: 'Unknown or missing "agent"' }, 400)
+          return true
+        }
+      }
+      const previous = readBrokerConfig().designated
+      const saved = writeBrokerConfig(clearing ? null : raw)
+      logger.info({ previous, designated: saved.designated }, 'Context broker designation updated')
+      json(res, { ok: true, config: saved, ...resolveEffectiveBroker() })
+    } catch (err) {
+      logger.error({ err }, 'Failed to update context broker designation')
+      json(res, { error: 'Failed to update context broker' }, 500)
     }
     return true
   }

@@ -16,7 +16,18 @@
 // file read, or pane/process snapshot. The I/O lives in
 // src/web/context-restart-gate-runner.ts; this module only reasons.
 
-export const DEFAULT_THRESHOLD_TOKENS = 400_000
+export const DEFAULT_THRESHOLD_TOKENS = 150_000
+/**
+ * Secondary floor, as a fraction of the model's own context window. The owner
+ * locked the rule on 2026-08-10: "150k tokens OR 50% of the window, whichever
+ * comes first". The absolute cap is the PRIMARY limiter (a 150k session is
+ * expensive on every model, whatever its window); the percentage only exists so
+ * a small-window model does not sail past a sane fraction of its own window
+ * before the absolute cap is ever reached. On a 1M window 50% would be 500k,
+ * far above 150k, so it never binds there -- which is exactly the intent
+ * ("50% is too high for a 1M window").
+ */
+export const DEFAULT_THRESHOLD_PCT = 0.5
 export const DEFAULT_STALE_CUTOFF_MS  = 2 * 60 * 60 * 1000   // 2 h
 export const DEFAULT_RETRY_INTERVAL_MS = 5 * 60 * 1000        // 5 min
 export const DEFAULT_PERSISTENT_BLOCK_ALERT_MS = 2 * 60 * 60 * 1000  // 2 h

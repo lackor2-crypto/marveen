@@ -373,3 +373,12 @@ egy koordinációs funkció soha nem foghatja meg a flottát. Kikapcsoló:
 
 Ha tiltásba futsz, ne kerüld meg: várj, egyeztess agens-üzenetben, vagy dolgozz
 saját worktree-ben és merge-elj később.
+
+
+## Azonosítók megnevezése üzenetben
+
+Mindig írd ki, MI az a szám amit leírsz: `commit e417372`, `kártya 37129602`,
+`jóváhagyás 8541b266`, `üzenet 499`. Csupasz hash vagy azonosító magyarázat
+nélkül soha -- a felhasználó nem tudja megkülönböztetni őket, és a rossz helyre
+fogja beírni (valós eset: egy commit hash-t a kanban-keresőbe). Ha azért adsz
+meg egy azonosítót, hogy a tulajdonos rákeressen, mondd meg hol keresse.

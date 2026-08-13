@@ -62,14 +62,19 @@ const HAIKU_KEYWORDS = [
   'rövid válasz', 'tömör', 'egyszerű feladat',
 ]
 
-// Approximate input-token cost in USD per 1M tokens (mid-2026 pricing).
+// Input-token cost in USD per 1M tokens. Last verified 2026-08-12 against
+// anthropic.com / claude.com. Keep in sync when Anthropic reprices: the Opus
+// row here sat stale at the old $15 (Opus 4.0/4.1 era) long after the price was
+// cut to $5 with Opus 4.5, so every Opus agent's cost badge read double the real
+// figure (Boss report, 2026-08-12). Re-verify periodically; a wrong number here
+// is shown to the operator as fact.
 const MODEL_COST_PER_M: Record<string, number> = {
-  'claude-opus-4-8': 15,
-  'claude-opus-5': 15,
-  'claude-fable-5': 15,
-  'claude-sonnet-5': 3,
-  'claude-sonnet-4-6': 3,
-  'claude-haiku-4-5': 0.80,
+  'claude-opus-4-8': 5,   // Opus 4.5/4.6/4.7/4.8 all $5 in / $25 out
+  'claude-opus-5': 5,     // $5 in / $25 out
+  'claude-fable-5': 10,   // $10 in / $50 out
+  'claude-sonnet-5': 2,   // $2 in / $10 out (launch intro price, now standard)
+  'claude-sonnet-4-6': 3, // older Sonnet tier, $3 in
+  'claude-haiku-4-5': 1,  // $1 in / $5 out
 }
 
 // Like modelCostPerM() below, but returns null for anything not in the known
