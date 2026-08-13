@@ -502,11 +502,26 @@ async function triggerMarveenMemorySave(): Promise<void> {
   }
 }
 
-// Read the main agent's configured model from .claude/settings.json so a
-// soft resume passes --model explicitly, mirroring scripts/channels.sh. Without
-// it the respawned session falls back to claude-code's built-in default and
-// silently drifts off the model the user picked. Returns '' when unset.
+// Read the main agent's configured model so a respawn passes --model
+// explicitly, mirroring scripts/channels.sh's resolve_main_model(): .env's
+// MAIN_AGENT_MODEL wins first (the wizard-exposed override), falling back to
+// .claude/settings.json's `.model`. Without the .env leg here, a model change
+// made only in .env (the documented, wizard-registered way to change it) is
+// silently ignored by every respawn-pane path -- .claude/settings.json is the
+// stale fallback, not the source of truth. Returns '' when unset.
 function readConfiguredMainModel(): string {
+  try {
+    const envPath = join(PROJECT_ROOT, '.env')
+    if (existsSync(envPath)) {
+      const line = readFileSync(envPath, 'utf-8')
+        .split('\n')
+        .find((l) => l.startsWith('MAIN_AGENT_MODEL='))
+      const envModel = line?.slice('MAIN_AGENT_MODEL='.length).trim()
+      if (envModel) return envModel
+    }
+  } catch {
+    /* fall through to settings.json */
+  }
   try {
     const settingsPath = join(PROJECT_ROOT, '.claude', 'settings.json')
     if (!existsSync(settingsPath)) return ''
