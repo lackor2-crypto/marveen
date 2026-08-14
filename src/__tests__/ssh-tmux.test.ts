@@ -41,8 +41,10 @@ describe('buildTmuxInvocation', () => {
     expect(inv.args.length).toBe(SSH_OPTS.length + 2)
     expect(inv.args.slice(0, SSH_OPTS.length)).toEqual([...SSH_OPTS])
     expect(inv.args[SSH_OPTS.length]).toBe('devbox')
+    // The target is anchored to the exact form (=name:) before quoting, so a
+    // remote send can never prefix-match into a neighbouring session either.
     expect(inv.args[SSH_OPTS.length + 1]).toBe(
-      "tmux 'send-keys' '-t' 'agent-x' '-l' 'a'\\''b c'",
+      "tmux 'send-keys' '-t' '=agent-x:' '-l' 'a'\\''b c'",
     )
   })
 

@@ -29,9 +29,95 @@ export interface BrokerConfig {
   designated: string | null
   /** Epoch ms of the last change, or null when never set. */
   updatedAt: number | null
+  /**
+   * Hand a delegate a FRESH window before the first command of a new task.
+   *
+   * Boss proposed this on 2026-08-14 and asked whether it was a bad idea. It is
+   * a good one, and it is the piece that makes the role pay for itself: the
+   * point of a generator is that the worker receives a small, curated packet,
+   * and that only holds if the worker is not still carrying the last task. A
+   * task handover is also the one moment where discarding context is safe --
+   * the replacement arrives in the same breath.
+   *
+   * It is guarded, not blind: never on the generator itself (it would erase the
+   * packet it just built), never on an agent that is working, has unread inbox
+   * or has unfinished task state, and always followed immediately by the
+   * packet. A clear with nothing behind it is amnesia, not a clean start.
+   *
+   * Default off. This wipes conversations, so it starts off and stays off until
+   * someone deliberately turns it on.
+   */
+  cleanStart: boolean
+  /**
+   * Above this many seconds of expected work, an expensive agent should hand
+   * the job back to the generator instead of running it itself.
+   *
+   * Boss, 2026-08-14: "a draga agent csak rovid kereseket indithat a gepen, de
+   * ha hoszabb akkor adja vissza a kerest annak aki neki kiadta a parancsot."
+   * The reasoning matches the design document: the expensive model's budget
+   * should go on judgement, not on watching a build scroll past. Long output is
+   * what actually fills a context window, and it is cheap to produce elsewhere.
+   *
+   * 0 disables the rule.
+   */
+  handBackAfterSeconds: number
+  /**
+   * Who does what in the pipeline. Each role is held by at most one agent, and
+   * an agent may hold several.
+   *
+   * Deliberately NOT derived from the model. The owner ticks a box on a card,
+   * and whatever runs behind that card -- Claude, GPT, Gemma, something added
+   * next month -- holds the role. A rule that read model names would have
+   * quietly excluded most of this fleet, and would need editing every time a
+   * new provider arrives.
+   *
+   * null everywhere is the normal state: the generator then decides for itself
+   * who to hand each piece of work to.
+   */
+  roles: BrokerRoles
 }
 
-export const DEFAULT_BROKER_CONFIG: BrokerConfig = { designated: null, updatedAt: null }
+/** The roles an agent can be given on its card. */
+export const BROKER_ROLE_IDS = ['planner', 'implementer', 'checker'] as const
+export type BrokerRoleId = typeof BROKER_ROLE_IDS[number]
+export type BrokerRoles = Record<BrokerRoleId, string | null>
+
+export const EMPTY_ROLES: BrokerRoles = { planner: null, implementer: null, checker: null }
+
+function normalizeRoles(raw: unknown): BrokerRoles {
+  const o = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {}
+  const out: BrokerRoles = { ...EMPTY_ROLES }
+  for (const id of BROKER_ROLE_IDS) {
+    const v = o[id]
+    out[id] = (typeof v === 'string' && v.trim()) ? v.trim() : null
+  }
+  return out
+}
+
+/**
+ * Give `agent` a role, or take it away. Returns a NEW map.
+ *
+ * Assigning is exclusive by construction: whoever held the role loses it in the
+ * same value, so two cards can never both show themselves as the planner. This
+ * is the same shape as the generator designation, and for the same reason --
+ * the UI must not have to clear the other boxes itself.
+ */
+export function assignRole(roles: BrokerRoles, role: BrokerRoleId, agent: string | null): BrokerRoles {
+  return { ...normalizeRoles(roles), [role]: (agent && agent.trim()) ? agent.trim() : null }
+}
+
+/** Every role `agent` currently holds, in a stable order. */
+export function rolesOf(roles: BrokerRoles, agent: string): BrokerRoleId[] {
+  return BROKER_ROLE_IDS.filter((id) => roles[id] === agent)
+}
+
+export const DEFAULT_BROKER_CONFIG: BrokerConfig = {
+  designated: null,
+  updatedAt: null,
+  cleanStart: false,
+  handBackAfterSeconds: 0,
+  roles: { planner: null, implementer: null, checker: null },
+}
 
 export function normalizeBrokerConfig(raw: unknown): BrokerConfig {
   const o = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {}
@@ -39,7 +125,14 @@ export function normalizeBrokerConfig(raw: unknown): BrokerConfig {
   const updatedAt = (typeof o.updatedAt === 'number' && Number.isFinite(o.updatedAt) && o.updatedAt > 0)
     ? Math.floor(o.updatedAt)
     : null
-  return { designated, updatedAt }
+  // Strictly true, like every other destructive switch here: a truthy string
+  // from a hand-written request must not be enough to start wiping sessions.
+  const cleanStart = o.cleanStart === true
+  const rawSeconds = Number(o.handBackAfterSeconds)
+  const handBackAfterSeconds = Number.isFinite(rawSeconds) && rawSeconds > 0
+    ? Math.min(3600, Math.floor(rawSeconds))
+    : 0
+  return { designated, updatedAt, cleanStart, handBackAfterSeconds, roles: normalizeRoles(o.roles) }
 }
 
 export interface BrokerCandidate {

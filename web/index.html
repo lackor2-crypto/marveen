@@ -339,6 +339,15 @@
         <div class="overview-capabilities-title" data-i18n="overview.capabilities.title">Ezeket még nem használod ki</div>
         <div class="overview-capabilities-list" id="overviewCapabilitiesList"></div>
       </div>
+      <!-- Kapcsolatok (Google-fiokok + Claude Code connectorok). Kulon kartya a
+           telepito-varazslotol: az ott felsorolt hianyok EGYSZERI beallitasok, ez
+           viszont ELROMLIK menet kozben (lejar egy Google-token, uj gepen meg
+           nincs engedelyezve a connector) -- ezert kell akkor is latszania,
+           amikor a telepites reg kesz. Kattintasra a Fiokok oldalra visz. -->
+      <div class="overview-capabilities" id="overviewConnections" hidden>
+        <div class="overview-capabilities-title" data-i18n="conn.ov_title">Kapcsolatok</div>
+        <div class="overview-capabilities-list" id="overviewConnectionsList"></div>
+      </div>
       <div class="overview-card overview-ratelimit" id="overviewRateLimit" hidden>
         <div class="overview-card-head">
           <h3 data-i18n="overview.ratelimit.title">Keret-figyelő</h3>
@@ -1625,24 +1634,44 @@
         <p class="subtitle" data-i18n="accounts.page_subtitle">Minden fiók és API-kulcs, ami a Marvinhoz kapcsolódik -- egy helyen</p>
       </div>
 
-      <!-- The page's two old lists ("core" and "optional") are retired: the panel
-           below is the single list now, and keeping them meant OpenRouter and Groq
-           appearing twice on one screen (Boss spotted it, 2026-08-12). The empty
-           holders stay so the code that still writes to them cannot throw. -->
-      <div class="accounts-list" id="accountsCoreList" hidden></div>
-      <div class="accounts-list" id="accountsOptionalList" hidden></div>
-
-      <!-- Fiokok es kulcsok (kanban #52). Kenyelmi funkcio: SEMLEGES szinek, semmi
-           piros -- enelkul is minden mukodik, csak terminalbol kell bejelentkezni.
-           PARHUZAMOS fiokok: az uj bejelentkezes a meglevoket nem bantja. -->
-      <div class="accounts-section" id="claudeAccountPanel">
-        <div class="accounts-section-title" data-i18n="claudeauth.title">Fiókok és kulcsok</div>
+      <!-- EGY PANEL, fiokonkent EGY kartya. Boss, 2026-08-14: "van 3 panel es
+           mind a 3 ugyanazt mutatja. nem ertem hogy az elsoben felsorolod a
+           gmail fiokokat es a masodikban is [...] nem lehetne ezeket egy panelre
+           tenni? mindennel egyutt? levalasztas ellenorzes stb egy panal egy
+           helyen mutatna?"
+           Igaza volt: ugyanaz a cim harom kulon listaban szerepelt (Claude
+           bejelentkezes / Google-fiok / Claude Code kapcsolatok), es sehol nem
+           latszott, hogy ez EGY fiok. Itt egy cim = egy kartya, rajta minden,
+           ami hozza tartozik, es minden gombja (ellenorzes, alapertelmezett,
+           levalasztas) ugyanazon a kartyan.
+           A KULCSOK kulon maradnak lent: azok nem emberek, hanem beillesztett
+           szovegek -- fiok-kartyakent ugy neznenek ki, mintha valakit
+           "levalaszthatnal", ami ertelmetlen. -->
+      <div class="accounts-section" id="accountsHubSection">
+        <div class="accounts-section-title" data-i18n="acchub.title">Fiókok</div>
         <div class="claude-auth-box">
-          <p class="claude-auth-lead" data-i18n="claudeauth.lead">Itt van egy helyen minden, amivel a Marveen dolgozik: a bejelentkezett fiókok és a beállított kulcsok. Több fiók lehet egyszerre bent, és mindegyik megmarad. Új hozzáadásához válaszd ki alul, melyik szolgáltatóhoz.</p>
+          <p class="claude-auth-lead" data-i18n="acchub.lead">Minden bekötött fiók egy-egy kártyán. A kártyán ott van minden, ami ahhoz a fiókhoz tartozik: mivel van bejelentkezve, működik-e a levél, a naptár és a Drive, milyen Claude Code kapcsolatai vannak — és ott vannak a gombok is, amikkel ellenőrizheted, alapértelmezetté teheted vagy leválaszthatod. Annyi fiók lehet egyszerre bent, amennyit szeretnél; egyik sem szorítja ki a másikat.</p>
 
-          <div class="claude-auth-list" id="claudeAuthList"></div>
-          <p class="claude-auth-warn" data-i18n="claudeauth.other_hint">Ez a lista azt mutatja, amit a Marveen maga használ a munkához. Bármi más fiókot (YouTube, bank, egy weboldal belépője) a Vaultban tarthatsz, ott bármilyen kártyát létre tudsz hozni.</p>
-          <p class="claude-auth-warn"><a href="#" id="claudeAuthVaultLink" data-i18n="claudeauth.other_link">Ugrás a Vaultra</a></p>
+          <div class="claude-auth-warn" id="gconnNoClient" hidden>
+            <span data-i18n="gconn.no_client">Ehhez előbb egy egyszeri beállítás kell (Google OAuth kliens-fájl). A Beállítások → Telepítés varázslóban lépésről lépésre le van írva, hogyan szerezd meg.</span>
+          </div>
+
+          <div class="acc-hub" id="accountsHubList"></div>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="acchub.keys_title">Kulcsok és egyéb szolgáltatások</div>
+            <p class="claude-auth-warn" data-i18n="acchub.keys_lead">Ezeknek nincs saját kártyájuk, mert nem „valaki”: beillesztett kulcsok (egy-egy hosszú kód, amivel a Marveen elér egy szolgáltatást) és olyan szolgáltatások, amiknél nincs mit leválasztani — vagy be vannak állítva, vagy nincsenek.</p>
+            <div class="claude-auth-list" id="accountsKeyList"></div>
+            <p class="claude-auth-warn" data-i18n="claudeauth.other_hint">Ez a lista azt mutatja, amit a Marveen maga használ a munkához. Bármi más fiókot (YouTube, bank, egy weboldal belépője) a Vaultban tarthatsz, ott bármilyen kártyát létre tudsz hozni.</p>
+            <p class="claude-auth-warn"><a href="#" id="claudeAuthVaultLink" data-i18n="claudeauth.other_link">Ugrás a Vaultra</a></p>
+          </div>
+
+          <!-- Innentol lefele mar nem "mi van bekotve", hanem "hogyan kotok be
+               ujat": harom kulon folyamat, de mind az EGY panelen belul, es a
+               listajukat egyik sem ismetli meg -- azt a kartyak mutatjak. -->
+          <div class="acc-block" id="claudeAccountPanel">
+            <div class="acc-block-title" data-i18n="acchub.add_claude">Új Claude-fiók vagy kulcs hozzáadása</div>
+            <p class="claude-auth-warn" data-i18n="claudeauth.lead">Több fiók lehet egyszerre bent, és mindegyik megmarad: az új bejelentkezés a meglévőket nem bántja. Válaszd ki, melyik szolgáltatóhoz adsz újat.</p>
 
           <div class="claude-auth-actions">
             <select class="input-sm" id="claudeAuthService" style="min-width:200px"></select>
@@ -1694,6 +1723,130 @@
             </ol>
             <p class="claude-auth-state" id="claudeAuthState"></p>
             <button class="btn-secondary btn-compact" id="claudeAuthCancelBtn" data-i18n="claudeauth.cancel">Mégsem</button>
+          </div>
+          </div>
+
+          <!-- Google-fiokok. Boss, 2026-08-14: "lehet hogy 10 email lesz
+               csatlakoztatva. mindegyiknek kellene hogy mukodjon." Ez az a hely:
+               a store/google-tokens.json fiok-kulcsolt, tehat AKARHANY cim elhet
+               egyszerre, mindegyiknel Gmail + Drive + Naptar. Eddig csak
+               terminalbol lehetett bekotni -- ez a szakasz hozza be a feluletre.
+               A LISTAJA feljebb, a kartyakon van; itt csak a bekotes maradt. -->
+          <div class="acc-block" id="googleConnSection">
+            <div class="acc-block-title" data-i18n="acchub.add_google">Google-fiók bekötése (levél, Drive, naptár)</div>
+            <p class="claude-auth-warn" data-i18n="gconn.lead">Ide annyi Google-címet köthetsz be, amennyit szeretnél — akár tízet is. Mind egyszerre él, egyik sem szorítja ki a másikat, és mindegyiknél megvan a levél, a Drive és a naptár. Az „alapértelmezett" az, amelyiket a Marveen magától használja, ha nem mondod meg, melyiket.</p>
+
+          <div class="claude-auth-actions" id="gconnAddRow">
+            <input class="input-sm" type="text" id="gconnName" style="min-width:220px"
+                   data-i18n-placeholder="gconn.name_ph" placeholder="pl. munka@gmail.com vagy csak: munka">
+            <button class="btn-secondary" id="gconnAddBtn" data-i18n="gconn.add">Google-fiók hozzáadása</button>
+          </div>
+          <p class="claude-auth-warn" data-i18n="gconn.name_help">A nevet te találod ki, csak neked szól — ezen a néven látod majd a listában. Ha az e-mail címet írod be, a nevet magamtól kitalálom belőle.</p>
+
+          <!-- "A Google nem enged be." Boss, 2026-08-14: uj cimet probalt
+               bekotni, es a Google 403 access_denied-del visszautasitotta
+               ("Hozzaferes letiltva: a Marveen nem teljesitette a Google
+               ellenorzesi folyamatat"). Ez NEM hiba es nem mulik el ujraprobalassal:
+               az OAuth-alkalmazas "Testing" allapotban van, ahova a Google csak a
+               tesztelo-listan szereplo cimeket engedi be. "szoval ezen a folyamaton
+               is vezesd vegig a usert hulyebiztosan!" -- ezert van itt, MINDIG
+               elerhetoen (nem csak a hiba utan), es ezert nyilik ki magatol, ha a
+               szerver felismeri a visszautasitast. -->
+          <div class="claude-auth-actions" id="gconnBlockedToggleRow">
+            <button class="btn-secondary btn-compact" id="gconnBlockedToggle" data-i18n="gconn.blocked_toggle">A Google nem enged be? („Hozzáférés letiltva”, 403)</button>
+          </div>
+
+          <div class="claude-auth-flow" id="gconnBlocked" hidden>
+            <p class="claude-auth-lead" data-i18n="gconn.blocked_lead">Ez nem a te hibád, és nem is elrontottál valamit. A Google csak azokat a címeket engedi be, amiket előre felírtunk egy listára. Vedd fel rá azt a címet, amit be szeretnél kötni — két perc, és utána megy.</p>
+            <ol class="claude-auth-steps">
+              <li>
+                <span data-i18n="gconn.blocked_s1">Nyisd meg ezt az oldalt. Azzal a Google-fiókkal lépj be, amelyikkel a Marveent beállítottad (ez általában a saját, fő fiókod):</span>
+                <div class="claude-auth-linkrow">
+                  <a id="gconnConsoleLink" href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener noreferrer" data-i18n="gconn.blocked_open_console">Google beállító oldal megnyitása</a>
+                  <button class="btn-secondary btn-compact" id="gconnConsoleCopyBtn" data-i18n="gconn.copy_link">Link másolása</button>
+                </div>
+              </li>
+              <li data-i18n="gconn.blocked_s2">Görgess le a „Tesztfelhasználók” (angolul: Test users) részhez. Ott egy lista van, benne néhány e-mail címmel.</li>
+              <li data-i18n="gconn.blocked_s3">Nyomd meg a „+ FELHASZNÁLÓK HOZZÁADÁSA” (+ ADD USERS) gombot.</li>
+              <li>
+                <span data-i18n="gconn.blocked_s4">Írd be pontosan azt a Google-címet, amit be akarsz kötni, majd nyomj Mentést:</span>
+                <div class="claude-auth-linkrow" id="gconnBlockedAddrRow" hidden>
+                  <code id="gconnBlockedAddr"></code>
+                </div>
+              </li>
+              <li data-i18n="gconn.blocked_s5">Gyere vissza ide, és nyomd meg a „Felvettem, próbáljuk újra” gombot. Ha a Google közben már kiírta, hogy kész, akkor is nyugodtan nyomd meg.</li>
+            </ol>
+            <p class="claude-auth-warn" data-i18n="gconn.blocked_note">Jó tudni: így legfeljebb 100 címet lehet felvenni, és ilyenkor a Google 7 naponta újra kéri a bejelentkezést — ha egy fiók egyszer csak „lejárt”-at ír, csak kösd be újra ugyanígy. Ha nem a te fiókod hozta létre ezt a Google-projektet, akkor annak kell felvennie a címet, aki létrehozta.</p>
+            <div class="claude-auth-actions">
+              <button class="btn-primary btn-compact" id="gconnRetryBtn" data-i18n="gconn.blocked_retry">Felvettem, próbáljuk újra</button>
+              <button class="btn-secondary btn-compact" id="gconnBlockedClose" data-i18n="common.close">Bezárás</button>
+            </div>
+          </div>
+
+          <div class="claude-auth-flow" id="gconnFlow" hidden>
+            <ol class="claude-auth-steps">
+              <li>
+                <span data-i18n="gconn.step1">Nyisd meg ezt a linket, és lépj be azzal a Google-fiókkal, amit hozzá akarsz adni:</span>
+                <div class="claude-auth-linkrow">
+                  <a id="gconnLink" href="#" target="_blank" rel="noopener noreferrer" data-i18n="gconn.open_link">Google jóváhagyó oldal megnyitása</a>
+                  <button class="btn-secondary btn-compact" id="gconnCopyBtn" data-i18n="gconn.copy_link">Link másolása</button>
+                </div>
+              </li>
+              <li data-i18n="gconn.step2">A Google megkérdezi, engedélyezed-e. Nyomd meg az „Engedélyezem" gombot. Ha utána azt látod a böngészőben, hogy „Marveen: a Google hitelesítés kész", akkor KÉSZ vagy — ide már nem kell semmit visszamásolnod.</li>
+              <li>
+                <span data-i18n="gconn.step3">Csak akkor kell ez, ha az előző lépés után hibaoldalt kaptál: másold ki a böngésző címsorából a TELJES linket, és illeszd be ide.</span>
+                <div class="claude-auth-linkrow">
+                  <input class="input-sm" type="text" id="gconnPaste" style="flex:1;min-width:200px"
+                         data-i18n-placeholder="gconn.paste_ph" placeholder="Ide illeszd be a címsorból kimásolt linket">
+                  <button class="btn-primary btn-compact" id="gconnPasteBtn" data-i18n="gconn.send">Küldés</button>
+                </div>
+              </li>
+            </ol>
+            <p class="claude-auth-state" id="gconnState"></p>
+            <button class="btn-secondary btn-compact" id="gconnCancelBtn" data-i18n="common.cancel">Mégse</button>
+          </div>
+          </div>
+
+          <!-- Claude Code kapcsolatok. A MERT: a claude.ai-on bekapcsolt kapcsolat
+               (Drive, Gmail...) meg NEM jelenti, hogy az ugynok latja is -- az
+               engedelyezes GEPENKENT es CLAUDE-FIOKONKENT kulon kell. Eddig ehhez
+               terminal kellett; Boss (2026-08-14) jogosan mondta, hogy ezt egy
+               nem-programozo user nem tudja megcsinalni.
+               A LISTAJA feljebb, a kartyakon van; itt csak az ellenorzes maradt. -->
+          <div class="acc-block" id="mcpConnSection">
+            <div class="acc-block-title" data-i18n="acchub.add_mcp">Claude Code kapcsolatok ellenőrzése</div>
+            <p class="claude-auth-warn" data-i18n="mconn.lead">Ezek azok a kapcsolatok, amiket a claude.ai fiókodban kapcsoltál be (Drive, Gmail, naptár, Canva). Fontos: attól, hogy ott be van kapcsolva, az ügynök még nem látja — ezen a gépen külön engedélyt kér, és minden Claude-fióknál KÜLÖN. Fent, a fiók kártyáján látod, melyik ügynök használja, és egy gombbal el tudod intézni.</p>
+          <div class="claude-auth-actions">
+            <button class="btn-secondary btn-compact" id="mconnRefreshBtn" data-i18n="mconn.refresh">Ellenőrzés most</button>
+            <span class="claude-auth-state" id="mconnState"></span>
+          </div>
+
+          <div class="claude-auth-flow" id="mconnFlow" hidden>
+            <div class="claude-auth-current" id="mconnFlowTitle"></div>
+            <ol class="claude-auth-steps">
+              <li>
+                <span data-i18n="mconn.step1">Nyisd meg ezt a linket:</span>
+                <div class="claude-auth-linkrow">
+                  <a id="mconnLink" href="#" target="_blank" rel="noopener noreferrer" data-i18n="mconn.open_link">Engedélyező oldal megnyitása</a>
+                  <button class="btn-secondary btn-compact" id="mconnCopyBtn" data-i18n="gconn.copy_link">Link másolása</button>
+                </div>
+              </li>
+              <li data-i18n="mconn.step2">Az oldalon nyomd meg az engedélyező gombot. Ennyi a dolgod.</li>
+              <li>
+                <span data-i18n="mconn.step3">Gyere vissza ide, és nyomd meg ezt:</span>
+                <div class="claude-auth-linkrow">
+                  <button class="btn-primary btn-compact" id="mconnDoneBtn" data-i18n="mconn.done">Kész, engedélyeztem</button>
+                </div>
+              </li>
+            </ol>
+            <div class="claude-auth-linkrow" id="mconnPasteRow" hidden>
+              <input class="input-sm" type="text" id="mconnPaste" style="flex:1;min-width:200px"
+                     data-i18n-placeholder="mconn.paste_ph" placeholder="Ide illeszd be a címsorból kimásolt linket">
+              <button class="btn-primary btn-compact" id="mconnPasteBtn" data-i18n="gconn.send">Küldés</button>
+            </div>
+            <p class="claude-auth-state" id="mconnFlowState"></p>
+            <button class="btn-secondary btn-compact" id="mconnCancelBtn" data-i18n="common.cancel">Mégse</button>
+          </div>
           </div>
         </div>
       </div>
@@ -2145,19 +2298,35 @@
             <p class="subtitle" data-i18n="drive.page_subtitle">Google Drive böngésző -- mappák, feltöltés, letöltés</p>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
-            <select id="driveAccountSelect" class="input" style="width:auto"></select>
-            <label class="btn-secondary btn-compact" for="driveUploadInput" style="cursor:pointer">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              <span data-i18n="drive.upload_btn">Feltöltés</span>
-            </label>
-            <input type="file" id="driveUploadInput" hidden>
-            <button class="btn-secondary btn-compact" id="driveNewFolderBtn">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
-              <span data-i18n="drive.new_folder_btn">Új mappa</span>
+            <!-- Boss 2026-08-14: "egy oldalon fogom latni a Drive-ot... egyik
+                 harmadban lackor2, masikban usalackor". Ez a kapcsolo: egy
+                 fiok (legordulo) VAGY minden fiok egymas mellett, hasabokban.
+                 Tiz hasab egy laptopon olvashatatlan, ezert a hasabok kikapcsolhatok. -->
+            <button class="btn-secondary btn-compact" id="driveAllToggle" aria-pressed="false">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="5" height="16"/><rect x="10" y="4" width="5" height="16"/><rect x="17" y="4" width="4" height="16"/></svg>
+              <span id="driveAllToggleLabel" data-i18n="drive.all_accounts_btn">Összes fiók</span>
             </button>
+            <span id="driveSingleTools" style="display:flex;gap:8px;align-items:center">
+              <select id="driveAccountSelect" class="input" style="width:auto"></select>
+              <label class="btn-secondary btn-compact" for="driveUploadInput" style="cursor:pointer">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span data-i18n="drive.upload_btn">Feltöltés</span>
+              </label>
+              <input type="file" id="driveUploadInput" hidden>
+              <button class="btn-secondary btn-compact" id="driveNewFolderBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                <span data-i18n="drive.new_folder_btn">Új mappa</span>
+              </button>
+            </span>
           </div>
         </div>
         <div class="info-box" data-i18n="drive.info_box">Törlés a Drive kosarába kerül, nem végleges -- a Drive weben visszaállítható, ha véletlen volt.</div>
+      </div>
+
+      <!-- Melyik fiok legyen lathato hasabkent. Csak az "Osszes fiok" nezetben. -->
+      <div class="drive-multi-bar" id="driveMultiBar" hidden>
+        <span class="drive-multi-bar-label" data-i18n="drive.columns_label">Látható fiókok:</span>
+        <span id="driveMultiChips"></span>
       </div>
 
       <div class="drive-breadcrumb" id="driveBreadcrumb"></div>
@@ -2168,6 +2337,11 @@
         <p data-i18n="drive.empty_msg">Ez a mappa üres</p>
       </div>
       <div id="driveError" class="vault-empty" hidden></div>
+
+      <!-- Egy hasab = egy fiok, sajat mappaveremmel: az egyikben lehet harom
+           mappaval bentebb, mikozben a masik a gyokeret mutatja. -->
+      <div class="drive-multi" id="driveMulti" hidden></div>
+      <input type="file" id="driveMultiUploadInput" hidden>
     </div>
 
     <!-- === Debate (Vitaztatas) Page === -->

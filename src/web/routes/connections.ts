@@ -1,0 +1,232 @@
+// The "what is Marveen connected to, and how do I connect the rest" API.
+//
+// Boss, 2026-08-14, after being told to run `claude mcp login` in an Ubuntu
+// terminal: "de ezzel csak az a problemem hogy ezt hogy fogja megcsinalni egy
+// user aki komuves? nem ert semmihez sem? [...] a marveen feluletet mondjuk
+// tudja kezelni de mast nem. szoval ezt a marveen ban kellene megoldani."
+// And, the same day: "ugy tervezd meg hogy lehet hogy 10 email lesz
+// csatlakoztatva. mindegyiknek kellene hogy mukodjon."
+//
+// Two halves, deliberately on one path, because from the operator's side they
+// answer one question:
+//
+//   /api/connections/google  -- Marveen's OWN Google logins. Genuinely
+//     multi-account: ten addresses can be live at once, each keeping Gmail,
+//     Calendar and Drive. This is where the ten-address requirement lives.
+//
+//   /api/connections/mcp     -- the Claude Code connectors, per Claude account.
+//     Measured limit: one Google identity per connector per Claude account, and
+//     a second one CANNOT be added under a different name (the endpoint refuses
+//     dynamic client registration). See ../mcp-connectors.ts.
+//
+// Everything under /api/ is behind the dashboard auth gate; that is the only
+// reason it is safe to expose a sign-in from here. No handler on this path ever
+// logs an authorize URL, a pasted redirect or a token.
+import { json, readBody } from '../http-helpers.js'
+import {
+  listGoogleAccounts,
+  listGoogleAccountsProbed,
+  googleOauthClientPresent,
+  googleOauthProjectId,
+  startGoogleAuth,
+  googleAuthStatus,
+  submitGooglePaste,
+  cancelGoogleAuth,
+  probeGoogleAccount,
+  setDefaultGoogleAccount,
+  removeGoogleAccount,
+  invalidateGoogleProbe,
+} from '../google-auth-runner.js'
+import { suggestAccountId } from '../google-accounts.js'
+import {
+  mcpStatus,
+  refreshMcpStatus,
+  startMcpLogin,
+  mcpLoginStatus,
+  submitMcpPaste,
+  finishMcpLogin,
+} from '../mcp-runner.js'
+import type { RouteContext } from './types.js'
+
+async function body(req: RouteContext['req']): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse((await readBody(req)).toString() || '{}')
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : ''
+}
+
+export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> {
+  const { req, res, path, method, url } = ctx
+
+  // --- Google: Marveen's own multi-account logins ---------------------------
+
+  if (path === '/api/connections/google' && method === 'GET') {
+    // `probe=1` is the explicit "check them all now" the refresh button sends.
+    // Off by default: with ten accounts that is forty API calls, and a page
+    // render is not a reason to make them.
+    const withProbe = url.searchParams.get('probe') === '1'
+    const force = url.searchParams.get('force') === '1'
+    json(res, {
+      clientPresent: googleOauthClientPresent(),
+      // The Cloud Console project name, so the "Google refused you" walkthrough
+      // can link straight at the test-user list. A name, not a credential --
+      // the client id and secret in that same file are never read.
+      projectId: googleOauthProjectId(),
+      accounts: withProbe ? await listGoogleAccountsProbed(force) : listGoogleAccounts(),
+    })
+    return true
+  }
+
+  // One account, checked on its own -- both the per-row "check this one" button
+  // and the page's own background sweep of accounts it has never seen. The
+  // button forces a fresh answer (that is what the operator asked for); the
+  // sweep sends force:false and takes whatever the 5-minute cache holds, so
+  // re-opening the page costs nothing.
+  if (path === '/api/connections/google/probe' && method === 'POST') {
+    const b = await body(req)
+    const id = str(b.id).trim()
+    if (!id) { json(res, { ok: false, error: 'id required' }, 400); return true }
+    json(res, { ok: true, result: await probeGoogleAccount(id, b.force !== false) })
+    return true
+  }
+
+  if (path === '/api/connections/google/login' && method === 'GET') {
+    json(res, googleAuthStatus())
+    return true
+  }
+
+  if (path === '/api/connections/google/login' && method === 'POST') {
+    const b = await body(req)
+    // The operator types an address or a nickname; the id is derived the same
+    // way the script derives one, and de-duplicated against what exists. With
+    // ten accounts a name collision is a matter of time, and silently
+    // overwriting somebody's token would be the worst possible outcome.
+    const taken = listGoogleAccounts().map(a => a.id)
+    const wanted = str(b.id).trim() || str(b.name).trim()
+    if (!wanted) { json(res, { ok: false, error: 'Adj nevet vagy e-mail címet.' }, 400); return true }
+    const id = suggestAccountId(wanted, str(b.id).trim() ? [] : taken)
+    const result = startGoogleAuth(id)
+    json(res, result.ok ? { ok: true, id } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/connections/google/login/paste' && method === 'POST') {
+    const b = await body(req)
+    const result = await submitGooglePaste(str(b.value))
+    // `blocked` travels with the failure so the page can open the walkthrough
+    // in the same beat, rather than waiting for the next status poll.
+    json(res, result.ok ? { ok: true, savedAs: result.savedAs ?? null }
+      : { ok: false, error: result.error, blocked: result.blocked ?? null },
+      result.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/connections/google/login/cancel' && method === 'POST') {
+    cancelGoogleAuth()
+    json(res, { ok: true })
+    return true
+  }
+
+  if (path === '/api/connections/google/default' && method === 'POST') {
+    const b = await body(req)
+    const result = setDefaultGoogleAccount(str(b.id).trim())
+    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/connections/google/remove' && method === 'POST') {
+    const b = await body(req)
+    const result = removeGoogleAccount(str(b.id).trim())
+    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    return true
+  }
+
+  // --- Claude Code connectors, per Claude account ---------------------------
+
+  if (path === '/api/connections/mcp' && method === 'GET') {
+    // Served from cache and never blocking: one probe health-checks every
+    // connector on every account (measured 8-20s each), so the page gets what
+    // is known plus a `refreshing` flag, and polls.
+    json(res, mcpStatus(url.searchParams.get('force') === '1'))
+    return true
+  }
+
+  if (path === '/api/connections/mcp/refresh' && method === 'POST') {
+    void refreshMcpStatus()
+    json(res, { ok: true })
+    return true
+  }
+
+  if (path === '/api/connections/mcp/login' && method === 'GET') {
+    json(res, mcpLoginStatus())
+    return true
+  }
+
+  if (path === '/api/connections/mcp/login' && method === 'POST') {
+    const b = await body(req)
+    const accountId = typeof b.accountId === 'string' && b.accountId ? b.accountId : null
+    const server = str(b.server)
+    if (!server) { json(res, { ok: false, error: 'server required' }, 400); return true }
+    const result = startMcpLogin(accountId, server)
+    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/connections/mcp/login/paste' && method === 'POST') {
+    const b = await body(req)
+    const result = submitMcpPaste(str(b.value))
+    json(res, result.ok ? { ok: true } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/connections/mcp/login/finish' && method === 'POST') {
+    finishMcpLogin()
+    // The connector only appears to a Claude Code started AFTER the
+    // authorization, so the cached "not connected" is now known-stale.
+    void refreshMcpStatus()
+    json(res, { ok: true })
+    return true
+  }
+
+  // --- both halves at once, for the Overview card ---------------------------
+
+  if (path === '/api/connections/summary' && method === 'GET') {
+    const google = listGoogleAccounts()
+    const mcp = mcpStatus()
+    // A Google account whose last probe FAILED is the loud one: it means an
+    // address that used to work has stopped. An unchecked account is not a
+    // problem, it is just unchecked, and must not be counted as broken.
+    const googleBroken = google.filter(a => a.checkedAt !== null && a.error !== null).length
+    json(res, {
+      google: {
+        total: google.length,
+        broken: googleBroken,
+        clientPresent: googleOauthClientPresent(),
+      },
+      mcp: { needsLogin: mcp.needsLogin, broken: mcp.broken, connected: mcp.connected, refreshing: mcp.refreshing },
+      // Worst thing worth saying, so the card can colour itself without the
+      // browser re-deriving the rule. A connector that merely needs a sign-in
+      // is a missed capability, not a broken install -- alarm colours spent on
+      // convenience teach the operator to ignore alarm colours.
+      tier: googleBroken > 0 ? 'recommended'
+        : mcp.needsLogin > 0 ? 'recommended'
+          : (google.length === 0 && googleOauthClientPresent()) ? 'extra'
+            : mcp.broken > 0 ? 'extra' : 'none',
+    })
+    return true
+  }
+
+  if (path === '/api/connections/invalidate' && method === 'POST') {
+    invalidateGoogleProbe()
+    json(res, { ok: true })
+    return true
+  }
+
+  return false
+}

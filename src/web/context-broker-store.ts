@@ -25,6 +25,7 @@ import {
   type BrokerCandidate,
   type BrokerConfig,
   type BrokerResolution,
+  type BrokerRoles,
 } from '../context-broker.js'
 
 const STORE_PATH = join(PROJECT_ROOT, 'store', 'context-broker.json')
@@ -43,8 +44,21 @@ export function readBrokerConfig(): BrokerConfig {
  * file (rather than merging) is the point: the previous holder is cleared in
  * the same atomic write that names the new one.
  */
-export function writeBrokerConfig(designated: string | null): BrokerConfig {
-  const cfg = normalizeBrokerConfig({ designated, updatedAt: Date.now() })
+export function writeBrokerConfig(
+  designated: string | null,
+  options: { cleanStart?: boolean; handBackAfterSeconds?: number; roles?: BrokerRoles } = {},
+): BrokerConfig {
+  // Preserve settings the caller did not mention. Designating a different agent
+  // must not silently reset how the role behaves -- that would turn a one-field
+  // edit into a hidden policy change.
+  const current = readBrokerConfig()
+  const cfg = normalizeBrokerConfig({
+    designated,
+    updatedAt: Date.now(),
+    cleanStart: options.cleanStart ?? current.cleanStart,
+    handBackAfterSeconds: options.handBackAfterSeconds ?? current.handBackAfterSeconds,
+    roles: options.roles ?? current.roles,
+  })
   atomicWriteFileSync(STORE_PATH, JSON.stringify(cfg, null, 2))
   return cfg
 }

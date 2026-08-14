@@ -101,7 +101,7 @@ for agent in $TARGETS; do
   # Skip an agent that is not running: startAgentProcess is the dashboard's job
   # (reconcileDesiredAgents), and a queued message for a dead session would just
   # sit there. Waking is a nice-to-have, never a reason to fight the fleet state.
-  if ! tmux has-session -t "agent-${agent}" 2>/dev/null && [ "$agent" != "$SENDER" ]; then
+  if ! tmux has-session -t "=agent-${agent}:" 2>/dev/null && [ "$agent" != "$SENDER" ]; then
     log "skip ${agent}: no tmux session"
     continue
   fi

@@ -104,10 +104,31 @@ describe('PORTCHAIN1: the port chain follows WEB_PORT on a NON-default port', ()
       ownerName: 'Owner', webPort: Number(PORT),
     })
     expect(rendered).not.toContain('3420')
-    expect(rendered).toContain(`localhost:${PORT}/api/memories`)
-    expect(rendered).toContain(`localhost:${PORT}/api/daily-log`)
-    expect(rendered).toContain(`localhost:${PORT}/api/agent-taskstate`)
     expect(() => JSON.parse(rendered)).not.toThrow()
+    // Any dashboard URL the template DOES carry must use the configured port.
+    // The template stopped carrying any at all on 2026-08-14 -- see the next
+    // test for where they went -- so this is written to keep holding either way
+    // rather than to assert a count that a later template edit would falsify.
+    for (const m of rendered.matchAll(/localhost:(\d+)\/api\//g)) {
+      expect(m[1]).toBe(String(PORT))
+    }
+  })
+
+  // Where those URLs went (2026-08-14). They only ever appeared inside the
+  // PreCompact `type: "agent"` prompt -- a hook Claude Code refuses to run
+  // outside the REPL, so it failed on every single compaction and none of those
+  // endpoints were ever actually called. The checkpoint is a command hook now,
+  // and it is this script that talks to the dashboard, so the no-hardcode rule
+  // has to hold HERE or it holds nowhere.
+  it('the PreCompact checkpoint hook resolves WEB_PORT instead of hardcoding it', () => {
+    const src = readFileSync(join(ROOT, 'scripts/hooks/precompact-checkpoint.py'), 'utf-8')
+    expect(src).toContain('_env_value("WEB_PORT"')
+    expect(src).toContain('/api/agent-taskstate/')
+    // 3420 may appear ONLY as the last-resort default, exactly as doctor.sh and
+    // egress-gate.mjs are allowed to spell it.
+    for (const line of src.split('\n')) {
+      if (line.includes('3420')) expect(line).toContain('_env_value("WEB_PORT"')
+    }
   })
 
   it('channel-monitor builds its agent instruction from WEB_PORT', () => {

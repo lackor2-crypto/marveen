@@ -150,7 +150,7 @@ dash_token() {
 session_rss_kb() {
   local session="$1" pane_pid kids total=0 p r
   command -v tmux >/dev/null 2>&1 || { echo 0; return; }
-  pane_pid="$(tmux list-panes -t "$session" -F '#{pane_pid}' 2>/dev/null | head -1)"
+  pane_pid="$(tmux list-panes -t "=$session:" -F '#{pane_pid}' 2>/dev/null | head -1)"
   [[ -z "${pane_pid:-}" ]] && { echo 0; return; }
   kids="$(ps --ppid "$pane_pid" -o pid= 2>/dev/null)"
   for p in $pane_pid $kids; do

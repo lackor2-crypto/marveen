@@ -317,7 +317,9 @@ describe('attemptChannelMcpReconnect', () => {
 
     expect(mockExecFileSync).toHaveBeenCalledWith(
       '/usr/local/bin/tmux',
-      ['send-keys', '-t', 'agent-slacker', 'Escape'],
+      // Exact target: a sub-agent whose name prefixes another's must not have
+      // its keys delivered to the neighbour (see tmux-target.test.ts).
+      ['send-keys', '-t', '=agent-slacker:', 'Escape'],
       expect.any(Object),
     )
   })

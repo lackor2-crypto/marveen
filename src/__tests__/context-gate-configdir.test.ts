@@ -65,48 +65,91 @@ describe('context readers are account-aware', () => {
   })
 })
 
-// Compact-before-clear (Boss approved 2026-08-12): a threshold that only ever
-// wipes was never what he asked for. /clear stays as the fallback for what
-// compaction cannot fix -- Claude Code refuses to compact a short session, and a
-// context dominated by one huge turn can survive it.
+// The gate compacts; it never wipes. Both halves of the old escalation were
+// wrong (2026-08-14): it measured regrowth as a failed compaction, and it
+// answered that with /clear. Wiping a session is a person's call now.
 describe('chooseReclaimAction', () => {
-  const base = { contextTokens: 120_000, preferCompact: true, lastCompactAt: null, lastCompactTokens: null, nowMs: 1_000_000_000 }
+  const base = {
+    lastCompactAt: null as number | null,
+    lastCompactTokens: null as number | null,
+    lastCompactMinSeen: null as number | null,
+    nowMs: 1_000_000_000,
+  }
 
   it('compacts when nothing has been tried yet', () => {
     expect(chooseReclaimAction(base).action).toBe('compact')
   })
 
-  it('wipes when compaction is switched off for the agent', () => {
-    expect(chooseReclaimAction({ ...base, preferCompact: false }).action).toBe('clear')
+  it('can never return clear, whatever the evidence', () => {
+    const cases = [
+      base,
+      { ...base, lastCompactAt: base.nowMs - 60_000, lastCompactTokens: 120_000, lastCompactMinSeen: 119_000 },
+      { ...base, lastCompactAt: base.nowMs - 60_000, lastCompactTokens: 120_000, lastCompactMinSeen: null },
+      { ...base, lastCompactAt: base.nowMs - 60_000, lastCompactTokens: 0, lastCompactMinSeen: 0 },
+    ]
+    for (const c of cases) expect(['compact', 'hold']).toContain(chooseReclaimAction(c).action)
   })
 
-  // Evidence of failure, not a timer: the previous compaction left the context
-  // where it was, so compacting again would just burn another round.
-  it('escalates to clear when the previous compaction did not shrink anything', () => {
-    const d = chooseReclaimAction({ ...base, contextTokens: 119_000, lastCompactAt: base.nowMs - 60_000, lastCompactTokens: 120_000 })
-    expect(d.action).toBe('clear')
-    expect(d.reason).toContain('120000 -> 119000')
-  })
-
-  it('compacts again when the previous compaction clearly worked', () => {
-    // The real measurement on this install: 101222 -> 5597, then growth back up.
-    const d = chooseReclaimAction({ ...base, contextTokens: 101_222, lastCompactAt: base.nowMs - 60_000, lastCompactTokens: 300_000 })
+  // THE bug this rewrite exists for. A compaction that took the session from
+  // 120k down to 9k worked -- it does not stop working because the agent then
+  // did an hour of useful work and grew back to 119k. The old code compared the
+  // pre-compaction size against the LIVE size, read that as "compaction is
+  // useless", and wiped the conversation for it.
+  it('does not punish regrowth after a compaction that demonstrably worked', () => {
+    const d = chooseReclaimAction({
+      ...base, lastCompactAt: base.nowMs - 60_000,
+      lastCompactTokens: 120_000, lastCompactMinSeen: 9_000,   // live size is back at 119k
+    })
     expect(d.action).toBe('compact')
+  })
+
+  // Evidence of real failure: the session never got smaller at any point.
+  it('holds when the previous compaction never shrank the session', () => {
+    const d = chooseReclaimAction({
+      ...base, lastCompactAt: base.nowMs - 60_000,
+      lastCompactTokens: 120_000, lastCompactMinSeen: 119_000,
+    })
+    expect(d.action).toBe('hold')
+    expect(d.reason).toContain('120000 -> 119000')
+    expect(d.reason).toContain('manual')
+  })
+
+  // Re-sending /compact every sweep would be the same thrashing loop, one level
+  // up. Holding is the point: it stops, and says why.
+  it('holds rather than retrying while a dispatched compaction is unmeasured', () => {
+    const d = chooseReclaimAction({
+      ...base, lastCompactAt: base.nowMs - 60_000,
+      lastCompactTokens: 120_000, lastCompactMinSeen: null,
+    })
+    expect(d.action).toBe('hold')
   })
 
   // Outside the window a still-large context is new growth, not proof of failure.
   it('compacts again once the previous attempt is old', () => {
-    const d = chooseReclaimAction({ ...base, contextTokens: 120_000, lastCompactAt: base.nowMs - (COMPACT_RETRY_WINDOW_MS + 1), lastCompactTokens: 120_000 })
+    const d = chooseReclaimAction({
+      ...base, lastCompactAt: base.nowMs - (COMPACT_RETRY_WINDOW_MS + 1),
+      lastCompactTokens: 120_000, lastCompactMinSeen: 119_000,
+    })
     expect(d.action).toBe('compact')
   })
 
-  it('does not wipe on a legacy record with no recorded size', () => {
+  it('retries on a legacy record with no recorded size', () => {
     const d = chooseReclaimAction({ ...base, lastCompactAt: base.nowMs - 60_000, lastCompactTokens: null })
     expect(d.action).toBe('compact')
   })
 
-  it('defaults preferCompact to on, and honours an explicit false', () => {
-    expect(normalizeGateConfig({}).preferCompact).toBe(true)
-    expect(normalizeGateConfig({ preferCompact: false }).preferCompact).toBe(false)
+  // preferCompact is gone: there is no longer a config that turns compaction
+  // off in favour of wiping, because wiping is not an automatic option at all.
+  it('carries no preferCompact switch any more', () => {
+    expect('preferCompact' in normalizeGateConfig({})).toBe(false)
+    const gate = readFileSync(join(__dirname, '..', 'context-restart-gate.ts'), 'utf8')
+    expect(gate).not.toContain('preferCompact')
+  })
+
+  // A guard against the escalation creeping back in.
+  it('leaves no path from the sweep to /clear', () => {
+    const runner = source('context-restart-gate-runner.ts')
+    expect(runner).not.toContain("'/clear'")
+    expect(runner).toContain('isCompactionInFlight(')
   })
 })

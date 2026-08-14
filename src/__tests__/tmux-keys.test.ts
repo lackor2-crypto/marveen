@@ -19,14 +19,17 @@ describe('resolveSpecialKey', () => {
   })
 })
 
+// The target is the exact form `=name:`, never the bare name: tmux would
+// otherwise prefix-match a typed message into a different agent's pane. See
+// tmux-target.test.ts.
 describe('literalKeyArgs', () => {
   it('builds a literal send-keys with -l and the -- terminator', () => {
-    expect(literalKeyArgs('agent-samu', 'hello')).toEqual(['send-keys', '-t', 'agent-samu', '-l', '--', 'hello'])
+    expect(literalKeyArgs('agent-samu', 'hello')).toEqual(['send-keys', '-t', '=agent-samu:', '-l', '--', 'hello'])
   })
 
   it('passes leading-dash text literally (after --)', () => {
     // The -- terminator means even "-Enter" is taken as text, not a flag.
-    expect(literalKeyArgs('agent-x', '-Enter')).toEqual(['send-keys', '-t', 'agent-x', '-l', '--', '-Enter'])
+    expect(literalKeyArgs('agent-x', '-Enter')).toEqual(['send-keys', '-t', '=agent-x:', '-l', '--', '-Enter'])
   })
 
   it('returns null for empty text', () => {
@@ -36,7 +39,7 @@ describe('literalKeyArgs', () => {
 
 describe('specialKeyArgs', () => {
   it('builds send-keys for an allow-listed key', () => {
-    expect(specialKeyArgs('agent-x', 'Enter')).toEqual(['send-keys', '-t', 'agent-x', 'Enter'])
+    expect(specialKeyArgs('agent-x', 'Enter')).toEqual(['send-keys', '-t', '=agent-x:', 'Enter'])
   })
   it('returns null for a non-allow-listed key', () => {
     expect(specialKeyArgs('agent-x', 'C-x')).toBeNull()

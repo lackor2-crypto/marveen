@@ -1,10 +1,15 @@
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
+import {
+  findMechanismIssues, clampGateTokens, effectiveAutocompactTokens,
+  maxGateTokensFor, GATE_MIN_TOKENS,
+} from '../../context-mechanisms.js'
 import { SETTINGS_REGISTRY, validateSettingValue } from '../../config-registry.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { logConfigChange } from '../../db.js'
 import { setStoreWriteActor } from '../../store-watcher.js'
 import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
+import { BROKER_ROLE_IDS, assignRole, type BrokerRoleId } from '../../context-broker.js'
 import {
   listBrokerCandidates,
   readBrokerConfig,
@@ -12,7 +17,10 @@ import {
   writeBrokerConfig,
 } from '../context-broker-store.js'
 import { listAgentNames } from '../agent-config.js'
-import { MAIN_AGENT_ID } from '../../config.js'
+import { agentSessionName } from '../agent-process.js'
+import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
+import { readRunningAutocompact } from '../running-autocompact.js'
+import { MAIN_AGENT_ID, AUTOCOMPACT_TOKENS } from '../../config.js'
 import type { RouteContext } from './types.js'
 
 export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
@@ -94,8 +102,36 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
   // than editing store/context-restart-gate.json directly.
   if (path === '/api/context-restart-gate' && method === 'GET') {
     const names = [MAIN_AGENT_ID, ...listAgentNames()]
-    const agents = names.map((name) => ({ agent: name, ...readGateConfig(name) }))
-    json(res, { agents })
+    // autocompactRunning is what the agent's LIVE process was started with,
+    // which is not necessarily AUTOCOMPACT_TOKENS: the flag is passed at launch
+    // and these sessions run for days. Sending both lets the card say "in
+    // effect at the next start" instead of showing a value the agent is not
+    // actually using (see src/web/running-autocompact.ts for the incident).
+    const agents = names.map((name) => {
+      const running = readRunningAutocompact(
+        name === MAIN_AGENT_ID ? MAIN_CHANNELS_SESSION : agentSessionName(name),
+      )
+      return {
+        agent: name,
+        ...readGateConfig(name),
+        autocompactRunning: running,
+        // The 69% figure stays server-side, like maxGateTokens: one place owns
+        // it, so a measurement that moves does not have to be found twice.
+        autocompactRunningFiresAt: running === null ? null : effectiveAutocompactTokens(running),
+      }
+    })
+    // The card cannot judge its own threshold without knowing where the CLI
+    // fires, and that value lives in .env, not here. Sending it means the UI
+    // can refuse a broken combination BEFORE the owner saves it, instead of
+    // storing a number that quietly never takes effect (which is exactly what
+    // happened to every agent but one).
+    json(res, {
+      agents,
+      autocompactTokens: AUTOCOMPACT_TOKENS,
+      autocompactFiresAt: effectiveAutocompactTokens(AUTOCOMPACT_TOKENS),
+      maxGateTokens: maxGateTokensFor(AUTOCOMPACT_TOKENS),
+      minGateTokens: GATE_MIN_TOKENS,
+    })
     return true
   }
 
@@ -107,6 +143,30 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       if (!agent || !known.has(agent)) {
         json(res, { error: 'Unknown or missing "agent"' }, 400)
         return true
+      }
+      // The UI blocks this combination too, but the rule has to hold at the
+      // boundary: an API caller, an older cached page or a hand-written curl
+      // must not be able to store a threshold above where the CLI's autocompact
+      // fires. That is not a stricter setting, it is a dead one -- the CLI
+      // reaches the context first every time and the gate never runs.
+      const requestedTokens = Number(body?.thresholdTokens)
+      if (body?.enabled === true && Number.isFinite(requestedTokens) && requestedTokens > 0) {
+        const issues = findMechanismIssues({
+          gateEnabled: true,
+          gateTokens: requestedTokens,
+          autocompactTokens: AUTOCOMPACT_TOKENS,
+          brokerDesignated: false,
+          brokerCleanStart: false,
+        })
+        const blocking = issues.find((i) => i.severity === 'error')
+        if (blocking) {
+          json(res, {
+            error: 'gate threshold conflicts with autocompact',
+            issue: blocking,
+            suggestedThresholdTokens: clampGateTokens(requestedTokens, AUTOCOMPACT_TOKENS),
+          }, 400)
+          return true
+        }
       }
       // writeGateConfig normalizes (enabled must be strictly true; thresholdTokens
       // a positive int, else the documented default), so partial/garbage input
@@ -133,7 +193,7 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
   // request.
   if (path === '/api/context-broker' && method === 'GET') {
     const resolution = resolveEffectiveBroker()
-    json(res, { ...resolution, candidates: listBrokerCandidates() })
+    json(res, { ...resolution, config: readBrokerConfig(), candidates: listBrokerCandidates() })
     return true
   }
 
@@ -153,7 +213,37 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
         }
       }
       const previous = readBrokerConfig().designated
-      const saved = writeBrokerConfig(clearing ? null : raw)
+      const target = clearing ? null : raw
+      // No validation of cleanStart here on purpose. It is ONE policy for the
+      // whole fleet ("the generator hands its delegates a fresh window"), not a
+      // per-agent flag, so there is no combination to reject at this boundary.
+      // The rule it must obey -- never wipe the generator itself, never wipe a
+      // busy agent -- is a property of the moment the clear happens, and is
+      // enforced where that happens: scripts/hooks/broker-role.py and the
+      // context-action route, both of which can see the agent's live state.
+      // A role assignment is a separate, additive edit: POSTing {role, agent}
+      // changes only that role and leaves the generator designation alone, so
+      // ticking "planner" on a card does not un-designate the generator.
+      const roleId = typeof body?.role === 'string' ? body.role.trim() : ''
+      if (roleId) {
+        if (!(BROKER_ROLE_IDS as readonly string[]).includes(roleId)) {
+          json(res, { error: `Unknown role "${roleId}"` }, 400)
+          return true
+        }
+        const current = readBrokerConfig()
+        const holder = body?.enabled === false ? null : (target ?? null)
+        const savedRoles = writeBrokerConfig(current.designated, {
+          roles: assignRole(current.roles, roleId as BrokerRoleId, holder),
+        })
+        logger.info({ role: roleId, agent: holder }, 'Broker role assignment updated')
+        json(res, { ok: true, config: savedRoles, ...resolveEffectiveBroker() })
+        return true
+      }
+      const saved = writeBrokerConfig(target, {
+        cleanStart: typeof body?.cleanStart === 'boolean' ? body.cleanStart : undefined,
+        handBackAfterSeconds: Number.isFinite(Number(body?.handBackAfterSeconds))
+          ? Number(body.handBackAfterSeconds) : undefined,
+      })
       logger.info({ previous, designated: saved.designated }, 'Context broker designation updated')
       json(res, { ok: true, config: saved, ...resolveEffectiveBroker() })
     } catch (err) {

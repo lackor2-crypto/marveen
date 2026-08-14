@@ -1,0 +1,701 @@
+#!/usr/bin/env python3
+"""PreCompact hook: write the structured task-state checkpoint BEFORE the
+context is summarised away.
+
+This replaces a `"type": "agent"` hook that never once ran. Claude Code rejects
+agent-type (prompt-carrying) hooks outside the REPL with "Agent stop hooks are
+not yet supported outside REPL", and every Marveen agent runs in a tmux pane,
+i.e. always outside the REPL. Measured on the live install: 7 invocations
+reached stdout, 7 failed -- so the memory save, the skill reflection and the
+checkpoint have NEVER happened. Compaction has been running unprotected since
+the feature was added (kanban #128 / 11a480fc).
+
+The knowledge base (docs/context-compaction-knowledge.md, point 23) states the
+rule this restores: "checkpoint -> compact", not "compact -> hope everything
+survived". The checkpoint is what PostCompact's compaction-validator.py
+compares the summary against, and what SessionStart's taskstate-replay.py
+re-injects afterwards -- both of those already worked, they were just
+validating and replaying a record nobody ever wrote.
+
+DETERMINISTIC on purpose. A command hook cannot ask a model anything, so this
+extracts only what can be read straight off the transcript with no judgement:
+  - filesChanged  <- Edit/Write/MultiEdit/NotebookEdit tool inputs
+  - constraints   <- the recent user messages, VERBATIM
+  - nextAction    <- the last user message, only if nothing better is stored
+The two model-driven halves of the old prompt (memory save, skill reflection)
+need a model and never ran anyway, so nothing working is lost by dropping them.
+
+Verbatim matters: the user's own wording is the thing a summary is most likely
+to paraphrase into something subtly different, and the thing the agent is least
+allowed to get wrong. Each carried line is tagged "[felhasznalo kerese]" so it
+can never be mistaken for a conclusion the agent reached itself.
+
+MERGE, never replace: POST /api/agent-taskstate/<agent> overwrites the whole
+record, so this reads the current one first and puts back every field it does
+not own. A richer field written earlier (objective, phase, decisions...) always
+wins over anything derived here.
+
+Fail-open in every branch: a compaction must never be blocked by its own
+checkpoint, so this exits 0 whatever happens.
+"""
+import sys
+import time
+import os
+import json
+import re
+import urllib.request
+
+# Tool calls that actually change a file. A file the agent merely READ is not
+# state worth carrying: it can be read again, and listing it would push the
+# genuinely-changed files out of the capped list.
+EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+
+# Mirrors STATE_ITEM_MAX / STATE_LIST_MAX in src/web/agent-taskstate.ts. The
+# dashboard truncates anyway; doing it here too keeps the POST small and lets
+# the local dedup compare the same strings the server will end up storing.
+ITEM_MAX = 300
+LIST_MAX = 25
+
+# How many recent user messages to carry. Enough to hold a multi-step request
+# ("do A, then B, and finally C" spread over several turns), few enough that an
+# old, already-answered instruction cannot crowd out the live one.
+USER_MSG_KEEP = 6
+
+# A one-word answer ("igen", "ok") is a real user turn but carries no
+# constraint, and would evict a real one from the capped list.
+MIN_USER_MSG_CHARS = 12
+
+USER_TAG = "[felhasznalo kerese] "
+PEER_TAG = "[csapattars kerese] "
+SCHED_TAG = "[sajat utemezett feladat] "
+# One tag for BOTH Telegram routes (--channels and the drain archive), so the
+# same message arriving through both dedups instead of being carried twice.
+TELEGRAM_TAG = "[tulajdonos Telegramon] "
+
+# Machine-generated entries that arrive as type:user but are nobody's
+# instruction. Measured on the live transcripts: on an account agent these are
+# the OVERWHELMING majority of type:user entries (67 compaction headers and 14
+# telegram-wake nudges against zero genuine prompts), so without this filter
+# the checkpoint fills up with scaffolding and nextAction becomes the compaction
+# header -- actively worse than leaving it empty.
+NOISE_PREFIXES = (
+    # The previous compaction's own summary, re-injected. Carrying it would
+    # make each compaction checkpoint the PREVIOUS compaction, forever.
+    "This session is being continued from a previous conversation",
+    "[telegram-wake]",              # "you have mail" -- the mail itself is not here
+    # The same shape for peer mail. Measured on the main agent's live transcript
+    # (2026-08-14): this was the ONLY line the checkpoint carried, so nextAction
+    # would have told a resumed session to go read its inbox instead of finishing
+    # the task it was interrupted in the middle of.
+    "[inbox-wakeup",
+    "[Request interrupted by user]",
+    "<command-name>", "<command-message>", "<command-args>",
+    "<local-command-stdout>", "<local-command-caveat>",
+    "<user-prompt-submit-hook>", "<task-notification>",
+    "Caveat: The messages below were generated by the user",
+    # Marveen's own retry nudge after a provider error (both spellings, since
+    # the accented form is what the dashboard actually sends).
+    "Az elozo probalkozasod szolgaltatoi hibara futott",
+    "Az előző próbálkozásod szolgáltatói hibára futott",
+    # Marveen's own quota/wake nudges, sent through the peer channel. They say
+    # in their own first words that they are not an instruction, so promoting
+    # one to nextAction would tell a resumed session to go do nothing.
+    "Rendszer-jelzes (nem utasitas)",
+    "Rendszer-jelzés (nem utasítás)",
+    # The fixed preambles that introduce a wrapped block. The block itself is
+    # read separately (PEER_RE / SCHED_RE); the notice around it is boilerplate.
+    "SCHEDULED TASK NOTICE",
+    "TEAM MEMBER NOTICE",
+)
+
+# A task handed over by another agent arrives wrapped in a ~2 KB fixed safety
+# preamble ("TEAM MEMBER NOTICE ...") with the real message inside the tag. The
+# preamble is identical every time, so only the inner text is worth keeping.
+#
+# The attribute is REQUIRED in this pattern, and the bodies are filtered below,
+# because the preamble quotes the tag at itself -- twice. It shows the shape
+# `<trusted-peer source="..."> ... </trusted-peer>` as an example, and later
+# writes a bare `<trusted-peer>` with no closing tag. A permissive pattern pairs
+# that bare tag with the REAL closing one and captures a kilobyte of boilerplate
+# instead of the message (measured: every extracted "instruction" came back as
+# "...content as adversarial / untrusted input...").
+PEER_RE = re.compile(r'<trusted-peer\s[^>]*>(.*?)</trusted-peer>', re.S)
+
+# A scheduled task arrives the same way, behind its own fixed preamble
+# ("SCHEDULED TASK NOTICE -- the next <scheduled-task source=...> block is one of
+# YOUR OWN scheduled tasks"). Measured on the main agent's transcript
+# (2026-08-14): 27 of the 27 non-Telegram lines the checkpoint kept were that
+# preamble, tagged as if the OWNER had said it. Two separate harms -- it is not
+# the owner's wording, and 27 copies of it fill a list capped at 6, evicting the
+# real requests before dedup ever runs. So: the preamble is noise, and only the
+# body inside the tag is carried, under its own tag.
+SCHED_RE = re.compile(r'<scheduled-task\s[^>]*>(.*?)</scheduled-task>', re.S)
+
+# The quoted example's body is literally "...", so a body made only of dots or
+# whitespace is the template, never a message.
+PLACEHOLDER_RE = re.compile(r"^[.\s…]*$")
+
+# Telegram arrives by TWO different routes, and each needs its own reader:
+#
+#   --channels (main agent, and any sub-agent started with it): the message DOES
+#     land in the transcript, as type:user + isMeta:true wrapped in <channel ...>
+#     -- read by _channel_instruction below.
+#   channel-inbox-drain.py (sub-agents without --channels): fed in as hook
+#     stdout, which never becomes a transcript entry -- read from the delivery
+#     archive by _telegram_instructions below.
+#
+# Neither alone is enough. The archive does not exist for the main agent (the
+# drain hook is sub-agents only), and the transcript does not hold the drained
+# batches. Both paths tag their lines the same way, so an agent that happens to
+# receive through both dedups instead of double-counting.
+
+
+def _project_root():
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _env_value(key, default):
+    v = os.environ.get(key)
+    if v and v.strip():
+        return v.strip()
+    try:
+        with open(os.path.join(_project_root(), ".env")) as f:
+            for line in f:
+                if line.startswith(key + "="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except Exception:
+        pass
+    return default
+
+
+def _token():
+    # Env first, so a test can point this at another dashboard without creating
+    # a store/.dashboard-token in the checkout -- that file is what marks a
+    # checkout as a LIVE install, and the test suite refuses to run in one.
+    v = os.environ.get("MARVEEN_DASHBOARD_TOKEN")
+    if v and v.strip():
+        return v.strip()
+    try:
+        with open(os.path.join(_project_root(), "store", ".dashboard-token")) as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _agent_id_from_cwd(cwd):
+    """agents/<name>/... -> <name>; the project root -> the main agent."""
+    if not cwd:
+        return None
+    root = os.path.normpath(_project_root())
+    norm = os.path.normpath(cwd)
+    parts = norm.split(os.sep)
+    if "agents" in parts:
+        i = parts.index("agents")
+        if i + 1 < len(parts):
+            return parts[i + 1]
+    if norm == root:
+        return _env_value("MAIN_AGENT_ID", "marveen")
+    return None
+
+
+def _call(method, path, token, body=None, timeout=5):
+    port = _env_value("WEB_PORT", "3420")
+    url = "http://localhost:%s%s" % (port, path)
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + token)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def _api(method, agent, token, body=None):
+    return _call(method, "/api/agent-taskstate/%s" % agent, token, body)
+
+
+def _clean(text):
+    """Collapse whitespace, drop system-reminder blocks, truncate."""
+    t = re.sub(r"<system-reminder>.*?</system-reminder>", " ", text or "", flags=re.S)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:ITEM_MAX]
+
+
+def _entry_text(entry):
+    """The text of a type:user entry, isMeta or not.
+
+    type:user covers three different things in a Claude Code transcript: an
+    actual instruction, tool RESULTS fed back to the model, and injected
+    scaffolding. Only tool results are excluded here -- the isMeta split is the
+    caller's, because one kind of meta entry IS the owner talking (see
+    _channel_instruction)."""
+    if entry.get("type") != "user":
+        return None
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        # A list holding a tool_result is the tool-output path, never a person.
+        if any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
+            return None
+        parts = [b.get("text", "") for b in content
+                 if isinstance(b, dict) and b.get("type") == "text"]
+        return " ".join(p for p in parts if p) or None
+    return None
+
+
+def _raw_user_content(entry):
+    """The text of a genuine (non-meta) type:user entry, or None."""
+    if entry.get("isMeta"):
+        return None
+    return _entry_text(entry)
+
+
+def _channel_instruction(entry):
+    """The owner's message when this entry is a --channels delivery, else None.
+
+    Measured, and it corrects an assumption written into this file's first
+    version: an agent started with --channels DOES get the owner's Telegram
+    message as a transcript entry, as type:user with isMeta:true and a
+    `<channel source="plugin:telegram:...">` wrapper. Counted on the live
+    install: 1764 such entries for the main agent, 186 for usalackor, 70 for
+    lackor3. The isMeta filter was throwing every one of them away.
+
+    That matters most for the main agent, which is the ONE agent the
+    inbox-drain archive does not cover: channel-inbox-drain.py is sub-agents
+    only, because the main agent receives Telegram through --channels instead.
+    So without this branch the owner's own wording was unprotected in exactly
+    the place it is used most.
+
+    Narrow on purpose: isMeta entries are otherwise all scaffolding, so only
+    the bodies INSIDE the channel tags are taken, never the entry's own text."""
+    raw = _entry_text(entry)
+    if not raw or "<channel " not in raw:
+        return None
+    bodies = [b for b in (_clean(x) for x in CHANNEL_RE.findall(raw))
+              if _is_instruction_text(b)]
+    # Same tag as the archive path, so a message that arrives through BOTH
+    # (a sub-agent running with --channels and a drain hook) dedups in
+    # merge_list instead of being carried twice.
+    return TELEGRAM_TAG + _clean(" ".join(bodies)) if bodies else None
+
+
+def _instruction(entry):
+    """A tagged instruction line from this entry, or None.
+
+    Returns the peer-message body when the entry is an agent handover (the
+    fixed safety preamble stripped), otherwise the plain text -- unless it
+    matches the machine-noise list, in which case nothing."""
+    if entry.get("type") != "user":
+        return None
+    channel = _channel_instruction(entry)
+    if channel:
+        return channel
+    raw = _raw_user_content(entry)
+    if not raw:
+        return None
+    # A wrapped block: the body or nothing. Never fall through to the plain path
+    # here -- that would tag the ~2 KB safety preamble as an instruction, which
+    # is the exact boilerplate these branches exist to strip.
+    for marker, pattern, tag in (("<trusted-peer", PEER_RE, PEER_TAG),
+                                 ("<scheduled-task", SCHED_RE, SCHED_TAG)):
+        if marker not in raw:
+            continue
+        bodies = [b for b in (_clean(p) for p in pattern.findall(raw))
+                  if _is_instruction_text(b) and not PLACEHOLDER_RE.match(b)]
+        return tag + _clean(" ".join(bodies)) if bodies else None
+    text = _clean(raw)
+    return USER_TAG + text if _is_instruction_text(text) else None
+
+
+# A Claude Code slash command typed into the pane. Marveen sends two of these
+# itself -- "/compact <instructions>" from the ceiling and the gate -- and the
+# expanded form arrives as an ordinary user entry, so the <command-name> filter
+# above never saw it. Measured (2026-08-14, store/agent-taskstate/lackor2-bot.json,
+# already consumed:true, i.e. it HAD been replayed into the main agent): the
+# stored nextAction was "/compact Extract state, not prose...", telling a resumed
+# session that its next step was to compact again. A slash command is an action
+# the agent already took, never a requirement to carry forward.
+SLASH_COMMAND_RE = re.compile(r"^/[a-z][a-z0-9-]*(\s|$)")
+
+
+def _is_instruction_text(text):
+    """Long enough to carry a requirement, and not machine scaffolding."""
+    if not text or len(text) < MIN_USER_MSG_CHARS:
+        return False
+    if SLASH_COMMAND_RE.match(text):
+        return False
+    return not any(text.startswith(p) for p in NOISE_PREFIXES)
+
+
+def _edited_paths(entry):
+    """File paths from this entry's edit-tool calls."""
+    if entry.get("type") != "assistant":
+        return []
+    content = (entry.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return []
+    out = []
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        if block.get("name") not in EDIT_TOOLS:
+            continue
+        inp = block.get("input") or {}
+        p = inp.get("file_path") or inp.get("notebook_path")
+        if isinstance(p, str) and p.strip():
+            out.append(p.strip()[:ITEM_MAX])
+    return out
+
+
+def scan_transcript(path):
+    """One forward pass: every edited file, and the recent instructions."""
+    files, instructions = [], []
+    seen_files = set()
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue  # a partially-flushed last line is normal
+                if not isinstance(entry, dict):
+                    continue
+                for p in _edited_paths(entry):
+                    if p not in seen_files:
+                        seen_files.add(p)
+                        files.append(p)
+                t = _instruction(entry)
+                if t:
+                    instructions.append(t)
+                    # Keep only the tail; an unbounded list would hold the whole
+                    # conversation in memory on a long session, for nothing.
+                    if len(instructions) > USER_MSG_KEEP * 4:
+                        del instructions[:USER_MSG_KEEP]
+    except Exception:
+        pass
+    # Oldest-first within the kept tail, so the request reads in the order it
+    # was actually made.
+    return files, instructions[-USER_MSG_KEEP:]
+
+
+ALL_TAGS = (USER_TAG, PEER_TAG, SCHED_TAG, TELEGRAM_TAG)
+
+
+def _keep_still_valid(items):
+    """Re-apply today's noise rules to lines stored by an earlier run.
+
+    Only for lists this hook writes. Untagged lines are left alone: those came
+    from somewhere else (an agent POSTing its own state) and are not this hook's
+    to judge."""
+    out = []
+    for item in list(items or []):
+        s = str(item)
+        tag = next((t for t in ALL_TAGS if s.startswith(t)), None)
+        if tag is None or _is_instruction_text(s[len(tag):]):
+            out.append(s)
+    return out
+
+
+def merge_list(existing, new):
+    """Existing items keep their position; new ones append. Order carries
+    meaning here -- earlier entries are the older, already-established facts."""
+    out, seen = [], set()
+    for item in list(existing or []) + list(new or []):
+        s = str(item).strip()[:ITEM_MAX]
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out[:LIST_MAX]
+
+
+# ---- Telegram: the owner's instructions, which are NOT in the transcript ----
+
+# Written by scripts/hooks/channel-inbox-drain.py at delivery time. The drain
+# hands its batch to the model as hook stdout and then deletes its queue, so
+# without this archive the text lived only in the context window that compaction
+# is about to discard -- the owner's actual requests were the one thing this
+# checkpoint could not save.
+TELEGRAM_ARCHIVE = os.path.join(".claude", "channels", "telegram", "inbox-delivered.jsonl")
+TELEGRAM_KEEP = 4
+# Only messages from the current stretch of work. An hour is long enough to
+# cover a task that has been compacted several times, short enough that a
+# checkpoint never resurrects yesterday's instruction as today's next action.
+TELEGRAM_WINDOW_MS = 60 * 60 * 1000
+CHANNEL_RE = re.compile(r"<channel\s[^>]*>(.*?)</channel>", re.S)
+
+
+def _telegram_instructions(cwd, now_ms):
+    """Recent owner messages delivered over Telegram, newest last."""
+    path = os.path.join(cwd or "", TELEGRAM_ARCHIVE)
+    env_dir = os.environ.get("TELEGRAM_STATE_DIR")
+    if env_dir:
+        path = os.path.join(env_dir, "inbox-delivered.jsonl")
+    out = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            # Small file by construction (capped at 200 lines by the drain), so
+            # reading it whole is cheaper than seeking.
+            lines = f.readlines()[-TELEGRAM_KEEP * 4:]
+    except Exception:
+        return out
+    for line in lines:
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        ts = rec.get("ts")
+        if not isinstance(ts, (int, float)) or now_ms - ts > TELEGRAM_WINDOW_MS:
+            continue
+        for body in CHANNEL_RE.findall(str(rec.get("text") or "")):
+            body = _clean(body)
+            # The same bar the transcript path uses: an "ok" or a "." is not an
+            # instruction worth carrying across a compaction.
+            if len(body) >= MIN_USER_MSG_CHARS and _is_instruction_text(body):
+                out.append(TELEGRAM_TAG + body[:ITEM_MAX])
+    return out[-TELEGRAM_KEEP:]
+
+
+# The marker that says "this record was written by this hook, not by an agent
+# deciding something". Kept in the summary because that field is persisted by the
+# dashboard; a new key would be dropped by writeTaskState's explicit field list.
+AUTO_SUMMARY_PREFIX = "Automatikus checkpoint tomorites elott"
+
+
+def reflect_payload(agent, trigger, payload):
+    """The material /api/reflect needs, taken from the checkpoint we just wrote.
+
+    The old PreCompact prompt asked the AGENT to save memories and reflect on
+    skills. A command hook has no model, and a compaction must not wait on one
+    either -- so the hook only hands the extracted material to the dashboard,
+    which does the thinking with a cheap model (src/web/reflect.ts)."""
+    return {
+        "agent": agent,
+        "trigger": trigger,
+        "instructions": payload.get("constraints") or [],
+        "filesChanged": payload.get("filesChanged") or [],
+        "decisions": payload.get("decisions") or [],
+        "objective": payload.get("objective") or "",
+        "nextAction": payload.get("nextAction") or "",
+    }
+
+
+def build_payload(record, files, instructions, trigger):
+    """The full record to write back. Every field is present because the POST
+    replaces the stored record wholesale -- omitting one would DELETE it."""
+    record = record or {}
+
+    payload = {
+        # Fields this hook cannot derive: carried through untouched.
+        "objective": record.get("objective") or "",
+        "phase": record.get("phase") or "",
+        "pendingDecision": record.get("pendingDecision") or "",
+        "doneSteps": merge_list(record.get("doneSteps"), []),
+        "alreadyDelegated": merge_list(record.get("alreadyDelegated"), []),
+        "decisions": merge_list(record.get("decisions"), []),
+        "rejected": merge_list(record.get("rejected"), []),
+        "exactValues": merge_list(record.get("exactValues"), []),
+        "openQuestions": merge_list(record.get("openQuestions"), []),
+        # Fields this hook contributes to. The STORED constraints are re-filtered,
+        # not just appended to: this hook owns that list, and a bad line written
+        # by an earlier version of it would otherwise be carried forward by
+        # merge_list on every future compaction, forever. Self-healing beats a
+        # one-off cleanup -- the live main-agent record held a 2 KB scheduled-task
+        # preamble and a "/compact ..." line, and both disappear on the next run
+        # without anyone deleting anything.
+        "constraints": merge_list(_keep_still_valid(record.get("constraints")), instructions),
+        "filesChanged": merge_list(record.get("filesChanged"), files),
+    }
+
+    # nextAction: a stored one written DELIBERATELY (by the agent, through the
+    # API) outranks anything derived here. One this hook derived on an earlier
+    # compaction does not -- it is a guess, and the newer guess is made from the
+    # newer conversation.
+    #
+    # That distinction is not cosmetic. Without it a bad nextAction is permanent:
+    # every later checkpoint reads it back, prefers it as "stored", and writes it
+    # out again, so it survives for the whole 12h TTL no matter what the agent is
+    # actually doing. Measured exactly that way on the live install -- lackor2-bot
+    # carried "/compact Extract state, not prose..." as its next action.
+    #
+    # The marker is the auto-summary this hook writes: a record carrying it was
+    # written by this hook and nothing else, so its derived fields may be
+    # refreshed. The source tag is dropped from nextAction: that field is read as
+    # a directive, not as a quotation.
+    stored_summary = str(record.get("summary") or "").strip()
+    auto_written = stored_summary.startswith(AUTO_SUMMARY_PREFIX)
+    stored_next = str(record.get("nextAction") or "").strip()
+    latest = instructions[-1] if instructions else ""
+    for tag in (USER_TAG, PEER_TAG, SCHED_TAG, TELEGRAM_TAG):
+        if latest.startswith(tag):
+            latest = latest[len(tag):]
+    payload["nextAction"] = (latest or stored_next) if auto_written else (stored_next or latest)
+
+    auto_summary = ("%s (trigger=%s): %d modositott fajl, %d utasitas megorizve."
+                    % (AUTO_SUMMARY_PREFIX, trigger,
+                       len(payload["filesChanged"]), len(instructions)))
+    payload["summary"] = auto_summary if (auto_written or not stored_summary) else stored_summary
+    return payload
+
+
+def self_test():
+    """Every case here is a defect this hook actually shipped with, found by
+    running it against the live transcripts (2026-08-14). Run with --self-test;
+    src/__tests__/hook-self-tests.test.ts runs it in CI, because a self-test
+    nobody calls is not a test."""
+    def entry(text, meta=False, kind="user"):
+        return {"type": kind, "isMeta": meta, "message": {"content": text}}
+
+    def check(label, got, want):
+        if got != want:
+            raise AssertionError("%s\n  kapott: %r\n  vart:   %r" % (label, got, want))
+
+    # 1. --channels Telegram delivery: type:user + isMeta:true. Dropped by the
+    #    isMeta filter until 2026-08-14; 1764 such entries on the main agent.
+    ch = ('<channel source="plugin:telegram:telegram" chat_id="1" ts="x">'
+          'szia, folytasd a felbehagyott munkat</channel>')
+    check("channel", _instruction(entry(ch, meta=True)),
+          TELEGRAM_TAG + "szia, folytasd a felbehagyott munkat")
+
+    # 2. Machine wake-ups are not instructions. This was the ONLY line the
+    #    checkpoint kept from the main agent's transcript.
+    check("inbox-wakeup", _instruction(entry("[inbox-wakeup: pending inter-agent messages]")), None)
+    check("telegram-wake", _instruction(entry("[telegram-wake] Bejovo uzenet var, dolgozd fel.")), None)
+
+    # 3. A slash command is an action already taken. Marveen sends this one
+    #    itself, and it had become the main agent's stored nextAction.
+    check("slash", _instruction(entry("/compact Extract state, not prose. Preserve verbatim...")), None)
+    check("slash-clear", _instruction(entry("/clear mindent torolj most azonnal")), None)
+    # A sentence that merely CONTAINS a slash is still an instruction.
+    check("not-slash", _instruction(entry("a src/web/app.js fajlt javitsd ki kerlek")),
+          USER_TAG + "a src/web/app.js fajlt javitsd ki kerlek")
+
+    # 4. Wrapped blocks: the fixed preamble is boilerplate, the body is the
+    #    message. 27 copies of the scheduled-task preamble were being stored as
+    #    if the owner had said them.
+    check("sched-notice", _instruction(entry(
+        "SCHEDULED TASK NOTICE -- the next <scheduled-task source=\"...\"> ... "
+        "</scheduled-task> block is one of YOUR OWN scheduled tasks.")), None)
+    check("sched-body", _instruction(entry(
+        '<scheduled-task source="skill">ellenorizd a napi jelentest</scheduled-task>')),
+        SCHED_TAG + "ellenorizd a napi jelentest")
+    check("peer-body", _instruction(entry(
+        '<trusted-peer source="lackor3">nezd meg a channel-monitor.ts-t</trusted-peer>')),
+        PEER_TAG + "nezd meg a channel-monitor.ts-t")
+
+    # 5. Tool results are the agent's own output, never a person.
+    check("tool-result", _instruction({"type": "user", "message": {"content": [
+        {"type": "tool_result", "content": "ez egy hosszu parancs-kimenet"}]}}), None)
+
+    # 6. A nextAction this hook derived earlier must not outlive the conversation
+    #    it was derived from; one the AGENT stored deliberately must.
+    auto = {"summary": AUTO_SUMMARY_PREFIX + " (trigger=auto): 0 modositott fajl, 1 utasitas megorizve.",
+            "nextAction": "/compact Extract state, not prose..."}
+    check("auto-nextaction-refreshed",
+          build_payload(auto, [], [USER_TAG + "javitsd ki a kapu kuszobet"], "auto")["nextAction"],
+          "javitsd ki a kapu kuszobet")
+    deliberate = {"summary": "A kapu kuszobenek javitasa", "nextAction": "irj tesztet a kapura"}
+    check("deliberate-nextaction-kept",
+          build_payload(deliberate, [], [USER_TAG + "valami mas"], "auto")["nextAction"],
+          "irj tesztet a kapura")
+    check("deliberate-summary-kept",
+          build_payload(deliberate, [], [], "auto")["summary"], "A kapu kuszobenek javitasa")
+
+    # 7. The empty case must stay empty, so an idle session's compaction cannot
+    #    reset the ts of a still-valid older record.
+    check("empty", build_payload(None, [], [], "auto")["nextAction"], "")
+
+    # 8. Junk written by an EARLIER version of this hook clears itself out on the
+    #    next run; anything not written by this hook is left alone.
+    stale = {"constraints": [
+        USER_TAG + "SCHEDULED TASK NOTICE -- the next <scheduled-task source=\"...\"> block",
+        USER_TAG + "/compact Extract state, not prose...",
+        USER_TAG + "a kapu kuszobe maradjon 120000",
+        "az agens sajat kikotese, cimke nelkul",
+    ]}
+    check("stale-constraints-cleaned", build_payload(stale, [], [], "auto")["constraints"],
+          [USER_TAG + "a kapu kuszobe maradjon 120000", "az agens sajat kikotese, cimke nelkul"])
+
+    # 9. The reflection payload must carry the same material the checkpoint
+    #    holds -- a silently empty field here would mean nothing is remembered.
+    p = build_payload({"objective": "a kapu javitasa", "decisions": ["BE marad ki"]},
+                      ["src/web/reflect.ts"], [USER_TAG + "javitsd ki a kapu kuszobet"], "auto")
+    rp = reflect_payload("lackor2-bot", "auto", p)
+    check("reflect-agent", rp["agent"], "lackor2-bot")
+    check("reflect-instructions", rp["instructions"], [USER_TAG + "javitsd ki a kapu kuszobet"])
+    check("reflect-files", rp["filesChanged"], ["src/web/reflect.ts"])
+    check("reflect-decisions", rp["decisions"], ["BE marad ki"])
+    check("reflect-objective", rp["objective"], "a kapu javitasa")
+
+    print("precompact-checkpoint self-test: OK")
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--self-test":
+        self_test()
+        sys.exit(0)
+    try:
+        hook_input = json.load(sys.stdin)
+    except Exception:
+        sys.exit(0)
+
+    cwd = hook_input.get("cwd") or os.getcwd()
+    agent = _agent_id_from_cwd(cwd)
+    if not agent:
+        sys.exit(0)
+    token = _token()
+    if not token:
+        sys.exit(0)
+
+    transcript = hook_input.get("transcript_path") or ""
+    trigger = hook_input.get("trigger") or "?"
+    files, instructions = scan_transcript(transcript) if transcript else ([], [])
+    # Appended last, so the newest owner request is what nextAction falls back
+    # to. The transcript holds what the agent was told BY THE SYSTEM; this holds
+    # what it was told by the person, and that is the part worth keeping.
+    instructions = instructions + _telegram_instructions(cwd, int(time.time() * 1000))
+
+    try:
+        record = _api("GET", agent, token)
+    except Exception:
+        record = None  # no record yet, or the dashboard is down -> start fresh
+
+    payload = build_payload(record, files, instructions, trigger)
+
+    # Nothing to protect: an idle session has no state, and writing an empty
+    # record would only reset the ts of a still-valid older one.
+    if not any(payload[k] for k in ("constraints", "filesChanged", "nextAction",
+                                    "objective", "decisions", "doneSteps")):
+        sys.exit(0)
+
+    try:
+        _api("POST", agent, token, payload)
+    except Exception:
+        sys.exit(0)  # dashboard unavailable -> stay quiet, never block
+
+    # Memory + skill reflection: the rebuilt other half of the old prompt. Any
+    # failure here is invisible on purpose -- the checkpoint above is the part
+    # that must survive, and this must never delay a compaction.
+    memory_note = ""
+    try:
+        answer = _call("POST", "/api/reflect", token,
+                       reflect_payload(agent, trigger, payload), timeout=8)
+        if isinstance(answer, dict):
+            if answer.get("memorySaved"):
+                memory_note = " Memoria mentve."
+            elif answer.get("duplicate"):
+                memory_note = " Memoria: valtozatlan."
+    except Exception:
+        pass
+
+    print("Checkpoint mentve tomorites elott: %d fajl, %d kikotes, kovetkezo akcio %s.%s"
+          % (len(payload["filesChanged"]), len(payload["constraints"]),
+             "megvan" if payload["nextAction"] else "nincs", memory_note))
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

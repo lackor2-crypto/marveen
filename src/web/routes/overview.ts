@@ -21,6 +21,7 @@ import { readClaudePlans } from '../claude-plans.js'
 import { readAgentModel } from '../agent-config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { readUpstreamSyncStatus } from '../upstream-sync-status-io.js'
+import { exactTmuxTarget } from '../tmux-target.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -90,8 +91,10 @@ function parseResetsAt(pane: string, nowMs: number = Date.now()): number | null 
 // further out came from a banner about a DIFFERENT window (the weekly one) or
 // from a stale line deep in the scrollback, and pairing it with a five-hour
 // label produces the contradiction Boss spotted: 100% used, resetting in 23
-// hours. Slack allows for clock skew and the minute-granularity of the banner
-// text. Exported for tests: this is a pure guard over an already-parsed row.
+// hours. Nor can it have reset in the past and still be the window we are
+// looking at -- that reading belongs to a window that is over. Slack allows for
+// clock skew and the minute-granularity of the banner text.
+// Exported for tests: this is a pure guard over an already-parsed row.
 export const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000
 const FIVE_HOUR_RESET_SLACK_MS = 20 * 60 * 1000
 
@@ -106,6 +109,22 @@ export function sanityCheckFiveHour<T extends { usedPct: number | null; resetsAt
       'overview: discarding scraped usage -- reset is too far out to be the five-hour window')
     return { ...row, usedPct: null, resetsAt: null }
   }
+  // ... and a reset already in the PAST describes a window that has since
+  // rolled over, so whatever percentage came with it is spent. This is the half
+  // that was missing: an entry could not be too far ahead, but could be
+  // arbitrarily far behind, and the cache is only ever rewritten by a
+  // SUCCESSFUL fresh scrape. So a single "100%, resets at 09:00" reading
+  // survived the reset and every restart after it, and the account showed as
+  // full while its window had been empty for hours (usalackor, 2026-08-14:
+  // resetsAt was eleven hours old and the number had stopped moving).
+  //
+  // Same slack, for the same reason: right at the boundary the banner's
+  // minute-granularity and clock skew can put the reset a moment behind.
+  if (ahead < -FIVE_HOUR_RESET_SLACK_MS) {
+    logger.warn({ resetsAt: row.resetsAt, behindMs: -ahead },
+      'overview: discarding scraped usage -- the window it describes has already reset')
+    return { ...row, usedPct: null, resetsAt: null }
+  }
   return row
 }
 
@@ -117,7 +136,7 @@ function scrapeClaudeAccountUsage(planId: string): { usedPct: number | null; mod
     // agent replies to anything) -- read back deep into scrollback so a long
     // busy stretch (lots of tool-call output) doesn't push it out of range.
     // Best-effort: any tmux failure (session not found, etc) -> nulls.
-    pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', `agent-${planId}`, '-p', '-S', '-2000'], { timeout: 3000 }).toString()
+    pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(`agent-${planId}`), '-p', '-S', '-2000'], { timeout: 3000 }).toString()
   } catch { /* pane unavailable, fall through with nulls */ }
 
   const fresh = pane ? sanityCheckFiveHour(scrapeFreshUsage(pane)) : { usedPct: null, model: null, resetsAt: null }

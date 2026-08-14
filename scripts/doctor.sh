@@ -50,7 +50,7 @@ done
 
 # --- Tmux sessions ---
 echo -e "\n${BOLD}Tmux sessions${RESET}"
-if tmux has-session -t "${MAIN_AGENT_ID}-channels" 2>/dev/null; then
+if tmux has-session -t "=${MAIN_AGENT_ID}-channels:" 2>/dev/null; then
   ok "${MAIN_AGENT_ID}-channels: alive"
 else
   warn "${MAIN_AGENT_ID}-channels: not running"
@@ -66,7 +66,7 @@ if [ -z "$HB_AGENT" ] && [ -f store/config-overrides.json ]; then
   HB_AGENT=$(python3 -c "import json,sys;print(json.load(open('store/config-overrides.json')).get('HEARTBEAT_AGENT_ENABLED',''))" 2>/dev/null)
 fi
 if [ "$HB_AGENT" = "1" ]; then
-  if tmux has-session -t "agent-heartbeat" 2>/dev/null; then
+  if tmux has-session -t "=agent-heartbeat:" 2>/dev/null; then
     ok "agent-heartbeat: alive"
   else
     warn "agent-heartbeat: enabled but NOT running"
@@ -127,6 +127,23 @@ if [ -f "$KA_FILE" ]; then
   fi
 else
   fail "channel-keepalive: file missing"
+fi
+
+# Is the IDLE-path producer actually SCHEDULED? The keepalive has two producers
+# (organic inbound + channel-keepalive-probe.sh). If the probe timer was never
+# installed, a healthy but QUIET session ages into staleness and channel-watchdog
+# false-respawns it every ~30 min -- a silent failure the age check alone reads
+# as "stale", pointing at the session instead of at the missing timer.
+PROBE_SCHEDULED=0
+if [ "$(uname -s)" = "Darwin" ]; then
+  launchctl list 2>/dev/null | grep -qi 'keepalive-probe' && PROBE_SCHEDULED=1
+else
+  systemctl --user list-timers --all 2>/dev/null | grep -qi 'keepalive-probe' && PROBE_SCHEDULED=1
+fi
+if [ "$PROBE_SCHEDULED" = 1 ]; then
+  ok "keepalive idle-probe: scheduled"
+else
+  warn "keepalive idle-probe: NOT scheduled (install scripts/systemd/channel-keepalive-probe.{service,timer}) -- an idle session will be false-respawned"
 fi
 
 # --- Settings ---

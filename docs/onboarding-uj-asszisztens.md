@@ -68,6 +68,31 @@ A kolléga bekötése:
 A kolléga a tokent és a technikai részleteket nem látja, csak egyszer belép a
 saját Google fiókjával.
 
+### Ha a Google letiltja a belépést („Hozzáférés letiltva", 403 access_denied)
+
+Ez nem a kolléga hibája és nem is a Marveené: ha a Google Cloud projekt
+**„Testing"** publikálási állapotban van, csak a **tesztelők listáján** szereplő
+címek tudnak belépni. Mérve (2026-08-14): egy új cím a jóváhagyó képernyő
+helyett azonnal „Hozzáférés letiltva" oldalt kap.
+
+Megoldás (2 perc, a projekt tulajdonosa csinálja):
+1. Dashboard → **Fiókok → Google** → *„A Google nem enged be?"* gomb. Az itt
+   lévő link a **saját projektbe** visz (a projekt azonosítója a szerveren lévő
+   OAuth kliensből jön, kézzel keresgélni nem kell).
+2. A Google oldalán: **Tesztfelhasználók / Test users → + ADD USERS**.
+3. A címet **karakterre pontosan** kell beírni (a panel ki is írja, melyiket).
+4. Vissza a dashboardra → *„Felvettem, próbáljuk újra"*.
+
+Két késleltetett következménye is van ugyanennek az állapotnak, érdemes tudni:
+- **7 nap múlva** a „Testing" alatt kiadott hozzáférés lejár (`invalid_grant`),
+  és a fiók sorában megjelenik az *„Újra bejelentkezés"* gomb. Ez nem hiba,
+  hanem a Google szabálya — véglegesen a projekt közzétételével szűnik meg.
+- A tesztelői lista **max. 100 cím**. Tíz asszisztensnyi fiók bőven belefér.
+
+Ha az „Újra bejelentkezés"-nél véletlenül **másik** Google-címmel lépsz be, a
+rendszer **nem írja felül** a régi fiókot: az új cím külön fiókként jelenik meg,
+és a dashboard ki is írja, hogy ez történt.
+
 ---
 
 ## Ki mit csinál (gyors összefoglaló)

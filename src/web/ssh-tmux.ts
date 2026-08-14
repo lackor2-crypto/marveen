@@ -2,6 +2,9 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { userInfo } from 'node:os'
 import { execFileSync } from 'node:child_process'
+import { normalizeTmuxTargetArgs } from './tmux-target.js'
+
+export { exactTmuxTarget, normalizeTmuxTargetArgs } from './tmux-target.js'
 
 // SSH + tmux transport primitives.
 //
@@ -65,6 +68,9 @@ export interface TmuxInvocation {
   args: string[]
 }
 
+// Targets are normalised to their exact-match form so no tmux call can
+// prefix-match its way into a different agent's session -- see tmux-target.ts.
+
 /**
  * Build the {file, args} to run `tmux <tmuxArgs>` locally (host null) or on a
  * remote host over ssh. The remote command rides as ONE shell-quoted string so
@@ -76,10 +82,13 @@ export function buildTmuxInvocation(
   tmuxArgs: string[],
   remoteTmuxBin = 'tmux',
 ): TmuxInvocation {
-  if (host == null) return { file: localTmuxBin, args: tmuxArgs }
+  // Every tmux call in the codebase is built here, so this is the single place
+  // that can guarantee targets are exact (see normalizeTmuxTargetArgs).
+  const args = normalizeTmuxTargetArgs(tmuxArgs)
+  if (host == null) return { file: localTmuxBin, args }
   // remoteTmuxBin is a trusted constant ('tmux'); only the args carry data, so
   // only the args are quoted. The whole thing is a single argv element for ssh.
-  const remoteCmd = [remoteTmuxBin, ...tmuxArgs.map(shQuote)].join(' ')
+  const remoteCmd = [remoteTmuxBin, ...args.map(shQuote)].join(' ')
   return { file: 'ssh', args: [...SSH_OPTS, host, remoteCmd] }
 }
 

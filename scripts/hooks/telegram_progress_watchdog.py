@@ -108,7 +108,10 @@ def tmux_session_alive(session):
     if forced in ("0", "1"):
         return forced == "1"
     try:
-        return subprocess.run(["tmux", "has-session", "-t", session],
+        # `=name:` forces an EXACT match. With a bare name tmux also accepts an
+        # unambiguous prefix, so a dead `agent-nemotronnano` would look alive as
+        # long as `agent-nemotronnano9` runs -- the down alert would never fire.
+        return subprocess.run(["tmux", "has-session", "-t", "=%s:" % session],
                               capture_output=True, timeout=5).returncode == 0
     except Exception:
         return True  # if tmux probe fails, assume alive (don't false-alarm)

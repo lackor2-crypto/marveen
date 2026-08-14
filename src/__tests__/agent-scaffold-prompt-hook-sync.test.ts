@@ -90,3 +90,51 @@ describe('syncAgentPromptHooks matcher reconciliation', () => {
     expect(existing.SessionEnd[0].hooks[0].prompt).toBe('MINE')
   })
 })
+
+// Regression cover for kanban #128 (2026-08-14): the PreCompact checkpoint was
+// a `type: "agent"` hook, and Claude Code rejects those outside the REPL --
+// every Marveen agent runs in a tmux pane, so it failed on EVERY compaction and
+// the checkpoint was never written. Fixing it means the template converts the
+// hook to `type: "command"`, which empties tplPromptMatchers. The prune pass
+// used to be guarded by `tplPromptMatchers.size > 0`, so it went dormant in
+// exactly that case and the dead prompt hook would have stayed in all 15 live
+// settings.json files, firing (and failing) alongside its own replacement.
+describe('syncAgentPromptHooks when the template drops a prompt hook entirely', () => {
+  // The template still declares PreCompact -- it just carries a command hook now.
+  const tplCommandOnly = {
+    PreCompact: [{ matcher: 'auto|manual', hooks: [{ type: 'command', command: 'python3 /precompact.py', timeout: 20 }] }],
+  }
+
+  it('removes the obsolete agent hook', () => {
+    const existing = {
+      PreCompact: [{ matcher: 'auto|manual', hooks: [{ type: 'agent', prompt: 'DEAD PROMPT', timeout: 180 }] }],
+    }
+    expect(syncAgentPromptHooks(existing, tplCommandOnly)).toBe(true)
+    expect(existing.PreCompact).toHaveLength(0)
+  })
+
+  it('keeps a command hook that shared the entry with the obsolete agent hook', () => {
+    const existing = {
+      PreCompact: [{
+        matcher: 'auto|manual',
+        hooks: [{ type: 'command', command: 'python3 /precompact.py' }, { type: 'agent', prompt: 'DEAD PROMPT' }],
+      }],
+    }
+    expect(syncAgentPromptHooks(existing, tplCommandOnly)).toBe(true)
+    expect(existing.PreCompact).toHaveLength(1)
+    expect(existing.PreCompact[0].hooks).toEqual([{ type: 'command', command: 'python3 /precompact.py' }])
+  })
+
+  it('is idempotent once the agent hook is gone', () => {
+    const existing = {
+      PreCompact: [{ matcher: 'auto|manual', hooks: [{ type: 'command', command: 'python3 /precompact.py' }] }],
+    }
+    expect(syncAgentPromptHooks(existing, tplCommandOnly)).toBe(false)
+  })
+
+  it('still leaves events the template says nothing about alone', () => {
+    const existing = { Stop: [{ hooks: [{ type: 'agent', prompt: 'SOMEONE ELSE' }] }] }
+    expect(syncAgentPromptHooks(existing, tplCommandOnly)).toBe(false)
+    expect(existing.Stop[0].hooks).toHaveLength(1)
+  })
+})

@@ -23,6 +23,7 @@ import { resolveFromPath } from '../platform.js'
 import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { readClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
+import { exactTmuxTarget } from './tmux-target.js'
 import {
   parseAuthStatus,
   readLoginPane,
@@ -150,7 +151,7 @@ function buildAccountRows(): AccountRow[] {
 
 function sessionExists(): boolean {
   try {
-    execFileSync(TMUX, ['has-session', '-t', LOGIN_SESSION], { timeout: 5_000, stdio: 'ignore' })
+    execFileSync(TMUX, ['has-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
     return true
   } catch {
     return false
@@ -159,7 +160,7 @@ function sessionExists(): boolean {
 
 function killSession(): void {
   try {
-    execFileSync(TMUX, ['kill-session', '-t', LOGIN_SESSION], { timeout: 5_000, stdio: 'ignore' })
+    execFileSync(TMUX, ['kill-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
   } catch { /* not running: nothing to kill */ }
 }
 
@@ -167,7 +168,7 @@ function capturePane(): string {
   try {
     // -e keeps the escape sequences, which is where the OSC-8 hyperlink (and
     // therefore the clean URL) lives; -J joins the wrapped lines.
-    return execFileSync(TMUX, ['capture-pane', '-p', '-e', '-J', '-t', LOGIN_SESSION], {
+    return execFileSync(TMUX, ['capture-pane', '-p', '-e', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)], {
       timeout: 5_000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024,
     })
   } catch {
@@ -330,8 +331,8 @@ export function submitCode(code: string): { ok: boolean; error?: string } {
   try {
     // '--' so a code that happens to begin with a hyphen is read as the literal
     // text it is, not as an option.
-    execFileSync(TMUX, ['send-keys', '-t', LOGIN_SESSION, '-l', '--', clean], { timeout: 5_000 })
-    execFileSync(TMUX, ['send-keys', '-t', LOGIN_SESSION, 'Enter'], { timeout: 5_000 })
+    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), '-l', '--', clean], { timeout: 5_000 })
+    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), 'Enter'], { timeout: 5_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not deliver the pasted code')
     return { ok: false, error: 'A kódot nem sikerült átadni.' }

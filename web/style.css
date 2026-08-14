@@ -4863,14 +4863,9 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 .accounts-section { margin-bottom: 24px; }
 .accounts-section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; }
-.accounts-list { display: flex; flex-direction: column; gap: 10px; }
-/* An author `display: flex` outranks the UA stylesheet's `[hidden]{display:none}`,
-   so the two retired holders in index.html were marked `hidden` and stayed in the
-   layout anyway -- the same inert-`hidden` bug that once left the auth banner
-   permanently on screen with a dead close button. */
-.accounts-list[hidden] { display: none; }
-.accounts-item-clickable { cursor: pointer; }
-.accounts-item-clickable:hover { border-color: var(--accent); }
+/* `.accounts-list` and `.accounts-item-clickable` are gone with the two retired
+   lists: nothing emits those classes any more. The single panel styles itself
+   through .acc-hub / .acc-card below. */
 
 .vault-known-status-ok { background: var(--success); color: #fff; }
 .vault-known-status-missing {
@@ -5188,6 +5183,88 @@ main.email-active .page-header { flex-shrink: 0; }
   .drive-row { grid-template-columns: 1fr auto; }
   .drive-row-meta { display: none; }
 }
+
+/* --- "Osszes fiok" hasabos nezet (Boss 2026-08-14) ---------------------------
+   "az oldalt mondjuk harmadolom, egyik harmadban a Lackor 2, a masikban USA
+   Lackor". Az auto-fit miatt harom fioknal harmad, negynel negyed, tiznel
+   pedig vizszintesen gorgetheto sav lesz belole -- 280px alatt a fajlnevbol
+   ugyis csak "szerz..." latszana. */
+.drive-multi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.drive-multi[hidden] { display: none; }
+
+.drive-multi-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px 2px;
+  font-size: 13px;
+}
+.drive-multi-bar[hidden] { display: none; }
+.drive-multi-bar-label { color: var(--text-muted); }
+#driveMultiChips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.drive-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.drive-chip:hover { border-color: var(--accent); color: var(--accent); }
+/* A kikapcsolt fiok is olvashato marad: az athuzas onmagaban jelzi az
+   allapotot, szinvakon is. */
+.drive-chip:not(.drive-chip-on) { text-decoration: line-through; opacity: 0.65; }
+.drive-chip-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+.drive-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.drive-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface-hover, var(--accent-soft));
+  border-bottom: 1px solid var(--border);
+}
+/* A fioknev a hasab egyetlen azonositoja -- ha kifutna, a mellette levo
+   hasabra tolna at a gombokat. */
+.drive-col-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.drive-col-tools { display: flex; gap: 2px; flex-shrink: 0; }
+.drive-col-crumbs { padding: 6px 10px 2px; font-size: 12px; }
+.drive-col-list { padding: 4px 6px 8px; }
+/* Szuk hasabban a datum/meret elvenne a fajlnev helyet. */
+.drive-col-list .drive-row { grid-template-columns: 1fr auto; gap: 6px; padding: 6px 8px; }
+.drive-col-list .drive-row-meta { display: none; }
+.drive-col-empty,
+.drive-col-error {
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.drive-col-error { color: var(--danger, #d9534f); }
 
 .vault-binding-badge {
   display: inline-block;
@@ -9362,6 +9439,24 @@ body {
   align-items: center;
   margin-top: 6px;
 }
+/* `display: flex` above outranks the UA stylesheet's `[hidden] { display: none }`,
+   so without this an el.hidden = true does nothing. Needed since the connector
+   flow ships a link row hidden (#mconnPasteRow: only the connectors that ask
+   for a pasted redirect should show that field). Caught by
+   hidden-attribute-css-contract.test.ts, which is exactly what it is for. */
+.claude-auth-linkrow[hidden] { display: none; }
+/* The address the operator has to type into the Google console, character for
+   character. Monospace and set apart on purpose: a typo here comes back as the
+   same opaque 403 they are already stuck on. */
+.claude-auth-steps code {
+  font-family: 'SF Mono','Fira Code',ui-monospace,Menlo,monospace;
+  font-size: 13px;
+  background: var(--bg-input);
+  padding: 2px 7px;
+  border-radius: 3px;
+  color: var(--accent);
+  word-break: break-all;
+}
 .claude-auth-state {
   margin: 8px 0;
   font-size: 13px;
@@ -9418,6 +9513,181 @@ body {
   white-space: pre-line;
 }
 .claude-auth-mode[hidden] { display: none; }
+
+/* === Connections: Google accounts + Claude Code connectors ===
+   Same neutral language as .claude-auth-* above, on purpose: this sits directly
+   under it on the same page, and a second visual dialect three inches lower
+   would read as a different product. Colour appears only on STATE (a connector
+   that works, one that needs permission, one that is broken) -- never on the
+   rows themselves.
+
+   Everything wraps. The row carries a name, an address, three service chips and
+   three buttons; on a phone that is not one line and must not pretend to be. */
+.conn-rows,
+.conn-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+/* Same trap as .claude-auth-linkrow above: a class `display` beats the UA's
+   `[hidden]`. Declared up front so hiding one of these from JS later works. */
+.conn-rows[hidden],
+.conn-accounts[hidden],
+.conn-row[hidden],
+.conn-account[hidden] { display: none; }
+.conn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg);
+  font-size: 13px;
+}
+.conn-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+.conn-row-name { font-weight: 600; }
+.conn-row-sub { color: var(--text-secondary); }
+.conn-row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+/* Pushed to the right where there is room, and simply next in line where there
+   is not -- rather than a fixed column that would clip the buttons. */
+.conn-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-left: auto;
+}
+.conn-empty {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+.conn-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+/* Amber, not red: a connection that stopped working is a capability you lost,
+   not a broken install. Alarm colours spent on convenience teach the operator
+   to ignore alarm colours. */
+.conn-note-bad { color: #b45309; }
+
+/* Per-service chips. An account with mail but no Drive is the interesting case
+   and the one a single yes/no hid completely. */
+.conn-chip,
+.conn-badge,
+.conn-pill {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+.conn-chip-on {
+  color: #166534;
+  background: color-mix(in srgb, #16a34a 18%, transparent);
+}
+.conn-chip-off {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+  text-decoration: line-through;
+}
+.conn-badge {
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+}
+.conn-pill-ok {
+  color: #166534;
+  background: color-mix(in srgb, #16a34a 18%, transparent);
+}
+.conn-pill-warn {
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 22%, transparent);
+}
+.conn-pill-bad {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+
+/* One card per Claude account. The grouping IS the message: connectors are
+   authorized per account, so "which account" is not a detail here. */
+.conn-account {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg);
+  padding: 10px;
+}
+.conn-account-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.conn-account-name { font-weight: 600; font-size: 13px; }
+.conn-account .conn-rows { margin: 4px 0 0; }
+.conn-account .conn-row { background: var(--bg-card); }
+
+/* === One panel, one card per account ===
+   Boss, 2026-08-14: "nem lehetne ezeket egy panelre tenni? mindennel egyutt?"
+   The card IS the account; the parts inside it are what that one account has
+   (sign-in, Google services, connectors). The parts are separated by a hairline
+   rather than by boxes inside boxes: three nested borders on a phone leave
+   almost nothing for the content. */
+.acc-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+/* A class `display` outranks the UA's `[hidden]{display:none}` -- declared with
+   the class itself, so hiding one of these from JS later actually hides it. */
+.acc-hub[hidden],
+.acc-card[hidden],
+.acc-part[hidden],
+.acc-block[hidden] { display: none; }
+.acc-card { padding: 12px; }
+.acc-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+/* The account's own name is the biggest thing on the card: with ten addresses,
+   finding the right card is the whole job. */
+.acc-card .conn-account-name { font-size: 14px; }
+.acc-part { margin-top: 10px; }
+.acc-part + .acc-part { border-top: 1px solid var(--border); padding-top: 10px; }
+.acc-part-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-muted);
+}
+.acc-part .conn-rows { margin: 6px 0 0; }
+
+/* Below the cards: "how do I add a new one" -- one block per flow. Separated
+   from the list above so it reads as a different question, not as more
+   accounts. */
+.acc-block { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 14px; }
+.acc-block-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
 
 /* === Per-agent context controls (kanban dbe5bcce + 14a1d048) ===
    Sits at the bottom of an agent card, under the action buttons, separated the
@@ -9496,6 +9766,67 @@ body {
   color: var(--text-muted);
   line-height: 1.35;
 }
+
+/* A threshold outside the usable band. Warning-coloured on purpose: unlike the
+   broker note above (which describes a working system), this marks a setting
+   that cannot take effect, and a silently dead setting is what let every gate
+   in this install sit unused for days. */
+.ctx-gate-warn {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--warning, #b26b00);
+  line-height: 1.35;
+}
+/* The CLI safety net: read-only, one shared value, so it is typeset as a fact
+   about the fleet rather than as a control the owner might try to click. */
+.ctx-cli-row {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+/* Roles fit one line on a normal card and wrap on a narrow one -- the three
+   labels are short, and stacking them would cost a row of height on every card
+   in the fleet for a setting most cards leave empty. */
+.ctx-role-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.ctx-role { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.ctx-role input[type="checkbox"] { cursor: pointer; flex: 0 0 auto; margin: 0; }
+/* Indented under the generator checkbox: these two settings only exist because
+   that box is ticked, and the indent is what says so without another label. */
+.ctx-broker-opts {
+  margin: 4px 0 0 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.ctx-broker-opt { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.ctx-broker-opt input[type="checkbox"] { cursor: pointer; margin: 0; }
+.ctx-handback {
+  width: 56px;
+  font-size: 11px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+}
+/* Folded shut by default. The full explanation of all four mechanisms is far
+   more text than a card can hold open, and it is reference material -- read
+   once when setting things up, never again. */
+.ctx-help { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+.ctx-help summary { cursor: pointer; color: var(--text-secondary); }
+.ctx-help p { margin: 6px 0 0; line-height: 1.45; }
+.ctx-help b { color: var(--text-secondary); }
+.ctx-help-rule { border-top: 1px solid var(--border); padding-top: 6px; }
 
 /* Explains, in plain language, why the vector count is zero. Deliberately
    neutral: a missing convenience must never look like a fault (Boss, 2026-08-11

@@ -143,6 +143,28 @@ export const SETUP_ITEMS: SetupItem[] = [
     required: false, tier: 'recommended',
   },
   {
+    // The step AFTER the OAuth client file, and the one that was invisible until
+    // now: the client file only makes authorization POSSIBLE -- until an address
+    // is actually connected, there is no mail, no Drive and no calendar. A fresh
+    // install had no way to learn that, because the connect flow lived in a
+    // terminal (Boss, 2026-08-14). It is not an env key and not a form, so it is
+    // 'external' and points at the page that runs the flow.
+    id: 'google-accounts', group: 'google', kind: 'external',
+    labelKey: 'wizard.item.google_accounts', descKey: 'wizard.item.google_accounts_desc',
+    helpKey: 'wizard.item.google_accounts_help',
+    stepKeys: [
+      'wizard.item.google_accounts_step1', 'wizard.item.google_accounts_step2',
+      'wizard.item.google_accounts_step3', 'wizard.item.google_accounts_step4',
+    ],
+    // Step 4 is here because of what happened on the very first attempt (Boss,
+    // 2026-08-14): Google refused the address with 403 access_denied, since the
+    // OAuth app is in "Testing" status and admits only listed test users. It is
+    // not an error anyone can debug from this page, and it happens at INSTALL
+    // time, to the second address at the latest -- so the wizard says it before
+    // it bites, and the Accounts page walks through the fix when it does.
+    required: false, tier: 'recommended',
+  },
+  {
     id: 'calendar-id', group: 'google', kind: 'env', envKey: 'HEARTBEAT_CALENDAR_ID',
     labelKey: 'wizard.item.calendar_id', descKey: 'wizard.item.calendar_id_desc',
     helpKey: 'wizard.item.calendar_id_help',

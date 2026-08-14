@@ -8,7 +8,7 @@ import { agentSessionName, capturePane } from './agent-process.js'
 import { detectPaneState } from '../pane-state.js'
 import { detectsUsageLimit } from '../model-fallback.js'
 import { readContextReadingFromProjectDir } from './active-model.js'
-import { markCompactionStarted } from './compaction-inflight.js'
+import { markCompactionStarted, isCompactionInFlight } from './compaction-inflight.js'
 import { COMPACT_COMMAND } from '../context-compaction-instructions.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { withSessionSendLock } from './session-send-lock.js'
@@ -20,6 +20,7 @@ import {
   hasOpenInboundQuestion,
   createAgentMessage,
 } from '../db.js'
+import { exactTmuxTarget } from './tmux-target.js'
 import {
   decideGate,
   chooseReclaimAction,
@@ -141,7 +142,7 @@ function capturePaneOrNull(session: string): string | null {
 
 function getPanePid(session: string): number | null {
   try {
-    const raw = execFileSync(TMUX, ['list-panes', '-t', session, '-F', '#{pane_pid}'],
+    const raw = execFileSync(TMUX, ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'],
       { timeout: 3000, encoding: 'utf-8' })
     const pid = parseInt(raw.split('\n')[0]?.trim() ?? '', 10)
     return Number.isFinite(pid) && pid > 0 ? pid : null
@@ -465,6 +466,18 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   }
 
   const runState = readGateRunState(name)
+
+  // Remember the smallest context seen since the last compaction was
+  // dispatched. chooseReclaimAction needs to know whether that compaction EVER
+  // shrank the session; measuring against the live number instead scores
+  // ordinary regrowth as a failed compaction (and used to wipe the session for
+  // it). Recorded on every sweep, so it survives the agent working afterwards.
+  if (runState.lastCompactAt !== null && contextTokens !== null &&
+      (runState.lastCompactMinSeen === null || contextTokens < runState.lastCompactMinSeen)) {
+    runState.lastCompactMinSeen = contextTokens
+    writeGateRunState(name, runState)
+  }
+
   const decision = decideGate(inputs, cfg, runState.firstBlockedAt)
 
   logger.debug({ agent: name, action: decision.action, reason: decision.reason,
@@ -498,31 +511,50 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         logger.info({ agent: name },
           'context-restart-gate: opening despite stale dispatched messages (beyond staleCutoffMs)')
       }
-      // Compact before wiping (Boss approved 2026-08-12). /compact keeps a
-      // summary of the session; /clear keeps nothing, and the threshold was
-      // never meant to mean "throw the conversation away". /clear stays as the
-      // fallback for what compaction cannot fix -- Claude Code refuses to
-      // compact a short session, and a context dominated by one huge turn can
-      // survive it. The choice is made from evidence: whether the PREVIOUS
-      // compaction actually shrank this session (see chooseReclaimAction).
-      //
-      // A pane that is truly idle accepts either immediately. After a compact
-      // the SessionStart(compact) hooks re-inject the task-state snapshot; after
-      // a clear they do the same on the fresh session.
+      // A compaction already running is not visible in the pane -- the spinner
+      // carries none of the busy markers detectPaneState looks for, so the pane
+      // reads IDLE while it works (see compaction-inflight.ts). Without this
+      // check the sweep sends a second /compact into a session that is already
+      // compacting, every 60s, which is precisely the thrashing being fixed.
+      // The end-of-turn ceiling route has always checked this; the sweep never
+      // did.
+      if (isCompactionInFlight(name, nowMs)) {
+        logger.debug({ agent: name }, 'context-restart-gate: compaction already in flight, skipping')
+        break
+      }
+      // The gate only ever compacts. /clear is not reachable from here by
+      // design -- see chooseReclaimAction. A pane that is truly idle accepts
+      // /compact immediately, and the SessionStart(compact) hooks re-inject the
+      // task-state snapshot afterwards.
       const reclaim = chooseReclaimAction({
-        contextTokens: contextTokens as number,  // non-null: decideGate allowed
-        preferCompact: cfg.preferCompact,
         lastCompactAt: runState.lastCompactAt,
         lastCompactTokens: runState.lastCompactTokens,
+        lastCompactMinSeen: runState.lastCompactMinSeen,
         nowMs,
       })
+      if (reclaim.action === 'hold') {
+        // Compaction cannot help this session. Say so and stop: retrying on a
+        // timer would burn tokens for nothing, and escalating would wipe work.
+        logger.info({ agent: name, contextTokens, why: reclaim.reason },
+          'context-restart-gate: holding -- compaction is not reclaiming this session')
+        writeGateStatus(name, {
+          ts: nowMs,
+          action: 'hold',
+          reason: reclaim.reason,
+          contextTokens,
+          thresholdTokens: cfg.thresholdTokens,
+          enabled: cfg.enabled,
+          aboveThreshold: true,
+        })
+        break
+      }
       // Compaction runs with OUR instructions, not a bare summarize (see
       // context-compaction-instructions.ts).
-      const command = reclaim.action === 'compact' ? COMPACT_COMMAND : '/clear'
+      const command = COMPACT_COMMAND
       try {
         await withSessionSendLock(session, null, 'deliver', async () => {
-          execFileSync(TMUX, ['send-keys', '-t', session, '-l', command], { timeout: 5000 })
-          execFileSync(TMUX, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+          execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), '-l', command], { timeout: 5000 })
+          execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 5000 })
         })
         logger.info({ agent: name, contextTokens, command, why: reclaim.reason },
           `context-restart-gate: ${reclaim.action} sent`)
@@ -530,15 +562,15 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         // compaction spinner carries none of the busy signals a normal turn
         // does. Record that we started one so the agent does not look idle for
         // the minute it runs (Boss, 2026-08-12).
-        if (reclaim.action === 'compact') markCompactionStarted(name, contextTokens, nowMs)
+        markCompactionStarted(name, contextTokens, nowMs)
         writeGateRunState(name, {
           ...runState,
           firstBlockedAt: null,
-          ...(reclaim.action === 'compact'
-            // Record the size we compacted FROM: the next sweep compares against
-            // it to tell a working compaction from a useless one.
-            ? { lastCompactAt: nowMs, lastCompactTokens: contextTokens }
-            : { lastClearAt: nowMs }),
+          // Record the size we compacted FROM, and reset the low-water mark so
+          // the next sweeps measure THIS compaction rather than the last one.
+          lastCompactAt: nowMs,
+          lastCompactTokens: contextTokens,
+          lastCompactMinSeen: null,
         })
         writeGateStatus(name, {
           ts: nowMs,

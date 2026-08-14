@@ -6,22 +6,15 @@ import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { MAIN_AGENT_ID } from '../../config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
-import { agentDir } from '../agent-config.js'
+import { agentDir, skillsRootFor } from '../agent-config.js'
 import { generateSkillMd } from '../agent-scaffold.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json } from '../http-helpers.js'
 import { sanitizeAgentName, sanitizeSkillName, safeJoin } from '../sanitize.js'
 import type { RouteContext } from './types.js'
 
-// Marveen's skills live at the global ~/.claude/skills/ path (shared with
-// the operator's Claude Code install); sub-agents under their own
-// agents/<name>/.claude/skills/. agentDir(MAIN_AGENT_ID) points at the
-// non-existent agents/marveen/ folder so we must branch here.
-function skillsRootFor(name: string): string {
-  return name === MAIN_AGENT_ID
-    ? join(homedir(), '.claude', 'skills')
-    : join(agentDir(name), '.claude', 'skills')
-}
+// skillsRootFor lives in agent-config.ts: the auto-reflection (src/web/reflect.ts)
+// writes into the same tree, and one copy of that branch is enough.
 function agentExistsFor(name: string): boolean {
   return name === MAIN_AGENT_ID || existsSync(agentDir(name))
 }

@@ -34,7 +34,7 @@ describe('delivery transport selection', () => {
     const { host, inv } = transportFor('{}', 'agent-dev')
     expect(host).toBeNull()
     expect(inv.file).toBe(TMUX)
-    expect(inv.args).toEqual(['send-keys', '-t', 'agent-dev', '-l', 'hi'])
+    expect(inv.args).toEqual(['send-keys', '-t', '=agent-dev:', '-l', 'hi'])
     expect(inv.args).not.toContain('ssh')
   })
 

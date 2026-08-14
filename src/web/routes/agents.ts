@@ -1257,10 +1257,19 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     // Do not re-compact a context that just proved it will not shrink: the same
     // evidence rule the gate uses, so an agent whose size is one huge turn does
     // not get a compaction at the end of every single turn forever.
+    //
+    // The evidence is the LOWEST size seen since that compaction, not the size
+    // right now. Comparing against "now" made this test fire on ordinary
+    // regrowth: 120k -> 9k, then back to 119k inside the hour, read as
+    // "compaction-stalled (120000 -> 119000)" -- so the ceiling shut itself off
+    // for an hour immediately after working perfectly. On this install a busy
+    // agent regrows that far in minutes, which meant the end-of-turn ceiling,
+    // the only mechanism that catches a bursty agent, was almost always dead.
     const runState = readGateRunState(name)
+    const minSeen = Math.min(runState.lastCompactMinSeen ?? tokens, tokens)
     const stalled = runState.lastCompactTokens != null && runState.lastCompactAt != null
       && (Date.now() - runState.lastCompactAt) < COMPACT_RETRY_WINDOW_MS
-      && (runState.lastCompactTokens - tokens) / runState.lastCompactTokens < 0.1
+      && (runState.lastCompactTokens - minSeen) / runState.lastCompactTokens < 0.1
     if (stalled) {
       json(res, { ok: true, action: 'none', reason: `compaction-stalled (${runState.lastCompactTokens} -> ${tokens})`, contextTokens: tokens })
       return true
@@ -1273,7 +1282,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       })
       if (result === 'aborted-busy') { json(res, { ok: true, action: 'none', reason: 'busy' }); return true }
       markCompactionStarted(name, tokens)
-      writeGateRunState(name, { ...runState, lastCompactAt: Date.now(), lastCompactTokens: tokens })
+      writeGateRunState(name, {
+        ...runState, lastCompactAt: Date.now(), lastCompactTokens: tokens,
+        // Reset the low-water mark: from here on the sweeps are measuring THIS
+        // compaction, not the previous one.
+        lastCompactMinSeen: null,
+      })
       void followUpManualCompaction(name, {
         readTokens,
         thresholdTokens: () => readGateConfig(name).thresholdTokens,

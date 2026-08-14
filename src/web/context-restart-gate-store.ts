@@ -46,6 +46,16 @@ export interface GateRunState {
   lastCompactAt: number | null
   /** Context size at that moment, so the NEXT sweep can tell whether it worked. */
   lastCompactTokens: number | null
+  /**
+   * Smallest context observed since that compaction was dispatched.
+   *
+   * This is the evidence chooseReclaimAction needs, and lastCompactTokens alone
+   * could not provide it. Comparing the pre-compaction size against the LIVE
+   * size cannot tell "the compaction failed" from "the compaction worked and
+   * the agent has been busy since" -- and the old code read the second as the
+   * first, then wiped the session for it.
+   */
+  lastCompactMinSeen: number | null
 }
 
 const EMPTY_STATE: GateRunState = {
@@ -54,6 +64,7 @@ const EMPTY_STATE: GateRunState = {
   lastClearAt: null,
   lastCompactAt: null,
   lastCompactTokens: null,
+  lastCompactMinSeen: null,
 }
 
 function readStateRaw(): Record<string, unknown> {
@@ -73,6 +84,7 @@ function normalizeState(raw: unknown): GateRunState {
     lastClearAt:       msOrNull(o.lastClearAt),
     lastCompactAt:     msOrNull(o.lastCompactAt),
     lastCompactTokens: msOrNull(o.lastCompactTokens),
+    lastCompactMinSeen: msOrNull(o.lastCompactMinSeen),
   }
 }
 

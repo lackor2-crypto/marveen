@@ -10,6 +10,7 @@ import { resolveAgentSession } from './channel-mcp-reconnect.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { detectReauthNeeded } from './reauth-detect.js'
 import { loginSequence, literalKeyArgs, specialKeyArgs } from './tmux-keys.js'
+import { exactTmuxTarget } from './tmux-target.js'
 
 // Autonomous re-auth healer (Adam stability-fix #1, scoped 2026-06-03).
 //
@@ -343,7 +344,7 @@ function checkSession(label: string, session: string, isMain: boolean, quiet: bo
 // starts, so the relaunch comes up past the gate.
 async function restartFirstRunGatedAgent(name: string, session: string): Promise<void> {
   await new Promise<void>((resolve) => {
-    execFile(TMUX, ['kill-session', '-t', session], { timeout: 5000 }, () => resolve())
+    execFile(TMUX, ['kill-session', '-t', exactTmuxTarget(session)], { timeout: 5000 }, () => resolve())
   })
   await sleep(1000)
   try {

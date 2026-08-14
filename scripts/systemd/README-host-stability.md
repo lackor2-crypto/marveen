@@ -36,6 +36,24 @@ Then `wsl --shutdown` once from Windows for it to take effect. This is a Windows
 filesystem change under `/mnt/c` and must be made by the user on Windows -- the
 Linux side must not write it automatically.
 
+## Also in this directory: the keepalive probe MUST be installed
+
+`channel-keepalive-probe.{service,timer}` is not optional. The keepalive
+freshness signal (`store/.channel-keepalive`) has two producers: organic inbound
+traffic, and this idle-path probe. With only the first one, a **healthy but
+quiet** channels session ages past `channel-watchdog`'s staleness threshold and
+gets respawn-paned every ~30 minutes -- each needless respawn re-opens/wedges
+the `/mcp` menu. Measured on 2026-08-14: the unit pair existed in the repo but
+was never installed here, and the journal shows exactly that false respawn.
+
+    cp scripts/systemd/channel-keepalive-probe.{service,timer} ~/.config/systemd/user/
+    # substitute the install dir / user / unit prefix, then:
+    systemctl --user daemon-reload
+    systemctl --user enable --now <prefix>-channel-keepalive-probe.timer
+
+`scripts/doctor.sh` now warns when this timer is missing, so the silent case is
+visible instead of showing up only as an unexplained "keepalive stale".
+
 ## Rollback
 
     systemctl --user disable --now marveen-host-watchdog.service

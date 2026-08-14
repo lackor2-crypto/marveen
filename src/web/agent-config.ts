@@ -45,6 +45,16 @@ export function agentConfigRoot(name: string): string {
   return agentDir(name)
 }
 
+// Marveen's own skills live at the global ~/.claude/skills/ path (shared with
+// the operator's Claude Code install); sub-agents under their own
+// agents/<name>/.claude/skills/. agentDir(MAIN_AGENT_ID) points at the
+// non-existent agents/marveen/ folder, so the main agent must branch here.
+export function skillsRootFor(name: string): string {
+  return name === MAIN_AGENT_ID
+    ? join(homedir(), '.claude', 'skills')
+    : join(agentDir(name), '.claude', 'skills')
+}
+
 export function readFileOr(path: string, fallback: string): string {
   try { return readFileSync(path, 'utf-8') } catch { return fallback }
 }

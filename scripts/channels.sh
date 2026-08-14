@@ -451,7 +451,7 @@ if command -v node >/dev/null 2>&1; then
 fi
 
 # Régi session takarítás
-$TMUX kill-session -t "$SESSION" 2>/dev/null
+$TMUX kill-session -t "=$SESSION:" 2>/dev/null
 
 # Reap orphan main-agent channel pollers (bun/node grandchildren of the
 # previous tmux server). A tmux kill-session does not always tear them down,
@@ -562,7 +562,7 @@ $TMUX set-environment -g CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION false 2>/dev/null 
 # trade-off is that a prior "$SESSION" can survive into this relaunch, so kill
 # just THIS session first -- never the server, never another agent's session --
 # otherwise new-session below fails with "duplicate session".
-$TMUX kill-session -t "$SESSION" 2>/dev/null || true
+$TMUX kill-session -t "=$SESSION:" 2>/dev/null || true
 $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$INSTALL_DIR" \
   "${MCP_BATCH_ENV}${CFG_ENV}$CLAUDE --dangerously-skip-permissions ${MODEL_FLAG}--channels plugin:${PLUGIN_ID}${EXTRA_CHANNELS}"
 
@@ -581,12 +581,12 @@ $TMUX new-session -d -s "$SESSION" -x 80 -y 60 -c "$INSTALL_DIR" \
 _eperm_restarted=0
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
   sleep 1
-  pane=$($TMUX capture-pane -t "$SESSION" -p 2>/dev/null || true)
+  pane=$($TMUX capture-pane -t "=$SESSION:" -p 2>/dev/null || true)
   case "$pane" in
     *"EPERM"*|*"Operation not permitted"*|*"operation not permitted"*)
       if [ "$_eperm_restarted" = "0" ]; then
         _eperm_restarted=1
-        $TMUX kill-session -t "$SESSION" 2>/dev/null
+        $TMUX kill-session -t "=$SESSION:" 2>/dev/null
         _CHANNELS_STARTDIR="$(mktemp -d /tmp/marveen-channels-XXXXXX)"
         # Carry the project CLAUDE.md into the fallback cwd so the session keeps
         # Marveen's instructions/personality instead of running as a generic,
@@ -611,17 +611,17 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
       continue
       ;;
     *"Bypass Permissions mode"*"Yes, I accept"*)
-      $TMUX send-keys -t "$SESSION" "2" Enter
+      $TMUX send-keys -t "=$SESSION:" "2" Enter
       sleep 1
       continue
       ;;
     *"Do you trust the files in this folder?"*)
-      $TMUX send-keys -t "$SESSION" "1" Enter
+      $TMUX send-keys -t "=$SESSION:" "1" Enter
       sleep 1
       continue
       ;;
     *"Welcome to Claude Code"*)
-      $TMUX send-keys -t "$SESSION" Enter
+      $TMUX send-keys -t "=$SESSION:" Enter
       sleep 1
       continue
       ;;
@@ -636,7 +636,7 @@ unset _eperm_restarted
 # longer uses Remote Control.)
 _bot_name="${BOT_NAME:-${MAIN_AGENT_ID:-marveen}}"
 sleep 1
-$TMUX send-keys -t "$SESSION" "/name ${_bot_name}" Enter
+$TMUX send-keys -t "=$SESSION:" "/name ${_bot_name}" Enter
 unset _bot_name
 
 # Reset the keep-alive watchdog baseline so a session that was just restarted
@@ -682,7 +682,7 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
 # The subshell is detached so the main script keeps moving to the wait-loop.
 (
   sleep 15
-  CLAUDE_PID="$($TMUX list-panes -t "$SESSION" -F '#{pane_pid}' 2>/dev/null | head -1)"
+  CLAUDE_PID="$($TMUX list-panes -t "=$SESSION:" -F '#{pane_pid}' 2>/dev/null | head -1)"
   # Check 1: bun grandchild of the marveen-channels claude
   BUN_CHILD=""
   if [ -n "$CLAUDE_PID" ]; then
@@ -700,23 +700,23 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
   # disabled (Enable-only submenu has no Reconnect, the Up+Enter+Enter sequence
   # would land somewhere unsafe). See classify_mcp_plugin_row above for why the
   # matching is row-scoped and glyph-agnostic.
-  $TMUX send-keys -t "$SESSION" Escape
+  $TMUX send-keys -t "=$SESSION:" Escape
   sleep 1
-  $TMUX send-keys -t "$SESSION" "/mcp" Enter
+  $TMUX send-keys -t "=$SESSION:" "/mcp" Enter
   sleep 3
-  PANE="$($TMUX capture-pane -t "$SESSION" -p 2>/dev/null || true)"
+  PANE="$($TMUX capture-pane -t "=$SESSION:" -p 2>/dev/null || true)"
 
   classify_mcp_plugin_row "$PANE"
   case "$MCP_PLUGIN_STATE" in
     failed)
       echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: $CHANNEL_PROVIDER plugin row failed, firing /mcp Up+Enter+Enter unlock -- row: $MCP_PLUGIN_ROW" >> "$INSTALL_DIR/store/channels-failures.log"
-      $TMUX send-keys -t "$SESSION" Up
+      $TMUX send-keys -t "=$SESSION:" Up
       sleep 1
-      $TMUX send-keys -t "$SESSION" Enter
+      $TMUX send-keys -t "=$SESSION:" Enter
       sleep 2
-      $TMUX send-keys -t "$SESSION" Enter
+      $TMUX send-keys -t "=$SESSION:" Enter
       sleep 4
-      $TMUX send-keys -t "$SESSION" Escape
+      $TMUX send-keys -t "=$SESSION:" Escape
       ;;
     *)
       # Plugin is connected/enabled/not-listed, or we couldn't capture. Bail
@@ -725,7 +725,7 @@ date +%s > "$INSTALL_DIR/store/.channel-last-respawn"
       # detect down and run its own recovery ladder; we don't second-guess.
       # Log the row we DID see -- a stale matcher is invisible without it.
       echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh post-init: no failed plugin row in /mcp pane, skipping unlock (bun child absent but plugin not failed - check manually) -- looked for '$PLUGIN_PANE_ID', row: ${MCP_PLUGIN_ROW:-<none>}" >> "$INSTALL_DIR/store/channels-failures.log"
-      $TMUX send-keys -t "$SESSION" Escape
+      $TMUX send-keys -t "=$SESSION:" Escape
       ;;
   esac
 ) &
@@ -775,7 +775,7 @@ PLUGIN_DEAD_SINCE=0
 RESTART_REQUESTED=0
 
 # Várakozás amíg a session él
-while $TMUX has-session -t "$SESSION" 2>/dev/null; do
+while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
   sleep 5
 
   NOW=$(date +%s)

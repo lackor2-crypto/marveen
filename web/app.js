@@ -3022,7 +3022,12 @@ const gateCfgByAgent = new Map()
 // one agent holds the role, so this is a single object, not a per-agent map:
 // `designated` is what the checkboxes show, `effective` is who is doing it right
 // now (they differ while the designated agent is stopped or out of quota).
-let brokerState = { designated: null, effective: null, reason: 'unset', steppedOver: null }
+let brokerState = { designated: null, effective: null, reason: 'unset', steppedOver: null, config: null }
+// Where the OTHER mechanisms sit, from /api/context-restart-gate. The card needs
+// these to refuse a threshold the CLI would override, and it must not compute
+// them itself: the ratio lives in src/context-mechanisms.ts, and a second copy
+// here would be one more thing to get out of step.
+let ctxLimits = { autocompactTokens: 0, autocompactFiresAt: 0, maxGateTokens: 0, minGateTokens: 30000 }
 let currentAgent = null
 // API-safe agent id for the currently open detail modal. Sub-agents key off
 // their name; the main agent's detail object carries name:'marveen' for legacy
@@ -3417,12 +3422,20 @@ async function loadAgents() {
     if (gateStatus && Array.isArray(gateStatus.agents)) {
       for (const a of gateStatus.agents) gateCfgByAgent.set(a.agent, a)
     }
+    if (gateStatus && Number.isFinite(gateStatus.autocompactTokens)) {
+      ctxLimits = {
+        autocompactTokens: gateStatus.autocompactTokens,
+        autocompactFiresAt: gateStatus.autocompactFiresAt ?? 0,
+        maxGateTokens: gateStatus.maxGateTokens ?? 0,
+        minGateTokens: gateStatus.minGateTokens ?? 30000,
+      }
+    }
     // Nobody designated is a valid, working state (everyone prepares their own
     // context), so an older backend answering null renders as exactly that
     // rather than as an error.
     brokerState = brokerStatus && typeof brokerStatus === 'object'
       ? brokerStatus
-      : { designated: null, effective: null, reason: 'unset', steppedOver: null }
+      : { designated: null, effective: null, reason: 'unset', steppedOver: null, config: null }
     if (marveenRes.ok) {
       window._marveen = await marveenRes.json()
       // A backend CHANNEL_PROVIDER-éhez igazitsuk a kliens-default-ot,
@@ -3824,17 +3837,107 @@ function contextControlsHtml(name, contextTokens = null, running = true, context
   // "es akor ez miert nem mukodik a szakertonel?? nem globalisan oldottad meg?"
   // It works everywhere; a stopped session simply has no context. Say so.
   else currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_stopped'))}</div>`
+  // The threshold's own limits come from the backend. Below the floor the gate
+  // fires so often the agent never gets a turn's work done; above the ceiling
+  // the CLI's autocompact reaches the context first and the gate never runs at
+  // all. Both ends are settings that LOOK saved and silently do nothing, which
+  // is the failure this whole exercise started from.
+  const kMin = Math.max(1, Math.round((ctxLimits.minGateTokens || 30000) / 1000))
+  const kMax = ctxLimits.maxGateTokens > 0 ? Math.floor(ctxLimits.maxGateTokens / 1000) : 1000
+  const outOfRange = cfg.enabled && (kThreshold > kMax || kThreshold < kMin)
+  const rangeNote = outOfRange
+    ? `<div class="ctx-gate-warn">${escapeHtml(t('agents.ctx.gate_range_warn', { min: kMin, max: kMax }))}</div>`
+    : ''
   return `
     <div class="agent-context-controls">
       <label class="ctx-gate-row" title="${escapeAttr(t('agents.ctx.auto_tip'))}">
         <input type="checkbox" class="ctx-gate-toggle"${cfg.enabled ? ' checked' : ''}>
         <span class="ctx-gate-text">${escapeHtml(t('agents.ctx.auto'))}</span>
-        <input type="number" class="ctx-gate-threshold" min="50" max="1000" step="10" value="${kThreshold}"${cfg.enabled ? '' : ' disabled'}>
+        <input type="number" class="ctx-gate-threshold" min="${kMin}" max="${kMax}" step="10" value="${kThreshold}"${cfg.enabled ? '' : ' disabled'}>
         <span class="ctx-gate-unit">${escapeHtml(t('agents.ctx.unit'))}</span>
       </label>
+      ${rangeNote}
       ${brokerRowHtml(name)}
+      ${roleRowHtml(name)}
+      ${cliRowHtml(name)}
       ${currentHtml}
+      ${contextHelpHtml()}
     </div>`
+}
+
+// === 3rd mechanism: the CLI's own autocompact ===
+// Read-only on purpose. It is one --autocompact value for the whole fleet (.env,
+// AUTOCOMPACT_TOKENS), so a per-card control would imply an independence that
+// does not exist. It is shown because leaving it invisible is what let the other
+// three be configured around a number nobody could see.
+//
+// Both numbers are printed: what is configured, and where it ACTUALLY fires.
+// Measured on this install at ~69% of the setting (46 compactions, mean 69207
+// tokens at a 100k setting), and that gap is the whole reason the gates never
+// ran -- thresholds of 50k-200k sat above a CLI that was compacting at 69k.
+//
+// The value is passed to the CLI at LAUNCH, so a running agent keeps the one it
+// started with -- for days. Raising the setting and watching usalackor go on
+// compacting every 2-3 minutes (its process still on the old 100k) is what
+// added the second line: when the live process disagrees with the setting, the
+// card says so, instead of showing a number the agent is not using.
+function cliRowHtml(name) {
+  if (!ctxLimits.autocompactTokens) return ''
+  const running = gateCfgByAgent.get(name)?.autocompactRunning
+  const drifted = Number.isFinite(running) && running !== ctxLimits.autocompactTokens
+  return `
+      <div class="ctx-cli-row" title="${escapeAttr(t('agents.ctx.cli_tip'))}">
+        ${escapeHtml(t('agents.ctx.cli', {
+          set: formatContextTokens(ctxLimits.autocompactTokens),
+          fires: formatContextTokens(ctxLimits.autocompactFiresAt),
+        }))}
+        ${drifted ? `<div class="ctx-gate-warn">${escapeHtml(t('agents.ctx.cli_drift', {
+          running: formatContextTokens(running),
+          fires: formatContextTokens(gateCfgByAgent.get(name)?.autocompactRunningFiresAt ?? 0),
+        }))}</div>` : ''}
+      </div>`
+}
+
+// === Roles: who is what in the pipeline ===
+// Boss, 2026-08-14: "a kartyan van jelolonegyzet amin ki lehet jelolni hogy ki
+// legyen kicsoda. az hogy a kartya alatt milyen model van az ne szamitson."
+//
+// So eligibility is never inferred from the model. Each role is held by at most
+// one agent -- the backend stores one name per role, so ticking a box here takes
+// it away from whoever had it, and the re-render is what makes that visible.
+// Unassigned is the normal state: the generator then decides per task.
+function roleRowHtml(name) {
+  const roles = brokerState.config?.roles || {}
+  const boxes = ['planner', 'implementer', 'checker'].map((id) => `
+        <label class="ctx-role" title="${escapeAttr(t(`agents.ctx.role_${id}_tip`))}">
+          <input type="checkbox" class="ctx-role-toggle" data-role="${id}"${roles[id] === name ? ' checked' : ''}>
+          <span>${escapeHtml(t(`agents.ctx.role_${id}`))}</span>
+        </label>`).join('')
+  return `
+      <div class="ctx-role-row" title="${escapeAttr(t('agents.ctx.roles_tip'))}">${boxes}
+      </div>`
+}
+
+// === The full explanation, folded away ===
+// Boss asked for every explanation to be written out -- what each does, when it
+// starts, what happens if you use it, which ones must not be combined. That is
+// more text than a card can carry open, and tooltips only reach one control at a
+// time, so it goes in a <details> that starts closed: present for whoever wants
+// it, costing no space for everyone else.
+function contextHelpHtml() {
+  const rows = ['manual', 'gate', 'cli', 'broker']
+    .map((id) => `<p><b>${escapeHtml(t(`agents.ctx.help_${id}_title`))}</b><br>${escapeHtml(t(`agents.ctx.help_${id}`))}</p>`)
+    .join('')
+  // The checkpoint is NOT a fifth mechanism to choose between -- it runs before
+  // whichever one fires -- so it sits after the ordering rule, not in the list.
+  const checkpoint = `<p><b>${escapeHtml(t('agents.ctx.help_checkpoint_title'))}</b><br>${escapeHtml(t('agents.ctx.help_checkpoint'))}</p>`
+  return `
+      <details class="ctx-help">
+        <summary>${escapeHtml(t('agents.ctx.help_summary'))}</summary>
+        ${rows}
+        <p class="ctx-help-rule">${escapeHtml(t('agents.ctx.help_order'))}</p>
+        ${checkpoint}
+      </details>`
 }
 
 // === Context generator (broker) checkbox ===
@@ -3864,12 +3967,34 @@ function brokerRowHtml(name) {
     const who = brokerState.designated ? chatDisplayName(brokerState.designated) : ''
     noteHtml = `<div class="ctx-broker-note">${escapeHtml(t('agents.ctx.broker_standin', { agent: who }))}</div>`
   }
+  // The two policy settings appear ONLY on the designated card. They describe
+  // how that agent hands work out, so on any other card they would be asking
+  // about a role the agent does not have -- and cleanStart in particular reads
+  // as "wipe me", which is the opposite of what it does.
+  let optsHtml = ''
+  if (isDesignated) {
+    const cfg = brokerState.config || {}
+    const secs = Number.isFinite(cfg.handBackAfterSeconds) ? cfg.handBackAfterSeconds : 0
+    optsHtml = `
+      <div class="ctx-broker-opts">
+        <label class="ctx-broker-opt" title="${escapeAttr(t('agents.ctx.clean_start_tip'))}">
+          <input type="checkbox" class="ctx-clean-start"${cfg.cleanStart ? ' checked' : ''}>
+          <span>${escapeHtml(t('agents.ctx.clean_start'))}</span>
+        </label>
+        <label class="ctx-broker-opt" title="${escapeAttr(t('agents.ctx.handback_tip'))}">
+          <span>${escapeHtml(t('agents.ctx.handback'))}</span>
+          <input type="number" class="ctx-handback" min="0" max="3600" step="10" value="${secs}">
+          <span>${escapeHtml(t('agents.ctx.handback_unit'))}</span>
+        </label>
+      </div>`
+  }
   return `
       <label class="ctx-gate-row ctx-broker-row" title="${escapeAttr(t('agents.ctx.broker_tip'))}">
         <input type="checkbox" class="ctx-broker-toggle"${isDesignated ? ' checked' : ''}>
         <span class="ctx-gate-text">${escapeHtml(t('agents.ctx.broker'))}</span>
       </label>
-      ${noteHtml}`
+      ${noteHtml}
+      ${optsHtml}`
 }
 
 function wireContextControls(card, name) {
@@ -3891,6 +4016,62 @@ function wireContextControls(card, name) {
   threshold?.addEventListener('change', () => saveGateConfig(name, !!toggle?.checked, threshold))
   const broker = root.querySelector('.ctx-broker-toggle')
   broker?.addEventListener('change', () => saveBrokerConfig(name, broker.checked))
+  // A role tick is an independent edit: it must not disturb the designation, so
+  // it posts only {role, agent} and the backend leaves `designated` alone.
+  root.querySelectorAll('.ctx-role-toggle').forEach((box) => {
+    box.addEventListener('change', () => saveBrokerRole(name, box.dataset.role, box.checked))
+  })
+  const cleanStart = root.querySelector('.ctx-clean-start')
+  cleanStart?.addEventListener('change', () => {
+    // Confirm before switching ON, never before switching off. This one wipes
+    // conversations -- of OTHER agents, which is why the card it sits on cannot
+    // show the consequence by itself.
+    if (cleanStart.checked && !confirm(t('agents.ctx.clean_start_confirm'))) {
+      cleanStart.checked = false
+      return
+    }
+    saveBrokerOptions(name, { cleanStart: cleanStart.checked })
+  })
+  const handback = root.querySelector('.ctx-handback')
+  handback?.addEventListener('change', () => {
+    const v = parseInt(handback.value, 10)
+    saveBrokerOptions(name, { handBackAfterSeconds: Number.isFinite(v) && v > 0 ? v : 0 })
+  })
+}
+
+// Give this agent a role, or take it away. `enabled:false` clears the role
+// entirely rather than handing it to nobody-in-particular, so unticking the last
+// box returns the pipeline to "the generator decides per task".
+async function saveBrokerRole(name, role, checked) {
+  try {
+    const res = await fetch('/api/context-broker', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, agent: checked ? name : null, enabled: checked }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (data.ok) {
+      if (data.config) brokerState = { ...brokerState, ...data, config: data.config }
+      showToast(t('agents.ctx.saved'))
+      // Redraw every card: the role just moved off whichever card held it.
+      renderAgents()
+    } else showToast(t('agents.ctx.failed'))
+  } catch { showToast(t('agents.ctx.failed')) }
+}
+
+// Change how the designated generator behaves. `agent` is re-sent unchanged so
+// the POST does not read as an un-designation.
+async function saveBrokerOptions(name, options) {
+  try {
+    const res = await fetch('/api/context-broker', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: name, enabled: true, ...options }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (data.ok) {
+      if (data.config) brokerState = { ...brokerState, ...data, config: data.config }
+      showToast(t('agents.ctx.saved'))
+    } else showToast(t('agents.ctx.failed'))
+  } catch { showToast(t('agents.ctx.failed')) }
 }
 
 // Designate (or un-designate) the context generator. The POST replaces the
@@ -3910,6 +4091,11 @@ async function saveBrokerConfig(name, checked) {
         effective: data.effective ?? null,
         reason: data.reason || 'unset',
         steppedOver: data.steppedOver ?? null,
+        // Roles and the two policy settings survive a designation change on the
+        // server (writeBrokerConfig preserves what the caller did not mention),
+        // so they must survive it here too -- dropping them would blank every
+        // role checkbox until the next full page load.
+        config: data.config ?? brokerState.config ?? null,
       }
       showToast(t('agents.ctx.saved'))
       renderAgents()
@@ -3961,6 +4147,13 @@ async function saveGateConfig(name, enabled, thresholdEl) {
     })
     const data = await res.json().catch(() => ({}))
     if (data.ok && data.config) { gateCfgByAgent.set(name, data.config); showToast(t('agents.ctx.saved')) }
+    else if (data.issue && Number.isFinite(data.suggestedThresholdTokens)) {
+      // The backend refused a threshold that could never fire. Say what the
+      // usable value is instead of a bare "failed" -- and put it in the box, so
+      // the fix is one keystroke away rather than a calculation.
+      showToast(t('agents.ctx.gate_rejected', { max: Math.floor(data.suggestedThresholdTokens / 1000) }))
+      if (thresholdEl) thresholdEl.value = Math.floor(data.suggestedThresholdTokens / 1000)
+    }
     else showToast(t('agents.ctx.failed'))
   } catch { showToast(t('agents.ctx.failed')) }
 }
@@ -10055,13 +10248,238 @@ async function loadVaultPage() {
 let _driveAccount = ''
 let _driveFolderStack = [{ id: 'root', name: '' }]
 
+// --- "Osszes fiok" nezet (Boss 2026-08-14) -----------------------------------
+// Tobb Google-cim van bekotve, es a kerdes rendszerint nem az, hogy "mi van a
+// lackor2 Drive-jan", hanem hogy "hol van ez a fajl". A legordulo fiokvalaszto
+// erre valaszolni csak vaktaban kattintgatva tud. Ebben a nezetben minden fiok
+// egy-egy hasab, SAJAT mappaveremmel: az egyikben lehet harom mappaval bentebb,
+// mikozben a masik a gyokeret mutatja.
+//
+// A vegpontok mar fiok-parameteresek (routes/drive-browser.ts), szerveroldali
+// valtoztatas nelkul. Egy hasab hibaja (lejart token) csak azt a hasabot rontja
+// el -- tiz fioknal az "egy rossz fiok elviszi az egesz oldalt" a leggyakoribb
+// hibamod.
+let _driveAllMode = false
+let _driveAccountsAll = []
+let _driveHidden = new Set()   // amit a felhasznalo kikapcsolt (fiok-azonositok)
+const _driveStacks = {}        // fiok -> sajat mappaverem
+
+const DRIVE_LS_MODE = 'marveen.drive.allmode'
+const DRIVE_LS_HIDDEN = 'marveen.drive.hidden'
+/** Ennyi hasab tolti be egyszerre a tartalmat. Tiz parhuzamos kerés tiz
+ *  python-inditast jelentene a szerveren -- ez nem gyorsabb, csak nehezebb. */
+const DRIVE_MULTI_CONCURRENCY = 4
+
+function _driveStack(account) {
+  if (!_driveStacks[account]) _driveStacks[account] = [{ id: 'root', name: t('drive.root_label') }]
+  return _driveStacks[account]
+}
+
+function _driveShownAccounts() {
+  return _driveAccountsAll.filter(a => !_driveHidden.has(a))
+}
+
+/** Egyszerre legfeljebb `limit` feladat fut. */
+async function _drivePool(items, limit, worker) {
+  const queue = [...items]
+  const runners = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+    while (queue.length) await worker(queue.shift())
+  })
+  await Promise.all(runners)
+}
+
+function _driveApplyMode() {
+  const single = document.getElementById('driveSingleTools')
+  const multi = document.getElementById('driveMulti')
+  const bar = document.getElementById('driveMultiBar')
+  const toggle = document.getElementById('driveAllToggle')
+  const label = document.getElementById('driveAllToggleLabel')
+  if (single) single.style.display = _driveAllMode ? 'none' : 'flex'
+  for (const id of ['driveBreadcrumb', 'driveList', 'driveEmpty', 'driveError']) {
+    const el = document.getElementById(id)
+    if (el) el.style.display = _driveAllMode ? 'none' : ''
+  }
+  if (multi) multi.hidden = !_driveAllMode
+  if (bar) bar.hidden = !_driveAllMode
+  if (toggle) toggle.setAttribute('aria-pressed', String(_driveAllMode))
+  if (label) label.textContent = t(_driveAllMode ? 'drive.single_account_btn' : 'drive.all_accounts_btn')
+}
+
+function _driveRenderChips() {
+  const box = document.getElementById('driveMultiChips')
+  if (!box) return
+  box.innerHTML = _driveAccountsAll.map(a => {
+    const on = !_driveHidden.has(a)
+    return `<button class="drive-chip${on ? ' drive-chip-on' : ''}" data-acc="${escapeHtml(a)}" aria-pressed="${on}">${escapeHtml(a)}</button>`
+  }).join('')
+  box.querySelectorAll('.drive-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const acc = chip.getAttribute('data-acc')
+      if (_driveHidden.has(acc)) _driveHidden.delete(acc)
+      else _driveHidden.add(acc)
+      // Az utolso hasabot nem lehet elrejteni: ures oldal nem valasz.
+      if (_driveShownAccounts().length === 0) { _driveHidden.delete(acc); return }
+      try { localStorage.setItem(DRIVE_LS_HIDDEN, JSON.stringify([..._driveHidden])) } catch { /* ignore */ }
+      _driveRenderChips()
+      renderDriveMulti()
+    })
+  })
+}
+
+/** Egy hasab vaza. A tartalmat a loadDriveColumn tolti bele. */
+function driveColumnHtml(account) {
+  return `<section class="drive-col" data-acc="${escapeHtml(account)}">
+    <header class="drive-col-head">
+      <span class="drive-col-name" title="${escapeHtml(account)}">${escapeHtml(account)}</span>
+      <span class="drive-col-tools">
+        <button class="btn-icon" data-col-action="upload" title="${escapeHtml(t('drive.upload_btn'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+        <button class="btn-icon" data-col-action="mkdir" title="${escapeHtml(t('drive.new_folder_btn'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+        <button class="btn-icon" data-col-action="refresh" title="${escapeHtml(t('drive.refresh_btn'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+      </span>
+    </header>
+    <div class="drive-breadcrumb drive-col-crumbs"></div>
+    <div class="drive-list drive-col-list"></div>
+  </section>`
+}
+
+function renderDriveColumnCrumbs(col, account) {
+  const bc = col.querySelector('.drive-col-crumbs')
+  const stack = _driveStack(account)
+  bc.innerHTML = stack.map((f, i) => {
+    const isLast = i === stack.length - 1
+    return `<span class="drive-crumb${isLast ? ' drive-crumb-current' : ''}" data-idx="${i}">${escapeHtml(f.name)}</span>`
+      + (isLast ? '' : '<span class="drive-crumb-sep">/</span>')
+  }).join('')
+  bc.querySelectorAll('.drive-crumb:not(.drive-crumb-current)').forEach(el => {
+    el.addEventListener('click', () => {
+      const idx = Number(el.getAttribute('data-idx'))
+      _driveStacks[account] = stack.slice(0, idx + 1)
+      loadDriveColumn(account)
+    })
+  })
+}
+
+async function loadDriveColumn(account) {
+  const col = document.querySelector(`.drive-col[data-acc="${CSS.escape(account)}"]`)
+  if (!col) return
+  const list = col.querySelector('.drive-col-list')
+  const stack = _driveStack(account)
+  const folder = stack[stack.length - 1]
+  renderDriveColumnCrumbs(col, account)
+  list.innerHTML = `<div class="drive-loading">${escapeHtml(t('drive.loading'))}</div>`
+  try {
+    const res = await fetch(`/api/drive/list?folderId=${encodeURIComponent(folder.id)}&account=${encodeURIComponent(account)}`)
+    const data = await res.json()
+    if (!res.ok) {
+      // Csak EZ a hasab romlik el. A hibauzenet a fiok nevevel egyutt all ott,
+      // kulonben tiz hasabnal talalgatas, melyik fiokkal van baj.
+      list.innerHTML = `<div class="drive-col-error">${escapeHtml(data.error || t('drive.load_error'))}</div>`
+      return
+    }
+    const files = data.files || []
+    if (files.length === 0) {
+      list.innerHTML = `<div class="drive-col-empty">${escapeHtml(t('drive.empty_msg'))}</div>`
+      return
+    }
+    list.innerHTML = files.map(f => driveRowHtml(f)).join('')
+    bindDriveRowActions(list, account, stack, () => loadDriveColumn(account))
+  } catch {
+    list.innerHTML = `<div class="drive-col-error">${escapeHtml(t('drive.load_error'))}</div>`
+  }
+}
+
+function renderDriveMulti() {
+  const wrap = document.getElementById('driveMulti')
+  if (!wrap) return
+  const accounts = _driveShownAccounts()
+  wrap.innerHTML = accounts.map(a => driveColumnHtml(a)).join('')
+  wrap.querySelectorAll('.drive-col').forEach(col => {
+    const account = col.getAttribute('data-acc')
+    col.querySelectorAll('[data-col-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.getAttribute('data-col-action')
+        if (action === 'refresh') { loadDriveColumn(account); return }
+        if (action === 'mkdir') {
+          const name = prompt(t('drive.prompt.new_folder'))
+          if (!name) return
+          const stack = _driveStack(account)
+          const res = await fetch('/api/drive/mkdir', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, parentId: stack[stack.length - 1].id, account }),
+          })
+          if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+          loadDriveColumn(account)
+          return
+        }
+        if (action === 'upload') {
+          // Egy rejtett fajlmezot hasznal minden hasab; a cel fiokot a
+          // gomb allitja be, mielott megnyitja a valasztot.
+          const input = document.getElementById('driveMultiUploadInput')
+          if (!input) return
+          input.dataset.account = account
+          input.click()
+        }
+      })
+    })
+  })
+  _drivePool(accounts, DRIVE_MULTI_CONCURRENCY, acc => loadDriveColumn(acc))
+}
+
+document.getElementById('driveMultiUploadInput')?.addEventListener('change', async (ev) => {
+  const file = ev.target.files[0]
+  const account = ev.target.dataset.account
+  ev.target.value = ''
+  if (!file || !account) return
+  const stack = _driveStack(account)
+  const form = new FormData()
+  form.append('file', file)
+  form.append('parentId', stack[stack.length - 1].id)
+  form.append('account', account)
+  const res = await fetch('/api/drive/upload', { method: 'POST', body: form })
+  if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
+  loadDriveColumn(account)
+})
+
+document.getElementById('driveAllToggle')?.addEventListener('click', () => {
+  _driveAllMode = !_driveAllMode
+  try { localStorage.setItem(DRIVE_LS_MODE, _driveAllMode ? '1' : '0') } catch { /* ignore */ }
+  _driveApplyMode()
+  if (_driveAllMode) { _driveRenderChips(); renderDriveMulti() }
+  // Vissza egy-fiokos nezetbe: loadDrivePage() kell, nem loadDriveFolder().
+  // Ha az oldal a hasabos nezetben nyilt meg (a valasztas tullel egy
+  // ujratoltest), akkor a fiok-legordulo meg ures es a _driveAccount is ures --
+  // a loadDriveFolder() ilyenkor account= nelkul kerne le a listat, es a
+  // felhasznalo egy hibauzenetet kapna a sajat Drive-ja helyett.
+  else loadDrivePage()
+})
+
 async function loadDrivePage() {
   _driveFolderStack = [{ id: 'root', name: t('drive.root_label') }]
+  try { _driveAllMode = localStorage.getItem(DRIVE_LS_MODE) === '1' } catch { _driveAllMode = false }
+  try {
+    const saved = JSON.parse(localStorage.getItem(DRIVE_LS_HIDDEN) || '[]')
+    _driveHidden = new Set(Array.isArray(saved) ? saved : [])
+  } catch { _driveHidden = new Set() }
   try {
     const accRes = await fetch('/api/drive/accounts')
     const accData = await accRes.json()
     const select = document.getElementById('driveAccountSelect')
     const accounts = accData.accounts || []
+    _driveAccountsAll = accounts
+    // Egy fioknal a hasabos nezet ertelmetlen -- a kapcsolo is felesleges.
+    const toggle = document.getElementById('driveAllToggle')
+    if (toggle) toggle.hidden = accounts.length < 2
+    if (accounts.length < 2) _driveAllMode = false
+    // Egy kozben eltavolitott fiok nem tarthatja rejtve magat orokre, es nem
+    // is tuntetheti el az osszes hasabot.
+    _driveHidden = new Set([..._driveHidden].filter(a => accounts.includes(a)))
+    if (accounts.length && _driveShownAccounts().length === 0) _driveHidden = new Set()
+    _driveApplyMode()
+    if (_driveAllMode) {
+      _driveRenderChips()
+      renderDriveMulti()
+      return
+    }
     if (accounts.length === 0) {
       select.innerHTML = ''
       document.getElementById('driveList').innerHTML = ''
@@ -10107,7 +10525,7 @@ async function loadDriveFolder() {
     }
     empty.hidden = true
     list.innerHTML = files.map(f => driveRowHtml(f)).join('')
-    bindDriveRowActions(list)
+    bindDriveRowActions(list, _driveAccount, _driveFolderStack, loadDriveFolder)
   } catch {
     renderDriveError(t('drive.load_error'))
     list.innerHTML = ''
@@ -10151,7 +10569,7 @@ function driveRowHtml(f) {
     ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
     : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
   const modified = f.modifiedTime ? new Date(f.modifiedTime).toLocaleDateString() : ''
-  return `<div class="drive-row" data-id="${escapeHtml(f.id)}" data-folder="${f.isFolder ? '1' : '0'}" data-name="${escapeHtml(f.name)}">
+  return `<div class="drive-row" data-id="${escapeHtml(f.id)}" data-folder="${f.isFolder ? '1' : '0'}" data-name="${escapeHtml(f.name)}" data-mime="${escapeHtml(f.mimeType || '')}">
     <div class="drive-row-name">${icon}<span>${escapeHtml(f.name)}</span></div>
     <div class="drive-row-meta">${escapeHtml(modified)}</div>
     <div class="drive-row-meta">${escapeHtml(fmtDriveSize(f.size))}</div>
@@ -10164,15 +10582,74 @@ function driveRowHtml(f) {
   </div>`
 }
 
-function bindDriveRowActions(list) {
+/**
+ * Download one Drive file.
+ *
+ * NOT window.open(): the dashboard authenticates with an `Authorization:
+ * Bearer` header that the fetch wrapper attaches (web/app.js, TOKEN_KEY), and a
+ * plain navigation carries no headers -- the download tab came back with
+ * {"error":"Unauthorized"} (Boss, 2026-08-14). The query-string ?token= lane is
+ * scoped to the SSE pane stream on the server and would leak the token into
+ * history anyway, so the file is fetched here and handed to the browser as a
+ * blob -- the same idiom the agent/fleet exports already use.
+ */
+async function downloadDriveFile(fileId, name, account, mimeType) {
+  // A big file is minutes of silence otherwise: no tab opens, nothing moves.
+  showToast(t('drive.download.started', { name }))
+  let res
+  try {
+    res = await fetch('/api/drive/download?fileId=' + encodeURIComponent(fileId)
+      + '&account=' + encodeURIComponent(account)
+      + '&name=' + encodeURIComponent(name)
+      + '&mimeType=' + encodeURIComponent(mimeType || ''))
+  } catch {
+    showToast(t('drive.download.failed', { name }))
+    return
+  }
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}))
+    // Google Docs/Sheets have no bytes to download; the server says so with a
+    // code so this reads in the user's own language.
+    showToast(d.code === 'unsupported_google_type' ? t('drive.download.unsupported') : (d.error || t('drive.download.failed', { name })))
+    return
+  }
+  const blob = await res.blob()
+  // The server sends both filename= and filename*=UTF-8''... -- the starred one
+  // is the only one that survives accented names, so it wins. Docs exports also
+  // gain an extension there (".docx") that the Drive listing does not have.
+  const cd = res.headers.get('Content-Disposition') || ''
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+  let filename = name
+  if (star) { try { filename = decodeURIComponent(star[1]) } catch { /* keep name */ } }
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+/**
+ * Row actions for ONE account's file list.
+ *
+ * Takes the account and its folder stack instead of reading the page-wide
+ * globals: in the "all accounts" view every column is a different account at a
+ * different folder, and a shared global would have every column's buttons
+ * acting on whichever account was selected last -- renaming or trashing a file
+ * in the wrong Drive.
+ */
+function bindDriveRowActions(list, account, stack, reload) {
   list.querySelectorAll('.drive-row').forEach(row => {
     const id = row.getAttribute('data-id')
     const name = row.getAttribute('data-name')
     const isFolder = row.getAttribute('data-folder') === '1'
+    const mimeType = row.getAttribute('data-mime') || ''
     row.querySelector('.drive-row-name').addEventListener('click', () => {
       if (isFolder) {
-        _driveFolderStack.push({ id, name })
-        loadDriveFolder()
+        stack.push({ id, name })
+        reload()
       }
     })
     row.querySelectorAll('[data-action]').forEach(btn => {
@@ -10180,30 +10657,32 @@ function bindDriveRowActions(list) {
         ev.stopPropagation()
         const action = btn.getAttribute('data-action')
         if (action === 'download') {
-          window.open(`/api/drive/download?fileId=${encodeURIComponent(id)}&account=${encodeURIComponent(_driveAccount)}&name=${encodeURIComponent(name)}`, '_blank')
+          await downloadDriveFile(id, name, account, mimeType)
           return
         }
         if (action === 'rename') {
           const newName = prompt(t('drive.prompt.rename'), name)
           if (!newName || newName === name) return
-          const res = await fetch('/api/drive/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, name: newName, account: _driveAccount }) })
+          const res = await fetch('/api/drive/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, name: newName, account }) })
           if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
-          loadDriveFolder()
+          reload()
           return
         }
         if (action === 'move') {
           const targetId = prompt(t('drive.prompt.move'))
           if (!targetId) return
-          const res = await fetch('/api/drive/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, newParentId: targetId.trim(), account: _driveAccount }) })
+          const res = await fetch('/api/drive/move', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, newParentId: targetId.trim(), account }) })
           if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
-          loadDriveFolder()
+          reload()
           return
         }
         if (action === 'trash') {
-          if (!confirm(t('drive.confirm.trash', { name }))) return
-          const res = await fetch('/api/drive/trash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, account: _driveAccount }) })
+          // The account is named in the question: with three columns open,
+          // "Töröljem a szerzodes.pdf-et?" is not enough information to say yes to.
+          if (!confirm(t('drive.confirm.trash_account', { name, account }))) return
+          const res = await fetch('/api/drive/trash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: id, account }) })
           if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
-          loadDriveFolder()
+          reload()
         }
       })
     })
@@ -13866,89 +14345,19 @@ function _accountInfoFor(id) {
   return vaultInfo ? { ...vaultInfo, flow: 'vault' } : ACCOUNT_EXTRA_INFO[id]
 }
 
-function _renderAccountItem(entry) {
-  const info = _accountInfoFor(entry.id)
-  if (!info) return ''
-  const configured = entry.configured
-  // Vault-backed items are always clickable -- Vault is genuinely where they
-  // live, configured or not. Agent-flow items (Google/GitHub) have no
-  // dashboard destination yet (no OAuth-callback page exists), so clicking
-  // just reminds the user how to reach Marvin instead of faking a link.
-  const clickable = info.flow === 'vault' || info.flow === 'agent'
-  let help = ''
-  if (!configured && info.flow === 'vault') {
-    help = `<div class="vault-known-help">
-      <div class="vault-known-steps">${escapeHtml(t(info.stepsKey))}</div>
-      <a class="vault-known-link" href="${info.helpUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('vault.known.get_key_link'))} →</a>
-    </div>`
-  } else if (!configured && info.flow === 'agent') {
-    help = `<div class="vault-known-help"><div class="vault-known-steps">${escapeHtml(t(info.agentHintKey))}</div></div>`
-  }
-  const statusText = configured ? t('vault.known.configured') : (info.flow === 'vault' ? t('vault.known.missing') : t('accounts.status.not_configured'))
-  const accountsNote = configured && Array.isArray(entry.accounts) && entry.accounts.length
-    ? `<div class="vault-known-desc">${escapeHtml(t('accounts.connected_accounts', { n: entry.accounts.length, names: entry.accounts.join(', ') }))}</div>`
-    : ''
-  const clickAttrs = clickable
-    ? (info.flow === 'vault'
-        ? ` data-flow="vault" data-vault-id="${escapeHtml(info.vaultId)}" data-label-key="${escapeHtml(info.labelKey)}"`
-        : ` data-flow="agent" data-agent-hint-key="${escapeHtml(info.agentHintKey)}"`)
-    : ''
-  return `<div class="vault-known-item${clickable ? ' accounts-item-clickable' : ''}"${clickAttrs}>
-    <div class="vault-known-row">
-      <div class="vault-known-text">
-        <div class="vault-known-label">${escapeHtml(t(info.labelKey))}</div>
-        <div class="vault-known-desc">${escapeHtml(t(info.descKey))}</div>
-        ${accountsNote}
-      </div>
-      <div class="vault-known-status ${configured ? 'vault-known-status-ok' : 'vault-known-status-missing'}">${statusText}</div>
-    </div>
-    ${help}
-  </div>`
-}
-
+// The page used to draw two lists of its own here ("core" and "optional") out
+// of _renderAccountItem, and the panel below drew a third -- so the same
+// service, and the same Gmail address, stood on one screen up to three times
+// (Boss, 2026-08-14: "van 3 panel es mind a 3 ugyanazt mutatja"). Both lists
+// and their row builder are gone; the fetch stays, because the single panel
+// feeds on the very same payload.
 async function loadAccountsPage() {
-  const coreEl = document.getElementById('accountsCoreList')
-  const optEl = document.getElementById('accountsOptionalList')
   try {
     const res = await fetch('/api/accounts')
-    const data = await res.json()
-    _lastAccountsData = data
-    // The two old lists are retired: everything they showed is in the single
-    // panel below, and keeping them meant the same service twice on one page.
-    if (coreEl) coreEl.innerHTML = ''
-    if (optEl) optEl.innerHTML = ''
-    optEl.querySelectorAll('.accounts-item-clickable').forEach(el => {
-      el.addEventListener('click', () => {
-        if (el.getAttribute('data-flow') === 'agent') {
-          showToast(t(el.getAttribute('data-agent-hint-key')), 8000, true)
-          return
-        }
-        const id = el.getAttribute('data-vault-id')
-        const labelKey = el.getAttribute('data-label-key')
-        const alreadySet = el.querySelector('.vault-known-status-ok') !== null
-        switchPage('vault')
-        if (alreadySet) {
-          setTimeout(() => {
-            const card = document.querySelector(`.vault-card[data-id="${CSS.escape(id)}"]`)
-            if (!card) return
-            card.scrollIntoView({ behavior: 'smooth', block: 'center' })
-            card.classList.add('vault-card-highlight')
-            setTimeout(() => card.classList.remove('vault-card-highlight'), 2000)
-          }, 400)
-          return
-        }
-        setTimeout(() => {
-          const addPanel = document.getElementById('vaultAddPanel')
-          if (!addPanel) return
-          addPanel.hidden = false
-          document.getElementById('vaultPageIdInput').value = id
-          document.getElementById('vaultPageLabelInput').value = t(labelKey)
-          document.getElementById('vaultPageValueInput').focus()
-        }, 400)
-      })
-    })
+    _lastAccountsData = await res.json()
   } catch { /* ignore */ }
   renderClaudeAccountPanel(_keyServicesFromAccounts(_lastAccountsData))
+  renderConnectionsPanel()
 }
 
 // The key-backed services the Accounts payload already reports, paired with the
@@ -14023,24 +14432,27 @@ function _claudeAuthSetState(text, kind) {
 // pages was one concept in two places (Boss, 2026-08-12: "jo otlet, csinald ugy").
 let _claudeAuthKeyServices = []
 
+// The Claude half no longer draws a list of its own: the same address was being
+// listed here, in the Google section and in the connector section, three times
+// on one screen (Boss, 2026-08-14: "van 3 panel es mind a 3 ugyanazt mutatja").
+// It hands its accounts to the one place that draws them.
 function _claudeAuthRenderList(accounts) {
-  const el = document.getElementById('claudeAuthList')
+  _hubClaude = accounts || []
+  _hubSeen.claude = true
+  renderAccountsHub()
+}
+
+// The keys stay a list, and stay SEPARATE from the account cards: a key is a
+// pasted string, not a person -- a card with a "disconnect" button on it would
+// promise something that makes no sense for a key.
+function _accHubRenderKeys() {
+  const el = document.getElementById('accountsKeyList')
   if (!el) return
-  const loginRows = (accounts || []).map(a => {
-    const id = a.identity || {}
-    const who = id.loggedIn && id.email
-      ? escapeHtml(id.email) + (id.subscriptionType ? ` <span class="claude-auth-plan">${escapeHtml(id.subscriptionType)}</span>` : '')
-      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.row_empty'))}</span>`
-    // The default row is NAMED here rather than by the backend: the server
-    // should not be shipping a Hungarian word to an English dashboard.
-    const name = a.isDefault ? t('claudeauth.row_default') : (a.label || a.id || '')
-    return `<div class="claude-auth-row">
-      <span class="claude-auth-rowlabel">${escapeHtml(name)}</span>
-      <span class="claude-auth-rowwho">${who}</span>
-      <span class="claude-auth-kind">${escapeHtml(t('claudeauth.kind_login'))}</span>
-    </div>`
-  })
-  const keyRows = _claudeAuthKeyServices.map(k => {
+  // Google is left OUT on purpose: its row here would name the very same
+  // addresses the cards above already show, one by one -- which is the
+  // duplication this rebuild removed ("az elsoben felsorolod a gmail fiokokat
+  // es a masodikban is"). Telegram and GitHub have no card, so they stay.
+  el.innerHTML = _claudeAuthKeyServices.filter(k => k.id !== 'google').map(k => {
     let who
     if (!k.configured) {
       who = `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.key_unset'))}</span>`
@@ -14059,8 +14471,250 @@ function _claudeAuthRenderList(accounts) {
       <span class="claude-auth-rowwho">${who}</span>
       <span class="claude-auth-kind">${escapeHtml(t(k.kind === 'key' ? 'claudeauth.kind_key' : 'claudeauth.kind_account'))}</span>
     </div>`
-  })
-  el.innerHTML = loginRows.concat(keyRows).join('')
+  }).join('')
+}
+
+// --- ONE panel, one card per account -----------------------------------------
+//
+// Boss, 2026-08-14: "nem lehetne ezeket egy panelre tenni? mindennel egyutt?
+// levalasztas ellenorzes stb egy panal egy helyen mutatna? kell ez hogy
+// szetszorni sok fele?"
+//
+// The three sources know three DIFFERENT things about the same address (is it
+// signed in / does its mail-Drive-calendar work / are its Claude Code connectors
+// authorized), and the operator had to hold all three lists in their head to see
+// that it is ONE account. Here the three payloads flow in and one card per
+// identity comes out.
+//
+// Each loader answers at its own pace -- a ten-address Google probe can take
+// minutes -- so every one of them only DROPS its data and asks for a redraw.
+// None waits for the others, and none can wipe another's half of a card.
+let _hubClaude = []
+let _hubGoogle = []
+let _hubMcp = []
+const _hubSeen = { claude: false, google: false, mcp: false }
+
+function _hubEmailKey(email) { return String(email || '').trim().toLowerCase() }
+
+/**
+ * Fold the three lists into one card per identity.
+ *
+ * The key is the lower-cased e-mail address: that is the only thing all three
+ * sources can carry for the same account. Where there is no address (a Google
+ * account nobody has checked yet, a Claude login registered under a nickname),
+ * the record's own id becomes the key WITH a prefix -- otherwise two different
+ * kinds of "no address" would collapse onto one card.
+ *
+ * Pure on purpose: no DOM, no t(), so the merge rules can be tested directly.
+ */
+function _accHubMerge(claudeAccounts, googleAccounts, mcpAccounts) {
+  const cards = []
+  const byKey = new Map()
+  const card = (key, title) => {
+    let c = byKey.get(key)
+    if (!c) {
+      c = { key, title: title || '', email: '', isDefault: false, claude: [], google: [], mcp: [] }
+      byKey.set(key, c)
+      cards.push(c)
+    }
+    return c
+  }
+
+  // The Google addresses form the backbone: this is the "10 email" list, and an
+  // address is the most recognisable name a card can carry.
+  for (const g of googleAccounts || []) {
+    const email = _hubEmailKey(g.email)
+    const c = card(email || 'google:' + g.id, g.email || g.id)
+    if (!c.email && g.email) c.email = g.email
+    if (g.isDefault) c.isDefault = true
+    c.google.push(g)
+  }
+
+  // A Claude login joins the SAME card when the address matches.
+  const claudeCardKey = new Map()
+  let defaultClaudeKey = null
+  for (const a of claudeAccounts || []) {
+    const id = a.identity || {}
+    const email = _hubEmailKey(id.email)
+    const key = email || 'claude:' + (a.id || '')
+    const c = card(key, id.email || a.label || a.id || '')
+    if (!c.email && id.email) c.email = id.email
+    c.claude.push(a)
+    claudeCardKey.set(a.id, key)
+    if (a.isDefault) defaultClaudeKey = key
+  }
+
+  // Connectors belong to a CLAUDE account, not to a Google address. accountId
+  // === null means "the default account" -- it goes onto whichever card holds
+  // the default Claude login, instead of floating namelessly on its own.
+  for (const m of mcpAccounts || []) {
+    const key = (m.accountId === null || m.accountId === undefined)
+      ? (defaultClaudeKey || 'claude:default')
+      : (claudeCardKey.get(m.accountId) || 'claude:' + m.accountId)
+    const c = card(key, m.label || m.accountId || '')
+    c.mcp.push(m)
+  }
+
+  // Default first: that is the one Marveen uses when you do not say which.
+  cards.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0))
+  return cards
+}
+
+function _accHubPart(labelKey, body) {
+  return `<div class="acc-part">
+    <div class="acc-part-label">${escapeHtml(t(labelKey))}</div>
+    <div class="conn-rows">${body}</div>
+  </div>`
+}
+
+function _accHubClaudePart(rows) {
+  const body = rows.map(a => {
+    const id = a.identity || {}
+    const who = id.loggedIn && id.email
+      ? escapeHtml(id.email) + (id.subscriptionType ? ` <span class="claude-auth-plan">${escapeHtml(id.subscriptionType)}</span>` : '')
+      : `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.row_empty'))}</span>`
+    // The default row is NAMED here rather than by the backend: the server
+    // should not be shipping a Hungarian word to an English dashboard.
+    const name = a.isDefault ? t('claudeauth.row_default') : (a.label || a.id || '')
+    return `<div class="conn-row">
+      <div class="conn-row-main">
+        <span class="conn-row-name">${escapeHtml(name)}</span>
+        <span class="conn-row-sub">${who}</span>
+      </div>
+    </div>`
+  }).join('')
+  return _accHubPart('acchub.part_claude', body)
+}
+
+function _accHubGooglePart(rows, title) {
+  const body = rows.map(a => {
+    const svc = a.services || {}
+    // Per SERVICE, not one yes/no: with ten addresses "one of them is broken"
+    // is not an answer anybody can act on. An unchecked account shows no chips
+    // at all rather than three grey ones that look like three failures.
+    const chips = a.checkedAt === null ? '' : [
+      ['gmail', 'gconn.svc_gmail'], ['calendar', 'gconn.svc_calendar'], ['drive', 'gconn.svc_drive'],
+    ].map(([k, key]) => `<span class="conn-chip ${svc[k] ? 'conn-chip-on' : 'conn-chip-off'}">${escapeHtml(t(key))}</span>`).join('')
+    // "invalid_grant" is what an unverified (Testing-status) app's refresh token
+    // turns into after 7 days. The raw python message says nothing an operator
+    // can use; the plain-language one says what to press.
+    const state = a.kind === 'expired'
+      ? `<span class="conn-note conn-note-bad">${escapeHtml(t('gconn.expired_note'))}</span>`
+      : a.error
+        ? `<span class="conn-note conn-note-bad">${escapeHtml(a.error)}</span>`
+        : a.checkedAt === null
+          ? `<span class="conn-note">${escapeHtml(t('gconn.never_checked'))}</span>`
+          : `<span class="conn-note">${escapeHtml(t('gconn.checked_ago', { ago: formatRelative(a.checkedAt) }))}</span>`
+    const id = escapeAttr(a.id)
+    // The card heading already says the address; repeating it underneath is
+    // noise. The nickname is only shown when it differs from the heading.
+    const name = a.id === title ? '' : `<span class="conn-row-name">${escapeHtml(a.id)}</span>`
+    return `<div class="conn-row">
+      <div class="conn-row-main">${name}</div>
+      <div class="conn-row-chips">${chips}${state}</div>
+      <div class="conn-row-actions">
+        <button class="btn-secondary btn-compact" data-gact="probe" data-id="${id}">${escapeHtml(t('gconn.check'))}</button>
+        ${a.error ? `<button class="btn-primary btn-compact" data-gact="reauth" data-id="${id}">${escapeHtml(t('gconn.reauth'))}</button>` : ''}
+        ${a.isDefault ? '' : `<button class="btn-secondary btn-compact" data-gact="default" data-id="${id}">${escapeHtml(t('gconn.make_default'))}</button>`}
+        <button class="btn-secondary btn-compact" data-gact="remove" data-id="${id}">${escapeHtml(t('gconn.remove'))}</button>
+      </div>
+    </div>`
+  }).join('')
+  return _accHubPart('acchub.part_google', body)
+}
+
+function _accHubMcpServerHtml(acct, s) {
+  const statusKey = s.status === 'connected' ? 'mconn.status_ok'
+    : s.status === 'pending' ? 'mconn.status_pending'
+      : s.fix === 'login' ? 'mconn.status_login' : 'mconn.status_broken'
+  const pillClass = s.status === 'connected' ? 'conn-pill-ok'
+    : s.fix === 'login' ? 'conn-pill-warn' : 'conn-pill-bad'
+  // One button only where a button can genuinely finish the job. The measured
+  // dead end (a second Google identity) gets a sentence that points at the half
+  // of the page that CAN do it.
+  let action = ''
+  if (s.fix === 'login') {
+    action = `<button class="btn-primary btn-compact" data-mact="login"
+      data-account="${escapeAttr(acct.accountId === null || acct.accountId === undefined ? '' : acct.accountId)}"
+      data-server="${escapeAttr(s.name)}">${escapeHtml(t('mconn.fix_login'))}</button>`
+  } else if (s.fix === 'unsupported') {
+    action = `<span class="conn-note">${escapeHtml(t('mconn.fix_unsupported'))}</span>`
+  } else if (s.fix === 'approve') {
+    action = `<span class="conn-note">${escapeHtml(t('mconn.fix_approve'))}</span>`
+  } else if (s.fix === 'broken') {
+    action = `<span class="conn-note conn-note-bad">${escapeHtml(t('mconn.fix_broken', { msg: s.reason || '' }))}</span>`
+  }
+  const what = _connWhat(s.name)
+  return `<div class="conn-row">
+    <div class="conn-row-main">
+      <span class="conn-row-name">${escapeHtml(_connLabel(s.name))}</span>
+      <span class="conn-pill ${pillClass}">${escapeHtml(t(statusKey))}</span>
+      ${what ? `<span class="conn-row-sub">${escapeHtml(what)}</span>` : ''}
+    </div>
+    <div class="conn-row-actions">${action}</div>
+  </div>`
+}
+
+function _accHubMcpPart(rows) {
+  const many = rows.length > 1
+  const body = rows.map(acct => {
+    // The agent names are what make a config directory concrete: nobody thinks
+    // "store/accounts/lackor3", everybody thinks "north".
+    const who = (acct.agents && acct.agents.length)
+      ? t('mconn.used_by', { agents: acct.agents.join(', ') })
+      : t('mconn.used_by_none')
+    let inner
+    if (acct.error) {
+      inner = `<div class="conn-note conn-note-bad">${escapeHtml(acct.error)}</div>`
+    } else if (!acct.servers || !acct.servers.length) {
+      inner = `<div class="conn-empty">${escapeHtml(t('mconn.empty'))}</div>`
+    } else {
+      inner = acct.servers.map(s => _accHubMcpServerHtml(acct, s)).join('')
+    }
+    // Only worth naming when one card carries more than one config directory --
+    // otherwise it just repeats the card heading.
+    const head = many
+      ? `<div class="conn-note">${escapeHtml(acct.label || acct.accountId || t('mconn.default_account'))}</div>`
+      : ''
+    return `${head}${inner}<div class="conn-note">${escapeHtml(who)}</div>`
+  }).join('')
+  return _accHubPart('acchub.part_mcp', body)
+}
+
+function _accHubCardHtml(c) {
+  const title = c.title || t('mconn.default_account')
+  const parts = []
+  if (c.claude.length) parts.push(_accHubClaudePart(c.claude))
+  if (c.google.length) parts.push(_accHubGooglePart(c.google, title))
+  if (c.mcp.length) parts.push(_accHubMcpPart(c.mcp))
+  // `conn-account` + `conn-account-name` are not decoration: the connector flow
+  // reads the account's name out of the card it was clicked in
+  // (closest('.conn-account')), so the title of "authorize Drive for WHICH
+  // account" stays correct.
+  return `<div class="conn-account acc-card">
+    <div class="acc-card-head">
+      <span class="conn-account-name">${escapeHtml(title)}</span>
+      ${c.isDefault ? `<span class="conn-badge">${escapeHtml(t('gconn.default_badge'))}</span>` : ''}
+      ${c.email && c.email !== title ? `<span class="conn-row-sub">${escapeHtml(c.email)}</span>` : ''}
+    </div>
+    ${parts.join('')}
+  </div>`
+}
+
+function renderAccountsHub() {
+  _accHubRenderKeys()
+  const el = document.getElementById('accountsHubList')
+  if (!el) return
+  const cards = _accHubMerge(_hubClaude, _hubGoogle, _hubMcp)
+  if (!cards.length) {
+    // Two different states, two different sentences: "still loading" is not the
+    // same as "nothing is connected", and saying the second one during the first
+    // makes the operator think everything was lost.
+    const loading = !_hubSeen.claude && !_hubSeen.google && !_hubSeen.mcp
+    el.innerHTML = `<div class="conn-empty">${escapeHtml(t(loading ? 'acchub.loading' : 'acchub.empty'))}</div>`
+    return
+  }
+  el.innerHTML = cards.map(_accHubCardHtml).join('')
 }
 
 // Which services can be added, and how. A login entry needs the provider's own
@@ -14139,6 +14793,9 @@ async function renderClaudeAccountPanel(keyServices) {
   if (!panel) return
   _claudeAuthKeyServices = keyServices || []
   _claudeAuthSyncServiceUi()
+  // The key list is part of the one panel now, and it changes here rather than
+  // when an account payload arrives -- so it is redrawn here too.
+  _accHubRenderKeys()
   if (panel.dataset.wired === '1') { _claudeAuthTick(); return }
   panel.dataset.wired = '1'
 
@@ -14222,6 +14879,657 @@ async function renderClaudeAccountPanel(keyServices) {
   _claudeAuthTick()
 }
 
+// --- Connections: Google accounts + Claude Code connectors -------------------
+//
+// Boss, 2026-08-14, on being told to run `claude mcp login` in a terminal:
+// "hogy fogja ezt megcsinalni egy user aki komuves? [...] ezt a marveen ban
+// kellene megoldani". So both flows live here, on a page, with the terminal
+// steps hidden behind two buttons.
+//
+// The two halves are NOT the same thing and the page must not pretend they are:
+//
+//   Google accounts -- Marveen's own logins. Genuinely many at once; ten
+//     addresses can be live together, each keeping mail + Drive + calendar.
+//     This is where "10 email, mind mukodjon" is answered.
+//   Claude Code connectors -- per Claude ACCOUNT, and measured: a second Google
+//     identity cannot be added under another name (the endpoint refuses dynamic
+//     client registration). So this half is shown honestly, not as a second
+//     place to add addresses.
+//
+// The connector one-liners are translated HERE rather than sent by the server:
+// the backend should not be shipping a Hungarian sentence to an English
+// dashboard (same rule as the default-account row above).
+const CONNECTOR_WHAT = [
+  { match: /google drive/i, key: 'conn.what.drive' },
+  { match: /\bgmail\b/i, key: 'conn.what.gmail' },
+  { match: /google calendar|naptar|naptár/i, key: 'conn.what.calendar' },
+  { match: /canva/i, key: 'conn.what.canva' },
+  { match: /github/i, key: 'conn.what.github' },
+  { match: /notion/i, key: 'conn.what.notion' },
+  { match: /slack/i, key: 'conn.what.slack' },
+]
+
+const CONNECTOR_LABELS = [
+  { match: /google drive/i, label: 'Google Drive' },
+  { match: /\bgmail\b/i, label: 'Gmail' },
+  { match: /google calendar/i, label: 'Google Calendar' },
+  { match: /canva/i, label: 'Canva' },
+  { match: /github/i, label: 'GitHub' },
+  { match: /notion/i, label: 'Notion' },
+  { match: /slack/i, label: 'Slack' },
+]
+
+function _connLabel(name) {
+  const hit = CONNECTOR_LABELS.find(c => c.match.test(name))
+  if (hit) return hit.label
+  const cleaned = String(name || '').replace(/^claude\.ai\s+/i, '').trim()
+  if (cleaned.startsWith('plugin:')) return cleaned.split(':').pop() || cleaned
+  return cleaned || name
+}
+
+function _connWhat(name) {
+  const hit = CONNECTOR_WHAT.find(c => c.match.test(name))
+  return hit ? t(hit.key) : ''
+}
+
+let _gconnPoll = null
+let _mconnLoginPoll = null
+let _mconnStatusPoll = null
+
+function _connSetState(id, text, kind) {
+  const el = document.getElementById(id)
+  if (!el) return
+  el.textContent = text || ''
+  el.className = 'claude-auth-state' + (kind ? ' claude-auth-state-' + kind : '')
+}
+
+// --- Google half -------------------------------------------------------------
+
+function _gconnRenderList(accounts, clientPresent) {
+  // Kept up to date even when there is no list element to draw into: the start
+  // helper reads it to decide whether a value is an EXISTING account id (reuse
+  // that token slot) or a new name (let the server de-duplicate it).
+  _gconnKnownIds = new Set((accounts || []).map(a => a.id))
+  const warn = document.getElementById('gconnNoClient')
+  if (warn) warn.hidden = clientPresent !== false
+  // The rows themselves are drawn by the account cards -- see renderAccountsHub.
+  _hubGoogle = accounts || []
+  _hubSeen.google = true
+  renderAccountsHub()
+}
+
+async function _gconnLoad(probe) {
+  try {
+    const res = await fetch('/api/connections/google' + (probe ? '?probe=1&force=1' : ''))
+    if (!res.ok) return
+    const d = await res.json()
+    _gconnApplyProjectId(d.projectId)
+    _gconnRenderList(d.accounts, d.clientPresent)
+    if (!probe) _gconnAutoProbe(d.accounts)
+  } catch { /* the page keeps what it had */ }
+}
+
+let _gconnProbing = false
+
+/**
+ * Check, by ourselves, the accounts nobody has checked yet.
+ *
+ * Boss: "tehat emailt drivot fotokat stb lassuk egyszerre!" -- a list of ten
+ * names, each saying "not checked yet" until the operator clicks Check ten
+ * times, is not that. So the page does the clicking.
+ *
+ * One at a time and never forced: each probe is a process plus three Google
+ * calls on the server, the answers are cached there for five minutes, and the
+ * row is re-drawn after every one, so the list fills in visibly instead of
+ * arriving in one late lump.
+ */
+async function _gconnAutoProbe(accounts) {
+  if (_gconnProbing) return
+  const pending = (accounts || []).filter(a => a && a.checkedAt === null).map(a => a.id)
+  if (!pending.length) return
+  _gconnProbing = true
+  try {
+    for (const id of pending) {
+      // Gone from the DOM (page swapped, section re-rendered) -- stop rather
+      // than keep spawning probes for a list nobody is looking at.
+      if (!document.getElementById('accountsHubList')) return
+      let res
+      try {
+        res = await fetch('/api/connections/google/probe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, force: false }),
+        })
+      } catch { return }  // network down: stop, do not hammer it
+      // A dropped session would otherwise mean ten 401s in a row for nothing.
+      if (res.status === 401 || res.status === 403) return
+      if (!res.ok) continue  // one bad account must not stop the other nine
+      // Re-read the whole list rather than patching one row: it is a cache hit
+      // on the server now, and it keeps one source of truth for what is drawn.
+      try {
+        const r = await fetch('/api/connections/google')
+        if (!r.ok) continue
+        const d = await r.json()
+        _gconnRenderList(d.accounts, d.clientPresent)
+      } catch { return }
+    }
+  } finally {
+    _gconnProbing = false
+  }
+}
+
+function _gconnStopPoll() {
+  if (_gconnPoll) { clearInterval(_gconnPoll); _gconnPoll = null }
+}
+
+// --- when GOOGLE is the one saying no ----------------------------------------
+//
+// Boss, 2026-08-14: "probaltam goggle fiokot hozzaadni de nem engedte a google
+// [...] Hiba (403): access_denied [...] szoval ezen a folyamaton is vezesd
+// vegig a usert hulyebiztosan!"
+//
+// The OAuth app is in "Testing" status, so Google admits only the addresses on
+// its test-user list. Nothing on this machine can fix it and retrying never
+// will -- the operator has to add the address in the Cloud Console. All this
+// code does is notice, open the walkthrough, and put the right link and the
+// right address in front of them.
+
+/** Whatever was last typed into the name box -- what "try again" re-runs. */
+let _gconnLastName = ''
+/** The Cloud Console project, so the link lands in the right project. */
+let _gconnProjectId = null
+/** Ids of the accounts already on file -- see _gconnRenderList. */
+let _gconnKnownIds = new Set()
+
+/**
+ * "You signed in as somebody else, so it became its own account."
+ *
+ * Silence here would be the dangerous answer: the operator pressed "sign in
+ * again" on `munka`, picked a different address in the Google chooser, and
+ * would otherwise see a second row appear with no explanation -- while
+ * believing `munka` had been repaired.
+ */
+function _gconnNoteSavedAs(savedAs) {
+  if (!savedAs) return
+  showToast(t('gconn.saved_as_other', { id: savedAs }), 12000, true)
+}
+
+function _gconnApplyProjectId(projectId) {
+  if (projectId) _gconnProjectId = projectId
+  const link = document.getElementById('gconnConsoleLink')
+  if (!link) return
+  link.href = _gconnProjectId
+    ? 'https://console.cloud.google.com/auth/audience?project=' + encodeURIComponent(_gconnProjectId)
+    : 'https://console.cloud.google.com/auth/audience'
+}
+
+/**
+ * Open the walkthrough, and name the address if we know it.
+ *
+ * Naming it matters more than it looks: step 4 is "type the address you want to
+ * connect", and the operator who is three browser tabs deep has to be told
+ * WHICH one, exactly, character for character.
+ */
+function _gconnOpenBlocked(address) {
+  const box = document.getElementById('gconnBlocked')
+  if (!box) return
+  _gconnApplyProjectId(null)
+  const guess = address || (_gconnLastName.includes('@') ? _gconnLastName : '')
+  const row = document.getElementById('gconnBlockedAddrRow')
+  const slot = document.getElementById('gconnBlockedAddr')
+  if (row && slot) {
+    slot.textContent = guess
+    row.hidden = !guess
+  }
+  box.hidden = false
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+}
+
+async function _gconnStartAuth(name) {
+  if (!name) { showToast(t('gconn.need_name'), 6000, true); return }
+  _gconnLastName = name
+  // An existing account goes back as `id`, which skips the server-side
+  // de-duplication. Otherwise "try again" on an account whose token expired
+  // would quietly authorize `munka_2` and leave the broken `munka` behind.
+  const body = _gconnKnownIds.has(name) ? { id: name } : { name }
+  const flowBox = document.getElementById('gconnFlow')
+  if (flowBox) flowBox.hidden = false
+  _connSetState('gconnState', t('gconn.state_starting'), null)
+  try {
+    const res = await fetch('/api/connections/google/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json()
+    if (!data.ok) { _connSetState('gconnState', data.error || t('common.error_save'), 'bad'); return }
+  } catch (err) { _connSetState('gconnState', String(err.message || err), 'bad'); return }
+  _gconnStopPoll()
+  _gconnPoll = setInterval(_gconnTick, 2000)
+  _gconnTick()
+}
+
+async function _gconnTick() {
+  let s
+  try {
+    const res = await fetch('/api/connections/google/login')
+    s = await res.json()
+  } catch { return }
+  _gconnApplyProjectId(s.projectId)
+  // Survives a page reload mid-flow: the server knows which account is being
+  // authorized, and "try again" needs that name after the operator has spent
+  // ten minutes in the Google console and come back to a fresh page.
+  if (s.accountId && !_gconnLastName) _gconnLastName = s.accountId
+  _gconnRenderList(s.accounts, s.clientPresent)
+
+  const link = document.getElementById('gconnLink')
+  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+
+  if (s.phase === 'done') {
+    _gconnStopPoll()
+    // Guarded: this fires from an interval, and by then the operator may have
+    // switched pages or the panel may have been re-rendered under it.
+    const flowBox = document.getElementById('gconnFlow')
+    if (flowBox) flowBox.hidden = true
+    const nameInput = document.getElementById('gconnName')
+    if (nameInput) nameInput.value = ''
+    _connSetState('gconnState', '', null)
+    showToast(t('gconn.state_done', { id: s.accountId || '' }), 8000, true)
+    _gconnNoteSavedAs(s.savedAs)
+    // A new address changes what the Overview should be saying.
+    renderOverviewConnections()
+    // And it arrives unchecked: check it now, so the operator sees the address
+    // and its three services instead of "not checked yet" on the row they just
+    // spent two minutes authorizing.
+    _gconnAutoProbe(s.accounts)
+    return
+  }
+  if (s.phase === 'failed') {
+    _gconnStopPoll()
+    // A refusal by Google is not "didn't work" -- it has one specific cause and
+    // one specific fix, and saying anything vaguer leaves the operator retrying
+    // a thing that cannot succeed.
+    if (s.blocked === 'test-user') {
+      _connSetState('gconnState', t('gconn.blocked_state'), 'bad')
+      _gconnOpenBlocked(null)
+      return
+    }
+    _connSetState('gconnState', t('gconn.state_failed', { msg: s.error || '' }), 'bad')
+    return
+  }
+  if (!s.active) { _gconnStopPoll(); return }
+  if (s.phase === 'consent') _connSetState('gconnState', t('gconn.state_consent'), null)
+  else _connSetState('gconnState', t('gconn.state_starting'), null)
+}
+
+// --- Claude Code connector half ----------------------------------------------
+
+function _mconnRenderStatus(d) {
+  // "Checking" is said out loud: one probe health-checks every connector on
+  // every account (measured 8-20s each), and an empty matrix during that time
+  // would read as "nothing is connected", which is the opposite of the truth.
+  _connSetState('mconnState',
+    d.refreshing ? t('mconn.checking')
+      : d.checkedAt ? t('mconn.checked_ago', { ago: formatRelative(d.checkedAt) })
+        : t('mconn.never'),
+    null)
+
+  // The connectors are drawn on the account card they belong to -- a connector
+  // is not a thing of its own, it is something ONE Claude account has.
+  _hubMcp = d.accounts || []
+  _hubSeen.mcp = true
+  renderAccountsHub()
+}
+
+function _mconnStopStatusPoll() {
+  if (_mconnStatusPoll) { clearInterval(_mconnStatusPoll); _mconnStatusPoll = null }
+}
+
+async function _mconnLoadStatus(force) {
+  let d
+  try {
+    const res = await fetch('/api/connections/mcp' + (force ? '?force=1' : ''))
+    if (!res.ok) return
+    d = await res.json()
+  } catch { return }
+  _mconnRenderStatus(d)
+  // Poll only while a refresh is actually running, and stop the moment it is
+  // not: a status page that keeps hitting the server forever is how a "check"
+  // button turns into a background job nobody asked for.
+  if (d.refreshing && !_mconnStatusPoll) {
+    _mconnStatusPoll = setInterval(() => {
+      if (document.hidden) return
+      _mconnLoadStatus(false)
+    }, 3000)
+  } else if (!d.refreshing) {
+    _mconnStopStatusPoll()
+  }
+}
+
+function _mconnStopLoginPoll() {
+  if (_mconnLoginPoll) { clearInterval(_mconnLoginPoll); _mconnLoginPoll = null }
+}
+
+async function _mconnLoginTick() {
+  let s
+  try {
+    const res = await fetch('/api/connections/mcp/login')
+    s = await res.json()
+  } catch { return }
+
+  const link = document.getElementById('mconnLink')
+  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+  const pasteRow = document.getElementById('mconnPasteRow')
+  if (pasteRow) pasteRow.hidden = s.phase !== 'awaiting-paste'
+
+  if (s.phase === 'failed') {
+    _mconnStopLoginPoll()
+    _connSetState('mconnFlowState', t('mconn.state_failed', { msg: s.error || '' }), 'bad')
+    return
+  }
+  if (s.phase === 'awaiting-paste') { _connSetState('mconnFlowState', t('mconn.state_paste'), null); return }
+  if (s.phase === 'visit') { _connSetState('mconnFlowState', t('mconn.state_visit'), null); return }
+  if (s.phase === 'done') {
+    // The CLI has exited; nothing on that pane will change again. Stop asking
+    // -- every poll is two tmux calls on the server, and the operator can take
+    // as long as they like over the browser half.
+    _mconnStopLoginPoll()
+    _connSetState('mconnFlowState', t('mconn.state_visit'), null)
+    return
+  }
+  _connSetState('mconnFlowState', t('mconn.state_starting'), null)
+}
+
+// The one sentence this whole flow stands or falls on. The CLI says it plainly:
+// the connector becomes available "the next time you start Claude Code". Without
+// this, the operator authorizes, sees no change, and concludes it failed.
+async function _mconnFinish() {
+  let agents = []
+  try {
+    const res = await fetch('/api/connections/mcp/login')
+    const s = await res.json()
+    agents = s.restartAgents || []
+  } catch { /* the hint degrades, the flow does not */ }
+  _mconnStopLoginPoll()
+  try { await fetch('/api/connections/mcp/login/finish', { method: 'POST' }) } catch { /* ignore */ }
+  document.getElementById('mconnFlow').hidden = true
+  _connSetState('mconnFlowState', '', null)
+  showToast(agents.length ? t('mconn.restart_hint', { agents: agents.join(', ') }) : t('mconn.restart_hint_none'), 14000, true)
+  _mconnLoadStatus(true)
+  renderOverviewConnections()
+}
+
+// --- wiring ------------------------------------------------------------------
+
+function renderConnectionsPanel() {
+  const gsec = document.getElementById('googleConnSection')
+  const msec = document.getElementById('mcpConnSection')
+  if (!gsec || !msec) return
+
+  if (gsec.dataset.wired !== '1') {
+    gsec.dataset.wired = '1'
+
+    document.getElementById('gconnAddBtn').addEventListener('click', () => {
+      _gconnStartAuth(document.getElementById('gconnName').value.trim())
+    })
+
+    // The walkthrough is reachable at ANY time, not only after a refusal: the
+    // operator who was just told "Access blocked" by Google is looking at a
+    // Google error page, not at this one, and comes back here to find out what
+    // happened. A button they can see beats a message they missed.
+    document.getElementById('gconnBlockedToggle').addEventListener('click', () => {
+      const box = document.getElementById('gconnBlocked')
+      if (box.hidden) _gconnOpenBlocked(null)
+      else box.hidden = true
+    })
+
+    document.getElementById('gconnBlockedClose').addEventListener('click', () => {
+      document.getElementById('gconnBlocked').hidden = true
+    })
+
+    document.getElementById('gconnConsoleCopyBtn').addEventListener('click', () => {
+      const url = document.getElementById('gconnConsoleLink').href
+      if (!url) return
+      navigator.clipboard?.writeText(url)
+      showToast(t('gconn.copied'), 3000, true)
+    })
+
+    // "I added it, try again": start the SAME account over. Not a resume --
+    // the old consent link is bound to a request Google already refused, so
+    // re-opening it would refuse it again.
+    document.getElementById('gconnRetryBtn').addEventListener('click', async () => {
+      const name = _gconnLastName || document.getElementById('gconnName').value.trim()
+      if (!name) { showToast(t('gconn.need_name'), 6000, true); return }
+      document.getElementById('gconnBlocked').hidden = true
+      // A flow left open by the refusal would make the new one refuse to start
+      // ("one authorization at a time"), which reads as the retry not working.
+      _gconnStopPoll()
+      try { await fetch('/api/connections/google/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+      _gconnStartAuth(name)
+    })
+
+    document.getElementById('gconnCopyBtn').addEventListener('click', () => {
+      const url = document.getElementById('gconnLink').dataset.url
+      if (!url) return
+      navigator.clipboard?.writeText(url)
+      showToast(t('gconn.copied'), 3000, true)
+    })
+
+    document.getElementById('gconnPasteBtn').addEventListener('click', async () => {
+      const input = document.getElementById('gconnPaste')
+      const value = input.value.trim()
+      if (!value) return
+      try {
+        const res = await fetch('/api/connections/google/login/paste', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value }),
+        })
+        const data = await res.json()
+        if (!data.ok) {
+          _connSetState('gconnState', data.error || t('common.error_save'), 'bad')
+          // The operator pasted the Google error page instead of a redirect
+          // link -- which is exactly what step 3 told them to do. Answer the
+          // question they actually have.
+          if (data.blocked === 'test-user') _gconnOpenBlocked(null)
+          return
+        }
+        input.value = ''
+        _gconnNoteSavedAs(data.savedAs)
+      } catch (err) { _connSetState('gconnState', String(err.message || err), 'bad') }
+    })
+
+    document.getElementById('gconnCancelBtn').addEventListener('click', async () => {
+      _gconnStopPoll()
+      try { await fetch('/api/connections/google/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+      document.getElementById('gconnFlow').hidden = true
+      _connSetState('gconnState', '', null)
+      _gconnLoad(false)
+    })
+
+    // Delegated: the rows are re-rendered on every poll, and re-binding ten
+    // accounts' worth of buttons each time is how listeners pile up. The root
+    // is the card list, because that is where the buttons live now -- the two
+    // halves of this panel share it, each filtering for its own attribute.
+    document.getElementById('accountsHubList').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-gact]')
+      if (!btn) return
+      const id = btn.dataset.id
+      const act = btn.dataset.gact
+      if (act === 'probe') {
+        btn.disabled = true
+        btn.textContent = t('gconn.checking')
+        try {
+          await fetch('/api/connections/google/probe', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          })
+        } catch { /* ignore */ }
+        _gconnLoad(false)
+        renderOverviewConnections()
+        return
+      }
+      // Sign this address in again, into the SAME slot. `id` (not `name`) makes
+      // the server reuse the exact key instead of deriving a new one, so a
+      // re-authorized account replaces its own token rather than appearing
+      // twice as "munka" and "munka_2".
+      if (act === 'reauth') {
+        // Only one authorization can run at a time; drop a stale one rather
+        // than answering "one is already running" to a button the operator
+        // just pressed.
+        _gconnStopPoll()
+        try { await fetch('/api/connections/google/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+        _gconnKnownIds.add(id)
+        await _gconnStartAuth(id)
+        return
+      }
+      if (act === 'default') {
+        try {
+          await fetch('/api/connections/google/default', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          })
+        } catch { /* ignore */ }
+        _gconnLoad(false)
+        return
+      }
+      if (act === 'remove') {
+        // Losing an address by a misclick is not recoverable from here -- the
+        // consent has to be granted again in a browser.
+        if (!confirm(t('gconn.remove_confirm', { id }))) return
+        try {
+          const res = await fetch('/api/connections/google/remove', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id }),
+          })
+          const data = await res.json()
+          if (!data.ok) { showToast(data.error || t('common.error_delete'), 8000, true); return }
+          showToast(t('gconn.removed', { id }), 6000, true)
+        } catch (err) { showToast(`${t('common.error_delete')}: ${err.message}`); return }
+        _gconnLoad(false)
+        renderOverviewConnections()
+      }
+    })
+  }
+
+  if (msec.dataset.wired !== '1') {
+    msec.dataset.wired = '1'
+
+    document.getElementById('mconnRefreshBtn').addEventListener('click', async () => {
+      _connSetState('mconnState', t('mconn.checking'), null)
+      try { await fetch('/api/connections/mcp/refresh', { method: 'POST' }) } catch { /* ignore */ }
+      _mconnLoadStatus(false)
+    })
+
+    document.getElementById('mconnCopyBtn').addEventListener('click', () => {
+      const url = document.getElementById('mconnLink').dataset.url
+      if (!url) return
+      navigator.clipboard?.writeText(url)
+      showToast(t('gconn.copied'), 3000, true)
+    })
+
+    document.getElementById('mconnDoneBtn').addEventListener('click', _mconnFinish)
+
+    document.getElementById('mconnPasteBtn').addEventListener('click', async () => {
+      const input = document.getElementById('mconnPaste')
+      const value = input.value.trim()
+      if (!value) return
+      try {
+        const res = await fetch('/api/connections/mcp/login/paste', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value }),
+        })
+        const data = await res.json()
+        if (!data.ok) { _connSetState('mconnFlowState', data.error || t('common.error_save'), 'bad'); return }
+        input.value = ''
+      } catch (err) { _connSetState('mconnFlowState', String(err.message || err), 'bad') }
+    })
+
+    document.getElementById('mconnCancelBtn').addEventListener('click', async () => {
+      _mconnStopLoginPoll()
+      try { await fetch('/api/connections/mcp/login/finish', { method: 'POST' }) } catch { /* ignore */ }
+      document.getElementById('mconnFlow').hidden = true
+      _connSetState('mconnFlowState', '', null)
+    })
+
+    document.getElementById('accountsHubList').addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-mact="login"]')
+      if (!btn) return
+      const accountId = btn.dataset.account || null
+      const server = btn.dataset.server
+      const flow = document.getElementById('mconnFlow')
+      document.getElementById('mconnFlowTitle').textContent = t('mconn.flow_title', {
+        connector: _connLabel(server),
+        account: btn.closest('.conn-account')?.querySelector('.conn-account-name')?.textContent || '',
+      })
+      document.getElementById('mconnPasteRow').hidden = true
+      flow.hidden = false
+      _connSetState('mconnFlowState', t('mconn.state_starting'), null)
+      try {
+        const res = await fetch('/api/connections/mcp/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accountId, server }),
+        })
+        const data = await res.json()
+        if (!data.ok) { _connSetState('mconnFlowState', data.error || t('common.error_save'), 'bad'); return }
+      } catch (err) { _connSetState('mconnFlowState', String(err.message || err), 'bad'); return }
+      _mconnStopLoginPoll()
+      _mconnLoginPoll = setInterval(_mconnLoginTick, 2000)
+      _mconnLoginTick()
+    })
+  }
+
+  _gconnLoad(false)
+  _mconnLoadStatus(false)
+}
+
+// The Overview half: connections BREAK on their own (a Google token expires, a
+// connector was never authorized on this machine), which is why this is a card
+// of its own rather than a line in the install wizard -- the wizard is about
+// one-off setup and goes quiet once done. Click-through lands on the page that
+// can actually fix it.
+async function renderOverviewConnections() {
+  const box = document.getElementById('overviewConnections')
+  const list = document.getElementById('overviewConnectionsList')
+  if (!box || !list) return
+  let d
+  try {
+    const res = await fetch('/api/connections/summary')
+    if (!res.ok) throw new Error('fetch failed')
+    d = await res.json()
+  } catch { box.hidden = true; return }
+
+  // An older dashboard build behind a newer page (or the other way round) must
+  // not throw here: the Overview is the first thing the operator sees.
+  if (!d || !d.google || !d.mcp || d.tier === 'none') { box.hidden = true; list.innerHTML = ''; return }
+
+  // Same tone scale as the setup card, on purpose: two cards on one screen
+  // shouting in two different colour languages is how colour stops meaning
+  // anything. Amber = a capability you are missing; grey = worth knowing.
+  const TONE = {
+    recommended: { bg: '#f59e0b', fg: '#111', descFg: 'rgba(0,0,0,.75)', itemBg: 'rgba(255,255,255,.45)' },
+    extra: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', descFg: 'var(--text-muted)', itemBg: 'rgba(127,127,127,.12)' },
+  }[d.tier] || null
+  if (!TONE) { box.hidden = true; return }
+
+  const lines = []
+  if (d.google.broken > 0) lines.push(t('conn.ov_google_broken', { n: d.google.broken }))
+  if (d.mcp.needsLogin > 0) lines.push(t('conn.ov_mcp_login', { n: d.mcp.needsLogin }))
+  if (d.google.total === 0 && d.google.clientPresent) lines.push(t('conn.ov_google_none'))
+  if (d.mcp.broken > 0) lines.push(t('conn.ov_mcp_broken', { n: d.mcp.broken }))
+  if (!lines.length) { box.hidden = true; return }
+
+  box.hidden = false
+  box.style.background = TONE.bg
+  box.style.border = d.tier === 'extra' ? '1px solid var(--border)' : 'none'
+  const titleEl = box.querySelector('.overview-capabilities-title')
+  if (titleEl) titleEl.style.color = TONE.fg
+  list.innerHTML = lines.map(line => `<a href="#" class="overview-capability-item"
+      style="background:${TONE.itemBg};color:${TONE.fg}"
+      onclick="switchPage('accounts');return false">
+      <div class="overview-capability-label">${escapeHtml(line)}</div>
+      <div class="overview-capability-desc" style="color:${TONE.descFg}">${escapeHtml(t('conn.ov_action'))}</div>
+    </a>`).join('')
+}
+
 function renderOverviewUpstreamSync(upstreamSync) {
   const box = document.getElementById('overviewUpstreamSync')
   const body = document.getElementById('overviewUpstreamBody')
@@ -14269,6 +15577,7 @@ async function loadOverview() {
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
     renderOverviewCapabilities(d.unconfiguredCapabilities)
     renderOverviewSetupStatus()
+    renderOverviewConnections()
     renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
     renderOverviewUpstreamSync(d.upstreamSync)
     // Team: reuse the hierarchy graph renderer so the overview card shows

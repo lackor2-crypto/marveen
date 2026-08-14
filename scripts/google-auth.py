@@ -135,6 +135,33 @@ def _get(url, at):
         return json.load(r)
 
 
+def _token_email(tok):
+    """A frissen kapott tokenhez tartozo Gmail cim, vagy None.
+
+    SOSEM allitja meg a mentest: az authorization code egyszer hasznalhato,
+    egy atmeneti halozati hiba miatt nem dobhatjuk el a jovahagyast."""
+    try:
+        at = tok.get("access_token")
+        if not at:
+            return None
+        prof = _get("https://gmail.googleapis.com/gmail/v1/users/me/profile", at)
+        addr = prof.get("emailAddress")
+        return addr if isinstance(addr, str) and "@" in addr else None
+    except Exception:
+        return None
+
+
+def _free_key(base, data):
+    """Szabad fiok-kulcs, a TS-oldali suggestAccountId-vel azonos nevezektan."""
+    if base not in data:
+        return base
+    for n in range(2, 100):
+        cand = f"{base}_{n}"
+        if cand not in data:
+            return cand
+    return f"{base}_{int(time.time())}"
+
+
 def _exchange_code(code, account):
     c = _load_client()
     tok = _post(TOKEN_URI, {
@@ -145,6 +172,26 @@ def _exchange_code(code, account):
         sys.exit("HIBA: nem jott refresh_token. A Google-fioknal vond vissza a Marveen hozzaferest, majd ujra 'auth'.")
     tok["saved_at"] = int(time.time())
     data = _load_tokens()
+    email = _token_email(tok)
+    prev_email = data.get(account, {}).get("email") if isinstance(data.get(account), dict) else None
+    if email:
+        tok["email"] = email
+    elif prev_email:
+        # Nem sikerult megkerdezni, ki jelentkezett be (halozat). A regi cimet
+        # visszük tovabb, kulonben a slot elvesztene a cimet -- azzal a lenti
+        # ellenorzes is orokre lefegyverezodne. Ha kivetelesen megis mas cim
+        # volt, a kovetkezo ellenorzes (probe) amugy is a valodi cimet mutatja.
+        tok["email"] = prev_email
+    # Ugyanabba a slotba MAS cimmel bejelentkezni (elgepelt fioknev, vagy a
+    # Google-fiokvalasztoban rossz sor) felulirna az elozo fiok tokenjet: a
+    # nev maradna, a cim kicserelodne, a regi hozzaferes pedig nyom nelkul
+    # elveszne. Ilyenkor nem irunk felul, hanem uj fiokkent mentjuk.
+    prev = data.get(account)
+    if isinstance(prev, dict) and email and prev_email and prev_email != email:
+        wanted = account
+        account = _free_key(_slugify(email), data)
+        print(f"(figyelem: a(z) '{wanted}' fiok cime {prev_email}, most viszont {email} jelentkezett be "
+              f"-- nem irtam felul, uj fiokkent mentem: '{account}')", file=sys.stderr)
     is_first = not any(k != "_default" for k in data.keys())
     data[account] = tok
     if is_first:
@@ -215,12 +262,33 @@ def cmd_exchange(arg, account):
     _exchange_code(code, account)
 
 
+# Biztonsagi savszelesseg a lejarat elott: ennyivel korabban mar frissitunk,
+# hogy egy epp elinditott keres ne fusson bele a lejaratba.
+TOKEN_MARGIN_SECS = 120
+
+
+def _still_valid(t):
+    """Ervenyes-e meg a tarolt access_token."""
+    try:
+        return bool(t.get("access_token")) and \
+            int(t["saved_at"]) + int(t["expires_in"]) - TOKEN_MARGIN_SECS > int(time.time())
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def cmd_token(account):
     data = _load_tokens()
     account = account or _default_account(data)
     if not account or account not in data:
         sys.exit(f"HIBA: nincs token a(z) '{account}' fiokhoz. Futtasd eloszor: python3 scripts/google-auth.py auth {account or ''}".rstrip())
     c = _load_client(); t = data[account]
+    # A meg ervenyes access_tokent ujrahasznaljuk. Enelkul minden hivas egy
+    # refresh-kerest inditott a Google fele -- tiz fiok egyidejü nezeteben
+    # (Drive "Osszes fiok") ez oldalankent tiz felesleges kores ut, es a
+    # refresh-vegpontot a Google fojtja is.
+    if _still_valid(t):
+        print(t["access_token"])
+        return
     fresh = _post(TOKEN_URI, {
         "refresh_token": t["refresh_token"], "client_id": c["client_id"],
         "client_secret": c["client_secret"], "grant_type": "refresh_token",

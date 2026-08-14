@@ -43,6 +43,7 @@ import { resolveFromPath } from '../platform.js'
 import { capturePane } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { resumeMarveenSession, lastMainRespawnAt, MARVEEN_POST_RESPAWN_GRACE_MS } from './channel-monitor.js'
+import { exactTmuxTarget } from './tmux-target.js'
 import {
   stuckToolCallSignature,
   decideStuckToolCallRecovery,
@@ -75,7 +76,7 @@ export function confirmsWedgeProfile(cpuPercent: number | null, maxCpuPercent: n
 // wedge from a process actively burning CPU.
 function sampleMainClaudeCpuPercent(session: string): number | null {
   try {
-    const panePid = execFileSync(TMUX, ['list-panes', '-t', session, '-F', '#{pane_pid}'], { timeout: 3000, encoding: 'utf-8' })
+    const panePid = execFileSync(TMUX, ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'], { timeout: 3000, encoding: 'utf-8' })
       .split('\n')[0]?.trim()
     if (!panePid || !/^\d+$/.test(panePid)) return null
     const out = execFileSync('/bin/ps', ['-o', '%cpu=', '-p', panePid], { timeout: 3000, encoding: 'utf-8' }).trim()

@@ -61,3 +61,39 @@ describe('lang parity (hu.js vs en.js)', () => {
     for (const [k, v] of Object.entries(en)) expect(v, `en ${k}`).toBeTruthy()
   })
 })
+
+// The parity tests above only prove hu.js and en.js agree WITH EACH OTHER.
+// Both can be missing a key the page asks for, and then t() falls through to
+// returning the key itself -- the operator sees "connectors.env_modal.desc"
+// where a sentence should be.
+//
+// MEASURED when this test was written (2026-08-14): four such keys were live
+// on the dashboard -- connectors.env_modal.desc, connectors.tooltip.docs,
+// autonomy.level.1 and ideas.toast.score_saved_error. Nothing caught them
+// because nothing was looking from this direction.
+describe('every key the page asks for exists', () => {
+  const read = (rel: string) => readFileSync(join(__dirname, rel), 'utf-8')
+
+  it('index.html: every data-i18n attribute resolves', () => {
+    const html = read('../../web/index.html')
+    const keys = new Set(
+      [...html.matchAll(/data-i18n(?:-placeholder|-title|-html|-aria-label)?="([^"]+)"/g)].map(m => m[1]),
+    )
+    expect(keys.size, 'no data-i18n found -- the regex has drifted').toBeGreaterThan(100)
+    expect([...keys].filter(k => !(k in hu)), 'missing from hu.js').toEqual([])
+    expect([...keys].filter(k => !(k in en)), 'missing from en.js').toEqual([])
+  })
+
+  it("app.js: every literal t('...') call resolves", () => {
+    const app = read('../../web/app.js')
+    // Literal calls only -- a computed key cannot be checked statically. The
+    // leading class excludes `.t(` and `_t(` so method calls are not read as
+    // translations.
+    const keys = new Set(
+      [...app.matchAll(/(?:^|[^A-Za-z0-9_$.])t\(\s*'([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)'/g)].map(m => m[1]),
+    )
+    expect(keys.size, 'no t() calls found -- the regex has drifted').toBeGreaterThan(500)
+    expect([...keys].filter(k => !(k in hu)), 'missing from hu.js').toEqual([])
+    expect([...keys].filter(k => !(k in en)), 'missing from en.js').toEqual([])
+  })
+})

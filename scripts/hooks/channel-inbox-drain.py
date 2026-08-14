@@ -20,6 +20,7 @@ import re
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
@@ -181,6 +182,52 @@ def _cap_entries(entries):
     return entries, dropped
 
 
+# Keep roughly a day of owner traffic: enough for a checkpoint to find what the
+# current task is, small enough that nothing needs to prune it by hand.
+ARCHIVE_NAME = "inbox-delivered.jsonl"
+ARCHIVE_MAX_LINES = 200
+
+
+def _archive(state_dir, entries, text):
+    """Persist a delivered batch so a compaction cannot erase it.
+
+    Delivery hands this text to the model and deletes the queue file, after
+    which the ONLY copy is the live context window -- and compaction exists to
+    throw that away. Owner instructions arriving over Telegram were therefore
+    unrecoverable by design: the PreCompact checkpoint reads the transcript, and
+    hook stdout never lands there.
+
+    Written before the unlink and fsynced, so a crash between the two loses
+    nothing. Fail-open throughout: an archive that cannot be written must never
+    stop a message from being delivered.
+    """
+    try:
+        path = os.path.join(state_dir, ARCHIVE_NAME)
+        record = {
+            "ts": int(time.time() * 1000),
+            "count": len(entries),
+            "entries": entries,
+            "text": text,
+        }
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        # Trim in place, and only when it has actually grown past the cap, so the
+        # common path stays a single append.
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) > ARCHIVE_MAX_LINES:
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(lines[-ARCHIVE_MAX_LINES:])
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+    except Exception:
+        pass
+
+
 def drain(payload):
     state_dir = _state_dir(payload)
     if not state_dir or not os.path.isdir(state_dir):
@@ -202,6 +249,9 @@ def drain(payload):
     if dropped:
         header += "\n[Figyelem: %d regebbi uzenet ki lett hagyva, hogy a koteg elferjen. A legfrissebbek maradtak.]" % dropped
     text = header + "\n" + "\n".join(entries)
+    # Archive BEFORE the unlink: after it, this batch exists only in a context
+    # window that compaction is allowed to discard.
+    _archive(state_dir, entries, text)
     sys.stdout.write(text)
     sys.stdout.write("\n")
     os.unlink(claimed)

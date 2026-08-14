@@ -49,6 +49,66 @@ function accountFromQuery(url: URL): string | undefined {
   return url.searchParams.get('account') || undefined
 }
 
+// A Google sajat formatumainak (Docs/Sheets/Slides) NINCS letoltheto bajtjuk:
+// az alt=media 403-mal valaszol ("Only files with binary content can be
+// downloaded"). Ezek csak /export-tal jonnek le, egy celformatumot megadva --
+// es ez a Drive-ok tobbsegeben a tartalom java resze.
+const GOOGLE_EXPORT: Record<string, { mime: string; ext: string }> = {
+  'application/vnd.google-apps.document': { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', ext: 'docx' },
+  'application/vnd.google-apps.spreadsheet': { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', ext: 'xlsx' },
+  'application/vnd.google-apps.presentation': { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', ext: 'pptx' },
+  'application/vnd.google-apps.drawing': { mime: 'image/png', ext: 'png' },
+  'application/vnd.google-apps.script': { mime: 'application/vnd.google-apps.script+json', ext: 'json' },
+}
+
+export interface DriveDownloadPlan {
+  url: string
+  filename: string
+  /** Nem letoltheto Google-tipus (mappa, urlap, site) -- a hivo 400-zal all meg. */
+  unsupported?: string
+}
+
+/**
+ * Melyik Drive-vegpont adja vissza EZT a fajlt, es milyen nevvel mentjuk.
+ *
+ * Tiszta fuggveny, hogy a "Docs != bajtok" szabaly kulon tesztelheto legyen:
+ * mimeType nelkul (regi kliens, kozvetlen API-hivas) a viselkedes valtozatlan
+ * marad -- alt=media --, tehat ez a bovites nem tud regressziot okozni.
+ */
+export function driveDownloadPlan(fileId: string, mimeType: string | null | undefined, name: string): DriveDownloadPlan {
+  const base = `${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}`
+  if (mimeType && mimeType.startsWith('application/vnd.google-apps.')) {
+    const target = GOOGLE_EXPORT[mimeType]
+    if (!target) return { url: '', filename: name, unsupported: mimeType }
+    // A Docs-fajlneveken nincs kiterjesztes ("Szerzodes"), a lemezen viszont
+    // kiterjesztes nelkul senki nem tudja megnyitni.
+    const hasExt = name.toLowerCase().endsWith(`.${target.ext}`)
+    return {
+      url: `${base}/export?mimeType=${encodeURIComponent(target.mime)}`,
+      filename: hasExt ? name : `${name}.${target.ext}`,
+    }
+  }
+  return { url: `${base}?alt=media`, filename: name }
+}
+
+/**
+ * Content-Disposition ekezetes fajlnevekhez.
+ *
+ * A HTTP-fejlec latin-1: a "Szerzodes-2026-marcius.pdf" ekezetei a sima
+ * filename="..." mezoben elromlanak (vagy a Node dobja el a fejlecet), ezert
+ * kell melle az RFC 5987-es filename*=UTF-8''... valtozat. A vezerlokarakterek
+ * es idezojelek kiszurese egyben fejlec-injekcio elleni vedelem is: egy Drive-
+ * fajlnev tetszoleges szoveg, nem a mi adatunk.
+ */
+export function contentDispositionHeader(name: string): string {
+  const clean = (name || '').replace(/[\u0000-\u001f\u007f"\\]/g, '').trim() || 'download'
+  const ascii = clean.replace(/[^\x20-\x7e]/g, '_')
+  // encodeURIComponent meghagyja a !'()* karaktereket, azok viszont nem
+  // attr-char-ok az RFC 5987 szerint.
+  const utf8 = encodeURIComponent(clean).replace(/['()!*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
+}
+
 export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
 
@@ -198,9 +258,15 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
     const fileId = url.searchParams.get('fileId') || ''
     const name = url.searchParams.get('name') || 'download'
     if (!fileId) { json(res, { error: 'fileId kotelezo' }, 400); return true }
+    const plan = driveDownloadPlan(fileId, url.searchParams.get('mimeType'), name)
+    if (plan.unsupported) {
+      // Gepi kod is megy vissza, hogy a dashboard a sajat nyelven tudjon szolni.
+      json(res, { error: `Ez a Google-fajltipus nem tolthetó le: ${plan.unsupported}`, code: 'unsupported_google_type' }, 400)
+      return true
+    }
     try {
       const token = await getAccessToken(accountFromQuery(url))
-      const upstream = await driveFetch(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`, token)
+      const upstream = await driveFetch(plan.url, token)
       if (!upstream.ok || !upstream.body) {
         const text = await upstream.text()
         json(res, { error: `Drive API ${upstream.status}: ${text.slice(0, 200)}` }, 502)
@@ -208,7 +274,7 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
       }
       res.writeHead(200, {
         'Content-Type': upstream.headers.get('content-type') || 'application/octet-stream',
-        'Content-Disposition': `attachment; filename="${name.replace(/"/g, '')}"`,
+        'Content-Disposition': contentDispositionHeader(plan.filename),
         'Cache-Control': 'private, no-store',
       })
       const reader = upstream.body.getReader()

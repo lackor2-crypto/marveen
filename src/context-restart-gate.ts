@@ -58,18 +58,6 @@ export interface GateConfig {
    * this long. A permanently-blocked gate is itself a signal something is wrong.
    */
   persistentBlockAlertMs: number
-  /**
-   * Reclaim context with /compact (keeps a summary) before falling back to
-   * /clear (wipes). Boss approved the switch on 2026-08-12 after reporting that
-   * a threshold which only ever wipes is not what he wanted: "az AUTOMATIKUS
-   * tisztitas is elsonek a nagy fajlokat vegye ki, tegye irasba, ugy tomoritsen".
-   *
-   * Default true. /clear remains the fallback for the case /compact cannot fix:
-   * Claude Code refuses to compact a short session ("Not enough messages to
-   * compact"), and a session whose bulk is a single huge turn may stay above the
-   * threshold afterwards.
-   */
-  preferCompact: boolean
 }
 
 export function normalizeGateConfig(raw: unknown): GateConfig {
@@ -83,7 +71,6 @@ export function normalizeGateConfig(raw: unknown): GateConfig {
     retryIntervalMs:         posInt(o.retryIntervalMs,         DEFAULT_RETRY_INTERVAL_MS),
     persistentBlockAlertMs:  posInt(o.persistentBlockAlertMs,  DEFAULT_PERSISTENT_BLOCK_ALERT_MS),
     // Opt-OUT, unlike `enabled`: once the gate is on, summarising beats wiping.
-    preferCompact: o.preferCompact !== false,
   }
 }
 
@@ -292,9 +279,13 @@ function block(
   return { action, reason }
 }
 
-// ---- Reclaim strategy: compact first, clear as the fallback -----------------
+// ---- Reclaim strategy: compact, or stop and let a human decide --------------
 
-export type ReclaimAction = 'compact' | 'clear'
+/**
+ * 'hold' means "do nothing this sweep". There is deliberately no 'clear': the
+ * gate cannot wipe a session, only a person can (the card's button).
+ */
+export type ReclaimAction = 'compact' | 'hold'
 
 /**
  * A compaction that did not shrink the context by at least this fraction is
@@ -314,23 +305,36 @@ export const COMPACT_RETRY_WINDOW_MS = 60 * 60_000
 /**
  * Which command should reclaim this session's context? Pure.
  *
- * The gate only reaches here when every safety condition already passed, so the
- * question is not "is it safe" but "what is the least destructive thing that can
- * work". /compact keeps a summary and costs one round of latency; /clear is
- * instant and total. We prefer the first and escalate only on evidence that it
- * did not help.
+ * The gate NEVER wipes. It used to escalate to /clear when it judged the
+ * previous compaction useless, and BOTH halves of that were wrong (2026-08-14):
+ *
+ *  - The judgement was wrong. It compared the size BEFORE the last compaction
+ *    against the size NOW, so ordinary regrowth read as failure. A session that
+ *    compacted 68k -> 10k and then worked its way back to 62k inside the hour
+ *    scored as "compaction did not reduce the context" -- when it had in fact
+ *    reduced it by 85%. On this install the context regrows that far in minutes.
+ *  - The response was wrong. /clear is the most destructive thing available
+ *    here, and it fired exactly when the measurement was least trustworthy.
+ *    Reclaiming context is never worth silently discarding a conversation, so
+ *    /clear is now manual only: a button someone presses, never a timer's call.
+ *
+ * The evidence is now lastCompactMinSeen, the smallest context observed since
+ * the compaction was dispatched. That answers the question actually being asked
+ * ("did it ever shrink?") and no amount of later regrowth can falsify it.
+ *
+ * When a compaction demonstrably failed we HOLD instead of escalating. Sending
+ * /compact again every sweep would be its own thrashing loop -- the very
+ * failure this change exists to end -- so the gate stops, says why, and leaves
+ * the destructive option to a human. After the retry window it will try once
+ * more, because by then a still-large context is new growth, not old evidence.
  */
 export function chooseReclaimAction(params: {
-  contextTokens: number
-  preferCompact: boolean
   lastCompactAt: number | null
   lastCompactTokens: number | null
+  lastCompactMinSeen: number | null
   nowMs: number
 }): { action: ReclaimAction; reason: string } {
-  const { contextTokens, preferCompact, lastCompactAt, lastCompactTokens, nowMs } = params
-  if (!preferCompact) {
-    return { action: 'clear', reason: 'preferCompact disabled' }
-  }
+  const { lastCompactAt, lastCompactTokens, lastCompactMinSeen, nowMs } = params
   if (lastCompactAt === null) {
     return { action: 'compact', reason: 'no previous compaction' }
   }
@@ -338,18 +342,24 @@ export function chooseReclaimAction(params: {
     return { action: 'compact', reason: 'previous compaction is outside the retry window' }
   }
   if (lastCompactTokens === null || lastCompactTokens <= 0) {
-    // Legacy state with no recorded size: no evidence of failure, so no wipe.
+    // Legacy state with no recorded size: no evidence of failure, so try again.
     return { action: 'compact', reason: 'previous compaction size unknown' }
   }
-  const reduction = (lastCompactTokens - contextTokens) / lastCompactTokens
+  if (lastCompactMinSeen === null) {
+    // Dispatched but never re-measured: the compaction may still be running.
+    // Waiting one sweep costs nothing; guessing costs the session.
+    return { action: 'hold', reason: 'previous compaction not measured yet' }
+  }
+  const reduction = (lastCompactTokens - lastCompactMinSeen) / lastCompactTokens
   if (reduction < COMPACT_MIN_REDUCTION) {
     return {
-      action: 'clear',
-      reason: `previous compaction did not reduce the context (${lastCompactTokens} -> ${contextTokens})`,
+      action: 'hold',
+      reason: `previous compaction never shrank this session (${lastCompactTokens} -> ${lastCompactMinSeen} at its lowest); `
+        + 'not retrying -- /clear is manual only',
     }
   }
   return {
     action: 'compact',
-    reason: `previous compaction worked (${lastCompactTokens} -> ${contextTokens}), compacting again`,
+    reason: `previous compaction worked (${lastCompactTokens} -> ${lastCompactMinSeen}), the context grew back, compacting again`,
   }
 }

@@ -298,14 +298,22 @@ export function syncAgentPromptHooks(
     const existEntries = existingHooks[event]
     if (!Array.isArray(existEntries)) continue
 
-    // Prune pass: only runs for events where the template actually declares a
-    // prompt hook, so an event we say nothing about is left completely alone.
+    // Prune pass: drop every agent-type hook the template no longer declares
+    // under this event. The outer loop only visits events the template DOES
+    // declare, so an event we say nothing about is still left completely alone.
     const tplPromptMatchers = new Set(
       tplEntries
         .filter((e) => (e.hooks ?? []).some((h) => h.type === 'agent' && typeof h.prompt === 'string'))
         .map((e) => e.matcher ?? ''),
     )
-    if (tplPromptMatchers.size > 0) {
+    // Deliberately UNGUARDED. This used to read `if (tplPromptMatchers.size > 0)`,
+    // which made the prune unreachable precisely when it matters: converting a
+    // hook away from `type: "agent"` empties the set, so the obsolete prompt
+    // hook would survive in every agent's settings.json forever and keep firing
+    // beside its replacement. That is what the PreCompact checkpoint hit
+    // (kanban #128): an agent-type hook cannot run outside the REPL at all, so
+    // it failed on every compaction, and no template edit could remove it.
+    {
       const entries = existEntries as HookEntry[]
       for (let i = entries.length - 1; i >= 0; i--) {
         const entry = entries[i]

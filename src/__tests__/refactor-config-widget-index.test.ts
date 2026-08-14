@@ -128,7 +128,13 @@ describe('orphaned i18n keys removed from lang files', () => {
     'activity.no_output',
     'activity.session_stopped',
     'autonomy.btn.refresh',
-    'autonomy.level.1',
+    // 'autonomy.level.1' was listed here by mistake and is NOT orphaned: the
+    // autonomy legend still calls t('autonomy.level.1') right next to .2 and
+    // .3 (web/app.js, autonomy-legend-item). Deleting it made the dashboard
+    // print the raw key "autonomy.level.1" where a sentence belongs -- that is
+    // what was live until 2026-08-14. The reverse direction is now guarded by
+    // lang-parity.test.ts ("every key the page asks for exists"), which is what
+    // caught it; that test also proves no other key in this list is referenced.
     'updates.page_subtitle',
   ]
 

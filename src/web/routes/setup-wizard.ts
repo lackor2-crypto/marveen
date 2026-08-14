@@ -24,6 +24,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { json, readBody } from '../http-helpers.js'
 import { buildSetupSummary, writableEnvKeys } from '../setup-wizard-registry.js'
 import { claudeAuthPresent, channelConfigured, paired } from './onboarding.js'
+import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
 import type { RouteContext } from './types.js'
 
@@ -53,6 +54,9 @@ function externalState(): Record<string, boolean> {
     // .env, so ask the provider-aware check instead of only reading the key.
     'telegram-token': channelConfigured(),
     'google-oauth': existsSync(join(STORE_DIR, 'google-oauth-client.json')),
+    // Configured = at least one address is actually connected. The client file
+    // above only makes the sign-in possible; on its own it delivers nothing.
+    'google-accounts': connectedGoogleAccountCount() > 0,
   }
 }
 
