@@ -20,10 +20,15 @@ export async function notifyChannel(text: string): Promise<void> {
     try {
       const parseMode = CHANNEL_PROVIDER === 'telegram' ? 'HTML' : undefined
       await provider.sendMessage(CHANNEL_TOKEN, CHANNEL_CHAT_ID, chunk, parseMode)
-    } catch {
+    } catch (firstErr) {
       try {
         await provider.sendMessage(CHANNEL_TOKEN, CHANNEL_CHAT_ID, outbound.slice(0, 4096))
-      } catch { /* last resort, give up */ }
+      } catch (secondErr) {
+        // Both attempts failed -- this used to vanish with zero trace (a
+        // confirmed cause of a 2026-08-11 wake-bell that never reached Boss,
+        // see kanban 9f2ec0be). Log so a real delivery failure is visible.
+        logger.error({ firstErr, secondErr, provider: CHANNEL_PROVIDER }, 'notifyChannel: both delivery attempts failed, message not sent')
+      }
     }
   }
 }

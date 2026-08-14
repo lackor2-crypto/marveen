@@ -1272,7 +1272,10 @@ function checkMainKeepaliveStaleness(): void {
 }
 
 export function sendAlert(text: string): void {
-  notifyChannel(text).catch(() => {})
+  // A silent .catch(() => {}) here used to swallow real delivery failures with
+  // zero trace -- confirmed cause of a 2026-08-11 wake-bell that never reached
+  // Boss (kanban 9f2ec0be). Log so a failed alert is visible in dashboard.log.
+  notifyChannel(text).catch(err => logger.error({ err, text }, 'sendAlert: notifyChannel failed, alert not delivered'))
 }
 
 async function handleMarveenDown(): Promise<void> {
