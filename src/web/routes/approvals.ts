@@ -393,6 +393,24 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const approval = getApproval(idMatch[1])
     logger.info({ id: idMatch[1], status, resolved_by, reason: resolutionReason }, 'Approval resolved')
     if (approval) notifyRequester(approval)
+    // Kártya 62c63a5e (#108): a verify-result ág már régóta rámásolja a
+    // reviewer-agent leletét a kapcsolódó kártyára, de maga a záró döntés
+    // (ez az endpoint) eddig semmit nem írt oda -- a resolutionReason csak
+    // az approval sorban maradt, a kártyán soha nem látszott miért lett
+    // approved/rejected. Ugyanazt a best-effort mintát követi mint lent a
+    // verify-result ág: soha nem blokkolja a választ, hiányzó/hibás
+    // kártya-kapcsolat csendben kimarad.
+    if (approval) {
+      const linkedCardId = kanbanCardIdFromApproval(approval)
+      if (linkedCardId) {
+        try {
+          const icon = status === 'approved' ? '✅' : status === 'rejected' ? '❌' : '⏱️'
+          addKanbanComment(linkedCardId, resolved_by.trim(), `${icon} Jóváhagyás lezárva (${status}): ${resolutionReason || '(nincs indoklás)'}`)
+        } catch (err) {
+          logger.warn({ err, approvalId: idMatch[1], linkedCardId }, 'Failed to post approval resolution as a kanban comment')
+        }
+      }
+    }
     // Closes the loop Boss asked for (2026-08-05): "amikor en ott nyomom hogy
     // ok, akkor kerüljön at a kesz dobozba" -- clicking approve on a
     // kanban_done request is itself what moves the card to "done", not a
