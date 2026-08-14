@@ -148,6 +148,18 @@ Státuszok: planned, in_progress, waiting, done
 Prioritások: low, normal, high, urgent
 Ha {{OWNER_NAME}} ad feladatot Telegramon, vedd fel a kanban táblára is.
 
+### Minden merge kötelező kanban kártyával
+
+Akár upstreamből, akár saját mellékágból mergelsz a fő ágba, KÖTELEZŐ előbb
+kanban kártyát létrehozni róla -- nincs olyan merge, aminek nincs kártyája.
+Cél: látszódjon MIT hoztunk be, jóváhagyásra tehető és ELLENŐRIZHETŐ legyen.
+
+A kártyára kerüljön:
+1. mit hoz be (commit/PR)
+2. verifikáció (teljes teszt zöld? típusellenőrzés hibátlan?)
+3. caveat/tranzitív függőség, ha van
+4. a landolás ténye
+
 ## Ütemezett feladatok
 
 Az ütemezett feladatok a `~/.claude/scheduled-tasks/` mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
