@@ -1,226 +1,397 @@
 #!/usr/bin/env python3
 """
-WhatsApp üzenet automatikus küldése Kiss Zoltánnak (lackor2 ismerőse, vak).
-Task Scheduler Interactive-ban futtatott PowerShell automatizálás.
+WhatsApp message delivery to a configured contact via Windows Desktop
+automation, executed through Task Scheduler (LogonType Interactive) from WSL.
 
-Használat:
-  python3 whatsapp-send.py "Üzenet szövege"
-  python3 whatsapp-send.py "Üzenet" --retries 3
+Usage:
+  python3 whatsapp-send.py "Message text"
+  python3 whatsapp-send.py "Message" --retries 3
+  python3 whatsapp-send.py --dry-run "Message"      # no keystrokes, checks only
 
-Eljárás:
-1. WhatsApp indítása (ha nem fut)
-2. Üzenet másolása vágólapra
-3. Kiss Zoltán chatjének megnyitása (CTRL+F -> "Kiss" -> ENTER)
-4. Üzenet beillesztése és küldése (CTRL+V -> ENTER)
-5. Screenshot-tal ellenőrzés (szürke pipa = sikeres)
+Flow:
+1. Resolve powershell.exe (WSL PATH often has no /mnt/c entries).
+2. Ensure WhatsApp is running (optional, --skip-launch to bypass).
+3. Write a .ps1 to C:\\Users\\Public and run it via Task Scheduler Interactive.
+4. Wait for the script's own result file -- this is the ONLY success signal.
+5. Email fallback if WhatsApp failed every attempt.
 
-Fallback: ha 3x bukik, email küldés.
+Host-specific values come from the environment, never hardcoded:
+  WHATSAPP_CONTACT        contact name typed into WhatsApp search (default: below)
+  WHATSAPP_PACKAGE_FAMILY Store package family name used to launch the app
+  WHATSAPP_FALLBACK_EMAIL address used by the email fallback
 """
 import argparse
-import json
+import base64
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+PUBLIC_WSL = "/mnt/c/Users/Public"
+PUBLIC_WIN = "C:\\Users\\Public"
 
-def run_powershell(script: str) -> tuple[int, str]:
-    """Task Scheduler Interactive-ban futtat PowerShell kódot."""
+DEFAULT_CONTACT = "Kiss"
+DEFAULT_PACKAGE_FAMILY = "5319275A.WhatsAppDesktop_cv1g1gvanyjgm"
+
+
+def contact_name() -> str:
+    return os.environ.get("WHATSAPP_CONTACT", DEFAULT_CONTACT)
+
+
+def package_family() -> str:
+    return os.environ.get("WHATSAPP_PACKAGE_FAMILY", DEFAULT_PACKAGE_FAMILY)
+
+
+def fallback_email() -> str:
+    return os.environ.get("WHATSAPP_FALLBACK_EMAIL", "")
+
+
+def find_powershell() -> str | None:
+    """
+    Locate powershell.exe. Under WSL the Windows directories are frequently
+    absent from PATH (interop still works), so a bare "powershell.exe" raises
+    FileNotFoundError -- the failure this script used to die on silently.
+    """
+    found = shutil.which("powershell.exe")
+    if found:
+        return found
+
+    candidates = [
+        "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+        "/mnt/c/Windows/SysWOW64/WindowsPowerShell/v1.0/powershell.exe",
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+PS_EXE = find_powershell()
+
+
+def run_ps1_task(
+    script_name: str,
+    ps1_content: str,
+    task_name: str = None,
+    result_file: str = None,
+    wait_seconds: int = 45,
+) -> tuple[int, str, str]:
+    """
+    Run a PowerShell script through Task Scheduler Interactive.
+
+    Returns (rc, powershell_output, result_text).
+
+    result_file is the WSL path of the file the .ps1 writes when it finishes.
+    It is deleted before the run, so a stale file from an earlier attempt can
+    never be mistaken for success, and it is polled afterwards -- the previous
+    version slept a fixed 2s and then reported success regardless.
+    """
+    if task_name is None:
+        task_name = script_name
+
+    if PS_EXE is None:
+        return 1, "powershell.exe not found (checked PATH and /mnt/c/Windows)", ""
+
     try:
+        if result_file and os.path.exists(result_file):
+            os.remove(result_file)
+
+        ps1_path = f"{PUBLIC_WSL}/marvin_{script_name}.ps1"
+        ps1_path_win = f"{PUBLIC_WIN}\\marvin_{script_name}.ps1"
+
+        with open(ps1_path, "w", encoding="utf-8-sig") as f:
+            f.write(ps1_content.replace("\n", "\r\n"))
+
+        wrapper = f'''
+$id = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File {ps1_path_win}"
+$principal = New-ScheduledTaskPrincipal -UserId $id -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskName "{task_name}" -Action $action -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
+Start-ScheduledTask -TaskName "{task_name}" -ErrorAction Stop
+'''
+
         result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            [PS_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wrapper],
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
         )
-        return result.returncode, result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        return 124, "PowerShell timeout"
+
+        result_text = ""
+        if result_file:
+            deadline = time.time() + wait_seconds
+            while time.time() < deadline:
+                if os.path.exists(result_file):
+                    time.sleep(0.3)  # let the writer finish flushing
+                    try:
+                        result_text = Path(result_file).read_text(
+                            encoding="utf-8-sig", errors="replace"
+                        ).strip()
+                    except OSError:
+                        result_text = ""
+                    break
+                time.sleep(0.5)
+
+        try:
+            subprocess.run(
+                [PS_EXE, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+                 f"Unregister-ScheduledTask -TaskName '{task_name}' -Confirm:$false -ErrorAction SilentlyContinue"],
+                capture_output=True,
+                timeout=15,
+            )
+        except Exception:
+            pass
+
+        return result.returncode, (result.stdout or "") + (result.stderr or ""), result_text
     except Exception as e:
-        return 1, f"PowerShell error: {e}"
+        return 1, f"PowerShell error: {e}", ""
+
+
+def whatsapp_is_running() -> bool:
+    """True only if the scheduled task actually reported RUNNING."""
+    result_wsl = f"{PUBLIC_WSL}/marvin_ws_state.txt"
+    result_win = f"{PUBLIC_WIN}\\marvin_ws_state.txt"
+    # The desktop app's process is called WhatsApp.Root (not WhatsApp), so an
+    # exact -Name WhatsApp match never finds it -- the wildcard is required.
+    check_script = f'''
+$running = Get-Process -Name 'WhatsApp*' -ErrorAction SilentlyContinue
+if ($running) {{ $s = "RUNNING" }} else {{ $s = "NOT_RUNNING" }}
+$s | Out-File -FilePath {result_win} -Encoding utf8 -Force
+'''
+    _, _, state = run_ps1_task("check", check_script, "ws_check",
+                               result_file=result_wsl, wait_seconds=30)
+    return "NOT_RUNNING" not in state and "RUNNING" in state
 
 
 def ensure_whatsapp_running() -> bool:
-    """Ellenőrzi, hogy WhatsApp.exe fut-e, ha nem, elindítja."""
-    check_script = """
-    $running = Get-Process -Name WhatsApp -ErrorAction SilentlyContinue
-    if ($running) { Write-Output "RUNNING" } else { Write-Output "NOT_RUNNING" }
-    """
-    rc, out = run_powershell(check_script)
-
-    if "RUNNING" in out:
-        print("✓ WhatsApp már fut")
+    if whatsapp_is_running():
+        print("✓ WhatsApp already running")
         return True
 
-    print("→ WhatsApp indítása...")
-    launch_script = """
-    $id = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $action = New-ScheduledTaskAction -Execute "explorer.exe" -Argument "shell:AppsFolder\\5319275A.WhatsAppDesktop_cv1g1gvanyjgm!App"
-    $principal = New-ScheduledTaskPrincipal -UserId $id -LogonType Interactive
-    Register-ScheduledTask -TaskName "LaunchWhatsAppAuto" -Action $action -Principal $principal -Force -ErrorAction SilentlyContinue | Out-Null
-    Start-ScheduledTask -TaskName "LaunchWhatsAppAuto"
-    """
-    rc, _ = run_powershell(launch_script)
+    print("→ Launching WhatsApp...")
+    result_wsl = f"{PUBLIC_WSL}/marvin_ws_launch.txt"
+    result_win = f"{PUBLIC_WIN}\\marvin_ws_launch.txt"
+    launch_script = f'''
+$ErrorActionPreference = 'SilentlyContinue'
+Start-Process "explorer.exe" -ArgumentList "shell:AppsFolder\\{package_family()}!App"
+# Wait for a real window, not just a process: the background process can be
+# alive for hours with the UI closed.
+$s = "LAUNCH_FAILED"
+for ($i = 0; $i -lt 20; $i++) {{
+  Start-Sleep -Seconds 1
+  $p = Get-Process -Name 'WhatsApp*' -ErrorAction SilentlyContinue | Where-Object {{ $_.MainWindowHandle -ne [IntPtr]::Zero }}
+  if ($p) {{ $s = "LAUNCHED"; break }}
+}}
+$s | Out-File -FilePath {result_win} -Encoding utf8 -Force
+'''
+    _, out, state = run_ps1_task("launch", launch_script, "ws_launch",
+                                 result_file=result_wsl, wait_seconds=45)
 
-    if rc != 0:
-        print("✗ WhatsApp indítása sikertelen")
+    if "LAUNCHED" in state:
+        print("  ✓ WhatsApp started")
+        return True
+
+    print(f"✗ Could not start WhatsApp ({state or out.strip()[:120] or 'no response'})")
+    return False
+
+
+def send_whatsapp_message(message: str, dry_run: bool = False) -> bool:
+    """
+    Deliver the message. Returns True ONLY when the Windows-side script wrote
+    SENT into its result file -- never on a bare exit code.
+    """
+    result_wsl = f"{PUBLIC_WSL}/marvin_send_status.txt"
+    result_win = f"{PUBLIC_WIN}\\marvin_send_status.txt"
+
+    # The message travels as base64 so quotes, $ signs and newlines in the
+    # analysis text cannot break out of the PowerShell literal or be
+    # interpolated as variables.
+    encoded = base64.b64encode(message.encode("utf-8")).decode("ascii")
+
+    send_script = f'''
+$ErrorActionPreference = 'SilentlyContinue'
+$dryRun = ${'true' if dry_run else 'false'}
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class Win32X {{
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+}}
+"@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Write-Result($text) {{
+  $text | Out-File -FilePath {result_win} -Encoding utf8 -Force
+}}
+
+# 'WhatsApp*' matches WhatsApp.Root, the real process name of the desktop app.
+$proc = Get-Process -Name 'WhatsApp*' -ErrorAction SilentlyContinue | Where-Object {{ $_.MainWindowHandle -ne [IntPtr]::Zero }} | Select-Object -First 1
+if (-not $proc) {{
+  Write-Result "NO_WINDOW"
+  exit
+}}
+
+[Win32X]::ShowWindow($proc.MainWindowHandle, 9) | Out-Null
+[Win32X]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+Start-Sleep -Milliseconds 1200
+
+# Never type blind: if WhatsApp is not the foreground window the keystrokes
+# would land in whatever app is focused, pasting the message somewhere else.
+$fg = [Win32X]::GetForegroundWindow()
+if ($fg -ne $proc.MainWindowHandle) {{
+  Write-Result "NOT_FOREGROUND"
+  exit
+}}
+
+if ($dryRun) {{
+  Write-Result "DRYRUN_OK"
+  exit
+}}
+
+# Clear any leftover search state, then find the contact.
+[System.Windows.Forms.SendKeys]::SendWait("{{ESC}}")
+Start-Sleep -Milliseconds 300
+[System.Windows.Forms.SendKeys]::SendWait("^f")
+Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait("{contact_name()}")
+Start-Sleep -Milliseconds 900
+[System.Windows.Forms.SendKeys]::SendWait("{{ENTER}}")
+Start-Sleep -Milliseconds 900
+
+$message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("{encoded}"))
+Set-Clipboard -Value $message
+Start-Sleep -Milliseconds 400
+
+# Confirm the clipboard really holds our text before pressing Enter.
+$clip = Get-Clipboard -Raw
+if ($clip -ne $message) {{
+  Write-Result "CLIPBOARD_MISMATCH"
+  exit
+}}
+
+[System.Windows.Forms.SendKeys]::SendWait("^v")
+Start-Sleep -Milliseconds 800
+[System.Windows.Forms.SendKeys]::SendWait("{{ENTER}}")
+Start-Sleep -Milliseconds 2000
+
+$b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+$g = [System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+$bmp.Save("{PUBLIC_WIN}\\whatsapp_verify.png", [System.Drawing.Imaging.ImageFormat]::Png)
+Write-Result "SENT"
+'''
+
+    print("  → running WhatsApp automation...")
+    rc, out, state = run_ps1_task("send", send_script, "ws_send",
+                                  result_file=result_wsl, wait_seconds=60)
+
+    if state.startswith("SENT"):
+        print(f"  ✓ message delivered (screenshot: {PUBLIC_WIN}\\whatsapp_verify.png)")
+        return True
+    if state.startswith("DRYRUN_OK"):
+        print("  ✓ dry run: WhatsApp focused, no keystrokes sent")
+        return True
+
+    reasons = {
+        "NO_WINDOW": "WhatsApp has no open window",
+        "NOT_FOREGROUND": "could not bring WhatsApp to the foreground -- aborted before typing",
+        "CLIPBOARD_MISMATCH": "clipboard did not contain the message",
+    }
+    detail = reasons.get(state.strip(), state.strip() or f"no response from the Windows script (rc={rc}) {out.strip()[:160]}")
+    print(f"  ✗ send failed: {detail}")
+    return False
+
+
+def send_email_fallback(message: str, recipient: str = None) -> bool:
+    """Email fallback (draft only). Requires WHATSAPP_FALLBACK_EMAIL."""
+    recipient = recipient or fallback_email()
+    if not recipient:
+        print("✗ no fallback address configured (WHATSAPP_FALLBACK_EMAIL)")
         return False
 
-    print("  Várás 5s a betöltésre...")
-    time.sleep(5)
-    return True
-
-
-def send_whatsapp_message(message: str) -> bool:
-    """
-    Üzenet küldése a WhatsApp-on keresztül Kiss Zoltánnak.
-    Task Scheduler Interactive-ban futtatott PowerShell automatizálás.
-    """
-    # Ekezet nélküli verzió a PowerShell kódolási problémáinak elkerülésére
-    safe_message = message.encode("ascii", errors="ignore").decode("ascii")
-
-    # Üzenet vágólapra
-    print("  → Üzenet vágólapra másolása...")
-    clipboard_script = f"""
-    $message = @'
-{safe_message}
-'@
-    $message | Set-Clipboard
-    Write-Output "OK"
-    """
-    rc, _ = run_powershell(clipboard_script)
-    if rc != 0:
-        return False
-
-    # Kiss Zoltán chatjének megnyitása (CTRL+F -> "Kiss" -> ENTER)
-    print("  → Kiss Zoltán chatjének megnyitása...")
-    open_chat_script = """
-    [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null
-    Start-Sleep -Milliseconds 500
-
-    # CTRL+F - chat keresés
-    [System.Windows.Forms.SendKeys]::SendWait("^f")
-    Start-Sleep -Milliseconds 300
-
-    # Kiss
-    [System.Windows.Forms.SendKeys]::SendWait("Kiss")
-    Start-Sleep -Milliseconds 300
-
-    # ENTER
-    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-    Start-Sleep -Milliseconds 500
-    """
-    rc, _ = run_powershell(open_chat_script)
-    if rc != 0:
-        return False
-
-    # Üzenet beillesztése és küldése (CTRL+V -> ENTER)
-    print("  → Üzenet küldése...")
-    send_script = """
-    [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms") | Out-Null
-    Start-Sleep -Milliseconds 300
-
-    # CTRL+V - beillesztés
-    [System.Windows.Forms.SendKeys]::SendWait("^v")
-    Start-Sleep -Milliseconds 500
-
-    # ENTER - küldés
-    [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
-    Start-Sleep -Milliseconds 1000
-    """
-    rc, _ = run_powershell(send_script)
-    if rc != 0:
-        return False
-
-    # Screenshot ellenőrzés
-    print("  → Ellenőrzés screenshot-tal...")
-    screenshot_script = """
-    Add-Type -AssemblyName System.Windows.Forms
-    $screen = [System.Windows.Forms.Screen]::PrimaryScreen
-    $bitmap = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
-    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-    $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
-    $bitmap.Save("C:\\Users\\Public\\whatsapp_verify.png")
-    Write-Output "OK"
-    """
-    rc, _ = run_powershell(screenshot_script)
-    if rc != 0:
-        print("  ✗ Screenshot sikertelen")
-        return False
-
-    # Ellenőrizze, hogy az üzenet szürke pipával jelenik meg (ezt vizuálisan a screenshot-ban kell ellenőrizni)
-    # A script csak azt tudja megerősíteni, hogy a screenshot készült
-    print("  ✓ Screenshot elkészült: C:\\Users\\Public\\whatsapp_verify.png")
-    print("  ✓ WhatsApp küldés sikeres (szürke pipa várható)")
-    return True
-
-
-def send_email_fallback(message: str, recipient: str = "kiszoli1111@gmail.com") -> bool:
-    """Email fallback Gmail API-n keresztül."""
-    print(f"\n📧 Email fallback {recipient}-re...")
-
+    print(f"\n📧 email fallback to {recipient} (draft)...")
     try:
-        # Egyszerű email küldés a gmail-send.py scripten keresztül
+        msg_file = "/tmp/whatsapp_fallback_msg.txt"
+        with open(msg_file, "w", encoding="utf-8") as f:
+            f.write(message)
+
+        helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gmail-send.py")
+        if not os.path.exists(helper):
+            print(f"✗ helper not found: {helper}")
+            return False
+
         result = subprocess.run(
-            [
-                sys.executable,
-                os.path.join(os.path.dirname(__file__), "gmail-send.py"),
-                recipient,
-                "Arany technikai elemzés",
-                message,
-            ],
+            [sys.executable, helper, "draft", recipient, "Arany technikai elemzés", msg_file],
             capture_output=True,
             text=True,
             timeout=30,
         )
 
         if result.returncode == 0:
-            print(f"✓ Email elküldve: {recipient}")
+            print(f"✓ draft created: {recipient}")
             return True
+
+        err = (result.stderr or "").lower()
+        if "insufficient" in err or "permission" in err:
+            print("✗ OAuth scope problem -- the owner needs to re-authorise")
         else:
-            print(f"✗ Email küldés sikertelen: {result.stderr}")
-            return False
+            print(f"✗ draft failed: {(result.stderr or '')[:200]}")
+        return False
     except Exception as e:
-        print(f"✗ Email fallback hiba: {e}")
+        print(f"✗ email fallback error: {e}")
         return False
 
 
-def main():
-    parser = argparse.ArgumentParser(description="WhatsApp üzenet küldés Kiss Zoltánnak")
-    parser.add_argument("message", help="Az üzenet szövege")
-    parser.add_argument("--retries", type=int, default=3, help="Próbálkozások száma (default: 3)")
-    parser.add_argument("--no-fallback", action="store_true", help="Email fallback kikapcsolása")
+def main() -> bool:
+    parser = argparse.ArgumentParser(description="Send a WhatsApp message to the configured contact")
+    parser.add_argument("message", help="message text")
+    parser.add_argument("--retries", type=int, default=3, help="attempts (default: 3)")
+    parser.add_argument("--no-fallback", action="store_true", help="disable the email fallback")
+    parser.add_argument("--skip-launch", action="store_true", help="assume WhatsApp is already open")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="check reachability and focus, send no keystrokes")
 
     args = parser.parse_args()
 
-    print(f"🔔 WhatsApp üzenet küldés: Kiss Zoltánnak")
-    print(f"   {args.message[:50]}{'...' if len(args.message) > 50 else ''}")
-
-    # WhatsApp biztosítása
-    if not ensure_whatsapp_running():
-        print("✗ WhatsApp nem indítható")
-        if not args.no_fallback:
-            return send_email_fallback(args.message)
+    if PS_EXE is None:
+        print("✗ powershell.exe not found -- Windows automation is unavailable from this shell")
         return False
 
-    # Próbálkozások a WhatsApp-on
-    for attempt in range(1, args.retries + 1):
-        print(f"\n📨 Próbálkozás {attempt}/{args.retries}...")
+    print(f"🔔 WhatsApp send -> contact '{contact_name()}'")
+    print(f"   {args.message[:60]}{'...' if len(args.message) > 60 else ''}")
+    if args.dry_run:
+        print("   (dry run -- nothing will be sent)")
 
-        if send_whatsapp_message(args.message):
-            print("✓ WhatsApp sikeres!")
+    if not args.skip_launch:
+        if not ensure_whatsapp_running():
+            print("✗ WhatsApp is not running; cannot continue")
+            return False
+    elif not whatsapp_is_running():
+        print("✗ --skip-launch was given but WhatsApp is not running")
+        return False
+
+    for attempt in range(1, args.retries + 1):
+        print(f"\n📨 attempt {attempt}/{args.retries}...")
+
+        if send_whatsapp_message(args.message, dry_run=args.dry_run):
+            print("✓ WhatsApp OK")
             return True
 
-        print(f"✗ Próbálkozás {attempt} sikertelen")
-
         if attempt < args.retries:
-            wait_time = 5 * attempt  # Exponenciális backoff
-            print(f"  Várás {wait_time}s az újrapróbálkozáshoz...")
+            wait_time = 5 * attempt
+            print(f"  retrying in {wait_time}s...")
             time.sleep(wait_time)
 
-    # Email fallback
-    print("\n✗ WhatsApp 3x bukott")
+    print(f"\n✗ WhatsApp failed {args.retries}x")
+    if args.dry_run:
+        return False
     if not args.no_fallback:
         return send_email_fallback(args.message)
 
