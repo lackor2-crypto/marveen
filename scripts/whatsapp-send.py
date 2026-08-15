@@ -32,7 +32,10 @@ from pathlib import Path
 PUBLIC_WSL = "/mnt/c/Users/Public"
 PUBLIC_WIN = "C:\\Users\\Public"
 
-DEFAULT_CONTACT = "Kiss"
+# Deliberately more than a surname: "Kiss" alone matches several contacts and
+# would rely on WhatsApp's recency ordering to pick the right one. No accented
+# characters -- SendKeys types these literally.
+DEFAULT_CONTACT = "Kiss Zolt"
 DEFAULT_PACKAGE_FAMILY = "5319275A.WhatsAppDesktop_cv1g1gvanyjgm"
 
 
@@ -198,10 +201,16 @@ $s | Out-File -FilePath {result_win} -Encoding utf8 -Force
     return False
 
 
-def send_whatsapp_message(message: str, dry_run: bool = False) -> bool:
+def send_whatsapp_message(message: str, dry_run: bool = False,
+                          select_only: bool = False) -> bool:
     """
     Deliver the message. Returns True ONLY when the Windows-side script wrote
     SENT into its result file -- never on a bare exit code.
+
+    dry_run stops once WhatsApp is focused, before any keystroke.
+    select_only goes one step further: it opens the contact's chat and takes a
+    screenshot, then stops before pasting. That proves the search term lands on
+    the intended chat without a message reaching anyone.
     """
     result_wsl = f"{PUBLIC_WSL}/marvin_send_status.txt"
     result_win = f"{PUBLIC_WIN}\\marvin_send_status.txt"
@@ -214,6 +223,7 @@ def send_whatsapp_message(message: str, dry_run: bool = False) -> bool:
     send_script = f'''
 $ErrorActionPreference = 'SilentlyContinue'
 $dryRun = ${'true' if dry_run else 'false'}
+$selectOnly = ${'true' if select_only else 'false'}
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -254,15 +264,35 @@ if ($dryRun) {{
   exit
 }}
 
-# Clear any leftover search state, then find the contact.
+# Escape alone does NOT empty the search box -- a previous run's term stays
+# and the new one is appended to it ("KissKiss Zolt" -> no results), so the
+# field has to be selected and deleted explicitly.
 [System.Windows.Forms.SendKeys]::SendWait("{{ESC}}")
 Start-Sleep -Milliseconds 300
 [System.Windows.Forms.SendKeys]::SendWait("^f")
 Start-Sleep -Milliseconds 600
+[System.Windows.Forms.SendKeys]::SendWait("^a")
+Start-Sleep -Milliseconds 200
+[System.Windows.Forms.SendKeys]::SendWait("{{DEL}}")
+Start-Sleep -Milliseconds 400
 [System.Windows.Forms.SendKeys]::SendWait("{contact_name()}")
 Start-Sleep -Milliseconds 900
 [System.Windows.Forms.SendKeys]::SendWait("{{ENTER}}")
 Start-Sleep -Milliseconds 900
+
+function Save-Screen($path) {{
+  $b = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+  $bmp.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+}}
+
+if ($selectOnly) {{
+  Save-Screen("{PUBLIC_WIN}\\whatsapp_target.png")
+  Write-Result "SELECTED"
+  exit
+}}
 
 $message = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("{encoded}"))
 Set-Clipboard -Value $message
@@ -280,11 +310,7 @@ Start-Sleep -Milliseconds 800
 [System.Windows.Forms.SendKeys]::SendWait("{{ENTER}}")
 Start-Sleep -Milliseconds 2000
 
-$b = [System.Windows.Forms.SystemInformation]::VirtualScreen
-$bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-$g = [System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
-$bmp.Save("{PUBLIC_WIN}\\whatsapp_verify.png", [System.Drawing.Imaging.ImageFormat]::Png)
+Save-Screen("{PUBLIC_WIN}\\whatsapp_verify.png")
 Write-Result "SENT"
 '''
 
@@ -294,6 +320,10 @@ Write-Result "SENT"
 
     if state.startswith("SENT"):
         print(f"  ✓ message delivered (screenshot: {PUBLIC_WIN}\\whatsapp_verify.png)")
+        return True
+    if state.startswith("SELECTED"):
+        print(f"  ✓ chat opened, nothing sent -- check {PUBLIC_WIN}\\whatsapp_target.png "
+              f"that '{contact_name()}' selected the intended conversation")
         return True
     if state.startswith("DRYRUN_OK"):
         print("  ✓ dry run: WhatsApp focused, no keystrokes sent")
@@ -357,6 +387,9 @@ def main() -> bool:
     parser.add_argument("--skip-launch", action="store_true", help="assume WhatsApp is already open")
     parser.add_argument("--dry-run", action="store_true",
                         help="check reachability and focus, send no keystrokes")
+    parser.add_argument("--select-only", action="store_true",
+                        help="open the contact's chat and screenshot it, then stop "
+                             "before pasting -- proves the search hits the right chat")
 
     args = parser.parse_args()
 
@@ -368,6 +401,8 @@ def main() -> bool:
     print(f"   {args.message[:60]}{'...' if len(args.message) > 60 else ''}")
     if args.dry_run:
         print("   (dry run -- nothing will be sent)")
+    elif args.select_only:
+        print("   (select-only -- the chat is opened, nothing is sent)")
 
     if not args.skip_launch:
         if not ensure_whatsapp_running():
@@ -380,7 +415,8 @@ def main() -> bool:
     for attempt in range(1, args.retries + 1):
         print(f"\n📨 attempt {attempt}/{args.retries}...")
 
-        if send_whatsapp_message(args.message, dry_run=args.dry_run):
+        if send_whatsapp_message(args.message, dry_run=args.dry_run,
+                                 select_only=args.select_only):
             print("✓ WhatsApp OK")
             return True
 
@@ -390,7 +426,7 @@ def main() -> bool:
             time.sleep(wait_time)
 
     print(f"\n✗ WhatsApp failed {args.retries}x")
-    if args.dry_run:
+    if args.dry_run or args.select_only:
         return False
     if not args.no_fallback:
         return send_email_fallback(args.message)
