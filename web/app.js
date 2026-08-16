@@ -2783,13 +2783,17 @@ async function showCardDetail(card) {
             category: 'kanban_done',
             action_description: `Kártya kész, jóváhagyásra vár: "${card.title}"`,
             action_payload: JSON.stringify({ kanban_card_id: card.id }),
+            similar_reviewed: [],
           }),
         })
-        if (!res.ok) throw new Error('request failed')
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}))
+          throw new Error(errBody.error || 'request failed')
+        }
         showToast(t('kanban.toast.approval_requested'))
         closeModal(cardDetailOverlay)
-      } catch {
-        showToast(t('kanban.toast.approval_error'))
+      } catch (err) {
+        showToast(err?.message || t('kanban.toast.approval_error'))
       } finally {
         requestApprovalBtn.disabled = false
       }
