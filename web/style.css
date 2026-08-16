@@ -857,6 +857,9 @@ main {
   color: var(--text);
 }
 .overview-ratelimit-nodata { color: var(--text-muted); }
+/* "3 órája mérve" a fiok neve mellett: halkabb es kisebb, mint a fioknev --
+   informacio, nem figyelmeztetes. Csak elavult meresnel jelenik meg. */
+.overview-ratelimit-age { color: var(--text-muted); font-size: 11px; font-weight: 400; }
 .overview-ratelimit-row-head {
   display: flex;
   justify-content: space-between;
@@ -3157,30 +3160,61 @@ main.email-active .page-header { flex-shrink: 0; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* === Toast === */
+/* Boss 2026-08-15: a nowrap miatt a hosszu uzenet egyetlen sorba kenyszerult es
+   kilogott a kepernyo ket szelen, tehat akkor sem lehetett elolvasni ha kint
+   maradt. Azota tordelodik, es van rajta bezaro X. */
 .toast {
   position: fixed;
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%) translateY(100px);
-  padding: 12px 24px;
+  padding: 12px 16px 12px 24px;
   background: var(--text);
   color: var(--bg);
   border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 500;
   box-shadow: var(--shadow-lg);
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease, visibility 0.3s ease;
   z-index: 1100;
-  white-space: nowrap;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: min(92vw, 560px);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
 }
-.toast.visible { transform: translateX(-50%) translateY(0); }
+.toast.visible { transform: translateX(-50%) translateY(0); pointer-events: auto; opacity: 1; visibility: visible; }
+.toast-text { flex: 1; min-width: 0; }
+.toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.toast-close:hover { opacity: 1; }
+.toast-close:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* A hibauzenet magatol nem tunik el, ezert latszodjon is rajta hogy baj van. */
+.toast-error { background: var(--danger); color: #fff; }
+/* A figyelmeztetes megtartja az alap hattert (a --warning sarga, feher szoveggel
+   olvashatatlan lenne), es egy sav jelzi baloldalt. */
+.toast-warn { border-left: 4px solid var(--warning, #d4a52c); padding-left: 20px; }
 .toast-big {
   font-size: 16px;
   font-weight: 600;
-  padding: 16px 28px;
-  white-space: normal;
+  padding: 16px 20px 16px 28px;
   max-width: min(90vw, 480px);
-  text-align: center;
   line-height: 1.5;
 }
 
@@ -5189,13 +5223,31 @@ main.email-active .page-header { flex-shrink: 0; }
    Lackor". Az auto-fit miatt harom fioknal harmad, negynel negyed, tiznel
    pedig vizszintesen gorgetheto sav lesz belole -- 280px alatt a fajlnevbol
    ugyis csak "szerz..." latszana. */
+/* Boss, 2026-08-15: "a masodik es harmadik oszlop alatt ures a hely. nem
+   folytatodik semmilyen mas fiok mappai. holott ott vannak csak joval lentebb
+   ... csinald meg hogy innentol folytatodjanak. ne legyen ures hely koztuk."
+
+   A racs SOROKBAN gondolkodott: egy sor annyi magas volt, mint benne a
+   legmagasabb fiok (a sok mappas lackor2), a rovidebb fiokok alatt pedig ures
+   hely maradt a sor aljaig -- a kovetkezo harom fiok csak ez alatt kezdodott.
+
+   A hasabos (multi-column) elrendezesben nincsenek sorok: a kovetkezo fiok ott
+   folytatodik, ahol az elozo abbamaradt, es a bongeszo maga egyenliti ki a
+   hasabok magassagat. A hasabszelesseg ugyanaz a 280px, tehat a torespontok
+   nem valtoznak -- csak az ures helyek tunnek el. */
 .drive-multi {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-  align-items: start;
+  columns: 280px;
+  column-gap: 12px;
 }
 .drive-multi[hidden] { display: none; }
+/* Egy fiok kartyaja nem torhet ket hasab koze: a fejlece nem szakadhat el a
+   sajat listajatol. A fuggoleges kozt a margo adja -- a column-gap csak
+   vizszintesen hat. */
+.drive-multi > .drive-col {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  margin: 0 0 12px;
+}
 
 .drive-multi-bar {
   display: flex;
@@ -5265,6 +5317,143 @@ main.email-active .page-header { flex-shrink: 0; }
   color: var(--text-muted);
 }
 .drive-col-error { color: var(--danger, #d9534f); }
+
+/* === Fotok (Google Fotok) =================================================
+   Az auto-fill 150px-tol indul: telefonon ket oszlop, szeles monitoron nyolc,
+   kulon torespont nelkul. */
+.photos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  padding: 4px;
+}
+.photos-grid[hidden] { display: none; }
+
+.photos-usage { font-size: 12px; color: var(--text-muted); padding: 6px 2px 0; }
+
+/* A doboz korabban egy terminal-parancsot mutatott (`code.photos-consent-cmd`);
+   most gomb + a szerver generalta link all benne, a Kapcsolatok oldal
+   .claude-auth-flow stilusaval -- ezert itt csak a doboz sajat szabalyai
+   maradtak. */
+.photos-consent { margin-top: 8px; }
+.photos-consent[hidden] { display: none; }
+.photos-consent .claude-auth-flow { margin-top: 12px; }
+.photos-consent .claude-auth-flow[hidden] { display: none; }
+
+/* "A projektben nincs bekapcsolva a Picker API" -- sajat doboz, mert ez nem
+   engedely-hiany, es mas a teendo hozza. */
+.photos-apidisabled { margin-top: 8px; }
+.photos-apidisabled[hidden] { display: none; }
+
+/* Jovahagyo link, amig nincs FRISS link a szerverrol. A kattinthatatlansagot a
+   hianyzo href adja (azt a bongeszo garantalja) -- ez itt csak annyit tesz,
+   hogy latszik is rajta: meg nem lehet ravinni. */
+a.link-waiting {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.photos-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.photos-waiting[hidden] { display: none; }
+.photos-waiting-hint { font-size: 12px; opacity: 0.7; }
+
+.photo-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 10px;
+  padding: 6px;
+  border: 1px solid transparent;
+}
+.photo-tile:hover { background: var(--surface-hover, var(--accent-soft)); border-color: var(--border); }
+
+/* Fix arany: a kepek kulonbozo meretuek, e nelkul a racs minden sora mas
+   magassagu lenne, es betoltes kozben ugralna. */
+.photo-tile-thumb {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-hover, var(--accent-soft));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.photo-tile-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* Ha a fajl hianyzik a lemezrol: a keret marad, a datum latszik. */
+.photo-tile-nothumb .photo-tile-thumb img { display: none; }
+.photo-tile-nothumb .photo-tile-thumb::after {
+  content: '?';
+  font-size: 20px;
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.photo-tile-badge {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+.photo-tile-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nagy nezet. Nem modal-dialog: nincs benne urlap, es a hatterre kattintva zar. */
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.88);
+}
+.photo-lightbox[hidden] { display: none; }
+.photo-lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  color: #fff;
+}
+.photo-lightbox-name {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.photo-lightbox-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 14px 14px;
+}
+.photo-lightbox-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 .vault-binding-badge {
   display: inline-block;
@@ -5936,6 +6125,14 @@ main.email-active .page-header { flex-shrink: 0; }
   border-left: 3px solid var(--info);
 }
 .info-box strong { color: var(--info); }
+
+/* Depo: ha a depo nem erheto el, EZ az egyetlen dolog, amit latni kell az
+   oldalon. Nem elrejtett hibauzenet egy naploban -- szinnel is kiabal. */
+.info-box.depo-bad {
+  background: var(--danger-soft);
+  border-left-color: var(--danger);
+}
+.info-box.depo-bad strong { color: var(--danger); }
 
 .connector-stale-banner {
   padding: 10px 14px;
@@ -8688,6 +8885,49 @@ body {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
+/* Tobb kijelolt level huzasakor a kurzor melle irt "N level" cimke. A
+   kepernyon kivul szuletik, mert a bongeszo a dragstart vegen lefenykepezi --
+   ha lathato helyen lenne, egy pillanatra bevillanna a lap sarkaba. */
+.email-drag-ghost {
+  position: absolute;
+  top: -1000px;
+  left: -1000px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Szabalykezelo gomb a mappalista aljan + az ablak tartalma (2026-08-15). */
+.email-mailbox-rules { color: var(--text-muted); border: 1px dashed var(--border); margin-top: 6px; text-align: center; }
+.email-mailbox-rules:hover { color: var(--accent); border-color: var(--accent); }
+/* A kozos .modal-content maga nem ad belso margot -- itt kell. */
+.email-rules-modal { max-width: 560px; padding: 20px; }
+.email-rules-modal h3 { margin: 0 0 10px; font-size: 16px; }
+.email-rules-actions { text-align: right; margin-top: 14px; }
+.email-rules-help { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0 0 12px; }
+.email-rules-list { max-height: 320px; overflow-y: auto; }
+.email-rules-section {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.email-rules-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.email-rules-sender { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.email-rules-empty { padding: 10px 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
 .email-select-all { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 /* Thicker + darker than the default --border -- the thin, light default
    border became nearly invisible crossing the active row's highlighted
@@ -9624,6 +9864,13 @@ body {
   color: var(--text-secondary);
   background: color-mix(in srgb, var(--text-muted) 18%, transparent);
 }
+/* "Started by the agent" is a statement of fact, not a warning: the probe
+   cannot judge a channel plugin it cannot launch. Deliberately the quietest
+   pill on the row so it does not read as a fault. */
+.conn-pill-neutral {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
 
 /* One card per Claude account. The grouping IS the message: connectors are
    authorized per account, so "which account" is not a detail here. */
@@ -9842,3 +10089,25 @@ body {
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* Mappavalaszto sorai (depo). Nagy kattintofeluletek: ez az ablak akkor is
+   hasznalhato legyen, ha valaki eloszor lat ilyet. */
+.fp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.fp-row:last-child { border-bottom: 0; }
+.fp-row:hover { background: var(--bg-hover, rgba(127, 127, 127, 0.10)); }
+.fp-ico { font-size: 16px; flex: none; }
+.fp-name { flex: 1; word-break: break-all; }
+.fp-meta { color: var(--text-muted); font-size: 12px; flex: none; }
