@@ -620,7 +620,6 @@ function irodaPages() {
   document.querySelectorAll('#navIroda [data-page]').forEach((l) => { set[l.dataset.page] = true })
   return set
 }
-const IRODA_PAGES = { email: true, irodaSettings: true, drive: true }
 function setWorkspace(ws, opts) {
   const persist = !opts || opts.persist !== false
   const navMarvinEl = document.getElementById('navMarvin')
