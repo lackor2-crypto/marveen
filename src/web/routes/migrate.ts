@@ -4,6 +4,7 @@ import { saveAgentMemory } from '../../db.js'
 import { MAIN_AGENT_ID, OLLAMA_URL } from '../../config.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
+import { chooseCategorizeModel } from '../../ollama-model-choice.js'
 import type { RouteContext } from './types.js'
 
 export async function tryHandleMigrate(ctx: RouteContext): Promise<boolean> {
@@ -168,8 +169,8 @@ export async function tryHandleMigrate(ctx: RouteContext): Promise<boolean> {
       try {
         const modelsResp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })
         const modelsData = await modelsResp.json() as { models?: { name: string }[] }
-        const available = (modelsData.models || []).filter(m => !m.name.includes('embed')).map(m => m.name)
-        categorizeModel = available.find(m => m.includes('gemma4')) || available[0] || null
+        const available = (modelsData.models || []).map(m => m.name)
+        categorizeModel = chooseCategorizeModel(available)
       } catch {}
 
       for (const chunk of chunks) {

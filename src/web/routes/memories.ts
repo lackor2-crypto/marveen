@@ -8,6 +8,7 @@ import { MAIN_AGENT_ID, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from '../../config
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { containsSuspiciousContent } from '../content-safety.js'
+import { chooseCategorizeModel } from '../../ollama-model-choice.js'
 import type { RouteContext } from './types.js'
 
 // Canonical memory categories. Kept in sync with the DB CHECK constraint in
@@ -118,9 +119,9 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
     try {
       const ollamaModels = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3000) })
         .then(r => r.json())
-        .then((d: any) => (d.models || []).filter((m: any) => !m.name.includes('embed')).map((m: any) => m.name))
+        .then((d: any) => (d.models || []).map((m: any) => m.name))
         .catch(() => [] as string[])
-      categorizeModel = ollamaModels.find((m: string) => m.includes('gemma4')) || ollamaModels[0] || null
+      categorizeModel = chooseCategorizeModel(ollamaModels)
     } catch {
       categorizeModel = null
     }
