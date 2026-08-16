@@ -510,6 +510,11 @@ function switchPage(pageId) {
   if (pageId !== 'agents') stopAgentsBusyPoll()
   // Kanban auto-refresh: start on enter, stop on leave.
   if (pageId !== 'kanban') stopKanbanRefresh()
+  // A Fotok engedely-folyamata 2 masodpercenkent kerdezi a szervert. Ha
+  // elnavigalunk, nincs kinek mutatni az eredmenyt -- allitsuk le. Maga a
+  // bejelentkeztetes a szerveren fut tovabb, es a Kapcsolatok oldalon (vagy
+  // ide visszaterve) ugyanugy befejezheto.
+  if (pageId !== 'photos') _photosConsentReset()
   if (pageId === 'overview') loadOverview()
   if (pageId === 'kanban') { if (typeof _initGanttViewSwitcher === 'function') _initGanttViewSwitcher(); loadKanban(); startKanbanRefresh() }
   if (pageId === 'tasks') loadSchedules()
@@ -525,6 +530,15 @@ function switchPage(pageId) {
   if (pageId === 'bgTasks') loadBgTasksPage()
   if (pageId === 'vault') loadVaultPage()
   if (pageId === 'drive') loadDrivePage()
+  // A Depo oldal kerdezgeti a szervert, amig egy koltoztetes vagy szinkron fut.
+  // Elnavigalva nincs kinek mutatni -- de a MUNKA a szerveren fut tovabb, es
+  // ide visszaterve a poll magatol ujraindul (lasd _depoRefresh).
+  if (pageId !== 'depo') _depoStopPoll()
+  if (pageId === 'depo') loadDepoPage()
+  // Elhagyva a Fotok oldalt: a kepek blob URL-jei feleslegesen ulnek a
+  // memoriaban, es egy futo Picker-lekerdezes sem szolhat bele mas lapba.
+  if (pageId !== 'photos') { _photosStopPoll(); _photosReleaseBlobs() }
+  if (pageId === 'photos') loadPhotosPage()
   if (pageId === 'accounts') loadAccountsPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
@@ -591,6 +605,21 @@ navLinks.forEach((link) => {
 const WORKSPACE_LS_KEY = 'marveen.workspace'
 // A Drive is ide tartozik: enelkul az Iroda-ra valtas a Drive oldalrol
 // atdobna a #email-re (a lenti 'nem ehhez a munkateruletehez tartozik' ag).
+// A MARKUPBOL olvassuk ki, nem kezzel tartjuk karban. Ez a lista korabban egy
+// beirt objektum volt, es KETSZER csuszott el: eloszor a Drive maradt ki,
+// most a Fotok es a Dokumentumok (Boss, 2026-08-15: "a ctrl shift r re az
+// email jon be. a fotokon allok akkor miert nem a fotok jon be? elugrik
+// frisiteskor."). A tunet mindig ugyanaz: az oldal betolt, majd egy pillanat
+// mulva atdob az Emailre -- mert a munkatereulet-visszaallitas ugy latja, hogy
+// ez az oldal "nem ide tartozik". Igy uj Iroda-oldal felvetelekor nincs mit
+// elfelejteni: eleg az oldalsavba betenni.
+function irodaPages() {
+  // Az Email kezzel: nem statikus link, hanem a fiokonkenti almenu (a
+  // ensureEmailAccountNav() rakja be), ami a munkateruleten kivul meg nem letezik.
+  const set = { email: true }
+  document.querySelectorAll('#navIroda [data-page]').forEach((l) => { set[l.dataset.page] = true })
+  return set
+}
 const IRODA_PAGES = { email: true, irodaSettings: true, drive: true }
 function setWorkspace(ws, opts) {
   const persist = !opts || opts.persist !== false
@@ -605,9 +634,15 @@ function setWorkspace(ws, opts) {
   // Switching workspace while the visible page belongs to the OTHER one would
   // leave an orphaned page on screen with no matching nav link lit up --
   // land on that workspace's first page instead.
+  //
+  // `opts.page`: az induló visszaállítás megmondhatja, MELYIK oldalra tartunk.
+  // A `.active` osztályt ugyanis a switchPage() teszi ki, és induláskor az még
+  // meg sem történt -- ilyenkor "egyik oldal sem irodai"-t látnánk, és a lap
+  // az Emailre ugrana, pedig épp a Depóra tartott (Boss, 2026-08-15: "az iroda
+  // Depo alatti resz nem mukodik").
   const activeLink = document.querySelector('.sb-link.active[data-page]')
-  const activePage = activeLink?.dataset?.page
-  const activeIsIroda = !!IRODA_PAGES[activePage]
+  const activePage = (opts && opts.page) || activeLink?.dataset?.page
+  const activeIsIroda = !!irodaPages()[activePage]
   if (ws === 'iroda' && !activeIsIroda) location.hash = 'email'
   if (ws === 'marvin' && activeIsIroda) location.hash = 'overview'
 }
@@ -641,7 +676,20 @@ document.getElementById('emailNavToggle')?.addEventListener('click', () => {
   // rest of this script has finished executing top-to-bottom, by which
   // point every top-level declaration -- emailAccounts included -- is safely
   // initialized.
-  setTimeout(() => setWorkspace(savedWs, { persist: false }), 0)
+  setTimeout(() => {
+    // Ha az URL KONKRET oldalt nevez meg -- frissites, konyvjelzo, megosztott
+    // link --, akkor az oldal dont a munkateruletrol, nem forditva. Enelkul a
+    // mentett munkaterulet felulbiralja azt, amit a user epp nez, es a lap
+    // betoltes utan egy pillanattal elugrik (Boss, 2026-08-15: a Fotokon allva
+    // Ctrl+Shift+R utan az Email jott be). A mentett ertek marad az
+    // alapertelmezes, ha az URL nem mond semmit -- es persist:false, tehat ez
+    // az egyszeri kovetes nem irja felul a user valasztasat sem.
+    let ws = savedWs
+    const named = decodeURIComponent((location.hash || '').replace(/^#/, ''))
+      || new URLSearchParams(window.location.search).get('page') || ''
+    if (named && document.getElementById(named + 'Page')) ws = irodaPages()[named] ? 'iroda' : 'marvin'
+    setWorkspace(ws, { persist: false, page: named || undefined })
+  }, 0)
 }
 
 // === Collapsible sidebar groups ===
@@ -3393,12 +3441,86 @@ document.getElementById('wizardCreateBtn').addEventListener('click', async () =>
 })
 
 // === Toast ===
-function showToast(msg, duration = 3000, big = false) {
-  toast.textContent = msg
-  toast.classList.toggle('toast-big', big)
-  toast.classList.add('visible')
-  setTimeout(() => toast.classList.remove('visible'), duration)
+// Boss 2026-08-15: "annyira hamar eltunik hogy el sem lehet olvasni". Harom
+// valodi hiba volt egyszerre: (1) fix 3 masodperc, fuggetlenul attol hogy az
+// uzenet 8 vagy 111 karakter, (2) a CSS egyetlen sorba kenyszeritette a
+// szoveget, tehat a hosszu uzenet kilogott a kepernyorol, (3) tiz hivo rosszul
+// adta at a masodik parametert (true, illetve 'error'), amibol a setTimeout
+// 1 ms-ot, illetve NaN-t csinalt -- azok a csikok gyakorlatilag felvillantak.
+// Azota: az ido a szoveg hosszabol szamolodik, minden csikon van bezaro X, a
+// hibauzenet magatol EL SEM tunik, es az eger alatt megall a visszaszamlalas.
+let toastTimer = null
+let toastAutoMs = 0
+
+// Kb. 15 karakter/masodperc olvasasi tempo, 4 mp also es 20 mp felso hatarral.
+// A 111 karakteres vektor-uzenet igy ~7 mp-ig lathato 3 helyett.
+function toastReadingMs(text) {
+  return Math.min(20000, Math.max(4000, 1200 + text.length * 55))
 }
+
+function hideToast() {
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null }
+  toastAutoMs = 0
+  toast.classList.remove('visible')
+}
+
+// A masodik parameter tortenelmi okokbol sokfele lehet: szam (ido), true
+// (nagy csik), 'error' (hibauzenet), vagy egy opcio-objektum. Mindet elfogadjuk,
+// mert 400+ hivo van, es egy rosszul atadott parameter soha tobbe ne
+// eredmenyezzen lathatatlan uzenetet.
+function showToast(msg, opts, big = false) {
+  let duration = 0
+  let sticky = false
+  let type = ''
+  if (opts === true) big = true
+  else if (typeof opts === 'number' && Number.isFinite(opts)) duration = opts
+  else if (typeof opts === 'string') type = opts
+  else if (opts && typeof opts === 'object') {
+    duration = Number.isFinite(opts.duration) ? opts.duration : 0
+    sticky = opts.sticky === true
+    type = opts.type || ''
+    if (opts.big != null) big = opts.big === true
+  }
+  // A hiba es a figyelmeztetes addig marad amig a felhasznalo el nem tunteti:
+  // pont ezeket kell elolvasnia, es pont ezek villantak fel eddig.
+  if (type === 'error' || type === 'warn') sticky = true
+
+  const text = String(msg ?? '')
+  // Egy korabbi csik idozitoje nem olthatja el a most megjelenot.
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null }
+  toast.textContent = ''
+  const span = document.createElement('span')
+  span.className = 'toast-text'
+  span.textContent = text
+  const closeBtn = document.createElement('button')
+  closeBtn.type = 'button'
+  closeBtn.className = 'toast-close'
+  // A bezaro gomb cimkeje soha ne buktathasson el egy hibauzenetet: ha az i18n
+  // meg nem allt fel, marad a nyers szo.
+  closeBtn.setAttribute('aria-label', (typeof t === 'function' ? t('common.close') : '') || 'Close')
+  closeBtn.textContent = '×'
+  closeBtn.addEventListener('click', hideToast)
+  toast.append(span, closeBtn)
+  toast.classList.toggle('toast-big', big)
+  toast.classList.toggle('toast-error', type === 'error')
+  toast.classList.toggle('toast-warn', type === 'warn')
+  toast.classList.toggle('toast-sticky', sticky)
+  toast.classList.add('visible')
+  if (sticky) { toastAutoMs = 0; return }
+  toastAutoMs = Math.max(duration > 0 ? duration : 0, toastReadingMs(text))
+  toastTimer = setTimeout(hideToast, toastAutoMs)
+}
+
+// Az eger alatt ne tunjon el olvasas kozben. Elhagyva ujraindul, de csak rovid
+// idore -- addigra a szoveget mar latta.
+toast.addEventListener('mouseenter', () => {
+  if (toastTimer) { clearTimeout(toastTimer); toastTimer = null }
+})
+toast.addEventListener('mouseleave', () => {
+  if (toastAutoMs > 0 && !toastTimer && toast.classList.contains('visible')) {
+    toastTimer = setTimeout(hideToast, 2500)
+  }
+})
 
 // === Agents API ===
 async function loadAgents() {
@@ -6246,10 +6368,10 @@ document.getElementById('chReconnectBtn').addEventListener('click', async () => 
       showToast('Channel-MCP reconnect sikeres')
       document.getElementById('chDisconnectedNotice').hidden = true
     } else {
-      showToast(data.message || 'Reconnect sikertelen', true)
+      showToast(data.message || 'Reconnect sikertelen', { big: true, type: 'error' })
     }
   } catch {
-    showToast('Reconnect hiba', true)
+    showToast('Reconnect hiba', { big: true, type: 'error' })
   } finally {
     btn.disabled = false
     btn.textContent = origText
@@ -6266,12 +6388,12 @@ document.getElementById('chSmokeTestBtn').addEventListener('click', async () => 
     const res = await fetch(`/api/agents/${encodeURIComponent(currentAgent)}/channels/slack/smoke-test`, { method: 'POST' })
     const data = await res.json()
     if (!res.ok) {
-      showToast(data.error || 'Smoke-test sikertelen', true)
+      showToast(data.error || 'Smoke-test sikertelen', { big: true, type: 'error' })
       return
     }
     showSmokeTestResult(data.output || 'OK')
   } catch {
-    showToast('Smoke-test hiba', true)
+    showToast('Smoke-test hiba', { big: true, type: 'error' })
   } finally {
     btn.disabled = false
     btn.textContent = origText
@@ -6948,6 +7070,7 @@ function resetScheduleForm() {
   document.getElementById('scheduleSkipIfBusy').checked = false
   document.getElementById('scheduleForceSend').checked = false
   document.getElementById('scheduleTargetSession').value = ''
+  document.getElementById('scheduleStuckAfter').value = ''
   scheduleFrequency.value = 'daily'
   document.getElementById('scheduleTime').value = '09:00'
   document.getElementById('scheduleCustomCron').value = ''
@@ -7583,6 +7706,8 @@ function openEditSchedule(task) {
     document.getElementById('scheduleSkipIfBusy').checked = !!task.skipIfBusy
     document.getElementById('scheduleForceSend').checked = !!task.forceSend
     document.getElementById('scheduleTargetSession').value = task.targetSession || ''
+    // Ures mezo = "az alapertelmezett 5 perc", ezert a 0/hianyzo ertek nem irodik ki.
+    document.getElementById('scheduleStuckAfter').value = task.stuckAfterMinutes > 0 ? task.stuckAfterMinutes : ''
 
     // Set type (heartbeat or task; custom types fall back to task)
     const typeEl = document.getElementById('scheduleType')
@@ -7714,12 +7839,20 @@ saveScheduleBtn.addEventListener('click', async () => {
   const skipIfBusy = document.getElementById('scheduleSkipIfBusy').checked
   const forceSend = document.getElementById('scheduleForceSend').checked
   const targetSession = document.getElementById('scheduleTargetSession').value.trim()
-  const advanced = { skipIfBusy, forceSend }
+  // Ures mezo -> 0 -> a backend torli a felulirast (marad az alapertelmezett 5 perc).
+  const stuckRaw = document.getElementById('scheduleStuckAfter').value.trim()
+  const stuckAfterMinutes = stuckRaw === '' ? 0 : Number(stuckRaw)
+  const advanced = { skipIfBusy, forceSend, stuckAfterMinutes }
   if (targetSession) advanced.targetSession = targetSession
 
   if (!name) { document.getElementById('scheduleName').focus(); return }
   if (!prompt) { document.getElementById('schedulePrompt').focus(); return }
   if (!schedule) { showToast(t('tasks.toast.select_schedule')); return }
+  if (!Number.isFinite(stuckAfterMinutes) || stuckAfterMinutes < 0 || stuckAfterMinutes > 360) {
+    showToast(t('tasks.toast.stuck_after_range'))
+    document.getElementById('scheduleStuckAfter').focus()
+    return
+  }
 
   saveScheduleBtn.disabled = true
   saveScheduleBtn.querySelector('.btn-text').hidden = true
@@ -7917,11 +8050,12 @@ async function loadMemStats() {
         // A zero count is not a result, it is a failure with a friendly face:
         // the embedding backend is not running. Saying "0 generated" left the
         // owner with a button that did nothing and no idea why.
-        showToast(data.count > 0
-          ? t('memories.toast.vector_count', { count: data.count })
-          : t('memories.toast.vector_none'))
+        // A nulla darab nem eredmeny hanem hiba, es a magyarazata hosszu: ez a
+        // csik maradjon kint amig a felhasznalo el nem tunteti.
+        if (data.count > 0) showToast(t('memories.toast.vector_count', { count: data.count }))
+        else showToast(t('memories.toast.vector_none'), { type: 'warn', big: true })
         loadMemStats()
-      } catch { showToast(t('memories.toast.vector_error')) }
+      } catch { showToast(t('memories.toast.vector_error'), { type: 'error', big: true }) }
     })
   } catch (err) {
     console.error('Stats hiba:', err)
@@ -10248,6 +10382,27 @@ async function loadVaultPage() {
 let _driveAccount = ''
 let _driveFolderStack = [{ id: 'root', name: '' }]
 
+/**
+ * A KIVALASZTOTT fiok megjegyzese, lap szerint -- Boss, 2026-08-15: "a fotoknal
+ * amikor frissitek mindig a lackor2 re valt. maradjon azon ahol eppen vagyok.
+ * ha usalackor akor azon maradjon."
+ *
+ * Lapfrissiteskor (F5) a modul-szintu valtozok elvesznek, es a lap az elso
+ * hasznalhato fiokot valasztotta -- az pedig ABC-sorrendben a lackor2. Tiz
+ * bekotott fioknal ez minden frissites utan ujra-kattintast jelentene. A
+ * valasztas ezert localStorage-ba kerul. Ha a bongeszo tiltja a tarolast
+ * (privat mod), a regi viselkedes marad -- hiba nelkul, mert a Marveen ettol
+ * meg hasznalhato.
+ *
+ * Lapokent kulon kulcs: a Drive-on mas fiokot nezhet az ember, mint a Fotokban.
+ */
+function _rememberAccount(page, name) {
+  try { localStorage.setItem('marveen.account.' + page, name || '') } catch { /* tiltott tarolo */ }
+}
+function _recallAccount(page) {
+  try { return localStorage.getItem('marveen.account.' + page) || '' } catch { return '' }
+}
+
 // --- "Osszes fiok" nezet (Boss 2026-08-14) -----------------------------------
 // Tobb Google-cim van bekotve, es a kerdes rendszerint nem az, hogy "mi van a
 // lackor2 Drive-jan", hanem hogy "hol van ez a fajl". A legordulo fiokvalaszto
@@ -10488,11 +10643,17 @@ async function loadDrivePage() {
       return
     }
     if (!_driveAccount || !accounts.includes(_driveAccount)) {
-      _driveAccount = (accData.default && accounts.includes(accData.default)) ? accData.default : accounts[0]
+      // Elobb a Boss legutobbi valasztasa (frissites utan is az maradjon),
+      // csak azutan az alapertelmezett fiok.
+      const saved = _recallAccount('drive')
+      _driveAccount = accounts.includes(saved)
+        ? saved
+        : ((accData.default && accounts.includes(accData.default)) ? accData.default : accounts[0])
     }
     select.innerHTML = accounts.map(a => `<option value="${escapeHtml(a)}" ${a === _driveAccount ? 'selected' : ''}>${escapeHtml(a)}</option>`).join('')
     select.onchange = () => {
       _driveAccount = select.value
+      _rememberAccount('drive', _driveAccount)
       _driveFolderStack = [{ id: 'root', name: t('drive.root_label') }]
       loadDriveFolder()
     }
@@ -10709,6 +10870,705 @@ document.getElementById('driveUploadInput')?.addEventListener('change', async (e
   if (!res.ok) { const d = await res.json().catch(() => ({})); alert(d.error || t('drive.error.generic')); return }
   loadDriveFolder()
 })
+
+// ============================================================================
+// Fotok oldal -- KIZAROLAG Google Fotok
+//
+// Boss, 2026-08-14: "a fotok alatt a google fotokat akarom latni. csakis
+// azokat." Ezen az oldalon Drive-fajl SOHA nem jelenik meg; a /api/photos/*
+// vegpontok csak a Google Fotokbol behozott kepeket ismerik.
+//
+// Miert kell "hozzaadni" oket, miert nem latszik magatol az egesz konyvtar:
+// a Google a konyvtar-bongeszest 2025-03-31-en megszuntette (a
+// photoslibrary.readonly scope-ot visszavonta). Ami maradt, az a Picker: a
+// felhasznalo a Google sajat lapjan valaszt, es mi a valasztottakat kapjuk
+// meg. Azokat viszont AZONNAL lementjuk a gepre, mert a Google linkje 60 perc
+// mulva halott -- igy a kepek utana itt maradnak, halozat nelkul is.
+// ============================================================================
+let _photosAccount = ''
+let _photosAccountsReady = {}
+let _photoBlobUrls = []
+let _photosPollTimer = null
+/** Ennyivel a lathato sav ELOTT kezdjuk el hozni a kepet (gorgetesnel keszen all). */
+const PHOTOS_PRELOAD_PX = 800
+/** A bongeszo sajat tara: ide kerulnek a mar egyszer lehozott kepek. */
+const PHOTOS_CACHE = 'marveen-fotok-v1'
+
+let _photosTileObserver = null
+
+function _photosReleaseBlobs() {
+  for (const u of _photoBlobUrls) { try { URL.revokeObjectURL(u) } catch { /* mar nincs */ } }
+  _photoBlobUrls = []
+  if (_photosTileObserver) { _photosTileObserver.disconnect(); _photosTileObserver = null }
+}
+
+/**
+ * A bongeszo tarolt valasza egy kepre -- ha van.
+ *
+ * Boss, 2026-08-15: "ezt cache be nem lehet eltarolni, hogy legkozelebb ne
+ * toltse be? [...] mindig amikor atmegyek majd visszajovok ugyanabba a fiokba
+ * akkor ujra betolti."
+ *
+ * A Cache Storage a lapvaltast ES a bongeszo ujrainditasat is tulel. Nem
+ * mindenhol van (csak biztonsagos eredetnel: localhost vagy https) -- ha
+ * hianyzik, a kepek ugyanugy latszanak, csak halozatrol jonnek.
+ */
+async function _photosCache() {
+  try {
+    if (!('caches' in window)) return null
+    return await caches.open(PHOTOS_CACHE)
+  } catch {
+    return null
+  }
+}
+
+/** A Google "5s" alakban mondja meg a lekerdezes-suruseget. */
+function _photosPollMs(raw) {
+  const m = /^([0-9]+(?:\.[0-9]+)?)s$/.exec(String(raw || '').trim())
+  const secs = m ? Number(m[1]) : 5
+  // Also hatar, hogy egy hibas "0.001s" ne verje szet a szervert; felso, hogy
+  // egy elgepelt "600s" ne tunjon lefagyasnak.
+  return Math.min(30000, Math.max(2000, Math.round(secs * 1000)))
+}
+
+// "A projektben nincs bekapcsolva a Picker API" -- sajat doboz, mert ez MAS
+// hiba, mint az engedely-hiany: ujra-bejelentkezessel sosem oldodik meg.
+// A linket a szerver csupa szamjegybol epiti, de itt is ellenorizzuk a
+// gazdagepet: a hibauzenet a Google-tol jovo KULSO adat, es egy hibas
+// felismeresbol soha ne lehessen tetszoleges cimre mutato link a felulunkon.
+function _photosShowApiDisabled(data) {
+  const box = document.getElementById('photosApiDisabledBox')
+  if (!box) return false
+  const url = String(data.enableUrl || '')
+  if (!url.startsWith('https://console.cloud.google.com/')) return false
+  document.getElementById('photosApiDisabledLink').href = url
+  const proj = document.getElementById('photosApiDisabledProject')
+  if (proj) proj.textContent = data.projectNumber ? t('photos.apidisabled_project', { id: data.projectNumber }) : ''
+  box.hidden = false
+  return true
+}
+
+function _photosHideApiDisabled() {
+  const box = document.getElementById('photosApiDisabledBox')
+  if (box) box.hidden = true
+}
+
+// "Ehhez a fiokhoz nincs Google Fotok" -- megint MAS teendo: se ujra-belepes,
+// se Console-kapcsolo, hanem egyszer meg kell nyitni a photos.google.com-ot
+// azzal a fiokkal. A link a HTML-ben all beegetve, nem a szerver valaszabol
+// jon: a Google hibauzenete kulso adat, es abbol semmi nem lesz link.
+function _photosShowNoPhotosAccount(data) {
+  const box = document.getElementById('photosNoPhotosBox')
+  if (!box) return false
+  const who = document.getElementById('photosNoPhotosAccount')
+  // Tiz bekotott fioknal a "melyikrol van szo" nem reszletkerdes.
+  if (who) who.textContent = t('photos.nophotos_account', { name: String(data.account || _photosAccount || '?') })
+  box.hidden = false
+  return true
+}
+
+function _photosHideNoPhotosAccount() {
+  const box = document.getElementById('photosNoPhotosBox')
+  if (box) box.hidden = true
+}
+
+function _photosSetError(msg) {
+  const box = document.getElementById('photosError')
+  if (!box) return
+  if (!msg) { box.hidden = true; box.innerHTML = ''; return }
+  box.hidden = false
+  box.innerHTML = `<p>${escapeHtml(msg)}</p>`
+}
+
+/**
+ * Egy lementett kep bajtjai.
+ *
+ * fetch + blob, nem `<img src="/api/...">`: a dashboard `Authorization: Bearer`
+ * fejleccel hitelesit, amit a fetch-burkolo tesz ra -- egy sima <img> keres
+ * fejlec nelkul menne, es a 401 JSON-t kapna kep helyett.
+ */
+function _photosMediaUrl(id, account, thumb) {
+  return '/api/photos/media?id=' + encodeURIComponent(id)
+    + '&account=' + encodeURIComponent(account)
+    + (thumb ? '&size=thumb' : '')
+}
+
+/**
+ * Egy kep bajtjai -- eloszor a bongeszo sajat tarabol.
+ *
+ * Ha egyszer mar lehoztuk, a visszateres a fiokba NEM jelent ujabb letoltest:
+ * a valasz a Cache Storage-bol jon. Ha megis a halozatrol kell, a valaszt
+ * eltesszuk oda. A szerver ezen kivul ETag-et kuld, tehat meg a tar melloti
+ * ellenorzo kerés is 304 (nulla bajt).
+ */
+async function _photosFetchMedia(url) {
+  const store = await _photosCache()
+  if (store) {
+    const hit = await store.match(url)
+    if (hit) return hit
+    const res = await fetch(url)
+    // Csak a sikeres valasz kerul a tarba; a hibauzenet nem ragadhat be.
+    if (res.ok) { try { await store.put(url, res.clone()) } catch { /* megtelt a tar */ } }
+    return res
+  }
+  return fetch(url)
+}
+
+async function _photosLoadImage(img, id, account) {
+  try {
+    // A RACSBA bolyegkep kell. Merve (2026-08-15): egy vegiggorgetes eddig
+    // 7096 MB volt, mert a 36 videot is teljes hosszaban lehozta -- koztuk egy
+    // 1,8 GB-osat. Bolyegkeppel ugyanez ~16 MB.
+    const res = await _photosFetchMedia(_photosMediaUrl(id, account, true))
+    if (!res.ok) { img.closest('.photo-tile')?.classList.add('photo-tile-nothumb'); return }
+    const objectUrl = URL.createObjectURL(await res.blob())
+    _photoBlobUrls.push(objectUrl)
+    img.src = objectUrl
+  } catch {
+    img.closest('.photo-tile')?.classList.add('photo-tile-nothumb')
+  }
+}
+
+/**
+ * A kepek csak akkor toltodnek le, amikor a kepernyo koze ernek.
+ *
+ * Boss, 2026-08-15: "a fotok alatt lejebb tekertem [...] nem latszottak a
+ * fotok. csak egy ido mulva." Mert a regi kod MINDEN kepet elindított egyszerre
+ * (negyesevel), igy a lap aljara gorgetve az ottani kepek a sor vegen alltak.
+ * Igy viszont ami a szemed elott van, az indul eloszor.
+ */
+function _photosObserveTiles(grid) {
+  if (_photosTileObserver) { _photosTileObserver.disconnect(); _photosTileObserver = null }
+  const tiles = Array.from(grid.querySelectorAll('.photo-tile'))
+  const start = (tile) => {
+    if (tile.dataset.loading) return
+    tile.dataset.loading = '1'
+    const img = tile.querySelector('img')
+    if (img) _photosLoadImage(img, tile.dataset.id, tile.dataset.account)
+  }
+  // Regi bongeszo figyelo nelkul: inkabb toltson mindent, mint semmit.
+  if (typeof IntersectionObserver !== 'function') { tiles.forEach(start); return }
+  _photosTileObserver = new IntersectionObserver((entries, obs) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue
+      obs.unobserve(e.target)
+      start(e.target)
+    }
+  }, { rootMargin: `${PHOTOS_PRELOAD_PX}px 0px` })
+  tiles.forEach((tile) => _photosTileObserver.observe(tile))
+}
+
+function _photosTileHtml(p) {
+  const when = p.createdTime ? new Date(p.createdTime).toLocaleDateString() : ''
+  return `<div class="photo-tile" data-id="${escapeHtml(p.id)}" data-account="${escapeHtml(p.account)}" data-video="${p.isVideo ? '1' : '0'}">
+    <div class="photo-tile-thumb">
+      <img alt="${escapeHtml(when || t('photos.page_title'))}" loading="lazy">
+      ${p.isVideo ? '<span class="photo-tile-badge"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>' : ''}
+    </div>
+    <div class="photo-tile-name">${escapeHtml(when)}</div>
+  </div>`
+}
+
+// === Fotok-engedely EGY GOMBBAL ===
+//
+// Boss, 2026-08-15: "nem tudnad ezt megcsinalni ugy hogy a marveen ban
+// automatan megcsinalja ezt a parancsfuttatast [...] es a usernak odaadja a
+// linket amit generalt a rendszer?"
+//
+// Eddig ez a doboz egy terminal-parancsot irt ki (`python3 scripts/
+// google-auth.py auth <fiok>`) -- amit a Boss a Windows PowerShellbe masolt be,
+// ahol nincs is python3. A szerver-oldali gepezet viszont mar megvolt: a
+// Kapcsolatok oldal ugyanezt a scriptet inditja, es a linket adja vissza.
+// Itt most ugyanazokat a vegpontokat hasznaljuk -- uj szerver-kod nincs.
+let _photosConsentPoll = null
+let _photosConsentFor = null
+
+/**
+ * A jovahagyo link beallitasa vagy TORLESE.
+ *
+ * Boss, 2026-08-15, a bongeszoben: "ez a jovahagyas egy KORABBI
+ * bejelentkeztetesbol jott, ezert nem hasznalhato". A horgony megtartotta az
+ * ELOZO folyamat linkjet, a doboz pedig inditaskor azonnal megjelent -- mire a
+ * friss link megjott (1-2 masodperc), a kattintas mar megtortent a regire. A
+ * Google szempontjabol az egy masik folyamat: a kod nem hasznalhato, es a
+ * felhasznalo ott all, hogy "megint nem sikerult".
+ *
+ * Ezert: url nelkul TOROLJUK a href-et. Egy `href` nelkuli horgonyra kattintani
+ * nem lehet -- ezt a bongeszo garantalja, nem egy altalunk irt orzo.
+ */
+function _setConsentLink(id, url) {
+  const link = document.getElementById(id)
+  if (!link) return
+  if (url) {
+    link.href = url
+    link.dataset.url = url
+    link.removeAttribute('aria-disabled')
+    link.classList.remove('link-waiting')
+  } else {
+    link.removeAttribute('href')
+    delete link.dataset.url
+    link.setAttribute('aria-disabled', 'true')
+    link.classList.add('link-waiting')
+  }
+}
+
+function _photosConsentReset() {
+  if (_photosConsentPoll) { clearInterval(_photosConsentPoll); _photosConsentPoll = null }
+  _photosConsentFor = null
+  const flow = document.getElementById('photosConsentFlow')
+  if (flow) flow.hidden = true
+  const paste = document.getElementById('photosConsentPaste')
+  if (paste) paste.value = ''
+  // A regi link nem maradhat a dobozban: a kovetkezo inditasnal az jelenne meg
+  // elsonek, es egy KORABBI folyamat jovahagyasat nyitna meg.
+  _setConsentLink('photosConsentLink', '')
+  _connSetState('photosConsentState', '', null)
+}
+
+// Az INDITAS bukott el -- tipikusan azert, mert a bejelentkeztetes egyszerre
+// csak egy lehet, es epp masik fut ("Mar fut egy Google-bejelentkeztetes
+// (usalackor). Fejezd be, vagy szakitsd meg."). Ilyenkor a folyamat-dobozt be
+// KELL csukni: link nincs benne, a "Megse" gombja viszont a MASIK, jogosan
+// futo folyamatot lone ki. A hibat buborekban mondjuk el, mert az a becsukott
+// doboz mellett is latszik.
+function _photosConsentFail(msg) {
+  _photosConsentReset()
+  showToast(msg, 8000, true)
+}
+
+// A `force` SZANDEKOSAN szigoru osszehasonlitas: ez a fuggveny egy click-kezelo
+// is, es az Event objektum igaz erteku lenne -- ugy minden elso kattintas
+// eldobna egy masik, jogosan futo bejelentkeztetest.
+async function _photosConsentStart(force) {
+  const account = _photosAccount
+  if (!account) return
+  const forced = force === true
+  _photosConsentFor = account
+  // ELOSZOR torlunk, csak AZUTAN mutatjuk a dobozt -- kulonben egy pillanatra
+  // (es egy kattintasnyi idore) az elozo folyamat linkje latszana.
+  _setConsentLink('photosConsentLink', '')
+  document.getElementById('photosConsentFlow').hidden = false
+  _connSetState('photosConsentState', t('gconn.state_starting'), null)
+  try {
+    // `id`, nem `name`: a fiok MAR letezik, csak egy scope hianyzik rola. A
+    // nev-agon a szerver de-duplikal, es "lackor2_2" nevre jelentkeztetne be --
+    // a Fotok oldal meg tovabbra is az ures "lackor2"-t nezne.
+    const res = await fetch('/api/connections/google/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(forced ? { id: account, force: true } : { id: account }),
+    })
+    const data = await res.json()
+    if (!data.ok) {
+      // "Mar fut egy Google-bejelentkeztetes (X)" -- eddig ez zsakutca volt:
+      // igaz mondat, amire ezen az oldalon nem lehetett reagalni. Most a
+      // szerver `code:'busy'`-t kuld a MASIK fiok nevevel, es a user egyetlen
+      // kerdesre valaszol: megszakitsam-e azt, es inditsam ezt.
+      if (data.code === 'busy' && !forced) {
+        _photosConsentReset()
+        const who = data.busyAccountId || '?'
+        if (confirm(t('photos.consent_busy', { who, me: account }))) return _photosConsentStart(true)
+        return
+      }
+      _photosConsentFail(data.error || t('common.error_save')); return
+    }
+  } catch (err) {
+    _photosConsentFail(String(err.message || err)); return
+  }
+  _photosConsentPoll = setInterval(_photosConsentTick, 2000)
+  _photosConsentTick()
+}
+
+async function _photosConsentTick() {
+  let s
+  try {
+    const res = await fetch('/api/connections/google/login')
+    s = await res.json()
+  } catch { return }
+  // Kozben mar lezarult a folyamat (egy korabbi, meg futo lekerdezes latta a
+  // 'done'-t, es leallitotta a pollozast). Egy lassu valasz ne csinalja meg
+  // megegyszer ugyanazt: dupla ertesites, dupla ujratoltes lenne belole.
+  if (!_photosConsentPoll) return
+
+  if (s.url) _setConsentLink('photosConsentLink', s.url)
+  if (s.phase === 'consent' || s.phase === 'starting') {
+    _connSetState('photosConsentState', t(s.url ? 'gconn.state_consent' : 'gconn.state_starting'), null)
+  }
+
+  if (s.phase === 'done') {
+    _photosConsentReset()
+    showToast(t('photos.consent_done'), 8000, true)
+    // Ha a Google MAS cimre lepett be, a token nem ahhoz a fiokhoz kerult,
+    // amelyiket a user nezi -- a lista ujratoltese ezt is megmutatja.
+    if (s.savedAs) { _photosAccount = s.savedAs; _rememberAccount('photos', _photosAccount) }
+    await loadPhotosPage()
+    return
+  }
+  if (s.phase === 'failed') {
+    if (_photosConsentPoll) { clearInterval(_photosConsentPoll); _photosConsentPoll = null }
+    _connSetState('photosConsentState', t('gconn.state_failed', { msg: s.error || '' }), 'bad')
+  }
+}
+
+async function _photosConsentSendPaste() {
+  const input = document.getElementById('photosConsentPaste')
+  const value = (input?.value || '').trim()
+  if (!value) { input?.focus(); return }
+  _connSetState('photosConsentState', t('photos.consent_exchanging'), null)
+  try {
+    const res = await fetch('/api/connections/google/login/paste', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    })
+    const data = await res.json()
+    if (!data.ok) { _connSetState('photosConsentState', data.error || t('common.error_save'), 'bad'); return }
+    // A bemasolt link egyszer hasznalhato -- ne maradjon a mezoben.
+    if (input) input.value = ''
+    if (data.savedAs) { _photosAccount = data.savedAs; _rememberAccount('photos', _photosAccount) }
+    _photosConsentReset()
+    showToast(t('photos.consent_done'), 8000, true)
+    await loadPhotosPage()
+  } catch (err) {
+    _connSetState('photosConsentState', String(err.message || err), 'bad')
+  }
+}
+
+// Nyilas fuggveny, hogy a click-Event ne csusszon be a `force` helyere.
+document.getElementById('photosConsentBtn')?.addEventListener('click', () => _photosConsentStart())
+document.getElementById('photosConsentPasteBtn')?.addEventListener('click', _photosConsentSendPaste)
+document.getElementById('photosConsentCopyBtn')?.addEventListener('click', () => {
+  const url = document.getElementById('photosConsentLink')?.dataset.url
+  if (url) { navigator.clipboard?.writeText(url); showToast(t('gconn.copied')) }
+})
+document.getElementById('photosConsentCancelBtn')?.addEventListener('click', async () => {
+  try { await fetch('/api/connections/google/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+  _photosConsentReset()
+})
+
+async function loadPhotosPage() {
+  _photosReleaseBlobs()
+  const select = document.getElementById('photosAccountSelect')
+  if (!select) return
+  try {
+    const res = await fetch('/api/photos/accounts')
+    const data = await res.json()
+    const accounts = data.accounts || []
+    if (accounts.length === 0) {
+      select.innerHTML = ''
+      _photosSetError(t('photos.no_account'))
+      return
+    }
+    _photosAccountsReady = {}
+    for (const a of accounts) _photosAccountsReady[a.name] = a.ready
+    if (!_photosAccount || !(_photosAccount in _photosAccountsReady)) {
+      // 1. Amit a Boss legutobb kivalasztott. Ez SAJAT dontes volt, tehat
+      //    erosebb minden alapertelmezesnel -- frissites utan is ez marad.
+      const saved = _recallAccount('photos')
+      if (saved && saved in _photosAccountsReady) {
+        _photosAccount = saved
+      } else {
+        // 2. Kulonben olyan fiok, aminel mar megvan az engedely -- kulonben a
+        //    Boss elso latasra a "nincs engedely" dobozt kapna akkor is, ha van
+        //    mar hasznalhato fiokja.
+        const ready = accounts.find(a => a.ready)
+        _photosAccount = ready ? ready.name : (data.default || accounts[0].name)
+      }
+    }
+    select.innerHTML = accounts.map(a =>
+      `<option value="${escapeHtml(a.name)}" ${a.name === _photosAccount ? 'selected' : ''}>${escapeHtml(a.name)}${a.ready ? '' : ' - ' + escapeHtml(t('photos.account_no_scope'))}</option>`).join('')
+    select.onchange = () => { _photosAccount = select.value; _rememberAccount('photos', _photosAccount); _photosRefresh() }
+    await _photosRefresh()
+  } catch {
+    _photosSetError(t('photos.load_error'))
+  }
+}
+
+/** Az oldal ujrarajzolasa a KIVALASZTOTT fiokra. */
+async function _photosRefresh() {
+  const grid = document.getElementById('photosGrid')
+  const empty = document.getElementById('photosEmpty')
+  const consent = document.getElementById('photosConsentBox')
+  const addBtn = document.getElementById('photosAddBtn')
+  if (!grid) return
+  _photosReleaseBlobs()
+  _photosSetError('')
+  _photosHideApiDisabled()
+  _photosHideNoPhotosAccount()
+
+  // Nincs meg engedely ehhez a fiokhoz: itt allunk meg, es a doboz egyetlen
+  // gombbal el is inditja az engedelykerest -- terminal nem kell hozza.
+  const ready = !!_photosAccountsReady[_photosAccount]
+  consent.hidden = ready
+  addBtn.disabled = !ready
+  if (!ready) {
+    // Fiokot valtott, mikozben egy masikra ment az engedelykeres: a folyamat
+    // reszletei akkor mar nem ehhez a fiokhoz tartoznak, ezert becsukjuk.
+    if (_photosConsentFor && _photosConsentFor !== _photosAccount) _photosConsentReset()
+    grid.innerHTML = ''
+    empty.hidden = true
+    document.getElementById('photosUsage').textContent = ''
+    return
+  }
+  _photosConsentReset()
+
+  grid.innerHTML = `<div class="drive-loading">${escapeHtml(t('photos.loading'))}</div>`
+  try {
+    const res = await fetch('/api/photos/list?account=' + encodeURIComponent(_photosAccount))
+    const data = await res.json()
+    if (!res.ok) { _photosSetError(data.error || t('photos.load_error')); grid.innerHTML = ''; return }
+    const photos = data.photos || []
+    document.getElementById('photosUsage').textContent =
+      photos.length ? t('photos.usage', { count: photos.length, size: _photosHuman(data.totalBytes) }) : ''
+    if (photos.length === 0) { grid.innerHTML = ''; empty.hidden = false; return }
+    empty.hidden = true
+    grid.innerHTML = photos.map(_photosTileHtml).join('')
+    _photosBindTiles(grid)
+    // A racs mar all; a kepek akkor jonnek, amikor a kepernyo koze ernek.
+    _photosObserveTiles(grid)
+  } catch {
+    _photosSetError(t('photos.load_error'))
+    grid.innerHTML = ''
+  }
+}
+
+function _photosHuman(n) {
+  const v = Number(n) || 0
+  if (v < 1024 * 1024) return `${Math.round(v / 1024)} KB`
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`
+  return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+function _photosBindTiles(grid) {
+  grid.querySelectorAll('.photo-tile').forEach(tile => {
+    tile.addEventListener('click', () => {
+      _photosOpenLightbox(tile.getAttribute('data-id'), tile.getAttribute('data-account'),
+        tile.querySelector('img')?.src || '', tile.dataset.video === '1')
+    })
+  })
+}
+
+/**
+ * A teljes meretu kep betoltese a nagy nezetbe.
+ *
+ * Boss, 2026-08-15: "csak ha megnyitom nagyba akkor hasznalja a teljes
+ * minoseget?" -- pontosan igy: a racs bolyegkepet kap, es a teljes fajl CSAK
+ * akkor mozdul meg, amikor tenylegesen megnyitod. Kozben a mar meglevo bolyeg
+ * latszik, hogy ne legyen ures a kepernyo.
+ */
+async function _photosLoadFull(img, id, account) {
+  try {
+    const res = await _photosFetchMedia(_photosMediaUrl(id, account, false))
+    if (!res.ok) return
+    const objectUrl = URL.createObjectURL(await res.blob())
+    _photoBlobUrls.push(objectUrl)
+    // Kozben a felhasznalo mar becsukhatta a nagy nezetet.
+    if (img.isConnected) img.src = objectUrl
+  } catch { /* marad a bolyegkep -- az is jobb, mint az ures negyzet */ }
+}
+
+function _photosOpenLightbox(id, account, alreadyLoadedUrl, isVideo) {
+  const box = document.getElementById('photoLightbox')
+  const stage = document.getElementById('photoLightboxStage')
+  if (!box || !stage) return
+  box.hidden = false
+  document.getElementById('photoLightboxName').textContent = account
+  stage.innerHTML = '<img alt="">'
+  const img = stage.querySelector('img')
+  // Eloszor a racsbol mar meglevo bolyeg: azonnal latszik valami.
+  if (alreadyLoadedUrl) img.src = alreadyLoadedUrl
+  // Videot NEM toltunk le egeszben. A legnagyobb sajat fajlunk 1,8 GB -- az a
+  // bongeszo memoriajaba tolve osszeomlast jelentene, nem lejatszast. Marad a
+  // kimerevitett kocka. (Lejatszas: kesobb, darabolt kiszolgalassal.)
+  if (isVideo) return
+  _photosLoadFull(img, id, account)
+
+  const remove = document.getElementById('photoLightboxRemove')
+  remove.onclick = async () => {
+    if (!confirm(t('photos.remove_confirm'))) return
+    try {
+      const res = await fetch('/api/photos/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, account }),
+      })
+      if (!res.ok) { showToast(t('photos.remove_failed')); return }
+      // A bongeszo tarabol is ki kell venni, kulonben a torolt kep bajtjai ott
+      // maradnak a gepen -- egy torles maradjon torles.
+      const store = await _photosCache()
+      if (store) {
+        for (const thumb of [true, false]) {
+          try { await store.delete(_photosMediaUrl(id, account, thumb)) } catch { /* nem volt benne */ }
+        }
+      }
+      _photosCloseLightbox()
+      showToast(t('photos.remove_done'))
+      _photosRefresh()
+    } catch {
+      showToast(t('photos.remove_failed'))
+    }
+  }
+}
+
+function _photosCloseLightbox() {
+  const box = document.getElementById('photoLightbox')
+  if (!box || box.hidden) return
+  box.hidden = true
+  document.getElementById('photoLightboxStage').innerHTML = ''
+}
+
+/**
+ * Kepek hozzaadasa: session a Google-nel, a valaszto uj lapon, aztan varunk.
+ *
+ * A pickerUri-t NEM lehet iframe-be tenni (a Google tiltja), ezert nyilik uj
+ * lapon. A bajtok lehozasat a SZERVER vegzi, amint a felhasznalo vegzett --
+ * mert a Google linkje 60 perc mulva halott.
+ */
+async function _photosStartPicker() {
+  const addBtn = document.getElementById('photosAddBtn')
+  addBtn.disabled = true
+  // Az ELOZO probalkozas uzenetei tunjenek el, mielott elindulunk: kulonben a
+  // felhasznalo egy mar megoldott hibat lat, es azt hiszi, megint elszallt.
+  // (Ugyanaz a hibafajta, mint a regi jovahagyo link: a felulet emlekezett.)
+  _photosHideApiDisabled()
+  _photosHideNoPhotosAccount()
+  _photosSetError('')
+  try {
+    const res = await fetch('/api/photos/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: _photosAccount }),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      addBtn.disabled = false
+      if (data.code === 'no_scope') { _photosAccountsReady[_photosAccount] = false; _photosRefresh(); return }
+      // Ha a linket nem ismerjuk fel biztonsagosnak, NEM nyelunk el semmit:
+      // jojjon a nyers uzenet, az tobbet er a nemasagnal.
+      if (data.code === 'api_disabled' && _photosShowApiDisabled(data)) return
+      if (data.code === 'no_photos_account' && _photosShowNoPhotosAccount(data)) return
+      _photosSetError(data.error || t('photos.session_failed'))
+      return
+    }
+    // Elobb nyitjuk meg a lapot, csak utana valtunk varakozo allapotba: ha a
+    // bongeszo blokkolja a felugrot, a felhasznalo ne egy vegtelen porgo
+    // karikat nezzen.
+    const win = window.open(data.pickerUri, '_blank')
+    if (!win) {
+      addBtn.disabled = false
+      _photosSetError(t('photos.popup_blocked'))
+      return
+    }
+    document.getElementById('photosWaiting').hidden = false
+    _photosPoll(data.sessionId, _photosPollMs(data.pollInterval))
+  } catch {
+    addBtn.disabled = false
+    _photosSetError(t('photos.session_failed'))
+  }
+}
+
+/**
+ * Varakozas a valasztasra.
+ *
+ * KET vedelem van benne, es mindketto egy MERT hibabol szuletett (Boss,
+ * 2026-08-15: "Picker API 404: The entity you requested does not exist"):
+ *
+ * 1. ATFEDES. A `setInterval` nem varja meg az elozo kort. Amikor a valasztas
+ *    kesz, a valasz mar nem masodpercek alatt jon: a szerver ekkor tolti le a
+ *    kepeket. Sok kepnel ez tovabb tart, mint a kerdezes koze -- igy KETTO (majd
+ *    harom...) keres futott egyszerre ugyanarra a session-re. Az elso vegzett es
+ *    elengedte a session-t, a masodik pedig a mar nem letezo session-t kerdezte:
+ *    ez a 404. Ezert egyszerre csak EGY kor lehet a levegoben.
+ * 2. ELAVULT VALASZ. Ami mar elindult, azt nem lehet visszahivni: a leallitas
+ *    utan beeso valasz kulonben felulirna a kesz allapotot (vagy hibat mutatna
+ *    egy mar SIKERES behozatal utan). Ezert minden kornek sorszama van, es a
+ *    nem az aktualis korbol erkezo valasz a szemetbe megy.
+ */
+let _photosPollGen = 0
+
+/**
+ * Mi tortent a behozatalkor -- emberi mondatban.
+ *
+ * A "duplikatum" nem hiba, es nem is elhagyhato reszlet: ha a Boss kivalaszt
+ * tiz kepet es csak harom jon be, tudnia kell, hogy a tobbi mar itt volt, nem
+ * pedig elveszett. (Boss, 2026-08-15: "duplikatumokat ne toltson le".)
+ */
+function _photosAddedMsg(data) {
+  const dup = Number(data.duplicates) || 0
+  const cleaned = Number(data.cleaned) || 0
+  const saved = Number(data.saved) || 0
+  let msg
+  if (saved > 0) msg = dup ? t('photos.added_with_dup', { count: saved, dup }) : t('photos.added', { count: saved })
+  else msg = dup ? t('photos.added_only_dup', { dup }) : t('photos.added_none')
+  return cleaned ? `${msg} ${t('photos.cleaned', { count: cleaned })}` : msg
+}
+
+function _photosPoll(sessionId, intervalMs) {
+  const account = _photosAccount
+  _photosStopPoll()
+  const gen = ++_photosPollGen
+  let inFlight = false
+  _photosPollTimer = setInterval(async () => {
+    if (inFlight) return
+    inFlight = true
+    try {
+      const res = await fetch('/api/photos/session?sessionId=' + encodeURIComponent(sessionId)
+        + '&account=' + encodeURIComponent(account))
+      const data = await res.json()
+      if (gen !== _photosPollGen) return
+      if (!res.ok) {
+        _photosStopPoll()
+        if (data.code === 'api_disabled' && _photosShowApiDisabled(data)) return
+        if (data.code === 'no_photos_account' && _photosShowNoPhotosAccount(data)) return
+        // A valaszto ablak lejart vagy elveszett: ez nem elromlott rendszer,
+        // csak ujra kell kezdeni -- emberi mondattal, nem a Google 404-evel.
+        if (data.code === 'session_gone') { _photosSetError(t('photos.session_gone')); return }
+        _photosSetError(data.error || t('photos.session_failed'))
+        return
+      }
+      if (!data.done) return
+      _photosStopPoll()
+      showToast(_photosAddedMsg(data))
+      _photosRefresh()
+    } catch {
+      if (gen !== _photosPollGen) return
+      _photosStopPoll()
+      _photosSetError(t('photos.session_failed'))
+    } finally {
+      inFlight = false
+    }
+  }, intervalMs)
+}
+
+function _photosStopPoll() {
+  // A sorszam emelese az, amitol a mar uton levo valasz nem szol bele tobbe.
+  _photosPollGen++
+  if (_photosPollTimer) { clearInterval(_photosPollTimer); _photosPollTimer = null }
+  const w = document.getElementById('photosWaiting')
+  if (w) w.hidden = true
+  const b = document.getElementById('photosAddBtn')
+  if (b) b.disabled = !_photosAccountsReady[_photosAccount]
+}
+
+document.getElementById('photosAddBtn')?.addEventListener('click', _photosStartPicker)
+// Ujraprobalas: ugyanaz, mint a "Kepek hozzaadasa", csak elobb eltunik a doboz
+// -- ha a Google mar atallt, egybol a kepvalaszto nyilik; ha meg nem, a doboz
+// visszajon, es a user latja, hogy meg varni kell.
+document.getElementById('photosApiDisabledRetryBtn')?.addEventListener('click', () => {
+  _photosHideApiDisabled()
+  _photosStartPicker()
+})
+// Ugyanez a "meg nincs Google Fotok" doboznal: ha a felhasznalo kozben
+// megnyitotta a photos.google.com-ot, egybol a kepvalaszto nyilik.
+document.getElementById('photosNoPhotosRetryBtn')?.addEventListener('click', () => {
+  _photosHideNoPhotosAccount()
+  _photosStartPicker()
+})
+document.getElementById('photosCancelBtn')?.addEventListener('click', _photosStopPoll)
+document.getElementById('photoLightboxClose')?.addEventListener('click', _photosCloseLightbox)
+document.getElementById('photoLightbox')?.addEventListener('click', (e) => {
+  // Csak a hatterre kattintva zar: a kepen belul a kattintas ne tuntesse el.
+  if (e.target.id === 'photoLightbox' || e.target.id === 'photoLightboxStage') _photosCloseLightbox()
+})
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _photosCloseLightbox() })
 
 // Self-documenting list of integrations Marveen knows about that live in the
 // Vault, so landing here (e.g. from the Overview "unused capabilities" box)
@@ -14149,6 +15009,17 @@ async function renderOverviewSetupStatus() {
     ? t('wizard.summary.missing_required', { n })
     : t('wizard.summary.available', { n: (d.availableUnused || n) })
 
+  // The card names the WORST tier only, which is right for tone and wrong as a
+  // total: Boss filled in the 3 essentials, two lower-tier items surfaced, and
+  // the honest question followed -- "ezt miert nem jelezte az elejen mar? hogy
+  // nem 3 hanem 5 javitanivalo van?" (2026-08-15). Say the rest out loud on the
+  // same card instead of revealing it one tier at a time.
+  const byTier = d.missingByTier || {}
+  const outstanding = (byTier.essential || 0) + (byTier.recommended || 0) + (byTier.extra || 0)
+  const rest = Math.max(0, outstanding - n)
+  const desc = worst === 'extra' ? t('wizard.tier.extra_note') : t('overview.setup.open_wizard')
+  const descText = rest > 0 ? `${desc} ${t('overview.setup.also_later', { n: rest })}` : desc
+
   box.hidden = false
   box.style.background = TONE.bg
   box.style.border = worst === 'extra' ? '1px solid var(--border)' : 'none'
@@ -14158,7 +15029,7 @@ async function renderOverviewSetupStatus() {
       style="background:${TONE.itemBg};color:${TONE.fg}"
       onclick="switchPage('settings');activateSettingsTab('wizard');return false">
       <div class="overview-capability-label">${escapeHtml(headline)}</div>
-      <div class="overview-capability-desc" style="color:${TONE.descFg}">${escapeHtml(worst === 'extra' ? t('wizard.tier.extra_note') : t('overview.setup.open_wizard'))}</div>
+      <div class="overview-capability-desc" style="color:${TONE.descFg}">${escapeHtml(descText)}</div>
     </a>`
 }
 
@@ -14295,8 +15166,21 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   // Boss 2026-08-10: the weekly window was missing from the per-account view --
   // only the 5-hour one was drawn, even though the 7-day number is what says
   // whether an account can work at all tomorrow. Every account now shows both.
+  // Boss 2026-08-15: a "~" egy nem-muszaki felhasznalonak semmit nem mond -- a
+  // VS Code 81%-ot irt, a Marveen ugyanarra a fiokra 11%-ot, es a kepernyon
+  // semmi nem arulta el, hogy az a 11% harom oras meres. Mostantol a fiok neve
+  // mellett ott all, MIKOR mertuk. Friss meresnel nem irunk oda semmit: ami
+  // rendben van, arrol ne kelljen olvasni.
+  const measuredAgo = (acc) => {
+    if (!acc.stale || !acc.measuredAt) return ''
+    const mins = Math.max(0, Math.round((Date.now() - acc.measuredAt) / 60000))
+    const txt = mins < 60
+      ? t('overview.ratelimit.measured_mins', { m: mins })
+      : t('overview.ratelimit.measured_hours', { h: Math.round(mins / 60) })
+    return ` <span class="overview-ratelimit-age">${escapeHtml(txt)}</span>`
+  }
   const accountBlock = (acc) => `<div class="overview-ratelimit-acct">
-      <div class="overview-ratelimit-acct-head">${escapeHtml(acc.label)}${acc.model ? ' · ' + escapeHtml(acc.model) : ''}</div>
+      <div class="overview-ratelimit-acct-head">${escapeHtml(acc.label)}${acc.model ? ' · ' + escapeHtml(acc.model) : ''}${measuredAgo(acc)}</div>
       ${windowBar('overview.ratelimit.five_hour', acc.fiveHourPct, acc.fiveHourResetsAt, acc.stale)}
       ${windowBar('overview.ratelimit.seven_day', acc.sevenDayPct, acc.sevenDayResetsAt, acc.stale)}
     </div>`
@@ -14624,11 +15508,17 @@ function _accHubGooglePart(rows, title) {
 }
 
 function _accHubMcpServerHtml(acct, s) {
+  // 'agent-managed' is NOT a failure: the probe cannot start a channel plugin
+  // the way the agent does, so it reports a dead server while the real poller is
+  // running. Saying "hibás" there sent Boss looking for a fault in a Telegram
+  // he uses daily (2026-08-15) -- so it gets its own, calm wording.
   const statusKey = s.status === 'connected' ? 'mconn.status_ok'
     : s.status === 'pending' ? 'mconn.status_pending'
-      : s.fix === 'login' ? 'mconn.status_login' : 'mconn.status_broken'
+      : s.fix === 'agent-managed' ? 'mconn.status_agent'
+        : s.fix === 'login' ? 'mconn.status_login' : 'mconn.status_broken'
   const pillClass = s.status === 'connected' ? 'conn-pill-ok'
-    : s.fix === 'login' ? 'conn-pill-warn' : 'conn-pill-bad'
+    : s.fix === 'agent-managed' ? 'conn-pill-neutral'
+      : s.fix === 'login' ? 'conn-pill-warn' : 'conn-pill-bad'
   // One button only where a button can genuinely finish the job. The measured
   // dead end (a second Google identity) gets a sentence that points at the half
   // of the page that CAN do it.
@@ -14641,6 +15531,8 @@ function _accHubMcpServerHtml(acct, s) {
     action = `<span class="conn-note">${escapeHtml(t('mconn.fix_unsupported'))}</span>`
   } else if (s.fix === 'approve') {
     action = `<span class="conn-note">${escapeHtml(t('mconn.fix_approve'))}</span>`
+  } else if (s.fix === 'agent-managed') {
+    action = `<span class="conn-note">${escapeHtml(t('mconn.fix_agent'))}</span>`
   } else if (s.fix === 'broken') {
     action = `<span class="conn-note conn-note-bad">${escapeHtml(t('mconn.fix_broken', { msg: s.reason || '' }))}</span>`
   }
@@ -14764,12 +15656,12 @@ async function _claudeAuthTick() {
   } catch { return }
   _claudeAuthRenderList(s.accounts)
 
-  const link = document.getElementById('claudeAuthLink')
-  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+  if (s.url) _setConsentLink('claudeAuthLink', s.url)
 
   if (s.done) {
     _claudeAuthStopPoll()
     document.getElementById('claudeAuthFlow').hidden = true
+    _setConsentLink('claudeAuthLink', '')
     document.getElementById('claudeAuthLabel').value = ''
     document.getElementById('claudeAuthEmail').value = ''
     _claudeAuthSetState('', null)
@@ -14803,6 +15695,9 @@ async function renderClaudeAccountPanel(keyServices) {
     const label = document.getElementById('claudeAuthLabel').value.trim()
     const email = document.getElementById('claudeAuthEmail').value.trim()
     if (!label) { showToast(t('claudeauth.need_label'), 6000, true); return }
+    // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
+    // ELOZO folyamat linkjet, es a doboz elobb jelenik meg, mint a friss link.
+    _setConsentLink('claudeAuthLink', '')
     document.getElementById('claudeAuthFlow').hidden = false
     _claudeAuthSetState(t('claudeauth.state_starting'), null)
     try {
@@ -15085,14 +15980,19 @@ function _gconnOpenBlocked(address) {
   box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 }
 
-async function _gconnStartAuth(name) {
+async function _gconnStartAuth(name, force) {
   if (!name) { showToast(t('gconn.need_name'), 6000, true); return }
+  const forced = force === true
   _gconnLastName = name
   // An existing account goes back as `id`, which skips the server-side
   // de-duplication. Otherwise "try again" on an account whose token expired
   // would quietly authorize `munka_2` and leave the broken `munka` behind.
   const body = _gconnKnownIds.has(name) ? { id: name } : { name }
+  if (forced) body.force = true
   const flowBox = document.getElementById('gconnFlow')
+  // Ugyanaz, mint a Fotok oldalon: a regi link torlese MEGELOZI a doboz
+  // megjeleniteset, kulonben egy korabbi folyamat linkjere lehetne kattintani.
+  _setConsentLink('gconnLink', '')
   if (flowBox) flowBox.hidden = false
   _connSetState('gconnState', t('gconn.state_starting'), null)
   try {
@@ -15101,7 +16001,18 @@ async function _gconnStartAuth(name) {
       body: JSON.stringify(body),
     })
     const data = await res.json()
-    if (!data.ok) { _connSetState('gconnState', data.error || t('common.error_save'), 'bad'); return }
+    if (!data.ok) {
+      // Ugyanaz a megnevezett kiut, mint a Fotok oldalon -- ket helyen jelenhet
+      // meg a "mar fut egy masik", es egyik helyen sem lehet zsakutca.
+      if (data.code === 'busy' && !forced) {
+        if (flowBox) flowBox.hidden = true
+        _connSetState('gconnState', '', null)
+        const who = data.busyAccountId || '?'
+        if (confirm(t('photos.consent_busy', { who, me: name }))) return _gconnStartAuth(name, true)
+        return
+      }
+      _connSetState('gconnState', data.error || t('common.error_save'), 'bad'); return
+    }
   } catch (err) { _connSetState('gconnState', String(err.message || err), 'bad'); return }
   _gconnStopPoll()
   _gconnPoll = setInterval(_gconnTick, 2000)
@@ -15121,8 +16032,7 @@ async function _gconnTick() {
   if (s.accountId && !_gconnLastName) _gconnLastName = s.accountId
   _gconnRenderList(s.accounts, s.clientPresent)
 
-  const link = document.getElementById('gconnLink')
-  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+  if (s.url) _setConsentLink('gconnLink', s.url)
 
   if (s.phase === 'done') {
     _gconnStopPoll()
@@ -15216,8 +16126,7 @@ async function _mconnLoginTick() {
     s = await res.json()
   } catch { return }
 
-  const link = document.getElementById('mconnLink')
-  if (link && s.url) { link.href = s.url; link.dataset.url = s.url }
+  if (s.url) _setConsentLink('mconnLink', s.url)
   const pasteRow = document.getElementById('mconnPasteRow')
   if (pasteRow) pasteRow.hidden = s.phase !== 'awaiting-paste'
 
@@ -15252,6 +16161,7 @@ async function _mconnFinish() {
   _mconnStopLoginPoll()
   try { await fetch('/api/connections/mcp/login/finish', { method: 'POST' }) } catch { /* ignore */ }
   document.getElementById('mconnFlow').hidden = true
+  _setConsentLink('mconnLink', '')
   _connSetState('mconnFlowState', '', null)
   showToast(agents.length ? t('mconn.restart_hint', { agents: agents.join(', ') }) : t('mconn.restart_hint_none'), 14000, true)
   _mconnLoadStatus(true)
@@ -15447,6 +16357,7 @@ function renderConnectionsPanel() {
       _mconnStopLoginPoll()
       try { await fetch('/api/connections/mcp/login/finish', { method: 'POST' }) } catch { /* ignore */ }
       document.getElementById('mconnFlow').hidden = true
+      _setConsentLink('mconnLink', '')
       _connSetState('mconnFlowState', '', null)
     })
 
@@ -15461,6 +16372,8 @@ function renderConnectionsPanel() {
         account: btn.closest('.conn-account')?.querySelector('.conn-account-name')?.textContent || '',
       })
       document.getElementById('mconnPasteRow').hidden = true
+      // Az elozo csatlakoztatas linkje nem maradhat kattinthatoan a dobozban.
+      _setConsentLink('mconnLink', '')
       flow.hidden = false
       _connSetState('mconnFlowState', t('mconn.state_starting'), null)
       try {
@@ -18771,9 +19684,12 @@ async function renderWizardDone(host) {
       <h3 style="margin:0 0 8px">${escapeHtml(t('wizard.done_title'))}</h3>
       <p style="margin:0 0 6px;font-size:13px">${escapeHtml(saved > 0 ? t('wizard.saved', { n: saved }) : t('wizard.saved_none'))}</p>
       <p style="margin:0 0 12px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizard.restart_note'))}</p>
-      <button class="btn-primary" id="wizardDoneBtn">${escapeHtml(t('wizard.list_view'))}</button>
+      <button class="btn-secondary" id="wizardDoneBtn">${escapeHtml(t('wizard.list_view'))}</button>
+      <div id="wizardRestartSlot"></div>
     </div>`
   document.getElementById('wizardDoneBtn').addEventListener('click', () => renderSetupWizardPanel(host))
+  // A varazslo is csak kimondta, hogy "ujrainditas utan lep eletbe" -- itt a gomb hozza.
+  if (saved > 0) void mountRestartButton(document.getElementById('wizardRestartSlot'), '')
 }
 
 function wizardRowHtml(item) {
@@ -18887,6 +19803,21 @@ function buildSettingRow(def) {
   errorEl.className = 'settings-row-error'
   editor.appendChild(errorEl)
 
+  // A depo helyet ne kelljen begepelni: ugyanaz a valaszto, mint a Depó
+  // oldalon. A mezobe a Windows-alak kerul (D:\Marveen) -- a program magatol
+  // leforditja arra, amit belul hasznal.
+  if (def.key === 'MARVEEN_DEPOT') {
+    const pickBtn = document.createElement('button')
+    pickBtn.type = 'button'
+    pickBtn.className = 'btn-secondary btn-compact'
+    pickBtn.textContent = 'Tallózás…'
+    pickBtn.addEventListener('click', () => openFolderPicker((choice) => {
+      valueInput.value = choice.display
+      markSettingDirty(def.key, valueInput, originalValue, def.type, errorEl)
+    }))
+    editor.insertBefore(pickBtn, errorEl)
+  }
+
   valueInput.addEventListener('input', () => markSettingDirty(def.key, valueInput, originalValue, def.type, errorEl))
   valueInput.addEventListener('change', () => markSettingDirty(def.key, valueInput, originalValue, def.type, errorEl))
 
@@ -18936,6 +19867,20 @@ async function saveAllSettings() {
     showToast(t('settings.toast.partial_error'), 'error')
   } else {
     showToast(needsRestart ? t('settings.toast.saved_restart') : t('settings.toast.saved'))
+  }
+
+  // Ha olyasmit mentettunk, ami csak ujrainditas utan lep eletbe, akkor most
+  // ADJUK IS ODA az ujrainditast -- ne csak kozoljuk a feltetelt.
+  const slot = document.getElementById('settingsRestartSlot')
+  if (slot) {
+    if (needsRestart) {
+      slot.hidden = false
+      await mountRestartButton(slot, t('restart.note_saved'))
+      slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    } else {
+      slot.hidden = true
+      slot.innerHTML = ''
+    }
   }
 }
 
@@ -20574,6 +21519,10 @@ async function loadEmailMailboxes() {
     + (system.length && custom.length ? `<div class="email-mailbox-section-label">${escapeHtml(t('email.labels_section'))}</div>` : '')
     + renderEmailLabelTree(buildEmailLabelTree(custom), 0, labelItem)
     + `<div class="email-mailbox-item email-mailbox-new" id="emailNewMailboxBtn">${escapeHtml(t('email.new_label'))}</div>`
+    // A Spamre/Promociokra huzas MEGJEGYZI a feladot -- amit meg lehet tanulni,
+    // azt el is kell tudni felejteni, kulonben egy veletlen huzas orokre
+    // elnemitana valakit. Ez a gomb nyitja a visszavonhato listat.
+    + `<div class="email-mailbox-item email-mailbox-rules" id="emailRulesBtn">${escapeHtml(t('email.rules_btn'))}</div>`
   pane.querySelectorAll('.email-mailbox-item[data-mailbox]').forEach(el => {
     // loadEmailMailboxes() already calls loadEmailEnvelopes() itself at the
     // end -- calling it again here used to just re-render the same list
@@ -20601,22 +21550,29 @@ async function loadEmailMailboxes() {
   // message leaves its current mailbox, so the currently-open list needs a
   // reload afterward or the dragged row keeps sitting there looking unmoved.
   pane.querySelectorAll('.email-mailbox-item-label').forEach(el => {
-    el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('email-drop-target-active') })
-    el.addEventListener('dragleave', () => el.classList.remove('email-drop-target-active'))
-    el.addEventListener('drop', async (e) => {
-      e.preventDefault()
-      el.classList.remove('email-drop-target-active')
+    emailBindDropTarget(el, async (items) => {
       const target = el.dataset.mailbox
-      let payload
-      try { payload = JSON.parse(e.dataTransfer.getData('application/x-marveen-email')) } catch { return }
-      if (!payload?.id || !payload?.mailbox) return
-      const res = await fetch('/api/email/label', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: emailAccount, mailbox: payload.mailbox, ids: [payload.id], target }),
-      })
-      showToast(res.ok ? t('email.drag_move_success', { target: emailMailboxDisplayNameFromTree(target) }) : t('email.drag_move_fail'))
-      if (res.ok && payload.mailbox === emailMailbox) emailRemoveRowFromList(payload.id)
+      const r = await emailMoveDraggedTo(items, target)
+      showToast(r.ok
+        ? t('email.drag_move_success_n', { n: r.moved.length, target: emailMailboxDisplayNameFromTree(target) })
+        : t('email.drag_move_fail'))
     })
+  })
+  // Rendszermappak (Boss, 2026-08-15): Kuka / Spam / Fontos, plusz a Promociok
+  // nezet. A tobbi rendszermappa (Bejovo, Elkuldott, Piszkozatok, ...)
+  // SZANDEKOSAN nem celpont: oda huzni vagy ertelmetlen, vagy karos lenne.
+  pane.querySelectorAll('.email-mailbox-item[data-mailbox]:not(.email-mailbox-item-label)').forEach(el => {
+    // A huzhatosag magatol nem latszik, es mappankent MAST is jelent -- a
+    // sugo-szoveg egerrel raallva megmondja, mi fog tortenni, mielott a Boss
+    // elenged egy levelet felette.
+    const bind = (kind) => {
+      const hint = EMAIL_DROP_HINT[kind]
+      if (hint) el.title = hint()
+      emailBindDropTarget(el, (items) => emailDropOnSystem(kind, items))
+    }
+    if (el.dataset.promo === '1') { bind('promo'); return }
+    const kind = EMAIL_SYSTEM_DROP_KIND[el.dataset.mailbox]
+    if (kind) bind(kind)
   })
   pane.querySelectorAll('.email-mailbox-check').forEach(cb => {
     cb.addEventListener('click', (e) => e.stopPropagation())
@@ -20639,7 +21595,88 @@ async function loadEmailMailboxes() {
     if (!res.ok) { showToast(data.error || t('email.label_create_error')); return }
     loadEmailMailboxes()
   })
+  document.getElementById('emailRulesBtn')?.addEventListener('click', () => openEmailRulesModal())
   await loadEmailEnvelopes()
+}
+
+/**
+ * A tanult felado-szabalyok ablaka (Boss, 2026-08-15).
+ *
+ * Miert kell: a Spamre/Promociokra huzas MEGJEGYZI a feladot, es onnantol
+ * magatol dolgozik. Egy ilyen szabalyt latni is kell tudni, es egy kattintassal
+ * visszavonni -- kulonben egy elhibazott huzas nema, lathatatlan levelvesztest
+ * okozna. Az ablak ezert csak ket dolgot mutat: KI van megjelolve, es hogyan
+ * lehet torolni.
+ */
+async function openEmailRulesModal() {
+  const overlay = document.createElement('div')
+  // A modal-overlay ket versengo CSS-szabalya miatt mindketto kell (lasd a
+  // hasonlo megjegyzest az OpenRouter-ablaknal feljebb).
+  overlay.className = 'modal-overlay active'
+  overlay.hidden = false
+  overlay.innerHTML = `
+    <div class="modal-content email-rules-modal">
+      <h3>${escapeHtml(t('email.rules_title'))}</h3>
+      <p class="email-rules-help">${escapeHtml(t('email.rules_help'))}</p>
+      <div id="emailRulesList" class="email-rules-list">${escapeHtml(t('common.loading'))}</div>
+      <div class="email-rules-actions">
+        <button class="btn-secondary" id="emailRulesCloseBtn">${escapeHtml(t('common.btn.close'))}</button>
+      </div>
+    </div>`
+  document.body.appendChild(overlay)
+  // Az Esc-et sajat kezuleg kezeljuk: a kozos Esc-figyelo csak az 'active'
+  // osztalyt veszi le, ez az ablak viszont a MASIK .modal-overlay szabaly ala
+  // esik ([hidden] rejti, nem az opacity) -- ott az 'active' levetele semmit
+  // sem takarna el, csak egy lathatatlanul kattintasfogo lap maradna.
+  const onKey = (e) => { if (e.key === 'Escape') close() }
+  const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey) }
+  document.addEventListener('keydown', onKey)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#emailRulesCloseBtn').addEventListener('click', close)
+  await renderEmailRulesList(overlay)
+}
+
+/** Az ablak tartalma. Kulon fuggveny: torles utan ujra kell rajzolni. */
+async function renderEmailRulesList(overlay) {
+  const box = overlay.querySelector('#emailRulesList')
+  if (!box) return
+  let rules
+  try {
+    const res = await fetch(`/api/email/rules?account=${encodeURIComponent(emailAccount)}`)
+    const data = await res.json()
+    rules = Array.isArray(data?.rules) ? data.rules : null
+  } catch { rules = null }
+  if (!rules) { box.innerHTML = `<div class="email-rules-empty">${escapeHtml(t('email.rules_load_fail'))}</div>`; return }
+  if (rules.length === 0) { box.innerHTML = `<div class="email-rules-empty">${escapeHtml(t('email.rules_empty'))}</div>`; return }
+  const section = (kind, titleKey) => {
+    const own = rules.filter(r => r.kind === kind)
+    if (own.length === 0) return ''
+    return `<div class="email-rules-section">${escapeHtml(t(titleKey))}</div>` + own.map(r => `
+      <div class="email-rules-row">
+        <span class="email-rules-sender">${escapeHtml(r.sender)}</span>
+        <button class="btn-secondary btn-compact email-rules-undo" data-kind="${escapeAttr(r.kind)}" data-sender="${escapeAttr(r.sender)}">${escapeHtml(t('email.rules_undo'))}</button>
+      </div>`).join('')
+  }
+  box.innerHTML = section('spam', 'email.rules_spam_section') + section('promo', 'email.rules_promo_section')
+  box.querySelectorAll('.email-rules-undo').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      btn.disabled = true
+      const { kind, sender } = btn.dataset
+      let ok = false
+      try {
+        ok = (await fetch('/api/email/rules', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: emailAccount, kind, sender }),
+        })).ok
+      } catch { ok = false }
+      if (!ok) { btn.disabled = false; showToast(t('email.rules_undo_fail')); return }
+      showToast(t('email.rules_undo_done', { sender }))
+      await renderEmailRulesList(overlay)
+      // A bejovo lista mostantol mast mutat (a promo-szabaly azonnal, a
+      // spam-szabaly a kovetkezo levelnel) -- ujratoltjuk, hogy lassa is.
+      loadEmailEnvelopes()
+    })
+  })
 }
 
 document.getElementById('emailSearchForm')?.addEventListener('submit', (e) => {
@@ -21128,7 +22165,7 @@ function emailSubrowHtml(s) {
   // received messages) had no button at all, which read as "only the newest
   // message can be marked" (Boss, 2026-08-05).
   const starred = !!s.flags?.some(f => f.iana === 'flagged')
-  return `<div class="email-envelope-subrow${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}">
+  return `<div class="email-envelope-subrow${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-from="${escapeAttr(s.from?.[0]?.email || '')}">
     <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}"${emailSelectedIds.has(String(s.id)) ? ' checked' : ''}>
     <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(s.id)}" data-mailbox="${escapeHtml(s.mailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
       <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
@@ -21149,8 +22186,191 @@ function emailSubrowHtml(s) {
 // element started the drag.
 function emailEnvelopeDragStart(e) {
   const el = e.currentTarget
+  const id = String(el.dataset.id)
+  // Boss, 2026-08-15: "ha egyet huzok at akor jo. ateszi. de ha kijelolok
+  // mondjuk kettot akkor is csak az t huzza at amit megfogtam."
+  //
+  // A szabaly ugyanaz, mint a Gmailben: ha a MEGFOGOTT sor a kijeloltek kozott
+  // van, az EGESZ kijelolest visszuk. Ha viszont valaki egy ki NEM jelolt
+  // sort fog meg (mikozben mashol van kijelolese), akkor csak azt az egyet --
+  // kulonben egy figyelmetlen huzas eltuntetne egy korabbi kijelolest is.
+  const items = emailSelectedIds.has(id)
+    ? [...emailSelectedIds.entries()].map(([i, m]) => ({ id: i, mailbox: m, from: emailSenderOfRow(i) }))
+    : [{ id, mailbox: el.dataset.mailbox, from: el.dataset.from || '' }]
   e.dataTransfer.effectAllowed = 'move'
-  e.dataTransfer.setData('application/x-marveen-email', JSON.stringify({ id: el.dataset.id, mailbox: el.dataset.mailbox }))
+  // Az elso elem a regi (egy-leveles) alakban is ott van: barmi, ami meg a
+  // regi payloadot olvasna, valtozatlanul mukodik.
+  e.dataTransfer.setData('application/x-marveen-email', JSON.stringify({
+    id: items[0].id, mailbox: items[0].mailbox, items,
+  }))
+  emailSetDragCount(e, items.length)
+}
+
+/** Egy sor feladoja a listabol (a szabalyokhoz kell, nem a mozgatashoz). */
+function emailSenderOfRow(id) {
+  const pane = document.getElementById('emailEnvelopeList')
+  const el = pane?.querySelector(`[data-id="${CSS.escape(String(id))}"][data-from]`)
+  return el?.dataset.from || ''
+}
+
+/** Tobb levelnel a huzott kep melle odairjuk, hany levelrol van szo. */
+function emailSetDragCount(e, count) {
+  if (count < 2 || !e.dataTransfer.setDragImage) return
+  const ghost = document.createElement('div')
+  ghost.className = 'email-drag-ghost'
+  ghost.textContent = t('email.drag_count', { n: count })
+  document.body.appendChild(ghost)
+  e.dataTransfer.setDragImage(ghost, 10, 10)
+  // A bongeszo a kepet a dragstart vegen lefenykepezi -- utana mar torolheto.
+  setTimeout(() => ghost.remove(), 0)
+}
+
+/** A huzott levelek a payloadbol, a regi egy-leveles alakot is elfogadva. */
+function emailDragItems(payload) {
+  const list = Array.isArray(payload?.items) && payload.items.length
+    ? payload.items
+    : (payload?.id && payload?.mailbox ? [{ id: payload.id, mailbox: payload.mailbox, from: payload.from || '' }] : [])
+  return list.filter(x => x && x.id && x.mailbox)
+}
+
+/**
+ * A huzott levelek atmozgatasa egy mappaba. Forrasmappank tobb is lehet (a
+ * kijelolesben szerepelhet szal-alsor egy MASIK mappabol) -- a szerver
+ * vegpontja mappankent varja az azonositokat.
+ */
+async function emailMoveDraggedTo(items, target) {
+  const byMailbox = new Map()
+  for (const it of items) {
+    if (!byMailbox.has(it.mailbox)) byMailbox.set(it.mailbox, [])
+    byMailbox.get(it.mailbox).push(it.id)
+  }
+  const groups = [...byMailbox.entries()]
+  const results = await Promise.all(groups.map(([mailbox, ids]) =>
+    fetch('/api/email/label', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, mailbox, ids, target }),
+    }).then(res => res.ok).catch(() => false)
+  ))
+  // Csak a SIKERES csoportok sorai tunnek el a nyitott listabol.
+  const moved = []
+  groups.forEach(([mailbox, ids], i) => {
+    if (!results[i]) return
+    moved.push(...ids)
+    if (mailbox === emailMailbox) ids.forEach(emailRemoveRowFromList)
+  })
+  return { ok: results.every(Boolean), moved }
+}
+
+/** A huzott levelek feladoi (uresek nelkul, egyszer mindegyik). */
+function emailDraggedSenders(items) {
+  return [...new Set(items.map(it => (it.from || '').trim().toLowerCase()).filter(Boolean))]
+}
+
+/** Uj felado-szabaly. Kulon lepes a mozgatastol: az egyik sikerulhet a masik nelkul. */
+async function emailAddSenderRule(kind, senders) {
+  if (senders.length === 0) return false
+  try {
+    const res = await fetch('/api/email/rules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: emailAccount, kind, senders }),
+    })
+    return res.ok
+  } catch { return false }
+}
+
+/**
+ * Egy huzas lezarasa egy RENDSZERMAPPAN (Boss, 2026-08-15: "csinlad meg hogy
+ * kukaba, spam, promociokba , es fontos ba, is at tudjam huzni a leveveleket").
+ *
+ * Mappankent MAS a helyes muvelet, ezert nem egyetlen "mozgatas":
+ *  - Kuka, Spam: valodi athelyezes (a Spam melle a felado szabalya is).
+ *  - Promociok: NEM mappa, hanem szuro az Inbox felett -- itt nincs mit
+ *    mozgatni, a felado megjegyzese MAGA az athuzas.
+ *  - Fontos: a Gmailben a fontossag jeloles, nem athelyezes -- a level a
+ *    bejovoben MARAD, kulonben egy huzastol eltunne a postafiokbol.
+ */
+async function emailDropOnSystem(kind, items) {
+  if (items.length === 0) return
+  const n = items.length
+  if (kind === 'trash') {
+    const r = await emailMoveDraggedTo(items, '[Gmail]/Kuka')
+    showToast(r.ok ? t('email.drag_trash_done', { n: r.moved.length }) : t('email.drag_move_fail'))
+    return
+  }
+  if (kind === 'spam') {
+    const r = await emailMoveDraggedTo(items, '[Gmail]/Spam')
+    // Csak SIKERES mozgatas utan tanulunk: ha a huzas lathatoan nem sikerult,
+    // ne maradjon utana egy nema szabaly, amirol a Boss nem tud.
+    if (!r.ok) { showToast(t('email.drag_move_fail')); return }
+    const senders = emailDraggedSenders(items)
+    const ruleOk = await emailAddSenderRule('spam', senders)
+    showToast(ruleOk && senders.length
+      ? t('email.drag_spam_done', { n: r.moved.length, senders: senders.join(', ') })
+      : t('email.drag_spam_no_rule', { n: r.moved.length }), 8000)
+    return
+  }
+  if (kind === 'promo') {
+    const senders = emailDraggedSenders(items)
+    if (senders.length === 0) { showToast(t('email.drag_promo_no_sender')); return }
+    const ok = await emailAddSenderRule('promo', senders)
+    showToast(ok ? t('email.drag_promo_done', { senders: senders.join(', ') }) : t('email.drag_move_fail'), 8000)
+    if (ok) loadEmailEnvelopes()
+    return
+  }
+  if (kind === 'important') {
+    // Jeloles, nem athelyezes -- a level a helyen marad (lasd a fenti dobozt).
+    const results = await Promise.all(items.map(it =>
+      fetch('/api/email/important', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, mailbox: it.mailbox, id: it.id, important: true }),
+      }).then(res => res.ok).catch(() => false)
+    ))
+    showToast(results.every(Boolean) ? t('email.drag_important_done', { n }) : t('email.drag_move_fail'))
+  }
+}
+
+/** Melyik rendszermappa mit jelent huzaskor. Ami nincs benne, oda nem lehet huzni. */
+const EMAIL_SYSTEM_DROP_KIND = {
+  '[Gmail]/Kuka': 'trash',
+  '[Gmail]/Spam': 'spam',
+  '[Gmail]/Fontos': 'important',
+}
+
+/** Sugo-szoveg huzasi celpontonkent.
+ *
+ *  SZANDEKOSAN literal kulcsokkal, es nem osszefuzott (prefix + kind) alakban:
+ *  az osszefuzott kulcsot a nyelvi ellenorzes nem tudja visszakovetni. Merve
+ *  (2026-08-15, teljes teszt-futas): az osszefuzott alak egy nem letezo
+ *  'email.drop_hint_' kulcsot jelentett hianyzokent -- valodi hianyt viszont
+ *  ugyanez az ellenorzes tobbe nem latott volna meg.
+ *
+ *  Fuggveny, nem kesz szoveg: nyelvvaltas utan is a friss forditas kell. */
+const EMAIL_DROP_HINT = {
+  trash: () => t('email.drop_hint_trash'),
+  spam: () => t('email.drop_hint_spam'),
+  promo: () => t('email.drop_hint_promo'),
+  important: () => t('email.drop_hint_important'),
+}
+
+/** Huzasi celponta tesz egy mappa-sort. */
+function emailBindDropTarget(el, onDrop) {
+  el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('email-drop-target-active') })
+  el.addEventListener('dragleave', () => el.classList.remove('email-drop-target-active'))
+  el.addEventListener('drop', async (e) => {
+    e.preventDefault()
+    el.classList.remove('email-drop-target-active')
+    let payload
+    try { payload = JSON.parse(e.dataTransfer.getData('application/x-marveen-email')) } catch { return }
+    const items = emailDragItems(payload)
+    if (items.length === 0) return
+    await onDrop(items)
+    // A huzas felhasznalta a kijelolest -- kulonben a kovetkezo huzas ujra
+    // magaval vinne a mar athelyezett leveleket. A pipakat is levesszuk: egy
+    // ures kijelolesi lista mellett bepipalva maradt sor hazudna.
+    emailSelectedIds = new Map()
+    document.querySelectorAll('#emailEnvelopeList .email-envelope-check').forEach(cb => { cb.checked = false })
+    emailUpdateBulkDeleteUI()
+  })
 }
 
 // Drop a single moved message's row out of the currently-open list without a
@@ -21270,7 +22490,7 @@ async function loadEmailEnvelopes() {
     // newest-first order (Boss, 2026-08-05: "felülre a 0805, alulra a 0601").
     const nested = [...extras, ...sentSiblings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     return `<div class="email-envelope-group" data-group-id="${escapeHtml(e.id)}">
-      <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}">
+      <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-from="${escapeAttr(e.from?.[0]?.email || '')}">
         <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}"${emailSelectedIds.has(String(e.id)) ? ' checked' : ''}>
         <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
           <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
@@ -22747,11 +23967,11 @@ async function openConversationModal(agentName, displayName) {
   title.textContent = t('conversation.title', { name: displayName || agentName })
   container.innerHTML = `<div class="conversation-empty">${t('conversation.loading')}</div>`
   openModal(overlay)
-  await loadConversation()
+  await loadConversation({ autoRevealDetail: true })
 }
 
 // Latest page (offset=0); resets the loaded window.
-async function loadConversation() {
+async function loadConversation(opts = {}) {
   const container = document.getElementById('conversationContainer')
   const token = localStorage.getItem('marveen-dashboard-token') || ''
   try {
@@ -22761,6 +23981,17 @@ async function loadConversation() {
     const d = await r.json()
     conversationEntries = Array.isArray(d.entries) ? d.entries : []
     conversationHasOlder = !!d.hasOlder
+    // Most agents in this fleet never talk on Telegram -- their whole record is
+    // narration + tool calls, which the detail filter hides. Opening on the
+    // default filter then shows "no messages" over a full transcript, which
+    // reads as a dead button (MEASURED 2026-08-15: 13 of 14 agents had zero
+    // in/out entries and up to 50 hidden ones). If there is nothing the default
+    // filter would show, open with the detail already revealed.
+    if (opts.autoRevealDetail) {
+      const box = document.getElementById('conversationShowActions')
+      const hasChannelTraffic = conversationEntries.some(e => e.kind === 'in' || e.kind === 'out')
+      if (box && !hasChannelTraffic && conversationEntries.length) box.checked = true
+    }
     renderConversation()
   } catch {
     if (container) container.innerHTML = `<div class="conversation-empty">${t('conversation.error')}</div>`
@@ -22821,7 +24052,14 @@ function renderConversation(opts = {}) {
     ? `<button id="conversationLoadOlder" class="conv-load-older">${t('conversation.load_more')}</button>`
     : ''
   if (!list.length) {
-    container.innerHTML = olderBtn || `<div class="conversation-empty">${t('conversation.empty')}</div>`
+    // "Nothing to show" and "everything you asked for is filtered out" are
+    // different answers, and only the second one is actionable. Name the
+    // hidden count so the operator knows the transcript is there.
+    const hidden = conversationEntries.length
+    const msg = hidden
+      ? t(q ? 'conversation.empty_search' : 'conversation.empty_filtered', { n: hidden })
+      : t('conversation.empty')
+    container.innerHTML = olderBtn || `<div class="conversation-empty">${msg}</div>`
   } else {
     container.innerHTML = olderBtn + list.map(renderConvEntry).join('')
   }
@@ -23173,7 +24411,18 @@ function wireFederationPage() {
     if (pageId && document.getElementById(pageId + 'Page')) switchPage(pageId)
   }
   window.addEventListener('hashchange', routeFromHash)
-  routeFromHash()
+  // A KEZDO iranyitas nem futhat itt, a fajl kozepen: a switchPage() olyan
+  // oldal-betoltoket hiv, amelyek allapot-valtozoi (pl. a Depo `_depoPoll`-ja)
+  // csak EZ ALATT, a fajl vegen kapnak erteket. Egy `let` ilyenkor nem
+  // undefined, hanem hibat dob -- es a hiba nemcsak az adott oldalt oli meg,
+  // hanem az app.js hatralevo reszet is (ez tette holtta a Depo gombjait, ha
+  // valaki a #depo cimen frissitett). A dokumentum feldolgozasa utan viszont
+  // mar minden sor lefutott, es az iranyitas biztonsagos.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', routeFromHash, { once: true })
+  } else {
+    routeFromHash()
+  }
 })()
 
 // ============================================================
@@ -24154,3 +25403,771 @@ async function openResearchDoc(agent, name) {
   window._initGanttViewSwitcher = initGanttViewSwitcher
   window.renderGantt = renderGantt
 })()
+
+// ============================ DEPO oldal ============================
+//
+// Ket dolgot csinal, amit a felhasznalo egyebkent csak parancssorbol tudna:
+// atkoltoztet a depoba, es lehozza a Drive-mappait a gepre. Mindketto HOSSZU
+// muvelet, ezert nem a gomb varja meg -- a szerver hatterben dolgozik, a lap
+// pedig masodpercenkent megkerdezi, hol tart. Igy egy 8 GB-os koltoztetes
+// kozben sem tunik ugy, mintha megallt volna a program.
+
+// SZANDEKOSAN `var`, nem `let`: a switchPage() a fajl kozepen (routeFromHash)
+// mar meghivja a _depoStopPoll()-t, mikozben ez a sor meg le sem futott. A
+// `let` ilyenkor nem "undefined", hanem HIBAT dob ("Cannot access '_depoPoll'
+// before initialization") -- es a hiba a Depo oldal betolteset a legelso soran
+// megolte: egyetlen gomb sem kapott esemenykezelot. (Boss, 2026-08-15: "az
+// iroda Depo alatti resz nem mukodik. gombok nem csinalnak semmit".) A `var`
+// felkerul a fajl tetejere, ezert korai hivasnal is csak `undefined`.
+var _depoPoll = null
+
+function _depoStopPoll() {
+  if (_depoPoll) { clearInterval(_depoPoll); _depoPoll = null }
+}
+
+async function _depoGet(url) {
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || ('hiba: ' + res.status))
+  return data
+}
+
+async function _depoPost(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || ('hiba: ' + res.status))
+  return data
+}
+
+function _depoBytes(n) {
+  if (!n) return '0 B'
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return v.toFixed(v >= 10 || i === 0 ? 0 : 1) + ' ' + u[i]
+}
+
+// ===========================================================================
+// "Újraindítás most" gomb
+//
+// Boss: "Ujrainditas utan lep eletbe. sok helyen ez van. igen de a komuvesunk
+// hogyan inditsa ujra es mit?" -- eddig a felulet kimondta a feltetelt, de nem
+// adta hozza az eszkozt. Ez a ket fuggveny az eszkoz.
+//
+// Amit ujraindit: KIZAROLAG a vezerlopultot (a sajat szolgaltatasat). Az
+// agensek munkamenetei ertintetlenek maradnak -- lasd a hosszu indoklast a
+// src/self-restart.ts elejen.
+// ===========================================================================
+
+/** Beteszi a gombot `host`-ba, ha ez a telepites egyaltalan tud ujraindulni. */
+async function mountRestartButton(host, note) {
+  if (!host) return
+  host.innerHTML = ''
+  let a = null
+  try { a = await (await fetch('/api/system/restart')).json() } catch (e) { a = null }
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid var(--border)'
+  if (!a || !a.possible) {
+    // Nem hallgatunk rola: ha nem megy a gomb, MEGMONDJUK, mit csinaljon
+    // helyette az ember -- egy eltunt gomb csak talalgatast szul.
+    wrap.innerHTML = '<p class="subtitle" style="margin:0">'
+      + escapeHtml(note || t('restart.note_default'))
+      + ' ' + escapeHtml((a && a.reason) || t('restart.unavailable')) + '</p>'
+    host.appendChild(wrap)
+    return
+  }
+  wrap.innerHTML = '<p class="subtitle" style="margin:0 0 8px">'
+    + escapeHtml(note || t('restart.note_default'))
+    + ' ' + escapeHtml(t('restart.hint')) + '</p>'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<button class="btn-primary" data-restart-btn>' + escapeHtml(t('restart.btn')) + '</button>'
+    + '<span class="subtitle" data-restart-status></span></div>'
+  host.appendChild(wrap)
+  const btn = wrap.querySelector('[data-restart-btn]')
+  const status = wrap.querySelector('[data-restart-status]')
+  btn.addEventListener('click', () => doSystemRestart(btn, status, a.startedAt))
+}
+
+/**
+ * Ujrainditja a vezerlopultot, es MEGVARJA, amig tenyleg visszajon.
+ *
+ * A "visszajott" nem azt jelenti, hogy valaszol valaki: a regi folyamat meg
+ * egy masodpercig el. Ezert az indulasi idobelyeget nezzuk -- csak az UJ
+ * folyamat ad uj idobelyeget.
+ */
+async function doSystemRestart(btn, status, oldStartedAt) {
+  btn.disabled = true
+  const say = (s) => { if (status) status.textContent = s }
+  say(t('restart.starting'))
+  try {
+    const r = await fetch('/api/system/restart', { method: 'POST' })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(d.error || t('restart.failed_start'))
+    if (d.startedAt) oldStartedAt = d.startedAt
+  } catch (e) {
+    say(e && e.message ? e.message : t('restart.failed_start'))
+    btn.disabled = false
+    return
+  }
+  say(t('restart.waiting'))
+  const deadline = Date.now() + 90000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1000))
+    let d = null
+    try { d = await (await fetch('/api/system/restart', { cache: 'no-store' })).json() } catch (e) { d = null }
+    if (d && d.startedAt && d.startedAt !== oldStartedAt) {
+      say(t('restart.done'))
+      setTimeout(() => location.reload(), 700)
+      return
+    }
+  }
+  // 90 masodperc utan sem jott vissza: ezt is kimondjuk, nem porgunk tovabb.
+  say(t('restart.timeout'))
+  btn.disabled = false
+}
+
+// ===========================================================================
+// Mappavalaszto
+//
+// Boss: "jobb lenne ha ki lehetne valasztani ugy mint amikor fel akarok
+// tolteni egy filet vagy mappat. nem kezzel beirni meg per jel stb..."
+//
+// A bongeszo nem tudja megmondani egy mappa valodi utvonalat (a File System
+// Access API szandekosan nem adja oda), ezert a KISZOLGALO sorolja fel a
+// lemezeket es a mappakat -- a kiszolgalo ugyanis maga a gep.
+// ===========================================================================
+let _fpHere = null       // ahol allunk (linuxos alak), null = lemezlista
+let _fpParent = null
+let _fpOnPick = null     // mit csinaljunk a valasztassal
+
+function openFolderPicker(onPick) {
+  const modal = document.getElementById('folderPickModal')
+  if (!modal) return
+  _fpOnPick = onPick
+  if (modal.parentElement !== document.body) document.body.appendChild(modal)
+  modal.hidden = false
+  modal.classList.add('active')
+  // A lemezlista betoltese elott is a HELYES nyelven alljon a fejlec.
+  _fpHere = null
+  const here = document.getElementById('folderPickHere')
+  if (here) here.textContent = t('picker.my_computer')
+  _fpBind()
+  _fpLoad(null)
+}
+
+function closeFolderPicker() {
+  const modal = document.getElementById('folderPickModal')
+  if (!modal) return
+  modal.classList.remove('active')
+  modal.hidden = true
+}
+
+function _fpBind() {
+  const once = (id, fn) => {
+    const el = document.getElementById(id)
+    if (el && !el._fpBound) { el._fpBound = 1; el.addEventListener('click', fn) }
+  }
+  once('folderPickClose', closeFolderPicker)
+  once('folderPickCancel', closeFolderPicker)
+  once('folderPickUp', () => _fpLoad(_fpParent))
+  once('folderPickOk', _fpConfirm)
+  const name = document.getElementById('folderPickName')
+  if (name && !name._fpBound) { name._fpBound = 1; name.addEventListener('input', _fpPreview) }
+}
+
+async function _fpLoad(path) {
+  const list = document.getElementById('folderPickList')
+  const here = document.getElementById('folderPickHere')
+  const msg = document.getElementById('folderPickMsg')
+  const up = document.getElementById('folderPickUp')
+  const nameRow = document.getElementById('folderPickNameRow')
+  const ok = document.getElementById('folderPickOk')
+  if (list) list.innerHTML = '<p class="subtitle" style="padding:10px">' + escapeHtml(t('picker.loading')) + '</p>'
+  let d = null
+  try {
+    d = await (await fetch('/api/depot/browse' + (path ? '?path=' + encodeURIComponent(path) : ''))).json()
+  } catch (e) {
+    if (list) list.innerHTML = '<p class="subtitle" style="padding:10px">' + escapeHtml(t('picker.open_failed')) + '</p>'
+    return
+  }
+  _fpHere = d.path
+  _fpParent = d.parent
+  // A legfelso szinten a kiszolgalo is kuld feliratot ("Saját gép"), de az
+  // MAGYAR -- angol felulet mellett az kilogna. A szintet a `path` donti el
+  // (null = lemezlista), a nevet mi adjuk hozza.
+  if (here) here.textContent = d.path ? (d.display || '') : t('picker.my_computer')
+  if (msg) msg.textContent = d.message || ''
+  // A legfelso szinten nincs hova visszalepni; a lemez gyokerebol a
+  // lemezlistara megyunk (nem a /mnt-be -- az egy linuxos reszlet).
+  if (up) up.disabled = !d.path
+  // Mappat csak akkor lehet valasztani, ha mar egy konkret helyen allunk.
+  if (nameRow) nameRow.hidden = !d.path
+  if (ok) ok.disabled = !d.path
+
+  const rows = []
+  if (!d.path) {
+    // Legfelso szint: a lemezek. Szabad hellyel egyutt -- 8 GB kepet nem
+    // fogunk egy 2 GB-os pendrive-ra tenni, es ezt latni kell ELORE.
+    for (const dr of (d.drives || [])) {
+      rows.push('<button class="fp-row" data-fp-go="' + escapeHtml(dr.path) + '">'
+        + '<span class="fp-ico">💽</span><span class="fp-name">' + escapeHtml(dr.label) + '</span>'
+        + '<span class="fp-meta">' + escapeHtml(t('picker.free_of', { free: dr.freeHuman, total: dr.totalHuman })) + '</span></button>')
+    }
+    if (!rows.length) rows.push('<p class="subtitle" style="padding:10px">' + escapeHtml(t('picker.no_drives')) + '</p>')
+  } else {
+    for (const f of (d.folders || [])) {
+      rows.push('<button class="fp-row" data-fp-go="' + escapeHtml(f.path) + '">'
+        + '<span class="fp-ico">📁</span><span class="fp-name">' + escapeHtml(f.name) + '</span></button>')
+    }
+    if (!rows.length && !d.message) rows.push('<p class="subtitle" style="padding:10px">' + escapeHtml(t('picker.no_subfolders')) + '</p>')
+  }
+  if (list) {
+    list.innerHTML = rows.join('')
+    list.querySelectorAll('[data-fp-go]').forEach((b) => {
+      b.addEventListener('click', () => _fpLoad(b.getAttribute('data-fp-go')))
+    })
+  }
+  _fpPreview()
+}
+
+/** "Ide fog kerülni: D:\Marveen" -- lassa ELORE, mi lesz belole. */
+function _fpPreview() {
+  const el = document.getElementById('folderPickPreview')
+  const here = document.getElementById('folderPickHere')
+  const name = document.getElementById('folderPickName')
+  if (!el || !here) return
+  const n = ((name && name.value) || '').trim()
+  // A legfelso szintet a _fpHere donti el, NEM a kiirt szoveg: a "Saját gép"
+  // felirat forditva mas ("This computer"), egy szoveg-osszehasonlitas tehat
+  // angolul csendben elromlana, es a lemezlistan is utvonalat igerne.
+  const base = _fpHere ? here.textContent : ''
+  el.textContent = !base ? '—' : (n ? base.replace(/\\+$/, '') + '\\' + n : base)
+}
+
+function _fpConfirm() {
+  if (!_fpHere) return
+  const name = ((document.getElementById('folderPickName') || {}).value || '').trim()
+  const here = document.getElementById('folderPickHere')
+  const base = ((here && here.textContent) || '').replace(/\\+$/, '')
+  closeFolderPicker()
+  // `display` a Windows-alak (ez megy a Beallitasok mezojebe), `parent`+`name`
+  // pedig az, amibol a kiszolgalo dolgozik.
+  if (_fpOnPick) _fpOnPick({ parent: _fpHere, name, display: name ? base + '\\' + name : base })
+}
+
+// ===========================================================================
+// DRIVE-MAPPA VALASZTO
+//
+// Boss: "nem lehet azt is megoldani hogy ki lehessen valasztani a drive
+// oldalrol a mappa azonositot meg a mappa nevet? miert kezzel kell beirnia a
+// komuvesnek mindig mindent?"
+//
+// Igaza van: a mappa-azonosito (`1a2B3c...`) gepi adat, nem embernek valo. A
+// Drive fajat ugyanaz a /api/drive/list szolgalja ki, mint a Drive oldalt,
+// tehat csak vegig kell rajta setalni -- az azonositot es a nevet a valasztas
+// adja, nem a billentyuzet.
+//
+// SZANDEKOSAN `var`: ezt a fajlt mar tobbszor megvagta, hogy egy korai
+// hivas olyan `let`-hez nyult, ami meg nem futott le (lasd web-boot-order.test).
+// ===========================================================================
+var _dpStack = []        // a gyokertol lefele: [{ id, name }]
+var _dpAccount = ''
+var _dpOnPick = null
+// Hanyadik lekerdezesnel tartunk. Ha valaki gyorsan kattint ket mappat, a KESON
+// beeso valasz nem irhatja felul a frissebbet -- kulonben mas mappa tartalmat
+// latna, mint amiben all.
+var _dpSeq = 0
+
+function openDrivePicker(account, onPick) {
+  const modal = document.getElementById('drivePickModal')
+  if (!modal) return
+  _dpOnPick = onPick
+  _dpAccount = account || ''
+  _dpStack = []
+  if (modal.parentElement !== document.body) document.body.appendChild(modal)
+  modal.hidden = false
+  modal.classList.add('active')
+  const manual = document.getElementById('drivePickManualId')
+  if (manual) manual.value = ''
+  _dpBind()
+  _dpEnter('root', t('dpick.my_drive'))
+}
+
+function closeDrivePicker() {
+  const modal = document.getElementById('drivePickModal')
+  if (!modal) return
+  modal.classList.remove('active')
+  modal.hidden = true
+}
+
+function _dpBind() {
+  const once = (id, fn) => {
+    const el = document.getElementById(id)
+    if (el && !el._dpBound) { el._dpBound = 1; el.addEventListener('click', fn) }
+  }
+  once('drivePickClose', closeDrivePicker)
+  once('drivePickCancel', closeDrivePicker)
+  once('drivePickUp', () => { if (_dpStack.length > 1) { _dpStack.pop(); _dpLoad() } })
+  once('drivePickOk', _dpConfirm)
+  once('drivePickManualBtn', _dpOpenManual)
+}
+
+/**
+ * Belepes egy mappaba: a verem adja a visszautat ES a kiirt utvonalat.
+ * `manual`: azonositoval nyitottuk meg, tehat a mappa VALODI nevet nem tudjuk
+ * -- ezt a valasztas is tovabbadja, hogy a nev-mezot fel lehessen kinalni
+ * atirasra. (Jelzokent adjuk at, NEM a kiirt szoveg osszehasonlitasaval: az
+ * angol feluleten mas szoveg allna ott, es csendben elromlana.)
+ */
+function _dpEnter(id, name, manual) {
+  _dpStack.push({ id, name, manual: !!manual })
+  _dpLoad()
+}
+
+/** A veremben legfelul allo mappa tartalma. */
+async function _dpLoad() {
+  const list = document.getElementById('drivePickList')
+  const here = document.getElementById('drivePickHere')
+  const msg = document.getElementById('drivePickMsg')
+  const up = document.getElementById('drivePickUp')
+  const ok = document.getElementById('drivePickOk')
+  const cur = _dpStack[_dpStack.length - 1]
+  if (!cur) return
+  if (here) here.textContent = _dpStack.map((s) => s.name).join(' / ')
+  if (up) up.disabled = _dpStack.length <= 1
+  // A gyokeret magat nem lehet valasztani: az EGESZ Drive-ot huznank le vele.
+  if (ok) ok.disabled = _dpStack.length <= 1
+  if (list) list.innerHTML = '<p class="subtitle" style="padding:10px">' + escapeHtml(t('dpick.loading')) + '</p>'
+  if (msg) msg.textContent = ''
+  const seq = ++_dpSeq
+  let d = null
+  try {
+    const r = await fetch('/api/drive/list?folderId=' + encodeURIComponent(cur.id)
+      + '&account=' + encodeURIComponent(_dpAccount))
+    d = await r.json()
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status))
+  } catch (e) {
+    if (seq !== _dpSeq) return
+    // A verembol ki kell venni a mappat, kulonben a "Vissza" egy olyan helyre
+    // mutatna, ahova be sem jutottunk.
+    if (_dpStack.length > 1) _dpStack.pop()
+    if (list) list.innerHTML = ''
+    if (msg) msg.textContent = t('dpick.open_failed', { error: (e && e.message) ? e.message : String(e) })
+    if (here) here.textContent = _dpStack.map((s) => s.name).join(' / ')
+    if (up) up.disabled = _dpStack.length <= 1
+    if (ok) ok.disabled = _dpStack.length <= 1
+    return
+  }
+  // Kozben mar egy ujabb mappaba leptunk: ez a valasz elavult.
+  if (seq !== _dpSeq) return
+  const files = d.files || []
+  const folders = files.filter((f) => f.isFolder)
+  const rows = folders.map((f) => '<button class="fp-row" data-dp-go="' + escapeHtml(f.id) + '"'
+    + ' data-dp-name="' + escapeHtml(f.name) + '">'
+    + '<span class="fp-ico">📁</span><span class="fp-name">' + escapeHtml(f.name) + '</span></button>')
+  if (list) {
+    list.innerHTML = rows.join('') || '<p class="subtitle" style="padding:10px">' + escapeHtml(t('dpick.no_subfolders')) + '</p>'
+    list.querySelectorAll('[data-dp-go]').forEach((b) => {
+      b.addEventListener('click', () => _dpEnter(b.getAttribute('data-dp-go'), b.getAttribute('data-dp-name')))
+    })
+  }
+  // Hany fajl van ITT: enelkul vakon valasztana egy ures mappat. A kiszolgalo
+  // 200 elemet ad vissza egy keresre -- ha ennyit kaptunk, elkepzelheto, hogy
+  // van meg tovabb, es ezt ki KELL mondani: kulonben ugy tunne, hogy a hianyzo
+  // mappa nem letezik.
+  const reszek = []
+  if (_dpStack.length > 1) reszek.push(t('dpick.file_count', { count: files.length - folders.length }))
+  // A gyokerben a "Ez a mappa legyen" gomb tiltott. Ki KELL mondani, hogy miert
+  // es mi a teendo -- kulonben csak egy szurke gombot lat, es nem tudja, mit
+  // rontott el.
+  else reszek.push(t('dpick.root_hint'))
+  if (files.length >= 200) reszek.push(t('dpick.truncated'))
+  if (msg) msg.textContent = reszek.join(' ')
+}
+
+/** "Ismerem az azonositot": beleptet, hogy LASSA is, mit valasztott. */
+function _dpOpenManual() {
+  const el = document.getElementById('drivePickManualId')
+  const id = ((el && el.value) || '').trim()
+  const msg = document.getElementById('drivePickMsg')
+  if (!id) return
+  // Ugyanaz a szabaly, mint a kiszolgalon (isSafeFolderId): igy a rossz beirast
+  // rogton itt megmondjuk, nem egy 400-as valasz utan.
+  if (!/^[A-Za-z0-9_-]{1,256}$/.test(id)) {
+    if (msg) msg.textContent = t('dpick.bad_id')
+    return
+  }
+  _dpEnter(id, t('dpick.manual_name'), true)
+}
+
+function _dpConfirm() {
+  const cur = _dpStack[_dpStack.length - 1]
+  if (!cur || _dpStack.length <= 1) return
+  const path = _dpStack.map((s) => s.name).join(' / ')
+  closeDrivePicker()
+  if (_dpOnPick) _dpOnPick({ id: cur.id, name: cur.name, path, manual: !!cur.manual })
+}
+
+/**
+ * A kiszolgalo `safeSegment()` fuggvenyenek masa (drive-sync.ts).
+ * Azert kell ide is, hogy a felajanlott nev PONTOSAN az legyen, ami a lemezre
+ * kerul -- kulonben a mezoben mast latna, mint a mappa nevet a gepen.
+ * Az egyezest teszt orzi (drive-folder-picker.test.ts).
+ */
+function _dpSafeName(name) {
+  const cleaned = String(name || '')
+    .replace(/[\\/]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[:*?"<>|]/g, '_')
+    .replace(/^\.+$/, '_')
+    .replace(/[. ]+$/, '')
+    .trim()
+  return cleaned.slice(0, 120) || 'nevtelen'
+}
+
+/** A Depó oldal "Hely kiválasztása…" gombja. */
+function _depoPickRoot() {
+  openFolderPicker(async (choice) => {
+    const st = document.getElementById('depoRootStatus')
+    if (st) st.textContent = t('picker.saving')
+    try {
+      const r = await fetch('/api/depot/root', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Ha nem adott uj mappanevet, akkor MAGA a kivalasztott mappa a depo.
+        body: JSON.stringify(choice.name ? { parent: choice.parent, name: choice.name } : { path: choice.parent }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || t('picker.save_failed'))
+      const disp = document.getElementById('depoRootDisplay')
+      if (disp) disp.textContent = d.display
+      if (st) {
+        st.textContent = t('picker.saved', { free: d.freeHuman })
+          + (d.existingEntries ? t('picker.saved_not_empty', { count: d.existingEntries }) : '')
+      }
+      // Itt a legfontosabb a gomb: a futo Marveen meg a REGI helyet ismeri.
+      await mountRestartButton(document.getElementById('depoRestartSlot'),
+        t('restart.note_depot'))
+    } catch (e) {
+      if (st) st.textContent = (e && e.message) ? e.message : t('picker.save_failed')
+    }
+  })
+}
+
+async function loadDepoPage() {
+  _depoStopPoll()
+  const bind = (id, fn) => {
+    const el = document.getElementById(id)
+    if (el && !el._depoBound) { el._depoBound = 1; el.addEventListener('click', fn) }
+  }
+  bind('depoRefreshBtn', () => _depoRefresh())
+  bind('depoPickBtn', () => _depoPickRoot())
+  bind('depoMigrateBtn', () => _depoStartMigrate())
+  bind('depoSyncWholeBtn', () => _depoAddWholeDrive())
+  bind('depoSyncPickBtn', () => _depoPickDriveFolder())
+  bind('depoSyncAddBtn', () => _depoAddSync())
+  bind('depoSyncRunBtn', () => _depoRunSync())
+  // Fiokvaltaskor a korabbi valasztas ELAVUL: egy mappa-azonosito csak abban a
+  // fiokban ervenyes, amelyikben kivalasztottuk. Ha bennemaradna, a masik fiok
+  // neveben probalnank hozzaadni egy olyan mappat, amit az nem is lat.
+  const acc = document.getElementById('depoSyncAccount')
+  if (acc && !acc._depoBound) {
+    acc._depoBound = 1
+    acc.addEventListener('change', () => _depoClearDrivePick())
+  }
+  _depoClearDrivePick()
+  await _depoRefresh()
+}
+
+/**
+ * A FO ut: a kivalasztott fiok TELJES Drive-ja jojjon le.
+ *
+ * Boss 2026-08-15: "mit akarok szinkronizalni. hat a lackor2 drivot
+ * mindenestul! akkor itt nincs tovabb kerdes semmi." -- ezert nincs
+ * mappavalasztas es nincs nevado mezo sem: a gyokeret (`root`) adjuk at, ures
+ * nevvel. Ures nev = a fiok sajat mappaja MAGA a cel, vagyis a helyi mappa neve
+ * a fiok neve (lackor2 -> lackor2), a fa pedig ugyanaz, mint a neten.
+ */
+async function _depoAddWholeDrive() {
+  const account = (document.getElementById('depoSyncAccount') || {}).value || ''
+  if (!account) { showToast(t('dsync.no_account')); return }
+  if (!confirm(t('dsync.whole_confirm', { account: account }))) return
+  const btn = document.getElementById('depoSyncWholeBtn')
+  if (btn) btn.disabled = true
+  const picked = document.getElementById('depoSyncPicked')
+  try {
+    await _depoPost('/api/drive/sync/add', { account: account, folderId: 'root', name: '' })
+    if (picked) picked.textContent = t('dsync.whole_added', { account: account })
+    await _depoRefresh()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('dsync.add_failed'))
+  } finally {
+    if (btn) btn.disabled = false
+  }
+}
+
+/** A "Mégis inkább csak EGY mappát" ut: Drive-mappa kivalasztasa. */
+function _depoPickDriveFolder() {
+  const account = (document.getElementById('depoSyncAccount') || {}).value || ''
+  if (!account) { showToast(t('dsync.no_account')); return }
+  openDrivePicker(account, (f) => {
+    const idEl = document.getElementById('depoSyncFolderId')
+    const nameEl = document.getElementById('depoSyncName')
+    const picked = document.getElementById('depoSyncPicked')
+    const add = document.getElementById('depoSyncAddBtn')
+    if (idEl) idEl.value = f.id
+    // A helyi nev MINDIG a Drive-mappa neve -- nem lehet atirni. Boss
+    // 2026-08-15: "legyen csak ugyanaz mint fent a neten ... igy nincs
+    // keveredes." Az azonositoval megnyitott mappa nevet nem ismerjuk, ezert
+    // oda az azonosito eleje kerul: ket ilyen mappa igy sem eshet egymasra.
+    if (nameEl) nameEl.value = f.manual ? _dpSafeName(f.name + '-' + String(f.id).slice(0, 8)) : _dpSafeName(f.name)
+    if (picked) picked.textContent = t('dsync.picked', { account: account, path: f.path })
+    if (add) add.disabled = false
+  })
+}
+
+/** Nincs (mar) kivalasztott mappa: a "Hozzáadás" ilyenkor nem indulhat el. */
+function _depoClearDrivePick() {
+  const idEl = document.getElementById('depoSyncFolderId')
+  const add = document.getElementById('depoSyncAddBtn')
+  const picked = document.getElementById('depoSyncPicked')
+  const nameEl = document.getElementById('depoSyncName')
+  if (idEl) idEl.value = ''
+  if (nameEl) nameEl.value = ''
+  if (add) add.disabled = true
+  if (picked) picked.textContent = ''
+}
+
+async function _depoRefresh() {
+  // ELSOKENT es a tobbitol fuggetlenul: a Drive-fioklista nem varhat a depo
+  // allapotara (sem annak sikeressegere). Sajat hibakezelese van, ezert nem
+  // varunk ra -- a lap tobbi resze ettol nem lassul.
+  _depoLoadSyncAccounts()
+  const box = document.getElementById('depoHealthBox')
+  const text = document.getElementById('depoHealthText')
+  let d = null
+  try {
+    d = await _depoGet('/api/depot/status')
+  } catch (e) {
+    if (text) text.textContent = 'Nem sikerult lekerdezni a depo allapotat: ' + (e && e.message ? e.message : e)
+    if (box) box.classList.add('depo-bad')
+    return
+  }
+  if (text) text.textContent = d.message || ''
+  const rootDisp = document.getElementById('depoRootDisplay')
+  if (rootDisp) {
+    rootDisp.textContent = d.rootDisplay || t('picker.root_none')
+  }
+  // Egyetlen ranezesre lathato legyen, jo-e a helyzet. Ha a depo be van
+  // allitva, de nem irhato, ez a doboz piros -- es a gombok sem indulnak el.
+  if (box) box.classList.toggle('depo-bad', !!d.configured && !d.writable)
+
+  const tbl = document.getElementById('depoPhotosTable')
+  if (tbl) {
+    const rows = (d.photos || []).filter((p) => p.legacy.count || p.depot.count)
+    if (!rows.length) {
+      tbl.innerHTML = '<p class="subtitle">Nincs letöltött kép.</p>'
+    } else {
+      tbl.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+        + '<th>Fiók</th><th>Régi helyen</th><th>A depóban</th></tr></thead><tbody>'
+        + rows.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
+          + '<td>' + p.legacy.count + ' db · ' + _depoBytes(p.legacy.bytes) + '</td>'
+          + '<td>' + p.depot.count + ' db · ' + _depoBytes(p.depot.bytes) + '</td></tr>').join('')
+        + '</tbody></table></div>'
+    }
+  }
+  const mig = document.getElementById('depoMigrateBtn')
+  if (mig) mig.disabled = !d.writable
+  _depoShowJob(d.job)
+  if (d.job && d.job.running) _depoStartPoll()
+
+  let s = null
+  try { s = await _depoGet('/api/drive/sync') } catch (e) { s = null }
+  const list = document.getElementById('depoSyncList')
+  if (list && s) {
+    if (!s.pairs.length) {
+      list.innerHTML = '<p class="subtitle">Még egy Drive-mappa sincs kijelölve.</p>'
+    } else {
+      list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+        + '<th>Fiók</th><th>Mappa</th><th>Hol a gépeden</th><th>Fájl</th><th>Utoljára</th><th></th></tr></thead><tbody>'
+        // Ures nev = a TELJES Drive. Ures cella helyett ki KELL mondani, mi az.
+        + s.pairs.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
+          + '<td>' + escapeHtml(p.name || t('dsync.whole_row')) + '</td>'
+          // A HELYI utvonal. A kiszolgalo amugy is kiszamolja, es eppen ez az,
+          // amit latni kell: "a lackor2 legyen lackor2. igy nincs keveredes."
+          // Ha nincs depo, azt is kimondjuk -- nem hagyjuk uresen a cellat.
+          + '<td>' + (p.localDir ? '<code>' + escapeHtml(p.localDir) + '</code>' : '<span class="subtitle">nincs depó beállítva</span>') + '</td>'
+          + '<td>' + p.files + '</td>'
+          // A datum melle az EREDMENY is. Enelkul egy csonka ("részleges")
+          // vagy elhasalt futas ugyanugy nezne ki, mint egy sikeres -- pedig
+          // ez a mentesuk, es epp azt kell latni, megbizhatnak-e benne.
+          + '<td>' + (p.lastRunAt ? escapeHtml(String(p.lastRunAt).slice(0, 16).replace('T', ' ')) : 'még soha')
+          + (p.lastResult ? '<br><span class="subtitle">' + escapeHtml(p.lastResult) + '</span>' : '') + '</td>'
+          + '<td><button class="btn-secondary btn-compact" data-depo-unsync="' + escapeHtml(p.id) + '">Leválasztás</button></td></tr>').join('')
+        + '</tbody></table></div>'
+      list.querySelectorAll('[data-depo-unsync]').forEach((b) => {
+        b.addEventListener('click', () => _depoRemoveSync(b.getAttribute('data-depo-unsync')))
+      })
+    }
+    _depoShowSyncJob(s.job)
+    if (s.job && s.job.running) _depoStartPoll()
+  }
+}
+
+// Eppen tolt-e a fioklista? (`var`, hogy a korai hivas se dobjon hibat -- lasd
+// a _depoPoll esetet a web-boot-order.test.ts-ben.)
+var _depoAccountsLoading = false
+
+/**
+ * A Drive-fiokok legordulojet tolti fel.
+ *
+ * KULON fuggveny, es a depo-allapot lekerdezesetol FUGGETLENUL fut. Korabban ez
+ * a _depoRefresh legvegen allt: ha a /api/depot/status hibara futott (ott
+ * `return` all), a legordulo URESEN maradt, es a "Drive-mappa kiválasztása"
+ * gomb csak annyit mondott, hogy "Előbb válaszd ki, melyik fiókból nézzük" --
+ * miközben nem is volt mit valasztani. A ket dolognak semmi koze egymashoz.
+ */
+async function _depoLoadSyncAccounts() {
+  const sel = document.getElementById('depoSyncAccount')
+  if (!sel || sel.options.length || _depoAccountsLoading) return
+  // A _depoRefresh tobb helyrol is jon (Frissítés gomb, munka-figyelo, mentes
+  // utan). Ket EGYSZERRE futo toltes ujrarajzolna a legordulot, ami VISSZAALLITJA
+  // a kivalasztott fiokot az elsore -- eppen amikor a user mar mast valasztott.
+  _depoAccountsLoading = true
+  const picked = document.getElementById('depoSyncPicked')
+  try {
+    const acc = await _depoGet('/api/drive/accounts')
+    const lista = acc.accounts || []
+    sel.innerHTML = lista.map((a) => '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>').join('')
+    // Ha egyetlen fiok sincs bekotve, azt KI KELL MONDANI: ures legordulovel a
+    // user azt hinne, elromlott valami.
+    if (!lista.length && picked) picked.textContent = t('dsync.no_accounts')
+  } catch (e) {
+    // Nema nyeles helyett latszik a hiba oka -- kulonben csak egy ures
+    // legordulot lat, es nincs mibol kitalalnia, mi a teendo.
+    if (picked) picked.textContent = t('dsync.accounts_failed', { error: (e && e.message) ? e.message : String(e) })
+  } finally {
+    // Hiba utan is fel kell oldani, kulonben a Frissítés gomb sem probalna ujra.
+    _depoAccountsLoading = false
+  }
+}
+
+function _depoShowJob(job) {
+  const el = document.getElementById('depoMigrateStatus')
+  if (!el) return
+  if (!job) { el.textContent = ''; return }
+  if (job.running) {
+    el.textContent = 'Költöztetés: ' + job.moved + '/' + job.total + ' fájl · ' + _depoBytes(job.bytes)
+      + (job.current ? ' · ' + job.current : '')
+  } else {
+    el.textContent = 'Kész: ' + job.moved + ' áthelyezve, ' + job.alreadyThere + ' már ott volt'
+      + (job.failed ? ', ' + job.failed + ' nem sikerült (a régi helyén maradt)' : '')
+  }
+}
+
+function _depoShowSyncJob(job) {
+  const el = document.getElementById('depoSyncStatus')
+  if (!el) return
+  if (!job) { el.textContent = ''; return }
+  // A szinkron 2026-08-15 ota KETIRANYU. Ha csak a letoltest mutatnank, a
+  // felhasznalo nem latna, hogy a Marveen IRT is a Drive-jara -- pedig eppen
+  // azt kell tudnia ellenorizni.
+  const fel = job.uploaded || 0
+  const kuka = job.trashed || 0
+  if (job.running) {
+    el.textContent = 'Szinkronizálás: ' + job.downloaded + ' lejött, ' + fel + ' felment · ' + _depoBytes(job.bytes)
+      + (job.current ? ' · ' + job.current : '')
+  } else {
+    el.textContent = 'Kész: ' + job.downloaded + ' letöltve, ' + fel + ' feltöltve, '
+      + job.upToDate + ' már naprakész volt'
+      + (kuka ? ', ' + kuka + ' a Drive Kukájába került' : '')
+      + (job.failed ? ', ' + job.failed + ' nem sikerült' : '')
+  }
+  // A vészfék NEM sikkadhat el a sor vegen: ilyenkor a Drive es a gep NEM
+  // egyezik, es a felhasznalonak kozbe kell lepnie.
+  const fek = document.getElementById('depoSyncBrake')
+  if (fek) {
+    if (job.deleteBrake) {
+      fek.textContent = '⚠ Vészfék: ' + job.deleteBrake.wouldDelete + ' fájl hiányzik a gépedről a '
+        + job.deleteBrake.tracked + '-ból. Ennyit nem törlök a Drive-on magamtól — '
+        + 'ellenőrizd, hogy a depó lemeze a helyén van-e, aztán indítsd újra.'
+      fek.style.display = ''
+    } else {
+      fek.style.display = 'none'
+    }
+  }
+}
+
+// Amig fut valami, masodpercenkent kerdezunk. A poll leall, ha mindketto
+// befejezodott -- egy uresen ketyego idozito feleslegesen ebreszti a gepet.
+function _depoStartPoll() {
+  if (_depoPoll) return
+  _depoPoll = setInterval(async () => {
+    let a = null
+    let b = null
+    try { a = (await _depoGet('/api/depot/migrate')).job } catch (e) { /* atmeneti hiba: kovetkezo korben ujra */ }
+    try { b = (await _depoGet('/api/drive/sync')).job } catch (e) { /* ugyanaz */ }
+    _depoShowJob(a)
+    _depoShowSyncJob(b)
+    if (!(a && a.running) && !(b && b.running)) { _depoStopPoll(); _depoRefresh() }
+  }, 1500)
+}
+
+async function _depoStartMigrate() {
+  const btn = document.getElementById('depoMigrateBtn')
+  if (btn) btn.disabled = true
+  try {
+    const r = await _depoPost('/api/depot/migrate', {})
+    _depoShowJob(r.job)
+    _depoStartPoll()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült elindítani a költöztetést')
+    if (btn) btn.disabled = false
+  }
+}
+
+async function _depoAddSync() {
+  const account = (document.getElementById('depoSyncAccount') || {}).value || ''
+  const folderId = ((document.getElementById('depoSyncFolderId') || {}).value || '').trim()
+  // A nevet a valaszto tolti ki (a Drive-mappa nevevel), rejtett mezobe: senki
+  // nem gepeli es nem is irja at.
+  const name = ((document.getElementById('depoSyncName') || {}).value || '').trim()
+  // Az azonositot mar nem gepeli senki: ha nincs, akkor a valasztas hianyzik.
+  if (!folderId) { showToast(t('dsync.pick_first')); return }
+  try {
+    await _depoPost('/api/drive/sync/add', { account, folderId, name })
+    _depoClearDrivePick()
+    await _depoRefresh()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('dsync.add_failed'))
+  }
+}
+
+async function _depoRemoveSync(id) {
+  if (!confirm('Leválasztod ezt a mappát? A már letöltött fájlok a gépeden maradnak.')) return
+  try {
+    await _depoPost('/api/drive/sync/remove', { id })
+    await _depoRefresh()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült leválasztani')
+  }
+}
+
+async function _depoRunSync() {
+  const btn = document.getElementById('depoSyncRunBtn')
+  if (btn) btn.disabled = true
+  try {
+    const r = await _depoPost('/api/drive/sync/run', {})
+    _depoShowSyncJob(r.job)
+    _depoStartPoll()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült elindítani a szinkronizálást')
+  } finally {
+    if (btn) btn.disabled = false
+  }
+}
