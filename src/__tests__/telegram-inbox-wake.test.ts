@@ -5,7 +5,7 @@
 // (hasPending + age + debounce + session-exists + session-idle) are exercised.
 
 import { describe, it, expect } from 'vitest'
-import { shouldWakeForTelegramInbox, wakeBackoffMs } from '../web/telegram-inbox-wake.js'
+import { shouldWakeForTelegramInbox, wakeBackoffMs, inboxStuckEscalation } from '../web/telegram-inbox-wake.js'
 
 const BASE = {
   inboxAgeMs: 60_000,
@@ -82,5 +82,58 @@ describe('wakeBackoffMs (exponential gap with cap)', () => {
   })
   it('never exceeds the cap', () => {
     expect(wakeBackoffMs(10, 60_000, 30 * 60_000)).toBe(30 * 60_000)
+  })
+})
+
+// The failure this covers is not "the nudge did not fire" but "nobody could tell
+// that it did not". Boss, 2026-08-16: two Telegram messages sat in
+// inbox-pending.jsonl for ten minutes behind a silent `continue`, and he had to
+// open the agent's terminal by hand to get an answer. Every decline is now
+// accounted for: a throttled warn line, and past the alert age one message to the
+// main agent per stranded backlog.
+const ESC = {
+  inboxAgeMs: 120_000,
+  now: 1_000_000_000,
+  lastSkipLogAt: undefined as number | undefined,
+  alertedMtimeMs: undefined as number | undefined,
+  mtimeMs: 500,
+  warnMs: 60_000,
+  skipLogMs: 30_000,
+  alertMs: 180_000,
+}
+
+describe('inboxStuckEscalation (pure: does the owner get told?)', () => {
+  it('stays quiet while the wait is still normal', () => {
+    expect(inboxStuckEscalation({ ...ESC, inboxAgeMs: 59_999 })).toEqual({ log: false, alert: false })
+  })
+
+  it('logs once the inbox has sat past the warn age', () => {
+    expect(inboxStuckEscalation(ESC)).toEqual({ log: true, alert: false })
+  })
+
+  it('throttles the log so a stuck inbox cannot flood the file', () => {
+    const justLogged = { ...ESC, lastSkipLogAt: ESC.now - 29_999 }
+    expect(inboxStuckEscalation(justLogged).log).toBe(false)
+    expect(inboxStuckEscalation({ ...justLogged, lastSkipLogAt: ESC.now - 30_000 }).log).toBe(true)
+  })
+
+  it('alerts the main agent once the message is old enough to matter', () => {
+    expect(inboxStuckEscalation({ ...ESC, inboxAgeMs: 180_000 }).alert).toBe(true)
+  })
+
+  it('alerts only ONCE for the same backlog', () => {
+    const alerted = { ...ESC, inboxAgeMs: 600_000, alertedMtimeMs: ESC.mtimeMs }
+    expect(alerted.alertedMtimeMs).toBe(ESC.mtimeMs)
+    expect(inboxStuckEscalation(alerted).alert).toBe(false)
+  })
+
+  it('alerts again when a NEW message arrives (mtime advances)', () => {
+    const fresh = { ...ESC, inboxAgeMs: 600_000, alertedMtimeMs: ESC.mtimeMs, mtimeMs: ESC.mtimeMs + 1 }
+    expect(inboxStuckEscalation(fresh).alert).toBe(true)
+  })
+
+  it('never alerts without logging first -- the log is the cheaper signal', () => {
+    const r = inboxStuckEscalation({ ...ESC, inboxAgeMs: 600_000 })
+    expect(r.alert && !r.log).toBe(false)
   })
 })
