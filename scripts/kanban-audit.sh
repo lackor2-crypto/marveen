@@ -53,8 +53,26 @@ TOKEN="$(cat "$TOKEN_FILE")"
 export API TOKEN
 cards="$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$API/api/kanban" 2>/dev/null)" || exit 0
 [ -n "$cards" ] || exit 0
+approvals="$(curl -s --max-time 20 -H "Authorization: Bearer $TOKEN" "$API/api/approvals" 2>/dev/null)"
+[ -n "$approvals" ] || approvals='[]'
 
-report="$(printf '%s' "$cards" | STALE_DAYS="$STALE_DAYS" python3 -c '
+# Boss's rule, 2026-08-16: as many pending approvals as there are waiting cards,
+# paired one to one. Answered by the SERVER's own function
+# (waitingApprovalBalance in src/kanban-related.ts) rather than by a second
+# implementation here -- the hand-written measurement that first found this
+# imbalance matched on action_payload alone and reported cards as orphans that
+# already had an approval carrying their id in the description text.
+#
+# tsx runs the TypeScript source directly, so the check does not go stale
+# waiting for a build. If tsx is missing the balance section is simply absent;
+# the rest of the sweep still reports, because a partial audit beats none.
+balance=''
+if [ -x "$BASE/node_modules/.bin/tsx" ]; then
+  balance="$(printf '{"cards":%s,"approvals":%s}' "$cards" "$approvals" \
+    | "$BASE/node_modules/.bin/tsx" "$BASE/scripts/kanban-approval-balance.ts" 2>/dev/null)"
+fi
+
+report="$(printf '%s' "$cards" | STALE_DAYS="$STALE_DAYS" BALANCE="$balance" python3 -c '
 import json, os, sys, time
 
 try:
@@ -74,51 +92,17 @@ stuck = [
     if c.get("status") == "in_progress" and (c.get("updated_at") or 0) < stale_cutoff
 ]
 
-# waiting cards are, by the workflow, supposed to have an approval pending.
-waiting = [c for c in cards if c.get("status") == "waiting"]
-
-approvals = []
-try:
-    import urllib.request
-    req = urllib.request.Request(
-        os.environ.get("API", "http://localhost:3420") + "/api/approvals",
-        headers={"Authorization": "Bearer " + os.environ.get("TOKEN", "")},
-    )
-    with urllib.request.urlopen(req, timeout=20) as r:
-        raw = json.load(r)
-        approvals = raw if isinstance(raw, list) else raw.get("approvals", [])
-except Exception:
-    approvals = []
-
-pending_card_ids = set()
-for a in approvals:
-    if a.get("status") != "pending":
-        continue
-    payload = a.get("action_payload") or ""
-    try:
-        cid = json.loads(payload).get("kanban_card_id")
-        if cid:
-            pending_card_ids.add(cid)
-    except Exception:
-        pass
-    desc = a.get("action_description") or ""
-    for tok in desc.split():
-        t = tok.strip("(),.\"")
-        if len(t) == 8 and all(ch in "0123456789abcdef" for ch in t.lower()):
-            pending_card_ids.add(t)
-
-# A waiting card with no pending approval is the exact failure Boss caught:
-# the work is parked as "done enough to wait" and nobody is being asked.
-orphan_waiting = [
-    c for c in waiting
-    if not any(c["id"].startswith(p) or p.startswith(c["id"]) for p in pending_card_ids)
-]
-
+# The waiting/approval pairing is NOT decided here any more: it is answered by
+# waitingApprovalBalance on the server side, via scripts/kanban-approval-balance.ts,
+# and passed in as $BALANCE. (No apostrophes in this block: it is a single-quoted
+# shell string, and one stray quote ends the program mid-comment.)
+# Two implementations of "does this approval belong
+# to this card" would drift, and the drift is silent -- one side calls a card
+# submitted while the other calls it an orphan.
 lines = []
-if orphan_waiting:
-    lines.append("VARAKOZO, DE NINCS JOVAHAGYAS-KERES (%d):" % len(orphan_waiting))
-    for c in orphan_waiting[:10]:
-        lines.append("  #%s %s -- %s" % (c.get("seq"), c["id"][:8], (c.get("title") or "")[:60]))
+balance = os.environ.get("BALANCE", "").strip()
+if balance:
+    lines.append(balance)
 if stuck:
     lines.append("FOLYAMATBAN %d+ NAPJA MOZDULATLAN (%d):" % (stale_days, len(stuck)))
     for c in stuck[:10]:

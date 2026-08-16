@@ -171,6 +171,101 @@ export function crossLinkLine(cards: RelatedCandidate[]): string {
   return `Kapcsolodo kartya: ${refs}.`
 }
 
+/**
+ * Boss's rule, 2026-08-16: "a varakozoban levo elemek szamanak meg kell
+ * egyeznie pontosan mint a jovahagyasban levo varakozo statusz szamaval."
+ *
+ * A `waiting` card MEANS "the work is finished, somebody has to decide". If no
+ * pending approval belongs to it, nobody is being asked and the card sits in
+ * silence -- which is exactly what he found on the live board: 11 waiting cards
+ * and 5 pending approvals, of which only 4 actually paired up.
+ *
+ * The pairing MUST use approvalCardId, not the raw action_payload: approvals
+ * raised by hand carry the card id only in the description text, and a check
+ * built on the payload alone reports them as orphans. That false alarm was made
+ * once already while measuring this very imbalance, and a guard that cries wolf
+ * is a guard people learn to ignore.
+ *
+ * Pure on purpose: the same function answers for the live board (the audit
+ * sweep) and for the test suite, so the rule cannot pass in one and fail in the
+ * other. It only REPORTS -- deciding whether a waiting card is genuinely
+ * finished needs judgement about the code behind it, which neither a cron job
+ * nor a test has.
+ */
+export interface BalanceCard {
+  id: string
+  seq?: number | null
+  title?: string
+  status: string
+}
+
+export interface BalanceApproval {
+  id: string
+  status?: string
+  action_payload?: unknown
+  action_description?: string
+}
+
+/** Why a pending approval has no waiting card behind it. */
+export type UnpairedApprovalReason = 'no-card' | 'unknown-card' | 'card-not-waiting'
+
+export interface WaitingApprovalBalance {
+  waitingCount: number
+  pendingCount: number
+  balanced: boolean
+  /** Waiting cards nobody is being asked about. */
+  waitingWithoutApproval: BalanceCard[]
+  /** Pending approvals whose card is missing, unknown, or no longer waiting. */
+  pendingWithoutWaitingCard: Array<{
+    approval: BalanceApproval
+    cardId: string | null
+    reason: UnpairedApprovalReason
+    cardStatus?: string
+  }>
+}
+
+/** The same prefix-tolerant match the server uses (ids appear truncated to 8 hex). */
+function sameCard(cardId: string, approvalRef: string): boolean {
+  return cardId === approvalRef || cardId.startsWith(approvalRef) || approvalRef.startsWith(cardId)
+}
+
+export function waitingApprovalBalance(
+  cards: BalanceCard[],
+  approvals: BalanceApproval[],
+): WaitingApprovalBalance {
+  const pending = approvals.filter(a => (a.status ?? 'pending') === 'pending')
+  const waiting = cards.filter(c => c.status === 'waiting')
+
+  const refs = pending.map(a => ({
+    approval: a,
+    cardId: approvalCardId(a.action_payload, a.action_description || ''),
+  }))
+
+  const waitingWithoutApproval = waiting.filter(
+    c => !refs.some(r => r.cardId != null && sameCard(c.id, r.cardId)),
+  )
+
+  // A visszateresi tipust KI KELL irni: a harom ag harom kulonbozo alakot ad, es
+  // a flatMap ilyenkor az ELSO agbol vezeti le a tipust (cardId: null), amitol a
+  // masik ketto -- ahol a cardId string -- forditasi hibat okoz.
+  type Parositatlan = WaitingApprovalBalance['pendingWithoutWaitingCard'][number]
+  const pendingWithoutWaitingCard = refs.flatMap((r): Parositatlan[] => {
+    if (r.cardId == null) return [{ approval: r.approval, cardId: null, reason: 'no-card' as const }]
+    const card = cards.find(c => sameCard(c.id, r.cardId!))
+    if (!card) return [{ approval: r.approval, cardId: r.cardId, reason: 'unknown-card' as const }]
+    if (card.status === 'waiting') return []
+    return [{ approval: r.approval, cardId: r.cardId, reason: 'card-not-waiting' as const, cardStatus: card.status }]
+  })
+
+  return {
+    waitingCount: waiting.length,
+    pendingCount: pending.length,
+    balanced: waitingWithoutApproval.length === 0 && pendingWithoutWaitingCard.length === 0,
+    waitingWithoutApproval,
+    pendingWithoutWaitingCard,
+  }
+}
+
 /** Append a cross-link line without duplicating one that is already there. */
 export function withCrossLink(description: string, cards: RelatedCandidate[]): string {
   const line = crossLinkLine(cards)

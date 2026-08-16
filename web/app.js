@@ -2774,21 +2774,45 @@ async function showCardDetail(card) {
     requestApprovalBtn.style.display = card.status === 'waiting' ? '' : 'none'
     requestApprovalBtn.onclick = async () => {
       requestApprovalBtn.disabled = true
+      // The server refuses to close a card while similar cards are still open,
+      // and it hands back the list (src/kanban-related.ts, similarCardsBeforeClose).
+      // `similar_reviewed` is the answer to that question -- and ANY array counts
+      // as "I have seen the list", including an empty one.
+      //
+      // So sending a hardcoded [] would make the button assert, on the user's
+      // behalf, that he read a list he was never shown. That is worse than the
+      // 400 it replaced: the check would still exist on paper while nobody is
+      // ever asked. The request therefore goes out WITHOUT the field, and only
+      // if the server objects do we show him the actual cards and let him answer.
+      const post = (reviewed) => fetch('/api/approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agent_id: card.assignee || mainAgentId(),
+          category: 'kanban_done',
+          action_description: `Kártya kész, jóváhagyásra vár: "${card.title}"`,
+          action_payload: JSON.stringify({ kanban_card_id: card.id }),
+          ...(reviewed ? { similar_reviewed: reviewed } : {}),
+        }),
+      })
       try {
-        const res = await fetch('/api/approvals', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agent_id: card.assignee || mainAgentId(),
-            category: 'kanban_done',
-            action_description: `Kártya kész, jóváhagyásra vár: "${card.title}"`,
-            action_payload: JSON.stringify({ kanban_card_id: card.id }),
-            similar_reviewed: [],
-          }),
-        })
+        let res = await post(null)
         if (!res.ok) {
           const errBody = await res.json().catch(() => ({}))
-          throw new Error(errBody.error || 'request failed')
+          const similar = Array.isArray(errBody.similar) ? errBody.similar : []
+          if (similar.length === 0) throw new Error(errBody.error || 'request failed')
+          // Plain language on purpose: the owner is not a programmer and must not
+          // meet the words "similar_reviewed" or a raw 400 anywhere.
+          const list = similar.map((c) => `  ${c.seq != null ? '#' + c.seq : c.id} ${c.title}`).join('\n')
+          if (!confirm(`${t('kanban.approval.similar_intro')}\n\n${list}\n\n${t('kanban.approval.similar_ask')}`)) {
+            showToast(t('kanban.toast.approval_cancelled'))
+            return
+          }
+          res = await post(similar.map((c) => c.id))
+          if (!res.ok) {
+            const second = await res.json().catch(() => ({}))
+            throw new Error(second.error || 'request failed')
+          }
         }
         showToast(t('kanban.toast.approval_requested'))
         closeModal(cardDetailOverlay)
