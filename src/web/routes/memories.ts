@@ -160,8 +160,8 @@ Tiers:
 - cold: long-term lessons, historical decisions, archive
 - shared: information relevant to multiple agents
 
-Respond ONLY with JSON, nothing else:
-{"tier": "warm", "keywords": "keyword1, keyword2, keyword3"}`,
+Respond ONLY with JSON, nothing else. Replace every <...> placeholder:
+{"tier": "<hot|warm|cold|shared>", "keywords": "<keyword1, keyword2, keyword3>"}`,
             stream: false,
           }),
           signal: controller.signal,
