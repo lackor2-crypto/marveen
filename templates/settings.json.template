@@ -107,6 +107,11 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/channel-inbox-stop-drain.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/channel-inbox-stop-drain.py; exit 0'",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/telegram_progress_clear.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/telegram_progress_clear.py; exit 0'",
             "timeout": 15
           },

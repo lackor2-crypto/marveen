@@ -21,6 +21,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const HOOKS = [
   'precompact-checkpoint.py',
   'channel-inbox-drain.py',
+  'channel-inbox-stop-drain.py',
 ]
 
 describe('python hook self-tests', () => {

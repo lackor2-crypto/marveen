@@ -36,6 +36,7 @@ export const KNOWN_HOOK_SCRIPTS: readonly string[] = [
   'telegram_progress_watchdog.py',
   'inbox-drain.py',
   'channel-inbox-drain.py',
+  'channel-inbox-stop-drain.py',
   'ledger-capture.py',
 ]
 
