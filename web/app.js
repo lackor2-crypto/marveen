@@ -19747,10 +19747,18 @@ function buildSettingRow(def) {
   const title = document.createElement('div')
   title.className = 'settings-row-key'
   title.textContent = def.key
-  if (def.requiresRestart) {
+  // A sarga jelvény ALLAPOT, nem cimke. Boss (2026-08-16): "sokszor ujra lett
+  // mar inditva a marvin es megis itt vannak ezek a sarga betuk." Addig volt
+  // ott, amig a beallitas DEFINICIOJA azt mondta hogy ujraindulast igenyel --
+  // vagyis mindig, orokre, ujrainditastol fuggetlenul. Mostantol a szerver
+  // mondja meg (restartPending), hogy a FUTO folyamat tenyleg elavult ertekkel
+  // dolgozik-e, es a szoveg megnevezi, MIT kell ujrainditani.
+  if (def.requiresRestart && def.restartPending) {
     const badge = document.createElement('span')
     badge.className = 'settings-restart-badge'
-    badge.textContent = t('settings.restart_badge')
+    // Rovid felirat: a jelveny `white-space: nowrap`, egy egesz mondat
+    // kilogna a sorbol. A MIT es a HOGYAN a sor aljan all, a gomb mellett.
+    badge.textContent = t('settings.restart_badge_pending')
     title.appendChild(badge)
   }
   info.appendChild(title)
@@ -19759,6 +19767,17 @@ function buildSettingRow(def) {
   desc.className = 'settings-row-desc'
   desc.textContent = t('settings.desc.' + def.key) || def.description
   info.appendChild(desc)
+
+  // Nincs fuggo valtozas: az informacio nem tunik el, de nem is kiabal --
+  // semleges, halvany sorban all ott, hogy ha egyszer atirod, mit kell majd
+  // ujrainditani. Egy allando figyelmeztetes megtanitja a felhasznalot arra,
+  // hogy a sarga nem jelent semmit.
+  if (def.requiresRestart && !def.restartPending) {
+    const hint = document.createElement('div')
+    hint.className = 'settings-row-meta'
+    hint.textContent = t('settings.restart_hint_idle', { target: restartTargetName(def.restartTarget) })
+    info.appendChild(hint)
+  }
 
   const meta = document.createElement('div')
   meta.className = 'settings-row-meta'
@@ -19771,6 +19790,15 @@ function buildSettingRow(def) {
   metaParts.push(t('settings.meta.default') + ': ' + def.default)
   meta.textContent = metaParts.join(' · ')
   info.appendChild(meta)
+
+  // Fuggo valtozasnal ott a GOMB is, pont ahhoz a folyamathoz amelyik elavult.
+  // Nem kell megkeresni sehol: ott van a sor aljan, ahol a valtoztatas tortent.
+  if (def.requiresRestart && def.restartPending) {
+    const slot = document.createElement('div')
+    slot.className = 'settings-row-restart'
+    info.appendChild(slot)
+    void mountSettingRestartAction(slot, def)
+  }
 
   row.appendChild(info)
 
@@ -25556,6 +25584,73 @@ async function doSystemRestart(btn, status, oldStartedAt) {
   // 90 masodperc utan sem jott vissza: ezt is kimondjuk, nem porgunk tovabb.
   say(t('restart.timeout'))
   btn.disabled = false
+}
+
+// ===========================================================================
+// "Mit kell ujrainditani?" -- a Beallitasok sorainak sajat gombja
+//
+// Boss (2026-08-16): "tegyel egy gombot oda a beallitasokba illetve minden
+// ilyen helyre ahol ezt irjatok ki hogy ujrainditas utan lep eletbe."
+//
+// Nem eleg EGY gomb: nem minden beallitas ugyanabban a folyamatban el. Az
+// OLLAMA_URL-t a vezerlopult olvassa, a MAIN_AGENT_CONFIG_DIR-t viszont a fo
+// agens sajat folyamata -- a vezerlopult ujrainditasa azon semmit nem valtoztat.
+// Ezert minden sor a SAJAT celpontjahoz kap gombot, a `restartTarget` alapjan
+// (src/config-registry.ts), es a gomb felirata megnevezi, mit indit ujra.
+// ===========================================================================
+
+/** A celpont ember-olvashato neve, a telepites sajat elnevezeseivel. */
+function restartTargetName(target) {
+  if (target === 'main-agent') return t('restart.target.main_agent', { bot: mainAgentDisplayName() })
+  if (target === 'dashboard+agents') return t('restart.target.dashboard_agents')
+  if (target === 'dashboard+heartbeat') return t('restart.target.dashboard_heartbeat')
+  // Ismeretlen/hianyzo celpont eseten a vezerlopult a biztonsagos valasz: az
+  // beallitasok tulnyomo tobbsege ott el, es a szoveg igy sem allit valotlant.
+  return t('restart.target.dashboard')
+}
+
+/** A sorhoz tartozo ujrainditas-vezerlot teszi `slot`-ba, celpont szerint. */
+async function mountSettingRestartAction(slot, def) {
+  if (!slot) return
+  const target = def.restartTarget || 'dashboard'
+  const targetName = restartTargetName(target)
+
+  if (target === 'main-agent') {
+    slot.innerHTML = '<p class="subtitle" style="margin:0 0 8px">'
+      + escapeHtml(t('restart.row_note', { target: targetName })) + '</p>'
+      + '<button class="btn-primary" data-agent-restart-btn>'
+      + escapeHtml(t('restart.btn_target', { target: targetName })) + '</button>'
+    const btn = slot.querySelector('[data-agent-restart-btn]')
+    btn.addEventListener('click', async () => {
+      if (!confirm(t('agents.confirm.hard_restart'))) return
+      btn.disabled = true
+      try {
+        const res = await fetch('/api/marveen/restart', { method: 'POST' })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}))
+          throw new Error(err.error || t('agents.toast.restart_failed'))
+        }
+        showToast(t('agents.toast.marveen_restarted'))
+      } catch (err) {
+        showToast(err && err.message ? err.message : t('agents.toast.restart_failed'))
+      } finally {
+        btn.disabled = false
+      }
+    })
+    return
+  }
+
+  // Minden mas celpont a vezerlopultot inditja ujra. Ahol ez nem eleg
+  // (dashboard+agents), ott a MASODIK lepest is kimondjuk -- kulonben a
+  // felhasznalo azt hinne, hogy a gomb utan mar kesz van.
+  await mountRestartButton(slot, t('restart.row_note', { target: targetName }))
+  if (target === 'dashboard+agents') {
+    const second = document.createElement('p')
+    second.className = 'subtitle'
+    second.style.margin = '8px 0 0'
+    second.textContent = t('restart.second_step_agents')
+    slot.appendChild(second)
+  }
 }
 
 // ===========================================================================

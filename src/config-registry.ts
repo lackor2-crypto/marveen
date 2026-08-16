@@ -17,6 +17,24 @@ export const DISTRIBUTION_DEFAULT_AGENT_MODEL = 'claude-opus-4-8[1m]'
 
 export type SettingType = 'int' | 'string' | 'color' | 'boolean'
 
+/**
+ * WHAT has to be restarted for a changed value to take effect.
+ *
+ * Boss, 2026-08-16: "sokszor ujra lett mar inditva a marvin es megis itt vannak
+ * ezek a sarga betuk." He was restarting the wrong thing, and the label could
+ * not have told him otherwise -- it only ever said "after a restart", never
+ * whose. Three different processes read these keys, and `requiresRestart: true`
+ * flattens all three into one word.
+ *
+ *   'dashboard'          the control panel process itself (POST /api/system/restart)
+ *   'main-agent'         only the main agent's channels session; restarting the
+ *                        control panel does nothing at all for these
+ *   'dashboard+agents'   the value is also baked into the agents' CLAUDE.md by
+ *                        the scaffold, so each agent picks it up on ITS next start
+ *   'dashboard+heartbeat' same, but only the heartbeat sub-agent is affected
+ */
+export type RestartTarget = 'dashboard' | 'main-agent' | 'dashboard+agents' | 'dashboard+heartbeat'
+
 export interface SettingDefinition {
   key: string
   type: SettingType
@@ -25,6 +43,11 @@ export interface SettingDefinition {
   module: string
   secret: boolean
   requiresRestart: boolean
+  /**
+   * Required whenever requiresRestart is true (enforced by
+   * src/__tests__/settings-restart-target.test.ts). Meaningless otherwise.
+   */
+  restartTarget?: RestartTarget
   /** Optional fixed set of allowed values (enum-style settings). */
   valueSet?: string[]
   /** Inclusive bounds, only meaningful for type 'int'. */
@@ -250,6 +273,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'system',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'dashboard+agents',
   },
   {
     key: 'OLLAMA_URL',
@@ -259,6 +283,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'system',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'dashboard',
   },
   {
     key: 'DASHBOARD_LANG',
@@ -298,10 +323,11 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     type: 'string',
     default: '1',
     valueSet: ['0', '1'],
-    description: 'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva (újraindítás után lép életbe).',
+    description: 'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva.',
     module: 'heartbeat',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'dashboard',
   },
   {
     key: 'HEARTBEAT_CALENDAR_ACCOUNT',
@@ -313,6 +339,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     // Consumed as a boot-time const (src/config.ts) -- a saved override takes
     // effect on the next restart, and the UI must say so.
     requiresRestart: true,
+    restartTarget: 'dashboard+heartbeat',
   },
   {
     key: 'HEARTBEAT_CALENDAR_ID',
@@ -323,6 +350,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     // Boot-time const, see HEARTBEAT_CALENDAR_ACCOUNT above.
     requiresRestart: true,
+    restartTarget: 'dashboard',
   },
   {
     key: 'IDEA_BREAKDOWN_MAX_SUBTASKS',
@@ -390,6 +418,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'channels',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'main-agent',
   },
   {
     key: 'MAIN_AGENT_CONFIG_DIR',
@@ -399,6 +428,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'channels',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'main-agent',
   },
   // --- System module ---
   {
@@ -409,6 +439,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'system',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'dashboard+agents',
     valueSet: ['Europe/London', 'Europe/Budapest', 'UTC', 'Europe/Dublin', 'Europe/Berlin', 'Europe/Bucharest', 'America/New_York'],
   },
   {
@@ -419,6 +450,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'agents',
     secret: false,
     requiresRestart: true,
+    restartTarget: 'dashboard',
     valueSet: [
       'claude-opus-5',
       'claude-sonnet-5',
