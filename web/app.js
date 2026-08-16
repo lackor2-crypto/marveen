@@ -2792,7 +2792,7 @@ async function showCardDetail(card) {
           category: 'kanban_done',
           action_description: `Kártya kész, jóváhagyásra vár: "${card.title}"`,
           action_payload: JSON.stringify({ kanban_card_id: card.id }),
-          ...(reviewed ? { similar_reviewed: reviewed } : {}),
+          similar_reviewed: reviewed ?? [],
         }),
       })
       try {
@@ -2817,7 +2817,9 @@ async function showCardDetail(card) {
         showToast(t('kanban.toast.approval_requested'))
         closeModal(cardDetailOverlay)
       } catch (err) {
-        showToast(err?.message || t('kanban.toast.approval_error'))
+        let errMsg = t('kanban.toast.approval_error')
+        if (err instanceof Error) errMsg = err.message
+        showToast(errMsg)
       } finally {
         requestApprovalBtn.disabled = false
       }
@@ -11512,20 +11514,44 @@ async function _photosStartPicker() {
 let _photosPollGen = 0
 
 /**
- * Mi tortent a behozatalkor -- emberi mondatban.
+ * Mi tortent a behozatalkor -- emberi mondatban, TELJES elszamolassal.
  *
  * A "duplikatum" nem hiba, es nem is elhagyhato reszlet: ha a Boss kivalaszt
  * tiz kepet es csak harom jon be, tudnia kell, hogy a tobbi mar itt volt, nem
  * pedig elveszett. (Boss, 2026-08-15: "duplikatumokat ne toltson le".)
+ *
+ * 2026-08-16: a regi valtozat NEM szamolt el a kijelolessel. 194 kijelolt kepbol
+ * nulla jott le, es a felulet ebbol annyit mondott, hogy kesz -- a Boss meg azt
+ * latta, hogy "a fotokba nem jott le semmilyen foto". Ezert most a kijelolt
+ * darabszambol INDUL az uzenet, es minden szal el van szamolva:
+ *   kijelolt = uj + mar megvolt + egyforma + nem sikerult.
+ * Ha ez nem jon ki, a maradek is kiirodik -- inkabb legyen csunya a mondat,
+ * mint hazug.
  */
 function _photosAddedMsg(data) {
-  const dup = Number(data.duplicates) || 0
-  const cleaned = Number(data.cleaned) || 0
+  const selected = Number(data.selected) || 0
   const saved = Number(data.saved) || 0
-  let msg
-  if (saved > 0) msg = dup ? t('photos.added_with_dup', { count: saved, dup }) : t('photos.added', { count: saved })
-  else msg = dup ? t('photos.added_only_dup', { dup }) : t('photos.added_none')
-  return cleaned ? `${msg} ${t('photos.cleaned', { count: cleaned })}` : msg
+  const already = Number(data.already) || 0
+  const dup = Number(data.duplicates) || 0
+  const failed = Number(data.failed) || 0
+  const cleaned = Number(data.cleaned) || 0
+  if (!selected && !saved && !already && !dup && !failed) return t('photos.added_none')
+  const parts = []
+  parts.push(saved ? t('photos.result.saved', { count: saved }) : t('photos.result.nothing_new'))
+  if (already) parts.push(t('photos.result.already', { count: already }))
+  if (dup) parts.push(t('photos.result.duplicates', { count: dup }))
+  if (failed) parts.push(t('photos.result.failed', { count: failed }))
+  // Ami egyik szalba sem fert bele: sosem hallgatjuk el. Ha ez nem nulla, az
+  // magaban is hibajelzes -- valami elveszett a szamolas kozben.
+  const rest = selected - saved - already - dup - failed
+  if (rest > 0) parts.push(t('photos.result.unaccounted', { count: rest }))
+  let msg = selected
+    ? `${t('photos.result.head', { selected })} ${parts.join(', ')}.`
+    : `${parts.join(', ')}.`
+  if (cleaned) msg += ` ${t('photos.cleaned', { count: cleaned })}`
+  // A lista nem jott vegig: a `selected` KEVESEBB, mint amit kijeloltek.
+  if (data.partial) msg += ` ${t('photos.result.partial')}`
+  return msg
 }
 
 function _photosPoll(sessionId, intervalMs) {
@@ -26002,6 +26028,14 @@ async function loadDepoPage() {
     acc._depoBound = 1
     acc.addEventListener('change', () => _depoClearDrivePick())
   }
+  // A ket veszelyes kapcsolo. `change`, nem `click`: billentyuzetrol is jarhato.
+  ;['depoSyncUpload', 'depoSyncDeleteUp'].forEach((id) => {
+    const el = document.getElementById(id)
+    if (el && !el._depoBound) {
+      el._depoBound = 1
+      el.addEventListener('change', () => _depoSaveSyncSettings())
+    }
+  })
   _depoClearDrivePick()
   await _depoRefresh()
 }
@@ -26110,6 +26144,22 @@ async function _depoRefresh() {
 
   let s = null
   try { s = await _depoGet('/api/drive/sync') } catch (e) { s = null }
+  // A ket kapcsolo allasat a KISZOLGALO mondja meg, nem a HTML-be irt alapertek.
+  // Kulonben minden oldalfrissites utan "be"-t mutatna, akkor is, ha ki van
+  // kapcsolva -- es a user azt hinne, felmegy a munkaja, pedig nem.
+  if (s) {
+    const up = document.getElementById('depoSyncUpload')
+    const del = document.getElementById('depoSyncDeleteUp')
+    if (up) up.checked = s.upload !== false
+    if (del) {
+      del.checked = s.deleteUp !== false
+      // A torles-atvitel a felmeno ag RESZE: ha az ki van kapcsolva, ez a
+      // kapcsolo nem csinal semmit. Ne ugy alljon ott, mintha mukodne.
+      del.disabled = s.upload === false
+      const cim = del.closest('label')
+      if (cim) cim.style.opacity = del.disabled ? '.5' : ''
+    }
+  }
   const list = document.getElementById('depoSyncList')
   if (list && s) {
     if (!s.pairs.length) {
@@ -26138,6 +26188,18 @@ async function _depoRefresh() {
     }
     _depoShowSyncJob(s.job)
     if (s.job && s.job.running) _depoStartPoll()
+  }
+  // Serult beallitas-fajl: a lista ilyenkor URESEN all. Magyarazat nelkul ez ugy
+  // nez ki, mintha a felhasznalo maga valasztotta volna le a mappait. Ez a
+  // figyelmeztetes a vészfék-doboz UTAN all be, hogy ne nyomja el a job-uzenet.
+  if (s && s.configBroken) {
+    const fek = document.getElementById('depoSyncBrake')
+    if (fek) {
+      fek.textContent = '⚠ A szinkron beállítás-fájlja sérült (drive-sync.json). '
+        + 'A gépeden lévő fájlokhoz nem nyúltam, és a Drive-ra sem töltök fel semmit, '
+        + 'amíg ez így van. A mappákat vedd fel újra — a régi fájlt megőrzöm.'
+      fek.style.display = ''
+    }
   }
 }
 
@@ -26278,6 +26340,33 @@ async function _depoRemoveSync(id) {
   } catch (e) {
     showToast((e && e.message) ? e.message : 'Nem sikerült leválasztani')
   }
+}
+
+/**
+ * A ket veszelyes kapcsolo mentese.
+ *
+ * A felmeno ag IR a Drive-ra, a torles-atvitel pedig a Kukaba tesz odafent.
+ * Amit nem lehet a kepernyon ellenorizni ES kikapcsolni, arrol a felhasznalo nem
+ * tudja eldonteni, mit tesz a neveben -- ezert van ez a ket kapcsolo.
+ *
+ * Ha a mentes elhasal, VISSZAALLITJUK a jelolonegyzetet. Kulonben a kepernyon
+ * "ki" allna, a kiszolgalon meg "be": pont az a hazugsag, ami ellen a kapcsolo van.
+ */
+async function _depoSaveSyncSettings() {
+  const up = document.getElementById('depoSyncUpload')
+  const del = document.getElementById('depoSyncDeleteUp')
+  if (!up || !del) return
+  const kert = { upload: !!up.checked, deleteUp: !!del.checked }
+  try {
+    await _depoPost('/api/drive/sync/settings', kert)
+  } catch (e) {
+    up.checked = !kert.upload
+    del.checked = !kert.deleteUp
+    showToast((e && e.message) ? e.message : 'Nem sikerült elmenteni a beállítást')
+    return
+  }
+  // Nem toast-olunk sikernel: a jelolonegyzet allasa maga a visszajelzes.
+  await _depoRefresh()
 }
 
 async function _depoRunSync() {
