@@ -685,6 +685,17 @@ window._i18n.en = {
   'activity.state.unknown':      'unknown',
   'activity.state.error':        'error',
   'activity.state.stopped':      'stopped',
+  'activity.state.unreachable':  'unreachable',
+  'activity.state_tip.working':  'Live status (from the tmux pane content, every 3s): actively working / thinking.',
+  'activity.state_tip.idle':     'Live status (every 3s): running, but not doing anything right now.',
+  'activity.state_tip.limited':  'Live status: the account is out of quota, the agent will not work until the window resets.',
+  'activity.state_tip.unknown':  'Live status: could not be determined from the session pane content.',
+  'activity.state_tip.error':    'Live status: an error is visible on the agent\'s session pane.',
+  'activity.state_tip.stopped':  'Live status: the agent session is not running.',
+  'activity.state_tip.unreachable': 'Live status: a remote (SSH) agent that could not be reached over the network right now.',
+  'activity.tail_empty.no_output':    'no recent output',
+  'activity.tail_empty.not_running':  'session is not running',
+  'nav.agents_working_tip':      '{count} agent(s) currently working',
 
   // --- Tasks (Schedules) ---
   'tasks.page_title':            'Schedules',

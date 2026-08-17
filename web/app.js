@@ -505,9 +505,14 @@ function switchPage(pageId) {
   // Activity page runs a live poll; stop it whenever we navigate away.
   if (pageId !== 'activity') stopActivityPoll()
   if (pageId === 'activity') startActivityPoll()
-  // Agents page tints each Terminal button green while that agent is working;
-  // same 3s poll + source as Activity. Stop it when we leave the page.
-  if (pageId !== 'agents') stopAgentsBusyPoll()
+  // The 3s working/idle poll itself (source for the Agents page's Terminal
+  // button tint AND the sidebar's global working badge) runs unconditionally,
+  // started once at page load -- see startGlobalActivityPoll() below. It used
+  // to start/stop with the Agents page, which is exactly why the green
+  // indicator "disappeared" on every other page (Boss, 2026-08-17, 5th report
+  // of the same complaint). Only the slower full-card data refresh stays
+  // page-scoped, since redrawing the whole grid is only useful while it's visible.
+  if (pageId !== 'agents') stopAgentsDataRefresh()
   // Kanban auto-refresh: start on enter, stop on leave.
   if (pageId !== 'kanban') stopKanbanRefresh()
   // A Fotok engedely-folyamata 2 masodpercenkent kerdezi a szervert. Ha
@@ -518,7 +523,7 @@ function switchPage(pageId) {
   if (pageId === 'overview') loadOverview()
   if (pageId === 'kanban') { if (typeof _initGanttViewSwitcher === 'function') _initGanttViewSwitcher(); loadKanban(); startKanbanRefresh() }
   if (pageId === 'tasks') loadSchedules()
-  if (pageId === 'agents') { loadAgents().then(() => _setAgentsView(_agentsActiveView || 'grid')); startAgentsBusyPoll() }
+  if (pageId === 'agents') { loadAgents().then(() => _setAgentsView(_agentsActiveView || 'grid')); startAgentsDataRefresh() }
   if (pageId === 'memories') { loadMemAgents(); loadMemStats(); loadMemories() }
   if (pageId === 'skills') loadGlobalSkills()
   if (pageId === 'connectors') loadConnectors()
@@ -969,12 +974,17 @@ if (document.readyState !== 'loading') {
 let activityTimer = null
 
 const ACTIVITY_STATE_META = {
-  working: { label: () => t('activity.state.working'), cls: 'act-working', tip: 'Élő állapot (a tmux pane tartalmából, 3 másodpercenként): éppen dolgozik / gondolkodik.' },
-  idle: { label: () => t('activity.state.idle'), cls: 'act-idle', tip: 'Élő állapot (3 másodpercenként): fut, de épp nem csinál semmit.' },
-  limited: { label: () => t('activity.state.limited'), cls: 'act-limited', tip: 'Élő állapot: a fiók kerete elfogyott, az ágens a keret visszaállásáig nem dolgozik.' },
-  unknown: { label: () => t('activity.state.unknown'), cls: 'act-unknown', tip: 'Élő állapot: nem sikerült megállapítani a session pane tartalmából.' },
-  error: { label: () => t('activity.state.error'), cls: 'act-error', tip: 'Élő állapot: hiba látszik az ágens session paneljén.' },
-  stopped: { label: () => t('activity.state.stopped'), cls: 'act-stopped', tip: 'Élő állapot: az ágens session nem fut.' },
+  working: { label: () => t('activity.state.working'), cls: 'act-working', tip: () => t('activity.state_tip.working') },
+  idle: { label: () => t('activity.state.idle'), cls: 'act-idle', tip: () => t('activity.state_tip.idle') },
+  limited: { label: () => t('activity.state.limited'), cls: 'act-limited', tip: () => t('activity.state_tip.limited') },
+  unknown: { label: () => t('activity.state.unknown'), cls: 'act-unknown', tip: () => t('activity.state_tip.unknown') },
+  error: { label: () => t('activity.state.error'), cls: 'act-error', tip: () => t('activity.state_tip.error') },
+  stopped: { label: () => t('activity.state.stopped'), cls: 'act-stopped', tip: () => t('activity.state_tip.stopped') },
+  // Remote (ssh-federated) agent unreachable over the network -- distinct from
+  // 'unknown' (which means "readable but couldn't classify"). Without this
+  // entry the state silently fell back to ACTIVITY_STATE_META.unknown's meta,
+  // even though the backend already computed the more specific 'unreachable'.
+  unreachable: { label: () => t('activity.state.unreachable'), cls: 'act-unreachable', tip: () => t('activity.state_tip.unreachable') },
 }
 
 // === Kanban auto-refresh ===
@@ -1048,7 +1058,11 @@ function renderActivity(entries) {
   list.innerHTML = sortedEntries.map((a, i) => {
     const divider = (freeEntries.length && a === freeEntries[0]) ? dividerHtml : ''
     const metaRaw = ACTIVITY_STATE_META[a.state] || ACTIVITY_STATE_META.unknown
-    const meta = { ...metaRaw, label: typeof metaRaw.label === 'function' ? metaRaw.label() : metaRaw.label }
+    const meta = {
+      ...metaRaw,
+      label: typeof metaRaw.label === 'function' ? metaRaw.label() : metaRaw.label,
+      tip: typeof metaRaw.tip === 'function' ? metaRaw.tip() : metaRaw.tip,
+    }
     const tail = (a.tail || []).map((l) => linkifyKanbanRefs(l)).join('\n')
     const mainBadge = a.isMain ? '<span class="act-main-badge">' + t('activity.badge.main') + '</span>' : ''
     // Permission-mode chip. Shown for every mode EXCEPT the ones that let the
@@ -1078,7 +1092,7 @@ function renderActivity(entries) {
         '</div>' +
         (tail
           ? '<pre class="activity-tail">' + tail + '</pre>'
-          : '<p class="activity-tail-empty">' + (a.running ? 'nincs friss kimenet' : 'a session nem fut') + '</p>') +
+          : '<p class="activity-tail-empty">' + escapeHtml(a.running ? t('activity.tail_empty.no_output') : t('activity.tail_empty.not_running')) + '</p>') +
       '</div>'
     )
   }).join('')
@@ -4491,8 +4505,9 @@ function renderAgents() {
   addBtn.hidden = false
   // Re-apply the live busy tint right after a re-render (renderAgents rebuilds
   // the cards from scratch, dropping the class), so it never blinks off while
-  // the page is open.
-  if (agentsBusyTimer) refreshAgentTerminalBusy()
+  // the page is open. The poll itself now runs unconditionally from load, so
+  // no timer guard is needed here any more.
+  refreshAgentTerminalBusy()
 }
 
 // === Agents: live "working" tint on Terminal buttons ===
@@ -4502,7 +4517,7 @@ function renderAgents() {
 // it goes idle or stops. No new backend -- just a second consumer of the same
 // endpoint. The main (Marveen) card matches on mainAgentId(); sub-agent cards
 // match on their data-name.
-let agentsBusyTimer = null
+let globalActivityTimer = null
 // Card data (context size, model, run state) refreshed on its own slower beat.
 // Boss, 2026-08-12: the gate compacted his session from 195k to 59k and the card
 // kept showing 195k until he pressed Ctrl-Shift-R. "a tokenokat azonnal a
@@ -4514,10 +4529,7 @@ const AGENTS_DATA_REFRESH_MS = 60000
 // list the compaction just landed, so the new (smaller) number exists NOW --
 // that is the moment to refresh, rather than waiting out the minute.
 let compactingAgents = new Set()
-function startAgentsBusyPoll() {
-  refreshAgentTerminalBusy()
-  if (agentsBusyTimer) clearInterval(agentsBusyTimer)
-  agentsBusyTimer = setInterval(refreshAgentTerminalBusy, 3000)
+function startAgentsDataRefresh() {
   if (agentsDataTimer) clearInterval(agentsDataTimer)
   agentsDataTimer = setInterval(() => {
     // Skip while the tab is hidden: a background tab polling forever is how a
@@ -4530,13 +4542,24 @@ function startAgentsBusyPoll() {
     loadAgents()
   }, AGENTS_DATA_REFRESH_MS)
 }
-function stopAgentsBusyPoll() {
-  if (agentsBusyTimer) { clearInterval(agentsBusyTimer); agentsBusyTimer = null }
+function stopAgentsDataRefresh() {
   if (agentsDataTimer) { clearInterval(agentsDataTimer); agentsDataTimer = null }
-  compactingAgents = new Set()
+}
+// The 3s working/idle poll -- source for the Agents page's Terminal button
+// tint AND the sidebar's global "someone is working" badge (visible on every
+// page). Started ONCE at load, unconditionally, and never stopped by page
+// navigation: Boss reported five times that the green indicator went dark
+// while an agent (visible in its own terminal window) kept working, because
+// the poll used to run only while the Agents page itself was open
+// (2026-08-17). `agentsGrid.querySelectorAll(...)` still finds the Terminal
+// buttons even while the Agents page is hidden -- pages stay in the DOM,
+// `switchPage` only toggles the `hidden` attribute.
+function startGlobalActivityPoll() {
+  if (globalActivityTimer) return
+  refreshAgentTerminalBusy()
+  globalActivityTimer = setInterval(refreshAgentTerminalBusy, 3000)
 }
 async function refreshAgentTerminalBusy() {
-  if (!agentsGrid) return
   let entries
   try {
     const res = await fetch('/api/agents/activity')
@@ -4552,14 +4575,23 @@ async function refreshAgentTerminalBusy() {
   compactingAgents = nowCompacting
   if (justFinished && (location.hash.slice(1) || 'overview') === 'agents'
       && !(agentsGrid && agentsGrid.contains(document.activeElement))) loadAgents()
-  const mainId = mainAgentId()
-  agentsGrid.querySelectorAll('.agent-card:not(.add-card)').forEach((card) => {
-    const btn = card.querySelector('.agent-terminal-btn')
-    if (!btn) return
-    const id = card.classList.contains('marveen-card') ? mainId : card.dataset.name
-    const working = !!id && stateByName.get(id) === 'working'
-    btn.classList.toggle('agent-terminal-btn--busy', working)
-  })
+  if (agentsGrid) {
+    const mainId = mainAgentId()
+    agentsGrid.querySelectorAll('.agent-card:not(.add-card)').forEach((card) => {
+      const btn = card.querySelector('.agent-terminal-btn')
+      if (!btn) return
+      const id = card.classList.contains('marveen-card') ? mainId : card.dataset.name
+      const working = !!id && stateByName.get(id) === 'working'
+      btn.classList.toggle('agent-terminal-btn--busy', working)
+    })
+  }
+  const workingCount = entries.filter((e) => e.state === 'working').length
+  const badge = document.getElementById('agentsWorkingBadge')
+  if (badge) {
+    badge.hidden = workingCount === 0
+    badge.textContent = String(workingCount)
+    badge.title = t('nav.agents_working_tip', { count: workingCount })
+  }
 }
 
 // Federated (remote-system) agents from the manifest-poller cache. Kept in a
@@ -17267,6 +17299,9 @@ populateAvatarGrid()
 loadMemAgents()
 loadOverview()
 loadAvailableModels()
+// Global working indicator: page-independent, so it must start at load, not
+// on a page switch. See startGlobalActivityPoll()'s own comment.
+startGlobalActivityPoll()
 {
   const onbClose = document.getElementById('onboardingClose')
   if (onbClose) onbClose.addEventListener('click', dismissOnboarding)

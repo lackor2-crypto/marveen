@@ -3482,6 +3482,27 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 .approvals-pending-badge[hidden] { display: none; }
 
+/* Global "someone is working" badge on the Ügynökök sidebar link -- visible on
+   EVERY page, not just the Agents page (Boss, 2026-08-17, 5th report of the
+   same complaint). Green + breathing pulse mirrors .agent-terminal-btn--busy. */
+.agents-working-badge {
+  display: inline-block;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(34,197,94,0.18);
+  color: #16a34a;
+  border: 1px solid #22c55e;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  vertical-align: middle;
+  animation: badge-breathe 2s ease-in-out infinite;
+}
+.agents-working-badge[hidden] { display: none; }
+
 .approvals-pending-banner {
   padding: 10px 16px;
   margin-bottom: 12px;
@@ -7673,6 +7694,9 @@ a.link-waiting {
    Amber, and deliberately NOT the green 'working' treatment -- the whole point
    is that a dead agent must not look busy. */
 .activity-card.act-limited { border-left-color: #f59e0b; }
+/* Remote (SSH) agent the dashboard could not reach over the network right now
+   -- distinct from 'unknown' (readable pane, just couldn't classify it). */
+.activity-card.act-unreachable { border-left-color: #8b5cf6; opacity: 0.85; }
 .activity-card.act-clickable { cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
 .activity-card.act-clickable:hover { background: var(--bg-card-hover, var(--bg-card)); box-shadow: 0 0 0 2px var(--accent); }
 .act-term-icon { color: var(--text-muted); flex-shrink: 0; opacity: 0.6; }
@@ -7700,6 +7724,7 @@ a.link-waiting {
 .activity-badge.act-unknown { background: rgba(234,179,8,0.18); color: #ca8a04; }
 .activity-badge.act-stopped { background: rgba(107,114,128,0.15); color: #6b7280; }
 .activity-badge.act-limited { background: rgba(245,158,11,0.16); color: #b45309; }
+.activity-badge.act-unreachable { background: rgba(139,92,246,0.15); color: #7c3aed; }
 
 /* Green "breathing" glow for the working badge: saturates the pill and pulses a
    soft halo at peak, then settles. */

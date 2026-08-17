@@ -894,6 +894,17 @@ window._i18n.hu = {
   'activity.state.unknown':      'ismeretlen',
   'activity.state.error':        'hiba',
   'activity.state.stopped':      'leállt',
+  'activity.state.unreachable':  'nem elérhető',
+  'activity.state_tip.working':  'Élő állapot (a tmux pane tartalmából, 3 másodpercenként): éppen dolgozik / gondolkodik.',
+  'activity.state_tip.idle':     'Élő állapot (3 másodpercenként): fut, de épp nem csinál semmit.',
+  'activity.state_tip.limited':  'Élő állapot: a fiók kerete elfogyott, az ágens a keret visszaállásáig nem dolgozik.',
+  'activity.state_tip.unknown':  'Élő állapot: nem sikerült megállapítani a session pane tartalmából.',
+  'activity.state_tip.error':    'Élő állapot: hiba látszik az ágens session paneljén.',
+  'activity.state_tip.stopped':  'Élő állapot: az ágens session nem fut.',
+  'activity.state_tip.unreachable': 'Élő állapot: távoli (SSH-n elért) ágens, amit most nem sikerült elérni a hálózaton.',
+  'activity.tail_empty.no_output':    'nincs friss kimenet',
+  'activity.tail_empty.not_running':  'a session nem fut',
+  'nav.agents_working_tip':      '{count} ügynök dolgozik éppen',
 
   // --- Tasks (Schedules) ---
   'tasks.page_title':            'Ütemezések',
