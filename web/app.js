@@ -16614,36 +16614,6 @@ async function loadOverview() {
   }
 }
 
-// Manual refresh for the Keret-figyelő card (Boss, Telegram 2026-08-17: "hiaba
-// nyomom meg a bongeszo frissit gombjat akkor sem frissul a %"). A page reload
-// already re-fetches /api/overview fresh, and the backend always reads the
-// snapshot file straight off disk -- there is no server-side cache to bust.
-// The percentage itself only changes when the CLI actually reports a new
-// measurement (see rate-limit-status.ts), so this click can legitimately
-// return the SAME number as before on an idle agent. That is not a bug; say
-// so instead of a silent no-op that looks broken.
-async function refreshOverviewRateLimit() {
-  const btn = document.getElementById('overviewRateLimitRefreshBtn')
-  if (!btn || btn.disabled) return
-  btn.disabled = true
-  const svg = btn.querySelector('svg')
-  if (svg) svg.classList.add('spin')
-  try {
-    const res = await fetch('/api/overview')
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    const d = await res.json()
-    renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
-    const stillStale = (d.claudeAccounts || []).some(a => a.stale) || !!(d.rateLimit && d.rateLimit.stale)
-    showToast(stillStale ? t('overview.ratelimit.refresh_no_new_data') : t('overview.ratelimit.refreshed'))
-  } catch {
-    showToast(t('overview.ratelimit.refresh_error'))
-  } finally {
-    btn.disabled = false
-    if (svg) svg.classList.remove('spin')
-  }
-}
-document.getElementById('overviewRateLimitRefreshBtn')?.addEventListener('click', refreshOverviewRateLimit)
-
 // Brand mark + product-brand chrome: pull the configured brand from
 // /api/marveen and apply it to the dashboard chrome (tab title, mobile topbar,
 // sidebar name, updates subtitle). brandName is the product/system name and is
