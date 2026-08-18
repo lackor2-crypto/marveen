@@ -111,13 +111,28 @@ describe('GET /api/settings carries the restart state', () => {
     // sub-agent running since last week kept the main-agent badge yellow for
     // good. The per-scope table is what makes the badge clearable.
     expect(SETTINGS_ROUTE).toMatch(/startsByScope\[kind\.sessions\]/)
-    expect(SETTINGS_ROUTE).toMatch(/main:\s*oldestOf\(\[MAIN_CHANNELS_SESSION\]\)/)
+    expect(SETTINGS_ROUTE).toMatch(/main:\s*mainStartedAt/)
     expect(SETTINGS_ROUTE).not.toMatch(/sessionsStartedAt:\s*oldestSessionStart/)
   })
 
+  it('dates the main agent by its running process, not by its tmux session', () => {
+    // 2026-08-18, the second report on the same badge: a main-agent restart is
+    // `tmux respawn-pane`, which starts a new process INSIDE the existing
+    // session -- so session_created never moves and the badge stayed yellow
+    // after a restart that had actually happened. The session time survives
+    // only as the fallback for when the process can't be read.
+    expect(SETTINGS_ROUTE).toMatch(/mainStartedAt\s*=\s*mainRuntime\.startedAtMs\s*\?\?\s*oldestOf\(\[MAIN_CHANNELS_SESSION\]\)/)
+  })
+
   it('the "all" scope enumerates agents at request time', () => {
-    // A newly added agent has to count without anyone registering it.
-    expect(SETTINGS_ROUTE).toMatch(/all:\s*oldestOf\(\[MAIN_CHANNELS_SESSION,\s*\.\.\.listAgentNames\(\)\.map\(agentSessionName\)\]\)/)
+    // A newly added agent has to count without anyone registering it -- and
+    // the main agent has to enter this set through mainStartedAt, or the
+    // respawn trap above just comes back one scope higher.
+    const from = SETTINGS_ROUTE.indexOf('all:')
+    expect(from, '"all" scope not found in startsByScope').toBeGreaterThan(-1)
+    const scope = SETTINGS_ROUTE.slice(from, SETTINGS_ROUTE.indexOf('const restartPendingFor'))
+    expect(scope).toContain('listAgentNames().map(agentSessionName)')
+    expect(scope).toContain('mainStartedAt')
   })
 
   it('asks tmux once per request, not once per setting', () => {

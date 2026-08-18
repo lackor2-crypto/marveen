@@ -21,6 +21,7 @@ import {
 import { listAgentNames } from '../agent-config.js'
 import { agentSessionName, localSessionStartTimes } from '../agent-process.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
+import { readMainAgentRuntime } from '../main-agent-runtime.js'
 import { HEARTBEAT_AGENT_NAME } from '../heartbeat-agent-scaffold.js'
 import { readRunningAutocompact } from '../running-autocompact.js'
 import { MAIN_AGENT_ID, AUTOCOMPACT_TOKENS } from '../../config.js'
@@ -47,18 +48,42 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       const ts = names.map(sn => sessionStarts.get(sn)).filter((v): v is number => typeof v === 'number')
       return ts.length ? Math.min(...ts) : null
     }
+    // A FOAGENS ideje NEM a munkamenet letrejotte. Marvin ujrainditasa
+    // `tmux respawn-pane`: ugyanabban a munkamenetben indul uj folyamat, tehat
+    // a `session_created` soha nem lep elore. Boss meresi naploja
+    // (2026-08-18 18:24:14) pontosan ezt fogta meg: az ujrainditas megtortent,
+    // a futo modell mar egyezett, a jelveny megis sarga maradt. Ezert a FUTO
+    // FOLYAMAT indulasat kerdezzuk meg; a munkamenet ideje csak vegso tartalek,
+    // ha a folyamat nem olvashato.
+    //
+    // A sub-agensekre ez nem all: azok `kill-session` + `new-session` parral
+    // indulnak, ott a munkamenet ideje helyes.
+    const mainRuntime = readMainAgentRuntime()
+    const mainStartedAt = mainRuntime.startedAtMs ?? oldestOf([MAIN_CHANNELS_SESSION])
     const startsByScope: Record<PendingSessionScope, number | null> = {
       none: null,
-      main: oldestOf([MAIN_CHANNELS_SESSION]),
+      main: mainStartedAt,
       heartbeat: oldestOf([agentSessionName(HEARTBEAT_AGENT_NAME)]),
       // Uj agens felvetelekor is helyes: a lista mindig readdir-bol jon.
-      all: oldestOf([MAIN_CHANNELS_SESSION, ...listAgentNames().map(agentSessionName)]),
+      // Az 'all' halmazban is a foagens szamit a legkorabbinak, ha a
+      // munkamenete regi -- de a FOLYAMATA friss. A ket forrast itt kezzel
+      // vonjuk ossze, kulonben ugyanaz a respawn-csapda all elo egy szinttel
+      // feljebb.
+      all: (() => {
+        const subs = oldestOf(listAgentNames().map(agentSessionName))
+        const both = [mainStartedAt, subs].filter((v): v is number => typeof v === 'number')
+        return both.length ? Math.min(...both) : null
+      })(),
     }
     const restartPendingFor = (def: { key: string; requiresRestart?: boolean; restartTarget?: string }): boolean => {
       if (!def.requiresRestart) return false
       const kind = targetKind(def.restartTarget)
       const startedAt = startsByScope[kind.sessions]
       return decideRestartPending({
+        // Ma egyetlen kulcshoz olvashato ki, mit hasznal a futo folyamat: a
+        // foagens modelljehez (ott all a `--model` a parancssorban). Eppen ez
+        // volt az a kulcs, amirol a Boss haromszor szolt.
+        runningValue: def.key === 'MAIN_AGENT_MODEL' ? mainRuntime.model : undefined,
         bootDiffers: isRestartPending(def.key),
         kind,
         changedAt: getLastConfigChangeAt(def.key),
@@ -87,6 +112,22 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       valueSet: def.valueSet,
       min: def.min,
       max: def.max,
+      // Amit a futo folyamat TENYLEG hasznal (ma csak a foagens modelljehez
+      // tudjuk). Egy sarga "Ujrainditasra var" jelveny nem mondja meg, MI a
+      // baj; ez megmondja: "Most fut: X -- Beallitva: Y". A Boss haromszor
+      // szolt ugyanezert a jelvenyert -- ha latszik a ket ertek, a kerdes fel
+      // sem tud tenni magat.
+      runningValue: def.key === 'MAIN_AGENT_MODEL' ? mainRuntime.model : undefined,
+      // A KET IDOPONT. Boss (2026-08-18 18:40) ezt latta: "egyszer mar
+      // ujrainditottam. es most megint ujra kell inditanom? sarga megint."
+      // A naplo szerint igaza is volt, es a jelvenynek is: 18:39:21-kor
+      // ujraindult (sonnet-5-tel, helyesen), majd 18:39:45-kor -- huszonnegy
+      // masodperccel KESOBB -- atallitotta opus-5-re. A sorrend volt fordult,
+      // nem a program hibazott. Ezt viszont csak akkor lehet tudni, ha a ket
+      // idopont OTT ALL: "indult 18:39:27" / "mentve 18:39:45". Egy sarga
+      // jelveny sose fogja ezt elmondani.
+      runningSince: def.key === 'MAIN_AGENT_MODEL' ? mainRuntime.startedAtMs : undefined,
+      valueSavedAt: def.key === 'MAIN_AGENT_MODEL' ? getLastConfigChangeAt(def.key) : undefined,
     }))
     json(res, { settings })
     return true

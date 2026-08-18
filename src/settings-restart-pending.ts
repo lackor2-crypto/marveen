@@ -182,6 +182,21 @@ export interface PendingFacts {
    */
   valueAtSessionStart?: string | null
   currentValue?: string | number | boolean | null
+  /**
+   * Amit a futo folyamat TENYLEG hasznal, ha kiolvashato a parancssorabol
+   * (ma: a foagens `--model` zaszloja).
+   *
+   * Ez foldigazsag, es minden idobelyeget felulir. Boss meresi naploja
+   * (2026-08-18) mindket ora-alapu hibat elkapta EGY masfel perces ablakban:
+   * a jelveny sarga maradt egy sikeres ujrainditas utan (18:24:14), es tiszta
+   * volt egy valodi eltereskor (18:23:11). Az ok: Marvin `respawn-pane`-nel
+   * indul ujra, a tmux `session_created` tehat SOHA nem lep elore, igy a
+   * 3. lepes soha nem tud tisztitani. Egy jobb ora nem javitja meg -- azt
+   * kell megkerdezni, ami fut.
+   *
+   * undefined = nem tudjuk kiolvasni -> a lentebbi ido-alapu jelek dontenek.
+   */
+  runningValue?: string | null
 }
 
 /**
@@ -195,6 +210,11 @@ export function decideRestartPending(f: PendingFacts): boolean {
   // 1. A vezerlopult sajat, PONTOS jele: amit ez a folyamat bootkor befagyasztott.
   if (f.kind.readsDashboard && f.bootDiffers) return true
   if (f.kind.sessions === 'none') return false
+  // 1b. Ha kiolvashato, MIT hasznal a futo folyamat, akkor nincs mit
+  //     kovetkeztetni: az a valasz. Se naplo, se tmux-ora nem szol bele.
+  if (f.runningValue !== undefined && f.runningValue !== null && f.currentValue !== undefined) {
+    return f.runningValue !== String(f.currentValue ?? '')
+  }
   // 2. Nem tudjuk megmerni (nincs naplo-bejegyzes, vagy nem olvashato a tmux):
   //    a regi, ertek-alapu jelre esunk vissza. Ez inkabb KIIRJA a jelvenyt,
   //    mint elhallgassa -- egy felesleges emlekezteto olcsobb, mint egy
