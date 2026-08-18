@@ -1,6 +1,19 @@
-# Force PowerShell scripts to keep CRLF line endings + UTF-8 BOM on checkout.
-# Windows PowerShell 5.1 fails to parse here-strings (@"..."@) and Hungarian
-# UTF-8 characters in .ps1 files that have LF-only line endings or no BOM.
+# Force PowerShell scripts to keep CRLF line endings on checkout: Windows
+# PowerShell 5.1 fails to parse here-strings (@"..."@) in .ps1 files that have
+# LF-only line endings.
+#
+# The BOM is NOT handled here, despite what this comment used to claim.
+# `working-tree-encoding=UTF-8` is a no-op re-encode (git's internal encoding
+# already IS UTF-8) and adds no BOM. It does not need to: install-windows.ps1
+# is the only .ps1 with non-ASCII characters, and its BOM is stored in the
+# blob itself. Every other .ps1 here is pure ASCII, which PowerShell 5.1 reads
+# correctly with or without a BOM (verified with the 5.1 parser: 0 errors).
+#
+# Do NOT "fix" this to working-tree-encoding=UTF-8-BOM. Measured 2026-08-18 in
+# a scratch repo: that mode requires the STORED blob to be BOM-free, so on a
+# blob that already carries one git refuses outright --
+# `error: failed to encode 'a.ps1' from UTF-8 to UTF-8-BOM` -- on checkout AND
+# on git status, i.e. it breaks the file rather than improving it.
 *.ps1 text eol=crlf working-tree-encoding=UTF-8
 
 # Other shell scripts stay LF — they run on bash.
