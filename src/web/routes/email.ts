@@ -8,7 +8,8 @@ import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
-import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect, checkImapAccountConfig, declareSniffedHtmlCharset } from '../email-imap.js'
+import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect, checkImapAccountConfig, declareSniffedHtmlCharset, resolveSpecialMailboxes } from '../email-imap.js'
+import type { MailboxRole } from '../email-imap.js'
 import { buildHimalayaSearchArgs, normalizeEmailSearchQuery } from '../email-search.js'
 import { isPromotionalEnvelope } from '../../email-promo-classify.js'
 import {
@@ -358,12 +359,31 @@ function purgeAttachmentCacheForMessage(account: string, mailbox: string, id: st
   } catch { /* cache dir may not exist yet -- nothing to purge */ }
 }
 
-// Gmail's own Sent folder -- same hardcoded-Gmail-path precedent as the
-// Trash/"[Gmail]/Kuka" handling in the delete/archive routes below.
-const SENT_MAILBOX = '[Gmail]/Elküldött levelek'
-const IMPORTANT_MAILBOX = '[Gmail]/Fontos'
-const SPAM_MAILBOX = '[Gmail]/Spam'
-const TRASH_MAILBOX = '[Gmail]/Kuka'
+// Gmail names its system folders in the ACCOUNT's own language, so these can
+// never be constants -- see MailboxRole in email-imap.ts for the measurement
+// that settled it. This table is the LAST RESORT only: when the direct IMAP
+// path (the one that reads the language-independent flags) is unavailable,
+// falling back to the names Boss's own accounts use keeps today's behaviour
+// instead of failing outright. Every real lookup goes through mailboxFor().
+const FALLBACK_MAILBOX: Record<MailboxRole, string> = {
+  inbox: 'Inbox',
+  sent: '[Gmail]/Elküldött levelek',
+  drafts: '[Gmail]/Piszkozatok',
+  trash: '[Gmail]/Kuka',
+  spam: '[Gmail]/Spam',
+  important: '[Gmail]/Fontos',
+  starred: '[Gmail]/Csillagozott',
+  all: '[Gmail]/Összes levél',
+}
+
+/** The account's OWN name for one of Gmail's system folders. */
+async function mailboxFor(account: string, role: MailboxRole): Promise<string> {
+  const resolved = await resolveSpecialMailboxes(account)
+  const name = resolved?.[role]
+  if (name) return name
+  logger.warn(`[email] a(z) "${role}" mappa nem oldhato fel IMAP-rol a(z) "${account}" fioknal; tartalek: "${FALLBACK_MAILBOX[role]}"`)
+  return FALLBACK_MAILBOX[role]
+}
 
 // Boss, 2026-08-15: "ha spambe huzom akkor jeloje meg es a jovobeni leveleket
 // azonnal a spambe iranyitsa." Egy listazasban ennyi levelet mozgatunk at
@@ -380,17 +400,24 @@ const SPAM_RULE_MOVE_LIMIT = 25
 // labels could be cleaned up from the dashboard -- system folders were
 // never meant to be selectable in that UI, this is the backend backstop in
 // case that ever slips).
-const SYSTEM_MAILBOXES = new Set([
-  'Inbox',
-  SENT_MAILBOX,
-  '[Gmail]/Piszkozatok',
-  SPAM_MAILBOX,
-  TRASH_MAILBOX,
-  IMPORTANT_MAILBOX,
-  '[Gmail]/Csillagozott',
+const FALLBACK_SYSTEM_MAILBOXES = new Set<string>([
+  ...Object.values(FALLBACK_MAILBOX),
   '[Gmail]/Beszélgetések',
-  '[Gmail]/Összes levél',
 ])
+
+/**
+ * Is this one of Gmail's OWN folders rather than a user label?
+ *
+ * Checked against both the account's resolved names and the fallback list. On
+ * an English account "[Gmail]/Kuka" simply does not exist, so keeping it
+ * blocked costs nothing -- while "[Gmail]/Trash", which a Hungarian-only name
+ * guard waved straight through to an irreversible IMAP DELETE, is now caught.
+ */
+async function isSystemMailbox(account: string, name: string): Promise<boolean> {
+  if (FALLBACK_SYSTEM_MAILBOXES.has(name)) return true
+  const resolved = await resolveSpecialMailboxes(account)
+  return resolved ? Object.values(resolved).includes(name) : false
+}
 
 // Gmail's IMAP has no THREAD extension (RFC 5256) and himalaya has no
 // Gmail-JMAP-thread-id lookup wired in, so conversation grouping is
@@ -486,14 +513,15 @@ async function applyInboxRules(
     const hits = list.filter((e) => matchesRule(spamSenders, e as EnvelopeLike))
       .slice(0, SPAM_RULE_MOVE_LIMIT)
     const movedIds = new Set<string>()
+    const spamMailbox = await mailboxFor(account, 'spam')
     for (const e of hits) {
       const id = String((e as { id?: unknown }).id ?? '')
       if (!id) continue
-      const r = await himalaya(['-a', account, 'message', 'move', id, '-f', 'Inbox', '-t', SPAM_MAILBOX])
+      const r = await himalaya(['-a', account, 'message', 'move', id, '-f', 'Inbox', '-t', spamMailbox])
       if (r.ok) { movedIds.add(id); movedToSpam++ }
       else logger.warn(`[email] spam-szabaly mozgatas nem sikerult (${id}): ${r.stderr || r.stdout}`)
     }
-    if (movedToSpam > 0) invalidateEnvelopeCache(account, SPAM_MAILBOX)
+    if (movedToSpam > 0) invalidateEnvelopeCache(account, spamMailbox)
     if (movedIds.size > 0) list = list.filter((e) => !movedIds.has(String((e as { id?: unknown }).id ?? '')))
   }
 
@@ -847,7 +875,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString()) as { account?: string; names?: unknown }
     const names = Array.isArray(data.names) ? data.names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0) : []
     if (!isKnownAccount(data.account ?? null) || !names.length) { json(res, { error: 'account and names required' }, 400); return true }
-    if (names.some(n => SYSTEM_MAILBOXES.has(n))) { json(res, { error: 'system mailbox cannot be deleted' }, 400); return true }
+    const systemHits = await Promise.all(names.map(n => isSystemMailbox(data.account as string, n)))
+    if (systemHits.some(Boolean)) { json(res, { error: 'system mailbox cannot be deleted' }, 400); return true }
     const results = await Promise.all(names.map(async name => {
       const r = await himalaya(['-a', data.account as string, 'imap', 'delete', name])
       if (!r.ok) logger.warn(`[email] mailbox delete failed (${name}): ${r.stderr || r.stdout}`)
@@ -967,7 +996,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString()) as { account?: string; messageIds?: unknown }
     if (!isKnownAccount(data.account ?? null) || !Array.isArray(data.messageIds)) { json(res, { error: 'account and messageIds required' }, 400); return true }
     const messageIds = data.messageIds.filter((x): x is string => typeof x === 'string').slice(0, 50)
-    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', IMPORTANT_MAILBOX, '-p', '1', '-s', '50', '--json'])
+    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', await mailboxFor(data.account as string, 'important'), '-p', '1', '-s', '50', '--json'])
     const result: Record<string, boolean> = {}
     if (r.ok) {
       try {
@@ -998,7 +1027,8 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       .slice(0, 50)
 
     let sentEnvelopes: Array<{ id: string; subject?: string; date: string; from?: Array<{ email?: string }>; to?: Array<{ name?: string | null; email?: string }>; flags?: Array<{ iana?: string }>; 'message-id'?: string }> = []
-    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', SENT_MAILBOX, '-p', '1', '-s', '50', '--json'])
+    const sentMailbox = await mailboxFor(data.account as string, 'sent')
+    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', sentMailbox, '-p', '1', '-s', '50', '--json'])
     if (r.ok) {
       try { sentEnvelopes = JSON.parse(r.stdout).envelopes || [] } catch { /* report no siblings rather than fail the list */ }
     }
@@ -1021,7 +1051,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       if (!targetSubject) continue
       const matches = sentEnvelopes
         .filter(e => normalizeThreadSubject(e.subject || '') === targetSubject)
-        .map(e => ({ id: e.id, mailbox: SENT_MAILBOX, date: e.date, from: e.from, to: e.to, subject: e.subject, flags: e.flags, 'message-id': e['message-id'] }))
+        .map(e => ({ id: e.id, mailbox: sentMailbox, date: e.date, from: e.from, to: e.to, subject: e.subject, flags: e.flags, 'message-id': e['message-id'] }))
         .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
       if (matches.length) result[it.id] = matches
     }
@@ -1132,12 +1162,13 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const body = await readBody(req)
     const data = JSON.parse(body.toString()) as { account?: string; to?: string; cc?: string; subject?: string; text?: string }
     if (!isKnownAccount(data.account ?? null) || !data.to?.trim() || !data.text?.trim()) { json(res, { error: 'account, to and text required' }, 400); return true }
-    const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text, '--send', '--save', SENT_MAILBOX]
+    const composeSentMailbox = await mailboxFor(data.account as string, 'sent')
+    const args = ['-a', data.account as string, 'message', 'compose', '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text, '--send', '--save', composeSentMailbox]
     if (data.cc?.trim()) args.push('--cc', data.cc.trim())
     if (data.subject?.trim()) args.push('-s', data.subject.trim())
     const r = await himalaya(args)
     if (!r.ok) { logger.warn(`[email] compose failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
-    invalidateEnvelopeCache(data.account as string, SENT_MAILBOX)
+    invalidateEnvelopeCache(data.account as string, composeSentMailbox)
     json(res, { ok: true })
     return true
   }
@@ -1182,6 +1213,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string; important?: boolean; messageId?: string }
     if (!isKnownAccount(data.account ?? null) || !data.id) { json(res, { error: 'account and id required' }, 400); return true }
     const mailbox = data.mailbox || 'Inbox'
+    const importantMailbox = await mailboxFor(data.account as string, 'important')
     if (data.important === false) {
       // Gmail assigns a DIFFERENT UID to the same message in every label
       // mailbox (verified live: an Inbox id of 112006 showed up as 22061 in
@@ -1189,7 +1221,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       // removing the label means first finding ITS OWN id there via the
       // RFC822 Message-ID header, which is stable across labels.
       if (!data.messageId) { json(res, { error: 'messageId required to unmark important' }, 400); return true }
-      const list = await himalaya(['-a', data.account as string, 'envelope', 'list', '-m', IMPORTANT_MAILBOX, '-p', '1', '-s', '50', '--json'])
+      const list = await himalaya(['-a', data.account as string, 'envelope', 'list', '-m', importantMailbox, '-p', '1', '-s', '50', '--json'])
       if (!list.ok) { logger.warn(`[email] unmark important lookup failed: ${list.stderr || list.stdout}`); json(res, { error: list.stderr || list.stdout || 'himalaya failed' }, 502); return true }
       let fontosId: string | undefined
       try {
@@ -1197,17 +1229,17 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
         fontosId = envelopes.find((e: { 'message-id'?: string }) => e['message-id'] === data.messageId)?.id
       } catch { /* fall through to not-found below */ }
       if (!fontosId) { json(res, { error: 'message not found in Fontos (older than the last 50?)' }, 404); return true }
-      const store = await himalaya(['-a', data.account as string, 'imap', 'store', fontosId, '-f', '\\Deleted', '-m', IMPORTANT_MAILBOX])
+      const store = await himalaya(['-a', data.account as string, 'imap', 'store', fontosId, '-f', '\\Deleted', '-m', importantMailbox])
       if (!store.ok) { logger.warn(`[email] unmark important store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
-      const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', IMPORTANT_MAILBOX])
+      const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', importantMailbox])
       if (!expunge.ok) { logger.warn(`[email] unmark important expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
-      invalidateEnvelopeCache(data.account as string, IMPORTANT_MAILBOX)
+      invalidateEnvelopeCache(data.account as string, importantMailbox)
       json(res, { ok: true })
       return true
     }
-    const r = await himalaya(['-a', data.account as string, 'message', 'copy', data.id, '-f', mailbox, '-t', IMPORTANT_MAILBOX])
+    const r = await himalaya(['-a', data.account as string, 'message', 'copy', data.id, '-f', mailbox, '-t', importantMailbox])
     if (!r.ok) { logger.warn(`[email] mark important failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
-    invalidateEnvelopeCache(data.account as string, IMPORTANT_MAILBOX)
+    invalidateEnvelopeCache(data.account as string, importantMailbox)
     json(res, { ok: true })
     return true
   }
@@ -1295,6 +1327,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string }
     if (!isKnownAccount(data.account ?? null) || !data.id) { json(res, { error: 'account and id required' }, 400); return true }
     const mailbox = data.mailbox || 'Inbox'
+    const trashMailbox = await mailboxFor(data.account as string, 'trash')
     // Gmail-IMAP trash semantics: UID MOVE (RFC 6851) into "[Gmail]/Kuka" both
     // removes the message from the source mailbox and files it into Trash --
     // this is what a normal Gmail client's delete button does (30-day
@@ -1303,7 +1336,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // mark \Deleted + expunge, same mechanism as archive but scoped to Kuka.
     // This used to just error out, leaving the button looking clickable but
     // permanently disabled after one click (Boss, 2026-08-05).
-    if (mailbox === TRASH_MAILBOX) {
+    if (mailbox === trashMailbox) {
       const store = await himalaya(['-a', data.account as string, 'imap', 'store', data.id, '-f', '\\Deleted', '-m', mailbox])
       if (!store.ok) { logger.warn(`[email] permanent delete store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
@@ -1314,11 +1347,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true })
       return true
     }
-    const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', TRASH_MAILBOX])
+    const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', trashMailbox])
     if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
-    invalidateEnvelopeCache(data.account as string, TRASH_MAILBOX)
+    invalidateEnvelopeCache(data.account as string, trashMailbox)
     json(res, { ok: true })
     return true
   }

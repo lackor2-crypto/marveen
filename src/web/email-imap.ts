@@ -575,11 +575,54 @@ export async function messageStillExists(accountId: string, mailbox: string, uid
 // Returns array of { id: string; name: string; total: null; unread: null } matching
 // himalaya's `mailbox list --json` output exactly. Returns null on ANY failure
 // so the caller falls back to himalaya.
+/**
+ * Gmail's built-in folders, identified by ROLE instead of by name.
+ *
+ * The name is localized to the ACCOUNT's own Gmail language. Measured
+ * 2026-08-18 against two live accounts: Trash is "[Gmail]/Kuka" on a Hungarian
+ * account and "[Gmail]/Trash" on an English one, and Sent/Drafts/Starred/
+ * Important/All Mail differ the same way. Only "[Gmail]/Spam" happens to be
+ * spelled identically in both. So anything that hardcodes one spelling works on
+ * the accounts it was written against and fails on every other one -- which is
+ * exactly what happened when Boss added freeberischeaper@gmail.com and Delete
+ * came back "Command failed ... -t [Gmail]/Kuka".
+ *
+ * The IMAP flags do NOT move with the language, so they are what we key on.
+ */
+export type MailboxRole = 'inbox' | 'sent' | 'drafts' | 'trash' | 'spam' | 'important' | 'starred' | 'all'
+
+// RFC 6154 special-use attributes, plus Gmail's non-standard "\Important".
+// Read from `flags` rather than imapflow's `specialUse` on purpose: measured on
+// a live account, "\Important" appears ONLY in `flags` (imapflow lifts just the
+// RFC 6154 set into specialUse), while the inbox carries "\Inbox" only in
+// specialUse and never in flags -- hence the path check for the inbox below.
+const ROLE_BY_FLAG: ReadonlyArray<readonly [string, MailboxRole]> = [
+  ['\\Sent', 'sent'],
+  ['\\Drafts', 'drafts'],
+  ['\\Trash', 'trash'],
+  ['\\Junk', 'spam'],
+  ['\\Important', 'important'],
+  ['\\Flagged', 'starred'],
+  ['\\All', 'all'],
+]
+
+export function mailboxRoleFromFlags(path: string, flags?: Set<string> | string[]): MailboxRole | null {
+  // RFC 3501 defines the inbox case-insensitively, and it carries no
+  // special-use flag of its own in the LIST response.
+  if (path.toUpperCase() === 'INBOX') return 'inbox'
+  const has = (f: string): boolean =>
+    flags instanceof Set ? flags.has(f) : Array.isArray(flags) ? flags.includes(f) : false
+  for (const [flag, role] of ROLE_BY_FLAG) if (has(flag)) return role
+  return null
+}
+
 export interface DirectMailbox {
   id: string
   name: string
   total: null
   unread: null
+  /** Which Gmail system folder this is, independent of the account's language. */
+  role: MailboxRole | null
 }
 
 /**
@@ -622,7 +665,7 @@ export function mapDirectMailboxes(
     .filter(mb => !hasFlag(mb, '\\Noselect'))   // non-selectable pseudo-mailboxes
     .map(mb => {
       const name = himalayaMailboxName(mb.path)
-      return { id: name, name, total: null, unread: null } as DirectMailbox
+      return { id: name, name, total: null, unread: null, role: mailboxRoleFromFlags(mb.path, mb.flags) } as DirectMailbox
     })
   // Refuse a list that lost the inbox. Whatever went wrong -- a server that
   // answers differently, a library upgrade that renames a field -- a folder
@@ -653,6 +696,39 @@ export async function listMailboxesDirect(accountId: string): Promise<DirectMail
     logger.warn(`[email-imap] mailbox list failed for account "${accountId}": ${e instanceof Error ? e.message : e}`)
     return null
   }
+}
+
+/**
+ * The account's OWN names for Gmail's system folders, keyed by role.
+ *
+ * Only the direct IMAP path can answer this: himalaya's `mailbox list --json`
+ * carries no flags at all (measured 2026-08-18 -- id/name/total/unread and
+ * nothing else), so there is no second source to fall back to. Callers get
+ * null when it cannot be resolved and decide for themselves what to do.
+ */
+export type SpecialMailboxes = Partial<Record<MailboxRole, string>>
+
+export function specialMailboxesFrom(mailboxes: DirectMailbox[]): SpecialMailboxes {
+  const out: SpecialMailboxes = {}
+  // First one wins: a role is single-valued, and Gmail reports each exactly once.
+  for (const mb of mailboxes) if (mb.role && !out[mb.role]) out[mb.role] = mb.name
+  return out
+}
+
+// Folder names change about as often as an account's language does, i.e. never
+// in practice -- but the TTL means a change is picked up on its own instead of
+// needing a restart.
+const SPECIAL_MAILBOX_TTL_MS = 10 * 60 * 1000
+const specialMailboxCache = new Map<string, { at: number; value: SpecialMailboxes }>()
+
+export async function resolveSpecialMailboxes(accountId: string): Promise<SpecialMailboxes | null> {
+  const hit = specialMailboxCache.get(accountId)
+  if (hit && Date.now() - hit.at < SPECIAL_MAILBOX_TTL_MS) return hit.value
+  const list = await listMailboxesDirect(accountId)
+  if (!list) return null
+  const value = specialMailboxesFrom(list)
+  specialMailboxCache.set(accountId, { at: Date.now(), value })
+  return value
 }
 
 // === Envelope list / search (strangler fig: fast path with himalaya fallback) ===

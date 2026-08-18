@@ -21542,23 +21542,67 @@ let emailSelectedLabels = new Set()
 // list already shown in the folder column.
 let emailCustomMailboxesCache = []
 
-// Gmail's built-in mailboxes (already Hungarian-labeled by the account's own
-// locale) in the order a normal mail client shows them. Everything else is a
-// user label/folder and sorts alphabetically below a divider -- see Boss
-// 2026-08-05: the raw himalaya list interleaves "[Gmail]/Kuka" alphabetically
-// with dozens of personal labels (Bankok, Nav, ...), unreadable at a glance.
-const EMAIL_SENT_MAILBOX = '[Gmail]/Elküldött levelek'
-const EMAIL_SYSTEM_MAILBOX_ORDER = [
-  'Inbox',
-  EMAIL_SENT_MAILBOX,
-  '[Gmail]/Piszkozatok',
-  '[Gmail]/Spam',
-  '[Gmail]/Kuka',
-  '[Gmail]/Fontos',
-  '[Gmail]/Csillagozott',
-  '[Gmail]/Beszélgetések',
-  '[Gmail]/Összes levél',
-]
+// Gmail's built-in mailboxes, in the order a normal mail client shows them.
+// Everything else is a user label/folder and sorts alphabetically below a
+// divider -- see Boss 2026-08-05: the raw himalaya list interleaves
+// "[Gmail]/Kuka" alphabetically with dozens of personal labels (Bankok,
+// Nav, ...), unreadable at a glance.
+//
+// Keyed by ROLE, not by name. Gmail names these folders in the ACCOUNT's own
+// language -- measured 2026-08-18 on two live accounts: Trash is
+// "[Gmail]/Kuka" on a Hungarian account and "[Gmail]/Trash" on an English
+// one. Pinning the Hungarian names here meant that on any non-Hungarian
+// account every single system folder fell through to the custom-label bucket:
+// exactly the regression Boss reported on 2026-08-12, waiting to happen again
+// the moment a new account was added. The backend now sends `role` with each
+// mailbox, derived from the language-independent IMAP flags.
+const EMAIL_SYSTEM_MAILBOX_ROLE_ORDER = ['inbox', 'sent', 'drafts', 'spam', 'trash', 'important', 'starred', 'chats', 'all']
+
+// The himalaya fallback path carries no flags in its JSON (measured: only
+// id/name/total/unread), so mailboxes from it arrive with no role. These are
+// the names Boss's own Hungarian accounts use -- the same set that used to be
+// hardcoded, now demoted to a last resort.
+const EMAIL_FALLBACK_ROLE_BY_NAME = {
+  'Inbox': 'inbox',
+  '[Gmail]/Elküldött levelek': 'sent',
+  '[Gmail]/Piszkozatok': 'drafts',
+  '[Gmail]/Spam': 'spam',
+  '[Gmail]/Kuka': 'trash',
+  '[Gmail]/Fontos': 'important',
+  '[Gmail]/Csillagozott': 'starred',
+  '[Gmail]/Beszélgetések': 'chats',
+  '[Gmail]/Összes levél': 'all',
+}
+const EMAIL_FALLBACK_NAME_BY_ROLE = Object.fromEntries(
+  Object.entries(EMAIL_FALLBACK_ROLE_BY_NAME).map(([name, role]) => [role, name]))
+
+/** Which system folder this mailbox is, or null for a user label. */
+function emailMailboxRole(m) {
+  return (m && m.role) || EMAIL_FALLBACK_ROLE_BY_NAME[m && m.name] || null
+}
+
+// The CURRENT account's own names for the system folders, filled in from the
+// mailbox list on every load. Emptied on account switch so a folder name from
+// the previous account can never leak into a move/delete call on this one.
+let emailSystemMailboxByRole = {}
+
+/** The open account's own name for a system folder (e.g. 'trash'). */
+function emailMailboxNameForRole(role) {
+  return emailSystemMailboxByRole[role] || EMAIL_FALLBACK_NAME_BY_ROLE[role] || null
+}
+
+/** Reverse lookup: which system folder is this name, on the open account? */
+function emailRoleOfMailboxName(name) {
+  for (const role of Object.keys(emailSystemMailboxByRole)) {
+    if (emailSystemMailboxByRole[role] === name) return role
+  }
+  return EMAIL_FALLBACK_ROLE_BY_NAME[name] || null
+}
+
+/** The open account's Sent folder -- used to be a hardcoded constant. */
+function emailSentMailbox() {
+  return emailMailboxNameForRole('sent')
+}
 
 // Display-only relabeling -- the underlying himalaya mailbox name (e.g.
 // "Inbox", "[Gmail]/Piszkozatok") must stay untouched in data-mailbox/API
@@ -21571,21 +21615,23 @@ const EMAIL_SYSTEM_MAILBOX_ORDER = [
 // they must stay untouched for data-mailbox/API calls, but the RENDERED
 // label should follow the dashboard's own language regardless of what
 // language the Gmail account itself is set to.
-const EMAIL_MAILBOX_DISPLAY_KEY = {
-  'Inbox': 'email.mailbox.inbox',
-  [EMAIL_SENT_MAILBOX]: 'email.mailbox.sent',
-  '[Gmail]/Piszkozatok': 'email.mailbox.drafts',
-  '[Gmail]/Spam': 'email.mailbox.spam',
-  '[Gmail]/Kuka': 'email.mailbox.trash',
-  '[Gmail]/Fontos': 'email.mailbox.important',
-  '[Gmail]/Csillagozott': 'email.mailbox.starred',
-  '[Gmail]/Beszélgetések': 'email.mailbox.chats',
-  '[Gmail]/Összes levél': 'email.mailbox.all_mail',
+const EMAIL_MAILBOX_DISPLAY_KEY_BY_ROLE = {
+  inbox: 'email.mailbox.inbox',
+  sent: 'email.mailbox.sent',
+  drafts: 'email.mailbox.drafts',
+  spam: 'email.mailbox.spam',
+  trash: 'email.mailbox.trash',
+  important: 'email.mailbox.important',
+  starred: 'email.mailbox.starred',
+  chats: 'email.mailbox.chats',
+  all: 'email.mailbox.all_mail',
 }
-function emailMailboxDisplayName(name) {
-  const key = EMAIL_MAILBOX_DISPLAY_KEY[name]
+/** Accepts a mailbox object (preferred, carries the role) or a bare name. */
+function emailMailboxDisplayName(m) {
+  const mb = typeof m === 'string' ? { name: m } : m
+  const key = EMAIL_MAILBOX_DISPLAY_KEY_BY_ROLE[emailMailboxRole(mb)]
   if (key) return t(key)
-  return name.replace(/^\[Gmail\]\//, '')
+  return mb.name.replace(/^\[Gmail\]\//, '')
 }
 // Just the leaf segment of a nested label path, for toasts/messages where
 // the full "Freeber/Developp/Peter Botond" would be noise -- matches what
@@ -21629,11 +21675,11 @@ function renderEmailLabelTree(node, depth, labelItem) {
 }
 
 function sortEmailMailboxes(mailboxes) {
-  const rank = new Map(EMAIL_SYSTEM_MAILBOX_ORDER.map((name, i) => [name, i]))
+  const rank = new Map(EMAIL_SYSTEM_MAILBOX_ROLE_ORDER.map((role, i) => [role, i]))
   const system = []
   const custom = []
-  mailboxes.forEach(m => (rank.has(m.name) ? system : custom).push(m))
-  system.sort((a, b) => rank.get(a.name) - rank.get(b.name))
+  mailboxes.forEach(m => (rank.has(emailMailboxRole(m)) ? system : custom).push(m))
+  system.sort((a, b) => rank.get(emailMailboxRole(a)) - rank.get(emailMailboxRole(b)))
   custom.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
   return { system, custom }
 }
@@ -21992,6 +22038,11 @@ function renderEmailAccountNav() {
       if (searchInput) searchInput.value = ''
       emailCloseSearchDropdown()
       emailScopedMailboxCache = {}
+      // A rendszermappa-nevek FIOKONKENT masok (magyar vs. angol Gmail), ezert
+      // a valtas pillanataban el kell dobni oket: kulonben a betoltes es a
+      // kattintas kozotti pillanatban a regi fiok "[Gmail]/Kuka"-ja mehetne
+      // ki egy olyan fiokra, ahol az a mappa nem is letezik.
+      emailSystemMailboxByRole = {}
       emailAllMailboxNamesCache = null
       emailSelectedIds = new Map()
       emailActiveId = null
@@ -22015,12 +22066,19 @@ async function loadEmailMailboxes() {
   pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   const mailboxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json()
   if (!Array.isArray(mailboxes)) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailboxes_load_error'))}</div>`; return }
+  // A fiok SAJAT rendszermappa-nevei: innentol minden mozgatas/torles ezeket
+  // hasznalja a bedrotozott magyar nevek helyett.
+  emailSystemMailboxByRole = {}
+  mailboxes.forEach(m => {
+    const role = emailMailboxRole(m)
+    if (role && !emailSystemMailboxByRole[role]) emailSystemMailboxByRole[role] = m.name
+  })
   const { system, custom } = sortEmailMailboxes(mailboxes)
   // System folders (Inbox, Sent, ...) never get a checkbox -- only user
   // labels can be deleted, an IMAP DELETE on a system folder would break
   // Gmail's own folder structure (Boss, 2026-08-05, backend has the same
   // guard: SYSTEM_MAILBOXES in src/web/routes/email.ts).
-  const item = m => `<div class="email-mailbox-item${(m.name === emailMailbox && !(m.name === 'Inbox' && emailPromoOnly)) ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">${escapeHtml(emailMailboxDisplayName(m.name))}</div>`
+  const item = m => `<div class="email-mailbox-item${(m.name === emailMailbox && !(m.name === 'Inbox' && emailPromoOnly)) ? ' active' : ''}" data-mailbox="${escapeHtml(m.name)}">${escapeHtml(emailMailboxDisplayName(m))}</div>`
   // Promóciók (kanban 8449bbac): a FILTERED view of Inbox, not a real IMAP
   // mailbox -- data-mailbox stays "Inbox" (so clicking it, then reading/
   // replying/flagging a message, keeps working exactly like Inbox), the
@@ -22040,7 +22098,7 @@ async function loadEmailMailboxes() {
   // Boss, 2026-08-08: Bejövő/Elküldött/Piszkozatok kell hogy egymás után
   // kövessék egymást szétválasztás nélkül -- Promóciók a Piszkozatok UTÁN,
   // Spam ELŐTT megy.
-  const systemHtml = system.map(m => item(m) + (m.name === '[Gmail]/Piszkozatok' ? promoItem : '')).join('')
+  const systemHtml = system.map(m => item(m) + (emailMailboxRole(m) === 'drafts' ? promoItem : '')).join('')
   pane.innerHTML = systemHtml
     + (system.length && custom.length ? `<div class="email-mailbox-section-label">${escapeHtml(t('email.labels_section'))}</div>` : '')
     + renderEmailLabelTree(buildEmailLabelTree(custom), 0, labelItem)
@@ -22097,7 +22155,7 @@ async function loadEmailMailboxes() {
       emailBindDropTarget(el, (items) => emailDropOnSystem(kind, items))
     }
     if (el.dataset.promo === '1') { bind('promo'); return }
-    const kind = EMAIL_SYSTEM_DROP_KIND[el.dataset.mailbox]
+    const kind = EMAIL_SYSTEM_DROP_KIND_BY_ROLE[emailRoleOfMailboxName(el.dataset.mailbox)]
     if (kind) bind(kind)
   })
   pane.querySelectorAll('.email-mailbox-check').forEach(cb => {
@@ -22695,7 +22753,7 @@ function emailSubrowHtml(s) {
   // "<own address> -> Te" -- a message the user sent TO someone else,
   // labeled as if it arrived FROM himself (Boss, 2026-08-05, screenshot:
   // "hogy lehet az, hogy Lackor2 kuldi Lackor2-nek").
-  const isReceived = s.mailbox !== EMAIL_SENT_MAILBOX
+  const isReceived = s.mailbox !== emailSentMailbox()
   const you = escapeHtml(t('email.you'))
   const label = isReceived
     ? `${escapeHtml(s.from?.[0]?.name || s.from?.[0]?.email || t('email.unknown_sender'))} &rarr; ${you}`
@@ -22834,12 +22892,12 @@ async function emailDropOnSystem(kind, items) {
   if (items.length === 0) return
   const n = items.length
   if (kind === 'trash') {
-    const r = await emailMoveDraggedTo(items, '[Gmail]/Kuka')
+    const r = await emailMoveDraggedTo(items, emailMailboxNameForRole('trash'))
     showToast(r.ok ? t('email.drag_trash_done', { n: r.moved.length }) : t('email.drag_move_fail'))
     return
   }
   if (kind === 'spam') {
-    const r = await emailMoveDraggedTo(items, '[Gmail]/Spam')
+    const r = await emailMoveDraggedTo(items, emailMailboxNameForRole('spam'))
     // Csak SIKERES mozgatas utan tanulunk: ha a huzas lathatoan nem sikerult,
     // ne maradjon utana egy nema szabaly, amirol a Boss nem tud.
     if (!r.ok) { showToast(t('email.drag_move_fail')); return }
@@ -22876,10 +22934,10 @@ async function emailDropOnSystem(kind, items) {
 }
 
 /** Melyik rendszermappa mit jelent huzaskor. Ami nincs benne, oda nem lehet huzni. */
-const EMAIL_SYSTEM_DROP_KIND = {
-  '[Gmail]/Kuka': 'trash',
-  '[Gmail]/Spam': 'spam',
-  '[Gmail]/Fontos': 'important',
+const EMAIL_SYSTEM_DROP_KIND_BY_ROLE = {
+  trash: 'trash',
+  spam: 'spam',
+  important: 'important',
 }
 
 /** Sugo-szoveg huzasi celpontonkent.
@@ -23018,7 +23076,7 @@ async function loadEmailEnvelopes() {
     // it is redundant/uninformative (Boss, 2026-08-05: "Korpás László
     // elkuldte. De kinek? Sehol nem latom"). The useful info there is who it
     // went TO instead.
-    const from = emailMailbox === EMAIL_SENT_MAILBOX
+    const from = emailMailbox === emailSentMailbox()
       ? t('email.recipient_prefix', { name: (e.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || t('email.unknown_sender') })
       : (e.from?.[0]?.name || e.from?.[0]?.email || t('email.unknown_sender'))
     const active = String(e.id) === emailActiveId && emailActiveMailbox === emailMailbox
@@ -23161,7 +23219,7 @@ async function loadEmailEnvelopes() {
   // had no flag element at all before this (Boss, 2026-08-05: "a kovetkezo
   // mar elfelejtette a kapcsot").
   const sentSiblingIds = Object.values(siblingsMap).flat().map(s => s.id)
-  applyAttachmentFlags(EMAIL_SENT_MAILBOX, sentSiblingIds)
+  applyAttachmentFlags(emailSentMailbox(), sentSiblingIds)
 }
 
 // A plain-text alternative on an HTML newsletter is often just a
@@ -23874,7 +23932,7 @@ document.getElementById('emailComposeNewSendBtn')?.addEventListener('click', asy
     if (!res.ok) { showToast(data.error || t('email.send_error')); return }
     showToast(t('email.new_message_sent_toast'))
     closeModal(document.getElementById('emailComposeNewOverlay'))
-    if (emailMailbox === EMAIL_SENT_MAILBOX) loadEmailEnvelopes()
+    if (emailMailbox === emailSentMailbox()) loadEmailEnvelopes()
   } finally {
     sendBtn.disabled = false
     sendBtn.textContent = t('email.btn.send')

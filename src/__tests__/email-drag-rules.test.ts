@@ -259,7 +259,21 @@ describe('huzas: a kijeloles EGESZE utazik', () => {
 
 interface Call { url: string; body: Record<string, unknown> }
 
-function dropHarness(opts: { failMailbox?: string; ruleFail?: boolean; importantFail?: boolean } = {}) {
+function sliceOrThrow(from: string, to: string): string {
+  const a = app.indexOf(from)
+  const b = app.indexOf(to)
+  if (a < 0 || b <= a) throw new Error(`web/app.js: nem talalhato a blokk ${from} .. ${to}`)
+  return app.slice(a, b)
+}
+
+// A rendszermappak nevet mostantol a fiok SAJAT nevei adjak (nyelvfuggetlen
+// IMAP-flagbol szarmazo szerepek szerint). Ezt a blokkot AZ ELES kodbol
+// emeljuk be, nem stubboljuk: a 2026-08-18-i hiba pont az volt, hogy a
+// "[Gmail]/Kuka" nev egy angol nyelvu fioknal nem letezik -- ha itt stub
+// allna, a teszt tovabbra is zolden engedne at ugyanezt.
+const ROLE_BLOCK = sliceOrThrow('const EMAIL_FALLBACK_ROLE_BY_NAME', '// Display-only relabeling')
+
+function dropHarness(opts: { failMailbox?: string; ruleFail?: boolean; importantFail?: boolean; systemMailboxes?: Record<string, string> } = {}) {
   const calls: Call[] = []
   const removed: string[] = []
   const toasts: string[] = []
@@ -280,18 +294,23 @@ function dropHarness(opts: { failMailbox?: string; ruleFail?: boolean; important
   // megnyitasa kifele stub: azt szamoljuk, nem nyitjuk.
   const factory = new Function('fetch', 'emailAccount', 'emailMailbox', 'emailRemoveRowFromList',
     'showToast', 't', 'loadEmailEnvelopes', 'openEmailRulesModal',
-    `${extractFn(app, 'emailMoveDraggedTo')}
+    `${ROLE_BLOCK}
+     ${extractFn(app, 'emailMoveDraggedTo')}
      ${extractFn(app, 'emailDraggedSenders')}
      ${extractFn(app, 'emailAddSenderRule')}
      ${extractFn(app, 'emailRulesToastAction')}
      ${extractFn(app, 'emailDropOnSystem')}
-     return { drop: emailDropOnSystem, move: emailMoveDraggedTo, senders: emailDraggedSenders }`)
+     return { drop: emailDropOnSystem, move: emailMoveDraggedTo, senders: emailDraggedSenders,
+              setSystemMailboxes: (m) => { emailSystemMailboxByRole = m } }`)
   const api = factory(fetchStub, 'lackor2', 'Inbox',
     (id: string) => { removed.push(String(id)) },
     (msg: string) => { toasts.push(msg) },
     (k: string, v?: Record<string, unknown>) => `${k}|${JSON.stringify(v || {})}`,
     () => { reloads++ },
     () => { rulesOpened++ })
+  // Ures halmaz = a fiok mappalistaja meg nem toltodott be; ilyenkor az eles
+  // kod a tartalek (magyar) nevekre esik vissza, ezt is meg kell vedeni.
+  api.setSystemMailboxes(opts.systemMailboxes || {})
   return { api, calls, removed, toasts, reloads: () => reloads, rulesOpened: () => rulesOpened }
 }
 
@@ -414,6 +433,14 @@ describe('emailDropOnSystem: mappankent mas muvelet', () => {
     expect(h.toasts).toEqual(['email.drag_move_fail|{}'])
   })
 
+  it('angol nyelvu fiokban a fiok SAJAT Kuka-nevere helyez at', async () => {
+    // Ez a 2026-08-18-i hiba: a "[Gmail]/Kuka" nev egy angol nyelvu Gmailben
+    // nem letezik, es a torles "Command failed ... -t [Gmail]/Kuka"-val bukott.
+    const h = dropHarness({ systemMailboxes: { trash: '[Gmail]/Trash', spam: '[Gmail]/Spam' } })
+    await h.api.drop('trash', [item('a')])
+    expect(h.calls[0].body.target).toBe('[Gmail]/Trash')
+  })
+
   it('ures huzas semmit sem csinal', async () => {
     const h = dropHarness()
     await h.api.drop('trash', [])
@@ -423,18 +450,24 @@ describe('emailDropOnSystem: mappankent mas muvelet', () => {
 })
 
 describe('melyik mappa celpont egyaltalan', () => {
-  const map = app.slice(app.indexOf('const EMAIL_SYSTEM_DROP_KIND'), app.indexOf('function emailBindDropTarget'))
+  const map = sliceOrThrow('const EMAIL_SYSTEM_DROP_KIND_BY_ROLE', 'function emailBindDropTarget')
 
   it('Kuka, Spam, Fontos igen', () => {
-    expect(map).toContain("'[Gmail]/Kuka': 'trash'")
-    expect(map).toContain("'[Gmail]/Spam': 'spam'")
-    expect(map).toContain("'[Gmail]/Fontos': 'important'")
+    expect(map).toContain("trash: 'trash'")
+    expect(map).toContain("spam: 'spam'")
+    expect(map).toContain("important: 'important'")
   })
 
   it('Bejovo, Elkuldott, Piszkozatok, Osszes level NEM -- oda huzni ertelmetlen vagy karos', () => {
-    for (const mailbox of ['Inbox', 'Elküldött', 'Piszkozatok', 'Összes levél', 'Csillagozott']) {
-      expect(map, `nem lehet celpont: ${mailbox}`).not.toContain(mailbox)
+    for (const role of ['inbox', 'sent', 'drafts', 'all', 'starred', 'chats']) {
+      expect(map, `nem lehet celpont: ${role}`).not.toContain(`${role}:`)
     }
+  })
+
+  it('mappaNEV egy szal sincs benne -- kulonben angol fioknal nem talalna celt', () => {
+    // A tabla kulcsa szerep ('trash'), nem nev ('[Gmail]/Kuka'): ez az egesz
+    // 2026-08-18-i javitas lenyege.
+    expect(map).not.toContain('[Gmail]')
   })
 
   it('a Promociok agat ELOBB nezi, mint a mappanevet (data-mailbox="Inbox" van rajta)', () => {
@@ -442,7 +475,7 @@ describe('melyik mappa celpont egyaltalan', () => {
     const bind = loop.slice(0, loop.indexOf('emailUpdateMailboxBulkDeleteUI'))
     expect(bind.indexOf("dataset.promo === '1'")).toBeGreaterThanOrEqual(0)
     expect(bind.indexOf("dataset.promo === '1'"), 'kulonben a Promociok az Inboxra hivatkozna')
-      .toBeLessThan(bind.indexOf('EMAIL_SYSTEM_DROP_KIND[el.dataset.mailbox]'))
+      .toBeLessThan(bind.indexOf('EMAIL_SYSTEM_DROP_KIND_BY_ROLE[emailRoleOfMailboxName(el.dataset.mailbox)]'))
   })
 
   it('a huzas felhasznalja a kijelolest (a kovetkezo huzas ne vigye ujra ugyanazt)', () => {
