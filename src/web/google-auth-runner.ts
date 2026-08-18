@@ -327,7 +327,10 @@ function killFlow(): void {
  * no paste at all. The paste is the fallback, not the happy path -- which
  * matters here, because pasting a URL is the step a non-programmer drops.
  */
-export function startGoogleAuth(accountId: string): { ok: boolean; error?: string } {
+export function startGoogleAuth(
+  accountId: string,
+  opts: { force?: boolean } = {},
+): { ok: boolean; error?: string; code?: 'busy'; busyAccountId?: string } {
   const id = (accountId || '').trim().toLowerCase()
   if (!isValidAccountId(id)) {
     return { ok: false, error: 'A fiók neve csak kisbetű, szám és aláhúzás lehet (pl. "munka" vagy "lackor2").' }
@@ -335,8 +338,20 @@ export function startGoogleAuth(accountId: string): { ok: boolean; error?: strin
   if (!googleOauthClientPresent()) {
     return { ok: false, error: 'Hiányzik a Google OAuth kliens-fájl (store/google-oauth-client.json). A Beállítás varázslóban van leírva, hogyan szerezd meg.' }
   }
+  // Busy travels as a CODE, not as Hungarian prose the page would have to parse.
+  // Boss, 2026-08-15: "Már fut egy Google-bejelentkeztetés (freeberischeaper).
+  // Fejezd be, vagy szakítsd meg. ha ilyen van mit tegyek?" -- the sentence was
+  // true and useless: the page it appeared on had no way to end that flow. With
+  // the code and the name, the page can offer exactly one named action.
   if (flow && !flow.finished && flow.exitCode === null && Date.now() - flow.startedAt < AUTH_MAX_AGE_MS) {
-    return { ok: false, error: `Már fut egy Google-bejelentkeztetés (${flow.accountId}). Fejezd be, vagy szakítsd meg.` }
+    const busyAccountId = flow.accountId
+    if (!opts.force) {
+      return {
+        ok: false, code: 'busy', busyAccountId,
+        error: `Már fut egy Google-bejelentkeztetés (${busyAccountId}). Fejezd be, vagy szakítsd meg.`,
+      }
+    }
+    logger.info({ accountId: id, replaced: busyAccountId }, 'google-auth: replacing a running authorization on request')
   }
   killFlow()
 

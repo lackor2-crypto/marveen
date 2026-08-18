@@ -422,6 +422,10 @@ window._i18n.hu = {
   'kanban.toast.approval_cancelled': 'Nem küldtem el, előbb nézd át a felsorolt kártyákat',
   'kanban.approval.similar_intro': 'Mielőtt lezárnád: ezek a kártyák MÉG NYITVA vannak, és hasonlítanak erre. Lehet, hogy ugyanarról szólnak, vagy ez a munka őket is érinti.',
   'kanban.approval.similar_ask': 'Átnézted őket? Ha egyik sem kapcsolódik ehhez a kártyához, nyomj OK-t, és elküldöm jóváhagyásra. Ha mégis összetartoznak, nyomj Mégse-t, és előbb linkeld össze őket.',
+  'kanban.dialog.similar_cards.title': 'Hasonló kártyák',
+  'kanban.dialog.similar_cards.desc': 'Ez a kártya előtt a következő, még nyitott kártyák hasonlóak lehetnek. Nézd át őket: lehet, hogy ezt a munkát már lefedik vagy részben lefedik.',
+  'kanban.dialog.similar_cards.reviewed_none': 'Átnéztem, egyik sem kapcsolódik',
+  'kanban.dialog.similar_cards.reviewed_selected': 'Átnéztem, jelöltem a relevánsakat',
   'kanban.toast.move_error':     'Hiba az áthelyezés során',
   'kanban.toast.save_error':     'Hiba a mentésnél',
   'kanban.toast.comment_error':  'Hiba a megjegyzés mentése során',
@@ -1563,6 +1567,20 @@ window._i18n.hu = {
   'restart.row_note':            'Ez a beállítás akkor lép életbe, ha újraindítod {target}.',
   'restart.btn_target':          'Újraindítom {target}',
   'restart.second_step_agents':  'Ezután az ágenseket is indítsd újra az Ágensek oldalon, hogy ők is az új értékkel dolgozzanak.',
+  // "Mindent ujraindit" -- Boss, 2026-08-16: "nem lenne sokal egyszerubb ha
+  // mindent ujrainditana ami letezik a marveen ban?". A celzott gomb marad, de
+  // aki nem akar valasztani, annak ez az egy gomb mindent eletbe leptet.
+  'restart.all_btn':             'Mindent újraindít',
+  'restart.all_note':            'Sorban: az ügynökök, {bot}, végül a vezérlőpult. Így minden beállítás életbe lép, de a futó munkák megszakadnak – ezért rákérdezek.',
+  'restart.all_planning':        'Megnézem, ki dolgozik éppen…',
+  'restart.all_plan_failed':     'Nem tudtam megnézni, mi futna újra – ezért nem is indítottam el semmit. Próbáld újra.',
+  'restart.all_running':         'Újraindítás fut…',
+  'restart.all_confirm_head':    'Mindent újraindítok: {n} folyamat.',
+  'restart.all_confirm_busy':    'FIGYELEM, ezek éppen dolgoznak, és a munkájuk megszakad: {names}',
+  'restart.all_confirm_skipped': 'Ezek kimaradnak (most sincsenek elindítva, és egy újraindítás gomb ne keltsen életre semmit): {names}',
+  'restart.all_confirm_tail':    'Folytatod?',
+  'restart.all_partial':         'Ezek nem indultak újra: {names}. A többi igen. Nézd meg a Naplót.',
+  'restart.all_done_no_dashboard': 'Az ügynökök újraindultak. A vezérlőpultot innen nem tudom újraindítani.',
   // A mappavalaszto ("ki lehessen valasztani, ne kelljen begepelni").
   'picker.title':                'Hol legyen a depó?',
   'picker.loading':              'Betöltés…',
@@ -1610,7 +1628,7 @@ window._i18n.hu = {
   // "az egeszet egyben kellene szinkronizalni. es nem csak egy egy mappat" +
   // "ne kelljen kivalasztani itt mappakat. az nem kell ide".
   'dsync.title':                 'A Drive-om a gépemen',
-  'dsync.what_html':             '<strong>Mire jó ez?</strong> A Marveen <strong>az egész Drive-odat lehozza a gépedre</strong>, a depóba — ugyanazzal a mappaszerkezettel, ami a neten van. Ami ott van, az nálad is megvan, internet nélkül is.<br>A másolat <strong>oda-vissza</strong> működik: ami a Drive-on új vagy módosult, az <strong>lejön</strong>; amit a gépeden létrehozol vagy szerkesztesz, az <strong>felmegy</strong>. Ha a gépeden törölsz valamit, az fent is törlődik — de a <strong>Kukába</strong>, ahonnan 30 napig visszahozható.<br><strong>Egy irányban viszont szándékosan nem követ:</strong> ami a Drive-on törlődik, az nálad <strong>megmarad</strong>. Így ha valaki feltöri a Drive-odat, a gépedről nem tud törölni.',
+  'dsync.what_html':             '<strong>Mire jó ez?</strong> A Marveen <strong>az egész Drive-odat lehozza a gépedre</strong>, a depóba — ugyanazzal a mappaszerkezettel, ami a neten van. Ami ott van, az nálad is megvan, internet nélkül is.<br>A másolat <strong>oda-vissza</strong> működik: ami a Drive-on új vagy módosult, az <strong>lejön</strong>; amit a gépeden létrehozol vagy szerkesztesz, az <strong>felmegy</strong>. Ha a gépeden törölsz valamit, az fent is törlődik — de a <strong>Kukába</strong>, ahonnan 30 napig visszahozható.<br><strong>Egy irányban viszont szándékosan nem követ:</strong> ami a Drive-on törlődik, az nálad <strong>megmarad</strong>. Így ha valaki feltöri a Drive-odat, a gépedről nem tud törölni.<br><strong>A Google Docs, Sheets és Slides is oda-vissza megy:</strong> a gépeden <code>.docx</code>, <code>.xlsx</code>, <code>.pptx</code> fájlként látod, és ha szerkeszted, visszakerül a Drive-ra — <strong>ugyanabba a dokumentumba</strong>, ami Doc marad, a linkjével és a megosztásaival együtt. (A Google Rajzot és az Apps Scriptet a Google nem veszi vissza; ha ilyet szerkesztesz, a futás kiírja, hogy nem ment fel.)',
   'dsync.step1':                 'Melyik Google-fiókod Drive-ját hozzuk le?',
   'dsync.whole_btn':             'A teljes Drive lehozása',
   'dsync.whole_hint_html':       'A gépeden a mappa neve <strong>ugyanaz lesz, mint a fiók neve</strong> — a <code>lackor2</code> Drive-ja a <code>drive/lackor2</code> mappába jön, a fotók pedig a <code>fotok/lackor2</code> mappába. Nem nevezed át, így két fiók tartalma soha nem keveredhet össze.',
@@ -1648,6 +1666,10 @@ window._i18n.hu = {
   'settings.toast.save_error':   'Hiba a mentés során',
   'settings.toast.saved':        'Mentve',
   'settings.meta.values':        'Lehetséges értékek',
+  // A választólistán a beállítatlan és a listán kívüli értékek megnevezése:
+  // enélkül a legördülő a lista ELSŐ elemét mutatná érvényben lévőként.
+  'settings.value.unset':        '(nincs beállítva)',
+  'settings.value.current_suffix': '(jelenlegi)',
   'settings.meta.range':         'Tartomány',
   'settings.meta.format':        'Formátum',
   'settings.meta.default':       'Alapérték',
@@ -1757,9 +1779,14 @@ window._i18n.hu = {
   // Húzás (drag & drop) a bal oldali mappákra. Boss, 2026-08-15.
   'email.drag_count':              '{n} levél',
   'email.drag_trash_done':         '{n} levél a Kukába került',
-  'email.drag_spam_done':          '{n} levél a Spam mappába került. Mostantól ettől a feladótól minden levél egyenesen a Spamba megy: {senders}. Ha meggondolod magad, a bal oldalt alul a „Spam- és promóció-szabályok" gombbal vonhatod vissza.',
+  // Boss, 2026-08-16: „nem vilagos... csak bal oldalt. arra gondoltam hogy a
+  // dokumentacio alatt valahol bal oldalt." Telefonon nincs is bal oldal, ezert
+  // a szoveg mostantol a MAPPALISTA aljahoz koti, es megnevezi a szomszedjat is
+  // („Új címke"). A csikon emellett ott a „Szabályok megnyitása" gomb is: a
+  // szoveg a legkozelebbi alkalomra tanit, a gomb most visz oda.
+  'email.drag_spam_done':          '{n} levél a Spam mappába került. Mostantól ettől a feladótól minden levél egyenesen a Spamba megy: {senders}. Visszavonni így tudod: Levelek oldal → görgess a mappalista aljára → az „Új címke" gomb alatt a „Spam- és promóció-szabályok" gomb.',
   'email.drag_spam_no_rule':       '{n} levél a Spam mappába került, de a feladót nem sikerült megjegyezni – a következő levele még a bejövőbe fog érkezni.',
-  'email.drag_promo_done':         'Mostantól a Promóciók közé kerül minden, ami innen jön: {senders}. Visszavonni a bal oldalt alul a „Spam- és promóció-szabályok" gombbal tudod.',
+  'email.drag_promo_done':         'Mostantól a Promóciók közé kerül minden, ami innen jön: {senders}. Visszavonni így tudod: Levelek oldal → görgess a mappalista aljára → az „Új címke" gomb alatt a „Spam- és promóció-szabályok" gomb.',
   'email.drag_promo_no_sender':    'Ehhez a levélhez nincs feladó cím, így nem tudom megjegyezni',
   'email.drag_important_done':     '{n} levél megjelölve fontosként (a bejövőben marad)',
   // Sugó egérrel ráállva: a húzhatóság magától nem látszik.
@@ -1769,6 +1796,9 @@ window._i18n.hu = {
   'email.drop_hint_important':     'Ide húzhatod a leveleket – fontosnak jelöli őket, a bejövőben maradnak',
   // Szabálykezelő ablak
   'email.rules_btn':               'Spam- és promóció-szabályok',
+  // A csikon megjeleno gomb: egy kattintassal nyitja a szabalykezelot, hogy ne
+  // kelljen 54 mappa alja gorgetni ahhoz, hogy visszavonj egy elhibazott huzast.
+  'email.rules_open_btn':          'Szabályok megnyitása',
   'email.rules_title':             'Spam- és promóció-szabályok',
   'email.rules_help':              'Ide kerül minden feladó, akit a Spam vagy a Promóciók mappára húztál. Amíg itt szerepel, az ő leveleit a Marveen automatikusan oda teszi. A „Visszavonás" gombbal bármikor törölheted a szabályt – a régi levelek a helyükön maradnak, csak az ezután érkezők jönnek megint a bejövőbe.',
   'email.rules_spam_section':      'Egyenesen a Spamba',
@@ -2125,9 +2155,14 @@ window._i18n.hu = {
   'photos.nophotos_retry':     'Újrapróbálom',
   'photos.nophotos_account':   'Erről a fiókról van szó: {name}',
   'photos.session_gone':       'A képválasztó ablak lejárt vagy bezárult, ezért ez a választás már nem folytatható. Nem veszett el semmi: nyomd meg újra a „Képek hozzáadása" gombot, és válaszd ki a képeket.',
-  'photos.added':              '{count} kép behozva',
-  'photos.added_with_dup':     '{count} kép behozva, {dup} db már megvolt (nem hoztam be újra)',
-  'photos.added_only_dup':     'Nem jött be új kép: mind a {dup} pontosan ugyanaz, ami már itt van.',
+  'photos.result.head':        '{selected} kijelölt képből:',
+  'photos.result.saved':       '{count} új kép jött le',
+  'photos.result.nothing_new': 'egyetlen új kép sem jött le',
+  'photos.result.already':     '{count} már korábban lejött',
+  'photos.result.duplicates':  '{count} teljesen egyforma azzal, ami már itt van (nem hoztam be újra)',
+  'photos.result.failed':      '{count} nem sikerült',
+  'photos.result.unaccounted': '{count} elveszett a számolás közben (ez hiba, szólj)',
+  'photos.result.partial':     'FIGYELEM: a kijelölt képek listája nem jött végig, ezért lehet, hogy ennél többet jelöltél ki. Indítsd el újra a behozatalt.',
   'photos.cleaned':            'Korábbról {count} egyforma másolatot is kitakarítottam.',
   'photos.added_none':         'Nem választottál ki képet.',
   'photos.remove_btn':         'Eltávolítás',
@@ -2663,8 +2698,12 @@ window._i18n.hu = {
   // --- Overview: upstream-sync widget (kanban 37489d5e) ---
   'overview.upstream.title':     'Upstream szinkron',
   'overview.upstream.new':       'új fejlesztés az upstreamben',
-  'overview.upstream.conflicts': 'ütközik',
-  'overview.upstream.clean':     'konfliktusmentesen áthúzható',
+  // A két szám mértékegysége KÜLÖNBÖZŐ: az első commiteket számol, ez a kettő
+  // fájlokat. A címkékben ott a "fájl", különben a doboz úgy néz ki, mintha
+  // mindhárom szám ugyanabból a fajtából volna, és kivonhatók lennének egymásból.
+  'overview.upstream.conflicts': 'ütköző fájl',
+  'overview.upstream.clean':     'tisztán áthúzható fájl',
+  'overview.upstream.clean_unmeasured': 'A havi vizsgálat ezt még nem mérte meg. Inkább nem mutatunk számot, mint egy kitaláltat.',
   // --- Overview: rate-limit / usage-window widget (kanban ef06b18d) ---
   'overview.ratelimit.title':        'Keret-figyelő',
   'overview.ratelimit.five_hour':    '5 órás keret',

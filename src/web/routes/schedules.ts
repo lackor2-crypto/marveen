@@ -35,6 +35,21 @@ function resolveScheduleDir(rawName: string): { name: string; dir: string } | nu
   } catch { return null }
 }
 
+// Upper bound for the per-task stuck alert. TASK_FIRE_MAX_TRACK_MS is 6 hours;
+// past that the in-flight entry is evicted before the threshold can be reached,
+// so a larger number would quietly mean "never alert" -- a disable disguised as
+// a setting. Rejecting it here is what keeps the form honest. 0 is allowed and
+// means "clear the override, go back to the default" (see writeScheduledTask).
+export const MAX_STUCK_AFTER_MINUTES = 360
+
+export function validateStuckAfterMinutes(raw: unknown): string | null {
+  if (raw === undefined || raw === null) return null
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 'stuckAfterMinutes must be a number'
+  if (raw < 0) return 'stuckAfterMinutes must not be negative'
+  if (raw > MAX_STUCK_AFTER_MINUTES) return `stuckAfterMinutes must be at most ${MAX_STUCK_AFTER_MINUTES} (6 hours)`
+  return null
+}
+
 export async function tryHandleSchedules(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
 
@@ -126,8 +141,10 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       throw err
     }
     const data = JSON.parse(body.toString()) as {
-      name: string; description: string; prompt: string; schedule: string; agent?: string; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string
+      name: string; description: string; prompt: string; schedule: string; agent?: string; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; stuckAfterMinutes?: number
     }
+    const stuckErr = validateStuckAfterMinutes(data.stuckAfterMinutes)
+    if (stuckErr) { json(res, { error: stuckErr }, 400); return true }
     const name = sanitizeScheduleName(data.name || '')
     if (!name) { json(res, { error: 'Name is required' }, 400); return true }
     if (!data.prompt?.trim()) { json(res, { error: 'Prompt is required' }, 400); return true }
@@ -153,6 +170,12 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       skipIfBusy: data.skipIfBusy === true,
       forceSend: data.forceSend === true,
       targetSession: data.targetSession || undefined,
+      // Ez LETREHOZASKOR is szamit. A urlap kuldi a kuszobot ujnal is, de a
+      // POST-ag sajat kezzel epitett objektumot ad at, ezert eddig CSENDBEN
+      // eldobta: a felhasznalo beirt 20 percet, a task pedig az alapertelmezett
+      // 5-tel jott letre. A writeScheduledTask a 0-t "torold a kulcsot"-kent
+      // kezeli, igy az ures mezo tovabbra sem ir semmit a configba.
+      stuckAfterMinutes: data.stuckAfterMinutes,
     })
     logger.info({ name, schedule: data.schedule }, 'Scheduled task created')
     json(res, { ok: true, name })
@@ -177,8 +200,10 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       throw err
     }
     const data = JSON.parse(body.toString()) as {
-      description?: string; prompt?: string; schedule?: string; agent?: string; enabled?: boolean; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string
+      description?: string; prompt?: string; schedule?: string; agent?: string; enabled?: boolean; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; stuckAfterMinutes?: number
     }
+    const stuckErr = validateStuckAfterMinutes(data.stuckAfterMinutes)
+    if (stuckErr) { json(res, { error: stuckErr }, 400); return true }
     if (data.prompt !== undefined && data.prompt.length > MAX_SCHEDULED_TASK_PROMPT_LEN) {
       json(res, {
         error: `Prompt too large (${data.prompt.length} chars, max ${MAX_SCHEDULED_TASK_PROMPT_LEN})`,

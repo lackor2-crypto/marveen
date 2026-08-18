@@ -112,15 +112,33 @@ classify_mcp_plugin_row() {
 
 # Test hook: classify a pane from stdin and exit before anything touches tmux,
 # the store or a live session.
-# Resolve the main agent's model. Precedence: MAIN_AGENT_MODEL from .env
-# (per-install, gitignored) over .claude/settings.json (tracked, shipped with
-# the repo). Without the .env route an install that wants a different model has
-# to edit a tracked file, which then blocks the update preflight's clean-tree
-# check and gets reverted by the next update.
+# Resolve the main agent's model. Precedence, highest first:
+#
+#   1. store/config-overrides.json -- what the Beallitasok page saves
+#   2. MAIN_AGENT_MODEL from .env  -- per-install, gitignored
+#   3. .claude/settings.json       -- tracked, shipped with the repo
+#
+# Without the .env route (2) an install that wants a different model has to edit
+# a tracked file, which then blocks the update preflight's clean-tree check and
+# gets reverted by the next update.
+#
+# Layer (1) is read through the SAME compiled function the dashboard uses
+# (readConfiguredMainModel), because the two must never disagree: the dashboard
+# printing one model while the bot starts on another is exactly the 2026-08-16
+# complaint ("a beallitasban sonett 5 van, akkor miert meg mindig a haiku?").
+# The helper prints nothing when dist is missing or nothing is configured, so an
+# unbuilt install simply falls through to (2) and (3) as before.
 #
 # Kept as a function so `--resolve-main-model` can exercise exactly the code
 # the launch path uses, with no tmux, store or network involved.
 resolve_main_model() {
+  if command -v node >/dev/null 2>&1 && [ -f "$INSTALL_DIR/dist/web/main-agent-model.js" ]; then
+    _saved_model="$(node "$INSTALL_DIR/scripts/main-agent-model.mjs" 2>/dev/null || true)"
+    if [ -n "$_saved_model" ]; then
+      printf '%s' "$_saved_model"
+      return 0
+    fi
+  fi
   if [ -n "${MAIN_AGENT_MODEL:-}" ]; then
     printf '%s' "$MAIN_AGENT_MODEL"
     return 0

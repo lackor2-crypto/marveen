@@ -3205,6 +3205,36 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 .toast-close:hover { opacity: 1; }
 .toast-close:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* A csik sajat gombja (showToast opts.action). Boss 2026-08-16: a "hol talalom"
+   kerdesre a SZOVEG valaszol, ide meg egy kattintas viszi oda. A csik maga a
+   --text szinu, tehat a gomb hattere a --bg -- igy sotet es vilagos temaban is
+   elvalik a csiktol. */
+.toast-action {
+  flex: none;
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 6px 12px;
+  cursor: pointer;
+  /* Ne legyen olyan alacsony, hogy telefonon nehez legyen eltalalni. */
+  min-height: 32px;
+  white-space: nowrap;
+}
+.toast-action:hover { opacity: 0.85; }
+.toast-action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+/* A hibacsikon a hatter piros: ott a feher gomb az olvashato. */
+.toast-error .toast-action { background: #fff; color: var(--danger); }
+/* Keskeny kepernyon a gomb ne szoritsa a szoveget ket karakteres oszlopba:
+   ilyenkor a csik tordelodik, es a gomb a szoveg ALA kerul. */
+@media (max-width: 480px) {
+  .toast { flex-wrap: wrap; position: fixed; }
+  .toast-text { flex: 1 1 100%; padding-right: 24px; }
+  .toast-action { margin-top: 8px; }
+}
 /* A hibauzenet magatol nem tunik el, ezert latszodjon is rajta hogy baj van. */
 .toast-error { background: var(--danger); color: #fff; }
 /* A figyelmeztetes megtartja az alap hattert (a --warning sarga, feher szoveggel

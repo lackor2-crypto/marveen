@@ -205,9 +205,33 @@ describe('the markup the column view needs', () => {
     expect(css).toMatch(/\.drive-multi-bar\[hidden\]\s*\{[^}]*display:\s*none/)
   })
 
-  it('columns are a responsive grid, not a fixed third', () => {
+  it('columns are responsive, not a fixed third', () => {
     // "harmadolom" is three accounts; ten must not produce 10 unreadable slivers.
-    expect(css).toMatch(/\.drive-multi\s*\{[^}]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(/)
+    // The width stayed 280px across the 2026-08-15 masonry switch, so the
+    // breakpoints are unchanged -- only the empty space is gone.
+    expect(css).toMatch(/\.drive-multi\s*\{[^}]*columns:\s*280px/)
+  })
+
+  // Boss, 2026-08-15: "a masodik es harmadik oszlop alatt ures a hely ... holott
+  // ott vannak csak joval lentebb ... ne legyen ures hely koztuk."
+  it('a shorter account does not leave a hole down to the tallest one', () => {
+    const block = css.slice(css.indexOf('.drive-multi {'), css.indexOf('.drive-multi-bar'))
+    // A row-based grid is exactly what left the hole: every row is as tall as
+    // its tallest card, and the next accounts start below the whole row.
+    expect(block, 'a racs megint sorokban gondolkodna').not.toMatch(/display:\s*grid/)
+    expect(block).not.toMatch(/grid-template-columns/)
+    // Multi-column flow: the next account continues where the previous ended.
+    expect(block).toMatch(/columns:\s*280px/)
+    expect(block).toMatch(/column-gap:\s*12px/)
+  })
+
+  it('an account card is never split across two columns', () => {
+    // Without this the header could end up in one column and its file list in
+    // the next -- worse than the empty space it replaced.
+    expect(css).toMatch(/\.drive-multi\s*>\s*\.drive-col\s*\{[^}]*break-inside:\s*avoid/)
+    // The vertical gap must come from the card's own margin: column-gap only
+    // separates columns horizontally, so without it the cards would touch.
+    expect(css).toMatch(/\.drive-multi\s*>\s*\.drive-col\s*\{[^}]*margin:\s*0 0 12px/)
   })
 
   it('one shared file input carries the target account', () => {

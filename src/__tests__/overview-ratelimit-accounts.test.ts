@@ -64,7 +64,11 @@ describe('usage-limit widget: reading the rows', () => {
 
 describe('usage-limit widget: server payload', () => {
   it('the main account reports staleness like the other accounts do', () => {
-    expect(OVERVIEW).toContain('stale: rlSnapshot ? isStale(rlSnapshot.updatedAt, Date.now()) : false')
+    // 2026-08-15: measuredAt, not updatedAt. The statusline rewrites the file
+    // on every render tick but only refreshes the percentages when Claude
+    // actually reported them, so updatedAt made an hours-old reading look
+    // fresh forever. See rate-limit-measured-at.test.ts.
+    expect(OVERVIEW).toContain('stale: rlSnapshot ? isStale(rlSnapshot.measuredAt, Date.now()) : false')
   })
 
   it('a plan falls back to an old snapshot rather than to no row at all', () => {

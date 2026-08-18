@@ -64,6 +64,9 @@ export type McpFix =
   | 'broken'
   /** Measured dead end: the endpoint refuses clients it did not pre-register. */
   | 'unsupported'
+  /** Not the operator's to fix, and not actually broken -- see
+   *  isAgentManagedChannel. The probe simply cannot start this one. */
+  | 'agent-managed'
 
 /**
  * Turn `claude mcp list` output into rows.
@@ -104,16 +107,46 @@ export function parseMcpList(stdout: string): McpServerRow[] {
       reason = m ? m[1].trim().slice(0, 300) : null
     }
     const target = rest.replace(/\s*\((HTTP|SSE|STDIO)\)\s*$/i, '').trim()
-    rows.push({ name, target, status, reason, fix: classifyFailure(status, reason) })
+    rows.push({ name, target, status, reason, fix: classifyFailure(status, reason, name) })
   }
   return rows
+}
+
+/**
+ * Channel plugins (Telegram, Slack, ...) are started BY THE AGENT, not by the
+ * operator, and the health probe cannot reproduce that launch.
+ *
+ * MEASURED 2026-08-15, after Boss reported two "faulty" connectors for accounts
+ * whose Telegram he uses every day:
+ *
+ *   - agent-process.ts launches the plugin with `TELEGRAM_STATE_DIR=<agent's own
+ *     channel dir>`; that directory holds the bot token .env.
+ *   - `claude mcp list` (this probe) inherits only the dashboard's environment,
+ *     so TELEGRAM_STATE_DIR is unset and the plugin falls back to
+ *     `$CLAUDE_CONFIG_DIR/channels/telegram`, which for usalackor and lackor3
+ *     does not exist -> "TELEGRAM_BOT_TOKEN required" -> exit 1 -> the CLI
+ *     reports `-32000: Connection closed`.
+ *   - Verified at the same moment: both agents' real pollers were alive
+ *     (`bun server.ts`, 8h30m and 33m old) with the correct state dirs.
+ *
+ * So the failure is an artefact of the probe. Passing the real state dir would
+ * be worse, not better: the plugin SIGTERMs whatever bot.pid names before it
+ * starts polling, so a truthful probe would kill the live poller every ten
+ * minutes. The honest answer is to report these rows as agent-managed and keep
+ * them out of the counts the Overview shouts about.
+ */
+const CHANNEL_PLUGIN_RE = /^plugin:(telegram|slack|discord|googlechat|teams)\b/i
+
+export function isAgentManagedChannel(name: string): boolean {
+  return CHANNEL_PLUGIN_RE.test((name || '').trim())
 }
 
 /**
  * What can be done about a failure -- the difference between a button that
  * fixes it and a sentence explaining why nothing here will.
  */
-export function classifyFailure(status: McpStatus, reason: string | null): McpFix {
+export function classifyFailure(status: McpStatus, reason: string | null, name = ''): McpFix {
+  if (status !== 'connected' && isAgentManagedChannel(name)) return 'agent-managed'
   if (status === 'connected') return 'none'
   if (status === 'pending') return 'approve'
   const r = (reason || '').toLowerCase()
@@ -184,6 +217,9 @@ export interface McpSummary {
   /** Failures this page cannot fix, so the count never promises a button. */
   broken: number
   connected: number
+  /** Channel plugins the probe cannot start but the agent can -- reported so
+   *  the page can say so, and deliberately absent from `broken` and `tier`. */
+  agentManaged: number
   /** How loudly the Overview may say something is wrong. A connector that
    *  merely needs a sign-in is a missed capability, not a broken install. */
   tier: 'none' | 'extra' | 'recommended'
@@ -262,16 +298,17 @@ function firstErrorLine(text: string): string | null {
 
 /** Roll the per-account rows up into what the Overview card needs. */
 export function summarizeMcp(accounts: McpAccountView[]): McpSummary {
-  let needsLogin = 0, broken = 0, connected = 0
+  let needsLogin = 0, broken = 0, connected = 0, agentManaged = 0
   for (const acct of accounts) {
     for (const s of acct.servers) {
       if (s.status === 'connected') connected++
+      else if (s.fix === 'agent-managed') agentManaged++
       else if (s.fix === 'login') needsLogin++
       else broken++
     }
   }
   return {
-    accounts, needsLogin, broken, connected,
+    accounts, needsLogin, broken, connected, agentManaged,
     tier: needsLogin > 0 ? 'recommended' : broken > 0 ? 'extra' : 'none',
   }
 }

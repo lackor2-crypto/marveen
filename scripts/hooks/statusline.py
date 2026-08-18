@@ -77,6 +77,47 @@ def resolve_agent_id(cwd, project_root, agents_base):
     return None
 
 
+def cli_overrides(argv):
+    """`--agent <id>` / `--project-root <path>` -- explicit reporting identity.
+
+    Why this exists (Boss, 2026-08-15, screenshot): the VS Code Claude Code is
+    logged in with the SAME account as a Marveen agent (usalackor), but it runs
+    on Windows with a cwd far outside the Marveen tree (D:\\Tozsde...). The
+    walk-upward-for-.env root detection above finds nothing there, so that
+    client never reported anything -- and the dashboard kept showing the
+    Marveen-side agent's hours-old reading (11%) while the ACCOUNT was actually
+    at 81%. The percentages belong to the account, not to one client, so any
+    client of that account may report them; it just has to say WHICH account.
+
+    Deliberately explicit, not guessed: the statusline payload carries no
+    account identity, and attributing usage to the wrong row would be worse
+    than showing none.
+
+    Unknown flags and missing values are ignored -- this script must never
+    raise, or it blanks out the user's status line.
+    """
+    agent = None
+    root = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        val = argv[i + 1] if i + 1 < len(argv) else None
+        if a == '--agent' and val:
+            agent, i = val, i + 2
+        elif a.startswith('--agent='):
+            agent, i = a.split('=', 1)[1] or None, i + 1
+        elif a == '--project-root' and val:
+            root, i = val, i + 2
+        elif a.startswith('--project-root='):
+            root, i = a.split('=', 1)[1] or None, i + 1
+        else:
+            i += 1
+    # Egy fiok-azonosito fajlnev lesz; ami nem az, azt eldobjuk, nem "javitjuk".
+    if agent and (os.sep in agent or (os.altsep and os.altsep in agent) or agent in ('.', '..')):
+        agent = None
+    return agent, root
+
+
 def num_or_none(v):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
@@ -148,11 +189,15 @@ def main():
     five_hour = window_or_none(rate_limits.get('five_hour'))
     seven_day = window_or_none(rate_limits.get('seven_day'))
 
-    project_root = find_project_root(cwd)
+    forced_agent, forced_root = cli_overrides(sys.argv[1:])
+    project_root = forced_root or find_project_root(cwd)
 
     try:
-        agent_id = resolve_agent_id(cwd, project_root, os.path.join(project_root, 'agents')) if project_root else None
-        if agent_id:
+        agent_id = forced_agent or (
+            resolve_agent_id(cwd, project_root, os.path.join(project_root, 'agents')) if project_root else None
+        )
+        # Fiok-azonosito onmagaban keves: kell egy gyoker is, ahova irhatunk.
+        if agent_id and project_root:
             out_dir = os.path.join(project_root, 'store', 'rate-limit-status')
             # Keep the last KNOWN window figures when this refresh carries none.
             #

@@ -8,34 +8,15 @@ import {
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { readMarveenTelegramConfig, readMarveenDiscordConfig, readMarveenSlackConfig, readMarveenGooglechatConfig, readMarveenTeamsConfig, sendMarveenAvatarChange } from '../telegram.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
-import { readFileOr, MODEL_ALIASES } from '../agent-config.js'
+import { readFileOr } from '../agent-config.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, serveFile } from '../http-helpers.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
-import { readActiveModelFromProjectDir, readContextReadingFromProjectDir } from '../active-model.js'
-import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
-import { isStale } from '../../rate-limit-status.js'
+import { readContextReadingFromProjectDir } from '../active-model.js'
+import { mainAgentModelNow } from '../main-agent-model.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
 import type { RouteContext } from './types.js'
-
-/**
- * Turn the statusline's human model label ("Sonnet 5", "Opus 5", "Haiku 4.5")
- * into the canonical id the cost table is keyed by. The alias map already knows
- * "sonnet-5"; this only bridges the spacing/case difference, then falls back to
- * the family word so a point-release label ("Haiku 4.5") still resolves.
- */
-export function modelIdFromStatuslineLabel(label: string): string | null {
-  const slug = label.trim().toLowerCase().replace(/\s+/g, '-')
-  if (!slug) return null
-  // EXACT alias only. Falling back to the family word ('sonnet-4.5' -> 'sonnet')
-  // resolved to whatever version the alias map happens to point at today, so a
-  // statusline reading "Sonnet 4.5" would have been reported as Sonnet 5 -- with
-  // Sonnet 5's price attached, shown to the owner as fact (lackor3's second
-  // review). An unknown label is better answered with "unknown" than with a
-  // confident wrong version.
-  return MODEL_ALIASES[slug] ?? null
-}
 
 /**
  * The main agent's live model.
@@ -43,20 +24,12 @@ export function modelIdFromStatuslineLabel(label: string): string | null {
  * The transcript is the first source, but it goes quiet: the newest JSONL in the
  * project dir can be a session with no `message.model` line at all, and then the
  * card showed "UNKNOWN" and lost its $/M badge with it (Boss, 2026-08-11, with a
- * screenshot). The statusline snapshot is the same data Claude Code renders on
- * every tick, so it answers whenever the agent has taken a turn at all.
+ * screenshot). The statusline snapshot answers whenever the agent has taken a
+ * turn at all, and the configured value answers when neither can -- see
+ * src/web/main-agent-model.ts for why the order is what it is.
  */
 function getActiveMarveenModel(): string {
-  const fromTranscript = readActiveModelFromProjectDir(PROJECT_ROOT)
-  if (fromTranscript) return fromTranscript
-  // Only a FRESH snapshot may answer. Without the freshness bound this happily
-  // reported the model the agent used hours ago -- and, worse, its price -- as
-  // the current one, which is the same class of quiet-wrong-number bug this
-  // fallback was added to fix (lackor3's second review). The 30-minute line is
-  // the one the Overview already uses to stop trusting a reading.
-  const snap = readRateLimitSnapshot(MAIN_AGENT_ID)
-  if (!snap || isStale(snap.updatedAt, Date.now())) return 'unknown'
-  return (snap.model ? modelIdFromStatuslineLabel(snap.model) : null) ?? 'unknown'
+  return mainAgentModelNow().model
 }
 
 // Pure identity-core of the /api/marveen payload: the brand-relevant fields the

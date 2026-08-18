@@ -33,7 +33,7 @@ Hasznalat:
   python3 scripts/google-auth.py list                      # bekotott fiokok listaja
 Fiok nelkul = az aktualis "_default" fiok (elso bekotott fiok, altalaban lackor2).
 """
-import json, os, re, sys, time, urllib.parse, urllib.request, http.server, threading, secrets
+import json, os, re, sys, time, urllib.parse, urllib.request, http.server, secrets
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENT       = os.path.join(ROOT, "store", "google-oauth-client.json")
@@ -52,6 +52,12 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/calendar",   # read + events write
     "https://www.googleapis.com/auth/drive",      # read + organize/modify
+    # Google Fotok. A regi "photoslibrary.readonly" (konyvtar-bongeszes) scope-ot
+    # a Google 2025-03-31-en visszavonta -- azota a Library API csak azt latja,
+    # amit maga az alkalmazas toltott fel. A telefonon levo kepekhez EGYEDUL a
+    # Picker vezet: a felhasznalo a Google sajat kepvalaszto feluleten valaszt,
+    # es csak a kivalasztott kepeket kapjuk meg.
+    "https://www.googleapis.com/auth/photospicker.mediaitems.readonly",
 ]
 AUTH_URI  = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -219,27 +225,89 @@ def cmd_auth(account):
     state, url = _build_url(account)
     print(f"NYISD MEG EZT A BONGESZOBEN es hagyd jova ({account} fiokhoz):\n", url, "\n", flush=True)
     holder = {}
+    seen = {"requests": 0, "stray": 0, "mismatch": 0}
+
+    # A szerver TOBB kerest is kiszolgal, nem csak egyet. A regi alak egyetlen
+    # handle_request()-et engedett, igy BARMILYEN korabbi keres (favicon, egy
+    # nyitva felejtett regi ful ujratoltese, bongeszo-elonezet) elhasznalta az
+    # egy szal lehetoseget -- utana a VALODI atiranyitas mar zart portra
+    # erkezett, es a hiba "idotulles"-nek latszott. Merve: 2026-08-14/15-en 22
+    # inditas futott, kozottuk 14 perces szunetekkel (=10 perc varakozas + hiba).
     class H(http.server.BaseHTTPRequestHandler):
+        # Egy felig nyitott kapcsolat kulonben orokre megallitana a kiszolgalo
+        # ciklust (a keresek most egy szalon, sorban jonnek).
+        timeout = 10
         def do_GET(self):
-            holder.update({k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()})
-            self.send_response(200); self.end_headers()
-            self.wfile.write("Marveen: a Google hitelesites kesz, visszaterhetsz a chatbe.".encode("utf-8"))
-    try:
-        srv = http.server.HTTPServer(("127.0.0.1", FIXED_PORT), H)
-    except OSError as e:
-        print(f"(figyelem: a loopback szerver nem indult a {FIXED_PORT} porton: {e}. Kezi beillesztes fog kelleni.)", flush=True)
-        srv = None
+            q = {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()}
+            mine = (q.get("state") == state)
+            if not holder and mine and (q.get("code") or q.get("error")):
+                holder.update(q)
+                msg = ("Marveen: a Google hitelesites kesz, visszaterhetsz a chatbe."
+                       if q.get("code") else
+                       "Marveen: a Google elutasitotta a jovahagyast. Visszaterhetsz a Marveenbe.")
+            elif q.get("code") or q.get("error"):
+                # Egy REGI ful jott vissza. Ez NEM allitja le a mostani varakozast
+                # -- a jo ablak meg utana is megerkezhet. (A kodot elfogadni tilos:
+                # a state pont az ilyen osszekeveredes ellen van.)
+                seen["mismatch"] += 1
+                msg = ("Marveen: ez a jovahagyas egy KORABBI bejelentkeztetesbol jott, "
+                       "ezert nem hasznalhato. Zard be ezt a fulet, es a LEGUJABB linket nyisd meg.")
+            else:
+                seen["stray"] += 1
+                msg = ("Marveen: ez a keres nem tartalmazott jovahagyasi kodot -- "
+                       "varok tovabb. Ha regi fulet toltottel ujra, hasznald a LEGUJABB linket.")
+            seen["requests"] += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(msg.encode("utf-8"))
+        def log_message(self, *a):  # a stdout a felhasznaloe, nem a HTTP-naploe
+            pass
+    # Kotes ujraprobalassal. Amikor a felhasznalo azt valaszolja, hogy "szakitsd
+    # meg a masikat es inditsd ezt", a regi folyamat SIGTERM-et kap, es a
+    # kovetkezo ezredmasodpercben indulunk el mi -- ha az meg nem engedte el a
+    # portot, egyetlen probalkozassal itt kikotnenk a kezi beillesztesnel.
+    # Merve (3 kor, uresjaratban): mindig az UJ folyamate lett a socket -- de ez
+    # idozitesi szerencse volt, terheles alatt atfordulhat. A varakozas ingyen van.
+    srv, last_err = None, None
+    for _ in range(30):  # ~3 masodperc
+        try:
+            srv = http.server.HTTPServer(("127.0.0.1", FIXED_PORT), H)
+            break
+        except OSError as e:
+            last_err = e
+            time.sleep(0.1)
+    if srv is None:
+        print(f"(figyelem: a loopback szerver nem indult a {FIXED_PORT} porton: {last_err}. Kezi beillesztes fog kelleni.)", flush=True)
     if srv:
-        threading.Thread(target=lambda: [srv.handle_request() for _ in range(1)], daemon=True).start()
-        for _ in range(WAIT_SECS):
-            if holder: break
-            time.sleep(1)
+        srv.timeout = 1  # igy a handle_request() nem ragad be orokre
+        deadline = time.time() + WAIT_SECS
+        while not holder and time.time() < deadline:
+            srv.handle_request()
         srv.server_close()
     if holder.get("code") and holder.get("state") == state:
         _exchange_code(holder["code"], account); return
-    sys.exit("HIBA: nem erkezett ervenyes kod (idotullepes vagy a loopback-atiranyitas nem ert ide).\n"
-             "Javaslat: hasznald a kezi utat -- masold ki a bongesző cimsorabol a teljes URL-t a jovahagyas utan, es futtasd:\n"
+
+    # Innentol MINDIG megmondjuk, MI tortent. A regi kod mind a negy esetre
+    # ugyanazt a "idotulles vagy a loopback nem ert ide" mondatot irta ki, holott
+    # a teendo esetenkent mas -- ez tartotta korben a Bosst.
+    paste = ("Kezi ut: masold ki a bongeszo cimsorabol a teljes URL-t a jovahagyas utan, es futtasd:\n"
              f"  python3 scripts/google-auth.py exchange \"<bemasolt URL vagy code>\" {account}")
+    if holder.get("error"):
+        sys.exit(f"HIBA: a Google elutasitotta a jovahagyast ({holder['error']}) -- a fiok nem lett bekotve.\n"
+                 "Ha te nyomtal Megse-t, inditsd ujra. Ha nem: valoszinuleg nem vagy teszt-felhasznalo "
+                 "ennel a Google-projektnel.\n" + paste)
+    if seen["mismatch"]:
+        sys.exit("HIBA: egy KORABBI bejelentkeztetes ablakabol jott vissza a jovahagyas, nem ebbol (state-eltres).\n"
+                 "Zard be a regi Google-fuleket, es MINDIG a legutoljara kapott linket nyisd meg.\n" + paste)
+    waited = f"{WAIT_SECS // 60} perc" if WAIT_SECS >= 60 else f"{WAIT_SECS} masodperc"
+    if seen["requests"] == 0:
+        sys.exit(f"HIBA: {waited} alatt nem erkezett vissza semmi a bongeszobol "
+                 f"(a link megnyitasa vagy a jovahagyas maradt el).\n"
+                 "Ha megnyitottad es jovahagytad, akkor a bongeszo nem erte el a gepen a "
+                 f"localhost:{FIXED_PORT} cimet.\n" + paste)
+    sys.exit(f"HIBA: erkezett {seen['requests']} keres a loopback-portra, de egyikben sem volt jovahagyasi kod.\n"
+             "Ez tipikusan egy regi/masik ful ujratoltese.\n" + paste)
 
 
 def cmd_exchange(arg, account):

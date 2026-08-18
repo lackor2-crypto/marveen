@@ -54,11 +54,15 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    Task Scheduleren át törhet ékezeteken), WhatsApp elsőként, a
    `windows-desktop-input` mintával (Set-Clipboard + `^v` + Enter),
    utána SAJÁT MAGADNAK screenshot a pipa-ellenőrzéshez (azt NE küldd
-   tovább). Csak ha ez sikertelen, jöhet az email fallback.
-7. Ha minden rendben (MT4 elindult/futott, mind a 4 screenshot sikerült,
-   WhatsApp vagy email kiment), NE írj a tulajdonosnak ({{OWNER_NAME}}) Telegramon -- csendes
-   heartbeat. Csak hibánál (MT4 nem tölt be, sem WhatsApp sem email nem
-   megy) szólj.
+   tovább). Csak ha ez sikertelen, jöhet az email fallback -- de olvasd el a
+   `notify-with-fallback` piszkozat-buktatóját: a `scripts/gmail-send.py`
+   alapból `draft` módban fut, a piszkozat pedig NEM kézbesítés.
+7. Ha minden rendben (MT4 elindult/futott, mind a 4 screenshot sikerült, és a
+   WhatsApp-üzenet TÉNYLEG kiment -- pipa a screenshoton), NE írj a
+   tulajdonosnak ({{OWNER_NAME}}) Telegramon -- csendes heartbeat.
+   Szólj neki, ha: MT4 nem tölt be; a WhatsApp bukott (akkor is, ha készült
+   email-piszkozat -- pont azt kell megírnod, hogy van kiküldeni való);
+   vagy sem WhatsApp, sem email nem ment.
 
 ## Buktatók
 - A WhatsApp chat state-jét MINDIG nézd meg friss screenshottal küldés

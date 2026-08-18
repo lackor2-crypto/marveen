@@ -13,12 +13,23 @@ Flow:
 2. Ensure WhatsApp is running (optional, --skip-launch to bypass).
 3. Write a .ps1 to C:\\Users\\Public and run it via Task Scheduler Interactive.
 4. Wait for the script's own result file -- this is the ONLY success signal.
-5. Email fallback if WhatsApp failed every attempt.
+5. Email fallback if WhatsApp failed every attempt. The mail is SENT, not
+   drafted -- Boss 2026-08-16: "nem kuldod el hanem piszkozatba teszed? mert ha
+   errol akkor nem, azt azonnal el kell kuldeni a cimzettnek." That is the
+   explicit instruction gmail-send.py's level2 rule was waiting for. A draft is
+   now only a last resort: if SENDING itself fails, we still park a draft so the
+   text is not lost, and the exit code stays non-zero because nobody received it.
+
+Exit code means DELIVERY, not "WhatsApp worked":
+  0 = the recipient has the message (WhatsApp, or the fallback mail was sent)
+  1 = the recipient has nothing (both paths failed; look for the draft)
 
 Host-specific values come from the environment, never hardcoded:
   WHATSAPP_CONTACT        contact name typed into WhatsApp search (default: below)
   WHATSAPP_PACKAGE_FAMILY Store package family name used to launch the app
-  WHATSAPP_FALLBACK_EMAIL address used by the email fallback
+  WHATSAPP_FALLBACK_EMAIL address used by the email fallback -- the SAME person
+                          the WhatsApp message was for. No default: an address
+                          guessed wrong would mail a stranger.
 """
 import argparse
 import base64
@@ -39,16 +50,40 @@ DEFAULT_CONTACT = "Kiss Zolt"
 DEFAULT_PACKAGE_FAMILY = "5319275A.WhatsAppDesktop_cv1g1gvanyjgm"
 
 
+def _dotenv_value(name: str) -> str:
+    """
+    Read one key from the project .env. The scheduled task starts this script
+    from a skill, i.e. a plain shell that never sourced .env -- setting the
+    variable there alone would look configured and still arrive empty here.
+    Reading the file directly closes that gap whatever the launcher does.
+    Values are never printed, only used.
+    """
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+    try:
+        with open(env_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, val = line.partition("=")
+                if key.strip() == name:
+                    return val.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return ""
+
+
 def contact_name() -> str:
-    return os.environ.get("WHATSAPP_CONTACT", DEFAULT_CONTACT)
+    return os.environ.get("WHATSAPP_CONTACT") or _dotenv_value("WHATSAPP_CONTACT") or DEFAULT_CONTACT
 
 
 def package_family() -> str:
-    return os.environ.get("WHATSAPP_PACKAGE_FAMILY", DEFAULT_PACKAGE_FAMILY)
+    return (os.environ.get("WHATSAPP_PACKAGE_FAMILY")
+            or _dotenv_value("WHATSAPP_PACKAGE_FAMILY") or DEFAULT_PACKAGE_FAMILY)
 
 
 def fallback_email() -> str:
-    return os.environ.get("WHATSAPP_FALLBACK_EMAIL", "")
+    return os.environ.get("WHATSAPP_FALLBACK_EMAIL") or _dotenv_value("WHATSAPP_FALLBACK_EMAIL")
 
 
 def find_powershell() -> str | None:
@@ -340,43 +375,65 @@ Write-Result "SENT"
 
 
 def send_email_fallback(message: str, recipient: str = None) -> bool:
-    """Email fallback (draft only). Requires WHATSAPP_FALLBACK_EMAIL."""
+    """
+    Email fallback. SENDS the mail (Boss: "azt azonnal el kell kuldeni a
+    cimzettnek"), so True here means the recipient really has it.
+
+    If sending fails we drop back to a draft -- not as a success, only so the
+    text survives somewhere instead of evaporating with the process. That case
+    returns False, because a draft is not a delivery.
+
+    The gmail.send OAuth scope is already granted (scripts/google-auth.py:52),
+    so this needs no new authorisation.
+    """
     recipient = recipient or fallback_email()
     if not recipient:
         print("✗ no fallback address configured (WHATSAPP_FALLBACK_EMAIL)")
         return False
 
-    print(f"\n📧 email fallback to {recipient} (draft)...")
+    helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gmail-send.py")
+    if not os.path.exists(helper):
+        print(f"✗ helper not found: {helper}")
+        return False
+
     try:
         msg_file = "/tmp/whatsapp_fallback_msg.txt"
         with open(msg_file, "w", encoding="utf-8") as f:
             f.write(message)
+    except OSError as e:
+        print(f"✗ email fallback error: cannot stage the message: {e}")
+        return False
 
-        helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gmail-send.py")
-        if not os.path.exists(helper):
-            print(f"✗ helper not found: {helper}")
-            return False
-
-        result = subprocess.run(
-            [sys.executable, helper, "draft", recipient, "Arany technikai elemzés", msg_file],
-            capture_output=True,
-            text=True,
-            timeout=30,
+    def _gmail(mode: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, helper, mode, recipient, "Arany technikai elemzés", msg_file],
+            capture_output=True, text=True, timeout=30,
         )
 
+    print(f"\n📧 email fallback -> {recipient} (sending)...")
+    try:
+        result = _gmail("send")
         if result.returncode == 0:
-            print(f"✓ draft created: {recipient}")
+            print(f"✓ email SENT to {recipient}")
             return True
 
         err = (result.stderr or "").lower()
         if "insufficient" in err or "permission" in err:
-            print("✗ OAuth scope problem -- the owner needs to re-authorise")
+            print("✗ send refused: OAuth scope problem -- the owner needs to re-authorise")
         else:
-            print(f"✗ draft failed: {(result.stderr or '')[:200]}")
-        return False
+            print(f"✗ send failed: {(result.stderr or '')[:200]}")
     except Exception as e:
         print(f"✗ email fallback error: {e}")
-        return False
+
+    # Last resort: keep the text somewhere retrievable. Still not a delivery.
+    try:
+        if _gmail("draft").returncode == 0:
+            print(f"↳ a draft was parked for {recipient} -- it still has to be sent by hand")
+        else:
+            print("↳ could not even park a draft; the text is in /tmp/whatsapp_fallback_msg.txt")
+    except Exception:
+        print("↳ could not even park a draft; the text is in /tmp/whatsapp_fallback_msg.txt")
+    return False
 
 
 def main() -> bool:
@@ -429,7 +486,15 @@ def main() -> bool:
     if args.dry_run or args.select_only:
         return False
     if not args.no_fallback:
-        return send_email_fallback(args.message)
+        # The fallback now SENDS (Boss 2026-08-16). So True here means the
+        # recipient genuinely has the message and this run counts as delivered
+        # -- but by email, not WhatsApp, and that difference must be visible in
+        # the log or a permanently broken WhatsApp would never be noticed.
+        if send_email_fallback(args.message):
+            print(f"⚠ WhatsApp is BROKEN -- delivered by email instead, to {fallback_email()}")
+            return True
+        print("✗ NOT DELIVERED: neither WhatsApp nor email reached the recipient")
+        return False
 
     return False
 

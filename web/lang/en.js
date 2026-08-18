@@ -413,6 +413,10 @@ window._i18n.en = {
   'kanban.toast.approval_cancelled': 'Not sent -- look at the listed cards first',
   'kanban.approval.similar_intro': 'Before you close this: these cards are STILL OPEN and look similar. They may be about the same thing, or this work may affect them too.',
   'kanban.approval.similar_ask': 'Have you looked at them? If none of them relate to this card, press OK and I will send it for approval. If they do belong together, press Cancel and link them first.',
+  'kanban.dialog.similar_cards.title': 'Similar cards',
+  'kanban.dialog.similar_cards.desc': 'The following open cards may be related to this work. Review them: they might already cover this task, in whole or in part.',
+  'kanban.dialog.similar_cards.reviewed_none': 'I reviewed them, none are related',
+  'kanban.dialog.similar_cards.reviewed_selected': 'I reviewed them, marked the relevant ones',
   'kanban.toast.move_error':     'Error moving card',
   'kanban.toast.save_error':     'Error saving',
   'kanban.toast.comment_error':  'Error saving comment',
@@ -1148,6 +1152,10 @@ window._i18n.en = {
   'settings.toast.save_error':   'Error saving setting',
   'settings.toast.saved':        'Saved',
   'settings.meta.values':        'Possible values',
+  // Names for the unset and the off-list value in a select: without them the
+  // dropdown would show the FIRST option as if it were the current setting.
+  'settings.value.unset':        '(not set)',
+  'settings.value.current_suffix': '(current)',
   'settings.meta.range':         'Range',
   'settings.meta.format':        'Format',
   'settings.meta.default':       'Default',
@@ -1257,9 +1265,12 @@ window._i18n.en = {
   // Drag & drop onto the folders on the left. Boss, 2026-08-15.
   'email.drag_count':              '{n} messages',
   'email.drag_trash_done':         '{n} messages moved to Trash',
-  'email.drag_spam_done':          '{n} messages moved to Spam. From now on every message from this sender goes straight to Spam: {senders}. To undo it, use the "Spam and promotion rules" button at the bottom left.',
+  // "At the bottom left" said nothing useful: on a phone there is no left side
+  // at all, and the button sits below 54 folders. The text now names the place
+  // by its neighbours, and the toast carries an "Open rules" button as well.
+  'email.drag_spam_done':          '{n} messages moved to Spam. From now on every message from this sender goes straight to Spam: {senders}. To undo it: Mail page -> scroll to the bottom of the folder list -> "Spam and promotion rules", right under "New label".',
   'email.drag_spam_no_rule':       '{n} messages moved to Spam, but the sender could not be remembered - their next message will still arrive in the inbox.',
-  'email.drag_promo_done':         'From now on everything from this sender goes to Promotions: {senders}. You can undo it with the "Spam and promotion rules" button at the bottom left.',
+  'email.drag_promo_done':         'From now on everything from this sender goes to Promotions: {senders}. To undo it: Mail page -> scroll to the bottom of the folder list -> "Spam and promotion rules", right under "New label".',
   'email.drag_promo_no_sender':    'This message has no sender address, so it cannot be remembered',
   'email.drag_important_done':     '{n} messages marked as important (they stay in the inbox)',
   // Hover hints: nothing about a folder shows that you can drop onto it.
@@ -1269,6 +1280,9 @@ window._i18n.en = {
   'email.drop_hint_important':     'Drop messages here to mark them important - they stay in the inbox',
   // Rules window
   'email.rules_btn':               'Spam and promotion rules',
+  // The toast's own button: opens the rules window in one click, so undoing a
+  // mis-drag never requires scrolling past 54 folders first.
+  'email.rules_open_btn':          'Open rules',
   'email.rules_title':             'Spam and promotion rules',
   'email.rules_help':              'Every sender you dragged onto Spam or Promotions ends up here. While a sender is listed, Marveen files their messages there automatically. Use "Undo" to delete a rule at any time - already-filed messages stay where they are, only newly arriving ones come back to the inbox.',
   'email.rules_spam_section':      'Straight to Spam',
@@ -1625,9 +1639,14 @@ window._i18n.en = {
   'photos.nophotos_retry':     'Try again',
   'photos.nophotos_account':   'This is the account in question: {name}',
   'photos.session_gone':       'The picker window expired or was closed, so this selection cannot be continued. Nothing was lost: press "Add photos" again and pick the photos.',
-  'photos.added':              '{count} photos brought in',
-  'photos.added_with_dup':     '{count} photos brought in, {dup} were already here (not fetched again)',
-  'photos.added_only_dup':     'No new photo came in: all {dup} are exactly what is already here.',
+  'photos.result.head':        'Out of {selected} picked photos:',
+  'photos.result.saved':       '{count} new photos came in',
+  'photos.result.nothing_new': 'not a single new photo came in',
+  'photos.result.already':     '{count} had already come in earlier',
+  'photos.result.duplicates':  '{count} are exactly what is already here (not fetched again)',
+  'photos.result.failed':      '{count} failed',
+  'photos.result.unaccounted': '{count} got lost in the count (this is a bug, tell me)',
+  'photos.result.partial':     'WARNING: the list of picked photos did not come through in full, so you may have picked more than this. Start the import again.',
   'photos.cleaned':            'I also cleaned up {count} identical copies from earlier.',
   'photos.added_none':         'You did not pick any photo.',
   'photos.remove_btn':         'Remove',
@@ -2069,6 +2088,19 @@ window._i18n.en = {
   'restart.row_note':			'This setting takes effect once you restart {target}.',
   'restart.btn_target':			'Restart {target} now',
   'restart.second_step_agents':			'After that, restart the agents on the Agents page too, so they work from the new value as well.',
+  // "Restart everything" -- one button instead of choosing a target. The
+  // targeted button stays; this is for when you do not want to pick.
+  'restart.all_btn':			'Restart everything',
+  'restart.all_note':			'In order: the agents, {bot}, then the control panel. Every setting takes effect, but running work is interrupted - which is why you get asked first.',
+  'restart.all_planning':			'Checking who is working right now…',
+  'restart.all_plan_failed':			'Could not check what would restart, so nothing was started. Try again.',
+  'restart.all_running':			'Restarting…',
+  'restart.all_confirm_head':			'Restarting everything: {n} processes.',
+  'restart.all_confirm_busy':			'WARNING - these are working right now and their work will be interrupted: {names}',
+  'restart.all_confirm_skipped':			'These are skipped (they are not running, and a restart button should not bring anything to life): {names}',
+  'restart.all_confirm_tail':			'Continue?',
+  'restart.all_partial':			'These did not restart: {names}. The rest did. Check the Log.',
+  'restart.all_done_no_dashboard':			'The agents restarted. The control panel cannot be restarted from here.',
   'picker.title':			'Where should the depot live?',
   'picker.loading':			'Loading…',
   'picker.open_failed':			'I could not open this location.',
@@ -2112,7 +2144,7 @@ window._i18n.en = {
   'dpick.cancel':			'Cancel',
   'dpick.ok':			'Use this folder',
   'dsync.title':			'My Drive on my computer',
-  'dsync.what_html':			'<strong>What is this for?</strong> Marveen <strong>brings your whole Drive down to your computer</strong>, into the depot — with the same folder structure it has online. Whatever is up there is also here, even with no internet.<br>The copy works <strong>both ways</strong>: anything new or changed on the Drive <strong>comes down</strong>; anything you create or edit on your computer <strong>goes up</strong>. Delete something on your computer and it is deleted up there too — into the <strong>Trash</strong>, recoverable for 30 days.<br><strong>One direction is deliberately not followed:</strong> what is deleted on the Drive <strong>stays</strong> with you. So if someone breaks into your Drive, they cannot delete anything from your computer.',
+  'dsync.what_html':			'<strong>What is this for?</strong> Marveen <strong>brings your whole Drive down to your computer</strong>, into the depot — with the same folder structure it has online. Whatever is up there is also here, even with no internet.<br>The copy works <strong>both ways</strong>: anything new or changed on the Drive <strong>comes down</strong>; anything you create or edit on your computer <strong>goes up</strong>. Delete something on your computer and it is deleted up there too — into the <strong>Trash</strong>, recoverable for 30 days.<br><strong>One direction is deliberately not followed:</strong> what is deleted on the Drive <strong>stays</strong> with you. So if someone breaks into your Drive, they cannot delete anything from your computer.<br><strong>Google Docs, Sheets and Slides travel both ways too:</strong> on your computer they appear as <code>.docx</code>, <code>.xlsx</code> and <code>.pptx</code>, and if you edit one it goes back into <strong>the same document</strong> on the Drive — it stays a Doc, keeping its link and its sharing. (Google Drawings and Apps Script are the exception: Google will not take those back, and the run says so by name.)',
   'dsync.step1':			'Which Google account\'s Drive should we fetch?',
   'dsync.whole_btn':			'Fetch the whole Drive',
   'dsync.whole_hint_html':			'On your computer the folder gets <strong>the same name as the account</strong> — the <code>lackor2</code> Drive lands in <code>drive/lackor2</code>, and the photos in <code>fotok/lackor2</code>. You never rename it, so two accounts can never get mixed up.',
@@ -2622,8 +2654,12 @@ window._i18n.en = {
   // --- Overview: upstream-sync widget (kanban 37489d5e) ---
   'overview.upstream.title':     'Upstream sync',
   'overview.upstream.new':       'new upstream commits',
-  'overview.upstream.conflicts': 'conflicting',
-  'overview.upstream.clean':     'clean to pull',
+  // Different units on purpose: the first stat counts COMMITS, these two count
+  // FILES. Saying "files" keeps the box from reading like three numbers of the
+  // same kind that could be subtracted from one another.
+  'overview.upstream.conflicts': 'conflicting files',
+  'overview.upstream.clean':     'files that pull cleanly',
+  'overview.upstream.clean_unmeasured': 'The monthly check has not measured this yet. Better no number than an invented one.',
   // --- Overview: rate-limit / usage-window widget (kanban ef06b18d) ---
   'overview.ratelimit.title':        'Usage limit',
   'overview.ratelimit.five_hour':    '5-hour window',

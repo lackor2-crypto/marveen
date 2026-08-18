@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   parseMcpList,
   classifyFailure,
+  isAgentManagedChannel,
   connectorLabel,
   connectorPurpose,
   readMcpLoginPane,
@@ -57,7 +58,11 @@ describe('parseMcpList', () => {
     // The command line contains " --cwd", " --shell=bun" and " --silent".
     expect(row.status).toBe('failed')
     expect(row.reason).toBe('ENOENT: Executable not found in $PATH: "bun"')
-    expect(row.fix).toBe('broken')
+    // 'agent-managed', not 'broken': this row IS a channel plugin, and since
+    // 2026-08-15 those are exempt from the fault counts whatever the reason --
+    // the probe cannot launch them the way the agent does. The reason is still
+    // parsed and kept, which is what this test is actually about.
+    expect(row.fix).toBe('agent-managed')
   })
 
   // MEASURED after the PATH fix, same command, same box: the colon-bearing name
@@ -135,6 +140,35 @@ describe('classifyFailure', () => {
   it('never offers an action for a working or pending server', () => {
     expect(classifyFailure('connected', null)).toBe('none')
     expect(classifyFailure('pending', null)).toBe('approve')
+  })
+
+  // The 2026-08-15 false alarm: the probe cannot pass TELEGRAM_STATE_DIR, so the
+  // plugin cannot find its token and dies -- while the agent's own poller runs
+  // fine. Without the name, the exact same reason classifies as 'broken'.
+  it('calls a channel plugin agent-managed, whatever the reason says', () => {
+    const reason = '-32000: MCP error -32000: Connection closed'
+    expect(classifyFailure('failed', reason, 'plugin:telegram:telegram')).toBe('agent-managed')
+    expect(classifyFailure('failed', reason)).toBe('broken')
+    for (const name of ['plugin:slack:slack', 'plugin:discord:discord', 'plugin:googlechat:gc', 'plugin:teams:teams']) {
+      expect(classifyFailure('failed', reason, name)).toBe('agent-managed')
+    }
+  })
+
+  it('does not excuse a non-channel plugin, and never downgrades a working one', () => {
+    expect(classifyFailure('failed', 'ENOENT', 'plugin:whatever:thing')).toBe('broken')
+    // "telegram" only counts as the PROVIDER segment, not anywhere in the name.
+    expect(classifyFailure('failed', 'ENOENT', 'my-telegram-helper')).toBe('broken')
+    expect(classifyFailure('connected', null, 'plugin:telegram:telegram')).toBe('none')
+  })
+})
+
+describe('isAgentManagedChannel', () => {
+  it('matches the channel plugins the agent starts, and nothing else', () => {
+    expect(isAgentManagedChannel('plugin:telegram:telegram')).toBe(true)
+    expect(isAgentManagedChannel('  PLUGIN:Telegram:x  ')).toBe(true)
+    expect(isAgentManagedChannel('plugin:telegramish:x')).toBe(false)
+    expect(isAgentManagedChannel('claude.ai Gmail')).toBe(false)
+    expect(isAgentManagedChannel('')).toBe(false)
   })
 })
 
@@ -218,7 +252,9 @@ describe('summarizeMcp', () => {
     return {
       accountId: id, label: id ?? '', agents: [], error: null,
       servers: servers.map(([name, status, reason]) => ({
-        name, target: 'https://x', status, reason, fix: classifyFailure(status, reason),
+        // Name included, exactly as parseMcpList does it -- the channel-plugin
+        // exemption is keyed on the name and would be invisible without it.
+        name, target: 'https://x', status, reason, fix: classifyFailure(status, reason, name),
       })),
     }
   }
@@ -246,5 +282,25 @@ describe('summarizeMcp', () => {
   it('says nothing for an account with no connectors', () => {
     expect(summarizeMcp([acct('ures', [])]).tier).toBe('none')
     expect(summarizeMcp([]).tier).toBe('none')
+  })
+
+  // The live shape on 2026-08-15: two accounts whose Telegram works, reported
+  // as two broken connectors. The Overview must stay silent about them.
+  it('keeps agent-managed channels out of broken, and out of the tier', () => {
+    const closed = '-32000: MCP error -32000: Connection closed'
+    const s = summarizeMcp([
+      acct(null, [['claude.ai Gmail', 'connected', null], ['plugin:telegram:telegram', 'connected', null]]),
+      acct('usalackor', [['claude.ai Google Drive', 'connected', null], ['plugin:telegram:telegram', 'failed', closed]]),
+      acct('lackor3', [['claude.ai Gmail', 'connected', null], ['plugin:telegram:telegram', 'failed', closed]]),
+    ])
+    expect(s).toMatchObject({ connected: 4, agentManaged: 2, broken: 0, needsLogin: 0, tier: 'none' })
+  })
+
+  it('still reports a real failure alongside an agent-managed one', () => {
+    const s = summarizeMcp([acct(null, [
+      ['plugin:telegram:telegram', 'failed', 'Connection closed'],
+      ['claude.ai Gmail', 'failed', '401 Unauthorized'],
+    ])])
+    expect(s).toMatchObject({ agentManaged: 1, needsLogin: 1, broken: 0, tier: 'recommended' })
   })
 })

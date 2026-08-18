@@ -2806,7 +2806,12 @@ async function showCardDetail(card) {
           category: 'kanban_done',
           action_description: `Kártya kész, jóváhagyásra vár: "${card.title}"`,
           action_payload: JSON.stringify({ kanban_card_id: card.id }),
-          similar_reviewed: reviewed ?? [],
+          // Feltételes mező: az ELSŐ kérésben a kulcs egyáltalán nincs ott, így
+          // a szerver tud tiltakozni és visszaadni a hasonló kártyák listáját.
+          // Csak akkor kerül bele, ha a Boss tényleg látta azokat a kártyákat és
+          // igent mondott. Egy `?? []` itt csendben azt állítaná a nevében, hogy
+          // átnézett egy listát, amit soha nem mutattunk meg neki.
+          ...(reviewed ? { similar_reviewed: reviewed } : {}),
         }),
       })
       try {
@@ -3511,10 +3516,17 @@ function hideToast() {
 // (nagy csik), 'error' (hibauzenet), vagy egy opcio-objektum. Mindet elfogadjuk,
 // mert 400+ hivo van, es egy rosszul atadott parameter soha tobbe ne
 // eredmenyezzen lathatatlan uzenetet.
+//
+// `opts.action = { label, onClick }` eseten a csikra egy GOMB is kerul.
+// Boss, 2026-08-16: "ez a link jo. de a szoveggel is legyen azert kiirva hogy
+// hol van." -- vagyis a SZOVEG mondja meg a helyet (hogy legkozelebb magatol is
+// megtalalja), a GOMB pedig vigye oda egy kattintassal. A ketto egyutt, nem
+// egymas helyett.
 function showToast(msg, opts, big = false) {
   let duration = 0
   let sticky = false
   let type = ''
+  let action = null
   if (opts === true) big = true
   else if (typeof opts === 'number' && Number.isFinite(opts)) duration = opts
   else if (typeof opts === 'string') type = opts
@@ -3523,10 +3535,15 @@ function showToast(msg, opts, big = false) {
     sticky = opts.sticky === true
     type = opts.type || ''
     if (opts.big != null) big = opts.big === true
+    // Csak akkor gomb, ha van MIT csinalnia es MI kiirni ra: egy felig atadott
+    // akciobol inkabb ne legyen semmi, mint egy nevtelen vagy halott gomb.
+    if (opts.action && typeof opts.action.onClick === 'function' && opts.action.label) action = opts.action
   }
   // A hiba es a figyelmeztetes addig marad amig a felhasznalo el nem tunteti:
   // pont ezeket kell elolvasnia, es pont ezek villantak fel eddig.
   if (type === 'error' || type === 'warn') sticky = true
+  // Egy gombos csik sem tunhet el az alol a kez alol, amelyik meg nem ert oda.
+  if (action) sticky = true
 
   const text = String(msg ?? '')
   // Egy korabbi csik idozitoje nem olthatja el a most megjelenot.
@@ -3543,7 +3560,23 @@ function showToast(msg, opts, big = false) {
   closeBtn.setAttribute('aria-label', (typeof t === 'function' ? t('common.close') : '') || 'Close')
   closeBtn.textContent = '×'
   closeBtn.addEventListener('click', hideToast)
-  toast.append(span, closeBtn)
+  if (action) {
+    const actionBtn = document.createElement('button')
+    actionBtn.type = 'button'
+    actionBtn.className = 'toast-action'
+    actionBtn.textContent = String(action.label)
+    actionBtn.addEventListener('click', () => {
+      // Eloszor eltunik a csik, csak AZUTAN nyilik az ablak: kulonben a csik
+      // ottmaradna a megnyitott ablak elott, es a telefonon eppen az takarna
+      // ki, amit meg akartunk mutatni (Boss, 2026-08-16 -- ez volt az eredeti
+      // panasz is: a bennragadt csik ala esett a gomb).
+      hideToast()
+      try { action.onClick() } catch (e) { /* egy hibas akcio ne dontse el a csikot */ }
+    })
+    toast.append(span, actionBtn, closeBtn)
+  } else {
+    toast.append(span, closeBtn)
+  }
   toast.classList.toggle('toast-big', big)
   toast.classList.toggle('toast-error', type === 'error')
   toast.classList.toggle('toast-warn', type === 'warn')
@@ -4518,6 +4551,9 @@ function renderAgents() {
 // endpoint. The main (Marveen) card matches on mainAgentId(); sub-agent cards
 // match on their data-name.
 let globalActivityTimer = null
+// A legutobbi 3 masodperces meres allapotai, nev -> allapot. A "mindent
+// ujraindit" megerosito kerdese olvassa (lasd refreshAgentTerminalBusy).
+let lastActivityStateByName = new Map()
 // Card data (context size, model, run state) refreshed on its own slower beat.
 // Boss, 2026-08-12: the gate compacted his session from 195k to 59k and the card
 // kept showing 195k until he pressed Ctrl-Shift-R. "a tokenokat azonnal a
@@ -4568,6 +4604,12 @@ async function refreshAgentTerminalBusy() {
   } catch { return }
   if (!Array.isArray(entries)) return
   const stateByName = new Map(entries.map((e) => [e.name, e.state]))
+  // A "mindent ujraindit" megerosito kerdese ugyanezt a merest hasznalja, hogy
+  // ne KETFELE "dolgozik" fogalom legyen a feluleten. A kiszolgalo a szigoru
+  // jelet adja (biztosan futo munka), ez itt a tagabbat -- Boss szerint "ha
+  // barmit is csinal vagy futtat, akor is dolgozik". Az ijesztobb (tagabb)
+  // olvasat a helyes, amikor arrol kerdezunk, megszakitsuk-e.
+  lastActivityStateByName = stateByName
   // A compaction that finished since the last poll: pull the fresh numbers now.
   const nowCompacting = new Set(entries.filter((e) => e.compacting).map((e) => e.name))
   let justFinished = false
@@ -16546,7 +16588,21 @@ function renderOverviewUpstreamSync(upstreamSync) {
     : ''
   const behind = upstreamSync.behindCount ?? 0
   const conflicts = upstreamSync.conflictCount ?? upstreamSync.conflictingFiles.length
-  const clean = behind > 0 ? Math.max(0, behind - conflicts) : 0
+  // A harmadik szam MERT ertek, nem szamtani trukk.
+  //
+  // Elotte `behind - conflicts` allt itt, es ez ket KULONBOZO dolgot vont ki
+  // egymasbol: a `behindCount` COMMIT-eket szamol, a `conflictCount` FAJLOKAT.
+  // A merten `63 commit - 4 fajl = 59`, amit a doboz "59 konfliktusmentesen
+  // athuzhato" nevvel mutatott a Bossnak -- egy szam, aminek semmi koze ahhoz,
+  // hany valtozas huzhato at tenyleg. Ha a havi vizsgalat nem merte meg
+  // (cleanFileCount: null), akkor gondolatjel all itt: a "nem tudjuk" mindig
+  // jobb, mint egy magabiztos rossz szam.
+  const cleanNum = Number(upstreamSync.cleanFileCount)
+  const cleanKnown = upstreamSync.cleanFileCount !== null
+    && upstreamSync.cleanFileCount !== undefined
+    && Number.isFinite(cleanNum)
+  const clean = cleanKnown ? String(cleanNum) : '–'
+  const cleanTitle = cleanKnown ? '' : ` title="${escapeHtml(t('overview.upstream.clean_unmeasured'))}"`
   const badgeClass = conflicts === 0 ? 'upstream-badge-ok' : 'upstream-badge-warn'
   const fileList = upstreamSync.conflictingFiles.length
     ? `<ul class="upstream-conflict-files">${upstreamSync.conflictingFiles.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>`
@@ -16555,7 +16611,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
     <div class="upstream-sync-row">
       <span class="upstream-stat"><strong>${behind}</strong> ${escapeHtml(t('overview.upstream.new'))}</span>
       <span class="upstream-stat ${badgeClass}"><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
-      <span class="upstream-stat"><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
+      <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
     </div>
     ${fileList}
   `
@@ -19877,7 +19933,21 @@ function buildSettingRow(def) {
     for (const opt of def.valueSet) {
       const o = document.createElement('option')
       o.value = opt
-      o.textContent = opt
+      // Az ures ertek nem ures sor: az azt jelenti, hogy ez a kulcs nincs
+      // beallitva, es a leiras mondja meg, mi lep a helyebe.
+      o.textContent = opt === '' ? t('settings.value.unset') : opt
+      valueInput.appendChild(o)
+    }
+    // Ha az ELO ertek nincs a listaban (kezzel szerkesztett .env, regi
+    // ertekkeszlet, uresen hagyott kulcs), a <select> nemán az ELSO opciot
+    // mutatna -- vagyis egy olyan erteket allitana be igaznak, ami sehol nem
+    // szerepel. Ezert a valodi erteket beszurjuk sajat opciokent.
+    if (!def.valueSet.includes(originalValue)) {
+      const o = document.createElement('option')
+      o.value = originalValue
+      o.textContent = originalValue === ''
+        ? t('settings.value.unset')
+        : `${originalValue} ${t('settings.value.current_suffix')}`
       valueInput.appendChild(o)
     }
     valueInput.value = originalValue
@@ -21719,6 +21789,21 @@ async function loadEmailMailboxes() {
 }
 
 /**
+ * A csikra kerulo „Szabályok megnyitása" gomb leirasa.
+ *
+ * Boss, 2026-08-16: „A javaslatom: maga az üzenet kapjon egy gombot, amivel egy
+ * kattintással megnyílik a szabályok ablaka [...] ez a link jo. de a szoveggel
+ * is legyen azert kiirva hogy hol van."
+ *
+ * A gomb azert kell, mert a valodi gomb 54 mappa ALATT van, joval a lathato
+ * resz alatt -- telefonon meg pont az a bennragadt csik takarta ki, ami miatt
+ * az egesz bejelentes szuletett.
+ */
+function emailRulesToastAction() {
+  return { label: t('email.rules_open_btn'), onClick: () => { openEmailRulesModal() } }
+}
+
+/**
  * A tanult felado-szabalyok ablaka (Boss, 2026-08-15).
  *
  * Miert kell: a Spamre/Promociokra huzas MEGJEGYZI a feladot, es onnantol
@@ -22423,16 +22508,21 @@ async function emailDropOnSystem(kind, items) {
     if (!r.ok) { showToast(t('email.drag_move_fail')); return }
     const senders = emailDraggedSenders(items)
     const ruleOk = await emailAddSenderRule('spam', senders)
+    // Szabaly szuletett -> a csik gombbal jon (odavisz), es a szovege megmondja
+    // a helyet a legkozelebbi alkalomra. Ha NEM szuletett szabaly, nincs mit
+    // megnyitni: ott a gomb egy ures ablakot nyitna, ezert nem tesszuk oda.
     showToast(ruleOk && senders.length
       ? t('email.drag_spam_done', { n: r.moved.length, senders: senders.join(', ') })
-      : t('email.drag_spam_no_rule', { n: r.moved.length }), 8000)
+      : t('email.drag_spam_no_rule', { n: r.moved.length }),
+      ruleOk && senders.length ? { duration: 8000, action: emailRulesToastAction() } : 8000)
     return
   }
   if (kind === 'promo') {
     const senders = emailDraggedSenders(items)
     if (senders.length === 0) { showToast(t('email.drag_promo_no_sender')); return }
     const ok = await emailAddSenderRule('promo', senders)
-    showToast(ok ? t('email.drag_promo_done', { senders: senders.join(', ') }) : t('email.drag_move_fail'), 8000)
+    showToast(ok ? t('email.drag_promo_done', { senders: senders.join(', ') }) : t('email.drag_move_fail'),
+      ok ? { duration: 8000, action: emailRulesToastAction() } : 8000)
     if (ok) loadEmailEnvelopes()
     return
   }
@@ -25581,6 +25671,11 @@ function _depoBytes(n) {
 // Amit ujraindit: KIZAROLAG a vezerlopultot (a sajat szolgaltatasat). Az
 // agensek munkamenetei ertintetlenek maradnak -- lasd a hosszu indoklast a
 // src/self-restart.ts elejen.
+//
+// MELLETTE all a "Mindent ujraindit" (mountRestartAllButton lentebb), mert
+// Boss 2026-08-16-an pontosan ezt kerte: "nem lenne sokal egyszerubb ha mindent
+// ujrainditana ami letezik a marveen ban?". Az a gomb a sub-agenseket, a
+// foagenst ES a vezerlopultot inditja ujra, ebben a sorrendben.
 // ===========================================================================
 
 /** Beteszi a gombot `host`-ba, ha ez a telepites egyaltalan tud ujraindulni. */
@@ -25598,6 +25693,10 @@ async function mountRestartButton(host, note) {
       + escapeHtml(note || t('restart.note_default'))
       + ' ' + escapeHtml((a && a.reason) || t('restart.unavailable')) + '</p>'
     host.appendChild(wrap)
+    // A vezerlopult nem tudja magat ujrainditani, de a TOBBIT meg igen: az
+    // agensek ujrainditasa ettol fuggetlenul mukodik, es egy beallitas
+    // tobbsegehez pont az kell. Ezert a "mindent" gomb itt is ott marad.
+    mountRestartAllButton(wrap)
     return
   }
   wrap.innerHTML = '<p class="subtitle" style="margin:0 0 8px">'
@@ -25610,6 +25709,136 @@ async function mountRestartButton(host, note) {
   const btn = wrap.querySelector('[data-restart-btn]')
   const status = wrap.querySelector('[data-restart-status]')
   btn.addEventListener('click', () => doSystemRestart(btn, status, a.startedAt))
+  mountRestartAllButton(wrap)
+}
+
+// ===========================================================================
+// "Mindent újraindít"
+//
+// Boss, 2026-08-16: "nem lenne sokal egyszerubb ha mindent ujrainditana ami
+// letezik a marveen ban? az atyauristent is? ezzel meg lenne oldva a problema
+// egyszeruen. nem?"
+//
+// De. A `restartTarget` szerinti celzott gomb tovabbra is ott van (az a
+// gyorsabb es kevesbe romboló ut), de aki nem akar valasztani, annak itt van
+// az EGY gomb. Ami mogotte tortenik: sub-agensek -> foagens -> vezerlopult,
+// ebben a sorrendben (src/restart-all.ts).
+//
+// Az ara viszont valodi, ezert MEGKERDEZZUK: minden futo munka megszakad.
+// A kerdes nem altalanossagban figyelmeztet, hanem MEGNEVEZI, ki dolgozik
+// eppen -- kulonben a megerosites csak egy reflexbol elkattintott ablak.
+// ===========================================================================
+
+/** A "mindent ujraindit" gomb `wrap` ala. Sosem dobja el a hivo gombjat. */
+function mountRestartAllButton(wrap) {
+  if (!wrap) return
+  const row = document.createElement('div')
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px'
+  row.innerHTML = '<button class="btn-secondary" data-restart-all-btn>'
+    + escapeHtml(t('restart.all_btn')) + '</button>'
+    + '<span class="subtitle" data-restart-all-status></span>'
+  const note = document.createElement('p')
+  note.className = 'subtitle'
+  note.style.cssText = 'margin:6px 0 0'
+  note.textContent = t('restart.all_note', { bot: mainAgentDisplayName() })
+  wrap.appendChild(row)
+  wrap.appendChild(note)
+  const btn = row.querySelector('[data-restart-all-btn]')
+  const status = row.querySelector('[data-restart-all-status]')
+  btn.addEventListener('click', () => doRestartAll(btn, status))
+}
+
+/**
+ * A megerosito kerdes szovege a tervbol.
+ *
+ * Ket forrast fesulunk ossze: a kiszolgalo szigoru merese (biztosan futo
+ * munka) es a felulet sajat 3 masodperces merese (Boss tagabb definicioja:
+ * "ha barmit is csinal vagy futtat, akor is dolgozik"). Ha BARMELYIK azt
+ * mondja, hogy dolgozik, akkor dolgozik -- egy megerosito kerdesnel a
+ * pesszimista olvasat a helyes.
+ */
+function restartAllConfirmText(plan) {
+  const steps = Array.isArray(plan && plan.steps) ? plan.steps : []
+  const included = steps.filter((s) => s.included)
+  const busy = included.filter((s) =>
+    s.busy || lastActivityStateByName.get(s.id) === 'working')
+  const skipped = steps.filter((s) => !s.included)
+  const lines = [t('restart.all_confirm_head', { n: included.length })]
+  if (busy.length) {
+    lines.push('')
+    lines.push(t('restart.all_confirm_busy', { names: busy.map((s) => s.label).join(', ') }))
+  }
+  if (skipped.length) {
+    lines.push('')
+    lines.push(t('restart.all_confirm_skipped', { names: skipped.map((s) => s.label).join(', ') }))
+  }
+  lines.push('')
+  lines.push(t('restart.all_confirm_tail'))
+  return lines.join('\n')
+}
+
+async function doRestartAll(btn, status) {
+  const say = (s) => { if (status) status.textContent = s }
+  btn.disabled = true
+  say(t('restart.all_planning'))
+  let plan = null
+  try {
+    const res = await fetch('/api/system/restart-all', { cache: 'no-store' })
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    plan = await res.json()
+  } catch (e) {
+    // Terv nelkul NEM inditunk el semmit: a megerosites ertelme pont az, hogy
+    // a Boss lassa, mit szakit meg. Vaktaban ujrainditani rosszabb, mint nem.
+    say(t('restart.all_plan_failed'))
+    btn.disabled = false
+    return
+  }
+  say('')
+  if (!confirm(restartAllConfirmText(plan))) { btn.disabled = false; return }
+
+  const oldStartedAt = plan.startedAt
+  say(t('restart.all_running'))
+  let data = null
+  try {
+    const res = await fetch('/api/system/restart-all', { method: 'POST' })
+    data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error || t('restart.failed_start'))
+  } catch (e) {
+    say(e && e.message ? e.message : t('restart.failed_start'))
+    btn.disabled = false
+    return
+  }
+
+  // Az elbukott lepesek NEM vesznek el: a sor tovabbfut, de itt kimondjuk.
+  const failed = (data.results || []).filter((r) => !r.ok)
+  if (failed.length) {
+    showToast(t('restart.all_partial', { names: failed.map((r) => r.label).join(', ') }), 'warn')
+  }
+
+  if (!data.dashboardRestarting) {
+    // A vezerlopult nem indul ujra (nem systemd, vagy tiltott unit): az agensek
+    // viszont igen. Ezt kimondjuk, nem varunk egy olyan ujrainditasra, ami el
+    // sem indult.
+    say(t('restart.all_done_no_dashboard'))
+    showToast(data.dashboardReason || t('restart.unavailable'), 'warn')
+    btn.disabled = false
+    return
+  }
+
+  say(t('restart.waiting'))
+  const deadline = Date.now() + 90000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1000))
+    let d = null
+    try { d = await (await fetch('/api/system/restart', { cache: 'no-store' })).json() } catch (e) { d = null }
+    if (d && d.startedAt && d.startedAt !== oldStartedAt) {
+      say(t('restart.done'))
+      setTimeout(() => location.reload(), 700)
+      return
+    }
+  }
+  say(t('restart.timeout'))
+  btn.disabled = false
 }
 
 /**
@@ -25701,6 +25930,10 @@ async function mountSettingRestartAction(slot, def) {
         btn.disabled = false
       }
     })
+    // A "mindent" gomb ITT is ott van: Boss szerint nem az o dolga fejben
+    // tartani, melyik beallitas melyik folyamatban el. A celzott gomb a
+    // gyorsabb ut, ez pedig a biztos.
+    mountRestartAllButton(slot)
     return
   }
 

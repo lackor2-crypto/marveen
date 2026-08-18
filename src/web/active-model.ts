@@ -74,8 +74,18 @@ function lastContentTimestampMs(path: string, size: number): number | null {
   return null
 }
 
-function newestTranscript(dir: string): string | null {
-  const files = readdirSync(dir)
+/**
+ * Candidate transcripts, freshest content first.
+ *
+ * The ranking is the point (see above); returning the whole ordered list rather
+ * than only the winner is what lets a caller keep looking. A live session can
+ * legitimately carry no `message.model` at all -- Boss saw exactly that on
+ * 2026-08-16: the freshest file was 13 KB of metadata with zero model lines, so
+ * the dashboard printed the word "unknown" as if the model were a mystery, while
+ * the very next transcript in the ranking named it.
+ */
+function rankedTranscripts(dir: string): string[] {
+  return readdirSync(dir)
     .filter(f => f.endsWith('.jsonl'))
     .map(f => {
       const p = join(dir, f)
@@ -84,14 +94,13 @@ function newestTranscript(dir: string): string | null {
     })
     .sort((a, b) => b.mtime - a.mtime)
     .slice(0, CANDIDATE_LIMIT)
-  if (files.length === 0) return null
-  let best = files[0]
-  let bestRank = lastContentTimestampMs(best.path, best.size) ?? best.mtime
-  for (const f of files.slice(1)) {
-    const rank = lastContentTimestampMs(f.path, f.size) ?? f.mtime
-    if (rank > bestRank) { best = f; bestRank = rank }
-  }
-  return best.path
+    .map(f => ({ path: f.path, rank: lastContentTimestampMs(f.path, f.size) ?? f.mtime }))
+    .sort((a, b) => b.rank - a.rank)
+    .map(f => f.path)
+}
+
+function newestTranscript(dir: string): string | null {
+  return rankedTranscripts(dir)[0] ?? null
 }
 
 export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?: number, configDir?: string): string | null {
@@ -106,30 +115,32 @@ export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?:
       cache.set(cacheKey, { value: null, expiresAt: now + TTL_MS })
       return null
     }
-    const transcript = newestTranscript(dir)
-    if (transcript === null) {
-      cache.set(cacheKey, { value: null, expiresAt: now + TTL_MS })
-      return null
-    }
-    const content = readFileSync(transcript, 'utf-8')
-    const lines = content.split('\n')
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim()
-      if (!line) continue
-      try {
-        const entry = JSON.parse(line)
-        const msg = entry?.message
-        const model = msg?.model
-        if (typeof model !== 'string' || model.startsWith('<')) continue
-        if (sinceUnixSec !== undefined) {
-          const ts = entry?.timestamp
-          if (typeof ts !== 'string') continue
-          const lineUnix = Math.floor(new Date(ts).getTime() / 1000)
-          if (!Number.isFinite(lineUnix) || lineUnix < sinceUnixSec) continue
-        }
-        value = model
-        break
-      } catch { /* skip malformed JSON line */ }
+    // Walk the candidates in freshness order and stop at the first one that
+    // actually names a model. Reading only the freshest file made a
+    // model-less transcript look like "we cannot tell", which is a different
+    // and much more alarming statement than the truth.
+    for (const transcript of rankedTranscripts(dir)) {
+      const content = readFileSync(transcript, 'utf-8')
+      const lines = content.split('\n')
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim()
+        if (!line) continue
+        try {
+          const entry = JSON.parse(line)
+          const msg = entry?.message
+          const model = msg?.model
+          if (typeof model !== 'string' || model.startsWith('<')) continue
+          if (sinceUnixSec !== undefined) {
+            const ts = entry?.timestamp
+            if (typeof ts !== 'string') continue
+            const lineUnix = Math.floor(new Date(ts).getTime() / 1000)
+            if (!Number.isFinite(lineUnix) || lineUnix < sinceUnixSec) continue
+          }
+          value = model
+          break
+        } catch { /* skip malformed JSON line */ }
+      }
+      if (value !== null) break
     }
   } catch { /* fall through */ }
   cache.set(cacheKey, { value, expiresAt: now + TTL_MS })

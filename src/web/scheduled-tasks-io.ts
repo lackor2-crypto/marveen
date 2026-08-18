@@ -200,7 +200,13 @@ export function writeScheduledTask(
   if (data.failThreshold !== undefined) config.failThreshold = data.failThreshold
   if (data.preCheck !== undefined) config.preCheck = data.preCheck
   if (data.catchUpMaxAgeMinutes !== undefined) config.catchUpMaxAgeMinutes = data.catchUpMaxAgeMinutes
-  if (data.stuckAfterMinutes !== undefined) config.stuckAfterMinutes = data.stuckAfterMinutes
+  // 0 (or anything <= 0) means "back to the default threshold". Deleting the key
+  // instead of storing a 0 keeps the config honest: the file then says exactly
+  // what resolveStuckTimeoutMs() will do, with no value that only looks set.
+  if (data.stuckAfterMinutes !== undefined) {
+    if (data.stuckAfterMinutes > 0) config.stuckAfterMinutes = data.stuckAfterMinutes
+    else delete config.stuckAfterMinutes
+  }
   if (data.description !== undefined) config.description = data.description
   if (!config.createdAt) config.createdAt = Math.floor(Date.now() / 1000)
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))

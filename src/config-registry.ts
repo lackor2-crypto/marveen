@@ -266,6 +266,21 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
   },
   // --- System module (requiresRestart -- read at process init) ---
   {
+    key: 'MARVEEN_DEPOT',
+    type: 'string',
+    default: '',
+    description: 'A depó mappája: ez alá kerül minden fájlod (fotók, Drive-fájlok, '
+      + 'projektek), fiókonként külön mappába. Nem kell begépelned: a „Tallózás…” '
+      + 'gombbal kiválaszthatod, ahogy egy fájlfeltöltésnél. Windows-alakban is '
+      + 'megadható, pl. D:\\Marveen. Üresen hagyva minden a telepítési mappában '
+      + 'marad. A meglévő fájlokat nem mozgatja el magától – ahhoz a Depó oldal '
+      + '„Átköltöztetés a depóba” gombja kell.',
+    module: 'system',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
     key: 'DASHBOARD_PUBLIC_URL',
     type: 'string',
     default: '',
@@ -446,12 +461,44 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'DEFAULT_AGENT_MODEL',
     type: 'string',
     default: DISTRIBUTION_DEFAULT_AGENT_MODEL,
-    description: 'Az új ügynökök alapértelmezett modellje, egyben a háttér-worker sessionök modellje. Meglévő ügynökök NEM változnak: akinek az agent-config.json-jában konkrét modell van, az marad. A módosítás a szolgáltatás újraindításakor lép életbe.',
+    description: 'Az ÚJ ügynökök alapértelmezett modellje, egyben a háttér-worker sessionök modellje. Ez NEM a fő ügynök (Marvin) modellje — azt eggyel lejjebb, a MAIN_AGENT_MODEL állítja. Meglévő ügynökök NEM változnak: akinek az agent-config.json-jában konkrét modell van, az marad. A módosítás a szolgáltatás újraindításakor lép életbe.',
     module: 'agents',
     secret: false,
     requiresRestart: true,
     restartTarget: 'dashboard',
     valueSet: [
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-fable-5',
+      'claude-opus-4-8[1m]',
+      'claude-haiku-4-5-20251001',
+    ],
+  },
+  // Boss, 2026-08-16: "a beallitas agent alatt a sonett 5 van beallitva.
+  // marvinnak. akkor miert meg mindig a haiku van?"
+  //
+  // Mert a fenti kulcs az UJ ugynokoke, a fo ugynok modellje pedig sehol nem
+  // volt allithato a Beallitasok oldalrol: csak a telepito varazslo .env-mezoje
+  // ismerte (MAIN_AGENT_MODEL), az Ugynokok oldalon Marvin modell-valasztoja
+  // pedig szandekosan csak olvashato. Aki a Beallitasoknal kereste, egy olyan
+  // kapcsolot talalt, ami rá sosem vonatkozott -- es semmilyen ujrainditas nem
+  // segitett volna rajta.
+  //
+  // Hogy a mentes ne csak latszolag mukodjon, HAROM helyen kellett osszekotni:
+  // readConfiguredMainModel() (vezerlopult) es a channels.sh resolve_main_model()
+  // (indito) is olvassa mostantol a store/config-overrides.json-t, ugyanazon a
+  // sorrenden -- kulonben a mentett ertek sehova nem jutna el.
+  {
+    key: 'MAIN_AGENT_MODEL',
+    type: 'string',
+    default: '',
+    description: 'A fő ügynök (Marvin) modellje. Ezt a channels session induláskor olvassa be, tehát a mentés után Marvint kell újraindítani — a sor melletti gombbal. Üresen hagyva a telepítés saját beállítása marad érvényben (.env MAIN_AGENT_MODEL, annak hiányában a .claude/settings.json „model" értéke). Figyelem: az al-ügynökök modelljét ez NEM változtatja meg — az a fenti DEFAULT_AGENT_MODEL, illetve ügynökönként az Ügynökök oldalon áll.',
+    module: 'agents',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'main-agent',
+    valueSet: [
+      '',
       'claude-opus-5',
       'claude-sonnet-5',
       'claude-fable-5',

@@ -66,6 +66,17 @@ import { tryHandleOverview } from './web/routes/overview.js'
 import { tryHandleAccounts } from './web/routes/accounts.js'
 import { tryHandleConnections } from './web/routes/connections.js'
 import { tryHandleDriveBrowser } from './web/routes/drive-browser.js'
+// Ez a negy modul 2026-08-16-an KIESETT a bekotesbol (a munkafa egy regebbi
+// allapotra ugrott vissza, es a web.ts-t senki nem allitotta helyre). A
+// route-fajlok vegig megvoltak es le is fordultak a dist-be -- csak SOHA nem
+// futottak le, mert semmi nem hivta oket. Ettol lett nema halott a Fotok, a
+// Depo, a Drive-szinkron es az Ujrainditas: a lap betoltodott, a keresek pedig
+// 404-re futottak. Egy le nem forditott fajl kiabal; egy be nem kotott fajl
+// csendben nem letezik -- ezert all ra kulon teszt (web-boot-order).
+import { tryHandleDepot } from './web/routes/depot.js'
+import { tryHandleDriveSync } from './web/routes/drive-sync.js'
+import { tryHandlePhotosPicker } from './web/routes/photos-picker.js'
+import { tryHandleSystemRestart } from './web/routes/system-restart.js'
 import { tryHandleUpdates } from './web/routes/updates.js'
 import { tryHandleOnboarding } from './web/routes/onboarding.js'
 import { tryHandleSetupWizard } from './web/routes/setup-wizard.js'
@@ -217,6 +228,10 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleAccounts(routeCtx)) return
       if (await tryHandleConnections(routeCtx)) return
       if (await tryHandleDriveBrowser(routeCtx)) return
+      if (await tryHandleDriveSync(routeCtx)) return
+      if (await tryHandlePhotosPicker(routeCtx)) return
+      if (await tryHandleDepot(routeCtx)) return
+      if (await tryHandleSystemRestart(routeCtx)) return
       if (await tryHandleUpdates(routeCtx)) return
       if (await tryHandleOnboarding(routeCtx)) return
       if (await tryHandleSetupWizard(routeCtx)) return

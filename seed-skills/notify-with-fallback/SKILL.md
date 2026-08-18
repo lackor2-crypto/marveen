@@ -60,6 +60,12 @@ bármilyen két csatornára/kontaktra alkalmazható.
   nélkül lefutott" -- lásd a marveen `agent-msg.sh` inter-agent üzenet
   mintáját, ahol pont ez a hiba (curl 0-val tér vissza 401/500 esetén is)
   okozott néma küldés-hibát korábban. Mindig a TÉNYLEGES eredményt nézd.
+- **A PISZKOZAT NEM KÉZBESÍTÉS.** `scripts/gmail-send.py` alapból `draft`
+  módban fut (a tényleges küldés szándékosan csak {{OWNER_NAME}} kifejezett
+  utasítására mehet), és `DRAFT OK id=...`-dal, nulla kilépőkóddal tér
+  vissza. Ez visszaigazolt -- de a címzett semmit nem kapott. Ha a fallback
+  csak piszkozatot hagyott maga után, az a küldés SIKERTELEN: szólj
+  {{OWNER_NAME}}-nak, hogy van mit kiküldenie.
 
 ## Ellenőrzés
 

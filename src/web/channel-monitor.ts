@@ -50,6 +50,7 @@ import { decideDownAgentAction, AGENT_MAX_RESTART_ATTEMPTS, parseEtimeToSeconds 
 import { getClaudePidForSession, hasChannelPluginAlive, probeChannelPluginLiveness } from '../channel-coordinator/liveness.js'
 import { getDesiredAgents } from './agent-desired-state.js'
 import { exactTmuxTarget } from './tmux-target.js'
+import { readConfiguredMainModel as readConfiguredMainModelFrom } from './main-agent-model.js'
 
 const TMUX = resolveFromPath('tmux')
 const CLAUDE = resolveFromPath('claude')
@@ -503,35 +504,13 @@ async function triggerMarveenMemorySave(): Promise<void> {
   }
 }
 
-// Read the main agent's configured model so a respawn passes --model
-// explicitly, mirroring scripts/channels.sh's resolve_main_model(): .env's
-// MAIN_AGENT_MODEL wins first (the wizard-exposed override), falling back to
-// .claude/settings.json's `.model`. Without the .env leg here, a model change
-// made only in .env (the documented, wizard-registered way to change it) is
-// silently ignored by every respawn-pane path -- .claude/settings.json is the
-// stale fallback, not the source of truth. Returns '' when unset.
+// The main agent's configured model, for respawns that must pass --model
+// explicitly. Precedence (.env MAIN_AGENT_MODEL over .claude/settings.json) now
+// lives in src/web/main-agent-model.ts, because the dashboard needs the very
+// same answer when the transcript cannot name the running model -- two copies
+// of a precedence rule is how the two surfaces drift apart.
 function readConfiguredMainModel(): string {
-  try {
-    const envPath = join(PROJECT_ROOT, '.env')
-    if (existsSync(envPath)) {
-      const line = readFileSync(envPath, 'utf-8')
-        .split('\n')
-        .find((l) => l.startsWith('MAIN_AGENT_MODEL='))
-      const envModel = line?.slice('MAIN_AGENT_MODEL='.length).trim()
-      if (envModel) return envModel
-    }
-  } catch {
-    /* fall through to settings.json */
-  }
-  try {
-    const settingsPath = join(PROJECT_ROOT, '.claude', 'settings.json')
-    if (!existsSync(settingsPath)) return ''
-    const parsed = JSON.parse(readFileSync(settingsPath, 'utf-8'))
-    const model = parsed?.model
-    return typeof model === 'string' ? model.trim() : ''
-  } catch {
-    return ''
-  }
+  return readConfiguredMainModelFrom(PROJECT_ROOT)
 }
 
 // Secondary channel plugins the main session co-listens on, read from .env

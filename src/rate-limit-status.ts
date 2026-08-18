@@ -43,6 +43,21 @@ export interface RateLimitSnapshot {
   sevenDay: RateLimitWindow | null
   /** Epoch ms when this snapshot was captured. */
   updatedAt: number
+  /**
+   * Epoch ms when the PERCENTAGES themselves last changed.
+   *
+   * Nem ugyanaz, mint az `updatedAt`. A statusline minden kepernyo-frissiteskor
+   * ujrairja a fajlt, de a `rate_limits` blokk csak akkor van benne, amikor a
+   * Claude tenylegesen jelentette -- ilyenkor a szkript MEGTARTJA az elozo
+   * szamokat (kulonben "nincs adat" villogna egy csak eppen tetlen agensnel).
+   * Tehat egy friss `updatedAt` melle tartozhat orak ota valtozatlan szazalek.
+   *
+   * A kulonbseget a statusline 2026-08-11 ota rogziti (`windowsUpdatedAt`), de
+   * TS oldalon eddig senki nem olvasta -- ezert mutathatott a felulet friss
+   * szamkent egy reges-regi merest (Boss, 2026-08-15: a VS Code 81%-ot irt, a
+   * Marveen ugyanarra a fiokra 11%-ot).
+   */
+  measuredAt: number
 }
 
 /** Tier for a single 0..100 percentage. */

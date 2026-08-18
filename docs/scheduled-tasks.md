@@ -76,6 +76,7 @@ ugyanúgy, mintha te gépelted volna be a chat-be.
 | `createdAt` | number | — | Unix timestamp (másodperc), automatikusan töltődik |
 | `description` | string | — | Opcionális leírás (ha nincs SKILL.md frontmatter) |
 | `targetSession` | string | — | Egyedi tmux session név override (alapból: `agent-<name>`) |
+| `stuckAfterMinutes` | number | `5` | Ennyi perc futás után küld „lehetséges beakadás" riasztást. Lásd lentebb. |
 
 `command` típusú feladatoknál extra mezők:
 
@@ -127,6 +128,32 @@ Ez a két flag a foglalt session kezelését szabályozza:
 - **skipIfBusy: true**: a tick csendes elvesztése. Csak sűrűn ismétlődő feladatoknál helyes (15-30 percenként), ahol a következő tick úgyis jön. Napi/heti feladatnál soha ne használd.
 
 - **forceSend: true**: átugorja a busy-ellenőrzést, beleküldi a promptot a tmux session-be. A Claude feldolgozza, amint az aktuális feladat elkészül. Kritikus feladatokhoz (pl. reggeli összefoglaló), amelyek nem maradhatnak ki.
+
+---
+
+## „Lehetséges beakadás" riasztás (`stuckAfterMinutes`)
+
+Ha egy elindított feladat a küszöbnél tovább fut, a runner egyszer küld egy Telegram
+üzenetet: *„A(z) … ütemezett feladat N perce fut -- lehetséges beakadás."* Ez nem
+hiba önmagában — csak annyit jelent, hogy a feladat még dolgozik.
+
+**Alapértelmezés: 5 perc.** Egy hosszabb elemzés vagy memória-átnézés ezt rendszerint
+túllépi, és akkor *minden* futásnál kapsz egy riasztást. Ilyenkor a küszöböt kell
+megemelni, nem a riasztást kikapcsolni.
+
+Beállítás: **Ütemezések → a feladat szerkesztése → Haladó beállítások → „Riasztás, ha
+ennyi percnél tovább fut"**. Üresen hagyva marad az 5 perc.
+
+Határok:
+
+- **1 perc** alatt nincs értelme: a normál indulási zaj is átlépné.
+- **360 perc (6 óra)** a felső határ, mert a runner ennyi ideig követi a futást
+  (`TASK_FIRE_MAX_TRACK_MS`). Efölött a bejegyzés előbb kiürül, mint hogy a küszöb
+  elérhető lenne — vagyis a riasztás észrevétlenül kikapcsolna. Az űrlap és az API
+  ezért 360 fölött hibát ad.
+
+A küszöb emelése valódi ár: ha a feladat tényleg beragad, ennyivel később derül ki.
+Ezért érdemes a feladat szokásos futásidejének kicsit fölé lőni, nem a plafonra.
 
 ---
 

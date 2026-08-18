@@ -42,6 +42,17 @@ function cfg(key: string): string | undefined {
   return env[key]
 }
 
+// A depo (kulso lemez) gyokere, ahogy a Beallitasokban all.
+//
+// Miert itt, a `cfg()` retegen at, es nem `process.env`-bol? Mert a depo helyet
+// a Beallitasok oldalrol kell tudni allitani, es a .env-et a Marveen NEM tolti
+// be a process.env-be (readEnvFile csak visszaadja a terkepet). Aki
+// process.env-bol olvasna, annak a Beallitasok oldalon mentett ertek lathatatlan
+// maradna -- a mentes latszolag sikerulne, es semmi nem valtozna.
+// A depot.ts ezt olvassa; a helyesseget az ellenorzi, hogy a
+// `depotRoot()` ELOSZOR ezt nezi, es csak utana a process.env-et.
+export const DEPOT_ROOT_CONFIGURED = (cfg('MARVEEN_DEPOT') ?? '').trim()
+
 // The single timezone for this install -- drives BOTH cron scheduling (cron.ts)
 // AND every human-facing time render (heartbeat, daily-log, memory labels, etc.).
 // One env var (SCHEDULER_TZ) so the whole box shares one zone; falls back to the

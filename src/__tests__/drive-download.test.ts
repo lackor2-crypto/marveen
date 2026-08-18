@@ -110,6 +110,54 @@ describe('contentDispositionHeader: accented names survive the header', () => {
   })
 })
 
+describe('the bytes reach the browser with backpressure', () => {
+  // 2026-08-15, found while chasing the Photos memory spike (the dashboard had
+  // peaked at 4.3G). This path streamed chunk by chunk, but with a bare
+  // res.write() whose return value nobody checked: on a slow link Google fills
+  // faster than the browser drains, and the difference piles up in the service.
+  const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'drive-browser.ts'), 'utf8')
+
+  it('the whole file is never buffered in the service', () => {
+    const code = route.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+    expect(code, 'a download must not read the response in one piece').not.toMatch(/arrayBuffer\(\)/)
+    expect(code).not.toMatch(/upstream\.body\.getReader\(\)/)
+    expect(code, 'the hand-written loop ignored backpressure').not.toMatch(/res\.write\(value\)/)
+  })
+
+  it('the response is piped, so a slow browser slows the download itself', () => {
+    expect(route).toContain('await pipeline(Readable.fromWeb(upstream.body as any), res)')
+    expect(route).toMatch(/import \{ pipeline \} from 'node:stream\/promises'/)
+  })
+
+  it('pipeline really does wait for a slow consumer', async () => {
+    // Not a source check: proof that the mechanism behaves as claimed. The sink
+    // accepts 1 chunk at a time; if the pipe ignored backpressure, everything
+    // would arrive before the first release.
+    const { Readable: R, Writable } = await import('node:stream')
+    const { pipeline: pipe } = await import('node:stream/promises')
+    const chunks = Array.from({ length: 20 }, (_, i) => Buffer.alloc(64 * 1024, i))
+    let inFlight = 0
+    let maxInFlight = 0
+    const slow = new Writable({
+      highWaterMark: 1,
+      write(_c, _e, cb) {
+        inFlight++
+        maxInFlight = Math.max(maxInFlight, inFlight)
+        setTimeout(() => { inFlight--; cb() }, 1)
+      },
+    })
+    await pipe(R.from(chunks), slow)
+    expect(maxInFlight, 'the writer was never handed more than it asked for').toBe(1)
+  })
+
+  it('an upload cannot grow without a bound either', () => {
+    // The upload does buffer (Drive multipart needs one body), so the cap is
+    // the memory guarantee -- it must stay in place.
+    expect(route).toMatch(/const UPLOAD_MAX_BYTES = \d+ \* 1024 \* 1024/)
+    expect(route).toContain('readBody(req, { maxBytes: UPLOAD_MAX_BYTES })')
+  })
+})
+
 describe('the client no longer navigates to the download URL', () => {
   it('window.open() is gone from the Drive row actions', () => {
     // This is the reported bug in one line: a navigation carries no

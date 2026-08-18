@@ -38,6 +38,13 @@ export function readRateLimitSnapshot(agentId: string): RateLimitSnapshot | null
       fiveHour: win(raw.fiveHour),
       sevenDay: win(raw.sevenDay),
       updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0,
+      // A statusline `windowsUpdatedAt` neven irja: akkor VALTOZTAK a szamok.
+      // Regi fajlokban meg nincs benne -- ott a legjobb tudasunk az updatedAt,
+      // tehat oda esunk vissza (nem 0-ra: az minden regi pillanatkepet azonnal
+      // "ohkori"-nak minositene, es eltuntetne a meg ervenyes szazalekokat).
+      measuredAt: typeof raw.windowsUpdatedAt === 'number' && Number.isFinite(raw.windowsUpdatedAt)
+        ? raw.windowsUpdatedAt
+        : (typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : 0),
     }
   } catch {
     return null

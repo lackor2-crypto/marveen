@@ -111,8 +111,17 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
     const wanted = str(b.id).trim() || str(b.name).trim()
     if (!wanted) { json(res, { ok: false, error: 'Adj nevet vagy e-mail címet.' }, 400); return true }
     const id = suggestAccountId(wanted, str(b.id).trim() ? [] : taken)
-    const result = startGoogleAuth(id)
-    json(res, result.ok ? { ok: true, id } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    // `force === true` SZIGORUAN: a felulet gombja fuggveny-nyilat kap, mert egy
+    // atadott click-Event igaz-szeru, es minden elso kattintas kiloné valaki mas
+    // futo bejelentkeztetesét (a script fix loopback-portot foglal).
+    const result = startGoogleAuth(id, { force: b.force === true })
+    json(res, result.ok
+      ? { ok: true, id }
+      // A foglaltsag GEPI mezokent utazik, hogy az oldal megnevezhesse a masik
+      // fiokot es felajanlhassa a "szakitsd meg azt" kiutat -- magyar mondatot
+      // visszafejteni a bongeszoben nem lehet.
+      : { ok: false, error: result.error, code: result.code ?? null, busyAccountId: result.busyAccountId ?? null },
+      result.ok ? 200 : 400)
     return true
   }
 
@@ -209,7 +218,14 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
         broken: googleBroken,
         clientPresent: googleOauthClientPresent(),
       },
-      mcp: { needsLogin: mcp.needsLogin, broken: mcp.broken, connected: mcp.connected, refreshing: mcp.refreshing },
+      mcp: {
+        needsLogin: mcp.needsLogin, broken: mcp.broken, connected: mcp.connected,
+        // Sent but never counted: a channel plugin the probe cannot launch is
+        // not a fault (see isAgentManagedChannel), and the Overview must not
+        // raise an alarm about a Telegram the operator uses every day.
+        agentManaged: mcp.agentManaged,
+        refreshing: mcp.refreshing,
+      },
       // Worst thing worth saying, so the card can colour itself without the
       // browser re-deriving the rule. A connector that merely needs a sign-in
       // is a missed capability, not a broken install -- alarm colours spent on

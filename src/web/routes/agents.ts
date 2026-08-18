@@ -109,6 +109,7 @@ import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
 import { readActiveModelFromProjectDir, readContextReadingFromProjectDir, readContextTokensFromProjectDir } from '../active-model.js'
+import { mainAgentModelNow } from '../main-agent-model.js'
 import { isCompactionInFlight, markCompactionStarted, settleCompaction } from '../compaction-inflight.js'
 import { followUpManualCompaction } from '../manual-compact-followup.js'
 import { COMPACT_COMMAND } from '../../context-compaction-instructions.js'
@@ -1595,8 +1596,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       delegatesTo: [],
       running: true,
       hasAvatar: true,
-      model: readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown',
-      costPerMInput: knownModelCostPerM(readActiveModelFromProjectDir(PROJECT_ROOT) ?? 'unknown'),
+      // Same resolver as /api/marveen (transcript, then a fresh statusline, then
+      // the configured value). Reading the transcript directly here printed the
+      // word "unknown" on the graph while the card next to it showed the model
+      // (kartya d80c50f6).
+      model: mainAgentModelNow().model,
+      costPerMInput: knownModelCostPerM(mainAgentModelNow().model),
     })
     for (const agentName of listAgentNames()) {
       const team = readAgentTeam(agentName)

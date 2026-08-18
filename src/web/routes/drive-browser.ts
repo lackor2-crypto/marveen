@@ -9,6 +9,8 @@
 // "mai tipusu veletlen torles" ellen amit a kartya leirasa emlit.
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { PROJECT_ROOT } from '../../config.js'
 import { readBody, json } from '../http-helpers.js'
 import { parseMultipart } from '../multipart.js'
@@ -61,11 +63,92 @@ const GOOGLE_EXPORT: Record<string, { mime: string; ext: string }> = {
   'application/vnd.google-apps.script': { mime: 'application/vnd.google-apps.script+json', ext: 'json' },
 }
 
+/**
+ * A Fotok-nezet ugyanezt a listat kéri, csak keprem: mappak (hogy tovabb lehessen
+ * lepni) + kep/video fajlok. A szures a Drive-nal tortenik, nem nalunk: egy
+ * 5000 fajlos mappabol nem akarunk 4900 dokumentumot athozni azert, hogy aztan
+ * eldobjuk.
+ */
+export function driveListQuery(folderId: string, mediaOnly: boolean): string {
+  // MASODIK ZAR. A vegpont mar ellenorzi az azonositot, de a lekerdezes-szoveg
+  // itt all ossze, es aki ide beir egy uj hivast, az konnyen kifelejti a kaput.
+  // Ezert a kifejezes epitese SAJAT MAGA utasitja vissza a gyanus azonositot:
+  // igy nem letezik olyan ut a kodban, ahol ellenorizetlen szoveg kerul a
+  // `'<id>' in parents` kifejezesbe. Lasd isSafeFolderId().
+  if (!isSafeFolderId(folderId)) throw new Error('ervenytelen folderId')
+  const base = `'${folderId}' in parents and trashed = false`
+  if (!mediaOnly) return base
+  return `${base} and (mimeType contains 'image/' or mimeType contains 'video/' or mimeType = 'application/vnd.google-apps.folder')`
+}
+
+/**
+ * A thumbnailLink egy MAR ALAIRT Google-URL, `=s220` meretjelolessel a vegen.
+ * Nagyobb bélyegkephez (lightbox) csak ezt a szamot kell atirni -- ujra kerni a
+ * fajlt teljes meretben egy racs 60 kepenel tobb tiz megabajt lenne.
+ */
+export function thumbnailUrlWithSize(link: string, size: number): string {
+  const clean = String(link || '')
+  if (/=[swh]\d+(-[^/]*)?$/i.test(clean)) return clean.replace(/=[swh]\d+(-[^/]*)?$/i, `=s${size}`)
+  return `${clean}=s${size}`
+}
+
+/**
+ * A thumbnailLink-et a Drive API adja, de akkor is ELLENORIZZUK, mielott a
+ * szerver lekeri: egy proxy, ami barmilyen URL-t elhoz, az SSRF (a szerver a
+ * belso halon van). Csak Google-tarhelyrol toltunk le, csak https-en.
+ */
+export function isAllowedThumbnailUrl(u: string): boolean {
+  try {
+    const parsed = new URL(u)
+    if (parsed.protocol !== 'https:') return false
+    return /(^|\.)(googleusercontent\.com|googleapis\.com)$/.test(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 64..2048 pixel: a racs 400-at ker, a lightbox 1600-at.
+ *
+ * A hianyzo parametert KULON kell elkapni: `Number(null)` es `Number('')`
+ * egyarant 0 -- veges szam --, tehat a savra vagas 64-et adna, es egy regi
+ * kliens (vagy egy kezzel hivott URL) 64 pixeles, hasznalhatatlanul elmosodott
+ * kepet kapna hibauzenet nelkul.
+ */
+export function clampThumbSize(raw: string | null): number {
+  const s = String(raw ?? '').trim()
+  if (!s) return 400
+  const n = Number(s)
+  if (!Number.isFinite(n)) return 400
+  return Math.min(2048, Math.max(64, Math.round(n)))
+}
+
 export interface DriveDownloadPlan {
   url: string
   filename: string
   /** Nem letoltheto Google-tipus (mappa, urlap, site) -- a hivo 400-zal all meg. */
   unsupported?: string
+}
+
+/**
+ * Vissza tud-e menni a lehozott export ugyanabba a Google-fajlba? Ha igen,
+ * EZZEL a content-type-pal kell felkuldeni -- a Drive ilyenkor visszakonvertalja,
+ * es a fajl marad Google Doc/Sheet/Slide (nem lesz belole Word-fajl).
+ *
+ * MERVE az eles Drive-on (2026-08-15), nem a dokumentaciobol:
+ *   - Doc <- .docx  PATCH uploadType=media, Content-Type: ...wordprocessingml:
+ *     a valasz mimeType-ja tovabbra is `...google-apps.document`, a tartalom
+ *     lecserelodott. Ugyanez all a Sheets/Slides parjara.
+ *   - Rajz <- .png ugyanezzel a hivassal `400 Bad Request` -- a Google nem
+ *     konvertal kepet vissza rajzza. Az Apps Script projekt sem: az a Script
+ *     API-hoz tartozik, nem a Drive-hoz.
+ * Ezert a rajz es a script `null`: azoknal a helyi szerkesztes NEM mehet fel.
+ */
+export function driveUploadMime(mimeType: string | null | undefined): string | null {
+  if (!mimeType || !mimeType.startsWith('application/vnd.google-apps.')) return null
+  const target = GOOGLE_EXPORT[mimeType]
+  if (!target) return null
+  return target.ext === 'docx' || target.ext === 'xlsx' || target.ext === 'pptx' ? target.mime : null
 }
 
 /**
@@ -109,6 +192,20 @@ export function contentDispositionHeader(name: string): string {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
 }
 
+/**
+ * Beilleszthető-e a mappa-azonosito a Drive lekerdezo-kifejezesebe?
+ *
+ * A `folderId` a query stringbol jon, es a `'<id>' in parents` kifejezesbe
+ * SZOVEGKENT kerul bele. Az encodeURIComponent csak az URL-t vedi, a kifejezest
+ * nem: egy aposztrof ("x' in parents or 'y") atirja magat a lekerdezest. A
+ * Drive-azonosito valojaban betu/szam/_/- (es a 'root'), ezert ami ezen kivul
+ * esik, azt vissza is utasitjuk -- nem szurjuk ki, hanem elutasitjuk, mert egy
+ * megcsonkitott azonosito amugy is rossz mappat nyitna.
+ */
+export function isSafeFolderId(id: string): boolean {
+  return /^[A-Za-z0-9_-]{1,256}$/.test(String(id || ''))
+}
+
 export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
 
@@ -119,10 +216,14 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
 
   if (path === '/api/drive/list' && method === 'GET') {
     const folderId = url.searchParams.get('folderId') || 'root'
+    if (!isSafeFolderId(folderId)) { json(res, { error: 'ervenytelen folderId' }, 400); return true }
+    // A Fotok oldal ugyanezt a vegpontot hasznalja, csak keprem -- egy lista, egy
+    // jogosultsag, egy hibakezeles.
+    const mediaOnly = url.searchParams.get('media') === '1'
     try {
       const token = await getAccessToken(accountFromQuery(url))
-      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
-      const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime,iconLink,webViewLink)')
+      const q = encodeURIComponent(driveListQuery(folderId, mediaOnly))
+      const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime,iconLink,webViewLink,thumbnailLink,imageMediaMetadata(width,height))')
       const data = await driveJson(`${DRIVE_FILES_URL}?q=${q}&fields=${fields}&orderBy=folder,name&pageSize=200`, token)
       const files = (data.files || []).map((f: any) => ({
         id: f.id,
@@ -132,6 +233,10 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
         size: f.size ? Number(f.size) : null,
         modifiedTime: f.modifiedTime || null,
         webViewLink: f.webViewLink || null,
+        // Csak azt mondjuk meg, VAN-E belyegkep. Magat a linket nem adjuk ki: az
+        // egy alairt Google-URL, ami a bongeszo elozmenyeibe es a naplokba is
+        // bekerulne -- a kepet a /api/drive/thumbnail hozza el helyettunk.
+        hasThumb: !!f.thumbnailLink,
       }))
       json(res, { files })
     } catch (err: any) {
@@ -254,6 +359,94 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
     return true
   }
 
+  // Belyegkep-proxy a Fotok racshoz. Miert proxy, es nem a thumbnailLink megy ki
+  // a kliensnek: (1) a link alairt Google-URL, ami a bongeszo elozmenyeibe es a
+  // megosztott kepernyore is kikerulne, (2) a dashboard `Authorization: Bearer`
+  // fejleccel hitelesit, egy <img src> viszont fejlecet nem visz -- a kepet igy
+  // is, ugy is a kliens fetch-e hozza el, es akkor mar mi is ellenorizhetjuk,
+  // honnan.
+  if (path === '/api/drive/thumbnail' && method === 'GET') {
+    const fileId = url.searchParams.get('fileId') || ''
+    if (!isSafeFolderId(fileId)) { json(res, { error: 'ervenytelen fileId' }, 400); return true }
+    const size = clampThumbSize(url.searchParams.get('size'))
+    try {
+      const token = await getAccessToken(accountFromQuery(url))
+      const meta = await driveJson(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?fields=thumbnailLink`, token)
+      const link = meta.thumbnailLink || ''
+      if (!link) { json(res, { error: 'nincs belyegkep', code: 'no_thumbnail' }, 404); return true }
+      const sized = thumbnailUrlWithSize(link, size)
+      if (!isAllowedThumbnailUrl(sized)) { json(res, { error: 'nem Google-cimrol jonne', code: 'bad_thumbnail_host' }, 502); return true }
+      // A link maga alairt -- a Bearer tokenunket NEM kuldjuk el vele.
+      const upstream = await fetch(sized)
+      const ctype = upstream.headers.get('content-type') || ''
+      if (!upstream.ok || !upstream.body || !ctype.startsWith('image/')) {
+        json(res, { error: `belyegkep ${upstream.status}`, code: 'thumbnail_failed' }, 502)
+        return true
+      }
+      res.writeHead(200, {
+        'Content-Type': ctype,
+        // Privat kep: csak a bongeszo tarolhatja, kozbeeso gyorsitotar nem.
+        'Cache-Control': 'private, max-age=3600',
+      })
+      // A darabok VISSZANYOMASSAL mennek at: a `pipeline` megvarja, amig a
+      // bongeszo fele indulo darab tenyleg elment, mielott a kovetkezot kerne.
+      // Kezi `res.write()`-tal a visszateresi erteket kellene figyelni -- ha
+      // nem tesszuk, egy lassu halozaton a Google gyorsabban ontja be a fajlt,
+      // mint ahogy elmegy, es a kulonbseg a szolgaltatas memoriajaban gyulik.
+      // Egy nagy fajl igy megismetelte volna a fotos memoria-tuskét.
+      await pipeline(Readable.fromWeb(upstream.body as any), res)
+    } catch (err: any) {
+      logger.warn({ err: err.message, fileId }, '[drive-browser] thumbnail failed')
+      if (!res.headersSent) json(res, { error: err.message }, 502)
+      else res.end()
+    }
+    return true
+  }
+
+  // Belyegkep-proxy a Fotok racshoz. Miert proxy, es nem a thumbnailLink megy ki
+  // a kliensnek: (1) a link alairt Google-URL, ami a bongeszo elozmenyeibe es a
+  // megosztott kepernyore is kikerulne, (2) a dashboard `Authorization: Bearer`
+  // fejleccel hitelesit, egy <img src> viszont fejlecet nem visz -- a kepet igy
+  // is, ugy is a kliens fetch-e hozza el, es akkor mar mi is ellenorizhetjuk,
+  // honnan.
+  if (path === '/api/drive/thumbnail' && method === 'GET') {
+    const fileId = url.searchParams.get('fileId') || ''
+    if (!isSafeFolderId(fileId)) { json(res, { error: 'ervenytelen fileId' }, 400); return true }
+    const size = clampThumbSize(url.searchParams.get('size'))
+    try {
+      const token = await getAccessToken(accountFromQuery(url))
+      const meta = await driveJson(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?fields=thumbnailLink`, token)
+      const link = meta.thumbnailLink || ''
+      if (!link) { json(res, { error: 'nincs belyegkep', code: 'no_thumbnail' }, 404); return true }
+      const sized = thumbnailUrlWithSize(link, size)
+      if (!isAllowedThumbnailUrl(sized)) { json(res, { error: 'nem Google-cimrol jonne', code: 'bad_thumbnail_host' }, 502); return true }
+      // A link maga alairt -- a Bearer tokenunket NEM kuldjuk el vele.
+      const upstream = await fetch(sized)
+      const ctype = upstream.headers.get('content-type') || ''
+      if (!upstream.ok || !upstream.body || !ctype.startsWith('image/')) {
+        json(res, { error: `belyegkep ${upstream.status}`, code: 'thumbnail_failed' }, 502)
+        return true
+      }
+      res.writeHead(200, {
+        'Content-Type': ctype,
+        // Privat kep: csak a bongeszo tarolhatja, kozbeeso gyorsitotar nem.
+        'Cache-Control': 'private, max-age=3600',
+      })
+      // A darabok VISSZANYOMASSAL mennek at: a `pipeline` megvarja, amig a
+      // bongeszo fele indulo darab tenyleg elment, mielott a kovetkezot kerne.
+      // Kezi `res.write()`-tal a visszateresi erteket kellene figyelni -- ha
+      // nem tesszuk, egy lassu halozaton a Google gyorsabban ontja be a fajlt,
+      // mint ahogy elmegy, es a kulonbseg a szolgaltatas memoriajaban gyulik.
+      // Egy nagy fajl igy megismetelte volna a fotos memoria-tuskét.
+      await pipeline(Readable.fromWeb(upstream.body as any), res)
+    } catch (err: any) {
+      logger.warn({ err: err.message, fileId }, '[drive-browser] thumbnail failed')
+      if (!res.headersSent) json(res, { error: err.message }, 502)
+      else res.end()
+    }
+    return true
+  }
+
   if (path === '/api/drive/download' && method === 'GET') {
     const fileId = url.searchParams.get('fileId') || ''
     const name = url.searchParams.get('name') || 'download'
@@ -277,13 +470,13 @@ export async function tryHandleDriveBrowser(ctx: RouteContext): Promise<boolean>
         'Content-Disposition': contentDispositionHeader(plan.filename),
         'Cache-Control': 'private, no-store',
       })
-      const reader = upstream.body.getReader()
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        res.write(value)
-      }
-      res.end()
+      // A darabok VISSZANYOMASSAL mennek at: a `pipeline` megvarja, amig a
+      // bongeszo fele indulo darab tenyleg elment, mielott a kovetkezot kerne.
+      // Kezi `res.write()`-tal a visszateresi erteket kellene figyelni -- ha
+      // nem tesszuk, egy lassu halozaton a Google gyorsabban ontja be a fajlt,
+      // mint ahogy elmegy, es a kulonbseg a szolgaltatas memoriajaban gyulik.
+      // Egy nagy fajl igy megismetelte volna a fotos memoria-tuskét.
+      await pipeline(Readable.fromWeb(upstream.body as any), res)
     } catch (err: any) {
       logger.warn({ err: err.message }, '[drive-browser] download failed')
       if (!res.headersSent) json(res, { error: err.message }, 502)

@@ -378,7 +378,13 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         sevenDayResetsAt: rlSnapshot?.sevenDay?.resetsAt ?? null,
         // The other rows mark a stale reading with a "~"; this one used to
         // present an hours-old snapshot as a fresh number.
-        stale: rlSnapshot ? isStale(rlSnapshot.updatedAt, Date.now()) : false,
+        //
+        // Boss 2026-08-15: `measuredAt`, nem `updatedAt`. A statusline minden
+        // kepernyo-frissiteskor ujrairja a fajlt, de a SZAZALEKOKAT csak akkor,
+        // amikor a Claude jelentette oket -- egy sokat rajzolo, de keveset
+        // dolgozo agens igy a vegtelensegig frissnek mutatott egy regi merest.
+        stale: rlSnapshot ? isStale(rlSnapshot.measuredAt, Date.now()) : false,
+        measuredAt: rlSnapshot?.measuredAt ?? null,
       },
       ...readClaudePlans().map(plan => {
         // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok
@@ -394,7 +400,8 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // plan's session has taken its first turn (fresh restart, no
         // rate_limits in Claude Code's statusline payload yet).
         const snap = readRateLimitSnapshot(plan.id)
-        const snapFresh = snap && !isStale(snap.updatedAt, Date.now())
+        // measuredAt, nem updatedAt -- lasd a Lackor2-sor melletti indoklast.
+        const snapFresh = snap && !isStale(snap.measuredAt, Date.now())
         if (snapFresh && snap.fiveHour?.usedPct != null) {
           return {
             id: plan.id,
@@ -405,6 +412,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
             fiveHourResetsAt: snap.fiveHour.resetsAt ?? null,
             sevenDayResetsAt: snap.sevenDay?.resetsAt ?? null,
             stale: false,
+            measuredAt: snap.measuredAt,
           }
         }
         const scraped = scrapeClaudeAccountUsage(plan.id)
@@ -421,6 +429,9 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
             fiveHourResetsAt: scraped.resetsAt,
             sevenDayResetsAt: snap?.sevenDay?.resetsAt ?? null,
             stale: scraped.stale || !snapFresh,
+            // A panel-leolvasas MOST tortent; ha az elavult (`scraped.stale`),
+            // akkor a gyorsitotarazott ertek kora a pillanatkepe.
+            measuredAt: scraped.stale ? (snap?.measuredAt ?? null) : Date.now(),
           }
         }
         // Nothing scrapeable either (idle pane, banner scrolled away). An old
@@ -436,6 +447,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
           fiveHourResetsAt: snap?.fiveHour?.resetsAt ?? null,
           sevenDayResetsAt: snap?.sevenDay?.resetsAt ?? null,
           stale: true,
+          measuredAt: snap?.measuredAt ?? null,
         }
       }),
     ]

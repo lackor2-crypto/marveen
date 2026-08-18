@@ -11,7 +11,10 @@ import { logger } from '../../logger.js'
 import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect } from '../email-imap.js'
 import { buildHimalayaSearchArgs, normalizeEmailSearchQuery } from '../email-search.js'
 import { isPromotionalEnvelope } from '../../email-promo-classify.js'
-import { loadRules, saveRules, addRule, removeRule, rulesFor, matchesRule, type EmailRule } from '../../email-rules.ts'
+import {
+  loadRules, saveRules, addRule, removeRule, rulesFor, matchesRule,
+  type EmailRule, type EmailRuleKind, type EnvelopeLike,
+} from '../../email-rules.js'
 import { translateEmailContent } from '../email-translate.js'
 import { getSecret } from '../vault.js'
 import type { RouteContext } from './types.js'
@@ -351,9 +354,11 @@ const IMPORTANT_MAILBOX = '[Gmail]/Fontos'
 const SPAM_MAILBOX = '[Gmail]/Spam'
 const TRASH_MAILBOX = '[Gmail]/Kuka'
 
-// Legfeljebb. A határ nem a helyesség miatt kell, hanem hogy egy hirtelen
-// beomló szemét-hullám ne fagyassza be a bejövő lista betöltését: ami most
-// kimarad, azt a következő listázás viszi el.
+// Boss, 2026-08-15: "ha spambe huzom akkor jeloje meg es a jovobeni leveleket
+// azonnal a spambe iranyitsa." Egy listazasban ennyi levelet mozgatunk at
+// legfeljebb. A hatar nem a helyesseg miatt kell, hanem hogy egy hirtelen
+// beomlo szemet-hullam ne fagyassza be a bejovo lista betolteset: ami most
+// kimarad, azt a kovetkezo listazas viszi el.
 const SPAM_RULE_MOVE_LIMIT = 25
 
 // Mirrors the frontend's EMAIL_SYSTEM_MAILBOX_ORDER (web/app.js) -- Gmail's
@@ -368,8 +373,8 @@ const SYSTEM_MAILBOXES = new Set([
   'Inbox',
   SENT_MAILBOX,
   '[Gmail]/Piszkozatok',
-  '[Gmail]/Spam',
-  '[Gmail]/Kuka',
+  SPAM_MAILBOX,
+  TRASH_MAILBOX,
   IMPORTANT_MAILBOX,
   '[Gmail]/Csillagozott',
   '[Gmail]/Beszélgetések',
@@ -431,30 +436,59 @@ function invalidateEnvelopeCache(account: string, mailbox: string): void {
   }
 }
 
-async function applyInboxRules(account: string, envelopes: any[], promoOnly: boolean, moveSpam: boolean): Promise<{ list: any[]; movedToSpam: number }> {
+/**
+ * A tanult felado-szabalyok ervenyesitese a BEJOVO listan.
+ *
+ * Boss, 2026-08-15: "ha spambe huzom akkor jeloje meg es a jovobeni leveleket
+ * azonnal a spambe iranyitsa" -- plusz ugyanez a Promociokra, ami viszont nem
+ * IMAP-mappa, hanem szuro (lasd email-promo-classify.ts), tehat ott nincs mit
+ * mozgatni: a felado megjegyzese maga a "athuzas".
+ *
+ * KET dolgot csinal, ebben a sorrendben:
+ *  1. SPAM: amelyik levelet szabaly talalja, azt tenylegesen ATMOZGATJA a Spam
+ *     mappaba -- igy a telefonon es a Gmail-ben is ott lesz, nem csak itt tunik
+ *     el. Csak azt a sort vesszuk ki a listabol, amelyiknek a mozgatasa
+ *     SIKERULT: egy elhasalt mozgatas utan a level a helyen marad, es a
+ *     kovetkezo listazas ujra megprobalja. Elrejteni egy olyan levelet, ami
+ *     valojaban a bejovoben maradt, rosszabb lenne, mint meghagyni.
+ *  2. PROMOCIOK: a heurisztika (isPromotionalEnvelope) MELLE a tanult feladok
+ *     is promonak szamitanak.
+ *
+ * `moveSpam` KERESESNEL hamis: a talalati lista egy kerdes ("hol van ez a
+ * level?"), nem a bejovo atnezese -- egy keresestol ne rendezodjon at a
+ * postafiok. A szures ilyenkor is fut, a mozgatas a kovetkezo sima
+ * bejovo-listazaskor.
+ */
+async function applyInboxRules(
+  account: string,
+  envelopes: unknown[],
+  promoOnly: boolean,
+  moveSpam: boolean,
+): Promise<{ list: unknown[]; movedToSpam: number }> {
   const rules = loadRules()
   const spamSenders = rulesFor(rules, 'spam', account)
   const promoSenders = rulesFor(rules, 'promo', account)
   let list = envelopes
   let movedToSpam = 0
+
   if (moveSpam && spamSenders.size > 0) {
-    const hits = list.filter((e) => matchesRule(spamSenders, e)).slice(0, SPAM_RULE_MOVE_LIMIT)
+    const hits = list.filter((e) => matchesRule(spamSenders, e as EnvelopeLike))
+      .slice(0, SPAM_RULE_MOVE_LIMIT)
     const movedIds = new Set<string>()
     for (const e of hits) {
-      const id = String(e.id ?? '')
+      const id = String((e as { id?: unknown }).id ?? '')
       if (!id) continue
-      const r: { ok: boolean; stdout: string; stderr: string } = await himalayaRead(['-a', account, 'message', 'move', id, '-f', 'Inbox', '-t', SPAM_MAILBOX])
-      if (r.ok) {
-        movedIds.add(id)
-        movedToSpam++
-      } else {
-        logger.warn(`[email] spam-szabály mozgatás nem sikerült (${id}): ${r.stderr || r.stdout}`)
-      }
+      const r = await himalaya(['-a', account, 'message', 'move', id, '-f', 'Inbox', '-t', SPAM_MAILBOX])
+      if (r.ok) { movedIds.add(id); movedToSpam++ }
+      else logger.warn(`[email] spam-szabaly mozgatas nem sikerult (${id}): ${r.stderr || r.stdout}`)
     }
     if (movedToSpam > 0) invalidateEnvelopeCache(account, SPAM_MAILBOX)
-    if (movedIds.size > 0) list = list.filter((e) => !movedIds.has(String(e.id ?? '')))
+    if (movedIds.size > 0) list = list.filter((e) => !movedIds.has(String((e as { id?: unknown }).id ?? '')))
   }
-  const isPromo = (e: any) => isPromotionalEnvelope(e) || matchesRule(promoSenders, e)
+
+  const isPromo = (e: unknown): boolean =>
+    isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0])
+    || matchesRule(promoSenders, e as EnvelopeLike)
   list = list.filter((e) => isPromo(e) === promoOnly)
   return { list, movedToSpam }
 }
@@ -824,9 +858,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
     const directEnvelopes = await listEnvelopesDirect(account as string, mailbox, page, pageSize, query || undefined)
     if (directEnvelopes) {
-      let envelopes = directEnvelopes
+      let envelopes: unknown[] = directEnvelopes
       if (mailbox === 'Inbox') {
-        envelopes = envelopes.filter((e: unknown) => isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0]) === promoOnly)
+        const applied = await applyInboxRules(account as string, envelopes, promoOnly, !query)
+        envelopes = applied.list
+        if (applied.movedToSpam > 0) invalidateEnvelopeCache(account as string, 'Inbox')
       }
       cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
       json(res, envelopes)
@@ -838,9 +874,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) { logger.warn(`[email] envelope list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     try {
       const parsed = JSON.parse(r.stdout)
-      let envelopes = parsed.envelopes || []
+      let envelopes: unknown[] = parsed.envelopes || []
       if (mailbox === 'Inbox') {
-        envelopes = envelopes.filter((e: unknown) => isPromotionalEnvelope(e as Parameters<typeof isPromotionalEnvelope>[0]) === promoOnly)
+        const applied = await applyInboxRules(account as string, envelopes, promoOnly, !query)
+        envelopes = applied.list
+        if (applied.movedToSpam > 0) invalidateEnvelopeCache(account as string, 'Inbox')
       }
       cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
       json(res, envelopes)
@@ -1183,6 +1221,53 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Tanult felado-szabalyok (Boss, 2026-08-15: "ha spambe huzom akkor jeloje
+  // meg es a jovobeni leveleket azonnal a spambe iranyitsa").
+  //
+  // Miert kell hozza kulon vegpont, es miert nem eleg a level athuzasa: a
+  // mozgatas EGY levelrol szol, a szabaly a FELADOROL. A ketto kulon is
+  // ertelmes -- a Boss visszavonhatja a szabalyt anelkul, hogy a mar
+  // atmozgatott levelek visszajonnenek.
+  if (path === '/api/email/rules' && method === 'GET') {
+    const account = url.searchParams.get('account')
+    if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
+    const rules = loadRules().filter((r) => r.account === account)
+    json(res, { rules })
+    return true
+  }
+
+  if (path === '/api/email/rules' && method === 'POST') {
+    const body = await readBody(req)
+    const data = JSON.parse(body.toString()) as { account?: string; kind?: string; senders?: unknown }
+    const kind = data.kind === 'spam' || data.kind === 'promo' ? (data.kind as EmailRuleKind) : null
+    if (!isKnownAccount(data.account ?? null) || !kind || !Array.isArray(data.senders)) {
+      json(res, { error: 'account, kind (spam|promo) and senders required' }, 400); return true
+    }
+    let rules: EmailRule[] = loadRules()
+    const before = rules.length
+    for (const s of data.senders) rules = addRule(rules, kind, data.account as string, String(s ?? ''))
+    if (rules.length !== before) saveRules(rules)
+    // A szabaly AZONNAL hasson: a bejovo lista gyorsitotara kulonben meg a
+    // regi (szures elotti) valtozatot adna vissza egy percig.
+    invalidateEnvelopeCache(data.account as string, 'Inbox')
+    json(res, { ok: true, added: rules.length - before, rules: rules.filter((r) => r.account === data.account) })
+    return true
+  }
+
+  if (path === '/api/email/rules' && method === 'DELETE') {
+    const body = await readBody(req)
+    const data = JSON.parse(body.toString()) as { account?: string; kind?: string; sender?: string }
+    const kind = data.kind === 'spam' || data.kind === 'promo' ? (data.kind as EmailRuleKind) : null
+    if (!isKnownAccount(data.account ?? null) || !kind || !data.sender) {
+      json(res, { error: 'account, kind and sender required' }, 400); return true
+    }
+    const rules = removeRule(loadRules(), kind, data.account as string, data.sender)
+    saveRules(rules)
+    invalidateEnvelopeCache(data.account as string, 'Inbox')
+    json(res, { ok: true, rules: rules.filter((r) => r.account === data.account) })
+    return true
+  }
+
   if (path === '/api/email/delete' && method === 'POST') {
     const body = await readBody(req)
     const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; id?: string }
@@ -1196,7 +1281,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // mark \Deleted + expunge, same mechanism as archive but scoped to Kuka.
     // This used to just error out, leaving the button looking clickable but
     // permanently disabled after one click (Boss, 2026-08-05).
-    if (mailbox === '[Gmail]/Kuka') {
+    if (mailbox === TRASH_MAILBOX) {
       const store = await himalaya(['-a', data.account as string, 'imap', 'store', data.id, '-f', '\\Deleted', '-m', mailbox])
       if (!store.ok) { logger.warn(`[email] permanent delete store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
@@ -1207,11 +1292,11 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: true })
       return true
     }
-    const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', '[Gmail]/Kuka'])
+    const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', TRASH_MAILBOX])
     if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
     purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
-    invalidateEnvelopeCache(data.account as string, '[Gmail]/Kuka')
+    invalidateEnvelopeCache(data.account as string, TRASH_MAILBOX)
     json(res, { ok: true })
     return true
   }
@@ -1265,60 +1350,6 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       targetLang: result.targetLang,
       fromCache: result.fromCache,
     })
-    return true
-  }
-
-  // Tanult feladó-szabályok (Boss, 2026-08-15: "ha spambe húzom akkor jelölje
-  // meg és a jövőbeni leveleket azonnal a spambe irányítsa").
-  //
-  // Miért kell hozzá külön végpont, és miért nem elég a levél áthúzása: a
-  // mozgatás EGY levelről szól, a szabály a FELADÓRÓL. A kettő külön is
-  // értelmes -- a Boss visszavonhatja a szabályt anélkül, hogy a már
-  // áthelyezett levelek visszajönnének.
-  if (path === '/api/email/rules' && method === 'GET') {
-    const account = url.searchParams.get('account')
-    if (!isKnownAccount(account)) {
-      json(res, { error: 'unknown account' }, 400)
-      return true
-    }
-    const rules = loadRules().filter((r: EmailRule) => r.account === account)
-    json(res, { rules })
-    return true
-  }
-
-  if (path === '/api/email/rules' && method === 'POST') {
-    const body = await readBody(req)
-    const data = JSON.parse(body.toString())
-    const kind = data.kind === 'spam' || data.kind === 'promo' ? data.kind : null
-    if (!isKnownAccount(data.account ?? null) || !kind || !Array.isArray(data.senders)) {
-      json(res, { error: 'account, kind (spam|promo) and senders required' }, 400)
-      return true
-    }
-    let rules = loadRules()
-    const before = rules.length
-    for (const s of data.senders) {
-      rules = addRule(rules, kind, data.account, String(s ?? ''))
-    }
-    if (rules.length !== before) {
-      saveRules(rules)
-    }
-    invalidateEnvelopeCache(data.account, 'Inbox')
-    json(res, { ok: true, added: rules.length - before, rules: rules.filter((r: EmailRule) => r.account === data.account) })
-    return true
-  }
-
-  if (path === '/api/email/rules' && method === 'DELETE') {
-    const body = await readBody(req)
-    const data = JSON.parse(body.toString())
-    const kind = data.kind === 'spam' || data.kind === 'promo' ? data.kind : null
-    if (!isKnownAccount(data.account ?? null) || !kind || !data.sender) {
-      json(res, { error: 'account, kind and sender required' }, 400)
-      return true
-    }
-    const rules = removeRule(loadRules(), kind, data.account, data.sender)
-    saveRules(rules)
-    invalidateEnvelopeCache(data.account, 'Inbox')
-    json(res, { ok: true, rules: rules.filter((r: EmailRule) => r.account === data.account) })
     return true
   }
 

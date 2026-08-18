@@ -118,13 +118,19 @@ describe('getAgentMemories in-process cache', () => {
 // ---------------------------------------------------------------------------
 describe('backfillEmbeddings', () => {
   it('returns 0 when all memories already have embeddings or Ollama is unreachable', async () => {
-    // In the test environment Ollama is not running; the function must
-    // complete gracefully and return 0 (no memories without embeddings
-    // that it could successfully embed).
+    // The function must complete gracefully either way and return 0 (no
+    // memories left that it could successfully embed).
+    //
+    // The 30s timeout is not padding. This assertion carried the default 5s
+    // because "in the test environment Ollama is not running" -- an assumption
+    // that stopped being true the moment Ollama went live (2026-08-15). The
+    // call now really crosses the network: measured 1.4s on its own, but red at
+    // 5s inside the full parallel suite. That failure said nothing about the
+    // code under test.
     const count = await backfillEmbeddings()
     expect(typeof count).toBe('number')
     expect(count).toBeGreaterThanOrEqual(0)
-  })
+  }, 30_000)
 
   it('processes rows without embeddings and updates them when Ollama responds', async () => {
     const BACKFILL_AGENT = 'backfill-test-agent'
