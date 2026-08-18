@@ -548,6 +548,7 @@ function switchPage(pageId) {
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
   if (pageId === 'openrouter') loadOpenRouterPage()
+  if (pageId !== 'settings') stopRunningIndicatorPoll()
   if (pageId === 'settings') loadSettings()
   if (pageId === 'updates') loadUpdates()
   // 'team' page is merged into 'agents' -- redirect for any lingering deep-links
@@ -19424,6 +19425,8 @@ async function loadSettings() {
   } catch (err) {
     tabPanels.innerHTML = `<p style="padding:24px;color:var(--danger)">${t('settings.error')}</p>`
   }
+  // A lap most epult fel -- innentol elo tarthatja magat, amig nyitva van.
+  startRunningIndicatorPoll()
 }
 
 // === Window layout (PersistentWindows) panel ===
@@ -19988,6 +19991,77 @@ function currentSettingValue(key) {
   return el ? String(el.value || '') : ''
 }
 
+// Felirja a "Most ez fut / Beallitva" sort -- ujra hivhato ugyanarra a `line`
+// elemre, hogy friss adatot mutasson anelkul, hogy az egesz sort ujra kellene
+// epiteni. Lasd: buildSettingRow (elso rajzolas) es refreshRunningIndicators
+// (elo frissites).
+function renderRunningLine(line, def) {
+  const setVal = String(def.value == null ? '' : def.value)
+  const same = String(def.runningValue) === setVal
+  if (same) {
+    line.textContent = t('settings.running.same', { v: def.runningValue })
+    line.style.fontWeight = ''
+    line.style.opacity = ''
+  } else {
+    // A ket idopont akkor is elmarad, ha nem tudjuk -- de ha tudjuk, ez az,
+    // ami eldonti a "de hat ujrainditottam!" kerdest, mert LATSZIK, hogy a
+    // mentes kesobb volt.
+    const clock = (ms) => {
+      if (typeof ms !== 'number' || !isFinite(ms)) return ''
+      try { return new Date(ms).toLocaleTimeString() } catch (e) { return '' }
+    }
+    const rt = clock(def.runningSince)
+    const st = clock(def.valueSavedAt)
+    line.textContent = (rt && st)
+      ? t('settings.running.differs_timed', { running: def.runningValue, rt: rt, set: setVal, st: st })
+      : t('settings.running.differs', { running: def.runningValue, set: setVal })
+    line.style.fontWeight = '600'
+    line.style.opacity = '1'
+  }
+}
+
+// ===========================================================================
+// "Most ez fut" -- elo frissites a Beallitasok oldal ujratoltese nelkul
+//
+// Boss (2026-08-18): "old meg hogy amikor a beallitasokban at van cserelve az
+// agent modelje. akkor a marvinnal is azonnal legyen meg a csere... a
+// bongeszo frissitese nelkul is azonnal frissitsen a kartya." A kartya eddig
+// csak a lap BETOLTESEKOR lekert allapotot mutatta -- ha Marvin kozben
+// (akar egy masik gombtol, akar egy masik lapfultol) tenyleg valtott
+// modellt, ez a sor addig hazudott, amig valaki F5-ot nem nyomott. Most a
+// Beallitasok lap nyitva letevel a sor magatol, nehany masodpercenkent
+// ujrakerdezi a sajat kulcsat, es HELYBEN irja at a szoveget -- nem epiti
+// ujra az egesz lapot, igy nem zavarja meg, ha kozben valahol mashol
+// szerkesztesz.
+// ===========================================================================
+let runningIndicatorPollTimer = null
+
+function stopRunningIndicatorPoll() {
+  if (runningIndicatorPollTimer) { clearInterval(runningIndicatorPollTimer); runningIndicatorPollTimer = null }
+}
+
+function startRunningIndicatorPoll() {
+  stopRunningIndicatorPoll()
+  runningIndicatorPollTimer = setInterval(refreshRunningIndicators, 4000)
+}
+
+async function refreshRunningIndicators() {
+  const lines = document.querySelectorAll('.settings-row-meta[data-setting-key]')
+  if (!lines.length) return
+  let rows = null
+  try {
+    const d = await (await fetch('/api/settings', { cache: 'no-store' })).json()
+    rows = d && d.settings
+  } catch (e) { return }
+  if (!rows) return
+  for (const line of lines) {
+    const fresh = rows.find((r) => r.key === line.dataset.settingKey)
+    if (fresh && typeof fresh.runningValue === 'string' && fresh.runningValue !== '') {
+      renderRunningLine(line, fresh)
+    }
+  }
+}
+
 function buildSettingRow(def) {
   const row = document.createElement('div')
   row.className = 'settings-row'
@@ -20115,6 +20189,10 @@ function buildSettingRow(def) {
   valueInput.dataset.settingKey = def.key
   valueInput.dataset.settingType = def.type
   valueInput.dataset.originalValue = originalValue
+  // A `saveAllSettings()`-nek kell tudnia, MELYIK folyamatot erinti ez a
+  // kulcs, hogy a mentes utan a HELYES ujrainditast ajanlja fel -- ne
+  // mindig a vezerlopultot. Lasd a hasznalatot ott.
+  valueInput.dataset.restartTarget = def.restartTarget || 'dashboard'
   editor.appendChild(valueInput)
 
   if (def.key === 'DEBATE_MODELS') {
@@ -20147,6 +20225,33 @@ function buildSettingRow(def) {
 
   if (PICKABLE_SETTINGS.includes(def.key)) {
     attachSettingPicker(def, valueInput, editor, errorEl, originalValue)
+  }
+
+  // Boss (2026-08-18), harmadik szolas ugyanezert a jelvenyert: "egyebkent meg
+  // minidg kiirja ujrainditas utan ezt!". A sarga "Ujrainditasra var" azt
+  // mondja meg, hogy VAN teendo -- azt nem, hogy MI. Ha a kiszolgalo tudja,
+  // mit futtat a folyamat (ma a foagens modelljet a parancssorabol), akkor azt
+  // ki is irjuk. Igy a kerdes ("de hat ujrainditottam!") fel sem tud tenni
+  // magat: ott all, mi fut es mi van beallitva.
+  if (typeof def.runningValue === 'string' && def.runningValue !== '') {
+    // A BAL hasabba (`info`) kerul, nem a jobb oldali szerkesztobe.
+    //
+    // Boss (2026-08-18): "radasul a szoveg lefut a terkeprol jobbra." Es igy
+    // is volt: az `editor` egy vizszintes flex-sav a beviteli mezonek es a
+    // gomboknak -- egy egesz mondat ott nem tordel, hanem kifut a kartyabol.
+    // A `settings-row-meta` sorok a bal hasabban VISZONT tordelnek, mert arra
+    // vannak kitalalva. Nem uj stilust irunk tehat, hanem a mar mukodo helyre
+    // tesszuk a szoveget -- es a `word-break`-et is megadjuk, mert a
+    // modellnevek hosszu, szokoz nelkuli darabok.
+    const line = document.createElement('div')
+    line.className = 'settings-row-meta'
+    line.style.overflowWrap = 'anywhere'
+    line.style.whiteSpace = 'normal'
+    // A kulcs a soron marad: a `refreshRunningIndicators()` ebbol tudja,
+    // MELYIK kulcsot kell ujra lekerdeznie ehhez a sorhoz.
+    line.dataset.settingKey = def.key
+    renderRunningLine(line, def)
+    info.appendChild(line)
   }
 
   // A DASHBOARD_PUBLIC_URL-hoz nincs mit felsorolni (ezt a cimet a tulajdonos
@@ -20188,7 +20293,7 @@ async function saveAllSettings() {
   if (btn) { btn.disabled = true; btn.textContent = t('settings.save_btn.saving') }
 
   const errors = []
-  let needsRestart = false
+  const restartNeeded = [] // { key, restartTarget }
 
   for (const [key, { input, type, errorEl }] of settingsDirty) {
     errorEl.textContent = ''
@@ -20205,7 +20310,9 @@ async function saveAllSettings() {
         errors.push(`${key}: ${data.error || 'hiba'}`)
       } else {
         input.dataset.originalValue = String(raw)
-        if (data.requiresRestart) needsRestart = true
+        if (data.requiresRestart) {
+          restartNeeded.push({ key, restartTarget: input.dataset.restartTarget || 'dashboard' })
+        }
       }
     } catch {
       errorEl.textContent = 'Kapcsolati hiba'
@@ -20223,16 +20330,40 @@ async function saveAllSettings() {
   if (errors.length) {
     showToast(t('settings.toast.partial_error'), 'error')
   } else {
-    showToast(needsRestart ? t('settings.toast.saved_restart') : t('settings.toast.saved'))
+    showToast(restartNeeded.length ? t('settings.toast.saved_restart') : t('settings.toast.saved'))
   }
 
-  // Ha olyasmit mentettunk, ami csak ujrainditas utan lep eletbe, akkor most
-  // ADJUK IS ODA az ujrainditast -- ne csak kozoljuk a feltetelt.
+  // Boss (2026-08-18): "engem nem erdekel hogy szerinted jol fut a szoftver.
+  // az erdekel hogy az elso gomb megnyomas utan mar ne mondja nekem
+  // megegyszer hogy ujrainditasra var... egyszer ujrainditottam legyen eleg
+  // az." Es igaza volt: ez a fuggveny idaig MINDIG a vezerlopultot ajanlotta
+  // ujrainditasra (`mountRestartButton`), fuggetlenul attol, MELYIK
+  // folyamatot erinti a mentett kulcs. A MAIN_AGENT_MODEL celpontja a
+  // foagens (Marvin) -- a vezerlopult ujrainditasa azt eroszakkal sem
+  // erinti, igy a sarga jelveny akarhanyszor nyomta meg azt a gombot, sose
+  // tunt volna el. Nem a jelveny hazudott: a felajanlott gomb volt rossz
+  // celra iranyitva.
+  //
+  // Mostantol soronkent, a SAJAT celpontja szerint ajanljuk fel az
+  // ujrainditast, es a `mountSettingRestartAction` mar mukodo, "varj amig a
+  // szerver is tisztat mond" logikajat hasznaljuk -- ugyanazt, ami a sor
+  // sajat gombjan is fut. Igy egy mentes utan pontosan azok a gombok
+  // jelennek meg, amik TENYLEG el tudjak tuntetni a jelvenyt.
   const slot = document.getElementById('settingsRestartSlot')
   if (slot) {
-    if (needsRestart) {
+    if (restartNeeded.length) {
       slot.hidden = false
-      await mountRestartButton(slot, t('restart.note_saved'))
+      slot.innerHTML = ''
+      const targets = new Map() // restartTarget -> egy kepviselo kulcs
+      for (const { key, restartTarget } of restartNeeded) {
+        if (!targets.has(restartTarget)) targets.set(restartTarget, key)
+      }
+      for (const [restartTarget, key] of targets) {
+        const card = document.createElement('div')
+        card.style.marginBottom = '8px'
+        slot.appendChild(card)
+        await mountSettingRestartAction(card, { key, restartTarget })
+      }
       slot.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     } else {
       slot.hidden = true
@@ -21773,7 +21904,45 @@ function slugifyAccountIdClient(email) {
   return email.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
+// Boss, 2026-08-18: connecting a new Gmail account silently broke the
+// direct-IMAP fast path for EVERY account (config-format-drift, see
+// checkImapAccountConfig in email-imap.ts) -- message bodies quietly fell
+// back to the slow path that downloads attachment bytes inline, and the only
+// way to notice was watching a message load slowly. Boss asked for a loud,
+// visible indicator so this never has to be re-diagnosed by hand again.
+// Runs every time the Email page is (re)entered -- cheap (no IMAP
+// connection, just a config parse per account), not a persistent timer.
+async function loadEmailFastPathStatus() {
+  const banner = document.getElementById('emailFastPathBanner')
+  if (!banner) return
+  let data
+  try {
+    const r = await fetch('/api/email/fastpath-status')
+    if (!r.ok) throw new Error(`GET /api/email/fastpath-status -> ${r.status}`)
+    data = await r.json()
+  } catch (err) {
+    console.error('[email] fastpath-status failed:', err)
+    banner.hidden = true
+    return
+  }
+  const accounts = Array.isArray(data?.accounts) ? data.accounts : []
+  if (!accounts.length) { banner.hidden = true; return }
+  const broken = accounts.filter(a => !a.ok)
+  banner.hidden = false
+  if (broken.length) {
+    banner.className = 'email-fastpath-banner degraded'
+    const details = broken.map(a =>
+      `<span class="email-fastpath-banner-detail">${escapeHtml(a.label || a.account)}: ${escapeHtml(a.reason || '')}</span>`
+    ).join('')
+    banner.innerHTML = `${escapeHtml(t('email.fastpath_status.degraded'))}${details}`
+  } else {
+    banner.className = 'email-fastpath-banner ok'
+    banner.textContent = t('email.fastpath_status.ok', { n: accounts.length })
+  }
+}
+
 async function loadEmailPage() {
+  loadEmailFastPathStatus()
   if (!emailLoaded) {
     emailLoaded = true
     if (!emailAccounts.length) {
@@ -26130,9 +26299,16 @@ async function mountSettingRestartAction(slot, def) {
         if (!rows) continue
         const fresh = rows.find((r) => r.key === def.key)
         if (fresh && !fresh.restartPending) {
+          // Boss (2026-08-18): "ha frisiti akkor miert nem frisiti? megakadt?"
+          // Jogos: a szoveg "Frissitem az oldalt"-ot igert, a kod viszont csak
+          // egy csendes ujrarajzolast probalt (`loadSettings()`), es ha az
+          // brmiert elhasalt, a hiba nemán elnyelodott -- a gomb orokre
+          // letiltva maradt, a szoveg orokre "kesz"-et hazudott. A masik
+          // ujrainditas-gomb (`doSystemRestart`) VALODI oldal-ujratoltest
+          // csinal, es azt a Boss sose kifogasolta -- ugyanazt tesszuk itt is.
           say(t('restart.done'))
           showToast(t('agents.toast.marveen_restarted'))
-          try { await loadSettings() } catch (e) { /* a lap mar mashol jar */ }
+          setTimeout(() => location.reload(), 700)
           return
         }
       }

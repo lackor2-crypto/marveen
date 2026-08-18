@@ -1235,6 +1235,8 @@ window._i18n.en = {
   'email.attachments_title':       'Attachments',
   'email.download_all':            'Download all',
   'email.no_attachments':          'No attachments.',
+  'email.fastpath_status.ok':      'Fast message-body loading: active for all {n} accounts. ✔',
+  'email.fastpath_status.degraded': '⚠ Fast message-body loading is NOT active for the following account(s) — messages load slowly, with attachments inline:',
   'email.mailbox.inbox':           'Inbox',
   'email.mailbox.sent':            'Sent',
   'email.mailbox.drafts':          'Drafts',
@@ -1479,6 +1481,9 @@ window._i18n.en = {
   'settings.picker.failed_note': 'The selectable values could not be fetched. The field below can still be filled in by hand.',
   'settings.hint.suggested': 'Suggested value: {v}.',
   'settings.hint.range': 'Allowed: {min}–{max}.',
+  'settings.running.same': 'Currently running: {v}. ✔',
+  'settings.running.differs': 'Currently running: {running} — configured: {set}. The old one stays in effect until you restart the main agent.',
+  'settings.running.differs_timed': 'Currently running: {running} (Marvin started at {rt}). Configured: {set} (saved at {st}) — the save happened AFTER the last restart, so one more restart is needed.',
 
   // --- Vault ---
   'vault.page_title':            'Vault',

@@ -250,15 +250,6 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         <span class="sb-label" data-i18n="nav.photos">Fotók</span>
       </a>
-      <!-- Fotok: ugyanaz a mappa-bongeszes, mint a Drive, csak kepekre szurve es
-           belyegkep-racsban. A Google Fotok konyvtar 2025 marcius ota nem
-           bongeszheto API-bol (a readonly scope-ot visszavontak), ezert ez a
-           nezet a Drive-ban levo kepeket/videokat mutatja; a Fotok-konyvtarhoz a
-           Picker API jon kulon korben. -->
-      <a href="#" class="sb-link" data-page="photos">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-        <span class="sb-label" data-i18n="nav.photos">Fotók</span>
-      </a>
       <!-- Depo: EGY hely a gepen, ahol a felhasznalo minden fajlja van. Az Iroda
            ala kerult, a Drive es a Fotok melle, mert ugyanarrol szol: a sajat
            tartalmadrol, nem a rendszer adminisztraciojarol (Boss, 2026-08-15). -->
@@ -1641,6 +1632,7 @@
           </div>
         </div>
       </div>
+      <div id="emailFastPathBanner" class="email-fastpath-banner" hidden></div>
       <div class="email-layout" id="emailLayout">
         <div class="email-pane email-pane-mailboxes" id="emailMailboxPane">
           <div class="email-compose-new-row">

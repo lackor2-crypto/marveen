@@ -1749,6 +1749,8 @@ window._i18n.hu = {
   'email.attachments_title':       'Mellékletek',
   'email.download_all':            'Letöltés mind',
   'email.no_attachments':          'Nincs melléklet.',
+  'email.fastpath_status.ok':      'Gyors levéltest-betöltés: mind a {n} fiókban aktív. ✔',
+  'email.fastpath_status.degraded': '⚠ A gyors levéltest-betöltés NEM aktív az alábbi fiók(ok)nál — a levelek lassan, a melléklettel együtt töltenek be:',
   'email.mailbox.inbox':           'Beérkező levelek',
   'email.mailbox.sent':            'Elküldött levelek',
   'email.mailbox.drafts':          'Piszkozatok',
@@ -1995,6 +1997,9 @@ window._i18n.hu = {
   'settings.picker.failed_note': 'A választható értékeket most nem sikerült lekérni. A mező alatta kézzel is kitölthető.',
   'settings.hint.suggested': 'Javasolt érték: {v}.',
   'settings.hint.range': 'Megengedett: {min}–{max}.',
+  'settings.running.same': 'Most ez fut: {v}. ✔',
+  'settings.running.differs': 'Most ez fut: {running} — beállítva: {set}. Amíg nem indítod újra a főagenst, a régi marad érvényben.',
+  'settings.running.differs_timed': 'Most ez fut: {running} (Marvin {rt}-kor indult). Beállítva: {set} (mentve {st}-kor) — a mentés az utolsó újraindítás UTÁN történt, ezért kell még egy újraindítás.',
 
   // --- Vault ---
   'vault.page_title':            'Vault',
