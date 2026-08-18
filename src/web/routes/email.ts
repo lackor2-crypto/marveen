@@ -8,7 +8,7 @@ import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
-import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect } from '../email-imap.js'
+import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect, checkImapAccountConfig, declareSniffedHtmlCharset } from '../email-imap.js'
 import { buildHimalayaSearchArgs, normalizeEmailSearchQuery } from '../email-search.js'
 import { isPromotionalEnvelope } from '../../email-promo-classify.js'
 import {
@@ -17,6 +17,7 @@ import {
 } from '../../email-rules.js'
 import { translateEmailContent } from '../email-translate.js'
 import { getSecret } from '../vault.js'
+import { contentDispositionHeader } from './drive-browser.js'
 import type { RouteContext } from './types.js'
 
 // Per-install Himalaya CLI toolkit (binary + TOML config + per-account secret
@@ -76,9 +77,17 @@ function getAccounts(): Array<{ id: string; label: string }> {
   }
 }
 
-function himalayaOnce(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+interface HimalayaResult { ok: boolean; stdout: string; stdoutBuf: Buffer; stderr: string }
+
+// `encoding: 'buffer'` keeps the raw bytes intact in `stdoutBuf`: `message
+// read --raw` hands back a whole MIME message whose body may be
+// windows-1250 / iso-8859-2, and execFile's default utf8 decode would
+// replace every 8-bit character with U+FFFD before mailparser ever got to
+// read the part's declared charset. `stdout` stays the utf8 string every
+// other caller (all of which parse himalaya's own JSON output) expects.
+function himalayaOnce(args: string[]): Promise<HimalayaResult> {
   return new Promise(resolve => {
-    execFile(HIMALAYA_BIN, ['-c', HIMALAYA_CONFIG, ...args], { timeout: TIMEOUT, maxBuffer: 96 * 1024 * 1024 }, (err, stdout, stderr) => {
+    execFile(HIMALAYA_BIN, ['-c', HIMALAYA_CONFIG, ...args], { timeout: TIMEOUT, maxBuffer: 96 * 1024 * 1024, encoding: 'buffer' }, (err, stdout, stderr) => {
       // A timeout/maxBuffer kill leaves himalaya's own stdout/stderr empty
       // (the process never got to write an error of its own) -- fall back to
       // Node's own err.message/code so a caller sees "maxBuffer exceeded" or
@@ -86,7 +95,8 @@ function himalayaOnce(args: string[]): Promise<{ ok: boolean; stdout: string; st
       // (Boss, 2026-08-05: asked what the actual limit was after a large
       // attachment test -- this is the piece that would tell him next time).
       const fallback = err ? `${err.message}${'code' in err ? ` (${(err as NodeJS.ErrnoException).code})` : ''}` : ''
-      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || fallback })
+      const out = stdout ?? Buffer.alloc(0)
+      resolve({ ok: !err, stdout: out.toString('utf8'), stdoutBuf: out, stderr: stderr?.toString('utf8') || fallback })
     })
   })
 }
@@ -109,7 +119,7 @@ const TRANSIENT_RETRY_BASE_MS = 400
 function isTransientImapError(text: string): boolean {
   return /resource temporarily unavailable|os error 11/i.test(text)
 }
-async function himalayaRead(args: string[]): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+async function himalayaRead(args: string[]): Promise<HimalayaResult> {
   let attempt = await himalayaOnce(args)
   for (let i = 0; i < TRANSIENT_RETRY_ATTEMPTS; i++) {
     if (attempt.ok || !isTransientImapError(attempt.stderr || attempt.stdout)) break
@@ -293,6 +303,7 @@ const ATTACHMENT_CACHE_MAX_BYTES = 50 * 1024 * 1024 * 1024 // 50GB
 function attachmentCacheKey(account: string, mailbox: string, id: string, attachmentId: string): string {
   return createHash('sha1').update(`${account}::${mailbox}::${id}::${attachmentId}`).digest('hex')
 }
+
 function attachmentCachePaths(key: string): { bin: string; meta: string } {
   return { bin: join(ATTACHMENT_CACHE_DIR, `${key}.bin`), meta: join(ATTACHMENT_CACHE_DIR, `${key}.json`) }
 }
@@ -625,7 +636,7 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
   let text = ''
   let html = ''
   try {
-    const parsed = await simpleParser(bodyR.stdout, { skipHtmlToText: true })
+    const parsed = await simpleParser(declareSniffedHtmlCharset(bodyR.stdoutBuf), { skipHtmlToText: true })
     text = parsed.text || ''
     html = typeof parsed.html === 'string' ? parsed.html : ''
   } catch (e) {
@@ -662,6 +673,17 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/email/accounts' && method === 'GET') {
     json(res, getAccounts())
+    return true
+  }
+
+  // Dashboard-facing health check for the direct-IMAP fast path (see the
+  // 2026-08-18 config-format-drift incident documented on parseHimalayaToml
+  // and checkImapAccountConfig in email-imap.ts) -- per account, whether the
+  // fast path currently resolves at all, so the UI can show it loudly
+  // instead of the user only finding out by a message loading slowly.
+  if (path === '/api/email/fastpath-status' && method === 'GET') {
+    const accounts = getAccounts().map(a => ({ account: a.id, label: a.label, ...checkImapAccountConfig(a.id) }))
+    json(res, { accounts })
     return true
   }
 
@@ -1024,7 +1046,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
         const meta = JSON.parse(readFileSync(cachePaths.meta, 'utf8')) as { mime?: string; filename?: string }
         const stat = statSync(cachePaths.bin)
         res.setHeader('Content-Type', meta.mime || 'application/octet-stream')
-        res.setHeader('Content-Disposition', `${disposition}; filename="${(meta.filename || 'attachment').replace(/"/g, '')}"`)
+        res.setHeader('Content-Disposition', contentDispositionHeader(meta.filename || 'attachment', disposition))
         res.setHeader('Content-Length', stat.size)
         createReadStream(cachePaths.bin).pipe(res)
         return true
@@ -1059,7 +1081,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       pruneAttachmentCache(`${cacheKey}.bin`)
       const stat = statSync(cachePaths.bin)
       res.setHeader('Content-Type', att.mime || 'application/octet-stream')
-      res.setHeader('Content-Disposition', `${disposition}; filename="${(att.filename || 'attachment').replace(/"/g, '')}"`)
+      res.setHeader('Content-Disposition', contentDispositionHeader(att.filename || 'attachment', disposition))
       res.setHeader('Content-Length', stat.size)
       createReadStream(cachePaths.bin).pipe(res)
     } catch (err) {

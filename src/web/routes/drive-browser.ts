@@ -183,13 +183,13 @@ export function driveDownloadPlan(fileId: string, mimeType: string | null | unde
  * es idezojelek kiszurese egyben fejlec-injekcio elleni vedelem is: egy Drive-
  * fajlnev tetszoleges szoveg, nem a mi adatunk.
  */
-export function contentDispositionHeader(name: string): string {
+export function contentDispositionHeader(name: string, disposition: string = 'attachment'): string {
   const clean = (name || '').replace(/[\u0000-\u001f\u007f"\\]/g, '').trim() || 'download'
   const ascii = clean.replace(/[^\x20-\x7e]/g, '_')
   // encodeURIComponent meghagyja a !'()* karaktereket, azok viszont nem
   // attr-char-ok az RFC 5987 szerint.
   const utf8 = encodeURIComponent(clean).replace(/['()!*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
+  return `${disposition}; filename="${ascii}"; filename*=UTF-8''${utf8}`
 }
 
 /**

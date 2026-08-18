@@ -1,0 +1,9 @@
+{
+  "schedule": "*/15 * * * *",
+  "agent": "{{MAIN_AGENT_ID}}",
+  "enabled": true,
+  "type": "heartbeat",
+  "skipIfBusy": true,
+  "stuckAfterMinutes": 30,
+  "createdAt": 0
+}

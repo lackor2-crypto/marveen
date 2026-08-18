@@ -17,6 +17,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { ImapFlow } from 'imapflow'
 import type { MessageStructureObject } from 'imapflow'
 import { simpleParser } from 'mailparser'
+import { parse as parseToml } from 'smol-toml'
 import { logger } from '../logger.js'
 
 const HIMALAYA_CONFIG = `${process.env.HOME}/.local/share/marveen-himalaya/config.toml`
@@ -29,36 +30,55 @@ export interface ImapAccountConfig {
   password: string
 }
 
-// A purpose-built, deliberately narrow TOML reader -- not a general parser.
-// It only understands the exact dotted-key shape this install's config
-// generator produces (see the file itself: `[accounts.X]` sections with
-// `imap.server`, `imap.sasl.plain.username`, `imap.sasl.plain.password.command`).
-// Anything it doesn't recognise for a given account simply yields no entry
-// for that account, which the caller treats as "use himalaya for this
-// account" -- so a config shape drift degrades gracefully instead of
-// crashing the fast path.
+// Was a hand-rolled, deliberately narrow line-by-line reader that only
+// understood ONE of the two equally-valid ways TOML can spell the same
+// structure: dotted keys under a single bare `[accounts.X]` header
+// (`imap.server = "..."`). routes/email.ts's `buildUpdatedTomlConfig` -- the
+// only thing that ever WRITES this file -- builds a nested JS object and
+// hands it to `smol-toml`'s `stringify()`, which always emits the OTHER
+// spelling: per-level table headers (`[accounts.X.imap]`, `[accounts.X.imap.
+// sasl.plain]`, ...). The two never had to interoperate until the first time
+// anyone edited an account through the dashboard after this file existed --
+// that rewrote the WHOLE config (every account, not just the edited one)
+// into the header-per-level form, and the narrow reader silently returned an
+// empty record for every account it saw, degrading (as designed) to the slow
+// himalaya path for 100% of message opens (Boss, 2026-08-18: connected a new
+// Gmail account, then "a level teste megint tul keson toltott be" -- store/
+// dashboard.log confirmed EVERY account, not just the new one, switched to
+// "direct IMAP body fetch unavailable ... falling back to himalaya" at the
+// exact second config.toml's mtime changed). Fix: parse with the real TOML
+// grammar (same library the writer uses) so both spellings -- and any other
+// legal TOML shape -- land on the identical nested object, then flatten that
+// into the dotted-key Record the rest of this file already expects. Still
+// never throws past this function; a genuinely malformed file just yields no
+// accounts, same graceful-degradation contract as before.
+function flattenTomlRecord(node: unknown, prefix = ''): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (node === null || node === undefined || typeof node !== 'object' || Array.isArray(node)) return out
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    const dotted = prefix ? `${prefix}.${key}` : key
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      Object.assign(out, flattenTomlRecord(value, dotted))
+    } else if (value !== undefined) {
+      out[dotted] = String(value)
+    }
+  }
+  return out
+}
+
 function parseHimalayaToml(text: string): Map<string, Record<string, string>> {
   const accounts = new Map<string, Record<string, string>>()
-  let current: Record<string, string> | null = null
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    const section = /^\[accounts\.([^\]]+)\]$/.exec(line)
-    if (section) {
-      current = {}
-      accounts.set(section[1]!, current)
-      continue
-    }
-    if (line.startsWith('[')) { current = null; continue } // some other section (e.g. a future [general]) -- not an account
-    if (!current) continue
-    const eq = line.indexOf('=')
-    if (eq < 0) continue
-    const key = line.slice(0, eq).trim()
-    let value = line.slice(eq + 1).trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    current[key] = value
+  let parsed: unknown
+  try {
+    parsed = parseToml(text)
+  } catch (e) {
+    logger.warn(`[email-imap] failed to parse himalaya config as TOML: ${e instanceof Error ? e.message : e}`)
+    return accounts
+  }
+  const accountsNode = (parsed as { accounts?: Record<string, unknown> })?.accounts
+  if (!accountsNode || typeof accountsNode !== 'object') return accounts
+  for (const [id, raw] of Object.entries(accountsNode)) {
+    accounts.set(id, flattenTomlRecord(raw))
   }
   return accounts
 }
@@ -143,6 +163,38 @@ export async function resolveImapAccount(accountId: string): Promise<ImapAccount
   const config: ImapAccountConfig = { host: parsed.host, port: parsed.port, secure: parsed.secure, user, password }
   resolvedAccountCache.set(accountId, config)
   return config
+}
+
+export interface ImapFastPathStatus {
+  ok: boolean
+  reason?: string
+}
+
+// A dashboard-facing health check for the "does the fast path even resolve
+// this account's config" question -- the exact thing that broke silently
+// for every account on 2026-08-18 (see parseHimalayaToml's comment above).
+// Deliberately does NOT go through resolveImapAccount()/resolvedAccountCache:
+// that cache never expires once an account resolves successfully once, so a
+// status indicator built on it would keep reporting "ok" forever after the
+// first success even if config.toml regressed again later -- exactly the
+// silent-failure this check exists to catch. loadRawAccounts() underneath
+// still re-parses on its own (mtime-based), so this always reflects the
+// CURRENT file. Never runs the password command (no subprocess per poll) --
+// structural resolvability is the signal, not live connectivity.
+export function checkImapAccountConfig(accountId: string): ImapFastPathStatus {
+  const raw = loadRawAccounts().get(accountId)
+  if (!raw) return { ok: false, reason: 'a fiók nem található a config.toml-ban' }
+
+  const server = raw['imap.server']
+  const user = raw['imap.sasl.plain.username']
+  const passwordCommand = raw['imap.sasl.plain.password.command']
+  if (!server || !user || !passwordCommand) {
+    return { ok: false, reason: 'hianyzo IMAP mezo a config.toml-ban (szerver/felhasznalonev/jelszo-parancs) -- valoszinuleg config-format-drift, lasd a parseHimalayaToml komment' }
+  }
+  if (!parseImapServer(server)) {
+    return { ok: false, reason: `nem ertelmezheto IMAP szerver-cim: "${server}"` }
+  }
+  return { ok: true }
 }
 
 // === Connection manager =====================================================
@@ -333,6 +385,62 @@ export function enumerateAttachments(root: MessageStructureObject, body: Selecte
   return out
 }
 
+// === Charset repair ==========================================================
+// Some senders -- classically Outlook/Exchange -- emit a text/html MIME part
+// with NO charset= parameter and declare the real charset only inside the
+// markup, in a <meta charset> / <meta http-equiv="Content-Type"> tag.
+// mailparser resolves charset from MIME headers alone (mail-parser.js:
+// `let charset = node.charset || 'utf-8'`), so with none declared it assumes
+// utf-8 and passes the bytes through undecoded -- 8-bit windows-1250 /
+// iso-8859-2 text then arrives as U+FFFD. That damage happens inside the
+// parser and cannot be undone afterwards, so the tag has to be sniffed and
+// written into the part header BEFORE parsing; mailparser's own iconv
+// decoding then does the actual conversion, instead of a second, divergent
+// decoder living here (same reasoning as the synthetic-part assembly below).
+// A part we can't sniff (base64 body, no meta tag) is left exactly as it is.
+
+const META_SCAN_BYTES = 4096
+// `=3D` covers a quoted-printable part, where `charset=` is spelled `charset=3D`.
+const META_CHARSET_RE = /<meta[^>]*?charset\s*=\s*(?:3D)?\s*["']?\s*([A-Za-z0-9][A-Za-z0-9._:-]{1,39})/i
+// Value plus any folded continuation lines -- a charset sitting on the second
+// line of a folded header must count as "already declared".
+const CONTENT_TYPE_RE = /^Content-Type:[ \t]*([^\r\n]*(?:\r?\n[ \t][^\r\n]*)*)/im
+
+export function declareSniffedHtmlCharset(raw: Buffer): Buffer {
+  // latin1 round-trips every byte unchanged, so scanning as text here cannot
+  // corrupt the very 8-bit content this exists to protect.
+  const s = raw.toString('latin1')
+  if (!/charset/i.test(s)) return raw
+
+  // A MIME header block starts at the very beginning of the message and after
+  // every boundary line; anchoring to those keeps a "Content-Type:" that
+  // merely appears inside body text from being treated as a header.
+  const starts = [0]
+  const boundary = /^--[^\r\n]+\r?\n/gm
+  for (let b = boundary.exec(s); b; b = boundary.exec(s)) starts.push(b.index + b[0].length)
+
+  const edits: Array<{ at: number; text: string }> = []
+  const blank = /\r?\n\r?\n/g
+  for (const start of starts) {
+    blank.lastIndex = start
+    const gap = blank.exec(s)
+    const headEnd = gap ? gap.index : s.length
+    const bodyStart = gap ? gap.index + gap[0].length : s.length
+    const ct = CONTENT_TYPE_RE.exec(s.slice(start, headEnd))
+    if (!ct) continue
+    if (!/^text\/html\b/i.test(ct[1].trim())) continue
+    if (/charset\s*=/i.test(ct[1])) continue
+    const meta = META_CHARSET_RE.exec(s.slice(bodyStart, bodyStart + META_SCAN_BYTES))
+    if (!meta) continue
+    edits.push({ at: start + ct[0].length, text: `; charset="${meta[1]}"` })
+  }
+  if (edits.length === 0) return raw
+
+  let out = s
+  for (const e of edits.reverse()) out = out.slice(0, e.at) + e.text + out.slice(e.at)
+  return Buffer.from(out, 'latin1')
+}
+
 // === Main entry point ========================================================
 export interface DirectMessageBody {
   text: string
@@ -379,7 +487,7 @@ export async function readMessageBodyDirect(accountId: string, mailbox: string, 
       if ((structure.size ?? 0) > MAX_BODY_PART_BYTES) return null
       const full = await withTimeout(client.fetchOne(uid, { source: true }, { uid: true }), FETCH_TIMEOUT_MS)
       if (!full || !full.source) return null
-      const parsed = await simpleParser(full.source, { skipHtmlToText: true })
+      const parsed = await simpleParser(declareSniffedHtmlCharset(full.source), { skipHtmlToText: true })
       return { text: parsed.text || '', html: typeof parsed.html === 'string' ? parsed.html : '', attachments: [] }
     }
 
@@ -413,7 +521,7 @@ export async function readMessageBodyDirect(accountId: string, mailbox: string, 
       const mime = fetched.bodyParts.get(`${p}.mime`)
       const content = fetched.bodyParts.get(p)
       if (!mime || !content) continue
-      const synthetic = Buffer.concat([mime, content])
+      const synthetic = declareSniffedHtmlCharset(Buffer.concat([mime, content]))
       const parsed = await simpleParser(synthetic, { skipHtmlToText: true })
       if (p === body.textPart) text = parsed.text || (typeof parsed.html !== 'string' ? '' : text)
       if (p === body.htmlPart) html = typeof parsed.html === 'string' ? parsed.html : html
