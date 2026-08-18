@@ -206,7 +206,7 @@ window._i18n.hu = {
   // A CLI sajat szavaval: a kapcsolat csak a KOVETKEZO indulaskor lesz elerheto.
   // Ha ezt nem mondjuk el, a user engedelyez, nem lat valtozast, es azt hiszi,
   // nem sikerult.
-  'mconn.restart_hint':       'Kész. Egy dolog maradt: az ezt használó ügynököket ({agents}) újra kell indítani, különben még a régi állapotot látják.',
+  'mconn.restart_hint':       'Kész. Egy dolog maradt: az ezt használó ügynököket ({agents}) újra kell indítani az Ágensek oldalon (Leállítás, majd Indítás), különben még a régi állapotot látják.',
   'mconn.restart_hint_none':  'Kész. A kapcsolat a következő indításkor lesz elérhető.',
   'mconn.goto_agents':        'Ugrás az ügynökökhöz',
 
@@ -872,7 +872,7 @@ window._i18n.hu = {
   'agents.toast.start_failed':     'Indítási hiba',
   'agents.toast.stop_failed':      'Leállítási hiba',
   'agents.toast.profile_saved':    'Profil mentve',
-  'agents.toast.plan_saved':       'Plan mentve, újraindítás után lép életbe',
+  'agents.toast.plan_saved':       'Plan mentve. Ezen az oldalon a Leállítás, majd az Indítás gombbal lép életbe.',
   'agents.toast.plan_error':       'Hiba a plan mentésekor',
   'agents.toast.profile_saved_restart': 'Profil mentve (újraindítás szükséges)',
   'agents.toast.profile_error':    'Hiba a profil mentésekor',
@@ -1523,6 +1523,13 @@ window._i18n.hu = {
   'settings.empty':              'Nincs regisztrált beállítás.',
   'settings.error':              'Nem sikerült betölteni a beállításokat.',
   'settings.restart_badge':      'Újraindítás után lép életbe',
+  // A sarga jelveny mostantol ALLAPOT: csak akkor all ott, ha a futo folyamat
+  // tenyleg a regi ertekkel dolgozik (Boss, 2026-08-16: "sokszor ujra lett mar
+  // inditva a marvin es megis itt vannak ezek a sarga betuk").
+  // A {target} MINDIG tárgyesetben all ("a vezérlőpultot", "{bot} ágenst"),
+  // ezert minden mondat ugy van megfogalmazva, hogy tárgyeset illjen bele.
+  'settings.restart_badge_pending': 'Újraindításra vár',
+  'settings.restart_hint_idle':  'Ha megváltoztatod, akkor lép életbe, ha újraindítod {target}. Most a kiírt értéken fut.',
   // Az "Újraindítás most" gomb. A fenti jelvenynek eddig nem volt parja:
   // kimondta a feltetelt, de nem adta hozza az eszkozt.
   'restart.btn':                 'Újraindítás most',
@@ -1536,6 +1543,15 @@ window._i18n.hu = {
   'restart.done':                'Kész, újraindult. Frissítem az oldalt…',
   'restart.failed_start':        'Nem sikerült elindítani az újraindítást',
   'restart.timeout':             'Nem jött vissza másfél percen belül. Töltsd újra az oldalt, és nézd meg a Naplót.',
+  // Melyik folyamatot kell ujrainditani. Nem minden beallitas a vezerlopultban
+  // el, es a rossz gomb megnyomasa utan a felhasznalo azt hinne, kesz van.
+  'restart.target.dashboard':          'a vezérlőpultot',
+  'restart.target.main_agent':         '{bot} ágenst',
+  'restart.target.dashboard_agents':   'a vezérlőpultot és az ágenseket',
+  'restart.target.dashboard_heartbeat': 'a vezérlőpultot (vele a háttérellenőrzést is)',
+  'restart.row_note':            'Ez a beállítás akkor lép életbe, ha újraindítod {target}.',
+  'restart.btn_target':          'Újraindítom {target}',
+  'restart.second_step_agents':  'Ezután az ágenseket is indítsd újra az Ágensek oldalon, hogy ők is az új értékkel dolgozzanak.',
   // A mappavalaszto ("ki lehessen valasztani, ne kelljen begepelni").
   'picker.title':                'Hol legyen a depó?',
   'picker.loading':              'Betöltés…',
@@ -1911,7 +1927,7 @@ window._i18n.hu = {
   'settings.desc.DASHBOARD_LANG':              'A dashboard alapértelmezett megjelenítési nyelve (hu = magyar, en = angol). A böngészőben mentett preferencia (localStorage) felülírja.',
   'settings.desc.HEARTBEAT_START_HOUR':        'A heartbeat aktív időablakának kezdete (helyi idő, 0-22). Előtte nem küld értesítést.',
   'settings.desc.HEARTBEAT_END_HOUR':          'A heartbeat aktív időablakának vége (helyi idő, 1-24). Ettől nem küld értesítést.',
-  'settings.desc.HEARTBEAT_AGENT_ENABLED':     'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva (újraindítás után lép életbe).',
+  'settings.desc.HEARTBEAT_AGENT_ENABLED':     'Heartbeat sub-ágens engedélyezése. 1 = bekapcsolva.',
   'settings.desc.IDEA_BREAKDOWN_MAX_SUBTASKS': 'Az "Kanbanra (AI)" ötlet-bontás során generált részfeladatok maximális száma.',
   'settings.desc.IDEA_STALE_DAYS':             'Ennyi napnyi mozdulatlanság után kap "Elavult" jelzést egy "új" státuszú ötlet.',
   'settings.desc.AUDIT_LOG_RETENTION_DAYS':    'Az audit napló (config-változások, ötletláda-audit, store-fájl események) megőrzési ideje napokban. Régebbi bejegyzések a napi sweepkor törlődnek.',

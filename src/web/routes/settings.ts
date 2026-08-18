@@ -6,6 +6,7 @@ import {
 } from '../../context-mechanisms.js'
 import { SETTINGS_REGISTRY, validateSettingValue } from '../../config-registry.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
+import { isRestartPending } from '../../settings-restart-pending.js'
 import { logConfigChange } from '../../db.js'
 import { setStoreWriteActor } from '../../store-watcher.js'
 import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
@@ -38,6 +39,11 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       description: def.description,
       module: def.module,
       requiresRestart: def.requiresRestart,
+      // What the owner has to restart, and whether he owes one RIGHT NOW.
+      // requiresRestart alone put a permanent yellow badge on nine rows that no
+      // restart could ever clear (Boss, 2026-08-16).
+      restartTarget: def.restartTarget,
+      restartPending: def.requiresRestart ? isRestartPending(def.key) : false,
       valueSet: def.valueSet,
       min: def.min,
       max: def.max,
