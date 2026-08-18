@@ -19857,6 +19857,137 @@ function wizardRowHtml(item) {
   </div>`
 }
 
+// Azok a szabad-szoveges beallitasok, amelyekhez a GEP mar tudja a helyes
+// ertekeket (Google-fiokok, naptarak, Claude config-konyvtarak, futo Ollama).
+//
+// Boss (2026-08-18): "a komuvesunk honnan tudja hogy mit kell ide beirni?
+// lehessen valasztani, kitallozni!" -- ezekben a sorokban tehat nem egy ures
+// mezo all, hanem egy legordulo a valodi, ELLENORZOTT ertekekkel. A szoveges
+// mezo alatta marad: aki tudja, mit csinal, kezzel is beirhat -- de aki nem
+// tudja, annak nem KELL tudnia.
+const PICKABLE_SETTINGS = [
+  'MAIN_AGENT_CONFIG_DIR',
+  'HEARTBEAT_CALENDAR_ACCOUNT',
+  'HEARTBEAT_CALENDAR_ID',
+  'OLLAMA_URL',
+]
+
+function attachSettingPicker(def, valueInput, editor, errorEl, originalValue) {
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;flex:1 1 260px;min-width:220px'
+
+  const bar = document.createElement('div')
+  bar.style.cssText = 'display:flex;gap:6px;align-items:center'
+  const sel = document.createElement('select')
+  sel.className = 'input'
+  sel.style.flex = '1 1 auto'
+  sel.disabled = true
+  const refreshBtn = document.createElement('button')
+  refreshBtn.type = 'button'
+  refreshBtn.className = 'btn-secondary btn-compact'
+  refreshBtn.textContent = t('settings.picker.refresh')
+  refreshBtn.title = t('settings.picker.refresh_title')
+  bar.appendChild(sel)
+  bar.appendChild(refreshBtn)
+
+  const note = document.createElement('div')
+  note.style.cssText = 'font-size:12px;opacity:.75;line-height:1.35'
+
+  wrap.appendChild(bar)
+  wrap.appendChild(note)
+  editor.insertBefore(wrap, valueInput)
+
+  let loaded = []
+
+  const showHint = () => {
+    const hit = loaded.find((o) => o.value === sel.value)
+    const parts = []
+    if (hit && hit.hint) parts.push(hit.hint)
+    if (sel.dataset.serverNote) parts.push(sel.dataset.serverNote)
+    note.textContent = parts.join(' — ')
+  }
+
+  const fill = (data) => {
+    loaded = (data && Array.isArray(data.options)) ? data.options : []
+    sel.innerHTML = ''
+    sel.dataset.serverNote = (data && data.note) || ''
+    // Az ELO ertek mindig szerepeljen a listaban, kulonben a legordulo nemán
+    // egy masik erteket mutatna igaznak (ugyanaz a csapda, mint a valueSet-es
+    // soroknal feljebb).
+    const cur = String(valueInput.value || '')
+    if (!loaded.some((o) => String(o.value) === cur)) {
+      loaded = [{
+        value: cur,
+        label: cur === '' ? t('settings.value.unset') : cur + ' ' + t('settings.value.current_suffix'),
+      }].concat(loaded)
+    }
+    for (const o of loaded) {
+      const el = document.createElement('option')
+      el.value = String(o.value)
+      el.textContent = String(o.label || o.value)
+      sel.appendChild(el)
+    }
+    sel.value = cur
+    showHint()
+  }
+
+  const load = async () => {
+    sel.disabled = true
+    sel.innerHTML = ''
+    const ph = document.createElement('option')
+    ph.textContent = t('settings.picker.loading')
+    sel.appendChild(ph)
+    note.textContent = ''
+    let data = null
+    try {
+      const acct = def.key === 'HEARTBEAT_CALENDAR_ID' ? currentSettingValue('HEARTBEAT_CALENDAR_ACCOUNT') : ''
+      const q = '/api/settings/options?key=' + encodeURIComponent(def.key)
+        + (acct ? '&account=' + encodeURIComponent(acct) : '')
+      const r = await fetch(q, { cache: 'no-store' })
+      data = await r.json()
+    } catch (e) {
+      data = null
+    }
+    if (!data || !data.supported) {
+      sel.innerHTML = ''
+      const el = document.createElement('option')
+      el.value = String(valueInput.value || '')
+      el.textContent = t('settings.picker.failed')
+      sel.appendChild(el)
+      note.textContent = t('settings.picker.failed_note')
+      sel.disabled = true
+      return
+    }
+    fill(data)
+    sel.disabled = false
+  }
+
+  sel.addEventListener('change', () => {
+    valueInput.value = sel.value
+    markSettingDirty(def.key, valueInput, originalValue, def.type, errorEl)
+    showHint()
+  })
+  // Ha valaki KEZZEL ir a mezobe, a legordulo ne mutasson mast, mint ami ott all.
+  valueInput.addEventListener('input', () => {
+    if (loaded.some((o) => String(o.value) === valueInput.value)) sel.value = valueInput.value
+    showHint()
+  })
+  refreshBtn.addEventListener('click', () => { load() })
+
+  // Egy korrel kesobb: ekkorra a TOBBI sor is a lapon van, igy a naptar-lista
+  // latja a fiok-sorban allo erteket (a szerver ugyan visszaesik a mentett
+  // fiokra, de a MOST kivalasztott, meg nem mentett fiok csak igy latszik).
+  setTimeout(load, 0)
+}
+
+// Egy beallitas ELO erteke a mar kirajzolt lapon (nem uj halozati keres): a
+// naptar-lista fuggo a kivalasztott fioktol, es a Boss a ket sort egymas utan
+// allitja be, egyetlen mentes elott.
+function currentSettingValue(key) {
+  const el = document.querySelector('[data-setting-key="' + key + '"]')
+  return el ? String(el.value || '') : ''
+}
+
 function buildSettingRow(def) {
   const row = document.createElement('div')
   row.className = 'settings-row'
@@ -19885,7 +20016,14 @@ function buildSettingRow(def) {
 
   const desc = document.createElement('div')
   desc.className = 'settings-row-desc'
-  desc.textContent = t('settings.desc.' + def.key) || def.description
+  // A t() a HIANYZO kulcsot MAGAT adja vissza (nem ures sztringet), ezert a
+  // `|| def.description` tartalek sose sult el: a felhasznalo a nyers
+  // "settings.desc.MAIN_AGENT_MODEL" kulcsot latta a magyar leiras helyett.
+  // Boss (2026-08-18) a kepernyon ezt latta: "settings.desc.DEFAULT_AGENT_MODEL".
+  // Mostantol a registry sajat leirasa ugrik be, ha nincs forditas.
+  const descKey = 'settings.desc.' + def.key
+  const descText = t(descKey)
+  desc.textContent = descText === descKey ? (def.description || '') : descText
   info.appendChild(desc)
 
   // Nincs fuggo valtozas: az informacio nem tunik el, de nem is kiabal --
@@ -20005,6 +20143,36 @@ function buildSettingRow(def) {
       markSettingDirty(def.key, valueInput, originalValue, def.type, errorEl)
     }))
     editor.insertBefore(pickBtn, errorEl)
+  }
+
+  if (PICKABLE_SETTINGS.includes(def.key)) {
+    attachSettingPicker(def, valueInput, editor, errorEl, originalValue)
+  }
+
+  // A DASHBOARD_PUBLIC_URL-hoz nincs mit felsorolni (ezt a cimet a tulajdonos
+  // valasztja), de legalabb ne ures mezo alljon ott: mutassuk a formatumot.
+  if (def.key === 'DASHBOARD_PUBLIC_URL' && valueInput.tagName === 'INPUT') {
+    valueInput.placeholder = 'https://marveen.pelda.hu'
+  }
+
+  // Boss (2026-08-18): "ezekhez meg lehetne irni szovegesen hogy javasolt
+  // ertek xxx. mennyi." -- a szam-mezoknel a registry alapertelmezese EPPEN
+  // az a javasolt ertek, es a min/max a megengedett sav. Eddig egyik sem
+  // latszott a kepernyon, csak a kodban.
+  if (def.type === 'int') {
+    const hint = document.createElement('div')
+    hint.style.cssText = 'font-size:12px;opacity:.7;width:100%'
+    const bits = []
+    if (def.default !== undefined && def.default !== null && def.default !== '') {
+      bits.push(t('settings.hint.suggested', { v: String(def.default) }))
+    }
+    if (def.min !== undefined && def.max !== undefined) {
+      bits.push(t('settings.hint.range', { min: String(def.min), max: String(def.max) }))
+    }
+    if (bits.length) {
+      hint.textContent = bits.join(' ')
+      editor.insertBefore(hint, errorEl)
+    }
   }
 
   valueInput.addEventListener('input', () => markSettingDirty(def.key, valueInput, originalValue, def.type, errorEl))
@@ -25821,6 +25989,10 @@ async function doRestartAll(btn, status) {
     // sem indult.
     say(t('restart.all_done_no_dashboard'))
     showToast(data.dashboardReason || t('restart.unavailable'), 'warn')
+    // Az agensek ATTOL MEG ujraindultak: a lapon levo sarga jelvenyek egy
+    // resze mar nem igaz. Ujrarajzoljuk, kulonben ugyanaz a "hazudik a
+    // kepernyo" helyzet all elo, mint a Marvin-gombnal.
+    try { await loadSettings() } catch (e) { /* nem a Beallitasok lapon vagyunk */ }
     btn.disabled = false
     return
   }
@@ -25911,24 +26083,62 @@ async function mountSettingRestartAction(slot, def) {
   if (target === 'main-agent') {
     slot.innerHTML = '<p class="subtitle" style="margin:0 0 8px">'
       + escapeHtml(t('restart.row_note', { target: targetName })) + '</p>'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
       + '<button class="btn-primary" data-agent-restart-btn>'
       + escapeHtml(t('restart.btn_target', { target: targetName })) + '</button>'
+      + '<span class="subtitle" data-agent-restart-status></span></div>'
     const btn = slot.querySelector('[data-agent-restart-btn]')
+    const status = slot.querySelector('[data-agent-restart-status]')
+    const say = (m) => { if (status) status.textContent = m }
     btn.addEventListener('click', async () => {
       if (!confirm(t('agents.confirm.hard_restart'))) return
       btn.disabled = true
+      say(t('restart.starting'))
       try {
         const res = await fetch('/api/marveen/restart', { method: 'POST' })
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           throw new Error(err.error || t('agents.toast.restart_failed'))
         }
-        showToast(t('agents.toast.marveen_restarted'))
       } catch (err) {
+        say('')
         showToast(err && err.message ? err.message : t('agents.toast.restart_failed'))
-      } finally {
         btn.disabled = false
+        return
       }
+      // Boss (2026-08-18): "amit most idetettel main agent model
+      // ujrainditottam es megis kiirja hogy ujrainditasra var!!?"
+      //
+      // A regi kod itt egy toastot dobott, es ennyi. A sarga jelveny viszont
+      // a lap BETOLTESEKOR lekert allapotbol keszult, es azt senki nem kerte
+      // le ujra -- igy a kepernyon ottmaradt egy figyelmeztetes, ami mar nem
+      // volt igaz. Nem a szerver hazudott: a KEPERNYO volt elavult.
+      //
+      // Mostantol megvarjuk, amig maga a KISZOLGALO mondja azt, hogy ez a
+      // kulcs mar nem var ujrainditasra -- pontosan abbol a forrasbol, amibol
+      // a jelveny is keszul --, es utana ujrarajzoljuk a lapot. Igy a gomb
+      // megnyomasa es a jelveny eltunese ugyanaz az esemeny.
+      say(t('restart.waiting'))
+      const deadline = Date.now() + 90000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500))
+        let rows = null
+        try {
+          const d = await (await fetch('/api/settings', { cache: 'no-store' })).json()
+          rows = d && d.settings
+        } catch (e) { rows = null }
+        if (!rows) continue
+        const fresh = rows.find((r) => r.key === def.key)
+        if (fresh && !fresh.restartPending) {
+          say(t('restart.done'))
+          showToast(t('agents.toast.marveen_restarted'))
+          try { await loadSettings() } catch (e) { /* a lap mar mashol jar */ }
+          return
+        }
+      }
+      // 90 masodperc utan sem tisztult: ezt is kimondjuk, nem porgunk tovabb.
+      say(t('restart.timeout'))
+      btn.disabled = false
     })
     // A "mindent" gomb ITT is ott van: Boss szerint nem az o dolga fejben
     // tartani, melyik beallitas melyik folyamatban el. A celzott gomb a

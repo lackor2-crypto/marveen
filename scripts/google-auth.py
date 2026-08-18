@@ -387,6 +387,41 @@ def cmd_test(account):
     print("OK: mindharom API elerheto.")
 
 
+def cmd_calendars(account):
+    """A fiok naptarainak GEPI listaja (JSON), a vezerlopult valasztojahoz.
+
+    Boss (2026-08-18): "HEARTBEAT_CALENDAR_ID... ezt sem tudja egy komuves
+    megcsinalni, allitani." -- ezert a dashboard nem ures szoveg-mezot mutat,
+    hanem legordulot; az adat innen jon. Hiba eseten is JSON-t irunk ki
+    (kilepesi kod 0), hogy a hivo mindig ertelmes uzenetet tudjon mutatni.
+    """
+    try:
+        data = _load_tokens()
+        account = account or _default_account(data)
+        if not account or account not in data:
+            print(json.dumps({"error": f"nincs bekotott token a(z) '{account}' fiokhoz"}))
+            return
+        c = _load_client(); t = data[account]
+        at = _post(TOKEN_URI, {
+            "refresh_token": t["refresh_token"], "client_id": c["client_id"],
+            "client_secret": c["client_secret"], "grant_type": "refresh_token",
+        })["access_token"]
+        cals = _get("https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250", at)
+    except Exception as e:
+        print(json.dumps({"error": str(e)[:300]}))
+        return
+    items = []
+    for it in cals.get("items", []):
+        items.append({
+            "id": it.get("id"),
+            "summary": it.get("summary") or it.get("id"),
+            "primary": bool(it.get("primary")),
+            "role": it.get("accessRole"),
+        })
+    items.sort(key=lambda x: (not x["primary"], (x["summary"] or "").lower()))
+    print(json.dumps({"account": account, "calendars": items}, ensure_ascii=False))
+
+
 def cmd_list():
     data = _load_tokens()
     default = _default_account(data)
@@ -408,6 +443,8 @@ if __name__ == "__main__":
         cmd_exchange(arg, acct)
     elif cmd == "token":
         cmd_token(sys.argv[2] if len(sys.argv) > 2 else None)
+    elif cmd == "calendars":
+        cmd_calendars(sys.argv[2] if len(sys.argv) > 2 else None)
     elif cmd == "test":
         cmd_test(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
