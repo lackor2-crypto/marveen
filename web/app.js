@@ -15254,10 +15254,13 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   // Boss 2026-08-15: a "~" egy nem-muszaki felhasznalonak semmit nem mond -- a
   // VS Code 81%-ot irt, a Marveen ugyanarra a fiokra 11%-ot, es a kepernyon
   // semmi nem arulta el, hogy az a 11% harom oras meres. Mostantol a fiok neve
-  // mellett ott all, MIKOR mertuk. Friss meresnel nem irunk oda semmit: ami
-  // rendben van, arrol ne kelljen olvasni.
+  // mellett ott all, MIKOR mertuk.
+  // Boss 2026-08-17 (Telegram msg 370, "jah. lassuk mindig"): korabban csak
+  // stale meresnel irtuk ki -- friss adatnal Boss szerint eddig is latszott
+  // ez az info, es hianyzott amikor eltunt. Mostantol mindig kiirjuk, ha van
+  // mikor mertuk adat, fuggetlenul attol hogy stale-e.
   const measuredAgo = (acc) => {
-    if (!acc.stale || !acc.measuredAt) return ''
+    if (!acc.measuredAt) return ''
     const mins = Math.max(0, Math.round((Date.now() - acc.measuredAt) / 60000))
     const txt = mins < 60
       ? t('overview.ratelimit.measured_mins', { m: mins })
