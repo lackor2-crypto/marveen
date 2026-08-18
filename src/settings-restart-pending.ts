@@ -102,3 +102,111 @@ export function isRestartPending(key: string): boolean {
     return false
   }
 }
+
+// ===========================================================================
+// Melyik FOLYAMATNAK szol a beallitas?
+//
+// A fenti boot-osszehasonlitas pontos -- de csak arra a folyamatra, amelyik ezt
+// a kodot futtatja: a vezerlopultra. A kulcsok egy resze viszont NEM ott el:
+// a MAIN_AGENT_MODEL-t peldaul a foagens sajat tmux-munkamenete olvassa el
+// induláskor. Ott a boot-osszehasonlitas ket iranyban is hazudik:
+//
+//   - a Boss ujrainditja a foagenst, az mar az UJ modellel indul, a jelveny
+//     megis sarga marad (a vezerlopult boot-erteke nem valtozott) -- pontosan
+//     az a panasz, ami miatt ez a modul szuletett;
+//   - a vezerlopult indul ujra, a jelveny ELTUNIK, kozben a foagens tovabbra
+//     is a regi modellel fut. Ez a rosszabbik: elhallgat egy valodi teendot.
+//
+// Amit tudni lehet: mikor valtozott a beallitas (naplo), es mikor indult a
+// cel-munkamenet (tmux session_created). Ha a valtozas KESOBBI, akkor a futo
+// folyamat elavult ertekkel dolgozik -- fuggetlenul attol, hany masik dolgot
+// inditottak azota ujra.
+// ===========================================================================
+
+/**
+ * MELYIK tmux-munkamenetek olvassak a kulcsot?
+ *
+ * Ez nem reszletkerdes. Az elso valtozat egyetlen "legregebbi munkamenet"
+ * idot hasznalt MINDEN kulcshoz -- vagyis a foagens modelljehez is beleszamolt
+ * egy napok ota futo sub-agens munkamenetet. Eredmeny: a modell atallitasa
+ * utan hiaba indul ujra Marvin, a jelveny sarga marad, mert `agent-lagunas`
+ * regebbi a valtozasnal. Pontosan az eredeti panasz, uj koentosben.
+ *
+ * A MAIN_AGENT_* kulcsokat a scripts/channels.sh olvassa a FOAGENS
+ * munkamenetenek inditasakor -- a sub-agenseknek semmi kozuk hozzajuk.
+ */
+export type PendingSessionScope =
+  /** Egy tmux-folyamat sem olvassa (tisztan vezerlopult-beallitas). */
+  | 'none'
+  /** Csak a foagens sajat (channels) munkamenete. */
+  | 'main'
+  /** Csak a heartbeat sub-agens munkamenete. */
+  | 'heartbeat'
+  /** A foagens ES minden futo sub-agens. */
+  | 'all'
+
+/** Melyik folyamatot erinti a kulcs? */
+export interface PendingTargetKind {
+  /** A vezerlopult (ez a folyamat) is olvassa. */
+  readsDashboard: boolean
+  /** Mely tmux-munkamenetek olvassak. */
+  sessions: PendingSessionScope
+}
+
+export function targetKind(target: string | undefined): PendingTargetKind {
+  switch (target) {
+    case 'main-agent': return { readsDashboard: false, sessions: 'main' }
+    case 'dashboard+agents': return { readsDashboard: true, sessions: 'all' }
+    case 'dashboard+heartbeat': return { readsDashboard: true, sessions: 'heartbeat' }
+    default: return { readsDashboard: true, sessions: 'none' }
+  }
+}
+
+export interface PendingFacts {
+  /** Kulonbozik-e a vezerlopult bootkori erteke a mostanitol. */
+  bootDiffers: boolean
+  kind: PendingTargetKind
+  /** Mikor valtozott utoljara a kulcs (ms), vagy null, ha nem tudjuk. */
+  changedAt: number | null
+  /**
+   * A legkorabbi indulas azon munkamenetek kozul, amelyeket a `kind.sessions`
+   * kijelol (ms) -- vagy null, ha egy sem fut, illetve nem olvashato a tmux.
+   * A hivo dolga a helyes halmazt kivalasztani; itt mar csak egy szam van.
+   */
+  sessionsStartedAt: number | null
+  /**
+   * Milyen ertekkel indult a cel-munkamenet (naplobol), es mi az ertek MOST.
+   * Ha mindketto ismert, ez donti el a kerdest az idobelyegek helyett -- igy
+   * az "atallitottam, majd visszaallitottam" eset nem hagy hatra teendot.
+   * Hianyozhat: ilyenkor marad a puszta ido-osszehasonlitas.
+   */
+  valueAtSessionStart?: string | null
+  currentValue?: string | number | boolean | null
+}
+
+/**
+ * Van-e MOST valodi teendo ezzel a kulccsal?
+ *
+ * Tiszta fuggveny: minden meres (naplo, tmux) kivul tortenik, hogy a dontes
+ * maga tesztelheto legyen -- egy ilyen szabalyt "kiprobalni" nem lehet, mert a
+ * hibas valasz eppen az, hogy semmi nem tortenik a kepernyon.
+ */
+export function decideRestartPending(f: PendingFacts): boolean {
+  // 1. A vezerlopult sajat, PONTOS jele: amit ez a folyamat bootkor befagyasztott.
+  if (f.kind.readsDashboard && f.bootDiffers) return true
+  if (f.kind.sessions === 'none') return false
+  // 2. Nem tudjuk megmerni (nincs naplo-bejegyzes, vagy nem olvashato a tmux):
+  //    a regi, ertek-alapu jelre esunk vissza. Ez inkabb KIIRJA a jelvenyt,
+  //    mint elhallgassa -- egy felesleges emlekezteto olcsobb, mint egy
+  //    csendben elavult foagens.
+  if (f.changedAt === null || f.sessionsStartedAt === null) return f.bootDiffers
+  // 3. A munkamenet minden valtozas UTAN indult: friss ertekkel fut.
+  if (f.changedAt <= f.sessionsStartedAt) return false
+  // 4. A munkamenet regebbi az utolso valtozasnal. Ez meg nem teendo: szamit,
+  //    hogy vegul MAS ertekre jutottunk-e. Atallitas + visszaallitas utan a
+  //    futo folyamat erteke helyes, hiaba ket naplo-bejegyzes.
+  if (f.valueAtSessionStart !== undefined && f.valueAtSessionStart !== null && f.currentValue !== undefined) {
+    return f.valueAtSessionStart !== String(f.currentValue ?? '')
+  }
+  return true
+}

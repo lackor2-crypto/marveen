@@ -885,6 +885,34 @@ export function getAgentRunningSince(name: string): number | null {
 }
 
 
+/**
+ * Minden HELYI tmux munkamenet indulasi ideje (ms), nev szerint.
+ *
+ * Egyetlen tmux hivas az egeszre: a Beallitasok oldal minden sorhoz tudni
+ * akarja, elavult-e a futo folyamat, es tizenot kulon `display-message` ezt
+ * eszrevehetoen lassuva tenne.
+ *
+ * Tavoli (ssh) agensek nincsenek benne -- azok munkamenete a masik gepen el.
+ * A hivo ilyenkor nem allit semmit, nem pedig hamisat allit.
+ */
+export function localSessionStartTimes(): Map<string, number> {
+  const out = new Map<string, number>()
+  try {
+    const raw = captureTmux(null, ['list-sessions', '-F', '#{session_name} #{session_created}'])
+    for (const line of raw.split('\n')) {
+      const sp = line.lastIndexOf(' ')
+      if (sp <= 0) continue
+      const name = line.slice(0, sp).trim()
+      const ts = parseInt(line.slice(sp + 1).trim(), 10)
+      if (name && Number.isFinite(ts)) out.set(name, ts * 1000)
+    }
+  } catch {
+    // Nincs tmux szerver (vagy nem olvashato): ures terkep. A hivo ebbol azt
+    // olvassa ki, hogy "nem tudjuk", es nem azt, hogy "semmi nem fut".
+  }
+  return out
+}
+
 export function agentHasChannel(name: string): boolean {
   const agentProvider = resolveAgentProvider(name)
   const dir = agentDir(name)

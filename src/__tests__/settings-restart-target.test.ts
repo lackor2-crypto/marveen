@@ -88,7 +88,45 @@ describe('restartTarget on the registry', () => {
 describe('GET /api/settings carries the restart state', () => {
   it('sends restartTarget and restartPending', () => {
     expect(SETTINGS_ROUTE).toMatch(/restartTarget:\s*def\.restartTarget/)
-    expect(SETTINGS_ROUTE).toMatch(/restartPending:\s*def\.requiresRestart\s*\?\s*isRestartPending\(def\.key\)\s*:\s*false/)
+    expect(SETTINGS_ROUTE).toMatch(/restartPending:\s*restartPendingFor\(def\)/)
+    // Gated on requiresRestart: a live-reloading key never owes a restart.
+    expect(SETTINGS_ROUTE).toMatch(/if \(!def\.requiresRestart\) return false/)
+  })
+
+  it('the answer is not the bare boot comparison', () => {
+    // 2026-08-18. The first version sent `isRestartPending(def.key)` straight
+    // through. That flag only knows the DASHBOARD's boot values, so on the
+    // 'main-agent' keys it lied in both directions -- and the silent direction
+    // was the dangerous one: restarting the dashboard cleared the badge while
+    // the main agent kept running the old model. The boot signal is still
+    // needed, but it is now one input among several.
+    expect(SETTINGS_ROUTE).toMatch(/decideRestartPending\(\{/)
+    expect(SETTINGS_ROUTE).toMatch(/bootDiffers:\s*isRestartPending\(def\.key\)/)
+    expect(SETTINGS_ROUTE).toMatch(/const kind = targetKind\(def\.restartTarget\)/)
+    expect(SETTINGS_ROUTE).not.toMatch(/restartPending:\s*def\.requiresRestart\s*\?\s*isRestartPending/)
+  })
+
+  it('measures each target against ITS OWN sessions', () => {
+    // The first attempt fed one "oldest session" number to every key, so a
+    // sub-agent running since last week kept the main-agent badge yellow for
+    // good. The per-scope table is what makes the badge clearable.
+    expect(SETTINGS_ROUTE).toMatch(/startsByScope\[kind\.sessions\]/)
+    expect(SETTINGS_ROUTE).toMatch(/main:\s*oldestOf\(\[MAIN_CHANNELS_SESSION\]\)/)
+    expect(SETTINGS_ROUTE).not.toMatch(/sessionsStartedAt:\s*oldestSessionStart/)
+  })
+
+  it('the "all" scope enumerates agents at request time', () => {
+    // A newly added agent has to count without anyone registering it.
+    expect(SETTINGS_ROUTE).toMatch(/all:\s*oldestOf\(\[MAIN_CHANNELS_SESSION,\s*\.\.\.listAgentNames\(\)\.map\(agentSessionName\)\]\)/)
+  })
+
+  it('asks tmux once per request, not once per setting', () => {
+    // The decision runs for every row (~40 keys). With the session lookup
+    // inside the map(), one Settings page open would fire ~40 tmux calls.
+    const map = SETTINGS_ROUTE.indexOf('SETTINGS_REGISTRY.filter((def) => !def.secret).map(')
+    const lookup = SETTINGS_ROUTE.indexOf('localSessionStartTimes()')
+    expect(lookup, 'localSessionStartTimes() not found').toBeGreaterThan(-1)
+    expect(lookup).toBeLessThan(map)
   })
 })
 

@@ -128,16 +128,17 @@ describe('buildRestartAllPlan -- "ki dolgozik eppen"', () => {
 })
 
 describe('executeRestartAllPlan', () => {
-  it('a vezerlopultot NEM inditja ujra -- azt a hivo teszi, a valasz kikuldese utan', () => {
+  it('a vezerlopultot NEM inditja ujra -- azt a hivo teszi, a valasz kikuldese utan', async () => {
     const plan = buildRestartAllPlan(input())
-    const results = executeRestartAllPlan(plan, {
+    const results = await executeRestartAllPlan(plan, {
       restartAgent: () => ({ ok: true }),
       restartMainAgent: () => ({ ok: true }),
+      pause: () => Promise.resolve(),
     })
     expect(results.some(r => r.kind === 'dashboard')).toBe(false)
   })
 
-  it('egy elbukott lepes nem allitja meg a sort, es a hiba nem vesz el', () => {
+  it('egy elbukott lepes nem allitja meg a sort, es a hiba nem vesz el', async () => {
     // Kulonben egyetlen rossz agens miatt a beallitas SEHOL nem lepne eletbe.
     const plan = buildRestartAllPlan(input({
       agents: [
@@ -145,44 +146,47 @@ describe('executeRestartAllPlan', () => {
         { name: 'b-jo', displayName: 'Jo', running: true, busy: false },
       ],
     }))
-    const results = executeRestartAllPlan(plan, {
+    const results = await executeRestartAllPlan(plan, {
       restartAgent: (name) => name === 'a-rossz' ? { ok: false, error: 'tmux nem valaszol' } : { ok: true },
       restartMainAgent: () => ({ ok: true }),
+      pause: () => Promise.resolve(),
     })
     expect(results.find(r => r.id === 'a-rossz')).toMatchObject({ ok: false, error: 'tmux nem valaszol' })
     expect(results.find(r => r.id === 'b-jo')!.ok).toBe(true)
     expect(results.find(r => r.kind === 'main-agent')!.ok).toBe(true)
   })
 
-  it('egy kivetelt dobo lepes sem allitja meg a sort', () => {
+  it('egy kivetelt dobo lepes sem allitja meg a sort', async () => {
     const plan = buildRestartAllPlan(input({
       agents: [
         { name: 'a-robban', displayName: 'Robban', running: true, busy: false },
         { name: 'b-jo', displayName: 'Jo', running: true, busy: false },
       ],
     }))
-    const results = executeRestartAllPlan(plan, {
+    const results = await executeRestartAllPlan(plan, {
       restartAgent: (name) => { if (name === 'a-robban') throw new Error('ENOENT'); return { ok: true } },
       restartMainAgent: () => ({ ok: true }),
+      pause: () => Promise.resolve(),
     })
     expect(results.find(r => r.id === 'a-robban')).toMatchObject({ ok: false, error: 'ENOENT' })
     expect(results.find(r => r.id === 'b-jo')!.ok).toBe(true)
   })
 
-  it('a leallitott agenst meg sem probalja elinditani', () => {
+  it('a leallitott agenst meg sem probalja elinditani', async () => {
     const plan = buildRestartAllPlan(input({
       agents: [{ name: 'gemma', displayName: 'Gemma', running: false, busy: false }],
     }))
     const touched: string[] = []
-    const results = executeRestartAllPlan(plan, {
+    const results = await executeRestartAllPlan(plan, {
       restartAgent: (name) => { touched.push(name); return { ok: true } },
       restartMainAgent: () => ({ ok: true }),
+      pause: () => Promise.resolve(),
     })
     expect(touched).toEqual([])
     expect(results.find(r => r.id === 'gemma')).toMatchObject({ skipped: true, ok: true })
   })
 
-  it('a vegrehajtas sorrendje a terv sorrendje', () => {
+  it('a vegrehajtas sorrendje a terv sorrendje', async () => {
     const plan = buildRestartAllPlan(input({
       agents: [
         { name: 'north', displayName: 'North', running: true, busy: false },
@@ -190,11 +194,49 @@ describe('executeRestartAllPlan', () => {
       ],
     }))
     const order: string[] = []
-    executeRestartAllPlan(plan, {
+    await executeRestartAllPlan(plan, {
       restartAgent: (name) => { order.push(name); return { ok: true } },
       restartMainAgent: () => { order.push('MAIN'); return { ok: true } },
+      pause: () => Promise.resolve(),
     })
     expect(order).toEqual(['gypsy', 'north', 'MAIN'])
+  })
+
+  // A sorozat kozben a vezerlopultnak VALASZKEPESNEK kell maradnia: egy agens
+  // ujrainditasa ~5 masodpercre blokkolja az esemenyhurkot (execSync sleep 2 +
+  // sleep 3), es a sajat egeszsegorunk ~40 masodpercnyi nemasag utan
+  // ujrainditja a szolgaltatast -- pont a sorozat kozepen. Ezert a lepesek
+  // KOZOTT vissza kell adni a vezerlest.
+  it('a tenyleges ujrainditasok koze szunetet tesz', async () => {
+    const plan = buildRestartAllPlan(input({
+      agents: [
+        { name: 'a', displayName: 'A', running: true, busy: false },
+        { name: 'b', displayName: 'B', running: true, busy: false },
+        { name: 'c-all', displayName: 'C', running: false, busy: false },
+      ],
+    }))
+    const trace: string[] = []
+    await executeRestartAllPlan(plan, {
+      restartAgent: (name) => { trace.push(name); return { ok: true } },
+      restartMainAgent: () => { trace.push('MAIN'); return { ok: true } },
+      pause: async () => { trace.push('--szunet--') },
+    })
+    // a + szunet + b + szunet + foagens; a leallitott 'c-all' nem blokkol
+    // semmit, ezert ele nem kell szunet
+    expect(trace).toEqual(['a', '--szunet--', 'b', '--szunet--', 'MAIN'])
+  })
+
+  it('az elso lepes ele nem tesz feleslegesen szunetet', async () => {
+    const plan = buildRestartAllPlan(input({
+      agents: [{ name: 'a', displayName: 'A', running: true, busy: false }],
+    }))
+    const trace: string[] = []
+    await executeRestartAllPlan(plan, {
+      restartAgent: (name) => { trace.push(name); return { ok: true } },
+      restartMainAgent: () => { trace.push('MAIN'); return { ok: true } },
+      pause: async () => { trace.push('--szunet--') },
+    })
+    expect(trace[0]).toBe('a')
   })
 })
 

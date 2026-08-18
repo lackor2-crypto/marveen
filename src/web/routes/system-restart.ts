@@ -123,7 +123,7 @@ export async function tryHandleSystemRestart(ctx: RouteContext): Promise<boolean
     const plan = buildRestartAllPlan({ agents, main, dashboard: restartAvailability() })
     // A sub-agensek es a foagens MOST indulnak ujra -- ez masodpercek alatt
     // lefut, es a valaszban minden lepes sajat sort kap, a hibasak is.
-    const results = executeRestartAllPlan(plan, {
+    const results = await executeRestartAllPlan(plan, {
       restartAgent: (name) => restartAgentProcess(name),
       restartMainAgent: () => hardRestartMarveenChannels(),
     })

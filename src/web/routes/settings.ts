@@ -6,8 +6,9 @@ import {
 } from '../../context-mechanisms.js'
 import { SETTINGS_REGISTRY, validateSettingValue } from '../../config-registry.js'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
-import { isRestartPending } from '../../settings-restart-pending.js'
-import { logConfigChange } from '../../db.js'
+import { isRestartPending, targetKind, decideRestartPending } from '../../settings-restart-pending.js'
+import type { PendingSessionScope } from '../../settings-restart-pending.js'
+import { logConfigChange, getLastConfigChangeAt, getConfigValueAt } from '../../db.js'
 import { setStoreWriteActor } from '../../store-watcher.js'
 import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
 import { BROKER_ROLE_IDS, assignRole, type BrokerRoleId } from '../../context-broker.js'
@@ -18,8 +19,9 @@ import {
   writeBrokerConfig,
 } from '../context-broker-store.js'
 import { listAgentNames } from '../agent-config.js'
-import { agentSessionName } from '../agent-process.js'
+import { agentSessionName, localSessionStartTimes } from '../agent-process.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
+import { HEARTBEAT_AGENT_NAME } from '../heartbeat-agent-scaffold.js'
 import { readRunningAutocompact } from '../running-autocompact.js'
 import { MAIN_AGENT_ID, AUTOCOMPACT_TOKENS } from '../../config.js'
 import type { RouteContext } from './types.js'
@@ -28,6 +30,38 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
 
   if (path === '/api/settings' && method === 'GET') {
+    // Mikor indultak azok a folyamatok, amelyek NEM a vezerlopultban elnek?
+    // EGYETLEN tmux hivas az egesz oldalra (a dontes ~40 sorra fut le), es
+    // hataronkent kulon halmaz: a legKORABBI indulas csak azok kozott szamit,
+    // amelyek az adott kulcsot TENYLEG olvassak. Egy kozos "legregebbi
+    // munkamenet" ertek a foagens kulcsait egy napok ota futo sub-agenshez
+    // meri, es orokre sargan hagyja a jelvenyt.
+    const sessionStarts = localSessionStartTimes()
+    const oldestOf = (names: string[]): number | null => {
+      const ts = names.map(sn => sessionStarts.get(sn)).filter((v): v is number => typeof v === 'number')
+      return ts.length ? Math.min(...ts) : null
+    }
+    const startsByScope: Record<PendingSessionScope, number | null> = {
+      none: null,
+      main: oldestOf([MAIN_CHANNELS_SESSION]),
+      heartbeat: oldestOf([agentSessionName(HEARTBEAT_AGENT_NAME)]),
+      // Uj agens felvetelekor is helyes: a lista mindig readdir-bol jon.
+      all: oldestOf([MAIN_CHANNELS_SESSION, ...listAgentNames().map(agentSessionName)]),
+    }
+    const restartPendingFor = (def: { key: string; requiresRestart?: boolean; restartTarget?: string }): boolean => {
+      if (!def.requiresRestart) return false
+      const kind = targetKind(def.restartTarget)
+      const startedAt = startsByScope[kind.sessions]
+      return decideRestartPending({
+        bootDiffers: isRestartPending(def.key),
+        kind,
+        changedAt: getLastConfigChangeAt(def.key),
+        sessionsStartedAt: startedAt,
+        // Amivel a cel-munkamenet elindult, szemben a mostani ertekkel.
+        valueAtSessionStart: startedAt === null ? null : getConfigValueAt(def.key, startedAt),
+        currentValue: getEffectiveSettingValue(def.key),
+      })
+    }
     // secret:true entries are filtered out entirely -- not just the value,
     // the whole row -- per spec: a secret's existence is exposed elsewhere
     // (the vault page), not duplicated here.
@@ -43,7 +77,7 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       // requiresRestart alone put a permanent yellow badge on nine rows that no
       // restart could ever clear (Boss, 2026-08-16).
       restartTarget: def.restartTarget,
-      restartPending: def.requiresRestart ? isRestartPending(def.key) : false,
+      restartPending: restartPendingFor(def),
       valueSet: def.valueSet,
       min: def.min,
       max: def.max,

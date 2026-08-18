@@ -163,6 +163,14 @@ export interface RestartStepResult {
 export interface RestartAllDeps {
   restartAgent: (name: string) => { ok: boolean; error?: string }
   restartMainAgent: () => { ok: boolean; error?: string }
+  /**
+   * Ket lepes kozott visszaadja a vezerlest az esemenyhuroknak.
+   *
+   * Nem stilus kerdese, hanem ez tartja eletben a vezerlopultot a sorozat
+   * alatt -- lasd a `executeRestartAllPlan` fejleceben. Tesztben ures
+   * fuggvenyt kap, hogy ne teljen az ido.
+   */
+  pause?: () => Promise<void>
 }
 
 /**
@@ -177,15 +185,44 @@ export interface RestartAllDeps {
  * vissza, attol a foagensnek es a vezerlopultnak meg ujra kell indulnia --
  * kulonben egyetlen rossz agens miatt a beallitas sehol nem lepne eletbe.
  * A hiba nem vesz el: minden lepes sajat sort kap az eredmenyben.
+ *
+ * MIERT async, ha minden lepes szinkron?
+ *
+ * Egy agens ujrainditasa a mai kodban ket BLOKKOLO alvast tartalmaz
+ * (src/web/agent-process.ts: `execSync('sleep 2')` a leallitasnal es
+ * `execSync('sleep 3')` az inditasnal) -- ez lepesenkent ~5 masodperc, ami
+ * alatt a Node esemenyhurokja teljesen all, tehat a vezerlopult SEMMIRE nem
+ * valaszol. Tizennegy agensnel ez egyvegtben ~70 masodperc.
+ *
+ * Kozben fut a sajat egeszsegorunk (scripts/dashboard-health-guard.sh):
+ * harom probat kuld, egyenkent 10 masodperces turelemmel, 5 masodperces
+ * szunetekkel -- tehat ~40 masodpercnyi nemasag utan UJRAINDITJA a
+ * vezerlopultot. Az pedig pont a sorozat kozepen olne meg azt a folyamatot,
+ * amelyik a sorozatot vegzi: a hatralevo agensek soha nem indulnanak ujra, a
+ * bongeszo meg egy megszakadt kerest latna.
+ *
+ * Ezert lepesek KOZOTT visszaadjuk a vezerlest: egy-egy blokk igy legfeljebb
+ * ~5 masodperc, amit a proba 10 masodperces turelme kivar -- az egeszsegor
+ * valaszt kap, es nem nyul a szolgaltatashoz.
  */
-export function executeRestartAllPlan(plan: RestartAllPlan, deps: RestartAllDeps): RestartStepResult[] {
+export async function executeRestartAllPlan(
+  plan: RestartAllPlan,
+  deps: RestartAllDeps,
+): Promise<RestartStepResult[]> {
+  const pause = deps.pause || (() => new Promise<void>(r => setTimeout(r, 250)))
   const results: RestartStepResult[] = []
+  let executed = 0
   for (const step of plan.steps) {
     if (step.kind === 'dashboard') continue
     if (!step.included) {
       results.push({ kind: step.kind, id: step.id, label: step.label, ok: true, skipped: true })
       continue
     }
+    // A kihagyott lepesek nem blokkolnak semmit, ezert csak a TENYLEGES
+    // ujrainditasok koze teszunk szunetet -- es az elso ele nem: ott meg
+    // nem tartottunk fel senkit.
+    if (executed > 0) await pause()
+    executed++
     let r: { ok: boolean; error?: string }
     try {
       r = step.kind === 'main-agent' ? deps.restartMainAgent() : deps.restartAgent(step.id)

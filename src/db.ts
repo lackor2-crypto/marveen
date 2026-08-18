@@ -2976,6 +2976,51 @@ export interface ConfigChangeLogRow {
   created_at: number
 }
 
+/**
+ * Mikor valtozott utoljara ez a beallitas (ms), vagy null, ha sosem.
+ *
+ * A sarga "ujraindulas utan lep eletbe" jelveny ebbol tudja megmondani, hogy a
+ * valtozas a cel-folyamat INDULASA elott vagy utan tortent -- a puszta
+ * ertek-osszehasonlitas erre nem kepes, mert az csak a vezerlopult sajat
+ * boot-erteket ismeri (lasd src/settings-restart-pending.ts).
+ *
+ * A naplo csak a feluleten at vegzett mentest latja; kezzel szerkesztett .env
+ * eseten null a valasz, es a hivo a regi, ertek-alapu osszehasonlitasra esik
+ * vissza.
+ */
+export function getLastConfigChangeAt(key: string): number | null {
+  const row = db.prepare(
+    'SELECT created_at FROM config_change_log WHERE key = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+  ).get(key) as { created_at: number } | undefined
+  if (!row || !Number.isFinite(row.created_at)) return null
+  return row.created_at * 1000
+}
+
+/**
+ * Milyen ertek volt ervenyben `atMs` pillanataban? (null = nem tudjuk)
+ *
+ * Ket iranybol probaljuk, mert a naplo mindket oldalt tarolja:
+ *   1. a legutolso valtozas AZELOTT -> annak a `new_value`-ja;
+ *   2. ha azelott nincs bejegyzes, az elso valtozas AZUTAN -> annak az
+ *      `old_value`-ja, hiszen az eppen a valtozas elotti allapot.
+ *
+ * Ettol lesz kezelheto a "atallitottam, majd visszaallitottam" eset: ket
+ * naplo-bejegyzes keletkezik, de a futo folyamat erteke vegul ugyanaz, tehat
+ * nincs teendo. Puszta idobelyeg-osszehasonlitassal ez orokre sarga maradna.
+ */
+export function getConfigValueAt(key: string, atMs: number): string | null {
+  const at = Math.floor(atMs / 1000)
+  const before = db.prepare(
+    'SELECT new_value FROM config_change_log WHERE key = ? AND created_at <= ? ORDER BY created_at DESC, id DESC LIMIT 1',
+  ).get(key, at) as { new_value: string | null } | undefined
+  if (before) return before.new_value
+  const after = db.prepare(
+    'SELECT old_value FROM config_change_log WHERE key = ? AND created_at > ? ORDER BY created_at ASC, id ASC LIMIT 1',
+  ).get(key, at) as { old_value: string | null } | undefined
+  if (after) return after.old_value
+  return null
+}
+
 export function getRecentConfigChanges(limit = 200): ConfigChangeLogRow[] {
   // id DESC as a tiebreaker: created_at has 1-second resolution, so two
   // saves in the same second would otherwise sort arbitrarily.
