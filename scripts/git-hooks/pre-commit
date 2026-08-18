@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# marveen-pre-commit-dispatcher : lefuttat minden vegrehajthatot a pre-commit.d/-bol.
+# Ugyanaz a minta, mint a mar meglevo pre-push dispatchernel.
+set -euo pipefail
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+status=0
+for h in "$HOOK_DIR"/pre-commit.d/*; do
+  [ -x "$h" ] || continue
+  "$h" "$@" || status=1
+done
+exit $status

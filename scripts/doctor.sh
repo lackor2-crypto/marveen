@@ -308,6 +308,53 @@ case "$ORIGIN" in
   *)                 fail "origin remote NEM a(z) $WANT_ACCOUNT szervezetre mutat: $ORIGIN" ;;
 esac
 
+# --- Git repo egeszsege ---------------------------------------------------
+# 2026-08-18: a .git 4,2 GB volt, a valodi tortenet 34 MB. Elerhetetlen
+# objektumok (veletlenul hozzaadott videok, binarisok) vittek 4 GB-ot. A
+# doctor mostantol eszreveszi, ha ujra elindul a hizas.
+echo -e "
+${BOLD}Git repo${RESET}"
+GIT_COMMON="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$GIT_COMMON" ] && [ -d "$GIT_COMMON" ]; then
+  GIT_MB="$(du -sm "$GIT_COMMON" 2>/dev/null | cut -f1)"
+  GIT_MB="${GIT_MB:-0}"
+  if [ "$GIT_MB" -gt 500 ]; then
+    fail ".git merete ${GIT_MB} MB -- FELFUVODOTT (a valodi tortenet ~30 MB)"
+    echo "      diagnozis:  git count-objects -vH  es  git fsck --unreachable | head"
+    echo "      takaritas:  lasd store/git-takaritas-2026-08-18.md"
+  elif [ "$GIT_MB" -gt 150 ]; then
+    warn ".git merete ${GIT_MB} MB -- figyelendo (normal: ~30 MB)"
+  else
+    ok ".git merete ${GIT_MB} MB"
+  fi
+
+  # Felbeszakadt gc nyoma: pont ez a fajl arulta el a bajt 2026-08-18-an.
+  if [ -f "$GIT_COMMON/gc.log" ]; then
+    warn "van $GIT_COMMON/gc.log -- egy korabbi 'git gc' feladta:"
+    sed 's/^/        /' "$GIT_COMMON/gc.log" | head -3
+    echo "      javitas:  rm .git/gc.log && git gc --prune=now"
+  fi
+  if [ -d "$GIT_COMMON/lost-found" ]; then
+    warn "van $GIT_COMMON/lost-found ($(du -sh "$GIT_COMMON/lost-found" 2>/dev/null | cut -f1)) -- egy 'git fsck --lost-found' kupaca; a 'git gc' NEM takaritja"
+    echo "      javitas:  rm -rf .git/lost-found"
+  fi
+
+  # A nagy-fajl or. A hook-konyvtar a munkafak kozott KOZOS, ezert ez
+  # minden ugynokre ervenyes -- a most felvettekre is.
+  if [ -x "$GIT_COMMON/hooks/pre-commit.d/10-no-huge-files" ]; then
+    ok "nagy-fajl or telepitve (minden munkafara, uj ugynokere is ervenyes)"
+  elif [ -x scripts/install-git-hooks.sh ]; then
+    if scripts/install-git-hooks.sh >/dev/null 2>&1; then
+      ok "nagy-fajl or hianyzott -- automatikusan telepitve"
+    else
+      fail "nagy-fajl or nincs telepitve es a telepites sem sikerult"
+      echo "      kezzel:  scripts/install-git-hooks.sh"
+    fi
+  else
+    warn "nagy-fajl or nincs telepitve (scripts/install-git-hooks.sh hianyzik)"
+  fi
+fi
+
 # --- Summary ---
 echo ""
 if [ "$FAIL" -eq 0 ]; then

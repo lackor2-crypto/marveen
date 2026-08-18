@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# 10-no-huge-files : megakadalyozza, hogy nagy fajl vagy media a git-be kerüljön.
+#
+# MIERT LETEZIK EZ:
+# 2026-08-18-an a .git 4,2 GB volt, mikozben a valodi tortenet 34 MB. A
+# kulonbseget egy elszabadult `git add -A` okozta: Google Photos videok
+# (484 MB, 462 MB, 184 MB...) es electron binarisok (221 MB, 216 MB) kerultek
+# az objektum-adatbazisba. Egyetlen commit sem hivatkozott rajuk -- megis
+# vittek 4 GB-ot, mert a git objektum sose tunik el magatol.
+#
+# A .gitignore a `git add -A`-t fogja meg; ez a hook azt, ha valaki
+# kifejezetten hozzaadja (`git add -f`, vagy nev szerint).
+#
+# Kuszob:      MARVEEN_MAX_COMMIT_MB=20 git commit ...
+# Megkerules:  git commit --no-verify
+
+set -uo pipefail
+
+LIMIT_MB="${MARVEEN_MAX_COMMIT_MB:-5}"
+LIMIT=$(( LIMIT_MB * 1024 * 1024 ))
+
+# Merettol fuggetlenul tiltott: ezek sosem valok egy forras-repoba.
+BLOCKED_EXT='mp4|mov|avi|mkv|webm|m4v|wav|m4a|flac|iso|dmg|exe|msi|apk|7z|rar'
+
+fails=""
+while IFS= read -r -d '' path; do
+  blob="$(git rev-parse --quiet --verify ":$path" 2>/dev/null)" || continue
+  [ -n "$blob" ] || continue
+  size="$(git cat-file -s "$blob" 2>/dev/null)" || continue
+
+  ext="$(printf '%s' "${path##*.}" | tr 'A-Z' 'a-z')"
+  if printf '%s' "$ext" | grep -qE "^($BLOCKED_EXT)\$"; then
+    fails="${fails}  TILTOTT TIPUS  $(( size / 1024 )) KB  ${path}"$'\n'
+  elif [ "$size" -gt "$LIMIT" ]; then
+    fails="${fails}  TUL NAGY (>${LIMIT_MB} MB)  $(( size / 1048576 )) MB  ${path}"$'\n'
+  fi
+done < <(git diff --cached --name-only -z --diff-filter=ACM)
+
+[ -n "$fails" ] || exit 0
+
+{
+  echo ""
+  echo "A commit LEALLT -- olyan fajl kerulne a git-be, ami nem valo ide:"
+  echo ""
+  printf '%s' "$fails"
+  echo ""
+  echo "Miert szamit: a git SOSE felejt. Ami egyszer bekerul az objektum-"
+  echo "adatbazisba, az ott is marad -- akkor is, ha kesobb torlod a fajlt."
+  echo "Igy hizott ez a repo 4,2 GB-ra (a valodi tortenet 34 MB volt)."
+  echo ""
+  echo "Mit tegyel:"
+  echo "  * media / nagy adat  -> a Depoba valo (D:\Marveen), nem a git-be;"
+  echo "                          vedd fel a .gitignore-ba is"
+  echo "  * veletlenul kerult ide -> git restore --staged <fajl>"
+  echo "  * tenyleg kell          -> git commit --no-verify"
+  echo "                          vagy MARVEEN_MAX_COMMIT_MB=NN git commit ..."
+  echo ""
+} >&2
+exit 1

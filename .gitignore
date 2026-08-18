@@ -101,3 +101,24 @@ __pycache__/
 
 # Per-agent git worktrees (scripts/agent-worktree.sh, kanban 37129602)
 .worktrees/
+
+# Nagy media es binaris -- SOSEM valo forras-repoba.
+# 2026-08-18: a .git 4,2 GB-ra hizott, mert egy `git add -A` benyelt Google
+# Photos videokat (484/462/184 MB) es electron binarisokat (221/216 MB).
+# Ezek a Depoba valok (D:\Marveen), nem ide. Reszletek: store/git-takaritas-2026-08-18.md
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.m4v
+*.wav
+*.m4a
+*.flac
+*.iso
+*.dmg
+*.exe
+*.msi
+*.apk
+*.7z
+*.rar
