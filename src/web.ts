@@ -339,12 +339,27 @@ export function startWebServer(port = 3420): http.Server {
     setTimeout(() => { void warmEmailCaches() }, 1500).unref()
     // Do NOT log the bearer token: launchd/journal/pipe captures of the
     // structured log would otherwise carry a root-equivalent credential.
-    // Print the bootstrap URL directly to stderr instead so it shows in the
-    // interactive terminal but does not land in the pino log stream.
-    const bootstrapUrl = `http://127.0.0.1:${port}/?token=${DASHBOARD_TOKEN}`
-    process.stderr.write(
-      `\nDashboard access URL (paste into browser, token is stored afterward):\n  ${bootstrapUrl}\n\n`
-    )
+    // Printing to stderr keeps it out of the pino stream -- but stderr is only
+    // private when a HUMAN is on the other end of it. Measured 2026-08-19 on
+    // the running system: systemd redirects this service's stderr into
+    // store/dashboard.error.log, so the token sat in 365 log lines at mode
+    // 0664, while .dashboard-token itself is correctly 0600. A secret printed
+    // "to the terminal" is a secret written to a file whenever nothing is
+    // attached to the terminal, so the TTY has to be checked, not assumed.
+    if (process.stderr.isTTY) {
+      const bootstrapUrl = `http://127.0.0.1:${port}/?token=${DASHBOARD_TOKEN}`
+      process.stderr.write(
+        `\nDashboard access URL (paste into browser, token is stored afterward):\n  ${bootstrapUrl}\n\n`
+      )
+    } else {
+      // Same instruction, no credential: whoever needs the URL can read the
+      // token from the 0600 file, which is exactly the permission boundary the
+      // token is supposed to have.
+      process.stderr.write(
+        `\nDashboard: http://127.0.0.1:${port}/  ` +
+        `(access token in store/.dashboard-token -- not printed to a log)\n\n`
+      )
+    }
   })
 
   // Self-heal a SILENT listener failure. Under launchd, a `kickstart -k` can

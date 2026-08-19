@@ -121,9 +121,48 @@ describe('a vegigvezeto tartalma', () => {
   })
 })
 
+describe('a rendszer-ellenorzesek is a kartyan jelennek meg', () => {
+  // Boss, 2026-08-19: "barmi ami elromolhat arra tegyunk ellenorzest. ami itt
+  // jelenik meg." Egy szerver-oldali ellenorzes, amit senki nem rajzol ki,
+  // pont olyan nema, mint a hianyzo ellenorzes.
+  it('a rajzolo kiirja a health sorokat', () => {
+    expect(renderer).toContain('d.health')
+    expect(renderer).toMatch(/t\('health\.' \+ h\.id/)
+  })
+
+  it('a rendben levo mentes a ZOLD kartyan is kap sort', () => {
+    // Eppen az volt a baj, hogy a mentes hetekig "sikeres" volt, mikozben a
+    // hozzaferesek egyike sem volt benne. Ezert a jo hir sem lehet nema.
+    expect(renderer).toContain('backup_ok')
+  })
+
+  it('minden health kulcs letezik mindket nyelven', () => {
+    const used = new Set<string>()
+    for (const m of hu.matchAll(/'(health\.[\w_]+)':/g)) used.add(m[1])
+    expect(used.size).toBeGreaterThan(8)
+    for (const key of used) expect(en, `en: hianyzik ${key}`).toContain(`'${key}':`)
+  })
+
+  it('minden allapothoz tartozik TEENDO-szoveg is', () => {
+    // A `_action` parja nelkul a sor panaszkodik, de nem mondja meg, mit
+    // kezdjen vele a felhasznalo -- a kartya pont ettol lenne hasznalhatatlan.
+    for (const m of hu.matchAll(/'health\.([\w_]+)':/g)) {
+      const id = m[1]
+      if (id.endsWith('_action')) continue
+      expect(hu, `hu: nincs teendo ehhez: ${id}`).toContain(`'health.${id}_action':`)
+      expect(en, `en: nincs teendo ehhez: ${id}`).toContain(`'health.${id}_action':`)
+    }
+  })
+})
+
 describe('a szerver oldala', () => {
   it('a lejart hitelesites ugyanolyan sulyu, mint egy bukott probe', () => {
     expect(route).toMatch(/googleBroken > 0 \|\| expiryWorst === 'expired'/)
+  })
+
+  it('a hasznalhatatlan mentes is felviszi a riasztas szintjet', () => {
+    expect(route).toMatch(/healthWorst === 'bad'/)
+    expect(route).toMatch(/healthWorst === 'warn'/)
   })
 
   it('a jo allapot is elmegy a felulethez (nem `none`)', () => {

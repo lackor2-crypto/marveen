@@ -255,6 +255,22 @@ window._i18n.en = {
   'conn.ov_all_ok':           '✅ Everything is fine — just checked.',
   'conn.ov_all_ok_detail':    '{n} credentials are live, the next expiry is in {d} days. If anything breaks, it shows up here.',
   'conn.ov_all_ok_plain':     'Nothing to do. If anything breaks, it shows up here.',
+  // System checks. Each one exists because of a MEASURED failure (2026-08-19):
+  // the backup ran successfully for weeks while saving no credentials at all.
+  'health.backup_ok':          '✅ Backup is good — made {h} hours ago, with every credential in it.',
+  'health.backup_ok_action':   'A restore would bring back the Google accounts, the GitHub tokens and the vault key.',
+  'health.backup_incomplete':  'The backup is missing {n} important credentials: {files}',
+  'health.backup_incomplete_action': 'The backup runs, but without these a restore would leave everything to reconnect by hand.',
+  'health.backup_stale':       'The newest backup is {h} hours old.',
+  'health.backup_stale_action': 'It should run every six hours. If this number keeps growing, backups have stalled.',
+  'health.backup_missing':     'There is no backup at all.',
+  'health.backup_missing_action': 'A disk failure would take everything right now. Worth fixing ahead of other work.',
+  'health.backup_unreadable':  'The newest backup could not be opened.',
+  'health.backup_unreadable_action': 'It may be corrupt. Better to find out now than when you need it.',
+  'health.secret_in_log':      'Password-like data ended up in {n} log files: {files}',
+  'health.secret_in_log_action': 'Logs are readable by anyone on this machine; the secret should not be. Rotate it, or ask me to.',
+  'health.disk_low':           'Disk is filling up: {gb} GB free.',
+  'health.disk_low_action':    'When it fills, both the backup and the database break silently.',
   'conn.ov_unreachable':      'I cannot check myself right now.',
   'conn.ov_unreachable_action': 'What to do: reload the page. If it stays like this, the Marveen service is not running — restart it.',
 

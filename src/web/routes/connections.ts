@@ -39,6 +39,7 @@ import {
 } from '../google-auth-runner.js'
 import { suggestAccountId } from '../google-accounts.js'
 import { credentialExpiries, worstExpiryStatus } from '../credential-expiry.js'
+import { systemHealth, worstHealthStatus } from '../system-health.js'
 import {
   mcpStatus,
   refreshMcpStatus,
@@ -220,6 +221,12 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
     // been dead for two days.
     const expiry = credentialExpiries()
     const expiryWorst = worstExpiryStatus(expiry)
+    // The third half: what is neither probed nor on a clock, but rots. Boss,
+    // 2026-08-19: "barmi ami elromolhat arra tegyunk ellenorzest." Measured the
+    // same hour: the automatic backup had been running successfully for weeks
+    // while carrying none of the credentials a restore needs.
+    const health = systemHealth()
+    const healthWorst = worstHealthStatus(health)
     json(res, {
       google: {
         total: google.length,
@@ -249,16 +256,19 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
           expiresAt: e.expiresAt,
         })),
       },
+      health: { worst: healthWorst, items: health },
       // Worst thing worth saying, so the card can colour itself without the
       // browser re-deriving the rule. A connector that merely needs a sign-in
       // is a missed capability, not a broken install -- alarm colours spent on
       // convenience teach the operator to ignore alarm colours. An EXPIRED
       // credential ranks with a failed probe: it is the same outage, just
       // caught by the clock instead of by a call.
-      tier: (googleBroken > 0 || expiryWorst === 'expired') ? 'recommended'
+      // A backup that would not restore ranks with a dead credential: both are
+      // outages you only find out about at the worst possible moment.
+      tier: (googleBroken > 0 || expiryWorst === 'expired' || healthWorst === 'bad') ? 'recommended'
         : mcp.needsLogin > 0 ? 'recommended'
           : (google.length === 0 && googleOauthClientPresent()) ? 'extra'
-            : (mcp.broken > 0 || expiryWorst === 'soon') ? 'extra'
+            : (mcp.broken > 0 || expiryWorst === 'soon' || healthWorst === 'warn') ? 'extra'
               // 'ok' is a real, rendered state now, not a reason to hide: the
               // card stays on the Overview and says everything works.
               : 'ok',

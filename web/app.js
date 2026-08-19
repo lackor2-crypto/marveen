@@ -16647,6 +16647,19 @@ async function renderOverviewConnections() {
     }
   }
 
+  // Ami se nem probalhato, se nem oran jar, csak elrohad: a mentes tartalma, a
+  // naplokba szivargo titok, a fogyo lemez. Az `ok` sorokat itt NEM irjuk ki
+  // kulon -- a zold osszefoglalo mondja el oket egyben, kulonben a kartya
+  // hosszu lenne akkor is, amikor semmi teendo nincs.
+  const health = (d.health && Array.isArray(d.health.items)) ? d.health.items : []
+  for (const h of health) {
+    if (h.status === 'ok') continue
+    rows.push({
+      label: t('health.' + h.id, h.params || {}),
+      desc: t('health.' + h.id + '_action'),
+    })
+  }
+
   if (rows.length) {
     paint(TONES[d.tier] || TONES.extra, rows)
     return
@@ -16655,12 +16668,18 @@ async function renderOverviewConnections() {
   // Nothing wrong -- and that gets SAID, with the numbers behind it, so the
   // green line is evidence rather than reassurance.
   const okCount = exp.filter(e => e.status === 'ok').length
-  paint(TONES.ok, [{
+  const greenRows = [{
     label: t('conn.ov_all_ok'),
     desc: okCount
       ? t('conn.ov_all_ok_detail', { n: okCount, d: Math.max(0, Math.min(...exp.map(e => e.daysLeft))) })
       : t('conn.ov_all_ok_plain'),
-  }])
+  }]
+  // A mentes akkor is kap sort, ha rendben van: eppen az volt a baj, hogy
+  // hetekig sikeresen futott, csak nem azt mentette, amit kellett volna --
+  // egy nema "rendben" ott semmit nem arult volna el.
+  const bok = health.find(h => h.id === 'backup_ok')
+  if (bok) greenRows.push({ label: t('health.backup_ok', bok.params || {}), desc: t('health.backup_ok_action') })
+  paint(TONES.ok, greenRows)
 }
 
 // === Onellenorzes -> vegigvezeto ===========================================

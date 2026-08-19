@@ -66,6 +66,23 @@ add_if "${REPOLIST}" "${REPO_ROOT}" store/claudeclaw.db-shm
 add_if "${REPOLIST}" "${REPO_ROOT}" store/claudeclaw.db-wal
 add_if "${REPOLIST}" "${REPO_ROOT}" store/.dashboard-token
 add_if "${REPOLIST}" "${REPO_ROOT}" store/config-overrides.json
+# Credentials a restore CANNOT regenerate. Measured 2026-08-19 on the real
+# archive (claudeclaw-20260819-125659.tar.gz): it carried the database and the
+# dashboard token, and NOTHING else from store/ -- so restoring onto a fresh
+# machine would have lost all ten connected Google accounts, the GitHub tokens,
+# the OAuth client, and the vault key TOGETHER WITH the vault it decrypts (the
+# vault would have been unreadable even had the file survived). All small, all
+# 0600; add_if keeps a missing file from failing the backup.
+add_if "${REPOLIST}" "${REPO_ROOT}" store/google-tokens.json
+add_if "${REPOLIST}" "${REPO_ROOT}" store/google-oauth-client.json
+add_if "${REPOLIST}" "${REPO_ROOT}" store/.github-tokens.json
+add_if "${REPOLIST}" "${REPO_ROOT}" store/.vault-key
+add_if "${REPOLIST}" "${REPO_ROOT}" store/vault.json
+add_if "${REPOLIST}" "${REPO_ROOT}" store/vault-bindings.json
+# Hand-authored settings: cheap to carry, tedious to reconstruct from memory.
+add_if "${REPOLIST}" "${REPO_ROOT}" store/autonomy-config.json
+add_if "${REPOLIST}" "${REPO_ROOT}" store/email-rules.json
+add_if "${REPOLIST}" "${REPO_ROOT}" store/agents-desired.json
 add_if "${REPOLIST}" "${REPO_ROOT}" .env
 add_if "${REPOLIST}" "${REPO_ROOT}" scheduled-tasks.json
 add_if "${REPOLIST}" "${REPO_ROOT}" assets/meetings

@@ -54,7 +54,13 @@ SECRET_FILES=(
   "store/.vault-key"
   "store/vault.json"
   "store/google-oauth-client.json"
+  # A tiz bekotott Google-fiok tokenje. 2026-08-19-ig itt a REGI, egyfiokos
+  # "google-token.json" allt: azt a rendszer 2026-08-10-en otthagyta, tehat a
+  # mentes egy halott fajlt vitt, az elot pedig nem -- visszaallitaskor mind a
+  # tiz fiok elveszett volna. A regi nev migracio elotti telepitesert marad.
+  "store/google-tokens.json"
   "store/google-token.json"
+  "store/vault-bindings.json"
   "store/.cred-backup-win.json"
   "store/.cred-backup-wsl.json"
 )

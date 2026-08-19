@@ -268,6 +268,22 @@ window._i18n.hu = {
   'conn.ov_all_ok':           '✅ Minden rendben — most ellenőriztem.',
   'conn.ov_all_ok_detail':    '{n} hozzáférés él, a legközelebbi lejárat {d} nap múlva. Ha bármi elromlik, itt fog megjelenni.',
   'conn.ov_all_ok_plain':     'Nincs semmi teendőd. Ha bármi elromlik, itt fog megjelenni.',
+  // Rendszer-ellenőrzések. Mind egy MÉRT hibából született (2026-08-19): a
+  // mentés hetekig sikeresen futott, és közben egyetlen hozzáférést sem mentett.
+  'health.backup_ok':          '✅ A mentés rendben — {h} órája készült, és minden hozzáférés benne van.',
+  'health.backup_ok_action':   'Visszaállításkor a Google-fiókok, a GitHub-tokenek és a széf kulcsa is megvan.',
+  'health.backup_incomplete':  'A mentésből {n} fontos hozzáférés hiányzik: {files}',
+  'health.backup_incomplete_action': 'A mentés lefut, de ezek nélkül egy visszaállítás után mindent újra be kellene kötni.',
+  'health.backup_stale':       'A legutóbbi mentés {h} órája készült.',
+  'health.backup_stale_action': 'Hat óránként kellene futnia. Ha ez a szám nő, a mentés elakadt.',
+  'health.backup_missing':     'Nincs egyetlen mentés sem.',
+  'health.backup_missing_action': 'Egy lemezhiba most mindent elvinne. Ezt érdemes soron kívül rendbe tenni.',
+  'health.backup_unreadable':  'A legutóbbi mentést nem sikerült megnyitni.',
+  'health.backup_unreadable_action': 'Lehet, hogy sérült. Jobb most kideríteni, mint amikor szükség lenne rá.',
+  'health.secret_in_log':      'Jelszó-jellegű adat került {n} naplófájlba: {files}',
+  'health.secret_in_log_action': 'A napló a gépen bárkinek olvasható, a titok nem az volna. Cseréld le, vagy szólj, és megcsinálom.',
+  'health.disk_low':           'Fogy a lemez: {gb} GB szabad.',
+  'health.disk_low_action':    'Ha betelik, a mentés és az adatbázis is csendben elromlik.',
   'conn.ov_unreachable':      'Nem tudom most leellenőrizni magam.',
   'conn.ov_unreachable_action': 'Teendő: frissítsd az oldalt. Ha így is ez marad, a Marveen szolgáltatás nem fut — indítsd újra.',
 
