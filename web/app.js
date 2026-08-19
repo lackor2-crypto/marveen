@@ -16687,6 +16687,116 @@ async function renderOverviewConnections() {
   paint(TONES.ok, greenRows)
 }
 
+// === "Mi valtozott az upstreamben?" ======================================
+//
+// Boss, 2026-08-19: "csak ezzel az a baj hogy ebbol nem latok semmit sem. azt
+// kellene kiirnia hogy mit javitottak rajta!? erted? emberi nyelven. es hogy
+// ezek kellenek e nekunk. [...] mert lesz biztos olyan amit nem akarok hogy
+// bekeruljon."
+//
+// Ket dolgot kellett eldonteni. Az egyik: mi a lista EGYSEGE. Fajlt nem lehet
+// kulon athuzni -- a valtozas egysege a commit, ezert a lista 112 tetelbol all,
+// nem 169-bol (a 169 azoknak a fajloknak a szama, amiket ez a 112 commit
+// utkozes nelkul erint). A masik: mi szerint van csoportositva. A javitasok
+// kulon dobozban allnak, mert azokat a Boss szerint "valoszinu kellenek. mind",
+// a fejlesztesek kulon, mert azok kozott lesz olyan, amit nem akar.
+let upstreamChangesCache = null
+
+function upstreamChangeRow(c) {
+  const meta = [
+    c.date,
+    c.scope ? `${c.type}(${c.scope})` : c.type,
+    c.pr ? `#${c.pr}` : '',
+    t('upstream.changes.files', { n: c.files.length }),
+  ].filter(Boolean).join(' · ')
+  const conflict = c.touchesConflict
+    ? `<span class="upstream-change-conflict">${escapeHtml(t('upstream.changes.conflict'))}</span>`
+    : ''
+  // A magyar szoveg a fo mondat; az eredeti angol tárgysor alatta all kicsiben,
+  // hogy a forditas ellenorizheto legyen, ne kelljen elhinni.
+  const hu = c.hu ? escapeHtml(c.hu) : `<em>${escapeHtml(t('upstream.changes.nohu'))}</em>`
+  return `
+    <div class="upstream-change">
+      <div class="upstream-change-text">${hu} ${conflict}</div>
+      <div class="upstream-change-meta">${escapeHtml(meta)}</div>
+      <div class="upstream-change-en" title="${escapeHtml(c.files.join('\n'))}">${escapeHtml(c.subject)}</div>
+    </div>`
+}
+
+function renderUpstreamChanges(data, filter) {
+  const body = document.getElementById('upstreamChangesBody')
+  const intro = document.getElementById('upstreamChangesIntro')
+  if (!body) return
+  if (!data || !data.available) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.none'))}</p>`
+    if (intro) intro.textContent = ''
+    return
+  }
+  const q = (filter || '').trim().toLowerCase()
+  const match = c => !q
+    || (c.hu || '').toLowerCase().includes(q)
+    || (c.subject || '').toLowerCase().includes(q)
+    || (c.files || []).some(f => f.toLowerCase().includes(q))
+  const boxes = [
+    ['javitas', 'upstream.changes.fixes', 'upstream-box-fix'],
+    ['fejlesztes', 'upstream.changes.feats', 'upstream-box-feat'],
+    ['egyeb', 'upstream.changes.other', 'upstream-box-other'],
+  ]
+  let html = ''
+  for (const [key, labelKey, cls] of boxes) {
+    const items = (data.groups[key] || []).filter(match)
+    if (!items.length) continue
+    html += `
+      <section class="upstream-box ${cls}">
+        <h4>${escapeHtml(t(labelKey, { n: items.length }))}</h4>
+        ${items.map(upstreamChangeRow).join('')}
+      </section>`
+  }
+  body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
+  if (intro) {
+    // Az egyseg itt is ki van mondva, mert pont ez volt a felreertes forrasa.
+    intro.textContent = t('upstream.changes.intro', {
+      n: data.total,
+      f: data.counts.javitas,
+      u: data.counts.fejlesztes,
+      e: data.counts.egyeb,
+      local: data.localRef || '?',
+      upstream: data.upstreamRef || '?',
+    })
+  }
+}
+
+async function openUpstreamChanges() {
+  const overlay = document.getElementById('upstreamChangesModal')
+  if (!overlay) return
+  overlay.hidden = false
+  openModal(overlay)
+  const body = document.getElementById('upstreamChangesBody')
+  if (!upstreamChangesCache) {
+    if (body) body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.loading'))}</p>`
+    try {
+      const res = await fetch('/api/upstream/changes')
+      upstreamChangesCache = await res.json()
+    } catch (e) {
+      upstreamChangesCache = { available: false }
+    }
+  }
+  const filterEl = document.getElementById('upstreamChangesFilter')
+  renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('overviewUpstreamChangesBtn')
+  if (btn) btn.addEventListener('click', openUpstreamChanges)
+  const close = document.getElementById('upstreamChangesClose')
+  const overlay = document.getElementById('upstreamChangesModal')
+  if (close && overlay) close.addEventListener('click', () => closeModal(overlay))
+  const filterEl = document.getElementById('upstreamChangesFilter')
+  if (filterEl) {
+    filterEl.addEventListener('input', () => renderUpstreamChanges(upstreamChangesCache, filterEl.value))
+  }
+})
+
 // === Onellenorzes -> vegigvezeto ===========================================
 //
 // Boss, 2026-08-19: "vegig kell vezetni a folyamaton. [...] ha kiirja ezt a
@@ -16899,6 +17009,14 @@ function renderOverviewUpstreamSync(upstreamSync) {
     if (age > 10) metaText += ` · ${t('overview.upstream.stale')}`
   }
   meta.textContent = metaText
+  // A "mi valtozott?" gomb mindig ott van, ha van mit mutatni. Boss: "ezert egy
+  // lista kellene [...] es mind a 169-re egy rovid par soros leiras hogy mit
+  // javitottak vagy fejlesztettek."
+  const changesBtn = document.getElementById('overviewUpstreamChangesBtn')
+  if (changesBtn) {
+    changesBtn.hidden = false
+    changesBtn.textContent = t('upstream.changes.open')
+  }
   meta.classList.toggle('upstream-meta-stale', age !== null && age > 10)
   const behind = upstreamSync.behindCount ?? 0
   const conflicts = upstreamSync.conflictCount ?? upstreamSync.conflictingFiles.length

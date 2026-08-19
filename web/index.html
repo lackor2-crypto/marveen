@@ -380,6 +380,7 @@
           <span class="overview-card-meta" id="overviewUpstreamMeta"></span>
         </div>
         <div class="overview-upstream-body" id="overviewUpstreamBody"></div>
+        <button class="btn-secondary upstream-changes-btn" id="overviewUpstreamChangesBtn" hidden></button>
       </div>
       <div class="overview-grid">
         <div class="overview-card">
@@ -1010,6 +1011,21 @@
         </div>
       </div>
 
+
+      <!-- "Mi valtozott az upstreamben?" -- tetelesen, emberi nyelven -->
+      <div class="modal-overlay" id="upstreamChangesModal" hidden>
+        <div class="modal-content upstream-changes-modal">
+          <div class="modal-header">
+            <h3 data-i18n="upstream.changes.title">Mi változott az upstreamben?</h3>
+            <button class="modal-close" id="upstreamChangesClose">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-desc" id="upstreamChangesIntro"></p>
+            <input type="search" class="upstream-changes-filter" id="upstreamChangesFilter" placeholder="Keresés a listában…">
+            <div id="upstreamChangesBody"></div>
+          </div>
+        </div>
+      </div>
       <div class="modal-overlay" id="openrouterModal" hidden>
         <div class="modal-content" style="max-width:660px">
           <div class="modal-header">

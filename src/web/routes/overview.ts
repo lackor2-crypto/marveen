@@ -22,6 +22,7 @@ import { readClaudePlans } from '../claude-plans.js'
 import { readAgentModel } from '../agent-config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { readUpstreamSyncStatus } from '../upstream-sync-status-io.js'
+import { readUpstreamChanges } from '../upstream-changes-io.js'
 import { exactTmuxTarget } from '../tmux-target.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
@@ -285,6 +286,22 @@ async function countUserTurns(fromMs: number, toMs: number = Number.POSITIVE_INF
 
 export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
+
+  // Tetelesen: mi valtozott az upstreamben, emberi nyelven.
+  //
+  // Boss: "azt kellene kiirnia hogy mit javitottak rajta!? [...] emberi
+  // nyelven. es hogy ezek kellenek e nekunk." Kulon vegpont, mert ez egy hosszu
+  // lista (jelenleg 112 tetel), es az Attekintes betoltesenek nem kell cipelnie
+  // -- csak akkor toltjuk le, amikor a Boss tenyleg megnyitja.
+  if (path === '/api/upstream/changes' && method === 'GET') {
+    const view = readUpstreamChanges()
+    if (!view) {
+      jsonMaybeGzip(req, res, { available: false })
+      return true
+    }
+    jsonMaybeGzip(req, res, { available: true, ...view })
+    return true
+  }
 
   if (path === '/api/overview' && method === 'GET') {
     const subAgents = listAgentNames()

@@ -239,6 +239,16 @@ function diskRow(): HealthRow | null {
  *  breaks a test instead of silently turning the check into a no-op. */
 export const UPSTREAM_WRITER = 'scripts/upstream-divergence-check.sh'
 
+/** A tetelas valtozas-lista. Ugyanabban a heti futasban keszul, mint a szamok,
+ *  tehat kulon is el tud romlani: a szamok frissek maradnak, a lista megfagy.
+ *  Az mtime eleg hozza -- egy 300 kB-os JSON-t nem parszolunk vegig minden
+ *  Attekintes-betoltesnel csak azert, hogy a datumat megnezzuk. */
+export const UPSTREAM_CHANGES_FILE = 'store/upstream-changes.json'
+
+function mtimeOf(path: string): number | null {
+  try { return statSync(path).mtimeMs } catch { return null }
+}
+
 /** Is the upstream number still a MEASUREMENT, or has it become a memory?
  *
  *  Three ways it stops being a measurement, in the order they bite:
@@ -254,6 +264,7 @@ export function upstreamRows(
   // is not a check.
   status: UpstreamSyncStatus | null = readUpstreamSyncStatus(now),
   writerExists: boolean = existsSync(join(PROJECT_ROOT, UPSTREAM_WRITER)),
+  changesMtime: number | null = mtimeOf(join(PROJECT_ROOT, UPSTREAM_CHANGES_FILE)),
 ): HealthRow[] {
   const rows: HealthRow[] = []
   if (!writerExists) {
@@ -275,6 +286,16 @@ export function upstreamRows(
     rows.push({ id: 'upstream_no_fetch', status: 'warn' })
   } else {
     rows.push({ id: 'upstream_ok', status: 'ok', params: { d: st.ageDays } })
+  }
+  // A lista kulon kerdes: a szam lehet mai, mikozben a "mi valtozott?" lista
+  // hetek ota all -- olyankor a Boss regi tetelekbol dontene.
+  if (changesMtime === null) {
+    rows.push({ id: 'upstream_changes_missing', status: 'warn' })
+  } else {
+    const napja = Math.max(0, Math.floor((now - changesMtime) / 86_400_000))
+    if (napja > STALE_AFTER_DAYS) {
+      rows.push({ id: 'upstream_changes_stale', status: 'warn', params: { d: napja } })
+    }
   }
   return rows
 }

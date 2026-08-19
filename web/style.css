@@ -10251,3 +10251,36 @@ body {
   font-size: 13px;
   color: var(--fg);
 }
+
+/* "Mi valtozott az upstreamben?" -- tetelas lista */
+.upstream-changes-btn { margin-top: 10px; font-size: 13px; }
+.upstream-changes-modal { max-width: 860px; }
+.upstream-changes-filter {
+  width: 100%; margin: 8px 0 14px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg); color: var(--fg); font-size: 14px;
+}
+.upstream-box { margin-bottom: 22px; }
+.upstream-box h4 {
+  margin: 0 0 10px; font-size: 14px; letter-spacing: .02em;
+  padding-bottom: 6px; border-bottom: 2px solid var(--border);
+}
+.upstream-box-fix h4 { border-bottom-color: var(--ok, #3fb950); }
+.upstream-box-feat h4 { border-bottom-color: var(--accent, #58a6ff); }
+.upstream-change {
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+.upstream-change:last-child { border-bottom: none; }
+.upstream-change-text { font-size: 14px; line-height: 1.5; }
+.upstream-change-meta { margin-top: 3px; font-size: 12px; color: var(--muted); }
+.upstream-change-en {
+  margin-top: 2px; font-size: 11px; color: var(--muted);
+  opacity: .75; word-break: break-word;
+}
+.upstream-change-conflict {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: var(--danger-bg, rgba(248,81,73,.15)); color: var(--danger, #f85149);
+}
+.upstream-changes-empty { color: var(--muted); font-size: 14px; }
