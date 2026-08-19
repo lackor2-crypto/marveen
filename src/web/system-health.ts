@@ -24,6 +24,13 @@
  *    which systemd redirects into a 0664 log file: 365 lines' worth. Fixed at
  *    the source (web.ts checks isTTY now), watched here so it cannot creep back
  *    in through some other writer.
+ *  - UPSTREAM MEASUREMENT. The card's "63 new / 4 conflicting / 110 clean"
+ *    was hand-typed on 2026-08-10 and NOTHING ever wrote it again; two of the
+ *    three numbers were not reproducible from git. A number the interface
+ *    states as fact needs a writer that is still running -- so this checks
+ *    that the writer exists, that the file exists, and that its age is inside
+ *    the weekly cadence. This is the check that would have caught the bug
+ *    itself, nine days earlier and without the Boss noticing it first.
  *  - DISK. Everything above degrades silently when the disk fills; this is the
  *    cheap early word.
  *
@@ -36,6 +43,8 @@ import { statfsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
+import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
+import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
 
@@ -226,8 +235,52 @@ function diskRow(): HealthRow | null {
 
 /** Everything at once, worst first. `ok` rows are included on purpose: the card
  *  has to be able to state the healthy case, not just fall silent. */
+/** The script that measures the upstream numbers. Named here so a rename
+ *  breaks a test instead of silently turning the check into a no-op. */
+export const UPSTREAM_WRITER = 'scripts/upstream-divergence-check.sh'
+
+/** Is the upstream number still a MEASUREMENT, or has it become a memory?
+ *
+ *  Three ways it stops being a measurement, in the order they bite:
+ *  the writer is gone (rename, bad merge, lost file) -> nothing will ever
+ *  update it again; the file is missing or undated -> there is nothing to
+ *  trust; the file is old -> the weekly timer stopped firing. Only the last
+ *  one is visible on the card itself, which is why the other two are `bad`. */
+export function upstreamRows(
+  now: number = Date.now(),
+  // Injectable so the tests can drive every branch (missing / stale / dead
+  // timer / offline) without a store/ file next to them -- the test worktree
+  // has no store/, and a check that only runs where its data happens to sit
+  // is not a check.
+  status: UpstreamSyncStatus | null = readUpstreamSyncStatus(now),
+  writerExists: boolean = existsSync(join(PROJECT_ROOT, UPSTREAM_WRITER)),
+): HealthRow[] {
+  const rows: HealthRow[] = []
+  if (!writerExists) {
+    rows.push({ id: 'upstream_no_writer', status: 'bad', params: { f: UPSTREAM_WRITER } })
+  }
+  const st = status
+  if (!st || st.ageDays === null) {
+    rows.push({ id: 'upstream_unmeasured', status: 'warn' })
+    return rows
+  }
+  if (st.ageDays > STALE_AFTER_DAYS) {
+    // Two missed weekly runs is a stall; a month of silence is a dead timer.
+    rows.push({
+      id: 'upstream_stale',
+      status: st.ageDays > 30 ? 'bad' : 'warn',
+      params: { d: st.ageDays },
+    })
+  } else if (!st.fetchOk) {
+    rows.push({ id: 'upstream_no_fetch', status: 'warn' })
+  } else {
+    rows.push({ id: 'upstream_ok', status: 'ok', params: { d: st.ageDays } })
+  }
+  return rows
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
-  const rows: HealthRow[] = [...backupRows(now)]
+  const rows: HealthRow[] = [...backupRows(now), ...upstreamRows(now)]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {
     rows.push({ id: 'secret_in_log', status: 'warn', params: { n: leaks.length, files: leaks.join(', ') } })

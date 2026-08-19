@@ -10236,3 +10236,18 @@ body {
 .guide-result.good { background: rgba(34, 197, 94, .14); border-color: rgba(34, 197, 94, .45); }
 .guide-result.bad { background: rgba(245, 158, 11, .16); border-color: rgba(245, 158, 11, .5); }
 .guide-result[hidden] { display: none; }
+
+/* A commit es a fajl ket kulon mertekegyseg -- ez a sor mondja ki, kulonben a
+   harom szam ugy all egymas mellett, mintha ossze lehetne adni oket. */
+.upstream-sync-explain {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.upstream-sync-commits {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--fg);
+}

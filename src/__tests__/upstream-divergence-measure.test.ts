@@ -22,7 +22,9 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { ageInDays, STALE_AFTER_DAYS } from '../web/upstream-sync-status-io.js'
+import { ageInDays, STALE_AFTER_DAYS, readUpstreamSyncStatus } from '../web/upstream-sync-status-io.js'
+import { upstreamRows, systemHealth, UPSTREAM_WRITER } from '../web/system-health.js'
+import type { UpstreamSyncStatus } from '../web/upstream-sync-status-io.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..', '..')
@@ -186,9 +188,11 @@ describe('a doboz megmondja, mikor es mihez kepest mertunk', () => {
   })
 
   it('a magyarazat nem all ki kitalalt osszegre', () => {
-    // Ha a tiszta szam nincs merve, nincs mit osszeadni: ilyenkor a tooltip is
-    // elmarad, kulonben egy `null`-bol keszult osszeget magyaraznank.
-    expect(c).toMatch(/cleanKnown\s*\n?\s*\?\s*` title=/)
+    // Ha a tiszta szam nincs merve, nincs mit osszeadni: ilyenkor a magyarazo
+    // sor is elmarad, kulonben egy `null`-bol keszult osszeget magyaraznank.
+    // (Regen tooltip volt; azota LATHATO sor -- lasd lentebb.)
+    expect(c).toMatch(/const explain = cleanKnown/)
+    expect(c).toMatch(/upstream-sync-explain/)
   })
 
   it('minden uj kulcs megvan mindket nyelven', () => {
@@ -245,5 +249,133 @@ describe('az iro es az olvaso ugyanarrol a fajlrol beszel', () => {
       expect(io, `az olvaso nem ismeri: ${mezo}`).toContain(mezo)
       expect(script, `a script nem irja ki: ${mezo}`).toContain(`'${mezo}'`)
     }
+  })
+})
+
+// ===========================================================================
+// Boss, 2026-08-19: "ha elromlik tudni akarok rola. az attekintesbe
+// onellenorzesbe tedd bele. ha baj van szoljon ez is."
+//
+// A javitas onmagaban nem eleg: a mereset vegzo scriptet at lehet nevezni, a
+// heti idozito le tud allni, es akkor pontosan az EREDETI hiba all vissza --
+// egy magabiztos szam a kartyan, ami mogott mar senki nem mer semmit. Ezek a
+// tesztek azt orzik, hogy ilyenkor az Onellenorzes MEGSZOLAL.
+// ===========================================================================
+describe('az onellenorzes eszreveszi, ha a meres elromlik', () => {
+  const MOST = Date.parse('2026-08-19T12:00:00Z')
+  const nap = 86_400_000
+  const allapot = (napja: number, extra: Partial<UpstreamSyncStatus> = {}): UpstreamSyncStatus => ({
+    checkedAt: new Date(MOST - napja * nap).toISOString(),
+    aheadCount: 241, behindCount: 112, conflictingFiles: [], conflictCount: 22,
+    cleanFileCount: 169, localRef: 'main', upstreamRef: 'upstream/develop',
+    fetchOk: true, ageDays: napja, ...extra,
+  })
+
+  it('friss mereskor zold sor all ki (nem nema "rendben")', () => {
+    const rows = upstreamRows(MOST, allapot(2))
+    const ok = rows.find(r => r.id === 'upstream_ok')
+    expect(ok, 'ket napos meresre nem all ki zold sor').toBeTruthy()
+    expect(ok!.status).toBe('ok')
+    expect(ok!.params!.d).toBe(2)
+  })
+
+  it('ket kihagyott heti futas utan FIGYELMEZTET', () => {
+    const rows = upstreamRows(MOST, allapot(STALE_AFTER_DAYS + 3))
+    const stale = rows.find(r => r.id === 'upstream_stale')
+    expect(stale, 'elavult meresre nem szol').toBeTruthy()
+    expect(stale!.status).toBe('warn')
+    expect(Number(stale!.params!.d)).toBe(STALE_AFTER_DAYS + 3)
+  })
+
+  it('egy honap nema idozito mar HIBA, nem figyelmeztetes', () => {
+    expect(upstreamRows(MOST, allapot(45)).find(r => r.id === 'upstream_stale')!.status).toBe('bad')
+  })
+
+  it('ha soha senki nem merte meg, azt is kimondja', () => {
+    // Ez volt a 2026-08-10 elotti allapot: fajl van, iro nincs.
+    expect(upstreamRows(MOST, null).map(r => r.id)).toContain('upstream_unmeasured')
+    expect(upstreamRows(MOST, allapot(3, { checkedAt: null, ageDays: null })).map(r => r.id))
+      .toContain('upstream_unmeasured')
+  })
+
+  it('halozat nelkuli meresre szol, hogy a szam a regi letoltesre igaz', () => {
+    const rows = upstreamRows(MOST, allapot(1, { fetchOk: false }))
+    expect(rows.map(r => r.id)).toContain('upstream_no_fetch')
+    expect(rows.map(r => r.id)).not.toContain('upstream_ok')
+  })
+
+  it('ha eltunik a merest vegzo script, az HIBA', () => {
+    // A legalattomosabb eset: a fajl megmarad, a szam ott all a kartyan, es
+    // soha tobbe nem frissul. Pontosan ez volt az eredeti bug.
+    const rows = upstreamRows(MOST, allapot(1), false)
+    const nw = rows.find(r => r.id === 'upstream_no_writer')
+    expect(nw, 'eltunt iro eseten nem szol').toBeTruthy()
+    expect(nw!.status).toBe('bad')
+    expect(nw!.params!.f).toBe('scripts/upstream-divergence-check.sh')
+  })
+
+  it('a merest vegzo script tenyleg a helyen van', () => {
+    expect(UPSTREAM_WRITER).toBe('scripts/upstream-divergence-check.sh')
+    expect(statSync(join(ROOT, UPSTREAM_WRITER)).isFile()).toBe(true)
+  })
+
+  it('az upstream-sorok tenylegesen bekerulnek az Attekintes onellenorzesebe', () => {
+    const health = readFileSync(join(ROOT, 'src', 'web', 'system-health.ts'), 'utf8')
+    expect(health).toMatch(/backupRows\(now\), \.\.\.upstreamRows\(now\)/)
+    const ids = systemHealth().map(r => r.id)
+    expect(ids.some(i => i.startsWith('upstream_')), 'a systemHealth nem ad upstream sort').toBe(true)
+  })
+
+  it('mind az ot allapotnak van magyar ES angol szovege, teendovel egyutt', () => {
+    for (const id of ['upstream_ok', 'upstream_stale', 'upstream_unmeasured',
+                      'upstream_no_writer', 'upstream_no_fetch']) {
+      for (const [nev, forras] of [['hu', hu], ['en', en]] as const) {
+        expect(forras, `${nev}: hianyzik health.${id}`).toContain(`'health.${id}'`)
+        expect(forras, `${nev}: hianyzik health.${id}_action`).toContain(`'health.${id}_action'`)
+      }
+    }
+    expect(hu).toMatch(/'health\.upstream_stale':\s*'[^']*\{d\}/)
+    expect(hu).toMatch(/'health\.upstream_no_writer':\s*'[^']*\{f\}/)
+  })
+
+  it('a zold osszefoglaloban is ott van a friss meres', () => {
+    expect(app).toContain("health.find(h => h.id === 'upstream_ok')")
+    expect(app).toContain("t('health.upstream_ok'")
+  })
+})
+
+// ===========================================================================
+// Boss, 2026-08-19: "van x osszesen!!! es ebbol az x bol 22 utkozik es 169 nem.
+// [...] de akkor a legelso szamnak kellene lennie a legnagyobbnak." es
+// "112 meg 22 az nem egyenlo 169-el! hogy jon ez a szam ki?"
+//
+// A doboz harom szamot tett egy sorba ugy, mintha egy halmaz reszei lennenek,
+// kozben az elso COMMIT volt, a masik ketto FAJL. Ettol a sor osszeadhatonak
+// latszott, es nem jott ki. A sorrend most: osszeg -> ket resze; a commit-szam
+// kulon sorba kerult, sajat mondattal.
+// ===========================================================================
+describe('a kartya nem kever ossze ket mertekegyseget', () => {
+  it('az elso szam a fajlok OSSZEGE, nem a commit-szam', () => {
+    expect(app).toContain('const total = cleanKnown ? String(conflicts + cleanNum)')
+    const sor = app.slice(app.indexOf('<div class="upstream-sync-row">'))
+    const eleje = sor.slice(0, sor.indexOf('</div>'))
+    expect(eleje.indexOf('${total}'), 'nem a vegosszeg all elol').toBeLessThan(eleje.indexOf('${conflicts}'))
+    expect(eleje.indexOf('${conflicts}')).toBeLessThan(eleje.indexOf('${clean}'))
+    expect(eleje).not.toContain('${behind}')
+  })
+
+  it('a commit-szam kulon sorban all, es kimondja, hogy mas mertekegyseg', () => {
+    expect(app).toContain("t('overview.upstream.commits', { c: behind })")
+    for (const [nev, forras] of [['hu', hu], ['en', en]] as const) {
+      expect(forras, `${nev}: hianyzik a commits kulcs`).toContain("'overview.upstream.commits'")
+      expect(forras, `${nev}: hianyzik a total kulcs`).toContain("'overview.upstream.total'")
+    }
+    expect(hu).toMatch(/'overview\.upstream\.commits':\s*'[^']*\{c\}[^']*mértékegység/)
+  })
+
+  it('a magyarazat LATHATO szoveg, nem tooltip', () => {
+    // Tooltipben allt: a Boss keperolvason es telefonon soha nem latta volna.
+    expect(app).toContain('<div class="upstream-sync-explain">')
+    expect(app).not.toContain('const rowTitle')
   })
 })

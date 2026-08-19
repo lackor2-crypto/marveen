@@ -269,6 +269,16 @@ window._i18n.en = {
   'health.backup_unreadable_action': 'It may be corrupt. Better to find out now than when you need it.',
   'health.secret_in_log':      'Password-like data ended up in {n} log files: {files}',
   'health.secret_in_log_action': 'Logs are readable by anyone on this machine; the secret should not be. Rotate it, or ask me to.',
+  'health.upstream_ok':        '✅ Upstream measurement is fresh — measured {d} days ago.',
+  'health.upstream_ok_action': 'It re-measures weekly, so the card shows a real number instead of an old memory.',
+  'health.upstream_stale':     'The upstream measurement has not refreshed for {d} days.',
+  'health.upstream_stale_action': 'It should run weekly. The number on the card may be that many days behind reality.',
+  'health.upstream_unmeasured': 'Nobody has measured the upstream divergence yet.',
+  'health.upstream_unmeasured_action': 'Without a measurement the card cannot state a number. Say the word and I will run it.',
+  'health.upstream_no_writer': 'The program that does the measuring is gone: {f}',
+  'health.upstream_no_writer_action': 'The number would never update again, while looking just as authoritative. That was exactly the 08-10 bug.',
+  'health.upstream_no_fetch':  'The last upstream measurement could not reach the network.',
+  'health.upstream_no_fetch_action': 'The numbers describe the last fetched state, not the current one.',
   'health.disk_low':           'Disk is filling up: {gb} GB free.',
   'health.disk_low_action':    'When it fills, both the backup and the database break silently.',
   'conn.ov_unreachable':      'I cannot check myself right now.',
@@ -2742,6 +2752,8 @@ window._i18n.en = {
   // Different units on purpose: the first stat counts COMMITS, these two count
   // FILES. Saying "files" keeps the box from reading like three numbers of the
   // same kind that could be subtracted from one another.
+  'overview.upstream.total':   'files touched in total',
+  'overview.upstream.commits': '{c} new upstream commits touch this set of files — commits and files are different units, so they do not add up.',
   'overview.upstream.conflicts': 'conflicting files',
   'overview.upstream.clean':     'files that pull cleanly',
   'overview.upstream.clean_unmeasured': 'The check has not measured this. Better no number than an invented one.',

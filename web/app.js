@@ -16679,6 +16679,11 @@ async function renderOverviewConnections() {
   // egy nema "rendben" ott semmit nem arult volna el.
   const bok = health.find(h => h.id === 'backup_ok')
   if (bok) greenRows.push({ label: t('health.backup_ok', bok.params || {}), desc: t('health.backup_ok_action') })
+  // Ugyanez all az upstream-meresre: eppen az volt a baj, hogy a szam
+  // magabiztosan ott allt, kozben senki nem merte. A zold sor kimondja, hogy
+  // MOST merte valaki, es mikor.
+  const uok = health.find(h => h.id === 'upstream_ok')
+  if (uok) greenRows.push({ label: t('health.upstream_ok', uok.params || {}), desc: t('health.upstream_ok_action') })
   paint(TONES.ok, greenRows)
 }
 
@@ -16931,17 +16936,21 @@ function renderOverviewUpstreamSync(upstreamSync) {
   // A sor egeszehez tartozo magyarazat: kimondja, hogy a commit es a fajl ket
   // kulon mertekegyseg, es osszerakja a ket fajlszamot. Csak akkor all ki, ha
   // a tiszta szam MERT -- kitalalt osszeget nem magyarazunk.
-  const rowTitle = cleanKnown
-    ? ` title="${escapeHtml(t('overview.upstream.explain', {
+  const explain = cleanKnown
+    ? `<div class="upstream-sync-explain">${escapeHtml(t('overview.upstream.explain', {
         c: behind, f: conflicts + cleanNum, x: conflicts, k: cleanNum,
-      }))}"`
+      }))}</div>`
     : ''
+  const total = cleanKnown ? String(conflicts + cleanNum) : '\u2013'
+  const commitLine = `<div class="upstream-sync-commits">${escapeHtml(t('overview.upstream.commits', { c: behind }))}</div>`
   body.innerHTML = `
-    <div class="upstream-sync-row"${rowTitle}>
-      <span class="upstream-stat"><strong>${behind}</strong> ${escapeHtml(t('overview.upstream.new'))}</span>
+    <div class="upstream-sync-row">
+      <span class="upstream-stat"${cleanTitle}><strong>${total}</strong> ${escapeHtml(t('overview.upstream.total'))}</span>
       <span class="upstream-stat ${badgeClass}"><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
       <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
     </div>
+    ${commitLine}
+    ${explain}
     ${pair}
     ${offline}
     ${fileList}

@@ -282,6 +282,16 @@ window._i18n.hu = {
   'health.backup_unreadable_action': 'Lehet, hogy sérült. Jobb most kideríteni, mint amikor szükség lenne rá.',
   'health.secret_in_log':      'Jelszó-jellegű adat került {n} naplófájlba: {files}',
   'health.secret_in_log_action': 'A napló a gépen bárkinek olvasható, a titok nem az volna. Cseréld le, vagy szólj, és megcsinálom.',
+  'health.upstream_ok':        '✅ Az upstream-mérés friss — {d} napja mérve.',
+  'health.upstream_ok_action': 'Hetente automatikusan újramérjük, így a dobozban valódi szám áll, nem egy régi emlék.',
+  'health.upstream_stale':     'Az upstream-mérés {d} napja nem frissült.',
+  'health.upstream_stale_action': 'Hetente kellene futnia. A dobozban látható szám ennyi napja állhat a valóság mellett.',
+  'health.upstream_unmeasured': 'Az upstream-eltérést még senki nem mérte meg.',
+  'health.upstream_unmeasured_action': 'Amíg nincs mérés, a doboz nem tud számot mondani. Szólj, és lefuttatom.',
+  'health.upstream_no_writer': 'Eltűnt a mérést végző program: {f}',
+  'health.upstream_no_writer_action': 'Enélkül a szám soha többé nem frissül, viszont a felületen ugyanolyan magabiztosan áll ott. Pont ez volt a 08. 10-i hiba.',
+  'health.upstream_no_fetch':  'Az utolsó upstream-mérés nem érte el a hálózatot.',
+  'health.upstream_no_fetch_action': 'A számok az utoljára letöltött állapotra igazak, nem a mostanira.',
   'health.disk_low':           'Fogy a lemez: {gb} GB szabad.',
   'health.disk_low_action':    'Ha betelik, a mentés és az adatbázis is csendben elromlik.',
   'conn.ov_unreachable':      'Nem tudom most leellenőrizni magam.',
@@ -2794,6 +2804,8 @@ window._i18n.hu = {
   // A két szám mértékegysége KÜLÖNBÖZŐ: az első commiteket számol, ez a kettő
   // fájlokat. A címkékben ott a "fájl", különben a doboz úgy néz ki, mintha
   // mindhárom szám ugyanabból a fajtából volna, és kivonhatók lennének egymásból.
+  'overview.upstream.total':   'érintett fájl összesen',
+  'overview.upstream.commits': 'Ezt a fájlhalmazt {c} új fejlesztés (commit) érinti — a commit és a fájl két külön mértékegység, ezért nem adódnak össze.',
   'overview.upstream.conflicts': 'ütköző fájl',
   'overview.upstream.clean':     'tisztán áthúzható fájl',
   'overview.upstream.clean_unmeasured': 'Ezt a vizsgálat nem mérte meg. Inkább nem mutatunk számot, mint egy kitaláltat.',
