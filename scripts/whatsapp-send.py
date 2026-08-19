@@ -450,9 +450,34 @@ def main() -> bool:
 
     args = parser.parse_args()
 
-    if PS_EXE is None:
-        print("✗ powershell.exe not found -- Windows automation is unavailable from this shell")
+    def _wa_ut_halott(reason: str) -> bool:
+        """The WhatsApp path cannot be used at all -- fall back to email.
+
+        Boss, 2026-08-16: the message must reach the recipient. Until now these
+        cases (no powershell, app not running) returned False on the spot and
+        never tried the fallback, so a broken WhatsApp meant nobody got
+        anything. Measured on 2026-08-19: powershell.exe was unreachable from
+        WSL, which is exactly this path.
+
+        The probes (--dry-run, --select-only) never send: they exist to report
+        what is broken, and mailing the recipient during a diagnostic would be
+        a surprise.
+        """
+        print(f"✗ WhatsApp path unusable: {reason}")
+        if args.dry_run or args.select_only:
+            return False
+        if args.no_fallback:
+            print("✗ NOT DELIVERED: WhatsApp is unusable and the email fallback is switched off")
+            return False
+        if send_email_fallback(args.message):
+            print(f"⚠ WhatsApp is BROKEN -- delivered by email instead, to {fallback_email()}")
+            return True
+        print("✗ NOT DELIVERED: neither WhatsApp nor email reached the recipient")
         return False
+
+    if PS_EXE is None:
+        return _wa_ut_halott("powershell.exe not found (Windows automation is "
+                             "unavailable from this shell)")
 
     print(f"🔔 WhatsApp send -> contact '{contact_name()}'")
     print(f"   {args.message[:60]}{'...' if len(args.message) > 60 else ''}")
@@ -463,11 +488,9 @@ def main() -> bool:
 
     if not args.skip_launch:
         if not ensure_whatsapp_running():
-            print("✗ WhatsApp is not running; cannot continue")
-            return False
+            return _wa_ut_halott("WhatsApp is not running and could not be started")
     elif not whatsapp_is_running():
-        print("✗ --skip-launch was given but WhatsApp is not running")
-        return False
+        return _wa_ut_halott("--skip-launch was given but WhatsApp is not running")
 
     for attempt in range(1, args.retries + 1):
         print(f"\n📨 attempt {attempt}/{args.retries}...")
@@ -482,21 +505,11 @@ def main() -> bool:
             print(f"  retrying in {wait_time}s...")
             time.sleep(wait_time)
 
-    print(f"\n✗ WhatsApp failed {args.retries}x")
-    if args.dry_run or args.select_only:
-        return False
-    if not args.no_fallback:
-        # The fallback now SENDS (Boss 2026-08-16). So True here means the
-        # recipient genuinely has the message and this run counts as delivered
-        # -- but by email, not WhatsApp, and that difference must be visible in
-        # the log or a permanently broken WhatsApp would never be noticed.
-        if send_email_fallback(args.message):
-            print(f"⚠ WhatsApp is BROKEN -- delivered by email instead, to {fallback_email()}")
-            return True
-        print("✗ NOT DELIVERED: neither WhatsApp nor email reached the recipient")
-        return False
-
-    return False
+    # The fallback SENDS (Boss 2026-08-16), so a True from here means the
+    # recipient genuinely has the message -- by email, not WhatsApp, and that
+    # difference stays visible in the output, or a permanently broken WhatsApp
+    # would never be noticed.
+    return _wa_ut_halott(f"the send failed {args.retries}x")
 
 
 if __name__ == "__main__":
