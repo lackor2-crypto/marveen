@@ -122,6 +122,26 @@ fi
 if [[ -d "${HOME}/Library/LaunchAgents" ]]; then
   ( cd "${HOME}" && find Library/LaunchAgents -maxdepth 1 -name "com.${MAIN_AGENT_ID}.*.plist" -print ) >> "${HOMELIST}"
 fi
+# systemd user units -- the Linux half of the launchd block above, which was
+# missing. Measured 2026-08-19 on this install: 30+ hand-written unit files
+# (dashboard, channels, backup timer, watchdogs, morning run) and NOT ONE of
+# them was in the archive. A restore would have brought the data back with
+# nothing scheduled to act on it -- including the timer that makes the next
+# backup. The *.d drop-ins carry the environment overrides, and the
+# *.wants/ entries carry which units are ENABLED; both are copied as-is
+# (cp -pR keeps symlinks as symlinks, verified), so enablement survives.
+if [[ -d "${HOME}/.config/systemd/user" ]]; then
+  # Three shapes, all needed: the unit files themselves; the drop-in .conf
+  # files, which sit INSIDE <unit>.d/ and are named freely (override.conf,
+  # cooldown.conf) so they need a -path match, not a -name one; and the
+  # *.target.wants/ symlinks that record enablement.
+  ( cd "${HOME}" && find .config/systemd/user -maxdepth 2 \
+      \( -name "${MAIN_AGENT_ID}-*.service" -o -name "${MAIN_AGENT_ID}-*.timer" \
+         -o -name "${MAIN_AGENT_ID}-*.socket" \
+         -o -path ".config/systemd/user/${MAIN_AGENT_ID}-*.d/*.conf" \
+         -o -path ".config/systemd/user/*.wants/${MAIN_AGENT_ID}-*" \) \
+      -print ) >> "${HOMELIST}"
+fi
 
 if [[ ! -s "${REPOLIST}" && ! -s "${HOMELIST}" ]]; then
   echo "backup: nothing to archive" >&2

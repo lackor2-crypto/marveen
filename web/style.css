@@ -827,6 +827,11 @@ main {
 .upstream-stat.upstream-badge-ok strong { color: var(--success, #2e9e5b); }
 .upstream-conflict-files { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); }
 .upstream-conflict-files li { font-family: var(--font-mono, monospace); }
+.upstream-sync-pair { margin-top: 8px; font-size: 12px; color: var(--text-muted); font-family: var(--font-mono, monospace); }
+.upstream-sync-offline { margin-top: 6px; font-size: 12px; color: var(--danger); }
+/* Az elavult meres datuma nem sulyog egyszinben a frissel: ha a szamok nem a
+   mai valosagot mutatjak, azt latni kell a szam MELLETT, nem csak tudni. */
+.upstream-meta-stale { color: var(--danger); font-weight: 600; }
 .overview-ratelimit-bars {
   display: flex;
   flex-direction: column;

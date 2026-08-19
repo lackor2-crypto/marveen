@@ -16875,9 +16875,26 @@ function renderOverviewUpstreamSync(upstreamSync) {
   }
   box.hidden = false
   const locale = (window._lang === 'en') ? 'en-US' : 'hu-HU'
-  meta.textContent = upstreamSync.checkedAt
+  // A datum onmagaban nem mondja meg, hogy REGI-e.
+  //
+  // A 2026-08-10-i meres kilenc napig allt itt "08. 10. 03:21" felirattal, es
+  // a kilencedik napon ugyanolyan hitelesnek latszott, mint az elsoen -- pedig
+  // addigra a 63-bol 111 lett. Ezert all a datum mellett a KORA is, tiz nap
+  // (ket kihagyott heti futas) folott pedig kiirjuk, hogy elavult.
+  const age = Number.isFinite(Number(upstreamSync.ageDays)) && upstreamSync.ageDays !== null
+    ? Number(upstreamSync.ageDays)
+    : null
+  const stamp = upstreamSync.checkedAt
     ? new Date(upstreamSync.checkedAt).toLocaleString(locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     : ''
+  let metaText = stamp
+  if (age !== null) {
+    const ageText = age === 0 ? t('overview.upstream.age_today') : t('overview.upstream.age', { d: age })
+    metaText = stamp ? `${stamp} · ${ageText}` : ageText
+    if (age > 10) metaText += ` · ${t('overview.upstream.stale')}`
+  }
+  meta.textContent = metaText
+  meta.classList.toggle('upstream-meta-stale', age !== null && age > 10)
   const behind = upstreamSync.behindCount ?? 0
   const conflicts = upstreamSync.conflictCount ?? upstreamSync.conflictingFiles.length
   // A harmadik szam MERT ertek, nem szamtani trukk.
@@ -16899,12 +16916,34 @@ function renderOverviewUpstreamSync(upstreamSync) {
   const fileList = upstreamSync.conflictingFiles.length
     ? `<ul class="upstream-conflict-files">${upstreamSync.conflictingFiles.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>`
     : ''
+  // Mihez kepest? A szamok csak akkor ellenorizhetok, ha kiirjuk, melyik ket
+  // pontot vetettuk ossze: a sajat agunkat es az upstream fejlesztoi agat
+  // (itt upstream/develop, nem a main -- a ketto kozott most 23 commit a
+  // kulonbseg, tehat nem mindegy).
+  const pair = (upstreamSync.localRef && upstreamSync.upstreamRef)
+    ? `<div class="upstream-sync-pair">${escapeHtml(t('overview.upstream.pair', { local: upstreamSync.localRef, upstream: upstreamSync.upstreamRef }))}</div>`
+    : ''
+  // Ha a meres nem ert el a halozathoz, az upstream oldal az utolso letoltott
+  // allapot -- a szamok ekkor is igazak, csak nem a MOSTANI upstreamre.
+  const offline = (upstreamSync.fetchOk === false)
+    ? `<div class="upstream-sync-offline">${escapeHtml(t('overview.upstream.no_fetch'))}</div>`
+    : ''
+  // A sor egeszehez tartozo magyarazat: kimondja, hogy a commit es a fajl ket
+  // kulon mertekegyseg, es osszerakja a ket fajlszamot. Csak akkor all ki, ha
+  // a tiszta szam MERT -- kitalalt osszeget nem magyarazunk.
+  const rowTitle = cleanKnown
+    ? ` title="${escapeHtml(t('overview.upstream.explain', {
+        c: behind, f: conflicts + cleanNum, x: conflicts, k: cleanNum,
+      }))}"`
+    : ''
   body.innerHTML = `
-    <div class="upstream-sync-row">
+    <div class="upstream-sync-row"${rowTitle}>
       <span class="upstream-stat"><strong>${behind}</strong> ${escapeHtml(t('overview.upstream.new'))}</span>
       <span class="upstream-stat ${badgeClass}"><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
       <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
     </div>
+    ${pair}
+    ${offline}
     ${fileList}
   `
 }

@@ -2744,7 +2744,13 @@ window._i18n.en = {
   // same kind that could be subtracted from one another.
   'overview.upstream.conflicts': 'conflicting files',
   'overview.upstream.clean':     'files that pull cleanly',
-  'overview.upstream.clean_unmeasured': 'The monthly check has not measured this yet. Better no number than an invented one.',
+  'overview.upstream.clean_unmeasured': 'The check has not measured this. Better no number than an invented one.',
+  'overview.upstream.explain':   'Those {c} commits touch {f} files in total: {x} of them clash with our own changes and {k} pull cleanly. Commits and files are different units, which is why they cannot be subtracted from one another.',
+  'overview.upstream.age':       'measured {d} days ago',
+  'overview.upstream.age_today': 'measured today',
+  'overview.upstream.stale':     'OUT OF DATE - the weekly check has not run',
+  'overview.upstream.pair':      'compared: {local} vs {upstream}',
+  'overview.upstream.no_fetch':  'The upstream side was not refreshed (no network), so this compares against the last fetched state.',
   // --- Overview: rate-limit / usage-window widget (kanban ef06b18d) ---
   'overview.ratelimit.title':        'Usage limit',
   'overview.ratelimit.five_hour':    '5-hour window',

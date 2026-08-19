@@ -2786,13 +2786,23 @@ window._i18n.hu = {
   'overview.meta.live':          'élő állapot',
   // --- Overview: upstream-sync widget (kanban 37489d5e) ---
   'overview.upstream.title':     'Upstream szinkron',
-  'overview.upstream.new':       'új fejlesztés az upstreamben',
+  // A "(commit)" nem szőrözés: a Boss 2026-08-19-én pont ezen akadt fenn --
+  // "63 fejlesztésből 110 tisztán áthúzható??? fizikailag lehetetlen". Nem az
+  // volt, mert a 63 commit összesen 191 fájlt érint, de amíg a mértékegység
+  // csak a MÁSIK két címkében állt ott, a sor tényleg olvashatatlan volt.
+  'overview.upstream.new':       'új fejlesztés (commit)',
   // A két szám mértékegysége KÜLÖNBÖZŐ: az első commiteket számol, ez a kettő
   // fájlokat. A címkékben ott a "fájl", különben a doboz úgy néz ki, mintha
   // mindhárom szám ugyanabból a fajtából volna, és kivonhatók lennének egymásból.
   'overview.upstream.conflicts': 'ütköző fájl',
   'overview.upstream.clean':     'tisztán áthúzható fájl',
-  'overview.upstream.clean_unmeasured': 'A havi vizsgálat ezt még nem mérte meg. Inkább nem mutatunk számot, mint egy kitaláltat.',
+  'overview.upstream.clean_unmeasured': 'Ezt a vizsgálat nem mérte meg. Inkább nem mutatunk számot, mint egy kitaláltat.',
+  'overview.upstream.explain':   'A {c} commit összesen {f} fájlt érint: ebből {x} ütközik a saját változtatásainkkal, {k} pedig tisztán áthúzható. A commit és a fájl két külön mértékegység, ezért nem vonhatók ki egymásból.',
+  'overview.upstream.age':       '{d} napja mérve',
+  'overview.upstream.age_today': 'ma mérve',
+  'overview.upstream.stale':     'ELAVULT — a heti vizsgálat nem futott le',
+  'overview.upstream.pair':      'összevetve: {local} ↔ {upstream}',
+  'overview.upstream.no_fetch':  'Az upstream oldala nem frissült (nem volt hálózat), a szám az utoljára letöltött állapothoz mér.',
   // --- Overview: rate-limit / usage-window widget (kanban ef06b18d) ---
   'overview.ratelimit.title':        'Keret-figyelő',
   'overview.ratelimit.five_hour':    '5 órás keret',
