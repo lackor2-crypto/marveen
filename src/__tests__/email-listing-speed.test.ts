@@ -230,3 +230,23 @@ describe('elore-melegites: az elso 20 level teste, de sose a Boss ele', () => {
     expect(body.includes('/api/email/attachment')).toBe(false)
   })
 })
+
+describe('boritek-fejlecek: az imapflow mar kesz sztringet ad', () => {
+  const body = blokk(IMAP_SRC, 'export async function listEnvelopesDirect(')
+
+  it('a targyat NEM kodolja ujra latin1->utf8 (ez tette tonkre az ekezeteket)', () => {
+    // Boss, 2026-08-19: 'az osszes levelben elromlott a karakter kodolas'.
+    // A Jolan 'a'-jabol U+FFFD lett, a gondolatjelbol (U+2013) 0x13.
+    expect(body.includes('Buffer.from(env.subject'), 'ez volt a hiba').toBe(false)
+    expect(body.includes("const subject = env.subject || '(no subject)'")).toBe(true)
+  })
+
+  it('a felado nevet sem kodolja ujra', () => {
+    expect(body.includes('Buffer.from(a.name')).toBe(false)
+    expect(body.includes('name: a.name || null')).toBe(true)
+  })
+
+  it('a cimet a.address-bol veszi -- a mailbox+host paros mindig ures volt', () => {
+    expect(body.includes('email: a.address ||'), 'kulonben minden sor ismeretlen felado').toBe(true)
+  })
+})

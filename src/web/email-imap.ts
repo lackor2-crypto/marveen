@@ -924,8 +924,11 @@ export async function listEnvelopesDirect(
       const parseAddresses = (addrs: any[]): Array<{ name: string | null; email: string }> => {
         if (!addrs) return []
         return addrs.map(a => ({
-          name: a.name ? Buffer.from(a.name, 'binary').toString('utf8') : null,
-          email: a.mailbox && a.host ? `${a.mailbox}@${a.host}` : ''
+          name: a.name || null,
+          // Az imapflow a cimet KESZEN adja (a.address); a mailbox+host paros a
+          // nyers IMAP-valasz alakja, es itt MINDIG ures volt -- emiatt a lista
+          // minden sora ismeretlen feladot mutatott volna.
+          email: a.address || (a.mailbox && a.host ? a.mailbox + '@' + a.host : '')
         })).filter(a => a.email)
       }
 
@@ -943,7 +946,12 @@ export async function listEnvelopesDirect(
       const messageId = env.messageId || `no-message-id-${uid}`
 
       // Extract subject
-      const subject = env.subject ? Buffer.from(env.subject, 'binary').toString('utf8') : '(no subject)'
+      // Az imapflow a MIME-kodolt fejlecet (=?ISO-8859-2?Q?...?=) MAR kesz JS
+      // sztringkent adja. A regi latin1->utf8 ujrakodolas ezt szetverte:
+      // Jolan ekezetes betuje U+FFFD lett, a gondolatjel (U+2013) pedig a 0x13
+      // vezerlokarakter. Csak azert nem latszott, mert ez az ut eddig minden
+      // mappara elhasalt (parseImapFlags), es a himalaya vette at.
+      const subject = env.subject || '(no subject)'
 
       // Parse from/to
       const from = parseAddresses(env.from)
