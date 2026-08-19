@@ -202,13 +202,61 @@ window._i18n.en = {
   'mconn.goto_agents':        'Go to the agents',
 
   // --- Overview card (click-through into settings) ---
-  'conn.ov_title':            'Connections',
+  // Not "Connections" any more (Boss, 2026-08-19): the card does not list
+  // connections, it says whether everything works and what to do when it
+  // doesn't. "Self-check" also says it runs on its own.
+  'conn.ov_title':            'Self-check',
   'conn.ov_google_broken':    '{n} Google account has expired access — mail/Drive/calendar don\'t work for it.',
   'conn.ov_mcp_login':        '{n} connectors are switched on at claude.ai but still need permission on this machine.',
   'conn.ov_google_none':      'No Google address connected yet — so I can\'t see your mail, Drive or calendar.',
   'conn.ov_mcp_broken':       '{n} connectors are broken.',
   'conn.ov_ok':               'All connections are fine.',
   'conn.ov_action':           'Fix it',
+  'conn.ov_checking':         'Checking…',
+
+  // --- Walkthrough for expired access ---
+  'guide.title':              'Expired access — I\'ll walk you through it',
+  'guide.title_expired':      '{name} — access expired, I\'ll walk you through it',
+  'guide.title_soon':         '{name} — expiring soon, I\'ll walk you through it',
+  'guide.tab_quick':          'Quick fix (2 minutes)',
+  'guide.tab_permanent':      'Permanent fix',
+  'guide.lead_quick':         'This gets {name} working again right now. Note: it will expire again in 7 days — for a permanent fix see the other tab.',
+  'guide.lead_permanent':     'Your Google app is in "Testing" status, and Google then drops access every 7 days by design. Publishing the app stops that. Your project lives in Google Cloud; the steps take you there.',
+
+  'guide.quick_1':            'Open the <b>Accounts</b> page.',
+  'guide.quick_2':            'Find this account in the list: <b>{name}</b>.',
+  'guide.quick_3':            'Press <span class="guide-lit">Reconnect</span> in its row and sign in in the Google window that opens. <span class="guide-step-note">If Google says "This app isn\'t verified", press <span class="guide-lit">Advanced</span> and then the "Go to…" link — this is your own app.</span>',
+  'guide.quick_4':            'Come back here and press <span class="guide-lit">Check it now</span> below. I will verify it really worked.',
+  'guide.quick_open_btn':     'Open the Accounts page',
+
+  'guide.legacy_1':           'This credential drives <b>sending mail</b> (the email that goes out when WhatsApp is unavailable). It is not in the accounts list and has to be renewed separately.',
+  'guide.legacy_2':           'Open the <b>Accounts</b> page and reconnect the Google account you send mail from.',
+  'guide.legacy_3':           'If sending still fails afterwards, tell me — the legacy token file has to be refreshed from that new sign-in by me. <span class="guide-step-note">This is the only step you cannot finish on your own.</span>',
+
+  'guide.perm_1':             'Open your Google Cloud settings with the button below. Sign in with the Google account that created the app.',
+  'guide.perm_open_btn':      'Open Google Cloud',
+  'guide.perm_2':             'Find the <span class="guide-lit">Publishing status</span> row. It currently says <span class="guide-lit">Testing</span>.',
+  'guide.perm_3':             'Press <span class="guide-lit">PUBLISH APP</span>, then <span class="guide-lit">Confirm</span> in the dialog.',
+  'guide.perm_4':             'If Google offers "verification", you can ignore it — your own accounts keep working. The "not verified" warning at sign-in stays, but access will <b>no longer expire every 7 days</b>.',
+  'guide.perm_5':             'Finally, <b>reconnect the account once</b> on the Accounts page (the steps on the "Quick fix" tab). Access that was already issued keeps its old deadline — only a sign-in made after publishing gets non-expiring access.',
+
+  'guide.check_btn':          'Check it now',
+  'guide.done_btn':           'Done',
+  'guide.checking':           'Checking…',
+  'guide.verify_ok':          '✅ Good: {name} has live access, {d} days until the next expiry.',
+  'guide.verify_gone':        '✅ Good: this credential no longer has an expiry date — that is exactly what publishing achieves.',
+  'guide.verify_still_expired': '⚠️ {name} access is still expired. The reconnect did not complete — go through the "Quick fix" steps again and finish the sign-in in the Google window.',
+  'guide.verify_still_soon':  '⚠️ {name} access still expires in {d} days. If you just reconnected, that is normal (7 days is the maximum in Testing) — the "Permanent fix" tab removes it.',
+  // Always name the credential: with ten addresses connected, "an account
+  // expired" is not something anyone can act on.
+  'conn.ov_expired':          '{name}: access has EXPIRED ({d} days ago) — sending mail, Drive and calendar do not work with it.',
+  'conn.ov_expires_soon':     '{name}: access expires in {d} days.',
+  'conn.ov_expired_action':   'What to do: click here, then reconnect this account on the Accounts page (Google sign-in in the browser).',
+  'conn.ov_all_ok':           '✅ Everything is fine — just checked.',
+  'conn.ov_all_ok_detail':    '{n} credentials are live, the next expiry is in {d} days. If anything breaks, it shows up here.',
+  'conn.ov_all_ok_plain':     'Nothing to do. If anything breaks, it shows up here.',
+  'conn.ov_unreachable':      'I cannot check myself right now.',
+  'conn.ov_unreachable_action': 'What to do: reload the page. If it stays like this, the Marveen service is not running — restart it.',
 
   // What each connector actually gives you, in the operator's words.
   'conn.what.drive':          'Agents can see and open your files in Drive.',

@@ -107,8 +107,12 @@ describe('a /api/connections/summary utvonal', () => {
   })
 
   it('de NEM szamolja bele a tier-be', () => {
-    const tier = /tier: googlebroken[\s\S]*?,\n/i.exec(route)?.[0]
-      ?? /tier: googleBroken[\s\S]*?'none',/.exec(route)?.[0] ?? ''
+    // A tier-szamitas a legrosszabb allapotnal kezdodik es a legjobbnal ('ok')
+    // zarul. Korabban a `googleBroken` szora horgonyzott ez a minta, de a
+    // legrosszabb ag azota zarojelbe kerult (a lejart hitelesites is ide
+    // tartozik), es a horgony csendben elvesztette a blokkot -- a teszt
+    // "megtalaltam es rendben van" helyett "nem talaltam"-ot merte volna.
+    const tier = /tier: [\s\S]*?'ok',/.exec(route)?.[0] ?? ''
     expect(tier.length, 'nem talaltam meg a tier-szamitast').toBeGreaterThan(10)
     expect(tier).not.toContain('agentManaged')
   })

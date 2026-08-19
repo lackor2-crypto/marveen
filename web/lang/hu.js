@@ -211,13 +211,65 @@ window._i18n.hu = {
   'mconn.goto_agents':        'Ugrás az ügynökökhöz',
 
   // --- Attekintes-kartya (innen kattint at a beallitasokba) ---
-  'conn.ov_title':            'Kapcsolatok',
+  // A kartya neve mar nem "Kapcsolatok" (Boss, 2026-08-19): a doboz nem a
+  // kapcsolatok listaja, hanem azt mondja meg, MUKODIK-E minden, es mit kell
+  // tenni, ha nem. Az "Onellenorzes" azt is jelzi, hogy magatol fut.
+  'conn.ov_title':            'Önellenőrzés',
   'conn.ov_google_broken':    '{n} Google-fiók hozzáférése lejárt — a levél/Drive/naptár nem működik nála.',
   'conn.ov_mcp_login':        '{n} kapcsolat be van kapcsolva a claude.ai-on, de ezen a gépen még engedélyt kér.',
   'conn.ov_google_none':      'Még egy Google-cím sincs bekötve — így nem látom a leveleidet, a Drive-odat és a naptáradat.',
   'conn.ov_mcp_broken':       '{n} kapcsolat hibás.',
   'conn.ov_ok':               'Minden kapcsolat rendben.',
   'conn.ov_action':           'Rendbe teszem',
+  'conn.ov_checking':         'Ellenőrzés folyamatban…',
+
+  // --- Vegigvezeto a lejart hitelesiteshez ---
+  // Minden lepes EGY dolgot ker, es azt mondja meg, amit a kepernyon lat.
+  'guide.title':              'Lejárt hozzáférés — végigvezetlek',
+  'guide.title_expired':      '{name} — lejárt hozzáférés, végigvezetlek',
+  'guide.title_soon':         '{name} — hamarosan lejár, végigvezetlek',
+  'guide.tab_quick':          'Gyors megoldás (2 perc)',
+  'guide.tab_permanent':      'Végleges megoldás',
+  'guide.lead_quick':         'Ezzel most újra működni fog a(z) {name}. Fontos: ez 7 nap múlva megint le fog járni — ha végleg meg akarod oldani, nézd meg a másik fület is.',
+  'guide.lead_permanent':     'A Google-alkalmazásod „teszt” állapotban van, és a Google ilyenkor 7 naponta kötelezően eldobja a hozzáférést. Ha „élesre” állítod, ez megszűnik. A projekted a Google Cloudban van, a lépések oda visznek.',
+
+  'guide.quick_1':            'Nyisd meg a <b>Fiókok</b> oldalt.',
+  'guide.quick_2':            'Keresd meg a listában ezt a fiókot: <b>{name}</b>.',
+  'guide.quick_3':            'A sorában nyomd meg az <span class="guide-lit">Újracsatlakoztatás</span> gombot, és a megnyíló Google-ablakban jelentkezz be. <span class="guide-step-note">Ha a Google azt írja, hogy „Ez az alkalmazás nincs ellenőrizve”, nyomd meg a <span class="guide-lit">Speciális</span> / <span class="guide-lit">Advanced</span> feliratot, majd a <span class="guide-lit">Tovább…</span> linket — a saját alkalmazásodról van szó.</span>',
+  'guide.quick_4':            'Gyere vissza ide, és nyomd meg lent a <span class="guide-lit">Most ellenőrizd le</span> gombot. Én megnézem, tényleg rendben van-e.',
+  'guide.quick_open_btn':     'Fiókok oldal megnyitása',
+
+  // A regi, egyfiokos token: ezt a levelkuldes hasznalja, es NEM all a Fiokok
+  // oldal listajaban -- ha ugyanazt a lepest irnank neki, egy nem letezo sort
+  // keresne.
+  'guide.legacy_1':           'Ez a hozzáférés a <b>levélküldést</b> hajtja (ezen megy ki a WhatsApp helyett a tartalék e-mail). Nem szerepel a fiókok listájában, külön kell megújítani.',
+  'guide.legacy_2':           'Nyisd meg a <b>Fiókok</b> oldalt, és csatlakoztasd újra azt a Google-fiókot, amelyikről a leveleket küldöd.',
+  'guide.legacy_3':           'Ha a levélküldés utána sem megy, szólj nekem — a régi token fájlját nekem kell frissítenem az új bejelentkezésből. <span class="guide-step-note">Ez az egyetlen lépés, amit nem tudsz egyedül befejezni.</span>',
+
+  'guide.perm_1':             'Nyisd meg a Google Cloud beállításait az alábbi gombbal. Azzal a Google-fiókkal jelentkezz be, amelyikkel az alkalmazást létrehoztad.',
+  'guide.perm_open_btn':      'Google Cloud megnyitása',
+  'guide.perm_2':             'Keresd meg a <span class="guide-lit">Közzétételi állapot</span> / <span class="guide-lit">Publishing status</span> sort. Most ez áll ott: <span class="guide-lit">Tesztelés</span> / <span class="guide-lit">Testing</span>.',
+  'guide.perm_3':             'Nyomd meg az <span class="guide-lit">Alkalmazás közzététele</span> / <span class="guide-lit">PUBLISH APP</span> gombot, majd a felugró ablakban a <span class="guide-lit">Megerősítés</span> / <span class="guide-lit">Confirm</span> gombot.',
+  'guide.perm_4':             'Ha a Google ellenőrzést („verification”) ajánl fel, nyugodtan hagyd figyelmen kívül — a saját fiókjaid továbbra is működnek. A bejelentkezéskor megjelenő „nincs ellenőrizve” figyelmeztetés marad, de a hozzáférés többé <b>nem jár le 7 naponta</b>.',
+  'guide.perm_5':             'Végül <b>egyszer még csatlakoztasd újra a fiókot</b> a Fiókok oldalon (a „Gyors megoldás” fül lépései szerint). A már kiadott hozzáférés ugyanis a saját régi határidejével él tovább — csak az élesítés utáni új bejelentkezés kap le nem járó hozzáférést.',
+
+  'guide.check_btn':          'Most ellenőrizd le',
+  'guide.done_btn':           'Kész',
+  'guide.checking':           'Ellenőrzöm…',
+  'guide.verify_ok':          '✅ Rendben: a(z) {name} hozzáférése él, a következő lejáratig {d} nap van.',
+  'guide.verify_gone':        '✅ Rendben: ennek a hozzáférésnek már nincs lejárati ideje — pontosan ez az élesítés célja.',
+  'guide.verify_still_expired': '⚠️ A(z) {name} hozzáférése még mindig lejárt. Az újracsatlakoztatás nem fejeződött be — menj végig újra a „Gyors megoldás” lépésein, és a Google-ablakban vidd végig a bejelentkezést.',
+  'guide.verify_still_soon':  '⚠️ A(z) {name} hozzáférése {d} nap múlva továbbra is lejár. Ha most csatlakoztattad újra, ez normális (teszt állapotban 7 nap a maximum) — a „Végleges megoldás” fül szünteti meg.',
+  // A lejaratot mindig NEVVEL mondjuk: tiz bekotott cimnel a "egy fiok lejart"
+  // nem olyan mondat, amivel barmit lehet kezdeni.
+  'conn.ov_expired':          '{name}: a hozzáférés LEJÁRT ({d} napja) — a levélküldés, a Drive és a naptár nem működik vele.',
+  'conn.ov_expires_soon':     '{name}: a hozzáférés {d} nap múlva lejár.',
+  'conn.ov_expired_action':   'Teendő: kattints ide, a Fiókok oldalon csatlakoztasd újra ezt a fiókot (Google-bejelentkezés a böngészőben).',
+  'conn.ov_all_ok':           '✅ Minden rendben — most ellenőriztem.',
+  'conn.ov_all_ok_detail':    '{n} hozzáférés él, a legközelebbi lejárat {d} nap múlva. Ha bármi elromlik, itt fog megjelenni.',
+  'conn.ov_all_ok_plain':     'Nincs semmi teendőd. Ha bármi elromlik, itt fog megjelenni.',
+  'conn.ov_unreachable':      'Nem tudom most leellenőrizni magam.',
+  'conn.ov_unreachable_action': 'Teendő: frissítsd az oldalt. Ha így is ez marad, a Marveen szolgáltatás nem fut — indítsd újra.',
 
   // Mit ad egy-egy kapcsolat -- a felhasznalo szavaival, nem a szolgaltatasnevvel.
   'conn.what.drive':          'Az ügynökök látják és megnyitják a Drive-ban lévő fájljaidat.',

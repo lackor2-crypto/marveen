@@ -356,9 +356,16 @@
            viszont ELROMLIK menet kozben (lejar egy Google-token, uj gepen meg
            nincs engedelyezve a connector) -- ezert kell akkor is latszania,
            amikor a telepites reg kesz. Kattintasra a Fiokok oldalra visz. -->
-      <div class="overview-capabilities" id="overviewConnections" hidden>
-        <div class="overview-capabilities-title" data-i18n="conn.ov_title">Kapcsolatok</div>
-        <div class="overview-capabilities-list" id="overviewConnectionsList"></div>
+      <div class="overview-capabilities" id="overviewConnections">
+        <div class="overview-capabilities-title" data-i18n="conn.ov_title">Önellenőrzés</div>
+        <!-- Nem ures es nem "hidden": ha a rajzolo valamiert le sem fut, a
+             kartya AKKOR IS lathato marad, es azt mondja, hogy eppen ellenoriz
+             -- nem tunik el nyomtalanul (Boss, 2026-08-19). -->
+        <div class="overview-capabilities-list" id="overviewConnectionsList">
+          <div class="overview-capability-item">
+            <div class="overview-capability-label" data-i18n="conn.ov_checking">Ellenőrzés folyamatban…</div>
+          </div>
+        </div>
       </div>
       <div class="overview-card overview-ratelimit" id="overviewRateLimit" hidden>
         <div class="overview-card-head">
@@ -4276,6 +4283,32 @@
         <p class="modal-desc" style="text-align:center" data-i18n="mobile_login.desc">Olvasd be a kódot a telefonod kamerájával. A dashboard megnyílik és bejelentkezve marad — újra belépni nem kell.</p>
         <div id="mobileLoginQr" class="mobile-login-qr"></div>
         <p class="mobile-login-warn" data-i18n="mobile_login.warn">A kód a hozzáférési tokent tartalmazza. Csak a saját eszközöddel olvasd be, ne oszd meg és ne fotózd le másnak.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Onellenorzes -> vegigvezeto. Ket ut egy ablakban: a GYORS (most ujra
+       csatlakoztatjuk a fiokot) es a VEGLEGES (a Google-alkalmazas elesitese,
+       ami utan nem jar le hetente). A lepeseket az app.js tolti fel, hogy a
+       fiok neve es a projekt azonositoja benne legyen a szovegben. -->
+  <div class="modal-overlay" id="selfCheckGuideOverlay" hidden>
+    <div class="modal-content" style="max-width:620px">
+      <div class="modal-header">
+        <h3 id="selfCheckGuideTitle" data-i18n="guide.title">Lejárt hozzáférés — végigvezetlek</h3>
+        <button class="modal-close" id="selfCheckGuideClose" aria-label="Bezárás">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="guide-tabs" id="selfCheckGuideTabs">
+          <button class="guide-tab active" data-guide="quick" data-i18n="guide.tab_quick">Gyors megoldás (2 perc)</button>
+          <button class="guide-tab" data-guide="permanent" data-i18n="guide.tab_permanent">Végleges megoldás</button>
+        </div>
+        <p class="modal-desc" id="selfCheckGuideLead"></p>
+        <ol class="guide-steps" id="selfCheckGuideSteps"></ol>
+        <div class="guide-result" id="selfCheckGuideResult" hidden></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="selfCheckGuideCheck" data-i18n="guide.check_btn">Most ellenőrizd le</button>
+        <button class="btn-primary" id="selfCheckGuideDone" data-i18n="guide.done_btn">Kész</button>
       </div>
     </div>
   </div>

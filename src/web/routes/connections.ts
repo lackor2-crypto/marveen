@@ -38,6 +38,7 @@ import {
   invalidateGoogleProbe,
 } from '../google-auth-runner.js'
 import { suggestAccountId } from '../google-accounts.js'
+import { credentialExpiries, worstExpiryStatus } from '../credential-expiry.js'
 import {
   mcpStatus,
   refreshMcpStatus,
@@ -212,6 +213,13 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
     // address that used to work has stopped. An unchecked account is not a
     // problem, it is just unchecked, and must not be counted as broken.
     const googleBroken = google.filter(a => a.checkedAt !== null && a.error !== null).length
+    // The clock half. `broken` above is what a live probe already SAW fail;
+    // this is what WILL fail on a date, and it is the only half that can warn
+    // while there is still time to act. Both are needed: measured 2026-08-19,
+    // every probe was green while the token the mail sender actually reads had
+    // been dead for two days.
+    const expiry = credentialExpiries()
+    const expiryWorst = worstExpiryStatus(expiry)
     json(res, {
       google: {
         total: google.length,
@@ -226,14 +234,34 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
         agentManaged: mcp.agentManaged,
         refreshing: mcp.refreshing,
       },
+      // What expires and when, healthy items included -- Boss, 2026-08-19:
+      // "ha nincs semmi baj akkor azt is irja ki". The card states the good
+      // case out loud, so an empty card never has to be interpreted.
+      // A Cloud Console projekt NEVE (nem hitelesito adat), hogy a
+      // vegigvezeto pontosan arra a projektre tudjon linkelni, amelyiket
+      // elesiteni kell -- ne kelljen a usernek projektet keresgelnie.
+      projectId: googleOauthProjectId(),
+      expiry: {
+        worst: expiryWorst,
+        soonest: expiry.length ? expiry[expiry.length - 1].daysLeft : null,
+        items: expiry.map(e => ({
+          id: e.id, label: e.label, status: e.status, daysLeft: e.daysLeft,
+          expiresAt: e.expiresAt,
+        })),
+      },
       // Worst thing worth saying, so the card can colour itself without the
       // browser re-deriving the rule. A connector that merely needs a sign-in
       // is a missed capability, not a broken install -- alarm colours spent on
-      // convenience teach the operator to ignore alarm colours.
-      tier: googleBroken > 0 ? 'recommended'
+      // convenience teach the operator to ignore alarm colours. An EXPIRED
+      // credential ranks with a failed probe: it is the same outage, just
+      // caught by the clock instead of by a call.
+      tier: (googleBroken > 0 || expiryWorst === 'expired') ? 'recommended'
         : mcp.needsLogin > 0 ? 'recommended'
           : (google.length === 0 && googleOauthClientPresent()) ? 'extra'
-            : mcp.broken > 0 ? 'extra' : 'none',
+            : (mcp.broken > 0 || expiryWorst === 'soon') ? 'extra'
+              // 'ok' is a real, rendered state now, not a reason to hide: the
+              // card stays on the Overview and says everything works.
+              : 'ok',
     })
     return true
   }

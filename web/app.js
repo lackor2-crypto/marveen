@@ -16545,53 +16545,305 @@ function renderConnectionsPanel() {
   _mconnLoadStatus(false)
 }
 
-// The Overview half: connections BREAK on their own (a Google token expires, a
-// connector was never authorized on this machine), which is why this is a card
-// of its own rather than a line in the install wizard -- the wizard is about
-// one-off setup and goes quiet once done. Click-through lands on the page that
-// can actually fix it.
+// A vegigvezeto allapota. SZANDEKOSAN a rajzolo fuggveny ELOTT all: `let`
+// eseten a deklaracio elotti hasznalat nem undefined, hanem kivetel (TDZ), es
+// az Attekintes rajzolasa barmikor elindulhat -- egy kesobbi `let` egy
+// korabban futo rajzolasnal az egesz kartyat kiloné.
+let _selfCheckProjectId = null
+let _selfCheckGuideTarget = null
+let _selfCheckGuideTab = 'quick'
+
+// The Overview self-check. Connections BREAK on their own (a Google token
+// expires, a connector was never authorized on this machine), which is why this
+// is a card of its own rather than a line in the install wizard -- the wizard is
+// about one-off setup and goes quiet once done.
+//
+// Boss, 2026-08-19: "csinald ugy hogy allandoan megjelenjen az attekintes
+// menupont alatt. ne tunjon el. ha nincs semmi baj akkor azt is irja ki."
+// So the card NEVER hides. A card that vanishes when healthy is unreadable in
+// the only way that matters: you cannot tell "everything is fine" from "the
+// check is broken" or "the check never ran", and the operator is left guessing
+// at a blank spot. It now has a green state, and even the unreachable case is
+// stated instead of hidden. Click-through lands on the page that can fix it.
 async function renderOverviewConnections() {
   const box = document.getElementById('overviewConnections')
   const list = document.getElementById('overviewConnectionsList')
   if (!box || !list) return
+
+  // Tones. Amber = something is out; grey = worth knowing; green = checked and
+  // fine. Same scale as the setup card on purpose: two cards on one screen
+  // shouting in two colour languages is how colour stops meaning anything.
+  const TONES = {
+    recommended: { bg: '#f59e0b', fg: '#111', descFg: 'rgba(0,0,0,.75)', itemBg: 'rgba(255,255,255,.45)', border: 'none' },
+    extra: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', descFg: 'var(--text-muted)', itemBg: 'rgba(127,127,127,.12)', border: '1px solid var(--border)' },
+    ok: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', descFg: 'var(--text-muted)', itemBg: 'rgba(34,197,94,.14)', border: '1px solid rgba(34,197,94,.45)' },
+  }
+
+  const paint = (tone, rows) => {
+    box.hidden = false
+    box.style.background = tone.bg
+    box.style.border = tone.border
+    const titleEl = box.querySelector('.overview-capabilities-title')
+    if (titleEl) titleEl.style.color = tone.fg
+    // A lejarat-sorok NEM a Fiokok oldalra dobjak a felhasznalot, hanem
+    // megnyitjak a vegigvezetot (Boss, 2026-08-19: "megnyom egy gombot es
+    // vegigvezeti ezen a folyamaton a usert"). Az odadobas ugyanis pont a
+    // nehez reszt hagyja ra: ott all az oldalon, es nem tudja, mit nyomjon.
+    list.innerHTML = rows.map(r => `<a href="#" class="overview-capability-item"
+        style="background:${tone.itemBg};color:${tone.fg}"
+        ${r.guide
+          ? `onclick="openSelfCheckGuide(${JSON.stringify(r.guide).replace(/"/g, '&quot;')});return false"`
+          : 'onclick="switchPage(\'accounts\');return false"'}>
+        <div class="overview-capability-label">${escapeHtml(r.label)}</div>
+        <div class="overview-capability-desc" style="color:${tone.descFg}">${escapeHtml(r.desc)}</div>
+      </a>`).join('')
+  }
+
   let d
   try {
     const res = await fetch('/api/connections/summary')
     if (!res.ok) throw new Error('fetch failed')
     d = await res.json()
-  } catch { box.hidden = true; return }
+  } catch {
+    // Say it. A silent card here would read exactly like a healthy one.
+    paint(TONES.extra, [{ label: t('conn.ov_unreachable'), desc: t('conn.ov_unreachable_action') }])
+    return
+  }
 
   // An older dashboard build behind a newer page (or the other way round) must
   // not throw here: the Overview is the first thing the operator sees.
-  if (!d || !d.google || !d.mcp || d.tier === 'none') { box.hidden = true; list.innerHTML = ''; return }
+  if (!d || !d.google || !d.mcp) {
+    paint(TONES.extra, [{ label: t('conn.ov_unreachable'), desc: t('conn.ov_unreachable_action') }])
+    return
+  }
 
-  // Same tone scale as the setup card, on purpose: two cards on one screen
-  // shouting in two different colour languages is how colour stops meaning
-  // anything. Amber = a capability you are missing; grey = worth knowing.
-  const TONE = {
-    recommended: { bg: '#f59e0b', fg: '#111', descFg: 'rgba(0,0,0,.75)', itemBg: 'rgba(255,255,255,.45)' },
-    extra: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', descFg: 'var(--text-muted)', itemBg: 'rgba(127,127,127,.12)' },
-  }[d.tier] || null
-  if (!TONE) { box.hidden = true; return }
+  // A vegigvezeto ebbol tudja, melyik Cloud Console projektre linkeljen.
+  _selfCheckProjectId = d.projectId || null
 
-  const lines = []
-  if (d.google.broken > 0) lines.push(t('conn.ov_google_broken', { n: d.google.broken }))
-  if (d.mcp.needsLogin > 0) lines.push(t('conn.ov_mcp_login', { n: d.mcp.needsLogin }))
-  if (d.google.total === 0 && d.google.clientPresent) lines.push(t('conn.ov_google_none'))
-  if (d.mcp.broken > 0) lines.push(t('conn.ov_mcp_broken', { n: d.mcp.broken }))
-  if (!lines.length) { box.hidden = true; return }
+  const rows = []
+  const act = t('conn.ov_action')
+  if (d.google.broken > 0) rows.push({ label: t('conn.ov_google_broken', { n: d.google.broken }), desc: act })
+  if (d.mcp.needsLogin > 0) rows.push({ label: t('conn.ov_mcp_login', { n: d.mcp.needsLogin }), desc: act })
+  if (d.google.total === 0 && d.google.clientPresent) rows.push({ label: t('conn.ov_google_none'), desc: act })
+  if (d.mcp.broken > 0) rows.push({ label: t('conn.ov_mcp_broken', { n: d.mcp.broken }), desc: act })
 
-  box.hidden = false
-  box.style.background = TONE.bg
-  box.style.border = d.tier === 'extra' ? '1px solid var(--border)' : 'none'
-  const titleEl = box.querySelector('.overview-capabilities-title')
-  if (titleEl) titleEl.style.color = TONE.fg
-  list.innerHTML = lines.map(line => `<a href="#" class="overview-capability-item"
-      style="background:${TONE.itemBg};color:${TONE.fg}"
-      onclick="switchPage('accounts');return false">
-      <div class="overview-capability-label">${escapeHtml(line)}</div>
-      <div class="overview-capability-desc" style="color:${TONE.descFg}">${escapeHtml(t('conn.ov_action'))}</div>
-    </a>`).join('')
+  // The clock. Each expiring credential gets its OWN line with its own name:
+  // with ten addresses connected, "egy fiók lejárt" is not something you can
+  // act on. The description is the instruction, not a restatement.
+  const exp = (d.expiry && Array.isArray(d.expiry.items)) ? d.expiry.items : []
+  for (const item of exp) {
+    if (item.status === 'expired') {
+      rows.push({
+        label: t('conn.ov_expired', { name: item.label, d: Math.abs(item.daysLeft) }),
+        desc: t('conn.ov_expired_action'),
+        guide: { id: item.id, label: item.label, status: item.status },
+      })
+    } else if (item.status === 'soon') {
+      rows.push({
+        label: t('conn.ov_expires_soon', { name: item.label, d: Math.max(0, item.daysLeft) }),
+        desc: t('conn.ov_expired_action'),
+        guide: { id: item.id, label: item.label, status: item.status },
+      })
+    }
+  }
+
+  if (rows.length) {
+    paint(TONES[d.tier] || TONES.extra, rows)
+    return
+  }
+
+  // Nothing wrong -- and that gets SAID, with the numbers behind it, so the
+  // green line is evidence rather than reassurance.
+  const okCount = exp.filter(e => e.status === 'ok').length
+  paint(TONES.ok, [{
+    label: t('conn.ov_all_ok'),
+    desc: okCount
+      ? t('conn.ov_all_ok_detail', { n: okCount, d: Math.max(0, Math.min(...exp.map(e => e.daysLeft))) })
+      : t('conn.ov_all_ok_plain'),
+  }])
+}
+
+// === Onellenorzes -> vegigvezeto ===========================================
+//
+// Boss, 2026-08-19: "vegig kell vezetni a folyamaton. [...] ha kiirja ezt a
+// hianyossagot, akkor ott megnyom egy gombot es vegigvezeti ezen a folyamaton a
+// usert." Egy "Teendo: csatlakoztasd ujra" mondat epp a nehez reszt hagyja a
+// felhasznalora. Ket ut van, es MINDKETTO kell:
+//
+//   GYORS      -- most ujra csatlakoztatjuk a fiokot. Egy hetig ujra megy.
+//   VEGLEGES   -- a Google-alkalmazas "Testing" allapotbol "Production"-ba
+//                 teteles ("elesites"). Testing alatt a Google 7 naponta
+//                 KOTELEZOEN eldobja a tokent (refresh_token_expires_in:
+//                 604799), tehat amig ez all, hetente ujra ide jutunk.
+//
+// A ket ut nem alternativa: az elesites utan is kell EGY ujracsatlakoztatas,
+// mert a mar kiadott token a sajat regi hataridejevel el tovabb. Ez a
+// vegigvezetoben ki is van irva, kulonben a user elesit, majd ket nap mulva
+// megint itt all, es azt hiszi, nem mukodott.
+function _guideOverlay() { return document.getElementById('selfCheckGuideOverlay') }
+
+/** A Cloud Console pontosan arra a projektre nyilik, amelyiket eleziteni kell. */
+function _guideConsoleUrl() {
+  return _selfCheckProjectId
+    ? `https://console.cloud.google.com/auth/audience?project=${encodeURIComponent(_selfCheckProjectId)}`
+    : 'https://console.cloud.google.com/auth/audience'
+}
+
+function _guideSteps() {
+  // A lepesszovegek HTML-kent kerulnek be (gombfeliratokat emelnek ki), ezert a
+  // fiok neve -- az egyetlen nem-forditasbol jovo darab -- escape-elve megy.
+  const name = escapeHtml(_selfCheckGuideTarget ? _selfCheckGuideTarget.label : '')
+  // A REGI, egyfiokos token nem a Fiokok oldal listajaban all: azt a
+  // levelkuldes hasznalja, es sajat parancs ujitja meg. Ha ezt osszemosnank a
+  // tobbivel, a user a Fiokok oldalon keresne egy sort, ami ott nincs.
+  const legacy = !!(_selfCheckGuideTarget && _selfCheckGuideTarget.id === 'google:legacy')
+  if (_selfCheckGuideTab === 'permanent') {
+    return [
+      { html: t('guide.perm_1'), btn: { label: t('guide.perm_open_btn'), href: _guideConsoleUrl() } },
+      { html: t('guide.perm_2') },
+      { html: t('guide.perm_3') },
+      { html: t('guide.perm_4') },
+      { html: t('guide.perm_5') },
+    ]
+  }
+  return legacy
+    ? [
+      { html: t('guide.legacy_1') },
+      { html: t('guide.legacy_2'), btn: { label: t('guide.quick_open_btn'), page: 'accounts' } },
+      { html: t('guide.legacy_3') },
+      { html: t('guide.quick_4') },
+    ]
+    : [
+      { html: t('guide.quick_1', { name }), btn: { label: t('guide.quick_open_btn'), page: 'accounts' } },
+      { html: t('guide.quick_2', { name }) },
+      { html: t('guide.quick_3') },
+      { html: t('guide.quick_4') },
+    ]
+}
+
+function _renderGuide() {
+  const lead = document.getElementById('selfCheckGuideLead')
+  const stepsEl = document.getElementById('selfCheckGuideSteps')
+  const result = document.getElementById('selfCheckGuideResult')
+  if (!lead || !stepsEl) return
+  result.hidden = true
+  result.className = 'guide-result'
+  document.querySelectorAll('#selfCheckGuideTabs .guide-tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.guide === _selfCheckGuideTab)
+  })
+  const name = _selfCheckGuideTarget ? _selfCheckGuideTarget.label : ''
+  lead.textContent = _selfCheckGuideTab === 'permanent'
+    ? t('guide.lead_permanent')
+    : t('guide.lead_quick', { name })
+  stepsEl.innerHTML = _guideSteps().map((s) => {
+    let btn = ''
+    if (s.btn && s.btn.href) {
+      btn = `<a class="btn-primary" href="${escapeHtml(s.btn.href)}" target="_blank" rel="noopener">${escapeHtml(s.btn.label)}</a>`
+    } else if (s.btn && s.btn.page) {
+      btn = `<button class="btn-primary" onclick="switchPage('${s.btn.page}')">${escapeHtml(s.btn.label)}</button>`
+    }
+    // A lepesszoveg forditasbol jon (nem felhasznaloi adat), es <b>/<span>
+    // jeloli benne a kepernyon lathato gombfeliratot -- ezert megy be HTML-kent.
+    return `<li>${s.html}${btn ? `<div>${btn}</div>` : ''}</li>`
+  }).join('')
+}
+
+function openSelfCheckGuide(target) {
+  _selfCheckGuideTarget = target || null
+  _selfCheckGuideTab = 'quick'
+  const titleEl = document.getElementById('selfCheckGuideTitle')
+  if (titleEl) {
+    titleEl.textContent = (target && target.status === 'soon')
+      ? t('guide.title_soon', { name: target.label })
+      : t('guide.title_expired', { name: target ? target.label : '' })
+  }
+  _renderGuide()
+  const ov = _guideOverlay()
+  if (!ov) return
+  ov.hidden = false
+  ov.classList.add('active')
+  document.body.style.overflow = 'hidden'
+}
+
+function closeSelfCheckGuide() {
+  const ov = _guideOverlay()
+  if (!ov) return
+  ov.hidden = true
+  ov.classList.remove('active')
+  document.body.style.overflow = ''
+}
+
+/**
+ * A zaro lepes: NEM elhisszuk, hogy sikerult, hanem ujra megkerdezzuk a
+ * szervert, es AZT mondjuk vissza, amit lat. Enelkul a vegigvezeto vege egy
+ * "kesz vagy!" lenne, ami akkor is megjelenik, ha semmi nem valtozott.
+ */
+async function selfCheckGuideVerify() {
+  const result = document.getElementById('selfCheckGuideResult')
+  if (!result) return
+  result.hidden = false
+  result.className = 'guide-result'
+  result.textContent = t('guide.checking')
+  let d
+  try {
+    const res = await fetch('/api/connections/summary')
+    if (!res.ok) throw new Error('fetch failed')
+    d = await res.json()
+  } catch {
+    result.className = 'guide-result bad'
+    result.textContent = t('conn.ov_unreachable')
+    return
+  }
+  const items = (d && d.expiry && Array.isArray(d.expiry.items)) ? d.expiry.items : []
+  const mine = _selfCheckGuideTarget
+    ? items.find((i) => i.id === _selfCheckGuideTarget.id)
+    : null
+  // Frissitjuk a kartyat is: a vegigvezeto es az Attekintes nem allithat ket
+  // kulonbozot ugyanarrol a pillanatrol.
+  renderOverviewConnections()
+  if (!mine) {
+    // Eltunt a listabol: nincs mar hatarideje (pl. elesitett app utan kiadott,
+    // nem lejaro token) -- ez jo hir, de nem hallgatjuk el, hogy MIERT jo.
+    result.className = 'guide-result good'
+    result.textContent = t('guide.verify_gone')
+    return
+  }
+  if (mine.status === 'ok') {
+    result.className = 'guide-result good'
+    result.textContent = t('guide.verify_ok', { name: mine.label, d: Math.max(0, mine.daysLeft) })
+  } else {
+    result.className = 'guide-result bad'
+    result.textContent = mine.status === 'expired'
+      ? t('guide.verify_still_expired', { name: mine.label })
+      : t('guide.verify_still_soon', { name: mine.label, d: Math.max(0, mine.daysLeft) })
+  }
+}
+
+function _wireSelfCheckGuide() {
+  const ov = _guideOverlay()
+  if (!ov) return
+  document.getElementById('selfCheckGuideClose').addEventListener('click', closeSelfCheckGuide)
+  document.getElementById('selfCheckGuideDone').addEventListener('click', closeSelfCheckGuide)
+  document.getElementById('selfCheckGuideCheck').addEventListener('click', selfCheckGuideVerify)
+  ov.addEventListener('click', (e) => { if (e.target === ov) closeSelfCheckGuide() })
+  document.getElementById('selfCheckGuideTabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('.guide-tab')
+    if (!btn) return
+    _selfCheckGuideTab = btn.dataset.guide
+    _renderGuide()
+  })
+  // Az Esc a tobbi ablakot a .active osztaly levetelevel zarja; ez az ablak
+  // [hidden]-nel is rejtozik, ezert kulon kell kezelni, kulonben a bezaras utan
+  // egy lathatatlan, de kattintast nyelo reteg maradna a kepernyon.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !ov.hidden) closeSelfCheckGuide()
+  })
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _wireSelfCheckGuide)
+} else {
+  _wireSelfCheckGuide()
 }
 
 function renderOverviewUpstreamSync(upstreamSync) {
