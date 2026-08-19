@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { simpleParser } from 'mailparser'
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml'
 import { readBody, json } from '../http-helpers.js'
+import { cacheGet, cacheGetStale, cacheSet, refreshInBackground, singleFlight } from '../email-list-cache.js'
+import { readAttachmentFlags, saveAttachmentFlags } from '../email-attachment-flag-store.js'
+import type { CacheEntry } from '../email-list-cache.js'
 import { logger } from '../../logger.js'
 import { readMessageBodyDirect, messageStillExists, listMailboxesDirect, listEnvelopesDirect, checkImapAccountConfig, declareSniffedHtmlCharset, resolveSpecialMailboxes } from '../email-imap.js'
 import type { MailboxRole } from '../email-imap.js'
@@ -120,10 +123,33 @@ const TRANSIENT_RETRY_BASE_MS = 400
 function isTransientImapError(text: string): boolean {
   return /resource temporarily unavailable|os error 11/i.test(text)
 }
+// himalaya `--json` modban a HIBAT is a stdoutra irja ({"error":"..."}), es
+// ilyenkor a stderr URES -- amit viszont a himalayaOnce fallback szovege
+// ("Command failed ... (1)") tolt ki, tehat a `stderr || stdout` sorrend
+// SOSE latta a valodi hibauzenetet. Merve 2026-08-19: a Kuka listazasa igy
+// "Command failed"-kent bukott el a felhasznalonak, pedig a mar ismert
+// atmeneti "Resource temporarily unavailable (os error 11)" volt, amire epp
+// van ujraprobalkozas -- csak nem ismertuk fel. Ezert a valodi hibaszoveget
+// mostantol innen kell kerni, es MINDKET csatornat nezzuk.
+export function himalayaErrorText(r: HimalayaResult): string {
+  // Csak ertelmes meretu kimenetet probalunk JSON-kent olvasni: hiba eseten a
+  // stdout rovid, de egy felig sikerult letoltes akar tobb tiz MB is lehet.
+  if (r.stdout && r.stdout.length < 64 * 1024) {
+    try {
+      const parsed = JSON.parse(r.stdout)
+      if (parsed && typeof parsed === 'object' && typeof (parsed as { error?: unknown }).error === 'string') {
+        const text = (parsed as { error: string }).error
+        if (text) return text
+      }
+    } catch { /* nem JSON -- marad a stderr */ }
+  }
+  return r.stderr || r.stdout || 'himalaya failed'
+}
+
 async function himalayaRead(args: string[]): Promise<HimalayaResult> {
   let attempt = await himalayaOnce(args)
   for (let i = 0; i < TRANSIENT_RETRY_ATTEMPTS; i++) {
-    if (attempt.ok || !isTransientImapError(attempt.stderr || attempt.stdout)) break
+    if (attempt.ok || !isTransientImapError(himalayaErrorText(attempt))) break
     const delay = TRANSIENT_RETRY_BASE_MS * 2 ** i + Math.random() * 200
     await new Promise(r => setTimeout(r, delay))
     attempt = await himalayaOnce(args)
@@ -451,19 +477,44 @@ function normalizeThreadSubject(subject: string): string {
 // affected (account, mailbox) entry rather than waiting out the TTL.
 const MAILBOX_LIST_TTL_MS = 5 * 60_000
 const ENVELOPE_LIST_TTL_MS = 20_000
-type CacheEntry<T> = { data: T; expires: number }
+
+// A Sent-boritekok (a valasz-testverekhez) egyetlen himalaya-hivas, viszont
+// hideg kapcsolattal ez elesben 5,7 mp volt -- ennyit varakozott a mar kesz
+// levellista a kepernyon kivul (Boss, 2026-08-19: "a masodik oszlop sem
+// toltodik be hamar"). A lista mostmar nem var ra, de a hivas maga is
+// megkapja ugyanazt a kezelest, mint a boritek-lista: rovid TTL, azon tul
+// elavult-de-azonnali valasz + hatterben frissites. Egy percnel frissebb Sent
+// lista boven eleg ahhoz, hogy a sajat valaszok a szal ala kerulhessenek.
+
+// "Elavult, de AZONNAL" -- a TTL lejarta utan sem dobjuk el a listat rogton.
+//
+// Boss, 2026-08-19: "az emailnal az elso oszlop es masodik oszlop sem
+// toltodik be hamar. csak nagyon sokara. sokat kell varni ra." Merve
+// ugyanaznap, a valodi bongeszo-hullamkepbol: a mappalista 22 ms (cache-bol),
+// a levellista 4607 ms. A kulonbseg oka NEM a lekerdezes maga -- egy MELEG
+// IMAP-kapcsolaton egy friss oldal 0,12 mp --, hanem a HIDEG kapcsolat:
+// 5 perc utan a kapcsolatkezelo elengedi a socketet, es a kovetkezo kattintas
+// fizeti ki ujra a TLS + bejelentkezes arat (2,3-4,6 mp, fiokfuggo).
+//
+// Ezert a TTL utan is kiadjuk a legutobbi listat -- azonnal --, es a friss
+// valtozat a HATTERBEN erkezik meg a cache-be (Boss: "ami nem fontos azt a
+// hatterben kesobb is be lehet tolteni"). A valasz `X-Marveen-Stale: 1`
+// fejlecet kap, amirol a frontend tudja, hogy egy pillanat mulva erdemes
+// meg egyszer, csendben elkernie.
+//
+// A ket ablak azert kulonbozik, mert mast kockaztat. A mappalista csak
+// cimke-letrehozaskor/torleskor valtozik -- azt a ket utvonal amugy is
+// explicit uriti --, tehat ott egy nap is biztonsagos. A levellista viszont
+// uj levellel es minden mozgatassal valtozik, ott fel ora a hatar: azon tul
+// inkabb varjon a felhasznalo, mint hogy egy fel napos listat lasson.
+const MAILBOX_STALE_MAX_MS = 24 * 60 * 60_000
+const ENVELOPE_STALE_MAX_MS = 30 * 60_000
+const SENT_ENVELOPE_TTL_MS = 60_000
+const SENT_ENVELOPE_STALE_MAX_MS = 30 * 60_000
 const mailboxListCache = new Map<string, CacheEntry<unknown[]>>()
+const sentEnvelopeCache = new Map<string, CacheEntry<{ mailbox: string; envelopes: SentEnvelope[] }>>()
 const envelopeListCache = new Map<string, CacheEntry<unknown[]>>()
 
-function cacheGet<T>(cache: Map<string, CacheEntry<T>>, key: string): T | undefined {
-  const entry = cache.get(key)
-  if (!entry) return undefined
-  if (Date.now() > entry.expires) { cache.delete(key); return undefined }
-  return entry.data
-}
-function cacheSet<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T, ttlMs: number): void {
-  cache.set(key, { data, expires: Date.now() + ttlMs })
-}
 // Envelope list is paginated (`-p`) -- a mutation doesn't know which page(s)
 // the frontend currently has open, so every cached page for this
 // (account, mailbox) is dropped rather than tracking pages individually.
@@ -471,6 +522,175 @@ function invalidateEnvelopeCache(account: string, mailbox: string): void {
   const prefix = `${account}::${mailbox}::`
   for (const key of envelopeListCache.keys()) {
     if (key.startsWith(prefix)) envelopeListCache.delete(key)
+  }
+}
+
+// A ket lista TENYLEGES lekerese, a valaszadastol elvalasztva: pontosan
+// ugyanez fut a felhasznalo varakoztatasakor es a hatter-frissiteskor is.
+// Ha a ketto kulon kodon menne, a hatterben mas lista allna elo, mint amit a
+// blokkolo ag ad -- pont az a fajta elteres, amit senki sem venne eszre.
+type MailboxFetch = { ok: true; mailboxes: unknown[] } | { ok: false; error: string }
+type SentEnvelope = { id: string; subject?: string; date: string; from?: Array<{ email?: string }>; to?: Array<{ name?: string | null; email?: string }>; flags?: Array<{ iana?: string }>; 'message-id'?: string }
+
+async function fetchSentEnvelopes(account: string): Promise<{ ok: boolean; mailbox: string; envelopes: SentEnvelope[] }> {
+  return singleFlight(`sent-envelopes::${account}`, () => fetchSentEnvelopesOnce(account))
+}
+
+async function fetchSentEnvelopesOnce(account: string): Promise<{ ok: boolean; mailbox: string; envelopes: SentEnvelope[] }> {
+  const mailbox = await mailboxFor(account, 'sent')
+  const r = await himalayaRead(['-a', account, 'envelope', 'list', '-m', mailbox, '-p', '1', '-s', '50', '--json'])
+  if (!r.ok) return { ok: false, mailbox, envelopes: [] }
+  // Hibas JSON eseten inkabb "nincs testver", mint elszallo levellista.
+  try { return { ok: true, mailbox, envelopes: JSON.parse(r.stdout).envelopes || [] } } catch { return { ok: false, mailbox, envelopes: [] } }
+}
+
+async function loadSentEnvelopes(account: string): Promise<{ mailbox: string; envelopes: SentEnvelope[] }> {
+  const cached = cacheGet(sentEnvelopeCache, account)
+  if (cached) return cached
+  const stale = cacheGetStale(sentEnvelopeCache, account, SENT_ENVELOPE_STALE_MAX_MS)
+  if (stale) {
+    refreshInBackground(`sent-envelopes::${account}`, async () => {
+      const fresh = await fetchSentEnvelopes(account)
+      if (fresh.ok) cacheSet(sentEnvelopeCache, account, { mailbox: fresh.mailbox, envelopes: fresh.envelopes }, SENT_ENVELOPE_TTL_MS, SENT_ENVELOPE_STALE_MAX_MS)
+    })
+    return stale
+  }
+  const fetched = await fetchSentEnvelopes(account)
+  if (fetched.ok) cacheSet(sentEnvelopeCache, account, { mailbox: fetched.mailbox, envelopes: fetched.envelopes }, SENT_ENVELOPE_TTL_MS, SENT_ENVELOPE_STALE_MAX_MS)
+  return { mailbox: fetched.mailbox, envelopes: fetched.envelopes }
+}
+
+// A levellista cache-kulcsa. Egy helyen szamoljuk, mert az elomelegites es a
+// kiszolgalo kulonben eltero kulcsra irhatna/olvashatna -- az ilyen elteres
+// nema: nem hibazik, csak sosem talal.
+function envelopeCacheKeyFor(account: string, mailbox: string, page: number, query: string, promoOnly: boolean): string {
+  return `${account}::${mailbox}::${page}::${query}::${mailbox === 'Inbox' ? (promoOnly ? 'promo' : 'nopromo') : 'all'}`
+}
+
+// A Fontos-jelzo NEM IMAP-flag, hanem egy Gmail-cimke: hogy egy level fontos-e,
+// azt csak ugy tudjuk meg, ha kilistazzuk a Fontos mappat -- egy teljes IMAP
+// bejelentkezes. A frontend viszont oldalankent TOBBSZOR is kerdez (az elso
+// rajzolasra, majd a Sent-testverek uj soraira), a nema ujratoltes pedig
+// megegyszer: merve 2026-08-19-en ez 4 hivas volt egy oldalbetoltesre,
+// egyenkent 0,9-1,9 masodperc, mikozben a szerver egy szalon szolgal ki
+// mindent. A lista tartalma percekig alig valtozik, tehat ugyanaz a
+// "lejart-de-meg-jo" tar jar neki, mint az Elkuldott-listanak.
+const IMPORTANT_ENVELOPE_TTL_MS = 30_000
+// Szandekosan rovid stale-ablak: a csillagot MASHOL is at lehet allitani (a
+// telefon Gmail-alkalmazasaban), es azt a valtozast a dashboard csak a
+// kovetkezo lekereskor latja. 30 mp friss + legfeljebb 2 perc "regi, de meg
+// kiadhato" -- eleg ahhoz, hogy egy oldalbetoltes negy kerdese egy IMAP
+// lekerest jelentsen, de nem eleg ahhoz, hogy sokaig hazudjon.
+const IMPORTANT_ENVELOPE_STALE_MAX_MS = 2 * 60_000
+const importantEnvelopeCache = new Map<string, CacheEntry<string[]>>()
+
+async function fetchImportantMessageIds(account: string): Promise<{ ok: boolean; messageIds: string[] }> {
+  return singleFlight(`important-envelopes::${account}`, () => fetchImportantMessageIdsOnce(account))
+}
+
+async function fetchImportantMessageIdsOnce(account: string): Promise<{ ok: boolean; messageIds: string[] }> {
+  const mailbox = await mailboxFor(account, 'important')
+  const r = await himalayaRead(['-a', account, 'envelope', 'list', '-m', mailbox, '-p', '1', '-s', '50', '--json'])
+  if (!r.ok) return { ok: false, messageIds: [] }
+  try {
+    const envelopes = (JSON.parse(r.stdout).envelopes || []) as Array<{ 'message-id'?: string }>
+    return { ok: true, messageIds: envelopes.map(e => e['message-id']).filter((m): m is string => typeof m === 'string') }
+  } catch { return { ok: false, messageIds: [] } }
+}
+
+async function loadImportantMessageIds(account: string): Promise<string[]> {
+  const cached = cacheGet(importantEnvelopeCache, account)
+  if (cached) return cached
+  const stale = cacheGetStale(importantEnvelopeCache, account, IMPORTANT_ENVELOPE_STALE_MAX_MS)
+  if (stale) {
+    refreshInBackground(`important-envelopes::${account}`, async () => {
+      const fresh = await fetchImportantMessageIds(account)
+      if (fresh.ok) cacheSet(importantEnvelopeCache, account, fresh.messageIds, IMPORTANT_ENVELOPE_TTL_MS, IMPORTANT_ENVELOPE_STALE_MAX_MS)
+    })
+    return stale
+  }
+  const fetched = await fetchImportantMessageIds(account)
+  if (fetched.ok) cacheSet(importantEnvelopeCache, account, fetched.messageIds, IMPORTANT_ENVELOPE_TTL_MS, IMPORTANT_ENVELOPE_STALE_MAX_MS)
+  return fetched.messageIds
+}
+
+/** A jelzo BEALLITASA utan a tar azonnal ervenytelen -- kulonben a csillag
+ *  visszaugrana a kovetkezo rajzolaskor. */
+function invalidateImportantFlagCache(account: string): void {
+  importantEnvelopeCache.delete(account)
+}
+
+async function fetchMailboxList(account: string): Promise<MailboxFetch> {
+  return singleFlight(`mailbox-list::${account}`, () => fetchMailboxListOnce(account))
+}
+
+async function fetchMailboxListOnce(account: string): Promise<MailboxFetch> {
+  // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
+  const direct = await listMailboxesDirect(account)
+  if (direct) return { ok: true, mailboxes: direct }
+  const r = await himalayaRead(['-a', account, 'mailbox', 'list', '--json'])
+  if (!r.ok) {
+    logger.warn(`[email] mailbox list failed: ${himalayaErrorText(r)}`)
+    return { ok: false, error: himalayaErrorText(r) }
+  }
+  try {
+    const parsed = JSON.parse(r.stdout)
+    return { ok: true, mailboxes: parsed.mailboxes || [] }
+  } catch {
+    return { ok: false, error: 'unparseable himalaya output' }
+  }
+}
+
+type EnvelopeFetch = { ok: true; envelopes: unknown[] } | { ok: false; error: string }
+async function fetchEnvelopeList(
+  account: string,
+  mailbox: string,
+  page: number,
+  pageSize: number,
+  query: string,
+  promoOnly: boolean,
+): Promise<EnvelopeFetch> {
+  const key = `envelope-list::${envelopeCacheKeyFor(account, mailbox, page, query, promoOnly)}::${pageSize}`
+  return singleFlight(key, () => fetchEnvelopeListOnce(account, mailbox, page, pageSize, query, promoOnly))
+}
+
+async function fetchEnvelopeListOnce(
+  account: string,
+  mailbox: string,
+  page: number,
+  pageSize: number,
+  query: string,
+  promoOnly: boolean,
+): Promise<EnvelopeFetch> {
+  // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
+  const direct = await listEnvelopesDirect(account, mailbox, page, pageSize, query || undefined)
+  if (direct) {
+    let envelopes: unknown[] = direct
+    if (mailbox === 'Inbox') {
+      const applied = await applyInboxRules(account, envelopes, promoOnly, !query)
+      envelopes = applied.list
+      if (applied.movedToSpam > 0) invalidateEnvelopeCache(account, 'Inbox')
+    }
+    return { ok: true, envelopes }
+  }
+  const envelopeCommand = query ? ['envelope', 'search'] : ['envelope', 'list']
+  const searchArgs = query ? buildHimalayaSearchArgs(query) : []
+  const r = await himalayaRead(['-a', account, ...envelopeCommand, '-m', mailbox, '-p', String(page), '-s', String(pageSize), '--json', ...searchArgs])
+  if (!r.ok) {
+    logger.warn(`[email] envelope list failed (${mailbox}): ${himalayaErrorText(r)}`)
+    return { ok: false, error: himalayaErrorText(r) }
+  }
+  try {
+    const parsed = JSON.parse(r.stdout)
+    let envelopes: unknown[] = parsed.envelopes || []
+    if (mailbox === 'Inbox') {
+      const applied = await applyInboxRules(account, envelopes, promoOnly, !query)
+      envelopes = applied.list
+      if (applied.movedToSpam > 0) invalidateEnvelopeCache(account, 'Inbox')
+    }
+    return { ok: true, envelopes }
+  } catch {
+    return { ok: false, error: 'unparseable himalaya output' }
   }
 }
 
@@ -519,7 +739,7 @@ async function applyInboxRules(
       if (!id) continue
       const r = await himalaya(['-a', account, 'message', 'move', id, '-f', 'Inbox', '-t', spamMailbox])
       if (r.ok) { movedIds.add(id); movedToSpam++ }
-      else logger.warn(`[email] spam-szabaly mozgatas nem sikerult (${id}): ${r.stderr || r.stdout}`)
+      else logger.warn(`[email] spam-szabaly mozgatas nem sikerult (${id}): ${himalayaErrorText(r)}`)
     }
     if (movedToSpam > 0) invalidateEnvelopeCache(account, spamMailbox)
     if (movedIds.size > 0) list = list.filter((e) => !movedIds.has(String((e as { id?: unknown }).id ?? '')))
@@ -580,16 +800,25 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
       // -- a bare TTL alone wasn't enough, this was well inside the window).
       // Only a CONFIRMED-gone result evicts the entry; any other outcome
       // (timeout, connection blip) trusts the cache exactly like before.
-      if (await messageStillExists(account, mailbox, id)) {
-        // Bump recency: delete + re-set moves it to the end of Map's
-        // insertion order, which the eviction below reads as "most recently
-        // used".
-        messageBodyCache.delete(cacheKey)
-        messageBodyCache.set(cacheKey, cached)
-        return cached.data
-      }
+      // ...de a probat MAR NEM A FELHASZNALO FIZETI KI. Merve 2026-08-19: egy
+      // mar cache-elt level teste is 0,6-2,5 mp-et varakozott, es a teljes ido
+      // ez az egy IMAP-korut volt (Boss: "a level teste betoltesere meg mindig
+      // kicsit varni kell"). A kesz test tehat AZONNAL kimegy, a proba pedig a
+      // hatterben fut: ha kiderul, hogy a level mar nincs, a bejegyzes kiesik,
+      // es a kovetkezo megnyitas mondja meg, hogy elerhetetlen -- az eredeti
+      // eset (Gmail-ben torolt level F5 utan is latszott) igy sem ter vissza,
+      // mert az F5 utani megnyitas mar a kiurult cache-t talalja.
+      // Bump recency: delete + re-set moves it to the end of Map's
+      // insertion order, which the eviction below reads as "most recently
+      // used".
       messageBodyCache.delete(cacheKey)
-      return { error: 'A levél már nem érhető el.', notFound: true }
+      messageBodyCache.set(cacheKey, cached)
+      void (async () => {
+        try {
+          if (!(await messageStillExists(account, mailbox, id))) messageBodyCache.delete(cacheKey)
+        } catch { /* halozati zavar: a cache-t valtozatlanul hagyjuk, mint eddig */ }
+      })()
+      return cached.data
     }
     messageBodyCache.delete(cacheKey)
     // Expired -- fall through and re-fetch fresh instead of trusting a body
@@ -660,7 +889,7 @@ async function readMessageBody(account: string, mailbox: string, id: string): Pr
     himalayaRead(['-a', account, 'message', 'read', id, '-m', mailbox, '--raw']),
     himalayaRead(['-a', account, 'attachment', 'list', id, '-m', mailbox, '--json']),
   ])
-  if (!bodyR.ok) { logger.warn(`[email] message read failed: ${bodyR.stderr || bodyR.stdout}`); return { error: bodyR.stderr || bodyR.stdout || 'himalaya failed' } }
+  if (!bodyR.ok) { logger.warn(`[email] message read failed: ${himalayaErrorText(bodyR)}`); return { error: himalayaErrorText(bodyR) } }
   let text = ''
   let html = ''
   try {
@@ -833,23 +1062,19 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
     const cached = cacheGet(mailboxListCache, account as string)
     if (cached) { json(res, cached); return true }
-    // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
-    const direct = await listMailboxesDirect(account as string)
-    if (direct) {
-      cacheSet(mailboxListCache, account as string, direct, MAILBOX_LIST_TTL_MS)
-      json(res, direct)
+    const stale = cacheGetStale(mailboxListCache, account as string, MAILBOX_STALE_MAX_MS)
+    if (stale) {
+      json(res, stale, 200, { 'X-Marveen-Stale': '1' })
+      refreshInBackground(`mailboxes::${account}`, async () => {
+        const fresh = await fetchMailboxList(account as string)
+        if (fresh.ok) cacheSet(mailboxListCache, account as string, fresh.mailboxes, MAILBOX_LIST_TTL_MS, MAILBOX_STALE_MAX_MS)
+      })
       return true
     }
-    const r = await himalayaRead(['-a', account as string, 'mailbox', 'list', '--json'])
-    if (!r.ok) { logger.warn(`[email] mailbox list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
-    try {
-      const parsed = JSON.parse(r.stdout)
-      const mailboxes = parsed.mailboxes || []
-      cacheSet(mailboxListCache, account as string, mailboxes, MAILBOX_LIST_TTL_MS)
-      json(res, mailboxes)
-    } catch {
-      json(res, { error: 'unparseable himalaya output' }, 502)
-    }
+    const fetched = await fetchMailboxList(account as string)
+    if (!fetched.ok) { json(res, { error: fetched.error }, 502); return true }
+    cacheSet(mailboxListCache, account as string, fetched.mailboxes, MAILBOX_LIST_TTL_MS, MAILBOX_STALE_MAX_MS)
+    json(res, fetched.mailboxes)
     return true
   }
 
@@ -861,7 +1086,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // create/delete/rename subcommand. Gmail treats an IMAP mailbox 1:1 with
     // a label, so this is the same as adding a label from Gmail's own UI.
     const r = await himalaya(['-a', data.account as string, 'imap', 'create', data.name.trim()])
-    if (!r.ok) { logger.warn(`[email] mailbox create failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] mailbox create failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     mailboxListCache.delete(data.account as string)
     json(res, { ok: true })
     return true
@@ -879,7 +1104,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (systemHits.some(Boolean)) { json(res, { error: 'system mailbox cannot be deleted' }, 400); return true }
     const results = await Promise.all(names.map(async name => {
       const r = await himalaya(['-a', data.account as string, 'imap', 'delete', name])
-      if (!r.ok) logger.warn(`[email] mailbox delete failed (${name}): ${r.stderr || r.stdout}`)
+      if (!r.ok) logger.warn(`[email] mailbox delete failed (${name}): ${himalayaErrorText(r)}`)
       return { name, ok: r.ok }
     }))
     if (results.some(r => !r.ok)) { json(res, { error: 'Néhány címke törlése nem sikerült', results }, 502); return true }
@@ -903,39 +1128,22 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // param, since the heuristic was only ever validated against Inbox mail.
     const promoOnly = url.searchParams.get('promoOnly') === '1'
     if (!isKnownAccount(account)) { json(res, { error: 'unknown account' }, 400); return true }
-    const envelopeCacheKey = `${account}::${mailbox}::${page}::${query}::${mailbox === 'Inbox' ? (promoOnly ? 'promo' : 'nopromo') : 'all'}`
+    const envelopeCacheKey = envelopeCacheKeyFor(account as string, mailbox, page, query, promoOnly)
     const cachedEnvelopes = cacheGet(envelopeListCache, envelopeCacheKey)
     if (cachedEnvelopes) { json(res, cachedEnvelopes); return true }
-    // Strangler fig: try IMAP direct path first, fall back to himalaya on any failure
-    const directEnvelopes = await listEnvelopesDirect(account as string, mailbox, page, pageSize, query || undefined)
-    if (directEnvelopes) {
-      let envelopes: unknown[] = directEnvelopes
-      if (mailbox === 'Inbox') {
-        const applied = await applyInboxRules(account as string, envelopes, promoOnly, !query)
-        envelopes = applied.list
-        if (applied.movedToSpam > 0) invalidateEnvelopeCache(account as string, 'Inbox')
-      }
-      cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
-      json(res, envelopes)
+    const staleEnvelopes = cacheGetStale(envelopeListCache, envelopeCacheKey, ENVELOPE_STALE_MAX_MS)
+    if (staleEnvelopes) {
+      json(res, staleEnvelopes, 200, { 'X-Marveen-Stale': '1' })
+      refreshInBackground(`envelopes::${envelopeCacheKey}`, async () => {
+        const fresh = await fetchEnvelopeList(account as string, mailbox, page, pageSize, query, promoOnly)
+        if (fresh.ok) cacheSet(envelopeListCache, envelopeCacheKey, fresh.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
+      })
       return true
     }
-    const envelopeCommand = query ? ['envelope', 'search'] : ['envelope', 'list']
-    const searchArgs = query ? buildHimalayaSearchArgs(query) : []
-    const r = await himalayaRead(['-a', account as string, ...envelopeCommand, '-m', mailbox, '-p', String(page), '-s', '50', '--json', ...searchArgs])
-    if (!r.ok) { logger.warn(`[email] envelope list failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
-    try {
-      const parsed = JSON.parse(r.stdout)
-      let envelopes: unknown[] = parsed.envelopes || []
-      if (mailbox === 'Inbox') {
-        const applied = await applyInboxRules(account as string, envelopes, promoOnly, !query)
-        envelopes = applied.list
-        if (applied.movedToSpam > 0) invalidateEnvelopeCache(account as string, 'Inbox')
-      }
-      cacheSet(envelopeListCache, envelopeCacheKey, envelopes, ENVELOPE_LIST_TTL_MS)
-      json(res, envelopes)
-    } catch {
-      json(res, { error: 'unparseable himalaya output' }, 502)
-    }
+    const fetched = await fetchEnvelopeList(account as string, mailbox, page, pageSize, query, promoOnly)
+    if (!fetched.ok) { json(res, { error: fetched.error }, 502); return true }
+    cacheSet(envelopeListCache, envelopeCacheKey, fetched.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
+    json(res, fetched.envelopes)
     return true
   }
 
@@ -948,29 +1156,55 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   // so a 50-message page doesn't spawn 50 himalaya processes at once.
   if (path === '/api/email/attachments-flags' && method === 'POST') {
     const body = await readBody(req)
-    const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; ids?: unknown }
-    if (!isKnownAccount(data.account ?? null) || !Array.isArray(data.ids)) { json(res, { error: 'account and ids required' }, 400); return true }
+    const data = JSON.parse(body.toString()) as { account?: string; mailbox?: string; ids?: unknown; items?: unknown }
+    const hasShape = Array.isArray(data.items) || Array.isArray(data.ids)
+    if (!isKnownAccount(data.account ?? null) || !hasShape) { json(res, { error: 'account and ids required' }, 400); return true }
+    // Ket bemeneti alak: a regi `ids` (csak a mappan beluli szamozott
+    // azonositok) es az uj `items` (azonosito + Message-ID). A Message-ID kell
+    // a tartos cache-hez; ha nincs, a level minden alkalommal ujra sorra kerul
+    // -- mukodik, csak lassabb.
+    const items: Array<{ id: string; messageId: string }> = (Array.isArray(data.items)
+      ? (data.items as Array<{ id?: unknown; messageId?: unknown }>)
+        .filter(x => !!x && typeof x.id === 'string')
+        .map(x => ({ id: x.id as string, messageId: typeof x.messageId === 'string' ? x.messageId : '' }))
+      : (data.ids as unknown[]).filter((x): x is string => typeof x === 'string').map(id => ({ id, messageId: '' }))
+    ).slice(0, 50)
     const mailbox = data.mailbox || 'Inbox'
-    const ids = data.ids.filter((x): x is string => typeof x === 'string').slice(0, 50)
-    const CONCURRENCY = 6
     const result: Record<string, boolean> = {}
+    // Amit egyszer mar megneztunk, azt nem nezzuk meg ujra: egy uzenet
+    // csatolmanya nem valtozik. Ez volt a dashboard legnagyobb terhelese --
+    // uzenetenkent egy himalaya-processz, sajat IMAP-bejelentkezessel.
+    const known = readAttachmentFlags(items.map(i => i.messageId))
+    const toScan = items.filter(i => {
+      if (i.messageId && i.messageId in known) { result[i.id] = known[i.messageId]; return false }
+      return true
+    })
+    const learned: Record<string, boolean> = {}
+    const CONCURRENCY = 6
     let cursor = 0
     async function worker() {
-      while (cursor < ids.length) {
-        const id = ids[cursor++]
-        const r = await himalayaRead(['-a', data.account as string, 'attachment', 'list', id, '-m', mailbox, '--json'])
+      while (cursor < toScan.length) {
+        const item = toScan[cursor++]
+        const r = await himalayaRead(['-a', data.account as string, 'attachment', 'list', item.id, '-m', mailbox, '--json'])
         if (r.ok) {
           // Inline parts (signature logos, tracking pixels referenced by the
           // HTML body via cid:) come back in this list too -- only count real,
           // non-inline attachments so the paperclip doesn't light up on every
           // marketing email with an embedded logo.
-          try { result[id] = ((JSON.parse(r.stdout).attachments || []) as Array<{ inline?: boolean }>).some(a => !a.inline) } catch { result[id] = false }
+          try {
+            const has = ((JSON.parse(r.stdout).attachments || []) as Array<{ inline?: boolean }>).some(a => !a.inline)
+            result[item.id] = has
+            // Csak a sikeres, ertelmezett valasz tanulsag -- hibas/olvashatatlan
+            // valaszt nem irunk be orokre.
+            if (item.messageId) learned[item.messageId] = has
+          } catch { result[item.id] = false }
         } else {
-          result[id] = false
+          result[item.id] = false
         }
       }
     }
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, ids.length) }, worker))
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toScan.length) }, worker))
+    saveAttachmentFlags(learned)
     json(res, result)
     return true
   }
@@ -996,16 +1230,9 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString()) as { account?: string; messageIds?: unknown }
     if (!isKnownAccount(data.account ?? null) || !Array.isArray(data.messageIds)) { json(res, { error: 'account and messageIds required' }, 400); return true }
     const messageIds = data.messageIds.filter((x): x is string => typeof x === 'string').slice(0, 50)
-    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', await mailboxFor(data.account as string, 'important'), '-p', '1', '-s', '50', '--json'])
+    const fontosIds = new Set(await loadImportantMessageIds(data.account as string))
     const result: Record<string, boolean> = {}
-    if (r.ok) {
-      try {
-        const fontosIds = new Set((JSON.parse(r.stdout).envelopes || []).map((e: { 'message-id'?: string }) => e['message-id']))
-        for (const mid of messageIds) result[mid] = fontosIds.has(mid)
-      } catch { for (const mid of messageIds) result[mid] = false }
-    } else {
-      for (const mid of messageIds) result[mid] = false
-    }
+    for (const mid of messageIds) result[mid] = fontosIds.has(mid)
     json(res, result)
     return true
   }
@@ -1026,12 +1253,9 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       .filter((it): it is { id: string; subject: string } => typeof it.id === 'string' && typeof it.subject === 'string')
       .slice(0, 50)
 
-    let sentEnvelopes: Array<{ id: string; subject?: string; date: string; from?: Array<{ email?: string }>; to?: Array<{ name?: string | null; email?: string }>; flags?: Array<{ iana?: string }>; 'message-id'?: string }> = []
-    const sentMailbox = await mailboxFor(data.account as string, 'sent')
-    const r = await himalayaRead(['-a', data.account as string, 'envelope', 'list', '-m', sentMailbox, '-p', '1', '-s', '50', '--json'])
-    if (r.ok) {
-      try { sentEnvelopes = JSON.parse(r.stdout).envelopes || [] } catch { /* report no siblings rather than fail the list */ }
-    }
+    const sent = await loadSentEnvelopes(data.account as string)
+    const sentMailbox = sent.mailbox
+    const sentEnvelopes = sent.envelopes
 
     // Subject-only match, no participant/recipient filter: Gmail's own
     // conversation view keeps a forward in the original thread even when it
@@ -1092,7 +1316,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       // 2026-08-06: one attachment preview loaded, the other on the same email
       // didn't).
       const r = await himalayaRead(['-a', account as string, 'attachment', 'download', id, attachmentId, '-m', mailbox, '--dir', work, '--json'])
-      if (!r.ok) { logger.warn(`[email] attachment download failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); rmSync(work, { recursive: true, force: true }); return true }
+      if (!r.ok) { logger.warn(`[email] attachment download failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); rmSync(work, { recursive: true, force: true }); return true }
       const parsed = JSON.parse(r.stdout)
       const att = (parsed.attachments || [])[0]
       if (!att?.path) { json(res, { error: 'attachment not found' }, 404); rmSync(work, { recursive: true, force: true }); return true }
@@ -1133,7 +1357,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // configured address for `message reply`, it errors with "No `From:`
     // header found" if omitted.
     const r = await himalaya(['-a', data.account as string, 'message', 'reply', data.id, '-m', mailbox, '--from', accountEmail(data.account as string), '--body', data.text, '--send'])
-    if (!r.ok) { logger.warn(`[email] reply failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] reply failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     json(res, { ok: true })
     return true
   }
@@ -1145,7 +1369,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const mailbox = data.mailbox || 'Inbox'
     // See the reply route above: --from must be passed explicitly for himalaya v2.
     const r = await himalaya(['-a', data.account as string, 'message', 'forward', data.id, '-m', mailbox, '--from', accountEmail(data.account as string), '-t', data.to.trim(), '--body', data.text, '--send'])
-    if (!r.ok) { logger.warn(`[email] forward failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] forward failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     json(res, { ok: true })
     return true
   }
@@ -1167,7 +1391,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     if (data.cc?.trim()) args.push('--cc', data.cc.trim())
     if (data.subject?.trim()) args.push('-s', data.subject.trim())
     const r = await himalaya(args)
-    if (!r.ok) { logger.warn(`[email] compose failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] compose failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     invalidateEnvelopeCache(data.account as string, composeSentMailbox)
     json(res, { ok: true })
     return true
@@ -1180,7 +1404,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const mailbox = data.mailbox || 'Inbox'
     const sub = data.read === false ? 'remove' : 'add'
     const r = await himalaya(['-a', data.account as string, 'flag', sub, '-m', mailbox, '-f', 'seen', data.id])
-    if (!r.ok) { logger.warn(`[email] flag ${sub} failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] flag ${sub} failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
     return true
@@ -1195,7 +1419,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const mailbox = data.mailbox || 'Inbox'
     const sub = data.starred === false ? 'remove' : 'add'
     const r = await himalaya(['-a', data.account as string, 'flag', sub, '-m', mailbox, '-f', 'flagged', data.id])
-    if (!r.ok) { logger.warn(`[email] flag ${sub} (flagged) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] flag ${sub} (flagged) failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
     return true
@@ -1222,7 +1446,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       // RFC822 Message-ID header, which is stable across labels.
       if (!data.messageId) { json(res, { error: 'messageId required to unmark important' }, 400); return true }
       const list = await himalaya(['-a', data.account as string, 'envelope', 'list', '-m', importantMailbox, '-p', '1', '-s', '50', '--json'])
-      if (!list.ok) { logger.warn(`[email] unmark important lookup failed: ${list.stderr || list.stdout}`); json(res, { error: list.stderr || list.stdout || 'himalaya failed' }, 502); return true }
+      if (!list.ok) { logger.warn(`[email] unmark important lookup failed: ${himalayaErrorText(list)}`); json(res, { error: himalayaErrorText(list) }, 502); return true }
       let fontosId: string | undefined
       try {
         const envelopes = JSON.parse(list.stdout).envelopes || []
@@ -1230,16 +1454,18 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       } catch { /* fall through to not-found below */ }
       if (!fontosId) { json(res, { error: 'message not found in Fontos (older than the last 50?)' }, 404); return true }
       const store = await himalaya(['-a', data.account as string, 'imap', 'store', fontosId, '-f', '\\Deleted', '-m', importantMailbox])
-      if (!store.ok) { logger.warn(`[email] unmark important store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
+      if (!store.ok) { logger.warn(`[email] unmark important store failed: ${himalayaErrorText(store)}`); json(res, { error: himalayaErrorText(store) }, 502); return true }
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', importantMailbox])
-      if (!expunge.ok) { logger.warn(`[email] unmark important expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
+      if (!expunge.ok) { logger.warn(`[email] unmark important expunge failed: ${himalayaErrorText(expunge)}`); json(res, { error: himalayaErrorText(expunge) }, 502); return true }
       invalidateEnvelopeCache(data.account as string, importantMailbox)
+      invalidateImportantFlagCache(data.account as string)
       json(res, { ok: true })
       return true
     }
     const r = await himalaya(['-a', data.account as string, 'message', 'copy', data.id, '-f', mailbox, '-t', importantMailbox])
-    if (!r.ok) { logger.warn(`[email] mark important failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] mark important failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     invalidateEnvelopeCache(data.account as string, importantMailbox)
+    invalidateImportantFlagCache(data.account as string)
     json(res, { ok: true })
     return true
   }
@@ -1266,7 +1492,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     const failed: string[] = []
     for (const id of data.ids) {
       const r = await himalaya(['-a', data.account as string, 'message', 'move', id, '-f', mailbox, '-t', data.target])
-      if (!r.ok) { logger.warn(`[email] label (move to ${data.target}) failed for ${id}: ${r.stderr || r.stdout}`); failed.push(id) }
+      if (!r.ok) { logger.warn(`[email] label (move to ${data.target}) failed for ${id}: ${himalayaErrorText(r)}`); failed.push(id) }
     }
     invalidateEnvelopeCache(data.account as string, data.target)
     invalidateEnvelopeCache(data.account as string, mailbox)
@@ -1338,9 +1564,9 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // permanently disabled after one click (Boss, 2026-08-05).
     if (mailbox === trashMailbox) {
       const store = await himalaya(['-a', data.account as string, 'imap', 'store', data.id, '-f', '\\Deleted', '-m', mailbox])
-      if (!store.ok) { logger.warn(`[email] permanent delete store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
+      if (!store.ok) { logger.warn(`[email] permanent delete store failed: ${himalayaErrorText(store)}`); json(res, { error: himalayaErrorText(store) }, 502); return true }
       const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
-      if (!expunge.ok) { logger.warn(`[email] permanent delete expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
+      if (!expunge.ok) { logger.warn(`[email] permanent delete expunge failed: ${himalayaErrorText(expunge)}`); json(res, { error: himalayaErrorText(expunge) }, 502); return true }
       purgeAttachmentCacheForMessage(data.account as string, mailbox, data.id)
       purgeMessageBodyCache(data.account as string, mailbox, data.id)
       invalidateEnvelopeCache(data.account as string, mailbox)
@@ -1348,7 +1574,7 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const r = await himalaya(['-a', data.account as string, 'message', 'move', data.id, '-f', mailbox, '-t', trashMailbox])
-    if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${r.stderr || r.stdout}`); json(res, { error: r.stderr || r.stdout || 'himalaya failed' }, 502); return true }
+    if (!r.ok) { logger.warn(`[email] delete (move to trash) failed: ${himalayaErrorText(r)}`); json(res, { error: himalayaErrorText(r) }, 502); return true }
     purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
     invalidateEnvelopeCache(data.account as string, trashMailbox)
@@ -1367,9 +1593,9 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
     // Non-Gmail IMAP providers would actually delete it, so this route stays
     // Gmail-only until a per-provider archive strategy is added.
     const store = await himalaya(['-a', data.account as string, 'imap', 'store', data.id, '-f', '\\Deleted', '-m', mailbox])
-    if (!store.ok) { logger.warn(`[email] archive store failed: ${store.stderr || store.stdout}`); json(res, { error: store.stderr || store.stdout || 'himalaya failed' }, 502); return true }
+    if (!store.ok) { logger.warn(`[email] archive store failed: ${himalayaErrorText(store)}`); json(res, { error: himalayaErrorText(store) }, 502); return true }
     const expunge = await himalaya(['-a', data.account as string, 'imap', 'expunge', mailbox])
-    if (!expunge.ok) { logger.warn(`[email] archive expunge failed: ${expunge.stderr || expunge.stdout}`); json(res, { error: expunge.stderr || expunge.stdout || 'himalaya failed' }, 502); return true }
+    if (!expunge.ok) { logger.warn(`[email] archive expunge failed: ${himalayaErrorText(expunge)}`); json(res, { error: himalayaErrorText(expunge) }, 502); return true }
     purgeMessageBodyCache(data.account as string, mailbox, data.id)
     invalidateEnvelopeCache(data.account as string, mailbox)
     json(res, { ok: true })
@@ -1409,4 +1635,33 @@ export async function tryHandleEmail(ctx: RouteContext): Promise<boolean> {
   }
 
   return false
+}
+
+// Indulas utani elomelegites. Merve 2026-08-19-en: ujraindulas utan az ELSO
+// email-betoltes 12,3 mp (mappa-oszlop) es 19,3 mp (levellista), mert minden
+// memoria-cache ures ES az IMAP-kapcsolat is hideg -- ugyanaz a betoltes
+// melegen 0,85 mp. Minden telepites utan az elso latogato fizette ki ezt.
+// Most a szerver fizeti ki, akkor, amikor meg senki nem var ra.
+//
+// Sorosan, fiokonkent: parhuzamosan inditva ugyanazt a torlodast csinalnank,
+// ami elol menekulunk. Hiba eseten csak naplozunk -- egy elomelegites sosem
+// akadalyozhatja meg a dashboard indulasat.
+export async function warmEmailCaches(): Promise<void> {
+  for (const acc of getAccounts()) {
+    try {
+      const mailboxes = await fetchMailboxList(acc.id)
+      if (mailboxes.ok) cacheSet(mailboxListCache, acc.id, mailboxes.mailboxes, MAILBOX_LIST_TTL_MS, MAILBOX_STALE_MAX_MS)
+      const query = normalizeEmailSearchQuery(null)
+      const key = envelopeCacheKeyFor(acc.id, 'Inbox', 1, query, false)
+      const envelopes = await fetchEnvelopeList(acc.id, 'Inbox', 1, 50, query, false)
+      if (envelopes.ok) cacheSet(envelopeListCache, key, envelopes.envelopes, ENVELOPE_LIST_TTL_MS, ENVELOPE_STALE_MAX_MS)
+      // A lista MELLE kert ket kiegeszites (Fontos-jelzok, Sent-testverek) --
+      // ezek nelkul a lista ugyan megjelenik, de a csillagok es a valasz-sorok
+      // csak masodpercekkel kesobb.
+      await loadImportantMessageIds(acc.id)
+      await loadSentEnvelopes(acc.id)
+    } catch (err) {
+      logger.warn(`[email] elomelegites elhasalt (${acc.id}): ${err}`)
+    }
+  }
 }

@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdir, readFile, stat as statAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName } from '../../config.js'
@@ -194,28 +195,70 @@ const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
   { id: 'groq-stt', configured: () => getSecret('groq-stt-key') !== null },
 ]
 
+// A munkamenet-naplok (JSONL) atolvasasa ennek a vegpontnak a legdragabb
+// resze: 2026-08-19-en az /api/overview EGYEDUL 1056 ms volt, es mivel a Node
+// egy szalon fut, ezalatt minden mas keres is allt -- a merhetoen ~1,2 mp-es
+// varakozas a level-oldal elso ket oszlopa elott innen jott (Boss: "az elso
+// oszlop es masodik oszlop sem toltodik be hamar. sokat kell varni ra").
+// Ket valtoztatas: a beolvasas aszinkron lett (kozben mas keresek sorra
+// kerulnek), es az eredmeny egy percig ervenyes -- lejarat utan is AZONNAL a
+// korabbi szam megy ki, a friss ertek a hatterben szamolodik ki.
+const TURN_COUNT_TTL_MS = 60_000
+const turnCountCache = new Map<string, { value: number; at: number }>()
+const turnCountInFlight = new Set<string>()
+
+export async function countUserTurnsCached(fromMs: number, toMs: number = Number.POSITIVE_INFINITY): Promise<number> {
+  const key = `${fromMs}::${toMs}`
+  const hit = turnCountCache.get(key)
+  const stale = !hit || Date.now() - hit.at >= TURN_COUNT_TTL_MS
+  if (hit && stale && !turnCountInFlight.has(key)) {
+    turnCountInFlight.add(key)
+    void countUserTurns(fromMs, toMs)
+      .then(value => { turnCountCache.set(key, { value, at: Date.now() }) })
+      .catch(() => { /* a regi ertek marad */ })
+      .finally(() => { turnCountInFlight.delete(key) })
+  }
+  if (hit) return hit.value
+  const value = await countUserTurns(fromMs, toMs)
+  turnCountCache.set(key, { value, at: Date.now() })
+  // A kulcs napszakfuggo (mai/tegnapi hatarok), ezert napvaltaskor uj kulcsok
+  // jonnek -- a regieket ne gyujtsuk vegtelenul.
+  if (turnCountCache.size > 8) {
+    for (const [k, v] of [...turnCountCache].sort((a, b) => a[1].at - b[1].at).slice(0, turnCountCache.size - 8)) {
+      if (v) turnCountCache.delete(k)
+    }
+  }
+  return value
+}
+
+/** Csak teszthez: a szamlalo-cache uritese. */
+export function resetTurnCountCacheForTest(): void {
+  turnCountCache.clear()
+  turnCountInFlight.clear()
+}
+
 // Count "real" user turns (operator prompts, Telegram messages) in every
 // Claude Code session JSONL under ~/.claude/projects/. Filters out
 // tool_result, local-command, and synthetic system events so a task-heavy
 // hour doesn't inflate the counter.
-function countUserTurns(fromMs: number, toMs: number = Number.POSITIVE_INFINITY): number {
+async function countUserTurns(fromMs: number, toMs: number = Number.POSITIVE_INFINITY): Promise<number> {
   const root = join(homedir(), '.claude', 'projects')
   if (!existsSync(root)) return 0
   let total = 0
   try {
-    for (const projectDir of readdirSync(root)) {
+    for (const projectDir of await readdir(root)) {
       const absDir = join(root, projectDir)
-      let stat: ReturnType<typeof statSync>
-      try { stat = statSync(absDir) } catch { continue }
-      if (!stat.isDirectory()) continue
-      for (const fname of readdirSync(absDir)) {
+      let dirStat: Awaited<ReturnType<typeof statAsync>>
+      try { dirStat = await statAsync(absDir) } catch { continue }
+      if (!dirStat.isDirectory()) continue
+      for (const fname of await readdir(absDir)) {
         if (!fname.endsWith('.jsonl')) continue
         const absFile = join(absDir, fname)
-        let fstat: ReturnType<typeof statSync>
-        try { fstat = statSync(absFile) } catch { continue }
+        let fstat: Awaited<ReturnType<typeof statAsync>>
+        try { fstat = await statAsync(absFile) } catch { continue }
         if (fstat.mtimeMs < fromMs) continue
         try {
-          const data = readFileSync(absFile, 'utf-8')
+          const data = await readFile(absFile, 'utf-8')
           for (const line of data.split('\n')) {
             if (!line) continue
             let e: any
@@ -258,8 +301,8 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     const yesterday = startTs - 24 * 60 * 60 * 1000
     const schedToday = countTaskRunsBetween(startTs)
     const schedYesterday = countTaskRunsBetween(yesterday, startTs)
-    const userTurns = countUserTurns(startTs)
-    const userTurnsPrev = countUserTurns(yesterday, startTs)
+    const userTurns = await countUserTurnsCached(startTs)
+    const userTurnsPrev = await countUserTurnsCached(yesterday, startTs)
     const tasksToday = schedToday + userTurns
     const tasksYesterday = schedYesterday + userTurnsPrev
 

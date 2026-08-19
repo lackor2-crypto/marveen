@@ -203,28 +203,59 @@ export function checkImapAccountConfig(accountId: string): ImapFastPathStatus {
 // temporarily unavailable (os error 11)" incident from too many concurrent
 // IMAP connections; one long-lived connection per account is FEWER
 // connections than today's per-request himalaya subprocess model, not more.
-// Idle eviction after 5 minutes so a quiet dashboard doesn't hold a socket
-// open forever; `.unref()` so the timer never keeps the process alive.
+// A kapcsolatot NEM dobjuk el tetlensegre, hanem eletben tartjuk (NOOP).
+// Merve 2026-08-19: egy uj Gmail-bejelentkezes 9,6 MASODPERC volt, mikozben a
+// tenyleges mappa-listazas osszesen 1-2 mp (SELECT 0,3-1,2 + SEARCH 0,1-0,6 +
+// FETCH 0,1-1,0). Az 5 perces kilakoltatas tehat azt jelentette, hogy aki
+// oratanként nezi meg a leveleit, MINDIG a 9,6 mp-es bejelentkezest fizeti ki
+// (Boss: "az elso oszlop es masodik oszlop sem toltodik be hamar"). Egy nyitott
+// socket / fiok ehhez kepest elhanyagolhato -- es kevesebb bejelentkezes egyben
+// kevesebb esely a Gmail parhuzamos-kapcsolat korlatjara is.
+// `.unref()` so the timer never keeps the process alive.
 
 type ImapClientState = { client: ImapFlow; idleTimer: NodeJS.Timeout | null }
 const clients = new Map<string, ImapClientState>()
-const IDLE_EVICT_MS = 5 * 60_000
+// Gmail a tetlen IMAP-kapcsolatot ~30 perc utan zarja; 4 percenkent egy NOOP
+// bosegesen belul van, es a halott socketet is idejeben kideriti.
+const KEEPALIVE_MS = 4 * 60_000
 
-function scheduleEviction(accountId: string): void {
+function scheduleKeepalive(accountId: string): void {
   const state = clients.get(accountId)
   if (!state) return
   if (state.idleTimer) clearTimeout(state.idleTimer)
   state.idleTimer = setTimeout(() => {
-    clients.delete(accountId)
-    state.client.logout().catch(() => {})
-  }, IDLE_EVICT_MS)
+    const current = clients.get(accountId)
+    // Kozben mar lecsereltek/eldobtak ezt a klienst: ez a timer nem rola szol.
+    if (!current || current.client !== state.client) return
+    state.client.noop()
+      .then(() => scheduleKeepalive(accountId))
+      .catch(() => {
+        // Halott kapcsolat: kivesszuk, a kovetkezo keres ujra bejelentkezik.
+        if (clients.get(accountId)?.client === state.client) clients.delete(accountId)
+        state.client.logout().catch(() => {})
+      })
+  }, KEEPALIVE_MS)
   state.idleTimer.unref()
 }
 
+// Parhuzamos hideg keresek (a mappalista es a levellista egyszerre indul)
+// kulonben KET bejelentkezest inditottak, es a masodik felulirta az elsot a
+// map-ben -- az elso socket ott maradt kihasznalatlanul, tovabb terhelve a
+// Gmail parhuzamos-kapcsolat korlatjat. Egy fiokra egyszerre EGY bejelentkezes
+// fut, a tobbi ugyanarra var.
+const connecting = new Map<string, Promise<ImapFlow | null>>()
+
 async function getClient(accountId: string): Promise<ImapFlow | null> {
   const existing = clients.get(accountId)
-  if (existing) { scheduleEviction(accountId); return existing.client }
+  if (existing) return existing.client
+  const pending = connecting.get(accountId)
+  if (pending) return pending
+  const started = connectClient(accountId).finally(() => connecting.delete(accountId))
+  connecting.set(accountId, started)
+  return started
+}
 
+async function connectClient(accountId: string): Promise<ImapFlow | null> {
   const cfg = await resolveImapAccount(accountId)
   if (!cfg) return null
 
@@ -253,7 +284,7 @@ async function getClient(accountId: string): Promise<ImapFlow | null> {
     return null
   }
   clients.set(accountId, { client, idleTimer: null })
-  scheduleEviction(accountId)
+  scheduleKeepalive(accountId)
   return client
 }
 
@@ -749,7 +780,15 @@ export interface DirectEnvelope {
   'has-attachment': null
 }
 
-function parseImapFlags(imapFlags: string[]): Array<{ raw: string; iana: string }> {
+// ImapFlow a boritek-fetch flagjeit SET-ben adja vissza, nem tombben. A fajl
+// tobbi helye (mailboxRoleFromFlags, mapDirectMailboxes) ezt mar kezeli -- ez
+// az egy hely maradt ki, es emiatt a listEnvelopesDirect MINDEN mappara
+// elhasalt ("imapFlags.filter is not a function", merve 2026-08-19), majd
+// csendben visszaesett a himalaya-ra: listazasonkent uj processz + uj IMAP
+// bejelentkezes. A Kukanal ez mar a Gmail parhuzamos-kapcsolat korlatjaba
+// futott, es a masodik oszlop "Hiba a levelek betoltesekor"-t irt ki (Boss,
+// 2026-08-19). Ezert fogad Set-et is, es hianyzo erteket is.
+function parseImapFlags(imapFlags: Set<string> | string[] | undefined | null): Array<{ raw: string; iana: string }> {
   const mapping: Record<string, string> = {
     '\\Seen': 'seen',
     '\\Flagged': 'flagged',
@@ -761,7 +800,7 @@ function parseImapFlags(imapFlags: string[]): Array<{ raw: string; iana: string 
     '$Forwarded': 'forwarded',
     '$MDNSent': 'mdnsent',
   }
-  return imapFlags
+  return Array.from(imapFlags || [])
     .filter(f => mapping[f])
     .map(f => ({ raw: f, iana: mapping[f] }))
 }
@@ -828,48 +867,51 @@ export async function listEnvelopesDirect(
   }
 
   try {
-    // Get total count for pagination
-    let uids: number[]
-    if (searchQuery) {
-      const criteria = buildImapSearchCriteria(searchQuery)
-      if (Object.keys(criteria).length === 0) return []
-      const searchResult = await withTimeout(client.search(criteria, { uid: true }), FETCH_TIMEOUT_MS)
-      if (searchResult === false) return null
-      uids = searchResult
-    } else {
-      const searchResult = await withTimeout(client.search({ all: true }, { uid: true }), FETCH_TIMEOUT_MS)
-      if (searchResult === false) return null
-      uids = searchResult
-    }
-    if (!uids || uids.length === 0) return []
-
-    // Sort by UID descending (newest first) to match himalaya's default
-    uids.sort((a, b) => b - a)
-
     // Pagination
     const start = (page - 1) * pageSize
     const end = start + pageSize
-    const pageUids = uids.slice(start, end)
-    if (pageUids.length === 0) return []
-
     // Fetch ENVELOPE + FLAGS + BODYSTRUCTURE (for size/attachment detection)
     const fetchOptions = { envelope: true, flags: true, bodyStructure: true }
-    const messages = await withTimeout(
-      client.fetchAll(pageUids, fetchOptions, { uid: true }),
-      FETCH_TIMEOUT_MS
-    )
 
-    // Build a map for quick lookup
-    const msgMap = new Map<number, any>()
-    for (const msg of messages) {
-      if (msg.uid) msgMap.set(msg.uid, msg)
+    // SZURESMENTES listazashoz nem kell SEARCH: a SELECT valaszabol mar tudjuk
+    // a mappa uzenetszamat (exists), abbol pedig kiszamolhato a kert oldal
+    // SORSZAM-savja, es az egy menetben lekerheto. Merve 2026-08-19: a SEARCH
+    // ALL mappankent 0,1-0,6 mp-et vitt el, es egy 1122 leveles mappanal 1122
+    // UID-ot hozott at ahhoz, hogy vegul 50-et hasznaljunk. A sorszam a
+    // beerkezesi sorrend, ami a UID sorrendjevel egyezik (mindketto monoton
+    // no), tehat a "legujabb elsore" rendezes valtozatlan.
+    // KERESESNEL marad a SEARCH: ott a talalatok halmaza kell, nem egy sav.
+    // Ha a szerver valamiert nem adta meg az exists-t, szinten a SEARCH-os
+    // uton megyunk -- ez a valtozat igy sose tud kevesebbet a korabbinal.
+    const mailboxInfo = client.mailbox as { exists?: number } | false
+    const exists = !searchQuery && mailboxInfo && typeof mailboxInfo === 'object' && typeof mailboxInfo.exists === 'number'
+      ? mailboxInfo.exists
+      : null
+    let messages: any[]
+    if (exists !== null) {
+      if (exists === 0 || start >= exists) return []
+      const seqFrom = Math.max(1, exists - end + 1)
+      const seqTo = exists - start
+      messages = await withTimeout(client.fetchAll(`${seqFrom}:${seqTo}`, fetchOptions), FETCH_TIMEOUT_MS)
+    } else {
+      const criteria = searchQuery ? buildImapSearchCriteria(searchQuery) : { all: true }
+      if (Object.keys(criteria).length === 0) return []
+      const searchResult = await withTimeout(client.search(criteria, { uid: true }), FETCH_TIMEOUT_MS)
+      if (searchResult === false) return null
+      const uids = (searchResult || []).slice().sort((a, b) => b - a)
+      if (uids.length === 0) return []
+      const pageUids = uids.slice(start, end)
+      if (pageUids.length === 0) return []
+      messages = await withTimeout(client.fetchAll(pageUids, fetchOptions, { uid: true }), FETCH_TIMEOUT_MS)
     }
-    if (msgMap.size === 0) return null
+    if (!messages || messages.length === 0) return null
+
+    // Legujabb elsore (UID szerint csokkenoen) -- ez a himalaya alap sorrendje.
+    const ordered = messages.filter(m => m && m.envelope && m.uid).sort((a, b) => b.uid - a.uid)
 
     const results: DirectEnvelope[] = []
-    for (const uid of pageUids) {
-      const msg = msgMap.get(uid)
-      if (!msg || !msg.envelope) continue
+    for (const msg of ordered) {
+      const uid: number = msg.uid
 
       const env = msg.envelope
       const flags = msg.flags || []
@@ -929,4 +971,4 @@ export async function listEnvelopesDirect(
 }
 
 // Exported for tests only -- not part of the module's real entry point.
-export const _internal = { parseHimalayaToml, parseImapServer }
+export const _internal = { parseHimalayaToml, parseImapServer, parseImapFlags }

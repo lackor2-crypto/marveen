@@ -485,6 +485,22 @@ function confirmSettingsLeave() {
   return window.confirm(t('settings.unsaved_warning'))
 }
 
+// Nem surgos munka: akkor fusson, amikor a bongeszo eppen rerer -- de a
+// timeout garantalja, hogy ne maradjon el. Boss, 2026-08-19: "ami nem fontos
+// azt a hatterben kesobb is be lehet tolteni." A dashboard szervere EGY szalon
+// fut, tehat minden indulaskor kilott kereses a latszo oldal elol eszi el az
+// idot: merve az email 1. oszlopa egy 282 ms-os lekeresre 579 ms-ot vart.
+function runLater(fn, timeout = 1500) {
+  let done = false
+  const once = () => { if (done) return; done = true; fn() }
+  // A requestIdleCallback ONMAGABAN nem eleg: merve (Playwright/Chromium,
+  // 2026-08-19) 6 masodperc alatt EGYSZER SEM sult el, es hattertabon eleve
+  // nem fut. Ezert mindig van mellette egy sima idozito is -- amelyik elobb
+  // jon, az inditja, a masik utana mar nem csinal semmit.
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(once, { timeout })
+  setTimeout(once, timeout)
+}
+
 function switchPage(pageId) {
   // 'team' is merged into 'agents'; any internal call still passing 'team' redirects.
   if (pageId === 'team') { _agentsActiveView = 'tree'; pageId = 'agents' }
@@ -3313,6 +3329,10 @@ function resetWizard() {
   loadAvailableModels()
   selectedAvatar = null
   selectedAvatarFile = null
+  // Az avatar-racs indulaskor mar csak kesleltetve epul fel (a sok kis PNG a
+  // latszo oldal elol ette az idot) -- ha valaki az elso masodpercben nyitja
+  // meg a varazslot, itt epul fel, nem marad ures.
+  if (!document.querySelector('#avatarGrid .avatar-grid-item')) populateAvatarGrid()
   document.querySelectorAll('#avatarGrid .avatar-grid-item').forEach(i => i.classList.remove('selected'))
   resetCreateAvatarUpload()
   generatedClaudeMd = ''
@@ -17325,10 +17345,16 @@ function wireOnboarding(step) {
 // First: the card-id set the reference linkifier needs (ids only, tiny). Fired
 // before the page loads below so most first renders already have it.
 loadKanbanCardIds()
-populateAvatarGrid()
-loadMemAgents()
-loadOverview()
-loadAvailableModels()
+// Ezek egyike sem latszik indulaskor, ha nem a hozzajuk tartozo oldalon
+// allunk (Attekintes-csempek, avatar-racs, memoria-agensek, modell-listak) --
+// megis MIND elindult, ES a kezdo oldal betoltoje elott: a `routeFromHash()`
+// csak DOMContentLoaded utan fut (lasd a fajl vegen), tehat a latszo oldal
+// keresei eleve a sor vegen alltak. Aki ezekre az oldalakra lep, ugyis
+// ujratolti oket a switchPage()-bol.
+const bootExtras = () => { populateAvatarGrid(); loadMemAgents(); loadOverview(); loadAvailableModels() }
+const bootLanding = decodeURIComponent((location.hash || '').replace(/^#/, ''))
+if (!bootLanding || bootLanding === 'overview') bootExtras()
+else runLater(bootExtras)
 // Global working indicator: page-independent, so it must start at load, not
 // on a page switch. See startGlobalActivityPoll()'s own comment.
 startGlobalActivityPoll()
@@ -21739,8 +21765,13 @@ function clearEmailReaderPane() {
 // session, the sidebar showed "Email" with nothing listed under it, because
 // renderEmailAccountNav() used to only ever run from inside loadEmailPage().
 let emailAccountsFetchPromise = null
+// Visszaadja a folyamatban levo lekerest, hogy a MASIK hivo (loadEmailPage)
+// ugyanarra varjon, ne inditson masodik kerest ugyanarra a listara. Merve
+// 2026-08-19, bongeszo-hullamkep: a dashboard indulasakor a
+// /api/email/accounts KETSZER ment ki (+464 ms es +528 ms, 1,03 es 1,28 mp),
+// mert a ket hivo kulon kert -- ket IMAP-fiokfelolvasas ugyanazert.
 function ensureEmailAccountNav() {
-  if (emailAccounts.length) { renderEmailAccountNav(); return }
+  if (emailAccounts.length) { renderEmailAccountNav(); return Promise.resolve() }
   if (!emailAccountsFetchPromise) {
     emailAccountsFetchPromise = fetch('/api/email/accounts')
       .then(r => {
@@ -21758,6 +21789,7 @@ function ensureEmailAccountNav() {
         emailAccountsFetchPromise = null
       })
   }
+  return emailAccountsFetchPromise
 }
 
 // === Iroda "Beallitasok" -> category menu, drilling into each category's
@@ -21988,27 +22020,29 @@ async function loadEmailFastPathStatus() {
 }
 
 async function loadEmailPage() {
-  loadEmailFastPathStatus()
+  // A gyorsut-allapot egy DIAGNOSZTIKAI sav a lista folott -- fontos, de nem
+  // surgos: indulaskor 573 ms-ot vett el ugyanattol az egy szaltol, amin a
+  // mappa- es levellista is jon. Ezert a ket oszlop utan tolt be.
+  runLater(loadEmailFastPathStatus)
   if (!emailLoaded) {
     emailLoaded = true
-    if (!emailAccounts.length) {
-      try {
-        const r = await fetch('/api/email/accounts')
-        if (!r.ok) throw new Error(`GET /api/email/accounts -> ${r.status}`)
-        const data = await r.json()
-        emailAccounts = Array.isArray(data) ? data : []
-      } catch (err) {
-        console.error('[email] failed to load accounts:', err)
-        emailAccounts = []
-      }
-    }
     const saved = loadEmailUiState()
-    emailAccount = (saved?.account && emailAccounts.some(a => a.id === saved.account)) ? saved.account : (emailAccounts[0]?.id || null)
     if (saved?.mailbox) emailMailbox = saved.mailbox
     emailPromoOnly = !!saved?.promoOnly
+    // A mappa- es a levellista NEM var meg a fiok-listat: a legutobb hasznalt
+    // fiokot mar tudjuk, tehat azonnal indulhat. Meresben ez ~0,9 mp volt a
+    // ket oszlop elott (Boss, 2026-08-19: "az elso oszlop es masodik oszlop
+    // sem toltodik be hamar"). Ha kiderul, hogy ez a fiok mar nincs meg, a
+    // helyessel ujratoltunk -- a szerver ismeretlen fiokot ugyis elutasit.
+    const speculativeAccount = saved?.account || null
+    if (speculativeAccount) { emailAccount = speculativeAccount; loadEmailMailboxes() }
+    // Ugyanaz a lekeres, mint a bal oldali menue -- ha az mar fut, arra
+    // varunk, nem inditunk masodikat (lasd ensureEmailAccountNav).
+    if (!emailAccounts.length) await ensureEmailAccountNav()
+    emailAccount = (saved?.account && emailAccounts.some(a => a.id === saved.account)) ? saved.account : (emailAccounts[0]?.id || null)
     renderEmailAccountNav()
     if (emailAccount) {
-      await loadEmailMailboxes()
+      if (emailAccount !== speculativeAccount) await loadEmailMailboxes()
       if (saved?.activeId) await loadEmailMessage(saved.activeId, saved.activeMailbox || emailMailbox)
     }
     return
@@ -22056,16 +22090,68 @@ function renderEmailAccountNav() {
   })
 }
 
+// A szerver a lejart, de meg hasznalhato listat AZONNAL kiadja, a frisset
+// pedig a hatterben szedi ossze (lasd ENVELOPE_STALE_MAX_MS, src/web/routes/
+// email.ts). Ilyenkor `X-Marveen-Stale: 1` fejlecet kapunk -- a lista mar
+// olvashato, csak egy pillanattal kesobb erdemes meg egyszer, CSENDBEN
+// elkerni, mert addigra a hatter-frissites beteszi a friss valtozatot.
+//
+// Boss, 2026-08-19: "az elso oszlop es masodik oszlop sem toltodik be hamar.
+// csak nagyon sokara." A varakozas a hideg IMAP-kapcsolat ara volt (merve:
+// 2,3-4,6 mp); igy azt mar nem a felhasznalo fizeti ki.
+const EMAIL_STALE_RELOAD_MS = 3000
+// Ket csendes utantoltes kozott ennyinek MINDENKEPP el kell telnie ugyanarra a
+// nezetre. Az eredeti valtozat "egyszeri, nem lancolodo"-nak volt szanva, de ez
+// azon a feltevesen allt, hogy a hatter-frissites SIKERUL: ha a szerver
+// frissitese sorozatban elhasal (pl. a Kuka listazasa a himalaya-uton), a cache
+// bejegyzes elavult MARAD, minden valasz megint `X-Marveen-Stale: 1`, es a
+// lista 3 masodpercenkent ujratoltott -- korlatlanul (Boss, 2026-08-19:
+// "mintha ideges lenne a masodik oszlop. remegne"). Ez a kapu felso korlatot
+// ad ra: egy nezet legfeljebb 30 masodpercenkent egyszer tolthet ujra magatol.
+const EMAIL_STALE_RELOAD_MIN_GAP_MS = 30000
+const emailStaleReloadLast = new Map()
+function emailScheduleStaleReload(res, reload, key = 'default') {
+  try {
+    if (res.headers.get('X-Marveen-Stale') !== '1') return
+  } catch { return }
+  const now = Date.now()
+  if (now - (emailStaleReloadLast.get(key) || 0) < EMAIL_STALE_RELOAD_MIN_GAP_MS) return
+  emailStaleReloadLast.set(key, now)
+  setTimeout(reload, EMAIL_STALE_RELOAD_MS)
+}
+
+// Ket mappa-lekeres futhat egyszerre (pl. a megjegyzett fiok spekulativ
+// toltese es a helyesbito toltes fiokvaltas utan) -- csak a LEGUTOBBI
+// rajzolhat, kulonben a regebbi valasz irna felul a frissebbet.
+let emailMailboxRequestId = 0
+// Melyik fiok mappai vannak eppen kirajzolva -- ebbol tudjuk, hogy egy toltes
+// UJRATOLTES-e (a sorok maradhatnak) vagy nezetvaltas (latszodjon a valtas).
+let emailRenderedMailboxAccount = null
 async function loadEmailMailboxes() {
+  const requestId = ++emailMailboxRequestId
   // Targets the inner list wrapper, not the whole #emailMailboxPane box --
   // the sticky header now lives inside that box as a persistent sibling
   // (Boss, 2026-08-05), and innerHTML-replacing the whole box on every
   // reload would wipe it out.
   const pane = document.getElementById('emailMailboxList')
   if (!pane || !emailAccount) return
-  pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
-  const mailboxes = await (await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)).json()
-  if (!Array.isArray(mailboxes)) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailboxes_load_error'))}</div>`; return }
+  // Ugyanannak a fioknak a csendes ujratoltese NEM torolheti le a mar kirakott
+  // mappakat: a "betoltes..." helykitolto minden korben kiuritette az oszlopot
+  // (lasd a levellista ugyanezen javitasat lentebb).
+  const sameMailboxView = emailRenderedMailboxAccount === emailAccount && !!pane.querySelector('.email-mailbox-item')
+  if (!sameMailboxView) pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
+  const mailboxesRes = await fetch(`/api/email/mailboxes?account=${encodeURIComponent(emailAccount)}`)
+  const mailboxes = await mailboxesRes.json()
+  if (requestId !== emailMailboxRequestId) return
+  const mailboxAccount = emailAccount
+  emailScheduleStaleReload(mailboxesRes, () => { if (emailAccount === mailboxAccount) loadEmailMailboxes() }, `mailboxes::${mailboxAccount}`)
+  // Elhasalt UJRATOLTESKOR a mar kirakott mappak maradnak: egy hatter-frissites
+  // hibaja ne torolje le a felhasznalo alol a mukodo oszlopot.
+  if (!Array.isArray(mailboxes)) {
+    if (!sameMailboxView) pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailboxes_load_error'))}</div>`
+    return
+  }
+  emailRenderedMailboxAccount = emailAccount
   // A fiok SAJAT rendszermappa-nevei: innentol minden mozgatas/torles ezeket
   // hasznalja a bedrotozott magyar nevek helyett.
   emailSystemMailboxByRole = {}
@@ -22992,6 +23078,77 @@ function emailRemoveRowFromList(id) {
   if (sub) sub.remove()
 }
 
+// A level teste mar a KATTINTAS ELOTT elkezdhet betolteni: mire a Boss lenyomja
+// az egeret, a kurzor mar egy masodpercig a soron all. A szerver a testet
+// cache-eli, tehat a kattintas utan mar keszen van (merve 2026-08-19: hidegen
+// 1-2 mp, cache-bol ~30 ms) -- Boss: "a level teste betoltesere meg mindig
+// kicsit varni kell". A `message read` IMAP-oldalon BODY.PEEK, es az
+// olvasottra-jeloles KULON hivas, tehat a lebegtetes nem jeloli meg a levelet.
+// Csak akkor indul, ha a kurzor MEGALL a soron (150 ms), es levelenkent csak
+// egyszer -- egy vegigsuhanas az oszlopon igy nem inditvan lekerest.
+const emailBodyPrefetched = new Set()
+let emailBodyPrefetchTimer = null
+function emailPrefetchBody(id, mailbox, { wait = false } = {}) {
+  if (!emailAccount || !id) return
+  const mb = mailbox || emailMailbox
+  const key = JSON.stringify([emailAccount, mb, String(id)])
+  if (emailBodyPrefetched.has(key)) return
+  // Felso korlat, hogy egy hosszu munkamenet ne gyujtsen vegtelen kulcsot.
+  if (emailBodyPrefetched.size > 500) emailBodyPrefetched.clear()
+  emailBodyPrefetched.add(key)
+  const params = new URLSearchParams({ account: emailAccount, mailbox: mb, id: String(id) })
+  // Szandekosan nem varjuk meg es nem dolgozzuk fel: a valasz a szerver
+  // cache-eben landol, itt csak a melegites a cel. Hiba eseten a kulcsot
+  // visszavesszuk, hogy a valodi kattintas ujra megprobalhassa.
+  const done = fetch(`/api/email/message?${params}`).catch(() => { emailBodyPrefetched.delete(key) })
+  // A melegito sor megvarja (hogy egyszerre csak egy fusson); a lebegtetes nem.
+  return wait ? done : undefined
+}
+// Boss otlete, 2026-08-19: "a masodik oszlop elso lathato 20 levelet
+// bechache-eled? ... amikor szabad, dolgozzon folyamatosan azon". Pontosan ezt
+// teszi: amikor a levellista kirajzolodott, sorban (EGYSZERRE EGYET) elore
+// elkeri az elso EMAIL_PREWARM_COUNT level testet, hogy a Boss elso
+// kattintasa is a szerver cache-ebol szolgaljon ki (~30 ms a 1-2 mp helyett).
+// A melleklet-LISTA a test valaszaban jon, tehat azzal egyutt melegszik; a
+// melleklet TARTALMAT (akar tobb tiz MB) szandekosan nem toltjuk elore.
+//
+// Harom fek, hogy a melegites SOSE menjen a Boss ele:
+//  1. egyszerre egy keres (a szerveroldali IMAP-kliens amugy is sorbaall),
+//  2. amig VALODI keres (kattintas) fut, a sor megall -- lasd emailUserFetchBusy,
+//  3. nezetvaltasnal (mas mappa/fiok) a sor azonnal elavul es leall.
+const EMAIL_PREWARM_COUNT = 20
+const EMAIL_PREWARM_GAP_MS = 200
+let emailPrewarmToken = 0
+let emailUserFetchBusy = 0
+async function emailPrewarmBodies(entries, viewKey) {
+  const token = ++emailPrewarmToken
+  for (const entry of entries.slice(0, EMAIL_PREWARM_COUNT)) {
+    if (token !== emailPrewarmToken) return
+    if (emailEnvelopeViewKey() !== viewKey) return
+    // A Boss eppen olvas: varjuk ki, ne alljunk a keresenek utjaba.
+    while (emailUserFetchBusy > 0) {
+      await new Promise(r => setTimeout(r, 150))
+      if (token !== emailPrewarmToken || emailEnvelopeViewKey() !== viewKey) return
+    }
+    await emailPrefetchBody(entry.id, entry.mailbox, { wait: true })
+    await new Promise(r => setTimeout(r, EMAIL_PREWARM_GAP_MS))
+  }
+}
+
+function emailAttachHoverPrefetch(el) {
+  el.addEventListener('mouseenter', () => {
+    clearTimeout(emailBodyPrefetchTimer)
+    emailBodyPrefetchTimer = setTimeout(() => emailPrefetchBody(el.dataset.id, el.dataset.mailbox), 150)
+  })
+  el.addEventListener('mouseleave', () => clearTimeout(emailBodyPrefetchTimer))
+}
+
+// Melyik nezet (fiok + mappa + promo-szures) sorai vannak eppen kirajzolva.
+// Ebbol tudjuk, hogy egy toltes UJRATOLTES-e vagy nezetvaltas.
+let emailRenderedEnvelopeView = null
+function emailEnvelopeViewKey() {
+  return JSON.stringify([emailAccount, emailMailbox, emailPromoOnly ? 1 : 0])
+}
 async function loadEmailEnvelopes() {
   // Inner list wrapper, not the whole #emailListPane box -- see the same
   // note in loadEmailMailboxes() above (sticky header lives inside the box
@@ -23002,7 +23159,17 @@ async function loadEmailEnvelopes() {
   emailEnvelopeAbortController?.abort()
   const controller = new AbortController()
   emailEnvelopeAbortController = controller
-  pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
+  // Boss, 2026-08-19: "mintha ideges lenne a masodik oszlop. remegne. tobbszor
+  // eltunik par miliszekundumra". Ez a "betoltes..." helykitolto volt: egy
+  // latogatas alatt tobbszor is ujratoltunk (level megnyitasa -> olvasottra
+  // jeloles -> csendes ujratoltes, elavult cache utantoltese, mappalista-toltes
+  // utani lancolt hivas), es mindegyik korben egy pillanatra kiurult a lista.
+  // UGYANARRA a nezetre ezert nem uritunk: a regi sorok maradnak, amig az ujak
+  // meg nem jonnek (a szerver meleg cache-bol 2-30 ms-on belul valaszol, tehat
+  // ez nem lathato varakozas). Mappa-/fiokvaltas viszont latszodjon.
+  const viewKey = emailEnvelopeViewKey()
+  const sameEnvelopeView = emailRenderedEnvelopeView === viewKey && !!pane.querySelector('.email-envelope-item')
+  if (!sameEnvelopeView) pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('common.loading'))}</div>`
   // No selection reset here -- opening a message marks it read, which
   // silently reloads this same list a moment later (see loadEmailMessage
   // below); wiping the selection on every such refresh made a bulk pick
@@ -23017,15 +23184,26 @@ async function loadEmailEnvelopes() {
   if (emailPromoOnly) params.set('promoOnly', '1')
   let list
   try {
-    list = await (await fetch(`/api/email/envelopes?${params}`, { signal: controller.signal })).json()
+    const envRes = await fetch(`/api/email/envelopes?${params}`, { signal: controller.signal })
+    list = await envRes.json()
+    // Csak akkor toltunk ujra, ha ez a keres meg az aktualis -- kozben a
+    // felhasznalo mar valthatott mappat vagy fiokot.
+    emailScheduleStaleReload(envRes, () => { if (requestId === emailEnvelopeRequestId) loadEmailEnvelopes() }, `envelopes::${viewKey}`)
   } catch (err) {
     if (err?.name === 'AbortError' || requestId !== emailEnvelopeRequestId) return
-    pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`
+    // Elhasalt UJRATOLTESKOR a mar olvashato lista marad: egy csendes
+    // frissites hibaja ne cserelje hibauzenetre a felhasznalo alatt azt, ami
+    // egy masodperccel korabban meg mukodott.
+    if (!sameEnvelopeView) pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`
     return
   }
   if (requestId !== emailEnvelopeRequestId) return
-  if (!Array.isArray(list)) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`; return }
+  if (!Array.isArray(list)) {
+    if (!sameEnvelopeView) pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.envelopes_load_error'))}</div>`
+    return
+  }
   emailEnvelopes = list
+  emailRenderedEnvelopeView = viewKey
   if (!list.length) { pane.innerHTML = `<div class="email-reader-empty">${escapeHtml(t('email.mailbox_empty'))}</div>`; return }
   emailSiblingEnvelopes = {}
   // Fold same-subject duplicates WITHIN this mailbox into one group instead
@@ -23048,178 +23226,232 @@ async function loadEmailEnvelopes() {
     if (!nestedBySubject.has(key)) { nestedBySubject.set(key, []); anchors.push(e) }
     else nestedBySubject.get(key).push(e)
   })
-  // Sent-reply siblings are fetched (one batched call) BEFORE rendering, not
-  // patched in afterwards -- merging them with the same-mailbox extras above
-  // needs both sets in hand to sort the whole nested list chronologically in
-  // one pass (Boss, 2026-08-05: "időrendi sorrendbe kéne rakni").
-  // Only pull them in while browsing Inbox -- that's the original ask ("nem
-  // kell az Elküldöttbe menni a saját válaszért"). Doing it for every mailbox
-  // meant a Sent reply also showed up nested under an unrelated Trash/Spam
-  // anchor of the same thread, which read as "this got deleted too" even
-  // though the Sent copy was untouched (Boss, 2026-08-05: "ezt en nem
-  // toroltem ki, hogy kerul ide a kukaba?").
-  let siblingsMap = {}
-  if (emailMailbox === 'Inbox') {
-    try {
-      siblingsMap = await (await fetch('/api/email/thread-siblings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: emailAccount, items: anchors.map(e => ({ id: e.id, subject: e.subject || '' })) }),
-      })).json()
-      if (!siblingsMap || typeof siblingsMap !== 'object') siblingsMap = {}
-    } catch { siblingsMap = {} }
-  }
-  pane.innerHTML = anchors.map(e => {
-    const unread = !e.flags?.some(f => f.iana === 'seen')
-    const starred = !!e.flags?.some(f => f.iana === 'flagged')
-    // Browsing Sent, e.from is always the account's own address -- showing
-    // it is redundant/uninformative (Boss, 2026-08-05: "Korpás László
-    // elkuldte. De kinek? Sehol nem latom"). The useful info there is who it
-    // went TO instead.
-    const from = emailMailbox === emailSentMailbox()
-      ? t('email.recipient_prefix', { name: (e.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || t('email.unknown_sender') })
-      : (e.from?.[0]?.name || e.from?.[0]?.email || t('email.unknown_sender'))
-    const active = String(e.id) === emailActiveId && emailActiveMailbox === emailMailbox
-    const extras = (nestedBySubject.get(emailGroupKey(e)) || [])
-      // `to` was missing here -- emailSubrowHtml's "Te -> X" label needs it
-      // for any same-mailbox nested extra (not just Sent-siblings pulled in
-      // from another mailbox, which already carried it), so every such row
-      // fell back to "Te -> (ismeretlen)" regardless of who it actually went
-      // to (Boss, 2026-08-05: "ez a te ismeretlen... nagyon sok helyen ezt
-      // latom").
-      .map(x => ({ id: x.id, mailbox: emailMailbox, date: x.date, from: x.from, to: x.to, flags: x.flags, 'message-id': x['message-id'] }))
-    const sentSiblings = Array.isArray(siblingsMap[e.id]) ? siblingsMap[e.id] : []
-    sentSiblings.forEach(s => { emailSiblingEnvelopes[s.id] = s })
-    // Newest first, matching the anchor row above it and the mailbox's own
-    // newest-first order (Boss, 2026-08-05: "felülre a 0805, alulra a 0601").
-    const nested = [...extras, ...sentSiblings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    return `<div class="email-envelope-group" data-group-id="${escapeHtml(e.id)}">
-      <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-from="${escapeAttr(e.from?.[0]?.email || '')}">
-        <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}"${emailSelectedIds.has(String(e.id)) ? ' checked' : ''}>
-        <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
-          <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        </button>
-        <button class="email-important-btn" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-message-id="${escapeAttr(e['message-id'] || '')}" data-important="0" style="display:none" title="${escapeAttr(t('email.important_tooltip'))}">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h13l-2.5 5L17 13H6v8H4z"/></svg>
-        </button>
-        <div class="email-envelope-body">
-          <div class="email-envelope-from">${escapeHtml(from)}</div>
-          <div class="email-envelope-subject">${escapeHtml(e.subject || t('email.no_subject'))}</div>
-          <div class="email-envelope-date">${emailFmtDate(e.date)}</div>
+  // A Sent-testverek (sajat valaszok) egy kotegelt hivassal jonnek. Ez regen a
+  // render ELE volt bekotve, mert a nested sorok idorendi rendezesehez (Boss,
+  // 2026-08-05: "időrendi sorrendbe kéne rakni") egyszerre kell mindket
+  // halmaz. MERVE (2026-08-19): elesben ez a hivas 5,7 mp volt, vagyis a mar
+  // KESZ levellista (179 ms) is annyit varakozott a kepernyon kivul (Boss:
+  // "a masodik oszlop sem toltodik be hamar. sokat kell varni ra"). Ezert
+  // eloszor testverek NELKUL rajzolunk, es amikor megjonnek, ujrarajzoljuk a
+  // listat veluk -- a rendezes igy is egy menetben tortenik, csak a masodik
+  // korben. Ha egyetlen testver sincs, a masodik rajzolas elmarad.
+  // Csak az Inboxban huzzuk be oket -- ez volt az eredeti keres ("nem kell az
+  // Elkuldottbe menni a sajat valaszert"). Minden mappara ravive a Sent-valasz
+  // egy Kuka/Spam horgony ala is bekerult volna, ami ugy olvasodott, mintha az
+  // is torolve lenne (Boss, 2026-08-05: "ezt en nem toroltem ki, hogy kerul
+  // ide a kukaba?").
+  // A jelzo-lekeresek (kapocs, fontos) cache-e a KET rajzolas KOZOTT is el:
+  // kulonben az ujrarajzolas megismetelne ugyanazokat a draga (uzenetenkent
+  // egy szerveroldali hivas) kereseket, es kozben eltunnenek a mar kirakott
+  // kapcsok. Amit egyszer lekertunk, masodszor nem kerjuk le.
+  const knownAttachmentFlags = new Map()
+  const attachmentFlagsRequested = new Set()
+  const knownImportantFlags = new Map()
+  const importantFlagsRequested = new Set()
+  const flagKey = (mailbox, id) => JSON.stringify([mailbox, String(id)])
+  const renderEnvelopeRows = (siblingsMap) => {
+    // Ujrarajzolaskor a felhasznalo mar gorgethetett -- a pozicio megmarad.
+    const scrollTop = pane.scrollTop
+    pane.innerHTML = anchors.map(e => {
+      const unread = !e.flags?.some(f => f.iana === 'seen')
+      const starred = !!e.flags?.some(f => f.iana === 'flagged')
+      // Browsing Sent, e.from is always the account's own address -- showing
+      // it is redundant/uninformative (Boss, 2026-08-05: "Korpás László
+      // elkuldte. De kinek? Sehol nem latom"). The useful info there is who it
+      // went TO instead.
+      const from = emailMailbox === emailSentMailbox()
+        ? t('email.recipient_prefix', { name: (e.to || []).map(p => p.name || p.email).filter(Boolean).join(', ') || t('email.unknown_sender') })
+        : (e.from?.[0]?.name || e.from?.[0]?.email || t('email.unknown_sender'))
+      const active = String(e.id) === emailActiveId && emailActiveMailbox === emailMailbox
+      const extras = (nestedBySubject.get(emailGroupKey(e)) || [])
+        // `to` was missing here -- emailSubrowHtml's "Te -> X" label needs it
+        // for any same-mailbox nested extra (not just Sent-siblings pulled in
+        // from another mailbox, which already carried it), so every such row
+        // fell back to "Te -> (ismeretlen)" regardless of who it actually went
+        // to (Boss, 2026-08-05: "ez a te ismeretlen... nagyon sok helyen ezt
+        // latom").
+        .map(x => ({ id: x.id, mailbox: emailMailbox, date: x.date, from: x.from, to: x.to, flags: x.flags, 'message-id': x['message-id'] }))
+      const sentSiblings = Array.isArray(siblingsMap[e.id]) ? siblingsMap[e.id] : []
+      sentSiblings.forEach(s => { emailSiblingEnvelopes[s.id] = s })
+      // Newest first, matching the anchor row above it and the mailbox's own
+      // newest-first order (Boss, 2026-08-05: "felülre a 0805, alulra a 0601").
+      const nested = [...extras, ...sentSiblings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      return `<div class="email-envelope-group" data-group-id="${escapeHtml(e.id)}">
+        <div class="email-envelope-item${unread ? ' unread' : ''}${active ? ' active' : ''}" draggable="true" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-from="${escapeAttr(e.from?.[0]?.email || '')}">
+          <input type="checkbox" class="email-envelope-check" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}"${emailSelectedIds.has(String(e.id)) ? ' checked' : ''}>
+          <button class="email-star-btn${starred ? ' active' : ''}" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-starred="${starred ? '1' : '0'}" title="${escapeAttr(t('email.star_tooltip'))}">
+            <svg viewBox="0 0 24 24" fill="${starred ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </button>
+          <button class="email-important-btn" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" data-message-id="${escapeAttr(e['message-id'] || '')}" data-important="0" style="display:none" title="${escapeAttr(t('email.important_tooltip'))}">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3h13l-2.5 5L17 13H6v8H4z"/></svg>
+          </button>
+          <div class="email-envelope-body">
+            <div class="email-envelope-from">${escapeHtml(from)}</div>
+            <div class="email-envelope-subject">${escapeHtml(e.subject || t('email.no_subject'))}</div>
+            <div class="email-envelope-date">${emailFmtDate(e.date)}</div>
+          </div>
+          <svg class="email-envelope-attachment-flag" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" style="display:none" title="${escapeAttr(t('email.has_attachment_tooltip'))}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
         </div>
-        <svg class="email-envelope-attachment-flag" data-id="${escapeHtml(e.id)}" data-mailbox="${escapeHtml(emailMailbox)}" style="display:none" title="${escapeAttr(t('email.has_attachment_tooltip'))}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
-      </div>
-      ${nested.map(s => emailSubrowHtml(s)).join('')}
-    </div>`
-  }).join('')
-  pane.querySelectorAll('.email-envelope-item').forEach(el => {
-    el.addEventListener('click', (e) => {
-      if (e.target.closest('.email-envelope-check, .email-star-btn, .email-important-btn')) return
-      loadEmailMessage(el.dataset.id, el.dataset.mailbox)
+        ${nested.map(s => emailSubrowHtml(s)).join('')}
+      </div>`
+    }).join('')
+    pane.querySelectorAll('.email-envelope-item').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.email-envelope-check, .email-star-btn, .email-important-btn')) return
+        loadEmailMessage(el.dataset.id, el.dataset.mailbox)
+      })
+      el.addEventListener('dragstart', emailEnvelopeDragStart)
+      emailAttachHoverPrefetch(el)
     })
-    el.addEventListener('dragstart', emailEnvelopeDragStart)
-  })
-  // Star: a plain IMAP flag, already in envelope.flags -- no extra fetch,
-  // just toggle + optimistic UI (Boss, 2026-08-05 plan: "csillagozott").
-  pane.querySelectorAll('.email-star-btn').forEach(btn => {
-    btn.addEventListener('click', async (ev) => {
-      ev.stopPropagation()
-      const starred = btn.dataset.starred === '1'
-      btn.disabled = true
-      const res = await fetch('/api/email/star', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, starred: !starred }),
-      }).catch(() => null)
-      btn.disabled = false
-      if (!res || !res.ok) { showToast(t('email.star_error')); return }
-      btn.dataset.starred = starred ? '0' : '1'
-      btn.classList.toggle('active', !starred)
-      const svg = btn.querySelector('svg')
-      svg.setAttribute('fill', starred ? 'none' : 'currentColor')
+    // A beagyazott (valasz-)sorok ugyanugy megnyithatok, tehat ugyanugy
+    // elore is tolthetok.
+    pane.querySelectorAll('.email-envelope-subrow').forEach(el => emailAttachHoverPrefetch(el))
+    // Star: a plain IMAP flag, already in envelope.flags -- no extra fetch,
+    // just toggle + optimistic UI (Boss, 2026-08-05 plan: "csillagozott").
+    pane.querySelectorAll('.email-star-btn').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation()
+        const starred = btn.dataset.starred === '1'
+        btn.disabled = true
+        const res = await fetch('/api/email/star', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, starred: !starred }),
+        }).catch(() => null)
+        btn.disabled = false
+        if (!res || !res.ok) { showToast(t('email.star_error')); return }
+        btn.dataset.starred = starred ? '0' : '1'
+        btn.classList.toggle('active', !starred)
+        const svg = btn.querySelector('svg')
+        svg.setAttribute('fill', starred ? 'none' : 'currentColor')
+      })
     })
-  })
-  // Important: a Gmail label, not a flag -- toggle button starts hidden per
-  // row (display:none) until the batched /api/email/important-flags check
-  // below tells us which anchors are already in Fontos, same "patch after
-  // the fact" shape as the paperclip/attachments-flags check.
-  pane.querySelectorAll('.email-important-btn').forEach(btn => {
-    btn.addEventListener('click', async (ev) => {
-      ev.stopPropagation()
-      const important = btn.dataset.important === '1'
-      btn.disabled = true
-      const res = await fetch('/api/email/important', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, important: !important, messageId: btn.dataset.messageId }),
-      }).catch(() => null)
-      btn.disabled = false
-      if (!res || !res.ok) { showToast(t('email.important_error')); return }
-      btn.dataset.important = important ? '0' : '1'
-      btn.classList.toggle('active', !important)
-      btn.style.display = ''
+    // Important: a Gmail label, not a flag -- toggle button starts hidden per
+    // row (display:none) until the batched /api/email/important-flags check
+    // below tells us which anchors are already in Fontos, same "patch after
+    // the fact" shape as the paperclip/attachments-flags check.
+    pane.querySelectorAll('.email-important-btn').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation()
+        const important = btn.dataset.important === '1'
+        btn.disabled = true
+        const res = await fetch('/api/email/important', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ account: emailAccount, mailbox: btn.dataset.mailbox, id: btn.dataset.id, important: !important, messageId: btn.dataset.messageId }),
+        }).catch(() => null)
+        btn.disabled = false
+        if (!res || !res.ok) { showToast(t('email.important_error')); return }
+        btn.dataset.important = important ? '0' : '1'
+        btn.classList.toggle('active', !important)
+        btn.style.display = ''
+      })
     })
-  })
-  // Every rendered button, not just anchors -- nested subrows (the account's
-  // own older replies, or earlier received messages in the thread) need the
-  // same important-status check, now that they have a button at all.
-  const importantCheckIds = Array.from(new Set(
-    Array.from(pane.querySelectorAll('.email-important-btn[data-message-id]')).map(btn => btn.dataset.messageId).filter(Boolean)
-  ))
-  if (importantCheckIds.length) {
-    fetch('/api/email/important-flags', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: emailAccount, messageIds: importantCheckIds }),
-    }).then(r => r.json()).then(flags => {
-      if (!flags || typeof flags !== 'object') return
+    // Every rendered button, not just anchors -- nested subrows (the account's
+    // own older replies, or earlier received messages in the thread) need the
+    // same important-status check, now that they have a button at all.
+    const applyImportantFlags = () => {
       pane.querySelectorAll('.email-important-btn[data-message-id]').forEach(btn => {
-        const isImportant = !!flags[btn.dataset.messageId]
+        if (!knownImportantFlags.has(btn.dataset.messageId)) return
+        const isImportant = !!knownImportantFlags.get(btn.dataset.messageId)
         btn.style.display = ''
         btn.dataset.important = isImportant ? '1' : '0'
         btn.classList.toggle('active', isImportant)
       })
-    }).catch(() => {})
-  }
-  pane.querySelectorAll('.email-envelope-subrow').forEach(sub => {
-    sub.addEventListener('click', (ev) => { ev.stopPropagation(); loadEmailMessage(sub.dataset.id, sub.dataset.mailbox) })
-    sub.addEventListener('dragstart', emailEnvelopeDragStart)
-  })
-  pane.querySelectorAll('.email-envelope-check').forEach(cb => {
-    cb.addEventListener('click', (e) => e.stopPropagation())
-    cb.addEventListener('change', () => {
-      if (cb.checked) emailSelectedIds.set(cb.dataset.id, cb.dataset.mailbox)
-      else emailSelectedIds.delete(cb.dataset.id)
-      emailUpdateBulkDeleteUI()
+    }
+    // Elobb a mar ismert allapotot rakjuk ki (ujrarajzolas utan azonnal),
+    // csak a meg soha le nem kert uzenetekert megyunk a szerverhez.
+    applyImportantFlags()
+    const importantCheckIds = Array.from(new Set(
+      Array.from(pane.querySelectorAll('.email-important-btn[data-message-id]')).map(btn => btn.dataset.messageId).filter(Boolean)
+    )).filter(id => !importantFlagsRequested.has(id))
+    if (importantCheckIds.length) {
+      importantCheckIds.forEach(id => importantFlagsRequested.add(id))
+      fetch('/api/email/important-flags', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, messageIds: importantCheckIds }),
+      }).then(r => r.json()).then(flags => {
+        if (!flags || typeof flags !== 'object') return
+        importantCheckIds.forEach(id => knownImportantFlags.set(id, !!flags[id]))
+        applyImportantFlags()
+      }).catch(() => {})
+    }
+    pane.querySelectorAll('.email-envelope-subrow').forEach(sub => {
+      sub.addEventListener('click', (ev) => { ev.stopPropagation(); loadEmailMessage(sub.dataset.id, sub.dataset.mailbox) })
+      sub.addEventListener('dragstart', emailEnvelopeDragStart)
     })
-  })
-  // Paperclip markers load in the background after the list is already on
-  // screen -- himalaya has no cheap has-attachment field, so this is one
-  // extra CLI call per message server-side; too slow to block the list on.
-  // The SVG starts with an inline display:none (not the `hidden` attribute --
-  // the [hidden] UA rule doesn't reliably apply to inline <svg>, which showed
-  // the icon on every row regardless of flag state; Boss, 2026-08-05).
-  // Matched by [data-id][data-mailbox] together, not id alone -- IMAP ids are
-  // only unique per mailbox, so a Sent id could collide with an Inbox one.
-  const applyAttachmentFlags = (mailbox, ids) => {
-    if (!ids.length) return
-    fetch('/api/email/attachments-flags', {
+    pane.querySelectorAll('.email-envelope-check').forEach(cb => {
+      cb.addEventListener('click', (e) => e.stopPropagation())
+      cb.addEventListener('change', () => {
+        if (cb.checked) emailSelectedIds.set(cb.dataset.id, cb.dataset.mailbox)
+        else emailSelectedIds.delete(cb.dataset.id)
+        emailUpdateBulkDeleteUI()
+      })
+    })
+    // Paperclip markers load in the background after the list is already on
+    // screen -- himalaya has no cheap has-attachment field, so this is one
+    // extra CLI call per message server-side; too slow to block the list on.
+    // The SVG starts with an inline display:none (not the `hidden` attribute --
+    // the [hidden] UA rule doesn't reliably apply to inline <svg>, which showed
+    // the icon on every row regardless of flag state; Boss, 2026-08-05).
+    // Matched by [data-id][data-mailbox] together, not id alone -- IMAP ids are
+    // only unique per mailbox, so a Sent id could collide with an Inbox one.
+    const showAttachmentFlag = (mailbox, id) => {
+      const el = pane.querySelector(`.email-envelope-attachment-flag[data-id="${CSS.escape(String(id))}"][data-mailbox="${CSS.escape(mailbox)}"]`)
+      if (el) el.style.display = ''
+    }
+    // A Message-ID-t is atadjuk: a szerver azzal tartja nyilvan tartosan, hogy
+    // egy levelben van-e csatolmany (uzenetenkent kulon himalaya-processz, ezert
+    // ez a dashboard legdragabb hattermunkaja volt). A mappan beluli szamozott
+    // id erre nem jo: mas mappaban mas levelet jelent.
+    const applyAttachmentFlags = (mailbox, entries) => {
+      if (!entries.length) return
+      // Ujrarajzolas utan az innerHTML mindent visszaallitott display:none-ra,
+      // ezert a mar ismert kapcsokat azonnal ujra kirakjuk -- lekeres nelkul.
+      entries.forEach(en => { if (knownAttachmentFlags.get(flagKey(mailbox, en.id))) showAttachmentFlag(mailbox, en.id) })
+      const missing = entries.filter(en => !attachmentFlagsRequested.has(flagKey(mailbox, en.id)))
+      if (!missing.length) return
+      missing.forEach(en => attachmentFlagsRequested.add(flagKey(mailbox, en.id)))
+      fetch('/api/email/attachments-flags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account: emailAccount, mailbox, items: missing }),
+      }).then(r => r.json()).then(flags => {
+        if (!flags || typeof flags !== 'object') return
+        Object.keys(flags).forEach(id => {
+          knownAttachmentFlags.set(flagKey(mailbox, id), !!flags[id])
+          if (!flags[id]) return
+          showAttachmentFlag(mailbox, id)
+        })
+      }).catch(() => {})
+    }
+    applyAttachmentFlags(emailMailbox, list.map(e => ({ id: e.id, messageId: e['message-id'] || '' })))
+    // Nested Sent-sibling rows (see above) need their own paperclip check too --
+    // that PDF-bearing "TUV toyota corolla" original was buried as a subrow and
+    // had no flag element at all before this (Boss, 2026-08-05: "a kovetkezo
+    // mar elfelejtette a kapcsot").
+    const sentSiblingEntries = Object.values(siblingsMap).flat().map(s => ({ id: s.id, messageId: s['message-id'] || '' }))
+    applyAttachmentFlags(emailSentMailbox(), sentSiblingEntries)
+    pane.scrollTop = scrollTop
+  }
+  renderEnvelopeRows({})
+  // A lista mar a kepernyon van -- innentol a hatterben melegitjuk az elso
+  // levelek testet (lasd emailPrewarmBodies).
+  runLater(() => {
+    if (requestId !== emailEnvelopeRequestId) return
+    void emailPrewarmBodies(anchors.map(e => ({ id: e.id, mailbox: emailMailbox })), viewKey)
+  }, 400)
+  if (emailMailbox === 'Inbox') {
+    fetch('/api/email/thread-siblings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ account: emailAccount, mailbox, ids }),
-    }).then(r => r.json()).then(flags => {
-      if (!flags || typeof flags !== 'object') return
-      Object.keys(flags).forEach(id => {
-        if (!flags[id]) return
-        const el = pane.querySelector(`.email-envelope-attachment-flag[data-id="${CSS.escape(id)}"][data-mailbox="${CSS.escape(mailbox)}"]`)
-        if (el) el.style.display = ''
-      })
+      body: JSON.stringify({ account: emailAccount, items: anchors.map(e => ({ id: e.id, subject: e.subject || '' })) }),
+    }).then(r => r.json()).then(map => {
+      // Kozben a felhasznalo mar valthatott mappat/fiokot -- akkor a valasz
+      // egy mas listahoz tartozik, eldobjuk.
+      if (requestId !== emailEnvelopeRequestId) return
+      if (!map || typeof map !== 'object' || !Object.keys(map).length) return
+      renderEnvelopeRows(map)
     }).catch(() => {})
   }
-  applyAttachmentFlags(emailMailbox, list.map(e => e.id))
-  // Nested Sent-sibling rows (see above) need their own paperclip check too --
-  // that PDF-bearing "TUV toyota corolla" original was buried as a subrow and
-  // had no flag element at all before this (Boss, 2026-08-05: "a kovetkezo
-  // mar elfelejtette a kapcsot").
-  const sentSiblingIds = Object.values(siblingsMap).flat().map(s => s.id)
-  applyAttachmentFlags(emailSentMailbox(), sentSiblingIds)
 }
 
 // A plain-text alternative on an HTML newsletter is often just a
@@ -23260,6 +23492,21 @@ function forceEmailLinksNewTab(html) {
   }
 }
 
+/** Mekkora legyen a level torzsenek kerete egy meresbol.
+ *
+ *  Amig van meg toltodo kep, a MERT magassag hazudik: a meg le nem toltott
+ *  kep 0 magas, es a keret egy sliverre zsugorodik. Merve (2026-08-19, a
+ *  bejelentett levelen): 9 tavoli kepbol 4-en nincs magassag-attributum, a
+ *  markupban ott a `height: 100%` is -- a kepek elott mert magassag toredeke
+ *  a valodinak. Ilyenkor olvasasi padlot tartunk, es a kepek a HATTERBEN
+ *  toltenek bele. Ha mar minden kep megjott (vagy elhasalt), a pontos
+ *  magassag jar: kulonben egy harom soros level allna 700 px-es uresseg
+ *  kozepen. */
+function emailBodyFrameHeight(measured, pendingImages, floor) {
+  const exact = Math.max(0, measured) + 16
+  return pendingImages ? Math.max(exact, floor) : exact
+}
+
 function renderEmailMessageBody(msg) {
   const slot = document.getElementById('emailReaderBodySlot')
   if (!slot) return
@@ -23287,23 +23534,59 @@ function renderEmailMessageBody(msg) {
   // Fix: collapse to 0 before every measurement (so % / vh content can't
   // inflate the reading), and only measure twice total -- once on load,
   // once after a short delay for late-loading images -- never continuously.
+  //
+  // MERVE (2026-08-19, egy bejelentett hirlevelen): a szerver
+  // 0,16-0,22 mp alatt valaszolt (71 KB HTML, 0 melleklet), tehat a varakozas
+  // NEM a levelbetoltes volt. A keret sajat `load` esemenye viszont MINDEN
+  // alforrast megvar -- ebben a levelben ket 1x1-es nyomkoveto pixelt is
+  // (open.homedepot.com, trk.mg.homedepot.com) --, es az elso meres csak az
+  // utan futott le; addig a keret a CSS min-height 80px-en ult. Boss pontosan
+  // ezt latta: "elsonek csak egy kicsike kis resze jelent meg". Ezert mostantol
+  // merunk, amint a dokumentum keszen all, es a kepek utolag torlesztenek.
+  const FLOOR_DEADLINE_MS = 8000
+  const frameStartedAt = Date.now()
+  // Egy soha vissza nem tero kep (tipikusan egy nyomkoveto pixel) nem
+  // tarthatja a padlot orokke: a hatarido utan a pontos magassag jar.
+  const pendingImages = () => {
+    if (Date.now() - frameStartedAt > FLOOR_DEADLINE_MS) return false
+    try {
+      return Array.from(frame.contentWindow.document.querySelectorAll('img')).some(img => !img.complete)
+    } catch { return false }
+  }
+  // Annyi, amennyi az olvasooszlopbol tenylegesen latszik -- se tobb (ne
+  // kelljen ures teruleten gorgetni), se kevesebb (ne legyen sliver).
+  // A GORGETETT oszlop magassaga a mervado (`.email-pane` overflow-y:auto),
+  // nem a benne novo tartalom-doboze: az utobbi epp a sliverrel egyutt
+  // zsugorodna, es a padlo semmit sem erne.
+  const readingFloor = () => {
+    const pane = document.getElementById('emailReaderPane')
+    return Math.max(320, Math.min(pane ? pane.clientHeight : 0, 900))
+  }
   const sizeToContent = () => {
     try {
       frame.style.height = '0px'
       const h = frame.contentWindow.document.documentElement.scrollHeight
-      frame.style.height = `${h + 16}px`
+      frame.style.height = `${emailBodyFrameHeight(h, pendingImages(), readingFloor())}px`
     } catch { /* best-effort only */ }
   }
-  frame.addEventListener('load', () => {
-    // Newsletter markup commonly ships `loading="lazy"` images -- inside a
-    // frame collapsed to 0px height for measurement (see sizeToContent
-    // above), every image starts off-screen, so the browser never fires
-    // their 'load' event at all, and the height-settle logic below waits
-    // forever for images that were never going to report in. Force them
-    // eager before the first measurement so they actually load and count.
+  // Newsletter markup commonly ships `loading="lazy"` images -- inside a
+  // frame collapsed to 0px height for measurement (see sizeToContent
+  // above), every image starts off-screen, so the browser never fires
+  // their 'load' event at all, and the height-settle logic below waits
+  // forever for images that were never going to report in. Force them
+  // eager before the first measurement so they actually load and count.
+  //
+  // Mar a keret `load`-ja ELOTT fut (a kopogtatasbol is): addig egyetlen
+  // lusta kep sem kezd el toltodni, vagyis a levelnek epp az a resze indul
+  // legkesobb, ami a legtovabb tart. Idempotens -- ami mar eager, azt a
+  // szelektor sem talalja meg tobbe.
+  const forceEagerImages = () => {
     try {
       frame.contentWindow.document.querySelectorAll('img[loading="lazy"]').forEach(img => { img.loading = 'eager' })
     } catch { /* best-effort only */ }
+  }
+  frame.addEventListener('load', () => {
+    forceEagerImages()
     sizeToContent()
     setTimeout(sizeToContent, 800)
     // A photo-heavy mail can have several images still loading well past
@@ -23329,6 +23612,24 @@ function renderEmailMessageBody(msg) {
   slot.innerHTML = ''
   slot.appendChild(frame)
   frame.srcdoc = forceEmailLinksNewTab(html)
+  // A torzs mar akkor olvashato meretben all, amikor a HTML megjott -- nem
+  // varunk a tavoli kepekre. A kopogtatas maga korlatos (5 mp, es a keret
+  // `load`-ja is leallitja), tehat a regi ResizeObserver-hurok nem terhet
+  // vissza: itt nem a keret sajat merete valtja ki a kovetkezo merest.
+  const earlyPoll = setInterval(() => {
+    try {
+      const doc = frame.contentWindow?.document
+      if (!doc || doc.readyState === 'loading' || !doc.body || !doc.body.childElementCount) return
+    } catch { clearInterval(earlyPoll); return }
+    forceEagerImages()
+    sizeToContent()
+  }, 100)
+  frame.addEventListener('load', () => clearInterval(earlyPoll), { once: true })
+  setTimeout(() => clearInterval(earlyPoll), 5000)
+  // Ha egy kep sosem jon meg es sosem hasal el, az `img`-esemenyek nem
+  // rendezik le a keretet: a hatarido utan egyszer meg megmerjuk, hogy a
+  // padlo ne maradjon ott egy rovid levelnel.
+  setTimeout(sizeToContent, FLOOR_DEADLINE_MS + 100)
 }
 
 // `mailbox` defaults to the list's current mailbox for a normal row click,
@@ -23376,12 +23677,17 @@ async function loadEmailMessage(id, mailbox = emailMailbox, envelopeHint = null)
   // that and asked what was hanging: nothing was; the answer had simply been
   // thrown away. Failures are shown, never swallowed.
   let msg
+  // A hatterben futo elore-melegites (emailPrewarmBodies) erre a szamlalora
+  // figyel: amig a Boss VALODI kerese fut, a melegito sor megall.
+  emailUserFetchBusy++
   try {
     const res = await fetch(`/api/email/message?${params}`)
     msg = await res.json()
     if (!res.ok && !msg?.error) msg = { error: `HTTP ${res.status}` }
   } catch (err) {
     msg = { error: (err && err.message) || t('email.load_message_error') }
+  } finally {
+    emailUserFetchBusy--
   }
   // The message this id pointed to is confirmed gone server-side (deleted,
   // including straight in Gmail's own web client, outside Marveen entirely --

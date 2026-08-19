@@ -53,13 +53,23 @@ export function readBody(
   })
 }
 
-export function json(res: http.ServerResponse, data: unknown, status = 200): void {
+export function json(
+  res: http.ServerResponse,
+  data: unknown,
+  status = 200,
+  // Extra response headers. Added for the email list's "stale but instant"
+  // answer (X-Marveen-Stale), which the frontend has to be able to tell apart
+  // from a fresh one WITHOUT changing the JSON body's shape -- every consumer
+  // of these endpoints reads a bare array.
+  extraHeaders?: Record<string, string>,
+): void {
   // Cache-Control: private, no-store prevents CDN / proxy caching of API
   // responses that may contain user-specific data or session state. Without
   // this header, intermediate caches can serve stale or cross-user data.
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'private, no-store',
+    ...(extraHeaders || {}),
   })
   res.end(JSON.stringify(data))
 }

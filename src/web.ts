@@ -94,7 +94,7 @@ import { startWindowLayoutSyncTask } from './persistent-windows-sync.js'
 import { tryHandleDebate } from './web/routes/debate.js'
 import { tryHandleOpenRouterOverview } from './web/routes/openrouter-overview.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
-import { tryHandleEmail } from './web/routes/email.js'
+import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
 import { tryHandleSkillUsage } from './web/routes/skill-usage.js'
@@ -326,6 +326,17 @@ export function startWebServer(port = 3420): http.Server {
 
   server.listen(port, WEB_HOST, () => {
     logger.info({ port }, `Web dashboard: http://localhost:${port}`)
+    // Az email-oldal listai hideg indulasnal masodpercekig tartanak (ures
+    // cache + hideg IMAP: merve 12,3 illetve 19,3 mp, melegen 0,85 mp). Ezt
+    // ne az elso latogato fizesse ki: par masodperccel a bootolas utan, amikor
+    // a tobbi indulo munka mar lefutott, csendben elomelegitjuk. unref(): egy
+    // fuggo elomelegites sose tartsa eletben a folyamatot.
+    //
+    // A kesleltetes SZANDEKOSAN rovid: a hideg IMAP-lekeres maga ~3 mp, tehat
+    // csak akkor spuroljuk meg a felhasznalonak, ha addigra vegez. 5 mp-rol
+    // 1,5-re hozva a 6. masodpercben erkezo betoltes mar keszet talal. Az
+    // elomelegites halozatra var, nem CPU-t esz -- nem lassitja a bootot.
+    setTimeout(() => { void warmEmailCaches() }, 1500).unref()
     // Do NOT log the bearer token: launchd/journal/pipe captures of the
     // structured log would otherwise carry a root-equivalent credential.
     // Print the bootstrap URL directly to stderr instead so it shows in the
