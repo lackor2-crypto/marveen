@@ -108,23 +108,37 @@ describe('a lejarat kiszamolasa', () => {
   })
 })
 
-describe('a REGI, egyfiokos token -- amit a levelkuldes tenylegesen olvas', () => {
-  it('kulon soron latszik, sajat nevvel', () => {
+describe('a REGI, egyfiokos token', () => {
+  it('migracio ELOTT figyeljuk: ilyenkor ez A levelkuldo hitelesites', () => {
     writeLegacy(tokenRec(9 * NAP))
     const row = legacyGoogleTokenExpiry(NOW, dir)!
     expect(row.status).toBe('expired')
     expect(row.id).toBe('google:legacy')
   })
 
-  it('AKKOR IS latszik, ha a tobbfiokos tarban minden zold', () => {
-    // Pontosan a 2026-08-19-i allapot: a felulet fiokjai elnek, a kuldest
-    // hajto regi token halott. Ez a teszt a "minden rendben" hazugsag ellen van.
-    writeTokens({ _default: 'lackor2', lackor2: tokenRec(1 * NAP), usalackor: tokenRec(1 * NAP) })
+  it('migracio UTAN nem: mar semmi nem olvassa', () => {
+    // 2026-08-19: a gmail-send.py is atallt a fiok-kulcsolt tarra. A regi fajl
+    // ott marad a lemezen egy halott tokennel -- ha ezt tovabb jelentenenk,
+    // egy orokke piros sor allna a kartyan egy hasznalaton kivuli
+    // hitelesitesrol, es pont ez tanitja meg a felhasznalot, hogy ne nezze.
+    writeTokens({ _default: 'lackor2', lackor2: tokenRec(1 * NAP) })
     writeLegacy(tokenRec(9 * NAP))
+    expect(legacyGoogleTokenExpiry(NOW, dir)).toBeNull()
     const rows = credentialExpiries(NOW, dir)
-    expect(worstExpiryStatus(rows)).toBe('expired')
-    expect(rows[0].id).toBe('google:legacy')       // a legrosszabb elol
-    expect(rows.filter(r => r.status === 'ok')).toHaveLength(2)
+    expect(worstExpiryStatus(rows)).toBe('ok')
+    expect(rows.map(r => r.id)).toEqual(['google:lackor2'])
+  })
+})
+
+describe('a sor MEGNEVEZI, melyik fiokrol van szo', () => {
+  it('a cimet mutatja, nem a belso kulcsot', () => {
+    writeTokens({ lackor2: { ...tokenRec(9 * NAP), email: 'lackor2@gmail.com' } })
+    expect(googleAccountExpiries(NOW, dir)[0].label).toBe('lackor2@gmail.com')
+  })
+
+  it('ha nincs cim, a kulcsot mutatja -- de nevtelen sor nincs', () => {
+    writeTokens({ lackor2: tokenRec(9 * NAP) })
+    expect(googleAccountExpiries(NOW, dir)[0].label).toBe('lackor2')
   })
 })
 

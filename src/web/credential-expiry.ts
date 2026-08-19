@@ -113,14 +113,30 @@ export function googleAccountExpiries(now: number, storeDir: string): Credential
   const out: CredentialExpiry[] = []
   for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
     if (key.startsWith('_')) continue
-    const row = entryExpiry(now, `google:${key}`, key, value)
+    // A CIMET mutatjuk, nem a belso kulcsot: Boss, 2026-08-19 -- "epp csak azt
+    // nem irtad ki hogy melyik fioknal van ez". Tiz bekotott fioknal a
+    // "lackor2" meg megfejtheto, de a lejarat-uzenet cimzettje az, aki majd
+    // ujra bejelentkezik: neki a cim mond valamit, nem a kulcs.
+    const rec = value as Record<string, unknown>
+    const email = (rec && typeof rec.email === 'string' && rec.email) ? rec.email : ''
+    const row = entryExpiry(now, `google:${key}`, email || key, value)
     if (row) out.push(row)
   }
   return out
 }
 
-/** The legacy single-account file the sending scripts still read. */
+/**
+ * The legacy single-account file -- ONLY while it is the one actually in use.
+ *
+ * Once `google-tokens.json` exists, the migration has run and every caller
+ * (gmail-send.py included, fixed 2026-08-19) reads the account store instead.
+ * The old file then just sits there with a token nothing renews, and reporting
+ * its expiry would be a permanent red line about a credential no longer on any
+ * path -- which is how a watcher teaches people to ignore it. Before that
+ * migration it IS the mail credential, and then it has to be watched.
+ */
 export function legacyGoogleTokenExpiry(now: number, storeDir: string): CredentialExpiry | null {
+  if (existsSync(join(storeDir, 'google-tokens.json'))) return null
   const data = readJson(join(storeDir, 'google-token.json'))
   return entryExpiry(now, 'google:legacy', 'levélküldés (régi token)', data)
 }
