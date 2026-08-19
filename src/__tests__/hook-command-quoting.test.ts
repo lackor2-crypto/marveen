@@ -18,11 +18,9 @@ import {
   HOOK_NODE_BIN,
   hookCommand,
   hookCommandWired,
-  injectEmailSendGate,
-  injectSelfPaceGate,
   injectEgressGate,
   ensureEgressGate,
-  ensureGovernanceGateCommands,
+  ensureGovernanceGatesRemoved,
 } from '../web/agent-scaffold.js'
 import { PROJECT_ROOT } from '../config.js'
 
@@ -76,8 +74,6 @@ describe('hookCommand builder', () => {
 // csupasz `node`.
 describe('injectors write a quoted absolute interpreter, never a bare node', () => {
   for (const [label, inject] of [
-    ['injectEmailSendGate', injectEmailSendGate],
-    ['injectSelfPaceGate', injectSelfPaceGate],
     ['injectEgressGate', injectEgressGate],
   ] as const) {
     it(label, () => {
@@ -123,30 +119,40 @@ describe('ensure* migrations are idempotent (true, then false)', () => {
     }
   })
 
-  it('ensureGovernanceGateCommands upgrades a legacy bare-node entry, then settles', () => {
+  it('ensureGovernanceGatesRemoved strips the legacy email+self-pace gates, then settles', () => {
     mkdirSync(join(testAgentDir, '.claude'), { recursive: true })
+    // A settings.json as an older build wrote it: both gate hooks, the self-pace
+    // tool-name denials, plus an unrelated egress hook + a foreign deny that must
+    // both survive the strip.
     const legacy = {
+      permissions: {
+        allow: ['Read'],
+        deny: ['ScheduleWakeup', 'CronCreate', 'CronDelete', 'CronList', 'RemoteTrigger', 'SomeForeignTool'],
+      },
       hooks: {
         PreToolUse: [
           { matcher: 'Bash|send_email', hooks: [{ type: 'command', command: `node ${join(PROJECT_ROOT, 'scripts', 'email-send-gate.mjs')}`, timeout: 10 }] },
           { matcher: 'Bash', hooks: [{ type: 'command', command: `node ${join(PROJECT_ROOT, 'scripts', 'self-pace-gate.mjs')}`, timeout: 10 }] },
+          { matcher: 'WebFetch', hooks: [{ type: 'command', command: `node ${join(PROJECT_ROOT, 'scripts', 'hooks', 'egress-gate.mjs')}`, timeout: 10 }] },
         ],
       },
     }
     const settingsPath = join(testAgentDir, '.claude', 'settings.json')
     writeFileSync(settingsPath, JSON.stringify(legacy, null, 2))
 
-    expect(ensureGovernanceGateCommands(TEST_AGENT)).toBe(true)
-    expect(ensureGovernanceGateCommands(TEST_AGENT)).toBe(false)
+    expect(ensureGovernanceGatesRemoved(TEST_AGENT)).toBe(true)
+    expect(ensureGovernanceGatesRemoved(TEST_AGENT)).toBe(false)
 
     expect(existsSync(settingsPath)).toBe(true)
     const written = JSON.parse(readFileSync(settingsPath, 'utf-8'))
     const commands = ptuCommands(written)
-    expect(commands.some((c) => c.includes('email-send-gate.mjs'))).toBe(true)
-    expect(commands.some((c) => c.includes('self-pace-gate.mjs'))).toBe(true)
-    for (const cmd of commands) {
-      expect(cmd.includes(`"${HOOK_NODE_BIN}" "`)).toBe(true)
-      expect(cmd).not.toMatch(/^node /)
-    }
+    // both gates gone
+    expect(commands.some((c) => c.includes('email-send-gate.mjs'))).toBe(false)
+    expect(commands.some((c) => c.includes('self-pace-gate.mjs'))).toBe(false)
+    // the unrelated egress hook is preserved
+    expect(commands.some((c) => c.includes('egress-gate.mjs'))).toBe(true)
+    // the self-pace tool-name denials are gone, the foreign deny is preserved
+    const deny = (written.permissions as { deny: string[] }).deny
+    expect(deny).toEqual(['SomeForeignTool'])
   })
 })

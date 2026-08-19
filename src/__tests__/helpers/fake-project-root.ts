@@ -1,6 +1,6 @@
 // Shared helper for tests that exercise agent-scaffold.ts's hook injectors
-// (injectEmailSendGate / injectSelfPaceGate / injectEgressGate and the
-// ensure*/upgrade* functions built on them). Those all build their hook
+// (injectEgressGate and the ensure*/upgrade* functions built on them). Those
+// all build their hook
 // `command` string from the real PROJECT_ROOT export in ../config.js, then
 // isUnsafeHookCommand() rejects it if that path contains a /tmp-like prefix
 // -- correctly, that guard exists specifically to keep a transient checkout
@@ -34,8 +34,6 @@ const FAKE_ROOT = join(homedir(), '.marveen-test-fixtures-project-root')
 // The hook scripts these injectors reference, relative to PROJECT_ROOT --
 // keep in sync with the join(PROJECT_ROOT, ...) calls in agent-scaffold.ts.
 const MIRRORED_SCRIPTS = [
-  ['scripts', 'email-send-gate.mjs'],
-  ['scripts', 'self-pace-gate.mjs'],
   ['scripts', 'hooks', 'egress-gate.mjs'],
 ]
 

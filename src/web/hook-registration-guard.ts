@@ -29,8 +29,9 @@ export const KNOWN_HOOK_SCRIPTS: readonly string[] = [
   'taskstate-replay.py',
   'voice-reply-directive.py',
   'staleness-guard.py',
-  'email-send-gate.mjs',
-  'self-pace-gate.mjs',
+  // email-send-gate.mjs + self-pace-gate.mjs removed 2026-08-20 (owner decision,
+  // Telegram msg 404). Leftover entries in old settings.json are stripped by
+  // ensureGovernanceGatesRemoved() at startup, not by the stale-file pruner.
   'telegram_progress.py',
   'telegram_progress_clear.py',
   'telegram_progress_watchdog.py',

@@ -65,10 +65,17 @@ describe('findParityDrift', () => {
     expect(drift).toEqual([{ script: 'voice-reply-directive.py', direction: 'subagent-only' }])
   })
 
-  it('accepts the declared exceptions on both sides', () => {
+  it('accepts the declared main-only exception', () => {
     const mainOnly = MAIN_ONLY_HOOKS[0].script
-    const subOnly = SUBAGENT_ONLY_HOOKS[0].script
-    expect(findParityDrift(new Set([mainOnly]), new Set([subOnly]))).toEqual([])
+    expect(findParityDrift(new Set([mainOnly]), new Set())).toEqual([])
+  })
+
+  it('has no sub-agent-only exceptions since the governance gates were removed (2026-08-20)', () => {
+    // The email-send + self-pace gates were the only sub-agent-only hooks; the
+    // owner removed them (Telegram msg 404). Any sub-agent-only entry that
+    // reappears here is a new fleet-parity exception that needs a reason -- and
+    // the loop below enforces the reason -- but the steady state is empty.
+    expect(SUBAGENT_ONLY_HOOKS).toEqual([])
   })
 
   it('accepts a hook that reaches the fleet through code instead of the template', () => {

@@ -3,8 +3,6 @@ import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildManifest } from '../web/routes/static.js'
-// @ts-expect-error -- plain .mjs hook script, no types
-import { buildGateMsg, readBrandEnv } from '../../scripts/email-send-gate.mjs'
 
 // Repo root = two levels up from src/__tests__/.
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -62,52 +60,6 @@ describe('buildManifest brands the PWA manifest, default unchanged', () => {
 
   it('leaves input without name/short_name keys untouched', () => {
     expect(buildManifest('{ "other": 1 }', 'Acme')).toBe('{ "other": 1 }')
-  })
-})
-
-describe('buildGateMsg brands the email-gate deny message', () => {
-  it('renders the governance message with the stock defaults', () => {
-    expect(buildGateMsg('Marveen', 'Szabolcs')).toBe(
-      'Email-kuldes sub-agentkent tiltott (governance hard-gate). ' +
-        'Kuldd a tervezett emailt (CIMZETT + TARGY + TELJES SZOVEG) Marveennek inter-agent uzenetben ' +
-        'jovahagyasra; a kimeno emailt Marveen kuldi. Csak VERIFIKALT cimre (soha nem nevbol talalt cim). ' +
-        'Soha ne irj ala Szabolcs nevevel, es soha ne kerj penzt senki neveben.',
-    )
-  })
-
-  it('substitutes a custom brand + owner and drops the stock names', () => {
-    const msg = buildGateMsg('Nova', 'John')
-    expect(msg).toContain('Novanek inter-agent')
-    expect(msg).toContain('a kimeno emailt Nova kuldi')
-    expect(msg).toContain('Soha ne irj ala John nevevel')
-    expect(msg).not.toContain('Marveen')
-    expect(msg).not.toMatch(/Szab(olcs|i)/)
-  })
-})
-
-describe('readBrandEnv reads the install brand from .env', () => {
-  it('parses BOT_NAME and OWNER_NAME', () => {
-    const env = 'CHANNEL_PROVIDER=telegram\nBOT_NAME=Nova\nOWNER_NAME=John\nWEB_PORT=3420\n'
-    expect(readBrandEnv(() => env)).toEqual({ botName: 'Nova', ownerName: 'John' })
-  })
-
-  it('strips surrounding single or double quotes', () => {
-    expect(readBrandEnv(() => 'BOT_NAME="Nova"\nOWNER_NAME=\'John Doe\'\n')).toEqual({
-      botName: 'Nova',
-      ownerName: 'John Doe',
-    })
-  })
-
-  it('falls back to the stock defaults for missing keys', () => {
-    expect(readBrandEnv(() => 'WEB_PORT=3420\n')).toEqual({ botName: 'Marveen', ownerName: 'Szabolcs' })
-  })
-
-  it('falls back to the stock defaults when the file cannot be read', () => {
-    expect(
-      readBrandEnv(() => {
-        throw new Error('ENOENT')
-      }),
-    ).toEqual({ botName: 'Marveen', ownerName: 'Szabolcs' })
   })
 })
 

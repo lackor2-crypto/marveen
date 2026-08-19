@@ -258,10 +258,11 @@ describe('injectEgressGate (source-level checks)', () => {
   })
 
   it('injectEgressGate is called unconditionally in writeAgentSettingsFromProfile (no main-agent exemption)', () => {
-    // Unlike email/self-pace gates which are guarded by agentGetsEmailGate /
-    // agentGetsGovernanceGates (sub-agent only), the egress gate must run for
-    // ALL agents including the main agent. Verify the call is NOT wrapped in
-    // an if(agentGets...) conditional.
+    // The egress gate must run for ALL agents including the main agent (every
+    // agent can be hijacked into an exfiltrating WebFetch). Verify the call is
+    // NOT wrapped in an if(agentGets...) conditional -- the sub-agent-only
+    // email/self-pace governance gates that used to sit beside it were removed
+    // 2026-08-20 (owner decision), but the egress gate stays fleet-wide.
     expect(scaffoldSrc).toMatch(/injectEgressGate\(existing\)/)
     // The call line itself must be a bare statement, not a conditional
     const callLine = scaffoldSrc

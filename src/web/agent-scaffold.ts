@@ -503,104 +503,31 @@ export function writeAgentSettingsFromProfile(name: string, profile: ProfileTemp
     try { existing = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { /* overwrite */ }
   }
   const ctx = { HOME: homedir(), AGENT_DIR: agentRoot }
-  const denyList = profile.filesystem.deny.map(p => resolveProfilePlaceholders(p, ctx))
-  // Self-pace tool-name deny: every sub-agent (NOT the main agent) is denied the
-  // Claude Code runtime self-scheduling tools. A whole-tool-name deny IS enforced
-  // even under --dangerously-skip-permissions (deny is checked BEFORE the bypass
-  // allow), so this is a fail-closed layer; the self-pace-gate hook below covers
-  // the Bash escape routes a name-deny cannot reach. (2026-06-26 autonom-kor fix.)
-  if (agentGetsGovernanceGates(name)) denyList.push(...SELF_PACE_TOOL_DENY)
   existing.permissions = {
     allow: profile.filesystem.allow.map(p => resolveProfilePlaceholders(p, ctx)),
-    deny: denyList,
+    deny: profile.filesystem.deny.map(p => resolveProfilePlaceholders(p, ctx)),
   }
-  // Governance hard-gates: every sub-agent (NOT the main agent) gets PreToolUse
-  // hooks. Re-applied on every spawn (this function regenerates settings.json),
-  // so they survive respawns. (a) email-send block -- outbound email routes
-  // through the main agent. (b) self-pace block -- no ScheduleWakeup/Cron*/Bash
-  // self-injection. (c) egress gate -- WebFetch calls that are not on the known
-  // API allowlist are hard-blocked and logged; arbitrary web content must go
-  // through the quarantine-reader sub-agent. The MAIN_AGENT_ID is exempt from
-  // (a) and (b) but NOT from (c) -- every agent can be hijacked via an injected
-  // WebFetch call, including the main one. Merge/deploy is NOT gated: the operator
-  // authorizes those autonomously (so test/deploy runs are never blocked); the
-  // actual incident vector -- an agent answering its OWN posed question -- is
-  // covered by the self-pace block + the #0 CLAUDE.md doctrine.
-  if (agentGetsEmailGate(name)) injectEmailSendGate(existing)
-  if (agentGetsGovernanceGates(name)) injectSelfPaceGate(existing)
+  // Egress gate: applied to ALL agents including MAIN_AGENT_ID. WebFetch calls
+  // that are not on the known API allowlist are hard-blocked and logged;
+  // arbitrary web content must go through the quarantine-reader sub-agent. Every
+  // agent can be hijacked via an injected WebFetch call, including the main one.
+  //
+  // The email-send + self-pace governance hard-gates that used to be wired here
+  // for sub-agents were removed 2026-08-20 by the owner's decision (Telegram msg
+  // 404): routing every sub-agent's email + scheduling through the main agent
+  // made the main agent a single point of failure -- when its token/quota was
+  // exhausted the whole fleet was blocked from work the others could still do.
+  // ensureGovernanceGatesRemoved() strips any leftover gate wiring from existing
+  // settings.json at startup.
   injectEgressGate(existing)
   atomicWriteFileSync(settingsPath, JSON.stringify(existing, null, 2))
 }
 
-// Which agents are subject to the email-send hard-gate: every agent EXCEPT the
-// main agent (MAIN_AGENT_ID, e.g. Marveen). Name-agnostic -- keyed on the
-// configured main-agent id, not a hardcoded 'marveen', so a customer install
-// gates its own sub-agents and exempts its own owner (distribution-hardcode
-// rule). Pure + exported so the main-exempt guarantee is unit-testable.
-export function agentGetsEmailGate(name: string): boolean {
-  return name !== MAIN_AGENT_ID
-}
-
-// Idempotently wire the email-send-gate PreToolUse hook into a settings.json
-// object. A deny-list rule alone would NOT enforce this: permissive profiles
-// launch with --dangerously-skip-permissions, which bypasses allow/deny --
-// hooks run regardless of permission mode. Name-agnostic so a customer install
-// gates its own sub-agents (the caller's MAIN_AGENT_ID guard exempts the owner).
-export function injectEmailSendGate(existing: Record<string, unknown>): void {
-  const hooks = (existing.hooks && typeof existing.hooks === 'object'
-    ? existing.hooks
-    : (existing.hooks = {})) as Record<string, unknown>
-  const command = hookCommand(join(PROJECT_ROOT, 'scripts', 'email-send-gate.mjs'))
-  // Registration guard: a /tmp or missing path must never enter shared settings.
-  if (isUnsafeHookCommand(command)) return
-  const entry = {
-    matcher: 'Bash|send_email',
-    hooks: [{ type: 'command', command, timeout: 10 }],
-  }
-  const prev = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : []
-  // Drop any prior email-gate entry (respawn re-runs this) before re-adding, so
-  // the hook never accumulates duplicates; other PreToolUse entries are kept.
-  hooks.PreToolUse = [
-    ...prev.filter((e) => !JSON.stringify(e).includes('email-send-gate.mjs')),
-    entry,
-  ]
-}
-
-// Claude Code runtime self-scheduling tool names denied for sub-agents (fail-
-// closed, enforced even under --dangerously-skip-permissions). The Bash escape
-// routes are covered by the self-pace-gate hook, which a name-deny cannot reach.
-const SELF_PACE_TOOL_DENY = ['ScheduleWakeup', 'CronCreate', 'CronDelete', 'CronList', 'RemoteTrigger']
-
-// Which agents are subject to the self-pace gate: every agent EXCEPT the main
-// agent (same name-agnostic main-exempt rule as the email gate). Pure + exported
-// so the main-exempt guarantee is unit-testable.
-export function agentGetsGovernanceGates(name: string): boolean {
-  return name !== MAIN_AGENT_ID
-}
-
-// Idempotently wire the self-pace-gate PreToolUse hook (blocks ScheduleWakeup /
-// Cron* / RemoteTrigger + the Bash self-injection routes). Same shape + dedupe
-// discipline as injectEmailSendGate.
-export function injectSelfPaceGate(existing: Record<string, unknown>): void {
-  const hooks = (existing.hooks && typeof existing.hooks === 'object'
-    ? existing.hooks
-    : (existing.hooks = {})) as Record<string, unknown>
-  const command = hookCommand(join(PROJECT_ROOT, 'scripts', 'self-pace-gate.mjs'))
-  // Registration guard: a /tmp or missing path must never enter shared settings.
-  if (isUnsafeHookCommand(command)) return
-  const entry = {
-    // Write|Edit|NotebookEdit are included so the gate actually fires on the
-    // native-file route to the self-schedule store (gateDecision blocks a Write
-    // to scheduled_tasks.json); a Bash-only matcher would leave that route open.
-    matcher: 'ScheduleWakeup|CronCreate|CronDelete|CronList|RemoteTrigger|Bash|Write|Edit|NotebookEdit',
-    hooks: [{ type: 'command', command, timeout: 10 }],
-  }
-  const prev = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : []
-  hooks.PreToolUse = [
-    ...prev.filter((e) => !JSON.stringify(e).includes('self-pace-gate.mjs')),
-    entry,
-  ]
-}
+// Governance gate tool-name denials + hook basenames, retained here ONLY so
+// ensureGovernanceGatesRemoved() knows what to strip from settings.json files
+// that were written before the 2026-08-20 removal. Nothing wires these anymore.
+const LEGACY_SELF_PACE_TOOL_DENY = ['ScheduleWakeup', 'CronCreate', 'CronDelete', 'CronList', 'RemoteTrigger']
+const LEGACY_GOVERNANCE_GATE_SCRIPTS = ['email-send-gate.mjs', 'self-pace-gate.mjs']
 
 // Idempotently wire the egress-gate PreToolUse hook (hard-blocks WebFetch to
 // any URL not on the known API allowlist, logs blocked calls). Applied to ALL
@@ -746,36 +673,56 @@ export function renderQuarantineReader(template: string, domains: string[]): str
   return `${stripped.slice(0, at)}\n${block}${stripped.slice(at)}`
 }
 
-// Idempotent migration: ensure a sub-agent's email-send + self-pace gate hook
-// commands use the absolute node binary (HOOK_NODE_BIN). Legacy entries wrote a
-// bare `node`, which is missing from the non-interactive hook PATH on nvm
-// installs -- exit 127 counts as a non-blocking hook error, so those gates were
-// silently non-enforcing. Called at server startup (alongside ensureEgressGate).
-// NOTE: a running session does NOT re-read settings.json -- the rewritten
-// command takes effect at that agent's next (re)spawn; this call only makes
-// the migration zero-touch, not instantaneous.
-// Returns true if the file was updated, false if already correct.
-export function ensureGovernanceGateCommands(name: string): boolean {
-  if (name === MAIN_AGENT_ID) return false
+// Idempotent migration: STRIP the legacy governance hard-gates (email-send +
+// self-pace) from an agent's settings.json. These gates were removed 2026-08-20
+// by the owner's decision (Telegram msg 404) -- they made the main agent a
+// single point of failure for outbound email and scheduling. New spawns never
+// write them (writeAgentSettingsFromProfile no longer injects them), but an
+// install that ran an older build still has them baked into every sub-agent's
+// settings.json, so this self-heals those files at server startup.
+// Removes (a) the two PreToolUse hook entries and (b) the self-pace tool-name
+// denials from permissions.deny. Runs for every agent (the main agent never had
+// them, so it is a no-op there). NOTE: a running session does NOT re-read
+// settings.json -- the change takes effect at that agent's next (re)spawn.
+// Returns true if the file was updated, false if there was nothing to strip.
+export function ensureGovernanceGatesRemoved(name: string): boolean {
   const settingsPath = agentSettingsPath(name)
   if (!existsSync(settingsPath)) return false
   let settings: Record<string, unknown> = {}
   try { settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { return false }
-  const emailCmd = hookCommand(join(PROJECT_ROOT, 'scripts', 'email-send-gate.mjs'))
-  const paceCmd = hookCommand(join(PROJECT_ROOT, 'scripts', 'self-pace-gate.mjs'))
+  let changed = false
+
+  // (a) Drop the PreToolUse hook entries that reference either gate script.
   const hooks = (settings.hooks && typeof settings.hooks === 'object')
     ? settings.hooks as Record<string, unknown>
-    : {}
-  const ptuJson = JSON.stringify(Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse : [])
-  const needEmail = agentGetsEmailGate(name) && !hookCommandWired(ptuJson, emailCmd)
-  const needPace = agentGetsGovernanceGates(name) && !hookCommandWired(ptuJson, paceCmd)
-  if (!needEmail && !needPace) return false
-  // The injectors dedupe by script basename, so a stale bare-`node` entry is
-  // replaced in place rather than accumulated.
-  if (needEmail) injectEmailSendGate(settings)
-  if (needPace) injectSelfPaceGate(settings)
-  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
-  return true
+    : undefined
+  if (hooks && Array.isArray(hooks.PreToolUse)) {
+    const prev = hooks.PreToolUse as unknown[]
+    const kept = prev.filter((e) => {
+      const json = JSON.stringify(e)
+      return !LEGACY_GOVERNANCE_GATE_SCRIPTS.some((s) => json.includes(s))
+    })
+    if (kept.length !== prev.length) {
+      hooks.PreToolUse = kept
+      changed = true
+    }
+  }
+
+  // (b) Drop the self-pace tool-name denials from permissions.deny.
+  const perms = (settings.permissions && typeof settings.permissions === 'object')
+    ? settings.permissions as Record<string, unknown>
+    : undefined
+  if (perms && Array.isArray(perms.deny)) {
+    const prev = perms.deny as unknown[]
+    const kept = prev.filter((d) => !(typeof d === 'string' && LEGACY_SELF_PACE_TOOL_DENY.includes(d)))
+    if (kept.length !== prev.length) {
+      perms.deny = kept
+      changed = true
+    }
+  }
+
+  if (changed) atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return changed
 }
 
 // Deploy the quarantine-reader sub-agent definition to an agent's

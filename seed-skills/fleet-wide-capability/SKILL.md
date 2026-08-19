@@ -34,9 +34,12 @@ Kivétel csak indoklással létezik (`src/agent-parity.ts`).
 - **A fiók-ágensek `CLAUDE_CONFIG_DIR`-je más** (`store/accounts/<fiok>/`), ott
   csak a statusLine van. A hookjaik a PROJEKT szintű
   `agents/<nev>/.claude/settings.json`-ből jönnek, amit a sablon táplál.
-- **Nem minden hook illik mindenkihez**: a kormányzási gate-ek (email-send-gate,
-  self-pace-gate) a delegáltakra valók, az inbox-drain a fő ágensre. Ezeket
-  deklaráld kivételként, ne hagyd sodródni.
+- **Nem minden hook illik mindenkihez**: pl. az inbox-drain a fő ágensre való
+  (a router a sub-ágenseknek közvetlenül injektál). Az ilyet deklaráld
+  kivételként (`MAIN_ONLY_HOOKS` / `SUBAGENT_ONLY_HOOKS`, kötelező `why`), ne
+  hagyd sodródni. Megjegyzés: a kormányzási gate-ek (email-send-gate,
+  self-pace-gate) 2026-08-20-án megszűntek (Boss döntése) -- ezek voltak az
+  egyetlen sub-ágens-only hookok, most a `SUBAGENT_ONLY_HOOKS` üres.
 - **A sablon-hook nem duplikálódik**, ha az ágensnél már ott van ugyanaz a
   szkript más formában: az `upgradeLegacyHookCommands()` átírja a sablon
   alakjára.

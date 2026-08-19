@@ -50,17 +50,13 @@ export const MAIN_ONLY_HOOKS: ReadonlyArray<{ script: string; why: string }> = [
   },
 ]
 
-/** Hook scripts a sub-agent legitimately has and the main agent does not. */
-export const SUBAGENT_ONLY_HOOKS: ReadonlyArray<{ script: string; why: string }> = [
-  {
-    script: 'email-send-gate.mjs',
-    why: 'Governance gate: outbound email from a delegate needs the supervisor\'s approval path. The supervisor IS the main agent.',
-  },
-  {
-    script: 'self-pace-gate.mjs',
-    why: 'Governance gate on autonomous scheduling/edits by a delegate; the main agent owns that budget rather than being policed by it.',
-  },
-]
+/** Hook scripts a sub-agent legitimately has and the main agent does not.
+ *  Empty since 2026-08-20: the email-send + self-pace governance hard-gates
+ *  that used to live here were removed by the owner's decision (Telegram msg
+ *  404) -- routing every delegate's email + scheduling through the main agent
+ *  made it a single point of failure. There is no longer any capability a
+ *  sub-agent has that the main agent lacks. */
+export const SUBAGENT_ONLY_HOOKS: ReadonlyArray<{ script: string; why: string }> = []
 
 /** Extract the script basenames referenced by a settings.json hooks block.
  *  Commands differ in shape between installs (bare `python3 /abs/path.py`, the
