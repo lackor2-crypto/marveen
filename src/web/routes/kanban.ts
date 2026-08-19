@@ -18,7 +18,7 @@ import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
 import { findSimilarCards, referencedCardIds, withCrossLink } from '../../kanban-related.js'
-import { ensureApprovalForWaitingCard } from './approvals.js'
+import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } from './approvals.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
@@ -309,6 +309,12 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const data = JSON.parse(body.toString())
     if (updateKanbanCard(id, data)) {
       if (data.status === 'waiting') ensureApprovalForWaitingCard(id, data.actor)
+      // ...and the symmetric half: leaving waiting closes the request that
+      // entering it raised. Guarded on status being present at all, because this
+      // PUT also edits a card's text without touching its column.
+      else if (typeof data.status === 'string' && data.status) {
+        withdrawApprovalForCardLeavingWaiting(id, data.status, data.actor)
+      }
       json(res, { ok: true })
       return true
     }
@@ -340,6 +346,10 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       // hogy a jovairasba is bekeruljon". Covers the dashboard drag too, not
       // just agents following the workflow by hand.
       if (status === 'waiting') ensureApprovalForWaitingCard(id, actor)
+      // Boss 2026-08-16: the waiting column and the approvals page must show the
+      // same number. Entering raises, leaving withdraws -- without this half a
+      // card dragged back to in_progress left its request pending for good.
+      else withdrawApprovalForCardLeavingWaiting(id, status, actor)
       json(res, { ok: true })
       return true
     }

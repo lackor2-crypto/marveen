@@ -94,11 +94,68 @@ function kanbanCardIdFromApproval(approval: Approval): string | null {
   }
 }
 
+/**
+ * The invariant itself, checked as a whole rather than trusted event by event.
+ *
+ * The raising and withdrawing halves above hang off the two HTTP routes, so
+ * anything that moves a card by another path leaves the counts drifting --
+ * and there IS such a path: the stuck-task watchdog moves cards straight
+ * through the db layer (markScheduledTaskKanbanWaiting). Old rows created
+ * before either half existed drift the same way; the live board had four of
+ * them when this was written.
+ *
+ * So once a minute both directions are re-established from the actual state:
+ *   - a waiting card with no open request gets one raised,
+ *   - an open `kanban_done` request whose card is no longer waiting (or no
+ *     longer exists) is closed as `timeout`, never as a verdict.
+ * Everything it does is logged, and it never touches other categories.
+ */
+export function reconcileWaitingApprovals(): { raised: number; withdrawn: number } {
+  let raised = 0
+  let withdrawn = 0
+  try {
+    const cards = listKanbanCards()
+    for (const card of cards) {
+      if (card.status !== 'waiting') continue
+      if (pendingApprovalForCard(card.id)) continue
+      if (ensureApprovalForWaitingCard(card.id, 'reconcile')) raised++
+    }
+    const byId = new Map(cards.map(c => [c.id, c]))
+    for (const pending of listPendingApprovals()) {
+      if (pending.category !== 'kanban_done') continue
+      const cardId = approvalCardId(pending.action_payload, pending.action_description)
+      if (!cardId) continue
+      // Prefix tolerance, same as pendingApprovalForCard: descriptions carry an
+      // 8-hex short id while the card row holds the full one.
+      const card = byId.get(cardId)
+        || cards.find(c => c.id.startsWith(cardId) || cardId.startsWith(c.id))
+      if (card && card.status === 'waiting') continue
+      const hol = card ? `a(z) "${card.status}" oszlopban van` : 'már nem létezik'
+      const ok = resolveApproval(
+        pending.id, 'timeout', MAIN_AGENT_ID, null,
+        `A kérés tárgya nem várakozik döntésre: a kártya ${hol}. Az egyeztetés zárta le `
+        + 'automatikusan, nem Boss döntése -- ha a munka ismét várakozóba kerül, új kérés keletkezik.',
+      )
+      if (ok) withdrawn++
+    }
+    if (raised || withdrawn) {
+      logger.info({ raised, withdrawn }, 'Waiting/approval invariant reconciled')
+    }
+  } catch (err) {
+    // Bookkeeping only: never let this take the sweeper (or the process) down.
+    logger.warn({ err }, 'Waiting/approval reconcile failed')
+  }
+  return { raised, withdrawn }
+}
+
 export function startApprovalTimeoutSweeper(): NodeJS.Timeout {
   return setInterval(() => {
     try {
       const expired = expireTimedOutApprovals()
       if (expired > 0) logger.info({ expired }, 'Approval timeout sweep: expired pending approvals')
+      // Same tick, same cheap SQLite reads: keep the waiting column and the
+      // approvals list numerically identical, whatever moved the cards.
+      reconcileWaitingApprovals()
     } catch (err) {
       logger.warn({ err }, 'Approval timeout sweep failed')
     }
@@ -132,18 +189,24 @@ export function pendingApprovalForCard(cardId: string): Approval | undefined {
  * stack up requests, and an agent that afterwards files its own properly
  * written request updates this one rather than adding a second.
  */
-export function ensureApprovalForWaitingCard(cardId: string, actor?: string | null): Approval | null {
+export function ensureApprovalForWaitingCard(
+  cardId: string, actor?: string | null, descriptionOverride?: string | null,
+): Approval | null {
   try {
     if (pendingApprovalForCard(cardId)) return null
     const card = getKanbanCard(cardId)
     if (!card) return null
     const requester = (actor || card.assignee || MAIN_AGENT_ID).trim()
+    // The default text states that the work is finished, because that is what a
+    // card entering waiting normally means. One caller parks a card in waiting
+    // for the opposite reason -- a scheduled task that may be STUCK -- and must
+    // not have that claim written in its name, so it passes its own wording.
     const approval = createApproval({
       id: randomUUID(),
       agent_id: requester,
       category: 'kanban_done',
-      action_description:
-        `Kártya: ${card.title} (${card.id}) -- várakozóba került, tehát a munka elkészült rajta. `
+      action_description: descriptionOverride?.trim()
+        || `Kártya: ${card.title} (${card.id}) -- várakozóba került, tehát a munka elkészült rajta. `
         + 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: '
         + `a felelős ágens egészítse ki, mielőtt ${currentOwnerName()} dönt.`,
       action_payload: JSON.stringify({ kanban_card_id: card.id }),
@@ -157,6 +220,52 @@ export function ensureApprovalForWaitingCard(cardId: string, actor?: string | nu
     // bookkeeping failure. The kanban-audit sweep catches what slips through.
     logger.warn({ err, cardId }, 'Failed to auto-raise approval for waiting card')
     return null
+  }
+}
+
+/**
+ * The other half of the same invariant: a card that LEAVES waiting must not
+ * leave an open request standing behind it.
+ *
+ * Boss, 2026-08-16: "a jovahagyasok menupont alatt 19 van soron ami jovahagyasra
+ * var. de a kanban ban a varakozoban pedig kevesebb van. ennek a kettonek
+ * pontosan ugyanannak a szamnak kellene lennie." He is right, and until now the
+ * mechanism only had an entering side -- so pulling a card back to in_progress
+ * left its request pending forever. That is exactly what the audit kept
+ * reporting as orphans, and what made the two counts drift apart.
+ *
+ * Resolved as `timeout`, deliberately not `rejected`: Boss did not judge the
+ * work, the card simply went back to being worked on. `rejected` would land in
+ * the red "elutasitva" column and imply a verdict nobody gave. The reason line
+ * says which column it moved to, so the history stays readable.
+ *
+ * Only the auto-raised `kanban_done` request is touched. A pending request of
+ * any other category that happens to mention the same card belongs to somebody
+ * else's workflow and is left alone.
+ */
+export function withdrawApprovalForCardLeavingWaiting(
+  cardId: string, newStatus: string, actor?: string | null,
+): boolean {
+  try {
+    const pending = pendingApprovalForCard(cardId)
+    if (!pending || pending.category !== 'kanban_done') return false
+    const resolvedBy = (actor || MAIN_AGENT_ID).trim()
+    const ok = resolveApproval(
+      pending.id, 'timeout', resolvedBy, null,
+      `A kártya átkerült a(z) "${newStatus}" oszlopba, tehát már nem várakozik döntésre. `
+      + 'A kérést a mozgatás zárta le automatikusan, nem Boss döntése -- ha a munka később '
+      + 'ismét várakozóba kerül, új kérés keletkezik.',
+    )
+    if (ok) {
+      logger.info({ cardId, newStatus, approvalId: pending.id },
+        'Approval withdrawn for card leaving waiting')
+    }
+    return ok
+  } catch (err) {
+    // Non-fatal for the same reason as the raising side: the move already
+    // succeeded and must not be undone by bookkeeping.
+    logger.warn({ err, cardId }, 'Failed to withdraw approval for card leaving waiting')
+    return false
   }
 }
 

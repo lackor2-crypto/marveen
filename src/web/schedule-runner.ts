@@ -12,6 +12,7 @@ import {
   APP_TZ_INVALID,
 } from '../config.js'
 import { resolveOwnerChatId } from '../owner-chat.js'
+import { ensureApprovalForWaitingCard } from './routes/approvals.js'
 import {
   appendTaskRun,
   listPendingTaskRetries,
@@ -969,6 +970,17 @@ function sendTaskTimeoutAlert(entry: TaskInflightEntry, elapsedMs: number): void
   const movedCardId = markScheduledTaskKanbanWaiting(entry.taskName)
   if (movedCardId) {
     logger.info({ task: entry.taskName, agent: entry.agentName, cardId: movedCardId }, 'task-timeout: matching kanban card moved to waiting')
+    // A card in `waiting` must always have an open request against it (Boss,
+    // 2026-08-11), and this move bypasses the kanban route that normally
+    // raises one. The wording is deliberately NOT the default "the work is
+    // finished": nothing finished here, a task may be hanging.
+    ensureApprovalForWaitingCard(
+      movedCardId, 'scheduler',
+      `Beakadhatott ütemezett feladat: "${entry.taskName}" (${entry.agentName}) `
+      + `${Math.floor(elapsedMs / 60000)} perce fut, ezért a kártyája várakozóba került. `
+      + 'Ez NEM elkészült munka: azt kell eldönteni, hagyjuk-e tovább futni, '
+      + 'vagy leállítjuk. A dashboard Ütemezések oldalán visszavonható.',
+    )
   }
 
   // Naming the threshold turns "possible hang" into something the operator can
