@@ -41,6 +41,9 @@ import { tryHandleMessages } from './web/routes/messages.js'
 import { tryHandleFederation } from './web/routes/federation.js'
 import { startFederationPoller } from './web/federation/poller.js'
 import { startCapabilitySummaryRunner } from './web/federation/capability-runner.js'
+import { tryHandleCode } from './web/routes/code.js'
+import { startCodeBridgeRunner } from './web/code-bridge-runner.js'
+import { startCodeBotPoller } from './web/code-bridge-telegram.js'
 import { ensureFederationClaudeMdSection } from './web/federation/onboarding.js'
 import { tryHandleAgentTerminal } from './web/routes/agent-terminal.js'
 import { tryHandleAgentConversation } from './web/routes/agent-conversation.js'
@@ -256,6 +259,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleVaultSsh(routeCtx)) return
       if (await tryHandleAuditLog(routeCtx)) return
       if (await tryHandleFleetQ(routeCtx)) return
+      if (await tryHandleCode(routeCtx)) return
       if (await tryHandleFleet(routeCtx)) return
       if (await tryHandleStatic(routeCtx, WEB_DIR)) return
 
@@ -510,6 +514,10 @@ export function startWebServer(port = 3420): http.Server {
   if (!webOnly) logger.info('Federation manifest poller started (10min poll, 25s offset)')
 
   const capabilityRunnerInterval = webOnly ? undefined : startCapabilitySummaryRunner()
+
+  // Code bridge: lease reaper + the optional dedicated /code Telegram bot.
+  // Both are no-ops when the bridge is off or no CODE_BOT_TOKEN is set.
+  if (!webOnly) { startCodeBridgeRunner(); startCodeBotPoller() }
   if (!webOnly) logger.info('Capability summary runner started (5min poll, 65s offset; idle while federation is off)')
 
   // Collect token usage from JSONL transcripts every hour so the run-history

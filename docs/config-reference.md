@@ -402,6 +402,11 @@ A főbb konfigurációs változók a launchd plist-ben (`~/Library/LaunchAgents/
 | `ANTHROPIC_API_KEY` | Claude API kulcs |
 | `OWNER_NAME` | A tulajdonos neve (pl. "Jónás Gergő") |
 | `BOT_NAME` | A főágens neve (pl. "Jarvis") |
+| `CODE_BRIDGE_ENABLED` | [Kód-híd](code-bridge.md) kapcsoló; `0`/`false`/`no`/`off` esetén minden `/api/code/*` 503 (alap: be) |
+| `CODE_PERMISSION_MODE` | A headless CLI `--permission-mode` értéke a kód-hídban (alap: `acceptEdits`) |
+| `CODE_BOT_TOKEN` | A `/code` parancsokat kiszolgáló **külön** Telegram bot tokenje (üres: nincs Telegram-oldal) |
+| `CODE_BOT_ALLOWED_CHAT_IDS` | Vesszős chat-ID lista a kód-bothoz (üres: csak a tulajdonos chatje) |
+| `CODE_BRIDGE_EXCLUDE` | Vesszős projekt-alias lista, amit a kód-híd soha nem regisztrál és nem fogad el |
 
 ---
 

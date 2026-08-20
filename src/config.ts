@@ -433,3 +433,51 @@ export const LIMIT_WAKE_ENABLED =
 export const HEARTBEAT_CALENDAR_ACCOUNT = (cfg('HEARTBEAT_CALENDAR_ACCOUNT') ?? '').trim()
 export const HEARTBEAT_END_HOUR = parseInt(env['HEARTBEAT_END_HOUR'] ?? '23', 10)
 export const HEARTBEAT_CALENDAR_ID = (cfg('HEARTBEAT_CALENDAR_ID') ?? '').trim()
+
+// ---- VS Code Claude Code bridge (code-bridge) ---------------------------
+// Marvin hands coding work to the EXISTING Claude Code session that already has
+// the project's history, and the owner can address that session straight from
+// Telegram. Marveen (WSL) owns the queue; a Windows-side worker polls it and
+// runs `claude.exe -p --resume <sessionId>`. See src/web/code-bridge-store.ts
+// for why the transport runs in that direction.
+//
+// DEFAULT ON, kill switch CODE_BRIDGE_ENABLED=0. The bridge is inert without a
+// registered session: with no worker reporting in, code_sessions stays empty and
+// every dispatch is refused with "unknown project", so an install that never
+// starts the worker sees no behaviour change.
+export const CODE_BRIDGE_ENABLED =
+  !['0', 'false', 'no', 'off'].includes((cfg('CODE_BRIDGE_ENABLED') ?? '').trim().toLowerCase())
+
+// Permission mode passed to the headless CLI. `acceptEdits` (the default) lets
+// the session edit files on its own but still refuses the destructive tools, so
+// a dispatched task cannot be talked into `rm -rf` by a prompt the owner pasted
+// in a hurry. Set CODE_PERMISSION_MODE=bypassPermissions for full autonomy --
+// that is a machine-wide blast radius, so it is opt-in, never the default.
+export const CODE_PERMISSION_MODE = (cfg('CODE_PERMISSION_MODE') ?? 'acceptEdits').trim()
+
+// Optional SECOND Telegram bot dedicated to /code. The main bot's getUpdates
+// slot is owned by the native channel plugin inside Marvin's session (two
+// pollers on one token = 409), so bypassing Marvin entirely needs its own bot.
+// Empty (the default) = no Telegram inbound for the bridge; the REST API, the
+// dashboard and Marvin's dispatch skill all keep working.
+export const CODE_BOT_TOKEN = (cfg('CODE_BOT_TOKEN') ?? '').trim()
+
+// Chat ids allowed to command the code bot, comma-separated. Empty falls back to
+// the owner chat resolved from ALLOWED_CHAT_ID / access.json. A message from any
+// other chat is ignored -- this bot can run code on the machine, so the
+// allowlist is a hard gate, not a preference.
+export const CODE_BOT_ALLOWED_CHAT_IDS = (cfg('CODE_BOT_ALLOWED_CHAT_IDS') ?? '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0)
+
+// Project aliases the bridge must never touch, comma-separated. The case that
+// needs it: the workspace the owner is CHATTING IN right now. Its newest
+// transcript is that live conversation, so a dispatched task would append turns
+// underneath the open panel. Deleting the mapping is not enough -- discovery
+// re-registers it a minute later -- so the exclusion lives in config, where it
+// survives. Empty by default: nothing is excluded unless the owner says so.
+export const CODE_BRIDGE_EXCLUDE = (cfg('CODE_BRIDGE_EXCLUDE') ?? '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter((s) => s.length > 0)
