@@ -681,11 +681,18 @@ export function renderQuarantineReader(template: string, domains: string[]): str
 // install that ran an older build still has them baked into every sub-agent's
 // settings.json, so this self-heals those files at server startup.
 // Removes (a) the two PreToolUse hook entries and (b) the self-pace tool-name
-// denials from permissions.deny. Runs for every agent (the main agent never had
-// them, so it is a no-op there). NOTE: a running session does NOT re-read
+// denials from permissions.deny. NOTE: a running session does NOT re-read
 // settings.json -- the change takes effect at that agent's next (re)spawn.
+//
+// The main agent is deliberately skipped: agentSettingsPath(MAIN_AGENT_ID)
+// resolves to the user-global ~/.claude/settings.json, which is shared with
+// every non-fleet Claude Code session on this machine and is hand-maintained by
+// the owner. The gates were only ever written into sub-agent files, so there is
+// nothing to strip there -- and a fleet migration must never rewrite the global
+// file on a mere JSON round-trip.
 // Returns true if the file was updated, false if there was nothing to strip.
 export function ensureGovernanceGatesRemoved(name: string): boolean {
+  if (name === MAIN_AGENT_ID) return false
   const settingsPath = agentSettingsPath(name)
   if (!existsSync(settingsPath)) return false
   let settings: Record<string, unknown> = {}
@@ -982,6 +989,18 @@ function buildAutonomyBody(name: string): string {
     'status=approved -> végezd el a műveletet. status=rejected vagy status=timeout -> ne csináld, naplózd az okot.',
     '',
     '**Level 3 (autonóm)**: elvégzed a műveletet, majd utána jelented a főágensnek.',
+    '',
+    '## Flotta-doktrína (szabály, nem kapu)',
+    '',
+    'Ezekre 2026-08-20 óta NINCS technikai kapu (a governance hard-gate-eket a tulajdonos leszereltette). Attól még kötelező szabályok -- a betartásuk rajtad múlik.',
+    '',
+    '**Önütemezés**: szabadon ütemezheted magad (ScheduleWakeup / CronCreate / /loop), nem kell hozzá a főágens. Cserébe minden ismétlődő futásnak legyen leállási feltétele és látható nyoma; ne indíts olyan hurkot, amit nem tudsz megállítani.',
+    '',
+    '**Idegen ágens vezérlése**: MÁS ágens tmux paneljébe, munkamenetébe vagy worktree-jébe soha ne írj be parancsot, és ne indítsd vagy állítsd le a folyamatát a háta mögött. Ha kell tőle valami, inter-agent üzenetet küldesz (/api/messages), vagy a dashboard hivatalos végpontját hívod.',
+    '',
+    '**Gépszintű ütemezők**: crontab, at, batch, systemd-run, launchctl -- ezekhez csak a tulajdonos kifejezett kérésére nyúlj. A flotta saját ütemezője a store/scheduled-tasks; azt használd.',
+    '',
+    '**E-mail**: közvetlenül küldesz, közvetítő nélkül. Csak IGAZOLT címre írj (a felhasználó adta meg, vagy korábbi levélből származik) -- címet SOHA ne találj ki. A tulajdonos nevében nem írsz alá, és senki nevében nem kérsz pénzt. Küldés előtt a címzettet, a tárgyat és a tartalmat visszaolvasod jóváhagyásra.',
   ].join('\n')
 }
 

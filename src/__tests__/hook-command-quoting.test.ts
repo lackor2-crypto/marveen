@@ -21,8 +21,9 @@ import {
   injectEgressGate,
   ensureEgressGate,
   ensureGovernanceGatesRemoved,
+  agentSettingsPath,
 } from '../web/agent-scaffold.js'
-import { PROJECT_ROOT } from '../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID } from '../config.js'
 
 // Review feedback on PR #803, pinned as tests:
 //  1. every injector must write a QUOTED absolute interpreter path -- an
@@ -154,5 +155,23 @@ describe('ensure* migrations are idempotent (true, then false)', () => {
     // the self-pace tool-name denials are gone, the foreign deny is preserved
     const deny = (written.permissions as { deny: string[] }).deny
     expect(deny).toEqual(['SomeForeignTool'])
+  })
+
+  // agentSettingsPath(MAIN_AGENT_ID) resolves to the USER-GLOBAL
+  // ~/.claude/settings.json -- shared with every other Claude Code session on
+  // this machine and hand-maintained by the owner. The gates were only ever
+  // written into sub-agent files, so the migration must skip the main agent
+  // entirely rather than JSON round-tripping (and reformatting) that file.
+  // The finally-block restore keeps a regression from damaging the real file.
+  it('never touches the main agent user-global settings.json', () => {
+    const globalPath = agentSettingsPath(MAIN_AGENT_ID)
+    const before = existsSync(globalPath) ? readFileSync(globalPath, 'utf-8') : null
+    try {
+      expect(ensureGovernanceGatesRemoved(MAIN_AGENT_ID)).toBe(false)
+      const after = existsSync(globalPath) ? readFileSync(globalPath, 'utf-8') : null
+      expect(after).toBe(before)
+    } finally {
+      if (before !== null) writeFileSync(globalPath, before)
+    }
   })
 })

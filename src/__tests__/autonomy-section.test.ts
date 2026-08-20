@@ -147,6 +147,26 @@ describe('ensureAutonomySection', () => {
     expect(statSync(path).mtimeMs).toBe(mtimeBefore)
   })
 
+  // The governance hard-gates were removed 2026-08-20; what used to be enforced
+  // by the email-send + self-pace hooks now lives here as written doctrine, so
+  // it must actually reach every agent's CLAUDE.md on respawn -- not just exist
+  // as a string in the scaffold source.
+  it('(e) writes the fleet doctrine (self-pacing, foreign agents, schedulers, email)', () => {
+    setup('doctrine-agent', '# Doctrine Agent')
+    ensureAutonomySection('doctrine-agent')
+    const result = read('doctrine-agent')
+    expect(result).toContain('## Flotta-doktrína (szabály, nem kapu)')
+    // self-pacing is now allowed without the main agent
+    expect(result).toContain('Önütemezés')
+    // but other agents' sessions stay off-limits
+    expect(result).toContain('Idegen ágens vezérlése')
+    // machine-level schedulers need the owner's explicit request
+    expect(result).toContain('crontab')
+    // the email doctrine that used to live in the deleted gate's message
+    expect(result).toContain('IGAZOLT címre')
+    expect(result).toContain('nem kérsz pénzt')
+  })
+
   it('(d) skips gracefully when CLAUDE.md does not exist', () => {
     expect(() => ensureAutonomySection('ghost-agent-xyz')).not.toThrow()
   })
