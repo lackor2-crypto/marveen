@@ -377,11 +377,16 @@ if ! command -v make &>/dev/null || ! command -v cc &>/dev/null; then
   fi
 fi
 
-# Node.js v20+ ellenorzes
+# Node.js v20.19+ ellenorzes
 NODE_OK=false
 if command -v node &>/dev/null; then
+  # Nem eleg a fo verzio: a fuggoseg-lanc ^20.19 || >=22.12-t ker, es egy
+  # v20.10 neman atment volna, hogy aztan a telepites kesobb alljon meg.
   NODE_VER=$(node -e 'process.stdout.write(process.version.slice(1).split(".")[0])' 2>/dev/null || echo "0")
-  [ "$NODE_VER" -ge 20 ] && NODE_OK=true
+  NODE_MIN=$(node -e 'process.stdout.write(process.version.slice(1).split(".")[1])' 2>/dev/null || echo "0")
+  if [ "$NODE_VER" -gt 20 ]; then NODE_OK=true
+  elif [ "$NODE_VER" -eq 20 ] && [ "$NODE_MIN" -ge 19 ]; then NODE_OK=true
+  fi
 fi
 $NODE_OK || MISSING_PKGS="$MISSING_PKGS nodejs"
 

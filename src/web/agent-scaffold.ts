@@ -998,7 +998,7 @@ function buildAutonomyBody(name: string): string {
     '',
     '**Idegen ágens vezérlése**: MÁS ágens tmux paneljébe, munkamenetébe vagy worktree-jébe soha ne írj be parancsot, és ne indítsd vagy állítsd le a folyamatát a háta mögött. Ha kell tőle valami, inter-agent üzenetet küldesz (/api/messages), vagy a dashboard hivatalos végpontját hívod.',
     '',
-    '**Gépszintű ütemezők**: crontab, at, batch, systemd-run, launchctl -- ezekhez csak a tulajdonos kifejezett kérésére nyúlj. A flotta saját ütemezője a store/scheduled-tasks; azt használd.',
+    '**Gépszintű ütemezők**: crontab, at, batch, systemd-run, launchctl -- ezekhez csak a tulajdonos kifejezett kérésére nyúlj. A flotta saját ütemezője a ~/.claude/scheduled-tasks; azt használd.',
     '',
     '**E-mail**: közvetlenül küldesz, közvetítő nélkül. Csak IGAZOLT címre írj (a felhasználó adta meg, vagy korábbi levélből származik) -- címet SOHA ne találj ki. A tulajdonos nevében nem írsz alá, és senki nevében nem kérsz pénzt. Küldés előtt a címzettet, a tárgyat és a tartalmat visszaolvasod jóváhagyásra.',
   ].join('\n')
@@ -1133,7 +1133,7 @@ curl -s -H "Authorization: Bearer $(cat ${tokenPath})" "${dashboardOrigin}/api/m
 
 ## Ütemezett feladatok
 
-Az ütemezett feladatok a ~/.claude/scheduled-tasks/ mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
+Az ütemezett feladatok a ~/.claude/scheduled-tasks/ mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 15 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
 
 Feladat létrehozása API-n keresztül:
 curl -s -X POST ${dashboardOrigin}/api/schedules -H "Content-Type: application/json" -H "Authorization: Bearer $(cat ${tokenPath})" -d '{"name": "feladat-nev", "description": "Rövid leírás", "prompt": "A részletes prompt", "schedule": "0 8 * * *", "agent": "AGENT_NAME", "type": "heartbeat"}'

@@ -2,7 +2,7 @@
 
 ![Marveen Banner](banner.png)
 
-[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-20.19+-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-FTS5+Vector-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Claude Code](https://img.shields.io/badge/Claude_Code-Anthropic-D97757?logo=anthropic&logoColor=white)](https://claude.ai/code)
@@ -290,7 +290,7 @@ A token 1 évig érvényes. Ne állíts be `ANTHROPIC_API_KEY`-t mellé.
 ## Követelmények
 
 - macOS, Linux, vagy Windows 10/11 (WSL-lel)
-- Node.js 20+
+- Node.js 20.19+
 - Claude Code CLI (Claude Max/Pro előfizetés szükséges)
 - Telegram fiók vagy Slack workspace
 

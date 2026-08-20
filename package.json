@@ -17,7 +17,7 @@
     "smoke": "playwright test --config=playwright.config.ts"
   },
   "engines": {
-    "node": ">=20 <24"
+    "node": ">=20.19.0 <24"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.116",

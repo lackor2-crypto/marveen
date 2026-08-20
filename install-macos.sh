@@ -181,7 +181,7 @@ check_cmd() {
 }
 
 MISSING=0
-check_cmd "node" "Node.js (v20+)" || MISSING=1
+check_cmd "node" "Node.js (v20.19+)" || MISSING=1
 check_cmd "npm" "npm" || MISSING=1
 check_cmd "tmux" "tmux" || MISSING=1
 check_cmd "git" "git" || MISSING=1
@@ -189,8 +189,10 @@ check_cmd "git" "git" || MISSING=1
 # Check Node version
 if command -v node &>/dev/null; then
   NODE_VER=$(node -v | sed 's/v//' | cut -d. -f1)
-  if [ "$NODE_VER" -lt 20 ]; then
-    echo -e "  ${RED}✗${NC} Node.js verzio: $(node -v) (minimum: v20)"
+  NODE_MIN=$(node -v | sed 's/v//' | cut -d. -f2)
+  # A fuggoseg-lanc ^20.19 || >=22.12-t ker -- a v20.10 atment volna itt.
+  if [ "$NODE_VER" -lt 20 ] || { [ "$NODE_VER" -eq 20 ] && [ "$NODE_MIN" -lt 19 ]; }; then
+    echo -e "  ${RED}✗${NC} Node.js verzio: $(node -v) (minimum: v20.19)"
     MISSING=1
   fi
 fi
