@@ -69,6 +69,23 @@ describe('a commit targysorat helyesen szedjuk szet', () => {
     expect(classifySubject('fix: hivatkozas (#12) a szovegben, javitva (#99)').pr).toBe(99)
   })
 
+  it('a HIANYZO tipus sem dol el -- "egyeb" lesz', () => {
+    // Ez dontotte el az egesz listat: egy regebbi (vagy kezzel javitott)
+    // store/upstream-changes.json commitjaban nincs `type` mezo, a
+    // `type.toLowerCase()` dobott, a dobast a readUpstreamChanges catch-e
+    // elnyelte -- es EGY hianyos commit miatt MIND eltunt a feluletrol.
+    expect(kindOfType(undefined)).toBe('egyeb')
+    expect(kindOfType(null)).toBe('egyeb')
+    expect(kindOfType(42 as unknown as string)).toBe('egyeb')
+    const be = [
+      commit({ sha: '1'.repeat(40), type: 'fix' }),
+      { ...commit({ sha: '2'.repeat(40) }), type: undefined as unknown as string },
+    ]
+    const g = groupCommits(be)
+    expect(g.javitas.length + g.fejlesztes.length + g.egyeb.length).toBe(2)
+    expect(g.egyeb).toHaveLength(1)
+  })
+
   it('a revert javitas, a chore/docs/test nem', () => {
     expect(kindOfType('revert')).toBe('javitas')
     expect(kindOfType('hotfix')).toBe('javitas')

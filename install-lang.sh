@@ -230,8 +230,8 @@ _t() {
     # ── Done section ──────────────────────────────────────────────────
     en:dash.token_hint) echo "  (Open once; the browser will remember the token)" ;;
     hu:dash.token_hint) echo "  (Nyisd meg egyszer, utana a bongeszo megjegyzi a tokent)" ;;
-    en:dash.no_token_hint) echo "  (The token URL can be found in the server log)" ;;
-    hu:dash.no_token_hint) echo "  (A tokenes URL-t a szerver logban talalod)" ;;
+    en:dash.no_token_hint) echo "  (Access token: the store/.dashboard-token file in the install folder -- created at the server's first start. A service-started server deliberately keeps it out of the log.)" ;;
+    hu:dash.no_token_hint) echo "  (A hozzaferesi token: store/.dashboard-token a telepitesi mappaban -- a szerver elso indulasakor jon letre. Szolgaltataskent inditott szervernel a naplo szandekosan NEM tartalmazza.)" ;;
     en:telegram.write_hint) echo "  Telegram: Write to your bot!" ;;
     hu:telegram.write_hint) echo "  Telegram: Irj a botodnak!" ;;
     en:next_steps.title) echo "  Next steps:" ;;

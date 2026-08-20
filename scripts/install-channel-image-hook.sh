@@ -10,7 +10,7 @@
 # Also migrates the old telegram-image-resize.sh hook if present.
 #
 # Usage:
-#   bash ~/ClaudeClaw/scripts/install-channel-image-hook.sh
+#   bash ~/marveen/scripts/install-channel-image-hook.sh
 
 set -euo pipefail
 

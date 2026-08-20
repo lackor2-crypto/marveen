@@ -128,7 +128,15 @@ export function fileCounts(files: UpstreamFile[]): { total: number; conflict: nu
  *  mind" -- egy hibajavítást ritkán akar az ember kihagyni, egy új funkciót
  *  annál gyakrabban. A revert szándékosan javítás: az is elrontott dolgot vesz
  *  vissza. */
-export function kindOfType(type: string): ChangeKind {
+export function kindOfType(type: string | null | undefined): ChangeKind {
+  // Nem a típusnak hiszünk, hanem annak, ami a fájlban van. Egy régebbi (vagy
+  // kézzel javított) store/upstream-changes.json commitjában nincs `type` mező,
+  // és a `type.toLowerCase()` ilyenkor dobott. A dobást a readUpstreamChanges
+  // catch-e elnyelte -> EGY hiányos commit miatt az EGÉSZ lista eltűnt, "még
+  // nincs lista" felirattal. Ugyanaz a szabály, mint a classifySubject-nél: egy
+  // fel nem ismert forma nem lehet ok arra, hogy egy változás lecsússzon a
+  // listáról -- az ismeretlen bemenet is szabályos "egyéb".
+  if (typeof type !== 'string') return 'egyeb'
   const t = type.toLowerCase()
   if (t === 'fix' || t === 'hotfix' || t === 'bugfix' || t === 'revert') return 'javitas'
   if (t === 'feat' || t === 'feature') return 'fejlesztes'

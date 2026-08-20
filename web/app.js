@@ -186,7 +186,10 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
 })()
 
 // === Dashboard auth bootstrap ===
-// The server prints an URL like http://127.0.0.1:3420/?token=XXX on startup.
+// The server prints an URL like http://127.0.0.1:3420/?token=XXX on startup
+// ONLY when it runs in a terminal (src/web.ts gates that line on
+// process.stderr.isTTY). Under a service install (systemd/launchd) the log has
+// no token in it at all -- there the token lives in store/.dashboard-token.
 // On first visit we pluck the token out of the URL, store it in localStorage,
 // strip it from the visible URL, and then inject it into every /api/* fetch
 // as a Bearer header so the server lets us through.
@@ -284,10 +287,17 @@ function mainAgentId() {
     if (isStandalone) {
       showStandaloneTokenPrompt(TOKEN_KEY)
     } else {
-      alert(
-        'Dashboard authentication failed. Check the server log for the access URL ' +
-        '(look for "Dashboard access URL" with ?token=...), then reopen it in your browser.'
-      )
+      // A szoveg NEM hivatkozhat a szerver naplojara. A ?token= linket a
+      // szerver csak akkor irja ki, ha terminalbol indult (src/web.ts:
+      // `process.stderr.isTTY`) -- egy systemd/launchd telepitesnel az a sor
+      // SOSEM keletkezik, tehat a regi tanacs egy frissen telepitett rendszeren
+      // olyan helyre kuldte a felhasznalot, ahol nincs is mit megnezni. A token
+      // helye viszont mindig ugyanaz: store/.dashboard-token.
+      const uzenet = (typeof window.t === 'function')
+        ? window.t('auth.notoken.alert', { url: location.origin })
+        : 'Dashboard access failed. The access token is in store/.dashboard-token ' +
+          'inside the install folder. Open: ' + location.origin + '/?token=<token>'
+      alert(uzenet)
     }
   }
 
@@ -21469,7 +21479,6 @@ function tuGetTimeRange() {
 }
 
 async function loadTokenUsage() {
-  await tuLoadOpenRouterPriceMap()
   const { from, to } = tuGetTimeRange()
   const agent = tuSelectedAgent
 
@@ -21480,6 +21489,14 @@ async function loadTokenUsage() {
   const summaryRes = await fetch('/api/token-usage/summary?' + params)
   if (!summaryRes.ok) return
   const summary = await summaryRes.json()
+  // Az OpenRouter ar-katalogus csak akkor kell, ha tenyleg van "provider/model"
+  // alaku sor. Feltetel nelkul kerve az oldal minden megnyitasa egy 403-at
+  // dobott a konzolba mindenhol, ahol nincs OpenRouter-kulcs a vaultban --
+  // vagyis MINDEN friss telepitesen (/api/openrouter/models ilyenkor
+  // szandekosan 403). A keses sem nott: a lekeres ott van, ahol az ar kell.
+  const kellOpenRouterAr = Array.isArray(summary) && summary.some(s =>
+    Array.isArray(s.perModel) && s.perModel.some(m => typeof m.model === 'string' && m.model.includes('/')))
+  if (kellOpenRouterAr) await tuLoadOpenRouterPriceMap()
   summary.sort((a, b) => {
     const aTotal = (a.totalInput || 0) + (a.totalCacheRead || 0) + (a.totalCacheCreation || 0)
     const bTotal = (b.totalInput || 0) + (b.totalCacheRead || 0) + (b.totalCacheCreation || 0)

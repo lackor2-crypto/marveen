@@ -2949,6 +2949,7 @@ window._i18n.hu = {
   'auth.recover.err_empty':       'Előbb illeszd be a tokent.',
   'auth.recover.err_invalid':     'Ez a token nem érvényes.',
   'auth.recover.cli':             'Token sincs meg? Futtasd ezt egy terminálban a telepítési mappában:',
+  'auth.notoken.alert':           'A dashboard nem engedett be: nincs érvényes hozzáférési token ebben a böngészőben.\n\nA token a telepítési mappában van, a store/.dashboard-token fájlban. Ezzel a címmel tudsz belépni:\n{url}/?token=IDE-A-FÁJL-TARTALMA\n\nHa terminálból indítottad a szervert, az indítási napló "Dashboard access URL" sora is a kész linket tartalmazza. Szolgáltatásként (systemd) indított szervernél a napló szándékosan NEM írja ki a tokent.',
   'auth.logout.nav':              'Kilépés',
   'auth.logout.confirm_session':  'Kilépsz a dashboardból? Utána a felhasználóneveddel és jelszavaddal tudsz visszalépni.',
   'auth.logout.confirm_token':    'Kilépsz a dashboardból? Ez elfelejti a hozzáférési tokent ebben a böngészőben. Utána felhasználónévvel és jelszóval tudsz visszalépni.',

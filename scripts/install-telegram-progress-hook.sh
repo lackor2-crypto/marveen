@@ -23,7 +23,7 @@
 # Idempotent: safe to re-run (e.g. from sync-hooks.sh on every update).
 #
 # Usage:
-#   bash ~/ClaudeClaw/scripts/install-telegram-progress-hook.sh
+#   bash ~/marveen/scripts/install-telegram-progress-hook.sh
 
 set -euo pipefail
 

@@ -19,11 +19,18 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
   exit 0
 fi
 
-python3 - "${TARGETS[@]}" <<'PYEOF'
+python3 - "$INSTALL_DIR" "${TARGETS[@]}" <<'PYEOF'
 import re, sys, pathlib
 
-AUTH_INLINE = '-H "Authorization: Bearer $(cat ~/ClaudeClaw/store/.dashboard-token)" '
-AUTH_BLOCK = '  -H "Authorization: Bearer $(cat ~/ClaudeClaw/store/.dashboard-token)" \\\n'
+# EZ a telepites utja, nem egy masik termek beegetett mappaja. A korabbi
+# "~/ClaudeClaw/store/.dashboard-token" minden olyan gepen letezo, de HIBAS utat
+# irt az agensek CLAUDE.md-jebe, ahol nem oda van telepitve a rendszer -- vagyis
+# minden friss telepitesen. (Az idempotencia nem serul: a script az
+# "Authorization:" jelenletet nezi, nem az utat.)
+INSTALL_DIR = sys.argv[1]
+TOKEN_PATH = INSTALL_DIR.rstrip('/') + '/store/.dashboard-token'
+AUTH_INLINE = '-H "Authorization: Bearer $(cat %s)" ' % TOKEN_PATH
+AUTH_BLOCK = '  -H "Authorization: Bearer $(cat %s)" \\\n' % TOKEN_PATH
 
 # Multi-line curl block: "curl ... localhost:3420/api/... \\" followed by -H
 # lines, ending with a -d payload. Backfill the Authorization header before -d.
@@ -82,7 +89,7 @@ def patch(text: str) -> int:
     p.write_text(text)
     return 1
 
-for arg in sys.argv[1:]:
+for arg in sys.argv[2:]:
     p = pathlib.Path(arg)
     if not p.is_file():
         continue

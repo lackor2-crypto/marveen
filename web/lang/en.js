@@ -2891,6 +2891,7 @@ window._i18n.en = {
   'auth.recover.err_empty':       'Paste the token first.',
   'auth.recover.err_invalid':     'This token is not valid.',
   'auth.recover.cli':             'No token either? Run this in a terminal in the install folder:',
+  'auth.notoken.alert':           'The dashboard did not let you in: this browser has no valid access token.\n\nThe token is in the install folder, in the file store/.dashboard-token. Open the dashboard with:\n{url}/?token=PASTE-FILE-CONTENTS-HERE\n\nIf you started the server from a terminal, its startup log also has the ready-made link on the "Dashboard access URL" line. A server started as a service (systemd) deliberately does NOT print the token to the log.',
   'auth.logout.nav':              'Sign out',
   'auth.logout.confirm_session':  'Sign out of the dashboard? You can sign back in with your username and password.',
   'auth.logout.confirm_token':    'Sign out of the dashboard? This forgets the access token in this browser. You can sign back in with a username and password.',

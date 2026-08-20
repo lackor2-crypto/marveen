@@ -41,7 +41,11 @@ export function readUpstreamChanges(now: number = Date.now()): UpstreamChangesVi
   if (!existsSync(CHANGES_PATH)) return null
   try {
     const raw = JSON.parse(readFileSync(CHANGES_PATH, 'utf-8')) as Record<string, unknown>
-    const commits = Array.isArray(raw.commits) ? (raw.commits as UpstreamCommit[]) : []
+    // Csak azt számoljuk bele, amit meg is tudunk mutatni: egy romlott elem
+    // (null, szám, string) ne vigye magával az egész listát, és a fejléc száma
+    // se mondhasson többet, mint ahány sor lesz alatta.
+    const nyers = Array.isArray(raw.commits) ? (raw.commits as unknown[]) : []
+    const commits = nyers.filter((c): c is UpstreamCommit => !!c && typeof c === 'object')
     if (commits.length === 0) return null
     const groups = groupCommits(commits)
     // Egy regebbi iras meg nem tartalmazza a fajl-nezetet. Ilyenkor ures lista

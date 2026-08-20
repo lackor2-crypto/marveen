@@ -2096,7 +2096,7 @@ if [ -n "$DASH_TOKEN" ]; then
   echo -e "  ${DIM}$(_t dash.token_hint)${NC}"
 else
   echo -e "  ${BOLD}Dashboard:${NC} http://localhost:${WEB_PORT:-3420}"
-  echo -e "  ${DIM}(A tokenes URL-t a szerver logban talalod)${NC}"
+  echo -e "  ${DIM}$(_t dash.no_token_hint)${NC}"
 fi
 echo ""
 echo -e "  ${DIM}VPS/szerver eleres tavolrol:${NC}"

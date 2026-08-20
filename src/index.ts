@@ -10,7 +10,7 @@ import {
 import { join } from 'node:path'
 import { execFileSync, execSync } from 'node:child_process'
 import type { Server as HttpServer } from 'node:http'
-import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED } from './config.js'
+import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
 import { initDatabase, backfillEmbeddings } from './db.js'
 import { runDecaySweep, runDailyDigest } from './memory.js'
@@ -34,20 +34,20 @@ import {
   type PidfileLockContext,
 } from './process-lock.js'
 
-const BANNER = `
- ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
-██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝
-██║     ██║     ███████║██║   ██║██║  ██║█████╗
-██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝
-╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗
- ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝╚══════╝
- ██████╗██╗      █████╗ ██╗    ██╗
-██╔════╝██║     ██╔══██╗██║    ██║
-██║     ██║     ███████║██║ █╗ ██║
-██║     ██║     ██╔══██║██║███╗██║
-╚██████╗███████╗██║  ██║╚███╔███╔╝
- ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝  (lite)
-`
+// A boot-banner a BEALLITOTT markanevet mutatja.
+//
+// Elotte egy masik termek ("CLAUDE CLAW") ASCII-logoja allt itt -- vagyis egy
+// frissen letoltott, sajat markanevre allitott telepites legelso naplosora is
+// idegen nevet koszont vissza, pedig a README pont azt igeri, hogy a marka a
+// teljes feluleten es az OS-szolgaltatasneveken is atmegy. A keret szelesseget
+// a nev hossza adja, igy barmilyen hosszu markanevvel egyben marad.
+export function buildBanner(brand: string): string {
+  const nev = (brand || '').trim() || 'Marveen'
+  const keret = '─'.repeat(nev.length + 6)
+  return `\n┌${keret}┐\n│   ${nev}   │\n└${keret}┘\n`
+}
+
+const BANNER = buildBanner(BRAND_NAME)
 
 const PID_FILE = join(STORE_DIR, PID_FILENAME)
 // Hard-kill timeout: if graceful shutdown (HTTP drain + releaseLock) has not
