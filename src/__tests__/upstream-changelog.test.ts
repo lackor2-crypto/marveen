@@ -319,6 +319,15 @@ describe('fajl-nezet: melyik fajl valtozott es mi tortent benne', () => {
     expect(app).toContain('upstream.files.merge_only')
   })
 
+  it('a fajl-sor sajat jelvenyt ir, nem a commit-nezetet (mert onmagara mutatna)', () => {
+    const kezdet = app.indexOf('function upstreamFileRow')
+    expect(kezdet, 'nincs meg a fajl-sor rajzoloja').toBeGreaterThan(-1)
+    const torzs = app.slice(kezdet, app.indexOf('function renderUpstreamFiles'))
+    expect(torzs).toContain('upstream.files.conflict_badge')
+    // Ez volt a hiba: a kozos kulcstol '.gitignore utkozo fajlt erint' lett.
+    expect(torzs).not.toContain('upstream.changes.conflict')
+  })
+
   it('a ket ful szamot is mutat, mert pont a szamok keveredtek ossze', () => {
     expect(app).toContain('upstream.view.changes')
     expect(app).toContain('upstream.view.files')
@@ -328,7 +337,7 @@ describe('fajl-nezet: melyik fajl valtozott es mi tortent benne', () => {
   it('a fajl-nezet minden szovege megvan magyarul es angolul', () => {
     for (const k of ['upstream.view.changes', 'upstream.view.files', 'upstream.files.intro',
                      'upstream.files.conflicting', 'upstream.files.clean', 'upstream.files.more',
-                     'upstream.files.merge_only', 'upstream.files.pending']) {
+                     'upstream.files.merge_only', 'upstream.files.pending', 'upstream.files.conflict_badge']) {
       expect(hu, `hianyzik magyarul: ${k}`).toContain(`'${k}'`)
       expect(en, `hianyzik angolul: ${k}`).toContain(`'${k}'`)
     }

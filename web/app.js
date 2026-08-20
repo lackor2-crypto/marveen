@@ -16876,8 +16876,11 @@ function upstreamChangeRow(c) {
 // melyik valtozasok nyultak hozza (ugyanazzal a magyar mondattal, amit a masik
 // nezet mutat, tehat a ketto nem mondhat mast).
 function upstreamFileRow(f, huBySha) {
+  // Sajat szoveg, nem a valtozas-nezete: ott a COMMIT 'utkozo fajlt erint', itt
+  // viszont a fajl MAGA az utkozo. A kozos kulcstol '.gitignore utkozo fajlt
+  // erint' lett volna -- ertelmetlen mondat a sajat nevere mutato fajl mellett.
   const conflict = f.conflict
-    ? `<span class="upstream-change-conflict">${escapeHtml(t('upstream.changes.conflict'))}</span>`
+    ? `<span class="upstream-change-conflict">${escapeHtml(t('upstream.files.conflict_badge'))}</span>`
     : ''
   const shas = f.shas || []
   // Nem sorolunk fel tizenot mondatot egy sokat piszkalt fajlnal: az elso

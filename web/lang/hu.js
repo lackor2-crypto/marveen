@@ -2833,6 +2833,7 @@ window._i18n.hu = {
   'upstream.view.changes':    'Változások ({n})',
   'upstream.view.files':      'Fájlok ({n})',
   'upstream.files.intro':     '{n} fájl tér el: {u} ütközik (ezeket nálunk is módosítottuk), {c} tisztán áthúzható. Minden fájl alatt ott áll, mely változások nyúltak hozzá.',
+  'upstream.files.conflict_badge': 'nálunk is módosult',
   'upstream.files.conflicting': 'Ütköző fájlok ({n}) — ezeket nem lehet csak úgy áthúzni',
   'upstream.files.clean':     'Tisztán áthúzható fájlok ({n})',
   'upstream.files.more':      '…és még {n} változás ebben a fájlban',

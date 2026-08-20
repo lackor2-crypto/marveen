@@ -2774,6 +2774,7 @@ window._i18n.en = {
   'upstream.view.changes':    'Changes ({n})',
   'upstream.view.files':      'Files ({n})',
   'upstream.files.intro':     '{n} files differ: {u} conflict (we changed them too), {c} can be pulled cleanly. Under each file are the changes that touched it.',
+  'upstream.files.conflict_badge': 'we changed it too',
   'upstream.files.conflicting': 'Conflicting files ({n}) — these cannot be pulled as-is',
   'upstream.files.clean':     'Cleanly pullable files ({n})',
   'upstream.files.more':      '…and {n} more changes in this file',
