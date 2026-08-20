@@ -429,6 +429,21 @@ body {
   display: flex;
   flex-direction: column;
 }
+/* Sign-out sits with Documentation, as a labelled row rather than one more
+   unlabelled icon in the footer strip -- it has to be recognisable to someone
+   who is looking for the way out, not decoded from a glyph. It is a <button>
+   (it performs an action, it does not navigate), so the element defaults have
+   to be undone to match the <a> rows beside it. */
+button.sb-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-logout:hover { color: var(--danger); background: var(--danger-soft, var(--accent-soft)); }
+
 .sidebar-footer {
   padding-top: 12px;
   border-top: 1px solid var(--border);

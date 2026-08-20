@@ -291,6 +291,16 @@ function mainAgentId() {
     }
   }
 
+  // Drop the access token from this browser: the persisted copy AND the
+  // in-memory one. Signing out has to go through here, because a browser that
+  // still holds a token is waved straight back in by the fetch wrapper on the
+  // next page load -- so "log out" that only ends the session cookie does
+  // nothing visible in a token-carrying browser.
+  window.__marveenForgetToken = function forgetToken() {
+    sessionToken = ''
+    try { localStorage.removeItem(TOKEN_KEY) } catch { /* storage blocked */ }
+  }
+
   // Accept either a bare token or the whole startup URL (people paste the
   // full https://host/?token=... link). Returns the token, or '' if there is
   // nothing usable. Shared by the login overlay's recovery box and the PWA
@@ -19839,11 +19849,14 @@ function renderSessionPanel(body, status) {
     } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
   })
   document.getElementById('authLogoutBtn').addEventListener('click', async () => {
-    try { await fetch('/api/auth/logout', { method: 'POST' }) } catch { /* ignore */ }
-    window.location.reload()
+    await signOutFromDashboard(status)
   })
   document.getElementById('authLogoutAllBtn').addEventListener('click', async () => {
+    if (!confirm(t('auth.logout.confirm_all'))) return
     try { await fetch('/api/auth/logout-all', { method: 'POST' }) } catch { /* ignore */ }
+    // Same reason as the single sign-out: a stored token would wave this
+    // browser straight back in on the reload.
+    if (typeof window.__marveenForgetToken === 'function') window.__marveenForgetToken()
     window.location.reload()
   })
   renderAuthSessions()
@@ -19967,9 +19980,40 @@ function wireAuthBanner() {
   })
 }
 
+// Sign out, whichever way this browser got in. Two halves, and BOTH are
+// needed: end the server-side session, and forget the access token this
+// browser stores. Ending only the session leaves a token-carrying browser
+// logged in after the reload, which is exactly what it looked like to the
+// operator -- a sign-out button that did nothing.
+async function signOutFromDashboard(status) {
+  // The warning has to name the way back in, because there may not be one: an
+  // install with no password login can only be re-entered with the token.
+  const key = status && status.method === 'session'
+    ? 'auth.logout.confirm_session'
+    : (status && status.login_available ? 'auth.logout.confirm_token' : 'auth.logout.confirm_token_only')
+  if (!confirm(t(key))) return
+  try { await fetch('/api/auth/logout', { method: 'POST' }) } catch { /* signing out locally still matters */ }
+  if (typeof window.__marveenForgetToken === 'function') window.__marveenForgetToken()
+  window.location.reload()
+}
+
+async function initSidebarLogout() {
+  const btn = document.getElementById('sidebarLogoutBtn')
+  if (!btn) return
+  btn.addEventListener('click', async () => {
+    // Re-probe on click rather than trusting the load-time snapshot: the way
+    // this browser is authenticated can change under it (a session expires, a
+    // password login gets created in another tab).
+    await signOutFromDashboard(await fetchAuthStatus())
+  })
+  const status = await fetchAuthStatus()
+  btn.hidden = !(status && status.authenticated)
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   wireAuthBanner()
   initAuthBanner()
+  initSidebarLogout()
   wireBranchDriftBanner()
 })
 
