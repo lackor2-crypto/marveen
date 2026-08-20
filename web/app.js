@@ -291,6 +291,26 @@ function mainAgentId() {
     }
   }
 
+  // Accept either a bare token or the whole startup URL (people paste the
+  // full https://host/?token=... link). Returns the token, or '' if there is
+  // nothing usable. Shared by the login overlay's recovery box and the PWA
+  // paste prompt.
+  function extractToken(raw) {
+    let token = (raw || '').trim()
+    if (!token) return ''
+    if (token.includes('token=')) {
+      let extracted = null
+      try { extracted = new URL(token).searchParams.get('token') } catch { /* not a full URL */ }
+      if (!extracted) {
+        // covers ?token=, &token=, and the hash form (/#...?token=...)
+        const m = token.match(/[?&#]token=([^&#\s]+)/)
+        if (m) extracted = m[1]
+      }
+      if (extracted) { try { token = decodeURIComponent(extracted) } catch { token = extracted } }
+    }
+    return token.trim()
+  }
+
   // Full-screen username+password login overlay. Posts to /api/auth/login; on
   // success the browser has the mv_session cookie and we reload authenticated.
   function showLoginOverlay() {
@@ -307,6 +327,27 @@ function mainAgentId() {
         '<input id="mv-login-pass" type="password" autocomplete="current-password" placeholder="' + tr('auth.login.password', 'Password') + '">' +
         '<button type="submit" id="mv-login-submit">' + tr('auth.login.submit', 'Sign in') + '</button>' +
         '<div class="mv-auth-err" id="mv-login-err"></div>' +
+        // The way back in when the password is gone. Hidden behind one click so
+        // the ordinary login stays a two-field screen, but ALWAYS present: an
+        // install whose only recovery path is a terminal command is locked for
+        // a non-technical owner (Boss, 2026-08-20: could not get in on the
+        // desktop, and there was no "forgot password" anywhere).
+        '<button type="button" class="mv-auth-link" id="mv-login-forgot">' +
+          tr('auth.login.forgot', "I don't know my password") + '</button>' +
+        '<div class="mv-auth-recover" id="mv-login-recover" hidden>' +
+          '<p>' + tr('auth.recover.desc', 'You can get in with the access token instead of the password, and set a new password once inside.') + '</p>' +
+          '<ol>' +
+            '<li>' + tr('auth.recover.step_phone', 'On your phone (where the dashboard is already open): Settings -> Security -> mobile login QR. The token is in that code.') + '</li>' +
+            '<li>' + tr('auth.recover.step_file', 'Or on this machine, in the file store/.dashboard-token inside the install folder.') + '</li>' +
+            '<li>' + tr('auth.recover.step_server', 'Or in the server startup log: the "Dashboard access URL" line, the part after ?token=.') + '</li>' +
+          '</ol>' +
+          '<textarea id="mv-login-token" rows="3" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' +
+            tr('auth.recover.placeholder', 'Paste the token or the whole ?token=... link here') + '"></textarea>' +
+          '<button type="button" id="mv-login-token-btn">' + tr('auth.recover.submit', 'Sign in with token') + '</button>' +
+          '<div class="mv-auth-err" id="mv-login-token-err"></div>' +
+          '<p class="mv-auth-recover-cli">' + tr('auth.recover.cli', 'No token either? Run this in a terminal in the install folder:') +
+            '<code>npm run dashboard-user -- reset-password &lt;username&gt;</code></p>' +
+        '</div>' +
       '</form>'
     document.body.appendChild(overlay)
     const form = overlay.querySelector('#mv-login-form')
@@ -314,6 +355,37 @@ function mainAgentId() {
     const passEl = overlay.querySelector('#mv-login-pass')
     const errEl = overlay.querySelector('#mv-login-err')
     const submitEl = overlay.querySelector('#mv-login-submit')
+    const recoverEl = overlay.querySelector('#mv-login-recover')
+    overlay.querySelector('#mv-login-forgot').addEventListener('click', () => {
+      recoverEl.hidden = !recoverEl.hidden
+      if (!recoverEl.hidden) overlay.querySelector('#mv-login-token').focus()
+    })
+    const tokenBtn = overlay.querySelector('#mv-login-token-btn')
+    tokenBtn.addEventListener('click', async () => {
+      const tokenErr = overlay.querySelector('#mv-login-token-err')
+      tokenErr.textContent = ''
+      const token = extractToken(overlay.querySelector('#mv-login-token').value || '')
+      if (!token) { tokenErr.textContent = tr('auth.recover.err_empty', 'Paste the token first.'); return }
+      // Verify BEFORE storing. A wrong token would otherwise be saved, 401 on
+      // the next call, get wiped, and drop the user back on the same login
+      // screen with no idea what went wrong.
+      tokenBtn.disabled = true
+      try {
+        const r = await originalFetch('/api/auth/status', { headers: { Authorization: 'Bearer ' + token } })
+        const data = r.ok ? await r.json().catch(() => null) : null
+        if (!data || !data.authenticated) {
+          tokenErr.textContent = tr('auth.recover.err_invalid', 'This token is not valid.')
+          return
+        }
+      } catch {
+        tokenErr.textContent = tr('auth.login.err_network', 'Network error.')
+        return
+      } finally {
+        tokenBtn.disabled = false
+      }
+      try { localStorage.setItem(TOKEN_KEY, token) } catch { /* storage blocked */ }
+      window.location.reload()
+    })
     form.addEventListener('submit', async (e) => {
       e.preventDefault()
       errEl.textContent = ''
@@ -388,22 +460,7 @@ function mainAgentId() {
     const input = overlay.querySelector('#mv-token-input')
     const errEl = overlay.querySelector('#mv-token-err')
     const submit = () => {
-      const raw = (input.value || '').trim()
-      if (!raw) { errEl.textContent = _p.empty_token; return }
-      // Accept either a bare token or the whole startup URL (the user often
-      // pastes the full https://host/?token=... link). Pull just the token out.
-      let token = raw
-      if (raw.includes('token=')) {
-        let extracted = null
-        try { extracted = new URL(raw).searchParams.get('token') } catch { /* not a full URL */ }
-        if (!extracted) {
-          // covers ?token=, &token=, and the hash form (/#...?token=...)
-          const m = raw.match(/[?&#]token=([^&#\s]+)/)
-          if (m) extracted = m[1]
-        }
-        if (extracted) { try { token = decodeURIComponent(extracted) } catch { token = extracted } }
-      }
-      token = token.trim()
+      const token = extractToken(input.value || '')
       if (!token) { errEl.textContent = _p.empty_token; return }
       localStorage.setItem(tokenKey, token)
       window.location.reload()
@@ -19709,6 +19766,14 @@ async function mintDeviceKey() {
   } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
 }
 
+// Mirrors MIN_PASSWORD_LENGTH in src/web/password-hash.ts. Checked here too so
+// a too-short password fails in the user's own language: the server's policy
+// error is an untranslated English string, which is the wrong thing to show
+// someone who is only trying to get back into their own dashboard.
+const AUTH_MIN_PASSWORD_LENGTH = 10
+
+function passwordTooShort(pw) { return (pw || '').length < AUTH_MIN_PASSWORD_LENGTH }
+
 function renderCreateLoginForm(body) {
   body.innerHTML =
     `<p class="auth-muted">${t('auth.card.setup_desc')}</p>` +
@@ -19727,6 +19792,7 @@ function renderCreateLoginForm(body) {
     msg.className = 'auth-form-msg'
     if (!username || !p1) { msg.classList.add('err'); msg.textContent = t('auth.login.err_empty'); return }
     if (p1 !== p2) { msg.classList.add('err'); msg.textContent = t('auth.card.err_mismatch'); return }
+    if (passwordTooShort(p1)) { msg.classList.add('err'); msg.textContent = t('auth.card.err_too_short', { n: AUTH_MIN_PASSWORD_LENGTH }); return }
     try {
       const r = await fetch('/api/auth/users', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -19761,6 +19827,7 @@ function renderSessionPanel(body, status) {
     const p2 = document.getElementById('authChgPass2').value || ''
     msg.className = 'auth-form-msg'
     if (p1 !== p2) { msg.classList.add('err'); msg.textContent = t('auth.card.err_mismatch'); return }
+    if (passwordTooShort(p1)) { msg.classList.add('err'); msg.textContent = t('auth.card.err_too_short', { n: AUTH_MIN_PASSWORD_LENGTH }); return }
     try {
       const r = await fetch('/api/auth/password', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -19799,9 +19866,73 @@ async function renderAuthSessions() {
   } catch { el.innerHTML = '' }
 }
 
+// Token-authenticated operator. Besides the explanatory note this is the ONLY
+// place in the UI that can set a password without knowing the old one -- the
+// self-service way back from a forgotten password (Boss, 2026-08-20: had to
+// have it reset from a terminal because the browser offered nothing). The
+// backend has always allowed it for bearer callers (POST /api/auth/password
+// with a username); it grants no privilege the token does not already carry,
+// and every use lands in the audit trail plus a channel notification.
 function renderTokenModePanel(body) {
   body.innerHTML =
-    `<p class="auth-muted">${t('auth.card.token_mode')}</p>`
+    `<p class="auth-muted">${t('auth.card.token_mode')}</p>` +
+    `<div class="auth-reset" id="authResetBox">` +
+      `<div class="auth-sessions-title">${t('auth.reset.title')}</div>` +
+      `<p class="auth-muted">${t('auth.reset.desc')}</p>` +
+      `<div class="auth-form">` +
+        `<select id="authResetUser"></select>` +
+        `<input id="authResetPass" type="password" autocomplete="new-password" placeholder="${t('auth.card.new_password')}">` +
+        `<input id="authResetPass2" type="password" autocomplete="new-password" placeholder="${t('auth.card.repeat_password')}">` +
+        `<button class="btn-primary" id="authResetBtn">${t('auth.reset.submit')}</button>` +
+        `<div class="auth-form-msg" id="authResetMsg"></div>` +
+      `</div>` +
+    `</div>`
+  fillResetUserSelect()
+  document.getElementById('authResetBtn').addEventListener('click', resetPasswordFromUi)
+}
+
+async function fillResetUserSelect() {
+  const sel = document.getElementById('authResetUser')
+  const box = document.getElementById('authResetBox')
+  if (!sel || !box) return
+  let users = []
+  try {
+    const r = await fetch('/api/auth/users')
+    if (r.ok) users = (await r.json()).users || []
+  } catch { /* offline -- handled below */ }
+  // No browser login exists yet: there is nothing to reset, so don't show a
+  // form that could only fail. (setup_required normally routes elsewhere; this
+  // covers the race where the last user is deleted in another tab.)
+  if (!users.length) { box.hidden = true; return }
+  box.hidden = false
+  sel.innerHTML = users
+    .map((u) => `<option value="${escapeHtml(u.username)}">${escapeHtml(u.username)}</option>`)
+    .join('')
+}
+
+async function resetPasswordFromUi() {
+  const msg = document.getElementById('authResetMsg')
+  const username = document.getElementById('authResetUser').value || ''
+  const p1 = document.getElementById('authResetPass').value || ''
+  const p2 = document.getElementById('authResetPass2').value || ''
+  msg.className = 'auth-form-msg'
+  msg.textContent = ''
+  if (!username || !p1) { msg.classList.add('err'); msg.textContent = t('auth.login.err_empty'); return }
+  if (p1 !== p2) { msg.classList.add('err'); msg.textContent = t('auth.card.err_mismatch'); return }
+  if (passwordTooShort(p1)) { msg.classList.add('err'); msg.textContent = t('auth.card.err_too_short', { n: AUTH_MIN_PASSWORD_LENGTH }); return }
+  if (!confirm(t('auth.reset.confirm', { user: username }))) return
+  try {
+    const r = await fetch('/api/auth/password', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, new_password: p1 }),
+    })
+    const data = await r.json().catch(() => ({}))
+    if (!r.ok) { msg.classList.add('err'); msg.textContent = data.error || t('auth.card.err_generic'); return }
+    document.getElementById('authResetPass').value = ''
+    document.getElementById('authResetPass2').value = ''
+    msg.classList.add('ok')
+    msg.textContent = t('auth.reset.done', { user: username })
+  } catch { msg.classList.add('err'); msg.textContent = t('auth.login.err_network') }
 }
 
 // Dismissible setup banner: shown only when the operator is authed via the token
