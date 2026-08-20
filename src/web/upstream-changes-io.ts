@@ -14,7 +14,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT } from '../config.js'
 import { ageInDays } from './upstream-sync-status-io.js'
-import { groupCommits, type UpstreamCommit, type ChangeKind } from '../upstream-changelog.js'
+import {
+  groupCommits, fileCounts,
+  type UpstreamCommit, type ChangeKind, type UpstreamFile,
+} from '../upstream-changelog.js'
 
 const CHANGES_PATH = join(PROJECT_ROOT, 'store', 'upstream-changes.json')
 
@@ -28,6 +31,10 @@ export interface UpstreamChangesView {
   missingSummaries: number
   groups: Record<ChangeKind, UpstreamCommit[]>
   counts: Record<ChangeKind, number>
+  /** A másik nézet: melyik fájl változott, és melyik commitok nyúltak hozzá.
+   *  Üres tömb, ha a listát még a fájl-nézet előtti írás készítette. */
+  files: UpstreamFile[]
+  fileCounts: { total: number; conflict: number; clean: number }
 }
 
 export function readUpstreamChanges(now: number = Date.now()): UpstreamChangesView | null {
@@ -37,6 +44,10 @@ export function readUpstreamChanges(now: number = Date.now()): UpstreamChangesVi
     const commits = Array.isArray(raw.commits) ? (raw.commits as UpstreamCommit[]) : []
     if (commits.length === 0) return null
     const groups = groupCommits(commits)
+    // Egy regebbi iras meg nem tartalmazza a fajl-nezetet. Ilyenkor ures lista
+    // megy ki, nem hiba: a valtozas-nezet ettol meg teljes, es a felulet ki
+    // tudja irni, hogy ez a resz a kovetkezo frissiteskor keszul el.
+    const files = Array.isArray(raw.files) ? (raw.files as UpstreamFile[]) : []
     const generatedAt = typeof raw.generatedAt === 'string' ? raw.generatedAt : null
     return {
       generatedAt,
@@ -51,6 +62,8 @@ export function readUpstreamChanges(now: number = Date.now()): UpstreamChangesVi
         fejlesztes: groups.fejlesztes.length,
         egyeb: groups.egyeb.length,
       },
+      files,
+      fileCounts: fileCounts(files),
     }
   } catch {
     return null

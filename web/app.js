@@ -418,10 +418,10 @@ const html = document.documentElement
 // Hard refresh, for the installed-app window that has no browser controls.
 //
 // JavaScript cannot press Ctrl+Shift+R, and location.reload() may serve the
-// cached copy -- which is the whole problem, since index.html links /app.js and
-// /style.css without a version, so a plain reload can keep showing yesterday's
-// page. What it CAN do is what the shortcut does underneath: throw away the
-// stored copies, then load again.
+// cached copy -- which is the whole problem. What it CAN do is what the
+// shortcut does underneath: throw away the stored copies, then load again.
+// (index.html azota ?v= verziot ir a /app.js es /style.css hivatkozasaba, de ez
+// a gomb marad a vegso mento: egy makacsul beragadt lapot is kitisztit.)
 //
 // Both layers are cleared: any Cache Storage left behind by the retired service
 // worker, and the ordinary HTTP cache, by re-fetching the shell with
@@ -441,6 +441,73 @@ async function hardRefresh() {
   location.reload()
 }
 document.getElementById('hardRefreshBtn')?.addEventListener('click', hardRefresh)
+
+// === "Frissult a felulet" csik ==============================================
+//
+// Boss, 2026-08-20: "A mi valtozott tetel lista gomb nem mukodik." A gomb jo
+// volt, a szerver is: a nyitva hagyott lapja futtatta a TEGNAPI app.js-t. Az
+// index.html frissult (no-cache), tehat az UJ gombot megkapta -- a hozza tartozo
+// kodot nem. Kattintasra igy nem tortent semmi, es ezt kivulrol semmi nem
+// arulta el. Pontosan ez a legrosszabb hibafajta: nem hibauzenet, hanem CSEND.
+//
+// Innentol a lap maga veszi eszre. Ket ellenorzes fut:
+//   1. a betoltott app.js ?v= cimkeje a script-tagbol -- ez a betoltes
+//      pillanatat rogziti, tehat akkor is helyes, ha a telepites a betoltes es
+//      az elso lekerdezes koze esik;
+//   2. a teljes felulet-belyeg (app.js + style.css + a ket nyelvi fajl), hogy
+//      egy CSAK stilus- vagy CSAK szoveg-valtozas se maradjon eszrevetlen.
+//
+// Nem toltunk ujra magunktol: a Boss kozben gepelhet egy mezobe. Szolunk, es
+// o donti el, mikor.
+const APP_VERSION_POLL_MS = 120000
+let appVersionBaseline = null
+let appUpdateNoticeShown = false
+
+/** A betoltott app.js verzio-cimkeje a sajat script-tagunkbol. Ha az index.html
+ *  valamiert nem verziozott, null -- akkor csak a 2. ellenorzes marad. */
+function loadedAppVersion() {
+  const el = document.querySelector('script[src*="/app.js"]')
+  const src = el ? el.getAttribute('src') || '' : ''
+  const m = src.match(/[?&]v=([^&"]+)/)
+  return m ? m[1] : null
+}
+
+function showAppUpdateNotice() {
+  if (appUpdateNoticeShown) return
+  appUpdateNoticeShown = true
+  const bar = document.getElementById('appUpdatedBar')
+  if (!bar) return
+  const txt = document.getElementById('appUpdatedText')
+  const btn = document.getElementById('appUpdatedBtn')
+  if (txt) txt.textContent = t('app.updated.text')
+  if (btn) {
+    btn.textContent = t('app.updated.btn')
+    btn.addEventListener('click', hardRefresh, { once: true })
+  }
+  bar.hidden = false
+}
+
+async function checkAppVersion() {
+  // Rejtett lapon nincs mit kozolni, es felesleges is kerdezni.
+  if (document.hidden) return
+  try {
+    const res = await fetch('/api/app-version', { cache: 'no-store' })
+    if (!res.ok) return
+    const data = await res.json()
+    if (!data || typeof data.v !== 'string') return
+    const loaded = loadedAppVersion()
+    if (loaded && typeof data.app === 'string' && data.app !== loaded) { showAppUpdateNotice(); return }
+    if (appVersionBaseline === null) { appVersionBaseline = data.v; return }
+    if (data.v !== appVersionBaseline) showAppUpdateNotice()
+  } catch { /* halozati hiba: a kovetkezo kor ujra probalja */ }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  checkAppVersion()
+  setInterval(checkAppVersion, APP_VERSION_POLL_MS)
+  // A visszateres a leggyakoribb pillanat, amikor mar reg kiment az uj verzio.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAppVersion() })
+})
 
 const themeToggle = document.getElementById('themeToggle')
 const savedTheme = localStorage.getItem('cc-theme')
@@ -4202,9 +4269,10 @@ function brokerRowHtml(name) {
         </label>
         <label class="ctx-broker-opt" title="${escapeAttr(t('agents.ctx.handback_tip'))}">
           <span>${escapeHtml(t('agents.ctx.handback'))}</span>
-          <input type="number" class="ctx-handback" min="0" max="3600" step="10" value="${secs}">
+          <input type="number" class="ctx-handback" min="0" max="3600" step="10" placeholder="30" value="${secs}">
           <span>${escapeHtml(t('agents.ctx.handback_unit'))}</span>
         </label>
+        <p class="ctx-broker-hint">${escapeHtml(t('agents.ctx.handback_hint'))}</p>
       </div>`
   }
   return `
@@ -16701,6 +16769,9 @@ async function renderOverviewConnections() {
 // kulon dobozban allnak, mert azokat a Boss szerint "valoszinu kellenek. mind",
 // a fejlesztesek kulon, mert azok kozott lesz olyan, amit nem akar.
 let upstreamChangesCache = null
+// 'valtozas' = mit csinaltak (a commit az egyseg, 112 tetel)
+// 'fajl'     = melyik fajl valtozott (191 tetel: 22 utkozo + 169 tiszta)
+let upstreamChangesView = 'valtozas'
 
 function upstreamChangeRow(c) {
   const meta = [
@@ -16723,6 +16794,77 @@ function upstreamChangeRow(c) {
     </div>`
 }
 
+// A fajl-nezet egy sora. Boss, 2026-08-20: "hol vanak leirva mind a 169 tetel
+// hogy azok mik?" -- itt all mind, a fajl felol nezve: mi a fajl, utkozik-e, es
+// melyik valtozasok nyultak hozza (ugyanazzal a magyar mondattal, amit a masik
+// nezet mutat, tehat a ketto nem mondhat mast).
+function upstreamFileRow(f, huBySha) {
+  const conflict = f.conflict
+    ? `<span class="upstream-change-conflict">${escapeHtml(t('upstream.changes.conflict'))}</span>`
+    : ''
+  const shas = f.shas || []
+  // Nem sorolunk fel tizenot mondatot egy sokat piszkalt fajlnal: az elso
+  // harom mutatja, mirol van szo, a tobbi szamkent all ott.
+  const mondatok = shas.map(s => huBySha[s]).filter(Boolean)
+  const shown = mondatok.slice(0, 3)
+  const rest = mondatok.length - shown.length
+  const lines = shown.map(hu => `<li>${escapeHtml(hu)}</li>`).join('')
+  // Ures shas: a fajl csak osszefesulo commitban valtozott, azok nem sorolnak
+  // fel fajlokat. Ezt kiirjuk, mert egy magyarazat nelkuli fajlnev pont az,
+  // ami miatt az egesz lista keszult. A mondat viszont CSAK ekkor igaz: ha van
+  // commitja, csak eppen nincs hozza magyar szoveg (a forditas kesobb keszul
+  // el), akkor hallgatni kell rola -- hazudni nem.
+  const inner = shas.length === 0
+    ? `<div class="upstream-file-merge">${escapeHtml(t('upstream.files.merge_only'))}</div>`
+    : lines
+      ? `<ul class="upstream-file-changes">${lines}${rest > 0 ? `<li class="upstream-file-more">${escapeHtml(t('upstream.files.more', { n: rest }))}</li>` : ''}</ul>`
+      : ''
+  return `
+    <div class="upstream-file">
+      <div class="upstream-file-path">${escapeHtml(f.path)} ${conflict}</div>
+      ${inner}
+    </div>`
+}
+
+function renderUpstreamFiles(data, filter, body, intro) {
+  const files = data.files || []
+  if (!files.length) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(t('upstream.files.pending'))}</p>`
+    if (intro) intro.textContent = ''
+    return
+  }
+  // A csoportok kulcsait a szerver adja: ha egyszer uj kategoria kerul be, ez
+  // magatol viszi. Bedrotozott listaval az uj kategoria commitjai csendben
+  // kimaradnanak, es a fajljaik magyarazat nelkul allnanak.
+  const huBySha = {}
+  for (const kind of Object.keys(data.groups || {})) {
+    for (const c of (data.groups[kind] || [])) huBySha[c.sha] = c.hu || c.subject
+  }
+  const q = (filter || '').trim().toLowerCase()
+  const match = f => !q
+    || f.path.toLowerCase().includes(q)
+    || (f.shas || []).some(s => (huBySha[s] || '').toLowerCase().includes(q))
+  const rows = files.filter(match)
+  const utkozo = rows.filter(f => f.conflict)
+  const tiszta = rows.filter(f => !f.conflict)
+  let html = ''
+  if (utkozo.length) {
+    html += `<section class="upstream-box upstream-box-conflict">
+      <h4>${escapeHtml(t('upstream.files.conflicting', { n: utkozo.length }))}</h4>
+      ${utkozo.map(f => upstreamFileRow(f, huBySha)).join('')}</section>`
+  }
+  if (tiszta.length) {
+    html += `<section class="upstream-box upstream-box-clean">
+      <h4>${escapeHtml(t('upstream.files.clean', { n: tiszta.length }))}</h4>
+      ${tiszta.map(f => upstreamFileRow(f, huBySha)).join('')}</section>`
+  }
+  body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
+  if (intro) {
+    const fc = data.fileCounts || { total: files.length, conflict: 0, clean: files.length }
+    intro.textContent = t('upstream.files.intro', { n: fc.total, u: fc.conflict, c: fc.clean })
+  }
+}
+
 function renderUpstreamChanges(data, filter) {
   const body = document.getElementById('upstreamChangesBody')
   const intro = document.getElementById('upstreamChangesIntro')
@@ -16732,6 +16874,7 @@ function renderUpstreamChanges(data, filter) {
     if (intro) intro.textContent = ''
     return
   }
+  if (upstreamChangesView === 'fajl') { renderUpstreamFiles(data, filter, body, intro); return }
   const q = (filter || '').trim().toLowerCase()
   const match = c => !q
     || (c.hu || '').toLowerCase().includes(q)
@@ -16782,7 +16925,30 @@ async function openUpstreamChanges() {
     }
   }
   const filterEl = document.getElementById('upstreamChangesFilter')
+  labelUpstreamViewTabs(upstreamChangesCache)
   renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
+}
+
+/** Nezetvaltas a listan belul. A szuro szandekosan MEGMARAD: aki rakeresett
+ *  valamire, az valoszinuleg ugyanarra kivancsi a masik nezetben is. */
+function setUpstreamChangesView(view) {
+  upstreamChangesView = view
+  const tabChanges = document.getElementById('upstreamViewChanges')
+  const tabFiles = document.getElementById('upstreamViewFiles')
+  if (tabChanges) tabChanges.classList.toggle('active', view === 'valtozas')
+  if (tabFiles) tabFiles.classList.toggle('active', view === 'fajl')
+  const filterEl = document.getElementById('upstreamChangesFilter')
+  renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
+}
+
+/** A ket fulre a SZAMOK is kikerulnek, mert pont a szamok ertelmezese volt a
+ *  felreertes forrasa: 112 valtozas -- 191 fajl, ket kulon mertekegyseg. */
+function labelUpstreamViewTabs(data) {
+  const tabChanges = document.getElementById('upstreamViewChanges')
+  const tabFiles = document.getElementById('upstreamViewFiles')
+  const fc = (data && data.fileCounts) || null
+  if (tabChanges) tabChanges.textContent = t('upstream.view.changes', { n: (data && data.total) || 0 })
+  if (tabFiles) tabFiles.textContent = t('upstream.view.files', { n: fc ? fc.total : 0 })
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -16795,6 +16961,10 @@ document.addEventListener('DOMContentLoaded', () => {
   if (filterEl) {
     filterEl.addEventListener('input', () => renderUpstreamChanges(upstreamChangesCache, filterEl.value))
   }
+  const tabChanges = document.getElementById('upstreamViewChanges')
+  const tabFiles = document.getElementById('upstreamViewFiles')
+  if (tabChanges) tabChanges.addEventListener('click', () => setUpstreamChangesView('valtozas'))
+  if (tabFiles) tabFiles.addEventListener('click', () => setUpstreamChangesView('fajl'))
 })
 
 // === Onellenorzes -> vegigvezeto ===========================================

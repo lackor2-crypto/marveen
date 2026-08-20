@@ -69,8 +69,23 @@ const USAGE_LIMIT_BANNER_REGION_LINES = 15
 // / "API Error: 429" (transient overload, handled elsewhere) must NOT match --
 // that is a momentary blip, not a plan-budget exhaustion that warrants a model
 // switch.
+//
+// "hit your ... limit" names the WINDOW, not the word "usage": the live banner
+// reads "You've hit your weekly limit - resets Aug 20, 8pm - progress saved".
+// Matching only "hit your usage limit" left that phrasing to the incidental
+// "/upgrade to increase your usage limit" hint line underneath -- which is not
+// always rendered, so detection depended on a line the banner does not promise.
+// Naming the windows keeps the pattern just as narrow (a 429 or a bare "rate
+// limit" still does not match) while recognising the banner itself. Kept in
+// sync with paneShowsLimitBlock() in pane-state.ts, which answers the same
+// question for the Agents page's 'limited' label.
 const USAGE_LIMIT_RX =
-  /(usage limit reached|reached your usage limit|hit (?:your|the) usage limit|approaching (?:your )?usage limit|usage limit (?:will )?reset|limit will reset at|\d+-hour limit reached|upgrade to increase your usage limit)/i
+  /(usage limit reached|reached your usage limit|hit (?:your|the) (?:usage|weekly|session|\d+-hour) limit|approaching (?:your )?usage limit|usage limit (?:will )?reset|limit will reset at|\d+-hour limit reached|upgrade to increase your usage limit)/i
+
+// The reset moment inside the banner: "resets Aug 20, 8pm (Europe/Budapest)",
+// "reset at 9am". Bounded by the interpunct/pipe that separates the banner's
+// segments, so trailing text ("progress saved") is not swallowed.
+const USAGE_LIMIT_RESET_RX = /\breset(?:s)?(?:\s+at)?\s+([^·|\n]{2,48}?)\s*(?=[·|\n]|$)/i
 
 /**
  * True when the live pane shows a Claude *plan usage-limit* banner (not a
@@ -79,9 +94,31 @@ const USAGE_LIMIT_RX =
  */
 export function detectsUsageLimit(pane: string): boolean {
   if (!pane || !pane.trim()) return false
-  const lines = pane.split('\n')
-  const region = lines.slice(-USAGE_LIMIT_BANNER_REGION_LINES).join('\n')
-  return USAGE_LIMIT_RX.test(region)
+  return USAGE_LIMIT_RX.test(usageLimitRegion(pane))
+}
+
+function usageLimitRegion(pane: string): string {
+  return pane.split('\n').slice(-USAGE_LIMIT_BANNER_REGION_LINES).join('\n')
+}
+
+/**
+ * When the pane shows a usage-limit banner that names its reset moment, that
+ * moment verbatim ("Aug 20, 8pm (Europe/Budapest)"); null otherwise.
+ *
+ * Display only -- deliberately NOT parsed into a Date. The banner's wording and
+ * timezone are Claude Code's to change, and a mis-parsed timestamp that drives a
+ * decision is worse than no timestamp at all. Callers put the string in front of
+ * a reader so "this session is waiting" can be told apart from "this session is
+ * wedged" without opening the pane; that was the whole of the 2026-08-16
+ * false alarm (see context-restart-gate.ts).
+ */
+export function usageLimitResetText(pane: string): string | null {
+  if (!pane || !pane.trim()) return null
+  const region = usageLimitRegion(pane)
+  if (!USAGE_LIMIT_RX.test(region)) return null
+  const m = USAGE_LIMIT_RESET_RX.exec(region)
+  const text = m && m[1] ? m[1].trim() : ''
+  return text ? text : null
 }
 
 /**

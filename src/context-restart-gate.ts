@@ -108,6 +108,15 @@ export interface GateInputs {
    */
   paneState: 'idle' | 'busy' | 'typing' | 'unknown' | 'error' | null
   paneUsageLimited: boolean   // detectsUsageLimit(pane) -- usage cap banner
+  /**
+   * The reset moment lifted verbatim out of the usage-limit banner
+   * ("Aug 20, 8pm (Europe/Budapest)"), or null when the banner carries none.
+   * Display only: it goes into the block reason so whoever reads the status --
+   * a person on the card, or the main agent reading an alert -- can see that
+   * the wall ENDS at a known time instead of having to ask whether the session
+   * is dead. Never used in a comparison; the gate does not need to.
+   */
+  paneLimitResetText?: string | null
 
   /**
    * Current phase of the hard context-guard for this agent. When the hard
@@ -215,13 +224,36 @@ export function decideGate(
   if (inputs.paneState === null) {
     return block(firstBlockedAt, inputs.nowMs, cfg, 'pane-not-capturable (fail-closed)')
   }
+  // Quota wall is checked BEFORE the busy/typing guard, and it does NOT
+  // escalate to an alert. Both halves were wrong until 2026-08-19:
+  //
+  //  - ORDER. A rate-limited pane still LOOKS busy (parked text in the box, a
+  //    spinner line in the footer -- see paneShowsLimitBlock's note), so
+  //    detectPaneState returns 'busy' and the guard above matched first. The
+  //    usage-limit branch was unreachable for exactly the panes it was written
+  //    for. Quota exhaustion is the strictly more specific condition, so it
+  //    must be asked first.
+  //  - SEVERITY. block() escalates to 'block-alert' after persistentBlockAlertMs,
+  //    and a quota wall lasts until the window rolls over -- days, not hours. So
+  //    every capped agent eventually alerted the main agent with the mid-turn
+  //    wording, and the main agent read it as a wedged session: on 2026-08-16 it
+  //    reported usalackor as "39 orja lefagyott (mid-turn freeze, kapu:
+  //    pane-busy)" and proposed a kill/reset, when the pane in fact said
+  //    "You've hit your weekly limit - resets Aug 20, 8pm - progress saved".
+  //    Killing it would have thrown away the saved turn.
+  //
+  // A quota wall is expected, self-resolving, and its end time is known, which
+  // puts it with gate-disabled / below-threshold / fresh-session: a plain block
+  // that never raises an alarm. Nothing to remediate -- the window rolls over.
+  if (inputs.paneUsageLimited) {
+    const until = inputs.paneLimitResetText ? `, resets ${inputs.paneLimitResetText}` : ''
+    return {
+      action: 'block',
+      reason: `pane-usage-limited (quota wall${until} -- waiting for the window, NOT stuck; do not kill)`,
+    }
+  }
   if (inputs.paneState === 'busy' || inputs.paneState === 'typing') {
     return block(firstBlockedAt, inputs.nowMs, cfg, `pane-${inputs.paneState} (mid-turn, not safe)`)
-  }
-  if (inputs.paneUsageLimited) {
-    // Session hit usage cap. /clear cannot be processed anyway, and the pane
-    // is not truly idle. The stuck-modal-guard (PR #937) owns remediation here.
-    return block(firstBlockedAt, inputs.nowMs, cfg, 'pane-usage-limited (quota cap, stuck-modal-guard owns this)')
   }
   if (inputs.paneState === 'unknown' || inputs.paneState === 'error') {
     return block(firstBlockedAt, inputs.nowMs, cfg, `pane-${inputs.paneState} (fail-closed)`)

@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { getSecret } from '../src/web/vault.js'
 import {
   classifySubject, mergeHungarian, missingSummaryCount,
-  buildSummaryPrompt, parseSummaryResponse,
+  buildSummaryPrompt, parseSummaryResponse, buildFileIndex, fileCounts,
   type UpstreamCommit, type UpstreamChangelog,
 } from '../src/upstream-changelog.js'
 
@@ -168,6 +168,16 @@ async function main(): Promise<void> {
     }
   }
 
+  // A fajl-nezet a MERT elteresbol keszul (diff base..upstream), nem a commitok
+  // fajljainak uniojabol: a merge commitok nem sorolnak fel fajlokat, tehat az
+  // unio kevesebb (nalunk 190 a 191 helyett). Ha innen jonne, a kartya es a
+  // lista MASHOGY szamolna ugyanazt -- pont az az ellentmondas, ami miatt az
+  // egesz kerdes felmerult.
+  const diffFiles = git(['diff', '--name-only', base, upstream])
+    .split('\n').map(l => l.trim()).filter(Boolean)
+  const files = buildFileIndex(diffFiles, Array.from(conflicts), commits)
+  const fc = fileCounts(files)
+
   const payload: UpstreamChangelog = {
     generatedAt: new Date().toISOString(),
     localRef: local, upstreamRef: upstream, base,
@@ -176,11 +186,13 @@ async function main(): Promise<void> {
       delete (c as unknown as Record<string, unknown>)._body
       return c
     }),
+    files,
   }
   const tmp = `${OUT}.tmp`
   writeFileSync(tmp, JSON.stringify(payload, null, 2))
   renameSync(tmp, OUT)
   process.stderr.write(`kesz: ${OUT} (${missingSummaryCount(payload.commits)} tetel maradt magyar szoveg nelkul)\n`)
+  process.stderr.write(`fajlok: ${fc.total} (${fc.conflict} utkozo + ${fc.clean} tiszta)\n`)
 }
 
 main().catch(e => { process.stderr.write(String(e?.stack ?? e) + '\n'); process.exit(1) })

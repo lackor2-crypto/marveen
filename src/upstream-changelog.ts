@@ -49,12 +49,77 @@ export interface UpstreamCommit {
   hu: string | null
 }
 
+/** Egy eltérő fájl, és ami vele történt.
+ *
+ *  Boss, 2026-08-20: "hol vanak leirva mind a 169 tetel hogy azok mik?" A
+ *  változás-lista egysége a commit (112 tétel), de a kérdés a MÁSIK oldalról
+ *  jön: melyik az a 169 fájl, és mi történt bennük. Ez a nézet erre felel.
+ *
+ *  A `shas` üres is lehet: az összefésülő (merge) commitok nem sorolnak fel
+ *  fájlokat, így egy-két fájl (nálunk a package.json és a package-lock.json)
+ *  csak összefésüléskor változott. Ezt kiírjuk, nem elhallgatjuk -- különben a
+ *  fájl ott állna magyarázat nélkül. */
+export interface UpstreamFile {
+  path: string
+  /** Nálunk is módosult, tehát nem lehet csak úgy áthúzni. */
+  conflict: boolean
+  /** Mely commitok nyúltak hozzá (a lista sorrendjében). */
+  shas: string[]
+}
+
 export interface UpstreamChangelog {
   generatedAt: string
   localRef: string
   upstreamRef: string
   base: string
   commits: UpstreamCommit[]
+  files?: UpstreamFile[]
+}
+
+/** A fájl-nézet felépítése.
+ *
+ *  A fájlok listája a MÉRT eltérésből jön (git diff BASE..UPSTREAM), nem a
+ *  commitok fájljainak uniójából -- különben a két szám (a kártyán 191, itt
+ *  190) csendben szétcsúszna, és pont az a fajta ellentmondás keletkezne, ami
+ *  miatt az egész kérdés felmerült.
+ *
+ *  Sorrend: előbb az ütközők (azokkal kell foglalkozni), utána a tiszták,
+ *  mindkettőn belül ábécében -- egy 191 elemű listában a kereshetőség többet
+ *  ér, mint bármilyen "fontossági" sorrend. */
+export function buildFileIndex(
+  diffFiles: string[],
+  conflicting: string[],
+  commits: UpstreamCommit[],
+): UpstreamFile[] {
+  const conflictSet = new Set(conflicting)
+  const byFile = new Map<string, string[]>()
+  for (const c of commits) {
+    for (const f of c.files) {
+      const list = byFile.get(f)
+      if (list) list.push(c.sha)
+      else byFile.set(f, [c.sha])
+    }
+  }
+  // Set: ugyanaz a fájlnév kétszer nem kerülhet a listába, akkor sem, ha a
+  // bemenetben duplán szerepel.
+  const unique = Array.from(new Set(diffFiles))
+  const out = unique.map(path => ({
+    path,
+    conflict: conflictSet.has(path),
+    shas: byFile.get(path) ?? [],
+  }))
+  out.sort((a, b) => {
+    if (a.conflict !== b.conflict) return a.conflict ? -1 : 1
+    return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+  })
+  return out
+}
+
+/** A fájl-nézet számai. Ugyanabból a listából, amit a felület mutat, hogy a
+ *  fejléc ne mondhasson mást, mint a sorok. */
+export function fileCounts(files: UpstreamFile[]): { total: number; conflict: number; clean: number } {
+  const conflict = files.filter(f => f.conflict).length
+  return { total: files.length, conflict, clean: files.length - conflict }
 }
 
 /** Melyik előtag melyik dobozba tartozik.

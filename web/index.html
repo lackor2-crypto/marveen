@@ -40,6 +40,13 @@
   </script>
 </head>
 <body>
+  <!-- "Frissult a felulet" csik. Egy nyitva hagyott lapon a REGI kod fut, akkor
+       is, ha az index.html mar az uj gombokat mutatja -- ez teszi lathatova.
+       A szoveget az app.js irja bele (checkAppVersion), addig rejtve all. -->
+  <div class="app-updated-bar" id="appUpdatedBar" hidden role="status">
+    <span id="appUpdatedText" data-i18n="app.updated.text"></span>
+    <button class="btn-primary" id="appUpdatedBtn" type="button" data-i18n="app.updated.btn"></button>
+  </div>
   <!-- First-run onboarding wizard (shown by app.js when /api/onboarding/status needs setup) -->
   <div class="modal-overlay onboarding-overlay" id="onboardingOverlay" hidden>
     <div class="modal onboarding-modal">
@@ -1012,20 +1019,6 @@
       </div>
 
 
-      <!-- "Mi valtozott az upstreamben?" -- tetelesen, emberi nyelven -->
-      <div class="modal-overlay" id="upstreamChangesModal" hidden>
-        <div class="modal-content upstream-changes-modal">
-          <div class="modal-header">
-            <h3 data-i18n="upstream.changes.title">Mi változott az upstreamben?</h3>
-            <button class="modal-close" id="upstreamChangesClose">&times;</button>
-          </div>
-          <div class="modal-body">
-            <p class="modal-desc" id="upstreamChangesIntro"></p>
-            <input type="search" class="upstream-changes-filter" id="upstreamChangesFilter" placeholder="Keresés a listában…">
-            <div id="upstreamChangesBody"></div>
-          </div>
-        </div>
-      </div>
       <div class="modal-overlay" id="openrouterModal" hidden>
         <div class="modal-content" style="max-width:660px">
           <div class="modal-header">
@@ -4325,6 +4318,36 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="selfCheckGuideCheck" data-i18n="guide.check_btn">Most ellenőrizd le</button>
         <button class="btn-primary" id="selfCheckGuideDone" data-i18n="guide.done_btn">Kész</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FIGYELEM: ez a modal NEM allhat egy .page konteneren belul.
+       A gomb, ami megnyitja, az Attekintes oldalon van, a modal viszont a
+       Kapcsolatok oldal belsejeben allt -- az pedig display:none, amikor nem az
+       az aktiv oldal. A modal ilyenkor .active-ra valtott, 112 sort ki is
+       rajzolt, csak eppen egy elrejtett szulo alatt: a kepernyon SEMMI nem
+       tortent. Pontosan ez volt a "A mi valtozott tetel lista gomb nem
+       mukodik" bejelentes. Body-szinten nincs ilyen szulo. -->
+  <!-- "Mi valtozott az upstreamben?" -- tetelesen, emberi nyelven -->
+  <div class="modal-overlay" id="upstreamChangesModal" hidden>
+    <div class="modal-content upstream-changes-modal">
+      <div class="modal-header">
+        <h3 data-i18n="upstream.changes.title">Mi változott az upstreamben?</h3>
+        <button class="modal-close" id="upstreamChangesClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc" id="upstreamChangesIntro"></p>
+        <!-- Ket nezet ugyanarra az elteresre. A valtozas-nezet egysege a
+             commit (mit csinaltak), a fajl-nezete a fajl (Boss: "hol vanak
+             leirva mind a 169 tetel hogy azok mik?"). A ketto ugyanabbol a
+             merésbol keszul, ezert nem mondhatnak mast. -->
+        <div class="upstream-view-tabs" id="upstreamViewTabs">
+          <button type="button" class="upstream-view-tab active" id="upstreamViewChanges"></button>
+          <button type="button" class="upstream-view-tab" id="upstreamViewFiles"></button>
+        </div>
+        <input type="search" class="upstream-changes-filter" id="upstreamChangesFilter" placeholder="Keresés a listában…">
+        <div id="upstreamChangesBody"></div>
       </div>
     </div>
   </div>

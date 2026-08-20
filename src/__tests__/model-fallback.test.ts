@@ -1,12 +1,28 @@
 import { describe, it, expect } from 'vitest'
 import {
   detectsUsageLimit,
+  usageLimitResetText,
   nextFallbackModel,
   decideModelAction,
   normalizeModelFallbackConfig,
   DEFAULT_MODEL_CHAIN,
   DEFAULT_MODEL_FALLBACK,
 } from '../model-fallback.js'
+
+// Real capture (usalackor, 2026-08-19), trimmed to the live banner region.
+const WEEKLY_BANNER = [
+  "  ⎿  You've hit your weekly limit · resets Aug 20, 8pm (Europe/Budapest) ·",
+  '     progress saved',
+  '     /upgrade to increase your usage limit.',
+  '✻ Sautéed for 0s',
+  '❯ ',
+  '  Opus 5 | 5h 0% | 7d 100%',
+].join('\n')
+
+// Same banner with the /upgrade hint stripped: the hint is not guaranteed, so
+// detection must not depend on it.
+const WEEKLY_BANNER_NO_UPGRADE = WEEKLY_BANNER
+  .split('\n').filter(l => !l.includes('/upgrade')).join('\n')
 
 const CHAIN = [...DEFAULT_MODEL_CHAIN]
 const PRIMARY = CHAIN[0]
@@ -22,6 +38,14 @@ describe('detectsUsageLimit', () => {
     expect(detectsUsageLimit('/upgrade to increase your usage limit')).toBe(true)
   })
 
+  // The banner as Claude Code actually prints it, captured off usalackor's pane
+  // on 2026-08-19. The window is named ("weekly"), not the word "usage" -- the
+  // phrasing the old pattern could only reach through the /upgrade hint line.
+  it('matches the live weekly-limit banner without relying on the /upgrade line', () => {
+    expect(detectsUsageLimit(WEEKLY_BANNER_NO_UPGRADE)).toBe(true)
+    expect(detectsUsageLimit("You've hit your session limit · resets 8pm")).toBe(true)
+  })
+
   it('does NOT match a transient API 429 / generic rate limit', () => {
     expect(detectsUsageLimit('  ⎿  API Error: 429 rate_limit_error: too many requests')).toBe(false)
     expect(detectsUsageLimit('  ⎿  API Error: 429 overloaded_error: server busy, retrying')).toBe(false)
@@ -35,6 +59,25 @@ describe('detectsUsageLimit', () => {
   it('returns false for empty / whitespace panes', () => {
     expect(detectsUsageLimit('')).toBe(false)
     expect(detectsUsageLimit('   \n  ')).toBe(false)
+  })
+})
+
+describe('usageLimitResetText', () => {
+  it('lifts the reset moment out of the banner, without the trailing segment', () => {
+    expect(usageLimitResetText(WEEKLY_BANNER)).toBe('Aug 20, 8pm (Europe/Budapest)')
+  })
+
+  it('handles the "reset at" phrasing', () => {
+    expect(usageLimitResetText('Your limit will reset at 18:00')).toBe('18:00')
+  })
+
+  it('returns null when there is no usage-limit banner at all', () => {
+    expect(usageLimitResetText('normal output, nothing to see')).toBeNull()
+    expect(usageLimitResetText('')).toBeNull()
+  })
+
+  it('returns null when the banner names no reset moment', () => {
+    expect(usageLimitResetText('/upgrade to increase your usage limit')).toBeNull()
   })
 })
 

@@ -777,6 +777,11 @@ window._i18n.hu = {
   'agents.main_badge':             'főasszisztens',
   'agents.ctx.compact':                'Tömörítés',
   'app.hard_refresh_tip':            'Frissítés: eldobja a böngészőben tárolt régi változatot, és újratölti az oldalt. Akkor használd, ha valami nem frissült.',
+  // Nyitva hagyott lapon a REGI kod fut tovabb: az uj gombok latszanak (az
+  // index.html frissul), de nincs mogottuk kod, tehat nem csinalnak semmit.
+  // Ujratolteni viszont a Boss tolt, mert kozben eppen gepelhet valahova.
+  'app.updated.text':                'Közben új változat került ki — ez a lap még a régit futtatja, ezért egy-egy gomb nem csinál semmit.',
+  'app.updated.btn':                 'Újratöltés',
   'agents.ctx.compact_tip':            'Most azonnal összefoglalja a beszélgetést, hogy kevesebb helyet foglaljon. A lényeg megmarad, a részletek egy része összevonódik. Az itt beírt ezer-token szám NEM ehhez a gombhoz tartozik: az az automatikus tömörítés határa.',
   'agents.ctx.clear':                  'Törlés',
   'agents.ctx.clear_tip':              'Teljesen kiüríti a beszélgetést, az ágens friss lappal indul. Visszavonhatatlan.',
@@ -815,9 +820,10 @@ window._i18n.hu = {
   'agents.ctx.clean_start': 'Tiszta indulás a megbízottnál',
   'agents.ctx.clean_start_tip': 'Amikor ez az ágens egy ÚJ feladat első parancsát adja ki, előtte kiüríti annak az ágensnek a beszélgetését, akinek kiadta -- és rögtön utána átküldi a munkacsomagot. Így a megbízott nem viszi magával az előző feladatot. Soha nem üríti ki saját magát, sem olyan ágenst, aki épp dolgozik vagy van feldolgozatlan üzenete.',
   'agents.ctx.clean_start_confirm': 'Ez MÁS ágensek beszélgetését fogja kiüríteni új feladat kiadásakor (közvetlenül a munkacsomag átadása előtt). Bekapcsolod?',
-  'agents.ctx.handback': 'Ennél hosszabb kérést adjon vissza:',
-  'agents.ctx.handback_unit': 'mp',
+  'agents.ctx.handback': 'Adja vissza a parancsot, ha tovább futna, mint:',
+  'agents.ctx.handback_unit': 'másodperc',
   'agents.ctx.handback_tip': 'A drága ágens csak rövid parancsokat futtasson a gépen. Ha egy parancs ennél tovább tartana (teljes build, teljes tesztfuttatás, nagy napló átnézése), adja vissza a kontextus-készítőnek, és az adja vissza az EREDMÉNYT. A hosszú kimenet az, ami tele tölti a kontextusablakot, és olcsó modellen ugyanaz jön ki belőle. 0 = kikapcsolva.',
+  'agents.ctx.handback_hint': 'Ajánlott: 30. Ha egy parancs ennél tovább futna, az ágens visszaadja a kontextus-kiosztónak.',
   'agents.ctx.help_summary': 'Mi ez a négy dolog? (kattints)',
   'agents.ctx.help_manual_title': '1. Kézi gombok (Tömörítés / Törlés)',
   'agents.ctx.help_manual': 'Akkor indul, amikor rákattintasz, és csak akkor. A Tömörítés összefoglalót készít a beszélgetésből: a lényeg megmarad, a részletek egy része összevonódik. A Törlés mindent eldob, az ágens friss lappal indul -- ez visszavonhatatlan. Ez a legfinomabb eszköz, mert te döntöd el a pillanatot: jó feladat végén, amikor már nincs szükség az előzményekre. Bármelyik másikkal nyugodtan együtt használható.',
@@ -2820,6 +2826,18 @@ window._i18n.hu = {
   'upstream.changes.none':    'Még nem készült lista. Szólj, és legyártom.',
   'upstream.changes.nomatch': 'Erre a keresésre nincs találat.',
   'upstream.changes.loading': 'Töltöm a listát…',
+  // Fajl-nezet. Boss: "hol vanak leirva mind a 169 tetel hogy azok mik?" -- a
+  // valtozas-nezet egysege a commit, ezert kellett a masik oldal is: melyik
+  // fajl valtozott, es mi tortent benne. A ket fulon a szam is ott van, mert
+  // pont a ket szam osszekeverese volt az eredeti felreertes.
+  'upstream.view.changes':    'Változások ({n})',
+  'upstream.view.files':      'Fájlok ({n})',
+  'upstream.files.intro':     '{n} fájl tér el: {u} ütközik (ezeket nálunk is módosítottuk), {c} tisztán áthúzható. Minden fájl alatt ott áll, mely változások nyúltak hozzá.',
+  'upstream.files.conflicting': 'Ütköző fájlok ({n}) — ezeket nem lehet csak úgy áthúzni',
+  'upstream.files.clean':     'Tisztán áthúzható fájlok ({n})',
+  'upstream.files.more':      '…és még {n} változás ebben a fájlban',
+  'upstream.files.merge_only': 'Csak összefésüléskor változott (a merge commitok nem sorolnak fel fájlokat).',
+  'upstream.files.pending':   'A fájl-nézet a lista következő frissítésekor készül el.',
   'overview.upstream.total':   'érintett fájl összesen',
   'overview.upstream.commits': 'Ezt a fájlhalmazt {c} új fejlesztés (commit) érinti — a commit és a fájl két külön mértékegység, ezért nem adódnak össze.',
   'overview.upstream.conflicts': 'ütköző fájl',

@@ -6,7 +6,7 @@ import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { listAgentNames } from './agent-config.js'
 import { agentSessionName, capturePane } from './agent-process.js'
 import { detectPaneState } from '../pane-state.js'
-import { detectsUsageLimit } from '../model-fallback.js'
+import { detectsUsageLimit, usageLimitResetText } from '../model-fallback.js'
 import { readContextReadingFromProjectDir } from './active-model.js'
 import { markCompactionStarted, isCompactionInFlight } from './compaction-inflight.js'
 import { COMPACT_COMMAND } from '../context-compaction-instructions.js'
@@ -411,6 +411,11 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   const paneRaw = capturePaneOrNull(session)
   const paneState = paneRaw !== null ? detectPaneState(paneRaw) : null
   const paneUsageLimited = paneRaw !== null ? detectsUsageLimit(paneRaw) : false
+  // Lifted verbatim from the banner so the block reason can say WHEN the wall
+  // ends. A gate status that reads "waiting until Aug 20, 8pm" is not the same
+  // message as "blocked", and the difference is what stops a capped session
+  // from being mistaken for a wedged one.
+  const paneLimitReset = paneRaw !== null ? usageLimitResetText(paneRaw) : null
 
   const hardGuardPhase = getHardGuardPhase(name)
 
@@ -456,6 +461,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     contextState:           contextReading.state,
     paneState,
     paneUsageLimited,
+    paneLimitResetText:     paneLimitReset,
     hardGuardPhase,
     pendingOutboundCount:   dispatchedStats === null ? 1 : dispatchedStats.count,
     hasStaleOutbound:       dispatchedStats?.hasStale ?? false,
@@ -627,6 +633,16 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     }
 
     case 'block': {
+      // A kvota-fal ideje NEM szamit blokkolasi sorozatnak. A dontes maga soha
+      // nem eszkalal falnal (lasd context-restart-gate.ts), de az ora eddig
+      // futott tovabb alatta: a fal feloldasa utan az elso rendes mid-turn
+      // blokkolas AZONNAL riasztott volna, "4320 perce folyamatosan blokkolt"
+      // szoveggel -- vagyis pont az a felreertes szuletett volna ujra, ami miatt
+      // ez az ag keszult. A varakozas oraja a falhoz tartozik, nem az agenshez.
+      if (inputs.paneUsageLimited) {
+        if (runState.firstBlockedAt !== null) writeGateRunState(name, { ...runState, firstBlockedAt: null })
+        break
+      }
       // Normal block: update firstBlockedAt if this is the first block in a streak.
       const firstBlockedAt = runState.firstBlockedAt ?? (
         // Only start the clock when we are above the threshold -- otherwise

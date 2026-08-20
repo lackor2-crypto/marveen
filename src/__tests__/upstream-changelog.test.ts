@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path'
 import {
   classifySubject, kindOfType, groupCommits, buildSummaryPrompt,
   parseSummaryResponse, mergeHungarian, missingSummaryCount,
+  buildFileIndex, fileCounts,
   type UpstreamCommit,
 } from '../upstream-changelog.js'
 import { upstreamRows, UPSTREAM_CHANGES_FILE } from '../web/system-health.js'
@@ -230,5 +231,151 @@ describe('ha a lista megfagy, az onellenorzes szol', () => {
     expect(io).toContain("join(PROJECT_ROOT, 'store', 'upstream-changes.json')")
     const gen = readFileSync(join(ROOT, 'scripts', 'upstream-changelog.ts'), 'utf8')
     expect(gen).toContain("join(ROOT, 'store', 'upstream-changes.json')")
+  })
+})
+
+// Boss, 2026-08-20: "hol vanak leirva mind a 169 tetel hogy azok mik?"
+//
+// A valtozas-lista egysege a commit, de a kerdes a fajlok felol jon. Ez a
+// blokk azt orzi, hogy a fajl-nezet SOSE mondhasson mast, mint a kartya:
+// ugyanaz a 191 = 22 + 169, es egyetlen elteres fajl sem eshet ki belole.
+describe('fajl-nezet: melyik fajl valtozott es mi tortent benne', () => {
+  const c1 = commit({ sha: 's1', files: ['src/a.ts', 'web/style.css'], hu: 'Javult az A.' })
+  const c2 = commit({ sha: 's2', files: ['src/a.ts'], hu: 'Meg egy javitas az A-ban.' })
+  const diff = ['src/a.ts', 'web/style.css', 'package.json']
+
+  it('MINDEN elteres fajl bekerul, pontosan egyszer', () => {
+    const files = buildFileIndex(diff, ['web/style.css'], [c1, c2])
+    expect(files.map(f => f.path).sort()).toEqual([...diff].sort())
+    expect(new Set(files.map(f => f.path)).size).toBe(files.length)
+  })
+
+  it('a szamok kiadjak a kartya szamait: osszes = utkozo + tiszta', () => {
+    const files = buildFileIndex(diff, ['web/style.css'], [c1, c2])
+    const fc = fileCounts(files)
+    expect(fc.total).toBe(3)
+    expect(fc.conflict).toBe(1)
+    expect(fc.clean).toBe(2)
+    expect(fc.conflict + fc.clean).toBe(fc.total)
+  })
+
+  it('a fajlhoz a ot erinto commitok tartoznak', () => {
+    const files = buildFileIndex(diff, [], [c1, c2])
+    const a = files.find(f => f.path === 'src/a.ts')!
+    expect(a.shas).toEqual(['s1', 's2'])
+  })
+
+  it('a csak osszefesuleskor valtozott fajl is ott van, ures listaval', () => {
+    // A merge commitok nem sorolnak fel fajlokat: a package.json egyetlen
+    // commit fajl-listajaban sem szerepel. Ha a nezet a commitok uniojabol
+    // keszulne, ez a fajl NYOMTALANUL eltunne -- es a szam sem stimmelne.
+    const files = buildFileIndex(diff, [], [c1, c2])
+    const pkg = files.find(f => f.path === 'package.json')
+    expect(pkg, 'a csak merge-ben valtozott fajl nem eshet ki').toBeTruthy()
+    expect(pkg!.shas).toEqual([])
+  })
+
+  it('a lista a MERT elterest koveti, nem a commitok uniojat', () => {
+    // Egy commit erinthet olyan fajlt, ami a vegso diffben mar nem szerepel
+    // (kesobb visszaallt). Az ilyen nem kerulhet a listaba, kulonben tobbet
+    // mutatnank, mint amennyi tenylegesen elter.
+    const extra = commit({ sha: 's3', files: ['torolt.txt'] })
+    const files = buildFileIndex(diff, [], [c1, c2, extra])
+    expect(files.map(f => f.path)).not.toContain('torolt.txt')
+    expect(files).toHaveLength(3)
+  })
+
+  it('elol az utkozok, azon belul abecében', () => {
+    const files = buildFileIndex(['z.ts', 'a.ts', 'm.ts'], ['m.ts', 'z.ts'], [])
+    expect(files.map(f => f.path)).toEqual(['m.ts', 'z.ts', 'a.ts'])
+  })
+
+  it('a duplan erkezo fajlnev egyszer szerepel', () => {
+    const files = buildFileIndex(['src/a.ts', 'src/a.ts'], [], [c1])
+    expect(files).toHaveLength(1)
+  })
+
+  it('a felulet a fajl-nezetet a fajl-listabol rajzolja, nem a commitokbol', () => {
+    expect(app).toContain('function renderUpstreamFiles')
+    expect(app).toContain("upstreamChangesView === 'fajl'")
+    // A "csak merge-ben valtozott" eset ki van irva, nem elhallgatva.
+    expect(app).toContain('upstream.files.merge_only')
+  })
+
+  it('a ket ful szamot is mutat, mert pont a szamok keveredtek ossze', () => {
+    expect(app).toContain('upstream.view.changes')
+    expect(app).toContain('upstream.view.files')
+    expect(app).toContain('function labelUpstreamViewTabs')
+  })
+
+  it('a fajl-nezet minden szovege megvan magyarul es angolul', () => {
+    for (const k of ['upstream.view.changes', 'upstream.view.files', 'upstream.files.intro',
+                     'upstream.files.conflicting', 'upstream.files.clean', 'upstream.files.more',
+                     'upstream.files.merge_only', 'upstream.files.pending']) {
+      expect(hu, `hianyzik magyarul: ${k}`).toContain(`'${k}'`)
+      expect(en, `hianyzik angolul: ${k}`).toContain(`'${k}'`)
+    }
+  })
+
+  it('a gyarto szkript a diffbol veszi a fajlokat, es kiirja oket', () => {
+    const gen = readFileSync(join(ROOT, 'scripts', 'upstream-changelog.ts'), 'utf8')
+    expect(gen).toContain("git(['diff', '--name-only', base, upstream])")
+    expect(gen).toContain('buildFileIndex(diffFiles')
+    expect(gen).toContain('files,')
+  })
+})
+
+// Boss, 2026-08-20: "A mi valtozott tetel lista gomb nem mukodik."
+//
+// A gomb jo volt: valodi bongeszoben a lista megnyilt, 112 tetellel. A nyitva
+// hagyott lapja futtatta a TEGNAPI app.js-t -- a friss index.html-bol megkapta
+// az UJ gombot, a hozza tartozo kodot nem. Nem hibauzenet volt, hanem CSEND.
+// Ez a blokk azt orzi, hogy ez ne fordulhasson elo megint eszrevetlenul.
+describe('a lap eszreveszi, ha kozben uj valtozat kerult ki', () => {
+  const stat = readFileSync(join(ROOT, 'src', 'web', 'routes', 'static.ts'), 'utf8')
+
+  it('a verzio-belyeg mind a negy kiszolgalt eszkozt tartalmazza', () => {
+    expect(stat).toContain('export function appShellVersion')
+    for (const f of ["'app.js'", "'style.css'", "'lang/hu.js'", "'lang/en.js'"]) {
+      expect(stat.slice(stat.indexOf('appShellVersion'))).toContain(f)
+    }
+  })
+
+  it('a vegpont nem gyorsitotarazhato -- kulonben sose venne eszre semmit', () => {
+    const i = stat.indexOf("'/api/app-version'")
+    expect(i).toBeGreaterThan(-1)
+    expect(stat.slice(i, i + 400)).toContain("'Cache-Control': 'no-store'")
+  })
+
+  it('az app.js cimkeje kulon is kimegy, hogy a betoltes pillanatahoz merjen', () => {
+    const i = stat.indexOf("'/api/app-version'")
+    expect(stat.slice(i, i + 600)).toContain("app: assetVersion(webDir, 'app.js')")
+  })
+
+  it('a kliens a sajat script-tagjabol olvassa, mivel indult', () => {
+    expect(app).toContain('function loadedAppVersion')
+    expect(app).toContain("document.querySelector('script[src*=\"/app.js\"]')")
+  })
+
+  it('nem tolt ujra magatol -- szol, es a Boss dont', () => {
+    const i = app.indexOf('function showAppUpdateNotice')
+    const blokk = app.slice(i, i + 700)
+    expect(blokk).toContain('appUpdatedBar')
+    expect(blokk).toContain("addEventListener('click', hardRefresh")
+    // Se itt, se a verzio-ellenorzoben nincs automatikus ujratoltes.
+    const ell = app.slice(app.indexOf('async function checkAppVersion'), app.indexOf('const themeToggle'))
+    expect(ell).not.toContain('location.reload')
+  })
+
+  it('rejtett lapon nem kerdez', () => {
+    const ell = app.slice(app.indexOf('async function checkAppVersion'), app.indexOf('const themeToggle'))
+    expect(ell).toContain('if (document.hidden) return')
+  })
+
+  it('a csik szovege megvan magyarul es angolul', () => {
+    for (const k of ['app.updated.text', 'app.updated.btn']) {
+      expect(hu).toContain(`'${k}'`)
+      expect(en).toContain(`'${k}'`)
+    }
   })
 })

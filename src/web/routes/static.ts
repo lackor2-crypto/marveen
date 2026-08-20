@@ -30,6 +30,28 @@ function assetVersion(webDir: string, fileName: string): string {
   }
 }
 
+/** A teljes felület egyetlen verzió-bélyege, a négy kiszolgált eszközből.
+ *
+ *  Boss, 2026-08-20: "A mi valtozott tetel lista gomb nem mukodik." A
+ *  kiszolgáló oldalon minden rendben volt (valódi böngészőben lemérve: a
+ *  lista megnyílt, 112 tétellel) -- a nyitva hagyott lapja futtatta a tegnapi
+ *  app.js-t. A friss index.html-ből megkapta az ÚJ gombot, de a hozzá tartozó
+ *  kód nem volt benne, így a kattintásra nem történt semmi, és ezt kívülről
+ *  semmi nem árulta el.
+ *
+ *  Ebből a bélyegből tudja a betöltött lap megállapítani, hogy közben új
+ *  változat került ki, és szólni tud. Szándékosan ugyanaz a négy eszköz, ami
+ *  az index.html ETag-jében is szerepel: egy forrásból, hogy a kettő ne
+ *  csúszhasson szét. */
+export function appShellVersion(webDir: string): string {
+  return [
+    assetVersion(webDir, 'app.js'),
+    assetVersion(webDir, 'style.css'),
+    assetVersion(webDir, 'lang/hu.js'),
+    assetVersion(webDir, 'lang/en.js'),
+  ].join('-')
+}
+
 function serveIndexHtml(ctx: RouteContext, webDir: string): void {
   const { req, res } = ctx
   try {
@@ -101,6 +123,21 @@ function escapeAttr(s: string): string {
 
 export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promise<boolean> {
   const { req, res, path } = ctx
+
+  // A betöltött lap ezt kérdezi meg időnként: "ugyanaz a felület megy még,
+  // amivel elindultam?" Ha nem, kiír egy csíkot, hogy töltse újra -- különben
+  // egy nyitva hagyott lapon a NEM MŰKÖDŐ régi kód fut, miközben a friss
+  // index.html már az új gombokat mutatja. No-store: pont ezen a válaszon nem
+  // szabad gyorsítótárnak lennie, mert akkor sosem venné észre a változást.
+  if (path === '/api/app-version') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+    // `app` külön is: a lap ezt tudja összevetni a SAJÁT script-tagjának ?v=
+    // címkéjével, tehát a betöltés pillanatához méri magát. Enélkül csak az
+    // első lekérdezéshez tudna viszonyítani, és egy két lekérdezés közé eső
+    // telepítés észrevétlen maradna.
+    res.end(JSON.stringify({ v: appShellVersion(webDir), app: assetVersion(webDir, 'app.js') }))
+    return true
+  }
 
   if (path === '/' || path === '/index.html') { serveIndexHtml(ctx, webDir); return true }
   // app.js/style.css URLs are versioned (?v=mtime-size, rewritten into

@@ -1366,7 +1366,7 @@ main {
 .kanban-col-chip:hover { opacity: 0.8; }
 .kanban-col-chip.hidden {
   border-color: var(--border);
-  color: var(--muted);
+  color: var(--text-muted);
   background: var(--bg);
   text-decoration: line-through;
   opacity: 0.55;
@@ -2912,7 +2912,7 @@ main.email-active .page-header { flex-shrink: 0; }
   border-radius: var(--radius-sm, 6px);
   border: 1px solid var(--border);
   background: var(--bg-input);
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .detail-avatar-gallery {
@@ -5030,7 +5030,7 @@ main.email-active .page-header { flex-shrink: 0; }
   font-weight: 600;
   white-space: nowrap;
 }
-.debate-badge-pending { background: color-mix(in srgb, var(--warning) 15%, transparent); color: var(--warning); }
+.debate-badge-pending { background: color-mix(in srgb, var(--info) 15%, transparent); color: var(--info); }
 .debate-badge-consensus { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); }
 .debate-badge-disagree { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
 .debate-round {
@@ -7840,7 +7840,7 @@ a.link-waiting {
   border-bottom: 1px solid var(--border);
   transition: background 0.15s;
 }
-.chat-agent-item:hover { background: var(--bg-hover); }
+.chat-agent-item:hover { background: var(--bg-card-hover); }
 .chat-agent-item.selected { background: color-mix(in srgb, var(--accent) 12%, transparent); border-left: 3px solid var(--accent); }
 .chat-agent-avatar { flex-shrink: 0; }
 .chat-avatar { border-radius: 50%; display: block; object-fit: cover; }
@@ -7854,7 +7854,7 @@ a.link-waiting {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg-main);
+  background: var(--bg);
 }
 .chat-thread-empty {
   flex: 1;
@@ -7923,7 +7923,7 @@ a.link-waiting {
   font-family: monospace;
 }
 .bubble-out .bubble-id-chip { background: rgba(255,255,255,0.25); color: #fff; }
-.bubble-in .bubble-id-chip { background: var(--bg-hover); color: var(--text-muted); }
+.bubble-in .bubble-id-chip { background: var(--bg-card-hover); color: var(--text-muted); }
 .bubble-text { font-size: 13px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .bubble-out .bubble-text { color: #fff; }
 .bubble-time { font-size: 10px; opacity: 0.55; text-align: right; margin-top: 2px; }
@@ -10148,6 +10148,16 @@ body {
   background: var(--bg);
   color: var(--text);
 }
+/* Plain-language reference value for the mason: a whole line to itself under
+   the input, muted (guidance, never an alarm), so "what do I type here, 2 or
+   202?" has an answer on screen and not only in the hover tooltip. */
+.ctx-broker-hint {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
 /* Folded shut by default. The full explanation of all four mechanisms is far
    more text than a card can hold open, and it is reference material -- read
    once when setting things up, never again. */
@@ -10243,29 +10253,58 @@ body {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--muted);
+  color: var(--text-muted);
 }
 
 .upstream-sync-commits {
   margin-top: 6px;
   font-size: 13px;
-  color: var(--fg);
+  color: var(--text);
 }
 
 /* "Mi valtozott az upstreamben?" -- tetelas lista */
 .upstream-changes-btn { margin-top: 10px; font-size: 13px; }
-.upstream-changes-modal { max-width: 860px; }
+/* A lista 112-191 tetel: fix magassag + belso gorgetes KELL. Enelkul a modal
+   11419 px magasra nott (merve), es mivel az overlay fuggolegesen kozepre
+   igazit, a tartalom teteje -5349 px-re kerult: a fejlec, a ket ful es a
+   kereso a kepernyo FOLE csuszott, odagorgetni pedig nem lehet, mert az
+   overlay position:fixed. Igy a fejlec/fulek/kereso a helyukon maradnak, es
+   csak a lista gordul. */
+.upstream-changes-modal {
+  max-width: 860px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.upstream-changes-modal .modal-header { flex: none; }
+.upstream-changes-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+/* A fejlec folotti sorok (bevezeto, fulek, kereso) nem zsugorodhatnak: oszlop
+   iranyu flexben a shrink alapbol 1, es szuk kepernyon a kereso mezot lapitana
+   ossze. */
+.upstream-changes-modal .modal-desc,
+.upstream-changes-modal .upstream-view-tabs,
+.upstream-changes-modal .upstream-changes-filter { flex: none; }
+.upstream-changes-modal #upstreamChangesBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 .upstream-changes-filter {
   width: 100%; margin: 8px 0 14px; padding: 8px 10px;
   border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg); color: var(--fg); font-size: 14px;
+  background: var(--bg); color: var(--text); font-size: 14px;
 }
 .upstream-box { margin-bottom: 22px; }
 .upstream-box h4 {
   margin: 0 0 10px; font-size: 14px; letter-spacing: .02em;
   padding-bottom: 6px; border-bottom: 2px solid var(--border);
 }
-.upstream-box-fix h4 { border-bottom-color: var(--ok, #3fb950); }
+.upstream-box-fix h4 { border-bottom-color: var(--success); }
 .upstream-box-feat h4 { border-bottom-color: var(--accent, #58a6ff); }
 .upstream-change {
   padding: 8px 0 10px;
@@ -10273,14 +10312,57 @@ body {
 }
 .upstream-change:last-child { border-bottom: none; }
 .upstream-change-text { font-size: 14px; line-height: 1.5; }
-.upstream-change-meta { margin-top: 3px; font-size: 12px; color: var(--muted); }
+.upstream-change-meta { margin-top: 3px; font-size: 12px; color: var(--text-muted); }
 .upstream-change-en {
-  margin-top: 2px; font-size: 11px; color: var(--muted);
+  margin-top: 2px; font-size: 11px; color: var(--text-muted);
   opacity: .75; word-break: break-word;
 }
 .upstream-change-conflict {
   display: inline-block; margin-left: 6px; padding: 1px 7px;
   border-radius: 10px; font-size: 11px; font-weight: 600;
-  background: var(--danger-bg, rgba(248,81,73,.15)); color: var(--danger, #f85149);
+  background: var(--danger-soft); color: var(--danger);
 }
-.upstream-changes-empty { color: var(--muted); font-size: 14px; }
+.upstream-changes-empty { color: var(--text-muted); font-size: 14px; }
+
+/* "Frissult a felulet" csik. Felul, az egesz szelessegben: egy nyitva hagyott
+   lapon a REGI kod fut, es ezt semmi mas nem arulja el -- ezert nem elrejtheto
+   sarki buborek, hanem sav, ami elol van. */
+.app-updated-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 400;
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 10px 16px;
+  background: var(--info-soft);
+  border-bottom: 1px solid var(--info);
+  color: var(--text); font-size: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.18);
+}
+.app-updated-bar[hidden] { display: none; }
+.app-updated-bar button { flex-shrink: 0; padding: 5px 14px; font-size: 13px; }
+@media (max-width: 640px) {
+  .app-updated-bar { flex-direction: column; gap: 8px; text-align: center; }
+}
+
+/* Ket nezet ugyanarra az elteresre: valtozas szerint (commit) es fajl szerint. */
+.upstream-view-tabs { display: flex; gap: 6px; margin: 12px 0 4px; }
+.upstream-view-tab {
+  padding: 6px 14px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: transparent; color: var(--text-muted);
+}
+.upstream-view-tab:hover { color: var(--text); }
+.upstream-view-tab.active {
+  background: var(--bg-card-hover);
+  color: var(--text); border-color: var(--accent);
+}
+.upstream-box-conflict h4 { border-bottom-color: var(--danger, #f85149); }
+.upstream-box-clean h4 { border-bottom-color: var(--success); }
+.upstream-file { padding: 8px 0 10px; border-bottom: 1px solid var(--border); }
+.upstream-file:last-child { border-bottom: none; }
+.upstream-file-path {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px; word-break: break-all; color: var(--text);
+}
+.upstream-file-changes { margin: 5px 0 0; padding-left: 18px; }
+.upstream-file-changes li { font-size: 13px; line-height: 1.45; color: var(--text-muted); }
+.upstream-file-more { list-style: none; margin-left: -18px; opacity: .7; font-style: italic; }
+.upstream-file-merge { margin-top: 4px; font-size: 12px; color: var(--text-muted); font-style: italic; }

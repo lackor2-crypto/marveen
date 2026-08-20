@@ -137,6 +137,42 @@ describe('decideGate -- pane guards', () => {
     expect(d.reason).toMatch(/usage-limited/)
   })
 
+  // A rate-limited pane still LOOKS busy, so this is the combination that
+  // actually occurs -- and the one the old check order got wrong. The busy
+  // guard matched first and reported "pane-busy (mid-turn, not safe)", which
+  // read as a wedged session (2026-08-16: usalackor reported as "39 hours
+  // frozen", with a kill/reset proposed against a pane that had saved its turn
+  // and was waiting for its window). The old test only ever paired the limit
+  // flag with an IDLE pane, which is why it passed throughout.
+  it('reports the quota wall, not mid-turn, when a limited pane also reads busy', () => {
+    const d = decide({ paneUsageLimited: true, paneState: 'busy' })
+    expect(d.action).toBe('block')
+    expect(d.reason).toMatch(/usage-limited/)
+    expect(d.reason).not.toMatch(/mid-turn/)
+  })
+
+  // A quota wall lasts until the window rolls over -- longer than the alert
+  // threshold by design. Escalating it is a false alarm about a session that is
+  // behaving correctly, so it stays a plain block however long it persists.
+  it('never escalates a quota wall to block-alert, however long it lasts', () => {
+    const longAgo = NOW - DEFAULT_PERSISTENT_BLOCK_ALERT_MS * 20
+    const d = decide({ paneUsageLimited: true, paneState: 'busy' }, longAgo)
+    expect(d.action).toBe('block')
+  })
+
+  it('names the reset moment in the reason when the banner carries one', () => {
+    const d = decide({ paneUsageLimited: true, paneState: 'busy', paneLimitResetText: 'Aug 20, 8pm' })
+    expect(d.reason).toContain('Aug 20, 8pm')
+  })
+
+  // Regression guard for the fix itself: the reorder must not swallow ordinary
+  // mid-turn blocking, which is a real and necessary block.
+  it('still blocks a genuinely busy pane as mid-turn when no limit is showing', () => {
+    const d = decide({ paneState: 'busy', paneUsageLimited: false })
+    expect(d.action).toBe('block')
+    expect(d.reason).toMatch(/mid-turn/)
+  })
+
   it('blocks when pane state is unknown', () => {
     const d = decide({ paneState: 'unknown' })
     expect(d.action).toBe('block')
