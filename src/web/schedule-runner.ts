@@ -32,6 +32,7 @@ import { cronPrevOccurrence, effectiveCronTz } from './cron.js'
 import {
   listScheduledTasks,
   SCHEDULED_TASKS_DIR,
+  claimScheduleOwnership,
   type ScheduledTask,
 } from './scheduled-tasks-io.js'
 import { listAgentNames, readFileOr, readAgentRemoteHost, agentDir } from './agent-config.js'
@@ -1011,6 +1012,19 @@ export function startScheduleRunner(): NodeJS.Timeout {
   // Reload the persisted last-run times so a restart inside a task's catch-up
   // window does not re-fire an already-run task.
   loadScheduleLastRun()
+
+  // Ket telepites EGY HOME-on ugyanazt az utemezes-keszletet ticzkelne, tehat
+  // minden feladat KETSZER futna le -- eddig teljesen nemakent. A jelzo nem
+  // tilt (athelyezett telepitesnel hamis riasztas lenne), de nevesiti a masik
+  // telepitest, hogy a duplan erkezo briefing ne rejtely legyen.
+  const tulaj = claimScheduleOwnership(PROJECT_ROOT)
+  if (tulaj.previousOwner) {
+    logger.warn(
+      { masikTelepites: tulaj.previousOwner, ezATelepites: PROJECT_ROOT },
+      'schedule-runner: ugyanezt a ~/.claude/scheduled-tasks keszletet mas telepites is hasznalta -- '
+        + 'ha mindketto egyszerre fut (kulon WEB_PORT), MINDEN utemezett feladat KETSZER fut le',
+    )
+  }
 
   // Surface the effective cron timezone at startup. A silent UTC fallback (no
   // SCHEDULER_TZ/TZ in the env) shifts every fixed-time cron off its intended

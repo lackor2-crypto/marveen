@@ -56,7 +56,7 @@ if ! git -C "$BASE" worktree add "$WORKTREE" -d HEAD >/dev/null 2>&1; then
 fi
 ln -s "$BASE/node_modules" "$WORKTREE/node_modules" 2>/dev/null
 
-OUTPUT="$(cd "$WORKTREE" && npx vitest run --reporter=basic 2>&1)"
+OUTPUT="$(cd "$WORKTREE" && npx vitest run --reporter=dot 2>&1)"
 STATUS=$?
 
 HEAD_SHA="$(git -C "$BASE" rev-parse --short HEAD 2>/dev/null)"

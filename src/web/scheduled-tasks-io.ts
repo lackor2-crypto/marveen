@@ -211,3 +211,44 @@ export function writeScheduledTask(
   if (!config.createdAt) config.createdAt = Math.floor(Date.now() / 1000)
   atomicWriteFileSync(configPath, JSON.stringify(config, null, 2))
 }
+
+// --- Tobb telepites, EGY HOME ---------------------------------------------
+// A SCHEDULED_TASKS_DIR szandekosan HOME-globalis: az egesz ~/.claude reteg
+// (agents, channels, settings.json) az, mert az a Claude Code sajat konfigja.
+// Ennek viszont van egy nem nyilvanvalo kovetkezmenye: ha valaki ugyanazon a
+// felhasznalon KET Marveen-telepitest futtat (kulon WEB_PORT-tal, kulonben a
+// port-atvetel amugy is kiloni a masikat), akkor UGYANAZT az utemezes-keszletet
+// ket scheduler ticzkeli -- minden feladat ketszer fut le. Ez ma teljesen
+// nemakent tortenne. Ezert a konyvtar megjelol egy tulajdonost, es az indulo
+// peldany kiirja, ha mas telepites birtokolta.
+export const SCHEDULE_OWNER_FILE = join(SCHEDULED_TASKS_DIR, '.owner')
+
+export interface ScheduleOwnerResult {
+  /** Az elozo tulajdonos utvonala, ha VAN es MAS es meg letezik a lemezen. */
+  previousOwner: string | null
+  /** Igaz, ha ez a hivas irta be eloszor / vette at a jelzot. */
+  claimed: boolean
+}
+
+// Kivetel-mentes: az utemezo indulasat egy jelzo-fajl SOSE dontheti el.
+export function claimScheduleOwnership(
+  installPath: string,
+  ownerFile: string = SCHEDULE_OWNER_FILE,
+  letezik: (p: string) => boolean = existsSync,
+): ScheduleOwnerResult {
+  let previousOwner: string | null = null
+  try {
+    if (letezik(ownerFile)) {
+      const eddigi = readFileSync(ownerFile, 'utf8').trim()
+      // Csak akkor erdemi figyelmeztetes, ha a masik telepites MEG MEGVAN.
+      // Athelyezett/atnevezett telepitesnel a regi ut eltunik -> nem riasztunk
+      // hamisan (ez a leggyakoribb eset, es nem hiba).
+      if (eddigi && eddigi !== installPath && letezik(eddigi)) previousOwner = eddigi
+    }
+    mkdirSync(SCHEDULED_TASKS_DIR, { recursive: true })
+    atomicWriteFileSync(ownerFile, installPath + '\n')
+    return { previousOwner, claimed: true }
+  } catch {
+    return { previousOwner, claimed: false }
+  }
+}
