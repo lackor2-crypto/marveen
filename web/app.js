@@ -28530,7 +28530,7 @@ async function _storagesRefresh() {
           ? ' <button class="btn-secondary btn-compact" data-stor-act="token" data-kind="git" data-account="'
             + escapeHtml(r.account) + '">' + (r.connected ? '🔑 Kulcs' : '🔑 Kulcs kell') + '</button>'
             + ' <button class="btn-primary btn-compact" data-stor-act="pull" data-kind="git" data-account="'
-            + escapeHtml(r.account) + '">⬇ Repók</button>'
+            + escapeHtml(r.account) + '">⬇ Repók le</button>'
           : '')
         + '</div></td></tr>'
     }).join('')
@@ -28573,10 +28573,7 @@ async function _storagesClick(ev) {
       // A kulcsot a szerver AZONNAL ellenorzi a GitHubnal, es csak akkor
       // menti, ha tenyleg mukodik. Egy elgepelt kulcs csendes eltarolasa a
       // legrosszabb: minden zoldnek latszana, es csak hetek mulva derulne ki.
-      var tok = window.prompt(
-        'Illeszd be a GitHub hozzáférési kulcsot (Personal Access Token) a(z) „' + account + '” fiókhoz.\n\n'
-        + 'Hol készül: github.com → Settings → Developer settings → Personal access tokens.\n'
-        + 'Jogosultság: „repo”. Üresen hagyva törlöm a meglévő kulcsot.', '')
+      var tok = await _storagesAskToken(account)
       if (tok === null) return
       _storagesSay('Ellenőrzöm a kulcsot a GitHubnál…')
       var tr = await _depoPost('/api/storages/git-token',
@@ -28600,6 +28597,58 @@ async function _storagesClick(ev) {
  * masik gepen, ne varjon orakat. Ugyanaz a kod fut, ugyanazokkal a
  * ovintezkedesekkel -- nincs kulon "kezi" ut, amit kulon kellene hibazni.
  */
+/**
+ * A kulcs bekerese sajat ablakban.
+ *
+ * Miert nem `prompt`: abba nem lehet linket tenni, es a "menj a Settings ala,
+ * onnan Developer settings, onnan..." utvonalat a felhasznalo minden
+ * alkalommal ujra kikeresi. Itt egy kattintas, es pontosan a keszito lapon
+ * van, `repo` jogosultsaggal elore bejelolve.
+ *
+ * A mezo `type=password`: a kulcs valaki mas kepernyojen vagy egy
+ * kepernyokepen ne maradjon ott olvashatoan.
+ *
+ * @returns a beirt kulcs, '' ha torolni kell, vagy null ha megse.
+ */
+function _storagesAskToken(account) {
+  return new Promise(function (resolve) {
+    // A lap KET `.modal-overlay` szabalyt hordoz; a korabbi csak `.active`
+    // mellett mutatja meg az ablakot. Ezert kell ide is az `active`.
+    var ov = document.createElement('div')
+    ov.className = 'modal-overlay active'
+    var url = 'https://github.com/settings/tokens/new?scopes=repo&description=Marveen+-+'
+      + encodeURIComponent(account)
+    ov.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
+      + '<h3 style="margin:0 0 10px">🔑 Hozzáférési kulcs — ' + escapeHtml(account) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 10px">A GitHub „Personal Access Token”-je. '
+      + 'A gomb pontosan a készítő oldalra visz, a <code>repo</code> jogosultság előre bejelölve — '
+      + 'ott csak a <b>Generate token</b> gombot kell megnyomnod, aztán a kapott kulcsot ide beilleszteni.</p>'
+      + '<p style="margin:0 0 12px"><a class="btn-primary" href="' + url + '" target="_blank" rel="noopener noreferrer" '
+      + 'style="display:inline-block;text-decoration:none">🔗 Kulcs készítése a GitHubon →</a></p>'
+      + '<input type="password" id="storTokInput" placeholder="ghp_… vagy github_pat_…" autocomplete="off" '
+      + 'style="width:100%;box-sizing:border-box;padding:8px;font-family:monospace">'
+      + '<p style="margin:8px 0 0;font-size:12px;opacity:.75">A kulcs a Marveen zárt tárolójában marad: '
+      + 'nem kerül az életfába, nem kerül a repó beállításai közé, és a felület sem kapja vissza. '
+      + 'Üresen hagyva és mentve a meglévő kulcsot törlöm.</p>'
+      + '<div style="margin-top:14px;text-align:right">'
+      + '<button class="btn-secondary" id="storTokCancel">Mégse</button> '
+      + '<button class="btn-primary" id="storTokOk">Mentés</button></div></div>'
+    document.body.appendChild(ov)
+    var inp = ov.querySelector('#storTokInput')
+    if (inp) inp.focus()
+    function close(val) { ov.remove(); resolve(val) }
+    ov.querySelector('#storTokCancel').onclick = function () { close(null) }
+    ov.querySelector('#storTokOk').onclick = function () { close(inp ? inp.value : '') }
+    // A hattterre kattintas = megse. Elgepelt kulcs mentese rosszabb, mint
+    // egy elvesztett gepeles, ezert a "veletlen" kimenet a megse.
+    ov.onclick = function (e) { if (e.target === ov) close(null) }
+    ov.onkeydown = function (e) {
+      if (e.key === 'Escape') close(null)
+      if (e.key === 'Enter' && e.target === inp) close(inp.value)
+    }
+  })
+}
+
 async function _storagesGitSync() {
   var el = document.getElementById('storagesGitSyncState')
   if (el) el.textContent = 'Szinkronizálás… nagy repóknál ez percekig tarthat.'
