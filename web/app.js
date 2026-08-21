@@ -20633,6 +20633,10 @@ function wizardClaudeLoginHtml() {
           <button class="btn-secondary" id="wizClaudeCancelBtn">${escapeHtml(t('wizclaude.cancel'))}</button>
         </div>
       </div>
+      <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);line-height:1.5">
+        ${escapeHtml(t('wizclaude.no_account'))}
+        <a href="https://claude.ai/login" target="_blank" rel="noopener noreferrer" style="margin-left:4px">${escapeHtml(t('wizclaude.no_account_link'))} &#8599;</a>
+      </div>
     </div>`
 }
 
@@ -20716,9 +20720,15 @@ async function _wizClaudeTick(initial) {
     // ez a lepes pont akkor kell, amikor a valasz "senki".
     const me = (s.accounts || []).find(a => a.isDefault)
     const who = me && me.identity && me.identity.loggedIn ? (me.identity.email || '') : ''
+    // A szamokat a szerver szamolja ki, nem ez az oldal talalja ki: Boss,
+    // 2026-08-21, a regi mondatrol ("emiatt egyik ugynok sem tud dolgozni") --
+    // "ez hamis allitas. mert most is tudok veled dolgozni! csak a marvin nem
+    // dolgozik de attol mag a tobiek tudnak!"
+    const n = Number(s.dependents ?? 0)
+    const others = Number(s.unaffected ?? 0)
     _wizClaudeSet('wizClaudeState', who
-      ? `<span style="color:#22c55e">${escapeHtml(t('wizclaude.current_ok', { who }))}</span>`
-      : `<span style="color:var(--danger)">${escapeHtml(t('wizclaude.current_none'))}</span>`)
+      ? `<span style="color:#22c55e">${escapeHtml(t('wizclaude.current_ok', { who, n, others }))}</span>`
+      : `<span style="color:var(--danger)">${escapeHtml(t('wizclaude.current_none', { n, others }))}</span>`)
     return
   }
 
@@ -20779,7 +20789,17 @@ function renderWizardStep(host) {
 
   const item = todo[_wizardStepIdx]
   const steps = (item.stepKeys || []).map(k => `<li style="margin-bottom:6px">${escapeHtml(t(k))}</li>`).join('')
-  const links = (item.links || []).map(l =>
+  // Boss, 2026-08-21: "ha raklikkelek azonnal a regisztracios oldalra akarna
+  // menni [...] de ez a gomb ne jelenjemn meg itt akor ha meg loginolni kell!
+  // arra a folyamatra vigyen ahol az auth folyamat van [...] mert itt nem
+  // fogja erteni a user mit kell csinalnia."
+  //
+  // Igaza van: egy lepes tetejen allo, gombnak latszo kulso link UGY nez ki,
+  // mintha AZ lenne a teendo -- kozben a regisztraciora visz, ami a legtobb
+  // esetben mar megvan. Ahol van helyben futo folyamat, ott a folyamat a
+  // teendo; a regisztracios link lejjebb kerul, kismeretben, es kiirja
+  // magarol, hogy a gepet NEM jelentkezteti be.
+  const links = item.flowId ? '' : (item.links || []).map(l =>
     `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-compact" style="margin-right:8px;display:inline-block;margin-top:6px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
 
   // Egy lepes, amit a felulten VEGIG lehet csinalni, ne kuldjon senkit
@@ -20875,8 +20895,12 @@ function wizardRowHtml(item) {
   const fg = (!item.configured && item.tier === 'extra') ? 'var(--bg)' : '#fff'
   const badge = `<span class="agent-account-badge" style="background:${color};color:${fg}">${escapeHtml(label)}</span>`
 
-  const links = (item.links || []).map(l =>
-    `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;margin-right:10px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
+  // Ugyanaz az elv a listaban is: ahol van helyben futo folyamat, oda vigyen a
+  // link, ne a regisztraciora.
+  const links = item.flowId === 'claude-login'
+    ? `<a href="#" onclick="openClaudeLoginStep();return false" style="font-size:12px;margin-right:10px">${escapeHtml(t('wizrow.claude_login'))} &#8594;</a>`
+    : (item.links || []).map(l =>
+      `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;margin-right:10px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
 
   return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:8px">

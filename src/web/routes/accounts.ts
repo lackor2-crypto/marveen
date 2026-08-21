@@ -13,6 +13,7 @@ import { getSecret } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
 import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity } from '../claude-auth-runner.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
+import { defaultLoginDependents, unaffectedByDefaultLogin } from '../default-login-dependents.js'
 import type { RouteContext } from './types.js'
 
 // GitHub already supports multiple accounts under the hood (.github-tokens.json
@@ -66,7 +67,15 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   // dashboard log is not the place for either.
 
   if (path === '/api/accounts/claude' && method === 'GET') {
-    json(res, loginStatus())
+    // Kik allnak meg valojaban a gep sajat bejelentkezese nelkul, es kik nem.
+    // A felulet ebbol irja a mondatot, tehat nem tud elavulni attol, hogy
+    // valaki uj fiokot kot be vagy modellt valt (Boss, 2026-08-21: "ez hamis
+    // allitas. mert most is tudok veled dolgozni!").
+    json(res, {
+      ...loginStatus(),
+      dependents: defaultLoginDependents().length,
+      unaffected: unaffectedByDefaultLogin().length,
+    })
     return true
   }
 

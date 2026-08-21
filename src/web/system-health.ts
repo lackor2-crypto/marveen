@@ -54,6 +54,7 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
 import { claudeAuthState } from './claude-auth-presence.js'
+import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
@@ -321,11 +322,25 @@ export function upstreamRows(
  */
 function claudeAuthRow(): HealthRow {
   const st = claudeAuthState()
-  if (st.present) return { id: 'claude_auth_ok', status: 'ok' }
+  const dependents = defaultLoginDependents().length
+  const others = unaffectedByDefaultLogin().length
+  const params = { n: dependents, others }
+  if (st.present) return { id: 'claude_auth_ok', status: 'ok', params }
   // Ket kulon szoveg, mert ket kulon teendo: az "emptied" agon a bejelentkezes
   // MEGVOLT es elveszett (ilyenkor a /login ujra megoldja), a "none" agon meg
   // sose volt (ilyenkor a vegigvezeto valo).
-  return { id: st.source === 'emptied' ? 'claude_auth_lost' : 'claude_auth_missing', status: 'bad' }
+  //
+  // A SULY a MERT hatasbol jon, nem feltetelezesbol. Boss, 2026-08-21, a
+  // korabbi szovegrol ("emiatt egyik ugynok sem tud dolgozni"): "ez hamis
+  // allitas. mert most is tudok veled dolgozni!" -- igaza volt: sajat fiokos
+  // es nem-Claude agensek ettol fuggetlenul mennek. Ha EGY agens sem fugg az
+  // alapertelmezett bejelentkezestol, ez nem uzemszunet, csak hianyzo
+  // beallitas -- pirosat arra kolteni ugyanaz a hiba, forditva.
+  return {
+    id: st.source === 'emptied' ? 'claude_auth_lost' : 'claude_auth_missing',
+    status: dependents > 0 ? 'bad' : 'warn',
+    params,
+  }
 }
 
 export function systemHealth(now: number = Date.now()): HealthRow[] {

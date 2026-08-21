@@ -20,6 +20,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { claudeAuthState } from '../web/claude-auth-presence.js'
 import { systemHealth, worstHealthStatus } from '../web/system-health.js'
+import {
+  dependsOnDefaultLogin, defaultLoginDependents, unaffectedByDefaultLogin,
+} from '../web/default-login-dependents.js'
 
 let dir: string
 let paths: { envFile: string; credentialsFile: string; fleetTokenFile: string }
@@ -102,5 +105,43 @@ describe('az Onellenorzes sora', () => {
         expect(src, `${name}: health.${id}_action`).toContain(`'health.${id}_action':`)
       }
     }
+  })
+})
+
+/**
+ * "Emiatt egyik ügynök sem tud dolgozni" -- hamis volt, és a felület mondta ki.
+ *
+ * Boss, 2026-08-21: "ez hamis allitas. mert most is tudok veled dolgozni! csak
+ * a marvin nem dolgozik de attol mag a tobiek tudnak!" Igaza volt: ezen a
+ * telepítésen 1 ágens függ a gép saját bejelentkezésétől és 14 nem.
+ *
+ * A magabiztos, hamis mondat a legrosszabb fajta hiba: pont úgy néz ki, mint a
+ * helyes válasz. Ezért a szöveg mostantól SZÁMOL, nem állít -- ez a teszt a
+ * számolás szabályát rögzíti.
+ */
+describe('ki függ a gép saját bejelentkezésétől', () => {
+  it('a saját fiókos ágens NEM függ tőle -- ő dolgozik tovább', () => {
+    expect(dependsOnDefaultLogin('/store/accounts/usalackor', 'shared', 'claude-opus-5')).toBe(false)
+  })
+
+  it('a nem-Claude modellt futtató ágens NEM függ tőle', () => {
+    expect(dependsOnDefaultLogin(null, 'shared', 'google/gemma-4-31b-it:free')).toBe(false)
+    expect(dependsOnDefaultLogin(null, 'shared', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free')).toBe(false)
+    expect(dependsOnDefaultLogin(null, 'shared', 'qwen3.6:27b')).toBe(false)
+  })
+
+  it('a saját API-kulccsal futó ágens NEM függ tőle', () => {
+    expect(dependsOnDefaultLogin(null, 'api', 'claude-opus-5')).toBe(false)
+  })
+
+  it('a megosztott bejelentkezésen futó Claude-ágens IGEN', () => {
+    expect(dependsOnDefaultLogin(null, 'shared', 'claude-sonnet-5')).toBe(true)
+  })
+
+  it('az érintettek és a nem érintettek együtt adják ki az egészet, átfedés nélkül', () => {
+    const dep = defaultLoginDependents()
+    const un = unaffectedByDefaultLogin()
+    expect(dep.filter(n => un.includes(n))).toEqual([])
+    expect(new Set([...dep, ...un]).size).toBe(dep.length + un.length)
   })
 })
