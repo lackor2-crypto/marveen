@@ -216,11 +216,13 @@ describe('listLife', () => {
   // ugyanezt teszi, kulonben nem azt merne, ami valojaban tortenik.
   beforeEach(() => { saveLifeConfig(cfg); ensureLifeTree(cfg, 'hu') })
 
-  it('a gyokerben a GAZDA all elol, a Rendszer leghatul', () => {
-    // Ide jar a felhasznalo nap mint nap; a `Rendszer`-hez soha nem kell
-    // hozzanyulnia. A sorrend ezt tukrozze, ne a betűrend.
+  it('a gyokerben a BEERKEZO all elol, utana a gazda, a Rendszer leghatul', () => {
+    // A Beerkezo a bejarat: azon keresztul kerul minden a helyere, ezert az
+    // elso lepes helye a lista teteje. Utana a gazda, akihez nap mint nap jar;
+    // a `Rendszer`-hez soha nem kell hozzanyulnia, az marad leghatul.
     const l = listLife('', { deep: false })
-    expect(l.folders[0]?.name).toBe('Teszt Elek')
+    expect(l.folders[0]?.name).toBe('Beérkező')
+    expect(l.folders[1]?.name).toBe('Teszt Elek')
     expect(l.folders[l.folders.length - 1]?.name).toBe('Rendszer')
   })
   it('minden tetel kap forrasjelvenyt', () => {

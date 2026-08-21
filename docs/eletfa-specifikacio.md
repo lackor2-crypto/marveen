@@ -812,3 +812,41 @@ nincs mivel. Amig kolcsonkulcson allunk, a kulcs a kolcsonzo jogait hozza.
 repok ezert `Freeberischeaper` alatt allnak akkor is, ha `usalackor-blip`
 kulcsaval jottek le — az `usalackor` ala tenni oket hazugsag lenne arrol, kie a
 kod, es a nev ugysem vedene semmit. A vedelmet a zar adja, nem a mappa neve.
+
+
+## MAPPA-SÚGÓK ÉS A FRISS TELEPÍTÉS ALAPSTRUKTÚRÁJA — 2026-08-21
+
+**Miért.** Boss: *„en nem tudom mit szoktak tenni a digitalis, identitas,
+otthon, szemelyes, stb ala.. csalad? szoval minden mappahoz irj zarojelbe vagy
+5 dolgot"*, majd *„ha valaki letolti a marveen omat, akkor legyen neki egy alap
+konytarstruktura. kitalt nevekkel!"* — egy üres, magyarázat nélküli fa nem
+mondja meg, mire való.
+
+**A súgók.** Egyetlen forrás: `src/life-hints.ts`. A kulcs a **gépi** név, nem a
+magyar mappanév, így egy angol telepítésen ugyanaz a súgó tartozik ugyanahhoz a
+helyhez. A súgó **soha nem kerül a mappa NEVÉBE** — az átnevezés eltörne minden
+utat, bekötést és rögzített hivatkozást; a zárójeles rész csak a képernyőn
+létezik. A megfogalmazás szabálya: konkrét, felismerhető példák
+(„lakcímkártya", „közüzemi számla"), nem kategórianevek.
+
+Globálisan jelenik meg: a fa-lista (`/api/life/list` → `entry.hint`), a
+mappaválasztó gombok, és a `/api/life/hints` végpont mind ugyanabból a táblából
+dolgozik.
+
+**A Beérkező.** A gyökér legelső eleme, saját színnel és 📥 ikonnal. Ez a
+bejárat: ezen keresztül kerül minden a helyére. A gazda közvetlenül utána áll,
+a `Rendszer` marad leghátul.
+
+**Friss telepítés.** `defaultLifeConfig()` a tulajdonos MELLETT ad egy példa
+személyt (`Példa Panna`) és egy példa céget (`Példa Kft`). A nevek szándékosan
+felismerhetően kitaláltak: egy valódinak látszó minta-név évekig ott maradna,
+mert senki nem meri kitörölni. A súgójuk kimondja az átnevezést ÉS a törlést is
+— egy példa, amit nem lehet egyszerűen eltüntetni, tehertétel.
+
+**Változatlan tilalom.** Jelszó, API-kulcs és token továbbra sem kerül a fába
+(§21, §23) — a `Digitális` és a `Digitális szolgáltatások` súgója ezt ki is
+írja ott, ahol a kísértés lenne rá.
+
+**Tesztek:** `src/__tests__/life-fresh-install.test.ts` — a példa-ágak
+megléte, a nevek felismerhetősége, a súgó-tábla teljessége (minden kulcs
+visszatalál egy létező fa-mappára), és a jelszó-tilalom szövege.

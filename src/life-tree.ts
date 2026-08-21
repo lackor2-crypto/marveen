@@ -113,6 +113,21 @@ export function lifeName(key: string, lang: string = APP_LANG): string {
   return lang === 'hu' ? row.hu : row.en
 }
 
+/**
+ * Egy LEMEZEN LEVO mappanevbol a gepi kulcs, vagy ures.
+ *
+ * Mindket nyelvet nezi: egy magyar telepitesen keszult fat egy angolra allitott
+ * gepen is fel kell ismerni, kulonben a sugo eltunne a mappak mellol.
+ */
+export function lifeKeyForName(name: string): string {
+  const n = String(name || '').trim()
+  if (!n) return ''
+  for (const [key, row] of Object.entries(NAMES)) {
+    if (row.hu === n || row.en === n) return key
+  }
+  return ''
+}
+
 /** Minden gepi nev, amit a fa hasznal -- a felulet ebbol keszit cimkeket. */
 export function lifeNameKeys(): string[] {
   return Object.keys(NAMES)
@@ -308,11 +323,31 @@ export function makeCompany(name: string, id?: string): LifeCompany {
   }
 }
 
-/** Az alapertelmezett beallitas: EGY szemely, a telepites tulajdonosa. */
+/**
+ * Nevek, amik egy FRISS telepitesen peldaként allnak a faban.
+ *
+ * Szandekosan felismerhetoen kitalaltak. Egy „Kovács Béla" nevu minta-szemely
+ * ott maradna evekig, mert eleg valodinak latszik ahhoz, hogy senki ne merje
+ * kitorolni; a „Példa" elotag viszont maga mondja meg, hogy mi ez.
+ */
+export const SAMPLE_PERSON = 'Példa Panna'
+export const SAMPLE_COMPANY = 'Példa Kft'
+
+/**
+ * Az alapertelmezett beallitas: a telepites tulajdonosa, plusz EGY pelda
+ * csaladtag es EGY pelda ceg.
+ *
+ * Boss: „ha valaki letolti a marveen omat, akkor legyen neki egy alap
+ * konytarstruktura. kitalalt nevekkel!" Egy ures ag nem magyaraz semmit; aki
+ * eloszor nyitja meg, abbol tanul, amit lat.
+ */
 export function defaultLifeConfig(): LifeConfig {
   return {
-    persons: [makePerson(safeLifeName(currentOwnerName()), 'owner', 'owner')],
-    companies: [],
+    persons: [
+      makePerson(safeLifeName(currentOwnerName()), 'owner', 'owner'),
+      makePerson(SAMPLE_PERSON, 'person', 'sample-person'),
+    ],
+    companies: [makeCompany(SAMPLE_COMPANY, 'sample-company')],
   }
 }
 

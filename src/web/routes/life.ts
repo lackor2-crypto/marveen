@@ -32,6 +32,7 @@ import {
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
+import { lifeHints } from '../../life-hints.js'
 import {
   lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly, setReadOnlyException,
 } from '../../git-accounts.js'
@@ -225,6 +226,17 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   // 2. SZINT: a repo-mappa torleset NEM tiltjuk -- megmerjuk. Egy klon
   // eldobhato; a veszely a benne levo, fel nem toltott munka.
   // 3. SZINT: ha bekotes mutat ra, azt ajanljuk ELSOKENT -- semmit nem torol.
+  // Mit szoktak az egyes mappakba tenni -- MAPPANEV szerint, hogy a felulet
+  // barhol (lista, oldalsav, valaszto) ugyanabbol az egy forrasbol dolgozzon.
+  if (path === '/api/life/hints' && method === 'GET') {
+    const out: Record<string, string> = {}
+    for (const [key, szoveg] of Object.entries(lifeHints())) {
+      out[lifeName(key, APP_LANG)] = szoveg
+    }
+    send(res, 200, { hints: out })
+    return true
+  }
+
   if (path === '/api/life/repo-status' && method === 'GET') {
     const rel = url.searchParams.get('path') || ''
     const status = await repoStatus(rel)

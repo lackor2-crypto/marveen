@@ -29051,6 +29051,7 @@ async function _intezoOpen(rel) {
   const search = document.getElementById('intezoSearch')
   if (search) search.value = ''
   try {
+    await _faSugokBetolt()
     _intezoListing = await _intezoGet('/api/life/list?path=' + encodeURIComponent(_intezoPath))
   } catch (e) {
     _intezoListing = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : 'Nem sikerült megnyitni a mappát.' }
@@ -29146,6 +29147,36 @@ function _intezoPlaceInfoCard() {
   card.hidden = false
 }
 
+/**
+ * MAPPA-SUGOK mappanev szerint, a szerverrol.
+ *
+ * Egyetlen forras: a bongeszo nem tarol sajat masolatot a szovegekbol. Ket
+ * helyen allo ugyanaz a szoveg elobb-utobb ketfele megy, es az a valtozat
+ * marad fenn, amelyiket epp nezik.
+ */
+let _faSugok = null
+async function _faSugokBetolt() {
+  if (_faSugok) return _faSugok
+  try {
+    const r = await _intezoGet('/api/life/hints')
+    _faSugok = (r && r.hints) ? r.hints : {}
+  } catch (e) { _faSugok = {} }
+  return _faSugok
+}
+
+/** Egy mappa sugoja: eloszor amit a lista hozott, aztan a globalis tabla. */
+function _faSugo(entry) {
+  if (entry && entry.hint) return entry.hint
+  const nev = (entry && entry.name) ? entry.name : String(entry || '')
+  return (_faSugok && _faSugok[nev]) ? _faSugok[nev] : ''
+}
+
+/** A BEERKEZO-e ez a mappa. A nevet a szerver adja, nyelvfuggo. */
+function _faBeerkezo(entry) {
+  const nev = (entry && entry.name) ? entry.name : String(entry || '')
+  return nev === 'Beérkező' || nev === 'Inbox'
+}
+
 function _intezoRender() {
   // A panelt MINDIG le kell valasztani, mielott a lista ujraepul.
   _intezoDetachInfoCard()
@@ -29177,7 +29208,11 @@ function _intezoRender() {
   list.innerHTML = '<table style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
     + rows.map((e) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
-      + (_intezoSelected && _intezoSelected.rel === e.rel ? ' style="background:rgba(127,127,127,.15)"' : '')
+      + (_intezoSelected && _intezoSelected.rel === e.rel
+          ? ' style="background:rgba(127,127,127,.15)"'
+          // A BEERKEZO sajat hattere: ez a munka kezdopontja, ne kelljen
+          // keresni a listaban.
+          : (_faBeerkezo(e) ? ' style="background:rgba(255,179,0,.14)"' : ''))
       + '>'
       + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
       + '<td style="padding:2px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '"'
@@ -29186,7 +29221,11 @@ function _intezoRender() {
       // mappa. jobb nem piszkalni".
       + (e.caution ? ' style="color:var(--danger,#d33)" title="' + escapeHtml(e.caution) + '"' : '')
       + '>'
-      + (e.isDir ? (e.caution ? '📛 ' : '📁 ') : '') + escapeHtml(e.name) + '</a>'
+      + (e.isDir ? (e.caution ? '📛 ' : (_faBeerkezo(e) ? '📥 ' : '📁 ')) : '') + escapeHtml(e.name) + '</a>'
+      // A magyarazat: halvanyabb es kisebb, hogy a NEV maradjon a fo informacio.
+      // Aki mar tudja, hova tesz, annak ne alljon utban; aki nem tudja, annak
+      // ott legyen ugyanabban a sorban.
+      + (_faSugo(e) ? ' <span style="opacity:.6;font-size:12px">(' + escapeHtml(_faSugo(e)) + ')</span>' : '')
       + (e.caution ? ' <span style="color:var(--danger,#d33);font-size:12px" title="'
           + escapeHtml(e.caution) + '">⚠ jobb nem piszkálni</span>' : '')
       + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '')
@@ -29309,7 +29348,9 @@ function _intezoOpenFolderPicker(mode) {
       b.style.cssText = 'display:block;width:100%;text-align:left;margin:2px 0'
       // A git-repok itt is jelolve vannak: aki ide tallozik, lassa elore,
       // hogy oda nem fog tudni bepakolni.
-      b.textContent = (f.caution ? '📛 ' : '📁 ') + f.name + (f.caution ? '  (git — ide nem)' : '')
+      const sugo = _faSugo(f)
+      b.textContent = (f.caution ? '📛 ' : (_faBeerkezo(f) ? '📥 ' : '📁 ')) + f.name
+        + (f.caution ? '  (git — ide nem)' : (sugo ? '  (' + sugo + ')' : ''))
       if (f.caution) b.title = f.caution
       b.addEventListener('click', () => { here = f.rel; draw() })
       list.appendChild(b)

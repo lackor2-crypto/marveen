@@ -27,9 +27,13 @@ import { depotRoot, DEPOT_PROJECTS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
 import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
-import { lifeName, loadLifeConfig, safeLifeName, type LifeConfig } from './life-tree.js'
+import {
+  lifeName, lifeKeyForName, loadLifeConfig, safeLifeName,
+  SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
+} from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
 import { logger } from './logger.js'
+import { lifeHint, PERSON_HINT, COMPANY_HINT, SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT } from './life-hints.js'
 
 /**
  * Az Intezo gyokere: maga a DEPO, nem az eletfa.
@@ -84,6 +88,14 @@ export interface LifeEntry {
   /** Modositas ideje ISO-ban, vagy ures, ha nem tudtuk megallapitani. */
   mtime: string
   source: { kind: string; label: string; short: string; icon: string }
+  /**
+   * Egy mondatnyi sugo: mit szoktak ebbe a mappaba tenni.
+   *
+   * Csak a kepernyore valo -- a mappa NEVE a lemezen valtozatlan marad.
+   * Atnevezessel eltorne minden ut, bekotes es hivatkozas; egy magyarazo
+   * szoveg sosem er annyit, hogy adatot kockaztasson erte.
+   */
+  hint?: string
   /** Van-e a fajlnak papir parja. A lista is mutatja, nem csak a panel. */
   physical: boolean
   /**
@@ -335,13 +347,38 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
     else folders.push(e)
   }
 
+  // A beallitott szemelynevek: a sugohoz kell, meg a rendezes elott.
+  const cfgPersons = loadLifeConfig().persons.map((p) => safeLifeName(p.name))
+
+  // A SUGO rakotese. A mappa neve alapjan keressuk vissza a gepi kulcsot, igy
+  // a szemely alatti `Otthon` es a ceg alatti `Fejlesztes` is megkapja a
+  // magyarazatat, barhol is all a faban.
+  for (const f of folders) {
+    const h = lifeHint(lifeKeyForName(f.name))
+    if (h) { f.hint = h; continue }
+    // A szemely- es cegmappak neve nem fix, ezert a tabla nem talalja oket.
+    // A helyuk viszont elarulja, mik: a gyokerben szemely, a Cegek alatt ceg.
+    if (f.name === SAMPLE_PERSON) f.hint = SAMPLE_PERSON_HINT
+    else if (f.name === SAMPLE_COMPANY) f.hint = SAMPLE_COMPANY_HINT
+    else if (!base.rel && cfgPersons.includes(f.name)) f.hint = PERSON_HINT
+    else if (base.rel === lifeName('companies', APP_LANG)) f.hint = COMPANY_HINT
+  }
+
   // A gyokerben sajat sorrend: ami emberi, az elol (ELET), ami gepi, hatul
   // (rendszer). Mindenutt maskor betűrend, magyar szabaly szerint.
   if (!base.rel) {
     const order = topOrder(APP_LANG)
     // A szemelyek elore, a beallitas sorrendjeben -- a gazda a legelso.
     const persons = loadLifeConfig().persons.map((p) => safeLifeName(p.name))
+    // A BEERKEZO a LEGELSO -- meg a gazda ele is.
+    //
+    // Boss: „A beerkezo mappat azt tedd legelore! legfelulre. […] mert azon
+    // keresztul fogjuk most a helyukre tenni a dokumentumokat. az az elso
+    // lepes." Ha a munkafolyamat elso lepese lejjebb all a listaban, mint a
+    // vegeredmeny, akkor a lista a sajat hasznalata ellen dolgozik.
+    const inbox = lifeName('inbox', APP_LANG)
     const rank = (n: string) => {
+      if (n === inbox) return -1
       const pi = persons.indexOf(n)
       if (pi >= 0) return pi
       const i = order.indexOf(n)
