@@ -41,7 +41,7 @@ import { storageKindRoot } from '../../storages.js'
 import { join as pathJoin } from 'node:path'
 import { APP_LANG } from '../../config.js'
 import {
-  listLife, lifeInfo, moveLife, mkdirLife, searchLife, explorerRoot,
+  listLife, lifeInfo, moveLife, mkdirLife, renameLife, trashLife, searchLife, explorerRoot,
 } from '../../life-explorer.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount } from '../../life-mounts.js'
@@ -220,6 +220,62 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''))
     send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  if (path === '/api/life/rename' && method === 'POST') {
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    const blocked = writeBlockReason(rel)
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
+    // Egy BEKOTOTT mappa atnevezese elszakitana a bekotestol: a bekotes az
+    // UTVONALRA szol, az uj neven mar nem talalna meg. Inkabb megmondjuk.
+    if (listMounts().some((m) => m.rel === rel)) {
+      send(res, 400, {
+        ok: false, rel: '', code: 'mounted',
+        message: 'Ez a mappa be van kötve máshova. Előbb szüntesd meg a bekötést, nevezd át, aztán kösd be újra — '
+          + 'a bekötés az útvonalra szól, új néven nem találna rá.',
+      })
+      return true
+    }
+    send(res, 200, renameLife(rel, String(body?.name ?? '')))
+    return true
+  }
+
+  if (path === '/api/life/trash' && method === 'POST') {
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    const blocked = writeBlockReason(rel)
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
+    // BEKOTES: itt semmilyen sajat tartalom nincs, csak egy mutato. Kukazni
+    // ertelmetlen (a fajlok maradnak, ahol vannak), es meg is teveszto lenne
+    // -- „toroltem, megis ott van".
+    if (listMounts().some((m) => m.rel === rel)) {
+      send(res, 400, {
+        ok: false, rel: '', code: 'mounted',
+        message: 'Ez a mappa csak MUTAT egy másik helyre, saját tartalma nincs. Ha nem kell itt, '
+          + 'a „Mit mutasson ez a mappa?" résznél szüntesd meg a bekötést — a fájlok a helyükön maradnak.',
+      })
+      return true
+    }
+    // GIT-REPO: a klon eldobhato, a benne levo, fel nem toltott munka nem. Erre
+    // van sajat, MERO vegpont -- oda kuldjuk, nem kukazunk vaktaban.
+    const at = repoAt(rel)
+    if (at && at.isRoot) {
+      send(res, 400, {
+        ok: false, rel: '', code: 'repo',
+        message: 'Ez egy git-repó. A törléséhez a repó saját gombját használd — az előbb megnézi, '
+          + 'van-e benne fel nem töltött munka.',
+      })
+      return true
+    }
+    send(res, 200, trashLife(rel))
     return true
   }
 

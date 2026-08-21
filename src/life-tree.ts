@@ -103,6 +103,7 @@ const NAMES: NameTable = {
   // RENDSZER alatti bontas (a specifikacio 4. pontja)
   marvin:      { hu: 'Marvin',      en: 'Marvin' },
   storages:    { hu: 'Tárolók',     en: 'Storages' },
+  trash:       { hu: 'Kuka',        en: 'Trash' },
   git:         { hu: 'Git',         en: 'Git' },
 }
 

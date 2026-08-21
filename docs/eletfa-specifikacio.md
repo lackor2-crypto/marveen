@@ -873,3 +873,53 @@ tartja külön, aminek külön a helye.
 A teljes tervezett fát végigszámoltuk: pontosan **3** ilyen hely van (a Marvin
 és a Freeberischeaper fejlesztési ága). Önmagát ismétlő, vagy a szülőjével
 azonos nevű mappa **nincs**.
+
+
+## AZ INTÉZŐ KEZELÉSE: JOBB EGÉRGOMB, KUKA, ÚTMUTATÓ — 2026-08-22
+
+Boss visszajelzése: *„bassza meg hogy jojjon erre ra az ember a komuvesunk hogy
+ra kell nyomnia az info gombra? … kimaradt a torles! … nem is ertem hogy miert
+nem lehet ezeket a mappa letrehozasokat stb megcsinalni ugy ahogy az intezoben
+van. jobb egergomb mappa letrehoz es kesz."*
+
+Három dolog változott, és mind a hármat a **megszokás** vezette: a felhasználó
+azt próbálja ki, amit a Windows Intézőben megtanult.
+
+1. **Jobb egérgomb.** A sorra jobb gombbal kattintva a Marveen **előbb kijelöli**
+   a sort (Boss: *„persze elobb kivalasztas"*), majd felkínálja a műveleteket:
+   megnyitás, új mappa ide, átnevezés, áthelyezés, bekötés, papír példány,
+   törlés. Üres területen: „Új mappa itt". A menü ugyanazokat a függvényeket
+   hívja, mint a felső gombsor — egy viselkedés, két bejárat.
+2. **Bal klikk a soron = kijelölés.** A néven a klikk továbbra is **belép** (az a
+   leggyakoribb művelet), de a sor bármely más pontja kijelöl. A kijelölés
+   ezzel nem múlik többé azon, hogy valaki megtalálja-e a sor végén az „Info"
+   gombot.
+3. **Törlés — de Kukával.** `trashLife()` a `Rendszer/Kuka/<időbélyeg>/` alá
+   mozgat, nem töröl. Egy fa-nézetben, ahol egy sorral feljebb valakinek a
+   teljes élete áll, visszafordíthatatlan gombot nem adunk a kéz alá; a Windows
+   Intézőben sincs igazi törlés.
+
+**Az őrzők (mind a négy élesben lemérve):**
+
+| eset | válasz | miért |
+|---|---|---|
+| git-repó belseje | `git_repo` | a git a gazda, kézzel mozgatva elvész a fájl története |
+| bekötött mappa | `mounted` | csak mutató; kukázni megtévesztő („töröltem, mégis ott van") |
+| repó gyökere | `repo` | van saját, **mérő** végpontja, ami előbb megnézi a fel nem töltött munkát |
+| a fa fő ága | `top` | a következő „Könyvtárszerkezet létrehozása" úgyis visszatenné → a beállításban kell kivenni |
+
+Az **átnevezés** külön művelet, nem az áthelyezés egy esete: a felhasználónak is
+két külön dolog, és a hibaüzenete is más. Bekötött mappát nem enged átnevezni —
+a bekötés az útvonalra szól, új néven nem találna rá.
+
+**Használati útmutató a felületen.** A `docs/` alatti leírást a kőműves sosem
+fogja megnyitni, ezért az útmutató **az Intéző lap tetején**, összecsukható
+kártyában áll (`#intezoHelp`): mozgás a fában, új mappa, átnevezés/áthelyezés/
+törlés, új személy–cég–projekt öt lépése, git-repó bekötése lépésről lépésre,
+mihez ne nyúljon kézzel, és a „törölhetek a Windows Intézőből?" kérdés
+megválaszolva. A sablon-blokk címe **„Sablonok — kezdj egy kész szerkezettel"**:
+a korábbi cím kedves volt, de nem mondta ki a szót, amit a szem keres.
+
+A „Mentés és előnézet" után a lap **odagörget** a „Könyvtárszerkezet
+létrehozása" gombhoz és négy másodpercre kiemeli — enélkül a felhasználó azt
+hiszi, kész van, pedig a lemezen még nem történt semmi.

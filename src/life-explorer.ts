@@ -636,6 +636,99 @@ export function mkdirLife(parentRel: string, name: string): MoveResult {
 }
 
 /**
+ * ATNEVEZES.
+ *
+ * Kulon fuggveny, nem az athelyezes egy esete: az athelyezes MASIK mappaba
+ * visz, ez helyben marad. A felhasznalonak is ket kulon dolog, es a hibauzenet
+ * is mas („mar van ilyen nevu itt" vs. „a celmappaban mar van ilyen").
+ */
+export function renameLife(rel: string, newName: string): MoveResult {
+  const abs = resolveLifePath(rel)
+  if (!abs) {
+    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+  }
+  if (!existsSync(abs)) {
+    return { ok: false, rel: '', code: 'missing', message: 'Ez már nincs a régi helyén. Frissítsd a listát.' }
+  }
+  if (/[\\/]/.test(String(newName))) {
+    return { ok: false, rel: '', code: 'bad_name', message: 'A név nem tartalmazhat per-jelet. Csak a nevét írd be.' }
+  }
+  const clean = safeLifeName(newName)
+  if (!clean || clean === '_') {
+    return { ok: false, rel: '', code: 'bad_name', message: 'Adj meg egy nevet.' }
+  }
+  if (clean === basename(abs)) {
+    return { ok: false, rel, code: 'same', message: 'Ez már most is ez a név.' }
+  }
+  const target = join(dirname(abs), clean)
+  if (existsSync(target)) {
+    return { ok: false, rel: '', code: 'exists', message: `Már van itt ilyen nevű: ${clean}. Nem írom felül.` }
+  }
+  try {
+    renameSync(abs, target)
+  } catch (err: any) {
+    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült átnevezni: ${String(err?.code || err?.message || err)}` }
+  }
+  const newRel = toLifeRel(target)
+  movePhysical(rel, newRel)
+  logger.info({ from: rel, to: newRel }, '[intezo] atnevezve')
+  return { ok: true, rel: newRel, message: `Új neve: ${clean}` }
+}
+
+/**
+ * TORLES -- valojaban KUKAZAS.
+ *
+ * A fajl a `Rendszer/Kuka/<idopont>/` ala kerul, es ott is marad, amig a
+ * felhasznalo ki nem uriti. Egy fa-nezetben, ahol egy sorral feljebb a teljes
+ * eleted all, visszafordithatatlan gombot nem adunk a kez ala.
+ *
+ * A gyoker kozvetlen agait (`Beérkező`, `Rendszer`, szemelyek, `Cégek`...) nem
+ * engedjuk kukazni: azokat a beallitas hozza letre, a kovetkezo
+ * „Könyvtárszerkezet létrehozása" ugyis visszatenne -- a felhasznalo meg azt
+ * hinne, torolt valamit. Aki tenyleg meg akar szuntetni egy agat, a
+ * beallitasban veszi ki a szemelyt vagy a projektet.
+ */
+export function trashLife(rel: string): MoveResult {
+  const root = explorerRoot()
+  const abs = resolveLifePath(rel)
+  if (!root || !abs) {
+    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+  }
+  if (abs === root) {
+    return { ok: false, rel: '', code: 'root', message: 'A teljes fát nem törlöm.' }
+  }
+  if (!existsSync(abs)) {
+    return { ok: false, rel: '', code: 'missing', message: 'Ez már nincs itt. Frissítsd a listát.' }
+  }
+  const parts = toLifeRel(abs).split('/')
+  if (parts.length === 1) {
+    return {
+      ok: false, rel: '', code: 'top',
+      message: 'Ez a fa egyik fő ága — a következő „Könyvtárszerkezet létrehozása" úgyis visszatenné. '
+        + 'Ha tényleg nem kell, a „Kik szerepeljenek a fában?" résznél vedd ki a személyt vagy a céget.',
+    }
+  }
+
+  const kuka = join(root, lifeName('system', APP_LANG), lifeName('trash', APP_LANG))
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
+  const dir = join(kuka, stamp)
+  const target = join(dir, basename(abs))
+  try {
+    mkdirSync(dir, { recursive: true })
+    renameSync(abs, target)
+  } catch (err: any) {
+    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült a Kukába tenni: ${String(err?.code || err?.message || err)}` }
+  }
+  const newRel = toLifeRel(target)
+  movePhysical(rel, newRel)
+  logger.info({ from: rel, to: newRel }, '[intezo] kukaba')
+  return {
+    ok: true, rel: newRel,
+    message: `A Kukába került: ${basename(abs)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`,
+  }
+}
+
+/**
  * Kereses a fan belul, nev szerint.
  *
  * Szandekosan CSAK a nevben keres, nem a fajlok tartalmaban: a tartalom-

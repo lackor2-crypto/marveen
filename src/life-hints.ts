@@ -100,6 +100,7 @@ const HINTS: Record<string, string> = {
   marvin:   'Marvin saját munkafájljai — ide nem kell nyúlnod',
   storages: 'a bekötött tárolók: Git, Drive, Fotók',
   git:      'a lehúzott git-fiókok és repóik',
+  trash:    'amit az Intézőből töröltél — dátum szerinti mappákban, hogy vissza tudd húzni, ha mégis kellene',
 }
 
 /**

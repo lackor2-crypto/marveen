@@ -29208,6 +29208,8 @@ function _intezoRender() {
   list.innerHTML = '<table style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
     + rows.map((e) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
+      + ' title="Kattints a sorra a kijelöléshez, a névre a megnyitáshoz — jobb gombbal a menü"'
+      + ' data-pick="1"'
       + (_intezoSelected && _intezoSelected.rel === e.rel
           ? ' style="background:rgba(127,127,127,.15)"'
           // A BEERKEZO sajat hattere: ez a munka kezdopontja, ne kelljen
@@ -29251,6 +29253,37 @@ function _intezoRender() {
       else _intezoInfo(rel)
     })
   })
+  // BAL KLIKK A SOR BARMELY PONTJARA = kijeloles/kijeloles-levetel.
+  // A neven levo link es az Info gomb sajat kezelot kap, azok elol kiterunk:
+  // a nev BELEP, ez pedig KIJELOL -- ket kulon szandek, ket kulon hely.
+  list.querySelectorAll('tr[data-pick]').forEach((tr) => {
+    tr.style.cursor = 'pointer'
+    tr.addEventListener('click', (ev) => {
+      if (ev.target && ev.target.closest && ev.target.closest('a[data-open],button')) return
+      const rel = tr.getAttribute('data-rel')
+      if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
+      else void _intezoInfo(rel)
+    })
+  })
+
+  // JOBB EGERGOMB a sorokon. A sor teljes szelessegen mukodik, nem csak a
+  // neven -- aki jobbra, az ures reszre kattint, ugyanugy a sort erti alatta.
+  list.querySelectorAll('tr[data-rel]').forEach((tr) => {
+    tr.addEventListener('contextmenu', (ev) => {
+      const rel = tr.getAttribute('data-rel')
+      const e = rows.find((x) => x.rel === rel)
+      if (e) void _intezoOpenMenu(ev, e)
+    })
+  })
+  // Ures teruletre (a lista alja) jobb klikk: ide uj mappa.
+  if (!list._intezoCtxBound) {
+    list._intezoCtxBound = 1
+    list.addEventListener('contextmenu', (ev) => {
+      if (ev.target && ev.target.closest && ev.target.closest('tr[data-rel]')) return
+      void _intezoOpenMenu(ev, null)
+    })
+  }
+
   list.querySelectorAll('button[data-info]').forEach((b) => {
     b.addEventListener('click', () => {
       // Kapcsolo: ugyanarra a tetelre masodszor kattintva becsukodik.
@@ -29715,6 +29748,145 @@ async function _intezoSavePhysical() {
   }
 }
 
+/* ===================== JOBB EGERGOMB (helyi menu) =====================
+ *
+ * Egy fa-nezetben a jobb klikk az, amit MINDENKI kiprobal -- mert a Windows
+ * Intezoben ez mukodik. Ha nem tortenik semmi, a felhasznalo azt hiszi, a
+ * funkcio nincs is meg. A menu ugyanazokat a fuggvenyeket hivja, mint a fenti
+ * gombsor: egy viselkedes, ket bejarat.
+ *
+ * A jobb klikk KIJELOLI a sort is, mielott a menu megjelenik -- kulonben a
+ * „mappa bekotese" azt kerdezne, mit kotunk be.
+ */
+let _intezoMenuEl = null
+
+function _intezoCloseMenu() {
+  if (_intezoMenuEl && _intezoMenuEl.parentNode) _intezoMenuEl.parentNode.removeChild(_intezoMenuEl)
+  _intezoMenuEl = null
+}
+
+/** Egy menupont. `veszelyes` = piros (torles). */
+function _intezoMenuItem(cimke, fn, veszelyes) {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.textContent = cimke
+  b.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:none;'
+    + 'padding:7px 14px;font-size:13px;cursor:pointer;white-space:nowrap;color:'
+    + (veszelyes ? 'var(--danger,#d33)' : 'inherit')
+  b.addEventListener('mouseenter', () => { b.style.background = 'rgba(127,127,127,.18)' })
+  b.addEventListener('mouseleave', () => { b.style.background = 'none' })
+  b.addEventListener('click', () => { _intezoCloseMenu(); fn() })
+  return b
+}
+
+function _intezoMenuSep() {
+  const d = document.createElement('div')
+  d.style.cssText = 'height:1px;background:rgba(127,127,127,.25);margin:4px 0'
+  return d
+}
+
+/**
+ * A helyi menu megnyitasa.
+ *
+ * `entry` = a sor (nev, rel, isDir), vagy `null`, ha ures teruletre kattintott:
+ * olyankor csak az „ide uj mappa" ertelmes.
+ */
+async function _intezoOpenMenu(ev, entry) {
+  ev.preventDefault()
+  _intezoCloseMenu()
+
+  // ELOBB KIJELOLES. A Boss keresere: „persze elobb kivalasztas."
+  if (entry) { try { await _intezoInfo(entry.rel) } catch (e) {} }
+
+  const m = document.createElement('div')
+  m.style.cssText = 'position:fixed;z-index:9999;min-width:220px;padding:6px 0;'
+    + 'background:var(--card-bg,#1e1e1e);color:inherit;border:1px solid rgba(127,127,127,.35);'
+    + 'border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.35)'
+
+  if (!entry) {
+    m.appendChild(_intezoMenuItem('📁  Új mappa itt', () => _intezoMkdir()))
+  } else {
+    if (entry.isDir) m.appendChild(_intezoMenuItem('📂  Megnyitás', () => _intezoOpen(entry.rel)))
+    if (entry.isDir) m.appendChild(_intezoMenuItem('📁  Új mappa ide', () => _intezoMkdirInto(entry.rel)))
+    m.appendChild(_intezoMenuItem('✏️  Átnevezés', () => _intezoRename(entry)))
+    m.appendChild(_intezoMenuItem('➡️  Áthelyezés másik mappába', () => _intezoStartPick('move')))
+    if (entry.isDir) {
+      m.appendChild(_intezoMenuItem('🔗  Mappa bekötése (mit mutasson)', () => {
+        _intezoJumpTo('intezoMountTitle')
+        const sel = document.getElementById('intezoMountTarget')
+        if (sel && !sel.disabled) sel.focus()
+      }))
+    }
+    m.appendChild(_intezoMenuItem('🗂  Fizikai (papír) példány', () => _intezoJumpTo('intezoPhysTitle')))
+    m.appendChild(_intezoMenuItem('ℹ️  Részletes információ', () => _intezoJumpTo('intezoInfoCard')))
+    m.appendChild(_intezoMenuSep())
+    m.appendChild(_intezoMenuItem('🗑  Törlés (a Kukába)', () => _intezoTrash(entry), true))
+  }
+
+  document.body.appendChild(m)
+  _intezoMenuEl = m
+  // Ne logjon ki a kepernyorol: ha a jobb also sarokban kattintott, a menu
+  // befele nyilik.
+  const r = m.getBoundingClientRect()
+  const x = Math.min(ev.clientX, window.innerWidth - r.width - 8)
+  const y = Math.min(ev.clientY, window.innerHeight - r.height - 8)
+  m.style.left = Math.max(4, x) + 'px'
+  m.style.top = Math.max(4, y) + 'px'
+}
+
+if (!window._intezoMenuBound) {
+  window._intezoMenuBound = 1
+  document.addEventListener('click', () => _intezoCloseMenu())
+  document.addEventListener('scroll', () => _intezoCloseMenu(), true)
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _intezoCloseMenu() })
+}
+
+/** Uj mappa EGY MASIK mappaba (a jobb klikkelt sorba), nem a mostaniba. */
+async function _intezoMkdirInto(rel) {
+  const name = prompt('Mi legyen az új mappa neve?')
+  if (!name) return
+  try {
+    const r = await _depoPost('/api/life/mkdir', { parent: rel, name: name })
+    showToast(r.message || 'Kész.')
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappát.')
+  }
+}
+
+async function _intezoRename(entry) {
+  const name = prompt('Mi legyen az új neve?', entry.name || '')
+  if (!name || name === entry.name) return
+  try {
+    const r = await _depoPost('/api/life/rename', { rel: entry.rel, name: name })
+    showToast(r.message || 'Kész.')
+    _intezoClearSelection()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült átnevezni.')
+  }
+}
+
+/**
+ * Torles -- valojaban a Kukaba teszi.
+ *
+ * A megerosito kerdes KIMONDJA, hogy visszaszerezheto: aki azt hiszi, veglegeset
+ * nyom, vagy nem meri megnyomni, vagy utana ijed meg.
+ */
+async function _intezoTrash(entry) {
+  const mi = entry.isDir ? 'mappát' : 'fájlt'
+  if (!confirm('Biztosan a Kukába teszem ezt a ' + mi + '?\n\n' + (entry.name || entry.rel)
+      + '\n\nNem törlöm véglegesen: a Rendszer / Kuka alatt megmarad, onnan vissza tudod hozni.')) return
+  try {
+    const r = await _depoPost('/api/life/trash', { rel: entry.rel })
+    showToast(r.message || 'Kész.')
+    _intezoClearSelection()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült a Kukába tenni.')
+  }
+}
+
 async function _intezoMkdir() {
   const name = prompt('Mi legyen az új mappa neve?')
   if (!name) return
@@ -30080,8 +30252,22 @@ async function _intezoCfgSave() {
            + (miss.length > 300 ? '<br>… és még ' + (miss.length - 300) : '') + '</div>')
         : '<p>Minden mappa megvan — nincs mit létrehozni.</p>'
     }
-    showToast('Elmentve. Nézd meg az előnézetet, mielőtt létrehozod.')
+    showToast('Elmentve. Most már csak a „Könyvtárszerkezet létrehozása" gomb van hátra.')
     await _intezoStatus()
+    // Boss: „igazan felugorhatna az oldal tetejere ahhoz a gombhoz amit
+    // szinten meg kell nyomnom." A mentes utan a kovetkezo lepes gombja az
+    // oldal TETEJEN van -- ha nem visszuk oda, a felhasznalo azt hiszi, kesz.
+    const box = document.getElementById('intezoSetupBox')
+    if (box && !box.hidden) {
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      // Rovid kiemeles: a szem odataláljon a gombra a dobozon belul is.
+      const btn = document.getElementById('intezoEnsureBtn')
+      if (btn) {
+        btn.style.outline = '3px solid var(--accent,#f0a500)'
+        btn.style.outlineOffset = '3px'
+        setTimeout(() => { btn.style.outline = ''; btn.style.outlineOffset = '' }, 4000)
+      }
+    }
   } catch (e) {
     // A szerver ervenyesito uzenete MAGYAR MONDAT, ami megmondja, mit tegyen
     // ("Pontosan egy szemely legyen a gazda") -- ezt mutatjuk valtozatlanul.
