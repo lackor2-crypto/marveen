@@ -33,6 +33,15 @@
  *    itself, nine days earlier and without the Boss noticing it first.
  *  - DISK. Everything above degrades silently when the disk fills; this is the
  *    cheap early word.
+ *  - CLAUDE LOGIN. On 2026-08-20 at 10:54:06 the shared credentials file was
+ *    rewritten with an EMPTY access token. The whole fleet went mute -- no
+ *    Telegram, no scheduled task, no agent -- and the only thing that said so
+ *    was a red badge on the Settings page, while the self-check card directly
+ *    below it stayed green and promised "if anything breaks, it will show up
+ *    here". Boss saw both at once and asked the obvious question. The login is
+ *    the one credential without which NOTHING works, so it belongs in the card
+ *    that claims to watch everything -- green when it is fine, so its silence
+ *    is never mistaken for absence of a check.
  *
  * Design constraints, same as credential-expiry.ts: file-only, no network, no
  * shelling out, bounded work (a tar listing is read as a stream, logs are
@@ -44,6 +53,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
+import { claudeAuthState } from './claude-auth-presence.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
@@ -300,8 +310,26 @@ export function upstreamRows(
   return rows
 }
 
+/**
+ * A Claude-bejelentkezes. Ez az egyetlen hozzaferes, ami nelkul SEMMI nem
+ * mukodik -- se agens, se utemezett feladat, se Telegram -- ezert kap sort a
+ * zold allapotban is (Boss, 2026-08-20: "ha az alatta levo zoldek egyike sem
+ * vonatkozik erre a hibara, akkor ez a hiba miert nincs megjelenitve zolden
+ * hogy minden rendben ezzel is?").
+ *
+ * `bad`, nem `warn`: kijelentkezve a rendszer nem "kevesbe jo", hanem all.
+ */
+function claudeAuthRow(): HealthRow {
+  const st = claudeAuthState()
+  if (st.present) return { id: 'claude_auth_ok', status: 'ok' }
+  // Ket kulon szoveg, mert ket kulon teendo: az "emptied" agon a bejelentkezes
+  // MEGVOLT es elveszett (ilyenkor a /login ujra megoldja), a "none" agon meg
+  // sose volt (ilyenkor a vegigvezeto valo).
+  return { id: st.source === 'emptied' ? 'claude_auth_lost' : 'claude_auth_missing', status: 'bad' }
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
-  const rows: HealthRow[] = [...backupRows(now), ...upstreamRows(now)]
+  const rows: HealthRow[] = [claudeAuthRow(), ...backupRows(now), ...upstreamRows(now)]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {
     rows.push({ id: 'secret_in_log', status: 'warn', params: { n: leaks.length, files: leaks.join(', ') } })

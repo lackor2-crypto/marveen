@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir, userInfo } from 'node:os'
-import { execFileSync } from 'node:child_process'
+import { homedir } from 'node:os'
 import { PROJECT_ROOT, STORE_DIR, CHANNEL_PROVIDER } from '../../config.js'
 import { logger } from '../../logger.js'
 import { resolveFromPath } from '../../platform.js'
@@ -16,7 +15,14 @@ import {
 } from '../channel-monitor.js'
 import { liveProbeAuth, stampTokenVerified } from '../claude-credentials-guard.js'
 import { json, readBody } from '../http-helpers.js'
+// A bejelentkezes-ellenorzes sajat modulban el, hogy a rendszer-ellenorzes
+// (system-health.ts) is ugyanazt hivja -- ne legyen ket igazsag arrol, hogy
+// be van-e jelentkezve a Claude (Boss, 2026-08-20: piros csik felul, zold
+// "minden rendben" alatta, ugyanarrol az allapotrol).
+import { claudeAuthPresent } from '../claude-auth-presence.js'
 import type { RouteContext } from './types.js'
+
+export { claudeAuthPresent }
 
 // First-run onboarding for the "pre-install now, configure later" flow: the
 // dashboard boots without Claude auth / channels, and the operator finishes
@@ -24,7 +30,6 @@ import type { RouteContext } from './types.js'
 // instead of SSH + .env edits. All endpoints sit behind the dashboard token.
 
 const ENV_FILE = join(PROJECT_ROOT, '.env')
-const HOME_CREDENTIALS = join(homedir(), '.claude', '.credentials.json')
 const FLEET_TOKEN_FILE = join(STORE_DIR, '.claude-oauth-token')
 
 function readEnvValue(key: string): string | null {
@@ -37,56 +42,6 @@ function readEnvValue(key: string): string | null {
     }
   } catch { /* no .env yet */ }
   return null
-}
-
-// True auth presence -- an env OAuth token / API key, a real credentials.json
-// OAuth credential, or (macOS) the login Keychain credential. NOT merely "the
-// .env line exists" (it could be empty).
-//
-// The Keychain leg matters: on macOS Claude Code stores the subscription login
-// in the login Keychain and writes NO ~/.claude/.credentials.json, so a fully
-// authenticated fleet looked logged-out to the wizard and the dashboard nagged
-// for a token that would have created a second, drifting credential path.
-// The probe is presence-only: no `-w`, so the credential secret itself never
-// enters this process just to answer a yes/no question. It fails closed (false
-// off macOS / on any lookup error), so a Keychain ACL that refused `security`
-// just falls back to the previous behaviour.
-function keychainHasClaudeCredentials(): boolean {
-  if (process.platform !== 'darwin') return false
-  try {
-    execFileSync(
-      '/usr/bin/security',
-      ['find-generic-password', '-s', 'Claude Code-credentials', '-a', userInfo().username],
-      { timeout: 3000, stdio: 'ignore' },
-    )
-    return true
-  } catch { return false }
-}
-
-// The fleet setup-token leg (#654): the wizard's own auth step stores the
-// token into FLEET_TOKEN_FILE (see the /api/onboarding/claude-auth handler
-// below), so an install authenticated ONLY via the fleet token has no env
-// var, no ~/.claude/.credentials.json and no Keychain entry -- without this
-// check the wizard re-nagged on every reload right after completing itself.
-// Presence-only, non-empty, same spirit as the other legs.
-function fleetTokenPresent(): boolean {
-  try {
-    return readFileSync(FLEET_TOKEN_FILE, 'utf-8').trim().length > 0
-  } catch { return false }
-}
-
-export function claudeAuthPresent(): boolean {
-  if (readEnvValue('CLAUDE_CODE_OAUTH_TOKEN')) return true
-  if (readEnvValue('ANTHROPIC_API_KEY')) return true
-  try {
-    const d = JSON.parse(readFileSync(HOME_CREDENTIALS, 'utf-8')) as {
-      claudeAiOauth?: { accessToken?: string }; apiKey?: string
-    }
-    if (d?.claudeAiOauth?.accessToken) return true
-    if (d?.apiKey) return true
-  } catch { /* no / unreadable credentials.json */ }
-  if (fleetTokenPresent()) return true
-  return keychainHasClaudeCredentials()
 }
 
 // Active-channel checks, provider-aware (NOT hardcoded to Telegram). A

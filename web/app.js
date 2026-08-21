@@ -16820,6 +16820,13 @@ async function renderOverviewConnections() {
       ? t('conn.ov_all_ok_detail', { n: okCount, d: Math.max(0, Math.min(...exp.map(e => e.daysLeft))) })
       : t('conn.ov_all_ok_plain'),
   }]
+  // A Claude-bejelentkezes MINDIG kap sort, zolden is. Boss, 2026-08-20:
+  // "ha az alatta levo zoldek egyike sem vonatkozik erre a hibara, akkor ez a
+  // hiba miert nincs megjelenitve zolden hogy minden rendben ezzel is?" --
+  // pontosan igy volt: a Beallitasok pirosan mondta hogy nincs bejelentkezes,
+  // ez a kartya meg zolden hogy minden rendben, ugyanarrol a gepallapotrol.
+  const cok = health.find(h => h.id === 'claude_auth_ok')
+  if (cok) greenRows.push({ label: t('health.claude_auth_ok'), desc: t('health.claude_auth_ok_action') })
   // A mentes akkor is kap sort, ha rendben van: eppen az volt a baj, hogy
   // hetekig sikeresen futott, csak nem azt mentette, amit kellett volna --
   // egy nema "rendben" ott semmit nem arult volna el.
@@ -27141,7 +27148,7 @@ function _depoStopPoll() {
 async function _depoGet(url) {
   const res = await fetch(url)
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || ('hiba: ' + res.status))
+  if (!res.ok) throw new Error(data.message || data.error || ('hiba: ' + res.status))
   return data
 }
 
@@ -28257,6 +28264,12 @@ async function loadIntezoPage() {
   bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
   bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
+  bind('intezoConfigBtn', 'click', () => _intezoCfgOpen())
+  bind('intezoConfigBtn2', 'click', () => _intezoCfgOpen())
+  bind('intezoCfgCloseBtn', 'click', () => { const c = document.getElementById('intezoConfigCard'); if (c) c.hidden = true })
+  bind('intezoAddPersonBtn', 'click', () => _intezoCfgAddPerson())
+  bind('intezoAddCompanyBtn', 'click', () => _intezoCfgAddCompany())
+  bind('intezoCfgSaveBtn', 'click', () => _intezoCfgSave())
   bind('intezoMountAddBtn', 'click', () => _intezoAddMount())
   bind('intezoMountDelBtn', 'click', () => _intezoRemoveMount())
   bind('intezoPhysHas', 'change', () => {
@@ -28671,5 +28684,158 @@ async function _intezoMkdir() {
     await _intezoOpen(_intezoPath)
   } catch (e) {
     showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappát.')
+  }
+}
+
+
+// ===========================================================================
+// A FA LAKOI -- szemelyek es cegek szerkesztese a feluletrol.
+//
+// Ez teszi a rendszert telepitesfuggetlenne. A kodban egyetlen valodi nev sincs:
+// a kod csak a VAZAT ismeri (SZEMELYES / JOGI / PENZUGY / ...), a neveket
+// kizarolag a `store/life-tree.json` adja -- amit eddig csak API-bol lehetett
+// irni. Egy frissen telepitett Marveenben a felhasznalo innen epiti fel a
+// sajat szerkezetet: terminal, JSON es Claude nelkul.
+//
+// A szerkesztes a bongeszoben egy egyszeru tombon dolgozik, es CSAK a Mentesre
+// megy ki a szerverre. Igy egy felig beirt nev nem valt ki ervenyesitesi hibat
+// minden leutesnel.
+// ===========================================================================
+
+let _intezoCfg = null
+
+async function _intezoCfgOpen() {
+  const card = document.getElementById('intezoConfigCard')
+  if (!card) return
+  card.hidden = false
+  try {
+    _intezoCfg = await _intezoGet('/api/life/config')
+  } catch (e) {
+    // Ha meg nincs config (uj telepites), NEM hibazunk: egy ures gazdaval
+    // indulunk, hogy a felhasznalo azonnal tudjon gepelni.
+    _intezoCfg = { persons: [], companies: [] }
+  }
+  if (!_intezoCfg.persons || !_intezoCfg.persons.length) {
+    _intezoCfg.persons = [{ id: '', name: '', role: 'owner', countries: [], mediaGroups: [] }]
+  }
+  if (!_intezoCfg.companies) _intezoCfg.companies = []
+  _intezoCfgRender()
+}
+
+function _intezoCfgAddPerson() {
+  if (!_intezoCfg) return
+  // Az uj szemely SOSE gazda: gazda pontosan egy lehet, es azt mar
+  // kivalasztotta a felhasznalo. Igy nem kell hibauzenetet kapnia azert,
+  // mert felvett valakit.
+  _intezoCfg.persons.push({ id: '', name: '', role: 'person', countries: [], mediaGroups: [] })
+  _intezoCfgRender()
+}
+
+function _intezoCfgAddCompany() {
+  if (!_intezoCfg) return
+  _intezoCfg.companies.push({ id: '', name: '' })
+  _intezoCfgRender()
+}
+
+/** A beirt szoveget listava. Vesszo VAGY pontosvesszo -- ki hogy szokta. */
+function _intezoCfgList(text) {
+  return String(text || '').split(/[,;]/).map((x) => x.trim()).filter(Boolean)
+}
+
+function _intezoCfgRender() {
+  const ps = document.getElementById('intezoPersons')
+  const cs = document.getElementById('intezoCompanies')
+  if (!ps || !cs || !_intezoCfg) return
+
+  ps.innerHTML = _intezoCfg.persons.map((p, i) =>
+    '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<input type="text" data-cfg="pname" data-i="' + i + '" placeholder="Név (ez lesz a mappa neve)" '
+    + 'style="flex:1;min-width:180px" value="' + escapeHtml(p.name || '') + '">'
+    + '<label style="font-size:13px"><input type="radio" name="intezoOwner" data-cfg="powner" data-i="' + i + '"'
+    + (p.role === 'owner' ? ' checked' : '') + '> gazda (saját ág)</label>'
+    + '<button class="btn-secondary" data-cfg="pdel" data-i="' + i + '" title="Törlés a listából">✕</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'
+    + '<input type="text" data-cfg="pcountries" data-i="' + i + '" style="flex:1;min-width:180px" '
+    + 'placeholder="Országok — csak JOGI/PÉNZÜGY/HATÓSÁGOK alá (pl. Magyarország, Németország)" '
+    + 'value="' + escapeHtml((p.countries || []).join(', ')) + '">'
+    + '<input type="text" data-cfg="pmedia" data-i="' + i + '" style="flex:1;min-width:180px" '
+    + 'placeholder="Fotó/videó csoportok (pl. Család, Utazás)" '
+    + 'value="' + escapeHtml((p.mediaGroups || []).join(', ')) + '">'
+    + '</div>'
+    + '<div style="font-size:12px;opacity:.7;margin-top:6px">Az országokat üresen is hagyhatod — akkor nem készül országszint.</div>'
+    + '</div>').join('')
+
+  cs.innerHTML = _intezoCfg.companies.map((c, i) =>
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    + '<input type="text" data-cfg="cname" data-i="' + i + '" style="flex:1;min-width:180px" '
+    + 'placeholder="Cég neve" value="' + escapeHtml(c.name || '') + '">'
+    + '<button class="btn-secondary" data-cfg="cdel" data-i="' + i + '" title="Törlés a listából">✕</button>'
+    + '</div>').join('')
+    || '<p class="subtitle">Még nincs felvéve cég. Ha nincs céged, hagyd üresen.</p>'
+
+  // A beirt szoveget azonnal visszairjuk a modellbe, kulonben egy ujrarajzolas
+  // (pl. "+ Szemely") eldobna, amit a felhasznalo eppen beirt.
+  const wire = (el) => {
+    const i = Number(el.getAttribute('data-i'))
+    const what = el.getAttribute('data-cfg')
+    if (what === 'pdel' || what === 'cdel') {
+      el.addEventListener('click', () => {
+        if (what === 'pdel') _intezoCfg.persons.splice(i, 1)
+        else _intezoCfg.companies.splice(i, 1)
+        if (!_intezoCfg.persons.length) {
+          _intezoCfg.persons = [{ id: '', name: '', role: 'owner', countries: [], mediaGroups: [] }]
+        }
+        _intezoCfgRender()
+      })
+      return
+    }
+    if (what === 'powner') {
+      el.addEventListener('change', () => {
+        _intezoCfg.persons.forEach((p, k) => { p.role = (k === i) ? 'owner' : 'person' })
+      })
+      return
+    }
+    el.addEventListener('input', () => {
+      const v = el.value
+      if (what === 'pname') _intezoCfg.persons[i].name = v
+      else if (what === 'pcountries') _intezoCfg.persons[i].countries = _intezoCfgList(v)
+      else if (what === 'pmedia') _intezoCfg.persons[i].mediaGroups = _intezoCfgList(v)
+      else if (what === 'cname') _intezoCfg.companies[i].name = v
+    })
+  }
+  ps.querySelectorAll('[data-cfg]').forEach(wire)
+  cs.querySelectorAll('[data-cfg]').forEach(wire)
+}
+
+async function _intezoCfgSave() {
+  if (!_intezoCfg) return
+  const msg = document.getElementById('intezoCfgMsg')
+  const prev = document.getElementById('intezoCfgPreview')
+  try {
+    const r = await _depoPost('/api/life/config', _intezoCfg)
+    _intezoCfg = r.config || _intezoCfg
+    if (msg) { msg.hidden = true; msg.textContent = '' }
+    _intezoCfgRender()
+    // ELONEZET: pontosan az a lista, ami letre fog jonni. A felhasznalo igy
+    // MEG a lemezre iras elott lathatja, hogy elgepelte-e a nevet.
+    const st = r.status || {}
+    const miss = st.missing || []
+    if (prev) {
+      prev.innerHTML = miss.length
+        ? ('<p><strong>' + miss.length + ' mappa jön létre</strong>, ha megnyomod a „Könyvtárszerkezet létrehozása" gombot:</p>'
+           + '<div style="max-height:220px;overflow:auto;font-family:monospace;font-size:12px;opacity:.85">'
+           + miss.slice(0, 300).map((m) => escapeHtml(m)).join('<br>')
+           + (miss.length > 300 ? '<br>… és még ' + (miss.length - 300) : '') + '</div>')
+        : '<p>Minden mappa megvan — nincs mit létrehozni.</p>'
+    }
+    showToast('Elmentve. Nézd meg az előnézetet, mielőtt létrehozod.')
+    await _intezoStatus()
+  } catch (e) {
+    // A szerver ervenyesito uzenete MAGYAR MONDAT, ami megmondja, mit tegyen
+    // ("Pontosan egy szemely legyen a gazda") -- ezt mutatjuk valtozatlanul.
+    if (msg) { msg.hidden = false; msg.textContent = (e && e.message) ? e.message : 'Nem sikerült elmenteni.' }
+    if (prev) prev.innerHTML = ''
   }
 }
