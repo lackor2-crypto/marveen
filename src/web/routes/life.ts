@@ -1,0 +1,237 @@
+// AZ EGYSEGES ELETFA es a MARVIN INTEZO vegpontjai.
+//
+//   GET  /api/life/status     -- all-e mar a fa, mi hianyzik beloele
+//   POST /api/life/ensure     -- a hianyzo mappak letrehozasa (SOSE torol)
+//   GET  /api/life/config     -- kik/mely cegek szerepelnek a faban
+//   POST /api/life/config     -- ezek szerkesztese
+//   GET  /api/life/list       -- egy mappa tartalma, forrasjelvenyekkel
+//   GET  /api/life/info       -- a reszletes informacios panel egy tetelrol
+//   GET  /api/life/search     -- nev szerinti kereses a fan belul
+//   POST /api/life/mkdir      -- uj mappa
+//   POST /api/life/move       -- athelyezes a fan belul
+//   GET  /api/life/physical   -- papir peldanyok listaja ("papir-terkep")
+//   POST /api/life/physical   -- egy tetel papir-adatanak rogzitese
+//   GET  /api/life/sources    -- a jelvenyek jelmagyarazata (forrasfajtak)
+//   GET  /api/life/inbox      -- hany irat var a BEERKEZO-ben
+//
+// Minden hibauzenet MAGYAR MONDAT, es azt mondja meg, mit tegyen a
+// felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
+import { json, readBody } from '../http-helpers.js'
+import { logger } from '../../logger.js'
+import {
+  ensureLifeTree, lifeTreeStatus, loadLifeConfig, saveLifeConfig,
+  inboxCount, safeLifeName, type LifeConfig, type LifePerson, type LifeCompany,
+} from '../../life-tree.js'
+import {
+  listLife, lifeInfo, moveLife, mkdirLife, searchLife, explorerRoot,
+} from '../../life-explorer.js'
+import { listSourceKinds } from '../../life-sources.js'
+import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
+import type { RouteContext } from './types.js'
+
+/**
+ * Valasz kuldese ALLAPOTKODDAL ELOL.
+ *
+ * A kozos `json()` a torzset varja masodiknak, a kodot harmadiknak. Itt
+ * viszont minden valasz egy statuszrol szol (200 / 400 / 404), es ha a kod
+ * hatul all, egy elfelejtett harmadik parameter csendben 200-at kuld egy
+ * hibara -- amit a felulet sikernek olvasna. Ezert itt a kod az elso.
+ */
+function send(res: RouteContext['res'], status: number, data: unknown): void {
+  json(res, data, status)
+}
+
+export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
+  const { req, res, path, method, url } = ctx
+  if (!path.startsWith('/api/life/')) return false
+
+  // Depo nelkul egyetlen vegpontnak sincs ertelme -- es ez nem hiba, hanem egy
+  // meg el nem vegzett beallitas. Ezert mondjuk meg, HOVA menjen erte.
+  if (!explorerRoot() && path !== '/api/life/sources') {
+    send(res, 400, {
+      error: 'no_depot',
+      message: 'Még nincs beállítva, hol tárolja a Marveen a fájljaidat. Nyisd meg a Depó oldalt, és válaszd ki a mappát (például D:\\Marveen).',
+    })
+    return true
+  }
+
+  if (path === '/api/life/status' && method === 'GET') {
+    send(res, 200, lifeTreeStatus())
+    return true
+  }
+
+  if (path === '/api/life/ensure' && method === 'POST') {
+    try {
+      const result = ensureLifeTree()
+      logger.info({ created: result.created.length }, '[eletfa] fa letrehozva/kiegeszitve')
+      send(res, 200, {
+        ...result,
+        ok: true,
+        message: result.created.length
+          ? `Kész: ${result.created.length} mappa jött létre.`
+          : 'A könyvtárszerkezet már teljes volt, nem kellett létrehozni semmit.',
+      })
+    } catch (err: any) {
+      send(res, 500, { error: 'failed', message: `Nem sikerült létrehozni a mappákat: ${String(err?.message || err)}` })
+    }
+    return true
+  }
+
+  if (path === '/api/life/config' && method === 'GET') {
+    send(res, 200, loadLifeConfig())
+    return true
+  }
+
+  if (path === '/api/life/config' && method === 'POST') {
+    const body = await readBody(req).catch(() => null) as any
+    const parsed = parseConfig(body)
+    if (typeof parsed === 'string') {
+      send(res, 400, { error: 'bad_config', message: parsed })
+      return true
+    }
+    saveLifeConfig(parsed)
+    // Szandekosan NEM hozzuk letre automatikusan az uj mappakat: a felhasznalo
+    // eloszor lassa, mit fog kapni, es o nyomja meg a gombot. Egy elgepelt nev
+    // igy nem hagy maga utan egy felesleges mappat a lemezen.
+    send(res, 200, { ok: true, config: parsed, status: lifeTreeStatus(parsed) })
+    return true
+  }
+
+  if (path === '/api/life/list' && method === 'GET') {
+    const rel = url.searchParams.get('path') || ''
+    const deep = url.searchParams.get('deep') !== '0'
+    send(res, 200, listLife(rel, { deep }))
+    return true
+  }
+
+  if (path === '/api/life/info' && method === 'GET') {
+    const rel = url.searchParams.get('path') || ''
+    const info = lifeInfo(rel)
+    if (!info) {
+      send(res, 404, { error: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül.' })
+      return true
+    }
+    send(res, 200, info)
+    return true
+  }
+
+  if (path === '/api/life/search' && method === 'GET') {
+    const rel = url.searchParams.get('path') || ''
+    const q = url.searchParams.get('q') || ''
+    send(res, 200, searchLife(rel, q))
+    return true
+  }
+
+  if (path === '/api/life/mkdir' && method === 'POST') {
+    const body = await readBody(req).catch(() => null) as any
+    const result = mkdirLife(String(body?.parent ?? ''), String(body?.name ?? ''))
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  if (path === '/api/life/move' && method === 'POST') {
+    const body = await readBody(req).catch(() => null) as any
+    const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''))
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  if (path === '/api/life/physical' && method === 'GET') {
+    const rel = url.searchParams.get('path')
+    if (rel === null) {
+      send(res, 200, { items: listPhysical() })
+      return true
+    }
+    send(res, 200, getPhysical(rel))
+    return true
+  }
+
+  if (path === '/api/life/physical' && method === 'POST') {
+    const body = await readBody(req).catch(() => null) as any
+    const rel = String(body?.path ?? '').trim()
+    if (!rel) {
+      send(res, 400, { error: 'no_path', message: 'Nem derült ki, melyik iratról van szó.' })
+      return true
+    }
+    const rec = setPhysical(rel, {
+      physical: Boolean(body?.physical),
+      location: String(body?.location ?? ''),
+      note: String(body?.note ?? ''),
+    })
+    send(res, 200, { ok: true, ...rec })
+    return true
+  }
+
+  if (path === '/api/life/sources' && method === 'GET') {
+    send(res, 200, { kinds: listSourceKinds() })
+    return true
+  }
+
+  if (path === '/api/life/inbox' && method === 'GET') {
+    send(res, 200, { count: inboxCount() })
+    return true
+  }
+
+  return false
+}
+
+/**
+ * A beerkezo beallitas ellenorzese.
+ *
+ * Visszaad egy hasznalhato konfiguraciot, VAGY egy magyar mondatot arrol, mi a
+ * baj vele. Azert szigoru, mert ezekbol a nevekbol MAPPAK lesznek a lemezen: a
+ * hibat itt olcso megfogni, egy felig letrehozott fanal mar nem az.
+ */
+function parseConfig(body: any): LifeConfig | string {
+  if (!body || typeof body !== 'object') return 'Nem érkezett adat.'
+  const personsIn = Array.isArray(body.persons) ? body.persons : null
+  const companiesIn = Array.isArray(body.companies) ? body.companies : []
+  if (!personsIn || !personsIn.length) return 'Legalább egy személynek szerepelnie kell a fában.'
+
+  const persons: LifePerson[] = []
+  for (const p of personsIn) {
+    const name = String(p?.name ?? '').trim()
+    if (!name) return 'Egy személynél üresen maradt a név.'
+    if (safeLifeName(name) === '_') return `Ez a név nem használható mappanévnek: ${name}`
+    persons.push({
+      id: String(p?.id ?? '').trim() || safeLifeName(name).toLowerCase().replace(/\s+/g, '-'),
+      name,
+      role: p?.role === 'owner' ? 'owner' : 'person',
+      countries: toNameList(p?.countries),
+      mediaGroups: toNameList(p?.mediaGroups),
+    })
+  }
+  // Pontosan EGY gazda kell: a gazda kapja a teljes (12 kategoriás) agat, es
+  // az o neve alatt all a munka/projektek. Ha ketto lenne, nem tudnank
+  // eldonteni, kie a "MUNKA" -- ha egy sem, senkie.
+  const owners = persons.filter((p) => p.role === 'owner')
+  if (owners.length !== 1) return 'Pontosan egy személy legyen a gazda (a saját ágad). Jelöld meg, melyik az.'
+
+  const companies: LifeCompany[] = []
+  for (const c of companiesIn) {
+    const name = String(c?.name ?? '').trim()
+    if (!name) return 'Egy cégnél üresen maradt a név.'
+    if (safeLifeName(name) === '_') return `Ez a cégnév nem használható mappanévnek: ${name}`
+    companies.push({ id: String(c?.id ?? '').trim() || safeLifeName(name).toLowerCase().replace(/\s+/g, '-'), name })
+  }
+
+  // Azonos mappanev ket szemelynek: a masodik beleirna az elso mappajaba.
+  const seen = new Set<string>()
+  for (const n of [...persons.map((p) => p.name), ...companies.map((c) => c.name)]) {
+    const key = safeLifeName(n).toLowerCase()
+    if (seen.has(key)) return `Ez a név kétszer szerepel: ${n}. Minden személy és cég neve különbözzön.`
+    seen.add(key)
+  }
+
+  return { persons, companies }
+}
+
+function toNameList(v: any): string[] {
+  if (!Array.isArray(v)) return []
+  const out: string[] = []
+  for (const item of v) {
+    const s = String(item ?? '').trim()
+    if (s && safeLifeName(s) !== '_' && !out.includes(s)) out.push(s)
+  }
+  return out
+}

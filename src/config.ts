@@ -53,6 +53,28 @@ function cfg(key: string): string | undefined {
 // `depotRoot()` ELOSZOR ezt nezi, es csak utana a process.env-et.
 export const DEPOT_ROOT_CONFIGURED = (cfg('MARVEEN_DEPOT') ?? '').trim()
 
+// A telepites nyelve -- a lemezre irt MAPPANEVEK ezen mulnak (ELETFA).
+//
+// Miert kell ehhez kulon ertek, amikor a felulet mar tud magyarul es angolul?
+// Mert a felulet nyelve a bongeszoben dol el, a mappanev viszont a LEMEZRE
+// kerul, egyszer, es utana ott is marad. Ha ket bongeszo ket nyelven nezne
+// ugyanazt a telepitest, ketfele nevu mappa keszulne ugyanarra a celra, es a
+// felhasznalo ket felig kesz fat kapna. A nev tehat a TELEPITESHEZ tartozik,
+// nem a nezethez.
+//
+// A `.lang` fajlt a telepito irja (install-lang.sh); ha nincs, magyar, mert a
+// depo mar meglevo mappai (`fotok`, `drive`, `munka`) is azok.
+function readInstallLang(): string {
+  const fromEnv = (cfg('MARVEEN_LANG') ?? '').trim().toLowerCase()
+  if (fromEnv) return fromEnv
+  try {
+    const raw = readFileSync(join(PROJECT_ROOT, '.lang'), 'utf8').trim().toLowerCase()
+    if (raw) return raw
+  } catch { /* nincs fajl: marad az alapertelmezes */ }
+  return 'hu'
+}
+export const APP_LANG = readInstallLang()
+
 // The single timezone for this install -- drives BOTH cron scheduling (cron.ts)
 // AND every human-facing time render (heartbeat, daily-log, memory labels, etc.).
 // One env var (SCHEDULER_TZ) so the whole box shares one zone; falls back to the

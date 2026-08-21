@@ -1,0 +1,505 @@
+// A MARVIN INTEZO motorja: mappalistazas, athelyezes, informacios panel.
+//
+// Boss, 2026-08-21: "A Marvinban legyen egy Windows Intezohoz hasonlo
+// fajlkezelo. [...] es ugyanugy lehet megnyitni, bezarni, mappaba belepni,
+// fajlt megnyitni, athelyezni, keresni, rendezni."
+//
+// Ket dolog van, amit ez a modul komolyabban vesz, mint egy szokasos
+// fajllistazo:
+//
+//  1. A GYOKERBOL NEM LEHET KILEPNI. Minden bejovo utvonalat feloldunk
+//     (`realpath`), es utana ellenorizzuk, hogy a depon BELUL maradt-e. Nem a
+//     `..`-ra szurunk (azt meg lehet kerulni), hanem a VEGEREDMENYT nezzuk:
+//     ez az egyetlen ellenorzes, ami a jelkapcsolatokra (symlink) is all. Egy
+//     bongeszobol elerheto vegpont kulonben az egesz gepet kiolvashatova
+//     tenne.
+//
+//  2. AZ ATHELYEZES NEM IR FELUL SEMMIT. Ha a celban mar all ugyanolyan nevu
+//     fajl, MEGALLUNK, es kimondjuk. Egy csendben felulirt bizonyitvany vagy
+//     birosagi vegzes visszaallithatatlan -- egy hibauzenet nem az.
+import {
+  existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
+  copyFileSync, rmSync, type Stats,
+} from 'node:fs'
+import { join, dirname, basename, resolve, sep } from 'node:path'
+import { APP_LANG } from './config.js'
+import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM } from './depot.js'
+import { toDisplayPath } from './depot-browse.js'
+import { detectSource, type SourceInfo } from './life-sources.js'
+import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
+import { lifeName, loadLifeConfig, safeLifeName, type LifeConfig } from './life-tree.js'
+import { logger } from './logger.js'
+
+/**
+ * Az Intezo gyokere: maga a DEPO, nem az eletfa.
+ *
+ * Miert? Mert az eletfa a felhasznalo rendezett vilaga, de a Drive- es
+ * Fotok-mappak (`drive/`, `fotok/`) a depo alatt allnak, MELLETTE. Ha az
+ * Intezo csak az eletfat mutatna, a felhasznalonak ket kulon fajlkezeloje
+ * lenne ugyanarra a gepre -- pont az ellenkezoje annak, amit a terv "egyseges
+ * eletfanak" hiv. Igy egy fa van, es az ELET a legelso benne.
+ */
+export function explorerRoot(): string | null {
+  return depotRoot()
+}
+
+/** A felso szintu mappak sorrendje: ami emberi, az elol. */
+const TOP_ORDER = [
+  // Ide jar a felhasznalo. Ez az elso.
+  '__life__',
+  DEPOT_PROJECTS,
+  DEPOT_DRIVE,
+  DEPOT_PHOTOS,
+  DEPOT_WORK,
+  DEPOT_BACKUPS,
+  // Amihez soha nem kell hozzanyulni. Ez az utolso.
+  DEPOT_SYSTEM,
+]
+
+export interface LifeEntry {
+  name: string
+  /** Utvonal a gyokertol, per-jellel. Ezt kuldi vissza a felulet. */
+  rel: string
+  isDir: boolean
+  size: number
+  sizeHuman: string
+  /** Modositas ideje ISO-ban, vagy ures, ha nem tudtuk megallapitani. */
+  mtime: string
+  source: { kind: string; label: string; short: string; icon: string }
+  /** Van-e a fajlnak papir parja. A lista is mutatja, nem csak a panel. */
+  physical: boolean
+}
+
+export interface LifeListing {
+  rel: string
+  /** Emberi utvonal a cimsorba (`D:\Marveen\ÉLET\...`). */
+  display: string
+  /** Kattinthato morzsak: [{ name, rel }], a gyokerrel kezdve. */
+  breadcrumb: Array<{ name: string; rel: string }>
+  /** A szulomappa relativ utvonala, vagy null a gyokerben. */
+  parent: string | null
+  folders: LifeEntry[]
+  files: LifeEntry[]
+  /** Igaz, ha a mappa tulzsufolt volt, es levagtuk a listat. */
+  truncated: boolean
+  /** Emberi mondat, ha valami nem sikerult. Nem hiba: uzenet a feluletnek. */
+  message: string | null
+}
+
+/** Hany tetelt adunk vissza egy mappabol. Efolott a felulet is hasznalhatatlan. */
+const MAX_ENTRIES = 2000
+
+/**
+ * Relativ utvonal -> abszolut, a gyokerbol KILEPNI NEM LEHET.
+ *
+ * `null`, ha az utvonal a gyokeren kivulre mutat, vagy nincs depo. Ez a modul
+ * EGYETLEN biztonsagi hatara: minden mas fuggveny ezen keresztul jut
+ * utvonalhoz, es amelyik nem, az hiba.
+ *
+ * A `realpathSync` szandekosan a MEGLEVO leghosszabb elozmenyre fut: egy meg
+ * nem letezo celnal (uj mappa, athelyezes cel-neve) is tudni akarjuk, hogy a
+ * SZULOJE a fan belul van-e.
+ */
+export function resolveLifePath(rel: string): string | null {
+  const root = explorerRoot()
+  if (!root) return null
+  let realRoot: string
+  try { realRoot = realpathSync(root) } catch { return null }
+
+  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '')
+  const target = resolve(realRoot, clean)
+
+  // A meglevo elozmeny feloldasa: igy egy jelkapcsolaton at kifele mutato
+  // utvonal is lebukik, nem csak a `..`.
+  let probe = target
+  const tail: string[] = []
+  for (let i = 0; i < 64 && !existsSync(probe); i++) {
+    tail.unshift(basename(probe))
+    const up = dirname(probe)
+    if (up === probe) break
+    probe = up
+  }
+  let realProbe: string
+  try { realProbe = realpathSync(probe) } catch { return null }
+  const full = tail.length ? join(realProbe, ...tail) : realProbe
+
+  if (full !== realRoot && !full.startsWith(realRoot + sep)) return null
+  return full
+}
+
+/** Abszolut -> relativ. Uresen adja vissza a gyokeret. */
+export function toLifeRel(abs: string): string {
+  const root = explorerRoot()
+  if (!root) return ''
+  let realRoot = root
+  try { realRoot = realpathSync(root) } catch { /* marad a beallitott */ }
+  if (abs === realRoot) return ''
+  return abs.startsWith(realRoot + sep) ? abs.slice(realRoot.length + 1).split(sep).join('/') : ''
+}
+
+/** Emberi meret. A `0 B` is kiirodik: egy ures fajl informacio, nem hiany. */
+export function humanSize(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return ''
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = n / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+}
+
+function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: boolean): LifeEntry {
+  const rel = rootRel ? `${rootRel}/${name}` : name
+  const isDir = st.isDirectory()
+  const src: SourceInfo = detectSource(abs, isDir, deep && isDir)
+  return {
+    name,
+    rel,
+    isDir,
+    size: isDir ? 0 : st.size,
+    sizeHuman: isDir ? '' : humanSize(st.size),
+    mtime: (() => { try { return st.mtime.toISOString() } catch { return '' } })(),
+    source: { kind: src.kind, label: src.label, short: src.short, icon: src.icon },
+    physical: getPhysical(rel).physical,
+  }
+}
+
+/**
+ * Egy mappa tartalma.
+ *
+ * `deep`: mappaknal egy szintet belenezunk, hogy a vegyes tartalom kiderüljon
+ * (lasd `detectSource`). Alapbol BE van kapcsolva, mert a tervben eppen ez a
+ * lenyeg -- "ha egy mappa vegyes tartalmu, akkor ne hazudjon a rendszer" --,
+ * de nagy mappaknal a hivo kikapcsolhatja.
+ */
+export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListing {
+  const deep = opts.deep !== false
+  const root = explorerRoot()
+  const base: LifeListing = {
+    rel: String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''),
+    display: '',
+    breadcrumb: [],
+    parent: null,
+    folders: [],
+    files: [],
+    truncated: false,
+    message: null,
+  }
+  if (!root) {
+    return { ...base, message: 'Nincs depó beállítva, ezért nincs mit mutatni. A Depó oldalon add meg, hol legyen a Marveen tárhelye.' }
+  }
+  const abs = resolveLifePath(base.rel)
+  if (!abs) {
+    return { ...base, rel: '', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyitom meg.' }
+  }
+
+  base.display = toDisplayPath(abs)
+  base.parent = base.rel ? (base.rel.includes('/') ? base.rel.slice(0, base.rel.lastIndexOf('/')) : '') : null
+  base.breadcrumb = buildBreadcrumb(base.rel)
+
+  let st: Stats
+  try { st = statSync(abs) } catch {
+    return { ...base, message: `Ez a mappa most nem érhető el: ${toDisplayPath(abs)}` }
+  }
+  if (!st.isDirectory()) {
+    return { ...base, message: 'Ez nem mappa, hanem fájl.' }
+  }
+
+  let names: string[]
+  try { names = readdirSync(abs) } catch {
+    return { ...base, message: 'Ebbe a mappába nincs betekintési jogom.' }
+  }
+
+  const folders: LifeEntry[] = []
+  const files: LifeEntry[] = []
+  let seen = 0
+  for (const name of names) {
+    // A rejtett es rendszer-tetelek csak zajt visznek a listaba. A `.git`
+    // SZANDEKOSAN nem latszik: a git-jelveny amugy is kimondja, hogy repo.
+    if (name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information') continue
+    if (++seen > MAX_ENTRIES) { base.truncated = true; break }
+    const full = join(abs, name)
+    let cst: Stats
+    // `statSync` es nem `lstatSync`: egy jelkapcsolat (kesobbi NAS- vagy
+    // Drive-bekotes) ugy viselkedjen, mint amire mutat. A KILEPEST nem ez
+    // vedi, hanem a `resolveLifePath` -- ott derül ki, ha kifele visz.
+    try { cst = statSync(full) } catch { continue }
+    const e = entryFrom(full, name, cst, base.rel, deep)
+    if (e.isDir) folders.push(e)
+    else files.push(e)
+  }
+
+  // A gyokerben sajat sorrend: ami emberi, az elol (ELET), ami gepi, hatul
+  // (rendszer). Mindenutt maskor betűrend, magyar szabaly szerint.
+  if (!base.rel) {
+    const lifeDir = lifeName('root', APP_LANG)
+    const rank = (n: string) => {
+      const key = n === lifeDir ? '__life__' : n
+      const i = TOP_ORDER.indexOf(key)
+      return i < 0 ? TOP_ORDER.length : i
+    }
+    folders.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'hu'))
+  } else {
+    folders.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+  }
+  files.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+
+  return { ...base, folders, files }
+}
+
+function buildBreadcrumb(rel: string): Array<{ name: string; rel: string }> {
+  const crumbs: Array<{ name: string; rel: string }> = [{ name: 'Marveen', rel: '' }]
+  if (!rel) return crumbs
+  const parts = rel.split('/').filter(Boolean)
+  let acc = ''
+  for (const p of parts) {
+    acc = acc ? `${acc}/${p}` : p
+    crumbs.push({ name: p, rel: acc })
+  }
+  return crumbs
+}
+
+export interface LifeInfo {
+  rel: string
+  name: string
+  isDir: boolean
+  exists: boolean
+  /** `PDF`, `JPEG kép`, `Mappa` -- emberi tipus, nem MIME. */
+  type: string
+  size: number
+  sizeHuman: string
+  mtime: string
+  /** Kihez tartozik a fa szerint (szemely vagy ceg neve), vagy ures. */
+  owner: string
+  /** Digitalis hely emberi mondatban: `Név / Jogi / Németország / Bíróság`. */
+  digitalLocation: string
+  source: SourceInfo
+  physical: PhysicalRecord
+  /** A papir helye emberi mondatban (ugyanaz a fa, nyilakkal). */
+  physicalLocationHuman: string
+}
+
+/** Emberi fajltipus a kiterjesztesbol. Ismeretlennel a kiterjesztes maga. */
+function humanType(name: string, isDir: boolean): string {
+  if (isDir) return 'Mappa'
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  const map: Record<string, string> = {
+    pdf: 'PDF', doc: 'Word dokumentum', docx: 'Word dokumentum',
+    xls: 'Excel táblázat', xlsx: 'Excel táblázat', csv: 'Táblázat (CSV)',
+    ppt: 'Diasor', pptx: 'Diasor', txt: 'Szöveg', md: 'Szöveg (Markdown)',
+    jpg: 'Kép (JPEG)', jpeg: 'Kép (JPEG)', png: 'Kép (PNG)', gif: 'Kép (GIF)',
+    heic: 'Kép (HEIC)', webp: 'Kép (WebP)', svg: 'Kép (SVG)',
+    mp4: 'Videó', mov: 'Videó', avi: 'Videó', mkv: 'Videó',
+    mp3: 'Hang', wav: 'Hang', m4a: 'Hang',
+    zip: 'Tömörített', rar: 'Tömörített', '7z': 'Tömörített',
+    eml: 'E-mail', msg: 'E-mail', json: 'Adatfájl (JSON)',
+  }
+  return map[ext] || (ext ? `${ext.toUpperCase()} fájl` : 'Fájl')
+}
+
+/**
+ * Ki a gazdaja ennek az utvonalnak a fa szerint?
+ *
+ * Nem talalgatunk: csak akkor mondunk nevet, ha az utvonal MASODIK szakasza
+ * (`ÉLET/<név>/...`) egyezik egy felvett szemellyel vagy ceggel. Ismeretlen
+ * helyen ures marad -- egy rossz nev rosszabb, mint a semmi.
+ */
+function ownerOf(rel: string, cfg: LifeConfig): string {
+  const parts = rel.split('/').filter(Boolean)
+  const lifeDir = lifeName('root', APP_LANG)
+  if (parts[0] !== lifeDir || parts.length < 2) return ''
+  const companiesDir = lifeName('companies', APP_LANG)
+  const mediaDir = lifeName('media', APP_LANG)
+  // `ÉLET/CÉGEK/<cég>` es `ÉLET/MÉDIA/<név>` egy szinttel lejjebb tartja a nevet.
+  const candidate = (parts[1] === companiesDir || parts[1] === mediaDir) ? parts[2] : parts[1]
+  if (!candidate) return ''
+  const person = cfg.persons.find((p) => safeLifeName(p.name) === candidate)
+  if (person) return person.name
+  const company = cfg.companies.find((c) => safeLifeName(c.name) === candidate)
+  return company ? company.name : ''
+}
+
+/** `ÉLET/Név/JOGI/NÉMETORSZÁG` -> `Név / Jogi / Németország`. */
+export function humanLocation(rel: string): string {
+  const parts = rel.split('/').filter(Boolean)
+  const lifeDir = lifeName('root', APP_LANG)
+  const shown = parts[0] === lifeDir ? parts.slice(1) : parts
+  return shown.map(prettyCase).join(' / ')
+}
+
+/** `NÉMETORSZÁG` -> `Németország`. A csupa nagybetű a lemezen kell, a szemnek nem. */
+function prettyCase(s: string): string {
+  if (s !== s.toUpperCase()) return s
+  return s.split(' ').map((w) => (w ? w[0] + w.slice(1).toLowerCase() : w)).join(' ')
+}
+
+export function lifeInfo(rel: string): LifeInfo | null {
+  const cleanRel = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const abs = resolveLifePath(cleanRel)
+  if (!abs) return null
+  const name = basename(abs)
+  let st: Stats | null = null
+  try { st = statSync(abs) } catch { st = null }
+  const isDir = st ? st.isDirectory() : false
+  const physical = getPhysical(cleanRel)
+  return {
+    rel: cleanRel,
+    name,
+    isDir,
+    exists: Boolean(st),
+    type: humanType(name, isDir),
+    size: st && !isDir ? st.size : 0,
+    sizeHuman: st && !isDir ? humanSize(st.size) : '',
+    mtime: st ? (() => { try { return st!.mtime.toISOString() } catch { return '' } })() : '',
+    owner: ownerOf(cleanRel, loadLifeConfig()),
+    digitalLocation: humanLocation(cleanRel.includes('/') ? cleanRel.slice(0, cleanRel.lastIndexOf('/')) : ''),
+    source: detectSource(abs, isDir, isDir),
+    physical,
+    physicalLocationHuman: physical.location ? humanLocation(physical.location) : '',
+  }
+}
+
+export interface MoveResult {
+  ok: boolean
+  /** Az uj relativ utvonal, ha sikerult. */
+  rel: string
+  message: string
+  code?: string
+}
+
+/**
+ * Athelyezes a fan belul.
+ *
+ * `toDirRel` a CEL MAPPA, nem a cel fajl: a felulet mindig mappat jelol ki, a
+ * nev pedig marad. (Atnevezni kesobb, kulon muvelettel lehet -- azt nem
+ * keverjuk ide, mert egy elgepelt nev egy athelyezes kozben eszrevetlen
+ * maradna.)
+ */
+export function moveLife(fromRel: string, toDirRel: string): MoveResult {
+  const from = resolveLifePath(fromRel)
+  const toDir = resolveLifePath(toDirRel)
+  if (!from || !toDir) {
+    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+  }
+  if (!existsSync(from)) {
+    return { ok: false, rel: '', code: 'missing', message: 'Ez a fájl már nincs a régi helyén. Frissítsd a listát.' }
+  }
+  let toIsDir = false
+  try { toIsDir = statSync(toDir).isDirectory() } catch { toIsDir = false }
+  if (!toIsDir) {
+    return { ok: false, rel: '', code: 'no_target', message: 'A célként megadott hely nem mappa.' }
+  }
+  const name = basename(from)
+  const target = join(toDir, name)
+  if (target === from) {
+    return { ok: false, rel: fromRel, code: 'same', message: 'Ez a fájl már ebben a mappában van.' }
+  }
+  // Mappat nem lehet SAJAT MAGA ALA tenni: a `renameSync` erre EINVAL-t ad, de
+  // a hibauzenet ("invalid argument") semmit nem mond a felhasznalonak.
+  if (statSafe(from)?.isDirectory() && (toDir === from || toDir.startsWith(from + sep))) {
+    return { ok: false, rel: '', code: 'into_self', message: 'Egy mappát nem lehet önmagába áthelyezni.' }
+  }
+  // NEM IRUNK FELUL. Egy azonos nevu irat csendes felulirasa visszafordithatatlan.
+  if (existsSync(target)) {
+    return {
+      ok: false, rel: '', code: 'exists',
+      message: `A célmappában már van ilyen nevű fájl: ${name}. Nem írom felül -- előbb nevezd át valamelyiket.`,
+    }
+  }
+
+  try {
+    renameSync(from, target)
+  } catch (err: any) {
+    // Ket kulon lemez kozott (`EXDEV`) az atnevezes nem mukodik -- ott
+    // masolni kell, es csak SIKERES masolas utan torolni. A depon belul ez
+    // ritka, de egy jelkapcsolattal bekotott NAS-mappanal eppen ez tortenne.
+    if (err?.code === 'EXDEV' && !statSafe(from)?.isDirectory()) {
+      try {
+        copyFileSync(from, target)
+        rmSync(from, { force: true })
+      } catch (err2: any) {
+        return { ok: false, rel: '', code: 'failed', message: `Nem sikerült áthelyezni: ${String(err2?.message || err2)}` }
+      }
+    } else {
+      return { ok: false, rel: '', code: 'failed', message: `Nem sikerült áthelyezni: ${String(err?.code || err?.message || err)}` }
+    }
+  }
+
+  const newRel = toLifeRel(target)
+  // A papir-nyilvantartas kovesse a fajlt, kulonben a fizikai peldany
+  // informacioja a regi utvonalon maradna, vagyis a semmin.
+  movePhysical(fromRel, newRel)
+  logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
+  return { ok: true, rel: newRel, message: `Áthelyezve ide: ${humanLocation(newRel)}` }
+}
+
+function statSafe(p: string): Stats | null {
+  try { return statSync(p) } catch { return null }
+}
+
+/** Uj mappa a fan belul. A nev nem lehet utvonal -- csak nev. */
+export function mkdirLife(parentRel: string, name: string): MoveResult {
+  const clean = safeLifeName(name)
+  if (!clean || clean === '_') {
+    return { ok: false, rel: '', code: 'bad_name', message: 'Adj meg egy nevet a mappának.' }
+  }
+  if (/[\\/]/.test(String(name))) {
+    return { ok: false, rel: '', code: 'bad_name', message: 'A mappa neve nem tartalmazhat per-jelet. Csak a nevét írd be.' }
+  }
+  const parent = resolveLifePath(parentRel)
+  if (!parent) {
+    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül.' }
+  }
+  const target = join(parent, clean)
+  if (existsSync(target)) {
+    return { ok: false, rel: toLifeRel(target), code: 'exists', message: 'Ilyen nevű mappa már van itt.' }
+  }
+  try {
+    mkdirSync(target, { recursive: false })
+  } catch (err: any) {
+    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült létrehozni: ${String(err?.code || err?.message || err)}` }
+  }
+  return { ok: true, rel: toLifeRel(target), message: `Kész: ${clean}` }
+}
+
+/**
+ * Kereses a fan belul, nev szerint.
+ *
+ * Szandekosan CSAK a nevben keres, nem a fajlok tartalmaban: a tartalom-
+ * kereseshez indexelni kellene, es egy 8 GB-os keptar vegigolvasasa minden
+ * gepelesnel hasznalhatatlan lenne. Aki tartalomra keres, azt a Marveen AI
+ * oldalarol teszi.
+ */
+export function searchLife(rel: string, query: string, limit = 200): { entries: LifeEntry[]; truncated: boolean } {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return { entries: [], truncated: false }
+  const startAbs = resolveLifePath(rel)
+  if (!startAbs) return { entries: [], truncated: false }
+
+  const entries: LifeEntry[] = []
+  let truncated = false
+  // Szelessegi bejaras, felso hatarral: egy nagyon melyre agazo fanal a
+  // melysegi bejaras egyetlen agban veszne el, es a felhasznalo azt latna,
+  // hogy "nincs talalat" -- holott csak nem jutottunk el a szomszed agig.
+  const queue: string[] = [startAbs]
+  let visited = 0
+  while (queue.length && entries.length < limit && visited < 20000) {
+    const dir = queue.shift()!
+    let names: string[]
+    try { names = readdirSync(dir) } catch { continue }
+    for (const name of names) {
+      if (name.startsWith('.')) continue
+      visited++
+      const full = join(dir, name)
+      let st: Stats
+      try { st = statSync(full) } catch { continue }
+      if (name.toLowerCase().includes(q)) {
+        const parentRel = toLifeRel(dir)
+        if (entries.length >= limit) { truncated = true; break }
+        entries.push(entryFrom(full, name, st, parentRel, false))
+      }
+      if (st.isDirectory()) queue.push(full)
+    }
+  }
+  return { entries, truncated: truncated || queue.length > 0 }
+}

@@ -77,6 +77,7 @@ import { tryHandleDriveBrowser } from './web/routes/drive-browser.js'
 // 404-re futottak. Egy le nem forditott fajl kiabal; egy be nem kotott fajl
 // csendben nem letezik -- ezert all ra kulon teszt (web-boot-order).
 import { tryHandleDepot } from './web/routes/depot.js'
+import { tryHandleLife } from './web/routes/life.js'
 import { tryHandleDriveSync } from './web/routes/drive-sync.js'
 import { tryHandlePhotosPicker } from './web/routes/photos-picker.js'
 import { tryHandleSystemRestart } from './web/routes/system-restart.js'
@@ -234,6 +235,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleDriveSync(routeCtx)) return
       if (await tryHandlePhotosPicker(routeCtx)) return
       if (await tryHandleDepot(routeCtx)) return
+      if (await tryHandleLife(routeCtx)) return
       if (await tryHandleSystemRestart(routeCtx)) return
       if (await tryHandleUpdates(routeCtx)) return
       if (await tryHandleOnboarding(routeCtx)) return

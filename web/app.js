@@ -700,6 +700,7 @@ function switchPage(pageId) {
   // ide visszaterve a poll magatol ujraindul (lasd _depoRefresh).
   if (pageId !== 'depo') _depoStopPoll()
   if (pageId === 'depo') loadDepoPage()
+  if (pageId === 'intezo') loadIntezoPage()
   // Elhagyva a Fotok oldalt: a kepek blob URL-jei feleslegesen ulnek a
   // memoriaban, es egy futo Picker-lekerdezes sem szolhat bele mas lapba.
   if (pageId !== 'photos') { _photosStopPoll(); _photosReleaseBlobs() }
@@ -28203,5 +28204,390 @@ async function _depoRunSync() {
     showToast((e && e.message) ? e.message : 'Nem sikerült elindítani a szinkronizálást')
   } finally {
     if (btn) btn.disabled = false
+  }
+}
+
+// ===================== MARVIN INTEZO =====================
+// Egy fajlkezelo a Marveen fajahoz, forrasjelvenyekkel.
+//
+// Boss, 2026-08-21: "mindig lathato legyen, hogy egy fajl vagy mappa
+// fizikailag honnan szarmazik / hol van tarolva: helyi gep, Google Drive,
+// Google Photos, Git stb. Es nem akarunk ebbol valami NASA-rendszert."
+//
+// Ezert nincs itt fa-panel, nincs tobb-ablakos elrendezes es nincs
+// draggelheto oszlop: egy lista, morzsak felul, es a nev elott egy kicsi jel.
+
+/** Hol allunk eppen a faban. Ures = a gyoker. */
+let _intezoPath = ''
+/** A kijelolt tetel (az informacios panel errol szol). */
+let _intezoSelected = null
+/** Az athelyezes celjat / a papir helyet valaszto mod, ha eppen fut. */
+let _intezoPickMode = null
+let _intezoSearchTimer = null
+
+/**
+ * A jelveny-mod a bongeszoben marad, mert ez NEZET, nem adat.
+ * Alapertelmezes: ikon -- Boss valasztasa ("Alapertelmezeskent en az ikonos
+ * jelolest hasznalnam").
+ */
+function _intezoBadgeMode() {
+  try { return localStorage.getItem('intezoBadgeMode') || 'icon' } catch (e) { return 'icon' }
+}
+function _intezoSetBadgeMode(mode) {
+  try { localStorage.setItem('intezoBadgeMode', mode) } catch (e) { /* privat mod: marad a memoriaban */ }
+  _intezoRender()
+}
+
+async function _intezoGet(url) {
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.message || data.error || ('hiba: ' + res.status))
+  return data
+}
+
+async function loadIntezoPage() {
+  const bind = (id, ev, fn) => {
+    const el = document.getElementById(id)
+    if (el && !el._intezoBound) { el._intezoBound = 1; el.addEventListener(ev, fn) }
+  }
+  bind('intezoRefreshBtn', 'click', () => _intezoOpen(_intezoPath))
+  bind('intezoUpBtn', 'click', () => _intezoUp())
+  bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
+  bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
+  bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
+  bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
+  bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
+  bind('intezoPhysHas', 'change', () => {
+    const on = document.getElementById('intezoPhysHas').checked
+    const f = document.getElementById('intezoPhysFields')
+    if (f) f.hidden = !on
+  })
+  bind('intezoToDepoBtn', 'click', (e) => { e.preventDefault(); switchPage('depo') })
+  bind('intezoSearch', 'input', () => {
+    // Gepeles kozben nem inditunk minden betunel keresest: egy nagy fa
+    // bejarasa igy tizszer futna le feleslegesen.
+    clearTimeout(_intezoSearchTimer)
+    _intezoSearchTimer = setTimeout(() => _intezoSearch(), 350)
+  })
+  document.querySelectorAll('input[name="intezoBadge"]').forEach((r) => {
+    if (r._intezoBound) return
+    r._intezoBound = 1
+    r.addEventListener('change', () => _intezoSetBadgeMode(r.value))
+  })
+  const mode = _intezoBadgeMode()
+  const active = document.querySelector('input[name="intezoBadge"][value="' + mode + '"]')
+  if (active) active.checked = true
+
+  await _intezoLegend()
+  await _intezoStatus()
+  await _intezoOpen(_intezoPath)
+}
+
+/** A jelmagyarazat magabol a szolgaltato-regiszterbol jon: ha egyszer egy NAS
+ *  bekerul, itt is MAGATOL megjelenik -- nincs kulon lista, amit karban kell tartani. */
+async function _intezoLegend() {
+  const el = document.getElementById('intezoLegend')
+  if (!el) return
+  try {
+    const data = await _intezoGet('/api/life/sources')
+    el.textContent = (data.kinds || []).map((k) => k.icon + ' ' + k.label).join('   ')
+  } catch (e) { el.textContent = '' }
+}
+
+/** All-e mar a fa? Ha nem, ez az egyetlen dolog, amit kerdezunk. */
+async function _intezoStatus() {
+  const box = document.getElementById('intezoSetupBox')
+  const txt = document.getElementById('intezoSetupText')
+  const ensure = document.getElementById('intezoEnsureBtn')
+  const toDepo = document.getElementById('intezoToDepoBtn')
+  if (!box) return
+  try {
+    const st = await _intezoGet('/api/life/status')
+    if (!st.root) {
+      box.hidden = false
+      txt.textContent = 'Még nincs beállítva, hol tárolja a Marveen a fájljaidat. Először a Depó oldalon válaszd ki a mappát.'
+      if (ensure) ensure.hidden = true
+      if (toDepo) toDepo.hidden = false
+      return
+    }
+    if (ensure) ensure.hidden = false
+    if (toDepo) toDepo.hidden = true
+    if (!st.exists || (st.missing || []).length) {
+      box.hidden = false
+      txt.textContent = st.exists
+        ? ('A könyvtárszerkezetből ' + st.missing.length + ' mappa hiányzik. Létrehozzam? Ami már megvan, ahhoz nem nyúlok.')
+        : 'Még nem áll a könyvtárszerkezet. Egy gombnyomás, és felépítem.'
+    } else {
+      box.hidden = true
+    }
+  } catch (e) {
+    box.hidden = false
+    if (txt) txt.textContent = (e && e.message) ? e.message : 'Nem sikerült megnézni a könyvtárszerkezetet.'
+    if (ensure) ensure.hidden = true
+  }
+}
+
+async function _intezoEnsure() {
+  const btn = document.getElementById('intezoEnsureBtn')
+  if (btn) btn.disabled = true
+  try {
+    const r = await _depoPost('/api/life/ensure', {})
+    showToast(r.message || 'Kész.')
+    await _intezoStatus()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappákat.')
+  } finally {
+    if (btn) btn.disabled = false
+  }
+}
+
+let _intezoListing = null
+
+async function _intezoOpen(rel) {
+  _intezoPath = rel || ''
+  const search = document.getElementById('intezoSearch')
+  if (search) search.value = ''
+  try {
+    _intezoListing = await _intezoGet('/api/life/list?path=' + encodeURIComponent(_intezoPath))
+  } catch (e) {
+    _intezoListing = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : 'Nem sikerült megnyitni a mappát.' }
+  }
+  _intezoRender()
+}
+
+function _intezoUp() {
+  if (!_intezoListing || _intezoListing.parent === null || _intezoListing.parent === undefined) return
+  _intezoOpen(_intezoListing.parent)
+}
+
+async function _intezoSearch() {
+  const q = (document.getElementById('intezoSearch') || {}).value || ''
+  if (!q.trim()) { await _intezoOpen(_intezoPath); return }
+  try {
+    const r = await _intezoGet('/api/life/search?path=' + encodeURIComponent(_intezoPath) + '&q=' + encodeURIComponent(q))
+    const entries = r.entries || []
+    _intezoListing = Object.assign({}, _intezoListing, {
+      folders: entries.filter((e) => e.isDir),
+      files: entries.filter((e) => !e.isDir),
+      truncated: r.truncated,
+      message: entries.length ? null : ('Nincs találat erre: ' + q),
+    })
+    _intezoRender()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'A keresés nem sikerült.')
+  }
+}
+
+/**
+ * A forrasjelveny kirajzolasa.
+ *
+ * A jelveny a nev ELOTT all, sajat szinnel -- a fajl nevet SOSE szinezzuk,
+ * mert az rontana az olvashatosagot (Boss kikotese). A `title` a lebego
+ * sugo: ott all a reszletes magyarazat.
+ */
+function _intezoBadge(entry) {
+  const mode = _intezoBadgeMode()
+  if (mode === 'off') return ''
+  const src = entry.source || {}
+  const colors = { local: '#6b7280', drive: '#2563eb', photos: '#d97706', git: '#7c3aed', mixed: '#0f766e' }
+  const color = colors[src.kind] || '#6b7280'
+  const label = mode === 'icon' ? (src.icon || '•') : ('[' + (src.short || '?') + ']')
+  const tip = escapeHtml((src.label || '') + (src.details && src.details.length
+    ? '\n' + src.details.map((d) => d.label + ': ' + d.value).join('\n') : ''))
+  return '<span class="intezo-badge" title="' + tip + '" style="color:' + color
+    + ';font-size:' + (mode === 'icon' ? '15px' : '11px') + ';margin-right:6px;white-space:nowrap">' + escapeHtml(label) + '</span>'
+}
+
+function _intezoRender() {
+  const list = document.getElementById('intezoList')
+  const crumbs = document.getElementById('intezoCrumbs')
+  const msg = document.getElementById('intezoMessage')
+  const pathEl = document.getElementById('intezoPath')
+  const trunc = document.getElementById('intezoTruncated')
+  if (!list || !_intezoListing) return
+  const L = _intezoListing
+
+  if (crumbs) {
+    crumbs.innerHTML = (L.breadcrumb || []).map((b, i, arr) =>
+      '<a href="#" data-crumb="' + escapeHtml(b.rel) + '">' + escapeHtml(b.name) + '</a>'
+      + (i < arr.length - 1 ? ' <span style="opacity:.5">›</span> ' : '')).join('')
+    crumbs.querySelectorAll('a[data-crumb]').forEach((a) => {
+      a.addEventListener('click', (e) => { e.preventDefault(); _intezoOpen(a.getAttribute('data-crumb')) })
+    })
+  }
+  if (pathEl) pathEl.textContent = L.display || ''
+  if (msg) { msg.hidden = !L.message; msg.textContent = L.message || '' }
+  if (trunc) trunc.hidden = !L.truncated
+
+  const rows = [].concat(L.folders || [], L.files || [])
+  if (!rows.length) {
+    list.innerHTML = L.message ? '' : '<p style="opacity:.7" data-i18n="intezo.empty">Ez a mappa üres.</p>'
+    return
+  }
+  list.innerHTML = '<table style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
+    + rows.map((e) =>
+      '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
+      + (_intezoSelected && _intezoSelected.rel === e.rel ? ' style="background:rgba(127,127,127,.15)"' : '')
+      + '>'
+      + '<td style="padding:5px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
+      + '<td style="padding:5px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '">'
+      + (e.isDir ? '📁 ' : '') + escapeHtml(e.name) + '</a>'
+      + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '') + '</td>'
+      + '<td style="padding:5px 8px;text-align:right;opacity:.7;white-space:nowrap">' + escapeHtml(e.sizeHuman) + '</td>'
+      + '<td style="padding:5px 8px;white-space:nowrap"><button class="btn-secondary" data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
+      + '</tr>').join('')
+    + '</tbody></table>'
+
+  list.querySelectorAll('a[data-open]').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault()
+      const rel = a.getAttribute('data-open')
+      const row = a.closest('tr')
+      // Ha eppen celt valasztunk (athelyezes / papir helye), a kattintas
+      // BELEP a mappaba -- a kivalasztas kulon gombbal tortenik, hogy egy
+      // fel-kattintas ne helyezzen at semmit.
+      if (row && row.getAttribute('data-dir')) _intezoOpen(rel)
+      else _intezoInfo(rel)
+    })
+  })
+  list.querySelectorAll('button[data-info]').forEach((b) => {
+    b.addEventListener('click', () => _intezoInfo(b.getAttribute('data-info')))
+  })
+
+  _intezoRenderPickBar()
+}
+
+/** Ha eppen celmappat valasztunk, egy sav mondja meg, mit csinalunk. */
+function _intezoRenderPickBar() {
+  const list = document.getElementById('intezoList')
+  const old = document.getElementById('intezoPickBar')
+  if (old) old.remove()
+  if (!_intezoPickMode || !list) return
+  const bar = document.createElement('div')
+  bar.id = 'intezoPickBar'
+  bar.className = 'info-box'
+  bar.style.marginBottom = '10px'
+  const what = _intezoPickMode === 'move'
+    ? ('Válaszd ki, MELYIK MAPPÁBA kerüljön: ' + (_intezoSelected ? _intezoSelected.name : ''))
+    : ('Válaszd ki, HOL ÁLL A PAPÍR: ' + (_intezoSelected ? _intezoSelected.name : ''))
+  bar.innerHTML = '<p>' + escapeHtml(what) + '</p><p style="opacity:.8;font-size:13px">Lépj be a kívánt mappába, majd nyomd meg az „Ez legyen az” gombot.</p>'
+  const ok = document.createElement('button')
+  ok.className = 'btn-primary'
+  ok.textContent = 'Ez legyen az'
+  ok.addEventListener('click', () => _intezoConfirmPick())
+  const cancel = document.createElement('button')
+  cancel.className = 'btn-secondary'
+  cancel.style.marginLeft = '8px'
+  cancel.textContent = 'Mégsem'
+  cancel.addEventListener('click', () => { _intezoPickMode = null; _intezoRender() })
+  bar.appendChild(ok)
+  bar.appendChild(cancel)
+  list.parentNode.insertBefore(bar, list)
+}
+
+function _intezoStartPick(mode) {
+  if (!_intezoSelected) { showToast('Előbb válassz ki egy fájlt vagy mappát.'); return }
+  _intezoPickMode = mode
+  _intezoRender()
+}
+
+async function _intezoConfirmPick() {
+  const mode = _intezoPickMode
+  const sel = _intezoSelected
+  _intezoPickMode = null
+  if (!sel) { _intezoRender(); return }
+  if (mode === 'move') {
+    try {
+      const r = await _depoPost('/api/life/move', { from: sel.rel, to: _intezoPath })
+      showToast(r.message || 'Kész.')
+      await _intezoOpen(_intezoPath)
+      if (r.ok) await _intezoInfo(r.rel)
+    } catch (e) {
+      showToast((e && e.message) ? e.message : 'Az áthelyezés nem sikerült.')
+      _intezoRender()
+    }
+    return
+  }
+  // Papir helye: csak beirjuk a mezobe. A mentes kulon gomb -- igy egy
+  // felreklikkelt mappa meg visszavonhato.
+  const el = document.getElementById('intezoPhysLocation')
+  if (el) { el.textContent = _intezoPath || '(a fa gyökere)'; el.setAttribute('data-rel', _intezoPath) }
+  const has = document.getElementById('intezoPhysHas')
+  if (has && !has.checked) { has.checked = true; document.getElementById('intezoPhysFields').hidden = false }
+  _intezoRender()
+}
+
+async function _intezoInfo(rel) {
+  const card = document.getElementById('intezoInfoCard')
+  const rowsEl = document.getElementById('intezoInfoRows')
+  if (!card || !rowsEl) return
+  let info
+  try {
+    info = await _intezoGet('/api/life/info?path=' + encodeURIComponent(rel))
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült lekérni az adatokat.')
+    return
+  }
+  _intezoSelected = info
+  card.hidden = false
+
+  const src = info.source || {}
+  const rows = [
+    ['Típus', info.type],
+    ['Kihez tartozik', info.owner || '—'],
+    ['Digitális hely', info.digitalLocation || '(a fa gyökere)'],
+    ['Forrás', (src.icon || '') + ' ' + (src.label || '')],
+  ]
+  ;(src.details || []).forEach((d) => rows.push([d.label, d.value]))
+  if (!info.isDir) rows.push(['Méret', info.sizeHuman || '—'])
+  rows.push(['Módosítva', info.mtime ? new Date(info.mtime).toLocaleString('hu-HU') : '—'])
+  rows.push(['Fizikai példány', info.physical && info.physical.physical ? 'VAN' : 'nincs'])
+  if (info.physicalLocationHuman) rows.push(['Fizikai hely', info.physicalLocationHuman])
+
+  rowsEl.innerHTML = rows.map((r) =>
+    '<tr><td style="padding:4px 10px 4px 0;opacity:.7;white-space:nowrap">' + escapeHtml(r[0])
+    + '</td><td style="padding:4px 0">' + escapeHtml(r[1]) + '</td></tr>').join('')
+
+  const has = document.getElementById('intezoPhysHas')
+  const fields = document.getElementById('intezoPhysFields')
+  const loc = document.getElementById('intezoPhysLocation')
+  const note = document.getElementById('intezoPhysNote')
+  const p = info.physical || {}
+  if (has) has.checked = Boolean(p.physical)
+  if (fields) fields.hidden = !p.physical
+  if (loc) { loc.textContent = info.physicalLocationHuman || '—'; loc.setAttribute('data-rel', p.location || '') }
+  if (note) note.value = p.note || ''
+  _intezoRender()
+}
+
+async function _intezoSavePhysical() {
+  if (!_intezoSelected) return
+  const has = document.getElementById('intezoPhysHas')
+  const loc = document.getElementById('intezoPhysLocation')
+  const note = document.getElementById('intezoPhysNote')
+  try {
+    await _depoPost('/api/life/physical', {
+      path: _intezoSelected.rel,
+      physical: has ? has.checked : false,
+      location: loc ? (loc.getAttribute('data-rel') || '') : '',
+      note: note ? note.value : '',
+    })
+    showToast('Mentve.')
+    await _intezoInfo(_intezoSelected.rel)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'A mentés nem sikerült.')
+  }
+}
+
+async function _intezoMkdir() {
+  const name = prompt('Mi legyen az új mappa neve?')
+  if (!name) return
+  try {
+    const r = await _depoPost('/api/life/mkdir', { parent: _intezoPath, name: name })
+    showToast(r.message || 'Kész.')
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappát.')
   }
 }

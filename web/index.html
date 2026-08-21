@@ -260,6 +260,13 @@
       <!-- Depo: EGY hely a gepen, ahol a felhasznalo minden fajlja van. Az Iroda
            ala kerult, a Drive es a Fotok melle, mert ugyanarrol szol: a sajat
            tartalmadrol, nem a rendszer adminisztraciojarol (Boss, 2026-08-15). -->
+      <!-- Marvin Intezo: EGY fa, amiben minden fajlod ott van. A Depo mellett
+           all, mert a Depo mondja meg, HOL van a fa; ez pedig megmutatja,
+           MI van benne (Boss veglegesitett alapterve, 2026-08-21). -->
+      <a href="#" class="sb-link" data-page="intezo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span class="sb-label" data-i18n="nav.intezo">Intéző</span>
+      </a>
       <a href="#" class="sb-link" data-page="depo">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
         <span class="sb-label" data-i18n="nav.depo">Depó</span>
@@ -2468,6 +2475,100 @@
          azokat." Itt KIZAROLAG Google Fotokbol behozott kep van -- Drive-fajl
          soha. -->
     <!-- ============================ DEPO ============================ -->
+    <!-- MARVIN INTEZO -- egy fajlkezelo a Marveen fajan belul.
+         Boss, 2026-08-21: "ugyanugy lehet megnyitni, bezarni, mappaba
+         belepni, fajlt megnyitni, athelyezni, keresni, rendezni" -- es
+         mindig latszodjon, honnan van a fajl (helyi gep / Drive / Photos /
+         Git). A jelveny egy kicsi szines jel a nev ELOTT: a fajl szoveget
+         SZANDEKOSAN nem szinezzuk, mert az rontana az olvashatosagot. -->
+    <div class="page" id="intezoPage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 data-i18n="intezo.title">Intéző</h1>
+            <p class="subtitle" data-i18n="intezo.subtitle">
+              Minden fájlod egy fában. A név előtti kis jel megmutatja, hogy a fájl
+              a gépeden van-e, a Google Drive-ról jött, fotó, vagy egy fejlesztői
+              projekt része.
+            </p>
+          </div>
+          <button class="btn-secondary" id="intezoRefreshBtn" data-i18n="intezo.refresh">Frissítés</button>
+        </div>
+      </div>
+
+      <!-- Ha meg nem all a fa, ez az elso es egyetlen dolog, amit tenni kell.
+           Ha all, ez a doboz elrejtozik: nem zavarunk vele naponta. -->
+      <div class="info-box" id="intezoSetupBox" hidden>
+        <p id="intezoSetupText">Betöltés…</p>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary" id="intezoEnsureBtn" data-i18n="intezo.create_tree">Könyvtárszerkezet létrehozása</button>
+          <a href="#" class="btn-secondary" data-page-link="depo" id="intezoToDepoBtn" data-i18n="intezo.to_depot">Depó beállítása</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <!-- Cimsor: morzsak (visszalepeshez), kereses, uj mappa, jelveny-mod. -->
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn-secondary" id="intezoUpBtn" title="Egy szinttel feljebb">↑</button>
+          <div id="intezoCrumbs" style="flex:1;min-width:200px;font-size:14px;line-height:1.9"></div>
+          <input type="search" id="intezoSearch" placeholder="Keresés név szerint…"
+                 style="min-width:180px" data-i18n-placeholder="intezo.search_ph">
+          <button class="btn-secondary" id="intezoMkdirBtn" data-i18n="intezo.new_folder">Új mappa</button>
+        </div>
+
+        <!-- FORRASJELVENY-MOD. Alapertelmezes az IKONOS -- Boss valasztasa.
+             A "Ki" is valodi lehetoseg: aki mar tudja fejbol, hol mi van,
+             annak ez csak zaj. A valasztas a bongeszoben marad. -->
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:13px;margin-bottom:8px">
+          <span data-i18n="intezo.badge_mode">Forrásjelzés:</span>
+          <label><input type="radio" name="intezoBadge" value="icon" checked> <span data-i18n="intezo.badge_icon">Ikon (☁ 📷 🔀 💻)</span></label>
+          <label><input type="radio" name="intezoBadge" value="text"> <span data-i18n="intezo.badge_text">Felirat ([DRIVE])</span></label>
+          <label><input type="radio" name="intezoBadge" value="off"> <span data-i18n="intezo.badge_off">Ki</span></label>
+          <span id="intezoLegend" style="opacity:.75"></span>
+        </div>
+
+        <div id="intezoMessage" class="info-box" hidden></div>
+        <div id="intezoPath" style="font-size:12px;opacity:.7;margin-bottom:6px"></div>
+        <div id="intezoList"></div>
+        <p id="intezoTruncated" style="font-size:13px;opacity:.8" hidden data-i18n="intezo.truncated">
+          Ebben a mappában nagyon sok fájl van, ezért csak az első 2000 látszik. Használd a keresőt.
+        </p>
+      </div>
+
+      <!-- RESZLETES INFORMACIO: jobb oldali panel egy kijelolt tetelrol.
+           Itt all a fizikai peldany is -- ugyanabban a faban megadott hellyel,
+           nem azonositoval. Boss: "Nem kell QR-kod. Nem kell mappa-ID." -->
+      <div class="card" id="intezoInfoCard" hidden>
+        <h2 data-i18n="intezo.info_title">Részletes információ</h2>
+        <table style="width:100%;font-size:14px">
+          <tbody id="intezoInfoRows"></tbody>
+        </table>
+
+        <h3 style="margin-top:18px" data-i18n="intezo.physical_title">Fizikai (papír) példány</h3>
+        <p class="subtitle" data-i18n="intezo.physical_desc">
+          Ha ez az irat papíron is megvan, jelöld be, és mondd meg, hol áll.
+          A helyet ugyanabból a fából választod ki, amit itt látsz — így Marvin
+          nélkül is megtalálod: Név → Jogi → Németország → Bíróság.
+        </p>
+        <label style="display:block;margin:8px 0">
+          <input type="checkbox" id="intezoPhysHas"> <span data-i18n="intezo.physical_has">Papíron is megvan</span>
+        </label>
+        <div id="intezoPhysFields" hidden>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+            <span data-i18n="intezo.physical_where">Hol áll a papír:</span>
+            <strong id="intezoPhysLocation">—</strong>
+            <button class="btn-secondary" id="intezoPhysPickBtn" data-i18n="intezo.physical_pick">Kiválasztás a fából</button>
+          </div>
+          <input type="text" id="intezoPhysNote" placeholder="Például: kék dosszié, 2. fiók"
+                 data-i18n-placeholder="intezo.physical_note_ph" style="width:100%;max-width:420px">
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary" id="intezoPhysSaveBtn" data-i18n="intezo.physical_save">Mentés</button>
+          <button class="btn-secondary" id="intezoMoveBtn" data-i18n="intezo.move">Áthelyezés másik mappába</button>
+        </div>
+      </div>
+    </div>
+
     <div class="page" id="depoPage" hidden>
       <div class="page-header">
         <div class="page-header-row">
