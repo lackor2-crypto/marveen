@@ -28,6 +28,7 @@ import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
 import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
 import { lifeName, loadLifeConfig, safeLifeName, type LifeConfig } from './life-tree.js'
+import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
 import { logger } from './logger.js'
 
 /**
@@ -68,6 +69,12 @@ export interface LifeEntry {
   source: { kind: string; label: string; short: string; icon: string }
   /** Van-e a fajlnak papir parja. A lista is mutatja, nem csak a panel. */
   physical: boolean
+  /**
+   * Ha ez a mappa egy BEKOTES, itt all az emberi felirata ("lackor2 Google
+   * Fotok"). Ures egyebkent. A felulet ebbol tudja, hogy amit megnyitsz, az
+   * valojaban mashol lakik.
+   */
+  mounted?: string
 }
 
 export interface LifeListing {
@@ -106,7 +113,14 @@ export function resolveLifePath(rel: string): string | null {
   let realRoot: string
   try { realRoot = realpathSync(root) } catch { return null }
 
-  const clean = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '')
+  const asked = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '')
+  // BEKOTES: amit a felhasznalo lat, es amit a lemez tud, nem ugyanaz.
+  // Eloszor leforditjuk a fa-beli utvonalat valodi helyre (a szemely
+  // MEDIA/FOTOK aga mogott peldaul a fotok/<fiok> mappa all), es csak
+  // UTANA jon a kilepes-ellenorzes -- vagyis egy bekotes sem tud
+  // kivezetni a fabol.
+  const mounted = resolveMount(asked)
+  const clean = mounted ? mounted.target : asked
   const target = resolve(realRoot, clean)
 
   // A meglevo elozmeny feloldasa: igy egy jelkapcsolaton at kifele mutato
@@ -134,7 +148,11 @@ export function toLifeRel(abs: string): string {
   let realRoot = root
   try { realRoot = realpathSync(root) } catch { /* marad a beallitott */ }
   if (abs === realRoot) return ''
-  return abs.startsWith(realRoot + sep) ? abs.slice(realRoot.length + 1).split(sep).join('/') : ''
+  const raw = abs.startsWith(realRoot + sep) ? abs.slice(realRoot.length + 1).split(sep).join('/') : ''
+  // Ha ez a hely egy bekotesen at latszik, a felhasznalo a FA szerinti
+  // utvonalat varja vissza (nem azt, hogy `drive/<fiok>/...`). Kulonben egy
+  // athelyezes utan olyan helyre mutatnank, amit o soha nem latott.
+  return unresolveMount(raw) || raw
 }
 
 /** Emberi meret. A `0 B` is kiirodik: egy ures fajl informacio, nem hiany. */
@@ -161,6 +179,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     mtime: (() => { try { return st.mtime.toISOString() } catch { return '' } })(),
     source: { kind: src.kind, label: src.label, short: src.short, icon: src.icon },
     physical: getPhysical(rel).physical,
+    mounted: '',
   }
 }
 
@@ -229,6 +248,28 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
     else files.push(e)
   }
 
+  // A KOZVETLEN bekotesek ugy jelennek meg, mintha mappak lennenek -- mert a
+  // felhasznalo szamara azok is. A jelvenyt a CEL alapjan kapjak, igy ranezesre
+  // latszik, hogy egy Drive- vagy Fotok-mappat nyit meg.
+  for (const m of mountsInside(base.rel)) {
+    const name = m.rel.split('/').pop() as string
+    const mAbs = resolveLifePath(m.rel)
+    if (!mAbs) continue
+    let mst: Stats
+    try { mst = statSync(mAbs) } catch { continue }
+    const e = entryFrom(mAbs, name, mst, base.rel, deep)
+    e.rel = m.rel
+    e.mounted = m.label
+    // A bekotesi pont MAJDNEM MINDIG egy mar letezo fa-mappa (`MÉDIA/FOTÓK`),
+    // nem egy uj nev. Ezert nem hozzaadjuk, hanem LECSEREJUK: a felhasznalo
+    // ugyanazt a mappat latja, de mar a bekotott tartalommal es a cel
+    // jelvenyevel. (Egy korabbi valtozat kihagyta a meglevoket -- ott a
+    // bekotes pont a leggyakoribb esetben nem latszott.)
+    const at = folders.findIndex((f) => f.name === name)
+    if (at >= 0) folders[at] = e
+    else folders.push(e)
+  }
+
   // A gyokerben sajat sorrend: ami emberi, az elol (ELET), ami gepi, hatul
   // (rendszer). Mindenutt maskor betűrend, magyar szabaly szerint.
   if (!base.rel) {
@@ -261,6 +302,8 @@ function buildBreadcrumb(rel: string): Array<{ name: string; rel: string }> {
 
 export interface LifeInfo {
   rel: string
+  /** Ha bekotesen at latszik: mi a valodi helye es minek hivjuk. */
+  mount?: { label: string; target: string } | null
   name: string
   isDir: boolean
   exists: boolean
@@ -342,8 +385,10 @@ export function lifeInfo(rel: string): LifeInfo | null {
   try { st = statSync(abs) } catch { st = null }
   const isDir = st ? st.isDirectory() : false
   const physical = getPhysical(cleanRel)
+  const mounted = resolveMount(cleanRel)
   return {
     rel: cleanRel,
+    mount: mounted ? { label: mounted.mount.label, target: mounted.target } : null,
     name,
     isDir,
     exists: Boolean(st),

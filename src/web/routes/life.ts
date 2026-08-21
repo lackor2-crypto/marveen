@@ -11,6 +11,10 @@
 //   POST /api/life/move       -- athelyezes a fan belul
 //   GET  /api/life/physical   -- papir peldanyok listaja ("papir-terkep")
 //   POST /api/life/physical   -- egy tetel papir-adatanak rogzitese
+//   GET  /api/life/mounts     -- mely fa-pontok mutatnak masik helyre
+//   POST /api/life/mounts     -- uj bekotes (Drive-mappa / Fotok / git repo)
+//   POST /api/life/mounts/remove -- bekotes megszuntetese (a fajlok maradnak)
+//   GET  /api/life/mount-options -- mit lehet bekotni (magatol osszeszedve)
 //   GET  /api/life/sources    -- a jelvenyek jelmagyarazata (forrasfajtak)
 //   GET  /api/life/inbox      -- hany irat var a BEERKEZO-ben
 //
@@ -26,6 +30,8 @@ import {
   listLife, lifeInfo, moveLife, mkdirLife, searchLife, explorerRoot,
 } from '../../life-explorer.js'
 import { listSourceKinds } from '../../life-sources.js'
+import { listMounts, addMount, removeMount } from '../../life-mounts.js'
+import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
 import type { RouteContext } from './types.js'
 
@@ -159,6 +165,35 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       note: String(body?.note ?? ''),
     })
     send(res, 200, { ok: true, ...rec })
+    return true
+  }
+
+  if (path === '/api/life/mounts' && method === 'GET') {
+    send(res, 200, { mounts: listMounts() })
+    return true
+  }
+
+  if (path === '/api/life/mounts' && method === 'POST') {
+    const body = await readBody(req).catch(() => null) as any
+    const result = addMount({
+      rel: String(body?.rel ?? ''),
+      target: String(body?.target ?? ''),
+      kind: String(body?.kind ?? 'local'),
+      label: String(body?.label ?? ''),
+    })
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  if (path === '/api/life/mounts/remove' && method === 'POST') {
+    const body = await readBody(req).catch(() => null) as any
+    const result = removeMount(String(body?.rel ?? ''))
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  if (path === '/api/life/mount-options' && method === 'GET') {
+    send(res, 200, { options: mountCandidates() })
     return true
   }
 

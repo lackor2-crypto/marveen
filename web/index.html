@@ -2566,6 +2566,24 @@
           <button class="btn-primary" id="intezoPhysSaveBtn" data-i18n="intezo.physical_save">Mentés</button>
           <button class="btn-secondary" id="intezoMoveBtn" data-i18n="intezo.move">Áthelyezés másik mappába</button>
         </div>
+
+        <!-- BEKOTES (5-7. fazis): ez a mappa masik helyen levo tartalmat
+             mutasson -- Google Drive-mappat, a letoltott fotokat vagy egy git
+             repot. Nem masolunk: a fajlok ott maradnak, ahol a szinkron
+             tartja oket, csak innen is latszanak. -->
+        <h3 style="margin-top:18px" data-i18n="intezo.mount_title">Mit mutasson ez a mappa?</h3>
+        <p class="subtitle" data-i18n="intezo.mount_desc">
+          Egy mappa mutathat máshol lévő tartalmat is: a Google Drive-od egy mappáját,
+          a letöltött fotóidat vagy egy fejlesztői projektet. Nem másolunk semmit —
+          a fájlok ott maradnak, ahol vannak, csak innen is látni fogod őket.
+          Ha megszünteted a bekötést, a fájlok akkor is megmaradnak.
+        </p>
+        <div id="intezoMountState" style="font-size:14px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="intezoMountTarget" style="min-width:260px"></select>
+          <button class="btn-secondary" id="intezoMountAddBtn" data-i18n="intezo.mount_add">Bekötés ide</button>
+          <button class="btn-secondary" id="intezoMountDelBtn" hidden data-i18n="intezo.mount_del">Bekötés megszüntetése</button>
+        </div>
       </div>
     </div>
 

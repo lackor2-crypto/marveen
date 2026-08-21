@@ -28257,6 +28257,8 @@ async function loadIntezoPage() {
   bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
   bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
+  bind('intezoMountAddBtn', 'click', () => _intezoAddMount())
+  bind('intezoMountDelBtn', 'click', () => _intezoRemoveMount())
   bind('intezoPhysHas', 'change', () => {
     const on = document.getElementById('intezoPhysHas').checked
     const f = document.getElementById('intezoPhysFields')
@@ -28279,6 +28281,7 @@ async function loadIntezoPage() {
   if (active) active.checked = true
 
   await _intezoLegend()
+  await _intezoMountOptions()
   await _intezoStatus()
   await _intezoOpen(_intezoPath)
 }
@@ -28433,7 +28436,9 @@ function _intezoRender() {
       + '<td style="padding:5px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
       + '<td style="padding:5px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '">'
       + (e.isDir ? '📁 ' : '') + escapeHtml(e.name) + '</a>'
-      + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '') + '</td>'
+      + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '')
+      + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="Ez a mappa máshol lévő tartalmat mutat">→ '
+          + escapeHtml(e.mounted) + '</span>' : '') + '</td>'
       + '<td style="padding:5px 8px;text-align:right;opacity:.7;white-space:nowrap">' + escapeHtml(e.sizeHuman) + '</td>'
       + '<td style="padding:5px 8px;white-space:nowrap"><button class="btn-secondary" data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
       + '</tr>').join('')
@@ -28539,6 +28544,7 @@ async function _intezoInfo(rel) {
     ['Digitális hely', info.digitalLocation || '(a fa gyökere)'],
     ['Forrás', (src.icon || '') + ' ' + (src.label || '')],
   ]
+  if (info.mount) rows.push(['Bekötve ide', info.mount.label + '  (' + info.mount.target + ')'])
   ;(src.details || []).forEach((d) => rows.push([d.label, d.value]))
   if (!info.isDir) rows.push(['Méret', info.sizeHuman || '—'])
   rows.push(['Módosítva', info.mtime ? new Date(info.mtime).toLocaleString('hu-HU') : '—'])
@@ -28558,7 +28564,83 @@ async function _intezoInfo(rel) {
   if (fields) fields.hidden = !p.physical
   if (loc) { loc.textContent = info.physicalLocationHuman || '—'; loc.setAttribute('data-rel', p.location || '') }
   if (note) note.value = p.note || ''
+  _intezoRenderMount(info)
   _intezoRender()
+}
+
+/** A bekotesek felajanlhato celjai. Egyszer szedjuk ossze, oldal-nyitaskor. */
+let _intezoMountOpts = []
+
+async function _intezoMountOptions() {
+  try {
+    const data = await _intezoGet('/api/life/mount-options')
+    _intezoMountOpts = data.options || []
+  } catch (e) { _intezoMountOpts = [] }
+  const sel = document.getElementById('intezoMountTarget')
+  if (!sel) return
+  if (!_intezoMountOpts.length) {
+    // Ez nem hiba: meg egyszeruen nincs mit bekotni. Azt mondjuk meg, HOL
+    // lesz mit -- nem azt, hogy "nincs adat".
+    sel.innerHTML = '<option value="">Még nincs mit bekötni — előbb a Drive vagy a Fotók oldalon hozz le tartalmat</option>'
+    return
+  }
+  sel.innerHTML = '<option value="">Válassz…</option>' + _intezoMountOpts.map((o) =>
+    '<option value="' + escapeHtml(o.target) + '">' + escapeHtml(o.label)
+    + (o.items ? ' (' + o.items + ' tétel)' : ' (üres)') + '</option>').join('')
+}
+
+/** Be van-e kotve a kijelolt mappa, es mit lehet vele csinalni. */
+function _intezoRenderMount(info) {
+  const state = document.getElementById('intezoMountState')
+  const add = document.getElementById('intezoMountAddBtn')
+  const del = document.getElementById('intezoMountDelBtn')
+  const sel = document.getElementById('intezoMountTarget')
+  if (!state) return
+  // Bekotni csak MAPPAT lehet -- egy fajl mogott nincs mit mutatni.
+  const canMount = info.isDir
+  if (add) add.disabled = !canMount
+  if (sel) sel.disabled = !canMount
+  if (info.mount) {
+    state.textContent = 'Ez a mappa most ezt mutatja: ' + info.mount.label
+    if (del) del.hidden = false
+    if (add) add.disabled = true
+  } else {
+    state.textContent = canMount
+      ? 'Ez a mappa a saját tartalmát mutatja.'
+      : 'Bekötni csak mappát lehet.'
+    if (del) del.hidden = true
+  }
+}
+
+async function _intezoAddMount() {
+  if (!_intezoSelected) return
+  const sel = document.getElementById('intezoMountTarget')
+  const target = sel ? sel.value : ''
+  if (!target) { showToast('Előbb válaszd ki, mit kössünk ide.'); return }
+  const opt = _intezoMountOpts.find((o) => o.target === target) || {}
+  try {
+    const r = await _depoPost('/api/life/mounts', {
+      rel: _intezoSelected.rel, target: target, kind: opt.kind || 'local', label: opt.label || target,
+    })
+    showToast(r.message || 'Kész.')
+    await _intezoOpen(_intezoPath)
+    await _intezoInfo(_intezoSelected.rel)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'A bekötés nem sikerült.')
+  }
+}
+
+async function _intezoRemoveMount() {
+  if (!_intezoSelected) return
+  if (!confirm('Megszüntessem a bekötést? A fájlok megmaradnak, csak innen nem látszanak többé.')) return
+  try {
+    const r = await _depoPost('/api/life/mounts/remove', { rel: _intezoSelected.rel })
+    showToast(r.message || 'Kész.')
+    await _intezoOpen(_intezoPath)
+    await _intezoInfo(_intezoSelected.rel)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : 'Nem sikerült megszüntetni a bekötést.')
+  }
 }
 
 async function _intezoSavePhysical() {
