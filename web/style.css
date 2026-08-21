@@ -10461,3 +10461,40 @@ body {
 .upstream-file-changes li { font-size: 13px; line-height: 1.45; color: var(--text-muted); }
 .upstream-file-more { list-style: none; margin-left: -18px; opacity: .7; font-style: italic; }
 .upstream-file-merge { margin-top: 4px; font-size: 12px; color: var(--text-muted); font-style: italic; }
+
+
+/* ===========================================================================
+   INTEZO -- lefixalt fejlec
+   Boss, 2026-08-21: "legyen egy fejlec es az legyen lefixalva ... es a
+   tartalom meg az ala gorgetheto". Egy tobb szaz tetelt tartalmazo mappaban a
+   lista aljara kerult gombot senki nem talalja meg.
+   =========================================================================== */
+.intezo-head {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-card);
+  padding-top: 6px;
+  /* Az also arnyek valasztja el a gorgo listatol -- kulonben a fejlec alatt
+     atcsuszo sorok ugy neznek ki, mintha a fejlec resze lennenek. */
+  box-shadow: 0 6px 6px -6px rgba(0, 0, 0, .25);
+}
+.intezo-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.intezo-actions-name {
+  font-weight: 600;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A display:flex erosebb, mint a [hidden] -- kulonben az ures muveletsav
+   akkor is ott allna, amikor semmi nincs kijelolve. (Erre teszt all:
+   hidden-attribute-css-contract.) */
+.intezo-actions[hidden] { display: none; }

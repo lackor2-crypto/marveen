@@ -28801,6 +28801,10 @@ async function loadIntezoPage() {
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
   bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
   bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
+  // A lefixalt fejlec muveletsava. Delegalt kezelo: a gombok ujrarajzolasa
+  // (disabled allapot) nem szakitja el a figyelot.
+  const abar = document.getElementById('intezoActionBar')
+  if (abar && !abar._intezoBound) { abar._intezoBound = 1; abar.addEventListener('click', _intezoActionClick) }
   bind('intezoPhysPickBtn', 'click', () => _intezoStartPick('physical'))
   bind('intezoPhysSaveBtn', 'click', () => _intezoSavePhysical())
   bind('intezoConfigBtn', 'click', () => _intezoCfgOpen())
@@ -28954,7 +28958,54 @@ function _intezoBadge(entry) {
     + ';font-size:' + (mode === 'icon' ? '15px' : '11px') + ';margin-right:6px;white-space:nowrap">' + escapeHtml(label) + '</span>'
 }
 
+/**
+ * A reszletes panel VISSZAKOLTOZIK az allando helyere.
+ *
+ * Minden lista-ujrarajzolas elott le kell valasztani a sorrol: a listat
+ * `innerHTML`-lel epitjuk ujra, ami a benne allo panelt (es a rajta levo
+ * esemenykezeloket) elpusztitana.
+ */
+function _intezoDetachInfoCard() {
+  const card = document.getElementById('intezoInfoCard')
+  const home = document.getElementById('intezoInfoHome')
+  if (card && home && card.parentNode !== home) home.appendChild(card)
+  const row = document.getElementById('intezoInlineRow')
+  if (row) row.remove()
+}
+
+/**
+ * A panel a KIJELOLT SOR ALA kerul.
+ *
+ * Boss, 2026-08-21: "annak kozvetlen ahol raklikkeltem azon sor alatt kellne
+ * megjelennie". Egy tobb szaz tetelt tartalmazo mappaban a lap aljara kerulo
+ * panel gyakorlatilag nem letezik: a szem nem talalja meg, a gorgetes meg
+ * elveszti a sort, amirol szol.
+ */
+function _intezoPlaceInfoCard() {
+  const card = document.getElementById('intezoInfoCard')
+  if (!card || !_intezoSelected) return
+  const list = document.getElementById('intezoList')
+  if (!list) return
+  const rows = list.querySelectorAll('tr[data-rel]')
+  let host = null
+  for (const r of rows) { if (r.getAttribute('data-rel') === _intezoSelected.rel) { host = r; break } }
+  // Ha a kijelolt tetel nincs a mostani listaban (mas mappaba leptunk),
+  // marad az allando helyen -- nem tuntetjuk el, csak nem tolakszik.
+  if (!host) return
+  const tr = document.createElement('tr')
+  tr.id = 'intezoInlineRow'
+  const td = document.createElement('td')
+  td.colSpan = 4
+  td.style.cssText = 'padding:0 0 10px'
+  tr.appendChild(td)
+  host.parentNode.insertBefore(tr, host.nextSibling)
+  td.appendChild(card)
+  card.hidden = false
+}
+
 function _intezoRender() {
+  // A panelt MINDIG le kell valasztani, mielott a lista ujraepul.
+  _intezoDetachInfoCard()
   const list = document.getElementById('intezoList')
   const crumbs = document.getElementById('intezoCrumbs')
   const msg = document.getElementById('intezoMessage')
@@ -29014,14 +29065,21 @@ function _intezoRender() {
       // BELEP a mappaba -- a kivalasztas kulon gombbal tortenik, hogy egy
       // fel-kattintas ne helyezzen at semmit.
       if (row && row.getAttribute('data-dir')) _intezoOpen(rel)
+      else if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
       else _intezoInfo(rel)
     })
   })
   list.querySelectorAll('button[data-info]').forEach((b) => {
-    b.addEventListener('click', () => _intezoInfo(b.getAttribute('data-info')))
+    b.addEventListener('click', () => {
+      // Kapcsolo: ugyanarra a tetelre masodszor kattintva becsukodik.
+      const rel = b.getAttribute('data-info')
+      if (_intezoSelected && _intezoSelected.rel === rel) _intezoClearSelection()
+      else _intezoInfo(rel)
+    })
   })
 
   _intezoRenderPickBar()
+  _intezoPlaceInfoCard()
 }
 
 /** Ha eppen celmappat valasztunk, egy sav mondja meg, mit csinalunk. */
@@ -29126,7 +29184,73 @@ async function _intezoInfo(rel) {
   if (loc) { loc.textContent = info.physicalLocationHuman || '—'; loc.setAttribute('data-rel', p.location || '') }
   if (note) note.value = p.note || ''
   _intezoRenderMount(info)
+  _intezoRenderActions()
   _intezoRender()
+}
+
+/**
+ * A LEFIXALT FEJLEC muveletsava.
+ *
+ * Boss, 2026-08-21: "Ez az athelyezes masik mappaba nevu gomb ott van a lista
+ * legaljan. nem a felso reszhez kellene tenni? ott alul senki sem latja."
+ *
+ * A gombok NEM masoljak a logikat: ugyanazokat a fuggvenyeket hivjak, mint a
+ * lenti panel gombjai, vagy egyszeruen odagorgetnek. Igy nem tud a ket hely
+ * kulon utra menni.
+ */
+function _intezoRenderActions() {
+  const bar = document.getElementById('intezoActionBar')
+  const name = document.getElementById('intezoActionName')
+  if (!bar) return
+  if (!_intezoSelected) { bar.hidden = true; return }
+  bar.hidden = false
+  if (name) {
+    name.textContent = (_intezoSelected.isDir ? '📁 ' : '📄 ') + (_intezoSelected.name || '')
+    name.title = _intezoSelected.rel || ''
+  }
+  // Bekotni csak mappat lehet -- fajlnal a gomb ne igerjen semmit.
+  const mount = bar.querySelector('[data-intezo-act="mount"]')
+  if (mount) mount.disabled = !_intezoSelected.isDir
+}
+
+/** A panel egy reszehez gorget, es elore lathatova teszi a panelt. */
+function _intezoJumpTo(id) {
+  const card = document.getElementById('intezoInfoCard')
+  if (card) card.hidden = false
+  const el = document.getElementById(id) || card
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+/** A kijeloles vege: a panel becsukodik, a sav eltunik, a sor kijelolese megszunik. */
+function _intezoClearSelection() {
+  _intezoSelected = null
+  _intezoDetachInfoCard()
+  const card = document.getElementById('intezoInfoCard')
+  if (card) card.hidden = true
+  _intezoRenderActions()
+  _intezoRender()
+}
+
+function _intezoActionClick(ev) {
+  const btn = ev.target && ev.target.closest ? ev.target.closest('[data-intezo-act]') : null
+  if (!btn) return
+  ev.preventDefault()
+  if (!_intezoSelected && btn.getAttribute('data-intezo-act') !== 'clear') {
+    showToast('Előbb válassz ki egy fájlt vagy mappát.')
+    return
+  }
+  switch (btn.getAttribute('data-intezo-act')) {
+    case 'move': _intezoStartPick('move'); break
+    case 'mount': {
+      _intezoJumpTo('intezoMountTitle')
+      const sel = document.getElementById('intezoMountTarget')
+      if (sel && !sel.disabled) sel.focus()
+      break
+    }
+    case 'paper': _intezoJumpTo('intezoPhysTitle'); break
+    case 'info': _intezoJumpTo('intezoInfoCard'); break
+    case 'clear': _intezoClearSelection(); break
+  }
 }
 
 /** A bekotesek felajanlhato celjai. Egyszer szedjuk ossze, oldal-nyitaskor. */

@@ -2557,6 +2557,11 @@
       </div>
 
       <div class="card">
+        <!-- LEFIXALT FEJLEC. Boss, 2026-08-21: egy tobb szaz fotos mappaban a
+             lap aljara kerulo gomb gyakorlatilag nem letezik. Ezert a
+             navigacio ES a kijelolt tetel muveletei fent maradnak, a lista meg
+             alattuk gorog. -->
+        <div class="intezo-head">
         <!-- Cimsor: morzsak (visszalepeshez), kereses, uj mappa, jelveny-mod. -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
           <button class="btn-secondary" id="intezoUpBtn" title="Egy szinttel feljebb" aria-label="Egy szinttel feljebb"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="vertical-align:-2px"><path d="M12 20V5"/><path d="M5 12l7-7 7 7"/></svg></button>
@@ -2578,6 +2583,21 @@
           <span id="intezoLegend" style="opacity:.75"></span>
         </div>
 
+
+        <!-- A KIJELOLT TETEL MUVELETEI. Csak akkor latszik, ha van kijelolt
+             tetel -- ures kijeloles mellett csak zaj lenne. A gombok ugyanazt
+             a kodot inditjak, mint a lenti panel gombjai: egy viselkedes, ket
+             hely. -->
+        <div id="intezoActionBar" class="intezo-actions" hidden>
+          <span id="intezoActionName" class="intezo-actions-name"></span>
+          <button class="btn-secondary btn-compact" data-intezo-act="move" data-i18n="intezo.move">Áthelyezés másik mappába</button>
+          <button class="btn-secondary btn-compact" data-intezo-act="mount" data-i18n="intezo.mount_title">Mit mutasson ez a mappa?</button>
+          <button class="btn-secondary btn-compact" data-intezo-act="paper" data-i18n="intezo.physical_title">Fizikai (papír) példány</button>
+          <button class="btn-secondary btn-compact" data-intezo-act="info" data-i18n="intezo.info_title">Részletes információ</button>
+          <button class="btn-secondary btn-compact" data-intezo-act="clear" data-i18n="intezo.sel_clear">Kijelölés vége</button>
+        </div>
+        </div>
+
         <div id="intezoMessage" class="info-box" hidden></div>
         <div id="intezoPath" style="font-size:12px;opacity:.7;margin-bottom:6px"></div>
         <div id="intezoList"></div>
@@ -2585,6 +2605,13 @@
           Ebben a mappában nagyon sok fájl van, ezért csak az első 2000 látszik. Használd a keresőt.
         </p>
       </div>
+
+      <!-- A panel "otthona". A panel kijeloleskor ATKOLTOZIK a kijelolt sor ALA
+           (app.js / _intezoPlaceInfoCard), es kijeloles nelkul ide ter vissza.
+           Azert kell sajat szulo, mert a listat innerHTML-lel rajzoljuk ujra:
+           ha a panel ott allna, minden frissites megsemmisitene -- a rajta
+           levo esemenykezelokkel egyutt. -->
+      <div id="intezoInfoHome"></div>
 
       <!-- RESZLETES INFORMACIO: jobb oldali panel egy kijelolt tetelrol.
            Itt all a fizikai peldany is -- ugyanabban a faban megadott hellyel,
@@ -2595,7 +2622,7 @@
           <tbody id="intezoInfoRows"></tbody>
         </table>
 
-        <h3 style="margin-top:18px" data-i18n="intezo.physical_title">Fizikai (papír) példány</h3>
+        <h3 id="intezoPhysTitle" style="margin-top:18px" data-i18n="intezo.physical_title">Fizikai (papír) példány</h3>
         <p class="subtitle" data-i18n="intezo.physical_desc">
           Ha ez az irat papíron is megvan, jelöld be, és mondd meg, hol áll.
           A helyet ugyanabból a fából választod ki, amit itt látsz — így Marvin
@@ -2622,7 +2649,7 @@
              mutasson -- Google Drive-mappat, a letoltott fotokat vagy egy git
              repot. Nem masolunk: a fajlok ott maradnak, ahol a szinkron
              tartja oket, csak innen is latszanak. -->
-        <h3 style="margin-top:18px" data-i18n="intezo.mount_title">Mit mutasson ez a mappa?</h3>
+        <h3 id="intezoMountTitle" style="margin-top:18px" data-i18n="intezo.mount_title">Mit mutasson ez a mappa?</h3>
         <p class="subtitle" data-i18n="intezo.mount_desc">
           Egy mappa mutathat máshol lévő tartalmat is: a Google Drive-od egy mappáját,
           a letöltött fotóidat vagy egy fejlesztői projektet. Nem másolunk semmit —

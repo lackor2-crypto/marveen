@@ -419,6 +419,7 @@ window._i18n.hu = {
   'intezo.physical_pick': 'Kiválasztás a fából',
   'intezo.physical_note_ph': 'Például: kék dosszié, 2. fiók',
   'intezo.physical_save': 'Mentés',
+  'intezo.sel_clear':                'Kijelölés vége',
   'intezo.move': 'Áthelyezés másik mappába',
   'intezo.cfg_open': 'Kik szerepeljenek a fában?',
   'intezo.cfg_title': 'Kik szerepeljenek a fában?',

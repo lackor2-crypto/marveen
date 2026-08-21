@@ -406,6 +406,7 @@ window._i18n.en = {
   'intezo.physical_pick': 'Pick from the tree',
   'intezo.physical_note_ph': 'For example: blue folder, 2nd drawer',
   'intezo.physical_save': 'Save',
+  'intezo.sel_clear':                'Clear selection',
   'intezo.move': 'Move to another folder',
   'intezo.cfg_open': 'Who should be in the tree?',
   'intezo.cfg_title': 'Who should be in the tree?',
