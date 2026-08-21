@@ -733,3 +733,42 @@ böngészőnek — csak azt, hogy van-e. A `.git/config`-ba sem kerül: a távol
 `https://<fiók>@github.com/...` marad (felhasználónév, nem titok), a kulcsot
 futásidőben egy `GIT_ASKPASS` segédprogram adja át a környezetből. Parancssori
 argumentumként soha: az `argv` minden felhasználónak látszik (`ps`).
+
+
+## KÖLCSÖNKULCS: OLVASNI AZT IS, AMI NEM A MIÉNK — 2026-08-21
+
+Boss: *„ha nem lehet letolteni az usalackorrol, mert nem az ove, akkor hogyan
+fogjuk olvasni a repokat?”*
+
+A hozzáférés **nem a tulajdonon múlik, hanem a jogosultságon**. Az
+`usalackor-blip` kulcsa mind a 6 `freeberischeaper`-repót látja
+(közreműködőként). Eddig csak azt néztük, mit **birtokol** egy fiók
+(`affiliation=owner`), ezért nem jött le semmi.
+
+Mostantól, ha egy fiókhoz nincs saját kulcs, a lehúzás **megkérdezi a
+GitHubot**, hogy a gépen lévő gh-bejelentkezések közül lát-e valamelyik olyan
+repót, aminek **az a fiók a gazdája** — és csak akkor kölcsönöz. Név alapján
+sosem találgatunk: egy találgatósabb párosítás előbb-utóbb idegen fiók kulcsát
+adná oda.
+
+**A titok nem másolódik.** A token-tárba csak az kerül, hogy *kié* a kulcs
+(`borrowedFrom`), maga a kulcs nem. Futásidőben keressük elő, tehát ha ott
+kijelentkeznek, itt is elfogy — nem marad egy elfelejtett másolat egy céges
+kulcsról. A klón címébe a **kulcs gazdájának** a neve kerül, nem a fióké.
+
+A felület kiírja: *„kulcs: kölcsön a(z) usalackor-blip fióktól (csak
+olvasás)”*. Ez nem díszítés: aki nem tudja, min áll a hozzáférése, az nem tudja
+megjavítani sem, amikor elromlik.
+
+A repók a fiók saját mappájába kerülnek (`Rendszer/Tárolók/Git/<fiók>`), és a
+fába **bekötéssel** látszanak — például
+`Cégek/Freeberischeaper/Fejlesztés/GIT_REPOS`. Másolat sehol.
+
+## TÁROLÓ-SOR TÖRLÉSE — 2026-08-21
+
+Fel lehetett venni git-fiókot, levenni nem — csak kikapcsolni, amitől a sor ott
+maradt. A **🗑 Fiók törlése** mérés után, két körben dolgozik; fel nem töltött
+munka esetén `force`-szal **sem** töröl, hanem a repó saját törlő-útjára küld,
+ahol egyesével látszik, mi veszne el. Fontos részlet: a Tárolók listája a
+**lemezről is** dolgozik, ezért a regiszterből törlés önmagában nem tünteti el
+a sort — a mappának is mennie kell.

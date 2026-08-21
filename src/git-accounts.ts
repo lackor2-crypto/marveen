@@ -44,7 +44,13 @@ function askpassFile(): string {
 }
 
 interface TokenRow {
+  /** Ures, ha a kulcs mase: olyankor `borrowedFrom` mondja meg, kie. */
   token: string
+  /**
+   * Egy MASIK gh-bejelentkezes neve, aminek a kulcsaval ehhez a fiokhoz
+   * hozzaferunk. A kulcs maga NEM kerul ide -- futasidoben keressuk elo.
+   */
+  borrowedFrom?: string
   /** Amit a GitHub visszaadott a kulcshoz -- igy latszik, ha elgepelte a fiokot. */
   login: string
   addedAt: string
@@ -90,6 +96,12 @@ function ghCliTokens(): Array<{ login: string; token: string }> {
   } catch { return [] }
 }
 
+/** Egy gh-bejelentkezes kulcsa NEV szerint. */
+function ghTokenByLogin(login: string): string {
+  const l = String(login || '').toLowerCase()
+  return ghCliTokens().find((r) => r.login.toLowerCase() === l)?.token || ''
+}
+
 /** Melyik gh-bejelentkezes tartozik ehhez a fiokhoz -- ha van ilyen. */
 export function ghTokenFor(account: string): { login: string; token: string } | null {
   const a = String(account || '').trim().toLowerCase()
@@ -107,11 +119,19 @@ export function ghTokenFor(account: string): { login: string; token: string } | 
  * eloz, mert az a kesobbi, tudatos dontes -- ha valaki beir egy PAT-ot, azt
  * akarja hasznalni, nem a regi gh-bejelentkezest.
  */
-function resolveToken(account: string): { token: string; login: string; source: 'sajat' | 'gh' } | null {
+function resolveToken(account: string): { token: string; login: string; source: 'sajat' | 'gh' | 'kolcson' } | null {
   const own = readTokens()[account]
   if (own?.token) return { token: own.token, login: own.login || '', source: 'sajat' }
   const gh = ghTokenFor(account)
-  return gh ? { token: gh.token, login: gh.login, source: 'gh' } : null
+  if (gh) return { token: gh.token, login: gh.login, source: 'gh' }
+  // Kolcsonkulcs: egy masik fiok jogosultsaga. A kulcsot MOST keressuk elo --
+  // ha ott kijelentkeztek, itt is elfogy, es ezt latni is fogjuk.
+  const from = own?.borrowedFrom
+  if (from) {
+    const t = ghTokenByLogin(from)
+    if (t) return { token: t, login: from, source: 'kolcson' }
+  }
+  return null
 }
 
 /** Van-e mar kulcs ehhez a fiokhoz. Maga a kulcs SOSE hagyja el a szervert. */
@@ -124,12 +144,13 @@ export function gitAccountsWithToken(): string[] {
   return Object.keys(readTokens()).filter((a) => readTokens()[a]?.token)
 }
 
-export function gitTokenInfo(account: string): { has: boolean; login: string; addedAt: string; source: '' | 'sajat' | 'gh' } {
-  const row = readTokens()[account]
-  if (row?.token) return { has: true, login: row.login || '', addedAt: row.addedAt || '', source: 'sajat' }
-  // A gh-bol atvett kulcsnal nincs "hozzaadva" datum -- nem mi adtuk hozza.
-  const gh = ghTokenFor(account)
-  return gh ? { has: true, login: gh.login, addedAt: '', source: 'gh' } : { has: false, login: '', addedAt: '', source: '' }
+export function gitTokenInfo(account: string): { has: boolean; login: string; addedAt: string; source: '' | 'sajat' | 'gh' | 'kolcson' } {
+  const r = resolveToken(account)
+  if (!r) return { has: false, login: '', addedAt: '', source: '' }
+  // A gh-bol atvett vagy kolcsonzott kulcsnal nincs "hozzaadva" datum --
+  // nem mi adtuk hozza.
+  const addedAt = r.source === 'sajat' ? (readTokens()[account]?.addedAt || '') : ''
+  return { has: true, login: r.login, addedAt, source: r.source }
 }
 
 /** A kulcs torlese. A mar lehuzott repok a helyukon maradnak. */
@@ -212,6 +233,18 @@ export interface RemoteRepo {
  * felhasznalo, szervezet, vagy egy masik felhasznalo, akinek a repoit latjuk.
  * Az elso, amelyik valaszol, dont.
  */
+function mapRepos(body: any[]): RemoteRepo[] {
+  return body
+    .map((x: any) => ({
+      name: String(x?.name || ''),
+      cloneUrl: String(x?.clone_url || ''),
+      private: Boolean(x?.private),
+      archived: Boolean(x?.archived),
+      updatedAt: String(x?.updated_at || ''),
+    }))
+    .filter((x: RemoteRepo) => x.name && x.cloneUrl)
+}
+
 export async function listRemoteRepos(account: string, token?: string): Promise<RemoteRepo[]> {
   const tok = token || resolveToken(account)?.token
   if (!tok) return []
@@ -226,19 +259,21 @@ export async function listRemoteRepos(account: string, token?: string): Promise<
     ? ['/user/repos?per_page=100&affiliation=owner&sort=updated']
     : [`/orgs/${account}/repos?per_page=100&sort=updated`, `/users/${account}/repos?per_page=100&sort=updated`]
 
+  // Ha a fiok NEM a kulcs gazdaja, a `/orgs` es `/users` utak csak a
+  // NYILVANOS repokat adjak vissza. A privatokhoz azt kell megkerdezni, mihez
+  // van a kulcsnak koze -- es abbol kiszurni, aminek EZ a fiok a gazdaja.
+  if (!sajat) {
+    const r = await githubApi(tok, '/user/repos?per_page=100&affiliation=collaborator,organization_member&sort=updated')
+    if (r.ok && Array.isArray(r.body)) {
+      const rows = mapRepos(r.body.filter((x: any) => String(x?.owner?.login || '').toLowerCase() === a))
+      if (rows.length) return rows
+    }
+  }
+
   for (const p of paths) {
     const r = await githubApi(tok, p)
     if (r.ok && Array.isArray(r.body)) {
-      const rows: RemoteRepo[] = r.body
-        .filter((x: any) => !token || true)
-        .map((x: any) => ({
-          name: String(x?.name || ''),
-          cloneUrl: String(x?.clone_url || ''),
-          private: Boolean(x?.private),
-          archived: Boolean(x?.archived),
-          updatedAt: String(x?.updated_at || ''),
-        }))
-        .filter((x: RemoteRepo) => x.name && x.cloneUrl)
+      const rows = mapRepos(r.body)
       if (rows.length) return rows
     }
   }
@@ -290,6 +325,32 @@ function git(cwd: string, args: string[], env: NodeJS.ProcessEnv, timeout = 9000
   })
 }
 
+/**
+ * Van-e a gepen olyan gh-bejelentkezes, ami LAT ehhez a fiokhoz tartozo repot.
+ *
+ * Nem talalgatunk nev alapjan: MEGKERDEZZUK a GitHubot, es csak akkor
+ * mondjuk, hogy jo, ha tenylegesen jon vissza olyan repo, aminek EZ a fiok a
+ * gazdaja. Igy nem fordulhat elo, hogy egy idegen fiok kulcsat rendeljuk ide.
+ */
+export async function findBorrowKey(account: string): Promise<{ login: string; repos: number } | null> {
+  const a = String(account || '').trim().toLowerCase()
+  if (!a) return null
+  for (const cand of ghCliTokens()) {
+    const r = await githubApi(cand.token, '/user/repos?per_page=100&affiliation=collaborator,organization_member')
+    if (!r.ok || !Array.isArray(r.body)) continue
+    const n = r.body.filter((x: any) => String(x?.owner?.login || '').toLowerCase() === a).length
+    if (n) return { login: cand.login, repos: n }
+  }
+  return null
+}
+
+/** A kolcsonzes rogzitese. A KULCS nem kerul be -- csak az, hogy kie. */
+export function setBorrowedFrom(account: string, login: string): void {
+  const store = readTokens()
+  store[account] = { token: '', login, borrowedFrom: login, addedAt: new Date().toISOString() }
+  writeTokens(store)
+}
+
 export interface PullResult {
   ok: boolean
   message: string
@@ -310,8 +371,17 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   const acc = String(account || '').trim()
   const root = depotRoot()
   if (!root) return { ok: false, message: 'Nincs beállítva depó — a Depó oldalon add meg, hova kerüljenek a fájlok.', cloned: [], present: [], failed: [] }
+  let kolcsonzott = ''
   if (!hasGitToken(acc)) {
-    return { ok: false, message: 'Ehhez a fiókhoz még nincs hozzáférési kulcs. Add meg a „Kulcs megadása” gombbal, utána jöhet a lehúzás.', cloned: [], present: [], failed: [] }
+    // Nincs sajat kulcs -- de lehet, hogy a gepen van olyan bejelentkezes,
+    // ami LAT ide. A hozzaferes nem a tulajdonon mulik: egy kozremukodo is
+    // olvashatja a repot, csak eppen nem o a gazdaja.
+    const borrow = await findBorrowKey(acc)
+    if (!borrow) {
+      return { ok: false, message: 'Ehhez a fiókhoz nincs hozzáférési kulcs, és a gépen lévő fiókok egyike sem lát ide. Add meg a „Kulcs” gombbal.', cloned: [], present: [], failed: [] }
+    }
+    setBorrowedFrom(acc, borrow.login)
+    kolcsonzott = borrow.login
   }
 
   const dir = join(root, storageKindRoot('git'), acc)
@@ -322,6 +392,9 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
     return { ok: false, message: 'Ezzel a kulccsal egyetlen repót sem látok ehhez a fiókhoz. Ellenőrizd a fióknevet és a kulcs „repo” jogosultságát.', cloned: [], present: [], failed: [] }
   }
 
+  const kolcsonSzoveg = kolcsonzott
+    ? ` A kulcsot a(z) „${kolcsonzott}” fiókból kölcsönöztem — ez a fiók lát ezekre a repókra.`
+    : ''
   const env = gitEnvFor(acc)
   const cloned: string[] = []
   const present: string[] = []
@@ -331,7 +404,10 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
     const target = join(dir, repo.name)
     if (existsSync(join(target, '.git'))) { present.push(repo.name); continue }
     // A felhasznalonev a cimben marad, a KULCS nem: azt az askpass adja at.
-    const url = repo.cloneUrl.replace('https://', `https://${acc}@`)
+    // A cimbe a KULCS GAZDAJANAK a neve kerul, nem a fioke: kolcsonkulcsnal
+    // a ketto nem ugyanaz, es egy nem letezo felhasznalonev felesleges
+    // hitelesitesi hibat okozna.
+    const url = repo.cloneUrl.replace('https://', `https://${kolcsonzott || acc}@`)
     const r = await git(dir, ['clone', '--quiet', url, repo.name], env)
     if (r.ok) cloned.push(repo.name)
     else failed.push({ name: repo.name, message: (r.err.split('\n').pop() || '').slice(0, 140) })
@@ -344,6 +420,7 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   if (present.length) parts.push(`${present.length} már megvolt.`)
   if (failed.length) parts.push(`${failed.length} nem sikerült: ${failed.map((f) => f.name).join(', ')}.`)
   if (!parts.length) parts.push('Nem volt mit tenni.')
+  if (kolcsonSzoveg) parts.push(kolcsonSzoveg.trim())
   parts.push('Innentől magától frissül, 6 óránként.')
 
   return { ok: failed.length === 0, message: parts.join(' '), cloned, present, failed }

@@ -28511,9 +28511,14 @@ async function _storagesRefresh() {
         + '<td>' + _storageStateText(r)
         // A gh-bol atvett kulcs nem a mienk: ha ott kijelentkeznek, itt is
         // elfogy. Ezert nem hallgatjuk el, hogy honnan jon.
+        // Honnan van a kulcs. A kolcsonzottet KULON mondjuk: az egy masik
+        // fiok jogosultsaga, es ha ott kijelentkeznek, ez is elfogy.
         + (r.tokenSource === 'gh'
           ? '<br><span style="font-size:11px;opacity:.75">kulcs: a gépen lévő gh-fiókból ('
             + escapeHtml(r.tokenLogin || '') + ')</span>'
+          : r.tokenSource === 'kolcson'
+          ? '<br><span style="font-size:11px;opacity:.75">kulcs: kölcsön a(z) '
+            + escapeHtml(r.tokenLogin || '') + ' fióktól (csak olvasás)</span>'
           : '')
         + '</td>'
         + '<td><div class="stor-acts">'
