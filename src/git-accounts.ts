@@ -23,12 +23,14 @@
  */
 
 import { execFile } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PROJECT_ROOT } from './config.js'
 import { depotRoot } from './depot.js'
-import { storageKindRoot } from './storages.js'
+import { repoStatus } from './git-guard.js'
+import { toLifeRel } from './life-explorer.js'
+import { readStorageRegistry, writeStorageRegistry, removeGitAccount, storageKindRoot } from './storages.js'
 import { logger } from './logger.js'
 
 /** Csak a szerver olvassa. `0600`, es sose megy vissza a bongeszonek. */
@@ -345,4 +347,87 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   parts.push('Innentől magától frissül, 6 óránként.')
 
   return { ok: failed.length === 0, message: parts.join(' '), cloned, present, failed }
+}
+
+
+export interface AccountDeleteResult {
+  ok: boolean
+  /** Igaz, ha van bent valami: a felulet ilyenkor RAKERDEZ, es ujra kuldi force-szal. */
+  needsConfirm?: boolean
+  message: string
+  repos?: string[]
+}
+
+/**
+ * Egy git-fiok TELJES levetele: regiszter + kulcs + mappa.
+ *
+ * MERES ELOSZOR. Egy ures fiokot nincs mit felteni -- azt szo nelkul levesszuk.
+ * Ha viszont repok vannak alatta, eloszor MEGMONDJUK, mi van bent, es csak a
+ * masodik korben (`force`) torlunk: aki egy felreklikkelt gombbal 800 MB
+ * munkat veszit, annak hiaba magyarazzuk utolag.
+ *
+ * ES VAN, AMIT FORCE-SZAL SEM: ha egy repoban fel nem toltott commit vagy
+ * modositott fajl van, itt megallunk, es a repo sajat torlo-utjara kuldunk.
+ * Ott egyesevel latszik, MI veszne el -- egy fiok-szintu "biztos?" ezt
+ * elmosna, pedig eppen ez a lenyeges informacio.
+ */
+export async function deleteGitAccount(
+  account: string,
+  opts: { force?: boolean } = {},
+): Promise<AccountDeleteResult> {
+  const acc = String(account || '').trim()
+  if (!acc) return { ok: false, message: 'Hiányzik a fiók neve.' }
+
+  // A  a fan BELULI, relativ utat adja -- a depo gyokere kell
+  // ele, kulonben egy nem letezo mappat mernenk meg, es minden fiok "uresnek"
+  // latszana. (Ezt egy elo proba fogta meg: fel nem toltott repot is atengedett.)
+  const root = depotRoot()
+  if (!root) return { ok: false, message: 'Nincs beállítva a depó helye, ezért nem nyúlok semmihez.' }
+  const dir = join(root, storageKindRoot('git'), acc)
+  let entries: string[] = []
+  try { entries = readdirSync(dir) } catch { entries = [] }
+  const repos: string[] = []
+  const veszelyes: string[] = []
+
+  for (const name of entries) {
+    if (!existsSync(join(dir, name, '.git'))) continue
+    repos.push(name)
+    const st = await repoStatus(toLifeRel(join(dir, name)))
+    if (!st.safe) veszelyes.push(`${name} — ${st.sentence.replace(/^⚠ /, '')}`)
+  }
+
+  if (veszelyes.length) {
+    return {
+      ok: false, repos,
+      message: 'Ezt a fiókot most nem veszem le, mert olyan munka van benne, ami sehol máshol nincs meg:\n'
+        + veszelyes.map((v) => '• ' + v).join('\n')
+        + '\n\nTöltsd fel, vagy töröld ezeket a repókat egyesével az Intézőben — ott látod, mi veszne el.',
+    }
+  }
+
+  if (repos.length && !opts.force) {
+    return {
+      ok: false, needsConfirm: true, repos,
+      message: `Ebben a fiókban ${repos.length} repó van (${repos.join(', ')}). `
+        + 'Mind fel van töltve, tehát bármikor visszahúzható — de a helyi másolat törlődik. Törölhetem?',
+    }
+  }
+
+  // A KULCS MEGY ELOSZOR. Ha a mappa torlese felutkozben elhasal, ne maradjon
+  // ott egy gazdatlan hozzaferesi kulcs egy fiokhoz, ami mar nincs a listan.
+  removeGitToken(acc)
+  const reg = readStorageRegistry()
+  writeStorageRegistry(removeGitAccount(reg, acc))
+  try {
+    rmSync(dir, { recursive: true, force: true })
+  } catch (e) {
+    return { ok: false, message: 'A fiók lekerült a listáról, de a mappáját nem tudtam törölni: ' + String(e) }
+  }
+  logger.info({ account: acc, repos: repos.length }, '[git-fiok] fiok levéve')
+  return {
+    ok: true, repos,
+    message: repos.length
+      ? `Levéve: ${acc} (${repos.length} repó helyi másolatával együtt). A távoli tárolókhoz nem nyúltam.`
+      : `Levéve: ${acc}. Üres volt, nem veszett el semmi.`,
+  }
 }

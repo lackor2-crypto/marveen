@@ -25,7 +25,7 @@ import {
   type StorageKind,
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
-import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos } from '../../git-accounts.js'
+import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
 import { syncAllRepos, lastSyncRun } from '../../git-sync.js'
 import type { RouteContext } from './types.js'
 
@@ -201,6 +201,15 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/storages/git-sync' && method === 'POST') {
     const run = await syncAllRepos()
     json(res, { ok: true, last: run, message: `${run.results.length} repót néztem át: ${run.updated} frissült, ${run.skipped} kimaradt, ${run.errors} hibázott.` })
+    return true
+  }
+
+  // A fiok LEVETELE. Csak git: a Google-fiok a Fiokok oldalrol jon, azt nem
+  // innen kell kikotni -- kulonben ket helyen lehetne ugyanazt elrontani.
+  if (path === '/api/storages/git-delete' && method === 'POST') {
+    const b = await readJson(req)
+    const r = await deleteGitAccount(String(b?.account || '').trim(), { force: b?.force === true })
+    json(res, { ...r, rows: currentRows() }, r.ok || r.needsConfirm ? 200 : 400)
     return true
   }
 

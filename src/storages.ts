@@ -283,6 +283,34 @@ export function addGitAccount(
   return { reg: { ...reg, gitAccounts: [...reg.gitAccounts, name] } }
 }
 
+/**
+ * Egy git-fiok LEVETELE a regiszterrol.
+ *
+ * Az AZONOSITOT SZANDEKOSAN MEGHAGYJUK (`ids`): a sorszamot torles utan sem
+ * hasznaljuk ujra -- lasd `assignStorageId`. Ha a `GIT_02`-t levennenk es
+ * kesobb egy uj fiok megkapna a `GIT_02`-t, egy regi hivatkozas hirtelen mas
+ * tarolora mutatna.
+ *
+ * TISZTA fuggveny: a mappahoz es a kulcshoz nem nyul -- azt a hivo intezi,
+ * miutan megmerte, mi van bent.
+ */
+export function removeGitAccount(
+  reg: StorageRegistryFile,
+  account: string,
+): StorageRegistryFile {
+  const key = storageKey('git', account)
+  const names = { ...reg.names }
+  const disabled = { ...reg.disabled }
+  delete names[key]
+  delete disabled[key]
+  return {
+    ...reg,
+    names,
+    disabled,
+    gitAccounts: reg.gitAccounts.filter((a) => a !== account),
+  }
+}
+
 /** Atnevezes -- csak a MEGJELENITETT nev valtozik, a mappa nem mozdul. */
 export function renameStorage(
   reg: StorageRegistryFile,

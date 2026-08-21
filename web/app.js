@@ -28531,6 +28531,11 @@ async function _storagesRefresh() {
             + escapeHtml(r.account) + '">' + (r.connected ? '🔑 Kulcs' : '🔑 Kulcs kell') + '</button>'
             + ' <button class="btn-primary btn-compact" data-stor-act="pull" data-kind="git" data-account="'
             + escapeHtml(r.account) + '">⬇ Repók le</button>'
+            // Fel lehetett venni fiokot, levenni nem -- csak kikapcsolni,
+            // amitol a sor ott maradt. Ami feleslegesen ott all, azt egyszer
+            // valaki osszekeveri azzal, ami kell.
+            + ' <button class="btn-secondary btn-compact" data-stor-act="delete" data-kind="git" data-account="'
+            + escapeHtml(r.account) + '" style="color:#c0392b">🗑 Fiók törlése</button>'
           : '')
         + '</div></td></tr>'
     }).join('')
@@ -28579,6 +28584,16 @@ async function _storagesClick(ev) {
       var tr = await _depoPost('/api/storages/git-token',
         tok.trim() ? { account: account, token: tok.trim() } : { account: account, remove: true })
       _storagesSay(tr.message || 'Kész.')
+    } else if (act === 'delete') {
+      // KET KORBEN. Eloszor a szerver MEGMERI, mi van a fiok alatt, es azt
+      // irja ki; a "biztos?" csak azutan jon, hogy latod, mit veszitesz.
+      // Ha van bent fel nem toltott munka, a szerver force-szal sem torol.
+      var d1 = await _depoPost('/api/storages/git-delete', { account: account })
+      if (d1.ok) { _storagesSay(d1.message || 'Levéve.'); await _storagesRefresh(); return }
+      if (!d1.needsConfirm) { _storagesSay(d1.message || 'Nem sikerült.'); return }
+      if (!window.confirm(d1.message)) { _storagesSay('Rendben, nem törlöm.'); return }
+      var d2 = await _depoPost('/api/storages/git-delete', { account: account, force: true })
+      _storagesSay(d2.message || 'Kész.')
     } else if (act === 'pull') {
       _storagesSay('Lehúzás folyamatban… nagy repóknál ez percekig tarthat.')
       var pr = await _depoPost('/api/storages/git-pull', { account: account })
