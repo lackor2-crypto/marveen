@@ -454,3 +454,57 @@ Ezek nyitott pontok, amikre a megvalósítás előtt döntés kell:
 6. **Külső törlés elleni védelem (6. pont)** ma nincs implementálva – a Drive
    szinkron kétirányú. Ezt külön kártyán kell megcsinálni, mert adatvesztési
    kockázat.
+
+---
+
+## MEGVALÓSULÁS — 2026-08-21 (commit `fcbcc6f` + `89cd4c6`)
+
+Ez a szakasz azt rögzíti, hogy a fenti specifikációból **mi épült meg**, és
+mi nem. Azért van a dokumentum végén, hogy a terv szövege érintetlen maradjon:
+a terv a szándék, ez a mérleg.
+
+### Megépült
+
+| Spec | Mi lett belőle |
+|---|---|
+| 3. | Nincs `ÉLET` gyűjtőmappa: a személyek közvetlenül a depó gyökerében állnak |
+| 4. | `RENDSZER/{MARVIN, TÁROLÓK, GIT}` |
+| 11. | 12 személyi kategória, **minden** személynek, üresen is (Boss felülírása) |
+| 12–13. | `<személy>/PROJEKTEK/<projekt>/{TUDÁSBÁZIS, TOVÁBBI ANYAGOK, FEJLESZTÉS/{…, GIT_REPOS}}` |
+| 15–16. | 8 céges kategória, `FEJLESZTÉS/GIT_REPOS` valódi repóknak |
+| 18. | `MÉDIA/<személy>/<típus>/<ország>/<csoport>` |
+| 21. | `DIGITÁLIS/{DOMAINEK, ESZKÖZÖK, DIGITÁLIS SZOLGÁLTATÁSOK}` — jelszó nélkül |
+| 25–26. | `ARCHÍV`, `MEGOSZTOTT` |
+| 28. | Az országszintek **előre** elkészülnek (a Boss felülírása), a konkrét ügymappák továbbra is szükség szerint |
+| 29–30. | A kódban egyetlen valódi név sincs; a sablonok helyőrzőket használnak, és ezt teszt őrzi |
+| 31. | A személyes és a céges git-repók külön ágon állnak |
+| 33. | A depó helye a Beállításokból állítható |
+
+**Ezen felül**, a Boss külön kérésére:
+
+- **Ország-bontás kapcsolóként.** Nem fix a „csak JOGI/PÉNZÜGY/HATÓSÁGOK" hármas:
+  személyenként eldönthető, mely területek bomoljanak országra — a **MÉDIA is**,
+  hogy a három ország fotói és videói külön álljanak.
+- **Kész sablonok** friss telepítéshez (`src/life-templates.ts`): négy szerkezet,
+  amit a felhasználó kiválaszt, aztán a neveket átírja magára.
+- **A `drive` és a `fotok` a gyökérben maradt.** A többi technikai mappa a
+  `RENDSZER` alá került; ez a kettő a Boss döntése alapján nem mozdult, és élő
+  szinkron-cél is, tehát az elmozdítása a letöltéseket a régi útra írná.
+
+### Még nincs kész
+
+Ezek **nem** részei ennek a körnek, és külön fejlesztést igényelnek:
+
+1. **Több Drive-tároló kezelése** (5., 33.) — `DRIVE_01..10`, Beállítások → Tárolók.
+   Ma egy Drive-fiók van bekötve.
+2. **Külső törlés elleni védelem** (6.) — a Drive-ból érkező törlés ne törölhesse
+   vissza a helyi életfát. Ez a szinkron-motor módosítása, nem a fáé.
+3. **A Beérkező-lánc automatikus besorolása** (22–23.) — a mappa és a szabályok
+   megvannak, a mozgató logika nem.
+4. **A per-fájl adatmodell** (20.) — `storageId`, `physicalPath`, `sourceProvider`
+   minden fájlra. Ma a forrásjelvény a mappa bekötéséből következtet.
+
+### Ami változatlanul tilos
+
+Jelszó, API-kulcs és token **soha** nem kerül az életfába (21., 23.) — ezek a
+Marvin Vaultban maradnak. A kód nem is kínál nekik helyet.
