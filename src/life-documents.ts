@@ -7,7 +7,7 @@
 // Ezert ez a modul feltunoen keveset tud, es ez SZANDEKOS:
 //
 //  - Nincs azonosito-rendszer. A fizikai hely egy UTVONAL ugyanabban a faban,
-//    amit a kepernyon latsz. `Nev / JOGI / NEMETORSZAG / BIROSAG` -- ugyanaz a
+//    amit a kepernyon latsz. `Nev / Jogi / NEMETORSZAG / BIROSAG` -- ugyanaz a
 //    mondat mukodik a merevlemezen es a polcon allo iratrendezon.
 //  - Nincs adatbazis-tabla. Egy JSON fajl a `store/`-ban, amit egy ember is el
 //    tud olvasni es ki tud menteni. Ha egyszer serult, a fa ES a papirok

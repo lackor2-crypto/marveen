@@ -65,18 +65,30 @@ export const DEPOT_ACCOUNTS = 'fiokok'
 const HU = APP_LANG === 'hu'
 
 /** A technikai reteg gyokere a depoban. */
-export const DEPOT_SYSTEM_ROOT = HU ? 'RENDSZER' : 'SYSTEM'
+export const DEPOT_SYSTEM_ROOT = HU ? 'Rendszer' : 'System'
 /** A tarolok kozos mappaja: ide megy a Drive es a Google Fotok is. */
-export const DEPOT_STORAGES = `${DEPOT_SYSTEM_ROOT}/${HU ? 'TÁROLÓK' : 'STORAGES'}`
+export const DEPOT_STORAGES = `${DEPOT_SYSTEM_ROOT}/${HU ? 'Tárolók' : 'Storages'}`
 
+// A specifikacio 36. pontja szerint a `Rendszer` alatt EGYETLEN ag all, a
+// `Tárolók`. Ezert a technikai munkamappak nem a `Rendszer` gyokerebe kerulnek
+// (ott negy idegen mappa allt: Git, Munka, Mentések, Marvin), hanem a `Tárolók`
+// ala -- ahogy a Boss is kerte: "csak a taroloknak kellene ott lennie es az
+// alatt a drive es git stb.".
 /** Amibol dolgozol: a git-repok es a projektmunkak helye. */
-export const DEPOT_PROJECTS = `${DEPOT_SYSTEM_ROOT}/GIT`
+export const DEPOT_PROJECTS = `${DEPOT_STORAGES}/Git`
 /** Ideiglenes, felkesz dolgok. */
-export const DEPOT_WORK = `${DEPOT_SYSTEM_ROOT}/${HU ? 'MUNKA' : 'WORK'}`
+export const DEPOT_WORK = `${DEPOT_STORAGES}/${HU ? 'Munka' : 'Work'}`
 /** Biztonsagi mentesek. */
-export const DEPOT_BACKUPS = `${DEPOT_SYSTEM_ROOT}/${HU ? 'MENTÉSEK' : 'BACKUPS'}`
-/** Amihez soha nem kell hozzanyulnod (adatbazis, naplok). */
-export const DEPOT_SYSTEM = `${DEPOT_SYSTEM_ROOT}/MARVIN`
+export const DEPOT_BACKUPS = `${DEPOT_STORAGES}/${HU ? 'Mentések' : 'Backups'}`
+/**
+ * A Marveen sajat, technikai masolatai (ma: a fotok-index tukorkepe).
+ *
+ * NEM kap sajat `Marvin` mappat a fa gyokereben: a 32. pont szerint a Marveen
+ * rendszerfajljai a sajat kornyezeteben maradnak, a 8. alapszabaly szerint
+ * pedig a "Marvin" nev a SZEMELYES projektage (`<szemely>/Projektek/Marvin`).
+ * Igy a tukor a fotok-tarolo melle kerul, ahova tartalmilag is tartozik.
+ */
+export const DEPOT_SYSTEM = `${DEPOT_STORAGES}/${HU ? 'GOOGLE_PHOTOS' : 'GOOGLE_PHOTOS'}`
 
 /**
  * A Google Fotok kepei, fiokonkent almappaban.
@@ -92,7 +104,7 @@ export const DEPOT_PHOTOS = `${DEPOT_STORAGES}/GOOGLE_PHOTOS`
  *
  * A TAROLOK ala tartozik -- lasd a `DEPOT_PHOTOS` megjegyzeset.
  */
-export const DEPOT_DRIVE = `${DEPOT_STORAGES}/DRIVE`
+export const DEPOT_DRIVE = `${DEPOT_STORAGES}/Drive`
 
 /**
  * A REGI, lapos nevek ugyanezekre. KELLENEK, mert ket helyen a mappa NEVE a

@@ -3,10 +3,10 @@
 // Ez az a darab, amitol az "egyseges eletfa" tenyleg egyseges lesz. A terv
 // harom retege ugyanis nem ugyanaz a hely a lemezen:
 //
-//   ELET/<Nev>/DOKUMENTUMOK   <- amit a felhasznalo lat
+//   ELET/<Nev>/Dokumentumok   <- amit a felhasznalo lat
 //   drive/<fiok>/<mappa>      <- ahol a Drive-szinkron TENYLEG tartja
 //   fotok/<fiok>              <- ahol a Google Photos kepei allnak
-//   RENDSZER/GIT/<repo>      <- ahol a git repo van
+//   Rendszer/Git/<repo>      <- ahol a git repo van
 //
 // Ha ezeket ATMASOLNANK a fa ala, ket peldany lenne mindenbol, es a
 // Drive-szinkron a masikat irna. Ha viszont csak LINKELNENK a fajlrendszerben,
@@ -29,7 +29,7 @@ const STORE_PATH = join(STORE_DIR, 'life-mounts.json')
 export interface LifeMount {
   /**
    * Hol latszik a faban -- a DEPO gyokerehez kepest, per-jellel.
-   * Peldaul: `MÉDIA/Kovács Anna/FOTÓK`.
+   * Peldaul: `Média/Kovács Anna/Fotók`.
    */
   rel: string
   /**

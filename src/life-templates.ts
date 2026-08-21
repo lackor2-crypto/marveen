@@ -74,7 +74,7 @@ export const LIFE_TEMPLATES: LifeTemplate[] = [
     highlights: [
       '1 személy a teljes 12 kategóriával',
       'Nincs ország-szint (egy országban élsz)',
-      'MÉDIA ág fotók, videók, audió, szken bontásban',
+      'Média ág fotók, videók, audió, szken bontásban',
     ],
     build(lang) {
       const ph = placeholders(lang)
@@ -88,7 +88,7 @@ export const LIFE_TEMPLATES: LifeTemplate[] = [
     highlights: [
       '1 személy a teljes 12 kategóriával',
       '3 ország MINDEN kategória alatt (jogi, pénzügy, hatóságok, munka, otthon…)',
-      'A MÉDIA is ország szerint bomlik — külön a három ország fotói és videói',
+      'A Média is ország szerint bomlik — külön a három ország fotói és videói',
     ],
     build(lang) {
       const ph = placeholders(lang)
@@ -104,7 +104,7 @@ export const LIFE_TEMPLATES: LifeTemplate[] = [
       '2 személy, mindkettő a teljes 12 kategóriával',
       'Az első személynek 3, a másodiknak 2 ország',
       'Országbontás minden területen és a médiában is',
-      'ARCHÍV ág mindkét személynek',
+      'Archív ág mindkét személynek',
     ],
     build(lang) {
       const ph = placeholders(lang)
@@ -123,9 +123,9 @@ export const LIFE_TEMPLATES: LifeTemplate[] = [
     summary: 'A specifikáció teljes képe — két személy, egy cég, saját projekt git-repókkal.',
     highlights: [
       '2 személy a teljes szerkezettel, eltérő országlistával',
-      '1 cég a 8 céges kategóriával, FEJLESZTÉS / GIT_REPOS ággal',
-      'Saját, SZEMÉLYES projekt is — külön a cég repóitól',
-      'RENDSZER / TÁROLÓK a Drive- és Fotók-tárolóknak',
+      '1 cég a 8 céges kategóriával, Fejlesztés / GIT_REPOS ággal',
+      'Saját, Személyes projekt is — külön a cég repóitól',
+      'Rendszer / Tárolók a Drive- és Fotók-tárolóknak',
     ],
     build(lang) {
       const ph = placeholders(lang)

@@ -1,4 +1,4 @@
-# MARVIN – EGYSÉGES ÉLET- ÉS ADATTÁR
+# Marvin – EGYSÉGES ÉLET- ÉS ADATTÁR
 
 ## Végleges fejlesztői specifikáció
 
@@ -28,14 +28,14 @@ meg is tudja mutatni.
 **A) LOGIKAI ÉLETFA** – amit a felhasználó lát:
 
 ```text
-MÉDIA/KORPÁS LÁSZLÓ/FOTÓK/ÁGI CSALÁDJA
+Média/KORPÁS LÁSZLÓ/Fotók/Ági családja
 ```
 
 **B) FIZIKAI TÁROLÓ** – ahol a fájl ténylegesen van:
 
 ```text
-F:\Marveen\RENDSZER\TÁROLÓK\DRIVE_04\...
-F:\Marveen\RENDSZER\TÁROLÓK\GOOGLE_PHOTOS\...
+F:\Marveen\Rendszer\Tárolók\DRIVE_04\...
+F:\Marveen\Rendszer\Tárolók\GOOGLE_PHOTOS\...
 ```
 
 A kettő között **Marvin saját belső adatmodellje** tart kapcsolatot.
@@ -48,30 +48,30 @@ F:\Marveen
 │
 ├── KORPÁS LÁSZLÓ
 ├── BAKOS ÉVA
-├── CÉGEK
-├── TUDÁS
-├── MÉDIA
-├── DIGITÁLIS
-├── BEÉRKEZŐ
-├── MEGOSZTOTT
-├── ARCHÍV
-└── RENDSZER
+├── Cégek
+├── Tudás
+├── Média
+├── Digitális
+├── Beérkező
+├── Megosztott
+├── Archív
+└── Rendszer
 ```
 
 **Ne legyen külön `ÉLET` mappa** a fenti szintek fölött.
 
-### 4. RENDSZER
+### 4. Rendszer
 
 ```text
-RENDSZER
-├── MARVIN
-├── TÁROLÓK
+Rendszer
+├── Marvin
+├── Tárolók
 │   ├── DRIVE_01 … DRIVE_10
 │   └── GOOGLE_PHOTOS
-└── GIT
+└── Git
 ```
 
-Dinamikus: ha 15 Drive lesz, 15 tárolót kell kezelni. A `RENDSZER` technikai
+Dinamikus: ha 15 Drive lesz, 15 tárolót kell kezelni. A `Rendszer` technikai
 terület – normál Intéző-nézetben **ne legyen zavaró módon előtérben**. A tárolók
 a **Beállítások → Tárolók** felületen kezelhetők.
 
@@ -94,8 +94,8 @@ A munkavégzés **mindig a helyi gépen** történik; a Drive raktár / tartalé
 ### 7. Google Photos
 
 Tárolóként működik, fizikailag letöltve
-`F:\Marveen\RENDSZER\TÁROLÓK\GOOGLE_PHOTOS` alá, a logikai fában viszont
-`MÉDIA/KORPÁS LÁSZLÓ/FOTÓK/ÁGI CSALÁDJA/kép.jpg` néven jelenik meg,
+`F:\Marveen\Rendszer\Tárolók\GOOGLE_PHOTOS` alá, a logikai fában viszont
+`Média/KORPÁS LÁSZLÓ/Fotók/Ági családja/kép.jpg` néven jelenik meg,
 📷 GOOGLE PHOTOS forrásjelöléssel.
 
 ### 8. A Marvin Intéző
@@ -108,7 +108,7 @@ példány állapota, drag & drop ha biztonságos.
 
 ### 9. Forrásjelölés
 
-`📷 FOTÓ`, `☁ DRIVE`, `🔀 GIT`, `💻 HELYI`, `◉ VEGYES`.
+`📷 FOTÓ`, `☁ DRIVE`, `🔀 Git`, `💻 HELYI`, `◉ VEGYES`.
 Három mód: **ikon (alapértelmezett)**, felirat (`[PHOTOS]`), kikapcsolva.
 
 ### 10. Részletes fizikai információ
@@ -120,21 +120,21 @@ fizikai példány. Git esetén: repository és branch.
 
 ```text
 KORPÁS LÁSZLÓ
-├── IDENTITÁS
-├── SZEMÉLYES
-├── CSALÁD
-├── PÉNZÜGY
-├── JOGI
-├── HATÓSÁGOK
-├── OTTHON
-├── MUNKA
-├── PROJEKTEK
-├── EGÉSZSÉG
-└── DIGITÁLIS
+├── Identitás
+├── Személyes
+├── Család
+├── Pénzügy
+├── Jogi
+├── Hatóságok
+├── Otthon
+├── Munka
+├── Projektek
+├── Egészség
+└── Digitális
 ```
 
 Az **ország nem kerül a gyökér alá**, csak ott jelenik meg, ahol értelme van:
-`JOGI / PÉNZÜGY / HATÓSÁGOK` alatt.
+`Jogi / Pénzügy / Hatóságok` alatt.
 
 > **BOSS KIEGÉSZÍTÉSE (2026-08-21):** ez a struktúra **minden felvett személynél
 > teljesen kiépül** – Bakos Évánál is ugyanúgy, mint Korpás Lászlónál –, **akkor
@@ -142,49 +142,49 @@ Az **ország nem kerül a gyökér alá**, csak ott jelenik meg, ahol értelme v
 >
 > **BOSS MÁSODIK KIEGÉSZÍTÉSE (2026-08-21):** az **országszintek is előre
 > létrejönnek**, nem szükség szerint. Indok: „van már jog USA-ban is és németben
-> is, meg minden. Hiszen éltem itt is, ott is." Tehát a `JOGI`, `PÉNZÜGY` és
-> `HATÓSÁGOK` alatt **mind a három kategóriában, mindkét személynél** ki kell
+> is, meg minden. Hiszen éltem itt is, ott is." Tehát a `Jogi`, `Pénzügy` és
+> `Hatóságok` alatt **mind a három kategóriában, mindkét személynél** ki kell
 > bontani az országokat, végig.
 >
 > Az országlista **személyenként konfigurálható** (a kódban nem szerepel
 > országnév sem):
 >
 > ```text
-> KORPÁS LÁSZLÓ → MAGYARORSZÁG, NÉMETORSZÁG, USA
-> BAKOS ÉVA     → MAGYARORSZÁG, NÉMETORSZÁG
+> KORPÁS LÁSZLÓ → Magyarország, Németország, USA
+> BAKOS ÉVA     → Magyarország, Németország
 > ```
 >
 > Vagyis:
 >
 > ```text
 > KORPÁS LÁSZLÓ            BAKOS ÉVA
-> ├── JOGI                 ├── JOGI
-> │   ├── MAGYARORSZÁG     │   ├── MAGYARORSZÁG
-> │   ├── NÉMETORSZÁG      │   └── NÉMETORSZÁG
-> │   └── USA              ├── PÉNZÜGY
-> ├── PÉNZÜGY              │   ├── MAGYARORSZÁG
-> │   ├── MAGYARORSZÁG     │   └── NÉMETORSZÁG
-> │   ├── NÉMETORSZÁG      └── HATÓSÁGOK
-> │   └── USA                  ├── MAGYARORSZÁG
-> └── HATÓSÁGOK                └── NÉMETORSZÁG
->     ├── MAGYARORSZÁG
->     ├── NÉMETORSZÁG
+> ├── Jogi                 ├── Jogi
+> │   ├── Magyarország     │   ├── Magyarország
+> │   ├── Németország      │   └── Németország
+> │   └── USA              ├── Pénzügy
+> ├── Pénzügy              │   ├── Magyarország
+> │   ├── Magyarország     │   └── Németország
+> │   ├── Németország      └── Hatóságok
+> │   └── USA                  ├── Magyarország
+> └── Hatóságok                └── Németország
+>     ├── Magyarország
+>     ├── Németország
 >     └── USA
 > ```
 
-### 12–13. Személyes projektek és a MARVIN projekt
+### 12–13. Személyes projektek és a Marvin projekt
 
 A projektek **nem automatikusan céges dolgok**.
 
 ```text
 KORPÁS LÁSZLÓ
-└── PROJEKTEK
-    └── MARVIN
-        ├── TUDÁSBÁZIS
-        ├── TOVÁBBI ANYAGOK
-        └── FEJLESZTÉS
-            ├── TUDÁSBÁZIS
-            ├── TOVÁBBI ANYAGOK
+└── Projektek
+    └── Marvin
+        ├── Tudásbázis
+        ├── További anyagok
+        └── Fejlesztés
+            ├── Tudásbázis
+            ├── További anyagok
             └── GIT_REPOS
                 └── Marvin
 ```
@@ -192,21 +192,21 @@ KORPÁS LÁSZLÓ
 A `GIT_REPOS/Marvin` alatt a **valódi Git repository** legyen (`git clone`,
 `git pull`). A repó saját dokumentációját Marvin **nem módosíthatja**.
 
-### 14–15. CÉGEK
+### 14–15. Cégek
 
 ```text
-CÉGEK
+Cégek
 └── FREEBERISCHEAPER
-    ├── CÉGES ÜGYEK
-    ├── LEVELEZÉS
-    ├── TUDÁSBÁZIS
-    ├── PÉNZÜGY
-    ├── JOGI
-    ├── MARKETING
-    ├── WEBOLDAL
-    └── FEJLESZTÉS
-        ├── TUDÁSBÁZIS
-        ├── TOVÁBBI ANYAGOK
+    ├── Céges ügyek
+    ├── Levelezés
+    ├── Tudásbázis
+    ├── Pénzügy
+    ├── Jogi
+    ├── Marketing
+    ├── Weboldal
+    └── Fejlesztés
+        ├── Tudásbázis
+        ├── További anyagok
         └── GIT_REPOS
             ├── freeberischeaper.com
             ├── driver-app
@@ -223,55 +223,55 @@ nem rendezheti át. Frissítés: GitHub → `git pull` → helyi repository.
 
 ### 17. Tudásbázisok
 
-A repó és a fölötte lévő `TUDÁSBÁZIS` **nem ugyanaz**. A repó dokumentációjából
-Marvin **magasabb szintű kivonatot** készít a `FEJLESZTÉS/TUDÁSBÁZIS`-ba – ez
+A repó és a fölötte lévő `Tudásbázis` **nem ugyanaz**. A repó dokumentációjából
+Marvin **magasabb szintű kivonatot** készít a `Fejlesztés/Tudásbázis`-ba – ez
 összefoglaló tudásréteg, nem másolat.
 
-### 18–19. MÉDIA és családi média
+### 18–19. Média és családi média
 
 ```text
-MÉDIA
+Média
 ├── KORPÁS LÁSZLÓ
-│   ├── FOTÓK
-│   ├── VIDEÓK
-│   ├── AUDIÓ
-│   └── SZKEN
+│   ├── Fotók
+│   ├── Videók
+│   ├── Audió
+│   └── Szken
 ├── BAKOS ÉVA
-└── CÉGEK
+└── Cégek
 ```
 
 A gyerekek **nem `Child 1 / Child 2`** szerint azonosítandók; a csoportosítás
 alapja a családi ág:
 
 ```text
-FOTÓK / VIDEÓK
-├── ÁGI CSALÁDJA
-├── JUTKA CSALÁDJA
+Fotók / Videók
+├── Ági családja
+├── Jutka családja
 ├── MIKE CSALÁDJA
-├── PÁROM
-├── BARÁTOK
-├── UTAZÁS
-├── OTTHON
-└── EGYÉB
+├── Párom
+├── Barátok
+├── Utazás
+├── Otthon
+└── Egyéb
 ```
 
 A rendszer **ne feltételezze**, hogy minden felhasználónak ilyen családi
 csoportjai vannak – telepítéskor konfigurálhatók.
 
-### 20. Drive-ok és a MÉDIA kapcsolata
+### 20. Drive-ok és a Média kapcsolata
 
 A logikai fa nem változik attól, hogy a kép `DRIVE_02`-n, `DRIVE_07`-en vagy a
 Photos-ban van. Egy fájlhoz Marvinnak tudnia kell:
 `logicalPath`, `storageId`, `storageType`, `physicalPath`, `sourceProvider`.
 
-### 21. DIGITÁLIS
+### 21. Digitális
 
 Nem másolatgyűjtő. Csak önálló életciklusú digitális dolgok:
-`DOMAINEK`, `ESZKÖZÖK`, `DIGITÁLIS SZOLGÁLTATÁSOK`.
+`Domainek`, `Eszközök`, `Digitális szolgáltatások`.
 
-**Jelszó, API-kulcs, token SOHA nem kerül ide** – a **MARVIN VAULT**-ban marad.
+**Jelszó, API-kulcs, token SOHA nem kerül ide** – a **Marvin VAULT**-ban marad.
 
-### 22. BEÉRKEZŐ
+### 22. Beérkező
 
 Bármit ide lehessen dobni (szken, PDF, e-mail melléklet, letöltés, fénykép,
 bírósági irat, banki dokumentum, hatósági levél). Besorolási lánc:
@@ -294,16 +294,16 @@ KIHEZ TARTOZIK? → MELYIK TERÜLET? → MELYIK ORSZÁG?* → MELYIK ÜGY?
 Nagyon egyszerű: nincs QR-kód, nincs külön ID, nincs bonyolult adatbázis, nincs
 fizikai mappaazonosító. Egy dokumentumnál csak: **Fizikai példány: IGEN / NEM**.
 Ha van, a fizikai hely **ugyanazt a logikai útvonalat** kövesse
-(`KORPÁS LÁSZLÓ / JOGI / NÉMETORSZÁG / BÍRÓSÁG`). Így Marvin nélkül is ugyanazzal
+(`KORPÁS LÁSZLÓ / Jogi / Németország / BÍRÓSÁG`). Így Marvin nélkül is ugyanazzal
 a logikával kereshető papíron és Windowsban.
 
-### 25. ARCHÍV
+### 25. Archív
 
-Lezárt, nem aktív anyagok (`KORPÁS LÁSZLÓ`, `BAKOS ÉVA`, `CÉGEK`).
+Lezárt, nem aktív anyagok (`KORPÁS LÁSZLÓ`, `BAKOS ÉVA`, `Cégek`).
 Marvin **ne archiváljon automatikusan érzékeny ügyet pusztán idő alapján** – az
 archiválás felhasználói döntés, vagy külön, explicit szabály.
 
-### 26. MEGOSZTOTT
+### 26. Megosztott
 
 Nem „minden, amit másnak küldtem". Csak valóban **megosztott / közös használatú**
 anyagok. Ami egy konkrét ügyhöz tartozik, az az ügy saját helyén legyen.
@@ -319,14 +319,14 @@ nézete** kezelje.
 Kötelezően létrejön: a fő gyökérmappák, a személyek, a cégek, az alapstruktúra.
 
 > **BOSS FELÜLÍRÁSA (2026-08-21):** a pont eredeti megfogalmazása
-> (`JOGI / USA` csak szükség szerint) **NEM érvényes.** A teljes vázat **előre ki
+> (`Jogi / USA` csak szükség szerint) **NEM érvényes.** A teljes vázat **előre ki
 > kell bontani, végig** – beleértve az országszinteket is, mindkét személynél,
 > mind a három országot viselő kategóriában. Indok: az ügyek ténylegesen
 > léteznek mindhárom országban, és a felhasználó azt akarja, hogy a hely **már
 > ott legyen**, amikor keres vagy lerak valamit.
 >
 > A „szükség szerint" elv csak arra marad érvényben, ami **nem a vázhoz**
-> tartozik: konkrét **ügymappák** (`NÉMETORSZÁG / BÍRÓSÁG / 2024-es per`),
+> tartozik: konkrét **ügymappák** (`Németország / BÍRÓSÁG / 2024-es per`),
 > konkrét **projektek**, konkrét **repók**, konkrét **cégek**. Ezeket továbbra
 > sem találja ki Marvin előre.
 >
@@ -337,7 +337,7 @@ Kötelezően létrejön: a fő gyökérmappák, a személyek, a cégek, az alaps
 ### 29. Nyelv
 
 Belső kategóriák **nyelvfüggetlen kulcsokkal** (`legal`, `finance`, `projects`,
-`media`); a megjelenített név konfigurálható (`JOGI`, `PÉNZÜGY`, …). Az
+`media`); a megjelenített név konfigurálható (`Jogi`, `Pénzügy`, …). Az
 alapértelmezett telepítés magyar. **A kód ne tartalmazzon konkrét személyneveket.**
 
 ### 30. Személyek konfigurációja
@@ -348,8 +348,8 @@ Semmilyen kódban nem szerepelhet `Korpás László`, `Bakos Éva`, `Ági`, `Jut
 ### 31. Git és életfa – végleges szabály
 
 ```text
-Személyes:  KORPÁS LÁSZLÓ / PROJEKTEK / MARVIN / FEJLESZTÉS / GIT_REPOS / Marvin
-Céges:      CÉGEK / FREEBERISCHEAPER / FEJLESZTÉS / GIT_REPOS / céges-repo
+Személyes:  KORPÁS LÁSZLÓ / Projektek / Marvin / Fejlesztés / GIT_REPOS / Marvin
+Céges:      Cégek / FREEBERISCHEAPER / Fejlesztés / GIT_REPOS / céges-repo
 ```
 
 A személyes projekt repója **soha ne kerüljön** a cég repói közé, és fordítva.
@@ -359,7 +359,7 @@ A személyes projekt repója **soha ne kerüljön** a cég repói közé, és fo
 A Marvin skilljei, konfigurációi, belső indexei, logjai, metaadatai,
 rendszerfájljai a **saját technikai környezetében** maradnak. Különösen: **ne
 másolja át a WSL/Ubuntu rendszerfájljait az életfába** azért, hogy „minden egy
-helyen legyen". A `RENDSZER` tárolási réteg lehet, de nem a teljes runtime helye.
+helyen legyen". A `Rendszer` tárolási réteg lehet, de nem a teljes runtime helye.
 
 ### 33. Tárolókezelő
 
@@ -368,8 +368,8 @@ hozzáadása, átnevezés, deaktiválás, megnyitás, ellenőrzés, szinkronáll
 
 ### 34. Navigáció
 
-Elsődleges navigáció a **logikai ágak** szerint (`CÉGEK`, `KORPÁS LÁSZLÓ`,
-`MÉDIA`, `TUDÁS`…), **nem** `DRIVE_01 / DRIVE_02 / PHOTOS / GIT` szerint.
+Elsődleges navigáció a **logikai ágak** szerint (`Cégek`, `KORPÁS LÁSZLÓ`,
+`Média`, `Tudás`…), **nem** `DRIVE_01 / DRIVE_02 / PHOTOS / Git` szerint.
 
 ### 35. Filozófia
 
@@ -382,34 +382,34 @@ Az ember azt kérdezi: „Hol vannak Laci fotói?" – nem azt, hogy „melyik D
 ```text
 F:\Marveen
 ├── KORPÁS LÁSZLÓ
-│   ├── IDENTITÁS / SZEMÉLYES / CSALÁD / OTTHON / MUNKA / EGÉSZSÉG / DIGITÁLIS
-│   ├── JOGI       → MAGYARORSZÁG, NÉMETORSZÁG, USA
-│   ├── PÉNZÜGY    → MAGYARORSZÁG, NÉMETORSZÁG, USA
-│   ├── HATÓSÁGOK  → MAGYARORSZÁG, NÉMETORSZÁG, USA
-│   └── PROJEKTEK
-│       └── MARVIN
-│           ├── TUDÁSBÁZIS / TOVÁBBI ANYAGOK
-│           └── FEJLESZTÉS
-│               ├── TUDÁSBÁZIS / TOVÁBBI ANYAGOK
+│   ├── Identitás / Személyes / Család / Otthon / Munka / Egészség / Digitális
+│   ├── Jogi       → Magyarország, Németország, USA
+│   ├── Pénzügy    → Magyarország, Németország, USA
+│   ├── Hatóságok  → Magyarország, Németország, USA
+│   └── Projektek
+│       └── Marvin
+│           ├── Tudásbázis / További anyagok
+│           └── Fejlesztés
+│               ├── Tudásbázis / További anyagok
 │               └── GIT_REPOS / Marvin
 ├── BAKOS ÉVA            (ugyanaz a teljes szerkezet, üresen is;
-│                         országok: MAGYARORSZÁG, NÉMETORSZÁG)
-├── CÉGEK
+│                         országok: Magyarország, Németország)
+├── Cégek
 │   └── FREEBERISCHEAPER
-│       ├── CÉGES ÜGYEK / LEVELEZÉS / TUDÁSBÁZIS / PÉNZÜGY
-│       ├── JOGI / MARKETING / WEBOLDAL
-│       └── FEJLESZTÉS
-│           ├── TUDÁSBÁZIS / TOVÁBBI ANYAGOK
+│       ├── Céges ügyek / Levelezés / Tudásbázis / Pénzügy
+│       ├── Jogi / Marketing / Weboldal
+│       └── Fejlesztés
+│           ├── Tudásbázis / További anyagok
 │           └── GIT_REPOS / céges repók
-├── TUDÁS
-├── MÉDIA
-│   └── KORPÁS LÁSZLÓ / FOTÓK, VIDEÓK, AUDIÓ, SZKEN
-├── DIGITÁLIS
-├── BEÉRKEZŐ
-├── MEGOSZTOTT
-├── ARCHÍV
-└── RENDSZER
-    └── TÁROLÓK / DRIVE_01 … DRIVE_10, GOOGLE_PHOTOS
+├── Tudás
+├── Média
+│   └── KORPÁS LÁSZLÓ / Fotók, Videók, Audió, Szken
+├── Digitális
+├── Beérkező
+├── Megosztott
+├── Archív
+└── Rendszer
+    └── Tárolók / DRIVE_01 … DRIVE_10, GOOGLE_PHOTOS
 ```
 
 ### 37. A 10 megsérthetetlen fejlesztési szabály
@@ -421,14 +421,14 @@ F:\Marveen
 5. A munkavégzés helyben történik.
 6. A Drive külső törlése nem törölhet automatikusan helyi adatot.
 7. A Git repók valódi repók a megfelelő személy/cég `GIT_REPOS` mappájában.
-8. A Marvin **személyes** projekt: `<személy> / PROJEKTEK / MARVIN` alatt.
-9. A céges repók a `CÉGEK / <cég> / FEJLESZTÉS / GIT_REPOS` alatt.
+8. A Marvin **személyes** projekt: `<személy> / Projektek / Marvin` alatt.
+9. A céges repók a `Cégek / <cég> / Fejlesztés / GIT_REPOS` alatt.
 10. Egy fájlt **ne másoljunk** több helyre azért, mert több helyről néznénk.
 
 ### 38. Végső működési példa
 
 Beérkező PDF → Marvin felismeri (személy / jogi / Németország / bírósági ügy) →
-`KORPÁS LÁSZLÓ / JOGI / NÉMETORSZÁG / BÍRÓSÁG / dokumentum.pdf`, az információs
+`KORPÁS LÁSZLÓ / Jogi / Németország / BÍRÓSÁG / dokumentum.pdf`, az információs
 panelen: forrás `💻 HELYI`, fizikai példány IGEN, fizikai irat IGEN.
 
 ---
@@ -441,13 +441,13 @@ Ezek nyitott pontok, amikre a megvalósítás előtt döntés kell:
    `LifeNode.rel` ahhoz képesti. A gyökér `<depó>` lesz → a `mounts` és a
    `physical` bejegyzések útvonalait migrálni kell (`ÉLET/` előtag levágása).
 2. **A mostani `drive/`, `fotok/`, `projektek/`, `munka/`, `mentesek/`,
-   `rendszer/` mappák (~30 GB) átkerülnek** `RENDSZER/TÁROLÓK/DRIVE_xx`,
-   `RENDSZER/TÁROLÓK/GOOGLE_PHOTOS` alá. A szinkron-célútvonalakat (drive-sync,
+   `rendszer/` mappák (~30 GB) átkerülnek** `Rendszer/Tárolók/DRIVE_xx`,
+   `Rendszer/Tárolók/GOOGLE_PHOTOS` alá. A szinkron-célútvonalakat (drive-sync,
    fotók-letöltő) együtt kell átállítani, különben két helyre töltenek.
-3. **`DIGITÁLIS` kétszer szerepel**: főágként (21. pont) és a személyi ág egyik
+3. **`Digitális` kétszer szerepel**: főágként (21. pont) és a személyi ág egyik
    kategóriájaként (11. pont). Ez szándékos-e? Javaslat: a személyi alatti a
    személy saját digitális eszközei/előfizetései, a főág a háztartás-szintűeké.
-4. **`TUDÁS` főág tartalma** továbbra sincs definiálva. Javaslat: ide gyűljön a
+4. **`Tudás` főág tartalma** továbbra sincs definiálva. Javaslat: ide gyűljön a
    Marvin által készített, nem személyhez/céghez kötött tudásréteg.
 5. **Több Drive kezelése** ma nincs meg: a `drive-sync` egyetlen fiókra épül.
    Ez önálló, nagyobb fejlesztés (tároló-nyilvántartás + Beállítások → Tárolók).
@@ -468,13 +468,13 @@ a terv a szándék, ez a mérleg.
 | Spec | Mi lett belőle |
 |---|---|
 | 3. | Nincs `ÉLET` gyűjtőmappa: a személyek közvetlenül a depó gyökerében állnak |
-| 4. | `RENDSZER/{MARVIN, TÁROLÓK, GIT}` |
-| 11. | 12 személyi kategória, **minden** személynek, üresen is (Boss felülírása) |
-| 12–13. | `<személy>/PROJEKTEK/<projekt>/{TUDÁSBÁZIS, TOVÁBBI ANYAGOK, FEJLESZTÉS/{…, GIT_REPOS}}` |
-| 15–16. | 8 céges kategória, `FEJLESZTÉS/GIT_REPOS` valódi repóknak |
-| 18. | `MÉDIA/<személy>/<típus>/<ország>/<csoport>` |
-| 21. | `DIGITÁLIS/{DOMAINEK, ESZKÖZÖK, DIGITÁLIS SZOLGÁLTATÁSOK}` — jelszó nélkül |
-| 25–26. | `ARCHÍV`, `MEGOSZTOTT` |
+| 4./36. | `Rendszer/Tárolók` — **csak ez**, lásd a lenti helyesbítést |
+| 11. | 11 személyi kategória, **minden** személynek, üresen is (Boss felülírása) |
+| 12–13. | `<személy>/Projektek/<projekt>/{Tudásbázis, További anyagok, Fejlesztés/{…, GIT_REPOS}}` |
+| 15–16. | 8 céges kategória, `Fejlesztés/GIT_REPOS` valódi repóknak |
+| 18. | `Média/<személy>/<típus>/<ország>/<csoport>` |
+| 21. | `Digitális/{Domainek, Eszközök, Digitális szolgáltatások}` — jelszó nélkül |
+| 25–26. | `Archív`, `Megosztott` |
 | 28. | Az országszintek **előre** elkészülnek (a Boss felülírása), a konkrét ügymappák továbbra is szükség szerint |
 | 29–30. | A kódban egyetlen valódi név sincs; a sablonok helyőrzőket használnak, és ezt teszt őrzi |
 | 31. | A személyes és a céges git-repók külön ágon állnak |
@@ -482,13 +482,13 @@ a terv a szándék, ez a mérleg.
 
 **Ezen felül**, a Boss külön kérésére:
 
-- **Ország-bontás kapcsolóként.** Nem fix a „csak JOGI/PÉNZÜGY/HATÓSÁGOK" hármas:
-  személyenként eldönthető, mely területek bomoljanak országra — a **MÉDIA is**,
+- **Ország-bontás kapcsolóként.** Nem fix a „csak Jogi/Pénzügy/Hatóságok" hármas:
+  személyenként eldönthető, mely területek bomoljanak országra — a **Média is**,
   hogy a három ország fotói és videói külön álljanak.
 - **Kész sablonok** friss telepítéshez (`src/life-templates.ts`): négy szerkezet,
   amit a felhasználó kiválaszt, aztán a neveket átírja magára.
 - **A `drive` és a `fotok` a gyökérben maradt.** A többi technikai mappa a
-  `RENDSZER` alá került; ez a kettő a Boss döntése alapján nem mozdult, és élő
+  `Rendszer` alá került; ez a kettő a Boss döntése alapján nem mozdult, és élő
   szinkron-cél is, tehát az elmozdítása a letöltéseket a régi útra írná.
 
 ### Még nincs kész
@@ -508,3 +508,24 @@ Ezek **nem** részei ennek a körnek, és külön fejlesztést igényelnek:
 
 Jelszó, API-kulcs és token **soha** nem kerül az életfába (21., 23.) — ezek a
 Marvin Vaultban maradnak. A kód nem is kínál nekik helyet.
+
+---
+
+## HELYESBÍTÉS — 2026-08-21 (Boss: „nézd át újra az egész mapparendszert")
+
+A fenti megvalósulás három ponton **eltért** a specifikációtól. A Boss kérésére a
+spec az irányadó, tehát a fa ezekben visszaállt:
+
+| Eltérés | Ami volt | Ami a spec szerint van |
+|---|---|---|
+| `Rendszer` tartalma | `Marvin`, `Tárolók`, `Git`, plusz a depó `Munka` és `Mentések` mappája | **csak `Tárolók`** (36. pont). A `Marvin` a 8. alapszabály szerint személyes projekt (`<személy>/Projektek/Marvin`), a git-repók a 7. pont szerint a `GIT_REPOS`-ban vannak. A depó technikai munkamappái a `Tárolók` alá kerültek. |
+| Személyi kategóriák | 12 (a `Dokumentumok`-kal) | **11** — a 11. és a 36. pont felsorolásában nincs `Dokumentumok` |
+| Országszintek | minden kategória alatt | **csak `Jogi` / `Pénzügy` / `Hatóságok` alatt** (11. pont) |
+
+Az „ország-bontás kapcsolóként" lehetőség a kódban **megmarad** (személyenként
+bekapcsolható bármelyik területre), de az **alapértelmezés** a specifikáció
+hármasa. Ami a lemezen kiépült és üres volt, azt a helyesbítés eltakarította;
+nem üres mappát nem törölt.
+
+Ezzel egy időben minden generált mappanév **mondatkezdő** alakra váltott
+(`CSALÁD` → `Család`) — a Boss saját elnevezése (`Mykael család`) alapján.

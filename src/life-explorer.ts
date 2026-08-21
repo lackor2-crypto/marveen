@@ -1,4 +1,4 @@
-// A MARVIN INTEZO motorja: mappalistazas, athelyezes, informacios panel.
+// A Marvin INTEZO motorja: mappalistazas, athelyezes, informacios panel.
 //
 // Boss, 2026-08-21: "A Marvinban legyen egy Windows Intezohoz hasonlo
 // fajlkezelo. [...] es ugyanugy lehet megnyitni, bezarni, mappaba belepni,
@@ -54,10 +54,10 @@ export function explorerRoot(): string | null {
  *     ebben a listaban, mert a nevuk gepenkent mas (29-30. pont); a `rank()`
  *     szedi ki oket a beallitasbol.
  *  2. Utana ez a rogzitett lista: eloszor a kozos agak, majd a tarolok,
- *     legvegul a `RENDSZER` -- amihez a felhasznalonak soha nem kell nyulnia.
+ *     legvegul a `Rendszer` -- amihez a felhasznalonak soha nem kell nyulnia.
  *
  * A `DEPOT_PROJECTS`/`WORK`/`BACKUPS` SZANDEKOSAN nincs itt: azok mar a
- * `RENDSZER` ALATT vannak, tehat nem felso szintu nevek.
+ * `Rendszer` ALATT vannak, tehat nem felso szintu nevek.
  */
 function topOrder(lang: string): string[] {
   return [
@@ -278,7 +278,7 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
     const e = entryFrom(mAbs, name, mst, base.rel, deep)
     e.rel = m.rel
     e.mounted = m.label
-    // A bekotesi pont MAJDNEM MINDIG egy mar letezo fa-mappa (`MÉDIA/FOTÓK`),
+    // A bekotesi pont MAJDNEM MINDIG egy mar letezo fa-mappa (`Média/Fotók`),
     // nem egy uj nev. Ezert nem hozzaadjuk, hanem LECSEREJUK: a felhasznalo
     // ugyanazt a mappat latja, de mar a bekotott tartalommal es a cel
     // jelvenyevel. (Egy korabbi valtozat kihagyta a meglevoket -- ott a
@@ -377,7 +377,7 @@ function ownerOf(rel: string, cfg: LifeConfig): string {
   const companiesDir = lifeName('companies', APP_LANG)
   const mediaDir = lifeName('media', APP_LANG)
   const archiveDir = lifeName('archive', APP_LANG)
-  // `CÉGEK/<cég>`, `MÉDIA/<név>` es `ARCHÍV/<név>` egy szinttel lejjebb tartja
+  // `Cégek/<cég>`, `Média/<név>` es `Archív/<név>` egy szinttel lejjebb tartja
   // a nevet; mindenhol maskor maga az elso szakasz a nev.
   const nested = parts[0] === companiesDir || parts[0] === mediaDir || parts[0] === archiveDir
   const candidate = nested ? parts[1] : parts[0]
@@ -388,12 +388,12 @@ function ownerOf(rel: string, cfg: LifeConfig): string {
   return company ? company.name : ''
 }
 
-/** `Név/JOGI/NÉMETORSZÁG` -> `Név / Jogi / Németország`. */
+/** `Név/Jogi/Németország` -> `Név / Jogi / Németország`. */
 export function humanLocation(rel: string): string {
   return rel.split('/').filter(Boolean).map(prettyCase).join(' / ')
 }
 
-/** `NÉMETORSZÁG` -> `Németország`. A csupa nagybetű a lemezen kell, a szemnek nem. */
+/** `Németország` -> `Németország`. A csupa nagybetű a lemezen kell, a szemnek nem. */
 function prettyCase(s: string): string {
   if (s !== s.toUpperCase()) return s
   return s.split(' ').map((w) => (w ? w[0] + w.slice(1).toLowerCase() : w)).join(' ')

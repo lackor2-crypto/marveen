@@ -47,63 +47,63 @@ const CONFIG_PATH = join(STORE_DIR, 'life-tree.json')
  * Mappanevek nyelvenkent.
  *
  * A KULCS a gepi nev (ez kerul a beallitas-fajlba es az API-ba), az ERTEK az,
- * ami a lemezre kerul. Igy egy angol telepitesen `LEGAL` lesz ugyanaz a hely,
- * amit egy magyaron `JOGI`-nak hivnak, es a kod egyik nevet sem ismeri fixen.
+ * ami a lemezre kerul. Igy egy angol telepitesen `Legal` lesz ugyanaz a hely,
+ * amit egy magyaron `Jogi`-nak hivnak, es a kod egyik nevet sem ismeri fixen.
  */
 type NameTable = Record<string, { hu: string; en: string }>
 
 const NAMES: NameTable = {
   // Felso szint
-  companies:   { hu: 'CÉGEK',       en: 'COMPANIES' },
-  knowledge:   { hu: 'TUDÁS',       en: 'KNOWLEDGE' },
-  media:       { hu: 'MÉDIA',       en: 'MEDIA' },
-  digital:     { hu: 'DIGITÁLIS',   en: 'DIGITAL' },
-  inbox:       { hu: 'BEÉRKEZŐ',    en: 'INBOX' },
-  shared:      { hu: 'MEGOSZTOTT',  en: 'SHARED' },
-  archive:     { hu: 'ARCHÍV',      en: 'ARCHIVE' },
-  system:      { hu: 'RENDSZER',    en: 'SYSTEM' },
+  companies:   { hu: 'Cégek',       en: 'Companies' },
+  knowledge:   { hu: 'Tudás',       en: 'Knowledge' },
+  media:       { hu: 'Média',       en: 'Media' },
+  digital:     { hu: 'Digitális',   en: 'Digital' },
+  inbox:       { hu: 'Beérkező',    en: 'Inbox' },
+  shared:      { hu: 'Megosztott',  en: 'Shared' },
+  archive:     { hu: 'Archív',      en: 'Archive' },
+  system:      { hu: 'Rendszer',    en: 'System' },
 
   // Szemely alatti kategoriak (a specifikacio 11. pontja)
-  identity:    { hu: 'IDENTITÁS',   en: 'IDENTITY' },
-  personal:    { hu: 'SZEMÉLYES',   en: 'PERSONAL' },
-  family:      { hu: 'CSALÁD',      en: 'FAMILY' },
-  finance:     { hu: 'PÉNZÜGY',     en: 'FINANCE' },
-  legal:       { hu: 'JOGI',        en: 'LEGAL' },
-  authorities: { hu: 'HATÓSÁGOK',   en: 'AUTHORITIES' },
-  home:        { hu: 'OTTHON',      en: 'HOME' },
-  work:        { hu: 'MUNKA',       en: 'WORK' },
-  projects:    { hu: 'PROJEKTEK',   en: 'PROJECTS' },
-  health:      { hu: 'EGÉSZSÉG',    en: 'HEALTH' },
-  documents:   { hu: 'DOKUMENTUMOK', en: 'DOCUMENTS' },
+  identity:    { hu: 'Identitás',   en: 'Identity' },
+  personal:    { hu: 'Személyes',   en: 'Personal' },
+  family:      { hu: 'Család',      en: 'Family' },
+  finance:     { hu: 'Pénzügy',     en: 'Finance' },
+  legal:       { hu: 'Jogi',        en: 'Legal' },
+  authorities: { hu: 'Hatóságok',   en: 'Authorities' },
+  home:        { hu: 'Otthon',      en: 'Home' },
+  work:        { hu: 'Munka',       en: 'Work' },
+  projects:    { hu: 'Projektek',   en: 'Projects' },
+  health:      { hu: 'Egészség',    en: 'Health' },
+  documents:   { hu: 'Dokumentumok', en: 'Documents' },
 
   // Ceg alatti kategoriak (a specifikacio 15. pontja)
-  companyAffairs: { hu: 'CÉGES ÜGYEK', en: 'COMPANY AFFAIRS' },
-  correspondence: { hu: 'LEVELEZÉS',   en: 'CORRESPONDENCE' },
-  knowledgeBase:  { hu: 'TUDÁSBÁZIS',  en: 'KNOWLEDGE BASE' },
-  moreMaterial:   { hu: 'TOVÁBBI ANYAGOK', en: 'MORE MATERIAL' },
-  website:        { hu: 'WEBOLDAL',    en: 'WEBSITE' },
-  development:    { hu: 'FEJLESZTÉS',  en: 'DEVELOPMENT' },
-  marketing:      { hu: 'MARKETING',   en: 'MARKETING' },
+  companyAffairs: { hu: 'Céges ügyek', en: 'Company affairs' },
+  correspondence: { hu: 'Levelezés',   en: 'Correspondence' },
+  knowledgeBase:  { hu: 'Tudásbázis',  en: 'Knowledge base' },
+  moreMaterial:   { hu: 'További anyagok', en: 'More material' },
+  website:        { hu: 'Weboldal',    en: 'Website' },
+  development:    { hu: 'Fejlesztés',  en: 'Development' },
+  marketing:      { hu: 'Marketing',   en: 'Marketing' },
   // Ez SZANDEKOSAN nem forditodik: a `GIT_REPOS` alatt git-repok allnak, a
   // nevuket a GitHub adja, es a fejlesztonek ugyanugy kell kineznie minden
   // gepen. (Specifikacio 16. pont.)
   gitRepos:       { hu: 'GIT_REPOS',   en: 'GIT_REPOS' },
 
   // Media-tipusok (a specifikacio 18. pontja)
-  photos:      { hu: 'FOTÓK',       en: 'PHOTOS' },
-  videos:      { hu: 'VIDEÓK',      en: 'VIDEOS' },
-  audio:       { hu: 'AUDIÓ',       en: 'AUDIO' },
-  scans:       { hu: 'SZKEN',       en: 'SCANS' },
+  photos:      { hu: 'Fotók',       en: 'Photos' },
+  videos:      { hu: 'Videók',      en: 'Videos' },
+  audio:       { hu: 'Audió',       en: 'Audio' },
+  scans:       { hu: 'Szken',       en: 'Scans' },
 
   // DIGITALIS alatti bontas (a specifikacio 21. pontja). Jelszo NEM.
-  domains:         { hu: 'DOMAINEK',   en: 'DOMAINS' },
-  devices:         { hu: 'ESZKÖZÖK',   en: 'DEVICES' },
-  digitalServices: { hu: 'DIGITÁLIS SZOLGÁLTATÁSOK', en: 'DIGITAL SERVICES' },
+  domains:         { hu: 'Domainek',   en: 'Domains' },
+  devices:         { hu: 'Eszközök',   en: 'Devices' },
+  digitalServices: { hu: 'Digitális szolgáltatások', en: 'Digital services' },
 
   // RENDSZER alatti bontas (a specifikacio 4. pontja)
-  marvin:      { hu: 'MARVIN',      en: 'MARVIN' },
-  storages:    { hu: 'TÁROLÓK',     en: 'STORAGES' },
-  git:         { hu: 'GIT',         en: 'GIT' },
+  marvin:      { hu: 'Marvin',      en: 'Marvin' },
+  storages:    { hu: 'Tárolók',     en: 'Storages' },
+  git:         { hu: 'Git',         en: 'Git' },
 }
 
 /** Egy gepi nevbol a lemezre kerulo mappanev, a telepites nyelven. */
@@ -157,7 +157,7 @@ export interface LifePerson {
   countrySplit: string[]
   /** A media-agban keszulo tipusok (`photos`, `videos`, `audio`, `scans`). */
   mediaKinds: string[]
-  /** A media-tipusok alatti bontas (`ÁGI CSALÁDJA`, `UTAZÁS`, ...). */
+  /** A media-tipusok alatti bontas (`Ági családja`, `Utazás`, ...). */
   mediaGroups: string[]
   /** Sajat, SZEMELYES projektek. Ezek NEM ceges projektek (spec 12. pont). */
   projects: LifeProject[]
@@ -181,21 +181,21 @@ export interface LifeConfig {
  * Az alapertelmezett media-bontas.
  *
  * SZANDEKOSAN altalanos. A specifikacioban nevesitett csoportok
- * (`ÁGI CSALÁDJA`, `JUTKA CSALÁDJA`) egy konkret ember csaladjai -- pont az,
+ * (`Ági családja`, `Jutka családja`) egy konkret ember csaladjai -- pont az,
  * amit tilos a kodba irni. A felhasznalo a feluleten atnevezi oket a sajat
  * csaladtagjaira, es a `Child 1 / Child 2` fele gepi nevezektol ez is megvéd
  * (specifikacio 19. pont).
  */
 export function defaultMediaGroups(lang: string = APP_LANG): string[] {
   return lang === 'hu'
-    ? ['CSALÁD', 'PÁROM', 'BARÁTOK', 'UTAZÁS', 'OTTHON', 'EGYÉB']
-    : ['FAMILY', 'PARTNER', 'FRIENDS', 'TRAVEL', 'HOME', 'OTHER']
+    ? ['Család', 'Párom', 'Barátok', 'Utazás', 'Otthon', 'Egyéb']
+    : ['Family', 'Partner', 'Friends', 'Travel', 'Home', 'Other']
 }
 
 /** Egy szemely kategoriai, sorrendben (specifikacio 11. pont). */
 export const PERSON_CATEGORIES = [
   'identity', 'personal', 'family', 'finance', 'legal', 'authorities',
-  'home', 'work', 'projects', 'health', 'documents', 'digital',
+  'home', 'work', 'projects', 'health', 'digital',
 ]
 
 /**
@@ -203,12 +203,12 @@ export const PERSON_CATEGORIES = [
  * `projects`-et.
  *
  * Miert marad ki a projekt? Mert a specifikacio 31. pontja pontosan rogziti a
- * projekt-utvonalat (`<szemely>/PROJEKTEK/<projekt>/FEJLESZTÉS/GIT_REPOS`), es
+ * projekt-utvonalat (`<szemely>/Projektek/<projekt>/Fejlesztés/GIT_REPOS`), es
  * egy koze ekelt orszag-szint ezt elrontana. Egy git-repo amugy sem "magyar"
  * vagy "nemet". Ha valakinek megis kell, a feluleten bekapcsolhatja.
  */
 export function defaultCountrySplit(): string[] {
-  return PERSON_CATEGORIES.filter((k) => k !== 'projects')
+  return ['legal', 'finance', 'authorities']
 }
 
 /** A valaszthato media-tipusok (specifikacio 18. pont). */
@@ -592,9 +592,10 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
   //    megis a fan belul, hogy egy lemezmasolas mindent egyben vigyen.
   const systemDir = lifeName('system', lang)
   add(systemDir, 'system', 'system')
-  add(`${systemDir}/${lifeName('marvin', lang)}`, 'system', 'marvin')
+  // A 36. pont szerint a `Rendszer` alatt EGYETLEN ag all, a `Tárolók`. A
+  // `Marvin` a 8. alapszabaly szerint szemelyes projekt, a git-repok a 7. pont
+  // szerint a szemely/ceg `GIT_REPOS` mappajaban vannak -- egyik sem rendszer-ag.
   add(`${systemDir}/${lifeName('storages', lang)}`, 'system', 'storages')
-  add(`${systemDir}/${lifeName('git', lang)}`, 'system', 'git')
 
   return out
 }

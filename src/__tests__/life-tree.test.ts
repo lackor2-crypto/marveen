@@ -34,15 +34,15 @@ const cfg = {
   persons: [
     {
       id: 'a', name: 'Teszt Elek', role: 'owner' as const,
-      countries: ['MAGYARORSZÁG', 'NÉMETORSZÁG'],
+      countries: ['Magyarország', 'Németország'],
       countrySplit: [...defaultCountrySplit(), MEDIA_COUNTRY_KEY],
       mediaKinds: defaultMediaKinds(),
-      mediaGroups: ['ELSŐ CSALÁD'],
+      mediaGroups: ['Első család'],
       projects: [{ id: 'p1', name: 'Teszt projekt', development: true }],
     },
     {
       id: 'b', name: 'Példa-Kovács Anna', role: 'person' as const,
-      countries: ['MAGYARORSZÁG'],
+      countries: ['Magyarország'],
       countrySplit: defaultCountrySplit(),
       mediaKinds: defaultMediaKinds(),
       mediaGroups: [],
@@ -75,12 +75,12 @@ describe('safeLifeName', () => {
 describe('planLifeTree', () => {
   it('MINDEN szemely a teljes szerkezetet kapja, uresen is', () => {
     // Ez a teszt egyszer mar az ELLENKEZOJET allitotta ("a masodik szemelynek
-    // nincs MUNKA aga"). A Boss ezt kifejezetten felulirta: aki bekerul a faba,
+    // nincs Munka aga"). A Boss ezt kifejezetten felulirta: aki bekerul a faba,
     // ugyanazt a 12 kategoriat kapja, meg ha ma nincs is benne semmi -- mert
     // egy hianyzo mappa miatt a papir a rossz helyre kerul.
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
     for (const person of ['Teszt Elek', 'Példa-Kovács Anna']) {
-      for (const cat of ['IDENTITÁS', 'MUNKA', 'JOGI', 'EGÉSZSÉG', 'PROJEKTEK']) {
+      for (const cat of ['Identitás', 'Munka', 'Jogi', 'Egészség', 'Projektek']) {
         expect(nodes).toContain(`${person}/${cat}`)
       }
     }
@@ -97,46 +97,50 @@ describe('planLifeTree', () => {
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
     // A gazdanak ket orszaga van, Annanak egy -- es Annanal SEM jelenik meg
     // olyan orszag, amit nem o adott meg.
-    expect(nodes).toContain('Teszt Elek/JOGI/NÉMETORSZÁG')
-    expect(nodes).toContain('Példa-Kovács Anna/JOGI/MAGYARORSZÁG')
-    expect(nodes.some((r) => r.startsWith('Példa-Kovács Anna/JOGI/NÉMETORSZÁG'))).toBe(false)
+    expect(nodes).toContain('Teszt Elek/Jogi/Németország')
+    expect(nodes).toContain('Példa-Kovács Anna/Jogi/Magyarország')
+    expect(nodes.some((r) => r.startsWith('Példa-Kovács Anna/Jogi/Németország'))).toBe(false)
   })
 
   it('a media is orszagra bomlik, ha a szemely azt kerte', () => {
     // "a fotok is kulon kellene szedni. mert nekem 3 orszagbol van fotok is
     // videok is." -- ezert kapcsolhato a MEDIA kulon.
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes).toContain('MÉDIA/Teszt Elek/FOTÓK/NÉMETORSZÁG')
-    expect(nodes).toContain('MÉDIA/Teszt Elek/VIDEÓK/NÉMETORSZÁG')
+    expect(nodes).toContain('Média/Teszt Elek/Fotók/Németország')
+    expect(nodes).toContain('Média/Teszt Elek/Videók/Németország')
     // Anna nem kerte: nala a FOTOK alatt CSOPORT all, nem orszag. (Maga a
-    // `FOTÓK/` elotag nala is letezik -- a csoportok miatt --, ezert a
+    // `Fotók/` elotag nala is letezik -- a csoportok miatt --, ezert a
     // konkret orszagnevre kell kerdezni, kulonben a teszt semmit sem mer.)
-    expect(nodes.some((r) => r.startsWith('MÉDIA/Példa-Kovács Anna/FOTÓK/MAGYARORSZÁG'))).toBe(false)
+    expect(nodes.some((r) => r.startsWith('Média/Példa-Kovács Anna/Fotók/Magyarország'))).toBe(false)
   })
 
   it('a szemelyes projekt a specifikacio szerinti helyen all', () => {
     // 31. pont: a szemelyes repok SOHA nem keverednek a cegesekkel.
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes).toContain('Teszt Elek/PROJEKTEK/Teszt projekt/FEJLESZTÉS/GIT_REPOS')
+    expect(nodes).toContain('Teszt Elek/Projektek/Teszt projekt/Fejlesztés/GIT_REPOS')
     // Es NINCS orszag-szint a projekt-utvonalban, ami elrontana.
-    expect(nodes.some((r) => r.startsWith('Teszt Elek/PROJEKTEK/MAGYARORSZÁG'))).toBe(false)
+    expect(nodes.some((r) => r.startsWith('Teszt Elek/Projektek/Magyarország'))).toBe(false)
   })
 
-  it('a RENDSZER ag is elkeszul (4. pont)', () => {
+  // A 36. pont ("a rendszer vegso kepe") szerint a `Rendszer` alatt EGYETLEN ag
+  // all: a `Tárolók`. Korabban `Marvin` es `Git` is odakerult a 4. pont vazlata
+  // alapjan -- de a `Marvin` a 8. alapszabaly szerint SZEMELYES projekt, a
+  // git-repok pedig a 7. pont szerint a szemely/ceg `GIT_REPOS` mappajaban
+  // vannak. Ez a teszt azt orzi, hogy egyik se szivarogjon vissza.
+  it('a Rendszer alatt CSAK a Tárolók all (36. pont)', () => {
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes).toContain('RENDSZER/MARVIN')
-    expect(nodes).toContain('RENDSZER/TÁROLÓK')
-    expect(nodes).toContain('RENDSZER/GIT')
+    expect(nodes).toContain('Rendszer/Tárolók')
+    expect(nodes.filter((r) => r.startsWith('Rendszer/'))).toEqual(['Rendszer/Tárolók'])
   })
   it('az orszag csak ott jelenik meg, ahol szamit', () => {
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes.some((r) => r.endsWith('Teszt Elek/JOGI/NÉMETORSZÁG'))).toBe(true)
+    expect(nodes.some((r) => r.endsWith('Teszt Elek/Jogi/Németország'))).toBe(true)
     // Felso szinten SOHA nincs orszag.
-    expect(nodes.some((r) => r === 'NÉMETORSZÁG')).toBe(false)
+    expect(nodes.some((r) => r === 'Németország')).toBe(false)
   })
   it('a ceg a CEGEK alatt all, nem a szemely alatt', () => {
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes.some((r) => r.startsWith('CÉGEK/Teszt Kft'))).toBe(true)
+    expect(nodes.some((r) => r.startsWith('Cégek/Teszt Kft'))).toBe(true)
   })
 })
 
@@ -145,8 +149,8 @@ describe('ensureLifeTree', () => {
   // kulon kell elrakni az utbol, kulonben a "masodszor mar nem csinal semmit"
   // teszt egy felig meglevo fan futna, es zoldre menne akkor is, ha romlott.
   beforeEach(() => {
-    for (const n of ['Teszt Elek', 'Példa-Kovács Anna', 'CÉGEK', 'MÉDIA', 'TUDÁS',
-      'DIGITÁLIS', 'BEÉRKEZŐ', 'MEGOSZTOTT', 'ARCHÍV', 'RENDSZER']) {
+    for (const n of ['Teszt Elek', 'Példa-Kovács Anna', 'Cégek', 'Média', 'Tudás',
+      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer']) {
       rmSync(join(depot, n), { recursive: true, force: true })
     }
   })
@@ -161,7 +165,7 @@ describe('ensureLifeTree', () => {
 
   it('nem nyul a mar bent levo fajlokhoz', () => {
     ensureLifeTree(cfg, 'hu')
-    const doc = join(depot, 'Teszt Elek', 'JOGI', 'sajat.txt')
+    const doc = join(depot, 'Teszt Elek', 'Jogi', 'sajat.txt')
     writeFileSync(doc, 'sajat tartalom', 'utf8')
     ensureLifeTree(cfg, 'hu')
     expect(existsSync(doc)).toBe(true)
@@ -169,9 +173,9 @@ describe('ensureLifeTree', () => {
 
   it('a status megmondja, mi hianyzik', () => {
     ensureLifeTree(cfg, 'hu')
-    rmSync(join(depot, 'BEÉRKEZŐ'), { recursive: true, force: true })
+    rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
     const st = lifeTreeStatus(cfg, 'hu')
-    expect(st.missing).toContain('BEÉRKEZŐ')
+    expect(st.missing).toContain('Beérkező')
   })
 })
 
@@ -212,12 +216,12 @@ describe('listLife', () => {
   // ugyanezt teszi, kulonben nem azt merne, ami valojaban tortenik.
   beforeEach(() => { saveLifeConfig(cfg); ensureLifeTree(cfg, 'hu') })
 
-  it('a gyokerben a GAZDA all elol, a RENDSZER leghatul', () => {
-    // Ide jar a felhasznalo nap mint nap; a `RENDSZER`-hez soha nem kell
+  it('a gyokerben a GAZDA all elol, a Rendszer leghatul', () => {
+    // Ide jar a felhasznalo nap mint nap; a `Rendszer`-hez soha nem kell
     // hozzanyulnia. A sorrend ezt tukrozze, ne a betűrend.
     const l = listLife('', { deep: false })
     expect(l.folders[0]?.name).toBe('Teszt Elek')
-    expect(l.folders[l.folders.length - 1]?.name).toBe('RENDSZER')
+    expect(l.folders[l.folders.length - 1]?.name).toBe('Rendszer')
   })
   it('minden tetel kap forrasjelvenyt', () => {
     const l = listLife('Teszt Elek', { deep: false })
@@ -233,8 +237,8 @@ describe('listLife', () => {
     expect(l.message).toContain('nincs a Marveen')
   })
   it('morzsakat ad a visszalepeshez', () => {
-    const l = listLife('Teszt Elek/JOGI', { deep: false })
-    expect(l.breadcrumb.map((b) => b.name)).toEqual(['Marveen', 'Teszt Elek', 'JOGI'])
+    const l = listLife('Teszt Elek/Jogi', { deep: false })
+    expect(l.breadcrumb.map((b) => b.name)).toEqual(['Marveen', 'Teszt Elek', 'Jogi'])
     expect(l.parent).toBe('Teszt Elek')
   })
 })
@@ -243,13 +247,13 @@ describe('moveLife', () => {
   beforeEach(() => { ensureLifeTree(cfg, 'hu') })
 
   it('athelyez, es a papir-nyilvantartas vele megy', () => {
-    const from = 'BEÉRKEZŐ/vegzes.pdf'
-    writeFileSync(join(depot, 'BEÉRKEZŐ', 'vegzes.pdf'), 'x', 'utf8')
-    setPhysical(from, { physical: true, location: 'Teszt Elek/JOGI', note: 'kék dosszié' })
+    const from = 'Beérkező/vegzes.pdf'
+    writeFileSync(join(depot, 'Beérkező', 'vegzes.pdf'), 'x', 'utf8')
+    setPhysical(from, { physical: true, location: 'Teszt Elek/Jogi', note: 'kék dosszié' })
 
-    const r = moveLife(from, 'Teszt Elek/JOGI/NÉMETORSZÁG')
+    const r = moveLife(from, 'Teszt Elek/Jogi/Németország')
     expect(r.ok).toBe(true)
-    expect(r.rel).toBe('Teszt Elek/JOGI/NÉMETORSZÁG/vegzes.pdf')
+    expect(r.rel).toBe('Teszt Elek/Jogi/Németország/vegzes.pdf')
     // A regi utvonalon mar nincs adat, az ujon van -- kulonben a felhasznalo
     // azt latna, hogy "nincs papir peldany", holott van.
     expect(getPhysical(from).physical).toBe(false)
@@ -257,41 +261,41 @@ describe('moveLife', () => {
   })
 
   it('SOHA nem ir felul azonos nevu fajlt', () => {
-    const dir = join(depot, 'BEÉRKEZŐ')
+    const dir = join(depot, 'Beérkező')
     writeFileSync(join(dir, 'a.pdf'), 'uj', 'utf8')
-    const target = join(depot, 'Teszt Elek', 'JOGI')
+    const target = join(depot, 'Teszt Elek', 'Jogi')
     writeFileSync(join(target, 'a.pdf'), 'REGI ES FONTOS', 'utf8')
 
-    const r = moveLife('BEÉRKEZŐ/a.pdf', 'Teszt Elek/JOGI')
+    const r = moveLife('Beérkező/a.pdf', 'Teszt Elek/Jogi')
     expect(r.ok).toBe(false)
     expect(r.code).toBe('exists')
     expect(existsSync(join(dir, 'a.pdf'))).toBe(true)
   })
 
   it('mappat nem enged onmagaba tenni', () => {
-    const r = moveLife('Teszt Elek', 'Teszt Elek/JOGI')
+    const r = moveLife('Teszt Elek', 'Teszt Elek/Jogi')
     expect(r.ok).toBe(false)
     expect(r.code).toBe('into_self')
   })
 
   it('a fan kivulre nem mozgat', () => {
-    expect(moveLife('BEÉRKEZŐ', '../../tmp').ok).toBe(false)
+    expect(moveLife('Beérkező', '../../tmp').ok).toBe(false)
   })
 })
 
 describe('mkdirLife', () => {
   beforeEach(() => { ensureLifeTree(cfg, 'hu') })
   it('letrehoz, de utvonalat nem fogad el nevkent', () => {
-    expect(mkdirLife('BEÉRKEZŐ', 'Új ügy').ok).toBe(true)
-    expect(mkdirLife('BEÉRKEZŐ', 'a/b').ok).toBe(false)
-    expect(mkdirLife('BEÉRKEZŐ', '   ').ok).toBe(false)
+    expect(mkdirLife('Beérkező', 'Új ügy').ok).toBe(true)
+    expect(mkdirLife('Beérkező', 'a/b').ok).toBe(false)
+    expect(mkdirLife('Beérkező', '   ').ok).toBe(false)
   })
 })
 
 describe('searchLife', () => {
   beforeEach(() => { ensureLifeTree(cfg, 'hu') })
   it('nev szerint talal, mappan atnyulva is', () => {
-    writeFileSync(join(depot, 'Teszt Elek', 'JOGI', 'birosagi-vegzes.pdf'), 'x', 'utf8')
+    writeFileSync(join(depot, 'Teszt Elek', 'Jogi', 'birosagi-vegzes.pdf'), 'x', 'utf8')
     const r = searchLife('', 'vegzes')
     expect(r.entries.some((e) => e.name === 'birosagi-vegzes.pdf')).toBe(true)
   })
@@ -307,7 +311,7 @@ describe('apro segedek', () => {
     expect(humanSize(5 * 1024 * 1024 * 1024)).toBe('5.0 GB')
   })
   it('a hely emberi mondat, nem csupa nagybetu', () => {
-    expect(humanLocation('Teszt Elek/JOGI/NÉMETORSZÁG')).toBe('Teszt Elek / Jogi / Németország')
+    expect(humanLocation('Teszt Elek/Jogi/Németország')).toBe('Teszt Elek / Jogi / Németország')
   })
   it('a papir-bejegyzes mappastul koltozik', () => {
     setPhysical('X/a/1.pdf', { physical: true, location: 'polc' })

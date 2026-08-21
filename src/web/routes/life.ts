@@ -1,4 +1,4 @@
-// AZ EGYSEGES ELETFA es a MARVIN INTEZO vegpontjai.
+// AZ EGYSEGES ELETFA es a Marvin INTEZO vegpontjai.
 //
 //   GET  /api/life/status     -- all-e mar a fa, mi hianyzik beloele
 //   POST /api/life/ensure     -- a hianyzo mappak letrehozasa (SOSE torol)
@@ -330,7 +330,7 @@ function parseConfig(body: any): LifeConfig | string {
   }
   // Pontosan EGY gazda kell: a gazda kapja a teljes (12 kategoriás) agat, es
   // az o neve alatt all a munka/projektek. Ha ketto lenne, nem tudnank
-  // eldonteni, kie a "MUNKA" -- ha egy sem, senkie.
+  // eldonteni, kie a "Munka" -- ha egy sem, senkie.
   const owners = persons.filter((p) => p.role === 'owner')
   if (owners.length !== 1) return 'Pontosan egy személy legyen a gazda (a saját ágad). Jelöld meg, melyik az.'
 

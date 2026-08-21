@@ -68,8 +68,8 @@ describe('a sablonok', () => {
     const cfg = findLifeTemplate('multi-country')!.build('hu')
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
     const p = cfg.persons[0].name
-    expect(rels).toContain(`MÉDIA/${p}/FOTÓK/${cfg.persons[0].countries[2]}`)
-    expect(rels).toContain(`MÉDIA/${p}/VIDEÓK/${cfg.persons[0].countries[2]}`)
+    expect(rels).toContain(`Média/${p}/Fotók/${cfg.persons[0].countries[2]}`)
+    expect(rels).toContain(`Média/${p}/Videók/${cfg.persons[0].countries[2]}`)
   })
 
   it('a teljes sablonban a szemelyes es a ceges repo KULON all', () => {
@@ -78,8 +78,8 @@ describe('a sablonok', () => {
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
     const person = cfg.persons[0].name
     const company = cfg.companies[0].name
-    expect(rels).toContain(`${person}/PROJEKTEK/${cfg.persons[0].projects[0].name}/FEJLESZTÉS/GIT_REPOS`)
-    expect(rels).toContain(`CÉGEK/${company}/FEJLESZTÉS/GIT_REPOS`)
+    expect(rels).toContain(`${person}/Projektek/${cfg.persons[0].projects[0].name}/Fejlesztés/GIT_REPOS`)
+    expect(rels).toContain(`Cégek/${company}/Fejlesztés/GIT_REPOS`)
   })
 
   it('ismeretlen azonositora nem talal ki semmit', () => {
@@ -98,9 +98,9 @@ describe('a sablonok', () => {
   })
 })
 
-describe('migrateFlatDepotDirs -- a lapos depo a RENDSZER ala kerul', () => {
+describe('migrateFlatDepotDirs -- a lapos depo a Rendszer ala kerul', () => {
   beforeEach(() => {
-    for (const n of ['rendszer', 'projektek', 'munka', 'mentesek', 'RENDSZER', 'drive', 'fotok']) {
+    for (const n of ['rendszer', 'projektek', 'munka', 'mentesek', 'Rendszer', 'drive', 'fotok']) {
       rmSync(join(depot, n), { recursive: true, force: true })
     }
   })
@@ -114,8 +114,8 @@ describe('migrateFlatDepotDirs -- a lapos depo a RENDSZER ala kerul', () => {
     expect(readFileSync(join(depot, DEPOT_PROJECTS, 'valami', 'a.txt'), 'utf8')).toBe('tartalom')
   })
 
-  it('a `rendszer` -> `RENDSZER/MARVIN` utkozest is megoldja', () => {
-    // EZ A VESZELYES ESET. Windowson a `rendszer` es a `RENDSZER` UGYANAZ a
+  it('a `rendszer` -> `Rendszer/Marvin` utkozest is megoldja', () => {
+    // EZ A VESZELYES ESET. Windowson a `rendszer` es a `Rendszer` UGYANAZ a
     // mappa, tehat a naiv atnevezes a mappat sajat magaba tenne (es elveszne a
     // Boss adatbazisa). Linuxon a ket nev kulon all, de a lepesnek ott is
     // ugyanoda kell erkeznie -- ezert megy a teszt mindket rendszeren.
@@ -155,7 +155,7 @@ describe('migrateFlatDepotDirs -- a lapos depo a RENDSZER ala kerul', () => {
     expect(readFileSync(join(depot, DEPOT_DRIVE, 'fiok', 'a.txt'), 'utf8')).toBe('drive')
     expect(readFileSync(join(depot, DEPOT_PHOTOS, 'fiok', 'k.jpg'), 'utf8')).toBe('kep')
     // A fiok NEVE megmarad -- nem DRIVE_01 lesz belole.
-    expect(DEPOT_DRIVE.endsWith('/DRIVE')).toBe(true)
+    expect(DEPOT_DRIVE.endsWith('/Drive')).toBe(true)
     expect(DEPOT_PHOTOS.endsWith('/GOOGLE_PHOTOS')).toBe(true)
   })
 
