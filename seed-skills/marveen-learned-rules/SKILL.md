@@ -172,6 +172,32 @@ végpont (404) -- az önmagamnak szóló automatikus kanban/approval
 visszajönnek `[inbox-wakeup]`-ra. Ártalmatlan (tartalmuk már feldolgozott),
 de ne keress rá `/complete`-et, nincs ilyen route.
 
+### R8 -- Ami csak EZEN a telepítésen működik, az NINCS kész
+
+**Hiba (2026-08-21):** az egységes életfa háttere teljesen elkészült -- a
+személyek/cégek szerkesztése ellenőrzéssel, emberi hibaüzenetekkel --, de
+KIZÁROLAG `POST /api/life/config`-on át volt elérhető. Itt ez nem tűnt fel,
+mert a fa lakóit én írtam be API-ból. Egy frissen telepített Marveenben viszont
+a felhasználó (aki nem programozó) semmit sem tudott volna kezdeni vele: üres
+fa, és semmilyen felület, amivel feltölthette volna.
+
+Ugyanebben a munkában két testvérhiba is előkerült: a beállító doboz elrejtőzik,
+amint a fa áll (utána már nem lehetett volna új családtagot felvenni), és a
+`_depoPost` a szerver `error` KÓDJÁT dobta tovább az emberi `message` helyett --
+a felhasználó a "bad_config" szót látta volna.
+
+**Szabály:** minden funkciónál végezd el a friss-telepítés próbát: üres `store/`,
+üres adatbázis, a te adataid sehol -- **végig tudja csinálni a felületről,
+terminál és API nélkül?** Ha nem, a munka nincs kész. Ellenőrizd külön:
+(1) van felület minden beállításhoz, a KÉSŐBBI módosításhoz is;
+(2) az üres kezdőállapot magától indul, és nem hibaüzenetnek látszik;
+(3) van előnézet a visszafordíthatatlan lépés előtt;
+(4) a felület a `message` mezőt mutatja, nem az `error` kódot.
+
+Részletesen: `fresh-install-usable` skill + CLAUDE.md „FRISSEN TELEPÍTETT
+MARVEENBEN IS MŰKÖDJÖN".
+
+
 ## Új szabály hozzáadása (a folyamat)
 Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismerés):
 1. Írj ide egy új `### R<n> -- rövid cím` szekciót: **Hiba:** mi történt konkrétan,

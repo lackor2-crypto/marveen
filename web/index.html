@@ -2503,6 +2503,46 @@
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn-primary" id="intezoEnsureBtn" data-i18n="intezo.create_tree">Könyvtárszerkezet létrehozása</button>
           <a href="#" class="btn-secondary" data-page-link="depo" id="intezoToDepoBtn" data-i18n="intezo.to_depot">Depó beállítása</a>
+          <button class="btn-secondary" id="intezoConfigBtn" data-i18n="intezo.cfg_open">Kik szerepeljenek a fában?</button>
+        </div>
+      </div>
+
+      <!-- KI SZEREPELJEN A FABAN? -- ez teszi a rendszert telepitesfuggetlenne.
+           A kodban NINCS egyetlen valodi nev sem: a fa vazat a kod adja, a
+           neveket kizarolag ez a szerkeszto. Egy frissen telepitett Marveenben
+           a felhasznalo innen epiti fel a sajat mappaszerkezetet, terminal es
+           JSON-szerkesztes nelkul. -->
+      <div class="card" id="intezoConfigCard" hidden>
+        <h3 data-i18n="intezo.cfg_title">Kik szerepeljenek a fában?</h3>
+        <p class="subtitle" data-i18n="intezo.cfg_desc">
+          Vedd fel magadat és azokat, akiknek az ügyeit itt tartod, valamint a cégeidet.
+          A nevekből mappák lesznek. Először csak elmented — a mappák akkor jönnek létre,
+          amikor megnyomod a „Könyvtárszerkezet létrehozása" gombot, így egy elgépelt név
+          nem hagy nyomot a lemezen.
+        </p>
+
+        <h4 data-i18n="intezo.cfg_persons">Személyek</h4>
+        <p class="subtitle" data-i18n="intezo.cfg_owner_hint">
+          Pontosan egy személy a „gazda": az a te saját ágad, csak ő kap MUNKA,
+          PROJEKTEK és EGÉSZSÉG mappát is.
+        </p>
+        <div id="intezoPersons"></div>
+        <button class="btn-secondary" id="intezoAddPersonBtn" data-i18n="intezo.cfg_add_person">+ Személy</button>
+
+        <h4 style="margin-top:18px" data-i18n="intezo.cfg_companies">Cégek</h4>
+        <p class="subtitle" data-i18n="intezo.cfg_companies_hint">
+          A cégek külön ágon állnak (CÉGEK), nem egy személy alatt — mert egy cég
+          túlél egy tulajdonosváltást.
+        </p>
+        <div id="intezoCompanies"></div>
+        <button class="btn-secondary" id="intezoAddCompanyBtn" data-i18n="intezo.cfg_add_company">+ Cég</button>
+
+        <div id="intezoCfgMsg" class="info-box" hidden style="margin-top:14px"></div>
+        <div id="intezoCfgPreview" style="margin-top:12px"></div>
+
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-primary" id="intezoCfgSaveBtn" data-i18n="intezo.cfg_save">Mentés és előnézet</button>
+          <button class="btn-secondary" id="intezoCfgCloseBtn" data-i18n="intezo.cfg_close">Bezárás</button>
         </div>
       </div>
 
@@ -2514,6 +2554,7 @@
           <input type="search" id="intezoSearch" placeholder="Keresés név szerint…"
                  style="min-width:180px" data-i18n-placeholder="intezo.search_ph">
           <button class="btn-secondary" id="intezoMkdirBtn" data-i18n="intezo.new_folder">Új mappa</button>
+          <button class="btn-secondary" id="intezoConfigBtn2" data-i18n="intezo.cfg_open">Kik szerepeljenek a fában?</button>
         </div>
 
         <!-- FORRASJELVENY-MOD. Alapertelmezes az IKONOS -- Boss valasztasa.

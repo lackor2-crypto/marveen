@@ -43,6 +43,30 @@ import type { RouteContext } from './types.js'
  * hatul all, egy elfelejtett harmadik parameter csendben 200-at kuld egy
  * hibara -- amit a felulet sikernek olvasna. Ezert itt a kod az elso.
  */
+/**
+ * A keres torzse OBJEKTUMKENT.
+ *
+ * A `readBody()` BUFFERT ad vissza, nem elemzett JSON-t. Enelkul a
+ * `body?.persons` mindig `undefined` volt -- vagyis MINDEN POST-vegpont
+ * csendben ugy viselkedett, mintha ures keres erkezett volna, es a
+ * felhasznalo egy teljesen felrevezeto uzenetet kapott ("Legalabb egy
+ * szemelynek szerepelnie kell"), miutan kitoltotte az urlapot.
+ *
+ * Romlott JSON eseten `null`-t adunk: a hivo oldalon a `body?.x` agak
+ * ugyanugy lefutnak, es a felhasznalo a vegpont sajat, emberi hibauzenetet
+ * kapja -- nem egy nyers elemzesi kivetelt.
+ */
+async function readJson(req: RouteContext['req']): Promise<any> {
+  try {
+    const raw = await readBody(req)
+    const text = raw.toString('utf-8').trim()
+    if (!text) return null
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 function send(res: RouteContext['res'], status: number, data: unknown): void {
   json(res, data, status)
 }
@@ -89,7 +113,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/config' && method === 'POST') {
-    const body = await readBody(req).catch(() => null) as any
+    const body = await readJson(req)
     const parsed = parseConfig(body)
     if (typeof parsed === 'string') {
       send(res, 400, { error: 'bad_config', message: parsed })
@@ -129,14 +153,14 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/mkdir' && method === 'POST') {
-    const body = await readBody(req).catch(() => null) as any
+    const body = await readJson(req)
     const result = mkdirLife(String(body?.parent ?? ''), String(body?.name ?? ''))
     send(res, result.ok ? 200 : 400, result)
     return true
   }
 
   if (path === '/api/life/move' && method === 'POST') {
-    const body = await readBody(req).catch(() => null) as any
+    const body = await readJson(req)
     const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''))
     send(res, result.ok ? 200 : 400, result)
     return true
@@ -153,7 +177,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/physical' && method === 'POST') {
-    const body = await readBody(req).catch(() => null) as any
+    const body = await readJson(req)
     const rel = String(body?.path ?? '').trim()
     if (!rel) {
       send(res, 400, { error: 'no_path', message: 'Nem derült ki, melyik iratról van szó.' })
@@ -174,7 +198,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/mounts' && method === 'POST') {
-    const body = await readBody(req).catch(() => null) as any
+    const body = await readJson(req)
     const result = addMount({
       rel: String(body?.rel ?? ''),
       target: String(body?.target ?? ''),
@@ -186,7 +210,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/mounts/remove' && method === 'POST') {
-    const body = await readBody(req).catch(() => null) as any
+    const body = await readJson(req)
     const result = removeMount(String(body?.rel ?? ''))
     send(res, result.ok ? 200 : 400, result)
     return true
