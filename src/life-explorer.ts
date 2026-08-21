@@ -62,7 +62,6 @@ export function explorerRoot(): string | null {
 function topOrder(lang: string): string[] {
   return [
     lifeName('companies', lang),
-    lifeName('media', lang),
     lifeName('knowledge', lang),
     lifeName('digital', lang),
     lifeName('inbox', lang),
@@ -93,6 +92,18 @@ export interface LifeEntry {
    * valojaban mashol lakik.
    */
   mounted?: string
+  /**
+   * Ranezesre lathato figyelmeztetes: ebbe a mappaba jobb nem belenyulni.
+   *
+   * Boss, 2026-08-21: "a git repos mappa ikonjai legyenek pirosak ... nem azt
+   * kerem hogy tiltsd le. hanem csak figyelem felkeltes! az egy fontos mappa.
+   * jobb nem piszkalni". Ez tehat NEM tiltas -- minden muvelet mukodik
+   * tovabbra is --, csak jelzes. Egy git-repoban a kezzel athuzott fajl
+   * csendben elrontja a verziokovetest; ott a `git` a gazda, nem az Intezo.
+   *
+   * Ures, ha nincs mire figyelmeztetni.
+   */
+  caution?: string
 }
 
 export interface LifeListing {
@@ -198,7 +209,33 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     source: { kind: src.kind, label: src.label, short: src.short, icon: src.icon },
     physical: getPhysical(rel).physical,
     mounted: '',
+    caution: cautionFor(rel, name, abs, isDir),
   }
+}
+
+/** A `GIT_REPOS` mappa, es minden, ami alatta van. */
+const GIT_REPOS_DIR = 'GIT_REPOS'
+
+/**
+ * Figyelmeztetes-szoveg egy tetelhez, vagy ures.
+ *
+ * Harom eset szamit git-teruletnek: maga a `GIT_REPOS` mappa, barmi, ami a
+ * `GIT_REPOS` alatt all, es minden valodi repo (`.git` van benne) -- ez utobbi
+ * a `Tárolók/Git` ala lehozott repokat is elkapja, tehat a jelzes MINDENHOL
+ * ott van, ahol git lakik.
+ */
+function cautionFor(rel: string, name: string, abs: string, isDir: boolean): string {
+  const parts = rel.split('/')
+  if (name === GIT_REPOS_DIR) {
+    return 'Git-repók helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.'
+  }
+  if (parts.includes(GIT_REPOS_DIR)) {
+    return 'Git-repó belseje. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.'
+  }
+  if (isDir) {
+    try { if (statSync(join(abs, '.git'))) return 'Git-repó. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.' } catch { /* nem repo */ }
+  }
+  return ''
 }
 
 /**
@@ -375,11 +412,12 @@ function ownerOf(rel: string, cfg: LifeConfig): string {
   const parts = rel.split('/').filter(Boolean)
   if (!parts.length) return ''
   const companiesDir = lifeName('companies', APP_LANG)
-  const mediaDir = lifeName('media', APP_LANG)
   const archiveDir = lifeName('archive', APP_LANG)
-  // `Cégek/<cég>`, `Média/<név>` es `Archív/<név>` egy szinttel lejjebb tartja
-  // a nevet; mindenhol maskor maga az elso szakasz a nev.
-  const nested = parts[0] === companiesDir || parts[0] === mediaDir || parts[0] === archiveDir
+  // `Cégek/<cég>` es `Archív/<név>` egy szinttel lejjebb tartja a nevet;
+  // mindenhol maskor maga az elso szakasz a nev. (A `Média` mar nem felso
+  // szintu ag, hanem minden szemely es ceg sajat kategoriaja -- ott tehat az
+  // elso szakasz mar maga a tulajdonos.)
+  const nested = parts[0] === companiesDir || parts[0] === archiveDir
   const candidate = nested ? parts[1] : parts[0]
   if (!candidate) return ''
   const person = cfg.persons.find((p) => safeLifeName(p.name) === candidate)

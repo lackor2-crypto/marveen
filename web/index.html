@@ -40,13 +40,8 @@
   </script>
 </head>
 <body>
-  <!-- "Frissult a felulet" csik. Egy nyitva hagyott lapon a REGI kod fut, akkor
-       is, ha az index.html mar az uj gombokat mutatja -- ez teszi lathatova.
-       A szoveget az app.js irja bele (checkAppVersion), addig rejtve all. -->
-  <div class="app-updated-bar" id="appUpdatedBar" hidden role="status">
-    <span id="appUpdatedText" data-i18n="app.updated.text"></span>
-    <button class="btn-primary" id="appUpdatedBtn" type="button" data-i18n="app.updated.btn"></button>
-  </div>
+  <!-- A "Frissult a felulet" csik 2026-08-21-en MEGSZUNT: a lap magatol tolt
+       ujra, amint uj valtozat kerul ki (app.js / showAppUpdateNotice). -->
   <!-- First-run onboarding wizard (shown by app.js when /api/onboarding/status needs setup) -->
   <div class="modal-overlay onboarding-overlay" id="onboardingOverlay" hidden>
     <div class="modal onboarding-modal">
@@ -2650,7 +2645,7 @@
             <h1>Depó</h1>
             <p class="subtitle">Egy mappa a gépeden, ami alatt minden fájlod ott van</p>
           </div>
-          <button class="btn-secondary" id="depoRefreshBtn">Frissítés</button>
+          <button class="btn-secondary btn-compact" id="depoRefreshBtn">Frissítés</button>
         </div>
       </div>
 
@@ -2673,7 +2668,7 @@
           <span data-i18n="depot.card_current">Jelenleg itt van:</span> <strong id="depoRootDisplay">…</strong>
         </p>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
-          <button class="btn-primary" id="depoPickBtn" data-i18n="depot.card_pick_btn">Hely kiválasztása…</button>
+          <button class="btn-primary btn-compact" id="depoPickBtn" data-i18n="depot.card_pick_btn">Hely kiválasztása…</button>
           <span id="depoRootStatus" class="subtitle"></span>
         </div>
         <!-- Ide kerul az "Újraindítás most" gomb, ha a valasztas utan kell. -->
@@ -2695,13 +2690,13 @@
           Az azonosító (<code>DRIVE_01</code>) azé a fióké marad akkor is, ha
           átnevezed — a mappát az átnevezés nem mozdítja meg.
         </p>
-        <div id="storagesTable"></div>
+        <div id="storagesTable" style="overflow-x:auto"></div>
         <!-- A Drive/Fotok fiokjai a Google-bejelentkezesbol jonnek: ott NINCS
              mit "felvenni", ezert csak a Git-fiokra van gomb. -->
         <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap">
           <label for="storagesGitName" style="font-size:13px">Új Git-fiók mappája:</label>
           <input type="text" id="storagesGitName" class="input" style="width:200px" placeholder="pl. ceges">
-          <button class="btn-secondary" id="storagesGitAddBtn">Git-fiók hozzáadása</button>
+          <button class="btn-secondary btn-compact" id="storagesGitAddBtn">Git-fiók hozzáadása</button>
           <span id="storagesStatus" class="subtitle"></span>
         </div>
         <p class="subtitle" style="margin:6px 0 0">
@@ -2721,7 +2716,7 @@
         </p>
         <div id="depoPhotosTable"></div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-          <button class="btn-primary" id="depoMigrateBtn">Átköltöztetés a depóba</button>
+          <button class="btn-primary btn-compact" id="depoMigrateBtn">Átköltöztetés a depóba</button>
           <span id="depoMigrateStatus" class="subtitle"></span>
         </div>
       </div>
@@ -2755,7 +2750,7 @@
         <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px">
           <label for="depoSyncAccount" style="font-size:13px" data-i18n="dsync.step1">Melyik Google-fiókod Drive-ját hozzuk le?</label>
           <select id="depoSyncAccount" class="input" style="width:auto"></select>
-          <button class="btn-primary" id="depoSyncWholeBtn" data-i18n="dsync.whole_btn">A teljes Drive lehozása</button>
+          <button class="btn-primary btn-compact" id="depoSyncWholeBtn" data-i18n="dsync.whole_btn">A teljes Drive lehozása</button>
         </div>
         <p class="subtitle" style="margin:6px 0 0" data-i18n-html="dsync.whole_hint_html">
           A gépeden a mappa neve <strong>ugyanaz lesz, mint a fiók neve</strong> — a
@@ -2771,8 +2766,8 @@
         <details id="depoSyncOnlyOne" style="margin-top:10px">
           <summary style="cursor:pointer;font-size:13px" data-i18n="dsync.only_one">Mégis ne az egész Drive-ot: csak EGY mappát szinkronizáljak</summary>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px">
-            <button class="btn-secondary" id="depoSyncPickBtn" data-i18n="dsync.pick_btn">📁 Drive-mappa kiválasztása…</button>
-            <button class="btn-secondary" id="depoSyncAddBtn" disabled data-i18n="dsync.add_btn">Hozzáadás</button>
+            <button class="btn-secondary btn-compact" id="depoSyncPickBtn" data-i18n="dsync.pick_btn">📁 Drive-mappa kiválasztása…</button>
+            <button class="btn-secondary btn-compact" id="depoSyncAddBtn" disabled data-i18n="dsync.add_btn">Hozzáadás</button>
           </div>
           <p class="subtitle" style="margin:6px 0 0" data-i18n="dsync.only_one_hint">
             Megnyílik a Drive-od, és ott kattintgatva keresed meg a mappát. A gépeden
@@ -2801,7 +2796,7 @@
           </label>
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-          <button class="btn-primary" id="depoSyncRunBtn">Szinkronizálás most</button>
+          <button class="btn-primary btn-compact" id="depoSyncRunBtn">Szinkronizálás most</button>
           <span id="depoSyncStatus" class="subtitle"></span>
         </div>
         <!-- A vészfék uzenete. Sajat, feltuno doboz: ha ez megszolal, a Drive es

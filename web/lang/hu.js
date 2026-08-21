@@ -856,8 +856,6 @@ window._i18n.hu = {
   // Nyitva hagyott lapon a REGI kod fut tovabb: az uj gombok latszanak (az
   // index.html frissul), de nincs mogottuk kod, tehat nem csinalnak semmit.
   // Ujratolteni viszont a Boss tolt, mert kozben eppen gepelhet valahova.
-  'app.updated.text':                'Közben új változat került ki — ez a lap még a régit futtatja, ezért egy-egy gomb nem csinál semmit.',
-  'app.updated.btn':                 'Újratöltés',
   'agents.ctx.compact_tip':            'Most azonnal összefoglalja a beszélgetést, hogy kevesebb helyet foglaljon. A lényeg megmarad, a részletek egy része összevonódik. Az itt beírt ezer-token szám NEM ehhez a gombhoz tartozik: az az automatikus tömörítés határa.',
   'agents.ctx.clear':                  'Törlés',
   'agents.ctx.clear_tip':              'Teljesen kiüríti a beszélgetést, az ágens friss lappal indul. Visszavonhatatlan.',

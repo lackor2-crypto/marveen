@@ -131,7 +131,6 @@ describe('a fajl-nezet szovegei mindket nyelven megvannak', () => {
     'upstream.view.changes', 'upstream.view.files',
     'upstream.files.intro', 'upstream.files.conflicting', 'upstream.files.clean',
     'upstream.files.more', 'upstream.files.merge_only', 'upstream.files.pending',
-    'app.updated.text', 'app.updated.btn',
   ]
   it.each(kulcsok)('%s', (kulcs) => {
     expect(app, `${kulcs} nincs hasznalva a web/app.js-ben`).toContain(kulcs)

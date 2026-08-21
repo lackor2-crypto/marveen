@@ -76,10 +76,21 @@ export const DEPOT_STORAGES = `${DEPOT_SYSTEM_ROOT}/${HU ? 'Tárolók' : 'Storag
 // alatt a drive es git stb.".
 /** Amibol dolgozol: a git-repok es a projektmunkak helye. */
 export const DEPOT_PROJECTS = `${DEPOT_STORAGES}/Git`
+/**
+ * A Marveen sajat munkamappai: NEM tarolok.
+ *
+ * Boss, 2026-08-21: "A tarolok alol torold ki a mentesek es munka mappat.
+ * azok nem tarolok!" -- igaza van: a `Tárolók` ala az tartozik, aminek egy
+ * KULSO FIOK all mogotte (Drive, Google Fotok, Git). A munkamappa es a mentes
+ * a Marveen sajatja, ezert a `Rendszer/Marveen` ala kerul. Igy a `Tárolók`
+ * lista tenyleg csak tarolokat mutat, es a `Rendszer` alatt tovabbra is
+ * ketto, egyertelmuen gepi ag all.
+ */
+export const DEPOT_MARVEEN = `${DEPOT_SYSTEM_ROOT}/Marveen`
 /** Ideiglenes, felkesz dolgok. */
-export const DEPOT_WORK = `${DEPOT_STORAGES}/${HU ? 'Munka' : 'Work'}`
+export const DEPOT_WORK = `${DEPOT_MARVEEN}/${HU ? 'Munka' : 'Work'}`
 /** Biztonsagi mentesek. */
-export const DEPOT_BACKUPS = `${DEPOT_STORAGES}/${HU ? 'Mentések' : 'Backups'}`
+export const DEPOT_BACKUPS = `${DEPOT_MARVEEN}/${HU ? 'Mentések' : 'Backups'}`
 /**
  * A Marveen sajat, technikai masolatai (ma: a fotok-index tukorkepe).
  *

@@ -93,7 +93,7 @@ const NAMES: NameTable = {
   photos:      { hu: 'Fotók',       en: 'Photos' },
   videos:      { hu: 'Videók',      en: 'Videos' },
   audio:       { hu: 'Audió',       en: 'Audio' },
-  scans:       { hu: 'Szken',       en: 'Scans' },
+  scans:       { hu: 'Szkennek',    en: 'Scans' },
 
   // DIGITALIS alatti bontas (a specifikacio 21. pontja). Jelszo NEM.
   domains:         { hu: 'Domainek',   en: 'Domains' },
@@ -195,7 +195,7 @@ export function defaultMediaGroups(lang: string = APP_LANG): string[] {
 /** Egy szemely kategoriai, sorrendben (specifikacio 11. pont). */
 export const PERSON_CATEGORIES = [
   'identity', 'personal', 'family', 'finance', 'legal', 'authorities',
-  'home', 'work', 'projects', 'health', 'digital',
+  'home', 'work', 'projects', 'media', 'health', 'digital',
 ]
 
 /**
@@ -222,7 +222,7 @@ export function defaultMediaKinds(): string[] {
 /** Egy ceg kategoriai, sorrendben (specifikacio 15. pont). */
 export const COMPANY_CATEGORIES = [
   'companyAffairs', 'correspondence', 'knowledgeBase', 'finance',
-  'legal', 'marketing', 'website', 'development',
+  'legal', 'marketing', 'website', 'development', 'media',
 ]
 
 /** Ahol egy cegnel ertelme van az orszag-szintnek. */
@@ -492,8 +492,35 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
       // Orszagbontas ott, ahol a felhasznalo kerte. Nem fix harmas lista:
       // aki ket-harom orszagban elt, annak a munkaja es az otthona is
       // orszagfuggo.
-      if (p.countrySplit.includes(key)) {
+      //
+      // A MEDIA KIVETEL: ott az orszag NEM a kategoria alatt all, hanem a
+      // media-tipus alatt (`Média/Fotók/Magyarország`), kulonben a `Média`
+      // alatt egyszerre allna `Fotók` es `Magyarország` -- ket kulonbozo
+      // rendezoelv egy szinten, amiben senki nem talal semmit.
+      if (key !== 'media' && p.countrySplit.includes(key)) {
         for (const c of p.countries) add(`${cat}/${safeLifeName(c)}`, 'country', key, p.id)
+      }
+
+      // MEDIA a SZEMELY ALATT (Boss, 2026-08-21: "a media t rakd belulre a
+      // korpas laszlo ala"). Korabban onallo felso ag volt -- de a fotoid
+      // ugyanugy hozzad tartoznak, mint a jogi ugyeid, es igy egy helyen van
+      // minden, ami egy emberhez tartozik. Az orszag- es csoportbontas
+      // valtozatlan: tipus / orszag / csaladi csoport.
+      if (key === 'media') {
+        const mediaCountries = p.countrySplit.includes(MEDIA_COUNTRY_KEY) ? p.countries : []
+        for (const m of p.mediaKinds) {
+          const sub = `${cat}/${lifeName(m, lang)}`
+          add(sub, 'media', m, p.id)
+          if (mediaCountries.length) {
+            for (const c of mediaCountries) {
+              const cd = `${sub}/${safeLifeName(c)}`
+              add(cd, 'country', m, p.id)
+              for (const g of p.mediaGroups) add(`${cd}/${safeLifeName(g)}`, 'media', m, p.id)
+            }
+          } else {
+            for (const g of p.mediaGroups) add(`${sub}/${safeLifeName(g)}`, 'media', m, p.id)
+          }
+        }
       }
 
       // A szemelyes projektek. A specifikacio 12-13. pontja: a projekt NEM
@@ -526,50 +553,21 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
       // A fejlesztes ala megy a tudasbazis es a repok helye. A Marveen a
       // repok SAJAT dokumentacios retegehez nem nyul -- csak a helyet adja.
       if (key === 'development') addDevelopmentBranch(add, cat, lang, c.id, true)
-      // Keves ceges kep van: nem kap sajat agat a felso MEDIA alatt, hanem a
-      // marketing ala kerul (specifikacio 9. pont).
-      if (key === 'marketing') {
-        const media = `${cat}/${lifeName('media', lang)}`
-        add(media, 'category', 'media', c.id)
-        for (const m of ['photos', 'videos']) add(`${media}/${lifeName(m, lang)}`, 'media', m, c.id)
+      // A ceg MEDIA-ja is a CEG ALATT all, sajat kategoriakent -- ugyanaz a
+      // rendezoelv, mint a szemelyeknel. Korabban a marketing ala volt
+      // bujtatva; a Boss faja a FEJLESZTES melle, onallo agkent teszi.
+      if (key === 'media') {
+        for (const m of ['photos', 'videos']) add(`${cat}/${lifeName(m, lang)}`, 'media', m, c.id)
       }
     }
   }
 
-  // 3. A nagy keptar (specifikacio 18-20. pont): szemelyenkent, media-tipusra,
-  //    orszagra, majd csaladi csoportra bontva. A Boss kikotese: "a fotok is
-  //    kulon kellene szedni, mert nekem 3 orszagbol van fotok is videok is".
-  const mediaDir = lifeName('media', lang)
-  add(mediaDir, 'top', 'media')
-  for (const p of cfg.persons) {
-    const base = `${mediaDir}/${safeLifeName(p.name)}`
-    add(base, 'person', null, p.id)
-    const mediaCountries = p.countrySplit.includes(MEDIA_COUNTRY_KEY) ? p.countries : []
-    for (const m of p.mediaKinds) {
-      const sub = `${base}/${lifeName(m, lang)}`
-      add(sub, 'media', m, p.id)
-      if (mediaCountries.length) {
-        for (const c of mediaCountries) {
-          const cd = `${sub}/${safeLifeName(c)}`
-          add(cd, 'country', m, p.id)
-          for (const g of p.mediaGroups) add(`${cd}/${safeLifeName(g)}`, 'media', m, p.id)
-        }
-      } else {
-        for (const g of p.mediaGroups) add(`${sub}/${safeLifeName(g)}`, 'media', m, p.id)
-      }
-    }
-  }
-  if (cfg.companies.length) {
-    const base = `${mediaDir}/${companiesDir}`
-    add(base, 'top', 'companies')
-    for (const c of cfg.companies) {
-      const cb = `${base}/${safeLifeName(c.name)}`
-      add(cb, 'company', null, c.id)
-      for (const m of ['photos', 'videos']) add(`${cb}/${lifeName(m, lang)}`, 'media', m, c.id)
-    }
-  }
-
-  // 4. A tobbi felso szintu ag.
+  // 3. A tobbi felso szintu ag.
+  //
+  // A MEDIA MAR NINCS ITT: a 2026-08-21-i dontes szerint minden szemely es ceg
+  // sajat `Média` kategoriajat kapja (lasd fent). Aki a fotoit keresi, annal a
+  // SZEMELYNEL kezdi -- nem egy kulon keptarban, ami mellett a jogi ugyei
+  // masutt allnak.
   add(lifeName('knowledge', lang), 'top', 'knowledge')
 
   // DIGITALIS: NEM masolatgyujto. Csak onallo eletciklusu digitalis dolgok --

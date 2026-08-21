@@ -68,8 +68,8 @@ describe('a sablonok', () => {
     const cfg = findLifeTemplate('multi-country')!.build('hu')
     const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
     const p = cfg.persons[0].name
-    expect(rels).toContain(`Média/${p}/Fotók/${cfg.persons[0].countries[2]}`)
-    expect(rels).toContain(`Média/${p}/Videók/${cfg.persons[0].countries[2]}`)
+    expect(rels).toContain(`${p}/Média/Fotók/${cfg.persons[0].countries[2]}`)
+    expect(rels).toContain(`${p}/Média/Videók/${cfg.persons[0].countries[2]}`)
   })
 
   it('a teljes sablonban a szemelyes es a ceges repo KULON all', () => {

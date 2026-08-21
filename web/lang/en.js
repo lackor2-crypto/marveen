@@ -1948,8 +1948,6 @@ window._i18n.en = {
   'agents.main_badge':			'main assistant',
   'agents.ctx.compact':                'Compact',
   'app.hard_refresh_tip':            'Refresh: discards the copy stored in the browser and loads the page again. Use it when something did not update.',
-  'app.updated.text':                'A newer version has been deployed — this page is still running the old one, so some buttons may do nothing.',
-  'app.updated.btn':                 'Reload',
   'agents.ctx.compact_tip':            'Summarizes the conversation right now so it takes less room. The gist stays; some detail gets merged. The thousand-token number here is NOT tied to this button: that is the limit for automatic compaction.',
   'agents.ctx.clear':                  'Clear',
   'agents.ctx.clear_tip':              'Wipes the conversation completely; the agent starts fresh. Cannot be undone.',

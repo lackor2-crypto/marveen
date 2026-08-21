@@ -106,12 +106,12 @@ describe('planLifeTree', () => {
     // "a fotok is kulon kellene szedni. mert nekem 3 orszagbol van fotok is
     // videok is." -- ezert kapcsolhato a MEDIA kulon.
     const nodes = planLifeTree(cfg, 'hu').map((n) => n.rel)
-    expect(nodes).toContain('Média/Teszt Elek/Fotók/Németország')
-    expect(nodes).toContain('Média/Teszt Elek/Videók/Németország')
+    expect(nodes).toContain('Teszt Elek/Média/Fotók/Németország')
+    expect(nodes).toContain('Teszt Elek/Média/Videók/Németország')
     // Anna nem kerte: nala a FOTOK alatt CSOPORT all, nem orszag. (Maga a
     // `Fotók/` elotag nala is letezik -- a csoportok miatt --, ezert a
     // konkret orszagnevre kell kerdezni, kulonben a teszt semmit sem mer.)
-    expect(nodes.some((r) => r.startsWith('Média/Példa-Kovács Anna/Fotók/Magyarország'))).toBe(false)
+    expect(nodes.some((r) => r.startsWith('Példa-Kovács Anna/Média/Fotók/Magyarország'))).toBe(false)
   })
 
   it('a szemelyes projekt a specifikacio szerinti helyen all', () => {

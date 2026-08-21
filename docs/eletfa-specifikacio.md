@@ -586,3 +586,39 @@ szülhet üres, sosem szinkronizáló sort.
 **PHOTOS_01 … PHOTOS_10** a 10 bekötött Google-fiókból, majd a felületről
 felvett **GIT_01** (`Tárolók/Git/lackor2-crypto`, a mappa létre is jött).
 Teljes teszt-suite: 347 fájl / 5177 teszt, zöld.
+
+
+## MÉDIA A SZEMÉLY ALÁ — 2026-08-21
+
+Boss: *„a media t rakd belulre a korpas laszlo ala."*
+
+Eddig a `Média` **közös felső ág** volt (18-20. pont): `Média/<személy>/<típus>/…`.
+Mostantól minden személy és minden cég **saját `Média` kategóriát** kap, és
+felső szintű `Média` ág **nincs többé**.
+
+| Eddig | Mostantól |
+|---|---|
+| `Média/Korpás László/Fotók/Ági családja` | `Korpás László/Média/Fotók/Ági családja` |
+| `Média/Bakos Éva/Videók/Család` | `Bakos Éva/Média/Videók/Család` |
+| `Média/Cégek/Freeberischeaper/Fotók` | `Cégek/Freeberischeaper/Média/Fotók` |
+| `Cégek/…/Marketing/Média/Fotók` (9. pont) | `Cégek/…/Média/Fotók` (a FEJLESZTÉS testvére) |
+| `Szken` | `Szkennek` |
+
+Miért: aki a fotóit keresi, annál az **embernél** kezdi — nem egy külön
+képtárban, ami mellett a jogi ügyei másutt állnak. A kategórián belüli bontás
+(típus → ország → családi csoport) **változatlan**; az ország továbbra is a
+típus alatt áll, nem a `Média` alatt, hogy egy szinten ne keveredjen kétféle
+rendezőelv.
+
+A depón (`F:\Marveen`) az áthelyezés megtörtént, adatvesztés nélkül (a
+mappák üresek voltak): `Média/*` → `<tulajdonos>/Média/*`, a felső `Média`
+törölve.
+
+## AZ „ÚJRATÖLTÉS" CSÍK MEGSZŰNT — 2026-08-21
+
+Boss: *„ez ne jelenjen meg tobbet! ha kell toltse ujra de automatikusan!!!"*
+
+Ha új változat kerül ki, a lap **magától** tölt újra. Egyetlen kivétel: ha a
+kurzor épp egy szöveges mezőben áll, vagy nyitva van egy ablak, akkor vár, és
+pár másodpercenként újrapróbálja — a begépelt szöveget semmilyen frissesség
+nem éri meg.

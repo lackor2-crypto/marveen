@@ -383,14 +383,27 @@ describe('a lap eszreveszi, ha kozben uj valtozat kerult ki', () => {
     expect(app).toContain("document.querySelector('script[src*=\"/app.js\"]')")
   })
 
-  it('nem tolt ujra magatol -- szol, es a Boss dont', () => {
+  it('MAGATOL tolt ujra -- csik es kattintas nelkul', () => {
+    // Boss, 2026-08-21: "ez ne jelenjen meg tobbet! ha kell toltse ujra de
+    // automatikusan". A fekete csik egy felesleges kattintas volt.
     const i = app.indexOf('function showAppUpdateNotice')
     const blokk = app.slice(i, i + 700)
-    expect(blokk).toContain('appUpdatedBar')
-    expect(blokk).toContain("addEventListener('click', hardRefresh")
-    // Se itt, se a verzio-ellenorzoben nincs automatikus ujratoltes.
-    const ell = app.slice(app.indexOf('async function checkAppVersion'), app.indexOf('const themeToggle'))
-    expect(ell).not.toContain('location.reload')
+    expect(blokk).toContain('hardRefresh()')
+    expect(blokk).not.toContain('appUpdatedBar')
+    expect(app).not.toContain('appUpdatedBar')
+  })
+
+  it('de a felig begepelt szoveget nem tapossa le', () => {
+    // Ha a kurzor mezoben all, vagy nyitva egy ablak, VAR es ujraprobal.
+    const i = app.indexOf('function reloadWouldInterrupt')
+    expect(i).toBeGreaterThan(0)
+    const blokk = app.slice(i, i + 600)
+    expect(blokk).toContain('textarea')
+    expect(blokk).toContain('isContentEditable')
+    expect(blokk).toContain('modal-overlay')
+    const go = app.slice(app.indexOf('function showAppUpdateNotice'), app.indexOf('async function checkAppVersion'))
+    expect(go).toContain('reloadWouldInterrupt()')
+    expect(go).toContain('setTimeout')
   })
 
   it('rejtett lapon nem kerdez', () => {
@@ -398,10 +411,12 @@ describe('a lap eszreveszi, ha kozben uj valtozat kerult ki', () => {
     expect(ell).toContain('if (document.hidden) return')
   })
 
-  it('a csik szovege megvan magyarul es angolul', () => {
+  it('a csik szovegei eltuntek a szotarakbol is', () => {
+    // Nem hagyunk arva kulcsot: ami nincs a kepernyon, az ne is alljon a
+    // szotarban -- kulonben a kovetkezo olvaso azt hiszi, van meg ilyen csik.
     for (const k of ['app.updated.text', 'app.updated.btn']) {
-      expect(hu).toContain(`'${k}'`)
-      expect(en).toContain(`'${k}'`)
+      expect(hu).not.toContain(`'${k}'`)
+      expect(en).not.toContain(`'${k}'`)
     }
   })
 })

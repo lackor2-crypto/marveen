@@ -534,8 +534,15 @@ document.getElementById('hardRefreshBtn')?.addEventListener('click', hardRefresh
 //   2. a teljes felulet-belyeg (app.js + style.css + a ket nyelvi fajl), hogy
 //      egy CSAK stilus- vagy CSAK szoveg-valtozas se maradjon eszrevetlen.
 //
-// Nem toltunk ujra magunktol: a Boss kozben gepelhet egy mezobe. Szolunk, es
-// o donti el, mikor.
+// 2026-08-21 ota MAGUNKTOL toltunk ujra. A Boss kerese: "ez ne jelenjen meg
+// tobbet! ha kell toltse ujra de automatikusan". A fekete csik ugyanis csak
+// egy tovabbi kattintas volt ugyanarra, amit a lap maga is el tud vegezni.
+//
+// EGY dolgot vedunk: a felig beirt szoveget. Ha eppen egy mezoben all a
+// kurzor, vagy nyitva van egy ablak, VARUNK a betoltessel, es par
+// masodpercenkent ujraprobaljuk -- az ujratoltes elveszitene a begepelt
+// szoveget, es azt semmilyen frissesseg nem eri meg. Amint a mezo elveszti a
+// fokuszt, a lap magatol frissul.
 const APP_VERSION_POLL_MS = 120000
 let appVersionBaseline = null
 let appUpdateNoticeShown = false
@@ -549,19 +556,35 @@ function loadedAppVersion() {
   return m ? m[1] : null
 }
 
+/**
+ * Eppen olyasmit csinal a felhasznalo, amit egy ujratoltes tonkretenne?
+ *
+ * Ket eset: (1) szoveges mezoben all a kurzor -- ott begepelt szoveg lehet;
+ * (2) nyitva van egy ablak (modal) -- ott felig kitoltott urlap allhat.
+ * Barmelyik igaz, varunk.
+ */
+function reloadWouldInterrupt() {
+  const el = document.activeElement
+  if (el) {
+    const tag = (el.tagName || '').toLowerCase()
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return true
+    if (el.isContentEditable) return true
+  }
+  const modal = document.querySelector('.modal-overlay:not([hidden])')
+  return !!modal
+}
+
+const APP_UPDATE_RETRY_MS = 4000
+
+/** Ujratoltes az uj verziora -- magatol, gomb nelkul. */
 function showAppUpdateNotice() {
   if (appUpdateNoticeShown) return
   appUpdateNoticeShown = true
-  const bar = document.getElementById('appUpdatedBar')
-  if (!bar) return
-  const txt = document.getElementById('appUpdatedText')
-  const btn = document.getElementById('appUpdatedBtn')
-  if (txt) txt.textContent = t('app.updated.text')
-  if (btn) {
-    btn.textContent = t('app.updated.btn')
-    btn.addEventListener('click', hardRefresh, { once: true })
+  const go = () => {
+    if (reloadWouldInterrupt()) { setTimeout(go, APP_UPDATE_RETRY_MS); return }
+    hardRefresh()
   }
-  bar.hidden = false
+  go()
 }
 
 async function checkAppVersion() {
@@ -28485,12 +28508,12 @@ async function _storagesRefresh() {
         + '<td>' + (r.present ? (r.items + ' tétel') : '—') + '</td>'
         + '<td>' + _storageStateText(r) + '</td>'
         + '<td style="white-space:nowrap">'
-        + '<button class="btn-secondary" data-stor-act="rename" data-kind="' + escapeHtml(r.kind)
+        + '<button class="btn-secondary btn-compact" data-stor-act="rename" data-kind="' + escapeHtml(r.kind)
         + '" data-account="' + escapeHtml(r.account) + '" data-name="' + escapeHtml(r.name) + '">Átnevezés</button> '
-        + '<button class="btn-secondary" data-stor-act="toggle" data-kind="' + escapeHtml(r.kind)
+        + '<button class="btn-secondary btn-compact" data-stor-act="toggle" data-kind="' + escapeHtml(r.kind)
         + '" data-account="' + escapeHtml(r.account) + '" data-active="' + (r.active ? '1' : '0') + '">'
         + (r.active ? 'Kikapcsolás' : 'Bekapcsolás') + '</button> '
-        + '<button class="btn-secondary" data-stor-act="check" data-kind="' + escapeHtml(r.kind)
+        + '<button class="btn-secondary btn-compact" data-stor-act="check" data-kind="' + escapeHtml(r.kind)
         + '" data-account="' + escapeHtml(r.account) + '">Ellenőrzés</button>'
         + '</td></tr>'
     }).join('')
@@ -28963,8 +28986,15 @@ function _intezoRender() {
       + (_intezoSelected && _intezoSelected.rel === e.rel ? ' style="background:rgba(127,127,127,.15)"' : '')
       + '>'
       + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
-      + '<td style="padding:2px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '">'
-      + (e.isDir ? '📁 ' : '') + escapeHtml(e.name) + '</a>'
+      + '<td style="padding:2px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '"'
+      // Git-terulet: PIROS nev es lakat-jelzes. Nem tiltas -- minden muvelet
+      // mukodik --, csak figyelemfelkeltes (Boss, 2026-08-21): "az egy fontos
+      // mappa. jobb nem piszkalni".
+      + (e.caution ? ' style="color:var(--danger,#d33)" title="' + escapeHtml(e.caution) + '"' : '')
+      + '>'
+      + (e.isDir ? (e.caution ? '📛 ' : '📁 ') : '') + escapeHtml(e.name) + '</a>'
+      + (e.caution ? ' <span style="color:var(--danger,#d33);font-size:12px" title="'
+          + escapeHtml(e.caution) + '">⚠ jobb nem piszkálni</span>' : '')
       + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '')
       + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="Ez a mappa máshol lévő tartalmat mutat">→ '
           + escapeHtml(e.mounted) + '</span>' : '') + '</td>'

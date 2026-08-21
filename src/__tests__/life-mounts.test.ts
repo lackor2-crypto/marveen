@@ -30,9 +30,9 @@ const cfg = {
   companies: [],
 }
 
-// A media a specifikacio 18. pontja ota KOZOS ag: `Média/<név>/Fotók`.
-// Korabban a szemely alatt allt (`ÉLET/Teszt Elek/Média/Fotók`).
-const MEDIA_PHOTOS = 'Média/Teszt Elek/Fotók'
+// A media 2026-08-21 ota ismet a SZEMELY ALATT all: `<név>/Média/Fotók`.
+// (Kozben egy ideig kozos felso ag volt -- lasd a specifikacio 18. pontjat.)
+const MEDIA_PHOTOS = 'Teszt Elek/Média/Fotók'
 
 beforeEach(() => {
   rmSync(join(store, 'life-mounts.json'), { force: true })
@@ -59,7 +59,7 @@ describe('addMount', () => {
   })
 
   it('nem enged egymasba agyazott bekotest', () => {
-    const r = addMount({ rel: 'Média', target: 'Média/Teszt Elek' })
+    const r = addMount({ rel: 'Teszt Elek/Média', target: MEDIA_PHOTOS })
     expect(r.ok).toBe(false)
     expect(r.code).toBe('nested')
   })
@@ -89,7 +89,7 @@ describe('a bekotes a fan at latszik', () => {
   })
 
   it('a szulomappaban jelolve latszik', () => {
-    const l = listLife('Média/Teszt Elek', { deep: false })
+    const l = listLife('Teszt Elek/Média', { deep: false })
     const photos = l.folders.find((f) => f.name === 'Fotók')
     expect(photos).toBeTruthy()
     expect(photos!.mounted).toBe('teszt-fiok Google Fotók')
