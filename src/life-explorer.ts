@@ -34,7 +34,7 @@ import {
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
 import { logger } from './logger.js'
 import { lifeHint, PERSON_HINT, COMPANY_HINT, SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT,
-  DEV_KNOWLEDGE_HINT, DEV_MORE_HINT } from './life-hints.js'
+  DEV_KNOWLEDGE_HINT, DEV_MORE_HINT, PROJECT_HINT } from './life-hints.js'
 
 /**
  * Az Intezo gyokere: maga a DEPO, nem az eletfa.
@@ -359,8 +359,19 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
   // felulet ket egyforma sort mutat, es a felhasznalo duplikaciot lat.
   const devAlatt = base.rel.endsWith(lifeName('development', APP_LANG))
 
+  // A `Projektek` alatt minden mappa EGY PROJEKT -- a neve a felhasznaloe.
+  const projektekAlatt = base.rel.endsWith('/' + lifeName('projects', APP_LANG))
+
+  // A `Marvin` NEV ketszer szerepel a faban: a `Rendszer` alatt a Marveen sajat
+  // munkafajljai, a `Projektek` alatt viszont a Boss SAJAT projektje. A
+  // nev-alapu tabla nem tudja megkulonboztetni oket, a hely igen -- kulonben a
+  // sajat projektjere azt irnank ki, hogy „ide nem kell nyulnod".
+  const rendszerAlatt = base.rel === lifeName('system', APP_LANG)
+
   for (const f of folders) {
     const kulcs = lifeKeyForName(f.name)
+    if (projektekAlatt) { f.hint = PROJECT_HINT; continue }
+    if (kulcs === 'marvin' && !rendszerAlatt) { f.hint = PROJECT_HINT; continue }
     if (devAlatt && kulcs === 'knowledgeBase') { f.hint = DEV_KNOWLEDGE_HINT; continue }
     if (devAlatt && kulcs === 'moreMaterial') { f.hint = DEV_MORE_HINT; continue }
     const h = lifeHint(kulcs)

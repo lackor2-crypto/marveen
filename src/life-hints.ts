@@ -114,6 +114,16 @@ export const COMPANY_HINT =
   'egy cég teljes anyaga: céges ügyek, levelezés, pénzügy, weboldal, fejlesztés'
 
 /**
+ * EGY PROJEKT mappaja a `Projektek` alatt.
+ *
+ * A neve nem fix (a felhasznalo adja: `Marvin`, `Tőzsde`), ezert a nev
+ * szerinti tabla nem talalja -- pedig eppen itt a legnagyobb a kerdes, hogy mi
+ * kerul ala.
+ */
+export const PROJECT_HINT =
+  'egy folyamatban lévő ügyed: a tudásbázisa, a vegyes anyagai, és ha kód is tartozik hozzá, a Fejlesztés ág'
+
+/**
  * A FEJLESZTES ALATTI tudasbazis es tovabbi anyagok.
  *
  * Ugyanaz a nevuk, mint a projekt/ceg szintjen allonak -- a specifikacio 17.
