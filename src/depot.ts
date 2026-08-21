@@ -66,7 +66,7 @@ const HU = APP_LANG === 'hu'
 
 /** A technikai reteg gyokere a depoban. */
 export const DEPOT_SYSTEM_ROOT = HU ? 'RENDSZER' : 'SYSTEM'
-/** A tarolok kozos mappaja. A `drive`/`fotok` EGYELORE nem ide mutat. */
+/** A tarolok kozos mappaja: ide megy a Drive es a Google Fotok is. */
 export const DEPOT_STORAGES = `${DEPOT_SYSTEM_ROOT}/${HU ? 'TÁROLÓK' : 'STORAGES'}`
 
 /** Amibol dolgozol: a git-repok es a projektmunkak helye. */
@@ -81,23 +81,34 @@ export const DEPOT_SYSTEM = `${DEPOT_SYSTEM_ROOT}/MARVIN`
 /**
  * A Google Fotok kepei, fiokonkent almappaban.
  *
- * A GYOKERBEN MARAD -- a Boss kifejezett kerese. Ne mozditsd el anelkul, hogy a
- * fotok-letolto celutvonalat is atallitanad, kulonben ket helyre tolt.
+ * A TAROLOK ala tartozik, nem a gyokerbe: ez nem egy elet-terulet, hanem egy
+ * kulso szolgaltatas helyi masolata. (A Boss korabbi "hagyd meg a drive es a
+ * fotok mappakat" kerese az IRODA MENU ket oldalara vonatkozott -- azok
+ * valtozatlanok --, nem az Intezo gyokerere.)
  */
-export const DEPOT_PHOTOS = 'fotok'
+export const DEPOT_PHOTOS = `${DEPOT_STORAGES}/GOOGLE_PHOTOS`
 /**
  * A Google Drive fajljai, fiokonkent almappaban.
  *
- * A GYOKERBEN MARAD -- lasd a `DEPOT_PHOTOS` megjegyzeset.
+ * A TAROLOK ala tartozik -- lasd a `DEPOT_PHOTOS` megjegyzeset.
  */
-export const DEPOT_DRIVE = 'drive'
+export const DEPOT_DRIVE = `${DEPOT_STORAGES}/DRIVE`
+
+/**
+ * A REGI, lapos nevek ugyanezekre. KELLENEK, mert ket helyen a mappa NEVE a
+ * bemenet, nem a celja: a `fiokok/<fiok>/fotok` elrendezes belso mappaneve, es
+ * a gyokerben talalt regi `drive`/`fotok`, amit at kell emelnunk. Ha ezekre a
+ * fenti konstansokat hasznalnank, az atkoltoztetes sajat magat keresne.
+ */
+export const LEGACY_KIND_PHOTOS = 'fotok'
+export const LEGACY_KIND_DRIVE = 'drive'
 
 /**
  * A REGI, lapos helyek -- ahonnan egyszer atkoltoztetunk.
  *
  * Nem torlunk semmit: `renameSync`-kel emeljuk at a mappat a helyere. Ugyanazon
  * a lemezen ez pillanatszeru es nem duplazza a helyet. A `drive` es a `fotok`
- * SZANDEKOSAN nincs a listan.
+ * IS a listan van: ezek a TAROLOK ala valok, nem az Intezo gyokerebe.
  */
 // A SORREND SZAMIT. A `rendszer` all elol, mert a celja (`RENDSZER/MARVIN`)
 // kis-nagybetuben azonos a sajat nevevel: Windowson eloszor ideiglenes nevre
@@ -108,6 +119,8 @@ const LEGACY_FLAT_DIRS: Array<{ from: string; to: string }> = [
   { from: 'projektek', to: DEPOT_PROJECTS },
   { from: 'munka',     to: DEPOT_WORK },
   { from: 'mentesek',  to: DEPOT_BACKUPS },
+  { from: LEGACY_KIND_DRIVE,  to: DEPOT_DRIVE },
+  { from: LEGACY_KIND_PHOTOS, to: DEPOT_PHOTOS },
 ]
 
 /**
@@ -211,6 +224,12 @@ export function depotAccountDir(account: string, kind: string): string | null {
  * mint hogy barmit felulirjunk. Minden hiba lenyelve: egy sikertelen koltoztetes
  * nem allithatja meg az indulast, a fajlok ilyenkor a regi helyukon maradnak.
  */
+/** Regi belso mappanev -> a mai helye. */
+const LEGACY_KIND_TARGETS: Record<string, string> = {
+  [LEGACY_KIND_PHOTOS]: DEPOT_PHOTOS,
+  [LEGACY_KIND_DRIVE]: DEPOT_DRIVE,
+}
+
 export function migrateLegacyAccountDirs(): string[] {
   const root = depotRoot()
   if (!root) return []
@@ -226,13 +245,16 @@ export function migrateLegacyAccountDirs(): string[] {
     try { fajtak = readdirSync(join(regi, fiok)).filter((f) => !f.startsWith('.')) } catch { continue }
     for (const fajta of fajtak) {
       const from = join(regi, fiok, fajta)
-      const to = join(root, fajta, fiok)
+      // A REGI elrendezesben a mappa neve `fotok`/`drive`; a mai celjuk viszont
+      // a TAROLOK alatt van. Aminek nincs uj helye, az marad a sajat neven.
+      const cel = LEGACY_KIND_TARGETS[fajta] || fajta
+      const to = join(root, ...cel.split('/'), fiok)
       try {
         if (!statSync(from).isDirectory()) continue
         if (existsSync(to)) continue
         mkdirSync(dirname(to), { recursive: true })
         renameSync(from, to)
-        mozgatott.push(`${DEPOT_ACCOUNTS}/${fiok}/${fajta} -> ${fajta}/${fiok}`)
+        mozgatott.push(`${DEPOT_ACCOUNTS}/${fiok}/${fajta} -> ${cel}/${fiok}`)
       } catch { /* marad, ahol volt */ }
     }
     // Az ures fiok-mappa mar csak zavar. `rmdirSync`, NEM `rmSync`: ez ures
@@ -370,7 +392,7 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
   migrateFlatDepotDirs()
 
   const created: string[] = []
-  // `drive` es `fotok` mostantol FELUL van (`drive/lackor2`), ezert a vazban is
+  // A fajta van felul, a fiok alatta (`.../DRIVE/lackor2`), ezert a vazban is
   // itt a helyuk -- igy egy ures depoban is latszik, mi hova fog kerulni.
   for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM]) {
     const p = join(health.root, d)

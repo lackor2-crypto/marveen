@@ -23,7 +23,7 @@ const { ensureLifeTree } = await import('../life-tree.js')
 const { addMount, removeMount, listMounts, resolveMount, unresolveMount } = await import('../life-mounts.js')
 const { resolveLifePath, listLife, moveLife } = await import('../life-explorer.js')
 const { mountCandidates } = await import('../life-mount-candidates.js')
-const { DEPOT_PROJECTS } = await import('../depot.js')
+const { DEPOT_PROJECTS, DEPOT_PHOTOS, DEPOT_DRIVE } = await import('../depot.js')
 
 const cfg = {
   persons: [{ id: 'a', name: 'Teszt Elek', role: 'owner' as const, countries: ['MAGYARORSZÁG'], mediaGroups: ['ELSŐ CSALÁD'] }],
@@ -36,16 +36,16 @@ const MEDIA_PHOTOS = 'MÉDIA/Teszt Elek/FOTÓK'
 
 beforeEach(() => {
   rmSync(join(store, 'life-mounts.json'), { force: true })
-  rmSync(join(depot, 'fotok'), { recursive: true, force: true })
-  rmSync(join(depot, 'drive'), { recursive: true, force: true })
-  mkdirSync(join(depot, 'fotok', 'teszt-fiok'), { recursive: true })
-  writeFileSync(join(depot, 'fotok', 'teszt-fiok', 'nyaralas.jpg'), 'x', 'utf8')
+  rmSync(join(depot, ...DEPOT_PHOTOS.split('/')), { recursive: true, force: true })
+  rmSync(join(depot, ...DEPOT_DRIVE.split('/')), { recursive: true, force: true })
+  mkdirSync(join(depot, ...DEPOT_PHOTOS.split('/'), 'teszt-fiok'), { recursive: true })
+  writeFileSync(join(depot, ...DEPOT_PHOTOS.split('/'), 'teszt-fiok', 'nyaralas.jpg'), 'x', 'utf8')
   ensureLifeTree(cfg, 'hu')
 })
 
 describe('addMount', () => {
   it('bekot egy letezo helyet', () => {
-    const r = addMount({ rel: MEDIA_PHOTOS, target: 'fotok/teszt-fiok', kind: 'photos', label: 'teszt-fiok Google Fotók' })
+    const r = addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok`, kind: 'photos', label: 'teszt-fiok Google Fotók' })
     expect(r.ok).toBe(true)
     expect(listMounts()).toHaveLength(1)
   })
@@ -53,7 +53,7 @@ describe('addMount', () => {
   it('nem enged nem letezo celt', () => {
     // Elgepelt fioknev: itt kell megallni, mert kesobb csak egy ures mappa
     // latszana, es a felhasznalo azt hinne, elvesztek a kepei.
-    const r = addMount({ rel: MEDIA_PHOTOS, target: 'fotok/nincs-ilyen' })
+    const r = addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/nincs-ilyen` })
     expect(r.ok).toBe(false)
     expect(r.code).toBe('missing')
   })
@@ -65,8 +65,8 @@ describe('addMount', () => {
   })
 
   it('nem enged ket bekotest ugyanoda', () => {
-    addMount({ rel: MEDIA_PHOTOS, target: 'fotok/teszt-fiok' })
-    const r = addMount({ rel: MEDIA_PHOTOS, target: 'fotok/teszt-fiok' })
+    addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok` })
+    const r = addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok` })
     expect(r.ok).toBe(false)
     expect(r.code).toBe('exists')
   })
@@ -78,7 +78,7 @@ describe('addMount', () => {
 })
 
 describe('a bekotes a fan at latszik', () => {
-  beforeEach(() => { addMount({ rel: MEDIA_PHOTOS, target: 'fotok/teszt-fiok', kind: 'photos', label: 'teszt-fiok Google Fotók' }) })
+  beforeEach(() => { addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok`, kind: 'photos', label: 'teszt-fiok Google Fotók' }) })
 
   it('a bekotott mappa tartalma a fa-utvonalon nyilik', () => {
     const l = listLife(MEDIA_PHOTOS, { deep: false })
@@ -102,15 +102,15 @@ describe('a bekotes a fan at latszik', () => {
   })
 
   it('a leghosszabb illeszkedo bekotes nyer', () => {
-    mkdirSync(join(depot, 'drive', 'fiok2', 'Dokumentumok'), { recursive: true })
-    addMount({ rel: 'Teszt Elek', target: 'drive/fiok2' })
+    mkdirSync(join(depot, ...DEPOT_DRIVE.split('/'), 'fiok2', 'Dokumentumok'), { recursive: true })
+    addMount({ rel: 'Teszt Elek', target: `${DEPOT_DRIVE}/fiok2` })
     // A MEDIA/FOTOK-ra kulon bekotes van: azt kell latni, nem a Drive-ot.
-    expect(resolveMount(MEDIA_PHOTOS + '/nyaralas.jpg')!.target).toBe('fotok/teszt-fiok/nyaralas.jpg')
-    expect(resolveMount('Teszt Elek/JOGI')!.target).toBe('drive/fiok2/JOGI')
+    expect(resolveMount(MEDIA_PHOTOS + '/nyaralas.jpg')!.target).toBe(`${DEPOT_PHOTOS}/teszt-fiok/nyaralas.jpg`)
+    expect(resolveMount('Teszt Elek/JOGI')!.target).toBe(`${DEPOT_DRIVE}/fiok2/JOGI`)
   })
 
   it('visszafele is fordit', () => {
-    expect(unresolveMount('fotok/teszt-fiok/nyaralas.jpg')).toBe(MEDIA_PHOTOS + '/nyaralas.jpg')
+    expect(unresolveMount(`${DEPOT_PHOTOS}/teszt-fiok/nyaralas.jpg`)).toBe(MEDIA_PHOTOS + '/nyaralas.jpg')
   })
 
   it('athelyezes utan a FA szerinti utvonalat kapjuk vissza', () => {
@@ -119,16 +119,16 @@ describe('a bekotes a fan at latszik', () => {
     expect(r.ok).toBe(true)
     expect(r.rel).toBe(MEDIA_PHOTOS + '/kep.jpg')
     // A fajl viszont VALOJABAN a fotok mappaban all -- egy peldanyban.
-    expect(existsSync(join(depot, 'fotok', 'teszt-fiok', 'kep.jpg'))).toBe(true)
+    expect(existsSync(join(depot, ...DEPOT_PHOTOS.split('/'), 'teszt-fiok', 'kep.jpg'))).toBe(true)
   })
 })
 
 describe('removeMount', () => {
   it('megszunteti a bekotest, de a fajlokhoz nem nyul', () => {
-    addMount({ rel: MEDIA_PHOTOS, target: 'fotok/teszt-fiok' })
+    addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok` })
     const r = removeMount(MEDIA_PHOTOS)
     expect(r.ok).toBe(true)
-    expect(existsSync(join(depot, 'fotok', 'teszt-fiok', 'nyaralas.jpg'))).toBe(true)
+    expect(existsSync(join(depot, ...DEPOT_PHOTOS.split('/'), 'teszt-fiok', 'nyaralas.jpg'))).toBe(true)
     expect(listMounts()).toEqual([])
   })
   it('nem letezo bekotesnel is emberi valaszt ad', () => {
@@ -138,11 +138,11 @@ describe('removeMount', () => {
 
 describe('mountCandidates', () => {
   it('felajanlja a fotok-fiokot es a Drive-mappakat', () => {
-    mkdirSync(join(depot, 'drive', 'fiok2', 'Dokumentumok'), { recursive: true })
+    mkdirSync(join(depot, ...DEPOT_DRIVE.split('/'), 'fiok2', 'Dokumentumok'), { recursive: true })
     const opts = mountCandidates()
-    expect(opts.some((o) => o.target === 'fotok/teszt-fiok' && o.kind === 'photos')).toBe(true)
-    expect(opts.some((o) => o.target === 'drive/fiok2' && o.kind === 'drive')).toBe(true)
-    expect(opts.some((o) => o.target === 'drive/fiok2/Dokumentumok')).toBe(true)
+    expect(opts.some((o) => o.target === `${DEPOT_PHOTOS}/teszt-fiok` && o.kind === 'photos')).toBe(true)
+    expect(opts.some((o) => o.target === `${DEPOT_DRIVE}/fiok2` && o.kind === 'drive')).toBe(true)
+    expect(opts.some((o) => o.target === `${DEPOT_DRIVE}/fiok2/Dokumentumok`)).toBe(true)
   })
   it('csak a valodi git repot ajanlja fel', () => {
     // A repok helye `RENDSZER/GIT` lett (specifikacio 4. pont); a `DEPOT_PROJECTS`

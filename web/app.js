@@ -28809,14 +28809,16 @@ function _intezoRender() {
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
       + (_intezoSelected && _intezoSelected.rel === e.rel ? ' style="background:rgba(127,127,127,.15)"' : '')
       + '>'
-      + '<td style="padding:5px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
-      + '<td style="padding:5px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '">'
+      + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
+      + '<td style="padding:2px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '">'
       + (e.isDir ? '📁 ' : '') + escapeHtml(e.name) + '</a>'
       + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '')
       + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="Ez a mappa máshol lévő tartalmat mutat">→ '
           + escapeHtml(e.mounted) + '</span>' : '') + '</td>'
-      + '<td style="padding:5px 8px;text-align:right;opacity:.7;white-space:nowrap">' + escapeHtml(e.sizeHuman) + '</td>'
-      + '<td style="padding:5px 8px;white-space:nowrap"><button class="btn-secondary" data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
+      + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap">' + escapeHtml(e.sizeHuman) + '</td>'
+      + '<td style="padding:0 8px;white-space:nowrap"><button class="btn-secondary" '
+      + 'style="padding:1px 7px;font-size:11px;line-height:1.5;min-height:0;height:auto" '
+      + 'data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
       + '</tr>').join('')
     + '</tbody></table>'
 

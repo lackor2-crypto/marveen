@@ -7,6 +7,7 @@ import {
   safeDepotName, depotRoot, depotAccountDir, depotHealth, ensureDepotSkeleton,
   resolvePhotoDir, countFiles, migrateLegacyAccountDirs,
   DEPOT_ACCOUNTS, DEPOT_PHOTOS, DEPOT_DRIVE, DEPOT_SYSTEM,
+  LEGACY_KIND_PHOTOS, LEGACY_KIND_DRIVE,
   DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS,
 } from '../depot.js'
 import { moveVerified, migrateDir, sha256Of } from '../depot-migrate.js'
@@ -63,10 +64,10 @@ describe('a regi szerkezet egyszeri atkoltoztetese', () => {
   // fiokok/<fiok>/<fajta>  ->  <fajta>/<fiok>. ATNEVEZES: nem masol, nem duplaz.
   it('atemeli, ami mar lejott, es a fajl VALOBAN az uj helyen van', () => {
     const root = process.env.MARVEEN_DEPOT!
-    mkdirSync(join(root, DEPOT_ACCOUNTS, 'lackor2', DEPOT_PHOTOS), { recursive: true })
-    writeFileSync(join(root, DEPOT_ACCOUNTS, 'lackor2', DEPOT_PHOTOS, 'kep.jpg'), 'x')
-    mkdirSync(join(root, DEPOT_ACCOUNTS, 'usalackor', DEPOT_DRIVE), { recursive: true })
-    writeFileSync(join(root, DEPOT_ACCOUNTS, 'usalackor', DEPOT_DRIVE, 'a.txt'), 'y')
+    mkdirSync(join(root, DEPOT_ACCOUNTS, 'lackor2', LEGACY_KIND_PHOTOS), { recursive: true })
+    writeFileSync(join(root, DEPOT_ACCOUNTS, 'lackor2', LEGACY_KIND_PHOTOS, 'kep.jpg'), 'x')
+    mkdirSync(join(root, DEPOT_ACCOUNTS, 'usalackor', LEGACY_KIND_DRIVE), { recursive: true })
+    writeFileSync(join(root, DEPOT_ACCOUNTS, 'usalackor', LEGACY_KIND_DRIVE, 'a.txt'), 'y')
 
     const mozgatott = migrateLegacyAccountDirs()
     expect(mozgatott).toHaveLength(2)
@@ -78,14 +79,14 @@ describe('a regi szerkezet egyszeri atkoltoztetese', () => {
 
   it('ha a cel MAR letezik, nem nyul hozza (inkabb ket hely, mint felulirt fajl)', () => {
     const root = process.env.MARVEEN_DEPOT!
-    mkdirSync(join(root, DEPOT_ACCOUNTS, 'lackor2', DEPOT_PHOTOS), { recursive: true })
-    writeFileSync(join(root, DEPOT_ACCOUNTS, 'lackor2', DEPOT_PHOTOS, 'kep.jpg'), 'regi')
+    mkdirSync(join(root, DEPOT_ACCOUNTS, 'lackor2', LEGACY_KIND_PHOTOS), { recursive: true })
+    writeFileSync(join(root, DEPOT_ACCOUNTS, 'lackor2', LEGACY_KIND_PHOTOS, 'kep.jpg'), 'regi')
     mkdirSync(join(root, DEPOT_PHOTOS, 'lackor2'), { recursive: true })
     writeFileSync(join(root, DEPOT_PHOTOS, 'lackor2', 'kep.jpg'), 'uj')
 
     expect(migrateLegacyAccountDirs()).toHaveLength(0)
     expect(readFileSync(join(root, DEPOT_PHOTOS, 'lackor2', 'kep.jpg'), 'utf8')).toBe('uj')
-    expect(existsSync(join(root, DEPOT_ACCOUNTS, 'lackor2', DEPOT_PHOTOS, 'kep.jpg'))).toBe(true)
+    expect(existsSync(join(root, DEPOT_ACCOUNTS, 'lackor2', LEGACY_KIND_PHOTOS, 'kep.jpg'))).toBe(true)
   })
 
   it('nincs regi mappa -> nem csinal semmit, es nem is hibazik', () => {

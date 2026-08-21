@@ -23,7 +23,7 @@ import {
 } from 'node:fs'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
-import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS } from './depot.js'
+import { depotRoot } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
 import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
@@ -69,8 +69,6 @@ function topOrder(lang: string): string[] {
     lifeName('shared', lang),
     // A ket elo tarolo. A Boss kifejezett kerese, hogy ezek a helyukon
     // maradjanak (2026-08-21): "az jol sikerult es atlathato".
-    DEPOT_DRIVE,
-    DEPOT_PHOTOS,
     lifeName('archive', lang),
     // Amihez soha nem kell hozzanyulni. Ez az utolso.
     lifeName('system', lang),

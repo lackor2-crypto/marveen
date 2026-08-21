@@ -174,7 +174,7 @@ function driveProvider(): SourceProvider {
   return {
     id: 'drive',
     priority: 70,
-    label: 'Google Drive', short: 'DRIVE', icon: '☁',
+    label: 'Google Drive', short: 'DRIVE', icon: '☁️',
     detect(abs) {
       const root = depotRoot()
       if (!root) return null
@@ -191,7 +191,7 @@ function driveProvider(): SourceProvider {
         kind: 'drive',
         label: 'Google Drive',
         short: 'DRIVE',
-        icon: '☁',
+        icon: '☁️',
         details: [
           { label: 'Forrás', value: 'Google Drive' },
           ...(account ? [{ label: 'Drive-fiók', value: account }] : []),

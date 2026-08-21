@@ -396,6 +396,8 @@ window._i18n.hu = {
   'nav.photos':       'Fotók',
   'nav.depo':         'Depó',
   'nav.intezo': 'Intéző',
+  'intezo.tpl_title': 'Kezdj egy kész szerkezettel',
+  'intezo.tpl_desc': 'Válassz egy javasolt mappaszerkezetet, aztán írd át a neveket magadra. Semmi nem készül el a lemezen, amíg el nem teszed.',
   'intezo.title': 'Intéző',
   'intezo.subtitle': 'Minden fájlod egy fában. A név előtti kis jel megmutatja, hogy a fájl a gépeden van-e, a Google Drive-ról jött, fotó, vagy egy fejlesztői projekt része.',
   'intezo.refresh': 'Frissítés',

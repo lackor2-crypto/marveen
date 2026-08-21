@@ -383,6 +383,8 @@ window._i18n.en = {
   'nav.photos':       'Photos',
   'nav.depo':         'Depot',
   'nav.intezo': 'Explorer',
+  'intezo.tpl_title': 'Start from a ready structure',
+  'intezo.tpl_desc': 'Pick a suggested folder structure, then rename it to your own. Nothing is written to disk until you save.',
   'intezo.title': 'Explorer',
   'intezo.subtitle': 'All your files in one tree. The small mark before each name shows whether the file lives on this machine, came from Google Drive, is a photo, or belongs to a development project.',
   'intezo.refresh': 'Refresh',

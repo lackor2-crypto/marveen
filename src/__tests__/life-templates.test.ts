@@ -139,17 +139,24 @@ describe('migrateFlatDepotDirs -- a lapos depo a RENDSZER ala kerul', () => {
     expect(existsSync(join(depot, 'munka', 'uj.txt'))).toBe(true)
   })
 
-  it('a `drive` es a `fotok` A HELYEN MARAD', () => {
-    // A Boss kifejezett kerese (2026-08-21): "az iroda alatt pedig a drive es a
-    // fotok mappakat hagyd meg. az jol sikerult es atlathato... ahhoz ne nyulj."
-    // Ezek elo szinkron-celok is: elmozgatva a letoltes a regi utra irna.
+  it('a `drive` es a `fotok` a TAROLOK ala kerul, nem marad a gyokerben', () => {
+    // Boss, 2026-08-21: az Intezo gyokereben ezek nem elet-teruletek, hanem
+    // kulso szolgaltatasok helyi masolatai. (A korabbi "hagyd meg" keres az
+    // IRODA MENU Drive/Fotok oldalaira vonatkozott, nem a mappakra.)
     mkdirSync(join(depot, 'drive', 'fiok'), { recursive: true })
+    writeFileSync(join(depot, 'drive', 'fiok', 'a.txt'), 'drive', 'utf8')
     mkdirSync(join(depot, 'fotok', 'fiok'), { recursive: true })
+    writeFileSync(join(depot, 'fotok', 'fiok', 'k.jpg'), 'kep', 'utf8')
+
     migrateFlatDepotDirs()
-    expect(existsSync(join(depot, 'drive', 'fiok'))).toBe(true)
-    expect(existsSync(join(depot, 'fotok', 'fiok'))).toBe(true)
-    expect(DEPOT_DRIVE).toBe('drive')
-    expect(DEPOT_PHOTOS).toBe('fotok')
+
+    expect(existsSync(join(depot, 'drive'))).toBe(false)
+    expect(existsSync(join(depot, 'fotok'))).toBe(false)
+    expect(readFileSync(join(depot, DEPOT_DRIVE, 'fiok', 'a.txt'), 'utf8')).toBe('drive')
+    expect(readFileSync(join(depot, DEPOT_PHOTOS, 'fiok', 'k.jpg'), 'utf8')).toBe('kep')
+    // A fiok NEVE megmarad -- nem DRIVE_01 lesz belole.
+    expect(DEPOT_DRIVE.endsWith('/DRIVE')).toBe(true)
+    expect(DEPOT_PHOTOS.endsWith('/GOOGLE_PHOTOS')).toBe(true)
   })
 
   it('ures regi mappat nem koltoztet, hanem eltakarit', () => {

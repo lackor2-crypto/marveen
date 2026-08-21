@@ -26,7 +26,7 @@ import { pipeline } from 'node:stream/promises'
 import { join, dirname } from 'node:path'
 import { execFile } from 'node:child_process'
 import { PROJECT_ROOT } from '../../config.js'
-import { depotAccountDir, depotHealth, resolvePhotoDir, DEPOT_PHOTOS, DEPOT_ACCOUNTS, DEPOT_SYSTEM, depotRoot } from '../../depot.js'
+import { depotAccountDir, depotHealth, resolvePhotoDir, DEPOT_PHOTOS, DEPOT_ACCOUNTS, DEPOT_SYSTEM, LEGACY_KIND_PHOTOS, depotRoot } from '../../depot.js'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { googleAccountNames } from './accounts.js'
@@ -1464,7 +1464,7 @@ export function thumbDiskBytes(): number {
     try { accounts = existsSync(root) ? readdirSync(root) : [] } catch { accounts = [] }
     for (const acc of accounts) {
       // A regi elrendezesben <fiok>/.thumbs, a depoban <fiok>/fotok/.thumbs.
-      for (const td of [join(root, acc, THUMB_DIRNAME), join(root, acc, DEPOT_PHOTOS, THUMB_DIRNAME)]) {
+      for (const td of [join(root, acc, THUMB_DIRNAME), join(root, acc, LEGACY_KIND_PHOTOS, THUMB_DIRNAME)]) {
         try {
           if (!existsSync(td)) continue
           for (const f of readdirSync(td)) {
