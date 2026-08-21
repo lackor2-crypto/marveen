@@ -16737,9 +16737,11 @@ async function renderOverviewConnections() {
     // nehez reszt hagyja ra: ott all az oldalon, es nem tudja, mit nyomjon.
     list.innerHTML = rows.map(r => `<a href="#" class="overview-capability-item"
         style="background:${tone.itemBg};color:${tone.fg}"
-        ${r.guide
-          ? `onclick="openSelfCheckGuide(${JSON.stringify(r.guide).replace(/"/g, '&quot;')});return false"`
-          : 'onclick="switchPage(\'accounts\');return false"'}>
+        ${r.onclick
+          ? `onclick="${r.onclick};return false"`
+          : r.guide
+            ? `onclick="openSelfCheckGuide(${JSON.stringify(r.guide).replace(/"/g, '&quot;')});return false"`
+            : 'onclick="switchPage(\'accounts\');return false"'}>
         <div class="overview-capability-label">${escapeHtml(r.label)}</div>
         <div class="overview-capability-desc" style="color:${tone.descFg}">${escapeHtml(r.desc)}</div>
       </a>`).join('')
@@ -16803,6 +16805,9 @@ async function renderOverviewConnections() {
     rows.push({
       label: t('health.' + h.id, h.params || {}),
       desc: t('health.' + h.id + '_action'),
+      // A bejelentkezes sora nem a Fiokok oldalra dob, hanem oda, ahol
+      // ELVEGEZHETO: a varazslo bejelentkezteto lepesere.
+      onclick: h.id.startsWith('claude_auth_') ? 'openClaudeLoginStep()' : null,
     })
   }
 
@@ -20579,6 +20584,192 @@ function renderWizardHome(host) {
   if (btn) btn.addEventListener('click', () => { _wizardStepIdx = 0; renderWizardStep(host) })
 }
 
+// === A Claude-bejelentkezes a varazsloban, HELYBEN ========================
+//
+// Boss, 2026-08-21: "nem jo a bejelentkezes folyamata. raklikeltem arra hogy
+// claude bejelentkezes es csak megnyilt a bongeszoben a claude dasboardom
+// bejelentkezve. erted. semmi folyamat hogy a gepemen be tudjam
+// jelentkeztetni." Es utana: "itt a bongeszoben nem ennek kelene megjelennie
+// hanem az autorizacios panelnak. ahol is megnyomok egy gombot es maris a
+// marvin bejelentkezett. vagy a kod kellene amit a bongeszobe be kelne
+// masolnom."
+//
+// Igaza van, es a lepes eddig ket dolgot kevert ossze: a claude.ai-ra mutato
+// link REGISZTRACIOhoz jo, bejelentkeztetni nem tud semmit ezen a gepen -- egy
+// mar bejelentkezett bongeszoben egyszeruen megnyitja a chatet.
+//
+// A folyamat maga mar letezett a Fiokok oldalon (authorize-link ki, egyszeri
+// kod vissza), csak mindig UJ fiokot csinalt. Itt ugyanaz fut, de a gep SAJAT
+// bejelentkezesere (~/.claude) -- vagyis arra, amelyik el is romlott.
+let _wizClaudePoll = null
+
+function _wizClaudeStopPoll() {
+  if (_wizClaudePoll) { clearInterval(_wizClaudePoll); _wizClaudePoll = null }
+}
+
+function _wizClaudeSet(id, html) {
+  const el = document.getElementById(id)
+  if (el) el.innerHTML = html
+}
+
+function wizardClaudeLoginHtml() {
+  return `
+    <div id="wizClaudeBox" style="margin-top:14px;padding:14px;border-radius:8px;border:1px solid var(--border);background:rgba(127,127,127,.06)">
+      <p style="margin:0 0 10px;font-size:13px;line-height:1.55">${escapeHtml(t('wizclaude.intro'))}</p>
+      <div id="wizClaudeState" style="font-size:13px;line-height:1.55"></div>
+      <div id="wizClaudeStart">
+        <button class="btn-primary" id="wizClaudeStartBtn">${escapeHtml(t('wizclaude.start'))}</button>
+        <span style="margin-left:10px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('wizclaude.start_note'))}</span>
+      </div>
+      <div id="wizClaudeFlow" hidden>
+        <p style="margin:12px 0 4px;font-size:13px;font-weight:600">${escapeHtml(t('wizclaude.step1'))}</p>
+        <div id="wizClaudeLinkWrap" style="font-size:13px;word-break:break-all"></div>
+        <p style="margin:14px 0 4px;font-size:13px;font-weight:600">${escapeHtml(t('wizclaude.step2'))}</p>
+        <p style="margin:0 0 6px;font-size:12px;color:var(--text-muted);line-height:1.5">${escapeHtml(t('wizclaude.step2_note'))}</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input type="text" class="input" id="wizClaudeCode" autocomplete="off" spellcheck="false"
+            placeholder="${escapeAttr(t('wizclaude.code_placeholder'))}" style="flex:1 1 260px;min-width:0">
+          <button class="btn-primary" id="wizClaudeCodeBtn">${escapeHtml(t('wizclaude.code_send'))}</button>
+          <button class="btn-secondary" id="wizClaudeCancelBtn">${escapeHtml(t('wizclaude.cancel'))}</button>
+        </div>
+      </div>
+    </div>`
+}
+
+function wireWizardClaudeLogin() {
+  const startBtn = document.getElementById('wizClaudeStartBtn')
+  if (!startBtn) return
+
+  // Alapallapot: mit lat, mielott barmit megnyomna.
+  _wizClaudeTick(true)
+
+  const begin = async (force) => {
+    _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_starting'))}</span>`)
+    document.getElementById('wizClaudeLinkWrap').innerHTML = ''
+    try {
+      const res = await fetch('/api/accounts/claude/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(force ? { target: 'default', force: true } : { target: 'default' }),
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        // A "mar be van jelentkezve" NEM hiba, hanem kerdes: mondja meg mit
+        // jelent, es adjon egy gombot ami valaszol ra. Egy piros mondat, ami
+        // utan nincs teendo, zsakutca.
+        _wizClaudeSet('wizClaudeState',
+          `<span style="color:#f59e0b">${escapeHtml(data.error || t('common.error_save'))}</span>
+           <div style="margin-top:8px"><button class="btn-secondary btn-compact" id="wizClaudeForceBtn">${escapeHtml(t('wizclaude.switch_anyway'))}</button></div>`)
+        const fb = document.getElementById('wizClaudeForceBtn')
+        if (fb) fb.addEventListener('click', () => begin(true))
+        return
+      }
+    } catch (err) {
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(String(err.message || err))}</span>`)
+      return
+    }
+    document.getElementById('wizClaudeStart').hidden = true
+    document.getElementById('wizClaudeFlow').hidden = false
+    _wizClaudeStopPoll()
+    _wizClaudePoll = setInterval(() => _wizClaudeTick(false), 2000)
+    _wizClaudeTick(false)
+  }
+
+  startBtn.addEventListener('click', () => begin(false))
+
+  document.getElementById('wizClaudeCodeBtn').addEventListener('click', async () => {
+    const input = document.getElementById('wizClaudeCode')
+    const code = (input.value || '').trim()
+    if (!code) return
+    _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_working'))}</span>`)
+    try {
+      const res = await fetch('/api/accounts/claude/login/code', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      })
+      const data = await res.json()
+      if (!data.ok) { _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(data.error || t('common.error_save'))}</span>`); return }
+      input.value = ''
+    } catch (err) {
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(String(err.message || err))}</span>`)
+    }
+  })
+
+  document.getElementById('wizClaudeCancelBtn').addEventListener('click', async () => {
+    _wizClaudeStopPoll()
+    try { await fetch('/api/accounts/claude/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
+    document.getElementById('wizClaudeFlow').hidden = true
+    document.getElementById('wizClaudeStart').hidden = false
+    _wizClaudeSet('wizClaudeState', '')
+  })
+}
+
+async function _wizClaudeTick(initial) {
+  if (!document.getElementById('wizClaudeBox')) { _wizClaudeStopPoll(); return }
+  let s
+  try {
+    const res = await fetch('/api/accounts/claude')
+    s = await res.json()
+  } catch { return }
+
+  if (initial) {
+    // Ki van most bejelentkezve ezen a gepen? Ha senki, azt is kimondjuk --
+    // ez a lepes pont akkor kell, amikor a valasz "senki".
+    const me = (s.accounts || []).find(a => a.isDefault)
+    const who = me && me.identity && me.identity.loggedIn ? (me.identity.email || '') : ''
+    _wizClaudeSet('wizClaudeState', who
+      ? `<span style="color:#22c55e">${escapeHtml(t('wizclaude.current_ok', { who }))}</span>`
+      : `<span style="color:var(--danger)">${escapeHtml(t('wizclaude.current_none'))}</span>`)
+    return
+  }
+
+  if (s.done) {
+    _wizClaudeStopPoll()
+    document.getElementById('wizClaudeFlow').hidden = true
+    document.getElementById('wizClaudeStart').hidden = false
+    _wizClaudeSet('wizClaudeState', `<span style="color:#22c55e">${escapeHtml(t('wizclaude.done_restarting'))}</span>`)
+    // A bejelentkezes onmagaban meg nem hozza vissza a Marvint: a folyamata
+    // azzal a halott hozzaferessel indult el, es nem olvassa ujra a fajlt.
+    // Ezert itt indul ujra, kerdes nelkul -- ez a kulonbseg a "bejelentkezve"
+    // es a "megint mukodik" kozott.
+    try {
+      const r = await fetch('/api/accounts/claude/login/finish', { method: 'POST' })
+      const d = await r.json()
+      _wizClaudeSet('wizClaudeState', d.ok
+        ? `<span style="color:#22c55e">${escapeHtml(t('wizclaude.done_ok'))}</span>`
+        : `<span style="color:#f59e0b">${escapeHtml(t('wizclaude.done_no_restart'))}</span>`)
+    } catch {
+      _wizClaudeSet('wizClaudeState', `<span style="color:#f59e0b">${escapeHtml(t('wizclaude.done_no_restart'))}</span>`)
+    }
+    renderOverviewConnections()
+    return
+  }
+
+  if (s.url) {
+    document.getElementById('wizClaudeLinkWrap').innerHTML =
+      `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener noreferrer" class="btn-primary btn-compact"
+          style="display:inline-block;margin-bottom:8px">${escapeHtml(t('wizclaude.open_authorize'))} &#8599;</a>
+       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${escapeHtml(t('wizclaude.link_note'))}</div>`
+  }
+  if (s.phase === 'starting') _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_starting'))}</span>`)
+  else if (s.phase === 'awaiting-code') _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_awaiting'))}</span>`)
+  else if (s.phase === 'working') _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_working'))}</span>`)
+  else if (s.phase === 'failed') _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(s.error || t('wizclaude.state_failed'))}</span>`)
+}
+
+// Az Attekintes piros sorabol EGY kattintassal a bejelentkezteteshez, nem a
+// Beallitasok tetejere. Boss, 2026-08-21: a lepes megtalalasa maga is akadaly
+// volt, es a hibauzenet nem er semmit, ha nincs mellette az ut a megoldasig.
+async function openClaudeLoginStep() {
+  switchPage('settings')
+  activateSettingsTab('wizard')
+  const host = document.getElementById('setupWizardPanel')
+  if (!host) return
+  await renderSetupWizardPanel(host)
+  const todo = (_wizardData?.items || []).filter(i => !i.configured)
+  const idx = todo.findIndex(i => i.flowId === 'claude-login')
+  if (idx >= 0) { _wizardStepIdx = idx; renderWizardStep(host) }
+}
+
 // One capability per screen: what it is, why you might want it, what to click,
 // where to go, what to type. That is the difference between a wizard and a
 // settings list with a wizard label on top of it.
@@ -20590,6 +20781,10 @@ function renderWizardStep(host) {
   const steps = (item.stepKeys || []).map(k => `<li style="margin-bottom:6px">${escapeHtml(t(k))}</li>`).join('')
   const links = (item.links || []).map(l =>
     `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-compact" style="margin-right:8px;display:inline-block;margin-top:6px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
+
+  // Egy lepes, amit a felulten VEGIG lehet csinalni, ne kuldjon senkit
+  // terminalba. Ez a doboz maga a folyamat, nem a leirasa.
+  const flow = item.flowId === 'claude-login' ? wizardClaudeLoginHtml() : ''
 
   const example = item.exampleKey ? t(item.exampleKey) : (item.placeholder || '')
   const field = item.kind === 'external' ? '' : `
@@ -20614,6 +20809,7 @@ function renderWizardStep(host) {
       <p style="margin:0 0 10px;font-size:13px;line-height:1.55">${escapeHtml(t(item.helpKey || item.descKey))}</p>
       ${steps ? `<p style="margin:10px 0 4px;font-size:13px;font-weight:600">${escapeHtml(t('wizard.howto'))}</p><ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.55">${steps}</ol>` : ''}
       ${links}
+      ${flow}
       ${field}
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
         ${_wizardStepIdx > 0 ? `<button class="btn-secondary" id="wizardBackBtn">${escapeHtml(t('wizard.back'))}</button>` : ''}
@@ -20636,12 +20832,14 @@ function renderWizardStep(host) {
       else delete _wizardPending[item.envKey]
     }
   }
+  if (flow) wireWizardClaudeLogin()
+  const leaveStep = () => _wizClaudeStopPoll()
   const back = document.getElementById('wizardBackBtn')
-  if (back) back.addEventListener('click', () => { stash(); _wizardStepIdx--; renderWizardStep(host) })
-  document.getElementById('wizardSkipBtn').addEventListener('click', () => { _wizardStepIdx++; renderWizardStep(host) })
-  document.getElementById('wizardNextBtn').addEventListener('click', () => { stash(); _wizardStepIdx++; renderWizardStep(host) })
+  if (back) back.addEventListener('click', () => { leaveStep(); stash(); _wizardStepIdx--; renderWizardStep(host) })
+  document.getElementById('wizardSkipBtn').addEventListener('click', () => { leaveStep(); _wizardStepIdx++; renderWizardStep(host) })
+  document.getElementById('wizardNextBtn').addEventListener('click', () => { leaveStep(); stash(); _wizardStepIdx++; renderWizardStep(host) })
   const saveNow = document.getElementById('wizardSaveNowBtn')
-  if (saveNow) saveNow.addEventListener('click', () => { stash(); renderWizardDone(host) })
+  if (saveNow) saveNow.addEventListener('click', () => { leaveStep(); stash(); renderWizardDone(host) })
 }
 
 // Everything is saved at the END, in one request: a half-finished walkthrough

@@ -73,6 +73,17 @@ export interface SetupItem {
   exampleKey?: string
   /** Example value shown as the input placeholder, never a real one. */
   placeholder?: string
+  /**
+   * An interactive flow the wizard renders IN PLACE, instead of sending the
+   * operator somewhere with instructions.
+   *
+   * Boss, 2026-08-21: the Claude login step linked to claude.ai, which on an
+   * already-signed-in browser just opens the chat -- "semmi folyamat hogy a
+   * gepemen be tudjam jelentkeztetni [...] itt a bongeszoben nem ennek kelene
+   * megjelennie hanem az autorizacios panelnak". A link plus a terminal command
+   * is not a walkthrough; a step that CAN be done on the page must be.
+   */
+  flowId?: 'claude-login'
 }
 
 /**
@@ -98,10 +109,12 @@ export const SETUP_ITEMS: SetupItem[] = [
     required: true, tier: 'essential', placeholder: 'Marveen',
   },
   {
-    id: 'claude-auth', group: 'identity', kind: 'external',
+    id: 'claude-auth', group: 'identity', kind: 'external', flowId: 'claude-login',
     labelKey: 'wizard.item.claude_auth', descKey: 'wizard.item.claude_auth_desc',
     helpKey: 'wizard.item.claude_auth_help',
     stepKeys: ['wizard.item.claude_auth_step1', 'wizard.item.claude_auth_step2', 'wizard.item.claude_auth_step3'],
+    // The registration link stays -- somebody with no Claude account at all
+    // still needs it -- but it is no longer the whole step.
     links: [{ url: 'https://claude.ai/login', labelKey: 'wizard.link.claude_login' }],
     required: true, tier: 'essential',
   },

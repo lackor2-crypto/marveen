@@ -56,9 +56,11 @@ function accountsRoot(): string {
 
 interface LoginSession {
   startedAt: number
-  /** Config dir this flow is logging INTO -- never an existing account's. */
-  configDir: string
-  planId: string
+  /** Config dir this flow is logging INTO. `null` means the install's OWN
+   *  login (~/.claude) -- the one the main agent uses -- rather than a new,
+   *  parallel account. */
+  configDir: string | null
+  planId: string | null
   label: string
   codeSubmitted: boolean
   registered: boolean
@@ -200,6 +202,8 @@ export interface StartLoginResult {
   ok: boolean
   error?: string
   planId?: string
+  /** True when the flow targets the install's own ~/.claude login. */
+  isDefault?: boolean
 }
 
 /**
@@ -209,7 +213,76 @@ export interface StartLoginResult {
  * from it. `email` only pre-fills the address on Anthropic's page -- a
  * convenience, never a credential.
  */
-export function startLogin(opts: { label?: string; email?: string; useConsole?: boolean } = {}): StartLoginResult {
+/** tmux args for the login pane. A `null` configDir deliberately passes NO
+ *  CLAUDE_CONFIG_DIR, so the CLI writes to ~/.claude -- the install's own
+ *  login. Setting it to the literal home path instead would work today and
+ *  break the moment the CLI changes where the default lives. */
+function spawnArgs(configDir: string | null, command: string): string[] {
+  return [
+    'new-session', '-d', '-s', LOGIN_SESSION,
+    '-x', String(PANE_WIDTH), '-y', String(PANE_HEIGHT),
+    ...(configDir ? ['-e', `CLAUDE_CONFIG_DIR=${configDir}`] : []),
+    '-e', 'NO_COLOR=1',
+    'sh', '-c', command,
+  ]
+}
+
+/**
+ * Log in to the install's OWN account (~/.claude) -- what `/login` in a
+ * terminal does, driven from the page instead.
+ *
+ * This is the repair path, not the add-an-account path: no directory is
+ * created, nothing is written to store/claude-plans.json, and the existing
+ * parallel accounts are untouched.
+ */
+function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?: boolean }): StartLoginResult {
+  // Never silently overwrite a WORKING login: that is the one way this button
+  // could make things worse than it found them. `force` is the deliberate
+  // "yes, switch accounts" path, and the page has to ask for it.
+  if (!opts.force) {
+    const who = readIdentity(null)
+    if (who.loggedIn) {
+      return {
+        ok: false,
+        error: who.email
+          ? `Ez a gép már be van jelentkezve (${who.email}). Ha másik fiókra váltanál, erősítsd meg.`
+          : 'Ez a gép már be van jelentkezve. Ha másik fiókra váltanál, erősítsd meg.',
+      }
+    }
+  }
+
+  killSession()
+  const args = ['auth', 'login', opts.useConsole ? '--console' : '--claudeai']
+  if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
+  const quoted = [CLAUDE, ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
+  const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
+  try {
+    execFileSync(TMUX, spawnArgs(null, command), { timeout: 10_000 })
+  } catch (err) {
+    logger.warn({ err }, 'claude-auth: could not start the default login session')
+    return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
+  }
+  current = { startedAt: Date.now(), configDir: null, planId: null, label: '', codeSubmitted: false, registered: true }
+  logger.info('claude-auth: login session started for the install default (~/.claude)')
+  return { ok: true, isDefault: true }
+}
+
+export function startLogin(
+  opts: { label?: string; email?: string; useConsole?: boolean; target?: 'default' | 'new'; force?: boolean } = {},
+): StartLoginResult {
+  // target 'default' logs into ~/.claude -- the login the MAIN AGENT uses.
+  //
+  // Boss, 2026-08-21: the wizard's "Claude bejelentkezés" step only linked to
+  // claude.ai, which for an already-signed-in browser just opens the chat.
+  // "nem jo a bejelentkezes folyamata. [...] semmi folyamat hogy a gepemen be
+  // tudjam jelentkeztetni. [...] itt a bongeszoben nem ennek kelene
+  // megjelennie hanem az autorizacios panelnak."
+  //
+  // The parallel-account flow below already does exactly the right thing --
+  // authorize URL out, one-time code back -- it just always aimed at a NEW
+  // config dir, so it could never repair the account that was actually broken.
+  if (opts.target === 'default') return startDefaultLogin(opts)
+
   const label = (opts.label ?? '').trim()
   if (!label) return { ok: false, error: 'Adj nevet a fióknak (pl. "Munkahelyi" vagy az e-mail címed).' }
 
@@ -243,13 +316,7 @@ export function startLogin(opts: { label?: string; email?: string; useConsole?: 
   // message ON the pane instead of taking the window down with it.
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   try {
-    execFileSync(TMUX, [
-      'new-session', '-d', '-s', LOGIN_SESSION,
-      '-x', String(PANE_WIDTH), '-y', String(PANE_HEIGHT),
-      '-e', `CLAUDE_CONFIG_DIR=${configDir}`,
-      '-e', 'NO_COLOR=1',
-      'sh', '-c', command,
-    ], { timeout: 10_000 })
+    execFileSync(TMUX, spawnArgs(configDir, command), { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
@@ -270,6 +337,8 @@ export interface LoginStatus {
   planId: string | null
   /** True once the new directory reports a signed-in account. */
   done: boolean
+  /** True when the finished (or running) flow targeted ~/.claude itself. */
+  isDefault?: boolean
   /** Every login this install has, refreshed on each poll. */
   accounts: AccountRow[]
 }
@@ -293,11 +362,14 @@ export function loginStatus(): LoginStatus {
   const identity = readIdentity(current.configDir)
   if (isLoginComplete(identity)) {
     const { planId, label, configDir } = current
-    const registered = current.registered || registerPlan(planId, label, configDir)
+    // The default login has no plan row to write: it IS the install's account.
+    const registered = configDir === null || planId === null
+      ? true
+      : current.registered || registerPlan(planId, label, configDir)
     killSession(); current = null
     const status = idle(listAccounts(true), 'done')
     return {
-      ...status, done: true, planId, label,
+      ...status, done: true, planId, label, isDefault: configDir === null,
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
   }
@@ -315,7 +387,8 @@ export function loginStatus(): LoginStatus {
   const pane = readLoginPane(capturePane(), current.codeSubmitted)
   return {
     active: true, phase: pane.phase, url: pane.url, error: pane.error,
-    label: current.label, planId: current.planId, done: false, accounts: listAccounts(),
+    label: current.label, planId: current.planId, done: false,
+    isDefault: current.configDir === null, accounts: listAccounts(),
   }
 }
 

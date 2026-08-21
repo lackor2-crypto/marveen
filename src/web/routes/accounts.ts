@@ -12,6 +12,7 @@ import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
 import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity } from '../claude-auth-runner.js'
+import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import type { RouteContext } from './types.js'
 
 // GitHub already supports multiple accounts under the hood (.github-tokens.json
@@ -70,14 +71,36 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/accounts/claude/login' && method === 'POST') {
-    let body: { label?: unknown; email?: unknown; useConsole?: unknown } = {}
+    let body: { label?: unknown; email?: unknown; useConsole?: unknown; target?: unknown; force?: unknown } = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
+    // target 'default' repairs the install's OWN login (~/.claude) instead of
+    // adding a parallel account -- the wizard's step and the Overview's red row
+    // both land here (Boss, 2026-08-21: the step used to link to claude.ai,
+    // which on a signed-in browser just opens the chat and authenticates
+    // nothing on this machine).
     const result = startLogin({
       label: typeof body.label === 'string' ? body.label : undefined,
       email: typeof body.email === 'string' ? body.email.trim() : undefined,
       useConsole: body.useConsole === true,
+      target: body.target === 'default' ? 'default' : 'new',
+      force: body.force === true,
     })
-    json(res, result.ok ? { ok: true, planId: result.planId } : { ok: false, error: result.error }, result.ok ? 200 : 400)
+    json(
+      res,
+      result.ok ? { ok: true, planId: result.planId, isDefault: result.isDefault === true } : { ok: false, error: result.error },
+      result.ok ? 200 : 400,
+    )
+    return true
+  }
+
+  // After the install's own login comes back, the main agent is still the
+  // process that failed with the dead credential -- it does not re-read the
+  // file on its own. Restarting its pane is the difference between "logged in"
+  // and "working again", so the page fires this the moment the flow reports
+  // done, and the operator is not left with one more thing to know about.
+  if (path === '/api/accounts/claude/login/finish' && method === 'POST') {
+    const r = hardRestartMarveenChannels()
+    json(res, r.ok ? { ok: true } : { ok: false, error: r.error }, r.ok ? 200 : 500)
     return true
   }
 
