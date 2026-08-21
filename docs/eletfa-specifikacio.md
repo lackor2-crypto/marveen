@@ -772,3 +772,43 @@ munka esetén `force`-szal **sem** töröl, hanem a repó saját törlő-útjár
 ahol egyesével látszik, mi veszne el. Fontos részlet: a Tárolók listája a
 **lemezről is** dolgozik, ezért a regiszterből törlés önmagában nem tünteti el
 a sort — a mappának is mennie kell.
+
+
+## CSAK-OLVASAS ZAR AZ IDEGEN REPOKON — 2026-08-21
+
+Boss: *„csak olvasni akarom… igy fennal a veszelye hogy beleszerkeszt az egyik
+agent veletlenul"* és *„olyat amit nem tud egy agent feltorni vagy barki"*.
+
+**Mit kell tulajdonkeppen megvedeni.** Nem a helyi fajlokat: azok elromolhatnak,
+ujra lehuzhatok. A ceges tarolo a vedendo, es oda egyetlen uton jut el barmi —
+a **feltoltessel**. Ezert nem fajl-jogot allitunk (azt egy ugynok eszre sem
+venne, vagy megkerulne, kozben a sajat munkajat is ellehetetlenitene), hanem a
+push utjat vagjuk el.
+
+**Ket fuggetlen reteg**, mert egyet visszavonni keves legyen:
+
+1. `remote.origin.pushurl` egy szandekosan ervenytelen, **beszedes** ertek. A
+   git szo szerint kiirja, tehat a hibauzenet maga mondja meg, mi tortent.
+2. `.git/hooks/pre-push`, ami a **cimtol fuggetlenul** fut. Aki a cimet
+   visszaallitja — ez az elso, amit barki tenne —, meg mindig ebbe utkozik.
+
+A `fetch` mindketton athalad, tehat olvasni es frissulni tovabbra is lehet.
+Az `isRepoReadOnly` **mindket** reteget nezi: a felig levett zarat nem jelenti
+zartnak, mert azt rosszabb zartnak latni, mint nyitottnak — utana se nezne
+senki.
+
+**Amit ez NEM tud, es nem is allitjuk rola.** A gepen teljes joggal futo
+folyamat mindket reteget leszedi, ha kifejezetten azt akarja. A helyi zar a
+**veletlen** ellen szol. A tenyleg attorhetetlen zar nem itt all, hanem a
+GitHub oldalan: egy **irasjog nelkuli kulcs** (fine-grained token, Contents:
+Read). Azzal a feltoltes nem azert nem megy, mert megakadalyozzuk, hanem mert
+nincs mivel. Amig kolcsonkulcson allunk, a kulcs a kolcsonzo jogait hozza.
+
+**A Marveen sajat szinkronja sosem push-ol fiok-repoba**: a `git-sync` csak
+`fetch` + `merge --ff-only`. A kodban egyetlen `push` van, es az a Marveen sajat
+`store/window-layout-repo`-jara megy.
+
+**A fiok-mappa neve a repo GAZDAJAT koveti, nem a kulcs gazdajat.** A ceges
+repok ezert `Freeberischeaper` alatt allnak akkor is, ha `usalackor-blip`
+kulcsaval jottek le — az `usalackor` ala tenni oket hazugsag lenne arrol, kie a
+kod, es a nev ugysem vedene semmit. A vedelmet a zar adja, nem a mappa neve.

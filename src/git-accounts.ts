@@ -420,12 +420,91 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
   if (present.length) parts.push(`${present.length} már megvolt.`)
   if (failed.length) parts.push(`${failed.length} nem sikerült: ${failed.map((f) => f.name).join(', ')}.`)
   if (!parts.length) parts.push('Nem volt mit tenni.')
+  // A ZAR AZONNAL JON, nem kesobb. Egy "majd beallitjuk" allapotban eppen az
+  // a par perc a veszelyes, amikor senki nem szamit ra.
+  if (kolcsonzott) {
+    const lock = await lockAccountReadOnly(acc)
+    parts.push(`Csak olvasásra állítva (${lock.locked.length} repó): feltölteni innen nem lehet.`)
+    if (lock.failed.length) parts.push(`⚠ Ezeket nem sikerült zárolni: ${lock.failed.join(', ')}.`)
+  }
   if (kolcsonSzoveg) parts.push(kolcsonSzoveg.trim())
   parts.push('Innentől magától frissül, 6 óránként.')
 
   return { ok: failed.length === 0, message: parts.join(' '), cloned, present, failed }
 }
 
+
+/**
+ * A push-cim, ami helyett SEMMI nincs. Beszedes, mert a git szo szerint
+ * kiirja, es igy a hibauzenet maga mondja meg, miert nem ment el.
+ */
+const NO_PUSH = 'CSAK-OLVASAS--ez-a-repo-nem-a-mienk-a-feltoltes-le-van-tiltva'
+
+/**
+ * Egy repo csak-olvasasra allitasa: a `fetch` marad, a `push` elvagva.
+ *
+ * Nem fajl-jogosultsagot allitunk: azt egy ugynok eszre sem venne, vagy
+ * megkerulne, es kozben a sajat szerkesztesei is elhasalnanak. Itt pont az
+ * ellenkezoje kell: helyben BARMIT lehet, csak a ceges tarolo ne valtozzon.
+ */
+const PRE_PUSH_HOOK = `#!/bin/sh
+# Marveen csak-olvasas zar. Ez a repo NEM a mienk -- olvasni szabad,
+# feltolteni nem. Ha tenyleg fel kell tolteni ide, azt a repo gazdaja teszi
+# meg a sajat gepen; ne ezt a fajlt torold le.
+echo "" >&2
+echo "  ELUTASITVA: ez a repo csak olvasasra van lehuzva." >&2
+echo "  A helyi valtoztatasaid megmaradnak, de nem mennek fel a tavoli repoba." >&2
+echo "" >&2
+exit 1
+`
+
+export async function lockRepoReadOnly(dir: string): Promise<boolean> {
+  // 1. reteg: a push-cim sehova nem mutat -- a veletlen push itt hasal el.
+  const r = await git(dir, ['remote', 'set-url', '--push', 'origin', NO_PUSH], process.env)
+
+  // 2. reteg: a hook a CIMTOL FUGGETLENUL fut le. Aki a cimet visszaallitja,
+  // meg mindig ebbe utkozik. Ket fuggetlen retegbol egyet visszavonni keves.
+  let hookOk = false
+  try {
+    const hooks = join(dir, '.git', 'hooks')
+    mkdirSync(hooks, { recursive: true })
+    const f = join(hooks, 'pre-push')
+    writeFileSync(f, PRE_PUSH_HOOK, 'utf8')
+    chmodSync(f, 0o755)
+    hookOk = true
+  } catch (e) {
+    logger.warn('git-fiok: a pre-push zar nem irhato itt: ' + dir + ' -- ' + String(e))
+  }
+  return r.ok && hookOk
+}
+
+/** Ugyanez egy egesz fiokra -- a mar korabban lehuzott repokra is. */
+export async function lockAccountReadOnly(account: string): Promise<{ locked: string[]; failed: string[] }> {
+  const root = depotRoot()
+  const locked: string[] = []
+  const failed: string[] = []
+  if (!root) return { locked, failed }
+  const dir = join(root, storageKindRoot('git'), String(account || '').trim())
+  let entries: string[] = []
+  try { entries = readdirSync(dir) } catch { return { locked, failed } }
+  for (const name of entries) {
+    if (!existsSync(join(dir, name, '.git'))) continue
+    if (await lockRepoReadOnly(join(dir, name))) locked.push(name)
+    else failed.push(name)
+  }
+  return { locked, failed }
+}
+
+/** Csak-olvasasra van-e allitva ez a repo. A felulet ezt mutatja meg. */
+export async function isRepoReadOnly(dir: string): Promise<boolean> {
+  const r = await git(dir, ['remote', 'get-url', '--push', 'origin'], process.env, 15000)
+  const cim = r.ok && r.out.includes('CSAK-OLVASAS')
+  let hook = false
+  try { hook = readFileSync(join(dir, '.git', 'hooks', 'pre-push'), 'utf8').includes('csak-olvasas zar') } catch {}
+  // MINDKETTO kell. Ha csak az egyik all, az felig levett zar -- azt pedig
+  // rosszabb zartnak latni, mint nyitottnak, mert nem nezne utana senki.
+  return cim && hook
+}
 
 export interface AccountDeleteResult {
   ok: boolean
