@@ -850,3 +850,26 @@ mert senki nem meri kitörölni. A súgójuk kimondja az átnevezést ÉS a tör
 **Tesztek:** `src/__tests__/life-fresh-install.test.ts` — a példa-ágak
 megléte, a nevek felismerhetősége, a súgó-tábla teljessége (minden kulcs
 visszatalál egy létező fa-mappára), és a jelszó-tilalom szövege.
+
+
+## A KÉT `Tudásbázis` MARAD — DÖNTÉS, 2026-08-22
+
+Boss rákérdezett, miért áll `Tudásbázis` és `További anyagok` a projekt (illetve
+cég) szintjén **és** a `Fejlesztés` alatt is. Ez **nem regresszió**: a 13. és a
+17. pont szándékosan tart két réteget — a projekt saját tudása, és külön a
+repók dokumentációjából készült összefoglaló.
+
+**Döntés:** *„ne vedd ki. […] akkor hagyd ott."* A szerkezet marad. Egy későbbi
+átnézésen ezt **nem szabad** duplikációként kivenni.
+
+Amit a félreértés ellen tettünk: a súgó helyfüggő. A `Fejlesztés` alatt más
+szöveg áll, és kimondja, hogy „nem ugyanaz, mint a projekt fölötte lévő
+Tudásbázisa" (`DEV_KNOWLEDGE_HINT`, `DEV_MORE_HINT`). A nevet nem írtuk át:
+az minden utat és bekötést eltörne.
+
+Pontosítás, hogy ne rögzüljön félre: ez **nem a keresést gyorsítja**. Azt
+tartja külön, aminek külön a helye.
+
+A teljes tervezett fát végigszámoltuk: pontosan **3** ilyen hely van (a Marvin
+és a Freeberischeaper fejlesztési ága). Önmagát ismétlő, vagy a szülőjével
+azonos nevű mappa **nincs**.
