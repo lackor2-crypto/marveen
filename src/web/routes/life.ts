@@ -9,6 +9,8 @@
 //   GET  /api/life/search     -- nev szerinti kereses a fan belul
 //   POST /api/life/mkdir      -- uj mappa
 //   POST /api/life/move       -- athelyezes a fan belul
+//   GET  /api/life/repo-status -- egy git-repo allapota emberi mondatban
+//   POST /api/life/repo-delete -- egy git-repo mappa torlese (meressel)
 //   GET  /api/life/physical   -- papir peldanyok listaja ("papir-terkep")
 //   POST /api/life/physical   -- egy tetel papir-adatanak rogzitese
 //   GET  /api/life/mounts     -- mely fa-pontok mutatnak masik helyre
@@ -36,6 +38,7 @@ import {
 } from '../../life-explorer.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount } from '../../life-mounts.js'
+import { repoAt, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
 import type { RouteContext } from './types.js'
@@ -162,7 +165,13 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/info' && method === 'GET') {
     const rel = url.searchParams.get('path') || ''
-    const info = lifeInfo(rel)
+    const info: any = lifeInfo(rel)
+    if (info) {
+      // Csak a TENY kerul ide (repo-e, a gyokere-e). A `git status` lassabb --
+      // azt a felulet kulon keri le, amikor tenyleg kell.
+      const at = repoAt(rel)
+      info.git = at ? { repo: at.rel, isRoot: at.isRoot } : null
+    }
     if (!info) {
       send(res, 404, { error: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül.' })
       return true
@@ -180,6 +189,14 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/mkdir' && method === 'POST') {
     const body = await readJson(req)
+    // Egy git-repo munkapeldanyaba kezzel uj mappat tenni: a git kovetkezo
+    // muvelete vagy panaszkodik ra, vagy eltakaritja. Nem tiltunk neman --
+    // az uzenet megmondja, mit tegyen helyette.
+    const blocked = writeBlockReason(String(body?.parent ?? ''))
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
     const result = mkdirLife(String(body?.parent ?? ''), String(body?.name ?? ''))
     send(res, result.ok ? 200 : 400, result)
     return true
@@ -187,7 +204,37 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/move' && method === 'POST') {
     const body = await readJson(req)
+    // MINDKET veget nezzuk: a repobol kimozgatni ugyanugy elrontja a
+    // verziokovetest, mint belerakni egy oda nem tartozo fajlt.
+    const blocked = writeBlockReason(String(body?.from ?? '')) || writeBlockReason(String(body?.to ?? ''))
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
     const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''))
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  // 2. SZINT: a repo-mappa torleset NEM tiltjuk -- megmerjuk. Egy klon
+  // eldobhato; a veszely a benne levo, fel nem toltott munka.
+  // 3. SZINT: ha bekotes mutat ra, azt ajanljuk ELSOKENT -- semmit nem torol.
+  if (path === '/api/life/repo-status' && method === 'GET') {
+    const rel = url.searchParams.get('path') || ''
+    const status = await repoStatus(rel)
+    const mounts = listMounts().filter((m) => m.target === status.rel || m.rel === status.rel)
+    send(res, 200, { ...status, mounts })
+    return true
+  }
+
+  if (path === '/api/life/repo-delete' && method === 'POST') {
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    // A `force` a felulet MASODIK kattintasa: az elso valasz kiirja a mert
+    // mondatot, es csak azutan lehet ratenni a kezet. A szerver ujra mer --
+    // a bongeszo allitasaban nem bizunk.
+    const result = await deleteRepo(rel, { force: body?.force === true })
+    logger.info({ rel, ok: result.ok, code: result.code }, '[intezo] git-repo torles keres')
     send(res, result.ok ? 200 : 400, result)
     return true
   }

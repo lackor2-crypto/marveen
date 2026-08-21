@@ -28768,7 +28768,6 @@ let _intezoPath = ''
 /** A kijelolt tetel (az informacios panel errol szol). */
 let _intezoSelected = null
 /** Az athelyezes celjat / a papir helyet valaszto mod, ha eppen fut. */
-let _intezoPickMode = null
 let _intezoSearchTimer = null
 
 /**
@@ -29078,52 +29077,113 @@ function _intezoRender() {
     })
   })
 
-  _intezoRenderPickBar()
   _intezoPlaceInfoCard()
 }
 
-/** Ha eppen celmappat valasztunk, egy sav mondja meg, mit csinalunk. */
-function _intezoRenderPickBar() {
-  const list = document.getElementById('intezoList')
-  const old = document.getElementById('intezoPickBar')
-  if (old) old.remove()
-  if (!_intezoPickMode || !list) return
-  const bar = document.createElement('div')
-  bar.id = 'intezoPickBar'
-  bar.className = 'info-box'
-  bar.style.marginBottom = '10px'
-  const what = _intezoPickMode === 'move'
-    ? ('Válaszd ki, MELYIK MAPPÁBA kerüljön: ' + (_intezoSelected ? _intezoSelected.name : ''))
-    : ('Válaszd ki, HOL ÁLL A PAPÍR: ' + (_intezoSelected ? _intezoSelected.name : ''))
-  bar.innerHTML = '<p>' + escapeHtml(what) + '</p><p style="opacity:.8;font-size:13px">Lépj be a kívánt mappába, majd nyomd meg az „Ez legyen az” gombot.</p>'
-  const ok = document.createElement('button')
-  ok.className = 'btn-primary'
-  ok.textContent = 'Ez legyen az'
-  ok.addEventListener('click', () => _intezoConfirmPick())
-  const cancel = document.createElement('button')
-  cancel.className = 'btn-secondary'
-  cancel.style.marginLeft = '8px'
-  cancel.textContent = 'Mégsem'
-  cancel.addEventListener('click', () => { _intezoPickMode = null; _intezoRender() })
-  bar.appendChild(ok)
-  bar.appendChild(cancel)
-  list.parentNode.insertBefore(bar, list)
+/**
+ * KULON KIS PANEL a celmappa kitallozasahoz.
+ *
+ * `mode`: 'move' = athelyezes celja, 'paper' = a papir peldany helye.
+ * Fajlt es MAPPAT egyarant lehet athelyezni -- a mappa a tartalmaval egyutt
+ * megy. Ezert a panel a sajat kiindulasi agat kiszurkiti: egy mappat nem lehet
+ * onmagaba tenni, es jobb ezt latni, mint utolag hibauzenetet kapni.
+ */
+function _intezoOpenFolderPicker(mode) {
+  const sel = _intezoSelected
+  if (!sel) { showToast('Előbb válassz ki egy fájlt vagy mappát.'); return }
+
+  const overlay = document.createElement('div')
+  // KET `.modal-overlay` szabaly all a lapon: a korabbi `opacity:0` +
+  // `visibility:hidden` allapotbol csak az `.active` osztaly hozza elo.
+  // Nelkule a panel letrejonne, de LATHATATLAN maradna.
+  overlay.className = 'modal-overlay active'
+  overlay.id = 'intezoPickerOverlay'
+  const what = mode === 'move'
+    ? 'Hova kerüljön: ' + (sel.name || '')
+    : 'Hol áll a papír: ' + (sel.name || '')
+  overlay.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
+    + '<h3 style="margin:0 0 4px">' + escapeHtml(what) + '</h3>'
+    + '<p class="subtitle" style="margin:0 0 10px">Tallózd ki a mappát: a nevére kattintva belépsz, a „Fel egy szintet” gombbal visszalépsz. A kiválasztott mappa alul látszik.</p>'
+    + '<div id="intezoPickerCrumb" style="font-size:13px;opacity:.85;margin-bottom:6px"></div>'
+    + '<div id="intezoPickerList" style="max-height:320px;overflow:auto;border:1px solid var(--border,#3336);border-radius:8px;padding:4px"></div>'
+    + '<p style="margin:10px 0 4px;font-size:13px">Ide kerül: <b id="intezoPickerHere"></b></p>'
+    + '<div style="text-align:right;margin-top:8px">'
+    + '<button class="btn-secondary" id="intezoPickerCancel">Mégsem</button> '
+    + '<button class="btn-primary" id="intezoPickerOk">Ez legyen az</button>'
+    + '</div></div>'
+  document.body.appendChild(overlay)
+
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#intezoPickerCancel').addEventListener('click', close)
+
+  // A panel a SAJAT helyerol indul -- rendszerint a szomszed mappaba akarunk
+  // tenni valamit, nem a fa tetejerol lefele keresgelni.
+  let here = _intezoPath || ''
+  overlay.querySelector('#intezoPickerOk').addEventListener('click', () => {
+    close()
+    _intezoConfirmPick(mode, here)
+  })
+
+  async function draw() {
+    const crumb = overlay.querySelector('#intezoPickerCrumb')
+    const list = overlay.querySelector('#intezoPickerList')
+    const hereEl = overlay.querySelector('#intezoPickerHere')
+    hereEl.textContent = here ? here.split('/').join(' › ') : '(a fa gyökere)'
+    list.textContent = 'Betöltés…'
+    let data
+    try {
+      data = await _intezoGet('/api/life/list?deep=0&path=' + encodeURIComponent(here))
+    } catch (e) {
+      list.textContent = (e && e.message) ? e.message : 'Nem sikerült megnyitni ezt a mappát.'
+      return
+    }
+    crumb.textContent = data.display || ''
+    list.innerHTML = ''
+    if (data.parent !== null && data.parent !== undefined) {
+      const up = document.createElement('button')
+      up.className = 'btn-secondary btn-compact'
+      up.style.cssText = 'display:block;width:100%;text-align:left;margin:2px 0'
+      up.textContent = '⬆ Fel egy szintet'
+      up.addEventListener('click', () => { here = data.parent; draw() })
+      list.appendChild(up)
+    }
+    const folders = (data.folders || []).filter((f) => {
+      // Onmagaba nem lehet athelyezni -- ne is kinaljuk fel.
+      if (mode !== 'move' || !sel.isDir) return true
+      return f.rel !== sel.rel && String(f.rel + '/').indexOf(sel.rel + '/') !== 0
+    })
+    if (!folders.length) {
+      const p = document.createElement('p')
+      p.style.cssText = 'opacity:.7;font-size:13px;padding:6px'
+      p.textContent = 'Ebben a mappában nincs almappa. Ha ide akarod tenni, nyomd meg az „Ez legyen az” gombot.'
+      list.appendChild(p)
+    }
+    for (const f of folders) {
+      const b = document.createElement('button')
+      b.className = 'btn-secondary btn-compact'
+      b.style.cssText = 'display:block;width:100%;text-align:left;margin:2px 0'
+      // A git-repok itt is jelolve vannak: aki ide tallozik, lassa elore,
+      // hogy oda nem fog tudni bepakolni.
+      b.textContent = (f.caution ? '📛 ' : '📁 ') + f.name + (f.caution ? '  (git — ide nem)' : '')
+      if (f.caution) b.title = f.caution
+      b.addEventListener('click', () => { here = f.rel; draw() })
+      list.appendChild(b)
+    }
+  }
+  draw()
 }
 
 function _intezoStartPick(mode) {
-  if (!_intezoSelected) { showToast('Előbb válassz ki egy fájlt vagy mappát.'); return }
-  _intezoPickMode = mode
-  _intezoRender()
+  _intezoOpenFolderPicker(mode)
 }
 
-async function _intezoConfirmPick() {
-  const mode = _intezoPickMode
+async function _intezoConfirmPick(mode, target) {
   const sel = _intezoSelected
-  _intezoPickMode = null
   if (!sel) { _intezoRender(); return }
   if (mode === 'move') {
     try {
-      const r = await _depoPost('/api/life/move', { from: sel.rel, to: _intezoPath })
+      const r = await _depoPost('/api/life/move', { from: sel.rel, to: target })
       showToast(r.message || 'Kész.')
       await _intezoOpen(_intezoPath)
       if (r.ok) await _intezoInfo(r.rel)
@@ -29136,7 +29196,7 @@ async function _intezoConfirmPick() {
   // Papir helye: csak beirjuk a mezobe. A mentes kulon gomb -- igy egy
   // felreklikkelt mappa meg visszavonhato.
   const el = document.getElementById('intezoPhysLocation')
-  if (el) { el.textContent = _intezoPath || '(a fa gyökere)'; el.setAttribute('data-rel', _intezoPath) }
+  if (el) { el.textContent = target || '(a fa gyökere)'; el.setAttribute('data-rel', target) }
   const has = document.getElementById('intezoPhysHas')
   if (has && !has.checked) { has.checked = true; document.getElementById('intezoPhysFields').hidden = false }
   _intezoRender()
@@ -29181,11 +29241,102 @@ async function _intezoInfo(rel) {
   const p = info.physical || {}
   if (has) has.checked = Boolean(p.physical)
   if (fields) fields.hidden = !p.physical
-  if (loc) { loc.textContent = info.physicalLocationHuman || '—'; loc.setAttribute('data-rel', p.location || '') }
+  if (loc) {
+    // Ha meg nincs megadva papir-hely, a fajl SAJAT mappaja az ajanlat: a
+    // legtobb irat ott all papiron is, ahova digitalisan tettuk. Igy a
+    // legtobb esetben tallozni sem kell -- csak menteni.
+    const own = String(info.rel || '').includes('/') ? String(info.rel).slice(0, String(info.rel).lastIndexOf('/')) : ''
+    const relLoc = p.location || own
+    loc.textContent = info.physicalLocationHuman || (own ? own.split('/').join(' › ') : '(a fa gyökere)')
+    loc.setAttribute('data-rel', relLoc)
+  }
   if (note) note.value = p.note || ''
   _intezoRenderMount(info)
+  _intezoRenderGit(info)
   _intezoRenderActions()
   _intezoRender()
+}
+
+/**
+ * A GIT-BLOKK: mit szabad ezzel a repoval, es mi tortenne torleskor.
+ *
+ * Boss: "ha mar nincs szukseg ra akor lecsatlakoztatni vagy az egeszet
+ * torolni azt lehessen."
+ *
+ * A ket kiut sorrendje SZANDEKOS: elol a bekotes megszuntetese, mert az
+ * semmit nem torol -- a fabol tunik el, a fajlok a helyukon maradnak. A
+ * torles csak masodik, es csak a MERT mondat kiirasa utan.
+ */
+async function _intezoRenderGit(info) {
+  const box = document.getElementById('intezoGitBox')
+  if (!box) return
+  box.innerHTML = ''
+  const git = info && info.git
+  if (!git) { box.hidden = true; return }
+  box.hidden = false
+
+  const head = document.createElement('div')
+  head.className = 'info-box'
+  head.style.marginTop = '14px'
+  head.innerHTML = '<p style="margin:0 0 6px"><b>📛 Ez git-repó</b> — a gazda a git, nem az Intéző.</p>'
+    + (git.isRoot
+      ? '<p style="margin:0;font-size:13px;opacity:.85">A repón belül kézzel nem mozgatok és nem hozok létre semmit: azzal a git elveszítené a fájlok történetét. Szerkeszd a szerkesztőben, aztán commit + push.</p>'
+      : '<p style="margin:0;font-size:13px;opacity:.85">Ez a repó belseje: ' + escapeHtml(git.repo) + '. Innen áthelyezni és ide új mappát tenni nem fogok — a szerkesztő + commit + push az útja.</p>')
+  box.appendChild(head)
+  if (!git.isRoot) return
+
+  const state = document.createElement('p')
+  state.style.cssText = 'margin:8px 0;font-size:13px'
+  state.textContent = 'Állapot lekérdezése…'
+  box.appendChild(state)
+
+  let st
+  try {
+    st = await _intezoGet('/api/life/repo-status?path=' + encodeURIComponent(info.rel))
+  } catch (e) {
+    state.textContent = 'Nem sikerült megkérdezni a gitet az állapotáról. Amíg ez így van, ne töröld.'
+    return
+  }
+  state.innerHTML = '<b>' + escapeHtml(st.sentence || '') + '</b>'
+    + (st.branch ? '<br><span style="opacity:.75">ág: ' + escapeHtml(st.branch) + (st.remote ? ' → ' + escapeHtml(st.remote) : '') + '</span>' : '')
+
+  const btns = document.createElement('div')
+  btns.style.marginTop = '6px'
+
+  // ELOSZOR a veszelytelen kiut.
+  if ((st.mounts || []).length) {
+    const un = document.createElement('button')
+    un.className = 'btn-secondary btn-compact'
+    un.textContent = '🔌 Bekötés megszüntetése (a fájlok maradnak)'
+    un.addEventListener('click', async () => {
+      if (!confirm('A bekötés megszűnik, a fájlok a helyükön maradnak. Mehet?')) return
+      try {
+        const r = await _depoPost('/api/life/mounts/remove', { rel: st.mounts[0].rel })
+        showToast(r.message || 'Kész.')
+        await _intezoOpen(_intezoPath)
+      } catch (e) { showToast((e && e.message) ? e.message : 'Nem sikerült.') }
+    })
+    btns.appendChild(un)
+    btns.appendChild(document.createTextNode(' '))
+  }
+
+  const del = document.createElement('button')
+  del.className = 'btn-secondary btn-compact'
+  del.style.color = 'var(--danger,#d33)'
+  del.textContent = '🗑 A repó törlése'
+  del.addEventListener('click', async () => {
+    // A mert mondatot MEGMUTATJUK a kerdesben -- a felhasznalo ne emlekezetbol
+    // dontson arrol, elveszik-e munka.
+    if (!confirm((st.sentence || '') + '\n\nTöröljem a repót?')) return
+    try {
+      const r = await _depoPost('/api/life/repo-delete', { rel: info.rel, force: st.safe !== true })
+      showToast(r.message || 'Kész.')
+      _intezoClearSelection()
+      await _intezoOpen(_intezoPath)
+    } catch (e) { showToast((e && e.message) ? e.message : 'A törlés nem sikerült.') }
+  })
+  btns.appendChild(del)
+  box.appendChild(btns)
 }
 
 /**

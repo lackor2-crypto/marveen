@@ -622,3 +622,54 @@ Ha új változat kerül ki, a lap **magától** tölt újra. Egyetlen kivétel: 
 kurzor épp egy szöveges mezőben áll, vagy nyitva van egy ablak, akkor vár, és
 pár másodpercenként újrapróbálja — a begépelt szöveget semmilyen frissesség
 nem éri meg.
+
+
+## HÁROMSZINTŰ GIT-VÉDELEM — 2026-08-21
+
+Boss: *„a gitrol lehuzott filek ezek. ha valtoztatni kell akkor a igtre
+felpusholva valtozik nem? esetleg ha mar nincs szukseg ra akor
+lecsatlakoztatni vagy az egeszet torolni azt lehessen.”*
+
+Nem egy szabály van, hanem három — mert három különböző dolog történhet:
+
+| Mi | Mit teszünk | Miért |
+|---|---|---|
+| A repón **belüli** fájl áthelyezése / új mappa oda | **Megtagadjuk**, de mindig megmondjuk, mit tegyen helyette (szerkesztő → commit → push) | kézzel mozgatva a git elveszíti a fájl történetét; a következő letöltés vagy visszasírja, vagy csendben eldobja |
+| Magának a **repó-mappának** a törlése | **Szabad** — de előbb megmérjük (`git status`, a távoli ág előtti commitok), és emberi mondatban kimondjuk | egy klón eldobható és visszahúzható; a veszély nem a törlés, hanem a benne lévő **fel nem töltött munka** |
+| A **bekötés** megszüntetése | Szabad, és ezt ajánljuk **elsőként** | semmit nem töröl, csak eltűnik a fából |
+
+A mért mondat két alakja:
+
+- tiszta: *„Nyugodtan törölhető: minden fel van töltve ide: <távoli>, bármikor visszahúzható.”*
+- veszélyes: *„⚠ 3 commit nincs feltolva és 2 fájl módosítva — ha törlöd, ez a munka elvész.”*
+
+Amit **szándékosan nem** csináltunk: az egész `GIT_REPOS` ág írásvédelme.
+Egyrészt a friss telepítésnek is a felületről kell működnie — ha a repó
+sehogy nem takarítható, terminál kell hozzá. Másrészt a teljes tiltás
+kerülőútra kényszerít (Windows Intéző), ahol **semmilyen** figyelmeztetés
+nincs. Jobb bent tartani az embert, és a veszélyes pillanatban mérni.
+
+Kód: `src/git-guard.ts` (szabály), `src/web/routes/life.ts` (kapu),
+`web/app.js` → `_intezoRenderGit` (felület). Végpontok:
+`GET /api/life/repo-status`, `POST /api/life/repo-delete`.
+A törlés a rá mutató bekötéseket is megszünteti — különben egy üres mappa
+látszana, és a felhasználó azt hinné, elvesztek a fájljai.
+
+## CÉLMAPPA-TALLÓZÓ ABLAK — 2026-08-21
+
+Boss: *„nem inkabb egy kis panelnek kellene bejonnie ahol kitallozod azt a
+mappat amibe at akarod helyezni a filet?”*
+
+Korábban az **egész Intéző** átkapcsolt „válassz célt” üzemmódba: el kellett
+navigálni a célig (közben elveszett a kiindulási hely), és egy sáv a lap
+tetején magyarázta, mi történik — aki lejjebb görgetett, már nem látta.
+
+Most külön kis ablak nyílik: mappalista, „Fel egy szintet”, alul látszik,
+hova kerül, és ott van a „Ez legyen az” gomb. A háttérben minden a helyén
+marad. A git-repók itt is `📛` jelet kapnak — aki oda tallózik, előre látja,
+hogy oda nem fog tudni bepakolni. Mappát a saját maga alá nem is kínáljuk fel.
+
+Ugyanez az ablak szolgálja a **papír példány helyét** is (egy megoldás, két
+hely). A papír helye ráadásul alapból a fájl saját mappája — Boss:
+*„alapbol amugy a beviteli mezo alhatna ott ahol eppen van a file”* —, így a
+leggyakoribb esetben tallózni sem kell, csak menteni.
