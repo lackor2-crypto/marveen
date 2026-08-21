@@ -95,17 +95,37 @@ export function mountCandidates(): MountCandidate[] {
   //
   // A repo SAJAT dokumentacios retegehez nem nyulunk -- a terv kikotese --,
   // ezert itt csak MUTATOT keszitunk ra, semmi mast.
+  //
+  // KET SZINT, mert a git is TOBBFIOKOS (Boss, 2026-08-21: "drive fotok es git
+  // is! tobb fiokkal"): `Git/<fiok>/<repo>`. A REGI, lapos `Git/<repo>` is
+  // felajanlhato marad -- egy mar bekotott repo nem tunhet el csak azert, mert
+  // kesobb bevezettuk a fiok-szintet.
   const projRoot = join(root, DEPOT_PROJECTS)
   if (existsSync(projRoot)) {
     for (const name of subdirs(projRoot)) {
       const abs = join(projRoot, name)
-      if (!existsSync(join(abs, '.git'))) continue
-      out.push({
-        target: `${DEPOT_PROJECTS}/${name}`,
-        label: `${name} — Git repository`,
-        kind: 'git',
-        items: countItems(abs),
-      })
+      if (existsSync(join(abs, '.git'))) {
+        // Lapos, fiok nelkuli repo -- a fiok-szint elotti telepitesekbol.
+        out.push({
+          target: `${DEPOT_PROJECTS}/${name}`,
+          label: `${name} — Git repository`,
+          kind: 'git',
+          items: countItems(abs),
+        })
+        continue
+      }
+      // Nem repo -> fiok-mappa: a repok egy szinttel lejjebb allnak. Igy egy
+      // fel-masolt, `.git` nelkuli mappa sem kerul a listaba tevedesbol.
+      for (const repo of subdirs(abs)) {
+        const repoAbs = join(abs, repo)
+        if (!existsSync(join(repoAbs, '.git'))) continue
+        out.push({
+          target: `${DEPOT_PROJECTS}/${name}/${repo}`,
+          label: `${name} / ${repo} — Git repository`,
+          kind: 'git',
+          items: countItems(repoAbs),
+        })
+      }
     }
   }
 

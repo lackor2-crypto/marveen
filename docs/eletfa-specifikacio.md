@@ -449,8 +449,9 @@ Ezek nyitott pontok, amikre a megvalósítás előtt döntés kell:
    személy saját digitális eszközei/előfizetései, a főág a háztartás-szintűeké.
 4. **`Tudás` főág tartalma** továbbra sincs definiálva. Javaslat: ide gyűljön a
    Marvin által készített, nem személyhez/céghez kötött tudásréteg.
-5. **Több Drive kezelése** ma nincs meg: a `drive-sync` egyetlen fiókra épül.
-   Ez önálló, nagyobb fejlesztés (tároló-nyilvántartás + Beállítások → Tárolók).
+5. ~~**Több Drive kezelése** ma nincs meg~~ — **MEGVAN (2026-08-21).** Lásd
+   lentebb: „TÖBBFIÓKOS TÁROLÓK". A `drive-sync` valójában már fiókonkénti
+   mappába írt; ami hiányzott, az a nyilvántartás és a Git fiók-szintje.
 6. **Külső törlés elleni védelem (6. pont)** ma nincs implementálva – a Drive
    szinkron kétirányú. Ezt külön kártyán kell megcsinálni, mert adatvesztési
    kockázat.
@@ -529,3 +530,59 @@ nem üres mappát nem törölt.
 
 Ezzel egy időben minden generált mappanév **mondatkezdő** alakra váltott
 (`CSALÁD` → `Család`) — a Boss saját elnevezése (`Mykael család`) alapján.
+
+
+---
+
+## TÖBBFIÓKOS TÁROLÓK — 2026-08-21
+
+> Boss: „több fiókosra kell megcsinálni. drive fotok es git is! tobb fiokkal."
+
+**Mi volt már készen, és mi nem.** A mérés (nem becslés) ezt adta:
+
+| Ág | Állapot a kérés előtt |
+|---|---|
+| Drive | **többfiókos volt** — `depotAccountDir()`, 6 fiók mappája állt a lemezen |
+| Fotók | **többfiókos volt** — ugyanaz, 3 fiók |
+| Git | **NEM volt** — egyetlen lapos `Tárolók/Git/<repó>`, fiók-szint nélkül |
+| Tároló-nyilvántartás (33. pont) | **nem létezett** — sehol nem látszott együtt, hány tároló van |
+
+### Amit ez a kör hozzátett
+
+1. **`src/storages.ts` — tároló-nyilvántartás.** A három fajta (`drive`,
+   `photos`, `git`) egy listában, a specifikáció 33. pontja szerint: azonosító,
+   név, állapot, átnevezés, ki/be kapcsolás, ellenőrzés.
+
+2. **Stabil azonosítók: `DRIVE_01 … DRIVE_10`, `PHOTOS_01 …`, `GIT_01 …`** —
+   a 36. pont végső képe szerint. A kiosztás `store/storages.json`-ba kerül, és
+   **egy számot sosem osztunk ki kétszer**: ha egy fiókot levesznek, a
+   felszabadult szám nem kerül új fiókhoz, különben egy régi fizikai hivatkozás
+   hirtelen más tárolóra mutatna (20. pont `storageId`-je).
+
+3. **A mappa neve marad a FIÓK neve** (`Drive/lackor2`), nem `DRIVE_01` — a 35.
+   pont miatt: Marveen nélkül, a Windows Intézőből is értelmes legyen. Az
+   átnevezés csak a megjelenített nevet írja át, a mappát nem mozdítja.
+
+4. **Git fiók-szint: `Tárolók/Git/<fiók>/<repó>`.** Ez a 31. pont szabályát
+   (a személyes repó soha ne keveredjen a cégessel) mappaszinten is
+   érvényesíti. A régi, lapos `Git/<repó>` továbbra is beköthető marad — egy
+   már bekötött repó nem tűnhet el csak azért, mert bevezettük a fiók-szintet.
+
+5. **Ami a lemezen van, sosem tűnik el a listáról.** Egy lejárt tokenű fiók
+   mappája `connected: false`-ként jelenik meg, nem hiányzóként: a fájlok ott
+   vannak, csak szinkron nincs mögöttük. A kikapcsolás sem töröl semmit.
+
+### Felület
+
+**Depó → Tárolók** kártya: a teljes lista azonosítóval és állapottal, soronként
+Átnevezés / Ki-be kapcsolás / Ellenőrzés, alul „Git-fiók hozzáadása". A
+Drive- és Fotók-fiókokat itt szándékosan NEM lehet felvenni: azok a
+Google-bejelentkezésből jönnek (Fiókok oldal), így egy elgépelt fióknév nem
+szülhet üres, sosem szinkronizáló sort.
+
+### Mérve, éles telepítésen
+
+`GET /api/storages` a valódi depón (`F:\Marveen`): **DRIVE_01 … DRIVE_10** és
+**PHOTOS_01 … PHOTOS_10** a 10 bekötött Google-fiókból, majd a felületről
+felvett **GIT_01** (`Tárolók/Git/lackor2-crypto`, a mappa létre is jött).
+Teljes teszt-suite: 347 fájl / 5177 teszt, zöld.

@@ -28214,6 +28214,22 @@ async function loadDepoPage() {
   bind('depoSyncPickBtn', () => _depoPickDriveFolder())
   bind('depoSyncAddBtn', () => _depoAddSync())
   bind('depoSyncRunBtn', () => _depoRunSync())
+  bind('storagesGitAddBtn', () => _storagesAddGit())
+  // A tablazat gombjai delegalva: a sorok minden frissiteskor ujra keszulnek,
+  // soronkent felkotott kezelo eseten az ujrarajzolas utan nemak lennenek.
+  const storTbl = document.getElementById('storagesTable')
+  if (storTbl && !storTbl._depoBound) {
+    storTbl._depoBound = 1
+    storTbl.addEventListener('click', (ev) => _storagesClick(ev))
+  }
+  // Enter a mezoben = ugyanaz, mint a gomb. Aki begepeli a nevet, nem fog
+  // egerert nyulni.
+  const gitInp = document.getElementById('storagesGitName')
+  if (gitInp && !gitInp._depoBound) {
+    gitInp._depoBound = 1
+    gitInp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); _storagesAddGit() } })
+  }
+
   // Fiokvaltaskor a korabbi valasztas ELAVUL: egy mappa-azonosito csak abban a
   // fiokban ervenyes, amelyikben kivalasztottuk. Ha bennemaradna, a masik fiok
   // neveben probalnank hozzaadni egy olyan mappat, amit az nem is lat.
@@ -28298,6 +28314,9 @@ async function _depoRefresh() {
   // allapotara (sem annak sikeressegere). Sajat hibakezelese van, ezert nem
   // varunk ra -- a lap tobbi resze ettol nem lassul.
   _depoLoadSyncAccounts()
+  // Ugyanezen okbol: a tarolo-tablazatnak sajat vegpontja van, ezert akkor is
+  // megjelenik, ha a depo-allapot lekerdezese elhasal (ott lentebb `return` all).
+  _storagesRefresh()
   const box = document.getElementById('depoHealthBox')
   const text = document.getElementById('depoHealthText')
   let d = null
@@ -28395,6 +28414,140 @@ async function _depoRefresh() {
       fek.style.display = ''
     }
   }
+}
+
+/* ======================= TAROLOK (specifikacio 33. pont) =======================
+ *
+ * A Drive, a Fotok es a Git fiokjai EGY tablazatban. A lenyeg, amit sehol
+ * masutt nem lehetett latni: hany tarolo van, melyik el, es melyikben van
+ * egyaltalan valami.
+ *
+ * KULON tolt, a depo-allapottol fuggetlenul -- ugyanaz a tanulsag, mint a
+ * fioklegordulonel: ha a /api/depot/status elhasal, ez a tablazat akkor is
+ * megjelenik, mert sajat vegpontja van.
+ */
+var _storagesLoading = false
+
+/** Fajta -> ember-olvashato nev + ikon. Egy helyen, hogy ne csusszon szet. */
+var _STORAGE_KINDS = {
+  drive: { label: 'Google Drive', icon: '☁' },
+  photos: { label: 'Google Fotók', icon: '📷' },
+  git: { label: 'Git', icon: '🔀' },
+}
+
+function _storageStateText(r) {
+  // A sorrend szandekos: eloszor a BAJ, aztan a rendben-allapot. Aki csak
+  // ranez, a problemas sorokat lassa meg.
+  if (!r.connected) {
+    return r.kind === 'git'
+      ? '<span class="subtitle">nincs felvéve — csak a mappa van meg</span>'
+      : '<span class="subtitle">nincs élő bejelentkezés</span>'
+  }
+  if (!r.active) return '<span class="subtitle">kikapcsolva</span>'
+  if (!r.present) return '<span class="subtitle">még nincs letöltve ide semmi</span>'
+  return 'aktív'
+}
+
+async function _storagesRefresh() {
+  var tbl = document.getElementById('storagesTable')
+  if (!tbl || _storagesLoading) return
+  _storagesLoading = true
+  var d = null
+  try {
+    d = await _depoGet('/api/storages')
+  } catch (e) {
+    tbl.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni a tárolókat: '
+      + escapeHtml(e && e.message ? e.message : String(e)) + '</p>'
+    _storagesLoading = false
+    return
+  }
+  _storagesLoading = false
+  if (d.message) {
+    tbl.innerHTML = '<p class="subtitle">' + escapeHtml(d.message) + '</p>'
+    return
+  }
+  var rows = d.rows || []
+  if (!rows.length) {
+    tbl.innerHTML = '<p class="subtitle">Még nincs egyetlen tároló sem. '
+      + 'Google-fiókot a Fiókok oldalon köss be; Git-fiókot lent tudsz felvenni.</p>'
+    return
+  }
+  tbl.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>Azonosító</th><th>Fajta</th><th>Név</th><th>Hol van</th>'
+    + '<th>Tartalom</th><th>Állapot</th><th></th></tr></thead><tbody>'
+    + rows.map(function (r) {
+      var k = _STORAGE_KINDS[r.kind] || { label: r.kind, icon: '' }
+      return '<tr' + (r.active ? '' : ' style="opacity:.6"') + '>'
+        + '<td><code>' + escapeHtml(r.id) + '</code></td>'
+        + '<td>' + k.icon + ' ' + escapeHtml(k.label) + '</td>'
+        + '<td>' + escapeHtml(r.name) + '</td>'
+        + '<td><code>' + escapeHtml(r.rel) + '</code></td>'
+        + '<td>' + (r.present ? (r.items + ' tétel') : '—') + '</td>'
+        + '<td>' + _storageStateText(r) + '</td>'
+        + '<td style="white-space:nowrap">'
+        + '<button class="btn-secondary" data-stor-act="rename" data-kind="' + escapeHtml(r.kind)
+        + '" data-account="' + escapeHtml(r.account) + '" data-name="' + escapeHtml(r.name) + '">Átnevezés</button> '
+        + '<button class="btn-secondary" data-stor-act="toggle" data-kind="' + escapeHtml(r.kind)
+        + '" data-account="' + escapeHtml(r.account) + '" data-active="' + (r.active ? '1' : '0') + '">'
+        + (r.active ? 'Kikapcsolás' : 'Bekapcsolás') + '</button> '
+        + '<button class="btn-secondary" data-stor-act="check" data-kind="' + escapeHtml(r.kind)
+        + '" data-account="' + escapeHtml(r.account) + '">Ellenőrzés</button>'
+        + '</td></tr>'
+    }).join('')
+    + '</tbody></table></div>'
+}
+
+function _storagesSay(msg) {
+  var el = document.getElementById('storagesStatus')
+  if (el) el.textContent = msg || ''
+}
+
+/**
+ * Egy kattintas-kezelo az EGESZ tablazatra.
+ *
+ * Azert delegalva, mert a sorok minden frissiteskor ujra keszulnek: soronkent
+ * felkotott kezelok eseten az ujrarajzolas utan a gombok nemak lennenek.
+ */
+async function _storagesClick(ev) {
+  var btn = ev.target && ev.target.closest ? ev.target.closest('[data-stor-act]') : null
+  if (!btn) return
+  ev.preventDefault()
+  var act = btn.getAttribute('data-stor-act')
+  var kind = btn.getAttribute('data-kind')
+  var account = btn.getAttribute('data-account')
+  try {
+    if (act === 'rename') {
+      var mostani = btn.getAttribute('data-name') || account
+      var uj = window.prompt('Mi legyen a tároló neve? (A mappa nem mozdul el.)', mostani)
+      if (uj === null) return
+      await _depoPost('/api/storages/rename', { kind: kind, account: account, name: uj })
+      _storagesSay('Átnevezve.')
+    } else if (act === 'toggle') {
+      var aktiv = btn.getAttribute('data-active') === '1'
+      var r = await _depoPost('/api/storages/active', { kind: kind, account: account, active: !aktiv })
+      _storagesSay(r.message || '')
+    } else if (act === 'check') {
+      var c = await _depoPost('/api/storages/check', { kind: kind, account: account })
+      _storagesSay(c.message || '')
+    }
+  } catch (e) {
+    _storagesSay('Nem sikerült: ' + (e && e.message ? e.message : e))
+  }
+  await _storagesRefresh()
+}
+
+async function _storagesAddGit() {
+  var inp = document.getElementById('storagesGitName')
+  var name = inp ? inp.value.trim() : ''
+  if (!name) { _storagesSay('Írd be a fiók nevét.'); return }
+  try {
+    await _depoPost('/api/storages/git-account', { account: name })
+    if (inp) inp.value = ''
+    _storagesSay('Felvéve. A repóit ebbe a mappába klónozd.')
+  } catch (e) {
+    _storagesSay('Nem sikerült: ' + (e && e.message ? e.message : e))
+  }
+  await _storagesRefresh()
 }
 
 // Eppen tolt-e a fioklista? (`var`, hogy a korai hivas se dobjon hibat -- lasd

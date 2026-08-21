@@ -2680,6 +2680,37 @@
         <div id="depoRestartSlot"></div>
       </div>
 
+      <!-- TAROLOK (specifikacio 33. pont). Ez a "melyik fiokom hol van"
+           kerdesre valaszol EGY helyen: a Drive, a Fotok es a Git fiokjai
+           egyutt, azonositoval es allapottal. Azert itt all, a depo helye
+           ALATT es a tobbi kartya FOLOTT, mert eloszor azt kell latni, hogy
+           hany tarolod van -- utana van ertelme egyiken-masikon dolgozni. -->
+      <div class="card">
+        <h2>Tárolók</h2>
+        <p class="subtitle" id="storagesLead">
+          Minden fiókod, aminek fájljai a gépeden vannak: a
+          <strong>Google Drive</strong> és a <strong>Google Fotók</strong> fiókjai,
+          valamint a <strong>Git</strong>-fiókjaid. Mindegyik a saját mappájába
+          dolgozik a depón belül, így két fiók tartalma soha nem keveredik össze.
+          Az azonosító (<code>DRIVE_01</code>) azé a fióké marad akkor is, ha
+          átnevezed — a mappát az átnevezés nem mozdítja meg.
+        </p>
+        <div id="storagesTable"></div>
+        <!-- A Drive/Fotok fiokjai a Google-bejelentkezesbol jonnek: ott NINCS
+             mit "felvenni", ezert csak a Git-fiokra van gomb. -->
+        <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap">
+          <label for="storagesGitName" style="font-size:13px">Új Git-fiók mappája:</label>
+          <input type="text" id="storagesGitName" class="input" style="width:200px" placeholder="pl. ceges">
+          <button class="btn-secondary" id="storagesGitAddBtn">Git-fiók hozzáadása</button>
+          <span id="storagesStatus" class="subtitle"></span>
+        </div>
+        <p class="subtitle" style="margin:6px 0 0">
+          A Git-fiók egy mappa a <code>Rendszer/Tárolók/Git</code> alatt: a fiók
+          repói ide kerülnek, egymástól elkülönítve. Ez azért kell, mert a
+          személyes és a céges repók soha nem keveredhetnek össze.
+        </p>
+      </div>
+
       <div class="card">
         <h2>Fotók</h2>
         <p class="subtitle" id="depoPhotosLead">
