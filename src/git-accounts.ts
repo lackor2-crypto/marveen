@@ -1,0 +1,348 @@
+/**
+ * GIT-FIOKOK: hitelesites es lehuzas -- vegig a FELULETROL.
+ *
+ * Boss, 2026-08-21: "git fiokot hozzaadtam a depo alatt. de mit kell tenni
+ * utana? hogy le is legyen huzva meg a token vagy az auth erted. azal nincs
+ * vege hogy egy nevet hozzaadok!!! az felkesz munka!" -- es: "ne te csinald
+ * meg. manualisan is tudjam en mindent megcsinalni. tehat a beallitasokat".
+ *
+ * Ezert itt SEMMI nincs, ami terminalt kivanna: a felhasznalo beir egy
+ * hozzaferesi kulcsot (PAT), a Marveen ellenorzi, megmondja, hany repot lat,
+ * es egy gombra lehuzza oket a fiok sajat mappajaba.
+ *
+ * HOL LAKIK A TOKEN. Nem a fában (21./23. pont: jelszo es token SOHA nem kerul
+ * az eletfaba) es nem is a `storages.json`-ben, amit a felulet listaz. Kulon
+ * fajlban all, `0600` jogokkal, es a szerver SOHA nem adja vissza -- csak azt,
+ * hogy VAN-e. Amit egyszer megmutatnank a bongeszonek, az onnantol
+ * megjelenne a naplokban, a keperynyokepeken es a bongeszo-elozmenyekben is.
+ *
+ * A TOKEN NEM KERUL A `.git/config`-ba SEM. A tavoli cim
+ * `https://<fiok>@github.com/...` marad -- felhasznalonev, nem titok --, a
+ * kulcsot pedig futasidoben egy `GIT_ASKPASS` segedprogram adja at. Igy egy
+ * depo-mentes vagy egy megosztott mappa nem viszi magaval a kulcsot.
+ */
+
+import { execFile } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { PROJECT_ROOT } from './config.js'
+import { depotRoot } from './depot.js'
+import { storageKindRoot } from './storages.js'
+import { logger } from './logger.js'
+
+/** Csak a szerver olvassa. `0600`, es sose megy vissza a bongeszonek. */
+function tokenFile(): string {
+  return join(PROJECT_ROOT, 'store', '.git-tokens.json')
+}
+
+/** Az az apro program, ami a kulcsot atadja a gitnek -- argumentum nelkul. */
+function askpassFile(): string {
+  return join(PROJECT_ROOT, 'store', 'git-askpass.sh')
+}
+
+interface TokenRow {
+  token: string
+  /** Amit a GitHub visszaadott a kulcshoz -- igy latszik, ha elgepelte a fiokot. */
+  login: string
+  addedAt: string
+}
+
+type TokenStore = Record<string, TokenRow>
+
+function readTokens(): TokenStore {
+  try { return JSON.parse(readFileSync(tokenFile(), 'utf8')) as TokenStore } catch { return {} }
+}
+
+function writeTokens(store: TokenStore): void {
+  const f = tokenFile()
+  mkdirSync(join(PROJECT_ROOT, 'store'), { recursive: true })
+  writeFileSync(f, JSON.stringify(store, null, 2), 'utf8')
+  // A jogok BEALLITASA a lenyeg, nem a fajl letezese: egy vilag altal olvashato
+  // tokenfajl ugyanolyan rossz, mintha sehol nem lenne.
+  try { chmodSync(f, 0o600) } catch { /* Windows-os fajlrendszeren nincs ertelme */ }
+}
+
+/**
+ * A GEPEN MAR MEGLEVO gh-bejelentkezesek.
+ *
+ * A `gh` a sajat fajljaban tartja a kulcsokat. Ha ott mar all egy ervenyes
+ * bejelentkezes, azt HASZNALJUK -- nem masoljuk at, nem irjuk sehova:
+ * futasidoben olvassuk, es ugyanugy csak az askpass lathatja.
+ *
+ * A hozzarendeles: pontos nevegyezes, vagy `<fiok>-` kezdetu gh-felhasznalo
+ * (igy a "lackor2" a "lackor2-crypto"-t, az "usalackor" az "usalackor-blip"-et
+ * talalja meg). Szandekosan ennyi es nem tobb: egy talalgatosabb parositas
+ * eloszor-utoljara IDEGEN fiok kulcsat adna oda egy fiokhoz.
+ */
+function ghCliTokens(): Array<{ login: string; token: string }> {
+  try {
+    const y = readFileSync(join(homedir(), '.config', 'gh', 'hosts.yml'), 'utf8')
+    const users = y.split(/^\s*users:\s*$/m)[1]
+    if (!users) return []
+    const out: Array<{ login: string; token: string }> = []
+    const re = /^\s{6,}([A-Za-z0-9_.-]+):\s*$\n\s+oauth_token:\s*(\S+)/gm
+    let m: RegExpExecArray | null
+    while ((m = re.exec(users))) out.push({ login: m[1], token: m[2] })
+    return out
+  } catch { return [] }
+}
+
+/** Melyik gh-bejelentkezes tartozik ehhez a fiokhoz -- ha van ilyen. */
+export function ghTokenFor(account: string): { login: string; token: string } | null {
+  const a = String(account || '').trim().toLowerCase()
+  if (!a) return null
+  const all = ghCliTokens()
+  return all.find((r) => r.login.toLowerCase() === a)
+    || all.find((r) => r.login.toLowerCase().startsWith(a + '-'))
+    || null
+}
+
+/**
+ * A fiokhoz TENYLEGESEN hasznalhato kulcs.
+ *
+ * Sorrend: amit a felhasznalo maga adott meg, aztan a gh-e. A sajat kulcs
+ * eloz, mert az a kesobbi, tudatos dontes -- ha valaki beir egy PAT-ot, azt
+ * akarja hasznalni, nem a regi gh-bejelentkezest.
+ */
+function resolveToken(account: string): { token: string; login: string; source: 'sajat' | 'gh' } | null {
+  const own = readTokens()[account]
+  if (own?.token) return { token: own.token, login: own.login || '', source: 'sajat' }
+  const gh = ghTokenFor(account)
+  return gh ? { token: gh.token, login: gh.login, source: 'gh' } : null
+}
+
+/** Van-e mar kulcs ehhez a fiokhoz. Maga a kulcs SOSE hagyja el a szervert. */
+export function hasGitToken(account: string): boolean {
+  return Boolean(resolveToken(account))
+}
+
+/** Melyik fiokhoz van kulcs. Csak nevek. */
+export function gitAccountsWithToken(): string[] {
+  return Object.keys(readTokens()).filter((a) => readTokens()[a]?.token)
+}
+
+export function gitTokenInfo(account: string): { has: boolean; login: string; addedAt: string; source: '' | 'sajat' | 'gh' } {
+  const row = readTokens()[account]
+  if (row?.token) return { has: true, login: row.login || '', addedAt: row.addedAt || '', source: 'sajat' }
+  // A gh-bol atvett kulcsnal nincs "hozzaadva" datum -- nem mi adtuk hozza.
+  const gh = ghTokenFor(account)
+  return gh ? { has: true, login: gh.login, addedAt: '', source: 'gh' } : { has: false, login: '', addedAt: '', source: '' }
+}
+
+/** A kulcs torlese. A mar lehuzott repok a helyukon maradnak. */
+export function removeGitToken(account: string): void {
+  const store = readTokens()
+  delete store[account]
+  writeTokens(store)
+}
+
+function githubApi(token: string, path: string): Promise<{ ok: boolean; status: number; body: any }> {
+  return fetch('https://api.github.com' + path, {
+    headers: {
+      Authorization: 'Bearer ' + token,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Marveen',
+    },
+  }).then(async (r) => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => null) }))
+    .catch(() => ({ ok: false, status: 0, body: null }))
+}
+
+export interface TokenCheck {
+  ok: boolean
+  message: string
+  login?: string
+  repos?: number
+}
+
+/**
+ * A kulcs ellenorzese ES eltarolasa.
+ *
+ * Eloszor MEGKERDEZZUK a GitHubot, es csak akkor mentunk, ha valoban mukodik.
+ * Egy elgepelt kulcs csendes eltarolasa a legrosszabb: minden zoldnek latszana,
+ * es csak hetek mulva, az elso lehuzasnal derulne ki, hogy semmi nem jott le.
+ */
+export async function setGitToken(account: string, token: string): Promise<TokenCheck> {
+  const acc = String(account || '').trim()
+  const tok = String(token || '').trim()
+  if (!acc) return { ok: false, message: 'Hiányzik a fiók neve.' }
+  if (!tok) return { ok: false, message: 'Írd be a hozzáférési kulcsot (GitHub → Settings → Developer settings → Personal access tokens).' }
+
+  const me = await githubApi(tok, '/user')
+  if (me.status === 401) return { ok: false, message: 'A GitHub nem fogadta el ezt a kulcsot. Lehet, hogy lejárt, vagy elgépelted.' }
+  if (me.status === 0) return { ok: false, message: 'Nem értem el a GitHubot. Nézd meg az internetkapcsolatot, aztán próbáld újra.' }
+  if (!me.ok) return { ok: false, message: `A GitHub ezt válaszolta: ${me.status}. A kulcsot nem mentettem el.` }
+
+  const login = String(me.body?.login || '')
+  const repos = await listRemoteRepos(acc, tok)
+
+  const store = readTokens()
+  store[acc] = { token: tok, login, addedAt: new Date().toISOString() }
+  writeTokens(store)
+  ensureAskpass()
+  logger.info({ account: acc, login, repos: repos.length }, '[git-fiok] kulcs elmentve')
+
+  // Ha a kulcs mas fiokhoz tartozik, azt KIMONDJUK -- de nem tagadjuk meg:
+  // egy szervezeti fiokhoz jogos, hogy a szemelyes kulccsal ferunk hozza.
+  const note = login && login.toLowerCase() !== acc.toLowerCase()
+    ? ` (a kulcs a(z) „${login}” felhasználóé — szervezeti fióknál ez rendben van)`
+    : ''
+  return {
+    ok: true, login, repos: repos.length,
+    message: repos.length
+      ? `Rendben${note}. ${repos.length} repót látok ezzel a kulccsal — a „Repók lehúzása” gombbal jöhetnek le.`
+      : `A kulcs működik${note}, de ehhez a fiókhoz egyetlen repót sem látok. Ellenőrizd, jó-e a fióknév, és van-e a kulcsnak „repo” jogosultsága.`,
+  }
+}
+
+export interface RemoteRepo {
+  name: string
+  cloneUrl: string
+  private: boolean
+  archived: boolean
+  updatedAt: string
+}
+
+/**
+ * Egy fiok repoi.
+ *
+ * Harom helyen keresunk, mert a "fiok" harom dolgot jelenthet: sajat
+ * felhasznalo, szervezet, vagy egy masik felhasznalo, akinek a repoit latjuk.
+ * Az elso, amelyik valaszol, dont.
+ */
+export async function listRemoteRepos(account: string, token?: string): Promise<RemoteRepo[]> {
+  const tok = token || resolveToken(account)?.token
+  if (!tok) return []
+  const me = await githubApi(tok, '/user')
+  const login = String(me.body?.login || '')
+
+  // A `lackor2-crypto` kulcs a `lackor2` fiokhoz SAJAT kulcs: ilyenkor a
+  // `/user/repos` utat kell jarni, kulonben csak a NYILVANOS repok jonnenek le.
+  const a = String(account).toLowerCase()
+  const sajat = login.toLowerCase() === a || login.toLowerCase().startsWith(a + '-')
+  const paths = sajat
+    ? ['/user/repos?per_page=100&affiliation=owner&sort=updated']
+    : [`/orgs/${account}/repos?per_page=100&sort=updated`, `/users/${account}/repos?per_page=100&sort=updated`]
+
+  for (const p of paths) {
+    const r = await githubApi(tok, p)
+    if (r.ok && Array.isArray(r.body)) {
+      const rows: RemoteRepo[] = r.body
+        .filter((x: any) => !token || true)
+        .map((x: any) => ({
+          name: String(x?.name || ''),
+          cloneUrl: String(x?.clone_url || ''),
+          private: Boolean(x?.private),
+          archived: Boolean(x?.archived),
+          updatedAt: String(x?.updated_at || ''),
+        }))
+        .filter((x: RemoteRepo) => x.name && x.cloneUrl)
+      if (rows.length) return rows
+    }
+  }
+  return []
+}
+
+/**
+ * A `GIT_ASKPASS` segedprogram: a kulcsot a KORNYEZETBOL veszi.
+ *
+ * Miert nem parancssori argumentum: az `argv` minden felhasznalo szamara
+ * lathato (`ps`), tehat egy argumentumkent atadott kulcs gyakorlatilag
+ * nyilvanos. A kornyezeti valtozo a gyerekfolyamate marad.
+ */
+function ensureAskpass(): string {
+  const f = askpassFile()
+  const body = '#!/bin/sh\n# A Marveen adja at a git-kulcsot -- lasd src/git-accounts.ts\nprintf %s "$MARVEEN_GIT_TOKEN"\n'
+  try {
+    if (!existsSync(f) || readFileSync(f, 'utf8') !== body) {
+      mkdirSync(join(PROJECT_ROOT, 'store'), { recursive: true })
+      writeFileSync(f, body, 'utf8')
+    }
+    chmodSync(f, 0o700)
+  } catch (e) {
+    logger.warn({ err: String(e) }, '[git-fiok] az askpass segedprogram nem jott letre')
+  }
+  return f
+}
+
+/** A git-kornyezet egy adott fiokhoz. Kulcs nelkul is mukodik (nyilvanos repo). */
+export function gitEnvFor(account: string): NodeJS.ProcessEnv {
+  const token = resolveToken(account)?.token
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    // Ne alljon meg jelszot varva egy szolgaltatasban, ahol nincs, aki beirja.
+    GIT_TERMINAL_PROMPT: '0',
+  }
+  if (token) {
+    env.MARVEEN_GIT_TOKEN = token
+    env.GIT_ASKPASS = ensureAskpass()
+  }
+  return env
+}
+
+function git(cwd: string, args: string[], env: NodeJS.ProcessEnv, timeout = 900000): Promise<{ ok: boolean; out: string; err: string }> {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, env, timeout, maxBuffer: 8 * 1024 * 1024 }, (e, stdout, stderr) => {
+      resolve({ ok: !e, out: String(stdout || '').trim(), err: String(stderr || '').trim() })
+    })
+  })
+}
+
+export interface PullResult {
+  ok: boolean
+  message: string
+  cloned: string[]
+  present: string[]
+  failed: Array<{ name: string; message: string }>
+}
+
+/**
+ * A fiok osszes repojanak lehuzasa a sajat mappajaba.
+ *
+ * Ami MAR ott van, ahhoz itt nem nyulunk: annak a frissitese a `git-sync`
+ * dolga, es az sokkal ovatosabb (soha nem ir felul helyi munkat). Itt csak a
+ * HIANYZOKAT klonozzuk -- igy a gomb barmikor ujra megnyomhato, es sosem
+ * csinal kart.
+ */
+export async function pullGitAccount(account: string): Promise<PullResult> {
+  const acc = String(account || '').trim()
+  const root = depotRoot()
+  if (!root) return { ok: false, message: 'Nincs beállítva depó — a Depó oldalon add meg, hova kerüljenek a fájlok.', cloned: [], present: [], failed: [] }
+  if (!hasGitToken(acc)) {
+    return { ok: false, message: 'Ehhez a fiókhoz még nincs hozzáférési kulcs. Add meg a „Kulcs megadása” gombbal, utána jöhet a lehúzás.', cloned: [], present: [], failed: [] }
+  }
+
+  const dir = join(root, storageKindRoot('git'), acc)
+  mkdirSync(dir, { recursive: true })
+
+  const repos = await listRemoteRepos(acc)
+  if (!repos.length) {
+    return { ok: false, message: 'Ezzel a kulccsal egyetlen repót sem látok ehhez a fiókhoz. Ellenőrizd a fióknevet és a kulcs „repo” jogosultságát.', cloned: [], present: [], failed: [] }
+  }
+
+  const env = gitEnvFor(acc)
+  const cloned: string[] = []
+  const present: string[] = []
+  const failed: Array<{ name: string; message: string }> = []
+
+  for (const repo of repos) {
+    const target = join(dir, repo.name)
+    if (existsSync(join(target, '.git'))) { present.push(repo.name); continue }
+    // A felhasznalonev a cimben marad, a KULCS nem: azt az askpass adja at.
+    const url = repo.cloneUrl.replace('https://', `https://${acc}@`)
+    const r = await git(dir, ['clone', '--quiet', url, repo.name], env)
+    if (r.ok) cloned.push(repo.name)
+    else failed.push({ name: repo.name, message: (r.err.split('\n').pop() || '').slice(0, 140) })
+  }
+
+  logger.info({ account: acc, cloned: cloned.length, present: present.length, failed: failed.length }, '[git-fiok] lehuzas kesz')
+
+  const parts: string[] = []
+  if (cloned.length) parts.push(`${cloned.length} repó lejött: ${cloned.join(', ')}.`)
+  if (present.length) parts.push(`${present.length} már megvolt.`)
+  if (failed.length) parts.push(`${failed.length} nem sikerült: ${failed.map((f) => f.name).join(', ')}.`)
+  if (!parts.length) parts.push('Nem volt mit tenni.')
+  parts.push('Innentől magától frissül, 6 óránként.')
+
+  return { ok: failed.length === 0, message: parts.join(' '), cloned, present, failed }
+}

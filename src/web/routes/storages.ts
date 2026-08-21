@@ -5,6 +5,10 @@
 //   POST /api/storages/active     -- ki/be kapcsolas (a fajlokhoz NEM nyul)
 //   POST /api/storages/git-account-- uj git-fiok + a mappaja
 //   POST /api/storages/check      -- ellenorzes: ott van-e, mi van benne
+//   POST /api/storages/git-token  -- hozzaferesi kulcs egy git-fiokhoz
+//   POST /api/storages/git-pull   -- a fiok repoinak lehuzasa
+//   GET  /api/storages/git-sync   -- mikor futott az automatikus szinkron
+//   POST /api/storages/git-sync   -- szinkron MOST
 //
 // A 33. pont "megnyitas" es "szinkronallapot" tetelet a mar meglevo felulet
 // adja: a mappa megnyitasa az Intezo dolga (a sor `rel`-jere ugrunk), a
@@ -21,6 +25,8 @@ import {
   type StorageKind,
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
+import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos } from '../../git-accounts.js'
+import { syncAllRepos, lastSyncRun } from '../../git-sync.js'
 import type { RouteContext } from './types.js'
 
 async function readJson(req: RouteContext['req']): Promise<any> {
@@ -60,7 +66,14 @@ function currentRows() {
       logger.warn({ err: String(e) }, '[storages] a regiszter mentese nem sikerult')
     }
   }
-  return r.rows
+  // A git-sornal a "be van kotve" NEM az, hogy felvettuk a nevet -- hanem hogy
+  // van-e mogotte elo hozzaferesi kulcs. A nevfelvetel maga meg nem hoz le
+  // semmit, es ha itt zoldet mutatnank, a felhasznalo azt hinne, kesz van.
+  return r.rows.map((row) => {
+    if (row.kind !== 'git') return row
+    const t = gitTokenInfo(row.account)
+    return { ...row, connected: t.has, tokenSource: t.source, tokenLogin: t.login }
+  })
 }
 
 function parseKind(v: unknown): StorageKind | null {
@@ -137,6 +150,57 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
       }
     }
     json(res, { ok: true, created, rows: currentRows() })
+    return true
+  }
+
+  // A FIOKNEV ONMAGABAN FELKESZ MUNKA (Boss). Ezert a felvett git-fiokhoz itt
+  // adhato meg a hozzaferesi kulcs, es innen huzhatok le a repoi -- vegig a
+  // feluletrol, terminal nelkul.
+  //
+  // A kulcs SOSE megy vissza a bongeszonek: csak az, hogy van-e, es melyik
+  // GitHub-felhasznalohoz tartozik.
+  if (path === '/api/storages/git-token' && method === 'POST') {
+    const b = await readJson(req)
+    const account = String(b?.account || '').trim()
+    if (!account) { json(res, { error: 'Hiányzik a fiók neve.' }, 400); return true }
+    if (b?.remove === true) {
+      removeGitToken(account)
+      json(res, { ok: true, message: 'A kulcs törölve. A már lehúzott repók a helyükön maradnak, csak frissülni nem fognak.', rows: currentRows() })
+      return true
+    }
+    const r = await setGitToken(account, String(b?.token || ''))
+    json(res, { ...r, rows: currentRows() }, r.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/storages/git-token' && method === 'GET') {
+    const account = String(ctx.url.searchParams.get('account') || '').trim()
+    json(res, gitTokenInfo(account))
+    return true
+  }
+
+  if (path === '/api/storages/git-repos' && method === 'POST') {
+    const b = await readJson(req)
+    const repos = await listRemoteRepos(String(b?.account || '').trim())
+    json(res, { ok: true, repos: repos.map((r) => ({ name: r.name, private: r.private, archived: r.archived })) })
+    return true
+  }
+
+  if (path === '/api/storages/git-pull' && method === 'POST') {
+    const b = await readJson(req)
+    const r = await pullGitAccount(String(b?.account || '').trim())
+    json(res, { ...r, rows: currentRows() }, r.ok ? 200 : 400)
+    return true
+  }
+
+  if (path === '/api/storages/git-sync' && method === 'GET') {
+    json(res, { ok: true, last: lastSyncRun() })
+    return true
+  }
+
+  if (path === '/api/storages/git-sync' && method === 'POST') {
+    const run = await syncAllRepos()
+    json(res, { ok: true, last: run, message: `${run.results.length} repót néztem át: ${run.updated} frissült, ${run.skipped} kimaradt, ${run.errors} hibázott.` })
     return true
   }
 

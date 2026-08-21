@@ -673,3 +673,63 @@ Ugyanez az ablak szolgálja a **papír példány helyét** is (egy megoldás, k�
 hely). A papír helye ráadásul alapból a fájl saját mappája — Boss:
 *„alapbol amugy a beviteli mezo alhatna ott ahol eppen van a file”* —, így a
 leggyakoribb esetben tallózni sem kell, csak menteni.
+
+
+## AUTOMATIKUS GIT-SZINKRON — 2026-08-21
+
+Boss: *„meg az osszes git ahol van a mapparendszerben. mind szinkronizaljon
+automatan”*.
+
+A `src/git-sync.ts` 6 óránként (indulás után 5 perccel először) végigjárja a
+**teljes depó-fát**, nem csak a `Rendszer/Tárolók/Git` alatti repókat. Ahol
+`.git`-et talál, ott megáll és nem megy mélyebb — egy repóba ágyazott mappa nem
+külön repó, és egy nagy repó bejárása percekbe kerülne körönként.
+
+Egyetlen dolgot kell itt biztosra tudni, és az **nem** az, hogy frissít: azt,
+hogy **soha nem semmisít meg helyi munkát**. Ezért a szinkron kizárólag
+`fetch` + `merge --ff-only`, és **kihagyja** a repót, ha
+
+| eset | mit tesz |
+|---|---|
+| nincs távoli ága | hozzá sem nyúl |
+| módosított fájl van benne | hozzá sem nyúl |
+| fel nem töltött commit van benne | hozzá sem nyúl, és szól, hogy pushra vár |
+
+`reset`, `checkout --force`, `pull --rebase` és `stash` **sehol** nem fut. Egy
+elveszett commit visszahozhatatlan, egy elavult repó pedig egy gombnyomás.
+
+A Tárolók lapon a *„🔄 Szinkron most”* ugyanezt a kódot futtatja — nincs külön
+„kézi” út, amit külön lehetne elrontani —, és a kimaradt repókat **indokkal**
+kiírja. Egy néma „3 kimaradt” arra tanítaná a felhasználót, hogy ne is nézze
+meg, pedig éppen ott van a tennivaló.
+
+## GIT-FIÓK: KULCS ÉS LEHÚZÁS A FELÜLETRŐL — 2026-08-21
+
+Boss: *„azal nincs vege hogy egy nevet hozzaadok!!! az felkesz munka!”* és
+*„ne te csinald meg. manualisan is tudjam en mindent megcsinalni.”*
+
+Három lépés, mind a felületről (`src/git-accounts.ts`):
+
+1. **Fiók felvétele** — ettől még csak a mappája jön létre.
+2. **🔑 Kulcs** — a Marveen **azonnal ellenőrzi a GitHubnál**, és csak akkor
+   menti, ha működik; megmondja, hány repót lát vele. Egy elgépelt kulcs csendes
+   eltárolása a legrosszabb: minden zöldnek látszana, és csak hetek múlva derülne
+   ki, hogy semmi nem jött le.
+3. **⬇ Repók** — a hiányzókat lehozza, a meglévőkhöz nem nyúl, tehát bármikor
+   újra megnyomható.
+
+**A már bekötött gh-fiókok átvétele.** Boss: *„freeberischeaper, usalackor,
+lackor2 ezeket mar bekotottuk.”* Ha a gépen a `gh` már be van jelentkezve,
+a Marveen **azt a kulcsot használja**, és nem kér újat. A hozzárendelés
+pontos névegyezés vagy `<fiók>-` kezdetű gh-felhasználó (`lackor2` →
+`lackor2-crypto`, `usalackor` → `usalackor-blip`) — szándékosan ennyi és nem
+több: egy találgatósabb párosítás előbb-utóbb **idegen fiók** kulcsát adná oda.
+A sorban ki van írva, honnan jön a kulcs, mert ha ott kijelentkeznek, itt is
+elfogy.
+
+**Hol lakik a token.** Nem a fában (21./23. pont), nem a `storages.json`-ben:
+külön fájlban, `0600` jogokkal, és a szerver **soha nem adja vissza** a
+böngészőnek — csak azt, hogy van-e. A `.git/config`-ba sem kerül: a távoli cím
+`https://<fiók>@github.com/...` marad (felhasználónév, nem titok), a kulcsot
+futásidőben egy `GIT_ASKPASS` segédprogram adja át a környezetből. Parancssori
+argumentumként soha: az `argv` minden felhasználónak látszik (`ps`).

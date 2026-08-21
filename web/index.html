@@ -2736,6 +2736,35 @@
           repói ide kerülnek, egymástól elkülönítve. Ez azért kell, mert a
           személyes és a céges repók soha nem keveredhetnek össze.
         </p>
+
+        <!-- A NEVFELVETEL MAGA MEG NEM HOZ LE SEMMIT. Boss: "azal nincs vege
+             hogy egy nevet hozzaadok!!! az felkesz munka!" -- ezert a harom
+             lepes ki van irva, es mind a harom a feluletrol elvegezheto. -->
+        <div class="info-box" style="margin-top:12px">
+          <p style="margin:0 0 6px"><b>Git-fiók három lépésben</b></p>
+          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:1.7">
+            <li><b>Fiók felvétele</b> — a fenti mezőben. Ettől még csak a mappája jön létre.</li>
+            <li><b>🔑 Kulcs</b> — a fiók sorában. Ha a gépen a <code>gh</code> már be van
+              jelentkezve ezzel a fiókkal, a Marveen <b>azt használja</b>, és nincs teendőd
+              — a sorban ott áll, honnan jön a kulcs. Ha nincs: GitHub → Settings → Developer
+              settings → Personal access tokens, <code>repo</code> jogosultsággal.
+              A Marveen azonnal ellenőrzi, és megmondja, hány repót lát vele.</li>
+            <li><b>⬇ Repók lehúzása</b> — szintén a sorában. A hiányzókat lehozza, a
+              meglévőkhöz nem nyúl, tehát bármikor újra megnyomható.</li>
+          </ol>
+          <p style="margin:8px 0 0;font-size:13px;opacity:.85">
+            Ezután <b>magától frissül</b>: 6 óránként minden repót átnéz a fában.
+            Amiben helyi módosítás vagy fel nem töltött commit van, azt
+            <b>kihagyja</b> — a szinkron soha nem ír felül helyi munkát.
+            <button class="btn-secondary btn-compact" id="storagesGitSyncBtn" style="margin-left:6px">🔄 Szinkron most</button>
+          </p>
+          <p style="margin:6px 0 0;font-size:13px" id="storagesGitSyncState"></p>
+          <p style="margin:6px 0 0;font-size:12px;opacity:.75">
+            A hozzáférési kulcs a Marveen zárt tárolójában marad: nem kerül az
+            életfába, nem kerül a repó beállításai közé, és a felület sem kapja
+            vissza — csak azt látod, hogy van-e.
+          </p>
+        </div>
       </div>
 
       <div class="card">

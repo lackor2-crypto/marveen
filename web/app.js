@@ -28238,6 +28238,7 @@ async function loadDepoPage() {
   bind('depoSyncAddBtn', () => _depoAddSync())
   bind('depoSyncRunBtn', () => _depoRunSync())
   bind('storagesGitAddBtn', () => _storagesAddGit())
+  bind('storagesGitSyncBtn', () => _storagesGitSync())
   // A tablazat gombjai delegalva: a sorok minden frissiteskor ujra keszulnek,
   // soronkent felkotott kezelo eseten az ujrarajzolas utan nemak lennenek.
   const storTbl = document.getElementById('storagesTable')
@@ -28340,6 +28341,7 @@ async function _depoRefresh() {
   // Ugyanezen okbol: a tarolo-tablazatnak sajat vegpontja van, ezert akkor is
   // megjelenik, ha a depo-allapot lekerdezese elhasal (ott lentebb `return` all).
   _storagesRefresh()
+  _depoGet('/api/storages/git-sync').then(function (r) { _storagesShowSync(r && r.last) }).catch(function () {})
   const box = document.getElementById('depoHealthBox')
   const text = document.getElementById('depoHealthText')
   let d = null
@@ -28506,8 +28508,15 @@ async function _storagesRefresh() {
         + '<td>' + escapeHtml(r.name) + '</td>'
         + '<td><code>' + escapeHtml(r.rel) + '</code></td>'
         + '<td>' + (r.present ? (r.items + ' tétel') : '—') + '</td>'
-        + '<td>' + _storageStateText(r) + '</td>'
-        + '<td style="white-space:nowrap">'
+        + '<td>' + _storageStateText(r)
+        // A gh-bol atvett kulcs nem a mienk: ha ott kijelentkeznek, itt is
+        // elfogy. Ezert nem hallgatjuk el, hogy honnan jon.
+        + (r.tokenSource === 'gh'
+          ? '<br><span style="font-size:11px;opacity:.75">kulcs: a gépen lévő gh-fiókból ('
+            + escapeHtml(r.tokenLogin || '') + ')</span>'
+          : '')
+        + '</td>'
+        + '<td><div class="stor-acts">'
         + '<button class="btn-secondary btn-compact" data-stor-act="rename" data-kind="' + escapeHtml(r.kind)
         + '" data-account="' + escapeHtml(r.account) + '" data-name="' + escapeHtml(r.name) + '">Átnevezés</button> '
         + '<button class="btn-secondary btn-compact" data-stor-act="toggle" data-kind="' + escapeHtml(r.kind)
@@ -28515,7 +28524,15 @@ async function _storagesRefresh() {
         + (r.active ? 'Kikapcsolás' : 'Bekapcsolás') + '</button> '
         + '<button class="btn-secondary btn-compact" data-stor-act="check" data-kind="' + escapeHtml(r.kind)
         + '" data-account="' + escapeHtml(r.account) + '">Ellenőrzés</button>'
-        + '</td></tr>'
+        // A git-fiok nem kesz a nevfelvetellel: kell hozza kulcs, es le kell
+        // huzni a repoit. Mindketto ITT, a soraban erheto el.
+        + (r.kind === 'git'
+          ? ' <button class="btn-secondary btn-compact" data-stor-act="token" data-kind="git" data-account="'
+            + escapeHtml(r.account) + '">' + (r.connected ? '🔑 Kulcs' : '🔑 Kulcs kell') + '</button>'
+            + ' <button class="btn-primary btn-compact" data-stor-act="pull" data-kind="git" data-account="'
+            + escapeHtml(r.account) + '">⬇ Repók</button>'
+          : '')
+        + '</div></td></tr>'
     }).join('')
     + '</tbody></table></div>'
 }
@@ -28552,11 +28569,67 @@ async function _storagesClick(ev) {
     } else if (act === 'check') {
       var c = await _depoPost('/api/storages/check', { kind: kind, account: account })
       _storagesSay(c.message || '')
+    } else if (act === 'token') {
+      // A kulcsot a szerver AZONNAL ellenorzi a GitHubnal, es csak akkor
+      // menti, ha tenyleg mukodik. Egy elgepelt kulcs csendes eltarolasa a
+      // legrosszabb: minden zoldnek latszana, es csak hetek mulva derulne ki.
+      var tok = window.prompt(
+        'Illeszd be a GitHub hozzáférési kulcsot (Personal Access Token) a(z) „' + account + '” fiókhoz.\n\n'
+        + 'Hol készül: github.com → Settings → Developer settings → Personal access tokens.\n'
+        + 'Jogosultság: „repo”. Üresen hagyva törlöm a meglévő kulcsot.', '')
+      if (tok === null) return
+      _storagesSay('Ellenőrzöm a kulcsot a GitHubnál…')
+      var tr = await _depoPost('/api/storages/git-token',
+        tok.trim() ? { account: account, token: tok.trim() } : { account: account, remove: true })
+      _storagesSay(tr.message || 'Kész.')
+    } else if (act === 'pull') {
+      _storagesSay('Lehúzás folyamatban… nagy repóknál ez percekig tarthat.')
+      var pr = await _depoPost('/api/storages/git-pull', { account: account })
+      _storagesSay(pr.message || 'Kész.')
     }
   } catch (e) {
     _storagesSay('Nem sikerült: ' + (e && e.message ? e.message : e))
   }
   await _storagesRefresh()
+}
+
+/**
+ * Szinkron MOST, kezzel.
+ *
+ * Az automatikus futas 6 orankent jar, de aki eppen most tolt fel valamit a
+ * masik gepen, ne varjon orakat. Ugyanaz a kod fut, ugyanazokkal a
+ * ovintezkedesekkel -- nincs kulon "kezi" ut, amit kulon kellene hibazni.
+ */
+async function _storagesGitSync() {
+  var el = document.getElementById('storagesGitSyncState')
+  if (el) el.textContent = 'Szinkronizálás… nagy repóknál ez percekig tarthat.'
+  try {
+    var r = await _depoPost('/api/storages/git-sync', {})
+    _storagesShowSync(r.last)
+    _storagesSay(r.message || 'Kész.')
+  } catch (e) {
+    if (el) el.textContent = 'Nem sikerült: ' + (e && e.message ? e.message : e)
+  }
+  await _storagesRefresh()
+}
+
+/** Az utolso szinkron emberi osszefoglaloja -- a kihagyott repok INDOKKAL. */
+function _storagesShowSync(last) {
+  var el = document.getElementById('storagesGitSyncState')
+  if (!el) return
+  if (!last) { el.textContent = 'Automatikus szinkron: még nem futott (indulás után 5 perccel indul).'; return }
+  var mikor = new Date(last.finishedAt).toLocaleString('hu-HU')
+  var txt = 'Utolsó szinkron: ' + mikor + ' — ' + (last.results || []).length + ' repó, '
+    + last.updated + ' frissült, ' + last.skipped + ' kimaradt, ' + last.errors + ' hibázott.'
+  el.innerHTML = escapeHtml(txt)
+  // A kimaradtakat es a hibakat KIIRJUK. Egy nema "3 kimaradt" arra tanitana a
+  // felhasznalot, hogy ne is nezze meg -- pedig eppen ott van a tennivalo.
+  var gond = (last.results || []).filter(function (r) { return r.state === 'skipped' || r.state === 'error' })
+  if (gond.length) {
+    el.innerHTML += '<br>' + gond.map(function (r) {
+      return '<span style="opacity:.85">• ' + escapeHtml(r.rel) + ' — ' + escapeHtml(r.message) + '</span>'
+    }).join('<br>')
+  }
 }
 
 async function _storagesAddGit() {
@@ -28566,7 +28639,9 @@ async function _storagesAddGit() {
   try {
     await _depoPost('/api/storages/git-account', { account: name })
     if (inp) inp.value = ''
-    _storagesSay('Felvéve. A repóit ebbe a mappába klónozd.')
+    // A puszta nevfelvetel meg semmit nem hoz le -- mondjuk is meg, mi jon.
+    _storagesSay('Felvéve. Most add meg a hozzáférési kulcsot a sorában („Kulcs megadása”), '
+      + 'utána a „Repók lehúzása” gombbal jönnek le a repói. Onnantól 6 óránként magától frissül.')
   } catch (e) {
     _storagesSay('Nem sikerült: ' + (e && e.message ? e.message : e))
   }

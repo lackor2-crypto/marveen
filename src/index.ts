@@ -20,6 +20,7 @@ import { startAgentProcess } from './web/agent-process.js'
 import { renameSharedCredentialsIfSafe, fleetTokenBootPass } from './web/claude-credentials-guard.js'
 import { startWebServer } from './web.js'
 import { logger } from './logger.js'
+import { startGitSync } from './git-sync.js'
 import { startInviteMonitor, stopInviteMonitor } from './web/channel-invites.js'
 import { ensureDiscordChannelGroup } from './web/discord-group-bootstrap.js'
 import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/channel-request-watcher.js'
@@ -366,6 +367,7 @@ function releaseLock(): void {
 // after partial state was already wired up (e.g. initDatabase throws after
 // acquireLock wrote the pidfile -- we still need to drop the heartbeat /
 // digest timers and release the pidfile on the way out).
+let gitSyncInterval: NodeJS.Timeout | null = null
 let decayInterval: NodeJS.Timeout | null = null
 let digestTimer: NodeJS.Timeout | null = null
 let digestInterval: NodeJS.Timeout | null = null
@@ -385,6 +387,7 @@ const shutdown = (): void => {
     try { stopInviteMonitor() } catch (err) { logger.warn({ err }, 'stopInviteMonitor threw during shutdown') }
     try { stopChannelRequestWatcher() } catch (err) { logger.warn({ err }, 'stopChannelRequestWatcher threw during shutdown') }
     try { stopStoreWatcher() } catch (err) { logger.warn({ err }, 'stopStoreWatcher threw during shutdown') }
+    if (gitSyncInterval) clearInterval(gitSyncInterval)
     if (decayInterval) clearInterval(decayInterval)
     if (digestTimer) clearTimeout(digestTimer)
     if (digestInterval) clearInterval(digestInterval)
@@ -446,6 +449,11 @@ async function main(): Promise<void> {
   backfillEmbeddings().then(count => {
     if (count > 0) logger.info({ count }, 'Embedding backfill befejezve')
   }).catch(err => logger.warn({ err }, 'Embedding backfill hiba (Ollama nem elerheto)'))
+
+  // A fában lévő git-repók automatikus szinkronja. Boss: "meg az osszes git
+  // ahol van a mapparendszerben. mind szinkronizaljon automatan". Sose ir
+  // felul helyi munkat -- lasd `git-sync.ts`.
+  gitSyncInterval = startGitSync()
 
   // Memory decay (24h cycle)
   runDecaySweep()

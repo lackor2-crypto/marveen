@@ -10498,3 +10498,25 @@ body {
    akkor is ott allna, amikor semmi nincs kijelolve. (Erre teszt all:
    hidden-attribute-css-contract.) */
 .intezo-actions[hidden] { display: none; }
+
+
+/* TAROLOK: a sor-gombok ket oszlopban, kisebben.
+   A git-sorban negy gomb van; egy sorba rakva a tablazat szetfeszult, es a
+   jobb szele kicsuszott a kepbol. A racs azert fix ket oszlop, hogy a
+   gombok sorrol sorra EGY VONALBAN alljanak -- kulonben minden sorban
+   maskor tornek, es a szem nem talalja ugyanazt a gombot. */
+.stor-acts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 200px;
+}
+.stor-acts .btn-secondary,
+.stor-acts .btn-primary {
+  font-size: 11px;
+  padding: 3px 6px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
