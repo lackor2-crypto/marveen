@@ -127,7 +127,13 @@ avail_mb=$(( mem_avail / 1024 ))
 # --- count running non-core agents (tmux agent-* sessions; dependency-free) ---
 running=0
 if command -v tmux >/dev/null 2>&1; then
-  running="$(tmux ls 2>/dev/null | grep -c '^agent-' || echo 0)"
+  # `grep -c` prints 0 AND exits 1 when nothing matches, so the `|| echo 0`
+  # fallback used to APPEND a second line: running became "0\n0", every later
+  # (( running ... )) blew up with a syntax error and --verdict exited 1. That
+  # only happens with zero agent sessions -- i.e. right after a WSL restart,
+  # exactly when the fleet is trying to come back up (seen 2026-08-21).
+  running="$(tmux ls 2>/dev/null | grep -c '^agent-')"
+  [[ "$running" =~ ^[0-9]+$ ]] || running=0
 fi
 
 is_core() {
