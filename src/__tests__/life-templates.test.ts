@@ -23,7 +23,7 @@ vi.mock('../config.js', async () => {
 })
 
 const { LIFE_TEMPLATES, findLifeTemplate, listLifeTemplates } = await import('../life-templates.js')
-const { planLifeTree, PERSON_CATEGORIES } = await import('../life-tree.js')
+const { planLifeTree, PERSON_CATEGORIES, lifeConfigExists, saveLifeConfig } = await import('../life-tree.js')
 const {
   migrateFlatDepotDirs, DEPOT_SYSTEM, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_DRIVE, DEPOT_PHOTOS,
 } = await import('../depot.js')
@@ -156,5 +156,25 @@ describe('migrateFlatDepotDirs -- a lapos depo a RENDSZER ala kerul', () => {
     mkdirSync(join(depot, 'mentesek'), { recursive: true })
     migrateFlatDepotDirs()
     expect(existsSync(join(depot, 'mentesek'))).toBe(false)
+  })
+})
+
+describe('friss telepites felismerese', () => {
+  const cfgPath = join(store, 'life-tree.json')
+  beforeEach(() => { rmSync(cfgPath, { force: true }) })
+
+  it('uj gepen FRISS -- meg akkor is, hogy a betoltes ad egy helyorzo gazdat', async () => {
+    // EZ A LENYEG. A `loadLifeConfig()` sose ad ures szemelylistat, ezert aki a
+    // szemelyek szamabol probalna kitalalni a "friss"-et, minden uj telepitest
+    // regi felhasznalonak nezne -- es a Boss kikotesevel ellentetben az elso
+    // inditas "ez FELULIRJA a neveidet" figyelmeztetessel fogadna a usert.
+    const { loadLifeConfig } = await import('../life-tree.js')
+    expect(loadLifeConfig().persons.length).toBeGreaterThan(0)
+    expect(lifeConfigExists()).toBe(false)
+  })
+
+  it('mentes utan mar nem friss', () => {
+    saveLifeConfig(findLifeTemplate('solo')!.build('hu'))
+    expect(lifeConfigExists()).toBe(true)
   })
 })

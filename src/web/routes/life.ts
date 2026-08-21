@@ -24,7 +24,7 @@ import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   ensureLifeTree, lifeTreeStatus, loadLifeConfig, saveLifeConfig,
-  inboxCount, safeLifeName, newLifeId, lifeName,
+  inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
@@ -256,10 +256,11 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   // a felhasznalo valaszt egy kesz szerkezetet helyorzo nevekkel, aztan atirja
   // magara. (Boss kerese, 2026-08-21.)
   if (path === '/api/life/templates' && method === 'GET') {
-    // A `fresh` azt mondja meg a feluletnek, erdemes-e egyaltalan felajanlani:
-    // ha mar van mentett beallitas, a sablon FELULIRNA a Boss sajat fajat.
-    const current = loadLifeConfig()
-    send(res, 200, { templates: listLifeTemplates(APP_LANG), fresh: !current.persons.length })
+    // A `fresh` azt mondja meg a feluletnek, erdemes-e figyelmeztetni: ha mar
+    // van MENTETT beallitas, a sablon felulirna a sajat neveket. A mentes
+    // letere kerdezunk, nem a szemelyek szamara -- egy friss telepites is kap
+    // egy helyorzo gazdat, es azt nincs mit felteni.
+    send(res, 200, { templates: listLifeTemplates(APP_LANG), fresh: !lifeConfigExists() })
     return true
   }
 
@@ -272,8 +273,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // beallitast sem: a sablon csak egy JAVASLAT, amit a felulet elonezetben
     // mutat. Menteni a szokasos `POST /api/life/config` fog.
     if (body?.save === true) {
-      const current = loadLifeConfig()
-      if (current.persons.length && body?.overwrite !== true) {
+      if (lifeConfigExists() && body?.overwrite !== true) {
         send(res, 409, {
           message: 'Már van beállított életfád. Ha a sablonnal akarod felülírni, '
             + 'erősítsd meg — a mostani személyek és cégek beállítása elveszik. '

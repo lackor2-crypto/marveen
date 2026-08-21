@@ -390,6 +390,19 @@ export function normalizeLifeConfig(raw: any): LifeConfig {
   return { persons, companies }
 }
 
+/**
+ * Mentett-e mar a felhasznalo sajat beallitast?
+ *
+ * NEM ugyanaz, mint hogy "van-e szemely a listaban": a `loadLifeConfig()` egy
+ * frissen telepitett gepen is ad egy helyorzo gazdat, kulonben az elso
+ * "Fa letrehozasa" ures mappat csinalna. Ha a sablonvalaszto EZT nezne,
+ * minden uj telepites azt hinne, hogy van mit felulirni -- es a Boss
+ * kikotesevel ellentetben figyelmeztetessel fogadna az elso inditas.
+ */
+export function lifeConfigExists(): boolean {
+  return existsSync(CONFIG_PATH)
+}
+
 export function loadLifeConfig(): LifeConfig {
   try {
     if (!existsSync(CONFIG_PATH)) return defaultLifeConfig()
