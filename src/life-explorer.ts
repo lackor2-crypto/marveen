@@ -23,7 +23,7 @@ import {
 } from 'node:fs'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
-import { depotRoot } from './depot.js'
+import { depotRoot, DEPOT_PROJECTS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
 import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
@@ -213,19 +213,29 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
   }
 }
 
-/** A `GIT_REPOS` mappa, es minden, ami alatta van. */
+/** A `GIT_REPOS` mappa (a projektek `Fejlesztés` aga alatt), es ami alatta van. */
 const GIT_REPOS_DIR = 'GIT_REPOS'
 
 /**
  * Figyelmeztetes-szoveg egy tetelhez, vagy ures.
  *
- * Harom eset szamit git-teruletnek: maga a `GIT_REPOS` mappa, barmi, ami a
- * `GIT_REPOS` alatt all, es minden valodi repo (`.git` van benne) -- ez utobbi
- * a `Tárolók/Git` ala lehozott repokat is elkapja, tehat a jelzes MINDENHOL
- * ott van, ahol git lakik.
+ * NEGY eset szamit git-teruletnek:
+ *   - maga a `GIT_REPOS` mappa es minden alatta,
+ *   - a kozponti gyujtohely (`Rendszer/Tárolók/Git`) es minden alatta,
+ *   - minden valodi repo, amiben ott a `.git`.
+ *
+ * A gyujtohelyet kulon kell nezni, nem eleg a `.git`-re hagyatkozni: amig
+ * meg ures vagy csak a fiok-mappa all benne, nincs `.git` sehol -- eppen
+ * abban az allapotban maradna jelzes nelkul, amikor a legkonnyebb belenyulni.
  */
 function cautionFor(rel: string, name: string, abs: string, isDir: boolean): string {
   const parts = rel.split('/')
+  if (rel === DEPOT_PROJECTS) {
+    return 'Git-repók központi helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.'
+  }
+  if (rel.startsWith(DEPOT_PROJECTS + '/')) {
+    return 'Git-repók helye. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.'
+  }
   if (name === GIT_REPOS_DIR) {
     return 'Git-repók helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.'
   }

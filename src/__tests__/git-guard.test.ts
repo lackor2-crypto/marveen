@@ -22,6 +22,8 @@ vi.mock('../config.js', async () => {
 })
 
 const { repoAt, repoStatus, deleteRepo, writeBlockReason } = await import('../git-guard.js')
+const { listLife } = await import('../life-explorer.js')
+const { DEPOT_PROJECTS } = await import('../depot.js')
 
 const REPO = join(depot, 'GIT_REPOS', 'proba')
 
@@ -143,5 +145,28 @@ describe('deleteRepo', () => {
     const r = await deleteRepo('Iratok', { force: true })
     expect(r.ok).toBe(false)
     expect(existsSync(join(depot, 'Iratok'))).toBe(true)
+  })
+})
+
+describe('git-jelzes a listaban', () => {
+  it('a kozponti gyujtohely (Rendszer/Tárolók/Git) meg URESEN is jelolve van', () => {
+    // Ez volt a hianyzo eset: amig nincs benne `.git`, a repo-felismeres nem
+    // fogna meg -- eppen abban az allapotban maradna jelzes nelkul, amikor a
+    // legkonnyebb belenyulni.
+    const parts = DEPOT_PROJECTS.split('/')
+    mkdirSync(join(depot, ...parts, 'valami-fiok'), { recursive: true })
+    const parent = listLife(parts.slice(0, -1).join('/'))
+    const git = parent.folders.find((f) => f.rel === DEPOT_PROJECTS)
+    expect(git).toBeTruthy()
+    expect(git!.caution).toContain('git')
+
+    const inside = listLife(DEPOT_PROJECTS)
+    expect(inside.folders[0].caution).not.toBe('')
+  })
+
+  it('a fa tobbi mappaja NEM kap figyelmeztetest', () => {
+    mkdirSync(join(depot, 'Iratok', 'Szamlak'), { recursive: true })
+    const l = listLife('Iratok')
+    expect(l.folders[0].caution || '').toBe('')
   })
 })
