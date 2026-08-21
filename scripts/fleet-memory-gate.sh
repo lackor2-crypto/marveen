@@ -64,8 +64,8 @@ MAIN_AGENT_ID="$(_env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-marve
 # 85 on 2026-08-12 and it would have kept firing at 90).
 _WARN_PCT_ENV="$(_env_val MARVEEN_MEM_WARN_PCT)"
 _HARD_PCT_ENV="$(_env_val MARVEEN_MEM_HARD_PCT)"
-WARN_PCT="${MARVEEN_MEM_WARN_PCT:-${_WARN_PCT_ENV:-80}}"
-HARD_PCT="${MARVEEN_MEM_HARD_PCT:-${_HARD_PCT_ENV:-90}}"
+WARN_PCT="${MARVEEN_MEM_WARN_PCT:-${_WARN_PCT_ENV:-90}}"
+HARD_PCT="${MARVEEN_MEM_HARD_PCT:-${_HARD_PCT_ENV:-95}}"
 # Real env var wins (lets an operator override per-invocation without touching
 # .env); otherwise fall back to .env, like MAIN_AGENT_ID above -- a hand-edited
 # .env is the documented way to configure this script (see file header), but
@@ -101,7 +101,15 @@ try:
   print(v[0] if v else "")
 except Exception: print("")' "$ACCESS_JSON" 2>/dev/null)"
 fi
-ALERT_COOLDOWN=600   # seconds; do not repeat the same band's alert within this
+# Alert repeat window. Boss 2026-08-21: 600s meant a sustained pressure spell
+# produced a Telegram line every 10 minutes for hours -- noise, not signal, and
+# the band is already visible on the dashboard. Configurable the same way as the
+# bands (real env var > .env > default) because the systemd timer that runs the
+# gate does NOT source .env -- a hand-edited value would otherwise do nothing.
+_ALERT_COOLDOWN_ENV="$(_env_val MARVEEN_MEM_ALERT_COOLDOWN)"
+ALERT_COOLDOWN="${MARVEEN_MEM_ALERT_COOLDOWN:-${_ALERT_COOLDOWN_ENV:-3600}}"
+[[ "$ALERT_COOLDOWN" =~ ^[0-9]+$ ]] || ALERT_COOLDOWN=3600
+# seconds; do not repeat the same band's alert within this
 
 log() { echo "[fleet-memory-gate] $*" >&2; }
 
