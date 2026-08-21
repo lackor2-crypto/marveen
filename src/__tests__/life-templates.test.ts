@@ -1,0 +1,160 @@
+// A KESZ SABLONOK es a lapos depo ATKOLTOZTETESE.
+//
+// Ket olyan dolog van itt, amit a feluleten nezve keso volna eszrevenni:
+//
+//  1. Ha egy sablonba valodi nev keveredik (`Korpás László`, `Magyarország`),
+//     azt csak az veszi eszre, aki mas gepre telepiti a Marveent -- es akkor
+//     mar a lemezen all a hibas mappa. Ezert a helyorzo-nevekre TESZT van.
+//  2. Az atkoltoztetes `renameSync`-kel dolgozik. Ha elrontja, nem hibauzenet
+//     lesz belole, hanem eltunt mappa. Ezert vizsgaljuk kulon a ket veszelyes
+//     esetet: a mar letezo celt es a kis-nagybetu-utkozest.
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+const depot = mkdtempSync(join(tmpdir(), 'marveen-tpl-'))
+const store = mkdtempSync(join(tmpdir(), 'marveen-tplstore-'))
+process.env.MARVEEN_DEPOT = depot
+
+vi.mock('../config.js', async () => {
+  const actual = await vi.importActual<typeof import('../config.js')>('../config.js')
+  return { ...actual, STORE_DIR: store }
+})
+
+const { LIFE_TEMPLATES, findLifeTemplate, listLifeTemplates } = await import('../life-templates.js')
+const { planLifeTree, PERSON_CATEGORIES } = await import('../life-tree.js')
+const {
+  migrateFlatDepotDirs, DEPOT_SYSTEM, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_DRIVE, DEPOT_PHOTOS,
+} = await import('../depot.js')
+
+describe('a sablonok', () => {
+  it('mind felepitheto, es egyik sem ures', () => {
+    for (const t of LIFE_TEMPLATES) {
+      const cfg = t.build('hu')
+      expect(cfg.persons.length, t.id).toBeGreaterThan(0)
+      expect(planLifeTree(cfg, 'hu').length, t.id).toBeGreaterThan(10)
+    }
+  })
+
+  it('CSAK helyorzo nevet hasznalnak -- soha valodit', () => {
+    // Ez a specifikacio 29-30. pontja: ami ide fixen be van irva, az minden mas
+    // felhasznalo gepen rossz. A tiltolista azokat a neveket tartalmazza,
+    // amiket a fejlesztes kozben a legkonnyebb veletlenul bemasolni.
+    const tilos = ['korpás', 'lászló', 'bakos', 'éva', 'magyarország', 'németország', 'usa', 'marveen']
+    for (const t of LIFE_TEMPLATES) {
+      const cfg = t.build('hu')
+      const nevek = [
+        ...cfg.persons.flatMap((p) => [p.name, ...p.countries, ...p.mediaGroups, ...p.projects.map((x) => x.name)]),
+        ...cfg.companies.flatMap((c) => [c.name, ...c.countries]),
+      ].map((n) => n.toLowerCase())
+      for (const n of nevek) {
+        for (const bad of tilos) expect(n.includes(bad), `${t.id}: ${n}`).toBe(false)
+      }
+      expect(nevek.some((n) => n.includes('példa') || n.includes('ország'))).toBe(true)
+    }
+  })
+
+  it('MINDEN szemely a teljes szerkezetet kapja, a masodik is', () => {
+    // A Boss kikotese: "ne csak nalam, hanem a bakos evanal is... ugyanugy".
+    const cfg = findLifeTemplate('family-multi-country')!.build('hu')
+    const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
+    for (const p of cfg.persons) {
+      expect(rels.filter((r) => r.startsWith(`${p.name}/`)).length).toBeGreaterThanOrEqual(PERSON_CATEGORIES.length)
+    }
+  })
+
+  it('a tobb-orszagos sablonban a MEDIA is orszagra bomlik', () => {
+    const cfg = findLifeTemplate('multi-country')!.build('hu')
+    const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
+    const p = cfg.persons[0].name
+    expect(rels).toContain(`MÉDIA/${p}/FOTÓK/${cfg.persons[0].countries[2]}`)
+    expect(rels).toContain(`MÉDIA/${p}/VIDEÓK/${cfg.persons[0].countries[2]}`)
+  })
+
+  it('a teljes sablonban a szemelyes es a ceges repo KULON all', () => {
+    // 31. pont: ezek soha nem keverednek.
+    const cfg = findLifeTemplate('full')!.build('hu')
+    const rels = planLifeTree(cfg, 'hu').map((n) => n.rel)
+    const person = cfg.persons[0].name
+    const company = cfg.companies[0].name
+    expect(rels).toContain(`${person}/PROJEKTEK/${cfg.persons[0].projects[0].name}/FEJLESZTÉS/GIT_REPOS`)
+    expect(rels).toContain(`CÉGEK/${company}/FEJLESZTÉS/GIT_REPOS`)
+  })
+
+  it('ismeretlen azonositora nem talal ki semmit', () => {
+    expect(findLifeTemplate('nincs-ilyen')).toBeNull()
+    expect(findLifeTemplate('')).toBeNull()
+  })
+
+  it('a lista a feluletnek eloneztet is ad', () => {
+    const l = listLifeTemplates('hu')
+    expect(l.length).toBe(LIFE_TEMPLATES.length)
+    for (const t of l) {
+      expect(t.title).toBeTruthy()
+      expect(t.highlights.length).toBeGreaterThan(0)
+      expect(t.config.persons.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe('migrateFlatDepotDirs -- a lapos depo a RENDSZER ala kerul', () => {
+  beforeEach(() => {
+    for (const n of ['rendszer', 'projektek', 'munka', 'mentesek', 'RENDSZER', 'drive', 'fotok']) {
+      rmSync(join(depot, n), { recursive: true, force: true })
+    }
+  })
+
+  it('atviszi a mappat a tartalmaval egyutt', () => {
+    mkdirSync(join(depot, 'projektek', 'valami'), { recursive: true })
+    writeFileSync(join(depot, 'projektek', 'valami', 'a.txt'), 'tartalom', 'utf8')
+    const moved = migrateFlatDepotDirs()
+    expect(moved.map((m) => m.from)).toContain('projektek')
+    expect(existsSync(join(depot, 'projektek'))).toBe(false)
+    expect(readFileSync(join(depot, DEPOT_PROJECTS, 'valami', 'a.txt'), 'utf8')).toBe('tartalom')
+  })
+
+  it('a `rendszer` -> `RENDSZER/MARVIN` utkozest is megoldja', () => {
+    // EZ A VESZELYES ESET. Windowson a `rendszer` es a `RENDSZER` UGYANAZ a
+    // mappa, tehat a naiv atnevezes a mappat sajat magaba tenne (es elveszne a
+    // Boss adatbazisa). Linuxon a ket nev kulon all, de a lepesnek ott is
+    // ugyanoda kell erkeznie -- ezert megy a teszt mindket rendszeren.
+    mkdirSync(join(depot, 'rendszer'), { recursive: true })
+    writeFileSync(join(depot, 'rendszer', 'naplo.db'), 'adat', 'utf8')
+    migrateFlatDepotDirs()
+    expect(readFileSync(join(depot, DEPOT_SYSTEM, 'naplo.db'), 'utf8')).toBe('adat')
+    // Es nem hagyott maga utan ideiglenes mappat.
+    expect(existsSync(join(depot, 'rendszer.koltozes'))).toBe(false)
+  })
+
+  it('SOHA nem ir felul mar letezo celt', () => {
+    mkdirSync(join(depot, 'munka'), { recursive: true })
+    writeFileSync(join(depot, 'munka', 'uj.txt'), 'uj', 'utf8')
+    mkdirSync(join(depot, DEPOT_WORK), { recursive: true })
+    writeFileSync(join(depot, DEPOT_WORK, 'regi.txt'), 'REGI ES FONTOS', 'utf8')
+
+    migrateFlatDepotDirs()
+    // Mindketto megvan: inkabb maradjon ket helyen, mint hogy egy elvesszen.
+    expect(readFileSync(join(depot, DEPOT_WORK, 'regi.txt'), 'utf8')).toBe('REGI ES FONTOS')
+    expect(existsSync(join(depot, 'munka', 'uj.txt'))).toBe(true)
+  })
+
+  it('a `drive` es a `fotok` A HELYEN MARAD', () => {
+    // A Boss kifejezett kerese (2026-08-21): "az iroda alatt pedig a drive es a
+    // fotok mappakat hagyd meg. az jol sikerult es atlathato... ahhoz ne nyulj."
+    // Ezek elo szinkron-celok is: elmozgatva a letoltes a regi utra irna.
+    mkdirSync(join(depot, 'drive', 'fiok'), { recursive: true })
+    mkdirSync(join(depot, 'fotok', 'fiok'), { recursive: true })
+    migrateFlatDepotDirs()
+    expect(existsSync(join(depot, 'drive', 'fiok'))).toBe(true)
+    expect(existsSync(join(depot, 'fotok', 'fiok'))).toBe(true)
+    expect(DEPOT_DRIVE).toBe('drive')
+    expect(DEPOT_PHOTOS).toBe('fotok')
+  })
+
+  it('ures regi mappat nem koltoztet, hanem eltakarit', () => {
+    mkdirSync(join(depot, 'mentesek'), { recursive: true })
+    migrateFlatDepotDirs()
+    expect(existsSync(join(depot, 'mentesek'))).toBe(false)
+  })
+})

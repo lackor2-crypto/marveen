@@ -23,13 +23,16 @@ const { ensureLifeTree } = await import('../life-tree.js')
 const { addMount, removeMount, listMounts, resolveMount, unresolveMount } = await import('../life-mounts.js')
 const { resolveLifePath, listLife, moveLife } = await import('../life-explorer.js')
 const { mountCandidates } = await import('../life-mount-candidates.js')
+const { DEPOT_PROJECTS } = await import('../depot.js')
 
 const cfg = {
   persons: [{ id: 'a', name: 'Teszt Elek', role: 'owner' as const, countries: ['MAGYARORSZÁG'], mediaGroups: ['ELSŐ CSALÁD'] }],
   companies: [],
 }
 
-const MEDIA_PHOTOS = 'ÉLET/Teszt Elek/MÉDIA/FOTÓK'
+// A media a specifikacio 18. pontja ota KOZOS ag: `MÉDIA/<név>/FOTÓK`.
+// Korabban a szemely alatt allt (`ÉLET/Teszt Elek/MÉDIA/FOTÓK`).
+const MEDIA_PHOTOS = 'MÉDIA/Teszt Elek/FOTÓK'
 
 beforeEach(() => {
   rmSync(join(store, 'life-mounts.json'), { force: true })
@@ -56,7 +59,7 @@ describe('addMount', () => {
   })
 
   it('nem enged egymasba agyazott bekotest', () => {
-    const r = addMount({ rel: 'ÉLET', target: 'ÉLET/Teszt Elek' })
+    const r = addMount({ rel: 'MÉDIA', target: 'MÉDIA/Teszt Elek' })
     expect(r.ok).toBe(false)
     expect(r.code).toBe('nested')
   })
@@ -86,7 +89,7 @@ describe('a bekotes a fan at latszik', () => {
   })
 
   it('a szulomappaban jelolve latszik', () => {
-    const l = listLife('ÉLET/Teszt Elek/MÉDIA', { deep: false })
+    const l = listLife('MÉDIA/Teszt Elek', { deep: false })
     const photos = l.folders.find((f) => f.name === 'FOTÓK')
     expect(photos).toBeTruthy()
     expect(photos!.mounted).toBe('teszt-fiok Google Fotók')
@@ -100,10 +103,10 @@ describe('a bekotes a fan at latszik', () => {
 
   it('a leghosszabb illeszkedo bekotes nyer', () => {
     mkdirSync(join(depot, 'drive', 'fiok2', 'Dokumentumok'), { recursive: true })
-    addMount({ rel: 'ÉLET/Teszt Elek', target: 'drive/fiok2' })
+    addMount({ rel: 'Teszt Elek', target: 'drive/fiok2' })
     // A MEDIA/FOTOK-ra kulon bekotes van: azt kell latni, nem a Drive-ot.
     expect(resolveMount(MEDIA_PHOTOS + '/nyaralas.jpg')!.target).toBe('fotok/teszt-fiok/nyaralas.jpg')
-    expect(resolveMount('ÉLET/Teszt Elek/JOGI')!.target).toBe('drive/fiok2/JOGI')
+    expect(resolveMount('Teszt Elek/JOGI')!.target).toBe('drive/fiok2/JOGI')
   })
 
   it('visszafele is fordit', () => {
@@ -111,8 +114,8 @@ describe('a bekotes a fan at latszik', () => {
   })
 
   it('athelyezes utan a FA szerinti utvonalat kapjuk vissza', () => {
-    writeFileSync(join(depot, 'ÉLET', 'BEÉRKEZŐ', 'kep.jpg'), 'x', 'utf8')
-    const r = moveLife('ÉLET/BEÉRKEZŐ/kep.jpg', MEDIA_PHOTOS)
+    writeFileSync(join(depot, 'BEÉRKEZŐ', 'kep.jpg'), 'x', 'utf8')
+    const r = moveLife('BEÉRKEZŐ/kep.jpg', MEDIA_PHOTOS)
     expect(r.ok).toBe(true)
     expect(r.rel).toBe(MEDIA_PHOTOS + '/kep.jpg')
     // A fajl viszont VALOJABAN a fotok mappaban all -- egy peldanyban.
@@ -129,7 +132,7 @@ describe('removeMount', () => {
     expect(listMounts()).toEqual([])
   })
   it('nem letezo bekotesnel is emberi valaszt ad', () => {
-    expect(removeMount('ÉLET/NINCS').ok).toBe(false)
+    expect(removeMount('NINCS').ok).toBe(false)
   })
 })
 
@@ -142,10 +145,12 @@ describe('mountCandidates', () => {
     expect(opts.some((o) => o.target === 'drive/fiok2/Dokumentumok')).toBe(true)
   })
   it('csak a valodi git repot ajanlja fel', () => {
-    mkdirSync(join(depot, 'projektek', 'nem-repo'), { recursive: true })
-    mkdirSync(join(depot, 'projektek', 'igazi-repo', '.git'), { recursive: true })
+    // A repok helye `RENDSZER/GIT` lett (specifikacio 4. pont); a `DEPOT_PROJECTS`
+    // konstansbol dolgozunk, hogy egy kesobbi athelyezes ne itt bukjon el.
+    mkdirSync(join(depot, DEPOT_PROJECTS, 'nem-repo'), { recursive: true })
+    mkdirSync(join(depot, DEPOT_PROJECTS, 'igazi-repo', '.git'), { recursive: true })
     const opts = mountCandidates()
-    expect(opts.some((o) => o.target === 'projektek/igazi-repo' && o.kind === 'git')).toBe(true)
-    expect(opts.some((o) => o.target === 'projektek/nem-repo')).toBe(false)
+    expect(opts.some((o) => o.target === `${DEPOT_PROJECTS}/igazi-repo` && o.kind === 'git')).toBe(true)
+    expect(opts.some((o) => o.target === `${DEPOT_PROJECTS}/nem-repo`)).toBe(false)
   })
 })

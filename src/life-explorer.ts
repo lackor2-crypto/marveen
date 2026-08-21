@@ -23,7 +23,7 @@ import {
 } from 'node:fs'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
-import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM } from './depot.js'
+import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
 import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
@@ -44,18 +44,38 @@ export function explorerRoot(): string | null {
   return depotRoot()
 }
 
-/** A felso szintu mappak sorrendje: ami emberi, az elol. */
-const TOP_ORDER = [
-  // Ide jar a felhasznalo. Ez az elso.
-  '__life__',
-  DEPOT_PROJECTS,
-  DEPOT_DRIVE,
-  DEPOT_PHOTOS,
-  DEPOT_WORK,
-  DEPOT_BACKUPS,
-  // Amihez soha nem kell hozzanyulni. Ez az utolso.
-  DEPOT_SYSTEM,
-]
+/**
+ * A felso szintu mappak sorrendje: ami emberi, az elol.
+ *
+ * A specifikacio 3. pontja ota NINCS `ELET` gyujtomappa -- a szemelyek
+ * KOZVETLENUL a gyokerben allnak. Ezert a sorrend ket reszbol all:
+ *
+ *  1. A felvett SZEMELYEK, a beallitasban szereplo sorrendjukben. Ok nincsenek
+ *     ebben a listaban, mert a nevuk gepenkent mas (29-30. pont); a `rank()`
+ *     szedi ki oket a beallitasbol.
+ *  2. Utana ez a rogzitett lista: eloszor a kozos agak, majd a tarolok,
+ *     legvegul a `RENDSZER` -- amihez a felhasznalonak soha nem kell nyulnia.
+ *
+ * A `DEPOT_PROJECTS`/`WORK`/`BACKUPS` SZANDEKOSAN nincs itt: azok mar a
+ * `RENDSZER` ALATT vannak, tehat nem felso szintu nevek.
+ */
+function topOrder(lang: string): string[] {
+  return [
+    lifeName('companies', lang),
+    lifeName('media', lang),
+    lifeName('knowledge', lang),
+    lifeName('digital', lang),
+    lifeName('inbox', lang),
+    lifeName('shared', lang),
+    // A ket elo tarolo. A Boss kifejezett kerese, hogy ezek a helyukon
+    // maradjanak (2026-08-21): "az jol sikerult es atlathato".
+    DEPOT_DRIVE,
+    DEPOT_PHOTOS,
+    lifeName('archive', lang),
+    // Amihez soha nem kell hozzanyulni. Ez az utolso.
+    lifeName('system', lang),
+  ]
+}
 
 export interface LifeEntry {
   name: string
@@ -273,11 +293,16 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
   // A gyokerben sajat sorrend: ami emberi, az elol (ELET), ami gepi, hatul
   // (rendszer). Mindenutt maskor betűrend, magyar szabaly szerint.
   if (!base.rel) {
-    const lifeDir = lifeName('root', APP_LANG)
+    const order = topOrder(APP_LANG)
+    // A szemelyek elore, a beallitas sorrendjeben -- a gazda a legelso.
+    const persons = loadLifeConfig().persons.map((p) => safeLifeName(p.name))
     const rank = (n: string) => {
-      const key = n === lifeDir ? '__life__' : n
-      const i = TOP_ORDER.indexOf(key)
-      return i < 0 ? TOP_ORDER.length : i
+      const pi = persons.indexOf(n)
+      if (pi >= 0) return pi
+      const i = order.indexOf(n)
+      // Az ismeretlen nevek a rogzitett agak es a szemelyek KOZE nem furakodnak
+      // be: a vegere kerulnek, ott viszont beturendben.
+      return persons.length + (i < 0 ? order.length : i)
     }
     folders.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'hu'))
   } else {
@@ -343,18 +368,21 @@ function humanType(name: string, isDir: boolean): string {
 /**
  * Ki a gazdaja ennek az utvonalnak a fa szerint?
  *
- * Nem talalgatunk: csak akkor mondunk nevet, ha az utvonal MASODIK szakasza
- * (`ÉLET/<név>/...`) egyezik egy felvett szemellyel vagy ceggel. Ismeretlen
- * helyen ures marad -- egy rossz nev rosszabb, mint a semmi.
+ * Nem talalgatunk: csak akkor mondunk nevet, ha az utvonal ELSO szakasza
+ * (`<név>/...`) egyezik egy felvett szemellyel vagy ceggel. Ismeretlen helyen
+ * ures marad -- egy rossz nev rosszabb, mint a semmi. (Specifikacio 23. pont:
+ * "SOHA ne talalja ki, hogy egy dokumentum kihez tartozik.")
  */
 function ownerOf(rel: string, cfg: LifeConfig): string {
   const parts = rel.split('/').filter(Boolean)
-  const lifeDir = lifeName('root', APP_LANG)
-  if (parts[0] !== lifeDir || parts.length < 2) return ''
+  if (!parts.length) return ''
   const companiesDir = lifeName('companies', APP_LANG)
   const mediaDir = lifeName('media', APP_LANG)
-  // `ÉLET/CÉGEK/<cég>` es `ÉLET/MÉDIA/<név>` egy szinttel lejjebb tartja a nevet.
-  const candidate = (parts[1] === companiesDir || parts[1] === mediaDir) ? parts[2] : parts[1]
+  const archiveDir = lifeName('archive', APP_LANG)
+  // `CÉGEK/<cég>`, `MÉDIA/<név>` es `ARCHÍV/<név>` egy szinttel lejjebb tartja
+  // a nevet; mindenhol maskor maga az elso szakasz a nev.
+  const nested = parts[0] === companiesDir || parts[0] === mediaDir || parts[0] === archiveDir
+  const candidate = nested ? parts[1] : parts[0]
   if (!candidate) return ''
   const person = cfg.persons.find((p) => safeLifeName(p.name) === candidate)
   if (person) return person.name
@@ -362,12 +390,9 @@ function ownerOf(rel: string, cfg: LifeConfig): string {
   return company ? company.name : ''
 }
 
-/** `ÉLET/Név/JOGI/NÉMETORSZÁG` -> `Név / Jogi / Németország`. */
+/** `Név/JOGI/NÉMETORSZÁG` -> `Név / Jogi / Németország`. */
 export function humanLocation(rel: string): string {
-  const parts = rel.split('/').filter(Boolean)
-  const lifeDir = lifeName('root', APP_LANG)
-  const shown = parts[0] === lifeDir ? parts.slice(1) : parts
-  return shown.map(prettyCase).join(' / ')
+  return rel.split('/').filter(Boolean).map(prettyCase).join(' / ')
 }
 
 /** `NÉMETORSZÁG` -> `Németország`. A csupa nagybetű a lemezen kell, a szemnek nem. */

@@ -29066,6 +29066,27 @@ async function _intezoMkdir() {
 // ===========================================================================
 
 let _intezoCfg = null
+// A szerverbol jovo valaszthato kulcsok (kategoriak, media-tipusok, nevek).
+// SZANDEKOSAN nincs itt lemasolt lista: ha a fa bovul, ez maga kovetni fogja.
+let _intezoOpts = null
+
+/** Egy szemely ures vaza. A mezoket a szerver alapertelmezesebol toltjuk. */
+function _intezoNewPerson(role) {
+  const d = (_intezoOpts && _intezoOpts.defaults) || {}
+  return {
+    id: '', name: '', role: role,
+    countries: [],
+    countrySplit: (d.countrySplit || []).slice(),
+    mediaKinds: (d.mediaKinds || []).slice(),
+    mediaGroups: [],
+    projects: [],
+  }
+}
+
+function _intezoNewCompany() {
+  const d = (_intezoOpts && _intezoOpts.defaults) || {}
+  return { id: '', name: '', countries: [], countrySplit: (d.companyCountrySplit || []).slice() }
+}
 
 async function _intezoCfgOpen() {
   const card = document.getElementById('intezoConfigCard')
@@ -29078,10 +29099,12 @@ async function _intezoCfgOpen() {
     // indulunk, hogy a felhasznalo azonnal tudjon gepelni.
     _intezoCfg = { persons: [], companies: [] }
   }
+  _intezoOpts = _intezoCfg.options || null
   if (!_intezoCfg.persons || !_intezoCfg.persons.length) {
-    _intezoCfg.persons = [{ id: '', name: '', role: 'owner', countries: [], mediaGroups: [] }]
+    _intezoCfg.persons = [_intezoNewPerson('owner')]
   }
   if (!_intezoCfg.companies) _intezoCfg.companies = []
+  await _intezoTplLoad()
   _intezoCfgRender()
 }
 
@@ -29090,19 +29113,155 @@ function _intezoCfgAddPerson() {
   // Az uj szemely SOSE gazda: gazda pontosan egy lehet, es azt mar
   // kivalasztotta a felhasznalo. Igy nem kell hibauzenetet kapnia azert,
   // mert felvett valakit.
-  _intezoCfg.persons.push({ id: '', name: '', role: 'person', countries: [], mediaGroups: [] })
+  _intezoCfg.persons.push(_intezoNewPerson('person'))
   _intezoCfgRender()
 }
 
 function _intezoCfgAddCompany() {
   if (!_intezoCfg) return
-  _intezoCfg.companies.push({ id: '', name: '' })
+  _intezoCfg.companies.push(_intezoNewCompany())
   _intezoCfgRender()
+}
+
+// ---------------------------------------------------------------------------
+// KESZ SABLONOK
+// ---------------------------------------------------------------------------
+
+let _intezoTemplates = null
+
+async function _intezoTplLoad() {
+  const box = document.getElementById('intezoTplBox')
+  try {
+    const r = await _intezoGet('/api/life/templates')
+    _intezoTemplates = r.templates || []
+    // A `fresh` azt mondja meg, van-e mar sajat beallitas. A sablonok akkor is
+    // lathatok maradnak (kesobb is valthat), de figyelmeztetest kapunk melle,
+    // hogy a valasztas FELULIRJA a mar beirt neveket.
+    _intezoTplRender(!r.fresh)
+  } catch (e) {
+    if (box) box.hidden = true
+  }
+}
+
+function _intezoTplRender(collapsed) {
+  const el = document.getElementById('intezoTemplates')
+  if (!el || !_intezoTemplates) return
+  el.innerHTML = _intezoTemplates.map((t, i) => {
+    // A mappaszam a leghasznosabb informacio a valasztashoz: ebbol latszik,
+    // hogy tulzas-e valakinek a "teljes" szerkezet.
+    const db = _intezoTplCount(t.config)
+    return '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      + '<strong style="flex:1;min-width:180px">' + escapeHtml(t.title) + '</strong>'
+      + '<span class="subtitle" style="font-size:12px">kb. ' + db + ' mappa</span>'
+      + '<button class="btn-secondary" data-tpl="' + i + '">Ezt választom</button>'
+      + '</div>'
+      + '<p class="subtitle" style="margin:6px 0 0">' + escapeHtml(t.summary) + '</p>'
+      + '<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;opacity:.85">'
+      + (t.highlights || []).map((h) => '<li>' + escapeHtml(h) + '</li>').join('')
+      + '</ul></div>'
+  }).join('')
+    + (collapsed
+      ? '<p class="subtitle" style="font-size:12px">Már van saját beállításod. Ha sablont választasz, '
+        + 'az FELÜLÍRJA a lenti neveket — a lemezen lévő mappákhoz és fájlokhoz viszont nem nyúl.</p>'
+      : '')
+
+  el.querySelectorAll('[data-tpl]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const t = _intezoTemplates[Number(b.getAttribute('data-tpl'))]
+      if (!t) return
+      // MEGERSITES, ha van mit elveszteni. A sablon a NEVEKET irja felul; ha
+      // a felhasznalo mar begepelte a csaladjat, azt nem nyeljuk el szotlanul.
+      const named = (_intezoCfg.persons || []).some((x) => (x.name || '').trim())
+      if (named && !confirm('Ez felülírja a most beírt neveket a sablon helykitöltőivel. Folytatod?')) return
+      _intezoCfg.persons = JSON.parse(JSON.stringify(t.config.persons))
+      _intezoCfg.companies = JSON.parse(JSON.stringify(t.config.companies))
+      _intezoCfgRender()
+      showToast('Sablon betöltve. Írd át a neveket magadra, aztán Mentés.')
+      const first = document.querySelector('[data-cfg="pname"]')
+      if (first) { first.focus(); first.select() }
+    })
+  })
+}
+
+/** Durva becsles a mappaszamra -- csak nagysagrendet mutat a valasztashoz. */
+function _intezoTplCount(cfg) {
+  const cats = ((_intezoOpts && _intezoOpts.personCategories) || []).length || 12
+  let n = 0
+  for (const p of cfg.persons || []) {
+    const split = (p.countrySplit || []).length
+    const c = (p.countries || []).length
+    n += 1 + cats + split * c
+    n += 1 + (p.mediaKinds || []).length * (1 + c) * Math.max(1, (p.mediaGroups || []).length)
+    n += (p.projects || []).length * 6
+  }
+  n += (cfg.companies || []).length * 12
+  return n + 12
 }
 
 /** A beirt szoveget listava. Vesszo VAGY pontosvesszo -- ki hogy szokta. */
 function _intezoCfgList(text) {
   return String(text || '').split(/[,;]/).map((x) => x.trim()).filter(Boolean)
+}
+
+/** Egy jelolonegyzet-sor. `sel` a bepipaltak listaja. */
+function _intezoBoxRow(items, sel, cfgKey, i, title, hint) {
+  if (!items || !items.length) return ''
+  return '<div style="margin-top:10px">'
+    + '<div style="font-size:13px;font-weight:600">' + escapeHtml(title) + '</div>'
+    + (hint ? '<div style="font-size:12px;opacity:.7;margin-bottom:4px">' + escapeHtml(hint) + '</div>' : '')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">'
+    + items.map((o) =>
+      '<label style="font-size:12px;white-space:nowrap">'
+      + '<input type="checkbox" data-cfg="' + cfgKey + '" data-i="' + i + '" data-key="' + escapeHtml(o.key) + '"'
+      + ((sel || []).indexOf(o.key) >= 0 ? ' checked' : '') + '> ' + escapeHtml(o.label) + '</label>').join('')
+    + '</div></div>'
+}
+
+/** Melyik kategoriak bomoljanak orszagra ennel a szemelynel. */
+function _intezoSplitBoxes(p, i) {
+  if (!_intezoOpts) return ''
+  if (!(p.countries || []).length) return ''  // orszag nelkul nincs mit bontani
+  const items = (_intezoOpts.personCategories || []).slice()
+  // A MEDIA kulon kulcs: a Boss kifejezett kerese, hogy a fotok es a videok is
+  // orszagonkent alljanak, ha valaki tobb orszagban elt.
+  items.push({ key: _intezoOpts.mediaCountryKey, label: _intezoOpts.mediaLabel + ' (fotók, videók)' })
+  return _intezoBoxRow(items, p.countrySplit, 'psplit', i,
+    'Mely területek bomoljanak ország szerint?',
+    'Amit itt bepipálsz, az alatt megjelenik minden felsorolt ország külön mappaként.')
+}
+
+/** Melyik media-tipusok keszuljenek el. */
+function _intezoKindBoxes(p, i) {
+  if (!_intezoOpts) return ''
+  return _intezoBoxRow(_intezoOpts.mediaKinds, p.mediaKinds, 'pkinds', i,
+    'Média-típusok', 'A MÉDIA ág alatt ezek a mappák jönnek létre.')
+}
+
+function _intezoCompanySplitBoxes(c, i) {
+  if (!_intezoOpts) return ''
+  if (!(c.countries || []).length) return ''
+  return _intezoBoxRow(_intezoOpts.companyCategories, c.countrySplit, 'csplit', i,
+    'Mely céges területek bomoljanak ország szerint?', '')
+}
+
+/** A szemely sajat projektjei (specifikacio 12-13., 31. pont). */
+function _intezoProjectRows(p, i) {
+  const rows = (p.projects || []).map((pr, j) =>
+    '<div style="display:flex;gap:6px;align-items:center;margin-top:4px">'
+    + '<input type="text" data-cfg="prname" data-i="' + i + '" data-j="' + j + '" style="flex:1;min-width:140px" '
+    + 'placeholder="Projekt neve" value="' + escapeHtml(pr.name || '') + '">'
+    + '<label style="font-size:12px;white-space:nowrap"><input type="checkbox" data-cfg="prdev" '
+    + 'data-i="' + i + '" data-j="' + j + '"' + (pr.development !== false ? ' checked' : '') + '> fejlesztés (GIT_REPOS)</label>'
+    + '<button class="btn-secondary" data-cfg="prdel" data-i="' + i + '" data-j="' + j + '">✕</button>'
+    + '</div>').join('')
+  return '<div style="margin-top:10px">'
+    + '<div style="font-size:13px;font-weight:600">Saját projektek</div>'
+    + '<div style="font-size:12px;opacity:.7">A PROJEKTEK alá kerülnek, a céges repóktól külön. '
+    + 'Üresen is hagyhatod.</div>'
+    + rows
+    + '<button class="btn-secondary" data-cfg="pradd" data-i="' + i + '" style="margin-top:6px">+ Projekt</button>'
+    + '</div>'
 }
 
 function _intezoCfgRender() {
@@ -29128,13 +29287,22 @@ function _intezoCfgRender() {
     + 'value="' + escapeHtml((p.mediaGroups || []).join(', ')) + '">'
     + '</div>'
     + '<div style="font-size:12px;opacity:.7;margin-top:6px">Az országokat üresen is hagyhatod — akkor nem készül országszint.</div>'
+    + _intezoSplitBoxes(p, i)
+    + _intezoKindBoxes(p, i)
+    + _intezoProjectRows(p, i)
     + '</div>').join('')
 
   cs.innerHTML = _intezoCfg.companies.map((c, i) =>
-    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+    '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
+    + '<div style="display:flex;gap:8px;align-items:center">'
     + '<input type="text" data-cfg="cname" data-i="' + i + '" style="flex:1;min-width:180px" '
     + 'placeholder="Cég neve" value="' + escapeHtml(c.name || '') + '">'
     + '<button class="btn-secondary" data-cfg="cdel" data-i="' + i + '" title="Törlés a listából">✕</button>'
+    + '</div>'
+    + '<input type="text" data-cfg="ccountries" data-i="' + i + '" style="width:100%;margin-top:8px" '
+    + 'placeholder="Országok, ahol a cég működik (üresen hagyható)" '
+    + 'value="' + escapeHtml((c.countries || []).join(', ')) + '">'
+    + _intezoCompanySplitBoxes(c, i)
     + '</div>').join('')
     || '<p class="subtitle">Még nincs felvéve cég. Ha nincs céged, hagyd üresen.</p>'
 
@@ -29147,10 +29315,42 @@ function _intezoCfgRender() {
       el.addEventListener('click', () => {
         if (what === 'pdel') _intezoCfg.persons.splice(i, 1)
         else _intezoCfg.companies.splice(i, 1)
-        if (!_intezoCfg.persons.length) {
-          _intezoCfg.persons = [{ id: '', name: '', role: 'owner', countries: [], mediaGroups: [] }]
-        }
+        if (!_intezoCfg.persons.length) _intezoCfg.persons = [_intezoNewPerson('owner')]
         _intezoCfgRender()
+      })
+      return
+    }
+    if (what === 'psplit' || what === 'pkinds' || what === 'csplit') {
+      el.addEventListener('change', () => {
+        const key = el.getAttribute('data-key')
+        const target = what === 'csplit' ? _intezoCfg.companies[i] : _intezoCfg.persons[i]
+        const field = what === 'pkinds' ? 'mediaKinds' : 'countrySplit'
+        const list = (target[field] || []).slice()
+        const at = list.indexOf(key)
+        if (el.checked) { if (at < 0) list.push(key) } else if (at >= 0) list.splice(at, 1)
+        target[field] = list
+      })
+      return
+    }
+    if (what === 'pradd' || what === 'prdel') {
+      el.addEventListener('click', () => {
+        const p = _intezoCfg.persons[i]
+        if (!p.projects) p.projects = []
+        if (what === 'pradd') p.projects.push({ id: '', name: '', development: true })
+        else p.projects.splice(Number(el.getAttribute('data-j')), 1)
+        _intezoCfgRender()
+      })
+      return
+    }
+    if (what === 'prdev') {
+      el.addEventListener('change', () => {
+        _intezoCfg.persons[i].projects[Number(el.getAttribute('data-j'))].development = el.checked
+      })
+      return
+    }
+    if (what === 'prname') {
+      el.addEventListener('input', () => {
+        _intezoCfg.persons[i].projects[Number(el.getAttribute('data-j'))].name = el.value
       })
       return
     }
@@ -29163,7 +29363,17 @@ function _intezoCfgRender() {
     el.addEventListener('input', () => {
       const v = el.value
       if (what === 'pname') _intezoCfg.persons[i].name = v
-      else if (what === 'pcountries') _intezoCfg.persons[i].countries = _intezoCfgList(v)
+      else if (what === 'pcountries') {
+        _intezoCfg.persons[i].countries = _intezoCfgList(v)
+        // Az elso orszag beirasakor jelennek meg a bontas-negyzetek. Ujrarajzolas
+        // NELKUL a felhasznalo azt hinne, nincs is ilyen lehetoseg -- de csak az
+        // ures->nem-ures atmenetnel, kulonben minden leutesnel elveszne a fokusz.
+        if (_intezoCfg.persons[i].countries.length === 1) setTimeout(_intezoCfgRender, 0)
+      }
+      else if (what === 'ccountries') {
+        _intezoCfg.companies[i].countries = _intezoCfgList(v)
+        if (_intezoCfg.companies[i].countries.length === 1) setTimeout(_intezoCfgRender, 0)
+      }
       else if (what === 'pmedia') _intezoCfg.persons[i].mediaGroups = _intezoCfgList(v)
       else if (what === 'cname') _intezoCfg.companies[i].name = v
     })

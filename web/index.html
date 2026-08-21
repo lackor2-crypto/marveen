@@ -2521,10 +2521,25 @@
           nem hagy nyomot a lemezen.
         </p>
 
+        <!-- KESZ SABLONOK. Egy frissen telepitett Marveen igy nem ures
+             kepernyovel fogad: a felhasznalo valaszt egy szerkezetet helyorzo
+             nevekkel ("Példa felhasználó 1"), es utana atirja magara. -->
+        <div id="intezoTplBox" style="margin-bottom:16px">
+          <h4 data-i18n="intezo.tpl_title">Kezdj egy kész szerkezettel</h4>
+          <p class="subtitle" data-i18n="intezo.tpl_desc">
+            Válassz egy javasolt mappaszerkezetet — a nevek helykitöltők
+            („Példa felhasználó 1", „Ország 1"), amiket alul azonnal átírhatsz
+            magadra. Semmi nem kerül a lemezre, amíg meg nem nyomod a
+            „Könyvtárszerkezet létrehozása" gombot.
+          </p>
+          <div id="intezoTemplates"></div>
+        </div>
+
         <h4 data-i18n="intezo.cfg_persons">Személyek</h4>
         <p class="subtitle" data-i18n="intezo.cfg_owner_hint">
-          Pontosan egy személy a „gazda": az a te saját ágad, csak ő kap MUNKA,
-          PROJEKTEK és EGÉSZSÉG mappát is.
+          Pontosan egy személy a „gazda": az a te saját ágad. A szerkezetet
+          MINDENKI teljesen megkapja — akkor is, ha ma még üres —, mert egy
+          hiányzó mappa miatt az irat a rossz helyre kerül.
         </p>
         <div id="intezoPersons"></div>
         <button class="btn-secondary" id="intezoAddPersonBtn" data-i18n="intezo.cfg_add_person">+ Személy</button>

@@ -27,7 +27,7 @@
 // nem erheto el, azt KIMONDJUK, nem pedig felig irunk bele valamit.
 import { existsSync, mkdirSync, statSync, writeFileSync, rmSync, rmdirSync, readdirSync, renameSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { STORE_DIR, DEPOT_ROOT_CONFIGURED } from './config.js'
+import { STORE_DIR, DEPOT_ROOT_CONFIGURED, APP_LANG } from './config.js'
 import { normalizeDepotPath } from './depot-browse.js'
 
 /**
@@ -37,19 +37,126 @@ import { normalizeDepotPath } from './depot-browse.js'
  * mert az egyszeri atkoltoztetes innen emeli at, ami mar lejott.
  */
 export const DEPOT_ACCOUNTS = 'fiokok'
-/** Amibol dolgozol. */
-export const DEPOT_PROJECTS = 'projektek'
-/** Ideiglenes, felkesz dolgok. */
-export const DEPOT_WORK = 'munka'
-/** Biztonsagi mentesek. */
-export const DEPOT_BACKUPS = 'mentesek'
-/** Amihez soha nem kell hozzanyulnod (adatbazis, naplok). */
-export const DEPOT_SYSTEM = 'rendszer'
 
-/** Egy fiokon belul: a Google Fotok kepei. */
+/**
+ * A TECHNIKAI mappak a `RENDSZER` ala kerulnek -- KIVEVE a `drive`-ot es a
+ * `fotok`-ot.
+ *
+ * Boss, 2026-08-21: "ami most jelenleg van az intezo alatt azokat [...] helyezd
+ * at abba amit most kitalaltunk fa rendszerbe. de ne maradjanak ott kint.
+ * projektek [...] munka stb." -- majd nem sokkal kesobb, pontositva: "a drive es
+ * a fotok mappakat hagyd meg. az jol sikerult es atlathato. egyutt van minden.
+ * ahhoz ne nyulj. egyenlore."
+ *
+ * Ezert a `drive/` es a `fotok/` a gyokerben MARAD, es a szinkron utvonalai sem
+ * valtoznak (a ket mappaban ~30 GB all -- egy elmozditas a letoltoket is
+ * atallitana, es az a kockazatos resz). A tobbi technikai mappa viszont a
+ * `RENDSZER` ala megy, hogy a gyokerben a LOGIKAI eletfa lassek: sajat nev,
+ * CEGEK, MEDIA, ... (specifikacio 4. es 34. pont).
+ *
+ * A nevek a telepites nyelvet kovetik, es EGYEZNIUK KELL a `life-tree.ts`
+ * `NAMES` tablajaval (`system`, `storages`, `git`, `marvin`) -- kulonben az
+ * eletfa `RENDSZER`-t hozna letre, a szinkron meg `SYSTEM`-be irna. Erre teszt
+ * all.
+ *
+ * Miert itt allnak es nem a `life-tree.ts`-ben? Mert a `life-tree` mar most is
+ * innen importal (`depotRoot`), es forditva korkoros import lenne.
+ */
+const HU = APP_LANG === 'hu'
+
+/** A technikai reteg gyokere a depoban. */
+export const DEPOT_SYSTEM_ROOT = HU ? 'RENDSZER' : 'SYSTEM'
+/** A tarolok kozos mappaja. A `drive`/`fotok` EGYELORE nem ide mutat. */
+export const DEPOT_STORAGES = `${DEPOT_SYSTEM_ROOT}/${HU ? 'TÁROLÓK' : 'STORAGES'}`
+
+/** Amibol dolgozol: a git-repok es a projektmunkak helye. */
+export const DEPOT_PROJECTS = `${DEPOT_SYSTEM_ROOT}/GIT`
+/** Ideiglenes, felkesz dolgok. */
+export const DEPOT_WORK = `${DEPOT_SYSTEM_ROOT}/${HU ? 'MUNKA' : 'WORK'}`
+/** Biztonsagi mentesek. */
+export const DEPOT_BACKUPS = `${DEPOT_SYSTEM_ROOT}/${HU ? 'MENTÉSEK' : 'BACKUPS'}`
+/** Amihez soha nem kell hozzanyulnod (adatbazis, naplok). */
+export const DEPOT_SYSTEM = `${DEPOT_SYSTEM_ROOT}/MARVIN`
+
+/**
+ * A Google Fotok kepei, fiokonkent almappaban.
+ *
+ * A GYOKERBEN MARAD -- a Boss kifejezett kerese. Ne mozditsd el anelkul, hogy a
+ * fotok-letolto celutvonalat is atallitanad, kulonben ket helyre tolt.
+ */
 export const DEPOT_PHOTOS = 'fotok'
-/** Egy fiokon belul: a Google Drive fajljai. */
+/**
+ * A Google Drive fajljai, fiokonkent almappaban.
+ *
+ * A GYOKERBEN MARAD -- lasd a `DEPOT_PHOTOS` megjegyzeset.
+ */
 export const DEPOT_DRIVE = 'drive'
+
+/**
+ * A REGI, lapos helyek -- ahonnan egyszer atkoltoztetunk.
+ *
+ * Nem torlunk semmit: `renameSync`-kel emeljuk at a mappat a helyere. Ugyanazon
+ * a lemezen ez pillanatszeru es nem duplazza a helyet. A `drive` es a `fotok`
+ * SZANDEKOSAN nincs a listan.
+ */
+// A SORREND SZAMIT. A `rendszer` all elol, mert a celja (`RENDSZER/MARVIN`)
+// kis-nagybetuben azonos a sajat nevevel: Windowson eloszor ideiglenes nevre
+// kell tenni. Ha addigra mar bekerult volna melle a `GIT` vagy a `MUNKA`, azt
+// az ideiglenes atnevezes MAGAVAL VINNE. Uresen viszont nem visz semmit.
+const LEGACY_FLAT_DIRS: Array<{ from: string; to: string }> = [
+  { from: 'rendszer',  to: DEPOT_SYSTEM },
+  { from: 'projektek', to: DEPOT_PROJECTS },
+  { from: 'munka',     to: DEPOT_WORK },
+  { from: 'mentesek',  to: DEPOT_BACKUPS },
+]
+
+/**
+ * Egyszeri atkoltoztetes a lapos szerkezetbol a `RENDSZER` ala.
+ *
+ * Harom szabaly, mind adatvesztes ellen:
+ *   1. Ha a CEL mar letezik, NEM nyulunk hozza. Inkabb marad ket helyen, mint
+ *      hogy barmit felulirjunk.
+ *   2. Ures forrasmappat nem koltoztetunk, csak torlunk (ha ures) -- egy ures
+ *      `munka/` mappa atemelese csak zajt csinalna.
+ *   3. Minden hiba lenyelve: egy sikertelen koltoztetes nem allithatja meg az
+ *      indulast, a fajlok ilyenkor a regi helyukon maradnak es lathatoak.
+ */
+export function migrateFlatDepotDirs(): Array<{ from: string; to: string }> {
+  const root = depotRoot()
+  if (!root) return []
+  const moved: Array<{ from: string; to: string }> = []
+  for (const { from, to } of LEGACY_FLAT_DIRS) {
+    const src = join(root, from)
+    const dst = join(root, ...to.split('/'))
+    try {
+      if (!existsSync(src) || !statSync(src).isDirectory()) continue
+      // A `RENDSZER` es `RENDSZER/MARVIN` nevek Windowson kis-nagybetu-azonosak
+      // a regi `rendszer`-rel: ilyenkor a `renameSync` onmagara mutatna.
+      if (dst === src) continue
+      if (existsSync(dst)) continue
+      const entries = readdirSync(src).filter((f) => !f.startsWith('.'))
+      if (!entries.length) { try { rmdirSync(src) } catch { /* maradhat */ } continue }
+
+      // KIS-NAGYBETU CSAPDA. Windowson (es macOS-en) a `rendszer` es a
+      // `RENDSZER` UGYANAZ a mappa. A `rendszer -> RENDSZER/MARVIN` koltoztetes
+      // igy azt jelentene, hogy a mappat sajat magaba mozgatjuk (EINVAL), es a
+      // Boss adatbazisa meg naploi ott ragadnanak. Ezert ilyenkor eloszor egy
+      // ideiglenes nevre tesszuk at, es csak onnan a helyere.
+      const top = to.split('/')[0]
+      let source = src
+      if (top.toLowerCase() === from.toLowerCase() && top !== from) {
+        const tmp = join(root, `${from}.koltozes`)
+        if (existsSync(tmp)) continue
+        renameSync(src, tmp)
+        source = tmp
+      }
+      mkdirSync(dirname(dst), { recursive: true })
+      renameSync(source, dst)
+      moved.push({ from, to })
+    } catch { /* marad a regi helyen, es ott lathato is */ }
+  }
+  return moved
+}
 
 /**
  * Hol van a depo?
@@ -260,6 +367,7 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
   // az atnevezes csak akkor mukodik, ha a cel MEG NINCS meg (`drive/`, `fotok/`
   // uresen letrehozva is "letezo cel" lenne az almappaknak).
   migrateLegacyAccountDirs()
+  migrateFlatDepotDirs()
 
   const created: string[] = []
   // `drive` es `fotok` mostantol FELUL van (`drive/lackor2`), ezert a vazban is

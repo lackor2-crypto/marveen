@@ -24,8 +24,13 @@ import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   ensureLifeTree, lifeTreeStatus, loadLifeConfig, saveLifeConfig,
-  inboxCount, safeLifeName, type LifeConfig, type LifePerson, type LifeCompany,
+  inboxCount, safeLifeName, newLifeId, lifeName,
+  PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
+  defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
+  type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
+import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
+import { APP_LANG } from '../../config.js'
 import {
   listLife, lifeInfo, moveLife, mkdirLife, searchLife, explorerRoot,
 } from '../../life-explorer.js'
@@ -108,7 +113,28 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/config' && method === 'GET') {
-    send(res, 200, loadLifeConfig())
+    // A VALASZTHATO KULCSOK IS ITT JONNEK. A felulet igy nem tartalmaz sajat
+    // masolatot a kategorialistabol: ha a fa bovul (uj kategoria, uj
+    // media-tipus), a jelolonegyzetek maguktol megjelennek. Egy lemasolt lista
+    // eloszor csak "hianyzik egy pipa", aztan a felhasznalo azt hiszi, nincs
+    // is olyan ag.
+    const label = (k: string) => lifeName(k, APP_LANG)
+    send(res, 200, {
+      ...loadLifeConfig(),
+      options: {
+        personCategories: PERSON_CATEGORIES.map((k) => ({ key: k, label: label(k) })),
+        companyCategories: COMPANY_CATEGORIES.map((k) => ({ key: k, label: label(k) })),
+        mediaKinds: MEDIA_KINDS.map((k) => ({ key: k, label: label(k) })),
+        mediaCountryKey: MEDIA_COUNTRY_KEY,
+        mediaLabel: label('media'),
+        defaults: {
+          countrySplit: defaultCountrySplit(),
+          companyCountrySplit: defaultCompanyCountrySplit(),
+          mediaKinds: defaultMediaKinds(),
+          mediaGroups: defaultMediaGroups(APP_LANG),
+        },
+      },
+    })
     return true
   }
 
@@ -226,6 +252,41 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // A SABLONOK. Egy frissen telepitett Marveen igy nem ures kepernyovel fogad:
+  // a felhasznalo valaszt egy kesz szerkezetet helyorzo nevekkel, aztan atirja
+  // magara. (Boss kerese, 2026-08-21.)
+  if (path === '/api/life/templates' && method === 'GET') {
+    // A `fresh` azt mondja meg a feluletnek, erdemes-e egyaltalan felajanlani:
+    // ha mar van mentett beallitas, a sablon FELULIRNA a Boss sajat fajat.
+    const current = loadLifeConfig()
+    send(res, 200, { templates: listLifeTemplates(APP_LANG), fresh: !current.persons.length })
+    return true
+  }
+
+  if (path === '/api/life/templates/apply' && method === 'POST') {
+    const body = await readJson(req)
+    const tpl = findLifeTemplate(String(body?.id ?? ''))
+    if (!tpl) { send(res, 400, { message: 'Nincs ilyen sablon.' }); return true }
+    const cfg = tpl.build(APP_LANG)
+    // SZANDEKOSAN nem irunk lemezre, es alapbol NEM irjuk felul a meglevo
+    // beallitast sem: a sablon csak egy JAVASLAT, amit a felulet elonezetben
+    // mutat. Menteni a szokasos `POST /api/life/config` fog.
+    if (body?.save === true) {
+      const current = loadLifeConfig()
+      if (current.persons.length && body?.overwrite !== true) {
+        send(res, 409, {
+          message: 'Már van beállított életfád. Ha a sablonnal akarod felülírni, '
+            + 'erősítsd meg — a mostani személyek és cégek beállítása elveszik. '
+            + '(A lemezen lévő mappákhoz és fájlokhoz ez nem nyúl.)',
+        })
+        return true
+      }
+      saveLifeConfig(cfg)
+    }
+    send(res, 200, { config: cfg, saved: body?.save === true, status: lifeTreeStatus(cfg) })
+    return true
+  }
+
   if (path === '/api/life/inbox' && method === 'GET') {
     send(res, 200, { count: inboxCount() })
     return true
@@ -252,12 +313,19 @@ function parseConfig(body: any): LifeConfig | string {
     const name = String(p?.name ?? '').trim()
     if (!name) return 'Egy személynél üresen maradt a név.'
     if (safeLifeName(name) === '_') return `Ez a név nem használható mappanévnek: ${name}`
+    const countries = toNameList(p?.countries)
     persons.push({
       id: String(p?.id ?? '').trim() || safeLifeName(name).toLowerCase().replace(/\s+/g, '-'),
       name,
       role: p?.role === 'owner' ? 'owner' : 'person',
-      countries: toNameList(p?.countries),
+      countries,
+      // Melyik kategoriak bomlanak orszagra. A `MEDIA_COUNTRY_KEY` is
+      // valaszthato: a Boss keresere (2026-08-21) a fotok es a videok is
+      // orszagonkent allnak, ha valaki tobb orszagban elt.
+      countrySplit: toKeyList(p?.countrySplit, [...PERSON_CATEGORIES, MEDIA_COUNTRY_KEY], defaultCountrySplit()),
+      mediaKinds: toKeyList(p?.mediaKinds, MEDIA_KINDS, defaultMediaKinds()),
       mediaGroups: toNameList(p?.mediaGroups),
+      projects: toProjects(p?.projects),
     })
   }
   // Pontosan EGY gazda kell: a gazda kapja a teljes (12 kategoriás) agat, es
@@ -271,7 +339,12 @@ function parseConfig(body: any): LifeConfig | string {
     const name = String(c?.name ?? '').trim()
     if (!name) return 'Egy cégnél üresen maradt a név.'
     if (safeLifeName(name) === '_') return `Ez a cégnév nem használható mappanévnek: ${name}`
-    companies.push({ id: String(c?.id ?? '').trim() || safeLifeName(name).toLowerCase().replace(/\s+/g, '-'), name })
+    companies.push({
+      id: String(c?.id ?? '').trim() || safeLifeName(name).toLowerCase().replace(/\s+/g, '-'),
+      name,
+      countries: toNameList(c?.countries),
+      countrySplit: toKeyList(c?.countrySplit, COMPANY_CATEGORIES, defaultCompanyCountrySplit()),
+    })
   }
 
   // Azonos mappanev ket szemelynek: a masodik beleirna az elso mappajaba.
@@ -283,6 +356,42 @@ function parseConfig(body: any): LifeConfig | string {
   }
 
   return { persons, companies }
+}
+
+/**
+ * KULCSLISTA szures: csak az ismert kulcsok maradnak.
+ *
+ * Miert nem engedjuk at, ami jon? Mert ezekbol a kulcsokbol a `lifeName()`
+ * mappanevet csinal -- egy ismeretlen kulcsbol `countrysplit` nevu mappa lenne
+ * a fa kozepen. Ha a felulet EGYALTALAN nem kuldte a mezot (regi kliens vagy
+ * regi mentett fajl), az alapertelmezes lep eletbe; ha ures tombot kuldott, az
+ * SZANDEKOS "egyiket sem", es azt tiszteletben tartjuk.
+ */
+function toKeyList(v: any, allowed: readonly string[], fallback: string[]): string[] {
+  if (!Array.isArray(v)) return fallback
+  const out: string[] = []
+  for (const item of v) {
+    const s = String(item ?? '').trim()
+    if (allowed.includes(s) && !out.includes(s)) out.push(s)
+  }
+  return out
+}
+
+/** Szemelyes projektek. A `development` agat (GIT_REPOS) kulon kell kerni. */
+function toProjects(v: any): LifeProject[] {
+  if (!Array.isArray(v)) return []
+  const out: LifeProject[] = []
+  for (const item of v) {
+    const name = String(item?.name ?? '').trim()
+    if (!name || safeLifeName(name) === '_') continue
+    if (out.some((o) => safeLifeName(o.name).toLowerCase() === safeLifeName(name).toLowerCase())) continue
+    out.push({
+      id: String(item?.id ?? '').trim() || newLifeId('project'),
+      name,
+      development: item?.development !== false,
+    })
+  }
+  return out
 }
 
 function toNameList(v: any): string[] {

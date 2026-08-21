@@ -7,6 +7,7 @@ import {
   safeDepotName, depotRoot, depotAccountDir, depotHealth, ensureDepotSkeleton,
   resolvePhotoDir, countFiles, migrateLegacyAccountDirs,
   DEPOT_ACCOUNTS, DEPOT_PHOTOS, DEPOT_DRIVE, DEPOT_SYSTEM,
+  DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS,
 } from '../depot.js'
 import { moveVerified, migrateDir, sha256Of } from '../depot-migrate.js'
 import { safeSegment, needsDownload } from '../web/routes/drive-sync.js'
@@ -193,10 +194,12 @@ describe('el-e a depo (ez mondja ki a bajt)', () => {
 })
 
 describe('a depo alapmappai', () => {
-  it('elkeszulnek, es mind az ot ott van', () => {
+  it('elkeszulnek, es mind a hat ott van', () => {
+    // A technikai mappak a RENDSZER ala kerultek; a drive es a fotok
+    // SZANDEKOSAN a gyokerben maradt. Konstansbol dolgozunk, nem beirt nevbol.
     const r = ensureDepotSkeleton()
     expect(r.health.writable).toBe(true)
-    for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, 'projektek', 'munka', 'mentesek', DEPOT_SYSTEM]) {
+    for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM]) {
       expect(existsSync(join(process.env.MARVEEN_DEPOT!, d))).toBe(true)
     }
   })

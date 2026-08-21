@@ -1,35 +1,39 @@
 // AZ ELETFA: egyetlen, ember altal olvashato mappaszerkezet, amiben a
 // felhasznalo az egesz digitalis (es papir-) eletet kezeli.
 //
-// Boss, 2026-08-21: "a mappafa emberi es stabil; a hatterben Marvin kezeli az
-// adattarakat; a felhasznalo pedig mindig latja, honnan jon az adat es hol van
-// fizikailag."
+// A VEGLEGES SPECIFIKACIO: `docs/eletfa-specifikacio.md`. Ha ott es itt elter
+// valami, a dokumentum a mervado -- ez a fajl annak a megvalositasa.
 //
-// Harom dolgot kell egyszerre tudnia, es ezek hatarozzak meg az egesz modul
-// felepiteset:
+// Negy dolgot kell egyszerre tudnia, es ezek hatarozzak meg a felepiteset:
 //
 //  1. MARVIN NELKUL IS MUKODJON. Ha a Marveen soha tobbet nem indul el, a
 //     felhasznalo a Fajlkezeloben ugyanugy megtalalja a papirjait:
-//     `ELET / <sajat nev> / JOGI / NEMETORSZAG / BIROSAG`. Ezert nincs benne
+//     `<sajat nev> / JOGI / NEMETORSZAG / BIROSAG`. Ezert nincs benne
 //     azonosito, hash, adatbazis-kulcs vagy barmilyen gepi nev: a MAPPANEV maga
-//     a jelentes. A `.marveen-eletfa.json` csak kiseroirat -- ha letorlod, a fa
-//     attol meg all.
+//     a jelentes.
 //
-//  2. NE LEGYEN BENNE EGYETLEN KONKRET SZEMELY- VAGY CEGNEV SEM (CLAUDE.md:
-//     "GEPFUGGETLEN FEJLESZTES"). A Marveen nyilt forraskodu; ami ide fixen be
-//     van irva, az mindenki mas gepen rossz. Ezert a fa VAZAT a kod adja
-//     (kategoriak), a NEVEKET pedig a felhasznalo (`store/life-tree.json`), es
-//     az elso szemely neve is csak a telepites sajat `OWNER_NAME`-jebol jon.
+//  2. NE LEGYEN BENNE EGYETLEN KONKRET SZEMELY-, CEG- VAGY ORSZAGNEV SEM
+//     (CLAUDE.md: "GEPFUGGETLEN FEJLESZTES"). A Marveen nyilt forraskodu; ami
+//     ide fixen be van irva, az mindenki mas gepen rossz. A fa VAZAT a kod adja
+//     (kategoria-kulcsok), a NEVEKET a felhasznalo (`store/life-tree.json`).
+//     A kesz sablonok (`life-templates.ts`) is csak `Példa felhasználó 1` fele
+//     helyorzoket hasznalnak.
 //
-//  3. AZ ORSZAG NEM ELETKATEGORIA. A tervben ez kulon ki van mondva: nem a fa
-//     tetejen all, hanem annak a teruletnek a TULAJDONSAGA, ahol szamit
-//     (`JOGI/NEMETORSZAG`, `PENZUGY/MAGYARORSZAG`). Ezert csak harom kategoria
-//     alatt jelenik meg, es csak akkor, ha a felhasznalo vett fel orszagot.
+//  3. AZ ORSZAG NEM ELETKATEGORIA, hanem egy terulet TULAJDONSAGA. Viszont a
+//     Boss kikotese (2026-08-21): akinek tobb orszagban van elete, annak
+//     GYAKORLATILAG MINDEN kategoriaja orszagra bomlik -- a jogitol a fotokig.
+//     Ezert az orszagbontas nem egy fix harmas lista tobbe, hanem SZEMELYENKENT
+//     valaszthato kategoria-halmaz (`countrySplit`).
+//
+//  4. NINCS "CSOKKENTETT" SZEMELY. A Boss kikotese: minden felvett szemely
+//     ugyanazt a teljes szerkezetet kapja, akkor is, ha eppen ures. Korabban a
+//     nem-gazda szemelyek rovidebb agat kaptak -- ez rossz volt: azt
+//     feltetelezte, hogy egy csaladtagnak nincs munkaja vagy egeszsegugyi
+//     irata.
 //
 // Amit ez a modul NEM csinal: nem torol, nem nevez at, es nem ir felul semmit.
 // Csak HIANYZO mappat hoz letre. Egy mar meglevo fan igy tobbszor is
-// vegigfuthat kar nelkul, es a felhasznalo sajat, kezzel keszitett mappai
-// erintetlenul allnak.
+// vegigfuthat kar nelkul.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { APP_LANG, STORE_DIR, currentOwnerName } from './config.js'
@@ -43,15 +47,13 @@ const CONFIG_PATH = join(STORE_DIR, 'life-tree.json')
  * Mappanevek nyelvenkent.
  *
  * A KULCS a gepi nev (ez kerul a beallitas-fajlba es az API-ba), az ERTEK az,
- * ami a lemezre kerul. Igy egy angol telepitesen `LIFE/LEGAL` lesz ugyanaz a
- * hely, amit egy magyaron `ELET/JOGI`-nak hivnak, es a kod egyik nevet sem
- * ismeri fixen.
+ * ami a lemezre kerul. Igy egy angol telepitesen `LEGAL` lesz ugyanaz a hely,
+ * amit egy magyaron `JOGI`-nak hivnak, es a kod egyik nevet sem ismeri fixen.
  */
 type NameTable = Record<string, { hu: string; en: string }>
 
 const NAMES: NameTable = {
-  // Gyoker es felso szint
-  root:        { hu: 'ÉLET',        en: 'LIFE' },
+  // Felso szint
   companies:   { hu: 'CÉGEK',       en: 'COMPANIES' },
   knowledge:   { hu: 'TUDÁS',       en: 'KNOWLEDGE' },
   media:       { hu: 'MÉDIA',       en: 'MEDIA' },
@@ -59,10 +61,11 @@ const NAMES: NameTable = {
   inbox:       { hu: 'BEÉRKEZŐ',    en: 'INBOX' },
   shared:      { hu: 'MEGOSZTOTT',  en: 'SHARED' },
   archive:     { hu: 'ARCHÍV',      en: 'ARCHIVE' },
+  system:      { hu: 'RENDSZER',    en: 'SYSTEM' },
 
-  // Szemely alatti kategoriak
-  personal:    { hu: 'SZEMÉLYES',   en: 'PERSONAL' },
+  // Szemely alatti kategoriak (a specifikacio 11. pontja)
   identity:    { hu: 'IDENTITÁS',   en: 'IDENTITY' },
+  personal:    { hu: 'SZEMÉLYES',   en: 'PERSONAL' },
   family:      { hu: 'CSALÁD',      en: 'FAMILY' },
   finance:     { hu: 'PÉNZÜGY',     en: 'FINANCE' },
   legal:       { hu: 'JOGI',        en: 'LEGAL' },
@@ -73,21 +76,34 @@ const NAMES: NameTable = {
   health:      { hu: 'EGÉSZSÉG',    en: 'HEALTH' },
   documents:   { hu: 'DOKUMENTUMOK', en: 'DOCUMENTS' },
 
-  // Ceg alatti kategoriak
+  // Ceg alatti kategoriak (a specifikacio 15. pontja)
   companyAffairs: { hu: 'CÉGES ÜGYEK', en: 'COMPANY AFFAIRS' },
   correspondence: { hu: 'LEVELEZÉS',   en: 'CORRESPONDENCE' },
   knowledgeBase:  { hu: 'TUDÁSBÁZIS',  en: 'KNOWLEDGE BASE' },
+  moreMaterial:   { hu: 'TOVÁBBI ANYAGOK', en: 'MORE MATERIAL' },
   website:        { hu: 'WEBOLDAL',    en: 'WEBSITE' },
   development:    { hu: 'FEJLESZTÉS',  en: 'DEVELOPMENT' },
   marketing:      { hu: 'MARKETING',   en: 'MARKETING' },
-  // Ez a ketto SZANDEKOSAN nem forditodik: a `GIT_REPOS` alatt git-repok
-  // allnak, a nevuket a GitHub adja, es a fejlesztonek ugyanugy kell
-  // kineznie minden gepen.
+  // Ez SZANDEKOSAN nem forditodik: a `GIT_REPOS` alatt git-repok allnak, a
+  // nevuket a GitHub adja, es a fejlesztonek ugyanugy kell kineznie minden
+  // gepen. (Specifikacio 16. pont.)
   gitRepos:       { hu: 'GIT_REPOS',   en: 'GIT_REPOS' },
 
-  // Media alatti bontas
+  // Media-tipusok (a specifikacio 18. pontja)
   photos:      { hu: 'FOTÓK',       en: 'PHOTOS' },
   videos:      { hu: 'VIDEÓK',      en: 'VIDEOS' },
+  audio:       { hu: 'AUDIÓ',       en: 'AUDIO' },
+  scans:       { hu: 'SZKEN',       en: 'SCANS' },
+
+  // DIGITALIS alatti bontas (a specifikacio 21. pontja). Jelszo NEM.
+  domains:         { hu: 'DOMAINEK',   en: 'DOMAINS' },
+  devices:         { hu: 'ESZKÖZÖK',   en: 'DEVICES' },
+  digitalServices: { hu: 'DIGITÁLIS SZOLGÁLTATÁSOK', en: 'DIGITAL SERVICES' },
+
+  // RENDSZER alatti bontas (a specifikacio 4. pontja)
+  marvin:      { hu: 'MARVIN',      en: 'MARVIN' },
+  storages:    { hu: 'TÁROLÓK',     en: 'STORAGES' },
+  git:         { hu: 'GIT',         en: 'GIT' },
 }
 
 /** Egy gepi nevbol a lemezre kerulo mappanev, a telepites nyelven. */
@@ -103,14 +119,21 @@ export function lifeNameKeys(): string[] {
 }
 
 /**
- * Egy szemely szerepe. Ez donti el, MELY kategoriak keszulnek el neki.
+ * Egy szemely szerepe.
  *
- * Nem "fo" es "masodlagos" ember: egy hozzatartozo iratait ugyanolyan
- * komolyan kezeljuk. A kulonbseg gyakorlati -- egy csaladtagnal jellemzoen
- * nincs sajat MUNKA/PROJEKTEK/EGESZSEG ag, es az ures mappa csak zaj. Aki
- * megis akarja, atallitja `owner`-re a felületen.
+ * A szerkezetet MAR NEM ez donti el (minden szemely ugyanazt a teljes agat
+ * kapja). Csak azt jelzi, ki a telepites tulajdonosa -- ezt a Beérkezo hasznalja
+ * alapertelmezett cimzettkent, es a felulet is kiemeli.
  */
 export type PersonRole = 'owner' | 'person'
+
+/** Egy projekt a szemely `PROJEKTEK` aga alatt (specifikacio 12-13. pont). */
+export interface LifeProject {
+  id: string
+  name: string
+  /** Keszuljon-e alatta `FEJLESZTÉS/GIT_REPOS` ag. Nem minden projekt szoftver. */
+  development: boolean
+}
 
 export interface LifePerson {
   /** Gepi azonosito (a mappanev valtoztatasat is tulelo hivatkozas). */
@@ -119,17 +142,34 @@ export interface LifePerson {
   name: string
   role: PersonRole
   /**
-   * Orszagok a JOGI / PENZUGY / HATOSAGOK ala. Uresen hagyva NEM keszul
-   * orszag-szint: akinek egy orszaga van, annak felesleges egy plusz kattintas.
+   * Orszagok. Uresen hagyva NEM keszul orszag-szint: akinek egy orszaga van,
+   * annak felesleges egy plusz kattintas.
    */
   countries: string[]
-  /** A FOTOK es VIDEOK alatti bontas (`CSALÁD`, `UTAZÁS`, ...). */
+  /**
+   * MELY kategoriak alatt bomoljon orszagra.
+   *
+   * A Boss kikotese (2026-08-21): "mondom mindent 3 orszagra csinalj" -- aki
+   * ket-harom orszagban elt, annak nem csak a jogi ugyei orszagfuggoek, hanem a
+   * hatosagi, penzugyi, munka-, otthon- es meg a foto-anyaga is. Ezert ez
+   * SZEMELYENKENT allithato lista, nem a kodba drotozott harmas.
+   */
+  countrySplit: string[]
+  /** A media-agban keszulo tipusok (`photos`, `videos`, `audio`, `scans`). */
+  mediaKinds: string[]
+  /** A media-tipusok alatti bontas (`ÁGI CSALÁDJA`, `UTAZÁS`, ...). */
   mediaGroups: string[]
+  /** Sajat, SZEMELYES projektek. Ezek NEM ceges projektek (spec 12. pont). */
+  projects: LifeProject[]
 }
 
 export interface LifeCompany {
   id: string
   name: string
+  /** A ceg orszagai a JOGI / PENZUGY ala. Uresen nincs orszag-szint. */
+  countries: string[]
+  /** Mely ceges kategoriak bomoljanak orszagra. */
+  countrySplit: string[]
 }
 
 export interface LifeConfig {
@@ -140,10 +180,11 @@ export interface LifeConfig {
 /**
  * Az alapertelmezett media-bontas.
  *
- * SZANDEKOSAN altalanos. A tervben nevesitett csoportok (`ÁGI CSALÁDJA`,
- * `JUTKA CSALÁDJA`) egy konkret ember csaladjai -- pont az, amit tilos a kodba
- * irni. A felhasznalo a felületen atnevezi oket a sajat csaladtagjaira, es a
- * `Child 1 / Child 2` fele gepi nevezektol ez is megvéd.
+ * SZANDEKOSAN altalanos. A specifikacioban nevesitett csoportok
+ * (`ÁGI CSALÁDJA`, `JUTKA CSALÁDJA`) egy konkret ember csaladjai -- pont az,
+ * amit tilos a kodba irni. A felhasznalo a feluleten atnevezi oket a sajat
+ * csaladtagjaira, es a `Child 1 / Child 2` fele gepi nevezektol ez is megvéd
+ * (specifikacio 19. pont).
  */
 export function defaultMediaGroups(lang: string = APP_LANG): string[] {
   return lang === 'hu'
@@ -151,26 +192,56 @@ export function defaultMediaGroups(lang: string = APP_LANG): string[] {
     : ['FAMILY', 'PARTNER', 'FRIENDS', 'TRAVEL', 'HOME', 'OTHER']
 }
 
-/** Amelyik kategoria alatt ertelme van az orszag-szintnek. */
-const COUNTRY_SPLIT = ['legal', 'finance', 'authorities']
-
-/** Egy `owner` szerepu szemely kategoriai, sorrendben. */
-const OWNER_CATEGORIES = [
-  'personal', 'identity', 'family', 'finance', 'legal', 'authorities',
-  'home', 'work', 'projects', 'health', 'documents', 'media',
+/** Egy szemely kategoriai, sorrendben (specifikacio 11. pont). */
+export const PERSON_CATEGORIES = [
+  'identity', 'personal', 'family', 'finance', 'legal', 'authorities',
+  'home', 'work', 'projects', 'health', 'documents', 'digital',
 ]
 
-/** Egy `person` szerepu szemely kategoriai (nincs munka/projekt/egeszseg ag). */
-const PERSON_CATEGORIES = [
-  'personal', 'identity', 'family', 'finance', 'legal', 'authorities',
-  'home', 'documents', 'media',
+/**
+ * Az orszagbontas alapertelmezese: MINDEN szemelyi kategoria, KIVEVE a
+ * `projects`-et.
+ *
+ * Miert marad ki a projekt? Mert a specifikacio 31. pontja pontosan rogziti a
+ * projekt-utvonalat (`<szemely>/PROJEKTEK/<projekt>/FEJLESZTÉS/GIT_REPOS`), es
+ * egy koze ekelt orszag-szint ezt elrontana. Egy git-repo amugy sem "magyar"
+ * vagy "nemet". Ha valakinek megis kell, a feluleten bekapcsolhatja.
+ */
+export function defaultCountrySplit(): string[] {
+  return PERSON_CATEGORIES.filter((k) => k !== 'projects')
+}
+
+/** A valaszthato media-tipusok (specifikacio 18. pont). */
+export const MEDIA_KINDS = ['photos', 'videos', 'audio', 'scans'] as const
+
+/** A media-tipusok alapertelmezese: mind a negy. */
+export function defaultMediaKinds(): string[] {
+  return [...MEDIA_KINDS]
+}
+
+/** Egy ceg kategoriai, sorrendben (specifikacio 15. pont). */
+export const COMPANY_CATEGORIES = [
+  'companyAffairs', 'correspondence', 'knowledgeBase', 'finance',
+  'legal', 'marketing', 'website', 'development',
 ]
 
-/** Egy ceg kategoriai, sorrendben. */
-const COMPANY_CATEGORIES = [
-  'companyAffairs', 'correspondence', 'knowledgeBase', 'website',
-  'development', 'projects', 'finance', 'legal', 'marketing',
-]
+/** Ahol egy cegnel ertelme van az orszag-szintnek. */
+export function defaultCompanyCountrySplit(): string[] {
+  return ['finance', 'legal']
+}
+
+/**
+ * A media-ag orszagbontasanak kulcsa.
+ *
+ * Kulon kulcs, mert a `MÉDIA` felso ag NEM a szemely alatti kategoria: aki a
+ * jogi ugyeit orszagra bontja, nem feltetlenul akarja a fotoit is. A Boss
+ * eseteben viszont igen -- "3 orszagbol van fotok is videok is" --, ezert az
+ * alapertelmezes bekapcsolt.
+ */
+export const MEDIA_COUNTRY_KEY = 'media'
+
+/** A DIGITALIS felso ag bontasa (specifikacio 21. pont). */
+const DIGITAL_TOP = ['domains', 'devices', 'digitalServices']
 
 /**
  * Egy nev, ami mappanevnek is jo -- Windowson is --, DE megtartja az ekezeteket.
@@ -204,55 +275,126 @@ export function newLifeId(prefix: string): string {
 /**
  * Az eletfa gyokere a lemezen, vagy `null`, ha nincs depo.
  *
- * A depoN BELUL van, nem mellette: a depo mar most is az a hely, ahol "minden
- * hozzad tartozo fajl" all, es ket parhuzamos gyoker csak azt a kerdest szulne,
- * hogy melyikbe is kell menteni.
+ * A specifikacio 3. pontja: NINCS kulon `ÉLET` mappa a fa folott. A szemelyek,
+ * a `CÉGEK`, a `MÉDIA` es a tobbi ag KOZVETLENUL a depo gyokereben all --
+ * `F:\Marveen\<nev>`, nem `F:\Marveen\ÉLET\<nev>`. Egy kattintassal kevesebb,
+ * es a Fajlkezeloben is ez a termeszetes.
  */
 export function lifeRoot(): string | null {
-  const depot = depotRoot()
-  return depot ? join(depot, lifeName('root')) : null
+  return depotRoot()
+}
+
+/** Egy uj szemely, minden alapertelmezessel a helyen. */
+export function makePerson(name: string, role: PersonRole = 'person', id?: string): LifePerson {
+  return {
+    id: id || newLifeId('person'),
+    name: safeLifeName(name),
+    role,
+    countries: [],
+    countrySplit: defaultCountrySplit(),
+    mediaKinds: defaultMediaKinds(),
+    mediaGroups: defaultMediaGroups(),
+    projects: [],
+  }
+}
+
+/** Egy uj ceg, minden alapertelmezessel a helyen. */
+export function makeCompany(name: string, id?: string): LifeCompany {
+  return {
+    id: id || newLifeId('company'),
+    name: safeLifeName(name),
+    countries: [],
+    countrySplit: defaultCompanyCountrySplit(),
+  }
 }
 
 /** Az alapertelmezett beallitas: EGY szemely, a telepites tulajdonosa. */
 export function defaultLifeConfig(): LifeConfig {
-  const owner = currentOwnerName()
   return {
-    persons: [{
-      id: 'owner',
-      name: safeLifeName(owner),
-      role: 'owner',
-      countries: [],
-      mediaGroups: defaultMediaGroups(),
-    }],
+    persons: [makePerson(safeLifeName(currentOwnerName()), 'owner', 'owner')],
     companies: [],
   }
+}
+
+/** Egy ismeretlen ertekbol tiszta, ismetlesmentes nevlista. */
+function nameList(raw: unknown, fallback: string[] = []): string[] {
+  if (!Array.isArray(raw)) return fallback
+  const out: string[] = []
+  for (const v of raw) {
+    const n = safeLifeName(String(v ?? ''))
+    if (n && n !== '_' && !out.includes(n)) out.push(n)
+  }
+  return out
+}
+
+/** Egy ismeretlen ertekbol ervenyes kategoria-kulcs lista. */
+function keyList(raw: unknown, allowed: string[], fallback: string[]): string[] {
+  if (!Array.isArray(raw)) return fallback
+  return raw.map((v) => String(v ?? '')).filter((k, i, a) => allowed.includes(k) && a.indexOf(k) === i)
 }
 
 /**
  * A beallitas beolvasasa. Serult vagy hianyzo fajlnal az alapertelmezes jon --
  * a lemezen levo fa ettol meg all, csak a Marveen nem tudja rola, mi micsoda.
+ *
+ * A regi (`countrySplit`, `mediaKinds`, `projects` nelkuli) fajlokat is
+ * elfogadja: a hianyzo mezok az alapertelmezest kapjak, igy egy frissites nem
+ * teszi tonkre a meglevo beallitast.
  */
+/**
+ * Egy BARHONNAN jott beallitas kiegeszitese hasznalhatova.
+ *
+ * Miert kulon fuggveny, es miert nem eleg a `loadLifeConfig()`-ban?
+ *
+ * Mert a `planLifeTree()` nem csak a mentett fajlbol kap beallitast: kap a
+ * vegpontokrol (elonezet mentes elott), a sablonokbol es a tesztekbol is. Egy
+ * MERT eset: a regi mentett fajlokban meg nincs `countrySplit`, es a terv
+ * keszitese `Cannot read properties of undefined` hibaval allt meg -- vagyis a
+ * felhasznalo faja NEM EPULT FEL, es a felulet csak annyit mondott, "szerver
+ * hiba". A hianyzo mezo nem hibauzenetet erdemel, hanem alapertelmezest.
+ */
+export function normalizeLifeConfig(raw: any): LifeConfig {
+  const persons: LifePerson[] = Array.isArray(raw?.persons)
+    ? raw.persons.filter((p: any) => p && typeof p.name === 'string' && p.name.trim()).map((p: any) => {
+      const groups = nameList(p.mediaGroups)
+      return {
+        id: String(p.id || newLifeId('person')),
+        name: safeLifeName(p.name),
+        role: p.role === 'owner' ? 'owner' : 'person',
+        countries: nameList(p.countries),
+        countrySplit: keyList(
+          p.countrySplit,
+          [...PERSON_CATEGORIES, MEDIA_COUNTRY_KEY],
+          defaultCountrySplit(),
+        ),
+        mediaKinds: keyList(p.mediaKinds, defaultMediaKinds(), defaultMediaKinds()),
+        mediaGroups: groups.length ? groups : defaultMediaGroups(),
+        projects: Array.isArray(p.projects)
+          ? p.projects.filter((x: any) => x && String(x.name || '').trim()).map((x: any) => ({
+            id: String(x.id || newLifeId('project')),
+            name: safeLifeName(x.name),
+            development: x.development !== false,
+          }))
+          : [],
+      } as LifePerson
+    })
+    : []
+  const companies: LifeCompany[] = Array.isArray(raw?.companies)
+    ? raw.companies.filter((c: any) => c && typeof c.name === 'string' && c.name.trim()).map((c: any) => ({
+      id: String(c.id || newLifeId('company')),
+      name: safeLifeName(c.name),
+      countries: nameList(c.countries),
+      countrySplit: keyList(c.countrySplit, COMPANY_CATEGORIES, defaultCompanyCountrySplit()),
+    }))
+    : []
+  return { persons, companies }
+}
+
 export function loadLifeConfig(): LifeConfig {
   try {
     if (!existsSync(CONFIG_PATH)) return defaultLifeConfig()
     const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'))
-    const persons: LifePerson[] = Array.isArray(raw.persons)
-      ? raw.persons.filter((p: any) => p && typeof p.name === 'string' && p.name.trim()).map((p: any) => ({
-        id: String(p.id || newLifeId('person')),
-        name: safeLifeName(p.name),
-        role: p.role === 'owner' ? 'owner' : 'person',
-        countries: Array.isArray(p.countries) ? p.countries.map(safeLifeName).filter(Boolean) : [],
-        mediaGroups: Array.isArray(p.mediaGroups) && p.mediaGroups.length
-          ? p.mediaGroups.map(safeLifeName).filter(Boolean)
-          : defaultMediaGroups(),
-      }))
-      : []
-    const companies: LifeCompany[] = Array.isArray(raw.companies)
-      ? raw.companies.filter((c: any) => c && typeof c.name === 'string' && c.name.trim()).map((c: any) => ({
-        id: String(c.id || newLifeId('company')),
-        name: safeLifeName(c.name),
-      }))
-      : []
+    const { persons, companies } = normalizeLifeConfig(raw)
     // Egy szemely nelkul a fanak nincs erteme: ilyenkor visszaesunk a
     // tulajdonosra, kulonben az elso "Fa letrehozasa" gomb ures mappat csinalna.
     if (!persons.length) return { persons: defaultLifeConfig().persons, companies }
@@ -279,7 +421,30 @@ export interface LifeNode {
   key: string | null
   /** Kihez tartozik: szemely- vagy ceg-azonosito, ha ertelmezheto. */
   ownerId: string | null
-  kind: 'person' | 'company' | 'category' | 'country' | 'media' | 'top'
+  kind: 'person' | 'company' | 'category' | 'country' | 'media' | 'project' | 'top' | 'system'
+}
+
+type AddFn = (rel: string, kind: LifeNode['kind'], key?: string | null, ownerId?: string | null) => void
+
+/**
+ * A `FEJLESZTÉS` ag: tudasbazis, tovabbi anyagok, es a repok helye.
+ *
+ * Egy helyen, mert a szemelyes projekt es a ceges fejlesztes UGYANAZT a
+ * szerkezetet kapja (specifikacio 13. es 15. pont) -- csak a helyuk mas. Ha ket
+ * helyen szamolnank, elobb-utobb elternenek.
+ */
+function addDevelopmentBranch(
+  add: AddFn,
+  parent: string,
+  lang: string,
+  ownerId: string | null,
+  parentIsDevelopment = false,
+): void {
+  const dev = parentIsDevelopment ? parent : `${parent}/${lifeName('development', lang)}`
+  if (!parentIsDevelopment) add(dev, 'category', 'development', ownerId)
+  add(`${dev}/${lifeName('knowledgeBase', lang)}`, 'category', 'knowledgeBase', ownerId)
+  add(`${dev}/${lifeName('moreMaterial', lang)}`, 'category', 'moreMaterial', ownerId)
+  add(`${dev}/${lifeName('gitRepos', lang)}`, 'category', 'gitRepos', ownerId)
 }
 
 /**
@@ -290,37 +455,50 @@ export interface LifeNode {
  * helyvalasztojanak. Ha barmelyik kulon szamolna, elobb-utobb elternenek, es a
  * felhasznalo mas fat latna, mint amit kap.
  */
-export function planLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string = APP_LANG): LifeNode[] {
+export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string = APP_LANG): LifeNode[] {
+  // A hianyzo mezok itt kapjak meg az alapertelmezesuket -- lasd
+  // `normalizeLifeConfig()`. Kulonben egy regi mentett fajl vagy egy kezzel
+  // osszerakott objektum kiveteltel allitana meg a fa felepiteset.
+  const cfg = normalizeLifeConfig(input)
   const out: LifeNode[] = []
-  const add = (rel: string, kind: LifeNode['kind'], key: string | null = null, ownerId: string | null = null) => {
+  const add: AddFn = (rel, kind, key = null, ownerId = null) => {
     out.push({ rel, key, ownerId, kind })
   }
 
   // 1. Szemelyek. A nevuk a felso szinten all, nem egy `SZEMELYEK` gyujto
-  //    alatt: a tervben is igy van, es egy kattintassal kevesebb.
+  //    alatt: a specifikacioban is igy van, es egy kattintassal kevesebb.
+  //    MINDEN szemely ugyanazt a teljes szerkezetet kapja -- nincs "csokkentett"
+  //    ag egy csaladtagnak.
   for (const p of cfg.persons) {
     const base = safeLifeName(p.name)
     add(base, 'person', null, p.id)
-    const cats = p.role === 'owner' ? OWNER_CATEGORIES : PERSON_CATEGORIES
-    for (const key of cats) {
+    for (const key of PERSON_CATEGORIES) {
       const cat = `${base}/${lifeName(key, lang)}`
       add(cat, 'category', key, p.id)
-      // Orszag CSAK ott, ahol szamit, es csak ha van felveve.
-      if (COUNTRY_SPLIT.includes(key)) {
+
+      // Orszagbontas ott, ahol a felhasznalo kerte. Nem fix harmas lista:
+      // aki ket-harom orszagban elt, annak a munkaja es az otthona is
+      // orszagfuggo.
+      if (p.countrySplit.includes(key)) {
         for (const c of p.countries) add(`${cat}/${safeLifeName(c)}`, 'country', key, p.id)
       }
-      // A szemely sajat MEDIA aga a szemely alatt is megjelenik: ide a
-      // szemelyhez KOTODO kepek kerulnek. A felso szintu MEDIA (lentebb) a
-      // nagy, szinkronizalt keptar -- ket kulon dolog, ezert ket kulon hely.
-      if (key === 'media') {
-        for (const m of ['photos', 'videos']) {
-          add(`${cat}/${lifeName(m, lang)}`, 'media', m, p.id)
+
+      // A szemelyes projektek. A specifikacio 12-13. pontja: a projekt NEM
+      // automatikusan ceges dolog, es a sajat projekt git-repoja SOHA nem
+      // kerul a ceg repoi koze.
+      if (key === 'projects') {
+        for (const pr of p.projects) {
+          const pb = `${cat}/${safeLifeName(pr.name)}`
+          add(pb, 'project', 'projects', p.id)
+          add(`${pb}/${lifeName('knowledgeBase', lang)}`, 'category', 'knowledgeBase', p.id)
+          add(`${pb}/${lifeName('moreMaterial', lang)}`, 'category', 'moreMaterial', p.id)
+          if (pr.development) addDevelopmentBranch(add, pb, lang, p.id)
         }
       }
     }
   }
 
-  // 2. Cegek.
+  // 2. Cegek. A ceg SOHA nem kerul egy szemely ala (specifikacio 14. pont).
   const companiesDir = lifeName('companies', lang)
   add(companiesDir, 'top', 'companies')
   for (const c of cfg.companies) {
@@ -329,13 +507,14 @@ export function planLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string = 
     for (const key of COMPANY_CATEGORIES) {
       const cat = `${base}/${lifeName(key, lang)}`
       add(cat, 'category', key, c.id)
+      if (c.countrySplit.includes(key)) {
+        for (const cc of c.countries) add(`${cat}/${safeLifeName(cc)}`, 'country', key, c.id)
+      }
       // A fejlesztes ala megy a tudasbazis es a repok helye. A Marveen a
       // repok SAJAT dokumentacios retegehez nem nyul -- csak a helyet adja.
-      if (key === 'development') {
-        add(`${cat}/${lifeName('knowledgeBase', lang)}`, 'category', 'knowledgeBase', c.id)
-        add(`${cat}/${lifeName('gitRepos', lang)}`, 'category', 'gitRepos', c.id)
-      }
-      // Keves ceges kep van: nem kap sajat Drive-ot, a marketing ala kerul.
+      if (key === 'development') addDevelopmentBranch(add, cat, lang, c.id, true)
+      // Keves ceges kep van: nem kap sajat agat a felso MEDIA alatt, hanem a
+      // marketing ala kerul (specifikacio 9. pont).
       if (key === 'marketing') {
         const media = `${cat}/${lifeName('media', lang)}`
         add(media, 'category', 'media', c.id)
@@ -344,16 +523,27 @@ export function planLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string = 
     }
   }
 
-  // 3. A nagy keptar: szemelyenkent es a cegeknek, FOTOK/VIDEOK bontasban.
+  // 3. A nagy keptar (specifikacio 18-20. pont): szemelyenkent, media-tipusra,
+  //    orszagra, majd csaladi csoportra bontva. A Boss kikotese: "a fotok is
+  //    kulon kellene szedni, mert nekem 3 orszagbol van fotok is videok is".
   const mediaDir = lifeName('media', lang)
   add(mediaDir, 'top', 'media')
   for (const p of cfg.persons) {
     const base = `${mediaDir}/${safeLifeName(p.name)}`
     add(base, 'person', null, p.id)
-    for (const m of ['photos', 'videos']) {
+    const mediaCountries = p.countrySplit.includes(MEDIA_COUNTRY_KEY) ? p.countries : []
+    for (const m of p.mediaKinds) {
       const sub = `${base}/${lifeName(m, lang)}`
       add(sub, 'media', m, p.id)
-      for (const g of p.mediaGroups) add(`${sub}/${safeLifeName(g)}`, 'media', m, p.id)
+      if (mediaCountries.length) {
+        for (const c of mediaCountries) {
+          const cd = `${sub}/${safeLifeName(c)}`
+          add(cd, 'country', m, p.id)
+          for (const g of p.mediaGroups) add(`${cd}/${safeLifeName(g)}`, 'media', m, p.id)
+        }
+      } else {
+        for (const g of p.mediaGroups) add(`${sub}/${safeLifeName(g)}`, 'media', m, p.id)
+      }
     }
   }
   if (cfg.companies.length) {
@@ -367,9 +557,31 @@ export function planLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string = 
   }
 
   // 4. A tobbi felso szintu ag.
-  for (const key of ['knowledge', 'digital', 'inbox', 'shared', 'archive']) {
-    add(lifeName(key, lang), 'top', key)
-  }
+  add(lifeName('knowledge', lang), 'top', 'knowledge')
+
+  // DIGITALIS: NEM masolatgyujto. Csak onallo eletciklusu digitalis dolgok --
+  // es jelszo SOHA (specifikacio 21. pont).
+  const digitalDir = lifeName('digital', lang)
+  add(digitalDir, 'top', 'digital')
+  for (const key of DIGITAL_TOP) add(`${digitalDir}/${lifeName(key, lang)}`, 'category', key)
+
+  add(lifeName('inbox', lang), 'top', 'inbox')
+  add(lifeName('shared', lang), 'top', 'shared')
+
+  // ARCHIV: a lezart anyagoke, ugyanazzal a felosztassal (specifikacio 25.).
+  const archiveDir = lifeName('archive', lang)
+  add(archiveDir, 'top', 'archive')
+  for (const p of cfg.persons) add(`${archiveDir}/${safeLifeName(p.name)}`, 'person', null, p.id)
+  if (cfg.companies.length) add(`${archiveDir}/${companiesDir}`, 'top', 'companies')
+
+  // 5. RENDSZER: a technikai reteg (specifikacio 4. pont). A felhasznalo NEM
+  //    ide jar -- a tarolokat a Beallitasok > Tarolok oldal kezeli. Azert van
+  //    megis a fan belul, hogy egy lemezmasolas mindent egyben vigyen.
+  const systemDir = lifeName('system', lang)
+  add(systemDir, 'system', 'system')
+  add(`${systemDir}/${lifeName('marvin', lang)}`, 'system', 'marvin')
+  add(`${systemDir}/${lifeName('storages', lang)}`, 'system', 'storages')
+  add(`${systemDir}/${lifeName('git', lang)}`, 'system', 'git')
 
   return out
 }
@@ -384,7 +596,7 @@ export function planLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string = 
 function readmeText(cfg: LifeConfig, lang: string): string {
   const nl = (hu: string, en: string) => (lang === 'hu' ? hu : en)
   const lines: string[] = []
-  lines.push(nl('# ÉLET -- mi ez a mappa?', '# LIFE -- what is this folder?'))
+  lines.push(nl('# Mi ez a mappa?', '# What is this folder?'))
   lines.push('')
   lines.push(nl(
     'Ebben a mappában a teljes digitális (és papír-) életed van rendszerezve.',
@@ -402,17 +614,17 @@ function readmeText(cfg: LifeConfig, lang: string): string {
   lines.push(nl('## A logika', '## The logic'))
   lines.push('')
   lines.push(nl(
-    '  <személy vagy cég> / <terület> / <ország, ha számít> / <ügy>',
-    '  <person or company> / <area> / <country, where it matters> / <case>',
+    '  <személy vagy cég> / <terület> / <ország, ha van> / <ügy>',
+    '  <person or company> / <area> / <country, if any> / <case>',
   ))
   lines.push('')
   lines.push(nl(
-    'Az ország nem külön életkategória, hanem egy ügy tulajdonsága: ezért csak a',
-    'A country is not a life category of its own but a property of a case, so it',
+    'Az ország nem külön életkategória, hanem egy terület tulajdonsága: annál',
+    'A country is not a life category of its own but a property of an area: it',
   ))
   lines.push(nl(
-    'JOGI, PÉNZÜGY és HATÓSÁGOK alatt jelenik meg.',
-    'only appears under LEGAL, FINANCE and AUTHORITIES.',
+    'jelenik meg, akinek több országban van élete.',
+    'appears for whoever has a life in more than one country.',
   ))
   lines.push('')
   lines.push(nl('## A papír-irattár UGYANEZ', '## The paper archive is THE SAME'))
@@ -432,6 +644,17 @@ function readmeText(cfg: LifeConfig, lang: string): string {
   lines.push(nl(
     'akkor a papír is ott van, ugyanezen a néven. Ennyi az egész.',
     'then the paper is there too, under the same name. That is all.',
+  ))
+  lines.push('')
+  lines.push(nl('## A RENDSZER mappa', '## The SYSTEM folder'))
+  lines.push('')
+  lines.push(nl(
+    'Az a Marveen technikai területe: oda szinkronizálódnak a Drive- és',
+    'That is Marveen technical area: the Drive and Photos storages sync into it.',
+  ))
+  lines.push(nl(
+    'Fotók-tárolók. Nem kell odamenned -- a fájljaidat a fenti mappákban látod.',
+    'You never need to go there -- your files show up in the folders above.',
   ))
   lines.push('')
   lines.push(nl('## Amit itt SOSEM találsz', '## What you will NEVER find here'))
@@ -474,17 +697,16 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
         + 'Előbb a Depó oldalon add meg, melyik mappában legyen a Marveen tárhelye.',
     }
   }
-  // A SZULOnek (a depo gyokerenek) mar allnia kell. Enelkul egy lecsatolt
-  // lemeznel a `recursive: true` a semmibe huzna fel az egesz fat -- ez a depo
-  // modulban egyszer mar mert hibamod volt (elszallt WSL-atjaro), es itt
-  // ugyanugy fenyeget.
-  const depot = depotRoot()!
-  let depotOk = false
-  try { depotOk = existsSync(depot) && statSync(depot).isDirectory() } catch { depotOk = false }
-  if (!depotOk) {
+  // A gyokernek mar allnia kell. Enelkul egy lecsatolt lemeznel a
+  // `recursive: true` a semmibe huzna fel az egesz fat -- ez a depo modulban
+  // egyszer mar mert hibamod volt (elszallt WSL-atjaro), es itt ugyanugy
+  // fenyeget.
+  let rootOk = false
+  try { rootOk = existsSync(root) && statSync(root).isDirectory() } catch { rootOk = false }
+  if (!rootOk) {
     return {
       ok: false, root, created: [], existed: 0, failed: [],
-      message: `A depó mappája most nem érhető el: ${depot}. `
+      message: `A depó mappája most nem érhető el: ${root}. `
         + 'Ha külső lemezen van, csatlakoztasd. Amíg nem érhető el, nem hozok létre semmit.',
     }
   }
@@ -492,16 +714,6 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   const created: string[] = []
   const failed: Array<{ rel: string; error: string }> = []
   let existed = 0
-
-  try {
-    mkdirSync(root, { recursive: true })
-  } catch (err: any) {
-    return {
-      ok: false, root, created: [], existed: 0,
-      failed: [{ rel: '', error: String(err?.message || err) }],
-      message: `Nem tudom létrehozni az életfa gyökerét: ${root}`,
-    }
-  }
 
   for (const node of planLifeTree(cfg, lang)) {
     const full = join(root, ...node.rel.split('/'))
