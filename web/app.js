@@ -29464,6 +29464,38 @@ async function _intezoRenderGit(info) {
     btns.appendChild(document.createTextNode(' '))
   }
 
+  // A ZAR ALLAPOTA es kapcsoloja. Csak ott jelenik meg, ahol ertelme van:
+  // git-tarolo alatti repo gyokerenel.
+  if (st.zarhato) {
+    const zar = document.createElement('p')
+    zar.style.cssText = 'margin:8px 0;font-size:13px'
+    zar.innerHTML = st.csakOlvasas
+      ? '🔒 <b>Csak olvasás.</b> Ebből a repóból feltölteni nem lehet — olvasni és frissülni igen.'
+      : '✏️ <b>Írható.</b> Innen a repóba fel is lehet tölteni.'
+    box.appendChild(zar)
+
+    const kapcs = document.createElement('button')
+    kapcs.className = 'btn-secondary btn-compact'
+    kapcs.textContent = st.csakOlvasas ? '✏️ Zár levétele (írható legyen)' : '🔒 Zárás csak olvasásra'
+    kapcs.addEventListener('click', async () => {
+      const be = !st.csakOlvasas
+      if (!be && !confirm('A zár levételével innen fel lehet majd tölteni ebbe a repóba.\n\nEz a következő lehúzás után is így marad. Mehet?')) return
+      kapcs.disabled = true
+      try {
+        const r = await _depoPost('/api/life/repo-lock', { rel: info.rel, on: be })
+        showToast(r.message || 'Kész.')
+        st.csakOlvasas = r.csakOlvasas === true
+        zar.innerHTML = st.csakOlvasas
+          ? '🔒 <b>Csak olvasás.</b> Ebből a repóból feltölteni nem lehet — olvasni és frissülni igen.'
+          : '✏️ <b>Írható.</b> Innen a repóba fel is lehet tölteni.'
+        kapcs.textContent = st.csakOlvasas ? '✏️ Zár levétele (írható legyen)' : '🔒 Zárás csak olvasásra'
+      } catch (e) { showToast((e && e.message) ? e.message : 'Nem sikerült.') }
+      kapcs.disabled = false
+    })
+    btns.appendChild(kapcs)
+    btns.appendChild(document.createTextNode(' '))
+  }
+
   const del = document.createElement('button')
   del.className = 'btn-secondary btn-compact'
   del.style.color = 'var(--danger,#d33)'

@@ -478,6 +478,60 @@ export async function lockRepoReadOnly(dir: string): Promise<boolean> {
   return r.ok && hookOk
 }
 
+/**
+ * Melyik repokrol vettuk le SZANDEKOSAN a zarat.
+ *
+ * Kulon fajl, nem a token-tar: itt nincs titok, es igy a jogosultsaga is
+ * lazabb lehet. Alakja: { "<fiok>": ["<repo>", ...] }.
+ */
+function readonlyExceptionsFile(): string {
+  return join(PROJECT_ROOT, 'store', 'git-readonly-kivetelek.json')
+}
+
+function readReadonlyExceptions(): Record<string, string[]> {
+  try {
+    const d = JSON.parse(readFileSync(readonlyExceptionsFile(), 'utf8'))
+    return (d && typeof d === 'object') ? d : {}
+  } catch { return {} }
+}
+
+/** Ki van-e VEVE ez a repo a zar alol. */
+export function isReadOnlyException(account: string, repo: string): boolean {
+  const list = readReadonlyExceptions()[String(account || '').trim()] || []
+  return list.includes(String(repo || '').trim())
+}
+
+/**
+ * A kivetel be/ki kapcsolasa. Ez dont arrol, mi tortenik a KOVETKEZO
+ * lehuzaskor -- a mostani allapotot a hivo allitja be a lock/unlock hivassal.
+ */
+export function setReadOnlyException(account: string, repo: string, kivetel: boolean): void {
+  const acc = String(account || '').trim()
+  const r = String(repo || '').trim()
+  if (!acc || !r) return
+  const all = readReadonlyExceptions()
+  const list = new Set(all[acc] || [])
+  if (kivetel) list.add(r); else list.delete(r)
+  if (list.size) all[acc] = [...list]; else delete all[acc]
+  const f = readonlyExceptionsFile()
+  mkdirSync(join(PROJECT_ROOT, 'store'), { recursive: true })
+  writeFileSync(f, JSON.stringify(all, null, 2), 'utf8')
+}
+
+/**
+ * A zar LEVETELE: a push-cim visszaall, a hook eltunik.
+ *
+ * Mindketto kell. Felig levett zar rosszabb a nyitottnal: ugy nez ki, mintha
+ * vedene, tehat utana mar nem nezne meg senki.
+ */
+export async function unlockRepoReadOnly(dir: string): Promise<boolean> {
+  const cim = await git(dir, ['remote', 'get-url', 'origin'], process.env, 15000)
+  if (!cim.ok) return false
+  const r = await git(dir, ['remote', 'set-url', '--push', 'origin', cim.out.trim()], process.env)
+  try { rmSync(join(dir, '.git', 'hooks', 'pre-push'), { force: true }) } catch { return false }
+  return r.ok
+}
+
 /** Ugyanez egy egesz fiokra -- a mar korabban lehuzott repokra is. */
 export async function lockAccountReadOnly(account: string): Promise<{ locked: string[]; failed: string[] }> {
   const root = depotRoot()
@@ -489,6 +543,9 @@ export async function lockAccountReadOnly(account: string): Promise<{ locked: st
   try { entries = readdirSync(dir) } catch { return { locked, failed } }
   for (const name of entries) {
     if (!existsSync(join(dir, name, '.git'))) continue
+    // A SZANDEKOS kivetelt nem zarjuk vissza. Egy dontes, amit a gep a hatad
+    // mogott visszacsinal, rosszabb, mintha meg sem lehetett volna hozni.
+    if (isReadOnlyException(account, name)) continue
     if (await lockRepoReadOnly(join(dir, name))) locked.push(name)
     else failed.push(name)
   }

@@ -19,7 +19,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { lockRepoReadOnly, isRepoReadOnly } from '../git-accounts.js'
+import {
+  lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly,
+  setReadOnlyException, isReadOnlyException,
+} from '../git-accounts.js'
 
 const G = { encoding: 'utf8' as const, stdio: 'pipe' as const }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { ...G, cwd }).toString()
@@ -94,5 +97,35 @@ describe('csak-olvasas zar', () => {
 
   it('a fetch a zar utan is mukodik -- olvasni tovabbra is lehet', () => {
     expect(() => git(klon, 'fetch', '--quiet', 'origin')).not.toThrow()
+  })
+})
+
+describe('a zar levetele', () => {
+  it('visszaadja a push-t, es MINDKET reteget leveszi', async () => {
+    // A zar most nincs fent (az elozo blokk vegen a cim vissza lett allitva,
+    // de a hook meg ott van) -- eloszor allitsuk tiszta, zart allapotba.
+    expect(await lockRepoReadOnly(klon)).toBe(true)
+    expect(await isRepoReadOnly(klon)).toBe(true)
+
+    expect(await unlockRepoReadOnly(klon)).toBe(true)
+    expect(await isRepoReadOnly(klon)).toBe(false)
+
+    // Es tenyleg fel is megy: felig levett zar eseten ez elhasalna.
+    writeFileSync(join(klon, 'a.txt'), 'zar utan szabad\n')
+    git(klon, 'commit', '-qam', 'zar levetele utan')
+    expect(() => git(klon, 'push', '-q', 'origin', 'HEAD:main')).not.toThrow()
+    expect(git(remote, 'show', 'main:a.txt').trim()).toBe('zar utan szabad')
+  })
+
+  it('a dontes TULELI a kovetkezo lehuzast (kivetel-nyilvantartas)', () => {
+    // Ez a lenyeg: egy dontes, amit a gep a hatad mogott visszacsinal,
+    // rosszabb, mintha meg sem lehetett volna hozni.
+    expect(isReadOnlyException('TesztFiok', 'docs')).toBe(false)
+    setReadOnlyException('TesztFiok', 'docs', true)
+    expect(isReadOnlyException('TesztFiok', 'docs')).toBe(true)
+    // ...es csak arra a repora vonatkozik, nem az egesz fiokra
+    expect(isReadOnlyException('TesztFiok', 'masik')).toBe(false)
+    setReadOnlyException('TesztFiok', 'docs', false)
+    expect(isReadOnlyException('TesztFiok', 'docs')).toBe(false)
   })
 })

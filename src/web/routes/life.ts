@@ -32,6 +32,12 @@ import {
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
+import {
+  lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly, setReadOnlyException,
+} from '../../git-accounts.js'
+import { depotRoot } from '../../depot.js'
+import { storageKindRoot } from '../../storages.js'
+import { join as pathJoin } from 'node:path'
 import { APP_LANG } from '../../config.js'
 import {
   listLife, lifeInfo, moveLife, mkdirLife, searchLife, explorerRoot,
@@ -223,7 +229,42 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const rel = url.searchParams.get('path') || ''
     const status = await repoStatus(rel)
     const mounts = listMounts().filter((m) => m.target === status.rel || m.rel === status.rel)
-    send(res, 200, { ...status, mounts })
+    // A zar allapota is ide jon: a felhasznalo egy helyen lassa, mi van a
+    // repoval. Kulon lekerdezes konnyen elcsuszna a tobbitol.
+    const hely = gitTarhelyHely(status.rel || rel)
+    const readOnly = hely ? await isRepoReadOnly(hely.abs) : false
+    send(res, 200, { ...status, mounts, zarhato: !!hely, csakOlvasas: readOnly })
+    return true
+  }
+
+  // A csak-olvasas zar be/ki kapcsolasa egy repora.
+  if (path === '/api/life/repo-lock' && method === 'POST') {
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    const be = body?.on === true
+    // A repoStatus oldja fel a bekotest is: az o `rel`-je mar a valodi hely.
+    const feloldott = await repoStatus(rel)
+    const hely = gitTarhelyHely(feloldott.rel || rel)
+    if (!hely) {
+      send(res, 400, { ok: false, message: 'Ez a repó nem egy git-tároló fiókja alatt van, itt nincs mit zárni.' })
+      return true
+    }
+    const ok = be ? await lockRepoReadOnly(hely.abs) : await unlockRepoReadOnly(hely.abs)
+    if (!ok) {
+      send(res, 400, { ok: false, message: be ? 'A zárat nem sikerült felrakni.' : 'A zárat nem sikerült levenni.' })
+      return true
+    }
+    // A dontes TULELI a kovetkezo lehuzast -- kulonben a gep a hatad mogott
+    // visszacsinalna, es legkozelebb mar nem nezne utana senki.
+    setReadOnlyException(hely.account, hely.repo, !be)
+    logger.info({ rel, be }, '[intezo] csak-olvasas zar allitva')
+    send(res, 200, {
+      ok: true,
+      csakOlvasas: be,
+      message: be
+        ? 'Zárva: ebből a repóból feltölteni nem lehet. Olvasni és frissülni igen.'
+        : 'A zár levéve: ebbe a repóba innen feltölteni is lehet. Ez a következő lehúzás után is így marad.',
+    })
     return true
   }
 
@@ -449,4 +490,39 @@ function toNameList(v: any): string[] {
     if (s && safeLifeName(s) !== '_' && !out.includes(s)) out.push(s)
   }
   return out
+}
+
+/**
+ * Egy fa-beli utrol megmondja, hogy git-tarolo alatti repo-e, es ha igen,
+ * melyik fiok melyik repoja -- plusz a valodi lemezes utat.
+ *
+ * Azert kell, mert a zar a LEMEZEN all (push-cim + hook), a felulet viszont a
+ * fa nyelven beszel. A ketto kozott itt az egyetlen forditasi pont: ha tobb
+ * helyen forditanank, elobb-utobb ketfele allna.
+ */
+function gitTarhelyHely(rel: string): { account: string; repo: string; abs: string } | null {
+  const root = depotRoot()
+  if (!root) return null
+  const eleje = storageKindRoot('git').replace(/\\/g, '/') + '/'
+  let tiszta = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+
+  // A BEKOTES FELOLDASA. A fa "Cegek/.../GIT_REPOS/docs"-ot mond, a zar viszont
+  // a lemezen all. A leghosszabb illeszkedo bekotes nyer: egy melyebb bekotes
+  // felulirhat egy sekelyebbet.
+  if (!tiszta.startsWith(eleje)) {
+    const talalat = listMounts()
+      .map((m) => ({ m, r: String(m.rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') }))
+      .filter((x) => x.r && (tiszta === x.r || tiszta.startsWith(x.r + '/')))
+      .sort((a, b) => b.r.length - a.r.length)[0]
+    if (talalat) {
+      const maradek = tiszta.slice(talalat.r.length).replace(/^\/+/, '')
+      const cel = String(talalat.m.target || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+      tiszta = maradek ? cel + '/' + maradek : cel
+    }
+  }
+  if (!tiszta.startsWith(eleje)) return null
+  const reszek = tiszta.slice(eleje.length).split('/').filter(Boolean)
+  // Pontosan ket szint kell: <fiok>/<repo>. A repon BELUL nincs mit zarni.
+  if (reszek.length !== 2) return null
+  return { account: reszek[0], repo: reszek[1], abs: pathJoin(root, storageKindRoot('git'), reszek[0], reszek[1]) }
 }
