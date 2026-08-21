@@ -189,13 +189,27 @@ Start-ScheduledTask -TaskName "{task_name}" -ErrorAction Stop
 
 
 def whatsapp_is_running() -> bool:
-    """True only if the scheduled task actually reported RUNNING."""
+    """
+    True only if there is a WhatsApp window that can actually receive
+    keystrokes -- not merely a background process.
+
+    2026-08-21: found live that the Store app can stay resident with its
+    process alive but its window closed/minimized-to-tray (the same failure
+    mode documented for terminal.exe in windows-desktop-screenshot). A plain
+    Get-Process match reported "RUNNING" in that state, so ensure_whatsapp_
+    running() skipped the launch step entirely and send_whatsapp_message()
+    then failed with NO_WINDOW every time -- silently, until the 4th retry
+    fell through to the email fallback. Requiring MainWindowHandle -ne 0
+    here means "no window" now correctly triggers ensure_whatsapp_running()
+    to relaunch, which restores an existing instance's window instead of
+    starting a second one.
+    """
     result_wsl = f"{PUBLIC_WSL}/marvin_ws_state.txt"
     result_win = f"{PUBLIC_WIN}\\marvin_ws_state.txt"
     # The desktop app's process is called WhatsApp.Root (not WhatsApp), so an
     # exact -Name WhatsApp match never finds it -- the wildcard is required.
     check_script = f'''
-$running = Get-Process -Name 'WhatsApp*' -ErrorAction SilentlyContinue
+$running = Get-Process -Name 'WhatsApp*' -ErrorAction SilentlyContinue | Where-Object {{ $_.MainWindowHandle -ne [IntPtr]::Zero }}
 if ($running) {{ $s = "RUNNING" }} else {{ $s = "NOT_RUNNING" }}
 $s | Out-File -FilePath {result_win} -Encoding utf8 -Force
 '''
