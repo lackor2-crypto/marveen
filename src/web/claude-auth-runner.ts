@@ -341,10 +341,32 @@ export interface LoginStatus {
   isDefault?: boolean
   /** Every login this install has, refreshed on each poll. */
   accounts: AccountRow[]
+  /** State, not event: is ~/.claude signed in at this very moment? */
+  defaultLoggedIn: boolean
 }
 
-function idle(accounts: AccountRow[], phase: LoginPaneState['phase'] = 'starting', error: string | null = null): LoginStatus {
-  return { active: false, phase, url: null, error, label: null, planId: null, done: false, accounts }
+// The default phase here is 'idle', not 'starting'. It used to be 'starting',
+// and that one word cost Boss an afternoon (2026-08-21): once the flow ended --
+// finished, timed out, or its `done` picked up by a SECOND dashboard window --
+// every later poll answered "starting", and the wizard dutifully printed "indul
+// a bejelentkeztetes, egy pillanat..." forever. "mennyi legyen az a pillanat? 5
+// ora hossza?" Nothing was running; the status just had no word for that.
+function idle(accounts: AccountRow[], phase: LoginPaneState['phase'] = 'idle', error: string | null = null): LoginStatus {
+  return {
+    active: false, phase, url: null, error, label: null, planId: null, done: false,
+    accounts, defaultLoggedIn: isDefaultLoggedIn(accounts),
+  }
+}
+
+/** Is the install's OWN account (~/.claude) signed in right now?
+ *
+ *  Reported on EVERY poll, deliberately. `done` is a one-shot edge: whichever
+ *  poller observes the completion consumes it, and with two dashboard windows
+ *  open that is not necessarily the window the operator is looking at. A page
+ *  that reads this flag instead can tell the truth on every tick, no matter who
+ *  saw the edge -- or whether the login happened in a terminal entirely. */
+function isDefaultLoggedIn(accounts: AccountRow[]): boolean {
+  return accounts.some(a => a.isDefault && a.identity.loggedIn)
 }
 
 /** Where the flow stands. Cheap enough to poll: two tmux calls plus one status
@@ -367,9 +389,11 @@ export function loginStatus(): LoginStatus {
       ? true
       : current.registered || registerPlan(planId, label, configDir)
     killSession(); current = null
-    const status = idle(listAccounts(true), 'done')
+    const accounts = listAccounts(true)
+    const status = idle(accounts, 'done')
     return {
       ...status, done: true, planId, label, isDefault: configDir === null,
+      defaultLoggedIn: isDefaultLoggedIn(accounts),
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
   }
@@ -385,10 +409,12 @@ export function loginStatus(): LoginStatus {
   }
 
   const pane = readLoginPane(capturePane(), current.codeSubmitted)
+  const accounts = listAccounts()
   return {
     active: true, phase: pane.phase, url: pane.url, error: pane.error,
     label: current.label, planId: current.planId, done: false,
-    isDefault: current.configDir === null, accounts: listAccounts(),
+    isDefault: current.configDir === null, accounts,
+    defaultLoggedIn: isDefaultLoggedIn(accounts),
   }
 }
 

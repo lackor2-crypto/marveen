@@ -16711,6 +16711,14 @@ let _selfCheckGuideTab = 'quick'
 // check is broken" or "the check never ran", and the operator is left guessing
 // at a blank spot. It now has a green state, and even the unreachable case is
 // stated instead of hidden. Click-through lands on the page that can fix it.
+// Az "Egyebb" doboz ki-be nyitasa. Kulon fuggveny, mert a doboz HTML-je
+// ujrarajzolodik minden onellenorzesnel, es egy onclick-attributum tullep
+// minden ujrarajzolast -- egy addEventListener nem.
+function toggleSelfCheckMore() {
+  const more = document.getElementById('overviewConnectionsMore')
+  if (more) more.hidden = !more.hidden
+}
+
 async function renderOverviewConnections() {
   const box = document.getElementById('overviewConnections')
   const list = document.getElementById('overviewConnectionsList')
@@ -16725,6 +16733,28 @@ async function renderOverviewConnections() {
     ok: { bg: 'var(--card-bg, rgba(127,127,127,.10))', fg: 'var(--text)', descFg: 'var(--text-muted)', itemBg: 'rgba(34,197,94,.14)', border: '1px solid rgba(34,197,94,.45)' },
   }
 
+  // A kartya legfeljebb KET soros lehet, ket oszloppal: negy doboz. Boss,
+  // 2026-08-21: "az onellenorzes zold gombjai maximum ketto sorban lehetnek!
+  // nem 3! [...] osszesen max 4 ilyen zold kis dobozka lehet. a 4. az legyen az
+  // egyebb. es abba bele lehet tenni minden mast. igy nem lesz soha 5 dik!"
+  //
+  // A negyedik doboz tehat nem esik ki: osszefogja a maradekot, es kattintasra
+  // kinyilik alatta -- teljes szelessegben, a racson kivul, hogy a racs maga
+  // soha ne legyen harom soros. Elrejteni egy teendot nem lehet, csak
+  // osszecsukni.
+  const MAX_ITEMS = 4
+
+  const itemHtml = (r, tone) => `<a href="#" class="overview-capability-item"
+        style="background:${tone.itemBg};color:${tone.fg}"
+        ${r.onclick
+          ? `onclick="${r.onclick};return false"`
+          : r.guide
+            ? `onclick="openSelfCheckGuide(${JSON.stringify(r.guide).replace(/"/g, '&quot;')});return false"`
+            : 'onclick="switchPage(\'accounts\');return false"'}>
+        <div class="overview-capability-label">${escapeHtml(r.label)}</div>
+        <div class="overview-capability-desc" style="color:${tone.descFg}">${escapeHtml(r.desc)}</div>
+      </a>`
+
   const paint = (tone, rows) => {
     box.hidden = false
     box.style.background = tone.bg
@@ -16735,16 +16765,22 @@ async function renderOverviewConnections() {
     // megnyitjak a vegigvezetot (Boss, 2026-08-19: "megnyom egy gombot es
     // vegigvezeti ezen a folyamaton a usert"). Az odadobas ugyanis pont a
     // nehez reszt hagyja ra: ott all az oldalon, es nem tudja, mit nyomjon.
-    list.innerHTML = rows.map(r => `<a href="#" class="overview-capability-item"
-        style="background:${tone.itemBg};color:${tone.fg}"
-        ${r.onclick
-          ? `onclick="${r.onclick};return false"`
-          : r.guide
-            ? `onclick="openSelfCheckGuide(${JSON.stringify(r.guide).replace(/"/g, '&quot;')});return false"`
-            : 'onclick="switchPage(\'accounts\');return false"'}>
-        <div class="overview-capability-label">${escapeHtml(r.label)}</div>
-        <div class="overview-capability-desc" style="color:${tone.descFg}">${escapeHtml(r.desc)}</div>
-      </a>`).join('')
+    const shown = rows.length > MAX_ITEMS ? rows.slice(0, MAX_ITEMS - 1) : rows
+    const extra = rows.length > MAX_ITEMS ? rows.slice(MAX_ITEMS - 1) : []
+    // A sorrend nem veletlen: a hivo a legfontosabbat teszi elore, tehat az
+    // osszecsukott resz mindig a kevesbe surgos vege a listanak.
+    const moreBox = extra.length
+      ? `<a href="#" class="overview-capability-item" id="overviewConnectionsMoreBtn"
+            style="background:${tone.itemBg};color:${tone.fg}"
+            onclick="toggleSelfCheckMore();return false">
+           <div class="overview-capability-label">${escapeHtml(t('conn.ov_more', { n: extra.length }))}</div>
+           <div class="overview-capability-desc" style="color:${tone.descFg}">${escapeHtml(t('conn.ov_more_action'))}</div>
+         </a>
+         <div class="overview-capability-more" id="overviewConnectionsMore" hidden>
+           ${extra.map(r => itemHtml(r, tone)).join('')}
+         </div>`
+      : ''
+    list.innerHTML = shown.map(r => itemHtml(r, tone)).join('') + moreBox
   }
 
   let d
@@ -20602,9 +20638,34 @@ function renderWizardHome(host) {
 // kod vissza), csak mindig UJ fiokot csinalt. Itt ugyanaz fut, de a gep SAJAT
 // bejelentkezesere (~/.claude) -- vagyis arra, amelyik el is romlott.
 let _wizClaudePoll = null
+// Ebben a lapban inditottunk-e folyamatot. Ettol fugg, hogy a sikeres
+// bejelentkezes utan MI inditsuk-e ujra az ugynokoket.
+let _wizClaudeStartedFlow = false
+// Mar lefutott a "kesz + ujrainditas" ag. Enelkul a poll ujra es ujra
+// ujrainditana a paneleket, es folulirna a "kesz" uzenetet.
+let _wizClaudeFinishing = false
+// Mikor lett a fazis 'starting'. A "egy pillanat..." csak akkor hihetot, ha
+// meg is mondjuk, mikor lesz belole "ez tul sokaig tart".
+let _wizClaudeStartedAt = 0
+let _wizClaudeFailCount = 0
 
 function _wizClaudeStopPoll() {
   if (_wizClaudePoll) { clearInterval(_wizClaudePoll); _wizClaudePoll = null }
+}
+
+// Egyetlen idozito. Ket egymasra futo interval pontosan azt csinalta, amit
+// Boss latott: az egyik doboz a friss allapotot rajzolta, a masik a regit
+// irta vissza ugyanabba a divbe.
+function _wizClaudeStartPoll() {
+  _wizClaudeStopPoll()
+  _wizClaudePoll = setInterval(() => _wizClaudeTick(), 2500)
+}
+
+function _wizClaudeShow(which) {
+  const flow = document.getElementById('wizClaudeFlow')
+  const start = document.getElementById('wizClaudeStart')
+  if (flow) flow.hidden = which !== 'flow'
+  if (start) start.hidden = which === 'flow'
 }
 
 function _wizClaudeSet(id, html) {
@@ -20644,16 +20705,36 @@ function wireWizardClaudeLogin() {
   const startBtn = document.getElementById('wizClaudeStartBtn')
   if (!startBtn) return
 
-  // Alapallapot: mit lat, mielott barmit megnyomna.
-  _wizClaudeTick(true)
+  // Alapallapot: mit lat, mielott barmit megnyomna. Es utana FOLYAMATOSAN
+  // nezzuk: ha kozben barhol maskepp lesz (masik ablak, terminal, sikeres
+  // folyamat), ez a doboz is megtudja. Egy egyszer kirajzolt allapot az elso
+  // valtozastol kezdve hazudik.
+  _wizClaudeStartedFlow = false
+  _wizClaudeFinishing = false
+  _wizClaudeStartedAt = 0
+  _wizClaudeFailCount = 0
+  _wizClaudeTick()
+  _wizClaudeStartPoll()
 
   const begin = async (force) => {
+    _wizClaudeFinishing = false
+    _wizClaudeStartedFlow = true
+    _wizClaudeStartedAt = Date.now()
     _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_starting'))}</span>`)
     document.getElementById('wizClaudeLinkWrap').innerHTML = ''
+    // A poll MAR MOST fut, nem csak a valasz utan: ha a kerelem valamiert
+    // elveszne, a doboz akkor is a szerver valos allapotat mutatja, nem
+    // ragad be az inditasnal.
+    _wizClaudeStartPoll()
+    // Es van felso hatara. A "egy pillanat..." addig tisztesseges, amig
+    // tenyleg pillanat -- egy valaszt nem ado keresre nem varunk orakat.
+    const ctl = new AbortController()
+    const bail = setTimeout(() => ctl.abort(), 60000)
     try {
       const res = await fetch('/api/accounts/claude/login', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(force ? { target: 'default', force: true } : { target: 'default' }),
+        signal: ctl.signal,
       })
       const data = await res.json()
       if (!data.ok) {
@@ -20665,17 +20746,21 @@ function wireWizardClaudeLogin() {
            <div style="margin-top:8px"><button class="btn-secondary btn-compact" id="wizClaudeForceBtn">${escapeHtml(t('wizclaude.switch_anyway'))}</button></div>`)
         const fb = document.getElementById('wizClaudeForceBtn')
         if (fb) fb.addEventListener('click', () => begin(true))
+        _wizClaudeStartedFlow = false
+        _wizClaudeShow('start')
         return
       }
     } catch (err) {
-      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(String(err.message || err))}</span>`)
+      _wizClaudeStartedFlow = false
+      _wizClaudeShow('start')
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(
+        err && err.name === 'AbortError' ? t('wizclaude.state_no_answer') : String(err.message || err))}</span>`)
       return
+    } finally {
+      clearTimeout(bail)
     }
-    document.getElementById('wizClaudeStart').hidden = true
-    document.getElementById('wizClaudeFlow').hidden = false
-    _wizClaudeStopPoll()
-    _wizClaudePoll = setInterval(() => _wizClaudeTick(false), 2000)
-    _wizClaudeTick(false)
+    _wizClaudeShow('flow')
+    _wizClaudeTick()
   }
 
   startBtn.addEventListener('click', () => begin(false))
@@ -20699,43 +20784,63 @@ function wireWizardClaudeLogin() {
   })
 
   document.getElementById('wizClaudeCancelBtn').addEventListener('click', async () => {
-    _wizClaudeStopPoll()
+    _wizClaudeStartedFlow = false
+    _wizClaudeStartedAt = 0
     try { await fetch('/api/accounts/claude/login/cancel', { method: 'POST' }) } catch { /* ignore */ }
-    document.getElementById('wizClaudeFlow').hidden = true
-    document.getElementById('wizClaudeStart').hidden = false
+    _wizClaudeShow('start')
     _wizClaudeSet('wizClaudeState', '')
+    // A poll marad: a doboz a megszakitas utan is a valos allapotot mutatja.
+    _wizClaudeTick()
   })
 }
 
-async function _wizClaudeTick(initial) {
+// Egy tick = egy mondat arrol, hogy MOST hogy all a gep bejelentkezese.
+//
+// Boss, 2026-08-21, ket dashboard-ablakkal egymas mellett: "a jobb oldali
+// dasboardon mar a marveen be van jelentkezve a bal oldalin meg mindig azt irja
+// hogy nehany masodperc amig elindul. [...] mennyi legyen az a pillanat? 5 ora
+// hossza?" Ket hiba talalkozott: a szerver 'starting'-nak hivta azt is, amikor
+// SEMMI nem futott, ez a fuggveny pedig sosem kerdezte meg, fut-e egyaltalan --
+// csak a fazist irta ki. Ezert a doboz azt allitotta, hogy epp indul valami,
+// mikozben a bejelentkezes reg kesz volt.
+async function _wizClaudeTick() {
   if (!document.getElementById('wizClaudeBox')) { _wizClaudeStopPoll(); return }
   let s
   try {
     const res = await fetch('/api/accounts/claude')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
     s = await res.json()
-  } catch { return }
-
-  if (initial) {
-    // Ki van most bejelentkezve ezen a gepen? Ha senki, azt is kimondjuk --
-    // ez a lepes pont akkor kell, amikor a valasz "senki".
-    const me = (s.accounts || []).find(a => a.isDefault)
-    const who = me && me.identity && me.identity.loggedIn ? (me.identity.email || '') : ''
-    // A szamokat a szerver szamolja ki, nem ez az oldal talalja ki: Boss,
-    // 2026-08-21, a regi mondatrol ("emiatt egyik ugynok sem tud dolgozni") --
-    // "ez hamis allitas. mert most is tudok veled dolgozni! csak a marvin nem
-    // dolgozik de attol mag a tobiek tudnak!"
-    const n = Number(s.dependents ?? 0)
-    const others = Number(s.unaffected ?? 0)
-    _wizClaudeSet('wizClaudeState', who
-      ? `<span style="color:#22c55e">${escapeHtml(t('wizclaude.current_ok', { who, n, others }))}</span>`
-      : `<span style="color:var(--danger)">${escapeHtml(t('wizclaude.current_none', { n, others }))}</span>`)
+    _wizClaudeFailCount = 0
+  } catch {
+    // Egy kihagyott lekerdezes meg nem hir. Harom egymas utani mar az: ha
+    // nema maradnank, a doboz a legutobbi mondatat mutatna orakig.
+    if (++_wizClaudeFailCount >= 3 && !_wizClaudeFinishing) {
+      _wizClaudeSet('wizClaudeState', `<span style="color:#f59e0b">${escapeHtml(t('wizclaude.state_offline'))}</span>`)
+    }
     return
   }
 
-  if (s.done) {
+  const me = (s.accounts || []).find(a => a.isDefault)
+  const loggedIn = s.defaultLoggedIn === undefined
+    ? !!(me && me.identity && me.identity.loggedIn)
+    : !!s.defaultLoggedIn
+  const who = loggedIn && me && me.identity ? (me.identity.email || '') : ''
+  // A szamokat a szerver szamolja ki, nem ez az oldal talalja ki: Boss,
+  // 2026-08-21, a regi mondatrol ("emiatt egyik ugynok sem tud dolgozni") --
+  // "ez hamis allitas. mert most is tudok veled dolgozni! csak a marvin nem
+  // dolgozik de attol mag a tobiek tudnak!"
+  const n = Number(s.dependents ?? 0)
+  const others = Number(s.unaffected ?? 0)
+
+  // Siker. A `done` egyszeri esemeny, amit az kap meg, aki eppen kerdez --
+  // ket nyitott dashboard-ablaknal nem feltetlenul az, amelyiket a felhasznalo
+  // nezi. Ezert az ALLAPOT is szamit: ha mi inditottuk a folyamatot es a gep
+  // idokozben bejelentkezett, az ugyanugy siker.
+  if ((s.done || (_wizClaudeStartedFlow && loggedIn)) && !_wizClaudeFinishing) {
+    _wizClaudeFinishing = true
+    _wizClaudeStartedFlow = false
     _wizClaudeStopPoll()
-    document.getElementById('wizClaudeFlow').hidden = true
-    document.getElementById('wizClaudeStart').hidden = false
+    _wizClaudeShow('start')
     _wizClaudeSet('wizClaudeState', `<span style="color:#22c55e">${escapeHtml(t('wizclaude.done_restarting'))}</span>`)
     // A bejelentkezes onmagaban meg nem hozza vissza a Marvint: a folyamata
     // azzal a halott hozzaferessel indult el, es nem olvassa ujra a fajlt.
@@ -20753,17 +20858,53 @@ async function _wizClaudeTick(initial) {
     renderOverviewConnections()
     return
   }
+  // A "kesz" uzenetet semmi nem irja felul. Ez a lepes vege.
+  if (_wizClaudeFinishing) return
 
-  if (s.url) {
-    document.getElementById('wizClaudeLinkWrap').innerHTML =
-      `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener noreferrer" class="btn-primary btn-compact"
-          style="display:inline-block;margin-bottom:8px">${escapeHtml(t('wizclaude.open_authorize'))} &#8599;</a>
-       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${escapeHtml(t('wizclaude.link_note'))}</div>`
+  if (s.active) {
+    _wizClaudeShow('flow')
+    if (s.url) {
+      document.getElementById('wizClaudeLinkWrap').innerHTML =
+        `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener noreferrer" class="btn-primary btn-compact"
+            style="display:inline-block;margin-bottom:8px">${escapeHtml(t('wizclaude.open_authorize'))} &#8599;</a>
+         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${escapeHtml(t('wizclaude.link_note'))}</div>`
+    }
+    if (s.phase === 'awaiting-code') {
+      _wizClaudeStartedAt = 0
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_awaiting'))}</span>`)
+    } else if (s.phase === 'working') {
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_working'))}</span>`)
+    } else if (s.phase === 'failed') {
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(s.error || t('wizclaude.state_failed'))}</span>`)
+    } else {
+      // 'starting'. Van felso hatara: 40 masodperc utan megmondjuk, hogy ez
+      // mar nem "egy pillanat", es hogy mit lehet tenni.
+      if (!_wizClaudeStartedAt) _wizClaudeStartedAt = Date.now()
+      const sec = Math.round((Date.now() - _wizClaudeStartedAt) / 1000)
+      _wizClaudeSet('wizClaudeState', sec > 40
+        ? `<span style="color:#f59e0b">${escapeHtml(t('wizclaude.state_slow', { s: sec }))}</span>`
+        : `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_starting'))}</span>`)
+    }
+    return
   }
-  if (s.phase === 'starting') _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_starting'))}</span>`)
-  else if (s.phase === 'awaiting-code') _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_awaiting'))}</span>`)
-  else if (s.phase === 'working') _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_working'))}</span>`)
-  else if (s.phase === 'failed') _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(s.error || t('wizclaude.state_failed'))}</span>`)
+
+  // Nem fut semmi. Ilyenkor a doboz azt mondja el, ami IGAZ a gepre -- nem
+  // azt, hogy epp indul valami. Ez az a mondat, ami korabban hianyzott.
+  if (_wizClaudeStartedFlow && Date.now() - _wizClaudeStartedAt < 15000) return
+  _wizClaudeStartedFlow = false
+  _wizClaudeStartedAt = 0
+  _wizClaudeShow('start')
+  if (s.error) {
+    _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(s.error)}</span>`)
+    return
+  }
+  // Ha a CLI nem adja vissza az e-mailt, ne irjunk ki ures helyet ket
+  // gondolatjel koze -- akkor a mondat email nelkul is teljes.
+  _wizClaudeSet('wizClaudeState', loggedIn
+    ? `<span style="color:#22c55e">${escapeHtml(who
+        ? t('wizclaude.current_ok', { who, n, others })
+        : t('wizclaude.current_ok_anon', { n, others }))}</span>`
+    : `<span style="color:var(--danger)">${escapeHtml(t('wizclaude.current_none', { n, others }))}</span>`)
 }
 
 // Az Attekintes piros sorabol EGY kattintassal a bejelentkezteteshez, nem a

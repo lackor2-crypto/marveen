@@ -38,6 +38,7 @@
 
 /** What the login pane is currently asking for. */
 export type LoginPhase =
+  | 'idle'        // nothing is running -- NOT the same as "starting"
   | 'starting'    // spawned, nothing recognisable on the pane yet
   | 'awaiting-code' // the URL is up and the CLI is waiting for the pasted code
   | 'working'     // code submitted, the CLI has not answered yet
