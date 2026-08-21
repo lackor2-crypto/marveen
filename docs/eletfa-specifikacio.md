@@ -139,6 +139,38 @@ Az **ország nem kerül a gyökér alá**, csak ott jelenik meg, ahol értelme v
 > **BOSS KIEGÉSZÍTÉSE (2026-08-21):** ez a struktúra **minden felvett személynél
 > teljesen kiépül** – Bakos Évánál is ugyanúgy, mint Korpás Lászlónál –, **akkor
 > is, ha éppen nincs benne semmi.** Nincs „csökkentett" személyi ág.
+>
+> **BOSS MÁSODIK KIEGÉSZÍTÉSE (2026-08-21):** az **országszintek is előre
+> létrejönnek**, nem szükség szerint. Indok: „van már jog USA-ban is és németben
+> is, meg minden. Hiszen éltem itt is, ott is." Tehát a `JOGI`, `PÉNZÜGY` és
+> `HATÓSÁGOK` alatt **mind a három kategóriában, mindkét személynél** ki kell
+> bontani az országokat, végig.
+>
+> Az országlista **személyenként konfigurálható** (a kódban nem szerepel
+> országnév sem):
+>
+> ```text
+> KORPÁS LÁSZLÓ → MAGYARORSZÁG, NÉMETORSZÁG, USA
+> BAKOS ÉVA     → MAGYARORSZÁG, NÉMETORSZÁG
+> ```
+>
+> Vagyis:
+>
+> ```text
+> KORPÁS LÁSZLÓ            BAKOS ÉVA
+> ├── JOGI                 ├── JOGI
+> │   ├── MAGYARORSZÁG     │   ├── MAGYARORSZÁG
+> │   ├── NÉMETORSZÁG      │   └── NÉMETORSZÁG
+> │   └── USA              ├── PÉNZÜGY
+> ├── PÉNZÜGY              │   ├── MAGYARORSZÁG
+> │   ├── MAGYARORSZÁG     │   └── NÉMETORSZÁG
+> │   ├── NÉMETORSZÁG      └── HATÓSÁGOK
+> │   └── USA                  ├── MAGYARORSZÁG
+> └── HATÓSÁGOK                └── NÉMETORSZÁG
+>     ├── MAGYARORSZÁG
+>     ├── NÉMETORSZÁG
+>     └── USA
+> ```
 
 ### 12–13. Személyes projektek és a MARVIN projekt
 
@@ -285,8 +317,22 @@ nézete** kezelje.
 ### 28. Mappák generálása
 
 Kötelezően létrejön: a fő gyökérmappák, a személyek, a cégek, az alapstruktúra.
-A mélyebb mappák (`JOGI / USA`) **szükség szerint** jönnek létre, nem üresen
-előre.
+
+> **BOSS FELÜLÍRÁSA (2026-08-21):** a pont eredeti megfogalmazása
+> (`JOGI / USA` csak szükség szerint) **NEM érvényes.** A teljes vázat **előre ki
+> kell bontani, végig** – beleértve az országszinteket is, mindkét személynél,
+> mind a három országot viselő kategóriában. Indok: az ügyek ténylegesen
+> léteznek mindhárom országban, és a felhasználó azt akarja, hogy a hely **már
+> ott legyen**, amikor keres vagy lerak valamit.
+>
+> A „szükség szerint" elv csak arra marad érvényben, ami **nem a vázhoz**
+> tartozik: konkrét **ügymappák** (`NÉMETORSZÁG / BÍRÓSÁG / 2024-es per`),
+> konkrét **projektek**, konkrét **repók**, konkrét **cégek**. Ezeket továbbra
+> sem találja ki Marvin előre.
+>
+> A teljes, előre generált váz nagyságrendje ettől is kezelhető marad: két
+> személy × 11 kategória + 3 × országbontás + a főágak ≈ néhány tucat mappa,
+> nem több száz.
 
 ### 29. Nyelv
 
@@ -336,15 +382,18 @@ Az ember azt kérdezi: „Hol vannak Laci fotói?" – nem azt, hogy „melyik D
 ```text
 F:\Marveen
 ├── KORPÁS LÁSZLÓ
-│   ├── IDENTITÁS / SZEMÉLYES / CSALÁD / PÉNZÜGY / JOGI / HATÓSÁGOK
-│   ├── OTTHON / MUNKA / EGÉSZSÉG / DIGITÁLIS
+│   ├── IDENTITÁS / SZEMÉLYES / CSALÁD / OTTHON / MUNKA / EGÉSZSÉG / DIGITÁLIS
+│   ├── JOGI       → MAGYARORSZÁG, NÉMETORSZÁG, USA
+│   ├── PÉNZÜGY    → MAGYARORSZÁG, NÉMETORSZÁG, USA
+│   ├── HATÓSÁGOK  → MAGYARORSZÁG, NÉMETORSZÁG, USA
 │   └── PROJEKTEK
 │       └── MARVIN
 │           ├── TUDÁSBÁZIS / TOVÁBBI ANYAGOK
 │           └── FEJLESZTÉS
 │               ├── TUDÁSBÁZIS / TOVÁBBI ANYAGOK
 │               └── GIT_REPOS / Marvin
-├── BAKOS ÉVA            (ugyanaz a teljes szerkezet, üresen is)
+├── BAKOS ÉVA            (ugyanaz a teljes szerkezet, üresen is;
+│                         országok: MAGYARORSZÁG, NÉMETORSZÁG)
 ├── CÉGEK
 │   └── FREEBERISCHEAPER
 │       ├── CÉGES ÜGYEK / LEVELEZÉS / TUDÁSBÁZIS / PÉNZÜGY
