@@ -6,7 +6,7 @@
 //   ELET/<Nev>/DOKUMENTUMOK   <- amit a felhasznalo lat
 //   drive/<fiok>/<mappa>      <- ahol a Drive-szinkron TENYLEG tartja
 //   fotok/<fiok>              <- ahol a Google Photos kepei allnak
-//   projektek/<repo>          <- ahol a git repo van
+//   RENDSZER/GIT/<repo>      <- ahol a git repo van
 //
 // Ha ezeket ATMASOLNANK a fa ala, ket peldany lenne mindenbol, es a
 // Drive-szinkron a masikat irna. Ha viszont csak LINKELNENK a fajlrendszerben,
@@ -29,7 +29,7 @@ const STORE_PATH = join(STORE_DIR, 'life-mounts.json')
 export interface LifeMount {
   /**
    * Hol latszik a faban -- a DEPO gyokerehez kepest, per-jellel.
-   * Peldaul: `ÉLET/Kovács Anna/MÉDIA/FOTÓK`.
+   * Peldaul: `MÉDIA/Kovács Anna/FOTÓK`.
    */
   rel: string
   /**
@@ -141,8 +141,8 @@ export function removeMount(rel: string): MountResult {
 /**
  * Egy fa-beli utvonal leforditasa valodi helyre.
  *
- * A LEGHOSSZABB illeszkedo bekotes nyer: ha `ÉLET/X` es `ÉLET/X/Y` is be van
- * kotve, egy `ÉLET/X/Y/z.pdf` a masodikhoz tartozik. Ez nem elmeleti eset --
+ * A LEGHOSSZABB illeszkedo bekotes nyer: ha `X` es `X/Y` is be van
+ * kotve, egy `X/Y/z.pdf` a masodikhoz tartozik. Ez nem elmeleti eset --
  * eppen ilyen lesz egy szemely dokumentum-Drive-ja alatt egy kulon
  * media-Drive.
  *
@@ -166,7 +166,7 @@ export function resolveMount(rel: string): { target: string; mount: LifeMount } 
  * Visszafele: egy VALODI hely -> a fa-beli utvonal, ha bekotesen at latszik.
  *
  * Erre az athelyezes utan van szukseg: a felhasznalonak azt kell visszakapnia,
- * amit a kepernyon lat (`ÉLET/...`), nem azt, hogy `drive/lackor2/...`. A
+ * amit a kepernyon lat (`Kovács Anna/...`), nem azt, hogy `drive/lackor2/...`. A
  * legHOSSZABB celt valasztjuk ugyanazert, amiert oda is.
  */
 export function unresolveMount(target: string): string | null {

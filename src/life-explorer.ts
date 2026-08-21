@@ -99,7 +99,7 @@ export interface LifeEntry {
 
 export interface LifeListing {
   rel: string
-  /** Emberi utvonal a cimsorba (`D:\Marveen\ÉLET\...`). */
+  /** Emberi utvonal a cimsorba (`F:\Marveen\Kovács Anna\...`). */
   display: string
   /** Kattinthato morzsak: [{ name, rel }], a gyokerrel kezdve. */
   breadcrumb: Array<{ name: string; rel: string }>
