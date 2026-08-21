@@ -33,7 +33,8 @@ import {
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
 import { logger } from './logger.js'
-import { lifeHint, PERSON_HINT, COMPANY_HINT, SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT } from './life-hints.js'
+import { lifeHint, PERSON_HINT, COMPANY_HINT, SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT,
+  DEV_KNOWLEDGE_HINT, DEV_MORE_HINT } from './life-hints.js'
 
 /**
  * Az Intezo gyokere: maga a DEPO, nem az eletfa.
@@ -353,8 +354,16 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
   // A SUGO rakotese. A mappa neve alapjan keressuk vissza a gepi kulcsot, igy
   // a szemely alatti `Otthon` es a ceg alatti `Fejlesztes` is megkapja a
   // magyarazatat, barhol is all a faban.
+  // A `Fejlesztés` ALATT ket mappa neve beture azonos a projekt/ceg szintjen
+  // allokeval (17. pont: ket kulon reteg). Ott mas sugo jar, kulonben a
+  // felulet ket egyforma sort mutat, es a felhasznalo duplikaciot lat.
+  const devAlatt = base.rel.endsWith(lifeName('development', APP_LANG))
+
   for (const f of folders) {
-    const h = lifeHint(lifeKeyForName(f.name))
+    const kulcs = lifeKeyForName(f.name)
+    if (devAlatt && kulcs === 'knowledgeBase') { f.hint = DEV_KNOWLEDGE_HINT; continue }
+    if (devAlatt && kulcs === 'moreMaterial') { f.hint = DEV_MORE_HINT; continue }
+    const h = lifeHint(kulcs)
     if (h) { f.hint = h; continue }
     // A szemely- es cegmappak neve nem fix, ezert a tabla nem talalja oket.
     // A helyuk viszont elarulja, mik: a gyokerben szemely, a Cegek alatt ceg.

@@ -70,13 +70,13 @@ const HINTS: Record<string, string> = {
   correspondence:
     'akikkel leveleztek: ügyfelek, beszállítók, hatóságok, könyvelő, ajánlatok',
   knowledgeBase:
-    'ahogy a cég dolgozik: folyamatleírások, belső szabályzatok, sablonok, oktatóanyagok, gyakori kérdések',
+    'ahogy ez működik: folyamatleírások, szabályzatok, sablonok, oktatóanyagok, gyakori kérdések',
   moreMaterial:
     'ami nem fért a többibe: prezentációk, tanulmányok, fordítások, jegyzőkönyvek, vegyes anyagok',
   website:
     'a weboldal háttere: tárhely-adatok, domain, arculat, szövegek, látogatottsági kimutatások',
   development:
-    'a fejlesztés: GIT_REPOS, specifikációk, hibajegyek, tesztjegyzőkönyvek, verziók',
+    'a fejlesztés helye: a GIT_REPOS-ban a valódi repók, mellette a belőlük készült összefoglalók',
   marketing:
     'ami kifelé megy: kampányok, hirdetések, közösségi média, hírlevelek, arculati elemek',
   gitRepos:
@@ -112,6 +112,19 @@ export const PERSON_HINT =
   'egy ember teljes anyaga: iratok, pénzügy, egészség, munka, otthon'
 export const COMPANY_HINT =
   'egy cég teljes anyaga: céges ügyek, levelezés, pénzügy, weboldal, fejlesztés'
+
+/**
+ * A FEJLESZTES ALATTI tudasbazis es tovabbi anyagok.
+ *
+ * Ugyanaz a nevuk, mint a projekt/ceg szintjen allonak -- a specifikacio 17.
+ * pontja szerint szandekosan ket kulon reteg. Amit a felhasznalo lat, az
+ * viszont ket egyforma nev egymas alatt; a sugo feladata megmondani, melyik
+ * melyik, mert atnevezni nem szabad (minden utat es bekotest eltorne).
+ */
+export const DEV_KNOWLEDGE_HINT =
+  'a REPÓK dokumentációjából készült összefoglaló — nem ugyanaz, mint a projekt fölötte lévő Tudásbázisa'
+export const DEV_MORE_HINT =
+  'a fejlesztéshez tartozó vegyes anyag: specifikációk, hibajegyek, tesztjegyzőkönyvek, verziók'
 
 /**
  * A PELDA-agak sugoja: mondja meg, mit kezdjen veluk.

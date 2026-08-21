@@ -13,7 +13,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import { defaultLifeConfig, SAMPLE_PERSON, SAMPLE_COMPANY, lifeName, lifeKeyForName } from '../life-tree.js'
-import { lifeHint, lifeHints, PERSON_HINT, COMPANY_HINT, SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT } from '../life-hints.js'
+import {
+  lifeHint, lifeHints, PERSON_HINT, COMPANY_HINT,
+  SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT,
+  DEV_KNOWLEDGE_HINT, DEV_MORE_HINT,
+} from '../life-hints.js'
 
 describe('friss telepites alapstrukturaja', () => {
   it('a tulajdonos MELLETT ad egy pelda szemelyt es egy pelda ceget', () => {
@@ -69,5 +73,26 @@ describe('a sugok teljessege', () => {
     // Spec 21/23: jelszo, API-kulcs, token SOHA nem kerul a fába.
     expect(lifeHint('digital')).toMatch(/jelszó soha/)
     expect(lifeHint('digitalServices')).toMatch(/jelszó soha/)
+  })
+})
+
+describe('a ket egyforma nevu Tudasbazis szetvalasztasa', () => {
+  // A `Fejlesztés` alatt es a projekt/ceg szintjen is all `Tudásbázis` es
+  // `További anyagok` -- a specifikacio 17. pontja szerint ket kulon reteg,
+  // de a nevuk beture azonos. Aki a kepernyot nezi, duplikaciot lat. Ezert a
+  // ket helyen KULONBOZO sugonak kell allnia.
+  it('a fejlesztes alatti sugo mas, mint a projekt szintjen allo', () => {
+    expect(DEV_KNOWLEDGE_HINT).not.toBe(lifeHint('knowledgeBase'))
+    expect(DEV_MORE_HINT).not.toBe(lifeHint('moreMaterial'))
+  })
+
+  it('a fejlesztesi tudasbazis kimondja, hogy nem ugyanaz', () => {
+    expect(DEV_KNOWLEDGE_HINT).toMatch(/nem ugyanaz/)
+  })
+
+  it('a szint-fuggetlen sugok nem beszelnek cegrol', () => {
+    // Ugyanez a mappa egy SZEMELYES projekt (Marvin) alatt is all.
+    expect(lifeHint('knowledgeBase')).not.toMatch(/cég/)
+    expect(lifeHint('moreMaterial')).not.toMatch(/cég/)
   })
 })
