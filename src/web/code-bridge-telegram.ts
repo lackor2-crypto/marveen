@@ -33,6 +33,18 @@ const TG_LIMIT = 3800
 let timer: NodeJS.Timeout | null = null
 let stopped = false
 let running = false
+// Grows only while the API keeps refusing us. A bad token answers instantly, so
+// without this the "retry in a second" loop turns one typo into a log flood
+// that buries every other warning in the file.
+const POLL_MIN_MS = 1000
+const POLL_MAX_MS = 60_000
+let backoffMs = POLL_MIN_MS
+
+/** Exported for the test: the delay after n consecutive failures. */
+export function nextBackoffMs(current: number, ok: boolean): number {
+  if (ok) return POLL_MIN_MS
+  return Math.min(current * 2, POLL_MAX_MS)
+}
 
 // ---- offset persistence -------------------------------------------------
 
@@ -242,11 +254,17 @@ async function pollOnce(): Promise<void> {
   const resp = await fetch(url, { signal: AbortSignal.timeout((LONGPOLL_SEC + 15) * 1000) })
   if (!resp.ok) {
     const body = await resp.text().catch(() => '')
+    backoffMs = nextBackoffMs(backoffMs, false)
     // 409 means another poller holds this token. Loud, because it silently
-    // eats every command until resolved.
-    logger.warn({ status: resp.status, body: body.slice(0, 200) }, 'code-bot: getUpdates failed')
+    // eats every command until resolved -- but backed off, because a permanent
+    // 401/404 would otherwise repeat this line every second forever.
+    logger.warn(
+      { status: resp.status, body: body.slice(0, 200), retryInMs: backoffMs },
+      'code-bot: getUpdates failed',
+    )
     return
   }
+  backoffMs = POLL_MIN_MS
   const data = (await resp.json()) as { ok: boolean; result?: TgUpdate[] }
   if (!data.ok || !Array.isArray(data.result)) return
 
@@ -281,10 +299,11 @@ async function loop(): Promise<void> {
   try {
     await pollOnce()
   } catch (err) {
-    logger.warn({ err }, 'code-bot: poll error')
+    backoffMs = nextBackoffMs(backoffMs, false)
+    logger.warn({ err, retryInMs: backoffMs }, 'code-bot: poll error')
   } finally {
     running = false
-    if (!stopped) timer = setTimeout(() => void loop(), 1000)
+    if (!stopped) timer = setTimeout(() => void loop(), backoffMs)
   }
 }
 
@@ -293,6 +312,7 @@ export function startCodeBotPoller(): boolean {
   if (!CODE_BRIDGE_ENABLED || !CODE_BOT_TOKEN) return false
   if (timer) return true
   stopped = false
+  backoffMs = POLL_MIN_MS
   logger.info('code-bot: Telegram poller started (dedicated /code bot)')
   void loop()
   return true

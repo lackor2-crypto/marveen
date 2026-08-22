@@ -522,11 +522,67 @@ export interface CompleteInput {
   numTurns?: number | null
 }
 
-export function completeCodeTask(id: string, input: CompleteInput, now = Date.now()): CodeTask | null {
+/**
+ * What happened to a result that arrived for a task nobody is waiting for any
+ * more. The worker cannot be interrupted mid-run (the CLI has no remote stop),
+ * so a result for a CANCELLED or already-finished task is normal traffic, not a
+ * fault -- but it must not overwrite the outcome the owner already saw.
+ */
+export type LateResultOutcome = 'accepted' | 'cancelled' | 'already-final' | 'foreign-host'
+
+export interface CompleteOutcome {
+  task: CodeTask | null
+  outcome: LateResultOutcome
+}
+
+/**
+ * Record the worker's result.
+ *
+ * The status guard is the point. Without it a result posted after the owner
+ * cancelled flipped the task back to 'done' and fired a "finished" ping for
+ * work that was called off -- and a result from a worker whose lease had
+ * already been reaped could overwrite the answer of the worker that took over.
+ * A late result is still KEPT (it is real work, and /result should show it),
+ * but it never rewrites a decided status.
+ */
+export function completeCodeTaskDetailed(
+  id: string,
+  input: CompleteInput,
+  now = Date.now(),
+  reportingHost?: string | null,
+): CompleteOutcome {
   ensureTables()
   const existing = getCodeTask(id)
-  if (!existing) return null
+  if (!existing) return { task: null, outcome: 'accepted' }
   const result = input.result ?? null
+
+  // Cancelled by the owner while the CLI was still running: keep the result for
+  // /result, keep the status the owner was told.
+  if (existing.status === 'cancelled') {
+    getDb()
+      .prepare(`UPDATE code_tasks SET result = COALESCE(result, ?), summary = COALESCE(summary, ?) WHERE id = ?`)
+      .run(result, result ? summarizeResult(result) : null, id)
+    return { task: getCodeTask(id), outcome: 'cancelled' }
+  }
+
+  // Already decided (a duplicate POST, or a retry after a lost response):
+  // idempotent, and above all no second notification.
+  if (existing.status === 'done' || existing.status === 'error') {
+    return { task: existing, outcome: 'already-final' }
+  }
+
+  // The lease was reaped and another host took the task over. The old worker's
+  // answer belongs to a run nobody is waiting for; taking it would report the
+  // WRONG run's output as this task's result.
+  if (
+    reportingHost &&
+    existing.status === 'running' &&
+    existing.host &&
+    existing.host !== reportingHost
+  ) {
+    return { task: existing, outcome: 'foreign-host' }
+  }
+
   getDb()
     .prepare(
       `UPDATE code_tasks
@@ -545,7 +601,12 @@ export function completeCodeTask(id: string, input: CompleteInput, now = Date.no
       now,
       id,
     )
-  return getCodeTask(id)
+  return { task: getCodeTask(id), outcome: 'accepted' }
+}
+
+/** Back-compat wrapper: the tests and older callers want just the task. */
+export function completeCodeTask(id: string, input: CompleteInput, now = Date.now()): CodeTask | null {
+  return completeCodeTaskDetailed(id, input, now).task
 }
 
 export function cancelCodeTask(id: string, now = Date.now()): CodeTask | null {

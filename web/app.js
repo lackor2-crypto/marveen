@@ -31170,6 +31170,33 @@ async function _intezoCfgSave() {
   }
   window._cbRefresh = cbRefresh
 
+  // ---- "ujrainditas utan lep eletbe" -> GOMB ---------------------------
+  //
+  // Boss (2026-08-16): "tegyel egy gombot oda a beallitasokba illetve minden
+  // ilyen helyre ahol ezt irjatok ki hogy ujrainditas utan lep eletbe."
+  //
+  // Ez a lap ot olyan beallitast ir, amit a config.ts INDULASKOR olvas be
+  // (`const`), tehat a mentes onmagaban semmit nem valtoztat a mukodesen. Egy
+  // FRISS telepitesen ez a kulonbseg dont: a bot-token mentese utan a Telegram
+  // ut addig halott, amig valaki ujra nem inditja a vezerlopultot -- es ha
+  // ehhez terminal kell, akkor a lap onmagaban nem elegendo.
+  //
+  // A gomb NEM all ott mindig: csak akkor jelenik meg, ha az elmentett ertek
+  // tenylegesen elter az eppen futotol. Igy nem szoktatja hozza a felhasznalot
+  // ahhoz, hogy egy ujrainditas-gomb csak dekoracio.
+  var _cbRestartState = { cbBotRestart: null, cbOpsRestart: null }
+
+  async function cbMountRestart(slotId, pending, note) {
+    const slot = document.getElementById(slotId)
+    if (!slot) return
+    // Ugyanaz az allapot -> hozza sem nyulunk. Kulonben minden Frissites
+    // ujraepitene a gombot, es egy eppen futo kattintas allapota elveszne.
+    if (_cbRestartState[slotId] === pending) return
+    _cbRestartState[slotId] = pending
+    if (!pending) { slot.innerHTML = ''; return }
+    await mountRestartButton(slot, note)
+  }
+
   async function cbLoadConfig() {
     let cfg = null
     try { cfg = await cbFetch('/api/code/config') } catch (e) { return }
@@ -31188,6 +31215,24 @@ async function _intezoCfgSave() {
         ? (cfg.live && cfg.live.botConfigured ? 'be van állítva' : 'elmentve — újraindítás után lép életbe')
         : 'nincs beállítva'
     }
+
+    // Kartyankent kulon: a bot-token mentese utan nem kell azt allitani, hogy
+    // a Mukodes-kartya is ujrainditasra var -- es forditva.
+    const live = cfg.live || {}
+    const botPending =
+      Boolean(cfg.botConfigured) !== Boolean(live.botConfigured) ||
+      String(cfg.CODE_BOT_ALLOWED_CHAT_IDS || '') !== String(live.allowedChatIds || '')
+    const opsPending =
+      (String(cfg.CODE_BRIDGE_ENABLED) === '1') !== Boolean(live.enabled) ||
+      String(cfg.CODE_PERMISSION_MODE || '') !== String(live.permissionMode || '') ||
+      String(cfg.CODE_BRIDGE_EXCLUDE || '') !== String(live.excluded || '')
+    // A `void` szandekos: a konfiguracio kirajzolasa nem varhat egy halozati
+    // korre, es a gomb sajat maga kezeli, ha a vezerlopult nem tudja magat
+    // ujrainditani (akkor megmondja, mit csinaljon helyette az ember).
+    void cbMountRestart('cbBotRestart', botPending,
+      'A mentés a vezérlőpult újraindítása után lép életbe — a kód-bot csak utána kezd figyelni.')
+    void cbMountRestart('cbOpsRestart', opsPending,
+      'A mentés a vezérlőpult újraindítása után lép életbe.')
   }
 
   window.loadCodeBridgePage = function () {

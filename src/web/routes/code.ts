@@ -23,7 +23,7 @@ import {
 import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
-  claimNextCodeTask, heartbeatCodeTask, completeCodeTask, cancelCodeTask,
+  claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS,
   type CodeTaskStatus, type CodeTaskOrigin,
@@ -38,6 +38,17 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
 function isLoopback(remote: string | undefined): boolean {
   return Boolean(remote && LOOPBACK.has(remote))
+}
+
+/** A malformed percent-escape ("%", "%zz") makes decodeURIComponent THROW, and
+ *  an uncaught throw in a route turns a bad URL into a 500 "Szerver hiba". The
+ *  raw segment is the honest fallback: it simply will not match any id. */
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return segment
+  }
 }
 
 async function parseJsonBody<T>(ctx: RouteContext): Promise<T | null> {
@@ -113,6 +124,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         enabled: CODE_BRIDGE_ENABLED,
         permissionMode: CODE_PERMISSION_MODE,
         botConfigured: CODE_BOT_TOKEN.length > 0,
+        allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,
+        excluded: CODE_BRIDGE_EXCLUDE,
       },
     })
     return true
@@ -204,7 +217,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
   const projectMatch = /^\/api\/code\/projects\/([^/]+)$/.exec(path)
   if (projectMatch && method === 'DELETE') {
-    const ok = deleteCodeSession(decodeURIComponent(projectMatch[1]!))
+    const ok = deleteCodeSession(safeDecode(projectMatch[1]!))
     json(res, { deleted: ok }, ok ? 200 : 404)
     return true
   }
@@ -314,7 +327,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
   const taskMatch = /^\/api\/code\/tasks\/([^/]+)(?:\/(heartbeat|result|cancel))?$/.exec(path)
   if (taskMatch) {
-    const rawId = decodeURIComponent(taskMatch[1]!)
+    const rawId = safeDecode(taskMatch[1]!)
     const action = taskMatch[2]
     const task = getCodeTask(rawId) ?? getCodeTaskByPrefix(rawId)
     if (!task) { json(res, { error: 'task not found' }, 404); return true }
@@ -334,18 +347,31 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     if (action === 'result' && method === 'POST') {
       if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
       const body = await parseJsonBody<{
-        ok?: boolean; result?: string; error?: string; costUsd?: number; durationMs?: number; numTurns?: number
+        ok?: boolean; result?: string; error?: string; costUsd?: number; durationMs?: number; numTurns?: number; host?: string
       }>(ctx)
       if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
-      const updated = completeCodeTask(task.id, {
+      // Reporting a result IS a sign of life -- and the one worker call that
+      // proves the executor got all the way through a job. Stamped here so the
+      // presence table matches what recordCodeWorkerSeen's own contract says.
+      const resHost = (body.host ?? '').trim() || null
+      if (resHost) recordCodeWorkerSeen(resHost, 'result')
+      const { task: updated, outcome } = completeCodeTaskDetailed(task.id, {
         ok: body.ok !== false && !body.error,
         result: body.result ?? null,
         error: body.error ?? null,
         costUsd: typeof body.costUsd === 'number' ? body.costUsd : null,
         durationMs: typeof body.durationMs === 'number' ? body.durationMs : null,
         numTurns: typeof body.numTurns === 'number' ? body.numTurns : null,
-      })
+      }, Date.now(), resHost)
       if (!updated) { json(res, { error: 'task not found' }, 404); return true }
+      if (outcome !== 'accepted') {
+        // A result for a task that was cancelled, already finished, or handed to
+        // another host. It is stored where it can do no harm, but announcing it
+        // would tell the owner a decision they made was undone.
+        logger.warn({ task: updated.id, outcome, status: updated.status }, 'code-bridge: late result not applied')
+        json(res, { ...updated, lateResult: outcome })
+        return true
+      }
       logger.info({ task: updated.id, status: updated.status }, 'code-bridge: task finished')
       // Not awaited: the worker must be free to pick up the next task even if
       // Telegram is slow or down, and the result is already durable.
@@ -355,6 +381,15 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }
 
     if (action === 'cancel' && method === 'POST') {
+      // The CLI has no remote stop: `claude.exe` is already mid-run on Windows
+      // and nothing here can interrupt it. Flipping the row to 'cancelled'
+      // would only make the dashboard lie -- and then the real result would
+      // arrive for a task the owner believes was called off. The Telegram bot
+      // has always answered this way; the REST surface now says the same thing.
+      if (task.status === 'running') {
+        json(res, { error: 'task is already running -- the CLI cannot be stopped remotely', task }, 409)
+        return true
+      }
       const updated = cancelCodeTask(task.id)
       json(res, updated)
       return true
@@ -364,7 +399,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // Convenience for the dashboard/CLI: the latest task of a project.
   const latestMatch = /^\/api\/code\/latest\/([^/]+)$/.exec(path)
   if (latestMatch && method === 'GET') {
-    const project = decodeURIComponent(latestMatch[1]!)
+    const project = safeDecode(latestMatch[1]!)
     const session = getCodeSession(project)
     const tasks = listCodeTasks({ project, limit: 1 })
     json(res, { session, task: tasks[0] ?? null })

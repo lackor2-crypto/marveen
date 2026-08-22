@@ -66,6 +66,14 @@ mindegyik külön címezhető. Nincs "aktuális session" fogalom sehol a kódban
 
 ## 3. Telepítés
 
+> **A gyors út: a `Kód-híd` lap.** A vezérlőpult bal oldalán, a RENDSZER
+> csoport tetején. Ott egy helyen van az állapot ("él-e a végrehajtó"), a
+> Windows-végrehajtó két letölthető fájlja, a **valódi útvonalakkal kiírt**
+> telepítő parancs (másoló gombbal), a bot-token, a projekt-tábla és a
+> feladatküldés. Az alábbi fejezetek ugyanezt írják le kézzel -- ha a lapot
+> használod, egyik sem kell.
+
+
 ### 3.1 Dedikált Telegram kód-bot (opcionális, de ez a Marvin-mentes út)
 
 Egy bot-tokent egyszerre egy `getUpdates` fogyasztó olvashat, és a fő bot
@@ -93,13 +101,24 @@ lehet közvetlenül feladni.
 | `CODE_BOT_ALLOWED_CHAT_IDS` | üres | vesszős lista; üresen csak a tulajdonos chatje |
 | `CODE_BRIDGE_EXCLUDE` | üres | vesszős alias-lista, amit a híd **soha nem** regisztrál és nem fogad el (pl. az az ablak, amelyikben épp beszélgetsz) |
 
+Mind az öt kulcs szerepel a beállítás-regiszterben, tehát a **Beállítások**
+lapon és a **Kód-híd** lapon is szerkeszthető -- fájlt szerkeszteni nem kell.
+A `CODE_BOT_TOKEN` titkosnak van jelölve: mentés után **soha nem megy vissza
+a böngészőbe**, a felület csak azt mondja meg, van-e beállítva. Mindegyik
+kulcs a vezérlőpult indulásakor olvasódik be, ezért mentés után **újraindítás**
+kell (a lap ezt ki is írja, nem tesz úgy, mintha már élne).
+
 `acceptEdits` és nem `bypassPermissions`: a fájlszerkesztést engedi (különben
 minden feladat elakadna egy meg nem válaszolható kérdésen), de a veszélyes
 műveleteknél marad a kapu. A `bypassPermissions` tudatos, kézi döntés legyen.
 
 ### 3.3 Windows worker
 
-A repóban: `scripts/windows/marvin-code-worker.ps1`. Másold a Windows-gépre
+A **Kód-híd** lapról mindkét fájl letölthető (`marvin-code-worker.ps1` és
+`.cmd`), és a lap kiírja a hozzájuk tartozó, erre a gépre szabott indító
+parancsot is -- se repót klónozni, se UNC-útvonalat gépelni nem kell.
+
+Kézzel: a repóban `scripts/windows/marvin-code-worker.ps1`. Másold a Windows-gépre
 (pl. `%USERPROFILE%\marvin-code-worker\`), és indítsd:
 
 ```powershell
@@ -206,6 +225,24 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 | `unknown project` | többértelmű vagy ismeretlen alias -- a válasz kiírja a jelölteket |
 | minden `/api/code/*` 503 | `CODE_BRIDGE_ENABLED=0` |
 | `code-bot: getUpdates failed 409` | ugyanazt a tokent másik poller olvassa (nem lehet a fő bot tokenje) |
+### A néma hibamód: áll a végrehajtó
+
+A hídnak **egyetlen** olyan hibája van, ami magától nem látszik: a Windows-oldali
+végrehajtó megáll. A feladatok ilyenkor szépen sorba állnak, a híd "be van
+kapcsolva", minden lap zölden mutat -- és semmi nem szól. (2026-08-22-én mérve:
+08-20 19:47 óta állt, és az egyetlen nyoma egy üres projekt-lista volt.)
+
+Ezért a végrehajtó minden bejelentkezése (felderítés, feladat-kivétel,
+életjel) rögzül a `code_workers` táblában, és ebből él két dolog:
+
+- `GET /api/code/health` -> `workerOnline`, `lastSeenAt`, `sessions`, `queued`,
+  `running`, `failed24h`, `done24h`. A **felderítés előtt** stemplünk: a nulla
+  sessiont jelentő worker is ÉLŐ worker, és éppen ez a különbség a diagnózis.
+- az **Áttekintés önellenőrzése**: `code_bridge_dead` / `code_bridge_never`
+  pirosan, a Kód-híd lapra kattintva; `code_bridge_ok` zölden, mert a hallgatás
+  megkülönböztethetetlen lenne a nem futó ellenőrzéstől. Arról a telepítésről,
+  ahol a hidat sosem indították el, egyik sem szól.
+
 | a feladat `queued` marad | worker áll; `schtasks /query /tn MarvinCodeWorker`, `worker.log` |
 | `loopback only` 403 | a worker nem a helyi gépről hív (proxy/távoli hívás) |
 | a válasz ékezetei romlanak | a PS 5.1 alap ISO-8859-1-et küldene; a worker ezért UTF-8 bájtokat POST-ol -- valószínűleg régi worker-példány fut |

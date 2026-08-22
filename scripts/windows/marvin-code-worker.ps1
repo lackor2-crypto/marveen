@@ -189,7 +189,18 @@ function Get-LocalSessions {
 function Publish-Sessions {
   $sessions = @(Get-LocalSessions)
   if (-not $sessions -or $sessions.Count -eq 0) {
-    Write-Log 'no local Claude Code sessions found' 'WARN'
+    # Report the EMPTY list instead of staying silent. A worker that runs but
+    # finds nothing is a completely different diagnosis from a worker that is
+    # gone -- and returning here left the server's presence row holding the
+    # session count of the last successful pass (COALESCE keeps it), so the
+    # page would still claim "3 projects" while the executor found none.
+    Write-Log 'no local Claude Code sessions found -- reporting empty list' 'WARN'
+    $emptyBody = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"sessions":[]}'
+    try {
+      Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $emptyBody | Out-Null
+    } catch {
+      Write-Log ('empty session report failed: ' + $_.Exception.Message) 'WARN'
+    }
     return
   }
   # ConvertTo-Json in PS 5.1 FLATTENS a one-element array into a bare object, so
@@ -213,8 +224,20 @@ function Resolve-ClaudeExe {
   throw 'claude.exe not found (not on PATH, not in %USERPROFILE%\.local\bin)'
 }
 
+# The permission mode arrives from the other side of the machine boundary and
+# goes straight onto a command line. CODE_PERMISSION_MODE is validated when it
+# is set from the dashboard, but a hand-edited .env is not checked anywhere --
+# and 'acceptEdits --dangerously-skip-permissions' would be two arguments, not
+# one. The executor validates what it is about to execute.
+$script:ALLOWED_MODES = @('acceptEdits', 'bypassPermissions', 'default', 'plan')
+
 function Invoke-CodeTask {
   param([Parameter(Mandatory = $true)]$Task, [string]$PermissionMode = 'acceptEdits')
+
+  if ($script:ALLOWED_MODES -notcontains $PermissionMode) {
+    Write-Log ("unknown permission mode '{0}' -- falling back to acceptEdits" -f $PermissionMode) 'WARN'
+    $PermissionMode = 'acceptEdits'
+  }
 
   $workspace = [string]$Task.workspacePath
   $sessionId = [string]$Task.sessionId
@@ -341,6 +364,10 @@ function Start-WorkerLoop {
           $result = @{ ok = $false; error = ('worker error: ' + $_.Exception.Message) }
           Write-Log ('task failed: ' + $_.Exception.Message) 'ERROR'
         }
+        # Name ourselves in the result too. It is what lets the server stamp
+        # worker presence on a completed job, and what lets it refuse a result
+        # from a worker whose lease was already handed to someone else.
+        $result['host'] = $script:HostId
         try {
           Invoke-Bridge -Path ('/api/code/tasks/' + $claim.task.id + '/result') -Method 'POST' -Body $result | Out-Null
           Write-Log ("task {0} reported back (ok={1})" -f $claim.task.id, $result.ok)

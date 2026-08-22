@@ -29,12 +29,16 @@ export function shortId(id: string): string {
 /** Pure: the exact text that goes out. Kept separate from the send so a test can
  *  assert the wording without touching the network. */
 export function buildCompletionMessage(task: CodeTask): string {
+  // "Kod-hid" is not decoration: this arrives in a chat that also carries
+  // Marvin's own messages, and without a subject the owner cannot tell what
+  // sent it or what it is about. (Asked verbatim on 2026-08-20: "Ezek mit
+  // jelentenek???")
   const head =
     task.status === 'done'
-      ? `✅ Kesz: ${task.project}`
+      ? `✅ Kod-hid: ${task.project} kesz`
       : task.status === 'error'
-        ? `❌ Hiba: ${task.project}`
-        : `⚠️ ${task.status}: ${task.project}`
+        ? `❌ Kod-hid: ${task.project} hiba`
+        : `⚠️ Kod-hid: ${task.project} ${task.status}`
   const lines = [head]
   const meta: string[] = []
   if (task.durationMs !== null) meta.push(formatDuration(task.durationMs))
@@ -43,7 +47,7 @@ export function buildCompletionMessage(task: CodeTask): string {
   if (meta.length) lines.push(meta.join(' · '))
   if (task.status === 'error' && task.error) lines.push(task.error.slice(0, 400))
   else if (task.summary) lines.push(task.summary)
-  lines.push(`/result ${shortId(task.id)}`)
+  lines.push(`Teljes eredmeny: /result ${shortId(task.id)}`)
   return lines.join('\n')
 }
 
