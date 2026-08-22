@@ -29769,10 +29769,25 @@ async function _intezoSavePhysical() {
  * „mappa bekotese" azt kerdezne, mit kotunk be.
  */
 let _intezoMenuEl = null
+/**
+ * Hanyadik menunyitas tart eppen.
+ *
+ * A megnyitas ASZINKRON (megvarja az adatlapot), ezert ket gyors jobb klikk
+ * egymasba fut: a masodik hivas bezarja az elsot MIELOTT az egyaltalan a
+ * lapra kerult volna, aztan mindketto beteszi magat. Igy volt latszik ket
+ * menu -- es a `_intezoMenuEl` mar csak az egyikre mutatott, a masik pedig
+ * KIZARHATATLANUL ott maradt a lapon (ezert nem tunt el kattintasra).
+ */
+let _intezoMenuSeq = 0
 
 function _intezoCloseMenu() {
-  if (_intezoMenuEl && _intezoMenuEl.parentNode) _intezoMenuEl.parentNode.removeChild(_intezoMenuEl)
+  // Az OSSZESET keressuk meg a lapon, nem csak azt, amit szamon tartunk: ha
+  // valahogy megis ottragadna egy arva menu, ez a sor akkor is eltakaritja.
+  document.querySelectorAll('.intezo-ctxmenu').forEach((el) => {
+    if (el.parentNode) el.parentNode.removeChild(el)
+  })
   _intezoMenuEl = null
+  _intezoMenuSeq++
 }
 
 /** Egy menupont. `veszelyes` = piros (torles). */
@@ -29804,13 +29819,26 @@ function _intezoMenuSep() {
 async function _intezoOpenMenu(ev, entry) {
   ev.preventDefault()
   _intezoCloseMenu()
+  const jegy = ++_intezoMenuSeq
 
   // ELOBB KIJELOLES. A Boss keresere: „persze elobb kivalasztas."
   // CSENDESEN: a jobb klikk menut ker, nem adatlapot. A „Részletes információ"
   // menupont nyitja ki, ha tenyleg az kell.
-  if (entry) { try { await _intezoInfo(entry.rel, true) } catch (e) {} }
+  if (entry) {
+    try { await _intezoInfo(entry.rel, true) } catch (e) {}
+    // A jobb klikk MENUT ker, nem adatlapot. A `quiet` csak azt ereti el, hogy
+    // ne NYISSA ki -- ha viszont mar nyitva volt egy korabbi bal kattintastol,
+    // ott maradt es a menu alatt ugrott at masik tetelre. Ezert csukjuk be:
+    // az adatlapot a „Részletes információ" menupont nyitja, semmi mas.
+    const kartya = document.getElementById('intezoInfoCard')
+    if (kartya) kartya.hidden = true
+  }
+  // Kozben inditottak egy ujabb menut? Akkor ez a hivas mar elkesett: NEM
+  // teszunk ki semmit. Enelkul ket menu kerulne a lapra.
+  if (jegy !== _intezoMenuSeq) return
 
   const m = document.createElement('div')
+  m.className = 'intezo-ctxmenu'
   // A szinek a style.css valtozoibol jonnek, hogy a menu vilagos es sotet
   // temaban is olvashato legyen. (Egy elirt valtozonev itt nemán sotet dobozt
   // ad -- lasd a 2026-08-22-i javitast.)
@@ -29855,6 +29883,10 @@ async function _intezoOpenMenu(ev, entry) {
 
   document.body.appendChild(m)
   _intezoMenuEl = m
+  // A menu SAJAT kattintasa ne csukja be azonnal a dokumentum-figyelon at --
+  // a menupontok maguk zarnak be, miutan lefutottak.
+  m.addEventListener('click', (e) => e.stopPropagation())
+  m.addEventListener('contextmenu', (e) => e.preventDefault())
   // Ne logjon ki a kepernyorol: ha a jobb also sarokban kattintott, a menu
   // befele nyilik.
   const r = m.getBoundingClientRect()
@@ -29867,6 +29899,10 @@ async function _intezoOpenMenu(ev, entry) {
 if (!window._intezoMenuBound) {
   window._intezoMenuBound = 1
   document.addEventListener('click', () => _intezoCloseMenu())
+  document.addEventListener('mousedown', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.intezo-ctxmenu')) return
+    _intezoCloseMenu()
+  })
   document.addEventListener('scroll', () => _intezoCloseMenu(), true)
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _intezoCloseMenu() })
 }
