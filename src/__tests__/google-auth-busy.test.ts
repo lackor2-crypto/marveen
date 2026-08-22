@@ -136,7 +136,10 @@ describe('a nevesitett kiut: force', () => {
     // (egy Event, egy "false" sztring), es minden elso kattintas kiloni valaki
     // mas folyamatat. A route `b.force === true`-t nez -- ezt itt kotjuk le.
     const route = readFileSync(join(ROOT, 'src', 'web', 'routes', 'connections.ts'), 'utf-8')
-    expect(route).toMatch(/startGoogleAuth\(id, \{ force: b\.force === true \}\)/)
+    // A minta a SZIGORU osszehasonlitast koti le, nem a hivas teljes alakjat:
+    // az opciok bovulhetnek (pl. `hint`), a `b.force === true` viszont nem
+    // lazulhat `b.force`-ra vagy `!!b.force`-ra.
+    expect(route).toMatch(/startGoogleAuth\(id, \{ force: b\.force === true[,}]/)
   })
 
   it('a valasz gepi mezoi eljutnak a bongeszoig', () => {

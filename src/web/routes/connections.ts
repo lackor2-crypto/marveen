@@ -38,7 +38,7 @@ import {
   invalidateGoogleProbe,
 } from '../google-auth-runner.js'
 import { suggestAccountId } from '../google-accounts.js'
-import { runGoogleLiveCheckOnce } from '../google-live-check.js'
+import { runGoogleLiveCheckOnce, markGoogleLiveOk } from '../google-live-check.js'
 import { credentialExpiries, worstExpiryStatus } from '../credential-expiry.js'
 import { systemHealth, worstHealthStatus } from '../system-health.js'
 import {
@@ -100,7 +100,13 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
   }
 
   if (path === '/api/connections/google/login' && method === 'GET') {
-    json(res, googleAuthStatus())
+    const st = googleAuthStatus()
+    // A jelszavas-beillesztes NELKULI ut (a bongeszo visszairanyitasa a helyi
+    // portra) itt jelenti be a sikert -- es sehol maserre nincs kapaszkodo.
+    // Ha nem konyvelnenk el, a friss fiok a kovetkezo oras meresig "halott"
+    // maradna a lapon, es a vegigvezeto ujra felajanlana.
+    if (st.phase === 'done' && st.accountId) markGoogleLiveOk(st.accountId)
+    json(res, st)
     return true
   }
 
@@ -114,10 +120,13 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
     const wanted = str(b.id).trim() || str(b.name).trim()
     if (!wanted) { json(res, { ok: false, error: 'Adj nevet vagy e-mail címet.' }, 400); return true }
     const id = suggestAccountId(wanted, str(b.id).trim() ? [] : taken)
+    // Uj fioknal a kezelo beirt cime a tipp: a tarolobol meg nincs mit
+    // elovenni. Meglevo fioknal a szkript a sajat mentett cimet hasznalja.
+    const hint = wanted.includes('@') ? wanted : ''
     // `force === true` SZIGORUAN: a felulet gombja fuggveny-nyilat kap, mert egy
     // atadott click-Event igaz-szeru, es minden elso kattintas kiloné valaki mas
     // futo bejelentkeztetesét (a script fix loopback-portot foglal).
-    const result = startGoogleAuth(id, { force: b.force === true })
+    const result = startGoogleAuth(id, { force: b.force === true, hint })
     json(res, result.ok
       ? { ok: true, id }
       // A foglaltsag GEPI mezokent utazik, hogy az oldal megnevezhesse a masik
@@ -131,6 +140,7 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
   if (path === '/api/connections/google/login/paste' && method === 'POST') {
     const b = await body(req)
     const result = await submitGooglePaste(str(b.value))
+    if (result.ok && result.accountId) markGoogleLiveOk(result.accountId)
     // `blocked` travels with the failure so the page can open the walkthrough
     // in the same beat, rather than waiting for the next status poll.
     json(res, result.ok ? { ok: true, savedAs: result.savedAs ?? null }

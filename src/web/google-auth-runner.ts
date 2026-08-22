@@ -329,7 +329,11 @@ function killFlow(): void {
  */
 export function startGoogleAuth(
   accountId: string,
-  opts: { force?: boolean } = {},
+  // `hint`: a CIM, amivel be kell jelentkezni. Uj fioknal a kezelo altal beirt
+  // e-mail; meglevonel a szkript maga veszi elo a tarolobol. Ettol a Google
+  // jovahagyo lapja eleve a helyes fiokot ajanlja, es nem egy tizelemu
+  // fiokvalasztobol kell eltalalni a jo sort.
+  opts: { force?: boolean; hint?: string } = {},
 ): { ok: boolean; error?: string; code?: 'busy'; busyAccountId?: string } {
   const id = (accountId || '').trim().toLowerCase()
   if (!isValidAccountId(id)) {
@@ -357,7 +361,14 @@ export function startGoogleAuth(
 
   let child: ReturnType<typeof spawn>
   try {
-    child = spawn(python(), [SCRIPT, 'auth', id], {
+    // A tipp csak akkor megy at, ha tenyleg cimnek latszik: a szkript
+    // argumentumkent kapja, es egy szemetre nem akarunk ra `login_hint`-et
+    // epiteni, amit a Google amugy is eldobna.
+    const hint = (opts.hint || '').trim()
+    const args = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hint)
+      ? [SCRIPT, 'auth', id, hint]
+      : [SCRIPT, 'auth', id]
+    child = spawn(python(), args, {
       cwd: PROJECT_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONUNBUFFERED: '1' },
@@ -454,7 +465,7 @@ export function googleAuthStatus(): GoogleAuthStatus {
  * say WHY (expired code, wrong link, revoked consent) instead of leaving the
  * page spinning.
  */
-export async function submitGooglePaste(value: string): Promise<{ ok: boolean; error?: string; blocked?: GoogleFailureKind; savedAs?: string | null }> {
+export async function submitGooglePaste(value: string): Promise<{ ok: boolean; error?: string; blocked?: GoogleFailureKind; savedAs?: string | null; accountId?: string }> {
   const mine = flow
   if (!mine || mine.finished) return { ok: false, error: 'Nincs futó Google-bejelentkeztetés.' }
   const paste = (value || '').trim()
@@ -504,7 +515,9 @@ export async function submitGooglePaste(value: string): Promise<{ ok: boolean; e
   invalidateGoogleProbe(savedAs ? undefined : mine.accountId)
   invalidateAccountList()
   logger.info({ accountId: savedAs || mine.accountId, requested: mine.accountId }, 'google-auth: account authorized')
-  return { ok: true, savedAs }
+  // A hivo elkonyveli a friss meresben; ehhez tudnia kell, MELYIK fiok lett
+  // kesz -- nem az, amit kertunk, hanem amelyik tenyleg megvan.
+  return { ok: true, savedAs, accountId: savedAs || mine.accountId }
 }
 
 /** Abandon the flow. The pending-state file is the script's to clean up; a

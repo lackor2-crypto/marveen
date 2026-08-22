@@ -550,6 +550,46 @@ export function googleAccountCount(storeDir: string = STORE_DIR): number {
   return Object.keys(d).filter(k => !k.startsWith('_')).length
 }
 
+/**
+ * Ket fiok UGYANARRA a cimre -- a nema hiba, ami 2026-08-22-en 10 fiokbol 17-et
+ * csinalt.
+ *
+ * Miert nem eleg megjavitani az okat: a duplikatum utolag is keletkezhet (regi
+ * telepites, kezi szerkesztes, egy jovobeli ut, amire nem gondoltunk), es
+ * ONMAGATOL sosem tunik el. Kozben valodi kart okoz: a beallitasok (Drive-
+ * szinkron, naptar, levelkuldes) a REGI kulcsra hivatkoznak, es az a slot
+ * halott tokent tart -- a felulet viszont ket zold fiokot mutat.
+ *
+ * Boss: "hogy amikor uj marveen t telepitenek akkor ne jojjon elo ez a hiba."
+ * A megelozes a szkriptben van (login_hint + cim szerinti slot-valasztas); ez
+ * itt az or, ami szol, ha megis eloall.
+ */
+export function googleDuplicateRows(storeDir: string = STORE_DIR): HealthRow[] {
+  const d = olvasJson<Record<string, unknown>>(join(storeDir, 'google-tokens.json'))
+  if (!d || typeof d !== 'object') return []
+  const cimek = new Map<string, string[]>()
+  for (const [kulcs, ertek] of Object.entries(d)) {
+    if (kulcs.startsWith('_') || !ertek || typeof ertek !== 'object') continue
+    const cim = String((ertek as Record<string, unknown>).email ?? '').trim().toLowerCase()
+    // Cim nelkuli rekordrol nem allithatjuk, hogy duplikatum: az vagy meg nem
+    // volt sikeres bejelentkezesen, vagy a cim-lekerdezes bukott el halozati
+    // hiban. Talalgatasbol nem szolalunk meg.
+    if (!cim) continue
+    const lista = cimek.get(cim)
+    if (lista) lista.push(kulcs)
+    else cimek.set(cim, [kulcs])
+  }
+  // A KULCSOKAT nevezzuk meg, nem a cimet: azokat kell osszevonni, es a
+  // `tisztaNev` a @-ot ugyis levagna. A nev lemezrol jon -> tisztitva megy a
+  // felulet fele (a params escape nelkul rendereodik).
+  const parok = [...cimek.values()]
+    .filter(k => k.length > 1)
+    .map(k => k.map(tisztaNev).filter(Boolean).join(' + '))
+    .filter(Boolean)
+  if (parok.length === 0) return []
+  return [{ id: 'google_dup', status: 'warn', params: { n: parok.length, names: parok.join(' · ') } }]
+}
+
 export function googleLiveRows(
   now: number = Date.now(),
   data: GoogleLiveAllapot | null = olvasJson<GoogleLiveAllapot>(join(STORE_DIR, GOOGLE_LIVE_FILE)),
@@ -597,6 +637,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...commandTaskRows(),
     ...mcpAuthRows(now),
     ...googleLiveRows(now),
+    ...googleDuplicateRows(),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

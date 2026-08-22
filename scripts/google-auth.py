@@ -157,6 +157,41 @@ def _token_email(tok):
         return None
 
 
+def _target_account(data, account, email):
+    """Melyik slotba kerul a friss token, es mit mondjunk rola.
+
+    Harom eset, ebben a sorrendben:
+      1. A CIMNEK mar van fiokja  -> oda. A fiok azonossaga a cim, nem a slot
+         neve. 2026-08-22-en ennek a hianya csinalt 17 fiokot 10-bol.
+      2. A kert slot MAS cime  -> uj kulcs. Felulirni valaki mas tokenjet a
+         legrosszabb kimenetel: a nev maradna, a hozzaferes nyom nelkul veszne.
+      3. Minden mas  -> a kert slot (uj fiok, vagy ugyanaz a cim).
+
+    Tisztan a bemenetbol dolgozik, halozat nelkul -- ezert lehet rola tesztet
+    irni, es ezert nem kell hozza tiz elo Google-fiok.
+    """
+    prev = data.get(account)
+    prev_email = prev.get("email") if isinstance(prev, dict) else None
+    # A cimeket kisbetusen vetjuk ossze: a Gmail nem tesz kulonbseget, es egy
+    # regen mas alakban mentett cim ugyanugy masodik slotot csinalna.
+    cel = (email or "").strip().lower()
+    if cel:
+        for k, v in data.items():
+            if k.startswith("_") or not isinstance(v, dict):
+                continue
+            if str(v.get("email") or "").strip().lower() == cel:
+                if k == account:
+                    return account, None
+                return k, (f"(a(z) {email} cimnek mar van fiokja: '{k}' -- oda mentem a friss "
+                           f"tokent, nem csinaltam masodikat)")
+    if (isinstance(prev, dict) and cel and prev_email
+            and str(prev_email).strip().lower() != cel):
+        uj = _free_key(_slugify(email), data)
+        return uj, (f"(figyelem: a(z) '{account}' fiok cime {prev_email}, most viszont {email} "
+                    f"jelentkezett be -- nem irtam felul, uj fiokkent mentem: '{uj}')")
+    return account, None
+
+
 def _free_key(base, data):
     """Szabad fiok-kulcs, a TS-oldali suggestAccountId-vel azonos nevezektan."""
     if base not in data:
@@ -198,16 +233,11 @@ def _exchange_code(code, account):
         # ellenorzes is orokre lefegyverezodne. Ha kivetelesen megis mas cim
         # volt, a kovetkezo ellenorzes (probe) amugy is a valodi cimet mutatja.
         tok["email"] = prev_email
-    # Ugyanabba a slotba MAS cimmel bejelentkezni (elgepelt fioknev, vagy a
-    # Google-fiokvalasztoban rossz sor) felulirna az elozo fiok tokenjet: a
-    # nev maradna, a cim kicserelodne, a regi hozzaferes pedig nyom nelkul
-    # elveszne. Ilyenkor nem irunk felul, hanem uj fiokkent mentjuk.
-    prev = data.get(account)
-    if isinstance(prev, dict) and email and prev_email and prev_email != email:
-        wanted = account
-        account = _free_key(_slugify(email), data)
-        print(f"(figyelem: a(z) '{wanted}' fiok cime {prev_email}, most viszont {email} jelentkezett be "
-              f"-- nem irtam felul, uj fiokkent mentem: '{account}')", file=sys.stderr)
+    # MELYIK slotba mentsunk: a szabalyok a _target_account-ban vannak, mert
+    # halozat nelkul is tesztelhetonek kell lenniuk.
+    account, uzenet = _target_account(data, account, email)
+    if uzenet:
+        print(uzenet, file=sys.stderr)
     is_first = not any(k != "_default" for k in data.keys())
     data[account] = tok
     if is_first:
@@ -218,21 +248,37 @@ def _exchange_code(code, account):
     print(f"OK: token mentve -> {TOKENS} (fiok='{account}')")
 
 
-def _build_url(account):
+def _build_url(account, hint=None):
     c = _load_client()
     state = secrets.token_urlsafe(16)
     json.dump({"state": state, "redirect_uri": REDIRECT, "account": account}, open(PENDING, "w"))
     os.chmod(PENDING, 0o600)
-    return state, AUTH_URI + "?" + urllib.parse.urlencode({
+    params = {
         "client_id": c["client_id"], "redirect_uri": REDIRECT, "response_type": "code",
         "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "state": state,
-    })
+    }
+    # MEGMONDJUK a Google-nak, MELYIK fiokrol van szo.
+    #
+    # Enelkul a jovahagyo lapon egy fiokvalaszto jon, es tiz bejelentkezett
+    # Google-fioknal a helyes sor kivalasztasa a felhasznalo emlekezeten mulik.
+    # Mert eset (2026-08-22): tiz ujracsatlakoztatasbol hetnel mas fiok tokenje
+    # erkezett vissza, mint amelyik slotot a varazslo epp inditotta. A
+    # `login_hint`-tel a Google eleve a kert fiokot ajanlja fel; ha a
+    # felhasznalo megis mast valaszt, a mentes mar a CIM szerinti slotba megy
+    # (lasd _exchange_code), tehat duplikatum akkor sem keletkezik.
+    if not hint:
+        rec = _load_tokens().get(account)
+        if isinstance(rec, dict) and isinstance(rec.get("email"), str):
+            hint = rec["email"]
+    if hint and "@" in hint:
+        params["login_hint"] = hint
+    return state, AUTH_URI + "?" + urllib.parse.urlencode(params)
 
 
-def cmd_auth(account):
+def cmd_auth(account, hint=None):
     account = account or _default_account() or sys.exit(
         "HIBA: elso fiok bekotesekor add meg a fiok nevet: google-auth.py auth <nev>")
-    state, url = _build_url(account)
+    state, url = _build_url(account, hint)
     print(f"NYISD MEG EZT A BONGESZOBEN es hagyd jova ({account} fiokhoz):\n", url, "\n", flush=True)
     holder = {}
     seen = {"requests": 0, "stray": 0, "mismatch": 0}
@@ -474,4 +520,7 @@ if __name__ == "__main__":
     elif cmd == "test":
         cmd_test(sys.argv[2] if len(sys.argv) > 2 else None)
     else:
-        cmd_auth(sys.argv[2] if len(sys.argv) > 2 else None)
+        # A harmadik argumentum a cim-tipp: uj fioknal a felhasznalo altal beirt
+        # e-mail cim, mert olyankor a tarolobol meg nincs mit elovenni.
+        cmd_auth(sys.argv[2] if len(sys.argv) > 2 else None,
+                 sys.argv[3] if len(sys.argv) > 3 else None)

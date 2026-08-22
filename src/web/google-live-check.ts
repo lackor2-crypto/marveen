@@ -133,6 +133,42 @@ export function runGoogleLiveCheckOnce(storeDir: string = STORE_DIR): Promise<Go
   return futoKor
 }
 
+/**
+ * Egy fiok azonnali "el"-re allitasa a mert allapotban.
+ *
+ * A meres oranként fut, es ez helyes: halalt egy sikeres bejelentkezes nem
+ * okoz, tehat varhatunk vele. A SIKER viszont nem varhat. Ha egy frissen
+ * ujracsatlakoztatott fiok a kovetkezo oraig "halott"-kent all a lapon, akkor
+ * az Attekintes piros sora tovabbra is felsorolja -- es a vegigvezeto ujra
+ * felajanlja azt, ami mar kesz. 2026-08-22-en pont ez tolta el a sorrendet:
+ * tiz fiokbol hetet mas slot inditasa kozben hagyott jova a Boss.
+ *
+ * Nem MER semmit: azt konyveli el, amit epp most bizonyitott egy sikeres
+ * token-csere. Ha nincs meg fajl, nem talalunk ki egyet -- egy ures meresbol
+ * "minden rendben" latszatot csinalni rosszabb lenne a nem-tudomnal.
+ */
+export function markGoogleLiveOk(accountId: string, storeDir: string = STORE_DIR): void {
+  const id = (accountId || '').trim()
+  if (!id) return
+  const data = readGoogleLiveCheck(storeDir)
+  if (!data) return
+  const sor = data.accounts.find(a => a.id === id)
+  if (sor) {
+    if (sor.ok) return
+    sor.ok = true
+    sor.kind = null
+  } else {
+    data.accounts.push({ id, ok: true, kind: null })
+  }
+  try {
+    writeAtomic(join(storeDir, GOOGLE_LIVE_FILE), data)
+  } catch (err) {
+    // Egy nem sikerult konyveles nem ronthatja el a bejelentkeztetest: a
+    // kovetkezo oras meres ugyis a valosagot irja felul.
+    logger.warn({ err, accountId: id }, 'google-live-check: nem sikerult elkonyvelni a sikeres bejelentkezest')
+  }
+}
+
 export function startGoogleLiveCheck(): NodeJS.Timeout | null {
   setTimeout(() => {
     runGoogleLiveCheck().catch(err => logger.warn({ err }, '[google-live] az elso kor nem sikerult'))
