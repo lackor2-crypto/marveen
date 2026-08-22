@@ -101,12 +101,21 @@ lehet közvetlenül feladni.
 | `CODE_BOT_ALLOWED_CHAT_IDS` | üres | vesszős lista; üresen csak a tulajdonos chatje |
 | `CODE_BRIDGE_EXCLUDE` | üres | vesszős alias-lista, amit a híd **soha nem** regisztrál és nem fogad el (pl. az az ablak, amelyikben épp beszélgetsz) |
 
-Mind az öt kulcs szerepel a beállítás-regiszterben, tehát a **Beállítások**
-lapon és a **Kód-híd** lapon is szerkeszthető -- fájlt szerkeszteni nem kell.
-A `CODE_BOT_TOKEN` titkosnak van jelölve: mentés után **soha nem megy vissza
-a böngészőbe**, a felület csak azt mondja meg, van-e beállítva. Mindegyik
-kulcs a vezérlőpult indulásakor olvasódik be, ezért mentés után **újraindítás**
-kell (a lap ezt ki is írja, nem tesz úgy, mintha már élne).
+Mind az öt kulcs szerepel a beállítás-regiszterben, tehát fájlt szerkeszteni
+egyikhez sem kell. Négy közülük a **Beállítások** lapon és a **Kód-híd** lapon
+is szerkeszthető; a `CODE_BOT_TOKEN` viszont titkosnak van jelölve, ezért
+csak a **Kód-híd lapon** állítható:
+
+- a `GET /api/settings` válaszából a **teljes sora kimarad** (nem maszkolt
+  érték: már az is információ lenne, hogy a kulcs létezik és be van állítva),
+- a `POST /api/settings` ugyanarra a kulcsra `403`-at ad,
+- mentés után **soha nem megy vissza a böngészőbe** -- a felület csak azt
+  mondja meg, van-e beállítva.
+
+Mindegyik kulcs a vezérlőpult **indulásakor** olvasódik be, ezért mentés után
+újraindítás kell. A lap ezt nemcsak kiírja: **gombot is ad hozzá**, és a gomb
+csak akkor jelenik meg, ha az elmentett érték tényleg eltér a futótól -- így
+nem szoktat hozzá ahhoz, hogy egy újraindítás-gomb csak dekoráció.
 
 `acceptEdits` és nem `bypassPermissions`: a fájlszerkesztést engedi (különben
 minden feladat elakadna egy meg nem válaszolható kérdésen), de a veszélyes
@@ -225,6 +234,12 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 | `unknown project` | többértelmű vagy ismeretlen alias -- a válasz kiírja a jelölteket |
 | minden `/api/code/*` 503 | `CODE_BRIDGE_ENABLED=0` |
 | `code-bot: getUpdates failed 409` | ugyanazt a tokent másik poller olvassa (nem lehet a fő bot tokenje) |
+| a feladat `queued` marad | worker áll; `schtasks /query /tn MarvinCodeWorker`, `worker.log` |
+| `loopback only` 403 | a worker nem a helyi gépről hív (proxy/távoli hívás) |
+| a válasz ékezetei romlanak | a PS 5.1 alap ISO-8859-1-et küldene; a worker ezért UTF-8 bájtokat POST-ol -- valószínűleg régi worker-példány fut |
+| megszakítottam, mégis megjött az eredmény | ez rendben van: a futó CLI-t nem lehet leállítani. A feladat `cancelled` marad, de az eredményt megőrizzük -- `/result <id>` mutatja |
+| a `cancel` 409-cel válaszol | a feladat már fut. Csak `queued` állapotban törölhető |
+
 ### A néma hibamód: áll a végrehajtó
 
 A hídnak **egyetlen** olyan hibája van, ami magától nem látszik: a Windows-oldali
@@ -242,10 +257,6 @@ Ezért a végrehajtó minden bejelentkezése (felderítés, feladat-kivétel,
   pirosan, a Kód-híd lapra kattintva; `code_bridge_ok` zölden, mert a hallgatás
   megkülönböztethetetlen lenne a nem futó ellenőrzéstől. Arról a telepítésről,
   ahol a hidat sosem indították el, egyik sem szól.
-
-| a feladat `queued` marad | worker áll; `schtasks /query /tn MarvinCodeWorker`, `worker.log` |
-| `loopback only` 403 | a worker nem a helyi gépről hív (proxy/távoli hívás) |
-| a válasz ékezetei romlanak | a PS 5.1 alap ISO-8859-1-et küldene; a worker ezért UTF-8 bájtokat POST-ol -- valószínűleg régi worker-példány fut |
 
 ## 8. Korlátok, amikkel együtt kell élni
 
