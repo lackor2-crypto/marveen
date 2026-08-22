@@ -21,6 +21,7 @@ import { renameSharedCredentialsIfSafe, fleetTokenBootPass } from './web/claude-
 import { startWebServer } from './web.js'
 import { logger } from './logger.js'
 import { startGitSync } from './git-sync.js'
+import { startGoogleLiveCheck } from './web/google-live-check.js'
 import { startInviteMonitor, stopInviteMonitor } from './web/channel-invites.js'
 import { ensureDiscordChannelGroup } from './web/discord-group-bootstrap.js'
 import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/channel-request-watcher.js'
@@ -368,6 +369,7 @@ function releaseLock(): void {
 // acquireLock wrote the pidfile -- we still need to drop the heartbeat /
 // digest timers and release the pidfile on the way out).
 let gitSyncInterval: NodeJS.Timeout | null = null
+let googleLiveInterval: NodeJS.Timeout | null = null
 let decayInterval: NodeJS.Timeout | null = null
 let digestTimer: NodeJS.Timeout | null = null
 let digestInterval: NodeJS.Timeout | null = null
@@ -388,6 +390,7 @@ const shutdown = (): void => {
     try { stopChannelRequestWatcher() } catch (err) { logger.warn({ err }, 'stopChannelRequestWatcher threw during shutdown') }
     try { stopStoreWatcher() } catch (err) { logger.warn({ err }, 'stopStoreWatcher threw during shutdown') }
     if (gitSyncInterval) clearInterval(gitSyncInterval)
+    if (googleLiveInterval) clearInterval(googleLiveInterval)
     if (decayInterval) clearInterval(decayInterval)
     if (digestTimer) clearTimeout(digestTimer)
     if (digestInterval) clearInterval(digestInterval)
@@ -454,6 +457,11 @@ async function main(): Promise<void> {
   // ahol van a mapparendszerben. mind szinkronizaljon automatan". Sose ir
   // felul helyi munkat -- lasd `git-sync.ts`.
   gitSyncInterval = startGitSync()
+
+  // Az elo Google-ellenorzes. Enelkul a hozzaferes ugy tud meghalni, hogy
+  // senki nem kerdezi meg a Google-t -- 2026-08-22-en pontosan ez tortent,
+  // mind a 10 fiokkal, egesz napon at, nemán.
+  googleLiveInterval = startGoogleLiveCheck()
 
   // Memory decay (24h cycle)
   runDecaySweep()

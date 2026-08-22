@@ -93,6 +93,32 @@ describe('a lejarat kiszamolasa', () => {
     expect(googleAccountExpiries(NOW, dir)).toEqual([])
   })
 
+  // 2026-08-22: mind a 10 fiok `invalid_grant`-ot adott, a kartya kozben
+  // "ok, 08-29-ig ervenyes"-t irt. Ok: a `saved_at` az ACCESS tokene, es
+  // orankent ujraindult -- vagyis a REFRESH token hatarideje minden egyes
+  // frissiteskor egy hettel elore ugrott, es a figyelmezteto sav SOHA nem
+  // jott el. A refresh token sajat szuletesnapja most kulon mezo.
+  it('az access-token frissitese NEM tolja el a refresh-token hatarideit', () => {
+    writeTokens({
+      lackor2: {
+        refresh_token: 'X',
+        refresh_saved_at: Math.floor((NOW - 6 * NAP) / 1000), // hat napja kaptuk
+        saved_at: Math.floor((NOW - 60_000) / 1000),          // az access egy perce ujult
+        refresh_token_expires_in: HET,
+      },
+    })
+    const [row] = googleAccountExpiries(NOW, dir)
+    expect(row.status).toBe('soon')   // a regi szamolas 'ok'-ot mondott
+    expect(row.daysLeft).toBe(0)
+  })
+
+  it('a regi, refresh_saved_at nelkuli bejegyzes meg olvashato marad', () => {
+    // Visszafele kompatibilitas: ami a mezo elott keletkezett, csak a
+    // `saved_at`-ot hozza -- azt hasznaljuk, mert mas szam nincs benne.
+    writeTokens({ lackor2: tokenRec(6 * NAP) })
+    expect(googleAccountExpiries(NOW, dir)[0].status).toBe('soon')
+  })
+
   it('a masodperc es a milliszekundum is helyesen ertelmezodik', () => {
     const mp = { refresh_token: 'X', saved_at: Math.floor((NOW - NAP) / 1000), refresh_token_expires_in: HET }
     const ms = { refresh_token: 'X', saved_at: NOW - NAP, refresh_token_expires_in: HET }

@@ -38,6 +38,7 @@ import {
   invalidateGoogleProbe,
 } from '../google-auth-runner.js'
 import { suggestAccountId } from '../google-accounts.js'
+import { runGoogleLiveCheckOnce } from '../google-live-check.js'
 import { credentialExpiries, worstExpiryStatus } from '../credential-expiry.js'
 import { systemHealth, worstHealthStatus } from '../system-health.js'
 import {
@@ -141,6 +142,19 @@ export async function tryHandleConnections(ctx: RouteContext): Promise<boolean> 
   if (path === '/api/connections/google/login/cancel' && method === 'POST') {
     cancelGoogleAuth()
     json(res, { ok: true })
+    return true
+  }
+
+  // "Futtasd le most." Az onellenorzes sora ezt hivja, ha az elo Google-kor
+  // meg sosem futott le, vagy megallt: a felhasznalonak nem kell megvarnia a
+  // kovetkezo orat, es nem kell terminalhoz nyulnia. A valasz a friss kor --
+  // ugyanaz, amit a hatterfutas irt volna ki.
+  if (path === '/api/connections/google/live-check' && method === 'POST') {
+    try {
+      json(res, { ok: true, result: await runGoogleLiveCheckOnce() })
+    } catch (err) {
+      json(res, { ok: false, error: String((err as Error)?.message || err) }, 500)
+    }
     return true
   }
 

@@ -73,6 +73,16 @@ function statusFor(now: number, expiresAt: number): ExpiryStatus {
  * refresh tokens do not expire, and inventing a deadline for them would be a
  * permanent false alarm. Null is also the answer for a record with no refresh
  * token at all -- there is nothing to keep alive.
+ *
+ * WHICH CLOCK -- measured 2026-08-22, when all ten accounts answered
+ * `invalid_grant` while this card read "ok, 08-29-ig". `saved_at` is the ACCESS
+ * token's timestamp and moves every hour; adding the REFRESH token's lifetime
+ * to it pushed the deadline a week into the future on every refresh, so the
+ * warning band could never be reached and the whole watcher was decorative.
+ * `refresh_saved_at` is the refresh token's own birthday, written only when
+ * Google actually issues or re-measures one. Records from before that field
+ * existed fall back to `saved_at` -- the old, too-optimistic reading, but the
+ * only number they carry; the fallback disappears at the next sign-in.
  */
 function entryExpiry(
   now: number, id: string, label: string, raw: unknown,
@@ -80,7 +90,8 @@ function entryExpiry(
   if (!raw || typeof raw !== 'object') return null
   const rec = raw as Record<string, unknown>
   if (typeof rec.refresh_token !== 'string' || !rec.refresh_token) return null
-  const savedAt = typeof rec.saved_at === 'number' ? rec.saved_at : null
+  const savedAt = typeof rec.refresh_saved_at === 'number' ? rec.refresh_saved_at
+    : typeof rec.saved_at === 'number' ? rec.saved_at : null
   const lifetime = typeof rec.refresh_token_expires_in === 'number'
     ? rec.refresh_token_expires_in : null
   if (savedAt === null || lifetime === null || lifetime <= 0) return null

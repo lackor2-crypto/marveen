@@ -39,6 +39,18 @@ if mode == 'no-network':
     def _boom(url, data):
         raise AssertionError('HALOZAT: refresh-kerest inditott, pedig nem kellett volna')
     mod._post = _boom
+elif mode == 'rotate':
+    # A Google UJ refresh tokent adott vissza -- ilyenkor van uj szuletesnap.
+    mod._post = lambda url, data: {
+        'access_token': 'frissitett-access', 'expires_in': 3599,
+        'refresh_token': 'uj-rt', 'refresh_token_expires_in': 604799,
+    }
+elif mode == 'remaining':
+    # Nincs uj refresh token, de a Google megmondja, mennyi van meg hatra.
+    mod._post = lambda url, data: {
+        'access_token': 'frissitett-access', 'expires_in': 3599,
+        'refresh_token_expires_in': 86400,
+    }
 else:
     mod._post = lambda url, data: {'access_token': 'frissitett-access', 'expires_in': 3599}
 
@@ -65,7 +77,7 @@ function seed(record: Record<string, unknown>): void {
   writeFileSync(TOKENS, JSON.stringify({ _default: 'munka', munka: record }, null, 2))
 }
 
-function token(mode: 'no-network' | 'network'): string {
+function token(mode: 'no-network' | 'network' | 'rotate' | 'remaining'): string {
   return execFileSync('python3', [DRIVER_PATH, SCRIPT, TOKENS, mode, 'munka'], { encoding: 'utf-8' }).trim()
 }
 
@@ -117,5 +129,42 @@ describe('google-auth.py token: no refresh while the token is good', () => {
   it('an empty access_token is not "still valid"', () => {
     seed({ refresh_token: 'rt', access_token: '', expires_in: 3600, saved_at: NOW() })
     expect(token('network')).toBe('frissitett-access')
+  })
+})
+
+// 2026-08-22: all ten accounts answered `invalid_grant` while the overview card
+// showed them healthy "until 08-29". An hourly access refresh was bumping the
+// one timestamp the expiry watcher measures from, so the REFRESH token's
+// deadline slid a week forward every hour and the warning band was never
+// reached. The two clocks are now separate; these tests hold them apart.
+describe('google-auth.py token: the refresh token has its own clock', () => {
+  const HET_ELOTT = () => NOW() - 6 * 24 * 60 * 60
+
+  it('a sima access-frissites nem nyul a refresh-token szuletesnapjahoz', () => {
+    const born = HET_ELOTT()
+    seed({ refresh_token: 'rt', access_token: 'lejart', expires_in: 3600, saved_at: NOW() - 4000,
+      refresh_saved_at: born, refresh_token_expires_in: 604799 })
+    expect(token('network')).toBe('frissitett-access')
+    expect(Number(stored().saved_at)).toBeGreaterThanOrEqual(NOW() - 5) // az access ORAJA jar
+    expect(Number(stored().refresh_saved_at)).toBe(born)                // a masik NEM
+    expect(stored().refresh_token).toBe('rt')
+  })
+
+  it('rotacional viszont uj refresh token ES uj szuletesnap kerul be', () => {
+    seed({ refresh_token: 'regi-rt', access_token: 'lejart', expires_in: 3600, saved_at: NOW() - 4000,
+      refresh_saved_at: HET_ELOTT(), refresh_token_expires_in: 604799 })
+    expect(token('rotate')).toBe('frissitett-access')
+    expect(stored().refresh_token).toBe('uj-rt')
+    expect(Number(stored().refresh_saved_at)).toBeGreaterThanOrEqual(NOW() - 5)
+  })
+
+  it('a hatralevo elettartambol a hatarido magatol helyre all', () => {
+    // Nincs rotacio, de a Google megmondta: meg 1 nap. A hatarido ettol MOSTHOZ
+    // kepest egy nap -- akkor is, ha a tarolt ertek regen elcsuszott.
+    seed({ refresh_token: 'rt', access_token: 'lejart', expires_in: 3600, saved_at: NOW() - 4000,
+      refresh_saved_at: HET_ELOTT(), refresh_token_expires_in: 604799 })
+    expect(token('remaining')).toBe('frissitett-access')
+    expect(stored().refresh_token_expires_in).toBe(86400)
+    expect(Number(stored().refresh_saved_at)).toBeGreaterThanOrEqual(NOW() - 5)
   })
 })

@@ -16871,12 +16871,34 @@ async function renderOverviewConnections() {
   const health = (d.health && Array.isArray(d.health.items)) ? d.health.items : []
   for (const h of health) {
     if (h.status === 'ok') continue
+    // A "nem el a Google-hozzaferes" sor MEGNEVEZI a fiokokat -- azokat kell
+    // egyesevel ujracsatlakoztatni, es a vegigvezeto ezt HELYBEN elvegzi.
+    // Boss, 2026-08-22: "es ha most ez problema akkor az onnellenorzes
+    // szoljon es vezessen vegig a folyamaton hogy mit kell csinalni. linkek
+    // kel. [...] csak vezesse vegig a komuvesunket a folyamaton.
+    // hulyebiztosan!"
+    const glNames = String((h.params && h.params.names) || '')
     rows.push({
       label: t('health.' + h.id, h.params || {}),
       desc: t('health.' + h.id + '_action'),
       // A bejelentkezes sora nem a Fiokok oldalra dob, hanem oda, ahol
-      // ELVEGEZHETO: a varazslo bejelentkezteto lepesere.
-      onclick: h.id.startsWith('claude_auth_') ? 'openClaudeLoginStep()' : null,
+      // ELVEGEZHETO: a varazslo bejelentkezteto lepesere. Ugyanez all a
+      // "meg sosem futott / megallt" sorra: az nem teendo, hanem egy gomb --
+      // itt helyben lefuttatjuk a merest.
+      onclick: h.id.startsWith('claude_auth_')
+        ? 'openClaudeLoginStep()'
+        : (h.id === 'google_live_never' || h.id === 'google_live_stale')
+          ? 'runGoogleLiveCheckNow()'
+          : null,
+      guide: h.id === 'google_live_bad'
+        ? {
+          id: 'google:live',
+          label: glNames,
+          status: 'expired',
+          live: true,
+          accounts: glNames.split(',').map(x => x.trim()).filter(Boolean),
+        }
+        : null,
     })
   }
 
@@ -16916,6 +16938,12 @@ async function renderOverviewConnections() {
   // magatol ertetodonek latszana, hiaba nem huzott le semmit senki.
   const gok = health.find(h => h.id === 'git_pull_ok')
   if (gok) greenRows.push({ label: t('health.git_pull_ok', gok.params || {}), desc: t('health.git_pull_ok_action') })
+  // Az elo Google-ellenorzes zold sora. Enelkul pontosan az az allapot allna
+  // vissza, ami 2026-08-22-en egesz nap fennallt: tiz halott hozzaferes, es a
+  // kartya zolden azt allitja, minden rendben. A zold sor kimondja, hogy
+  // valaki TENYLEGESEN megkerdezte a Google-t, es mikor.
+  const glok = health.find(h => h.id === 'google_live_ok')
+  if (glok) greenRows.push({ label: t('health.google_live_ok', glok.params || {}), desc: t('health.google_live_ok_action') })
   paint(TONES.ok, greenRows)
 }
 
@@ -17153,6 +17181,268 @@ document.addEventListener('DOMContentLoaded', () => {
 // megint itt all, es azt hiszi, nem mukodott.
 function _guideOverlay() { return document.getElementById('selfCheckGuideOverlay') }
 
+// === "Futtasd le most" =======================================================
+//
+// A "meg sosem futott" / "megallt" sor nem teendo, hanem gomb. Ha a
+// felhasznalot ilyenkor a Fiokok oldalra dobnank, pont azt kellene kitalalnia,
+// amit mi mar tudunk: hogy mit kell megnyomni.
+let _googleLiveCheckRunning = false
+
+async function runGoogleLiveCheckNow() {
+  if (_googleLiveCheckRunning) { showToast(t('conn.live_running'), 4000); return }
+  _googleLiveCheckRunning = true
+  // Tiz fiok tiz python-inditas: ez fel percig is eltarthat, es a hallgatas
+  // pont ugy nezne ki, mint egy nem mukodo gomb.
+  showToast(t('conn.live_running'), 30000)
+  let d
+  try {
+    const res = await fetch('/api/connections/google/live-check', { method: 'POST' })
+    d = await res.json()
+  } catch (err) {
+    _googleLiveCheckRunning = false
+    showToast(t('conn.live_failed', { msg: String(err.message || err) }), 8000)
+    return
+  }
+  _googleLiveCheckRunning = false
+  if (!d || !d.ok) {
+    showToast(t('conn.live_failed', { msg: (d && d.error) || '' }), 8000)
+    return
+  }
+  const accounts = (d.result && Array.isArray(d.result.accounts)) ? d.result.accounts : []
+  const rossz = accounts.filter(a => a && a.ok === false)
+  showToast(rossz.length
+    ? t('conn.live_done_bad', { n: rossz.length, all: accounts.length })
+    : t('conn.live_done_ok', { n: accounts.length }), 8000, rossz.length === 0)
+  renderOverviewConnections()
+}
+
+// === Helyben elvegzett ujracsatlakoztatas =====================================
+//
+// Boss, 2026-08-22: "vagy ha auth tal akor adjon kodot linket amit a
+// bongeszobe kell megnyitni es visszakapok kodot. mindegy. csak vezesse vegig
+// a komuvesunket a folyamaton. hulyebiztosan!"
+//
+// Ezert a "Gyors megoldas" ful mar NEM azt mondja, hogy menj at a Fiokok
+// oldalra es keresd meg a sort -- hanem itt, ebben az ablakban vegigviszi az
+// egeszet: indit, ad egy linket, elveszi a visszakapott cimet, es a vegen
+// megkerdezi a szervert, hogy tenyleg sikerult-e. Tobb fiok eseten egyesevel,
+// szamlaloval, mert tiz halott hozzaferesnel a "csatlakoztasd ujra" onmagaban
+// nem elvegezheto utasitas.
+let _guideAuth = null
+let _guideAuthPoll = null
+
+/** Melyik fiokokat kell ujracsatlakoztatni ehhez a sorhoz. Ures lista =
+ *  ez a sor nem fiokrol szol (pl. a regi, egyfiokos levelkuldo token). */
+function _guideAccountIds(target) {
+  if (!target) return []
+  if (Array.isArray(target.accounts) && target.accounts.length) {
+    return target.accounts.map(x => String(x).trim()).filter(Boolean)
+  }
+  const id = String(target.id || '')
+  if (id === 'google:legacy' || !id.startsWith('google:')) return []
+  return [id.slice('google:'.length)]
+}
+
+function _guideAuthStopPoll() {
+  if (_guideAuthPoll) { clearInterval(_guideAuthPoll); _guideAuthPoll = null }
+}
+
+function _guideAuthPanelHtml() {
+  const st = _guideAuth
+  if (!st) return ''
+  const id = st.accounts[st.idx] || ''
+  const name = escapeHtml(id)
+  const total = st.accounts.length
+  const head = total > 1
+    ? `<div class="guide-auth-progress">${escapeHtml(t('guide.auth_progress', { i: st.idx + 1, n: total, name: id }))}</div>`
+    : ''
+
+  if (st.phase === 'done') {
+    const doneMsg = st.savedAs && st.savedAs !== id
+      ? t('guide.auth_done_saved', { name: st.savedAs })
+      : t('guide.auth_done_one', { name: id })
+    const btn = (st.idx + 1 < total) ? t('guide.auth_next_btn') : t('guide.auth_verify_btn')
+    return `${head}<div class="guide-result good">${escapeHtml(doneMsg)}</div>
+      <div class="guide-auth-actions"><button class="btn-primary" onclick="guideAuthNext()">${escapeHtml(btn)}</button></div>`
+  }
+
+  if (st.phase === 'failed') {
+    // A Google elutasitasa nem "nem sikerult": egy oka van es egy javitasa,
+    // es barmi altalanosabbat mondani azt jelenti, hogy a felhasznalo olyat
+    // probal ujra, ami nem tud sikerulni.
+    const body = st.blocked === 'test-user'
+      ? `<div class="guide-result bad">${t('guide.auth_blocked')}</div>
+         <div class="guide-auth-actions">
+           <a class="btn-primary" href="${escapeHtml(_guideConsoleUrl())}" target="_blank" rel="noopener">${escapeHtml(t('guide.auth_blocked_btn'))}</a>
+           <button onclick="guideAuthStart(false)">${escapeHtml(t('guide.auth_retry_btn'))}</button>
+         </div>`
+      : `<div class="guide-result bad">${escapeHtml(t('guide.auth_failed', { msg: st.error || '' }))}</div>
+         <div class="guide-auth-actions">
+           <button class="btn-primary" onclick="guideAuthStart(false)">${escapeHtml(t('guide.auth_retry_btn'))}</button>
+           ${st.canForce ? `<button onclick="guideAuthStart(true)">${escapeHtml(t('guide.auth_force_btn'))}</button>` : ''}
+         </div>`
+    return head + body
+  }
+
+  if (st.phase === 'consent' && st.url) {
+    // A link HAROM alakban all ott: gomb (egy kattintas), masolas gomb, es egy
+    // kijelolheto mezo. A masolas gomb ugyanis nem biztonsagos kapcsolaton nem
+    // mukodik, es egy nem mukodo gomb itt zsakutca lenne.
+    return `${head}
+      <div class="guide-auth-lead">${t('guide.auth_link_lead', { name })}</div>
+      <div class="guide-auth-actions">
+        <a class="btn-primary" href="${escapeHtml(st.url)}" target="_blank" rel="noopener">${escapeHtml(t('guide.auth_open_btn'))}</a>
+        <button onclick="guideAuthCopy()">${escapeHtml(t('guide.auth_copy_btn'))}</button>
+      </div>
+      <input id="guideAuthUrl" class="guide-auth-url" readonly value="${escapeHtml(st.url)}" onclick="this.select()">
+      <div class="guide-auth-lead">${t('guide.auth_paste_lead')}</div>
+      <div class="guide-auth-actions">
+        <input id="guideAuthPasteInput" class="guide-auth-input" placeholder="${escapeHtml(t('guide.auth_paste_ph'))}">
+        <button class="btn-primary" onclick="guideAuthPasteSubmit()">${escapeHtml(t('guide.auth_paste_btn'))}</button>
+      </div>`
+  }
+
+  if (st.phase === 'starting' || st.phase === 'saving') {
+    const msg = st.phase === 'saving' ? t('guide.auth_saving') : t('guide.auth_starting')
+    return `${head}<div class="guide-auth-lead">${escapeHtml(msg)}</div>`
+  }
+
+  return `${head}<div class="guide-auth-actions">
+      <button class="btn-primary" onclick="guideAuthStart(false)">${escapeHtml(t('guide.auth_start_btn'))}</button>
+    </div>`
+}
+
+function _renderGuideAuth() {
+  const el = document.getElementById('guideAuthPanel')
+  if (!el) return
+  // A beirt szoveget nem szabad ujrarajzolassal elvenni: a poll masodpercenkent
+  // fut, a beillesztes meg eltarthat.
+  const keep = document.getElementById('guideAuthPasteInput')
+  const kept = keep ? keep.value : ''
+  el.innerHTML = _guideAuthPanelHtml()
+  const inp = document.getElementById('guideAuthPasteInput')
+  if (inp && kept) inp.value = kept
+}
+
+async function guideAuthStart(force) {
+  const st = _guideAuth
+  if (!st || st.busy) return
+  const id = st.accounts[st.idx]
+  if (!id) return
+  st.busy = true; st.phase = 'starting'; st.url = ''; st.error = ''; st.blocked = null; st.canForce = false
+  _renderGuideAuth()
+  let d
+  try {
+    const res = await fetch('/api/connections/google/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // `force` SZIGORUAN logikai: egy atadott click-Event igaz-szeru lenne, es
+      // minden elso kattintas kiloné valaki mas futo bejelentkeztetéset.
+      body: JSON.stringify({ id, force: force === true }),
+    })
+    d = await res.json()
+  } catch (err) {
+    st.busy = false; st.phase = 'failed'; st.error = String(err.message || err); _renderGuideAuth(); return
+  }
+  st.busy = false
+  if (!d || !d.ok) {
+    st.phase = 'failed'
+    if (d && d.code === 'busy') {
+      // Megnevezett kiut, nem zsakutca: megmondjuk, KI futtat epp egyet, es
+      // felajanljuk, hogy megszakitjuk.
+      st.error = t('guide.auth_busy', { who: (d && d.busyAccountId) || '?' })
+      st.canForce = true
+    } else {
+      st.error = (d && d.error) || t('common.error_save')
+    }
+    _renderGuideAuth(); return
+  }
+  _guideAuthStopPoll()
+  _guideAuthPoll = setInterval(_guideAuthTick, 2000)
+  _guideAuthTick()
+}
+
+async function _guideAuthTick() {
+  const st = _guideAuth
+  if (!st) { _guideAuthStopPoll(); return }
+  let s
+  try { s = await (await fetch('/api/connections/google/login')).json() } catch { return }
+  if (s.projectId) _selfCheckProjectId = s.projectId
+  if (s.url) st.url = s.url
+  if (s.phase === 'done') {
+    _guideAuthStopPoll()
+    st.phase = 'done'; st.done[st.accounts[st.idx]] = true; st.savedAs = s.savedAs || null
+    _renderGuideAuth(); renderOverviewConnections(); return
+  }
+  if (s.phase === 'failed') {
+    _guideAuthStopPoll()
+    st.phase = 'failed'; st.blocked = s.blocked || null; st.error = s.error || ''
+    _renderGuideAuth(); return
+  }
+  if (!s.active) {
+    // A szerver mar nem futtat semmit, es nem mondott se sikert, se hibat --
+    // vissza a kiindulashoz, hogy legyen mit megnyomni.
+    _guideAuthStopPoll()
+    if (st.phase !== 'done') st.phase = 'idle'
+    _renderGuideAuth(); return
+  }
+  st.phase = s.phase === 'consent' ? 'consent' : 'starting'
+  _renderGuideAuth()
+}
+
+async function guideAuthCopy() {
+  const st = _guideAuth
+  if (!st || !st.url) return
+  try {
+    await navigator.clipboard.writeText(st.url)
+    showToast(t('guide.auth_copied'), 4000, true)
+  } catch {
+    // Nem biztonsagos kapcsolaton nincs vagolap-API. Ilyenkor kijeloljuk a
+    // mezot: onnan Ctrl+C-vel elviheto.
+    const el = document.getElementById('guideAuthUrl')
+    if (el) { el.focus(); el.select() }
+  }
+}
+
+async function guideAuthPasteSubmit() {
+  const st = _guideAuth
+  const inp = document.getElementById('guideAuthPasteInput')
+  if (!st || !inp || st.busy) return
+  const value = inp.value.trim()
+  if (!value) { inp.focus(); return }
+  st.busy = true; st.phase = 'saving'; _renderGuideAuth()
+  let d
+  try {
+    const res = await fetch('/api/connections/google/login/paste', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value }),
+    })
+    d = await res.json()
+  } catch (err) {
+    st.busy = false; st.phase = 'failed'; st.error = String(err.message || err); _renderGuideAuth(); return
+  }
+  st.busy = false
+  if (!d || !d.ok) {
+    st.phase = 'failed'; st.blocked = (d && d.blocked) || null; st.error = (d && d.error) || ''
+    _renderGuideAuth(); return
+  }
+  _guideAuthStopPoll()
+  st.phase = 'done'; st.done[st.accounts[st.idx]] = true; st.savedAs = d.savedAs || null
+  _renderGuideAuth()
+  renderOverviewConnections()
+}
+
+function guideAuthNext() {
+  const st = _guideAuth
+  if (!st) return
+  if (st.idx + 1 < st.accounts.length) {
+    st.idx += 1
+    st.phase = 'idle'; st.url = ''; st.error = ''; st.blocked = null; st.savedAs = null; st.canForce = false
+    _renderGuideAuth()
+    return
+  }
+  selfCheckGuideVerify()
+}
+
 /** A Cloud Console pontosan arra a projektre nyilik, amelyiket eleziteni kell. */
 function _guideConsoleUrl() {
   return _selfCheckProjectId
@@ -17175,6 +17465,20 @@ function _guideSteps() {
       { html: t('guide.perm_3') },
       { html: t('guide.perm_4') },
       { html: t('guide.perm_5') },
+    ]
+  }
+  // Ha tudjuk, MELYIK fiokrol van szo, akkor nem kuldjuk sehova: itt helyben
+  // vegigmegyunk a bejelentkeztetésen. Ez az egyetlen ut, ami egy olyan
+  // felhasznalonak is vegigvihető, aki terminalt nem nyit meg.
+  const ids = _guideAccountIds(_selfCheckGuideTarget)
+  if (ids.length) {
+    return [
+      {
+        html: ids.length > 1
+          ? t('guide.auth_intro_many', { n: ids.length, name: escapeHtml(ids.join(', ')) })
+          : t('guide.auth_intro_one', { name: escapeHtml(ids[0]) }),
+        auth: true,
+      },
     ]
   }
   return legacy
@@ -17205,8 +17509,14 @@ function _renderGuide() {
   const name = _selfCheckGuideTarget ? _selfCheckGuideTarget.label : ''
   lead.textContent = _selfCheckGuideTab === 'permanent'
     ? t('guide.lead_permanent')
-    : t('guide.lead_quick', { name })
-  stepsEl.innerHTML = _guideSteps().map((s) => {
+    : _guideAuth
+      ? t('guide.lead_auth')
+      : t('guide.lead_quick', { name })
+  const steps = _guideSteps()
+  stepsEl.innerHTML = steps.map((s) => {
+    // Az interaktiv lepes tartalma nem itt keletkezik: a poll masodpercenkent
+    // frissiti, ezert sajat, ujrarajzolhato dobozt kap.
+    if (s.auth) return `<li>${s.html}<div id="guideAuthPanel" class="guide-auth"></div></li>`
     let btn = ''
     if (s.btn && s.btn.href) {
       btn = `<a class="btn-primary" href="${escapeHtml(s.btn.href)}" target="_blank" rel="noopener">${escapeHtml(s.btn.label)}</a>`
@@ -17217,16 +17527,26 @@ function _renderGuide() {
     // jeloli benne a kepernyon lathato gombfeliratot -- ezert megy be HTML-kent.
     return `<li>${s.html}${btn ? `<div>${btn}</div>` : ''}</li>`
   }).join('')
+  if (steps.some(x => x.auth)) _renderGuideAuth()
 }
 
 function openSelfCheckGuide(target) {
   _selfCheckGuideTarget = target || null
   _selfCheckGuideTab = 'quick'
+  // Minden nyitas tiszta lappal indul: egy felbehagyott korabbi folyamat
+  // allapota a legrosszabbkor -- egy masik fioknal -- jonne vissza.
+  _guideAuthStopPoll()
+  const ids = _guideAccountIds(_selfCheckGuideTarget)
+  _guideAuth = ids.length
+    ? { accounts: ids, idx: 0, done: {}, phase: 'idle', url: '', error: '', blocked: null, savedAs: null, busy: false, canForce: false }
+    : null
   const titleEl = document.getElementById('selfCheckGuideTitle')
   if (titleEl) {
-    titleEl.textContent = (target && target.status === 'soon')
-      ? t('guide.title_soon', { name: target.label })
-      : t('guide.title_expired', { name: target ? target.label : '' })
+    titleEl.textContent = (target && target.live)
+      ? t('guide.title_live')
+      : (target && target.status === 'soon')
+        ? t('guide.title_soon', { name: target.label })
+        : t('guide.title_expired', { name: target ? target.label : '' })
   }
   _renderGuide()
   const ov = _guideOverlay()
@@ -17237,6 +17557,11 @@ function openSelfCheckGuide(target) {
 }
 
 function closeSelfCheckGuide() {
+  // A szerveren futo bejelentkeztetést NEM szakitjuk meg: a bezaras lehet
+  // veletlen is, es egy felig kesz folyamat eldobasa itt tobbet artana.
+  // Csak a lekerdezest allitjuk le, kulonben a hattérben orokke ketmasodpercenkent
+  // kerdezne a szervert egy lathatatlan ablak.
+  _guideAuthStopPoll()
   const ov = _guideOverlay()
   if (!ov) return
   ov.hidden = true
@@ -17255,6 +17580,11 @@ async function selfCheckGuideVerify() {
   result.hidden = false
   result.className = 'guide-result'
   result.textContent = t('guide.checking')
+  if (_selfCheckGuideTarget && _selfCheckGuideTarget.live) {
+    // Eloszor UJRAMERUNK. A tarolt eredmeny akar egy oras is lehet -- eppen az
+    // most csatlakoztatott fiokot mutatna halottnak.
+    try { await fetch('/api/connections/google/live-check', { method: 'POST' }) } catch { /* a lenti osszefoglalo ugyis kimondja */ }
+  }
   let d
   try {
     const res = await fetch('/api/connections/summary')
@@ -17263,6 +17593,23 @@ async function selfCheckGuideVerify() {
   } catch {
     result.className = 'guide-result bad'
     result.textContent = t('conn.ov_unreachable')
+    return
+  }
+  // Az elo sor ellenorzese nem az orabol jon: ott eppen az volt a baj, hogy az
+  // ora rendben volt, kozben a Google elutasitott mindent. Ezert itt UJRA
+  // megkerdezzuk a Google-t, es azt mondjuk vissza, amit valaszolt.
+  if (_selfCheckGuideTarget && _selfCheckGuideTarget.live) {
+    const acc = (d.health && Array.isArray(d.health.items)) ? d.health.items : []
+    const bad = acc.find(x => x.id === 'google_live_bad')
+    const okrow = acc.find(x => x.id === 'google_live_ok')
+    renderOverviewConnections()
+    if (bad) {
+      result.className = 'guide-result bad'
+      result.textContent = t('guide.verify_live_bad', { n: (bad.params && bad.params.n) || 0, names: (bad.params && bad.params.names) || '' })
+    } else {
+      result.className = 'guide-result good'
+      result.textContent = t('guide.verify_live_ok', { n: (okrow && okrow.params && okrow.params.n) || 0 })
+    }
     return
   }
   const items = (d && d.expiry && Array.isArray(d.expiry.items)) ? d.expiry.items : []

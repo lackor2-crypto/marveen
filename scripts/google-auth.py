@@ -177,6 +177,16 @@ def _exchange_code(code, account):
     if "refresh_token" not in tok:
         sys.exit("HIBA: nem jott refresh_token. A Google-fioknal vond vissza a Marveen hozzaferest, majd ujra 'auth'.")
     tok["saved_at"] = int(time.time())
+    # KET KULON ORA, mert ket kulon dolog jar le (2026-08-22, mert hiba):
+    #   saved_at         -- az ACCESS token mentese; oranként ujul (cmd_token).
+    #   refresh_saved_at -- maga a REFRESH token szuletese; csak ITT, es a
+    #                       rotacional (cmd_token). Ebbol szamol a lejarat-
+    #                       figyelo (src/web/credential-expiry.ts).
+    # Amig egyetlen ora volt, minden access-frissites 7 nappal elore tolta a
+    # refresh-token hataridejet is, igy a figyelo SOHA nem tudott szolni: a
+    # tar "ma 00:00-kor mentve, 08-29-ig ervenyes"-t mutatott, a Google kozben
+    # invalid_grant-tal utasitotta el mind a 10 fiokot.
+    tok["refresh_saved_at"] = tok["saved_at"]
     data = _load_tokens()
     email = _token_email(tok)
     prev_email = data.get(account, {}).get("email") if isinstance(data.get(account), dict) else None
@@ -363,6 +373,22 @@ def cmd_token(account):
     })
     t.update({k: fresh[k] for k in ("access_token", "expires_in") if k in fresh})
     t["saved_at"] = int(time.time())
+    # A REFRESH token hatarideje itt csak akkor mozdul, ha a Google tenylegesen
+    # mondott rola valamit. Egy access-frissites onmagaban NEM fiatalitja meg a
+    # refresh tokent -- ezt hittuk korabban, es ezert nem szolt semmi.
+    if fresh.get("refresh_token"):
+        # Rotacio: uj refresh token, uj szuletesnap.
+        t["refresh_token"] = fresh["refresh_token"]
+        t["refresh_saved_at"] = t["saved_at"]
+        if isinstance(fresh.get("refresh_token_expires_in"), int):
+            t["refresh_token_expires_in"] = fresh["refresh_token_expires_in"]
+    elif isinstance(fresh.get("refresh_token_expires_in"), int):
+        # A Google a HATRALEVO elettartamot mondja meg (Testing app: 604799-bol
+        # visszaszamolva). Ez a legpontosabb adat, amit kaphatunk: mostantol
+        # merjuk, igy a hatarido magatol helyre all akkor is, ha a tarolt
+        # ertek regen elcsuszott.
+        t["refresh_token_expires_in"] = fresh["refresh_token_expires_in"]
+        t["refresh_saved_at"] = t["saved_at"]
     data[account] = t
     _save_tokens(data)
     print(t["access_token"])

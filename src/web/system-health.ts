@@ -513,6 +513,81 @@ export function mcpAuthRows(
   return [{ id: 'mcp_needs_auth', status: 'warn', params: { n: nevek.length, names: nevek.join(', ') } }]
 }
 
+/**
+ * A Google-hozzaferes, ahogy a GOOGLE latja MOST -- nem ahogy az ora szerint
+ * lennie kellene.
+ *
+ * A 2026-08-22-i kiesesbol: mind a 10 fiok `invalid_grant`-ot adott, es egyik
+ * figyelo sem szolt. A lejarat-figyelo (credential-expiry.ts) idoalapu, es
+ * ezert szerkezetileg VAK a visszavonasra: egy visszavont token az ora szerint
+ * meg boven el. Az elo probe latta volna, de csak akkor fut, ha valaki
+ * megnyitja a Fiokok oldalt. A ketto kozott volt a lyuk, amin at egy teljes
+ * kieses hangtalanul elfert.
+ *
+ * Ez a sor a lyuk. A merest a `google-live-check.ts` vegzi oranként a hatterben
+ * es lemezre irja; itt CSAK a fajlt olvassuk -- tehat halozat nelkul, gyorsan,
+ * ugyanugy, ahogy a tobbi check.
+ *
+ * Harom kulon hibamod, harom kulon sor. Ha osszevonnank oket, a legrosszabb
+ * eset (az ELLENORZO all) pont ugy nezne ki, mint a legjobb (nincs mit
+ * jelenteni) -- ez a fajta osszemosas okozta az egesz mai hibat.
+ */
+export const GOOGLE_LIVE_FILE = '.google-live-check.json'
+/** Oranként fut; harom kihagyott kor mar allo ellenorzo, nem zaj. */
+export const GOOGLE_LIVE_STALE_MS = 3 * 60 * 60 * 1000
+const GOOGLE_LIVE_DEAD_MS = 24 * 60 * 60 * 1000
+
+interface GoogleLiveAllapot {
+  checkedAt?: number
+  accounts?: { id?: string; ok?: boolean; kind?: string | null }[]
+}
+
+/** Hany Google-fiok van bekotve. Fajlbol, mint a credential-expiry.ts:
+ *  fiok nelkuli telepitesen NINCS mit ellenorizni, es nincs mirol szolni. */
+export function googleAccountCount(storeDir: string = STORE_DIR): number {
+  const d = olvasJson<Record<string, unknown>>(join(storeDir, 'google-tokens.json'))
+  if (!d || typeof d !== 'object') return 0
+  return Object.keys(d).filter(k => !k.startsWith('_')).length
+}
+
+export function googleLiveRows(
+  now: number = Date.now(),
+  data: GoogleLiveAllapot | null = olvasJson<GoogleLiveAllapot>(join(STORE_DIR, GOOGLE_LIVE_FILE)),
+  bekotott: number = googleAccountCount(),
+): HealthRow[] {
+  if (bekotott === 0) return []
+  if (!data || typeof data.checkedAt !== 'number' || !Array.isArray(data.accounts)) {
+    // Van fiok, de meresi eredmeny nincs. Ez NEM "minden rendben" -- eppen ez
+    // az allapot allt fenn egesz nap, amig a hozzaferes halott volt.
+    return [{ id: 'google_live_never', status: 'warn' }]
+  }
+  const rows: HealthRow[] = []
+  const kora = Math.max(0, now - data.checkedAt)
+  const oraja = Math.floor(kora / (60 * 60 * 1000))
+  if (kora > GOOGLE_LIVE_STALE_MS) {
+    // Az allo ellenorzo a legalattomosabb eset: a lenti sorok ilyenkor egy REGI
+    // pillanatrol szolnanak, magabiztosan.
+    rows.push({ id: 'google_live_stale', status: kora > GOOGLE_LIVE_DEAD_MS ? 'bad' : 'warn', params: { h: oraja } })
+  }
+  const rossz = data.accounts
+    .filter(a => a && a.ok === false)
+    .map(a => tisztaNev(String(a.id ?? '')))
+    .filter(Boolean)
+  if (rossz.length > 0) {
+    rows.push({
+      id: 'google_live_bad',
+      status: 'bad',
+      params: { n: rossz.length, all: data.accounts.length, names: rossz.join(', ') },
+    })
+  } else if (kora <= GOOGLE_LIVE_STALE_MS) {
+    // Zold sor is kell: a Boss szabalya szerint a "minden rendben"-t is ki kell
+    // mondani, kulonben a hallgatas nem megkulonboztetheto a nem-futo
+    // ellenorzestol -- pontosan ez volt a mai hiba alakja.
+    rows.push({ id: 'google_live_ok', status: 'ok', params: { n: data.accounts.length, h: oraja } })
+  }
+  return rows
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -521,6 +596,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...gitPullRows(now),
     ...commandTaskRows(),
     ...mcpAuthRows(now),
+    ...googleLiveRows(now),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

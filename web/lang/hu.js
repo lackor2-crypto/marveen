@@ -259,6 +259,37 @@ window._i18n.hu = {
   'guide.verify_ok':          '✅ Rendben: a(z) {name} hozzáférése él, a következő lejáratig {d} nap van.',
   'guide.verify_gone':        '✅ Rendben: ennek a hozzáférésnek már nincs lejárati ideje — pontosan ez az élesítés célja.',
   'guide.verify_still_expired': '⚠️ A(z) {name} hozzáférése még mindig lejárt. Az újracsatlakoztatás nem fejeződött be — menj végig újra a „Gyors megoldás” lépésein, és a Google-ablakban vidd végig a bejelentkezést.',
+  // A helyben elvegezheto ujracsatlakoztatas. Boss, 2026-08-22: "vagy ha auth
+  // tal akor adjon kodot linket amit a bongeszobe kell megnyitni es
+  // visszakapok kodot. mindegy. csak vezesse vegig a komuvesunket a
+  // folyamaton. hulyebiztosan!"
+  'guide.title_live':         'A Google-hozzáférés nem él — végigvezetlek',
+  'guide.lead_auth':          'Itt helyben újracsatlakoztatjuk. Nem kell terminál, és nem kell máshova menned: kapsz egy linket, megnyitod, bejelentkezel, és a végén visszamásolod ide, amit a böngésző mutat.',
+  'guide.auth_intro_one':     'Ezt a fiókot kell újracsatlakoztatni: <b>{name}</b>.',
+  'guide.auth_intro_many':    'Ezt a(z) <b>{n}</b> fiókot kell újracsatlakoztatni. Egyesével végigmegyünk rajtuk: <b>{name}</b>',
+  'guide.auth_progress':      '{i}. / {n} — most ez következik: {name}',
+  'guide.auth_start_btn':     'Bejelentkeztetés indítása',
+  'guide.auth_retry_btn':     'Újra',
+  'guide.auth_force_btn':     'Szakítsd meg azt, és ezt indítsd',
+  'guide.auth_starting':      'Indítom a bejelentkeztetést… (pár másodperc)',
+  'guide.auth_saving':        'Mentem a hozzáférést…',
+  'guide.auth_link_lead':     'Nyisd meg ezt a linket, jelentkezz be a <b>{name}</b> fiókkal, és engedélyezd a hozzáférést. <span class="guide-step-note">Ha a Google azt írja, hogy „Ez az alkalmazás nincs ellenőrizve”, nyomd meg a <span class="guide-lit">Speciális</span> / <span class="guide-lit">Advanced</span> feliratot, majd a <span class="guide-lit">Tovább…</span> linket — a saját alkalmazásodról van szó.</span>',
+  'guide.auth_open_btn':      'Megnyitás böngészőben',
+  'guide.auth_copy_btn':      'Link másolása',
+  'guide.auth_copied':        'A linket kimásoltam a vágólapra.',
+  'guide.auth_paste_lead':    'A bejelentkezés végén a böngésző egy oldalra visz — lehet, hogy „nem érhető el” hibát mutat, ez így normális. <b>Másold ki a böngésző címsorából a teljes címet</b>, és illeszd be ide:',
+  'guide.auth_paste_ph':      'http://localhost:…/?code=… — ide illeszd be',
+  'guide.auth_paste_btn':     'Beküldés',
+  'guide.auth_done_one':      '✅ Kész: a(z) {name} hozzáférése újra él.',
+  'guide.auth_done_saved':    '✅ Kész: elmentve mint {name}.',
+  'guide.auth_next_btn':      'Következő fiók',
+  'guide.auth_verify_btn':    'Kész — ellenőrizzük le',
+  'guide.auth_failed':        '⚠️ Nem sikerült: {msg}',
+  'guide.auth_busy':          'Épp fut egy másik bejelentkeztetés ({who}). Egyszerre csak egy mehet.',
+  'guide.auth_blocked':       '⚠️ A Google elutasította: ez a fiók nincs rajta a teszt-felhasználók listáján. Vedd fel a listára a Google Cloudban, aztán gyere vissza, és nyomd meg az <span class="guide-lit">Újra</span> gombot.',
+  'guide.auth_blocked_btn':   'Teszt-felhasználók megnyitása',
+  'guide.verify_live_ok':     '✅ Rendben: mind a(z) {n} Google-fiók él — most kérdeztem meg a Google-t.',
+  'guide.verify_live_bad':    '⚠️ Ennyi fiók még mindig nem él: {n} ({names}). Menj végig rajtuk a fenti lépésekkel.',
   'guide.verify_still_soon':  '⚠️ A(z) {name} hozzáférése {d} nap múlva továbbra is lejár. Ha most csatlakoztattad újra, ez normális (teszt állapotban 7 nap a maximum) — a „Végleges megoldás” fül szünteti meg.',
   // A lejaratot mindig NEVVEL mondjuk: tiz bekotott cimnel a "egy fiok lejart"
   // nem olyan mondat, amivel barmit lehet kezdeni.
@@ -347,6 +378,22 @@ window._i18n.hu = {
   'health.command_task_fail_action': 'Ezek nem beszélgetések, hanem parancsok — ha elhasalnak, semmilyen üzenet nem keletkezik róluk. Az Ütemezések alatt a kártyán ott a hiba oka.',
   'health.mcp_needs_auth':     '{n} MCP-kapcsolat hitelesítésre vár: {names}',
   'health.mcp_needs_auth_action': 'Amíg nincs hitelesítve, az ágensek ettől még vidáman válaszolnak — csak épp ez az egy eszközük nincs meg, és ez sehol máshol nem látszik. A claude.ai csatlakozásait a claude.ai beállításaiban, a többit egy interaktív munkamenetben a /mcp paranccsal tudod engedélyezni.',
+  // Az ELO Google-ellenorzes. 2026-08-22: mind a 10 fiok halott volt, es errol
+  // semmi nem szolt -- a lejarat-figyelo idoalapu (a visszavonast nem latja), az
+  // elo probe meg csak akkor futott, ha valaki megnyitotta a Fiokok oldalt.
+  'health.google_live_ok':     '✅ A Google-hozzáférés él — {n} fiók, {h} órája ellenőrizve.',
+  'health.google_live_ok_action': 'Óránként megkérdezem a Google-t, nem csak az órát nézem: így a visszavont hozzáférés is kiderül, nem csak a lejárt.',
+  'health.google_live_bad':    'A Google {n} fiókot elutasít (összesen {all} van): {names}',
+  'health.google_live_bad_action': 'Ilyenkor nincs naptár, nincs levél, nincs Drive — és ez sehol máshol nem látszik. Kattints ide, és végigviszlek az újracsatlakoztatáson: kapsz egy linket, és nem kell terminál hozzá.',
+  'health.google_live_never':  'Van bekötött Google-fiókod, de élő ellenőrzés még soha nem futott le.',
+  'health.google_live_never_action': 'Amíg nem futott, a hozzáférés úgy tud meghalni, hogy senki nem kérdezi meg a Google-t. Kattints ide, és most azonnal lefuttatom.',
+  'health.google_live_stale':  'A Google-fiókok élő ellenőrzése {h} órája nem futott le.',
+  'health.google_live_stale_action': 'Óránként kellene mennie. Amíg áll, az alatta lévő sor egy régi pillanatról szól — kattints ide, és most lefuttatom.',
+  // Az "elo Google-ellenorzes" gombja: a sor nem teendo, hanem gomb.
+  'conn.live_running':        'Megkérdezem a Google-t minden fiókról… ez fél percig is eltarthat.',
+  'conn.live_done_ok':        '✅ Mind a(z) {n} Google-fiók él.',
+  'conn.live_done_bad':       '⚠️ {all} fiókból {n} nem él. Kattints a piros soron, és végigviszlek az újracsatlakoztatáson.',
+  'conn.live_failed':         'Az ellenőrzés nem futott le: {msg}',
   'conn.ov_unreachable':      'Nem tudom most leellenőrizni magam.',
   'conn.ov_unreachable_action': 'Teendő: frissítsd az oldalt. Ha így is ez marad, a Marveen szolgáltatás nem fut — indítsd újra.',
 

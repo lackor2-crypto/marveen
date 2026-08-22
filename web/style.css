@@ -10343,6 +10343,42 @@ body {
 .guide-result.bad { background: rgba(245, 158, 11, .16); border-color: rgba(245, 158, 11, .5); }
 .guide-result[hidden] { display: none; }
 
+/* A vegigvezetoben HELYBEN elvegezheto ujracsatlakoztatas (Boss, 2026-08-22:
+   "csak vezesse vegig a komuvesunket a folyamaton. hulyebiztosan!"). A link
+   harom alakban all ott -- gomb, masolas, kijelolheto mezo --, mert a vagolap
+   API nem biztonsagos kapcsolaton nem mukodik, es egy nem mukodo gomb itt
+   zsakutca lenne. */
+.guide-auth { margin-top: 8px; }
+.guide-auth-progress {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.guide-auth-lead { font-size: 13px; line-height: 1.5; margin: 10px 0 6px; }
+.guide-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+.guide-auth-actions .btn-primary,
+.guide-auth-actions button,
+.guide-auth-actions a.btn-primary { font-size: 12px; padding: 6px 12px; }
+.guide-auth-url,
+.guide-auth-input {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-bg, rgba(127, 127, 127, .10));
+  color: var(--text);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.guide-auth-url { width: 100%; margin-top: 6px; }
+
 /* A commit es a fajl ket kulon mertekegyseg -- ez a sor mondja ki, kulonben a
    harom szam ugy all egymas mellett, mintha ossze lehetne adni oket. */
 .upstream-sync-explain {
