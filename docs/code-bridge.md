@@ -200,6 +200,54 @@ vagy tedd a `.cmd`-t a `shell:startup` mappába. (A worker felhasználói
 munkamenetben fusson: a `claude.exe` a felhasználó `~/.claude` beállításait
 és bejelentkezését használja.)
 
+### 3.4 Projekt felvétele: választani kell, nem gépelni
+
+A Kód-híd ablak **Projektek** kártyáján ott a *Felderített mappák a gépeden*
+lista. Ezt nem te töltöd: a worker percenként bejárja a
+`~/.claude/projects/<kódolt-cwd>/*.jsonl` átiratokat, és minden mappát bejelent,
+amelyben nyitva volt egy VS Code Claude Code beszélgetés. A jelentésben ott van
+az **elérési út és a session-azonosító is** -- eddig ez az adat egyszerűen sosem
+került a felhasználó elé, ezért kellett mindkettőt kézzel begépelni.
+
+Igazi mappa-tallózó **nem lehetséges**, és ezt érdemes egyszer kimondani: a
+vezérlőpult a WSL-ben fut és nem látja a Windows lemezét (a `/mnt/c` EIO-t ad
+jelszó nélküli sudo hiányában), a böngésző pedig valódi elérési utat sosem ad
+ki egy lapnak. A "tallózás" ezért ez a lista.
+
+Soronként egy állapot és egy teendő:
+
+| Állapot | Mit jelent | Gomb |
+|---|---|---|
+| `new` | a worker látja, de nincs felvéve | **Felvétel** -- alias a mappanévből, session a jelentésből, kitűzve |
+| `registered` | már fel van véve (a saját nevén) | nincs -- kétszer felvenni nincs mit |
+| `excluded` | `CODE_BRIDGE_EXCLUDE` kizárja | **Kizárás feloldása** -- és alatta rögtön az újraindítás-gomb |
+
+A kizárt sor nem kozmetika: 2026-08-22-én a tulajdonos **egyetlen** VS Code
+workspace-e (`tozsde_telepitesi_mappa`) volt kizárva, ezért a projektlista üres
+maradt, és semmi nem mondta meg, miért -- így szorult rá a kézi űrlapra. Az
+állapotot ugyanaz az `isExcludedProject()` adja, amire a feladatsor is
+visszautasít, tehát a lap nem kínálhat "Felvétel" gombot olyan mappára, amit a
+szerver 400-zal dob vissza.
+
+**A session-azonosító többnyire elhagyható.** A `POST /api/code/projects` a
+worker jelentéséből tölti ki, ha ismeri azt a mappát -- záró visszaper és
+kis/nagybetű nem számít (`sameWorkspace()`). Csak akkor kötelező, ha a worker
+sosem látta a mappát (másik gép, zárt VS Code); ilyenkor a hibaüzenet ezt ki is
+mondja, a felület pedig már a küldés előtt, magyarul szól. Az azonosítót a VS
+Code Claude Code panel `/status` parancsa írja ki.
+
+A kézi űrlap megmaradt, de a lista **alatt**, lecsukva, és mindhárom mezője
+mellett ott a magyarázat -- mit írj bele, honnan tudod meg, és kötelező-e.
+
+A **nulla projektes ügynök-kártya** is ebből a listából beszél. Amíg egy
+projekt sincs felvéve, a kártya nem általánosságban buzdít, hanem megmondja,
+hol tartasz: *"N mappát talált a gépeden, de még egyik sincs felvéve"*,
+kizárt mappáknál *"mind ki van zárva -- a listában feloldhatod"*, és csak
+akkor kéri új projekt megnyitását VS Code-ban, ha a worker tényleg nem talált
+semmit. A számokat a `GET /api/code/health` `candidates: { free, excluded }`
+mezője adja; régi backend esetén (nincs a válaszban) a kártya a régi
+szövegre esik vissza.
+
 ## 4. Használat
 
 ### Telegramról (Marvin teljes kihagyásával)
@@ -244,7 +292,8 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 
 | Végpont | Ki hívja |
 |---|---|
-| `GET/POST /api/code/projects`, `DELETE /api/code/projects/:project` | tulaj |
+| `GET /api/code/candidates` | dashboard (amit a worker a gépen talált: `new` / `registered` / `excluded`) |
+| `GET/POST /api/code/projects`, `DELETE /api/code/projects/:project` | tulaj (a POST `sessionId`-je elhagyható, ha a workernek van jelentése arról a mappáról) |
 | `POST /api/code/sessions` | worker (felderítés) |
 | `POST /api/code/tasks`, `GET /api/code/tasks` | feladó / tulaj |
 | `DELETE /api/code/tasks` | tulaj (előzmény-takarítás; a `queued`/`running` sorokat nem viszi el) |
@@ -370,5 +419,7 @@ felveszi).
 | `seed-skills/code-dispatch/SKILL.md` | Marvin feladás-eljárása |
 | `web/app.js` &rarr; `renderCodeBridgeAgentCards` | a végrehajtó kártyája az Ügynökök lapon (a **fizetős** sávban, Marveen után); kattintásra nyitja a beállításokat |
 | `web/app.js` &rarr; `openCodeBridgeModal` | a Kód-híd ablak (`#cbOverlay`) -- a bal oldali menüpont helyett |
+| `web/app.js` &rarr; `cbRenderCandidates` | a felderített mappák listája (a "tallózás" helyett) |
+| `src/web/code-bridge-store.ts` &rarr; `recordCodeCandidates` | a worker legutóbbi **nyers** jelentése, a kizárás/regisztráció szűrése előtt |
 | `web/app.js` &rarr; `cbSetupStepList` / `cbRenderSetup` | a beüzemelési lista, amíg a kötelező lépések hiányoznak |
 | `src/web/routes/code.ts` &rarr; `detectHostKind` | melyik telepítési módon fut a Marveen (`wsl` / `windows` / `unix`) |

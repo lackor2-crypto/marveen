@@ -4878,6 +4878,25 @@ function cbIdleCardEntry(off) {
       note: 'nincs végrehajtó',
     }
   }
+  // A vegrehajto MAR latja a mappat: ilyenkor nem uj projektet kell nyitni,
+  // hanem felvenni (vagy feloldani) azt, ami ott van a listaban.
+  const cand = codeBridgeCards.candidates || { free: 0, excluded: 0 }
+  if (cand.free > 0) {
+    return {
+      title: 'VS Code Claude Code',
+      desc: 'A végrehajtó ' + cand.free + ' mappát talált a gépeden, de még egyik sincs felvéve. Kattints a kártyára — a listából egy kattintás.',
+      online: false,
+      note: cand.free + ' felvehető mappa',
+    }
+  }
+  if (cand.excluded > 0) {
+    return {
+      title: 'VS Code Claude Code',
+      desc: 'A végrehajtó ' + cand.excluded + ' mappát lát a gépeden, de mind ki van zárva. Kattints a kártyára — a listában feloldhatod.',
+      online: false,
+      note: cand.excluded + ' kizárt mappa',
+    }
+  }
   return {
     title: 'VS Code Claude Code',
     desc: 'A végrehajtó fut, de még egy projekt sincs regisztrálva — nyiss meg egy projektet VS Code-ban Claude Code-dal.',
@@ -4967,13 +4986,18 @@ async function loadCodeBridgeCards() {
     fetch('/api/code/projects').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     fetch('/api/code/health').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ])
-  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false, queued: 0, running: 0 } ; return }
+  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false, queued: 0, running: 0, candidates: { free: 0, excluded: 0 } } ; return }
   codeBridgeCards = {
     state: health.enabled === false ? 'disabled' : 'on',
     projects: (projects && Array.isArray(projects.projects)) ? projects.projects : [],
     workerOnline: Boolean(health.workerOnline),
     queued: Number(health.queued) || 0,
     running: Number(health.running) || 0,
+    // Regi backend nem kuldi -- olyankor a kartya a korabbi szoveget mondja.
+    candidates: {
+      free: Number(health.candidates && health.candidates.free) || 0,
+      excluded: Number(health.candidates && health.candidates.excluded) || 0,
+    },
   }
 }
 
@@ -31031,6 +31055,12 @@ async function _intezoCfgSave() {
   let _cbTimer = null
   let _cbLastHealth = null
   let _cbProjects = []
+  let _cbCandidates = []
+  // A MENTETT kizarasi lista (kisbetusen). `null` = meg nem kerdeztuk le.
+  // Ebbol latszik, hogy egy kizart mappa feloldasa MAR EL VAN MENTVE, csak a
+  // vezerlopult ujrainditasara var -- kulonben a "Kizaras feloldasa" gomb a
+  // kattintas utan is ott maradna, mintha nem tortent volna semmi.
+  let _cbSavedExclude = null
 
   window.__cbStopPollImpl = function () {
     if (_cbTimer) { clearInterval(_cbTimer); _cbTimer = null }
@@ -31322,6 +31352,84 @@ async function _intezoCfgSave() {
     }
   }
 
+  // ---- felderitett mappak ("tallozas") ---------------------------------
+  //
+  // Boss (2026-08-22): "miert nem lehet kitallozni a projekt mappat? ... miert
+  // kellene kezzel megadnom az eleresi utvonalat? hiszen en egy komuves
+  // vagyok! hulyebiztosra kell megcsinalni a szoftvert!"
+  //
+  // Igazi mappa-tallozo NEM lehetseges: a vezerlopult a WSL-ben fut es nem
+  // latja a Windows lemezt, a bongeszo pedig valodi eleresi utat sosem ad ki
+  // egy lapnak. De nincs is ra szukseg: a WORKER mar bejarta a gepet, es a
+  // jelenteseben ott van az eleresi ut ES a session-azonosito is -- eddig ez
+  // az adat egyszeruen sosem kerult a felhasznalo ele. A "tallozas" ezert ez
+  // a lista.
+  //
+  // Harom allapot, mert harom kulon teendo tartozik hozzajuk. A KIZART sor
+  // kulonosen fontos: a Boss egyetlen projektje pont ki volt zarva, ezert
+  // latszott ugy, mintha a felderites nem talalna semmit -- es ezert szorult
+  // ra a kezi urlapra.
+  function cbSamePath(a, b) {
+    const norm = function (x) {
+      return String(x == null ? '' : x).trim().replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
+    }
+    return norm(a) !== '' && norm(a) === norm(b)
+  }
+
+  function cbRenderCandidates(resp) {
+    const el = document.getElementById('cbCandidatesBox')
+    if (!el) return
+    if (resp && resp.error) {
+      _cbCandidates = []
+      el.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni a felderített mappákat: '
+        + escapeHtml(resp.error) + '</p>'
+      return
+    }
+    if (resp && resp.disabled) {
+      _cbCandidates = []
+      el.innerHTML = '<p class="subtitle">A kód-híd ki van kapcsolva — kapcsold be lentebb, a <em>Működés</em> résznél.</p>'
+      return
+    }
+    _cbCandidates = (resp && resp.candidates) || []
+    const online = Boolean(_cbLastHealth && _cbLastHealth.workerOnline)
+    if (!_cbCandidates.length) {
+      el.innerHTML = '<p class="subtitle">' + (online
+        ? 'A végrehajtó fut, de egyetlen VS Code Claude Code beszélgetést sem talált ezen a gépen. '
+          + 'Nyiss meg egy projektet VS Code-ban, indíts benne egy Claude Code beszélgetést — egy percen belül itt lesz.'
+        : 'Ehhez előbb el kell indulnia a végrehajtónak (lásd a <em>Windows-végrehajtó</em> részt lentebb): '
+          + 'ő járja be a gépet, és ő jelenti a mappákat.') + '</p>'
+      return
+    }
+    el.innerHTML = _cbCandidates.map(function (c) {
+      const parts = String(c.workspacePath).split(/[\\/]/).filter(function (x) { return x })
+      const folder = parts.length ? parts[parts.length - 1] : c.workspacePath
+      let right = ''
+      if (c.state === 'registered') {
+        right = '<span class="cb-cand-state">\u2713 már fel van véve <strong>' + escapeHtml(c.alias) + '</strong> néven</span>'
+      } else if (c.state === 'excluded') {
+        const lifted = _cbSavedExclude !== null
+          && _cbSavedExclude.indexOf(String(c.alias).toLowerCase()) === -1
+        right = lifted
+          ? '<span class="cb-cand-state">kizárás feloldva — újraindítás után lép életbe</span>'
+          : '<span class="cb-cand-state">kizárva</span> '
+            + '<button class="btn-secondary btn-compact cb-cand-unexclude" data-alias="' + escapeAttr(c.alias) + '">Kizárás feloldása</button>'
+      } else {
+        right = '<button class="btn-primary btn-compact cb-cand-add"'
+          + ' data-alias="' + escapeAttr(c.alias) + '"'
+          + ' data-ws="' + escapeAttr(c.workspacePath) + '"'
+          + ' data-sid="' + escapeAttr(c.sessionId) + '">Felvétel</button>'
+      }
+      return '<div class="cb-cand">'
+        + '<div class="cb-cand-main">'
+          + '<span class="cb-cand-name">' + escapeHtml(folder) + '</span>'
+          + '<code class="cb-cand-path">' + escapeHtml(c.workspacePath) + '</code>'
+          + '<span class="cb-cand-path">beszélgetés: ' + cbAgo(c.mtime) + '</span>'
+        + '</div>'
+        + '<div>' + right + '</div>'
+      + '</div>'
+    }).join('')
+  }
+
   // ---- feladatok -------------------------------------------------------
 
   function cbRenderTasks(tasks) {
@@ -31419,15 +31527,20 @@ async function _intezoCfgSave() {
     if (health && health.enabled === false) {
       cbRenderProjects([])
       cbRenderTasks([])
+      cbRenderCandidates({ disabled: true })
       return
     }
     try {
-      const [projects, tasks] = await Promise.all([
+      const [projects, tasks, cands] = await Promise.all([
         cbFetch('/api/code/projects'),
         cbFetch('/api/code/tasks?limit=25'),
+        // Sajat catch: egy hibas jeloltlista NE vigye magaval a projekt- es a
+        // feladat-tablat is -- a sajat dobozaban mondja meg, mi a baj.
+        cbFetch('/api/code/candidates').catch(function (e) { return { error: e.message } }),
       ])
       cbRenderProjects(projects.projects)
       cbRenderTasks(tasks.tasks)
+      cbRenderCandidates(cands)
     } catch (e) {
       const el = document.getElementById('cbTasksList')
       if (el) el.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni: ' + escapeHtml(e.message) + '</p>'
@@ -31449,7 +31562,7 @@ async function _intezoCfgSave() {
   // A gomb NEM all ott mindig: csak akkor jelenik meg, ha az elmentett ertek
   // tenylegesen elter az eppen futotol. Igy nem szoktatja hozza a felhasznalot
   // ahhoz, hogy egy ujrainditas-gomb csak dekoracio.
-  var _cbRestartState = { cbBotRestart: null, cbOpsRestart: null }
+  var _cbRestartState = { cbBotRestart: null, cbOpsRestart: null, cbCandRestart: null }
 
   // A mentett ertek SZTRING ("a, b"), az elo ertek viszont mar feldolgozott
   // TOMB (['a','b']) -- a config.ts vesszo menten szetvagja, trimmeli, es a
@@ -31486,6 +31599,7 @@ async function _intezoCfgSave() {
     if (perm) perm.value = cfg.CODE_PERMISSION_MODE || 'acceptEdits'
     const excl = document.getElementById('cbExclude')
     if (excl) excl.value = cfg.CODE_BRIDGE_EXCLUDE || ''
+    _cbSavedExclude = cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true).split(',').filter(function (x) { return x })
     const chats = document.getElementById('cbAllowedChats')
     if (chats) chats.value = cfg.CODE_BOT_ALLOWED_CHAT_IDS || ''
     const state = document.getElementById('cbBotState')
@@ -31502,10 +31616,14 @@ async function _intezoCfgSave() {
     const botPending =
       Boolean(cfg.botConfigured) !== Boolean(live.botConfigured) ||
       cbNormList(cfg.CODE_BOT_ALLOWED_CHAT_IDS, false) !== cbNormList(live.allowedChatIds, false)
+    // A kizarasi lista KULON: a felderitett mappak alatti gomb csak erre
+    // vonatkozik, es egy jogosultsag-valtas utan nem allithatja, hogy egy
+    // kizaras feloldasa var ujrainditasra.
+    const exclPending = cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true) !== cbNormList(live.excluded, true)
     const opsPending =
       (String(cfg.CODE_BRIDGE_ENABLED) === '1') !== Boolean(live.enabled) ||
       String(cfg.CODE_PERMISSION_MODE || '') !== String(live.permissionMode || '') ||
-      cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true) !== cbNormList(live.excluded, true)
+      exclPending
     // A `void` szandekos: a konfiguracio kirajzolasa nem varhat egy halozati
     // korre, es a gomb sajat maga kezeli, ha a vezerlopult nem tudja magat
     // ujrainditani (akkor megmondja, mit csinaljon helyette az ember).
@@ -31513,6 +31631,11 @@ async function _intezoCfgSave() {
       'A mentés a vezérlőpult újraindítása után lép életbe — a kód-bot csak utána kezd figyelni.')
     void cbMountRestart('cbOpsRestart', opsPending,
       'A mentés a vezérlőpult újraindítása után lép életbe.')
+    // Ugyanaz a gomb a felderitett mappak ALATT is: a kizarast ott lehet
+    // feloldani, es egy gomb, amiert at kell gorgetni egy masik kartyahoz, a
+    // gyakorlatban nem letezik.
+    void cbMountRestart('cbCandRestart', exclPending,
+      'A kizárás feloldása a vezérlőpult újraindítása után lép életbe.')
   }
 
   window.loadCodeBridgePage = function () {
@@ -31609,15 +31732,72 @@ async function _intezoCfgSave() {
       return
     }
 
+    if (t.classList.contains('cb-cand-add')) {
+      const alias = t.getAttribute('data-alias') || ''
+      t.setAttribute('disabled', 'disabled')
+      try {
+        await cbPostJson('/api/code/projects', {
+          project: alias,
+          workspacePath: t.getAttribute('data-ws') || '',
+          sessionId: t.getAttribute('data-sid') || '',
+          pinned: true,
+        })
+        showToast('Felvéve: ' + alias)
+        cbRefresh()
+      } catch (err) {
+        showToast('Nem sikerült: ' + err.message, { type: 'error' })
+        t.removeAttribute('disabled')
+      }
+      return
+    }
+
+    if (t.classList.contains('cb-cand-unexclude')) {
+      const alias = t.getAttribute('data-alias') || ''
+      // A kizaras nem veletlen volt: pont az elo beszelgetes workspace-et
+      // szokas kizarni. Ezert megmondjuk, mit old fel, MIELOTT feloldja.
+      if (!confirm('Feloldod a(z) "' + alias + '" kizárását?\n\n'
+        + 'A kizárás azt akadályozza meg, hogy egy feladat abba a beszélgetésbe írjon, '
+        + 'amelyikben éppen te dolgozol. Feloldás után ez a mappa is felvehető és feladható lesz.')) return
+      t.setAttribute('disabled', 'disabled')
+      try {
+        const cfg = await cbFetch('/api/code/config')
+        const kept = String(cfg.CODE_BRIDGE_EXCLUDE || '').split(',')
+          .map(function (x) { return x.trim() })
+          .filter(function (x) { return x && x.toLowerCase() !== alias.toLowerCase() })
+        await cbPostJson('/api/code/config', { CODE_BRIDGE_EXCLUDE: kept.join(', ') })
+        showToast('Feloldás elmentve — a vezérlőpult újraindítása után lép életbe.')
+        cbLoadConfig()
+        cbRefresh()
+      } catch (err) {
+        showToast('Nem sikerült: ' + err.message, { type: 'error' })
+        t.removeAttribute('disabled')
+      }
+      return
+    }
+
     if (t.id === 'cbAddBtn') {
       const project = document.getElementById('cbAddProject')
       const ws = document.getElementById('cbAddWorkspace')
       const sid = document.getElementById('cbAddSession')
       const status = document.getElementById('cbAddStatus')
       if (!project || !ws || !sid) return
+      const name = project.value.trim()
+      const wsPath = ws.value.trim()
+      const uuid = sid.value.trim()
+      const say = function (msg) { if (status) status.textContent = msg }
+      // Elore szolunk, magyarul. A szerver hibauzenete angol, es itt egyenesen
+      // a felhasznalo ele kerulne -- ezt a hatart a lapnak kell allnia.
+      if (!name) { say('Adj nevet a projektnek — ezt írod majd a /code után.'); project.focus(); return }
+      if (!wsPath) { say('Add meg a projekt mappáját (VS Code → jobb gomb a gyökérmappán → Copy Path).'); ws.focus(); return }
+      const known = _cbCandidates.some(function (c) { return cbSamePath(c.workspacePath, wsPath) })
+      if (!uuid && !known) {
+        say('Ehhez a mappához a végrehajtó nem jelentett beszélgetést, ezért a session-azonosító most kötelező. '
+          + 'A VS Code Claude Code panelben a /status parancs írja ki.')
+        sid.focus(); return
+      }
       try {
         await cbPostJson('/api/code/projects', {
-          project: project.value.trim(), workspacePath: ws.value.trim(), sessionId: sid.value.trim(), pinned: true,
+          project: name, workspacePath: wsPath, sessionId: uuid, pinned: true,
         })
         project.value = ''; ws.value = ''; sid.value = ''
         if (status) status.textContent = 'Felvéve.'

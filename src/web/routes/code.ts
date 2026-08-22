@@ -26,6 +26,8 @@ import {
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   clearFinishedCodeTasks,
   pruneUnreportedCodeSessions,
+  recordCodeCandidates,
+  listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS,
   type CodeTaskStatus, type CodeTaskOrigin,
@@ -89,6 +91,15 @@ async function parseJsonBody<T>(ctx: RouteContext): Promise<T | null> {
   }
 }
 
+/** Ket utvonal ugyanarra a mappara mutat-e. A worker `C:\\Projects\\X`-et
+ *  jelent, a begepelt szoveg viszont lehet `c:\\projects\\x\\` -- a Windows
+ *  mindkettot ugyanannak latja, tehat mi sem kuldhetjuk a felhasznalot UUID-t
+ *  vadaszni egyetlen zaro visszaper miatt. */
+function sameWorkspace(a: string, b: string): boolean {
+  const norm = (x: string) => x.trim().replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
+  return norm(a) !== '' && norm(a) === norm(b)
+}
+
 export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   const { res, path, method, url } = ctx
   if (!path.startsWith('/api/code/')) return false
@@ -131,8 +142,21 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       hostKind === 'wsl' ? `\\\\wsl.localhost\\${distro}${winRoot}\\store\\.dashboard-token`
       : hostKind === 'windows' ? `${winRoot}\\store\\.dashboard-token`
       : null
+    // Hany mappat TALALT MAR a vegrehajto, amibol meg nem lett projekt. Enelkul
+    // a nulla-projektes kartya csak azt tudja mondani, hogy "nyiss meg egy
+    // projektet VS Code-ban" -- ami annak a tulajdonosnak, akinek az egyetlen
+    // workspace-e kizarva var a listaban, pont a rossz iranyba mutat.
+    const knownWorkspaces = listCodeSessions()
+    let candFree = 0
+    let candExcluded = 0
+    for (const c of listCodeCandidates()) {
+      if (knownWorkspaces.some((k) => sameWorkspace(k.workspacePath, c.workspacePath))) continue
+      if (isExcludedProject(normalizeAlias(aliasFromWorkspacePath(c.workspacePath)))) candExcluded++
+      else candFree++
+    }
     json(res, {
       ...health,
+      candidates: { free: candFree, excluded: candExcluded },
       staleAfterMs: WORKER_STALE_MS,
       enabled: CODE_BRIDGE_ENABLED,
       permissionMode: CODE_PERMISSION_MODE,
@@ -220,6 +244,28 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Mit lat a worker EZEN a gepen. Harom allapot, mert harom kulon teendo:
+  // a mar regisztralt sor nem kell megegyszer, a kizart csak a kizaras
+  // feloldasa utan vehető fel, az uj pedig egy kattintassal.
+  if (path === '/api/code/candidates' && method === 'GET') {
+    const known = listCodeSessions()
+    const candidates = listCodeCandidates().map((c) => {
+      const registered = known.find((k) => k.workspacePath.toLowerCase() === c.workspacePath.toLowerCase())
+      const alias = normalizeAlias(aliasFromWorkspacePath(c.workspacePath))
+      return {
+        workspacePath: c.workspacePath,
+        sessionId: c.sessionId,
+        mtime: c.mtime,
+        host: c.host,
+        reportedAt: c.reportedAt,
+        alias: registered ? registered.project : alias,
+        state: registered ? 'registered' : isExcludedProject(alias) ? 'excluded' : 'new',
+      }
+    })
+    json(res, { candidates })
+    return true
+  }
+
   if (path === '/api/code/projects' && method === 'GET') {
     json(res, { projects: listCodeSessions(), permissionMode: CODE_PERMISSION_MODE })
     return true
@@ -228,8 +274,23 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/code/projects' && method === 'POST') {
     const body = await parseJsonBody<{ project?: string; workspacePath?: string; sessionId?: string; title?: string; pinned?: boolean }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
-    if (!body.project || !body.workspacePath || !body.sessionId) {
-      json(res, { error: 'project, workspacePath and sessionId are required' }, 400)
+    // A session-azonositot a worker MAR ISMERI: ha erre a mappara jelentett
+    // sessiont, akkor senkinek nem kell UUID-t begepelnie -- sem a feluleten,
+    // sem a REST-en at. Ezt kerdezte a Boss: "es mit irjak a UUID hez?
+    // kotelezo? nem?" -- a valasz: csak akkor, ha a vegrehajto nem latja a
+    // mappat (masik gep, zart VS Code), mert olyankor tenyleg sehonnan nem
+    // tudhato.
+    const workspacePath = (body.workspacePath ?? '').trim()
+    const sessionId =
+      (body.sessionId ?? '').trim() ||
+      listCodeCandidates().find((c) => sameWorkspace(c.workspacePath, workspacePath))?.sessionId ||
+      ''
+    if (!body.project || !workspacePath || !sessionId) {
+      json(res, {
+        error: !sessionId && body.project && workspacePath
+          ? 'sessionId is required: the worker has not reported a session for this workspace'
+          : 'project, workspacePath and sessionId are required',
+      }, 400)
       return true
     }
     // Mapping an excluded alias would create a row that discovery deletes on its
@@ -243,8 +304,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // to stop discovery from moving the alias somewhere else.
       const session = upsertCodeSession({
         project: body.project,
-        workspacePath: body.workspacePath,
-        sessionId: body.sessionId,
+        workspacePath,
+        sessionId,
         title: body.title ?? null,
         pinned: body.pinned ?? true,
       })
@@ -285,6 +346,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // is the whole diagnosis. Stamping only on success would have reported the
     // running-but-empty worker of 2026-08-20 as dead.
     recordCodeWorkerSeen(body.host ?? 'windows', 'discovery', reported.length)
+    // A NYERS lista is eltevodik, mielott a kizaras vagy a regisztracio szurne:
+    // a felulet ebbol tud valaszthato listat kinalni ahelyett, hogy utvonalat
+    // es UUID-t kellene begepelni.
+    recordCodeCandidates(body.host ?? 'windows', reported)
 
     const known = listCodeSessions()
     const registered: string[] = []

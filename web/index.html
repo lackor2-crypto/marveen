@@ -4723,19 +4723,62 @@
           hogy egy projekt akkor se vándoroljon át egy újabb sessionre, ha közben másikat nyitottál meg.
         </p>
         <div id="cbProjectsTable" style="overflow-x:auto;margin-top:10px">…</div>
-        <details style="margin-top:14px">
-          <summary style="cursor:pointer;font-size:13px">Kézi felvétel vagy átírás</summary>
+
+        <!-- FELDERITETT MAPPAK. A "tallozas" helyett: a worker mar bejarta a
+             gepet, ismeri az utvonalat ES a session-azonositot is. Eddig ez az
+             adat sehol nem jelent meg, ezert a felhasznalonak kellett
+             begepelnie mindkettot -- Boss: "miert kellene kezzel megadnom az
+             eleresi utvonalat? hiszen en egy komuves vagyok!" -->
+        <h3 style="margin-top:20px;font-size:15px">Felderített mappák a gépeden</h3>
+        <p class="subtitle">
+          Ezeket a <strong>végrehajtó találta meg</strong> magától: minden mappa, amelyben nyitva volt
+          egy VS Code Claude Code beszélgetés. Nem kell se elérési utat gépelni, se azonosítót keresni
+          — válassz a listából.
+        </p>
+        <div id="cbCandidatesBox" style="margin-top:10px">…</div>
+        <!-- A kizaras feloldasa is indulaskor beolvasott beallitast ir: a gomb
+             ITT jelenik meg, ahol a muvelet tortent -- nem egy masik kartyan. -->
+        <div id="cbCandRestart"></div>
+
+        <details style="margin-top:20px">
+          <summary style="cursor:pointer;font-size:13px">Kézi felvétel — ha a mappa nincs a fenti listában</summary>
           <p class="subtitle" style="margin-top:8px">
-            Akkor kell, ha egy sessiont saját név alá akarsz tenni. A session-azonosítót a
-            VS Code Claude Code panel <code>/status</code> parancsa mutatja meg.
+            Erre ritkán van szükség: akkor, ha a projekt egy <strong>másik gépen</strong> van, vagy ha
+            saját nevet akarsz adni egy már felvett mappának (ugyanazt a mappát újra felvéve
+            átírod a nevét). Ami a fenti listában ott van, azt <strong>ne</strong> gépeld be.
           </p>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-            <input id="cbAddProject" class="input" style="width:160px" placeholder="projekt neve">
-            <input id="cbAddWorkspace" class="input" style="width:280px" placeholder="C:\Projects\TradingBot">
-            <input id="cbAddSession" class="input" style="width:300px" placeholder="session-azonosító (UUID)">
-            <button class="btn-secondary btn-compact" id="cbAddBtn">Felvétel kitűzve</button>
+
+          <div class="cb-field">
+            <label for="cbAddProject">Projekt neve <span class="cb-req">kötelező</span></label>
+            <input id="cbAddProject" class="input" placeholder="pl. tradingbot">
+            <span class="cb-hint">Ezt a nevet fogod használni: <code>/code tradingbot javítsd ki a bejelentkezést</code>.
+              Bármi lehet, de legyen rövid, ékezet és szóköz nélkül.</span>
           </div>
-          <span id="cbAddStatus" class="subtitle"></span>
+
+          <div class="cb-field">
+            <label for="cbAddWorkspace">A projekt mappája <span class="cb-req">kötelező</span></label>
+            <input id="cbAddWorkspace" class="input" placeholder="C:\Projects\TradingBot">
+            <span class="cb-hint">A <strong>gyökérmappa</strong> azon a gépen, ahol a végrehajtó fut — pontosan az,
+              amit a VS Code megnyitott. Kiírva: VS Code → jobb gomb a felső mappán a bal oldali fában
+              → <em>Copy Path</em>, és illeszd be ide.</span>
+          </div>
+
+          <div class="cb-field">
+            <label for="cbAddSession">Session-azonosító (UUID) <span class="cb-opt">általában üresen hagyható</span></label>
+            <input id="cbAddSession" class="input" placeholder="hagyd üresen — magunk töltjük ki">
+            <span class="cb-hint">Ez mondja meg, <strong>melyik beszélgetést</strong> folytassa a feladat. Ha a
+              végrehajtó látja a fenti mappát, mi töltjük ki — hagyd üresen. Csak akkor kérjük,
+              ha a mappa másik gépen van: olyankor a VS Code Claude Code panelbe írt
+              <code>/status</code> mutatja meg.</span>
+          </div>
+
+          <div style="margin-top:12px">
+            <button class="btn-secondary btn-compact" id="cbAddBtn">Felvétel</button>
+            <span id="cbAddStatus" class="subtitle" style="margin-left:8px"></span>
+          </div>
+          <p class="subtitle" style="margin-top:8px">
+            A <strong>kitűzve</strong> azt jelenti, hogy a felderítés ezt a sort többé nem írja át.
+          </p>
         </details>
       </div>
 

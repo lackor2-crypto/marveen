@@ -781,6 +781,64 @@ export function recordCodeWorkerSeen(
   ).run({ host: id, now, action: action.slice(0, 40), reported: sessionsReported ?? null })
 }
 
+/** Amit a worker a LEGUTOBBI felderitesi koreben a gepen talalt -- nyersen,
+ *  MIELOTT a kizaras vagy a mar-regisztralt allapot barmit kiszurne belole.
+ *
+ *  Ezert kell: a projekt kezi felvetelehez eddig egy Windows-utvonalat ES egy
+ *  session-UUID-t kellett BEGEPELNI, olyasmit, amit a felhasznalo sehonnan nem
+ *  tud fejbol (Boss: "en egy komuves vagyok! hulyebiztosra kell megcsinalni").
+ *  Kozben a worker mindket adatot ismeri -- csak sosem kerult a felulet ele.
+ *
+ *  Memoriaban el, es ez szandekos: a worker percenkent ujra jelent, tehat egy
+ *  ujraindulas utan egy percen belul betelik. Ha a worker ALL, akkor pedig a
+ *  helyes valasz ugyis az, hogy "nincs vegrehajto" -- nem egy regi lista,
+ *  amirol a felhasznalo azt hinne, hogy elo. */
+export interface CodeCandidate {
+  workspacePath: string
+  sessionId: string
+  mtime: number | null
+  host: string
+  reportedAt: number
+}
+
+/** Egy gepen ennyi projekt folott a lista amugy is athatolhatatlan lenne, es
+ *  a memoriat sem hagyjuk korlatlanul nőni egy kulso jelentes nyoman. */
+const MAX_CANDIDATES = 200
+let codeCandidates: CodeCandidate[] = []
+
+export function recordCodeCandidates(
+  host: string,
+  sessions: { workspacePath?: string; sessionId?: string; mtime?: number }[],
+  now = Date.now(),
+): void {
+  const id = (host || 'windows').trim().slice(0, 120) || 'windows'
+  // A jelentes a TELJES lista errol a geprol, tehat felulirja az elozot --
+  // kulonben egy bezart projekt orokre a valaszthato listaban maradna.
+  const others = codeCandidates.filter((c) => c.host !== id)
+  const mine: CodeCandidate[] = []
+  for (const s of sessions) {
+    if (!s.workspacePath || !s.sessionId) continue
+    mine.push({
+      workspacePath: s.workspacePath,
+      sessionId: s.sessionId,
+      mtime: typeof s.mtime === 'number' ? s.mtime : null,
+      host: id,
+      reportedAt: now,
+    })
+    if (mine.length >= MAX_CANDIDATES) break
+  }
+  codeCandidates = [...others, ...mine].slice(-MAX_CANDIDATES)
+}
+
+export function listCodeCandidates(): CodeCandidate[] {
+  return codeCandidates.slice()
+}
+
+/** Csak teszthez: a modul-szintu lista kiurítese ket eset kozott. */
+export function _resetCodeCandidates(): void {
+  codeCandidates = []
+}
+
 export function listCodeWorkers(): CodeWorker[] {
   ensureTables()
   const rows = getDb()
