@@ -29047,7 +29047,10 @@ async function _intezoEnsure() {
 let _intezoListing = null
 
 async function _intezoOpen(rel) {
-  _intezoPath = rel || ''
+  const uj = rel || ''
+  // Mashova leptunk -> a kijeloles es vele az adatlap megszunik.
+  if (uj !== _intezoPath) _intezoClearSelection()
+  _intezoPath = uj
   const search = document.getElementById('intezoSearch')
   if (search) search.value = ''
   try {
