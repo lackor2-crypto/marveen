@@ -2830,8 +2830,12 @@
 
       <!-- 2. FELADATOK. -->
       <div class="card">
-        <h2>Feladatok</h2>
-        <p class="subtitle">A legutóbbi körök. Egy sorra kattintva a <strong>teljes</strong> eredmény nyílik meg, nem a kivonat.</p>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+          <h2 style="margin:0">Feladatok</h2>
+          <button class="btn-secondary btn-compact" id="cbTasksClearBtn">Előzmények törlése</button>
+        </div>
+        <p class="subtitle">A legutóbbi körök. Egy sorra kattintva a <strong>teljes</strong> eredmény nyílik meg, nem a kivonat.
+          A törlés csak a <strong>lezárt</strong> sorokat viszi el; ami sorban áll vagy éppen fut, az marad.</p>
         <div id="cbTasksList" style="margin-top:10px">…</div>
       </div>
 

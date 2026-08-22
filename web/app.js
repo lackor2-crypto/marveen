@@ -3808,6 +3808,8 @@ async function loadAgents() {
       // "off" everywhere.
       fetch('/api/context-restart-gate').then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch('/api/context-broker').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      // Sajat betolto, mert ket vegpontbol all ossze; a hibat maga nyeli le.
+      loadCodeBridgeCards().catch(() => {}),
     ])
     agents = await agentsRes.json()
     if (fedStatus && Array.isArray(fedStatus.peers)) federatedPeerStatus = fedStatus.peers
@@ -4714,6 +4716,7 @@ function renderAgents() {
     agentsGrid.insertBefore(card, addBtn)
   }
   renderFederatedAgentCards(agentsGrid, addBtn)
+  renderCodeBridgeAgentCards(agentsGrid, addBtn)
   // Straddle the "+ new agent" button on the divider line itself (half in the
   // paid section, half in the free one) -- otherwise it only ever lands after
   // the last card in DOM order, i.e. visually inside the free section, which
@@ -4836,6 +4839,87 @@ async function refreshAgentTerminalBusy() {
 // SEPARATE array from `agents`: that global feeds the team editor and the
 // create-wizard, where qualified ids would be selectable-and-invalid.
 // "remote" already means SSH agents in this codebase -- these are FEDERATED.
+// === Kod-hid (VS Code Claude Code) a Csapat lapon ===
+// A vegrehajto egy KULSO csapattag: nem tmux-agent, nincs sajat process a
+// gepen, es sosem szerepelt az /api/agents listaban -- ezert a Csapat lapon
+// eddig NEM latszott sehol, pedig ez az egyetlen tag, aki valoban kodot ir.
+// A kartya read-only: innen csak atlepni lehet a Kod-hid lapra, mert a
+// feladatkuldes ott lakik, a projekt-valasztoval egyutt.
+let codeBridgeCards = { state: 'loading', projects: [], workerOnline: false }
+
+function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
+  // Amig az elso lekeres be nem futott, nem rakunk ki felrevezeto kartyat.
+  if (codeBridgeCards.state === 'loading' || codeBridgeCards.state === 'absent') return
+
+  const off = codeBridgeCards.state === 'disabled'
+  const rows = off ? [] : codeBridgeCards.projects
+  // Nulla projekt mellett is KELL egy kartya. Enelkul a lap ugy nez ki,
+  // mintha a kod-hid nem is letezne -- pontosan ez volt a panasz.
+  const entries = rows.length
+    ? rows.map(function (r) {
+        return {
+          title: r.project,
+          desc: r.workspacePath || '',
+          online: codeBridgeCards.workerOnline,
+          note: codeBridgeCards.workerOnline ? 'végrehajtó él' : 'végrehajtó áll',
+        }
+      })
+    : [{
+        title: 'VS Code Claude Code',
+        desc: off
+          ? 'A kód-híd ki van kapcsolva.'
+          : 'Még egy projekt sincs regisztrálva — nyiss egy Claude Code sessiont egy valódi projektben.',
+        online: false,
+        note: off ? 'kikapcsolva' : 'nincs projekt',
+      }]
+
+  for (const e of entries) {
+    const card = document.createElement('div')
+    card.className = 'agent-card code-bridge-agent-card'
+    card.innerHTML = `
+      <div class="agent-card-top">
+        <div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(e.title.charAt(0).toUpperCase())}</div>
+        <div class="agent-card-info">
+          <div class="agent-name">${escapeHtml(e.title)} <span class="federated-badge">VS Code</span></div>
+          <div class="agent-desc">${escapeHtml(e.desc)}</div>
+        </div>
+      </div>
+      <div class="agent-card-footer">
+        <span class="agent-model-badge">claude code</span>
+        <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
+      </div>
+      <div class="agent-card-actions">
+        <button class="btn-secondary btn-compact code-bridge-open-btn">Kód-híd megnyitása</button>
+      </div>`
+    card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      openCodeBridgePage()
+    })
+    card.addEventListener('click', () => openCodeBridgePage())
+    agentsGrid.insertBefore(card, addBtn)
+  }
+}
+
+function openCodeBridgePage() {
+  if (location.hash === '#codeBridge') switchPage('codeBridge')
+  else location.hash = 'codeBridge'
+}
+
+/** Failure-proof, mint a fooderacios lekeres: egy regi backend 404-je sem
+ *  boritja fel a Csapat lapot, csak nem lesz kod-hid kartya. */
+async function loadCodeBridgeCards() {
+  const [projects, health] = await Promise.all([
+    fetch('/api/code/projects').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    fetch('/api/code/health').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ])
+  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false } ; return }
+  codeBridgeCards = {
+    state: health.enabled === false ? 'disabled' : 'on',
+    projects: (projects && Array.isArray(projects.projects)) ? projects.projects : [],
+    workerOnline: Boolean(health.workerOnline),
+  }
+}
+
 let federatedPeerStatus = []
 
 // System/plumbing agent names never shown as message targets.
@@ -31266,6 +31350,21 @@ async function _intezoCfgSave() {
     if (!(t instanceof Element)) return
 
     if (t.id === 'cbRefreshBtn') { cbRefresh(); cbLoadConfig(); return }
+
+    if (t.id === 'cbTasksClearBtn') {
+      if (!confirm('Törlöd a lezárt feladatok előzményeit? A sorban álló és az éppen futó feladatok megmaradnak.')) return
+      t.setAttribute('disabled', 'disabled')
+      try {
+        const out = await cbFetch('/api/code/tasks', { method: 'DELETE' })
+        showToast('Törölve: ' + (out && out.removed != null ? out.removed : 0) + ' lezárt sor.')
+        cbRefresh()
+      } catch (err) {
+        showToast('Nem sikerült: ' + err.message, { type: 'error' })
+      } finally {
+        t.removeAttribute('disabled')
+      }
+      return
+    }
 
     if (t.id === 'cbDlPs1' || t.id === 'cbDlCmd') {
       window.location.href = '/api/code/worker-script?file=' + (t.id === 'cbDlCmd' ? 'cmd' : 'ps1')

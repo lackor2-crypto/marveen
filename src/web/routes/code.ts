@@ -24,6 +24,8 @@ import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
+  clearFinishedCodeTasks,
+  pruneUnreportedCodeSessions,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS,
   type CodeTaskStatus, type CodeTaskOrigin,
@@ -277,7 +279,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         logger.warn({ err, workspace: s.workspacePath }, 'code-bridge: session report rejected')
       }
     }
-    json(res, { registered, projects: listCodeSessions() })
+    // A jelentes a hitelesek listaja erre a gepre: ami kimaradt belole, annak
+    // a workspace-e mar nincs meg (a worker eleve nem jelenti a nem letezot).
+    const pruned = pruneUnreportedCodeSessions(body.host ?? 'windows', registered)
+    if (pruned.length > 0) logger.info({ host: body.host, pruned }, 'code-bridge: dropped sessions no longer reported')
+    json(res, { registered, pruned, projects: listCodeSessions() })
     return true
   }
 
@@ -308,6 +314,14 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const status = (url.searchParams.get('status') ?? undefined) as CodeTaskStatus | undefined
     const limit = Number(url.searchParams.get('limit') ?? '20')
     json(res, { tasks: listCodeTasks({ project, status, limit: Number.isFinite(limit) ? limit : 20 }) })
+    return true
+  }
+
+  // History housekeeping. Without this the only way to clear a page full of
+  // throwaway test rounds is hand-editing SQLite -- which a fresh install has
+  // no business needing.
+  if (path === '/api/code/tasks' && method === 'DELETE') {
+    json(res, { removed: clearFinishedCodeTasks() })
     return true
   }
 

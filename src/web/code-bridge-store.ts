@@ -324,6 +324,43 @@ export function deleteCodeSession(project: string): boolean {
   return info.changes > 0
 }
 
+/**
+ * Discovery is the authority on what a given host currently has open, so a row
+ * it stops reporting has to go.
+ *
+ * Without this a mapping outlives its workspace: delete or rename the folder
+ * and the alias stays in the dropdown forever, selectable and dispatchable,
+ * while every task addressed to it burns all 3 attempts before failing. The
+ * worker already refuses to report a workspace that no longer exists (see
+ * Test-DispatchableWorkspace in marvin-code-worker.ps1) -- until now the DB
+ * simply never acted on that silence. Measured 2026-08-22: three deleted test
+ * workspaces stayed in the project list after their folders were gone.
+ *
+ * Three things are deliberately NOT pruned:
+ *   * a PINNED row -- that is the owner's own map, not a discovery guess;
+ *   * a row belonging to a DIFFERENT host -- one worker knows nothing about
+ *     another machine's folders, and pruning on its behalf would empty the map
+ *     of every machine that is merely offline right now;
+ *   * a project with a QUEUED or RUNNING task -- one dropped report (a locked
+ *     transcript, a half-written file) would otherwise orphan live work.
+ */
+export function pruneUnreportedCodeSessions(host: string, reportedProjects: string[]): string[] {
+  ensureTables()
+  const keep = new Set(reportedProjects.map((p) => normalizeAlias(p)))
+  const busy = getDb().prepare(
+    `SELECT 1 FROM code_tasks WHERE project = ? AND status IN ('queued', 'running') LIMIT 1`,
+  )
+  const removed: string[] = []
+  for (const session of listCodeSessions()) {
+    if (session.pinned) continue
+    if (!session.host || session.host !== host) continue
+    if (keep.has(session.project)) continue
+    if (busy.get(session.project)) continue
+    if (deleteCodeSession(session.project)) removed.push(session.project)
+  }
+  return removed
+}
+
 // ---- tasks --------------------------------------------------------------
 
 function rowToTask(row: Record<string, unknown>): CodeTask {
@@ -626,6 +663,23 @@ export function cancelCodeTask(id: string, now = Date.now()): CodeTask | null {
  * caller can notify -- a silently dropped task is exactly the failure this whole
  * queue exists to avoid.
  */
+/**
+ * Clears finished history from the Tasks list.
+ *
+ * Queued and running rows are deliberately kept. A running task still has a
+ * `claude.exe` behind it that will POST a result minutes later, and a queued
+ * one is still owed to whoever asked for it -- dropping either would make the
+ * page lie about work that is still happening. Only rows nothing is waiting on
+ * are removed.
+ */
+export function clearFinishedCodeTasks(): number {
+  ensureTables()
+  const info = getDb()
+    .prepare(`DELETE FROM code_tasks WHERE status IN ('done', 'error', 'cancelled')`)
+    .run()
+  return info.changes ?? 0
+}
+
 export function reapExpiredCodeLeases(now = Date.now()): { requeued: string[]; failed: CodeTask[] } {
   ensureTables()
   const db = getDb()

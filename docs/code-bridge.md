@@ -195,6 +195,7 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 | `GET/POST /api/code/projects`, `DELETE /api/code/projects/:project` | tulaj |
 | `POST /api/code/sessions` | worker (felderítés) |
 | `POST /api/code/tasks`, `GET /api/code/tasks` | feladó / tulaj |
+| `DELETE /api/code/tasks` | tulaj (előzmény-takarítás; a `queued`/`running` sorokat nem viszi el) |
 | `POST /api/code/tasks/claim` | worker |
 | `GET /api/code/tasks/:id`, `POST .../heartbeat`, `.../result`, `.../cancel` | worker / tulaj |
 | `GET /api/code/latest/:project` | dashboard |
@@ -239,6 +240,8 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 | a válasz ékezetei romlanak | a PS 5.1 alap ISO-8859-1-et küldene; a worker ezért UTF-8 bájtokat POST-ol -- valószínűleg régi worker-példány fut |
 | megszakítottam, mégis megjött az eredmény | ez rendben van: a futó CLI-t nem lehet leállítani. A feladat `cancelled` marad, de az eredményt megőrizzük -- `/result <id>` mutatja |
 | a `cancel` 409-cel válaszol | a feladat már fut. Csak `queued` állapotban törölhető |
+| eltűnt egy projekt a listából | a workspace mappája már nincs meg, ezért a felderítés kivette. Ha meg akarod tartani, tűzd ki (`pin`) -- kitűzött sort a felderítés soha nem bánt |
+| tele van a Feladatok lista próbakörökkel | „Előzmények törlése” a Kód-híd lapon: csak a lezárt sorokat viszi el |
 
 ### A néma hibamód: áll a végrehajtó
 
@@ -313,3 +316,4 @@ felveszi).
 | `src/web/code-bridge-runner.ts` | lejárt bérletek visszatevése |
 | `scripts/windows/marvin-code-worker.ps1` | a Windows-oldali végrehajtó |
 | `seed-skills/code-dispatch/SKILL.md` | Marvin feladás-eljárása |
+| `web/app.js` &rarr; `renderCodeBridgeAgentCards` | a végrehajtó kártyája a Csapat lapon |
