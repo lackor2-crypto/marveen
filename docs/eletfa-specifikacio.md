@@ -923,3 +923,46 @@ a korábbi cím kedves volt, de nem mondta ki a szót, amit a szem keres.
 A „Mentés és előnézet" után a lap **odagörget** a „Könyvtárszerkezet
 létrehozása" gombhoz és négy másodpercre kiemeli — enélkül a felhasználó azt
 hiszi, kész van, pedig a lemezen még nem történt semmi.
+
+
+## VÉGLEGES TÖRLÉS ÉS AZ ÖNMAGÁTÓL ÜRÜLŐ KUKA — 2026-08-22
+
+A Kuka eddig csak gyűjtött. A Boss belépett a `Rendszer / Kuka` mappába, ott
+törölni akart, és a saját üzenetem küldte vissza oda, ahol már állt: *„menj be
+a Kukába és onnan töröld"*. Zsákutca volt — végleges törlés sehol a felületen
+nem létezett.
+
+**Amit a Kuka mostantól tud**
+
+| Hol állsz | Mit kínál a jobb egérgomb | Mi történik |
+|---|---|---|
+| bárhol a fában | „Törlés (a Kukába)" | átkerül `Rendszer/Kuka/<dátum>/` alá, visszahozható |
+| a Kukán belül | „Végleges törlés" | megsemmisül, nincs visszaút (külön rákérdez) |
+| magán a Kuka mappán | „A Kuka kiürítése (végleges)" | a tartalma elmegy, a mappa marad |
+
+**Őrök.** A `purgeLife()` a `Rendszer/Kuka` határán kívül semmit nem töröl —
+akkor sem, ha a felület mást küldene. Ha a törlendőben git-repó van, a végpont
+előbb megmondja, hányat és melyiket érint (a fel nem töltött munka az egyetlen,
+ami sehonnan nem áll helyre), és csak kifejezett megerősítésre megy tovább. A
+kiürült dátum-mappa magától eltűnik, hogy a Kuka ne teljen meg üres mappákkal.
+
+**Automatikus ürítés.** `LIFE_TRASH_DAYS` (Beállítások, alap **60** nap,
+`0` = soha). Naponta egyszer és induláskor fut. A kort a dátumos mappanévből
+olvassuk, nem a fájl mtime-jából: az mtime egy másolásnál elállítódik, a bélyeg
+viszont pont azt rögzíti, mikor dobtad ki. Aminek egyik sem olvasható, azt nem
+töröljük.
+
+## MINDEN BEKÖTÖTT FIÓKNAK VAN HELYE A FÁBAN — 2026-08-22
+
+A `Tárolók / Drive` hat mappát mutatott, a `GOOGLE_PHOTOS` hármat, holott tíz
+Google-fiók van bekötve. Nem veszett el semmi: a fiók-mappa eddig a szinkron
+melléktermékeként született, így akinél még egyszer sem futott le, annak nem
+volt mappája. A Tárolókezelő listája végig helyes volt (10 sor) — de a
+felhasználó a **fát** nézi, ott pedig egy hiányzó mappa ugyanúgy néz ki, mint
+egy elveszett fiók.
+
+Az `ensureStorageFolders()` a Tárolók lap betöltésekor pótolja a hiányzó
+Drive/Fotók fiók-mappákat. Csak annak, ami **be van kötve és aktív** — egy
+kikapcsolt fiók ne kapjon új, üres mappát, mert az azt sugallná, hogy még él. A
+Git szándékosan kimarad: ott a mappa a klónozáskor születik, és egy üres
+repó-mappa a git-őröket zavarná meg. Meglévőhöz sosem nyúl.

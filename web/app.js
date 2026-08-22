@@ -27545,7 +27545,7 @@ async function _depoPost(url, body) {
     body: JSON.stringify(body || {}),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || ('hiba: ' + res.status))
+  if (!res.ok) throw new Error(data.error || data.message || ('hiba: ' + res.status))
   return data
 }
 
@@ -29820,6 +29820,11 @@ async function _intezoOpenMenu(ev, entry) {
 
   if (!entry) {
     m.appendChild(_intezoMenuItem('📁  Új mappa itt', () => _intezoMkdir()))
+    // A Kukaban allva a leggyakoribb szandek nem uj mappa, hanem a takaritas.
+    if (_intezoKukaban(_intezoPath)) {
+      m.appendChild(_intezoMenuSep())
+      m.appendChild(_intezoMenuItem('🔥  A Kuka kiürítése (végleges)', () => _intezoEmptyKuka(), true))
+    }
   } else {
     if (entry.isDir) m.appendChild(_intezoMenuItem('📂  Megnyitás', () => _intezoOpen(entry.rel)))
     if (entry.isDir) m.appendChild(_intezoMenuItem('📁  Új mappa ide', () => _intezoMkdirInto(entry.rel)))
@@ -29838,7 +29843,14 @@ async function _intezoOpenMenu(ev, entry) {
       _intezoJumpTo('intezoInfoCard')
     }))
     m.appendChild(_intezoMenuSep())
-    m.appendChild(_intezoMenuItem('🗑  Törlés (a Kukába)', () => _intezoTrash(entry), true))
+    // A Kukaban a „torles" mar nem athelyezes: onnan mar csak lefele van ut.
+    if (entry.rel === _INTEZO_KUKA) {
+      m.appendChild(_intezoMenuItem('🔥  A Kuka kiürítése (végleges)', () => _intezoEmptyKuka(), true))
+    } else if (_intezoKukaban(entry.rel)) {
+      m.appendChild(_intezoMenuItem('🔥  Végleges törlés', () => _intezoPurge(entry), true))
+    } else {
+      m.appendChild(_intezoMenuItem('🗑  Törlés (a Kukába)', () => _intezoTrash(entry), true))
+    }
   }
 
   document.body.appendChild(m)
@@ -29857,6 +29869,58 @@ if (!window._intezoMenuBound) {
   document.addEventListener('click', () => _intezoCloseMenu())
   document.addEventListener('scroll', () => _intezoCloseMenu(), true)
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _intezoCloseMenu() })
+}
+
+// A Kuka utvonala. A felulet magyar nevekkel dolgozik (APP_LANG=hu); a
+// DONTES viszont nem itt szuletik: a szerver `purgeLife`-ja akkor sem torol
+// veglegesen, ha innen barmi mast kuldenenk. Ez itt csak azt intezi, hogy a
+// felhasznalo a HELYES menupontot lassa.
+const _INTEZO_KUKA = 'Rendszer/Kuka'
+function _intezoKukaban(rel) {
+  const r = String(rel || '')
+  return r === _INTEZO_KUKA || r.indexOf(_INTEZO_KUKA + '/') === 0
+}
+
+/** Vegleges torles a Kukabol -- ez az egyetlen visszavonhatatlan gomb a fan. */
+async function _intezoPurge(entry) {
+  const mi = entry.isDir ? 'mappát' : 'fájlt'
+  if (!confirm('VÉGLEGES TÖRLÉS\n\n' + (entry.name || entry.rel)
+      + '\n\nEzt a ' + mi + ' most tényleg megsemmisítem. Nincs visszaút, és nem lesz róla másolat.'
+      + '\n\nBiztos vagy benne?')) return
+  await _intezoPurgeKeres({ rel: entry.rel })
+}
+
+/** A Kuka teljes kiuritese -- a mappa marad, a tartalma nem. */
+async function _intezoEmptyKuka() {
+  if (!confirm('A KUKA KIÜRÍTÉSE\n\nMinden, ami a Kukában van, véglegesen megsemmisül. '
+      + 'Nincs visszaút.\n\nBiztos vagy benne?')) return
+  await _intezoPurgeKeres({ rel: _INTEZO_KUKA })
+}
+
+// A ketto ugyanazt a vegpontot hivja, ugyanazzal a masodik kerdessel: ha
+// git-repo is menne vele, a szerver ELOSZOR megall es megmondja, mennyi es mi.
+// A fel nem toltott munka az egyetlen dolog itt, ami nem all helyre sehonnan.
+async function _intezoPurgeKeres(body) {
+  try {
+    const r = await _depoPost('/api/life/purge', body)
+    showToast(r.message || 'Kész.')
+  } catch (e) {
+    const uz = (e && e.message) ? e.message : 'Nem sikerült a végleges törlés.'
+    if (uz.indexOf('git-repó') >= 0 && confirm(uz + '\n\nEnnek ellenére töröljem véglegesen?')) {
+      try {
+        const r2 = await _depoPost('/api/life/purge', Object.assign({}, body, { force: true }))
+        showToast(r2.message || 'Kész.')
+      } catch (e2) {
+        showToast((e2 && e2.message) ? e2.message : 'Nem sikerült a végleges törlés.')
+        return
+      }
+    } else {
+      showToast(uz)
+      return
+    }
+  }
+  _intezoClearSelection()
+  await _intezoOpen(_intezoPath)
 }
 
 /** Uj mappa EGY MASIK mappaba (a jobb klikkelt sorba), nem a mostaniba. */

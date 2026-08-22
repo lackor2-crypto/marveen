@@ -20,7 +20,7 @@ import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotRoot } from '../../depot.js'
 import {
-  listStorages, readStorageRegistry, writeStorageRegistry, addGitAccount,
+  listStorages, ensureStorageFolders, readStorageRegistry, writeStorageRegistry, addGitAccount,
   renameStorage, setStorageActive, storageKindRoot, STORAGE_KINDS,
   type StorageKind,
 } from '../../storages.js'
@@ -69,6 +69,17 @@ function currentRows() {
   // A git-sornal a "be van kotve" NEM az, hogy felvettuk a nevet -- hanem hogy
   // van-e mogotte elo hozzaferesi kulcs. A nevfelvetel maga meg nem hoz le
   // semmit, es ha itt zoldet mutatnank, a felhasznalo azt hinne, kesz van.
+  // A hianyzo fiok-mappak POTLASA. Itt es nem a szinkronban: a felhasznalo a
+  // fat nezi, es ott a hely azelott kell lassek, hogy barmi lejonne ra.
+  try {
+    const ujak = ensureStorageFolders(r.rows)
+    if (ujak.length) {
+      logger.info({ ujak }, '[storages] hianyzo fiok-mappak potolva')
+      for (const row of r.rows) if (ujak.includes(row.rel)) row.present = true
+    }
+  } catch (e) {
+    logger.warn({ err: String(e) }, '[storages] a fiok-mappak potlasa nem sikerult')
+  }
   return r.rows.map((row) => {
     if (row.kind !== 'git') return row
     const t = gitTokenInfo(row.account)

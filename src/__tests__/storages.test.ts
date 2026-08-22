@@ -5,13 +5,14 @@
 // tarolora mutatnanak. Ezt itt konnyu bizonyitani, elesben nem.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   assignStorageId,
   storageId,
   listStorages,
+  ensureStorageFolders,
   addGitAccount,
   renameStorage,
   setStorageActive,
@@ -188,5 +189,31 @@ describe('regiszter beolvasasa', () => {
     const reg = readStorageRegistry(p)
     expect(reg.ids).toEqual({ 'drive:a': 1 })
     expect(reg.gitAccounts).toEqual(['jo'])
+  })
+})
+
+describe('ensureStorageFolders -- minden bekotott fioknak legyen helye', () => {
+  it('a hianyzo Drive/Fotok mappat letrehozza, a meglevohoz nem nyul', () => {
+    mk(DEPOT_DRIVE + '/lackor2')
+    writeFileSync(join(root, DEPOT_DRIVE, 'lackor2', 'megvan.txt'), 'ertekes')
+    const r = listStorages({ driveAccounts: ['lackor2', 'ujfiok'], photosAccounts: ['lackor2'], root })
+    const keszult = ensureStorageFolders(r.rows)
+    expect(keszult).toContain(DEPOT_DRIVE + '/ujfiok')
+    expect(existsSync(join(root, DEPOT_DRIVE, 'ujfiok'))).toBe(true)
+    // a meglevo tartalom sertetlen
+    expect(readFileSync(join(root, DEPOT_DRIVE, 'lackor2', 'megvan.txt'), 'utf8')).toBe('ertekes')
+  })
+
+  it('kikapcsolt fioknak NEM csinal mappat', () => {
+    const reg: StorageRegistryFile = { ids: {}, names: {}, disabled: { 'drive:alvo': true }, gitAccounts: [] }
+    const r = listStorages({ driveAccounts: ['alvo'], photosAccounts: [], root, registry: reg })
+    expect(ensureStorageFolders(r.rows)).toEqual([])
+    expect(existsSync(join(root, DEPOT_DRIVE, 'alvo'))).toBe(false)
+  })
+
+  it('git-fioknak NEM csinal ures repo-mappat', () => {
+    const reg: StorageRegistryFile = { ids: {}, names: {}, disabled: {}, gitAccounts: ['ceges'] }
+    const r = listStorages({ driveAccounts: [], photosAccounts: [], root, registry: reg })
+    expect(ensureStorageFolders(r.rows).filter((x) => x.startsWith(DEPOT_PROJECTS))).toEqual([])
   })
 })

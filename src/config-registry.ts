@@ -59,6 +59,17 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 
 export const SETTINGS_REGISTRY: SettingDefinition[] = [
   {
+    key: 'LIFE_TRASH_DAYS',
+    type: 'int',
+    default: 60,
+    min: 0,
+    max: 3650,
+    description: 'Az Intéző Kukájában ennyi nap után magától véglegesen törlődnek a tételek. 0 = soha (csak kézzel).',
+    module: 'system',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'KANBAN_WIP_PLANNED',
     type: 'int',
     default: 0,

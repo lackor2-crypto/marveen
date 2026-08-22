@@ -138,6 +138,28 @@ export function movePhysical(fromRel: string, toRel: string): number {
   return moved
 }
 
+/**
+ * A bejegyzes eltunik a fajllal egyutt (vegleges torles).
+ *
+ * A `movePhysical` parja: ott koveti a fajlt, itt elbucsuzik tole. Enelkul a
+ * papir-terkepen orokre ottmaradna egy sor egy mar nem letezo utvonalra --
+ * eppen abban a listaban, amit a felhasznalo azert nez, hogy TUDJA, mi van meg.
+ * Mappat is kezel: ami alatta volt, az is megy.
+ */
+export function forgetPhysical(rel: string): number {
+  const key = normalizeKey(rel)
+  if (!key) return 0
+  const store = load()
+  let db = 0
+  for (const k of Object.keys(store)) {
+    if (k !== key && !k.startsWith(key + '/')) continue
+    delete store[k]
+    db++
+  }
+  if (db) save(store)
+  return db
+}
+
 /** Egysegesitett kulcs: per-jel, se elol, se hatul felesleges jel. */
 function normalizeKey(rel: string): string {
   return String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')

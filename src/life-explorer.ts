@@ -26,7 +26,7 @@ import { APP_LANG } from './config.js'
 import { depotRoot, DEPOT_PROJECTS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
-import { getPhysical, movePhysical, type PhysicalRecord } from './life-documents.js'
+import { getPhysical, movePhysical, forgetPhysical, type PhysicalRecord } from './life-documents.js'
 import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName,
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
@@ -736,7 +736,7 @@ export function trashLife(rel: string): MoveResult {
     return {
       ok: false, rel: '', code: 'in_trash',
       message: 'Ez már a Kukában van, oda nem tehetem még egyszer. Ha végleg meg akarsz szabadulni tőle, '
-        + 'a Rendszer / Kuka mappából töröld — onnan már nincs visszaút.',
+        + 'kattints rá jobb gombbal, és válaszd a „Végleges törlés" pontot — onnan már nincs visszaút.',
     }
   }
 
@@ -762,6 +762,112 @@ export function trashLife(rel: string): MoveResult {
     // A TENYLEGES nevet mondjuk: nevutkozeskor mas lett, mint ami a listaban allt.
     message: `A Kukába került: ${basename(target)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`,
   }
+}
+
+/**
+ * VEGLEGES TORLES -- csak a Kukan belul.
+ *
+ * Ez az egyetlen muvelet a fan, ami nem visszavonhato, ezert a legszukebbre
+ * van szabva: a `Rendszer/Kuka` alatt mukodik, mashol nem. A Kuka MAGA nem
+ * torlodik, csak kiurul -- kell a hely a kovetkezo kukazasnak.
+ */
+export function purgeLife(rel: string): MoveResult {
+  const root = explorerRoot()
+  const abs = resolveLifePath(rel)
+  if (!root || !abs) {
+    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+  }
+  if (!existsSync(abs)) {
+    return { ok: false, rel: '', code: 'missing', message: 'Ez már nincs itt. Frissítsd a listát.' }
+  }
+  const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+  const relNow = toLifeRel(abs)
+  // A HATAR. Veglegeset csak ott, ahonnan a felhasznalo mar egyszer
+  // elbucsuzott a fajltol.
+  if (relNow !== kukaRel && !relNow.startsWith(kukaRel + '/')) {
+    return {
+      ok: false, rel: '', code: 'not_in_trash',
+      message: 'Véglegesen csak a Kukából törlök. Ezt előbb tedd a Kukába — ha ott is fölöslegesnek látod, '
+        + 'onnan már végleg törölheted.',
+    }
+  }
+
+  // A KUKA MAGA: kiuritjuk, de a mappa marad.
+  if (relNow === kukaRel) {
+    let db = 0
+    let hiba = ''
+    for (const d of readdirSync(abs)) {
+      try { rmSync(join(abs, d), { recursive: true, force: true }); db++ } catch (err: any) { hiba = String(err?.code || err?.message || err) }
+    }
+    if (hiba && !db) {
+      return { ok: false, rel: '', code: 'failed', message: `Nem sikerült kiüríteni a Kukát: ${hiba}` }
+    }
+    logger.warn({ db }, '[intezo] kuka kiuritve')
+    return {
+      ok: true, rel: kukaRel,
+      message: db ? `A Kuka kiürült: ${db} tétel törölve, véglegesen.` : 'A Kuka már üres volt.',
+    }
+  }
+
+  const nev = basename(abs)
+  try {
+    rmSync(abs, { recursive: true, force: true })
+  } catch (err: any) {
+    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült törölni: ${String(err?.code || err?.message || err)}` }
+  }
+  // A papir-nyilvantartas bejegyzese is menjen vele: a fajl mar nincs, a
+  // „papiron is megvan" sor nelkule ertelmetlen lenne.
+  forgetPhysical(relNow)
+  // Az ures belyeges mappa is menjen: kulonben a Kuka tele lesz ures
+  // datum-mappakkal, es a felhasznalo azt latja, hogy "meg mindig van benne
+  // valami". Csak akkor, ha tenyleg ures -- a testverek maradnak.
+  const szulo = dirname(abs)
+  if (toLifeRel(szulo) !== relNow && KUKA_BELYEG.test(basename(szulo))) {
+    try { if (!readdirSync(szulo).length) rmSync(szulo, { recursive: true, force: true }) } catch { /* nem baj */ }
+  }
+  logger.warn({ rel: relNow }, '[intezo] veglegesen torolve')
+  return { ok: true, rel: dirname(relNow) === '.' ? '' : toLifeRel(dirname(abs)), message: `Véglegesen törölve: ${nev}` }
+}
+
+/** A Kuka belyeges mappaneve: `2026-08-22_00-05-01`. */
+const KUKA_BELYEG = /^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/
+
+/**
+ * A Kuka automatikus uritese: ami `days` napnal regebben kerult be, elmegy.
+ *
+ * A kort a BELYEGBOL olvassuk (az rogziti, mikor dobtad ki), nem az mtime-bol
+ * -- azt egy masolas vagy egy mentes-visszatoltes elallitja. Ha egy mappanev
+ * nem belyeg, az mtime a tartalek; ha egyik sem hasznalhato, NEM torlunk.
+ * `days <= 0` esetén meg sem mozdulunk: az a „soha" beallitas.
+ */
+export function autoPurgeTrash(days: number, most = Date.now()): { torolt: number; nevek: string[] } {
+  const nevek: string[] = []
+  if (!Number.isFinite(days) || days <= 0) return { torolt: 0, nevek }
+  const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+  const abs = resolveLifePath(kukaRel)
+  if (!abs || !existsSync(abs)) return { torolt: 0, nevek }
+  const hatar = most - days * 24 * 60 * 60 * 1000
+  let list: string[] = []
+  try { list = readdirSync(abs) } catch { return { torolt: 0, nevek } }
+  for (const nev of list) {
+    const m = KUKA_BELYEG.exec(nev)
+    let mikor = NaN
+    if (m) {
+      mikor = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`).getTime()
+    } else {
+      try { mikor = statSync(join(abs, nev)).mtimeMs } catch { mikor = NaN }
+    }
+    if (!Number.isFinite(mikor) || mikor >= hatar) continue
+    try {
+      rmSync(join(abs, nev), { recursive: true, force: true })
+      forgetPhysical(kukaRel + '/' + nev)
+      nevek.push(nev)
+    } catch (err) {
+      logger.warn({ err, nev }, '[intezo] a Kuka automatikus uritese egy tetelen elakadt')
+    }
+  }
+  if (nevek.length) logger.warn({ torolt: nevek.length, days }, '[intezo] a Kuka automatikusan urult')
+  return { torolt: nevek.length, nevek }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -12,7 +12,7 @@ vi.mock('../config.js', async () => {
   return { ...actual, STORE_DIR: store }
 })
 
-const { renameLife, trashLife, explorerRoot } = await import('../life-explorer.js')
+const { renameLife, trashLife, purgeLife, autoPurgeTrash, explorerRoot } = await import('../life-explorer.js')
 const { lifeName } = await import('../life-tree.js')
 const { reposInside } = await import('../git-guard.js')
 
@@ -136,5 +136,73 @@ describe('reposInside', () => {
   it('repo nelkuli mappara ures', () => {
     mkdirSync(join(root, 'Beérkező', 'sima'), { recursive: true })
     expect(reposInside('Beérkező/sima')).toEqual([])
+  })
+})
+
+const KUKA = lifeName('system', 'hu') + '/' + lifeName('trash', 'hu')
+
+describe('purgeLife -- vegleges torles', () => {
+  it('a Kukan KIVUL nem torol veglegesen', () => {
+    mkdirSync(join(root, 'Beérkező', 'ertekes'), { recursive: true })
+    const r = purgeLife('Beérkező/ertekes')
+    expect(r.ok).toBe(false)
+    expect(r.code).toBe('not_in_trash')
+    // a lenyeg: ott van meg
+    expect(existsSync(join(root, 'Beérkező', 'ertekes'))).toBe(true)
+  })
+
+  it('a Kukabol torol, tartalommal egyutt', () => {
+    mkdirSync(join(root, 'Beérkező', 'k'), { recursive: true })
+    writeFileSync(join(root, 'Beérkező', 'k', 'benne.txt'), 'x')
+    const t = trashLife('Beérkező/k')
+    expect(t.ok).toBe(true)
+    const r = purgeLife(t.rel)
+    expect(r.ok).toBe(true)
+    expect(existsSync(join(root, ...t.rel.split('/')))).toBe(false)
+  })
+
+  it('a Kuka MAGA kiurul, de megmarad mappanak', () => {
+    mkdirSync(join(root, 'Beérkező', 'a'), { recursive: true })
+    mkdirSync(join(root, 'Beérkező', 'b'), { recursive: true })
+    trashLife('Beérkező/a')
+    trashLife('Beérkező/b')
+    const r = purgeLife(KUKA)
+    expect(r.ok).toBe(true)
+    expect(existsSync(join(root, ...KUKA.split('/')))).toBe(true)
+    expect(readdirSync(join(root, ...KUKA.split('/')))).toEqual([])
+  })
+
+  it('nem letezo utvonalra nem all le csunyan', () => {
+    const r = purgeLife(KUKA + '/2001-01-01_00-00-00')
+    expect(r.ok).toBe(false)
+    expect(r.code).toBe('missing')
+  })
+})
+
+describe('autoPurgeTrash -- a Kuka magatol urul', () => {
+  it('a hatarnal regebbit elviszi, az ujabbat nem', () => {
+    const kuka = join(root, ...KUKA.split('/'))
+    mkdirSync(join(kuka, '2020-01-01_10-00-00', 'regi'), { recursive: true })
+    mkdirSync(join(kuka, '2026-08-20_10-00-00', 'uj'), { recursive: true })
+    const most = new Date('2026-08-22T10:00:00').getTime()
+    const r = autoPurgeTrash(60, most)
+    expect(r.torolt).toBe(1)
+    expect(existsSync(join(kuka, '2020-01-01_10-00-00'))).toBe(false)
+    expect(existsSync(join(kuka, '2026-08-20_10-00-00'))).toBe(true)
+  })
+
+  it('0 nap = soha: hozza sem nyul', () => {
+    const kuka = join(root, ...KUKA.split('/'))
+    mkdirSync(join(kuka, '2000-01-01_10-00-00', 'nagyon-regi'), { recursive: true })
+    expect(autoPurgeTrash(0).torolt).toBe(0)
+    expect(existsSync(join(kuka, '2000-01-01_10-00-00'))).toBe(true)
+  })
+
+  it('nem belyeg nevu mappat az mtime alapjan itel meg (a frisset megtartja)', () => {
+    const kuka = join(root, ...KUKA.split('/'))
+    mkdirSync(join(kuka, 'kezzel-idetett'), { recursive: true })
+    const r = autoPurgeTrash(60)
+    expect(r.torolt).toBe(0)
+    expect(existsSync(join(kuka, 'kezzel-idetett'))).toBe(true)
   })
 })

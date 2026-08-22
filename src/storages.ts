@@ -22,7 +22,7 @@
 // kiosztast lemezre irjuk: ha egy fiokot kesobb atneveznek vagy kikapcsolnak,
 // a mar rogzitett fizikai hivatkozasok nem csusznak el.
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { atomicWriteFileSync } from './web/atomic-write.js'
 import { depotRoot, safeDepotName, DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS } from './depot.js'
@@ -233,6 +233,32 @@ export function listStorages(opts: {
   }
 
   return { rows, registry: reg, changed: JSON.stringify(reg.ids) !== before }
+}
+
+/**
+ * A hianyzo fiok-mappak letrehozasa (Drive es Fotok).
+ *
+ * Csak azoknal, amelyek mogott VAN hitelesites (`connected`) es nincsenek
+ * kikapcsolva -- egy leszedett fiok ne kapjon uj, ures mappat, mert az azt
+ * sugallna, hogy meg el. A Git szandekosan kimarad: ott a mappa a klonozaskor
+ * szuletik, es egy ures repo-mappa a git-orzoket zavarna meg.
+ *
+ * Sose ir felul semmit: ami mar all, ahhoz nem nyul.
+ */
+export function ensureStorageFolders(rows: StorageRow[]): string[] {
+  const keszult: string[] = []
+  for (const row of rows) {
+    if (row.kind === 'git') continue
+    if (!row.connected || !row.active || row.present || !row.abs) continue
+    try {
+      mkdirSync(row.abs, { recursive: true })
+      keszult.push(row.rel)
+    } catch {
+      // Egy nem letrehozhato mappa (jogosultsag, lecsatolt depo) nem allithatja
+      // meg a tobbit -- a lista ettol meg helyes marad.
+    }
+  }
+  return keszult
 }
 
 function subdirs(dir: string): string[] {

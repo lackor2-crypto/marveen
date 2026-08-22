@@ -7,6 +7,8 @@ import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
+import { autoPurgeTrash } from './life-explorer.js'
+import { getEffectiveSettingValue } from './settings-store.js'
 import { sweepExpiredDeviceKeys } from './web/auth-device-keys.js'
 import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-origin.js'
 import { json } from './web/http-helpers.js'
@@ -547,6 +549,20 @@ export function startWebServer(port = 3420): http.Server {
     }
   }, 60 * 60 * 1000)
 
+  // A Kuka nem raktar: ami LIFE_TRASH_DAYS napnal regebben kerult bele, magatol
+  // elmegy. (Boss keresere, 2026-08-22.) A hatarideig barmikor visszahozhato.
+  const kukaSepres = () => {
+    try {
+      const napok = Number(getEffectiveSettingValue('LIFE_TRASH_DAYS'))
+      const r = autoPurgeTrash(napok)
+      if (r.torolt > 0) logger.info({ torolt: r.torolt, napok }, 'Az Intezo Kukaja automatikusan urult')
+    } catch (err) {
+      logger.warn({ err }, 'A Kuka automatikus uritese nem futott le')
+    }
+  }
+  kukaSepres()
+  const kukaSepresInterval = setInterval(kukaSepres, 24 * 60 * 60 * 1000)
+
   const tokenCollectInterval = webOnly ? undefined : setInterval(() => {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Periodic token usage collection failed'))
   }, 60 * 60 * 1000)
@@ -686,6 +702,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(contextGuardInterval)
     clearInterval(approvalTimeoutInterval)
     clearInterval(authSessionSweepInterval)
+    clearInterval(kukaSepresInterval)
     clearInterval(updateCheckerInterval)
     if (federationPollerInterval) clearInterval(federationPollerInterval)
     if (capabilityRunnerInterval) clearInterval(capabilityRunnerInterval)

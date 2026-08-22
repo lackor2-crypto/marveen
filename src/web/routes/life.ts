@@ -41,7 +41,7 @@ import { storageKindRoot } from '../../storages.js'
 import { join as pathJoin } from 'node:path'
 import { APP_LANG } from '../../config.js'
 import {
-  listLife, lifeInfo, moveLife, mkdirLife, renameLife, trashLife, searchLife, explorerRoot,
+  listLife, lifeInfo, moveLife, mkdirLife, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
 } from '../../life-explorer.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount } from '../../life-mounts.js'
@@ -323,6 +323,37 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       return true
     }
     send(res, 200, trashLife(rel))
+    return true
+  }
+
+  // VEGLEGES TORLES -- csak a Kukabol. A hatart a `purgeLife` orzi.
+  if (path === '/api/life/purge' && method === 'POST') {
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    // A HATART NEZZUK ELOSZOR. Elesben derult ki: egy ures/rossz utvonalra a
+    // repo-kerdes futott le eloszor, es a felulet a "ennek ellenere toroljem?"
+    // kerdest kinalta az EGESZ fara -- olyasmire, amit a purgeLife ugyis
+    // megtagad. Rossz kerdest feltenni ilyen gombnal onmagaban is hiba.
+    const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+    if (rel !== kukaRel && !rel.startsWith(kukaRel + '/')) {
+      send(res, 200, purgeLife(rel))
+      return true
+    }
+    // A Kukaban is allhat git-repo (belekerult egy kukazott mappaval). A
+    // vegleges torles azt is elviszi, a fel nem toltott munkaval egyutt --
+    // ezert eloszor MEGMONDJUK, es csak kifejezett megerositessel megyunk at
+    // rajta. A felhasznalonak latnia kell, mit veszit, mielott elveszti.
+    const benne = reposInside(rel)
+    if (benne.length && body?.force !== true) {
+      send(res, 400, {
+        ok: false, rel: '', code: 'has_repos',
+        message: `Ebben ${benne.length === 1 ? 'egy git-repó van' : benne.length + ' git-repó van'}`
+          + ` (pl. ${benne[0]}). A végleges törlés a bennük levő, fel nem töltött munkát is elviszi.`,
+        repos: benne,
+      })
+      return true
+    }
+    send(res, 200, purgeLife(rel))
     return true
   }
 
