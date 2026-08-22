@@ -688,6 +688,25 @@ export function renameLife(rel: string, newName: string): MoveResult {
  * hinne, torolt valamit. Aki tenyleg meg akar szuntetni egy agat, a
  * beallitasban veszi ki a szemelyt vagy a projektet.
  */
+/**
+ * Elso szabad nev egy mappaban: `x.txt`, `x (2).txt`, `x (3).txt`...
+ *
+ * A kiterjesztes a vegen marad, kulonben a `x.txt (2)` nevu fajlt a rendszer
+ * mar nem ismerne fel szovegnek.
+ */
+function szabadNev(dir: string, name: string): string {
+  let cand = join(dir, name)
+  if (!existsSync(cand)) return cand
+  const pont = name.lastIndexOf('.')
+  const torzs = pont > 0 ? name.slice(0, pont) : name
+  const kit = pont > 0 ? name.slice(pont) : ''
+  for (let i = 2; i < 1000; i++) {
+    cand = join(dir, `${torzs} (${i})${kit}`)
+    if (!existsSync(cand)) return cand
+  }
+  return join(dir, `${torzs} (${Date.now()})${kit}`)
+}
+
 export function trashLife(rel: string): MoveResult {
   const root = explorerRoot()
   const abs = resolveLifePath(rel)
@@ -709,10 +728,26 @@ export function trashLife(rel: string): MoveResult {
     }
   }
 
+  const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
+  const relNow = toLifeRel(abs)
+  // A Kuka nem kerulhet onmagaba. Enelkul a `renameSync` EINVAL-t ad, es a
+  // felhasznalo egy gepi szot kap valasznak.
+  if (relNow === kukaRel || relNow.startsWith(kukaRel + '/')) {
+    return {
+      ok: false, rel: '', code: 'in_trash',
+      message: 'Ez már a Kukában van, oda nem tehetem még egyszer. Ha végleg meg akarsz szabadulni tőle, '
+        + 'a Rendszer / Kuka mappából töröld — onnan már nincs visszaút.',
+    }
+  }
+
   const kuka = join(root, lifeName('system', APP_LANG), lifeName('trash', APP_LANG))
   const stamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')
   const dir = join(kuka, stamp)
-  const target = join(dir, basename(abs))
+  // EGY MASODPERCEN BELUL ket azonos nevu tetel is jarhat. A `renameSync` egy
+  // letezo FAJLT szo nelkul felulir -- vagyis a Kuka pont akkor nyelne el
+  // valamit, amikor a felhasznalo takarit, es a legkevesbe figyel oda. Ezert
+  // szabad nevet keresunk, es sose irunk felul.
+  const target = szabadNev(dir, basename(abs))
   try {
     mkdirSync(dir, { recursive: true })
     renameSync(abs, target)
@@ -724,7 +759,8 @@ export function trashLife(rel: string): MoveResult {
   logger.info({ from: rel, to: newRel }, '[intezo] kukaba')
   return {
     ok: true, rel: newRel,
-    message: `A Kukába került: ${basename(abs)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`,
+    // A TENYLEGES nevet mondjuk: nevutkozeskor mas lett, mint ami a listaban allt.
+    message: `A Kukába került: ${basename(target)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`,
   }
 }
 

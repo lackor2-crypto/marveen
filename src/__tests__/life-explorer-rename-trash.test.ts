@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -14,6 +14,7 @@ vi.mock('../config.js', async () => {
 
 const { renameLife, trashLife, explorerRoot } = await import('../life-explorer.js')
 const { lifeName } = await import('../life-tree.js')
+const { reposInside } = await import('../git-guard.js')
 
 const root = explorerRoot() as string
 
@@ -87,5 +88,53 @@ describe('trashLife', () => {
     const r = trashLife('../../etc')
     expect(r.ok).toBe(false)
     expect(existsSync(root)).toBe(true)
+  })
+})
+
+/**
+ * A 2026-08-22-i hatasvizsgalat leletei. Mindharom MERVE derult ki, nem
+ * atgondolva -- ezert all itt mindharomra teszt.
+ */
+describe('a Kuka hatarai', () => {
+  it('ket azonos nevu fajl UGYANABBAN a masodpercben sem irja felul egymast', () => {
+    mkdirSync(join(root, 'Beérkező', 'a'), { recursive: true })
+    mkdirSync(join(root, 'Beérkező', 'b'), { recursive: true })
+    writeFileSync(join(root, 'Beérkező', 'a', 'x.txt'), 'ELSO')
+    writeFileSync(join(root, 'Beérkező', 'b', 'x.txt'), 'MASODIK')
+
+    const r1 = trashLife('Beérkező/a/x.txt')
+    const r2 = trashLife('Beérkező/b/x.txt')
+    expect(r1.ok).toBe(true)
+    expect(r2.ok).toBe(true)
+    expect(r2.rel).not.toBe(r1.rel)
+    // a lenyeg: MINDKET tartalom megvan
+    expect(readFileSync(join(root, ...r1.rel.split('/')), 'utf8')).toBe('ELSO')
+    expect(readFileSync(join(root, ...r2.rel.split('/')), 'utf8')).toBe('MASODIK')
+    // a kiterjesztes a nev vegen marad
+    expect(r2.rel.endsWith('.txt')).toBe(true)
+  })
+
+  it('a Kukat nem teszi bele sajat magaba, es ezt emberi mondatban mondja', () => {
+    mkdirSync(join(root, 'Beérkező', 'q'), { recursive: true })
+    trashLife('Beérkező/q')          // hogy legyen mar Kuka
+    const r = trashLife(lifeName('system', 'hu') + '/' + lifeName('trash', 'hu'))
+    expect(r.ok).toBe(false)
+    expect(r.code).toBe('in_trash')
+    expect(r.message).not.toMatch(/EINVAL/)
+  })
+})
+
+describe('reposInside', () => {
+  it('megtalalja a mappa alatt levo repokat, es a repon belul nem keres tovabb', () => {
+    mkdirSync(join(root, 'Rendszer', 'Tárolók', 'Git', 'fiok', 'repo1', '.git'), { recursive: true })
+    mkdirSync(join(root, 'Rendszer', 'Tárolók', 'Git', 'fiok', 'repo1', 'melyen', '.git'), { recursive: true })
+    mkdirSync(join(root, 'Rendszer', 'Tárolók', 'Git', 'fiok', 'nem_repo'), { recursive: true })
+    const l = reposInside('Rendszer/Tárolók/Git/fiok')
+    expect(l).toEqual(['Rendszer/Tárolók/Git/fiok/repo1'])
+  })
+
+  it('repo nelkuli mappara ures', () => {
+    mkdirSync(join(root, 'Beérkező', 'sima'), { recursive: true })
+    expect(reposInside('Beérkező/sima')).toEqual([])
   })
 })

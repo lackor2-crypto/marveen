@@ -31,7 +31,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, rmSync, statSync, type Dirent } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { explorerRoot, resolveLifePath, toLifeRel } from './life-explorer.js'
 import { listMounts, removeMount } from './life-mounts.js'
@@ -71,6 +71,35 @@ export function repoAt(rel: string): RepoAt | null {
     cur = up
   }
   return null
+}
+
+/**
+ * Vannak-e git-repok EBBEN a mappaban (akarmilyen melyen)?
+ *
+ * A `repoAt` felfele nez: „benne allok-e egy repoban". Ez lefele: „egy egesz
+ * repot vinnek-e magammal". Kukazaskor pont ez a kerdes -- a merve talalt hiba
+ * az volt, hogy egy fiok-mappa a valodi repokkal egyutt, szo nelkul a Kukaba
+ * kerult.
+ *
+ * A repo gyokereben MEGALL: egy repon belul nem keresunk tovabb (almodulokkal
+ * nem foglalkozunk), es a `.git`-be sem lepunk be.
+ */
+export function reposInside(rel: string, max = 50): string[] {
+  const abs = resolveLifePath(rel)
+  if (!abs) return []
+  const out: string[] = []
+  const sor: string[] = [abs]
+  while (sor.length && out.length < max) {
+    const cur = sor.shift() as string
+    if (existsSync(join(cur, '.git'))) { out.push(toLifeRel(cur)); continue }
+    let list: Dirent[] = []
+    try { list = readdirSync(cur, { withFileTypes: true }) } catch { list = [] }
+    for (const d of list) {
+      if (!d.isDirectory() || d.isSymbolicLink()) continue
+      sor.push(join(cur, d.name))
+    }
+  }
+  return out
 }
 
 /**

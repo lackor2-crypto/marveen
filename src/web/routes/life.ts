@@ -45,7 +45,7 @@ import {
 } from '../../life-explorer.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount } from '../../life-mounts.js'
-import { repoAt, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
+import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
 import type { RouteContext } from './types.js'
@@ -223,6 +223,37 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Ket dolog, ami egy mappa ALATT vagy egy mappa MIATT romlik el, ha
+  // elmozditjuk. Mert lattuk elromlani (2026-08-22-i hatasvizsgalat):
+  //
+  //   - a mappa alatti BEKOTESEK bejegyzese ottmaradt egy nem letezo
+  //     utvonalon, a fan meg csak egy ures mappa latszott;
+  //   - a mappa alatti CELPONTOK (`Tárolók/Git/...`) elmozdultak, es a
+  //     bekotesek a semmibe mutattak -- a repo eltunt a fabol, pedig megvolt.
+  //
+  // Nem tiltas: megmondjuk, mit kell elotte elintezni.
+  const bekotesOrzo = (rel: string): { code: string; message: string } | null => {
+    const alatta = listMounts().filter((m) => m.rel === rel || m.rel.startsWith(rel + '/'))
+    if (alatta.length) {
+      return {
+        code: 'has_mounts',
+        message: `Ebben a mappában ${alatta.length === 1 ? 'egy bekötés van' : alatta.length + ' bekötés van'}`
+          + ` (pl. ${alatta[0].rel}). Előbb szüntesd meg őket a „Mit mutasson ez a mappa?" résznél — `
+          + 'különben a bekötés egy nem létező helyre mutatna tovább.',
+      }
+    }
+    const celok = listMounts().filter((m) => m.target === rel || m.target.startsWith(rel + '/'))
+    if (celok.length) {
+      return {
+        code: 'is_target',
+        message: `Erre a mappára ${celok.length === 1 ? 'egy bekötés mutat' : celok.length + ' bekötés mutat'}`
+          + ` (innen látszik: ${celok[0].rel}). Ha elmozdítom, ott üres hely maradna. `
+          + 'Előbb szüntesd meg a bekötést, aztán mozdítsd el.',
+      }
+    }
+    return null
+  }
+
   if (path === '/api/life/rename' && method === 'POST') {
     const body = await readJson(req)
     const rel = String(body?.rel ?? '')
@@ -241,6 +272,8 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       })
       return true
     }
+    const baj = bekotesOrzo(rel)
+    if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
     send(res, 200, renameLife(rel, String(body?.name ?? '')))
     return true
   }
@@ -272,6 +305,20 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
         ok: false, rel: '', code: 'repo',
         message: 'Ez egy git-repó. A törléséhez a repó saját gombját használd — az előbb megnézi, '
           + 'van-e benne fel nem töltött munka.',
+      })
+      return true
+    }
+    const baj = bekotesOrzo(rel)
+    if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
+    // Egy mappa a BENNE levo repokat is magaval vinne. A repoknak sajat, MERO
+    // torlesuk van (megnezi a fel nem toltott munkat) -- oda kuldjuk.
+    const benne = reposInside(rel)
+    if (benne.length) {
+      send(res, 400, {
+        ok: false, rel: '', code: 'has_repos',
+        message: `Ebben a mappában ${benne.length === 1 ? 'egy git-repó van' : benne.length + ' git-repó van'}`
+          + ` (pl. ${benne[0]}). Ezeket a saját törlő gombjukkal szüntesd meg — az előbb megnézi, `
+          + 'van-e bennük fel nem töltött munka. Utána ez a mappa is mehet a Kukába.',
       })
       return true
     }
