@@ -375,7 +375,7 @@ window._i18n.en = {
   'health.google_live_bad':    'Google is refusing {n} of {all} accounts: {names}',
   'health.google_live_bad_action': 'No calendar, no mail, no Drive — and nothing else shows it. Click here and I will walk you through reconnecting: you get a link, and no terminal is needed.',
   'health.google_dup':        '⚠️ The same Google account is connected under two names ({n} cases): {names}',
-  'health.google_dup_action': 'One mailbox has two entries. Settings (Drive sync, calendar, mail) refer to the OLD name, which is easily the dead copy — the page then shows two green accounts while one silently does nothing. Click here: on the Accounts page press “Check” on both, and press “Disconnect” on the one that does not answer.',
+  'health.google_dup_action': 'One mailbox has two entries, and the fresh access sits under the numbered name — while the settings (Drive sync, mail rules) look for the ORIGINAL name, so those silently do nothing. Click here: on the Accounts page press “Disconnect” on the numbered name (e.g. work_2), then “Sign in again” on the original row — Google now offers the right account by itself.',
   'health.google_live_never':  'You have Google accounts connected, but the live check has never run.',
   'health.google_live_never_action': 'Until it runs, access can die without anyone asking Google. Click here and I will run it now.',
   'health.google_live_stale':  'The live Google check has not run for {h}h.',

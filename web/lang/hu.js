@@ -394,7 +394,7 @@ window._i18n.hu = {
   'health.google_live_bad':    'A Google {n} fiókot elutasít (összesen {all} van): {names}',
   'health.google_live_bad_action': 'Ilyenkor nincs naptár, nincs levél, nincs Drive — és ez sehol máshol nem látszik. Kattints ide, és végigviszlek az újracsatlakoztatáson: kapsz egy linket, és nem kell terminál hozzá.',
   'health.google_dup':        '⚠️ Ugyanaz a Google-fiók két néven van bekötve ({n} eset): {names}',
-  'health.google_dup_action': 'Ugyanahhoz a postafiókhoz két bejegyzés tartozik. A beállítások (Drive-szinkron, naptár, levélküldés) a RÉGI névre hivatkoznak, és az könnyen a halott példány — ilyenkor a lap két zöld fiókot mutat, közben az egyik némán nem dolgozik. Kattints ide: a Fiókok oldalon mindkettőn nyomd meg az „Ellenőrzés” gombot, és amelyik nem válaszol, azon a „Leválasztás” gombot.',
+  'health.google_dup_action': 'Ugyanahhoz a postafiókhoz két bejegyzés tartozik, és a friss hozzáférés a sorszámozott néven ül — a beállítások (Drive-szinkron, levélszabályok) viszont az EREDETI nevet keresik, így azok némán állnak. Kattints ide: a Fiókok oldalon a sorszámozott néven (pl. munka_2) nyomd meg a „Leválasztás” gombot, majd az eredeti soron az „Újra bejelentkeztetem” gombot — a Google most már magától a helyes fiókot ajánlja fel.',
   'health.google_live_never':  'Van bekötött Google-fiókod, de élő ellenőrzés még soha nem futott le.',
   'health.google_live_never_action': 'Amíg nem futott, a hozzáférés úgy tud meghalni, hogy senki nem kérdezi meg a Google-t. Kattints ide, és most azonnal lefuttatom.',
   'health.google_live_stale':  'A Google-fiókok élő ellenőrzése {h} órája nem futott le.',
