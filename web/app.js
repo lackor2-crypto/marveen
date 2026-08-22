@@ -16839,7 +16839,13 @@ async function renderOverviewConnections() {
 
   const rows = []
   const act = t('conn.ov_action')
-  if (d.google.broken > 0) rows.push({ label: t('conn.ov_google_broken', { n: d.google.broken }), desc: act })
+  const health = (d.health && Array.isArray(d.health.items)) ? d.health.items : []
+  // Ha az ELO meres mar kimondta, hogy nem el a hozzaferes, akkor a
+  // "hibas fiokok" sor ugyanazt allitana -- csak rosszabbul: nem nevezi meg a
+  // fiokokat, es a Fiokok oldalra dob a vegigvezeto helyett. Ket sor egy
+  // tenyrol egy dobozt venne el a negybol.
+  const eloRossz = health.some(h => h.id === 'google_live_bad')
+  if (d.google.broken > 0 && !eloRossz) rows.push({ label: t('conn.ov_google_broken', { n: d.google.broken }), desc: act })
   if (d.mcp.needsLogin > 0) rows.push({ label: t('conn.ov_mcp_login', { n: d.mcp.needsLogin }), desc: act })
   if (d.google.total === 0 && d.google.clientPresent) rows.push({ label: t('conn.ov_google_none'), desc: act })
   if (d.mcp.broken > 0) rows.push({ label: t('conn.ov_mcp_broken', { n: d.mcp.broken }), desc: act })
@@ -16868,7 +16874,6 @@ async function renderOverviewConnections() {
   // naplokba szivargo titok, a fogyo lemez. Az `ok` sorokat itt NEM irjuk ki
   // kulon -- a zold osszefoglalo mondja el oket egyben, kulonben a kartya
   // hosszu lenne akkor is, amikor semmi teendo nincs.
-  const health = (d.health && Array.isArray(d.health.items)) ? d.health.items : []
   for (const h of health) {
     if (h.status === 'ok') continue
     // A "nem el a Google-hozzaferes" sor MEGNEVEZI a fiokokat -- azokat kell
@@ -16900,6 +16905,11 @@ async function renderOverviewConnections() {
         }
         : null,
     })
+    // Es ELORE. A kartya merev negy dobozos: tiz lejarat-sor melle szorulva
+    // pont az a sor kerulne az "Egyeb"-be, amelyik a javitason vegigvezet --
+    // holott ez tudja a legtobbet: az ora akkor is "rendben"-t mond, amikor a
+    // Google mar mindent elutasit.
+    if (h.id === 'google_live_bad') rows.unshift(rows.pop())
   }
 
   if (rows.length) {

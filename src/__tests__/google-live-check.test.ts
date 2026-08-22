@@ -200,6 +200,20 @@ describe('az Attekintes onellenorzese bekoti az elo Google-ellenorzest', () => {
     expect(app).toContain("'/api/connections/google/live-check'")
   })
 
+  it('a piros sor ELORE kerul, nem szorul az "Egyeb" dobozba', () => {
+    // A kartya merev negy dobozos (Boss, 2026-08-21/22). Tiz lejarat-sor melle
+    // szorulva pont az a sor tunne el, amelyik a javitason vegigvezet.
+    expect(renderer).toMatch(/if \(h\.id === 'google_live_bad'\) rows\.unshift\(rows\.pop\(\)\)/)
+  })
+
+  it('nem all KET sor ugyanarrol a tenyrol', () => {
+    // A "hibas fiokok" sor ugyanazt allitana, csak rosszabbul: nem nevez meg
+    // fiokot, es a Fiokok oldalra dob a vegigvezeto helyett. Egy dobozt venne
+    // el a negybol.
+    expect(renderer).toContain('eloRossz')
+    expect(renderer).toMatch(/d\.google\.broken > 0 && !eloRossz/)
+  })
+
   it('a jo hir is ki van mondva: van ZOLD sor is', () => {
     expect(renderer).toContain("health.google_live_ok")
     expect(renderer).toMatch(/greenRows\.push\(\{\s*label: t\('health\.google_live_ok'/)
