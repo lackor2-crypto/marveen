@@ -29131,6 +29131,9 @@ function _intezoDetachInfoCard() {
 function _intezoPlaceInfoCard() {
   const card = document.getElementById('intezoInfoCard')
   if (!card || !_intezoSelected) return
+  // Becsukott adatlapot nincs mit elhelyezni: enelkul egy ures sor maradna a
+  // kijelolt tetel alatt, es a lista latszolag ok nelkul szethuzodna.
+  if (card.hidden) return
   const list = document.getElementById('intezoList')
   if (!list) return
   const rows = list.querySelectorAll('tr[data-rel]')
@@ -29147,7 +29150,11 @@ function _intezoPlaceInfoCard() {
   tr.appendChild(td)
   host.parentNode.insertBefore(tr, host.nextSibling)
   td.appendChild(card)
-  card.hidden = false
+  // NEM nyitjuk ki. Ez a fuggveny csak azt intezi, HOVA kerul az adatlap --
+  // hogy latszik-e, azt a hivo donti el. Korabban itt allt egy
+  // `card.hidden = false`, es mivel minden lista-ujrarajzolas idehiv, az
+  // adatlap magatol kinyilt: eleg volt egy uj mappat letrehozni a jobb
+  // gombbal, es a becsukott panel visszajott. (Boss, 2026-08-22.)
 }
 
 /**
@@ -29278,14 +29285,10 @@ function _intezoRender() {
       if (e) void _intezoOpenMenu(ev, e)
     })
   })
-  // Ures teruletre (a lista alja) jobb klikk: ide uj mappa.
-  if (!list._intezoCtxBound) {
-    list._intezoCtxBound = 1
-    list.addEventListener('contextmenu', (ev) => {
-      if (ev.target && ev.target.closest && ev.target.closest('tr[data-rel]')) return
-      void _intezoOpenMenu(ev, null)
-    })
-  }
+  // (Az ures teruletre adott jobb klikket mar nem itt fogjuk el, hanem az
+  //  EGESZ Intezo lapon -- lasd `_intezoMenuBound`. A lista magassaga ugyanis
+  //  a sorok szama: egy ket-elemu mappaban a tablazat par pixel, alatta meg
+  //  fel kepernyonyi ures hely, ahol a bongeszo sajat menuje jott elo.)
 
   list.querySelectorAll('button[data-info]').forEach((b) => {
     b.addEventListener('click', () => {
@@ -29816,6 +29819,18 @@ function _intezoMenuSep() {
  * `entry` = a sor (nev, rel, isDir), vagy `null`, ha ures teruletre kattintott:
  * olyankor csak az „ide uj mappa" ertelmes.
  */
+/**
+ * A MOSTANI mappa embernek szolo neve -- a helyi menu felirataba.
+ * A puszta „itt" / „ide" nem mond semmit arrol, hova kerul az uj mappa; a
+ * teljes utvonal viszont hosszu. Az utolso szakasz a jo kompromisszum.
+ */
+function _intezoMostaniNev() {
+  const u = String(_intezoPath || '')
+  if (!u) return 'Marveen'
+  const r = u.split('/').filter(Boolean)
+  return r.length ? r[r.length - 1] : 'Marveen'
+}
+
 async function _intezoOpenMenu(ev, entry) {
   ev.preventDefault()
   _intezoCloseMenu()
@@ -29847,7 +29862,7 @@ async function _intezoOpenMenu(ev, entry) {
     + 'border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18)'
 
   if (!entry) {
-    m.appendChild(_intezoMenuItem('📁  Új mappa itt', () => _intezoMkdir()))
+    m.appendChild(_intezoMenuItem('📁  Új mappa a(z) „' + _intezoMostaniNev() + '” mappa alá', () => _intezoMkdir()))
     // A Kukaban allva a leggyakoribb szandek nem uj mappa, hanem a takaritas.
     if (_intezoKukaban(_intezoPath)) {
       m.appendChild(_intezoMenuSep())
@@ -29855,7 +29870,7 @@ async function _intezoOpenMenu(ev, entry) {
     }
   } else {
     if (entry.isDir) m.appendChild(_intezoMenuItem('📂  Megnyitás', () => _intezoOpen(entry.rel)))
-    if (entry.isDir) m.appendChild(_intezoMenuItem('📁  Új mappa ide', () => _intezoMkdirInto(entry.rel)))
+    if (entry.isDir) m.appendChild(_intezoMenuItem('📁  Új mappa a(z) „' + (entry.name || entry.rel) + '” mappa alá', () => _intezoMkdirInto(entry.rel)))
     m.appendChild(_intezoMenuItem('✏️  Átnevezés', () => _intezoRename(entry)))
     m.appendChild(_intezoMenuItem('➡️  Áthelyezés másik mappába', () => _intezoStartPick('move')))
     if (entry.isDir) {
@@ -29905,6 +29920,25 @@ if (!window._intezoMenuBound) {
   })
   document.addEventListener('scroll', () => _intezoCloseMenu(), true)
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _intezoCloseMenu() })
+
+  // JOBB EGERGOMB AZ INTEZO BARMELY URES PONTJAN = a MOSTANI mappa menuje
+  // (elsosorban az „Uj mappa itt"). Boss, 2026-08-22: „ha itt az ures reszen
+  // megnyomom az eger jobb gombjat, akkor az uj mappa letrehozasa gomb
+  // jelenjen meg. ne csak akkor, ha ott kozvetlenul a mappa alatt nyomom meg."
+  // Korabban csak a tablazat fogadta a kattintast -- az meg pont addig tart,
+  // ameddig sorok vannak.
+  document.addEventListener('contextmenu', (e) => {
+    const t = e.target
+    if (!t || !t.closest) return
+    const lap = document.getElementById('intezoPage')
+    if (!lap || lap.hidden || !lap.contains(t)) return
+    // A sorok sajat menut kapnak (a sor tetelere vonatkozot), a beviteli
+    // mezokon es gombokon pedig a bongeszo sajat menuje a hasznos (masolas,
+    // beillesztes, link megnyitasa uj lapon).
+    if (t.closest('tr[data-rel]')) return
+    if (t.closest('input,textarea,select,a,button,.intezo-ctxmenu')) return
+    void _intezoOpenMenu(e, null)
+  })
 }
 
 // A Kuka utvonala. A felulet magyar nevekkel dolgozik (APP_LANG=hu); a
@@ -29966,7 +30000,11 @@ async function _intezoMkdirInto(rel) {
   try {
     const r = await _depoPost('/api/life/mkdir', { parent: rel, name: name })
     showToast(r.message || 'Kész.')
-    await _intezoOpen(_intezoPath)
+    // BELEPUNK abba a mappaba, amibe az uj mappa kerult -- kulonben a
+    // felhasznalo egy olyan listat lat, amiben az uj mappa nincs is benne, es
+    // csak hisz a visszajelzesnek. Boss, 2026-08-22: "jobb lenne ha az
+    // identitas mappaba menne. hogy lassam hogy megcsinalta e a kk mappat."
+    await _intezoOpen(rel)
   } catch (e) {
     showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappát.')
   }
