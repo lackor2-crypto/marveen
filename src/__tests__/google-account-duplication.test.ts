@@ -243,6 +243,12 @@ describe('ha a duplikatum megis eloall, az Attekintes SZOL', () => {
     ir(store)
     const rows = googleDuplicateRows(dir)
     expect(rows[0].params).toMatchObject({ n: 7 })
+    // A darabszam teljes, a felsorolas viszont nem nyulhat vegtelenul: a
+    // cimke egy merev magassagu dobozba kerul. Harom par utan levagjuk.
+    const nevek = String(rows[0].params?.names)
+    expect(nevek.split(' · ')).toHaveLength(3)
+    expect(nevek.endsWith(' …'), 'a levagast jelezni kell').toBe(true)
+    expect(nevek.length, 'egy dobozba kell ferjen').toBeLessThan(120)
   })
 
   it('a cimet kisbetusen vetjuk ossze -- a Gmail sem tesz kulonbseget', () => {

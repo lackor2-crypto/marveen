@@ -587,7 +587,13 @@ export function googleDuplicateRows(storeDir: string = STORE_DIR): HealthRow[] {
     .map(k => k.map(tisztaNev).filter(Boolean).join(' + '))
     .filter(Boolean)
   if (parok.length === 0) return []
-  return [{ id: 'google_dup', status: 'warn', params: { n: parok.length, names: parok.join(' · ') } }]
+  // A cimke a kartya egyik dobozaba kerul, es a doboz NEM nyulhat lefele (a
+  // negy dobozos racs merev). Het par tizennegy nevvel felrugna a magassagot,
+  // ezert harom utan levagjuk -- a darabszam (`n`) akkor is teljes, es a
+  // Fiokok oldalon ugyis mind ott van egymas mellett.
+  const MUTATOTT = 3
+  const names = parok.slice(0, MUTATOTT).join(' · ') + (parok.length > MUTATOTT ? ' …' : '')
+  return [{ id: 'google_dup', status: 'warn', params: { n: parok.length, names } }]
 }
 
 export function googleLiveRows(
