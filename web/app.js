@@ -31186,6 +31186,21 @@ async function _intezoCfgSave() {
   // ahhoz, hogy egy ujrainditas-gomb csak dekoracio.
   var _cbRestartState = { cbBotRestart: null, cbOpsRestart: null }
 
+  // A mentett ertek SZTRING ("a, b"), az elo ertek viszont mar feldolgozott
+  // TOMB (['a','b']) -- a config.ts vesszo menten szetvagja, trimmeli, es a
+  // kizarasi listat kisbetusiti is. Osszehasonlitani csak ugyanabban a formaban
+  // szabad oket, kulonben egy szokoz vagy egy nagybetu miatt a gomb az
+  // ujrainditas UTAN is ottmarad -- amit a Boss mar egyszer kifogasolt
+  // (2026-08-18: "ujraindtottam es megis kiirja hogy ujrainditasra var!!?").
+  function cbNormList(value, lower) {
+    const parts = Array.isArray(value) ? value : String(value == null ? '' : value).split(',')
+    return parts
+      .map((x) => String(x).trim())
+      .map((x) => (lower ? x.toLowerCase() : x))
+      .filter((x) => x.length > 0)
+      .join(',')
+  }
+
   async function cbMountRestart(slotId, pending, note) {
     const slot = document.getElementById(slotId)
     if (!slot) return
@@ -31221,11 +31236,11 @@ async function _intezoCfgSave() {
     const live = cfg.live || {}
     const botPending =
       Boolean(cfg.botConfigured) !== Boolean(live.botConfigured) ||
-      String(cfg.CODE_BOT_ALLOWED_CHAT_IDS || '') !== String(live.allowedChatIds || '')
+      cbNormList(cfg.CODE_BOT_ALLOWED_CHAT_IDS, false) !== cbNormList(live.allowedChatIds, false)
     const opsPending =
       (String(cfg.CODE_BRIDGE_ENABLED) === '1') !== Boolean(live.enabled) ||
       String(cfg.CODE_PERMISSION_MODE || '') !== String(live.permissionMode || '') ||
-      String(cfg.CODE_BRIDGE_EXCLUDE || '') !== String(live.excluded || '')
+      cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true) !== cbNormList(live.excluded, true)
     // A `void` szandekos: a konfiguracio kirajzolasa nem varhat egy halozati
     // korre, es a gomb sajat maga kezeli, ha a vezerlopult nem tudja magat
     // ujrainditani (akkor megmondja, mit csinaljon helyette az ember).

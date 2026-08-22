@@ -245,3 +245,86 @@ describe('restart control on the code bridge page', () => {
     expect(code).toContain('allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,\n        excluded: CODE_BRIDGE_EXCLUDE,')
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// F4b -- the restart button must not become decoration
+// ---------------------------------------------------------------------------
+
+describe('restart-pending detection', () => {
+  // The page compares a SAVED string against a LIVE value -- but config.ts has
+  // already parsed the live side into an array (split, trim, drop empties) and
+  // lowercased the exclusion list. Compared raw, a single space or capital
+  // letter leaves the button standing after the restart that was supposed to
+  // clear it. Boss, 2026-08-18, about exactly that symptom elsewhere:
+  // "ujraindtottam es megis kiirja hogy ujrainditasra var!!?"
+  //
+  // The page's OWN function is lifted out of app.js here, so this measures the
+  // shipped code rather than a re-typed copy of it.
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
+  const m = app.match(/function cbNormList\(value, lower\) \{[\s\S]*?\n  \}/)
+  const cbNormList = new Function('return (' + (m ? m[0] : 'function () { throw new Error("cbNormList missing") }') + ')')() as
+    (v: unknown, lower: boolean) => string
+
+  function pending(cfg: Record<string, unknown>): { bot: boolean; ops: boolean } {
+    const live = (cfg['live'] ?? {}) as Record<string, unknown>
+    return {
+      bot:
+        Boolean(cfg['botConfigured']) !== Boolean(live['botConfigured']) ||
+        cbNormList(cfg['CODE_BOT_ALLOWED_CHAT_IDS'], false) !== cbNormList(live['allowedChatIds'], false),
+      ops:
+        (String(cfg['CODE_BRIDGE_ENABLED']) === '1') !== Boolean(live['enabled']) ||
+        String(cfg['CODE_PERMISSION_MODE'] ?? '') !== String(live['permissionMode'] ?? '') ||
+        cbNormList(cfg['CODE_BRIDGE_EXCLUDE'], true) !== cbNormList(live['excluded'], true),
+    }
+  }
+
+  const base = {
+    CODE_BRIDGE_ENABLED: '1',
+    CODE_PERMISSION_MODE: 'acceptEdits',
+    CODE_BRIDGE_EXCLUDE: '',
+    CODE_BOT_ALLOWED_CHAT_IDS: '',
+    botConfigured: false,
+    live: { enabled: true, permissionMode: 'acceptEdits', botConfigured: false, allowedChatIds: [], excluded: [] },
+  }
+
+  it('the page actually contains the normaliser it relies on', () => {
+    expect(m).not.toBeNull()
+  })
+
+  it('shows NO button when nothing changed', () => {
+    expect(pending(base)).toEqual({ bot: false, ops: false })
+  })
+
+  it('is not fooled by spacing, capitals, or empty list elements', () => {
+    expect(pending({ ...base,
+      CODE_BRIDGE_EXCLUDE: 'a, b', CODE_BOT_ALLOWED_CHAT_IDS: '1, 2',
+      live: { ...base.live, excluded: ['a', 'b'], allowedChatIds: ['1', '2'] },
+    })).toEqual({ bot: false, ops: false })
+
+    // config.ts lowercases the exclusion list; the saved value keeps whatever
+    // the owner typed. Raw comparison made this button permanent.
+    expect(pending({ ...base,
+      CODE_BRIDGE_EXCLUDE: 'Tozsde_Telepitesi_Mappa',
+      live: { ...base.live, excluded: ['tozsde_telepitesi_mappa'] },
+    }).ops).toBe(false)
+
+    expect(pending({ ...base,
+      CODE_BRIDGE_EXCLUDE: 'a,,b,',
+      live: { ...base.live, excluded: ['a', 'b'] },
+    }).ops).toBe(false)
+  })
+
+  it('DOES show the button for every real change, on the right card', () => {
+    expect(pending({ ...base, botConfigured: true }))
+      .toEqual({ bot: true, ops: false })
+    expect(pending({ ...base, CODE_BOT_ALLOWED_CHAT_IDS: '999' }))
+      .toEqual({ bot: true, ops: false })
+    expect(pending({ ...base, CODE_PERMISSION_MODE: 'plan' }))
+      .toEqual({ bot: false, ops: true })
+    expect(pending({ ...base, CODE_BRIDGE_ENABLED: '0' }))
+      .toEqual({ bot: false, ops: true })
+    expect(pending({ ...base, CODE_BRIDGE_EXCLUDE: 'uj' }))
+      .toEqual({ bot: false, ops: true })
+  })
+})
