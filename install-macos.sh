@@ -716,6 +716,7 @@ echo -e "  ${GREEN}✓${NC} $(_t macos.dirs_created)"
 if [ -f "$INSTALL_DIR/templates/CLAUDE.md.template" ]; then
   sed -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
       -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+      -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
       -e "s/{{CHAT_ID}}/$CHAT_ID/g" \
       -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
       -e "s/{{MAIN_AGENT_ID}}/$MAIN_AGENT_ID/g" \
@@ -765,6 +766,7 @@ if [ -d "$SCHED_TPL_DIR" ]; then
           -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
           -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
           -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+          -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
           -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
           "$f" > "$target/$rel"
     done < <(find "$tpl" -type f -print0)
@@ -878,6 +880,7 @@ if [ -d "$SEED_SKILLS_DIR" ]; then
           -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
           -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
           -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+          -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
           -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
           "$f" > "$target/$rel"
     done < <(find "$skill_dir" -type f -print0)
@@ -912,6 +915,7 @@ if [ -d "$SEED_SCHED_DIR" ]; then
           -e "s/{{BOT_NAME}}/$BOT_NAME/g" \
           -e "s/{{OWNER_NAME}}/$OWNER_NAME/g" \
           -e "s|{{INSTALL_DIR}}|$INSTALL_DIR|g" \
+          -e "s|{{PROJECT_ROOT}}|$INSTALL_DIR|g" \
           -e "s/{{WEB_PORT}}/${WEB_PORT:-3420}/g" \
           "$f" > "$target/$rel"
     done < <(find "$tpl" -type f -print0)

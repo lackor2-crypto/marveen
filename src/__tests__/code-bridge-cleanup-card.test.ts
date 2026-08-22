@@ -99,7 +99,7 @@ describe('a REST felulet es a gomb', () => {
 describe('kod-hid kartya a Csapat lapon', () => {
   const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf8')
 
-  it('is rendered from renderAgents, next to the federated cards', () => {
+  it('is rendered from renderAgents', () => {
     expect(app).toContain('renderCodeBridgeAgentCards(agentsGrid, addBtn)')
     expect(app).toContain('function renderCodeBridgeAgentCards(')
   })
@@ -109,7 +109,12 @@ describe('kod-hid kartya a Csapat lapon', () => {
     // utobbi mondja meg a tulajnak, hogy mit kell tennie.
     const fn = app.slice(app.indexOf('function renderCodeBridgeAgentCards('))
     expect(fn.slice(0, 3000)).toContain('rows.length')
-    expect(fn.slice(0, 3000)).toContain('Még egy projekt sincs regisztrálva')
+    // A "mit tegyel most" mondat a cbIdleCardEntry-be kerult, hogy a harom ures
+    // allapot -- kikapcsolt hid, hianyzo vegrehajto, nulla projekt -- kulon
+    // teendot kaphasson. A kartya maga valtozatlanul kikerul.
+    expect(fn.slice(0, 3000)).toContain('cbIdleCardEntry(off)')
+    const idle = app.slice(app.indexOf('function cbIdleCardEntry('), app.indexOf('function renderCodeBridgeAgentCards('))
+    expect(idle).toContain('egy projekt sincs regisztrálva')
   })
 
   it('never lets its own fetch break the Csapat page', () => {
@@ -118,13 +123,15 @@ describe('kod-hid kartya a Csapat lapon', () => {
     expect(app).toContain('loadCodeBridgeCards().catch(() => {})')
   })
 
-  it('links to the Kod-hid page instead of duplicating the send form', () => {
+  it('opens the settings window instead of duplicating the send form', () => {
     // A kartya read-only. Ha ide is kerulne feladatkuldes, ket helyen kellene
     // karbantartani ugyanazt a projekt-valasztot es prompt-korlatot.
-    const fn = app.slice(app.indexOf('function renderCodeBridgeAgentCards('), app.indexOf('function openCodeBridgePage('))
+    const fn = app.slice(app.indexOf('function renderCodeBridgeAgentCards('), app.indexOf('function openCodeBridgeModal('))
     expect(fn).toContain('code-bridge-open-btn')
     expect(fn).not.toContain('/api/code/tasks')
-    expect(app).toContain(`location.hash = 'codeBridge'`)
+    // Kattintasra ugyanaz tortenik, mint barmelyik masik ugynok kartyajan:
+    // kinyilik a beallitasai.
+    expect(fn).toContain('openCodeBridgeModal()')
   })
 })
 

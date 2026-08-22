@@ -66,12 +66,53 @@ mindegyik külön címezhető. Nincs "aktuális session" fogalom sehol a kódban
 
 ## 3. Telepítés
 
-> **A gyors út: a `Kód-híd` lap.** A vezérlőpult bal oldalán, a RENDSZER
-> csoport tetején. Ott egy helyen van az állapot ("él-e a végrehajtó"), a
-> Windows-végrehajtó két letölthető fájlja, a **valódi útvonalakkal kiírt**
-> telepítő parancs (másoló gombbal), a bot-token, a projekt-tábla és a
-> feladatküldés. Az alábbi fejezetek ugyanezt írják le kézzel -- ha a lapot
-> használod, egyik sem kell.
+> **A gyors út: az `Ügynökök` lap &rarr; a **VS Code Claude Code** kártya.**
+> Rákattintva nyílik a Kód-híd ablak -- pontosan úgy, ahogy bármelyik másik
+> ügynök beállítása a saját kártyájáról. Ott egy helyen van az állapot
+> ("él-e a végrehajtó"), a Windows-végrehajtó két letölthető fájlja, a
+> **valódi útvonalakkal kiírt** telepítő parancs (másoló gombbal), a
+> bot-token, a projekt-tábla és a feladatküldés. Az alábbi fejezetek
+> ugyanezt írják le kézzel -- ha az ablakot használod, egyik sem kell.
+>
+> 2026-08-22-ig ez külön menüpont volt a bal oldali RENDSZER csoportban.
+> Boss: *"miért kivételezünk vele? mindenki alapból is ott keresné, ha már
+> a többinél is ott van."* A tartalom változatlan, csak a helye lett a
+> megszokott.
+
+### 3.0 Beüzemelés friss telepítésen
+
+**A kártya magától megjelenik** -- nincs "Új ügynök", nincs kézi felvétel. A
+`CODE_BRIDGE_ENABLED` alapból bekapcsolt, tehát egy frissen telepített
+Marveenen a VS Code kártya ott áll a fizetős sávban, Marveen után, és azt
+mutatja, hol tartasz (`Nincs futó Windows-végrehajtó`). Rákattintva nyílik az
+ablak, a tetején a **Beüzemelés** kártyával: sorrendben mutatja, mi a
+következő lépés, és mindegyik mellett ott a gomb, ami a hozzá tartozó
+kártyára ugrik:
+
+| # | Lépés | Miből látszik | Kötelező |
+|---|---|---|---|
+| 1 | A híd be van kapcsolva | `health.enabled` | igen |
+| 2 | A Windows-végrehajtó fut | `health.workerOnline` | igen |
+| 3 | Van legalább egy regisztrált projekt | `health.sessions > 0` | igen |
+| 4 | Telegram kód-bot | `health.botConfigured` | nem |
+
+A kártya **eltűnik**, amint a három kötelező lépés kész -- egy működő hídon egy
+állandó teendő-lista már csak zaj. A negyedik szándékosan opcionális: a felület
+és az ügynök-átadás bot nélkül is megy, csak a Telegramos `/code` nem.
+
+**A kiírt útvonalak a te telepítésedre érvényesek.** A `/api/code/health`
+`installHint`-je megmondja, milyen gépen fut a Marveen (`hostKind`: `wsl`,
+`windows` vagy `unix`), és ebből következik, mit kap a worker:
+
+| hostKind | Amit a lap kiír | Miért |
+|---|---|---|
+| `wsl` | `-TokenPath "\\wsl.localhost\<distro>\...\store\.dashboard-token"` | a Windows így látja a WSL fájlrendszerét |
+| `windows` | `-TokenPath "<telepítési út>\store\.dashboard-token"` | ugyanaz a fájlrendszer |
+| `unix` | `-Token "<kimásolt token>"` | külön gépen **nincs** közös útvonal |
+
+`unix` esetén a lap azt is megmondja, melyik fájlból kell kimásolni a tokent
+(`installHint.tokenFile`), és figyelmeztet, hogy a `-BaseUrl` ne `localhost`
+maradjon.
 
 
 ### 3.1 Dedikált Telegram kód-bot (opcionális, de ez a Marvin-mentes út)
@@ -102,9 +143,9 @@ lehet közvetlenül feladni.
 | `CODE_BRIDGE_EXCLUDE` | üres | vesszős alias-lista, amit a híd **soha nem** regisztrál és nem fogad el (pl. az az ablak, amelyikben épp beszélgetsz) |
 
 Mind az öt kulcs szerepel a beállítás-regiszterben, tehát fájlt szerkeszteni
-egyikhez sem kell. Négy közülük a **Beállítások** lapon és a **Kód-híd** lapon
+egyikhez sem kell. Négy közülük a **Beállítások** lapon és a Kód-híd ablakban
 is szerkeszthető; a `CODE_BOT_TOKEN` viszont titkosnak van jelölve, ezért
-csak a **Kód-híd lapon** állítható:
+csak a **Kód-híd ablakban** állítható (Ügynökök → a VS Code kártya):
 
 - a `GET /api/settings` válaszából a **teljes sora kimarad** (nem maszkolt
   érték: már az is információ lenne, hogy a kulcs létezik és be van állítva),
@@ -123,8 +164,8 @@ műveleteknél marad a kapu. A `bypassPermissions` tudatos, kézi döntés legye
 
 ### 3.3 Windows worker
 
-A **Kód-híd** lapról mindkét fájl letölthető (`marvin-code-worker.ps1` és
-`.cmd`), és a lap kiírja a hozzájuk tartozó, erre a gépre szabott indító
+A Kód-híd ablakból mindkét fájl letölthető (`marvin-code-worker.ps1` és
+`.cmd`), és kiírja a hozzájuk tartozó, erre a gépre szabott indító
 parancsot is -- se repót klónozni, se UNC-útvonalat gépelni nem kell.
 
 Kézzel: a repóban `scripts/windows/marvin-code-worker.ps1`. Másold a Windows-gépre
@@ -175,11 +216,22 @@ Az első szó a projekt, **minden más szó szerint** megy tovább. Az elkészü
 után rövid, programozott értesítés jön (OK/hiba + idő + kör + költség + max 280
 karakteres kivonat); a részletes eredmény `/result`-tal kérhető.
 
-### Marvintól
+### Bármelyik ügynöktől
 
 A `code-dispatch` skill: felad egy taskot `origin: "agent"`-tel, nyugtáz egy
 sorban, és **befejezi a kört**. Nem hoz létre programozó agentet, nem vár, nem
 tolmácsol.
+
+Ez **nem** Marvin kiváltsága. A készség a közös készségtárban lakik
+(`~/.claude/skills`, minden ügynök `.claude/skills`-e oda van linkelve), tehát a
+flotta bármelyik tagja átadhat kódfeladatot a VS Code sessionnek -- a végrehajtó
+ugyanaz marad, és a sor egyszerre egy feladatot futtat, akárki adta fel. A
+`requestedBy`-ba mindenki a **saját** ügynök-nevét írja; ebből látszik a
+Feladatok listában, ki kérte.
+
+Az irány szándékosan ez: az ügynökök használják a VS Code sessiont, nem
+fordítva. A projekt sessionje ismeri a kódot és az előzményeket -- egy ügynök
+parafrázisa csak információt veszítene.
 
 ### REST
 
@@ -241,7 +293,7 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 | megszakítottam, mégis megjött az eredmény | ez rendben van: a futó CLI-t nem lehet leállítani. A feladat `cancelled` marad, de az eredményt megőrizzük -- `/result <id>` mutatja |
 | a `cancel` 409-cel válaszol | a feladat már fut. Csak `queued` állapotban törölhető |
 | eltűnt egy projekt a listából | a workspace mappája már nincs meg, ezért a felderítés kivette. Ha meg akarod tartani, tűzd ki (`pin`) -- kitűzött sort a felderítés soha nem bánt |
-| tele van a Feladatok lista próbakörökkel | „Előzmények törlése” a Kód-híd lapon: csak a lezárt sorokat viszi el |
+| tele van a Feladatok lista próbakörökkel | „Előzmények törlése” a Kód-híd ablakban: csak a lezárt sorokat viszi el |
 
 ### A néma hibamód: áll a végrehajtó
 
@@ -257,7 +309,7 @@ Ezért a végrehajtó minden bejelentkezése (felderítés, feladat-kivétel,
   `running`, `failed24h`, `done24h`. A **felderítés előtt** stemplünk: a nulla
   sessiont jelentő worker is ÉLŐ worker, és éppen ez a különbség a diagnózis.
 - az **Áttekintés önellenőrzése**: `code_bridge_dead` / `code_bridge_never`
-  pirosan, a Kód-híd lapra kattintva; `code_bridge_ok` zölden, mert a hallgatás
+  pirosan, a Kód-híd ablakot nyitva; `code_bridge_ok` zölden, mert a hallgatás
   megkülönböztethetetlen lenne a nem futó ellenőrzéstől. Arról a telepítésről,
   ahol a hidat sosem indították el, egyik sem szól.
 
@@ -316,4 +368,7 @@ felveszi).
 | `src/web/code-bridge-runner.ts` | lejárt bérletek visszatevése |
 | `scripts/windows/marvin-code-worker.ps1` | a Windows-oldali végrehajtó |
 | `seed-skills/code-dispatch/SKILL.md` | Marvin feladás-eljárása |
-| `web/app.js` &rarr; `renderCodeBridgeAgentCards` | a végrehajtó kártyája a Csapat lapon |
+| `web/app.js` &rarr; `renderCodeBridgeAgentCards` | a végrehajtó kártyája az Ügynökök lapon (a **fizetős** sávban, Marveen után); kattintásra nyitja a beállításokat |
+| `web/app.js` &rarr; `openCodeBridgeModal` | a Kód-híd ablak (`#cbOverlay`) -- a bal oldali menüpont helyett |
+| `web/app.js` &rarr; `cbSetupStepList` / `cbRenderSetup` | a beüzemelési lista, amíg a kötelező lépések hiányoznak |
+| `src/web/routes/code.ts` &rarr; `detectHostKind` | melyik telepítési módon fut a Marveen (`wsl` / `windows` / `unix`) |

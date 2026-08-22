@@ -161,13 +161,27 @@ describe('operable from the dashboard alone', () => {
     expect(route).not.toMatch(/join\([^)]*searchParams/)
   })
 
-  it('the Kod-hid page is reachable: nav link, page, and switchPage wiring all exist', () => {
+  it('the Kod-hid is reachable from the VS Code card, not from a menu of its own', () => {
+    // Boss, 2026-08-22: "miert kivetelezunk vele? mindenki alapbol is ott
+    // keresne". Minden mas ugynok beallitasa a sajat kartyajarol nyilik --
+    // egy kulon menupont a bal oldalon pont azt teszi megtalalhatatlanna,
+    // amit mindenki a kartya alatt keres.
     const html = readFileSync(join(process.cwd(), 'web', 'index.html'), 'utf8')
     const app = readFileSync(join(process.cwd(), 'web', 'app.js'), 'utf8')
-    expect(html).toContain('data-page="codeBridge"')
-    expect(html).toContain('id="codeBridgePage"')
+    expect(html).toContain('id="cbOverlay"')
+    expect(html).toContain('id="cbModalBody"')
+    expect(html).not.toContain('data-page="codeBridge"')
     expect(app).toContain("callPageLoader('loadCodeBridgePage')")
-    expect(app).toContain("if (pageId !== 'codeBridge') _cbStopPoll()")
+    // A regi mely-hivatkozasok (#codeBridge hash, onellenorzes-sorok) sem
+    // vezethetnek ures lapra.
+    expect(app).toContain("if (pageId === 'codeBridge') { switchPage('agents'); openCodeBridgeModal(); return }")
+  })
+
+  it('closing the window stops the poll', () => {
+    // Amig lap volt, a switchPage allitotta le. Ablaknal a bezaras az egyetlen
+    // pont, ahol ez megtortenhet -- enelkul a 5 masodperces kor orokre futna.
+    const app = readFileSync(join(process.cwd(), 'web', 'app.js'), 'utf8')
+    expect(app).toContain('const close = () => { closeModal(overlay); _cbStopPoll() }')
   })
 
   it('the poll stops when you leave the page, and the shim cannot call itself', () => {

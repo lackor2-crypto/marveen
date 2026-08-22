@@ -671,6 +671,12 @@ function runLater(fn, timeout = 1500) {
 function switchPage(pageId) {
   // 'team' is merged into 'agents'; any internal call still passing 'team' redirects.
   if (pageId === 'team') { _agentsActiveView = 'tree'; pageId = 'agents' }
+  // A Kod-hid mar NEM kulon lap a bal menuben, hanem a VS Code ugynok
+  // kartyaja alatt nyilo ablak -- ugyanott, ahol minden mas ugynok
+  // beallitasa (Boss, 2026-08-22: "miert kivetelezunk vele?"). A regi
+  // mely-hivatkozasok (#codeBridge hash, az Attekintes onellenorzes-sorai)
+  // valtozatlanul ide erkeznek: az Ugynokok lapra visszuk, es kinyitjuk.
+  if (pageId === 'codeBridge') { switchPage('agents'); openCodeBridgeModal(); return }
   // Guard unsaved settings before leaving the settings page
   if (!document.getElementById('settingsPage').hidden && pageId !== 'settings' && !confirmSettingsLeave()) return
   pages.forEach((p) => (p.hidden = p.id !== pageId + 'Page'))
@@ -749,8 +755,6 @@ function switchPage(pageId) {
   if (pageId === 'naplo') callPageLoader('loadNaplo')
   if (pageId === 'federation') loadFederationPage()
   if (pageId === 'email') loadEmailPage()
-  if (pageId !== 'codeBridge') _cbStopPoll()
-  if (pageId === 'codeBridge') callPageLoader('loadCodeBridgePage')
   if (pageId === 'irodaSettings') loadIrodaSettings()
 }
 
@@ -4626,6 +4630,14 @@ function renderAgents() {
     agentsGrid.insertBefore(mCard, addBtn)
   }
 
+  // A VS Code vegrehajto kartyai KOZVETLENUL Marveen utan allnak, meg a
+  // szintvalaszto csik elott. Eloszor a federalt kartyakkal egyutt a sor
+  // vegere kerultek -- az pedig az INGYENES sav ala tette oket (Boss,
+  // 2026-08-22). A besorolas a lap egyetlen jelzese arrol, mi megy kozos,
+  // limitalt ingyen-poolon: a kod-hid a sajat Claude Code elofizetesedet
+  // hasznalja, tehat a felso savba tartozik.
+  renderCodeBridgeAgentCards(agentsGrid, addBtn)
+
   // Paid/unrestricted agents first, then a divider, then free-tier OpenRouter
   // agents -- otherwise the two tiers render interleaved and there's no way
   // to tell at a glance which cards are on a shared, rate-limited free pool.
@@ -4716,7 +4728,6 @@ function renderAgents() {
     agentsGrid.insertBefore(card, addBtn)
   }
   renderFederatedAgentCards(agentsGrid, addBtn)
-  renderCodeBridgeAgentCards(agentsGrid, addBtn)
   // Straddle the "+ new agent" button on the divider line itself (half in the
   // paid section, half in the free one) -- otherwise it only ever lands after
   // the last card in DOM order, i.e. visually inside the free section, which
@@ -4843,9 +4854,48 @@ async function refreshAgentTerminalBusy() {
 // A vegrehajto egy KULSO csapattag: nem tmux-agent, nincs sajat process a
 // gepen, es sosem szerepelt az /api/agents listaban -- ezert a Csapat lapon
 // eddig NEM latszott sehol, pedig ez az egyetlen tag, aki valoban kodot ir.
-// A kartya read-only: innen csak atlepni lehet a Kod-hid lapra, mert a
+// A kartya read-only: a beallitasok a Kod-hid ablakban vannak, mert a
 // feladatkuldes ott lakik, a projekt-valasztoval egyutt.
-let codeBridgeCards = { state: 'loading', projects: [], workerOnline: false }
+let codeBridgeCards = { state: 'loading', projects: [], workerOnline: false, queued: 0, running: 0 }
+
+// Nulla projekt eseten a kartya a KOVETKEZO LEPEST mondja meg, nem csak azt,
+// hogy nincs semmi. Harom kulon allapot, harom kulon teendo -- aki eloszor
+// tolti le a Marveent, ebbol tudja meg, hol tart es merre menjen tovabb.
+function cbIdleCardEntry(off) {
+  if (off) {
+    return {
+      title: 'VS Code Claude Code',
+      desc: 'A kód-híd ki van kapcsolva. Kattints a kártyára — a Működés dobozban kapcsolható be.',
+      online: false,
+      note: 'kikapcsolva',
+    }
+  }
+  if (!codeBridgeCards.workerOnline) {
+    return {
+      title: 'VS Code Claude Code',
+      desc: 'Nincs futó Windows-végrehajtó. Kattints a kártyára — a Beüzemelés lista végigvezet a telepítésén.',
+      online: false,
+      note: 'nincs végrehajtó',
+    }
+  }
+  return {
+    title: 'VS Code Claude Code',
+    desc: 'A végrehajtó fut, de még egy projekt sincs regisztrálva — nyiss meg egy projektet VS Code-ban Claude Code-dal.',
+    online: false,
+    note: 'nincs projekt',
+  }
+}
+
+// Mit csinal EPPEN a hid. A bal menu jelvenye megszunt a Kod-hid-lappal
+// egyutt, es a "3 sorban" onmagaban is ertekesebb informacio, mint egy szam
+// egy menupont mellett: itt latszik, amikor a kartyat nezed.
+function cbCardNote() {
+  if (!codeBridgeCards.workerOnline) return 'végrehajtó áll'
+  const busy = codeBridgeCards.queued + codeBridgeCards.running
+  if (codeBridgeCards.running) return codeBridgeCards.running + ' fut · ' + codeBridgeCards.queued + ' sorban'
+  if (busy) return busy + ' sorban'
+  return 'végrehajtó él'
+}
 
 function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   // Amig az elso lekeres be nem futott, nem rakunk ki felrevezeto kartyat.
@@ -4861,17 +4911,10 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
           title: r.project,
           desc: r.workspacePath || '',
           online: codeBridgeCards.workerOnline,
-          note: codeBridgeCards.workerOnline ? 'végrehajtó él' : 'végrehajtó áll',
+          note: cbCardNote(),
         }
       })
-    : [{
-        title: 'VS Code Claude Code',
-        desc: off
-          ? 'A kód-híd ki van kapcsolva.'
-          : 'Még egy projekt sincs regisztrálva — nyiss egy Claude Code sessiont egy valódi projektben.',
-        online: false,
-        note: off ? 'kikapcsolva' : 'nincs projekt',
-      }]
+    : [cbIdleCardEntry(off)]
 
   for (const e of entries) {
     const card = document.createElement('div')
@@ -4889,21 +4932,33 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
       <div class="agent-card-actions">
-        <button class="btn-secondary btn-compact code-bridge-open-btn">Kód-híd megnyitása</button>
+        <button class="btn-secondary btn-compact code-bridge-open-btn">Beállítások</button>
       </div>`
     card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
       ev.stopPropagation()
-      openCodeBridgePage()
+      openCodeBridgeModal()
     })
-    card.addEventListener('click', () => openCodeBridgePage())
+    card.addEventListener('click', () => openCodeBridgeModal())
     agentsGrid.insertBefore(card, addBtn)
   }
 }
 
-function openCodeBridgePage() {
-  if (location.hash === '#codeBridge') switchPage('codeBridge')
-  else location.hash = 'codeBridge'
+// A kartya alatt nyilik, mint barmelyik masik ugynok beallitasa. A poll
+// csak addig fut, amig az ablak nyitva van -- zarva nincs kinek mutatni.
+function openCodeBridgeModal() {
+  const overlay = document.getElementById('cbOverlay')
+  if (!overlay) return
+  openModal(overlay)
+  callPageLoader('loadCodeBridgePage')
 }
+
+;(function wireCodeBridgeModal() {
+  const overlay = document.getElementById('cbOverlay')
+  if (!overlay) return
+  const close = () => { closeModal(overlay); _cbStopPoll() }
+  document.getElementById('cbModalClose')?.addEventListener('click', close)
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+})()
 
 /** Failure-proof, mint a fooderacios lekeres: egy regi backend 404-je sem
  *  boritja fel a Csapat lapot, csak nem lesz kod-hid kartya. */
@@ -4912,11 +4967,13 @@ async function loadCodeBridgeCards() {
     fetch('/api/code/projects').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     fetch('/api/code/health').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ])
-  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false } ; return }
+  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false, queued: 0, running: 0 } ; return }
   codeBridgeCards = {
     state: health.enabled === false ? 'disabled' : 'on',
     projects: (projects && Array.isArray(projects.projects)) ? projects.projects : [],
     workerOnline: Boolean(health.workerOnline),
+    queued: Number(health.queued) || 0,
+    running: Number(health.running) || 0,
   }
 }
 
@@ -16988,7 +17045,7 @@ async function renderOverviewConnections() {
           // telepito parancs es a masolo gomb -- a Fiokok oldalan semmit nem
           // tudna kezdeni vele.
           : (h.id === 'code_bridge_dead' || h.id === 'code_bridge_never')
-            ? "switchPage('codeBridge')"
+            ? "openCodeBridgeModal()"
             : null,
       guide: h.id === 'google_live_bad'
         ? {
@@ -17053,7 +17110,7 @@ async function renderOverviewConnections() {
   // kapcsolva" allapota semmit nem mond arrol, hogy a VEGREHAJTO el-e, es
   // pontosan ez a kulonbseg futott ki ket hetig eszrevetlenul.
   const cbok = health.find(h => h.id === 'code_bridge_ok')
-  if (cbok) greenRows.push({ label: t('health.code_bridge_ok', cbok.params || {}), desc: t('health.code_bridge_ok_action'), onclick: "switchPage('codeBridge')" })
+  if (cbok) greenRows.push({ label: t('health.code_bridge_ok', cbok.params || {}), desc: t('health.code_bridge_ok_action'), onclick: "openCodeBridgeModal()" })
   paint(TONES.ok, greenRows)
 }
 
@@ -31025,6 +31082,98 @@ async function _intezoCfgSave() {
 
   // ---- allapot ---------------------------------------------------------
 
+  // ---- beuzemeles (friss telepites) ------------------------------------
+  //
+  // Egy frissen letoltott Marveenben a kod-hid harom dolog nelkul semmit nem
+  // csinal, es egyik sem talalhato ki a lapot nezve: be kell kapcsolni, fel
+  // kell tenni a Windows-vegrehajtot, es kell legalabb egy VS Code Claude Code
+  // session. Ez a harom eddig szet volt szorva negy kartya kozott, sorrend
+  // nelkul -- vagyis pontosan az a "manualisan beallitani" allapot, amit egy
+  // friss telepites nem enged meg (Boss, 2026-08-22).
+  //
+  // A negyedik lepes (Telegram kod-bot) szandekosan NEM kotelezo: a felulet es
+  // a Marvin-atadas nelkule is megy. Ezert a doboz akkor tunik el, ha a harom
+  // KOTELEZO pont kesz -- egy mukodo hidon egy allando teendo-lista mar csak
+  // zaj lenne.
+  function cbSetupStepList(h) {
+    return [
+      {
+        done: Boolean(h.enabled),
+        title: 'A kód-híd be van kapcsolva',
+        todo: 'A <em>Működés</em> kártyán kapcsold be, majd indítsd újra a vezérlőpultot az ott megjelenő gombbal.',
+        target: 'cbOpsCard',
+        optional: false,
+      },
+      {
+        done: Boolean(h.workerOnline),
+        title: 'A Windows-végrehajtó fut',
+        todo: 'A <em>Windows-végrehajtó</em> kártyán töltsd le a két fájlt, és futtasd a kimásolható parancsot a Windows-gépen. Enélkül a feladatok csak gyűlnek a sorban.',
+        target: 'cbWorkerCard',
+        optional: false,
+      },
+      {
+        done: Number(h.sessions) > 0,
+        title: 'Van legalább egy regisztrált projekt',
+        todo: 'Nyiss meg egy projektet VS Code-ban Claude Code-dal, és küldj benne egy üzenetet — a felderítés egy percen belül bejegyzi. Ha a projekt a <em>Működés</em> kártyán a kizártak közt van, előbb vedd ki onnan. A <em>Projektek</em> kártyán kézzel is felvehető.',
+        target: 'cbProjectsCard',
+        optional: false,
+      },
+      {
+        done: Boolean(h.botConfigured),
+        title: 'Telegram kód-bot',
+        todo: 'BotFathertől kérj egy <strong>külön</strong> botot (a fő bot tokenjét nem lehet megosztani), és illeszd be a tokent. Enélkül a felület és a Marvin-átadás működik, csak a Telegramos <code>/code</code> parancs nem.',
+        target: 'cbBotCard',
+        optional: true,
+      },
+    ]
+  }
+
+  function cbRenderSetup(h) {
+    const card = document.getElementById('cbSetupCard')
+    if (!card) return
+    const steps = cbSetupStepList(h)
+    const required = steps.filter(function (s) { return !s.optional })
+    const doneCount = required.filter(function (s) { return s.done }).length
+    if (doneCount === required.length) { card.hidden = true; return }
+    card.hidden = false
+
+    const prog = document.getElementById('cbSetupProgress')
+    if (prog) prog.textContent = doneCount + '/' + required.length + ' kötelező lépés kész'
+
+    const box = document.getElementById('cbSetupSteps')
+    if (!box) return
+    box.innerHTML = ''
+    steps.forEach(function (s, i) {
+      const row = document.createElement('div')
+      row.className = 'cb-setup-step'
+      row.style.cssText = 'display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--border-color,#30363d)'
+      row.innerHTML =
+        '<span style="font-size:14px;line-height:1.6;min-width:16px;color:' + (s.done ? '#3fb950' : '#8b949e') + '">' +
+          (s.done ? '&#10003;' : (i + 1) + '.') + '</span>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-size:14px">' + escapeHtml(s.title) +
+            (s.optional ? ' <span class="subtitle">(nem kötelező)</span>' : '') + '</div>' +
+          (s.done ? '' : '<div class="subtitle" style="margin-top:3px">' + s.todo + '</div>') +
+        '</div>'
+      if (!s.done) {
+        const btn = document.createElement('button')
+        btn.className = 'btn-secondary btn-compact'
+        btn.textContent = 'Ugrás'
+        btn.addEventListener('click', function () {
+          const target = document.getElementById(s.target)
+          if (!target) return
+          target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          // Rovid kiemeles: egy hosszu lapon kulonben nem latszik, hova ugrott.
+          target.style.transition = 'box-shadow .3s'
+          target.style.boxShadow = '0 0 0 2px #58a6ff'
+          setTimeout(function () { target.style.boxShadow = '' }, 1600)
+        })
+        row.appendChild(btn)
+      }
+      box.appendChild(row)
+    })
+  }
+
   function cbRenderHealth(h) {
     const box = document.getElementById('cbHealthBox')
     const el = document.getElementById('cbHealthText')
@@ -31065,25 +31214,55 @@ async function _intezoCfgSave() {
     el.innerHTML = lines.map(function (l) { return '<p style="margin:4px 0">' + l + '</p>' }).join('')
     box.style.borderLeft = '4px solid ' + (tone === 'bad' ? '#e5534b' : tone === 'warn' ? '#d29922' : '#3fb950')
 
-    // A sidebar jelvenye akkor is szol, ha a lap nincs nyitva.
-    const badge = document.getElementById('codeBridgeNavBadge')
-    if (badge) {
-      const busy = h.queued + h.running
-      if (h.enabled && !h.workerOnline && h.lastSeenAt) { badge.hidden = false; badge.textContent = '!' }
-      else if (busy > 0) { badge.hidden = false; badge.textContent = String(busy) }
-      else { badge.hidden = true; badge.textContent = '' }
-    }
-
     // A telepito parancs a VALODI utvonalakkal, nem sablonnal.
     const hint = h.installHint || {}
     const cmd = document.getElementById('cbInstallCmd')
+    // Hogyan jut a worker a dashboard-tokenhez. Ha Marveen es a worker UGYANAZON
+    // a gepen van (WSL vagy nativ Windows), van kozos utvonal -- akkor a
+    // -TokenPath a helyes, mert a token soha nem kerul a vagolapra, a
+    // parancssor-elozmenyekbe vagy egy kepernyokepre. Kulon gepen ilyen ut
+    // NINCS: ott a -Token az egyetlen jarhato mod, es a lap megmondja, melyik
+    // fajlbol kell kimasolni. Eddig a lap minden telepitesnek a sajat gepem
+    // \\wsl.localhost utjat kinalta, ami maskent telepitve nem letezik.
+    const authArg = hint.tokenPath
+      ? '-TokenPath "' + hint.tokenPath + '"'
+      : '-Token "<IDE-MASOLD-A-TOKENT>"'
     if (cmd) {
-      const tokenPath = hint.tokenPath || '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen\\store\\.dashboard-token'
       cmd.textContent =
         'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\marvin-code-worker\\marvin-code-worker.ps1" ' +
-        '-BaseUrl "' + window.location.origin + '" -TokenPath "' + tokenPath + '"\n\n' +
+        '-BaseUrl "' + window.location.origin + '" ' + authArg + '\n\n' +
         'schtasks /create /f /tn "MarvinCodeWorker" /sc onlogon /rl highest ' +
         '/tr "\\"%USERPROFILE%\\marvin-code-worker\\marvin-code-worker.cmd\\""'
+    }
+    const note = document.getElementById('cbInstallNote')
+    if (note) {
+      if (hint.tokenPath) {
+        note.hidden = true
+        note.textContent = ''
+      } else {
+        note.hidden = false
+        note.innerHTML = 'A Marveen nem ezen a Windows-gépen fut, ezért a tokenhez nincs közös útvonal: ' +
+          'nyisd meg a Marveen gépén a <code>' + escapeHtml(hint.tokenFile || 'store/.dashboard-token') +
+          '</code> fájlt, és a tartalmát írd a <code>-Token</code> helyére. ' +
+          'A <code>-BaseUrl</code> az a cím, amin ezt a lapot most eléred (<code>' +
+          escapeHtml(window.location.origin) + '</code>) &mdash; ha ez <code>localhost</code>, ' +
+          'írd át a Marveen gép hálózati címére, különben a worker saját magát keresné.'
+      }
+    }
+    // A bevezeto mondat is telepites-fuggo: a "Marveen a WSL-ben fut" egyetlen
+    // topologiara igaz, es egy friss telepites allhat nativ Windowson vagy egy
+    // kulon Linux-gepen is.
+    const intro = document.getElementById('cbWorkerIntro')
+    if (intro) {
+      const where = hint.hostKind === 'wsl'
+        ? 'A Marveen a WSL-ben fut és <strong>nem</strong> éri el a Windows fájlrendszerét, ezért a Windows-oldali worker '
+        : hint.hostKind === 'windows'
+          ? 'A Marveen ezen a Windowson fut, a <code>claude.exe</code>-t viszont a saját munkameneted alatt kell indítani, ezért a worker külön folyamat. A worker '
+          : 'A Marveen nem Windowson fut, ezért a végrehajtót arra a Windows-gépre kell feltenni, ahol a VS Code Claude Code sessionjeid vannak. A worker '
+      intro.innerHTML = where +
+        '<strong>befelé</strong> kérdez: ő veszi ki a feladatot és ő indítja a <code>claude.exe</code>-t. ' +
+        'Nem nyit portot, nem hallgat a hálózaton, és nem kattintgat &mdash; sima gyerekfolyamat. ' +
+        'Nélküle a híd sorba tesz, de semmi nem fut le.'
     }
     const seen = document.getElementById('cbWorkerSeen')
     if (seen) {
@@ -31095,6 +31274,8 @@ async function _intezoCfgSave() {
           }).join('<br>')
         : 'Még egyetlen végrehajtó sem jelentkezett be.'
     }
+
+    cbRenderSetup(h)
   }
 
   // ---- projektek -------------------------------------------------------

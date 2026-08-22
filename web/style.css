@@ -10560,3 +10560,20 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* === Kod-hid ablak (a VS Code ugynok-kartya alatt nyilik) ===
+   A hid beallitasai 2026-08-22-ig kulon lap voltak a bal menuben. Minden mas
+   ugynok beallitasa a sajat kartyajarol nyilik, ezert ez is odakerult -- a
+   tartalom valtozatlan, csak a helye mas. A kartyak az ablakon belul is a
+   megszokott .card stilust hasznaljak. */
+.cb-modal-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.cb-modal-intro .modal-desc { margin: 0; max-width: 620px; }
+#cbModalBody .card { margin-bottom: 14px; }
+#cbModalBody .card:last-child { margin-bottom: 0; }

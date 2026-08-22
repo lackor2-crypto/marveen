@@ -38,6 +38,32 @@ import type { RouteContext } from './types.js'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 
+/**
+ * Which kind of host Marveen itself runs on -- 'wsl', 'windows' or 'unix'.
+ *
+ * This decides what the install card may print as the token's path, and there
+ * is exactly one topology where a `\\wsl.localhost\...` path is right. A
+ * fresh install can just as easily be Marveen native on Windows, or Marveen on
+ * a Linux host with the worker on a separate PC -- and the page prints what it
+ * is told, so guessing wrong hands the new owner a command that cannot work
+ * and no hint as to why.
+ *
+ * `WSL_DISTRO_NAME` is NOT the detector: it is absent under a systemd user
+ * service, which is how Marveen actually runs. /proc/version carries the
+ * 'microsoft' marker in every WSL2 kernel and survives losing the env.
+ */
+export function detectHostKind(): 'wsl' | 'windows' | 'unix' {
+  if (process.platform === 'win32') return 'windows'
+  if (process.platform !== 'linux') return 'unix'
+  if (process.env['WSL_DISTRO_NAME'] || process.env['WSL_INTEROP']) return 'wsl'
+  try {
+    if (/microsoft/i.test(readFileSync('/proc/version', 'utf8'))) return 'wsl'
+  } catch {
+    // No /proc (a container without it, a BSD): plain unix is the safe answer.
+  }
+  return 'unix'
+}
+
 function isLoopback(remote: string | undefined): boolean {
   return Boolean(remote && LOOPBACK.has(remote))
 }
@@ -89,12 +115,22 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/code/health' && method === 'GET') {
     const health = codeBridgeHealth()
-    // Where the worker will read the dashboard token from, as WINDOWS sees it.
+    // Where the worker will read the dashboard token from, AS THE WORKER'S OWN
+    // MACHINE SEES IT -- or `null` when no such path exists, which is the case
+    // whenever the worker is on a DIFFERENT machine than Marveen. A null here
+    // is not a failure: it tells the page to print the `-Token` form instead of
+    // a path that would resolve to nothing on the executor's side.
+    //
     // WSL_DISTRO_NAME is absent under a systemd user service, so 'Ubuntu' is the
     // fallback -- wrong only on a renamed distro, where the owner can still edit
     // the printed path by hand.
     const distro = (process.env['WSL_DISTRO_NAME'] ?? '').trim() || 'Ubuntu'
-    const tokenPath = `\\\\wsl.localhost\\${distro}${PROJECT_ROOT.replace(/\//g, '\\')}\\store\\.dashboard-token`
+    const hostKind = detectHostKind()
+    const winRoot = PROJECT_ROOT.replace(/\//g, '\\')
+    const tokenPath =
+      hostKind === 'wsl' ? `\\\\wsl.localhost\\${distro}${winRoot}\\store\\.dashboard-token`
+      : hostKind === 'windows' ? `${winRoot}\\store\\.dashboard-token`
+      : null
     json(res, {
       ...health,
       staleAfterMs: WORKER_STALE_MS,
@@ -104,7 +140,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       botConfigured: CODE_BOT_TOKEN.length > 0,
       allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,
       excluded: CODE_BRIDGE_EXCLUDE,
-      installHint: { tokenPath, distro },
+      // `tokenFile` is the path on THIS machine (always true, whatever the
+      // topology) so a remote-worker install can be told which file to open.
+      installHint: { tokenPath, distro, hostKind, tokenFile: `${PROJECT_ROOT}/store/.dashboard-token` },
     })
     return true
   }

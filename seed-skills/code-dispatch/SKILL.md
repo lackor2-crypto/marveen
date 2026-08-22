@@ -12,7 +12,12 @@ Minden projektnek van egy **saját, hosszú életű VS Code Claude Code sessionj
 A kód-híd (`/api/code/*`) sorba teszi a feladatot, a Windows-oldali worker
 kiveszi, és **UGYANABBAN a sessionben** futtatja le (`claude -p --resume <sessionId>`).
 
-**Te (a fő agent) csak feladod a feladatot, és kilépsz.**
+**Te — akármelyik Marveen-ügynök vagy — csak feladod a feladatot, és kilépsz.**
+
+Ez a készség a **közös** készségtárban lakik (`~/.claude/skills`, minden ügynök
+oda van linkelve), tehát nem a fő ügynök kiváltsága: **bármelyik ügynök**
+átadhat kódfeladatot a VS Code sessionnek. A végrehajtó ugyanaz marad, akárki
+adja fel, és a sor egyszerre egy feladatot futtat — nem kell egyeztetned senkivel.
 
 ## Kemény szabályok
 
@@ -24,7 +29,10 @@ kiveszi, és **UGYANABBAN a sessionben** futtatja le (`claude -p --resume <sessi
    megy ki közvetlenül a tulajdonosnak, programozottan, LLM nélkül. Ha te is
    összefoglalnád, az dupla üzenet + fölösleges tokenköltség.
 4. **Egy rövid nyugta, aztán vége a körnek.** Pl. "Átadva: tradingbot (a1b2c3d4)".
-5. **A promptot SZÓ SZERINT add tovább.** Ne fogalmazd át, ne rövidítsd, ne
+5. **A `requestedBy` a SAJÁT ügynök-neved.** Az alábbi példában a fő ügynöké
+   áll; ha te más vagy, írd át a sajátodra. Ebből látszik a Feladatok listában
+   és a naplóban, ki kérte a feladatot — más nevében feladni félrevezető.
+6. **A promptot SZÓ SZERINT add tovább.** Ne fogalmazd át, ne rövidítsd, ne
    egészítsd ki a saját értelmezéseddel -- a projekt sessionje jobban ismeri a
    kódot, mint te; a te parafrázisod csak információt veszít.
 
@@ -51,7 +59,7 @@ curl -s -X POST http://127.0.0.1:{{WEB_PORT}}/api/code/tasks \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d @- <<'JSON'
-{"project":"tradingbot","prompt":"IDE JON SZO SZERINT A FELADAT","origin":"agent","requestedBy":"main-agent"}
+{"project":"tradingbot","prompt":"IDE JON SZO SZERINT A FELADAT","origin":"agent","requestedBy":"{{MAIN_AGENT_ID}}"}
 JSON
 ```
 

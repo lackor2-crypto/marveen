@@ -390,9 +390,9 @@ window._i18n.hu = {
   // semmi nem szolt -- a lejarat-figyelo idoalapu (a visszavonast nem latja), az
   // elo probe meg csak akkor futott, ha valaki megnyitotta a Fiokok oldalt.
   'health.code_bridge_never': '⛔ A kód-híd végrehajtója még soha nem jelentkezett — {n} feladat vár rá.',
-  'health.code_bridge_never_action': 'A Windows-oldali végrehajtó nélkül a híd sorba tesz, de semmi nem fut le. Kattints ide: a Kód-híd lap két lépésben feltelepíti.',
+  'health.code_bridge_never_action': 'A Windows-oldali végrehajtó nélkül a híd sorba tesz, de semmi nem fut le. Kattints ide: a VS Code kártya Kód-híd ablaka két lépésben feltelepíti.',
   'health.code_bridge_dead': '⛔ A kód-híd végrehajtója áll — {p} perce nem jelentkezett, {n} feladat vár.',
-  'health.code_bridge_dead_action': 'Amíg áll, a VS Code-nak küldött feladatok csak gyűlnek a sorban, és semmi nem szól róla. Kattints ide, és indítsd el a Kód-híd lap parancsával.',
+  'health.code_bridge_dead_action': 'Amíg áll, a VS Code-nak küldött feladatok csak gyűlnek a sorban, és semmi nem szól róla. Kattints ide, és indítsd el a Kód-híd ablak parancsával.',
   'health.code_bridge_ok': '✅ A kód-híd él — {n} projekt, {p} perce jelentkezett a végrehajtó.',
   'health.code_bridge_ok_action': 'A Windows-végrehajtó percenként jelentkezik: ez az egyetlen jele annak, hogy a VS Code-nak átadott feladat tényleg le is fut, nem csak sorba áll.',
   'health.google_live_ok':     '✅ A Google-hozzáférés él — {n} fiók, {h} órája ellenőrizve.',
