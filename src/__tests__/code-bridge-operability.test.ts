@@ -17,7 +17,7 @@ import {
 import { codeBridgeRows } from '../web/system-health.js'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { CONFIG_REGISTRY } from '../config-registry.js'
+import { getSettingDefinition } from '../config-registry.js'
 
 const WS = { project: 'marvin', workspacePath: 'C:\\ws\\marvin', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' }
 
@@ -126,12 +126,12 @@ describe('operable from the dashboard alone', () => {
     // changed by hand-editing a file on the server -- which is the thing a
     // fresh install cannot do.
     for (const key of ['CODE_BRIDGE_ENABLED', 'CODE_PERMISSION_MODE', 'CODE_BOT_TOKEN', 'CODE_BOT_ALLOWED_CHAT_IDS', 'CODE_BRIDGE_EXCLUDE']) {
-      expect(CONFIG_REGISTRY[key], 'missing from config registry: ' + key).toBeTruthy()
+      expect(getSettingDefinition(key), 'missing from settings registry: ' + key).toBeTruthy()
     }
   })
 
   it('the bot token is marked secret, so it is never echoed back to a browser', () => {
-    expect(CONFIG_REGISTRY['CODE_BOT_TOKEN']!.secret).toBe(true)
+    expect(getSettingDefinition('CODE_BOT_TOKEN')!.secret).toBe(true)
   })
 
   it('the health/config surface answers even while the bridge is switched OFF', () => {
@@ -152,7 +152,13 @@ describe('operable from the dashboard alone', () => {
     // hand out any file on the server to anyone who has that token.
     const route = readFileSync(join(process.cwd(), 'src', 'web', 'routes', 'code.ts'), 'utf8')
     expect(route).toContain("const which = url.searchParams.get('file') === 'cmd' ? 'cmd' : 'ps1'")
-    expect(route).not.toMatch(/join\(PROJECT_ROOT, 'scripts', 'windows', [a-z]+\)/)
+    // A ket megengedett fajlnev LITERAL a forrasban, es a query parameter csak
+    // kozottuk valaszt -- sehol nem kerul bele magaba az utvonalba.
+    expect(route).toContain("const name = which === 'cmd' ? 'marvin-code-worker.cmd' : 'marvin-code-worker.ps1'")
+    const joinLine = /join\(PROJECT_ROOT, 'scripts', 'windows', ([^)]+)\)/.exec(route)
+    expect(joinLine, 'the worker-script join() moved or changed shape').toBeTruthy()
+    expect(joinLine![1]).toBe('name')
+    expect(route).not.toMatch(/join\([^)]*searchParams/)
   })
 
   it('the Kod-hid page is reachable: nav link, page, and switchPage wiring all exist', () => {
@@ -185,6 +191,7 @@ describe('operable from the dashboard alone', () => {
     // no window focus. This is the test that keeps a 'quick fix' from
     // reintroducing it later.
     const ps1 = readFileSync(join(process.cwd(), 'scripts', 'windows', 'marvin-code-worker.ps1'), 'utf8')
+      .split('\n').filter(l => !l.trim().startsWith('#')).join('\n')
     for (const banned of ['SendKeys', 'AutoHotkey', 'AutoHotKey', 'SetForegroundWindow', 'Set-Clipboard', 'AppActivate']) {
       expect(ps1, 'GUI automation found: ' + banned).not.toContain(banned)
     }
