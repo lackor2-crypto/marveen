@@ -266,7 +266,6 @@ window._i18n.hu = {
   'conn.ov_expires_soon':     '{name}: a hozzáférés {d} nap múlva lejár.',
   'conn.ov_expired_action':   'Teendő: kattints ide, a Fiókok oldalon csatlakoztasd újra ezt a fiókot (Google-bejelentkezés a böngészőben).',
   'conn.ov_more': 'Egyéb ({n})',
-  'conn.ov_more_action': 'Kattints ide, és megmutatom a többit is.',
   'conn.ov_all_ok':           '✅ Minden rendben — most ellenőriztem.',
   'conn.ov_all_ok_detail':    '{n} hozzáférés él, a legközelebbi lejárat {d} nap múlva. Ha bármi elromlik, itt fog megjelenni.',
   'conn.ov_all_ok_plain':     'Nincs semmi teendőd. Ha bármi elromlik, itt fog megjelenni.',

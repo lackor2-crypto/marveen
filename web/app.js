@@ -16738,9 +16738,15 @@ let _selfCheckGuideTab = 'quick'
 // Az "Egyebb" doboz ki-be nyitasa. Kulon fuggveny, mert a doboz HTML-je
 // ujrarajzolodik minden onellenorzesnel, es egy onclick-attributum tullep
 // minden ujrarajzolast -- egy addEventListener nem.
-function toggleSelfCheckMore() {
-  const more = document.getElementById('overviewConnectionsMore')
-  if (more) more.hidden = !more.hidden
+//
+// A kartya MEREVEN ket soros. Boss, 2026-08-22: "csak kizarolag 2 sor lehet.
+// nem megyunk ezekel a sok zold csikokkal a lap aljara" es "ezeket tedd az
+// egyebbe. ennyi". Ez a fuggveny a kapu: barhany sort ad at a hivo, legfeljebb
+// `max` doboz keletkezik, mert a maradek EGY doboz leirasaba kerul.
+function selfCheckBoxes(rows, max) {
+  if (rows.length <= max) return { shown: rows, extra: [] }
+  // A utolso hely az "Egyeb" doboze -- ezert `max - 1` fer ki teljes sorral.
+  return { shown: rows.slice(0, max - 1), extra: rows.slice(max - 1) }
 }
 
 async function renderOverviewConnections() {
@@ -16762,10 +16768,12 @@ async function renderOverviewConnections() {
   // nem 3! [...] osszesen max 4 ilyen zold kis dobozka lehet. a 4. az legyen az
   // egyebb. es abba bele lehet tenni minden mast. igy nem lesz soha 5 dik!"
   //
-  // A negyedik doboz tehat nem esik ki: osszefogja a maradekot, es kattintasra
-  // kinyilik alatta -- teljes szelessegben, a racson kivul, hogy a racs maga
-  // soha ne legyen harom soros. Elrejteni egy teendot nem lehet, csak
-  // osszecsukni.
+  // Elsore ez a negyedik doboz KINYILT a racs alatt -- es ezzel pont az
+  // tortent, ami ellen a szabaly szol: mentek a csikok a lap aljara. Boss,
+  // 2026-08-22: "ezeket tedd az egyebbe. ennyi". A maradek tehat nem lenyilik,
+  // hanem BELEKERUL az "Egyeb" doboz sajat leirasaba, felsorolva: nem tunik
+  // el, de a kartya sem tud lefele nyulni. Igy a magassag nem a checkek
+  // szamatol fugg -- barmennyi lehet belolluk.
   const MAX_ITEMS = 4
 
   const itemHtml = (r, tone) => `<a href="#" class="overview-capability-item"
@@ -16789,20 +16797,21 @@ async function renderOverviewConnections() {
     // megnyitjak a vegigvezetot (Boss, 2026-08-19: "megnyom egy gombot es
     // vegigvezeti ezen a folyamaton a usert"). Az odadobas ugyanis pont a
     // nehez reszt hagyja ra: ott all az oldalon, es nem tudja, mit nyomjon.
-    const shown = rows.length > MAX_ITEMS ? rows.slice(0, MAX_ITEMS - 1) : rows
-    const extra = rows.length > MAX_ITEMS ? rows.slice(MAX_ITEMS - 1) : []
+    const { shown, extra } = selfCheckBoxes(rows, MAX_ITEMS)
     // A sorrend nem veletlen: a hivo a legfontosabbat teszi elore, tehat az
-    // osszecsukott resz mindig a kevesbe surgos vege a listanak.
+    // "Egyeb"-be mindig a lista kevesbe surgos vege kerul.
+    //
+    // A felsorolashoz a cimke ELEJE kell: a pipa es a gondolatjel utani
+    // reszletezes ("... -- 9 tarolo, 0 napja futott") egy dobozba mar nem fer,
+    // a lenyeg viszont igen. Ha nincs gondolatjel, marad a teljes cimke.
+    const rovid = (r) => String(r.label).replace('\u2705 ', '').split(' \u2014 ')[0]
     const moreBox = extra.length
-      ? `<a href="#" class="overview-capability-item" id="overviewConnectionsMoreBtn"
-            style="background:${tone.itemBg};color:${tone.fg}"
-            onclick="toggleSelfCheckMore();return false">
-           <div class="overview-capability-label">${escapeHtml(t('conn.ov_more', { n: extra.length }))}</div>
-           <div class="overview-capability-desc" style="color:${tone.descFg}">${escapeHtml(t('conn.ov_more_action'))}</div>
-         </a>
-         <div class="overview-capability-more" id="overviewConnectionsMore" hidden>
-           ${extra.map(r => itemHtml(r, tone)).join('')}
-         </div>`
+      ? itemHtml({
+        label: t('conn.ov_more', { n: extra.length }),
+        desc: extra.map(rovid).join(' \u00b7 '),
+        onclick: extra[0].onclick || null,
+        guide: extra[0].guide || null,
+      }, tone)
       : ''
     list.innerHTML = shown.map(r => itemHtml(r, tone)).join('') + moreBox
   }

@@ -805,13 +805,6 @@ main {
 @media (max-width: 720px) {
   .overview-capabilities-list { grid-template-columns: 1fr; }
 }
-/* Az "Egyebb" doboz kinyilo tartalma: teljes szelessegben, a racs alatt --
-   igy a racs maga soha nem lesz kettonel tobb soros. */
-.overview-capability-more {
-  grid-column: 1 / -1;
-  display: grid;
-  gap: 8px;
-}
 .overview-capability-item {
   display: block;
   padding: 10px 14px;

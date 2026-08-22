@@ -253,7 +253,6 @@ window._i18n.en = {
   'conn.ov_expires_soon':     '{name}: access expires in {d} days.',
   'conn.ov_expired_action':   'What to do: click here, then reconnect this account on the Accounts page (Google sign-in in the browser).',
   'conn.ov_more': 'Other ({n})',
-  'conn.ov_more_action': 'Click to see the rest.',
   'conn.ov_all_ok':           '✅ Everything is fine — just checked.',
   'conn.ov_all_ok_detail':    '{n} credentials are live, the next expiry is in {d} days. If anything breaks, it shows up here.',
   'conn.ov_all_ok_plain':     'Nothing to do. If anything breaks, it shows up here.',

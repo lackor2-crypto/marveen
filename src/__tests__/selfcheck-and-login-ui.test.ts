@@ -67,20 +67,51 @@ describe('az Onellenorzes kartya soha nem lesz ket sornal magasabb', () => {
   it('legfeljebb negy doboz, a negyedik az "Egyeb"', () => {
     expect(app).toMatch(/const MAX_ITEMS = 4/)
     expect(app).toContain('conn.ov_more')
-    // A maradek nem esik ki: osszecsukva, de ott van.
-    expect(app).toContain('overviewConnectionsMore')
-    expect(app).toMatch(/function toggleSelfCheckMore\(/)
   })
 
-  it('az "Egyeb" tartalma a racson KIVUL nyilik, kulonben megint harom sor lenne', () => {
-    const block = css.slice(css.indexOf('.overview-capability-more {'))
-    expect(block.slice(0, block.indexOf('}'))).toContain('grid-column: 1 / -1')
+  it('BARMENNYI sorbol legfeljebb negy doboz lesz', () => {
+    // Ez az igazi or, es szandekosan nem a kodot nezi, hanem FUTTATJA a
+    // szamolot. Boss, 2026-08-22: "csinlad meg hogy legkozelebb mas agent se
+    // tudjon 2 nel tobb sorba tenni semmit!" -- egy szoveg-egyezes ellen
+    // konnyu veletlenul athajtani, egy szamolas ellen nem.
+    const forras = app.slice(app.indexOf('function selfCheckBoxes('))
+    const fn = forras.slice(0, forras.indexOf('\n}\n') + 3)
+    const selfCheckBoxes = new Function(fn + ' return selfCheckBoxes')() as
+      (rows: unknown[], max: number) => { shown: unknown[]; extra: unknown[] }
+
+    for (let n = 0; n <= 30; n++) {
+      const { shown, extra } = selfCheckBoxes(new Array(n).fill({}), 4)
+      const dobozok = shown.length + (extra.length ? 1 : 0)
+      expect(dobozok, n + ' sorbol ' + dobozok + ' doboz lett').toBeLessThanOrEqual(4)
+      // ...es kozben semmi nem esik ki nyomtalanul.
+      expect(shown.length + extra.length, 'elveszett egy sor').toBe(n)
+    }
+  })
+
+  it('az "Egyeb" NEM nyilik le: a maradek a doboz sajat leirasaba kerul', () => {
+    // 2026-08-22: eloszor lenyilo volt, es pont az tortent, ami ellen a
+    // szabaly szol -- a zold csikok lementek a lap aljara. A maradek azota
+    // egyetlen doboz leirasaban, felsorolva all.
+    expect(app).not.toContain('overviewConnectionsMore')
+    expect(app).not.toMatch(/function toggleSelfCheckMore\(/)
+    expect(css).not.toContain('.overview-capability-more')
+    expect(app).toContain('desc: extra.map(rovid)')
+    // A racsba SEMMI mas nem kerul a dobozokon kivul.
+    expect(app).toMatch(/list\.innerHTML = shown\.map\(r => itemHtml\(r, tone\)\)\.join\(''\) \+ moreBox/)
+  })
+
+  it('a zold sorok szamatol sem no meg', () => {
+    // Minden uj `_ok` sor egy uj zold doboz akarna lenni. A kartya ettol nem
+    // lehet magasabb: a negyedik doboz nyeli el oket.
+    const zold = [...app.matchAll(/greenRows\.push\(/g)]
+    expect(zold.length).toBeGreaterThan(2)
+    expect(app).toContain('selfCheckBoxes(rows, MAX_ITEMS)')
   })
 
   it('mindket nyelv ismeri az uj szovegeket', () => {
     for (const lang of ['hu', 'en']) {
       const f = readFileSync(join(ROOT, `web/lang/${lang}.js`), 'utf-8')
-      for (const key of ['conn.ov_more', 'conn.ov_more_action', 'wizclaude.state_slow',
+      for (const key of ['conn.ov_more', 'wizclaude.state_slow',
         'wizclaude.state_offline', 'wizclaude.state_no_answer', 'wizclaude.current_ok_anon']) {
         expect(f, `${lang}: hianyzik a(z) ${key}`).toContain(`'${key}'`)
       }
