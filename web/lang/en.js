@@ -370,6 +370,12 @@ window._i18n.en = {
   // The LIVE Google check. 2026-08-22: all ten accounts were dead and nothing
   // said so -- the expiry watcher is time-based (blind to revocation) and the
   // live probe only ran when somebody opened the Accounts page.
+  'health.code_bridge_never': '⛔ The code bridge executor has never checked in — {n} task(s) waiting.',
+  'health.code_bridge_never_action': 'Without the Windows-side worker the bridge queues tasks but nothing runs. Click here: the Code bridge page installs it in two steps.',
+  'health.code_bridge_dead': '⛔ The code bridge executor is down — last seen {p} minutes ago, {n} task(s) waiting.',
+  'health.code_bridge_dead_action': 'While it is down, tasks sent to VS Code only pile up in the queue and nothing says so. Click here and start it from the Code bridge page.',
+  'health.code_bridge_ok': '✅ The code bridge is alive — {n} project(s), worker checked in {p} minutes ago.',
+  'health.code_bridge_ok_action': 'The Windows worker checks in every minute: that is the only evidence a task handed to VS Code actually runs rather than just queueing.',
   'health.google_live_ok':     '✅ Google access is alive — {n} accounts, checked {h}h ago.',
   'health.google_live_ok_action': 'I ask Google every hour rather than trusting the clock, so a revoked token shows up too, not just an expired one.',
   'health.google_live_bad':    'Google is refusing {n} of {all} accounts: {names}',

@@ -129,6 +129,21 @@ function ensureTables(): void {
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
+  // Worker presence. The bridge has exactly ONE silent failure mode: the
+  // Windows worker stops and nothing says so -- tasks queue up forever, the
+  // session map goes stale, and every page still looks healthy. (Measured
+  // 2026-08-22: the worker had been dead since 08-20 19:47 and the only trace
+  // was an empty project list.) One row per host, stamped on every worker call,
+  // is what lets the UI and the self-check say "the executor has been gone for
+  // two days" instead of silently showing nothing.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS code_workers (
+      host TEXT PRIMARY KEY,
+      last_seen_at INTEGER NOT NULL,
+      last_action TEXT,
+      sessions_reported INTEGER
+    )
+  `)
   ensured = true
 }
 
@@ -605,4 +620,97 @@ export function formatDuration(ms: number | null): string {
   if (s < 60) return `${s}s`
   const m = Math.floor(s / 60)
   return `${m}m ${s % 60}s`
+}
+
+// ---- worker presence -----------------------------------------------------
+//
+// The executor lives on the other side of the WSL boundary and can only be
+// observed by the calls it makes. Everything below turns "when did a worker
+// last talk to us" into an answer the dashboard and the self-check can show,
+// because a dead worker is otherwise indistinguishable from an idle one.
+
+export interface CodeWorker {
+  host: string
+  lastSeenAt: number
+  lastAction: string | null
+  sessionsReported: number | null
+}
+
+/** A worker that has not called in for this long is treated as DOWN. It polls
+ *  for tasks every 3s and re-publishes discovery every 60s, so five minutes of
+ *  silence is far outside normal jitter -- a restart or a slow network round
+ *  cannot reach it, only an actually stopped worker can. */
+export const WORKER_STALE_MS = 5 * 60 * 1000
+
+/** Stamped by every worker-authenticated call (discovery, claim, heartbeat,
+ *  result). Presence is a side effect of doing the job, never a separate
+ *  "I am alive" call the worker could forget to make while failing at
+ *  everything else. */
+export function recordCodeWorkerSeen(
+  host: string,
+  action: string,
+  sessionsReported?: number,
+  now = Date.now(),
+): void {
+  ensureTables()
+  const id = (host || 'windows').trim().slice(0, 120) || 'windows'
+  getDb().prepare(
+    `INSERT INTO code_workers (host, last_seen_at, last_action, sessions_reported)
+     VALUES (@host, @now, @action, @reported)
+     ON CONFLICT(host) DO UPDATE SET
+       last_seen_at = excluded.last_seen_at,
+       last_action = excluded.last_action,
+       -- Only a discovery round knows the session count; a claim/heartbeat must
+       -- not blank out what the last discovery reported.
+       sessions_reported = COALESCE(excluded.sessions_reported, code_workers.sessions_reported)`,
+  ).run({ host: id, now, action: action.slice(0, 40), reported: sessionsReported ?? null })
+}
+
+export function listCodeWorkers(): CodeWorker[] {
+  ensureTables()
+  const rows = getDb()
+    .prepare(`SELECT * FROM code_workers ORDER BY last_seen_at DESC`)
+    .all() as Record<string, unknown>[]
+  return rows.map((row) => ({
+    host: row['host'] as string,
+    lastSeenAt: row['last_seen_at'] as number,
+    lastAction: (row['last_action'] as string | null) ?? null,
+    sessionsReported: (row['sessions_reported'] as number | null) ?? null,
+  }))
+}
+
+export interface CodeBridgeHealth {
+  workerOnline: boolean
+  /** Newest contact from ANY worker, null if one has never called. */
+  lastSeenAt: number | null
+  workers: CodeWorker[]
+  sessions: number
+  queued: number
+  running: number
+  /** Failures in the last 24h -- a bridge that accepts work and errors on all
+   *  of it is broken in a way an "online" flag alone would call healthy. */
+  failed24h: number
+  done24h: number
+}
+
+export function codeBridgeHealth(now = Date.now()): CodeBridgeHealth {
+  ensureTables()
+  const db = getDb()
+  const workers = listCodeWorkers()
+  const lastSeenAt = workers.length > 0 ? (workers[0]?.lastSeenAt ?? null) : null
+  const count = (sql: string, args: Record<string, unknown> = {}): number => {
+    const row = db.prepare(sql).get(args) as Record<string, unknown> | undefined
+    return Number(row?.['n'] ?? 0)
+  }
+  const dayAgo = now - 24 * 60 * 60 * 1000
+  return {
+    workerOnline: lastSeenAt !== null && now - lastSeenAt <= WORKER_STALE_MS,
+    lastSeenAt,
+    workers,
+    sessions: count(`SELECT COUNT(*) AS n FROM code_sessions`),
+    queued: count(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'queued'`),
+    running: count(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'running'`),
+    failed24h: count(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'error' AND finished_at >= @t`, { t: dayAgo }),
+    done24h: count(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'done' AND finished_at >= @t`, { t: dayAgo }),
+  }
 }

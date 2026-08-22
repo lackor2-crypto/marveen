@@ -59,6 +59,8 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
+import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
+import { CODE_BRIDGE_ENABLED } from '../config.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
 
@@ -634,6 +636,48 @@ export function googleLiveRows(
   return rows
 }
 
+/** A kod-hid EGYETLEN nema hibamodja: a Windows-vegrehajto megall. A feladatok
+ *  ilyenkor szepen sorba allnak, a hid "be van kapcsolva", minden lap zolden
+ *  mutat -- es egyetlen sor sincs sehol arrol, hogy semmi nem fut le. (Merve
+ *  2026-08-22: a vegrehajto 08-20 19:47 ota allt, es az egyetlen nyoma egy ures
+ *  projekt-lista volt, amit senki nem nezett.)
+ *
+ *  Amirol HALLGAT: ha a hid ki van kapcsolva, es ha soha senki nem allitotta be
+ *  (nincs vegrehajto, nincs projekt, nincs feladat). Egy be nem uzemelt funkcio
+ *  nem hiba, es egy friss telepitesen nem szabad, hogy pirosan alljon valami,
+ *  amit a tulajdonos el sem inditott. */
+export function codeBridgeRows(
+  now: number = Date.now(),
+  h: ReturnType<typeof codeBridgeHealth> | null = null,
+): HealthRow[] {
+  if (!CODE_BRIDGE_ENABLED) return []
+  let d
+  try {
+    d = h ?? codeBridgeHealth(now)
+  } catch {
+    // A tabla meg nem letezik (regi adatbazis, elso indulas). Nem hiba.
+    return []
+  }
+  const soha = d.lastSeenAt === null
+  if (soha && d.sessions === 0 && d.queued === 0 && d.running === 0) return []
+  if (soha) {
+    // Van mit csinalnia, de nincs mivel: ez a legrosszabb allapot, mert a
+    // feladat elmegy es semmi nem szol.
+    return [{ id: 'code_bridge_never', status: 'bad', params: { n: d.queued + d.running } }]
+  }
+  const kora = Math.max(0, now - (d.lastSeenAt ?? 0))
+  if (kora > WORKER_STALE_MS) {
+    return [{
+      id: 'code_bridge_dead',
+      status: 'bad',
+      params: { p: Math.floor(kora / 60000), n: d.queued + d.running },
+    }]
+  }
+  // Zold sor is kell: a hallgatas nem megkulonboztetheto a nem-futo
+  // ellenorzestol -- pontosan ez a csapda vitte el az elozo ket hetet.
+  return [{ id: 'code_bridge_ok', status: 'ok', params: { n: d.sessions, p: Math.floor(kora / 60000) } }]
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -644,6 +688,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...mcpAuthRows(now),
     ...googleLiveRows(now),
     ...googleDuplicateRows(),
+    ...codeBridgeRows(now),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

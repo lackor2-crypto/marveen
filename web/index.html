@@ -180,6 +180,11 @@
           <svg class="sb-group-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
         </button>
         <div class="sb-group-items" id="sbGroupSystem">
+          <a href="#" class="sb-link" data-page="codeBridge">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span class="sb-label">Kód-híd</span>
+            <span class="sb-badge" id="codeBridgeNavBadge" hidden></span>
+          </a>
           <a href="#" class="sb-link" data-page="status">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
             <span class="sb-label">Státusz</span>
@@ -2767,6 +2772,185 @@
           <select id="intezoMountTarget" style="min-width:260px"></select>
           <button class="btn-secondary" id="intezoMountAddBtn" data-i18n="intezo.mount_add">Bekötés ide</button>
           <button class="btn-secondary" id="intezoMountDelBtn" hidden data-i18n="intezo.mount_del">Bekötés megszüntetése</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         KOD-HID: Telegram / Marvin  ->  a projekt sajat VS Code
+         Claude Code sessionje.
+
+         Ez az oldal azert letezik, mert a hid mindene .env-ben es a
+         parancssorban lakott: egy friss telepitesen semmit nem lehetett
+         belole elinditani a feluletrol. Minden, ami a hid uzemeltetesehez
+         kell -- lathato-e az executor, van-e projekt, mit csinal eppen,
+         hogyan kerul fel a Windows-worker, mi a bot tokenje -- innen
+         vegigvihelo, terminal nelkul.
+         ========================================================== -->
+    <div class="page" id="codeBridgePage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1>Kód-híd</h1>
+            <p class="subtitle">Programozási feladat átadása a projekt <strong>saját, már futó</strong> VS Code Claude Code sessionjének &mdash; előzményekkel, Marvin megkerülésével.</p>
+          </div>
+          <button class="btn-secondary btn-compact" id="cbRefreshBtn">Frissítés</button>
+        </div>
+      </div>
+
+      <!-- Ez az elso, amit latni kell: EL-E a vegrehajto. Ha a Windows-worker
+           all, minden mas ertelmetlen -- a feladatok csak gyulnek a sorban, es
+           kivulrol semmi nem arulja el. -->
+      <div class="info-box" id="cbHealthBox">
+        <p id="cbHealthText">Betöltés…</p>
+      </div>
+
+      <!-- 1. FELADAT. Ez all legfelul, mert ez az oldal celja; minden mas
+           alatta mar uzemeltetes. -->
+      <div class="card">
+        <h2>Feladat küldése</h2>
+        <p class="subtitle">
+          A feladat a kiválasztott projekt <strong>meglévő</strong> sessionjében fut le
+          (<code>claude --resume</code>), tehát ismeri a korábbi köröket, a projektet és a
+          döntéseket. A Claude Code önállóan elemez, ír, tesztel és javít; a végén
+          rövid, gépi értesítés megy Telegramra &mdash; nem fut rá modell, hogy összefoglalja.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <label for="cbTaskProject" style="font-size:13px">Projekt:</label>
+          <select id="cbTaskProject" class="input" style="width:auto;min-width:200px"></select>
+        </div>
+        <textarea id="cbTaskPrompt" class="input" rows="5" style="width:100%;margin-top:10px"
+          placeholder="Pl.: Javítsd ki a position sizing hibát. Vizsgáld meg a releváns kódot, derítsd ki az okát, implementáld a javítást, futtasd le a teszteket, és csak ellenőrzött állapotban tekintsd késznek."></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <button class="btn-primary btn-compact" id="cbTaskSendBtn">Küldés</button>
+          <span id="cbTaskCounter" class="subtitle"></span>
+          <span id="cbTaskStatus" class="subtitle"></span>
+        </div>
+      </div>
+
+      <!-- 2. FELADATOK. -->
+      <div class="card">
+        <h2>Feladatok</h2>
+        <p class="subtitle">A legutóbbi körök. Egy sorra kattintva a <strong>teljes</strong> eredmény nyílik meg, nem a kivonat.</p>
+        <div id="cbTasksList" style="margin-top:10px">…</div>
+      </div>
+
+      <!-- 3. PROJEKTEK. A session-terkep: alias -> workspace + sessionId.
+           Nincs "aktualis session" fogalom, minden sor kulon cimezheto. -->
+      <div class="card">
+        <h2>Projektek</h2>
+        <p class="subtitle">
+          A session-térkép: melyik névre melyik VS Code Claude Code session felel.
+          A Windows-worker percenként felderíti őket magától. A <strong>kitűzés</strong> azt rögzíti,
+          hogy egy projekt akkor se vándoroljon át egy újabb sessionre, ha közben másikat nyitottál meg.
+        </p>
+        <div id="cbProjectsTable" style="overflow-x:auto;margin-top:10px">…</div>
+        <details style="margin-top:14px">
+          <summary style="cursor:pointer;font-size:13px">Kézi felvétel vagy átírás</summary>
+          <p class="subtitle" style="margin-top:8px">
+            Akkor kell, ha egy sessiont saját név alá akarsz tenni. A session-azonosítót a
+            VS Code Claude Code panel <code>/status</code> parancsa mutatja meg.
+          </p>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <input id="cbAddProject" class="input" style="width:160px" placeholder="projekt neve">
+            <input id="cbAddWorkspace" class="input" style="width:280px" placeholder="C:\Projects\TradingBot">
+            <input id="cbAddSession" class="input" style="width:300px" placeholder="session-azonosító (UUID)">
+            <button class="btn-secondary btn-compact" id="cbAddBtn">Felvétel kitűzve</button>
+          </div>
+          <span id="cbAddStatus" class="subtitle"></span>
+        </details>
+      </div>
+
+      <!-- 4. WINDOWS WORKER. A ket fajl innen toltheto le, es a parancsok
+           masolhatok: a felhasznalonak nem kell repot klonoznia, sem UNC
+           utvonalat gepelnie. Ez a lepes volt eddig a terminal-fuggoseg. -->
+      <div class="card">
+        <h2>Windows-végrehajtó (worker)</h2>
+        <p class="subtitle">
+          A Marveen a WSL-ben fut és <strong>nem</strong> éri el a Windows fájlrendszerét, ezért a
+          Windows-oldali worker <strong>befelé</strong> kérdez: ő veszi ki a feladatot és ő indítja a
+          <code>claude.exe</code>-t. Nem nyit portot, nem hallgat a hálózaton, és nem kattintgat
+          &mdash; sima gyerekfolyamat. Nélküle a híd sorba tesz, de semmi nem fut le.
+        </p>
+        <ol style="font-size:14px;line-height:1.7;margin-top:10px;padding-left:22px">
+          <li>Töltsd le mindkét fájlt, és tedd őket a <code id="cbWorkerDir">%USERPROFILE%\marvin-code-worker\</code> mappába:
+            <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap">
+              <button class="btn-secondary btn-compact" id="cbDlPs1">marvin-code-worker.ps1</button>
+              <button class="btn-secondary btn-compact" id="cbDlCmd">marvin-code-worker.cmd</button>
+            </div>
+          </li>
+          <li>Indítsd el, és tedd automatikussá (PowerShell, egyszer):
+            <div style="display:flex;gap:8px;align-items:flex-start;margin:8px 0;flex-wrap:wrap">
+              <code id="cbInstallCmd" style="flex:1;min-width:280px;white-space:pre-wrap;word-break:break-all;padding:8px;border-radius:6px;display:block"></code>
+              <button class="btn-secondary btn-compact" id="cbCopyInstall">Másolás</button>
+            </div>
+          </li>
+        </ol>
+        <p class="subtitle" id="cbWorkerSeen"></p>
+      </div>
+
+      <!-- 5. TELEGRAM KOD-BOT. -->
+      <div class="card">
+        <h2>Telegram kód-bot</h2>
+        <p class="subtitle">
+          Ezzel megy a <code>/code &lt;projekt&gt; &lt;feladat&gt;</code> <strong>Marvin teljes kihagyásával</strong>.
+          Saját bot kell hozzá: egy tokent egyszerre egy olvasó húzhat, és a fő botét már Marvin
+          csatornája birtokolja &mdash; két olvasó = 409 Conflict. Token nélkül minden más (felület,
+          Marvin-átadás) változatlanul megy.
+        </p>
+        <p class="subtitle" style="margin-top:8px">
+          Telegramban a <strong>@BotFather</strong> → <code>/newbot</code> → név és felhasználónév → a kapott
+          tokent illeszd be ide. Utána írj a botodnak egy <code>/start</code>-ot.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <label for="cbBotToken" style="font-size:13px;min-width:120px">Bot token:</label>
+          <input id="cbBotToken" class="input" type="password" style="width:320px" placeholder="123456:AA…" autocomplete="off">
+          <span id="cbBotState" class="subtitle"></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <label for="cbAllowedChats" style="font-size:13px;min-width:120px">Engedélyezett chatek:</label>
+          <input id="cbAllowedChats" class="input" style="width:320px" placeholder="üresen: csak a tulajdonos chatje">
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <button class="btn-primary btn-compact" id="cbBotSaveBtn">Mentés</button>
+          <button class="btn-secondary btn-compact" id="cbBotClearBtn">Token törlése</button>
+          <span id="cbBotStatus" class="subtitle"></span>
+        </div>
+      </div>
+
+      <!-- 6. MUKODES. -->
+      <div class="card">
+        <h2>Működés</h2>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+          <label style="font-size:13px;min-width:120px">Kód-híd:</label>
+          <label style="font-size:14px;display:flex;gap:6px;align-items:center">
+            <input type="checkbox" id="cbEnabled"> bekapcsolva
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <label for="cbPermMode" style="font-size:13px;min-width:120px">Jogosultság:</label>
+          <select id="cbPermMode" class="input" style="width:auto">
+            <option value="acceptEdits">acceptEdits &mdash; fájlszerkesztés szabad, veszélyesnél kérdez</option>
+            <option value="bypassPermissions">bypassPermissions &mdash; teljes autónómia</option>
+            <option value="default">default &mdash; mindennél kérdez</option>
+            <option value="plan">plan &mdash; csak tervez, nem ír</option>
+          </select>
+        </div>
+        <p class="subtitle" style="margin-top:6px">
+          Az <code>acceptEdits</code> a bevált alapértelmezés: a <code>default</code> mellett minden feladat
+          elakadna egy olyan kérdésen, amit senki nem tud megválaszolni &mdash; nincs ember a végén.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <label for="cbExclude" style="font-size:13px;min-width:120px">Kizárt projektek:</label>
+          <input id="cbExclude" class="input" style="width:320px" placeholder="pl. tozsde_telepitesi_mappa">
+        </div>
+        <p class="subtitle" style="margin-top:6px">
+          Ide az a workspace való, amelyikben éppen beszélgetsz: különben a felderítés újra bejegyzi,
+          és egy feladat a nyitott panel alá írna.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <button class="btn-primary btn-compact" id="cbSaveOpsBtn">Mentés</button>
+          <span id="cbOpsStatus" class="subtitle"></span>
         </div>
       </div>
     </div>

@@ -749,12 +749,18 @@ function switchPage(pageId) {
   if (pageId === 'naplo') callPageLoader('loadNaplo')
   if (pageId === 'federation') loadFederationPage()
   if (pageId === 'email') loadEmailPage()
+  if (pageId !== 'codeBridge') _cbStopPoll()
+  if (pageId === 'codeBridge') callPageLoader('loadCodeBridgePage')
   if (pageId === 'irodaSettings') loadIrodaSettings()
 }
 
 // Calls a page loader that may not be defined yet (see the naplo/archived note
 // in switchPage). Runs it immediately when it exists, otherwise once the
 // document has finished parsing -- by which point every IIFE in this file has.
+function _cbStopPoll() {
+  if (typeof window.__cbStopPollImpl === 'function') window.__cbStopPollImpl()
+}
+
 function callPageLoader(name) {
   if (typeof window[name] === 'function') { window[name](); return }
   document.addEventListener('DOMContentLoaded', () => {
@@ -16894,7 +16900,12 @@ async function renderOverviewConnections() {
         ? 'openClaudeLoginStep()'
         : (h.id === 'google_live_never' || h.id === 'google_live_stale')
           ? 'runGoogleLiveCheckNow()'
-          : null,
+          // Az allo vegrehajto sora a KOD-HID lapra visz, mert ott all a
+          // telepito parancs es a masolo gomb -- a Fiokok oldalan semmit nem
+          // tudna kezdeni vele.
+          : (h.id === 'code_bridge_dead' || h.id === 'code_bridge_never')
+            ? "switchPage('codeBridge')"
+            : null,
       guide: h.id === 'google_live_bad'
         ? {
           id: 'google:live',
@@ -16954,6 +16965,11 @@ async function renderOverviewConnections() {
   // valaki TENYLEGESEN megkerdezte a Google-t, es mikor.
   const glok = health.find(h => h.id === 'google_live_ok')
   if (glok) greenRows.push({ label: t('health.google_live_ok', glok.params || {}), desc: t('health.google_live_ok_action') })
+  // A kod-hid zold sora. Ugyanaz a csapda, mint a tobbinel: a hid "be van
+  // kapcsolva" allapota semmit nem mond arrol, hogy a VEGREHAJTO el-e, es
+  // pontosan ez a kulonbseg futott ki ket hetig eszrevetlenul.
+  const cbok = health.find(h => h.id === 'code_bridge_ok')
+  if (cbok) greenRows.push({ label: t('health.code_bridge_ok', cbok.params || {}), desc: t('health.code_bridge_ok_action'), onclick: "switchPage('codeBridge')" })
   paint(TONES.ok, greenRows)
 }
 
@@ -30855,3 +30871,471 @@ async function _intezoCfgSave() {
     if (prev) prev.innerHTML = ''
   }
 }
+
+// ============================================================
+// === Kod-hid (VS Code Claude Code bridge) ===
+//
+// A hid szerver-oldala 2026-08-20 ota kesz volt, de KIZAROLAG .env-bol es
+// parancssorbol lehetett uzemeltetni: egy friss telepitesen semmit nem lehetett
+// belole elinditani a feluletrol. Ez a modul az a felulet.
+//
+// Ket dolgot csinal, amit a REST onmagaban nem tud megmondani:
+//   * kimondja, ha a VEGREHAJTO all. A hid egyetlen nema hibamodja ez -- a
+//     feladatok gyulnek a sorban, a lap zolden mutat, es kivulrol semmi nem
+//     arulja el. (Merve 2026-08-22: a worker 08-20 19:47 ota allt, es az egyetlen
+//     nyoma egy ures projekt-lista volt.)
+//   * megmondja, MIT KELL TENNI, nem csak azt, hogy baj van.
+// ============================================================
+;(function () {
+  let _cbTimer = null
+  let _cbLastHealth = null
+  let _cbProjects = []
+
+  window.__cbStopPollImpl = function () {
+    if (_cbTimer) { clearInterval(_cbTimer); _cbTimer = null }
+  }
+
+  async function cbFetch(path, opts) {
+    const res = await fetch(path, opts)
+    const text = await res.text()
+    let data = null
+    try { data = text ? JSON.parse(text) : null } catch (e) { /* nem JSON */ }
+    if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status))
+    return data
+  }
+
+  function cbPostJson(path, body) {
+    return cbFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
+  // Magyar, emberi idokulonbseg. A "mikor jelentkezett utoljara" a lap
+  // legfontosabb adata, ezert nem ISO-datumot mutatunk.
+  function cbAgo(ms) {
+    if (!ms) return 'soha'
+    const d = Math.max(0, Date.now() - ms)
+    const s = Math.round(d / 1000)
+    if (s < 60) return s + ' másodperce'
+    const m = Math.round(s / 60)
+    if (m < 60) return m + ' perce'
+    const h = Math.round(m / 60)
+    if (h < 48) return h + ' órája'
+    return Math.round(h / 24) + ' napja'
+  }
+
+  function cbDur(ms) {
+    if (ms === null || ms === undefined) return ''
+    if (ms < 1000) return ms + ' ms'
+    const s = Math.round(ms / 1000)
+    if (s < 60) return s + ' mp'
+    const m = Math.floor(s / 60)
+    return m + ' p ' + (s % 60) + ' mp'
+  }
+
+  const CB_STATUS_HU = {
+    queued: 'sorban', running: 'fut', done: 'kész', error: 'hiba', cancelled: 'megszakítva',
+  }
+
+  // ---- allapot ---------------------------------------------------------
+
+  function cbRenderHealth(h) {
+    const box = document.getElementById('cbHealthBox')
+    const el = document.getElementById('cbHealthText')
+    if (!box || !el) return
+    const lines = []
+    let tone = 'ok'
+
+    if (!h.enabled) {
+      tone = 'warn'
+      lines.push('<strong>A kód-híd ki van kapcsolva.</strong> A <em>Működés</em> kártyán kapcsold be, majd indítsd újra a vezérlőpultot.')
+    } else if (!h.workerOnline) {
+      tone = 'bad'
+      if (!h.lastSeenAt) {
+        lines.push('<strong>A Windows-végrehajtó még soha nem jelentkezett.</strong> Enélkül a híd sorba tesz, de semmi nem fut le. A lap alján lévő <em>Windows-végrehajtó</em> kártya két lépésben feltelepíti.')
+      } else {
+        lines.push('<strong>A Windows-végrehajtó áll</strong> — utoljára ' + cbAgo(h.lastSeenAt) + ' jelentkezett. Amíg nem fut, a feladatok csak gyűlnek a sorban. Indítsd el a <em>Windows-végrehajtó</em> kártya parancsával.')
+      }
+    } else {
+      lines.push('<strong>A végrehajtó él</strong> (' + escapeHtml(h.workers[0] && h.workers[0].host ? h.workers[0].host : 'ismeretlen gép') + ', ' + cbAgo(h.lastSeenAt) + ').')
+    }
+
+    if (h.enabled && h.workerOnline && h.sessions === 0) {
+      tone = tone === 'ok' ? 'warn' : tone
+      lines.push('<strong>Nincs regisztrált projekt.</strong> Nyiss meg egy projektet VS Code-ban Claude Code-dal, és a felderítés egy percen belül bejegyzi. Ha a projekt szerepel a kizártak közt, előbb vedd ki onnan.')
+    }
+
+    const bits = []
+    bits.push(h.sessions + ' projekt')
+    bits.push(h.queued + ' sorban')
+    bits.push(h.running + ' fut')
+    if (h.done24h) bits.push(h.done24h + ' kész (24 óra)')
+    if (h.failed24h) bits.push('<strong>' + h.failed24h + ' hibás (24 óra)</strong>')
+    lines.push(bits.join(' · '))
+
+    if (!h.botConfigured) {
+      lines.push('A Telegram kód-bot nincs beállítva — a <code>/code</code> parancs innen még nem használható. (A felület és a Marvin-átadás enélkül is megy.)')
+    }
+    el.innerHTML = lines.map(function (l) { return '<p style="margin:4px 0">' + l + '</p>' }).join('')
+    box.style.borderLeft = '4px solid ' + (tone === 'bad' ? '#e5534b' : tone === 'warn' ? '#d29922' : '#3fb950')
+
+    // A sidebar jelvenye akkor is szol, ha a lap nincs nyitva.
+    const badge = document.getElementById('codeBridgeNavBadge')
+    if (badge) {
+      const busy = h.queued + h.running
+      if (h.enabled && !h.workerOnline && h.lastSeenAt) { badge.hidden = false; badge.textContent = '!' }
+      else if (busy > 0) { badge.hidden = false; badge.textContent = String(busy) }
+      else { badge.hidden = true; badge.textContent = '' }
+    }
+
+    // A telepito parancs a VALODI utvonalakkal, nem sablonnal.
+    const hint = h.installHint || {}
+    const cmd = document.getElementById('cbInstallCmd')
+    if (cmd) {
+      const tokenPath = hint.tokenPath || '\\\\wsl.localhost\\Ubuntu\\home\\boss\\marveen\\store\\.dashboard-token'
+      cmd.textContent =
+        'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\marvin-code-worker\\marvin-code-worker.ps1" ' +
+        '-BaseUrl "' + window.location.origin + '" -TokenPath "' + tokenPath + '"\n\n' +
+        'schtasks /create /f /tn "MarvinCodeWorker" /sc onlogon /rl highest ' +
+        '/tr "\\"%USERPROFILE%\\marvin-code-worker\\marvin-code-worker.cmd\\""'
+    }
+    const seen = document.getElementById('cbWorkerSeen')
+    if (seen) {
+      seen.innerHTML = h.workers && h.workers.length
+        ? h.workers.map(function (w) {
+            return escapeHtml(w.host) + ' — ' + cbAgo(w.lastSeenAt) +
+              (w.lastAction ? ' (' + escapeHtml(w.lastAction) + ')' : '') +
+              (w.sessionsReported !== null && w.sessionsReported !== undefined ? ', ' + w.sessionsReported + ' sessiont látott' : '')
+          }).join('<br>')
+        : 'Még egyetlen végrehajtó sem jelentkezett be.'
+    }
+  }
+
+  // ---- projektek -------------------------------------------------------
+
+  function cbRenderProjects(projects) {
+    _cbProjects = projects || []
+    const el = document.getElementById('cbProjectsTable')
+    if (!el) return
+    if (!_cbProjects.length) {
+      el.innerHTML = '<p class="subtitle">Nincs egyetlen regisztrált projekt sem.</p>'
+    } else {
+      el.innerHTML =
+        '<table style="width:100%;border-collapse:collapse;font-size:14px">' +
+        '<thead><tr>' +
+        ['Projekt', 'Workspace', 'Session', 'Kitűzve', 'Frissült', ''].map(function (h) {
+          return '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#333)">' + h + '</th>'
+        }).join('') +
+        '</tr></thead><tbody>' +
+        _cbProjects.map(function (p) {
+          return '<tr>' +
+            '<td style="padding:6px 8px"><strong>' + escapeHtml(p.project) + '</strong></td>' +
+            '<td style="padding:6px 8px"><code>' + escapeHtml(p.workspacePath) + '</code></td>' +
+            '<td style="padding:6px 8px" title="' + escapeAttr(p.sessionId) + '"><code>' + escapeHtml(String(p.sessionId).slice(0, 8)) + '…</code></td>' +
+            '<td style="padding:6px 8px">' + (p.pinned ? 'igen' : '—') + '</td>' +
+            '<td style="padding:6px 8px">' + cbAgo(p.updatedAt) + '</td>' +
+            '<td style="padding:6px 8px;white-space:nowrap">' +
+              '<button class="btn-secondary btn-compact cb-pin" data-project="' + escapeAttr(p.project) + '" data-pinned="' + (p.pinned ? '1' : '0') + '">' +
+                (p.pinned ? 'Elenged' : 'Kitűz') + '</button> ' +
+              '<button class="btn-secondary btn-compact cb-del" data-project="' + escapeAttr(p.project) + '">Törlés</button>' +
+            '</td>' +
+          '</tr>'
+        }).join('') +
+        '</tbody></table>'
+    }
+
+    // A feladat-kuldo legordulo ugyanebbol az egy forrasbol el.
+    const sel = document.getElementById('cbTaskProject')
+    if (sel) {
+      const prev = sel.value
+      sel.innerHTML = _cbProjects.length
+        ? _cbProjects.map(function (p) { return '<option value="' + escapeAttr(p.project) + '">' + escapeHtml(p.project) + '</option>' }).join('')
+        : '<option value="">— nincs regisztrált projekt —</option>'
+      if (prev && _cbProjects.some(function (p) { return p.project === prev })) sel.value = prev
+    }
+  }
+
+  // ---- feladatok -------------------------------------------------------
+
+  function cbRenderTasks(tasks) {
+    const el = document.getElementById('cbTasksList')
+    if (!el) return
+    if (!tasks || !tasks.length) {
+      el.innerHTML = '<p class="subtitle">Még nem futott feladat.</p>'
+      return
+    }
+    el.innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:14px">' +
+      '<thead><tr>' +
+      ['Állapot', 'Projekt', 'Feladat', 'Mikor', 'Idő', 'Költség'].map(function (h) {
+        return '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#333)">' + h + '</th>'
+      }).join('') +
+      '</tr></thead><tbody>' +
+      tasks.map(function (t) {
+        const color = t.status === 'done' ? '#3fb950' : t.status === 'error' ? '#e5534b'
+          : t.status === 'running' ? '#d29922' : 'inherit'
+        return '<tr class="cb-task-row" data-id="' + escapeAttr(t.id) + '" style="cursor:pointer">' +
+          '<td style="padding:6px 8px;color:' + color + '">' + (CB_STATUS_HU[t.status] || t.status) + '</td>' +
+          '<td style="padding:6px 8px">' + escapeHtml(t.project) + '</td>' +
+          '<td style="padding:6px 8px">' + escapeHtml(String(t.prompt).slice(0, 70)) + (String(t.prompt).length > 70 ? '…' : '') + '</td>' +
+          '<td style="padding:6px 8px">' + cbAgo(t.createdAt) + '</td>' +
+          '<td style="padding:6px 8px">' + cbDur(t.durationMs) + '</td>' +
+          '<td style="padding:6px 8px">' + (t.costUsd ? ('$' + Number(t.costUsd).toFixed(4)) : '') + '</td>' +
+        '</tr>'
+      }).join('') +
+      '</tbody></table>'
+  }
+
+  // A TELJES eredmeny, nem a kivonat: a kivonat a Telegram-ertesitese, ide
+  // pontosan azert jon az ember, mert tobbet akar latni annal.
+  async function cbOpenTask(id) {
+    let task = null
+    try { task = await cbFetch('/api/code/tasks/' + encodeURIComponent(id)) } catch (e) {
+      showToast('Nem sikerült betölteni: ' + e.message, { type: 'error' }); return
+    }
+    const old = document.getElementById('cbTaskModal')
+    if (old) old.remove()
+    const wrap = document.createElement('div')
+    wrap.id = 'cbTaskModal'
+    wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px'
+    const body = (task.status === 'error' || task.error) ? (task.error || '(nincs hibaüzenet)') : (task.result || '(nincs eredmény)')
+    wrap.innerHTML =
+      '<div class="card" style="max-width:900px;width:100%;max-height:80vh;overflow:auto;margin:0">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
+          '<h2 style="margin:0">' + escapeHtml(task.project) + ' — ' + (CB_STATUS_HU[task.status] || task.status) + '</h2>' +
+          '<button class="btn-secondary btn-compact" id="cbTaskModalClose">Bezárás</button>' +
+        '</div>' +
+        '<p class="subtitle" style="margin-top:8px">' +
+          cbAgo(task.createdAt) + ' · ' + cbDur(task.durationMs) +
+          (task.numTurns ? ' · ' + task.numTurns + ' kör' : '') +
+          (task.costUsd ? ' · $' + Number(task.costUsd).toFixed(4) : '') +
+          (task.host ? ' · ' + escapeHtml(task.host) : '') +
+          (task.attempts > 1 ? ' · ' + task.attempts + '. nekifutás' : '') +
+        '</p>' +
+        '<h3 style="margin-top:14px;font-size:14px">Feladat</h3>' +
+        '<pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;padding:10px;border-radius:6px;background:var(--bg-alt,#111)">' + escapeHtml(task.prompt) + '</pre>' +
+        '<h3 style="margin-top:14px;font-size:14px">' + ((task.status === 'error' || task.error) ? 'Hiba' : 'Eredmény') + '</h3>' +
+        '<pre style="white-space:pre-wrap;word-break:break-word;font-size:13px;padding:10px;border-radius:6px;background:var(--bg-alt,#111)">' + escapeHtml(body) + '</pre>' +
+        (task.status === 'queued' ? '<button class="btn-secondary btn-compact" id="cbTaskCancel" style="margin-top:12px">Feladat visszavonása</button>' : '') +
+      '</div>'
+    document.body.appendChild(wrap)
+    const close = function () { wrap.remove() }
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close() })
+    const closeBtn = document.getElementById('cbTaskModalClose')
+    if (closeBtn) closeBtn.addEventListener('click', close)
+    const cancelBtn = document.getElementById('cbTaskCancel')
+    if (cancelBtn) cancelBtn.addEventListener('click', async function () {
+      try {
+        await cbPostJson('/api/code/tasks/' + encodeURIComponent(task.id) + '/cancel', {})
+        showToast('Visszavonva.')
+        close(); cbRefresh()
+      } catch (e) { showToast('Nem sikerült: ' + e.message, { type: 'error' }) }
+    })
+  }
+
+  // ---- betoltes --------------------------------------------------------
+
+  async function cbRefresh() {
+    // Az allapot ELOSZOR es KULON: kikapcsolt hidnal a tobbi vegpont szandekosan
+    // 503-at ad, es egy kozos Promise.all-bol 'nem sikerult lekerdezni' lenne --
+    // pont az az egy mondat veszne el, ami szamit ('ki van kapcsolva, itt a kapcsolo').
+    let health = null
+    try {
+      health = await cbFetch('/api/code/health')
+      _cbLastHealth = health
+      cbRenderHealth(health)
+    } catch (e) {
+      const el = document.getElementById('cbHealthText')
+      if (el) el.innerHTML = '<strong>Nem sikerült lekérdezni a kód-hidat:</strong> ' + escapeHtml(e.message)
+      return
+    }
+    if (health && health.enabled === false) {
+      cbRenderProjects([])
+      cbRenderTasks([])
+      return
+    }
+    try {
+      const [projects, tasks] = await Promise.all([
+        cbFetch('/api/code/projects'),
+        cbFetch('/api/code/tasks?limit=25'),
+      ])
+      cbRenderProjects(projects.projects)
+      cbRenderTasks(tasks.tasks)
+    } catch (e) {
+      const el = document.getElementById('cbTasksList')
+      if (el) el.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni: ' + escapeHtml(e.message) + '</p>'
+    }
+  }
+  window._cbRefresh = cbRefresh
+
+  async function cbLoadConfig() {
+    let cfg = null
+    try { cfg = await cbFetch('/api/code/config') } catch (e) { return }
+    const enabled = document.getElementById('cbEnabled')
+    if (enabled) enabled.checked = String(cfg.CODE_BRIDGE_ENABLED) === '1'
+    const perm = document.getElementById('cbPermMode')
+    if (perm) perm.value = cfg.CODE_PERMISSION_MODE || 'acceptEdits'
+    const excl = document.getElementById('cbExclude')
+    if (excl) excl.value = cfg.CODE_BRIDGE_EXCLUDE || ''
+    const chats = document.getElementById('cbAllowedChats')
+    if (chats) chats.value = cfg.CODE_BOT_ALLOWED_CHAT_IDS || ''
+    const state = document.getElementById('cbBotState')
+    if (state) {
+      // A tokent SOHA nem irjuk vissza a mezobe -- csak azt mondjuk meg, van-e.
+      state.textContent = cfg.botConfigured
+        ? (cfg.live && cfg.live.botConfigured ? 'be van állítva' : 'elmentve — újraindítás után lép életbe')
+        : 'nincs beállítva'
+    }
+  }
+
+  window.loadCodeBridgePage = function () {
+    cbRefresh()
+    cbLoadConfig()
+    window.__cbStopPollImpl()
+    // Egy futo feladat percekig tart; 5 masodperces kor eleg ahhoz, hogy a
+    // lap eljen, es nem terheli sem a bongeszot, sem az SQLite-ot.
+    _cbTimer = setInterval(cbRefresh, 5000)
+  }
+
+  // ---- esemenyek -------------------------------------------------------
+
+  document.addEventListener('click', async function (e) {
+    const t = e.target
+    if (!(t instanceof Element)) return
+
+    if (t.id === 'cbRefreshBtn') { cbRefresh(); cbLoadConfig(); return }
+
+    if (t.id === 'cbDlPs1' || t.id === 'cbDlCmd') {
+      window.location.href = '/api/code/worker-script?file=' + (t.id === 'cbDlCmd' ? 'cmd' : 'ps1')
+      return
+    }
+
+    if (t.id === 'cbCopyInstall') {
+      const cmd = document.getElementById('cbInstallCmd')
+      if (cmd) {
+        try { await navigator.clipboard.writeText(cmd.textContent) ; showToast('Parancs a vágólapon.') }
+        catch (err) { showToast('A böngésző nem engedte a másolást — jelöld ki kézzel.', { type: 'error' }) }
+      }
+      return
+    }
+
+    if (t.id === 'cbTaskSendBtn') {
+      const sel = document.getElementById('cbTaskProject')
+      const prompt = document.getElementById('cbTaskPrompt')
+      const status = document.getElementById('cbTaskStatus')
+      if (!sel || !prompt) return
+      if (!sel.value) { if (status) status.textContent = 'Előbb kell legalább egy regisztrált projekt.'; return }
+      if (!prompt.value.trim()) { if (status) status.textContent = 'Írd le, mit csináljon.'; return }
+      t.setAttribute('disabled', 'disabled')
+      if (status) status.textContent = 'Küldés…'
+      try {
+        const task = await cbPostJson('/api/code/tasks', {
+          project: sel.value, prompt: prompt.value, origin: 'dashboard', requestedBy: 'dashboard',
+        })
+        prompt.value = ''
+        if (status) status.textContent = 'Átadva: ' + task.project + ' (' + String(task.id).slice(0, 8) + ')'
+        cbRefresh()
+      } catch (err) {
+        if (status) status.textContent = 'Nem sikerült: ' + err.message
+      } finally {
+        t.removeAttribute('disabled')
+      }
+      return
+    }
+
+    if (t.classList.contains('cb-pin')) {
+      const project = t.getAttribute('data-project')
+      const pinned = t.getAttribute('data-pinned') === '1'
+      const row = _cbProjects.find(function (p) { return p.project === project })
+      if (!row) return
+      try {
+        await cbPostJson('/api/code/projects', {
+          project: row.project, workspacePath: row.workspacePath, sessionId: row.sessionId, pinned: !pinned,
+        })
+        cbRefresh()
+      } catch (err) { showToast('Nem sikerült: ' + err.message, { type: 'error' }) }
+      return
+    }
+
+    if (t.classList.contains('cb-del')) {
+      const project = t.getAttribute('data-project')
+      if (!confirm('Törlöd a(z) "' + project + '" leképezést? A session maga nem sérül; a felderítés vissza is teheti, ha a workspace nyitva van.')) return
+      try {
+        await cbFetch('/api/code/projects/' + encodeURIComponent(project), { method: 'DELETE' })
+        cbRefresh()
+      } catch (err) { showToast('Nem sikerült: ' + err.message, { type: 'error' }) }
+      return
+    }
+
+    if (t.id === 'cbAddBtn') {
+      const project = document.getElementById('cbAddProject')
+      const ws = document.getElementById('cbAddWorkspace')
+      const sid = document.getElementById('cbAddSession')
+      const status = document.getElementById('cbAddStatus')
+      if (!project || !ws || !sid) return
+      try {
+        await cbPostJson('/api/code/projects', {
+          project: project.value.trim(), workspacePath: ws.value.trim(), sessionId: sid.value.trim(), pinned: true,
+        })
+        project.value = ''; ws.value = ''; sid.value = ''
+        if (status) status.textContent = 'Felvéve.'
+        cbRefresh()
+      } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
+      return
+    }
+
+    if (t.id === 'cbBotSaveBtn' || t.id === 'cbBotClearBtn') {
+      const token = document.getElementById('cbBotToken')
+      const chats = document.getElementById('cbAllowedChats')
+      const status = document.getElementById('cbBotStatus')
+      const body = {}
+      if (t.id === 'cbBotClearBtn') {
+        if (!confirm('Törlöd a kód-bot tokenjét? Ezután Telegramról nem lehet közvetlenül feladni.')) return
+        body.CODE_BOT_TOKEN = null
+      } else if (token && token.value.trim()) {
+        body.CODE_BOT_TOKEN = token.value.trim()
+      }
+      if (chats) body.CODE_BOT_ALLOWED_CHAT_IDS = chats.value.trim()
+      try {
+        await cbPostJson('/api/code/config', body)
+        if (token) token.value = ''
+        if (status) status.textContent = 'Elmentve — a vezérlőpult újraindítása után lép életbe.'
+        cbLoadConfig()
+      } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
+      return
+    }
+
+    if (t.id === 'cbSaveOpsBtn') {
+      const enabled = document.getElementById('cbEnabled')
+      const perm = document.getElementById('cbPermMode')
+      const excl = document.getElementById('cbExclude')
+      const status = document.getElementById('cbOpsStatus')
+      try {
+        await cbPostJson('/api/code/config', {
+          CODE_BRIDGE_ENABLED: enabled && enabled.checked ? '1' : '0',
+          CODE_PERMISSION_MODE: perm ? perm.value : 'acceptEdits',
+          CODE_BRIDGE_EXCLUDE: excl ? excl.value.trim() : '',
+        })
+        if (status) status.textContent = 'Elmentve — a vezérlőpult újraindítása után lép életbe.'
+        cbLoadConfig()
+      } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
+      return
+    }
+
+    const row = t.closest ? t.closest('.cb-task-row') : null
+    if (row) { cbOpenTask(row.getAttribute('data-id')); return }
+  })
+
+  // A prompt-korlat a szerveren 12 000 karakter; a szamlalo ELORE szol, hogy a
+  // hosszu feladat ne a kuldes pillanataban bukjon el.
+  document.addEventListener('input', function (e) {
+    if (!(e.target instanceof Element) || e.target.id !== 'cbTaskPrompt') return
+    const counter = document.getElementById('cbTaskCounter')
+    if (!counter) return
+    const n = e.target.value.length
+    counter.textContent = n > 12000 ? (n + ' / 12000 — túl hosszú') : (n ? n + ' karakter' : '')
+    counter.style.color = n > 12000 ? '#e5534b' : ''
+  })
+})()

@@ -616,6 +616,62 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
   },
+  // --- Kod-hid (VS Code Claude Code) module ---
+  // These five were reachable ONLY by hand-editing .env, which means a fresh
+  // install could not turn the bridge on from the surface at all. Registering
+  // them here is what makes them editable from Beallitasok AND from the
+  // Kod-hid page (which writes through setOverride, same validation).
+  {
+    key: 'CODE_BRIDGE_ENABLED',
+    type: 'boolean',
+    default: '1',
+    description: 'A kod-hid fokapcsoloja. Kikapcsolva minden /api/code/* vegpont 503-at ad, a sor nem mozdul, es a Windows-oldali worker nem kap munkat. A mar felvett feladatok nem vesznek el, csak varnak.',
+    module: 'kodhid',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
+    key: 'CODE_PERMISSION_MODE',
+    type: 'string',
+    default: 'acceptEdits',
+    valueSet: ['acceptEdits', 'bypassPermissions', 'default', 'plan'],
+    description: 'Milyen jogosultsaggal fut a claude.exe a feladat kozben. Az "acceptEdits" a bevalt alapertek: a fajlszerkesztest engedi (kulonben minden feladat elakadna egy meg nem valaszolhato kerdesen), de a veszelyes muveleteknel marad a kapu. A "bypassPermissions" teljes autonomiat ad -- tudatos, kezi dontes legyen.',
+    module: 'kodhid',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
+    key: 'CODE_BOT_TOKEN',
+    type: 'string',
+    default: '',
+    description: 'A DEDIKALT Telegram kod-bot tokenje (BotFather -> /newbot). Azert kell sajat bot, mert egy tokent egyszerre egy getUpdates fogyaszto olvashat, es a fo bot slotjat Marvin csatorna-pluginje birtokolja (masodik olvaso = 409 Conflict). Uresen hagyva minden mas mukodik, csak Telegramrol nem lehet kozvetlenul feladni.',
+    module: 'kodhid',
+    secret: true,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
+    key: 'CODE_BOT_ALLOWED_CHAT_IDS',
+    type: 'string',
+    default: '',
+    description: 'Vesszovel elvalasztott chat-azonositok, amelyek hasznalhatjak a kod-botot. Uresen hagyva csak a tulajdonos chatje. Ismeretlen chat uzenetere nincs valasz -- meg hibauzenet sem, ami elarulna, hogy a bot letezik.',
+    module: 'kodhid',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
+    key: 'CODE_BRIDGE_EXCLUDE',
+    type: 'string',
+    default: '',
+    description: 'Vesszos alias-lista, amit a hid SOHA nem regisztral es nem fogad el. Ide az a workspace valo, amelyikben eppen beszelgetsz: kulonben a felderites ujra bejegyzi, es egy feladat a nyitott panel ala irna.',
+    module: 'kodhid',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
 ]
 
 export function getSettingDefinition(key: string): SettingDefinition | undefined {

@@ -16,14 +16,21 @@
 
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
-import { CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE } from '../../config.js'
+import {
+  CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, PROJECT_ROOT,
+  CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
+} from '../../config.js'
 import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, heartbeatCodeTask, completeCodeTask, cancelCodeTask,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
+  recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS,
   type CodeTaskStatus, type CodeTaskOrigin,
 } from '../code-bridge-store.js'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { notifyCodeTaskFinished } from '../code-bridge-notify.js'
 import type { RouteContext } from './types.js'
 
@@ -47,12 +54,118 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   const { res, path, method, url } = ctx
   if (!path.startsWith('/api/code/')) return false
 
-  if (!CODE_BRIDGE_ENABLED) {
+  // The health/config/installer surface answers even when the bridge is OFF --
+  // that is exactly when the owner needs to see WHY nothing happens and switch it
+  // back on. Gating these too would mean the only way back from a switch flipped
+  // in the UI is hand-editing a file, which is the failure this whole page exists
+  // to remove. Everything that actually MOVES a task stays behind the gate.
+  const alwaysOn = path === '/api/code/health' || path === '/api/code/config' || path === '/api/code/worker-script'
+  if (!CODE_BRIDGE_ENABLED && !alwaysOn) {
     json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)' }, 503)
     return true
   }
 
   // ---- projects / session map -------------------------------------------
+
+  // ---- health / config / installer --------------------------------------
+  //
+  // Everything below exists so the bridge can be OPERATED from the dashboard
+  // alone. Before these, a fresh install had no way to see whether the executor
+  // was alive, no way to set the bot token without hand-editing .env, and no
+  // way to get the worker onto Windows without a terminal.
+
+  if (path === '/api/code/health' && method === 'GET') {
+    const health = codeBridgeHealth()
+    // Where the worker will read the dashboard token from, as WINDOWS sees it.
+    // WSL_DISTRO_NAME is absent under a systemd user service, so 'Ubuntu' is the
+    // fallback -- wrong only on a renamed distro, where the owner can still edit
+    // the printed path by hand.
+    const distro = (process.env['WSL_DISTRO_NAME'] ?? '').trim() || 'Ubuntu'
+    const tokenPath = `\\\\wsl.localhost\\${distro}${PROJECT_ROOT.replace(/\//g, '\\')}\\store\\.dashboard-token`
+    json(res, {
+      ...health,
+      staleAfterMs: WORKER_STALE_MS,
+      enabled: CODE_BRIDGE_ENABLED,
+      permissionMode: CODE_PERMISSION_MODE,
+      // The token itself is NEVER returned -- only whether one is configured.
+      botConfigured: CODE_BOT_TOKEN.length > 0,
+      allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,
+      excluded: CODE_BRIDGE_EXCLUDE,
+      installHint: { tokenPath, distro },
+    })
+    return true
+  }
+
+  // The five settings the bridge runs on. A secret is reported as a boolean
+  // ("is one set"), never echoed back -- a page that redisplays a bot token
+  // puts it in the browser history, the DOM and every screenshot.
+  if (path === '/api/code/config' && method === 'GET') {
+    json(res, {
+      CODE_BRIDGE_ENABLED: String(getEffectiveSettingValue('CODE_BRIDGE_ENABLED')),
+      CODE_PERMISSION_MODE: String(getEffectiveSettingValue('CODE_PERMISSION_MODE')),
+      CODE_BOT_ALLOWED_CHAT_IDS: String(getEffectiveSettingValue('CODE_BOT_ALLOWED_CHAT_IDS')),
+      CODE_BRIDGE_EXCLUDE: String(getEffectiveSettingValue('CODE_BRIDGE_EXCLUDE')),
+      botConfigured: String(getEffectiveSettingValue('CODE_BOT_TOKEN')).length > 0,
+      // Stored values differ from LIVE ones until the dashboard restarts; the
+      // page uses this to show the "restart needed" badge honestly instead of
+      // pretending a saved setting already took effect.
+      live: {
+        enabled: CODE_BRIDGE_ENABLED,
+        permissionMode: CODE_PERMISSION_MODE,
+        botConfigured: CODE_BOT_TOKEN.length > 0,
+      },
+    })
+    return true
+  }
+
+  if (path === '/api/code/config' && method === 'POST') {
+    const body = await parseJsonBody<Record<string, unknown>>(ctx)
+    if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
+    const ALLOWED = [
+      'CODE_BRIDGE_ENABLED', 'CODE_PERMISSION_MODE', 'CODE_BOT_TOKEN',
+      'CODE_BOT_ALLOWED_CHAT_IDS', 'CODE_BRIDGE_EXCLUDE',
+    ]
+    const saved = []
+    for (const key of ALLOWED) {
+      if (!(key in body)) continue
+      const raw = body[key]
+      // An untouched secret field posts back empty; that must not silently WIPE
+      // a configured token. Clearing is deliberate: send null.
+      if (key === 'CODE_BOT_TOKEN' && raw === '') continue
+      const out = setOverride(key, raw === null ? '' : raw)
+      if (!out.ok) { json(res, { error: key + ': ' + out.error }, 400); return true }
+      saved.push(key)
+    }
+    if (saved.length === 0) { json(res, { error: 'no known settings in body' }, 400); return true }
+    logger.info({ saved }, 'code-bridge: config updated from dashboard')
+    // Every one of these is a boot-time const in config.ts, so the page has to
+    // say so rather than let the owner believe it already took effect.
+    json(res, { saved, restartRequired: true })
+    return true
+  }
+
+  // Hands the worker's own source to the browser, so Windows can be set up by
+  // downloading two files from this page -- no repo checkout, no UNC path to
+  // type, no terminal. Served from PROJECT_ROOT and hard-restricted to the two
+  // known basenames: a path parameter here would be an arbitrary file read
+  // behind the dashboard token.
+  if (path === '/api/code/worker-script' && method === 'GET') {
+    const which = url.searchParams.get('file') === 'cmd' ? 'cmd' : 'ps1'
+    const name = which === 'cmd' ? 'marvin-code-worker.cmd' : 'marvin-code-worker.ps1'
+    try {
+      const text = readFileSync(join(PROJECT_ROOT, 'scripts', 'windows', name), 'utf8')
+      res.writeHead(200, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="' + name + '"',
+        'Cache-Control': 'no-store',
+      })
+      res.end(text)
+    } catch (err) {
+      logger.warn({ err, name }, 'code-bridge: worker script unreadable')
+      json(res, { error: 'worker script not found in this install' }, 404)
+    }
+    return true
+  }
 
   if (path === '/api/code/projects' && method === 'GET') {
     json(res, { projects: listCodeSessions(), permissionMode: CODE_PERMISSION_MODE })
@@ -112,6 +225,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         ? [body.sessions]
         : null
     if (!body || !reported) { json(res, { error: 'sessions[] required' }, 400); return true }
+
+    // Stamped BEFORE the loop: a worker that reports zero sessions (every
+    // workspace filtered out, or none open) is still a LIVE worker, and the
+    // difference between "the executor is gone" and "it runs but finds nothing"
+    // is the whole diagnosis. Stamping only on success would have reported the
+    // running-but-empty worker of 2026-08-20 as dead.
+    recordCodeWorkerSeen(body.host ?? 'windows', 'discovery', reported.length)
 
     const known = listCodeSessions()
     const registered: string[] = []
@@ -184,6 +304,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const body = await parseJsonBody<{ host?: string }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
     const host = (body.host ?? '').trim() || 'unknown-worker'
+    recordCodeWorkerSeen(host, 'claim')
     const task = claimNextCodeTask(host)
     if (!task) { json(res, { task: null }); return true }
     logger.info({ task: task.id, project: task.project, session: task.sessionId, host }, 'code-bridge: task claimed')
@@ -203,7 +324,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     if (action === 'heartbeat' && method === 'POST') {
       if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
       const body = await parseJsonBody<{ host?: string }>(ctx)
-      const ok = heartbeatCodeTask(task.id, (body?.host ?? '').trim() || 'unknown-worker')
+      const hbHost = (body?.host ?? '').trim() || 'unknown-worker'
+      recordCodeWorkerSeen(hbHost, 'heartbeat')
+      const ok = heartbeatCodeTask(task.id, hbHost)
       json(res, { ok }, ok ? 200 : 409)
       return true
     }
