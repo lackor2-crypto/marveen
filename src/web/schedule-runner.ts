@@ -788,6 +788,17 @@ export async function runScheduledTaskNow(
   if (!task.enabled && !opts.allowDisabled) return { ok: false, error: 'Schedule is disabled' }
 
   const now = Date.now()
+
+  // PARANCS-TIPUSU KARTYA: nincs agens, nincs tmux, nincs LLM -- a parancs
+  // fut le. Enelkul a „Futtatas most" gomb egy ilyen kartyan a fo agens
+  // sessionjebe probalt promptot beszurni, vagyis SOHA nem azt csinalta,
+  // amit a kartya mond. (A cron-ag mar helyesen kezelte; csak a kezi
+  // inditas maradt ki.)
+  if (task.type === 'command') {
+    runCommandTask(task, now)
+    return { ok: true, result: 'parancs elindult' }
+  }
+
   const targets = task.agent === 'all'
     ? [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a))]
     : [task.agent || MAIN_AGENT_ID]

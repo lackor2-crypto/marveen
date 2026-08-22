@@ -215,6 +215,17 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // UGYANAZ, DE NEM VARJUK MEG. Az utemezett kartya ezt hivja: a napi lehuzas
+  // percekig is tarthat (egy 800 MB-os repo `fetch`-e nem sietos), a parancsot
+  // viszont `spawnSync` inditja -- ha az addig varna, a teljes vezerlopult
+  // allna. Igy a curl azonnal visszater, es a valasz kodja meg mindig igazat
+  // mond arrol, hogy a Marveen fogadta-e a keresi.
+  if (path === '/api/storages/git-sync-start' && method === 'POST') {
+    syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] az utemezett futas nem sikerult'))
+    json(res, { ok: true, started: true, message: 'A letöltés elindult. Az eredmény a Tárolók oldalon látszik, amint kész.' }, 202)
+    return true
+  }
+
   // A fiok LEVETELE. Csak git: a Google-fiok a Fiokok oldalrol jon, azt nem
   // innen kell kikotni -- kulonben ket helyen lehetne ugyanazt elrontani.
   if (path === '/api/storages/git-delete' && method === 'POST') {

@@ -20,12 +20,15 @@
  */
 
 import { execFile } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import type { Dirent } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { promises as fsp } from 'node:fs'
+import { join, sep } from 'node:path'
 import { STORE_DIR } from './config.js'
 import { explorerRoot, toLifeRel } from './life-explorer.js'
 import { DEPOT_PROJECTS } from './depot.js'
 import { gitEnvFor } from './git-accounts.js'
+import { SCHEDULED_TASKS_DIR } from './web/scheduled-tasks-io.js'
 import { logger } from './logger.js'
 
 /** Ide irjuk, mikor futott utoljara -- ezt mutatja a felulet. */
@@ -59,14 +62,43 @@ export interface SyncRun {
 /**
  * Melyik fiok kulcsaval dolgozunk ennel a repnal.
  *
- * A repok a `Rendszer/Tárolók/Git/<fiok>/<repo>` alakot koveti, tehat a fiok
- * kiolvashato az utvonalbol. Ami a fan MASHOL all (peldaul egy projekt
- * `GIT_REPOS` aga alatt), ahhoz nincs fiok -- ott kulcs nelkul probalunk, ami
- * egy nyilvanos repohoz eppen eleg.
+ * A repok FIZIKAILAG a `Rendszer/Tárolók/Git/<fiok>/<repo>` alatt allnak: a
+ * fiok neve maga a mappa. A FAN viszont mashol is latszanak -- egy ceg
+ * `Fejlesztés/GIT_REPOS` aga ala BE VANNAK KOTVE --, es a `toLifeRel()`
+ * szandekosan ezt a bekotott utat adja vissza (azt latja a felhasznalo).
+ *
+ * 2026-08-22: pontosan ezen bukott el a szinkron. A fiokot a bekotott utbol
+ * probaltuk kiolvasni, amiben a fiok neve NEM szerepel, tehat kulcs nelkul
+ * probalkozott -- a hat ceges repobol ot elhasalt azzal, hogy „could not read
+ * Password". Ezert a FIZIKAI utat nezzuk, nem a bekotottet.
  */
-function accountOf(rel: string): string {
+export function accountFromRepoPath(root: string, abs: string): string {
+  if (!root || !abs) return ''
+  if (!abs.startsWith(root + sep)) return ''
+  const rel = abs.slice(root.length + 1).split(sep).join('/')
   if (!rel.startsWith(DEPOT_PROJECTS + '/')) return ''
   return rel.slice(DEPOT_PROJECTS.length + 1).split('/')[0] || ''
+}
+
+/** Ugyanez a mostani fahoz. Kulon, hogy a fenti tisztan tesztelheto maradjon. */
+function accountOfPath(abs: string): string {
+  let root = explorerRoot()
+  if (!root) return ''
+  try { root = realpathSync(root) } catch { /* marad a beallitott */ }
+  return accountFromRepoPath(root, abs)
+}
+
+/**
+ * Vegso mentsvar: a fiok a TAVOLI CIMBOL.
+ *
+ * Egy kezzel klonozott repo barhol allhat a faban, tehat az utvonal nem mond
+ * semmit. A `https://<fiok>@github.com/...` cimben viszont ott a
+ * felhasznalonev -- ami NEM titok (a kulcs sosem kerul a `.git/config`-ba).
+ */
+async function accountFromRemote(abs: string): Promise<string> {
+  const r = await git(abs, ['remote', 'get-url', 'origin'], 15000)
+  const m = r.out.match(/^https:\/\/([A-Za-z0-9._-]+)@/)
+  return m ? m[1] : ''
 }
 
 function git(cwd: string, args: string[], timeout = 120000, account = ''): Promise<{ ok: boolean; out: string; err: string }> {
@@ -85,23 +117,29 @@ function git(cwd: string, args: string[], timeout = 120000, account = ''): Promi
  * Egy 800 MB-os repo belsejeben tovabb bogaraszni ertelmetlen (a submodule-t
  * ugyis a sajat repoja kezeli), es percekig tartana.
  */
-export function findRepos(): string[] {
+export async function findRepos(): Promise<string[]> {
   const root = explorerRoot()
   if (!root) return []
   const found: string[] = []
-  const walk = (dir: string, depth: number) => {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > MAX_DEPTH || found.length > 200) return
-    if (existsSync(join(dir, '.git'))) { found.push(dir); return }
-    let names: string[]
-    try { names = readdirSync(dir) } catch { return }
-    for (const name of names) {
-      if (name.startsWith('.') || SKIP_DIRS.has(name)) continue
-      const full = join(dir, name)
-      try { if (!statSync(full).isDirectory()) continue } catch { continue }
-      walk(full, depth + 1)
+    try { await fsp.access(join(dir, '.git')); found.push(dir); return } catch { /* nem repo */ }
+    let names: Dirent[]
+    try { names = await fsp.readdir(dir, { withFileTypes: true }) } catch { return }
+    for (const d of names) {
+      if (d.name.startsWith('.') || SKIP_DIRS.has(d.name)) continue
+      const full = join(dir, d.name)
+      let konyvtar = d.isDirectory()
+      // A bekotott mappak lehetnek jelzofajlok is -- azokon AT kell latni,
+      // kulonben a fan lathato repok fele kimaradna a lehuzasbol.
+      if (!konyvtar && d.isSymbolicLink()) {
+        try { konyvtar = (await fsp.stat(full)).isDirectory() } catch { continue }
+      }
+      if (!konyvtar) continue
+      await walk(full, depth + 1)
     }
   }
-  walk(root, 0)
+  await walk(root, 0)
   return found
 }
 
@@ -114,7 +152,7 @@ export function findRepos(): string[] {
  */
 export async function syncRepo(abs: string): Promise<SyncResult> {
   const rel = toLifeRel(abs)
-  const account = accountOf(rel)
+  const account = accountOfPath(abs) || await accountFromRemote(abs)
 
   // 1. FETCH -- mindig biztonsagos: csak letolt.
   const fetched = await git(abs, ['fetch', '--all', '--prune', '--quiet'], 300000, account)
@@ -174,7 +212,7 @@ export async function syncAllRepos(): Promise<SyncRun> {
   const started = Date.now()
   const results: SyncResult[] = []
   try {
-    for (const abs of findRepos()) {
+    for (const abs of await findRepos()) {
       try {
         results.push(await syncRepo(abs))
       } catch (err: any) {
@@ -201,12 +239,36 @@ export async function syncAllRepos(): Promise<SyncRun> {
 /** Hat oranként. Elegge suru ahhoz, hogy friss legyen, es nem terheli a halot. */
 export const GIT_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000
 
+/** A napi kartya neve az Utemezesek lapon. */
+export const GIT_PULL_TASK = 'git-pull'
+
+/**
+ * Van-e mar kartyaja a lehuzasnak az Utemezesek alatt?
+ *
+ * Boss, 2026-08-22: „megjobb az utemezesek ala tenni egy kartyat." Ha ott van,
+ * akkor AZ az utemezes -- a felhasznalo latja, atallithatja, kikapcsolhatja.
+ * Egy emellett futo rejtett hat-oras idozito hazudna: a kartya „naponta
+ * egyszer"-t mutatna, kozben napi negyszer futna, es a kikapcsolt kartya sem
+ * allitana meg semmit.
+ */
+function vanNapiKartya(): boolean {
+  return existsSync(join(SCHEDULED_TASKS_DIR, GIT_PULL_TASK, 'task-config.json'))
+}
+
 /**
  * Az idozites INDULASKOR nem azonnal fut: a start amugy is a legterheltebb
  * pillanat, es egy 800 MB-os repo `fetch`-e nem sietos. Ot perc mulva viszont
  * mar minden a helyen van.
+ *
+ * Ha van napi kartya, ez a fuggveny NEM idozit semmit -- csak megmondja a
+ * naploban, ki a gazda. A regi hat-oras menet igy is megmarad azoknak a
+ * telepiteseknek, amelyek a kartya elott keszultek es meg nem frissitettek.
  */
-export function startGitSync(): NodeJS.Timeout {
+export function startGitSync(): NodeJS.Timeout | null {
+  if (vanNapiKartya()) {
+    logger.info({ task: GIT_PULL_TASK }, '[git-sync] az utemezett kartya viszi -- rejtett idozito nincs')
+    return null
+  }
   setTimeout(() => {
     syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] az elso futas nem sikerult'))
   }, 5 * 60 * 1000)

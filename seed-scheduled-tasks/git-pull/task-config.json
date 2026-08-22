@@ -1,0 +1,11 @@
+{
+  "schedule": "30 4 * * *",
+  "agent": "{{MAIN_AGENT_ID}}",
+  "enabled": true,
+  "type": "command",
+  "description": "Git-tárolók frissítése — CSAK LETÖLTÉS. Naponta egyszer végigmegy a fában lévő ÖSSZES git-tárolón, és lehozza a távoli újdonságokat. Soha nem tölt fel semmit (nincs push), és soha nem ír felül helyi munkát: ha a mappa piszkos, vagy van fel nem töltött commitod, vagy az ágak szétváltak, azt a tárolót kihagyja és megmondja, miért. Nem foglal agenst és nem fogyaszt keretet — ez egy gépi parancs, nem beszélgetés.",
+  "command": "T=$(cat '{{INSTALL_DIR}}/store/.dashboard-token' 2>/dev/null); [ -n \"$T\" ] || { echo 'nincs vezerlopult-token' >&2; exit 1; }; curl -sS -f --max-time 30 -X POST -H \"Authorization: Bearer $T\" 'http://127.0.0.1:{{WEB_PORT}}/api/storages/git-sync-start' >/dev/null",
+  "timeoutMs": 45000,
+  "failThreshold": 2,
+  "createdAt": 0
+}

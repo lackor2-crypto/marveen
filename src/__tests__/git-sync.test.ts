@@ -55,15 +55,15 @@ beforeEach(() => {
 })
 
 describe('findRepos', () => {
-  it('megtalalja a repot barhol a faban', () => {
-    expect(findRepos()).toContain(WORK)
+  it('megtalalja a repot barhol a faban', async () => {
+    expect(await findRepos()).toContain(WORK)
   })
 
-  it('a repon BELUL nem keresgel tovabb', () => {
+  it('a repon BELUL nem keresgel tovabb', async () => {
     // Egy repoba agyazott mappa nem kulon repo -- ha ide is belepnenk, egy
     // nagy repo bejarasa percekbe kerulne minden korben.
     mkdirSync(join(WORK, 'melyebb', 'meg-melyebb'), { recursive: true })
-    expect(findRepos().filter((r) => r.startsWith(WORK))).toEqual([WORK])
+    expect((await findRepos()).filter((r) => r.startsWith(WORK))).toEqual([WORK])
   })
 })
 

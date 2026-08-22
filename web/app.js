@@ -7623,12 +7623,13 @@ function makeScheduleRow(task) {
         <div class="schedule-title">
           ${escapeHtml(task.description || task.name)}
           ${task.type === 'heartbeat' ? '<span class="badge badge-heartbeat">💓 heartbeat</span>' : ''}
+          ${task.type === 'command' ? `<span class="badge badge-command" title="${t('tasks.badge.command_hint')}">⚙️ ${t('tasks.badge.command')}</span>` : ''}
           <span class="badge ${task.enabled ? 'badge-active' : 'badge-paused'}">${task.enabled ? t('tasks.status.active') : t('tasks.status.paused')}</span>
         </div>
         <div class="schedule-meta">
           <span class="schedule-cron">${escapeHtml(task.schedule)}</span>
           <span>${describeCron(task.schedule)}</span>
-          <span class="schedule-agent-name">${escapeHtml(agent.label || agent.name)}</span>
+          <span class="schedule-agent-name">${task.type === 'command' ? t('tasks.badge.command_who') : escapeHtml(agent.label || agent.name)}</span>
         </div>
       </div>
       <div class="schedule-actions">

@@ -3364,6 +3364,14 @@ main.email-active .page-header { flex-shrink: 0; }
   color: #c85078;
 }
 
+/* Parancs-tipusu utemezes: gep futtatja, nem agens. Szandekosan semleges
+   szurke -- ez nem riasztas es nem kiemeles, csak annyit mond, hogy ez a
+   kartya nem foglal agenst. */
+.badge-command {
+  background: rgba(120, 130, 145, 0.14);
+  color: #6b7280;
+}
+
 .task-info {
   flex: 1;
   min-width: 0;
