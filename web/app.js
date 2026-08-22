@@ -17474,7 +17474,11 @@ function _guideSteps() {
       { html: t('guide.perm_2') },
       { html: t('guide.perm_3') },
       { html: t('guide.perm_4') },
-      { html: t('guide.perm_5') },
+      // A csapda, amibe enelkul mindenki belesetal: az elesites a MAR kiadott
+      // hozzafereseket nem ujitja meg, azok a sajat regi hataridejukkel elnek
+      // tovabb. Aki ezt nem tudja, ket nap mulva megint itt all, es azt hiszi,
+      // nem mukodott az elesites.
+      { html: t('guide.perm_5'), btn: { label: t('guide.perm_quick_btn'), tab: 'quick' } },
     ]
   }
   // Ha tudjuk, MELYIK fiokrol van szo, akkor nem kuldjuk sehova: itt helyben
@@ -17506,6 +17510,14 @@ function _guideSteps() {
     ]
 }
 
+/** Fulvaltas kodbol. A ket ut NEM alternativa: az elesites utan is kell EGY
+ *  ujracsatlakoztatas, es az ujracsatlakoztatas utan is kell az elesites --
+ *  ezert kell tudni a vegigvezetonek atkuldeni a masikra. */
+function selfCheckGuideOpenTab(name) {
+  _selfCheckGuideTab = name === 'permanent' ? 'permanent' : 'quick'
+  _renderGuide()
+}
+
 function _renderGuide() {
   const lead = document.getElementById('selfCheckGuideLead')
   const stepsEl = document.getElementById('selfCheckGuideSteps')
@@ -17532,6 +17544,8 @@ function _renderGuide() {
       btn = `<a class="btn-primary" href="${escapeHtml(s.btn.href)}" target="_blank" rel="noopener">${escapeHtml(s.btn.label)}</a>`
     } else if (s.btn && s.btn.page) {
       btn = `<button class="btn-primary" onclick="switchPage('${s.btn.page}')">${escapeHtml(s.btn.label)}</button>`
+    } else if (s.btn && s.btn.tab) {
+      btn = `<button class="btn-primary" onclick="selfCheckGuideOpenTab('${s.btn.tab}')">${escapeHtml(s.btn.label)}</button>`
     }
     // A lepesszoveg forditasbol jon (nem felhasznaloi adat), es <b>/<span>
     // jeloli benne a kepernyon lathato gombfeliratot -- ezert megy be HTML-kent.
@@ -17605,6 +17619,37 @@ async function selfCheckGuideVerify() {
     result.textContent = t('conn.ov_unreachable')
     return
   }
+  // A vegleges uton MAS a kerdes. Nem az, hogy el-e a hozzaferes (az a gyors
+  // ut dolga), hanem az, hogy megszunt-e a 7 napos korlat. Ez MERHETO: a
+  // "Testing" allapotban kiadott token `refresh_token_expires_in`-t kap
+  // (604799 mp), es csak az ilyen fiokoknak keletkezik lejarat-soruk. Ha az
+  // elesites megtortent ES a fiokot ujracsatlakoztattak, a sora eltunik.
+  if (_selfCheckGuideTab === 'permanent') {
+    const items = (d.expiry && Array.isArray(d.expiry.items)) ? d.expiry.items : []
+    const korlatos = items.filter(i => String(i.id || '').startsWith('google:') && i.id !== 'google:legacy')
+    const osszes = (d.google && typeof d.google.total === 'number') ? d.google.total : korlatos.length
+    renderOverviewConnections()
+    if (osszes === 0) {
+      result.className = 'guide-result'
+      result.textContent = t('guide.verify_perm_none')
+      return
+    }
+    if (korlatos.length === 0) {
+      result.className = 'guide-result good'
+      result.textContent = t('guide.verify_perm_ok', { n: osszes })
+      return
+    }
+    // Reszleges allapot: ez a NORMALIS a kozzetetel utan, es ha nem mondanank
+    // ki, a felhasznalo azt hinne, hogy az elesites nem sikerult.
+    result.className = 'guide-result bad'
+    result.innerHTML = t('guide.verify_perm_partial', {
+      n: korlatos.length,
+      all: osszes,
+      names: escapeHtml(korlatos.map(i => i.label).join(', ')),
+    }) + `<div class="guide-auth-actions"><button class="btn-primary" onclick="selfCheckGuideOpenTab('quick')">${escapeHtml(t('guide.perm_quick_btn'))}</button></div>`
+    return
+  }
+
   // Az elo sor ellenorzese nem az orabol jon: ott eppen az volt a baj, hogy az
   // ora rendben volt, kozben a Google elutasitott mindent. Ezert itt UJRA
   // megkerdezzuk a Google-t, es azt mondjuk vissza, amit valaszolt.
@@ -17617,8 +17662,13 @@ async function selfCheckGuideVerify() {
       result.className = 'guide-result bad'
       result.textContent = t('guide.verify_live_bad', { n: (bad.params && bad.params.n) || 0, names: (bad.params && bad.params.names) || '' })
     } else {
+      // A siker nem a vege. Amig az alkalmazas "teszt" allapotban van, ez 7 nap
+      // mulva megint le fog jarni -- ezt itt kell kimondani, nem egy masik
+      // fulon, amire senki nem kattint.
       result.className = 'guide-result good'
-      result.textContent = t('guide.verify_live_ok', { n: (okrow && okrow.params && okrow.params.n) || 0 })
+      result.innerHTML = escapeHtml(t('guide.verify_live_ok', { n: (okrow && okrow.params && okrow.params.n) || 0 }))
+        + `<div class="guide-auth-nudge">${t('guide.auth_perm_nudge')}</div>`
+        + `<div class="guide-auth-actions"><button class="btn-primary" onclick="selfCheckGuideOpenTab('permanent')">${escapeHtml(t('guide.auth_perm_btn'))}</button></div>`
     }
     return
   }
@@ -17638,7 +17688,9 @@ async function selfCheckGuideVerify() {
   }
   if (mine.status === 'ok') {
     result.className = 'guide-result good'
-    result.textContent = t('guide.verify_ok', { name: mine.label, d: Math.max(0, mine.daysLeft) })
+    result.innerHTML = escapeHtml(t('guide.verify_ok', { name: mine.label, d: Math.max(0, mine.daysLeft) }))
+      + `<div class="guide-auth-nudge">${t('guide.auth_perm_nudge')}</div>`
+      + `<div class="guide-auth-actions"><button class="btn-primary" onclick="selfCheckGuideOpenTab('permanent')">${escapeHtml(t('guide.auth_perm_btn'))}</button></div>`
   } else {
     result.className = 'guide-result bad'
     result.textContent = mine.status === 'expired'

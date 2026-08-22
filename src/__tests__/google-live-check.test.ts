@@ -294,6 +294,86 @@ describe('a vegigvezeto HELYBEN elvegzi az ujracsatlakoztatast', () => {
   })
 })
 
+describe('a vegigvezeto a VEGLEGES megoldason is atvisz, nem csak a 7 naposon', () => {
+  // Boss, 2026-08-22: "remelem azon is vegigvezet a varazslo hogy hogyan lehet
+  // veglegesen nem csak tesz user be ujracsatlakoztatni a drivot."
+  //
+  // A ket ut NEM alternativa, es ez a csapda: a gyors ut sikere 7 nap mulva
+  // elmulik, az elesites viszont a MAR kiadott hozzafereseket nem ujitja meg.
+  // Aki csak az egyiket csinalja meg, ket nap mulva ugyanitt all.
+  const verify = /async function selfCheckGuideVerify\(\)[\s\S]*?\n}\n/.exec(app)?.[0] ?? ''
+
+  it('a ket ful kodbol is valthato, nem csak kattintassal', () => {
+    expect(app).toMatch(/function selfCheckGuideOpenTab\(name\)/)
+    expect(app).toMatch(/_selfCheckGuideTab = name === 'permanent' \? 'permanent' : 'quick'/)
+    // Lepesbol is nyithato masik ful -- enelkul a "menj at a masikra" mondat
+    // csak egy mondat maradna.
+    expect(app).toMatch(/s\.btn && s\.btn\.tab/)
+    expect(app).toContain("selfCheckGuideOpenTab('${s.btn.tab}')")
+  })
+
+  it('a gyors ut SIKERE is kimondja, hogy ez 7 nap mulva megint lejar', () => {
+    // Ha csak a masik fulon allna ott, senki nem menne oda: a siker utan az
+    // ember bezarja az ablakot.
+    expect(verify).toContain('guide.auth_perm_nudge')
+    expect(verify).toContain("selfCheckGuideOpenTab('permanent')")
+    // Mindket sikeres agon: az elo meresen ES az egy-fiokos lejarat-agon.
+    const db = verify.split('guide.auth_perm_nudge').length - 1
+    expect(db, 'mindket sikeres agon ki kell mondani').toBeGreaterThanOrEqual(2)
+  })
+
+  it('a vegleges ut zaro lepese visszakuld egy ujracsatlakoztatasra', () => {
+    const steps = /function _guideSteps\(\)[\s\S]*?\n}\n/.exec(app)?.[0] ?? ''
+    expect(steps).toMatch(/t\('guide\.perm_5'\), btn: \{ label: t\('guide\.perm_quick_btn'\), tab: 'quick' \}/)
+  })
+
+  it('a vegleges fulon MAST mer az ellenorzes: a 7 napos hatarido eltunt-e', () => {
+    // A kerdes itt nem az, hogy el-e a hozzaferes (az a gyors ut dolga), hanem
+    // hogy kap-e meg hataridot. "Testing" allapotban minden kiadott token kap
+    // (`refresh_token_expires_in`), es csak ezeknek keletkezik lejarat-soruk.
+    expect(verify).toMatch(/_selfCheckGuideTab === 'permanent'/)
+    expect(verify).toContain("i.id !== 'google:legacy'")
+    expect(verify).toContain('guide.verify_perm_ok')
+    expect(verify).toContain('guide.verify_perm_partial')
+  })
+
+  it('a reszleges allapotot NORMALISKENT mondja ki, nem kudarckent', () => {
+    // Elesites utan minden regi fioknak megmarad a hatarideje. Ha ezt
+    // "nem sikerult"-kent mondanank, a Boss visszamenne az elesitest keresni,
+    // ami mar kesz van.
+    const hu_ = hu
+    const m = /'guide\.verify_perm_partial':\s*'([^']*)'/.exec(hu_)?.[1] ?? ''
+    expect(m, 'nincs magyar verify_perm_partial').not.toBe('')
+    expect(m).toContain('NORM')
+    expect(m).toContain('{names}')
+  })
+
+  it('fiok nelkul nem allit semmit', () => {
+    // Nulla fiokra a "egyiknek sincs hatarideje" igaz, de ertelmetlen -- es
+    // hamis sikerelmenyt adna egy friss telepitesen.
+    expect(verify).toContain('guide.verify_perm_none')
+    expect(verify).toMatch(/osszes === 0/)
+  })
+
+  it('a gyors ut bevezetoje figyelmeztet a 7 napra, es megnevezi a masik fulet', () => {
+    // Ez egyszer mar kiesett: az uj, helyben csatlakoztato ful atvette a regi
+    // szoveg helyet, es a figyelmeztetes nem jott vele.
+    const lead = /'guide\.lead_auth':\s*'([^']*)'/.exec(hu)?.[1] ?? ''
+    expect(lead, 'nincs magyar lead_auth').not.toBe('')
+    expect(lead).toContain('7 nap')
+    expect(lead).toContain('Végleges megoldás')
+  })
+
+  it('a vegleges ut zaro szovege MINDEN fiokot ker, es nem a Fiokok oldalra kuld', () => {
+    // A vegigvezeto helyben csatlakoztat; a regi szoveg meg a Fiokok oldalra
+    // mutatott, es egyetlen fiokrol beszelt.
+    const p5 = /'guide\.perm_5':\s*'([^']*)'/.exec(hu)?.[1] ?? ''
+    expect(p5, 'nincs magyar perm_5').not.toBe('')
+    expect(p5).toContain('MINDEN')
+    expect(p5).not.toContain('Fiókok oldalon')
+  })
+})
+
 describe('minden uj szoveg mindket nyelven megvan', () => {
   const kulcsok = [
     'health.google_live_ok', 'health.google_live_ok_action',
@@ -312,6 +392,8 @@ describe('minden uj szoveg mindket nyelven megvan', () => {
     'guide.auth_failed', 'guide.auth_busy',
     'guide.auth_blocked', 'guide.auth_blocked_btn',
     'guide.verify_live_ok', 'guide.verify_live_bad',
+    'guide.auth_perm_nudge', 'guide.auth_perm_btn', 'guide.perm_quick_btn',
+    'guide.verify_perm_none', 'guide.verify_perm_ok', 'guide.verify_perm_partial',
   ]
   for (const k of kulcsok) {
     it(`'${k}' magyarul es angolul is`, () => {

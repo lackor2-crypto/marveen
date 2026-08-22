@@ -251,7 +251,7 @@ window._i18n.hu = {
   'guide.perm_2':             'Keresd meg a <span class="guide-lit">Közzétételi állapot</span> / <span class="guide-lit">Publishing status</span> sort. Most ez áll ott: <span class="guide-lit">Tesztelés</span> / <span class="guide-lit">Testing</span>.',
   'guide.perm_3':             'Nyomd meg az <span class="guide-lit">Alkalmazás közzététele</span> / <span class="guide-lit">PUBLISH APP</span> gombot, majd a felugró ablakban a <span class="guide-lit">Megerősítés</span> / <span class="guide-lit">Confirm</span> gombot.',
   'guide.perm_4':             'Ha a Google ellenőrzést („verification”) ajánl fel, nyugodtan hagyd figyelmen kívül — a saját fiókjaid továbbra is működnek. A bejelentkezéskor megjelenő „nincs ellenőrizve” figyelmeztetés marad, de a hozzáférés többé <b>nem jár le 7 naponta</b>.',
-  'guide.perm_5':             'Végül <b>egyszer még csatlakoztasd újra a fiókot</b> a Fiókok oldalon (a „Gyors megoldás” fül lépései szerint). A már kiadott hozzáférés ugyanis a saját régi határidejével él tovább — csak az élesítés utáni új bejelentkezés kap le nem járó hozzáférést.',
+  'guide.perm_5':             'Végül <b>egyszer még csatlakoztasd újra MINDEN fiókot</b> — a „Gyors megoldás” fülön, itt helyben, egyesével. A már kiadott hozzáférés ugyanis a saját régi határidejével él tovább: <b>az élesítés önmagában nem újítja meg őket</b>. Csak az élesítés UTÁNI új bejelentkezés kap le nem járó hozzáférést. <span class="guide-step-note">Ha ezt kihagyod, két nap múlva megint itt állsz, és azt hiszed, nem működött az élesítés.</span>',
 
   'guide.check_btn':          'Most ellenőrizd le',
   'guide.done_btn':           'Kész',
@@ -264,7 +264,7 @@ window._i18n.hu = {
   // visszakapok kodot. mindegy. csak vezesse vegig a komuvesunket a
   // folyamaton. hulyebiztosan!"
   'guide.title_live':         'A Google-hozzáférés nem él — végigvezetlek',
-  'guide.lead_auth':          'Itt helyben újracsatlakoztatjuk. Nem kell terminál, és nem kell máshova menned: kapsz egy linket, megnyitod, bejelentkezel, és a végén visszamásolod ide, amit a böngésző mutat.',
+  'guide.lead_auth':          'Itt helyben újracsatlakoztatjuk. Nem kell terminál, és nem kell máshova menned: kapsz egy linket, megnyitod, bejelentkezel, és a végén visszamásolod ide, amit a böngésző mutat. Fontos: ez 7 nap múlva megint le fog járni — a „Végleges megoldás” fül szünteti meg végleg.',
   'guide.auth_intro_one':     'Ezt a fiókot kell újracsatlakoztatni: <b>{name}</b>.',
   'guide.auth_intro_many':    'Ezt a(z) <b>{n}</b> fiókot kell újracsatlakoztatni. Egyesével végigmegyünk rajtuk: <b>{name}</b>',
   'guide.auth_progress':      '{i}. / {n} — most ez következik: {name}',
@@ -288,6 +288,14 @@ window._i18n.hu = {
   'guide.auth_busy':          'Épp fut egy másik bejelentkeztetés ({who}). Egyszerre csak egy mehet.',
   'guide.auth_blocked':       '⚠️ A Google elutasította: ez a fiók nincs rajta a teszt-felhasználók listáján. Vedd fel a listára a Google Cloudban, aztán gyere vissza, és nyomd meg az <span class="guide-lit">Újra</span> gombot.',
   'guide.auth_blocked_btn':   'Teszt-felhasználók megnyitása',
+  // A ket ut NEM alternativa: a gyors ut sikere utan is kell az elesites, es az
+  // elesites utan is kell egy ujracsatlakoztatas. Ezert kuldunk at egymasra.
+  'guide.auth_perm_nudge':    'Ez viszont <b>7 nap múlva megint le fog járni</b>, amíg a Google-alkalmazásod „teszt” állapotban van. Ezt egyszer kell megszüntetni, és utána soha többé nem áll le magától.',
+  'guide.auth_perm_btn':      'Mutasd a végleges megoldást',
+  'guide.perm_quick_btn':     'Vissza a „Gyors megoldás” fülre',
+  'guide.verify_perm_none':   'Nincs bekötött Google-fiók, így nincs mit megmérnem.',
+  'guide.verify_perm_ok':     '✅ Kész: egyik Google-fióknak sincs 7 napos határideje ({n} fiók megmérve). Az élesítés megvan, a heti leállás megszűnt.',
+  'guide.verify_perm_partial': '⚠️ Még {n} fióknak van 7 napos határideje a(z) {all}-ből: {names}. Ez az élesítés után NORMÁLIS: a már kiadott hozzáféréseket a közzététel nem újítja meg. Csatlakoztasd újra ezeket egyszer a „Gyors megoldás” fülön, és utána már nem lesz határidejük.',
   'guide.verify_live_ok':     '✅ Rendben: mind a(z) {n} Google-fiók él — most kérdeztem meg a Google-t.',
   'guide.verify_live_bad':    '⚠️ Ennyi fiók még mindig nem él: {n} ({names}). Menj végig rajtuk a fenti lépésekkel.',
   'guide.verify_still_soon':  '⚠️ A(z) {name} hozzáférése {d} nap múlva továbbra is lejár. Ha most csatlakoztattad újra, ez normális (teszt állapotban 7 nap a maximum) — a „Végleges megoldás” fül szünteti meg.',

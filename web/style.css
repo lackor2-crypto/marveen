@@ -10378,6 +10378,9 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .guide-auth-url { width: 100%; margin-top: 6px; }
+/* A "ez 7 nap mulva megint lejar" mondat a SIKER ala kerul, nem egy masik
+   fulre: ott senki nem keresne meg. */
+.guide-auth-nudge { margin-top: 8px; font-size: 12px; line-height: 1.5; opacity: .9; }
 
 /* A commit es a fajl ket kulon mertekegyseg -- ez a sor mondja ki, kulonben a
    harom szam ugy all egymas mellett, mintha ossze lehetne adni oket. */
