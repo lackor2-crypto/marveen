@@ -29420,7 +29420,14 @@ async function _intezoConfirmPick(mode, target) {
   _intezoRender()
 }
 
-async function _intezoInfo(rel) {
+/**
+ * Egy elem kijelolese es az adatlapja.
+ *
+ * `quiet` = csak kijelol: az adatlapot nem NYITJA KI, ha zarva volt. (Ha
+ * nyitva van, frissul -- kulonben egy regi elem adatai maradnanak a kepen,
+ * ami rosszabb, mint ha becsukodna.)
+ */
+async function _intezoInfo(rel, quiet) {
   const card = document.getElementById('intezoInfoCard')
   const rowsEl = document.getElementById('intezoInfoRows')
   if (!card || !rowsEl) return
@@ -29432,7 +29439,7 @@ async function _intezoInfo(rel) {
     return
   }
   _intezoSelected = info
-  card.hidden = false
+  if (!quiet) card.hidden = false
 
   const src = info.source || {}
   const rows = [
@@ -29772,8 +29779,8 @@ function _intezoMenuItem(cimke, fn, veszelyes) {
   b.textContent = cimke
   b.style.cssText = 'display:block;width:100%;text-align:left;border:0;background:none;'
     + 'padding:7px 14px;font-size:13px;cursor:pointer;white-space:nowrap;color:'
-    + (veszelyes ? 'var(--danger,#d33)' : 'inherit')
-  b.addEventListener('mouseenter', () => { b.style.background = 'rgba(127,127,127,.18)' })
+    + (veszelyes ? 'var(--danger)' : 'var(--text)')
+  b.addEventListener('mouseenter', () => { b.style.background = 'var(--bg-card-hover)' })
   b.addEventListener('mouseleave', () => { b.style.background = 'none' })
   b.addEventListener('click', () => { _intezoCloseMenu(); fn() })
   return b
@@ -29781,7 +29788,7 @@ function _intezoMenuItem(cimke, fn, veszelyes) {
 
 function _intezoMenuSep() {
   const d = document.createElement('div')
-  d.style.cssText = 'height:1px;background:rgba(127,127,127,.25);margin:4px 0'
+  d.style.cssText = 'height:1px;background:var(--border);margin:4px 0'
   return d
 }
 
@@ -29796,12 +29803,17 @@ async function _intezoOpenMenu(ev, entry) {
   _intezoCloseMenu()
 
   // ELOBB KIJELOLES. A Boss keresere: „persze elobb kivalasztas."
-  if (entry) { try { await _intezoInfo(entry.rel) } catch (e) {} }
+  // CSENDESEN: a jobb klikk menut ker, nem adatlapot. A „Részletes információ"
+  // menupont nyitja ki, ha tenyleg az kell.
+  if (entry) { try { await _intezoInfo(entry.rel, true) } catch (e) {} }
 
   const m = document.createElement('div')
+  // A szinek a style.css valtozoibol jonnek, hogy a menu vilagos es sotet
+  // temaban is olvashato legyen. (Egy elirt valtozonev itt nemán sotet dobozt
+  // ad -- lasd a 2026-08-22-i javitast.)
   m.style.cssText = 'position:fixed;z-index:9999;min-width:220px;padding:6px 0;'
-    + 'background:var(--card-bg,#1e1e1e);color:inherit;border:1px solid rgba(127,127,127,.35);'
-    + 'border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.35)'
+    + 'background:var(--bg-modal);color:var(--text);border:1px solid var(--border);'
+    + 'border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18)'
 
   if (!entry) {
     m.appendChild(_intezoMenuItem('📁  Új mappa itt', () => _intezoMkdir()))
@@ -29818,7 +29830,10 @@ async function _intezoOpenMenu(ev, entry) {
       }))
     }
     m.appendChild(_intezoMenuItem('🗂  Fizikai (papír) példány', () => _intezoJumpTo('intezoPhysTitle')))
-    m.appendChild(_intezoMenuItem('ℹ️  Részletes információ', () => _intezoJumpTo('intezoInfoCard')))
+    m.appendChild(_intezoMenuItem('ℹ️  Részletes információ', async () => {
+      await _intezoInfo(entry.rel)
+      _intezoJumpTo('intezoInfoCard')
+    }))
     m.appendChild(_intezoMenuSep())
     m.appendChild(_intezoMenuItem('🗑  Törlés (a Kukába)', () => _intezoTrash(entry), true))
   }
