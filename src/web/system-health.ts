@@ -56,6 +56,9 @@ import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status
 import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
+import { homedir } from 'node:os'
+import { GIT_PULL_TASK } from '../git-sync.js'
+import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
 
@@ -343,8 +346,182 @@ function claudeAuthRow(): HealthRow {
   }
 }
 
+
+// === Ami magatol elromlik, es addig NEM szol ==============================
+
+/** A napi git-lehuzas allapota, ahogy a `syncAllRepos` hagyja maga utan. */
+export const GIT_SYNC_FILE = 'git-sync.json'
+/** A gepi (parancs-tipusu) kartyak eredmenye. */
+export const COMMAND_HEALTH_FILE = 'command-task-health.json'
+/** Ennyi nap utan a napi lehuzas mar nem "kesik", hanem all. */
+export const GIT_PULL_STALE_DAYS = 3
+
+function olvasJson<T>(path: string): T | null {
+  try { return JSON.parse(readFileSync(path, 'utf-8')) as T } catch { return null }
+}
+
+/** A kartyak es a szerverek nevei a LEMEZROL jonnek, a kliens pedig escape
+ *  nelkul rendereli a params-t. Ezert csak ez a szukitett keszlet mehet at. */
+function tisztaNev(s: string): string {
+  return String(s).replace(/[^A-Za-z0-9._ -]/g, '').trim().slice(0, 40)
+}
+
+interface GitSyncAllapot {
+  finishedAt?: string
+  results?: unknown[]
+  errors?: number
+}
+
+/** A fiokonkenti git-tokenek. Csak a KULCSAIT nezzuk -- az erteket soha. */
+export const GIT_TOKENS_FILE = '.git-tokens.json'
+
+/** A napi lehuzas kartyaja: letezik-e, es be van-e kapcsolva. */
+function gitPullKartya(): { letezik: boolean; bekapcsolva: boolean } {
+  const d = olvasJson<{ enabled?: boolean }>(join(SCHEDULED_TASKS_DIR, GIT_PULL_TASK, 'task-config.json'))
+  if (!d) return { letezik: false, bekapcsolva: false }
+  return { letezik: true, bekapcsolva: d.enabled !== false }
+}
+
+/**
+ * Van-e egyaltalan git bekotve? Ket olcso, fajl-alapu jel:
+ * talalt-e repot a legutobbi menet, illetve van-e beallitott fiok-token.
+ * Nem jarjuk be a fat: a depo a `/mnt/f`-en ul, ott egy bejaras masodpercekig
+ * tart -- ez a modul viszont MINDEN attekintes-betoltesnel lefut.
+ */
+function gitBekotve(run: GitSyncAllapot | null): boolean {
+  if (run && Array.isArray(run.results) && run.results.length > 0) return true
+  const t = olvasJson<Record<string, unknown>>(join(STORE_DIR, GIT_TOKENS_FILE))
+  return !!t && Object.keys(t).length > 0
+}
+
+/**
+ * A napi git-lehuzas.
+ *
+ * Ez a check a 2026-08-22-i hibabol szuletett: hat ceges tarolobol OT nem
+ * frissult, mert rossz kulcsot kerestunk hozza. A `fetch` hibaval tert vissza,
+ * a szam ott allt az allapotfajlban -- es soha senki nem nezte meg. A felulet
+ * vegig azt mutatta, hogy minden rendben.
+ *
+ * Boss, 2026-08-22: "szoljon a rendszer ha van git bekotve es ez az utemezes
+ * megsem tortenik meg!" Ezert a check nem a kartyat kerdezi, hanem az
+ * EREDMENYT: mikor futott le utoljara, es hozott-e mindent.
+ *
+ * A legveszelyesebb eset a KIKAPCSOLT kartya. A `startGitSync()` csak azt
+ * nezi, LETEZIK-e a kartya fajlja -- azt nem, hogy be van-e kapcsolva. Egy
+ * kikapcsolt kartya tehat a rejtett hat-oras tartalek-idozitot is elnemitja,
+ * es onnantol SEMMI nem huz le, teljesen csendben.
+ */
+export function gitPullRows(
+  now: number = Date.now(),
+  run: GitSyncAllapot | null = olvasJson<GitSyncAllapot>(join(STORE_DIR, GIT_SYNC_FILE)),
+  kartya: { letezik: boolean; bekapcsolva: boolean } = gitPullKartya(),
+  vanGit: boolean = gitBekotve(run),
+): HealthRow[] {
+  if (kartya.letezik && !kartya.bekapcsolva) {
+    // Bekotott git mellett ez adatvesztes-kozeli allapot: a tavoli valtozasok
+    // gyulnek, nalunk meg all az ido -- ezert `bad`, nem `warn`.
+    return [{ id: 'git_pull_disabled', status: vanGit ? 'bad' : 'warn' }]
+  }
+  // Nincs bekotve git: nincs mit lehuzni, es nincs mirol szolni.
+  if (!vanGit) return []
+
+  const veg = run && run.finishedAt ? Date.parse(run.finishedAt) : NaN
+  if (!Number.isFinite(veg)) return [{ id: 'git_pull_never', status: 'warn' }]
+
+  const rows: HealthRow[] = []
+  const napja = Math.max(0, Math.floor((now - veg) / 86_400_000))
+  const hiba = Number(run && run.errors) || 0
+  const db = run && Array.isArray(run.results) ? run.results.length : 0
+
+  if (hiba > 0) rows.push({ id: 'git_pull_errors', status: 'bad', params: { n: hiba, all: db } })
+  if (napja > GIT_PULL_STALE_DAYS) {
+    // Nehany kihagyott nap keses; ket het mar allo utemezes.
+    rows.push({ id: 'git_pull_stale', status: napja > 14 ? 'bad' : 'warn', params: { d: napja } })
+  } else if (hiba === 0) {
+    rows.push({ id: 'git_pull_ok', status: 'ok', params: { n: db, d: napja } })
+  }
+  return rows
+}
+
+/**
+ * A gepi kartyak (parancs-tipusu utemezesek).
+ *
+ * Ezek nem agenst inditanak, hanem egy parancsot -- tehat nincs beszelgetes,
+ * amiben a hiba latszana. Az egyetlen nyoma egy szam a store-ban.
+ */
+export function commandTaskRows(
+  health: Record<string, { lastStatus?: string }> | null =
+    olvasJson<Record<string, { lastStatus?: string }>>(join(STORE_DIR, COMMAND_HEALTH_FILE)),
+): HealthRow[] {
+  if (!health) return []
+  const bukott = Object.keys(health)
+    .filter((k) => health[k] && health[k].lastStatus === 'fail')
+    .map(tisztaNev)
+    .filter(Boolean)
+  if (bukott.length === 0) return []
+  return [{ id: 'command_task_fail', status: 'warn', params: { n: bukott.length, names: bukott.join(', ') } }]
+}
+
+/**
+ * MCP-kapcsolatok, amik hitelesitesre varnak.
+ *
+ * Boss, 2026-08-22: "ha ker az mcp hitelesitest, akkor az miert nem jelenik
+ * meg az attekintes onellenorzesben?" -- jogos: egy hitelesitesre varo
+ * kapcsolat ugy tunik el az agens keze alol, hogy az agens ettol meg
+ * vidaman valaszol, csak eppen az adott eszkoze nincs meg.
+ *
+ * A Claude Code minden config-konyvtarban vezet egy `mcp-needs-auth-cache.json`-t:
+ * `{ "<szerver>": { timestamp, id?, ttlMs? } }`. A bejegyzest TORLI, amint a
+ * hitelesites sikerult -- tehat ami bent van, az tenyleg var valakire. A
+ * `ttlMs`-es bejegyzes lejar; a lejartat nem szamoljuk.
+ */
+export const MCP_AUTH_CACHE = 'mcp-needs-auth-cache.json'
+
+/** Hol laknak a config-konyvtarak: a kozos, plusz minden agens sajatja. */
+export function mcpCacheHelyek(home: string = homedir()): string[] {
+  const utak = [join(home, '.claude', MCP_AUTH_CACHE)]
+  let nevek: string[] = []
+  try { nevek = readdirSync(home) } catch { return utak }
+  for (const n of nevek) {
+    // A munkas-konyvtarak neve a bot nevet koveti (`.marveen-worker`,
+    // `.lackor2-bot-worker-fast`, ...), ezert nem listat tartunk, hanem
+    // megnezzuk, van-e benne `.claude-config`.
+    if (!n.startsWith('.')) continue
+    const p = join(home, n, '.claude-config', MCP_AUTH_CACHE)
+    if (existsSync(p)) utak.push(p)
+  }
+  return utak
+}
+
+export function mcpAuthRows(
+  now: number = Date.now(),
+  helyek: string[] = mcpCacheHelyek(),
+): HealthRow[] {
+  const varo = new Set<string>()
+  for (const p of helyek) {
+    const d = olvasJson<Record<string, { timestamp?: number; ttlMs?: number }>>(p)
+    if (!d) continue
+    for (const nev of Object.keys(d)) {
+      const e = d[nev] || {}
+      if (e.ttlMs && e.timestamp && e.timestamp + e.ttlMs < now) continue
+      const t = tisztaNev(nev)
+      if (t) varo.add(t)
+    }
+  }
+  if (varo.size === 0) return []
+  const nevek = [...varo].sort()
+  return [{ id: 'mcp_needs_auth', status: 'warn', params: { n: nevek.length, names: nevek.join(', ') } }]
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
-  const rows: HealthRow[] = [claudeAuthRow(), ...backupRows(now), ...upstreamRows(now)]
+  const rows: HealthRow[] = [
+    claudeAuthRow(),
+    ...backupRows(now),
+    ...upstreamRows(now),
+    ...gitPullRows(now),
+    ...commandTaskRows(),
+    ...mcpAuthRows(now),
+  ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {
     rows.push({ id: 'secret_in_log', status: 'warn', params: { n: leaks.length, files: leaks.join(', ') } })

@@ -38,16 +38,16 @@ function withScript(content: string, ext = '.sh'): { dir: string; file: string }
 }
 
 describe('runPreCheck', () => {
-  it('returns skip=false when task has no preCheck configured', () => {
-    const result = runPreCheck(makeTask())
+  it('returns skip=false when task has no preCheck configured', async () => {
+    const result = await runPreCheck(makeTask())
     expect(result.skip).toBe(false)
     expect(result.prefix).toBeUndefined()
   })
 
-  it('returns skip=true when script outputs SKIP', () => {
+  it('returns skip=true when script outputs SKIP', async () => {
     const { file, dir } = withScript('#!/usr/bin/env bash\necho "SKIP"\n')
     try {
-      const result = runPreCheck(makeTask({ preCheck: file }))
+      const result = await runPreCheck(makeTask({ preCheck: file }))
       expect(result.skip).toBe(true)
       expect(result.prefix).toBeUndefined()
     } finally {
@@ -55,10 +55,10 @@ describe('runPreCheck', () => {
     }
   })
 
-  it('returns skip=false with prefix when script outputs actionable text', () => {
+  it('returns skip=false with prefix when script outputs actionable text', async () => {
     const { file, dir } = withScript('#!/usr/bin/env bash\necho "3 actionable cards found"\n')
     try {
-      const result = runPreCheck(makeTask({ preCheck: file }))
+      const result = await runPreCheck(makeTask({ preCheck: file }))
       expect(result.skip).toBe(false)
       expect(result.prefix).toBe('3 actionable cards found')
     } finally {
@@ -66,10 +66,10 @@ describe('runPreCheck', () => {
     }
   })
 
-  it('returns skip=false with no prefix when script outputs nothing', () => {
+  it('returns skip=false with no prefix when script outputs nothing', async () => {
     const { file, dir } = withScript('#!/usr/bin/env bash\nexit 0\n')
     try {
-      const result = runPreCheck(makeTask({ preCheck: file }))
+      const result = await runPreCheck(makeTask({ preCheck: file }))
       expect(result.skip).toBe(false)
       expect(result.prefix).toBeUndefined()
     } finally {
@@ -77,32 +77,32 @@ describe('runPreCheck', () => {
     }
   })
 
-  it('fails open (skip=false) when script exits non-zero', () => {
+  it('fails open (skip=false) when script exits non-zero', async () => {
     const { file, dir } = withScript('#!/usr/bin/env bash\necho "error"\nexit 1\n')
     try {
-      const result = runPreCheck(makeTask({ preCheck: file }))
+      const result = await runPreCheck(makeTask({ preCheck: file }))
       expect(result.skip).toBe(false)
     } finally {
       rmSync(dir, { recursive: true })
     }
   })
 
-  it('fails open (skip=false) when script path does not exist', () => {
-    const result = runPreCheck(makeTask({ preCheck: '/nonexistent/path/pre-check.sh' }))
+  it('fails open (skip=false) when script path does not exist', async () => {
+    const result = await runPreCheck(makeTask({ preCheck: '/nonexistent/path/pre-check.sh' }))
     expect(result.skip).toBe(false)
   })
 })
 
 describe('schedule-runner pre-check integration (source-level)', () => {
   it('exports runPreCheck function', () => {
-    expect(SRC).toMatch(/export function runPreCheck/)
+    expect(SRC).toMatch(/export async function runPreCheck/)
   })
 
   it('calls runPreCheck in the cron loop before attemptFireTask', () => {
     const cronLoopIdx = SRC.indexOf('for (const task of tasks)')
     expect(cronLoopIdx).toBeGreaterThan(0)
     const cronLoop = SRC.slice(cronLoopIdx)
-    const preCheckIdx = cronLoop.indexOf('runPreCheck(task)')
+    const preCheckIdx = cronLoop.indexOf('await runPreCheck(task)')
     const fireIdx = cronLoop.indexOf('attemptFireTask(task,')
     expect(preCheckIdx).toBeGreaterThan(0)
     expect(preCheckIdx).toBeLessThan(fireIdx)
@@ -112,7 +112,7 @@ describe('schedule-runner pre-check integration (source-level)', () => {
     const retryLoopIdx = SRC.indexOf('for (const row of pendingRows)')
     expect(retryLoopIdx).toBeGreaterThan(0)
     const retryLoop = SRC.slice(retryLoopIdx, SRC.indexOf('for (const task of tasks)'))
-    expect(retryLoop).toMatch(/runPreCheck\(taskDef\)/)
+    expect(retryLoop).toMatch(/await runPreCheck\(taskDef\)/)
     expect(retryLoop).toMatch(/attemptFireTask\(taskDef,/)
   })
 
@@ -135,10 +135,10 @@ describe('schedule-runner pre-check integration (source-level)', () => {
   })
 
   it('uses fail-open semantics (no SKIP on non-zero exit, no throw on missing file)', () => {
-    const preCheckFn = SRC.slice(SRC.indexOf('export function runPreCheck'))
-    const fnBody = preCheckFn.slice(0, preCheckFn.indexOf('\nexport function'))
+    const preCheckFn = SRC.slice(SRC.indexOf('export async function runPreCheck'))
+    const fnBody = preCheckFn.slice(0, preCheckFn.indexOf('\n}\n') + 3)
     // Non-zero exit returns { skip: false }
-    expect(fnBody).toMatch(/r\.status !== 0/)
+    expect(fnBody).toMatch(/r\.code !== 0/)
     expect(fnBody).toMatch(/running LLM anyway/)
     // Missing file returns { skip: false }
     expect(fnBody).toMatch(/not found, running LLM anyway/)

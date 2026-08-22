@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process"
 import { join } from "node:path"
 import { readFileSync } from "node:fs"
 import { STORE_DIR, TELEGRAM_BOT_TOKEN } from "../config.js"
@@ -7,6 +6,7 @@ import { atomicWriteFileSync } from "./atomic-write.js"
 import { logger } from "../logger.js"
 import { sendTelegramMessage } from "./telegram.js"
 import { appendTaskRun } from "../db.js"
+import { runBash } from "./run-bash.js"
 import type { ScheduledTask } from "./scheduled-tasks-io.js"
 
 // command-type scheduled tasks run a raw shell command directly (no LLM
@@ -63,41 +63,16 @@ export function evaluateCommandResult(
   }
 }
 
-// A parancs NEM allithatja meg a vezerlopultot.
-//
-// 2026-08-22: ez `spawnSync` volt, ami a teljes esemenyhurkot blokkolja, amig
-// a parancs fut. Egy parancs, ami VISSZAHIV a Marveenbe (a napi git-lehuzas
-// pontosan ilyen: egy `curl` a sajat vegpontunkra), igy holtpontra futott --
-// a szerver nem tudott valaszolni, mert eppen a parancsra vart. A curl
-// idotullepett, a kartya pedig "hibas"-nak latszott, holott a parancs jo volt.
-// Ugyanez igaz minden mas parancs-kartyara is: egy lassu ellenorzes addig
-// befagyasztotta az egesz feluletet.
+// A parancs NEM allithatja meg a vezerlopultot: a futtatas a kozos
+// `runBash`-en at megy (lasd az ottani magyarazatot -- ugyanez a hiba az
+// utemezesek elo-ellenorzojet is erintette).
 function runCommand(cmd: string, timeoutMs: number, done: (r: { ok: boolean; detail: string }) => void): void {
-  let lezart = false
-  const vege = (r: { ok: boolean; detail: string }): void => {
-    if (lezart) return
-    lezart = true
-    done(r)
-  }
-  try {
-    const ch = spawn("bash", ["-lc", cmd], { stdio: ["ignore", "ignore", "pipe"] })
-    let err = ""
-    ch.stderr?.on("data", (d) => { if (err.length < 2000) err += String(d) })
-    // Sajat ora: a `spawn`-nak nincs `timeout`-ja ugy, mint a sync valtozatnak.
-    const ora = setTimeout(() => {
-      try { ch.kill("SIGKILL") } catch { /* mar halott */ }
-      vege({ ok: false, detail: `timeout ${timeoutMs}ms` })
-    }, timeoutMs)
-    ch.on("error", (e) => { clearTimeout(ora); vege({ ok: false, detail: e.message }) })
-    ch.on("close", (code) => {
-      clearTimeout(ora)
-      if (code === 0) { vege({ ok: true, detail: "exit 0" }); return }
-      const e = err.trim().slice(0, 200)
-      vege({ ok: false, detail: `exit ${code}${e ? ": " + e : ""}` })
-    })
-  } catch (err) {
-    vege({ ok: false, detail: (err as Error).message })
-  }
+  void runBash(["-lc", cmd], timeoutMs).then(({ code, stderr, error }) => {
+    if (error) { done({ ok: false, detail: error }); return }
+    if (code === 0) { done({ ok: true, detail: "exit 0" }); return }
+    const e = stderr.trim().slice(0, 200)
+    done({ ok: false, detail: `exit ${code}${e ? ": " + e : ""}` })
+  })
 }
 
 export function runCommandTask(task: ScheduledTask, now: number): void {

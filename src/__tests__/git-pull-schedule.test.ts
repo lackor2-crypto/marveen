@@ -173,13 +173,32 @@ describe('a vezerlopult nem all meg a szinkron alatt', () => {
     expect(SYNC).toContain('for (const abs of await findRepos())')
   })
 
-  it('a parancsot nem `spawnSync` inditja', () => {
+  it('parancsot SEHOL nem `spawnSync` indit', () => {
     // Ugyanaz a hiba a masik oldalrol: a parancs-kartya futtatasa maga is
-    // megallitotta a hurkot, amig a parancs futott.
-    // Csak a KODOT nezzuk: a fajl tetejen ott all a magyarazat, amiben
+    // megallitotta a hurkot, amig a parancs futott. Ket kulon helyen ult
+    // ugyanaz a hiba, ezert egy kozos futtatora (`runBash`) kerult, es a
+    // tiltas mindharom fajlra vonatkozik -- kulonben harmadszor is elromlana.
+    // Csak a KODOT nezzuk: a fajlok tetejen ott all a magyarazat, amiben
     // szerepel a szo -- enelkul a teszt a sajat indoklasara felelne.
-    const CMD = csakKod(readFileSync(join(__dirname, '..', 'web', 'command-task.ts'), 'utf-8'))
-    expect(CMD).not.toContain('spawnSync')
-    expect(CMD).toContain('spawn(')
+    const web = (f: string) => csakKod(readFileSync(join(__dirname, '..', 'web', f), 'utf-8'))
+    const CMD = web('command-task.ts')
+    const RUN = web('run-bash.ts')
+    for (const forras of [CMD, RUN, csakKod(RUNNER)]) {
+      expect(forras).not.toContain('spawnSync')
+    }
+    // A ket hivo a kozos futtatot hasznalja...
+    expect(CMD).toContain('runBash(')
+    expect(csakKod(RUNNER)).toContain('runBash(')
+    // ...az pedig a nem-blokkolo `spawn`-t, sajat idozitovel.
+    expect(RUN).toContain('spawn(')
+    expect(RUN).toContain('setTimeout')
+    expect(RUN).toContain("kill('SIGKILL')")
+  })
+
+  it('az elo-ellenorzot is megvarja, nem befagyasztja', () => {
+    // A `runPreCheck` MINDEN utemezett feladat elott lefut, percenkent. Amig
+    // `spawnSync`-kel ment, minden ilyen szkript idejere megallt a felulet.
+    expect(RUNNER).toContain('export async function runPreCheck')
+    expect(RUNNER).toContain('await runPreCheck(')
   })
 })

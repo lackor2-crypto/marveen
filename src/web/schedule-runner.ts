@@ -2,7 +2,7 @@ import { join, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { checkTaskMcpRequirements } from './schedule-mcp-precheck.js'
 import { existsSync, readFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
+import { runBash } from './run-bash.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { logger } from '../logger.js'
 import {
@@ -427,7 +427,11 @@ export function resolveBoundChatId(agentName: string): string | null {
   } catch { return null }
 }
 
-export function runPreCheck(task: ScheduledTask): { skip: boolean; prefix?: string } {
+/** Az elo-ellenorzo szkript ideje. Nem a felhasznalo allitja: ez egy gyors
+ *  "van-e egyaltalan teendo?" kerdes, nem munkavegzes. */
+const PRE_CHECK_TIMEOUT_MS = 10_000
+
+export async function runPreCheck(task: ScheduledTask): Promise<{ skip: boolean; prefix?: string }> {
   if (!task.preCheck) return { skip: false }
   const scriptPath = isAbsolute(task.preCheck)
     ? task.preCheck
@@ -437,16 +441,18 @@ export function runPreCheck(task: ScheduledTask): { skip: boolean; prefix?: stri
     return { skip: false }
   }
   try {
-    const r = spawnSync('bash', [scriptPath], { timeout: 10_000, encoding: 'utf-8' })
+    // Aszinkron: `spawnSync`-kel ez a 10 masodperc a TELJES vezerlopultot
+    // megallitotta -- minden percben, minden elo-ellenorzos feladatnal.
+    const r = await runBash([scriptPath], PRE_CHECK_TIMEOUT_MS)
     if (r.error) {
-      logger.warn({ task: task.name, error: r.error.message }, 'pre-check script spawn error, running LLM anyway')
+      logger.warn({ task: task.name, error: r.error }, 'pre-check script spawn error, running LLM anyway')
       return { skip: false }
     }
-    if (r.status !== 0) {
-      logger.warn({ task: task.name, status: r.status, stderr: (r.stderr || '').trim().slice(0, 200) }, 'pre-check script exited non-zero, running LLM anyway')
+    if (r.code !== 0) {
+      logger.warn({ task: task.name, status: r.code, stderr: r.stderr.trim().slice(0, 200) }, 'pre-check script exited non-zero, running LLM anyway')
       return { skip: false }
     }
-    const out = (r.stdout || '').trim()
+    const out = r.stdout.trim()
     if (out === 'SKIP') {
       logger.info({ task: task.name }, 'pre-check: nothing actionable, skipping LLM')
       return { skip: true }
@@ -1163,7 +1169,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
 
       // Re-run pre-check on retry: state may have changed since the task
       // was first scheduled (e.g. kanban cards already processed).
-      const retryPc = runPreCheck(taskDef)
+      const retryPc = await runPreCheck(taskDef)
       if (retryPc.skip) {
         deletePendingTaskRetry(row.task_name, row.agent_name)
         appendTaskRun(row.task_name, row.agent_name, 'skipped')
@@ -1250,7 +1256,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
 
       // Run pre-check once per task (not per agent) since it queries shared
       // state (DB, filesystem) that does not vary by target agent.
-      const cronPc = runPreCheck(task)
+      const cronPc = await runPreCheck(task)
       if (cronPc.skip) {
         scheduleLastRun.set(task.name, now)
         persistScheduleLastRun()

@@ -16902,6 +16902,11 @@ async function renderOverviewConnections() {
   // MOST merte valaki, es mikor.
   const uok = health.find(h => h.id === 'upstream_ok')
   if (uok) greenRows.push({ label: t('health.upstream_ok', uok.params || {}), desc: t('health.upstream_ok_action') })
+  // A napi git-lehuzas is kap zold sort. Ugyanaz a csapda: a repok a fan
+  // akkor is ott vannak, ha hetek ota nem frissultek -- a "minden rendben"
+  // magatol ertetodonek latszana, hiaba nem huzott le semmit senki.
+  const gok = health.find(h => h.id === 'git_pull_ok')
+  if (gok) greenRows.push({ label: t('health.git_pull_ok', gok.params || {}), desc: t('health.git_pull_ok_action') })
   paint(TONES.ok, greenRows)
 }
 
