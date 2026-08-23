@@ -32,24 +32,216 @@ Hasznalat:
   gold-data.py --human         # rovid, olvashato osszefoglalo
 """
 import argparse
+import glob
 import json
 import os
 import struct
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 
-# A telepites portable modban fut, a history a telepitesi mappaban van.
-MT4_HISTORY = "/mnt/d/Tozsde_telepitesi_mappa/Activtrades_Mt4/history/ActivTradesCorp-5"
-# A GOLD_Live_Export EA ide irja a friss snapshotot (kanban #93). Ha ez a fajl
-# letezik es ervenyes, ELSOBBSEGET elvez a .hst-vel szemben, mert az MT4 a .hst-t
-# csak ritkan flusholja lemezre -> a live-fajl a formalodo (shift=0) gyertyat is
-# tartalmazza, tehat masodperc-friss. Ha nincs vagy serult, a .hst a tartalek.
-MT4_LIVE = "/mnt/d/Tozsde_telepitesi_mappa/Activtrades_Mt4/MQL4/Files/gold_live.txt"
 SYMBOL = "GOLD"
 # MT4 a PERCEK szamaval nevezi el a fajlt: M5 -> GOLD5.hst, D1 -> GOLD1440.hst
 TIMEFRAMES = {"D1": 1440, "H1": 60, "M15": 15, "M5": 5}
 HEADER_SIZE = 148
+
+# A GOLD_Live_Export EA a telepites MQL4/Files mappajaba irja a friss snapshotot
+# (kanban 70efa568 / #93). Ha ez a fajl letezik es ervenyes, ELSOBBSEGET elvez a
+# .hst-vel szemben, mert az MT4 a .hst-t csak ritkan flusholja lemezre -> a
+# live-fajl a formalodo (shift=0) gyertyat is tartalmazza, tehat masodperc-friss.
+LIVE_FILE_NAME = "gold_live.txt"
+
+# MIERT NINCS ITT FIX UTVONAL: a MetaTrader telepitesi mappaja gepenkent mas, es
+# ezen a gepen 2026 augusztusaban at is koltozott
+# (D:\Tozsde_telepitesi_mappa\Activtrades_Mt4 -> F:\...\MT4_ActivTrades).
+# A beegetett regi ut miatt mind a negy idosik hibat adott, a szkript viszont
+# 0-val lepett ki es a "nincs live snapshot" sort irta ki -- az utemezett feladat
+# ezt sikeres, csak eppen ures meresnek latta. Sorrend most: .env -> gyorsitotar
+# -> automatikus kereses, es ha egyik sem talal, HANGOS hiba nem-nulla koddal.
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_KEY = "MT4_TERMINAL_DIR"
+CACHE_FILE = os.path.join(REPO_ROOT, "store", "mt4-terminal-dir.txt")
+
+
+def _env_value(key):
+    """Egy kulcs erteke: eloszor a folyamat kornyezetebol, aztan a repo .env-jebol."""
+    val = os.environ.get(key)
+    if val and val.strip():
+        return val.strip()
+    try:
+        with open(os.path.join(REPO_ROOT, ".env"), encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key + "="):
+                    v = line[len(key) + 1:].strip().strip('"').strip("'")
+                    return v or None
+    except OSError:
+        pass
+    return None
+
+
+def is_terminal_dir(path):
+    """Igaz, ha ez tenylegesen egy MT4 telepites gyokere (terminal.exe + history)."""
+    return bool(path) and os.path.isfile(os.path.join(path, "terminal.exe")) \
+        and os.path.isdir(os.path.join(path, "history"))
+
+
+def _mounted_windows_drives():
+    out = []
+    for entry in sorted(glob.glob("/mnt/?")):
+        if os.path.isdir(entry) and len(os.path.basename(entry)) == 1:
+            try:
+                if os.listdir(entry):
+                    out.append(entry)
+            except OSError:
+                continue
+    return out
+
+
+def discover_terminal_dir(max_depth=7, timeout_per_drive=180):
+    """Vegigneézi a csatolt Windows-meghajtokat egy MT4 gyokerert. Draga, ezert
+    csak akkor fut, ha se a .env, se a gyorsitotar nem adott ervenyes utat -- a
+    talalatot elmentjuk, hogy legkozelebb ne kelljen ujra keresni. Az a talalat
+    nyer, amelyikben van SYMBOL*.hst, azok kozul a legfrissebb."""
+    found = []
+    for drive in _mounted_windows_drives():
+        try:
+            res = subprocess.run(
+                ["find", drive, "-maxdepth", str(max_depth), "-type", "f",
+                 "-iname", "terminal.exe"],
+                capture_output=True, text=True, timeout=timeout_per_drive)
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        for line in res.stdout.splitlines():
+            root = os.path.dirname(line.strip())
+            if is_terminal_dir(root):
+                found.append(root)
+    if not found:
+        return None
+
+    def rank(root):
+        bars = glob.glob(os.path.join(root, "history", "*", SYMBOL + "*.hst"))
+        if not bars:
+            return (0, 0.0)
+        return (1, max(os.path.getmtime(b) for b in bars))
+
+    found.sort(key=rank, reverse=True)
+    return found[0]
+
+
+# Ha NINCS a gepen MetaTrader, a kereses vegigmegy az osszes meghajton (percek).
+# Utemezett feladatnal ez 45 percenkent ismetlodne, ezert a SIKERTELEN kereses
+# eredmenyet is megjegyezzuk -- de csak ennyi idore, hogy egy kesobb feltelepitett
+# MT4 magatol elokeruljon. A --keres azonnal felulirja.
+NEG_CACHE_FILE = CACHE_FILE + ".nincs"
+NEG_CACHE_TTL = 6 * 3600
+
+
+def _save_cache(path):
+    try:
+        os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            f.write(path + "\n")
+        if os.path.exists(NEG_CACHE_FILE):
+            os.remove(NEG_CACHE_FILE)
+    except OSError:
+        pass  # a gyorsitotar kenyelem, nem feltetel
+
+
+def _recent_failed_search():
+    """Igaz, ha nemreg mar kerestunk es nem talaltunk semmit."""
+    try:
+        return (time.time() - os.path.getmtime(NEG_CACHE_FILE)) < NEG_CACHE_TTL
+    except OSError:
+        return False
+
+
+def _mark_failed_search():
+    try:
+        os.makedirs(os.path.dirname(NEG_CACHE_FILE), exist_ok=True)
+        with open(NEG_CACHE_FILE, "w", encoding="utf-8") as f:
+            f.write("nem talaltam MetaTrader telepitest " + time.strftime("%Y-%m-%d %H:%M") + "\n")
+    except OSError:
+        pass
+
+
+def resolve_terminal_dir(allow_search=True, force_search=False):
+    """{path, forras, hiba} -- a MetaTrader telepitesi mappaja.
+    A `hiba` mindig emberi mondat, mert ez kerul a felhasznalo ele."""
+    if not force_search:
+        cfg = _env_value(ENV_KEY)
+        if cfg:
+            if is_terminal_dir(cfg):
+                return {"path": cfg, "forras": ".env"}
+            return {"path": None, "forras": ".env", "hiba":
+                    f"A .env-ben a {ENV_KEY} erre mutat: {cfg} -- de ott nincs "
+                    f"terminal.exe es history mappa. Javitsd az utat, vagy vedd ki "
+                    f"a sort es hagyd hogy a szkript megkeresse (--keres)."}
+        try:
+            with open(CACHE_FILE, encoding="utf-8") as f:
+                cached = f.read().strip()
+            if is_terminal_dir(cached):
+                return {"path": cached, "forras": "gyorsitotar"}
+        except OSError:
+            pass
+    if not allow_search:
+        return {"path": None, "forras": None, "hiba":
+                f"Nincs beallitva MetaTrader-mappa ({ENV_KEY} a .env-ben)."}
+    if not force_search and _recent_failed_search():
+        return {"path": None, "forras": None, "hiba":
+                "Nemreg mar vegigkerestem a meghajtokat es nem talaltam MetaTrader "
+                "telepitest, ezert most nem kerestem ujra. Ha kozben feltelepitetted: "
+                "python3 scripts/gold-data.py --keres --human"}
+    found = discover_terminal_dir()
+    if found:
+        _save_cache(found)
+        return {"path": found, "forras": "kereses"}
+    _mark_failed_search()
+    return {"path": None, "forras": None, "hiba":
+            "Nem talalok MetaTrader telepitest a csatolt meghajtokon "
+            f"({', '.join(_mounted_windows_drives()) or 'nincs csatolt meghajto'}). "
+            f"Ha mashol van, ird be a repo .env fajljaba: {ENV_KEY}=/mnt/<betu>/.../<MT4 mappa>"}
+
+
+def mt4_running():
+    """Fut-e a terminal.exe? True / False / None (nem tudtam megnezni).
+
+    MIERT KELL: az elavult adat KET, ellentetes dolgot jelenthet. Hetvegen a
+    piac zarva van, ilyenkor a penteki utolso gyertya a HELYES allapot es nincs
+    mirol szolni. Hetkoznap viszont ugyanaz az elavultsag azt jelenti, hogy az
+    MT4 nem fut -- es akkor a legfontosabb sor az, hogy ezt kimondjuk. A ket
+    esetet nem a gyertyak korabol talalgatjuk, hanem magatol a forrastol
+    kerdezzuk meg: fut-e a folyamat."""
+    for exe in ("/mnt/c/Windows/System32/tasklist.exe", "tasklist.exe"):
+        try:
+            res = subprocess.run([exe, "/FI", "IMAGENAME eq terminal.exe", "/NH"],
+                                 capture_output=True, text=True, timeout=30)
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        if res.returncode != 0:
+            continue
+        return "terminal.exe" in res.stdout.lower()
+    return None  # nem tudtam megnezni -- ezt is ki kell mondani, nem "nem fut"
+
+
+def resolve_history_dir(root):
+    """(history/<szerver>, szerverek listaja). Nem egetjuk be a szerver nevet
+    (ActivTradesCorp-5): azt a mappat valasztjuk, amelyikben tenyleg van
+    SYMBOL*.hst, tobb talalat eseten a legfrissebbet."""
+    base = os.path.join(root, "history")
+    if not os.path.isdir(base):
+        return None, []
+    servers = sorted(d for d in os.listdir(base)
+                     if os.path.isdir(os.path.join(base, d)))
+    hits = [os.path.join(base, s) for s in servers
+            if glob.glob(os.path.join(base, s, SYMBOL + "*.hst"))]
+    if not hits:
+        return None, servers
+    hits.sort(key=lambda p: max(os.path.getmtime(f)
+                                for f in glob.glob(os.path.join(p, SYMBOL + "*.hst"))),
+              reverse=True)
+    return hits[0], servers
 
 
 def read_hst(path, max_bars=1200):
@@ -76,7 +268,7 @@ def read_hst(path, max_bars=1200):
     return bars, version, total
 
 
-def read_live(path=MT4_LIVE):
+def read_live(path):
     """A GOLD_Live_Export EA snapshot-fajljanak beolvasasa. Visszaad egy dict-et
     {generated, iso, bid, ask, digits, tf:{NEV:[bars]}} vagy None-t, ha a fajl
     hianyzik / serult / nem a mienk. A serules elleni vedelem az utolso "END <n>"
@@ -202,7 +394,7 @@ def stochastic(bars, k=5, d=3, slowing=3):
     return round(smooth[-1], 2), round(sum(smooth[-d:]) / d, 2)
 
 
-def analyse(tf, minutes, live=None):
+def analyse(tf, minutes, live, history_dir):
     # ELSOBBSEG a live snapshotnak (kanban #93): ha az EA-fajl ervenyes es erre az
     # idosikra eleg gyertyat tartalmaz, abbol szamolunk -- ez a shift=0 formalodo
     # gyertyat is hozza, tehat friss. Kulonben a .hst a tartalek.
@@ -212,7 +404,7 @@ def analyse(tf, minutes, live=None):
         source = "live"
         stamp = live["generated"]
     else:
-        path = os.path.join(MT4_HISTORY, f"{SYMBOL}{minutes}.hst")
+        path = os.path.join(history_dir, f"{SYMBOL}{minutes}.hst")
         if not os.path.exists(path):
             return {"tf": tf, "error": f"nincs history fajl: {path}"}
         bars, version, total = read_hst(path)
@@ -248,22 +440,90 @@ def analyse(tf, minutes, live=None):
     return out
 
 
+def fail(human, message, hint=None, code=2):
+    """Hangos, ertheto leallas. A nulla ket dolgot jelenthetne (nincs adat vs.
+    nem latok oda), ezert itt sosem terunk vissza csendben ures eredmennyel."""
+    payload = {"error": message}
+    if hint:
+        payload["teendo"] = hint
+    if human:
+        print("HIBA -- " + message, file=sys.stderr)
+        if hint:
+            print("       " + hint, file=sys.stderr)
+    else:
+        # ugyanaz a burok mint sikeres futasnal, hogy a hivo ne ket alakot lasson
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return code
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tf", choices=list(TIMEFRAMES), help="csak ez az egy idosik")
     ap.add_argument("--human", action="store_true", help="rovid, olvashato kimenet")
+    ap.add_argument("--keres", action="store_true",
+                    help="a MetaTrader mappa ujra-keresese (a gyorsitotar es a .env megkerulesevel)")
     args = ap.parse_args()
 
+    # 1. lepes: HOL van a MetaTrader? Ha nincs meg, az nem "ures meres", hanem hiba.
+    res = resolve_terminal_dir(force_search=args.keres)
+    if not res["path"]:
+        return fail(args.human, res["hiba"],
+                    f"Ha tudod az utat: ird be a .env-be, hogy {ENV_KEY}=/mnt/.../<MT4 mappa>. "
+                    "Ha nem tudod: futtasd ezt -- python3 scripts/gold-data.py --keres --human",
+                    code=2)
+    root = res["path"]
+
+    # 2. lepes: van-e GOLD elozmeny EBBEN a telepitesben? A ket eset kulon uzenet:
+    #    "megvan a MetaTrader, de meg nincs GOLD adata" != "nem latom a mappat".
+    history_dir, servers = resolve_history_dir(root)
+    if not history_dir:
+        return fail(
+            args.human,
+            f"A MetaTrader mappa megvan ({root}, forras: {res['forras']}), de nincs benne "
+            f"egyetlen {SYMBOL} elozmeny-fajl sem" +
+            (f" (atnezett szerver-mappak: {', '.join(servers)})" if servers else
+             " (a history mappa ures)") + ".",
+            f"Nyisd meg az MT4-ben a {SYMBOL} chartot es varj amig letolti az elozmenyt "
+            "(Eszkozok -> Beallitasok -> Chartok -> a max. sav-szam legyen eleg nagy).",
+            code=3)
+
+    live_path = os.path.join(root, "MQL4", "Files", LIVE_FILE_NAME)
     wanted = {args.tf: TIMEFRAMES[args.tf]} if args.tf else TIMEFRAMES
-    live = read_live()
-    out = [analyse(tf, m, live) for tf, m in wanted.items()]
+    live = read_live(live_path)
+    out = [analyse(tf, m, live, history_dir) for tf, m in wanted.items()]
+
+    running = mt4_running()
+    ages = [r["fajl_kora_perc"] for r in out if "fajl_kora_perc" in r]
+    frissesseg = {"mt4_fut": running,
+                  "legfrissebb_adat_kora_perc": min(ages) if ages else None}
+    if running is None:
+        frissesseg["megjegyzes"] = ("Nem tudtam megnezni, fut-e az MT4, ezert az adat "
+                                    "korat nem tudom megmagyarazni.")
+    elif not running:
+        frissesseg["megjegyzes"] = ("Az MT4 NEM fut, ezert ez az adat nem frissul -- "
+                                    "a lentiek a legutobbi futas ota valtozatlanok.")
+    elif ages and min(ages) > 120:
+        frissesseg["megjegyzes"] = ("Az MT4 fut, de az adat tobb mint 2 orajas. Hetvegen "
+                                    "ez normalis (zarva a piac); hetkoznap viszont a "
+                                    "GOLD_Live_Export EA hianyzik a chartrol.")
 
     if args.human:
+        print(f"[mappa] {root}  (forras: {res['forras']})")
+        print(f"[hist ] {history_dir}")
+        if running is None:
+            print("[mt4  ] nem tudtam megnezni, fut-e a terminal.exe")
+        else:
+            print(f"[mt4  ] terminal.exe {'FUT' if running else 'NEM FUT'}"
+                  + ("" if running else " -- ezert nem frissul az adat"))
         if live is not None:
             print(f"[live] EA snapshot {live['iso']} | bid {round(live['bid'],2)} ask {round(live['ask'],2)} | "
                   f"{round((time.time()-live['generated'])/60)} perce")
+        elif not os.path.exists(live_path):
+            print(f"[hst ] nincs live snapshot ({live_path} nem letezik) -- .hst tartalekbol. "
+                  "A GOLD_Live_Export EA nincs a charton, vagy nem fut.")
         else:
-            print("[hst] nincs ervenyes live snapshot -- .hst tartalekbol")
+            print(f"[hst ] a live snapshot ervenytelen vagy eppen iras alatt "
+                  f"({live_path}) -- .hst tartalekbol")
         for r in out:
             if "error" in r:
                 print(f"{r['tf']:>4}: HIBA -- {r['error']}")
@@ -273,9 +533,15 @@ def main():
                   f"MACD {r['macd']}/{r['macd_signal']}  ATR {r['atr14']}  "
                   f"Stoch {r['stoch_k']}/{r['stoch_d']}")
             print(f"      utolso gyertya: {r['utolso_gyertya']} | {r['fajl_kora_perc']} perce")
-        return
-    print(json.dumps(out, ensure_ascii=False, indent=2))
+        if "megjegyzes" in frissesseg:
+            print("FIGYELEM -- " + frissesseg["megjegyzes"])
+    else:
+        print(json.dumps({"frissesseg": frissesseg, "idosikok": out},
+                         ensure_ascii=False, indent=2))
+
+    # Ha MINDEN idosik hibas, az nem sikeres futas -- az utemezo lassa is.
+    return 0 if any("error" not in r for r in out) else 4
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
