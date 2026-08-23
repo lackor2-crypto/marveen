@@ -32,6 +32,13 @@ export function computeReliabilityScore(rows: ApprovalVerification[], nowMs: num
       okCount++
       continue
     }
+    // 'noresponse' (2026-08-23): the sweep already decided this one never came
+    // back. Count it directly instead of re-deriving it from the age, so the
+    // badge agrees with what the approvals page shows.
+    if (row.status === 'noresponse') {
+      stuckCount++
+      continue
+    }
     // status === 'pending'
     const ageMs = nowMs - row.requested_at * 1000
     if (ageMs >= STUCK_PENDING_THRESHOLD_MS) stuckCount++

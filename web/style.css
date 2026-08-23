@@ -19,6 +19,11 @@
   --danger-hover: #a8413a;
   --success: #788c5d;
   --success-soft: rgba(120, 140, 93, 0.12);
+  /* Amber = "this did not happen", not "this is broken" (Boss 2026-08-23:
+     "narancssarga, mert piros akkor baj van"). Several places already used
+     this exact value as an inline fallback -- now it is a real token. */
+  --warning: #d4a52c;
+  --warning-soft: rgba(212, 165, 44, 0.12);
   --info: #6a9bcc;
   --info-soft: rgba(106, 155, 204, 0.12);
   --shadow-sm: 0 1px 3px rgba(20, 20, 19, 0.04);

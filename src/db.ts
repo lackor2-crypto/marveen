@@ -882,6 +882,46 @@ export function initDatabase(dbPathOverride?: string): void {
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_approval_verifications_approval ON approval_verifications(approval_id)`)
 
+  // Migration (Boss 2026-08-23): a dispatched agent that never calls back used
+  // to leave its row 'pending' FOREVER -- the approvals page still showed
+  // "Folyamatban (0/4)" on requests from two weeks earlier, and the counter
+  // could never resolve. Two additions fix that: 'noresponse' as a real,
+  // terminal status (the agent got the task and did not answer -- NOT a
+  // verdict on the change, which is why the UI marks it amber, never red),
+  // and reminded_at so the sweep nudges an agent exactly once before giving
+  // up on it. Table rebuild because the status CHECK constraint is part of
+  // the schema; idempotent (guarded on the constraint text).
+  try {
+    const avSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_verifications'").get() as { sql: string } | undefined
+    if (avSchema?.sql && !avSchema.sql.includes("'noresponse'")) {
+      db.exec(`
+        CREATE TABLE approval_verifications_new (
+          id TEXT PRIMARY KEY,
+          approval_id TEXT NOT NULL,
+          agent TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK(status IN ('pending','pass','fail','noresponse')),
+          report TEXT,
+          requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          resolved_at INTEGER,
+          reminded_at INTEGER,
+          UNIQUE(approval_id, agent)
+        );
+        INSERT INTO approval_verifications_new (id, approval_id, agent, status, report, requested_at, resolved_at, reminded_at)
+          SELECT id, approval_id, agent, status, report, requested_at, resolved_at, NULL
+          FROM approval_verifications;
+        DROP TABLE approval_verifications;
+        ALTER TABLE approval_verifications_new RENAME TO approval_verifications;
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_approval_verifications_approval ON approval_verifications(approval_id)`)
+    }
+  } catch (err) {
+    logger.warn({ err }, 'approval_verifications noresponse migration failed -- continuing')
+  }
+  // Older DBs that already had 'noresponse' but not the column (never shipped,
+  // but cheap to be safe about).
+  try { db.exec('ALTER TABLE approval_verifications ADD COLUMN reminded_at INTEGER') } catch { /* already exists */ }
+
   // --- Dashboard browser login (OPTIONAL; the bearer token stays primary) ---
   // Zero rows here = exactly the token-only behavior. A row is created only when
   // the operator opts in (Settings card or the dashboard-user CLI). No seeded
@@ -3426,10 +3466,14 @@ export interface ApprovalVerification {
   id: string
   approval_id: string
   agent: string
-  status: 'pending' | 'pass' | 'fail'
+  /** 'noresponse' = the task was delivered and the agent never reported back
+   *  (provider error, dead model, or it just answered in chat without calling
+   *  the endpoint). It is NOT a verdict on the change under review. */
+  status: 'pending' | 'pass' | 'fail' | 'noresponse'
   report: string | null
   requested_at: number
   resolved_at: number | null
+  reminded_at: number | null
 }
 
 // One row per (approval, agent). Dispatching a second verification to an
@@ -3440,12 +3484,13 @@ export function createOrResetApprovalVerification(approvalId: string, agent: str
   const id = `${approvalId}:${agent}`
   const now = Math.floor(Date.now() / 1000)
   db.prepare(`
-    INSERT INTO approval_verifications (id, approval_id, agent, status, report, requested_at, resolved_at)
-    VALUES (?, ?, ?, 'pending', NULL, ?, NULL)
+    INSERT INTO approval_verifications (id, approval_id, agent, status, report, requested_at, resolved_at, reminded_at)
+    VALUES (?, ?, ?, 'pending', NULL, ?, NULL, NULL)
     ON CONFLICT(approval_id, agent) DO UPDATE SET
-      status = 'pending', report = NULL, requested_at = excluded.requested_at, resolved_at = NULL
+      status = 'pending', report = NULL, requested_at = excluded.requested_at, resolved_at = NULL,
+      reminded_at = NULL
   `).run(id, approvalId, agent, now)
-  return { id, approval_id: approvalId, agent, status: 'pending', report: null, requested_at: now, resolved_at: null }
+  return { id, approval_id: approvalId, agent, status: 'pending', report: null, requested_at: now, resolved_at: null, reminded_at: null }
 }
 
 export function listApprovalVerifications(approvalId: string): ApprovalVerification[] {
@@ -3470,6 +3515,38 @@ export function resolveApprovalVerification(approvalId: string, agent: string, s
 export function getRecentVerificationsForAgent(agent: string, sinceEpochSec: number): ApprovalVerification[] {
   return db.prepare('SELECT * FROM approval_verifications WHERE agent = ? AND requested_at >= ? ORDER BY requested_at DESC')
     .all(agent, sinceEpochSec) as ApprovalVerification[]
+}
+
+// --- Stale-verification sweep (Boss 2026-08-23) --------------------------
+// Every row below is one dispatched review that never came back. The sweep
+// itself (which agent to nudge, when to give up) lives in
+// approval-verification-sweep.ts; these are the plain data operations.
+
+/** Pending rows requested at or before the cutoff, oldest first. */
+export function listPendingVerificationsOlderThan(cutoffEpochSec: number): ApprovalVerification[] {
+  return db.prepare(`
+    SELECT * FROM approval_verifications
+     WHERE status = 'pending' AND requested_at <= ?
+     ORDER BY requested_at ASC
+  `).all(cutoffEpochSec) as ApprovalVerification[]
+}
+
+/** Marks the nudge as sent so an agent is only ever reminded once per task. */
+export function markVerificationReminded(id: string, atEpochSec: number): boolean {
+  return db.prepare(`
+    UPDATE approval_verifications SET reminded_at = ?
+     WHERE id = ? AND status = 'pending' AND reminded_at IS NULL
+  `).run(atEpochSec, id).changes > 0
+}
+
+/** Gives up on a row: terminal 'noresponse' state so the counter can resolve.
+ *  Only ever touches a row that is STILL pending -- an answer that lands in
+ *  the same second as the sweep wins over the timeout. */
+export function markVerificationNoResponse(id: string, reason: string, atEpochSec: number): boolean {
+  return db.prepare(`
+    UPDATE approval_verifications SET status = 'noresponse', report = ?, resolved_at = ?
+     WHERE id = ? AND status = 'pending'
+  `).run(reason, atEpochSec, id).changes > 0
 }
 
 export function expireTimedOutApprovals(): number {

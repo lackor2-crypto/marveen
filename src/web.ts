@@ -93,6 +93,7 @@ import { tryHandleFileClaims } from './web/routes/file-claims.js'
 import { sweepExpiredClaims } from './web/file-claims-store.js'
 import { startUncommittedWorkWatcher } from './web/uncommitted-work-runner.js'
 import { tryHandleApprovals, startApprovalTimeoutSweeper } from './web/routes/approvals.js'
+import { sweepApprovalVerifications, VERIFICATION_SWEEP_INTERVAL_MS } from './web/verification-sweep-job.js'
 import { tryHandleTokenUsage } from './web/routes/token-usage.js'
 import { tryHandleCosts, startCostsSyncTask } from './web/routes/costs.js'
 import { tryHandlePersistentWindows } from './web/routes/persistent-windows.js'
@@ -531,6 +532,21 @@ export function startWebServer(port = 3420): http.Server {
   // Sweep timed-out pending approvals every minute
   const approvalTimeoutInterval = startApprovalTimeoutSweeper()
 
+  // Dispatched reviews that never came back (Boss 2026-08-23: "Folyamatban
+  // (0/4)" counters on approvals from two weeks earlier). One nudge, then a
+  // terminal 'noresponse' state -- see approval-verification-sweep.ts. The
+  // startup call is the half that matters after a restart: whatever was in
+  // flight when the machine went down has nobody left to answer it.
+  const runVerificationSweep = () => {
+    try {
+      sweepApprovalVerifications()
+    } catch (err) {
+      logger.warn({ err }, 'Stale approval-verification sweep failed')
+    }
+  }
+  runVerificationSweep()
+  const verificationSweepInterval = setInterval(runVerificationSweep, VERIFICATION_SWEEP_INTERVAL_MS)
+
   // Hourly sweep of expired browser-login sessions (7d idle / 30d absolute).
   // Runs regardless of WEB_ONLY -- it is a cheap indexed delete on the shared DB
   // and keeps auth_sessions from growing unboundedly on any instance.
@@ -701,6 +717,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(modelFallbackInterval)
     clearInterval(contextGuardInterval)
     clearInterval(approvalTimeoutInterval)
+    clearInterval(verificationSweepInterval)
     clearInterval(authSessionSweepInterval)
     clearInterval(kukaSepresInterval)
     clearInterval(updateCheckerInterval)

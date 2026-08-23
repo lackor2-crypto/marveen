@@ -19563,9 +19563,13 @@ function _approvalVerifyCellHtml(a) {
   const pending = verifications.filter(v => v.status === 'pending')
   const failed = verifications.filter(v => v.status === 'fail')
   const passed = verifications.filter(v => v.status === 'pass')
+  const noResponse = verifications.filter(v => v.status === 'noresponse')
   const perAgent = verifications.map(v => {
-    const icon = v.status === 'pass' ? '✅' : v.status === 'fail' ? '❌' : '⏳'
-    const title = escapeAttr(v.report || '')
+    // Boss 2026-08-23: an agent that never answered must NOT read as an
+    // hourglass (it is not still working) and must NOT read as a red X (that
+    // means "the change is broken"). Amber circle: the review did not happen.
+    const icon = v.status === 'pass' ? '✅' : v.status === 'fail' ? '❌' : v.status === 'noresponse' ? '🟠' : '⏳'
+    const title = escapeAttr(_verifyReportText(v))
     return `<span title="${title}" style="white-space:nowrap">${icon} ${escapeHtml(chatDisplayName(v.agent))}</span>`
   }).join('<br>')
   let summary
@@ -19573,12 +19577,27 @@ function _approvalVerifyCellHtml(a) {
     summary = `<div style="color:var(--danger);font-weight:700">${t('approvals.verify.summary_fail', { n: failed.length })}</div>`
   } else if (pending.length > 0) {
     summary = `<div style="color:var(--text-muted)">${t('approvals.verify.summary_pending', { done: passed.length, total: verifications.length })}</div>`
+  } else if (noResponse.length > 0) {
+    // Everyone who DID answer said pass, but not everyone answered -- saying
+    // plain "Ellenőrizve" here would overstate how much review actually happened.
+    summary = `<div style="color:var(--warning)">${t('approvals.verify.summary_noresponse', { done: passed.length, total: verifications.length })}</div>`
   } else {
     summary = `<div style="color:var(--success);font-weight:700">${t('approvals.verify.summary_pass')}</div>`
   }
   return `<div style="font-size:11px;line-height:1.5">${summary}<div style="margin-top:2px">${perAgent}</div>
     <button class="btn-secondary btn-compact approvals-verify-btn" data-id="${escapeAttr(a.id)}" data-agent="${escapeAttr(a.agent_id)}" style="font-size:10px;margin-top:4px">${t('approvals.verify.rerun_btn')}</button>
   </div>`
+}
+
+// The sweep stores a stable reason CODE in `report` (never a sentence), so the
+// explanation can be shown in the reader's own language. Anything else is an
+// agent's own free-text write-up and is shown verbatim.
+function _verifyReportText(v) {
+  if (v.status === 'noresponse') {
+    if (v.report === 'noresponse:agent_gone') return t('approvals.verify.noresponse_agent_gone')
+    return t('approvals.verify.noresponse_timeout')
+  }
+  return v.report || ''
 }
 
 let _verifyPickerPopover = null

@@ -116,3 +116,50 @@ describe('approvals UI wiring', () => {
     }
   })
 })
+
+// Boss 2026-08-23: an agent that never answered used to show the same
+// hourglass as one still working, forever. "ne mindig homokora legyen" --
+// amber circle for "did not happen", and red stays reserved for a real fail.
+describe('verification result markers', () => {
+  it('renders an amber circle for a no-answer, never a red X or an hourglass', () => {
+    expect(APP).toContain("v.status === 'noresponse' ? '🟠'")
+    // The red X stays bound to an actual 'fail' verdict.
+    expect(APP).toMatch(/v\.status === 'fail' \? '❌'/)
+  })
+
+  it('uses the amber token for the summary line, not the danger colour', () => {
+    expect(APP).toContain("t('approvals.verify.summary_noresponse'")
+    expect(APP).toMatch(/summary_noresponse[\s\S]{0,120}var\(--warning\)|var\(--warning\)[\s\S]{0,200}summary_noresponse/)
+    expect(CSS).toMatch(/--warning:\s*#/)
+  })
+
+  it('explains a no-answer in the reader language instead of showing the raw reason code', () => {
+    expect(APP).toContain("function _verifyReportText(")
+    expect(APP).toContain("'noresponse:agent_gone'")
+    expect(APP).toContain("t('approvals.verify.noresponse_timeout')")
+  })
+
+  it('stops polling once nothing is genuinely in flight any more', () => {
+    // 'noresponse' is terminal: only 'pending' keeps the poll alive.
+    expect(APP).toMatch(/_approvalsHasPendingVerification[\s\S]{0,200}v\.status === 'pending'/)
+  })
+
+  it('the verifier picker is built from the live agent list, so a deleted agent disappears on its own', () => {
+    // Boss 2026-08-23: "ha eltavolitunk egy agentet, akkor az automatikusan ott
+    // mar ne is jelenjen meg, tehat ne kelljen ezt mindig ujra leprogramozni."
+    // No hardcoded roster anywhere near the picker.
+    expect(APP).toMatch(/_openVerifyPicker[\s\S]{0,3000}fetch\('\/api\/agents'\)/)
+  })
+
+  it('the no-answer strings exist in BOTH language files', async () => {
+    ;(globalThis as unknown as { window: Record<string, unknown> }).window ||= {} as Record<string, unknown>
+    await import(/* @vite-ignore */ '../../web/lang/hu.js' as string)
+    await import(/* @vite-ignore */ '../../web/lang/en.js' as string)
+    const i18n = (globalThis as unknown as { window: { _i18n: Record<string, Record<string, string>> } }).window._i18n
+    for (const lang of ['hu', 'en'] as const) {
+      expect(i18n[lang]['approvals.verify.summary_noresponse']).toBeTruthy()
+      expect(i18n[lang]['approvals.verify.noresponse_timeout']).toBeTruthy()
+      expect(i18n[lang]['approvals.verify.noresponse_agent_gone']).toBeTruthy()
+    }
+  })
+})
