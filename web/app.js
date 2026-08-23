@@ -5060,6 +5060,32 @@ async function cbCloseTab(sessionId, label) {
   }
 }
 
+// A hid FUTASI allapota a kartyan -- ugyanazzal a `process-indicator`
+// elemmel, mint minden mas ugynoknel. Harom allapot, mert a kapcsolo csak a
+// vezerlopult ujraindulasakor lep eletbe, es a ketto kozott a kartya eddig a
+// REGI allapotot mutatta.
+//   * mentve KI, elesben MEG megy  -> sarga: valtasra var
+//   * mentve BE, elesben mar megy   -> zold: fut
+//   * mentve BE, elesben meg nem    -> sarga: valtasra var
+//   * `savedEnabled` hianyzik (regi backend) -> nem talalgatunk: az ELES
+//     allapotot mutatjuk, ahogy eddig is.
+function cbRunPending() {
+  if (codeBridgeCards.savedEnabled === null || codeBridgeCards.savedEnabled === undefined) return false
+  return codeBridgeCards.savedEnabled !== (codeBridgeCards.state !== 'disabled')
+}
+function cbRunOn() {
+  return codeBridgeCards.savedEnabled === null || codeBridgeCards.savedEnabled === undefined
+    ? codeBridgeCards.state !== 'disabled'
+    : codeBridgeCards.savedEnabled
+}
+function cbRunDotClass() { return cbRunPending() ? 'restarting' : (cbRunOn() ? 'running' : 'stopped') }
+function cbRunLabel() { return cbRunOn() ? t('agents.status.running') : t('agents.status.stopped') }
+function cbRunTip() {
+  return cbRunPending()
+    ? t('cb.card.stop_pending_help')
+    : (cbRunOn() ? t('cb.card.run_on_help') : t('cb.card.run_off_help'))
+}
+
 function cbTabsPickHtml(e) {
   const tabs = (e.tabs || []).filter(function (tb) { return tb.live !== false })
   if (tabs.length === 0) {
@@ -5071,17 +5097,19 @@ function cbTabsPickHtml(e) {
   }
   const rows = tabs.map(function (tb) {
     const label = tb.title || tb.shortId || ''
-    const ctx = (typeof tb.contextTokens === 'number' && tb.contextTokens > 0)
-      ? t('cb.card.ctx_value', { n: (tb.contextTokens / 1000).toFixed(tb.contextTokens >= 10000 ? 0 : 1).replace('.', ',') })
-      : ''
+    const ctxN = (typeof tb.contextTokens === 'number' && tb.contextTokens > 0)
+      ? (tb.contextTokens / 1000).toFixed(tb.contextTokens >= 10000 ? 0 : 1).replace('.', ',')
+      : null
+    const ctx = ctxN === null ? '' : t('cb.card.ctx_short', { n: ctxN })
+    const ctxFull = ctxN === null ? '' : t('cb.card.ctx_value', { n: ctxN })
     // NEMA FUL: nyitott folyamat, de oraк ota nem irt semmit. Ez az az eset,
     // amit a VS Code-ban mar nem talalsz meg (a fule bezarult, a folyamat el),
     // ezert kulon mondjuk ki -- es ezert van mellette bezaras-gomb.
     const idleMs = (typeof tb.mtime === 'number' && tb.mtime > 0) ? (Date.now() - tb.mtime) : null
     const idleH = idleMs === null ? null : Math.floor(idleMs / 3600000)
     const idle = (idleH !== null && idleH >= CB_TAB_IDLE_HOURS && !tb.current)
-      ? '<span class="cb-tab-idle" title="' + escapeAttr(t('cb.card.tab_idle_help', { h: idleH })) + '">'
-        + escapeHtml(t('cb.card.tab_idle', { h: idleH })) + '</span>'
+      ? '<span class="cb-tab-idle" title="' + escapeAttr(t('cb.card.tab_idle', { h: idleH }) + ' \u2014 ' + t('cb.card.tab_idle_help', { h: idleH })) + '"'
+        + ' aria-label="' + escapeAttr(t('cb.card.tab_idle', { h: idleH })) + '">\u25cf</span>'
       : ''
     // A gomb CSAK akkor all ki, ha tudjuk, mit allitanank le (van PID). A
     // hianyzo PID nem "nincs mit bezarni", hanem "nem latok oda" -- olyankor
@@ -5089,14 +5117,14 @@ function cbTabsPickHtml(e) {
     const closeBtn = (typeof tb.pid === 'number' && tb.pid > 0)
       ? '<button type="button" class="cb-tab-close" data-session="' + escapeAttr(tb.sessionId) + '"'
         + ' data-label="' + escapeAttr(label) + '"'
-        + ' title="' + escapeAttr(t('cb.card.tab_close_help', { pid: tb.pid })) + '">'
-        + escapeHtml(t('cb.card.tab_close')) + '</button>'
+        + ' title="' + escapeAttr(t('cb.card.tab_close') + ' \u2014 ' + t('cb.card.tab_close_help', { pid: tb.pid })) + '"'
+        + ' aria-label="' + escapeAttr(t('cb.card.tab_close')) + '">\u00d7</button>'
       : ''
     return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
       + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
       + ' value="' + escapeAttr(tb.sessionId) + '"' + (tb.current ? ' checked' : '') + '>'
-      + '<span class="cb-tab-title">' + escapeHtml(shortDesc(label, 42)) + '</span>'
-      + (ctx ? '<span class="cb-tab-ctx">' + escapeHtml(ctx) + '</span>' : '')
+      + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
+      + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
       + idle
       + closeBtn
       + '</label>'
@@ -5232,20 +5260,17 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
           : `<div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>`}
         <div class="agent-card-info">
           <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
-          <div class="cb-external-badge">${escapeHtml(t('cb.card.external_badge'))}</div>
+          <div class="cb-external-badge" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(t('cb.card.external_badge'))}</div>
           ${sub ? `<div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>` : ''}
-          <div class="agent-desc cb-external-note" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(shortDesc(t('cb.card.external_note'), 90))}</div>
         </div>
       </div>
       <div class="agent-card-footer">
         <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model || t('cb.card.model_unknown'))}</span>
-        <!-- Boss, 2026-08-23: "a tobbi kartyan van a beallitasok alatt model
-             valaszto. a vscode alat miert nincs?" -- mert itt nincs mit
-             allitani: ez a Claude Code a TE VS Code-odban, a te elofizeteseddel
-             fut, a modellt ott valasztod (/model). Egy legordulo itt azt a
-             latszatot keltene, hogy Marveen at tudja allitani -- nem tudja.
-             Ezert all ki a magyarazat ODA, ahol a modell latszik. -->
-        <span class="cb-model-note" title="${escapeAttr(t('cb.card.model_where_help'))}">${escapeHtml(t('cb.card.model_where'))}</span>
+        <!-- Boss, 2026-08-23: a modell-magyarazat NEM a kartyan van, hanem a
+             reszletes ablak MODELL csempeje alatt (web/index.html,
+             #cbTileModelNote) -- a kartyan mar eleg informacio all, ott az
+             allapot ("fut"/"leallitva" + "online"/"offline") a fontos. -->
+        <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
       <div class="agent-card-actions">
@@ -31715,10 +31740,10 @@ async function _intezoCfgSave() {
       if (!h.lastSeenAt) {
         lines.push('<strong>A Windows-végrehajtó még soha nem jelentkezett.</strong> Enélkül a híd sorba tesz, de semmi nem fut le. A lap alján lévő <em>Windows-végrehajtó</em> kártya két lépésben feltelepíti.')
       } else {
-        lines.push('<strong>A Windows-végrehajtó áll</strong> — utoljára ' + cbAgo(h.lastSeenAt) + ' jelentkezett. Amíg nem fut, a feladatok csak gyűlnek a sorban. Indítsd el a <em>Windows-végrehajtó</em> kártya parancsával.')
+        lines.push('<strong>' + escapeHtml(t('cb.health.worker_offline')) + '</strong> ' + escapeHtml(t('cb.health.worker_offline_since', { ago: cbAgo(h.lastSeenAt) })))
       }
     } else {
-      lines.push('<strong>A végrehajtó él</strong> (' + escapeHtml(h.workers[0] && h.workers[0].host ? h.workers[0].host : 'ismeretlen gép') + ', ' + cbAgo(h.lastSeenAt) + ').')
+      lines.push('<strong>' + escapeHtml(t('cb.health.worker_online')) + '</strong> (' + escapeHtml(h.workers[0] && h.workers[0].host ? h.workers[0].host : t('cb.health.unknown_host')) + ', ' + cbAgo(h.lastSeenAt) + ').')
     }
 
     if (h.enabled && h.workerOnline && h.sessions === 0) {
@@ -32384,6 +32409,10 @@ async function _intezoCfgSave() {
       if (m && models.indexOf(m) === -1) models.push(m)
     }
     set('cbTileModel', models.length ? models.join(', ') : t('cb.card.model_unknown'))
+    // A modellt a VS Code-ban valasztjak (/model). Ez ITT, a csempe alatt all
+    // ki -- a kartyan mar eleg informacio van. A teljes mondat a tooltipben.
+    const modelNote = document.getElementById('cbTileModelNote')
+    if (modelNote) modelNote.title = t('cb.card.model_where_help')
 
     // Csatorna: a kod-bot. A nev is kiirodik, ha tudjuk -- azt keresi a szem.
     const bot = health && health.codeBot

@@ -36,6 +36,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# A SAJAT verzioja. A szkript a felhasznalo gepen egy MASOLATBAN fut, es egy
+# elavult masolat nem hibazik: nemaan regi adatot kuld. Ezert megy fel minden
+# felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
+# kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
+# valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
+$script:WorkerVersion = '2026-08-23.2'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -409,7 +415,7 @@ function Publish-Sessions {
     # session count of the last successful pass (COALESCE keeps it), so the
     # page would still claim "3 projects" while the executor found none.
     Write-Log 'no local Claude Code sessions found -- reporting empty list' 'WARN'
-    $emptyBody = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"sessions":[]}'
+    $emptyBody = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"workerVersion":' + ($script:WorkerVersion | ConvertTo-Json -Compress) + ',"sessions":[]}'
     try {
       Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $emptyBody | Out-Null
     } catch {
@@ -423,7 +429,7 @@ function Publish-Sessions {
   # the count is. (The server tolerates both now, but the client should not be
   # the one relying on that.)
   $sessionsJson = '[' + (($sessions | ForEach-Object { $_ | ConvertTo-Json -Depth 6 -Compress }) -join ',') + ']'
-  $body = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"sessions":' + $sessionsJson + '}'
+  $body = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"workerVersion":' + ($script:WorkerVersion | ConvertTo-Json -Compress) + ',"sessions":' + $sessionsJson + '}'
   $resp = Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $body
   Write-Log ('sessions reported: ' + ($resp.registered -join ', '))
   Close-RequestedSessions -Requested $resp.closeSessions -Sessions $sessions

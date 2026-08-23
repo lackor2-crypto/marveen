@@ -93,17 +93,60 @@ describe('self-check row', () => {
     expect(rows[0]!.params!['n']).toBe(3)
   })
 
+  // A telepitett Windows-peldany verzioja. Ez a fixture azt a gepet irja le,
+  // ahol a masolat NAPRAKESZ -- kulonben az elavultsag-sor szolal meg, es az
+  // "minden rendben" agat sosem ernenk el.
+  const worker = (version: string | null) => ([{
+    host: 'DESKTOP-X', lastSeenAt: Date.now(), lastAction: 'discovery',
+    sessionsReported: 3, version,
+  }])
+  const naprakesz = () => {
+    const ps1 = readFileSync(join(process.cwd(), 'scripts', 'windows', 'marvin-code-worker.ps1'), 'utf8')
+    const m = /\$script:WorkerVersion\s*=\s*'([^']{1,40})'/.exec(ps1)
+    expect(m, 'a worker szkriptbol ki kell olvashato legyen a verzio').toBeTruthy()
+    return m![1]!
+  }
+
   it('says it out loud when everything is fine', () => {
     // Silence here would be indistinguishable from the check not running --
     // which is exactly the shape of the bug this whole row exists to catch.
-    const rows = codeBridgeRows(Date.now(), health({ sessions: 3 }))
+    const rows = codeBridgeRows(Date.now(), health({ sessions: 3, workers: worker(naprakesz()) }))
     expect(rows[0]!.id).toBe('code_bridge_ok')
     expect(rows[0]!.status).toBe('ok')
     expect(rows[0]!.params!['n']).toBe(3)
   })
 
+  // Boss, 2026-08-23: "kosd be". A Windows-szkript a felhasznalo gepen egy
+  // MASOLATBAN fut; egy elavult masolat nem hibazik, csak nemaan regi adatot
+  // kuld. Harom KULON allapot, harom kulon mondattal.
+  it('szol, ha a telepitett peldany elavult', () => {
+    const rows = codeBridgeRows(Date.now(), health({ sessions: 3, workers: worker('1999-01-01.1') }))
+    expect(rows[0]!.id).toBe('code_bridge_worker_stale')
+    expect(rows[0]!.status).toBe('warn')
+    expect(rows[0]!.params!['r']).toBe('1999-01-01.1')
+    expect(rows[0]!.params!['e']).toBe(naprakesz())
+  })
+
+  it('a felderites ELOTT nem kialt elavultsagot -- az meg "nem latok oda"', () => {
+    // Merve 2026-08-23: a claim 3 masodpercenkent fut es nem visz verziot, a
+    // felderites percenkent igen. A kettő kozott a sor nem allithatja, hogy
+    // regi a peldany.
+    const w = worker(null)
+    w[0]!.sessionsReported = null
+    w[0]!.lastAction = 'claim'
+    const rows = codeBridgeRows(Date.now(), health({ sessions: 3, workers: w }))
+    expect(rows[0]!.id).toBe('code_bridge_worker_unknown')
+  })
+
+  it('szol, ha a peldany verziot sem kuld (a verziojeles elotti masolat)', () => {
+    const rows = codeBridgeRows(Date.now(), health({ sessions: 3, workers: worker(null) }))
+    expect(rows[0]!.id).toBe('code_bridge_worker_unversioned')
+    expect(rows[0]!.status).toBe('warn')
+  })
+
   it('every row id it can emit has both a label and an advice line, in both languages', () => {
-    const ids = ['code_bridge_never', 'code_bridge_dead', 'code_bridge_ok']
+    const ids = ['code_bridge_never', 'code_bridge_dead', 'code_bridge_ok',
+      'code_bridge_worker_stale', 'code_bridge_worker_unversioned', 'code_bridge_worker_unknown']
     for (const lang of ['hu', 'en']) {
       const src = readFileSync(join(process.cwd(), 'web', 'lang', lang + '.js'), 'utf8')
       for (const id of ids) {

@@ -32,8 +32,12 @@ describe('modell: a kartyan all, hogy hol allithato', () => {
     const cardAt = app.indexOf('code-bridge-agent-card')
     const footer = app.slice(cardAt, app.indexOf('agent-card-actions', cardAt))
     expect(footer).toContain('agent-model-badge')
-    expect(footer).toContain("t('cb.card.model_where')")
-    expect(footer).toContain("t('cb.card.model_where_help')")
+    // 2026-08-23, masodik kor: NEM a kartyan, hanem a reszletes ablak MODELL
+    // csempeje alatt -- a kartyan mar eleg informacio van.
+    expect(footer).not.toContain('cb-model-note')
+    const html = readFileSync(join(ROOT, 'web', 'index.html'), 'utf8')
+    expect(html).toContain('id="cbTileModelNote"')
+    expect(html).toContain('data-i18n="cb.card.model_where"')
   })
   it('a szoveg ketnyelvu', () => {
     for (const k of ['cb.card.model_where', 'cb.card.model_where_help']) {

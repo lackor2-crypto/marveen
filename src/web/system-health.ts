@@ -60,6 +60,7 @@ import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
+import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
@@ -718,6 +719,32 @@ export function codeBridgeRows(
       status: 'bad',
       params: { p: Math.floor(kora / 60000), n: d.queued + d.running },
     }]
+  }
+  // A TELEPITETT Windows-peldany elavulhat anelkul, hogy barmi szolna: a
+  // szkript a sajat gepen egy masolatban fut, es egy regi masolat nem hibazik,
+  // csak nemaan regi adatot kuld. (2026-08-23: a rossz beszelgetes-cimek.)
+  const varhato = expectedWorkerVersion()
+  const jelentett = d.workers[0]?.version ?? null
+  if (varhato === null) {
+    // NEM LATUNK ODA: nincs meg a szkript ebben a telepitesben, vagy nincs
+    // benne verziojeloles. Ez nem ugyanaz, mint hogy elavult.
+    return [{ id: 'code_bridge_worker_unknown', status: 'warn', params: { n: d.sessions } }]
+  }
+  if (jelentett === null && (d.workers[0]?.sessionsReported ?? null) === null) {
+    // A verziot a FELDERITESI kor hozza (merve 2026-08-23: a claim 3
+    // masodpercenkent fut, a felderites percenkent). Amig az elso felderites
+    // le nem futott, nem tudjuk, hanyadik peldany fut -- ez "nem latok oda",
+    // nem "elavult". Enelkul minden friss telepites egy percig hamis
+    // figyelmeztetessel indulna.
+    return [{ id: 'code_bridge_worker_unknown', status: 'warn', params: { n: d.sessions } }]
+  }
+  if (jelentett === null) {
+    // A FELDERITES megjott, csak verzio nelkul -> a telepitett peldany regebbi
+    // annal, mint amikor a verziojeloles bekerult.
+    return [{ id: 'code_bridge_worker_unversioned', status: 'warn', params: { e: varhato } }]
+  }
+  if (jelentett !== varhato) {
+    return [{ id: 'code_bridge_worker_stale', status: 'warn', params: { r: jelentett, e: varhato } }]
   }
   // Zold sor is kell: a hallgatas nem megkulonboztetheto a nem-futo
   // ellenorzestol -- pontosan ez a csapda vitte el az elozo ket hetet.

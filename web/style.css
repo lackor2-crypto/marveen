@@ -2039,11 +2039,16 @@ main.email-active .page-header { flex-shrink: 0; }
   transform: translateY(-2px);
 }
 
+/* A fejlec magassaganak ALSO hatara van, kulonben a modell sora kartyankent
+   mashol kezdodik (Boss, 2026-08-23). A leiras 2 sorra van vagva, a nev es a
+   jelveny egy-egy sor -- ennyi fer bele, es ennyit tartunk fenn akkor is, ha
+   egy kartyan kevesebb all. */
 .agent-card-top {
   display: flex;
   align-items: flex-start;
   gap: 14px;
   margin-bottom: 12px;
+  min-height: 82px;
 }
 
 .agent-avatar {
@@ -10690,6 +10695,7 @@ details.upstream-box > summary > h4 {
 
 /* Kod-hid: kontextus-sor a kartyan (token + karbantarto gombok). */
 .cb-ctx-row {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   margin: 6px 0 2px; padding: 6px 8px;
   border: 1px dashed var(--border); border-radius: 8px;
@@ -10709,12 +10715,19 @@ details.upstream-box > summary > h4 {
 
 /* Elo beszelgetesek valasztoja a VS Code kartyan. A kartyan volt szabad hely
    (Boss, 2026-08-23), es a bejelolt sor mondja meg, hova megy a feladat. */
-.cb-tabs-pick { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+/* A gombsor ALATT is vonal kell -- a szomszedos kartyakon ott az
+   .agent-context-controls felso vonala, es a kod-hid kartyajan a
+   ful-lista all ugyanazon a helyen. (Boss, 2026-08-23: "a szomszedos
+   kartyakon is van alatta.") */
+.cb-tabs-pick { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
 .cb-tabs-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; margin-bottom: 2px; }
 .cb-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 0; }
 .cb-tab-row input { margin: 0; flex: 0 0 auto; }
-.cb-tab-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cb-tab-ctx { flex: 0 0 auto; opacity: .6; font-variant-numeric: tabular-nums; }
+/* A CIM viszi az egesz maradek helyet: egyedul az mondja meg, melyik
+   beszelgetes ez. A `min-width: 0` nelkul a flex-elem nem megy a tartalma ala,
+   es a jelzok szoritjak ossze a cimet -- pont forditva, mint kellene. */
+.cb-tab-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-tab-ctx { flex: 0 0 auto; opacity: .55; font-size: 11px; font-variant-numeric: tabular-nums; }
 .cb-tabs-empty { font-size: 12px; opacity: .65; }
 
 /* A kod-hid ful-sorai: a "nema" jelzes es a bezaras-gomb. A gomb csak akkor
@@ -10722,25 +10735,30 @@ details.upstream-box > summary > h4 {
 .cb-model-note {
   font-size: 11px;
   color: var(--muted, #888);
-  white-space: nowrap;
+  line-height: 1.35;
 }
+/* Nema ful: egyetlen sarga pont. HOGY hany oraja, az a tooltipben all -- a
+   sorban a cimnek kell a hely. */
 .cb-tab-idle {
-  font-size: 11px;
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 1;
   color: var(--warning, #d4a52c);
-  white-space: nowrap;
+  cursor: help;
 }
 .cb-tab-close {
-  font-size: 11px;
+  font-size: 15px;
   line-height: 1;
-  padding: 3px 7px;
-  margin-left: auto;
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  padding: 0 4px 2px;
+  flex: 0 0 auto;
+  border: none;
   background: transparent;
+  color: var(--danger, #c0392b);
   color: var(--muted, #888);
   cursor: pointer;
 }
 .cb-tab-close:hover {
-  border-color: var(--danger, #c0392b);
   color: var(--danger, #c0392b);
+  opacity: 1;
+  transform: scale(1.15);
 }

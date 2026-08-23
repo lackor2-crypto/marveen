@@ -702,7 +702,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       /** Melyik modell felel a beszelgetesben (a transcript utolso soraból). */
       model?: string
     }
-    const body = await parseJsonBody<{ host?: string; sessions?: ReportedSession | ReportedSession[] }>(ctx)
+    const body = await parseJsonBody<{ host?: string; workerVersion?: string; sessions?: ReportedSession | ReportedSession[] }>(ctx)
     // A single session may arrive as a bare object rather than a one-element
     // array: PowerShell's ConvertTo-Json flattens `@(x)` to `x`. Rejecting that
     // would break exactly the machines with one project -- the smallest, most
@@ -719,7 +719,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // difference between "the executor is gone" and "it runs but finds nothing"
     // is the whole diagnosis. Stamping only on success would have reported the
     // running-but-empty worker of 2026-08-20 as dead.
-    recordCodeWorkerSeen(body.host ?? 'windows', 'discovery', reported.length)
+    // A verziot a felderitesi kor hozza. Regi peldany nem kuld semmit -> `null`
+    // marad, es a Attekintes onellenorzese pont ezt teszi szova.
+    recordCodeWorkerSeen(body.host ?? 'windows', 'discovery', reported.length, Date.now(), body.workerVersion ?? null)
     // A NYERS lista is eltevodik, mielott a kizaras vagy a regisztracio szurne:
     // a felulet ebbol tud valaszthato listat kinalni ahelyett, hogy utvonalat
     // es UUID-t kellene begepelni.

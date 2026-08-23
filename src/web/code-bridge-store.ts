@@ -164,9 +164,17 @@ function ensureTables(): void {
       host TEXT PRIMARY KEY,
       last_seen_at INTEGER NOT NULL,
       last_action TEXT,
-      sessions_reported INTEGER
+      sessions_reported INTEGER,
+      worker_version TEXT
     )
   `)
+  // Meglevo telepites: az oszlop utolag kerul be. A `duplicate column` az
+  // EGYETLEN hiba, amit itt le szabad nyelni -- barmi mas szoljon.
+  try {
+    db.exec(`ALTER TABLE code_workers ADD COLUMN worker_version TEXT`)
+  } catch (err) {
+    if (!/duplicate column/i.test(String((err as Error)?.message ?? ''))) throw err
+  }
   ensured = true
 }
 
@@ -932,6 +940,11 @@ export interface CodeWorker {
   lastSeenAt: number
   lastAction: string | null
   sessionsReported: number | null
+  /** A Windows-oldali szkript verzioja, ahogy MAGA jelenti.
+   *  `null` = nem kuldott verziot -> a telepitett peldany REGEBBI annal, mint
+   *  amikor a verziojeloles bekerult. Ez NEM ugyanaz, mint a "nem latok oda":
+   *  a jelentes megerkezett, csak verzio nelkul. */
+  version: string | null
 }
 
 /** A worker that has not called in for this long is treated as DOWN. It polls
@@ -949,19 +962,35 @@ export function recordCodeWorkerSeen(
   action: string,
   sessionsReported?: number,
   now = Date.now(),
+  version?: string | null,
 ): void {
   ensureTables()
   const id = (host || 'windows').trim().slice(0, 120) || 'windows'
+  const ver = typeof version === 'string' && version.trim() ? version.trim().slice(0, 40) : null
   getDb().prepare(
-    `INSERT INTO code_workers (host, last_seen_at, last_action, sessions_reported)
-     VALUES (@host, @now, @action, @reported)
+    `INSERT INTO code_workers (host, last_seen_at, last_action, sessions_reported, worker_version)
+     VALUES (@host, @now, @action, @reported, @version)
      ON CONFLICT(host) DO UPDATE SET
        last_seen_at = excluded.last_seen_at,
        last_action = excluded.last_action,
        -- Only a discovery round knows the session count; a claim/heartbeat must
        -- not blank out what the last discovery reported.
-       sessions_reported = COALESCE(excluded.sessions_reported, code_workers.sessions_reported)`,
-  ).run({ host: id, now, action: action.slice(0, 40), reported: sessionsReported ?? null })
+       sessions_reported = COALESCE(excluded.sessions_reported, code_workers.sessions_reported),
+       -- A verziot CSAK a felderitesi kor irja: az visz verziot. A claim
+       -- 3 masodpercenkent fut, es ha az is irna, NULL-t tenne a helyere --
+       -- merve 2026-08-23: a mezo ezert maradt ures a friss workernel is.
+       -- A felderites viszont FELULIR (a COALESCE elrejtene, ha valaki egy
+       -- regi peldanyt allit vissza), es a verziotlan regi peldany ott is
+       -- NULL-t ir, tehat az elavultsag latszik.
+       worker_version = CASE WHEN @isDiscovery = 1 THEN excluded.worker_version ELSE code_workers.worker_version END`,
+  ).run({
+    host: id,
+    now,
+    action: action.slice(0, 40),
+    reported: sessionsReported ?? null,
+    version: ver,
+    isDiscovery: action === 'discovery' ? 1 : 0,
+  })
 }
 
 /** Amit a worker a LEGUTOBBI felderitesi koreben a gepen talalt -- nyersen,
@@ -1103,6 +1132,7 @@ export function listCodeWorkers(): CodeWorker[] {
     lastSeenAt: row['last_seen_at'] as number,
     lastAction: (row['last_action'] as string | null) ?? null,
     sessionsReported: (row['sessions_reported'] as number | null) ?? null,
+    version: (row['worker_version'] as string | null) ?? null,
   }))
 }
 
