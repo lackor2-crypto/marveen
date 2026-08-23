@@ -32322,7 +32322,7 @@ async function _intezoCfgSave() {
     set('cbTileChannel',
       !health ? t('cb.tile.unknown')
       : !health.botConfigured ? t('cb.tile.channel_none')
-      : (bot && bot.username) ? '@' + bot.username
+      : (bot && bot.username) ? '@' + String(bot.username).replace(/^@+/, '')
       : t('cb.tile.channel_set'))
 
     set('cbTileSkills', _cbSkillCount === null ? t('cb.tile.unknown') : String(_cbSkillCount))
