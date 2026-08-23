@@ -187,8 +187,17 @@ describe('a felulet nem ker begepelt utvonalat', () => {
     expect(html).toContain('id="cbCandRestart"')
   })
 
+  // A projektek-kartya markupja. Szandekosan NEM a kovetkezo kartyaig vagunk:
+  // a fulekre bontas ota a kartyak sorrendje mas fulon van, es egy sorrendre
+  // horgonyzott szelet uresen is "atmenne" barmilyen tartalmi allitason.
+  const cbProjectsCardHtml = () => {
+    const at = html.indexOf('id="cbProjectsCard"')
+    expect(at, 'cbProjectsCard nincs a lapon').toBeGreaterThan(-1)
+    return html.slice(at)
+  }
+
   it('every field of the manual form carries its own explanation', () => {
-    const form = html.slice(html.indexOf('id="cbProjectsCard"'), html.indexOf('id="cbWorkerCard"'))
+    const form = cbProjectsCardHtml()
     for (const id of ['cbAddProject', 'cbAddWorkspace', 'cbAddSession']) {
       const at = form.indexOf('id="' + id + '"')
       expect(at, id + ' hianyzik az urlapbol').toBeGreaterThan(-1)
@@ -199,7 +208,7 @@ describe('a felulet nem ker begepelt utvonalat', () => {
   })
 
   it('answers the "is the UUID mandatory" question in the form itself', () => {
-    const form = html.slice(html.indexOf('id="cbProjectsCard"'), html.indexOf('id="cbWorkerCard"'))
+    const form = cbProjectsCardHtml()
     // Ket kotelezo mezo es egy nem kotelezo -- kimondva, nem kitalalva.
     expect(form).toContain('cb-req')
     expect(form).toContain('cb-opt')
@@ -223,7 +232,15 @@ describe('a felulet nem ker begepelt utvonalat', () => {
   it('warns in Hungarian BEFORE the server answers in English', () => {
     // A szerver hibauzenete angol; ha a lap tovabbengedi, az a felhasznalo ele
     // kerul. A kezi urlap ezert maga ellenorzi a harom esetet.
-    const handler = app.slice(app.indexOf("if (t.id === 'cbAddBtn')"), app.indexOf("if (t.id === 'cbBotSaveBtn'"))
+    // A kattintas-kezelo esemeny-valtozoja `tgt` (2026-08-23: korabban `t` volt,
+    // ami LEARNYEKOLTA a `t()` fordito fuggvenyt -- lasd
+    // i18n-t-not-shadowed.test.ts). A horgony ezert nem kotodik a valtozo
+    // nevehez: a gomb AZONOSITOJAT keressuk, nem azt, mi hivatkozik ra.
+    const from = app.indexOf("'cbAddBtn')")
+    const to = app.indexOf("'cbBotSaveBtn'", from)
+    expect(from, 'a cbAddBtn kezeloje nincs meg a lapon').toBeGreaterThan(-1)
+    expect(to, 'a cbBotSaveBtn kezeloje nincs meg a lapon').toBeGreaterThan(from)
+    const handler = app.slice(from, to)
     expect(handler).toContain('Adj nevet a projektnek')
     expect(handler).toContain('Add meg a projekt mappáját')
     expect(handler).toContain('a session-azonosító most kötelező')

@@ -14,7 +14,11 @@
 // 127.0.0.1 (measured), so a remote caller with a leaked token still cannot
 // impersonate the executor or drain the queue.
 
-import { json, readBody } from '../http-helpers.js'
+import { json, readBody, serveFile } from '../http-helpers.js'
+import { parseMultipart } from '../multipart.js'
+import { probeWorkspace } from '../code-bridge-workspace.js'
+import { generateSkillMd } from '../agent-scaffold.js'
+import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
 import {
   CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, PROJECT_ROOT,
@@ -33,8 +37,8 @@ import {
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
   type CodeTaskStatus, type CodeTaskOrigin,
 } from '../code-bridge-store.js'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
+import { join, extname } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { notifyCodeTaskFinished } from '../code-bridge-notify.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
@@ -68,6 +72,54 @@ export function detectHostKind(): 'wsl' | 'windows' | 'unix' {
     // No /proc (a container without it, a BSD): plain unix is the safe answer.
   }
   return 'unix'
+}
+
+// ---- identitas + skillek: hol laknak a fajlok -------------------------------
+//
+// A kod-hid egy UGYNOK a feluleten, de nincs `agents/<nev>` mappaja, ezert a
+// sajat holmija ide kerul. Friss telepitesen ez a mappa NINCS meg: minden
+// olvaso ag ugy van megirva, hogy a hianya = "meg nincs beallitva", nem hiba.
+const CODE_BRIDGE_DIR = join(PROJECT_ROOT, 'store', 'code-bridge')
+const AVATAR_EXTS = ['.png', '.jpg', '.jpeg', '.webp']
+
+function avatarCandidates(): string[] {
+  return AVATAR_EXTS.map((ext) => join(CODE_BRIDGE_DIR, `avatar${ext}`))
+}
+
+function findCodeBridgeAvatar(): string | null {
+  for (const p of avatarCandidates()) if (existsSync(p)) return p
+  return null
+}
+
+/** Mappaneve lesz belole, tehat ugyanaz a szigor kell, mint az ugynok-skillekre:
+ *  se `..`, se elvalaszto, se rejtett nev. Ures string = elutasitas. */
+function sanitizeCodeSkillName(raw: string): string {
+  const name = (raw || '').trim().replace(/\s+/g, '-')
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name)) return ''
+  if (name.includes('..')) return ''
+  return name
+}
+
+/** Egy VS Code-projekt skilljei a MAPPAJABAN laknak (`.claude/skills/`), mert a
+ *  headless `claude.exe` is onnan olvassa oket. Nem Marveen `~/.claude/skills`-e:
+ *  az egy MASIK gep masik fajlrendszere, oda irt skillt a Windows-oldali Claude
+ *  soha nem latna. */
+function codeSkillsDir(localWorkspacePath: string): string {
+  return join(localWorkspacePath, '.claude', 'skills')
+}
+
+function readCodeSkillDescription(dir: string): string {
+  try {
+    const md = readFileSync(join(dir, 'SKILL.md'), 'utf-8')
+    const fm = md.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+    const desc = fm?.[1]?.match(/^description:\s*(.+)$/m)?.[1]?.trim()
+    if (desc) return desc.replace(/^["']|["']$/g, '')
+    // Nincs frontmatter: az elso ertelmes sor is tobb a semminel.
+    const line = md.split('\n').find((l) => l.trim() && !l.startsWith('#') && !l.startsWith('---'))
+    return (line ?? '').trim()
+  } catch {
+    return ''
+  }
 }
 
 function isLoopback(remote: string | undefined): boolean {
@@ -113,7 +165,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // back on. Gating these too would mean the only way back from a switch flipped
   // in the UI is hand-editing a file, which is the failure this whole page exists
   // to remove. Everything that actually MOVES a task stays behind the gate.
-  const alwaysOn = path === '/api/code/health' || path === '/api/code/config' || path === '/api/code/worker-script'
+  // Az avatar a kartya IKONJA: kikapcsolt hid mellett is latszik a kartya,
+  // tehat az ikonjanak is latszania kell -- kulonben a kikapcsolas ugy nezne
+  // ki, mintha az ugynok identitasa is elveszett volna.
+  const alwaysOn = path === '/api/code/health' || path === '/api/code/config'
+    || path === '/api/code/worker-script' || path === '/api/code/avatar'
   if (!CODE_BRIDGE_ENABLED && !alwaysOn) {
     json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)' }, 503)
     return true
@@ -168,6 +224,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     json(res, {
       ...health,
       candidates: { free: candFree, excluded: candExcluded, dismissed: candDismissed },
+      // Van-e sajat ikonja a hidnak. Merve (letezik-e a fajl), nem feltetelezve:
+      // `false` mellett a kartya a monogramot rajzolja, ami friss telepitesen a
+      // helyes alapertelmezes.
+      avatar: findCodeBridgeAvatar() !== null,
       staleAfterMs: WORKER_STALE_MS,
       enabled: CODE_BRIDGE_ENABLED,
       permissionMode: CODE_PERMISSION_MODE,
@@ -258,6 +318,165 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // ---- IDENTITAS: a kartya ikonja ---------------------------------------
+  //
+  // Boss, 2026-08-23: "attekintesben lehessen ugy pld az ikont kepet
+  // valtoztatni". Ugyanaz a ket ut, mint barmelyik ugynok-kartyan: galeriabol
+  // valasztas vagy sajat kep feltoltese -- vegig a FELULETROL, terminal nelkul.
+  if (path === '/api/code/avatar') {
+    if (method === 'GET') {
+      const found = findCodeBridgeAvatar()
+      // A 404 itt NEM hiba: azt jelenti, hogy meg nincs beallitva kep, es a
+      // felulet a monogramot rajzolja. Friss telepitesen ez a normalis allapot.
+      if (!found) { json(res, { error: 'no avatar set' }, 404); return true }
+      serveFile(ctx.req, res, found, { cacheSeconds: 3600 })
+      return true
+    }
+
+    if (method === 'DELETE') {
+      for (const p of avatarCandidates()) { try { unlinkSync(p) } catch { /* nem volt ott */ } }
+      json(res, { ok: true })
+      return true
+    }
+
+    if (method === 'POST') {
+      const contentType = ctx.req.headers['content-type'] || ''
+      const body = await readBody(ctx.req, { maxBytes: 4 * 1024 * 1024 })
+      // A regi kepeket takaritani KELL (kulonben egy .png utan feltoltott .jpg
+      // mellett a regi .png maradna "az" avatar), de CSAK akkor, amikor mar van
+      // mit a helyere tenni. Elobb torolni annyit jelentene, hogy egy elhasalt
+      // feltoltes (nincs fajl a kerelemben, nem letezo galeria-kep) elveszi a
+      // meglevo ikont is -- a felhasznalo egy sikertelen muvelet utan MEG
+      // rosszabb allapotban lenne, mint elotte.
+      const replaceAvatar = (write: (target: string) => void, ext: string): void => {
+        mkdirSync(CODE_BRIDGE_DIR, { recursive: true })
+        for (const p of avatarCandidates()) { try { unlinkSync(p) } catch { /* nem volt ott */ } }
+        write(join(CODE_BRIDGE_DIR, `avatar${ext}`))
+      }
+
+      if (contentType.includes('application/json')) {
+        let galleryAvatar = ''
+        try { galleryAvatar = String((JSON.parse(body.toString()) as { galleryAvatar?: string }).galleryAvatar ?? '') } catch { /* lentebb elbukik */ }
+        if (!galleryAvatar) { json(res, { error: 'no avatar specified' }, 400); return true }
+        if (galleryAvatar.includes('..') || galleryAvatar.includes('/') || galleryAvatar.includes('\\')) {
+          json(res, { error: 'invalid avatar name' }, 400); return true
+        }
+        const srcPath = join(PROJECT_ROOT, 'web', 'avatars', galleryAvatar)
+        if (!existsSync(srcPath)) { json(res, { error: 'avatar not found' }, 404); return true }
+        const ext = AVATAR_EXTS.includes(extname(galleryAvatar).toLowerCase()) ? extname(galleryAvatar).toLowerCase() : '.png'
+        replaceAvatar((target) => copyFileSync(srcPath, target), ext)
+        json(res, { ok: true })
+        return true
+      }
+
+      const { file } = parseMultipart(body, contentType)
+      if (!file) { json(res, { error: 'no file uploaded' }, 400); return true }
+      const ext = AVATAR_EXTS.includes(extname(file.name).toLowerCase()) ? extname(file.name).toLowerCase() : '.png'
+      replaceAvatar((target) => writeFileSync(target, file.data), ext)
+      json(res, { ok: true })
+      return true
+    }
+  }
+
+  // ---- SKILLEK ----------------------------------------------------------
+  //
+  // Boss, 2026-08-23: "skilleket is lehet ehhez irni. ugye miert ne lhetne."
+  //
+  // Egy VS Code-projekt skilljei a projekt SAJAT mappajaban laknak
+  // (`<workspace>/.claude/skills/<nev>/SKILL.md`), mert a feladatot vegrehajto
+  // headless `claude.exe` is onnan olvassa oket. Marveen `~/.claude/skills`-e
+  // ide nem jo: az egy masik gep masik fajlrendszere.
+  //
+  // ★ EZERT VAN MINDEN VALASZBAN `reachable` + `reason`. A dashboard a WSL-ben
+  // ul, a mappa a Windowson; ha nem latunk oda, a nulla skill NEM azt jelenti,
+  // hogy nincs egy sem. A kettot a felulet KULON mondja ki, es az okot a
+  // tenyleges hibauzenetbol veszi -- nem talalgatja.
+  if (path === '/api/code/skills') {
+    const project = normalizeAlias(url.searchParams.get('project') ?? '')
+    const readProject = (alias: string): { session: ReturnType<typeof getCodeSession>; probe: ReturnType<typeof probeWorkspace> | null } => {
+      const session = getCodeSession(alias)
+      return { session, probe: session ? probeWorkspace(session.workspacePath) : null }
+    }
+
+    if (method === 'GET') {
+      if (!project) { json(res, { error: 'project query parameter is required' }, 400); return true }
+      const { session, probe } = readProject(project)
+      if (!session || !probe) { json(res, { error: 'unknown project: ' + project }, 404); return true }
+      if (!probe.reachable) {
+        json(res, { project, ...probe, skills: [] })
+        return true
+      }
+      const dir = codeSkillsDir(probe.localPath!)
+      let skills: Array<{ name: string; description: string; hasSkillMd: boolean }> = []
+      try {
+        skills = readdirSync(dir)
+          .filter((f) => { try { return statSync(join(dir, f)).isDirectory() } catch { return false } })
+          .map((f) => ({
+            name: f,
+            description: readCodeSkillDescription(join(dir, f)),
+            hasSkillMd: existsSync(join(dir, f, 'SKILL.md')),
+          }))
+      } catch (err) {
+        // A mappa hianya a normalis kezdoallapot (meg egy skill sincs); barmi
+        // MAS olvasasi hiba viszont "nem latok oda", es ki kell mondani.
+        const code = (err as NodeJS.ErrnoException).code
+        if (code !== 'ENOENT') {
+          json(res, { project, ...probe, reachable: false, reason: err instanceof Error ? err.message : String(err), skills: [] })
+          return true
+        }
+      }
+      json(res, { project, ...probe, skillsDir: dir, skills })
+      return true
+    }
+
+    if (method === 'POST') {
+      const body = await parseJsonBody<{ project?: string; name?: string; description?: string }>(ctx)
+      if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
+      const alias = normalizeAlias(String(body.project ?? ''))
+      const skillName = sanitizeCodeSkillName(String(body.name ?? ''))
+      const description = String(body.description ?? '').trim()
+      if (!alias) { json(res, { error: 'project is required' }, 400); return true }
+      if (!skillName) { json(res, { error: 'invalid skill name' }, 400); return true }
+      if (!description) { json(res, { error: 'skill description is required' }, 400); return true }
+
+      const { session, probe } = readProject(alias)
+      if (!session || !probe) { json(res, { error: 'unknown project: ' + alias }, 404); return true }
+      // Nem irunk vakon: ha nem latunk a mappara, azt mondjuk meg, es nem azt,
+      // hogy "sikerult". A `reason` a tenyleges hibauzenet.
+      if (!probe.reachable) { json(res, { error: probe.reason, ...probe }, 409); return true }
+
+      const skillDir = join(codeSkillsDir(probe.localPath!), skillName)
+      if (existsSync(skillDir)) { json(res, { error: 'skill already exists' }, 409); return true }
+      mkdirSync(skillDir, { recursive: true })
+      try {
+        atomicWriteFileSync(join(skillDir, 'SKILL.md'), await generateSkillMd(skillName, description))
+      } catch (err) {
+        rmSync(skillDir, { recursive: true, force: true })
+        logger.warn({ err, alias, skillName }, 'code-bridge: skill generation failed')
+        json(res, { error: err instanceof Error ? err.message : String(err) }, 500)
+        return true
+      }
+      logger.info({ alias, skillName, skillDir }, 'code-bridge: skill created')
+      json(res, { ok: true, name: skillName, skillDir })
+      return true
+    }
+
+    if (method === 'DELETE') {
+      const skillName = sanitizeCodeSkillName(url.searchParams.get('name') ?? '')
+      if (!project) { json(res, { error: 'project query parameter is required' }, 400); return true }
+      if (!skillName) { json(res, { error: 'invalid skill name' }, 400); return true }
+      const { session, probe } = readProject(project)
+      if (!session || !probe) { json(res, { error: 'unknown project: ' + project }, 404); return true }
+      if (!probe.reachable) { json(res, { error: probe.reason, ...probe }, 409); return true }
+      const skillDir = join(codeSkillsDir(probe.localPath!), skillName)
+      if (!existsSync(skillDir)) { json(res, { error: 'skill not found' }, 404); return true }
+      rmSync(skillDir, { recursive: true, force: true })
+      logger.info({ project, skillName }, 'code-bridge: skill deleted')
+      json(res, { ok: true })
+      return true
+    }
+  }
+
   // Mit lat a worker EZEN a gepen. Harom allapot, mert harom kulon teendo:
   // a mar regisztralt sor nem kell megegyszer, a kizart csak a kizaras
   // feloldasa utan vehető fel, az uj pedig egy kattintassal.
@@ -279,14 +498,39 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         host: c.host,
         reportedAt: c.reportedAt,
         alias: registered ? registered.project : alias,
-        state: registered ? 'registered' : isExcludedProject(alias) ? 'excluded' : 'new',
+        // NEGY allapot, mert negy kulon teendo. A "levett" (dismissed) eddig
+        // "uj"-kent ment ki, holott a felhasznalo TUDATOSAN vette le -- igy a
+        // felulet ujra es ujra felajanlotta felvetelre ugyanazt a mappat.
+        state: registered
+          ? 'registered'
+          : isExcludedProject(alias)
+            ? 'excluded'
+            : isDismissedWorkspace(c.workspacePath)
+              ? 'dismissed'
+              : 'new',
         // A mappa legfrissebb beszelgetesenek felirata (a VS Code fulcimke), es
         // hogy HANY beszelgetes tartozik a mappahoz -- a tobbi a `/tabs`-on.
         title: c.title,
         tabCount: all.filter((x) => x.workspacePath.toLowerCase() === c.workspacePath.toLowerCase()).length,
       }
     })
-    json(res, { candidates })
+    // ★ A NULLA KET DOLGOT JELENTHET. Az ures lista lehet "a worker megnezte a
+    //   gepet, es tenyleg nincs nyitva Claude Code", vagy "a worker ota nem
+    //   jelentkezett, tehat NEM LATOK ODA" -- utobbi tipikusan a vezerlopult
+    //   ujrainditasa utan, amikor a jeloltek (memoriaban tartott lista) elszallnak
+    //   es a kovetkezo jelentesig ures. A kettot a felulet nem talalhatja ki a
+    //   darabszambol, ezert megmondjuk: megkerdezzuk magat a forrast (jelentkezik-e
+    //   a worker, es mikor jelentkezett utoljara).
+    const health = codeBridgeHealth()
+    json(res, {
+      candidates,
+      /** Latunk-e egyaltalan a Windows-gepre. `false` mellett a nulla NEM jelent
+       *  ures gepet -- csak annyit, hogy nincs friss jelentesunk. */
+      workerOnline: health.workerOnline,
+      lastSeenAt: health.lastSeenAt ?? null,
+      /** Erkezett-e mar barmilyen jelentes a vezerlopult indulasa ota. */
+      reported: all.length > 0,
+    })
     return true
   }
 

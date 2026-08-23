@@ -5169,7 +5169,8 @@ async function cbDeleteProject(project) {
     const body = await res.json().catch(() => null)
     if (!res.ok) { showToast(t('cb.card.delete_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
     showToast(t('cb.card.delete_done', { p: project }), 'success')
-    loadCodeBridgeCards()
+    await loadCodeBridgeCards()
+    renderAgents()
   } catch (err) {
     // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
     showToast(t('cb.card.delete_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
@@ -5259,7 +5260,9 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     const sub = shortDesc(botNote)
     card.innerHTML = `
       <div class="agent-card-top">
-        <div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>
+        ${codeBridgeCards.avatar
+          ? `<div class="agent-avatar"><img src="/api/code/avatar${avatarBust()}" alt=""></div>`
+          : `<div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>`}
         <div class="agent-card-info">
           <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
           <div class="cb-external-badge">${escapeHtml(t('cb.card.external_badge'))}</div>
@@ -5275,8 +5278,8 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         <button class="btn-secondary btn-compact code-bridge-open-btn">${escapeHtml(t('cb.card.settings'))}</button>
         ${e.roleHolder ? `
         <button class="btn-secondary btn-compact cb-ctx-compact" title="${escapeHtml(t('cb.card.compact_help'))}">${escapeHtml(t('cb.card.compact'))}</button>
-        <button class="btn-secondary btn-compact cb-ctx-clear" title="${escapeHtml(t('cb.card.clear_help'))}">${escapeHtml(t('cb.card.clear'))}</button>
-        <button class="btn-danger btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
+        <button class="btn-danger btn-compact cb-ctx-clear" title="${escapeHtml(t('cb.card.clear_help'))}">${escapeHtml(t('cb.card.clear'))}</button>
+        <button class="btn-secondary btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
       </div>
       ${e.roleHolder ? cbTabsPickHtml(e) : ''}
       ${e.roleHolder && !cbHasTabRows(e) ? cbContextRowHtml(e) : ''}
@@ -5313,6 +5316,10 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
 function openCodeBridgeModal() {
   const overlay = document.getElementById('cbOverlay')
   if (!overlay) return
+  // Mint barmelyik masik ugynok-ablak: nyitaskor az Attekintes all elol.
+  // Enelkul a masodik megnyitas ott folytatna, ahol az elozo abbamaradt, es a
+  // "hol vagyok?" kerdes minden korben ujra feltevodne.
+  if (typeof window.cbSwitchTab === 'function') window.cbSwitchTab('overview')
   openModal(overlay)
   callPageLoader('loadCodeBridgePage')
 }
@@ -5332,11 +5339,14 @@ async function loadCodeBridgeCards() {
     fetch('/api/code/projects').then((r) => (r.ok ? r.json() : null)).catch(() => null),
     fetch('/api/code/health').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ])
-  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false, queued: 0, running: 0, candidates: { free: 0, excluded: 0 } } ; return }
+  if (!health) { codeBridgeCards = { state: 'absent', projects: [], workerOnline: false, avatar: false, queued: 0, running: 0, candidates: { free: 0, excluded: 0 } } ; return }
   codeBridgeCards = {
     state: health.enabled === false ? 'disabled' : 'on',
     projects: (projects && Array.isArray(projects.projects)) ? projects.projects : [],
     workerOnline: Boolean(health.workerOnline),
+    // Regi backend nem kuldi -> `false` -> monogram. Ez a helyes visszaeses:
+    // nem talalunk ki ikont, amirol nem tudjuk, hogy letezik-e.
+    avatar: Boolean(health.avatar),
     queued: Number(health.queued) || 0,
     running: Number(health.running) || 0,
     // Regi backend nem kuldi -- olyankor a kartya a korabbi szoveget mondja.
@@ -18325,6 +18335,15 @@ if (document.readyState === 'loading') {
   _wireSelfCheckGuide()
 }
 
+// Mihez kepest? Onallo fuggveny, mert a "naprakesz" es a "nem sikerult a
+// meres" agnak is ki kell irnia: szam nelkul is tudni kell, melyik ket pontot
+// vetettuk ossze.
+function pairHtml(u) {
+  return (u.localRef && u.upstreamRef)
+    ? `<div class="upstream-sync-pair">${escapeHtml(t('overview.upstream.pair', { local: u.localRef, upstream: u.upstreamRef }))}</div>`
+    : ''
+}
+
 function renderOverviewUpstreamSync(upstreamSync) {
   const box = document.getElementById('overviewUpstreamSync')
   const body = document.getElementById('overviewUpstreamBody')
@@ -18365,6 +18384,46 @@ function renderOverviewUpstreamSync(upstreamSync) {
   meta.classList.toggle('upstream-meta-stale', age !== null && age > 10)
   const behind = upstreamSync.behindCount ?? 0
   const conflicts = upstreamSync.conflictCount ?? upstreamSync.conflictingFiles.length
+  // ★ A NULLA KET DOLGOT JELENTHET, es az upstream-doboz eddig nem valasztotta
+  //   szet a kettot: a "0 fajl / 0 utkozes / 0 commit" ugyanugy nezett ki, ha
+  //   NAPRAKESZEK vagyunk (a merge behuzta az egeszet), mint ha a meres el sem
+  //   jutott az upstreamig. A kulonbseget nem a szamokbol talaljuk ki -- magat
+  //   a forrast kerdezzuk meg: elhasalt-e a meres (`error`), es elerte-e a
+  //   halozatot (`fetchOk`).
+  const measureFailed = Boolean(upstreamSync.error)
+  if (measureFailed) {
+    // Az okot NEM talalgatjuk: a mero szkript sajat hibakodja megy ki, es
+    // mellette a kovetkezo lepes.
+    // Ismeretlen hibakodra a t() magat a kulcsot adja vissza -- azt nem irjuk
+    // ki emberi okkent; ilyenkor a szkript nyers kodja megy ki valtozatlanul.
+    const errKey = 'overview.upstream.err.' + upstreamSync.error
+    const errText = t(errKey)
+    const why = errText === errKey ? upstreamSync.error : errText
+    body.innerHTML =
+      '<div class="upstream-sync-offline">' + escapeHtml(t('overview.upstream.failed', { why })) + '</div>'
+      + (pairHtml(upstreamSync) || '')
+    if (changesBtn) changesBtn.hidden = true
+    return
+  }
+  if (behind === 0) {
+    // Ez a JO nulla -- de csak akkor mondhatjuk ki, ha a meres elerte a halot.
+    // Halozat nelkul a nulla csak az utoljara letoltott allapotra igaz, es ezt
+    // ki is mondjuk, nem naprakeszseget allitunk.
+    const ahead = upstreamSync.aheadCount ?? null
+    body.innerHTML =
+      '<div class="upstream-sync-uptodate">'
+      + escapeHtml(upstreamSync.fetchOk
+          ? t('overview.upstream.uptodate')
+          : t('overview.upstream.uptodate_stale'))
+      + '</div>'
+      + (ahead !== null && ahead > 0
+          ? '<div class="upstream-sync-commits">' + escapeHtml(t('overview.upstream.ahead', { n: ahead })) + '</div>'
+          : '')
+      + (pairHtml(upstreamSync) || '')
+    // Nincs mit felsorolni: a "Mi valtozott?" gomb ilyenkor ures listara nyilna.
+    if (changesBtn) changesBtn.hidden = true
+    return
+  }
   // A harmadik szam MERT ertek, nem szamtani trukk.
   //
   // Elotte `behind - conflicts` allt itt, es ez ket KULONBOZO dolgot vont ki
@@ -18388,9 +18447,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
   // pontot vetettuk ossze: a sajat agunkat es az upstream fejlesztoi agat
   // (itt upstream/develop, nem a main -- a ketto kozott most 23 commit a
   // kulonbseg, tehat nem mindegy).
-  const pair = (upstreamSync.localRef && upstreamSync.upstreamRef)
-    ? `<div class="upstream-sync-pair">${escapeHtml(t('overview.upstream.pair', { local: upstreamSync.localRef, upstream: upstreamSync.upstreamRef }))}</div>`
-    : ''
+  const pair = pairHtml(upstreamSync)
   // Ha a meres nem ert el a halozathoz, az upstream oldal az utolso letoltott
   // allapot -- a szamok ekkor is igazak, csak nem a MOSTANI upstreamre.
   const offline = (upstreamSync.fetchOk === false)
@@ -31321,19 +31378,19 @@ async function _intezoTplLoad() {
 function _intezoTplRender(collapsed) {
   const el = document.getElementById('intezoTemplates')
   if (!el || !_intezoTemplates) return
-  el.innerHTML = _intezoTemplates.map((t, i) => {
+  el.innerHTML = _intezoTemplates.map((tpl, i) => {
     // A mappaszam a leghasznosabb informacio a valasztashoz: ebbol latszik,
     // hogy tulzas-e valakinek a "teljes" szerkezet.
-    const db = _intezoTplCount(t.config)
+    const db = _intezoTplCount(tpl.config)
     return '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
       + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-      + '<strong style="flex:1;min-width:180px">' + escapeHtml(t.title) + '</strong>'
+      + '<strong style="flex:1;min-width:180px">' + escapeHtml(tpl.title) + '</strong>'
       + '<span class="subtitle" style="font-size:12px">' + escapeHtml(t('intezo.tpl_count', { n: db })) + '</span>'
       + '<button class="btn-secondary" data-tpl="' + i + '">' + escapeHtml(t('intezo.tpl_pick')) + '</button>'
       + '</div>'
-      + '<p class="subtitle" style="margin:6px 0 0">' + escapeHtml(t.summary) + '</p>'
+      + '<p class="subtitle" style="margin:6px 0 0">' + escapeHtml(tpl.summary) + '</p>'
       + '<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;opacity:.85">'
-      + (t.highlights || []).map((h) => '<li>' + escapeHtml(h) + '</li>').join('')
+      + (tpl.highlights || []).map((h) => '<li>' + escapeHtml(h) + '</li>').join('')
       + '</ul></div>'
   }).join('')
     + (collapsed
@@ -31342,14 +31399,14 @@ function _intezoTplRender(collapsed) {
 
   el.querySelectorAll('[data-tpl]').forEach((b) => {
     b.addEventListener('click', () => {
-      const t = _intezoTemplates[Number(b.getAttribute('data-tpl'))]
-      if (!t) return
+      const tpl = _intezoTemplates[Number(b.getAttribute('data-tpl'))]
+      if (!tpl) return
       // MEGERSITES, ha van mit elveszteni. A sablon a NEVEKET irja felul; ha
       // a felhasznalo mar begepelte a csaladjat, azt nem nyeljuk el szotlanul.
       const named = (_intezoCfg.persons || []).some((x) => (x.name || '').trim())
       if (named && !confirm(t('intezo.tpl_confirm'))) return
-      _intezoCfg.persons = JSON.parse(JSON.stringify(t.config.persons))
-      _intezoCfg.companies = JSON.parse(JSON.stringify(t.config.companies))
+      _intezoCfg.persons = JSON.parse(JSON.stringify(tpl.config.persons))
+      _intezoCfg.companies = JSON.parse(JSON.stringify(tpl.config.companies))
       _intezoCfgRender()
       showToast(t('intezo.tpl_loaded'))
       const first = document.querySelector('[data-cfg="pname"]')
@@ -31661,15 +31718,15 @@ async function _intezoCfgSave() {
   // Magyar, emberi idokulonbseg. A "mikor jelentkezett utoljara" a lap
   // legfontosabb adata, ezert nem ISO-datumot mutatunk.
   function cbAgo(ms) {
-    if (!ms) return 'soha'
+    if (!ms) return t('cb.ago.never')
     const d = Math.max(0, Date.now() - ms)
     const s = Math.round(d / 1000)
-    if (s < 60) return s + ' másodperce'
+    if (s < 60) return t('cb.ago.seconds', { n: s })
     const m = Math.round(s / 60)
-    if (m < 60) return m + ' perce'
+    if (m < 60) return t('cb.ago.minutes', { n: m })
     const h = Math.round(m / 60)
-    if (h < 48) return h + ' órája'
-    return Math.round(h / 24) + ' napja'
+    if (h < 48) return t('cb.ago.hours', { n: h })
+    return t('cb.ago.days', { n: Math.round(h / 24) })
   }
 
   function cbDur(ms) {
@@ -32074,6 +32131,15 @@ async function _intezoCfgSave() {
     }
     _cbCandidates = (resp && resp.candidates) || []
     const online = Boolean(_cbLastHealth && _cbLastHealth.workerOnline)
+    // ★ A NULLA KET DOLGOT JELENTHET. Ha a vegrehajto FUT, de a vezerlopult
+    //   indulasa ota meg nem erkezett tole EGY jelentes sem (`reported`), akkor
+    //   a nulla nem azt jelenti, hogy nincs nyitva semmi -- azt, hogy meg nem
+    //   latunk oda. Eddig ilyenkor is az allt, hogy "nem talalt semmit", ami
+    //   ujraindítás után minden alkalommal hazudott egy percig.
+    if (!_cbCandidates.length && online && resp && resp.reported === false) {
+      el.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.cand.not_yet_reported')) + '</p>'
+      return
+    }
     if (!_cbCandidates.length) {
       el.innerHTML = '<p class="subtitle">' + (online
         ? 'A végrehajtó fut, de egyetlen VS Code Claude Code beszélgetést sem talált ezen a gépen. '
@@ -32095,6 +32161,14 @@ async function _intezoCfgSave() {
           ? '<span class="cb-cand-state">kizárás feloldva — újraindítás után lép életbe</span>'
           : '<span class="cb-cand-state">kizárva</span> '
             + '<button class="btn-secondary btn-compact cb-cand-unexclude" data-alias="' + escapeAttr(c.alias) + '">Kizárás feloldása</button>'
+      } else if (c.state === 'dismissed') {
+        // Nem "uj": a felhasznalo TUDATOSAN vette le. Kulon feliratot kap, hogy
+        // lassa, mi tortent -- de egy kattintassal visszavehető.
+        right = '<span class="cb-cand-state">' + escapeHtml(t('cb.cand.dismissed_state')) + '</span> '
+          + '<button class="btn-secondary btn-compact cb-cand-add"'
+          + ' data-alias="' + escapeAttr(c.alias) + '"'
+          + ' data-ws="' + escapeAttr(c.workspacePath) + '"'
+          + ' data-sid="' + escapeAttr(c.sessionId) + '">' + escapeHtml(t('cb.cand.re_add')) + '</button>'
       } else {
         right = '<button class="btn-primary btn-compact cb-cand-add"'
           + ' data-alias="' + escapeAttr(c.alias) + '"'
@@ -32201,6 +32275,11 @@ async function _intezoCfgSave() {
       health = await cbFetch('/api/code/health')
       _cbLastHealth = health
       cbRenderHealth(health)
+      // Az Attekintes ful harom uj eleme. Kikapcsolt hidnal is KELL: pont akkor
+      // kell latni az identitast es az "Inditas" gombot.
+      cbRenderIdentity(health)
+      cbRenderService(health)
+      cbRenderTiles(health)
     } catch (e) {
       const el = document.getElementById('cbHealthText')
       if (el) el.innerHTML = '<strong>Nem sikerült lekérdezni a kód-hidat:</strong> ' + escapeHtml(e.message)
@@ -32223,6 +32302,8 @@ async function _intezoCfgSave() {
         cbFetch('/api/code/tabs').catch(function (e) { return { error: e.message } }),
       ])
       cbRenderProjects(projects.projects)
+      cbRenderTiles(health)
+      if (_cbTab === 'skills') cbLoadSkills()
       cbRenderTasks(tasks.tasks)
       cbRenderCandidates(cands)
       // A fulek a projektek UTAN: a legordulo a kivalasztott projekthez tartozo
@@ -32249,7 +32330,10 @@ async function _intezoCfgSave() {
   // A gomb NEM all ott mindig: csak akkor jelenik meg, ha az elmentett ertek
   // tenylegesen elter az eppen futotol. Igy nem szoktatja hozza a felhasznalot
   // ahhoz, hogy egy ujrainditas-gomb csak dekoracio.
-  var _cbRestartState = { cbBotRestart: null, cbOpsRestart: null, cbCandRestart: null }
+  // A `cbServiceRestart` az Attekintes fulon all: ha ott nyomtad meg a
+  // Leallitast, ott is kell latnod, hogy a valtozas ujrainditasra var --
+  // nem egy masik fulon, ahova at kell kattintani.
+  var _cbRestartState = { cbBotRestart: null, cbOpsRestart: null, cbCandRestart: null, cbServiceRestart: null }
 
   // A mentett ertek SZTRING ("a, b"), az elo ertek viszont mar feldolgozott
   // TOMB (['a','b']) -- a config.ts vesszo menten szetvagja, trimmeli, es a
@@ -32318,12 +32402,305 @@ async function _intezoCfgSave() {
       'A mentés a vezérlőpult újraindítása után lép életbe — a kód-bot csak utána kezd figyelni.')
     void cbMountRestart('cbOpsRestart', opsPending,
       'A mentés a vezérlőpult újraindítása után lép életbe.')
+    void cbMountRestart('cbServiceRestart', opsPending,
+      'A mentés a vezérlőpult újraindítása után lép életbe.')
     // Ugyanaz a gomb a felderitett mappak ALATT is: a kizarast ott lehet
     // feloldani, es egy gomb, amiert at kell gorgetni egy masik kartyahoz, a
     // gyakorlatban nem letezik.
     void cbMountRestart('cbCandRestart', exclPending,
       'A kizárás feloldása a vezérlőpult újraindítása után lép életbe.')
   }
+
+  // ======================================================================
+  // FULEK -- ugyanaz a sablon, mint barmelyik masik ugynok-kartyanal.
+  //
+  // Boss, 2026-08-23: "az nem szep hogy vscode ba bemegyek es egy oldalon van
+  // minden!" A lap tartalma NEM valtozott, csak ot csoportra bomlott, es a
+  // csoportok ugyanazok, ugyanabban a sorrendben, mint az ugynok-ablakban.
+  // ======================================================================
+  const CB_TABS = {
+    overview: 'cbTabOverview',
+    settings: 'cbTabSettings',
+    channel: 'cbTabChannel',
+    skills: 'cbTabSkills',
+    team: 'cbTabTeam',
+  }
+  let _cbTab = 'overview'
+
+  window.cbSwitchTab = function (tab) {
+    if (!CB_TABS[tab]) tab = 'overview'
+    _cbTab = tab
+    document.querySelectorAll('#cbTabNav .tab-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tab === tab)
+    })
+    Object.keys(CB_TABS).forEach(function (key) {
+      const el = document.getElementById(CB_TABS[key])
+      if (el) el.hidden = key !== tab
+    })
+    // A skillek a projekt MAPPAJABOL jonnek (halozat + lemez), ezert csak
+    // akkor kerdezzuk le, amikor tenyleg latszanak.
+    if (tab === 'skills') cbLoadSkills()
+  }
+
+  document.getElementById('cbTabNav')?.addEventListener('click', function (e) {
+    const btn = e.target instanceof Element ? e.target.closest('.tab-btn') : null
+    if (btn && btn.dataset.tab) window.cbSwitchTab(btn.dataset.tab)
+  })
+
+  // ---- IDENTITAS: a hid sajat ikonja ------------------------------------
+  //
+  // Boss: "attekintesben lehessen ugy pld az ikont kepet valtoztatni".
+  // A 404 a `/api/code/avatar`-on NEM hiba, hanem a "meg nincs beallitva"
+  // allapot -- friss telepitesen pont ez az alapertelmezes, es olyankor a
+  // monogram a helyes valasz, nem egy hibauzenet.
+  function cbRenderIdentity(health) {
+    const el = document.getElementById('cbDetailAvatar')
+    if (!el) return
+    if (health && health.avatar) {
+      el.className = 'detail-avatar'
+      el.style.background = ''
+      el.innerHTML = '<img src="/api/code/avatar' + avatarBust() + '" alt="">'
+      return
+    }
+    el.className = 'detail-avatar avatar-mono'
+    el.style.background = monogramColor('vscode-bridge')
+    el.textContent = 'K'
+  }
+
+  async function cbSetAvatar(opts) {
+    try {
+      await cbFetch('/api/code/avatar', opts)
+      bumpAvatarEpoch()
+      showToast(t('cb.detail.avatar_saved'))
+      const gal = document.getElementById('cbAvatarGallery')
+      if (gal) gal.hidden = true
+      await cbRefresh()
+      await loadCodeBridgeCards()
+      renderAgents()
+    } catch (err) {
+      showToast(t('cb.detail.avatar_failed', { msg: err.message }), { type: 'error' })
+    }
+  }
+
+  function cbPopulateAvatarGrid() {
+    const grid = document.getElementById('cbAvatarGrid')
+    if (!grid || grid.dataset.filled === '1') return
+    grid.dataset.filled = '1'
+    for (const avatar of AVATARS) {
+      const item = document.createElement('div')
+      item.className = 'avatar-grid-item'
+      item.innerHTML = '<img src="/avatars/' + avatar + '" alt="">'
+      item.addEventListener('click', function () {
+        cbSetAvatar({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ galleryAvatar: avatar }),
+        })
+      })
+      grid.appendChild(item)
+    }
+  }
+
+  // ---- CSEMPEK ----------------------------------------------------------
+  //
+  // Minden csempe MERT ertekbol dolgozik, es ha nem latunk oda, azt mondja ki,
+  // nem nullat mutat. (A "0 skill" es a "nem latok a mappara" ket KULON
+  // allapot; osszemosva a felhasznalo azt hinne, nincs egy skillje sem.)
+  let _cbSkillCount = null
+
+  function cbRenderTiles(health) {
+    const set = function (id, text) {
+      const el = document.getElementById(id)
+      if (el) el.textContent = text
+    }
+    // Modell: amivel a beszelgetesek eppen valaszoltak. Tobbfele is lehet.
+    const models = []
+    for (const p of _cbProjects) {
+      const m = (p && typeof p.model === 'string') ? p.model.trim() : ''
+      if (m && models.indexOf(m) === -1) models.push(m)
+    }
+    set('cbTileModel', models.length ? models.join(', ') : t('cb.card.model_unknown'))
+
+    // Csatorna: a kod-bot. A nev is kiirodik, ha tudjuk -- azt keresi a szem.
+    const bot = health && health.codeBot
+    set('cbTileChannel',
+      !health ? t('cb.tile.unknown')
+      : !health.botConfigured ? t('cb.tile.channel_none')
+      : (bot && bot.username) ? '@' + bot.username
+      : t('cb.tile.channel_set'))
+
+    set('cbTileSkills', _cbSkillCount === null ? t('cb.tile.unknown') : String(_cbSkillCount))
+    set('cbTileProjects', String(_cbProjects.length))
+  }
+
+  // ---- SZOLGALTATAS: indit / leallit -------------------------------------
+  //
+  // ★ Boss, 2026-08-23: "attekintes alatt a kartyan belul pedig latod ott van
+  // az hogy leallit meg elindit. a szolgaltatast. nem am kint a torles gob
+  // alatt ahogy te csinaltad."
+  //
+  // KET kulon dolog latszik itt, mert ket kulon dolog tud elromlani:
+  //   * a HID maga (CODE_BRIDGE_ENABLED) -- ezt innen lehet be- es kikapcsolni,
+  //   * a Windows-VEGREHAJTO -- ez egy masik gepen fut, innen NEM inditható.
+  // A masodikhoz ezert nincs gomb: gomb helyett megmondjuk, hol vegezheto el.
+  // Egy gomb, ami nem tud hatni, rosszabb a hianyzo gombnal.
+  function cbRenderService(health) {
+    const dot = document.getElementById('cbServiceDot')
+    const label = document.getElementById('cbServiceLabel')
+    const worker = document.getElementById('cbServiceWorker')
+    const startBtn = document.getElementById('cbServiceStartBtn')
+    const stopBtn = document.getElementById('cbServiceStopBtn')
+    if (!dot || !label) return
+    const on = !(health && health.enabled === false)
+    dot.className = 'process-dot ' + (on ? 'running' : 'stopped')
+    label.textContent = on ? t('cb.service.on') : t('cb.service.off')
+    if (startBtn) startBtn.hidden = on
+    if (stopBtn) stopBtn.hidden = !on
+    if (!worker) return
+    if (!health) { worker.textContent = ''; return }
+    // Harom allapot, mert harom kulon teendo. A "meg soha nem jelentkezett" NEM
+    // ugyanaz, mint a "jelentkezett, de elhallgatott": az elso telepitest ker,
+    // a masodik azt, hogy nezd meg, mi tortent a masik gepen.
+    if (health.workerOnline) worker.textContent = t('cb.service.worker_online')
+    else if (health.lastSeenAt) worker.textContent = t('cb.service.worker_offline', { ago: cbAgo(health.lastSeenAt) })
+    else worker.textContent = t('cb.service.worker_never')
+  }
+
+  async function cbSetService(on) {
+    try {
+      await cbPostJson('/api/code/config', { CODE_BRIDGE_ENABLED: on ? '1' : '0' })
+      // A mentes onmagaban NEM lep eletbe: a config.ts indulaskor olvassa be.
+      // Ezt a `cbLoadConfig` mondja ki azzal, hogy kirakja az ujrainditas-gombot
+      // -- ide, ugyanarra a fulre, ahol a kapcsolot megnyomtad.
+      showToast(t('cb.service.saved'))
+      await cbLoadConfig()
+      await cbRefresh()
+    } catch (err) {
+      showToast(t('cb.service.failed', { msg: err.message }), { type: 'error' })
+    }
+  }
+
+  // ---- SKILLEK -----------------------------------------------------------
+  //
+  // Boss, 2026-08-23: "skilleket is lehet ehhez irni. ugye miert ne lhetne."
+  //
+  // A skillek a PROJEKT mappajaban laknak (`.claude/skills/`), mert a feladatot
+  // vegrehajto headless Claude Code is onnan olvassa oket. Marveen sajat
+  // `~/.claude/skills`-e ide nem jo: az egy masik gep masik fajlrendszere.
+  function cbSkillProjectEl() { return document.getElementById('cbSkillProject') }
+
+  function cbFillSkillProjects() {
+    const sel = cbSkillProjectEl()
+    if (!sel) return null
+    const want = sel.value
+    const names = _cbProjects.map(function (p) { return p.project })
+    const same = sel.options.length === names.length
+      && names.every(function (n, i) { return sel.options[i].value === n })
+    if (!same) {
+      sel.innerHTML = ''
+      for (const n of names) {
+        const o = document.createElement('option')
+        o.value = n
+        o.textContent = n
+        sel.appendChild(o)
+      }
+    }
+    if (want && names.indexOf(want) !== -1) sel.value = want
+    return sel.value || null
+  }
+
+  async function cbLoadSkills() {
+    const list = document.getElementById('cbSkillList')
+    const note = document.getElementById('cbSkillNote')
+    if (!list) return
+    const project = cbFillSkillProjects()
+    if (!project) {
+      // NEM "nincs skill": nincs mihez. A kettot kulon kell kimondani.
+      list.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.skills.no_project')) + '</p>'
+      if (note) note.textContent = ''
+      _cbSkillCount = null
+      cbRenderTiles(_cbLastHealth)
+      return
+    }
+    let data = null
+    try {
+      data = await cbFetch('/api/code/skills?project=' + encodeURIComponent(project))
+    } catch (err) {
+      list.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.skills.failed', { msg: err.message })) + '</p>'
+      if (note) note.textContent = ''
+      _cbSkillCount = null
+      cbRenderTiles(_cbLastHealth)
+      return
+    }
+    cbRenderSkills(data)
+  }
+
+  function cbRenderSkills(d) {
+    const list = document.getElementById('cbSkillList')
+    const note = document.getElementById('cbSkillNote')
+    if (!list) return
+    list.innerHTML = ''
+    // ★ A NULLA KET DOLGOT JELENTHET. Ha nem latunk a mappara, a nulla skill NEM
+    // azt jelenti, hogy nincs egy sem -- es az okot a szerver TENYLEGES
+    // hibauzenetebol mondjuk, nem talalgatjuk.
+    if (!d.reachable) {
+      list.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.skills.unreachable', { r: d.reason || '?' })) + '</p>'
+      if (note) note.textContent = ''
+      _cbSkillCount = null
+      cbRenderTiles(_cbLastHealth)
+      return
+    }
+    _cbSkillCount = d.skills.length
+    if (d.skills.length === 0) {
+      list.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.skills.empty')) + '</p>'
+    }
+    for (const skill of d.skills) {
+      const item = document.createElement('div')
+      item.className = 'skill-item'
+      item.innerHTML =
+        '<div class="skill-item-info">'
+        + '<div class="skill-item-name">' + escapeHtml(skill.name) + '</div>'
+        + (skill.description ? '<div class="skill-item-desc">' + escapeHtml(skill.description) + '</div>' : '')
+        + '</div>'
+        + '<div class="skill-item-actions">'
+        + '<button class="btn-icon btn-icon-danger" title="' + escapeAttr(t('cb.skills.delete')) + '">' + trashIcon() + '</button>'
+        + '</div>'
+      item.querySelector('.btn-icon-danger').addEventListener('click', async function () {
+        if (!confirm(t('cb.skills.delete_confirm', { n: skill.name, p: d.project }))) return
+        try {
+          await cbFetch('/api/code/skills?project=' + encodeURIComponent(d.project)
+            + '&name=' + encodeURIComponent(skill.name), { method: 'DELETE' })
+          showToast(t('cb.skills.deleted', { n: skill.name }))
+          cbLoadSkills()
+        } catch (err) {
+          showToast(t('cb.skills.failed', { msg: err.message }), { type: 'error' })
+        }
+      })
+      list.appendChild(item)
+    }
+    if (note) note.textContent = t('cb.skills.dir_note', { d: d.skillsDir || '' })
+    cbRenderTiles(_cbLastHealth)
+  }
+
+  document.addEventListener('change', function (e) {
+    const el = e.target
+    if (!(el instanceof Element)) return
+    if (el.id === 'cbSkillProject') { cbLoadSkills(); return }
+    if (el.id === 'cbAvatarFileInput') {
+      const file = el.files && el.files[0]
+      if (!file) return
+      // Ugyanaz az 1 MB-os korlat, mint az ugynok-avataroknal: a bongeszo
+      // mondja meg elore, ne a szerver utolag.
+      if (file.size > 1024 * 1024) {
+        showToast(t('cb.detail.avatar_too_big'), { type: 'error' })
+        el.value = ''
+        return
+      }
+      const fd = new FormData()
+      fd.append('file', file)
+      cbSetAvatar({ method: 'POST', body: fd }).finally(function () { el.value = '' })
+    }
+  })
 
   window.loadCodeBridgePage = function () {
     cbRefresh()
@@ -32337,14 +32714,72 @@ async function _intezoCfgSave() {
   // ---- esemenyek -------------------------------------------------------
 
   document.addEventListener('click', async function (e) {
-    const t = e.target
-    if (!(t instanceof Element)) return
+    const tgt = e.target
+    if (!(tgt instanceof Element)) return
 
-    if (t.id === 'cbRefreshBtn') { cbRefresh(); cbLoadConfig(); return }
+    if (tgt.id === 'cbRefreshBtn') { cbRefresh(); cbLoadConfig(); return }
 
-    if (t.id === 'cbTasksClearBtn') {
+    if (tgt.id === 'cbAvatarChangeBtn' || (tgt.closest && tgt.closest('#cbAvatarChangeBtn'))) {
+      const gal = document.getElementById('cbAvatarGallery')
+      if (gal) { cbPopulateAvatarGrid(); gal.hidden = !gal.hidden }
+      return
+    }
+    if (tgt.id === 'cbAvatarResetBtn') {
+      await cbSetAvatar({ method: 'DELETE' })
+      return
+    }
+    if (tgt.closest && tgt.closest('#cbAvatarUploadZone')) {
+      document.getElementById('cbAvatarFileInput')?.click()
+      return
+    }
+
+    if (tgt.id === 'cbServiceStartBtn') { await cbSetService(true); return }
+    if (tgt.id === 'cbServiceStopBtn') {
+      if (!confirm(t('cb.service.stop_confirm'))) return
+      await cbSetService(false)
+      return
+    }
+
+    if (tgt.id === 'cbSkillAddBtn') {
+      const form = document.getElementById('cbSkillForm')
+      if (form) form.hidden = !form.hidden
+      return
+    }
+    if (tgt.id === 'cbSkillCancelBtn') {
+      const form = document.getElementById('cbSkillForm')
+      if (form) form.hidden = true
+      return
+    }
+    if (tgt.id === 'cbSkillCreateBtn') {
+      const project = cbFillSkillProjects()
+      const nameEl = document.getElementById('cbSkillName')
+      const descEl = document.getElementById('cbSkillDesc')
+      const status = document.getElementById('cbSkillStatus')
+      if (!project) { if (status) status.textContent = t('cb.skills.no_project'); return }
+      const name = (nameEl?.value || '').trim()
+      const desc = (descEl?.value || '').trim()
+      if (!name || !desc) { if (status) status.textContent = t('cb.skills.need_both'); return }
+      tgt.setAttribute('disabled', 'disabled')
+      if (status) status.textContent = t('cb.skills.working')
+      try {
+        const out = await cbPostJson('/api/code/skills', { project, name, description: desc })
+        if (status) status.textContent = ''
+        if (nameEl) nameEl.value = ''
+        if (descEl) descEl.value = ''
+        document.getElementById('cbSkillForm').hidden = true
+        showToast(t('cb.skills.created', { n: out.name }))
+        cbLoadSkills()
+      } catch (err) {
+        if (status) status.textContent = t('cb.skills.failed', { msg: err.message })
+      } finally {
+        tgt.removeAttribute('disabled')
+      }
+      return
+    }
+
+    if (tgt.id === 'cbTasksClearBtn') {
       if (!confirm('Törlöd a lezárt feladatok előzményeit? A sorban álló és az éppen futó feladatok megmaradnak.')) return
-      t.setAttribute('disabled', 'disabled')
+      tgt.setAttribute('disabled', 'disabled')
       try {
         const out = await cbFetch('/api/code/tasks', { method: 'DELETE' })
         showToast('Törölve: ' + (out && out.removed != null ? out.removed : 0) + ' lezárt sor.')
@@ -32352,17 +32787,17 @@ async function _intezoCfgSave() {
       } catch (err) {
         showToast('Nem sikerült: ' + err.message, { type: 'error' })
       } finally {
-        t.removeAttribute('disabled')
+        tgt.removeAttribute('disabled')
       }
       return
     }
 
-    if (t.id === 'cbDlPs1' || t.id === 'cbDlCmd') {
-      window.location.href = '/api/code/worker-script?file=' + (t.id === 'cbDlCmd' ? 'cmd' : 'ps1')
+    if (tgt.id === 'cbDlPs1' || tgt.id === 'cbDlCmd') {
+      window.location.href = '/api/code/worker-script?file=' + (tgt.id === 'cbDlCmd' ? 'cmd' : 'ps1')
       return
     }
 
-    if (t.id === 'cbCopyInstall') {
+    if (tgt.id === 'cbCopyInstall') {
       const cmd = document.getElementById('cbInstallCmd')
       if (cmd) {
         try { await navigator.clipboard.writeText(cmd.textContent) ; showToast('Parancs a vágólapon.') }
@@ -32371,7 +32806,7 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (t.id === 'cbTaskSendBtn') {
+    if (tgt.id === 'cbTaskSendBtn') {
       const sel = document.getElementById('cbTaskProject')
       const tabSel = document.getElementById('cbTaskTab')
       const prompt = document.getElementById('cbTaskPrompt')
@@ -32379,7 +32814,7 @@ async function _intezoCfgSave() {
       if (!sel || !prompt) return
       if (!sel.value) { if (status) status.textContent = 'Előbb kell legalább egy regisztrált projekt.'; return }
       if (!prompt.value.trim()) { if (status) status.textContent = 'Írd le, mit csináljon.'; return }
-      t.setAttribute('disabled', 'disabled')
+      tgt.setAttribute('disabled', 'disabled')
       if (status) status.textContent = 'Küldés…'
       try {
         const task = await cbPostJson('/api/code/tasks', {
@@ -32393,14 +32828,14 @@ async function _intezoCfgSave() {
       } catch (err) {
         if (status) status.textContent = 'Nem sikerült: ' + err.message
       } finally {
-        t.removeAttribute('disabled')
+        tgt.removeAttribute('disabled')
       }
       return
     }
 
-    if (t.classList.contains('cb-pin')) {
-      const project = t.getAttribute('data-project')
-      const pinned = t.getAttribute('data-pinned') === '1'
+    if (tgt.classList.contains('cb-pin')) {
+      const project = tgt.getAttribute('data-project')
+      const pinned = tgt.getAttribute('data-pinned') === '1'
       const row = _cbProjects.find(function (p) { return p.project === project })
       if (!row) return
       try {
@@ -32412,8 +32847,8 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (t.classList.contains('cb-del')) {
-      const project = t.getAttribute('data-project')
+    if (tgt.classList.contains('cb-del')) {
+      const project = tgt.getAttribute('data-project')
       if (!confirm('Törlöd a(z) "' + project + '" leképezést? A session maga nem sérül; a felderítés vissza is teheti, ha a workspace nyitva van.')) return
       try {
         await cbFetch('/api/code/projects/' + encodeURIComponent(project), { method: 'DELETE' })
@@ -32422,33 +32857,33 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (t.classList.contains('cb-cand-add')) {
-      const alias = t.getAttribute('data-alias') || ''
-      t.setAttribute('disabled', 'disabled')
+    if (tgt.classList.contains('cb-cand-add')) {
+      const alias = tgt.getAttribute('data-alias') || ''
+      tgt.setAttribute('disabled', 'disabled')
       try {
         await cbPostJson('/api/code/projects', {
           project: alias,
-          workspacePath: t.getAttribute('data-ws') || '',
-          sessionId: t.getAttribute('data-sid') || '',
+          workspacePath: tgt.getAttribute('data-ws') || '',
+          sessionId: tgt.getAttribute('data-sid') || '',
           pinned: true,
         })
         showToast('Felvéve: ' + alias)
         cbRefresh()
       } catch (err) {
         showToast('Nem sikerült: ' + err.message, { type: 'error' })
-        t.removeAttribute('disabled')
+        tgt.removeAttribute('disabled')
       }
       return
     }
 
-    if (t.classList.contains('cb-cand-unexclude')) {
-      const alias = t.getAttribute('data-alias') || ''
+    if (tgt.classList.contains('cb-cand-unexclude')) {
+      const alias = tgt.getAttribute('data-alias') || ''
       // A kizaras nem veletlen volt: pont az elo beszelgetes workspace-et
       // szokas kizarni. Ezert megmondjuk, mit old fel, MIELOTT feloldja.
       if (!confirm('Feloldod a(z) "' + alias + '" kizárását?\n\n'
         + 'A kizárás azt akadályozza meg, hogy egy feladat abba a beszélgetésbe írjon, '
         + 'amelyikben éppen te dolgozol. Feloldás után ez a mappa is felvehető és feladható lesz.')) return
-      t.setAttribute('disabled', 'disabled')
+      tgt.setAttribute('disabled', 'disabled')
       try {
         const cfg = await cbFetch('/api/code/config')
         const kept = String(cfg.CODE_BRIDGE_EXCLUDE || '').split(',')
@@ -32460,12 +32895,12 @@ async function _intezoCfgSave() {
         cbRefresh()
       } catch (err) {
         showToast('Nem sikerült: ' + err.message, { type: 'error' })
-        t.removeAttribute('disabled')
+        tgt.removeAttribute('disabled')
       }
       return
     }
 
-    if (t.id === 'cbAddBtn') {
+    if (tgt.id === 'cbAddBtn') {
       const project = document.getElementById('cbAddProject')
       const ws = document.getElementById('cbAddWorkspace')
       const sid = document.getElementById('cbAddSession')
@@ -32496,12 +32931,12 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (t.id === 'cbBotSaveBtn' || t.id === 'cbBotClearBtn') {
+    if (tgt.id === 'cbBotSaveBtn' || tgt.id === 'cbBotClearBtn') {
       const token = document.getElementById('cbBotToken')
       const chats = document.getElementById('cbAllowedChats')
       const status = document.getElementById('cbBotStatus')
       const body = {}
-      if (t.id === 'cbBotClearBtn') {
+      if (tgt.id === 'cbBotClearBtn') {
         if (!confirm('Törlöd a kód-bot tokenjét? Ezután Telegramról nem lehet közvetlenül feladni.')) return
         body.CODE_BOT_TOKEN = null
       } else if (token && token.value.trim()) {
@@ -32517,7 +32952,7 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (t.id === 'cbSaveOpsBtn') {
+    if (tgt.id === 'cbSaveOpsBtn') {
       const enabled = document.getElementById('cbEnabled')
       const perm = document.getElementById('cbPermMode')
       const excl = document.getElementById('cbExclude')
@@ -32534,7 +32969,7 @@ async function _intezoCfgSave() {
       return
     }
 
-    const row = t.closest ? t.closest('.cb-task-row') : null
+    const row = tgt.closest ? tgt.closest('.cb-task-row') : null
     if (row) { cbOpenTask(row.getAttribute('data-id')); return }
   })
 

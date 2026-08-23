@@ -95,6 +95,36 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     expect(code).toMatch(/box\.hidden = true/)
   })
 
+  // ★ A NULLA KET DOLGOT JELENTHET. 2026-08-23-an a doboz csupa nullat mutatott
+  //    ("0 fajl / 0 utkozes / 0 commit"), es a Boss joggal kerdezte, hogy "ures!
+  //    hogy lehet ez??" -- a meres valojaban HELYES volt (a merge behuzta az
+  //    egeszet), de a doboz ugyanugy nezett ki, mintha el sem ert volna az
+  //    upstreamig. Ez a harom teszt tartja szet a ket nullat.
+  it('a nulla behind KIMONDJA, hogy naprakeszek vagyunk -- nem nullakat sorol', () => {
+    expect(code).toMatch(/if \(behind === 0\)/)
+    expect(code).toContain('overview.upstream.uptodate')
+    for (const lang of [hu, en]) expect(lang).toContain("'overview.upstream.uptodate'")
+  })
+
+  it('halozat nelkul NEM allitunk naprakeszseget', () => {
+    // fetchOk === false mellett a nulla csak az utoljara letoltott allapotra
+    // igaz. Ha ezt osszemosnank, a doboz pont akkor nyugtatna meg a Bosst,
+    // amikor a legkevesbe kellene.
+    expect(code).toContain('overview.upstream.uptodate_stale')
+    for (const lang of [hu, en]) expect(lang).toContain("'overview.upstream.uptodate_stale'")
+  })
+
+  it('elhasalt meresnel az OK latszik, es nem talalgatjuk', () => {
+    // A mero szkript sajat hibakodja utazik ki (`error`), es a doboz azt
+    // forditja emberi mondatra. Ismeretlen kodra a nyers kod megy ki -- kitalalt
+    // ok rosszabb a semminel.
+    expect(code).toMatch(/upstreamSync\.error/)
+    expect(code).toContain('overview.upstream.failed')
+    for (const key of ['fetch-failed', 'no-upstream-remote', 'no-upstream-branch', 'no-local-branch']) {
+      for (const lang of [hu, en]) expect(lang).toContain(`'overview.upstream.err.${key}'`)
+    }
+  })
+
   it('a magyarazat tenyleg a harmadik szamhoz tapad, nem a dobozhoz', () => {
     // A tooltip csak akkor er valamit, ha azon a spanon ul, amin a gondolatjel
     // all. Ha a doboz szelere kerulne, a Boss sose talalna meg.

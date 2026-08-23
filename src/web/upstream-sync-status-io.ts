@@ -35,6 +35,12 @@ export interface UpstreamSyncStatus {
   // How old the measurement is, in whole days, computed server-side so the
   // browser clock cannot disagree with the server about staleness.
   ageDays: number | null
+  // ★ Miert nincs szam, ha nincs. A mero szkript ide irja a TENYLEGES okot
+  // (`fetch-failed`, `no-upstream-remote`, `no-upstream-branch`, `no-local-branch`),
+  // es eddig ez a mezo nem jutott el a feluletig -- a doboz igy egy elhasalt
+  // meresnel is csak annyit tudott mondani, hogy nulla. Az okot SOSE talaljuk
+  // ki: vagy ez a mezo mondja meg, vagy kimondjuk, hogy nem tudjuk.
+  error: string | null
 }
 
 // A measurement older than this is reported as stale. The timer runs
@@ -79,6 +85,7 @@ export function readUpstreamSyncStatus(now: number = Date.now()): UpstreamSyncSt
       // the card never claims freshness it cannot back up.
       fetchOk: o.fetchOk === true,
       ageDays: ageInDays(checkedAt, now),
+      error: str(o.error),
     }
   } catch {
     return null

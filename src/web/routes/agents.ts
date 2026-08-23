@@ -4,7 +4,7 @@ import { homedir, platform, tmpdir } from 'node:os'
 import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
-import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT } from '../../config.js'
+import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG } from '../../config.js'
 import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent } from '../../db.js'
 import { computeReliabilityScore, type ReliabilityScore } from '../../agent-reliability.js'
 import { isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
@@ -1699,6 +1699,31 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         model: 'claude code',
         costPerMInput: null,
         hasAvatar: false,
+        external: true,
+      })
+    }
+    // ★ Friss telepitesen meg egyetlen mappa sincs bekotve -- de a kod-hid
+    //   UGYANUGY letezo ugynok, es a rendszerben a ket allapot ("meg nincs
+    //   mappa" vs "nem is letezik ilyen ugynok") NEM ugyanaz. Ha a nulla mappa
+    //   miatt egyszeruen kihagynank, az org chart azt allitana, hogy nincs
+    //   VS Code-ugynok -- pont azt, ami miatt a Boss haromszor kereste. Ezert
+    //   egy gyujto-csomopont mindig kint van; ra kattintva ott a kod-hid
+    //   ablaka, ahol a mappat be lehet kotni.
+    if (!nodes.some(n => n.external)) {
+      nodes.push({
+        id: 'vscode:',
+        // A tartalek-cimke is KEPERNYORE kerul, tehat ketnyelvu: a telepites
+        // nyelvet hasznaljuk, ugyanugy mint a life-tree mappanev-tablaja.
+        label: codeBot.reason === 'ok' && codeBot.name
+          ? codeBot.name
+          : (APP_LANG === 'hu' ? 'Kód-híd' : 'Code bridge'),
+        role: 'member',
+        reportsTo: MAIN_AGENT_ID,
+        delegatesTo: [],
+        running: codeWorkerOnline,
+        model: 'claude code',
+        costPerMInput: null,
+        hasAvatar: false, // az org chart /api/agents/<id>/avatar-t kerne, ami ehhez nincs -> monogram
         external: true,
       })
     }

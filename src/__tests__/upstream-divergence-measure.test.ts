@@ -163,8 +163,14 @@ describe('a doboz megmondja, mikor es mihez kepest mertunk', () => {
   })
 
   it('kiirja, melyik ket agat vetettuk ossze', () => {
-    expect(c).toContain('overview.upstream.pair')
-    expect(c).toContain('upstreamSync.upstreamRef')
+    // A par-sor kozos segedfuggvenybe (pairHtml) kerult, mert MINDHAROM agnak
+    // ki kell irnia: a szamos, a "naprakesz" es a "nem sikerult a meres"
+    // eseteben is tudni kell, melyik ket pontot vetettuk ossze. A kovetelmeny
+    // valtozatlan, csak nem egyetlen fuggvenyben teljesul.
+    expect(app).toContain('function pairHtml')
+    expect(app).toContain('overview.upstream.pair')
+    expect(app).toContain('u.upstreamRef')
+    expect(c).toContain('pairHtml(')
   })
 
   it('szol, ha a meres nem ert el a halozathoz', () => {
