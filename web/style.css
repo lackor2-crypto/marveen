@@ -10606,3 +10606,13 @@ body {
 .cb-cand-path { display: block; font-size: 12px; color: var(--text-muted);
   word-break: break-all; margin-top: 2px; }
 .cb-cand-state { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+/* Explorer usage guide. The markup used to carry these as inline styles; the
+   body moved into the i18n files (intezo.guide.body), which cannot carry a
+   style attribute cleanly, so the rules live here. */
+#intezoHelp > summary { cursor: pointer; font-weight: 600; font-size: 15px; list-style: revert; }
+#intezoHelp .help-body { margin-top: 12px; font-size: 14px; line-height: 1.65; }
+#intezoHelp .help-body h4 { margin-bottom: 4px; }
+#intezoHelp .help-body ul,
+#intezoHelp .help-body ol { margin-top: 4px; }
+#intezoHelp .help-body p.dim { opacity: .8; }

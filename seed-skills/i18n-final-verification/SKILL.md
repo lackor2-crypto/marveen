@@ -1,64 +1,98 @@
 ---
 name: i18n-final-verification
-description: Marveen dashboard UI-fejlesztés (új oldal, form, szöveg) LEZÁRÓ lépéseként kötelező HU/EN teljesség-ellenőrzés, mielőtt "kész"-nek jelented a tulajdonosnak ({{OWNER_NAME}}). Trigger -- bármilyen web/index.html, web/app.js vagy web/style.css módosítás ami felhasználónak látható szöveget hoz létre vagy változtat.
+description: KÖTELEZŐ minden Marveen-fejlesztésnél, ami képernyőre kerülő szöveget hoz létre vagy módosít -- web/index.html, web/app.js, web/lang/*, ÉS a szerveroldali szövegtáblák (pl. src/life-hints.ts) vagy hibaüzenetek. Minden felületi szöveg kétnyelvű (HU+EN); ez a skill megmondja, hogyan kell megírni, és melyik teszt bukik el, ha nem így írtad meg. Trigger -- bármilyen felhasználónak látható szöveg (címke, gomb, tooltip, placeholder, súgó, hibaüzenet, toast, confirm).
 ---
 
-# i18n végső ellenőrzés
+# Minden képernyőre kerülő szöveg kétnyelvű
 
 ## Mikor használd
 
-A LEGUTOLSÓ lépésként, minden olyan Marveen dashboard-fejlesztés végén, ahol
-új vagy módosított felhasználó-néző szöveg született (label, gomb, tooltip,
-placeholder, hibaüzenet, státusz-szöveg). {{OWNER_NAME}} kétszer is ugyanezt a hibát
-találta meg (2026-08-06, email-felület, majd ugyanaznap este az
-Iroda-Beállítások form) -- a szabály puszta ismerete nem volt elég, konkrét
-zárólépés kell. Lásd [[i18n-required-for-new-features]] memória.
+**Minden olyan fejlesztés ELEJÉN és VÉGÉN**, ahol felhasználónak látható szöveg
+születik vagy változik. Nem csak a végén: ha a szerkezetet eleve rosszul veszed
+fel, a végén már átírás, nem ellenőrzés.
 
-NE hagyd ki még akkor sem ha "biztos jó" -- pont ez volt a hiba mindkétszer.
+## Miért -- ez a szabály MÁR HÁROMSZOR megbukott
+
+| mikor | mi | miért nem fogta meg semmi |
+|---|---|---|
+| 2026-08-06 | email-felület, majd az Iroda-Beállítások form | nem volt zárólépés |
+| 2026-08-21 | az Intéző **használati útmutatója** (~90 sor próza az index.html-ben) | ez a skill létezett, de senki nem hívta meg |
+| 2026-08-21 | a **„Kik szerepeljenek a fában?"** szerkesztő + a mappa-súgók (`src/life-hints.ts`) | a súgók a szerveren álltak, egynyelvű táblában — a skill csak a `web/`-et nézte |
+
+{{OWNER_NAME}}, 2026-08-23: „nincs meg angol nyelven!!!!!", majd **„de erről már
+volt egyszer szó."**
+
+A tanulság: **egy kézzel futtatandó checklist nem védelem.** Ezért a skill első
+lépése ma már egy teszt, ami MEGBUKTATJA a munkát, és a checklist csak a
+mögötte lévő magyarázat.
+
+Lásd [[i18n-required-for-new-features]] memória.
 
 ## Eljárás
 
-1. **Hardcode-keresés a módosított JS-ben**: grep az érintett funkció(k)ra
-   ékezetes magyar karakterre:
-   ```bash
-   sed -n '<start>,<end>p' web/app.js | grep -nE "[áéíóöőúüűÁÉÍÓÖŐÚÜŰ]"
-   ```
-   Ha BÁRMI HTML-attribútumon vagy sima JS-stringen belüli szöveg (nem
-   komment) találat -- az hiba, be kell kötni a fordító-rendszerbe.
+### 1. A KAPU — ezt futtasd, ez a bizonyíték
 
-2. **Kulcs-pariás ellenőrzés**: a bevezetett i18n-prefixre (pl.
-   `irodaSettings.*`) hasonlítsd össze a hu.js és en.js kulcshalmazát:
-   ```bash
-   python3 -c "
-   import re
-   hu = set(re.findall(r\"'(PREFIX\.[^']+)':\", open('web/lang/hu.js').read()))
-   en = set(re.findall(r\"'(PREFIX\.[^']+)':\", open('web/lang/en.js').read()))
-   print('HU only:', hu - en)
-   print('EN only:', en - hu)
-   "
-   ```
-   Mindkét halmaznak azonosnak kell lennie. Bármelyik oldali eltérés hiba.
+```bash
+npx vitest run src/__tests__/i18n-no-hardcoded-hu.test.ts src/__tests__/lang-parity.test.ts
+```
 
-3. **Használt-vs-definiált ellenőrzés**: nézd át hogy minden `t('PREFIX...')`
-   hívás és `data-i18n="PREFIX..."` attribútum tényleg szerepel-e mindkét
-   lang-fájlban (grep `t('` és `data-i18n="` az érintett fájlokban, vesd
-   össze a kulcslistával).
+- `i18n-no-hardcoded-hu` — van-e **ÚJ**, kézzel odaírt magyar szöveg a
+  `web/index.html`-ben vagy a `web/app.js`-ben. Megnevezi a fájlt, a sort és a
+  szöveget.
+- `lang-parity` — a `hu.js` és az `en.js` kulcsai egyeznek-e.
 
-4. Csak ha mindhárom check tiszta, jelentsd készre a tulajdonosnak ({{OWNER_NAME}}).
+**Ha az első elbukik, a teendő NEM a bázis bővítése, hanem a fordítás.** A
+`src/__tests__/fixtures/i18n-baseline.json` a régi adósság listája; az csak
+rövidülhet. Fordítás után: `npm run i18n:baseline`.
+
+### 2. Így írd meg (hogy ne is bukjon el)
+
+| hol | így |
+|---|---|
+| `web/index.html` | `data-i18n="kulcs"` — attribútumra `-title`, `-placeholder`, `-aria-label`; HTML-tartalomra `-html` |
+| `web/app.js` | `t('kulcs')`, paraméter `{n}` formában: `t('x.y', { n: 5 })` |
+| szerveroldali szövegtábla | kétnyelvű típus, ne opcionális mezővel: `type Hint = { hu: string; en: string }` |
+| szerveroldali végpont | a nyelv **paraméterként** jön (`?lang=`), és a felület küldi: `'?lang=' + (window._lang \|\| 'hu')` |
+
+A kulcs MINDIG **mindkét** fájlba kerül: `web/lang/hu.js` ÉS `web/lang/en.js`.
+
+**Hosszú súgó/próza NE menjen a HTML-be.** Egy 90 soros bekezdés a HTML-ben
+gyakorlatilag lefordíthatatlan — pont ezért maradt el kétszer. Tedd egyetlen
+`data-i18n-html="…"` kulcsba, a szöveg a lang-fájlokban álljon.
+
+### 3. Amit a legkönnyebb elfelejteni
+
+- `confirm()`, `alert()`, `showToast()` szövege
+- `title=`, `placeholder=`, `aria-label=`
+- `innerHTML`-be épített sablonszövegek (ezekre **nincs** automata
+  `data-i18n` kezelés — render-időben kell `t()`-be csomagolni)
+- szerverről jövő hibaüzenetek, amiket a felület változatlanul kiír
+- a mappák zárójeles magyarázatai (`src/life-hints.ts`)
+
+### 4. Ami NEM követi a felület nyelvét
+
+A **lemezen lévő mappák NEVE**. Azt az `APP_LANG` (a telepítés nyelve) adja —
+átnevezni adatvesztés volna, mert minden útvonal, bekötés és papír-nyilvántartás
+rá mutat. A zárójeles magyarázat viszont a felület nyelvét követi. A kettőt ne
+keverd össze: egy angolra kapcsolt felületen a `Rendszer` mappa `Rendszer`
+marad, de a mellette álló magyarázat angolul áll.
+
+### 5. URL-eket ne fordíts
+
+`href="https://…"` nem fordítandó — csak a körülötte lévő szöveg.
 
 ## Buktatók
 
-- A `t()` fordító-függvény HU→EN→kulcs sorrendben esik vissza, szóval egy
-  hiányzó kulcs NEM dob hibát, csak csendben rossz nyelven (vagy a nyers
-  kulcsnévvel) jelenik meg -- ez pont miért nem vehető észre kódolvasás
-  nélkül, csak a fenti grep/diff-fel.
-- Dinamikusan generált HTML (`wrap.innerHTML = ...` string-template) NEM
-  kap automata `data-i18n` kezelést -- minden benne lévő szöveget kézzel
-  `t('kulcs')`-ba kell csomagolni render-időben.
-- Linkek/URL-ek (pl. `href="https://..."`) NEM fordítandók -- csak a
-  körülöttük lévő szöveg. Ne csomagolj URL-t i18n-kulcsba.
+- A `t()` HU→EN→kulcs sorrendben esik vissza, tehát egy hiányzó kulcs **nem dob
+  hibát**, csak csendben rossz nyelven jelenik meg. Kódolvasással nem vehető
+  észre — ezért van a kapu.
+- A `lang-parity` zöld marad akkor is, ha a szöveg **be sem került** a
+  lang-fájlokba: a kulcshalmazok akkor is tökéletesen egyeznek. Ezt egyedül az
+  `i18n-no-hardcoded-hu` fogja meg. A kettő EGYÜTT véd, külön-külön nem.
+- Az angol szöveget ne a magyar átmásolásával „fordítsd": az `en.js`-t külön
+  teszt őrzi, magyar ékezet nem lehet benne.
 
 ## Ellenőrzés
 
-A fenti 3 lépés (grep, kulcs-diff, használt-vs-definiált) mind tiszta
-kimenetet ad, ELLENŐRZÖTTEN mindkét lang-fájlban.
+Az 1. pont két tesztje zölden fut le, ÉS a `npm run i18n:baseline` kimenete a
+lista **csökkenését** mutatja (`↓`), ha fordítottál.

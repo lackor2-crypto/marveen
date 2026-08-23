@@ -136,8 +136,17 @@ describe('az uj mappa menupont felirata', () => {
     // ala! az egyertelmubb hogy hova teszi a mappat. ide az nem mond semmit."
     expect(menuFn).not.toContain('Új mappa ide')
     expect(menuFn).not.toContain('Új mappa itt')
-    expect(menuFn).toContain("\u00DAj mappa a(z) \u201E' + (entry.name || entry.rel)")
-    expect(menuFn).toContain('_intezoMostaniNev()')
+    // A felirat 2026-08-23 ota t()-n keresztul all (ketnyelvu), de a MAPPA NEVET
+    // tovabbra is bele kell tennie -- ezt orzi a ket parameteres hivas.
+    expect(menuFn).toContain("t('intezo.menu_mkdir_into', { name: entry.name || entry.rel })")
+    expect(menuFn).toContain("t('intezo.menu_mkdir_into', { name: _intezoMostaniNev() })")
+  })
+
+  it('a felirat mindket nyelven a mappa neve ala teszi', () => {
+    const hu = readFileSync(join(process.cwd(), 'web', 'lang', 'hu.js'), 'utf8')
+    const en = readFileSync(join(process.cwd(), 'web', 'lang', 'en.js'), 'utf8')
+    expect(hu).toContain("'intezo.menu_mkdir_into': 'Új mappa a(z) „{name}” mappa alá'")
+    expect(en).toContain("'intezo.menu_mkdir_into': 'New folder under \"{name}\"'")
   })
 
   it('a mostani mappa neve az utvonal utolso szakasza', () => {

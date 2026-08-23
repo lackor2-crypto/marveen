@@ -2501,95 +2501,11 @@
            ez pedig a leiras hozza. Osszecsukva indul: aki mar tudja, annak ne
            foglalja a helyet, de EGY kattintasra legyen, ne egy masik oldalon. -->
       <details class="card" id="intezoHelp" style="margin-bottom:14px">
-        <summary style="cursor:pointer;font-weight:600;font-size:15px;list-style:revert">
-          📖 Használati útmutató — hogyan hozz létre, nevezz át, törölj és köss be mappát
-        </summary>
-        <div style="margin-top:12px;font-size:14px;line-height:1.65">
-
-          <p><strong>A legrövidebb út: JOBB EGÉRGOMB.</strong> Kattints jobb gombbal
-          bármelyik sorra a listában — a Marveen kijelöli, és felkínálja, mit lehet
-          vele csinálni: megnyitás, új mappa ide, átnevezés, áthelyezés, bekötés,
-          papír példány, törlés. Az üres területre jobb gombbal kattintva
-          „Új mappa itt".</p>
-
-          <h4 style="margin-bottom:4px">Mozgás a fában</h4>
-          <ul style="margin-top:4px">
-            <li>A <strong>mappa nevére</strong> kattintva belépsz.</li>
-            <li>Vissza: a <strong>↑ gomb</strong> a lista fölött, vagy fent a
-                morzsasorban bármelyik névre kattintasz.</li>
-            <li>A név után zárójelben ott áll, <em>mit szoktak abba a mappába tenni</em>.</li>
-          </ul>
-
-          <h4 style="margin-bottom:4px">Új mappa</h4>
-          <ul style="margin-top:4px">
-            <li>Lépj be oda, ahova kell → <strong>„Új mappa"</strong> gomb fent,
-                vagy jobb klikk az üres területre.</li>
-            <li>Vagy jobb klikk arra a mappára, amibe kell → <strong>„Új mappa ide"</strong>.</li>
-          </ul>
-
-          <h4 style="margin-bottom:4px">Átnevezés, áthelyezés, törlés</h4>
-          <ul style="margin-top:4px">
-            <li>Jobb klikk a soron → <strong>Átnevezés</strong> / <strong>Áthelyezés</strong> /
-                <strong>Törlés</strong>.</li>
-            <li>A törlés <strong>nem végleges</strong>: a <code>Rendszer / Kuka</code> alá kerül,
-                dátumos mappába, és onnan bármikor visszahozható.</li>
-            <li><strong>Végleges törlés:</strong> lépj be a <code>Rendszer / Kuka</code> mappába,
-                és ott a jobb klikk menüje már <strong>„Végleges törlés"</strong>-t kínál — vagy
-                magán a Kuka mappán <strong>„A Kuka kiürítése"</strong>. Ez az egyetlen
-                visszavonhatatlan művelet a fában, ezért kérdez rá külön.</li>
-            <li>A Kuka <strong>magától is ürül</strong>: ami 60 napnál régebben került bele,
-                eltűnik. A határidő a <em>Beállítások → LIFE_TRASH_DAYS</em> alatt állítható,
-                <code>0</code> = soha.</li>
-            <li>A fa <strong>fő ágait</strong> (Beérkező, Rendszer, személyek, Cégek) nem lehet
-                így törölni — azokat a beállítás hozza létre, a következő
-                „Könyvtárszerkezet létrehozása" úgyis visszatenné. Ha egy személy vagy
-                projekt nem kell, a <strong>„Kik szerepeljenek a fában?"</strong> résznél vedd ki.</li>
-          </ul>
-
-          <h4 style="margin-bottom:4px">Új személy, cég vagy projekt felvétele</h4>
-          <ol style="margin-top:4px">
-            <li>Fent: <strong>„Kik szerepeljenek a fában?"</strong>.</li>
-            <li><strong>„+ Személy"</strong> / <strong>„+ Cég"</strong>, vagy egy személy dobozán
-                belül a <strong>„Saját projektek"</strong> résznél <strong>„+ Projekt"</strong>.
-                Projektnél hagyd bepipálva a <strong>„fejlesztés (GIT_REPOS)"</strong> jelölőt,
-                ha kód is tartozik hozzá.</li>
-            <li><strong>„Mentés és előnézet"</strong> — ez még csak terv, felsorolja, mi fog
-                létrejönni. Elgépelt nevet itt még nyom nélkül javíthatsz.</li>
-            <li>Az oldal a tetején lévő <strong>„Könyvtárszerkezet létrehozása"</strong> gombhoz
-                ugrik. Nyomd meg — ekkor jönnek létre a mappák a lemezen.</li>
-          </ol>
-
-          <h4 style="margin-bottom:4px">Git-repó bekötése (pl. a tőzsdei repó)</h4>
-          <ol style="margin-top:4px">
-            <li>Lépj be ide: <code>&lt;személy&gt; → Projektek → &lt;projekt&gt; → Fejlesztés → GIT_REPOS</code>
-                (cégnél: <code>Cégek → &lt;cég&gt; → Fejlesztés → GIT_REPOS</code>).</li>
-            <li>Jobb klikk az üres területre → <strong>„Új mappa itt"</strong>, a neve legyen
-                ugyanaz, mint a repóé (pl. <code>trendvonal_rajzolo</code>). Ez lesz a fogas,
-                amire ráakasztod.</li>
-            <li>Jobb klikk az új mappán → <strong>„Mappa bekötése (mit mutasson)"</strong>.</li>
-            <li>A legördülőben válaszd ki a repót (pl.
-                <code>lackor2-crypto / trendvonal_rajzolo — Git repository</code>),
-                majd <strong>„Bekötés ide"</strong>.</li>
-          </ol>
-          <p style="opacity:.8">A bekötés <strong>nem másolat</strong>: a repó egy példányban van
-          a <code>Rendszer / Tárolók / Git</code> alatt, a GIT_REPOS csak odamutat. Ha megszünteted
-          a bekötést, a fájlok megmaradnak. A listában csak <em>valódi</em> repók jelennek meg,
-          így egy félig lemásolt mappát nem tudsz véletlenül bekötni.</p>
-
-          <h4 style="margin-bottom:4px">Amihez ne nyúlj kézzel</h4>
-          <ul style="margin-top:4px">
-            <li>A <strong>piros nevű</strong> mappák (📛) egy git-repó belsejébe visznek. Ott a git
-                a gazda: kézzel mozgatva elveszik a fájl története.</li>
-            <li>Jelszót, API-kulcsot, tokent <strong>soha</strong> ne tegyél a fába — azoknak a
-                Marvin széfje a helyük.</li>
-          </ul>
-
-          <h4 style="margin-bottom:4px">Törölhetek a Windows Intézőből?</h4>
-          <p style="margin-top:4px">Meg tudod tenni — a depó egy hétköznapi mappa a lemezen —,
-          de ott <strong>nincs Kuka a Marveenen belül</strong>, nincs figyelmeztetés a repókra,
-          és a bekötések meg a papír-nyilvántartás a törölt útvonalra mutatva maradnak.
-          Innen törölve mindez rendben marad.</p>
-        </div>
+        <summary data-i18n="intezo.guide.summary">Használati útmutató</summary>
+        <!-- Body lives in web/lang/{hu,en}.js under intezo.guide.body. It is NOT
+             inlined here: a 90-line block of prose duplicated in three places is
+             how the English version fell behind in the first place. -->
+        <div class="help-body" data-i18n-html="intezo.guide.body"></div>
       </details>
 
       <!-- Ha meg nem all a fa, ez az elso es egyetlen dolog, amit tenni kell.

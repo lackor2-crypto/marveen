@@ -33,8 +33,8 @@ import {
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
 import { logger } from './logger.js'
-import { lifeHint, PERSON_HINT, COMPANY_HINT, SAMPLE_PERSON_HINT, SAMPLE_COMPANY_HINT,
-  DEV_KNOWLEDGE_HINT, DEV_MORE_HINT, PROJECT_HINT } from './life-hints.js'
+import { lifeHint, personHint, companyHint, samplePersonHint, sampleCompanyHint,
+  devKnowledgeHint, devMoreHint, projectHint } from './life-hints.js'
 
 /**
  * Az Intezo gyokere: maga a DEPO, nem az eletfa.
@@ -64,6 +64,12 @@ export function explorerRoot(): string | null {
  * A `DEPOT_PROJECTS`/`WORK`/`BACKUPS` SZANDEKOSAN nincs itt: azok mar a
  * `Rendszer` ALATT vannak, tehat nem felso szintu nevek.
  */
+// A felulet nyelve. NEM a telepites nyelve: a mappak NEVE marad az APP_LANG
+// szerinti, csak a nekunk szolo mondat kovet nyelvet.
+function T(lang: string, hu: string, en: string): string {
+  return lang === 'en' ? en : hu
+}
+
 function topOrder(lang: string): string[] {
   return [
     lifeName('companies', lang),
@@ -208,7 +214,7 @@ export function humanSize(n: number): string {
   return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
-function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: boolean): LifeEntry {
+function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: boolean, lang = APP_LANG): LifeEntry {
   const rel = rootRel ? `${rootRel}/${name}` : name
   const isDir = st.isDirectory()
   const src: SourceInfo = detectSource(abs, isDir, deep && isDir)
@@ -222,7 +228,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     source: { kind: src.kind, label: src.label, short: src.short, icon: src.icon },
     physical: getPhysical(rel).physical,
     mounted: '',
-    caution: cautionFor(rel, name, abs, isDir),
+    caution: cautionFor(rel, name, abs, isDir, lang),
   }
 }
 
@@ -241,22 +247,22 @@ const GIT_REPOS_DIR = 'GIT_REPOS'
  * meg ures vagy csak a fiok-mappa all benne, nincs `.git` sehol -- eppen
  * abban az allapotban maradna jelzes nelkul, amikor a legkonnyebb belenyulni.
  */
-function cautionFor(rel: string, name: string, abs: string, isDir: boolean): string {
+function cautionFor(rel: string, name: string, abs: string, isDir: boolean, lang = APP_LANG): string {
   const parts = rel.split('/')
   if (rel === DEPOT_PROJECTS) {
-    return 'Git-repók központi helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.'
+    return T(lang, 'Git-repók központi helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.', 'Central place for git repos. Git owns it here: renaming or moving anything by hand breaks version control.')
   }
   if (rel.startsWith(DEPOT_PROJECTS + '/')) {
-    return 'Git-repók helye. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.'
+    return T(lang, 'Git-repók helye. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.', 'Home of git repos. Better left alone: git cannot follow what you move here by hand.')
   }
   if (name === GIT_REPOS_DIR) {
-    return 'Git-repók helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.'
+    return T(lang, 'Git-repók helye. Itt a git a gazda: kézzel átnevezni vagy áthelyezni bármit elrontja a verziókövetést.', 'Home of git repos. Git owns it here: renaming or moving anything by hand breaks version control.')
   }
   if (parts.includes(GIT_REPOS_DIR)) {
-    return 'Git-repó belseje. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.'
+    return T(lang, 'Git-repó belseje. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.', 'Inside of a git repo. Better left alone: git cannot follow what you move here by hand.')
   }
   if (isDir) {
-    try { if (statSync(join(abs, '.git'))) return 'Git-repó. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.' } catch { /* nem repo */ }
+    try { if (statSync(join(abs, '.git'))) return T(lang, 'Git-repó. Jobb nem piszkálni: amit itt kézzel mozgatsz, azt a git nem tudja követni.', 'A git repo. Better left alone: git cannot follow what you move here by hand.') } catch { /* nem repo */ }
   }
   return ''
 }
@@ -269,8 +275,13 @@ function cautionFor(rel: string, name: string, abs: string, isDir: boolean): str
  * lenyeg -- "ha egy mappa vegyes tartalmu, akkor ne hazudjon a rendszer" --,
  * de nagy mappaknal a hivo kikapcsolhatja.
  */
-export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListing {
+export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = {}): LifeListing {
   const deep = opts.deep !== false
+  // A SUGO NYELVE a feluletet koveti, nem a telepitest. A mappa NEVE a
+  // lemezen all (azt atnevezni adatvesztes volna), a zarojeles magyarazat
+  // viszont csak a kepernyon letezik -- annak azon a nyelven kell allnia,
+  // amit az olvaso beallitott. Hivo nelkul marad a telepites nyelve.
+  const lang = opts.lang === 'en' || opts.lang === 'hu' ? opts.lang : APP_LANG
   const root = explorerRoot()
   const base: LifeListing = {
     rel: String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, ''),
@@ -283,11 +294,11 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
     message: null,
   }
   if (!root) {
-    return { ...base, message: 'Nincs depó beállítva, ezért nincs mit mutatni. A Depó oldalon add meg, hol legyen a Marveen tárhelye.' }
+    return { ...base, message: T(lang, 'Nincs depó beállítva, ezért nincs mit mutatni. A Depó oldalon add meg, hol legyen a Marveen tárhelye.', 'No depot is set, so there is nothing to show. On the Depot page tell me where Marveen should keep its files.') }
   }
   const abs = resolveLifePath(base.rel)
   if (!abs) {
-    return { ...base, rel: '', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyitom meg.' }
+    return { ...base, rel: '', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyitom meg.', 'This place is not inside the Marveen folder, so I will not open it.') }
   }
 
   base.display = toDisplayPath(abs)
@@ -296,15 +307,15 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
 
   let st: Stats
   try { st = statSync(abs) } catch {
-    return { ...base, message: `Ez a mappa most nem érhető el: ${toDisplayPath(abs)}` }
+    return { ...base, message: T(lang, `Ez a mappa most nem érhető el: ${toDisplayPath(abs)}`, `This folder is not reachable right now: ${toDisplayPath(abs)}`) }
   }
   if (!st.isDirectory()) {
-    return { ...base, message: 'Ez nem mappa, hanem fájl.' }
+    return { ...base, message: T(lang, 'Ez nem mappa, hanem fájl.', 'This is a file, not a folder.') }
   }
 
   let names: string[]
   try { names = readdirSync(abs) } catch {
-    return { ...base, message: 'Ebbe a mappába nincs betekintési jogom.' }
+    return { ...base, message: T(lang, 'Ebbe a mappába nincs betekintési jogom.', 'I have no permission to look inside this folder.') }
   }
 
   const folders: LifeEntry[] = []
@@ -321,7 +332,7 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
     // Drive-bekotes) ugy viselkedjen, mint amire mutat. A KILEPEST nem ez
     // vedi, hanem a `resolveLifePath` -- ott derül ki, ha kifele visz.
     try { cst = statSync(full) } catch { continue }
-    const e = entryFrom(full, name, cst, base.rel, deep)
+    const e = entryFrom(full, name, cst, base.rel, deep, lang)
     if (e.isDir) folders.push(e)
     else files.push(e)
   }
@@ -335,7 +346,7 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
     if (!mAbs) continue
     let mst: Stats
     try { mst = statSync(mAbs) } catch { continue }
-    const e = entryFrom(mAbs, name, mst, base.rel, deep)
+    const e = entryFrom(mAbs, name, mst, base.rel, deep, lang)
     e.rel = m.rel
     e.mounted = m.label
     // A bekotesi pont MAJDNEM MINDIG egy mar letezo fa-mappa (`Média/Fotók`),
@@ -370,18 +381,18 @@ export function listLife(rel: string, opts: { deep?: boolean } = {}): LifeListin
 
   for (const f of folders) {
     const kulcs = lifeKeyForName(f.name)
-    if (projektekAlatt) { f.hint = PROJECT_HINT; continue }
-    if (kulcs === 'marvin' && !rendszerAlatt) { f.hint = PROJECT_HINT; continue }
-    if (devAlatt && kulcs === 'knowledgeBase') { f.hint = DEV_KNOWLEDGE_HINT; continue }
-    if (devAlatt && kulcs === 'moreMaterial') { f.hint = DEV_MORE_HINT; continue }
-    const h = lifeHint(kulcs)
+    if (projektekAlatt) { f.hint = projectHint(lang); continue }
+    if (kulcs === 'marvin' && !rendszerAlatt) { f.hint = projectHint(lang); continue }
+    if (devAlatt && kulcs === 'knowledgeBase') { f.hint = devKnowledgeHint(lang); continue }
+    if (devAlatt && kulcs === 'moreMaterial') { f.hint = devMoreHint(lang); continue }
+    const h = lifeHint(kulcs, lang)
     if (h) { f.hint = h; continue }
     // A szemely- es cegmappak neve nem fix, ezert a tabla nem talalja oket.
     // A helyuk viszont elarulja, mik: a gyokerben szemely, a Cegek alatt ceg.
-    if (f.name === SAMPLE_PERSON) f.hint = SAMPLE_PERSON_HINT
-    else if (f.name === SAMPLE_COMPANY) f.hint = SAMPLE_COMPANY_HINT
-    else if (!base.rel && cfgPersons.includes(f.name)) f.hint = PERSON_HINT
-    else if (base.rel === lifeName('companies', APP_LANG)) f.hint = COMPANY_HINT
+    if (f.name === SAMPLE_PERSON) f.hint = samplePersonHint(lang)
+    else if (f.name === SAMPLE_COMPANY) f.hint = sampleCompanyHint(lang)
+    else if (!base.rel && cfgPersons.includes(f.name)) f.hint = personHint(lang)
+    else if (base.rel === lifeName('companies', APP_LANG)) f.hint = companyHint(lang)
   }
 
   // A gyokerben sajat sorrend: ami emberi, az elol (ELET), ami gepi, hatul
@@ -450,21 +461,22 @@ export interface LifeInfo {
 }
 
 /** Emberi fajltipus a kiterjesztesbol. Ismeretlennel a kiterjesztes maga. */
-function humanType(name: string, isDir: boolean): string {
-  if (isDir) return 'Mappa'
+function humanType(name: string, isDir: boolean, lang = APP_LANG): string {
+  if (isDir) return T(lang, 'Mappa', 'Folder')
   const ext = (name.split('.').pop() || '').toLowerCase()
+  const D = (hu: string, en: string) => T(lang, hu, en)
   const map: Record<string, string> = {
-    pdf: 'PDF', doc: 'Word dokumentum', docx: 'Word dokumentum',
-    xls: 'Excel táblázat', xlsx: 'Excel táblázat', csv: 'Táblázat (CSV)',
-    ppt: 'Diasor', pptx: 'Diasor', txt: 'Szöveg', md: 'Szöveg (Markdown)',
-    jpg: 'Kép (JPEG)', jpeg: 'Kép (JPEG)', png: 'Kép (PNG)', gif: 'Kép (GIF)',
-    heic: 'Kép (HEIC)', webp: 'Kép (WebP)', svg: 'Kép (SVG)',
-    mp4: 'Videó', mov: 'Videó', avi: 'Videó', mkv: 'Videó',
-    mp3: 'Hang', wav: 'Hang', m4a: 'Hang',
-    zip: 'Tömörített', rar: 'Tömörített', '7z': 'Tömörített',
-    eml: 'E-mail', msg: 'E-mail', json: 'Adatfájl (JSON)',
+    pdf: 'PDF', doc: D('Word dokumentum', 'Word document'), docx: D('Word dokumentum', 'Word document'),
+    xls: D('Excel táblázat', 'Excel spreadsheet'), xlsx: D('Excel táblázat', 'Excel spreadsheet'), csv: D('Táblázat (CSV)', 'Spreadsheet (CSV)'),
+    ppt: D('Diasor', 'Slides'), pptx: D('Diasor', 'Slides'), txt: D('Szöveg', 'Text'), md: D('Szöveg (Markdown)', 'Text (Markdown)'),
+    jpg: D('Kép (JPEG)', 'Image (JPEG)'), jpeg: D('Kép (JPEG)', 'Image (JPEG)'), png: D('Kép (PNG)', 'Image (PNG)'), gif: D('Kép (GIF)', 'Image (GIF)'),
+    heic: D('Kép (HEIC)', 'Image (HEIC)'), webp: D('Kép (WebP)', 'Image (WebP)'), svg: D('Kép (SVG)', 'Image (SVG)'),
+    mp4: D('Videó', 'Video'), mov: D('Videó', 'Video'), avi: D('Videó', 'Video'), mkv: D('Videó', 'Video'),
+    mp3: D('Hang', 'Audio'), wav: D('Hang', 'Audio'), m4a: D('Hang', 'Audio'),
+    zip: D('Tömörített', 'Archive'), rar: D('Tömörített', 'Archive'), '7z': D('Tömörített', 'Archive'),
+    eml: 'E-mail', msg: 'E-mail', json: D('Adatfájl (JSON)', 'Data file (JSON)'),
   }
-  return map[ext] || (ext ? `${ext.toUpperCase()} fájl` : 'Fájl')
+  return map[ext] || (ext ? `${ext.toUpperCase()} ` + T(lang, 'fájl', 'file') : T(lang, 'Fájl', 'File'))
 }
 
 /**
@@ -504,7 +516,7 @@ function prettyCase(s: string): string {
   return s.split(' ').map((w) => (w ? w[0] + w.slice(1).toLowerCase() : w)).join(' ')
 }
 
-export function lifeInfo(rel: string): LifeInfo | null {
+export function lifeInfo(rel: string, lang = APP_LANG): LifeInfo | null {
   const cleanRel = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
   const abs = resolveLifePath(cleanRel)
   if (!abs) return null
@@ -520,7 +532,7 @@ export function lifeInfo(rel: string): LifeInfo | null {
     name,
     isDir,
     exists: Boolean(st),
-    type: humanType(name, isDir),
+    type: humanType(name, isDir, lang),
     size: st && !isDir ? st.size : 0,
     sizeHuman: st && !isDir ? humanSize(st.size) : '',
     mtime: st ? (() => { try { return st!.mtime.toISOString() } catch { return '' } })() : '',
@@ -548,35 +560,35 @@ export interface MoveResult {
  * keverjuk ide, mert egy elgepelt nev egy athelyezes kozben eszrevetlen
  * maradna.)
  */
-export function moveLife(fromRel: string, toDirRel: string): MoveResult {
+export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): MoveResult {
   const from = resolveLifePath(fromRel)
   const toDir = resolveLifePath(toDirRel)
   if (!from || !toDir) {
-    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+    return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
   }
   if (!existsSync(from)) {
-    return { ok: false, rel: '', code: 'missing', message: 'Ez a fájl már nincs a régi helyén. Frissítsd a listát.' }
+    return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez a fájl már nincs a régi helyén. Frissítsd a listát.', 'This file is no longer where it was. Refresh the list.') }
   }
   let toIsDir = false
   try { toIsDir = statSync(toDir).isDirectory() } catch { toIsDir = false }
   if (!toIsDir) {
-    return { ok: false, rel: '', code: 'no_target', message: 'A célként megadott hely nem mappa.' }
+    return { ok: false, rel: '', code: 'no_target', message: T(lang, 'A célként megadott hely nem mappa.', 'The place you gave as the target is not a folder.') }
   }
   const name = basename(from)
   const target = join(toDir, name)
   if (target === from) {
-    return { ok: false, rel: fromRel, code: 'same', message: 'Ez a fájl már ebben a mappában van.' }
+    return { ok: false, rel: fromRel, code: 'same', message: T(lang, 'Ez a fájl már ebben a mappában van.', 'This file is already in that folder.') }
   }
   // Mappat nem lehet SAJAT MAGA ALA tenni: a `renameSync` erre EINVAL-t ad, de
   // a hibauzenet ("invalid argument") semmit nem mond a felhasznalonak.
   if (statSafe(from)?.isDirectory() && (toDir === from || toDir.startsWith(from + sep))) {
-    return { ok: false, rel: '', code: 'into_self', message: 'Egy mappát nem lehet önmagába áthelyezni.' }
+    return { ok: false, rel: '', code: 'into_self', message: T(lang, 'Egy mappát nem lehet önmagába áthelyezni.', 'A folder cannot be moved into itself.') }
   }
   // NEM IRUNK FELUL. Egy azonos nevu irat csendes felulirasa visszafordithatatlan.
   if (existsSync(target)) {
     return {
       ok: false, rel: '', code: 'exists',
-      message: `A célmappában már van ilyen nevű fájl: ${name}. Nem írom felül -- előbb nevezd át valamelyiket.`,
+      message: T(lang, `A célmappában már van ilyen nevű fájl: ${name}. Nem írom felül -- előbb nevezd át valamelyiket.`, `The target folder already has a file called ${name}. I will not overwrite it -- rename one of them first.`),
     }
   }
 
@@ -591,10 +603,10 @@ export function moveLife(fromRel: string, toDirRel: string): MoveResult {
         copyFileSync(from, target)
         rmSync(from, { force: true })
       } catch (err2: any) {
-        return { ok: false, rel: '', code: 'failed', message: `Nem sikerült áthelyezni: ${String(err2?.message || err2)}` }
+        return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült áthelyezni: ${String(err2?.message || err2)}`, `Could not move it: ${String(err2?.message || err2)}`) }
       }
     } else {
-      return { ok: false, rel: '', code: 'failed', message: `Nem sikerült áthelyezni: ${String(err?.code || err?.message || err)}` }
+      return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült áthelyezni: ${String(err?.code || err?.message || err)}`, `Could not move it: ${String(err?.code || err?.message || err)}`) }
     }
   }
 
@@ -603,7 +615,7 @@ export function moveLife(fromRel: string, toDirRel: string): MoveResult {
   // informacioja a regi utvonalon maradna, vagyis a semmin.
   movePhysical(fromRel, newRel)
   logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
-  return { ok: true, rel: newRel, message: `Áthelyezve ide: ${humanLocation(newRel)}` }
+  return { ok: true, rel: newRel, message: T(lang, `Áthelyezve ide: ${humanLocation(newRel)}`, `Moved here: ${humanLocation(newRel)}`) }
 }
 
 function statSafe(p: string): Stats | null {
@@ -611,28 +623,28 @@ function statSafe(p: string): Stats | null {
 }
 
 /** Uj mappa a fan belul. A nev nem lehet utvonal -- csak nev. */
-export function mkdirLife(parentRel: string, name: string): MoveResult {
+export function mkdirLife(parentRel: string, name: string, lang = APP_LANG): MoveResult {
   const clean = safeLifeName(name)
   if (!clean || clean === '_') {
-    return { ok: false, rel: '', code: 'bad_name', message: 'Adj meg egy nevet a mappának.' }
+    return { ok: false, rel: '', code: 'bad_name', message: T(lang, 'Adj meg egy nevet a mappának.', 'Give the folder a name.') }
   }
   if (/[\\/]/.test(String(name))) {
-    return { ok: false, rel: '', code: 'bad_name', message: 'A mappa neve nem tartalmazhat per-jelet. Csak a nevét írd be.' }
+    return { ok: false, rel: '', code: 'bad_name', message: T(lang, 'A mappa neve nem tartalmazhat per-jelet. Csak a nevét írd be.', 'A folder name cannot contain a slash. Type the name only.') }
   }
   const parent = resolveLifePath(parentRel)
   if (!parent) {
-    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül.' }
+    return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül.', 'This place is not inside the Marveen folder.') }
   }
   const target = join(parent, clean)
   if (existsSync(target)) {
-    return { ok: false, rel: toLifeRel(target), code: 'exists', message: 'Ilyen nevű mappa már van itt.' }
+    return { ok: false, rel: toLifeRel(target), code: 'exists', message: T(lang, 'Ilyen nevű mappa már van itt.', 'A folder with that name is already here.') }
   }
   try {
     mkdirSync(target, { recursive: false })
   } catch (err: any) {
-    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült létrehozni: ${String(err?.code || err?.message || err)}` }
+    return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült létrehozni: ${String(err?.code || err?.message || err)}`, `Could not create it: ${String(err?.code || err?.message || err)}`) }
   }
-  return { ok: true, rel: toLifeRel(target), message: `Kész: ${clean}` }
+  return { ok: true, rel: toLifeRel(target), message: T(lang, `Kész: ${clean}`, `Done: ${clean}`) }
 }
 
 /**
@@ -642,37 +654,37 @@ export function mkdirLife(parentRel: string, name: string): MoveResult {
  * visz, ez helyben marad. A felhasznalonak is ket kulon dolog, es a hibauzenet
  * is mas („mar van ilyen nevu itt" vs. „a celmappaban mar van ilyen").
  */
-export function renameLife(rel: string, newName: string): MoveResult {
+export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveResult {
   const abs = resolveLifePath(rel)
   if (!abs) {
-    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+    return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
   }
   if (!existsSync(abs)) {
-    return { ok: false, rel: '', code: 'missing', message: 'Ez már nincs a régi helyén. Frissítsd a listát.' }
+    return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs a régi helyén. Frissítsd a listát.', 'This is no longer where it was. Refresh the list.') }
   }
   if (/[\\/]/.test(String(newName))) {
-    return { ok: false, rel: '', code: 'bad_name', message: 'A név nem tartalmazhat per-jelet. Csak a nevét írd be.' }
+    return { ok: false, rel: '', code: 'bad_name', message: T(lang, 'A név nem tartalmazhat per-jelet. Csak a nevét írd be.', 'A name cannot contain a slash. Type the name only.') }
   }
   const clean = safeLifeName(newName)
   if (!clean || clean === '_') {
     return { ok: false, rel: '', code: 'bad_name', message: 'Adj meg egy nevet.' }
   }
   if (clean === basename(abs)) {
-    return { ok: false, rel, code: 'same', message: 'Ez már most is ez a név.' }
+    return { ok: false, rel, code: 'same', message: T(lang, 'Ez már most is ez a név.', 'That is already its name.') }
   }
   const target = join(dirname(abs), clean)
   if (existsSync(target)) {
-    return { ok: false, rel: '', code: 'exists', message: `Már van itt ilyen nevű: ${clean}. Nem írom felül.` }
+    return { ok: false, rel: '', code: 'exists', message: T(lang, `Már van itt ilyen nevű: ${clean}. Nem írom felül.`, `Something called ${clean} is already here. I will not overwrite it.`) }
   }
   try {
     renameSync(abs, target)
   } catch (err: any) {
-    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült átnevezni: ${String(err?.code || err?.message || err)}` }
+    return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült átnevezni: ${String(err?.code || err?.message || err)}`, `Could not rename it: ${String(err?.code || err?.message || err)}`) }
   }
   const newRel = toLifeRel(target)
   movePhysical(rel, newRel)
   logger.info({ from: rel, to: newRel }, '[intezo] atnevezve')
-  return { ok: true, rel: newRel, message: `Új neve: ${clean}` }
+  return { ok: true, rel: newRel, message: T(lang, `Új neve: ${clean}`, `Its new name: ${clean}`) }
 }
 
 /**
@@ -707,24 +719,25 @@ function szabadNev(dir: string, name: string): string {
   return join(dir, `${torzs} (${Date.now()})${kit}`)
 }
 
-export function trashLife(rel: string): MoveResult {
+export function trashLife(rel: string, lang = APP_LANG): MoveResult {
   const root = explorerRoot()
   const abs = resolveLifePath(rel)
   if (!root || !abs) {
-    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+    return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
   }
   if (abs === root) {
-    return { ok: false, rel: '', code: 'root', message: 'A teljes fát nem törlöm.' }
+    return { ok: false, rel: '', code: 'root', message: T(lang, 'A teljes fát nem törlöm.', 'I will not delete the whole tree.') }
   }
   if (!existsSync(abs)) {
-    return { ok: false, rel: '', code: 'missing', message: 'Ez már nincs itt. Frissítsd a listát.' }
+    return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs itt. Frissítsd a listát.', 'This is not here any more. Refresh the list.') }
   }
   const parts = toLifeRel(abs).split('/')
   if (parts.length === 1) {
     return {
       ok: false, rel: '', code: 'top',
-      message: 'Ez a fa egyik fő ága — a következő „Könyvtárszerkezet létrehozása" úgyis visszatenné. '
-        + 'Ha tényleg nem kell, a „Kik szerepeljenek a fában?" résznél vedd ki a személyt vagy a céget.',
+      message: T(lang, 'Ez a fa egyik fő ága — a következő „Könyvtárszerkezet létrehozása" úgyis visszatenné. '
+        + 'Ha tényleg nem kell, a „Kik szerepeljenek a fában?" résznél vedd ki a személyt vagy a céget.', 'This is one of the main branches of the tree -- the next "Create directory structure" would put it back anyway. '
+        + 'If you really do not need it, remove the person or the company under "Who should be in the tree?".'),
     }
   }
 
@@ -735,8 +748,9 @@ export function trashLife(rel: string): MoveResult {
   if (relNow === kukaRel || relNow.startsWith(kukaRel + '/')) {
     return {
       ok: false, rel: '', code: 'in_trash',
-      message: 'Ez már a Kukában van, oda nem tehetem még egyszer. Ha végleg meg akarsz szabadulni tőle, '
-        + 'kattints rá jobb gombbal, és válaszd a „Végleges törlés" pontot — onnan már nincs visszaút.',
+      message: T(lang, 'Ez már a Kukában van, oda nem tehetem még egyszer. Ha végleg meg akarsz szabadulni tőle, '
+        + 'kattints rá jobb gombbal, és válaszd a „Végleges törlés" pontot — onnan már nincs visszaút.', 'This is already in the Trash, I cannot put it there twice. If you want it gone for good, '
+        + 'right-click it and choose "Delete permanently" -- from there there is no way back.'),
     }
   }
 
@@ -752,7 +766,7 @@ export function trashLife(rel: string): MoveResult {
     mkdirSync(dir, { recursive: true })
     renameSync(abs, target)
   } catch (err: any) {
-    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült a Kukába tenni: ${String(err?.code || err?.message || err)}` }
+    return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült a Kukába tenni: ${String(err?.code || err?.message || err)}`, `Could not move it to the Trash: ${String(err?.code || err?.message || err)}`) }
   }
   const newRel = toLifeRel(target)
   movePhysical(rel, newRel)
@@ -760,7 +774,7 @@ export function trashLife(rel: string): MoveResult {
   return {
     ok: true, rel: newRel,
     // A TENYLEGES nevet mondjuk: nevutkozeskor mas lett, mint ami a listaban allt.
-    message: `A Kukába került: ${basename(target)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`,
+    message: T(lang, `A Kukába került: ${basename(target)}. Ott megtalálod a Rendszer / Kuka / ${stamp} alatt, amíg ki nem üríted.`, `Moved to the Trash: ${basename(target)}. You will find it under System / Trash / ${stamp} until you empty it.`),
   }
 }
 
@@ -771,14 +785,14 @@ export function trashLife(rel: string): MoveResult {
  * van szabva: a `Rendszer/Kuka` alatt mukodik, mashol nem. A Kuka MAGA nem
  * torlodik, csak kiurul -- kell a hely a kovetkezo kukazasnak.
  */
-export function purgeLife(rel: string): MoveResult {
+export function purgeLife(rel: string, lang = APP_LANG): MoveResult {
   const root = explorerRoot()
   const abs = resolveLifePath(rel)
   if (!root || !abs) {
-    return { ok: false, rel: '', code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.' }
+    return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
   }
   if (!existsSync(abs)) {
-    return { ok: false, rel: '', code: 'missing', message: 'Ez már nincs itt. Frissítsd a listát.' }
+    return { ok: false, rel: '', code: 'missing', message: T(lang, 'Ez már nincs itt. Frissítsd a listát.', 'This is not here any more. Refresh the list.') }
   }
   const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
   const relNow = toLifeRel(abs)
@@ -787,8 +801,9 @@ export function purgeLife(rel: string): MoveResult {
   if (relNow !== kukaRel && !relNow.startsWith(kukaRel + '/')) {
     return {
       ok: false, rel: '', code: 'not_in_trash',
-      message: 'Véglegesen csak a Kukából törlök. Ezt előbb tedd a Kukába — ha ott is fölöslegesnek látod, '
-        + 'onnan már végleg törölheted.',
+      message: T(lang, 'Véglegesen csak a Kukából törlök. Ezt előbb tedd a Kukába — ha ott is fölöslegesnek látod, '
+        + 'onnan már végleg törölheted.', 'I only delete permanently from the Trash. Put this in the Trash first -- if it still looks useless there, '
+        + 'you can delete it for good from there.'),
     }
   }
 
@@ -800,12 +815,14 @@ export function purgeLife(rel: string): MoveResult {
       try { rmSync(join(abs, d), { recursive: true, force: true }); db++ } catch (err: any) { hiba = String(err?.code || err?.message || err) }
     }
     if (hiba && !db) {
-      return { ok: false, rel: '', code: 'failed', message: `Nem sikerült kiüríteni a Kukát: ${hiba}` }
+      return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült kiüríteni a Kukát: ${hiba}`, `Could not empty the Trash: ${hiba}`) }
     }
     logger.warn({ db }, '[intezo] kuka kiuritve')
     return {
       ok: true, rel: kukaRel,
-      message: db ? `A Kuka kiürült: ${db} tétel törölve, véglegesen.` : 'A Kuka már üres volt.',
+      message: db
+        ? T(lang, `A Kuka kiürült: ${db} tétel törölve, véglegesen.`, `The Trash is empty: ${db} items deleted, for good.`)
+        : T(lang, 'A Kuka már üres volt.', 'The Trash was already empty.'),
     }
   }
 
@@ -813,7 +830,7 @@ export function purgeLife(rel: string): MoveResult {
   try {
     rmSync(abs, { recursive: true, force: true })
   } catch (err: any) {
-    return { ok: false, rel: '', code: 'failed', message: `Nem sikerült törölni: ${String(err?.code || err?.message || err)}` }
+    return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült törölni: ${String(err?.code || err?.message || err)}`, `Could not delete it: ${String(err?.code || err?.message || err)}`) }
   }
   // A papir-nyilvantartas bejegyzese is menjen vele: a fajl mar nincs, a
   // „papiron is megvan" sor nelkule ertelmetlen lenne.
@@ -826,7 +843,7 @@ export function purgeLife(rel: string): MoveResult {
     try { if (!readdirSync(szulo).length) rmSync(szulo, { recursive: true, force: true }) } catch { /* nem baj */ }
   }
   logger.warn({ rel: relNow }, '[intezo] veglegesen torolve')
-  return { ok: true, rel: dirname(relNow) === '.' ? '' : toLifeRel(dirname(abs)), message: `Véglegesen törölve: ${nev}` }
+  return { ok: true, rel: dirname(relNow) === '.' ? '' : toLifeRel(dirname(abs)), message: T(lang, `Véglegesen törölve: ${nev}`, `Deleted for good: ${nev}`) }
 }
 
 /** A Kuka belyeges mappaneve: `2026-08-22_00-05-01`. */
@@ -878,7 +895,7 @@ export function autoPurgeTrash(days: number, most = Date.now()): { torolt: numbe
  * gepelesnel hasznalhatatlan lenne. Aki tartalomra keres, azt a Marveen AI
  * oldalarol teszi.
  */
-export function searchLife(rel: string, query: string, limit = 200): { entries: LifeEntry[]; truncated: boolean } {
+export function searchLife(rel: string, query: string, limit = 200, lang = APP_LANG): { entries: LifeEntry[]; truncated: boolean } {
   const q = String(query || '').trim().toLowerCase()
   if (!q) return { entries: [], truncated: false }
   const startAbs = resolveLifePath(rel)
@@ -904,7 +921,7 @@ export function searchLife(rel: string, query: string, limit = 200): { entries: 
       if (name.toLowerCase().includes(q)) {
         const parentRel = toLifeRel(dir)
         if (entries.length >= limit) { truncated = true; break }
-        entries.push(entryFrom(full, name, st, parentRel, false))
+        entries.push(entryFrom(full, name, st, parentRel, false, lang))
       }
       if (st.isDirectory()) queue.push(full)
     }

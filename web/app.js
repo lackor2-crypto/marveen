@@ -28144,6 +28144,11 @@ async function _depoGet(url) {
 }
 
 async function _depoPost(url, body) {
+  // Az Eletfa vegpontjai a valaszt a FELULET nyelven adjak vissza. Kozponti
+  // hely, hogy egy uj hivas se felejtse el (a szoveg ket nyelven all a szerveren).
+  if (url.indexOf('/api/life/') === 0 && url.indexOf('lang=') < 0) {
+    url += (url.indexOf('?') < 0 ? '?' : '&') + 'lang=' + (window._lang || 'hu')
+  }
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29533,6 +29538,9 @@ function _intezoSetBadgeMode(mode) {
 }
 
 async function _intezoGet(url) {
+  if (url.indexOf('/api/life/') === 0 && url.indexOf('lang=') < 0) {
+    url += (url.indexOf('?') < 0 ? '?' : '&') + 'lang=' + (window._lang || 'hu')
+  }
   const res = await fetch(url)
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.message || data.error || ('hiba: ' + res.status))
@@ -29612,7 +29620,7 @@ async function _intezoStatus() {
     const st = await _intezoGet('/api/life/status')
     if (!st.root) {
       box.hidden = false
-      txt.textContent = 'Még nincs beállítva, hol tárolja a Marveen a fájljaidat. Először a Depó oldalon válaszd ki a mappát.'
+      txt.textContent = t('intezo.no_depot')
       if (ensure) ensure.hidden = true
       if (toDepo) toDepo.hidden = false
       return
@@ -29622,14 +29630,14 @@ async function _intezoStatus() {
     if (!st.exists || (st.missing || []).length) {
       box.hidden = false
       txt.textContent = st.exists
-        ? ('A könyvtárszerkezetből ' + st.missing.length + ' mappa hiányzik. Létrehozzam? Ami már megvan, ahhoz nem nyúlok.')
-        : 'Még nem áll a könyvtárszerkezet. Egy gombnyomás, és felépítem.'
+        ? t('intezo.missing_n', { n: st.missing.length })
+        : t('intezo.no_tree_yet')
     } else {
       box.hidden = true
     }
   } catch (e) {
     box.hidden = false
-    if (txt) txt.textContent = (e && e.message) ? e.message : 'Nem sikerült megnézni a könyvtárszerkezetet.'
+    if (txt) txt.textContent = (e && e.message) ? e.message : t('intezo.tree_check_failed')
     if (ensure) ensure.hidden = true
   }
 }
@@ -29639,11 +29647,11 @@ async function _intezoEnsure() {
   if (btn) btn.disabled = true
   try {
     const r = await _depoPost('/api/life/ensure', {})
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     await _intezoStatus()
     await _intezoOpen(_intezoPath)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappákat.')
+    showToast((e && e.message) ? e.message : t('intezo.create_failed'))
   } finally {
     if (btn) btn.disabled = false
   }
@@ -29660,9 +29668,10 @@ async function _intezoOpen(rel) {
   if (search) search.value = ''
   try {
     await _faSugokBetolt()
-    _intezoListing = await _intezoGet('/api/life/list?path=' + encodeURIComponent(_intezoPath))
+    _intezoListing = await _intezoGet('/api/life/list?lang=' + (window._lang || 'hu')
+      + '&path=' + encodeURIComponent(_intezoPath))
   } catch (e) {
-    _intezoListing = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : 'Nem sikerült megnyitni a mappát.' }
+    _intezoListing = { folders: [], files: [], breadcrumb: [], message: (e && e.message) ? e.message : t('intezo.open_failed') }
   }
   _intezoRender()
 }
@@ -29682,11 +29691,11 @@ async function _intezoSearch() {
       folders: entries.filter((e) => e.isDir),
       files: entries.filter((e) => !e.isDir),
       truncated: r.truncated,
-      message: entries.length ? null : ('Nincs találat erre: ' + q),
+      message: entries.length ? null : t('intezo.no_hits', { q }),
     })
     _intezoRender()
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'A keresés nem sikerült.')
+    showToast((e && e.message) ? e.message : t('intezo.search_failed'))
   }
 }
 
@@ -29773,7 +29782,9 @@ let _faSugok = null
 async function _faSugokBetolt() {
   if (_faSugok) return _faSugok
   try {
-    const r = await _intezoGet('/api/life/hints')
+    // A mappaNEV a lemez nyelvén áll (azt átnevezni adatvesztés volna),
+    // a zárójeles magyarázat viszont a felület nyelvét követi.
+    const r = await _intezoGet('/api/life/hints?lang=' + (window._lang || 'hu'))
     _faSugok = (r && r.hints) ? r.hints : {}
   } catch (e) { _faSugok = {} }
   return _faSugok
@@ -29823,7 +29834,7 @@ function _intezoRender() {
   list.innerHTML = '<table style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
     + rows.map((e) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
-      + ' title="Kattints a sorra a kijelöléshez, a névre a megnyitáshoz — jobb gombbal a menü"'
+      + ' title="' + escapeHtml(t('intezo.row_title')) + '"'
       + ' data-pick="1"'
       + (_intezoSelected && _intezoSelected.rel === e.rel
           ? ' style="background:rgba(127,127,127,.15)"'
@@ -29844,9 +29855,9 @@ function _intezoRender() {
       // ott legyen ugyanabban a sorban.
       + (_faSugo(e) ? ' <span style="opacity:.6;font-size:12px">(' + escapeHtml(_faSugo(e)) + ')</span>' : '')
       + (e.caution ? ' <span style="color:var(--danger,#d33);font-size:12px" title="'
-          + escapeHtml(e.caution) + '">⚠ jobb nem piszkálni</span>' : '')
-      + (e.physical ? ' <span title="Papíron is megvan">🗂</span>' : '')
-      + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="Ez a mappa máshol lévő tartalmat mutat">→ '
+          + escapeHtml(e.caution) + '">⚠ ' + escapeHtml(t('intezo.caution_badge')) + '</span>' : '')
+      + (e.physical ? ' <span title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')
+      + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="' + escapeHtml(t('intezo.badge_mounted')) + '">→ '
           + escapeHtml(e.mounted) + '</span>' : '') + '</td>'
       + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap">' + escapeHtml(e.sizeHuman) + '</td>'
       + '<td style="padding:0 8px;white-space:nowrap"><button class="btn-secondary" '
@@ -29917,7 +29928,7 @@ function _intezoRender() {
  */
 function _intezoOpenFolderPicker(mode) {
   const sel = _intezoSelected
-  if (!sel) { showToast('Előbb válassz ki egy fájlt vagy mappát.'); return }
+  if (!sel) { showToast(t('intezo.select_first')); return }
 
   const overlay = document.createElement('div')
   // KET `.modal-overlay` szabaly all a lapon: a korabbi `opacity:0` +
@@ -29926,16 +29937,16 @@ function _intezoOpenFolderPicker(mode) {
   overlay.className = 'modal-overlay active'
   overlay.id = 'intezoPickerOverlay'
   const what = mode === 'move'
-    ? 'Hova kerüljön: ' + (sel.name || '')
-    : 'Hol áll a papír: ' + (sel.name || '')
+    ? t('intezo.pick_move_to', { name: sel.name || '' })
+    : t('intezo.pick_paper_at', { name: sel.name || '' })
   overlay.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
     + '<h3 style="margin:0 0 4px">' + escapeHtml(what) + '</h3>'
-    + '<p class="subtitle" style="margin:0 0 10px">Tallózd ki a mappát: a nevére kattintva belépsz, a „Fel egy szintet” gombbal visszalépsz. A kiválasztott mappa alul látszik.</p>'
+    + '<p class="subtitle" style="margin:0 0 10px">' + escapeHtml(t('intezo.pick_help')) + '</p>'
     + '<div id="intezoPickerCrumb" style="font-size:13px;opacity:.85;margin-bottom:6px"></div>'
     + '<div id="intezoPickerList" style="max-height:320px;overflow:auto;border:1px solid var(--border,#3336);border-radius:8px;padding:4px"></div>'
-    + '<p style="margin:10px 0 4px;font-size:13px">Ide kerül: <b id="intezoPickerHere"></b></p>'
+    + '<p style="margin:10px 0 4px;font-size:13px">' + escapeHtml(t('intezo.pick_here')) + ' <b id="intezoPickerHere"></b></p>'
     + '<div style="text-align:right;margin-top:8px">'
-    + '<button class="btn-secondary" id="intezoPickerCancel">Mégsem</button> '
+    + '<button class="btn-secondary" id="intezoPickerCancel">' + escapeHtml(t('intezo.cancel')) + '</button> '
     + '<button class="btn-primary" id="intezoPickerOk">Ez legyen az</button>'
     + '</div></div>'
   document.body.appendChild(overlay)
@@ -29956,13 +29967,14 @@ function _intezoOpenFolderPicker(mode) {
     const crumb = overlay.querySelector('#intezoPickerCrumb')
     const list = overlay.querySelector('#intezoPickerList')
     const hereEl = overlay.querySelector('#intezoPickerHere')
-    hereEl.textContent = here ? here.split('/').join(' › ') : '(a fa gyökere)'
-    list.textContent = 'Betöltés…'
+    hereEl.textContent = here ? here.split('/').join(' › ') : t('intezo.tree_root')
+    list.textContent = t('intezo.loading')
     let data
     try {
-      data = await _intezoGet('/api/life/list?deep=0&path=' + encodeURIComponent(here))
+      data = await _intezoGet('/api/life/list?deep=0&lang=' + (window._lang || 'hu')
+        + '&path=' + encodeURIComponent(here))
     } catch (e) {
-      list.textContent = (e && e.message) ? e.message : 'Nem sikerült megnyitni ezt a mappát.'
+      list.textContent = (e && e.message) ? e.message : t('intezo.open_this_failed')
       return
     }
     crumb.textContent = data.display || ''
@@ -29983,7 +29995,7 @@ function _intezoOpenFolderPicker(mode) {
     if (!folders.length) {
       const p = document.createElement('p')
       p.style.cssText = 'opacity:.7;font-size:13px;padding:6px'
-      p.textContent = 'Ebben a mappában nincs almappa. Ha ide akarod tenni, nyomd meg az „Ez legyen az” gombot.'
+      p.textContent = t('intezo.pick_no_sub')
       list.appendChild(p)
     }
     for (const f of folders) {
@@ -30013,11 +30025,11 @@ async function _intezoConfirmPick(mode, target) {
   if (mode === 'move') {
     try {
       const r = await _depoPost('/api/life/move', { from: sel.rel, to: target })
-      showToast(r.message || 'Kész.')
+      showToast(r.message || t('intezo.done'))
       await _intezoOpen(_intezoPath)
       if (r.ok) await _intezoInfo(r.rel)
     } catch (e) {
-      showToast((e && e.message) ? e.message : 'Az áthelyezés nem sikerült.')
+      showToast((e && e.message) ? e.message : t('intezo.move_failed'))
       _intezoRender()
     }
     return
@@ -30025,7 +30037,7 @@ async function _intezoConfirmPick(mode, target) {
   // Papir helye: csak beirjuk a mezobe. A mentes kulon gomb -- igy egy
   // felreklikkelt mappa meg visszavonhato.
   const el = document.getElementById('intezoPhysLocation')
-  if (el) { el.textContent = target || '(a fa gyökere)'; el.setAttribute('data-rel', target) }
+  if (el) { el.textContent = target || t('intezo.tree_root'); el.setAttribute('data-rel', target) }
   const has = document.getElementById('intezoPhysHas')
   if (has && !has.checked) { has.checked = true; document.getElementById('intezoPhysFields').hidden = false }
   _intezoRender()
@@ -30046,7 +30058,7 @@ async function _intezoInfo(rel, quiet) {
   try {
     info = await _intezoGet('/api/life/info?path=' + encodeURIComponent(rel))
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült lekérni az adatokat.')
+    showToast((e && e.message) ? e.message : t('intezo.info_failed'))
     return
   }
   _intezoSelected = info
@@ -30054,16 +30066,19 @@ async function _intezoInfo(rel, quiet) {
 
   const src = info.source || {}
   const rows = [
-    ['Típus', info.type],
+    [t('intezo.info_type'), info.type],
     ['Kihez tartozik', info.owner || '—'],
-    ['Digitális hely', info.digitalLocation || '(a fa gyökere)'],
-    ['Forrás', (src.icon || '') + ' ' + (src.label || '')],
+    [t('intezo.info_digital'), info.digitalLocation || t('intezo.tree_root')],
+    [t('intezo.info_source'), (src.icon || '') + ' ' + (src.label || '')],
   ]
-  if (info.mount) rows.push(['Bekötve ide', info.mount.label + '  (' + info.mount.target + ')'])
+  if (info.mount) rows.push([t('intezo.info_mounted'), info.mount.label + '  (' + info.mount.target + ')'])
   ;(src.details || []).forEach((d) => rows.push([d.label, d.value]))
-  if (!info.isDir) rows.push(['Méret', info.sizeHuman || '—'])
-  rows.push(['Módosítva', info.mtime ? new Date(info.mtime).toLocaleString('hu-HU') : '—'])
-  rows.push(['Fizikai példány', info.physical && info.physical.physical ? 'VAN' : 'nincs'])
+  if (!info.isDir) rows.push([t('intezo.info_size'), info.sizeHuman || '—'])
+  // A datumformatum is a felulet nyelvet koveti, nem a telepitesét.
+  rows.push([t('intezo.info_mtime'), info.mtime
+    ? new Date(info.mtime).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU') : '—'])
+  rows.push([t('intezo.info_physical'),
+    t(info.physical && info.physical.physical ? 'intezo.info_has' : 'intezo.info_hasnt')])
   if (info.physicalLocationHuman) rows.push(['Fizikai hely', info.physicalLocationHuman])
 
   rowsEl.innerHTML = rows.map((r) =>
@@ -30083,7 +30098,7 @@ async function _intezoInfo(rel, quiet) {
     // legtobb esetben tallozni sem kell -- csak menteni.
     const own = String(info.rel || '').includes('/') ? String(info.rel).slice(0, String(info.rel).lastIndexOf('/')) : ''
     const relLoc = p.location || own
-    loc.textContent = info.physicalLocationHuman || (own ? own.split('/').join(' › ') : '(a fa gyökere)')
+    loc.textContent = info.physicalLocationHuman || (own ? own.split('/').join(' › ') : t('intezo.tree_root'))
     loc.setAttribute('data-rel', relLoc)
   }
   if (note) note.value = p.note || ''
@@ -30114,27 +30129,27 @@ async function _intezoRenderGit(info) {
   const head = document.createElement('div')
   head.className = 'info-box'
   head.style.marginTop = '14px'
-  head.innerHTML = '<p style="margin:0 0 6px"><b>📛 Ez git-repó</b> — a gazda a git, nem az Intéző.</p>'
+  head.innerHTML = '<p style="margin:0 0 6px">' + t('intezo.git_head') + '</p>'
     + (git.isRoot
-      ? '<p style="margin:0;font-size:13px;opacity:.85">A repón belül kézzel nem mozgatok és nem hozok létre semmit: azzal a git elveszítené a fájlok történetét. Szerkeszd a szerkesztőben, aztán commit + push.</p>'
-      : '<p style="margin:0;font-size:13px;opacity:.85">Ez a repó belseje: ' + escapeHtml(git.repo) + '. Innen áthelyezni és ide új mappát tenni nem fogok — a szerkesztő + commit + push az útja.</p>')
+      ? '<p style="margin:0;font-size:13px;opacity:.85">' + escapeHtml(t('intezo.git_root_note')) + '</p>'
+      : '<p style="margin:0;font-size:13px;opacity:.85">' + escapeHtml(t('intezo.git_inside_note', { repo: git.repo })) + '</p>')
   box.appendChild(head)
   if (!git.isRoot) return
 
   const state = document.createElement('p')
   state.style.cssText = 'margin:8px 0;font-size:13px'
-  state.textContent = 'Állapot lekérdezése…'
+  state.textContent = t('intezo.git_asking')
   box.appendChild(state)
 
   let st
   try {
     st = await _intezoGet('/api/life/repo-status?path=' + encodeURIComponent(info.rel))
   } catch (e) {
-    state.textContent = 'Nem sikerült megkérdezni a gitet az állapotáról. Amíg ez így van, ne töröld.'
+    state.textContent = t('intezo.git_status_failed')
     return
   }
   state.innerHTML = '<b>' + escapeHtml(st.sentence || '') + '</b>'
-    + (st.branch ? '<br><span style="opacity:.75">ág: ' + escapeHtml(st.branch) + (st.remote ? ' → ' + escapeHtml(st.remote) : '') + '</span>' : '')
+    + (st.branch ? '<br><span style="opacity:.75">' + escapeHtml(t('intezo.git_branch')) + ' ' + escapeHtml(st.branch) + (st.remote ? ' → ' + escapeHtml(st.remote) : '') + '</span>' : '')
 
   const btns = document.createElement('div')
   btns.style.marginTop = '6px'
@@ -30143,14 +30158,14 @@ async function _intezoRenderGit(info) {
   if ((st.mounts || []).length) {
     const un = document.createElement('button')
     un.className = 'btn-secondary btn-compact'
-    un.textContent = '🔌 Bekötés megszüntetése (a fájlok maradnak)'
+    un.textContent = '🔌 ' + t('intezo.unmount')
     un.addEventListener('click', async () => {
-      if (!confirm('A bekötés megszűnik, a fájlok a helyükön maradnak. Mehet?')) return
+      if (!confirm(t('intezo.unmount_confirm'))) return
       try {
         const r = await _depoPost('/api/life/mounts/remove', { rel: st.mounts[0].rel })
-        showToast(r.message || 'Kész.')
+        showToast(r.message || t('intezo.done'))
         await _intezoOpen(_intezoPath)
-      } catch (e) { showToast((e && e.message) ? e.message : 'Nem sikerült.') }
+      } catch (e) { showToast((e && e.message) ? e.message : t('intezo.failed')) }
     })
     btns.appendChild(un)
     btns.appendChild(document.createTextNode(' '))
@@ -30162,26 +30177,26 @@ async function _intezoRenderGit(info) {
     const zar = document.createElement('p')
     zar.style.cssText = 'margin:8px 0;font-size:13px'
     zar.innerHTML = st.csakOlvasas
-      ? '🔒 <b>Csak olvasás.</b> Ebből a repóból feltölteni nem lehet — olvasni és frissülni igen.'
-      : '✏️ <b>Írható.</b> Innen a repóba fel is lehet tölteni.'
+      ? t('intezo.repo_ro')
+      : t('intezo.repo_rw')
     box.appendChild(zar)
 
     const kapcs = document.createElement('button')
     kapcs.className = 'btn-secondary btn-compact'
-    kapcs.textContent = st.csakOlvasas ? '✏️ Zár levétele (írható legyen)' : '🔒 Zárás csak olvasásra'
+    kapcs.textContent = st.csakOlvasas ? '✏️ ' + t('intezo.repo_unlock') : '🔒 ' + t('intezo.repo_lock')
     kapcs.addEventListener('click', async () => {
       const be = !st.csakOlvasas
-      if (!be && !confirm('A zár levételével innen fel lehet majd tölteni ebbe a repóba.\n\nEz a következő lehúzás után is így marad. Mehet?')) return
+      if (!be && !confirm(t('intezo.unlock_confirm'))) return
       kapcs.disabled = true
       try {
         const r = await _depoPost('/api/life/repo-lock', { rel: info.rel, on: be })
-        showToast(r.message || 'Kész.')
+        showToast(r.message || t('intezo.done'))
         st.csakOlvasas = r.csakOlvasas === true
         zar.innerHTML = st.csakOlvasas
-          ? '🔒 <b>Csak olvasás.</b> Ebből a repóból feltölteni nem lehet — olvasni és frissülni igen.'
-          : '✏️ <b>Írható.</b> Innen a repóba fel is lehet tölteni.'
-        kapcs.textContent = st.csakOlvasas ? '✏️ Zár levétele (írható legyen)' : '🔒 Zárás csak olvasásra'
-      } catch (e) { showToast((e && e.message) ? e.message : 'Nem sikerült.') }
+          ? t('intezo.repo_ro')
+          : t('intezo.repo_rw')
+        kapcs.textContent = st.csakOlvasas ? '✏️ ' + t('intezo.repo_unlock') : '🔒 ' + t('intezo.repo_lock')
+      } catch (e) { showToast((e && e.message) ? e.message : t('intezo.failed')) }
       kapcs.disabled = false
     })
     btns.appendChild(kapcs)
@@ -30191,17 +30206,17 @@ async function _intezoRenderGit(info) {
   const del = document.createElement('button')
   del.className = 'btn-secondary btn-compact'
   del.style.color = 'var(--danger,#d33)'
-  del.textContent = '🗑 A repó törlése'
+  del.textContent = '🗑 ' + t('intezo.repo_delete')
   del.addEventListener('click', async () => {
     // A mert mondatot MEGMUTATJUK a kerdesben -- a felhasznalo ne emlekezetbol
     // dontson arrol, elveszik-e munka.
-    if (!confirm((st.sentence || '') + '\n\nTöröljem a repót?')) return
+    if (!confirm((st.sentence || '') + '\n\n' + t('intezo.repo_delete_q'))) return
     try {
       const r = await _depoPost('/api/life/repo-delete', { rel: info.rel, force: st.safe !== true })
-      showToast(r.message || 'Kész.')
+      showToast(r.message || t('intezo.done'))
       _intezoClearSelection()
       await _intezoOpen(_intezoPath)
-    } catch (e) { showToast((e && e.message) ? e.message : 'A törlés nem sikerült.') }
+    } catch (e) { showToast((e && e.message) ? e.message : t('intezo.delete_failed')) }
   })
   btns.appendChild(del)
   box.appendChild(btns)
@@ -30255,7 +30270,7 @@ function _intezoActionClick(ev) {
   if (!btn) return
   ev.preventDefault()
   if (!_intezoSelected && btn.getAttribute('data-intezo-act') !== 'clear') {
-    showToast('Előbb válassz ki egy fájlt vagy mappát.')
+    showToast(t('intezo.select_first'))
     return
   }
   switch (btn.getAttribute('data-intezo-act')) {
@@ -30285,12 +30300,12 @@ async function _intezoMountOptions() {
   if (!_intezoMountOpts.length) {
     // Ez nem hiba: meg egyszeruen nincs mit bekotni. Azt mondjuk meg, HOL
     // lesz mit -- nem azt, hogy "nincs adat".
-    sel.innerHTML = '<option value="">Még nincs mit bekötni — előbb a Drive vagy a Fotók oldalon hozz le tartalmat</option>'
+    sel.innerHTML = '<option value="">' + escapeHtml(t('intezo.mount_nothing')) + '</option>'
     return
   }
-  sel.innerHTML = '<option value="">Válassz…</option>' + _intezoMountOpts.map((o) =>
+  sel.innerHTML = '<option value="">' + escapeHtml(t('intezo.choose')) + '</option>' + _intezoMountOpts.map((o) =>
     '<option value="' + escapeHtml(o.target) + '">' + escapeHtml(o.label)
-    + (o.items ? ' (' + o.items + ' tétel)' : ' (üres)') + '</option>').join('')
+    + ' ' + (o.items ? t('intezo.mount_items', { n: o.items }) : t('intezo.mount_empty')) + '</option>').join('')
 }
 
 /** Be van-e kotve a kijelolt mappa, es mit lehet vele csinalni. */
@@ -30310,8 +30325,8 @@ function _intezoRenderMount(info) {
     if (add) add.disabled = true
   } else {
     state.textContent = canMount
-      ? 'Ez a mappa a saját tartalmát mutatja.'
-      : 'Bekötni csak mappát lehet.'
+      ? t('intezo.mount_own')
+      : t('intezo.mount_dir_only')
     if (del) del.hidden = true
   }
 }
@@ -30320,30 +30335,30 @@ async function _intezoAddMount() {
   if (!_intezoSelected) return
   const sel = document.getElementById('intezoMountTarget')
   const target = sel ? sel.value : ''
-  if (!target) { showToast('Előbb válaszd ki, mit kössünk ide.'); return }
+  if (!target) { showToast(t('intezo.mount_pick_first')); return }
   const opt = _intezoMountOpts.find((o) => o.target === target) || {}
   try {
     const r = await _depoPost('/api/life/mounts', {
       rel: _intezoSelected.rel, target: target, kind: opt.kind || 'local', label: opt.label || target,
     })
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     await _intezoOpen(_intezoPath)
     await _intezoInfo(_intezoSelected.rel)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'A bekötés nem sikerült.')
+    showToast((e && e.message) ? e.message : t('intezo.mount_failed'))
   }
 }
 
 async function _intezoRemoveMount() {
   if (!_intezoSelected) return
-  if (!confirm('Megszüntessem a bekötést? A fájlok megmaradnak, csak innen nem látszanak többé.')) return
+  if (!confirm(t('intezo.unmount_confirm2'))) return
   try {
     const r = await _depoPost('/api/life/mounts/remove', { rel: _intezoSelected.rel })
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     await _intezoOpen(_intezoPath)
     await _intezoInfo(_intezoSelected.rel)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült megszüntetni a bekötést.')
+    showToast((e && e.message) ? e.message : t('intezo.unmount_failed'))
   }
 }
 
@@ -30362,7 +30377,7 @@ async function _intezoSavePhysical() {
     showToast('Mentve.')
     await _intezoInfo(_intezoSelected.rel)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'A mentés nem sikerült.')
+    showToast((e && e.message) ? e.message : t('intezo.save_failed'))
   }
 }
 
@@ -30467,37 +30482,37 @@ async function _intezoOpenMenu(ev, entry) {
     + 'border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.18)'
 
   if (!entry) {
-    m.appendChild(_intezoMenuItem('📁  Új mappa a(z) „' + _intezoMostaniNev() + '” mappa alá', () => _intezoMkdir()))
+    m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: _intezoMostaniNev() }), () => _intezoMkdir()))
     // A Kukaban allva a leggyakoribb szandek nem uj mappa, hanem a takaritas.
     if (_intezoKukaban(_intezoPath)) {
       m.appendChild(_intezoMenuSep())
-      m.appendChild(_intezoMenuItem('🔥  A Kuka kiürítése (végleges)', () => _intezoEmptyKuka(), true))
+      m.appendChild(_intezoMenuItem('🔥  ' + t('intezo.menu_empty_trash'), () => _intezoEmptyKuka(), true))
     }
   } else {
-    if (entry.isDir) m.appendChild(_intezoMenuItem('📂  Megnyitás', () => _intezoOpen(entry.rel)))
-    if (entry.isDir) m.appendChild(_intezoMenuItem('📁  Új mappa a(z) „' + (entry.name || entry.rel) + '” mappa alá', () => _intezoMkdirInto(entry.rel)))
-    m.appendChild(_intezoMenuItem('✏️  Átnevezés', () => _intezoRename(entry)))
-    m.appendChild(_intezoMenuItem('➡️  Áthelyezés másik mappába', () => _intezoStartPick('move')))
+    if (entry.isDir) m.appendChild(_intezoMenuItem('📂  ' + t('intezo.menu_open'), () => _intezoOpen(entry.rel)))
+    if (entry.isDir) m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: entry.name || entry.rel }), () => _intezoMkdirInto(entry.rel)))
+    m.appendChild(_intezoMenuItem('✏️  ' + t('intezo.menu_rename'), () => _intezoRename(entry)))
+    m.appendChild(_intezoMenuItem('➡️  ' + t('intezo.menu_move'), () => _intezoStartPick('move')))
     if (entry.isDir) {
-      m.appendChild(_intezoMenuItem('🔗  Mappa bekötése (mit mutasson)', () => {
+      m.appendChild(_intezoMenuItem('🔗  ' + t('intezo.menu_mount'), () => {
         _intezoJumpTo('intezoMountTitle')
         const sel = document.getElementById('intezoMountTarget')
         if (sel && !sel.disabled) sel.focus()
       }))
     }
-    m.appendChild(_intezoMenuItem('🗂  Fizikai (papír) példány', () => _intezoJumpTo('intezoPhysTitle')))
-    m.appendChild(_intezoMenuItem('ℹ️  Részletes információ', async () => {
+    m.appendChild(_intezoMenuItem('🗂  ' + t('intezo.menu_paper'), () => _intezoJumpTo('intezoPhysTitle')))
+    m.appendChild(_intezoMenuItem('ℹ️  ' + t('intezo.menu_info'), async () => {
       await _intezoInfo(entry.rel)
       _intezoJumpTo('intezoInfoCard')
     }))
     m.appendChild(_intezoMenuSep())
     // A Kukaban a „torles" mar nem athelyezes: onnan mar csak lefele van ut.
     if (entry.rel === _INTEZO_KUKA) {
-      m.appendChild(_intezoMenuItem('🔥  A Kuka kiürítése (végleges)', () => _intezoEmptyKuka(), true))
+      m.appendChild(_intezoMenuItem('🔥  ' + t('intezo.menu_empty_trash'), () => _intezoEmptyKuka(), true))
     } else if (_intezoKukaban(entry.rel)) {
-      m.appendChild(_intezoMenuItem('🔥  Végleges törlés', () => _intezoPurge(entry), true))
+      m.appendChild(_intezoMenuItem('🔥  ' + t('intezo.menu_purge'), () => _intezoPurge(entry), true))
     } else {
-      m.appendChild(_intezoMenuItem('🗑  Törlés (a Kukába)', () => _intezoTrash(entry), true))
+      m.appendChild(_intezoMenuItem('🗑  ' + t('intezo.menu_trash'), () => _intezoTrash(entry), true))
     }
   }
 
@@ -30558,17 +30573,15 @@ function _intezoKukaban(rel) {
 
 /** Vegleges torles a Kukabol -- ez az egyetlen visszavonhatatlan gomb a fan. */
 async function _intezoPurge(entry) {
-  const mi = entry.isDir ? 'mappát' : 'fájlt'
-  if (!confirm('VÉGLEGES TÖRLÉS\n\n' + (entry.name || entry.rel)
-      + '\n\nEzt a ' + mi + ' most tényleg megsemmisítem. Nincs visszaút, és nem lesz róla másolat.'
+  const mi = t(entry.isDir ? 'intezo.the_folder' : 'intezo.the_file')
+  if (!confirm(t('intezo.purge_confirm', { name: entry.name || entry.rel, what: mi })
       + '\n\nBiztos vagy benne?')) return
   await _intezoPurgeKeres({ rel: entry.rel })
 }
 
 /** A Kuka teljes kiuritese -- a mappa marad, a tartalma nem. */
 async function _intezoEmptyKuka() {
-  if (!confirm('A KUKA KIÜRÍTÉSE\n\nMinden, ami a Kukában van, véglegesen megsemmisül. '
-      + 'Nincs visszaút.\n\nBiztos vagy benne?')) return
+  if (!confirm(t('intezo.empty_trash_confirm'))) return
   await _intezoPurgeKeres({ rel: _INTEZO_KUKA })
 }
 
@@ -30578,15 +30591,15 @@ async function _intezoEmptyKuka() {
 async function _intezoPurgeKeres(body) {
   try {
     const r = await _depoPost('/api/life/purge', body)
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
   } catch (e) {
-    const uz = (e && e.message) ? e.message : 'Nem sikerült a végleges törlés.'
-    if (uz.indexOf('git-repó') >= 0 && confirm(uz + '\n\nEnnek ellenére töröljem véglegesen?')) {
+    const uz = (e && e.message) ? e.message : t('intezo.purge_failed')
+    if (uz.indexOf('git-repó') >= 0 && confirm(uz + '\n\n' + t('intezo.purge_anyway'))) {
       try {
         const r2 = await _depoPost('/api/life/purge', Object.assign({}, body, { force: true }))
-        showToast(r2.message || 'Kész.')
+        showToast(r2.message || t('intezo.done'))
       } catch (e2) {
-        showToast((e2 && e2.message) ? e2.message : 'Nem sikerült a végleges törlés.')
+        showToast((e2 && e2.message) ? e2.message : t('intezo.purge_failed'))
         return
       }
     } else {
@@ -30600,31 +30613,31 @@ async function _intezoPurgeKeres(body) {
 
 /** Uj mappa EGY MASIK mappaba (a jobb klikkelt sorba), nem a mostaniba. */
 async function _intezoMkdirInto(rel) {
-  const name = prompt('Mi legyen az új mappa neve?')
+  const name = prompt(t('intezo.mkdir_prompt'))
   if (!name) return
   try {
     const r = await _depoPost('/api/life/mkdir', { parent: rel, name: name })
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     // BELEPUNK abba a mappaba, amibe az uj mappa kerult -- kulonben a
     // felhasznalo egy olyan listat lat, amiben az uj mappa nincs is benne, es
     // csak hisz a visszajelzesnek. Boss, 2026-08-22: "jobb lenne ha az
     // identitas mappaba menne. hogy lassam hogy megcsinalta e a kk mappat."
     await _intezoOpen(rel)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappát.')
+    showToast((e && e.message) ? e.message : t('intezo.mkdir_failed'))
   }
 }
 
 async function _intezoRename(entry) {
-  const name = prompt('Mi legyen az új neve?', entry.name || '')
+  const name = prompt(t('intezo.rename_prompt'), entry.name || '')
   if (!name || name === entry.name) return
   try {
     const r = await _depoPost('/api/life/rename', { rel: entry.rel, name: name })
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     _intezoClearSelection()
     await _intezoOpen(_intezoPath)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült átnevezni.')
+    showToast((e && e.message) ? e.message : t('intezo.rename_failed'))
   }
 }
 
@@ -30635,28 +30648,27 @@ async function _intezoRename(entry) {
  * nyom, vagy nem meri megnyomni, vagy utana ijed meg.
  */
 async function _intezoTrash(entry) {
-  const mi = entry.isDir ? 'mappát' : 'fájlt'
-  if (!confirm('Biztosan a Kukába teszem ezt a ' + mi + '?\n\n' + (entry.name || entry.rel)
-      + '\n\nNem törlöm véglegesen: a Rendszer / Kuka alatt megmarad, onnan vissza tudod hozni.')) return
+  const mi = t(entry.isDir ? 'intezo.the_folder' : 'intezo.the_file')
+  if (!confirm(t('intezo.trash_confirm', { what: mi, name: entry.name || entry.rel }))) return
   try {
     const r = await _depoPost('/api/life/trash', { rel: entry.rel })
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     _intezoClearSelection()
     await _intezoOpen(_intezoPath)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült a Kukába tenni.')
+    showToast((e && e.message) ? e.message : t('intezo.trash_failed'))
   }
 }
 
 async function _intezoMkdir() {
-  const name = prompt('Mi legyen az új mappa neve?')
+  const name = prompt(t('intezo.mkdir_prompt'))
   if (!name) return
   try {
     const r = await _depoPost('/api/life/mkdir', { parent: _intezoPath, name: name })
-    showToast(r.message || 'Kész.')
+    showToast(r.message || t('intezo.done'))
     await _intezoOpen(_intezoPath)
   } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült létrehozni a mappát.')
+    showToast((e && e.message) ? e.message : t('intezo.mkdir_failed'))
   }
 }
 
@@ -30763,8 +30775,8 @@ function _intezoTplRender(collapsed) {
     return '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
       + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
       + '<strong style="flex:1;min-width:180px">' + escapeHtml(t.title) + '</strong>'
-      + '<span class="subtitle" style="font-size:12px">kb. ' + db + ' mappa</span>'
-      + '<button class="btn-secondary" data-tpl="' + i + '">Ezt választom</button>'
+      + '<span class="subtitle" style="font-size:12px">' + escapeHtml(t('intezo.tpl_count', { n: db })) + '</span>'
+      + '<button class="btn-secondary" data-tpl="' + i + '">' + escapeHtml(t('intezo.tpl_pick')) + '</button>'
       + '</div>'
       + '<p class="subtitle" style="margin:6px 0 0">' + escapeHtml(t.summary) + '</p>'
       + '<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;opacity:.85">'
@@ -30772,8 +30784,7 @@ function _intezoTplRender(collapsed) {
       + '</ul></div>'
   }).join('')
     + (collapsed
-      ? '<p class="subtitle" style="font-size:12px">Már van saját beállításod. Ha sablont választasz, '
-        + 'az FELÜLÍRJA a lenti neveket — a lemezen lévő mappákhoz és fájlokhoz viszont nem nyúl.</p>'
+      ? '<p class="subtitle" style="font-size:12px">' + escapeHtml(t('intezo.tpl_overwrite_note')) + '</p>'
       : '')
 
   el.querySelectorAll('[data-tpl]').forEach((b) => {
@@ -30783,11 +30794,11 @@ function _intezoTplRender(collapsed) {
       // MEGERSITES, ha van mit elveszteni. A sablon a NEVEKET irja felul; ha
       // a felhasznalo mar begepelte a csaladjat, azt nem nyeljuk el szotlanul.
       const named = (_intezoCfg.persons || []).some((x) => (x.name || '').trim())
-      if (named && !confirm('Ez felülírja a most beírt neveket a sablon helykitöltőivel. Folytatod?')) return
+      if (named && !confirm(t('intezo.tpl_confirm'))) return
       _intezoCfg.persons = JSON.parse(JSON.stringify(t.config.persons))
       _intezoCfg.companies = JSON.parse(JSON.stringify(t.config.companies))
       _intezoCfgRender()
-      showToast('Sablon betöltve. Írd át a neveket magadra, aztán Mentés.')
+      showToast(t('intezo.tpl_loaded'))
       const first = document.querySelector('[data-cfg="pname"]')
       if (first) { first.focus(); first.select() }
     })
@@ -30833,26 +30844,34 @@ function _intezoSplitBoxes(p, i) {
   if (!_intezoOpts) return ''
   if (!(p.countries || []).length) return ''  // orszag nelkul nincs mit bontani
   const items = (_intezoOpts.personCategories || []).slice()
-  // A MEDIA kulon kulcs: a Boss kifejezett kerese, hogy a fotok es a videok is
-  // orszagonkent alljanak, ha valaki tobb orszagban elt.
-  items.push({ key: _intezoOpts.mediaCountryKey, label: _intezoOpts.mediaLabel + ' (fotók, videók)' })
+  // A MEDIA orszagbontasa KULON kulcs a szerveren (`MEDIA_COUNTRY_KEY`), de az
+  // erteke ugyanaz a 'media' sztring, ami a szemelyi kategoriak kozott is ott
+  // all. Amig ezt a sort `push` vegezte, a Media KETSZER jelent meg a listaban
+  // (Boss, 2026-08-23: „miert van ketszer felsorolva?"): ket jelolonegyzet
+  // ugyanarra az EGY beallitasra: az egyiket atkattintva a masik pipaja
+  // ujrarajzolasig hazudott. Ezert a meglevo tetelt CIMKEZZUK AT -- es csak
+  // akkor teszunk hozza ujat, ha a szerver egy nap tenyleg kulon kulcsot ad.
+  const mk = _intezoOpts.mediaCountryKey
+  const suffix = ' ' + t('intezo.cfg_media_suffix')
+  const at = items.findIndex((o) => o.key === mk)
+  if (at >= 0) items[at] = { key: mk, label: items[at].label + suffix }
+  else items.push({ key: mk, label: _intezoOpts.mediaLabel + suffix })
   return _intezoBoxRow(items, p.countrySplit, 'psplit', i,
-    'Mely területek bomoljanak ország szerint?',
-    'Amit itt bepipálsz, az alatt megjelenik minden felsorolt ország külön mappaként.')
+    t('intezo.cfg_split_title'), t('intezo.cfg_split_hint'))
 }
 
 /** Melyik media-tipusok keszuljenek el. */
 function _intezoKindBoxes(p, i) {
   if (!_intezoOpts) return ''
   return _intezoBoxRow(_intezoOpts.mediaKinds, p.mediaKinds, 'pkinds', i,
-    'Média-típusok', 'A MÉDIA ág alatt ezek a mappák jönnek létre.')
+    t('intezo.cfg_kinds_title'), t('intezo.cfg_kinds_hint'))
 }
 
 function _intezoCompanySplitBoxes(c, i) {
   if (!_intezoOpts) return ''
   if (!(c.countries || []).length) return ''
   return _intezoBoxRow(_intezoOpts.companyCategories, c.countrySplit, 'csplit', i,
-    'Mely céges területek bomoljanak ország szerint?', '')
+    t('intezo.cfg_csplit_title'), '')
 }
 
 /** A szemely sajat projektjei (specifikacio 12-13., 31. pont). */
@@ -30860,17 +30879,18 @@ function _intezoProjectRows(p, i) {
   const rows = (p.projects || []).map((pr, j) =>
     '<div style="display:flex;gap:6px;align-items:center;margin-top:4px">'
     + '<input type="text" data-cfg="prname" data-i="' + i + '" data-j="' + j + '" style="flex:1;min-width:140px" '
-    + 'placeholder="Projekt neve" value="' + escapeHtml(pr.name || '') + '">'
+    + 'placeholder="' + escapeHtml(t('intezo.cfg_project_ph')) + '" value="' + escapeHtml(pr.name || '') + '">'
     + '<label style="font-size:12px;white-space:nowrap"><input type="checkbox" data-cfg="prdev" '
-    + 'data-i="' + i + '" data-j="' + j + '"' + (pr.development !== false ? ' checked' : '') + '> fejlesztés (GIT_REPOS)</label>'
+    + 'data-i="' + i + '" data-j="' + j + '"' + (pr.development !== false ? ' checked' : '') + '> '
+    + escapeHtml(t('intezo.cfg_project_dev')) + '</label>'
     + '<button class="btn-secondary" data-cfg="prdel" data-i="' + i + '" data-j="' + j + '">✕</button>'
     + '</div>').join('')
   return '<div style="margin-top:10px">'
-    + '<div style="font-size:13px;font-weight:600">Saját projektek</div>'
-    + '<div style="font-size:12px;opacity:.7">A PROJEKTEK alá kerülnek, a céges repóktól külön. '
-    + 'Üresen is hagyhatod.</div>'
+    + '<div style="font-size:13px;font-weight:600">' + escapeHtml(t('intezo.cfg_projects')) + '</div>'
+    + '<div style="font-size:12px;opacity:.7">' + escapeHtml(t('intezo.cfg_projects_hint')) + '</div>'
     + rows
-    + '<button class="btn-secondary" data-cfg="pradd" data-i="' + i + '" style="margin-top:6px">+ Projekt</button>'
+    + '<button class="btn-secondary" data-cfg="pradd" data-i="' + i + '" style="margin-top:6px">'
+    + escapeHtml(t('intezo.cfg_add_project')) + '</button>'
     + '</div>'
 }
 
@@ -30882,21 +30902,22 @@ function _intezoCfgRender() {
   ps.innerHTML = _intezoCfg.persons.map((p, i) =>
     '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
-    + '<input type="text" data-cfg="pname" data-i="' + i + '" placeholder="Név (ez lesz a mappa neve)" '
+    + '<input type="text" data-cfg="pname" data-i="' + i + '" placeholder="' + escapeHtml(t('intezo.cfg_name_ph')) + '" '
     + 'style="flex:1;min-width:180px" value="' + escapeHtml(p.name || '') + '">'
     + '<label style="font-size:13px"><input type="radio" name="intezoOwner" data-cfg="powner" data-i="' + i + '"'
-    + (p.role === 'owner' ? ' checked' : '') + '> gazda (saját ág)</label>'
-    + '<button class="btn-secondary" data-cfg="pdel" data-i="' + i + '" title="Törlés a listából">✕</button>'
+    + (p.role === 'owner' ? ' checked' : '') + '> ' + escapeHtml(t('intezo.cfg_owner')) + '</label>'
+    + '<button class="btn-secondary" data-cfg="pdel" data-i="' + i + '" title="'
+    + escapeHtml(t('intezo.cfg_del_row')) + '">✕</button>'
     + '</div>'
     + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'
     + '<input type="text" data-cfg="pcountries" data-i="' + i + '" style="flex:1;min-width:180px" '
-    + 'placeholder="Országok — csak JOGI/PÉNZÜGY/HATÓSÁGOK alá (pl. Magyarország, Németország)" '
+    + 'placeholder="' + escapeHtml(t('intezo.cfg_countries_ph')) + '" '
     + 'value="' + escapeHtml((p.countries || []).join(', ')) + '">'
     + '<input type="text" data-cfg="pmedia" data-i="' + i + '" style="flex:1;min-width:180px" '
-    + 'placeholder="Fotó/videó csoportok (pl. Család, Utazás)" '
+    + 'placeholder="' + escapeHtml(t('intezo.cfg_groups_ph')) + '" '
     + 'value="' + escapeHtml((p.mediaGroups || []).join(', ')) + '">'
     + '</div>'
-    + '<div style="font-size:12px;opacity:.7;margin-top:6px">Az országokat üresen is hagyhatod — akkor nem készül országszint.</div>'
+    + '<div style="font-size:12px;opacity:.7;margin-top:6px">' + escapeHtml(t('intezo.cfg_countries_hint')) + '</div>'
     + _intezoSplitBoxes(p, i)
     + _intezoKindBoxes(p, i)
     + _intezoProjectRows(p, i)
@@ -30906,15 +30927,16 @@ function _intezoCfgRender() {
     '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
     + '<div style="display:flex;gap:8px;align-items:center">'
     + '<input type="text" data-cfg="cname" data-i="' + i + '" style="flex:1;min-width:180px" '
-    + 'placeholder="Cég neve" value="' + escapeHtml(c.name || '') + '">'
-    + '<button class="btn-secondary" data-cfg="cdel" data-i="' + i + '" title="Törlés a listából">✕</button>'
+    + 'placeholder="' + escapeHtml(t('intezo.cfg_company_ph')) + '" value="' + escapeHtml(c.name || '') + '">'
+    + '<button class="btn-secondary" data-cfg="cdel" data-i="' + i + '" title="'
+    + escapeHtml(t('intezo.cfg_del_row')) + '">✕</button>'
     + '</div>'
     + '<input type="text" data-cfg="ccountries" data-i="' + i + '" style="width:100%;margin-top:8px" '
-    + 'placeholder="Országok, ahol a cég működik (üresen hagyható)" '
+    + 'placeholder="' + escapeHtml(t('intezo.cfg_ccountries_ph')) + '" '
     + 'value="' + escapeHtml((c.countries || []).join(', ')) + '">'
     + _intezoCompanySplitBoxes(c, i)
     + '</div>').join('')
-    || '<p class="subtitle">Még nincs felvéve cég. Ha nincs céged, hagyd üresen.</p>'
+    || '<p class="subtitle">' + escapeHtml(t('intezo.cfg_no_company')) + '</p>'
 
   // A beirt szoveget azonnal visszairjuk a modellbe, kulonben egy ujrarajzolas
   // (pl. "+ Szemely") eldobna, amit a felhasznalo eppen beirt.
@@ -31007,13 +31029,13 @@ async function _intezoCfgSave() {
     const miss = st.missing || []
     if (prev) {
       prev.innerHTML = miss.length
-        ? ('<p><strong>' + miss.length + ' mappa jön létre</strong>, ha megnyomod a „Könyvtárszerkezet létrehozása" gombot:</p>'
+        ? ('<p>' + t('intezo.cfg_preview_head', { n: miss.length }) + '</p>'
            + '<div style="max-height:220px;overflow:auto;font-family:monospace;font-size:12px;opacity:.85">'
            + miss.slice(0, 300).map((m) => escapeHtml(m)).join('<br>')
-           + (miss.length > 300 ? '<br>… és még ' + (miss.length - 300) : '') + '</div>')
-        : '<p>Minden mappa megvan — nincs mit létrehozni.</p>'
+           + (miss.length > 300 ? '<br>' + escapeHtml(t('intezo.cfg_preview_more', { n: miss.length - 300 })) : '') + '</div>')
+        : '<p>' + escapeHtml(t('intezo.cfg_preview_none')) + '</p>'
     }
-    showToast('Elmentve. Most már csak a „Könyvtárszerkezet létrehozása" gomb van hátra.')
+    showToast(t('intezo.cfg_saved'))
     await _intezoStatus()
     // Boss: „igazan felugorhatna az oldal tetejere ahhoz a gombhoz amit
     // szinten meg kell nyomnom." A mentes utan a kovetkezo lepes gombja az
@@ -31032,7 +31054,7 @@ async function _intezoCfgSave() {
   } catch (e) {
     // A szerver ervenyesito uzenete MAGYAR MONDAT, ami megmondja, mit tegyen
     // ("Pontosan egy szemely legyen a gazda") -- ezt mutatjuk valtozatlanul.
-    if (msg) { msg.hidden = false; msg.textContent = (e && e.message) ? e.message : 'Nem sikerült elmenteni.' }
+    if (msg) { msg.hidden = false; msg.textContent = (e && e.message) ? e.message : t('intezo.cfg_save_failed') }
     if (prev) prev.innerHTML = ''
   }
 }

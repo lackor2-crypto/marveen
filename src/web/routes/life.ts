@@ -50,6 +50,13 @@ import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
 import type { RouteContext } from './types.js'
 
+// A valasz nyelve a FELULETET koveti (`?lang=`), nem a telepitest. A lemezen
+// levo mappak NEVE marad APP_LANG szerinti -- azt atnevezni adatvesztes volna.
+function uiLang(url: URL): string {
+  const v = url.searchParams.get('lang')
+  return v === 'en' || v === 'hu' ? v : APP_LANG
+}
+
 /**
  * Valasz kuldese ALLAPOTKODDAL ELOL.
  *
@@ -166,13 +173,15 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/life/list' && method === 'GET') {
     const rel = url.searchParams.get('path') || ''
     const deep = url.searchParams.get('deep') !== '0'
-    send(res, 200, listLife(rel, { deep }))
+    // `lang`: a felulet nyelve. Csak a sugokat valtja, a mappaneveket nem --
+    // azok a lemezen allnak.
+    send(res, 200, listLife(rel, { deep, lang: uiLang(url) }))
     return true
   }
 
   if (path === '/api/life/info' && method === 'GET') {
     const rel = url.searchParams.get('path') || ''
-    const info: any = lifeInfo(rel)
+    const info: any = lifeInfo(rel, uiLang(url))
     if (info) {
       // Csak a TENY kerul ide (repo-e, a gyokere-e). A `git status` lassabb --
       // azt a felulet kulon keri le, amikor tenyleg kell.
@@ -190,7 +199,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/life/search' && method === 'GET') {
     const rel = url.searchParams.get('path') || ''
     const q = url.searchParams.get('q') || ''
-    send(res, 200, searchLife(rel, q))
+    send(res, 200, searchLife(rel, q, 200, uiLang(url)))
     return true
   }
 
@@ -204,7 +213,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
       return true
     }
-    const result = mkdirLife(String(body?.parent ?? ''), String(body?.name ?? ''))
+    const result = mkdirLife(String(body?.parent ?? ''), String(body?.name ?? ''), uiLang(url))
     send(res, result.ok ? 200 : 400, result)
     return true
   }
@@ -218,7 +227,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
       return true
     }
-    const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''))
+    const result = moveLife(String(body?.from ?? ''), String(body?.to ?? ''), uiLang(url))
     send(res, result.ok ? 200 : 400, result)
     return true
   }
@@ -274,7 +283,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     }
     const baj = bekotesOrzo(rel)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
-    send(res, 200, renameLife(rel, String(body?.name ?? '')))
+    send(res, 200, renameLife(rel, String(body?.name ?? ''), uiLang(url)))
     return true
   }
 
@@ -322,7 +331,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       })
       return true
     }
-    send(res, 200, trashLife(rel))
+    send(res, 200, trashLife(rel, uiLang(url)))
     return true
   }
 
@@ -336,7 +345,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     // megtagad. Rossz kerdest feltenni ilyen gombnal onmagaban is hiba.
     const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)
     if (rel !== kukaRel && !rel.startsWith(kukaRel + '/')) {
-      send(res, 200, purgeLife(rel))
+      send(res, 200, purgeLife(rel, uiLang(url)))
       return true
     }
     // A Kukaban is allhat git-repo (belekerult egy kukazott mappaval). A
@@ -353,7 +362,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       })
       return true
     }
-    send(res, 200, purgeLife(rel))
+    send(res, 200, purgeLife(rel, uiLang(url)))
     return true
   }
 
@@ -363,8 +372,12 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   // Mit szoktak az egyes mappakba tenni -- MAPPANEV szerint, hogy a felulet
   // barhol (lista, oldalsav, valaszto) ugyanabbol az egy forrasbol dolgozzon.
   if (path === '/api/life/hints' && method === 'GET') {
+    // A KULCS a lemezen levo (telepites-nyelvu) mappanev, az ERTEK a felulet
+    // nyelven all: a lista a mappa neve alapjan keresi vissza a sugot, de az
+    // olvasonak a sajat nyelven kell megjelennie.
+    const hintLang = uiLang(url)
     const out: Record<string, string> = {}
-    for (const [key, szoveg] of Object.entries(lifeHints())) {
+    for (const [key, szoveg] of Object.entries(lifeHints(hintLang))) {
       out[lifeName(key, APP_LANG)] = szoveg
     }
     send(res, 200, { hints: out })
