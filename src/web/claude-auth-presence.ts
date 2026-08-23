@@ -19,8 +19,6 @@ import { join } from 'node:path'
 import { homedir, userInfo } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
-import { MAIN_CHANNELS_SESSION } from './main-agent.js'
-import { resolveFromPath } from '../platform.js'
 
 const ENV_FILE = join(PROJECT_ROOT, '.env')
 const HOME_CREDENTIALS = join(homedir(), '.claude', '.credentials.json')
@@ -77,36 +75,9 @@ function fleetTokenPresent(file: string): boolean {
   } catch { return false }
 }
 
-// Viselkedes-ag (utolso esely): egy FUTO flotta akkor is be van jelentkezve,
-// ha a fenti tarolok egyike sem orzi a hitelesito adatot. A channels.sh a
-// setup-tokent a tmux szerver GLOBALIS kornyezetebe exportalja
-// (`set-environment -g`), es az minden altala inditott session tenyleges
-// forrasa -- fuggetlenul a .env-tol, a flotta-fajltol, a credentials.json-tol
-// es a Keychaintol. Igy az a friss telepites is bejelentkezettnek latszik,
-// ahova a token barmilyen uton eljutott (izolalt CLAUDE_CONFIG_DIR, a .env
-// kiirasa elott exportalt kornyezet, versenyhelyzet az ujrainditas es a .env
-// flush kozott).
-//
-// JELENLET, NEM ERVENYESSEG: ez azt bizonyitja, hogy a token OTT VAN, nem azt,
-// hogy ervenyes vagy nem jart le. Szandekosan NEM inditunk elo probat (az a
-// draga `claude -p` ut, amit ennek az igen/nem kerdesnek kerulnie kell).
-// Zarva bukik minden hibanal (tmux nem oldhato fel, session nincs), tehat
-// csak igazat ADHAT hozza, sose forditja meg a meglevot. A token erteket csak
-// regex nezi -- soha nem olvassuk ki, nem adjuk vissza es nem naplozzuk.
-function runningSessionAuthenticated(): boolean {
-  try {
-    const tmux = resolveFromPath('tmux')
-    if (!tmux) return false
-    execFileSync(tmux, ['has-session', '-t', MAIN_CHANNELS_SESSION], { timeout: 3000, stdio: 'ignore' })
-    const out = execFileSync(tmux, ['show-environment', '-g'], { timeout: 3000, encoding: 'utf-8' })
-    return /^(CLAUDE_CODE_OAUTH_TOKEN|ANTHROPIC_API_KEY)=.+/m.test(out)
-  } catch { return false }
-}
-
 /** Where the usable credential was found, or why there is none. */
 export type ClaudeAuthSource =
   | 'env-oauth' | 'env-api-key' | 'credentials-file' | 'fleet-token' | 'keychain'
-  | 'running-session'
   | 'none' | 'emptied'
 
 export interface ClaudeAuthState {
@@ -145,15 +116,7 @@ export function claudeAuthState(paths: ClaudeAuthPaths = {}): ClaudeAuthState {
   } catch { /* no / unreadable credentials.json */ }
   if (fleetTokenPresent(fleetTokenFile)) return { present: true, source: 'fleet-token' }
   if (keychainHasClaudeCredentials()) return { present: true, source: 'keychain' }
-  // A kiuritett bejelentkezes HANGOS marad: az emptied ag megelozi a
-  // viselkedes-agat, kulonben a meg futo tmux szerver zoldre festene pont azt
-  // az incidenst, ami miatt ez a modul letezik (2026-08-20). Az injektalt
-  // utvonal = hermetikus meres (teszt): ott gepszintu probat nem futtatunk.
-  if (emptied) return { present: false, source: 'emptied' }
-  const hermetic = paths.envFile !== undefined || paths.credentialsFile !== undefined
-    || paths.fleetTokenFile !== undefined
-  if (!hermetic && runningSessionAuthenticated()) return { present: true, source: 'running-session' }
-  return { present: false, source: 'none' }
+  return { present: false, source: emptied ? 'emptied' : 'none' }
 }
 
 export function claudeAuthPresent(): boolean {

@@ -1,6 +1,4 @@
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { PROJECT_ROOT } from '../config.js'
 import { TOOL_TIMEOUTS } from '../tool-timeouts.js'
 
@@ -23,11 +21,6 @@ export interface UpdateRelease {
 
 export interface UpdateStatus {
   current: string
-  /** Semver of the running instance (package.json "version"), e.g. "1.32.1".
-   * Resolved live per request. Empty/absent when package.json is missing,
-   * unreadable, or malformed -- the UI then shows the SHA alone and NEVER a
-   * fabricated version. */
-  version?: string
   latest: string
   behind: number
   commits: UpdateCommit[]
@@ -58,23 +51,9 @@ let updateStatusCache: UpdateStatus = {
 }
 
 export function getUpdateStatus(): UpdateStatus {
-  // branch and version are resolved live (cheap local rev-parse / file read):
-  // the cache may predate the first refresh cycle, and a checkout switch or
-  // in-place version bump should be visible immediately.
-  return { ...updateStatusCache, branch: trackedBranch(), version: currentVersion() }
-}
-
-// Semver of the running instance, read from package.json at PROJECT_ROOT. Returns
-// '' on ANY failure (missing / unreadable / malformed / no string "version"):
-// the caller must never display a fabricated version, so the field is simply
-// empty and the UI falls back to the commit SHA alone.
-export function currentVersion(root: string = PROJECT_ROOT): string {
-  try {
-    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'))
-    return typeof pkg?.version === 'string' ? pkg.version : ''
-  } catch {
-    return ''
-  }
+  // branch is resolved live (cheap local rev-parse): the cache may predate the
+  // first refresh cycle, and a checkout switch should be visible immediately.
+  return { ...updateStatusCache, branch: trackedBranch() }
 }
 
 export function currentGitHead(): string {

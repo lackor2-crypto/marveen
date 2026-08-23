@@ -1,7 +1,6 @@
 import {
   readFileSync,
   readlinkSync,
-  realpathSync,
   unlinkSync,
   mkdirSync,
   openSync,
@@ -9,8 +8,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { runLsof } from './lsof.js'
+import { execFileSync, execSync } from 'node:child_process'
 import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
@@ -82,12 +80,13 @@ function processCwd(pid: number): string | null {
     // Linux: cheap and exact.
     return readlinkSync(`/proc/${pid}/cwd`)
   } catch { /* not Linux or no access; try lsof (macOS) */ }
-  // Resolved-path lsof (LSOFPATH805): a bare `lsof` was command-not-found under
-  // the launchd PATH and silently returned null on the live box.
-  const raw = runLsof(['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], 2000)
-  if (raw == null) return null
-  const line = raw.split('\n').find((l) => l.startsWith('n'))
-  return line ? line.slice(1) : null
+  try {
+    const raw = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null || true`, { timeout: 2000, encoding: 'utf-8' })
+    const line = raw.split('\n').find((l) => l.startsWith('n'))
+    return line ? line.slice(1) : null
+  } catch {
+    return null
+  }
 }
 
 function argvBelongsToThisInstall(argv: string, pid: number): boolean {
@@ -102,46 +101,17 @@ function argvBelongsToThisInstall(argv: string, pid: number): boolean {
 // or node:fs directly.
 function buildProcessLockContext(): ProcessLockContext {
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
-  // realpath so this compares equal against /proc/<pid>/cwd, which the
-  // kernel always reports fully symlink-resolved -- an un-resolved
-  // PROJECT_ROOT (e.g. reached via a symlinked path) would otherwise never
-  // match even for our own genuine predecessor.
-  let selfProjectRoot: string | null
-  try {
-    selfProjectRoot = realpathSync(PROJECT_ROOT)
-  } catch {
-    selfProjectRoot = null
-  }
   return {
     currentPid: process.pid,
     uid,
-    selfProjectRoot,
-    getProcessCwd(pid: number): string | null {
-      // Resolve the PID's cwd on BOTH platforms via the shared processCwd
-      // helper: /proc on Linux, `lsof -a -p <pid> -d cwd` on macOS. A previous
-      // version was /proc-only, which returned null for every pid on macOS (no
-      // /proc) and silently disabled the byBinary single-instance reclaim on
-      // the production platform. realpath the result so it compares equal to
-      // selfProjectRoot (also realpath'd) -- two different-looking paths to the
-      // same directory (symlink / bind mount) must still match. If the path is
-      // gone by the time we realpath, fall back to the raw value.
-      const cwd = processCwd(pid)
-      if (cwd == null) return null
-      try {
-        return realpathSync(cwd)
-      } catch {
-        return cwd
-      }
-    },
     listPortHolders(port: number): number[] {
-      // Resolved-path lsof (LSOFPATH805): under the launchd PATH the old bare
-      // `lsof -ti` was command-not-found and silently returned [], so this
-      // port-holder probe -- which the single-instance reclaim depends on --
-      // found no one on the live box. runLsof resolves an absolute lsof and
-      // warns loudly if none exists rather than returning a silent empty.
-      const raw = (runLsof(['-ti', `:${port}`], 3000) ?? '').trim()
-      if (!raw) return []
-      return raw.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      try {
+        const raw = execSync(`lsof -ti :${port} 2>/dev/null || true`, { timeout: 3000, encoding: 'utf-8' }).trim()
+        if (!raw) return []
+        return raw.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      } catch {
+        return []
+      }
     },
     listOwnProcessesMatching(pattern: RegExp): number[] {
       // `ps -A -o pid=,uid=,args=` emits `<pid> <uid> <full argv>` per row.
@@ -584,7 +554,7 @@ async function main(): Promise<void> {
   if (shouldBootHeartbeatAgent({ respawnEnabled: RESPAWN_ENABLED, agentEnabled: HEARTBEAT_AGENT_ENABLED })) {
     ensureHeartbeatAgent()
     logger.info({ agent: HEARTBEAT_AGENT_NAME }, 'Heartbeat agent scaffold ensured (channel-less, dashboard-hidden)')
-    const heartbeatStart = await startAgentProcess(HEARTBEAT_AGENT_NAME)
+    const heartbeatStart = startAgentProcess(HEARTBEAT_AGENT_NAME)
     if (heartbeatStart.ok) {
       logger.info({ agent: HEARTBEAT_AGENT_NAME }, 'Heartbeat agent started')
     } else if (heartbeatStart.error === 'Agent is already running') {

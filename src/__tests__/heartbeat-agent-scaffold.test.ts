@@ -99,17 +99,11 @@ describe('renderHeartbeatClaudeMd', () => {
     expect(out).toContain('You are headless')
   })
 
-  it('does not ask the agent to filter done cards -- it cannot see them at all (was card 776e800a)', () => {
+  it('excludes done cards from the urgent-title kanban query (card 776e800a)', () => {
     const out = renderHeartbeatClaudeMd(ID)
-    // This assertion REPLACES the older one, which required the prose to carry
-    // `priority='urgent' AND status != 'done'`. That instruction was present and
-    // correct since #680, and the 09:00 report on 2026-08-04 still listed three
-    // `done` cards out of five: a filter the model must re-apply every hour is
-    // not a mechanism. The agent now calls an endpoint that can only return open
-    // cards, so the guarantee moved from "it was told to" to "it cannot".
-    expect(out).toContain('/api/kanban/heartbeat-summary')
-    expect(out).not.toContain("priority='urgent' AND status != 'done'")
-    expect(out).not.toMatch(/SELECT[^\n]*FROM kanban_cards/i)
+    // A done card can still carry priority='urgent' -- the title lookup
+    // must filter it out, or closed issues get reported as active forever.
+    expect(out).toContain("priority='urgent' AND status != 'done'")
   })
 
   it('is fully driven by the identity -- distinct configs render distinctly', () => {
@@ -128,66 +122,6 @@ describe('renderHeartbeatClaudeMd', () => {
     expect(b).toContain('/data/store/claudeclaw.db')
     expect(b).toContain('http://localhost:9000/api/messages')
   })
-
-  // 2026-08-02 (HBTZ802). The first report after a fresh restart carried
-  // "09:00 (Europe/Budapest)" at 11:06 local. The transcript shows the agent
-  // ran `date -u` and formatted with datetime.now(timezone.utc): the label was
-  // a template constant, the number was UTC. The environment was never at
-  // fault -- the spawn command is identical apart from `--continue`, no agent
-  // gets a TZ var either way, and a process spawned by the same tmux server
-  // prints correct local time. So the instructions must name the measurement.
-  it('tells the agent to measure local time in the configured zone', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toMatch(/TZ=\S+ date \+'%Y-%m-%d %H:%M'/)
-  })
-
-  it('forbids the UTC clocks that produced the mislabelled header', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('date -u')
-    expect(out).toContain('datetime.now(timezone.utc)')
-    expect(out).toMatch(/Never `date -u`/)
-  })
-
-  it('does not leave a bare HH:MM placeholder in the header template', () => {
-    // A literal `HH:MM` next to a zone label is what let the agent fill the
-    // slot from whatever clock it happened to reach for.
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).not.toContain('## Heartbeat YYYY-MM-DD HH:MM')
-  })
-
-  it('requires the calendar MCP to be called as a tool, never from a subprocess', () => {
-    // Same round: the agent tried to reach the MCP server from a python
-    // subprocess and reported "not accessible in subprocess context" while the
-    // server was a live child of its own session.
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('Call it as a TOOL, directly.')
-    expect(out).toMatch(/Do not try to reach an MCP server\s+from Bash, python, curl or any other subprocess/)
-  })
-
-  it('separates "tool absent" from "call failed" so the two are not reported alike', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('calendar tool not available in this session')
-    expect(out).toContain('calendar fetch failed: <reason>')
-  })
-
-  // Same investigation: the Tasks section read the `scheduled_tasks` table,
-  // which holds 0 rows on this deployment while /api/schedules lists 25
-  // enabled entries -- so every report said "active: 0, next: (none
-  // scheduled)". A line that is always the same stops being read, which is
-  // the failure this file already warns about elsewhere.
-  it('reads the schedule count from the live registry, not the empty table', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('http://localhost:3420/api/schedules')
-    expect(out).not.toContain('count active rows in')
-    expect(out).not.toContain('next_run_at')
-  })
-
-  it('compares task_runs.ts in milliseconds', () => {
-    // ts is epoch MILLISECONDS; a seconds comparison matches every row and
-    // silently turns "last hour" into "since the beginning".
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('(unixepoch()-3600)*1000')
-  })
 })
 
 describe('shouldBootHeartbeatAgent', () => {
@@ -205,137 +139,5 @@ describe('shouldBootHeartbeatAgent', () => {
 
   it('does not boot when both gates are off', () => {
     expect(shouldBootHeartbeatAgent({ respawnEnabled: false, agentEnabled: false })).toBe(false)
-  })
-})
-
-// HBMEMBLIND807 -> HBMEMBLIND819: the hot-memory metric went through TWO
-// contracts, and both failures are why the current one exists. 807: a
-// prose-only bullet let the agent compose its own SQL (reported 0 beside 3
-// hot memories); the fix shipped a ready-made query with "do not rewrite the
-// query". 819: that failed too -- post-compact rounds reconstructed the query
-// from memory with agent_id='heartbeat' and reported 0 for 24h straight
-// (14/14, real value 2 in three rounds). Current contract: the number is
-// computed server-side (countNewHotMemories, served as
-// counts.new_hot_memories_1h on /api/kanban/heartbeat-summary) and the
-// scaffold tells the agent to COPY it -- there is no query left to rewrite.
-describe('hot-memory metric is an endpoint number, never an agent-run query (HBMEMBLIND819)', () => {
-  it('points the agent at counts.new_hot_memories_1h from the heartbeat-summary call', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('counts.new_hot_memories_1h')
-  })
-
-  it('ships NO runnable hot-memory SQL anywhere in the prompt', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    // The exact surface that drifted twice: a memories/hot query the agent
-    // could run (and, measured, rewrite). Shape-agnostic: any SQL touching
-    // the memories table near a hot filter is out of contract.
-    expect(out).not.toMatch(/FROM memories[\s\S]{0,120}category='hot'/)
-    expect(out).not.toContain('do not rewrite the query')
-  })
-
-  it('degrades a missing field to "no data", never to a self-run query or a zero', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('nincs adat (a summary nem adja)')
-  })
-})
-
-// HBWARN807: the warnings metric was unfalsifiable -- it pointed at a source
-// that does not exist (no status column on memories, no such log table), so
-// it could only ever render 'none'. It was removed. This contract stops it
-// from creeping back WITHOUT a real, ready-made query behind it.
-describe('no unfalsifiable warnings metric (HBWARN807)', () => {
-  it('the report format has no bare "warnings:" output line', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    // The removed line was `- warnings: <none | comma-separated>`. Any warnings
-    // OUTPUT line must be backed by a query; a bare template line is the defect.
-    expect(out).not.toMatch(/^\s*-\s*warnings:/m)
-  })
-
-  it('mentions status=warning only inside the guard comment, never in a query block', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    // The string may appear once, in the HBWARN807 explanation naming the dead
-    // source. It must NOT appear inside a ```-fenced block (i.e. as a query the
-    // agent is told to run).
-    const fences = out.split('```')
-    for (let i = 1; i < fences.length; i += 2) {
-      expect(fences[i]).not.toContain("status='warning'")
-    }
-    // And it never appears as an actual sqlite invocation anywhere.
-    expect(out).not.toMatch(/sqlite3[^\n]*status='warning'/)
-  })
-
-  it('if warnings is mentioned at all, it is only the guard comment demanding a real query', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    // Every surviving "warning" mention must sit in the HBWARN807 explanation,
-    // never as a metric the agent is told to emit. Proxy: no "warning" line
-    // appears inside a ```-fenced report template block.
-    const fences = out.split('```')
-    // odd indices are inside fenced blocks
-    for (let i = 1; i < fences.length; i += 2) {
-      expect(fences[i].toLowerCase()).not.toContain('warning')
-    }
-  })
-})
-
-describe('deferred MCP tools (HBCALMCP808)', () => {
-  it('the calendar step teaches the ToolSearch select protocol', () => {
-    const md = renderHeartbeatClaudeMd(ID)
-    // The load-bearing line: without it, a deferred calendar tool reads as
-    // absent and the section silently goes empty (measured 2026-08-08/09:
-    // 13 not-available reports, zero ToolSearch calls, all 13 tools present
-    // in the session's own deferred list).
-    expect(md).toContain('select:mcp__server-google-calendar-mcp__list-events')
-    // "not available" may only be claimed after ToolSearch also failed.
-    expect(md).toMatch(/ONLY[\s\S]{0,80}ToolSearch itself cannot surface/)
-  })
-})
-
-// HBHEREDOC819: the 18:00 round reported "empty response from
-// /api/kanban/heartbeat-summary" while the endpoint served 200/3173B in 9ms
-// and the SAME shell POSTed fine with the same token. The agent had composed
-//   KANBAN=$(curl ...); echo "$KANBAN" | python3 << 'PY' ... PY
-// -- the heredoc replaces python3's stdin, the piped data is silently lost,
-// json.load reads EOF. A command the agent re-improvises every hour is not a
-// mechanism (the HBMEMBLIND819 lesson, extraction-side): the scaffold now
-// ships the COMPLETE one-line extractor and bans the pipe+heredoc shape.
-describe('kanban extraction is a shipped one-liner, never an improvised pipe+heredoc (HBHEREDOC819)', () => {
-  it('ships the complete python3 -c extractor with every counts field', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain(`python3 -c "import json,urllib.request;`)
-    expect(out).toContain(`${ID.dashboardOrigin}/api/kanban/heartbeat-summary`)
-    expect(out).toMatch(/COUNTS urgent=%s in_progress=%s waiting=%s planned=%s new_hot_memories_1h=%s db_size_mb=%s waiting_shown=%s/)
-  })
-
-  it('the ONLY python3-heredoc mention is the quoted example inside the ban paragraph', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    // The ban paragraph must quote the forbidden shape (so the agent can
-    // recognise it), and NOTHING else in the prompt may contain one -- a
-    // runnable heredoc anywhere would be exactly the copy-surface that broke
-    // the 18:00 round. Window: the ban paragraph's own bounds.
-    // Class-level, not variant-enumerated: two review rounds each found a
-    // form the previous narrow regex missed (bare, then -u, then `python3 -`
-    // dash-stdin -- the commonest shape here). The pinned property is that on
-    // one line, `python3` is never followed by `<<` at all; enumerating
-    // switches guarantees a fourth variant.
-    const matches = [...out.matchAll(/python3[^\n]*<</g)]
-    expect(matches.length).toBe(1)
-    const banStart = out.indexOf('FORBIDDEN SHAPE (HBHEREDOC819)')
-    expect(banStart).toBeGreaterThanOrEqual(0)
-    const banEnd = out.indexOf('It returns exactly', banStart)
-    expect(banEnd).toBeGreaterThan(banStart)
-    const idx = matches[0].index ?? -1
-    expect(idx).toBeGreaterThan(banStart)
-    expect(idx).toBeLessThan(banEnd)
-  })
-
-  it('the kanban endpoint is never fetched with curl (the curl+shell-var path is what got improvised)', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).not.toMatch(/curl[^\n]*heartbeat-summary/)
-  })
-
-  it('names the forbidden shape and the incident so the ban survives paraphrase', () => {
-    const out = renderHeartbeatClaudeMd(ID)
-    expect(out).toContain('FORBIDDEN SHAPE (HBHEREDOC819)')
-    expect(out).toMatch(/heredoc becomes python3's stdin/)
   })
 })

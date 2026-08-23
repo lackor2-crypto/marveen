@@ -611,47 +611,9 @@ export function isPublicFetchHost(value: string): boolean {
   const labels = host.split('.')
   if (labels.length < 2) return false                 // single label: localhost and friends
   if (labels.some((l) => !l || l.length > 63 || l.startsWith('-') || l.endsWith('-'))) return false
-  const INTERNAL_SUFFIX = ['local', 'internal', 'localdomain', 'lan', 'intranet', 'home', 'arpa', 'test', 'invalid', 'localhost', 'svc', 'cluster']
+  const INTERNAL_SUFFIX = ['local', 'internal', 'localdomain', 'lan', 'intranet', 'home', 'arpa', 'test', 'invalid', 'localhost']
   if (INTERNAL_SUFFIX.includes(labels[labels.length - 1])) return false
-  // A public NAME can still resolve inward. Wildcard-DNS services (nip.io,
-  // sslip.io and friends) encode the address in the name itself, so
-  // 127.0.0.1.nip.io and 192-168-1-50.sslip.io pass every check above and then
-  // resolve to loopback/RFC1918. Reaching them needs an allowlist entry, so
-  // this is defence-in-depth rather than an open door -- but it is the same
-  // class of bypass the literal check already rejects, and it costs one pass.
-  if (labels.some((l) => isInwardDashQuad(l))) return false
-  for (let i = 0; i + 3 < labels.length; i++) {
-    if (isInwardQuad(labels[i], labels[i + 1], labels[i + 2], labels[i + 3])) return false
-  }
   return true
-}
-
-// True for an IPv4 that points back at us or into a private network. Kept
-// narrow on purpose: a PUBLIC address embedded in a name is not a bypass of
-// the loopback/RFC1918 guard, and rejecting every numeric label would break
-// legitimate hosts.
-function isInwardIPv4(o: number[]): boolean {
-  if (o.length !== 4 || o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false
-  const [a, b] = o
-  if (a === 0 || a === 127) return true                      // this-host, loopback
-  if (a === 10) return true                                  // RFC1918
-  if (a === 172 && b >= 16 && b <= 31) return true           // RFC1918
-  if (a === 192 && b === 168) return true                    // RFC1918
-  if (a === 169 && b === 254) return true                    // link-local, cloud metadata
-  if (a === 100 && b >= 64 && b <= 127) return true          // CGNAT
-  return false
-}
-
-function isInwardQuad(a: string, b: string, c: string, d: string): boolean {
-  const parts = [a, b, c, d]
-  if (!parts.every((p) => /^\d{1,3}$/.test(p))) return false
-  return isInwardIPv4(parts.map((p) => parseInt(p, 10)))
-}
-
-function isInwardDashQuad(label: string): boolean {
-  const m = label.match(/^(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})$/)
-  if (!m) return false
-  return isInwardIPv4(m.slice(1).map((p) => parseInt(p, 10)))
 }
 
 export function ownerAllowedDomains(storeDir = STORE_DIR): string[] {
@@ -663,32 +625,6 @@ export function ownerAllowedDomains(storeDir = STORE_DIR): string[] {
       .filter((d: string) => isPublicFetchHost(d))
   } catch {
     return []   // no file, unreadable, or malformed: ship the template as-is
-  }
-}
-
-// The reader's effective allowlist, matching the egress-gate hook's semantics:
-// `domains` opens a host for every agent type (the hook's step 3), while
-// `quarantine_domains` opens it for the quarantine-reader only (step 4). The
-// rendered definition must carry the union, or a host granted at the
-// quarantine_domains level is honored by the hook but the reader's own prompt
-// still refuses it before a fetch is ever attempted -- which is exactly what
-// stranded a research task on 2026-08-16 (EGRESSKEY816).
-export function quarantineReaderDomains(storeDir = STORE_DIR): string[] {
-  const base = ownerAllowedDomains(storeDir)
-  try {
-    const raw = JSON.parse(readFileSync(join(storeDir, 'egress-allowlist.json'), 'utf-8'))
-    const list = Array.isArray(raw?.quarantine_domains) ? raw.quarantine_domains : []
-    const seen = new Set(base.map((d) => d.toLowerCase()))
-    for (const d of list) {
-      if (typeof d !== 'string') continue
-      const host = d.trim()
-      if (!isPublicFetchHost(host) || seen.has(host.toLowerCase())) continue
-      seen.add(host.toLowerCase())
-      base.push(host)
-    }
-    return base
-  } catch {
-    return base
   }
 }
 
@@ -820,7 +756,7 @@ export function ensureQuarantineReader(name: string): boolean {
   const destPath = join(destDir, 'quarantine-reader.md')
   let rendered: string
   try {
-    rendered = renderQuarantineReader(readFileSync(tplPath, 'utf-8'), quarantineReaderDomains())
+    rendered = renderQuarantineReader(readFileSync(tplPath, 'utf-8'), ownerAllowedDomains())
   } catch {
     return false
   }
@@ -1141,62 +1077,6 @@ export function ensureFleetRosterSection(name: string): void {
   atomicWriteFileSync(claudeMdPath, updated)
 }
 
-// SKILLUTCSAPDA822: the near-identical `.claude-config/skills` path IS the
-// shared global directory (a symlink to ~/.claude/skills, single-copy
-// distribution -- deliberate, see skills-symlink-single-copy), and the
-// skill-run base directory even DISPLAYS that path. An agent writing "its
-// own" skill there writes to the whole fleet, and nothing says so. Measured
-// 2026-08-22: five third-party marketing skills landed in the shared dir and
-// only luck caught them. The symlink stays; the fix is naming the trap in
-// every agent's CLAUDE.md, idempotently, on every respawn.
-const SKILLS_TRAP_BEGIN = '<!-- BEGIN GENERATED: skills-path-trap (auto-generated, do not edit by hand) -->'
-const SKILLS_TRAP_END = '<!-- END GENERATED: skills-path-trap -->'
-const SKILLS_TRAP_BLOCK_RE = new RegExp(
-  `${SKILLS_TRAP_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${SKILLS_TRAP_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
-)
-
-function buildSkillsPathTrapBody(): string {
-  return [
-    '## Skill-útvonal csapda (KÖTELEZŐ elolvasni skill-írás előtt)',
-    '',
-    'A `.claude-config/skills` NEM a saját mappád: symlink a globális',
-    '`~/.claude/skills`-re, tehát ami oda kerül, az a TELJES flottánál megjelenik',
-    '-- akkor is, ha a skill-futtatás base directory-ja ezt az utat mutatja.',
-    'A saját, csak neked szóló vagy kipróbálatlan külső skill a munkakönyvtárad',
-    '`.claude/skills/` mappájába megy. A globálisba írás tudatos, flotta-szintű',
-    'döntés legyen, ne alapértelmezés.',
-  ].join('\n')
-}
-
-// Same five-rule idempotency contract as ensureFleetRosterSection /
-// ensureAutonomySection; called on every startAgentProcess() so existing
-// agents receive the warning automatically on respawn.
-export function ensureSkillsPathTrapSection(name: string): void {
-  const claudeMdPath = name === MAIN_AGENT_ID
-    ? join(PROJECT_ROOT, 'CLAUDE.md')
-    : join(agentDir(name), 'CLAUDE.md')
-  if (!existsSync(claudeMdPath)) return
-
-  const block = `${SKILLS_TRAP_BEGIN}\n${buildSkillsPathTrapBody()}\n${SKILLS_TRAP_END}`
-
-  let existing: string
-  try {
-    existing = readFileSync(claudeMdPath, 'utf-8')
-  } catch {
-    return
-  }
-
-  let updated: string
-  if (SKILLS_TRAP_BLOCK_RE.test(existing)) {
-    updated = existing.replace(SKILLS_TRAP_BLOCK_RE, block)
-  } else {
-    updated = existing.trimEnd() + '\n\n' + block + '\n'
-  }
-
-  if (updated === existing) return
-  atomicWriteFileSync(claudeMdPath, updated)
-}
-
 export async function generateClaudeMd(name: string, description: string, model: string): Promise<string> {
   // Distribution-safe default-drive line: only emit a concrete folder when this
   // install has one configured (OWNER_DRIVE_FOLDER). A fresh install with no
@@ -1269,7 +1149,6 @@ Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasznál
 ### Skill-ek helye
 - Globális: ~/.claude/skills/ (minden ágens számára elérhető)
 - Egyéni: a te munkakönyvtárad .claude/skills/ mappája
-- CSAPDA: a .claude-config/skills NEM a tiéd -- az a globális mappa symlinken át; saját skill a .claude/skills alá menjen
 
 ### Automatikus skill generálás
 Komplex feladatok után (5+ tool hívás, hiba utáni recovery, user korrekció, többlépéses workflow) automatikusan hozz létre SKILL.md fájlt:
@@ -1306,20 +1185,6 @@ MINDIG az install időzónáját használd: **${APP_TZ}** (a teljes telepítés 
 - **Cron expressions** (scheduled-tasks + fleet-timer): a scheduler ${APP_TZ} időben értelmezi (SCHEDULER_TZ); a fleet-timer \`once --at\` = ${APP_TZ} fali óra
 
 Heartbeat-eknél és minden időpontot kezelő feladatnál kötelező: \`date\` Bash parancs az elemzés ELŐTT.
-
-## MCP-toolok deferred betöltése (FLEETDEFER809)
-
-Az MCP-toolok érkezhetnek DEFERRED módon: a nevük megjelenik egy
-system-reminder listában, de a séma nincs betöltve, és a közvetlen hívás
-úgy bukik, mintha a tool nem létezne. Ez a bukás NEM hiány. Mielőtt azt
-mondanád egy toolra, hogy "nem elérhető":
-
-1. \`ToolSearch\` a pontos névvel: \`select:<tool_nev>\`. Utána a tool normálisan hívható.
-2. Ha a select nem hoz találatot, keress KULCSSZÓVAL (pl. \`calendar\`, \`gmail\`), mert a szerver-név telepítésenként eltérhet.
-3. Csak akkor mondd ki a hiányt, ha a kulcsszavas keresés sem hozza fel. Az már valódi tény, nem betöltési állapot.
-
-(Mért eset: HBCALMCP808. A heartbeat egy napig üres naptár-szekciót adott,
-miközben mind a 13 calendar-tool ott ült a saját deferred listájában.)
 
 ## Új ismeretlen sender első üzenete (ARANYSZABÁLY)
 

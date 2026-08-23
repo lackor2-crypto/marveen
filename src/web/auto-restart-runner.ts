@@ -95,15 +95,15 @@ function restartMainChannelsSession(): void {
   respawnMainSessionFresh()
 }
 
-async function performRestart(name: string, cfg: AutoRestartConfig): Promise<void> {
+function performRestart(name: string, cfg: AutoRestartConfig): void {
   if (name === MAIN_AGENT_ID) {
     restartMainChannelsSession()
   } else {
-    await restartAgentProcess(name, { fresh: cfg.mode === 'fresh' })
+    restartAgentProcess(name, { fresh: cfg.mode === 'fresh' })
   }
 }
 
-async function checkAgent(name: string, nowMs: number): Promise<void> {
+function checkAgent(name: string, nowMs: number): void {
   const cfg = readAutoRestartConfig(name)
   if (!cfg.enabled) {
     lastRestart.delete(name) // re-seed cleanly if re-enabled later
@@ -138,7 +138,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
   }
 
   try {
-    await performRestart(name, cfg)
+    performRestart(name, cfg)
     lastRestart.set(name, nowMs)
     logger.info({ name, mode: name === MAIN_AGENT_ID ? 'fresh(main)' : cfg.mode }, 'auto-restart: restarted session')
   } catch (err) {
@@ -147,26 +147,11 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
 }
 
 export function startAutoRestartRunner(): NodeJS.Timeout {
-  let tickRunning = false
-  async function sweep() {
-    // Re-entrancy guard: checkAgent/performRestart now await a real
-    // restartAgentProcess (no longer a blocking execSync('sleep N')), so a
-    // sweep with a restart in flight can still be running when the next
-    // interval fires. Skip an overlapping tick; the next tick re-evaluates
-    // every agent, so nothing is missed.
-    if (tickRunning) {
-      logger.debug('auto-restart: previous sweep still running, skipping this tick')
-      return
-    }
-    tickRunning = true
-    try {
-      const now = Date.now()
-      try { await checkAgent(MAIN_AGENT_ID, now) } catch (err) { logger.debug({ err }, 'auto-restart: main check error') }
-      for (const name of listAgentNames()) {
-        try { await checkAgent(name, now) } catch (err) { logger.debug({ err, agent: name }, 'auto-restart: agent check error') }
-      }
-    } finally {
-      tickRunning = false
+  function sweep() {
+    const now = Date.now()
+    try { checkAgent(MAIN_AGENT_ID, now) } catch (err) { logger.debug({ err }, 'auto-restart: main check error') }
+    for (const name of listAgentNames()) {
+      try { checkAgent(name, now) } catch (err) { logger.debug({ err, agent: name }, 'auto-restart: agent check error') }
     }
   }
   setTimeout(sweep, INITIAL_DELAY_MS)

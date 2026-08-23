@@ -47,9 +47,3 @@ export const MAIN_CHANNELS_PLIST = channelsPlistPath(SERVICE_ID)
 export function isMainChannelsAgent(name: string): boolean {
   return name === MAIN_AGENT_ID
 }
-
-// Filter helper for endpoints that prepend the main agent separately and must
-// not list it again as a worker entry (activity panel, model-suggest).
-export function withoutMainAgent(names: string[]): string[] {
-  return names.filter(n => !isMainChannelsAgent(n))
-}

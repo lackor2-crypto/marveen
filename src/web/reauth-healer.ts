@@ -11,7 +11,6 @@ import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { detectReauthNeeded } from './reauth-detect.js'
 import { loginSequence, literalKeyArgs, specialKeyArgs } from './tmux-keys.js'
 import { exactTmuxTarget } from './tmux-target.js'
-import { withSessionSendLock } from './session-send-lock.js'
 
 // Autonomous re-auth healer (Adam stability-fix #1, scoped 2026-06-03).
 //
@@ -153,23 +152,14 @@ function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout
 // Fire-and-forget best-effort /login into a sub-agent session. Reuses the same
 // scripted sequence as the dashboard button (loginSequence('start')).
 async function sendBestEffortLogin(session: string): Promise<void> {
-  // PANEWRITERS805: the /login sequence is direct keystrokes into a pane that
-  // also receives locked deliveries. Recover-mode (fail-closed): a busy lane
-  // means a delivery is mid-chunk-stream and our keys would splice into its
-  // framed text. Skip and log; the healer's own sweep cadence retries.
-  const res = await withSessionSendLock(session, null, 'recover', async () => {
-    for (const step of loginSequence('start')) {
-      const args = step.kind === 'literal' ? literalKeyArgs(session, step.text) : specialKeyArgs(session, step.key)
-      if (args) {
-        await new Promise<void>((resolve) => {
-          execFile(TMUX, args, { timeout: 5000 }, () => resolve())
-        })
-      }
-      if (step.delayMs > 0) await sleep(step.delayMs)
+  for (const step of loginSequence('start')) {
+    const args = step.kind === 'literal' ? literalKeyArgs(session, step.text) : specialKeyArgs(session, step.key)
+    if (args) {
+      await new Promise<void>((resolve) => {
+        execFile(TMUX, args, { timeout: 5000 }, () => resolve())
+      })
     }
-  })
-  if (!res.ran) {
-    logger.info({ session }, 'reauth-healer: /login send-keys skipped -- a delivery is in flight into this pane (fail-closed); next sweep retries')
+    if (step.delayMs > 0) await sleep(step.delayMs)
   }
 }
 
@@ -358,7 +348,7 @@ async function restartFirstRunGatedAgent(name: string, session: string): Promise
   })
   await sleep(1000)
   try {
-    const r = await startAgentProcess(name)
+    const r = startAgentProcess(name)
     if (!r.ok) logger.warn({ name, error: r.error }, 'reauth-healer: first-run-gate relaunch failed')
   } catch (err) {
     logger.warn({ err, name }, 'reauth-healer: first-run-gate relaunch threw')

@@ -4,7 +4,6 @@ import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { hardRestartMarveenChannels } from './channel-monitor.js'
 import { atomicWriteFileSync } from './atomic-write.js'
-import { isValidModelId, InvalidModelIdError } from '../model-id.js'
 import {
   listAgentNames,
   readAgentRemoteHost,
@@ -55,7 +54,6 @@ function readMainModel(): string {
 }
 
 function writeMainModel(model: string): void {
-  if (!isValidModelId(model)) throw new InvalidModelIdError(model)
   let cfg: Record<string, unknown> = {}
   try { cfg = JSON.parse(readFileSync(MAIN_SETTINGS_PATH, 'utf-8')) } catch {}
   cfg.model = model
@@ -75,7 +73,7 @@ function sessionFor(name: string): string {
   return name === MAIN_AGENT_ID ? MAIN_CHANNELS_SESSION : agentSessionName(name)
 }
 
-async function restartFor(name: string): Promise<void> {
+function restartFor(name: string): void {
   if (name === MAIN_AGENT_ID) {
     // A fresh main relaunch re-reads .claude/settings.json (and thus the new
     // model). channels.sh always starts fresh for main, so a conversation is
@@ -91,11 +89,11 @@ async function restartFor(name: string): Promise<void> {
   } else {
     // 'continue' (fresh: false) re-spawns with --continue so the conversation
     // survives the model swap.
-    await restartAgentProcess(name, { fresh: false })
+    restartAgentProcess(name, { fresh: false })
   }
 }
 
-async function checkAgent(name: string, nowMs: number, revertAfterMs: number, chain: string[]): Promise<void> {
+function checkAgent(name: string, nowMs: number, revertAfterMs: number, chain: string[]): void {
   // Sub-agents must be up; the main session is launchd-managed (always present).
   if (name !== MAIN_AGENT_ID && agentRunState(name) !== 'running') return
 
@@ -125,7 +123,7 @@ async function checkAgent(name: string, nowMs: number, revertAfterMs: number, ch
 
   try {
     writeModelFor(name, action.model)
-    await restartFor(name)
+    restartFor(name)
     if (action.kind === 'downgrade') downgradedAt.set(name, nowMs)
     else downgradedAt.delete(name)
     logger.info(
@@ -138,34 +136,19 @@ async function checkAgent(name: string, nowMs: number, revertAfterMs: number, ch
 }
 
 export function startModelFallbackRunner(): NodeJS.Timeout {
-  let tickRunning = false
-  async function sweep() {
-    // Re-entrancy guard: checkAgent/restartFor now await a real
-    // restartAgentProcess (no longer a blocking execSync('sleep N')), so a
-    // sweep with a restart in flight can still be running when the next
-    // interval fires. Skip an overlapping tick; the next tick re-evaluates
-    // every agent, so nothing is missed.
-    if (tickRunning) {
-      logger.debug('model-fallback: previous sweep still running, skipping this tick')
+  function sweep() {
+    const cfg = readModelFallbackConfig()
+    if (!cfg.enabled) {
+      if (downgradedAt.size > 0) downgradedAt.clear() // re-seed cleanly if re-enabled
       return
     }
-    tickRunning = true
-    try {
-      const cfg = readModelFallbackConfig()
-      if (!cfg.enabled) {
-        if (downgradedAt.size > 0) downgradedAt.clear() // re-seed cleanly if re-enabled
-        return
-      }
-      const now = Date.now()
-      const revertAfterMs = cfg.revertAfterMinutes * 60_000
-      try { await checkAgent(MAIN_AGENT_ID, now, revertAfterMs, cfg.chain) }
-      catch (err) { logger.debug({ err }, 'model-fallback: main check error') }
-      for (const name of listAgentNames()) {
-        try { await checkAgent(name, now, revertAfterMs, cfg.chain) }
-        catch (err) { logger.debug({ err, agent: name }, 'model-fallback: agent check error') }
-      }
-    } finally {
-      tickRunning = false
+    const now = Date.now()
+    const revertAfterMs = cfg.revertAfterMinutes * 60_000
+    try { checkAgent(MAIN_AGENT_ID, now, revertAfterMs, cfg.chain) }
+    catch (err) { logger.debug({ err }, 'model-fallback: main check error') }
+    for (const name of listAgentNames()) {
+      try { checkAgent(name, now, revertAfterMs, cfg.chain) }
+      catch (err) { logger.debug({ err, agent: name }, 'model-fallback: agent check error') }
     }
   }
   setTimeout(sweep, INITIAL_DELAY_MS)

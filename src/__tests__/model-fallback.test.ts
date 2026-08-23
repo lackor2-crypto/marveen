@@ -36,9 +36,6 @@ describe('detectsUsageLimit', () => {
     expect(detectsUsageLimit('Approaching usage limit')).toBe(true)
     expect(detectsUsageLimit('Your limit will reset at 18:00')).toBe(true)
     expect(detectsUsageLimit('/upgrade to increase your usage limit')).toBe(true)
-    // "session limit" variant observed 2026-08-08 -- was missing from the original regex
-    expect(detectsUsageLimit('You hit your session limit · resets 5:50pm')).toBe(true)
-    expect(detectsUsageLimit('You hit the session limit')).toBe(true)
   })
 
   // The banner as Claude Code actually prints it, captured off usalackor's pane

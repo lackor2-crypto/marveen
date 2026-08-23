@@ -24,7 +24,6 @@ import { exactTmuxTarget } from './tmux-target.js'
 import {
   decideGate,
   chooseReclaimAction,
-  nextBlockClock,
   type GateInputs,
 } from '../context-restart-gate.js'
 
@@ -644,13 +643,13 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
         if (runState.firstBlockedAt !== null) writeGateRunState(name, { ...runState, firstBlockedAt: null })
         break
       }
-      // Rendes blokkolas: az ora leptetese -- INDIT a kuszob felett, TOROL a
-      // kuszob alatti MERT ertekre, es valtozatlanul hagyja, ha a meres nem
-      // sikerult (null). Lasd nextBlockClock (#959): korabban csak indulni
-      // tudott, igy egy regi sorozat tulelte a sajat session-jet, es a fal
-      // feloldasa utani elso blokkolas kitalalt idotartammal riasztott.
-      const firstBlockedAt = nextBlockClock(
-        runState.firstBlockedAt, inputs.contextTokens, cfg.thresholdTokens, nowMs,
+      // Normal block: update firstBlockedAt if this is the first block in a streak.
+      const firstBlockedAt = runState.firstBlockedAt ?? (
+        // Only start the clock when we are above the threshold -- otherwise
+        // every idle agent would accumulate a never-expiring blocking streak.
+        inputs.contextTokens !== null && inputs.contextTokens >= cfg.thresholdTokens
+          ? nowMs
+          : null
       )
       if (firstBlockedAt !== runState.firstBlockedAt) {
         writeGateRunState(name, { ...runState, firstBlockedAt })
