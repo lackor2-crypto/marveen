@@ -67,9 +67,24 @@ describe('federation UI wiring', () => {
     const cardFn = APP.slice(APP.indexOf('function renderFederatedAgentCards'), APP.indexOf('function openFederatedThread'))
     expect(cardFn).toContain('escapeHtml(fa.displayName)')
     expect(cardFn).toContain('escapeHtml(fa.model)')
-    // No template interpolation inside an HTML attribute in the federated card
-    // renderer (class="...${...}" or title="...${...}" with peer data):
-    expect(cardFn).not.toMatch(/(class|title|alt|data-\w+)="[^"]*\$\{[^}]*fa\./)
+    // Peer data inside an HTML ATTRIBUTE is only allowed through a sanitizer.
+    // This used to be a blanket ban, because escapeHtml() left quotes intact
+    // and an attribute breakout was one `"` away. Both halves changed since:
+    // escapeHtml() now encodes " and ', and escapeAttr() (the house idiom,
+    // ~20 call sites) encodes them on top of it. A blanket ban therefore went
+    // red on SAFE code (2026-08-23, title="${escapeAttr(fa.qualified)}"), and
+    // a gate nobody can make green stops being read. So assert the property we
+    // actually want: every attribute interpolation of peer data is wrapped.
+    const SAFE = /^(escapeAttr|escapeHtml|monogramColor)\(/
+    const attrs = [...cardFn.matchAll(/(?:class|title|alt|style|data-\w+)="[^"]*\$\{([^}]*fa\.[^}]*)\}/g)]
+    // Zero matches would mean two different things: "no peer data reaches an
+    // attribute" or "the scanner stopped seeing them" (a quoting change, a
+    // renamed loop variable). Measured 2026-08-23: exactly 2 -- the style
+    // background and the title. Assert non-vacuity so the gate cannot go
+    // silently blind and keep reporting green.
+    expect(attrs.length, 'a mero nem lat egyetlen attributum-behelyettesitest sem -- elromlott?').toBeGreaterThan(0)
+    const raw = attrs.map((m) => m[1].trim()).filter((expr) => !SAFE.test(expr))
+    expect(raw.join(' | '), 'peer-controlled string in an attribute without escapeAttr()').toBe('')
   })
 
   it('federated card CSS exists and disarms the click affordance', () => {
