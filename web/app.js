@@ -5159,16 +5159,21 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // csak zaj, es 2026-08-23-ig meg hibasan is latszott (`fejleszts`) --
     // Boss: "mi ez? es miert van hibasan a fejleszts.. ts?". Cimezni tovabbra
     // is az aliassal lehet, ezert ott van a tooltipben es a beallitasokban.
-    const folder = e.desc ? e.desc.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : ''
-    const subFull = [e.title, e.desc, botNote].filter(Boolean).join(' · ')
-    const sub = shortDesc([folder || e.title, botNote].filter(Boolean).join(' · '))
+    //
+    // Boss, 2026-08-23: "kell az a Fejlesztes szo oda? nem eleg a kulso
+    // programozo?" -> "szerintem torold onnan azt a szot". A mappa NEVE tehat
+    // nem all ki a kartyara. Az informacio nem vesz el: a teljes ut ott van a
+    // nev tooltipjeben (nem foglal helyet), es a beallitas-ablakban is.
+    const subFull = [e.title, e.desc].filter(Boolean).join(' · ')
+    // A leiras-sor MAR CSAK akkor all ki, ha van mondanivaloja (bot-hiba).
+    const sub = shortDesc(botNote)
     card.innerHTML = `
       <div class="agent-card-top">
         <div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>
         <div class="agent-card-info">
-          <div class="agent-name">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
+          <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
           <div class="cb-external-badge">${escapeHtml(t('cb.card.external_badge'))}</div>
-          <div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>
+          ${sub ? `<div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>` : ''}
           <div class="agent-desc cb-external-note" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(shortDesc(t('cb.card.external_note'), 90))}</div>
         </div>
       </div>
