@@ -66,7 +66,11 @@ function upstreamRef(): string {
  */
 function compareFrom(local: string, upstream: string): string {
   let from = local
-  const revs = git(['log', local, '--format=%H', '--grep=^This reverts commit']).split('\n')
+  // A --grep csak ELO-SZURO, szandekosan horgony nelkul: a kalap-horgony mukodne (merve
+  // 2026-08-23, a git soronkent horgonyoz), de finom szemantikara epulne --
+  // ha az valaha megvaltozik, a kereses NEMAN ures lesz. A valodi feltetel a
+  // soralapu /m regex es a merge-ellenorzes alabb.
+  const revs = git(['log', local, '--format=%H', '--grep=This reverts commit']).split('\n')
   for (const rev of revs) {
     if (!rev.trim()) continue
     const body = git(['log', '-1', '--format=%B', rev.trim()])

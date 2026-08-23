@@ -98,6 +98,11 @@ if [ -z "${ERR}" ]; then
   # lepunk vissza, ha az tenylegesen egy MERGE (ket szulo), aminek a masodik
   # szuloje az upstream aganak elozmenye. Egyszeru commit visszavonasa nem
   # mozditja a viszonyitasi pontot.
+  # A --grep itt csak ELO-SZURO, szandekosan horgony nelkul. A `^` mukodne
+  # (merve 2026-08-23, git soronkent horgonyoz), de egy finom szemantikara
+  # epulne: ha az valaha megvaltozik, a kereses NEMAN ures lesz, es a doboz
+  # ujra 1 commitot mutatna. A valodi feltetel ugyis lentebb all: soralapu
+  # kinyeres + merge-e + az upstreambol jott-e.
   COMPARE_FROM="${LOCAL_REF}"
   while read -r rev; do
     [ -n "${rev}" ] || continue
@@ -112,7 +117,7 @@ if [ -z "${ERR}" ]; then
     REVERTED_MERGE="$(git rev-parse --short "${target}" 2>/dev/null)"
     # A legREGEBBI ilyen visszavonas a helyes kiindulopont, ezert nem allunk meg.
   done <<EOF
-$(git log "${LOCAL_REF}" --format=%H --grep='^This reverts commit' 2>/dev/null)
+$(git log "${LOCAL_REF}" --format=%H --grep='This reverts commit' 2>/dev/null)
 EOF
   [ -n "${COMPARE_FROM}" ] || COMPARE_FROM="${LOCAL_REF}"
 
