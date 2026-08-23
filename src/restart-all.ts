@@ -161,8 +161,8 @@ export interface RestartStepResult {
 }
 
 export interface RestartAllDeps {
-  restartAgent: (name: string) => { ok: boolean; error?: string }
-  restartMainAgent: () => { ok: boolean; error?: string }
+  restartAgent: (name: string) => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
+  restartMainAgent: () => { ok: boolean; error?: string } | Promise<{ ok: boolean; error?: string }>
   /**
    * Ket lepes kozott visszaadja a vezerlest az esemenyhuroknak.
    *
@@ -225,7 +225,7 @@ export async function executeRestartAllPlan(
     executed++
     let r: { ok: boolean; error?: string }
     try {
-      r = step.kind === 'main-agent' ? deps.restartMainAgent() : deps.restartAgent(step.id)
+      r = await (step.kind === 'main-agent' ? deps.restartMainAgent() : deps.restartAgent(step.id))
     } catch (err: any) {
       r = { ok: false, error: err?.message || String(err) }
     }

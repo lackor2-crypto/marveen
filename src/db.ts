@@ -1,12 +1,16 @@
 import Database from 'better-sqlite3'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, readFileSync, renameSync, chmodSync, openSync, closeSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, chmodSync, openSync, closeSync, statSync } from 'node:fs'
 import { STORE_DIR, DB_FILENAME, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from './config.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
 import { TOOL_TIMEOUTS } from './tool-timeouts.js'
 
 let db: Database.Database
+// A megnyitott adatbazis-fajl utja, hogy a merete lemerheto legyen.
+// ':memory:' eseten null -- ott NINCS fajl, es ezt meg kell tudni kulonboztetni
+// a "nem sikerult megmerni" esettol.
+let openedDbPath: string | null = null
 
 // Lock the DB file and its sidecars (WAL, SHM, rollback journal) down to
 // owner-only. better-sqlite3 opens the main file with the process umask
@@ -66,6 +70,7 @@ export function initDatabase(dbPathOverride?: string): void {
     }
   }
   db = new Database(dbPath)
+  openedDbPath = isMemory ? null : dbPath
   db.pragma('journal_mode = WAL')
   // Performance pragmas: safe with WAL, applied after journal_mode is set.
   // cache_size: negative value = kibibytes; -65536 → 64 MB page cache.
@@ -262,10 +267,21 @@ export function initDatabase(dbPathOverride?: string): void {
       text TEXT,
       ts TEXT,
       created_at INTEGER NOT NULL,
+      attachment_kind TEXT,
+      attachment_file_id TEXT,
       UNIQUE(agent_id, chat_id, direction, message_id)
     )
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_convlog_agent ON conversation_log(agent_id, created_at)`)
+  // Migration for pre-existing DBs: transcript-less voice/video_note inbounds
+  // keep their attachment identity so a respawned session can still download
+  // and transcribe them (mirrors _MIGRATION_COLUMNS in scripts/hooks/ledger_lib.py).
+  for (const col of ['attachment_kind', 'attachment_file_id']) {
+    const cols = db.prepare("PRAGMA table_info(conversation_log)").all() as { name: string }[]
+    if (!cols.some(c => c.name === col)) {
+      db.exec(`ALTER TABLE conversation_log ADD COLUMN ${col} TEXT`)
+    }
+  }
 
   // Migration: hot/warm/cold/shared tier system with an enforced CHECK.
   // Rebuilds the table whenever its current schema doesn't include the
@@ -388,6 +404,26 @@ export function initDatabase(dbPathOverride?: string): void {
     )
   `)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kanban_events_card ON kanban_card_events(card_id, created_at)`)
+
+  // listKanbanCards()'s auto-archive sweep (below) treats a card's updated_at
+  // as "when did this card last change", and archives a done card once that
+  // timestamp is older than KANBAN_ARCHIVE_DONE_DAYS. Both production status
+  // writers (updateKanbanCard, moveKanbanCard) always bump updated_at in the
+  // same statement as the status change -- but a raw SQL UPDATE that only
+  // touches status (kanban 0664aadf: an ad hoc status fix) leaves the OLD
+  // updated_at in place, so a card that just became 'done' looks like it has
+  // been sitting untouched for weeks and gets archived on the very next page
+  // load, before anyone sees it. Self-healing rather than a CHECK constraint,
+  // same reasoning as agent_messages_delivered_needs_ts below: the point is
+  // to keep updated_at honest for any writer, not to police the write path.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS kanban_cards_status_bumps_updated_at
+    AFTER UPDATE OF status ON kanban_cards
+    FOR EACH ROW WHEN NEW.status != OLD.status AND NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE kanban_cards SET updated_at = CAST(strftime('%s','now') AS INTEGER) WHERE id = NEW.id;
+    END
+  `)
 
   // --- Kanban labels (tags) -----------------------------------------------
   // Labels are a separate registry (not hardcoded per-card strings) so the
@@ -2054,17 +2090,108 @@ export interface HeartbeatKanbanSummary {
   waiting: KanbanCard[]
 }
 
+/**
+ * The ONE definition of "what the heartbeat lists". Both consumers read it from
+ * here: the built-in heartbeat prompt (heartbeat.ts) and the heartbeat AGENT,
+ * which gets it over /api/kanban/heartbeat-summary instead of composing its own
+ * query. Two hand-written copies of the same filter is how they drift apart.
+ *
+ * `urgent` means urgent and NOT FINISHED: priority='urgent', not archived, not
+ * `done`. `planned` stays IN on purpose -- "urgent and nobody has touched it" is
+ * one of the states most worth seeing, and a list that hides it would be quiet
+ * for the wrong reason. (A first draft of this change narrowed it to
+ * waiting/in_progress; that was withdrawn precisely because it would have hidden
+ * untouched urgent work.)
+ *
+ * What DID have to go is closed work: on 2026-08-04 the 09:00 report listed five
+ * items of which three were already `done`, and the 08-03 count was 22 done
+ * against 2 waiting -- the most prominent line of an hourly report was mostly
+ * finished cards, so it stopped being read. Those 22 were only reachable through
+ * a hand-written query; this statement never returned them, which is why the real
+ * fix is that the heartbeat agent no longer writes its own query.
+ */
+/** Exported so a test can execute the SHIPPED statement against a fixture DB
+ *  instead of re-typing an equivalent one and proving nothing. */
+export const HEARTBEAT_URGENT_SQL =
+  "SELECT * FROM kanban_cards WHERE archived_at IS NULL AND priority = 'urgent' AND status != 'done'"
+export const HEARTBEAT_IN_PROGRESS_SQL =
+  "SELECT * FROM kanban_cards WHERE archived_at IS NULL AND status = 'in_progress'"
+export const HEARTBEAT_WAITING_SQL =
+  "SELECT * FROM kanban_cards WHERE archived_at IS NULL AND status = 'waiting'"
+
+// HBKANBANDRIFT819 follow-up: the heartbeat report format asks for a planned
+// line, so the number needs a sanctioned server-side source like every other
+// count -- without it the agent manufactures the value (measured: planned: 0
+// reported against a real 305). COUNT only: no card list is served for
+// planned, the line is a bare number.
+export const HEARTBEAT_PLANNED_COUNT_SQL =
+  "SELECT COUNT(*) AS n FROM kanban_cards WHERE archived_at IS NULL AND status = 'planned'"
+
+export function countPlannedKanbanCards(): number {
+  const row = db.prepare(HEARTBEAT_PLANNED_COUNT_SQL).get() as { n: number } | undefined
+  return row?.n ?? 0
+}
+
 export function getHeartbeatKanbanSummary(): HeartbeatKanbanSummary {
-  const urgent = db
-    .prepare("SELECT * FROM kanban_cards WHERE archived_at IS NULL AND priority = 'urgent' AND status != 'done'")
-    .all() as KanbanCard[]
-  const in_progress = db
-    .prepare("SELECT * FROM kanban_cards WHERE archived_at IS NULL AND status = 'in_progress'")
-    .all() as KanbanCard[]
-  const waiting = db
-    .prepare("SELECT * FROM kanban_cards WHERE archived_at IS NULL AND status = 'waiting'")
-    .all() as KanbanCard[]
+  const urgent = db.prepare(HEARTBEAT_URGENT_SQL).all() as KanbanCard[]
+  const in_progress = db.prepare(HEARTBEAT_IN_PROGRESS_SQL).all() as KanbanCard[]
+  const waiting = db.prepare(HEARTBEAT_WAITING_SQL).all() as KanbanCard[]
   return { urgent, in_progress, waiting }
+}
+
+/**
+ * HBMEMBLIND819: the heartbeat's "new hot memories (1h)" number is computed
+ * HERE, server-side, and served over /api/kanban/heartbeat-summary -- the
+ * heartbeat agent copies it like the kanban counts, it never runs the query.
+ *
+ * This is the SECOND failure of the prescribe-the-query pattern for this
+ * metric. HBMEMBLIND807 (2026-08-07): the agent composed its own SQL and
+ * reported 0 beside three hot memories; the fix prescribed a ready-made query
+ * with "do not rewrite the query". HBMEMBLIND819 (2026-08-19): measured
+ * 14/14 rounds reporting 0 over 24h with real values of 2 in three of them --
+ * the agent ran the prescribed query SHAPE but with agent_id='heartbeat'
+ * substituted for the main agent's id. Timeline over 8 sessions / 196 runs:
+ * the identity rewrite appears on post-compact rounds (the agent reconstructs
+ * the query from memory as "count MY hot memories" instead of re-reading the
+ * prescription) and then persists as its own precedent. A prescription the
+ * measured party must re-copy every round is not a mechanism; the kanban
+ * counts on the SAME agent never drifted, because an endpoint number has no
+ * query to rewrite. Same closure as getHeartbeatKanbanSummary above.
+ */
+/** Exported so a test can execute the SHIPPED statement against a fixture DB
+ *  instead of re-typing an equivalent one and proving nothing. */
+export const HEARTBEAT_NEW_HOT_MEMORIES_SQL =
+  "SELECT COUNT(*) AS n FROM memories WHERE agent_id = ? AND category = 'hot' AND created_at > unixepoch() - 3600"
+
+export function countNewHotMemories(agentId: string): number {
+  const row = db.prepare(HEARTBEAT_NEW_HOT_MEMORIES_SQL).get(agentId) as { n: number } | undefined
+  return row?.n ?? 0
+}
+
+/**
+ * HBDBMERET822: the heartbeat's "DB size" number is computed HERE, server-side,
+ * and served over /api/kanban/heartbeat-summary -- same closure as the kanban
+ * counts and countNewHotMemories above. Before this, the scaffold's template
+ * had a bare `DB size: <X> MB` placeholder with no sanctioned source, so each
+ * session re-invented the measurement: the format drifted round to round
+ * (`158 MB` -> `160M`, a du -h shape) and on 2026-08-22 15:00 the report said
+ * `0.0 MB` against a real 159 MB. A zero here is the dangerous direction --
+ * the metric exists as a GROWTH signal, and a permanent 0.0 does not die
+ * loudly, it just looks calm.
+ *
+ * Returns null (never 0) when the size cannot be measured: for ':memory:'
+ * databases and on stat failure. 0 is a plausible reading; null is not --
+ * the consumer renders it as "nincs adat". Same lesson as the silent
+ * `catch { return 0 }` this replaces in heartbeat.ts collectSystem.
+ */
+export function getDbFileSizeMb(): number | null {
+  if (!openedDbPath) return null
+  try {
+    return Math.round((statSync(openedDbPath).size / (1024 * 1024)) * 10) / 10
+  } catch (err) {
+    logger.warn({ err, dbPath: openedDbPath }, 'DB size stat failed; serving null, not 0')
+    return null
+  }
 }
 
 // --- Agent Messages ---
@@ -2277,22 +2404,39 @@ export interface DispatchedPendingStats {
  * received a result (status pending or delivered), separating live (within
  * staleCutoffMs) from stale (beyond it). Used by the context-restart gate.
  */
+/**
+ * Completion reports are excluded. Closing an inbound message auto-creates an
+ * `[Eredmény] msg_id:<n> status:<s>` message back to the sender (see the PUT
+ * /api/messages/:id route, which uses this same prefix to avoid ping-pong).
+ * Those are notifications, not dispatched work: nobody is expected to answer
+ * them, and they are never marked done, so they accumulate. Counting them made
+ * a busy agent permanently ineligible for a soft restart -- on 2026-08-12 the
+ * gate reported 11 blocking messages for the main agent and several were its
+ * own acknowledgements.
+ */
+export const COMPLETION_REPORT_PREFIX = '[Eredmény]'
+
 export function getDispatchedPendingStats(
   fromAgent: string,
   nowMs: number,
   staleCutoffMs: number,
 ): DispatchedPendingStats {
   const cutoffEpoch = Math.floor((nowMs - staleCutoffMs) / 1000)
+  // Bound parameter, not interpolation: the prefix contains no LIKE wildcards
+  // today, but a future edit adding one would silently widen the exclusion.
+  const ackPattern = `${COMPLETION_REPORT_PREFIX}%`
   const liveRow = db.prepare(
     `SELECT COUNT(*) AS cnt FROM agent_messages
        WHERE from_agent = ? AND status IN ('pending','delivered')
+         AND content NOT LIKE ?
          AND CAST(created_at AS INTEGER) > ?`,
-  ).get(fromAgent, cutoffEpoch) as { cnt: number }
+  ).get(fromAgent, ackPattern, cutoffEpoch) as { cnt: number }
   const staleRow = db.prepare(
     `SELECT COUNT(*) AS cnt FROM agent_messages
        WHERE from_agent = ? AND status IN ('pending','delivered')
+         AND content NOT LIKE ?
          AND CAST(created_at AS INTEGER) <= ?`,
-  ).get(fromAgent, cutoffEpoch) as { cnt: number }
+  ).get(fromAgent, ackPattern, cutoffEpoch) as { cnt: number }
   return {
     count:    liveRow?.cnt ?? 0,
     hasStale: (staleRow?.cnt ?? 0) > 0,
@@ -3417,6 +3561,15 @@ export function updateApprovalDescription(id: string, actionDescription: string,
            action_payload = COALESCE(?, action_payload)
      WHERE id = ? AND status = 'pending'
   `).run(actionDescription, actionPayload ?? null, id).changes > 0
+}
+
+// A Telegram-uzenet azonositoja a KERES kikuldesekor is rogzitheto legyen
+// (APPROVALVAK821): amig ez nem letezett, a telegram_message_id csak a lezarasnal
+// volt irhato, igy a meg fuggo keres uzenetet nem lehetett megtalalni es
+// frissiteni -- a gombok ott maradtak egy mar elavult uzeneten.
+export function setApprovalTelegramMessageId(id: string, telegramMessageId: number): boolean {
+  return db.prepare('UPDATE approvals SET telegram_message_id = ? WHERE id = ?')
+    .run(telegramMessageId, id).changes > 0
 }
 
 export function resolveApproval(id: string, status: 'approved' | 'rejected' | 'timeout', resolvedBy: string, telegramMessageId?: number | null, resolutionReason?: string | null): boolean {

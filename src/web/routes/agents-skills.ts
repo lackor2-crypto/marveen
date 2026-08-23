@@ -10,7 +10,7 @@ import { agentDir, skillsRootFor } from '../agent-config.js'
 import { generateSkillMd } from '../agent-scaffold.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json } from '../http-helpers.js'
-import { sanitizeAgentName, sanitizeSkillName, safeJoin } from '../sanitize.js'
+import { sanitizeAgentName, sanitizeSkillName, safeJoin, shellEscape } from '../sanitize.js'
 import type { RouteContext } from './types.js'
 
 // skillsRootFor lives in agent-config.ts: the auto-reflection (src/web/reflect.ts)
@@ -79,7 +79,7 @@ export async function tryHandleAgentsSkills(ctx: RouteContext): Promise<boolean>
     const before = new Set(readdirSync(skillsDir))
     try {
       writeFileSync(tmpPath, file.data)
-      const listOutput = execSync(`unzip -Z1 "${tmpPath}" 2>&1`, { timeout: 5000, encoding: 'utf-8' })
+      const listOutput = execSync(`unzip -Z1 ${shellEscape(tmpPath)} 2>&1`, { timeout: 5000, encoding: 'utf-8' })
       const entries = listOutput.split('\n').map((l) => l.trim()).filter(Boolean)
       for (const entry of entries) {
         if (entry.includes('..') || entry.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(entry)) {

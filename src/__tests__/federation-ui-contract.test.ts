@@ -67,9 +67,14 @@ describe('federation UI wiring', () => {
     const cardFn = APP.slice(APP.indexOf('function renderFederatedAgentCards'), APP.indexOf('function openFederatedThread'))
     expect(cardFn).toContain('escapeHtml(fa.displayName)')
     expect(cardFn).toContain('escapeHtml(fa.model)')
-    // No template interpolation inside an HTML attribute in the federated card
-    // renderer (class="...${...}" or title="...${...}" with peer data):
-    expect(cardFn).not.toMatch(/(class|title|alt|data-\w+)="[^"]*\$\{[^}]*fa\./)
+    // Peer data may reach an attribute ONLY through escapeAttr() -- the
+    // attribute-safe encoder (escapeHtml plus " -> &quot;, web/app.js). So the
+    // sanctioned calls are blanked first and the ban then runs on what is left:
+    // any OTHER interpolation of peer data into class/title/alt/data-* still fails.
+    const withoutSanctioned = cardFn.replace(/\$\{escapeAttr\([^}]*\)\}/g, 'SANCTIONED')
+    expect(withoutSanctioned).not.toMatch(/(class|title|alt|data-\w+)="[^"]*\$\{[^}]*fa\./)
+    // ...and the one attribute that does carry peer data must keep its encoder.
+    expect(cardFn).toContain('title="${escapeAttr(fa.qualified)}"')
   })
 
   it('federated card CSS exists and disarms the click affordance', () => {

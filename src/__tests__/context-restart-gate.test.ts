@@ -8,6 +8,7 @@ import {
 } from '../web/context-restart-gate-runner.js'
 import {
   decideGate,
+  nextBlockClock,
   DEFAULT_THRESHOLD_TOKENS,
   DEFAULT_STALE_CUTOFF_MS,
   DEFAULT_PERSISTENT_BLOCK_ALERT_MS,
@@ -526,5 +527,37 @@ describe('hasLiveTaskState freshness window', () => {
       null,
     )
     expect(d.action).toBe('allow')
+  })
+})
+
+// The clock is what turns a block into an alert, so a clock that cannot stop
+// turns any later block into a false alarm with a fabricated duration.
+describe('nextBlockClock -- the blocking-streak clock', () => {
+  const THRESHOLD = DEFAULT_THRESHOLD_TOKENS
+
+  it('starts the clock when at the threshold and not already running', () => {
+    expect(nextBlockClock(null, THRESHOLD, THRESHOLD, NOW)).toBe(NOW)
+  })
+
+  it('keeps the original start time while the streak continues', () => {
+    const started = NOW - 60_000
+    expect(nextBlockClock(started, THRESHOLD + 1, THRESHOLD, NOW)).toBe(started)
+  })
+
+  it('does not start the clock below the threshold', () => {
+    expect(nextBlockClock(null, THRESHOLD - 1, THRESHOLD, NOW)).toBeNull()
+  })
+
+  // The 2026-08-12 false alarm: an evening session legitimately started the
+  // clock, the host froze, and the fresh two-minute-old session that came back
+  // was reported as "blocked for 662 minutes".
+  it('CLEARS a running clock once a measured reading is below the threshold', () => {
+    expect(nextBlockClock(NOW - 11 * 3600_000, 67_000, THRESHOLD, NOW)).toBeNull()
+  })
+
+  it('leaves the clock untouched when the reading is unmeasurable', () => {
+    const started = NOW - 60_000
+    expect(nextBlockClock(started, null, THRESHOLD, NOW)).toBe(started)
+    expect(nextBlockClock(null, null, THRESHOLD, NOW)).toBeNull()
   })
 })

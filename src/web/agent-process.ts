@@ -12,7 +12,11 @@ import {
   detectsPastePlaceholder,
   detectPaneState,
   parkedInputText,
+  parkedInputRowCount,
+  parkedClearSequence,
   stripGhostSuggestion,
+  stripSessionTitleBanner,
+  stripAllAnsi,
   paneShowsContextSaturation,
   idleConsideringDimGhost,
   detectsFirstRunGate,
@@ -25,6 +29,7 @@ import { provisionMemoryBoundaryDir } from './memory-boundary.js'
 import { renameSharedCredentialsIfSafe } from './claude-credentials-guard.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { SessionListCache } from './tmux-session-cache.js'
+import { withSessionSendLock, tryAcquireSessionSendLane, type SendLockMode } from './session-send-lock.js'
 import {
   buildTmuxInvocation,
   buildSshExec,
@@ -43,7 +48,7 @@ import { CHANNEL_PROVIDER, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, SUBAGENT_INBO
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { loadProfileTemplate } from './profiles.js'
 import { resolveAgentSecurityProfile } from './agent-team.js'
-import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomySection } from './agent-scaffold.js'
+import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomySection, ensureSkillsPathTrapSection } from './agent-scaffold.js'
 import { schedulePluginUnlockAfterRespawn } from './channel-plugin-unlock.js'
 import { getSecret } from './vault.js'
 import { resolveOpenRouterModel } from './openrouter-models.js'
@@ -517,7 +522,60 @@ function provisionIsolatedConfigDir(
       settings.enabledPlugins as Record<string, boolean> | undefined,
     )
     settings.enabledPlugins = scopedPlugins
-    writeFileSync(join(cfg, 'settings.json'), JSON.stringify(settings, null, 2) + '\n')
+    // Keys the isolated file already carries that the shared file never
+    // mentions must SURVIVE this rewrite. The rewrite runs on every main-agent
+    // start, so a straight copy silently drops agent-only configuration. That
+    // is how `statusLine` went missing three times (2026-07-28, 07-30, 08-03):
+    // it is configured for the main agent alone, the shared file never names
+    // it, and the symptom is invisible -- the agent starts fine, it just stops
+    // reporting context usage, so nothing alerts.
+    //
+    // Shared wins on conflict: for every key the shared file DOES define it
+    // stays the source of truth (that is the point of the copy). Target-only
+    // keys are purely additive, so this cannot resurrect a key the shared file
+    // deliberately changed.
+    //
+    // Scope: this is the shared provisioning core, so the change applies to
+    // EVERY isolated config dir -- the main agent's and each sub-agent's alike
+    // (ensureIsolatedChannelConfigDir and ensureMainAgentIsolatedConfigDir both
+    // land here). There is no pre-existing merge anywhere to be consistent
+    // with: before this commit every one of them was a pure copy.
+    //
+    // enabledPlugins is explicitly never inherited -- it is decided by the
+    // scope call above and must not survive from the dir's own older copy.
+    const ownSettingsPath = join(cfg, 'settings.json')
+    if (existsSync(ownSettingsPath)) {
+      try {
+        const own = JSON.parse(readFileSync(ownSettingsPath, 'utf-8')) as unknown
+        // A JSON array or `null` parses fine but is not a settings object;
+        // spreading one would invent numeric keys instead of failing.
+        if (isPlainObject(own)) {
+          const inherited: string[] = []
+          for (const [key, value] of Object.entries(own)) {
+            if (key !== 'enabledPlugins' && !(key in settings)) {
+              settings[key] = value
+              inherited.push(key)
+            }
+          }
+          // Additive merges must not be silent: the whole point of this block
+          // is that a key nobody can see is a key nobody can debug. Key NAMES
+          // only -- a settings.json may hold secrets, so values never land in
+          // the log.
+          if (inherited.length) {
+            logger.info({ name, path: ownSettingsPath, keys: inherited }, 'isolated-config: kept target-only settings keys')
+          }
+        }
+      } catch (err) {
+        // Deliberately loud: rewriting an unparseable own-settings file from
+        // the shared one is exactly the silent-loss shape this block fixes.
+        logger.warn({ err, name, path: ownSettingsPath }, 'isolated-config: unparseable own settings.json, rewriting from shared')
+      }
+    }
+    // Atomic: the file's CONTENT now depends on reading its own previous
+    // content back. A torn write would fail the parse on the next start, the
+    // code would fall back to the shared file, and that is precisely the
+    // key-loss this commit fixes.
+    writeJsonAtomic(ownSettingsPath, settings)
 
     // 3. Own plugins/ dir: symlink the heavy shared parts, own the install state.
     const pluginsDir = join(cfg, 'plugins')
@@ -780,6 +838,19 @@ export function agentSessionName(name: string): string {
   return `agent-${name}`
 }
 
+/**
+ * POSIX single-quote a value for safe interpolation into a shell command STRING (card b7fa5281).
+ *
+ * The agent launch is a shell string tmux runs (`new-session -d -s <s> <cmd>`), and the model id --
+ * which the operator controls via the dashboard -- was interpolated as `'${model}'`. Single-quoting
+ * made a `:` safe but not a `'`: `x'; curl ... | sh; echo '` closed the quote and injected a command.
+ * Wrapping in single quotes with each embedded `'` rewritten as `'\''` makes ANY value a single inert
+ * shell word. This is defence #2 at the sink; the model-id allowlist (model-id.ts) is defence #1.
+ */
+export function shSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
 // All tmux operations route through these two wrappers so the local-vs-remote
 // (ssh) decision and the quoting live in ONE place (ssh-tmux.ts). host=null is
 // byte-identical to the prior direct local tmux call. Remote calls get a larger
@@ -987,7 +1058,7 @@ function startRemoteAgentProcess(
   }
 }
 
-export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}): { ok: boolean; pid?: number; error?: string } {
+export async function startAgentProcess(name: string, opts: { fresh?: boolean } = {}): Promise<{ ok: boolean; pid?: number; error?: string }> {
   const dir = agentDir(name)
   if (!existsSync(dir)) return { ok: false, error: 'Agent not found' }
 
@@ -1055,7 +1126,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
   try {
     try {
       runTmux(null, ['kill-session', '-t', session])
-      execSync('sleep 3', { timeout: 5000 })
+      await delay(3000)
     } catch { /* ok */ }
 
     // Reap any orphan poller (bun/node) left over from a previous run BEFORE
@@ -1101,13 +1172,13 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // the custom ANTHROPIC_BASE_URL ("model does not exist"). The env var is
     // authoritative and bypasses that validation. (`--print` honors --model, but
     // the agents run the TUI.) Single-quoted so a `:` in the tag is shell-safe.
-    const ollamaEnv = isOllama ? `export ANTHROPIC_AUTH_TOKEN=ollama && export ANTHROPIC_BASE_URL=${OLLAMA_URL} && export ANTHROPIC_MODEL='${model}' && ` : ''
+    const ollamaEnv = isOllama ? `export ANTHROPIC_AUTH_TOKEN=ollama && export ANTHROPIC_BASE_URL=${OLLAMA_URL} && export ANTHROPIC_MODEL=${shSingleQuote(model)} && ` : ''
     const deepseekKey = isDeepseek ? (getSecret('DEEPSEEK_API_KEY') ?? '') : ''
-    const deepseekEnv = isDeepseek ? `export ANTHROPIC_AUTH_TOKEN="${deepseekKey}" && export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic && export ANTHROPIC_MODEL='${model}' && ` : ''
+    const deepseekEnv = isDeepseek ? `export ANTHROPIC_AUTH_TOKEN="${deepseekKey}" && export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic && export ANTHROPIC_MODEL=${shSingleQuote(model)} && ` : ''
     // OpenRouter: Anthropic-compatible endpoint at https://openrouter.ai/api
     // (the SDK appends /v1/messages). Key from the vault (openrouter-fleet-key).
     const openrouterKey = isOpenRouter ? (getSecret('openrouter-fleet-key') ?? '') : ''
-    const openrouterEnv = isOpenRouter ? `export ANTHROPIC_AUTH_TOKEN="${openrouterKey}" && export ANTHROPIC_BASE_URL=https://openrouter.ai/api && export ANTHROPIC_MODEL='${model}' && ` : ''
+    const openrouterEnv = isOpenRouter ? `export ANTHROPIC_AUTH_TOKEN="${openrouterKey}" && export ANTHROPIC_BASE_URL=https://openrouter.ai/api && export ANTHROPIC_MODEL=${shSingleQuote(model)} && ` : ''
     // When authMode is 'api', the agent uses its own ANTHROPIC_API_KEY from
     // the vault instead of the host's OAuth. The vault entry ID follows the
     // convention `agent-{name}-api-key`. We inject it as an env var so Claude
@@ -1130,6 +1201,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     writeAgentSettingsFromProfile(name, profile)
     ensureFleetRosterSection(name)
     ensureAutonomySection(name)
+    ensureSkillsPathTrapSection(name)
     // A sub-agent must load ONLY its own channel plugin. The user-scope
     // enabledPlugins would otherwise make EVERY sub-agent spawn a telegram
     // (and slack/discord) poller that falls back to the main agent's bot
@@ -1389,9 +1461,16 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // member. Killing the suggestion at the source removes the ghost the recovery
     // misreads. Env var verified present in claude.exe (CLAUDE_CODE_ENABLE_*).
     const promptSuggestionEnv = 'export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false && '
+    // Disable Claude Code's in-place auto-updater for every spawned agent. A
+    // running agent whose updater fires does an in-place global reinstall into the
+    // shared package prefix; a half-completed update can leave a broken stub and
+    // drop the bin symlink, corrupting the one install every agent resolves
+    // through. Agents launch from a deliberately pinned install, so the updater
+    // must never move it out from under a live process.
+    const autoUpdaterEnv = 'export DISABLE_AUTOUPDATER=1 && '
     // Single-quote `${model}` so values like `claude-opus-4-8[1m]` (1M-context
     // suffix) are not glob-expanded by the shell that tmux spawns the command in.
-    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
+    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${autoUpdaterEnv}${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model ${shSingleQuote(model)} ${channelFlag}`.trimEnd()
     // -x 80 -y 60 gives the pane the same 60-row height as the main channel
     // session (lackor2-bot-channels), instead of tmux's detached default of
     // 80x24. The dashboard Terminal viewer bottom-anchors a pane snapshot, so a
@@ -1443,7 +1522,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
   }
 }
 
-export function stopAgentProcess(name: string): { ok: boolean; error?: string } {
+export async function stopAgentProcess(name: string): Promise<{ ok: boolean; error?: string }> {
   const session = agentSessionName(name)
   if (!isAgentRunning(name)) return { ok: false, error: 'Agent is not running' }
 
@@ -1451,7 +1530,7 @@ export function stopAgentProcess(name: string): { ok: boolean; error?: string } 
 
   try {
     runTmux(host, ['kill-session', '-t', session], { timeout: 5000 })
-    execSync('sleep 2', { timeout: 4000 })
+    await delay(2000)
     // Reap any orphaned plugin grandchild that tmux did not tear down. This is
     // a LOCAL pkill against this host's process table, so it only makes sense
     // for local agents; a remote agent is channel-less and its processes live
@@ -1482,9 +1561,9 @@ export function getAgentProcessInfo(name: string): { running: boolean; session?:
   }
 }
 
-export function restartAgentProcess(name: string, opts: { fresh?: boolean } = {}): { ok: boolean; pid?: number; error?: string } {
+export async function restartAgentProcess(name: string, opts: { fresh?: boolean } = {}): Promise<{ ok: boolean; pid?: number; error?: string }> {
   if (isAgentRunning(name)) {
-    const stopResult = stopAgentProcess(name)
+    const stopResult = await stopAgentProcess(name)
     if (!stopResult.ok) return { ok: false, error: stopResult.error || 'Failed to stop running agent before restart' }
   }
   return startAgentProcess(name, opts)
@@ -1727,14 +1806,22 @@ export async function waitForPaneIdle(
   }
 }
 
-// Buffer-clear (Ctrl-U) used pre-flight when shouldClearTruncatedPreamble
-// flags a stale preamble. Sent as a single key name (no `-l` literal
-// flag) so tmux interprets it as the control sequence.
+// Pre-flight buffer clear, used when shouldClearTruncatedPreamble flags a stale
+// preamble. This used to send a single Ctrl-U, which is a no-op whenever the
+// cursor sits at offset 0 of the buffer -- the normal state for text that
+// arrived via send-keys (see parkedClearSequence). A failed pre-flight clear is
+// worse than none: the prompt about to be typed is APPENDED to the stale text
+// instead of replacing it, which is how a box accumulates tick after tick until
+// nothing can be submitted at all. Keys are sent by name (no `-l` literal flag)
+// so tmux interprets them as control sequences.
 export async function clearInputBuffer(session: string, host: string | null = null): Promise<void> {
   try {
-    runTmux(host, ['send-keys', '-t', session, 'C-u'], { timeout: 5000 })
+    const pane = capturePane(session, host)
+    for (const key of parkedClearSequence(pane != null ? parkedInputRowCount(pane) : 0)) {
+      runTmux(host, ['send-keys', '-t', session, key], { timeout: 5000 })
+    }
     // Settle briefly so the next send-keys lands in the freshly cleared
-    // buffer rather than racing the Ctrl-U.
+    // buffer rather than racing the clear.
     await delay(100)
   } catch (err) {
     logger.warn({ err, session }, 'Failed to clear pane input buffer before send')
@@ -1802,11 +1889,36 @@ export async function sendPromptToSession(
   session: string,
   text: string,
   host: string | null = null,
-  opts: { waitForIdle?: boolean; onBusyTimeout?: 'send' | 'abort'; idleTimeoutMs?: number } = {},
-): Promise<'sent' | 'aborted-busy'> {
-  await dismissSurveyModalIfPresent(session, host)
-  await dismissResumeSummaryModalIfPresent(session, host)
-  await dismissModelConsentDialogIfPresent(session, host)
+  opts: { waitForIdle?: boolean; onBusyTimeout?: 'send' | 'abort'; idleTimeoutMs?: number; lockMode?: SendLockMode } = {},
+): Promise<'sent' | 'aborted-busy' | 'skipped-locked'> {
+  const lockMode: SendLockMode = opts.lockMode ?? 'deliver'
+  // PANEWRITERS805: the three modal dismissals are probe+act keystroke writers
+  // that ran BEFORE the lane lock -- so they could press Escape/Enter into a
+  // pane mid-delivery (an Enter on the model-consent dialog confirms its
+  // DEFAULT, the FABLEFALL1 model switch). They must stay BEFORE the idle gate
+  // (a modal keeps the pane non-idle, so dismiss-after-wait would always time
+  // out), so they get their own fail-closed acquire instead of moving into the
+  // emit span. Skipping on a busy lane is safe: if a modal is really up, the
+  // idle gate below times out and the emit still queues behind the holder.
+  // 'held' callers already own the lane -- acquiring again would deadlock.
+  if (lockMode === 'held') {
+    await dismissSurveyModalIfPresent(session, host)
+    await dismissResumeSummaryModalIfPresent(session, host)
+    await dismissModelConsentDialogIfPresent(session, host)
+  } else {
+    const releaseDismissLane = tryAcquireSessionSendLane(session, host)
+    if (releaseDismissLane) {
+      try {
+        await dismissSurveyModalIfPresent(session, host)
+        await dismissResumeSummaryModalIfPresent(session, host)
+        await dismissModelConsentDialogIfPresent(session, host)
+      } finally {
+        releaseDismissLane()
+      }
+    } else {
+      logger.info({ session }, 'sendPromptToSession: modal dismissals skipped -- a delivery holds this pane send lane (fail-closed); emit will queue behind it')
+    }
+  }
 
   // Pre-flight wait-until-idle (root-cause gate). Placed here -- inside
   // sendPromptToSession, AFTER the modal dismissals (a modal keeps the pane
@@ -1842,6 +1954,13 @@ export async function sendPromptToSession(
     logger.warn({ session }, 'sendPromptToSession: pane still busy after wait-until-idle budget; sending best-effort')
   }
 
+  // DELIVLOCK805: everything from here to `return 'sent'` EMITS keystrokes into
+  // the pane (preamble-clear, chunk stream, submit-retry loop). Two writers
+  // interleaving this span splice foreign text into one framed message, so it
+  // is the per-session critical section. Held under a per-pane in-process mutex
+  // (session-send-lock): normal delivery is fail-open (a stuck holder must not
+  // silence the fleet); a `recover` caller skips instead of racing a live send.
+  const emitToPane = async (): Promise<'sent'> => {
   // Pre-flight buffer-clear when a stale preamble is detected. Reading
   // the pane is best-effort: a capture failure here means we cannot
   // prove the buffer is clean, but proceeding without the clear is no
@@ -1941,6 +2060,31 @@ export async function sendPromptToSession(
       break
     }
   }
+    return 'sent'
+  }
+
+  // 'held': the caller already owns this pane's lane (e.g. the stuck-input
+  // recovery clears + re-injects as ONE recover-mode critical section). Re-
+  // acquiring the same lane here would deadlock against ourselves, so emit
+  // directly.
+  if (lockMode === 'held') {
+    return emitToPane()
+  }
+
+  const lockResult = await withSessionSendLock(session, host, lockMode, emitToPane)
+  if (!lockResult.ran) {
+    // recover mode + lane busy: a delivery is mid-flight into this pane. Do NOT
+    // race it (we would clear or submit the wrong buffer). Skip this round and
+    // say so out loud -- a skip nobody logs is not a skip.
+    logger.info({ session }, 'sendPromptToSession: pane delivery in progress; recover-mode send skipped this round')
+    return 'skipped-locked'
+  }
+  if (lockResult.failedOpen) {
+    // Fail-open: the wait budget elapsed against a stuck holder and we wrote
+    // without the lock. Delivery still happened; log loudly so a wedged holder
+    // is visible rather than silently degrading into re-interleaving.
+    logger.warn({ session }, 'sendPromptToSession: delivery lock wait budget elapsed; sent WITHOUT the per-pane lock (fail-open) -- a holder may be wedged')
+  }
   return 'sent'
 }
 
@@ -1981,7 +2125,13 @@ export function capturePaneAsync(session: string): Promise<string | null> {
 // the caller can treat "capture failed" as "not ready".
 export function capturePane(session: string, host: string | null = null): string | null {
   try {
-    return captureTmux(host, ['capture-pane', '-t', session, '-p'])
+    // Capture WITH colour, strip a trailing /rename session-title banner, then
+    // remove all remaining ANSI. For a pane without a banner this is byte-for-byte
+    // the old `capture-pane -p` output; when a pathological rename-banner is pinned
+    // to the bottom it is removed so the live footer/spinner classifies normally
+    // (a banner otherwise pins detectPaneState 'unknown', blocking scheduler +
+    // inter-agent delivery). See stripSessionTitleBanner.
+    return stripAllAnsi(stripSessionTitleBanner(captureTmux(host, ['capture-pane', '-t', session, '-e', '-p'])))
   } catch {
     return null
   }
@@ -2063,10 +2213,13 @@ export async function isSessionReadyForPrompt(session: string, host: string | nu
 // the input box is STUCK (stale) vs being actively typed. Identical parked text
 // across this gap means nobody is typing -> it is a stranded artifact.
 const PARKED_STABLE_CONFIRM_MS = 2000
-// Settle after a Ctrl-U so the next capture reflects the cleared box.
+// Settle after a batch of clearing keystrokes so the next capture reflects the
+// emptied box.
 const PARKED_CLEAR_SETTLE_MS = 300
-// Bound the Ctrl-U presses for a (possibly multi-line) stale parked input.
-const PARKED_CLEAR_MAX = 3
+// How often to re-capture while working through parkedClearSequence(): often
+// enough that a box which empties early stops right away, rarely enough that the
+// settle delay is not paid per keystroke.
+const PARKED_CLEAR_RECHECK_EVERY = 8
 // A parked input that resists clearing must NOT be retried on every router tick:
 // each attempt awaits ~PARKED_STABLE_CONFIRM_MS on the settle
 // delay, so a permanently-stuck box would otherwise starve the loop, stall the HTTP server
@@ -2080,6 +2233,43 @@ const UNWEDGE_COOLDOWN_MS = 30_000
 // so escalation is the only recovery; a sub-agent escalates only after the
 // auto-clear has genuinely failed several times.
 const SUBAGENT_PARKED_ESCALATE_AFTER = 6  // ~3min for a sub-agent whose auto-clear keeps failing
+// MAINBOXPARK816: two-stage escalation for the (never-cleared) main box. Each
+// fails increment costs one UNWEDGE_COOLDOWN_MS round, so 6 = ~3 min visible to
+// the heartbeat, 12 = ~6 min -> the owner's phone as the FINAL stage (double
+// the first threshold, per the spec).
+export const MAIN_PARKED_HEARTBEAT_AFTER = 6
+export const MAIN_PARKED_OWNER_AFTER = 12
+
+// Pure decision, exported for tests: which escalation stage applies. 'owner'
+// fires once per episode (ownerNotified latches via the record's escalated
+// flag); afterwards the state stays 'heartbeat'-visible until the box clears.
+export function decideMainParkedEscalation(
+  fails: number,
+  ownerNotified: boolean,
+): 'none' | 'heartbeat' | 'owner' {
+  if (fails >= MAIN_PARKED_OWNER_AFTER && !ownerNotified) return 'owner'
+  if (fails >= MAIN_PARKED_HEARTBEAT_AFTER) return 'heartbeat'
+  return 'none'
+}
+
+// MAINBOXPARK816 stage-1 surface: the heartbeat round (same process) reads this
+// and puts the fact into its prompt -- deliberately NOT the inter-agent queue,
+// because a message queued to the main agent would strand behind the very
+// parked text it reports. Returns null when there is no FRESH parked episode
+// (last attempt older than two cooldown windows = the box cleared or the
+// router stopped observing it).
+export function getMainParkedState(nowMs: number = Date.now()):
+  | { preview: string; fails: number; approxMinutes: number }
+  | null {
+  const rec = unwedgeAttempts.get('local:' + MAIN_CHANNELS_SESSION)
+  if (!rec || rec.fails < MAIN_PARKED_HEARTBEAT_AFTER) return null
+  if (nowMs - rec.last > 2 * UNWEDGE_COOLDOWN_MS + PARKED_STABLE_CONFIRM_MS) return null
+  return {
+    preview: rec.sig.slice(0, 80),
+    fails: rec.fails,
+    approxMinutes: Math.round((rec.fails * UNWEDGE_COOLDOWN_MS) / 60000),
+  }
+}
 // Per-session record of the last un-wedge attempt: when, on what text, how many
 // consecutive attempts failed to empty the box, and whether we already notified
 // the operator for this exact stuck text (one-shot; resets when sig/clears).
@@ -2125,42 +2315,62 @@ export async function clearStaleParkedInput(session: string, host: string | null
   if (b == null || detectPaneState(b) !== 'typing' || parkedInputText(captureParkedInputView(session, host) ?? b) !== parked) return false
 
   // The main agent's input box is NEVER auto-cleared (a parked line could be a
-  // real reply -- the 2026-06-30 "Balogh" near-miss). The operator escalation is
-  // MUTED (2026-06-30, Szabi): the main box's "parked" lines are overwhelmingly
-  // DIM ghost/placeholder frames (stale capture, not real input -- e.g. a persona
-  // fragment shown for 28 min while the agent was actively turning), so notifying
-  // on each is false-positive noise. The durable fix is the inbox pull-model (no
-  // send-keys delivery -> no parked fragments) + a dim-text guard in pane
-  // detection (a faint SGR line is a ghost, not a parked command). Until those
-  // land: stay silent. Still RECORD the attempt so the cooldown guard backs us off
-  // and we don't re-run the stable-confirm sleep on every router tick.
+  // real reply -- the 2026-06-30 "Balogh" near-miss). That stays absolute.
+  //
+  // MAINBOXPARK816 (2026-08-16): the total MUTE is gone, because its premise
+  // aged out. The 2026-06-30 mute existed for dim ghost-frame noise -- but the
+  // dim-guard above now strips ghosts BEFORE this branch, so a line that gets
+  // here is normal-intensity, 2s-stable, REAL text. And a parked main box is
+  // exactly the state that silences the channel UNSUPERVISED: every sub-agent
+  // gets an auto-heal for this, only the main agent got silence. Two-stage
+  // escalation, never a keystroke:
+  //   stage 1 (fails >= MAIN_PARKED_HEARTBEAT_AFTER, ~3 min): WARN log + the
+  //     state is exposed via getMainParkedState() so the heartbeat round's
+  //     prompt carries it (same process; NOT the inter-agent queue -- an alert
+  //     queued to the main agent would strand BEHIND the very text it reports).
+  //   stage 2 (fails >= MAIN_PARKED_OWNER_AFTER, ~6 min, one-shot/episode):
+  //     notifyChannel direct to the owner (pure HTTP, does not touch the box)
+  //     with the CONCRETE manual fix -- a message actionable in seconds, not
+  //     "something is wrong".
   if (session === MAIN_CHANNELS_SESSION) {
     const fails = (prev && prev.sig === parked ? prev.fails : 0) + 1
-    unwedgeAttempts.set(key, { last: nowMs, sig: parked, fails, escalated: true })
-    logger.debug({ session, parked: parked.slice(0, 60), fails }, 'message-router: main-agent parked input -- left untouched (escalation muted)')
+    let escalated = !!(prev && prev.sig === parked && prev.escalated)
+    const stage = decideMainParkedEscalation(fails, escalated)
+    if (stage === 'owner') {
+      const preview = parked.slice(0, 80).replace(/[<>&]/g, ' ')
+      notifyChannel(
+        `🚨 A fo agens (${session}) input-mezojeben ~${Math.round((fails * UNWEDGE_COOLDOWN_MS) / 60000)} perce all egy parkolt sor, ` +
+        `es emiatt a csatorna nem dolgoz fel bejovo uzenetet. KEZI FELOLDAS (par masodperc): ` +
+        `tmux attach -t ${session}, majd Ctrl-C es utana Ctrl-U (a sor torlese), vegul kilepes: Ctrl-B d. ` +
+        `A parkolt sor eleje: "${preview}"`,
+      ).catch(() => { /* notify is best-effort */ })
+      escalated = true
+      logger.warn({ session, parked: parked.slice(0, 60), fails }, 'message-router: main-agent parked input -- owner notified with manual fix (box untouched)')
+    } else if (stage === 'heartbeat') {
+      logger.warn({ session, parked: parked.slice(0, 60), fails }, 'message-router: main-agent parked input -- persisting; visible to the heartbeat round (box untouched)')
+    } else {
+      logger.debug({ session, parked: parked.slice(0, 60), fails }, 'message-router: main-agent parked input -- left untouched')
+    }
+    unwedgeAttempts.set(key, { last: nowMs, sig: parked, fails, escalated })
     return false
   }
 
-  for (let i = 0; i < PARKED_CLEAR_MAX; i++) {
-    runTmux(host, ['send-keys', '-t', session, 'C-u'], { timeout: 5000 })
-    await delay(PARKED_CLEAR_SETTLE_MS)
-    const after = capturePane(session, host)
-    if (after == null || detectPaneState(after) !== 'typing') break
-  }
-
-  // Escalation: if Ctrl-U alone did not empty a multi-row box, send Home (C-a)
-  // then kill-to-end (C-k) and one more Ctrl-U round before giving up.
-  let post = capturePane(session, host)
-  if (post != null && detectPaneState(post) === 'typing' && parkedInputText(post) === parked) {
-    runTmux(host, ['send-keys', '-t', session, 'C-a'], { timeout: 5000 })
-    runTmux(host, ['send-keys', '-t', session, 'C-k'], { timeout: 5000 })
-    for (let i = 0; i < PARKED_CLEAR_MAX; i++) {
-      runTmux(host, ['send-keys', '-t', session, 'C-u'], { timeout: 5000 })
+  // Forward deletion, budgeted by the visible row count -- see the rationale and
+  // the 2026-08-01 measurement above parkedClearSequence(). The cursor sits at
+  // offset 0 of the buffer, so the previous Ctrl-U rounds were no-ops and the
+  // single C-a + C-k escalation could only ever strip ONE line off a multi-line
+  // box. Re-check every few keystrokes so a box that empties early stops
+  // immediately instead of spending the whole budget.
+  const sequence = parkedClearSequence(parkedInputRowCount(a))
+  for (let i = 0; i < sequence.length; i++) {
+    runTmux(host, ['send-keys', '-t', session, sequence[i]], { timeout: 5000 })
+    if (i % PARKED_CLEAR_RECHECK_EVERY === PARKED_CLEAR_RECHECK_EVERY - 1) {
       await delay(PARKED_CLEAR_SETTLE_MS)
-      post = capturePane(session, host)
-      if (post == null || detectPaneState(post) !== 'typing') break
+      const after = capturePane(session, host)
+      if (after == null || detectPaneState(after) !== 'typing') break
     }
   }
+  await delay(PARKED_CLEAR_SETTLE_MS)
 
   // Verify the box is ACTUALLY empty before claiming success: only then is the
   // pending message safe to deliver next tick. Otherwise record the failure so

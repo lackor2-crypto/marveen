@@ -10,7 +10,10 @@ Barmi elromlik a gepen vagy a flottaban: csatorna nemul, service elszall, valami
 ## Alapelv: felderit -> ert -> biztonsagosan javit -> csak a kockazatosnal all meg
 A szinteket a `store/autonomy-config.json` szabja meg. KEZDD ezzel: olvasd ki az erintett kategoria szintjet.
 ```bash
-jq -r '.categories[]|select(.key=="KULCS")|"\(.key) level=\(.level) max=\(.maxLevel) locked=\(.locked)"' store/autonomy-config.json
+# python3-mal, NEM jq-val: a telepito fuggosegei kozt nincs jq (ffmpeg, git,
+# tmux, lsof, curl, python3, pipx, unzip) -- egy Linux gepen a jq-s valtozat
+# nemán elszallna (exit 127), es ugy nezne ki, mintha lefutott volna.
+python3 -c "import json,sys; d=json.load(open('store/autonomy-config.json')); [print(f\"{c['key']} level={c['level']} max={c['maxLevel']} locked={c['locked']}\") for c in d['categories'] if c['key']=='KULCS']"
 ```
 - level 3 -> autonom, csinald meg, utana naplozd/jelentsd.
 - level 2 -> ENGEDELYKERES elotte (lasd sablon).

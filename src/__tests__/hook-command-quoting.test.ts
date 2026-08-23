@@ -174,4 +174,5 @@ describe('ensure* migrations are idempotent (true, then false)', () => {
       if (before !== null) writeFileSync(globalPath, before)
     }
   })
+
 })

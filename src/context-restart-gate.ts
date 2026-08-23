@@ -395,3 +395,31 @@ export function chooseReclaimAction(params: {
     reason: `previous compaction worked (${lastCompactTokens} -> ${lastCompactMinSeen}), the context grew back, compacting again`,
   }
 }
+
+/**
+ * Advance the blocking-streak clock after a 'block' decision.
+ *
+ * The clock measures ONE thing: how long this agent has sat AT OR ABOVE the
+ * threshold with the gate refusing to open. That is the only situation worth
+ * alerting about, so:
+ *
+ *   - measured below the threshold -> not waiting for the gate at all: CLEAR.
+ *   - measured at/above the threshold -> start the clock if it is not running.
+ *   - unmeasurable (null) -> leave the clock as it is; we cannot tell which
+ *     side of the threshold we are on, and a fresh session reads null for
+ *     about a minute after every boot.
+ *
+ * Before this existed the clock stopped only on a successful /clear, so a
+ * legitimate streak outlived the session that caused it -- across restarts and
+ * even a host freeze.
+ */
+export function nextBlockClock(
+  firstBlockedAt: number | null,
+  contextTokens: number | null,
+  thresholdTokens: number,
+  nowMs: number,
+): number | null {
+  if (contextTokens === null) return firstBlockedAt
+  if (contextTokens < thresholdTokens) return null
+  return firstBlockedAt ?? nowMs
+}
