@@ -234,7 +234,9 @@ export async function syncAllRepos(): Promise<SyncRun> {
     }
   }
   try {
-    for (const abs of rootError ? [] : await findRepos()) {
+    // Bejarhatatlan gyokernel nincs mit bejarni -- es a `results` uressege
+    // ilyenkor NEM azt jelenti, hogy nincs repo. Azt a `rootError` mondja meg.
+    if (!rootError) for (const abs of await findRepos()) {
       try {
         results.push(await syncRepo(abs))
       } catch (err: any) {
