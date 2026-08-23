@@ -153,14 +153,21 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const knownWorkspaces = listCodeSessions()
     let candFree = 0
     let candExcluded = 0
+    // Boss, 2026-08-23: "a vscode os kartyarol eltunt minden miert ?" -- egy
+    // levett mappa utan a kartya ugyanazt mondta, mint egy FRISS telepites
+    // ("meg egyik sincs felveve"), holott a ket allapot nem ugyanaz. A nulla
+    // ket dolgot jelent, ezert a levett mappakat KULON szamoljuk, es a felulet
+    // ki is mondja, hogy nem hianyzik, hanem le van veve.
+    let candDismissed = 0
     for (const c of listCodeCandidates()) {
       if (knownWorkspaces.some((k) => sameWorkspace(k.workspacePath, c.workspacePath))) continue
-      if (isExcludedProject(normalizeAlias(aliasFromWorkspacePath(c.workspacePath)))) candExcluded++
+      if (isDismissedWorkspace(c.workspacePath)) candDismissed++
+      else if (isExcludedProject(normalizeAlias(aliasFromWorkspacePath(c.workspacePath)))) candExcluded++
       else candFree++
     }
     json(res, {
       ...health,
-      candidates: { free: candFree, excluded: candExcluded },
+      candidates: { free: candFree, excluded: candExcluded, dismissed: candDismissed },
       staleAfterMs: WORKER_STALE_MS,
       enabled: CODE_BRIDGE_ENABLED,
       permissionMode: CODE_PERMISSION_MODE,

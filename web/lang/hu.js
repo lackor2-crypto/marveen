@@ -3338,6 +3338,8 @@ window._i18n.hu = {
   'cb.card.tabs_pick_help': 'Ide megy a következő feladat. Azonosító: {s}',
   'cb.card.tabs_pick_done': 'A feladatok mostantól ebbe a beszélgetésbe mennek.',
   'cb.card.tabs_pick_failed': 'A beszélgetés kiválasztása nem sikerült: {msg}',
+  'cb.idle.dismissed': '{n} mappa le van véve a kód-hídról (a Törlés gombbal). A mappa és a beszélgetés megvan — kattints a kártyára, és a listából egy kattintás visszavenni.',
+  'cb.idle.dismissed_note': '{n} levett mappa',
   'cb.card.model_unknown': 'nem látok oda',
   'cb.card.model_help': 'Ezzel a modellel válaszolt legutóbb ez a VS Code-beszélgetés. Nem fix érték: azt mutatja, ami a beszélgetésben épp be van állítva.',
   'cb.card.model_unknown_help': 'A modell nem olvasható ki: vagy nem futott még a Windows-munkás, vagy a beszélgetésben még nem érkezett válasz. Nem tippelünk helyette modellnevet.',
