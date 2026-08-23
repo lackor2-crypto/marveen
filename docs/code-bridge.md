@@ -254,7 +254,8 @@ szövegre esik vissza.
 
 | Parancs | Mit csinál |
 |---|---|
-| `/code <projekt> <feladat>` | átadja a feladatot a projekt sessionjének |
+| `/code <projekt> [#<ful>] <feladat>` | átadja a feladatot a projekt sessionjének (opcionálisan egy konkrét chat fülnek) |
+| `/tabs [projekt]` | milyen chat fülek vannak nyitva, **címmel** |
 | `/status [projekt]` | mi fut, mi vár |
 | `/result [id vagy projekt]` | a TELJES eredmény (darabolva, nem csonkolva) |
 | `/projects` | a regisztrált sessionök |
@@ -263,6 +264,48 @@ szövegre esik vissza.
 Az első szó a projekt, **minden más szó szerint** megy tovább. Az elkészülés
 után rövid, programozott értesítés jön (OK/hiba + idő + kör + költség + max 280
 karakteres kivonat); a részletes eredmény `/result`-tal kérhető.
+
+### Chat fülek: egy projektben több beszélgetés
+
+Egy VS Code workspace-ben több chat fül lehet nyitva, mindegyik **külön
+session, külön problémával**. A híd ezt látja, mert a worker minden
+beszélgetés-naplót jelent a mappából, a fül **címével** együtt (azt a
+`{"type":"ai-title"}` sor adja, ugyanaz, amit a VS Code a fülön mutat).
+
+- **Az ügynök-kártya = MAPPA, nem fül.** Egy workspace-hez egy kártya tartozik;
+  a fülek azon belül vannak. Új chathez nem kell új kártya.
+- **Címzés nélkül** a feladat a projekt élő fülébe megy (a regisztrált session,
+  vagy ha az nincs, a legfrissebb napló) -- pontosan úgy, mint korábban.
+- **Címezni** a rövid azonosító elejével lehet (`/code tradingbot #a1b2c3d4 ...`,
+  vagy REST-en a `sessionId` mező). Ha a töredék több fülre illik, a híd
+  **hibát ad a jelöltekkel** -- nem választ helyetted.
+- A lista szűkített: projektenként a 10 legfrissebb fül, 21 napnál nem régebbi.
+
+**Az üres lista két dolgot jelenthet**, ezért a `GET /api/code/tabs` egy
+`reason` mezőt is ad (`ok` / `empty` / `worker-never` / `worker-stale`): az
+`empty` azt jelenti, hogy tényleg nincs nyitott beszélgetés, a `worker-*`
+viszont azt, hogy **nem látunk oda**. A felület és a Telegram is ezt a mezőt
+mondja vissza -- "nincs chat fül" csak `empty` esetén hangzik el.
+
+### Élőben nézni, mit csinál éppen: a Claude mobilalkalmazás
+
+A híd **feladatot ad és eredményt hoz** -- a munka menetét nem közvetíti.
+Ha élőben látnád, mit csinál éppen a gépeden a VS Code Claude Code (melyik
+fájlt írja, hol tart), arra a **Claude mobilalkalmazás "Code" füle** való: ott
+ugyanezek a sessionök látszanak, folyamatában, és beszélgetni is lehet velük.
+
+Ez a hídat **kiegészíti, nem váltja ki**. Három út vezet ugyanahhoz a
+sessionhöz:
+
+| Út | Mire jó | Kell-e gépelni |
+|---|---|---|
+| **Marveen ügynök** (Telegram/felület, `code-dispatch` skill) | elmondod, mit akarsz, az ügynök kiválasztja a projektet és a fület, és feladja | nem: se projektnév, se parancs |
+| **Kód-bot Telegramon** (`/tabs`, `/code`) | gyors, ügynök nélkül, sorbaállítva | igen: parancs + projekt |
+| **Claude mobilalkalmazás "Code" füle** | **a folyamat élő követése**, közvetlen beszélgetés | igen, de közvetlenül a sessionnel |
+
+Egy figyelmeztetés: amíg egy hídon feladott feladat fut, ne írj ugyanabba a
+beszélgetésbe se a VS Code-ban, se a mobilalkalmazásból -- két párhuzamos
+menet egymásra írná a session naplóját.
 
 ### Bármelyik ügynöktől
 
@@ -292,7 +335,8 @@ curl -s -X POST http://127.0.0.1:3420/api/code/tasks \
 
 | Végpont | Ki hívja |
 |---|---|
-| `GET /api/code/candidates` | dashboard (amit a worker a gépen talált: `new` / `registered` / `excluded`) |
+| `GET /api/code/candidates` | dashboard (amit a worker a gépen talált MAPPÁNKÉNT: `new` / `registered` / `excluded`, `tabCount`-tal) |
+| `GET /api/code/tabs` | dashboard + kód-bot + ügynök (chat fülek projektenként, címmel; `reason` mezővel) |
 | `GET/POST /api/code/projects`, `DELETE /api/code/projects/:project` | tulaj (a POST `sessionId`-je elhagyható, ha a workernek van jelentése arról a mappáról) |
 | `POST /api/code/sessions` | worker (felderítés) |
 | `POST /api/code/tasks`, `GET /api/code/tasks` | feladó / tulaj |

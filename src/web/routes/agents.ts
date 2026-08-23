@@ -168,6 +168,8 @@ async function resolveCostPerMInput(model: string): Promise<number | null> {
 }
 import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
+import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
+import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 
 const VALID_PROVIDERS = new Set<ChannelProviderType>(['telegram', 'slack', 'discord', 'googlechat', 'teams'])
 
@@ -1583,6 +1585,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       model?: string
       costPerMInput?: number | null
       hasAvatar: boolean
+      /** A VS Code hid vegrehajtoi. Ugyanugy csomopont, mint barmelyik ugynok
+       *  (Boss, 2026-08-23: "kezeld ugy mint egy ujjonnnan felvitt ugynokot"),
+       *  de nincs `agents/<id>` mappaja: atszervezni, leallitani, avatart adni
+       *  neki nem lehet. A jelolo azert kell, hogy a felulet ne kinaljon olyan
+       *  gombot, ami 404-gyel vegzodne. */
+      external?: boolean
     }> = []
     // Sub-agents 404 when they have no avatar file, which is why the flag has to
     // travel with the node: the team view draws a monogram instead of firing a
@@ -1619,6 +1627,30 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         hasAvatar: findAvatarForAgent(agentName) !== null,
       })
     }
+    // A VS Code hid vegrehajtoi. Boss, 2026-08-23: "az uj vscod ugynokot nem
+    // latom az org charton sem... mindenhol ahol egy uj felvitt ugynok
+    // megjelenik ez is jelenjen meg". Az azonositoja ugyanaz a `vscode:<projekt>`,
+    // amit a szerep-kioszto (tervezo/megvalosito/ellenorzo) is hasznal, tehat a
+    // ket felulet ugyanarrol a csomopontrol beszel.
+    const codeBot = await resolveCodeBotIdentity()
+    const codeWorkerOnline = codeBridgeHealth().workerOnline
+    for (const s of listCodeSessions()) {
+      nodes.push({
+        id: `vscode:${s.project}`,
+        label: codeBot.reason === 'ok' && codeBot.name ? `${codeBot.name} · ${s.project}` : s.project,
+        role: 'member',
+        reportsTo: MAIN_AGENT_ID,
+        delegatesTo: [],
+        // A hid akkor "fut", ha a vegrehajto valaszol -- ugyanaz a mero, mint a
+        // kartyan. Nem talalgatunk: ha a worker nem jelentkezik, ez allo.
+        running: codeWorkerOnline,
+        model: 'claude code',
+        costPerMInput: null,
+        hasAvatar: false,
+        external: true,
+      })
+    }
+
     const knownIds = new Set(nodes.map(n => n.id))
     const edges: Array<{ from: string; to: string }> = []
     for (const n of nodes) {

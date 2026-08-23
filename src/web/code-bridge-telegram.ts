@@ -19,12 +19,70 @@ import { join } from 'node:path'
 import { logger } from '../logger.js'
 import { STORE_DIR, CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_ENABLED } from '../config.js'
 import { resolveOwnerChatId } from '../owner-chat.js'
-import { sendTelegramMessage } from './telegram.js'
+import { sendTelegramMessage, validateTelegramToken } from './telegram.js'
 import {
   enqueueCodeTask, listCodeSessions, listCodeTasks, latestCodeTaskForProject,
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
+  listCodeTabs,
 } from './code-bridge-store.js'
 import { shortId } from './code-bridge-notify.js'
+
+// --- Ki ez a bot (a kartya neve) -------------------------------------------
+//
+// A Csapat lapon minden ugynok-kartya a SAJAT Telegram-nevet viseli; a VS Code
+// kartya sokaig a workspace mappanevet mutatta ("fejlesztes"), ami kilogott a
+// sorbol. Innentol a kod-bot Telegram-neve a cim.
+//
+// A nulla ket dolgot jelenthet, ezert nem `string | null` megy ki, hanem egy
+// OK is: nincs beallitva bot (friss telepites -- ez a normalis allapot, a hid
+// enelkul is mukodik), vagy VAN token, de nem tudtuk lekerdezni (halozat,
+// visszavont token). A masodikat SOSE talalgatjuk: a Telegram sajat hibauzenete
+// megy tovabb.
+export interface CodeBotIdentity {
+  /** `@valami_bot`, vagy null, ha nincs mit mondani. */
+  name: string | null
+  reason: 'ok' | 'not-configured' | 'unresolved'
+  /** Csak `unresolved` eseten: a TENYLEGES hiba, nem tipp. */
+  error: string | null
+}
+
+const CODE_BOT_NAME_TTL_MS = 60 * 60 * 1000
+// Sikertelen lekerdezes utan hamarabb probalunk ujra, de nem minden pollnal:
+// egy halott halozat kulonben minden health-hivasra rarakna a timeoutot.
+const CODE_BOT_RETRY_MS = 5 * 60 * 1000
+
+let codeBotIdentity: CodeBotIdentity = { name: null, reason: 'not-configured', error: null }
+let codeBotFetchedAt = 0
+let codeBotInflight: Promise<void> | null = null
+
+/** Csak teszthez: uritsd a gyorsitotarat. */
+export function _resetCodeBotIdentityCache(): void {
+  codeBotIdentity = { name: null, reason: 'not-configured', error: null }
+  codeBotFetchedAt = 0
+  codeBotInflight = null
+}
+
+export async function resolveCodeBotIdentity(now = Date.now()): Promise<CodeBotIdentity> {
+  if (CODE_BOT_TOKEN.length === 0) {
+    codeBotIdentity = { name: null, reason: 'not-configured', error: null }
+    codeBotFetchedAt = 0
+    return codeBotIdentity
+  }
+  const ttl = codeBotIdentity.reason === 'ok' ? CODE_BOT_NAME_TTL_MS : CODE_BOT_RETRY_MS
+  if (codeBotFetchedAt !== 0 && now - codeBotFetchedAt < ttl) return codeBotIdentity
+  if (!codeBotInflight) {
+    codeBotInflight = (async () => {
+      const r = await validateTelegramToken(CODE_BOT_TOKEN)
+      codeBotFetchedAt = Date.now()
+      codeBotIdentity = r.ok && r.botUsername
+        ? { name: `@${r.botUsername}`, reason: 'ok', error: null }
+        : { name: null, reason: 'unresolved', error: r.error ?? null }
+      codeBotInflight = null
+    })()
+  }
+  await codeBotInflight
+  return codeBotIdentity
+}
 
 const OFFSET_FILE = join(STORE_DIR, 'code-bot-offset')
 const LONGPOLL_SEC = 30
@@ -95,18 +153,34 @@ export function parseCommand(text: string): ParsedCommand | null {
 }
 
 /** `/code tradingbot fix the SL rounding` -> project + prompt. The first token
- *  is the project; everything after it is passed to Claude Code VERBATIM. */
-export function splitProjectAndPrompt(args: string): { project: string; prompt: string } | null {
+ *  is the project; everything after it is passed to Claude Code VERBATIM.
+ *
+ *  Egy projekt-mappaban tobb chat ful is lehet, ezert a projekt utan allhat egy
+ *  `#<ful-id>` (a `/tabs` listaja irja ki oket). Csak hexa azonositot fogadunk
+ *  el, hogy egy `#152`-vel kezdodo VALODI feladat ne tunjon ful-cimzesnek; ha
+ *  megis ilyen a feladat elso szava, a valasz hangos hiba lesz az ismert fulek
+ *  listajaval -- nem nema felrekuldes. */
+export function splitProjectAndPrompt(args: string): { project: string; tab: string | null; prompt: string } | null {
   const trimmed = args.trim()
   if (!trimmed) return null
   const sep = trimmed.search(/\s/)
   if (sep < 0) return null
-  return { project: trimmed.slice(0, sep), prompt: trimmed.slice(sep + 1).trim() }
+  const project = trimmed.slice(0, sep)
+  let rest = trimmed.slice(sep + 1).trim()
+  let tab: string | null = null
+  const tabMatch = /^#([0-9a-f]{4,40})(\s+|$)/i.exec(rest)
+  if (tabMatch) {
+    tab = tabMatch[1]!.toLowerCase()
+    rest = rest.slice(tabMatch[0].length).trim()
+  }
+  if (!rest) return null
+  return { project, tab, prompt: rest }
 }
 
 const HELP = [
   'Kod-hid parancsok:',
   '/code <projekt> <feladat> - atadja a feladatot a projekt Claude Code sessionjenek',
+  '/tabs [projekt] - milyen chat fulek vannak nyitva (cimmel)',
   '/status [projekt] - mi fut most, mi var',
   '/result [id|projekt] - a teljes eredmeny',
   '/projects - a regisztralt sessionok',
@@ -115,6 +189,34 @@ const HELP = [
 
 function sessionLine(s: { project: string; sessionId: string; workspacePath: string; pinned: boolean }): string {
   return `${s.project}${s.pinned ? ' 📌' : ''} - ${s.workspacePath} (${shortId(s.sessionId)})`
+}
+
+/** "3 perce" / "2 oraja" / "5 napja". A fulek kozott a KOR alapjan valaszt az
+ *  ember ("az, amin ma dolgoztam"), ezert nem masodpercet irunk ki, mint a
+ *  futasidonel (`formatDuration`). */
+function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '?'
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return 'most'
+  if (min < 60) return `${min} perce`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h} oraja`
+  return `${Math.floor(h / 24)} napja`
+}
+
+/** Egy chat ful sora. A CIM az elso, mert egy `3cfe9212` senkinek nem mond
+ *  semmit -- a "VS Code ugynok kartya tesztelese" viszont felismerheto. */
+function tabLine(t: { sessionId: string; title: string | null; mtime: number | null; current: boolean }): string {
+  const age = t.mtime ? ` - ${formatAge(Date.now() - t.mtime)}` : ''
+  return `${t.current ? '➡️' : '  '} ${t.title ?? '(cim nelkul)'}${age} [${shortId(t.sessionId)}]`
+}
+
+/** Egy ful EMBERI neve az azonositoja alapjan. Ha nem ismerjuk (a worker meg
+ *  nem jelentett rola), a rovid azonositot adjuk vissza -- nem talalunk ki
+ *  cimet. */
+function tabTitle(sessionId: string): string {
+  const hit = listCodeTabs().projects.flatMap((p) => p.tabs).find((t) => t.sessionId === sessionId)
+  return hit?.title ?? shortId(sessionId)
 }
 
 /**
@@ -133,12 +235,55 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
       return ['Projektek:', ...sessions.map(sessionLine)].join('\n')
     }
 
+    // "Listazza ki, milyen chat fulek vannak" -- ez a parancs. Nem kell hozza
+    // sem nev-kitalalas, sem UUID: a cimeket olvassa vissza, es a sor vegen ott
+    // a rovid azonosito, amit Marvin (vagy a tulaj) atadhat a feladatnak.
+    case 'tabs': {
+      const view = listCodeTabs()
+      const wanted = normalizeAlias(cmd.args.trim())
+      const shown = wanted
+        ? view.projects.filter(
+            (p) => (p.project ?? '').startsWith(wanted) || normalizeAlias(p.workspacePath).includes(wanted),
+          )
+        : view.projects
+
+      if (shown.length === 0) {
+        // A NULLA ket dolgot jelenthet. Ha szurtunk, azt mondjuk meg, hogy a
+        // SZURO nem talalt; ha nem, a `note` mondja meg, hogy nincs beszelgetes,
+        // vagy nem latunk oda.
+        if (wanted && view.projects.length > 0) {
+          const names = view.projects.map((p) => p.project ?? p.workspacePath).join(', ')
+          return `Nincs "${cmd.args.trim()}" nevu projekt a listaban.\nAmit latok: ${names}`
+        }
+        return view.note ?? 'Nincs egyetlen ismert beszelgetes sem.'
+      }
+
+      const lines: string[] = ['Chat fulek:']
+      for (const p of shown) {
+        const head = p.project ?? `(nincs bekotve) ${p.workspacePath}`
+        lines.push('', `📁 ${head}`)
+        for (const t of p.tabs) lines.push(tabLine(t))
+      }
+      lines.push('', '➡️ = ide megy a feladat cimzes nelkul.')
+      lines.push('Egy masik fulhez: /code <projekt> #<ful-id> <feladat>')
+      // Az ablak MERETET is ki kell mondani, kulonben a lista vegebol nem derul
+      // ki, hogy van-e tovabb.
+      lines.push(
+        `(projektenkent max ${view.window.maxTabsPerProject} ful, ${view.window.maxAgeDays} napra visszamenoleg)`,
+      )
+      if (view.note) lines.push(view.note)
+      return lines.join('\n')
+    }
+
     case 'code': {
       const split = splitProjectAndPrompt(cmd.args)
       if (!split) return `Hasznalat: /code <projekt> <feladat>\n\n${HELP}`
       const out = enqueueCodeTask({
         project: split.project,
         prompt: split.prompt,
+        // Ha a tulaj nem valasztott fulet, minden a regi marad: a projekt
+        // bekotott (legfrissebb) beszelgetese kapja a feladatot.
+        sessionId: split.tab,
         origin: 'telegram',
         requestedBy: from,
         chatId,
@@ -147,7 +292,11 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
         const cand = out.candidates?.length ? `\nProjektek: ${out.candidates.join(', ')}` : ''
         return `⚠️ ${out.error}${cand}`
       }
-      return `⏳ Atadva: ${out.task.project} (${shortId(out.task.id)})`
+      // Ha ful volt cimezve, a visszaigazolas MONDJA IS KI, melyikbe ment --
+      // kulonben a tulaj csak akkor venne eszre a rossz fulet, amikor a valasz
+      // mar egy masik beszelgetesben all.
+      const into = out.task.targetSessionId ? ` -> ${tabTitle(out.task.targetSessionId)}` : ''
+      return `⏳ Atadva: ${out.task.project}${into} (${shortId(out.task.id)})`
     }
 
     case 'status': {

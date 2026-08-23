@@ -4608,6 +4608,12 @@
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
           <label for="cbTaskProject" style="font-size:13px">Projekt:</label>
           <select id="cbTaskProject" class="input" style="width:auto;min-width:200px"></select>
+          <!-- Egy VS Code ablakban tobb chat ful lehet, es mindegyik MAS
+               problema. Cimzes nelkul a projekt aktualis (legfrissebb)
+               beszelgetese kapja a feladatot -- ez a valaszto teszi lathatova,
+               hogy VAN masik, es hogy melyikbe menne kulonben. -->
+          <label for="cbTaskTab" style="font-size:13px" data-i18n="cb.tabs.label">Chat fül:</label>
+          <select id="cbTaskTab" class="input" style="width:auto;min-width:260px"></select>
         </div>
         <textarea id="cbTaskPrompt" class="input" rows="5" style="width:100%;margin-top:10px"
           placeholder="Pl.: Javítsd ki a position sizing hibát. Vizsgáld meg a releváns kódot, derítsd ki az okát, implementáld a javítást, futtasd le a teszteket, és csak ellenőrzött állapotban tekintsd késznek."></textarea>
@@ -4618,7 +4624,20 @@
         </div>
       </div>
 
-      <!-- 2. FELADATOK. -->
+      <!-- 2. CHAT FULEK. Boss (2026-08-23): "majd fogom kerni a maximum azt,
+           hogy listazza ki, hogy milyen chatfulek vannak, es akkor a Marvin-ban
+           fogom kerni a Marvin ugynokot, hogy adja ki a parancsot".
+           Ezert LISTA, nem elnevezos-megjegyzos urlap: a cimeket kell latni,
+           a cimzest Marvin (vagy a fenti valaszto) intezi. -->
+      <div class="card" id="cbTabsCard">
+        <h2 data-i18n="cb.tabs.title">Chat fülek</h2>
+        <p class="subtitle" data-i18n="cb.tabs.subtitle">
+          Egy VS Code ablakban több Claude Code beszélgetés futhat ugyanabban a mappában — mindegyik külön feladat, külön előzménnyel. Itt látod, mi van nyitva, a fülek CÍMÉVEL, nem azonosítóval. A ➡️ az, amelyikbe címzés nélkül megy a feladat.
+        </p>
+        <div id="cbTabsBox" style="margin-top:10px">…</div>
+      </div>
+
+      <!-- 3. FELADATOK. -->
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
           <h2 style="margin:0">Feladatok</h2>
@@ -4629,7 +4648,7 @@
         <div id="cbTasksList" style="margin-top:10px">…</div>
       </div>
 
-      <!-- 3. PROJEKTEK. A session-terkep: alias -> workspace + sessionId.
+      <!-- 4. PROJEKTEK. A session-terkep: alias -> workspace + sessionId.
            Nincs "aktualis session" fogalom, minden sor kulon cimezheto. -->
       <div class="card" id="cbProjectsCard">
         <h2>Projektek</h2>
@@ -4698,7 +4717,7 @@
         </details>
       </div>
 
-      <!-- 4. WINDOWS WORKER. A ket fajl innen toltheto le, es a parancsok
+      <!-- 5. WINDOWS WORKER. A ket fajl innen toltheto le, es a parancsok
            masolhatok: a felhasznalonak nem kell repot klonoznia, sem UNC
            utvonalat gepelnie. Ez a lepes volt eddig a terminal-fuggoseg. -->
       <div class="card" id="cbWorkerCard">
@@ -4729,7 +4748,7 @@
         <p class="subtitle" id="cbWorkerSeen"></p>
       </div>
 
-      <!-- 5. TELEGRAM KOD-BOT. -->
+      <!-- 6. TELEGRAM KOD-BOT. -->
       <div class="card" id="cbBotCard">
         <h2>Telegram kód-bot</h2>
         <p class="subtitle">
@@ -4760,7 +4779,7 @@
         <div id="cbBotRestart"></div>
       </div>
 
-      <!-- 6. MUKODES. -->
+      <!-- 7. MUKODES. -->
       <div class="card" id="cbOpsCard">
         <h2>Működés</h2>
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">

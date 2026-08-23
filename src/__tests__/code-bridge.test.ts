@@ -314,8 +314,21 @@ describe('telegram command surface', () => {
 
   it('splits project from prompt and passes the prompt through verbatim', () => {
     const split = splitProjectAndPrompt('tradingbot  fix   the   SL  rounding')
-    expect(split).toEqual({ project: 'tradingbot', prompt: 'fix   the   SL  rounding' })
+    expect(split).toEqual({ project: 'tradingbot', tab: null, prompt: 'fix   the   SL  rounding' })
     expect(splitProjectAndPrompt('tradingbot')).toBeNull()
+  })
+
+  // A ful-cimzes a projekt UTAN all. A ket hatareset szandekos:
+  //  - `#152 kartya` egy VALODI feladat kezdete, nem cimzes (nem hexa/rovid),
+  //  - ful-azonosito UTAN kell feladat is, kulonben nincs mit vegrehajtani.
+  it('reads an optional #tab id after the project, and only when it looks like one', () => {
+    expect(splitProjectAndPrompt('tradingbot #3cfe9212 nezd meg a stopot')).toEqual({
+      project: 'tradingbot', tab: '3cfe9212', prompt: 'nezd meg a stopot',
+    })
+    expect(splitProjectAndPrompt('tradingbot #152 kartya lezarasa')).toEqual({
+      project: 'tradingbot', tab: null, prompt: '#152 kartya lezarasa',
+    })
+    expect(splitProjectAndPrompt('tradingbot #3cfe9212')).toBeNull()
   })
 
   it('only the allowlisted chat may command a bot that can run code', () => {

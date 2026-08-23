@@ -97,25 +97,102 @@ function Get-ClaudeProjectsDir {
 # The transcript's own `cwd` field is the authority on which folder a session
 # belongs to -- the directory name is a lossy encoding (accents become dashes),
 # so `d--T-zsde-...` and `d--Tozsde-...` can both exist for the same drive.
-function Read-TranscriptCwd {
-  param([string]$Path, [int]$MaxLines = 60)
+#
+# The TITLE is read in the same pass, because a session id tells the owner
+# nothing: picking between `3cfe9212` and `877ffe44` is not a choice a human
+# can make. The transcript carries `{"type":"ai-title","aiTitle":"..."}` -- the
+# very caption VS Code prints on the tab -- and the first user message is the
+# fallback for a conversation too young to have been titled yet.
+function Read-TranscriptInfo {
+  param([string]$Path, [int]$MaxLines = 200)
+  $info = @{ cwd = $null; title = $null }
   $reader = $null
   try {
     $reader = New-Object System.IO.StreamReader($Path, [System.Text.Encoding]::UTF8)
+    $firstUser = $null
     for ($i = 0; $i -lt $MaxLines; $i++) {
       $line = $reader.ReadLine()
       if ($null -eq $line) { break }
       if ($line.Length -lt 2) { continue }
-      if ($line -notmatch '"cwd"') { continue }
-      try {
-        $obj = $line | ConvertFrom-Json
-        if ($obj.cwd) { return [string]$obj.cwd }
-      } catch { }
+
+      if (-not $info.cwd -and $line -match '"cwd"') {
+        try {
+          $obj = $line | ConvertFrom-Json
+          if ($obj.cwd) { $info.cwd = [string]$obj.cwd }
+        } catch { }
+      }
+      if (-not $info.title -and $line -match '"ai-title"') {
+        try {
+          $obj = $line | ConvertFrom-Json
+          if ($obj.aiTitle) { $info.title = [string]$obj.aiTitle }
+        } catch { }
+      }
+      if (-not $firstUser -and $line -match '"type":"user"') {
+        try {
+          $obj = $line | ConvertFrom-Json
+          $content = $obj.message.content
+          # The content is an array of typed blocks in the normal case and a
+          # bare string in the oldest transcripts -- handle both.
+          if ($content -is [array]) {
+            $content = ($content | Where-Object { $_.type -eq 'text' } | Select-Object -First 1).text
+          }
+          if ($content -and ($content -is [string])) {
+            $firstUser = ($content -replace '\s+', ' ').Trim()
+          }
+        } catch { }
+      }
+      # cwd + title is everything this pass needs; the rest of a 7 MB transcript
+      # is not worth reading once a minute, for every tab, on every pass.
+      if ($info.cwd -and $info.title) { break }
+    }
+    if (-not $info.title -and $firstUser) {
+      $info.title = if ($firstUser.Length -gt 80) { $firstUser.Substring(0, 80).TrimEnd() + '...' } else { $firstUser }
     }
   } catch {
-    return $null
+    return $info
   } finally {
     if ($reader) { $reader.Dispose() }
+  }
+  return $info
+}
+
+# How much context this conversation is using RIGHT NOW, in tokens.
+#
+# Boss, 2026-08-23: "meg kiiratni hogy jelenleg mennyi a token amit hasznlal.
+# kontextus." The number is not something we estimate: every assistant line in
+# the transcript carries the API's own `usage`, and the context size is
+# `input_tokens + cache_creation_input_tokens + cache_read_input_tokens` on the
+# LAST one -- the same arithmetic Claude Code puts in its own status line.
+#
+# Read from the END: the first 200 lines say what the conversation was at
+# birth, not what it is now. `Get-Content -Tail` seeks backwards, so this stays
+# cheap on a 7 MB transcript.
+#
+# Returns $null, never 0, when there is nothing to measure (no assistant reply
+# yet, unreadable file, older format). A live conversation never has 0 tokens,
+# so 0 would be a lie the dashboard could not tell apart from a real reading.
+function Read-TranscriptContextTokens {
+  param([string]$Path, [int]$TailLines = 60)
+  try {
+    $lines = @(Get-Content -LiteralPath $Path -Tail $TailLines -Encoding UTF8 -ErrorAction Stop)
+  } catch {
+    return $null
+  }
+  for ($i = $lines.Count - 1; $i -ge 0; $i--) {
+    $line = $lines[$i]
+    if (-not $line -or $line -notmatch '"usage"') { continue }
+    try {
+      $obj = $line | ConvertFrom-Json
+      $u = $obj.message.usage
+      if (-not $u) { $u = $obj.usage }
+      if (-not $u) { continue }
+      $sum = 0
+      foreach ($k in 'input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens') {
+        $v = $u.$k
+        if ($v -is [int] -or $v -is [long] -or $v -is [double]) { $sum += [int]$v }
+      }
+      if ($sum -gt 0) { return $sum }
+    } catch { }
   }
   return $null
 }
@@ -146,42 +223,72 @@ function Test-DispatchableWorkspace {
     }
   }
 
-  # Subtree skips: nothing under Windows or under a temp dir is a project.
-  $subtrees = @($env:WINDIR, [System.IO.Path]::GetTempPath())
+  # Skip the temp/Windows trees AND their own roots. The root check is not
+  # theoretical: a headless `claude -p` started from %TEMP% itself lands its
+  # cwd exactly ON the temp root, and a subtree-only test ("starts with
+  # <temp>\") answers False for it -- which is how a bogus `temp` project
+  # reached /projects on 2026-08-23. Measured, not guessed.
+  $subtrees = @($env:WINDIR, $env:TEMP, $env:TMP, [System.IO.Path]::GetTempPath())
   foreach ($t in $subtrees) {
     if (-not $t) { continue }
     $tf = ''
     try { $tf = [System.IO.Path]::GetFullPath($t).TrimEnd('\') } catch { continue }
     if (-not $tf) { continue }
+    if ($full -ieq $tf) { return $false }
     if ($full.StartsWith(($tf + '\'), [System.StringComparison]::OrdinalIgnoreCase)) { return $false }
   }
   return $true
 }
 
+# One VS Code window can hold several Claude Code chat tabs, and each tab is a
+# SEPARATE transcript in the same project folder. Reporting only the newest one
+# (what this did until 2026-08-23) meant the owner could not even SEE the other
+# conversations, let alone address one -- and "I see one tab" silently looked
+# identical to "there is one tab".
+#
+# So: the newest usable transcript is still the PRIMARY one (it alone is
+# registered as the project's session, so nothing about existing dispatch
+# changes), and the rest ride along as addressable tabs.
+$script:MaxTabsPerWorkspace = 10
+$script:TabMaxAgeDays = 21
+
 function Get-LocalSessions {
   $projectsDir = Get-ClaudeProjectsDir
   if (-not $projectsDir) { return @() }
   $out = New-Object System.Collections.ArrayList
+  $cutoff = (Get-Date).ToUniversalTime().AddDays(-$script:TabMaxAgeDays)
   foreach ($dir in (Get-ChildItem -Path $projectsDir -Directory -ErrorAction SilentlyContinue)) {
-    $files = Get-ChildItem -Path $dir.FullName -Filter '*.jsonl' -File -ErrorAction SilentlyContinue |
-      Sort-Object LastWriteTimeUtc -Descending
-    if (-not $files) { continue }
     # A transcript under ~2 KB is an aborted/empty session -- registering it as
     # "the project's session" would throw away the real conversation history.
-    $chosen = $null
+    $files = @(Get-ChildItem -Path $dir.FullName -Filter '*.jsonl' -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Length -ge 2KB } |
+      Sort-Object LastWriteTimeUtc -Descending)
+    if ($files.Count -eq 0) { continue }
+
+    $isPrimary = $true
+    $kept = 0
     foreach ($f in $files) {
-      if ($f.Length -ge 2KB) { $chosen = $f; break }
+      # Age cap applies to the EXTRA tabs only: the primary session stays
+      # reportable however old it is, or a project untouched for a month would
+      # drop out of /projects and every task addressed to it would fail.
+      if (-not $isPrimary) {
+        if ($kept -ge $script:MaxTabsPerWorkspace) { break }
+        if ($f.LastWriteTimeUtc -lt $cutoff) { break }
+      }
+      $info = Read-TranscriptInfo -Path $f.FullName
+      if (-not $info.cwd) { continue }
+      if (-not (Test-DispatchableWorkspace -Path $info.cwd)) { continue }
+      [void]$out.Add(@{
+        workspacePath = $info.cwd
+        sessionId     = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+        mtime         = [int64]([DateTimeOffset]$f.LastWriteTimeUtc).ToUnixTimeMilliseconds()
+        title         = $info.title
+        primary       = $isPrimary
+        contextTokens = Read-TranscriptContextTokens -Path $f.FullName
+      })
+      $kept++
+      $isPrimary = $false
     }
-    if (-not $chosen) { continue }
-    $cwd = Read-TranscriptCwd -Path $chosen.FullName
-    if (-not $cwd) { continue }
-    if (-not (Test-DispatchableWorkspace -Path $cwd)) { continue }
-    $mtime = [int64]([DateTimeOffset]$chosen.LastWriteTimeUtc).ToUnixTimeMilliseconds()
-    [void]$out.Add(@{
-      workspacePath = $cwd
-      sessionId     = [System.IO.Path]::GetFileNameWithoutExtension($chosen.Name)
-      mtime         = $mtime
-    })
   }
   return $out.ToArray()
 }

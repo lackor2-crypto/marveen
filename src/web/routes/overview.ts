@@ -24,6 +24,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { readUpstreamSyncStatus } from '../upstream-sync-status-io.js'
 import { readUpstreamChanges } from '../upstream-changes-io.js'
 import { exactTmuxTarget } from '../tmux-target.js'
+import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -307,6 +308,16 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     const subAgents = listAgentNames()
     const running = subAgents.filter(n => isAgentRunning(n)).length + 1
     const total = subAgents.length + 1
+    // Boss, 2026-08-23: "8 ugynok 8 fut. de 9 van a vscoddal egyutt!", majd
+    // "kezeld ugy mint egy ujjonnnan felvitt ugynokot". Tehat a VS Code hid
+    // BELESZAMOL a szamlalokba -- nem kulon rovatban all. A `external` szam
+    // amellett megy ki, hogy a felulet el tudja mondani, ebbol mennyi a kulso;
+    // a FOSZAM viszont a teljes letszam, mert a kartyakat is annyian latni.
+    const external = listCodeSessions().length
+    // "Fut": a vegrehajto valaszol-e. Nem talalgatas -- ugyanaz a meres, ami a
+    // kartyan is all; ha a worker halott, a hid all, akkor is, ha a projekt be
+    // van kotve.
+    const externalRunning = external > 0 && codeBridgeHealth().workerOnline ? external : 0
 
     const db0 = getDb()
     const memStats = db0.prepare("SELECT COUNT(*) as c FROM memories").get() as { c: number }
@@ -391,6 +402,19 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         avatarUrl: `/api/agents/${encodeURIComponent(a)}/avatar`,
       })
     }
+    // A VS Code hid vegrehajtoi a csapat-listaba is bekerulnek: ugyanaz a
+    // `vscode:<projekt>` azonosito, mint az org charton es a szerep-kiosztasnal.
+    for (const s of listCodeSessions()) {
+      agentsForTeam.push({
+        id: `vscode:${s.project}`,
+        label: s.project,
+        role: 'member',
+        running: codeBridgeHealth().workerOnline,
+        hasAvatar: false,
+        avatarUrl: '',
+      })
+    }
+
     const unconfiguredCapabilities = CAPABILITY_CHECKS.filter(c => !c.configured()).map(c => c.id)
 
     const rlSnapshot = readRateLimitSnapshot(MAIN_AGENT_ID)
@@ -513,7 +537,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     ]
 
     jsonMaybeGzip(req, res, {
-      agents: { total, running },
+      agents: { total: total + external, running: running + externalRunning, external },
       tasksToday,
       tasksYesterday,
       memories: { count: memStats.c, categories: memCats.c },

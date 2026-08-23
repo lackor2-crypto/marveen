@@ -4916,6 +4916,87 @@ function cbCardNote() {
   return 'végrehajtó él'
 }
 
+// A kartya CIME. A Csapat lapon minden mas ugynok a sajat Telegram-nevet
+// viseli; a VS Code kartya sokaig a workspace mappanevet mutatta ("fejlesztes"),
+// ami kilogott a sorbol. Ha van kod-bot, az a nev.
+//
+// Ha nincs: NEM irunk oda hamis nevet, es nem is hallgatunk el semmit -- a
+// projekt aliasa marad a cim (a hid kod-bot nelkul is mukodik, Marvinon at),
+// a hianyt pedig a leiras-sor mondja ki. A "nem tudtam lekerdezni" kulon eset,
+// ott a Telegram sajat hibauzenete latszik, nem egy tipp.
+function cbCardTitle(fallback) {
+  const bot = codeBridgeCards.bot
+  if (bot && bot.reason === 'ok' && bot.name) return bot.name
+  return fallback
+}
+
+// A szerepek (tervezo / megvalosito / ellenorzo) gazdaja egy NEV a broker
+// beallitasaban. A kod-hid nem ugynok, nincs ugynok-neve, ezert a projektjebol
+// kepzunk egyet: `vscode:<projekt>`.
+//
+// Miert projektenkent, es nem egy kozos "vscode" nev: mert egy szerepet
+// egyszerre EGY gazda tarthat. Ha minden VS Code kartya ugyanazt a nevet
+// hasznalna, a "megvalosito" bepipalasa az egyik projekten nemán levenne a
+// masikrol, holott ket kulon workspace-rol van szo.
+//
+// A ketospont szandekos: ugynok-nev soha nem tartalmazhat ilyet, igy egy
+// projekt nem tudja elvenni a szerepet egy azonos nevu ugynoktol.
+function cbRoleHolder(project) {
+  return project ? 'vscode:' + project : ''
+}
+
+function cbCardBotNote() {
+  const bot = codeBridgeCards.bot
+  if (!bot || bot.reason === 'ok') return ''
+  if (bot.reason === 'not-configured') return t('cb.card.bot_missing')
+  return t('cb.card.bot_unresolved', { msg: bot.error || t('cb.card.bot_no_reason') })
+}
+
+/** Kontextus-sor a kartyan: mennyi tokent hasznal EPPEN ez a beszelgetes, es a
+ *  ket karbantarto gomb (Boss, 2026-08-23: "egy torles es tomorites gombot is
+ *  kellene tenni ra. meg kiiratni hogy jelenleg mennyi a token").
+ *
+ *  A `null` nem 0: olyankor azt irjuk ki, hogy nem latunk ra (regi worker, meg
+ *  nincs valasz a beszelgetesben), nem azt, hogy ures. */
+function cbContextRowHtml(e) {
+  const n = e.contextTokens
+  const val = n === null
+    ? t('cb.card.ctx_unknown')
+    : t('cb.card.ctx_value', { n: (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') })
+  return `
+    <div class="cb-ctx-row">
+      <span class="cb-ctx-value" title="${escapeHtml(n === null ? t('cb.card.ctx_unknown_help') : t('cb.card.ctx_help', { n: String(n) }))}">${escapeHtml(val)}</span>
+      <span class="cb-ctx-actions">
+        <button class="btn-secondary btn-compact cb-ctx-compact" title="${escapeHtml(t('cb.card.compact_help'))}">${escapeHtml(t('cb.card.compact'))}</button>
+        <button class="btn-secondary btn-compact cb-ctx-clear" title="${escapeHtml(t('cb.card.clear_help'))}">${escapeHtml(t('cb.card.clear'))}</button>
+      </span>
+    </div>`
+}
+
+/** A ket gomb ugyanazon az uton megy, mint barmelyik mas feladat: a hid
+ *  `/compact` illetve `/clear` prompttal indit egy feladatot a projekt eppen
+ *  aktualis beszelgetesebe. Merve (2026-08-23, `claude -p --resume`): mindketto
+ *  ervenyes parancs headless modban is -- a `/compact` valasza pl. "Not enough
+ *  messages to compact.", a `/clear` pedig UJ session-t nyit (a regi transcript
+ *  megmarad), amit a worker a kovetkezo jelentesnel (~1 perc) atvesz. */
+async function cbMaintenance(project, action) {
+  const q = action === 'clear' ? t('cb.card.clear_confirm', { p: project }) : t('cb.card.compact_confirm', { p: project })
+  if (!confirm(q)) return
+  try {
+    const res = await fetch('/api/code/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, prompt: '/' + action, origin: 'dashboard', requestedBy: 'dashboard' }),
+    })
+    const body = await res.json().catch(() => null)
+    if (!res.ok) { showToast(t('cb.card.maint_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
+    showToast(action === 'clear' ? t('cb.card.clear_queued') : t('cb.card.compact_queued'), 'success')
+  } catch (err) {
+    // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
+    showToast(t('cb.card.maint_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
+  }
+}
+
 function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   // Amig az elso lekeres be nem futott, nem rakunk ki felrevezeto kartyat.
   if (codeBridgeCards.state === 'loading' || codeBridgeCards.state === 'absent') return
@@ -4931,21 +5012,39 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
           desc: r.workspacePath || '',
           online: codeBridgeCards.workerOnline,
           note: cbCardNote(),
+          // Szerepet csak VALODI projekthez lehet rendelni: a "meg nincs
+          // projekt" kartya nem cimezheto, igy jelolonegyzetet sem kap.
+          roleHolder: cbRoleHolder(r.project),
+          project: r.project,
+          // Lehet `null` = nem latunk ra. A kettot a kiiras kulon mondja el.
+          contextTokens: (typeof r.contextTokens === 'number' && r.contextTokens > 0) ? r.contextTokens : null,
         }
       })
     : [cbIdleCardEntry(off)]
 
+  const botNote = cbCardBotNote()
   for (const e of entries) {
     const card = document.createElement('div')
     card.className = 'agent-card code-bridge-agent-card'
+    // A szinkulcs SZANDEKOSAN a projekt aliasa marad: egy projekt egy szin,
+    // akkor is, ha kozben botot cserelsz.
+    const name = cbCardTitle(e.title)
+    // A projektet nem nyeljuk el: ha a cim mar a bot neve, a mappa aliasa a
+    // leiras elso sorara kerul -- kulonben ket azonos nevu kartya megkulonboz-
+    // tethetetlen lenne.
+    const sub = [name === e.title ? '' : e.title, e.desc, botNote].filter(Boolean).join(' · ')
     card.innerHTML = `
       <div class="agent-card-top">
-        <div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(e.title.charAt(0).toUpperCase())}</div>
+        <div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>
         <div class="agent-card-info">
-          <div class="agent-name">${escapeHtml(e.title)} <span class="federated-badge">VS Code</span></div>
-          <div class="agent-desc">${escapeHtml(e.desc)}</div>
+          <div class="agent-name">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
+          <div class="cb-external-badge">${escapeHtml(t('cb.card.external_badge'))}</div>
+          <div class="agent-desc">${escapeHtml(sub)}</div>
+          <div class="agent-desc cb-external-note">${escapeHtml(t('cb.card.external_note'))}</div>
         </div>
       </div>
+      ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}
+      ${e.roleHolder ? cbContextRowHtml(e) : ''}
       <div class="agent-card-footer">
         <span class="agent-model-badge">claude code</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
@@ -4957,6 +5056,17 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       ev.stopPropagation()
       openCodeBridgeModal()
     })
+    // A jelolonegyzet ugyanoda ment, ahova az ugynok-kartyaka -- a kulonbseg
+    // csak a "gazda" neve (`vscode:<projekt>`). A stopPropagation azert kell,
+    // mert a kartyara kattintva kulonben kinyilna a beallitas-ablak is.
+    card.querySelectorAll('.ctx-role-toggle').forEach((box) => {
+      box.addEventListener('click', (ev) => ev.stopPropagation())
+      box.addEventListener('change', () => saveBrokerRole(e.roleHolder, box.dataset.role, box.checked))
+    })
+    card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
+    card.querySelector('.cb-ctx-row')?.addEventListener('click', (ev) => ev.stopPropagation())
+    card.querySelector('.cb-ctx-compact')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'compact') })
+    card.querySelector('.cb-ctx-clear')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'clear') })
     card.addEventListener('click', () => openCodeBridgeModal())
     agentsGrid.insertBefore(card, addBtn)
   }
@@ -4998,6 +5108,9 @@ async function loadCodeBridgeCards() {
       free: Number(health.candidates && health.candidates.free) || 0,
       excluded: Number(health.candidates && health.candidates.excluded) || 0,
     },
+    // A kartya NEVE a kod-bot Telegram-neve, mint minden mas ugynok-kartyan.
+    // Regi backend nem kuldi -> null, es marad a projekt-alias.
+    bot: health.codeBot || null,
   }
 }
 
@@ -14758,15 +14871,23 @@ function renderTeamGraph(container, data, opts = {}) {
       <div class="team-node-name">${escapeHtml(node.label || node.id)}</div>
       <div class="team-node-meta">${escapeHtml(roleLabel)}</div>
       <div class="team-node-meta">${running}</div>
+      ${node.external ? `<div class="team-node-meta team-node-external">${escapeHtml(t('cb.card.external_badge'))}</div>` : ''}
     `
-    if (node.id !== mainAgentId) {
+    if (node.external) {
+      // Kulso vegrehajto: nincs `agents/<id>` mappaja, tehat sem az ugynok-
+      // reszletek, sem az atszervezes nem ertelmezheto ra -- olyan gombot,
+      // ami 404-gyel vegzodne, nem kinalunk. A sajat beallitasai a kod-hid
+      // ablakban vannak, oda visszuk.
+      div.classList.add('team-node-external-card')
+      div.addEventListener('click', () => openCodeBridgeModal())
+    } else if (node.id !== mainAgentId) {
       div.addEventListener('click', () => openAgentDetail(node.id))
     }
     // Drag-and-drop reporting edit (Team page only). Any agent except the main
     // one can be dragged; any node can be a drop target (dropping onto the main
     // agent makes the report a direct report of it).
     if (editable) {
-      if (node.id !== mainAgentId) {
+      if (node.id !== mainAgentId && !node.external) {
         div.draggable = true
         div.classList.add('team-draggable')
         div.addEventListener('dragstart', (e) => {
@@ -14780,7 +14901,10 @@ function renderTeamGraph(container, data, opts = {}) {
           div.classList.remove('team-dragging')
         })
       }
+      // Kulso vegrehajto nem lehet FONOK sem: nincs hova bejegyezni, hogy ki
+      // jelent neki -- a dobas nemaan elveszne.
       const isValidTarget = () =>
+        !node.external &&
         draggingId && draggingId !== node.id &&
         parentOf.get(draggingId) !== node.id &&
         !descendantsOf(draggingId).has(node.id)
@@ -17205,11 +17329,23 @@ function upstreamFileRow(f, huBySha) {
     : lines
       ? `<ul class="upstream-file-changes">${lines}${rest > 0 ? `<li class="upstream-file-more">${escapeHtml(t('upstream.files.more', { n: rest }))}</li>` : ''}</ul>`
       : ''
-  return `
+  // Boss, 2026-08-23: "ossze kellene zarni! tul sok helyet foglalnak" -- a
+  // fajlok a magyarazo mondataikkal egyutt kepernyonyi szalagga nyultak.
+  // Osszecsukva a FAJLNEV marad kint (az kell a keresehez es a szemnek), a
+  // mondatok kattintasra jonnek. Amelyik sornak nincs mit kibontania, az sima
+  // div marad: ures nyil rosszabb a semminel -- ugy nezne ki, mintha lenne
+  // mogotte valami, aztan nem nyilna ki.
+  if (!inner) {
+    return `
     <div class="upstream-file">
       <div class="upstream-file-path">${escapeHtml(f.path)} ${conflict}</div>
-      ${inner}
     </div>`
+  }
+  return `
+    <details class="upstream-file">
+      <summary class="upstream-file-path">${escapeHtml(f.path)} ${conflict}</summary>
+      ${inner}
+    </details>`
 }
 
 function renderUpstreamFiles(data, filter, body, intro) {
@@ -17234,15 +17370,20 @@ function renderUpstreamFiles(data, filter, body, intro) {
   const utkozo = rows.filter(f => f.conflict)
   const tiszta = rows.filter(f => !f.conflict)
   let html = ''
+  // Az UTKOZO doboz nyitva marad: az a nehany fajl, amivel dolgod van. A
+  // TISZTA doboz alapbol csukva -- ott 150+ sor all, es epp az foglalta a fel
+  // oldalt. A darabszam a cimsorban van, tehat csukva sem tunik ugy, mintha
+  // nem lenne benne semmi. Keresesnel mindketto nyitva: a talalatot latni kell.
+  const openAll = q ? ' open' : ''
   if (utkozo.length) {
-    html += `<section class="upstream-box upstream-box-conflict">
-      <h4>${escapeHtml(t('upstream.files.conflicting', { n: utkozo.length }))}</h4>
-      ${utkozo.map(f => upstreamFileRow(f, huBySha)).join('')}</section>`
+    html += `<details class="upstream-box upstream-box-conflict" open>
+      <summary><h4>${escapeHtml(t('upstream.files.conflicting', { n: utkozo.length }))}</h4></summary>
+      ${utkozo.map(f => upstreamFileRow(f, huBySha)).join('')}</details>`
   }
   if (tiszta.length) {
-    html += `<section class="upstream-box upstream-box-clean">
-      <h4>${escapeHtml(t('upstream.files.clean', { n: tiszta.length }))}</h4>
-      ${tiszta.map(f => upstreamFileRow(f, huBySha)).join('')}</section>`
+    html += `<details class="upstream-box upstream-box-clean"${openAll}>
+      <summary><h4>${escapeHtml(t('upstream.files.clean', { n: tiszta.length }))}</h4></summary>
+      ${tiszta.map(f => upstreamFileRow(f, huBySha)).join('')}</details>`
   }
   body.innerHTML = html || `<p class="upstream-changes-empty">${escapeHtml(t('upstream.changes.nomatch'))}</p>`
   if (intro) {
@@ -18009,7 +18150,12 @@ async function loadOverview() {
     const d = await res.json()
     // Stats
     document.getElementById('statAgents').textContent = d.agents.running
-    document.getElementById('statAgentsSub').textContent = t('overview.stat.agents_sub', { n: d.agents.total })
+    // A kulso (VS Code) kartyak nincsenek a Marveen-ugynokok kozott, de latszanak
+    // a listaban -- ha van ilyen, kiirjuk, kulonben a szam es a kartyak szama
+    // neman mond mast (Boss, 2026-08-23).
+    document.getElementById('statAgentsSub').textContent = d.agents.external
+      ? t('overview.stat.agents_sub_external', { n: d.agents.total, e: d.agents.external })
+      : t('overview.stat.agents_sub', { n: d.agents.total })
     document.getElementById('statTasks').textContent = d.tasksToday
     const taskDiff = d.tasksToday - d.tasksYesterday
     document.getElementById('statTasksSub').textContent = taskDiff === 0 ? t('overview.stat.same_as_yesterday') : (taskDiff > 0 ? '+' + taskDiff + ' ' + t('overview.stat.change', { n: '' }).trim() : taskDiff + ' ' + t('overview.stat.change', { n: '' }).trim())
@@ -31391,6 +31537,113 @@ async function _intezoCfgSave() {
         : '<option value="">— nincs regisztrált projekt —</option>'
       if (prev && _cbProjects.some(function (p) { return p.project === prev })) sel.value = prev
     }
+    // A ful-legordulo a projekt-valasztast koveti: projekt-valtasnal mas fulek
+    // tartoznak hozza.
+    cbRenderTabOptions()
+  }
+
+  // ---- chat fulek ------------------------------------------------------
+  //
+  // Boss (2026-08-23): "nem fogok en foglalkozni ezzel ... hanem majd fogom
+  // kerni a maximum azt, hogy listazza ki, hogy milyen chatfulek vannak".
+  // Ezert nincs itt sem elnevezes, sem kituzes, sem UUID-gepeles: a lista maga
+  // a termek. A cimzest vagy a fenti legordulo, vagy Marvin intezi
+  // (`GET /api/code/tabs` -> `POST /api/code/tasks` `sessionId`).
+  var _cbTabs = { projects: [], reason: 'worker-never', window: { maxTabsPerProject: 10, maxAgeDays: 21 } }
+
+  function cbTabTitle(tab) {
+    return tab && tab.title ? tab.title : t('cb.tabs.no_title')
+  }
+
+  function cbRenderTabs(view) {
+    const el = document.getElementById('cbTabsBox')
+    if (!el) return
+    if (view && view.disabled) {
+      // KIKAPCSOLT hid: ilyenkor a "nem jelentkezett a vegrehajto" TALALGATAS
+      // lenne -- az ok ismert, es azt kell kiirni.
+      _cbTabs = { projects: [], reason: 'worker-never', window: _cbTabs.window }
+      el.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.tabs.disabled')) + '</p>'
+      cbRenderTabOptions()
+      return
+    }
+    if (view && view.error) {
+      _cbTabs = { projects: [], reason: 'worker-never', window: _cbTabs.window }
+      el.innerHTML = '<p class="subtitle">' + escapeHtml(t('cb.tabs.error', { msg: view.error })) + '</p>'
+      cbRenderTabOptions()
+      return
+    }
+    _cbTabs = view || { projects: [], reason: 'worker-never', window: _cbTabs.window }
+    const projects = _cbTabs.projects || []
+
+    if (!projects.length) {
+      // A NULLA ket dolgot jelenthet -- a szerver `reason` mezoje mondja meg,
+      // melyiket --, es ezt SOSE szabad a lista hosszabol kitalalni.
+      const key = _cbTabs.reason === 'empty' ? 'cb.tabs.empty'
+        : _cbTabs.reason === 'worker-stale' ? 'cb.tabs.worker_stale'
+        : 'cb.tabs.worker_never'
+      el.innerHTML = '<p class="subtitle">' + escapeHtml(t(key)) + '</p>'
+      cbRenderTabOptions()
+      return
+    }
+
+    let html = ''
+    for (const p of projects) {
+      const head = p.project
+        ? escapeHtml(p.project)
+        : escapeHtml(p.workspacePath) + ' <em>(' + escapeHtml(t('cb.tabs.unbound')) + ')</em>'
+      html += '<div class="cb-cand" style="display:block">'
+        + '<div class="cb-cand-main" style="margin-bottom:6px">'
+          + '<span class="cb-cand-name">📁 ' + head + '</span>'
+          + '<code class="cb-cand-path">' + escapeHtml(p.workspacePath) + '</code>'
+          + '<span class="cb-cand-path">' + escapeHtml(t('cb.tabs.count', { n: (p.tabs || []).length })) + '</span>'
+        + '</div>'
+        + '<ul style="list-style:none;margin:0;padding:0">'
+        + (p.tabs || []).map(function (tab) {
+          return '<li style="padding:3px 0;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">'
+            + '<span style="width:1.4em;flex:none">' + (tab.current ? '➡️' : '') + '</span>'
+            + '<span' + (tab.current ? ' style="font-weight:600"' : '') + '>' + escapeHtml(cbTabTitle(tab)) + '</span>'
+            + '<span class="cb-cand-path">' + cbAgo(tab.mtime) + '</span>'
+            + '<code class="cb-cand-path" title="' + escapeAttr(tab.sessionId) + '">' + escapeHtml(tab.shortId) + '</code>'
+          + '</li>'
+        }).join('')
+        + '</ul>'
+      + '</div>'
+    }
+    const w = _cbTabs.window || { maxTabsPerProject: 10, maxAgeDays: 21 }
+    html += '<p class="subtitle" style="margin-top:8px">'
+      + escapeHtml(t('cb.tabs.window', { n: w.maxTabsPerProject, d: w.maxAgeDays })) + '</p>'
+    if (_cbTabs.reason === 'worker-stale') {
+      html += '<p class="subtitle">' + escapeHtml(t('cb.tabs.worker_stale')) + '</p>'
+    }
+    el.innerHTML = html
+    cbRenderTabOptions()
+  }
+
+  // A legordulo a KIVALASZTOTT projekt fuleit mutatja: egy masik projekt fulere
+  // cimezni ugyis hiba lenne, es a lista is athatolhatatlan lenne tole.
+  function cbRenderTabOptions() {
+    const sel = document.getElementById('cbTaskTab')
+    const proj = document.getElementById('cbTaskProject')
+    if (!sel) return
+    const wanted = proj ? proj.value : ''
+    const group = (_cbTabs.projects || []).find(function (p) { return p.project === wanted })
+    const prev = sel.value
+    let opts = '<option value="">' + escapeHtml(t('cb.tabs.default_option')) + '</option>'
+    if (group) {
+      opts += (group.tabs || []).map(function (tab) {
+        // A cimzes nelkuli celpont mar az elso sorban all, ezert itt nem
+        // ismeteljuk meg a nyilat -- de a cimet igen, hogy azonosithato legyen.
+        return '<option value="' + escapeAttr(tab.sessionId) + '">'
+          + escapeHtml(cbTabTitle(tab)) + ' · ' + escapeHtml(cbAgo(tab.mtime))
+          + '</option>'
+      }).join('')
+    }
+    sel.innerHTML = opts
+    // A valasztas TULELI a masodpercenkenti frissitest, kulonben gepeles kozben
+    // visszaugrana az alapertelmezesre.
+    if (prev && sel.querySelector('option[value="' + (window.CSS && CSS.escape ? CSS.escape(prev) : prev) + '"]')) {
+      sel.value = prev
+    }
   }
 
   // ---- felderitett mappak ("tallozas") ---------------------------------
@@ -31569,19 +31822,24 @@ async function _intezoCfgSave() {
       cbRenderProjects([])
       cbRenderTasks([])
       cbRenderCandidates({ disabled: true })
+      cbRenderTabs({ disabled: true })
       return
     }
     try {
-      const [projects, tasks, cands] = await Promise.all([
+      const [projects, tasks, cands, tabs] = await Promise.all([
         cbFetch('/api/code/projects'),
         cbFetch('/api/code/tasks?limit=25'),
         // Sajat catch: egy hibas jeloltlista NE vigye magaval a projekt- es a
         // feladat-tablat is -- a sajat dobozaban mondja meg, mi a baj.
         cbFetch('/api/code/candidates').catch(function (e) { return { error: e.message } }),
+        cbFetch('/api/code/tabs').catch(function (e) { return { error: e.message } }),
       ])
       cbRenderProjects(projects.projects)
       cbRenderTasks(tasks.tasks)
       cbRenderCandidates(cands)
+      // A fulek a projektek UTAN: a legordulo a kivalasztott projekthez tartozo
+      // fuleket mutatja, tehat kell hozza a mar kirajzolt projekt-lista.
+      cbRenderTabs(tabs)
     } catch (e) {
       const el = document.getElementById('cbTasksList')
       if (el) el.innerHTML = '<p class="subtitle">Nem sikerült lekérdezni: ' + escapeHtml(e.message) + '</p>'
@@ -31727,6 +31985,7 @@ async function _intezoCfgSave() {
 
     if (t.id === 'cbTaskSendBtn') {
       const sel = document.getElementById('cbTaskProject')
+      const tabSel = document.getElementById('cbTaskTab')
       const prompt = document.getElementById('cbTaskPrompt')
       const status = document.getElementById('cbTaskStatus')
       if (!sel || !prompt) return
@@ -31737,6 +31996,8 @@ async function _intezoCfgSave() {
       try {
         const task = await cbPostJson('/api/code/tasks', {
           project: sel.value, prompt: prompt.value, origin: 'dashboard', requestedBy: 'dashboard',
+          // Ures = a projekt aktualis beszelgetese, vagyis a korabbi viselkedes.
+          sessionId: (tabSel && tabSel.value) ? tabSel.value : null,
         })
         prompt.value = ''
         if (status) status.textContent = 'Átadva: ' + task.project + ' (' + String(task.id).slice(0, 8) + ')'
@@ -31898,5 +32159,16 @@ async function _intezoCfgSave() {
     const n = e.target.value.length
     counter.textContent = n > 12000 ? (n + ' / 12000 — túl hosszú') : (n ? n + ' karakter' : '')
     counter.style.color = n > 12000 ? '#e5534b' : ''
+  })
+
+  // Projekt-valtaskor MAS fulek tartoznak a legordulohoz. Delegalt figyelo,
+  // mert a legordulo tartalmat a rajzolas cserelgeti.
+  document.addEventListener('change', function (e) {
+    if (!(e.target instanceof Element) || e.target.id !== 'cbTaskProject') return
+    const tabSel = document.getElementById('cbTaskTab')
+    // Projekt-valtas utan a regi ful-valasztas mar egy MASIK projekte lenne --
+    // azt megtartani csendes felrekuldes volna.
+    if (tabSel) tabSel.value = ''
+    cbRenderTabOptions()
   })
 })()

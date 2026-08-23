@@ -10507,6 +10507,28 @@ body {
 .upstream-file-more { list-style: none; margin-left: -18px; opacity: .7; font-style: italic; }
 .upstream-file-merge { margin-top: 4px; font-size: 12px; color: var(--text-muted); font-style: italic; }
 
+/* Osszecsukhato fajl-lista (Boss, 2026-08-23: "tul sok helyet foglalnak").
+   A `details/summary` maga vegzi a nyitast-csukast -- nincs hozza JS, tehat
+   nem is tud beragadni. Sajat nyilat kap: a bongeszo alapertelmezett jelolese
+   (::marker / ::-webkit-details-marker) platformonkent mashogy nez ki. */
+details.upstream-file > summary,
+details.upstream-box > summary { cursor: pointer; list-style: none; }
+details.upstream-file > summary::-webkit-details-marker,
+details.upstream-box > summary::-webkit-details-marker { display: none; }
+details.upstream-file > summary::before,
+details.upstream-box > summary::before {
+  content: '\25B8'; display: inline-block; width: 1em;
+  color: var(--text-muted); transition: transform .12s ease;
+}
+details.upstream-file[open] > summary::before,
+details.upstream-box[open] > summary::before { transform: rotate(90deg); }
+details.upstream-file > summary:hover { color: var(--accent, #58a6ff); }
+/* A doboz-cimsora a summary-be kerult: a h4 also vonala (szine mondja meg,
+   hogy utkozo vagy tiszta) igy is megmarad, csak nem tolja uj sorba a nyilat. */
+details.upstream-box > summary > h4 {
+  display: inline-block; width: calc(100% - 1.3em); vertical-align: top;
+}
+
 
 /* ===========================================================================
    INTEZO -- lefixalt fejlec
@@ -10621,3 +10643,62 @@ body {
 #intezoHelp .help-body ul,
 #intezoHelp .help-body ol { margin-top: 4px; }
 #intezoHelp .help-body p.dim { opacity: .8; }
+
+/* === VS Code kod-hid kartya: ez NEM Marveen-ugynok ==========================
+   Boss, 2026-08-23: "hogy vilagos legyen az, hogy ez egy nem marvin belso
+   ugynoke es nem a marvinnal programoz hanem egy kulso szofverrel".
+
+   A jelzes SZANDEKOSAN nem sotetitessel megy: a Marveen tobbi lapjan a
+   halvanyitas azt jelenti, hogy valami ki van kapcsolva vagy nem elerheto --
+   egy elo, dolgozo vegrehajtora pont a rossz uzenet. Helyette szaggatott keret
+   (sehol mashol nem hasznaljuk) + bal oldali csik + egy hajszalnyi hidegebb
+   arnyalat. Nem figyelmezteto szin: ez nem hiba-allapot, hanem egy szandekos
+   kepesseg -- a riasztas-szeru jeloles idovel zajja valna. */
+.code-bridge-agent-card {
+  border: 1px dashed var(--border);
+  border-left: 3px solid var(--info);
+  background: color-mix(in srgb, var(--bg-card) 94%, var(--info) 6%);
+}
+/* A "kulso programozo" cimke a nev ALATT, sajat soraban -- ugyanaz a minta,
+   mint a Marvin kartyajan a FOASSZISZTENS, csak visszafogottabb meretben:
+   ott a rang a lenyeg, itt a hatarvonal. */
+.cb-external-badge {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin: 5px 0 0;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--info);
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+}
+/* A magyarazo mondat. Kisebb es halvanyabb, mint a mappa utvonala: egyszer kell
+   elolvasni, utana mar csak a keret emlekeztet ra. */
+.cb-external-note {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* Kod-hid: kontextus-sor a kartyan (token + karbantarto gombok). */
+.cb-ctx-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin: 6px 0 2px; padding: 6px 8px;
+  border: 1px dashed var(--border); border-radius: 8px;
+}
+.cb-ctx-value { font-size: 12px; color: var(--text-muted); }
+.cb-ctx-actions { display: flex; gap: 6px; }
+
+/* Kulso (VS Code) csomopont az org charton: ugyanolyan csomopont, mint barmelyik
+   ugynoke -- Boss, 2026-08-23 --, csak szaggatott kerettel, mint a kartyaja,
+   hogy egy pillantasbol latszodjon, hogy nem Marveen-belso vegrehajto. */
+.team-node-external-card { border-style: dashed; }
+.team-node-external {
+  text-transform: uppercase; letter-spacing: .04em;
+  font-size: 10px; color: var(--info);
+}

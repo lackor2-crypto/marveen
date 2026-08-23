@@ -58,7 +58,11 @@ export interface CodeTask {
   origin: CodeTaskOrigin
   requestedBy: string | null
   chatId: string | null
+  /** Ebben a beszelgetesben FUTOTT (a claim tolti ki). */
   sessionId: string | null
+  /** IDE kertek: egy konkret chat ful azonositoja, ha a bekuldo valasztott.
+   *  Ures = a projekt aktualis (legfrissebb) beszelgetese, mint eddig. */
+  targetSessionId: string | null
   workspacePath: string | null
   host: string | null
   result: string | null
@@ -127,6 +131,12 @@ function ensureTables(): void {
       lease_expires_at INTEGER
     )
   `)
+  // KET KULON session-mezo, szandekosan:
+  //   target_session_id = ide KERTEK (egy konkret chat ful), lehet ures
+  //   session_id        = ebben FUTOTT (a claim tolti ki)
+  // Osszevonva elveszne, hogy a cimzes explicit volt-e, es a claim felulirna a
+  // kerest -- a feladat nemaan masik fulbe menne, mint amit a tulaj valasztott.
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN target_session_id TEXT') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -373,6 +383,7 @@ function rowToTask(row: Record<string, unknown>): CodeTask {
     requestedBy: (row['requested_by'] as string | null) ?? null,
     chatId: (row['chat_id'] as string | null) ?? null,
     sessionId: (row['session_id'] as string | null) ?? null,
+    targetSessionId: (row['target_session_id'] as string | null) ?? null,
     workspacePath: (row['workspace_path'] as string | null) ?? null,
     host: (row['host'] as string | null) ?? null,
     result: (row['result'] as string | null) ?? null,
@@ -397,6 +408,9 @@ export interface EnqueueInput {
   origin?: CodeTaskOrigin
   requestedBy?: string | null
   chatId?: string | null
+  /** Egy konkret chat ful azonositoja a projekt mappajabol. Ures = a projekt
+   *  aktualis beszelgetese (a korabbi, valtozatlan viselkedes). */
+  sessionId?: string | null
 }
 
 export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | { error: string; candidates?: string[] } {
@@ -411,14 +425,76 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | { err
     return { error: `project "${resolved.session.project}" is excluded from the code bridge (CODE_BRIDGE_EXCLUDE)` }
   }
 
+  // Fulre cimzes. A `claude.exe --resume` egy nem letezo azonositora is elindul
+  // es csak a CLI hibajaval bukik el -- HAROMSZOR, mert a runner ujraprobal.
+  // Ezert a ROSSZ azonositot itt fogjuk meg, ahol meg tudunk beszedes valaszt
+  // adni; a "nem talalom" es a "nem latok oda" viszont KET KULON valasz, mert
+  // egy epp indulo (vagy allo) workernel a jeloltlista meg ures, es olyankor a
+  // hallgatas rosszabb lenne, mint atengedni a kerest a CLI-hez.
+  const wantedTab = (input.sessionId ?? '').trim()
+  let targetSessionId: string | null = null
+  if (wantedTab) {
+    const w = wantedTab.toLowerCase()
+    const tabsHere = listCodeCandidates().filter(
+      (c) => c.workspacePath.toLowerCase() === resolved.session.workspacePath.toLowerCase(),
+    )
+    const exact = tabsHere.find((c) => c.sessionId.toLowerCase() === w)
+    // A listak ROVID azonositot mutatnak (`3cfe9212`), mert egy teljes UUID-t
+    // senki nem gepel at. Ezert a prefix is ervenyes cimzes -- de csak akkor,
+    // ha EGYETLEN fulre illik: ket talalatnal a talalgatas rossz fulbe irna.
+    const prefix = exact ? [] : tabsHere.filter((c) => c.sessionId.toLowerCase().startsWith(w))
+    if (exact) {
+      targetSessionId = exact.sessionId
+    } else if (prefix.length === 1) {
+      targetSessionId = prefix[0]!.sessionId
+    } else if (prefix.length > 1) {
+      const amb = prefix.map((c) => `${c.sessionId.slice(0, 8)}${c.title ? ` (${c.title})` : ''}`).join(', ')
+      return { error: `"${wantedTab}" tobb fulre is illik: ${amb} -- adj meg tobb karaktert` }
+    } else if (tabsHere.length === 0) {
+      // A worker meg nem jelentett errol a mappa rol semmit: nem tudjuk, hogy a
+      // ful nincs meg, vagy csak nem latunk oda. Ezt a KETTOT nem szabad
+      // osszemosni -- de vakon elkuldeni sem, mert a `--resume` egy toredek
+      // azonositoval biztosan elbukik, es a hiba a runner harom probaja utan
+      // jonne vissza. Teljes UUID-t atengedunk (a CLI sajat hibaja beszedes),
+      // toredeket nem.
+      if (/^[0-9a-f-]{36}$/i.test(wantedTab)) {
+        targetSessionId = wantedTab
+      } else {
+        return {
+          error:
+            `nem latok ra a(z) "${resolved.session.project}" projekt beszelgeteseire, ezert a "${wantedTab}" ` +
+            `fulet nem tudom feloldani -- fut a Windows worker? (teljes session-UUID-t cimzes nelkul is atengedek)`,
+        }
+      }
+    } else {
+      const known = tabsHere
+        .map((c) => `${c.sessionId.slice(0, 8)}${c.title ? ` (${c.title})` : ''}`)
+        .join(', ')
+      return {
+        error:
+          `nincs "${wantedTab.slice(0, 12)}" azonositoju chat ful a(z) "${resolved.session.project}" projektben -- ` +
+          `a worker ezeket a beszelgeteseket latja: ${known}`,
+      }
+    }
+  }
+
   const id = randomUUID()
   const now = Date.now()
   getDb()
     .prepare(
-      `INSERT INTO code_tasks (id, project, prompt, status, origin, requested_by, chat_id, created_at)
-       VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)`,
+      `INSERT INTO code_tasks (id, project, prompt, status, origin, requested_by, chat_id, target_session_id, created_at)
+       VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
     )
-    .run(id, resolved.session.project, prompt, input.origin ?? 'api', input.requestedBy ?? null, input.chatId ?? null, now)
+    .run(
+      id,
+      resolved.session.project,
+      prompt,
+      input.origin ?? 'api',
+      input.requestedBy ?? null,
+      input.chatId ?? null,
+      targetSessionId,
+      now,
+    )
   return { task: getCodeTask(id)! }
 }
 
@@ -499,12 +575,16 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       const session = getCodeSession(task.project)
       if (!session) continue
 
+      // A megcimzett ful ERŐSEBB, mint a projekt aktualis beszelgetese: aki egy
+      // konkret fulet valasztott, annak a feladata nem csuszhat at abba, ami
+      // kozben a legfrissebb lett. Cimzes nelkul minden marad a regiben.
+      const runIn = task.targetSessionId ?? session.sessionId
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
                started_at = COALESCE(started_at, ?), attempts = attempts + 1, lease_expires_at = ?
          WHERE id = ?`,
-      ).run(host, session.sessionId, session.workspacePath, now, now + LEASE_MS, task.id)
+      ).run(host, runIn, session.workspacePath, now, now + LEASE_MS, task.id)
       return getCodeTask(task.id)
     }
     return null
@@ -799,6 +879,23 @@ export interface CodeCandidate {
   mtime: number | null
   host: string
   reportedAt: number
+  /** A beszelgetes cime -- a transcript `ai-title` sora, vagyis PONTOSAN az a
+   *  felirat, amit a VS Code is a fulre ir; ha meg nincs, az elso user-uzenet
+   *  eleje. Ket session-UUID kozott ember nem tud valasztani, ket cim kozott
+   *  igen -- ezert utazik a cim a jelentessel. */
+  title: string | null
+  /** A mappa LEGFRISSEBB beszelgetese. Csak ez kerul be projektkent (session),
+   *  a tobbi ful cimezheto marad. Regi worker ezt a mezot nem kuldi -> ott
+   *  minden sor primary, vagyis a korabbi viselkedes valtozatlan. */
+  primary: boolean
+  /** Mennyi kontextust hasznal EPPEN ez a beszelgetes (token). A transcript
+   *  utolso assistant-sorabol jon: `input_tokens + cache_creation_input_tokens
+   *  + cache_read_input_tokens` -- ugyanaz a szam, amit a Claude Code maga is
+   *  szamol a statuszsoraba. A `null` itt KIZAROLAG azt jelenti, hogy NEM
+   *  LATUNK ODA (regi worker, meg nincs assistant-valasz, olvashatatlan
+   *  transcript). Nulla tokenes elo beszelgetes nem letezik, ezert a felulet
+   *  a `null`-t sosem irhatja ki 0-nak. */
+  contextTokens: number | null
 }
 
 /** Egy gepen ennyi projekt folott a lista amugy is athatolhatatlan lenne, es
@@ -808,7 +905,14 @@ let codeCandidates: CodeCandidate[] = []
 
 export function recordCodeCandidates(
   host: string,
-  sessions: { workspacePath?: string; sessionId?: string; mtime?: number }[],
+  sessions: {
+    workspacePath?: string
+    sessionId?: string
+    mtime?: number
+    title?: string
+    primary?: boolean
+    contextTokens?: number
+  }[],
   now = Date.now(),
 ): void {
   const id = (host || 'windows').trim().slice(0, 120) || 'windows'
@@ -816,14 +920,28 @@ export function recordCodeCandidates(
   // kulonben egy bezart projekt orokre a valaszthato listaban maradna.
   const others = codeCandidates.filter((c) => c.host !== id)
   const mine: CodeCandidate[] = []
+  // Egy REGI worker egyaltalan nem kuld `primary`-t. Olyankor minden bejelentett
+  // sor primary (a 2026-08-23 elotti viselkedes), kulonben a frissites elott
+  // allo gepeken egyetlen projekt sem regisztralodna.
+  const reportsPrimary = sessions.some((s) => typeof s.primary === 'boolean')
   for (const s of sessions) {
     if (!s.workspacePath || !s.sessionId) continue
+    const title = typeof s.title === 'string' ? s.title.trim().slice(0, 200) : ''
     mine.push({
       workspacePath: s.workspacePath,
       sessionId: s.sessionId,
       mtime: typeof s.mtime === 'number' ? s.mtime : null,
       host: id,
       reportedAt: now,
+      title: title || null,
+      primary: reportsPrimary ? s.primary === true : true,
+      // Csak POZITIV szamot fogadunk el meresnek: a 0 es a negativ ertek itt
+      // nem "ures kontextus", hanem hianyzo meres -- azt pedig `null`-kent
+      // kell tovabbadni, nem nullakent kiirni.
+      contextTokens:
+        typeof s.contextTokens === 'number' && Number.isFinite(s.contextTokens) && s.contextTokens > 0
+          ? Math.round(s.contextTokens)
+          : null,
     })
     if (mine.length >= MAX_CANDIDATES) break
   }
@@ -850,6 +968,123 @@ export function listCodeWorkers(): CodeWorker[] {
     lastAction: (row['last_action'] as string | null) ?? null,
     sessionsReported: (row['sessions_reported'] as number | null) ?? null,
   }))
+}
+
+/** Egy chat ful egy projekt mappajaban. A `sessionId` a cimezheto azonosito,
+ *  a `title` az, amit EMBER felismer. */
+export interface CodeTab {
+  sessionId: string
+  shortId: string
+  title: string | null
+  mtime: number | null
+  primary: boolean
+  /** Ide megy a feladat, ha senki nem valaszt fulet. */
+  current: boolean
+  /** Az eppen hasznalt kontextus tokenben, vagy `null` = nem latunk oda.
+   *  Reszletek a `CodeCandidate.contextTokens`-nel. */
+  contextTokens: number | null
+}
+
+export interface CodeTabProject {
+  /** A regisztralt alias, VAGY null: latunk beszelgetest, de a mappa meg nincs
+   *  bekotve projektkent. A kettot nem szabad osszemosni. */
+  project: string | null
+  workspacePath: string
+  currentSessionId: string | null
+  tabs: CodeTab[]
+}
+
+export interface CodeTabsView {
+  projects: CodeTabProject[]
+  workerOnline: boolean
+  lastSeenAt: number | null
+  /** MIERT ures a lista. A NULLA ket dolgot jelenthet -- "meg nincs nyitott
+   *  beszelgetes" es "nem latok oda" --, es ezt a kettot a hivonak nem szabad
+   *  a lista hosszabol talalgatnia. */
+  note: string | null
+  /** MIERT ures a lista, GEPI formaban. A `note` magyar mondat (Telegram), ez
+   *  viszont kulcs, hogy a vezerlopult a sajat nyelven mondhassa el ugyanazt:
+   *  a NULLA ket dolgot jelenthet, es ezt a kettot a felhasznalonak latnia kell.
+   *   - `ok`            : van mit mutatni
+   *   - `empty`         : a vegrehajto el, es TENYLEG nincs beszelgetes
+   *   - `worker-never`  : a vegrehajto meg egyszer sem jelentkezett
+   *   - `worker-stale`  : jelentkezett mar, de most nem valaszol */
+  reason: 'ok' | 'empty' | 'worker-never' | 'worker-stale'
+  window: { maxTabsPerProject: number; maxAgeDays: number }
+}
+
+/** A worker ennyi fulet jelent projektenkent, ennyi napig visszamenoleg.
+ *  Ugyanez a ket szam all a `scripts/windows/marvin-code-worker.ps1`-ben
+ *  (`$script:MaxTabsPerWorkspace` / `$script:TabMaxAgeDays`); itt azert kell,
+ *  hogy a felulet meg tudja mondani, MIT nem lat a listaban. */
+export const TABS_MAX_PER_PROJECT = 10
+export const TABS_MAX_AGE_DAYS = 21
+
+/** A jelentett beszelgetesek projektenkent csoportositva -- ez all a
+ *  `/api/code/tabs` es a `/tabs` Telegram-parancs mogott is, hogy a ket felulet
+ *  ne kulon logikaval szamolja ki ugyanazt. */
+export function listCodeTabs(now = Date.now()): CodeTabsView {
+  const workers = listCodeWorkers()
+  const lastSeenAt = workers.length > 0 ? Math.max(...workers.map((w) => w.lastSeenAt)) : null
+  const workerOnline = lastSeenAt !== null && now - lastSeenAt <= WORKER_STALE_MS
+  const known = listCodeSessions()
+
+  const groups = new Map<string, CodeTabProject>()
+  for (const c of listCodeCandidates()) {
+    const key = c.workspacePath.toLowerCase()
+    const registered = known.find((k) => k.workspacePath.toLowerCase() === key)
+    let g = groups.get(key)
+    if (!g) {
+      g = {
+        project: registered ? registered.project : null,
+        workspacePath: c.workspacePath,
+        currentSessionId: registered ? registered.sessionId : null,
+        tabs: [],
+      }
+      groups.set(key, g)
+    }
+    g.tabs.push({
+      sessionId: c.sessionId,
+      shortId: c.sessionId.slice(0, 8),
+      title: c.title,
+      mtime: c.mtime,
+      primary: c.primary,
+      // Ha a mappa be van kotve, a REGISZTRALT session a celpont -- nem a
+      // legfrissebb ful --, kulonben a lista mast mutatna, mint ami tortenne.
+      current: registered ? registered.sessionId === c.sessionId : c.primary,
+      contextTokens: c.contextTokens,
+    })
+  }
+
+  const projects = [...groups.values()]
+    .map((g) => ({ ...g, tabs: g.tabs.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0)) }))
+    .sort((a, b) => (b.tabs[0]?.mtime ?? 0) - (a.tabs[0]?.mtime ?? 0))
+
+  const reason: CodeTabsView['reason'] = workerOnline
+    ? projects.length === 0
+      ? 'empty'
+      : 'ok'
+    : lastSeenAt === null
+      ? 'worker-never'
+      : 'worker-stale'
+
+  const note =
+    reason === 'ok'
+      ? null
+      : reason === 'empty'
+        ? 'A vegrehajto el, de egyetlen beszelgetest sem talalt: nyiss meg egy projektet VS Code-ban, es irj bele valamit.'
+        : reason === 'worker-never'
+          ? 'A vegrehajto (Windows worker) meg egyszer sem jelentkezett -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes.'
+          : 'A vegrehajto (Windows worker) nem valaszol, ezert ez a lista elavult lehet.'
+
+  return {
+    projects,
+    workerOnline,
+    lastSeenAt,
+    note,
+    reason,
+    window: { maxTabsPerProject: TABS_MAX_PER_PROJECT, maxAgeDays: TABS_MAX_AGE_DAYS },
+  }
 }
 
 export interface CodeBridgeHealth {

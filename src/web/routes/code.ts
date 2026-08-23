@@ -29,13 +29,16 @@ import {
   recordCodeCandidates,
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
-  recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS,
+  recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
   type CodeTaskStatus, type CodeTaskOrigin,
 } from '../code-bridge-store.js'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
 import { notifyCodeTaskFinished } from '../code-bridge-notify.js'
+import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
+import { readBrokerConfig } from '../context-broker-store.js'
+import { BROKER_ROLE_IDS } from '../../context-broker.js'
 import type { RouteContext } from './types.js'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
@@ -162,6 +165,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       permissionMode: CODE_PERMISSION_MODE,
       // The token itself is NEVER returned -- only whether one is configured.
       botConfigured: CODE_BOT_TOKEN.length > 0,
+      // A kartya NEVE. `reason` valasztja szet a "nincs bot beallitva"-t a
+      // "van, de nem tudtam lekerdezni"-tol; a masodikat a felulet kimondja.
+      codeBot: await resolveCodeBotIdentity(),
       allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,
       excluded: CODE_BRIDGE_EXCLUDE,
       // `tokenFile` is the path on THIS machine (always true, whatever the
@@ -249,7 +255,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // feloldasa utan vehető fel, az uj pedig egy kattintassal.
   if (path === '/api/code/candidates' && method === 'GET') {
     const known = listCodeSessions()
-    const candidates = listCodeCandidates().map((c) => {
+    const all = listCodeCandidates()
+    // Ez a lista MAPPAKROL szol ("tallozas"), nem beszelgetesekrol: mappankent
+    // egy sor. A worker 2026-08-23 ota minden chat fulet jelent, ezert itt a
+    // legfrissebbre (`primary`) kell szurni -- kulonben ugyanaz a mappa
+    // haromszor allna a listaban, haromszor felajanlott "Felvetel" gombbal.
+    // A tobbi ful a `/api/code/tabs`-on erheto el.
+    const candidates = all.filter((c) => c.primary).map((c) => {
       const registered = known.find((k) => k.workspacePath.toLowerCase() === c.workspacePath.toLowerCase())
       const alias = normalizeAlias(aliasFromWorkspacePath(c.workspacePath))
       return {
@@ -260,14 +272,56 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         reportedAt: c.reportedAt,
         alias: registered ? registered.project : alias,
         state: registered ? 'registered' : isExcludedProject(alias) ? 'excluded' : 'new',
+        // A mappa legfrissebb beszelgetesenek felirata (a VS Code fulcimke), es
+        // hogy HANY beszelgetes tartozik a mappahoz -- a tobbi a `/tabs`-on.
+        title: c.title,
+        tabCount: all.filter((x) => x.workspacePath.toLowerCase() === c.workspacePath.toLowerCase()).length,
       }
     })
     json(res, { candidates })
     return true
   }
 
+  // Egy VS Code ablakban tobb Claude Code chat ful lehet, es mindegyik KULON
+  // beszelgetes ugyanabban a mappaban. Ez a vegpont mondja meg, mi van nyitva --
+  // cimmel, nem UUID-vel --, hogy se a tulajnak, se Marvinnak ne kelljen nevet
+  // kitalalnia es megjegyeznie: kilistazza a fuleket, es a valasztott ful
+  // azonositoja megy a `POST /api/code/tasks` `sessionId` mezojebe.
+  if (path === '/api/code/tabs' && method === 'GET') {
+    // A csoportositas a store-ban lakik (`listCodeTabs`), hogy a Telegram `/tabs`
+    // es ez a vegpont BIZTOSAN ugyanazt a listat mondja.
+    json(res, listCodeTabs())
+    return true
+  }
+
   if (path === '/api/code/projects' && method === 'GET') {
-    json(res, { projects: listCodeSessions(), permissionMode: CODE_PERMISSION_MODE })
+    // A szerepek (tervezo / megvalosito / ellenorzo) ITT mennek ki, nem csak a
+    // feluleten: enelkul Marvin nem tudna, mit szabad ennek a vegrehajtonak
+    // kiosztani -- a jelolonegyzet magaban csak dekoracio lenne.
+    //
+    // Az ures tomb ket dolgot jelenthet, ezert nem csak `roles` megy: a
+    // `rolesAssigned` mondja meg, hogy egyaltalan van-e barhol kiosztott szerep
+    // a flottaban. Ha nincs, akkor a szerep-nelkuliseg nem korlatozas (a
+    // kontextus-keszito donti el feladatonkent); ha van, de ezen a kartyan
+    // nincs, akkor ez a vegrehajto SZANDEKOSAN nem kap olyan munkat.
+    const roleCfg = readBrokerConfig().roles
+    const anyAssigned = BROKER_ROLE_IDS.some((id) => Boolean(roleCfg[id]))
+    // Kontextus-meret (Boss, 2026-08-23: "kiiratni hogy jelenleg mennyi a
+    // token amit hasznlal"). A regisztralt beszelgetes SAJAT merese megy ki --
+    // ha nem latunk ra (regi worker, meg nincs assistant-valasz), akkor `null`,
+    // amit a felulet "nem tudom"-kent mond el, nem nullakent.
+    const tabs = listCodeTabs()
+    const tokensBySession = new Map<string, number>()
+    for (const g of tabs.projects) {
+      for (const tb of g.tabs) if (tb.contextTokens !== null) tokensBySession.set(tb.sessionId, tb.contextTokens)
+    }
+    const projects = listCodeSessions().map((p) => ({
+      ...p,
+      roleHolder: `vscode:${p.project}`,
+      roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
+      contextTokens: tokensBySession.get(p.sessionId) ?? null,
+    }))
+    json(res, { projects, permissionMode: CODE_PERMISSION_MODE, rolesAssigned: anyAssigned })
     return true
   }
 
@@ -327,7 +381,17 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // folder name unless the owner already mapped one for that workspace.
   if (path === '/api/code/sessions' && method === 'POST') {
     if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
-    type ReportedSession = { workspacePath?: string; sessionId?: string; title?: string; mtime?: number; project?: string }
+    type ReportedSession = {
+      workspacePath?: string
+      sessionId?: string
+      title?: string
+      mtime?: number
+      project?: string
+      /** A mappa legfrissebb beszelgetese. A tobbi ful is BEJON (hogy latszodjon
+       *  es cimezheto legyen), de projektkent csak a primary regisztralodik --
+       *  kulonben egy mappa 10 fule 10 alias ala akarna beulni ugyanazon a neven. */
+      primary?: boolean
+    }
     const body = await parseJsonBody<{ host?: string; sessions?: ReportedSession | ReportedSession[] }>(ctx)
     // A single session may arrive as a bare object rather than a one-element
     // array: PowerShell's ConvertTo-Json flattens `@(x)` to `x`. Rejecting that
@@ -353,8 +417,14 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
     const known = listCodeSessions()
     const registered: string[] = []
+    // Egy REGI worker egyetlen `primary` mezot sem kuld: olyankor MINDEN sor
+    // projektnek szamit, ahogy 2026-08-23 elott. Ha viszont a worker jeloli az
+    // elsodleges fulet, csak azt regisztraljuk -- a tobbi ful jeloltkent mar
+    // benne van a listaban, cimezni pedig session-azonositoval lehet rajuk.
+    const reportsPrimary = reported.some((s) => typeof s.primary === 'boolean')
     for (const s of reported) {
       if (!s.workspacePath || !s.sessionId) continue
+      if (reportsPrimary && s.primary !== true) continue
       const explicit = known.find((k) => k.workspacePath.toLowerCase() === s.workspacePath!.toLowerCase())
       const alias = normalizeAlias(s.project ?? explicit?.project ?? aliasFromWorkspacePath(s.workspacePath))
       if (!alias) continue
@@ -393,7 +463,17 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // ---- tasks -------------------------------------------------------------
 
   if (path === '/api/code/tasks' && method === 'POST') {
-    const body = await parseJsonBody<{ project?: string; prompt?: string; origin?: string; requestedBy?: string; chatId?: string }>(ctx)
+    const body = await parseJsonBody<{
+      project?: string
+      prompt?: string
+      origin?: string
+      requestedBy?: string
+      chatId?: string
+      /** Opcionalis: EGY konkret chat ful a projekt mappajabol (a `/api/code/tabs`
+       *  listajabol). Elhagyva minden a regi marad: a projekt legfrissebb
+       *  beszelgetese kapja a feladatot. */
+      sessionId?: string
+    }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
     if (!body.project || !body.prompt) { json(res, { error: 'project and prompt are required' }, 400); return true }
     const origin = (['telegram', 'agent', 'dashboard', 'api'] as const).includes(body.origin as CodeTaskOrigin)
@@ -405,6 +485,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       origin,
       requestedBy: body.requestedBy ?? null,
       chatId: body.chatId ?? null,
+      sessionId: body.sessionId ?? null,
     })
     if ('error' in out) { json(res, out, 400); return true }
     logger.info({ task: out.task.id, project: out.task.project, origin }, 'code-bridge: task queued')
