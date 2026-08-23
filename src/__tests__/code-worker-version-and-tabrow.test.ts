@@ -136,3 +136,49 @@ describe('kartya: fut / leallitva, ugyanott, mint a tobbi ugynoknel', () => {
     }
   })
 })
+
+
+/**
+ * Boss, 2026-08-24: "a kartyan levo gomb sor ugyanabban a magassagban legyen
+ * mint a melette levo kartyakon. es a gombsor alatt legyen egy vonal. ugy ahogy
+ * a mellette levo kartyakon is. De ezt a sort nehogy felvidd!!!! ez maradjon
+ * lent." (a harom szerep-jelolonegyzet sora)
+ *
+ * A racs egy sorban egyforma magasra huzza a kartyakat. A szabad hely eddig a
+ * fejlec ALATT nyilt ki (.agent-card-footer { margin-top: auto }), ezert a
+ * rovidebb kartyan a gombsor lejjebb csuszott. Mostantol a szabad hely a
+ * gombsor ALA kerul, igy a gombsor mindenhol egy magassagban all, az also blokk
+ * pedig a kartya aljan marad.
+ */
+describe('kartya-gombsor: azonos magassag + also vonal', () => {
+  const footerRule = css.slice(css.indexOf('.agent-card-footer {'))
+    .slice(0, css.slice(css.indexOf('.agent-card-footer {')).indexOf('}') + 1)
+
+  it('a szabad hely NEM a fejlec alatt nyilik ki (kulonben elcsuszik a gombsor)', () => {
+    expect(footerRule).toContain('margin-top: 0')
+    expect(footerRule).not.toContain('margin-top: auto')
+  })
+
+  // Boss, 2026-08-24: "A kartyan az elo beszelgetesek az kezdodjon a gombok
+  // alatt!" -- a szabad hely az UTOLSO blokk ala megy, nem a gombsor ala.
+  it('a szabad hely a kartya UTOLSO blokkja ala kerul (az also sor lent marad)', () => {
+    expect(css).toMatch(/\.agent-card > :last-child:not\(\.agent-card-actions\)\s*\{[^}]*margin-top:\s*auto/)
+  })
+
+  it('a ful-lista KOZVETLENUL a gombok alatt kezdodik (nem kap szabad helyet)', () => {
+    expect(css).not.toMatch(/\.agent-card-actions \+ \*\s*\{[^}]*margin-top:\s*auto/)
+    const rule = css.slice(css.indexOf('.cb-tabs-pick {'))
+    expect(rule.slice(0, rule.indexOf('}') + 1)).toContain('margin-top: 8px')
+  })
+
+  it('a gombsor alatt vonal van -- akkor is, ha nincs alatta semmi', () => {
+    const rules = css.match(/\.agent-card-actions \{[^}]*\}/g) || []
+    expect(rules.join('\n')).toMatch(/border-bottom:\s*1px solid var\(--border\)/)
+  })
+
+  it('nincs ket vonal egymas alatt: a kovetkezo blokk felso szegelye lekerult', () => {
+    const tail = css.slice(css.lastIndexOf('.agent-context-controls,'))
+    expect(tail).toContain('.cb-tabs-pick')
+    expect(tail).toContain('border-top: none')
+  })
+})

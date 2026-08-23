@@ -2102,11 +2102,20 @@ main.email-active .page-header { flex-shrink: 0; }
   line-height: 1.4;
 }
 
+/* Boss, 2026-08-24: "a kartyan levo gomb sor ugyanabban a magassagban legyen
+   mint a melette levo kartyakon". A racs egy sorban egyforma magasra huzza a
+   kartyakat; a szabad hely eddig ITT nyilt ki (margin-top: auto), ezert a
+   rovidebb kartyan a modell-sor es a gombsor LEJJEBB csuszott, mint a hosszabb
+   (kod-hid) kartyan. A szabad hely mostantol a gombsor ALA kerul
+   (.agent-card-actions + *), igy a fejlec -> modell-sor -> gombsor minden
+   kartyan ugyanabban a magassagban all, a kartya also blokkja (a harom
+   szerep-jelolonegyzet) pedig marad a kartya aljan -- "ezt a sort nehogy
+   felvidd!!!! ez maradjon lent". */
 .agent-card-footer {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: auto;
+  margin-top: 0;
   padding-top: 12px;
 }
 
@@ -10761,4 +10770,31 @@ details.upstream-box > summary > h4 {
   color: var(--danger, #c0392b);
   opacity: 1;
   transform: scale(1.15);
+}
+
+
+/* === Gombsor: azonos magassag + also vonal (Boss, 2026-08-24) ===
+   "es a gombsor alatt legyen egy vonal. ugy ahogy a mellette levo kartyakon is"
+   A vonal mostantol MAGAN a gombsoron ul (also szegely), nem az utana kovetkezo
+   blokk felso szegelyen. Igy akkor is ott van, ha a kartya alatta ures (foderalt
+   kartya), es nem lesz belole ket vonal egymas alatt, amikor a kovetkezo blokk
+   kozvetlenul utana all. Ezert az utana kovetkezo blokkokrol a felso szegely
+   lekerul -- a helykozt a padding tartja. */
+.agent-card-actions {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+/* Boss, 2026-08-24: "A kartyan az elo beszelgetesek az kezdodjon a gombok
+   alatt!" -- a szabad hely tehat NEM a gombsor es a ful-lista koze kerul,
+   hanem a kartya UTOLSO blokkja ala tolodik: a ful-lista kozvetlenul a
+   gomboknal kezdodik, a harom szerep-jelolonegyzet pedig a kartya aljan marad
+   ("ezt a sort nehogy felvidd!!!!"). A gombsor kizarva: ha egy kartyan a
+   gombsor az utolso elem (foderalt kartya), az nem eshet a kartya aljara --
+   akkor eppen az igazitas veszne el. */
+.agent-card > :last-child:not(.agent-card-actions) {
+  margin-top: auto;
+}
+.agent-context-controls,
+.cb-tabs-pick {
+  border-top: none;
 }
