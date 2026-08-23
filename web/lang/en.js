@@ -363,6 +363,8 @@ window._i18n.en = {
   'health.git_pull_errors_net_action': 'Not a key problem: the machine could not reach the remote server (name resolution or connection). If the network is back, just run the git-pull card again under Schedules.',
   'health.git_pull_errors_auth':   'Access error: {n} git repositories could not be pulled (out of {all}): {names}.',
   'health.git_pull_errors_auth_action': 'The key did not let these through: the access is missing or expired. The Storages page shows the exact message per repository; once the key is replaced, Run now on the git-pull card retries immediately.',
+  'health.git_pull_root_unreachable': 'The storage folder is unreachable — the git pull saw no repositories at all.',
+  'health.git_pull_root_unreachable_action': 'This is not "no repositories wired in": the system could not look inside the folder where they live. While that lasts, EVERY repository goes stale silently. On an external or network drive this is usually a dropped mount — reconnect the drive, then run the git-pull card again under Schedules.',
   'health.git_pull_stale':     'The daily git pull has not run for {d} days.',
   'health.git_pull_stale_action': 'It should run once a day. While it is stopped every wired-in repository shows its old state, and nothing else on the page says so.',
   'health.git_pull_never':     'You have wired-in git repositories, but a pull has never run.',

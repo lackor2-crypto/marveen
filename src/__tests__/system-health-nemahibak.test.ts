@@ -111,6 +111,35 @@ describe('napi git-lehuzas: a nema elavulas', () => {
     expect(gitPullRows(MOST, futas(20, 9), VAN_KARTYA, true)[0].status).toBe('bad')
   })
 
+  // A BEJARHATATLAN DEPO-GYOKER NEM AZONOS A "NINCS BEKOTVE GIT"-TEL.
+  //
+  // Boss, 2026-08-23: "remelem akik ujonnan telepitik a marveent azoknak ez
+  // nem fog elojonni. azoknak sem."
+  //
+  // Ez volt a nemabb testver-hiba: ha a depo egy Windows-meghajton ul es a
+  // csatolas elall, a bejaras NULLA repot talal. Az onellenorzes ezt eddig
+  // ugy latta, mint egy friss telepitest, ahol meg nincs git -- es HALLGATOTT.
+  // Kozben minden repo elavult. Egy friss telepitesnel a csend a helyes
+  // valasz, egy elallt csatolasnal a leghangosabb sor.
+
+  it('az elerhetetlen gyokerrol AKKOR is szol, ha nem latszik bekotott git', () => {
+    const r = gitPullRows(
+      MOST,
+      { finishedAt: ELOTTE(0), results: [], errors: 0, rootError: 'EIO: i/o error, scandir' },
+      VAN_KARTYA,
+      false,
+    )
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('git_pull_root_unreachable')
+    expect(r[0].status).toBe('bad')
+  })
+
+  it('FRISS TELEPITESEN csendben marad -- ott tenyleg nincs mirol szolni', () => {
+    // Nulla repo, nulla token, ep gyoker: ez nem hiba, hanem egy uj gep.
+    expect(gitPullRows(MOST, { finishedAt: ELOTTE(0), results: [], errors: 0 }, VAN_KARTYA, false)).toEqual([])
+    expect(gitPullRows(MOST, null, { letezik: false, bekapcsolva: false }, false)).toEqual([])
+  })
+
   it('a KIKAPCSOLT kartya a legsulyosabb eset', () => {
     // A `startGitSync()` csak azt nezi, LETEZIK-e a kartya fajlja. Egy
     // kikapcsolt kartya tehat a tartalek hat-oras idozitot is elnemitja:

@@ -378,6 +378,7 @@ interface GitSyncAllapot {
   finishedAt?: string
   results?: unknown[]
   errors?: number
+  rootError?: string
 }
 
 /**
@@ -450,6 +451,10 @@ export function gitPullRows(
     // gyulnek, nalunk meg all az ido -- ezert `bad`, nem `warn`.
     return [{ id: 'git_pull_disabled', status: vanGit ? 'bad' : 'warn' }]
   }
+  // A depo gyokeret nem lehetett bejarni. Ez a `!vanGit` ag ELE kell, mert
+  // pont ugy latszik, mintha nem volna bekotve git: nulla repot talalt a
+  // bejaras. Csak eppen nem azert, mert nincs -- hanem mert nem latott oda.
+  if (run && run.rootError) return [{ id: 'git_pull_root_unreachable', status: 'bad' }]
   // Nincs bekotve git: nincs mit lehuzni, es nincs mirol szolni.
   if (!vanGit) return []
 

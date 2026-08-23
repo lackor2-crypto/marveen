@@ -382,6 +382,8 @@ window._i18n.hu = {
   'health.git_pull_errors_net_action': 'Nem a kulccsal van baj: a gép nem érte el a távoli kiszolgálót (névfeloldás vagy kapcsolat). Ha most van hálózat, elég újra lefuttatni az Ütemezések alatt a „git-pull” kártyát.',
   'health.git_pull_errors_auth':   'Hozzáférési hiba: {n} git-tárolót nem sikerült lehúzni (összesen {all} van): {names}.',
   'health.git_pull_errors_auth_action': 'Ezeket a tárolókat a kulcs nem engedte le: hiányzik vagy lejárt a hozzáférés. A Tárolók oldalon látszik tárolónként a pontos üzenet; a kulcs pótlása után a „git-pull” kártya „Futtatás most” gombja azonnal újrapróbálja.',
+  'health.git_pull_root_unreachable': 'A tároló-mappa nem érhető el — a git-lehúzás egyetlen tárolót sem látott.',
+  'health.git_pull_root_unreachable_action': 'Nem az van, hogy nincs bekötött tároló: a rendszer nem tudott belenézni a mappába, ahol a tárolók állnak. Amíg így van, MINDEN tároló csendben elavul. Külső vagy hálózati meghajtón ez rendszerint elállt csatolás — csatold vissza a meghajtót, majd az Ütemezések alatt futtasd újra a „git-pull” kártyát.',
   'health.git_pull_stale':     'A napi git-lehúzás {d} napja nem futott le.',
   'health.git_pull_stale_action': 'Naponta egyszer kellene mennie. Amíg áll, minden bekötött tároló a régi állapotát mutatja — a felületen viszont semmi nem jelzi.',
   'health.git_pull_never':     'Van bekötött git-tárolód, de lehúzás még soha nem futott le.',

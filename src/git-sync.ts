@@ -57,6 +57,17 @@ export interface SyncRun {
   updated: number
   skipped: number
   errors: number
+  /**
+   * A depo GYOKERE nem volt bejarhato -- ilyenkor a `results` ures, de ez NEM
+   * azt jelenti, hogy nincs repo. Boss, 2026-08-23: "remelem akik ujonnan
+   * telepitik a marveent azoknak ez nem fog elojonni. azoknak sem."
+   *
+   * Pontosan ez a nemasagi csapda: ha a depo egy Windows-meghajton ul es a
+   * csatolas elall (`Input/output error`), a bejaras nulla repot talal, az
+   * onellenorzes pedig "nincs bekotve git"-nek latja -- es HALLGAT. Minden
+   * repo elavul, es semmi nem szol. Ezert a gyoker hibajat KULON jelezzuk.
+   */
+  rootError?: string
 }
 
 /**
@@ -211,8 +222,19 @@ export async function syncAllRepos(): Promise<SyncRun> {
   running = true
   const started = Date.now()
   const results: SyncResult[] = []
+  // A gyokeret KULON kerdezzuk meg, mielott bejarnank. A `findRepos()` egy
+  // olvashatatlan konyvtarra ures listaval ter vissza -- ami pontosan ugy
+  // nez ki, mint egy friss telepites, ahol meg nincs egyetlen repo sem.
+  // A ketto kozott csak itt lehet kulonbseget tenni.
+  let rootError = ''
+  const gyoker = explorerRoot()
+  if (gyoker) {
+    try { await fsp.readdir(gyoker) } catch (err: any) {
+      rootError = String(err?.message || err).slice(0, 160)
+    }
+  }
   try {
-    for (const abs of await findRepos()) {
+    for (const abs of rootError ? [] : await findRepos()) {
       try {
         results.push(await syncRepo(abs))
       } catch (err: any) {
@@ -230,6 +252,7 @@ export async function syncAllRepos(): Promise<SyncRun> {
     updated: results.filter((r) => r.state === 'updated').length,
     skipped: results.filter((r) => r.state === 'skipped').length,
     errors: results.filter((r) => r.state === 'error').length,
+    ...(rootError ? { rootError } : {}),
   }
   try { writeFileSync(STATE_FILE, JSON.stringify(run, null, 2), 'utf8') } catch { /* a futas ettol meg ervenyes */ }
   logger.info({ repos: results.length, updated: run.updated, skipped: run.skipped, errors: run.errors }, '[git-sync] kesz')

@@ -63,6 +63,31 @@ curl" / „ezt Claude állítja be neki" a válasz — a munka nincs kész.
 4. Minden hibaút magyar mondattal végződik, ami a következő lépést mondja meg?
 5. Kerestél a kódban a fejlesztő gépére jellemző értéket (név, útvonal, fiók,
    meghajtóbetű)? Ha találtál, kivezetted beállításba?
+6. **Minden nulla/üres eredménynél meg tudod különböztetni a „még nincs"-et a
+   „nem látok oda"-tól?** Ha nem, a mérés hibás — lásd alább.
+
+## ⛔ A NULLA KÉT DOLGOT JELENTHET (2026-08-23)
+
+Boss: „remelem akik ujonnan telepitik a marveent azoknak ez nem fog elojonni.
+azoknak sem." — és: „ugy kell fejleszteni hogy az ujonnan telepitett
+marveenban is mukodjon minden!!!"
+
+A friss telepítés próbájának van egy néma testvére. A git-lehúzás bejárása egy
+**elérhetetlen depó-gyökéren** nulla tárolót talált. Az önellenőrzés ebből azt
+olvasta ki, hogy „nincs bekötve git" — és hallgatott. Közben minden tároló
+elavult. Egy friss telepítésen a csend a HELYES válasz ugyanarra a nullára;
+egy elállt csatolásnál a leghangosabb sor kell.
+
+**A szabály:** ha egy szám nulla lehet azért is, mert még nincs semmi, és
+azért is, mert nem fértél hozzá — akkor a kódnak KÜLÖN kell megkérdeznie a
+forrást (elérhető-e a mappa, válaszol-e a szolgáltatás), és nem szabad a
+találatok számából következtetnie.
+
+**És soha ne találgasd az okot.** Ugyanez a hiba másik fele volt, hogy a sor
+azt állította, „általában hiányzó vagy rossz kulcs az ok", holott mind az öt
+hiba hálózati volt. A tippelt ok rosszabb a semminél: rossz irányba küldi a
+felhasználót. Az okot a TÉNYLEGES hibaüzenetből olvasd ki, és ha nem ismered
+fel, mondd meg, hogy nem tudod.
 
 ## Kapcsolódó szabályok
 
