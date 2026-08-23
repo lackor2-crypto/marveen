@@ -3067,6 +3067,7 @@ window._i18n.en = {
   'overview.upstream.age_today': 'measured today',
   'overview.upstream.stale':     'OUT OF DATE - the weekly check has not run',
   'overview.upstream.pair':      'compared: {local} vs {upstream}',
+  'overview.upstream.conflicts_where': 'The names of the {n} conflicting files are in the file view of “What changed? — itemised list”.',
   'overview.upstream.reverted': 'The {sha} pull was reverted, so these numbers are measured against the state BEFORE it — otherwise git would still consider those commits pulled.',
   'overview.upstream.uptodate': 'Up to date: nothing to pull from upstream.',
   'overview.upstream.uptodate_stale': 'Nothing to pull compared to the last fetched state — but this measurement could not reach the network, so it says nothing about upstream right now.',

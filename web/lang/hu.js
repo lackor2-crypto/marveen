@@ -3133,6 +3133,7 @@ window._i18n.hu = {
   'overview.upstream.age_today': 'ma mérve',
   'overview.upstream.stale':     'ELAVULT — a heti vizsgálat nem futott le',
   'overview.upstream.pair':      'összevetve: {local} ↔ {upstream}',
+  'overview.upstream.conflicts_where': 'A {n} ütköző fájl neve a „Mi változott? — tételes lista” fájl-nézetében látható.',
   'overview.upstream.reverted': 'A {sha} behúzást visszavontuk, ezért ezek a számok a behúzás ELŐTTI állapothoz képest mérnek — különben a git már behúzottnak látná őket.',
   'overview.upstream.uptodate': 'Naprakész: nincs behúzandó változás az upstreamből.',
   'overview.upstream.uptodate_stale': 'A legutóbb letöltött állapothoz képest nincs behúzandó változás — de ez a mérés nem érte el a hálózatot, ezért a mostani upstreamről nem mond semmit.',

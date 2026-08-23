@@ -18325,8 +18325,12 @@ function renderOverviewUpstreamSync(upstreamSync) {
   const clean = cleanKnown ? String(cleanNum) : '–'
   const cleanTitle = cleanKnown ? '' : ` title="${escapeHtml(t('overview.upstream.clean_unmeasured'))}"`
   const badgeClass = conflicts === 0 ? 'upstream-badge-ok' : 'upstream-badge-warn'
-  const fileList = upstreamSync.conflictingFiles.length
-    ? `<ul class="upstream-conflict-files">${upstreamSync.conflictingFiles.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>`
+  // Az utkozo fajlok NEVE nem itt all. Harmincnegy sornyi utvonal elnyomta azt
+  // a harom szamot, ami miatt a doboz egyaltalan letezik -- a nevek helye a
+  // "Mi valtozott?" teteles lista, ahol fajl-nezet es gorgetes is van. Itt csak
+  // a SZAM marad, es a badge tooltipje megmondja, hol lathatoak.
+  const conflictTitle = conflicts > 0
+    ? ` title="${escapeAttr(t('overview.upstream.conflicts_where', { n: conflicts }))}"`
     : ''
   // Mihez kepest? A szamok csak akkor ellenorizhetok, ha kiirjuk, melyik ket
   // pontot vetettuk ossze: a sajat agunkat es az upstream fejlesztoi agat
@@ -18351,7 +18355,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
   body.innerHTML = `
     <div class="upstream-sync-row">
       <span class="upstream-stat"${cleanTitle}><strong>${total}</strong> ${escapeHtml(t('overview.upstream.total'))}</span>
-      <span class="upstream-stat ${badgeClass}"><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
+      <span class="upstream-stat ${badgeClass}"${conflictTitle}><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
       <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
     </div>
     ${commitLine}
@@ -18359,7 +18363,6 @@ function renderOverviewUpstreamSync(upstreamSync) {
     ${revertedNote}
     ${pair}
     ${offline}
-    ${fileList}
   `
 }
 

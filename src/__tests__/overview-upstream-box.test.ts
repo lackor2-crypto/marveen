@@ -147,6 +147,19 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     for (const lang of [hu, en]) expect(lang).toContain("'overview.upstream.reverted'")
   })
 
+  it('az utkozo fajlok NEVE nem a dobozban all', () => {
+    // Harmincnegy sornyi utvonal elnyomta a harom szamot, ami miatt a doboz
+    // letezik (Boss, 2026-08-23: "csak nem akarom latni ezt a sok felsorolast
+    // itt"). A nevek helye a "Mi valtozott?" teteles lista fajl-nezete.
+    expect(code).not.toContain('upstream-conflict-files')
+    // De a szam nem maradhat kapaszkodo nelkul: a badge megmondja, hol
+    // lathatoak a nevek -- kulonben a 34-bol nem vezet ut sehova.
+    expect(code).toContain('overview.upstream.conflicts_where')
+    for (const lang of [hu, en]) expect(lang).toContain("'overview.upstream.conflicts_where'")
+    // Es a fajl-nezet tenyleg letezik, kulonben ures igeret a tooltip.
+    expect(app).toContain('function renderUpstreamFiles')
+  })
+
   it('a magyarazat tenyleg a harmadik szamhoz tapad, nem a dobozhoz', () => {
     // A tooltip csak akkor er valamit, ha azon a spanon ul, amin a gondolatjel
     // all. Ha a doboz szelere kerulne, a Boss sose talalna meg.
