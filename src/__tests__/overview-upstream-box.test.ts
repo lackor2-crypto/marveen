@@ -125,6 +125,24 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     }
   })
 
+  it('visszavont behuzas utan a commit-szamlalo nem mondhat naprakeszet', () => {
+    // 2026-08-23: a `git revert -m 1` visszaadta a tartalmat, de a merge commit
+    // ELOZMENY maradt -- a mero ezutan `behindCount: 1, cleanFileCount: 2`-t
+    // irt, holott 681 fajl tartalma tert el. A commit-tavolsag onmagaban tehat
+    // nem elegendo bizonyitek a naprakeszsegre.
+    expect(code).toContain('contentDiffCount')
+    // A dontes mert szamok osszevetese, nem tippelt kuszob.
+    expect(code).toMatch(/contentDiff > trackedFiles/)
+    expect(code).toContain('overview.upstream.diverged')
+    for (const key of ['overview.upstream.diverged', 'overview.upstream.diverged_why']) {
+      for (const lang of [hu, en]) expect(lang).toContain(`'${key}'`)
+    }
+    // Es a teteles lista gombja ilyenkor nem nyilhat meg: a commit-oldali
+    // meresbol epul, tehat alabecsulne.
+    const at = code.indexOf('contentDiff > trackedFiles')
+    expect(code.slice(at, at + 900)).toMatch(/changesBtn\.hidden = true/)
+  })
+
   it('a magyarazat tenyleg a harmadik szamhoz tapad, nem a dobozhoz', () => {
     // A tooltip csak akkor er valamit, ha azon a spanon ul, amin a gondolatjel
     // all. Ha a doboz szelere kerulne, a Boss sose talalna meg.

@@ -83,11 +83,21 @@ if [ -z "${ERR}" ]; then
   git rev-parse --verify -q "${UPSTREAM_REF}^{commit}" >/dev/null 2>&1 || ERR="no-upstream-branch"
 fi
 
-AHEAD=""; BEHIND=""; CLEAN=""; CONFLICTS=""; CONFLICT_LIST=""
+AHEAD=""; BEHIND=""; CLEAN=""; CONFLICTS=""; CONFLICT_LIST=""; CONTENT=""
 if [ -z "${ERR}" ]; then
   # --- 6. Commit-tavolsag mindket iranyba --------------------------------
   BEHIND="$(git rev-list --count "${LOCAL_REF}..${UPSTREAM_REF}" 2>/dev/null)"
   AHEAD="$(git rev-list --count "${UPSTREAM_REF}..${LOCAL_REF}" 2>/dev/null)"
+
+  # --- 6/b. TARTALMI elteres (fa vs fa) ---------------------------------
+  # A commit-tavolsag onmagaban felrevezet, ha egy behuzast KESOBB
+  # visszavontunk: a merge commit os marad, ezert a BEHIND lecsokken
+  # (merve 2026-08-23-an: 1), holott az upstream tartalma nincs nalunk
+  # (ugyanakkor 681 fajl tartalma tert el). Ez a ket-pontos diff a mi
+  # sajat fejlesztéseinket is beszamitja -- epp ezert NEM a behuzando
+  # halmaz merteke, hanem egyetlen kerdesre valaszol: azonos-e a ket fa.
+  # Ha ez nem nulla, a doboz nem mondhatja, hogy naprakeszek vagyunk.
+  CONTENT="$(git diff --name-only "${LOCAL_REF}" "${UPSTREAM_REF}" 2>/dev/null | grep -c .)"
 
   # --- 7. Fajl-szintu kep a kozos osbol nezve ----------------------------
   # A ket-pontos diff (LOCAL..UPSTREAM) a SAJAT valtozasainkat is beszamitana
@@ -129,10 +139,12 @@ fi
 # --- 9. Kiiras. A JSON-t python allitja elo, hogy a fajlnevekben levo
 # idezojel/backslash ne tudja elrontani a formatumot.
 python3 - "${OUT}" "${LOCAL_REF}" "${UPSTREAM_REF}" "${AHEAD}" "${BEHIND}" \
-         "${CONFLICTS}" "${CLEAN}" "${CONFLICT_LIST}" "${FETCH_OK}" "${ERR}" "${RUN_TYPE}" <<'PY'
+         "${CONFLICTS}" "${CLEAN}" "${CONFLICT_LIST}" "${FETCH_OK}" "${ERR}" "${RUN_TYPE}" \
+         "${CONTENT}" <<'PY'
 import json, os, sys, datetime
 
-out, local_ref, up_ref, ahead, behind, conflicts, clean, clist, fetch_ok, err, run_type = sys.argv[1:12]
+(out, local_ref, up_ref, ahead, behind, conflicts, clean, clist, fetch_ok, err,
+ run_type, content) = sys.argv[1:13]
 
 def num(s):
     try:
@@ -153,6 +165,7 @@ data = {
     'conflictingFiles': files,
     'conflictCount': num(conflicts),
     'cleanFileCount': num(clean),
+    'contentDiffCount': num(content),
     'localRef': local_ref or None,
     'upstreamRef': up_ref or None,
     'fetchOk': fetch_ok == 'true',
@@ -165,7 +178,7 @@ with open(tmp, 'w', encoding='utf-8') as f:
     f.write('\n')
 os.replace(tmp, out)
 print(json.dumps({k: data[k] for k in
-      ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount',
+      ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'contentDiffCount',
        'upstreamRef', 'fetchOk', 'error')}, ensure_ascii=False))
 PY
 

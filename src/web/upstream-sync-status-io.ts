@@ -24,6 +24,13 @@ export interface UpstreamSyncStatus {
   conflictingFiles: string[]
   conflictCount: number | null
   cleanFileCount: number | null
+  // ★ Hany fajl tartalma ter el a ket fa kozott. A commit-tavolsag (behindCount)
+  // egy VISSZAVONT behuzas utan nullahoz kozeli marad, mert a merge commit os
+  // marad -- 2026-08-23-an "1 commit / 2 fajl" allt a dobozban, kozben 681 fajl
+  // tartalma tert el. Ez a szam a sajat fejleszteseinket is beszamitja, ezert
+  // NEM a behuzando halmaz merteke; egyetlen dolgot dont el: szabad-e egyaltalan
+  // naprakeszt mondani. Null = a meres nem tudta megallapitani.
+  contentDiffCount: number | null
   // Which two points were compared. Without these the numbers are
   // unfalsifiable: "63 new commits" means nothing until you know it was
   // main against upstream/develop.
@@ -78,6 +85,7 @@ export function readUpstreamSyncStatus(now: number = Date.now()): UpstreamSyncSt
       conflictingFiles: files,
       conflictCount: num(o.conflictCount) ?? files.length,
       cleanFileCount: num(o.cleanFileCount),
+      contentDiffCount: num(o.contentDiffCount),
       localRef: str(o.localRef),
       upstreamRef: str(o.upstreamRef),
       // Pre-script snapshots have no fetchOk field. Absent is not "yes":

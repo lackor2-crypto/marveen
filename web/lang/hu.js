@@ -3133,6 +3133,8 @@ window._i18n.hu = {
   'overview.upstream.age_today': 'ma mérve',
   'overview.upstream.stale':     'ELAVULT — a heti vizsgálat nem futott le',
   'overview.upstream.pair':      'összevetve: {local} ↔ {upstream}',
+  'overview.upstream.diverged': 'A commit-számláló szerint {commits} új fejlesztés {files} fájlt érint, a két változat tartalma viszont {content} fájlban tér el. A tételes lista ezért alábecsül — ne ebből döntsd el, mi hiányzik.',
+  'overview.upstream.diverged_why': 'Ez akkor fordul elő, ha egy korábbi behúzást visszavontunk: a behúzó commit előzmény marad, ezért a commit-számláló nem látja újra behúzandónak, a tartalma viszont nincs nálunk.',
   'overview.upstream.uptodate': 'Naprakész: nincs behúzandó változás az upstreamből.',
   'overview.upstream.uptodate_stale': 'A legutóbb letöltött állapothoz képest nincs behúzandó változás — de ez a mérés nem érte el a hálózatot, ezért a mostani upstreamről nem mond semmit.',
   'overview.upstream.ahead': 'Mi {n} fejlesztéssel (commit) járunk előrébb.',
