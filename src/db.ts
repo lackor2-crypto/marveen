@@ -873,10 +873,11 @@ export function initDatabase(dbPathOverride?: string): void {
       approval_id TEXT NOT NULL,
       agent TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending'
-        CHECK(status IN ('pending','pass','fail')),
+        CHECK(status IN ('pending','pass','fail','noresponse')),
       report TEXT,
       requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
       resolved_at INTEGER,
+      reminded_at INTEGER,
       UNIQUE(approval_id, agent)
     )
   `)
