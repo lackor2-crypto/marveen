@@ -3292,6 +3292,13 @@ window._i18n.en = {
   'cb.tile.channel_none': 'not set up',
   'cb.tile.channel_set': 'code bot',
   // --- Service: start / stop ---
+  'cb.service.on_pending': 'Enabled — takes effect after the dashboard restarts (still stopped for now).',
+  'cb.service.off_pending': 'Stopped — takes effect after the dashboard restarts (still running for now).',
+  'cb.card.worker_off': 'executor stopped',
+  'cb.card.worker_on': 'executor alive',
+  'cb.card.busy': '{n} running · {q} queued',
+  'cb.card.queued': '{n} queued',
+  'cb.card.stop_pending': 'stopped — waiting for restart',
   'cb.service.on': 'Running',
   'cb.service.off': 'Stopped',
   'cb.service.start': 'Start',

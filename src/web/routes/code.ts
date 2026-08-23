@@ -230,6 +230,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       avatar: findCodeBridgeAvatar() !== null,
       staleAfterMs: WORKER_STALE_MS,
       enabled: CODE_BRIDGE_ENABLED,
+      // ★ A MENTETT ertek, a futo mellett. A ketto eltérhet: a hid a
+      // beallitast INDULASKOR olvassa be, tehat egy "Leallitas" utan a mentett
+      // mar 0, a futo meg 1. Enelkul a kartya a kattintas utan is azt mutatta,
+      // hogy "Fut" -- a felhasznalo szamara ez ugy nezett ki, mintha a gomb
+      // nem mukodne (Boss, 2026-08-23: "rakattintottam a leallitas gombra. de
+      // nem allt le"). A kulonbseget a KARTYAN KIVUL is ki kell mondani.
+      savedEnabled: String(getEffectiveSettingValue('CODE_BRIDGE_ENABLED')) === '1',
       permissionMode: CODE_PERMISSION_MODE,
       // The token itself is NEVER returned -- only whether one is configured.
       botConfigured: CODE_BOT_TOKEN.length > 0,

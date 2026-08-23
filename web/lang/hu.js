@@ -3357,6 +3357,13 @@ window._i18n.hu = {
   'cb.tile.channel_none': 'nincs beállítva',
   'cb.tile.channel_set': 'kód-bot',
   // --- Szolgaltatas: indit / leallit ---
+  'cb.service.on_pending': 'Bekapcsolva — a vezérlőpult újraindítása után lép életbe (jelenleg még áll).',
+  'cb.service.off_pending': 'Leállítva — a vezérlőpult újraindítása után lép életbe (jelenleg még fut).',
+  'cb.card.worker_off': 'végrehajtó áll',
+  'cb.card.worker_on': 'végrehajtó él',
+  'cb.card.busy': '{n} fut · {q} sorban',
+  'cb.card.queued': '{n} sorban',
+  'cb.card.stop_pending': 'leállítva — újraindításra vár',
   'cb.service.on': 'Fut',
   'cb.service.off': 'Leállítva',
   'cb.service.start': 'Indítás',

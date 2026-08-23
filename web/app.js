@@ -4945,11 +4945,16 @@ function cbIdleCardEntry(off) {
 // egyutt, es a "3 sorban" onmagaban is ertekesebb informacio, mint egy szam
 // egy menupont mellett: itt latszik, amikor a kartyat nezed.
 function cbCardNote() {
-  if (!codeBridgeCards.workerOnline) return 'végrehajtó áll'
+  // ELOSZOR a fuggoben levo le-/bekapcsolas: ez a kartyan KIVUL eddig sehol nem
+  // latszott, pedig ez valtoztatja meg leginkabb, hogy mire szamit az ember.
+  if (codeBridgeCards.savedEnabled === false && codeBridgeCards.state !== 'disabled') {
+    return t('cb.card.stop_pending')
+  }
+  if (!codeBridgeCards.workerOnline) return t('cb.card.worker_off')
   const busy = codeBridgeCards.queued + codeBridgeCards.running
-  if (codeBridgeCards.running) return codeBridgeCards.running + ' fut · ' + codeBridgeCards.queued + ' sorban'
-  if (busy) return busy + ' sorban'
-  return 'végrehajtó él'
+  if (codeBridgeCards.running) return t('cb.card.busy', { n: codeBridgeCards.running, q: codeBridgeCards.queued })
+  if (busy) return t('cb.card.queued', { n: busy })
+  return t('cb.card.worker_on')
 }
 
 // A kartya CIME. A Csapat lapon minden mas ugynok a sajat Telegram-nevet
@@ -5259,6 +5264,9 @@ async function loadCodeBridgeCards() {
     avatar: Boolean(health.avatar),
     queued: Number(health.queued) || 0,
     running: Number(health.running) || 0,
+    // A MENTETT ki/be kapcsolas. Regi backend nem kuldi -> `null`, es akkor a
+    // kartya nem allit semmit rola (a hallgatas jobb, mint egy kitalalt allapot).
+    savedEnabled: typeof health.savedEnabled === 'boolean' ? health.savedEnabled : null,
     // Regi backend nem kuldi -- olyankor a kartya a korabbi szoveget mondja.
     candidates: {
       free: Number(health.candidates && health.candidates.free) || 0,
@@ -32340,10 +32348,21 @@ async function _intezoCfgSave() {
     const stopBtn = document.getElementById('cbServiceStopBtn')
     if (!dot || !label) return
     const on = !(health && health.enabled === false)
-    dot.className = 'process-dot ' + (on ? 'running' : 'stopped')
-    label.textContent = on ? t('cb.service.on') : t('cb.service.off')
-    if (startBtn) startBtn.hidden = on
-    if (stopBtn) stopBtn.hidden = !on
+    // A MENTETT allapot kulon a futotol: a hid indulaskor olvassa a beallitast,
+    // ezert egy "Leallitas" utan a mentett mar 0, a folyamat meg fut. Ha ezt
+    // nem mondjuk ki, a gomb ugy nez ki, mintha nem mukodne.
+    const saved = (health && typeof health.savedEnabled === 'boolean') ? health.savedEnabled : on
+    const pending = saved !== on
+    // A 'restarting' a haz meglevo sarga, pulzalo pontja -- pontosan azt jelenti,
+    // hogy egy mentett valtozas ujrainditasra var. Uj osztalyt nem talalunk ki.
+    dot.className = 'process-dot ' + (pending ? 'restarting' : (on ? 'running' : 'stopped'))
+    label.textContent = pending
+      ? (saved ? t('cb.service.on_pending') : t('cb.service.off_pending'))
+      : (on ? t('cb.service.on') : t('cb.service.off'))
+    // A gombok a MENTETT allapotot kovetik: ha mar leallitottad, ne a
+    // "Leallitas" alljon ott masodszor is.
+    if (startBtn) startBtn.hidden = saved
+    if (stopBtn) stopBtn.hidden = !saved
     if (!worker) return
     if (!health) { worker.textContent = ''; return }
     // Harom allapot, mert harom kulon teendo. A "meg soha nem jelentkezett" NEM
