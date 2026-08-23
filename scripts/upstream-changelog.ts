@@ -47,6 +47,45 @@ function upstreamRef(): string {
   return 'upstream/develop'
 }
 
+/**
+ * Honnan nezzuk az elterest.
+ *
+ * A `git revert -m 1` a TARTALMAT adja vissza, a historiat nem: a visszavont
+ * behuzas merge commitja elozmeny marad, ezert a git ugy latja, hogy azokat a
+ * commitokat mar behuztuk. Merve 2026-08-23-an: a lista 137 commit helyett
+ * 1-et mutatott volna. A viszonyitasi pont ilyenkor a behuzas ELOTTI allapot.
+ *
+ * Nem talalgatunk: a `git revert` altal irt "This reverts commit <sha>" sorbol
+ * olvassuk ki a celt, es csak akkor lepunk vissza, ha az valoban MERGE (ket
+ * szulo), aminek a masodik szuloje az upstream aganak elozmenye. Egyszeru
+ * commit visszavonasa nem mozditja a viszonyitasi pontot.
+ *
+ * Ugyanez a logika all a scripts/upstream-divergence-check.sh-ban -- a ket
+ * mérésnek ugyanabbol a pontbol kell neznie, kulonben a kartya es a lista
+ * mashogy szamolna ugyanazt.
+ */
+function compareFrom(local: string, upstream: string): string {
+  let from = local
+  const revs = git(['log', local, '--format=%H', '--grep=^This reverts commit']).split('\n')
+  for (const rev of revs) {
+    if (!rev.trim()) continue
+    const body = git(['log', '-1', '--format=%B', rev.trim()])
+    const m = body.match(/^This reverts commit ([0-9a-f]{7,40})/m)
+    if (!m) continue
+    let parents: string[]
+    try {
+      parents = git(['log', '-1', '--format=%P', m[1]]).trim().split(/\s+/).filter(Boolean)
+    } catch { continue }
+    if (parents.length !== 2) continue          // nem merge -> nem erdekel
+    try {
+      git(['merge-base', '--is-ancestor', parents[1], upstream])
+    } catch { continue }                        // nem az upstreambol jott
+    from = git(['rev-parse', `${m[1]}^1`]).trim()
+    // A legREGEBBI ilyen visszavonas a helyes kiindulopont, ezert nem allunk meg.
+  }
+  return from
+}
+
 function conflictingFiles(): Set<string> {
   if (!existsSync(STATUS)) return new Set()
   try {
@@ -147,7 +186,7 @@ async function main(): Promise<void> {
   const noLlm = process.argv.includes('--no-llm')
   const local = localRef()
   const upstream = upstreamRef()
-  const base = git(['merge-base', local, upstream]).trim()
+  const base = git(['merge-base', compareFrom(local, upstream), upstream]).trim()
   const conflicts = conflictingFiles()
   let commits = collect(local, upstream, base, conflicts)
 

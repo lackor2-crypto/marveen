@@ -84,9 +84,40 @@ if [ -z "${ERR}" ]; then
 fi
 
 AHEAD=""; BEHIND=""; CLEAN=""; CONFLICTS=""; CONFLICT_LIST=""; CONTENT=""
+REVERTED_MERGE=""; COMPARE_FROM=""
 if [ -z "${ERR}" ]; then
+  # --- 5/b. VISSZAVONT BEHUZAS: hol allunk VALOJABAN? --------------------
+  # A `git revert -m 1` a tartalmat adja vissza, a historiat nem: a behuzo
+  # merge ELOZMENY marad, ezert a git ugy latja, hogy azt a 137 commitot mar
+  # behuztuk. Merve 2026-08-23-an: 1 commit / 2 fajl allt a dobozban, holott
+  # az upstream tartalmabol semmi nem volt nalunk.
+  #
+  # A viszonyitasi pont ilyenkor a behuzas ELOTTI allapot (a merge elso
+  # szuloje). Nem talalgatunk: a `git revert` altal irt "This reverts commit
+  # <sha>" sorbol olvassuk ki, MELYIK commitot vontuk vissza, es csak akkor
+  # lepunk vissza, ha az tenylegesen egy MERGE (ket szulo), aminek a masodik
+  # szuloje az upstream aganak elozmenye. Egyszeru commit visszavonasa nem
+  # mozditja a viszonyitasi pontot.
+  COMPARE_FROM="${LOCAL_REF}"
+  while read -r rev; do
+    [ -n "${rev}" ] || continue
+    target="$(git log -1 --format=%B "${rev}" 2>/dev/null \
+              | sed -n 's/^This reverts commit \([0-9a-f]\{7,40\}\).*/\1/p' | head -1)"
+    [ -n "${target}" ] || continue
+    parents="$(git log -1 --format=%P "${target}" 2>/dev/null)"
+    set -- ${parents}
+    [ "$#" -eq 2 ] || continue                      # nem merge -> nem erdekel
+    git merge-base --is-ancestor "$2" "${UPSTREAM_REF}" 2>/dev/null || continue
+    COMPARE_FROM="$(git rev-parse "${target}^1" 2>/dev/null)"
+    REVERTED_MERGE="$(git rev-parse --short "${target}" 2>/dev/null)"
+    # A legREGEBBI ilyen visszavonas a helyes kiindulopont, ezert nem allunk meg.
+  done <<EOF
+$(git log "${LOCAL_REF}" --format=%H --grep='^This reverts commit' 2>/dev/null)
+EOF
+  [ -n "${COMPARE_FROM}" ] || COMPARE_FROM="${LOCAL_REF}"
+
   # --- 6. Commit-tavolsag mindket iranyba --------------------------------
-  BEHIND="$(git rev-list --count "${LOCAL_REF}..${UPSTREAM_REF}" 2>/dev/null)"
+  BEHIND="$(git rev-list --count "${COMPARE_FROM}..${UPSTREAM_REF}" 2>/dev/null)"
   AHEAD="$(git rev-list --count "${UPSTREAM_REF}..${LOCAL_REF}" 2>/dev/null)"
 
   # --- 6/b. TARTALMI elteres (fa vs fa) ---------------------------------
@@ -104,7 +135,7 @@ if [ -z "${ERR}" ]; then
   # -- itt merve 234 fajlt adott a valos 112 helyett. A kozos os (merge-base)
   # az egyetlen helyes kiindulopont: onnan nezve azt latjuk, amit AZ UPSTREAM
   # csinalt.
-  BASE="$(git merge-base "${LOCAL_REF}" "${UPSTREAM_REF}" 2>/dev/null)"
+  BASE="$(git merge-base "${COMPARE_FROM}" "${UPSTREAM_REF}" 2>/dev/null)"
   if [ -n "${BASE}" ]; then
     git diff --name-only "${BASE}" "${UPSTREAM_REF}" 2>/dev/null | sort -u > /tmp/uds-upstream-files.$$
 
@@ -112,7 +143,7 @@ if [ -z "${ERR}" ]; then
     # Kilepokod 0 = tiszta, 1 = van utkozes, barmi mas = a git nem tudta
     # elvegezni (pl. regi git, nincs --write-tree). Az utolso esetben inkabb
     # "nem tudjuk" (null) all a fajlban, mint egy talalgatas.
-    MT="$(git merge-tree --write-tree --name-only "${LOCAL_REF}" "${UPSTREAM_REF}" 2>/dev/null)"
+    MT="$(git merge-tree --write-tree --name-only "${COMPARE_FROM}" "${UPSTREAM_REF}" 2>/dev/null)"
     MT_RC=$?
     if [ "${MT_RC}" -eq 0 ]; then
       : > /tmp/uds-conflicts.$$
@@ -140,11 +171,11 @@ fi
 # idezojel/backslash ne tudja elrontani a formatumot.
 python3 - "${OUT}" "${LOCAL_REF}" "${UPSTREAM_REF}" "${AHEAD}" "${BEHIND}" \
          "${CONFLICTS}" "${CLEAN}" "${CONFLICT_LIST}" "${FETCH_OK}" "${ERR}" "${RUN_TYPE}" \
-         "${CONTENT}" <<'PY'
+         "${CONTENT}" "${REVERTED_MERGE}" <<'PY'
 import json, os, sys, datetime
 
 (out, local_ref, up_ref, ahead, behind, conflicts, clean, clist, fetch_ok, err,
- run_type, content) = sys.argv[1:13]
+ run_type, content, reverted) = sys.argv[1:14]
 
 def num(s):
     try:
@@ -166,6 +197,9 @@ data = {
     'conflictCount': num(conflicts),
     'cleanFileCount': num(clean),
     'contentDiffCount': num(content),
+    # Melyik visszavont behuzas miatt nem a HEAD a viszonyitasi pont. Ures =
+    # nincs ilyen, a szamok a jelenlegi agrol szolnak.
+    'revertedMerge': reverted or None,
     'localRef': local_ref or None,
     'upstreamRef': up_ref or None,
     'fetchOk': fetch_ok == 'true',
@@ -178,7 +212,7 @@ with open(tmp, 'w', encoding='utf-8') as f:
     f.write('\n')
 os.replace(tmp, out)
 print(json.dumps({k: data[k] for k in
-      ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'contentDiffCount',
+      ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'contentDiffCount', 'revertedMerge',
        'upstreamRef', 'fetchOk', 'error')}, ensure_ascii=False))
 PY
 

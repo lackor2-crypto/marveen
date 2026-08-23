@@ -125,22 +125,26 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     }
   })
 
-  it('visszavont behuzas utan a commit-szamlalo nem mondhat naprakeszet', () => {
-    // 2026-08-23: a `git revert -m 1` visszaadta a tartalmat, de a merge commit
-    // ELOZMENY maradt -- a mero ezutan `behindCount: 1, cleanFileCount: 2`-t
-    // irt, holott 681 fajl tartalma tert el. A commit-tavolsag onmagaban tehat
-    // nem elegendo bizonyitek a naprakeszsegre.
-    expect(code).toContain('contentDiffCount')
-    // A dontes mert szamok osszevetese, nem tippelt kuszob.
-    expect(code).toMatch(/contentDiff > trackedFiles/)
-    expect(code).toContain('overview.upstream.diverged')
-    for (const key of ['overview.upstream.diverged', 'overview.upstream.diverged_why']) {
-      for (const lang of [hu, en]) expect(lang).toContain(`'${key}'`)
-    }
-    // Es a teteles lista gombja ilyenkor nem nyilhat meg: a commit-oldali
-    // meresbol epul, tehat alabecsulne.
-    const at = code.indexOf('contentDiff > trackedFiles')
-    expect(code.slice(at, at + 900)).toMatch(/changesBtn\.hidden = true/)
+  it('visszavont behuzas utan a behuzas ELOTTI allapotbol merunk', () => {
+    // 2026-08-23: a `git revert -m 1` visszaadta a tartalmat, de a behuzo merge
+    // ELOZMENY maradt -- a git szerint azt a 137 commitot mar behuztuk, ezert a
+    // doboz 1 commit / 2 fajlt mutatott, holott az upstream tartalmabol semmi
+    // nem volt nalunk. A mero azota a behuzas elotti pontbol nez (COMPARE_FROM),
+    // es a felulet kimondja, miert.
+    const sh = readFileSync(join(__dirname, '..', '..', 'scripts', 'upstream-divergence-check.sh'), 'utf8')
+    expect(sh).toContain('COMPARE_FROM')
+    // A visszalepes csak VALODI merge-re szolhat, es csak ha az upstreambol jott
+    // -- kulonben egy egyszeru revert is elmozditana a viszonyitasi pontot.
+    expect(sh).toContain('This reverts commit')
+    expect(sh).toContain('merge-base --is-ancestor')
+    // A commit-lista ugyanabbol a pontbol keszul, kulonben a kartya es a
+    // teteles lista mashogy szamolna ugyanazt.
+    const cl = readFileSync(join(__dirname, '..', '..', 'scripts', 'upstream-changelog.ts'), 'utf8')
+    expect(cl).toContain('compareFrom(local, upstream)')
+    // Es a doboz nem hagyhatja magyarazat nelkul, hogy a szam 1-rol 137-re ugrott.
+    expect(code).toContain('upstreamSync.revertedMerge')
+    expect(code).toContain('overview.upstream.reverted')
+    for (const lang of [hu, en]) expect(lang).toContain("'overview.upstream.reverted'")
   })
 
   it('a magyarazat tenyleg a harmadik szamhoz tapad, nem a dobozhoz', () => {

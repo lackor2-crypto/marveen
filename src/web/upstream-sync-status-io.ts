@@ -31,6 +31,13 @@ export interface UpstreamSyncStatus {
   // NEM a behuzando halmaz merteke; egyetlen dolgot dont el: szabad-e egyaltalan
   // naprakeszt mondani. Null = a meres nem tudta megallapitani.
   contentDiffCount: number | null
+  // ★ Melyik VISSZAVONT behuzas miatt nem a jelenlegi ag a viszonyitasi pont.
+  // A `git revert -m 1` a tartalmat adja vissza, a historiat nem: a behuzo
+  // merge elozmeny marad, ezert a git szerint azt a 137 commitot mar behuztuk.
+  // A mero ilyenkor a behuzas ELOTTI allapotbol nez -- ez a mezo mondja meg,
+  // hogy ez tortent, hogy a szam ne magyarazat nelkul ugorjon 1-rol 137-re.
+  // Null = nincs ilyen, a szamok a jelenlegi agrol szolnak.
+  revertedMerge: string | null
   // Which two points were compared. Without these the numbers are
   // unfalsifiable: "63 new commits" means nothing until you know it was
   // main against upstream/develop.
@@ -86,6 +93,7 @@ export function readUpstreamSyncStatus(now: number = Date.now()): UpstreamSyncSt
       conflictCount: num(o.conflictCount) ?? files.length,
       cleanFileCount: num(o.cleanFileCount),
       contentDiffCount: num(o.contentDiffCount),
+      revertedMerge: str(o.revertedMerge),
       localRef: str(o.localRef),
       upstreamRef: str(o.upstreamRef),
       // Pre-script snapshots have no fetchOk field. Absent is not "yes":

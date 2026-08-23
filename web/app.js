@@ -18278,27 +18278,17 @@ function renderOverviewUpstreamSync(upstreamSync) {
     if (changesBtn) changesBtn.hidden = true
     return
   }
-  // ★ A KOMMIT-TAVOLSAG HAZUDIK EGY VISSZAVONT BEHUZAS UTAN.
-  //   A behuzo merge commit ELOZMENY marad akkor is, ha a tartalmat kesobb
-  //   visszavontuk, ezert a `behindCount` lecsokken (merve 2026-08-23-an:
-  //   1 commit / 2 fajl), holott az upstream tartalma nincs nalunk (681 fajl
-  //   tartalma tert el). Nem kuszobot tippelunk: ha a ket fa tobb fajlban ter
-  //   el, mint amennyit a commit-oldali meres egyaltalan szamon tart
-  //   (tiszta + utkozo), akkor bizonyitottan van a meresen KIVUL eso elteres,
-  //   es ilyenkor sem naprakeszet, sem "ennyi a hatralek"-ot nem allitunk.
-  const contentDiff = upstreamSync.contentDiffCount
-  const trackedFiles = (Number(upstreamSync.cleanFileCount) || 0) + (Number(conflicts) || 0)
-  if (contentDiff !== null && contentDiff !== undefined && contentDiff > trackedFiles) {
-    body.innerHTML =
-      '<div class="upstream-sync-offline">'
-      + escapeHtml(t('overview.upstream.diverged', { commits: behind, files: trackedFiles, content: contentDiff }))
+  // ★ A KOMMIT-TAVOLSAG HAZUDIK EGY VISSZAVONT BEHUZAS UTAN, es ezt a mero
+  //   szkript javitja ki: ha egy upstream-behuzast kesobb visszavontunk, a
+  //   szamokat a behuzas ELOTTI allapotbol meri (kulonben 137 helyett 1 commit
+  //   allna itt). A felulet dolga annyi, hogy ezt KI IS MONDJA -- egy szam, ami
+  //   magyarazat nelkul ugrik 1-rol 137-re, ugyanolyan megbizhatatlan, mint egy
+  //   rossz szam.
+  const revertedNote = upstreamSync.revertedMerge
+    ? '<div class="upstream-sync-commits">'
+      + escapeHtml(t('overview.upstream.reverted', { sha: upstreamSync.revertedMerge }))
       + '</div>'
-      + '<div class="upstream-sync-commits">' + escapeHtml(t('overview.upstream.diverged_why')) + '</div>'
-      + (pairHtml(upstreamSync) || '')
-    // A teteles lista a commit-oldali meresbol epul, ezert itt alabecsulne.
-    if (changesBtn) changesBtn.hidden = true
-    return
-  }
+    : ''
   if (behind === 0) {
     // Ez a JO nulla -- de csak akkor mondhatjuk ki, ha a meres elerte a halot.
     // Halozat nelkul a nulla csak az utoljara letoltott allapotra igaz, es ezt
@@ -18313,6 +18303,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
       + (ahead !== null && ahead > 0
           ? '<div class="upstream-sync-commits">' + escapeHtml(t('overview.upstream.ahead', { n: ahead })) + '</div>'
           : '')
+      + revertedNote
       + (pairHtml(upstreamSync) || '')
     // Nincs mit felsorolni: a "Mi valtozott?" gomb ilyenkor ures listara nyilna.
     if (changesBtn) changesBtn.hidden = true
@@ -18365,6 +18356,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
     </div>
     ${commitLine}
     ${explain}
+    ${revertedNote}
     ${pair}
     ${offline}
     ${fileList}
