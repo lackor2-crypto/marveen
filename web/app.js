@@ -4905,7 +4905,18 @@ function cbIdleCardEntry(off) {
   }
   // A vegrehajto MAR latja a mappat: ilyenkor nem uj projektet kell nyitni,
   // hanem felvenni (vagy feloldani) azt, ami ott van a listaban.
-  const cand = codeBridgeCards.candidates || { free: 0, excluded: 0 }
+  const cand = codeBridgeCards.candidates || { free: 0, excluded: 0, dismissed: 0 }
+  // ELOSZOR a levett mappa: ez a leggyakoribb oka annak, hogy egy mukodo
+  // kartyarol "eltunt minden". Ha itt a "meg egyik sincs felveve" allna, a
+  // tulaj a felderitest hibaztatna egy sajat kattintas helyett.
+  if (cand.dismissed > 0) {
+    return {
+      title: 'VS Code Claude Code',
+      desc: cand.dismissed + ' mappa le van véve a kód-hídról (a Törlés gombbal). A mappa és a beszélgetés megvan — kattints a kártyára, és a listából egy kattintás visszavenni.',
+      online: false,
+      note: cand.dismissed + ' levett mappa',
+    }
+  }
   if (cand.free > 0) {
     return {
       title: 'VS Code Claude Code',
@@ -5237,6 +5248,7 @@ async function loadCodeBridgeCards() {
     candidates: {
       free: Number(health.candidates && health.candidates.free) || 0,
       excluded: Number(health.candidates && health.candidates.excluded) || 0,
+      dismissed: Number(health.candidates && health.candidates.dismissed) || 0,
     },
     // A kartya NEVE a kod-bot Telegram-neve, mint minden mas ugynok-kartyan.
     // Regi backend nem kuldi -> null, es marad a projekt-alias.
