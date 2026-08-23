@@ -44,6 +44,63 @@ describe('napi git-lehuzas: a nema elavulas', () => {
     expect(r.some((x) => x.id === 'git_pull_ok')).toBe(false)
   })
 
+  // A SZAM ONMAGABAN NEM TEENDO.
+  //
+  // Boss, 2026-08-23: "miert keres plusz 5 git tarolot? hiszen nincsennek!"
+  // -- dehogynem voltak: hat ceges repo allt a fan. Csak a sor nem mondta meg,
+  // MELYIK otrol beszel, es kozben egy TIPPELT okot allitott ("hianyzo vagy
+  // rossz kulcs"), holott mind az ot hiba `Could not resolve host` volt.
+  const hibas = (rel: string, message: string) => ({ rel, state: 'error', message })
+  const futasHibakkal = (...h: Array<{ rel: string; state: string; message: string }>) => ({
+    finishedAt: ELOTTE(0),
+    results: [...h, { rel: 'Sajat/ok', state: 'current', message: 'Naprakesz.' }],
+    errors: h.length,
+  })
+
+  it('MEGNEVEZI a hibas tarolokat', () => {
+    const r = gitPullRows(MOST, futasHibakkal(
+      hibas('Cegek/X/GIT_REPOS/docs', 'fatal: unable to access: Could not resolve host: github.com'),
+      hibas('Cegek/X/GIT_REPOS/freeber-classic', 'fatal: unable to access: Could not resolve host: github.com'),
+    ), VAN_KARTYA, true)
+    const e = r.find((x) => x.id.startsWith('git_pull_errors'))
+    expect(e?.params).toMatchObject({ n: 2, all: 3, names: 'docs, freeber-classic' })
+  })
+
+  it('a HALOZATI hibat nem mondja kulcs-hibanak', () => {
+    const r = gitPullRows(MOST, futasHibakkal(
+      hibas('a/docs', 'fatal: unable to access: Could not resolve host: github.com'),
+    ), VAN_KARTYA, true)
+    expect(r[0].id).toBe('git_pull_errors_net')
+  })
+
+  it('a KULCS-hibat kulcs-hibanak mondja', () => {
+    const r = gitPullRows(MOST, futasHibakkal(
+      hibas('a/docs', 'fatal: Authentication failed for https://github.com/x/docs.git/'),
+    ), VAN_KARTYA, true)
+    expect(r[0].id).toBe('git_pull_errors_auth')
+  })
+
+  it('ismeretlen okra NEM talal ki okot', () => {
+    const r = gitPullRows(MOST, futasHibakkal(
+      hibas('a/docs', 'fatal: valami egeszen mas'),
+    ), VAN_KARTYA, true)
+    expect(r[0].id).toBe('git_pull_errors_named')
+  })
+
+  it('vegyes oknal sem allit egyetlen okot', () => {
+    const r = gitPullRows(MOST, futasHibakkal(
+      hibas('a/docs', 'Could not resolve host: github.com'),
+      hibas('a/masik', 'Authentication failed'),
+    ), VAN_KARTYA, true)
+    expect(r[0].id).toBe('git_pull_errors_named')
+  })
+
+  it('hosszu listat rovidit -- a kartya ket sorra van meretezve', () => {
+    const sok = ['a', 'b', 'c', 'd', 'e', 'f'].map((n) => hibas('x/' + n, 'Could not resolve host'))
+    const r = gitPullRows(MOST, futasHibakkal(...sok), VAN_KARTYA, true)
+    expect(r[0].params?.names).toBe('a, b, c, d, +2')
+  })
+
   it('az elakadt utemezest a KORABOL veszi eszre, nem a kartyabol', () => {
     expect(gitPullRows(MOST, futas(1, 9), VAN_KARTYA, true)[0].id).toBe('git_pull_ok')
     const kesik = gitPullRows(MOST, futas(5, 9), VAN_KARTYA, true)[0]

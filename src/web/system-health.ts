@@ -368,10 +368,36 @@ function tisztaNev(s: string): string {
   return String(s).replace(/[^A-Za-z0-9._ -]/g, '').trim().slice(0, 40)
 }
 
+interface GitSyncEredmeny {
+  rel?: string
+  state?: string
+  message?: string
+}
+
 interface GitSyncAllapot {
   finishedAt?: string
   results?: unknown[]
   errors?: number
+}
+
+/**
+ * Miert nem sikerult a lehuzas?
+ *
+ * Boss, 2026-08-23: az onellenorzes azt allitotta, "altalaban hianyzo vagy
+ * rossz kulcs az ok" -- kozben mind az ot hiba `Could not resolve host` volt,
+ * vagyis halozat. A tippelt ok rosszabb a semminel: kulcsot mentem volna
+ * javitani egy DNS-kieses miatt. Ezert az okot a TENYLEGES hibauzenetekbol
+ * olvassuk ki, es ha nem ismerjuk fel, nem talalunk ki semmit.
+ */
+export function hibaOka(uzenetek: string[]): 'net' | 'auth' | '' {
+  const sz = uzenetek.join(' | ').toLowerCase()
+  const halozat = /could not resolve host|connection timed out|connection refused|network is unreachable|operation timed out|temporary failure in name resolution/.test(sz)
+  const kulcs = /authentication failed|could not read username|could not read password|permission denied|terminal prompts disabled|invalid username or (token|password)|http 40[13]/.test(sz)
+  // Vegyes okoknal egyik cimke sem igaz az egesz halmazra -- inkabb ne
+  // allitsunk okot, mint rosszat.
+  if (halozat && !kulcs) return 'net'
+  if (kulcs && !halozat) return 'auth'
+  return ''
 }
 
 /** A fiokonkenti git-tokenek. Csak a KULCSAIT nezzuk -- az erteket soha. */
@@ -435,7 +461,22 @@ export function gitPullRows(
   const hiba = Number(run && run.errors) || 0
   const db = run && Array.isArray(run.results) ? run.results.length : 0
 
-  if (hiba > 0) rows.push({ id: 'git_pull_errors', status: 'bad', params: { n: hiba, all: db } })
+  if (hiba > 0) {
+    // A szam onmagaban nem teendo. Boss, 2026-08-23: "miert keres plusz 5 git
+    // tarolot? hiszen nincsennek!" -- dehogynem voltak, csak a sor nem mondta
+    // meg, MELYIK otrol beszel. Ezert a sor megnevezi oket, es a VALODI okot
+    // mondja, nem egy tippet.
+    const eredmenyek = run && Array.isArray(run.results) ? (run.results as GitSyncEredmeny[]) : []
+    const rosszak = eredmenyek.filter((r) => r && typeof r === 'object' && r.state === 'error')
+    const nevek = rosszak
+      .map((r) => tisztaNev(String(r.rel || '').split('/').filter(Boolean).pop() || ''))
+      .filter(Boolean)
+    const ok = hibaOka(rosszak.map((r) => String(r.message || '')))
+    const id = nevek.length === 0 ? 'git_pull_errors' : ok ? 'git_pull_errors_' + ok : 'git_pull_errors_named'
+    // Hosszu listat nem irunk ki: a kartya ket sorra van meretezve.
+    const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
+    rows.push({ id, status: 'bad', params: { n: hiba, all: db, names: lista } })
+  }
   if (napja > GIT_PULL_STALE_DAYS) {
     // Nehany kihagyott nap keses; ket het mar allo utemezes.
     rows.push({ id: 'git_pull_stale', status: napja > 14 ? 'bad' : 'warn', params: { d: napja } })
