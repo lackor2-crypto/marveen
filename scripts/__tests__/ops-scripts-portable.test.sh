@@ -18,11 +18,16 @@ pass() { PASS=$((PASS + 1)); echo "  PASS: $1"; }
 fail() { FAIL=$((FAIL + 1)); echo "  FAIL: $1"; }
 
 INSTALL_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# scripts/hooks/telegram-ack.py was removed on 2026-08-23. It posted a thumbs-up
+# reaction as a receipt, but it was registered in NO agent's settings.json and in
+# no template -- dead code that read the MAIN agent's token and state path
+# (~/.claude/channels/telegram) instead of TELEGRAM_STATE_DIR, so wiring it up
+# would have made every sub-agent answer with the wrong bot. The receipt now
+# comes from scripts/channel-inbound-tee.mjs at arrival, per agent, per token.
 SCRIPTS="
 scripts/limit-monitor.sh
 scripts/pre-modify-backup.sh
 scripts/github-pr-monitor.sh
-scripts/hooks/telegram-ack.py
 "
 
 echo "ops-scripts portability tests"

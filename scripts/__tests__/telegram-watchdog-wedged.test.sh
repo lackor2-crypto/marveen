@@ -81,10 +81,15 @@ make_case() { # name kind age_seconds
     esac
     printf '[{"chat_id":"%s","message_id":555,"transcript_path":"%s"}]\n' "$CHAT" "$tr" \
         > "$pdir/SID.json"
-    # Backdate the state file so its age exceeds the tested threshold.
-    python3 - "$pdir/SID.json" "$age" <<'PY'
+    # Backdate the state file so its age exceeds the tested threshold -- and the
+    # transcript with it: a turn that is genuinely stuck has not written
+    # anything for just as long. (Case (c2) below re-touches the transcript to
+    # test the opposite.)
+    python3 - "$pdir/SID.json" "$tr" "$age" <<'PY'
 import os, sys, time
-os.utime(sys.argv[1], (time.time()-int(sys.argv[2]),)*2)
+when = time.time() - int(sys.argv[3])
+for path in (sys.argv[1], sys.argv[2]):
+    os.utime(path, (when, when))
 PY
     echo "$pdir"
 }
@@ -136,6 +141,30 @@ PC="$(make_case wc work 1000)"   # 1000s > WEDGED_SEC (900)
 run_wd 1 1
 assert_eq "backstop fires: one delivery" "1" "$(count sendMessage)"
 assert_eq "state file removed" "no" "$(pend_exists "$PC")"
+
+# ---------------------------------------------------------------------------
+# (c2) Same age, but the turn is STILL WRITING -> leave it alone
+#
+# The backstop posts the agent's LAST assistant message as if it were the
+# answer. On a turn that is merely long, that message is an intermediate
+# thought, and the owner reads it as the result. Sub-agent turns run past
+# fifteen minutes routinely -- and since 2026-08-23 they have placeholders too
+# (the arrival receipt handed over by channel-inbox-drain.py), so this case
+# stopped being hypothetical. A transcript touched moments ago is proof of a
+# live turn.
+# ---------------------------------------------------------------------------
+echo ""
+echo "(c2) Very old placeholder but a live transcript -> untouched"
+PC2="$(make_case wc2 work 1000)"
+touch "$TMP/root/agents/wc2/.claude/channels/telegram/transcript.jsonl"
+run_wd 1 1
+assert_eq "no delivery while the turn is still producing output" "0" "$(count sendMessage)"
+assert_eq "no error edit for a live turn" "0" "$(count editMessageText)"
+assert_eq "placeholder preserved (turn still running)" "yes" "$(pend_exists "$PC2")"
+# Case (d) below runs the watchdog with the agent DOWN, which legitimately fires
+# for every old placeholder in the tree -- including this one. Take it out so
+# (d) still counts exactly one delivery.
+rm -rf "$TMP/root/agents/wc2"
 
 # ---------------------------------------------------------------------------
 # (d) Agent DOWN + past the down grace -> fire with real answer

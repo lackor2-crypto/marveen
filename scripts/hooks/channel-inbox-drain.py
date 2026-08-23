@@ -30,6 +30,140 @@ except ImportError:
     _HAS_LEDGER = False
 
 
+# The arrival receipt posted by scripts/channel-inbound-tee.mjs ("Megkaptam,
+# sorban all...") is handed over to the turn here: the text is updated to the
+# working state, and the record is moved into the per-session progress file that
+# telegram_progress_clear.py (Stop) and telegram_progress_reply_clear.py
+# (PostToolUse) already own. Two things follow from that handover, and the
+# second one is the bigger fix:
+#   * the sender sees the state change from "queued" to "being worked on";
+#   * the Stop-hook DELIVERY ENFORCEMENT starts working for sub-agents at all.
+#     That enforcement -- "you ended the turn without replying on Telegram, send
+#     the answer now, and if you still do not, the hook posts your final answer
+#     for you" -- keys off exactly this pending-placeholder file, which for a
+#     sub-agent was never written by anyone. A sub-agent could therefore finish
+#     a turn in silence and nothing noticed.
+RECEIPT_WORKING_TEXT = "\u270d\ufe0f Dolgozom rajta\u2026"
+# One turn adopts at most this many receipts: a backlog of unanswered inbound
+# messages must not turn into an unbounded pile of edit calls.
+MAX_RECEIPTS = 20
+
+
+def _api_base():
+    return (os.environ.get("TELEGRAM_API_BASE") or "https://api.telegram.org").rstrip("/")
+
+
+def _token(state_dir):
+    try:
+        for line in open(os.path.join(state_dir, ".env"), encoding="utf-8"):
+            line = line.strip()
+            if line.startswith("TELEGRAM_BOT_TOKEN="):
+                return line.split("=", 1)[1].strip() or None
+    except Exception:
+        return None
+    return None
+
+
+def _api(tok, method, payload):
+    import urllib.request
+
+    req = urllib.request.Request(
+        "%s/bot%s/%s" % (_api_base(), tok, method),
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=8) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _adopt_receipts(state_dir, sid, transcript_path):
+    """Move the tee's arrival receipts into this session's progress file.
+
+    Fail-open in every branch: a receipt that cannot be updated is cosmetic, a
+    hook that raises would block message delivery itself.
+    """
+    progress = os.path.join(state_dir, "progress")
+    path = os.path.join(progress, "arrival.jsonl")
+    if not os.path.exists(path) or os.path.getsize(path) == 0:
+        return []
+    # Claim by rename first: two hooks firing at the same moment (the prompt
+    # drain and the Stop drain) must not both adopt the same receipt.
+    claimed = os.path.join(progress, "arrival-taken-%d.jsonl" % os.getpid())
+    try:
+        os.rename(path, claimed)
+    except Exception:
+        return []
+
+    receipts = []
+    seen = set()
+    try:
+        with open(claimed, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                chat_id = entry.get("chat_id")
+                message_id = entry.get("message_id")
+                if chat_id is None or message_id is None:
+                    continue
+                key = (str(chat_id), message_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                receipts.append({"chat_id": str(chat_id), "message_id": message_id})
+    except Exception:
+        receipts = []
+    try:
+        os.unlink(claimed)
+    except Exception:
+        pass
+    if not receipts:
+        return []
+    receipts = receipts[-MAX_RECEIPTS:]
+
+    tok = _token(state_dir)
+    if tok:
+        for r in receipts:
+            try:
+                _api(tok, "editMessageText", {
+                    "chat_id": r["chat_id"],
+                    "message_id": r["message_id"],
+                    "text": RECEIPT_WORKING_TEXT,
+                })
+            except Exception:
+                # Already edited, deleted by the user, network hiccup -- the
+                # record still has to reach the progress file below, otherwise
+                # the placeholder would never be cleaned up.
+                pass
+
+    entries = []
+    for r in receipts:
+        entry = dict(r)
+        if transcript_path:
+            entry["transcript_path"] = transcript_path
+        entries.append(entry)
+    try:
+        os.makedirs(progress, exist_ok=True)
+        pending_path = os.path.join(progress, "%s.json" % (sid or "default"))
+        old = []
+        try:
+            with open(pending_path, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                old = loaded
+        except Exception:
+            old = []
+        with open(pending_path, "w", encoding="utf-8") as f:
+            json.dump(old + entries, f)
+    except Exception:
+        pass
+    return entries
+
+
 PREFIX = "[Telegram inbox drain -- %d fuggoben levo uzenet erkezett mikozben a session masszal foglalkozott:]"
 
 
@@ -232,6 +366,17 @@ def drain(payload):
     state_dir = _state_dir(payload)
     if not state_dir or not os.path.isdir(state_dir):
         return ""
+    # Before anything else, and whether or not this turn has mail to deliver:
+    # an outstanding receipt means the owner is waiting on an answer, and this
+    # session is the one that owes it.
+    try:
+        _adopt_receipts(
+            state_dir,
+            (payload or {}).get("session_id") or "default",
+            (payload or {}).get("transcript_path") or "",
+        )
+    except Exception:
+        pass
     claimed = _claim_one(state_dir)
     if not claimed:
         return ""
@@ -313,6 +458,70 @@ def self_test():
         assert 'attachment_0_name="a.png"' in out
         assert not os.path.exists(pending)
         assert not glob.glob(os.path.join(state, "inbox-draining-*.jsonl"))
+
+    # Receipt handover (Boss 2026-08-23). Two properties are load-bearing:
+    # the sender's "queued" message becomes the working text, and the record
+    # lands in the per-session progress file -- which is what makes the Stop
+    # hook enforce that this turn actually answers on Telegram.
+    import http.server
+    import threading
+
+    calls = []
+
+    class _Stub(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            calls.append((self.path, json.loads(body.decode("utf-8"))))
+            payload = json.dumps({"ok": True, "result": {"message_id": 1}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), _Stub)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            state = os.path.join(td, ".claude", "channels", "telegram")
+            os.makedirs(os.path.join(state, "progress"))
+            with open(os.path.join(state, ".env"), "w", encoding="utf-8") as f:
+                f.write("TELEGRAM_BOT_TOKEN=123:abc\n")
+            with open(os.path.join(state, "progress", "arrival.jsonl"), "w", encoding="utf-8") as f:
+                f.write(json.dumps({"chat_id": "c1", "message_id": 7, "src_message_id": 555}) + "\n")
+                # Same receipt twice (relay restart): adopted once.
+                f.write(json.dumps({"chat_id": "c1", "message_id": 7}) + "\n")
+            os.environ["TELEGRAM_API_BASE"] = "http://127.0.0.1:%d" % srv.server_address[1]
+            try:
+                adopted = _adopt_receipts(state, "sid1", "/tmp/t.jsonl")
+            finally:
+                os.environ.pop("TELEGRAM_API_BASE", None)
+
+            assert len(adopted) == 1, adopted
+            assert [c[0] for c in calls] == ["/bot123:abc/editMessageText"], calls
+            assert calls[0][1]["text"] == RECEIPT_WORKING_TEXT
+            assert calls[0][1]["message_id"] == 7
+            pending = json.load(open(os.path.join(state, "progress", "sid1.json"), encoding="utf-8"))
+            assert pending == [{"chat_id": "c1", "message_id": 7, "transcript_path": "/tmp/t.jsonl"}], pending
+            # Consumed: a second turn must not re-adopt or re-edit it.
+            assert not os.path.exists(os.path.join(state, "progress", "arrival.jsonl"))
+            calls.clear()
+            assert _adopt_receipts(state, "sid1", "") == []
+            assert calls == []
+
+            # No token configured -> no API call, but the handover still happens,
+            # otherwise the placeholder would never be cleared.
+            with open(os.path.join(state, ".env"), "w", encoding="utf-8") as f:
+                f.write("\n")
+            with open(os.path.join(state, "progress", "arrival.jsonl"), "w", encoding="utf-8") as f:
+                f.write(json.dumps({"chat_id": "c2", "message_id": 8}) + "\n")
+            assert len(_adopt_receipts(state, "sid2", "")) == 1
+            assert calls == []
+    finally:
+        srv.shutdown()
 
     # The batch ceilings had NO coverage -- not here, not in the vitest suite --
     # even though they are the only thing standing between a fortnight of

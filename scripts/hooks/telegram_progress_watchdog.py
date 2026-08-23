@@ -140,6 +140,31 @@ def _is_reply_tool(name):
     return "telegram" in n and "reply" in n
 
 
+# A turn that is still producing output is not wedged -- it is long. The
+# backstop below posts the agent's LAST assistant message to the chat, so
+# firing on a live turn means the owner gets an intermediate thought presented
+# as the answer. Sub-agent turns routinely run past fifteen minutes (2026-08-23:
+# they now get placeholders too, via the arrival receipt handover in
+# channel-inbox-drain.py), and the main agent has always been one long turn away
+# from the same thing. The transcript file is appended to as the turn runs, so
+# its mtime is the cheapest honest liveness signal available here.
+TRANSCRIPT_ACTIVE_SEC = 180
+
+
+def transcript_active(transcript_path):
+    """True when the turn wrote to its transcript in the last few minutes.
+
+    Unknown path -> False: without evidence of life, the old backstop behaviour
+    stands rather than silently disabling itself.
+    """
+    if not transcript_path:
+        return False
+    try:
+        return (time.time() - os.path.getmtime(transcript_path)) < TRANSCRIPT_ACTIVE_SEC
+    except Exception:
+        return False
+
+
 def read_transcript(transcript_path):
     """Return (last_assistant_text, reply_is_hung).
 
@@ -257,7 +282,7 @@ def handle_dir(progress_dir):
         elif reply_hung and age > up_sec:
             fire = True
             reason = "reply-hung"
-        elif age > WEDGED_SEC:
+        elif age > WEDGED_SEC and not transcript_active(transcript_path):
             fire = True
             reason = "wedged-backstop"
         else:
