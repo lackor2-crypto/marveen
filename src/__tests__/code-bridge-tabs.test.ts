@@ -25,8 +25,9 @@ import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, recordCodeCandidates,
   _resetCodeCandidates, listCodeTabs, enqueueCodeTask, claimNextCodeTask,
-  recordCodeWorkerSeen, WORKER_STALE_MS,
+  recordCodeWorkerSeen, WORKER_STALE_MS, listCodeSessions,
 } from '../web/code-bridge-store.js'
+import { displayBotName } from '../web/code-bridge-telegram.js'
 import { tryHandleCode } from '../web/routes/code.js'
 import { writeBrokerConfig } from '../web/context-broker-store.js'
 import { mkdirSync } from 'node:fs'
@@ -287,5 +288,94 @@ describe('a VS Code kartya: szerepek es nev', () => {
     expect(res.body.codeBot.reason).toBe('not-configured')
     expect(res.body.codeBot.name).toBeNull()
     expect(res.body.codeBot.error).toBeNull()
+  })
+
+  // Boss, 2026-08-23: "A nevbol lehagyhattad volna mar a bot veget. a tobbinel
+  // sincsen..." + "es a kukac sem kell az elejere".
+  it('a kartya-nev nem viseli sem a kukacot, sem a bot-veget', () => {
+    expect(displayBotName('@marveen_vscode_bot')).toBe('marveen vscode')
+    expect(displayBotName('marveen_vscode_bot')).toBe('marveen vscode')
+    expect(displayBotName('@MarveenBot')).toBe('Marveen')
+    // Ha a levagas utan semmi nem maradna, inkabb a teljes nev alljon ott:
+    // ures cim rosszabb a csunya nevnel.
+    expect(displayBotName('@bot')).toBe('bot')
+    expect(displayBotName('@_bot')).toBe('_bot')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// NYITOTT FULEK. Boss, 2026-08-23: "a vscode kartyan latok vagy 5 chat fulet.
+// a vscode ban meg 2 van. (...) amit a vscode ban kitorolnek azt a maveen
+// kartyaja se mutassa!"
+//
+// A bezart ful transcriptje a lemezen MARAD (merve: 20 fajl, 2 nyitott ful),
+// ezert a worker kulon meri, mi van nyitva (elo PID a ~/.claude/sessions
+// alapjan), es azt kuldi `live` mezoben. A NULLA itt is ket dolgot jelenthet:
+// "nincs nyitva" (`false`) es "nem latunk oda" (`null`) -- a ketto NEM
+// ugyanazt a listat eredmenyezi.
+describe('chat fulek: csak ami tenyleg nyitva van', () => {
+  it('a bezart fulet nem mutatja, a nyitottat igen', () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 2)
+    recordCodeCandidates('WINPC', [
+      { workspacePath: WS, sessionId: NEW, mtime: 2000, title: 'nyitott', primary: true, live: true },
+      { workspacePath: WS, sessionId: OLD, mtime: 1000, title: 'bezart', primary: false, live: false },
+    ])
+    const view = listCodeTabs()
+    expect(view.projects[0]!.tabs.map((t) => t.sessionId)).toEqual([NEW])
+  })
+
+  it('regi worker (nincs `live` mezo) mellett valtozatlanul minden ful latszik', () => {
+    reportTwoTabs()
+    const view = listCodeTabs()
+    expect(view.projects[0]!.tabs).toHaveLength(2)
+    expect(view.projects[0]!.tabs.every((t) => t.live === null)).toBe(true)
+  })
+
+  it('a cimzett (current) ful akkor is bent marad, ha eppen nincs nyitva', async () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 2)
+    recordCodeCandidates('WINPC', [
+      { workspacePath: WS, sessionId: OLD, mtime: 1000, title: 'bekotott, de bezart', primary: true, live: false },
+      { workspacePath: WS, sessionId: NEW, mtime: 2000, title: 'masik, bezart', primary: false, live: false },
+    ])
+    await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: OLD })
+    const view = listCodeTabs()
+    // Ha ez eltunne, a lap ugy nezne ki, mintha a projekt cimezhetetlen lenne.
+    expect(view.projects[0]!.tabs.map((t) => t.sessionId)).toEqual([OLD])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TORLES. Boss, 2026-08-23: "es a torles gombot is tedd fel."
+//
+// A puszta DELETE hazug gomb lenne: a felderites egy percen belul ujra
+// bekotne ugyanazt a mappat.
+describe('kartya levetele', () => {
+  it('a torles utan a felderites NEM koti be ujra', async () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 1)
+    await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: NEW })
+    const del = await call('DELETE', '/api/code/projects/tozsde')
+    expect(del.body.deleted).toBe(true)
+    expect(del.body.forgotten).toBe(true)
+
+    const report = await call('POST', '/api/code/sessions', {
+      host: 'WINPC',
+      sessions: [{ workspacePath: WS, sessionId: NEW, mtime: 3000, primary: true, live: true }],
+    })
+    expect(report.body.registered).toEqual([])
+    expect(listCodeSessions()).toHaveLength(0)
+  })
+
+  it('kezi bekotessel visszahozhato -- a levetel nem vegleges', async () => {
+    await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: NEW })
+    await call('DELETE', '/api/code/projects/tozsde')
+    const again = await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: NEW })
+    expect(again.status).toBe(200)
+    expect(listCodeSessions().map((s) => s.project)).toEqual(['tozsde'])
+
+    const report = await call('POST', '/api/code/sessions', {
+      host: 'WINPC',
+      sessions: [{ workspacePath: WS, sessionId: NEW, mtime: 4000, primary: true, live: true }],
+    })
+    expect(report.body.registered).toEqual(['tozsde'])
   })
 })

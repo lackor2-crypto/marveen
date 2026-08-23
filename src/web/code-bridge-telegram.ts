@@ -38,9 +38,27 @@ import { shortId } from './code-bridge-notify.js'
 // enelkul is mukodik), vagy VAN token, de nem tudtuk lekerdezni (halozat,
 // visszavont token). A masodikat SOSE talalgatjuk: a Telegram sajat hibauzenete
 // megy tovabb.
+/** A kepernyore szant nev a Telegram-felhasznalonevbol.
+ *
+ *  Boss, 2026-08-23: "A nevbol lehagyhattad volna mar a bot veget. a tobbinel
+ *  sincsen..." -- a tobbi ugynok is a SAJAT neven all a kartyan, nem a
+ *  bot-azonositojan. Lekerul a `@`, a vegerol a `_bot` / `bot` toldalek, es az
+ *  alahuzasokbol szokoz lesz.
+ *
+ *  Ha a levagas utan nem marad semmi (`@bot`, `@_bot`), akkor a TELJES nevet
+ *  adjuk vissza: ures cim helyett inkabb csunya, de valodi nev alljon ott. */
+export function displayBotName(username: string): string {
+  const raw = (username ?? '').trim().replace(/^@/, '')
+  const trimmed = raw.replace(/[_-]?bot$/i, '').replace(/[_-]+/g, ' ').trim()
+  return trimmed || raw
+}
+
 export interface CodeBotIdentity {
-  /** `@valami_bot`, vagy null, ha nincs mit mondani. */
+  /** A kartyara kerulo nev, `@` es `_bot` veg nelkul (pl. `marveen vscode`). */
   name: string | null
+  /** A teljes Telegram-felhasznalonev (`@valami_bot`) -- ez a cimezheto alak,
+   *  ezert a sugoban/beallitasoknal EZ kell, nem a rovidites. */
+  username: string | null
   reason: 'ok' | 'not-configured' | 'unresolved'
   /** Csak `unresolved` eseten: a TENYLEGES hiba, nem tipp. */
   error: string | null
@@ -51,20 +69,20 @@ const CODE_BOT_NAME_TTL_MS = 60 * 60 * 1000
 // egy halott halozat kulonben minden health-hivasra rarakna a timeoutot.
 const CODE_BOT_RETRY_MS = 5 * 60 * 1000
 
-let codeBotIdentity: CodeBotIdentity = { name: null, reason: 'not-configured', error: null }
+let codeBotIdentity: CodeBotIdentity = { name: null, username: null, reason: 'not-configured', error: null }
 let codeBotFetchedAt = 0
 let codeBotInflight: Promise<void> | null = null
 
 /** Csak teszthez: uritsd a gyorsitotarat. */
 export function _resetCodeBotIdentityCache(): void {
-  codeBotIdentity = { name: null, reason: 'not-configured', error: null }
+  codeBotIdentity = { name: null, username: null, reason: 'not-configured', error: null }
   codeBotFetchedAt = 0
   codeBotInflight = null
 }
 
 export async function resolveCodeBotIdentity(now = Date.now()): Promise<CodeBotIdentity> {
   if (CODE_BOT_TOKEN.length === 0) {
-    codeBotIdentity = { name: null, reason: 'not-configured', error: null }
+    codeBotIdentity = { name: null, username: null, reason: 'not-configured', error: null }
     codeBotFetchedAt = 0
     return codeBotIdentity
   }
@@ -75,8 +93,8 @@ export async function resolveCodeBotIdentity(now = Date.now()): Promise<CodeBotI
       const r = await validateTelegramToken(CODE_BOT_TOKEN)
       codeBotFetchedAt = Date.now()
       codeBotIdentity = r.ok && r.botUsername
-        ? { name: `@${r.botUsername}`, reason: 'ok', error: null }
-        : { name: null, reason: 'unresolved', error: r.error ?? null }
+        ? { name: displayBotName(r.botUsername), username: `@${r.botUsername}`, reason: 'ok', error: null }
+        : { name: null, username: null, reason: 'unresolved', error: r.error ?? null }
       codeBotInflight = null
     })()
   }

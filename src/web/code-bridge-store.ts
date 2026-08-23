@@ -105,6 +105,19 @@ function ensureTables(): void {
       updated_at INTEGER NOT NULL
     )
   `)
+  // A tulaj ALTAL LEVETT mappak. Enelkul a "Torles" gomb hazug lenne: a
+  // felderites a kovetkezo korben (~1 perc) ujra bejelentene ugyanazt a
+  // mappat, es a kartya visszajonne -- a gomb ugy nezne ki, mintha nem
+  // csinalt volna semmit (Boss, 2026-08-23: "es a torles gombot is tedd fel").
+  // Visszavonhato: ha a tulaj ujra bekoti a mappat a feluletrol, a sor torlodik.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS code_dismissed (
+      workspace_key TEXT PRIMARY KEY,
+      workspace_path TEXT NOT NULL,
+      project TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `)
   db.exec(`
     CREATE TABLE IF NOT EXISTS code_tasks (
       id TEXT PRIMARY KEY,
@@ -169,13 +182,52 @@ const ALIAS_MAX = 40
 
 /** Aliases are what the owner types on a phone keyboard: lowercase, ASCII-ish,
  *  no spaces. Everything else is folded away so `/code TradingBot ...` and
- *  `/code tradingbot ...` are the same project. */
+ *  `/code tradingbot ...` are the same project.
+ *
+ *  Az ekezetet LE KELL BONTANI, nem eldobni. 2026-08-23-ig a `Fejlesztés`
+ *  mappabol `fejleszts` lett -- Boss: "miert van hibasan a fejleszts.. ts?
+ *  honnan van ez a szo? hibas lenne egy mapanev?" A mappanev hibatlan volt, a
+ *  normalizalas ette meg az `e`-t az `é` helyen. Az NFD-bontas utan az ekezet
+ *  kulon jel, amit a szures elvisz, a betu pedig megmarad: `fejlesztes`. */
 export function normalizeAlias(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    // Amit az NFD nem bont (o-kalapos/u-kalapos mar bomlik, de a német ß es a
+    // lengyel ł nem), azt kezzel kotjuk le -- kulonben megint nemaan eltunne.
+    .replace(/ß/g, 'ss')
+    .replace(/ł/g, 'l')
     .replace(/[^a-z0-9_-]+/g, '')
     .slice(0, ALIAS_MAX)
+}
+
+/** Egyszeri atnevezes a REGI (ekezetet eldobo) aliasokrol az ujakra.
+ *
+ *  Enelkul a `fejleszts` sor bent maradna, a felderites melle regisztralna a
+ *  `fejlesztes`-t, es a tulaj ket kartyat latna ugyanarra a mappara -- plusz a
+ *  kiosztott szerep (`vscode:fejleszts`) egy nem letezo gazdara mutatna.
+ *  A hivo adja at a szerep-atiratast, hogy ez a modul ne fuggjon a brokertol. */
+export function migrateLegacyAliases(renameRole?: (from: string, to: string) => void): string[] {
+  ensureTables()
+  const db = getDb()
+  const rows = db.prepare(`SELECT project FROM code_sessions`).all() as { project: string }[]
+  const renamed: string[] = []
+  for (const r of rows) {
+    // A regi alias mar atesett a regi normalizaláson, ezert az uj szabalyt a
+    // MAPPA nevere kell futtatni; ha nincs sor hozza, marad minden.
+    const row = getCodeSession(r.project)
+    if (!row) continue
+    const want = aliasFromWorkspacePath(row.workspacePath)
+    if (!want || want === row.project) continue
+    if (getCodeSession(want)) continue // a helyes nev mar letezik: nem irunk felul semmit
+    db.prepare(`UPDATE code_sessions SET project = ? WHERE project = ?`).run(want, row.project)
+    db.prepare(`UPDATE code_tasks SET project = ? WHERE project = ?`).run(want, row.project)
+    if (renameRole) renameRole(`vscode:${row.project}`, `vscode:${want}`)
+    renamed.push(`${row.project} -> ${want}`)
+  }
+  return renamed
 }
 
 /** Default alias derived from a workspace path's last segment:
@@ -332,6 +384,57 @@ export function deleteCodeSession(project: string): boolean {
   ensureTables()
   const info = getDb().prepare(`DELETE FROM code_sessions WHERE project = ?`).run(normalizeAlias(project))
   return info.changes > 0
+}
+
+/** A mappa ossze-vissza irt utja (kis/nagybetu, zaro perjel) ugyanazt a helyet
+ *  jelenti; a kulcs ezt normalizalja. */
+function workspaceKey(workspacePath: string): string {
+  return workspacePath.trim().replace(/[\\/]+$/, '').toLowerCase()
+}
+
+/** A tulaj levette a kartyat: a felderites tobbe ne kosse be ujra ezt a mappat.
+ *  A beszelgeteshez, a mappahoz es a fajlokhoz EZ NEM NYUL. */
+export function dismissCodeWorkspace(workspacePath: string, project: string | null, now = Date.now()): void {
+  ensureTables()
+  if (!workspacePath.trim()) return
+  getDb()
+    .prepare(
+      `INSERT INTO code_dismissed (workspace_key, workspace_path, project, created_at)
+       VALUES (@key, @path, @project, @created_at)
+       ON CONFLICT(workspace_key) DO UPDATE SET
+         workspace_path = excluded.workspace_path,
+         project = excluded.project,
+         created_at = excluded.created_at`,
+    )
+    .run({ key: workspaceKey(workspacePath), path: workspacePath, project, created_at: now })
+}
+
+/** Visszavonas: a mappa ujra bekothetó. Ezt a kezi bekotes hivja, kulonben a
+ *  tulaj a sajat feluleterol nem tudna visszahozni, amit egyszer levett. */
+export function undismissCodeWorkspace(workspacePath: string): boolean {
+  ensureTables()
+  const info = getDb().prepare(`DELETE FROM code_dismissed WHERE workspace_key = ?`).run(workspaceKey(workspacePath))
+  return info.changes > 0
+}
+
+export function isDismissedWorkspace(workspacePath: string): boolean {
+  ensureTables()
+  const row = getDb()
+    .prepare(`SELECT 1 AS n FROM code_dismissed WHERE workspace_key = ?`)
+    .get(workspaceKey(workspacePath)) as { n: number } | undefined
+  return row !== undefined
+}
+
+export function listDismissedWorkspaces(): { workspacePath: string; project: string | null; createdAt: number }[] {
+  ensureTables()
+  const rows = getDb()
+    .prepare(`SELECT workspace_path, project, created_at FROM code_dismissed ORDER BY created_at DESC`)
+    .all() as Record<string, unknown>[]
+  return rows.map((r) => ({
+    workspacePath: r['workspace_path'] as string,
+    project: (r['project'] as string | null) ?? null,
+    createdAt: r['created_at'] as number,
+  }))
 }
 
 /**
@@ -896,6 +999,20 @@ export interface CodeCandidate {
    *  transcript). Nulla tokenes elo beszelgetes nem letezik, ezert a felulet
    *  a `null`-t sosem irhatja ki 0-nak. */
   contextTokens: number | null
+  /** NYITVA van-e a ful a VS Code-ban. A worker a `~/.claude/sessions/<pid>.json`
+   *  fajlokbol meri (elo PID + sessionId), mert a bezart ful transcriptje ott
+   *  MARAD a lemezen -- ezert latszott 5 ful, ahol a VS Code-ban 2 volt
+   *  (Boss, 2026-08-23).
+   *
+   *  Harom allapot, mert a "nem latok oda" nem ugyanaz, mint a "nincs nyitva":
+   *   - `true`  : nyitva van
+   *   - `false` : MERTUK, hogy nincs nyitva
+   *   - `null`  : nem latunk oda (regi worker, olvashatatlan mappa) */
+  live: boolean | null
+  /** MELYIK MODELL felel ebben a beszelgetesben (pl. `claude-opus-5`). A
+   *  transcript utolso assistant-sorabol jon, ugyanabbol, ahonnan a kontextus.
+   *  `null` = nem latunk oda -- olyankor a felulet sem talalhat ki egyet. */
+  model: string | null
 }
 
 /** Egy gepen ennyi projekt folott a lista amugy is athatolhatatlan lenne, es
@@ -912,6 +1029,8 @@ export function recordCodeCandidates(
     title?: string
     primary?: boolean
     contextTokens?: number
+    live?: boolean | null
+    model?: string
   }[],
   now = Date.now(),
 ): void {
@@ -942,6 +1061,10 @@ export function recordCodeCandidates(
         typeof s.contextTokens === 'number' && Number.isFinite(s.contextTokens) && s.contextTokens > 0
           ? Math.round(s.contextTokens)
           : null,
+      // Csak a KIFEJEZETT logikai valasz szamit meresnek; barmi mas (hianyzo
+      // mezo, regi worker) azt jelenti: nem latunk oda.
+      live: typeof s.live === 'boolean' ? s.live : null,
+      model: typeof s.model === 'string' && s.model.trim() ? s.model.trim().slice(0, 60) : null,
     })
     if (mine.length >= MAX_CANDIDATES) break
   }
@@ -983,6 +1106,11 @@ export interface CodeTab {
   /** Az eppen hasznalt kontextus tokenben, vagy `null` = nem latunk oda.
    *  Reszletek a `CodeCandidate.contextTokens`-nel. */
   contextTokens: number | null
+  /** Nyitva van-e a ful a VS Code-ban; `null` = nem latunk oda.
+   *  Reszletek a `CodeCandidate.live`-nal. */
+  live: boolean | null
+  /** A beszelgetesben eppen felelo modell, vagy `null` = nem latunk oda. */
+  model: string | null
 }
 
 export interface CodeTabProject {
@@ -1053,11 +1181,27 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
       // legfrissebb ful --, kulonben a lista mast mutatna, mint ami tortenne.
       current: registered ? registered.sessionId === c.sessionId : c.primary,
       contextTokens: c.contextTokens,
+      live: c.live,
+      model: c.model,
     })
   }
 
+  // Boss, 2026-08-23: "amit a vscode ban kitorolnek azt a maveen kartyaja se
+  // mutassa!" -- a bezart ful transcriptje a lemezen marad, ezert a listat a
+  // MERT nyitottsag szuri. Ket dolgot viszont sosem dobunk el:
+  //   * a `current` fulet (oda megy a feladat, ha senki nem valaszt kulon):
+  //     ha eltunne, a lap ugy nezne ki, mintha a projekt cimezhetetlen lenne;
+  //   * semmit, ha a worker egyaltalan nem jelent nyitottsagot (mindenhol
+  //     `live === null`), mert olyankor NEM TUDJUK, mi van nyitva -- regi
+  //     worker mellett tehat valtozatlan a viselkedes.
+  const filterLive = (tabs: CodeTab[]): CodeTab[] => {
+    if (!tabs.some((t) => t.live !== null)) return tabs
+    const kept = tabs.filter((t) => t.live === true || t.current)
+    return kept.length > 0 ? kept : tabs.filter((t) => t.current)
+  }
+
   const projects = [...groups.values()]
-    .map((g) => ({ ...g, tabs: g.tabs.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0)) }))
+    .map((g) => ({ ...g, tabs: filterLive(g.tabs).sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0)) }))
     .sort((a, b) => (b.tabs[0]?.mtime ?? 0) - (a.tabs[0]?.mtime ?? 0))
 
   const reason: CodeTabsView['reason'] = workerOnline

@@ -22,6 +22,7 @@ import {
 } from '../../config.js'
 import {
   listCodeSessions, getCodeSession, upsertCodeSession, deleteCodeSession,
+  dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   clearFinishedCodeTasks,
@@ -312,16 +313,43 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // amit a felulet "nem tudom"-kent mond el, nem nullakent.
     const tabs = listCodeTabs()
     const tokensBySession = new Map<string, number>()
+    const modelBySession = new Map<string, string>()
     for (const g of tabs.projects) {
-      for (const tb of g.tabs) if (tb.contextTokens !== null) tokensBySession.set(tb.sessionId, tb.contextTokens)
+      for (const tb of g.tabs) {
+        if (tb.contextTokens !== null) tokensBySession.set(tb.sessionId, tb.contextTokens)
+        if (tb.model !== null) modelBySession.set(tb.sessionId, tb.model)
+      }
     }
+    // Boss, 2026-08-23: "nem lenne celszeru oda kitenni a elo chateket? es egy
+    // jelolonegyzetet eleje tenni? amelyik be van jelolve az az aktualis elo."
+    // -- a kartyan is valaszthato legyen, melyik beszelgetesbe megy a munka.
+    // Csak azok a fulek mennek ki, amiket a worker NYITOTTKENT mert; a lista
+    // uressege ket dolgot jelenthet, ezert megy ki a `tabsReason` is.
+    const tabsByWorkspace = new Map<string, typeof tabs.projects[number]>()
+    for (const g of tabs.projects) tabsByWorkspace.set(g.workspacePath.toLowerCase(), g)
     const projects = listCodeSessions().map((p) => ({
       ...p,
+      tabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.tabs ?? []).map((tb) => ({
+        sessionId: tb.sessionId,
+        shortId: tb.shortId,
+        title: tb.title,
+        live: tb.live,
+        current: tb.sessionId === p.sessionId,
+        contextTokens: tb.contextTokens,
+        model: tb.model,
+      })),
       roleHolder: `vscode:${p.project}`,
       roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
       contextTokens: tokensBySession.get(p.sessionId) ?? null,
+      // A modell NEM fix: azt mutatjuk, amivel a beszelgetes eppen valaszolt
+      // (Boss, 2026-08-23: "ne fix legyen hanem dinamikus attol fuggoen hogy
+      // mi van kivalasztva a vscodban"). `null` = nem latunk oda -- kitalalt
+      // modellnevet nem irunk ki.
+      model: modelBySession.get(p.sessionId) ?? null,
     }))
-    json(res, { projects, permissionMode: CODE_PERMISSION_MODE, rolesAssigned: anyAssigned })
+    // `tabsReason`: a felulet enelkul nem tudna megkulonboztetni a "nincs
+    // tobb nyitott beszelgetes"-t a "nem futott meg a Windows-munkas"-tol.
+    json(res, { projects, permissionMode: CODE_PERMISSION_MODE, rolesAssigned: anyAssigned, tabsReason: tabs.reason })
     return true
   }
 
@@ -354,6 +382,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       return true
     }
     try {
+      // A kezi bekotes VISSZAVONJA a korabbi levetelt -- kulonben a tulaj a
+      // sajat feluleterol nem tudna visszahozni, amit egyszer letorolt.
+      undismissCodeWorkspace(workspacePath)
       // An explicit map from the owner is a pin by default: it exists precisely
       // to stop discovery from moving the alias somewhere else.
       const session = upsertCodeSession({
@@ -372,8 +403,16 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
   const projectMatch = /^\/api\/code\/projects\/([^/]+)$/.exec(path)
   if (projectMatch && method === 'DELETE') {
-    const ok = deleteCodeSession(safeDecode(projectMatch[1]!))
-    json(res, { deleted: ok }, ok ? 200 : 404)
+    const alias = safeDecode(projectMatch[1]!)
+    // A mappa utjat MEG A TORLES ELOTT kell kiolvasni: utana mar nincs honnan.
+    const row = listCodeSessions().find((s) => s.project === alias)
+    // Csak a torles keves lenne: a felderites egy percen belul ujra bekotne
+    // ugyanazt a mappat, es a gomb ugy nezne ki, mintha nem tortent volna semmi.
+    // A `forget=0` a regi viselkedes (csak a sor torlese).
+    const forget = url.searchParams.get('forget') !== '0'
+    if (forget && row) dismissCodeWorkspace(row.workspacePath, alias)
+    const ok = deleteCodeSession(alias)
+    json(res, { deleted: ok, forgotten: forget && row !== undefined, workspacePath: row?.workspacePath ?? null }, ok ? 200 : 404)
     return true
   }
 
@@ -391,6 +430,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
        *  es cimezheto legyen), de projektkent csak a primary regisztralodik --
        *  kulonben egy mappa 10 fule 10 alias ala akarna beulni ugyanazon a neven. */
       primary?: boolean
+      /** Nyitva van-e a ful a VS Code-ban (elo PID a ~/.claude/sessions alapjan).
+       *  Regi worker nem kuldi -> ott `undefined`, ami "nem latunk oda". */
+      live?: boolean | null
+      contextTokens?: number
+      /** Melyik modell felel a beszelgetesben (a transcript utolso soraból). */
+      model?: string
     }
     const body = await parseJsonBody<{ host?: string; sessions?: ReportedSession | ReportedSession[] }>(ctx)
     // A single session may arrive as a bare object rather than a one-element
@@ -435,6 +480,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         deleteCodeSession(alias)
         continue
       }
+      // A tulaj levette ezt a mappat a feluletrol. A fulek jeloltkent tovabbra
+      // is latszanak (igy vissza tudja hozni), projektkent viszont nem kotjuk
+      // be ujra.
+      if (isDismissedWorkspace(s.workspacePath)) continue
       try {
         const row = upsertCodeSession(
           {

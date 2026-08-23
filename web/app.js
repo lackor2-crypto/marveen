@@ -4065,6 +4065,27 @@ function channelTip(isConnected) {
     : t('agents.offline_tip')
 }
 
+// A kartyan a nev alatti leiras BEFEJEZETT mondat legyen, ne fel szo.
+//
+// Boss, 2026-08-23: "oda olyat tegyel ki irast aminek van vege. olyat nem jo
+// latni hogy bot)... es talalja ki a user mi van utana.. nem. csak annyit irj
+// amennyi kifer. es roviden tomoren. az osszes kartyan."
+//
+// Ezert NEM a CSS vagja el a szoveget: eloszor az ELSO MONDATOT probaljuk (az
+// keszen van, es rendszerint az mondja meg, mi ez), es csak ha az sem fer ki,
+// akkor vagunk -- akkor is SZOHATARON. A teljes szoveg a tooltipben marad, igy
+// nem vesz el semmi.
+function shortDesc(text, max = 110) {
+  const full = String(text ?? '').replace(/\s+/g, ' ').trim()
+  if (!full) return ''
+  if (full.length <= max) return full
+  const firstSentence = /^[^.!?]*[.!?](?=\s|$)/.exec(full)
+  if (firstSentence && firstSentence[0].length <= max) return firstSentence[0].trim()
+  const cut = full.slice(0, max)
+  const lastSpace = cut.lastIndexOf(' ')
+  return (lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut).replace(/[\s.,;:(-]+$/, '') + '…'
+}
+
 // Build the copy-paste tmux attach command for an agent live session. A local
 // agent session runs on the orchestrator host (a direct `tmux attach`); a remote
 // agent session runs on its configured remoteHost, reached over ssh. Only
@@ -4076,9 +4097,11 @@ function tmuxAttachCommand(agent) {
   return remoteHost ? 'ssh ' + remoteHost + " -t '" + direct + "'" : direct
 }
 
-// Append a single "copy tmux attach command" button to a running agent card.
-// Clicks copy to clipboard and never bubble to the card open-detail handler.
-function attachTmuxCopyButtons(card, agent) {
+// A "tmux attach parancs vagolapra" gomb. 2026-08-23-ig minden futo ugynok
+// KARTYAJAN ott ult, de a hetkoznapi hasznalathoz semmi koze -- a Terminal-ablak
+// ugyanazt a panelt megmutatja bongeszoben. Boss: "szedd le. nem kell az oda.
+// (...) de beteheted. had legyen ott." -- azota a Terminal-ablak fejleceben van.
+function attachTmuxCopyButtons(host, agent) {
   const cmd = tmuxAttachCommand(agent)
   const row = document.createElement('div')
   row.className = 'agent-tmux-cmds'
@@ -4098,7 +4121,7 @@ function attachTmuxCopyButtons(card, agent) {
     }).catch(() => showToast(t('agents.tmux_copy_failed')))
   })
   row.appendChild(btn)
-  card.appendChild(row)
+  host.appendChild(row)
 }
 
 // A model id like "google/gemma-4-31b-it:free" is a free-tier OpenRouter
@@ -4598,7 +4621,7 @@ function renderAgents() {
         <div class="agent-avatar"><img src="/api/marveen/avatar${avatarBust()}" alt="${escapeHtml(displayName)}"></div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(displayName)} <span class="marveen-badge">${t('agents.main_badge')}</span></div>
-          <div class="agent-desc">${escapeHtml(m.description || '')}</div>
+          <div class="agent-desc" title="${escapeAttr(m.description || '')}">${escapeHtml(shortDesc(m.description))}</div>
         </div>
       </div>
       <div class="agent-card-footer">
@@ -4682,7 +4705,7 @@ function renderAgents() {
         <div class="${avatarClass}"${avatarStyle}>${avatarHtml}</div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(label)}</div>
-          <div class="agent-desc">${escapeHtml(agent.description || '')}</div>
+          <div class="agent-desc" title="${escapeAttr(agent.description || '')}">${escapeHtml(shortDesc(agent.description))}</div>
         </div>
       </div>
       <div class="agent-card-footer">
@@ -4723,7 +4746,9 @@ function renderAgents() {
     card.addEventListener('click', () => openAgentDetail(agent.name))
     // Only running agents have a live session to look at, so only they get the
     // copy-the-tmux-command buttons.
-    if (isRunning) attachTmuxCopyButtons(card, agent)
+    // A tmux-masolo gomb 2026-08-23 ota NEM a kartyan van (Boss: "szedd le.
+    // nem kell az oda. (...) de terminalba is minek? de beteheted."): a
+    // Terminal-ablak fejlecebe kerult, oda, ahol amugy is a panelt nezed.
     wireContextControls(card, agent.name)
     agentsGrid.insertBefore(card, addBtn)
   }
@@ -4963,14 +4988,85 @@ function cbContextRowHtml(e) {
   const val = n === null
     ? t('cb.card.ctx_unknown')
     : t('cb.card.ctx_value', { n: (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') })
+  // Ugyanaz a sor, mint a tobbi ugynok-kartyan (`ctx-current`), hogy ne egy
+  // masik dobozban, mas meretben alljon ugyanaz az informacio.
   return `
-    <div class="cb-ctx-row">
-      <span class="cb-ctx-value" title="${escapeHtml(n === null ? t('cb.card.ctx_unknown_help') : t('cb.card.ctx_help', { n: String(n) }))}">${escapeHtml(val)}</span>
-      <span class="cb-ctx-actions">
-        <button class="btn-secondary btn-compact cb-ctx-compact" title="${escapeHtml(t('cb.card.compact_help'))}">${escapeHtml(t('cb.card.compact'))}</button>
-        <button class="btn-secondary btn-compact cb-ctx-clear" title="${escapeHtml(t('cb.card.clear_help'))}">${escapeHtml(t('cb.card.clear'))}</button>
-      </span>
-    </div>`
+    <div class="ctx-current" title="${escapeHtml(n === null ? t('cb.card.ctx_unknown_help') : t('cb.card.ctx_help', { n: String(n) }))}">${escapeHtml(val)}</div>`
+}
+
+/** ELO BESZELGETESEK a kartyan (Boss, 2026-08-23: "nem lenne celszeru oda
+ *  kitenni a elo chateket? es egy jelolonegyzetet eleje tenni? amelyik be van
+ *  jelolve az az aktualis elo. azt hasznlaja eppen.").
+ *
+ *  A lista CSAK azokat a fuleket mutatja, amiket a Windows-munkas nyitottkent
+ *  MERT (`live === true`) -- a bezart beszelgetes transcriptje a lemezen marad,
+ *  de a kartyan nincs helye. A bejelolt sor az, ahova a feladat megy.
+ *
+ *  Az ures lista ket dolgot jelenthet, ezert nem hallgatunk el:
+ *    * `tabsReason === 'ok' | 'empty'` -> tenyleg nincs nyitott beszelgetes;
+ *    * barmi mas (a munkas sose jelentkezett / elavult) -> NEM LATUNK ODA,
+ *      es ezt ki is irjuk, nehogy a csend "nincs"-nek latsszon. */
+function cbTabsPickHtml(e) {
+  const tabs = (e.tabs || []).filter(function (tb) { return tb.live !== false })
+  if (tabs.length === 0) {
+    const known = e.tabsReason === 'ok' || e.tabsReason === 'empty'
+    const msg = known ? t('cb.card.tabs_none') : t('cb.card.tabs_blind')
+    return '<div class="cb-tabs-pick"><div class="cb-tabs-empty" title="'
+      + escapeAttr(known ? t('cb.card.tabs_none_help') : t('cb.card.tabs_blind_help'))
+      + '">' + escapeHtml(msg) + '</div></div>'
+  }
+  const rows = tabs.map(function (tb) {
+    const label = tb.title || tb.shortId || ''
+    const ctx = (typeof tb.contextTokens === 'number' && tb.contextTokens > 0)
+      ? t('cb.card.ctx_value', { n: (tb.contextTokens / 1000).toFixed(tb.contextTokens >= 10000 ? 0 : 1).replace('.', ',') })
+      : ''
+    return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
+      + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
+      + ' value="' + escapeAttr(tb.sessionId) + '"' + (tb.current ? ' checked' : '') + '>'
+      + '<span class="cb-tab-title">' + escapeHtml(shortDesc(label, 42)) + '</span>'
+      + (ctx ? '<span class="cb-tab-ctx">' + escapeHtml(ctx) + '</span>' : '')
+      + '</label>'
+  }).join('')
+  return '<div class="cb-tabs-pick"><div class="cb-tabs-head">' + escapeHtml(t('cb.card.tabs_title')) + '</div>' + rows + '</div>'
+}
+
+/** A valasztott beszelgetes ROGZITESE. `pinned: true` nelkul a felderites egy
+ *  percen belul visszaallitana a legfrissebb fulre, es a valasztas hatastalannak
+ *  latszana -- ugyanaz a csapda, mint a kartya-levetelnel volt. */
+async function cbPickSession(project, workspacePath, sessionId) {
+  try {
+    const res = await fetch('/api/code/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: project, workspacePath: workspacePath, sessionId: sessionId, pinned: true }),
+    })
+    const body = await res.json().catch(function () { return null })
+    if (!res.ok) { showToast(t('cb.card.tabs_pick_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
+    showToast(t('cb.card.tabs_pick_done'), 'success')
+    await loadCodeBridgeCards()
+    renderAgents()
+  } catch (err) {
+    // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
+    showToast(t('cb.card.tabs_pick_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
+  }
+}
+
+/** A kartya levetele. NEM torol se mappat, se beszelgetest -- csak a Marveen
+ *  bekoteset szunteti meg, es megjegyzi, hogy a felderites ne kosse be ujra
+ *  (kulonben egy percen belul visszajonne, es a gomb hatastalannak latszana).
+ *  Visszahozni a kod-hid ablakabol lehet, ugyanonnan, ahonnan be lett kotve. */
+async function cbDeleteProject(project) {
+  if (!confirm(t('cb.card.delete_confirm', { p: project }))) return
+  try {
+    const res = await fetch('/api/code/projects/' + encodeURIComponent(project), { method: 'DELETE' })
+    const body = await res.json().catch(() => null)
+    if (!res.ok) { showToast(t('cb.card.delete_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
+    showToast(t('cb.card.delete_done', { p: project }), 'success')
+    loadCodeBridgeCards()
+  } catch (err) {
+    // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
+    showToast(t('cb.card.delete_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
+  }
 }
 
 /** A ket gomb ugyanazon az uton megy, mint barmelyik mas feladat: a hid
@@ -5018,6 +5114,13 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
           project: r.project,
           // Lehet `null` = nem latunk ra. A kettot a kiiras kulon mondja el.
           contextTokens: (typeof r.contextTokens === 'number' && r.contextTokens > 0) ? r.contextTokens : null,
+          // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
+          // `null` = nem latunk oda -- olyankor sem talalunk ki egyet.
+          model: (typeof r.model === 'string' && r.model.trim()) ? r.model.trim() : null,
+          // Az elo beszelgetesek valasztojahoz: a POST-hoz kell a mappa utja is.
+          workspacePath: r.workspacePath || '',
+          tabs: Array.isArray(r.tabs) ? r.tabs : [],
+          tabsReason: codeBridgeCards.tabsReason,
         }
       })
     : [cbIdleCardEntry(off)]
@@ -5032,26 +5135,40 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A projektet nem nyeljuk el: ha a cim mar a bot neve, a mappa aliasa a
     // leiras elso sorara kerul -- kulonben ket azonos nevu kartya megkulonboz-
     // tethetetlen lenne.
-    const sub = [name === e.title ? '' : e.title, e.desc, botNote].filter(Boolean).join(' · ')
+    // A teljes utvonal ket sort enne el a kartyan, es a vegen ugyis elvagodna.
+    // A sorba a MAPPA NEVE kerul (azt keresi a szem), a teljes ut a tooltipbe.
+    //
+    // A gepi alias (`fejlesztes`) NEM megy ki a kartyara: a mappa neve mellett
+    // csak zaj, es 2026-08-23-ig meg hibasan is latszott (`fejleszts`) --
+    // Boss: "mi ez? es miert van hibasan a fejleszts.. ts?". Cimezni tovabbra
+    // is az aliassal lehet, ezert ott van a tooltipben es a beallitasokban.
+    const folder = e.desc ? e.desc.replace(/[\\/]+$/, '').split(/[\\/]/).pop() : ''
+    const subFull = [e.title, e.desc, botNote].filter(Boolean).join(' · ')
+    const sub = shortDesc([folder || e.title, botNote].filter(Boolean).join(' · '))
     card.innerHTML = `
       <div class="agent-card-top">
         <div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
           <div class="cb-external-badge">${escapeHtml(t('cb.card.external_badge'))}</div>
-          <div class="agent-desc">${escapeHtml(sub)}</div>
-          <div class="agent-desc cb-external-note">${escapeHtml(t('cb.card.external_note'))}</div>
+          <div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>
+          <div class="agent-desc cb-external-note" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(shortDesc(t('cb.card.external_note'), 90))}</div>
         </div>
       </div>
-      ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}
-      ${e.roleHolder ? cbContextRowHtml(e) : ''}
       <div class="agent-card-footer">
-        <span class="agent-model-badge">claude code</span>
+        <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model || t('cb.card.model_unknown'))}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
       <div class="agent-card-actions">
-        <button class="btn-secondary btn-compact code-bridge-open-btn">Beállítások</button>
-      </div>`
+        <button class="btn-secondary btn-compact code-bridge-open-btn">${escapeHtml(t('cb.card.settings'))}</button>
+        ${e.roleHolder ? `
+        <button class="btn-secondary btn-compact cb-ctx-compact" title="${escapeHtml(t('cb.card.compact_help'))}">${escapeHtml(t('cb.card.compact'))}</button>
+        <button class="btn-secondary btn-compact cb-ctx-clear" title="${escapeHtml(t('cb.card.clear_help'))}">${escapeHtml(t('cb.card.clear'))}</button>
+        <button class="btn-danger btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
+      </div>
+      ${e.roleHolder ? cbTabsPickHtml(e) : ''}
+      ${e.roleHolder ? cbContextRowHtml(e) : ''}
+      ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}`
     card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
       ev.stopPropagation()
       openCodeBridgeModal()
@@ -5063,8 +5180,15 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       box.addEventListener('click', (ev) => ev.stopPropagation())
       box.addEventListener('change', () => saveBrokerRole(e.roleHolder, box.dataset.role, box.checked))
     })
+    card.querySelectorAll('.cb-tab-row').forEach((row) => row.addEventListener('click', (ev) => ev.stopPropagation()))
+    card.querySelectorAll('.cb-tab-radio').forEach((box) => {
+      box.addEventListener('change', () => {
+        if (box.checked) cbPickSession(e.project, e.workspacePath, box.value)
+      })
+    })
     card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
-    card.querySelector('.cb-ctx-row')?.addEventListener('click', (ev) => ev.stopPropagation())
+    card.querySelector('.ctx-current')?.addEventListener('click', (ev) => ev.stopPropagation())
+    card.querySelector('.cb-delete-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbDeleteProject(e.project) })
     card.querySelector('.cb-ctx-compact')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'compact') })
     card.querySelector('.cb-ctx-clear')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'clear') })
     card.addEventListener('click', () => openCodeBridgeModal())
@@ -5111,6 +5235,9 @@ async function loadCodeBridgeCards() {
     // A kartya NEVE a kod-bot Telegram-neve, mint minden mas ugynok-kartyan.
     // Regi backend nem kuldi -> null, es marad a projekt-alias.
     bot: health.codeBot || null,
+    // Enelkul az ures ful-lista nemakent latszana: a felulet nem tudna
+    // megkulonboztetni a "nincs nyitott beszelgetes"-t a "nem latunk oda"-tol.
+    tabsReason: (projects && typeof projects.tabsReason === 'string') ? projects.tabsReason : null,
   }
 }
 
@@ -5148,7 +5275,7 @@ function renderFederatedAgentCards(agentsGrid, addBtn) {
         <div class="agent-avatar avatar-mono" style="background:${monogramColor(fa.qualified)}">${escapeHtml(fa.displayName.charAt(0).toUpperCase())}</div>
         <div class="agent-card-info">
           <div class="agent-name">${escapeHtml(fa.displayName)} <span class="federated-badge">${t('federation.badge', { peer: fa.peer })}</span></div>
-          <div class="agent-desc">${escapeHtml(fa.qualified)}</div>
+          <div class="agent-desc" title="${escapeAttr(fa.qualified)}">${escapeHtml(shortDesc(fa.qualified))}</div>
         </div>
       </div>
       <div class="agent-card-footer">
@@ -26644,6 +26771,16 @@ function openTerminalModal(agentName) {
   // connection) -- the title should show the human name instead (Boss,
   // 2026-08-05: terminal modal always showed the raw "lackor2-bot"-style id).
   title.textContent = chatDisplayName(agentName) + ' - Terminal'
+
+  // tmux-masolo: csak akkor, ha TUDJUK, melyik session-rol van szo. Kitalalt
+  // session-nevet masolni rosszabb a semminel -- a parancs hibara futna, es a
+  // felhasznalo azt hinné, a terminal a rossz.
+  const tmuxHost = document.getElementById('terminalTmuxCopy')
+  if (tmuxHost) {
+    tmuxHost.innerHTML = ''
+    const agentRow = (agents || []).find((a) => a.name === agentName)
+    if (agentRow && (agentRow.session || agentRow.name)) attachTmuxCopyButtons(tmuxHost, agentRow)
+  }
 
   // Read the current server-side gate so the modal reflects reality on open.
   fetch('/api/terminal-input')

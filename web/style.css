@@ -10702,3 +10702,14 @@ details.upstream-box > summary > h4 {
   text-transform: uppercase; letter-spacing: .04em;
   font-size: 10px; color: var(--info);
 }
+
+
+/* Elo beszelgetesek valasztoja a VS Code kartyan. A kartyan volt szabad hely
+   (Boss, 2026-08-23), es a bejelolt sor mondja meg, hova megy a feladat. */
+.cb-tabs-pick { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+.cb-tabs-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; margin-bottom: 2px; }
+.cb-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 0; }
+.cb-tab-row input { margin: 0; flex: 0 0 auto; }
+.cb-tab-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-tab-ctx { flex: 0 0 auto; opacity: .6; font-variant-numeric: tabular-nums; }
+.cb-tabs-empty { font-size: 12px; opacity: .65; }

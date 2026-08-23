@@ -171,12 +171,20 @@ function Read-TranscriptInfo {
 # Returns $null, never 0, when there is nothing to measure (no assistant reply
 # yet, unreadable file, older format). A live conversation never has 0 tokens,
 # so 0 would be a lie the dashboard could not tell apart from a real reading.
-function Read-TranscriptContextTokens {
+# Ugyanaz a sor a MODELLT is elarulja (`message.model`, pl. `claude-opus-5`),
+# ezert egy olvasasbol adjuk vissza mindkettot. Boss, 2026-08-23: "alul a
+# beallitasok felett latom hogy claude code, de oda nem azt kellene tenni hogy
+# a claude code on belul milyen modelt hasznlalunk?" -- de igen, es nem kell
+# talalgatni: a beszelgetes sajat naploja megmondja.
+#
+# Mindket mezo $null lehet: az azt jelenti, hogy NEM LATUNK ODA.
+function Read-TranscriptUsage {
   param([string]$Path, [int]$TailLines = 60)
+  $out = @{ tokens = $null; model = $null }
   try {
     $lines = @(Get-Content -LiteralPath $Path -Tail $TailLines -Encoding UTF8 -ErrorAction Stop)
   } catch {
-    return $null
+    return $out
   }
   for ($i = $lines.Count - 1; $i -ge 0; $i--) {
     $line = $lines[$i]
@@ -191,10 +199,50 @@ function Read-TranscriptContextTokens {
         $v = $u.$k
         if ($v -is [int] -or $v -is [long] -or $v -is [double]) { $sum += [int]$v }
       }
-      if ($sum -gt 0) { return $sum }
+      if ($sum -gt 0) {
+        $out.tokens = $sum
+        if ($obj.message.model) { $out.model = [string]$obj.message.model }
+        elseif ($obj.model) { $out.model = [string]$obj.model }
+        return $out
+      }
     } catch { }
   }
-  return $null
+  return $out
+}
+
+# MELYIK BESZELGETES VAN TENYLEG NYITVA a VS Code-ban.
+#
+# Boss, 2026-08-23: "a vscode kartyan latok vagy 5 chat fulet. a vscode ban meg
+# 2 van. (...) amit a vscode ban kitorolnek azt a maveen kartyaja se mutassa!"
+#
+# A transcript-fajlbol ez NEM derul ki: a bezart (es a feluleten torolt) ful
+# `.jsonl`-je ott marad a lemezen (merve 2026-08-23: 20 fajl a Fejlesztes
+# mappajaban, kozben 2 nyitott ful). A nyitott peldanyokat viszont a Claude Code
+# maga nyilvantartja: `~/.claude/sessions/<pid>.json`, benne `sessionId`, `cwd`
+# es `pid`.
+#
+# Ezek a fajlok TULELIK az osszeomlast, ezert a PID eleteben is meg kell
+# gyozodni -- kulonben egy halott peldany orokre "nyitott fulnek" latszana.
+# Ha a mappa nem letezik/nem olvashato, `$null` a valasz: olyankor NEM TUDJUK,
+# mi van nyitva, es ezt a szerver mashogy kezeli, mint a "semmi nincs nyitva".
+function Get-OpenSessionIds {
+  $dir = Join-Path $env:USERPROFILE '.claude\sessions'
+  if (-not (Test-Path -LiteralPath $dir)) { return $null }
+  $open = @{}
+  $files = @(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction SilentlyContinue)
+  foreach ($f in $files) {
+    try {
+      $o = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
+    } catch { continue }
+    if (-not $o.sessionId -or -not $o.pid) { continue }
+    # A PID ujrahasznosulhat, ezert a folyamat nevet is nezzuk: a Claude Code
+    # node.exe vagy claude.exe alatt fut. Ennel tobbet ez a fajl nem arul el.
+    $p = Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue
+    if (-not $p) { continue }
+    if ($p.ProcessName -notmatch '^(node|claude)$') { continue }
+    $open[[string]$o.sessionId] = $true
+  }
+  return $open
 }
 
 # Not every transcript belongs to a project. A `claude` started in the home
@@ -255,6 +303,7 @@ $script:TabMaxAgeDays = 21
 function Get-LocalSessions {
   $projectsDir = Get-ClaudeProjectsDir
   if (-not $projectsDir) { return @() }
+  $open = Get-OpenSessionIds
   $out = New-Object System.Collections.ArrayList
   $cutoff = (Get-Date).ToUniversalTime().AddDays(-$script:TabMaxAgeDays)
   foreach ($dir in (Get-ChildItem -Path $projectsDir -Directory -ErrorAction SilentlyContinue)) {
@@ -264,6 +313,18 @@ function Get-LocalSessions {
       Where-Object { $_.Length -ge 2KB } |
       Sort-Object LastWriteTimeUtc -Descending)
     if ($files.Count -eq 0) { continue }
+
+    # Ha latjuk, mi van NYITVA, akkor az elsodleges (a projekt sessionje) egy
+    # nyitott ful legyen: egy tegnap bezart beszelgetes lehet a legfrissebb
+    # fajl, de a feladat nem oda valo. Ha egyik sem nyitott (vagy nem latunk
+    # oda), marad a regi sorrend: a legfrissebb fajl.
+    if ($null -ne $open) {
+      $liveFiles = @($files | Where-Object { $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
+      if ($liveFiles.Count -gt 0) {
+        $rest = @($files | Where-Object { -not $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
+        $files = @($liveFiles) + @($rest)
+      }
+    }
 
     $isPrimary = $true
     $kept = 0
@@ -278,13 +339,21 @@ function Get-LocalSessions {
       $info = Read-TranscriptInfo -Path $f.FullName
       if (-not $info.cwd) { continue }
       if (-not (Test-DispatchableWorkspace -Path $info.cwd)) { continue }
+      $sid = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+      # $null = nem tudtuk megnezni (nincs sessions mappa). A `$false` ezzel
+      # szemben MERES: a ful nincs nyitva a VS Code-ban.
+      $live = $null
+      if ($null -ne $open) { $live = [bool]$open.ContainsKey($sid) }
+      $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
         workspacePath = $info.cwd
-        sessionId     = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+        sessionId     = $sid
+        live          = $live
         mtime         = [int64]([DateTimeOffset]$f.LastWriteTimeUtc).ToUnixTimeMilliseconds()
         title         = $info.title
         primary       = $isPrimary
-        contextTokens = Read-TranscriptContextTokens -Path $f.FullName
+        contextTokens = $usage.tokens
+        model         = $usage.model
       })
       $kept++
       $isPrimary = $false

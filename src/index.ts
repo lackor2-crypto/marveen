@@ -13,6 +13,8 @@ import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
 import { initDatabase, backfillEmbeddings } from './db.js'
+import { migrateLegacyAliases } from './web/code-bridge-store.js'
+import { readBrokerConfig, writeBrokerConfig } from './web/context-broker-store.js'
 import { runDecaySweep, runDailyDigest } from './memory.js'
 import { initHeartbeat, stopHeartbeat } from './heartbeat.js'
 import { ensureHeartbeatAgent, shouldBootHeartbeatAgent, HEARTBEAT_AGENT_NAME } from './web/heartbeat-agent-scaffold.js'
@@ -446,6 +448,24 @@ async function main(): Promise<void> {
   // Database
   initDatabase()
   logger.info('Adatbazis inicializalva')
+
+  // Egyszeri atnevezes: a kod-hid aliasai 2026-08-23-ig eldobtak az ekezetet
+  // (`Fejlesztés` -> `fejleszts`). Enelkul a regi sor bent maradna a helyes nev
+  // mellett, es a kiosztott szerep egy nem letezo gazdara mutatna.
+  try {
+    const renamedAliases = migrateLegacyAliases((from, to) => {
+      const cfg = readBrokerConfig()
+      const roles = { ...cfg.roles }
+      let touched = false
+      for (const key of Object.keys(roles) as (keyof typeof roles)[]) {
+        if (roles[key] === from) { roles[key] = to; touched = true }
+      }
+      if (touched) writeBrokerConfig(cfg.designated, { roles })
+    })
+    if (renamedAliases.length > 0) logger.info({ renamedAliases }, 'kod-hid: alias atnevezes (ekezet)')
+  } catch (err) {
+    logger.warn({ err }, 'kod-hid: alias atnevezes kihagyva')
+  }
 
   // Backfill embeddings for memories saved before Ollama was available.
   // Fire-and-forget: a missing or slow Ollama instance must not block startup.

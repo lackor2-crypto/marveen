@@ -4542,6 +4542,11 @@
     <div class="modal terminal-modal">
       <div class="modal-header">
         <h2 id="terminalModalTitle">Terminal</h2>
+        <!-- Ide kerul a "tmux attach parancs masolasa" gomb. 2026-08-23-ig
+             minden futo ugynok kartyajan ott ult, holott a hetkoznapi
+             hasznalathoz semmi koze (Boss: "szedd le. nem kell az oda. (...)
+             de beteheted. had legyen ott."). -->
+        <span id="terminalTmuxCopy"></span>
         <div style="display:flex;align-items:center;gap:10px;margin-left:auto;">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#b8b2a6;cursor:pointer;user-select:none;" title="Enable keyboard input to the agent pane (owner-gated, audit-logged)">
             <input type="checkbox" id="terminalInputToggle" style="cursor:pointer;">
