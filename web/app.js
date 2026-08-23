@@ -4912,9 +4912,9 @@ function cbIdleCardEntry(off) {
   if (cand.dismissed > 0) {
     return {
       title: 'VS Code Claude Code',
-      desc: cand.dismissed + ' mappa le van véve a kód-hídról (a Törlés gombbal). A mappa és a beszélgetés megvan — kattints a kártyára, és a listából egy kattintás visszavenni.',
+      desc: t('cb.idle.dismissed', { n: cand.dismissed }),
       online: false,
-      note: cand.dismissed + ' levett mappa',
+      note: t('cb.idle.dismissed_note', { n: cand.dismissed }),
     }
   }
   if (cand.free > 0) {

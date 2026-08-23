@@ -3256,6 +3256,8 @@ window._i18n.en = {
   'cb.card.tabs_pick_help': 'The next task goes here. Id: {s}',
   'cb.card.tabs_pick_done': 'Tasks now go to this conversation.',
   'cb.card.tabs_pick_failed': 'Could not select the conversation: {msg}',
+  'cb.idle.dismissed': '{n} folder(s) removed from the code bridge (with the Delete button). The folder and the conversation are intact — click the card and add it back from the list in one click.',
+  'cb.idle.dismissed_note': '{n} removed folder(s)',
   'cb.card.model_unknown': 'no visibility',
   'cb.card.model_help': 'The model this VS Code conversation last answered with. Not a fixed value: it shows whatever the conversation currently uses.',
   'cb.card.model_unknown_help': 'The model cannot be read: either the Windows worker has not run yet, or the conversation has no answer yet. We do not guess a model name.',
