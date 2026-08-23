@@ -5006,6 +5006,12 @@ function cbContextRowHtml(e) {
  *    * `tabsReason === 'ok' | 'empty'` -> tenyleg nincs nyitott beszelgetes;
  *    * barmi mas (a munkas sose jelentkezett / elavult) -> NEM LATUNK ODA,
  *      es ezt ki is irjuk, nehogy a csend "nincs"-nek latsszon. */
+/** Van-e legalabb egy kiirhato ful-sor? Ha van, a kontextus szama MAR OTT all
+ *  a bejelolt sor vegen, es a kulon "kontextus: 94k token" sor csak ismetles. */
+function cbHasTabRows(e) {
+  return (e.tabs || []).filter(function (tb) { return tb.live !== false }).length > 0
+}
+
 function cbTabsPickHtml(e) {
   const tabs = (e.tabs || []).filter(function (tb) { return tb.live !== false })
   if (tabs.length === 0) {
@@ -5167,7 +5173,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         <button class="btn-danger btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
       </div>
       ${e.roleHolder ? cbTabsPickHtml(e) : ''}
-      ${e.roleHolder ? cbContextRowHtml(e) : ''}
+      ${e.roleHolder && !cbHasTabRows(e) ? cbContextRowHtml(e) : ''}
       ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}`
     card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
       ev.stopPropagation()
