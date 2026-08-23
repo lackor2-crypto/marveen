@@ -22,8 +22,12 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
 
 ## Eljárás
 1. `windows-desktop-screenshot` skill: ellenőrizd fut-e a `terminal.exe`,
-   ha nem, indítsd (Task Scheduler Interactive, target
-   `D:\Tozsde_telepitesi_mappa\Activtrades_Mt4\terminal.exe /portable`).
+   ha nem, indítsd (Task Scheduler Interactive). **A telepítés útját NE írd be
+   fixen** -- 2026-08 folyamán át is költözött (`D:\Tozsde_telepitesi_mappa\`
+   -> `F:\...\Projektek\...\MT4_ActivTrades`), és a beégetett régi út miatt
+   heteken át minden mérés hibára futott. A tényleges mappát ez mondja meg:
+   `python3 scripts/gold-data.py --human` első sora (`[mappa] ...`), illetve a
+   `MT4_TERMINAL_DIR` a `.env`-ben.
 2. Írj EGY paraméterezhető `.ps1`-et Windows oldalra (`marvin_gold_tf.ps1`),
    ami: SetForegroundWindow a `terminal` processzre, SetCursorPos+kattintás
    a toolbar idősík-gombjára (`-X` paraméter, y mindig 66), majd teljes
@@ -97,14 +101,25 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
   pedig az ablak ráugrasztása a felhasználó munkájára. Ha ez ismétlődik, a
   hosszú távú megoldás a kanban bd02805a kártyán van: a chart-adat
   MQL4-oldali fájl-exportból jöjjön, ne képernyőképből.
-- **A fájl-alapú kiolvasás (`scripts/gold-data.py`) SEM friss, amíg az MT4 a
-  tálcán van.** Mérve 2026-08-10 15:01-kor: mind a négy idősík history-fájlja
-  149 perce változatlan volt, miközben az MT4 futott, csak rejtve. Vagyis a
-  fájl-alapú út az ÜTKÖZÉST szünteti meg (nincs fókusz-lopás, nincs kattintás),
-  a FRISSESSÉGET nem. A script mindig kiírja a fájl korát: ha az több tíz perc,
-  inkább hagyd ki a kört, mint hogy régi adatot küldj ki friss jelzésként --
-  Kiss Zoltán nem lát chartot, csak a számokat hallja, nála egy csendben
-  elavult ár rosszabb mint a hallgatás.
+- **A `.hst`-ből olvasott adat SEM friss, amíg az MT4 a tálcán van.** Mérve
+  2026-08-10 15:01-kor: mind a négy idősík history-fájlja 149 perce változatlan
+  volt, miközben az MT4 futott, csak rejtve. A fájl-alapú út az ÜTKÖZÉST
+  szünteti meg (nincs fókusz-lopás, nincs kattintás), a FRISSESSÉGET nem.
+  Erre való a `GOLD_Live_Export` EA (`scripts/mt4/GOLD_Live_Export.mq4`,
+  kártya 70efa568): a charton futva 30 másodpercenként kiírja a formálódó
+  gyertyát és a Bid/Ask-ot az `MQL4/Files/gold_live.txt`-be, és a
+  `gold-data.py` ezt előnyben részesíti a `.hst`-vel szemben. Ha a kimenet
+  `forras: hst`, akkor az EA nincs a charton vagy nem fut.
+- **Olvasd el a `frissesseg` blokkot, mielőtt bármit kiküldenél.** A script már
+  megkülönbözteti a három esetet, nem neked kell a percszámból kitalálni:
+  `mt4_fut: false` = nem fut a terminál, az adat áll; `megjegyzes` = mi a baj
+  emberi mondatban. Hibás út vagy hiányzó GOLD-előzmény esetén a script már NEM
+  0-val lép ki (2 = nincs meg a MetaTrader mappa, 3 = megvan de nincs GOLD
+  előzmény, 4 = minden idősík hibás) -- korábban ilyenkor is sikert jelzett.
+  Ha több tíz perces az adat és közben nyitva a piac, inkább hagyd ki a kört,
+  mint hogy régi adatot küldj ki friss jelzésként -- Kiss Zoltán nem lát
+  chartot, csak a számokat hallja, nála egy csendben elavult ár rosszabb mint
+  a hallgatás.
 
 ## Ellenőrzés
 - Mind a 4 PNG friss időbélyegű és tényleg a várt idősík-címet mutatja
