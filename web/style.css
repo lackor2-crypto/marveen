@@ -10716,3 +10716,31 @@ details.upstream-box > summary > h4 {
 .cb-tab-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cb-tab-ctx { flex: 0 0 auto; opacity: .6; font-variant-numeric: tabular-nums; }
 .cb-tabs-empty { font-size: 12px; opacity: .65; }
+
+/* A kod-hid ful-sorai: a "nema" jelzes es a bezaras-gomb. A gomb csak akkor
+   all ki, ha tudjuk, mit allitanank le -- lasd cbTabsPickHtml. */
+.cb-model-note {
+  font-size: 11px;
+  color: var(--muted, #888);
+  white-space: nowrap;
+}
+.cb-tab-idle {
+  font-size: 11px;
+  color: var(--warning, #d4a52c);
+  white-space: nowrap;
+}
+.cb-tab-close {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+}
+.cb-tab-close:hover {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}

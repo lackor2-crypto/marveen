@@ -1013,6 +1013,14 @@ export interface CodeCandidate {
    *  transcript utolso assistant-sorabol jon, ugyanabbol, ahonnan a kontextus.
    *  `null` = nem latunk oda -- olyankor a felulet sem talalhat ki egyet. */
   model: string | null
+  /** A beszelgetest futtato Claude Code folyamat azonositoja, ugyanabbol a
+   *  `~/.claude/sessions/<pid>.json` fajlbol, amibol a `live` jon.
+   *
+   *  Miert kell: Boss, 2026-08-23 -- "a vscode ban nem tudom bezarni. mert nem
+   *  latok ott semmit. tehat bezarni sem tudok semmit mar." Egy olyan
+   *  beszelgetes, aminek a fule mar nincs sehol, de a folyamata el, CSAK igy
+   *  zarhato be a feluletrol. `null` = nem latunk oda (regi worker). */
+  pid: number | null
 }
 
 /** Egy gepen ennyi projekt folott a lista amugy is athatolhatatlan lenne, es
@@ -1031,6 +1039,7 @@ export function recordCodeCandidates(
     contextTokens?: number
     live?: boolean | null
     model?: string
+    pid?: number
   }[],
   now = Date.now(),
 ): void {
@@ -1065,6 +1074,10 @@ export function recordCodeCandidates(
       // mezo, regi worker) azt jelenti: nem latunk oda.
       live: typeof s.live === 'boolean' ? s.live : null,
       model: typeof s.model === 'string' && s.model.trim() ? s.model.trim().slice(0, 60) : null,
+      // Csak ervenyes, pozitiv folyamatazonositot fogadunk el: barmi mas azt
+      // jelenti, hogy nem latunk oda -- olyankor a bezaras-gomb sem jelenhet
+      // meg, mert nem lenne mit bezarni.
+      pid: typeof s.pid === 'number' && Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null,
     })
     if (mine.length >= MAX_CANDIDATES) break
   }
@@ -1111,6 +1124,9 @@ export interface CodeTab {
   live: boolean | null
   /** A beszelgetesben eppen felelo modell, vagy `null` = nem latunk oda. */
   model: string | null
+  /** A futo Claude Code folyamat azonositoja; `null` = nem latunk oda.
+   *  Reszletek a `CodeCandidate.pid`-nel. */
+  pid: number | null
 }
 
 export interface CodeTabProject {
@@ -1148,6 +1164,45 @@ export interface CodeTabsView {
 export const TABS_MAX_PER_PROJECT = 10
 export const TABS_MAX_AGE_DAYS = 21
 
+// ---- BEZARAS-KERESEK ------------------------------------------------------
+//
+// Boss, 2026-08-23: "a vscode ban nem tudom bezarni. mert nem latok ott semmit.
+// tehat bezarni sem tudok semmit mar. valamiert az a rendszerben maradt."
+//
+// Merve ugyanaznap: hat elo `claude` folyamat futott, mind ugyanannak az EGY VS
+// Code ablaknak a gyereke, kozben a felulet ket beszelgetest listazott. A
+// folyamat tehat tullep a fulen -- es amit a VS Code mar nem mutat, azt ott
+// bezarni sem lehet. A Marveen viszont latja (PID-je van), tehat itt kell hogy
+// legyen gomb ra.
+//
+// A kerest MEMORIABAN tartjuk, nem adatbazisban: ez egy MOSTANI szandek, aminek
+// egy ujraindult vezerlopult utan mar nincs ertelme (a folyamat kozben barmi
+// lehet). A worker a kovetkezo jelentesenel viszi el.
+const codeTabCloseRequests = new Map<string, number>()
+/** Ennyi ideig var egy kilepetlen keres a workerre. Ha ennyi alatt nem vitte
+ *  el, akkor nem is fogja (all a worker) -- a keres elavul, hogy egy kesobb
+ *  induló worker ne csukjon be valamit napokkal a kattintas utan. */
+export const CLOSE_REQUEST_TTL_MS = 10 * 60 * 1000
+
+/** Csak teszthez. */
+export function _resetCodeTabCloseRequests(): void { codeTabCloseRequests.clear() }
+
+export function requestCodeTabClose(sessionId: string, now = Date.now()): void {
+  const id = (sessionId || '').trim()
+  if (!id) return
+  codeTabCloseRequests.set(id, now)
+}
+
+/** A worker jelentesekor: elviszi a kereseket. A lejartakat NEM adjuk ki. */
+export function takeCodeTabCloseRequests(now = Date.now()): string[] {
+  const out: string[] = []
+  for (const [id, at] of codeTabCloseRequests) {
+    if (now - at <= CLOSE_REQUEST_TTL_MS) out.push(id)
+    codeTabCloseRequests.delete(id)
+  }
+  return out
+}
+
 /** A jelentett beszelgetesek projektenkent csoportositva -- ez all a
  *  `/api/code/tabs` es a `/tabs` Telegram-parancs mogott is, hogy a ket felulet
  *  ne kulon logikaval szamolja ki ugyanazt. */
@@ -1183,6 +1238,7 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
       contextTokens: c.contextTokens,
       live: c.live,
       model: c.model,
+      pid: c.pid,
     })
   }
 

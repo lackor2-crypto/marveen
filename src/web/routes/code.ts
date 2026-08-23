@@ -35,6 +35,7 @@ import {
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
+  requestCodeTabClose, takeCodeTabCloseRequests,
   type CodeTaskStatus, type CodeTaskOrigin,
 } from '../code-bridge-store.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
@@ -595,6 +596,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         current: tb.sessionId === p.sessionId,
         contextTokens: tb.contextTokens,
         model: tb.model,
+        // A bezaras-gombhoz: van-e egyaltalan mit leallitani. `null` = nem
+        // latunk oda (regi worker) -- olyankor a gomb sem jelenik meg.
+        pid: tb.pid,
+        // Mikor irt utoljara a beszelgetes. Ebbol latszik a "fule mar nincs
+        // sehol, a folyamat meg el" eset: elo ful, de orak ota nema.
+        mtime: tb.mtime,
       })),
       roleHolder: `vscode:${p.project}`,
       roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
@@ -763,7 +770,39 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // a workspace-e mar nincs meg (a worker eleve nem jelenti a nem letezot).
     const pruned = pruneUnreportedCodeSessions(body.host ?? 'windows', registered)
     if (pruned.length > 0) logger.info({ host: body.host, pruned }, 'code-bridge: dropped sessions no longer reported')
-    json(res, { registered, pruned, projects: listCodeSessions() })
+    // A valasz VISZI a bezaras-kereseket: a worker nem tud bejovo hivast
+    // fogadni (nincs nyitott portja), a jelentes viszont percenkent megy.
+    // Igy a "Bezaras" gomb egy jelentesi korön belul hat.
+    json(res, {
+      registered,
+      pruned,
+      projects: listCodeSessions(),
+      closeSessions: takeCodeTabCloseRequests(),
+    })
+    return true
+  }
+
+  // Egy beszelgetes BEZARASA. Nem torol transcriptet: a futo Claude Code
+  // folyamatot allitja le, azt, amelyiknek a fulet a VS Code-ban mar nem talalod
+  // (Boss, 2026-08-23: "nem tudom bezarni. mert nem latok ott semmit").
+  //
+  // A leallitast a WORKER vegzi, mert a folyamat a Windows-oldalon fut; ide csak
+  // a szandek kerul be, es a worker kovetkezo jelentesenel megy at. Ezert a
+  // valasz nem azt allitja, hogy "kesz", hanem azt, hogy atvettuk -- a
+  // tenylegesen bezarult ful a kovetkezo jelentesbol tunik el a listarol.
+  if (path.startsWith('/api/code/tabs/') && path.endsWith('/close') && method === 'POST') {
+    const sessionId = decodeURIComponent(path.slice('/api/code/tabs/'.length, -'/close'.length))
+    if (!sessionId) { json(res, { error: 'sessionId required' }, 400); return true }
+    const tab = listCodeTabs().projects.flatMap((p) => p.tabs).find((t) => t.sessionId === sessionId)
+    if (!tab) { json(res, { error: 'unknown session' }, 404); return true }
+    // A NULLA ket dolgot jelenthet: ha nincs PID, akkor NEM azt mondjuk, hogy
+    // nincs mit bezarni, hanem hogy nem latunk oda -- kulonben a felhasznalo
+    // azt hinne, mar nem fut.
+    if (tab.pid === null) { json(res, { error: 'no-pid' }, 409); return true }
+    const health = codeBridgeHealth()
+    if (!health.workerOnline) { json(res, { error: 'worker-offline' }, 409); return true }
+    requestCodeTabClose(sessionId)
+    json(res, { accepted: true, sessionId, pid: tab.pid })
     return true
   }
 

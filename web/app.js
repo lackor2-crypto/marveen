@@ -5028,6 +5028,38 @@ function cbHasTabRows(e) {
   return (e.tabs || []).filter(function (tb) { return tb.live !== false }).length > 0
 }
 
+// Ennyi ora nemasag utan mondjuk ki a fulrol, hogy valoszinuleg mar nincs
+// nyitott fule -- csak a folyamata el. Nem talalgatas: a mertek maga a jelzes,
+// a szoveg az orak szamat mondja, es a dontest a felhasznalora hagyja.
+const CB_TAB_IDLE_HOURS = 3
+
+/** Egy beszelgetes bezarasa a vezerlopultrol. A transcript MEGMARAD -- csak a
+ *  futo Claude Code folyamat all le. */
+async function cbCloseTab(sessionId, label) {
+  if (!confirm(t('cb.card.tab_close_confirm', { name: label || sessionId }))) return
+  try {
+    const res = await fetch('/api/code/tabs/' + encodeURIComponent(sessionId) + '/close', { method: 'POST' })
+    const body = await res.json().catch(function () { return null })
+    if (!res.ok) {
+      // A szerver GEPI okot ad; mindegyiknek sajat, emberi mondata van, ami a
+      // KOVETKEZO LEPEST mondja. Ismeretlen kodra a nyers uzenetet mutatjuk --
+      // tippelt okot nem irunk oda.
+      const code = body && body.error
+      const msg = code === 'worker-offline' ? t('cb.card.tab_close_worker_off')
+        : code === 'no-pid' ? t('cb.card.tab_close_no_pid')
+        : code === 'unknown session' ? t('cb.card.tab_close_unknown')
+        : (code || ('HTTP ' + res.status))
+      showToast(t('cb.card.tab_close_failed', { msg: msg }), 'error')
+      return
+    }
+    // A folyamatot a WORKER allitja le a kovetkezo jelentesekor, ezert nem azt
+    // allitjuk, hogy kesz: azt mondjuk, mi tortenik es mikor latszik.
+    showToast(t('cb.card.tab_close_queued'), 'success')
+  } catch (err) {
+    showToast(t('cb.card.tab_close_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
+  }
+}
+
 function cbTabsPickHtml(e) {
   const tabs = (e.tabs || []).filter(function (tb) { return tb.live !== false })
   if (tabs.length === 0) {
@@ -5042,11 +5074,31 @@ function cbTabsPickHtml(e) {
     const ctx = (typeof tb.contextTokens === 'number' && tb.contextTokens > 0)
       ? t('cb.card.ctx_value', { n: (tb.contextTokens / 1000).toFixed(tb.contextTokens >= 10000 ? 0 : 1).replace('.', ',') })
       : ''
+    // NEMA FUL: nyitott folyamat, de oraк ota nem irt semmit. Ez az az eset,
+    // amit a VS Code-ban mar nem talalsz meg (a fule bezarult, a folyamat el),
+    // ezert kulon mondjuk ki -- es ezert van mellette bezaras-gomb.
+    const idleMs = (typeof tb.mtime === 'number' && tb.mtime > 0) ? (Date.now() - tb.mtime) : null
+    const idleH = idleMs === null ? null : Math.floor(idleMs / 3600000)
+    const idle = (idleH !== null && idleH >= CB_TAB_IDLE_HOURS && !tb.current)
+      ? '<span class="cb-tab-idle" title="' + escapeAttr(t('cb.card.tab_idle_help', { h: idleH })) + '">'
+        + escapeHtml(t('cb.card.tab_idle', { h: idleH })) + '</span>'
+      : ''
+    // A gomb CSAK akkor all ki, ha tudjuk, mit allitanank le (van PID). A
+    // hianyzo PID nem "nincs mit bezarni", hanem "nem latok oda" -- olyankor
+    // nem kinalunk gombot, amirol nem tudjuk, hatna-e.
+    const closeBtn = (typeof tb.pid === 'number' && tb.pid > 0)
+      ? '<button type="button" class="cb-tab-close" data-session="' + escapeAttr(tb.sessionId) + '"'
+        + ' data-label="' + escapeAttr(label) + '"'
+        + ' title="' + escapeAttr(t('cb.card.tab_close_help', { pid: tb.pid })) + '">'
+        + escapeHtml(t('cb.card.tab_close')) + '</button>'
+      : ''
     return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
       + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
       + ' value="' + escapeAttr(tb.sessionId) + '"' + (tb.current ? ' checked' : '') + '>'
       + '<span class="cb-tab-title">' + escapeHtml(shortDesc(label, 42)) + '</span>'
       + (ctx ? '<span class="cb-tab-ctx">' + escapeHtml(ctx) + '</span>' : '')
+      + idle
+      + closeBtn
       + '</label>'
   }).join('')
   return '<div class="cb-tabs-pick"><div class="cb-tabs-head">' + escapeHtml(t('cb.card.tabs_title')) + '</div>' + rows + '</div>'
@@ -5187,6 +5239,13 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       </div>
       <div class="agent-card-footer">
         <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model || t('cb.card.model_unknown'))}</span>
+        <!-- Boss, 2026-08-23: "a tobbi kartyan van a beallitasok alatt model
+             valaszto. a vscode alat miert nincs?" -- mert itt nincs mit
+             allitani: ez a Claude Code a TE VS Code-odban, a te elofizeteseddel
+             fut, a modellt ott valasztod (/model). Egy legordulo itt azt a
+             latszatot keltene, hogy Marveen at tudja allitani -- nem tudja.
+             Ezert all ki a magyarazat ODA, ahol a modell latszik. -->
+        <span class="cb-model-note" title="${escapeAttr(t('cb.card.model_where_help'))}">${escapeHtml(t('cb.card.model_where'))}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
       <div class="agent-card-actions">
@@ -5211,6 +5270,15 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       box.addEventListener('change', () => saveBrokerRole(e.roleHolder, box.dataset.role, box.checked))
     })
     card.querySelectorAll('.cb-tab-row').forEach((row) => row.addEventListener('click', (ev) => ev.stopPropagation()))
+    card.querySelectorAll('.cb-tab-close').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        // A gomb egy <label>-en belul all: kattintasra kulonben a radiogomb is
+        // atvaltana, vagyis a bezaras MELLE at is allitana a cel-beszelgetest.
+        ev.preventDefault()
+        ev.stopPropagation()
+        cbCloseTab(btn.dataset.session, btn.dataset.label)
+      })
+    })
     card.querySelectorAll('.cb-tab-radio').forEach((box) => {
       box.addEventListener('change', () => {
         if (box.checked) cbPickSession(e.project, e.workspacePath, box.value)

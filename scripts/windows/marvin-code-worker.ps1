@@ -121,7 +121,13 @@ function Read-TranscriptInfo {
           if ($obj.cwd) { $info.cwd = [string]$obj.cwd }
         } catch { }
       }
-      if (-not $info.title -and $line -match '"ai-title"') {
+      # A LEGUTOLSO cim nyer, nem az elso. Boss, 2026-08-23: "mellesleg a neve
+      # sem egyezik! mert nezd meg a marvinban az van hogy ... a vscode ugynok
+      # kartya tesztelese. es a vscode ban pedig csak vscode ugynok tesztelese."
+      # Merve ugyanabban a transcriptben: a 12. sor "VS Code ugynok kartya
+      # tesztelese", a 13. sortol vegig "VS Code ugynok tesztelese" -- a
+      # beszelgetes ATNEVEZODOTT, es a regi kod az ELSO cimnel megallt.
+      if ($line -match '"ai-title"') {
         try {
           $obj = $line | ConvertFrom-Json
           if ($obj.aiTitle) { $info.title = [string]$obj.aiTitle }
@@ -141,9 +147,11 @@ function Read-TranscriptInfo {
           }
         } catch { }
       }
-      # cwd + title is everything this pass needs; the rest of a 7 MB transcript
-      # is not worth reading once a minute, for every tab, on every pass.
-      if ($info.cwd -and $info.title) { break }
+      # A cwd az elso sorokban megvan, a cim viszont KESOBB is valtozhat, ezert
+      # itt mar nem lepunk ki -- a $MaxLines sor vegigolvasasa a hatar. Az
+      # atnevezes tipikusan a beszelgetes elejen tortenik (a Claude Code az
+      # elso valaszok utan cimez), a kesobbi atnevezest a farok-olvasas fogja.
+      if ($info.cwd -and $info.title -and $i -ge 60) { break }
     }
     if (-not $info.title -and $firstUser) {
       $info.title = if ($firstUser.Length -gt 80) { $firstUser.Substring(0, 80).TrimEnd() + '...' } else { $firstUser }
@@ -153,6 +161,28 @@ function Read-TranscriptInfo {
   } finally {
     if ($reader) { $reader.Dispose() }
   }
+  # A beszelgetes a KESOBBIEKBEN is atnevezodhet, azt pedig az elso par szaz sor
+  # nem arulja el. A fajl VEGET olvassuk meg hozza -- egy 15 MB-os transcriptbol
+  # az utolso 256 KB-ot, nem az egeszet: percenkent, minden fulre az egesz fajl
+  # vegigolvasasa mar merheto terheles lenne.
+  try {
+    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+      $tailBytes = 262144
+      if ($fs.Length -gt $tailBytes) { [void]$fs.Seek(-$tailBytes, 'End') }
+      $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+      # Az elso sor a seek utan csonka lehet -- eldobjuk.
+      if ($fs.Length -gt $tailBytes) { [void]$sr.ReadLine() }
+      while ($null -ne ($line = $sr.ReadLine())) {
+        if ($line -match '"ai-title"') {
+          try {
+            $obj = $line | ConvertFrom-Json
+            if ($obj.aiTitle) { $info.title = [string]$obj.aiTitle }
+          } catch { }
+        }
+      }
+    } finally { $fs.Dispose() }
+  } catch { }
   return $info
 }
 
@@ -240,7 +270,10 @@ function Get-OpenSessionIds {
     $p = Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue
     if (-not $p) { continue }
     if ($p.ProcessName -notmatch '^(node|claude)$') { continue }
-    $open[[string]$o.sessionId] = $true
+    # A PID-et is megjegyezzuk, nem csak azt, hogy nyitva van: enelkul a
+    # feluletrol nem lehetne bezarni egy olyan beszelgetest, aminek a fulet a
+    # VS Code-ban mar nem talalod (Boss, 2026-08-23).
+    $open[[string]$o.sessionId] = [int]$o.pid
   }
   return $open
 }
@@ -343,7 +376,11 @@ function Get-LocalSessions {
       # $null = nem tudtuk megnezni (nincs sessions mappa). A `$false` ezzel
       # szemben MERES: a ful nincs nyitva a VS Code-ban.
       $live = $null
-      if ($null -ne $open) { $live = [bool]$open.ContainsKey($sid) }
+      $sidPid = $null
+      if ($null -ne $open) {
+        $live = [bool]$open.ContainsKey($sid)
+        if ($live) { $sidPid = [int]$open[$sid] }
+      }
       $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
         workspacePath = $info.cwd
@@ -354,6 +391,7 @@ function Get-LocalSessions {
         primary       = $isPrimary
         contextTokens = $usage.tokens
         model         = $usage.model
+        pid           = $sidPid
       })
       $kept++
       $isPrimary = $false
@@ -388,6 +426,46 @@ function Publish-Sessions {
   $body = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"sessions":' + $sessionsJson + '}'
   $resp = Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $body
   Write-Log ('sessions reported: ' + ($resp.registered -join ', '))
+  Close-RequestedSessions -Requested $resp.closeSessions -Sessions $sessions
+}
+
+# EGY BESZELGETES BEZARASA a vezerlopultrol.
+#
+# Boss, 2026-08-23: "a vscode ban nem tudom bezarni. mert nem latok ott semmit.
+# tehat bezarni sem tudok semmit mar. valamiert az a rendszerben maradt."
+#
+# A szerver nem tud minket hivni (nincs nyitott portunk), ezert a kerest a
+# jelentes VALASZA hozza. Amit leallitunk, azt a PID alapjan azonositjuk, es
+# elotte MEGGYOZODUNK rola, hogy tenyleg az a beszelgetes fut alatta -- a PID
+# ujrahasznosul, es egy tevedesbol kilott idegen folyamat sokkal rosszabb, mint
+# egy vegre nem hajtott kattintas.
+function Close-RequestedSessions {
+  param($Requested, $Sessions)
+  if (-not $Requested) { return }
+  foreach ($sid in @($Requested)) {
+    $sid = [string]$sid
+    if (-not $sid) { continue }
+    $row = @($Sessions | Where-Object { $_.sessionId -eq $sid }) | Select-Object -First 1
+    if (-not $row -or -not $row.pid) {
+      Write-Log ('close requested for ' + $sid + ' but no live pid is known') 'WARN'
+      continue
+    }
+    $p = Get-Process -Id ([int]$row.pid) -ErrorAction SilentlyContinue
+    if (-not $p) {
+      Write-Log ('close requested for ' + $sid + ': process ' + $row.pid + ' already gone')
+      continue
+    }
+    if ($p.ProcessName -notmatch '^(node|claude)$') {
+      Write-Log ('close requested for ' + $sid + ' but pid ' + $row.pid + ' is ' + $p.ProcessName + ' -- refusing') 'WARN'
+      continue
+    }
+    try {
+      Stop-Process -Id $p.Id -ErrorAction Stop
+      Write-Log ('closed session ' + $sid + ' (pid ' + $p.Id + ')')
+    } catch {
+      Write-Log ('closing ' + $sid + ' failed: ' + $_.Exception.Message) 'WARN'
+    }
+  }
 }
 
 # ---- executing one task --------------------------------------------------
