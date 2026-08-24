@@ -6,10 +6,23 @@
 // the card badge printed that word. The process was in fact running Haiku 4.5,
 // exactly as configured, so the only broken thing was the READING.
 //
-// There are three places the answer can come from, and they fail in different
-// ways, which is why the order matters:
+// Boss, 2026-08-24: "meg mindig opus5 . vicces. mintha nem akarna valtani."
+// Megmerve ugyanakkor: a futo folyamat parancssora MAR `--model claude-sonnet-5`
+// volt, a beallitas is sonnet, es a `valueSavedAt` -> `runningSince` kulonbseg
+// 4,2 MASODPERC. Vagyis az ujrainditas azonnal megtortent; a KEPERNYO maradt
+// opus-on, mert ez a fuggveny a TRANSZKRIPTET kerdezte eloszor -- egy frissen
+// respawnolt session pedig meg egyetlen assistant-sort sem irt, igy a kereso a
+// KORABBI (opus-os) transzkriptet olvasta, es azt mondta ki tenykent.
 //
-//   1. the live transcript -- the truth about the RUNNING process, but it goes
+// Ezert a futo FOLYAMAT sajat `--model` kapcsoloja lett az elso forras: ez a
+// legkozvetlenebb valasz arra, hogy MIT futtat MOST, es a respawn pillanataban
+// mar olvashato -- nem kell megvarni, amig a modell megszolal.
+//
+// Negy helyrol johet a valasz, es maskepp romlanak el, ezert szamit a sorrend:
+//
+//   0. a futo folyamat parancssora (`--model`) -- azonnali es egyertelmu, de
+//      csak akkor van, ha egyaltalan latunk futo folyamatot
+//   1. a live transcript -- the truth about the RUNNING process, but it goes
 //      quiet: a session can carry no `message.model` line at all
 //   2. the statusline snapshot -- the same data Claude Code renders every tick,
 //      usable only while FRESH (a stale one reports an hours-old model, and its
@@ -28,10 +41,11 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, MAIN_AGENT_ID } from '../config.js'
 import { MODEL_ALIASES } from './agent-config.js'
 import { readActiveModelFromProjectDir } from './active-model.js'
+import { readMainAgentRuntime } from './main-agent-runtime.js'
 import { readRateLimitSnapshot } from './rate-limit-status-io.js'
 import { isStale } from '../rate-limit-status.js'
 
-export type MainModelSource = 'transcript' | 'statusline' | 'configured' | 'none'
+export type MainModelSource = 'runtime' | 'transcript' | 'statusline' | 'configured' | 'none'
 
 export interface MainModelResolution {
   /** What to show. 'unknown' only when every source is silent. */
@@ -40,6 +54,12 @@ export interface MainModelResolution {
 }
 
 export interface MainModelSources {
+  /**
+   * The `--model` flag on the live claude process, or null when no process is
+   * visible. Highest priority: it is what the process was ACTUALLY started
+   * with, and it is readable the moment the respawn happens.
+   */
+  fromRuntime?: () => string | null
   /** The running process's own transcript, or null when it names no model. */
   fromTranscript: () => string | null
   /** A FRESH statusline reading, or null. Staleness is the caller's job. */
@@ -113,6 +133,8 @@ export function readConfiguredMainModel(projectRoot: string): string {
  * process. Pure, so the precedence is provable without touching the filesystem.
  */
 export function resolveMainAgentModel(sources: MainModelSources): MainModelResolution {
+  const runtime = sources.fromRuntime ? safe(sources.fromRuntime) : null
+  if (runtime) return { model: runtime, source: 'runtime' }
   const transcript = safe(sources.fromTranscript)
   if (transcript) return { model: transcript, source: 'transcript' }
   const statusline = safe(sources.fromStatusline)
@@ -150,6 +172,7 @@ export function modelIdFromStatuslineLabel(label: string): string | null {
  */
 export function mainAgentModelNow(): MainModelResolution {
   return resolveMainAgentModel({
+    fromRuntime: () => readMainAgentRuntime().model,
     fromTranscript: () => readActiveModelFromProjectDir(PROJECT_ROOT),
     fromStatusline: () => {
       const snap = readRateLimitSnapshot(MAIN_AGENT_ID)

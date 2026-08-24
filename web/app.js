@@ -29024,14 +29024,18 @@ async function mountSettingRestartAction(slot, def) {
       // vagyis a felulet KUDARCOT jelentett egy olyan muveletre, ami eppen
       // rendben zajlott. Az uj hatarido 12 perc, es amig varunk, kiirjuk az
       // eltelt idot -- a "meg megy" es a "elakadt" igy nem mosodik ossze.
+      // MERVE (Boss, 2026-08-24): a mentes (`valueSavedAt`) es az uj folyamat
+      // indulasa (`runningSince`) kozott 4,2 MASODPERC telt el -- a respawn-pane
+      // azonnal cserel. Amit a Boss percekig varasnak latott, az NEM az
+      // ujrainditas volt: a kartya modell-jelvenye ragadt be, mert a regi
+      // transzkriptet olvasta (lasd main-agent-model.ts). Ezert a hatarido 60
+      // masodperc -- bosegesen fedi a mert 4 mp-et --, a lekerdezes pedig
+      // masodpercenkent fut, hogy a kesz allapot ne alljon egy hosszu alvasban.
       const started = Date.now()
-      const deadline = started + 720000
+      const deadline = started + 60000
       say(t('restart.waiting'))
       while (Date.now() < deadline) {
-        const elapsed = Math.round((Date.now() - started) / 1000)
-        // Az elso percben surun kerdezunk, utana ritkabban: a hosszu varakozas
-        // ne terhelje folyamatosan a kiszolgalot.
-        await new Promise((r) => setTimeout(r, elapsed < 60 ? 2000 : 5000))
+        await new Promise((r) => setTimeout(r, 1000))
         say(t('restart.waiting_progress', { sec: Math.round((Date.now() - started) / 1000) }))
         let rows = null
         try {
@@ -29054,8 +29058,8 @@ async function mountSettingRestartAction(slot, def) {
           return
         }
       }
-      // 12 perc utan sem tisztult. NEM allitjuk, hogy elhasalt -- azt nem
-      // tudjuk; azt mondjuk meg, ameddig lattunk, es hogy hol nezhet utana.
+      // 60 masodperc utan sem tisztult, holott a mert csere 4 mp. NEM allitjuk,
+      // hogy elhasalt -- azt nem tudjuk; azt mondjuk meg, ameddig lattunk.
       say(t('restart.timeout'))
       btn.disabled = false
     })

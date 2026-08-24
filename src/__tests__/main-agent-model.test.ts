@@ -98,6 +98,31 @@ describe('resolveMainAgentModel', () => {
       .toEqual({ model: 't', source: 'transcript' })
   })
 
+  // Boss, 2026-08-24: "meg mindig opus5 ... mintha nem akarna valtani".
+  // A folyamat MAR sonnettel futott (merve: 4,2 mp-cel a mentes utan), de a
+  // frissen respawnolt session meg egy assistant-sort sem irt, igy a
+  // transzkript-kereso a KORABBI, opus-os fajlt olvasta. A parancssori
+  // `--model` az egyetlen forras, ami a csere pillanataban mar helyes.
+  it('a futo folyamat --model kapcsoloja meg a transzkriptet is veri', () => {
+    expect(resolveMainAgentModel({
+      fromRuntime: () => 'claude-sonnet-5',
+      fromTranscript: () => 'claude-opus-5',
+      fromStatusline: () => 'claude-opus-5',
+      configured: () => 'claude-sonnet-5',
+    })).toEqual({ model: 'claude-sonnet-5', source: 'runtime' })
+  })
+
+  // Ha nem latunk folyamatot, a nulla NEM azt jelenti, hogy nincs modell:
+  // ilyenkor a regi sorrend el tovabb, nem esunk 'unknown'-ra.
+  it('nem latott folyamat eseten a regi sorrend marad ervenyben', () => {
+    expect(resolveMainAgentModel({
+      fromRuntime: () => null,
+      fromTranscript: () => 'claude-opus-5',
+      fromStatusline: () => null,
+      configured: () => 'claude-sonnet-5',
+    })).toEqual({ model: 'claude-opus-5', source: 'transcript' })
+  })
+
   it('takes a fresh statusline when the transcript is silent', () => {
     expect(resolveMainAgentModel(sources(null, 's', 'c')))
       .toEqual({ model: 's', source: 'statusline' })

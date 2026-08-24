@@ -1941,8 +1941,8 @@ window._i18n.hu = {
   'restart.waiting':             'Újraindul… várok rá',
   'restart.done':                'Kész, újraindult. Frissítem az oldalt…',
   'restart.failed_start':        'Nem sikerült elindítani az újraindítást',
-  'restart.waiting_progress':    'Újraindul… várok rá ({sec} mp). A modellváltás több percig is tarthat.',
-  'restart.timeout':             '12 perc után sem jelezte a kiszolgáló, hogy kész. Nem tudom, elakadt-e vagy csak lassabb — nézd meg a Marvin kártya folyamat-állapotát és a Naplót.',
+  'restart.waiting_progress':    'Újraindul… várok rá ({sec} mp).',
+  'restart.timeout':             'Egy perc után sem jelezte a kiszolgáló, hogy kész (a mért csere 4 másodperc). Nem tudom, hol akadt el — nézd meg a Marvin kártya folyamat-állapotát és a Naplót.',
   // Melyik folyamatot kell ujrainditani. Nem minden beallitas a vezerlopultban
   // el, es a rossz gomb megnyomasa utan a felhasznalo azt hinne, kesz van.
   'restart.target.dashboard':          'a vezérlőpultot',
