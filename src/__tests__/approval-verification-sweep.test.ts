@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest'
 import {
   runVerificationSweep,
   VERIFICATION_REMINDER_MS,
+  VERIFICATION_REMINDER_REPEAT_MS,
   VERIFICATION_TIMEOUT_MS,
   NO_RESPONSE_TIMEOUT,
   NO_RESPONSE_AGENT_GONE,
@@ -63,9 +64,39 @@ describe('stale approval-verification sweep', () => {
     expect(noResponses).toEqual([])
   })
 
-  it('never nudges the same row twice', () => {
-    const { reminders } = harness([row({ ageMs: VERIFICATION_REMINDER_MS + 1000, reminded_at: 1 })])
+  // Boss, 2026-08-24: "ha mar egyszer ki van adva, akkor amikor ujra reer,
+  // akkor folytassa a munkat amit kapott." Egy nudge kevés: ha az agens eppen
+  // egy hosszu elemzest futtat, pont azt az egyet nem tudja atvenni.
+  it('a nudge-ok kozott kivarja a REPEAT ablakot -- nem spammel minden sopreskor', () => {
+    const { reminders } = harness([row({
+      ageMs: VERIFICATION_REMINDER_MS + 1000,
+      reminded_at: Math.floor((NOW - (VERIFICATION_REMINDER_REPEAT_MS - 60_000)) / 1000),
+    })])
     expect(reminders).toEqual([])
+  })
+
+  it('a REPEAT ablak utan UJRA szol, hogy a feladat ne vesszen el', () => {
+    const { reminders, result } = harness([row({
+      ageMs: VERIFICATION_REMINDER_MS + VERIFICATION_REMINDER_REPEAT_MS + 1000,
+      reminded_at: Math.floor((NOW - (VERIFICATION_REMINDER_REPEAT_MS + 1000)) / 1000),
+    })])
+    expect(reminders).toEqual(['gemma'])
+    expect(result.reminded).toEqual(['a1:gemma'])
+  })
+
+  // Boss, 2026-08-24. A foagensnek NINCS agents/<nev>/ mappaja (merve:
+  // agents/lackor2-bot nem letezik), ezert a mappa-alapu letezes-teszt rola azt
+  // allitotta volna, hogy "az ugynok mar nem letezik", es 10 perc utan lezarta
+  // volna minden ellenorzeset -- mikozben Marvin el es epp dolgozik. A dontes a
+  // hivoe; itt azt rogzitjuk, hogy egy ELERHETO agens sort a sopres nem oli meg,
+  // hanem ujra szol neki.
+  it('elerheto agenst nem zar le agent_gone-nal, hanem nudge-ol', () => {
+    const { noResponses, reminders } = harness(
+      [row({ ageMs: VERIFICATION_REMINDER_MS + 1000, agent: 'lackor2-bot', id: 'a1:lackor2-bot' })],
+      { agentExists: (a) => a === 'lackor2-bot' },
+    )
+    expect(noResponses).toEqual([])
+    expect(reminders).toEqual(['lackor2-bot'])
   })
 
   it('gives up past the timeout so the counter can resolve', () => {

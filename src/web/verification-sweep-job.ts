@@ -17,6 +17,8 @@ import { logger } from '../logger.js'
 import { agentDir } from './agent-config.js'
 import { runVerificationSweep, type VerificationSweepResult } from '../approval-verification-sweep.js'
 import { verificationSender } from './routes/approvals.js'
+import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
+import { sessionExistsOnHost } from './agent-process.js'
 
 /** How often the timer fires. Well under the 10 minute reminder threshold so
  *  a nudge is never delayed by a full sweep interval. */
@@ -42,7 +44,14 @@ export function sweepApprovalVerifications(now = Date.now()): VerificationSweepR
   const result = runVerificationSweep({
     now,
     listPendingOlderThan: listPendingVerificationsOlderThan,
-    agentExists: (agent) => existsSync(agentDir(agent)),
+    // A foagensnek NINCS agents/<nev>/ mappaja (merve: agents/lackor2-bot nem
+    // letezik), ezert a mappa-teszt rola azt allitotta volna, hogy "az ugynok
+    // mar nem letezik", es 10 perc utan minden ellenorzeset lezarta volna --
+    // mikozben Marvin el es epp dolgozik. Rola a sajat forrasat kerdezzuk: fut-e
+    // a channels munkamenete.
+    agentExists: (agent) => isMainChannelsAgent(agent)
+      ? sessionExistsOnHost(null, MAIN_CHANNELS_SESSION)
+      : existsSync(agentDir(agent)),
     sendReminder: (row) => {
       try {
         // Same sender rule as the dispatch path: the main agent must not be
