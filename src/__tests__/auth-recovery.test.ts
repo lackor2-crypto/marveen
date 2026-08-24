@@ -119,7 +119,13 @@ describe('HTTP break-glass password reset audit', () => {
   it('writes an audit row with the target username on the token path', async () => {
     const mk = await call('POST', '/api/auth/users', { auth: { kind: 'token' }, body: { username: 'alice', password: GOOD_PW } })
     expect(mk.statusCode).toBe(201)
-    const r = await call('POST', '/api/auth/password', { auth: { kind: 'token' }, body: { username: 'alice', new_password: GOOD_PW + 'x' } })
+    // The tokened reset is a two-step handshake since 2026-08-24: the first
+    // call only hands back a ticket and changes nothing.
+    const ask = await call('POST', '/api/auth/password', { auth: { kind: 'token' }, body: { username: 'alice', new_password: GOOD_PW + 'x' } })
+    expect(ask.statusCode).toBe(409)
+    const ticket = (JSON.parse(ask.body) as { ticket: string }).ticket
+    expect(auditRows('security.break_glass_password_reset')).toHaveLength(0)
+    const r = await call('POST', '/api/auth/password', { auth: { kind: 'token' }, body: { username: 'alice', new_password: GOOD_PW + 'x', confirm_ticket: ticket } })
     expect(r.statusCode).toBe(200)
     const rows = auditRows('security.break_glass_password_reset')
     expect(rows).toHaveLength(1)

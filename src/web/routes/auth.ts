@@ -19,6 +19,7 @@
 // an else-branch.
 
 import type http from 'node:http'
+import { randomBytes } from 'node:crypto'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { parseCookies, SESSION_COOKIE_NAME } from '../auth-gate.js'
@@ -55,6 +56,7 @@ import {
   updateDashboardUserPassword,
   deleteDashboardUser,
   logConfigChange,
+  getRecentConfigChanges,
 } from '../../db.js'
 import { notifySecurityEvent } from '../../notify.js'
 import type { RouteContext } from './types.js'
@@ -119,7 +121,39 @@ const DEVICE_KEY_MAX_EXPIRY_DAYS = 3650
 // authenticated keeps its exact old meaning for token callers (existing probes
 // parse only that field): a valid bearer -> authenticated:true. A device key is
 // an authenticated principal too (method:'device', device:<key name>).
-function statusPayload(auth: RouteContext['auth']) {
+// Why the browser is suddenly on the login screen.
+//
+// A break-glass password reset revokes every session of that user. From the
+// browser this looks like an unexplained logout, and an unexplained logout is
+// indistinguishable from "the dashboard broke" -- so the owner would go looking
+// for a fault instead of for the reset that actually happened.
+//
+// Shown ONLY when the request presented a session cookie that no longer
+// resolves: that is the browser that was actually thrown out. A visitor with no
+// cookie is simply not logged in, which is a different thing and gets no
+// alarming banner. The window is bounded so a months-old reset never explains
+// today's ordinary login.
+const FORCED_LOGOUT_WINDOW_S = 7 * 24 * 60 * 60
+
+function forcedLogout(req: http.IncomingMessage, auth: RouteContext['auth']):
+  { reason: string; username: string | null; at: number } | null {
+  if (auth?.kind === 'session') return null
+  const presented = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]
+  if (!presented) return null
+  let row: { new_value: string | null; created_at: number } | undefined
+  try {
+    row = getRecentConfigChanges(200).find(r => r.key === 'security.break_glass_password_reset')
+  } catch {
+    // No readable audit log is not evidence that nothing happened -- say
+    // nothing rather than claim the logout was ordinary.
+    return null
+  }
+  if (!row) return null
+  if (Math.floor(Date.now() / 1000) - row.created_at > FORCED_LOGOUT_WINDOW_S) return null
+  return { reason: 'break_glass_password_reset', username: row.new_value, at: row.created_at }
+}
+
+function statusPayload(auth: RouteContext['auth'], req: http.IncomingMessage) {
   const authenticated = auth?.kind === 'token' || auth?.kind === 'session' || auth?.kind === 'device'
   const method = authenticated ? auth!.kind : null
   const user = auth?.kind === 'session' ? auth.user ?? null : null
@@ -131,14 +165,53 @@ function statusPayload(auth: RouteContext['auth']) {
     device,
     login_available: countDashboardUsers(false) >= 1,
     setup_required: countDashboardUsers(true) === 0,
+    forced_logout: authenticated ? null : forcedLogout(req, auth),
   }
+}
+
+// Break-glass confirmation tickets.
+//
+// A bearer token can reset a dashboard password WITHOUT knowing the current
+// one. On 2026-08-24 a verification agent -- told to "try the endpoints" --
+// did exactly that against the live system: the owner's password became a test
+// string and every session was revoked. The endpoint behaved as designed; the
+// design was that one call, with no second thought, does all of it.
+//
+// So the tokened path is now two calls. The first returns 409 with a ticket and
+// says in plain words what the second call will do; only a call carrying that
+// ticket goes through. Tickets are single-use, bound to one username, expire in
+// two minutes, and live in memory -- a restart invalidates them, which is the
+// safe direction. This is friction ON PURPOSE: it cannot be satisfied by an
+// agent that is merely repeating a curl it read somewhere, only by a caller
+// that read the refusal and decided to proceed.
+const BREAK_GLASS_TICKET_TTL_MS = 120_000
+const breakGlassTickets = new Map<string, { username: string; expiresAt: number }>()
+
+function issueBreakGlassTicket(username: string): { ticket: string; expiresInSec: number } {
+  const now = Date.now()
+  for (const [k, v] of breakGlassTickets) if (v.expiresAt <= now) breakGlassTickets.delete(k)
+  const ticket = randomBytes(18).toString('hex')
+  breakGlassTickets.set(ticket, { username, expiresAt: now + BREAK_GLASS_TICKET_TTL_MS })
+  return { ticket, expiresInSec: Math.round(BREAK_GLASS_TICKET_TTL_MS / 1000) }
+}
+
+// Returns 'ok' only for a live, unused ticket issued for THIS username. The
+// three failure reasons are kept apart so the caller is told what actually
+// happened instead of a generic refusal it would have to guess about.
+function consumeBreakGlassTicket(ticket: string, username: string): 'ok' | 'unknown' | 'expired' | 'other-user' {
+  const rec = breakGlassTickets.get(ticket)
+  if (!rec) return 'unknown'
+  if (rec.expiresAt <= Date.now()) { breakGlassTickets.delete(ticket); return 'expired' }
+  if (rec.username !== username) return 'other-user'
+  breakGlassTickets.delete(ticket)
+  return 'ok'
 }
 
 export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, auth } = ctx
 
   if (path === '/api/auth/status' && method === 'GET') {
-    json(res, statusPayload(auth))
+    json(res, statusPayload(auth, req))
     return true
   }
 
@@ -258,6 +331,41 @@ export async function tryHandleAuth(ctx: RouteContext): Promise<boolean> {
       user = username ? getDashboardUser(username) : undefined
       if (!user) {
         json(res, { error: 'User not found' }, 404)
+        return true
+      }
+      // Two-step confirmation (see breakGlassTickets above).
+      //
+      // The password policy is checked BEFORE a ticket is issued: a rejected
+      // password is a plain 400 the caller can fix, and it must not be dressed
+      // up as "needs confirmation" -- confirming would not have helped.
+      try {
+        assertPasswordPolicy(newPassword)
+      } catch (e) {
+        if (e instanceof PasswordPolicyError) {
+          json(res, { error: e.message }, 400)
+          return true
+        }
+        throw e
+      }
+      const ticket = str(body.confirm_ticket)
+      if (!ticket) {
+        const issued = issueBreakGlassTicket(user.username)
+        json(res, {
+          needsConfirmation: true,
+          ticket: issued.ticket,
+          expiresInSec: issued.expiresInSec,
+          error: `Ez ELO jelszo-csere: "${user.username}" jelszava tenylegesen megvaltozik, es a felhasznalo osszes munkamenete megszunik -- a bongeszojebol is kilep. Ha tudatosan ezt akarod, hivd meg ujra a valaszban kapott confirm_ticket ertekkel ${issued.expiresInSec} masodpercen belul. Ha ellenorzest vegzel, NE hivd meg: ird le a jelentesben, hogy ezt nem probaltad ki.`,
+        }, 409)
+        return true
+      }
+      const verdict = consumeBreakGlassTicket(ticket, user.username)
+      if (verdict !== 'ok') {
+        const why = verdict === 'expired'
+          ? 'A megerosito jegy lejart, kerj ujat (hivas confirm_ticket nelkul).'
+          : verdict === 'other-user'
+            ? 'A megerosito jegy mas felhasznalohoz szol.'
+            : 'Ismeretlen vagy mar felhasznalt megerosito jegy (a jegy egyszer hasznalhato, es ujrainditaskor elvesz).'
+        json(res, { error: why }, 409)
         return true
       }
     } else {

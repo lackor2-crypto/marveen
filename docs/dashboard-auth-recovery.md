@@ -70,6 +70,24 @@ auditált (`security.break_glass_password_reset`) és csatorna-értesítést kü
 Csak `token` hitelesítéssel érhető el -- session, eszközkulcs vagy federation
 principal 403-at kap.
 
+**Két lépés, 2026-08-24 óta.** Az első (jegy nélküli) hívás NEM állít át semmit:
+409-cel visszaad egy `confirm_ticket`-et, és megmondja, mit tenne a második
+hívás (élő jelszó-csere + az adott felhasználó összes munkamenetének
+megszüntetése). Csak az a hívás megy át, amelyik a kapott jegyet is elküldi
+(`confirm_ticket`); a jegy egyszer használható, egy felhasználónévhez szól, 120
+másodperc alatt lejár, és újraindításkor elvész. A dashboard felületén ez nem
+látszik: ott már a `confirm()` a megerősítés, a böngésző a jegyet magától
+visszaküldi.
+
+Miért: 2026-08-24-én egy ellenőrzést végző ügynök „kipróbálta" ezt a végpontot
+az ÉLES rendszeren -- a tulajdonos jelszava egy teszt-sztringre változott, és
+minden munkamenete megszűnt. A végpont a tervezett módon működött; a terv volt
+rossz, mert egyetlen hívás mindent elvégzett.
+
+Ha emiatt léptél ki, a login-képernyő ezt meg is mondja (`forced_logout` a
+`GET /api/auth/status` válaszában, 7 napig, és csak annak a böngészőnek,
+amelyik egy már nem érvényes munkamenet-sütit mutatott fel).
+
 ## Audit
 
 Minden fenti művelet a `config_change_log` táblába ír (`security.*` kulcsokkal,

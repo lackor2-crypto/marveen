@@ -102,7 +102,7 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
-  getDb().exec('DELETE FROM auth_sessions; DELETE FROM dashboard_users')
+  getDb().exec('DELETE FROM auth_sessions; DELETE FROM dashboard_users; DELETE FROM config_change_log')
   _clearSessionCacheForTest()
   _resetThrottleForTest()
 })
@@ -226,9 +226,15 @@ describe('POST /api/auth/password', () => {
 
   it('does NOT require current_password on the token break-glass path', async () => {
     await seedUser('alice')
-    const ok = await call('POST', '/api/auth/password', {
+    const ask = await call('POST', '/api/auth/password', {
       auth: TOKEN_AUTH,
       body: { username: 'alice', new_password: 'token-reset-pass' },
+    })
+    // Two-step since 2026-08-24: the first tokened call only hands back a ticket.
+    expect(ask.res.statusCode).toBe(409)
+    const ok = await call('POST', '/api/auth/password', {
+      auth: TOKEN_AUTH,
+      body: { username: 'alice', new_password: 'token-reset-pass', confirm_ticket: ask.json().ticket },
     })
     expect(ok.res.statusCode).toBe(200)
     const login = await call('POST', '/api/auth/login', { body: { username: 'alice', password: 'token-reset-pass' } })
@@ -342,7 +348,106 @@ describe('credential-kind allowlists (default-deny for future kinds)', () => {
 
   it('keeps the token break-glass reset working (allowlist did not over-tighten)', async () => {
     await seedUser('alice')
-    const reset = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'legit-reset-pw' } })
+    const ask = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'legit-reset-pw' } })
+    expect(ask.res.statusCode).toBe(409)
+    const reset = await call('POST', '/api/auth/password', {
+      auth: TOKEN_AUTH,
+      body: { username: 'alice', new_password: 'legit-reset-pw', confirm_ticket: ask.json().ticket },
+    })
     expect(reset.res.statusCode).toBe(200)
+  })
+})
+
+// A bearer token can reset a password without knowing the old one. On
+// 2026-08-24 an agent asked to "check the endpoints" did exactly that against
+// the LIVE dashboard: the owner's password became a test string and every one
+// of their sessions was revoked. Nothing had gone wrong technically -- one call
+// was simply enough to do all of it. It now takes two, and the refusal in
+// between says out loud what the second call would do.
+describe('break-glass reset needs an explicit confirmation', () => {
+  it('changes NOTHING on the first call and hands back a ticket', async () => {
+    await seedUser('alice')
+    const first = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123' } })
+    expect(first.res.statusCode).toBe(409)
+    const data = first.json()
+    expect(data.needsConfirmation).toBe(true)
+    expect(typeof data.ticket).toBe('string')
+    // The refusal must name the consequence, not just say "confirm".
+    expect(String(data.error)).toContain('munkamenete')
+    // The old password still works: the refusal was a real no-op.
+    const login = await call('POST', '/api/auth/login', { body: { username: 'alice', password: GOOD_PW } })
+    expect(login.res.statusCode).toBe(200)
+  })
+
+  it('burns the ticket: the same one cannot be replayed', async () => {
+    await seedUser('alice')
+    const ask = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123' } })
+    const ticket = ask.json().ticket
+    expect((await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123', confirm_ticket: ticket } })).res.statusCode).toBe(200)
+    const replay = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'third-password-987', confirm_ticket: ticket } })
+    expect(replay.res.statusCode).toBe(409)
+    // ...and the replay really did not take effect.
+    const login = await call('POST', '/api/auth/login', { body: { username: 'alice', password: 'brand-new-pw-123' } })
+    expect(login.res.statusCode).toBe(200)
+  })
+
+  it('refuses a ticket issued for a different user, and says so', async () => {
+    await seedUser('alice')
+    await seedUser('bob')
+    const ask = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'bob', new_password: 'brand-new-pw-123' } })
+    const r = await call('POST', '/api/auth/password', {
+      auth: TOKEN_AUTH,
+      body: { username: 'alice', new_password: 'brand-new-pw-123', confirm_ticket: ask.json().ticket },
+    })
+    expect(r.res.statusCode).toBe(409)
+    expect(String(r.json().error)).toContain('mas felhasznalohoz')
+    const login = await call('POST', '/api/auth/login', { body: { username: 'alice', password: GOOD_PW } })
+    expect(login.res.statusCode).toBe(200)
+  })
+
+  it('names an unknown ticket as unknown -- not as a generic failure', async () => {
+    await seedUser('alice')
+    const r = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123', confirm_ticket: 'not-a-real-ticket' } })
+    expect(r.res.statusCode).toBe(409)
+    expect(String(r.json().error)).toContain('Ismeretlen')
+  })
+})
+
+// An unexplained logout reads as "the dashboard is broken". If a break-glass
+// reset is what threw this browser out, the login screen has to say so.
+describe('GET /api/auth/status explains a forced logout', () => {
+  const staleCookie = { cookie: `${SESSION_COOKIE_NAME}=nem-letezo-session-id` }
+
+  it('stays silent for a visitor who never had a session (fresh install)', async () => {
+    await seedUser('alice')
+    const r = await call('GET', '/api/auth/status')
+    expect(r.json().forced_logout).toBeNull()
+  })
+
+  it('stays silent when a stale cookie is presented but no reset ever happened', async () => {
+    await seedUser('alice')
+    const r = await call('GET', '/api/auth/status', { headers: staleCookie })
+    expect(r.json().forced_logout).toBeNull()
+  })
+
+  it('explains the logout to the browser whose session was revoked', async () => {
+    await seedUser('alice')
+    const ask = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123' } })
+    await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123', confirm_ticket: ask.json().ticket } })
+
+    const r = await call('GET', '/api/auth/status', { headers: staleCookie })
+    const forced = r.json().forced_logout as { reason: string; username: string } | null
+    expect(forced).not.toBeNull()
+    expect(forced!.reason).toBe('break_glass_password_reset')
+    expect(forced!.username).toBe('alice')
+  })
+
+  it('does not put the banner in front of someone who IS signed in', async () => {
+    await seedUser('alice')
+    const ask = await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123' } })
+    await call('POST', '/api/auth/password', { auth: TOKEN_AUTH, body: { username: 'alice', new_password: 'brand-new-pw-123', confirm_ticket: ask.json().ticket } })
+
+    const r = await call('GET', '/api/auth/status', { headers: staleCookie, auth: { kind: 'session', user: 'alice' } })
+    expect(r.json().forced_logout).toBeNull()
   })
 })

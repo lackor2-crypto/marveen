@@ -274,7 +274,7 @@ function mainAgentId() {
       if (r.ok) status = await r.json()
     } catch { /* offline or probe failed -- fall through to token flows */ }
     if (status && status.login_available) {
-      showLoginOverlay()
+      showLoginOverlay(status)
       return
     }
     // An installed (home-screen) PWA has its own localStorage, separate from
@@ -333,9 +333,31 @@ function mainAgentId() {
 
   // Full-screen username+password login overlay. Posts to /api/auth/login; on
   // success the browser has the mv_session cookie and we reload authenticated.
-  function showLoginOverlay() {
+  // `status` is the /api/auth/status payload that decided to show this overlay.
+  // When it carries forced_logout, the screen must SAY why the browser was
+  // thrown out -- an unexplained logout reads as a broken dashboard, and the
+  // owner then hunts for a fault instead of for the password reset that
+  // actually happened.
+  function showLoginOverlay(status) {
     if (document.getElementById('mv-login-overlay')) return
     const tr = (k, fallback) => (typeof window.t === 'function' ? window.t(k) : fallback) || fallback
+    const forced = status && status.forced_logout
+    let forcedHtml = ''
+    if (forced) {
+      // Only the reason we actually recorded is named. An unknown reason code
+      // gets the generic sentence rather than a guessed cause.
+      const when = forced.at ? new Date(forced.at * 1000).toLocaleString() : ''
+      const who = forced.username || tr('auth.forced.unknown_user', 'a user')
+      const body = forced.reason === 'break_glass_password_reset'
+        ? tr('auth.forced.break_glass', 'The password was reset with the access token, so every session was signed out.')
+        : tr('auth.forced.generic', 'Your session was ended on the server.')
+      forcedHtml = '<div class="mv-auth-forced" id="mv-login-forced">' +
+        '<strong>' + tr('auth.forced.title', 'You were signed out') + '</strong>' +
+        '<p>' + body + '</p>' +
+        '<p class="mv-auth-forced-meta">' + who + (when ? ' \u00b7 ' + when : '') + '</p>' +
+        '<p>' + tr('auth.forced.next', 'Sign in with the NEW password. If you did not do this, change the password now and check who has the access token.') + '</p>' +
+      '</div>'
+    }
     const overlay = document.createElement('div')
     overlay.id = 'mv-login-overlay'
     overlay.className = 'mv-auth-overlay'
@@ -343,6 +365,7 @@ function mainAgentId() {
       '<form class="mv-auth-card" id="mv-login-form">' +
         '<h2>' + tr('auth.login.title', 'Sign in') + '</h2>' +
         '<p class="mv-auth-desc">' + tr('auth.login.desc', 'Enter your dashboard username and password.') + '</p>' +
+        forcedHtml +
         '<input id="mv-login-user" type="text" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="' + tr('auth.login.username', 'Username') + '">' +
         '<input id="mv-login-pass" type="password" autocomplete="current-password" placeholder="' + tr('auth.login.password', 'Password') + '">' +
         '<button type="submit" id="mv-login-submit">' + tr('auth.login.submit', 'Sign in') + '</button>' +
@@ -21275,11 +21298,21 @@ async function resetPasswordFromUi() {
   if (passwordTooShort(p1)) { msg.classList.add('err'); msg.textContent = t('auth.card.err_too_short', { n: AUTH_MIN_PASSWORD_LENGTH }); return }
   if (!confirm(t('auth.reset.confirm', { user: username }))) return
   try {
-    const r = await fetch('/api/auth/password', {
+    const post = (extra) => fetch('/api/auth/password', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, new_password: p1 }),
+      body: JSON.stringify(Object.assign({ username, new_password: p1 }, extra || {})),
     })
-    const data = await r.json().catch(() => ({}))
+    // The tokened reset is deliberately two calls on the server (see
+    // breakGlassTickets in src/web/routes/auth.ts): the first is refused with a
+    // ticket. The gate exists to stop an unattended caller, not the owner --
+    // and the owner has already answered the confirm() above -- so the browser
+    // replays the call with the ticket instead of asking a second time.
+    let r = await post()
+    let data = await r.json().catch(() => ({}))
+    if (r.status === 409 && data.needsConfirmation && data.ticket) {
+      r = await post({ confirm_ticket: data.ticket })
+      data = await r.json().catch(() => ({}))
+    }
     if (!r.ok) { msg.classList.add('err'); msg.textContent = data.error || t('auth.card.err_generic'); return }
     document.getElementById('authResetPass').value = ''
     document.getElementById('authResetPass2').value = ''

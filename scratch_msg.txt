@@ -1,0 +1,29 @@
+A break-glass jelszo-csere megerositest kap, es a kileptetes megmondja magat
+
+Egy bearer token eddig EGYETLEN hivassal at tudta allitani a dashboard-jelszot
+a regi ismerete nelkul, es ezzel megszuntette a felhasznalo osszes munkamenetet.
+2026-08-24-en egy ellenorzest vegzo ugynok "kiprobalta" ezt a vegpontot az ELES
+rendszeren: a tulajdonos jelszava egy teszt-sztringre valtozott, es kilepett
+mindenhonnan. A vegpont a tervezett modon mukodott -- a terv volt rossz.
+
+1. Ket lepes lett belole. A jegy nelkuli tokenes hivas nem valtoztat semmit:
+   409-cel visszaad egy confirm_ticket-et, es leirja, mit tenne a masodik hivas.
+   A jegy egyszer hasznalhato, egy felhasznalonevhez szol, 120 mp alatt lejar,
+   es ujrainditaskor elvesz. A jelszo-hazirend a jegy KIADASA ELOTT fut, hogy
+   egy rossz jelszo 400 maradjon, ne "megerositest igenyel".
+   A felulet ettol nem lett hasznalhatatlanabb: ott mar a confirm() a
+   megerosites, a bongeszo a jegyet magatol visszakuldi.
+
+2. A kileptetes megmondja az OKAT. A GET /api/auth/status forced_logout mezoje
+   csak annak a bongeszonek szol, amelyik egy mar nem ervenyes munkamenet-sutit
+   mutatott fel, es csak 7 napig -- a login-kepernyo igy nem "elromlott
+   dashboard"-kent latszik. Ha nincs olvashato audit-naplo, inkabb hallgat,
+   mint hogy rendes belepesnek allitsa be.
+
+Az elteres okat sehol nem talalgatjuk: a jegy harom hibaoka (ismeretlen /
+lejart / mas felhasznalohoz szol) kulon uzenetet kap.
+
+Merve elesben: jegy nelkul 409 es a jelszo valtozatlan; hamis jegy 409;
+ervenytelen sutivel a status megnevezi a resetet. Teljes suite 379/5674 zold.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
