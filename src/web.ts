@@ -638,6 +638,9 @@ export function startWebServer(port = 3420): http.Server {
       const govPatched: string[] = []
       const skillsLinked: string[] = []
       const pruned: string[] = []
+      const askBackWritten: string[] = []
+      const askBackNoFile: string[] = []
+      const askBackUnreadable: string[] = []
       // Include the main agent (MAIN_AGENT_ID) so the voice hook is also seeded
       // into ~/.claude/settings.json alongside existing hooks (e.g. telegram_progress.py).
       for (const agentName of [MAIN_AGENT_ID, ...listAgentNames()]) {
@@ -656,12 +659,23 @@ export function startWebServer(port = 3420): http.Server {
         // The mandatory ask-back rule reaches EXISTING agents here, on boot --
         // not only on the next respawn. A rule that only new agents get is not
         // a fleet rule (Boss, 2026-08-24: "mindenhova tedd be").
-        ensureAskBackSection(agentName)
+        const askBack = ensureAskBackSection(agentName)
+        if (askBack === 'written') askBackWritten.push(agentName)
+        if (askBack === 'no-file') askBackNoFile.push(agentName)
+        if (askBack === 'unreadable') askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
       // the only file every Claude Code session reads no matter where it runs.
       ensureGlobalAskBackRule()
+      // Zero writes means two different things, so both are said out loud
+      // rather than inferred from a count: 'no-file' agents are covered by the
+      // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads
+      // its own), while an unreadable file means the rule did NOT reach that
+      // agent and needs a human.
+      if (askBackWritten.length) logger.info({ agents: askBackWritten }, 'ask-back rule written into agent CLAUDE.md')
+      if (askBackNoFile.length) logger.info({ agents: askBackNoFile }, 'ask-back rule: agent has no own CLAUDE.md, covered by ~/.claude/CLAUDE.md instead')
+      if (askBackUnreadable.length) logger.warn({ agents: askBackUnreadable }, 'ask-back rule could NOT be written: agent CLAUDE.md unreadable')
       if (pruned.length) logger.info({ pruned }, 'Stale hook entries pruned from agent settings.json')
       if (patched.length) logger.info({ patched }, 'PreCompact hook backfilled into agent settings.json')
       if (stalePatched.length) logger.info({ patched: stalePatched }, 'staleness-guard UserPromptSubmit hook backfilled into agent settings.json')

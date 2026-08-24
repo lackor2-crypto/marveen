@@ -1063,10 +1063,19 @@ function buildAskBackBody(): string {
 // PROJECT_ROOT; it carries the rule as tracked repo text instead, so this
 // function deliberately skips it rather than writing a generated block into a
 // git-tracked file on every boot.
-export function ensureAskBackSection(name: string): void {
-  if (name === MAIN_AGENT_ID) return
+//
+// The return value exists so the caller can tell the two kinds of "nothing
+// happened" apart. 'no-file' means the agent has no CLAUDE.md of its own, which
+// on this fleet is normal (a worktree-based agent reads the repo file and
+// ~/.claude/CLAUDE.md instead) -- but 'unreadable' means the rule did NOT reach
+// that agent and nobody would otherwise know. A count of zero writes must never
+// be reported as "everyone is up to date".
+export type AskBackOutcome = 'written' | 'current' | 'skipped-main' | 'no-file' | 'unreadable'
+
+export function ensureAskBackSection(name: string): AskBackOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
   const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
-  if (!existsSync(claudeMdPath)) return
+  if (!existsSync(claudeMdPath)) return 'no-file'
 
   const block = `${ASKBACK_BEGIN}\n${buildAskBackBody()}\n${ASKBACK_END}`
 
@@ -1074,15 +1083,16 @@ export function ensureAskBackSection(name: string): void {
   try {
     existing = readFileSync(claudeMdPath, 'utf-8')
   } catch {
-    return
+    return 'unreadable'
   }
 
   const updated = ASKBACK_BLOCK_RE.test(existing)
     ? existing.replace(ASKBACK_BLOCK_RE, block)
     : existing.trimEnd() + '\n\n' + block + '\n'
 
-  if (updated === existing) return
+  if (updated === existing) return 'current'
   atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
 }
 
 // The global CLAUDE.md (~/.claude/CLAUDE.md) is the ONLY instruction file every

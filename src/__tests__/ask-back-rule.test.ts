@@ -105,6 +105,19 @@ describe('ensureAskBackSection', () => {
     expect(text).toContain('ask-back-when-ambiguous')
   })
 
+  // A count of zero writes must never be readable as "everyone is up to date".
+  // The two silent cases are told apart by the return value, so the boot log can
+  // say which one it is (fresh install with no file yet vs. a file we could not
+  // read, which means the rule did NOT reach that agent).
+  it('reports WHY nothing was written, so zero is never ambiguous', () => {
+    expect(ensureAskBackSection('zz-no-such-agent-at-all')).toBe('no-file')
+    expect(ensureAskBackSection(MAIN_AGENT_ID)).toBe('skipped-main')
+
+    seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
+    expect(ensureAskBackSection(THROWAWAY)).toBe('written')
+    expect(ensureAskBackSection(THROWAWAY)).toBe('current')
+  })
+
   it('ships the skill in seed-skills so a fresh install has it too', () => {
     const skill = join(PROJECT_ROOT, 'seed-skills', 'ask-back-when-ambiguous', 'SKILL.md')
     expect(existsSync(skill)).toBe(true)
