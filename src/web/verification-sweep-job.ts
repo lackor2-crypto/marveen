@@ -35,6 +35,7 @@ function reminderPrompt(row: ApprovalVerification): string {
     `  -H "Authorization: Bearer $(cat ${tokenPath})" \\`,
     `  -d '{"agent":"${row.agent}","status":"pass","report":"rovid osszefoglalo"}'`,
     ``,
+    `Emlekezteto a hatarra is: az ellenorzes CSAK-OLVASO -- ezen az egy verify-result hivason kivul semmilyen iro (POST/PUT/PATCH/DELETE) hivast ne inditsd az elo rendszeren.`,
     `Ha nem tudod elvegezni (modell-hiba, nincs hozzaferes, barmi), akkor is jelentsd: status "fail", a report mezoben egy mondatban miert.`,
     `Ha hamarosan nem erkezik jelentes, a rendszer "nem valaszolt"-kent zarja le ezt a sort.`,
   ].join('\n')
