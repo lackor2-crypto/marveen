@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -653,7 +653,15 @@ export function startWebServer(port = 3420): http.Server {
         // agens-paritas): link the agent at the shared skill library.
         if (ensureAgentSkills(agentName)) skillsLinked.push(agentName)
         ensureQuarantineReader(agentName)
+        // The mandatory ask-back rule reaches EXISTING agents here, on boot --
+        // not only on the next respawn. A rule that only new agents get is not
+        // a fleet rule (Boss, 2026-08-24: "mindenhova tedd be").
+        ensureAskBackSection(agentName)
       }
+      // ...and once machine-wide. An agent whose working directory is a git
+      // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
+      // the only file every Claude Code session reads no matter where it runs.
+      ensureGlobalAskBackRule()
       if (pruned.length) logger.info({ pruned }, 'Stale hook entries pruned from agent settings.json')
       if (patched.length) logger.info({ patched }, 'PreCompact hook backfilled into agent settings.json')
       if (stalePatched.length) logger.info({ patched: stalePatched }, 'staleness-guard UserPromptSubmit hook backfilled into agent settings.json')

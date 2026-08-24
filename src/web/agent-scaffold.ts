@@ -892,6 +892,12 @@ const FLEET_ROSTER_BLOCK_RE = new RegExp(
   `${FLEET_ROSTER_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${FLEET_ROSTER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+const ASKBACK_BEGIN = '<!-- BEGIN GENERATED: ask-back-rule (auto-generated, do not edit by hand) -->'
+const ASKBACK_END = '<!-- END GENERATED: ask-back-rule -->'
+const ASKBACK_BLOCK_RE = new RegExp(
+  `${ASKBACK_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${ASKBACK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 const AUTONOMY_BEGIN = '<!-- BEGIN GENERATED: autonomy-wiring (auto-generated, do not edit by hand) -->'
 const AUTONOMY_END = '<!-- END GENERATED: autonomy-wiring -->'
 const AUTONOMY_BLOCK_RE = new RegExp(
@@ -1002,6 +1008,124 @@ function buildAutonomyBody(name: string): string {
     '',
     '**E-mail**: közvetlenül küldesz, közvetítő nélkül. Csak IGAZOLT címre írj (a felhasználó adta meg, vagy korábbi levélből származik) -- címet SOHA ne találj ki. A tulajdonos nevében nem írsz alá, és senki nevében nem kérsz pénzt. Küldés előtt a címzettet, a tárgyat és a tartalmat visszaolvasod jóváhagyásra.',
   ].join('\n')
+}
+
+// The mandatory ask-back rule. Boss, 2026-08-24: "ha ketertelmu akkor
+// kotelezoen vissza kell kerdeznie! mindenhova tedd be."
+//
+// Why this is a GENERATED block and not just a line in the template: the
+// template only reaches agents created AFTER it changes. This block lands in
+// every agent's CLAUDE.md on the next start (and on dashboard boot), so an
+// agent that already exists is not left with the old, silent behaviour.
+//
+// The text is deliberately concrete about the incident that produced it. A
+// rule stated as a principle gets read as advice; a rule with the cost written
+// next to it gets followed.
+function buildAskBackBody(): string {
+  return [
+    '## KOTELEZO VISSZAKERDEZES KETERTELMUSEGNEL',
+    '',
+    'Ha egy utasitasnak egynel tobb ertelme van, **KOTELEZO visszakerdezned** --',
+    'akkor is, ha erted, es akkor is, ha majdnem biztos vagy benne, melyiket akarta.',
+    'A tippelt ertelmezes rosszabb a kerdesnel: a kerdes tiz masodperc, a rossz tipp',
+    'gyakran visszafordithatatlan.',
+    '',
+    'Miert: egy "toroljed a nem mukodo agenseket" utasitas hatokoret valaki',
+    'kitalalta, es a felsoroltakkal egyutt elment egy olyan agens is, amelyiket a',
+    'tulajdonos soha nem nevezett meg. Egyetlen kerdes megelozte volna, es a torles',
+    'visszafordithatatlan volt.',
+    '',
+    'Kerdezz, ha: a halmazt neked kell megallapitanod ("mind", "az osszeset", "a',
+    'nem mukodoket"); nincs megnevezve, MIN vegezd el; a mondatnak ket eloadhato',
+    'olvasata van; a muvelet egy merteken mulik ("regi", "nagy", "sok"); vagy a',
+    'megnevezett eszkoz mast eredmenyezne, mint a kimondott cel.',
+    '',
+    'Ezek elott MINDIG kerdezz, meg halvany ketely eseten is: torles, kifele meno',
+    'uzenet valodi cimzettnek, jelszo/hozzaferes/jogosultsag valtoztatasa, penzmozgas',
+    'vagy hivatalos beadvany, tomeges muvelet (egynel tobb elem egy lepesben), eles',
+    'szolgaltatas leallitasa.',
+    '',
+    'Ahogy kerdezz: egy uzenetben az OSSZES nyitott kerdes; ird le, mit ertettel meg',
+    'es hol agazik el; adj konkret valasztast (A/B); mondd meg, mi tortenik rossz',
+    'tipp eseten; es kozben vegezd el azt a reszt, ami a valasz nelkul is biztos.',
+    '',
+    'NE kerdezz, ha az utasitasnak egy ertelme van, es csak azert bizonytalankodsz,',
+    'mert a feladat nagy. Rutin dontest (fajlnev, sorrend, formazas) hozz meg magad,',
+    'es mondd meg, mit valasztottal.',
+    '',
+    'Reszletek: `ask-back-when-ambiguous` skill.',
+  ].join('\n')
+}
+
+// Idempotently ensures the ask-back block is present and current in the
+// agent's CLAUDE.md. Same five-rule idempotency contract as
+// ensureFleetRosterSection(). The main agent's CLAUDE.md lives at
+// PROJECT_ROOT; it carries the rule as tracked repo text instead, so this
+// function deliberately skips it rather than writing a generated block into a
+// git-tracked file on every boot.
+export function ensureAskBackSection(name: string): void {
+  if (name === MAIN_AGENT_ID) return
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return
+
+  const block = `${ASKBACK_BEGIN}\n${buildAskBackBody()}\n${ASKBACK_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return
+  }
+
+  const updated = ASKBACK_BLOCK_RE.test(existing)
+    ? existing.replace(ASKBACK_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(claudeMdPath, updated)
+}
+
+// The global CLAUDE.md (~/.claude/CLAUDE.md) is the ONLY instruction file every
+// Claude Code session on this machine reads regardless of its working
+// directory. Per-agent CLAUDE.md files do not reach an agent that runs from a
+// git worktree (measured 2026-08-24: usalackor's CWD is
+// .worktrees/usalackor, so agents/usalackor/CLAUDE.md is never loaded -- and
+// that agent has no such file at all). The mandatory ask-back rule must bind
+// the whole fleet, so it is written here too.
+//
+// The file is NOT owned by us: it may already carry the operator's own rules,
+// and on a fresh install it may not exist at all. Both cases are handled --
+// missing file is created with just the block, existing file keeps every line
+// outside the markers untouched. Same five-rule idempotency contract as
+// ensureAskBackSection().
+export function ensureGlobalAskBackRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${ASKBACK_BEGIN}\n${buildAskBackBody()}\n${ASKBACK_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = ASKBACK_BLOCK_RE.test(existing)
+    ? existing.replace(ASKBACK_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
 }
 
 // Idempotently ensures the autonomy-wiring block is present and current in the

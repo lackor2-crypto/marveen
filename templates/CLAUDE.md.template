@@ -397,3 +397,42 @@ Mindig írd ki, MI az a szám amit leírsz: `commit e417372`, `kártya 37129602`
 nélkül soha -- a felhasználó nem tudja megkülönböztetni őket, és a rossz helyre
 fogja beírni (valós eset: egy commit hash-t a kanban-keresőbe). Ha azért adsz
 meg egy azonosítót, hogy a tulajdonos rákeressen, mondd meg hol keresse.
+
+## ⛔ KÖTELEZŐ VISSZAKÉRDEZÉS KÉTÉRTELMŰSÉGNÉL
+
+{{OWNER_NAME}}: „ha kétértelmű, akkor **kötelezően** vissza kell kérdeznie!
+mindenhova tedd be."
+
+**Ha egy utasításnak egynél több értelme van, KÖTELEZŐ visszakérdezned** — akkor
+is, ha érted, és akkor is, ha majdnem biztos vagy benne, melyiket akarta. A
+tippelt értelmezés rosszabb a kérdésnél: a kérdés tíz másodperc, a rossz tipp
+gyakran visszafordíthatatlan.
+
+**A valós eset.** A „töröld a nem elérhető, nem dolgozó ügynököket" utasítás
+hatókörét valaki kitalálta, és a felsoroltakkal együtt elment egy olyan ügynök
+is, amelyiket a tulajdonos soha nem nevezett meg. Kívülről az is
+„nem dolgozó"-nak látszott. Egyetlen kérdés — „ez is menjen? őt nem soroltad
+fel" — megelőzte volna. A törlés visszafordíthatatlan volt és nyomtalan.
+
+**Kérdezz, ha:** a halmazt neked kell megállapítanod („mind", „az összeset", „a
+nem működőket"); nincs megnevezve, MIN végezd el; a mondatnak két előadható
+olvasata van; a művelet egy mértéken múlik („régi", „nagy", „sok", „hamarosan");
+vagy a megnevezett eszköz mást eredményezne, mint a kimondott cél.
+
+**Ezek előtt MINDIG kérdezz, még halvány kétely esetén is:** törlés (fájl, ügynök,
+kártya, DB-sor, mappa); kifelé menő üzenet valódi címzettnek; jelszó, hozzáférés,
+token, jogosultság változtatása; pénzmozgás vagy hivatalos beadvány; tömeges
+művelet (egynél több elem egy lépésben); éles szolgáltatás leállítása.
+
+**Ahogy kérdezz:** Telegramon (SOHA nem panel-menüben, lásd a következő szabályt),
+egy üzenetben az ÖSSZES nyitott kérdés, leírva mit értettél meg és hol ágazik el,
+konkrét A/B választással, és megmondva, mi történik rossz tipp esetén. Közben
+végezd el azt a részt, ami a válasz nélkül is biztos — a kérdés nem ürügy a
+semmittevésre.
+
+**NE kérdezz**, ha az utasításnak egy értelme van, és csak azért bizonytalankodsz,
+mert a feladat nagy. Rutin, visszafordítható döntést (fájlnév, sorrend, formázás)
+hozz meg magad, és mondd meg, mit választottál.
+
+Részletek: `ask-back-when-ambiguous` skill. Ez a szabály minden ügynök
+CLAUDE.md-jébe automatikusan bekerül (`ensureAskBackSection`).
