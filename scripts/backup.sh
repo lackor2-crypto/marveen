@@ -10,7 +10,8 @@
 #     .env                     (project root secrets)
 #     scheduled-tasks.json     (legacy, if present)
 #     assets/meetings/**       (meeting transcripts/memos)
-#     agents/*/CLAUDE.md, SOUL.md, .mcp.json
+#     agents/*/CLAUDE.md, SOUL.md, .mcp.json, agent-config.json
+#     agents/*/memory/**         (the agent's own memory index + entries)
 #     agents/*/.claude/channels/{telegram,slack,discord}/.env, access.json
 #
 #   home/   -> extract under $HOME
@@ -87,11 +88,22 @@ add_if "${REPOLIST}" "${REPO_ROOT}" .env
 add_if "${REPOLIST}" "${REPO_ROOT}" scheduled-tasks.json
 add_if "${REPOLIST}" "${REPO_ROOT}" assets/meetings
 # Per-agent identity + channel secrets (glob; missing dir is not an error).
+#
+# agent-config.json and memory/ are in this list because of a real restore:
+# on 2026-08-24 an accidentally deleted agent (Gypsy) came back from a backup
+# with its prompt and channel token intact -- but WITHOUT its model, its
+# security profile and its team wiring, because those live in
+# agent-config.json, which the backup did not carry. The identity had to be
+# reconstructed by measurement. A backup that restores a mute, model-less
+# agent is not a backup of that agent.
 if [[ -d agents ]]; then
   find agents -type f \
     \( -name 'CLAUDE.md' -o -name 'SOUL.md' -o -name '.mcp.json' \
+       -o -name 'agent-config.json' \
        -o -name 'access.json' -o -name '.env' \) \
     -print >> "${REPOLIST}"
+  # memory/ is a whole tree, not a fixed filename set.
+  find agents -type d -name memory -print >> "${REPOLIST}"
 fi
 
 # home/ group (relative to $HOME)

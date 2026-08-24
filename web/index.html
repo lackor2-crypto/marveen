@@ -576,6 +576,15 @@
           </button>
         </div>
       </div>
+      <!-- Recoverable deletions. Hidden entirely when the trash is empty, which
+           on a fresh install is the normal state -- an always-visible empty box
+           would read as a broken feature. -->
+      <div id="deletedAgentsBox" class="card" style="margin-top:20px" hidden>
+        <h3 style="margin:0 0 4px" data-i18n="agents.deleted.title">Törölt ügynökök</h3>
+        <p class="subtitle" style="margin:0 0 12px" data-i18n="agents.deleted.subtitle">A törölt ügynökök nem vesznek el azonnal: innen visszaállíthatók.</p>
+        <div id="deletedAgentsList"></div>
+      </div>
+
       <!-- Tree / org-chart view (merged from separate Team page) -->
       <div id="agentsTreeView" hidden>
         <div id="teamGraph" class="team-graph"></div>

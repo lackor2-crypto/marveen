@@ -4,8 +4,8 @@ import { homedir, platform, tmpdir } from 'node:os'
 import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
-import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG } from '../../config.js'
-import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent } from '../../db.js'
+import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG, STORE_DIR } from '../../config.js'
+import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent, logConfigChange } from '../../db.js'
 import { computeReliabilityScore, type ReliabilityScore } from '../../agent-reliability.js'
 import { isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from '../agent-message-wrap.js'
@@ -2315,6 +2315,90 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     return true
   }
 
+  // GET /api/agents/deleted -- what is recoverable, and since when.
+  //
+  // A trash nobody can open from the dashboard is not a safety net: the whole
+  // point of moving a deleted agent aside instead of destroying it is that the
+  // owner can put it back WITHOUT a terminal. On a fresh install the directory
+  // does not exist yet, and that is the honest empty case -- distinguished
+  // below from "the directory is there but unreadable", which is a fault.
+  if (path === '/api/agents/deleted' && method === 'GET') {
+    const trashRoot = join(STORE_DIR, 'deleted-agents')
+    if (!existsSync(trashRoot)) { json(res, { entries: [], readable: true }); return true }
+    let names: string[]
+    try {
+      names = readdirSync(trashRoot)
+    } catch (e) {
+      json(res, { entries: [], readable: false, error: (e as Error).message })
+      return true
+    }
+    const entries = names
+      .filter(entry => { try { return statSync(join(trashRoot, entry)).isDirectory() } catch { return false } })
+      .map(entry => {
+        // "<name>-<ISO timestamp with : and . replaced by ->": the timestamp
+        // is a fixed shape, so the name is everything before it. Splitting on
+        // the first '-' would truncate every agent whose name contains one.
+        const m = entry.match(/^(.*)-(\d{4}-\d{2}-\d{2}T[\d-]+Z)$/)
+        const agentName = m ? m[1]! : entry
+        const deletedAt = m ? m[2]! : null
+        let model: string | null = null
+        let profile: string | null = null
+        try {
+          const cfgRaw = readFileSync(join(trashRoot, entry, 'agent-config.json'), 'utf-8')
+          const cfg = JSON.parse(cfgRaw) as { model?: string; securityProfile?: string }
+          model = cfg.model ?? null
+          profile = cfg.securityProfile ?? null
+        } catch { /* no config, or unreadable: shown as unknown, never invented */ }
+        let deletedAtMs: number | null = null
+        try { deletedAtMs = statSync(join(trashRoot, entry)).mtimeMs } catch { /* keep null */ }
+        return { entry, name: agentName, deletedAt, deletedAtMs, model, profile, exists: existsSync(agentDir(agentName)) }
+      })
+      .sort((a, b) => (b.deletedAtMs ?? 0) - (a.deletedAtMs ?? 0))
+    json(res, { entries, readable: true })
+    return true
+  }
+
+  // POST /api/agents/deleted/:entry/restore -- put it back under its own name.
+  const restoreMatch = path.match(/^\/api\/agents\/deleted\/([^/]+)\/restore$/)
+  if (restoreMatch && method === 'POST') {
+    const entry = decodeURIComponent(restoreMatch[1]!)
+    // The entry name comes from the URL, so it must not be able to walk out of
+    // the trash directory: reject anything with a separator or a dot-segment.
+    if (!entry || entry.includes('/') || entry.includes('\\') || entry.includes('..')) {
+      json(res, { error: 'Ervenytelen bejegyzes' }, 400); return true
+    }
+    const trashRoot = join(STORE_DIR, 'deleted-agents')
+    const src = join(trashRoot, entry)
+    if (!existsSync(src)) { json(res, { error: 'Nincs ilyen torolt ugynok' }, 404); return true }
+    const m = entry.match(/^(.*)-(\d{4}-\d{2}-\d{2}T[\d-]+Z)$/)
+    const agentName = m ? m[1]! : entry
+    const dest = agentDir(agentName)
+    // Never overwrite a live agent that has since taken the name back: that
+    // would be a second silent deletion, of exactly the kind this change exists
+    // to prevent.
+    if (existsSync(dest)) {
+      json(res, { error: `Mar letezik ilyen nevu ugynok: ${agentName}. Nevezd at vagy torold eloszor.` }, 409)
+      return true
+    }
+    try {
+      renameSync(src, dest)
+    } catch (e) {
+      json(res, { error: `A visszaallitas nem sikerult: ${(e as Error).message}` }, 500)
+      return true
+    }
+    const actor = ctx.auth ? (ctx.auth.user ?? ctx.auth.device ?? ctx.auth.peer ?? ctx.auth.kind) : 'ismeretlen'
+    try {
+      logConfigChange('agents.restored', null, `${agentName} (${entry})`, actor)
+    } catch (e) {
+      logger.error({ agent: agentName, actor, err: (e as Error).message }, 'Agent restored but the audit row could NOT be written')
+    }
+    logger.warn({ agent: agentName, actor, entry }, 'Agent restored from store/deleted-agents')
+    // Deliberately NOT re-added to the desired run-state: coming back must not
+    // start it. The owner decides when it runs again.
+    json(res, { ok: true, name: agentName })
+    return true
+  }
+
   const agentMatch = path.match(/^\/api\/agents\/([^/]+)$/)
   if (agentMatch && method === 'GET') {
     const name = decodeURIComponent(agentMatch[1])
@@ -2437,7 +2521,61 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     if (name === MAIN_AGENT_ID) { json(res, { error: 'A fő ágens nem törölhető' }, 400); return true }
     const dir = agentDir(name)
     if (!existsSync(dir)) { json(res, { error: 'Agent not found' }, 404); return true }
-    rmSync(dir, { recursive: true, force: true })
+
+    // Deleting an agent used to be irreversible AND traceless: rmSync, no
+    // record anywhere. On 2026-08-23 seven agents went in one batch and one of
+    // them (Gypsy) was never named by the owner -- and afterwards NOTHING in
+    // this system could say who did it or when, because config_change_log had
+    // no row, store_file_audit does not watch agents/, and the directory was
+    // simply gone. Both halves are fixed here.
+    //
+    // Half one: the directory is MOVED aside, not destroyed. A wrong delete
+    // stays recoverable without reaching for a nightly backup (which, until
+    // today, did not even carry agent-config.json).
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const trashRoot = join(STORE_DIR, 'deleted-agents')
+    const trashDir = join(trashRoot, `${name}-${stamp}`)
+    // Half two: the identity is snapshotted BEFORE the move, so the audit row
+    // is readable on its own even if the trash is later cleaned out. An
+    // unreadable config is recorded as exactly that -- never as "no config",
+    // which would be the same silent zero that hid the original deletion.
+    let snapshot = 'agent-config.json: hianyzik'
+    const cfgPath = join(dir, 'agent-config.json')
+    if (existsSync(cfgPath)) {
+      try {
+        snapshot = readFileSync(cfgPath, 'utf-8').replace(/\s+/g, ' ').slice(0, 2000)
+      } catch (e) {
+        snapshot = `agent-config.json: olvashatatlan (${(e as Error).message})`
+      }
+    }
+    let trashed = ''
+    try {
+      mkdirSync(trashRoot, { recursive: true })
+      renameSync(dir, trashDir)
+      trashed = trashDir
+    } catch (e) {
+      // Cross-device or permission failure must not turn a delete into a
+      // half-delete: fall back to the old behaviour, but say so in the audit
+      // row rather than letting it look like a clean recoverable delete.
+      logger.warn({ agent: name, err: (e as Error).message }, 'agent delete: could not move to store/deleted-agents, removing outright')
+      rmSync(dir, { recursive: true, force: true })
+      trashed = `NEM MENTHETO (${(e as Error).message}) -- veglegesen torolve`
+    }
+    const actor = ctx.auth ? (ctx.auth.user ?? ctx.auth.device ?? ctx.auth.peer ?? ctx.auth.kind) : 'ismeretlen'
+    // The audit write must never be what turns a completed delete into a 500:
+    // the directory has already moved by now, so throwing here would report
+    // failure for something that happened. It must not fail SILENTLY either --
+    // an audit trail nobody notices missing is the defect this whole change is
+    // about -- so the fallback is a loud error line carrying the same facts.
+    try {
+      logConfigChange('agents.deleted', `${snapshot} | visszaallithato: ${trashed}`, null, actor)
+    } catch (e) {
+      logger.error(
+        { agent: name, actor, trashed, snapshot, err: (e as Error).message },
+        'Agent deleted but the audit row could NOT be written',
+      )
+    }
+    logger.warn({ agent: name, actor, trashed }, 'Agent deleted')
     cleanupTeamReferences(name)
     // Deleting an agent is at least as strong a statement of intent as stopping
     // one, so it must clear the desired run-state the same way /stop does.

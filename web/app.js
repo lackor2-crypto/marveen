@@ -3847,9 +3847,76 @@ async function loadAgents() {
       }
     }
     renderAgents()
+    // Failure-proof like the fetches above: an older backend without the route
+    // must not break the Agents page.
+    loadDeletedAgents().catch(() => {})
   } catch (err) {
     console.error('Betöltés hiba:', err)
   }
+}
+
+// A törölt ügynökök doboza. Egy törlés nem semmisíti meg az ügynököt: a mappája
+// a store/deleted-agents alá kerül, és innen, a felületről tehető vissza --
+// terminál nélkül. (2026-08-23: egy meg nem nevezett ügynök végleg elveszett,
+// mert a törlés visszafordíthatatlan volt.)
+async function loadDeletedAgents() {
+  const box = document.getElementById('deletedAgentsBox')
+  const list = document.getElementById('deletedAgentsList')
+  if (!box || !list) return
+  let data = null
+  try {
+    const r = await fetch('/api/agents/deleted')
+    if (!r.ok) { box.hidden = true; return }
+    data = await r.json()
+  } catch { box.hidden = true; return }
+
+  const entries = Array.isArray(data?.entries) ? data.entries : []
+  // A nulla két dolgot jelenthet: tényleg nincs törölt ügynök, vagy nem látunk
+  // bele a mappába. A másodikat KI KELL mondani, különben a csend hazudik.
+  if (data && data.readable === false) {
+    box.hidden = false
+    list.innerHTML = `<p class="error-text">${escapeHtml(t('agents.deleted.unreadable'))}${data.error ? ' — ' + escapeHtml(String(data.error)) : ''}</p>`
+    return
+  }
+  if (!entries.length) { box.hidden = true; return }
+
+  box.hidden = false
+  list.innerHTML = entries.map((e) => {
+    const when = e.deletedAtMs ? new Date(e.deletedAtMs).toLocaleString() : (e.deletedAt || '—')
+    const model = e.model ? escapeHtml(e.model) : t('agents.deleted.unknown_model')
+    const profile = e.profile ? escapeHtml(e.profile) : t('agents.deleted.unknown_profile')
+    const blocked = e.exists
+    return `<div class="list-row" style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+      <div>
+        <strong>${escapeHtml(e.name)}</strong>
+        <div style="color:var(--text-muted);font-size:12px">${escapeHtml(when)} · ${model} · ${profile}</div>
+        ${blocked ? `<div class="error-text" style="font-size:12px">${escapeHtml(t('agents.deleted.name_taken'))}</div>` : ''}
+      </div>
+      <button class="btn-secondary btn-compact" data-restore-entry="${escapeHtml(e.entry)}"${blocked ? ' disabled' : ''}>${escapeHtml(t('agents.deleted.restore_btn'))}</button>
+    </div>`
+  }).join('')
+
+  list.querySelectorAll('[data-restore-entry]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const entry = btn.getAttribute('data-restore-entry')
+      btn.disabled = true
+      try {
+        const r = await fetch(`/api/agents/deleted/${encodeURIComponent(entry)}/restore`, { method: 'POST' })
+        const body = await r.json().catch(() => ({}))
+        if (!r.ok) {
+          // A tényleges hibaüzenetet mutatjuk, nem egy találgatott okot.
+          showToast(body.error || t('agents.deleted.restore_failed'), 'error')
+          btn.disabled = false
+          return
+        }
+        showToast(t('agents.deleted.restored').replace('{name}', body.name || entry), 'success')
+        await loadAgents()
+      } catch (err) {
+        showToast(String(err && err.message ? err.message : err), 'error')
+        btn.disabled = false
+      }
+    })
+  })
 }
 
 // Format a context-token count for display (e.g. 699884 -> "≈700k token").
