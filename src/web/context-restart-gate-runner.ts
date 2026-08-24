@@ -459,6 +459,7 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
     nowMs,
     contextTokens,
     contextState:           contextReading.state,
+    contextQuota:           contextReading.quota ?? null,
     paneState,
     paneUsageLimited,
     paneLimitResetText:     paneLimitReset,

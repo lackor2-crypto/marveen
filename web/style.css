@@ -10224,6 +10224,20 @@ body {
   color: var(--warning, #b26b00);
   line-height: 1.35;
 }
+/* A quota wall is a real blocker (the agent cannot work at all), so it gets
+   warning weight -- but NOT the red "something broke" treatment: nothing is
+   broken, the window simply reopens on its own. See the three-level priority
+   rule: this is an "alapfunkcio" outage in effect, yet self-healing, so amber. */
+.ctx-quota-blocked,
+.ctx-quota-warn {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--warning, #b26b00);
+  line-height: 1.35;
+  font-weight: 600;
+}
+.ctx-quota-warn { font-weight: 500; }
+
 /* The CLI safety net: read-only, one shared value, so it is typeset as a fact
    about the fleet rather than as a control the owner might try to click. */
 .ctx-cli-row {

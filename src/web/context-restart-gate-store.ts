@@ -6,6 +6,7 @@ import {
   normalizeGateConfig,
   DEFAULT_GATE_CONFIG,
   type GateConfig,
+  type ContextReadingState,
 } from '../context-restart-gate.js'
 
 const CONFIG_PATH = join(PROJECT_ROOT, 'store', 'context-restart-gate.json')
@@ -118,7 +119,7 @@ export interface GateStatus {
   /** Why contextTokens is null: 'fresh' = live session that has not run a turn,
    *  'no-usage' = turns exist but carry no token counts (quota-limited agent),
    *  'unknown' = transcript unreadable. Absent on entries written before this. */
-  contextState?: 'measured' | 'fresh' | 'no-usage' | 'unknown'
+  contextState?: ContextReadingState
   thresholdTokens: number
   enabled: boolean
   aboveThreshold: boolean

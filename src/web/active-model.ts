@@ -157,14 +157,97 @@ export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?:
  *                 blocking on it must not escalate into a "measurement broken"
  *                 alert the way fail-closed does.
  *   'no-usage' -- the transcript has turns, but every usage record on them is
- *                 zero. That is what a quota-limited agent looks like: each turn
- *                 gets a <synthetic> reply that never reached the API. The size
- *                 is genuinely unknown here, so this stays fail-closed.
+ *                 zero, and nothing in the file says why. The size is genuinely
+ *                 unknown here, so this stays fail-closed.
+ *   'quota-blocked'
+ *              -- same zero, but the transcript SAYS why: the turns were
+ *                 rejected on a usage limit. Still fail-closed for sizing (we
+ *                 have no number), but it is a completely different operational
+ *                 fact -- the agent is not merely unmeasurable, it is unable to
+ *                 work at all until `quota.resetsAt`. Reported separately so a
+ *                 dead agent stops looking like a quiet one.
  *   'unknown'  -- no transcript directory, no transcript, or a read error. Also
  *                 fail-closed.
  */
-export type ContextReadingState = 'measured' | 'fresh' | 'no-usage' | 'unknown'
-export interface ContextReading { tokens: number | null; state: ContextReadingState }
+export type { ContextReadingState } from '../context-restart-gate.js'
+import type { ContextReadingState } from '../context-restart-gate.js'
+
+/** Why an agent's turns produced no numbers, read from the transcript itself.
+ *  Claude Code writes the rejection verbatim -- `isApiErrorMessage`, HTTP 429
+ *  and a `quotaLimits` block carrying the reset instant and which window hit
+ *  the wall -- so this is READ, never inferred from "the number is zero".
+ *  Boss, 2026-08-24: the Segedmunkas card looked alive and green all morning
+ *  while every one of its turns had died on the weekly wall since 07:49; the
+ *  gate only said "context-tokens-unmeasurable", which is the same sentence it
+ *  prints for a brand-new session. The zero meant two different things and the
+ *  card could not tell them apart. */
+export interface ContextQuotaBlock {
+  /** ms epoch when the window reopens, or null if the transcript omits it. */
+  resetsAt: number | null
+  /** 'seven_day' | 'five_hour' | whatever the CLI wrote; passed through as-is. */
+  rateLimitType: string | null
+  /** The provider's own sentence, e.g. "You've hit your weekly limit ...". */
+  message: string
+  /** How many consecutive newest turns died this way (1 = only the last one). */
+  rejectedTurns: number
+}
+
+export interface ContextReading {
+  tokens: number | null
+  state: ContextReadingState
+  /** Present when the NEWEST turn was rejected on quota. Independent of
+   *  `tokens`: a session can carry a real measured size AND be walled right
+   *  now, and the operator needs both facts, not whichever one we picked. */
+  quota?: ContextQuotaBlock | null
+}
+
+/**
+ * Read a quota rejection off ONE assistant entry, or null if the turn was a
+ * normal reply.
+ *
+ * Everything here is taken verbatim out of the transcript Claude Code wrote --
+ * never guessed from the absence of numbers. A rejected turn is recognisable
+ * three independent ways (`isApiErrorMessage`, HTTP 429, a `quotaLimits` block
+ * marked rejected); any one is enough, because the CLI has changed which of
+ * them it emits before and a reader that insisted on all three would silently
+ * stop recognising the wall.
+ *
+ * `resetsAt` arrives in SECONDS in `quotaLimits`; it is returned in ms so every
+ * caller compares it against Date.now() without a unit conversion of its own.
+ */
+function readQuotaRejection(entry: unknown): ContextQuotaBlock | null {
+  const e = entry as Record<string, unknown> | null
+  if (!e || typeof e !== 'object') return null
+  const limits = (e.quotaLimits ?? null) as Record<string, unknown> | null
+  const rejectedByLimits = limits !== null && typeof limits === 'object' && limits.status === 'rejected'
+  const isError = e.isApiErrorMessage === true || Number(e.apiErrorStatus) === 429
+  if (!rejectedByLimits && !isError) return null
+  // An API error that is NOT about quota (a 500, a network drop) must not be
+  // reported as a quota wall -- that would send the operator to wait for a
+  // reset that is not coming.
+  if (!rejectedByLimits && Number(e.apiErrorStatus) !== 429) return null
+
+  let resetsAt: number | null = null
+  const rawReset = Number(limits?.resetsAt)
+  // Seconds vs ms: the CLI writes seconds. Anything already past ~year 2100 in
+  // seconds is really ms, so accept both rather than printing a 1970 date.
+  if (Number.isFinite(rawReset) && rawReset > 0) resetsAt = rawReset > 4e12 ? rawReset : rawReset * 1000
+
+  const rateLimitType = typeof limits?.rateLimitType === 'string' ? limits.rateLimitType : null
+
+  let message = ''
+  const content = (e.message as Record<string, unknown> | undefined)?.content
+  if (Array.isArray(content)) {
+    message = content
+      .map(block => (block && typeof block === 'object' ? String((block as Record<string, unknown>).text ?? '') : ''))
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+  }
+  if (!message && typeof e.error === 'string') message = e.error
+
+  return { resetsAt, rateLimitType, message, rejectedTurns: 1 }
+}
 
 const ctxCache = new Map<string, { value: ContextReading; expiresAt: number }>()
 
@@ -202,6 +285,11 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
         // is whether it carries a number, so anything short of that is 'fresh'
         // (a live session with no API accounting), never 'unknown'.
         reading = { tokens: null, state: 'fresh' }
+        // The quota wall is read from the newest turns backwards, and only the
+        // UNBROKEN run at the end counts: an agent that hit the limit an hour
+        // ago and has been answering since is not blocked now.
+        let quota: ContextQuotaBlock | null = null
+        let quotaRunBroken = false
         for (let i = lines.length - 1; i >= 0; i--) {
           const line = lines[i].trim()
           if (!line) continue
@@ -211,6 +299,13 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
             // "session never ran" from "session ran and we cannot size it".
             if (entry?.type === 'assistant' && reading.state === 'fresh') {
               reading = { tokens: null, state: 'no-usage' }
+            }
+            if (entry?.type === 'assistant' && !quotaRunBroken) {
+              const rejection = readQuotaRejection(entry)
+              if (rejection) {
+                if (quota === null) quota = rejection
+                else quota.rejectedTurns += 1
+              } else quotaRunBroken = true
             }
             // Post-compaction and still idle: no fresh usage exists yet, so the
             // authoritative current size is the boundary's postTokens.
@@ -230,6 +325,14 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
               if (total > 0) { reading = { tokens: total, state: 'measured' }; break }
             }
           } catch { /* skip malformed JSON line */ }
+        }
+        // Zero usage AND the file says why -> name the real cause. Without this
+        // the caller only learns "unmeasurable", which is also what a healthy
+        // brand-new session reports.
+        if (quota !== null) {
+          reading = reading.state === 'no-usage'
+            ? { tokens: null, state: 'quota-blocked', quota }
+            : { ...reading, quota }
         }
       }
     }

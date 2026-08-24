@@ -32,6 +32,13 @@ export const DEFAULT_STALE_CUTOFF_MS  = 2 * 60 * 60 * 1000   // 2 h
 export const DEFAULT_RETRY_INTERVAL_MS = 5 * 60 * 1000        // 5 min
 export const DEFAULT_PERSISTENT_BLOCK_ALERT_MS = 2 * 60 * 60 * 1000  // 2 h
 
+/** How a context size reading turned out. Declared HERE, in the pure-logic
+ *  module, because three files used to each keep their own copy of this union
+ *  and adding a state meant remembering all three -- exactly the kind of drift
+ *  that makes one surface report a condition the next one cannot express.
+ *  The reader (src/web/active-model.ts) re-exports it. */
+export type ContextReadingState = 'measured' | 'fresh' | 'no-usage' | 'quota-blocked' | 'unknown'
+
 export interface GateConfig {
   /** Master toggle. Default false (opt-in per agent). */
   enabled: boolean
@@ -92,12 +99,20 @@ export interface GateInputs {
    *                 alert escalation, exactly like below-threshold. Reporting
    *                 this as "unmeasurable" is what made the gate alert about
    *                 sessions that had nothing to reclaim.
-   *   'no-usage' -- turns exist but carry no token numbers (a quota-limited
-   *                 agent: every turn is a <synthetic> reply). Size genuinely
-   *                 unknown -> stays fail-closed, with a reason that names it.
+   *   'no-usage' -- turns exist but carry no token numbers, and nothing says
+   *                 why. Size genuinely unknown -> fail-closed, reason names it.
+   *   'quota-blocked' -- same missing number, but the transcript states the
+   *                 cause: the turns were rejected on a usage limit. Still
+   *                 fail-closed for sizing, but reported as the external wall
+   *                 it is instead of as a broken measurement.
    *   'unknown'/absent -- unreadable transcript -> fail-closed.
    */
-  contextState?: 'measured' | 'fresh' | 'no-usage' | 'unknown'
+  contextState?: ContextReadingState
+
+  /** Quota wall read off the transcript, when contextState is 'quota-blocked'
+   *  (or when a measured session is walled right now). Only used to make the
+   *  block reason say WHEN the agent can work again. */
+  contextQuota?: { resetsAt: number | null; rateLimitType: string | null } | null
 
   /**
    * Pane state from detectPaneState() / detectsUsageLimit().
@@ -202,6 +217,21 @@ export function decideGate(
   if (inputs.contextTokens === null) {
     if (inputs.contextState === 'fresh') {
       return { action: 'block', reason: 'fresh-session (no turn run yet, nothing to reclaim)' }
+    }
+    // A quota wall is not a broken measurement, so it must not escalate into
+    // a "measurement broken" alert: nothing is wrong with the reader, the agent
+    // simply cannot run a turn until the window reopens, and it heals itself.
+    // Boss, 2026-08-24: the Segedmunkas sat behind the weekly wall from 07:49
+    // and the gate kept repeating the same sentence it prints for a brand-new
+    // session, so nothing on the board said the agent was unable to work.
+    if (inputs.contextState === 'quota-blocked') {
+      const resetsAt = inputs.contextQuota?.resetsAt ?? null
+      const when = resetsAt !== null ? new Date(resetsAt).toISOString() : 'unknown time'
+      const which = inputs.contextQuota?.rateLimitType ?? 'usage'
+      return {
+        action: 'block',
+        reason: `quota-blocked (every turn rejected: ${which} limit, reopens ${when} -- agent cannot work, NOT a measurement fault)`,
+      }
     }
     const why = inputs.contextState === 'no-usage'
       ? 'context-tokens-unmeasurable (turns carry no token counts -- fail-closed)'

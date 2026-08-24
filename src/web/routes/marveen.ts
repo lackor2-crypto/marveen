@@ -88,6 +88,10 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
     // legacy backend), `agentId` = canonical MAIN_AGENT_ID so the dashboard can
     // hit /api/agents/<id>/skills for the main agent.
     const idCore = buildMarveenIdentityCore(currentBotName(), currentBrandName(), MAIN_AGENT_ID)
+    // Read ONCE: the same file was parsed twice for tokens and state, so the two
+    // fields could in principle disagree, and adding a third would have made it
+    // three reads of the same transcript on every poll.
+    const mainContextReading = readContextReadingFromProjectDir(PROJECT_ROOT)
     json(res, {
       ...idCore,
       // Configured owner display name (OWNER_NAME). The dashboard chat view uses
@@ -122,10 +126,14 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
       // orchestrator id (autoRestartId, part of idCore) so the UI PUTs to the
       // right store entry.
       autoRestart: readAutoRestartConfig(MAIN_AGENT_ID),
-      contextTokens: readContextReadingFromProjectDir(PROJECT_ROOT).tokens,
+      contextTokens: mainContextReading.tokens,
       // Why there is no number, when there is none: a session that has not
-      // run a turn is not the same thing as one we cannot measure.
-      contextState: readContextReadingFromProjectDir(PROJECT_ROOT).state,
+      // run a turn is not the same thing as one we cannot measure, and neither
+      // is one whose every turn was rejected on a usage limit.
+      contextState: mainContextReading.state,
+      // Parity with the sub-agent cards (src/web/routes/agents.ts): the main
+      // agent hits the same wall and its card must be able to say so.
+      contextQuota: mainContextReading.quota ?? null,
       hasTelegram: tg.hasTelegram,
       hasDiscord: dc.hasDiscord,
       hasSlack: sl.hasSlack,

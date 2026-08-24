@@ -4241,7 +4241,21 @@ function contextButtonsHtml(name) {
         <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>`
 }
 
-function contextControlsHtml(name, contextTokens = null, running = true, contextState = null) {
+// Human-readable reset instant for a quota wall, in the viewer's own locale.
+// Returns the "should already have reopened" wording when the moment has passed
+// but the transcript still ends on a rejection: saying "reopens 14:00" at 15:00
+// would read as a working clock reporting the past.
+function quotaResetText(resetsAt) {
+  if (typeof resetsAt !== 'number' || !isFinite(resetsAt) || resetsAt <= 0) return null;
+  if (resetsAt <= Date.now()) return t('agents.ctx.quota_reset_now');
+  try {
+    return new Date(resetsAt).toLocaleString(undefined, {
+      weekday: 'short', hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return new Date(resetsAt).toISOString(); }
+}
+
+function contextControlsHtml(name, contextTokens = null, running = true, contextState = null, contextQuota = null) {
   const cfg = gateCfgByAgent.get(name) || { enabled: false, thresholdTokens: 400000 }
   const kThreshold = Math.max(1, Math.round((cfg.thresholdTokens || 400000) / 1000))
   // Show the live context size next to the threshold so the owner can pick a
@@ -4256,10 +4270,29 @@ function contextControlsHtml(name, contextTokens = null, running = true, context
   // An agent whose every turn died on a usage limit has no numbers either, and
   // printing 0 for its 113 KB session read as "empty" when it was simply not
   // measurable (Boss, 2026-08-12). The backend now says which case it is.
+  //
+  // "not measurable" and "rejected at the door" both produce no number, and for
+  // months the card printed the same sentence for both. They mean opposite
+  // things to the owner: one is a reader we should fix, the other is an agent
+  // that cannot do ANY work until a stated moment. Boss, 2026-08-24: the
+  // Segedmunkas card was green and "running" from 07:49 while every turn it
+  // took died on the weekly wall. The backend now reads the rejection (and the
+  // reset instant) straight out of the transcript, so the card can say it.
   const hasValue = typeof contextTokens === 'number' && contextTokens > 0
+  const resetText = contextQuota ? quotaResetText(contextQuota.resetsAt) : null
   let currentHtml = ''
-  if (hasValue) currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current'))} ${escapeHtml(formatContextTokens(contextTokens))}</div>`
-  else if (running && (contextState === 'no-usage' || contextState === 'unknown')) {
+  if (hasValue) {
+    currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current'))} ${escapeHtml(formatContextTokens(contextTokens))}</div>`
+    // A measured session can be walled right now too -- the size is real, the
+    // agent still cannot use it. Both facts, not whichever one we picked.
+    if (contextQuota && resetText) {
+      currentHtml += `<div class="ctx-quota-warn">${escapeHtml(t('agents.ctx.quota_blocked_measured', { when: resetText }))}</div>`
+    }
+  } else if (running && contextState === 'quota-blocked') {
+    currentHtml = `<div class="ctx-current ctx-quota-blocked">${escapeHtml(resetText
+      ? t('agents.ctx.current_quota_blocked', { when: resetText })
+      : t('agents.ctx.current_quota_blocked_unknown'))}</div>`
+  } else if (running && (contextState === 'no-usage' || contextState === 'unknown')) {
     currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_unmeasured'))}</div>`
   } else if (running) currentHtml = `<div class="ctx-current">${escapeHtml(t('agents.ctx.current_empty'))}</div>`
   // A stopped agent used to show NOTHING here, and a missing line reads as a
@@ -4648,7 +4681,7 @@ function renderAgents() {
         </button>
         ${contextButtonsHtml(mainAgentId())}
       </div>
-      ${contextControlsHtml(mainAgentId(), m.contextTokens, true, m.contextState)}
+      ${contextControlsHtml(mainAgentId(), m.contextTokens, true, m.contextState, m.contextQuota)}
     `
     mCard.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openTerminalModal(mainAgentId())
@@ -4737,7 +4770,7 @@ function renderAgents() {
         </button>
         ${contextButtonsHtml(agent.name)}
       </div>
-      ${contextControlsHtml(agent.name, agent.contextTokens, isRunning, agent.contextState)}
+      ${contextControlsHtml(agent.name, agent.contextTokens, isRunning, agent.contextState, agent.contextQuota)}
     `
     // Login button handler (start → confirm flow)
     card.querySelectorAll('.agent-login-btn').forEach(btn => {
