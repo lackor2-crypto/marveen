@@ -5,7 +5,7 @@
 // flight) and then on a timer.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { PROJECT_ROOT, MAIN_AGENT_ID } from '../config.js'
+import { PROJECT_ROOT } from '../config.js'
 import {
   createAgentMessage,
   listPendingVerificationsOlderThan,
@@ -16,6 +16,7 @@ import {
 import { logger } from '../logger.js'
 import { agentDir } from './agent-config.js'
 import { runVerificationSweep, type VerificationSweepResult } from '../approval-verification-sweep.js'
+import { verificationSender } from './routes/approvals.js'
 
 /** How often the timer fires. Well under the 10 minute reminder threshold so
  *  a nudge is never delayed by a full sweep interval. */
@@ -44,7 +45,9 @@ export function sweepApprovalVerifications(now = Date.now()): VerificationSweepR
     agentExists: (agent) => existsSync(agentDir(agent)),
     sendReminder: (row) => {
       try {
-        createAgentMessage(MAIN_AGENT_ID, row.agent, reminderPrompt(row))
+        // Same sender rule as the dispatch path: the main agent must not be
+        // nudged by a message that appears to come from itself.
+        createAgentMessage(verificationSender(row.agent), row.agent, reminderPrompt(row))
         return true
       } catch (err) {
         // A dead agent is exactly what this sweep is for -- log it and let the

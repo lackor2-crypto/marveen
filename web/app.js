@@ -3924,9 +3924,17 @@ async function openMarveenDetail() {
   // called, so the main agent's Skills tab always looked empty.
   loadSkills(agentApiName())
 
-  // Process control for Marveen - always running, no start/stop
-  document.getElementById('processDot').className = 'process-dot running'
-  document.getElementById('processLabel').textContent = t('agents.status.running')
+  // Process control for Marveen - nincs start/stop, de az allapotot MERJUK
+  // (lasd marveenProcessState): a "mindig fut" felirat 2026-08-24-ig akkor is
+  // ott volt, amikor a folyamat epp ujraindult vagy egyaltalan nem letezett.
+  const mState = marveenProcessState(m)
+  document.getElementById('processDot').className = 'process-dot '
+    + (mState === 'running' ? 'running' : mState === 'unseen' ? 'restarting' : 'stopped')
+  document.getElementById('processLabel').textContent =
+    mState === 'running' ? t('agents.status.running')
+      : mState === 'unseen' ? t('agents.marveen_process_unseen')
+      : mState === 'stopped' ? t('agents.status.stopped')
+      : t('agents.marveen_process_unknown')
   document.getElementById('processUptime').textContent = `tmux: ${m.tmuxSession || '-'}`
   document.getElementById('agentStartBtn').hidden = true
   document.getElementById('agentStopBtn').hidden = true
@@ -4626,7 +4634,7 @@ function renderAgents() {
       </div>
       <div class="agent-card-footer">
         <span class="agent-model-badge ${escapeHtml(mainModelClass)}">${escapeHtml(mainModelLabel)}</span>
-        <span class="process-indicator" title="${t('agents.marveen_process_tip')}"><span class="process-dot running"></span>${t('agents.status.running')}</span>
+        ${marveenProcessHtml(m)}
         <span class="tg-status" title="${t('agents.marveen_channel_tip')}"><span class="tg-dot connected"></span>${t('agents.status.online')}</span>
       </div>
       <div class="agent-card-actions">
@@ -4999,11 +5007,18 @@ function cbCardBotNote() {
  *
  *  A `null` nem 0: olyankor azt irjuk ki, hogy nem latunk ra (regi worker, meg
  *  nincs valasz a beszelgetesben), nem azt, hogy ures. */
+/** Token-szam ezresre kerekitve, egy helyen. Harom helyrol hivjuk (kontextus-sor,
+ *  ful-sor, ures-lista-uzenet), es ha kulon-kulon formaznank, elobb-utobb
+ *  ugyanaz a szam ket alakban allna a kartyan. */
+function cbFmtKTokens(n) {
+  return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',')
+}
+
 function cbContextRowHtml(e) {
   const n = e.contextTokens
   const val = n === null
     ? t('cb.card.ctx_unknown')
-    : t('cb.card.ctx_value', { n: (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace('.', ',') })
+    : t('cb.card.ctx_value', { n: cbFmtKTokens(n) })
   // Ugyanaz a sor, mint a tobbi ugynok-kartyan (`ctx-current`), hogy ne egy
   // masik dobozban, mas meretben alljon ugyanaz az informacio.
   return `
@@ -5026,6 +5041,20 @@ function cbContextRowHtml(e) {
  *  a bejelolt sor vegen, es a kulon "kontextus: 94k token" sor csak ismetles. */
 function cbHasTabRows(e) {
   return (e.tabs || []).filter(function (tb) { return tb.live !== false }).length > 0
+}
+
+/** Igaz, ha nincs kiirhato ful-sor, DE a bekotott beszelgetesnek van mert
+ *  kontextusa. Ez a ketto egyutt mondott korabban ellentmondast a kartyan:
+ *  "Nincs nyitott beszelgetes ebben a mappaban." + alatta "kontextus: 108k
+ *  token" (Boss, 2026-08-24: "ha nincs beszelgetes akor nem kellene lennie
+ *  tokennek sem").
+ *
+ *  Nem ellentmondas, csak ket KULONBOZO kerdesre valasz volt: a ful-lista azt
+ *  mutatja, mi van EPPEN NYITVA a VS Code-ban, a token pedig a mappahoz kotott
+ *  beszelgetes naploja, ami a lemezen marad a ful bezarasa utan is. Ezt a
+ *  kartyanak KI KELL MONDANIA, nem eleg a tooltipbe rejteni. */
+function cbTabsEmptyHasCtx(e) {
+  return !cbHasTabRows(e) && typeof e.contextTokens === 'number' && e.contextTokens > 0
 }
 
 // Ennyi ora nemasag utan mondjuk ki a fulrol, hogy valoszinuleg mar nincs
@@ -5090,15 +5119,26 @@ function cbTabsPickHtml(e) {
   const tabs = (e.tabs || []).filter(function (tb) { return tb.live !== false })
   if (tabs.length === 0) {
     const known = e.tabsReason === 'ok' || e.tabsReason === 'empty'
-    const msg = known ? t('cb.card.tabs_none') : t('cb.card.tabs_blind')
+    // Harom allapot, mert harom kulonbozo dolog tortent -- es mindharomnak mas
+    // a kovetkezo lepese:
+    //   * nem latunk oda (a munkas nem jelentkezett)      -> inditsd el a munkast
+    //   * a munkas latja, hogy nincs nyitva, es nincs napló -> nyiss egyet
+    //   * a munkas latja, hogy nincs nyitva, DE van napló   -> nyisd meg ujra
+    const withCtx = known && cbTabsEmptyHasCtx(e)
+    const kTok = withCtx ? cbFmtKTokens(e.contextTokens) : ''
+    const msg = !known ? t('cb.card.tabs_blind')
+      : withCtx ? t('cb.card.tabs_none_ctx', { n: kTok })
+      : t('cb.card.tabs_none')
+    const tip = !known ? t('cb.card.tabs_blind_help')
+      : withCtx ? t('cb.card.tabs_none_ctx_help', { n: String(e.contextTokens) })
+      : t('cb.card.tabs_none_help')
     return '<div class="cb-tabs-pick"><div class="cb-tabs-empty" title="'
-      + escapeAttr(known ? t('cb.card.tabs_none_help') : t('cb.card.tabs_blind_help'))
-      + '">' + escapeHtml(msg) + '</div></div>'
+      + escapeAttr(tip) + '">' + escapeHtml(msg) + '</div></div>'
   }
   const rows = tabs.map(function (tb) {
     const label = tb.title || tb.shortId || ''
     const ctxN = (typeof tb.contextTokens === 'number' && tb.contextTokens > 0)
-      ? (tb.contextTokens / 1000).toFixed(tb.contextTokens >= 10000 ? 0 : 1).replace('.', ',')
+      ? cbFmtKTokens(tb.contextTokens)
       : null
     const ctx = ctxN === null ? '' : t('cb.card.ctx_short', { n: ctxN })
     const ctxFull = ctxN === null ? '' : t('cb.card.ctx_value', { n: ctxN })
@@ -5281,7 +5321,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         <button class="btn-secondary btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
       </div>
       ${e.roleHolder ? cbTabsPickHtml(e) : ''}
-      ${e.roleHolder && !cbHasTabRows(e) ? cbContextRowHtml(e) : ''}
+      ${e.roleHolder && !cbHasTabRows(e) && !cbTabsEmptyHasCtx(e) ? cbContextRowHtml(e) : ''}
       ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}`
     card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
       ev.stopPropagation()
@@ -20159,6 +20199,26 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
     _placeVerifyPicker()
     return
   }
+  // The main agent (Marvin) lives OUTSIDE agents/, so /api/agents never lists it
+  // and it could not be picked as a verifier at all (Boss, 2026-08-24: "a marvin
+  // t is ki tudjam valasztani a listabol"). It comes from /api/marveen instead.
+  // A failed fetch is NOT the same as "this install has no main agent": say so
+  // on the list rather than silently showing one row less.
+  let mainAgentMissing = false
+  try {
+    const mres = await fetch('/api/marveen')
+    if (!mres.ok) throw new Error('HTTP ' + mres.status)
+    const m = await mres.json()
+    if (m && m.agentId) {
+      if (!agentList.some(ag => ag.name === m.agentId)) {
+        agentList = [{ name: m.agentId, displayName: m.name || m.agentId, model: m.model }, ...agentList]
+      }
+    } else {
+      mainAgentMissing = true
+    }
+  } catch {
+    mainAgentMissing = true
+  }
   // The agent who ASKED for the approval cannot verify it -- that is the whole
   // point of a second pair of eyes. It used to be filtered out of the list
   // silently, which reads as "that agent is missing/broken" rather than as a
@@ -20184,6 +20244,7 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
         </label>
       `}).join('')}
     </div>
+    ${mainAgentMissing ? `<p style="margin:6px 0 0;font-size:11px;color:var(--warning)">${escapeHtml(t('approvals.verify.main_unavailable'))}</p>` : ''}
     ${freeNames.length ? `<button class="btn-secondary btn-compact" id="verifyPickAllFree" style="font-size:11px;margin-top:6px;width:100%">${t('approvals.verify.pick_all_free')}</button>` : ''}
     <button class="btn-primary btn-compact" id="verifyPickerGo" style="font-size:11px;margin-top:8px;width:100%">${t('approvals.verify.picker_go')}</button>
   `
@@ -28956,10 +29017,22 @@ async function mountSettingRestartAction(slot, def) {
       // kulcs mar nem var ujrainditasra -- pontosan abbol a forrasbol, amibol
       // a jelveny is keszul --, es utana ujrarajzoljuk a lapot. Igy a gomb
       // megnyomasa es a jelveny eltunese ugyanaz az esemeny.
+      // Boss (2026-08-24): "at alitottam opus 5 re a beallitasokban. de meg
+      // mindig sonett 5" ... "ohhh. na most valtott at opus 5 re. eleg lassu
+      // a valtas!" -- MERVE ~7 perc telt el az ujrainditas kerese es az uj
+      // modellel felallo folyamat kozott. A regi hatarido 90 masodperc volt,
+      // vagyis a felulet KUDARCOT jelentett egy olyan muveletre, ami eppen
+      // rendben zajlott. Az uj hatarido 12 perc, es amig varunk, kiirjuk az
+      // eltelt idot -- a "meg megy" es a "elakadt" igy nem mosodik ossze.
+      const started = Date.now()
+      const deadline = started + 720000
       say(t('restart.waiting'))
-      const deadline = Date.now() + 90000
       while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 1500))
+        const elapsed = Math.round((Date.now() - started) / 1000)
+        // Az elso percben surun kerdezunk, utana ritkabban: a hosszu varakozas
+        // ne terhelje folyamatosan a kiszolgalot.
+        await new Promise((r) => setTimeout(r, elapsed < 60 ? 2000 : 5000))
+        say(t('restart.waiting_progress', { sec: Math.round((Date.now() - started) / 1000) }))
         let rows = null
         try {
           const d = await (await fetch('/api/settings', { cache: 'no-store' })).json()
@@ -28981,7 +29054,8 @@ async function mountSettingRestartAction(slot, def) {
           return
         }
       }
-      // 90 masodperc utan sem tisztult: ezt is kimondjuk, nem porgunk tovabb.
+      // 12 perc utan sem tisztult. NEM allitjuk, hogy elhasalt -- azt nem
+      // tudjuk; azt mondjuk meg, ameddig lattunk, es hogy hol nezhet utana.
       say(t('restart.timeout'))
       btn.disabled = false
     })
@@ -32899,3 +32973,36 @@ async function _intezoCfgSave() {
     cbRenderTabOptions()
   })
 })()
+
+// A fo asszisztens (Marvin) folyamat-allapota. Korabban a kartya FIXEN
+// "Fut"-ot irt ki, mert az /api/marveen a running mezot hardcode true-ra
+// allitotta -- vagyis a kepernyo akkor is azt allitotta, hogy fut, amikor
+// egyaltalan nem lattunk bele. Boss, 2026-08-24: "parobalom ujrainditani a
+// marvint de nem sikerult" -- kozben eppen ujraindult, csak ezt semmi nem
+// mondta meg. A NULLA KET DOLGOT JELENTHET: a "nem talalok folyamatot" nem
+// azonos a "nincs folyamat"-tal, ezert HAROM allapotot kulonboztetunk meg,
+// es a forrast kerdezzuk meg (fut-e a tmux session), nem talalgatunk.
+function marveenProcessState(m) {
+  if (!m || typeof m.running !== 'boolean') return 'unknown'   // regi backend
+  if (m.running) return 'running'
+  if (m.sessionExists) return 'unseen'                          // van session, nincs folyamat
+  return 'stopped'
+}
+
+function marveenProcessHtml(m) {
+  const state = marveenProcessState(m)
+  if (state === 'running') {
+    return `<span class="process-indicator" title="${escapeAttr(t('agents.marveen_process_tip'))}">`
+      + `<span class="process-dot running"></span>${escapeHtml(t('agents.status.running'))}</span>`
+  }
+  if (state === 'unseen') {
+    return `<span class="process-indicator" title="${escapeAttr(t('agents.marveen_process_unseen_tip'))}">`
+      + `<span class="process-dot restarting"></span>${escapeHtml(t('agents.marveen_process_unseen'))}</span>`
+  }
+  if (state === 'stopped') {
+    return `<span class="process-indicator" title="${escapeAttr(t('agents.marveen_process_stopped_tip'))}">`
+      + `<span class="process-dot stopped"></span>${escapeHtml(t('agents.status.stopped'))}</span>`
+  }
+  return `<span class="process-indicator" title="${escapeAttr(t('agents.marveen_process_unknown_tip'))}">`
+    + `<span class="process-dot stopped"></span>${escapeHtml(t('agents.marveen_process_unknown'))}</span>`
+}

@@ -7,9 +7,14 @@ vi.mock('../config.js', async (importOriginal) => {
 })
 
 const runningAgents = new Set<string>()
+// The main agent has no `agent-<name>` session: its own `<id>-channels` session
+// is service-managed and only ever CHECKED here, never started.
+const liveTmuxSessions = new Set<string>()
+const startAgentProcessMock = vi.fn((name: string) => { runningAgents.add(name); return { ok: true, pid: 1 } })
 vi.mock('../web/agent-process.js', () => ({
   isAgentRunning: (name: string) => runningAgents.has(name),
-  startAgentProcess: vi.fn((name: string) => { runningAgents.add(name); return { ok: true, pid: 1 } }),
+  startAgentProcess: (name: string) => startAgentProcessMock(name),
+  sessionExistsOnHost: (_host: string | null, session: string) => liveTmuxSessions.has(session),
 }))
 
 const existingAgentDirs = new Set<string>()
@@ -35,7 +40,8 @@ vi.mock('node:fs', async (importOriginal) => {
   }
 })
 
-import { tryHandleApprovals } from '../web/routes/approvals.js'
+import { tryHandleApprovals, verificationSender } from '../web/routes/approvals.js'
+import { getPendingMessages } from '../db.js'
 import type { RouteContext } from '../web/routes/types.js'
 
 function fakeReq(method: string, path: string, body?: unknown): { ctx: RouteContext; out: { status: number; body: any } } {
@@ -59,6 +65,9 @@ describe('approval verifications', () => {
   beforeEach(() => {
     initDatabase(':memory:')
     runningAgents.clear()
+    startAgentProcessMock.mockClear()
+    liveTmuxSessions.clear()
+    liveTmuxSessions.add('lackor2-bot-channels')
     existingAgentDirs.clear()
     existingAgentDirs.add('gemma')
     existingAgentDirs.add('north')
@@ -85,6 +94,38 @@ describe('approval verifications', () => {
     const { ctx } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] })
     await tryHandleApprovals(ctx)
     expect(runningAgents.has('gemma')).toBe(true)
+  })
+
+  // Boss 2026-08-24: the main agent must be pickable as a verifier too. It is
+  // NOT a sub-agent: no agents/<name> dir, no `agent-<name>` session -- taking
+  // the sub-agent path would spawn a rogue duplicate session.
+  it('dispatches to the main agent without touching the sub-agent start path', async () => {
+    const approval = createApproval({ id: 'am1', agent_id: 'gemma', category: 'code_change', action_description: 'Fix M' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['lackor2-bot'] })
+    await tryHandleApprovals(ctx)
+    expect(out.body.dispatched).toEqual(['lackor2-bot'])
+    expect(out.body.failed).toEqual([])
+    expect(startAgentProcessMock).not.toHaveBeenCalled()
+
+    // A from === to self-message would be framed as UNTRUSTED and would read to
+    // the agent as a message from itself, so the sender is 'system' instead.
+    const msgs = getPendingMessages('lackor2-bot')
+    expect(msgs).toHaveLength(1)
+    expect(msgs[0].from_agent).toBe('system')
+    expect(verificationSender('lackor2-bot')).toBe('system')
+    expect(verificationSender('gemma')).toBe('lackor2-bot')
+  })
+
+  it('says the main agent session is down instead of silently dispatching into the void', async () => {
+    liveTmuxSessions.clear()
+    const approval = createApproval({ id: 'am2', agent_id: 'gemma', category: 'code_change', action_description: 'Fix N' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['lackor2-bot'] })
+    await tryHandleApprovals(ctx)
+    expect(out.body.dispatched).toEqual([])
+    expect(out.body.failed).toHaveLength(1)
+    expect(out.body.failed[0].agent).toBe('lackor2-bot')
+    expect(out.body.failed[0].error).toMatch(/lackor2-bot-channels/)
+    expect(getPendingMessages('lackor2-bot')).toHaveLength(0)
   })
 
   it('rejects the requesting agent verifying its own approval', async () => {

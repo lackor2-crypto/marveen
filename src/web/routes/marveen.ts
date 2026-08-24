@@ -8,10 +8,13 @@ import {
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { readMarveenTelegramConfig, readMarveenDiscordConfig, readMarveenSlackConfig, readMarveenGooglechatConfig, readMarveenTeamsConfig, sendMarveenAvatarChange } from '../telegram.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
+import { sessionExistsOnHost } from '../agent-process.js'
 import { readFileOr } from '../agent-config.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, serveFile } from '../http-helpers.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
+import { readMainAgentRuntime } from '../main-agent-runtime.js'
+import { readConfiguredMainModel } from '../main-agent-model.js'
 import { readContextReadingFromProjectDir } from '../active-model.js'
 import { mainAgentModelNow } from '../main-agent-model.js'
 import { knownModelCostPerM } from '../model-suggest.js'
@@ -61,6 +64,10 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
   const { req, res, path, method } = ctx
 
   if (path === '/api/marveen' && method === 'GET') {
+    // What the MAIN AGENT PROCESS is doing right now -- read from the process
+    // itself (pid + its own `--model` flag), never assumed. See the `running`
+    // field below for why this stopped being a constant.
+    const runtime = readMainAgentRuntime()
     const claudeMd = readFileOr(join(PROJECT_ROOT, 'CLAUDE.md'), '')
     const soulMd = readFileOr(join(PROJECT_ROOT, 'SOUL.md'), '')
     const mcpJson = readFileOr(join(PROJECT_ROOT, '.mcp.json'), '')
@@ -91,7 +98,26 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
       model: getActiveMarveenModel(),
       costPerMInput: knownModelCostPerM(getActiveMarveenModel()),
       tmuxSession: MAIN_CHANNELS_SESSION,
-      running: true,
+      // Boss 2026-08-24 ("probalom ujrainditani a marvint de nem sikerult"):
+      // this field was the literal `true`. It said "running" while the session
+      // was down, so the dashboard could never tell a restart that FAILED from
+      // one still in flight -- the exact "a nulla ket dolgot jelenthet" trap,
+      // one level up: here it was "always one", which is just as blind.
+      //
+      // Three distinguishable answers now, because there are three situations:
+      //   running: true            -- a claude process is there, we SEE its pid
+      //   running: false + session -- the session exists but no process in it
+      //                               (restarting, or wedged): "nem latok bele"
+      //   running: false, no session -- genuinely down
+      running: runtime.pid !== null,
+      runningPid: runtime.pid,
+      sessionExists: sessionExistsOnHost(null, MAIN_CHANNELS_SESSION),
+      // The model the RUNNING process was started with (its own `--model`), and
+      // the model the NEXT start will use. When they differ, a restart is owed
+      // -- the Settings page says so, and now the agent card can too. null =
+      // could not read the process, which is not the same as "no model".
+      runningModel: runtime.model,
+      configuredModel: readConfiguredMainModel(PROJECT_ROOT),
       // Auto-restart applies to the main channels session too; key it by the
       // orchestrator id (autoRestartId, part of idCore) so the UI PUTs to the
       // right store entry.

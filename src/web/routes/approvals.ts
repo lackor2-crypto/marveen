@@ -13,7 +13,8 @@ import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import { agentDir, listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { currentBotName } from '../../config.js'
-import { startAgentProcess, isAgentRunning } from '../agent-process.js'
+import { startAgentProcess, isAgentRunning, sessionExistsOnHost } from '../agent-process.js'
+import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listKanbanCards } from '../../db.js'
 import { similarCardsBeforeClose, approvalCardId } from '../../kanban-related.js'
 import type { RouteContext } from './types.js'
@@ -290,6 +291,14 @@ export function canonicalAgentId(raw: string): string {
     }
   } catch { /* agent listing unavailable -- fall through to the raw value */ }
   return value
+}
+
+/**
+ * Who a verification task is sent "from". See the call sites for the why; kept
+ * here so the dispatch path and the stale-verification sweep cannot drift apart.
+ */
+export function verificationSender(targetAgent: string): string {
+  return isMainChannelsAgent(targetAgent) ? 'system' : MAIN_AGENT_ID
 }
 
 export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
@@ -584,15 +593,29 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         failed.push({ agent, error: 'The requesting agent cannot verify its own request' })
         continue
       }
-      if (!existsSync(agentDir(agent))) {
-        failed.push({ agent, error: 'Agent not found' })
-        continue
-      }
-      if (!isAgentRunning(agent)) {
-        const startResult = startAgentProcess(agent)
-        if (!startResult.ok) {
-          failed.push({ agent, error: startResult.error || 'Failed to start agent' })
+      // The main agent (Marvin) is pickable too (Boss 2026-08-24), but its
+      // lifecycle is NOT the sub-agent one: it has no agents/<name> dir and no
+      // `agent-<name>` tmux session, so agentDir() would resolve to the project
+      // root (existsSync always true) and startAgentProcess() would spawn a rogue
+      // duplicate session. See isMainChannelsAgent() in main-agent.ts. Its session
+      // is service-managed (systemd/launchd), so this path only CHECKS it and, if
+      // it is down, says so with the next step instead of starting anything.
+      if (isMainChannelsAgent(agent)) {
+        if (!sessionExistsOnHost(null, MAIN_CHANNELS_SESSION)) {
+          failed.push({ agent, error: `Main agent session (${MAIN_CHANNELS_SESSION}) is not running -- restart it on the Agents page (its own card), then start the verification again` })
           continue
+        }
+      } else {
+        if (!existsSync(agentDir(agent))) {
+          failed.push({ agent, error: 'Agent not found' })
+          continue
+        }
+        if (!isAgentRunning(agent)) {
+          const startResult = startAgentProcess(agent)
+          if (!startResult.ok) {
+            failed.push({ agent, error: startResult.error || 'Failed to start agent' })
+            continue
+          }
         }
       }
       createOrResetApprovalVerification(approvalId, agent)
@@ -615,7 +638,12 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         `RÖVIDEN indokold (max nehany mondat), fail eseten konkretan mit talaltal hibasnak.`,
       ].join('\n')
       try {
-        createAgentMessage(MAIN_AGENT_ID, agent, prompt)
+        // Sender: MAIN_AGENT_ID stands for "the dashboard/coordinator" for
+        // sub-agents. For the main agent itself that would be a from === to
+        // self-message, which classifyAgentMessage() rejects as trusted (see
+        // team-trust.ts) AND which reads to the agent as a message from itself.
+        // 'system' is the same sender the approval notifications already use.
+        createAgentMessage(verificationSender(agent), agent, prompt)
         dispatched.push(agent)
       } catch (err) {
         failed.push({ agent, error: err instanceof Error ? err.message : 'Failed to dispatch' })
