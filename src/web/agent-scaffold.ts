@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
 import { channelStateDir } from '../channel-provider.js'
@@ -146,15 +146,26 @@ export function fleetSkillsDir(): string {
  *
  * Safety: never touches a real directory that already holds an agent's own
  * skills, and never links an agent to itself.
+ *
+ * The MAIN agent is linked too (Boss, 2026-08-25: "mutasson a kozosre a marveen
+ * mappaja is"). Its project-level skills dir is PROJECT_ROOT/.claude/skills, a
+ * DIFFERENT directory from the shared ~/.claude/skills; historically the main
+ * agent was skipped here, so a skill it created via the dashboard landed in that
+ * project dir and no sub-agent ever saw it -- the exact "one agent knows more"
+ * asymmetry agent-parity exists to kill. The only case still skipped is when the
+ * two paths are literally the same (an install whose repo root IS the home dir),
+ * which would be linking a directory to itself.
  */
 export function ensureAgentSkills(name: string): boolean {
-  if (name === MAIN_AGENT_ID) return false
   const shared = fleetSkillsDir()
   if (!existsSync(shared)) return false
   // Project-level skills live under <cwd>/.claude/skills, next to the agent's
   // settings.json -- the same directory Claude Code reads for this agent.
   const claudeDir = join(agentConfigRoot(name), '.claude')
   const link = join(claudeDir, 'skills')
+  // A directory cannot be symlinked to itself: skip when the project-level dir
+  // resolves to the shared library's own path.
+  if (resolve(link) === resolve(shared)) return false
   try {
     const current = lstatSync(link, { throwIfNoEntry: false })
     if (current) {
