@@ -17,7 +17,7 @@ const SRC = readFileSync(join(__dirname, '../web/agent-scaffold.ts'), 'utf-8')
 describe('ensureAgentSkills links the main agent at the shared library', () => {
   const fn = SRC.slice(
     SRC.indexOf('export function ensureAgentSkills'),
-    SRC.indexOf('export function ensureAgentSkills') + 1400,
+    SRC.indexOf('export function ensureAgentSkills') + 2200,
   )
 
   it('no longer early-returns for the main agent', () => {
@@ -36,5 +36,13 @@ describe('ensureAgentSkills links the main agent at the shared library', () => {
 
   it('still links via a symlink to the shared library, not a copy', () => {
     expect(fn).toMatch(/symlinkSync\(shared, link, 'dir'\)/)
+  })
+
+  it('treats a placeholder dir holding only dotfiles as replaceable', () => {
+    // The live main dir held a generated `.skill-index.md` and nothing else;
+    // the old `length === 0` check saw one entry and refused to link. The
+    // emptiness test must ignore dotfiles so that placeholder converts.
+    expect(fn).toMatch(/readdirSync\(link\)\.every\(e => e\.startsWith\('\.'\)\)/)
+    expect(fn).not.toMatch(/readdirSync\(link\)\.length === 0/)
   })
 })

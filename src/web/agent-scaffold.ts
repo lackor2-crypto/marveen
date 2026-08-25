@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
@@ -172,11 +172,15 @@ export function ensureAgentSkills(name: string): boolean {
       // Already linked (to anywhere): leave it alone -- re-pointing an operator's
       // deliberate link is not this function's business.
       if (current.isSymbolicLink()) return false
-      // An EMPTY real directory is just the scaffold's placeholder (every agent
-      // is created with one), and leaving it is what kept the whole OpenRouter
-      // pool skill-less. Replacing it loses nothing.
-      if (current.isDirectory() && readdirSync(link).length === 0) {
-        rmdirSync(link)
+      // A real directory that holds NO actual skills is just the scaffold's
+      // placeholder (every agent is created with one), and leaving it is what
+      // kept the whole OpenRouter pool -- and, per Boss 2026-08-25, the MAIN
+      // agent -- skill-less. Replacing it loses nothing. "Holds no skills"
+      // ignores dotfiles: a skill is a subdirectory with a SKILL.md, never a
+      // dotfile, and the generated `.skill-index.md` alone must NOT count as
+      // content (that exact file blocked this conversion on the live main dir).
+      if (current.isDirectory() && readdirSync(link).every(e => e.startsWith('.'))) {
+        rmSync(link, { recursive: true, force: true })
         symlinkSync(shared, link, 'dir')
         return true
       }
