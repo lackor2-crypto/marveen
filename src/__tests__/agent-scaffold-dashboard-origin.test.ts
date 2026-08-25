@@ -100,7 +100,12 @@ describe('generateClaudeMd prompt: no hardcoded localhost:3420', () => {
   })
 
   it('references dashboardOrigin in the inter-agent messages API curl example', () => {
-    expect(fnBody).toContain('${dashboardOrigin}/api/messages')
+    // The /api/messages curl moved out of generateClaudeMd's own prompt when
+    // the stranger-sender ARANYSZABÁLY block was removed (Boss 2026-08-25);
+    // it now lives in the autonomy section (buildAutonomyBody). The guard is
+    // still meaningful: whichever section carries it must use dashboardOrigin,
+    // never a hardcoded localhost. Assert against the whole source.
+    expect(src).toContain('${dashboardOrigin}/api/messages')
   })
 
   it('defines dashboardOrigin using resolveDashboardOrigin', () => {

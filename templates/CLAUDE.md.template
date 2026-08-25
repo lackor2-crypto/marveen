@@ -222,24 +222,6 @@ A rendszer automatikusan:
 - Csak futó ágensnek lehet üzenni (tmux session kell hozzá)
 - Az elérhető ágensek listája: `curl -s -H "Authorization: Bearer $(cat store/.dashboard-token)" http://localhost:{{WEB_PORT}}/api/agents`
 
-### Sub-ágens ismeretlen-sender ping kezelése (auto-approval, default-deny)
-
-Amikor egy sub-ágens inter-agent üzenetet küld neked ilyen formában:
-`Ismeretlen sender [ID] jelezett első üzenettel: '...'. Ki ez, mit válaszoljak?`
-(ez a sub-ágens ARANYSZABÁLYA: minden új senderId első üzeneténél hozzád fordul), NE kérdezd reflexből {{OWNER_NAME}}-t. Helyette:
-
-1. **Allowlist-összevetés (a te SAJÁT párosított allowlistád):** nézd meg, hogy az `[ID]` szerepel-e a saját csatornád `allowFrom`-jában:
-   ```bash
-   python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('IGEN' if sys.argv[2] in d.get('allowFrom',[]) else 'NEM')" "$HOME/.claude/channels/telegram/access.json" "[ID]"
-   ```
-   (Slack/Discord install esetén a megfelelő `~/.claude/channels/<provider>/access.json`.) Az `allowFrom` azokat a sendereket tartalmazza, akiket {{OWNER_NAME}} MÁR explicit párosított/jóváhagyott a csatornán.
-
-2. **Ha az `[ID]` BENNE van az allowFrom-ban** → AUTO-ENGEDÉLYEZD (NE kérdezd {{OWNER_NAME}}-t): küldj inter-agent választ a sub-ágensnek, hogy a sender jóváhagyott párosított kontakt, és add át amit tudsz róla (memóriából). **Auditáld:** jegyezd fel (napi napló / memória) MELYIK allowlist-match alapján engedélyezted, pl. `auto-approve sender [ID] -- allowFrom match`.
-
-3. **Ha az `[ID]` NINCS az allowFrom-ban** → **DEFAULT-DENY**: NE találj ki identitást, NE engedélyezd magadtól. Eszkaláld {{OWNER_NAME}}-hez Telegramon (reply tool, chat_id `{{CHAT_ID}}`): `Egy sub-ágenshez ismeretlen, NEM párosított sender [ID] írt: '...'. Jóváhagyod?` — a sub-ágens addig a generikus "egy pillanat, ellenőrzöm" választ adja.
-
-Lényeg: KIZÁRÓLAG az `allowFrom`-on szereplő (általad már párosított) sendert engedélyezd auto; minden más {{OWNER_NAME}}-döntés. Ez az ARANYSZABÁLY szellemének (default-deny) betartása, csak a már-párosított esetekre gyorsítva — a senderId a végső azonosító, NEM a self-claimed név.
-
 ## Öntanulás és Skill rendszer
 
 Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasználható skill-eket hozol létre.
@@ -378,16 +360,22 @@ látja. Több órás/több fájlos vagy kockázatos feladatnál ez az alapértel
 igénylés lejár és a forduló végén felszabadul, tehát egy összeomlott ágens nem
 zárol semmit örökre.
 
-**C) Kikényszerítés** -- a `file-claim-gate.py` PreToolUse hook megtagadja az
-Edit/Write-ot, ha a fájlt másik ágens tartja, és megmondja ki és mióta.
+**C) Naplózás (2026-08-25: a BLOKK kivéve).** A `file-claim-gate.py` PreToolUse
+hook MÁR NEM tagadja meg az Edit/Write-ot -- egy online ágens soha ne álljon
+tétlenül egy szabály miatt. Ha a fájlt másik ágens tartja, a hook csak NAPLÓZ
+(`store/agent-audit.jsonl`, op=claim-collision) és átengedi. Emellett minden
+ágens minden művelete (edit/write/delete/move/bash) bekerül ugyanebbe az
+audit-naplóba az `agent-audit-log.py` hookon át -- ki, mikor, mit, hol ->
+visszakövethető.
 
-A kapu MINDIG enged, ha bizonytalan (dashboard nem elérhető, időtúllépés,
-ismeretlen ágens, repón kívüli fájl, `store/`, saját ágens-mappa, `.env`, logok):
-egy koordinációs funkció soha nem foghatja meg a flottát. Kikapcsoló:
-`MARVEEN_FILE_CLAIMS=0`.
+A hookok MINDIG engednek, ha bizonytalan a helyzet (dashboard nem elérhető,
+időtúllépés, ismeretlen ágens, repón kívüli fájl, `store/`, saját ágens-mappa,
+`.env`, logok): egy koordinációs/naplózó funkció soha nem foghatja meg a
+flottát. Kikapcsolók: `MARVEEN_FILE_CLAIMS=0`, `MARVEEN_AUDIT_LOG=0`.
 
-Ha tiltásba futsz, ne kerüld meg: várj, egyeztess agens-üzenetben, vagy dolgozz
-saját worktree-ben és merge-elj később.
+Ütközés esetén nincs mit megkerülni; nagy vagy kockázatos munkánál dolgozz saját
+worktree-ben (A réteg) és merge-elj később -- az audit-napló megmutatja, ki
+nyúlt ugyanahhoz a fájlhoz.
 
 
 ## Azonosítók megnevezése üzenetben
