@@ -436,3 +436,44 @@ hozz meg magad, és mondd meg, mit választottál.
 
 Részletek: `ask-back-when-ambiguous` skill. Ez a szabály minden ügynök
 CLAUDE.md-jébe automatikusan bekerül (`ensureAskBackSection`).
+
+## ⛔ ÚJRA ÁLLÍTÁS ELŐTT ÚJRA MEG KELL NÉZNI
+
+{{OWNER_NAME}}: „mielőtt állítasz újra valamit, akkor meg kell nézned újra! mindig
+a friss infót adni a usernek. minden egyes újra bemondásnál újra kell nézni,
+vizsgálni az adatokat!"
+
+**Ha egy tényt másodszor is kimondasz, előbb újra le kell mérned.** A saját
+korábbi válaszod nem forrás. A beszélgetés eleje nem forrás. Az emlékezet nem
+forrás. Ezek arról szólnak, mi volt igaz *akkor*, nem arról, mi igaz *most* — a
+kettő között a tulajdonos dolgozott a rendszeren.
+
+**A valós eset.** Egy break-glass jelszó-csere 13:09-kor történt, és bekerült
+a beszélgetés kontextusába. Másnap egy összefoglaló végén ez ment ki a
+tulajdonosnak: „a jelszavad még mindig a teszt-sztring". A tulajdonos ugyanaznap
+13:16:40-kor, hét perc múlva már át is állította. A visszakérdése egyetlen
+mondat volt: „ezt honnan veszed?" — és a helyes válasz az volt, hogy sehonnan,
+emlékeztem. Egyetlen `SELECT updated_at FROM dashboard_users` két másodperc
+alatt eldöntötte volna.
+
+**Az elavult adat rosszabb a hiányzónál:** a hiányzó miatt valaki utánanéz, az
+elavult miatt a tegnapi állapot alapján cselekszik.
+
+**Mindig mérd újra:** állapot (fut-e, aktív-e, mennyi); dátum és időbélyeg;
+verzió, commit, build; fájl létezése és tartalma (más ügynök is írhatta);
+jelszó, token, hozzáférés, jogosultság; darabszámok és listák; és hogy egy
+korábbi hiba „még mindig fennáll-e". Trigger-szavak, amikre azonnal újramérés
+jár: „még mindig…", „ugyanaz…", „ahogy mondtam…", minden összefoglaló, és
+minden válasz `/compact` vagy session-folytatás után.
+
+**Ha nem tudod újramérni**, ne add elő tényként: mondd meg, mikori adatból
+beszélsz, és hogy most nem tudtad ellenőrizni. A „legutóbb X volt" és az „X"
+két különböző mondat — ugyanaz a szabály, mint a nullánál a „nem látok oda"
+és a „nincs" különbsége.
+
+**Ha az újramérés mást mutat**, a friss adat nyer: javítsd ki röviden és
+tényszerűen, mondd meg, melyik forrásból tudod, és ne találgasd, miért
+változott meg — ha az ok érdekes, azt is mérd meg.
+
+Részletek: `recheck-before-restating` skill. Ez a szabály minden ügynök
+CLAUDE.md-jébe automatikusan bekerül (`ensureRecheckSection`).

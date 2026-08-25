@@ -1,0 +1,39 @@
+Masodik kotelezo szabaly: ujra allitas elott ujra meg kell nezni
+
+2026-08-24 13:09:22-kor egy ellenorzo ugynok break-glass hivassal atallitotta a
+tulajdonos dashboard-jelszavat egy teszt-sztringre. Ez bekerult a beszelgetes
+kontextusaba, es masnap egy osszefoglalo vegen igy ment ki neki: "a jelszavad
+meg mindig testpassword123". A tulajdonos UGYANAZNAP 13:16:40-kor, het perccel
+kesobb mar atallitotta (dashboard_users.updated_at; nincs hozza break-glass
+audit-sor, tehat a session-uton, a regi jelszo ismereteben tortent).
+
+A visszakerdes egyetlen mondat volt: "ezt honnan veszed? mar reg kijavitottam."
+A helyes valasz az volt, hogy sehonnan -- emlekeztem. Egyetlen SELECT ket
+masodperc alatt eldontotte volna.
+
+A szabaly: ha egy tenyt MASODSZOR is kimondasz -- mert visszakerdeznek, mert
+osszefoglaloba irod, vagy mert egy kovetkezo lepes epul ra --, elobb ujra le
+kell merni. A sajat korabbi valasz, a beszelgetes eleje es az emlekezet nem
+forras: azok arrol szolnak, mi volt igaz AKKOR. Az elavult adat rosszabb a
+hianyzonal: a hianyzo miatt valaki utananez, az elavult miatt a tegnapi allapot
+alapjan cselekszik. Ha nem lehet ujramerni, akkor nem teny: oda kell irni,
+mikori adatbol beszelunk.
+
+Ugyanaz a negy reteg, mint a visszakerdezes-szabalynal, hogy egy frissen
+telepitett Marveenben is ott legyen:
+- seed-skills/recheck-before-restating/SKILL.md (uj skill-mappa, ezert a sima
+  update.sh is felteszi, nem kell --reseed-fleet);
+- ensureRecheckSection(name): generalt blokk minden ugynok CLAUDE.md-jebe,
+  bootkor es respawnkor, sajat markerekkel -- a ket szabaly nem irja felul
+  egymast, es aki mar hordozza az egyiket, megkapja a masikat is;
+- ensureGlobalRecheckRule(): a gepszintu ~/.claude/CLAUDE.md, ez az egyetlen
+  fajl, amit egy worktree-bol futo ugynok is olvas;
+- templates/CLAUDE.md.template + a renderelt CLAUDE.md.
+
+A nulla itt sem ketertelmu: a szakasz visszateresi erteke tovabbra is
+megkulonbozteti a "nincs sajat CLAUDE.md"-t az "olvashatatlan"-tol.
+
+Merve a bekotes utan: 1 gepszintu + 7/7 ugynok CLAUDE.md tartalmazza a blokkot.
+Teljes suite 381/5693 zold.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>

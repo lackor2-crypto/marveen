@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -663,11 +663,18 @@ export function startWebServer(port = 3420): http.Server {
         if (askBack === 'written') askBackWritten.push(agentName)
         if (askBack === 'no-file') askBackNoFile.push(agentName)
         if (askBack === 'unreadable') askBackUnreadable.push(agentName)
+        // Same treatment for the recheck rule (never restate a fact without
+        // measuring it again). Its outcome is folded into the same three lists:
+        // what matters per agent is "did every mandatory rule reach it".
+        const recheck = ensureRecheckSection(agentName)
+        if (recheck === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (recheck === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
       // the only file every Claude Code session reads no matter where it runs.
       ensureGlobalAskBackRule()
+      ensureGlobalRecheckRule()
       // Zero writes means two different things, so both are said out loud
       // rather than inferred from a count: 'no-file' agents are covered by the
       // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads

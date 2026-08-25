@@ -909,6 +909,11 @@ const FLEET_ROSTER_BLOCK_RE = new RegExp(
 
 const ASKBACK_BEGIN = '<!-- BEGIN GENERATED: ask-back-rule (auto-generated, do not edit by hand) -->'
 const ASKBACK_END = '<!-- END GENERATED: ask-back-rule -->'
+const RECHECK_BEGIN = '<!-- BEGIN GENERATED: recheck-rule (auto-generated, do not edit by hand) -->'
+const RECHECK_END = '<!-- END GENERATED: recheck-rule -->'
+const RECHECK_BLOCK_RE = new RegExp(
+  `${RECHECK_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${RECHECK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
 const ASKBACK_BLOCK_RE = new RegExp(
   `${ASKBACK_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${ASKBACK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
@@ -1072,6 +1077,51 @@ function buildAskBackBody(): string {
   ].join('\n')
 }
 
+// The second mandatory rule, and it came from the same kind of failure as the
+// first: something was said with confidence that had not been looked at.
+//
+// The incident (2026-08-25): a break-glass password reset had happened on
+// 2026-08-24 13:09, and the fact "the password is still the test string" was
+// carried forward from earlier in the conversation and repeated to the owner.
+// The owner had changed it at 13:16 the same day -- seven minutes later. The
+// answer to "how do you know?" was: I did not, I remembered. One SELECT on
+// dashboard_users.updated_at settled it in two seconds.
+//
+// Stale facts are worse than missing ones: a missing fact makes someone go and
+// look, a stale fact makes them act on yesterday.
+function buildRecheckBody(): string {
+  return [
+    '## UJRA ALLITAS ELOTT UJRA MEG KELL NEZNI',
+    '',
+    'Ha egy tenyt **masodszor** is kimondasz -- mert a felhasznalo visszaker,',
+    'mert egy osszefoglaloba irod, vagy mert egy kesobbi lepes epul ra --,',
+    'akkor **ujra le kell merned**, mielott kimondod. A sajat korabbi',
+    'valaszod, a beszelgetes eleje es az emlekezet NEM forras: azok arrol',
+    'szolnak, mi volt igaz akkor, nem arrol, mi igaz most.',
+    '',
+    'Miert: egy jelszorol azt allitottam a tulajdonosnak, hogy meg mindig a',
+    'teszt-sztring -- ezt a beszelgetes korabbi reszebol vittem tovabb. A',
+    'tulajdonos ugyanaznap, het perccel kesobb mar atallitotta. Egyetlen',
+    'lekerdezes (`dashboard_users.updated_at`) ket masodperc alatt eldontotte',
+    'volna. Az elavult adat rosszabb a hianyzonal: a hianyzo miatt valaki',
+    'utananez, az elavult miatt a tegnapi allapot alapjan cselekszik.',
+    '',
+    'Mindig nezd meg ujra: allapot (fut-e, aktiv-e, mennyi), datum es idobelyeg,',
+    'verzio- es commit-szam, fajl tartalma es letezese, jelszo/token/hozzaferes,',
+    'darabszamok es listak, egy korabbi hiba "meg mindig fennall-e".',
+    '',
+    'Ha nem tudod ujra megnezni (nincs hozzaferes, offline a forras), akkor NE',
+    'add elo tenykent: mondd meg, hogy mikori adatbol beszelsz, es hogy most nem',
+    'tudtad ellenorizni. A "legutobb X volt" es az "X" ket kulonbozo mondat.',
+    '',
+    'Ha az ujramerés mast mutat, mint amit korabban mondtal: a friss adat nyer.',
+    'Javitsd ki roviden es tenyszeruen, es mondd meg, honnan tudod -- ne',
+    'mentegetozz, es ne allj neki talalgatni, miert valtozott meg.',
+    '',
+    'Reszletek: `recheck-before-restating` skill.',
+  ].join('\n')
+}
+
 // Idempotently ensures the ask-back block is present and current in the
 // agent's CLAUDE.md. Same five-rule idempotency contract as
 // ensureFleetRosterSection(). The main agent's CLAUDE.md lives at
@@ -1145,6 +1195,65 @@ export function ensureGlobalAskBackRule(): void {
 
   const updated = ASKBACK_BLOCK_RE.test(existing)
     ? existing.replace(ASKBACK_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+// Same shape as ensureAskBackSection/ensureGlobalAskBackRule, for the
+// recheck rule. The two rules are kept as separate blocks on purpose: each has
+// its own markers, so one can be reworded later without rewriting the other,
+// and an agent that already carries one still receives the other.
+export function ensureRecheckSection(name: string): AskBackOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${RECHECK_BEGIN}\n${buildRecheckBody()}\n${RECHECK_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = RECHECK_BLOCK_RE.test(existing)
+    ? existing.replace(RECHECK_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+// The machine-wide half: see the comment on ensureGlobalAskBackRule for why
+// ~/.claude/CLAUDE.md is the only file that reaches a worktree-based agent.
+export function ensureGlobalRecheckRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${RECHECK_BEGIN}\n${buildRecheckBody()}\n${RECHECK_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = RECHECK_BLOCK_RE.test(existing)
+    ? existing.replace(RECHECK_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'

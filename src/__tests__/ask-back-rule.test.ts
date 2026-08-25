@@ -19,7 +19,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
-import { ensureAskBackSection, ensureGlobalAskBackRule } from '../web/agent-scaffold.js'
+import { ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule } from '../web/agent-scaffold.js'
 
 // A throwaway name no live fleet member can collide with.
 const THROWAWAY = 'zz-ask-back-probe'
@@ -170,6 +170,118 @@ describe('ensureGlobalAskBackRule', () => {
     const path = join(home, '.claude', 'CLAUDE.md')
     const mtimeBefore = statSync(path).mtimeMs
     ensureGlobalAskBackRule()
+    expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
+  })
+})
+
+// The second mandatory rule: never restate a fact without measuring it again.
+//
+// It exists because of a measured miss (2026-08-25): a password had been reset
+// by an agent at 13:09 on 2026-08-24, that fact entered the conversation, and
+// the next day it was repeated to the owner as still true. The owner had
+// changed it at 13:16 the same day -- seven minutes later. Nothing was looked
+// at before the claim went out.
+//
+// The two rules are separate blocks on purpose: an agent that already carries
+// one must still receive the other, and rewording one must not rewrite the other.
+describe('ensureRecheckSection', () => {
+  it('appends the rule, keeps the ask-back block, and names the incident', () => {
+    const path = seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
+    ensureAskBackSection(THROWAWAY)
+    ensureRecheckSection(THROWAWAY)
+    const out = readFileSync(path, 'utf-8')
+
+    expect(out).toContain('UJRA ALLITAS ELOTT UJRA MEG KELL NEZNI')
+    // Both rules coexist -- one did not overwrite the other.
+    expect(out).toContain('KOTELEZO VISSZAKERDEZES')
+    expect(out).toContain('Sajat tartalom.')
+    // A rule stated as a principle reads as advice; the cost has to be next to it.
+    expect(out).toContain('dashboard_users.updated_at')
+    // Host-agnostic: the generated block names no agent and no owner.
+    expect(out).not.toContain('Gypsy')
+    expect(out).not.toContain('testpassword')
+  })
+
+  it('is idempotent: no duplicate block and no rewrite on the second call', () => {
+    const path = seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
+    ensureRecheckSection(THROWAWAY)
+    const first = readFileSync(path, 'utf-8')
+    const mtimeBefore = statSync(path).mtimeMs
+
+    ensureRecheckSection(THROWAWAY)
+
+    expect(readFileSync(path, 'utf-8')).toEqual(first)
+    expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
+    expect(first.split('BEGIN GENERATED: recheck-rule').length - 1).toBe(1)
+  })
+
+  it('reports WHY nothing was written, so zero is never ambiguous', () => {
+    expect(ensureRecheckSection('zz-no-such-agent-at-all')).toBe('no-file')
+    expect(ensureRecheckSection(MAIN_AGENT_ID)).toBe('skipped-main')
+
+    seed('# zz-ask-back-probe\n\nSajat tartalom.\n')
+    expect(ensureRecheckSection(THROWAWAY)).toBe('written')
+    expect(ensureRecheckSection(THROWAWAY)).toBe('current')
+  })
+
+  it('ships the skill in seed-skills so a fresh install has it too', () => {
+    const skill = join(PROJECT_ROOT, 'seed-skills', 'recheck-before-restating', 'SKILL.md')
+    expect(existsSync(skill)).toBe(true)
+    expect(readFileSync(skill, 'utf-8')).toContain('name: recheck-before-restating')
+  })
+
+  it('the main-agent CLAUDE.md template carries the rule (fresh clone)', () => {
+    const text = readFileSync(join(PROJECT_ROOT, 'templates', 'CLAUDE.md.template'), 'utf-8')
+    expect(text).toContain('ÚJRA ÁLLÍTÁS ELŐTT ÚJRA MEG KELL NÉZNI')
+    expect(text).toContain('recheck-before-restating')
+  })
+})
+
+// The machine-wide half. Both rules land in the same ~/.claude/CLAUDE.md, so
+// the interesting case is that they do not overwrite each other there either.
+describe('ensureGlobalRecheckRule', () => {
+  let home: string
+  let realHome: string | undefined
+
+  beforeEach(() => {
+    realHome = process.env['HOME']
+    home = mkdtempSync(join(tmpdir(), 'recheck-home-'))
+    process.env['HOME'] = home
+  })
+
+  afterEach(() => {
+    if (realHome === undefined) delete process.env['HOME']
+    else process.env['HOME'] = realHome
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('creates ~/.claude/CLAUDE.md on a fresh install where nothing exists yet', () => {
+    ensureGlobalRecheckRule()
+    const out = readFileSync(join(home, '.claude', 'CLAUDE.md'), 'utf-8')
+    expect(out).toContain('UJRA ALLITAS ELOTT UJRA MEG KELL NEZNI')
+  })
+
+  it("keeps the operator's own rules AND the other mandatory rule", () => {
+    const path = join(home, '.claude', 'CLAUDE.md')
+    mkdirSync(join(home, '.claude'), { recursive: true })
+    writeFileSync(path, '# Sajat szabalyaim\n\nNE NYULJ HOZZA\n')
+
+    ensureGlobalAskBackRule()
+    ensureGlobalRecheckRule()
+    ensureGlobalAskBackRule()
+    ensureGlobalRecheckRule()
+
+    const out = readFileSync(path, 'utf-8')
+    expect(out).toContain('NE NYULJ HOZZA')
+    expect(out.split('BEGIN GENERATED: ask-back-rule').length - 1).toBe(1)
+    expect(out.split('BEGIN GENERATED: recheck-rule').length - 1).toBe(1)
+  })
+
+  it('does not rewrite the file when the block is already current', () => {
+    ensureGlobalRecheckRule()
+    const path = join(home, '.claude', 'CLAUDE.md')
+    const mtimeBefore = statSync(path).mtimeMs
+    ensureGlobalRecheckRule()
     expect(statSync(path).mtimeMs).toEqual(mtimeBefore)
   })
 })
