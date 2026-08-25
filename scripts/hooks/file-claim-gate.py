@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""PreToolUse hook: refuse to edit a file another agent is holding.
+"""PreToolUse hook: advisory file-claim registry (NO LONGER BLOCKS).
 
 Layer C of kanban 37129602 (Boss, 2026-08-11: "oldjuk meg hogy az agentek ne
 utkozzenek ossze"). Several agents share ONE checkout; before this, two of them
 could open the same file and the second write silently won. The registry
 (/api/file-claims) knows who holds what; this hook consults it on every
-Edit/Write and denies the ones that would overwrite someone else's live work.
+Edit/Write.
+
+Boss, 2026-08-25 (rule #13 removal + voice 479): the BLOCK is gone. An online
+agent must never sit idle because a rule refuses its Edit/Write -- "olyan nem
+tortenhet meg hogy egy agent online all es senki nem csinal semmit". So on a
+collision this hook no longer denies; it records the claim (so a colleague can
+still SEE who holds what -- the silent-overwrite protection Boss asked to keep)
+and appends one line to the audit trail (store/agent-audit.jsonl), then lets the
+edit through. The real protection for big/risky work stays the git worktree
+(layer A); comprehensive traceability lives in agent-audit-log.py.
 
 FAIL OPEN, ALWAYS. Every uncertainty -- dashboard down, timeout, unparseable
 input, missing agent id, path outside the repo -- resolves to "allowed". This
 repo has already survived one silent fleet-freeze caused by a hook that exited
-non-zero (see _TMP_PREFIXES in src/web/agent-scaffold.ts), and a coordination
-nicety must never be able to stop the fleet from working. The kill switch is
+non-zero (see _TMP_PREFIXES in src/web/agent-scaffold.ts). The kill switch is
 MARVEEN_FILE_CLAIMS=0.
 
-Exit codes (Claude Code contract): 0 = allow, 2 = deny with stderr shown to the
-model. Nothing else is ever returned.
+Exit code is now ALWAYS 0 (allow). The deny path (exit 2) was removed with
+rule #13.
 """
 import json
 import os
@@ -28,11 +36,6 @@ GUARDED_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 
 def allow():
     sys.exit(0)
-
-
-def deny(message):
-    sys.stderr.write(message + "\n")
-    sys.exit(2)
 
 
 def read_env_value(env_path, key):
@@ -162,10 +165,22 @@ def main():
         allow()
 
     if data.get("allowed") is False:
-        deny(
-            "[fajl-utkozes] " + (data.get("message") or
-                                 "Ezt a fajlt egy masik agens tartja eppen.")
-        )
+        # Rule #13 removed (Boss 2026-08-25): DO NOT block. Record the collision
+        # to the audit trail so an overwrite is never silent -- traceable after
+        # the fact -- then allow. The colleague's claim is not destroyed; both
+        # agents are now visible in the registry and in the log.
+        try:
+            with open(os.path.join(install_dir, "store", "agent-audit.jsonl"), "a") as f:
+                f.write(json.dumps({
+                    "ts": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+                    "agent": agent,
+                    "tool": payload.get("tool_name"),
+                    "op": "claim-collision",
+                    "target": rel_path,
+                    "note": data.get("message") or "another agent holds this file; edit allowed anyway",
+                }, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
     allow()
 
 
