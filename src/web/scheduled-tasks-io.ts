@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { MAIN_AGENT_ID } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 
 export const SCHEDULED_TASKS_DIR = join(homedir(), '.claude', 'scheduled-tasks')
@@ -114,7 +113,10 @@ export function readScheduledTask(taskName: string): ScheduledTask | null {
     description: description || config.description || '',
     prompt: body,
     schedule: config.schedule || '0 9 * * *',
-    agent: config.agent || MAIN_AGENT_ID,
+    // Missing agent means "not pinned" -> 'any' (one awake agent runs it), not
+    // the main agent. Historically this defaulted to MAIN_AGENT_ID, which is how
+    // every unspecified task ended up bound to Marvin (Boss, 2026-08-25).
+    agent: config.agent || 'any',
     enabled: config.enabled !== false,
     createdAt: config.createdAt || 0,
     type: (config.type as 'task' | 'heartbeat' | 'command') || 'task',

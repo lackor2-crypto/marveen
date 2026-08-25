@@ -164,7 +164,11 @@ Az eredmeny CSAK a kibovitett prompt szovege legyen, semmi mas. Ne hasznalj code
       description: data.description || '',
       prompt: data.prompt.trim(),
       schedule: data.schedule.trim(),
-      agent: data.agent || MAIN_AGENT_ID,
+      // Default to 'any' (one awake agent runs it), NOT the main agent: pinning
+      // every unspecified task to the main agent is exactly what silently bound
+      // all scheduled tasks to Marvin (Boss, 2026-08-25). The dispatcher
+      // (resolveScheduledTargets) turns 'any' into whichever agent is awake.
+      agent: data.agent || 'any',
       enabled: true,
       type: data.type || 'task',
       skipIfBusy: data.skipIfBusy === true,

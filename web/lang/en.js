@@ -1082,6 +1082,8 @@ window._i18n.en = {
   'tasks.badge.command':        'machine',
   'tasks.badge.command_hint':   'Machine command: no agent runs it, it uses no quota.',
   'tasks.badge.command_who':    'machine command (no agent)',
+  'tasks.agent.any':             'Any awake agent (recommended)',
+  'tasks.agent.all':             'All running agents',
   'tasks.status.active':         'active',
   'tasks.status.paused':         'paused',
   'tasks.btn.run_now':           'Run now',

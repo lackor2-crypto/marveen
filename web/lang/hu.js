@@ -1367,6 +1367,8 @@ window._i18n.hu = {
   'tasks.badge.command':        'gépi',
   'tasks.badge.command_hint':   'Gépi parancs: nem agens futtatja, nem fogyaszt keretet.',
   'tasks.badge.command_who':    'gépi parancs (nem agens)',
+  'tasks.agent.any':             'Bármelyik felébredt ügynök (ajánlott)',
+  'tasks.agent.all':             'Az összes futó ügynök',
   'tasks.status.active':         'aktív',
   'tasks.status.paused':         'szünet',
   'tasks.btn.run_now':           'Futtatás most',

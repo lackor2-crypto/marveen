@@ -8199,6 +8199,14 @@ async function loadScheduleAgents() {
     scheduleAgents = await res.json()
     const sel = document.getElementById('scheduleAgent')
     sel.innerHTML = ''
+    // "Any awake agent" is the recommended default: whichever agent is up runs
+    // the task, so it is never stranded when one specific agent is down. Pinning
+    // to a named agent below is only for tasks that MUST run as that agent (e.g.
+    // a post to that agent's own channel).
+    const anyOpt = document.createElement('option')
+    anyOpt.value = 'any'
+    anyOpt.textContent = t('tasks.agent.any')
+    sel.appendChild(anyOpt)
     for (const a of scheduleAgents) {
       const opt = document.createElement('option')
       opt.value = a.name
@@ -8318,10 +8326,20 @@ function cronCadence(cron) {
 }
 const CADENCE_ICON = { 0: '⚡', 1: '☀️', 2: '📅', 3: '🗓️', 5: '•' }
 
+// Resolve how a schedule's target agent is shown in the UI. 'any' and 'all' are
+// dispatch modes, not real agents, so they get a friendly label and no avatar
+// (showing the main agent's face would wrongly imply the task is pinned to it).
+function scheduleAgentDisplay(agentName) {
+  if (agentName === 'any') return { name: 'any', avatar: '', label: t('tasks.agent.any') }
+  if (agentName === 'all') return { name: 'all', avatar: '', label: t('tasks.agent.all') }
+  return scheduleAgents.find(a => a.name === agentName)
+    || { name: agentName || mainAgentId(), avatar: '/api/marveen/avatar', label: agentName || mainAgentId() }
+}
+
 function makeScheduleRow(task) {
     const row = document.createElement('div')
     row.className = 'schedule-row'
-    const agent = scheduleAgents.find(a => a.name === task.agent) || { name: task.agent || mainAgentId(), avatar: '/api/marveen/avatar', label: task.agent || mainAgentId() }
+    const agent = scheduleAgentDisplay(task.agent)
 
     row.innerHTML = `
       <div class="schedule-agent-avatar">
@@ -8505,7 +8523,7 @@ function renderTimeline(tasks) {
   }
 
   for (const [agentName, agTasks] of Object.entries(agentTasks)) {
-    const agent = scheduleAgents.find(a => a.name === agentName) || { name: agentName, avatar: '/api/marveen/avatar', label: agentName }
+    const agent = scheduleAgentDisplay(agentName)
 
     const row = document.createElement('div')
     row.className = 'timeline-row'
@@ -8650,7 +8668,7 @@ function renderWeekView(data) {
       const count = tasks.length
 
       tasks.forEach((task, idx) => {
-        const agent = scheduleAgents.find(a => a.name === task.agent) || { name: task.agent || mainAgentId(), avatar: '/api/marveen/avatar' }
+        const agent = scheduleAgentDisplay(task.agent)
 
         const card = document.createElement('div')
         card.className = 'week-task-card'

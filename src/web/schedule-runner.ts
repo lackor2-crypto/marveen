@@ -777,6 +777,34 @@ export function taskInjectionRank(t: Pick<ScheduledTask, 'forceSend' | 'type'>):
   return t.type === 'heartbeat' ? 2 : 1
 }
 
+// Resolve which agent(s) a due scheduled task fires to. The scheduler is a
+// single centralized loop in the main process, so choosing the target set HERE
+// is itself the de-dup: nothing else races to dispatch the same occurrence.
+//   'all'  -> broadcast: the main agent + every running sub-agent each run it.
+//   'any'  -> exactly ONE awake agent runs it (whichever is up). This is the
+//             fix for "only Marvin ran it": a task is no longer stranded when
+//             one specific agent happens to be down (Boss, 2026-08-25 -- "amelyi
+//             agent felebred az csinalja meg"). The pick prefers the main agent
+//             when it is awake (continuity with the historical behaviour), then
+//             running sub-agents in listAgentNames() order, so the choice is
+//             deterministic within a tick. If NONE are awake, fall back to the
+//             main agent so attemptFireTask cold-starts it -- late beats never.
+//   <name> -> that specific agent, pinned (e.g. a task that must post to one
+//             agent's own channel).
+// An empty/missing agent is treated as 'any' -- the default is no longer "pin
+// to the main agent", which is exactly what silently bound every task to Marvin.
+export function resolveScheduledTargets(agent: string | undefined): string[] {
+  if (agent === 'all') {
+    return [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a))]
+  }
+  if (agent === 'any' || !agent) {
+    const ordered = [MAIN_AGENT_ID, ...listAgentNames()]
+    const awake = ordered.find(a => isAgentRunning(a))
+    return [awake ?? MAIN_AGENT_ID]
+  }
+  return [agent]
+}
+
 // Manual "Run now": fire a scheduled task immediately, bypassing the cron
 // match + lastRun catch-up + skipIfBusy guards (the operator explicitly asked
 // for it). Reuses attemptFireTask, so a stopped agent is auto-started and the
@@ -805,9 +833,7 @@ export async function runScheduledTaskNow(
     return { ok: true, result: 'parancs elindult' }
   }
 
-  const targets = task.agent === 'all'
-    ? [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a))]
-    : [task.agent || MAIN_AGENT_ID]
+  const targets = resolveScheduledTargets(task.agent)
 
   const summary: string[] = []
   for (const agentName of targets) {
@@ -1224,9 +1250,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
           'Scheduled occurrence missed while the scheduler was down and is too stale to catch up -- recording as missed',
         )
         staleThisTick.push({ task: task.name, ageMs })
-        const missedTargets = task.agent === 'all'
-          ? [MAIN_AGENT_ID, ...listAgentNames().filter(a => isAgentRunning(a))]
-          : [task.agent || MAIN_AGENT_ID]
+        const missedTargets = resolveScheduledTargets(task.agent)
         for (const agentName of missedTargets) appendTaskRun(task.name, agentName, 'missed')
         continue
       }
@@ -1244,15 +1268,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
         continue
       }
 
-      let targetAgents: string[]
-
-      if (task.agent === 'all') {
-        // Broadcast to all running agents + main
-        const running = listAgentNames().filter(a => isAgentRunning(a))
-        targetAgents = [MAIN_AGENT_ID, ...running]
-      } else {
-        targetAgents = [task.agent || MAIN_AGENT_ID]
-      }
+      const targetAgents = resolveScheduledTargets(task.agent)
 
       // Run pre-check once per task (not per agent) since it queries shared
       // state (DB, filesystem) that does not vary by target agent.
