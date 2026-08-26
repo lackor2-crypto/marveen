@@ -5285,7 +5285,13 @@ function cbTabsPickHtml(e) {
       : ''
     return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
       + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
-      + ' value="' + escapeAttr(tb.sessionId) + '"' + (tb.current ? ' checked' : '') + '>'
+      + ' value="' + escapeAttr(tb.sessionId) + '"'
+      // A PID nem dísz: ebbol tudja a Tomorites/Torles gomb, hogy a ful EPP
+      // NYITVA van a VS Code-ban -- egy futo beszelgetesre a headless `/clear`
+      // nem hat, es a gombnak ezt meg kell mondania, nem sikert jelentenie.
+      + (typeof tb.pid === 'number' && tb.pid > 0 ? ' data-pid="' + escapeAttr(String(tb.pid)) + '"' : '')
+      + ' data-label="' + escapeAttr(label) + '"'
+      + (tb.current ? ' checked' : '') + '>'
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
       + idle
@@ -5341,14 +5347,46 @@ async function cbDeleteProject(project) {
  *  ervenyes parancs headless modban is -- a `/compact` valasza pl. "Not enough
  *  messages to compact.", a `/clear` pedig UJ session-t nyit (a regi transcript
  *  megmarad), amit a worker a kovetkezo jelentesnel (~1 perc) atvesz. */
-async function cbMaintenance(project, action) {
-  const q = action === 'clear' ? t('cb.card.clear_confirm', { p: project }) : t('cb.card.compact_confirm', { p: project })
+async function cbMaintenance(project, action, target) {
+  // `target` = a kartyan KIJELOLT chat ful: { id, label, pid }. Eddig a gomb
+  // nem adta at, es a feladat mindig a projekt eppen aktualis beszelgetesebe
+  // ment. Ez ketto dolog miatt volt rossz: aki kijelolt egy fulet, mast vart --
+  // es amikor a ketto veletlenul egybeesett, akkor sem latszott semmi, amit a
+  // felulet nem magyarazott meg.
+  //
+  // A NYITOTT ful a masodik fele. Merve (2026-08-26, task 139b9c8f): a `/clear`
+  // headless folyamatban HIBATLANUL lefutott (ok=True, 8,1 mp, 0 fordulo), a
+  // VS Code-ban nyitva levo beszelgetes pedig valtozatlanul ment tovabb -- egy
+  // futo ful a sajat folyamataban tartja a kontextust, oda a `--resume` nem
+  // szol bele. A felulet viszont "sorba allitva" uzenetet mutatott: a
+  // sikeresen lefutott feladat itt semminek NEM volt bizonyiteka.
+  //
+  // Ezert ha a cel-ful el, a gomb NEM tesz sorba hatastalan feladatot, hanem
+  // megmondja, mi a kovetkezo lepes (zard be a fulet az x gombbal).
+  if (target && target.pid) {
+    alert(t('cb.card.maint_live', { name: target.label || target.id.slice(0, 8), pid: target.pid }))
+    return
+  }
+  const cel = target && target.id
+    ? t('cb.card.maint_target', { name: target.label || target.id.slice(0, 8) })
+    : t('cb.card.maint_target_current')
+  const q = (action === 'clear' ? t('cb.card.clear_confirm', { p: project }) : t('cb.card.compact_confirm', { p: project }))
+    + '\n\n' + cel
   if (!confirm(q)) return
   try {
     const res = await fetch('/api/code/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project, prompt: '/' + action, origin: 'dashboard', requestedBy: 'dashboard' }),
+      // A megcimzett ful a szerveren `target_session_id`-ba kerul, es a claim
+      // ezt hasznalja a projekt aktualis beszelgetese HELYETT. A `null` nem
+      // hiba: cimzes nelkul marad a regi viselkedes.
+      body: JSON.stringify({
+        project,
+        prompt: '/' + action,
+        origin: 'dashboard',
+        requestedBy: 'dashboard',
+        sessionId: (target && target.id) ? target.id : null,
+      }),
     })
     const body = await res.json().catch(() => null)
     if (!res.ok) { showToast(t('cb.card.maint_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
@@ -5440,7 +5478,6 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         <button class="btn-secondary btn-compact code-bridge-open-btn">${escapeHtml(t('cb.card.settings'))}</button>
         ${e.roleHolder ? `
         <button class="btn-secondary btn-compact cb-ctx-compact" title="${escapeHtml(t('cb.card.compact_help'))}">${escapeHtml(t('cb.card.compact'))}</button>
-        <button class="btn-danger btn-compact cb-ctx-clear" title="${escapeHtml(t('cb.card.clear_help'))}">${escapeHtml(t('cb.card.clear'))}</button>
         <button class="btn-secondary btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
       </div>
       ${e.roleHolder ? cbTabsPickHtml(e) : ''}
@@ -5475,8 +5512,29 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.ctx-current')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.cb-delete-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbDeleteProject(e.project) })
-    card.querySelector('.cb-ctx-compact')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'compact') })
-    card.querySelector('.cb-ctx-clear')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'clear') })
+    // A kijelolt ful a kattintas PILLANATABAN olvasodik ki, nem a kartya
+    // felepitesekor: kozben a felhasznalo atvalthatott masik fulre.
+    const cbPickedTab = () => {
+      const r = card.querySelector('.cb-tab-radio:checked')
+      if (!r) return null
+      const pid = parseInt(r.dataset.pid || '', 10)
+      return { id: r.value, label: r.dataset.label || '', pid: Number.isFinite(pid) && pid > 0 ? pid : null }
+    }
+    card.querySelector('.cb-ctx-compact')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'compact', cbPickedTab()) })
+    // A TORLES GOMB KIVEVE (Boss, 2026-08-26: "hat magat a torles gombot torold
+    // ki onnan. akkor minek az oda?").
+    //
+    // A neve nem azt jelentette, amit igert. Merve ugyanaznap: a `/clear` SEMMIT
+    // nem torol -- uj, ures beszelgetest nyit, a regi naplo sertetlenul a lemezen
+    // marad. Nyitott VS Code ablakra pedig egyaltalan nem hat: az a sajat
+    // folyamataban tartja a kontextust. Vagyis a gomb vagy nem csinalt semmit,
+    // vagy mast csinalt, mint amit a neve mondott -- egyik sem maradhat a
+    // feluleten. Amig nincs olyan muvelet, amit a Marveen valoban el tud vegezni
+    // es pontosan meg is tud nevezni, INKABB NINCS gomb.
+    //
+    // Ami MARAD: a `cbMaintenance` 'clear' aga es a hozza tartozo szovegek
+    // erintetlenek, mert a `/api/code/tasks` vegponton at es Telegramrol
+    // tovabbra is kuldheto -- csak a kartyan nem kinaljuk fel.
     card.addEventListener('click', () => openCodeBridgeModal())
     agentsGrid.insertBefore(card, addBtn)
   }
@@ -17633,8 +17691,14 @@ async function renderOverviewConnections() {
           ? 'runGoogleLiveCheckNow()'
           // Az allo vegrehajto sora a KOD-HID lapra visz, mert ott all a
           // telepito parancs es a masolo gomb -- a Fiokok oldalan semmit nem
-          // tudna kezdeni vele.
-          : (h.id === 'code_bridge_dead' || h.id === 'code_bridge_never')
+          // tudna kezdeni vele. Ugyanez all a VERZIO-sorokra (elavult / verzio
+          // nelkuli / ismeretlen peldany): a teendo mindharomnal ugyanaz a
+          // Kod-hid ablak. Enelkul ezek az alapertelmezett agra estek, es a
+          // Fiokok oldalra dobtak a felhasznalot, ahol semmi dolga (Boss,
+          // 2026-08-26: "miert a fiokokba visz amikor rakattintok?").
+          : (h.id === 'code_bridge_dead' || h.id === 'code_bridge_never'
+            || h.id === 'code_bridge_worker_stale' || h.id === 'code_bridge_worker_unversioned'
+            || h.id === 'code_bridge_worker_unknown')
             ? "openCodeBridgeModal()"
             : null,
       guide: h.id === 'google_live_bad'
@@ -29671,6 +29735,88 @@ function _depoClearDrivePick() {
   if (picked) picked.textContent = ''
 }
 
+/**
+ * A leszakadt depo helyreallitasa a Depo lapon.
+ *
+ * A MERT ESET (2026-08-26): a depo elerhetetlen volt, a doboz kimondta, hogy
+ * "nem erheto el" -- es ott meg is allt. A javitas a fejlesztő fejeben lakott,
+ * es a felhasznalo nem tudott mit kezdeni vele. Egy hibauzenet, ami nem mondja
+ * meg a KOVETKEZO LEPEST, csak ijesztget.
+ *
+ * Ket utat kinalunk, a szakma sorrendjeben:
+ *   1. `wsl --shutdown` Windowsbol -- ez az igazi javitas (MINDEN meghajto
+ *      csatolasat ujraepiti), de leallitja a Marveent is, ezert nem indithatja
+ *      el maga.
+ *   2. Celzott ujracsatolas -- csak a depot erinti, uzem kozben is mehet.
+ *
+ * A parancsot a KISZOLGALO allitja ossze a MERT csatolasi beallitasokbol, nem
+ * a bongeszo rakja ossze sablonbol. Ha egyetlen csatolast sem latott, azt a
+ * lap KIMONDJA (`optionSource === 'unknown'`) -- nem ugy adja elo, mintha
+ * biztos lenne benne.
+ */
+function _depoShowRepair(d) {
+  const host = document.getElementById('depoRepair')
+  if (!host) return
+  const terv = d && d.repair
+  // Ep depon nincs mit javitani. A `repair` akkor is kitoltott lehet, ha minden
+  // rendben van, ezert az ALLAPOT dont, nem a terv megléte.
+  if (!terv || !d.configured || d.writable) {
+    host.hidden = true
+    host.innerHTML = ''
+    return
+  }
+  host.hidden = false
+  host.innerHTML = ''
+
+  const cim = document.createElement('p')
+  cim.className = 'subtitle'
+  cim.textContent = t('depot.repair.intro')
+  host.appendChild(cim)
+
+  const lista = document.createElement('ol')
+  lista.className = 'depo-repair-steps'
+
+  const l1 = document.createElement('li')
+  l1.textContent = t('depot.repair.step_shutdown')
+  lista.appendChild(l1)
+
+  const l2 = document.createElement('li')
+  l2.textContent = t('depot.repair.step_remount')
+  lista.appendChild(l2)
+  host.appendChild(lista)
+
+  const pre = document.createElement('pre')
+  pre.className = 'depo-repair-cmd'
+  pre.textContent = terv.command
+  host.appendChild(pre)
+
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'btn-secondary btn-compact'
+  btn.textContent = t('depot.repair.copy')
+  btn.addEventListener('click', function () {
+    navigator.clipboard.writeText(terv.command).then(function () {
+      const orig = btn.textContent
+      btn.textContent = t('depot.repair.copied')
+      setTimeout(function () { btn.textContent = orig }, 1400)
+    }).catch(function () { showToast(t('depot.repair.copy_failed')) })
+  })
+  host.appendChild(btn)
+
+  // A NULLA KET DOLGOT JELENTHET, es a "nem tudom" sem lehet nemasag: ha a
+  // csatolasi beallitasokat nem magarol a depo csatolasarol olvastuk le, azt
+  // kimondjuk. A parancs igy is jo esellyel mukodik, de a felhasznalonak
+  // tudnia kell, mennyire biztos.
+  if (terv.optionSource !== 'measured') {
+    const megj = document.createElement('p')
+    megj.className = 'subtitle'
+    megj.textContent = terv.optionSource === 'sibling'
+      ? t('depot.repair.src_sibling')
+      : t('depot.repair.src_unknown')
+    host.appendChild(megj)
+  }
+}
+
 async function _depoRefresh() {
   // ELSOKENT es a tobbitol fuggetlenul: a Drive-fioklista nem varhat a depo
   // allapotara (sem annak sikeressegere). Sajat hibakezelese van, ezert nem
@@ -29691,6 +29837,7 @@ async function _depoRefresh() {
     return
   }
   if (text) text.textContent = d.message || ''
+  _depoShowRepair(d)
   const rootDisp = document.getElementById('depoRootDisplay')
   if (rootDisp) {
     rootDisp.textContent = d.rootDisplay || t('picker.root_none')

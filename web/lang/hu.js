@@ -2006,6 +2006,17 @@ window._i18n.hu = {
   'depot.card_desc':             'Ez az a mappa a gépeden, ami alá a Marveen mindent tesz: a fotókat, a Drive-fájlokat, a projekteket. Ha még nincs kiválasztva, minden a telepítési mappában marad.',
   'depot.card_current':          'Jelenleg itt van:',
   'depot.card_pick_btn':         'Hely kiválasztása…',
+
+  // A leszakadt depo helyreallitasa. Egy hibauzenet, ami nem mondja meg a
+  // KOVETKEZO LEPEST, csak ijesztget -- ezek a sorok a lepesek.
+  'depot.repair.intro':          'A depó Windows-meghajtón van, és a WSL felé megszakadt a kapcsolata. Ez a WSL ismert hibája újraindítás után; a lemezeddel és a fájlokkal nincs baj. Két javítás van:',
+  'depot.repair.step_shutdown':  'Teljes helyreállítás: Windowsban futtasd a `wsl --shutdown` parancsot, majd nyisd meg újra a Marveent. Ez minden meghajtó kapcsolatát újraépíti, de közben leáll minden, ami a WSL-ben fut.',
+  'depot.repair.step_remount':   'Csak a depó, leállítás nélkül: futtasd ezt a parancsot a WSL-ben. Rendszergazdai jelszót fog kérni.',
+  'depot.repair.copy':           'Parancs másolása',
+  'depot.repair.copied':         'Másolva',
+  'depot.repair.copy_failed':    'A másolás nem sikerült – jelöld ki és másold ki kézzel.',
+  'depot.repair.src_sibling':    'Megjegyzés: a depó csatolását már nem látom, ezért a beállításokat egy másik, még élő meghajtóéról vettem. Ugyanaz a WSL adja mindkettőt, így nagy eséllyel jó – de nem magáról a depóról mértem.',
+  'depot.repair.src_unknown':    'Megjegyzés: egyetlen Windows-meghajtó csatolását sem látom, ezért a parancs a WSL alapértelmezéseivel csatol. Ha ez nem oldja meg, a `wsl --shutdown` a biztos út.',
   // Drive-mappa valaszto (Depó oldal): az azonositot senki nem gepeli be.
   'dpick.modal_title':           '📁 Válaszd ki a Drive-mappát',
   'dpick.lead_html':             'Ez a <strong>Google Drive-od</strong>. Kattints egy mappára, hogy belépj — így keresed meg azt, amit szeretnél, hogy a gépeden is meglegyen. Ha már <strong>abban a mappában állsz</strong>, nyomd meg lent az <strong>Ez a mappa legyen</strong> gombot.',
@@ -3467,6 +3478,9 @@ window._i18n.hu = {
   'cb.card.clear_help':     'Kiüríti a beszélgetést, mint bármelyik másik ügynök-kártyán: a /clear parancsot küldi, a Claude ÚJ, üres beszélgetést nyit ebben a mappában. A mostani napló a lemezen megmarad, de a munka innentől tiszta lappal megy tovább. A mappa a kód-hídon marad — levenni a Levétel gombbal lehet.',
   'cb.card.clear_confirm':  'Kiürítsem a(z) „{p}" beszélgetését? A Claude új, üres beszélgetést nyit a mappában — a mostani napló a lemezen megmarad, de a további feladatok már az újba mennek. A mappa a kód-hídon marad.',
   'cb.card.clear_queued':   'A beszélgetés kiürítése sorba állítva — a kártya egy percen belül átáll az újra.',
+  'cb.card.maint_target':   'Cél-beszélgetés: „{name}”',
+  'cb.card.maint_target_current': 'Cél-beszélgetés: a projekt éppen aktuális beszélgetése (nincs fül kijelölve).',
+  'cb.card.maint_live':     'EZT A MARVEEN NEM TUDJA MEGTENNI. Ez a beszélgetés most nyitva van a VS Code-ban („{name}”, folyamat: {pid}), egy futó ablak pedig a saját folyamatában tartja a kontextust — a Marveen külön folyamatban futtatna, oda nem lát bele. Mérve 2026-08-26-án: a parancs hibátlanul lefutott, a nyitott ablakban semmi nem változott.\n\nAmit tenni tudsz: a VS Code-ban, ebben a chat ablakban írd be a /clear vagy /compact parancsot — kiüríteni csak ott lehet.\n\n(Ez a gomb a NEM nyitott beszélgetésekre való: azoknál új, üres beszélgetésre állítja át a projektet.)',
   'cb.card.maint_failed':   'Nem sikerült: {msg}',
   'cb.card.bot_missing':    'nincs kód-bot beállítva',
   'cb.card.bot_unresolved': 'a kód-bot neve nem kérdezhető le: {msg}',
@@ -3479,6 +3493,7 @@ window._i18n.hu = {
   'cb.tabs.unbound':        'nincs bekötve projektként',
   'cb.tabs.window':         'Csak a VS Code-ban ÉPPEN NYITOTT beszélgetések látszanak (plusz az, amelyikbe a feladat megy). Ha a végrehajtó nem tudja megnézni, mi van nyitva, projektenként legfeljebb {n} fül jön be, {d} napra visszamenőleg.',
   'cb.tabs.empty':          'A végrehajtó fut, de egyetlen Claude Code beszélgetést sem talált. Nyiss meg egy projektet VS Code-ban, írj bele valamit — egy percen belül itt lesz.',
+  'cb.install.step_run':         'Indítsd el, és tedd automatikussá (PowerShell, egyszer &mdash; <strong>nem</strong> kell rendszergazda):',
   'cb.tabs.not_reported_yet': 'A végrehajtó fut, de a Marveen újraindítása óta még nem küldött jelentést, ezért NEM tudom, mi van nyitva. Egy percen belül megjön magától.',
   'cb.tabs.worker_never':   'A végrehajtó (Windows worker) még egyszer sem jelentkezett, ezért NEM tudom, van-e nyitott beszélgetés. Telepítsd a Windows-végrehajtót lentebb.',
   'cb.tabs.worker_stale':   'A végrehajtó (Windows worker) nem válaszol, ezért ez a lista elavult lehet.',

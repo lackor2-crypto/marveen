@@ -2532,6 +2532,17 @@ window._i18n.en = {
   'depot.card_desc':			'This is the folder on your computer that Marveen puts everything under: the photos, the Drive files, the projects. Until you pick one, everything stays in the install folder.',
   'depot.card_current':			'Currently here:',
   'depot.card_pick_btn':			'Pick a location…',
+
+  // Recovering a dropped depot mount. An error message that doesn't name the
+  // NEXT STEP only frightens -- these lines are the steps.
+  'depot.repair.intro':          'The depot sits on a Windows drive and its connection to WSL has dropped. This is a known WSL fault after a restart; nothing is wrong with your disk or your files. There are two fixes:',
+  'depot.repair.step_shutdown':  'Full recovery: run `wsl --shutdown` in Windows, then open Marveen again. This rebuilds every drive connection, but everything running inside WSL stops meanwhile.',
+  'depot.repair.step_remount':   'The depot only, without stopping anything: run this command in WSL. It will ask for your administrator password.',
+  'depot.repair.copy':           'Copy command',
+  'depot.repair.copied':         'Copied',
+  'depot.repair.copy_failed':    'Copying failed – select the text and copy it by hand.',
+  'depot.repair.src_sibling':    'Note: I can no longer see the depot\u2019s own mount, so I took the settings from another drive that is still live. The same WSL provides both, so this is very likely right – but I did not measure it on the depot itself.',
+  'depot.repair.src_unknown':    'Note: I cannot see a single Windows drive mount, so the command mounts with WSL\u2019s defaults. If that does not fix it, `wsl --shutdown` is the sure route.',
   // Drive folder picker (Depot page): nobody has to type a folder ID.
   'dpick.modal_title':			'📁 Pick the Drive folder',
   'dpick.lead_html':			'This is <strong>your Google Drive</strong>. Click a folder to step into it — that is how you find the one you want to have on your computer too. Once you are <strong>standing in that folder</strong>, press <strong>Use this folder</strong> below.',
@@ -3402,6 +3413,9 @@ window._i18n.en = {
   'cb.card.clear_help':     'Wipes the conversation, exactly as on every other agent card: sends /clear, and Claude opens a NEW, empty conversation in this folder. The current log stays on disk, but work continues with a clean slate. The folder stays on the code bridge — use Remove to take it off.',
   'cb.card.clear_confirm':  'Clear the conversation of "{p}"? Claude opens a new, empty conversation in the folder — the current log stays on disk, but further tasks go to the new one. The folder stays on the code bridge.',
   'cb.card.clear_queued':   'Clearing queued — the card switches to the new conversation within a minute.',
+  'cb.card.maint_target':   'Target conversation: "{name}"',
+  'cb.card.maint_target_current': 'Target conversation: whichever one the project is currently on (no tab selected).',
+  'cb.card.maint_live':     'MARVEEN CANNOT DO THIS. This conversation is open in VS Code right now ("{name}", process {pid}), and a running window keeps its context in its own process — Marveen would run in a separate one and cannot reach inside. Measured on 2026-08-26: the command completed without error and nothing changed in the open window.\n\nWhat you can do: type /clear or /compact in that VS Code chat window — that is the only place it takes effect.\n\n(This button is for conversations that are NOT open: for those it moves the project onto a new, empty conversation.)',
   'cb.card.maint_failed':   'Failed: {msg}',
   'cb.card.bot_missing':    'no code bot configured',
   'cb.card.bot_unresolved': 'could not look up the code bot name: {msg}',
@@ -3414,6 +3428,7 @@ window._i18n.en = {
   'cb.tabs.unbound':        'not registered as a project',
   'cb.tabs.window':         'Only conversations CURRENTLY OPEN in VS Code are listed (plus the one tasks are sent to). If the executor cannot see what is open, at most {n} tabs per project are listed, going back {d} days.',
   'cb.tabs.empty':          'The worker is running but found no Claude Code conversation at all. Open a project in VS Code and write something in it — it shows up here within a minute.',
+  'cb.install.step_run':         'Start it, and make it automatic (PowerShell, once &mdash; <strong>no</strong> administrator needed):',
   'cb.tabs.not_reported_yet': 'The worker is running but has not checked in since Marveen restarted, so I do NOT know what is open. It arrives on its own within a minute.',
   'cb.tabs.worker_never':   'The Windows worker has never checked in, so I do NOT know whether anything is open. Install the Windows worker below.',
   'cb.tabs.worker_stale':   'The Windows worker is not answering, so this list may be stale.',

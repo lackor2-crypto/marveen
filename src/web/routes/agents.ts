@@ -1643,7 +1643,22 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     for (const s of listCodeSessions()) {
       nodes.push({
         id: `vscode:${s.project}`,
-        label: codeBot.reason === 'ok' && codeBot.name ? `${codeBot.name} · ${s.project}` : s.project,
+        // A MAPPA NEVE NEM PROJEKTNEV. Boss, 2026-08-26: "ez nem is projekt
+        // nev! fejlesztes. okes es melyik projektet fejlesztese? [...] ez csak
+        // egy mappa nev ami az osszes projektnal ugyanaz". A bekotott ut
+        // `Projektek/<valami>/Fejlesztes` alaku, tehat az utolso szegmens
+        // minden projektnel UGYANAZ -- egy cimke, ami semmit nem kulonboztet
+        // meg, csak helyet foglal a kartyan.
+        //
+        // Amig nincs jobb nevunk, inkabb NINCS: a csomopontok azonositoja
+        // tovabbra is `vscode:<projekt>`, tehat a graf es a szerep-kioszto
+        // valtozatlanul elkuloniti oket, csak a felhasznalo nem lat egy
+        // ertelmetlen szot. (Ha ket bekotott mappa mellett hianyozni fog a
+        // megkulonboztetes, az a KOVETKEZO kerdes -- a mappanev akkor sem lesz
+        // ra jo valasz.)
+        label: codeBot.reason === 'ok' && codeBot.name
+          ? codeBot.name
+          : (APP_LANG === 'hu' ? 'Kód-híd' : 'Code bridge'),
         role: 'member',
         reportsTo: MAIN_AGENT_ID,
         delegatesTo: [],

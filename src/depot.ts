@@ -26,6 +26,7 @@
 // I/O hibat adott, 50 ora uzem utan). Ezert van a `depotHealth()`: ha a depo
 // nem erheto el, azt KIMONDJUK, nem pedig felig irunk bele valamit.
 import { existsSync, mkdirSync, statSync, writeFileSync, rmSync, rmdirSync, readdirSync, renameSync } from 'node:fs'
+import { depotRemountPlan, type RemountPlan } from './depot-remount.js'
 import { join, dirname } from 'node:path'
 import { STORE_DIR, DEPOT_ROOT_CONFIGURED, APP_LANG } from './config.js'
 import { normalizeDepotPath } from './depot-browse.js'
@@ -319,6 +320,15 @@ export interface DepotHealth {
   writable: boolean
   /** Emberi mondat arrol, mi a helyzet -- ez megy ki a feluletre. */
   message: string
+  /**
+   * Ha a depo Windows-meghajton van ES nem erheto el: hogyan lehet
+   * helyreallitani. `null`, ha nem ez a helyzet -- akkor az ujracsatolas nem
+   * a valasz, es javasolni is karos volna.
+   *
+   * A hibaut nem allhat meg a diagnozisnal: minden hibauzenetnek a KOVETKEZO
+   * LEPESSEL kell vegzodnie.
+   */
+  repair: RemountPlan | null
 }
 
 /**
@@ -334,8 +344,10 @@ export function depotHealth(): DepotHealth {
     return {
       configured: false, root: null, exists: false, writable: false,
       message: 'Nincs depó beállítva – minden a régi helyén marad.',
+      repair: null,
     }
   }
+  const terv = depotRemountPlan(root)
   let exists = false
   try {
     exists = existsSync(root) && statSync(root).isDirectory()
@@ -345,9 +357,16 @@ export function depotHealth(): DepotHealth {
   if (!exists) {
     return {
       configured: true, root, exists: false, writable: false,
-      message: `A depó mappája nem érhető el: ${root}. `
-        + 'Ha külső lemezen van, csatlakoztasd; ha Windows-mappa, lehet, hogy a '
-        + 'kapcsolat megszakadt. Amíg nem érhető el, nem mentek oda semmit.',
+      repair: terv,
+      message: terv
+        ? `A depó mappája nem érhető el: ${root}. A Windows-meghajtó kapcsolata `
+          + 'szakadt el a WSL felé (ez a WSL ismert hibája újraindítás után). '
+          + 'Két javítás van: a teljes helyreállítás Windowsból a `wsl --shutdown`, '
+          + 'utána indul újra minden; ha nem akarod leállítani a Marveent, a Depó '
+          + 'oldalon ott a célzott újracsatoló parancs. Amíg nem érhető el, nem '
+          + 'mentek oda semmit.'
+        : `A depó mappája nem érhető el: ${root}. Ha külső lemezen van, `
+          + 'csatlakoztasd. Amíg nem érhető el, nem mentek oda semmit.',
     }
   }
   const probe = join(root, '.marveen-iras-proba')
@@ -357,13 +376,18 @@ export function depotHealth(): DepotHealth {
   } catch {
     return {
       configured: true, root, exists: true, writable: false,
+      repair: terv,
       message: `A depó mappája megvan, de nem tudok bele írni: ${root}. `
-        + 'Ellenőrizd a mappa jogosultságait.',
+        + (terv
+          ? 'Egy Windows-meghajtónál ez tipikusan az elszakadt WSL-kapcsolat: a mappa '
+            + 'látszik, de minden művelet hibát ad. A Depó oldalon ott a helyreállító parancs.'
+          : 'Ellenőrizd a mappa jogosultságait.'),
     }
   }
   return {
     configured: true, root, exists: true, writable: true,
     message: `A depó rendben: ${root}`,
+    repair: null,
   }
 }
 

@@ -126,8 +126,14 @@ describe('kod-hid kartya a Csapat lapon', () => {
   it('opens the settings window instead of duplicating the send form', () => {
     // A kartya read-only. Ha ide is kerulne feladatkuldes, ket helyen kellene
     // karbantartani ugyanazt a projekt-valasztot es prompt-korlatot.
-    const fn = app.slice(app.indexOf('function renderCodeBridgeAgentCards('), app.indexOf('function openCodeBridgeModal('))
-    expect(fn).toContain('code-bridge-open-btn')
+    const nyers = app.slice(app.indexOf('function renderCodeBridgeAgentCards('), app.indexOf('function openCodeBridgeModal('))
+    expect(nyers).toContain('code-bridge-open-btn')
+    // A MEGJEGYZESEKET KIVESSZUK. Ez a teszt azt orzi, hogy a kartya ne kuldjon
+    // feladatot -- azt viszont, hogy egy komment SZOVEGE emliti-e a vegpontot,
+    // nem szabad bukasnak vennie. Merve (2026-08-26): a torles-gomb kivetelet
+    // magyarazo megjegyzes buktatta meg a tesztet, mikozben egyetlen sor hivo
+    // kod sem kerult a kartyaba.
+    const fn = nyers.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
     expect(fn).not.toContain('/api/code/tasks')
     // Kattintasra ugyanaz tortenik, mint barmelyik masik ugynok kartyajan:
     // kinyilik a beallitasai.

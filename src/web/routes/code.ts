@@ -20,6 +20,7 @@ import { probeWorkspace } from '../code-bridge-workspace.js'
 import { generateSkillMd } from '../agent-scaffold.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
+import { expectedWorkerVersion } from '../code-worker-version.js'
 import {
   CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, PROJECT_ROOT,
   CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
@@ -908,9 +909,20 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const host = (body.host ?? '').trim() || 'unknown-worker'
     recordCodeWorkerSeen(host, 'claim')
     const task = claimNextCodeTask(host)
-    if (!task) { json(res, { task: null }); return true }
+    // A VART verzio minden valaszban ott van, mert a worker maga nem tudhatja,
+    // hogy elavult: a sajat verziojat eddig csak KULDTE. Enelkul a csere
+    // egyetlen szereploje a tulajdonos volt -- kezzel, terminalbol (Boss,
+    // 2026-08-26: "miert kell ezt a usernek eljatszania?").
+    //
+    // null = ebben a telepitesben nincs meg a szkript, tehat nem tudjuk, mi
+    // a friss. Ilyenkor a mezot KI IS HAGYJUK: egy null vagy egy ures string
+    // a worker oldalan "nem egyezik"-nek latszana, es vegtelen
+    // frissitesi korbe kergetne. A "nem latok oda" nem "elavult".
+    const expect = expectedWorkerVersion()
+    const extra = expect === null ? {} : { expectedWorkerVersion: expect }
+    if (!task) { json(res, { task: null, ...extra }); return true }
     logger.info({ task: task.id, project: task.project, session: task.sessionId, host }, 'code-bridge: task claimed')
-    json(res, { task, permissionMode: CODE_PERMISSION_MODE })
+    json(res, { task, permissionMode: CODE_PERMISSION_MODE, ...extra })
     return true
   }
 
@@ -937,6 +949,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
       const body = await parseJsonBody<{
         ok?: boolean; result?: string; error?: string; costUsd?: number; durationMs?: number; numTurns?: number; host?: string
+        /** A futas VEGEN ervenyes beszelgetes-azonosito (a CLI sajat jelentese).
+         *  Regi worker nem kuldi -- olyankor nem allitunk at semmit. */
+        resultSessionId?: string
       }>(ctx)
       if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
       // Reporting a result IS a sign of life -- and the one worker call that
@@ -960,6 +975,37 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         logger.warn({ task: updated.id, outcome, status: updated.status }, 'code-bridge: late result not applied')
         json(res, { ...updated, lateResult: outcome })
         return true
+      }
+      // A `/clear` UJ, URES BESZELGETEST NYIT -- es eddig senki nem allt at ra.
+      //
+      // Merve 2026-08-26: a `-p --resume <id> "/clear"` hibatlanul lefutott, uj
+      // beszelgetest nyitott, a projekt viszont a REGIN maradt, mert az uj
+      // transcript ~1,8 KB, a worker mappa-bejarasa pedig 2 KB alatt mindent
+      // kiszur (abortalt futasnak latszik). A kovetkezo feladat igy megint a regi
+      // beszelgetesbe ment: a gomb sikert jelentett, es semmit nem ert el.
+      //
+      // A CLI viszont MEGMONDJA, hol vegzodott a futas. Folytatasnal ez ugyanaz
+      // az azonosito (merve), tehat a lenti feltetel csak valodi valtasnal tuzel
+      // -- nem talalgatunk, es a rendes feladatok nem mozgatjak a bekotest.
+      //
+      // A tu (`pinned`) nem serul: ez nem felderites, a mappa nem valtozik, csak
+      // a beszelgetes -- ugyanaz, amit a tulaj a gombbal keresen kert.
+      const endedIn = (body.resultSessionId ?? '').trim()
+      if (endedIn && updated.sessionId && endedIn !== updated.sessionId) {
+        const cur = getCodeSession(updated.project)
+        if (!cur) {
+          // A NULLA KET DOLGOT JELENTHET: nincs bekotott sor -> nincs mit
+          // atallitani, es TALALGATNI sem szabad, hol van a mappa.
+          logger.warn({ task: updated.id, project: updated.project, endedIn }, 'code-bridge: session switched but the project has no bound row -- not repointed')
+        } else {
+          upsertCodeSession({
+            project: updated.project,
+            workspacePath: cur.workspacePath,
+            sessionId: endedIn,
+            host: cur.host,
+          })
+          logger.info({ task: updated.id, project: updated.project, from: updated.sessionId, to: endedIn }, 'code-bridge: project repointed to the conversation the run ended in')
+        }
       }
       logger.info({ task: updated.id, status: updated.status }, 'code-bridge: task finished')
       // Not awaited: the worker must be free to pick up the next task even if

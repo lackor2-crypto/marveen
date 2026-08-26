@@ -6266,6 +6266,26 @@ a.link-waiting {
 }
 .info-box.depo-bad strong { color: var(--danger); }
 
+/* Depo: a helyreallitas lepesei. Ez nem dekoracio -- ez az egyetlen hely, ahol
+   a felhasznalo megtudja, MIT csinaljon egy leszakadt depoval. */
+.depo-repair-steps {
+  margin: 10px 0 8px 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+.depo-repair-steps li { margin-bottom: 6px; }
+.depo-repair-cmd {
+  background: var(--bg-code, rgba(0, 0, 0, .06));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0 0 8px 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
 .connector-stale-banner {
   padding: 10px 14px;
   margin: 0 0 12px;
