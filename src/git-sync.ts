@@ -30,6 +30,7 @@ import { DEPOT_PROJECTS } from './depot.js'
 import { gitEnvFor } from './git-accounts.js'
 import { SCHEDULED_TASKS_DIR } from './web/scheduled-tasks-io.js'
 import { logger } from './logger.js'
+import { onWake } from './wake-detect.js'
 
 /** Ide irjuk, mikor futott utoljara -- ezt mutatja a felulet. */
 const STATE_FILE = join(STORE_DIR, 'git-sync.json')
@@ -40,10 +41,36 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.cache', '$
 /** Meddig keresunk lefele. A repok a fa aljan vannak, de nem a foldalatt. */
 const MAX_DEPTH = 8
 
+/**
+ * Halozati eredetu-e a git hibauzenete?
+ *
+ * SZANDEKOSAN ugyanazok a mintak, mint a `system-health.ts` `hibaOka()`
+ * fuggvenyeben. Ha a ketto szetcsuszik, a szinkron ``halozat``-nak konyvel valamit,
+ * amit az onellenorzes ``ismeretlen ok``-kent ir ki -- ket igazsag ugyanarrol,
+ * ami pont a talalgatas, amit a szabaly tilt.
+ *
+ * Amit NEM tekintunk halozatnak: a hitelesitesi hiba. Egy lejart kulcs nem
+ * javul meg attol, hogy varunk -- azt hangosan kell mondani.
+ */
+export function halozatiHiba(uzenet: string): boolean {
+  const sz = String(uzenet || '').toLowerCase()
+  const kulcs = /authentication failed|could not read username|could not read password|permission denied|terminal prompts disabled|invalid username or (token|password)|http 40[13]/.test(sz)
+  if (kulcs) return false
+  return /could not resolve host|connection timed out|connection refused|network is unreachable|operation timed out|temporary failure in name resolution|failed to connect|ssl connect error/.test(sz)
+}
+
 export interface SyncResult {
   rel: string
-  /** 'frissitve' | 'naprakesz' | 'kihagyva' | 'hiba' */
-  state: 'updated' | 'current' | 'skipped' | 'error'
+  /** 'frissitve' | 'naprakesz' | 'kihagyva' | 'halozat nelkul' | 'hiba'
+   *
+   *  Az 'offline' KULON ag, nem az 'error' egyik fajtaja. Boss, 2026-08-26:
+   *  ``minden rendben van de o szol hogy nincs.`` Merve ugyanaznap: a reggeli
+   *  het hiba mind ez volt -- `Could not resolve host: github.com` --, mert a
+   *  lehuzas ebredes utan azonnal futott, mielott a WSL-ben feljott volna a
+   *  nevfeloldas. Egy oraval kesobb minden mukodott. Az ``elertem a tarolot es
+   *  romlott`` es a ``most nem lattam oda`` ket kulonbozo allitas; ha egy
+   *  mezobe kerulnek, a masodik minden reggel riaszt. */
+  state: 'updated' | 'current' | 'skipped' | 'offline' | 'error'
   /** Emberi mondat arrol, mi tortent -- ezt olvassa a felhasznalo. */
   message: string
 }
@@ -56,6 +83,19 @@ export interface SyncRun {
   results: SyncResult[]
   updated: number
   skipped: number
+  /** Hany tarolot nem lehetett elerni HALOZAT hianyaban. Ez nem hiba. */
+  offline: number
+  /**
+   * Mikor kezdodott a jelenlegi halozat-hianyos idoszak (ISO), vagy null,
+   * ha az utolso menetben minden elerheto volt.
+   *
+   * Ez a mezo dont arrol, mikor valik a csendbol hangos szo. Egy reggeli ket
+   * perc nem er egy riasztast; hat ora folyamatos halozat-hiany viszont mar
+   * azt jelenti, hogy a tarolok tenylegesen elavulnak -- es akkor szolni
+   * KELL. A belyeg athuzodik a futasok kozott, kulonben minden ujraprobalas
+   * nullarol inditana az orat, es soha nem erne el a hat orat.
+   */
+  offlineSince: string | null
   errors: number
   /**
    * A depo GYOKERE nem volt bejarhato -- ilyenkor a `results` ures, de ez NEM
@@ -168,9 +208,16 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
   // 1. FETCH -- mindig biztonsagos: csak letolt.
   const fetched = await git(abs, ['fetch', '--all', '--prune', '--quiet'], 300000, account)
   if (!fetched.ok) {
+    const elsoSor = (fetched.err.split('\n')[0] || '').slice(0, 160)
+    // A halozat hianya nem a tarolo baja: ugyanez a tarolo tiz perc mulva
+    // hibatlanul lejon. Ezert nem 'error', hanem 'offline' -- es a hivo fel
+    // ilyenkor UJRAPROBALJA, nem pedig riaszt.
+    if (halozatiHiba(fetched.err)) {
+      return { rel, state: 'offline', message: 'Most nincs hálózat a távoli tárolóhoz — újrapróbálom, amint van. ' + elsoSor }
+    }
     return {
       rel, state: 'error',
-      message: 'Nem sikerült elérni a távoli tárolót. ' + (fetched.err.split('\n')[0] || '').slice(0, 160),
+      message: 'Nem sikerült elérni a távoli tárolót. ' + elsoSor,
     }
   }
 
@@ -246,6 +293,18 @@ export async function syncAllRepos(): Promise<SyncRun> {
   } finally {
     running = false
   }
+  // HALOZAT-HIANY: nem hiba, de nem is felejtheto el.
+  //
+  // Az idoszak kezdetet az ELOZO futasbol vesszuk at. Enelkul minden
+  // ujraprobalas nullarol inditana az orat, es a hat oras hangos hatart
+  // soha nem ernenk el -- vagyis egy tenylegesen elszakadt halozat orokre
+  // csendben maradna. Pontosan az a nemasagi csapda, amit el akarunk kerulni.
+  const offlineDb = results.filter((r) => r.state === 'offline').length
+  const elozo = lastSyncRun()
+  const offlineSince = offlineDb > 0
+    ? (elozo && elozo.offlineSince ? elozo.offlineSince : new Date(started).toISOString())
+    : null
+
   const run: SyncRun = {
     startedAt: new Date(started).toISOString(),
     finishedAt: new Date().toISOString(),
@@ -253,11 +312,14 @@ export async function syncAllRepos(): Promise<SyncRun> {
     results,
     updated: results.filter((r) => r.state === 'updated').length,
     skipped: results.filter((r) => r.state === 'skipped').length,
+    offline: offlineDb,
+    offlineSince,
     errors: results.filter((r) => r.state === 'error').length,
     ...(rootError ? { rootError } : {}),
   }
   try { writeFileSync(STATE_FILE, JSON.stringify(run, null, 2), 'utf8') } catch { /* a futas ettol meg ervenyes */ }
-  logger.info({ repos: results.length, updated: run.updated, skipped: run.skipped, errors: run.errors }, '[git-sync] kesz')
+  logger.info({ repos: results.length, updated: run.updated, skipped: run.skipped, offline: run.offline, errors: run.errors }, '[git-sync] kesz')
+  utemezzUjraprobat(run)
   return run
 }
 
@@ -289,7 +351,43 @@ function vanNapiKartya(): boolean {
  * naploban, ki a gazda. A regi hat-oras menet igy is megmarad azoknak a
  * telepiteseknek, amelyek a kartya elott keszultek es meg nem frissitettek.
  */
+/**
+ * Ujraprobalas halozat-hiany utan.
+ *
+ * Boss, 2026-08-26: ``ne csak most vedd le azonnal. hanem holnap reggel se
+ * jojjon elo!`` Ez az a fuggveny, ami ezt megteszi: ha a menet vegen volt
+ * olyan tarolo, amit HALOZAT hianyaban nem ertunk el, ot perc mulva magatol
+ * ujraprobalja -- addig, amig sikerul. Reggel ez azt jelenti, hogy a DNS
+ * feljovetele utani elso koron minden lejon, es a felulet magatol zoldul.
+ *
+ * Miert nem vegtelen ez a ciklus? Mert amint egy menet 0 offline-nal er
+ * veget, nem idozit ujat. Es ha tartosan nincs halozat, a probalkozas
+ * olcso (egy sikertelen DNS-feloldas), az onellenorzes pedig hat ora utan
+ * ugyis hangosan szol.
+ */
+const OFFLINE_RETRY_MS = 5 * 60 * 1000
+let offlineRetry: NodeJS.Timeout | null = null
+
+function utemezzUjraprobat(run: SyncRun): void {
+  if (offlineRetry) { clearTimeout(offlineRetry); offlineRetry = null }
+  if (!run.offline) return
+  offlineRetry = setTimeout(() => {
+    offlineRetry = null
+    syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] az ujraprobalas nem sikerult'))
+  }, OFFLINE_RETRY_MS)
+  if (typeof offlineRetry.unref === 'function') offlineRetry.unref()
+  logger.info({ offline: run.offline, ujraPerc: OFFLINE_RETRY_MS / 60000 }, '[git-sync] halozat nelkul maradt tarolo -- ujraprobalas idozitve')
+}
+
 export function startGitSync(): NodeJS.Timeout | null {
+  // EBREDES: alvas utan a halozat meg nem biztos, hogy fent van, ezert nem
+  // azonnal inditunk. Egy perc boven eleg ahhoz, hogy a WSL nevfeloldasa
+  // helyrealljon -- es ha megsem, az ujraproba-lanc ugyis viszi tovabb.
+  onWake(() => {
+    setTimeout(() => {
+      syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] az ebredes utani kor nem sikerult'))
+    }, 60 * 1000)
+  })
   if (vanNapiKartya()) {
     logger.info({ task: GIT_PULL_TASK }, '[git-sync] az utemezett kartya viszi -- rejtett idozito nincs')
     return null

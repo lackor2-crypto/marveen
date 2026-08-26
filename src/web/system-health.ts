@@ -52,6 +52,7 @@ import { statfsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
+import { lastWakeAt } from '../wake-detect.js'
 import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
 import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
@@ -359,6 +360,22 @@ export const COMMAND_HEALTH_FILE = 'command-task-health.json'
 /** Ennyi nap utan a napi lehuzas mar nem "kesik", hanem all. */
 export const GIT_PULL_STALE_DAYS = 3
 
+/**
+ * Meddig CSENDES a halozat-hiany, es mikortol hangos?
+ *
+ * Boss, 2026-08-26 dontese: ``csendben ujraprobal, 6 ora utan szol``. A ket
+ * hatar ket kulonbozo allitast valaszt szet:
+ *
+ *  - 6 ora alatt: a gep valoszinuleg most ebredt, vagy a halozat percekre
+ *    elment. A rendszer magatol ujraprobal, es a felulet ZOLD marad -- de a
+ *    sor akkor is ott van, tehat nem hallgatunk, csak nem riasztunk.
+ *  - 6 ora felett: ennyi ido alatt egy atmeneti zavar helyreallt volna. Ha
+ *    meg mindig nincs halozat, a tarolok tenylegesen elavulnak.
+ *  - 24 ora felett: egy egesz nap kimaradt. Ez mar piros.
+ */
+export const GIT_PULL_OFFLINE_LOUD_H = 6
+export const GIT_PULL_OFFLINE_DEAD_H = 24
+
 function olvasJson<T>(path: string): T | null {
   try { return JSON.parse(readFileSync(path, 'utf-8')) as T } catch { return null }
 }
@@ -379,6 +396,11 @@ interface GitSyncAllapot {
   finishedAt?: string
   results?: unknown[]
   errors?: number
+  /** Halozat hianyaban el nem ert tarolok szama -- NEM hiba. Regi
+   *  allapotfajlban hianyzik, ezert opcionalis: ilyenkor 0-nak szamit. */
+  offline?: number
+  /** Mikor kezdodott a mostani halozat-hianyos idoszak (ISO). */
+  offlineSince?: string | null
   rootError?: string
 }
 
@@ -483,10 +505,25 @@ export function gitPullRows(
     const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
     rows.push({ id, status: 'bad', params: { n: hiba, all: db, names: lista } })
   }
+  // HALOZAT-HIANY. Kulon sor, kulon hangero -- nem a hibak kozott.
+  //
+  // Ez a sor a 2026-08-26-i reggel miatt letezik: het tarolo elhasalt
+  // `Could not resolve host: github.com`-mal, mert a lehuzas ebredes utan
+  // azonnal futott. Egy oraval kesobb minden mukodott, de a piros sor ott
+  // maradt egesz napra, es azt sugallta, hogy a tarolok elromlottak.
+  // Nem romlottak el: nem lattunk oda.
+  const offline = Number(run && run.offline) || 0
+  if (offline > 0) {
+    const ota = run && run.offlineSince ? Date.parse(run.offlineSince) : NaN
+    const oraja = Number.isFinite(ota) ? Math.max(0, Math.floor((now - ota) / 3_600_000)) : 0
+    const status: HealthRow['status'] =
+      oraja >= GIT_PULL_OFFLINE_DEAD_H ? 'bad' : oraja >= GIT_PULL_OFFLINE_LOUD_H ? 'warn' : 'ok'
+    rows.push({ id: 'git_pull_offline', status, params: { n: offline, all: db, h: oraja } })
+  }
   if (napja > GIT_PULL_STALE_DAYS) {
     // Nehany kihagyott nap keses; ket het mar allo utemezes.
     rows.push({ id: 'git_pull_stale', status: napja > 14 ? 'bad' : 'warn', params: { d: napja } })
-  } else if (hiba === 0) {
+  } else if (hiba === 0 && offline === 0) {
     rows.push({ id: 'git_pull_ok', status: 'ok', params: { n: db, d: napja } })
   }
   return rows
@@ -584,6 +621,16 @@ export function mcpAuthRows(
 export const GOOGLE_LIVE_FILE = '.google-live-check.json'
 /** Oranként fut; harom kihagyott kor mar allo ellenorzo, nem zaj. */
 export const GOOGLE_LIVE_STALE_MS = 3 * 60 * 60 * 1000
+
+/**
+ * Ebredes utan ennyi ideig nem panaszkodunk az elavult meresre.
+ *
+ * Tiz perc: a potlo kor ket perccel az ebredes utan indul, tiz fiok
+ * vegigkerdezese percekig tarthat, es a halozat is most all a labara. Ha
+ * tiz perc alatt sem lett friss meres, akkor mar tenyleg van valami baj --
+ * es akkor a sor megjelenik.
+ */
+export const WAKE_GRACE_MS = 10 * 60 * 1000
 const GOOGLE_LIVE_DEAD_MS = 24 * 60 * 60 * 1000
 
 interface GoogleLiveAllapot {
@@ -649,6 +696,15 @@ export function googleLiveRows(
   now: number = Date.now(),
   data: GoogleLiveAllapot | null = olvasJson<GoogleLiveAllapot>(join(STORE_DIR, GOOGLE_LIVE_FILE)),
   bekotott: number = googleAccountCount(),
+  /**
+   * Mikor ebredt utoljara a gep (vagy indult a folyamat).
+   *
+   * Azert PARAMETER es nem globalis olvasas, mert enelkul a turelmi ido
+   * nem tesztelheto: minden teszt a sajat folyamat-inditasat latna
+   * ebredesnek, es a turelem MINDIG aktiv lenne. Egy nem tesztelheto
+   * elnemitas ugyanolyan nema hiba, mint amit ez a modul kiszur.
+   */
+  ebredt: number = lastWakeAt(),
 ): HealthRow[] {
   if (bekotott === 0) return []
   if (!data || typeof data.checkedAt !== 'number' || !Array.isArray(data.accounts)) {
@@ -659,7 +715,17 @@ export function googleLiveRows(
   const rows: HealthRow[] = []
   const kora = Math.max(0, now - data.checkedAt)
   const oraja = Math.floor(kora / (60 * 60 * 1000))
-  if (kora > GOOGLE_LIVE_STALE_MS) {
+  // EBREDES-TURES.
+  //
+  // Ha a gep az imént ebredt, az ``N oraja nem futott`` NEM hiba: az ora allt,
+  // mert a folyamat nem futott. A potlo kor mar uton van (lasd
+  // `google-live-check.ts` onWake-bekotese), es ket percen belul lefut.
+  // Amig ez tart, nem riasztunk -- kulonben minden reggel sargat kapnank
+  // egy ejszakai alvasert. Ha a potlas megsem sikerul, a turelmi ido
+  // lejarta utan a sor ugyanugy megjelenik: nem nemitunk el semmit.
+  const ebredesOta = Math.max(0, now - ebredt)
+  const eppenPotol = ebredesOta < WAKE_GRACE_MS
+  if (kora > GOOGLE_LIVE_STALE_MS && !eppenPotol) {
     // Az allo ellenorzo a legalattomosabb eset: a lenti sorok ilyenkor egy REGI
     // pillanatrol szolnanak, magabiztosan.
     rows.push({ id: 'google_live_stale', status: kora > GOOGLE_LIVE_DEAD_MS ? 'bad' : 'warn', params: { h: oraja } })
@@ -674,7 +740,7 @@ export function googleLiveRows(
       status: 'bad',
       params: { n: rossz.length, all: data.accounts.length, names: rossz.join(', ') },
     })
-  } else if (kora <= GOOGLE_LIVE_STALE_MS) {
+  } else if (kora <= GOOGLE_LIVE_STALE_MS || eppenPotol) {
     // Zold sor is kell: a Boss szabalya szerint a "minden rendben"-t is ki kell
     // mondani, kulonben a hallgatas nem megkulonboztetheto a nem-futo
     // ellenorzestol -- pontosan ez volt a mai hiba alakja.

@@ -94,29 +94,70 @@ describe('googleLiveRows -- a harom hibamod harom kulon sor', () => {
     expect(names).not.toContain('>')
   })
 
+  // A gep egy napja ebren van: nincs mire hivatkozni, hogy a meres regi.
+  // Ezt a tesztek eddig hallgatolagosan feltetelezték; 2026-08-26 ota a
+  // fuggveny kulon parameterben kapja, ezert kimondjuk.
+  const REGOTA_EBREN = NOW - 24 * ORA
+
+  it('EBREDES UTAN a regi meres NEM riaszt -- a potlo kor mar uton van', () => {
+    // A MERT ESET (2026-08-26 reggel): az utolso kor elozo este 22:50-kor
+    // futott, a gep nyolc orat aludt, es a felulet ``8 oraja nem futott le``-t
+    // irt. Igaz volt, de nem azt jelentette, hogy elromlott valami: azt
+    // jelentette, hogy allt az ido. Boss: ``minden rendben van de o szol hogy
+    // nincs. ez gaz.``
+    const eppenEbredt = NOW - 60 * 1000
+    const rows = googleLiveRows(NOW, meres(8 * ORA, [{ id: 'a', ok: true }]), 1, eppenEbredt)
+    expect(rows.some(r => r.id === 'google_live_stale')).toBe(false)
+  })
+
+  it('ebredes utan sem HALLGAT: a zold sor ott van', () => {
+    // A turelem nem lehet nemasag. Ha a kartya ures maradna, a felhasznalo
+    // nem tudna megkulonboztetni a ``rendben``-t a ``nem is neztem``-tol --
+    // pontosan az a nulla-ketertelmuseg, amit a szabaly tilt.
+    const eppenEbredt = NOW - 60 * 1000
+    const rows = googleLiveRows(NOW, meres(8 * ORA, [{ id: 'a', ok: true }]), 1, eppenEbredt)
+    expect(rows.some(r => r.id === 'google_live_ok')).toBe(true)
+  })
+
+  it('a turelmi ido LEJAR: ha a potlas sem hozott friss merest, megis szol', () => {
+    // Ez a fek. Enelkul egy ebredes orokre elnemitana a sort, es egy
+    // tenylegesen halott ellenorzot soha nem vennenk eszre.
+    const regenEbredt = NOW - 60 * 60 * 1000
+    const rows = googleLiveRows(NOW, meres(8 * ORA, [{ id: 'a', ok: true }]), 1, regenEbredt)
+    expect(rows.find(r => r.id === 'google_live_stale')?.status).toBe('warn')
+  })
+
+  it('EBREDES UTAN is hangos marad az ELUTASITOTT fiok', () => {
+    // A turelem CSAK az elavult meresre vonatkozik. Egy fiok, amit a Google
+    // tenylegesen elutasit, nem lesz jobb attol, hogy a gep most ebredt.
+    const eppenEbredt = NOW - 60 * 1000
+    const rows = googleLiveRows(NOW, meres(8 * ORA, [{ id: 'a', ok: false }]), 1, eppenEbredt)
+    expect(rows.find(r => r.id === 'google_live_bad')?.status).toBe('bad')
+  })
+
   it('allo ellenorzo: 3 ora utan figyelmeztet, 24 ora utan mar piros', () => {
     // A legalattomosabb eset: a tobbi sor ilyenkor egy REGI pillanatrol
     // szolna, magabiztosan.
-    const friss = googleLiveRows(NOW, meres(GOOGLE_LIVE_STALE_MS - 1000, [{ id: 'a', ok: true }]), 1)
+    const friss = googleLiveRows(NOW, meres(GOOGLE_LIVE_STALE_MS - 1000, [{ id: 'a', ok: true }]), 1, REGOTA_EBREN)
     expect(friss.some(r => r.id === 'google_live_stale')).toBe(false)
 
-    const allo = googleLiveRows(NOW, meres(5 * ORA, [{ id: 'a', ok: true }]), 1)
+    const allo = googleLiveRows(NOW, meres(5 * ORA, [{ id: 'a', ok: true }]), 1, REGOTA_EBREN)
     const s = allo.find(r => r.id === 'google_live_stale')
     expect(s?.status).toBe('warn')
     expect(s?.params).toMatchObject({ h: 5 })
 
-    const halott = googleLiveRows(NOW, meres(30 * ORA, [{ id: 'a', ok: true }]), 1)
+    const halott = googleLiveRows(NOW, meres(30 * ORA, [{ id: 'a', ok: true }]), 1, REGOTA_EBREN)
     expect(halott.find(r => r.id === 'google_live_stale')?.status).toBe('bad')
   })
 
   it('allo ellenorzonel NEM mondja rá, hogy minden rendben', () => {
     // Kulonben egy hete allo meres alapjan allitanank, hogy a fiokok elnek.
-    const rows = googleLiveRows(NOW, meres(30 * ORA, [{ id: 'a', ok: true }]), 1)
+    const rows = googleLiveRows(NOW, meres(30 * ORA, [{ id: 'a', ok: true }]), 1, REGOTA_EBREN)
     expect(rows.some(r => r.id === 'google_live_ok')).toBe(false)
   })
 
   it('allo ellenorzo ES elutasitott fiok: MINDKETTO kiirodik', () => {
-    const rows = googleLiveRows(NOW, meres(5 * ORA, [{ id: 'a', ok: false }]), 1)
+    const rows = googleLiveRows(NOW, meres(5 * ORA, [{ id: 'a', ok: false }]), 1, REGOTA_EBREN)
     expect(rows.map(r => r.id).sort()).toEqual(['google_live_bad', 'google_live_stale'])
   })
 })

@@ -276,3 +276,75 @@ describe('minden allapotsorhoz van emberi szoveg', () => {
     expect(hianyzik).toEqual([])
   })
 })
+
+/**
+ * HALOZAT-HIANY: nem hiba, es nem is elhallgatando.
+ *
+ * A MERT ESET (2026-08-26 reggel). A napi lehuzas 06:49-kor futott,
+ * kozvetlenul ebredes utan, amikor a WSL-ben meg nem volt nevfeloldas. Mind
+ * a het tavoli tarolo `Could not resolve host: github.com`-mal elhasalt. Egy
+ * oraval kesobb a halozat hibatlanul mukodott -- de senki nem merte ujra, es
+ * a piros sor ott maradt egesz napra, azt allitva, hogy a tarolok
+ * elromlottak. Boss: ``minden rendben van de o szol hogy nincs. ez gaz.``
+ *
+ * A sor ezert HAROM allapotot ismer, es ezt a harmat rogziti az alabbi
+ * harom teszt. Ha barmelyik eldol, a reggeli hamis riasztas visszater.
+ */
+describe('git-lehuzas: a halozat-hiany nem hiba', () => {
+  const ORA = 60 * 60 * 1000
+  const NOW = Date.parse('2026-08-26T09:00:00Z')
+  const kartya = { letezik: false, bekapcsolva: true }
+
+  function menet(offlineDb: number, oraOta: number) {
+    return {
+      finishedAt: new Date(NOW - 10 * 60 * 1000).toISOString(),
+      results: Array.from({ length: 10 }, (_, i) => ({
+        rel: 'a/b/repo' + i,
+        state: i < offlineDb ? 'offline' : 'current',
+        message: i < offlineDb ? 'Could not resolve host: github.com' : 'Naprakész.',
+      })),
+      errors: 0,
+      offline: offlineDb,
+      offlineSince: offlineDb > 0 ? new Date(NOW - oraOta * ORA).toISOString() : null,
+    }
+  }
+
+  it('friss halozat-hiany: ZOLD marad, mert magatol ujraprobal', () => {
+    // Ez a reggeli eset. A gep most ebredt, a DNS meg nem jott fel, es
+    // tiz perc mulva minden lejon. Riasztani ezen a ponton hazugsag volna.
+    const rows = gitPullRows(NOW, menet(7, 0) as never, kartya, true)
+    const sor = rows.find(r => r.id === 'git_pull_offline')
+    expect(sor?.status).toBe('ok')
+    expect(sor?.params).toMatchObject({ n: 7 })
+  })
+
+  it('a zold sor KIIRODIK -- a turelem nem nemasag', () => {
+    // Ha a kartyan semmi nem allna, a felhasznalo nem tudna megkulonboztetni
+    // a ``rendben van``-t a ``nem is neztem oda``-tol. A CLAUDE.md nulla-szabalya
+    // pont ezt tiltja.
+    const rows = gitPullRows(NOW, menet(7, 0) as never, kartya, true)
+    expect(rows.some(r => r.id === 'git_pull_offline')).toBe(true)
+  })
+
+  it('6 ora utan SARGA, 24 ora utan PIROS -- a csend nem tarthat orokke', () => {
+    // A fek. Enelkul egy tenylegesen elszakadt halozat orokre nema maradna,
+    // es minden tarolo csendben elavulna -- ez a rosszabbik hiba.
+    expect(gitPullRows(NOW, menet(7, 7) as never, kartya, true)
+      .find(r => r.id === 'git_pull_offline')?.status).toBe('warn')
+    expect(gitPullRows(NOW, menet(7, 30) as never, kartya, true)
+      .find(r => r.id === 'git_pull_offline')?.status).toBe('bad')
+  })
+
+  it('a halozat-hiany NEM szamit bele a hibaszamba', () => {
+    // Ez volt a gyoker: az ``elertem es romlott`` es a ``nem lattam oda``
+    // egy mezobe kerult, ezert a masodik ugy latszott, mint az elso.
+    const rows = gitPullRows(NOW, menet(7, 0) as never, kartya, true)
+    expect(rows.some(r => String(r.id).startsWith('git_pull_errors'))).toBe(false)
+  })
+
+  it('ha minden lejott, nincs offline sor -- csak a zold osszegzo', () => {
+    const rows = gitPullRows(NOW, menet(0, 0) as never, kartya, true)
+    expect(rows.some(r => r.id === 'git_pull_offline')).toBe(false)
+    expect(rows.some(r => r.id === 'git_pull_ok')).toBe(true)
+  })
+})

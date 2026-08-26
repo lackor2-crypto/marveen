@@ -22,6 +22,7 @@ import { startAgentProcess } from './web/agent-process.js'
 import { renameSharedCredentialsIfSafe, fleetTokenBootPass } from './web/claude-credentials-guard.js'
 import { startWebServer } from './web.js'
 import { logger } from './logger.js'
+import { startWakeDetect } from './wake-detect.js'
 import { startGitSync } from './git-sync.js'
 import { startGoogleLiveCheck } from './web/google-live-check.js'
 import { startInviteMonitor, stopInviteMonitor } from './web/channel-invites.js'
@@ -476,6 +477,12 @@ async function main(): Promise<void> {
   // A fában lévő git-repók automatikus szinkronja. Boss: "meg az osszes git
   // ahol van a mapparendszerben. mind szinkronizaljon automatan". Sose ir
   // felul helyi munkat -- lasd `git-sync.ts`.
+  // EBREDES-ERZEKELO. Ennek a git-szinkron es a Google-ellenorzes ELOTT
+  // kell indulnia: mindketto feliratkozik ra, hogy alvas utan potolja a
+  // kimaradt kort. Nelkule minden reggel sarga sorral indul a nap, holott
+  // semmi nem romlott el -- csak a gep aludt (merve 2026-08-26).
+  startWakeDetect()
+
   gitSyncInterval = startGitSync()
 
   // Az elo Google-ellenorzes. Enelkul a hozzaferes ugy tud meghalni, hogy

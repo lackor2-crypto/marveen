@@ -34,6 +34,7 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { STORE_DIR } from '../config.js'
+import { onWake } from '../wake-detect.js'
 import { logger } from '../logger.js'
 import { listGoogleAccounts, probeGoogleAccount } from './google-auth-runner.js'
 
@@ -170,6 +171,22 @@ export function markGoogleLiveOk(accountId: string, storeDir: string = STORE_DIR
 }
 
 export function startGoogleLiveCheck(): NodeJS.Timeout | null {
+  // EBREDES UTAN POTOLUNK.
+  //
+  // Merve 2026-08-26: az utolso kor elozo este 22:50-kor futott, a gep
+  // nyolc orat aludt, es a felulet reggel ``8 oraja nem futott le``-t irt.
+  // Ez IGAZ volt, csak nem azt jelentette, hogy elromlott valami -- az
+  // orás `setInterval` egyszeruen nem ketyeg alvas kozben, es ebredeskor
+  // nem potolja a kimaradt kort. Ettol minden reggel sarga lett a sor.
+  //
+  // Ket perc kesleltetes, ugyanaz, mint indulaskor: ebredes utan a halozat
+  // sem all meg azonnal a labara, es egy azonnali kor tiz fioknal pont a
+  // legrosszabb pillanatban terhelne.
+  onWake(() => {
+    setTimeout(() => {
+      runGoogleLiveCheck().catch(err => logger.warn({ err }, '[google-live] az ebredes utani kor nem sikerult'))
+    }, FIRST_RUN_DELAY_MS)
+  })
   setTimeout(() => {
     runGoogleLiveCheck().catch(err => logger.warn({ err }, '[google-live] az elso kor nem sikerult'))
   }, FIRST_RUN_DELAY_MS)
