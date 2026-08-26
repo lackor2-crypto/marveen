@@ -3414,6 +3414,7 @@ window._i18n.en = {
   'cb.tabs.unbound':        'not registered as a project',
   'cb.tabs.window':         'Only conversations CURRENTLY OPEN in VS Code are listed (plus the one tasks are sent to). If the executor cannot see what is open, at most {n} tabs per project are listed, going back {d} days.',
   'cb.tabs.empty':          'The worker is running but found no Claude Code conversation at all. Open a project in VS Code and write something in it — it shows up here within a minute.',
+  'cb.tabs.not_reported_yet': 'The worker is running but has not checked in since Marveen restarted, so I do NOT know what is open. It arrives on its own within a minute.',
   'cb.tabs.worker_never':   'The Windows worker has never checked in, so I do NOT know whether anything is open. Install the Windows worker below.',
   'cb.tabs.worker_stale':   'The Windows worker is not answering, so this list may be stale.',
   'cb.tabs.error':          'Could not load the chat tabs: {msg}',

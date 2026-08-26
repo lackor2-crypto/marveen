@@ -32011,8 +32011,8 @@ async function _intezoCfgSave() {
       cmd.textContent =
         'powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\\marvin-code-worker\\marvin-code-worker.ps1" ' +
         '-BaseUrl "' + window.location.origin + '" ' + authArg + '\n\n' +
-        'schtasks /create /f /tn "MarvinCodeWorker" /sc onlogon /rl highest ' +
-        '/tr "\\"%USERPROFILE%\\marvin-code-worker\\marvin-code-worker.cmd\\""'
+        '$t = "`"$env:USERPROFILE\\marvin-code-worker\\marvin-code-worker.cmd`""' + '\n' +
+        'schtasks /create /f /tn "MarvinCodeWorker" /sc minute /mo 5 /tr $t'
     }
     const note = document.getElementById('cbInstallNote')
     if (note) {
@@ -32142,6 +32142,7 @@ async function _intezoCfgSave() {
       // A NULLA ket dolgot jelenthet -- a szerver `reason` mezoje mondja meg,
       // melyiket --, es ezt SOSE szabad a lista hosszabol kitalalni.
       const key = _cbTabs.reason === 'empty' ? 'cb.tabs.empty'
+        : _cbTabs.reason === 'not-reported-yet' ? 'cb.tabs.not_reported_yet'
         : _cbTabs.reason === 'worker-stale' ? 'cb.tabs.worker_stale'
         : 'cb.tabs.worker_never'
       el.innerHTML = '<p class="subtitle">' + escapeHtml(t(key)) + '</p>'

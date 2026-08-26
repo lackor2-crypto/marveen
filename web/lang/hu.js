@@ -3479,6 +3479,7 @@ window._i18n.hu = {
   'cb.tabs.unbound':        'nincs bekötve projektként',
   'cb.tabs.window':         'Csak a VS Code-ban ÉPPEN NYITOTT beszélgetések látszanak (plusz az, amelyikbe a feladat megy). Ha a végrehajtó nem tudja megnézni, mi van nyitva, projektenként legfeljebb {n} fül jön be, {d} napra visszamenőleg.',
   'cb.tabs.empty':          'A végrehajtó fut, de egyetlen Claude Code beszélgetést sem talált. Nyiss meg egy projektet VS Code-ban, írj bele valamit — egy percen belül itt lesz.',
+  'cb.tabs.not_reported_yet': 'A végrehajtó fut, de a Marveen újraindítása óta még nem küldött jelentést, ezért NEM tudom, mi van nyitva. Egy percen belül megjön magától.',
   'cb.tabs.worker_never':   'A végrehajtó (Windows worker) még egyszer sem jelentkezett, ezért NEM tudom, van-e nyitott beszélgetés. Telepítsd a Windows-végrehajtót lentebb.',
   'cb.tabs.worker_stale':   'A végrehajtó (Windows worker) nem válaszol, ezért ez a lista elavult lehet.',
   'cb.tabs.error':          'Nem sikerült lekérdezni a chat füleket: {msg}',

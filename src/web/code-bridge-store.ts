@@ -335,7 +335,22 @@ export interface UpsertSessionInput {
  * keeps its session_id until the owner explicitly repins, so a long-running
  * conversation cannot be swapped out from under a queued task.
  */
-export function upsertCodeSession(input: UpsertSessionInput, opts: { fromDiscovery?: boolean } = {}): CodeSession {
+export function upsertCodeSession(
+  input: UpsertSessionInput,
+  opts: {
+    fromDiscovery?: boolean
+    /**
+     * A hivo MEGMERTE, hogy a jelenleg bekotott beszelgetes mar nincs nyitva a
+     * VS Code-ban, ES hogy a most erkezo helyette nyitva VAN. Csak ilyenkor
+     * szabad egy kituzott sort masik beszelgetesre allitani.
+     *
+     * Szandekosan nem alapertelmezett: ha a hivo nem latott oda (nincs
+     * `~/.claude/sessions` mappa, regi worker), a tu marad. A "nem tudom"
+     * soha nem lehet ok az atallitasra.
+     */
+    repointStale?: boolean
+  } = {},
+): CodeSession {
   ensureTables()
   const project = normalizeAlias(input.project)
   if (!project) throw new Error('project alias is empty after normalization')
@@ -346,10 +361,34 @@ export function upsertCodeSession(input: UpsertSessionInput, opts: { fromDiscove
   const now = Date.now()
 
   if (existing && opts.fromDiscovery) {
-    // Discovery never overrides a pin, and never moves a project to a DIFFERENT
-    // workspace -- an alias collision across two folders must be resolved by the
-    // owner, not by whichever worker reported last.
-    if (existing.pinned) return existing
+    // A TU A MAPPARA VONATKOZIK, A BESZELGETESRE CSAK AMIG AZ ELETBEN VAN.
+    //
+    // A MERT ESET (2026-08-26). A `fejlesztes` projekt a
+    // `d34fac5b-523b-4d3e-8c8d-0e4df9ab0ea1` beszelgeteshez volt szogezve, es a sora
+    // 31 oraja nem frissult -- kozben a VS Code-ban ket EGESZEN MAS ful volt
+    // nyitva. Minden odakuldott feladat egy bezart beszelgetesbe ment. Boss:
+    // "a marveen ba beallitott chat fulek nem azonosak a vscode ban levo chat
+    // fulekkel. az gaz."
+    //
+    // Az ok nem a tu letezese, hanem hogy KET dolgot jelentett egyszerre. A
+    // `POST /api/code/projects` alapbol kituz (`pinned: body.pinned ?? true`),
+    // vagyis MINDENKI ezt kapja, amint a feluletrol bekot egy mappat -- friss
+    // telepitesen az elso napon. A tu SZANDEKA az volt, hogy a felderites ne
+    // vigye at az aliast egy masik MAPPARA. A beszelgetes-azonosito viszont
+    // termeszetenel fogva mulando: minden `/clear`, minden uj ful es minden
+    // VS Code-ujrainditas ujat csinal.
+    //
+    // A TULAJ DONTESE (2026-08-26): amig a bekotott ful NYITVA van, senki nem
+    // nyul hozza -- a kezi bekotes akkor is ur, ha regebbi fulre mutat. Amint
+    // a VS Code-ban bezarul ES van helyette nyitott ful ugyanabban a mappaban,
+    // a felderites atall ra. Ha egyik ful sem nyitott, MARAD a regi: olyankor
+    // nem tudjuk, hova kellene atallni, es a talalgatas rosszabb a semminel.
+    //
+    // Azt, hogy a bekotott ful el-e, EZ A FUGGVENY NEM TUDJA -- a nyitott
+    // fulek listaja a jelentesben erkezik. Ezert dontesi jog helyett egy
+    // KIMONDOTT engedelyt kap a hivotol (`repointStale`), es a route szamolja
+    // ki. Igy a szabaly egy helyen van, es tesztelheto.
+    if (existing.pinned && !opts.repointStale) return existing
     if (existing.workspacePath.toLowerCase() !== input.workspacePath.toLowerCase()) return existing
     // Older transcript than the one we already have: ignore (out-of-order report).
     if (
@@ -1056,6 +1095,14 @@ export interface CodeCandidate {
  *  a memoriat sem hagyjuk korlatlanul nőni egy kulso jelentes nyoman. */
 const MAX_CANDIDATES = 200
 let codeCandidates: CodeCandidate[] = []
+/**
+ * Kaptunk-e EBBEN a folyamatban legalabb egy jelentest.
+ *
+ * A jeloltlista memoriaban el, a szivveres viszont a lemezen -- ujrainditas
+ * utan tehat a worker online, a lista megis ures. E nelkul a mezo nelkul ezt
+ * nem lehet megkulonboztetni attol, hogy tenyleg nincs nyitott beszelgetes.
+ */
+let candidatesEverReported = false
 
 export function recordCodeCandidates(
   host: string,
@@ -1111,6 +1158,7 @@ export function recordCodeCandidates(
     if (mine.length >= MAX_CANDIDATES) break
   }
   codeCandidates = [...others, ...mine].slice(-MAX_CANDIDATES)
+  candidatesEverReported = true
 }
 
 export function listCodeCandidates(): CodeCandidate[] {
@@ -1120,6 +1168,7 @@ export function listCodeCandidates(): CodeCandidate[] {
 /** Csak teszthez: a modul-szintu lista kiurítese ket eset kozott. */
 export function _resetCodeCandidates(): void {
   codeCandidates = []
+  candidatesEverReported = false
 }
 
 export function listCodeWorkers(): CodeWorker[] {
@@ -1182,8 +1231,11 @@ export interface CodeTabsView {
    *   - `ok`            : van mit mutatni
    *   - `empty`         : a vegrehajto el, es TENYLEG nincs beszelgetes
    *   - `worker-never`  : a vegrehajto meg egyszer sem jelentkezett
+   *   - `not-reported-yet`: a vegrehajto el, de EZ a folyamat (dashboard-
+   *     ujrainditas ota) meg nem kapott tole jelentest -- a lista nem ures,
+   *     hanem meg nem erkezett meg
    *   - `worker-stale`  : jelentkezett mar, de most nem valaszol */
-  reason: 'ok' | 'empty' | 'worker-never' | 'worker-stale'
+  reason: 'ok' | 'empty' | 'not-reported-yet' | 'worker-never' | 'worker-stale'
   window: { maxTabsPerProject: number; maxAgeDays: number }
 }
 
@@ -1292,7 +1344,9 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
 
   const reason: CodeTabsView['reason'] = workerOnline
     ? projects.length === 0
-      ? 'empty'
+      ? candidatesEverReported
+        ? 'empty'
+        : 'not-reported-yet'
       : 'ok'
     : lastSeenAt === null
       ? 'worker-never'
@@ -1301,7 +1355,9 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   const note =
     reason === 'ok'
       ? null
-      : reason === 'empty'
+      : reason === 'not-reported-yet'
+        ? 'A vegrehajto el, de a Marveen ujrainditasa ota meg nem kuldott jelentest -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes. Egy percen belul megjon.'
+        : reason === 'empty'
         ? 'A vegrehajto el, de egyetlen beszelgetest sem talalt: nyiss meg egy projektet VS Code-ban, es irj bele valamit.'
         : reason === 'worker-never'
           ? 'A vegrehajto (Windows worker) meg egyszer sem jelentkezett -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes.'

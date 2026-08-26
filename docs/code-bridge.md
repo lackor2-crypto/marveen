@@ -193,12 +193,34 @@ Egyszerre csak egy példány fut (`Global\MarvinCodeWorker` mutex).
 **Automatikus indítás** (a `marvin-code-worker.cmd` mellette van):
 
 ```
-schtasks /create /tn "MarvinCodeWorker" /sc onlogon /rl highest /tr "\"%USERPROFILE%\marvin-code-worker\marvin-code-worker.cmd\""
+$t = "`"$env:USERPROFILE\marvin-code-worker\marvin-code-worker.cmd`""
+schtasks /create /f /tn "MarvinCodeWorker" /sc minute /mo 5 /tr $t
 ```
 
-vagy tedd a `.cmd`-t a `shell:startup` mappába. (A worker felhasználói
-munkamenetben fusson: a `claude.exe` a felhasználó `~/.claude` beállításait
-és bejelentkezését használja.)
+A `/sc minute /mo 5` a lényeg: a feladat **ötpercenként** elindul, nem csak
+bejelentkezéskor. (`onlogon` mellé a `schtasks` nem enged ismétlést -- mérve:
+"The options /RI, /DU ... are not applicable for ... ONLOGON" --, ezért egyetlen
+percenkénti trigger van; bejelentkezés után is legfeljebb öt percet késik.)
+
+**Nem kell rendszergazda**, és ez szándékos. A worker a saját felhasználói
+munkamenetedben indít `claude.exe`-t -- emelt joghoz semmi köze --, a korábbi
+`/rl highest` viszont `Access is denied`-del elzárta a telepítést egy sima
+PowerShellben (mérve 2026-08-26), ráadásul a védelmi termékek épp ezt a mintát
+figyelik perzisztencia-kísérletként. Legkisebb jogosultság: futtatás a
+bejelentkezett felhasználóként, emelés nélkül.
+
+Az útvonal külön változóba megy, mert a `\"` idézőjel-forma PowerShellben
+hibát dob.
+
+Ha a worker bármitől leáll, öt percen belül magától
+visszajön -- a mutex miatt a fölösleges indítás ártalmatlan, a második példány
+azonnal kilép. E nélkül a naponta egyszeri indítás után egy elhalt worker estig
+néma maradt (2026-08-26: a napló 07:39:18-kor megállt, hibaüzenet nélkül).
+
+Ne tedd a `.cmd`-t emellé a `shell:startup` mappába is: akkor bejelentkezéskor
+két példány indul, és a napló tele lesz elutasításokkal. Egy módszer legyen, és
+az legyen ez. (A worker felhasználói munkamenetben fusson: a `claude.exe` a
+felhasználó `~/.claude` beállításait és bejelentkezését használja.)
 
 ### 3.4 Projekt felvétele: választani kell, nem gépelni
 

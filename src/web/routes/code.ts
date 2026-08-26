@@ -729,6 +729,21 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
     const known = listCodeSessions()
     const registered: string[] = []
+    /** Az athelyezett projektek, hogy a naplo megmondja, MI tortent es MIERT. */
+    const athelyezve: { project: string; rol: string; ra: string }[] = []
+
+    // MELYIK BESZELGETES VAN TENYLEG NYITVA A VS CODE-BAN.
+    //
+    // Ket kulon dolgot kell tudni, es a kettot nem szabad osszemosni:
+    //  - `nyitottak`: amit a worker ELO PID-del latott (mert);
+    //  - `latunkOda`: kuldott-e egyaltalan barmilyen `live` merest. Regi
+    //    worker nem kuld, es olyankor `nyitottak` URES lenne -- amibol
+    //    "minden ful zarva"-t olvasni sulyos tevedes volna, es minden
+    //    kituzott projektet athelyezne. A nulla itt is ket dolgot jelenthet.
+    const nyitottak = new Set(
+      reported.filter((r) => r.live === true && r.sessionId).map((r) => r.sessionId as string),
+    )
+    const latunkOda = reported.some((r) => typeof r.live === "boolean")
     // Egy REGI worker egyetlen `primary` mezot sem kuld: olyankor MINDEN sor
     // projektnek szamit, ahogy 2026-08-23 elott. Ha viszont a worker jeloli az
     // elsodleges fulet, csak azt regisztraljuk -- a tobbi ful jeloltkent mar
@@ -751,6 +766,25 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // is latszanak (igy vissza tudja hozni), projektkent viszont nem kotjuk
       // be ujra.
       if (isDismissedWorkspace(s.workspacePath)) continue
+      // ELAVULT-E A BEKOTES?
+      //
+      // A kituzott sor alapbol erinthetetlen. Egyetlen kivetel van, es azt
+      // MERNI kell, nem felteteleznii: a bekotott beszelgetes mar nincs nyitva
+      // a VS Code-ban, ES a most jelentett helyette nyitva VAN. Ez pontosan az
+      // az eset, amikor a feladat egy bezart beszelgetesbe menne.
+      //
+      // Mind a harom feltetel kell. Ha nem latunk oda (`latunkOda === false`),
+      // a tu MARAD: a "nem tudom" nem ok az atallitasra. Ha egyik ful sem
+      // nyitott, szinten marad -- nincs hova atallni, es a talalgatas
+      // rosszabb a semminel.
+      const meglevo = getCodeSession(alias)
+      const elavultBekotes =
+        !!meglevo &&
+        meglevo.pinned &&
+        latunkOda &&
+        !nyitottak.has(meglevo.sessionId) &&
+        s.live === true &&
+        meglevo.sessionId !== s.sessionId
       try {
         const row = upsertCodeSession(
           {
@@ -761,8 +795,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
             host: body.host ?? null,
             transcriptMtime: s.mtime ?? null,
           },
-          { fromDiscovery: true },
+          { fromDiscovery: true, repointStale: elavultBekotes },
         )
+        if (elavultBekotes && meglevo) {
+          athelyezve.push({ project: row.project, rol: meglevo.sessionId, ra: row.sessionId })
+        }
         registered.push(row.project)
       } catch (err) {
         logger.warn({ err, workspace: s.workspacePath }, 'code-bridge: session report rejected')
@@ -770,6 +807,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }
     // A jelentes a hitelesek listaja erre a gepre: ami kimaradt belole, annak
     // a workspace-e mar nincs meg (a worker eleve nem jelenti a nem letezot).
+    if (athelyezve.length > 0) {
+      logger.info(
+        { host: body.host, athelyezve },
+        'code-bridge: a bekotott beszelgetes mar nem volt nyitva -- atallitva a nyitott fulre',
+      )
+    }
     const pruned = pruneUnreportedCodeSessions(body.host ?? 'windows', registered)
     if (pruned.length > 0) logger.info({ host: body.host, pruned }, 'code-bridge: dropped sessions no longer reported')
     // A valasz VISZI a bezaras-kereseket: a worker nem tud bejovo hivast

@@ -41,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-08-23.2'
+$script:WorkerVersion = '2026-08-26.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -660,9 +660,19 @@ if ($DiscoverOnly) {
 
 # One worker per machine: two would both claim tasks and run two CLIs against
 # the same session at once.
+#
+# A MASODIK PELDANY KILEPESE NEM HIBA -- ES 2026-08-26 OTA NEM IS RITKASAG.
+# Az utemezett feladat mostantol otpercenkent ujraindit (`/sc minute /mo 5`),
+# hogy egy elhalt worker magatol visszajojjon; a mutex teszi artalmatlanna.
+# Vagyis a TIPIKUS nap ugy nez ki, hogy 287 inditas azonnal kilep itt, es egy
+# fut. WARN-kent naplozva ez naponta 287 riasztonak latszo sor lenne, ami
+# pontosan azt fedne el, amiert a naplo van. Ezert ez az ag NEMA.
+#
+# Amit ezzel nem vesztunk el: hogy fut-e worker, nem ebbol tudjuk, hanem a
+# szivverésbol -- a dashboard `code_bridge_dead` jelzese a WORKER_STALE_MS
+# alapjan meri. A csend itt tehat "minden rendben", nem "nem latok oda".
 $mutex = New-Object System.Threading.Mutex($false, 'Global\MarvinCodeWorker')
 if (-not $mutex.WaitOne(0)) {
-  Write-Log 'another worker instance is already running -- exiting' 'WARN'
   return
 }
 try {
