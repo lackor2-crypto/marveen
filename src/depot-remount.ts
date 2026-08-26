@@ -180,3 +180,40 @@ export function depotRemountPlan(root: string, mounts?: MountInfo[] | null): Rem
 
   return { drive, mountpoint, options, optionSource, command }
 }
+
+/**
+ * A ket lepes ARGV-ben, hejj nelkul.
+ *
+ * Miert nem a `command` sztringet futtatjuk: az beilesztesre keszult, es hejj
+ * ertelmezi (idezojel, pontosvesszo). Ha a Marveen maga futtatja, minden ilyen
+ * ertelmezes egy lehetoseg arra, hogy MAS parancs fusson, mint amit a sudoers
+ * engedelyezett. Az argv-nel nincs mit felreerteni.
+ *
+ * A ket lepes KULON fut, es a masodik akkor is elindul, ha az elso elhasal:
+ * egy "nincs is csatolva" umount nem hiba, hanem eppen a kiindulasi allapot.
+ */
+export function remountArgv(plan: RemountPlan): string[][] {
+  const mount = ['mount', '-t', 'drvfs', `${plan.drive}:`, plan.mountpoint]
+  if (plan.options) mount.push('-o', plan.options)
+  return [['umount', plan.mountpoint], mount]
+}
+
+/**
+ * A sudoers-sor, ami PONTOSAN ezt a ket parancsot engedi -- semmi mast.
+ *
+ * Ez a legszukebb hatokor, amivel az onjavitas mukodhet: nev szerint a ket
+ * binaris, rogzitett argumentumokkal, erre az egy csatolasi pontra. Nem
+ * `ALL=(ALL) NOPASSWD: ALL`, es nem is a teljes `mount` szabadon.
+ *
+ * A vesszot KI KELL VEDENI: a sudoers-ben a vesszo parancsokat valaszt el, az
+ * opcio-listankban viszont (`uid=1000,gid=1000`) adat. Escape nelkul a sor
+ * mast engedelyezne, mint amit latszik.
+ */
+export function remountSudoersLine(plan: RemountPlan, user: string): string {
+  const eleresi: Record<string, string> = { umount: '/usr/bin/umount', mount: '/usr/bin/mount' }
+  const reszek = remountArgv(plan).map((argv) => {
+    const [prog, ...args] = argv
+    return [eleresi[prog!] || prog!, ...args.map((a) => a.replace(/,/g, '\\,'))].join(' ')
+  })
+  return `${user} ALL=(root) NOPASSWD: ${reszek.join(', ')}`
+}

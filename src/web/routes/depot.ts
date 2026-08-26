@@ -6,6 +6,8 @@
 //   - GET  /api/depot/migrate   -- hol tart a koltoztetes
 //   - GET  /api/depot/browse    -- lemezek/mappak a valasztohoz (nem kell gepelni)
 //   - POST /api/depot/root      -- a kivalasztott mappa lesz a depo
+//   - POST /api/depot/remount   -- onjavitas: ujracsatolja a leszakadt depot
+//                                  (csak ha a DEPOT_AUTO_REMOUNT be van kapcsolva)
 //
 // Miert hatterben fut a koltoztetes? Mert 8 GB masolasa percekig tart. Ha a
 // HTTP-keres varna meg, a bongeszo idokozben elvagna a kapcsolatot, es a
@@ -22,6 +24,10 @@ import {
 import { migrateDir, type MigrateResult } from '../../depot-migrate.js'
 import { browseFolders, fromDisplayPath, toDisplayPath, humanBytes, diskSpace } from '../../depot-browse.js'
 import { setOverride } from '../../settings-store.js'
+import { getEffectiveSettingValue } from '../../settings-store.js'
+import { remountArgv, remountSudoersLine } from '../../depot-remount.js'
+import { execFile } from 'node:child_process'
+import { userInfo } from 'node:os'
 import { legacyPhotoDir, depotPhotoDir, loadIndex, photoFileOwner } from './photos-picker.js'
 import { googleAccountNames } from './accounts.js'
 import type { RouteContext } from './types.js'
@@ -122,6 +128,81 @@ async function runMigration(accounts: string[]): Promise<void> {
 export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
 
+  // ONJAVITAS. Alapbol KI, es kikapcsolva a Marveen SOHA nem futtat sudo-t.
+  //
+  // Miert kell egyaltalan kapcsolo: a javitashoz root kell, es egy dashboardnak
+  // nem jar automatikusan root. A kapcsolo bekapcsolasa maga nem ad jogot --
+  // a jelszo nelkuli engedelyt egyetlen, szuk hatokoru sorral A FELHASZNALO
+  // veszi fel a /etc/sudoers.d/ ala. Amig nincs meg, ez a vegpont NEM kerdez
+  // jelszot (a `sudo -n` sosem varakozik), hanem visszaadja a pontos teendot.
+  //
+  // A HIBA OKAT A VALODI KIMENETBOL olvassuk ki. Egy tippelt ok rosszabb a
+  // semminel: rossz iranyba kuldi a felhasznalot.
+  if (path === '/api/depot/remount' && method === 'POST') {
+    const health = depotHealth()
+    const terv = health.repair
+    if (!terv) {
+      json(res, {
+        error: 'A depó nem Windows-meghajtón van, itt az újracsatolás nem a megoldás.',
+        code: 'not_applicable',
+      }, 409)
+      return true
+    }
+    const user = userInfo().username
+    const sudoers = remountSudoersLine(terv, user)
+    if (String(getEffectiveSettingValue('DEPOT_AUTO_REMOUNT')) !== '1') {
+      json(res, {
+        error: 'Az önjavítás ki van kapcsolva.',
+        code: 'disabled',
+        command: terv.command,
+        sudoers,
+      }, 409)
+      return true
+    }
+
+    // A ket lepes KULON fut. Az `umount` bukasa nem hiba: ha nincs mit
+    // lecsatolni, eppen az a kiindulasi allapot -- csak a `mount` szamit.
+    const futtat = (argv: string[]): Promise<{ code: number; out: string }> =>
+      new Promise((resolve) => {
+        execFile('sudo', ['-n', ...argv], { timeout: 20_000 }, (err, stdout, stderr) => {
+          const out = String(stderr || '') + String(stdout || '')
+          const kod = err && typeof (err as { code?: unknown }).code === 'number'
+            ? (err as { code: number }).code
+            : err ? 1 : 0
+          resolve({ code: kod, out: out.trim() })
+        })
+      })
+
+    const [le, fel] = remountArgv(terv)
+    const r1 = await futtat(le!)
+    const r2 = await futtat(fel!)
+
+    // A bizonyitek nem a kilepesi kod, hanem hogy a depo MOST irhato-e.
+    // "Sikeresen lefutott" onmagaban nem bizonyitek semmire.
+    const utana = depotHealth()
+    if (utana.writable) {
+      logger.info({ mountpoint: terv.mountpoint }, 'depot remount succeeded')
+      json(res, { ok: true, writable: true, output: [r1.out, r2.out].filter(Boolean).join('\n') })
+      return true
+    }
+
+    const kimenet = [r1.out, r2.out].filter(Boolean).join('\n')
+    // A `sudo -n` pontosan ezt irja ki, ha nincs jelszo nelkuli engedely.
+    // Ezt FELISMERJUK -- de csak ezt az egyet; barmi mast szo szerint adunk
+    // tovabb, sajat magyarazat nelkul.
+    const jogHianyzik = /password is required|a jelszó szükséges|not allowed to execute/i.test(kimenet)
+    logger.warn({ mountpoint: terv.mountpoint, kimenet }, 'depot remount failed')
+    json(res, {
+      error: utana.message,
+      code: jogHianyzik ? 'needs_sudoers' : 'failed',
+      output: kimenet,
+      command: terv.command,
+      sudoers,
+      sudoersFile: '/etc/sudoers.d/marveen-depot',
+    }, 409)
+    return true
+  }
+
   if (path === '/api/depot/status' && method === 'GET') {
     // A vazszerkezet ITT keszul el, nem csak a koltoztetes inditasakor.
     //
@@ -147,6 +228,11 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
       folders,
       photos: photoPlacement(accounts),
       job,
+      // Az onjavitas allasa. A felulet KULON kezeli a "ki van kapcsolva" es a
+      // "be van kapcsolva, de meg nincs joga" allapotot: a ketto mas teendo.
+      autoRemount: String(getEffectiveSettingValue('DEPOT_AUTO_REMOUNT')) === '1',
+      sudoers: health.repair ? remountSudoersLine(health.repair, userInfo().username) : null,
+      sudoersFile: '/etc/sudoers.d/marveen-depot',
     })
     return true
   }

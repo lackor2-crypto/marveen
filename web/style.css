@@ -6286,6 +6286,16 @@ a.link-waiting {
   white-space: pre;
 }
 
+/* A sudoers-utmutato: sajat keret, mert ez mar NEM a hiba leirasa, hanem egy
+   kulon, egyszeri teendo -- es a felhasznalonak latnia kell, hol kezdodik. */
+.depo-sudoers {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.depo-sudoers .depo-repair-cmd { white-space: pre-wrap; word-break: break-all; }
+
 .connector-stale-banner {
   padding: 10px 14px;
   margin: 0 0 12px;

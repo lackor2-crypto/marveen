@@ -29754,6 +29754,87 @@ function _depoClearDrivePick() {
  * lap KIMONDJA (`optionSource === 'unknown'`) -- nem ugy adja elo, mintha
  * biztos lenne benne.
  */
+/**
+ * A nyers kimenet. Nem szepitjuk es nem forditjuk le: ez az EGYETLEN hely, ahol
+ * a felhasznalo (vagy aki segit neki) latja, mi tortent valojaban.
+ */
+function _depoShowOutput(txt) {
+  const host = document.getElementById('depoRepair')
+  if (!host || !txt) return
+  const pre = document.createElement('pre')
+  pre.className = 'depo-repair-cmd'
+  pre.textContent = txt
+  host.appendChild(pre)
+}
+
+/**
+ * HELYBEN VEGIGVEZETO UTMUTATO a jogosultsag felvetelehez.
+ *
+ * A kapcsolo bekapcsolasa maga NEM ad jogot -- es ez igy helyes: egy dashboard
+ * ne tudja magat rendszergazdava tenni. A jelszo nelkuli engedelyt egyetlen,
+ * szuk hatokoru sor adja meg, amit A FELHASZNALO vesz fel. Ez a sor pontosan
+ * azt a ket parancsot engedi, amit a Marveen futtat -- semmi tobbet --, es
+ * ugyanabbol a mert tervbol keszul, mint maga a parancs, tehat nem tud
+ * elcsuszni tole.
+ *
+ * Miert `visudo -f` es nem sima szerkesztes: a visudo ELLENORZI a fajlt mentes
+ * elott. Egy elrontott sudoers-fajl az egesz sudo-t hasznalhatatlanna teszi.
+ */
+function _depoShowSudoers(d, r) {
+  const host = document.getElementById('depoRepair')
+  if (!host) return
+  const doboz = document.createElement('div')
+  doboz.className = 'depo-sudoers'
+
+  const cim = document.createElement('p')
+  cim.innerHTML = '<strong>' + escapeHtml(t('depot.sudoers.title')) + '</strong>'
+  doboz.appendChild(cim)
+
+  const mit = document.createElement('p')
+  mit.className = 'subtitle'
+  mit.textContent = t('depot.sudoers.why')
+  doboz.appendChild(mit)
+
+  const l = document.createElement('ol')
+  l.className = 'depo-repair-steps'
+  const l1 = document.createElement('li')
+  l1.textContent = t('depot.sudoers.step_open', { f: r.sudoersFile || '/etc/sudoers.d/marveen-depot' })
+  l.appendChild(l1)
+  const l2 = document.createElement('li')
+  l2.textContent = t('depot.sudoers.step_paste')
+  l.appendChild(l2)
+  const l3 = document.createElement('li')
+  l3.textContent = t('depot.sudoers.step_retry')
+  l.appendChild(l3)
+  doboz.appendChild(l)
+
+  const nyit = document.createElement('pre')
+  nyit.className = 'depo-repair-cmd'
+  nyit.textContent = 'sudo visudo -f ' + (r.sudoersFile || '/etc/sudoers.d/marveen-depot')
+  doboz.appendChild(nyit)
+
+  const sor = document.createElement('pre')
+  sor.className = 'depo-repair-cmd'
+  sor.textContent = r.sudoers || d.sudoers || ''
+  doboz.appendChild(sor)
+
+  const masol = document.createElement('button')
+  masol.type = 'button'
+  masol.className = 'btn-secondary btn-compact'
+  masol.textContent = t('depot.sudoers.copy')
+  masol.addEventListener('click', function () {
+    navigator.clipboard.writeText(sor.textContent).then(function () {
+      const o = masol.textContent
+      masol.textContent = t('depot.repair.copied')
+      setTimeout(function () { masol.textContent = o }, 1400)
+    }).catch(function () { showToast(t('depot.repair.copy_failed')) })
+  })
+  doboz.appendChild(masol)
+
+  host.appendChild(doboz)
+  if (r.output) _depoShowOutput(r.output)
+}
+
 function _depoShowRepair(d) {
   const host = document.getElementById('depoRepair')
   if (!host) return
@@ -29802,6 +29883,42 @@ function _depoShowRepair(d) {
     }).catch(function () { showToast(t('depot.repair.copy_failed')) })
   })
   host.appendChild(btn)
+
+  // ONJAVITAS. Alapbol nincs itt semmi: kikapcsolt allapotban a gomb sem
+  // jelenik meg, mert nem tudna mit csinalni. Bekapcsolva viszont EGY gomb
+  // elvegzi -- es ha meg nincs meg a jogosultsag, a valasz nem hibakod, hanem
+  // a pontos, ide kiirt teendo.
+  if (d.autoRemount) {
+    const fix = document.createElement('button')
+    fix.type = 'button'
+    fix.className = 'btn-primary btn-compact'
+    fix.style.marginLeft = '8px'
+    fix.textContent = t('depot.repair.auto_btn')
+    fix.addEventListener('click', async function () {
+      fix.disabled = true
+      const eredeti = fix.textContent
+      fix.textContent = t('depot.repair.auto_running')
+      let r = null
+      try {
+        r = await (await fetch('/api/depot/remount', { method: 'POST' })).json()
+      } catch (e) {
+        r = { code: 'failed', error: String((e && e.message) || e) }
+      }
+      fix.disabled = false
+      fix.textContent = eredeti
+      if (r && r.ok) { showToast(t('depot.repair.auto_ok')); _depoRefresh(); return }
+      // A HIBA OKAT NEM TALALGATJUK: amit a kiszolgalo latott, azt mutatjuk.
+      if (r && r.code === 'needs_sudoers') { _depoShowSudoers(d, r); return }
+      showToast((r && r.error) || t('depot.repair.auto_failed'), 'error')
+      if (r && r.output) _depoShowOutput(r.output)
+    })
+    host.appendChild(fix)
+  } else {
+    const tipp = document.createElement('p')
+    tipp.className = 'subtitle'
+    tipp.textContent = t('depot.repair.auto_hint')
+    host.appendChild(tipp)
+  }
 
   // A NULLA KET DOLGOT JELENTHET, es a "nem tudom" sem lehet nemasag: ha a
   // csatolasi beallitasokat nem magarol a depo csatolasarol olvastuk le, azt

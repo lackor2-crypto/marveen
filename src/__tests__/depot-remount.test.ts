@@ -11,7 +11,10 @@
 // parancs MERESBOL keszul, es hogy a "nem tudom" sose alakuljon at tippe.
 
 import { describe, it, expect, vi } from 'vitest'
-import { listDrvfsMounts, usefulMountOptions, depotRemountPlan } from '../depot-remount.js'
+import {
+  listDrvfsMounts, usefulMountOptions, depotRemountPlan,
+  remountArgv, remountSudoersLine,
+} from '../depot-remount.js'
 
 // A gepen 2026-08-26-an ez allt a /proc/mounts-ban. A `rfd=12` az eredeti
 // automount (ez halt meg), a `rfd=3` a kezi ujracsatolas.
@@ -111,5 +114,66 @@ describe('helyreallitasi terv', () => {
   it('nem Windows-meghajton nincs terv', () => {
     expect(depotRemountPlan('/home/boss/depo', listDrvfsMounts(MOUNTS))).toBeNull()
     expect(depotRemountPlan('/srv/adat', listDrvfsMounts(MOUNTS))).toBeNull()
+  })
+})
+
+describe('onjavitas: argv es sudoers', () => {
+  const terv = () => depotRemountPlan('/mnt/f/Marveen', listDrvfsMounts(MOUNTS))!
+
+  // Ha a Marveen MAGA futtatja, nem hejjen keresztul megy: minden hejj-
+  // ertelmezes (idezojel, pontosvesszo) egy lehetoseg arra, hogy mas parancs
+  // fusson, mint amit a sudoers engedelyezett.
+  it('ket kulon argv, hejj nelkul', () => {
+    const [le, fel] = remountArgv(terv())
+    expect(le).toEqual(['umount', '/mnt/f'])
+    expect(fel!.slice(0, 5)).toEqual(['mount', '-t', 'drvfs', 'F:', '/mnt/f'])
+    expect(fel).toContain('-o')
+    // Semmi, amit egy hejj ertelmezne.
+    for (const a of [...le!, ...fel!]) {
+      expect(a).not.toContain(';')
+      expect(a).not.toContain('&&')
+      expect(a).not.toContain("'")
+    }
+  })
+
+  it('opciok nelkul nincs ures -o', () => {
+    const [, fel] = remountArgv(depotRemountPlan('/mnt/f/Marveen', [])!)
+    expect(fel).not.toContain('-o')
+  })
+
+  // A LEGKENYESEBB PONT. A sudoers-ben a vesszo PARANCSOKAT valaszt el, az
+  // opcio-listankban viszont (`uid=1000,gid=1000`) adat. Escape nelkul a sor
+  // MAST engedelyezne, mint amit a felhasznalo lat rajta -- pont azt a fajta
+  // csendes elteresti, ami miatt egy jogosultsag-sort sosem szabad tippbol irni.
+  it('a vesszo ki van vedve az opciokban', () => {
+    const sor = remountSudoersLine(terv(), 'boss')
+    expect(sor).toContain('uid=1000\\,gid=1000')
+    // Egyetlen valodi parancs-elvalaszto vesszo van: a ket parancs kozott.
+    const elvalasztok = sor.split('NOPASSWD:')[1]!.replace(/\\,/g, '').match(/,/g) || []
+    expect(elvalasztok.length).toBe(1)
+  })
+
+  it('teljes eleresi utat ad, es csak a ket parancsot engedi', () => {
+    const sor = remountSudoersLine(terv(), 'boss')
+    expect(sor).toContain('boss ALL=(root) NOPASSWD:')
+    expect(sor).toContain('/usr/bin/umount /mnt/f')
+    expect(sor).toContain('/usr/bin/mount -t drvfs F: /mnt/f')
+    // Ami TILOS: barmi szabadon hagyott hatokor.
+    expect(sor).not.toContain('ALL=(ALL)')
+    expect(sor).not.toMatch(/NOPASSWD:\s*ALL/)
+    expect(sor).not.toContain('*')
+  })
+
+  // A sor es a tenylegesen futtatott parancs UGYANABBOL a tervbol keszul.
+  // Ha elcsusznanak egymastol, a felhasznalo engedelyt adna valamire, amit a
+  // Marveen sosem futtat -- es a javitas tovabbra sem mukodne, ok nelkul.
+  it('a sudoers-sor es az argv nem tud elcsuszni egymastol', () => {
+    const p = terv()
+    const sor = remountSudoersLine(p, 'boss')
+    for (const argv of remountArgv(p)) {
+      for (const a of argv.slice(1)) {
+        expect(sor).toContain(a.replace(/,/g, '\\,'))
+      }
+    }
   })
 })

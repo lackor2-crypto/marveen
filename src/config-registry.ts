@@ -277,6 +277,22 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
   },
   // --- System module (requiresRestart -- read at process init) ---
   {
+    key: 'DEPOT_AUTO_REMOUNT',
+    type: 'boolean',
+    default: '0',
+    description: 'Ha a depó Windows-meghajtón van, és a WSL felé megszakad a '
+      + 'kapcsolata (ismert WSL-hiba újraindítás után), a Marveen magától '
+      + 'újracsatolja-e. Alapból KI: bekapcsolva a Marveennek jelszó nélküli '
+      + 'jogot kell kapnia pontosan két parancsra (umount és mount, csak erre az '
+      + 'egy csatolási pontra) – ezt egy sorral te veszed fel a /etc/sudoers.d/ '
+      + 'alá, a Depó oldal végigvezet rajta. Amíg nem adtad meg, a kapcsoló '
+      + 'bekapcsolva sem tud semmit: a javítás ilyenkor is a Depó oldalon '
+      + 'másolható parancs marad. Kikapcsolva a Marveen soha nem futtat sudo-t.',
+    module: 'system',
+    secret: false,
+    requiresRestart: false,
+  },
+  {
     key: 'MARVEEN_DEPOT',
     type: 'string',
     default: '',
