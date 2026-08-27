@@ -8,6 +8,8 @@ const tmpRoot = mkdtempSync(join(tmpdir(), 'marveen-roster-test-'))
 
 vi.mock('../config.js', () => ({
   PROJECT_ROOT: tmpRoot,
+  // Needed since the scaffold reads the per-agent autonomy rights (src/autonomy.ts).
+  STORE_DIR: join(tmpRoot, 'store'),
   OWNER_NAME: 'TestOwner',
   MAIN_AGENT_ID: 'main-agent',
   BOT_NAME: 'main-agent',
@@ -26,6 +28,8 @@ vi.mock('../web/agent-config.js', () => ({
     if (name === 'agent-b') return ['management']
     return []
   },
+  readAgentModel: () => 'claude-opus-5',
+  DEFAULT_MODEL: 'claude-opus-5',
 }))
 
 vi.mock('../web/atomic-write.js', () => ({

@@ -19909,6 +19909,7 @@ async function renderAutonomyContent(gridEl, footerEl) {
     const config = await res.json()
 
     gridEl.innerHTML = ''
+    renderAutonomyAgents(gridEl, config)
     for (const cat of config.categories) {
       const isCapped = !cat.locked && cat.maxLevel < 3
       const row = document.createElement('div')
@@ -19964,6 +19965,118 @@ async function renderAutonomyContent(gridEl, footerEl) {
   }
 }
 
+// Per-agent admin rights. Boss, 2026-08-27: "kapjon az osszes agent admin
+// jogot. es kesz. kiveve az ingyenes agenteket."
+//
+// The default is DERIVED from the agent's model (free -> asks, paid -> admin),
+// so an agent created tomorrow lands on the right side of the rule without
+// anyone editing anything. A row only says "kezzel beallitva" when the owner
+// actually clicked, and then the reset link is there to give the rule back --
+// "following the rule" and "explicitly set to the same value" are different
+// states, and the row shows which one you are in.
+function renderAutonomyAgents(gridEl, config) {
+  const agents = Array.isArray(config.agents) ? config.agents : []
+
+  const wrap = document.createElement('div')
+  wrap.className = 'autonomy-agents'
+
+  const title = document.createElement('p')
+  title.className = 'autonomy-agents-title'
+  title.textContent = t('autonomy.agents.title')
+  wrap.appendChild(title)
+
+  const help = document.createElement('p')
+  help.className = 'autonomy-agents-help'
+  help.textContent = t('autonomy.agents.help')
+  wrap.appendChild(help)
+
+  if (agents.length === 0) {
+    const empty = document.createElement('p')
+    empty.className = 'autonomy-agents-help'
+    empty.textContent = t('autonomy.agents.empty')
+    wrap.appendChild(empty)
+    gridEl.appendChild(wrap)
+    return
+  }
+
+  for (const a of agents) {
+    const row = document.createElement('div')
+    row.className = 'autonomy-agent-row'
+
+    const name = document.createElement('div')
+    name.className = 'autonomy-agent-name'
+    name.textContent = a.name
+    row.appendChild(name)
+
+    const model = document.createElement('div')
+    model.className = 'autonomy-agent-model'
+    model.textContent = a.model
+    row.appendChild(model)
+
+    if (a.free) {
+      const badge = document.createElement('span')
+      badge.className = 'autonomy-agent-badge'
+      badge.textContent = t('autonomy.agents.free_badge')
+      row.appendChild(badge)
+    }
+
+    const source = document.createElement('span')
+    source.className = 'autonomy-agent-badge'
+    source.textContent = a.overridden ? t('autonomy.agents.overridden') : t('autonomy.agents.derived')
+    row.appendChild(source)
+
+    const toggle = document.createElement('div')
+    toggle.className = 'autonomy-agent-toggle'
+
+    const adminBtn = document.createElement('button')
+    adminBtn.className = 'autonomy-agent-btn' + (a.admin ? ' active' : '')
+    adminBtn.textContent = t('autonomy.agents.admin')
+    adminBtn.addEventListener('click', () => setAgentAdmin(a.name, true))
+    toggle.appendChild(adminBtn)
+
+    const basicBtn = document.createElement('button')
+    basicBtn.className = 'autonomy-agent-btn basic' + (a.admin ? '' : ' active')
+    basicBtn.textContent = t('autonomy.agents.basic')
+    basicBtn.addEventListener('click', () => setAgentAdmin(a.name, false))
+    toggle.appendChild(basicBtn)
+
+    row.appendChild(toggle)
+
+    if (a.overridden) {
+      const reset = document.createElement('button')
+      reset.className = 'autonomy-agent-reset'
+      reset.textContent = t('autonomy.agents.reset')
+      reset.addEventListener('click', () => setAgentAdmin(a.name, null))
+      row.appendChild(reset)
+    }
+
+    wrap.appendChild(row)
+  }
+
+  gridEl.appendChild(wrap)
+}
+
+async function setAgentAdmin(agent, admin) {
+  try {
+    const res = await fetch('/api/autonomy/agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent, admin }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      showToast(data.message || data.error || t('kanban.toast.save_error'))
+      return
+    }
+    showToast(t('autonomy.agents.saved', { agent }))
+    const tabGrid = document.getElementById('settingsAutonomyGrid')
+    const tabFooter = document.getElementById('settingsAutonomyUpdatedAt')
+    if (tabGrid) renderAutonomyContent(tabGrid, tabFooter)
+  } catch {
+    showToast(t('kanban.toast.save_error'))
+  }
+}
+
 async function setAutonomyLevel(key, level) {
   try {
     const res = await fetch('/api/autonomy', {
@@ -19973,7 +20086,7 @@ async function setAutonomyLevel(key, level) {
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      showToast(data.error || 'Hiba')
+      showToast(data.message || data.error || t('kanban.toast.save_error'))
       return
     }
     // Refresh the settings tab autonomy grid if it is visible

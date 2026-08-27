@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": 0,
+  "updated_at": 1787856684,
   "_doc": "Heartbeat fokozatos autonomia. level: 1=csak jelez, 2=javasol+jovahagyas, 3=autonom+jelent. locked=true eseten a hard safety-szabaly miatt maxLevel=1, nem emelheto.",
   "categories": [
     {
@@ -48,6 +48,13 @@
     {
       "key": "skill_patch",
       "label": "Skill-patch alkalmazas",
+      "level": 3,
+      "locked": false,
+      "maxLevel": 3
+    },
+    {
+      "key": "marveen_selfdev",
+      "label": "Marveen sajat fejlesztese (kod, skill, szabaly, dashboard a repoban)",
       "level": 3,
       "locked": false,
       "maxLevel": 3

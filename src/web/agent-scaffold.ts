@@ -8,6 +8,7 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities } from './agent-config.js'
 import { resolveProfilePlaceholders, type ProfileTemplate } from './profiles.js'
 import { sanitizeCapabilityTag, CAPABILITY_TAG_MAX_PER_AGENT } from '../prompt-safety.js'
+import { loadAutonomyConfig, isAdminAgent, effectiveLevel, MARVEEN_SELFDEV_KEY, type AutonomyConfig } from '../autonomy.js'
 
 // Resolve the base URL agents should use to reach the dashboard API.
 // DASHBOARD_PUBLIC_URL wins when set (distributed / k3s deployment); falls
@@ -991,14 +992,80 @@ function buildFleetRosterBody(selfName: string): string {
   ].join('\n')
 }
 
-// Builds the autonomy-wiring section body. Static per agent name: the content
-// never changes based on runtime fleet state, but the curl examples embed the
-// resolved dashboard origin and the agent's own name so agents don't have to
-// guess.
+// Builds the autonomy-wiring section body. Per agent, and no longer static:
+// since 2026-08-27 the block states THIS agent's own rights, because the fleet
+// stopped being uniform on purpose.
+//
+// Boss, Telegram 593 and 595 (verbatim): "a jovoben soha ne kelljen ilyet
+// csinalni hogy brmit jova kelljen hagyni nekem. csak mert a marveen t
+// modositom. akarmelyik agenttel." and "kapjon az osszes agent admin jogot. es
+// kesz. kiveve az ingyenes agenteket."
+//
+// Why the concrete list of still-gated categories is COMPUTED and written out
+// rather than described in prose: an agent that reads "check the level before
+// acting" has to go look it up, and the failure mode of not looking it up is
+// silent -- it asks for an approval nobody wanted, or skips one that was due.
+// The list below is the answer already resolved for this agent, from the same
+// config the dashboard writes.
+//
+// A missing/unreadable config does NOT silently mean "no rights": it falls back
+// to the generic text that tells the agent to read the levels itself, and says
+// so.
 function buildAutonomyBody(name: string): string {
+  let config: AutonomyConfig | null = null
+  try {
+    config = loadAutonomyConfig()
+  } catch {
+    config = null
+  }
+
+  const admin = config ? isAdminAgent(name, config) : false
+  const gated = config
+    ? config.categories.filter((c) => effectiveLevel(c, name, config!) < 3)
+    : []
+  const selfdev = config?.categories.find((c) => c.key === MARVEEN_SELFDEV_KEY) ?? null
+
+  const rights: string[] = []
+  if (!config) {
+    rights.push(
+      '**A jogosultsagi fajl nem volt olvashato az utolso generalaskor** (store/autonomy-config.json hianyzik vagy serult), ezert ez a szekcio nem tudja megmondani a te szintjeidet. Ne tippelj: nezd meg magad a fajlt, es ha nincs meg, szolj a tulajdonosnak -- az update.sh a seed-config mappabol potolja.',
+      '',
+    )
+  } else if (admin) {
+    rights.push(
+      '**A TE JOGOSULTSAGOD: ADMIN.** Nem kell jovahagyast kerned a tulajdonostol. Elvegzed a muveletet, aztan jelented. Ez a dashboard Beallitasok / Onallosag lapjan agensenkent atallithato.',
+      '',
+    )
+  } else {
+    rights.push(
+      '**A TE JOGOSULTSAGOD: ALAP.** A kategoria szintje dont: level 2-nel jovahagyast kersz, mielott cselekszel. (Az ingyenes modellen futo agensek alapbol ide tartoznak; a tulajdonos ezt agensenkent felulirhatja a dashboardon.)',
+      '',
+    )
+  }
+
+  if (selfdev && effectiveLevel(selfdev, name, config!) >= 3) {
+    rights.push(
+      '**Marveen sajat fejlesztesehez (kod, skill, szabaly, dashboard) NEM kell jovahagyas -- egyetlen agensnek sem.** Boss, 2026-08-27: "soha ne kelljen ilyet csinalni hogy brmit jova kelljen hagyni nekem. csak mert a marveen t modositom. akarmelyik agenttel." A kategoria kulcsa: ' + MARVEEN_SELFDEV_KEY + '. Ettol fuggetlenul KOTELEZO marad a kanban kartya es a teszt-verifikacio: az nem jovahagyas, hanem nyom.',
+      '',
+    )
+  }
+
+  if (config) {
+    if (gated.length === 0) {
+      rights.push('Nalad egyetlen kategoria sem igenyel jovahagyast.', '')
+    } else {
+      rights.push('**Ami NALAD meg igy is jovahagyashoz kotott** (a tulajdonos penze, valodi cimzettnek meno uzenet, visszafordithatatlan torles, rendszer-szintu valtoztatas):', '')
+      for (const c of gated) {
+        rights.push(`- \`${c.key}\` (level ${effectiveLevel(c, name, config)}): ${c.label}`)
+      }
+      rights.push('')
+    }
+  }
+
   return [
     '## Autonómia és jóváhagyás',
     '',
+    ...rights,
     'Az autonóm műveletek fokozatait a store/autonomy-config.json szabályozza (level: 1=csak jelez, 2=javasol+jóváhagyás, 3=autonóm+jelent). Mielőtt önállóan cselekszel, nézd meg az adott kategória szintjét.',
     '',
     '**Level 1 (csak jelez)**: küldj inter-agent értesítést a főágensnek, de NE végezd el a műveletet. Ezután ÁLLJ MEG.',

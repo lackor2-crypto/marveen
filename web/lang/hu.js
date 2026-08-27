@@ -1924,6 +1924,16 @@ window._i18n.hu = {
   'autonomy.cap_label':          'Max {n}. szint',
   'autonomy.last_modified':      'Utolsó módosítás: {date}',
   'autonomy.not_modified':       'Még nem módosított',
+  'autonomy.agents.title':       'Kinek nem kell jóváhagyást kérnie',
+  'autonomy.agents.help':        'Az „admin" jogú ágens elvégzi a munkát és utána jelent, nem áll meg megkérdezni téged. Alapszabály: aki fizetős modellen fut, admin; aki ingyenes modellen, az jóváhagyást kér. Ezt itt ágensenként felülírhatod. A lenti listában látod, mi az, amit még egy admin ágens sem csinál meg kérdezés nélkül (pénz, kifelé menő üzenet, törlés).',
+  'autonomy.agents.admin':       'Admin: nem kér jóváhagyást',
+  'autonomy.agents.basic':       'Alap: jóváhagyást kér',
+  'autonomy.agents.free_badge':  'ingyenes modell',
+  'autonomy.agents.derived':     'az alapszabály szerint',
+  'autonomy.agents.overridden':  'kézzel beállítva',
+  'autonomy.agents.reset':       'Vissza az alapszabályra',
+  'autonomy.agents.empty':       'Ezen a telepítésen még nincs másik ágens. Amint létrehozol egyet, magától megjelenik itt, és a modellje alapján kapja meg a jogát.',
+  'autonomy.agents.saved':       'Mentve: {agent}',
   'autonomy.error':              'Nem sikerült betölteni az autonómia konfigot.',
   // A jelmagyarazat maga irja ki a szamot (<strong>1</strong>), ezert a
   // szovegben NINCS benne -- korabban "2 2 Javasol..." jelent meg, az 1-es

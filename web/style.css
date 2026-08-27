@@ -7391,6 +7391,93 @@ a.link-waiting {
   flex-direction: column;
   gap: 6px;
 }
+
+/* Per-agent admin rights (Boss 2026-08-27: "kapjon az osszes agent admin
+   jogot ... kiveve az ingyenes agenteket"). Same row skin as the category
+   rows so the two halves of the card read as one thing. */
+.autonomy-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.autonomy-agents-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+.autonomy-agents-help {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+  max-width: 72ch;
+}
+.autonomy-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.autonomy-agent-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 160px;
+}
+.autonomy-agent-model {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  flex: 1;
+  min-width: 180px;
+  word-break: break-all;
+}
+.autonomy-agent-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.autonomy-agent-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-input);
+  border-radius: 6px;
+  padding: 3px;
+}
+.autonomy-agent-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+.autonomy-agent-btn:hover:not(.active) { color: var(--text); background: var(--bg-card); }
+.autonomy-agent-btn.active { background: var(--success); color: #fff; }
+.autonomy-agent-btn.active.basic { background: var(--text-muted); }
+.autonomy-agent-reset {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
 .autonomy-row {
   display: flex;
   align-items: center;

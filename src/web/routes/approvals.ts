@@ -10,6 +10,7 @@ import {
   type Approval,
 } from '../../db.js'
 import { logger } from '../../logger.js'
+import { loadAutonomyConfig, effectiveLevel } from '../../autonomy.js'
 import { readBody, json } from '../http-helpers.js'
 import { agentDir, listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { currentBotName } from '../../config.js'
@@ -39,6 +40,33 @@ function getTimeoutAt(category: string): number | null {
     return Math.floor(Date.now() / 1000) + cat.timeout_minutes * 60
   } catch {
     return null
+  }
+}
+
+// Boss, 2026-08-27 (Telegram 593): "a jovoben soha ne kelljen ilyet csinalni
+// hogy brmit jova kelljen hagyni nekem. csak mert a marveen t modositom.
+// akarmelyik agenttel."
+//
+// The autonomy levels used to be advice only: they were written into every
+// agent's CLAUDE.md and nothing checked them here, so an agent that had not
+// re-read its file -- or was simply being careful -- still filed a request and
+// the owner still got pinged. That is precisely the friction he asked to be
+// rid of. So the level is now ENFORCED at the point the request arrives: if
+// this agent already stands at level 3 for this category, the request is
+// created AND resolved in the same breath, and nobody is woken up.
+//
+// It is created rather than rejected outright so the action still leaves a row
+// in the approvals list -- resolved_by 'autonomy' says who decided and why. An
+// unreadable config grants nothing: the request goes to the owner as before.
+function autonomyGrantsCategory(agentId: string, category: string): { granted: boolean; level: number } {
+  try {
+    const config = loadAutonomyConfig()
+    const cat = config.categories.find(c => c.key === category)
+    if (!cat) return { granted: false, level: 0 }
+    const level = effectiveLevel(cat, agentId, config)
+    return { granted: level >= 3, level }
+  } catch {
+    return { granted: false, level: 0 }
   }
 }
 
@@ -428,6 +456,20 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       action_payload: typeof action_payload === 'string' ? action_payload : null,
       timeout_at,
     })
+
+    const grant = autonomyGrantsCategory(requesterId, category.trim())
+    if (grant.granted) {
+      resolveApproval(
+        id, 'approved', 'autonomy', null,
+        `Az önállósági beállítás szerint a(z) "${category.trim()}" kategória ennél az ágensnél `
+        + `${grant.level}. szinten van, tehát nem kell hozzá tulajdonosi jóváhagyás. `
+        + 'Ez a dashboard Beállítások / Önállóság lapján megváltoztatható.',
+      )
+      const resolved = getApproval(id) ?? approval
+      logger.info({ id, agent_id, category, level: grant.level }, 'Approval auto-approved by autonomy level')
+      json(res, resolved, 201)
+      return true
+    }
 
     notifyMainAgent(approval)
     logger.info({ id, agent_id, category }, 'Approval request created')
