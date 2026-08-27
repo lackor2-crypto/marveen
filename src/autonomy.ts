@@ -14,21 +14,32 @@
 //   2. Every agent EXCEPT the free ones runs as admin: each category is lifted
 //      to the ceiling the config itself declares for it (maxLevel).
 //
-// Why "except the free ones" is DERIVED and not a stored list: a stored list is
-// a snapshot, and the next agent created after it is written would silently
-// fall outside it -- admin or not admin, nobody could tell which was meant. The
-// rule Boss stated is about the MODEL ("ingyenes"), so the model is what we
-// read. An explicit per-agent override exists on top for the cases his rule
-// does not decide (a paid-but-cheap agent he may not want at admin), and that
-// override is what the dashboard writes.
+// CORRECTION, same day (Telegram 604). The "except the free ones" half above
+// was Boss's first wording; when he saw what it would mean, he threw it out:
 //
-// Why admin stops at maxLevel instead of forcing 3 everywhere: the maxLevel:2
-// entries are the config's own statement that a human decides those -- the
-// owner's money (payment), a message to a real recipient (email_send,
-// external_message, publish_content), an irreversible delete (data_delete), a
-// permission change, sudo, a reboot. "Admin" removes the friction Boss was
-// annoyed by; it does not quietly hand out his wallet. Every one of those caps
-// is visible and raisable on the dashboard, so this is a default, not a wall.
+//   "az admin jogon azt ertettem hogy az osszes ai en vagyok. tehat ennek a
+//    korlatozasnak nincs semmi ertelme. hiszen a marvin alatt lehet barmi.
+//    tehetek oda opus 5 ot. de tehetek pt modelt is. barmit. es ha igy van
+//    akkor mitol rosszabb mondjuk most a masik fiok mint marvin. tehat csak
+//    annyit ertettem rajta hogy vedd ki a kibaszott korlatozasokat."
+//
+// His argument is about identity, and it is correct: which model sits under an
+// agent is his choice, changeable in one click, so it cannot be what decides
+// whether that agent is trusted. A free model is not a different person -- it
+// is the same owner on a cheaper engine. So the default is now ADMIN FOR
+// EVERY AGENT, and the model is shown on the dashboard as information only.
+//
+// The per-agent override stays, and it is the reason this file still exists:
+// the switch now runs the other way (it can TAKE a right away), and whoever
+// installs Marveen next may want exactly that. Removing the mechanism because
+// today's default is "everyone" would mean rebuilding it the first time
+// somebody disagrees.
+//
+// Every category now sits at level 3 with no ceiling (see the config's _doc).
+// What did NOT go away is the behavioural rule in every CLAUDE.md: before
+// money, before a message to a real recipient, and before a delete, the agent
+// asks the owner. That is a question on Telegram, not an approval ticket --
+// which is precisely the difference Boss was complaining about.
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -97,9 +108,16 @@ export function isFreeAgent(name: string): boolean {
   return isFreeOpenRouterModel(agentModelFor(name))
 }
 
-/** What the rule alone says, before any hand-set exception. */
-export function derivedAdmin(name: string): boolean {
-  return !isFreeAgent(name)
+/**
+ * What the rule alone says, before any hand-set exception: everyone.
+ *
+ * The parameter is kept deliberately. It is what a per-agent policy would need
+ * if the owner (or whoever installs this next) ever wants one back, and it
+ * keeps every call site honest about asking "for WHICH agent" instead of
+ * reading a global flag.
+ */
+export function derivedAdmin(_name: string): boolean {
+  return true
 }
 
 export function isAdminAgent(name: string, config?: AutonomyConfig): boolean {
@@ -110,8 +128,10 @@ export function isAdminAgent(name: string, config?: AutonomyConfig): boolean {
 
 /**
  * The level THIS agent runs a category at. Admin agents get the category's own
- * declared ceiling; everyone else gets the fleet level. `locked` wins over
- * both -- a hard safety constraint is not an autonomy setting.
+ * declared ceiling; everyone else gets the fleet level. `locked` still wins
+ * over both: nothing ships locked today, but the field is what a future hard
+ * safety constraint would use, and an autonomy setting must not be able to
+ * out-vote one.
  */
 export function effectiveLevel(cat: AutonomyCategory, name: string, config?: AutonomyConfig): number {
   if (cat.locked) return Math.min(cat.level, 1)

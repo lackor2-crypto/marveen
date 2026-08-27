@@ -48,39 +48,48 @@ const cat = (level: number, maxLevel: number, locked = false) => ({
 })
 
 describe('ki kap admin jogot', () => {
-  it('a fizetos modellen futo agens alapbol admin, az ingyenes nem', () => {
-    expect(isFreeAgent('agent-free')).toBe(true)
-    expect(isFreeAgent('agent-paid')).toBe(false)
-    // Cheap is not free: Boss's word was "ingyenes", and the measurable
-    // property behind it is the `:free` suffix, not the price.
-    expect(isFreeAgent('agent-cheap')).toBe(false)
-
+  it('MINDEN agens admin alapbol, az ingyenes modellen futo is', () => {
+    // Boss, 2026-08-27 (Telegram 604): "az osszes ai en vagyok ... mitol
+    // rosszabb mondjuk most a masik fiok mint marvin". The model is his
+    // choice, so it cannot be what decides trust. This test exists to stop
+    // the free/paid split from creeping back in as a "sensible default".
     expect(derivedAdmin('agent-paid')).toBe(true)
     expect(derivedAdmin('agent-cheap')).toBe(true)
-    expect(derivedAdmin('agent-free')).toBe(false)
+    expect(derivedAdmin('agent-free')).toBe(true)
+    expect(isAdminAgent('agent-free', cfg())).toBe(true)
   })
 
-  it('egy ismeretlen (kesobb letrehozott) agens nem esik ki a szabaly alol', () => {
-    // The whole reason the default is derived and not a stored roster: an agent
-    // created after the setting was made still gets an answer, not a blank.
+  it('a modellt tovabbra is meg tudjuk mondani -- de csak kijelzesre', () => {
+    expect(isFreeAgent('agent-free')).toBe(true)
+    expect(isFreeAgent('agent-paid')).toBe(false)
+    expect(isFreeAgent('agent-cheap')).toBe(false)
+    // ...and it changes nothing about the rights.
+    expect(isAdminAgent('agent-free', cfg())).toBe(isAdminAgent('agent-paid', cfg()))
+  })
+
+  it('egy ismeretlen (kesobb letrehozott) agens is admin', () => {
+    // An agent created after the setting was made still gets an answer, not a
+    // blank -- the default is a rule, not a stored roster.
     expect(isAdminAgent('agent-created-tomorrow', cfg())).toBe(true)
   })
 
-  it('a kezi felulirás mindket iranyban eros', () => {
-    expect(isAdminAgent('agent-free', cfg({ 'agent-free': true }))).toBe(true)
+  it('a kezi felulirás el tudja venni a jogot', () => {
+    // The switch now runs the other way: the default gives everything, and the
+    // override is how a future owner takes something back.
     expect(isAdminAgent('agent-paid', cfg({ 'agent-paid': false }))).toBe(false)
+    expect(isAdminAgent('agent-free', cfg({ 'agent-free': true }))).toBe(true)
   })
 
-  it('a felulirás torlese visszaadja az alapszabalyt', () => {
-    const c = setAgentAdminOverride(cfg({ 'agent-paid': false }), 'agent-paid', null)
-    expect(c.agent_admin_overrides).not.toHaveProperty('agent-paid')
-    expect(isAdminAgent('agent-paid', c)).toBe(true)
+  it('a felulirás torlese visszaadja az alapertelmezest', () => {
+    const c = setAgentAdminOverride(cfg({ 'agent-free': false }), 'agent-free', null)
+    expect(c.agent_admin_overrides).not.toHaveProperty('agent-free')
+    expect(isAdminAgent('agent-free', c)).toBe(true)
   })
 
-  it('a lista megmondja, hogy a jog szabalybol vagy kezbol jon', () => {
-    const rows = listAgentAutonomy(cfg({ 'agent-free': true }))
+  it('a lista megmondja, hogy a jog alapertelmezesbol vagy kezbol jon', () => {
+    const rows = listAgentAutonomy(cfg({ 'agent-free': false }))
     const free = rows.find(r => r.name === 'agent-free')!
-    expect(free.admin).toBe(true)
+    expect(free.admin).toBe(false)
     expect(free.overridden).toBe(true)
     const paid = rows.find(r => r.name === 'agent-paid')!
     expect(paid.admin).toBe(true)
@@ -93,14 +102,14 @@ describe('ki kap admin jogot', () => {
 describe('milyen szintet kap egy kategorian', () => {
   it('az admin a kategoria sajat plafonjaig emel, nem tovabb', () => {
     expect(effectiveLevel(cat(2, 3), 'agent-paid', cfg())).toBe(3)
-    // maxLevel 2 = the config itself says a human decides. Admin does not
-    // break that open; that is what keeps money and outgoing mail gated.
+    // A ceiling still means something, for whoever sets one later.
     expect(effectiveLevel(cat(2, 2), 'agent-paid', cfg())).toBe(2)
   })
 
-  it('a nem-admin agens a flotta szintjet kapja', () => {
-    expect(effectiveLevel(cat(2, 3), 'agent-free', cfg())).toBe(2)
-    expect(effectiveLevel(cat(3, 3), 'agent-free', cfg())).toBe(3)
+  it('a kezzel visszafogott agens a flotta szintjet kapja', () => {
+    const held = cfg({ 'agent-free': false })
+    expect(effectiveLevel(cat(2, 3), 'agent-free', held)).toBe(2)
+    expect(effectiveLevel(cat(3, 3), 'agent-free', held)).toBe(3)
   })
 
   it('a biztonsagi zar az adminra is vonatkozik', () => {
@@ -114,9 +123,6 @@ describe('friss telepites', () => {
   )
 
   it('a seed-config tartalmazza a marveen_selfdev kategoriat, 3-as szinten', () => {
-    // Boss 593: modifying Marveen must never need his approval, from ANY agent
-    // -- the free ones included. That is only true if the base level is 3, not
-    // if admin lifts it, because free agents are not admin.
     const c = seed.categories.find((x: { key: string }) => x.key === MARVEEN_SELFDEV_KEY)
     expect(c, 'marveen_selfdev hianyzik a seed-configbol').toBeTruthy()
     expect(c.level).toBe(3)
@@ -125,12 +131,17 @@ describe('friss telepites', () => {
     expect(effectiveLevel(c, 'agent-free', cfg())).toBe(3)
   })
 
-  it('a penz es a kifele meno uzenet a friss telepitesen is jovahagyashoz kotott', () => {
-    for (const key of ['payment', 'email_send', 'external_message', 'publish_content', 'data_delete']) {
-      const c = seed.categories.find((x: { key: string }) => x.key === key)
-      expect(c, `${key} hianyzik a seed-configbol`).toBeTruthy()
-      expect(c.maxLevel, `${key} maxLevel megvaltozott`).toBe(2)
-      expect(effectiveLevel(c, 'agent-paid', cfg())).toBeLessThan(3)
+  it('egy nullarol telepitett Marveenben EGYETLEN kategoria sem ker jovahagyast', () => {
+    // Boss, 2026-08-27 (Telegram 604): "Ezek ugy legyenek megcsinalva hogy ha
+    // barki alapbol a nullarol ujratelepiti a marveent akkor nala is igy
+    // mukodjon!!! globalisan". A fresh install reads seed-config, so this file
+    // -- not the live store/ copy on this one machine -- is what has to say it.
+    expect(seed.categories.length).toBeGreaterThan(0)
+    for (const c of seed.categories) {
+      expect(c.level, `${c.key} nem 3-as szinten van a seed-configban`).toBe(3)
+      expect(c.maxLevel, `${c.key} meg plafonozva van a seed-configban`).toBe(3)
+      expect(c.locked, `${c.key} zarolva van a seed-configban`).toBe(false)
+      expect(effectiveLevel(c, 'agent-free', cfg())).toBe(3)
     }
   })
 })

@@ -1033,12 +1033,16 @@ function buildAutonomyBody(name: string): string {
     )
   } else if (admin) {
     rights.push(
-      '**A TE JOGOSULTSAGOD: ADMIN.** Nem kell jovahagyast kerned a tulajdonostol. Elvegzed a muveletet, aztan jelented. Ez a dashboard Beallitasok / Onallosag lapjan agensenkent atallithato.',
+      '**A TE JOGOSULTSAGOD: ADMIN.** Nem kell jovahagyast kerned a tulajdonostol. Elvegzed a muveletet, aztan jelented.',
+      '',
+      'Boss, 2026-08-27: "az admin jogon azt ertettem hogy az osszes ai en vagyok. ... mitol rosszabb mondjuk most a masik fiok mint marvin. tehat csak annyit ertettem rajta hogy vedd ki a kibaszott korlatozasokat." Ezert MINDEN agens admin, fuggetlenul attol, milyen (akar ingyenes) modellen fut: a modell a tulajdonos valasztasa, nem egy bizalmi kulonbseg.',
+      '',
+      '**Amit ez NEM tett meg:** a penzmozgas, a valodi cimzettnek meno uzenet (email, kifele meno uzenet, publikalas) es a torles elott tovabbra is el a KOTELEZO VISSZAKERDEZES szabalya. Az nem jovahagyas-keres az API-n, hanem egy kerdes a tulajdonoshoz a sajat csatornajan -- pontosan ez a kulonbseg, amit kert.',
       '',
     )
   } else {
     rights.push(
-      '**A TE JOGOSULTSAGOD: ALAP.** A kategoria szintje dont: level 2-nel jovahagyast kersz, mielott cselekszel. (Az ingyenes modellen futo agensek alapbol ide tartoznak; a tulajdonos ezt agensenkent felulirhatja a dashboardon.)',
+      '**A TE JOGOSULTSAGOD: ALAP -- a tulajdonos KEZZEL vette el toled az admin jogot** a dashboard Beallitasok / Onallosag lapjan. Az alapertelmezes minden agensnel admin, tehat ez nalad szandekos kivetel. A kategoria szintje dont: level 2-nel jovahagyast kersz, mielott cselekszel.',
       '',
     )
   }
@@ -1052,7 +1056,7 @@ function buildAutonomyBody(name: string): string {
 
   if (config) {
     if (gated.length === 0) {
-      rights.push('Nalad egyetlen kategoria sem igenyel jovahagyast.', '')
+      rights.push('Nalad egyetlen kategoria sem igenyel jovahagyast az API-n.', '')
     } else {
       rights.push('**Ami NALAD meg igy is jovahagyashoz kotott** (a tulajdonos penze, valodi cimzettnek meno uzenet, visszafordithatatlan torles, rendszer-szintu valtoztatas):', '')
       for (const c of gated) {
