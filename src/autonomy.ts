@@ -35,7 +35,29 @@
 // today's default is "everyone" would mean rebuilding it the first time
 // somebody disagrees.
 //
-// Every category now sits at level 3 with no ceiling (see the config's _doc).
+// SECOND CORRECTION, same day (Telegram 611):
+//
+//   "he. lattam hogy az autonomiaba belenyultal. amik ott be voltak allitva
+//    azokat allitsd vissza! az jo hogy oda betetted az agenteket, de a
+//    tobibhez miert nyultal?"
+//
+// Reading "vedd ki a korlatozasokat" as "raise every category to 3" was too
+// wide: those per-category dials are HIS, set by hand on the Autonomy tab, and
+// nobody asked for them to be moved. They are restored to their pre-change
+// values, and the rule here is now simple enough that it cannot quietly
+// override them again:
+//
+//   * the category level is the truth, for every agent alike -- no agent is
+//     silently lifted above the number the owner sees on the dashboard;
+//   * maxLevel is what it always was: the ceiling of the SLIDER, i.e. how high
+//     the owner may turn that category up, not a right handed to an agent;
+//   * the per-agent switch only TAKES away: an agent set to "alap" never acts
+//     alone -- it is capped at 2 (ask first) even where the category says 3.
+//     Capped at 2 and not at 1 because that is what the button on the
+//     dashboard promises ("Alap: jovahagyast ker"); silently making it "report
+//     and stop" would be a harsher rule than the label the owner clicked.
+//     Default stays admin for everyone, per 604.
+//
 // What did NOT go away is the behavioural rule in every CLAUDE.md: before
 // money, before a message to a real recipient, and before a delete, the agent
 // asks the owner. That is a question on Telegram, not an approval ticket --
@@ -127,16 +149,22 @@ export function isAdminAgent(name: string, config?: AutonomyConfig): boolean {
 }
 
 /**
- * The level THIS agent runs a category at. Admin agents get the category's own
- * declared ceiling; everyone else gets the fleet level. `locked` still wins
- * over both: nothing ships locked today, but the field is what a future hard
- * safety constraint would use, and an autonomy setting must not be able to
- * out-vote one.
+ * The level THIS agent runs a category at.
+ *
+ * The category's own `level` is the answer for every admin agent -- i.e. the
+ * number the owner set on the dashboard is the number that governs, so nothing
+ * here can quietly run higher than what he can see (Boss, Telegram 611).
+ * `maxLevel` is NOT consulted: it caps the slider in the UI and the POST
+ * handler, it is not a right. An agent switched off admin is capped at 2 --
+ * it asks before acting even where the category allows acting alone, which is
+ * exactly what its dashboard button says. `locked` still wins over everything:
+ * nothing ships locked today, but the field is what a future hard safety
+ * constraint would use, and an autonomy setting must not out-vote one.
  */
 export function effectiveLevel(cat: AutonomyCategory, name: string, config?: AutonomyConfig): number {
   if (cat.locked) return Math.min(cat.level, 1)
-  if (!isAdminAgent(name, config)) return cat.level
-  return Math.max(cat.level, cat.maxLevel)
+  if (!isAdminAgent(name, config)) return Math.min(cat.level, 2)
+  return cat.level
 }
 
 export interface AgentAutonomyRow {

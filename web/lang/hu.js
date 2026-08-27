@@ -1925,7 +1925,7 @@ window._i18n.hu = {
   'autonomy.last_modified':      'Utolsó módosítás: {date}',
   'autonomy.not_modified':       'Még nem módosított',
   'autonomy.agents.title':       'Kinek nem kell jóváhagyást kérnie',
-  'autonomy.agents.help':        'Az „admin" jogú ágens elvégzi a munkát és utána jelent, nem áll meg megkérdezni téged. Alapból MINDEN ágens admin, akármilyen modellen fut: a modellt te választod ki, tehát nem az dönti el, kiben bízol. Ha valamelyiket mégis vissza akarod fogni, itt egyenként megteheted. A pénzmozgás, a valódi címzettnek menő üzenet és a törlés előtt az ágens akkor is megkérdez téged Telegramon, ha admin.',
+  'autonomy.agents.help':        'Az „admin" jogú ágenst nem a modellje korlátozza: ugyanaz jár neki, mint a többinek. Hogy mit végezhet el kérdezés nélkül, azt az alatta lévő kategóriák szintje dönti el — amit ott beállítasz, az mindegyik ágensre érvényes, senki nem fut magasabb szinten annál, mint amit ott látsz. Alapból MINDEN ágens admin, akármilyen modellen fut: a modellt te választod ki, tehát nem az dönti el, kiben bízol. Ha valamelyiket vissza akarod fogni, itt egyenként megteheted: az „alap" jogú ágens minden kategóriában csak jelez, és megáll. A pénzmozgás, a valódi címzettnek menő üzenet és a törlés előtt az ágens akkor is megkérdez téged Telegramon, ha admin.',
   'autonomy.agents.admin':       'Admin: nem kér jóváhagyást',
   'autonomy.agents.basic':       'Alap: jóváhagyást kér',
   'autonomy.agents.free_badge':  'ingyenes modell (a jogát nem befolyásolja)',

@@ -463,7 +463,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         id, 'approved', 'autonomy', null,
         `Az önállósági beállítás szerint a(z) "${category.trim()}" kategória ennél az ágensnél `
         + `${grant.level}. szinten van, tehát nem kell hozzá tulajdonosi jóváhagyás. `
-        + 'Ez a dashboard Beállítások / Önállóság lapján megváltoztatható.',
+        + 'Ez a dashboard Beállítások / Autonómia lapján megváltoztatható.',
       )
       const resolved = getApproval(id) ?? approval
       logger.info({ id, agent_id, category, level: grant.level }, 'Approval auto-approved by autonomy level')

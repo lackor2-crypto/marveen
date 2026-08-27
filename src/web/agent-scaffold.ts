@@ -1033,7 +1033,9 @@ function buildAutonomyBody(name: string): string {
     )
   } else if (admin) {
     rights.push(
-      '**A TE JOGOSULTSAGOD: ADMIN.** Nem kell jovahagyast kerned a tulajdonostol. Elvegzed a muveletet, aztan jelented.',
+      '**A TE JOGOSULTSAGOD: ADMIN.** Nem a modelled es nem a fiokod korlatoz: ugyanaz jar neked, mint barmelyik masik agensnek. Amit a kategoria 3. szinten enged, azt elvegzed es utana jelented -- nem kersz ra engedelyt.',
+      '',
+      'Amit a kategoria alacsonyabb szinten tart, az viszont RAD IS vonatkozik: a szinteket a tulajdonos allitja a dashboard Beallitasok / Autonomia lapjan, es az ott latott szam az igazsag. Egyetlen agens sem fut magatol magasabb szinten, mint ami ott ki van irva (Boss, 2026-08-27: "amik ott be voltak allitva azokat allitsd vissza").',
       '',
       'Boss, 2026-08-27: "az admin jogon azt ertettem hogy az osszes ai en vagyok. ... mitol rosszabb mondjuk most a masik fiok mint marvin. tehat csak annyit ertettem rajta hogy vedd ki a kibaszott korlatozasokat." Ezert MINDEN agens admin, fuggetlenul attol, milyen (akar ingyenes) modellen fut: a modell a tulajdonos valasztasa, nem egy bizalmi kulonbseg.',
       '',
@@ -1042,7 +1044,7 @@ function buildAutonomyBody(name: string): string {
     )
   } else {
     rights.push(
-      '**A TE JOGOSULTSAGOD: ALAP -- a tulajdonos KEZZEL vette el toled az admin jogot** a dashboard Beallitasok / Onallosag lapjan. Az alapertelmezes minden agensnel admin, tehat ez nalad szandekos kivetel. A kategoria szintje dont: level 2-nel jovahagyast kersz, mielott cselekszel.',
+      '**A TE JOGOSULTSAGOD: ALAP -- a tulajdonos KEZZEL vette el toled az admin jogot** a dashboard Beallitasok / Autonomia lapjan. Az alapertelmezes minden agensnel admin, tehat ez nalad szandekos kivetel. Amig igy all, egyetlen kategorian sem cselekszel onallóan: ahol a kategoria 3-at mutat, ott is jovahagyast kersz elotte az API-n (2. szint). A 2. szinten allo kategoriak nalad ugyanugy jovahagyasosak, mint mindenki masnal.',
       '',
     )
   }

@@ -2360,7 +2360,7 @@ window._i18n.en = {
   'autonomy.loading':			'Loading...',
   'autonomy.lock_label':			'Security lock',
   'autonomy.agents.title':			'Who does not have to ask for approval',
-  'autonomy.agents.help':			'An agent with "admin" rights does the work and reports afterwards instead of stopping to ask you. By default EVERY agent is admin, whatever model it runs on: you pick the model, so it cannot be what decides who you trust. If you want to hold one back anyway, you can do it per agent here. Before spending money, messaging a real recipient or deleting anything, an agent asks you on Telegram even when it is admin.',
+  'autonomy.agents.help':			'An agent with "admin" rights is not limited by the model it runs on: it gets exactly what the others get. What it may do without asking is decided by the category levels below — whatever you set there applies to every agent, and nobody runs at a higher level than the number you see. By default EVERY agent is admin, whatever model it runs on: you pick the model, so it cannot be what decides who you trust. To hold one back, switch it here: an agent set to "basic" only reports and stops, in every category. Before money, a message to a real recipient, or a delete, an agent asks you on Telegram even when it is admin.',
   'autonomy.agents.admin':			'Admin: acts without approval',
   'autonomy.agents.basic':			'Basic: asks for approval',
   'autonomy.agents.free_badge':			'free model (does not affect its rights)',

@@ -1,10 +1,10 @@
 // Per-agent admin rights (Boss, 2026-08-27, Telegram 593 + 595).
 //
-// What this test is for: the fleet used to be uniform, so nobody could get the
-// answer to "may THIS agent act on its own?" wrong -- there was only one
-// answer. Now there are two, derived from the model, and a mistake in either
-// direction is silent: a free agent quietly acting alone, or a paid agent
-// still waking the owner for every step. So both directions are pinned here.
+// What this test is for: "may THIS agent act on its own?" now has two inputs
+// that can each be got wrong silently -- the per-agent switch, and the
+// per-category level the owner set by hand. Both directions are pinned here:
+// nobody is held back for running a cheap model, and nobody runs above the
+// number the owner can see on the dashboard.
 import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -100,16 +100,34 @@ describe('ki kap admin jogot', () => {
 })
 
 describe('milyen szintet kap egy kategorian', () => {
-  it('az admin a kategoria sajat plafonjaig emel, nem tovabb', () => {
-    expect(effectiveLevel(cat(2, 3), 'agent-paid', cfg())).toBe(3)
-    // A ceiling still means something, for whoever sets one later.
-    expect(effectiveLevel(cat(2, 2), 'agent-paid', cfg())).toBe(2)
+  it('a tulajdonos altal beallitott szint az igazsag -- az admin sem lep folebe', () => {
+    // Boss, 2026-08-27 (Telegram 611): "amik ott be voltak allitva azokat
+    // allitsd vissza!". A dial he set to 2 must BEHAVE as 2; an earlier
+    // version lifted admins to maxLevel, which made the number on the
+    // dashboard a decoration. That is what this pins.
+    expect(effectiveLevel(cat(2, 3), 'agent-paid', cfg())).toBe(2)
+    expect(effectiveLevel(cat(1, 3), 'agent-paid', cfg())).toBe(1)
+    expect(effectiveLevel(cat(3, 3), 'agent-free', cfg())).toBe(3)
   })
 
-  it('a kezzel visszafogott agens a flotta szintjet kapja', () => {
+  it('a maxLevel a csuszka plafonja, nem egy agensnek adott jog', () => {
+    // maxLevel caps how high the OWNER may turn the category up (the POST
+    // handler rejects more). It must never raise anyone by itself.
+    for (const max of [1, 2, 3]) {
+      expect(effectiveLevel(cat(2, max), 'agent-paid', cfg())).toBe(2)
+    }
+  })
+
+  it('a kezzel visszafogott agens sehol nem cselekszik onalloan, de kerdezhet', () => {
+    // The dashboard button says "Alap: jovahagyast ker" -- so basic means
+    // capped at 2 (ask first), not 1 (report and stop). The label and the
+    // behaviour have to be the same thing.
     const held = cfg({ 'agent-free': false })
+    expect(effectiveLevel(cat(3, 3), 'agent-free', held)).toBe(2)
     expect(effectiveLevel(cat(2, 3), 'agent-free', held)).toBe(2)
-    expect(effectiveLevel(cat(3, 3), 'agent-free', held)).toBe(3)
+    expect(effectiveLevel(cat(1, 3), 'agent-free', held)).toBe(1)
+    // ...while everyone else is unaffected by that one switch.
+    expect(effectiveLevel(cat(3, 3), 'agent-paid', held)).toBe(3)
   })
 
   it('a biztonsagi zar az adminra is vonatkozik', () => {
@@ -131,17 +149,36 @@ describe('friss telepites', () => {
     expect(effectiveLevel(c, 'agent-free', cfg())).toBe(3)
   })
 
-  it('egy nullarol telepitett Marveenben EGYETLEN kategoria sem ker jovahagyast', () => {
+  it('egy nullarol telepitett Marveen ugyanazokat a szinteket kapja, es minden agens admin', () => {
     // Boss, 2026-08-27 (Telegram 604): "Ezek ugy legyenek megcsinalva hogy ha
     // barki alapbol a nullarol ujratelepiti a marveent akkor nala is igy
     // mukodjon!!! globalisan". A fresh install reads seed-config, so this file
     // -- not the live store/ copy on this one machine -- is what has to say it.
+    //
+    // What "igy" means was narrowed by Telegram 611: the per-category dials are
+    // the owner's, so this does NOT assert that everything is 3. It asserts
+    // that a fresh install is self-consistent -- every agent, free or paid,
+    // runs each category at exactly the level written in the file.
     expect(seed.categories.length).toBeGreaterThan(0)
     for (const c of seed.categories) {
-      expect(c.level, `${c.key} nem 3-as szinten van a seed-configban`).toBe(3)
-      expect(c.maxLevel, `${c.key} meg plafonozva van a seed-configban`).toBe(3)
-      expect(c.locked, `${c.key} zarolva van a seed-configban`).toBe(false)
-      expect(effectiveLevel(c, 'agent-free', cfg())).toBe(3)
+      expect([1, 2, 3], `${c.key} ervenytelen szint`).toContain(c.level)
+      expect(c.level, `${c.key} a sajat plafonja folott van`).toBeLessThanOrEqual(c.maxLevel)
+      for (const who of ['agent-free', 'agent-paid', 'agent-created-tomorrow']) {
+        expect(effectiveLevel(c, who, cfg()), `${c.key} / ${who}`).toBe(c.locked ? 1 : c.level)
+      }
+    }
+  })
+
+  it('a seed-config szintjei megegyeznek a szallitott alapertelmezessel', () => {
+    // Guards the actual regression of 2026-08-27: a blanket rewrite of every
+    // level. These four are the ones that must stay gated out of the box --
+    // the owner's money, a message to a real recipient, an irreversible
+    // delete, and root. If a later change wants them open, it has to say so
+    // here, in a diff somebody reads.
+    const byKey = Object.fromEntries(seed.categories.map((c: { key: string }) => [c.key, c]))
+    for (const key of ['payment', 'email_send', 'data_delete', 'privileged_sudo']) {
+      expect(byKey[key], `${key} hianyzik a seed-configbol`).toBeTruthy()
+      expect(byKey[key].level, `${key} szintje megvaltozott a seed-configban`).toBe(2)
     }
   })
 })

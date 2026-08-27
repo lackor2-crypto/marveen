@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "updated_at": 1787857844,
-  "_doc": "Boss, 2026-08-27: \"az admin jogon azt ertettem hogy az osszes ai en vagyok ... vedd ki a kibaszott korlatozasokat\". Ezert minden kategoria level 3 (autonom + jelent), es egyik sincs plafonozva. A level maradt 1=csak jelez, 2=javasol+jovahagyas, 3=autonom+jelent: aki vissza akar tenni egy kategoriat jovahagyas ala, a dashboard Beallitasok / Onallosag lapjan egy kattintassal megteheti. A penz, a valodi cimzettnek meno uzenet es a torles elott tovabbra is el a KOTELEZO VISSZAKERDEZES szabalya -- az nem jovahagyas-keres, hanem egy kerdes a tulajdonoshoz.",
+  "updated_at": 1787856684,
+  "_doc": "Heartbeat fokozatos autonomia. level: 1=csak jelez, 2=javasol+jovahagyas, 3=autonom+jelent. locked=true eseten a hard safety-szabaly miatt maxLevel=1, nem emelheto.",
   "categories": [
     {
       "key": "kanban_archive_done",
@@ -34,7 +34,7 @@
     {
       "key": "deploy_retry",
       "label": "Elbukott deploy/CI ujraprobalkozas",
-      "level": 3,
+      "level": 2,
       "locked": false,
       "maxLevel": 3
     },
@@ -62,49 +62,49 @@
     {
       "key": "email_send",
       "label": "Email kuldes / valasz",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 30
     },
     {
       "key": "publish_content",
       "label": "Publikalas (Skool / blog / kozosseg)",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
       "key": "payment",
       "label": "Vasarlas / penzmozgas",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
       "key": "data_delete",
       "label": "Fajl / adat torles",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
       "key": "permission_change",
       "label": "Jogosultsag-valtoztatas / megosztas",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
       "key": "external_message",
       "label": "Kulso uzenet kuldes",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
@@ -124,7 +124,7 @@
     {
       "key": "package_install",
       "label": "Csomag telepites (apt/pip/npm/snap)",
-      "level": 3,
+      "level": 2,
       "locked": false,
       "maxLevel": 3,
       "timeout_minutes": 60
@@ -132,7 +132,7 @@
     {
       "key": "service_systemd_change",
       "label": "Service / systemd modositas (unit szerkesztes, enable/disable, daemon-reload)",
-      "level": 3,
+      "level": 2,
       "locked": false,
       "maxLevel": 3,
       "timeout_minutes": 60
@@ -140,15 +140,15 @@
     {
       "key": "privileged_sudo",
       "label": "Root / sudo jogosultsagot igenylo muvelet",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
       "key": "system_config_change",
       "label": "Fajlrendszer / rendszerkonfiguracio modositas (rendszerfajlok, PATH-profil, halozati config)",
-      "level": 3,
+      "level": 2,
       "locked": false,
       "maxLevel": 3,
       "timeout_minutes": 60
@@ -156,9 +156,9 @@
     {
       "key": "system_reboot",
       "label": "Ujrainditas (gep vagy WSL distro)",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     },
     {
@@ -192,7 +192,7 @@
     {
       "key": "gdrive_modify",
       "label": "Google Drive modositas (tartalom szerkesztes, feltoltes, uj fajl)",
-      "level": 3,
+      "level": 2,
       "locked": false,
       "maxLevel": 3,
       "timeout_minutes": 60
@@ -200,9 +200,9 @@
     {
       "key": "gdrive_share",
       "label": "Google Drive kulso megosztas (link/jogosultsag) -- erzekeny",
-      "level": 3,
+      "level": 2,
       "locked": false,
-      "maxLevel": 3,
+      "maxLevel": 2,
       "timeout_minutes": 60
     }
   ]
