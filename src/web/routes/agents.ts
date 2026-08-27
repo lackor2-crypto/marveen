@@ -117,6 +117,8 @@ import { readGateConfig, readGateRunState, writeGateRunState } from '../context-
 import { COMPACT_RETRY_WINDOW_MS, type ContextReadingState } from '../../context-restart-gate.js'
 import { detectPermissionMode } from '../../pane-state.js'
 import { computeAgentActivityLabel } from '../../agent-activity-label.js'
+import { snapshotShowsQuotaExhausted } from '../../rate-limit-status.js'
+import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
 import { readAutoRestartConfig, writeAutoRestartConfig } from '../auto-restart-store.js'
@@ -770,6 +772,14 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       return { compacting: settleCompaction(name, tokens), contextTokens: tokens }
     }
 
+    // Durable "out of quota" verdict from the agent's own rate-limit snapshot,
+    // so the label reads "keret elfogyott" even after a restart wiped the live
+    // pane banner (Boss, 2026-08-27). Only read for a running agent; a
+    // fresh-install agent with no snapshot yields null -> false (not limited).
+    // The snapshot key is the agent id: MAIN_AGENT_ID for the main agent.
+    const quotaExhaustedOf = (running: boolean, key: string): boolean =>
+      running && snapshotShowsQuotaExhausted(readRateLimitSnapshot(key), Date.now())
+
     // Main agent runs in the --channels session, not agent-<name>.
     {
       const mainPane = localPaneCache.get(
@@ -785,7 +795,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         displayName: currentBotName(),
         isMain: true,
         running,
-        state: running && mainCompaction.compacting ? 'working' : label(running, mainPane, MAIN_AGENT_ID),
+        state: running && mainCompaction.compacting ? 'working' : label(running, mainPane, MAIN_AGENT_ID, quotaExhaustedOf(running, MAIN_AGENT_ID)),
         mode: modeOf(running, mainPane),
         tail: tailOf(mainPane),
         compacting: mainCompaction.compacting,
@@ -812,7 +822,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       const compaction = compactionOf(name, false)
       const state = runState === 'unreachable'
         ? 'unreachable'
-        : (running && compaction.compacting ? 'working' : label(running, pane, name))
+        : (running && compaction.compacting ? 'working' : label(running, pane, name, quotaExhaustedOf(running, name)))
       entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name), compacting: compaction.compacting })
     }
 

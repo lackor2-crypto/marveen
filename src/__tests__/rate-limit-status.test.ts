@@ -4,6 +4,7 @@ import {
   worseTier,
   tierForSnapshot,
   isStale,
+  snapshotShowsQuotaExhausted,
   CAUTION_THRESHOLD_PCT,
   CRITICAL_THRESHOLD_PCT,
   STALE_AFTER_MS,
@@ -68,5 +69,54 @@ describe('isStale', () => {
   it('is stale once the threshold has elapsed', () => {
     expect(isStale(1000, 1000 + STALE_AFTER_MS)).toBe(true)
     expect(isStale(0, 60 * 60_000)).toBe(true)
+  })
+})
+
+describe('snapshotShowsQuotaExhausted', () => {
+  const NOW = 1_000_000
+
+  it('is false when there is no snapshot (fresh install)', () => {
+    expect(snapshotShowsQuotaExhausted(null, NOW)).toBe(false)
+  })
+
+  it('is true when the 7-day window is 100% and has not reset yet', () => {
+    // The real Boss case: 5h fresh, 7d spent, reset in the future.
+    expect(snapshotShowsQuotaExhausted(
+      { fiveHour: { usedPct: 0, resetsAt: NOW + 3_600_000 }, sevenDay: { usedPct: 100, resetsAt: NOW + 86_400_000 } },
+      NOW,
+    )).toBe(true)
+  })
+
+  it('is true when the 5-hour window is 100% and has not reset yet', () => {
+    expect(snapshotShowsQuotaExhausted(
+      { fiveHour: { usedPct: 100, resetsAt: NOW + 1000 }, sevenDay: { usedPct: 40, resetsAt: NOW + 86_400_000 } },
+      NOW,
+    )).toBe(true)
+  })
+
+  it('is false once the exhausted window has already reset (resetsAt in the past)', () => {
+    // A stale 100% whose window has rolled over: the account can work again.
+    expect(snapshotShowsQuotaExhausted(
+      { fiveHour: null, sevenDay: { usedPct: 100, resetsAt: NOW - 1 } },
+      NOW,
+    )).toBe(false)
+  })
+
+  it('is false when 100% but resetsAt is unknown (cannot prove it is still spent)', () => {
+    expect(snapshotShowsQuotaExhausted(
+      { fiveHour: null, sevenDay: { usedPct: 100, resetsAt: null } },
+      NOW,
+    )).toBe(false)
+  })
+
+  it('is false below 100% even close to the cap', () => {
+    expect(snapshotShowsQuotaExhausted(
+      { fiveHour: { usedPct: 99, resetsAt: NOW + 1000 }, sevenDay: { usedPct: 95, resetsAt: NOW + 1000 } },
+      NOW,
+    )).toBe(false)
+  })
+
+  it('is false for free-tier agents that report no windows', () => {
+    expect(snapshotShowsQuotaExhausted({ fiveHour: null, sevenDay: null }, NOW)).toBe(false)
   })
 })

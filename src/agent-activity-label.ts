@@ -35,14 +35,26 @@ export function paneRecentlyChanged(key: string, pane: string): boolean {
 
 // `key` identifies the agent for the pane-change cache above (MAIN_AGENT_ID
 // for the main agent, the agent name for everyone else).
-export function computeAgentActivityLabel(running: boolean, pane: string | null, key: string): string {
+//
+// `quotaExhausted` is the DURABLE limit signal, computed by the caller from the
+// account's rate-limit snapshot (snapshotShowsQuotaExhausted). It exists
+// because the pane banner is transient: Boss saw the main agent read
+// "várakozik" while the Szakértő on the SAME weekly-out state read "keret
+// elfogyott" (2026-08-27). The only difference was that Marvin's session had
+// been restarted, so its "You've hit your weekly limit" banner had scrolled
+// away and paneShowsLimitBlock no longer matched -- while the snapshot still
+// knew 7d=100%. Passing the snapshot verdict in fixes that blind spot without
+// pulling snapshot I/O into this pure, fixture-testable module.
+export function computeAgentActivityLabel(running: boolean, pane: string | null, key: string, quotaExhausted = false): string {
   if (!running) return 'stopped'
   if (pane === null) return 'unknown'
   // An exhausted account does nothing until its window rolls over, however
   // busy the pane looks. Checked FIRST: Boss found the main agent's Terminal
   // button glowing green ("working") while its pane read "You've hit your
-  // weekly limit -- resets Aug 14" (2026-08-11).
-  if (paneShowsLimitBlock(pane)) return 'limited'
+  // weekly limit -- resets Aug 14" (2026-08-11). Either the live banner OR the
+  // durable snapshot verdict is enough -- the snapshot covers the case where a
+  // restart wiped the banner (2026-08-27).
+  if (paneShowsLimitBlock(pane) || quotaExhausted) return 'limited'
   const s = detectPaneState(pane)
   // 'busy' is the model actually generating or running a tool.
   if (s === 'busy') return 'working'

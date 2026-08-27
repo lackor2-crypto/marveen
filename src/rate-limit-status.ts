@@ -85,3 +85,34 @@ export function tierForSnapshot(snapshot: Pick<RateLimitSnapshot, 'fiveHour' | '
 export function isStale(updatedAt: number, nowMs: number, staleAfterMs: number = STALE_AFTER_MS): boolean {
   return nowMs - updatedAt >= staleAfterMs
 }
+
+/**
+ * True when the account's own usage windows say it is fully out of quota and
+ * the exhausted window has NOT yet reset. This is a DURABLE signal that
+ * survives a pane restart, unlike the transient "You've hit your ... limit"
+ * banner the CLI prints (paneShowsLimitBlock): the banner is gone the moment
+ * the session is restarted, but the snapshot still knows the window is spent.
+ *
+ * Both windows count. Boss's WORK doctrine watches only the 5h window (the 7d
+ * number is display-only for whether the agent should keep coding), but this
+ * is a DISPLAY question -- "is it actually unable to work right now" -- and
+ * Claude's own servers refuse a 7d-exhausted account regardless. So a 7d=100%
+ * account really is stopped, and the label must say so.
+ *
+ * Why resetsAt is the authority, not `updatedAt` freshness: within a window
+ * usedPct only ever grows until the reset, so a 100% reading stays true for as
+ * long as resetsAt is in the future, however old the capture is. Once resetsAt
+ * passes the window has rolled over and the account can work again -- so a
+ * stale 100% with a past (or unknown) resetsAt is NOT treated as exhausted,
+ * which is also what keeps this from lighting up on a freshly installed
+ * Marveen that has never captured a snapshot (readRateLimitSnapshot -> null).
+ */
+export function snapshotShowsQuotaExhausted(
+  snapshot: Pick<RateLimitSnapshot, 'fiveHour' | 'sevenDay'> | null,
+  nowMs: number,
+): boolean {
+  if (!snapshot) return false
+  const windowExhausted = (w: RateLimitWindow | null): boolean =>
+    w != null && w.usedPct != null && w.usedPct >= 100 && w.resetsAt != null && w.resetsAt > nowMs
+  return windowExhausted(snapshot.fiveHour) || windowExhausted(snapshot.sevenDay)
+}

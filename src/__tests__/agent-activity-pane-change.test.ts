@@ -96,3 +96,52 @@ describe('computeAgentActivityLabel: pane-diff fallback', () => {
     expect(detectPaneState(after)).toBe('idle')
   })
 })
+
+// Boss, 2026-08-27: Marvin showed "várakozik" while the Szakértő on the SAME
+// weekly-out account state showed "keret elfogyott". The only difference was a
+// session restart that wiped Marvin's "You've hit your weekly limit" banner, so
+// the pane-only detector could no longer see it. The durable quotaExhausted
+// verdict (from the rate-limit snapshot) closes that blind spot.
+describe('computeAgentActivityLabel: durable quota-exhausted signal', () => {
+  // A fresh startup / restart screen: no limit banner anywhere, parked prompt.
+  const restartedPaneNoBanner = [
+    ' ▐▛███▛█   Claude Code v2.1.246',
+    '▝▜██████▀  Sonnet 5 · Claude Pro',
+    SEP,
+    '❯ ',
+    SEP,
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle)',
+  ].join('\n')
+
+  it('reports limited when the snapshot says out-of-quota even with no pane banner', () => {
+    const key = 'test-agent-quota-nobanner-' + Math.random()
+    // Without the durable signal this restarted pane would read idle/working,
+    // never 'limited' -- exactly the false "várakozik" Boss saw on Marvin.
+    expect(computeAgentActivityLabel(true, restartedPaneNoBanner, key, true)).toBe('limited')
+  })
+
+  it('does not report limited when the snapshot says the account is fine', () => {
+    const key = 'test-agent-quota-fine-' + Math.random()
+    // Parked text reads 'typing' -> 'idle', and quotaExhausted=false must not
+    // upgrade it to limited (fresh-install agent with no/clean snapshot).
+    const parked = [SEP, '❯ some parked text', SEP, '  ⏵⏵ bypass permissions on (shift+tab to cycle)'].join('\n')
+    expect(computeAgentActivityLabel(true, parked, key, false)).toBe('idle')
+  })
+
+  it('still reports limited from the live banner alone (snapshot not needed)', () => {
+    const key = 'test-agent-quota-banner-' + Math.random()
+    const bannerPane = [
+      "● Usage limit reached again · continuing automatically at 8pm",
+      "  ⎿  You've hit your weekly limit · resets 8pm (Europe/Budapest)",
+      SEP,
+      '❯ ',
+    ].join('\n')
+    expect(computeAgentActivityLabel(true, bannerPane, key, false)).toBe('limited')
+  })
+
+  it('defaults quotaExhausted to false for existing 3-arg callers', () => {
+    const key = 'test-agent-quota-default-' + Math.random()
+    const parked = [SEP, '❯ parked', SEP, '  ⏵⏵ bypass permissions on (shift+tab to cycle)'].join('\n')
+    expect(computeAgentActivityLabel(true, parked, key)).toBe('idle')
+  })
+})
