@@ -113,7 +113,16 @@ describe('a listaban latszik, HOVA kerul a gepen', () => {
     expect(app).toContain('<th>Hol a gépeden</th>')
     expect(app).toContain("p.localDir ? '<code>' + escapeHtml(p.localDir) + '</code>'")
     // Depo nelkul nem ures cella all ott, hanem kimondjuk, mi a helyzet.
-    expect(app).toContain('nincs depó beállítva')
+    // A mondat 2026-08-27 ota kulcson at jon (angolul is ki kell mondani),
+    // ezert a hivast ES a ket forditast is ellenorizzuk -- kulonben egy ures
+    // kulcs ugyanugy ures cellat adna, csak most csendben.
+    expect(app).toContain("t('dsync.no_depot_cell')")
+    for (const lang of ['hu', 'en']) {
+      const src = readFileSync(join(ROOT, 'web', 'lang', `${lang}.js`), 'utf-8')
+      const m = src.match(/'dsync\.no_depot_cell':\s*'([^']+)'/)
+      expect(m, `${lang}.js: hianyzik a dsync.no_depot_cell`).toBeTruthy()
+      expect((m as RegExpMatchArray)[1].trim().length).toBeGreaterThan(0)
+    }
   })
 
   it('a kiszolgalo kuldi is ezt a mezot', () => {

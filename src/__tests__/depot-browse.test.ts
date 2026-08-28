@@ -296,7 +296,7 @@ describe('a depo-hely mentese', () => {
     // kepeket, nem a lemezre -- ugyanaz a hibamod, mint az ensureDepotSkeleton-nel.
     const r = route()
     expect(r).toContain("code: 'parent_missing'")
-    const block = r.slice(r.indexOf("path === '/api/depot/root'"), r.indexOf("path === '/api/depot/migrate' && method === 'GET'"))
+    const block = r.slice(r.indexOf("path === '/api/depot/root'"), r.length)
     expect(block.indexOf('parentOk')).toBeLessThan(block.indexOf('mkdirSync(target'))
   })
 

@@ -41,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-08-26.3'
+$script:WorkerVersion = '2026-08-28.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -398,6 +398,12 @@ function Get-LocalSessions {
         contextTokens = $usage.tokens
         model         = $usage.model
         pid           = $sidPid
+        # A NAPLO TELJES UTJA. Enelkul a vezerlopult nem tudna megmutatni a
+        # beszelgetes TARTALMAT: Marveen a WSL-ben fut, a `.jsonl` a Windowson
+        # van, es a projekt-mappa neve egy slug, amit kitalalni tippeles volna
+        # (Boss, 2026-08-28: "miert csk mondja hogy megvan de nem mutatja
+        # meg?"). Amit a gep MAR TUD, azt ne kelljen kikovetkeztetni.
+        transcriptPath = $f.FullName
       })
       $kept++
       $isPrimary = $false

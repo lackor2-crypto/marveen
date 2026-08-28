@@ -860,7 +860,7 @@ function setWorkspace(ws, opts) {
   // `opts.page`: az induló visszaállítás megmondhatja, MELYIK oldalra tartunk.
   // A `.active` osztályt ugyanis a switchPage() teszi ki, és induláskor az még
   // meg sem történt -- ilyenkor "egyik oldal sem irodai"-t látnánk, és a lap
-  // az Emailre ugrana, pedig épp a Depóra tartott (Boss, 2026-08-15: "az iroda
+  // az Emailre ugrana, pedig épp a Raktárra tartott (Boss, 2026-08-15: "az iroda
   // Depo alatti resz nem mukodik").
   const activeLink = document.querySelector('.sb-link.active[data-page]')
   const activePage = (opts && opts.page) || activeLink?.dataset?.page
@@ -5160,10 +5160,25 @@ function cbContextRowHtml(e) {
  *    * `tabsReason === 'ok' | 'empty'` -> tenyleg nincs nyitott beszelgetes;
  *    * barmi mas (a munkas sose jelentkezett / elavult) -> NEM LATUNK ODA,
  *      es ezt ki is irjuk, nehogy a csend "nincs"-nek latsszon. */
+/** A kiirhato ful-sorok.
+ *
+ *  ★ A BEKOTOTT SOR SOSEM ESIK KI. A szerver kifejezetten MEGTARTJA a bekotott
+ *  beszelgetest a listaban akkor is, ha mar nem fut (`filterLive`,
+ *  code-bridge-store.ts) -- pont azert, hogy a kartya ne latsszon
+ *  cimezhetetlennek. A felulet viszont 2026-08-28-ig meg egyszer szurt, es ez a
+ *  masodik szures kivetel nelkuli volt: eldobta azt, amit a szerver megorzott.
+ *
+ *  Igy allt elo a mondat, amire a Boss rakerdezett: "Nincs NYITVA beszelgetes
+ *  -- a bekototte viszont megvan: 112k token. (...) hat ha me van a bekototte,
+ *  akor miert nem jeleniti meg?" A kartya TUDOTT a beszelgetesrol, es megsem
+ *  mutatta meg. Mostantol megmutatja -- kiirva, hogy nem fut. */
+function cbTabRows(e) {
+  return (e.tabs || []).filter(function (tb) { return tb.live !== false || tb.current })
+}
 /** Van-e legalabb egy kiirhato ful-sor? Ha van, a kontextus szama MAR OTT all
  *  a bejelolt sor vegen, es a kulon "kontextus: 94k token" sor csak ismetles. */
 function cbHasTabRows(e) {
-  return (e.tabs || []).filter(function (tb) { return tb.live !== false }).length > 0
+  return cbTabRows(e).length > 0
 }
 
 /** Igaz, ha nincs kiirhato ful-sor, DE a bekotott beszelgetesnek van mert
@@ -5238,8 +5253,62 @@ function cbRunTip() {
     : (cbRunOn() ? t('cb.card.run_on_help') : t('cb.card.run_off_help'))
 }
 
+/** A "beszelgetes megnyitasa" gomb egy ful-sorhoz.
+ *
+ *  CSAK akkor all ki, ha a worker elkuldte a napló utjat (`hasTranscript`).
+ *  Egy regi worker mellett nem lenne mit megnyitni -- olyankor a hallgatas a
+ *  helyes valasz, nem egy gomb, ami hibauzenettel jutalmaz. */
+function cbTabOpenBtn(tb, label) {
+  if (!tb || !tb.hasTranscript) return ''
+  return '<button type="button" class="cb-tab-open" data-session="' + escapeAttr(tb.sessionId) + '"'
+    + ' data-label="' + escapeAttr(label || '') + '"'
+    + ' title="' + escapeAttr(t('cb.card.tab_open') + ' — ' + t('cb.card.tab_open_help')) + '"'
+    + ' aria-label="' + escapeAttr(t('cb.card.tab_open')) + '">☰</button>'
+}
+
+/** A MAPPA TOBBI BESZELGETESE -- azok, amiknek a folyamata mar nem fut.
+ *
+ *  Boss, 2026-08-28: "a kartyan csak eg chat van megjelenitve, most, de a
+ *  vscode ban van vagy 3 beszelgetes." Mert allapot ugyanekkor: egyetlen futo
+ *  Claude Code folyamat volt a gepen, a masik ket ful NYITVA volt a VS Code
+ *  panelen, de nem futott (aznap egy sort sem irtak). A ketto nem mond ellent
+ *  egymasnak: a "nyitott ful" es a "futo folyamat" ket kulonbozo dolog.
+ *
+ *  Ezek a sorok ezert NEM a fo listaba valok (oda a cimezheto, futo
+ *  beszelgetesek mennek -- 2026-08-23: "amit a vscode ban kitorolnek azt a
+ *  maveen kartyaja se mutassa"), de elerhetonek KELL lenniuk: osszecsukott
+ *  reszletezoben ulnek, es a tartalmuk ugyanugy megnyithato. */
+function cbClosedTabsHtml(e) {
+  const closed = (e.closedTabs || [])
+  if (closed.length === 0) return ''
+  const rows = closed.map(function (tb) {
+    const label = tb.title || tb.shortId || ''
+    const ctxN = (typeof tb.contextTokens === 'number' && tb.contextTokens > 0) ? cbFmtKTokens(tb.contextTokens) : null
+    const ctx = ctxN === null ? ''
+      : '<span class="cb-tab-ctx" title="' + escapeAttr(t('cb.card.ctx_value', { n: ctxN })) + '">'
+        + escapeHtml(t('cb.card.ctx_short', { n: ctxN })) + '</span>'
+    // Az "utoljara irt" a legfontosabb adat egy nem futo beszelgetesnel: ebbol
+    // ismered fel, melyik volt a tegnapi. Ha nem tudjuk megnezni a naplo idejet,
+    // inkabb semmit nem irunk oda -- egy kitalalt "regen" rosszabb a semminel.
+    const when = (typeof tb.mtime === 'number' && tb.mtime > 0)
+      ? '<span class="cb-tab-when" title="' + escapeAttr(t('cb.card.tab_last_write')) + '">'
+        + escapeHtml(formatRelative(tb.mtime)) + '</span>'
+      : ''
+    return '<div class="cb-tab-row cb-tab-row-closed">'
+      + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
+      + ctx
+      + when
+      + cbTabOpenBtn(tb, label)
+      + '</div>'
+  }).join('')
+  return '<details class="cb-tabs-closed">'
+    + '<summary title="' + escapeAttr(t('cb.card.tabs_closed_help')) + '">'
+    + escapeHtml(t('cb.card.tabs_closed', { n: closed.length })) + '</summary>'
+    + rows + '</details>'
+}
+
 function cbTabsPickHtml(e) {
-  const tabs = (e.tabs || []).filter(function (tb) { return tb.live !== false })
+  const tabs = cbTabRows(e)
   if (tabs.length === 0) {
     const known = e.tabsReason === 'ok' || e.tabsReason === 'empty'
     // Harom allapot, mert harom kulonbozo dolog tortent -- es mindharomnak mas
@@ -5283,6 +5352,13 @@ function cbTabsPickHtml(e) {
         + ' title="' + escapeAttr(t('cb.card.tab_close') + ' \u2014 ' + t('cb.card.tab_close_help', { pid: tb.pid })) + '"'
         + ' aria-label="' + escapeAttr(t('cb.card.tab_close')) + '">\u00d7</button>'
       : ''
+    // NEM FUT, DE ITT VAN. A bekotott beszelgetes akkor is a listaban marad, ha
+    // a folyamata mar nem el -- ide megy a feladat, tehat latnod kell. A cimke
+    // nem talalgat: azt mondja, amit MERTUNK (a worker `live` merese).
+    const notRunning = tb.live === false
+      ? '<span class="cb-tab-closed" title="' + escapeAttr(t('cb.card.tab_not_running_help')) + '">'
+        + escapeHtml(t('cb.card.tab_not_running')) + '</span>'
+      : ''
     return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
       + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
       + ' value="' + escapeAttr(tb.sessionId) + '"'
@@ -5294,7 +5370,9 @@ function cbTabsPickHtml(e) {
       + (tb.current ? ' checked' : '') + '>'
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
+      + notRunning
       + idle
+      + cbTabOpenBtn(tb, label)
       + closeBtn
       + '</label>'
   }).join('')
@@ -5367,9 +5445,25 @@ async function cbMaintenance(project, action, target) {
     alert(t('cb.card.maint_live', { name: target.label || target.id.slice(0, 8), pid: target.pid }))
     return
   }
-  const cel = target && target.id
-    ? t('cb.card.maint_target', { name: target.label || target.id.slice(0, 8) })
-    : t('cb.card.maint_target_current')
+  // KIJELOLES NELKUL NEM INDITUNK.
+  //
+  // A MERT ESET (2026-08-26, task 30077448 es e51a1038): mindket `/compact`
+  // `target_session_id = null`-lal ment el, vagyis a cel nem a kijelolt ful volt,
+  // hanem a projekt eppen aktualis beszelgetese -- a tulaj viszont azt latta,
+  // hogy "nem a kijelolt chatet tomoriti". Boss: "de ez a tomorites sem a
+  // kijelolt chatet tomoriti".
+  //
+  // Az ok utolag nem volt szetvalaszthato (regi lap vagy egyetlen bejelolt
+  // radio sem -- ha a bekotott beszelgetes nincs a listazott fulek kozott,
+  // alapbol egyik sincs kijelolve), ezert nem az OKOT talalgatjuk, hanem az
+  // egesz hibaosztalyt szuntetjuk meg: cel nelkul a gomb NEM valaszt magatol.
+  // Egy kitalalt celpont rosszabb, mint a semmi -- penzbe kerul (a ket futas
+  // 1,09 es 0,42 USD volt) es mast tomorit, mint amit kertek.
+  if (!target || !target.id) {
+    alert(t('cb.card.maint_no_target'))
+    return
+  }
+  const cel = t('cb.card.maint_target', { name: target.label || target.id.slice(0, 8) })
   const q = (action === 'clear' ? t('cb.card.clear_confirm', { p: project }) : t('cb.card.compact_confirm', { p: project }))
     + '\n\n' + cel
   if (!confirm(q)) return
@@ -5477,10 +5571,10 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       <div class="agent-card-actions">
         <button class="btn-secondary btn-compact code-bridge-open-btn">${escapeHtml(t('cb.card.settings'))}</button>
         ${e.roleHolder ? `
-        <button class="btn-secondary btn-compact cb-ctx-compact" title="${escapeHtml(t('cb.card.compact_help'))}">${escapeHtml(t('cb.card.compact'))}</button>
         <button class="btn-secondary btn-compact cb-delete-btn" title="${escapeHtml(t('cb.card.delete_help'))}">${escapeHtml(t('cb.card.delete'))}</button>` : ''}
       </div>
       ${e.roleHolder ? cbTabsPickHtml(e) : ''}
+      ${e.roleHolder ? cbClosedTabsHtml(e) : ''}
       ${e.roleHolder && !cbHasTabRows(e) && !cbTabsEmptyHasCtx(e) ? cbContextRowHtml(e) : ''}
       ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}`
     card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
@@ -5504,6 +5598,19 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         cbCloseTab(btn.dataset.session, btn.dataset.label)
       })
     })
+    // A BESZELGETES MEGNYITASA. Ugyanaz az ablak, mint az ugynokoknel -- csak a
+    // forras mas. A `preventDefault` itt is kell: a fo lista gombjai egy
+    // <label>-en belul allnak, es kattintasra kulonben ATALLITANA a cel-fult.
+    card.querySelectorAll('.cb-tab-open').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        openCodeConversationModal(btn.dataset.session, btn.dataset.label)
+      })
+    })
+    // A "tobbi beszelgetes" reszletezo kinyitasa nem nyithatja ki a
+    // beallitas-ablakot is.
+    card.querySelector('.cb-tabs-closed')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelectorAll('.cb-tab-radio').forEach((box) => {
       box.addEventListener('change', () => {
         if (box.checked) cbPickSession(e.project, e.workspacePath, box.value)
@@ -5512,29 +5619,29 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.ctx-current')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.cb-delete-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbDeleteProject(e.project) })
-    // A kijelolt ful a kattintas PILLANATABAN olvasodik ki, nem a kartya
-    // felepitesekor: kozben a felhasznalo atvalthatott masik fulre.
-    const cbPickedTab = () => {
-      const r = card.querySelector('.cb-tab-radio:checked')
-      if (!r) return null
-      const pid = parseInt(r.dataset.pid || '', 10)
-      return { id: r.value, label: r.dataset.label || '', pid: Number.isFinite(pid) && pid > 0 ? pid : null }
-    }
-    card.querySelector('.cb-ctx-compact')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbMaintenance(e.project, 'compact', cbPickedTab()) })
-    // A TORLES GOMB KIVEVE (Boss, 2026-08-26: "hat magat a torles gombot torold
-    // ki onnan. akkor minek az oda?").
+    // A TOMORITES ES A TORLES GOMB IS KIVEVE A KARTYAROL.
     //
-    // A neve nem azt jelentette, amit igert. Merve ugyanaznap: a `/clear` SEMMIT
-    // nem torol -- uj, ures beszelgetest nyit, a regi naplo sertetlenul a lemezen
-    // marad. Nyitott VS Code ablakra pedig egyaltalan nem hat: az a sajat
-    // folyamataban tartja a kontextust. Vagyis a gomb vagy nem csinalt semmit,
-    // vagy mast csinalt, mint amit a neve mondott -- egyik sem maradhat a
-    // feluleten. Amig nincs olyan muvelet, amit a Marveen valoban el tud vegezni
-    // es pontosan meg is tud nevezni, INKABB NINCS gomb.
+    // Boss, 2026-08-26: "hat magat a torles gombot torold ki onnan. akkor minek
+    // az oda?" -- majd 2026-08-27: "ez nem tomorit semmit. szar az egesz."
     //
-    // Ami MARAD: a `cbMaintenance` 'clear' aga es a hozza tartozo szovegek
-    // erintetlenek, mert a `/api/code/tasks` vegponton at es Telegramrol
-    // tovabbra is kuldheto -- csak a kartyan nem kinaljuk fel.
+    // A MERES, ami eldontotte. A `/clear` SEMMIT nem torol: uj, ures
+    // beszelgetest nyit (a tulaj a VS Code-ban meg is latta "/clear" nevu
+    // chatkent), a regi naplo sertetlenul a lemezen marad. A `/compact`
+    // ezzel szemben valodi munkat vegez -- de CSAK olyan beszelgetesen, amelyik
+    // NINCS nyitva a VS Code-ban: a futo ablak a sajat folyamataban tartja a
+    // kontextust, oda a headless `--resume` nem szol bele.
+    //
+    // 2026-08-27-en a `/api/code/tabs` mind a HAROM fulre `live=true`-t adott, es
+    // mind a harom PID valoban futo `claude.exe` volt (2124 / 19196 / 19964).
+    // Vagyis nem volt egyetlen olyan ful sem, amelyiken a gomb dolgozni tudott
+    // volna -- barmelyiket jelolte ki a tulaj, elutasitas jott. Egy gomb, ami a
+    // gyakorlatban mindig nemet mond, nem gomb.
+    //
+    // Ami MARAD: a `cbMaintenance` fuggveny es a szovegek erintetlenek, es a
+    // `/api/code/tasks` vegponton at (Telegramrol is) tovabbra is kuldheto
+    // `/compact` -- csak a kartyan nem kinaljuk fel. Ha egyszer lesz mod egy
+    // NYITOTT ablak vezerlesere (pl. a VS Code kiterjesztesen keresztul), akkor
+    // johet vissza a gomb -- addig nem.
     card.addEventListener('click', () => openCodeBridgeModal())
     agentsGrid.insertBefore(card, addBtn)
   }
@@ -12035,6 +12142,40 @@ function _photosHideApiDisabled() {
 // se Console-kapcsolo, hanem egyszer meg kell nyitni a photos.google.com-ot
 // azzal a fiokkal. A link a HTML-ben all beegetve, nem a szerver valaszabol
 // jon: a Google hibauzenete kulso adat, es abbol semmi nem lesz link.
+/**
+ * A depo hianya NEM egy hibauzenet, hanem egy elvegzendo beallitas.
+ *
+ * Ezert nem a piros hiba-dobozba megy: sajat mondattal es egy GOMBBAL jelenik
+ * meg, ami atviszi a Depo oldalra. A ket eset kulon szoveget kap, mert kulon a
+ * teendo -- a "nincs beallitva" egy egyszeri valasztas, a "nem erheto el" egy
+ * javitas, amihez a Depo oldal vezetett helyreallitasa tartozik.
+ */
+function _photosShowNeedDepot(data) {
+  const box = document.getElementById('photosError')
+  if (!box) return false
+  const unreachable = data && data.code === 'depot_unreachable'
+  const cim = unreachable ? t('photos.depot_unreachable.title') : t('photos.need_depot.title')
+  // Elerhetetlen depo eseten a KISZOLGALO mondja meg, mi tortent (a WSL-lel, a
+  // lemezzel) -- azt idezzuk, nem talalgatunk helyette.
+  const szoveg = unreachable ? String((data && data.error) || '') : t('photos.need_depot.body')
+  const gomb = unreachable ? t('photos.depot_unreachable.btn') : t('photos.need_depot.btn')
+  box.hidden = false
+  box.innerHTML = ''
+  const h = document.createElement('p')
+  h.innerHTML = '<strong></strong>'
+  h.firstChild.textContent = cim
+  const p2 = document.createElement('p')
+  p2.textContent = szoveg
+  const b = document.createElement('button')
+  b.className = 'btn-primary btn-compact'
+  b.textContent = gomb
+  b.addEventListener('click', () => switchPage('depo'))
+  box.appendChild(h)
+  box.appendChild(p2)
+  box.appendChild(b)
+  return true
+}
+
 function _photosShowNoPhotosAccount(data) {
   const box = document.getElementById('photosNoPhotosBox')
   if (!box) return false
@@ -12518,6 +12659,9 @@ async function _photosStartPicker() {
     const data = await res.json()
     if (!res.ok) {
       addBtn.disabled = false
+      if (data.code === 'no_depot' || data.code === 'depot_unreachable') {
+        if (_photosShowNeedDepot(data)) return
+      }
       if (data.code === 'no_scope') { _photosAccountsReady[_photosAccount] = false; _photosRefresh(); return }
       // Ha a linket nem ismerjuk fel biztonsagosnak, NEM nyelunk el semmit:
       // jojjon a nyers uzenet, az tobbet er a nemasagnal.
@@ -16175,9 +16319,31 @@ function renderOverviewRateLimit(rateLimit, openrouterCredits, claudeAccounts) {
   // from the data already in hand (no network, skipped while hidden).
   _rateLimitLast = { rateLimit, openrouterCredits, claudeAccounts }
   if (!_rateLimitTicker) {
-    _rateLimitTicker = setInterval(() => {
-      if (!document.hidden && _rateLimitLast) {
-        renderOverviewRateLimit(_rateLimitLast.rateLimit, _rateLimitLast.openrouterCredits, _rateLimitLast.claudeAccounts)
+    // Two cadences share one timer. Every minute: redraw from the data in hand
+    // so the "resets in X" countdown stays right (no network). Every ~3 minutes,
+    // while the Overview is the open page: RE-FETCH /api/overview so the numbers
+    // themselves refresh. Boss 2026-08-27 (msg 579) watched the widget sit on a
+    // 2-hour-old 15% while a live VS Code session on the same account showed
+    // 45%: the old ticker only re-rendered the snapshot captured when the page
+    // opened, so an idle agent's frozen percentage never moved on its own. A
+    // redraw cannot fix a stale number -- only a re-fetch can. (It still cannot
+    // be fresher than that agent's last statusLine tick, which is why the
+    // "X perce mérve"/stale label stays; but a new tick is now picked up within
+    // 3 minutes automatically, without the user reopening the page.)
+    let _secsSinceRefetch = 0
+    _rateLimitTicker = setInterval(async () => {
+      if (document.hidden || !_rateLimitLast) return
+      renderOverviewRateLimit(_rateLimitLast.rateLimit, _rateLimitLast.openrouterCredits, _rateLimitLast.claudeAccounts)
+      _secsSinceRefetch += 60
+      if (_secsSinceRefetch >= 180 && (location.hash.slice(1) || 'overview') === 'overview') {
+        _secsSinceRefetch = 0
+        try {
+          const res = await fetch('/api/overview')
+          if (res.ok) {
+            const d = await res.json()
+            renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
+          }
+        } catch { /* transient network error: keep showing the last good numbers */ }
       }
     }, 60_000)
   }
@@ -17752,6 +17918,8 @@ async function renderOverviewConnections() {
   // A napi git-lehuzas is kap zold sort. Ugyanaz a csapda: a repok a fan
   // akkor is ott vannak, ha hetek ota nem frissultek -- a "minden rendben"
   // magatol ertetodonek latszana, hiaba nem huzott le semmit senki.
+  const dsok = health.find(h => h.id === 'drive_sync_ok')
+  if (dsok) greenRows.push({ label: t('health.drive_sync_ok', dsok.params || {}), desc: t('health.drive_sync_ok_action') })
   const gok = health.find(h => h.id === 'git_pull_ok')
   if (gok) greenRows.push({ label: t('health.git_pull_ok', gok.params || {}), desc: t('health.git_pull_ok_action') })
   // Az elo Google-ellenorzes zold sora. Enelkul pontosan az az allapot allna
@@ -22906,7 +23074,7 @@ function buildSettingRow(def) {
   errorEl.className = 'settings-row-error'
   editor.appendChild(errorEl)
 
-  // A depo helyet ne kelljen begepelni: ugyanaz a valaszto, mint a Depó
+  // A depo helyet ne kelljen begepelni: ugyanaz a valaszto, mint a Raktár
   // oldalon. A mezobe a Windows-alak kerul (D:\Marveen) -- a program magatol
   // leforditja arra, amit belul hasznal.
   if (def.key === 'MARVEEN_DEPOT') {
@@ -27556,14 +27724,53 @@ let conversationEntries = []
 let conversationAgentName = null
 let conversationHasOlder = false
 let conversationLoadingOlder = false
+// MELYIK beszelgetest mutatja eppen az ablak. Ket forras van, es ugyanaz az
+// ablak szolgalja ki mindkettot -- keresessel, lapozassal, szurovel egyutt:
+//   * { kind: 'agent', id: <ugynok neve> }  -- a flotta ugynokei (Telegram)
+//   * { kind: 'code',  id: <sessionId> }    -- egy VS Code chat naploja
+// Boss, 2026-08-28: "miert csk mondja hogy megvan de nem mutatja meg?" -- a
+// kod-hid kartyaja eddig csak a beszelgetes NEVET es tokenszamat mondta.
+let conversationSource = { kind: 'agent', id: null }
+// A szervertol jott GEPI ok, ha a beszelgetes ures (`no-path`, `no-session`,
+// ENOENT/EACCES, ...). `null` = van tartalom, vagy nem kaptunk okot.
+let conversationReason = null
+// A ket forras MAS bejegyzes-fajtakat hasznal, es a reszlet-szuronek tudnia
+// kell, mi szamit "fo" sornak: ugynoknel a Telegram-forgalom, VS Code chatnel
+// maga a beszelgetes (amit beirtal + amit a Claude valaszolt).
+const CONV_MAIN_KINDS = { agent: ['in', 'out'], code: ['user', 'assistant'] }
+
+function conversationUrl(offset) {
+  const limit = CONVERSATION_PAGE_SIZE
+  return conversationSource.kind === 'code'
+    ? `/api/code/conversation?session=${encodeURIComponent(conversationSource.id)}&limit=${limit}&offset=${offset}`
+    : `/api/agents/${encodeURIComponent(conversationSource.id)}/conversation?limit=${limit}&offset=${offset}`
+}
 
 async function openConversationModal(agentName, displayName) {
   const overlay = document.getElementById('conversationOverlay')
   const container = document.getElementById('conversationContainer')
   const title = document.getElementById('conversationModalTitle')
   if (!overlay || !container) return
+  conversationSource = { kind: 'agent', id: agentName }
   conversationAgentName = agentName
   title.textContent = t('conversation.title', { name: displayName || agentName })
+  container.innerHTML = `<div class="conversation-empty">${t('conversation.loading')}</div>`
+  openModal(overlay)
+  await loadConversation({ autoRevealDetail: true })
+}
+
+/** EGY VS CODE BESZELGETES megnyitasa ugyanabban az ablakban.
+ *
+ *  A `label` az, amit EMBER felismer (a ful cime), nem a UUID -- ugyanaz az
+ *  elv, mint a ful-listaban. */
+async function openCodeConversationModal(sessionId, label) {
+  const overlay = document.getElementById('conversationOverlay')
+  const container = document.getElementById('conversationContainer')
+  const title = document.getElementById('conversationModalTitle')
+  if (!overlay || !container) return
+  conversationSource = { kind: 'code', id: sessionId }
+  conversationAgentName = null
+  title.textContent = t('conversation.title', { name: label || String(sessionId).slice(0, 8) })
   container.innerHTML = `<div class="conversation-empty">${t('conversation.loading')}</div>`
   openModal(overlay)
   await loadConversation({ autoRevealDetail: true })
@@ -27574,12 +27781,17 @@ async function loadConversation(opts = {}) {
   const container = document.getElementById('conversationContainer')
   const token = localStorage.getItem('marveen-dashboard-token') || ''
   try {
-    const r = await fetch(`/api/agents/${encodeURIComponent(conversationAgentName)}/conversation?limit=${CONVERSATION_PAGE_SIZE}&offset=0`, {
+    const r = await fetch(conversationUrl(0), {
       headers: { 'Authorization': 'Bearer ' + token },
     })
     const d = await r.json()
     conversationEntries = Array.isArray(d.entries) ? d.entries : []
     conversationHasOlder = !!d.hasOlder
+    // MIERT ures, ha ures. A NULLA KET DOLGOT JELENTHET: "meg nincs benne
+    // semmi" vagy "nem latok oda" -- es a kettonek MAS a kovetkezo lepese.
+    // A szerver gepi okot ad, mi emberi mondatot csinalunk belole; ismeretlen
+    // kodra a NYERS uzenetet mutatjuk, tippelt okot sosem irunk oda.
+    conversationReason = conversationEntries.length === 0 ? (d.reason || null) : null
     // Most agents in this fleet never talk on Telegram -- their whole record is
     // narration + tool calls, which the detail filter hides. Opening on the
     // default filter then shows "no messages" over a full transcript, which
@@ -27588,7 +27800,8 @@ async function loadConversation(opts = {}) {
     // filter would show, open with the detail already revealed.
     if (opts.autoRevealDetail) {
       const box = document.getElementById('conversationShowActions')
-      const hasChannelTraffic = conversationEntries.some(e => e.kind === 'in' || e.kind === 'out')
+      const main = CONV_MAIN_KINDS[conversationSource.kind] || CONV_MAIN_KINDS.agent
+      const hasChannelTraffic = conversationEntries.some(e => main.includes(e.kind))
       if (box && !hasChannelTraffic && conversationEntries.length) box.checked = true
     }
     renderConversation()
@@ -27609,7 +27822,7 @@ async function loadOlderConversation() {
   const token = localStorage.getItem('marveen-dashboard-token') || ''
   try {
     const offset = conversationEntries.length
-    const r = await fetch(`/api/agents/${encodeURIComponent(conversationAgentName)}/conversation?limit=${CONVERSATION_PAGE_SIZE}&offset=${offset}`, {
+    const r = await fetch(conversationUrl(offset), {
       headers: { 'Authorization': 'Bearer ' + token },
     })
     const d = await r.json()
@@ -27643,7 +27856,8 @@ function renderConversation(opts = {}) {
   const q = (document.getElementById('conversationSearch')?.value || '').toLowerCase().trim()
   const showActions = document.getElementById('conversationShowActions')?.checked
   let list = conversationEntries
-  if (!showActions) list = list.filter(e => e.kind === 'in' || e.kind === 'out')
+  const mainKinds = CONV_MAIN_KINDS[conversationSource.kind] || CONV_MAIN_KINDS.agent
+  if (!showActions) list = list.filter(e => mainKinds.includes(e.kind))
   if (q) list = list.filter(e => (e.text || '').toLowerCase().includes(q))
   // "Korábbiak betöltése" sits at the top so the operator can page further back;
   // shown whenever the server still has older entries beyond the loaded window.
@@ -27657,6 +27871,15 @@ function renderConversation(opts = {}) {
     const hidden = conversationEntries.length
     const msg = hidden
       ? t(q ? 'conversation.empty_search' : 'conversation.empty_filtered', { n: hidden })
+      // TENYLEG nincs bejegyzes. Itt derul ki, hogy a "nincs" es a "nem latok
+      // oda" ket kulonbozo valasz: a szerver gepi okot ad, es mindegyiknek
+      // sajat mondata van, ami a KOVETKEZO LEPEST mondja. Ismeretlen kodra a
+      // nyers uzenet megy ki -- tippelt okot nem irunk oda.
+      : conversationReason === 'no-path' ? t('conversation.empty_no_path')
+      : conversationReason === 'no-session' ? t('conversation.empty_no_session')
+      : conversationReason === 'too-large' ? t('conversation.empty_too_large')
+      : conversationReason === 'unsafe-path' ? t('conversation.empty_unsafe')
+      : conversationReason ? t('conversation.empty_unreachable', { msg: conversationReason })
       : t('conversation.empty')
     container.innerHTML = olderBtn || `<div class="conversation-empty">${msg}</div>`
   } else {
@@ -27674,6 +27897,15 @@ function renderConversation(opts = {}) {
 function renderConvEntry(e) {
   const ts = fmtConvTs(e.ts)
   const txt = escapeHtml(e.text || '').replace(/\n/g, '<br>')
+  // VS Code chat: amit TE irtal be, es amit a Claude valaszolt. Ugyanazokat a
+  // buborekokat hasznaljuk, mint a Telegram-forgalomnal (bal/jobb oldal), csak
+  // a fejlec-cimke mas -- itt nincs Telegram.
+  if (e.kind === 'user') {
+    return `<div class="conv-row conv-in"><div class="conv-bubble"><div class="conv-meta">${escapeHtml(t('conversation.you'))} · ${ts}</div><div class="conv-text">${txt}</div></div></div>`
+  }
+  if (e.kind === 'assistant') {
+    return `<div class="conv-row conv-out"><div class="conv-bubble"><div class="conv-meta">Claude · ${ts}</div><div class="conv-text">${txt}</div></div></div>`
+  }
   if (e.kind === 'in') {
     return `<div class="conv-row conv-in"><div class="conv-bubble"><div class="conv-meta">Telegram be · ${ts}</div><div class="conv-text">${txt}</div></div></div>`
   }
@@ -29710,7 +29942,7 @@ function _dpSafeName(name) {
   return cleaned.slice(0, 120) || 'nevtelen'
 }
 
-/** A Depó oldal "Hely kiválasztása…" gombja. */
+/** A Raktár oldal "Hely kiválasztása…" gombja. */
 function _depoPickRoot() {
   openFolderPicker(async (choice) => {
     const st = document.getElementById('depoRootStatus')
@@ -29747,7 +29979,7 @@ async function loadDepoPage() {
   }
   bind('depoRefreshBtn', () => _depoRefresh())
   bind('depoPickBtn', () => _depoPickRoot())
-  bind('depoMigrateBtn', () => _depoStartMigrate())
+  bind('depoPhotosGoBtn', () => switchPage('photos'))
   bind('depoSyncWholeBtn', () => _depoAddWholeDrive())
   bind('depoSyncPickBtn', () => _depoPickDriveFolder())
   bind('depoSyncAddBtn', () => _depoAddSync())
@@ -30078,22 +30310,21 @@ async function _depoRefresh() {
 
   const tbl = document.getElementById('depoPhotosTable')
   if (tbl) {
-    const rows = (d.photos || []).filter((p) => p.legacy.count || p.depot.count)
+    const rows = (d.photos || []).filter((p) => p.count)
     if (!rows.length) {
-      tbl.innerHTML = '<p class="subtitle">Nincs letöltött kép.</p>'
+      // A NULLA KET DOLGOT JELENTHET. Ha a depo nem erheto el, nem azt mondjuk,
+      // hogy nincs kep -- azt mondjuk, hogy nem latunk oda.
+      tbl.innerHTML = '<p class="subtitle">' + escapeHtml(
+        d.configured && !d.writable ? t('depot.photos.unreadable') : t('depot.photos.none')) + '</p>'
     } else {
       tbl.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
-        + '<th>Fiók</th><th>Régi helyen</th><th>A depóban</th></tr></thead><tbody>'
+        + '<th>' + escapeHtml(t('depot.photos.col_account')) + '</th>'
+        + '<th>' + escapeHtml(t('depot.photos.col_in_depot')) + '</th></tr></thead><tbody>'
         + rows.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
-          + '<td>' + p.legacy.count + ' db · ' + _depoBytes(p.legacy.bytes) + '</td>'
-          + '<td>' + p.depot.count + ' db · ' + _depoBytes(p.depot.bytes) + '</td></tr>').join('')
+          + '<td>' + p.count + ' db · ' + _depoBytes(p.bytes) + '</td></tr>').join('')
         + '</tbody></table></div>'
     }
   }
-  const mig = document.getElementById('depoMigrateBtn')
-  if (mig) mig.disabled = !d.writable
-  _depoShowJob(d.job)
-  if (d.job && d.job.running) _depoStartPoll()
 
   let s = null
   try { s = await _depoGet('/api/drive/sync') } catch (e) { s = null }
@@ -30126,7 +30357,7 @@ async function _depoRefresh() {
           // A HELYI utvonal. A kiszolgalo amugy is kiszamolja, es eppen ez az,
           // amit latni kell: "a lackor2 legyen lackor2. igy nincs keveredes."
           // Ha nincs depo, azt is kimondjuk -- nem hagyjuk uresen a cellat.
-          + '<td>' + (p.localDir ? '<code>' + escapeHtml(p.localDir) + '</code>' : '<span class="subtitle">nincs depó beállítva</span>') + '</td>'
+          + '<td>' + (p.localDir ? '<code>' + escapeHtml(p.localDir) + '</code>' : '<span class="subtitle">' + t('dsync.no_depot_cell') + '</span>') + '</td>'
           + '<td>' + p.files + '</td>'
           // A datum melle az EREDMENY is. Enelkul egy csonka ("részleges")
           // vagy elhasalt futas ugyanugy nezne ki, mint egy sikeres -- pedig
@@ -30470,19 +30701,6 @@ async function _depoLoadSyncAccounts() {
   }
 }
 
-function _depoShowJob(job) {
-  const el = document.getElementById('depoMigrateStatus')
-  if (!el) return
-  if (!job) { el.textContent = ''; return }
-  if (job.running) {
-    el.textContent = 'Költöztetés: ' + job.moved + '/' + job.total + ' fájl · ' + _depoBytes(job.bytes)
-      + (job.current ? ' · ' + job.current : '')
-  } else {
-    el.textContent = 'Kész: ' + job.moved + ' áthelyezve, ' + job.alreadyThere + ' már ott volt'
-      + (job.failed ? ', ' + job.failed + ' nem sikerült (a régi helyén maradt)' : '')
-  }
-}
-
 function _depoShowSyncJob(job) {
   const el = document.getElementById('depoSyncStatus')
   if (!el) return
@@ -30506,9 +30724,10 @@ function _depoShowSyncJob(job) {
   const fek = document.getElementById('depoSyncBrake')
   if (fek) {
     if (job.deleteBrake) {
-      fek.textContent = '⚠ Vészfék: ' + job.deleteBrake.wouldDelete + ' fájl hiányzik a gépedről a '
-        + job.deleteBrake.tracked + '-ból. Ennyit nem törlök a Drive-on magamtól — '
-        + 'ellenőrizd, hogy a depó lemeze a helyén van-e, aztán indítsd újra.'
+      fek.textContent = t('dsync.brake_warn', {
+        n: job.deleteBrake.wouldDelete,
+        tracked: job.deleteBrake.tracked,
+      })
       fek.style.display = ''
     } else {
       fek.style.display = 'none'
@@ -30521,27 +30740,11 @@ function _depoShowSyncJob(job) {
 function _depoStartPoll() {
   if (_depoPoll) return
   _depoPoll = setInterval(async () => {
-    let a = null
     let b = null
-    try { a = (await _depoGet('/api/depot/migrate')).job } catch (e) { /* atmeneti hiba: kovetkezo korben ujra */ }
-    try { b = (await _depoGet('/api/drive/sync')).job } catch (e) { /* ugyanaz */ }
-    _depoShowJob(a)
+    try { b = (await _depoGet('/api/drive/sync')).job } catch (e) { /* atmeneti hiba: kovetkezo korben ujra */ }
     _depoShowSyncJob(b)
-    if (!(a && a.running) && !(b && b.running)) { _depoStopPoll(); _depoRefresh() }
+    if (!(b && b.running)) { _depoStopPoll(); _depoRefresh() }
   }, 1500)
-}
-
-async function _depoStartMigrate() {
-  const btn = document.getElementById('depoMigrateBtn')
-  if (btn) btn.disabled = true
-  try {
-    const r = await _depoPost('/api/depot/migrate', {})
-    _depoShowJob(r.job)
-    _depoStartPoll()
-  } catch (e) {
-    showToast((e && e.message) ? e.message : 'Nem sikerült elindítani a költöztetést')
-    if (btn) btn.disabled = false
-  }
 }
 
 async function _depoAddSync() {

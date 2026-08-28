@@ -64,17 +64,25 @@ export function photoDir(account: string): string {
 }
 
 /**
- * Ahol az UJ kepek keletkeznek.
+ * Ahol az UJ kepek keletkeznek: KIZAROLAG a depo.
  *
- * Ha van elerheto depo, oda -- akkor is, ha a regi helyen meg ottall a korabbi
- * allomany. Nem varunk az atkoltoztetesre: ami mostantol jon, az mar jo helyre
- * kerul, a regi kepek pedig tovabbra is lathatoak maradnak (lasd
- * `photoFilePath`).
+ * Boss, 2026-08-27: "eleve a depoba menjen a letoltes". Korabban ez a fuggveny
+ * depo hianyaban a regi helyre esett vissza, es a kesobb odakerult kepeket egy
+ * kulon "Atkoltoztetes a depoba" gomb emelte at. Az a gomb elment, mert a lepes
+ * felesleges volt -- de akkor ez a visszaeses sem maradhat: nelkule csendben ket
+ * kulonbozo helyre kerulnenek a kepek, es senki nem szolna rola.
+ *
+ * Ezert itt most HIBA all a visszaeses helyen. Nem ez az a pont, ahol a
+ * felhasznalo talalkozik vele: a letoltes mar el sem indul depo nelkul (lasd a
+ * POST /api/photos/session agat), ez a sor csak azt orzi, hogy egy kesobbi hivo
+ * se tudja veletlenul megkerulni.
  */
 export function photoWriteDir(account: string): string {
   const d = depotPhotoDir(account)
-  if (d && depotHealth().writable) return d
-  return legacyPhotoDir(account)
+  if (!d) throw new Error('Nincs raktár beállítva, ezért nincs hova menteni a képeket.')
+  const health = depotHealth()
+  if (!health.writable) throw new Error(health.message)
+  return d
 }
 
 /**
@@ -1282,6 +1290,24 @@ export async function tryHandlePhotosPicker(ctx: RouteContext): Promise<boolean>
     const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
     const account = String(data.account || '')
     if (!account) { json(res, { error: 'account kotelezo' }, 400); return true }
+    // A DEPO A LETOLTES ELOFELTETELE -- es itt kerdezzuk meg, a valasztas ELOTT.
+    //
+    // Nem lejjebb, a letoltesnel: onnan nezve a felhasznalo mar kivalasztott
+    // ketszaz kepet a Google feluleten, es azt dobnank el. Itt meg csak egy
+    // gombot nyomott.
+    //
+    // A ket eset KULON uzenetet kap, mert kulon a teendo is: a "nincs beallitva"
+    // egy egyszeri beallitas, a "nem erheto el" egy javitas. A `code`-ot a
+    // felulet forditja le -- a szoveg csak tartalek, ha valaki API-bol jon.
+    const depo = depotHealth()
+    if (!depo.configured) {
+      json(res, { error: depo.message, code: 'no_depot' }, 409)
+      return true
+    }
+    if (!depo.writable) {
+      json(res, { error: depo.message, code: 'depot_unreachable', repair: Boolean(depo.repair) }, 409)
+      return true
+    }
     if (!hasPickerScope(tokenEntry(account))) {
       json(res, { error: 'ehhez a fiokhoz meg nincs Fotok-engedely', code: 'no_scope', account }, 409)
       return true

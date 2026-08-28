@@ -60,6 +60,7 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
+import { depotRoot } from '../depot.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
@@ -817,12 +818,156 @@ export function codeBridgeRows(
   return [{ id: 'code_bridge_ok', status: 'ok', params: { n: d.sessions, p: Math.floor(kora / 60000) } }]
 }
 
+/**
+ * Elerheto-e a depo? Olcso valasz: letezik-e a mappa.
+ *
+ * SZANDEKOSAN nem a `depotHealth()`-et hivjuk: az ir egy probafajlt a lemezre,
+ * ez a modul pedig minden Attekintes-betoltesnel lefut. A kulonbseg, ami itt
+ * szamit -- "van depo, de nem latok oda" -- ebbol is kiderul.
+ *
+ * `null`, ha nincs beallitva depo: ilyenkor nem a depo a kerdes.
+ */
+function depotIrhato(): boolean | null {
+  const root = depotRoot()
+  if (!root) return null
+  try { return statSync(root).isDirectory() } catch { return false }
+}
+
+
+// --- DRIVE-MENTES ---------------------------------------------------------
+//
+// Miert van ez a sor: 2026-08-27-en a #47 kartya vizsgalatakor derult ki, hogy
+// a Drive-mentes UTOLJARA 11 NAPPAL KORABBAN futott, es a fo fiok masolata
+// "reszleges" volt (elertuk a bejarasi korlatot, a tobbi kimaradt). Egyik sem
+// latszott sehol: a Depo oldalon egy szurke sorban allt, az Attekintesen semmi.
+// Egy biztonsagi mentes, amirol senki nem szol, hogy all -- nem mentes.
+//
+// A NULLA KET DOLGOT JELENTHET. Nulla bekotott mappa lehet friss telepites
+// (ilyenkor CSEND a helyes valasz), es lehet olvashatatlan beallitas-fajl
+// (ilyenkor a leghangosabb sor kell). A kettot NEM a szambol dontjuk el, hanem
+// magatol a forrastol kerdezzuk meg: letezik-e a fajl, es ertelmezheto-e.
+
+/** A mentes beallitas-fajlja a store-ban. */
+export const DRIVE_SYNC_FILE = 'drive-sync.json'
+/** Az utemezett kartya neve -- enelkul a mentes csak kezi gombnyomasra fut. */
+export const DRIVE_SYNC_TASK = 'drive-mentes'
+/** Ennyi nap utan a napi mentes mar nem "kesik", hanem all. */
+export const DRIVE_SYNC_STALE_DAYS = 3
+
+interface DriveSyncParos {
+  account?: string
+  lastRunAt?: string
+  lastResult?: string
+}
+
+/**
+ * A beallitas-fajl allapota -- HAROM eset, nem ketto.
+ *
+ * `hianyzik`: meg soha nem kotott be senki Drive-mappat. Friss telepites: csend.
+ * `olvashatatlan`: ott a fajl, de nem ertelmezheto. Ilyenkor a mentes NEM fut,
+ *   es errol hangosan szolni kell -- kulonben pont ugy nezne ki, mint a csend.
+ * `rendben`: van ertelmezheto lista (akar ures is).
+ */
+function driveSyncAllapot(path: string): { fajta: 'hianyzik' | 'olvashatatlan' | 'rendben'; parok: DriveSyncParos[] } {
+  let nyers: string
+  try {
+    nyers = readFileSync(path, 'utf-8')
+  } catch {
+    return { fajta: 'hianyzik', parok: [] }
+  }
+  try {
+    const d = JSON.parse(nyers) as { pairs?: DriveSyncParos[] }
+    return { fajta: 'rendben', parok: Array.isArray(d.pairs) ? d.pairs : [] }
+  } catch {
+    return { fajta: 'olvashatatlan', parok: [] }
+  }
+}
+
+/** Utemezve van-e egyaltalan a mentes? (Ugyanaz a minta, mint a git-lehuzasnal.) */
+function driveSyncKartya(): { letezik: boolean; bekapcsolva: boolean } {
+  const d = olvasJson<{ enabled?: boolean }>(join(SCHEDULED_TASKS_DIR, DRIVE_SYNC_TASK, 'task-config.json'))
+  if (!d) return { letezik: false, bekapcsolva: false }
+  return { letezik: true, bekapcsolva: d.enabled !== false }
+}
+
+/**
+ * "Reszleges" -e egy futas eredmenye?
+ *
+ * A szoveget a szinkron irja (`csonkoltSzoveg`), es mindig ezzel a szoval
+ * kezdodik. Nem a hiba OKAT talalgatjuk belole -- azt a sor a fajl sajat
+ * szovegebol sem mondja meg; itt csak azt allapitjuk meg, hogy CSONKA-e.
+ */
+export function reszlegesEredmeny(s: string | undefined): boolean {
+  return typeof s === 'string' && s.toLowerCase().startsWith('részleges')
+}
+
+/**
+ * A Drive-mentes allapota az Attekintesen.
+ *
+ * @param depoIrhato a depo elerheto-e. Elerhetetlen depoval a mentes nem tud
+ *   futni, es ez FONTOSABB, mint a "hany napja" -- ezert all elol.
+ */
+export function driveSyncRows(
+  now: number = Date.now(),
+  allapot = driveSyncAllapot(join(STORE_DIR, DRIVE_SYNC_FILE)),
+  kartya: { letezik: boolean; bekapcsolva: boolean } = driveSyncKartya(),
+  depoIrhato: boolean | null = null,
+): HealthRow[] {
+  // Olvashatatlan beallitas: a mentes ilyenkor NEM fut. A leghangosabb sor.
+  if (allapot.fajta === 'olvashatatlan') return [{ id: 'drive_sync_unreadable', status: 'bad' }]
+  // Nincs bekotve egyetlen Drive-mappa sem: nincs mit menteni, nincs mirol
+  // szolni. Ez a friss telepites csendje.
+  if (allapot.fajta === 'hianyzik' || allapot.parok.length === 0) return []
+
+  const db = allapot.parok.length
+
+  // A depo elerhetetlen: a mentesnek nincs hova irnia. Ez elozi a tobbit.
+  if (depoIrhato === false) return [{ id: 'drive_sync_depot_unreachable', status: 'bad', params: { n: db } }]
+
+  const rows: HealthRow[] = []
+
+  // Utemezes: bekotott mappak mellett a kikapcsolt kartya adatvesztes-kozeli.
+  // A hianyzo kartya ugyanaz, mas okbol -- egy regi telepitesen egyszeruen
+  // nincs meg. Mindketto ugyanazt jelenti: csak kezzel fut.
+  if (!kartya.letezik) rows.push({ id: 'drive_sync_no_task', status: 'warn', params: { n: db } })
+  else if (!kartya.bekapcsolva) rows.push({ id: 'drive_sync_task_disabled', status: 'bad', params: { n: db } })
+
+  // CSONKA MASOLAT. Ez a legalattomosabb allapot: a lista "lefutott"-at mutat,
+  // a masolat viszont hianyos. Ezert `bad`, nem `warn` -- es megnevezi, melyik
+  // fiokrol van szo, kulonben tiz paros kozott nem talalhato meg.
+  const csonkak = allapot.parok.filter((p) => reszlegesEredmeny(p.lastResult))
+  if (csonkak.length) {
+    const nevek = csonkak.map((p) => String(p.account || '')).filter(Boolean)
+    const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
+    rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: lista } })
+  }
+
+  // Mikor futott utoljara BARMELYIK paros?
+  const idok = allapot.parok
+    .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
+    .filter((t) => Number.isFinite(t))
+  if (idok.length === 0) {
+    rows.push({ id: 'drive_sync_never', status: 'warn', params: { n: db } })
+    return rows
+  }
+  const napja = Math.max(0, Math.floor((now - Math.max(...idok)) / 86_400_000))
+  if (napja > DRIVE_SYNC_STALE_DAYS) {
+    rows.push({ id: 'drive_sync_stale', status: napja > 14 ? 'bad' : 'warn', params: { d: napja, n: db } })
+  } else if (rows.length === 0) {
+    // Zold sor is kell: a hallgatas nem megkulonboztetheto a nem-futo
+    // ellenorzestol.
+    rows.push({ id: 'drive_sync_ok', status: 'ok', params: { n: db, d: napja } })
+  }
+  return rows
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),
+    ...driveSyncRows(now, undefined, undefined, depotIrhato()),
     ...commandTaskRows(),
     ...mcpAuthRows(now),
     ...googleLiveRows(now),

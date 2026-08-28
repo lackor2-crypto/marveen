@@ -89,7 +89,7 @@ export interface MountResult { ok: boolean; message: string; code?: string; moun
  */
 export function addMount(input: { rel: string; target: string; kind?: string; label?: string }): MountResult {
   const root = depotRoot()
-  if (!root) return { ok: false, code: 'no_depot', message: 'Nincs beállítva a depó, ezért nincs mit bekötni.' }
+  if (!root) return { ok: false, code: 'no_depot', message: 'Nincs beállítva a raktár, ezért nincs mit bekötni.' }
   const rel = norm(input.rel)
   const target = norm(input.target)
   if (!rel) return { ok: false, code: 'bad_rel', message: 'Nem derült ki, a fa melyik pontjára kötnéd be.' }

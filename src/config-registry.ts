@@ -280,13 +280,13 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'DEPOT_AUTO_REMOUNT',
     type: 'boolean',
     default: '0',
-    description: 'Ha a depó Windows-meghajtón van, és a WSL felé megszakad a '
+    description: 'Ha a raktár Windows-meghajtón van, és a WSL felé megszakad a '
       + 'kapcsolata (ismert WSL-hiba újraindítás után), a Marveen magától '
       + 'újracsatolja-e. Alapból KI: bekapcsolva a Marveennek jelszó nélküli '
       + 'jogot kell kapnia pontosan két parancsra (umount és mount, csak erre az '
       + 'egy csatolási pontra) – ezt egy sorral te veszed fel a /etc/sudoers.d/ '
-      + 'alá, a Depó oldal végigvezet rajta. Amíg nem adtad meg, a kapcsoló '
-      + 'bekapcsolva sem tud semmit: a javítás ilyenkor is a Depó oldalon '
+      + 'alá, a Raktár oldal végigvezet rajta. Amíg nem adtad meg, a kapcsoló '
+      + 'bekapcsolva sem tud semmit: a javítás ilyenkor is a Raktár oldalon '
       + 'másolható parancs marad. Kikapcsolva a Marveen soha nem futtat sudo-t.',
     module: 'system',
     secret: false,
@@ -296,12 +296,13 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'MARVEEN_DEPOT',
     type: 'string',
     default: '',
-    description: 'A depó mappája: ez alá kerül minden fájlod (fotók, Drive-fájlok, '
+    description: 'A raktár mappája: ez alá kerül minden fájlod (fotók, Drive-fájlok, '
       + 'projektek), fiókonként külön mappába. Nem kell begépelned: a „Tallózás…” '
       + 'gombbal kiválaszthatod, ahogy egy fájlfeltöltésnél. Windows-alakban is '
       + 'megadható, pl. D:\\Marveen. Üresen hagyva minden a telepítési mappában '
-      + 'marad. A meglévő fájlokat nem mozgatja el magától – ahhoz a Depó oldal '
-      + '„Átköltöztetés a depóba” gombja kell.',
+      + 'marad. A mostantól letöltött fájlok egyenesen ide kerülnek. A mappa '
+      + 'megváltoztatása a már ott lévő fájlokat nem mozgatja el: azokat a '
+      + 'Fájlkezelőben teszed át, ha akarod.',
     module: 'system',
     secret: false,
     requiresRestart: true,

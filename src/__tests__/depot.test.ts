@@ -10,7 +10,6 @@ import {
   LEGACY_KIND_PHOTOS, LEGACY_KIND_DRIVE,
   DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS,
 } from '../depot.js'
-import { moveVerified, migrateDir, sha256Of } from '../depot-migrate.js'
 import { safeSegment, needsDownload } from '../web/routes/drive-sync.js'
 
 const ROOT = join(__dirname, '..', '..')
@@ -299,122 +298,41 @@ describe('hol vannak a kepek', () => {
   })
 })
 
-describe('atkoltoztetes: masol, ellenoriz, csak AZUTAN torol', () => {
-  it('a fajl atkerul, es a tartalma valtozatlan', async () => {
-    const from = join(tmp, 'a.jpg')
-    const to = join(tmp, 'cel', 'a.jpg')
-    writeFileSync(from, 'kep-bajtok')
-    expect(await moveVerified(from, to)).toBe('moved')
-    expect(existsSync(from)).toBe(false)
-    expect(readFileSync(to, 'utf8')).toBe('kep-bajtok')
+describe('a letoltes CSAK a depoba mehet (nincs ket hely, nincs koltoztetes)', () => {
+  const depot = read(join(ROOT, 'src', 'web', 'routes', 'depot.ts'), 'utf8')
+  const photos = read(join(ROOT, 'src', 'web', 'routes', 'photos-picker.ts'), 'utf8')
+  const app = read(join(ROOT, 'web', 'app.js'), 'utf8')
+
+  it('a fotok-valasztas el sem indul depo nelkul', () => {
+    // A valasztas ELOTT kell szolni: kesobb a felhasznalo mar kijelolt
+    // ketszaz kepet a Google feluleten, es azt dobnank el.
+    const idx = photos.indexOf("path === '/api/photos/session' && method === 'POST'")
+    expect(idx).toBeGreaterThan(-1)
+    const blokk = photos.slice(idx, idx + 1400)
+    expect(blokk).toContain("code: 'no_depot'")
+    expect(blokk).toContain("code: 'depot_unreachable'")
+    // A ket eset KULON kod: a "nincs beallitva" beallitas, a "nem erheto el"
+    // javitas -- mas a teendo, mas uzenet jar.
+    expect(blokk.indexOf("code: 'no_depot'")).toBeLessThan(blokk.indexOf("code: 'depot_unreachable'"))
   })
 
-  it('a celmappaban SOSEM marad felkesz .part fajl', async () => {
-    const from = join(tmp, 'b.jpg')
-    const to = join(tmp, 'cel2', 'b.jpg')
-    writeFileSync(from, 'x'.repeat(1000))
-    await moveVerified(from, to)
-    expect(existsSync(`${to}.part`)).toBe(false)
+  it('a leiro fuggveny sem esik vissza a regi helyre', () => {
+    // Ez a masodik retege ugyanannak: ha egy kesobbi hivo megkerulne a
+    // vegpontot, ne csendben a rossz helyre irjon, hanem alljon meg.
+    const idx = photos.indexOf('export function photoWriteDir')
+    const blokk = photos.slice(idx, idx + 400)
+    expect(blokk).toContain('throw new Error')
+    expect(blokk).not.toContain('legacyPhotoDir')
   })
 
-  it('azonos tartalom mar a helyen -> a regi peldany mehet, az uj marad', async () => {
-    const from = join(tmp, 'c.jpg')
-    const to = join(tmp, 'cel3', 'c.jpg')
-    mkdirSync(join(tmp, 'cel3'))
-    writeFileSync(from, 'ugyanaz')
-    writeFileSync(to, 'ugyanaz')
-    expect(await moveVerified(from, to)).toBe('already')
-    expect(existsSync(from)).toBe(false)
-    expect(readFileSync(to, 'utf8')).toBe('ugyanaz')
+  it('a koltozteto vegpont es a kodja NINCS tobbe', () => {
+    expect(depot).not.toContain('/api/depot/migrate')
+    expect(depot).not.toContain('depot-migrate')
+    expect(existsSync(join(ROOT, 'src', 'depot-migrate.ts'))).toBe(false)
   })
 
-  it('MAS tartalom a cel neven -> hozza sem nyulunk, a regi is megmarad', async () => {
-    const from = join(tmp, 'd.jpg')
-    const to = join(tmp, 'cel4', 'd.jpg')
-    mkdirSync(join(tmp, 'cel4'))
-    writeFileSync(from, 'enyem')
-    writeFileSync(to, 'valaki mase')
-    expect(await moveVerified(from, to)).toBe('failed')
-    // EGYIK sem veszett el -- ez a lenyeg.
-    expect(readFileSync(from, 'utf8')).toBe('enyem')
-    expect(readFileSync(to, 'utf8')).toBe('valaki mase')
-  })
-
-  it('egy egesz mappa atkoltoztetese', async () => {
-    const from = join(tmp, 'src')
-    const to = join(tmp, 'dst')
-    mkdirSync(from)
-    writeFileSync(join(from, '1.jpg'), 'egy')
-    writeFileSync(join(from, '2.jpg'), 'ketto')
-    const r = await migrateDir(from, to)
-    expect(r.moved).toBe(2)
-    expect(r.failed).toBe(0)
-    expect(readFileSync(join(to, '1.jpg'), 'utf8')).toBe('egy')
-  })
-
-  it('a rejtett bejegyzesek (.thumbs, .part) kimaradnak', async () => {
-    const from = join(tmp, 'src2')
-    const to = join(tmp, 'dst2')
-    mkdirSync(join(from, '.thumbs'), { recursive: true })
-    writeFileSync(join(from, '.thumbs', 'x.jpg'), 'bolyeg')
-    // Rejtett FAJL is kell ide, ne csak rejtett mappa: a mappat amugy is
-    // kiszurne a "csak fajlt viszunk" szabaly, tehat rejtett mappaval a
-    // ponttal-kezdodo szures egyaltalan nem lenne merve. (Ezt a lyukat a
-    // szabotazs-proba mutatta meg: kivettem a szurest, es a teszt atengedte.)
-    writeFileSync(join(from, '.reszleges.jpg'), 'felkesz')
-    writeFileSync(join(from, 'felkesz.jpg.part'), 'darab')
-    writeFileSync(join(from, 'jo.jpg'), 'kep')
-    const r = await migrateDir(from, to)
-    expect(r.moved).toBe(2)          // jo.jpg + felkesz.jpg.part (nem rejtett)
-    expect(existsSync(join(to, '.thumbs'))).toBe(false)
-    expect(existsSync(join(from, '.thumbs', 'x.jpg'))).toBe(true)
-    expect(existsSync(join(to, '.reszleges.jpg'))).toBe(false)
-    expect(existsSync(join(from, '.reszleges.jpg'))).toBe(true)
-  })
-
-  it('ha a regit nem lehet torolni, az UJ peldany akkor is a helyen van', async () => {
-    // Ez a masolas -> ellenorzes -> torles SORRENDJET meri. Ha a torles
-    // elorekerulne, egy irasvedett forrasmappanal a regi peldany maradna, az uj
-    // pedig el sem keszulne -- eppen forditva, mint amit igerunk.
-    if (typeof process.getuid === 'function' && process.getuid() === 0) return
-    const dir = join(tmp, 'zart')
-    const from = join(dir, 'f.jpg')
-    const to = join(tmp, 'cel-zart', 'f.jpg')
-    mkdirSync(dir, { recursive: true })
-    writeFileSync(from, 'tartalom')
-    chmodSync(dir, 0o555)
-    try {
-      await moveVerified(from, to)
-      expect(existsSync(to)).toBe(true)
-      expect(readFileSync(to, 'utf8')).toBe('tartalom')
-    } finally {
-      chmodSync(dir, 0o755)
-    }
-  })
-
-  it('a masolatot LENYOMATTAL ellenorzi, es a sorrend is kotott', () => {
-    // Forras-horgony: a masolat ujra-hasheleset es a "csak ellenorzes utan
-    // torlunk" sorrendet nem lehet kikapcsolni eszrevetlenul. Kiserletileg
-    // serult masolatot nem tudok eloallitani (a copy determinisztikus), ezert
-    // itt a kod ALAKJA a vedelem -- de ez a ket sor a lelke az egesznek.
-    const mig = read(join(ROOT, 'src', 'depot-migrate.ts'), 'utf8')
-    expect(mig).toMatch(/if \(\(await sha256Of\(tmp\)\) !== srcHash\) \{/)
-    expect(mig).toMatch(/renameSync\(tmp, to\)\s*\n\s*rmSync\(from, \{ force: true \}\)/)
-  })
-
-  it('nem letezo forrasmappa nem hiba, csak nincs mit vinni', async () => {
-    const r = await migrateDir(join(tmp, 'nincs'), join(tmp, 'cel5'))
-    expect(r).toEqual({ moved: 0, alreadyThere: 0, failed: 0, bytes: 0, errors: [] })
-  })
-
-  it('a lenyomat tenyleg a tartalmat nezi', async () => {
-    const a = join(tmp, 'e1')
-    const b = join(tmp, 'e2')
-    writeFileSync(a, 'azonos')
-    writeFileSync(b, 'azonos')
-    expect(await sha256Of(a)).toBe(await sha256Of(b))
-    writeFileSync(b, 'mas')
-    expect(await sha256Of(a)).not.toBe(await sha256Of(b))
+  it('a felulet sem kinal koltoztetest', () => {
+    expect(app).not.toContain('/api/depot/migrate')
   })
 })
 
@@ -519,5 +437,143 @@ describe('a beallitas es a vegpontok a helyukon vannak', () => {
     // Es a ket kapcsolo, amivel a felmeno ag kikapcsolhato.
     expect(html).toContain('id="depoSyncUpload"')
     expect(html).toContain('id="depoSyncDeleteUp"')
+  })
+})
+
+describe('a Depo fotok-kartyaja ODAVISZ, nem masodik letolto felulet', () => {
+  const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf-8')
+  const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf-8')
+
+  it('van gomb, es az a Fotok oldalra visz', () => {
+    expect(html).toContain('id="depoPhotosGoBtn"')
+    expect(app).toContain("bind('depoPhotosGoBtn', () => switchPage('photos'))")
+  })
+
+  it('a gomb NEM a tablazat belsejeben van -- ures listaval is ott all', () => {
+    // Ures depoban a tabla helyere egyetlen mondat kerul (`depot.photos.none`).
+    // Ha a gomb azon belul lenne, pont friss telepitesen tunne el, amikor a
+    // legjobban kell: nulla kep mellett ez az egyetlen ut tovabb.
+    const tabla = html.indexOf('id="depoPhotosTable"')
+    const gomb = html.indexOf('id="depoPhotosGoBtn"')
+    expect(tabla).toBeGreaterThan(-1)
+    expect(gomb).toBeGreaterThan(tabla)
+    expect(app).not.toContain('depoPhotosGoBtn</button>')
+  })
+
+  it('NINCS masodik letolto felulet a Depo alatt', () => {
+    // Egy helyen toltunk le. Ket felulet ket kulonbozo allapotot tudna
+    // mutatni ugyanarrol a fiokrol.
+    const kartya = html.slice(html.indexOf('depot.photos.title'), html.indexOf('dsync.title'))
+    expect(kartya).not.toContain('/api/photos/session')
+    expect(kartya).not.toContain('depoPhotosPickBtn')
+  })
+
+  it('a gomb es a magyarazata mindket nyelven megvan', () => {
+    for (const nyelv of ['hu', 'en']) {
+      const forras = readFileSync(join(process.cwd(), 'web/lang', nyelv + '.js'), 'utf-8')
+      expect(forras, nyelv).toContain("'depot.photos.go_btn'")
+      expect(forras, nyelv).toContain("'depot.photos.go_hint'")
+    }
+  })
+})
+
+describe('a kepernyon allo UTVONALAK a valodi mappaszerkezetet mondjak', () => {
+  // A mert hiba: a Drive-kartya magyarazata 2026-08-27-ig a `drive/lackor2` es
+  // `fotok/lackor2` utat igerte. Ezek a REGI, lapos nevek -- a 2026-08-15-os
+  // atrendezes ota `Rendszer/Tárolók/Drive/lackor2` all a lemezen (a depo
+  // gyokereben ellenorizve: lapos `drive` / `fotok` mappa nem letezik).
+  // Aki a kepernyorol olvasva kereste a fajljait, nem talalta meg.
+  //
+  // Ez a teszt SZANDEKOSAN nem szoveget hasonlit szoveghez: a `depot.ts`
+  // konstansaibol vezeti le, minek KELL ott allnia. Ha a mappaszerkezet megint
+  // valtozik, a teszt bukik -- nem a felhasznalo veszi eszre fel ev mulva.
+  const depotTs = readFileSync(join(process.cwd(), 'src/depot.ts'), 'utf-8')
+  const konstans = (nev: string): string => {
+    const m = depotTs.match(new RegExp('export const ' + nev + " = [`']([^`']*)"))
+    if (m) return m[1]
+    return ''
+  }
+
+  it('a lapos, regi nevek SEHOL nem szerepelnek a feluleten', () => {
+    for (const f of ['web/index.html', 'web/lang/hu.js', 'web/lang/en.js']) {
+      const forras = readFileSync(join(process.cwd(), f), 'utf-8')
+      expect(forras, f + ' -- regi lapos Drive-ut').not.toContain('<code>drive/')
+      expect(forras, f + ' -- regi lapos fotok-ut').not.toContain('<code>fotok/')
+    }
+  })
+
+  it('a magyar szoveg a MAGYAR, az angol az ANGOL mappanevet mondja', () => {
+    // A mappa neve az APP_LANG-ot koveti (`Tárolók` / `Storages`), ezert egy
+    // magyar ut az angol szovegben ugyanolyan hiba, mint egy elavult ut.
+    const hu = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf-8')
+    const en = readFileSync(join(process.cwd(), 'web/lang/en.js'), 'utf-8')
+    expect(hu).toContain('Rendszer/Tárolók/Drive/lackor2')
+    expect(en).toContain('System/Storages/Drive/lackor2')
+    expect(en, 'magyar mappanev az angol nyelvi fajlban').not.toContain('Rendszer/Tárolók/')
+  })
+
+  it('a felirt utak a depot.ts konstansaival egyeznek', () => {
+    // DEPOT_DRIVE = `${DEPOT_STORAGES}/Drive`, DEPOT_PHOTOS = `.../GOOGLE_PHOTOS`
+    expect(konstans('DEPOT_DRIVE')).toContain('/Drive')
+    expect(konstans('DEPOT_PHOTOS')).toContain('/GOOGLE_PHOTOS')
+    const hu = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf-8')
+    expect(hu).toContain('Rendszer/Tárolók/GOOGLE_PHOTOS/lackor2')
+  })
+})
+
+describe('a magyar feluleten RAKTAR all, es letezo helyre kuld', () => {
+  // Boss, 2026-08-27: „hogyha magyar nyelvu a Marvin, akkor beszeljunk
+  // magyarul, es mindenhol magyarul." A tarhely magyar neve RAKTAR -- azert
+  // nem „depo", hogy ne keveredjen a GIT TAROLOVAL (repository). A kod
+  // azonositoi (`depot*`, `depoPage`, 'depot.*' kulcsok) NEM valtoznak: az
+  // ekezet a valasztovonal.
+  const olvas = (f: string) => readFileSync(join(ROOT, f), 'utf-8')
+
+  it('a kepernyore kerulo magyar szovegben nincs tobbe „depo"', () => {
+    for (const f of ['web/lang/hu.js', 'web/index.html', 'web/app.js']) {
+      const sorok = olvas(f).split('\n')
+        .map((l, i) => ({ n: i + 1, l }))
+        .filter(x => /[Dd]ep[\u00f3\u00d3]/.test(x.l))
+        .map(x => `  ${f}:${x.n}  ${x.l.trim().slice(0, 110)}`)
+      expect(sorok.length, sorok.length ? '\n' + sorok.join('\n') + '\n' : '').toBe(0)
+    }
+  })
+
+  it('a magyar nyelvi fajl tenyleg a Raktar szot hasznalja', () => {
+    const hu = olvas('web/lang/hu.js')
+    expect(hu).toContain("'nav.depo':")
+    expect(hu.match(/'nav\.depo':\s*'([^']+)'/)?.[1]).toBe('Rakt\u00e1r')
+    // Az angol oldal marad Depot -- ez nem forditasi adossag, hanem dontes.
+    expect(olvas('web/lang/en.js').match(/'nav\.depo':\s*'([^']+)'/)?.[1]).toBe('Depot')
+  })
+
+  it('a kod azonositoi VALTOZATLANOK -- kulonben a meglevo beallitas elveszne', () => {
+    // Ha valaki „kovetkezetessegbol" atnevezne oket, a mar beallitott
+    // MARVEEN_DEPOT es a mentesek utja egyszerre esne szet.
+    expect(olvas('src/depot.ts')).toContain('export function depotRoot')
+    expect(olvas('web/index.html')).toContain('id="depoPage"')
+    expect(olvas('web/lang/hu.js')).toContain("'depot.card_title':")
+  })
+
+  it('egyetlen szoveg sem kuld NEM LETEZO oldalra', () => {
+    // Valos hiba volt: negy onellenorzes-sor a „Tarolok oldalra" kuldott,
+    // csak eppen ilyen oldal nincs -- a tablazat a Raktar oldal egyik
+    // KARTYAJA. A rossz iranyba kuldott ember rosszabb, mint a hallgatas.
+    const html = olvas('web/index.html')
+    const oldalak = new Set([...html.matchAll(/data-page="([A-Za-z0-9_-]+)"/g)].map(m => m[1]))
+    expect(oldalak.has('storages'), 'ha lett Tarolok OLDAL, ez a teszt frissitendo').toBe(false)
+    expect(html.indexOf('id="storagesTable"')).toBeGreaterThan(html.indexOf('id="depoPage"'))
+    const halott: string[] = []
+    for (const f of ['web/lang/hu.js', 'web/lang/en.js', 'src/web/routes/storages.ts']) {
+      olvas(f).split('\n').forEach((l, i) => {
+        if (l.includes('T\u00e1rol\u00f3k oldal') || l.includes('Storages page')) {
+          halott.push(`  ${f}:${i + 1}  ${l.trim().slice(0, 110)}`)
+        }
+      })
+    }
+    expect(
+      halott.length,
+      halott.length ? '\nNem letezo oldalra kuldo szoveg:\n' + halott.join('\n') + '\n' : '',
+    ).toBe(0)
   })
 })

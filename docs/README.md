@@ -27,6 +27,6 @@ Minden lap két szemszögből mutatja be a funkciót:
 | [Proaktív hírszerző (intel registry)](intel-registry.md) | Óránkénti gyűjtő + napi brief közös SQLite tény-registry-vel, dedup + tény-életciklus |
 | [Háttér-feladatok](background-tasks.md) | Leválasztott, hosszú feladatok futtatása + értesítés |
 | [Kód-híd (VS Code Claude Code)](code-bridge.md) | Telegramról vagy Marvintól átadott feladat a projekt **saját, meglévő** VS Code Claude Code sessionjének — új session nélkül, GUI-automatizálás nélkül, publikus port nélkül |
-| [Drive-szinkron](drive-szinkron.md) | A teljes Drive kétirányban a depóba — a gépi törlés fent a Kukába megy, a Drive-on törölt viszont nálad **megmarad** (feltört Drive nem törölhet a gépedről) |
+| [Drive-szinkron](drive-szinkron.md) | A teljes Drive kétirányban a raktárba — a gépi törlés fent a Kukába megy, a Drive-on törölt viszont nálad **megmarad** (feltört Drive nem törölhet a gépedről) |
 
 *A dokumentáció él; javításokat/bővítéseket szívesen fogadunk.*
