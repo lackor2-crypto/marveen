@@ -268,7 +268,7 @@
       </a>
       <a href="#" class="sb-link" data-page="depo">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
-        <span class="sb-label" data-i18n="nav.depo">Depó</span>
+        <span class="sb-label" data-i18n="nav.depo">Raktár</span>
       </a>
       <a href="#" class="sb-link sb-link-settings" data-page="irodaSettings">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -1090,7 +1090,7 @@
           </div>
           <div class="modal-footer">
             <button class="btn-secondary" id="folderPickCancel" data-i18n="picker.cancel">Mégsem</button>
-            <button class="btn-primary" id="folderPickOk" disabled data-i18n="picker.ok">Ez legyen a depó</button>
+            <button class="btn-primary" id="folderPickOk" disabled data-i18n="picker.ok">Ez legyen a raktár</button>
           </div>
         </div>
       </div>
@@ -2523,7 +2523,7 @@
         <p id="intezoSetupText">Betöltés…</p>
         <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn-primary" id="intezoEnsureBtn" data-i18n="intezo.create_tree">Könyvtárszerkezet létrehozása</button>
-          <a href="#" class="btn-secondary" data-page-link="depo" id="intezoToDepoBtn" data-i18n="intezo.to_depot">Depó beállítása</a>
+          <a href="#" class="btn-secondary" data-page-link="depo" id="intezoToDepoBtn" data-i18n="intezo.to_depot">Raktár beállítása</a>
           <button class="btn-secondary" id="intezoConfigBtn" data-i18n="intezo.cfg_open">Kik szerepeljenek a fában?</button>
         </div>
       </div>
@@ -2701,10 +2701,10 @@
       <div class="page-header">
         <div class="page-header-row">
           <div>
-            <h1>Depó</h1>
-            <p class="subtitle">Egy mappa a gépeden, ami alatt minden fájlod ott van</p>
+            <h1 data-i18n="nav.depo">Raktár</h1>
+            <p class="subtitle" data-i18n="depot.page_subtitle">Egy mappa a gépeden, ami alatt minden fájlod ott van</p>
           </div>
-          <button class="btn-secondary btn-compact" id="depoRefreshBtn">Frissítés</button>
+          <button class="btn-secondary btn-compact" id="depoRefreshBtn" data-i18n="common.refresh">Frissítés</button>
         </div>
       </div>
 
@@ -2718,7 +2718,7 @@
       <!-- A depo helye. Kattintassal valaszthato: senkinek nem kell tudnia,
            mi az a /mnt/d, es nem kell per-jeles utvonalat gepelnie. -->
       <div class="card">
-        <h2 data-i18n="depot.card_title">Hol legyen a depó?</h2>
+        <h2 data-i18n="depot.card_title">Hol legyen a raktár?</h2>
         <p class="subtitle" data-i18n="depot.card_desc">
           Ez az a mappa a gépeden, ami alá a Marveen mindent tesz: a fotókat,
           a Drive-fájlokat, a projekteket. Ha még nincs kiválasztva, minden a
@@ -2742,11 +2742,11 @@
            hany tarolod van -- utana van ertelme egyiken-masikon dolgozni. -->
       <div class="card">
         <h2>Tárolók</h2>
-        <p class="subtitle" id="storagesLead">
+        <p class="subtitle" id="storagesLead" data-i18n-html="storages.lead">
           Minden fiókod, aminek fájljai a gépeden vannak: a
           <strong>Google Drive</strong> és a <strong>Google Fotók</strong> fiókjai,
           valamint a <strong>Git</strong>-fiókjaid. Mindegyik a saját mappájába
-          dolgozik a depón belül, így két fiók tartalma soha nem keveredik össze.
+          dolgozik a raktáron belül, így két fiók tartalma soha nem keveredik össze.
           Az azonosító (<code>DRIVE_01</code>) azé a fióké marad akkor is, ha
           átnevezed — a mappát az átnevezés nem mozdítja meg.
         </p>
@@ -2796,18 +2796,52 @@
       </div>
 
       <div class="card">
-        <h2>Fotók</h2>
-        <p class="subtitle" id="depoPhotosLead">
-          A képeid jelenleg részben még a telepítési mappában vannak. Az
-          átköltöztetés minden fájlt <strong>előbb átmásol, ellenőriz, és csak
-          utána töröl</strong> a régi helyről — ha közben elmegy az áram, semmi
-          nem vész el.
+        <h2 data-i18n="depot.photos.title">A fotóim a gépemen</h2>
+        <!-- MIRE VALO -- ugyanaz a szerkezet, mint a Drive-kartyaban: eloszor
+             az, hogy mi ez, csak utana a szamok. Boss 2026-08-27: "A Drive-om a
+             gepemen vagyis ennek mintajara A fotoim a gepemen. es alatta meg
+             infok amik kellene."
+             A kulonbseg a Drive-hoz kepest KIMONDVA all, mert ez a leggyakoribb
+             felreertes: a Fotok NEM szinkron. -->
+        <p class="subtitle" data-i18n-html="depot.photos.what_html">
+          <strong>Mire jó ez?</strong> A Google Fotókból kiválasztott képek
+          <strong>lejönnek a gépedre</strong>, a raktárba — fiókonként külön
+          mappába. Ami egyszer lejött, az internet nélkül is megvan, és a
+          Fájlkezelőben ugyanúgy megnyitod, mint bármelyik fájlodat.
+          <br>
+          <strong>Egyetlen helyre kerülnek.</strong> A letöltés egyenesen a raktárba
+          ír — nincs köztes hely, ahonnan később át kellene őket emelni. Ha a raktár
+          nincs beállítva vagy nem érhető el, a letöltés <strong>el sem indul</strong>,
+          hanem megmondja, mit állíts be.
+          <br>
+          <strong>Ez nem szinkron, hanem behozatal:</strong> a Drive-al ellentétben
+          itt semmi nem megy <strong>vissza</strong> a Google Fotókba. Amit a
+          gépeden törölsz, az fent <strong>megmarad</strong>; amit fent törölsz, az
+          nálad <strong>megmarad</strong>. A képek kiválasztása mindig a te dolgod,
+          a <strong>Fotók</strong> oldalon.
         </p>
         <div id="depoPhotosTable"></div>
-        <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-          <button class="btn-primary btn-compact" id="depoMigrateBtn">Átköltöztetés a depóba</button>
-          <span id="depoMigrateStatus" class="subtitle"></span>
+        <!-- ATVIVO GOMB, nem masodik letolto felulet. Boss, 2026-08-27:
+             "(A) [...] kis valtozas, egy hely marad, ahol letoltesz."
+             A kepek kivalasztasa egyetlen helyen tortenik (Fotok oldal); ez a
+             kartya csak MEGMUTATJA, mi van mar a gepen, es odavisz. Ket
+             letolto felulet ket kulonbozo allapotot tudna mutatni ugyanarrol.
+             A gomb MINDIG lathato -- fotok nelkul is, mert pont akkor kell a
+             legjobban: ures lista mellett ez az egyetlen ut tovabb. -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px">
+          <button class="btn-primary btn-compact" id="depoPhotosGoBtn" data-i18n="depot.photos.go_btn">Képek letöltése a Google Fotókból…</button>
         </div>
+        <p class="subtitle" style="margin:6px 0 0" data-i18n="depot.photos.go_hint">
+          Átvisz a Fotók oldalra, ahol kiválasztod, melyik fiókból melyik képek
+          jöjjenek le. Ez az egyetlen hely, ahol letöltesz — ide utána
+          visszatérve látod, mi került a raktárba.
+        </p>
+        <p class="subtitle" style="margin:8px 0 0" data-i18n-html="depot.photos.where_html">
+          A gépeden a mappa neve <strong>ugyanaz, mint a fiók neve</strong> — a
+          <code>lackor2</code> fiók képei a <code>Rendszer/Tárolók/GOOGLE_PHOTOS/lackor2</code>
+          mappába kerülnek. Nem nevezed át, így két fiók képei soha nem
+          keveredhetnek össze.
+        </p>
       </div>
 
       <div class="card">
@@ -2821,7 +2855,7 @@
              a FO ut egyetlen gomb, mappavalasztas es nevado mezo NELKUL. -->
         <p class="subtitle" data-i18n-html="dsync.what_html">
           <strong>Mire jó ez?</strong> A Marveen <strong>az egész Drive-odat lehozza
-          a gépedre</strong>, a depóba — ugyanazzal a mappaszerkezettel, ami a neten
+          a gépedre</strong>, a raktárba — ugyanazzal a mappaszerkezettel, ami a neten
           van. Ami ott van, az nálad is megvan, internet nélkül is.
           <br>
           A másolat <strong>oda-vissza</strong> működik: ami a Drive-on új vagy
@@ -2843,8 +2877,8 @@
         </div>
         <p class="subtitle" style="margin:6px 0 0" data-i18n-html="dsync.whole_hint_html">
           A gépeden a mappa neve <strong>ugyanaz lesz, mint a fiók neve</strong> — a
-          <code>lackor2</code> Drive-ja a <code>drive/lackor2</code> mappába jön, a
-          fotók pedig a <code>fotok/lackor2</code> mappába. Nem nevezed át, így két
+          <code>lackor2</code> Drive-ja a <code>Rendszer/Tárolók/Drive/lackor2</code> mappába jön, a
+          fotók pedig a <code>Rendszer/Tárolók/GOOGLE_PHOTOS/lackor2</code> mappába. Nem nevezed át, így két
           fiók tartalma soha nem keveredhet össze.
         </p>
         <!-- A kivalasztott mappa utvonala / hibauzenet (app.js irja) -- nyelvi
@@ -2862,7 +2896,7 @@
             Megnyílik a Drive-od, és ott kattintgatva keresed meg a mappát. A gépeden
             a fiók mappája alá kerül, a Drive-on lévő nevével: a <code>lackor2</code>
             fiókból választott <code>Számlák</code> mappa helye
-            <code>drive/lackor2/Számlák</code> lesz. Csak ez az egy mappa jön le
+            <code>Rendszer/Tárolók/Drive/lackor2/Számlák</code> lesz. Csak ez az egy mappa jön le
             (az almappáival együtt) — a Drive többi része nem. A „Hozzáadás” addig
             szürke, amíg nincs kiválasztva mappa.
           </p>

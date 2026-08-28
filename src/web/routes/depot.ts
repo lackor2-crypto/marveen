@@ -1,18 +1,17 @@
-// A depo vegpontjai: hol allnak a fajljaid, es az atkoltoztetes.
+// A depo vegpontjai: hol allnak a fajljaid.
 //
-// Ket dolgot csinal, es semmi mast:
+// Amit csinal, es semmi mast:
 //   - GET  /api/depot/status    -- hol van a depo, el-e, mi van mar benne
-//   - POST /api/depot/migrate   -- a regi helyrol a depoba koltoztet (fotok)
-//   - GET  /api/depot/migrate   -- hol tart a koltoztetes
 //   - GET  /api/depot/browse    -- lemezek/mappak a valasztohoz (nem kell gepelni)
 //   - POST /api/depot/root      -- a kivalasztott mappa lesz a depo
 //   - POST /api/depot/remount   -- onjavitas: ujracsatolja a leszakadt depot
 //                                  (csak ha a DEPOT_AUTO_REMOUNT be van kapcsolva)
 //
-// Miert hatterben fut a koltoztetes? Mert 8 GB masolasa percekig tart. Ha a
-// HTTP-keres varna meg, a bongeszo idokozben elvagna a kapcsolatot, es a
-// felhasznalo azt latna, hogy "megszakadt" -- mikozben javaban megy. Igy
-// viszont az inditas azonnal valaszol, a felulet pedig kerdezgeti, hol tart.
+// NINCS "atkoltoztetes a depoba" gomb, es nincs mit koltoztetni. Boss,
+// 2026-08-27: "eleve a depoba menjen a letoltes". A Google Fotok letoltes
+// azota meg sem indul depo nelkul (lasd photos-picker.ts, POST
+// /api/photos/session), ezert a regi helyen SOHA nem keletkezik kep -- a
+// koltoztetesnek nem maradt dolga, es a kodja is elment.
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { json, readBody } from '../http-helpers.js'
@@ -21,52 +20,40 @@ import {
   depotHealth, depotRoot, ensureDepotSkeleton, depotAccountDir,
   DEPOT_PHOTOS, DEPOT_DRIVE,
 } from '../../depot.js'
-import { migrateDir, type MigrateResult } from '../../depot-migrate.js'
+import { loadIndex, photoFileOwner, depotPhotoDir } from './photos-picker.js'
 import { browseFolders, fromDisplayPath, toDisplayPath, humanBytes, diskSpace } from '../../depot-browse.js'
+import { googleAccountNames } from './accounts.js'
 import { setOverride } from '../../settings-store.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { remountArgv, remountSudoersLine } from '../../depot-remount.js'
 import { execFile } from 'node:child_process'
 import { userInfo } from 'node:os'
-import { legacyPhotoDir, depotPhotoDir, loadIndex, photoFileOwner } from './photos-picker.js'
-import { googleAccountNames } from './accounts.js'
 import type { RouteContext } from './types.js'
 
 /**
- * Mely fiokoknak vannak kepei?
+ * Mely fiokoknak vannak kepei a depoban, es mennyi?
  *
- * NEM eleg a bekotott fiokok listaja: egy leválasztott fiok kepei is ott
- * allnak a lemezen, es azokat is at kell koltoztetni -- kulonben csendben
- * ottmaradnanak a regi helyen, es a felhasznalo azt hinne, minden atkerult.
- * Ezert a bekotott fiokok ES az indexben szereplo tulajdonosok unioja.
+ * Ez LELTAR, nem koltoztetes: csak megmutatja, mi all a depoban. NEM eleg a
+ * bekotott fiokok listaja -- egy levalasztott fiok kepei is ott allnak a
+ * lemezen, es ha kihagynank oket, a felhasznalo azt hinne, nincsenek. Ezert a
+ * bekotott fiokok ES az indexben szereplo tulajdonosok unioja.
  */
-export function accountsWithPhotos(): string[] {
+export function depotPhotoCounts(): Array<{ account: string; count: number; bytes: number }> {
   const names = new Set<string>(googleAccountNames().accounts)
   try { for (const p of loadIndex()) names.add(photoFileOwner(p)) } catch { /* serult index: a bekotottek maradnak */ }
-  return [...names].filter((a) => a)
+  return [...names].filter((a) => a).map((account) => {
+    const d = depotPhotoDir(account)
+    return { account, ...(d ? countPlain(d) : { count: 0, bytes: 0 }) }
+  })
 }
 
-interface MigrateJob {
-  running: boolean
-  startedAt: string
-  finishedAt: string | null
-  /** Hany fajlt kell osszesen atvinni (a start pillanataban szamolva). */
-  total: number
-  moved: number
-  alreadyThere: number
-  failed: number
-  bytes: number
-  errors: string[]
-  /** Melyik fioknal jar eppen -- ez megy ki a feluletre. */
-  current: string
-}
-
-let job: MigrateJob | null = null
-
-/** Csak a teszteknek: a futo koltoztetes elfelejtese ket eset kozott. */
-export function resetMigrateJob(): void { job = null }
-
-/** Hany (nem rejtett) fajl van egy mappaban? */
+/**
+ * Hany (nem rejtett) fajl van egy mappaban?
+ *
+ * A ponttal kezdodo bejegyzesek kimaradnak: a `.thumbs` bolyegkepek nem kepek,
+ * hanem gyorsitotar -- ha beleszamitanank, a leltar tobbet mutatna a
+ * valosagnal.
+ */
 function countPlain(dir: string): { count: number; bytes: number } {
   const r = { count: 0, bytes: 0 }
   try {
@@ -82,47 +69,6 @@ function countPlain(dir: string): { count: number; bytes: number } {
     }
   } catch { /* elerhetetlen mappa: 0, nem hiba */ }
   return r
-}
-
-/** Fiokonkent: mennyi van meg a regi helyen, mennyi mar a depoban. */
-export function photoPlacement(accounts: string[]): Array<{
-  account: string; legacy: { count: number; bytes: number }; depot: { count: number; bytes: number }
-}> {
-  return accounts.map((account) => {
-    const d = depotPhotoDir(account)
-    return {
-      account,
-      legacy: countPlain(legacyPhotoDir(account)),
-      depot: d ? countPlain(d) : { count: 0, bytes: 0 },
-    }
-  })
-}
-
-async function runMigration(accounts: string[]): Promise<void> {
-  if (!job) return
-  for (const account of accounts) {
-    job.current = account
-    const to = depotAccountDir(account, DEPOT_PHOTOS)
-    if (!to) continue
-    let r: MigrateResult
-    try {
-      r = await migrateDir(legacyPhotoDir(account), to)
-    } catch (err: any) {
-      logger.warn({ err: err?.message, account }, '[depo] a koltoztetes elhasalt ennel a fioknal')
-      job.failed++
-      job.errors.push(`${account}: ${String(err?.message || err).slice(0, 120)}`)
-      continue
-    }
-    job.moved += r.moved
-    job.alreadyThere += r.alreadyThere
-    job.failed += r.failed
-    job.bytes += r.bytes
-    for (const e of r.errors) if (job.errors.length < 20) job.errors.push(`${account}: ${e}`)
-  }
-  job.current = ''
-  job.running = false
-  job.finishedAt = new Date().toISOString()
-  logger.info({ moved: job.moved, failed: job.failed, bytes: job.bytes }, '[depo] koltoztetes kesz')
 }
 
 export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
@@ -143,7 +89,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
     const terv = health.repair
     if (!terv) {
       json(res, {
-        error: 'A depó nem Windows-meghajtón van, itt az újracsatolás nem a megoldás.',
+        error: 'A raktár nem Windows-meghajtón van, itt az újracsatolás nem a megoldás.',
         code: 'not_applicable',
       }, 409)
       return true
@@ -204,15 +150,14 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/depot/status' && method === 'GET') {
-    // A vazszerkezet ITT keszul el, nem csak a koltoztetes inditasakor.
+    // A vazszerkezet ITT keszul el.
     //
-    // Kulonben a depo sosem tudna elindulni: a koltoztetes megtagadja magat,
+    // Kulonben a depo sosem tudna elindulni: minden ir-o ag megtagadja magat,
     // ha a depo nem irhato -- es nem irhato, mert meg nem letezik. Egy frissen
     // beallitott depo igy orokre "nem erheto el" maradt volna. Ez egyben az,
     // amit a Boss kert: a Marveen maga hozza letre a sajat mappajat.
     // Elerhetetlen lemeznel nem csinal semmit (lasd ensureDepotSkeleton).
     const health = ensureDepotSkeleton().health
-    const accounts = accountsWithPhotos()
     const root = depotRoot()
     let folders: string[] = []
     if (root && health.exists) {
@@ -226,8 +171,8 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
       photosDir: root ? join(root, DEPOT_PHOTOS) : null,
       driveDir: root ? join(root, DEPOT_DRIVE) : null,
       folders,
-      photos: photoPlacement(accounts),
-      job,
+      // Leltar: mennyi kep all a depoban fiokonkent. Csak megmutatja.
+      photos: depotPhotoCounts(),
       // Az onjavitas allasa. A felulet KULON kezeli a "ki van kapcsolva" es a
       // "be van kapcsolva, de meg nincs joga" allapotot: a ketto mas teendo.
       autoRemount: String(getEffectiveSettingValue('DEPOT_AUTO_REMOUNT')) === '1',
@@ -330,43 +275,6 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
       // A futo folyamat mar beolvasta a regi erteket -- ezert kell ujraindulnia.
       requiresRestart: true,
     })
-    return true
-  }
-
-  if (path === '/api/depot/migrate' && method === 'GET') {
-    json(res, { job })
-    return true
-  }
-
-  if (path === '/api/depot/migrate' && method === 'POST') {
-    const health = depotHealth()
-    if (!health.configured) {
-      json(res, { error: 'Nincs depó beállítva. Előbb add meg a helyét a Beállításoknál.', code: 'no_depot' }, 400)
-      return true
-    }
-    if (!health.writable) {
-      // Ez az a pillanat, amikor a legfontosabb KIMONDANI, mi a baj: itt
-      // indulna el fajlok mozgatasa egy olyan helyre, ami nem elerheto.
-      json(res, { error: health.message, code: 'depot_unreachable' }, 409)
-      return true
-    }
-    if (job?.running) {
-      json(res, { error: 'A költöztetés már fut.', code: 'already_running', job }, 409)
-      return true
-    }
-    ensureDepotSkeleton()
-    const accounts = accountsWithPhotos()
-    const total = photoPlacement(accounts).reduce((n, a) => n + a.legacy.count, 0)
-    job = {
-      running: true, startedAt: new Date().toISOString(), finishedAt: null,
-      total, moved: 0, alreadyThere: 0, failed: 0, bytes: 0, errors: [], current: '',
-    }
-    // Szandekosan NEM varjuk meg: a valasz azonnal megy, a munka a hatterben fut.
-    void runMigration(accounts).catch((err) => {
-      logger.error({ err: err?.message }, '[depo] a koltoztetes megallt')
-      if (job) { job.running = false; job.finishedAt = new Date().toISOString(); job.errors.push(String(err?.message || err)) }
-    })
-    json(res, { ok: true, job })
     return true
   }
 

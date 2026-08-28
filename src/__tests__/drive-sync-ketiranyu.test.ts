@@ -338,7 +338,19 @@ describe('a szamlalok a kepernyon is megjelennek', () => {
 
   it('a vészfék sajat, feltuno dobozt kap', () => {
     expect(app).toContain("document.getElementById('depoSyncBrake')")
-    expect(app).toContain('⚠ Vészfék: ')
+    // A mondat 2026-08-27 ota kulcson at jon (angolul is ki kell mondani).
+    // Ezert nem a szoveget keressuk az app.js-ben, hanem a HIVAST -- es
+    // kulon azt, hogy MINDKET nyelven all mogotte valodi mondat a ket
+    // szammal egyutt. Kulcs nelkul a doboz nemaan uresen maradna.
+    expect(app).toContain("t('dsync.brake_warn'")
+    for (const lang of ['hu', 'en']) {
+      const src = readFileSync(join(ROOT, 'web', 'lang', `${lang}.js`), 'utf-8')
+      const m = src.match(/'dsync\.brake_warn':\s*'([^']+)'/)
+      expect(m, `${lang}.js: hianyzik a dsync.brake_warn`).toBeTruthy()
+      const szoveg = (m as RegExpMatchArray)[1]
+      expect(szoveg, `${lang}: a hianyzo fajlok szama`).toContain('{n}')
+      expect(szoveg, `${lang}: a kovetett fajlok szama`).toContain('{tracked}')
+    }
   })
 })
 

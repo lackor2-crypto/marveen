@@ -1089,6 +1089,16 @@ export interface CodeCandidate {
    *  beszelgetes, aminek a fule mar nincs sehol, de a folyamata el, CSAK igy
    *  zarhato be a feluletrol. `null` = nem latunk oda (regi worker). */
   pid: number | null
+  /** A beszelgetes naplojanak TELJES utja a Claude Code gepen. A worker kuldi,
+   *  mert O tudja: Marveen a WSL-ben fut, a napló a Windowson van, es a
+   *  projekt-mappa neve egy slug -- azt kitalalni tippeles volna.
+   *
+   *  Miert kell: Boss, 2026-08-28 -- "ha me van a bekototte, akor miert nem
+   *  jeleniti meg a chat beszelgetest a kartyan???". Enelkul a kartya tud a
+   *  beszelgetesrol (nev, token), de a TARTALMAT nem tudja megnyitni.
+   *
+   *  `null` = nem latunk oda (regi worker, ami meg nem kuldi ezt a mezot). */
+  transcriptPath: string | null
 }
 
 /** Egy gepen ennyi projekt folott a lista amugy is athatolhatatlan lenne, es
@@ -1116,6 +1126,7 @@ export function recordCodeCandidates(
     live?: boolean | null
     model?: string
     pid?: number
+    transcriptPath?: string
   }[],
   now = Date.now(),
 ): void {
@@ -1154,6 +1165,14 @@ export function recordCodeCandidates(
       // jelenti, hogy nem latunk oda -- olyankor a bezaras-gomb sem jelenhet
       // meg, mert nem lenne mit bezarni.
       pid: typeof s.pid === 'number' && Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null,
+      // A napló utja KULSO bemenet: egy `.jsonl` fajlnev kell, aminek a neve
+      // maga a sessionId -- barmi mas nem "furcsa ut", hanem olyasmi, amit
+      // sosem szabad megnyitni. A szigoru ellenorzes a beolvasasnal (a
+      // `code-conversation.ts`-ben) is megvan; ez itt az elso szuro.
+      transcriptPath:
+        typeof s.transcriptPath === 'string' && s.transcriptPath.trim().length > 0 && s.transcriptPath.length <= 4096
+          ? s.transcriptPath.trim()
+          : null,
     })
     if (mine.length >= MAX_CANDIDATES) break
   }
@@ -1206,6 +1225,12 @@ export interface CodeTab {
   /** A futo Claude Code folyamat azonositoja; `null` = nem latunk oda.
    *  Reszletek a `CodeCandidate.pid`-nel. */
   pid: number | null
+  /** A beszelgetes naplojanak TELJES utja azon a gepen, ahol a Claude Code fut
+   *  (`C:\Users\...\.claude\projects\<slug>\<sessionId>.jsonl`). Ebbol tudja a
+   *  vezerlopult megmutatni a beszelgetes TARTALMAT is, nem csak a nevet es a
+   *  tokenszamot. `null` = nem latunk oda (regi worker, ami meg nem kuldi) --
+   *  olyankor a felulet a gombot sem kinalja, mert nem lenne mit megnyitnia. */
+  transcriptPath: string | null
 }
 
 export interface CodeTabProject {
@@ -1215,6 +1240,13 @@ export interface CodeTabProject {
   workspacePath: string
   currentSessionId: string | null
   tabs: CodeTab[]
+  /** Amit a nyitottsag-szuro KIDOBOTT a `tabs`-bol: a mappahoz tartozo tobbi
+   *  beszelgetes, aminek a folyamata mar nem fut. Nem szemet, es nem is
+   *  "nincs": a VS Code panelen ezek a fulek nyitva lehetnek (Boss,
+   *  2026-08-28: "a kartyan csak eg chat van megjelenitve, most, de a vscode
+   *  ban van vagy 3 beszelgetes"). A fo listaba nem valok -- oda a cimezheto,
+   *  futo beszelgetesek mennek --, de elerhetonek KELL lenniuk. */
+  closedTabs: CodeTab[]
 }
 
 export interface CodeTabsView {
@@ -1305,6 +1337,9 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
         workspacePath: c.workspacePath,
         currentSessionId: registered ? registered.sessionId : null,
         tabs: [],
+        // A szetvalogatas lentebb tortenik (a nyitottsag-szuro utan); itt meg
+        // minden ful egy listaban gyulik.
+        closedTabs: [],
       }
       groups.set(key, g)
     }
@@ -1321,6 +1356,7 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
       live: c.live,
       model: c.model,
       pid: c.pid,
+      transcriptPath: c.transcriptPath,
     })
   }
 
@@ -1338,8 +1374,25 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
     return kept.length > 0 ? kept : tabs.filter((t) => t.current)
   }
 
+  // A KIDOBOTT sorok NEM tunnek el nyomtalanul: kulon listaba mennek.
+  //
+  // Boss, 2026-08-28: "a kartyan csak eg chat van megjelenitve, most, de a
+  // vscode ban van vagy 3 beszelgetes." Mert allapot: a masik ketto NYITVA van
+  // a VS Code panelen, de a folyamata mar nem fut (ma egy sort sem irtak),
+  // ezert `live === false`. A ket allitas nem mond ellent egymasnak -- a
+  // "nyitott ful" es a "futo folyamat" KET KULONBOZO dolog --, de a felulet
+  // eddig csak az egyiket ismerte, es a masikat nyomtalanul eldobta.
+  //
+  // A `tabs` ezert valtozatlan marad (a fo lista tiszta, ahogy 2026-08-23-ban
+  // kerted), a tobbi beszelgetes pedig a `closedTabs`-ban erheto el -- ott,
+  // ahol keresed oket, es nem ott, ahol utban vannak.
   const projects = [...groups.values()]
-    .map((g) => ({ ...g, tabs: filterLive(g.tabs).sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0)) }))
+    .map((g) => {
+      const byTime = (a: CodeTab, b: CodeTab): number => (b.mtime ?? 0) - (a.mtime ?? 0)
+      const shown = filterLive(g.tabs).sort(byTime)
+      const shownIds = new Set(shown.map((t) => t.sessionId))
+      return { ...g, tabs: shown, closedTabs: g.tabs.filter((t) => !shownIds.has(t.sessionId)).sort(byTime) }
+    })
     .sort((a, b) => (b.tabs[0]?.mtime ?? 0) - (a.tabs[0]?.mtime ?? 0))
 
   const reason: CodeTabsView['reason'] = workerOnline
@@ -1371,6 +1424,24 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
     reason,
     window: { maxTabsPerProject: TABS_MAX_PER_PROJECT, maxAgeDays: TABS_MAX_AGE_DAYS },
   }
+}
+
+/** Egy beszelgetes a jelentett fulek kozul -- futo ES nem futo egyarant.
+ *
+ *  A beszelgetes-nezet ezen keresztul jut el a naplo utjahoz. Kifejezetten a
+ *  `closedTabs`-ot IS nezi: a nem futo beszelgetes tartalma ugyanugy olvashato
+ *  kell hogy legyen, kulonben a nezet pont azt nem mutatna meg, amiert
+ *  keszult. `null` = ilyen sessiont egyetlen worker sem jelentett -- ami mas,
+ *  mint hogy "ures a beszelgetes". */
+export function findCodeTab(sessionId: string, now = Date.now()): CodeTab | null {
+  const id = (sessionId || '').trim()
+  if (!id) return null
+  for (const g of listCodeTabs(now).projects) {
+    for (const tb of [...g.tabs, ...g.closedTabs]) {
+      if (tb.sessionId === id) return tb
+    }
+  }
+  return null
 }
 
 export interface CodeBridgeHealth {

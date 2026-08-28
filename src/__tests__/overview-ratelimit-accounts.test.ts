@@ -52,9 +52,38 @@ describe('usage-limit widget: reading the rows', () => {
     }
   })
 
+  // The ticker's BODY, not the whole file: an assertion that names one exact
+  // spelling of a guard breaks on a rewrite that keeps the behaviour intact --
+  // which is what happened on 2026-08-27, when the re-fetch was added and the
+  // guard became an early return. What has to hold is the property.
+  const tickerBody = (): string => {
+    const start = APP.indexOf('_rateLimitTicker = setInterval(')
+    expect(start, 'the usage-limit ticker is gone').toBeGreaterThan(-1)
+    const end = APP.indexOf('}, 60_000)', start)
+    expect(end, 'the ticker no longer runs on a 60s cadence').toBeGreaterThan(start)
+    return APP.slice(start, end)
+  }
+
   it('the countdown is redrawn on a timer -- the overview only fetches on open', () => {
-    expect(APP).toContain('_rateLimitTicker = setInterval(')
-    expect(APP).toContain('if (!document.hidden && _rateLimitLast)')
+    const tick = tickerBody()
+    // Bail out when there is nothing to draw or nobody looking...
+    expect(tick, 'the tick no longer checks document.hidden').toMatch(/document\.hidden/)
+    expect(tick, 'the tick no longer checks for a snapshot').toMatch(/_rateLimitLast/)
+    // ...otherwise redraw from the snapshot already in hand, with no network.
+    expect(tick).toContain('renderOverviewRateLimit(_rateLimitLast.rateLimit')
+  })
+
+  it('a stale number is RE-FETCHED, not just redrawn', () => {
+    // Boss, 2026-08-27 (msg 579): the widget sat on a 2-hour-old 15% while a
+    // live session on the same account showed 45%. A redraw cannot fix a stale
+    // number -- only a re-fetch can. Both halves are guarded: that the tick
+    // fetches at all, and that it only does so while the Overview is open (a
+    // background page must not keep polling).
+    const tick = tickerBody()
+    expect(tick, 'the tick never re-fetches -- a frozen percentage stays frozen')
+      .toContain("fetch('/api/overview')")
+    expect(tick, 'the re-fetch is not limited to the open Overview page')
+      .toMatch(/location\.hash[\s\S]{0,120}overview/)
   })
 
   it('a rule separates the accounts (and the OpenRouter row) from each other', () => {

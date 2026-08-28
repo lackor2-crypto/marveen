@@ -1,6 +1,6 @@
 # Drive-szinkron
 
-A Marveen a bekötött Google-fiók **teljes Drive-ját** lehozza a depóba, és azóta
+A Marveen a bekötött Google-fiók **teljes Drive-ját** lehozza a raktárba, és azóta
 **oda-vissza** tartja szinkronban. Egy fiók = egy kattintás, mappaválasztás
 nélkül: „a lackor2 drivot mindenestul".
 
@@ -26,8 +26,8 @@ töröl **véglegesen** — `files.delete` helyett `trashed: true`.
 ## Hova kerül a gépeden
 
 ```
-<depó>/drive/lackor2/     a lackor2 teljes Drive-ja, ugyanazzal a fastruktúrával
-<depó>/drive/usalackor/   az usalackor Drive-ja
+<raktár>/Rendszer/Tárolók/Drive/lackor2/     a lackor2 teljes Drive-ja, ugyanazzal a fastruktúrával
+<raktár>/Rendszer/Tárolók/Drive/usalackor/   az usalackor Drive-ja
 ```
 
 A helyi mappa neve **a fiók neve** — nincs külön névadó mező. („a lackor2 legyen
@@ -66,13 +66,13 @@ vész el — a Google verzió-történetéből előhozható.
 
 A felmenő ág **kihagyja magát**, ha bármi bizonytalan. Sorrendben:
 
-1. **A felmenő ág ki van kapcsolva** (kapcsoló a Depó oldalon).
+1. **A felmenő ág ki van kapcsolva** (kapcsoló a Raktár oldalon).
 2. **Sérült a beállítás-fájl** (`store/drive-sync.json`). Üres állapotból minden
-   helyi fájl „újnak" látszana, és az egész depó felmenne. A sérült fájlt
+   helyi fájl „újnak" látszana, és az egész raktár felmenne. A sérült fájlt
    `.serult-<időbélyeg>` néven **félretesszük**, nem írjuk felül.
 3. **Csonka volt a Drive bejárása** (elértük a `MAX_FOLDERS` / `MAX_FILES`
    határt). Ilyenkor nem tudjuk, mi van a Drive-on — tehát nem is törlünk.
-4. **Nincs meg a helyi mappa** (pl. nincs bedugva a depó lemeze). Ez nem azt
+4. **Nincs meg a helyi mappa** (pl. nincs bedugva a raktár lemeze). Ez nem azt
    jelenti, hogy „mindent töröltél".
 5. **Csonka volt a helyi bejárás.**
 6. **Tömeges törlés vészfék:** ha a nyilvántartott fájlok több mint **10%-a**
@@ -135,7 +135,7 @@ nyúlunk a Drive-hoz.
 Ha valamelyik betelik, a futás eredménye **„részleges"** lesz — nem „rendben".
 Egy csonka mentés nem nézhet ki ugyanúgy, mint egy teljes.
 
-## Kapcsolók (Depó oldal)
+## Kapcsolók (Raktár oldal)
 
 - *A gépemen készült változás menjen fel a Drive-ra* — a teljes felmenő ág.
 - *Amit a gépemen törlök, az fent is kerüljön a Kukába* — csak a törlés-átvitel.

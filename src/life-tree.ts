@@ -741,8 +741,8 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   if (!root) {
     return {
       ok: false, root: null, created: [], existed: 0, failed: [],
-      message: 'Nincs depó beállítva, ezért nincs hol létrehozni az életfát. '
-        + 'Előbb a Depó oldalon add meg, melyik mappában legyen a Marveen tárhelye.',
+      message: 'Nincs raktár beállítva, ezért nincs hol létrehozni az életfát. '
+        + 'Előbb a Raktár oldalon add meg, melyik mappában legyen a Marveen tárhelye.',
     }
   }
   // A gyokernek mar allnia kell. Enelkul egy lecsatolt lemeznel a
@@ -754,7 +754,7 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   if (!rootOk) {
     return {
       ok: false, root, created: [], existed: 0, failed: [],
-      message: `A depó mappája most nem érhető el: ${root}. `
+      message: `A raktár mappája most nem érhető el: ${root}. `
         + 'Ha külső lemezen van, csatlakoztasd. Amíg nem érhető el, nem hozok létre semmit.',
     }
   }

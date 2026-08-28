@@ -343,7 +343,7 @@ export function depotHealth(): DepotHealth {
   if (!root) {
     return {
       configured: false, root: null, exists: false, writable: false,
-      message: 'Nincs depó beállítva – minden a régi helyén marad.',
+      message: 'Nincs raktár beállítva – minden a régi helyén marad.',
       repair: null,
     }
   }
@@ -359,13 +359,13 @@ export function depotHealth(): DepotHealth {
       configured: true, root, exists: false, writable: false,
       repair: terv,
       message: terv
-        ? `A depó mappája nem érhető el: ${root}. A Windows-meghajtó kapcsolata `
+        ? `A raktár mappája nem érhető el: ${root}. A Windows-meghajtó kapcsolata `
           + 'szakadt el a WSL felé (ez a WSL ismert hibája újraindítás után). '
           + 'Két javítás van: a teljes helyreállítás Windowsból a `wsl --shutdown`, '
-          + 'utána indul újra minden; ha nem akarod leállítani a Marveent, a Depó '
+          + 'utána indul újra minden; ha nem akarod leállítani a Marveent, a Raktár '
           + 'oldalon ott a célzott újracsatoló parancs. Amíg nem érhető el, nem '
           + 'mentek oda semmit.'
-        : `A depó mappája nem érhető el: ${root}. Ha külső lemezen van, `
+        : `A raktár mappája nem érhető el: ${root}. Ha külső lemezen van, `
           + 'csatlakoztasd. Amíg nem érhető el, nem mentek oda semmit.',
     }
   }
@@ -377,16 +377,16 @@ export function depotHealth(): DepotHealth {
     return {
       configured: true, root, exists: true, writable: false,
       repair: terv,
-      message: `A depó mappája megvan, de nem tudok bele írni: ${root}. `
+      message: `A raktár mappája megvan, de nem tudok bele írni: ${root}. `
         + (terv
           ? 'Egy Windows-meghajtónál ez tipikusan az elszakadt WSL-kapcsolat: a mappa '
-            + 'látszik, de minden művelet hibát ad. A Depó oldalon ott a helyreállító parancs.'
+            + 'látszik, de minden művelet hibát ad. A Raktár oldalon ott a helyreállító parancs.'
           : 'Ellenőrizd a mappa jogosultságait.'),
     }
   }
   return {
     configured: true, root, exists: true, writable: true,
-    message: `A depó rendben: ${root}`,
+    message: `A raktár rendben: ${root}`,
     repair: null,
   }
 }
@@ -419,7 +419,7 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
         created: [],
         health: {
           ...health,
-          message: `A depó helye nem érhető el: ${parent} nincs meg. `
+          message: `A raktár helye nem érhető el: ${parent} nincs meg. `
             + 'Ha külső lemezre mutat, csatlakoztasd; ha Windows-mappa, a kapcsolat '
             + 'megszakadt. Amíg nem érhető el, nem hozok létre semmit és nem mentek oda.',
         },

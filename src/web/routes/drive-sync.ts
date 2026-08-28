@@ -550,7 +550,7 @@ function gond(a: {
  */
 async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: CsonkaOk[]; brake: { wouldDelete: number; tracked: number } | null }> {
   const base = depotAccountDir(pair.account, DEPOT_DRIVE)
-  if (!base) throw new Error('nincs depó beállítva')
+  if (!base) throw new Error('nincs raktár beállítva')
   const token = await getAccessToken(pair.account)
   const state = cfg.state[pair.id] || {}
   cfg.state[pair.id] = state
@@ -901,7 +901,7 @@ async function uploadPhase(a: {
     if (job) job.deleteBrake = { wouldDelete: torlendok.length, tracked }
     job?.errors.push(
       `VÉSZFÉK: ${torlendok.length} fájl tűnt el a gépedről (a ${tracked}-ból) – ` +
-      'ennyit nem törlök a Drive-on magamtól. Nézd meg, hogy a depó a helyén van-e.',
+      'ennyit nem törlök a Drive-on magamtól. Nézd meg, hogy a raktár a helyén van-e.',
     )
     return { wouldDelete: torlendok.length, tracked }
   }

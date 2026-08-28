@@ -10959,6 +10959,74 @@ details.upstream-box > summary > h4 {
   opacity: 1;
   transform: scale(1.15);
 }
+/* NEM FUT, DE ITT VAN. A bekotott beszelgetes sora akkor is kiall, ha a
+   folyamata mar nem el -- oda megy a feladat, tehat latnod kell. A cimke
+   halvany: informacio, nem riasztas. */
+.cb-tab-closed {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0 5px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted, #888);
+  cursor: help;
+  white-space: nowrap;
+}
+/* "Beszelgetes megnyitasa" -- ugyanaz a nem-tolakodo gomb, mint a bezarase,
+   csak a masik iranyba (olvasas, nem beavatkozas). */
+.cb-tab-open {
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 4px;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--muted, #888);
+  cursor: pointer;
+}
+.cb-tab-open:hover {
+  color: var(--accent, #4a9eff);
+  transform: scale(1.15);
+}
+
+/* A MAPPA TOBBI BESZELGETESE (Boss, 2026-08-28: "a kartyan csak eg chat van
+   megjelenitve, most, de a vscode ban van vagy 3 beszelgetes").
+   Osszecsukva all: a fo lista a cimezheto beszelgeteseke marad, ez alatta egy
+   halk sor, amit ki lehet nyitni. */
+.cb-tabs-closed {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.cb-tabs-closed > summary {
+  cursor: pointer;
+  font-size: 11px;
+  opacity: .6;
+  list-style: none;
+  padding: 2px 0;
+}
+.cb-tabs-closed > summary::-webkit-details-marker { display: none; }
+.cb-tabs-closed > summary::before {
+  content: '\25b8';
+  display: inline-block;
+  margin-right: 4px;
+  transition: transform .12s ease;
+}
+.cb-tabs-closed[open] > summary::before { transform: rotate(90deg); }
+.cb-tabs-closed > summary:hover { opacity: .9; }
+/* A nem futo sorok halvanyabbak, es nincs bennuk radiogomb -- a behuzas
+   igazitja oket a fo lista cimeihez. */
+.cb-tab-row-closed {
+  opacity: .75;
+  cursor: default;
+  padding-left: 16px;
+}
+.cb-tab-when {
+  flex: 0 0 auto;
+  opacity: .55;
+  font-size: 11px;
+  white-space: nowrap;
+}
 
 
 /* === Gombsor: azonos magassag + also vonal (Boss, 2026-08-24) ===

@@ -102,7 +102,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
       // Depo nelkul is valaszolunk, csak ures listaval + magyarazattal: a
       // felulet igy a "menj a Depo oldalra" uzenetet tudja kiirni ahelyett,
       // hogy egy ures tablazat mellett hallgatna.
-      message: root ? null : 'Még nincs beállítva depó — a Depó oldalon válaszd ki, hova kerüljenek a fájlok.',
+      message: root ? null : 'Még nincs beállítva raktár — a Raktár oldalon válaszd ki, hova kerüljenek a fájlok.',
       rows: currentRows(),
     })
     return true
@@ -156,7 +156,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
         if (!existsSync(abs)) { mkdirSync(abs, { recursive: true }); created = abs }
       } catch (e) {
         logger.warn({ err: String(e), abs }, '[storages] a git-fiok mappaja nem jott letre')
-        json(res, { error: 'A fiók felkerült, de a mappáját nem sikerült létrehozni. Nézd meg, írható-e a depó.' }, 500)
+        json(res, { error: 'A fiók felkerült, de a mappáját nem sikerült létrehozni. Nézd meg, írható-e a raktár.' }, 500)
         return true
       }
     }
@@ -222,7 +222,7 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   // mond arrol, hogy a Marveen fogadta-e a keresi.
   if (path === '/api/storages/git-sync-start' && method === 'POST') {
     syncAllRepos().catch((err) => logger.warn({ err }, '[git-sync] az utemezett futas nem sikerult'))
-    json(res, { ok: true, started: true, message: 'A letöltés elindult. Az eredmény a Tárolók oldalon látszik, amint kész.' }, 202)
+    json(res, { ok: true, started: true, message: 'A letöltés elindult. Az eredmény a Raktár oldal „Tárolók” kártyáján látszik, amint kész.' }, 202)
     return true
   }
 

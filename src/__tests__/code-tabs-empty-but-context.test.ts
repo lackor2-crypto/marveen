@@ -40,8 +40,12 @@ function extractFn(src: string, name: string): string {
   throw new Error(`${name}() zarojelei nincsenek parban`)
 }
 
-interface Tab { sessionId?: string; title?: string | null; live?: boolean | null; contextTokens?: number | null; mtime?: number | null }
-interface Entry { tabs?: Tab[]; tabsReason?: string; contextTokens?: number | null }
+interface Tab {
+  sessionId?: string; title?: string | null; live?: boolean | null
+  contextTokens?: number | null; mtime?: number | null
+  current?: boolean; pid?: number | null; hasTranscript?: boolean; shortId?: string
+}
+interface Entry { tabs?: Tab[]; closedTabs?: Tab[]; tabsReason?: string; contextTokens?: number | null }
 
 // A `t()` a KULCSOT adja vissza a behelyettesitett tokenekkel, hogy lassuk,
 // melyik uzenet sult el es mi keruelt bele. A valodi szovegek meglete kulon
@@ -53,17 +57,29 @@ const harness = `
   }
   function escapeHtml(s) { return String(s) }
   function escapeAttr(s) { return String(s) }
+  // A relativ ido sajat, mar bevalt segedje -- itt csak annyi szamit, hogy a
+  // sorba beleker valami. Az idoformazas nem ennek a tesztnek a targya.
+  function formatRelative(ts) { return 'relativ:' + ts }
   ${extractFn(app, 'cbFmtKTokens')}
+  ${extractFn(app, 'cbTabRows')}
   ${extractFn(app, 'cbHasTabRows')}
   ${extractFn(app, 'cbTabsEmptyHasCtx')}
+  ${extractFn(app, 'cbTabOpenBtn')}
+  ${extractFn(app, 'cbClosedTabsHtml')}
   ${extractFn(app, 'cbTabsPickHtml')}
-  return { cbTabsPickHtml: cbTabsPickHtml, cbTabsEmptyHasCtx: cbTabsEmptyHasCtx, cbFmtKTokens: cbFmtKTokens }
+  return {
+    cbTabsPickHtml: cbTabsPickHtml, cbTabsEmptyHasCtx: cbTabsEmptyHasCtx,
+    cbFmtKTokens: cbFmtKTokens, cbHasTabRows: cbHasTabRows,
+    cbClosedTabsHtml: cbClosedTabsHtml,
+  }
 `
 // eslint-disable-next-line @typescript-eslint/no-implied-eval
 const api = new Function(harness)() as {
   cbTabsPickHtml: (e: Entry) => string
   cbTabsEmptyHasCtx: (e: Entry) => boolean
   cbFmtKTokens: (n: number) => string
+  cbHasTabRows: (e: Entry) => boolean
+  cbClosedTabsHtml: (e: Entry) => string
 }
 
 describe('ures ful-lista + mert kontextus: a kartya nem mond ket dolgot egyszerre', () => {
@@ -129,7 +145,104 @@ describe('a token-szam egy helyen formazodik', () => {
   })
 })
 
+// ★ A BEKOTOTT SOR SOSEM ESIK KI (Boss, 2026-08-28).
+//
+// "hat ha me van a bekototte, akor miert nem jeleniti meg a chat beszelgetest a
+// kartyan??? miert csk mondja hogy megvan de nem mutatja meg? idiotasag."
+//
+// A szerver KIFEJEZETTEN megtartja a bekotott (`current`) fulet a listaban akkor
+// is, ha a folyamata mar nem fut (`filterLive`, code-bridge-store.ts) -- pont
+// azert, hogy a kartya ne latsszon cimezhetetlennek. A felulet viszont meg
+// egyszer szurt, kivetel nelkul, es eldobta azt, amit a szerver megorzott. Az
+// eredmeny: a kartya TUDOTT a beszelgetesrol (kiirta a tokenjet), es megsem
+// mutatta meg. Ezek a tesztek azt kotik le, hogy ez ne fordulhasson elo ujra.
+describe('a bekotott beszelgetes sora akkor is kiall, ha nem fut', () => {
+  const bound: Entry = {
+    tabs: [{ sessionId: 'abcdef12-1111-2222-3333-444455556666', title: 'Fejlesztes', live: false, current: true, contextTokens: 112_000, hasTranscript: true }],
+    tabsReason: 'ok',
+    contextTokens: 112_000,
+  }
+
+  it('a sor megjelenik -- nem az "ures lista" uzenet', () => {
+    expect(api.cbHasTabRows(bound)).toBe(true)
+    expect(api.cbTabsEmptyHasCtx(bound)).toBe(false)
+    const html = api.cbTabsPickHtml(bound)
+    expect(html).toContain('Fejlesztes')
+    // Pont ez a mondat volt a panasz targya: tobbe nem sul el, ha van sor.
+    expect(html).not.toContain('tabs_none_ctx')
+    expect(html).not.toContain('tabs_blind')
+  })
+
+  it('ki is mondja, hogy NEM FUT -- a jelzes meres, nem tipp', () => {
+    expect(api.cbTabsPickHtml(bound)).toContain('cb.card.tab_not_running')
+  })
+
+  it('a futo ful nem kap "nem fut" cimket', () => {
+    const live: Entry = { tabs: [{ sessionId: 'a', title: 'x', live: true, current: true }], tabsReason: 'ok' }
+    expect(api.cbTabsPickHtml(live)).not.toContain('tab_not_running')
+  })
+
+  it('a NEM bekotott, nem futo ful tovabbra sem kerul a fo listaba', () => {
+    // Boss, 2026-08-23: "amit a vscode ban kitorolnek azt a maveen kartyaja se
+    // mutassa" -- a kivetel CSAK a bekotott sorra vonatkozik, masra nem.
+    const e: Entry = { tabs: [{ sessionId: 'abcdef12', live: false, contextTokens: 108_000 }], tabsReason: 'ok', contextTokens: 108_000 }
+    expect(api.cbHasTabRows(e)).toBe(false)
+  })
+})
+
+describe('a beszelgetes TARTALMA megnyithato', () => {
+  it('van gomb, ha a worker elkuldte a naplo utjat', () => {
+    const html = api.cbTabsPickHtml({ tabs: [{ sessionId: 's1', title: 'x', live: true, current: true, hasTranscript: true }], tabsReason: 'ok' })
+    expect(html).toContain('cb-tab-open')
+    expect(html).toContain('cb.card.tab_open')
+  })
+
+  it('NINCS gomb, ha nem latunk oda (regi worker) -- nem kinalunk halott gombot', () => {
+    const html = api.cbTabsPickHtml({ tabs: [{ sessionId: 's1', title: 'x', live: true, current: true, hasTranscript: false }], tabsReason: 'ok' })
+    expect(html).not.toContain('cb-tab-open')
+  })
+})
+
+// Boss, 2026-08-28: "a kartyan csak eg chat van megjelenitve, most, de a vscode
+// ban van vagy 3 beszelgetes." A nyitott FUL es a futo FOLYAMAT ket kulonbozo
+// dolog: a masik ket beszelgetes ott ult a VS Code panelen, de nem futott.
+describe('a mappa tobbi beszelgetese elerheto marad', () => {
+  it('nincs blokk, ha nincs mit mutatni -- ures reszletezot nem rakunk ki', () => {
+    expect(api.cbClosedTabsHtml({ closedTabs: [] })).toBe('')
+    expect(api.cbClosedTabsHtml({})).toBe('')
+  })
+
+  it('a sorok kiallnak, es a tartalmuk is megnyithato', () => {
+    const html = api.cbClosedTabsHtml({
+      closedTabs: [
+        { sessionId: '3d3f27b8', title: 'tegnapi kor', contextTokens: 45_000, mtime: 1_756_000_000_000, hasTranscript: true },
+        { sessionId: 'be83a34f', title: 'masik', hasTranscript: false },
+      ],
+    })
+    expect(html).toContain('cb.card.tabs_closed|n=2')
+    expect(html).toContain('tegnapi kor')
+    expect(html).toContain('masik')
+    // Az elsore van gomb (van naplo-ut), a masodikra nincs.
+    expect((html.match(/cb-tab-open/g) || []).length).toBe(1)
+    // Az "utoljara irt" csak ott all ki, ahol tenyleg megmertuk.
+    expect((html.match(/cb-tab-when/g) || []).length).toBe(1)
+  })
+})
+
 describe('a szoveg mindket nyelven megvan', () => {
+  for (const key of [
+    'cb.card.tab_not_running', 'cb.card.tab_not_running_help',
+    'cb.card.tab_open', 'cb.card.tab_open_help',
+    'cb.card.tabs_closed', 'cb.card.tabs_closed_help', 'cb.card.tab_last_write',
+    'conversation.you', 'conversation.empty_no_path', 'conversation.empty_no_session',
+    'conversation.empty_too_large', 'conversation.empty_unsafe', 'conversation.empty_unreachable',
+  ]) {
+    it(`${key} hu + en`, () => {
+      expect(hu, `hu: ${key}`).toContain(`'${key}':`)
+      expect(en, `en: ${key}`).toContain(`'${key}':`)
+    })
+  }
+
   for (const key of ['cb.card.tabs_none_ctx', 'cb.card.tabs_none_ctx_help']) {
     it(`${key} hu + en`, () => {
       expect(hu, `hu: ${key}`).toContain(`'${key}':`)

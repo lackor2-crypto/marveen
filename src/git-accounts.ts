@@ -370,7 +370,7 @@ export interface PullResult {
 export async function pullGitAccount(account: string): Promise<PullResult> {
   const acc = String(account || '').trim()
   const root = depotRoot()
-  if (!root) return { ok: false, message: 'Nincs beállítva depó — a Depó oldalon add meg, hova kerüljenek a fájlok.', cloned: [], present: [], failed: [] }
+  if (!root) return { ok: false, message: 'Nincs beállítva raktár — a Raktár oldalon add meg, hova kerüljenek a fájlok.', cloned: [], present: [], failed: [] }
   let kolcsonzott = ''
   if (!hasGitToken(acc)) {
     // Nincs sajat kulcs -- de lehet, hogy a gepen van olyan bejelentkezes,
@@ -595,7 +595,7 @@ export async function deleteGitAccount(
   // ele, kulonben egy nem letezo mappat mernenk meg, es minden fiok "uresnek"
   // latszana. (Ezt egy elo proba fogta meg: fel nem toltott repot is atengedett.)
   const root = depotRoot()
-  if (!root) return { ok: false, message: 'Nincs beállítva a depó helye, ezért nem nyúlok semmihez.' }
+  if (!root) return { ok: false, message: 'Nincs beállítva a raktár helye, ezért nem nyúlok semmihez.' }
   const dir = join(root, storageKindRoot('git'), acc)
   let entries: string[] = []
   try { entries = readdirSync(dir) } catch { entries = [] }

@@ -64,16 +64,16 @@ Ennek konkrét oka van: a Google által adott letöltési link **60 perc múlva
 lejár**. Ha nem hoznánk le rögtön a képeket, egy óra múlva üres lenne az oldal.
 Így viszont a képek utána is megmaradnak — akkor is, ha nincs internet.
 
-### Ha be van állítva Depó
+### Ha be van állítva Raktár
 
 A telepítési mappa nem arra való, hogy gigabájtok álljanak benne. Ezért a
-Beállítások oldalon megadható egy **Depó** (nálad: `D:\Marveen`), és onnantól a
+Beállítások oldalon megadható egy **Raktár** (nálad: `D:\Marveen`), és onnantól a
 képek oda kerülnek — a **fajta** van felül, alatta a fiók:
 
 ```
-<depó>/fotok/lackor2/          a lackor2 képei
-<depó>/fotok/usalackor/        az usalackor képei
-<depó>/drive/lackor2/          ugyanennek a fióknak a Drive-mentése
+<raktár>/Rendszer/Tárolók/GOOGLE_PHOTOS/lackor2/          a lackor2 képei
+<raktár>/Rendszer/Tárolók/GOOGLE_PHOTOS/usalackor/        az usalackor képei
+<raktár>/Rendszer/Tárolók/Drive/lackor2/          ugyanennek a fióknak a Drive-mentése
 ```
 
 Így egy pillantással látod, hol tartanak a képeid, és melyik fióké mi — nem
@@ -85,7 +85,7 @@ Két dolgot érdemes tudni:
   útvonalat**. Ezért a képek átmozgatása nem tud „elrontani” semmit: a Marveen
   mindkét helyen megnézi, hol van meg a fájl.
 - **A költözés nem mindent-vagy-semmit**: ha félbeszakad, a képek egy része a
-  Depóban van, a többi a régi helyén — és az oldal **mindkettőt** kiszolgálja.
+  Raktárban van, a többi a régi helyén — és az oldal **mindkettőt** kiszolgálja.
 
 *(2026-08-15 előtt a szerkezet fordított volt: `fiokok/<fiók>/fotok`. Ami ott
 maradt, azt a Marveen induláskor **egyszer**, magától átnevezi az új helyre. Ha
@@ -122,8 +122,8 @@ Mostantól:
   választ ad, és egyetlen bájt sem megy át.
 
 A bélyegképek a képfájl mellé, annak `.thumbs/` almappájába kerülnek — vagyis
-oda, ahol maga a kép van (`store/photos/<fiók>/.thumbs/`, Depó esetén
-`<depó>/fotok/<fiók>/.thumbs/`). Ez szándékos: egy költözés után a bélyegek nem
+oda, ahol maga a kép van (`store/photos/<fiók>/.thumbs/`, Raktár esetén
+`<raktár>/Rendszer/Tárolók/GOOGLE_PHOTOS/<fiók>/.thumbs/`). Ez szándékos: egy költözés után a bélyegek nem
 maradnak árván a régi mappában.
 
 A bélyegek az első megnézéskor készülnek el (egy kép ~0,16 mp, egy 1,8 GB-os videó szintén, mert

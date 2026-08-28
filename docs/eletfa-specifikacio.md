@@ -437,8 +437,8 @@ panelen: forrás `💻 HELYI`, fizikai példány IGEN, fizikai irat IGEN.
 
 Ezek nyitott pontok, amikre a megvalósítás előtt döntés kell:
 
-1. **`ÉLET` mappa megszűnik.** A jelenlegi kód `<depó>/ÉLET` gyökeret használ, és
-   `LifeNode.rel` ahhoz képesti. A gyökér `<depó>` lesz → a `mounts` és a
+1. **`ÉLET` mappa megszűnik.** A jelenlegi kód `<raktár>/ÉLET` gyökeret használ, és
+   `LifeNode.rel` ahhoz képesti. A gyökér `<raktár>` lesz → a `mounts` és a
    `physical` bejegyzések útvonalait migrálni kell (`ÉLET/` előtag levágása).
 2. **A mostani `drive/`, `fotok/`, `projektek/`, `munka/`, `mentesek/`,
    `rendszer/` mappák (~30 GB) átkerülnek** `Rendszer/Tárolók/DRIVE_xx`,
@@ -468,7 +468,7 @@ a terv a szándék, ez a mérleg.
 
 | Spec | Mi lett belőle |
 |---|---|
-| 3. | Nincs `ÉLET` gyűjtőmappa: a személyek közvetlenül a depó gyökerében állnak |
+| 3. | Nincs `ÉLET` gyűjtőmappa: a személyek közvetlenül a raktár gyökerében állnak |
 | 4./36. | `Rendszer/Tárolók` — **csak ez**, lásd a lenti helyesbítést |
 | 11. | 11 személyi kategória, **minden** személynek, üresen is (Boss felülírása) |
 | 12–13. | `<személy>/Projektek/<projekt>/{Tudásbázis, További anyagok, Fejlesztés/{…, GIT_REPOS}}` |
@@ -479,7 +479,7 @@ a terv a szándék, ez a mérleg.
 | 28. | Az országszintek **előre** elkészülnek (a Boss felülírása), a konkrét ügymappák továbbra is szükség szerint |
 | 29–30. | A kódban egyetlen valódi név sincs; a sablonok helyőrzőket használnak, és ezt teszt őrzi |
 | 31. | A személyes és a céges git-repók külön ágon állnak |
-| 33. | A depó helye a Beállításokból állítható |
+| 33. | A raktár helye a Beállításokból állítható |
 
 **Ezen felül**, a Boss külön kérésére:
 
@@ -519,7 +519,7 @@ spec az irányadó, tehát a fa ezekben visszaállt:
 
 | Eltérés | Ami volt | Ami a spec szerint van |
 |---|---|---|
-| `Rendszer` tartalma | `Marvin`, `Tárolók`, `Git`, plusz a depó `Munka` és `Mentések` mappája | **csak `Tárolók`** (36. pont). A `Marvin` a 8. alapszabály szerint személyes projekt (`<személy>/Projektek/Marvin`), a git-repók a 7. pont szerint a `GIT_REPOS`-ban vannak. A depó technikai munkamappái a `Tárolók` alá kerültek. |
+| `Rendszer` tartalma | `Marvin`, `Tárolók`, `Git`, plusz a raktár `Munka` és `Mentések` mappája | **csak `Tárolók`** (36. pont). A `Marvin` a 8. alapszabály szerint személyes projekt (`<személy>/Projektek/Marvin`), a git-repók a 7. pont szerint a `GIT_REPOS`-ban vannak. A raktár technikai munkamappái a `Tárolók` alá kerültek. |
 | Személyi kategóriák | 12 (a `Dokumentumok`-kal) | **11** — a 11. és a 36. pont felsorolásában nincs `Dokumentumok` |
 | Országszintek | minden kategória alatt | **csak `Jogi` / `Pénzügy` / `Hatóságok` alatt** (11. pont) |
 
@@ -574,7 +574,7 @@ Ezzel egy időben minden generált mappanév **mondatkezdő** alakra váltott
 
 ### Felület
 
-**Depó → Tárolók** kártya: a teljes lista azonosítóval és állapottal, soronként
+**Raktár → Tárolók** kártya: a teljes lista azonosítóval és állapottal, soronként
 Átnevezés / Ki-be kapcsolás / Ellenőrzés, alul „Git-fiók hozzáadása". A
 Drive- és Fotók-fiókokat itt szándékosan NEM lehet felvenni: azok a
 Google-bejelentkezésből jönnek (Fiókok oldal), így egy elgépelt fióknév nem
@@ -582,7 +582,7 @@ szülhet üres, sosem szinkronizáló sort.
 
 ### Mérve, éles telepítésen
 
-`GET /api/storages` a valódi depón (`F:\Marveen`): **DRIVE_01 … DRIVE_10** és
+`GET /api/storages` a valódi raktáron (`F:\Marveen`): **DRIVE_01 … DRIVE_10** és
 **PHOTOS_01 … PHOTOS_10** a 10 bekötött Google-fiókból, majd a felületről
 felvett **GIT_01** (`Tárolók/Git/lackor2-crypto`, a mappa létre is jött).
 Teljes teszt-suite: 347 fájl / 5177 teszt, zöld.
@@ -610,7 +610,7 @@ képtárban, ami mellett a jogi ügyei másutt állnak. A kategórián belüli b
 típus alatt áll, nem a `Média` alatt, hogy egy szinten ne keveredjen kétféle
 rendezőelv.
 
-A depón (`F:\Marveen`) az áthelyezés megtörtént, adatvesztés nélkül (a
+A raktáron (`F:\Marveen`) az áthelyezés megtörtént, adatvesztés nélkül (a
 mappák üresek voltak): `Média/*` → `<tulajdonos>/Média/*`, a felső `Média`
 törölve.
 
@@ -681,7 +681,7 @@ Boss: *„meg az osszes git ahol van a mapparendszerben. mind szinkronizaljon
 automatan”*.
 
 A `src/git-sync.ts` 6 óránként (indulás után 5 perccel először) végigjárja a
-**teljes depó-fát**, nem csak a `Rendszer/Tárolók/Git` alatti repókat. Ahol
+**teljes raktár-fát**, nem csak a `Rendszer/Tárolók/Git` alatti repókat. Ahol
 `.git`-et talál, ott megáll és nem megy mélyebb — egy repóba ágyazott mappa nem
 külön repó, és egy nagy repó bejárása percekbe kerülne körönként.
 

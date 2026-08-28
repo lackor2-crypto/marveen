@@ -294,7 +294,7 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
     message: null,
   }
   if (!root) {
-    return { ...base, message: T(lang, 'Nincs depó beállítva, ezért nincs mit mutatni. A Depó oldalon add meg, hol legyen a Marveen tárhelye.', 'No depot is set, so there is nothing to show. On the Depot page tell me where Marveen should keep its files.') }
+    return { ...base, message: T(lang, 'Nincs raktár beállítva, ezért nincs mit mutatni. A Raktár oldalon add meg, hol legyen a Marveen tárhelye.', 'No depot is set, so there is nothing to show. On the Depot page tell me where Marveen should keep its files.') }
   }
   const abs = resolveLifePath(base.rel)
   if (!abs) {
