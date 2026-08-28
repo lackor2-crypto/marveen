@@ -910,6 +910,12 @@ const FLEET_ROSTER_BLOCK_RE = new RegExp(
 
 const ASKBACK_BEGIN = '<!-- BEGIN GENERATED: ask-back-rule (auto-generated, do not edit by hand) -->'
 const ASKBACK_END = '<!-- END GENERATED: ask-back-rule -->'
+const WAKE_GREETING_BEGIN = '<!-- BEGIN GENERATED: wake-greeting-rule (auto-generated, do not edit by hand) -->'
+const WAKE_GREETING_END = '<!-- END GENERATED: wake-greeting-rule -->'
+const WAKE_GREETING_BLOCK_RE = new RegExp(
+  `${WAKE_GREETING_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${WAKE_GREETING_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 const RECHECK_BEGIN = '<!-- BEGIN GENERATED: recheck-rule (auto-generated, do not edit by hand) -->'
 const RECHECK_END = '<!-- END GENERATED: recheck-rule -->'
 const RECHECK_BLOCK_RE = new RegExp(
@@ -1162,6 +1168,37 @@ function buildAskBackBody(): string {
 //
 // Stale facts are worse than missing ones: a missing fact makes someone go and
 // look, a stale fact makes them act on yesterday.
+// The wake greeting is a STANDING rule in the agent's own CLAUDE.md, never a
+// line in the wake message itself. The wake arrives over the inter-agent queue
+// as untrusted data, and an agent that obeys "message the owner" from that
+// source has been taught the exact shape of a prompt-injection attack -- lackor3
+// correctly refused an earlier version that tried it (agent-wake.sh:32-38). A
+// rule the agent already carries is trusted; the wake stays a statement of fact.
+function buildWakeGreetingBody(): string {
+  return [
+    '## FELEBREDESKOR AZ ELSO MONDAT A KOSZONES',
+    '',
+    'Ha egy ebresztes felebreszt -- keret-visszaallas, ujraindulas, kapcsolat-',
+    'visszateres, barmi --, az ELSO dolgod egy rovid koszones a tulajdonos sajat',
+    'csatornajan: "Szia, itt vagyok, felebredtem." Csak EZUTAN kezdj barmi masba:',
+    'a varakozo utasitasokba, a felfuggesztett munkaba, a statusz-jelentesbe.',
+    '',
+    'Miert: a tulajdonos a csatornajan meri, hogy elsz-e. A zold terminal es a',
+    'naplo neki nem eletjel. Egy felebredt agens, aki rogton a munkaval kezd,',
+    'kivulrol ugyanolyan, mint egy halott -- a kulonbseg csak percekkel kesobb',
+    'latszik, ha egyaltalan. Tulajdonos, 2026-08-28: "az elso lepes mindig az,',
+    'hogy szia, itt vagyok, felebredtem."',
+    '',
+    'A koszones EGY mondat, nem statusz-riport. A munka utana jon, es arrol',
+    'kulon szolsz, amikor van eredmeny.',
+    '',
+    'Ez nem mond ellent annak, hogy KIESESKOR hallgatsz. A tulajdonos ugyanekkor',
+    'kotott ki mindket felet: kifutott kerettel nem irsz, mert arrol nincs mit',
+    'mondani -- a visszatereskor viszont kotelezo megszolalni, es a koszones az',
+    'elso mondat.',
+  ].join('\n')
+}
+
 function buildRecheckBody(): string {
   return [
     '## UJRA ALLITAS ELOTT UJRA MEG KELL NEZNI',
@@ -1301,6 +1338,67 @@ export function ensureRecheckSection(name: string): AskBackOutcome {
   if (updated === existing) return 'current'
   atomicWriteFileSync(claudeMdPath, updated)
   return 'written'
+}
+
+// Same shape again, for the wake-greeting rule. Kept as its own block with its
+// own markers so rewording one mandatory rule never rewrites the others, and an
+// agent that already carries two still receives the third.
+export function ensureWakeGreetingSection(name: string): AskBackOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${WAKE_GREETING_BEGIN}\n${buildWakeGreetingBody()}\n${WAKE_GREETING_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = WAKE_GREETING_BLOCK_RE.test(existing)
+    ? existing.replace(WAKE_GREETING_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+// The machine-wide half. This one matters more than for the other two rules:
+// the MAIN agent is skipped above (it has no agents/<name>/CLAUDE.md), and an
+// agent running out of a git worktree never loads its own file either -- yet
+// both of them wake up and both must greet. ~/.claude/CLAUDE.md is the only
+// file every Claude Code session reads no matter where it runs.
+export function ensureGlobalWakeGreetingRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${WAKE_GREETING_BEGIN}\n${buildWakeGreetingBody()}\n${WAKE_GREETING_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = WAKE_GREETING_BLOCK_RE.test(existing)
+    ? existing.replace(WAKE_GREETING_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
 }
 
 // The machine-wide half: see the comment on ensureGlobalAskBackRule for why
