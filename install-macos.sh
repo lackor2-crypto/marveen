@@ -1331,6 +1331,14 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ "$CHAT_ID" = "0" ]; then
   echo -e "${ORANGE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 fi
 
+# Git hookok (pre-push teszt-kapu, force-push vedelem, stb.) friss telepitesen
+# is eljenek MAR AZ ELSO push elott -- eddig csak az update.sh futtatta a
+# sync-hooks.sh-t, tehat egy vadonatuj gepen a kapu csak az elso "Frissites"
+# utan lepett volna eletbe.
+if [ -x "$INSTALL_DIR/scripts/sync-hooks.sh" ]; then
+  bash "$INSTALL_DIR/scripts/sync-hooks.sh" || echo -e "  ${DIM}FIGYELEM: sync-hooks.sh nem-nulla exit; manualisan ellenorizd.${NC}"
+fi
+
 # Done!
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
