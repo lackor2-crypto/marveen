@@ -1998,6 +1998,16 @@ main.email-active .page-header { flex-shrink: 0; }
   position: relative;
   display: flex;
   flex-direction: column;
+  /* A grid item's default min-width is 'auto', which floors it at its own
+     content's min-content size. On a narrow phone that content (badges +
+     button row combined) needs more than one column's worth of space, so the
+     grid track -- and every card in it -- grew past the viewport instead of
+     shrinking to fit (measured: 408px card in a 358px-wide grid at 390px
+     viewport, cutting the right edge off screen, kanban b7869b0e). min-width:
+     0 lets the card actually shrink to its column; every descendant already
+     truncates/wraps (text-overflow, -webkit-line-clamp, flex-wrap) once it
+     does. */
+  min-width: 0;
   padding: 24px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border);
