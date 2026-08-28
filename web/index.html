@@ -2928,6 +2928,44 @@
            style="display:none;margin-top:10px;padding:10px;border-radius:6px;
                   border:1px solid var(--warning, #c77);background:rgba(200,120,60,.12)"></p>
       </div>
+
+      <!-- A MASIK IRANY. A fenti kartya a felhot hozza LE, ez a munkadat viszi
+           FEL. #47 kartya (Boss): "ez az egesz mappastruktura folyamatosan
+           sync-elve / feltoltve a Google Drive-ra biztonsagi mentesnek ... azok
+           NEM mennek a git repoba". MERVE 2026-08-28: a raktarban 9356 fajl /
+           11 GB all ugy, hogy sehol nincs masodpeldanya. -->
+      <div class="card" id="depoBackupCard">
+        <h2 data-i18n="dbackup.title">A gépem mentése a Drive-ra</h2>
+        <p class="subtitle" data-i18n-html="dbackup.what_html">
+          <strong>Mire jó ez?</strong> A fenti kártya a Drive-odat hozza le a gépedre.
+          Ez a kártya a <strong>fordítottja</strong>: a raktáradban készült munkát
+          tölti fel a Drive-ra, biztonsági mentésnek. Amit itt bekötsz, arról
+          <strong>minden éjjel</strong> felmegy, ami új vagy módosult.
+          <br>
+          <strong>Egy irányban működik:</strong> a gépedről felfelé. A Drive-ról
+          <strong>soha nem tölt le ide semmit</strong> — így ha valaki feltöri a
+          Drive-odat, a munkamappáidba nem tud fájlt beírni. Amit a gépeden törölsz,
+          az a Drive-on a <strong>Kukába</strong> kerül, ahonnan 30 napig visszahozható.
+          <br>
+          <strong>Bekötés előtt megmérem</strong>, hány fájl és mennyi hely ez, és
+          megkérdezem a Google-tól, van-e rá szabad helyed.
+        </p>
+        <div id="depoBackupList"></div>
+        <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px">
+          <label for="depoBackupBranch" style="font-size:13px" data-i18n="dbackup.step1">Mit mentsünk?</label>
+          <select id="depoBackupBranch" class="input" style="width:auto"></select>
+          <label for="depoBackupAccount" style="font-size:13px" data-i18n="dbackup.step2">Melyik fiók Drive-jára?</label>
+          <select id="depoBackupAccount" class="input" style="width:auto"></select>
+          <button class="btn-secondary btn-compact" id="depoBackupPreviewBtn" data-i18n="dbackup.preview_btn">Megnézem, mekkora</button>
+          <button class="btn-primary btn-compact" id="depoBackupAddBtn" disabled data-i18n="dbackup.add_btn">Mentés bekötése</button>
+        </div>
+        <!-- A raktar allapota (nincs beallitva / nem latunk oda) -- app.js irja. -->
+        <p class="subtitle" id="depoBackupNote" style="margin:8px 0 0"></p>
+        <!-- A MERES eredmenye. Enelkul a "Mentés bekötése" gomb szurke marad:
+             ezt a funkciot nem lehet ugy elinditani, hogy a merteket a
+             felhasznalo csak utana latja meg. -->
+        <div id="depoBackupPreview" style="margin-top:10px"></div>
+      </div>
     </div>
 
     <div class="page" id="photosPage" hidden>

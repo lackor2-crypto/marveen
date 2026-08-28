@@ -47,10 +47,10 @@
  * shelling out, bounded work (a tar listing is read as a stream, logs are
  * sampled from the tail), so the overview endpoint stays fast.
  */
-import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs'
 import { statfsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { lastWakeAt } from '../wake-detect.js'
 import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
@@ -834,6 +834,110 @@ function depotIrhato(): boolean | null {
 }
 
 
+// --- RAKTAR (a depo gyokere) ----------------------------------------------
+//
+// MIERT VAN EZ A SOR. 2026-08-27-en meresbol derult ki, hogy a raktar
+// elerhetoseget CSAK a Drive-mentesen keresztul neztuk. A `driveSyncRows`
+// viszont ures listaval kilep, ha nincs bekotott Drive-mappa -- vagyis akinek
+// raktara van, de Drive-ja nincs (vagy epp most kotott be egyet), annal a lemez
+// leszakadasa NEMA maradt. Pedig a raktar alatt van a Fotok, az Eletfa es az
+// Intezo is, es a leszakadas ezen a gepen MERT esemeny: 2026-08-26-an a WSL 9p
+// csatornaja szakadt el, es a `/mnt/f` egesz nap elerhetetlen volt.
+//
+// A NULLA KET DOLGOT JELENTHET -- itt nem kettot, hanem otot, mert MIND MAS
+// kovetkezo lepest kivan:
+//   * nincs beallitva raktar             -> CSEND. Ez a friss telepites, nem hiba.
+//   * odalatunk es irhato                -> ZOLD sor. Enelkul a hallgatas nem
+//                                           lenne megkulonboztetheto attol, hogy
+//                                           az ellenorzes el sem indult.
+//   * a gyoker hianyzik, a SZULO ott van -> csak a mappa nincs meg: letrehozhato
+//   * a szulot sem latjuk                -> a lemez vagy a csatolas a kerdes
+//   * ott van, de nem irhato             -> jogosultsag vagy elhalt csatolas
+//
+// A kulonbseget nem a talalatok szamabol talaljuk ki, hanem magatol a
+// forrastol kerdezzuk meg: KULON a gyokeret, KULON a szulojet, KULON az
+// irasjogot. Es egyik szoveg sem talalgatja a hiba OKAT -- azt a Raktar oldal
+// meri meg (`depotHealth`, `depotRemountPlan`), a sor csak odakuld.
+//
+// MIERT NEM `depotHealth()`: az egy probafajlt IR a lemezre, ez a modul pedig
+// minden Attekintes-betoltesnel lefut. Itt csak olvasunk (`statSync`,
+// `accessSync`).
+//
+// A `drive_sync_depot_unreachable` sorral valo atfedes SZANDEKOS: az a
+// kovetkezmenyt mondja ki szammal ("{n} mappat nem tud hova menteni"), ez az
+// alapot. Ket hangos sor egy okrol olcsobb, mint a csend -- a csend volt a hiba.
+
+/** Amit a raktar gyokererol MERUNK -- irasproba nelkul. */
+export interface RaktarMeres {
+  /** Be van-e egyaltalan allitva raktar. Ha nincs, nem a raktar a kerdes. */
+  configured: boolean
+  root: string | null
+  /** Latszik-e barmi az utvonalon. */
+  letezik: boolean
+  /** ... es mappa-e. Egy fajl ugyanott egeszen mas teendo. */
+  mappa: boolean
+  /** Latszik-e a folotte levo mappa. EZ valasztja szet a "hianyzik a mappa"-t
+   *  a "nem latok a lemezre"-tol. */
+  szuloLatszik: boolean
+  irhato: boolean
+}
+
+/**
+ * Egy MEGHAJTO-GYOKER (`/mnt/f`) hianyzo mappaja SOSEM "csak letrehozhato".
+ *
+ * A `dirname('/mnt/f')` a `/mnt`, ami mindig ott van -- a naiv szulo-vizsgalat
+ * tehat azt mondana, hogy a mappa nyugodtan letrehozhato. Egy `mkdir` viszont
+ * ilyenkor egy kozonseges linux-mappat csinalna a WSL gyokeren, es a Marveen
+ * boldogan irna oda: nem a lemezre, hanem a semmibe. (Ugyanez a csapda all a
+ * `depot.ts` `ensureDepotSkeleton`-jenel is.)
+ */
+const MEGHAJTO_GYOKER = /^\/mnt\/[a-z]\/?$/i
+
+export function raktarMeres(root: string | null = depotRoot()): RaktarMeres {
+  if (!root) {
+    return { configured: false, root: null, letezik: false, mappa: false, szuloLatszik: false, irhato: false }
+  }
+  let letezik = false
+  let mappa = false
+  try {
+    mappa = statSync(root).isDirectory()
+    letezik = true
+  } catch {
+    letezik = false
+  }
+  let szuloLatszik = false
+  if (MEGHAJTO_GYOKER.test(root)) {
+    // A csatolasi pont maga hianyzik: a `/mnt` letezese itt nem bizonyit semmit.
+    szuloLatszik = false
+  } else {
+    try { szuloLatszik = statSync(dirname(root)).isDirectory() } catch { szuloLatszik = false }
+  }
+  let irhato = false
+  if (mappa) {
+    try {
+      accessSync(root, constants.W_OK)
+      irhato = true
+    } catch {
+      irhato = false
+    }
+  }
+  return { configured: true, root, letezik, mappa, szuloLatszik, irhato }
+}
+
+export function raktarRows(m: RaktarMeres = raktarMeres()): HealthRow[] {
+  if (!m.configured || !m.root) return []
+  const params = { p: m.root }
+  if (!m.letezik) {
+    return m.szuloLatszik
+      ? [{ id: 'depot_missing_dir', status: 'warn', params }]
+      : [{ id: 'depot_unreachable', status: 'bad', params }]
+  }
+  if (!m.mappa) return [{ id: 'depot_not_dir', status: 'bad', params }]
+  if (!m.irhato) return [{ id: 'depot_readonly', status: 'bad', params }]
+  return [{ id: 'depot_ok', status: 'ok', params }]
+}
+
+
 // --- DRIVE-MENTES ---------------------------------------------------------
 //
 // Miert van ez a sor: 2026-08-27-en a #47 kartya vizsgalatakor derult ki, hogy
@@ -858,6 +962,8 @@ interface DriveSyncParos {
   account?: string
   lastRunAt?: string
   lastResult?: string
+  /** Hany fajl varakozott meg feltoltesre a legutobbi futas vegen. */
+  lastPending?: number
 }
 
 /**
@@ -902,6 +1008,22 @@ export function reszlegesEredmeny(s: string | undefined): boolean {
 }
 
 /**
+ * Hany fajl var meg feltoltesre ennel a parosnal?
+ *
+ * A raktar-mentes elso feltoltese TOBB EJSZAKA: futasonkent 2000 fajl megy fel
+ * (MERVE 2026-08-28: a mentendo ag 9356 fajl), a tobbi a kovetkezo futasra
+ * marad. Ez nem hiba -- de "rendben" sem: amig var fajl, a mentes NINCS kesz,
+ * es aki ilyenkor zold sort lat, az azt hiszi, biztonsagban van.
+ *
+ * A szamot a paros sajat mezojebol vesszuk, NEM a kepernyore szant mondatbol:
+ * egy szoveg-mintabol visszafejtett szam az elso atfogalmazasnal elnemulna.
+ */
+export function varakozoFajlok(p: DriveSyncParos): number {
+  const n = Number(p.lastPending)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
+/**
  * A Drive-mentes allapota az Attekintesen.
  *
  * @param depoIrhato a depo elerheto-e. Elerhetetlen depoval a mentes nem tud
@@ -942,6 +1064,15 @@ export function driveSyncRows(
     rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: lista } })
   }
 
+  // MEG NEM ERT A VEGERE. Nem csonka masolat (a kep teljes volt), csak a
+  // feltoltes fer bele reszletekben -- de ettol meg nem szabad zold sort
+  // mutatni. `warn`: magatol halad, teendo csak akkor van, ha nem fogy.
+  const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0)
+  if (varakozok.length) {
+    const fajlok = varakozok.reduce((sum, p) => sum + varakozoFajlok(p), 0)
+    rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
+  }
+
   // Mikor futott utoljara BARMELYIK paros?
   const idok = allapot.parok
     .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
@@ -967,6 +1098,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),
+    ...raktarRows(),
     ...driveSyncRows(now, undefined, undefined, depotIrhato()),
     ...commandTaskRows(),
     ...mcpAuthRows(now),

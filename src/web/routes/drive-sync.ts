@@ -41,7 +41,8 @@ import { execFile } from 'node:child_process'
 import { PROJECT_ROOT } from '../../config.js'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
-import { depotAccountDir, depotHealth, DEPOT_DRIVE } from '../../depot.js'
+import { depotAccountDir, depotHealth, depotRoot, DEPOT_DRIVE, DEPOT_SYSTEM_ROOT } from '../../depot.js'
+import { resolveLifePath } from '../../life-explorer.js'
 import { driveDownloadPlan, driveUploadMime, isSafeFolderId } from './drive-browser.js'
 import {
   recordSyncFailure, loadSyncFailures, clearSyncFailures, failuresAsText, syncFailureRuns,
@@ -74,8 +75,34 @@ const MAX_FOLDERS = 5_000
  * szinkron csendben FELIG mukodjon.
  */
 const MAX_FILES = 50_000
-/** Egy futasban legfeljebb ennyi fajlt kuldunk fel. */
-const MAX_UPLOADS = 2_000
+/**
+ * Egy futasban legfeljebb ennyi fajlt kuldunk FEL.
+ *
+ * KOLTSEGVETES, NEM KORLAT. 2026-08-28-ig ez a szam KETTOT jelentett egyszerre:
+ * ennyi fajlt kuldtunk fel, ES a helyi bejaras is ennel allt meg (ez volt a
+ * `walkLocalFiles` alapertelmezese). A bejaras csonkolasa viszont az EGESZ
+ * felmeno agat kiloki ("tul sok helyi fajl -- a feltoltes es a torles
+ * kimaradt"), vagyis 2000 fajl folott a mentes CSENDBEN abbahagyta a
+ * feltoltest. A mentendo raktar-ag MERVE 9356 fajl: ott ez el sem indult volna.
+ *
+ * Mostantol a ketto KULON all: a bejaras a `MAX_LOCAL_FILES`-ig megy (a helyi
+ * kep TELJES marad, ezert a torles-dontesek is biztonsagosak maradnak), ebbol
+ * pedig futasonkent ennyi fajl megy fel, a tobbi a kovetkezo futasra. A
+ * `drive-mentes` kartya ejjel 3-kor magatol indit, tehat ez tenyleg folytatodik
+ * -- es a "meg N var" szam ki is irodik. A csend a hiba, nem a lassusag.
+ */
+export const MAX_UPLOADS = 2_000
+/**
+ * Egy futasban legfeljebb ennyi HELYI fajlt JARUNK BE.
+ *
+ * Nem feltoltesi korlat, hanem a "latom-e az egeszet" hatara. A torles-atvitel
+ * CSAK teljes helyi kepbol dolgozhat: egy csonka listaban minden hianyzo fajl
+ * ugy nezne ki, mintha toroltek volna -- es a "hu" szinkron letorolne oket a
+ * Drive-on is, vagyis pont a mentest. MERVE 2026-08-28: a mentendo ag 9356
+ * fajl, a teljes raktar a Rendszer nelkul ~9,4 ezer; a hatar husszoros
+ * tartalekkal all, de nem vegtelen.
+ */
+export const MAX_LOCAL_FILES = 200_000
 /**
  * Ennel nagyobb fajlt nem kuldunk fel egy darabban.
  *
@@ -104,9 +131,41 @@ export interface SyncPair {
   folderId: string
   /** A Drive-mappa neve -- ez lesz a helyi mappa neve is. */
   name: string
+  /**
+   * MENTES-PAROS: a helyi oldal a raktar egy aga, a Drive oldal a MENTES.
+   *
+   * Boss (#47 kartya): "ez az egesz mappastruktura folyamatosan sync-elve /
+   * feltoltve a Google Drive-ra biztonsagi mentesnek ... azok NEM mennek a git
+   * repoba". MERVE 2026-08-28: a raktarban 9356 fajl / 11 GB all ugy, hogy
+   * SEHOL nincs masodpeldanya -- a git-tarolok a Rendszer alatt vannak, a
+   * szemelyes ag pedig nem git-elheto.
+   *
+   * A ket paros-fajta IRANYA ellentetes, es ez nem izles kerdese:
+   *   * Drive-masolat: a Drive a forras, a gep a masolat -- letoltunk.
+   *   * MENTES: a GEP a forras, a Drive a masolat -- ide SOSE toltunk le.
+   *     Egy feltort Drive igy nem tud fajlt BEIRNI a munkamappaidba, ahogy
+   *     torolni sem tud belole (ez utobbi a 2026-08-15-i eredeti kikotes).
+   */
+  backup?: true
+  /**
+   * A mentendo ag a raktar gyokerehez kepest (pl. `Korpás László/Projektek`).
+   *
+   * URES SZOVEG = a TELJES raktar. Ezert nem eleg a mezo letezeset nezni:
+   * hogy mentes-parosrol van-e szo, azt a `backup` mondja meg.
+   */
+  localPath?: string
   addedAt: string
   lastRunAt?: string
   lastResult?: string
+  /**
+   * Hany fajl varakozott meg feltoltesre a legutobbi futas vegen.
+   *
+   * Nem szepsegtapasz: enelkul egy FELIG felment mentes ugyanolyan zold
+   * "rendben"-t mutatna az Attekintesen, mint egy kesz. A szamot az
+   * onellenorzes olvassa (`drive_sync_incomplete`) -- ezert kulon mezo, es nem
+   * egy kepernyore szant mondatbol visszafejtett szam.
+   */
+  lastPending?: number
 }
 
 export interface SyncFileState {
@@ -229,6 +288,112 @@ export function safeSegment(name: string): string {
   return cleaned.slice(0, 120) || 'nevtelen'
 }
 
+/** A mentesek gyujtomappaja a Drive gyokereben. */
+export const MENTES_MAPPA = 'Marveen mentés'
+
+/**
+ * A paros HELYI oldala: melyik mappat egyezteti a gepen.
+ *
+ * KET FAJTA PAROS van, es ez a fuggveny valasztja szet oket -- MINDENHOL ez az
+ * egy, hogy a kepernyo ne mondhasson mast, mint amit a futas csinal:
+ *
+ *   * Drive-masolat (`backup` nincs): a fiok sajat mappaja a cel
+ *     (`Rendszer/Tárolók/Drive/<fiok>`), es a paros neve alatta meg egy szint.
+ *     Ures nev = a teljes Drive, ilyenkor nincs extra szint.
+ *   * MENTES-PAROS (`backup: true`): a helyi oldal a raktar egy aga. Itt NINCS
+ *     kulon gyoker-szint: a paros gyokere MAGA az ag. A `resolveLifePath`
+ *     kezeli a bekoteseket is, es o a kilepes-ellenorzes egyetlen hatara.
+ *
+ * `null`, ha a helyi oldal nem allapithato meg (nincs raktar, vagy az ag
+ * kivezet a fabol). Hivo helyen ez NEM "ures mappa", hanem elakadas.
+ */
+export function pairLocalDir(pair: SyncPair): { base: string; gyoker: string } | null {
+  if (pair.backup) {
+    const abs = resolveLifePath(pair.localPath || '')
+    return abs ? { base: abs, gyoker: '' } : null
+  }
+  const base = depotAccountDir(pair.account, DEPOT_DRIVE)
+  return base ? { base, gyoker: pair.name ? safeSegment(pair.name) : '' } : null
+}
+
+/**
+ * Amit egy mentes-parosbol KIHAGYUNK.
+ *
+ * A teljes raktar mentesebol a `Rendszer` ag marad ki, mert ott all maga a
+ * Drive-masolat (`Rendszer/Tárolók/Drive`) es a fenykeptar. Feltolteni annyi
+ * lenne, mint a mentest menteni: ugyanazok a bajtok mennenek fel masodszor,
+ * korbe. (MERVE 2026-08-28: a Rendszer 13778 fajl / 32 GB.)
+ *
+ * Egy KIVALASZTOTT ag mentesenel nincs kihagyas: oda a Rendszer nem is eshet
+ * bele, mert `mentesAgHiba` mar a bekotesnel visszautasitja.
+ */
+export function mentesKihagy(pair: SyncPair): Set<string> {
+  if (!pair.backup) return new Set()
+  return mentesKihagyUt(pair.localPath || '')
+}
+
+/**
+ * Ugyanaz, csak az UTBOL. Az elonezet meg nem paros, de pontosan azt kell
+ * mutatnia, amit a futas majd csinal -- kulonben a szam, amit a Boss lat, nem
+ * arrol szol, ami fel fog menni.
+ */
+export function mentesKihagyUt(localPath: string): Set<string> {
+  return mentesUtNorm(localPath) ? new Set<string>() : new Set([DEPOT_SYSTEM_ROOT])
+}
+
+/** Raktar-beli ut egysegesitese: `\` -> `/`, se eleje, se vege perjel. */
+export function mentesUtNorm(x: string): string {
+  return String(x || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+/**
+ * Menthető-e ez az ág a Drive-ra? A visszateres a HIBA szovege, vagy `null`.
+ *
+ * Csak a KOROKET utasitja vissza -- azt, amitol a mentes onmagat mentene.
+ */
+export function mentesAgHiba(localPath: string): string | null {
+  const elso = mentesUtNorm(localPath).split('/')[0]
+  if (elso === DEPOT_SYSTEM_ROOT) {
+    return `A(z) „${DEPOT_SYSTEM_ROOT}” ág nem menthető a Drive-ra: ebben az ágban áll maga a Drive-másolatod és a fényképtárad.`
+      + ' Feltölteni annyi lenne, mint a mentést menteni – ugyanazok a fájlok mennének fel másodszor is.'
+      + ' A teljes raktár mentése ezt az egy ágat magától kihagyja.'
+  }
+  return null
+}
+
+/**
+ * Fedi-e mar egy meglevo mentes ezt az agat? Mindket IRANYBAN nezi.
+ *
+ * Ket mentes, ami egymasba er, nem "kicsit felesleges": a kozos fajlok KETSZER
+ * mennenek fel, ket kulon Drive-mappaba, es minden ejjel ujra.
+ */
+export function mentesUtkozes(
+  pairs: SyncPair[],
+  localPath: string,
+): { pair: SyncPair; fajta: 'ugyanaz' | 'fölötte' | 'alatta' } | null {
+  const uj = mentesUtNorm(localPath)
+  for (const p of pairs) {
+    if (!p.backup) continue
+    const van = mentesUtNorm(p.localPath || '')
+    if (van === uj) return { pair: p, fajta: 'ugyanaz' }
+    if (van === '' || uj.startsWith(van + '/')) return { pair: p, fajta: 'fölötte' }
+    if (uj === '' || van.startsWith(uj + '/')) return { pair: p, fajta: 'alatta' }
+  }
+  return null
+}
+
+/**
+ * A mentes Drive-mappajanak neve.
+ *
+ * Az ag TELJES utjabol keszul (`Korpás László - Projektek`), nem csak az utolso
+ * szintbol: ket kulonbozo agban lehet ugyanolyan nevu mappa (`Munka`), es a
+ * Drive-on ket azonos nevu mentes-mappa kozott a Boss nem tudna valasztani.
+ */
+export function mentesMappaNev(localPath: string): string {
+  const tiszta = mentesUtNorm(localPath)
+  return safeSegment(tiszta ? tiszta.split('/').join(' - ') : 'A teljes raktár')
+}
+
 function getAccessToken(account?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [join(PROJECT_ROOT, 'scripts', 'google-auth.py'), 'token']
@@ -269,6 +434,20 @@ async function createDriveFolder(name: string, parentId: string, token: string):
  * Doc-ba erkezo .docx-et konvertalja vissza. Alapertelmezesben szandekosan
  * `application/octet-stream` -- "csak bajtok", vagyis a Drive nem ertelmezi.
  */
+/**
+ * Nev szerinti almappa a Drive-on -- ha nincs, letrehozzuk.
+ *
+ * Eloszor MEGNEZI, hogy van-e mar ilyen nevu mappa: enelkul minden bekotes uj
+ * "Marveen mentés" mappat gyartana, es harom bekotes utan a Boss harom
+ * egyforma mappa kozul valogathatna a Drive-jan.
+ */
+async function ensureDriveFolderByName(name: string, parentId: string, token: string): Promise<string> {
+  const gyerekek = await listFolder(parentId, token)
+  const meg = gyerekek.find((f: any) => f.mimeType === 'application/vnd.google-apps.folder' && f.name === name)
+  if (meg) return String(meg.id)
+  return await createDriveFolder(name, parentId, token)
+}
+
 async function putBytes(uploadUrl: string, method: 'POST' | 'PATCH', localPath: string, token: string, contentType = 'application/octet-stream'): Promise<any> {
   const size = statSync(localPath).size
   const res = await fetch(uploadUrl, {
@@ -402,7 +581,80 @@ export function shouldBrakeDeletions(wouldDelete: number, tracked: number): bool
 }
 
 /** A helyi fa: minden fajl relativ uttal. A felbeszakadt letoltesek kimaradnak. */
-export function walkLocalFiles(base: string, max = MAX_UPLOADS): { files: string[]; dirs: string[]; csonkolt: boolean } {
+/**
+ * Az elonezet merese -- ugy, hogy kozben a dashboard EL.
+ *
+ * Miert nem a `walkLocalFiles`? Mert az szinkron, es a Node egy szalon fut: a
+ * teljes raktar bejarasa MERVE 52 masodperc (9358 fajl a 9p csatoloson), ezalatt
+ * pedig egyetlen masik keres sem kapna valaszt. Egy gombnyomasra egy percre
+ * befagyna az egesz felulet, hibauzenet nelkul.
+ *
+ * Ezert adagonkent (`ADAG`) visszaadjuk a vezerlest az esemenyhuroknak. Cserebe
+ * a meres kicsit lassabb, de kozben minden mas mukodik.
+ *
+ * A meretet MENET KOZBEN merjuk: kulon `statSync`-kor meg egyszer vegig kellene
+ * menni ugyanazon a 9358 fajlon, megegyszer 50 masodpercert.
+ */
+export async function merjMentendot(
+  base: string,
+  max = MAX_LOCAL_FILES,
+  kihagy: Set<string> = new Set(),
+): Promise<{ files: number; bytes: number; tooBig: number; unreadable: number; csonkolt: boolean }> {
+  // IDO-alapu, nem darabszam-alapu. A darabszam nem mond semmit arrol, mennyi
+  // ideig tart: SSD-n 500 fajl 2 ms, halozati vagy 9p mappan 3 masodperc
+  // (MERVE 2026-08-29). Az orat nezzuk, igy lassu lemezen surubben lelegzunk.
+  const SZELET_MS = 15
+  let files = 0
+  let bytes = 0
+  let tooBig = 0
+  let unreadable = 0
+  let csonkolt = false
+  let utolso = Date.now()
+  const queue: string[] = ['']
+  const lelegzet = async () => {
+    if (Date.now() - utolso < SZELET_MS) return
+    await new Promise((r) => setImmediate(r))
+    utolso = Date.now()
+  }
+  while (queue.length) {
+    const rel = queue.shift()!
+    let entries: { name: string; dir: boolean }[]
+    try {
+      entries = readdirSync(join(base, rel), { withFileTypes: true }).map((d) => ({ name: d.name, dir: d.isDirectory() }))
+    } catch {
+      continue      // idokozben eltunt vagy nem olvashato -- nem allitjuk meg a merest
+    }
+    for (const e of entries) {
+      await lelegzet()
+      const child = rel ? join(rel, e.name) : e.name
+      if (e.dir) {
+        if (kihagy.has(child)) continue
+        queue.push(child)
+        continue
+      }
+      if (e.name.endsWith('.part')) continue
+      if (files >= max) { csonkolt = true; return { files, bytes, tooBig, unreadable, csonkolt } }
+      files++
+      try {
+        const st = statSync(join(base, child))
+        bytes += st.size
+        if (st.size > MAX_UPLOAD_BYTES) tooBig++
+      } catch {
+        // Kozben eltunt vagy nem olvashato. NEM nulla merettel szamoljuk: az
+        // hazudna a vegosszegben. Kulon szamoljuk, es ki is irjuk.
+        unreadable++
+      }
+    }
+  }
+  return { files, bytes, tooBig, unreadable, csonkolt }
+}
+
+export function walkLocalFiles(
+  base: string,
+  max = MAX_LOCAL_FILES,
+  /** Ezeket az AL-MAPPAKAT (a `base`-hez kepesti uttal) at sem lepjuk. */
+  kihagy: Set<string> = new Set(),
+): { files: string[]; dirs: string[]; csonkolt: boolean } {
   const files: string[] = []
   const dirs: string[] = []
   const queue: string[] = ['']
@@ -417,7 +669,12 @@ export function walkLocalFiles(base: string, max = MAX_UPLOADS): { files: string
     }
     for (const e of entries) {
       const child = rel ? join(rel, e.name) : e.name
-      if (e.dir) { dirs.push(child); queue.push(child); continue }
+      if (e.dir) {
+        // Kihagyott ag: se a listaba, se a sorba. Nem "ures mappa" lesz belole,
+        // hanem NEM LATOTT -- ezert a torles-atvitel sem hozhat rola dontest.
+        if (kihagy.has(child)) continue
+        dirs.push(child); queue.push(child); continue
+      }
       // A `.part` egy eppen zajlo letoltes fele fajlja -- sose kuldjuk fel.
       if (e.name.endsWith('.part')) continue
       if (files.length >= max) { csonkolt = true; return { files, dirs, csonkolt } }
@@ -548,9 +805,19 @@ function gond(a: {
  * neten egy biztonsagi mentes. mint a github"). Egy csonka mentes, amire a
  * lista azt irja, hogy "rendben", pontosan akkor derulne ki, amikor mar baj van.
  */
-async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: CsonkaOk[]; brake: { wouldDelete: number; tracked: number } | null }> {
-  const base = depotAccountDir(pair.account, DEPOT_DRIVE)
-  if (!base) throw new Error('nincs raktár beállítva')
+async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
+  csonkolt: CsonkaOk[]
+  brake: { wouldDelete: number; tracked: number } | null
+  maradt: number
+}> {
+  const hely = pairLocalDir(pair)
+  // KET KULON OK, ket kulon teendo -- ezert nem egy mondat mind a kettore.
+  if (!hely) {
+    throw new Error(pair.backup
+      ? `a mentendő ág nincs meg a raktárban: ${pair.localPath || 'a raktár gyökere'}`
+      : 'nincs raktár beállítva')
+  }
+  const base = hely.base
   const token = await getAccessToken(pair.account)
   const state = cfg.state[pair.id] || {}
   cfg.state[pair.id] = state
@@ -560,12 +827,22 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: Cs
   // tartalom egyenesen a fiok sajat mappajaba kerul (`<depo>/drive/lackor2`),
   // igy a fa pontosan ugyanaz, mint a neten. A `safeSegment('')` `nevtelen`-t
   // adna vissza, ezert itt NEM hivhatjuk meg ures nevre.
-  const gyoker = pair.name ? safeSegment(pair.name) : ''
+  // MENTES-PAROSNAL a gyoker mindig ures: ott a paros gyokere MAGA az ag.
+  const gyoker = hely.gyoker
   const gyokerAbs = join(base, gyoker)
   // Helyi mappa-ut -> Drive-mappaazonosito. A lefele menet epiti fel, a felmeno
   // ag ebbol tudja, HOVA kerulhet egy uj fajl.
   const folderIds = new Map<string, string>([[gyoker, pair.folderId]])
-  const queue: Array<{ id: string; rel: string }> = [{ id: pair.folderId, rel: gyoker }]
+  // `nyers`: a Drive-beli NEVEKBOL epult ut, `safeSegment` nelkul. Csak a
+  // mentes-parosnal szamit, de ott fontos: a helyi fajlneveket mi kuldtuk fel
+  // valtozatlanul, a `safeSegment` viszont 120 karakternel VAG. Ha csak a
+  // vagott utat ismernenk, egy hosszu nevu fajl minden futasban "ujnak"
+  // latszana -- vagyis minden ejjel egy ujabb masodpeldanyt kapna a Drive-on.
+  const queue: Array<{ id: string; rel: string; nyers: string }> = [{ id: pair.folderId, rel: gyoker, nyers: '' }]
+  // Mentes-parosnal: Drive-beli ut -> fajlazonosito. Ebbol tudja a felmeno ag,
+  // hogy egy helyi fajlnak MAR van fent peldanya -- meg akkor is, ha a
+  // nyilvantartas elveszett (megszakadt futas, ujra bekotott paros).
+  const driveUtak = new Map<string, string>()
   let folders = 0
   let files = 0
   // Halmaz, nem `boolean`: ha tobb okbol is csonka lett, MIND ki kell derulnie.
@@ -614,7 +891,11 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: Cs
       if (f.mimeType === 'application/vnd.google-apps.folder') {
         const rel = join(cur.rel, seg)
         folderIds.set(rel, f.id)
-        queue.push({ id: f.id, rel })
+        const nyers = cur.nyers ? join(cur.nyers, f.name) : f.name
+        // A nyers nevvel is felvesszuk: enelkul egy 120 karakternel hosszabb
+        // nevu mappa alatt a felmeno ag minden futasban UJ mappat gyartana.
+        if (pair.backup) folderIds.set(nyers, f.id)
+        queue.push({ id: f.id, rel, nyers })
         continue
       }
       // Csonka bejarasbol nem szabad felmenni, ezert itt AZONNAL visszaterunk:
@@ -626,7 +907,7 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: Cs
           reason: `a(z) ${MAX_FILES} fájlos felső határ elérve – ez a fájl és minden utána következő kimaradt`,
         })
         csonkaOkok.add('fájl-korlát')
-        return { csonkolt: [...csonkaOkok], brake: null }
+        return { csonkolt: [...csonkaOkok], brake: null, maradt: 0 }
       }
       const plan = driveDownloadPlan(f.id, f.mimeType, seg)
       if (plan.unsupported) {
@@ -653,6 +934,16 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: Cs
         continue
       }
       hasznaltUtak.add(rel)
+      // MENTES-PAROS: innentol nem megyunk tovabb. A Drive itt CEL, nem forras
+      // -- egyetlen bajt sem jon LE a munkamappaidba, meg akkor sem, ha fent
+      // van valami, ami itt nincs. (Ez a #47 aszimmetriaja: aki felturja a
+      // Drive-odat, nem tud fajlt BEIRNI a gepedbe, ahogy torolni sem tud.)
+      // A bejaras csak azert fut, hogy tudjuk, mi van mar fent (`driveUtak`),
+      // es hova kerulhet egy uj fajl (`folderIds`).
+      if (pair.backup) {
+        driveUtak.set(cur.nyers ? join(cur.nyers, f.name) : f.name, f.id)
+        continue
+      }
       if (job) job.current = rel
       // `let`: az atnevezes-ag alabb frissiti, kulonben a lenti agak a REGI
       // utat irnak vissza az allapotba.
@@ -744,8 +1035,16 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{ csonkolt: Cs
   }
 
   const csonkolt = [...csonkaOkok]
-  const brake = await uploadPhase({ pair, cfg, state, token, base, gyoker, gyokerAbs, folderIds, csonkolt, utkozoIdk })
-  return { csonkolt, brake }
+  const felmeno = await uploadPhase({ pair, cfg, state, token, base, gyoker, gyokerAbs, folderIds, csonkolt, utkozoIdk, driveUtak })
+  return { csonkolt, brake: felmeno.brake, maradt: felmeno.maradt }
+}
+
+/** Amit a felmeno ag jelent vissza. */
+interface FelmenoEredmeny {
+  /** Nem `null`, ha a vészfék megallitotta a torleseket. */
+  brake: { wouldDelete: number; tracked: number } | null
+  /** Hany fajl var meg feltoltesre a futasonkenti koltsegveten TUL. */
+  maradt: number
 }
 
 /**
@@ -767,14 +1066,17 @@ async function uploadPhase(a: {
   csonkolt: CsonkaOk[]
   /** Nevutkozes miatt kihagyott Drive-fajlok: ezekhez EGYALTALAN nem nyulunk. */
   utkozoIdk: Set<string>
-}): Promise<{ wouldDelete: number; tracked: number } | null> {
+  /** Mentes-parosnal: mi van MAR fent (Drive-beli ut -> fajlazonosito). */
+  driveUtak: Map<string, string>
+}): Promise<FelmenoEredmeny> {
   const { pair, cfg, state, token, gyoker, gyokerAbs, folderIds, utkozoIdk } = a
-  if (cfg.upload === false) return null
+  const semmi: FelmenoEredmeny = { brake: null, maradt: 0 }
+  if (cfg.upload === false) return semmi
   // 0. FEK: olvashatatlan beallitas. Ilyenkor ures az allapot, vagyis MINDEN
   // helyi fajl "ujnak" latszik -- a felmeno ag az egesz depot felkuldene.
   if (cfg.corrupt) {
     job?.errors.push('a szinkron beállítás-fájlja sérült – a feltöltés és a törlés kimaradt')
-    return null
+    return semmi
   }
 
   // 1. FEK: csonka kepbol nem szabad felmenni. Ha a bejaras beleutkozott a
@@ -787,22 +1089,22 @@ async function uploadPhase(a: {
       reason: `a Drive bejárása hiányos maradt (${csonkoltSzoveg(a.csonkolt, MAX_FOLDERS, MAX_FILES)})`
         + ' – a feltöltés és a törlés ezúttal kimaradt',
     })
-    return null
+    return semmi
   }
   // 2. FEK: ha a helyi mappa nincs a helyen (lecsatolt lemez, atnevezett depo),
   // az NEM azt jelenti, hogy mindent toroltel.
   if (!existsSync(gyokerAbs)) {
     job?.errors.push(`${pairLabel(pair)}: a helyi mappa nem található – a feltöltés kimaradt`)
-    return null
+    return semmi
   }
 
-  const { files: helyiek, csonkolt: helyiCsonkolt } = walkLocalFiles(gyokerAbs)
+  const { files: helyiek, csonkolt: helyiCsonkolt } = walkLocalFiles(gyokerAbs, MAX_LOCAL_FILES, mentesKihagy(pair))
   if (helyiCsonkolt) {
     gond({
       pair, phase: 'kihagyva', localPath: gyokerAbs, driveName: pairLabel(pair),
-      reason: `túl sok helyi fájl (${MAX_UPLOADS} fölött), a feltöltés és a törlés kimaradt`,
+      reason: `túl sok helyi fájl (${MAX_LOCAL_FILES} fölött), a feltöltés és a törlés kimaradt`,
     })
-    return null
+    return semmi
   }
   // A helyi utak a paros gyokerehez kepest jonnek; az allapot a depo fiok-
   // mappajahoz kepest tarol. Egy nyelvre hozzuk oket.
@@ -810,6 +1112,12 @@ async function uploadPhase(a: {
   const helyiSet = new Set(helyiek.map(teljesRel))
   // Ut -> Drive-azonosito, hogy egy helyi fajlrol eldonthessuk, ismerjuk-e.
   const utrolId = new Map<string, string>()
+  // MENTES-PAROS: eloszor az, amit a Drive-on MOST lattunk. Ha a nyilvantartas
+  // elveszett (megszakadt futas, ujra bekotott paros), enelkul minden fajl
+  // "ujnak" latszana, es a mentes MASODPELDANYT gyartana az egeszbol.
+  for (const [ut, id] of a.driveUtak) { if (!utkozoIdk.has(id)) utrolId.set(ut, id) }
+  // A nyilvantartas pontosabb forras (o tudja a helyi idobelyeget is), ezert
+  // felulirja a bejarasbol jott parositast.
   for (const [id, s] of Object.entries(state)) {
     // A nevutkozes egyik feleben sem lehetunk biztosak: melyik dokumentumhoz
     // tartozik a lemezen fekvo fajl? Amig a Boss at nem nevezi az egyiket,
@@ -830,6 +1138,13 @@ async function uploadPhase(a: {
   }
 
   // --- feltoltes: uj es modositott fajlok ---
+  //
+  // KOLTSEGVETES, NEM KORLAT: futasonkent `MAX_UPLOADS` fajl megy fel, a tobbi
+  // a kovetkezo futasra marad (a `drive-mentes` kartya ejjel 3-kor magatol
+  // indit). A `maradt` szamot a lista ES az Attekintes is kiirja: egy felig
+  // felment mentes nem mutathat zold "rendben"-t.
+  let feltoltve = 0
+  let maradt = 0
   for (const rel of helyiek) {
     const teljes = teljesRel(rel)
     const abs = join(gyokerAbs, rel)
@@ -851,7 +1166,12 @@ async function uploadPhase(a: {
       }
       continue
     }
-    if (meglevoId && !localChanged(known, st)) continue
+    // MENTES-PAROS + fent levo, de NEM NYILVANTARTOTT peldany: rairunk. A gep
+    // az igazsag, a Drive a masolat -- ha nem tudjuk, egyezik-e, akkor nem
+    // egyezik. (Egy Drive-masolat parosnal ez forditva veszelyes lenne, ezert
+    // all rajta a `pair.backup` feltetel.)
+    const ismeretlenMasolat = pair.backup === true && !!meglevoId && !known
+    if (meglevoId && !ismeretlenMasolat && !localChanged(known, st)) continue
     if (st.size > MAX_UPLOAD_BYTES) {
       if (job) job.skipped++
       gond({
@@ -861,6 +1181,10 @@ async function uploadPhase(a: {
       })
       continue
     }
+    // A koltsegvetes CSAK a valodi feltolteseket szamolja: a valtozatlan
+    // fajlok mar felette kiestek. Igy a kovetkezo futas ott folytatja, ahol ez
+    // abbahagyta -- nem az elejerol probalkozik ujra.
+    if (feltoltve >= MAX_UPLOADS) { maradt++; continue }
     if (job) job.current = teljes
     try {
       if (meglevoId) {
@@ -877,6 +1201,7 @@ async function uploadPhase(a: {
         state[id] = { path: teljes, modifiedTime, size: st.size, localMtimeMs: st.mtimeMs }
         utrolId.set(teljes, id)
       }
+      feltoltve++
       if (job) { job.uploaded++; job.bytes += st.size }
     } catch (err: any) {
       gond({
@@ -888,7 +1213,11 @@ async function uploadPhase(a: {
   }
 
   // --- torles: ami a gepen mar nincs meg, az fent a Kukaba ---
-  if (cfg.deleteUp === false) return null
+  //
+  // A `maradt` NEM akadaly itt: a helyi kep TELJES (a bejaras nem csonkolt),
+  // csak a feltoltes fert bele a koltsegvetesbe. Amirol tudjuk, hogy a gepen
+  // mar nincs meg, arrol ettol meg tudjuk.
+  if (cfg.deleteUp === false) return { brake: null, maradt }
   // A torles a Google-natív fajlokra IS vonatkozik -- ott nincs "bajtok
   // egyezese" kerdes, csak annyi: a gepen mar nincs meg. A Rajz/Script is
   // ideszamit, noha a TARTALMUK nem tud felmenni: a torles nem konvertalas.
@@ -903,7 +1232,7 @@ async function uploadPhase(a: {
       `VÉSZFÉK: ${torlendok.length} fájl tűnt el a gépedről (a ${tracked}-ból) – ` +
       'ennyit nem törlök a Drive-on magamtól. Nézd meg, hogy a raktár a helyén van-e.',
     )
-    return { wouldDelete: torlendok.length, tracked }
+    return { brake: { wouldDelete: torlendok.length, tracked }, maradt }
   }
   for (const [id, s] of torlendok) {
     if (job) job.current = s.path
@@ -919,7 +1248,7 @@ async function uploadPhase(a: {
       })
     }
   }
-  return null
+  return { brake: null, maradt }
 }
 
 /**
@@ -928,7 +1257,10 @@ async function uploadPhase(a: {
  * Ures nev = a TELJES Drive; ilyenkor nincs mappanev, amit kiirhatnank, es egy
  * ures allapotsor ("epp ezen dolgozom: ") ijeszto. Ezert van sajat szovege.
  */
-export function pairLabel(pair: { name?: string }): string {
+export function pairLabel(pair: { name?: string; backup?: true; localPath?: string }): string {
+  // MENTES-PAROSNAL a HELYI ag a beszedes fel. A Drive-oldal neve ("Korpás
+  // László - Projektek") a mi sajat gyartmanyunk: a Boss nem azt keresi.
+  if (pair.backup) return `${pair.localPath || 'a teljes raktár'} → mentés a Drive-ra`
   return pair.name || 'a teljes Drive'
 }
 
@@ -937,7 +1269,7 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
   for (const pair of pairs) {
     if (job) job.pair = pairLabel(pair)
     try {
-      const { csonkolt, brake } = await syncPair(pair, cfg)
+      const { csonkolt, brake, maradt } = await syncPair(pair, cfg)
       // Csonka mentesre NEM irhatunk "rendben"-t: a listaban ez az egy szo
       // mondja meg, megbizhat-e benne. A hatarok a naplo-dobozban is ott
       // vannak, de oda csak az nez, aki eppen figyeli a futast.
@@ -952,11 +1284,20 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
       // fajl all a Drive-jan, az akkori korlat 500 / 5000 volt), a valodi ok egy
       // ki nem olvashato mappa. A rossz ok rossz teendot sugall: a Boss a hatart
       // emelte volna, kozben egy jogosultsagi/halozati baj allt mogotte.
+      //
+      // A "folyamatban" NEM hiba, es szandekosan NEM a `részleges` szoval
+      // kezdodik: abbol az onellenorzes PIROS sort csinal (csonka masolat), ez
+      // viszont egy rendben zajlo, tobb ejszakas elso feltoltes. Sajat, sarga
+      // sora van (`drive_sync_incomplete`). Zold "rendben" viszont nem lehet:
+      // amig var fajl, a mentes NINCS kesz.
       pair.lastResult = brake
         ? `vészfék: ${brake.wouldDelete} fájl hiányzik a gépedről, ezért fent semmit nem töröltem`
         : csonkolt.length
           ? `részleges: ${csonkoltSzoveg(csonkolt, MAX_FOLDERS, MAX_FILES)} – a többi kimaradt`
-          : 'rendben'
+          : maradt
+            ? `folyamatban: még ${maradt} fájl vár feltöltésre – a következő futás onnan folytatja`
+            : 'rendben'
+      pair.lastPending = maradt
     } catch (err: any) {
       pair.lastResult = String(err?.message || err).slice(0, 200)
       gond({
@@ -970,7 +1311,9 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
     // elolrol azt, ami mar lejott.
     const live = loadSyncConfig()
     live.state = { ...live.state, ...cfg.state }
-    live.pairs = live.pairs.map((p) => (p.id === pair.id ? { ...p, lastRunAt: pair.lastRunAt, lastResult: pair.lastResult } : p))
+    live.pairs = live.pairs.map((p) => (p.id === pair.id
+      ? { ...p, lastRunAt: pair.lastRunAt, lastResult: pair.lastResult, lastPending: pair.lastPending }
+      : p))
     saveSyncConfig(live)
   }
   if (job) {
@@ -987,16 +1330,19 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/drive/sync' && method === 'GET') {
     const cfg = loadSyncConfig()
     json(res, {
-      pairs: cfg.pairs.map((p) => ({
-        ...p,
+      pairs: cfg.pairs.map((p) => {
         // Ures nev = teljes Drive: a fiok sajat mappaja MAGA a cel, nincs alatta
         // meg egy szint. (A `safeSegment('')` `nevtelen`-t adna -- itt hibas ut.)
-        localDir: depotAccountDir(p.account, DEPOT_DRIVE)
-          ? (p.name ? join(depotAccountDir(p.account, DEPOT_DRIVE)!, safeSegment(p.name)) : depotAccountDir(p.account, DEPOT_DRIVE)!)
-          : null,
-        label: pairLabel(p),
-        files: Object.keys(cfg.state[p.id] || {}).length,
-      })),
+        // MENTES-PAROSNAL a helyi oldal a raktar aga. UGYANAZ a fuggveny adja,
+        // ami a futasnal is dont -- a kepernyo nem mondhat mast, mint a gep.
+        const hely = pairLocalDir(p)
+        return {
+          ...p,
+          localDir: hely ? join(hely.base, hely.gyoker) : null,
+          label: pairLabel(p),
+          files: Object.keys(cfg.state[p.id] || {}).length,
+        }
+      }),
       depot: depotHealth(),
       // A ket kapcsolo LATSZODJON: a felmeno ag ir a Drive-ra, a torles-atvitel
       // pedig torol. Amit nem lehet a kepernyon ellenorizni, arrol a felhasznalo
@@ -1064,6 +1410,170 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     const pair: SyncPair = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       account, folderId, name, addedAt: new Date().toISOString(),
+    }
+    cfg.pairs.push(pair)
+    saveSyncConfig(cfg)
+    json(res, { ok: true, pair })
+    return true
+  }
+
+  // A RAKTAR AGAI -- ebbol valaszt a "Mentsd a Drive-ra" kartya.
+  //
+  // Sajat vegpont, nem az Intezo listaja: itt pontosan az kell latszodjon, amit
+  // MENTENI lehet. A `Rendszer` ag is BENNE VAN a listaban, de megjelolve --
+  // ha egyszeruen kihagynank, a Boss azt hinne, eltunt, es keresne.
+  if (path === '/api/drive/sync/local-branches' && method === 'GET') {
+    const gyoker = depotRoot()
+    // HAROM eset, nem ketto: nincs beallitva / be van, de nem latunk oda / ok.
+    // A ket elso KULON teendo, ezert nem egy uzenet.
+    if (!gyoker) {
+      json(res, { root: null, configured: false, reachable: false, branches: [] })
+      return true
+    }
+    let latszik = false
+    try { latszik = statSync(gyoker).isDirectory() } catch { latszik = false }
+    if (!latszik) {
+      json(res, { root: gyoker, configured: true, reachable: false, branches: [] })
+      return true
+    }
+    const alszint = (abs: string, elotag: string): Array<{ path: string; name: string }> => {
+      let be: Array<{ name: string; dir: boolean }>
+      try {
+        be = readdirSync(abs, { withFileTypes: true }).map((d) => ({ name: d.name, dir: d.isDirectory() }))
+      } catch {
+        return []
+      }
+      return be
+        .filter((d) => d.dir && !d.name.startsWith('.'))
+        .map((d) => ({ path: elotag ? `${elotag}/${d.name}` : d.name, name: d.name }))
+        .sort((x, y) => x.name.localeCompare(y.name, 'hu'))
+    }
+    const branches = alszint(gyoker, '').map((b) => {
+      const blocked = mentesAgHiba(b.path)
+      return { ...b, blocked, children: blocked ? [] : alszint(join(gyoker, b.name), b.path) }
+    })
+    json(res, { root: gyoker, configured: true, reachable: true, branches, systemBranch: DEPOT_SYSTEM_ROOT })
+    return true
+  }
+
+  // ELONEZET a bekotes ELOTT: hany fajl, mennyi bajt, mennyi fer fel.
+  //
+  // Ez a funkcio a Boss egesz munkajat feltolti egy kulso szolgaltatasba -- azt
+  // NEM lehet ugy elinditani, hogy a merteket csak utana latja meg. A szamok
+  // MERTEK, nem becsultek, es a Drive szabad helyet is magatol a Google-tol
+  // kerdezzuk meg, nem tippeljuk.
+  if (path === '/api/drive/sync/local-preview' && method === 'GET') {
+    const rel = String(ctx.url.searchParams.get('path') || '')
+    const account = String(ctx.url.searchParams.get('account') || '')
+    if (!depotRoot()) {
+      json(res, { error: 'Nincs raktár beállítva – a Beállításokban add meg, hova kerüljenek a fájljaid.', code: 'no_depot' }, 409)
+      return true
+    }
+    const abs = resolveLifePath(rel)
+    let mappa = false
+    try { mappa = !!abs && statSync(abs).isDirectory() } catch { mappa = false }
+    if (!abs || !mappa) {
+      json(res, { error: `Ez a mappa nincs meg a raktárban: ${rel || 'a raktár gyökere'}`, code: 'no_dir' }, 404)
+      return true
+    }
+    const kizart = mentesAgHiba(rel)
+    if (kizart) { json(res, { error: kizart, code: 'kizart' }, 400); return true }
+
+    const meres = await merjMentendot(abs, MAX_LOCAL_FILES, mentesKihagyUt(rel))
+    const { bytes, csonkolt } = meres
+    const tulNagy = meres.tooBig
+    const nemLathato = meres.unreadable
+
+    // A DRIVE SZABAD HELYE. Negy KULON eset -- a `null` itt is ketfelet
+    // jelentene, ezert nem `null` jon vissza, hanem az, hogy MIERT nem tudjuk.
+    let quota: any = { fajta: 'nincs_fiok' }
+    if (account) {
+      try {
+        const token = await getAccessToken(account)
+        const d = await driveJson('https://www.googleapis.com/drive/v3/about?fields=storageQuota', token)
+        const limit = Number(d?.storageQuota?.limit || 0)
+        const usage = Number(d?.storageQuota?.usage || 0)
+        // `limit` nelkul a fiok korlatlan (Workspace) -- ez NEM ismeretlen.
+        quota = limit > 0
+          ? { fajta: 'ismert', limit, usage, free: Math.max(0, limit - usage) }
+          : { fajta: 'korlatlan', usage }
+      } catch (err: any) {
+        quota = { fajta: 'nem_kerdezheto', error: String(err?.message || err).slice(0, 200) }
+      }
+    }
+
+    json(res, {
+      path: rel,
+      absPath: abs,
+      files: meres.files,
+      bytes,
+      tooBig: tulNagy,
+      unreadable: nemLathato,
+      truncated: csonkolt,
+      excluded: mentesUtNorm(rel) ? null : DEPOT_SYSTEM_ROOT,
+      driveFolder: `${MENTES_MAPPA}/${mentesMappaNev(rel)}`,
+      perRun: MAX_UPLOADS,
+      runs: Math.max(1, Math.ceil(Math.max(0, meres.files - tulNagy) / MAX_UPLOADS)),
+      maxFileMb: Math.round(MAX_UPLOAD_BYTES / 1024 / 1024),
+      quota,
+    })
+    return true
+  }
+
+  // BEKOTES: a raktar egy aga -> mentes a Drive-ra.
+  //
+  // A Drive-oldalt MI hozzuk letre (`Marveen mentés/<ag>`), hogy ne kelljen
+  // mappat keresgelni egy masik felulet-fan. Amit itt visszautasitunk, azt
+  // NEM izlesbol tesszuk: mindegyik korbe vinne (a mentes mentese).
+  if (path === '/api/drive/sync/add-local' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const account = String(data.account || '')
+    const rel = String(data.path || '')
+    if (!account) { json(res, { error: 'hiányzik a fiók' }, 400); return true }
+    const health = depotHealth()
+    if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
+    const abs = resolveLifePath(rel)
+    let mappa = false
+    try { mappa = !!abs && statSync(abs).isDirectory() } catch { mappa = false }
+    if (!abs || !mappa) {
+      json(res, { error: `Ez a mappa nincs meg a raktárban: ${rel || 'a raktár gyökere'}`, code: 'no_dir' }, 404)
+      return true
+    }
+    const kizart = mentesAgHiba(rel)
+    if (kizart) { json(res, { error: kizart, code: 'kizart' }, 400); return true }
+    const cfg = loadSyncConfig()
+    const utk = mentesUtkozes(cfg.pairs, rel)
+    if (utk) {
+      const mas = pairLabel(utk.pair)
+      const uzenet = utk.fajta === 'ugyanaz'
+        ? `Ez az ág már mentve van a Drive-ra (${mas}).`
+        : utk.fajta === 'fölötte'
+          ? `Ezt már menti egy nagyobb mentés (${mas}) – ami ebben az ágban van, magától felmegy.`
+          : `Ezen belül már van egy külön mentés (${mas}). Előbb vedd ki azt, különben minden fájl kétszer menne fel.`
+      json(res, { error: uzenet, code: 'exists' }, 409)
+      return true
+    }
+    // Innentol HALOZAT: a hibat szo szerint adjuk vissza, nem talalgatjuk.
+    let folderId: string
+    try {
+      const token = await getAccessToken(account)
+      const mentesGyoker = await ensureDriveFolderByName(MENTES_MAPPA, 'root', token)
+      folderId = await ensureDriveFolderByName(mentesMappaNev(rel), mentesGyoker, token)
+    } catch (err: any) {
+      json(res, {
+        error: `A Drive-on nem tudtam létrehozni a mentés-mappát: ${String(err?.message || err).slice(0, 200)}`,
+        code: 'drive_error',
+      }, 502)
+      return true
+    }
+    const pair: SyncPair = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      account,
+      folderId,
+      name: mentesMappaNev(rel),
+      backup: true,
+      localPath: mentesUtNorm(rel),
+      addedAt: new Date().toISOString(),
     }
     cfg.pairs.push(pair)
     saveSyncConfig(cfg)

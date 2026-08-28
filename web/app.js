@@ -30116,6 +30116,15 @@ async function loadDepoPage() {
   bind('depoSyncPickBtn', () => _depoPickDriveFolder())
   bind('depoSyncAddBtn', () => _depoAddSync())
   bind('depoSyncRunBtn', () => _depoRunSync())
+  bind('depoBackupPreviewBtn', () => _depoBackupMeasure())
+  bind('depoBackupAddBtn', () => _depoBackupAdd())
+  // A valasztas MEGVALTOZASA ervenytelenne teszi a merest: a gomb ilyenkor
+  // ujra szurke lesz. Kulonben a Boss megmerne az egyik agat, atvaltana egy
+  // masikra, es a MASIKAT kotne be a latott szamok alapjan.
+  ;['depoBackupBranch', 'depoBackupAccount'].forEach((id) => {
+    const el = document.getElementById(id)
+    if (el && !el._depoBound) { el._depoBound = 1; el.addEventListener('change', () => _depoBackupGombAllapot()) }
+  })
   bind('storagesGitAddBtn', () => _storagesAddGit())
   bind('storagesGitSyncBtn', () => _storagesGitSync())
   // A tablazat gombjai delegalva: a sorok minden frissiteskor ujra keszulnek,
@@ -30416,6 +30425,7 @@ async function _depoRefresh() {
   // allapotara (sem annak sikeressegere). Sajat hibakezelese van, ezert nem
   // varunk ra -- a lap tobbi resze ettol nem lassul.
   _depoLoadSyncAccounts()
+  _depoBackupLoadBranches()
   // Ugyanezen okbol: a tarolo-tablazatnak sajat vegpontja van, ezert akkor is
   // megjelenik, ha a depo-allapot lekerdezese elhasal (ott lentebb `return` all).
   _storagesRefresh()
@@ -30478,13 +30488,17 @@ async function _depoRefresh() {
   }
   const list = document.getElementById('depoSyncList')
   if (list && s) {
-    if (!s.pairs.length) {
+    // A MENTES-parosok nem ide valok: ott a gep a forras es a Drive a masolat,
+    // vagyis pont forditva, mint itt. Egy tablazatban a ket irany
+    // osszekeverne, melyik torles hova hat -- sajat kartyajuk van alatta.
+    const masolatok = (s.pairs || []).filter((p) => !p.backup)
+    if (!masolatok.length) {
       list.innerHTML = '<p class="subtitle">Még egy Drive-mappa sincs kijelölve.</p>'
     } else {
       list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
         + '<th>Fiók</th><th>Mappa</th><th>Hol a gépeden</th><th>Fájl</th><th>Utoljára</th><th></th></tr></thead><tbody>'
         // Ures nev = a TELJES Drive. Ures cella helyett ki KELL mondani, mi az.
-        + s.pairs.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
+        + masolatok.map((p) => '<tr><td>' + escapeHtml(p.account) + '</td>'
           + '<td>' + escapeHtml(p.name || t('dsync.whole_row')) + '</td>'
           // A HELYI utvonal. A kiszolgalo amugy is kiszamolja, es eppen ez az,
           // amit latni kell: "a lackor2 legyen lackor2. igy nincs keveredes."
@@ -30505,6 +30519,7 @@ async function _depoRefresh() {
     _depoShowSyncJob(s.job)
     if (s.job && s.job.running) _depoStartPoll()
   }
+  if (s) _depoRenderBackups(s)
   // Serult beallitas-fajl: a lista ilyenkor URESEN all. Magyarazat nelkul ez ugy
   // nez ki, mintha a felhasznalo maga valasztotta volna le a mappait. Ez a
   // figyelmeztetes a vészfék-doboz UTAN all be, hogy ne nyomja el a job-uzenet.
@@ -30810,7 +30825,10 @@ var _depoAccountsLoading = false
  */
 async function _depoLoadSyncAccounts() {
   const sel = document.getElementById('depoSyncAccount')
-  if (!sel || sel.options.length || _depoAccountsLoading) return
+  // A mentes-kartya legorduloje UGYANEBBOL a listabol el: ket kulon lekerdezes
+  // ket kulon pillanatot latna, es a ket kartya mas fiokokat kinalna.
+  const sel2 = document.getElementById('depoBackupAccount')
+  if (!sel || (sel.options.length && (!sel2 || sel2.options.length)) || _depoAccountsLoading) return
   // A _depoRefresh tobb helyrol is jon (Frissítés gomb, munka-figyelo, mentes
   // utan). Ket EGYSZERRE futo toltes ujrarajzolna a legordulot, ami VISSZAALLITJA
   // a kivalasztott fiokot az elsore -- eppen amikor a user mar mast valasztott.
@@ -30819,7 +30837,9 @@ async function _depoLoadSyncAccounts() {
   try {
     const acc = await _depoGet('/api/drive/accounts')
     const lista = acc.accounts || []
-    sel.innerHTML = lista.map((a) => '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>').join('')
+    const opciok = lista.map((a) => '<option value="' + escapeHtml(a) + '">' + escapeHtml(a) + '</option>').join('')
+    sel.innerHTML = opciok
+    if (sel2) sel2.innerHTML = opciok
     // Ha egyetlen fiok sincs bekotve, azt KI KELL MONDANI: ures legordulovel a
     // user azt hinne, elromlott valami.
     if (!lista.length && picked) picked.textContent = t('dsync.no_accounts')
@@ -30893,6 +30913,185 @@ async function _depoAddSync() {
     await _depoRefresh()
   } catch (e) {
     showToast((e && e.message) ? e.message : t('dsync.add_failed'))
+  }
+}
+
+/* ============ A GEPEM MENTESE A DRIVE-RA (#47 kartya) =====================
+ *
+ * A masik irany. A Drive-kartya a felhot hozza LE, ez a munkadat viszi FEL.
+ * MERVE 2026-08-28: a raktarban 9356 fajl / 11 GB all ugy, hogy sehol nincs
+ * masodpeldanya -- a git-tarolok kulon agban (`Rendszer`) vannak, a szemelyes
+ * ag pedig nem git-elheto.
+ *
+ * A BEKOTES NEM INDUL EL MERES NELKUL. Eloszor megmerjuk, hany fajl es mennyi
+ * bajt menne fel, es megkerdezzuk a Google-tol, van-e ra szabad hely. Ezt a
+ * funkciot nem lehet ugy elinditani, hogy a merteket a Boss csak utana latja
+ * meg: bekotes utan a gep magatol kezd feltolteni, minden ejjel.
+ */
+
+/** Az UTOLSO sikeres meres -- mihez tartozott (ag + fiok). */
+var _depoBackupMeres = null
+
+function _depoBackupValaszt() {
+  const b = document.getElementById('depoBackupBranch')
+  const a = document.getElementById('depoBackupAccount')
+  return { path: (b && b.value) || '', account: (a && a.value) || '' }
+}
+
+/** A "Mentés bekötése" CSAK a most megmert valasztasra ehet ra. */
+function _depoBackupGombAllapot() {
+  const btn = document.getElementById('depoBackupAddBtn')
+  if (!btn) return
+  const v = _depoBackupValaszt()
+  const m = _depoBackupMeres
+  btn.disabled = !(m && m.path === v.path && m.account === v.account)
+}
+
+/**
+ * A raktar agai a legorduloben.
+ *
+ * A `Rendszer` ag BENNE VAN, de letiltva: ha egyszeruen kihagynank, a Boss azt
+ * hinne, eltunt, es keresne. Igy latszik, hogy szandekosan nem menthető.
+ */
+async function _depoBackupLoadBranches() {
+  const sel = document.getElementById('depoBackupBranch')
+  if (!sel || sel.options.length) return
+  const jel = document.getElementById('depoBackupNote')
+  let d = null
+  try {
+    d = await _depoGet('/api/drive/sync/local-branches')
+  } catch (e) {
+    if (jel) jel.textContent = t('dbackup.branches_failed', { error: (e && e.message) ? e.message : String(e) })
+    return
+  }
+  // HAROM eset, es MIND MAS teendo. Az ures legordulo onmagaban nem mondana
+  // meg, hogy nincs raktar, vagy hogy van, csak nem latunk oda.
+  if (!d.configured) { if (jel) jel.textContent = t('dbackup.no_depot'); return }
+  if (!d.reachable) { if (jel) jel.textContent = t('dbackup.unreachable', { p: d.root || '' }); return }
+  const opts = ['<option value="">' + escapeHtml(t('dbackup.whole')) + '</option>']
+  ;(d.branches || []).forEach((b) => {
+    if (b.blocked) {
+      opts.push('<option value="' + escapeHtml(b.path) + '" disabled>'
+        + escapeHtml(b.name) + ' — ' + escapeHtml(t('dbackup.blocked')) + '</option>')
+      return
+    }
+    opts.push('<option value="' + escapeHtml(b.path) + '">' + escapeHtml(b.name) + '</option>')
+    ;(b.children || []).forEach((c) => {
+      opts.push('<option value="' + escapeHtml(c.path) + '">\u00a0\u00a0\u00a0\u00a0'
+        + escapeHtml(c.name) + '</option>')
+    })
+  })
+  sel.innerHTML = opts.join('')
+  if (jel) jel.textContent = ''
+  _depoBackupGombAllapot()
+}
+
+/** MERES a bekotes elott. Minden szam merve van, egy sincs becsulve. */
+async function _depoBackupMeasure() {
+  const v = _depoBackupValaszt()
+  const box = document.getElementById('depoBackupPreview')
+  const btn = document.getElementById('depoBackupPreviewBtn')
+  _depoBackupMeres = null
+  _depoBackupGombAllapot()
+  if (box) box.innerHTML = '<p class="subtitle">' + escapeHtml(t('dbackup.measuring')) + '</p>'
+  if (btn) btn.disabled = true
+  let d = null
+  try {
+    d = await _depoGet('/api/drive/sync/local-preview?path=' + encodeURIComponent(v.path)
+      + '&account=' + encodeURIComponent(v.account))
+  } catch (e) {
+    if (box) box.innerHTML = '<p class="subtitle">' + escapeHtml((e && e.message) ? e.message : String(e)) + '</p>'
+    if (btn) btn.disabled = false
+    return
+  }
+  if (btn) btn.disabled = false
+  _depoBackupMeres = { path: v.path, account: v.account }
+  _depoBackupGombAllapot()
+  const sorok = []
+  if (!d.files) {
+    // A NULLA KET DOLGOT JELENTHET. Itt magat a forrast kerdeztuk meg: a mappa
+    // LETEZIK es OLVASHATO (kulonben 404 vagy csonka jelzes jonne), tehat ez
+    // valodi ures -- ezt ki is mondjuk, nem hagyjuk a "0 fájl" szamra.
+    sorok.push(t('dbackup.empty'))
+  } else {
+    sorok.push(t('dbackup.sum', { n: String(d.files), b: _depoBytes(d.bytes), f: d.driveFolder }))
+  }
+  if (d.excluded) sorok.push(t('dbackup.excluded', { b: d.excluded }))
+  if (d.files > d.perRun) sorok.push(t('dbackup.runs', { r: String(d.runs), p: String(d.perRun) }))
+  if (d.tooBig) sorok.push(t('dbackup.too_big', { n: String(d.tooBig), m: String(d.maxFileMb) }))
+  if (d.unreadable) sorok.push(t('dbackup.unreadable_files', { n: String(d.unreadable) }))
+  if (d.truncated) sorok.push(t('dbackup.truncated'))
+  const q = d.quota || {}
+  if (q.fajta === 'ismert') {
+    sorok.push(q.free >= d.bytes
+      ? t('dbackup.quota_ok', { a: v.account, f: _depoBytes(q.free) })
+      : t('dbackup.quota_short', { a: v.account, f: _depoBytes(q.free), n: _depoBytes(d.bytes - q.free) }))
+  } else if (q.fajta === 'korlatlan') {
+    sorok.push(t('dbackup.quota_unlimited', { a: v.account }))
+  } else if (q.fajta === 'nem_kerdezheto') {
+    // A HIBA OKAT NEM TALALGATJUK: amit a Google mondott, azt irjuk ki.
+    sorok.push(t('dbackup.quota_error', { e: String(q.error || '') }))
+  } else {
+    sorok.push(t('dbackup.quota_no_account'))
+  }
+  if (box) box.innerHTML = sorok.map((x) => '<p class="subtitle" style="margin:2px 0">' + escapeHtml(x) + '</p>').join('')
+}
+
+async function _depoBackupAdd() {
+  const v = _depoBackupValaszt()
+  if (!v.account) { showToast(t('dbackup.need_account')); return }
+  try {
+    await _depoPost('/api/drive/sync/add-local', { account: v.account, path: v.path })
+    _depoBackupMeres = null
+    const box = document.getElementById('depoBackupPreview')
+    if (box) box.innerHTML = ''
+    _depoBackupGombAllapot()
+    await _depoRefresh()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('dbackup.add_failed'))
+  }
+}
+
+function _depoRenderBackups(s) {
+  const host = document.getElementById('depoBackupList')
+  if (!host) return
+  const mentesek = ((s && s.pairs) || []).filter((p) => p.backup)
+  if (!mentesek.length) {
+    host.innerHTML = '<p class="subtitle">' + escapeHtml(t('dbackup.none')) + '</p>'
+    return
+  }
+  host.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('dbackup.col_what')) + '</th>'
+    + '<th>' + escapeHtml(t('dbackup.col_account')) + '</th>'
+    + '<th>' + escapeHtml(t('dbackup.col_drive')) + '</th>'
+    + '<th>' + escapeHtml(t('dbackup.col_files')) + '</th>'
+    + '<th>' + escapeHtml(t('dbackup.col_last')) + '</th><th></th></tr></thead><tbody>'
+    + mentesek.map((p) => '<tr>'
+      + '<td><code>' + escapeHtml(p.localPath || t('dbackup.whole')) + '</code></td>'
+      + '<td>' + escapeHtml(p.account) + '</td>'
+      + '<td>' + escapeHtml(p.name || '') + '</td>'
+      + '<td>' + p.files + '</td>'
+      // A datum melle az EREDMENY is: egy felig felment ("folyamatban") vagy
+      // elhasalt mentes kulonben ugyanugy nezne ki, mint egy kesz.
+      + '<td>' + (p.lastRunAt ? escapeHtml(String(p.lastRunAt).slice(0, 16).replace('T', ' ')) : escapeHtml(t('dbackup.never')))
+      + (p.lastResult ? '<br><span class="subtitle">' + escapeHtml(p.lastResult) + '</span>' : '') + '</td>'
+      + '<td><button class="btn-secondary btn-compact" data-depo-unbackup="' + escapeHtml(p.id) + '">'
+      + escapeHtml(t('dbackup.unbind')) + '</button></td></tr>').join('')
+    + '</tbody></table></div>'
+  host.querySelectorAll('[data-depo-unbackup]').forEach((b) => {
+    b.addEventListener('click', () => _depoRemoveBackup(b.getAttribute('data-depo-unbackup')))
+  })
+}
+
+async function _depoRemoveBackup(id) {
+  // A megerosites KIMONDJA, mi marad meg: a Drive-on levo mentes NEM tunik el,
+  // csak nem frissul tovabb. Enelkul a "Kivétel" gomb torlesnek latszana.
+  if (!confirm(t('dbackup.unbind_confirm'))) return
+  try {
+    await _depoPost('/api/drive/sync/remove', { id })
+    await _depoRefresh()
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('dbackup.unbind_failed'))
   }
 }
 
