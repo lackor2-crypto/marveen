@@ -100,8 +100,11 @@ describe('a beszelgetes-ablak nem nezhet ki uresnek teli atirat felett', () => {
   it('csak akkor kapcsol be a pipa, ha nincs csatorna-forgalom DE van bejegyzes', () => {
     const load = extractFn(app, 'loadConversation')
     expect(load).toMatch(/opts\.autoRevealDetail/)
-    // Mindharom feltetel kell: pipa letezik, nincs in/out, es van mit mutatni.
-    expect(load).toMatch(/e\.kind === 'in' \|\| e\.kind === 'out'/)
+    // Mindharom feltetel kell: pipa letezik, nincs fo-forgalom, es van mit mutatni.
+    // A forras-fuggo kind-lista (CONV_MAIN_KINDS) valtotta fel a fix 'in'/'out'
+    // ellenorzest, amikor a Code Bridge sajat kind-parral (user/assistant) is
+    // hasznalja ugyanezt a nezetet.
+    expect(load).toMatch(/main\.includes\(e\.kind\)/)
     expect(load).toMatch(/!hasChannelTraffic && conversationEntries\.length/)
   })
 
@@ -110,7 +113,10 @@ describe('a beszelgetes-ablak nem nezhet ki uresnek teli atirat felett', () => {
     expect(render).toMatch(/conversation\.empty_filtered/)
     expect(render).toMatch(/conversation\.empty_search/)
     // A csupasz "nincs uzenet" csak akkor, ha tenyleg nulla bejegyzes van.
-    expect(render).toMatch(/hidden\s*\?[\s\S]{0,200}:\s*t\('conversation\.empty'\)/)
+    // Az ablak 900 karakterre bovult, mert a lanc kozben tobb okot (no-path,
+    // no-session, too-large, unsafe-path, unreachable) is megkulonboztet --
+    // a vegso fallback attol meg ugyanaz marad.
+    expect(render).toMatch(/hidden\s*\?[\s\S]{0,900}:\s*t\('conversation\.empty'\)/)
   })
 
   it('a kereses es a szuro kulon uzenetet kap', () => {
