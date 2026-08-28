@@ -67,10 +67,11 @@ const harness = `
   ${extractFn(app, 'cbTabOpenBtn')}
   ${extractFn(app, 'cbClosedTabsHtml')}
   ${extractFn(app, 'cbTabsPickHtml')}
+  ${extractFn(app, 'cbEntryFromProject')}
   return {
     cbTabsPickHtml: cbTabsPickHtml, cbTabsEmptyHasCtx: cbTabsEmptyHasCtx,
     cbFmtKTokens: cbFmtKTokens, cbHasTabRows: cbHasTabRows,
-    cbClosedTabsHtml: cbClosedTabsHtml,
+    cbClosedTabsHtml: cbClosedTabsHtml, cbEntryFromProject: cbEntryFromProject,
   }
 `
 // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -80,6 +81,7 @@ const api = new Function(harness)() as {
   cbFmtKTokens: (n: number) => string
   cbHasTabRows: (e: Entry) => boolean
   cbClosedTabsHtml: (e: Entry) => string
+  cbEntryFromProject: (r: Record<string, unknown>, ctx?: Record<string, unknown>) => Entry
 }
 
 describe('ures ful-lista + mert kontextus: a kartya nem mond ket dolgot egyszerre', () => {
@@ -226,6 +228,52 @@ describe('a mappa tobbi beszelgetese elerheto marad', () => {
     expect((html.match(/cb-tab-open/g) || []).length).toBe(1)
     // Az "utoljara irt" csak ott all ki, ahol tenyleg megmertuk.
     expect((html.match(/cb-tab-when/g) || []).length).toBe(1)
+  })
+})
+
+// A HUZALOZAS, nem a ket vege kulon-kulon.
+//
+// Boss, 2026-08-28, kepernyokeppel: a VS Code panelen ott allt a "47-es kanban
+// kartya", a Marveen kartyajan nem -- "ugyanannak kellene latszania!". A
+// szerver kuldte, a rajzolo kiirta volna; a sorbol bejegyzest keszito lepes
+// ejtette el. A fenti ket describe VEGIG ZOLD volt kozben, mert mindketto a
+// sajat vegen fogta meg a szalat. Ez a blokk azt meri, ami elszakadt.
+describe('a szerver sora es a kartya-bejegyzes kozott nem vesz el beszelgetes', () => {
+  const row = {
+    project: 'fejlesztes',
+    workspacePath: 'f:\\Munka\\Projekt',
+    tabs: [{ sessionId: 'be83a34f', title: 'epp fut', live: true, current: true }],
+    closedTabs: [{ sessionId: '3d3f27b8', title: '47-es kanban kartya', live: false, hasTranscript: true }],
+  }
+
+  it('a closedTabs atjut a bejegyzesbe, es ki is rajzolodik', () => {
+    const e = api.cbEntryFromProject(row, { online: true, tabsReason: 'ok' })
+    expect(e.closedTabs).toHaveLength(1)
+    // A vegallomas: a sor tenyleg ott van a kartyan.
+    expect(api.cbClosedTabsHtml(e)).toContain('47-es kanban kartya')
+  })
+
+  it('a fo lista valtozatlan marad (a futo beszelgetes nem keveredik oda)', () => {
+    const e = api.cbEntryFromProject(row, { online: true, tabsReason: 'ok' })
+    expect(e.tabs).toHaveLength(1)
+    expect(api.cbTabsPickHtml(e)).toContain('epp fut')
+    expect(api.cbTabsPickHtml(e)).not.toContain('47-es kanban kartya')
+  })
+
+  it('regi backend (nincs closedTabs kulcs) -> URES lista, nem undefined', () => {
+    const e = api.cbEntryFromProject({ project: 'p', workspacePath: 'w', tabs: [] }, {})
+    expect(e.closedTabs).toEqual([])
+    expect(api.cbClosedTabsHtml(e)).toBe('')
+  })
+
+  it('a rajzolo minden mezot a bejegyzesbol kap -- a kettonek egyeznie kell', () => {
+    // A `cbClosedTabsHtml`/`cbTabsPickHtml` altal olvasott kulcsok mind
+    // szerepelnek a bejegyzesben. Igy egy kesobbi UJ mezo sem tud ugyanigy,
+    // NEMAN kimaradni: aki kiolvassa, annak eloszor ide kell felvennie.
+    const e = api.cbEntryFromProject(row, { online: true, note: 'x', roleHolder: 'vscode:p', tabsReason: 'ok' })
+    for (const key of ['tabs', 'closedTabs', 'tabsReason', 'contextTokens', 'model', 'workspacePath', 'roleHolder', 'project', 'online', 'note']) {
+      expect(Object.prototype.hasOwnProperty.call(e, key), `hianyzo mezo: ${key}`).toBe(true)
+    }
   })
 })
 

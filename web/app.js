@@ -5491,6 +5491,44 @@ async function cbMaintenance(project, action, target) {
   }
 }
 
+/** Egy `/api/code/projects` sorbol a kartya-bejegyzes -- KULON, TISZTA
+ *  fuggveny, hogy a huzalozas is merheto legyen, ne csak a rajzolo segedek.
+ *
+ *  Boss, 2026-08-28 (kepernyokeppel): a VS Code panelen ott allt a "47-es
+ *  kanban kartya" beszelgetes, a Marveen kartyajan nem -- "ugyanannak kellene
+ *  latszania!". A szerver kuldte (`/api/code/projects` -> `closedTabs`), a
+ *  rajzolo (`cbClosedTabsHtml`) ki is irta volna, csak eppen ez a
+ *  bejegyzes-keszito nem masolta at: `e.closedTabs` mindig `undefined` lett,
+ *  a lista pedig nemakent maradt ki. A ket veget kulon tesztelte a suite, a
+ *  kozottuk levo masolast senki -- ezert maradt vegig zold.
+ *
+ *  Amit a hivo ad hozza (`ctx`), az nem a soré, hanem a kartyae: az allapot,
+ *  a szerep-gazda es a "miert ures" indok. */
+function cbEntryFromProject(r, ctx) {
+  const c = ctx || {}
+  return {
+    title: r.project,
+    desc: r.workspacePath || '',
+    online: Boolean(c.online),
+    note: c.note,
+    roleHolder: c.roleHolder,
+    project: r.project,
+    // Lehet `null` = nem latunk ra. A kettot a kiiras kulon mondja el.
+    contextTokens: (typeof r.contextTokens === 'number' && r.contextTokens > 0) ? r.contextTokens : null,
+    // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
+    // `null` = nem latunk oda -- olyankor sem talalunk ki egyet.
+    model: (typeof r.model === 'string' && r.model.trim()) ? r.model.trim() : null,
+    // Az elo beszelgetesek valasztojahoz: a POST-hoz kell a mappa utja is.
+    workspacePath: r.workspacePath || '',
+    tabs: Array.isArray(r.tabs) ? r.tabs : [],
+    // A mappa TOBBI beszelgetese (nem fut a folyamatuk, de a fuluk nyitva
+    // lehet a VS Code-ban). Regi backend nem kuldi -> ures lista, nem
+    // `undefined`: a rajzolo igy sem talal ki semmit, csak nem ir ki sort.
+    closedTabs: Array.isArray(r.closedTabs) ? r.closedTabs : [],
+    tabsReason: c.tabsReason,
+  }
+}
+
 function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   // Amig az elso lekeres be nem futott, nem rakunk ki felrevezeto kartyat.
   if (codeBridgeCards.state === 'loading' || codeBridgeCards.state === 'absent') return
@@ -5501,25 +5539,14 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   // mintha a kod-hid nem is letezne -- pontosan ez volt a panasz.
   const entries = rows.length
     ? rows.map(function (r) {
-        return {
-          title: r.project,
-          desc: r.workspacePath || '',
+        return cbEntryFromProject(r, {
           online: codeBridgeCards.workerOnline,
           note: cbCardNote(),
           // Szerepet csak VALODI projekthez lehet rendelni: a "meg nincs
           // projekt" kartya nem cimezheto, igy jelolonegyzetet sem kap.
           roleHolder: cbRoleHolder(r.project),
-          project: r.project,
-          // Lehet `null` = nem latunk ra. A kettot a kiiras kulon mondja el.
-          contextTokens: (typeof r.contextTokens === 'number' && r.contextTokens > 0) ? r.contextTokens : null,
-          // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
-          // `null` = nem latunk oda -- olyankor sem talalunk ki egyet.
-          model: (typeof r.model === 'string' && r.model.trim()) ? r.model.trim() : null,
-          // Az elo beszelgetesek valasztojahoz: a POST-hoz kell a mappa utja is.
-          workspacePath: r.workspacePath || '',
-          tabs: Array.isArray(r.tabs) ? r.tabs : [],
           tabsReason: codeBridgeCards.tabsReason,
-        }
+        })
       })
     : [cbIdleCardEntry(off)]
 
