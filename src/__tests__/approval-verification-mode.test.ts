@@ -74,12 +74,42 @@ describe('the fix prompt is a different job from the review prompt', () => {
     for (const line of FIX_LANDING_POLICY) expect(fix).toContain(line)
   })
 
-  it('the landing policy currently says: prepare it, do NOT merge to main', () => {
-    // If the owner decides otherwise, THIS is the assertion that should change
-    // -- together with the constant, and nothing else.
+  it('the landing policy currently says: land it yourself, but only on a green suite', () => {
+    // Boss, 2026-08-28, asked and answered the same day: free rein. If the
+    // policy changes again, THIS is the assertion that changes with the
+    // constant -- and nothing else, apart from the user-facing sentence below.
     const text = FIX_LANDING_POLICY.join(' ')
-    expect(text).toContain('NE merge-eld')
-    expect(text).toContain('amig a tulajdonos ra nem bolint')
+    expect(text).toContain('szabad kezed van')
+    expect(text).toContain('LANDOLD a fo agba')
+    expect(text).toContain('nem kell review-ra varnod')
+  })
+
+  it('does not hand out the permission without the condition that carries it', () => {
+    // "Land it yourself" is only safe BECAUSE the suite has to be green first.
+    // A future edit that keeps the permission and drops the gate is the failure
+    // this asserts against -- both halves live in the same prompt.
+    const fix = buildVerificationPrompt({ ...BASE, mode: 'fix' })
+    expect(fix).toContain('szabad kezed van')
+    expect(fix).toContain('npx vitest run')
+    expect(fix).toContain('npx tsc --noEmit')
+    expect(FIX_LANDING_POLICY.join(' ')).toContain('NE landolj')
+  })
+
+  it('the sentence shown to the user says the same thing as the policy', () => {
+    // The picker promises the user what the agent will do. A policy flip that
+    // leaves the old promise on screen is worse than no promise: the user would
+    // approve a dispatch expecting it NOT to merge.
+    const hu = readFileSync(join(PROJECT_ROOT, 'web', 'lang', 'hu.js'), 'utf-8')
+    const en = readFileSync(join(PROJECT_ROOT, 'web', 'lang', 'en.js'), 'utf-8')
+    const huHint = /'approvals\.verify\.mode_fix_hint':\s*'([^']*)'/.exec(hu)?.[1] ?? ''
+    const enHint = /'approvals\.verify\.mode_fix_hint':\s*'([^']*)'/.exec(en)?.[1] ?? ''
+    expect(huHint).not.toContain('nem olvasztja be a főágba')
+    expect(huHint).toContain('be is olvasztja a főágba')
+    expect(enHint).not.toContain('does not merge into the main branch')
+    expect(enHint).toContain('merges into the main branch')
+    // And both still say what happens when it is NOT green.
+    expect(huHint).toContain('elbukik')
+    expect(enHint).toContain('fails')
   })
 
   it('both prompts report through the same endpoint, under the dispatched id', () => {

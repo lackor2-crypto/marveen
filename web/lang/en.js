@@ -1437,7 +1437,7 @@ window._i18n.en = {
   'approvals.verify.mode_verify_name': 'Review',
   'approvals.verify.mode_verify_hint': 'The agent only reads and reports back. It changes nothing.',
   'approvals.verify.mode_fix_name':   'Fix',
-  'approvals.verify.mode_fix_hint':   'The agent also repairs what the review found. It works on its own branch and only reports -- it does not merge into the main branch.',
+  'approvals.verify.mode_fix_hint':   'The agent also repairs what the review found. It works on its own branch, and once every test passes it merges into the main branch on its own. If a test fails it does not merge -- it reports what went wrong instead.',
   'approvals.verify.picker_go_fix':   'Assign the fix',
   'approvals.verify.dispatched_fix_ok': '{n} agent(s) given the fix',
   'approvals.verify.code_group_title': 'VS Code agent',

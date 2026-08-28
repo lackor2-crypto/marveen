@@ -63,18 +63,27 @@ export function codeBridgeProjectOf(agent: string): string | null {
  * ⚠ LANDING POLICY -- THE ONE PLACE TO CHANGE IT.
  *
  * Whether an agent that fixed something may merge it into the main branch by
- * itself is the owner's call, and as of 2026-08-28 that call has NOT been
- * made. Until it is, the conservative reading ships: the fix is prepared on
- * its own branch/worktree and reported, and the merge waits for a human.
+ * itself is the owner's call. Asked on 2026-08-28, answered the same day:
+ * free rein. The fixer commits and lands on its own, and does not wait for a
+ * review -- consistent with the rule that a single reviewer must never become
+ * the fleet's bottleneck (CLAUDE.md, 2026-08-25).
  *
- * The permissive variant (land it yourself once the full suite is green) is
- * a REPLACEMENT of this array, nothing else -- no route, no test and no UI
- * string encodes the policy anywhere but here.
+ * The green suite is what replaces the review here, so the two halves are NOT
+ * separable: "land it yourself" only holds together with the full-suite +
+ * tsc gate stated in the fix prompt above this block.
+ *
+ * Changing the policy again is a REPLACEMENT of this array, nothing else --
+ * no route and no test encodes it anywhere but here. The ONE thing that must
+ * be changed WITH it is the sentence the picker shows the user
+ * ('approvals.verify.mode_fix_hint' in web/lang/hu.js and en.js): a promise on
+ * screen that no longer matches what the agent does is worse than no promise.
  */
 export const FIX_LANDING_POLICY: readonly string[] = [
-  `LANDOLAS: a javitast KESZITSD EL a sajat agadon/worktree-dben es JELENTSD VISSZA -- de a fo agba`,
-  `(main) NE merge-eld be, amig a tulajdonos ra nem bolint. A jelentesedben ird meg, melyik agon van a`,
-  `munka es mi a commit azonositoja, hogy egy lepesben landolhato legyen.`,
+  `LANDOLAS: szabad kezed van. Ha a javitas kesz es a TELJES teszt-suite + a tsc ZOLD, akkor COMMITOLD`,
+  `es LANDOLD a fo agba (main) onalloan -- nem kell review-ra varnod, es nem kell megvarnod, hogy a`,
+  `tulajdonos ra boljinstson. Ha barmelyik nem zold, NE landolj: az mar nem kesz munka.`,
+  `Dolgozz izolalt worktree-ben (flotta-szabaly, ez tovabbra is all), es ha van a jovahagyashoz kotheto`,
+  `kanban kartya, ird vissza ra, MIT javitottal es mi a commit azonositoja.`,
 ]
 
 // --- Prompts ---------------------------------------------------------------

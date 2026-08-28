@@ -1855,7 +1855,7 @@ window._i18n.hu = {
   'approvals.verify.mode_verify_name': 'Vizsgálat',
   'approvals.verify.mode_verify_hint': 'Az ügynök csak átnézi és jelent. Semmit nem ír át.',
   'approvals.verify.mode_fix_name':   'Javítás',
-  'approvals.verify.mode_fix_hint':   'Az ügynök ki is javítja, amit a vizsgálat talált. Külön ágon dolgozik, és csak jelent -- a főágba nem olvasztja be.',
+  'approvals.verify.mode_fix_hint':   'Az ügynök ki is javítja, amit a vizsgálat talált. Külön ágon dolgozik, és ha az összes teszt lefut hibátlanul, magától be is olvasztja a főágba. Ha valamelyik teszt elbukik, nem olvasztja be, hanem jelenti, mi akadt el.',
   'approvals.verify.picker_go_fix':   'Javítás kiosztása',
   'approvals.verify.dispatched_fix_ok': '{n} ügynök megkapta a javítást',
   'approvals.verify.code_group_title': 'VS Code ügynök',

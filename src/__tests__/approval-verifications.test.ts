@@ -241,7 +241,7 @@ describe('verification mode on the dispatch endpoint', () => {
     const prompt = getPendingMessages('gemma')[0]!.content
     expect(prompt).toContain('JAVITASI FELADAT')
     expect(prompt).not.toContain('CSAK-OLVASO')
-    expect(prompt).toContain('NE merge-eld')
+    expect(prompt).toContain('szabad kezed van')
   })
 
   it('re-dispatching the same agent replaces the stored mode, never leaves a stale one', async () => {
