@@ -36,14 +36,14 @@ function pendingRow(): ApprovalVerification {
 }
 
 describe('markVerificationReminded: the store closes the race, it does not make the decision', () => {
-  it('records the first nudge', () => {
+  it('records the first nudge', async () => {
     const row = createOrResetApprovalVerification('a1', 'gemma')
     const now = Math.floor(Date.now() / 1000)
     expect(markVerificationReminded(row.id, now, now - 600)).toBe(true)
     expect(pendingRow().reminded_at).toBe(now)
   })
 
-  it('refuses a second nudge INSIDE the window -- two overlapping ticks cannot both send', () => {
+  it('refuses a second nudge INSIDE the window -- two overlapping ticks cannot both send', async () => {
     const row = createOrResetApprovalVerification('a1', 'gemma')
     const now = Math.floor(Date.now() / 1000)
     expect(markVerificationReminded(row.id, now, now - 600)).toBe(true)
@@ -51,7 +51,7 @@ describe('markVerificationReminded: the store closes the race, it does not make 
     expect(markVerificationReminded(row.id, now + 1, now - 600)).toBe(false)
   })
 
-  it('ALLOWS a second nudge once the caller says the window has passed', () => {
+  it('ALLOWS a second nudge once the caller says the window has passed', async () => {
     // The regression itself. With `reminded_at IS NULL` this returned false
     // forever, and no agent was ever reminded twice.
     const row = createOrResetApprovalVerification('a1', 'gemma')
@@ -62,7 +62,7 @@ describe('markVerificationReminded: the store closes the race, it does not make 
     expect(pendingRow().reminded_at).toBe(later)
   })
 
-  it('never nudges a row that is no longer pending', () => {
+  it('never nudges a row that is no longer pending', async () => {
     const row = createOrResetApprovalVerification('a1', 'gemma')
     const now = Math.floor(Date.now() / 1000)
     markVerificationNoResponse(row.id, 'noresponse:timeout', now)
@@ -80,7 +80,7 @@ describe('the sweep actually sends a SECOND reminder, against the real store', (
       .run(Math.floor((Date.now() - ageMs) / 1000), row.id)
   }
 
-  function sweepAt(nowMs: number, sent: string[]) {
+  function sweepAt(nowMs: number, sent: string[], activity: 'idle' | 'busy' | 'unknown' = 'busy') {
     return runVerificationSweep({
       now: nowMs,
       listPendingOlderThan: listPendingVerificationsOlderThan,
@@ -88,58 +88,63 @@ describe('the sweep actually sends a SECOND reminder, against the real store', (
       sendReminder: (r) => { sent.push(r.agent); return true },
       markReminded: markVerificationReminded,
       markNoResponse: markVerificationNoResponse,
+      // 'busy' by default: this file is about the REPEAT window on the clock,
+      // which is the schedule a working agent still gets. The idle fast path
+      // has its own file.
+      probeActivity: async () => activity,
+      hasUndeliveredMessage: () => false,
     })
   }
 
-  it('nudges again after the repeat window, and stays quiet in between', () => {
+  it('nudges again after the repeat window, and stays quiet in between', async () => {
     dispatchedAgoMs(VERIFICATION_REMINDER_MS + 60 * SEC)
     const t0 = Date.now()
     const sent: string[] = []
 
-    const first = sweepAt(t0, sent)
+    const first = await sweepAt(t0, sent)
     expect(sent).toEqual(['gemma'])
     expect(first.reminded).toHaveLength(1)
 
     // A tick two minutes later must NOT send: the repeat window has not passed.
-    sweepAt(t0 + 120 * SEC, sent)
+    await sweepAt(t0 + 120 * SEC, sent)
     expect(sent).toEqual(['gemma'])
 
     // Past the repeat window the second reminder goes out. This is the
     // assertion that failed before the fix -- markVerificationReminded said
     // "already nudged once" forever, so sendReminder was never even called.
-    const third = sweepAt(t0 + VERIFICATION_REMINDER_REPEAT_MS + 60 * SEC, sent)
+    const third = await sweepAt(t0 + VERIFICATION_REMINDER_REPEAT_MS + 60 * SEC, sent)
     expect(sent).toEqual(['gemma', 'gemma'])
     expect(third.reminded).toHaveLength(1)
   })
 
-  it('keeps repeating -- a busy agent gets the task back more than twice', () => {
+  it('keeps repeating -- a busy agent gets the task back more than twice', async () => {
     dispatchedAgoMs(VERIFICATION_REMINDER_MS + 60 * SEC)
     const sent: string[] = []
     let at = Date.now()
     for (let i = 0; i < 5; i++) {
-      sweepAt(at, sent)
+      await sweepAt(at, sent)
       at += VERIFICATION_REMINDER_REPEAT_MS + SEC
     }
     expect(sent).toHaveLength(5)
   })
 
-  it('does not spam on every 2-minute tick between windows', () => {
+  it('does not spam on every 2-minute tick between windows', async () => {
     dispatchedAgoMs(VERIFICATION_REMINDER_MS + 60 * SEC)
     const sent: string[] = []
     // Ten ticks two minutes apart span 18 minutes past the first nudge, which
     // is one full repeat window plus change -- so two reminders, not ten.
     let at = Date.now()
     for (let i = 0; i < 10; i++) {
-      sweepAt(at, sent)
+      await sweepAt(at, sent)
       at += 2 * 60 * SEC
     }
     expect(sent).toHaveLength(2)
   })
 
-  it('stops nudging and expires the row once the timeout is reached', () => {
+  it('stops nudging and expires the row once the timeout is reached', async () => {
     dispatchedAgoMs(VERIFICATION_REMINDER_MS + 60 * SEC)
     const sent: string[] = []
-    const res = sweepAt(Date.now() + VERIFICATION_TIMEOUT_MS, sent)
+    const res = await sweepAt(Date.now() + VERIFICATION_TIMEOUT_MS, sent)
     expect(sent).toEqual([])
     expect(res.expired).toHaveLength(1)
     expect(pendingRow().status).toBe('noresponse')

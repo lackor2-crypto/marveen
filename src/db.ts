@@ -885,6 +885,11 @@ export function initDatabase(dbPathOverride?: string): void {
       requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
       resolved_at INTEGER,
       reminded_at INTEGER,
+      -- How many nudges this row has already had. The sweep needs it to STOP:
+      -- an agent that is idle but silent would otherwise be messaged every
+      -- ninety seconds for four hours (kanban 2a32b51e, Boss 2026-08-28).
+      reminder_count INTEGER NOT NULL DEFAULT 0
+        CHECK(reminder_count >= 0),
       UNIQUE(approval_id, agent)
     )
   `)
@@ -910,7 +915,9 @@ export function initDatabase(dbPathOverride?: string): void {
   try {
     const avSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_verifications'").get() as { sql: string } | undefined
     const needsRebuild = Boolean(avSchema?.sql) && (
-      !avSchema!.sql.includes("'noresponse'") || !/\bmode\b/.test(avSchema!.sql)
+      !avSchema!.sql.includes("'noresponse'")
+      || !/\bmode\b/.test(avSchema!.sql)
+      || !/\breminder_count\b/.test(avSchema!.sql)
     )
     if (needsRebuild) {
       const have = new Set(
@@ -921,6 +928,15 @@ export function initDatabase(dbPathOverride?: string): void {
         ['id', 'id'], ['approval_id', 'approval_id'], ['agent', 'agent'], ['status', 'status'],
         ['mode', "'verify'"], ['report', 'report'],
         ['requested_at', 'requested_at'], ['resolved_at', 'resolved_at'], ['reminded_at', 'NULL'],
+        // A row that already carries a reminded_at HAS been nudged once -- the
+        // old schema just could not count past one. Backfilling 1 rather than 0
+        // keeps the escalation honest for rows in flight during the upgrade.
+        // The expression has to be guarded on the column EXISTING: the oldest
+        // shape has no reminded_at at all, and naming it in the SELECT would
+        // throw, which this block swallows -- leaving the table un-rebuilt and
+        // its CHECK constraints quietly missing. (Found by the migration test,
+        // not in production, which is the whole point of testing every shape.)
+        ['reminder_count', have.has('reminded_at') ? 'CASE WHEN reminded_at IS NOT NULL THEN 1 ELSE 0 END' : '0'],
       ]
       const cols = carry.map(([name]) => name).join(', ')
       const src = carry.map(([name, fallback]) => (have.has(name) ? name : fallback)).join(', ')
@@ -937,6 +953,8 @@ export function initDatabase(dbPathOverride?: string): void {
           requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
           resolved_at INTEGER,
           reminded_at INTEGER,
+          reminder_count INTEGER NOT NULL DEFAULT 0
+            CHECK(reminder_count >= 0),
           UNIQUE(approval_id, agent)
         );
         INSERT INTO approval_verifications_new (${cols}) SELECT ${src} FROM approval_verifications;
@@ -958,6 +976,18 @@ export function initDatabase(dbPathOverride?: string): void {
   // it up right here. DEFAULT 'verify' is what makes the backfill correct --
   // every row that predates the fix mode WAS a read-only review.
   try { db.exec("ALTER TABLE approval_verifications ADD COLUMN mode TEXT NOT NULL DEFAULT 'verify'") } catch { /* already exists */ }
+
+  // Same belt-and-braces for reminder_count. NOTE the asymmetry with the
+  // rebuild above, and it is deliberate: SQLite cannot attach a CHECK to an
+  // added column, so a database that lands here gets the column WITHOUT the
+  // `>= 0` guard. The rebuild is the path that gives every install the same
+  // constraint; this line only guarantees the column exists so nothing crashes
+  // if the rebuild was skipped. Backfill mirrors the rebuild's: a row that was
+  // already nudged once counts as one.
+  try {
+    db.exec('ALTER TABLE approval_verifications ADD COLUMN reminder_count INTEGER NOT NULL DEFAULT 0')
+    db.exec('UPDATE approval_verifications SET reminder_count = 1 WHERE reminded_at IS NOT NULL')
+  } catch { /* already exists */ }
 
   // --- Dashboard browser login (OPTIONAL; the bearer token stays primary) ---
   // Zero rows here = exactly the token-only behavior. A row is created only when
@@ -3514,6 +3544,9 @@ export interface ApprovalVerification {
   requested_at: number
   resolved_at: number | null
   reminded_at: number | null
+  /** Nudges already sent for this row. The sweep escalates on it and then
+   *  stops, so a silent-but-idle agent is not messaged for four hours. */
+  reminder_count: number
 }
 
 // One row per (approval, agent). Dispatching a second verification to an
@@ -3528,15 +3561,21 @@ export function createOrResetApprovalVerification(
   const id = `${approvalId}:${agent}`
   const now = Math.floor(Date.now() / 1000)
   // The mode is part of the RESET too: re-dispatching the same agent as a
-  // fixer must not leave the row claiming it was a read-only review.
+  // fixer must not leave the row claiming it was a read-only review. So is
+  // reminder_count: a re-dispatch is a NEW task, and it must not inherit an
+  // exhausted nudge budget from the previous round -- that would hand it a
+  // task and then never remind it.
   db.prepare(`
-    INSERT INTO approval_verifications (id, approval_id, agent, status, mode, report, requested_at, resolved_at, reminded_at)
-    VALUES (?, ?, ?, 'pending', ?, NULL, ?, NULL, NULL)
+    INSERT INTO approval_verifications (id, approval_id, agent, status, mode, report, requested_at, resolved_at, reminded_at, reminder_count)
+    VALUES (?, ?, ?, 'pending', ?, NULL, ?, NULL, NULL, 0)
     ON CONFLICT(approval_id, agent) DO UPDATE SET
       status = 'pending', mode = excluded.mode, report = NULL, requested_at = excluded.requested_at, resolved_at = NULL,
-      reminded_at = NULL
+      reminded_at = NULL, reminder_count = 0
   `).run(id, approvalId, agent, mode, now)
-  return { id, approval_id: approvalId, agent, status: 'pending', mode, report: null, requested_at: now, resolved_at: null, reminded_at: null }
+  return {
+    id, approval_id: approvalId, agent, status: 'pending', mode, report: null,
+    requested_at: now, resolved_at: null, reminded_at: null, reminder_count: 0,
+  }
 }
 
 export function listApprovalVerifications(approvalId: string): ApprovalVerification[] {
@@ -3601,7 +3640,8 @@ export function markVerificationReminded(
   notRemindedSinceEpochSec: number,
 ): boolean {
   return db.prepare(`
-    UPDATE approval_verifications SET reminded_at = ?
+    UPDATE approval_verifications
+       SET reminded_at = ?, reminder_count = reminder_count + 1
      WHERE id = ? AND status = 'pending'
        AND (reminded_at IS NULL OR reminded_at <= ?)
   `).run(atEpochSec, id, notRemindedSinceEpochSec).changes > 0

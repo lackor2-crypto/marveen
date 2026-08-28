@@ -46,9 +46,19 @@ const PRE_MODE = `CREATE TABLE approval_verifications (
   report TEXT, requested_at INTEGER NOT NULL DEFAULT (unixepoch()), resolved_at INTEGER,
   reminded_at INTEGER, UNIQUE(approval_id, agent))`
 
+// The shape the board is on between the mode commit and the escalation
+// counter -- an install that upgraded once already.
+const PRE_REMINDER_COUNT = `CREATE TABLE approval_verifications (
+  id TEXT PRIMARY KEY, approval_id TEXT NOT NULL, agent TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','pass','fail','noresponse')),
+  mode TEXT NOT NULL DEFAULT 'verify' CHECK(mode IN ('verify','fix')),
+  report TEXT, requested_at INTEGER NOT NULL DEFAULT (unixepoch()), resolved_at INTEGER,
+  reminded_at INTEGER, UNIQUE(approval_id, agent))`
+
 describe.each([
   ['a pre-noresponse database', PRE_NORESPONSE],
   ['a database that has noresponse but no mode', PRE_MODE],
+  ['a database that has mode but no reminder_count', PRE_REMINDER_COUNT],
 ])('migrating %s', (_label, ddl) => {
   it('keeps every row, with its report and timestamps intact', () => {
     const file = oldDb(ddl)
@@ -92,4 +102,47 @@ describe.each([
     initDatabase(file)
     expect(listApprovalVerifications('a1')).toEqual(before)
   })
+
+  it('gains the reminder_count column, starting at zero for rows never nudged', () => {
+    const file = oldDb(ddl)
+    initDatabase(file)
+    expect(listApprovalVerifications('a1').map(r => r.reminder_count)).toEqual([0, 0])
+  })
+
+  it('rejects a negative reminder_count -- the constraint is not lost on upgrade', () => {
+    // Same reason as the mode CHECK above: an ALTER cannot carry a CHECK, so
+    // without the rebuild an upgraded install would silently accept a value a
+    // fresh one refuses.
+    const file = oldDb(ddl)
+    initDatabase(file)
+    const raw = new Database(file)
+    try {
+      expect(() => raw.prepare(
+        `INSERT INTO approval_verifications (id,approval_id,agent,requested_at,reminder_count) VALUES ('n','a1','q',1,-1)`,
+      ).run()).toThrow()
+    } finally {
+      raw.close()
+    }
+  })
+})
+
+// A row that was ALREADY nudged under the old schema must not read back as
+// "never nudged": the counter is what stops the escalation, and starting it at
+// zero would hand a four-day-old row a full fresh budget of reminders.
+it('counts a row that already has a reminded_at as one nudge, not zero', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'av-mig-'))
+  dirs.push(dir)
+  const file = join(dir, 'old.db')
+  const db = new Database(file)
+  db.exec(PRE_REMINDER_COUNT)
+  db.prepare(`INSERT INTO approval_verifications (id,approval_id,agent,status,requested_at,reminded_at)
+              VALUES ('r','a1','gemma','pending',100,150)`).run()
+  db.prepare(`INSERT INTO approval_verifications (id,approval_id,agent,status,requested_at)
+              VALUES ('s','a1','north','pending',100)`).run()
+  db.close()
+
+  initDatabase(file)
+  const rows = listApprovalVerifications('a1')
+  expect(rows.find(r => r.agent === 'gemma')!.reminder_count).toBe(1)
+  expect(rows.find(r => r.agent === 'north')!.reminder_count).toBe(0)
 })

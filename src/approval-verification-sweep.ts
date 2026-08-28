@@ -54,6 +54,74 @@ export const VERIFICATION_REMINDER_MS = 10 * 60 * 1000
  * kezbesiti -- vagyis pontosan akkor, "amikor ujra raer".
  */
 export const VERIFICATION_REMINDER_REPEAT_MS = 10 * 60 * 1000
+
+/**
+ * ALLAPOT-VEZERELT IDOZITES (kanban 2a32b51e, Boss 2026-08-28):
+ * "10 perc az sok. sokat kel varni. mi van ha 1 perc alatt megcsinal valamit
+ *  az agent? akkor meg var 9 percig? feleslegesen? figyelni kellene hogy
+ *  milyen statuszban van, es ha varakozoban, akkor mehet neki a kovetkezo!"
+ *
+ * Merve, a kifogas mogotti szam: 10 perc elso nudge + 2 perces sweep-tick =
+ * egy agens, amelyik EGY PERC alatt vegez es utana tetlenul all, akar 12
+ * percig nem kap semmit. Az ora rossz kerdesre valaszol; a jo kerdes az, hogy
+ * az agens tud-e MOST feladatot fogadni.
+ *
+ * Ezert ket utemterv van, es azt, hogy melyik ervenyes, az agens allapota
+ * dönti el:
+ *   'idle' -> gyors utem: mar IDLE_GRACE_MS utan mehet az elso emlekezteto.
+ *   'busy' -> a regi tizperces utem marad. Aki dolgozik, azt nem noszogatjuk;
+ *             a tizperces ismetles annak az esetnek szol, amikor dolgozik
+ *             ugyan, de kozben elvesztette a kapott feladatot.
+ *   'unknown' -> szinten a tizperces utem, DE ez nem ugyanaz, mint a 'busy':
+ *             azt jelenti, hogy nem lattunk oda. Nem allitjuk rola, hogy
+ *             dolgozik, csak nem gyorsitunk. A hivo naplozza (lasd
+ *             verification-sweep-job.ts).
+ */
+export type AgentActivity = 'idle' | 'busy' | 'unknown'
+
+/**
+ * Ennyi ido utan mehet az elso emlekezteto egy TETLEN agensnek. Nem nulla:
+ * egy epp elinduló forduló ugy nez ki, mint a tetlenseg abban a pillanatban,
+ * amikor a prompt mar bement, de a modell meg nem kezdett gepelni -- egy
+ * masodperces nudge ugyanazt a feladatot kuldene ujra, amit epp olvas.
+ */
+export const VERIFICATION_IDLE_GRACE_MS = 90 * 1000
+
+/**
+ * Szunetek ket emlekezteto kozott TETLEN agensnel; az index a mar kikuldott
+ * nudge-ok szama, az utolso ertek ismetlodik. Novekvo, mert egy tetlen, de
+ * valaszolni nem tudo agens (halott modell, provider-hiba) kulonben negy oran
+ * at masfel percenkent kapna uzenetet. Haz-minta: inbox-nudge-watcher.ts.
+ */
+export const VERIFICATION_IDLE_BACKOFF_MS: readonly number[] = [
+  90 * 1000,
+  5 * 60 * 1000,
+  15 * 60 * 1000,
+]
+
+/**
+ * Ennyi emlekezteto utan abbahagyjuk. Nem lezarjuk a sort -- azt a negyorás
+ * hatarido teszi meg --, csak nem kuldunk tobbet. Aki hat noszogatasra nem
+ * valaszolt, annak a hetedik sem fog segiteni, viszont a postaladajat
+ * hasznalhatatlanna tenne.
+ */
+export const VERIFICATION_MAX_REMINDERS = 6
+
+/** A gyors utem legkisebb ablaka -- ennel fiatalabb sort meg csak be sem
+ *  olvasunk. Ez a lekerdezes vagasa: ha a REMINDER_MS maradna, a tetlen
+ *  agenshez tartozo fiatal sor be sem kerulne a ciklusba, es a gyors utem
+ *  sosem lepne eletbe. */
+export const VERIFICATION_SCAN_FROM_MS = Math.min(VERIFICATION_IDLE_GRACE_MS, VERIFICATION_REMINDER_MS)
+
+/** A ket utemterv egy helyen: mennyi ido utan mehet az ELSO nudge, es mennyi
+ *  legyen a szunet a kovetkezoig, az allapot es az eddigi nudge-ok szamaban. */
+export function reminderSchedule(activity: AgentActivity, remindersSent: number): { minAgeMs: number; gapMs: number } {
+  if (activity !== 'idle') {
+    return { minAgeMs: VERIFICATION_REMINDER_MS, gapMs: VERIFICATION_REMINDER_REPEAT_MS }
+  }
+  const i = Math.min(Math.max(remindersSent, 0), VERIFICATION_IDLE_BACKOFF_MS.length - 1)
+  return { minAgeMs: VERIFICATION_IDLE_GRACE_MS, gapMs: VERIFICATION_IDLE_BACKOFF_MS[i]! }
+}
 /** No answer this long after dispatch and the row is given up on. Deliberately
  *  generous: a real review of a real commit (git show, reading the file, curling
  *  the endpoint) took the Szakerto ~10 minutes on 2026-08-23, and marking a
@@ -97,26 +165,54 @@ export interface VerificationSweepDeps {
    */
   markReminded(id: string, atEpochSec: number, notRemindedSinceEpochSec: number): boolean
   markNoResponse(id: string, reason: string, atEpochSec: number): boolean
+  /**
+   * Az agens PILLANATNYI allapota. Harom ertek, mert a ketto hazudna: a
+   * "nem lattam oda" (nincs munkamenet, olvashatatlan pane, ssh idotullepes)
+   * NEM ugyanaz, mint a "dolgozik". Egy sort agensenkent egyszer kerdezunk le
+   * fordulonkent -- a pane-olvasas masodpercekbe kerul.
+   */
+  probeActivity(agent: string): Promise<AgentActivity>
+  /**
+   * Van-e mar kikezbesitetlen uzenete az agensnek. Ha van, nem teszunk be
+   * ujabbat: az uzenet-router magatol kivarja a tetlenseget bekuldes elott
+   * (message-router.ts), tehat a mar sorban allo emlekezteto ugyis
+   * kikezbesitodik. Ez a spam-vedelem legolcsobb fele, uj allapot nelkul.
+   */
+  hasUndeliveredMessage(agent: string): boolean
 }
 
 export interface VerificationSweepResult {
   reminded: string[]
   expired: string[]
+  /** Sorok, amelyeknel nem lattunk oda az agens allapotara. Kulon gyujtve, hogy
+   *  a hivo NAPLOZHASSA -- a nulla ket dolgot jelenthet, es ezt a kettot nem
+   *  szabad osszemosni. */
+  unreadable: string[]
 }
 
 /**
- * One pass. Safe to run on every startup and on a timer: each row is nudged
- * at most once (reminded_at) and expired at most once (the UPDATE is guarded
- * on status = 'pending'), so a restart loop cannot spam anyone.
+ * One pass. Safe to run on every startup and on a timer: a row is nudged only
+ * when its own gap has passed (the store re-checks that under the UPDATE, so
+ * two overlapping ticks cannot both send), and expired at most once (the
+ * UPDATE is guarded on status = 'pending'). A restart loop cannot spam anyone.
+ *
+ * Async because deciding whether an agent is idle means reading its pane, and
+ * that read is async. The probe is dependency-injected, so the tests still run
+ * without tmux, a database, or a clock.
  */
-export function runVerificationSweep(deps: VerificationSweepDeps): VerificationSweepResult {
+export async function runVerificationSweep(deps: VerificationSweepDeps): Promise<VerificationSweepResult> {
   const nowSec = Math.floor(deps.now / 1000)
   const reminded: string[] = []
   const expired: string[] = []
+  const unreadable: string[] = []
 
-  // One query for the widest window (the reminder), then split in memory --
-  // the timeout set is a subset of it.
-  const cutoffSec = Math.floor((deps.now - VERIFICATION_REMINDER_MS) / 1000)
+  // Egy lekerdezes a legszelesebb ablakra (a leggyorsabb utem alsohatara),
+  // aztan memoriaban szetvalogatva -- a tobbi halmaz ennek reszhalmaza.
+  const cutoffSec = Math.floor((deps.now - VERIFICATION_SCAN_FROM_MS) / 1000)
+  // Egy agenst fordulonkent egyszer kerdezunk meg: a pane ketszeres olvasasa
+  // masodpercekbe kerul, es ugyanaz a valasz all az osszes sorara.
+  const activityByAgent = new Map<string, AgentActivity>()
+
   for (const row of deps.listPendingOlderThan(cutoffSec)) {
     const ageMs = deps.now - row.requested_at * 1000
 
@@ -133,21 +229,33 @@ export function runVerificationSweep(deps: VerificationSweepDeps): VerificationS
       continue
     }
 
-    // Ismetlodo emlekezteto: az elso a REMINDER_MS utan (ide a lekerdezes
-    // vagasa miatt csak akkor jutunk el), a tobbi REPEAT_MS-enkent. Igy egy
-    // elfoglalt agens nem veszti el a feladatot -- a kovetkezo uresjaratban
-    // ott lesz a postaladajaban.
+    // Az olcso kizarasok ELOSZOR, mert a kovetkezo lepes pane-olvasas.
+    // 1) Elfogyott a nudge-keret: tobbet nem szolunk, a negyorás hatarido zar.
+    if (row.reminder_count >= VERIFICATION_MAX_REMINDERS) continue
+    // 2) Mar all egy kikezbesitetlen uzenet neki -- a router ugyis atadja,
+    //    amint tetlen lesz. Egy masodik ugyanarrol csak zajt csinalna.
+    if (deps.hasUndeliveredMessage(row.agent)) continue
+
+    let activity = activityByAgent.get(row.agent)
+    if (activity === undefined) {
+      activity = await deps.probeActivity(row.agent)
+      activityByAgent.set(row.agent, activity)
+    }
+    if (activity === 'unknown') unreadable.push(row.id)
+
+    const { minAgeMs, gapMs } = reminderSchedule(activity, row.reminder_count)
+    if (ageMs < minAgeMs) continue
+
     const sinceLastNudgeMs = row.reminded_at == null ? null : deps.now - row.reminded_at * 1000
-    if (sinceLastNudgeMs === null || sinceLastNudgeMs >= VERIFICATION_REMINDER_REPEAT_MS) {
-      // Mark first: if the send throws or the router drops it, the row waits
-      // out the repeat window instead of being nudged again on the next tick
-      // two minutes later.
-      const repeatCutoffSec = Math.floor((deps.now - VERIFICATION_REMINDER_REPEAT_MS) / 1000)
-      if (deps.markReminded(row.id, nowSec, repeatCutoffSec)) {
-        if (deps.sendReminder(row)) reminded.push(row.id)
-      }
+    if (sinceLastNudgeMs !== null && sinceLastNudgeMs < gapMs) continue
+
+    // Mark first: if the send throws or the router drops it, the row waits
+    // out the gap instead of being nudged again on the next tick.
+    const gapCutoffSec = Math.floor((deps.now - gapMs) / 1000)
+    if (deps.markReminded(row.id, nowSec, gapCutoffSec)) {
+      if (deps.sendReminder(row)) reminded.push(row.id)
     }
   }
 
-  return { reminded, expired }
+  return { reminded, expired, unreadable }
 }

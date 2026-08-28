@@ -533,16 +533,19 @@ export function startWebServer(port = 3420): http.Server {
   const approvalTimeoutInterval = startApprovalTimeoutSweeper()
 
   // Dispatched reviews that never came back (Boss 2026-08-23: "Folyamatban
-  // (0/4)" counters on approvals from two weeks earlier). One nudge, then a
-  // terminal 'noresponse' state -- see approval-verification-sweep.ts. The
-  // startup call is the half that matters after a restart: whatever was in
-  // flight when the machine went down has nobody left to answer it.
+  // (0/4)" counters on approvals from two weeks earlier). Nudges on a schedule
+  // that follows the agent's STATE, then a terminal 'noresponse' -- see
+  // approval-verification-sweep.ts. The startup call is the half that matters
+  // after a restart: whatever was in flight when the machine went down has
+  // nobody left to answer it.
+  //
+  // The sweep is async now (deciding "is this agent idle?" reads its pane), so
+  // the catch has to be on the promise -- a plain try/catch around the call
+  // would let a rejection escape as an unhandled one and take the process down.
   const runVerificationSweep = () => {
-    try {
-      sweepApprovalVerifications()
-    } catch (err) {
+    void sweepApprovalVerifications().catch((err: unknown) => {
       logger.warn({ err }, 'Stale approval-verification sweep failed')
-    }
+    })
   }
   runVerificationSweep()
   const verificationSweepInterval = setInterval(runVerificationSweep, VERIFICATION_SWEEP_INTERVAL_MS)

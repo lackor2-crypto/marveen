@@ -27,11 +27,15 @@ function row(over: Partial<ApprovalVerification> & { ageMs: number }): ApprovalV
     requested_at: Math.floor((NOW - ageMs) / 1000),
     resolved_at: null,
     reminded_at: null,
+    reminder_count: 0,
     ...rest,
   }
 }
 
-function harness(rows: ApprovalVerification[], over: Partial<VerificationSweepDeps> = {}) {
+// A default itt szandekosan 'busy': ez a fajl a REGI, ora-alapu utemtervet
+// rogziti, ami valtozatlanul ervenyes egy dolgozo agensre. Az allapot-vezerelt
+// gyors utem sajat tesztfajlt kapott (verification-idle-driven.test.ts).
+async function harness(rows: ApprovalVerification[], over: Partial<VerificationSweepDeps> = {}) {
   const reminders: string[] = []
   const noResponses: Array<{ id: string; reason: string }> = []
   const remindedMarks: string[] = []
@@ -55,21 +59,23 @@ function harness(rows: ApprovalVerification[], over: Partial<VerificationSweepDe
       return true
     },
     markNoResponse: (id, reason) => { noResponses.push({ id, reason }); return true },
+    probeActivity: async () => 'busy',
+    hasUndeliveredMessage: () => false,
     ...over,
   }
-  return { result: runVerificationSweep(deps), reminders, noResponses, remindedMarks }
+  return { result: await runVerificationSweep(deps), reminders, noResponses, remindedMarks }
 }
 
 describe('stale approval-verification sweep', () => {
-  it('leaves a fresh dispatch alone', () => {
-    const { result, reminders, noResponses } = harness([row({ ageMs: 60 * 1000 })])
-    expect(result).toEqual({ reminded: [], expired: [] })
+  it('leaves a fresh dispatch alone', async () => {
+    const { result, reminders, noResponses } = await harness([row({ ageMs: 60 * 1000 })])
+    expect(result).toEqual({ reminded: [], expired: [], unreadable: [] })
     expect(reminders).toEqual([])
     expect(noResponses).toEqual([])
   })
 
-  it('nudges once past the reminder threshold, without expiring it yet', () => {
-    const { result, reminders, noResponses } = harness([row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })])
+  it('nudges once past the reminder threshold, without expiring it yet', async () => {
+    const { result, reminders, noResponses } = await harness([row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })])
     expect(reminders).toEqual(['gemma'])
     expect(result.reminded).toEqual(['a1:gemma'])
     expect(noResponses).toEqual([])
@@ -78,16 +84,16 @@ describe('stale approval-verification sweep', () => {
   // Boss, 2026-08-24: "ha mar egyszer ki van adva, akkor amikor ujra reer,
   // akkor folytassa a munkat amit kapott." Egy nudge kevés: ha az agens eppen
   // egy hosszu elemzest futtat, pont azt az egyet nem tudja atvenni.
-  it('a nudge-ok kozott kivarja a REPEAT ablakot -- nem spammel minden sopreskor', () => {
-    const { reminders } = harness([row({
+  it('a nudge-ok kozott kivarja a REPEAT ablakot -- nem spammel minden sopreskor', async () => {
+    const { reminders } = await harness([row({
       ageMs: VERIFICATION_REMINDER_MS + 1000,
       reminded_at: Math.floor((NOW - (VERIFICATION_REMINDER_REPEAT_MS - 60_000)) / 1000),
     })])
     expect(reminders).toEqual([])
   })
 
-  it('a REPEAT ablak utan UJRA szol, hogy a feladat ne vesszen el', () => {
-    const { reminders, result } = harness([row({
+  it('a REPEAT ablak utan UJRA szol, hogy a feladat ne vesszen el', async () => {
+    const { reminders, result } = await harness([row({
       ageMs: VERIFICATION_REMINDER_MS + VERIFICATION_REMINDER_REPEAT_MS + 1000,
       reminded_at: Math.floor((NOW - (VERIFICATION_REMINDER_REPEAT_MS + 1000)) / 1000),
     })])
@@ -101,8 +107,8 @@ describe('stale approval-verification sweep', () => {
   // volna minden ellenorzeset -- mikozben Marvin el es epp dolgozik. A dontes a
   // hivoe; itt azt rogzitjuk, hogy egy ELERHETO agens sort a sopres nem oli meg,
   // hanem ujra szol neki.
-  it('elerheto agenst nem zar le agent_gone-nal, hanem nudge-ol', () => {
-    const { noResponses, reminders } = harness(
+  it('elerheto agenst nem zar le agent_gone-nal, hanem nudge-ol', async () => {
+    const { noResponses, reminders } = await harness(
       [row({ ageMs: VERIFICATION_REMINDER_MS + 1000, agent: 'lackor2-bot', id: 'a1:lackor2-bot' })],
       { agentExists: (a) => a === 'lackor2-bot' },
     )
@@ -113,24 +119,24 @@ describe('stale approval-verification sweep', () => {
   // Ha ket sopres atfed (indulaskori + a 2 perces timer), a masodik nem kuldhet
   // meg egy emlekeztetot ugyanarra a sorra: a dontes a sweep-e, a versenyt a
   // tarolo zarja ki -- es ha az nemet mond, kuldeni sem szabad.
-  it('nem kuld, ha a tarolo elutasitja a jelolest (atfedo sopresek)', () => {
-    const { reminders, result } = harness([row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })], {
+  it('nem kuld, ha a tarolo elutasitja a jelolest (atfedo sopresek)', async () => {
+    const { reminders, result } = await harness([row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })], {
       markReminded: () => false,
     })
     expect(reminders).toEqual([])
     expect(result.reminded).toEqual([])
   })
 
-  it('gives up past the timeout so the counter can resolve', () => {
-    const { result, noResponses, reminders } = harness([row({ ageMs: VERIFICATION_TIMEOUT_MS + 1000 })])
+  it('gives up past the timeout so the counter can resolve', async () => {
+    const { result, noResponses, reminders } = await harness([row({ ageMs: VERIFICATION_TIMEOUT_MS + 1000 })])
     expect(noResponses).toEqual([{ id: 'a1:gemma', reason: NO_RESPONSE_TIMEOUT }])
     expect(result.expired).toEqual(['a1:gemma'])
     // Past the deadline there is nothing left to remind about.
     expect(reminders).toEqual([])
   })
 
-  it('closes rows belonging to an agent that no longer exists, without messaging it', () => {
-    const { noResponses, reminders } = harness(
+  it('closes rows belonging to an agent that no longer exists, without messaging it', async () => {
+    const { noResponses, reminders } = await harness(
       [row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })],
       { agentExists: () => false },
     )
@@ -138,8 +144,8 @@ describe('stale approval-verification sweep', () => {
     expect(reminders).toEqual([])
   })
 
-  it('does not report a reminder that could not be queued', () => {
-    const { result } = harness(
+  it('does not report a reminder that could not be queued', async () => {
+    const { result } = await harness(
       [row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })],
       { sendReminder: () => false },
     )
@@ -148,12 +154,12 @@ describe('stale approval-verification sweep', () => {
     expect(result.reminded).toEqual([])
   })
 
-  it('is safe to run repeatedly -- a row already expired is not touched again', () => {
+  it('is safe to run repeatedly -- a row already expired is not touched again', async () => {
     // markNoResponse is guarded on status = 'pending' in SQL; here the row is
     // simply no longer in the pending listing.
     const expired = row({ ageMs: VERIFICATION_TIMEOUT_MS + 1000, status: 'noresponse' })
-    const { result, noResponses } = harness([expired])
+    const { result, noResponses } = await harness([expired])
     expect(noResponses).toEqual([])
-    expect(result).toEqual({ reminded: [], expired: [] })
+    expect(result).toEqual({ reminded: [], expired: [], unreadable: [] })
   })
 })

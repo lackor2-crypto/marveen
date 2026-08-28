@@ -8,23 +8,38 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PORT } from '../config.js'
 import {
   createAgentMessage,
+  getPendingMessages,
   listPendingVerificationsOlderThan,
   markVerificationReminded,
   markVerificationNoResponse,
   type ApprovalVerification,
 } from '../db.js'
 import { logger } from '../logger.js'
-import { agentDir } from './agent-config.js'
-import { runVerificationSweep, type VerificationSweepResult } from '../approval-verification-sweep.js'
+import { agentDir, readAgentRemoteHost } from './agent-config.js'
+import {
+  runVerificationSweep,
+  type AgentActivity,
+  type VerificationSweepResult,
+} from '../approval-verification-sweep.js'
 import { verificationSender } from './routes/approvals.js'
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
-import { sessionExistsOnHost } from './agent-process.js'
+import { agentSessionName, capturePane, isSessionReadyForPrompt, sessionExistsOnHost } from './agent-process.js'
 import { codeBridgeProjectOf } from '../approval-verification-dispatch.js'
 import { getCodeSession } from './code-bridge-store.js'
 
-/** How often the timer fires. Well under the 10 minute reminder threshold so
- *  a nudge is never delayed by a full sweep interval. */
-export const VERIFICATION_SWEEP_INTERVAL_MS = 2 * 60 * 1000
+/**
+ * How often the timer fires. Boss, 2026-08-28: "figyelni kellene hogy milyen
+ * statuszban van, es ha varakozoban, akkor mehet neki a kovetkezo!" -- so the
+ * tick has to be short enough that "went idle" turns into "got the reminder"
+ * inside about a minute. It used to be two minutes, which on its own added up
+ * to twelve minutes of waiting for an agent that finished in one.
+ *
+ * A short tick is cheap here BECAUSE the expensive part is gated: the pane is
+ * only read when the query actually returned a pending row past the grace
+ * window. On an empty board (a fresh install, or simply nothing dispatched)
+ * this is one indexed SELECT that returns nothing, and no tmux call at all.
+ */
+export const VERIFICATION_SWEEP_INTERVAL_MS = 30 * 1000
 
 function reminderPrompt(row: ApprovalVerification): string {
   const tokenPath = join(PROJECT_ROOT, 'store', '.dashboard-token')
@@ -43,8 +58,58 @@ function reminderPrompt(row: ApprovalVerification): string {
   ].join('\n')
 }
 
-export function sweepApprovalVerifications(now = Date.now()): VerificationSweepResult {
-  const result = runVerificationSweep({
+/**
+ * Az agens PILLANATNYI allapota, harom ertekkel. A harmadik nem luxus: az
+ * `isSessionReadyForPrompt` magaban `false`-t ad a "dolgozik" es a "nem tudtam
+ * elolvasni a panelt" esetre EGYARANT, es a kettot osszemosni pontosan az a
+ * hiba, amit ez a kartya tilt -- a nulla (vagy itt: a false) ket dolgot
+ * jelenthet, es a forrast kell megkerdezni, nem a talalatbol kovetkeztetni.
+ *
+ * Ezert kulon lepesekben:
+ *   nincs munkamenet / nem olvashato a pane  -> 'unknown' (naplozzuk)
+ *   olvashato es tetlen                       -> 'idle'
+ *   olvashato es nem tetlen                   -> 'busy'
+ */
+async function probeAgentActivity(agent: string): Promise<AgentActivity> {
+  // A kod-hid executornak nincs panelje, amit el lehetne olvasni -- rola
+  // sosem allitjuk, hogy tetlen. (Nudge-ot amugy sem kap, lasd sendReminder.)
+  if (codeBridgeProjectOf(agent) !== null) return 'unknown'
+
+  const isMain = isMainChannelsAgent(agent)
+  const session = isMain ? MAIN_CHANNELS_SESSION : agentSessionName(agent)
+  const host = isMain ? null : readAgentRemoteHost(agent)
+
+  // Nem fut a munkamenete: az agens LETEZIK (azt az agentExists dontötte el),
+  // csak epp nincs elinditva. Ez nem tetlenseg es nem is munka -- nem latunk
+  // oda. Az emlekezteto ilyenkor is bekerulhet a postaladajaba a lassu utem
+  // szerint, es a router kikezbesiti, amikor elindul.
+  if (!sessionExistsOnHost(host, session)) return 'unknown'
+  if (capturePane(session, host) == null) return 'unknown'
+
+  return (await isSessionReadyForPrompt(session, host)) ? 'idle' : 'busy'
+}
+
+/** Egy forduló ne induljon el, amig az elozo fut. A pane-olvasas
+ *  masodpercekbe kerul agensenkent, a timer viszont 30 masodpercenkent uti --
+ *  atfedo fordulok eseten ket sopres egyszerre olvasna ugyanazt a panelt, es
+ *  egymas melle sorolna ket emlekeztetot. (A tarolo ezt amugy is elutasitana,
+ *  de a felesleges tmux-hivasokat mar itt megsporoljuk.) */
+let sweepInFlight = false
+
+const EMPTY_RESULT: VerificationSweepResult = { reminded: [], expired: [], unreadable: [] }
+
+export async function sweepApprovalVerifications(now = Date.now()): Promise<VerificationSweepResult> {
+  if (sweepInFlight) return EMPTY_RESULT
+  sweepInFlight = true
+  try {
+    return await sweepOnce(now)
+  } finally {
+    sweepInFlight = false
+  }
+}
+
+async function sweepOnce(now: number): Promise<VerificationSweepResult> {
+  const result = await runVerificationSweep({
     now,
     listPendingOlderThan: listPendingVerificationsOlderThan,
     // A foagensnek NINCS agents/<nev>/ mappaja (merve: agents/lackor2-bot nem
@@ -88,9 +153,29 @@ export function sweepApprovalVerifications(now = Date.now()): VerificationSweepR
     },
     markReminded: markVerificationReminded,
     markNoResponse: markVerificationNoResponse,
+    probeActivity: probeAgentActivity,
+    // A router magatol kivarja a tetlenseget bekuldes elott, tehat egy mar
+    // sorban allo emlekezteto ugyis kikezbesitodik -- masodikat betenni
+    // melle csak zaj lenne.
+    hasUndeliveredMessage: (agent) => {
+      try {
+        return getPendingMessages(agent).length > 0
+      } catch (err) {
+        // Nem tudtuk megnezni. Ilyenkor NE kuldjunk: a felesleges csend
+        // olcsobb, mint a duplan bekuldott feladat.
+        logger.warn({ err, agent }, 'Could not read pending inbox before nudging; skipping this pass')
+        return true
+      }
+    },
   })
   if (result.reminded.length || result.expired.length) {
     logger.info({ reminded: result.reminded.length, expired: result.expired.length }, 'Stale approval verifications swept')
+  }
+  // Kulon sor, es akkor is, ha semmi mas nem tortent: "nem lattam oda" nem
+  // ugyanaz, mint "nincs teendo". Enelkul egy elerhetetlen gep miatt allo
+  // ellenorzes csendben varna ki a negy orat.
+  if (result.unreadable.length) {
+    logger.warn({ rows: result.unreadable.length }, 'Verification sweep could not read some agents\' state (not idle, not busy -- unreadable)')
   }
   return result
 }
