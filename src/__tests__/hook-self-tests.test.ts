@@ -22,6 +22,10 @@ const HOOKS = [
   'precompact-checkpoint.py',
   'channel-inbox-drain.py',
   'channel-inbox-stop-drain.py',
+  // Added 2026-08-28: the Stop hook now decides whether the last assistant text
+  // is a real answer or a platform limit banner (kanban aa38f01b). That call is
+  // pure, so it belongs here rather than behind a live Telegram turn.
+  'telegram_progress_clear.py',
 ]
 
 describe('python hook self-tests', () => {
