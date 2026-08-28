@@ -12,6 +12,7 @@ import { logConfigChange, getLastConfigChangeAt, getConfigValueAt } from '../../
 import { setStoreWriteActor } from '../../store-watcher.js'
 import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
 import { BROKER_ROLE_IDS, assignRole, type BrokerRoleId } from '../../context-broker.js'
+import { getCodeSession } from '../code-bridge-store.js'
 import {
   listBrokerCandidates,
   readBrokerConfig,
@@ -439,10 +440,21 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       // enabled:false (unchecking the box) and agent:null both mean "nobody",
       // which is a valid state: the fleet falls back to every agent preparing
       // its own context, exactly as it did before this feature existed.
+      // A role assignment is a separate, additive edit: POSTing {role, agent}
+      // changes only that role and leaves the generator designation alone, so
+      // ticking "planner" on a card does not un-designate the generator. Read
+      // it up front because it also changes WHO is a valid holder below: a
+      // role (unlike the generator designation) can be held by a VS Code
+      // code-bridge project, addressed as "vscode:<project>" (see
+      // web/app.js cbRoleHolder) -- that string is never a fleet agent name,
+      // so it must be checked against the code-bridge session table instead.
+      const roleId = typeof body?.role === 'string' ? body.role.trim() : ''
       const clearing = body?.enabled === false || body?.agent === null || raw === ''
       if (!clearing) {
         const known = new Set(listBrokerCandidates().map((c) => c.agent))
-        if (!known.has(raw)) {
+        const codeBridgeProject = roleId && raw.startsWith('vscode:') ? raw.slice('vscode:'.length) : ''
+        const validCodeBridgeHolder = codeBridgeProject !== '' && getCodeSession(codeBridgeProject) !== null
+        if (!known.has(raw) && !validCodeBridgeHolder) {
           json(res, { error: 'Unknown or missing "agent"' }, 400)
           return true
         }
@@ -456,10 +468,6 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
       // busy agent -- is a property of the moment the clear happens, and is
       // enforced where that happens: scripts/hooks/broker-role.py and the
       // context-action route, both of which can see the agent's live state.
-      // A role assignment is a separate, additive edit: POSTing {role, agent}
-      // changes only that role and leaves the generator designation alone, so
-      // ticking "planner" on a card does not un-designate the generator.
-      const roleId = typeof body?.role === 'string' ? body.role.trim() : ''
       if (roleId) {
         if (!(BROKER_ROLE_IDS as readonly string[]).includes(roleId)) {
           json(res, { error: `Unknown role "${roleId}"` }, 400)
