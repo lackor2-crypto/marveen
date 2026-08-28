@@ -48,13 +48,18 @@ describe('ures nev = a fiok mappaja MAGA a cel (azonos fa)', () => {
     // Ez a csapda: safeSegment('') === 'nevtelen', vagyis egy `nevtelen` nevu
     // mappa jonne letre, es a fa NEM lenne ugyanaz, mint a Drive-on.
     expect(safeSegment('')).toBe('nevtelen')
-    expect(route).toContain("const gyoker = pair.name ? safeSegment(pair.name) : ''")
-    expect(route).toContain('[{ id: pair.folderId, rel: gyoker }]')
+    // 2026-08-28 ota a `pairLocalDir()` szamitja (mentes-parosnal is kell
+    // ugyanez a dontes), de a ternary maga valtozatlan.
+    expect(route).toContain("gyoker: pair.name ? safeSegment(pair.name) : ''")
+    expect(route).toContain("[{ id: pair.folderId, rel: gyoker, nyers: '' }]")
     expect(route).not.toContain('rel: safeSegment(pair.name)')
   })
 
   it('a kiirt helyi mappa is a fiok mappaja, nem `nevtelen`', () => {
-    expect(route).toContain('p.name ? join(depotAccountDir(p.account, DEPOT_DRIVE)!, safeSegment(p.name)) : depotAccountDir(p.account, DEPOT_DRIVE)!')
+    // `join(base, '')` a base marad (lasd lentebb), tehat a `pairLocalDir()`
+    // ures gyokere pontosan ugyanoda vezet, mint a regi ternary.
+    expect(route).toContain("return base ? { base, gyoker: pair.name ? safeSegment(pair.name) : '' } : null")
+    expect(route).toContain('localDir: hely ? join(hely.base, hely.gyoker) : null')
   })
 
   it('a `join(base, "")` tenyleg a base marad (ezen all az egesz)', () => {
@@ -126,7 +131,7 @@ describe('a listaban latszik, HOVA kerul a gepen', () => {
   })
 
   it('a kiszolgalo kuldi is ezt a mezot', () => {
-    expect(route).toContain('localDir: depotAccountDir(p.account, DEPOT_DRIVE)')
+    expect(route).toContain('localDir: hely ? join(hely.base, hely.gyoker) : null')
   })
 })
 
@@ -135,7 +140,7 @@ describe('a csonka mentesre nem szabad "rendben"-t irni', () => {
     // A jelzes 2026-08-16-tol nem `boolean`, hanem OK-LISTA (`CsonkaOk[]`): egy
     // igaz/hamis csak annyit mondott, hogy "valami kimaradt", azt nem, hogy MI
     // es HOL. A felhasznalonak epp az kell, hogy tudja, melyik mappaja hianyos.
-    expect(route).toContain('Promise<{ csonkolt: CsonkaOk[]; brake:')
+    expect(route).toContain('csonkolt: CsonkaOk[]')
     // Halmaz, nem lista: ugyanaz az ok szazszor is bekovetkezhet egy futasban
     // (szaz olvashatatlan mappa), a felhasznalonak viszont EGYSZER kell.
     expect(route).toContain('const csonkaOkok = new Set<CsonkaOk>()')
@@ -151,7 +156,9 @@ describe('a csonka mentesre nem szabad "rendben"-t irni', () => {
   it('a paros eredmenye ettol fugg', () => {
     // 2026-08-15 ota a `syncPair` a vészféket is visszaadja (ketiranyu
     // szinkron), de a csonkolas-jelzes valtozatlanul ide fut be.
-    expect(route).toContain('const { csonkolt, brake } = await syncPair(pair, cfg)')
+    // 2026-08-28 ota egy harmadik mezo (`maradt`, a Drive-mentes elorehaladasa)
+    // is resze a visszaternek -- a csonkolas-agra ez nem hat.
+    expect(route).toContain('const { csonkolt, brake, maradt } = await syncPair(pair, cfg)')
     // A "részleges" szo megmarad -- ez az, amit a listaban a user elolvas --,
     // de mar nem egy fix mondat kovetkezik utana, hanem a KONKRET ok.
     expect(route).toContain('részleges: ${csonkoltSzoveg(csonkolt, MAX_FOLDERS, MAX_FILES)}')

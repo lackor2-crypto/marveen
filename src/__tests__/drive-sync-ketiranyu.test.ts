@@ -306,9 +306,10 @@ describe('a ket veszelyes kapcsolo LATSZIK es ALLITHATO', () => {
   })
 
   it('a torles-atvitel szurke, ha a felmeno ag ki van kapcsolva', () => {
-    // A torles a felmeno ag RESZE (`if (cfg.upload === false) return null`),
-    // szoval kapcsolgathato "elo" gombkent hazudna.
-    expect(route).toContain('if (cfg.upload === false) return null')
+    // A torles a felmeno ag RESZE (`if (cfg.upload === false) return semmi`),
+    // szoval kapcsolgathato "elo" gombkent hazudna. (2026-08-28 ota a korabbi
+    // `null` helyett egy nevesitett alapertek -- `maradt` szamlalast is visz.)
+    expect(route).toContain('if (cfg.upload === false) return semmi')
     expect(app).toContain('del.disabled = s.upload === false')
   })
 
