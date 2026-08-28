@@ -120,58 +120,47 @@ def last_assistant_text(transcript_path):
 # call, so the enforce path below faithfully delivered it -- a machine string,
 # in English, looking like something the agent chose to say, once per turn.
 #
-# So the fallback filters it: a limit banner is replaced by one human sentence
-# in the install language, and repeated only when the reset it names changes.
+# The first fix replaced it with one human sentence. Boss then answered the
+# open question (voice message 636, same day): "Csak szolj, amikor mar ujra
+# tudsz dolgozni, tehat amikor visszajottel." -- do not report the outage at
+# all, only the return. So the fallback now DROPS a bare banner and the turn
+# ends silently; the single message about an outage is the dashboard's wake
+# bell, sent when it is already over.
+# Both apostrophes on purpose: the platform renders a typographic U+2019
+# ("You\u2019ve"), a plain ASCII one, or none at all depending on where the
+# string is produced. The self-test measured the curly form slipping through.
 LIMIT_BANNER_RE = re.compile(
-    r"^you'?ve\s+hit\s+your\s+([a-z0-9-]+)?\s*limit\b(.*)$", re.I)
+    r"^you['\u2019]?ve\s+hit\s+your\s+([a-z0-9-]+)?\s*limit\b(.*)$", re.I)
 
 
-def install_lang():
-    """Installation language, resolved the same way the server does it
-    (MARVEEN_LANG, else <root>/.lang, else Hungarian). No hardcoded path: the
-    root is derived from this file's own location."""
-    v = (os.environ.get("MARVEEN_LANG") or "").strip().lower()
-    if v:
-        return v
-    try:
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        raw = open(os.path.join(root, ".lang"), encoding="utf-8").read().strip().lower()
-        if raw:
-            return raw
-    except Exception:
-        pass
-    return "hu"
+def limit_banner_key(text):
+    """The outage this text is a bare platform limit banner for, else None.
 
+    The owner decided what happens next (voice message 636, 2026-08-28):
+    "Csak szolj, amikor mar ujra tudsz dolgozni, tehat amikor visszajottel."
+    So a bare banner is DROPPED here and nothing goes out at all -- the one
+    message about an outage is the wake bell that says it is over, sent by the
+    dashboard (limit-wake-runner notifyOwner), not by the agent that is down.
 
-def limit_banner_notice(text, lang=None):
-    """(human_sentence, dedup_key) if `text` is ONLY a platform limit banner,
-    else (None, None). A banner embedded in a real answer is left alone -- the
-    agent said something, and that something must reach the user unedited."""
+    A banner embedded in a real answer is NOT a bare banner: the agent said
+    something, and that something must reach the owner unedited.
+
+    Returns a stable key naming the outage (kind + reset time) purely so the
+    log can tell two outages apart; nothing is deduplicated on it any more.
+    """
     if not text:
-        return None, None
+        return None
     body = text.strip()
     if not body or "\n" in body or len(body) > 300:
-        return None, None
+        return None
     m = LIMIT_BANNER_RE.match(body)
     if not m:
-        return None, None
+        return None
     kind = (m.group(1) or "").lower()
     rest = (m.group(2) or "").strip(" \u00b7-\u2014.,")
     rm = re.search(r"resets?\s+(.+?)\s*$", rest, re.I)
     when = rm.group(1).strip() if rm else ""
-    key = "%s|%s" % (kind, when)
-    hu = (lang or install_lang()) == "hu"
-    label = {"session": ("az 5 órás", "the five-hour"),
-             "weekly": ("a heti", "the weekly")}.get(kind, ("a", "the"))
-    if hu:
-        head = "Kifutottam %s keretemből, ezért erre most nem tudok válaszolni." % label[0]
-        tail = (" A keret ekkor áll vissza: %s. Amint visszajött, magamtól folytatom." % when
-                if when else " Amint visszajön a keret, magamtól folytatom.")
-    else:
-        head = "I have run out of %s quota, so I cannot answer this right now." % label[1]
-        tail = (" It comes back: %s. I will continue on my own as soon as it does." % when
-                if when else " I will continue on my own as soon as it comes back.")
-    return head + tail, key
+    return "%s|%s" % (kind, when)
 
 
 def main():
@@ -227,29 +216,13 @@ def main():
     # Already nudged once (or loop guard tripped) and STILL no reply -> guaranteed
     # fallback: deliver the agent's final answer to the chat, then clear.
     answer = last_assistant_text(transcript)
-    notice, limit_key = limit_banner_notice(answer)
-    if notice:
-        # One notice per outage: the key carries the reset the banner named, so
-        # a NEW outage (different reset) speaks again, while three back-to-back
-        # refused turns inside the same one stay quiet after the first.
-        marker = os.path.join(pdir, "limit-notice.marker")
-        try:
-            already = open(marker, encoding="utf-8").read().strip() == limit_key
-        except Exception:
-            # Unreadable marker means "I could not look", not "already told".
-            # Speaking twice is recoverable; going silent about an outage is not.
-            already = False
-        if already:
-            answer = ""
-            log(sd, f"[enforce] limit-banner suppressed (already told) key={limit_key}")
-        else:
-            answer = notice
-            try:
-                with open(marker, "w", encoding="utf-8") as f:
-                    f.write(limit_key)
-            except Exception:
-                pass
-            log(sd, f"[enforce] limit-banner replaced by human notice key={limit_key}")
+    limit_key = limit_banner_key(answer)
+    if limit_key:
+        # Say nothing. The placeholders below are still cleaned up, so the chat
+        # does not keep a dangling "dolgozom..." bubble -- the turn simply ends
+        # quietly, and the next thing the owner hears is the wake bell.
+        answer = ""
+        log(sd, f"[enforce] bare limit banner dropped, owner told only on recovery key={limit_key}")
     tok = token(sd)
     if tok:
         for p in pend:
@@ -273,7 +246,7 @@ def main():
 
 
 def _self_test():
-    """Pure checks for the limit-banner filter. Run by the suite
+    """Pure checks for the limit-banner detector. Run by the suite
     (src/__tests__/hook-self-tests.test.ts) -- a self-test nobody calls is not
     a test."""
     fails = []
@@ -283,36 +256,33 @@ def _self_test():
             fails.append("%s: expected %r, got %r" % (name, want, got))
 
     real = "You've hit your session limit \u00b7 resets 1am (Europe/Budapest)"
-    notice, key = limit_banner_notice(real, lang="hu")
-    check("session key", key, "session|1am (Europe/Budapest)")
-    check("session is hungarian", notice is not None and "5 \u00f3r\u00e1s" in notice, True)
-    check("session names the reset", notice is not None and "1am (Europe/Budapest)" in notice, True)
-    check("session drops the english banner", notice is not None and "hit your" not in notice, True)
+    check("session banner detected", limit_banner_key(real), "session|1am (Europe/Budapest)")
 
     weekly = "You've hit your weekly limit \u00b7 resets Aug 31, 9pm (Europe/Budapest)"
-    wnotice, wkey = limit_banner_notice(weekly, lang="hu")
-    check("weekly key", wkey, "weekly|Aug 31, 9pm (Europe/Budapest)")
-    check("weekly is hungarian", wnotice is not None and "heti" in wnotice, True)
-    # A NEW outage must be able to speak again: different reset -> different key.
-    check("different outages differ", wkey != key, True)
+    check("weekly banner detected", limit_banner_key(weekly), "weekly|Aug 31, 9pm (Europe/Budapest)")
+    # Two different outages must stay distinguishable in the log.
+    check("different outages differ", limit_banner_key(weekly) != limit_banner_key(real), True)
 
-    en, _ = limit_banner_notice(real, lang="en")
-    check("english install stays english", en is not None and "five-hour" in en, True)
-    check("english has no hungarian", en is not None and "Kifutottam" not in en, True)
+    # No "resets" part: still a banner, but the key must not invent a time.
+    check("bare banner detected", limit_banner_key("You've hit your usage limit"), "usage|")
+    check("curly apostrophe detected",
+          limit_banner_key("You\u2019ve hit your session limit"), "session|")
+    check("case insensitive", limit_banner_key("YOU'VE HIT YOUR SESSION LIMIT"), "session|")
+    check("leading whitespace tolerated", limit_banner_key("  " + real + "  "),
+          "session|1am (Europe/Budapest)")
 
-    # A real answer that merely MENTIONS the banner must pass through untouched.
+    # Everything below must NOT be swallowed: an agent that actually spoke has
+    # to reach the owner unedited, banner mention or not.
     embedded = ("Megneztem a naplot: tegnap este ez ment ki neked, "
                 "\"You've hit your session limit\", es ez a hiba.")
-    check("embedded banner untouched", limit_banner_notice(embedded, lang="hu"), (None, None))
-    check("multiline untouched", limit_banner_notice(real + "\nEs meg valami", lang="hu"), (None, None))
-    check("empty is not a banner", limit_banner_notice("", lang="hu"), (None, None))
-    check("normal answer is not a banner", limit_banner_notice("Kesz, minden zold.", lang="hu"), (None, None))
-
-    # No "resets" part: still a notice, but it must not invent a time.
-    bare, bkey = limit_banner_notice("You've hit your usage limit", lang="hu")
-    check("bare banner still speaks", bare is not None, True)
-    check("bare banner invents no time", bare is not None and "ekkor \u00e1ll vissza" not in bare, True)
-    check("bare key", bkey, "usage|")
+    check("embedded banner untouched", limit_banner_key(embedded), None)
+    check("multiline untouched", limit_banner_key(real + "\nEs meg valami"), None)
+    check("empty is not a banner", limit_banner_key(""), None)
+    check("none is not a banner", limit_banner_key(None), None)
+    check("normal answer is not a banner", limit_banner_key("Kesz, minden zold."), None)
+    check("long text is not a banner", limit_banner_key(real + " " + ("x" * 300)), None)
+    check("similar sentence is not a banner",
+          limit_banner_key("You've hit your target for today"), None)
 
     if fails:
         for f in fails:

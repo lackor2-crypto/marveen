@@ -15,6 +15,12 @@ import { fileURLToPath } from 'node:url'
 // turn ends without a reply tool call, and this Stop hook's enforce path
 // delivered the last assistant text faithfully -- once per refused turn.
 //
+// The first fix replaced the banner with a Hungarian sentence. Boss then
+// answered the open question (voice message 636, same day): "Csak szolj, amikor
+// mar ujra tudsz dolgozni, tehat amikor visszajottel." -- so an outage is now
+// reported NOT AT ALL, and the only message about it is the dashboard's wake
+// bell once the quota is back.
+//
 // The self-test in the hook covers the pure decision. This covers what actually
 // reaches the chat: WHICH text, and HOW MANY TIMES.
 const execFileAsync = promisify(execFile)
@@ -83,38 +89,29 @@ describe('keret-kifutas: mi megy ki a felhasznalonak', () => {
   beforeAll(() => {
     dir = mkdtempSync(join(tmpdir(), 'limit-notice-'))
     // The hook reads the bot token from <state dir>/.env, exactly like the
-    // plugin does; without it it stays silent, so the test must provide one.
+    // plugin does; without it it stays silent for the wrong reason, so a real
+    // token has to be there or every assertion below passes vacuously.
     writeFileSync(join(dir, '.env'), 'TELEGRAM_BOT_TOKEN=test-token\n')
   })
   afterAll(() => { rmSync(dir, { recursive: true, force: true }) })
 
-  it('a nyers angol platform-mondat helyett magyar mondat megy ki', async () => {
+  it('kieseskor SEMMI nem megy ki (Boss: csak a visszateresrol szolj)', async () => {
     sent = []
     await runTurn(dir, BANNER)
-    const out = texts()
-    expect(out).toHaveLength(1)
-    expect(out[0]).not.toContain('hit your')
-    expect(out[0]).toContain('5 órás')
-    // A visszaallas idejet a banner mondja meg, azt at kell vinni, nem kitalalni.
-    expect(out[0]).toContain('1am (Europe/Budapest)')
+    expect(texts()).toEqual([])
+    // A helyorzot viszont el kell takaritani, kulonben ott marad a
+    // "Dolgozom rajta" buborek orokre.
+    expect(sent.filter(s => s.method === 'deleteMessage')).toHaveLength(1)
   })
 
-  it('ugyanarrol a kiesesrol masodszor MAR NEM ir (Boss ketszer kapta meg)', async () => {
+  it('a nyers angol platform-mondat sosem jut ki', async () => {
     sent = []
     await runTurn(dir, BANNER, 'sid-2')
-    await runTurn(dir, BANNER, 'sid-3')
-    expect(texts()).toHaveLength(0)
-    // A helyorzot viszont ilyenkor is el kell takaritani, kulonben ott marad a
-    // "Dolgozom rajta" orokre.
-    expect(sent.filter(s => s.method === 'deleteMessage')).toHaveLength(2)
-  })
-
-  it('UJ kieses (mas visszaallasi ido) ujra megszolal', async () => {
-    sent = []
-    await runTurn(dir, "You've hit your weekly limit · resets Aug 31, 9pm (Europe/Budapest)", 'sid-4')
-    const out = texts()
-    expect(out).toHaveLength(1)
-    expect(out[0]).toContain('heti')
+    await runTurn(dir, "You've hit your weekly limit \u00b7 resets Aug 31, 9pm (Europe/Budapest)", 'sid-3')
+    // A tipografiai aposztrofos valtozat is banner, nem valasz.
+    await runTurn(dir, 'You\u2019ve hit your session limit', 'sid-4')
+    expect(texts()).toEqual([])
+    expect(texts().join(' ')).not.toContain('hit your')
   })
 
   it('valodi valasz valtozatlanul megy ki, meg ha emliti is a bannert', async () => {
@@ -122,5 +119,11 @@ describe('keret-kifutas: mi megy ki a felhasznalonak', () => {
     const real = `Megneztem: tegnap este ez ment ki neked, "${BANNER}", es ez a hiba.`
     await runTurn(dir, real, 'sid-5')
     expect(texts()).toEqual([real])
+  })
+
+  it('a nema ag nem nemitja el a tobbi valaszt sem tobb helyorzonel', async () => {
+    sent = []
+    await runTurn(dir, 'Kesz, minden zold.', 'sid-6')
+    expect(texts()).toEqual(['Kesz, minden zold.'])
   })
 })

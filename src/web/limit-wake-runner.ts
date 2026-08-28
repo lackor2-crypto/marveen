@@ -15,7 +15,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
-import { LIMIT_WAKE_ENABLED, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../config.js'
+import { APP_LANG, LIMIT_WAKE_ENABLED, MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { readRateLimitSnapshot, readScrapedUsage } from './rate-limit-status-io.js'
 import { readClaudePlans } from './claude-plans.js'
 import { agentSessionName, sessionExistsOnHost } from './agent-process.js'
@@ -157,11 +157,32 @@ export function wakeMessage(reason: WakeReason): string {
  *  no wake at all. This is the trusted path for that sentence: the dashboard
  *  knows the wake happened and owns the owner channel, so nobody has to talk an
  *  agent into speaking on its behalf. */
+/** The sentence the owner reads when an agent comes back.
+ *
+ *  Owner-facing, therefore bilingual: it follows the install language like
+ *  every other screen-facing string. Exported so the suite can assert both
+ *  languages -- this is now the ONLY message the owner gets about an outage.
+ *
+ *  Boss, voice message 636 (2026-08-28): "Csak szolj, amikor mar ujra tudsz
+ *  dolgozni, tehat amikor visszajottel." The agent-side Stop hook stays silent
+ *  while the window is spent (scripts/hooks/telegram_progress_clear.py), so if
+ *  this line never arrives, the owner hears nothing at all. */
+export function ownerWakeNotice(reason: WakeReason, agents: string[], lang: string = APP_LANG): string {
+  const who = agents.join(', ')
+  if (lang === 'hu') {
+    const huWhat = reason === 'limit-reset'
+      ? 'visszaallt a keret-ablaka, felebresztettem'
+      : 'ujraindulas/kapcsolat-visszateres utan felebresztettem'
+    return `🔔 ${who}: ${huWhat}. Ha volt felfuggesztett munkaja, folytathatja.`
+  }
+  const enWhat = reason === 'limit-reset'
+    ? 'quota window is back, so I woke it'
+    : 'was woken after a restart / reconnect'
+  return `🔔 ${who}: ${enWhat}. If it had work on hold, it can continue.`
+}
+
 function notifyOwner(reason: WakeReason, agents: string[]): void {
-  const what = reason === 'limit-reset'
-    ? 'visszaallt a keret-ablaka, felebresztettem'
-    : 'ujraindulas/kapcsolat-visszateres utan felebresztettem'
-  sendAlert(`🔔 ${agents.join(', ')}: ${what}. Ha volt felfuggesztett munkaja, folytathatja.`)
+  sendAlert(ownerWakeNotice(reason, agents))
 }
 
 /** Run agent-wake.sh for the decided agents. Resolves to true when the script
