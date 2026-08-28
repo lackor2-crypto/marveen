@@ -1077,6 +1077,23 @@ export interface CodeCandidate {
    *   - `false` : MERTUK, hogy nincs nyitva
    *   - `null`  : nem latunk oda (regi worker, olvashatatlan mappa) */
   live: boolean | null
+  /** SZEREPEL-E a beszelgetes a VS Code SAJAT listajaban -- abban, amit a
+   *  felhasznalo a panelen lat.
+   *
+   *  Miert kulon mezo a `live` mellett: a ketto KET KULONBOZO dolog, es pont
+   *  az osszemosasuk volt a hiba. A `live` azt meri, fut-e a folyamat; egy
+   *  nyitott, de eppen tetlen ful mellett nem fut. Boss, 2026-08-28: "a 47 es
+   *  kanban kartya nevu chat az elo, az nincs bezarva. az kellene." Merve
+   *  ugyanekkor: a fulhoz 22:45:09-ig nem futott claude.exe, kozben a VS Code
+   *  panelen ott volt.
+   *
+   *  A worker a VS Code sajat munkateruleti allapotabol olvassa
+   *  (`agentSessions.model.cache`), nem talalja ki.
+   *
+   *   - `true`  : ott van a VS Code listajaban
+   *   - `false` : MERTUK, hogy nincs ott
+   *   - `null`  : nem latunk oda (regi worker, olvashatatlan allapotfajl) */
+  vscodeOpen: boolean | null
   /** MELYIK MODELL felel ebben a beszelgetesben (pl. `claude-opus-5`). A
    *  transcript utolso assistant-sorabol jon, ugyanabbol, ahonnan a kontextus.
    *  `null` = nem latunk oda -- olyankor a felulet sem talalhat ki egyet. */
@@ -1124,6 +1141,7 @@ export function recordCodeCandidates(
     primary?: boolean
     contextTokens?: number
     live?: boolean | null
+    vscodeOpen?: boolean | null
     model?: string
     pid?: number
     transcriptPath?: string
@@ -1160,6 +1178,9 @@ export function recordCodeCandidates(
       // Csak a KIFEJEZETT logikai valasz szamit meresnek; barmi mas (hianyzo
       // mezo, regi worker) azt jelenti: nem latunk oda.
       live: typeof s.live === 'boolean' ? s.live : null,
+      // Ugyanaz a szabaly, mint a `live`-nal: csak a KIFEJEZETT logikai valasz
+      // szamit meresnek. A hianyzo mezo (regi worker) nem "nincs nyitva".
+      vscodeOpen: typeof s.vscodeOpen === 'boolean' ? s.vscodeOpen : null,
       model: typeof s.model === 'string' && s.model.trim() ? s.model.trim().slice(0, 60) : null,
       // Csak ervenyes, pozitiv folyamatazonositot fogadunk el: barmi mas azt
       // jelenti, hogy nem latunk oda -- olyankor a bezaras-gomb sem jelenhet
@@ -1220,6 +1241,9 @@ export interface CodeTab {
   /** Nyitva van-e a ful a VS Code-ban; `null` = nem latunk oda.
    *  Reszletek a `CodeCandidate.live`-nal. */
   live: boolean | null
+  /** Ott van-e a beszelgetes a VS Code sajat listajaban. Reszletek a
+   *  `CodeCandidate.vscodeOpen`-nel. */
+  vscodeOpen: boolean | null
   /** A beszelgetesben eppen felelo modell, vagy `null` = nem latunk oda. */
   model: string | null
   /** A futo Claude Code folyamat azonositoja; `null` = nem latunk oda.
@@ -1354,6 +1378,7 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
       current: registered ? registered.sessionId === c.sessionId : c.primary,
       contextTokens: c.contextTokens,
       live: c.live,
+      vscodeOpen: c.vscodeOpen,
       model: c.model,
       pid: c.pid,
       transcriptPath: c.transcriptPath,
@@ -1368,9 +1393,26 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   //   * semmit, ha a worker egyaltalan nem jelent nyitottsagot (mindenhol
   //     `live === null`), mert olyankor NEM TUDJUK, mi van nyitva -- regi
   //     worker mellett tehat valtozatlan a viselkedes.
-  const filterLive = (tabs: CodeTab[]): CodeTab[] => {
-    if (!tabs.some((t) => t.live !== null)) return tabs
-    const kept = tabs.filter((t) => t.live === true || t.current)
+  //
+  // 2026-08-28 (Boss, Telegram 649): a szuro EDDIG csak a futo folyamatot
+  // ismerte, es ez keveset mert. "latom hogy ott van a listaban a 47 es kanban
+  // kartya nevu chat, de nem tudom kijelolni! (...) viszont a 47 es kanban
+  // kartya nevu chat az elo, az nincs bezarva. az kellene." Merve ugyanekkor:
+  // a fulhoz 22:45:09-ig nem futott claude.exe (`live === false`), kozben a VS
+  // Code panelen nyitva volt -- a fo listaba tehat oda tartozott volna.
+  //
+  // Ezert a nyitottsag KET forrasbol jon, es barmelyik eleg:
+  //   * `live === true`       : fut a folyamat (cimezheto, most is dolgozhat);
+  //   * `vscodeOpen === true` : ott van a VS Code sajat listajaban -- ezt LATJA
+  //     a felhasznalo, es a kartyanak ugyanazt kell mutatnia.
+  // A ketto unioja kell, nem az egyik helyett a masik: merve 2026-08-28-an
+  // harom claude.exe futott, de a VS Code listajaban ket beszelgetes szerepelt.
+  // Barmelyik forrasra egyedul hagyatkozva elveszett volna egy elo beszelgetes.
+  const filterOpen = (tabs: CodeTab[]): CodeTab[] => {
+    // A NULLA KET DOLGOT JELENTHET: ha EGYIK forrast sem tudtuk megmerni, nem
+    // "semmi nincs nyitva", hanem "nem latunk oda" -- olyankor nem szurunk.
+    if (!tabs.some((t) => t.live !== null || t.vscodeOpen !== null)) return tabs
+    const kept = tabs.filter((t) => t.live === true || t.vscodeOpen === true || t.current)
     return kept.length > 0 ? kept : tabs.filter((t) => t.current)
   }
 
@@ -1389,9 +1431,25 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   const projects = [...groups.values()]
     .map((g) => {
       const byTime = (a: CodeTab, b: CodeTab): number => (b.mtime ?? 0) - (a.mtime ?? 0)
-      const shown = filterLive(g.tabs).sort(byTime)
+      const shown = filterOpen(g.tabs).sort(byTime)
       const shownIds = new Set(shown.map((t) => t.sessionId))
-      return { ...g, tabs: shown, closedTabs: g.tabs.filter((t) => !shownIds.has(t.sessionId)).sort(byTime) }
+      // HA LATJUK A VS CODE LISTAJAT, a maradek nem kell.
+      //
+      // Boss, 2026-08-28: "ezek a tobbiek amik mar be voltak zarva nem
+      // erdekesek. nem is kelleenk. ugy sem lehet rajuk kattintani es kijelolni.
+      // hogy az legyen az aktualis chat. szoval feleslegesek..." Amit sem a
+      // folyamat-meres, sem a VS Code listaja nem tamaszt ala, az tenyleg
+      // bezart beszelgetes -- a panelen sincs ott, tehat a kartyan sem valo.
+      //
+      // Ha viszont a VS Code listajat NEM tudtuk megnezni, ez a lista marad a
+      // regi: olyankor a `live === false` meg nem bizonyitja, hogy a ful be van
+      // zarva (pont ez volt a 649-es bejelentes), es egy nyitott beszelgetes
+      // tunne el nyomtalanul.
+      const vscodeMeasured = g.tabs.some((t) => t.vscodeOpen !== null)
+      const closedTabs = vscodeMeasured
+        ? []
+        : g.tabs.filter((t) => !shownIds.has(t.sessionId)).sort(byTime)
+      return { ...g, tabs: shown, closedTabs }
     })
     .sort((a, b) => (b.tabs[0]?.mtime ?? 0) - (a.tabs[0]?.mtime ?? 0))
 

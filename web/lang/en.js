@@ -3515,7 +3515,9 @@ window._i18n.en = {
   // NOT RUNNING, BUT STILL HERE. The linked conversation stays on the list even
   // when its process is gone -- the next task goes there, so you must see it.
   'cb.card.tab_not_running': 'not running',
-  'cb.card.tab_not_running_help': 'This is the conversation linked to the folder: the next task goes here. Its Claude Code process, however, is NO LONGER RUNNING (measured, not guessed) — the transcript is on disk and can be resumed by opening it in VS Code.',
+  'cb.card.tab_not_running_help': 'Its Claude Code process is NO LONGER RUNNING (measured, not guessed) — the transcript is on disk and can be resumed by opening it in VS Code. It can still be given a task: Marveen resumes the saved conversation.',
+  'cb.card.tab_open_not_running': 'open, not running',
+  'cb.card.tab_open_not_running_help': 'This conversation is OPEN in the VS Code panel — measured from VS Code own session list, not guessed. Its Claude Code process, however, is not running right now. The two are different things: a tab can sit open in the panel without doing any work. It can be selected and given a task: Marveen resumes the saved conversation.',
   'cb.card.tab_open': 'Open conversation',
   'cb.card.tab_open_help': 'Shows what is in this conversation: what you typed, what Claude answered, and the actions it ran. Read-only — it starts and changes nothing.',
   'cb.card.tabs_closed': 'Other conversations in this folder ({n})',

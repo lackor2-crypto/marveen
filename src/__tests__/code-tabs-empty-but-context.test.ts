@@ -41,7 +41,7 @@ function extractFn(src: string, name: string): string {
 }
 
 interface Tab {
-  sessionId?: string; title?: string | null; live?: boolean | null
+  sessionId?: string; title?: string | null; live?: boolean | null; vscodeOpen?: boolean | null
   contextTokens?: number | null; mtime?: number | null
   current?: boolean; pid?: number | null; hasTranscript?: boolean; shortId?: string
 }
@@ -308,5 +308,59 @@ describe('a szoveg mindket nyelven megvan', () => {
 describe('a kulon kontextus-sor nem ismetli meg a szamot', () => {
   it('a kartya csak akkor rakja ki, ha az ures-ag nem mondta el', () => {
     expect(app).toContain('!cbHasTabRows(e) && !cbTabsEmptyHasCtx(e) ? cbContextRowHtml(e)')
+  })
+})
+
+// NYITVA VAN A PANELEN, DE NEM FUT -- ezt a ket allapotot a kartya nem mondhatja
+// egyformanak.
+//
+// Boss, 2026-08-28 (Telegram 649): a "47-es kanban kartya" nyitva volt a VS Code
+// paneljen, kozben a Claude Code folyamata nem futott. Ha a kartya ilyenkor
+// csak annyit ir ki, hogy "nem fut", az szemben all azzal, amit a sajat
+// kepernyojen lat -- pedig mindketto igaz, csak KET KULONBOZO dologrol szol.
+describe('a "nyitva, de nem fut" allapot sajat mondatot kap', () => {
+  it('ha a VS Code listaja ismeri a fulet, a nyitottsagot mondja ki, nem csak azt hogy nem fut', () => {
+    const html = api.cbTabsPickHtml({
+      tabs: [{ sessionId: 'aaaa-bbbb', title: '47-es kanban kartya', live: false, vscodeOpen: true, current: false }],
+      tabsReason: 'ok',
+    })
+    expect(html).toContain('cb.card.tab_open_not_running')
+    expect(html).toContain('cb.card.tab_open_not_running_help')
+    // A regi, szukebb mondat NEM sulhet el ilyenkor.
+    expect(html).not.toContain('"cb.card.tab_not_running"')
+  })
+
+  it('ha a VS Code listaja NEM ismeri, marad a regi mondat', () => {
+    const html = api.cbTabsPickHtml({
+      tabs: [{ sessionId: 'aaaa-bbbb', title: 'regen bezart', live: false, vscodeOpen: false, current: true }],
+      tabsReason: 'ok',
+    })
+    expect(html).toContain('cb.card.tab_not_running')
+    expect(html).not.toContain('cb.card.tab_open_not_running')
+  })
+
+  it('ha NEM latunk oda (regi worker), szinten a regi mondat megy -- nem talalunk ki nyitottsagot', () => {
+    const html = api.cbTabsPickHtml({
+      tabs: [{ sessionId: 'aaaa-bbbb', title: 'nem tudjuk', live: false, vscodeOpen: null, current: true }],
+      tabsReason: 'ok',
+    })
+    expect(html).toContain('cb.card.tab_not_running')
+    expect(html).not.toContain('cb.card.tab_open_not_running')
+  })
+
+  it('a futo ful egyik mondatot sem kapja meg', () => {
+    const html = api.cbTabsPickHtml({
+      tabs: [{ sessionId: 'aaaa-bbbb', title: 'fut', live: true, vscodeOpen: true, current: true }],
+      tabsReason: 'ok',
+    })
+    expect(html).not.toContain('cb.card.tab_not_running')
+    expect(html).not.toContain('cb.card.tab_open_not_running')
+  })
+
+  it('az uj mondat MINDKET nyelven megvan -- felezett forditas nem kesz munka', () => {
+    for (const key of ['cb.card.tab_open_not_running', 'cb.card.tab_open_not_running_help']) {
+      expect(hu, 'hianyzik a magyar kulcs: ' + key).toContain("'" + key + "'")
+      expect(en, 'hianyzik az angol kulcs: ' + key).toContain("'" + key + "'")
+    }
   })
 })

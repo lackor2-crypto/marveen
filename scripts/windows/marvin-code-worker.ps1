@@ -284,6 +284,178 @@ function Get-OpenSessionIds {
   return $open
 }
 
+# MIT LAT A FELHASZNALO A VS CODE PANELEN.
+#
+# A `Get-OpenSessionIds` a FUTO FOLYAMATOT meri, es ez keveset mert. Boss,
+# 2026-08-28 (Telegram 649): "latom hogy ott van a listaban a 47 es kanban
+# kartya nevu chat, de nem tudom kijelolni! (...) egy ellenorzest kellene tenni
+# a vscode nevu programban levo claude code chatre hogy ott mi van chat. amit a
+# user lat. es azt megjeleniteni."
+#
+# Merve ugyanekkor: a "47-es kanban kartya" beszelgeteshez (sessionId
+# 3d3f27b8-...) 22:45:09-ig nem futott claude.exe, kozben a VS Code panelen ott
+# volt. A "nyitott ful" es a "futo folyamat" KET KULONBOZO dolog.
+#
+# A VS Code a sajat listajat a munkateruleti allapotaba irja:
+#   %APPDATA%\<VS Code valtozat>\User\workspaceStorage\<hash>\state.vscdb
+#   -> ItemTable['agentSessions.model.cache']
+# JSON tomb, elemenkent `resource` = "agent-host-claude:/<sessionId>", `label`,
+# `metadata.workingDirectoryPath`.
+#
+# A fajl SQLite, a worker meg PowerShell: a Windows sajat `winsqlite3.dll`-jet
+# hasznaljuk (Windows 10 1803 ota resze a rendszernek). Ha nincs meg vagy nem
+# betolheto, a valasz `$null` = NEM LATUNK ODA -- nem pedig "semmi nincs
+# nyitva". A kettot osszemosni pontosan az a hiba, ami ezt a kort okozta.
+$script:VSCodeSqliteReady = $null
+
+function Initialize-VSCodeSqlite {
+  if ($null -ne $script:VSCodeSqliteReady) { return $script:VSCodeSqliteReady }
+  $script:VSCodeSqliteReady = $false
+  $dll = Join-Path $env:SystemRoot 'System32\winsqlite3.dll'
+  if (-not (Test-Path -LiteralPath $dll)) {
+    Write-Log 'winsqlite3.dll nincs a rendszerben -- a VS Code listajat nem tudjuk elolvasni' 'WARN'
+    return $false
+  }
+  if (([System.Management.Automation.PSTypeName]'MarveenSqlite').Type) {
+    $script:VSCodeSqliteReady = $true
+    return $true
+  }
+  # C# 5 nyelvi szint: a worker PowerShell 5.1-en is fut.
+  $code = @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class MarveenSqlite {
+  private const int SQLITE_OK = 0;
+  private const int SQLITE_ROW = 100;
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern int sqlite3_open16([MarshalAs(UnmanagedType.LPWStr)] string filename, out IntPtr db);
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern int sqlite3_prepare16_v2(IntPtr db, [MarshalAs(UnmanagedType.LPWStr)] string sql, int nByte, out IntPtr stmt, IntPtr tail);
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern int sqlite3_bind_text16(IntPtr stmt, int idx, [MarshalAs(UnmanagedType.LPWStr)] string value, int nByte, IntPtr destructor);
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern int sqlite3_step(IntPtr stmt);
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern IntPtr sqlite3_column_text16(IntPtr stmt, int col);
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern int sqlite3_finalize(IntPtr stmt);
+
+  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
+  private static extern int sqlite3_close(IntPtr db);
+
+  // Egy szoveges ertek egy kulcs alol. `null` = nem tudtuk elolvasni VAGY
+  // nincs ilyen kulcs -- a hivo oldalan ez a ketto egyforman "nem latok oda",
+  // mert egy hianyzo kulcs sem bizonyitja, hogy nincs nyitott beszelgetes.
+  public static string ReadItemTableValue(string dbPath, string key) {
+    IntPtr db = IntPtr.Zero;
+    IntPtr stmt = IntPtr.Zero;
+    try {
+      if (sqlite3_open16(dbPath, out db) != SQLITE_OK) { return null; }
+      if (sqlite3_prepare16_v2(db, "SELECT value FROM ItemTable WHERE key = ?", -1, out stmt, IntPtr.Zero) != SQLITE_OK) { return null; }
+      // SQLITE_TRANSIENT (-1): az SQLite maga masolja le a kulcsot.
+      if (sqlite3_bind_text16(stmt, 1, key, -1, new IntPtr(-1)) != SQLITE_OK) { return null; }
+      if (sqlite3_step(stmt) != SQLITE_ROW) { return null; }
+      IntPtr p = sqlite3_column_text16(stmt, 0);
+      if (p == IntPtr.Zero) { return null; }
+      return Marshal.PtrToStringUni(p);
+    } catch (Exception) {
+      return null;
+    } finally {
+      if (stmt != IntPtr.Zero) { sqlite3_finalize(stmt); }
+      if (db != IntPtr.Zero) { sqlite3_close(db); }
+    }
+  }
+}
+'@
+  try {
+    Add-Type -TypeDefinition $code -ErrorAction Stop
+    $script:VSCodeSqliteReady = $true
+  } catch {
+    Write-Log ('a VS Code allapotfajl olvasoja nem toltheto be: ' + $_.Exception.Message) 'WARN'
+    $script:VSCodeSqliteReady = $false
+  }
+  return $script:VSCodeSqliteReady
+}
+
+# A VS Code valtozatai kulon mappaban tarolnak. Egyik sincs fixen beirva
+# utkent: az `%APPDATA%` a rendszerbol jon, a valtozatok neve pedig az, amit a
+# Microsoft/VSCodium hasznal -- nem gepfuggo azonosito.
+$script:VSCodeAppDirs = @('Code', 'Code - Insiders', 'VSCodium')
+
+function Get-VSCodeStateDbPaths {
+  $roots = @()
+  foreach ($name in $script:VSCodeAppDirs) {
+    $dir = Join-Path $env:APPDATA (Join-Path $name 'User\workspaceStorage')
+    if (Test-Path -LiteralPath $dir) { $roots += $dir }
+  }
+  $out = @()
+  foreach ($root in $roots) {
+    foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+      $db = Join-Path $d.FullName 'state.vscdb'
+      if (Test-Path -LiteralPath $db) { $out += $db }
+    }
+  }
+  return $out
+}
+
+# A VS Code altal LISTAZOTT Claude-beszelgetesek azonositoi.
+#
+# Visszateres:
+#   hashtable : sessionId -> $true (akar ures is: TENYLEG egy sincs listazva)
+#   $null     : nem tudtuk megnezni -- ez NEM ugyanaz, mint az ures halmaz
+function Get-VSCodeListedSessionIds {
+  $dbs = @(Get-VSCodeStateDbPaths)
+  if ($dbs.Count -eq 0) { return $null }
+  if (-not (Initialize-VSCodeSqlite)) { return $null }
+
+  $listed = @{}
+  $readOk = 0
+  foreach ($db in $dbs) {
+    # SOHA nem a VS Code sajat fajljat nyitjuk meg: masolatot olvasunk. Igy egy
+    # futo VS Code zarolasa nem akaszt meg, es semmi esely arra, hogy a
+    # felhasznalo allapotfajljaba beleirjunk.
+    $tmp = Join-Path $env:TEMP ('marveen-vscode-state-' + [Guid]::NewGuid().ToString('N') + '.db')
+    try {
+      Copy-Item -LiteralPath $db -Destination $tmp -Force -ErrorAction Stop
+    } catch {
+      continue
+    }
+    try {
+      $raw = [MarveenSqlite]::ReadItemTableValue($tmp, 'agentSessions.model.cache')
+      # A megnyitas maga sikerult: ettol kezdve a "nincs kulcs" mar meres.
+      $readOk++
+      if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+      $items = $null
+      try { $items = $raw | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+      foreach ($it in @($items)) {
+        $resource = [string]$it.resource
+        if ([string]::IsNullOrWhiteSpace($resource)) { continue }
+        # "agent-host-claude:/<sessionId>" -- csak a Claude-szolgaltatoe erdekel,
+        # egy Copilot-beszelgetes azonositoja nem a mi fulunk.
+        if ($resource -notmatch '^agent-host-claude:/(.+)$') { continue }
+        $sid = $Matches[1].Trim()
+        if ($sid) { $listed[$sid] = $true }
+        # Az `archived` mezot SZANDEKOSAN nem szurjuk: nem tudtuk megmerni, mit
+        # jelent a panelen. A ket lehetseges tevedes nem egyforma sulyu -- egy
+        # felesleges sor zavaro, egy eltunt elo beszelgetes viszont pontosan az
+        # a hiba, amit ez a valtoztatas javit.
+      }
+    } finally {
+      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+  }
+  # Egyetlen adatbazist sem sikerult megnyitni -> nem latunk oda.
+  if ($readOk -eq 0) { return $null }
+  return $listed
+}
+
 # Not every transcript belongs to a project. A `claude` started in the home
 # root, in C:\Windows\system32 (the default cwd of a shortcut) or in a temp
 # folder leaves one behind just the same, and publishing those puts junk
@@ -343,6 +515,18 @@ function Get-LocalSessions {
   $projectsDir = Get-ClaudeProjectsDir
   if (-not $projectsDir) { return @() }
   $open = Get-OpenSessionIds
+  # AMIT A FELHASZNALO LAT a VS Code panelen. Kulon meres a `$open` mellett:
+  # az a folyamatot meri, ez a fulet (Boss, 2026-08-28 -- Telegram 649).
+  $vscodeListed = Get-VSCodeListedSessionIds
+  # A ketto UNIOJA az, ami "nyitottnak" szamit. `$null` = egyik forrast sem
+  # tudtuk megnezni; olyankor a regi viselkedes marad, mert a "nem latok oda"
+  # nem ugyanaz, mint a "semmi nincs nyitva".
+  $openOrListed = $null
+  if ($null -ne $open -or $null -ne $vscodeListed) {
+    $openOrListed = @{}
+    if ($null -ne $open) { foreach ($k in $open.Keys) { $openOrListed[[string]$k] = $true } }
+    if ($null -ne $vscodeListed) { foreach ($k in $vscodeListed.Keys) { $openOrListed[[string]$k] = $true } }
+  }
   $out = New-Object System.Collections.ArrayList
   $cutoff = (Get-Date).ToUniversalTime().AddDays(-$script:TabMaxAgeDays)
   foreach ($dir in (Get-ChildItem -Path $projectsDir -Directory -ErrorAction SilentlyContinue)) {
@@ -357,12 +541,24 @@ function Get-LocalSessions {
     # nyitott ful legyen: egy tegnap bezart beszelgetes lehet a legfrissebb
     # fajl, de a feladat nem oda valo. Ha egyik sem nyitott (vagy nem latunk
     # oda), marad a regi sorrend: a legfrissebb fajl.
-    if ($null -ne $open) {
-      $liveFiles = @($files | Where-Object { $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
-      if ($liveFiles.Count -gt 0) {
-        $rest = @($files | Where-Object { -not $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
-        $files = @($liveFiles) + @($rest)
-      }
+    # Harom csoport, ebben a sorrendben:
+    #   1. FUT a folyamata  -- ide mehet feladat azonnal, ez legyen az elsodleges;
+    #   2. a VS Code LISTAZZA -- a felhasznalo latja a panelen, tehat nyitott ful,
+    #      csak eppen nem fut most (Boss, 2026-08-28: "az elo, az nincs bezarva");
+    #   3. minden mas.
+    # A futo elozi meg a listazottat: a projekt sessionje maradjon az, amelyik
+    # tenyleg dolgozik -- ezen a valtoztatas szandekosan nem modosit.
+    if ($null -ne $open -or $null -ne $vscodeListed) {
+      $g1 = @($files | Where-Object { $null -ne $open -and $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
+      $g2 = @($files | Where-Object {
+        $sidName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+        (-not ($null -ne $open -and $open.ContainsKey($sidName))) -and ($null -ne $vscodeListed -and $vscodeListed.ContainsKey($sidName))
+      })
+      $g3 = @($files | Where-Object {
+        $sidName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+        -not ($null -ne $openOrListed -and $openOrListed.ContainsKey($sidName))
+      })
+      if ($g1.Count -gt 0 -or $g2.Count -gt 0) { $files = @($g1) + @($g2) + @($g3) }
     }
 
     $isPrimary = $true
@@ -371,7 +567,15 @@ function Get-LocalSessions {
       # Age cap applies to the EXTRA tabs only: the primary session stays
       # reportable however old it is, or a project untouched for a month would
       # drop out of /projects and every task addressed to it would fail.
-      if (-not $isPrimary) {
+      # A DARAB- ES KORHATAR A NYITOTT FULEKRE NEM VONATKOZIK.
+      #
+      # Enelkul egy honapja nyitva hagyott beszelgetes kiesne a jelentesbol, es
+      # a kartyan pont az hianyozna, amit a felhasznalo eppen nez -- ugyanaz a
+      # hiba masik okbol. A korlatok celja a lemezen felgyult REGI naplok
+      # levagasa volt, nem a nyitott fuleke.
+      $sidName = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
+      $isOpenOrListed = ($null -ne $openOrListed) -and $openOrListed.ContainsKey($sidName)
+      if (-not $isPrimary -and -not $isOpenOrListed) {
         if ($kept -ge $script:MaxTabsPerWorkspace) { break }
         if ($f.LastWriteTimeUtc -lt $cutoff) { break }
       }
@@ -387,11 +591,16 @@ function Get-LocalSessions {
         $live = [bool]$open.ContainsKey($sid)
         if ($live) { $sidPid = [int]$open[$sid] }
       }
+      # `$null` = nem tudtuk megnezni a VS Code listajat. A `$false` ezzel
+      # szemben MERES: a beszelgetes nincs ott a panelen.
+      $vscodeOpen = $null
+      if ($null -ne $vscodeListed) { $vscodeOpen = [bool]$vscodeListed.ContainsKey($sid) }
       $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
         workspacePath = $info.cwd
         sessionId     = $sid
         live          = $live
+        vscodeOpen    = $vscodeOpen
         mtime         = [int64]([DateTimeOffset]$f.LastWriteTimeUtc).ToUnixTimeMilliseconds()
         title         = $info.title
         primary       = $isPrimary

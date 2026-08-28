@@ -3581,7 +3581,9 @@ window._i18n.hu = {
   // NEM FUT, DE ITT VAN. A bekötött beszélgetés sora akkor is kiáll, ha a
   // folyamata már nem él — oda megy a feladat, tehát látnod kell.
   'cb.card.tab_not_running': 'nem fut',
-  'cb.card.tab_not_running_help': 'Ez a mappához bekötött beszélgetés: ide megy a következő feladat. A Claude Code folyamata viszont MÁR NEM FUT (ezt mértük, nem tipp) — a naplója a lemezen van, és a VS Code-ban megnyitva folytatható.',
+  'cb.card.tab_not_running_help': 'A Claude Code folyamata MÁR NEM FUT (ezt mértük, nem tipp) — a naplója a lemezen van, és a VS Code-ban megnyitva folytatható. Feladatot ettől még kaphat: a Marveen ilyenkor a mentett beszélgetést folytatja.',
+  'cb.card.tab_open_not_running': 'nyitva, nem fut',
+  'cb.card.tab_open_not_running_help': 'Ez a beszélgetés NYITVA van a VS Code paneljén — ezt a VS Code saját listájából mértük, nem tippeltük. A Claude Code folyamata viszont éppen nem fut. A kettő két különböző dolog: egy fül nyitva ülhet a panelen anélkül, hogy dolgozna. Kijelölhető, és kaphat feladatot: a Marveen a mentett beszélgetést folytatja.',
   'cb.card.tab_open': 'Beszélgetés megnyitása',
   'cb.card.tab_open_help': 'Megmutatja, mi van ebben a beszélgetésben: amit beírtál, amit a Claude válaszolt, és a futtatott műveleteket. Csak olvasás — semmit nem indít el és nem módosít.',
   'cb.card.tabs_closed': 'A mappa többi beszélgetése ({n})',

@@ -632,6 +632,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // ugyanazt tudja roluk megmutatni, csak mas helyen es mas jelolessel.
     const tabRow = (tb: CodeTab, currentSessionId: string): {
       sessionId: string; shortId: string; title: string | null; live: boolean | null
+      vscodeOpen: boolean | null
       current: boolean; contextTokens: number | null; model: string | null
       pid: number | null; mtime: number | null; hasTranscript: boolean
     } => ({
@@ -639,6 +640,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       shortId: tb.shortId,
       title: tb.title,
       live: tb.live,
+      // Ott van-e a VS Code sajat listajaban. A felulet ebbol tudja
+      // megkulonboztetni a "nyitva van, csak eppen nem fut" fulet a valoban
+      // bezarttol -- eddig a kettot egynek vette.
+      vscodeOpen: tb.vscodeOpen,
       current: tb.sessionId === currentSessionId,
       contextTokens: tb.contextTokens,
       model: tb.model,
@@ -757,6 +762,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       /** Nyitva van-e a ful a VS Code-ban (elo PID a ~/.claude/sessions alapjan).
        *  Regi worker nem kuldi -> ott `undefined`, ami "nem latunk oda". */
       live?: boolean | null
+      /** Ott van-e a beszelgetes a VS Code SAJAT listajaban -- abban, amit a
+       *  felhasznalo a panelen lat. Kulon mero a `live` mellett: az a folyamatot
+       *  meri, ez a fulet, es a ketto nem ugyanaz (Boss, 2026-08-28).
+       *  Regi worker nem kuldi -> `undefined`, ami "nem latunk oda". */
+      vscodeOpen?: boolean | null
       contextTokens?: number
       /** Melyik modell felel a beszelgetesben (a transcript utolso soraból). */
       model?: string

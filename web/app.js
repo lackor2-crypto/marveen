@@ -5173,7 +5173,21 @@ function cbContextRowHtml(e) {
  *  akor miert nem jeleniti meg?" A kartya TUDOTT a beszelgetesrol, es megsem
  *  mutatta meg. Mostantol megmutatja -- kiirva, hogy nem fut. */
 function cbTabRows(e) {
-  return (e.tabs || []).filter(function (tb) { return tb.live !== false || tb.current })
+  // A NYITOTTSAG KET FORRASBOL JON, es barmelyik eleg.
+  //
+  // Ez a szuro EDDIG csak a futo folyamatot ismerte, es ezzel MASODSZOR is
+  // kiszurte azt, amit a szerver mar atengedett -- ugyanaz a hiba ket helyen.
+  // Boss, 2026-08-28 (Telegram 649): "viszont a 47 es kanban kartya nevu chat
+  // az elo, az nincs bezarva. az kellene." Merve ugyanekkor: a fulhoz nem
+  // futott claude.exe, kozben a VS Code panelen nyitva volt.
+  //
+  //   * `live !== false`       : fut, vagy nem latunk oda (regi worker);
+  //   * `vscodeOpen === true`  : ott van a VS Code sajat listajaban -- ezt LATJA
+  //     a felhasznalo, tehat a kartyan is ott a helye;
+  //   * `current`              : a bekotott beszelgetes sosem tunhet el.
+  return (e.tabs || []).filter(function (tb) {
+    return tb.live !== false || tb.vscodeOpen === true || tb.current
+  })
 }
 /** Van-e legalabb egy kiirhato ful-sor? Ha van, a kontextus szama MAR OTT all
  *  a bejelolt sor vegen, es a kulon "kontextus: 94k token" sor csak ismetles. */
@@ -5355,9 +5369,16 @@ function cbTabsPickHtml(e) {
     // NEM FUT, DE ITT VAN. A bekotott beszelgetes akkor is a listaban marad, ha
     // a folyamata mar nem el -- ide megy a feladat, tehat latnod kell. A cimke
     // nem talalgat: azt mondja, amit MERTUNK (a worker `live` merese).
+    // KET KULONBOZO ALLAPOT, es a felhasznalo pontosan az egyiket latja.
+    //
+    // Boss, 2026-08-28: a "47-es kanban kartya" nyitva volt a VS Code panelen,
+    // kozben a folyamata nem futott. Ha ilyenkor csak annyit irnank ki, hogy
+    // "nem fut", az szemben allna azzal, amit a sajat kepernyojen lat. A
+    // nyitottsagot a VS Code sajat listajabol MERJUK -- ha megvan, mondjuk is.
+    const notRunningKey = tb.vscodeOpen === true ? 'cb.card.tab_open_not_running' : 'cb.card.tab_not_running'
     const notRunning = tb.live === false
-      ? '<span class="cb-tab-closed" title="' + escapeAttr(t('cb.card.tab_not_running_help')) + '">'
-        + escapeHtml(t('cb.card.tab_not_running')) + '</span>'
+      ? '<span class="cb-tab-closed" title="' + escapeAttr(t(notRunningKey + '_help')) + '">'
+        + escapeHtml(t(notRunningKey)) + '</span>'
       : ''
     return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
       + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
