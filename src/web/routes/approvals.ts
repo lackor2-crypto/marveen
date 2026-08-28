@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { PROJECT_ROOT, MAIN_AGENT_ID, currentOwnerName } from '../../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID, WEB_PORT, currentOwnerName } from '../../config.js'
 import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
@@ -18,6 +18,13 @@ import { startAgentProcess, isAgentRunning, sessionExistsOnHost } from '../agent
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listKanbanCards } from '../../db.js'
 import { similarCardsBeforeClose, approvalCardId } from '../../kanban-related.js'
+import {
+  parseVerificationMode, buildVerificationPrompt,
+  isCodeBridgeAgent, codeBridgeProjectOf,
+  type VerificationMode,
+} from '../../approval-verification-dispatch.js'
+import { enqueueCodeTask, getCodeSession } from '../code-bridge-store.js'
+import { CODE_BRIDGE_ENABLED } from '../../config.js'
 import type { RouteContext } from './types.js'
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
@@ -325,6 +332,12 @@ export function canonicalAgentId(raw: string): string {
  * Who a verification task is sent "from". See the call sites for the why; kept
  * here so the dispatch path and the stale-verification sweep cannot drift apart.
  */
+/** Where the executor reads the bearer token from, and which dashboard it
+ *  reports to. The port comes from config -- a hardcoded 3420 breaks every
+ *  install that runs on a different one (host-agnostic-development). */
+export const VERIFY_TOKEN_PATH = join(PROJECT_ROOT, 'store', '.dashboard-token')
+export const VERIFY_BASE_URL = `http://localhost:${WEB_PORT}`
+
 export function verificationSender(targetAgent: string): string {
   return isMainChannelsAgent(targetAgent) ? 'system' : MAIN_AGENT_ID
 }
@@ -605,7 +618,7 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const approval = getApproval(approvalId)
     if (!approval) { json(res, { error: 'Not found' }, 404); return true }
 
-    let body: { agents?: unknown }
+    let body: { agents?: unknown; mode?: unknown }
     try {
       body = JSON.parse((await readBody(req)).toString())
     } catch {
@@ -614,6 +627,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     }
     const agents = Array.isArray(body.agents) ? body.agents.filter((a): a is string => typeof a === 'string' && a.trim().length > 0) : []
     if (agents.length === 0) { json(res, { error: 'agents (non-empty string array) is required' }, 400); return true }
+    // Missing/unknown mode is NEVER an error -- an older dashboard tab or a
+    // copied curl line sends no mode at all, and the safe reading of silence is
+    // the read-only review. See parseVerificationMode().
+    const mode: VerificationMode = parseVerificationMode(body.mode)
 
     const dispatched: string[] = []
     const failed: Array<{ agent: string; error: string }> = []
@@ -633,6 +650,48 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         // The requester verifying its own work defeats the point -- same
         // guard as the self-approval check on PATCH, applied here too.
         failed.push({ agent, error: 'The requesting agent cannot verify its own request' })
+        continue
+      }
+      // A VS Code (code-bridge) executor is addressed as `code:<projectAlias>`.
+      // It has no agents/<name> directory and no tmux session, so NONE of the
+      // sub-agent lifecycle below applies to it: the task goes on the bridge
+      // queue and the Windows worker picks it up. Handled before the existence
+      // checks, which would otherwise resolve agentDir('code:x') to a path that
+      // does not exist and report "Agent not found" for a perfectly live
+      // executor.
+      const codeProject = codeBridgeProjectOf(agent)
+      if (codeProject !== null) {
+        if (!CODE_BRIDGE_ENABLED) {
+          failed.push({ agent, error: 'The code bridge is turned off (CODE_BRIDGE_ENABLED=0) -- turn it on on the Code bridge card, then start this again' })
+          continue
+        }
+        // Ask the SOURCE whether the project exists, rather than inferring it
+        // from an empty result later: an unknown alias and a bridge we cannot
+        // see into are different answers and get different sentences.
+        if (!getCodeSession(codeProject)) {
+          failed.push({ agent, error: `No VS Code project "${codeProject}" is registered on the code bridge -- open it in VS Code and add it on the Code bridge card` })
+          continue
+        }
+        const row = createOrResetApprovalVerification(approvalId, agent, mode)
+        const enqueued = enqueueCodeTask({
+          project: codeProject,
+          prompt: buildVerificationPrompt({
+            mode, approvalId, category: approval.category,
+            actionDescription: approval.action_description,
+            agent, ownerName: currentOwnerName(), tokenPath: VERIFY_TOKEN_PATH, baseUrl: VERIFY_BASE_URL,
+          }),
+          origin: 'dashboard',
+          requestedBy: agent,
+        })
+        if ('error' in enqueued) {
+          // The pending row was already created; leave it resolved as a failure
+          // rather than as a row that will silently wait out the timeout.
+          resolveApprovalVerification(approvalId, agent, 'fail', `Nem sikerult kiosztani a kod-hidon: ${enqueued.error}`)
+          logger.warn({ approvalId, agent, err: enqueued.error, row: row.id }, 'Code-bridge verification dispatch failed')
+          failed.push({ agent, error: enqueued.error })
+          continue
+        }
+        dispatched.push(agent)
         continue
       }
       // The main agent (Marvin) is pickable too (Boss 2026-08-24), but its
@@ -660,31 +719,12 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
           }
         }
       }
-      createOrResetApprovalVerification(approvalId, agent)
-      const prompt = [
-        `Ellenorzesi feladat (${currentOwnerName()} kerte, jovahagyas elott): nezd at ezt a fuggo jovahagyast alaposan.`,
-        `Kategoria: ${approval.category}`,
-        `Leiras: ${approval.action_description}`,
-        ``,
-        `EZ EGY CSAK-OLVASO ELLENORZES. Amit szabad: git log/git show/git diff a relevans commitra, a forrasfajlok`,
-        `olvasasa es keresese, a tesztek futtatasa IZOLALT checkoutban, es olvaso (GET) API-hivas a dashboardon.`,
-        `TILOS barmilyen allapotvaltoztato hivas az ELO rendszeren: nincs POST/PUT/PATCH/DELETE (az egyetlen kivetel a`,
-        `lentebbi verify-result jelentes), nincs jelszo-, felhasznalo-, agens-, beallitas- vagy kartya-modositas, nincs`,
-        `elo levelkuldes, nincs szolgaltatas-ujrainditas es nincs semmi, ami fajlt ir a repon kivul. Egy "csak kiprobalom"`,
-        `hivas itt valodi kart okoz: 2026-08-24-en egy ilyen proba atallitotta a dashboard jelszavat es kileptette a Bosst.`,
-        `Ha a valtoztatas UI-t erint, a fajlokban keresve igazold, hogy az elem tenyleg megvan -- ne kattintsd vegig elesben.`,
-        `Ha az ellenorzeshez elkerulhetetlen lenne egy iro hivas, NE tedd meg: ird le a jelentesben, hogy mit nem tudtal`,
-        `igy ellenorizni.`,
-        ``,
-        `Amikor kesz vagy, jelentsd vissza az eredmenyt EZZEL a hivassal (KOTELEZO, ne csak inter-agent uzenettel):`,
-        `curl -s -X POST http://localhost:3420/api/approvals/${approvalId}/verify-result \\`,
-        `  -H "Content-Type: application/json" \\`,
-        `  -H "Authorization: Bearer $(cat ${join(PROJECT_ROOT, 'store', '.dashboard-token')})" \\`,
-        `  -d '{"agent":"${agent}","status":"pass","report":"rovid osszefoglalo"}'`,
-        ``,
-        `status legyen "pass" ha minden rendben, vagy "fail" ha barmi problemat talalsz -- a report mezoben`,
-        `RÖVIDEN indokold (max nehany mondat), fail eseten konkretan mit talaltal hibasnak.`,
-      ].join('\n')
+      createOrResetApprovalVerification(approvalId, agent, mode)
+      const prompt = buildVerificationPrompt({
+        mode, approvalId, category: approval.category,
+        actionDescription: approval.action_description,
+        agent, ownerName: currentOwnerName(), tokenPath: VERIFY_TOKEN_PATH, baseUrl: VERIFY_BASE_URL,
+      })
       try {
         // Sender: MAIN_AGENT_ID stands for "the dashboard/coordinator" for
         // sub-agents. For the main agent itself that would be a from === to
@@ -697,8 +737,8 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
         failed.push({ agent, error: err instanceof Error ? err.message : 'Failed to dispatch' })
       }
     }
-    logger.info({ approvalId, dispatched, failed }, 'Approval verification dispatched')
-    json(res, { ok: true, dispatched, failed })
+    logger.info({ approvalId, mode, dispatched, failed }, 'Approval verification dispatched')
+    json(res, { ok: true, mode, dispatched, failed })
     return true
   }
 

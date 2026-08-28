@@ -20398,7 +20398,14 @@ function _approvalVerifyCellHtml(a) {
     // means "the change is broken"). Amber circle: the review did not happen.
     const icon = v.status === 'pass' ? '✅' : v.status === 'fail' ? '❌' : v.status === 'noresponse' ? '🟠' : '⏳'
     const title = escapeAttr(_verifyReportText(v))
-    return `<span title="${title}" style="white-space:nowrap">${icon} ${escapeHtml(chatDisplayName(v.agent))}</span>`
+    // Which JOB the row was: a read-only review and a repair assignment are not
+    // the same green tick, and the finished line has to say which one it was
+    // (Boss 2026-08-24). Rows written before the fix mode existed read back as
+    // 'verify' from the column default, which is what they actually were.
+    const modeMark = v.mode === 'fix'
+      ? ` <span title="${escapeAttr(t('approvals.verify.mode_fix_name'))}">🔧</span>`
+      : ''
+    return `<span title="${title}" style="white-space:nowrap">${icon} ${escapeHtml(_verifyAgentLabel(v.agent))}${modeMark}</span>`
   }).join('<br>')
   let summary
   if (failed.length > 0) {
@@ -20420,6 +20427,16 @@ function _approvalVerifyCellHtml(a) {
 // The sweep stores a stable reason CODE in `report` (never a sentence), so the
 // explanation can be shown in the reader's own language. Anything else is an
 // agent's own free-text write-up and is shown verbatim.
+// A VS Code executor is stored as `code:<projectAlias>`, which chatDisplayName
+// cannot resolve (it is not a fleet agent). Show it as the project it is, so
+// the row does not read as a broken agent id.
+function _verifyAgentLabel(agent) {
+  if (typeof agent === 'string' && agent.startsWith('code:')) {
+    return t('approvals.verify.code_agent_label', { project: agent.slice('code:'.length) })
+  }
+  return chatDisplayName(agent)
+}
+
 function _verifyReportText(v) {
   if (v.status === 'noresponse') {
     if (v.report === 'noresponse:agent_gone') return t('approvals.verify.noresponse_agent_gone')
@@ -20491,6 +20508,45 @@ function _verifyPickerOutsideClick(e) {
   if (_verifyPickerPopover && !_verifyPickerPopover.contains(e.target)) _closeVerifyPicker()
 }
 
+// Returns { projects: [{alias, label}], note: {text, tone} | null }.
+// `note` is never null-because-we-gave-up: every path that yields no usable
+// project produces a SENTENCE. tone 'info' for the states that are simply not
+// set up yet (a fresh install must not look broken), 'warn' for the ones where
+// something that should be running is not.
+async function _loadVerifyCodeAgents() {
+  let health
+  try {
+    const r = await fetch('/api/code/health')
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    health = await r.json()
+  } catch {
+    return { projects: [], note: { text: t('approvals.verify.code_unreachable'), tone: 'warn' } }
+  }
+  if (health.enabled === false) {
+    return { projects: [], note: { text: t('approvals.verify.code_disabled'), tone: 'info' } }
+  }
+  let projects
+  try {
+    const r = await fetch('/api/code/projects')
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    const data = await r.json()
+    projects = Array.isArray(data.projects) ? data.projects : []
+  } catch {
+    return { projects: [], note: { text: t('approvals.verify.code_unreachable'), tone: 'warn' } }
+  }
+  if (!projects.length) {
+    return { projects: [], note: { text: t('approvals.verify.code_none_yet'), tone: 'info' } }
+  }
+  const list = projects.map(p => ({ alias: p.project, label: p.project }))
+  // Projects exist but nobody is executing: the task would sit in the queue.
+  // That is worth saying out loud, and it does NOT hide the list -- the work is
+  // picked up as soon as the worker comes back.
+  const note = health.workerOnline
+    ? null
+    : { text: t('approvals.verify.code_worker_offline'), tone: 'warn' }
+  return { projects: list, note }
+}
+
 async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   _closeVerifyPicker()
   const pop = document.createElement('div')
@@ -20537,6 +20593,18 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   } catch {
     mainAgentMissing = true
   }
+  // The VS Code executors (Boss 2026-08-24: "es ott abban a listaban remelem
+  // lathato a vscode ugynok is! Mert javitasra az a legjobb!"). They are not
+  // fleet agents -- no agents/ directory, no tmux session -- so they come from
+  // the code bridge and are addressed as `code:<projectAlias>`.
+  //
+  // AN EMPTY LIST HERE MEANS FOUR DIFFERENT THINGS, and the popover has to say
+  // WHICH: the bridge is switched off, nothing is wired up yet (a fresh install
+  // -- neutral, not an error), the Windows worker is not reporting, or the
+  // request itself failed and we simply cannot see. Showing one row less in
+  // silence is the failure mode this section exists to avoid.
+  const codeState = await _loadVerifyCodeAgents()
+
   // The agent who ASKED for the approval cannot verify it -- that is the whole
   // point of a second pair of eyes. It used to be filtered out of the list
   // silently, which reads as "that agent is missing/broken" rather than as a
@@ -20544,13 +20612,30 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   // had been looking at approvals that agent had requested itself). So it stays
   // ON the list, shown but not selectable, with the reason next to it.
   const selectable = agentList.filter(ag => ag.name !== requesterAgentId)
-  if (!selectable.length) {
+  // "No fleet agent" is not the same as "nothing to dispatch to": a VS Code
+  // executor is a valid target on its own, so the popover only gives up when
+  // BOTH lists are empty -- and even then it still prints the code-bridge
+  // sentence, so the reason is visible instead of just an absence.
+  if (!selectable.length && !codeState.projects.length) {
     pop.innerHTML = `<p style="margin:0;font-size:12px;color:var(--text-muted)">${t('approvals.verify.no_agents')}</p>`
+      + (codeState.note ? `<p style="margin:6px 0 0;font-size:11px;color:${codeState.note.tone === 'warn' ? 'var(--warning)' : 'var(--text-muted)'}">${escapeHtml(codeState.note.text)}</p>` : '')
     _placeVerifyPicker()
     return
   }
   const freeNames = selectable.filter(ag => isFreeModel(ag.model)).map(ag => ag.name)
   pop.innerHTML = `
+    <div class="verify-mode-choice">
+      <label class="verify-mode-option">
+        <input type="radio" name="verifyMode" value="verify" checked>
+        <span class="verify-mode-name">${escapeHtml(t('approvals.verify.mode_verify_name'))}</span>
+        <span class="verify-mode-hint">${escapeHtml(t('approvals.verify.mode_verify_hint'))}</span>
+      </label>
+      <label class="verify-mode-option">
+        <input type="radio" name="verifyMode" value="fix">
+        <span class="verify-mode-name">${escapeHtml(t('approvals.verify.mode_fix_name'))}</span>
+        <span class="verify-mode-hint">${escapeHtml(t('approvals.verify.mode_fix_hint'))}</span>
+      </label>
+    </div>
     <p style="margin:0 0 6px;font-size:12px;font-weight:600">${t('approvals.verify.picker_title')}</p>
     <div class="verify-picker-list">
       ${agentList.map(ag => {
@@ -20563,6 +20648,16 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
       `}).join('')}
     </div>
     ${mainAgentMissing ? `<p style="margin:6px 0 0;font-size:11px;color:var(--warning)">${escapeHtml(t('approvals.verify.main_unavailable'))}</p>` : ''}
+    <div class="verify-picker-group-title">${escapeHtml(t('approvals.verify.code_group_title'))}</div>
+    ${codeState.projects.length ? `<div class="verify-picker-list verify-picker-code">
+      ${codeState.projects.map(pr => `
+        <label class="verify-picker-item">
+          <input type="checkbox" value="${escapeAttr('code:' + pr.alias)}">
+          ${escapeHtml(pr.label)}
+        </label>
+      `).join('')}
+    </div>` : ''}
+    ${codeState.note ? `<p style="margin:4px 0 0;font-size:11px;line-height:1.35;color:${codeState.note.tone === 'warn' ? 'var(--warning)' : 'var(--text-muted)'}">${escapeHtml(codeState.note.text)}</p>` : ''}
     ${freeNames.length ? `<button class="btn-secondary btn-compact" id="verifyPickAllFree" style="font-size:11px;margin-top:6px;width:100%">${t('approvals.verify.pick_all_free')}</button>` : ''}
     <button class="btn-primary btn-compact" id="verifyPickerGo" style="font-size:11px;margin-top:8px;width:100%">${t('approvals.verify.picker_go')}</button>
   `
@@ -20570,6 +20665,16 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
   _placeVerifyPicker()
   pop.querySelector('#verifyPickAllFree')?.addEventListener('click', () => {
     pop.querySelectorAll('input[type=checkbox]:not(:disabled)').forEach(cb => { cb.checked = cb.dataset.free === '1' })
+  })
+  // The button says what it is about to DO. "Ellenőrzés indítása" on a dispatch
+  // that will change code would be the wrong promise (user-is-not-a-programmer).
+  const _verifyPickedMode = () => pop.querySelector('input[name=verifyMode]:checked')?.value === 'fix' ? 'fix' : 'verify'
+  const _verifyGoLabel = () => t(_verifyPickedMode() === 'fix' ? 'approvals.verify.picker_go_fix' : 'approvals.verify.picker_go')
+  pop.querySelectorAll('input[name=verifyMode]').forEach(r => {
+    r.addEventListener('change', () => {
+      const b = pop.querySelector('#verifyPickerGo')
+      if (b && !b.disabled) b.textContent = _verifyGoLabel()
+    })
   })
   pop.querySelector('#verifyPickerGo').addEventListener('click', async () => {
     // :not(:disabled) belt-and-braces -- a disabled box cannot be ticked by
@@ -20584,21 +20689,21 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
       const res = await fetch(`/api/approvals/${encodeURIComponent(approvalId)}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agents: chosen }),
+        body: JSON.stringify({ agents: chosen, mode: _verifyPickedMode() }),
       })
       const result = await res.json()
       if (!res.ok) throw new Error(result.error || 'HTTP ' + res.status)
       if (result.failed && result.failed.length) {
         showToast(t('approvals.verify.some_failed', { list: result.failed.map(f => `${f.agent}: ${f.error}`).join('; ') }))
       } else {
-        showToast(t('approvals.verify.dispatched_ok', { n: result.dispatched.length }))
+        showToast(t(_verifyPickedMode() === 'fix' ? 'approvals.verify.dispatched_fix_ok' : 'approvals.verify.dispatched_ok', { n: result.dispatched.length }))
       }
       _closeVerifyPicker()
       await loadApprovalsPage()
     } catch (err) {
       showToast(`${t('common.error_save')}: ${err.message}`)
       goBtn.disabled = false
-      goBtn.textContent = t('approvals.verify.picker_go')
+      goBtn.textContent = _verifyGoLabel()
     }
   })
 }

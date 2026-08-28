@@ -874,6 +874,13 @@ export function initDatabase(dbPathOverride?: string): void {
       agent TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending'
         CHECK(status IN ('pending','pass','fail','noresponse')),
+      -- 'verify' = read-only review (the original behaviour, hence the
+      -- default), 'fix' = the agent was asked to repair what a review found.
+      -- Stored per row because the page has to say which one a finished line
+      -- actually was: "checked it and it is fine" and "was told to repair it
+      -- and reports done" are not the same green tick.
+      mode TEXT NOT NULL DEFAULT 'verify'
+        CHECK(mode IN ('verify','fix')),
       report TEXT,
       requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
       resolved_at INTEGER,
@@ -892,9 +899,31 @@ export function initDatabase(dbPathOverride?: string): void {
   // and reminded_at so the sweep nudges an agent exactly once before giving
   // up on it. Table rebuild because the status CHECK constraint is part of
   // the schema; idempotent (guarded on the constraint text).
+  // 2026-08-28 (mode): the same rebuild now also runs for a database that has
+  // 'noresponse' but no `mode` column. It has to be a REBUILD and not just an
+  // ALTER, because SQLite cannot attach a CHECK constraint to an added column
+  // -- and a install whose constraint depends on how old the database is is
+  // exactly the kind of difference nobody notices until it matters. The column
+  // list is read from the live table rather than written out, so all three
+  // shapes (pre-noresponse, pre-reminded_at, pre-mode) copy correctly and a
+  // missing column falls back to the value the new schema would have given it.
   try {
     const avSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approval_verifications'").get() as { sql: string } | undefined
-    if (avSchema?.sql && !avSchema.sql.includes("'noresponse'")) {
+    const needsRebuild = Boolean(avSchema?.sql) && (
+      !avSchema!.sql.includes("'noresponse'") || !/\bmode\b/.test(avSchema!.sql)
+    )
+    if (needsRebuild) {
+      const have = new Set(
+        (db.prepare('PRAGMA table_info(approval_verifications)').all() as { name: string }[]).map(c => c.name),
+      )
+      // column -> what to SELECT for it when the old table does not have it.
+      const carry: Array<[string, string]> = [
+        ['id', 'id'], ['approval_id', 'approval_id'], ['agent', 'agent'], ['status', 'status'],
+        ['mode', "'verify'"], ['report', 'report'],
+        ['requested_at', 'requested_at'], ['resolved_at', 'resolved_at'], ['reminded_at', 'NULL'],
+      ]
+      const cols = carry.map(([name]) => name).join(', ')
+      const src = carry.map(([name, fallback]) => (have.has(name) ? name : fallback)).join(', ')
       db.exec(`
         CREATE TABLE approval_verifications_new (
           id TEXT PRIMARY KEY,
@@ -902,26 +931,33 @@ export function initDatabase(dbPathOverride?: string): void {
           agent TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'pending'
             CHECK(status IN ('pending','pass','fail','noresponse')),
+          mode TEXT NOT NULL DEFAULT 'verify'
+            CHECK(mode IN ('verify','fix')),
           report TEXT,
           requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
           resolved_at INTEGER,
           reminded_at INTEGER,
           UNIQUE(approval_id, agent)
         );
-        INSERT INTO approval_verifications_new (id, approval_id, agent, status, report, requested_at, resolved_at, reminded_at)
-          SELECT id, approval_id, agent, status, report, requested_at, resolved_at, NULL
-          FROM approval_verifications;
+        INSERT INTO approval_verifications_new (${cols}) SELECT ${src} FROM approval_verifications;
         DROP TABLE approval_verifications;
         ALTER TABLE approval_verifications_new RENAME TO approval_verifications;
       `)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_approval_verifications_approval ON approval_verifications(approval_id)`)
     }
   } catch (err) {
-    logger.warn({ err }, 'approval_verifications noresponse migration failed -- continuing')
+    logger.warn({ err }, 'approval_verifications schema migration failed -- continuing')
   }
   // Older DBs that already had 'noresponse' but not the column (never shipped,
   // but cheap to be safe about).
   try { db.exec('ALTER TABLE approval_verifications ADD COLUMN reminded_at INTEGER') } catch { /* already exists */ }
+
+  // `mode` on an existing database. Deliberately AFTER the rebuild above: that
+  // block carries its own literal column list, so a DB that goes through the
+  // noresponse rebuild in this same startup comes out without `mode` and picks
+  // it up right here. DEFAULT 'verify' is what makes the backfill correct --
+  // every row that predates the fix mode WAS a read-only review.
+  try { db.exec("ALTER TABLE approval_verifications ADD COLUMN mode TEXT NOT NULL DEFAULT 'verify'") } catch { /* already exists */ }
 
   // --- Dashboard browser login (OPTIONAL; the bearer token stays primary) ---
   // Zero rows here = exactly the token-only behavior. A row is created only when
@@ -3471,6 +3507,9 @@ export interface ApprovalVerification {
    *  (provider error, dead model, or it just answered in chat without calling
    *  the endpoint). It is NOT a verdict on the change under review. */
   status: 'pending' | 'pass' | 'fail' | 'noresponse'
+  /** What was asked of the agent: a read-only review, or a repair.
+   *  Old rows read back as 'verify' (column default), which is what they were. */
+  mode: 'verify' | 'fix'
   report: string | null
   requested_at: number
   resolved_at: number | null
@@ -3481,17 +3520,23 @@ export interface ApprovalVerification {
 // agent that already has a row for this approval REPLACES it (fresh
 // 'pending' state) rather than duplicating -- re-running a check should not
 // leave a stale pass/fail sitting next to the new pending one.
-export function createOrResetApprovalVerification(approvalId: string, agent: string): ApprovalVerification {
+export function createOrResetApprovalVerification(
+  approvalId: string,
+  agent: string,
+  mode: 'verify' | 'fix' = 'verify',
+): ApprovalVerification {
   const id = `${approvalId}:${agent}`
   const now = Math.floor(Date.now() / 1000)
+  // The mode is part of the RESET too: re-dispatching the same agent as a
+  // fixer must not leave the row claiming it was a read-only review.
   db.prepare(`
-    INSERT INTO approval_verifications (id, approval_id, agent, status, report, requested_at, resolved_at, reminded_at)
-    VALUES (?, ?, ?, 'pending', NULL, ?, NULL, NULL)
+    INSERT INTO approval_verifications (id, approval_id, agent, status, mode, report, requested_at, resolved_at, reminded_at)
+    VALUES (?, ?, ?, 'pending', ?, NULL, ?, NULL, NULL)
     ON CONFLICT(approval_id, agent) DO UPDATE SET
-      status = 'pending', report = NULL, requested_at = excluded.requested_at, resolved_at = NULL,
+      status = 'pending', mode = excluded.mode, report = NULL, requested_at = excluded.requested_at, resolved_at = NULL,
       reminded_at = NULL
-  `).run(id, approvalId, agent, now)
-  return { id, approval_id: approvalId, agent, status: 'pending', report: null, requested_at: now, resolved_at: null, reminded_at: null }
+  `).run(id, approvalId, agent, mode, now)
+  return { id, approval_id: approvalId, agent, status: 'pending', mode, report: null, requested_at: now, resolved_at: null, reminded_at: null }
 }
 
 export function listApprovalVerifications(approvalId: string): ApprovalVerification[] {

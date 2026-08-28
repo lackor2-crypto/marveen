@@ -12,15 +12,19 @@
 // sweep job sends later (verification-sweep-job.ts). A reminder that repeats
 // only the reporting call would silently re-open the hole.
 //
-// This is a source-text assertion on purpose: the dispatch prompt is built
-// inline inside the route handler, so there is no seam to call. What matters is
-// that neither text can quietly drift back to "try it out for real".
+// This is a source-text assertion on purpose. The dispatch prompt moved into
+// ../approval-verification-dispatch.ts when the fix mode was added (Boss
+// 2026-08-24) -- so the assertion follows it there. What matters is unchanged:
+// neither text can quietly drift back to "try it out for real", and the SECOND
+// mode that module now knows how to build must not be able to launder write
+// permission into the review prompt.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PROJECT_ROOT } from '../config.js'
+import { buildVerificationPrompt } from '../approval-verification-dispatch.js'
 
-const DISPATCH = join(PROJECT_ROOT, 'src', 'web', 'routes', 'approvals.ts')
+const DISPATCH = join(PROJECT_ROOT, 'src', 'approval-verification-dispatch.ts')
 const REMINDER = join(PROJECT_ROOT, 'src', 'web', 'verification-sweep-job.ts')
 
 function read(path: string): string {
@@ -47,5 +51,23 @@ describe('verification prompts state the read-only limit', () => {
       const text = read(path)
       expect(text).toContain('verify-result')
     }
+  })
+
+  // The read-only guarantee is a property of the REVIEW mode, and the module
+  // now builds two prompts. Asserted against the built strings, not the file
+  // text, so a future edit cannot satisfy the file-level checks above while
+  // handing the reviewer write permission.
+  it('the built review prompt is read-only; only the fix prompt may write', () => {
+    const common = {
+      approvalId: 'x', category: 'c', actionDescription: 'd', agent: 'a',
+      ownerName: 'o', tokenPath: '/t', baseUrl: 'http://localhost:1',
+    } as const
+    const review = buildVerificationPrompt({ ...common, mode: 'verify' })
+    expect(review).toContain('CSAK-OLVASO ELLENORZES')
+    expect(review).toContain('POST/PUT/PATCH/DELETE')
+    expect(review).not.toContain('JAVITASI FELADAT')
+
+    const fix = buildVerificationPrompt({ ...common, mode: 'fix' })
+    expect(fix).not.toContain('CSAK-OLVASO')
   })
 })

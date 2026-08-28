@@ -5,7 +5,7 @@
 // flight) and then on a timer.
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { PROJECT_ROOT } from '../config.js'
+import { PROJECT_ROOT, WEB_PORT } from '../config.js'
 import {
   createAgentMessage,
   listPendingVerificationsOlderThan,
@@ -19,6 +19,8 @@ import { runVerificationSweep, type VerificationSweepResult } from '../approval-
 import { verificationSender } from './routes/approvals.js'
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { sessionExistsOnHost } from './agent-process.js'
+import { codeBridgeProjectOf } from '../approval-verification-dispatch.js'
+import { getCodeSession } from './code-bridge-store.js'
 
 /** How often the timer fires. Well under the 10 minute reminder threshold so
  *  a nudge is never delayed by a full sweep interval. */
@@ -30,7 +32,7 @@ function reminderPrompt(row: ApprovalVerification): string {
     `Emlekezteto: kaptal egy ellenorzesi feladatot (jovahagyas ${row.approval_id}), es meg nem jelentetted vissza az eredmenyt.`,
     ``,
     `Egy panelben leirt valasz NEM szamit jelentesnek -- a rendszer csak ezt a hivast latja:`,
-    `curl -s -X POST http://localhost:3420/api/approvals/${row.approval_id}/verify-result \\`,
+    `curl -s -X POST http://localhost:${WEB_PORT}/api/approvals/${row.approval_id}/verify-result \\`,
     `  -H "Content-Type: application/json" \\`,
     `  -H "Authorization: Bearer $(cat ${tokenPath})" \\`,
     `  -d '{"agent":"${row.agent}","status":"pass","report":"rovid osszefoglalo"}'`,
@@ -50,10 +52,28 @@ export function sweepApprovalVerifications(now = Date.now()): VerificationSweepR
     // mar nem letezik", es 10 perc utan minden ellenorzeset lezarta volna --
     // mikozben Marvin el es epp dolgozik. Rola a sajat forrasat kerdezzuk: fut-e
     // a channels munkamenete.
-    agentExists: (agent) => isMainChannelsAgent(agent)
-      ? sessionExistsOnHost(null, MAIN_CHANNELS_SESSION)
-      : existsSync(agentDir(agent)),
+    agentExists: (agent) => {
+      // A VS Code executor (`code:<alias>`) has no agents/<name> directory, so
+      // the folder test would have called EVERY code-bridge row "the agent no
+      // longer exists" ten minutes after dispatch -- the exact class of lie
+      // this sweep was written to stop telling about the main agent. Ask the
+      // bridge instead: a project that is still registered can still answer.
+      const codeProject = codeBridgeProjectOf(agent)
+      if (codeProject !== null) return getCodeSession(codeProject) !== null
+      return isMainChannelsAgent(agent)
+        ? sessionExistsOnHost(null, MAIN_CHANNELS_SESSION)
+        : existsSync(agentDir(agent))
+    },
     sendReminder: (row) => {
+      // A code-bridge row cannot be nudged: there is no inbox to put a message
+      // in, and re-queueing the task would make the executor do the work a
+      // second time -- for a 'fix' that means applying the same change twice.
+      // So it is left to time out normally ('noresponse:timeout'), which is the
+      // honest outcome: the task was handed over and no report came back.
+      if (codeBridgeProjectOf(row.agent) !== null) {
+        logger.info({ agent: row.agent, approvalId: row.approval_id }, 'Code-bridge verification not nudged (no inbox); left to time out')
+        return false
+      }
       try {
         // Same sender rule as the dispatch path: the main agent must not be
         // nudged by a message that appears to come from itself.

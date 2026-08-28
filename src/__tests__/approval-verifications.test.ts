@@ -41,7 +41,8 @@ vi.mock('node:fs', async (importOriginal) => {
 })
 
 import { tryHandleApprovals, verificationSender } from '../web/routes/approvals.js'
-import { getPendingMessages } from '../db.js'
+import { getPendingMessages, listApprovalVerifications } from '../db.js'
+import { resetCodeBridgeTablesForTests, upsertCodeSession, listCodeTasks } from '../web/code-bridge-store.js'
 import type { RouteContext } from '../web/routes/types.js'
 
 function fakeReq(method: string, path: string, body?: unknown): { ctx: RouteContext; out: { status: number; body: any } } {
@@ -71,6 +72,10 @@ describe('approval verifications', () => {
     existingAgentDirs.clear()
     existingAgentDirs.add('gemma')
     existingAgentDirs.add('north')
+    // The bridge tables are created lazily behind a module-level flag, so a new
+    // in-memory database needs the flag cleared or the tables land in the DB of
+    // whichever test ran first.
+    resetCodeBridgeTablesForTests()
   })
 
   it('dispatches to a known, non-requester agent and creates a pending row', async () => {
@@ -194,5 +199,116 @@ describe('approval verifications', () => {
     await tryHandleApprovals(ctx)
     expect(out.body).toHaveLength(1)
     expect(out.body[0]).toMatchObject({ status: 'pending', report: null })
+  })
+})
+
+// --- mode: review vs. fix (Boss 2026-08-24) --------------------------------
+describe('verification mode on the dispatch endpoint', () => {
+  beforeEach(() => {
+    initDatabase(':memory:')
+    runningAgents.clear()
+    startAgentProcessMock.mockClear()
+    liveTmuxSessions.clear()
+    liveTmuxSessions.add('lackor2-bot-channels')
+    existingAgentDirs.clear()
+    existingAgentDirs.add('gemma')
+    resetCodeBridgeTablesForTests()
+  })
+
+  it("stores 'verify' when the caller sends no mode at all -- an old client must not gain write rights", async () => {
+    const approval = createApproval({ id: 'm1', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] })
+    await tryHandleApprovals(ctx)
+    expect(out.body.mode).toBe('verify')
+    expect(listApprovalVerifications(approval.id)[0]!.mode).toBe('verify')
+    expect(getPendingMessages('gemma')[0]!.content).toContain('CSAK-OLVASO ELLENORZES')
+  })
+
+  it("stores 'verify' for an unknown mode rather than failing the dispatch", async () => {
+    const approval = createApproval({ id: 'm2', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'], mode: 'repair' })
+    await tryHandleApprovals(ctx)
+    expect(out.status).toBe(200)
+    expect(out.body.mode).toBe('verify')
+  })
+
+  it("dispatches a real fix job when mode is 'fix'", async () => {
+    const approval = createApproval({ id: 'm3', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'], mode: 'fix' })
+    await tryHandleApprovals(ctx)
+    expect(out.body.mode).toBe('fix')
+    expect(listApprovalVerifications(approval.id)[0]!.mode).toBe('fix')
+    const prompt = getPendingMessages('gemma')[0]!.content
+    expect(prompt).toContain('JAVITASI FELADAT')
+    expect(prompt).not.toContain('CSAK-OLVASO')
+    expect(prompt).toContain('NE merge-eld')
+  })
+
+  it('re-dispatching the same agent replaces the stored mode, never leaves a stale one', async () => {
+    const approval = createApproval({ id: 'm4', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
+    expect(listApprovalVerifications(approval.id)[0]!.mode).toBe('verify')
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'], mode: 'fix' }).ctx)
+    const rows = listApprovalVerifications(approval.id)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.mode).toBe('fix')
+    expect(rows[0]!.status).toBe('pending')
+  })
+})
+
+// --- the VS Code executor as a dispatch target ----------------------------
+describe('dispatching to a VS Code (code-bridge) executor', () => {
+  beforeEach(() => {
+    initDatabase(':memory:')
+    runningAgents.clear()
+    startAgentProcessMock.mockClear()
+    liveTmuxSessions.clear()
+    liveTmuxSessions.add('lackor2-bot-channels')
+    existingAgentDirs.clear()
+    resetCodeBridgeTablesForTests()
+    upsertCodeSession({ project: 'someproject', workspacePath: 'C:\\ws\\someproject', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' })
+  })
+
+  it('queues a code task instead of an inter-agent message, and shows a pending row', async () => {
+    const approval = createApproval({ id: 'c1', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject'], mode: 'fix' })
+    await tryHandleApprovals(ctx)
+    expect(out.body.dispatched).toEqual(['code:someproject'])
+    expect(out.body.failed).toEqual([])
+    // No sub-agent process was started -- a VS Code executor has none.
+    expect(startAgentProcessMock).not.toHaveBeenCalled()
+
+    const tasks = listCodeTasks({ project: 'someproject' })
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]!.prompt).toContain('JAVITASI FELADAT')
+    // It has to report back under the SAME id the row was created with.
+    expect(tasks[0]!.prompt).toContain('"agent":"code:someproject"')
+
+    const rows = listApprovalVerifications(approval.id)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ agent: 'code:someproject', status: 'pending', mode: 'fix' })
+  })
+
+  it('says WHICH project is unknown instead of reporting a generic "agent not found"', async () => {
+    const approval = createApproval({ id: 'c2', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:nosuchproject'] })
+    await tryHandleApprovals(ctx)
+    expect(out.body.dispatched).toEqual([])
+    expect(out.body.failed[0].agent).toBe('code:nosuchproject')
+    expect(out.body.failed[0].error).toContain('nosuchproject')
+    // No half-finished row left behind claiming a review is in progress.
+    expect(listApprovalVerifications(approval.id)).toHaveLength(0)
+  })
+
+  it('the executor reports back through the ordinary verify-result endpoint', async () => {
+    const approval = createApproval({ id: 'c3', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'X' })
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['code:someproject'], mode: 'fix' }).ctx)
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify-result`, {
+      agent: 'code:someproject', status: 'pass', report: 'megjavitva',
+    })
+    await tryHandleApprovals(ctx)
+    expect(out.status).toBe(200)
+    expect(out.body).toEqual({ ok: true })
+    expect(listApprovalVerifications(approval.id)[0]).toMatchObject({ status: 'pass', mode: 'fix' })
   })
 })
