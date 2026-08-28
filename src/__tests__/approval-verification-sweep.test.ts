@@ -42,7 +42,18 @@ function harness(rows: ApprovalVerification[], over: Partial<VerificationSweepDe
     listPendingOlderThan: (cutoffSec) => rows.filter(r => r.status === 'pending' && r.requested_at <= cutoffSec),
     agentExists: () => true,
     sendReminder: (r) => { reminders.push(r.agent); return true },
-    markReminded: (id) => { remindedMarks.push(id); return true },
+    // Kanban 2a32b51e: a stub that always said yes is exactly what let a dead
+    // repeat window ship green. The real store refuses when a nudge already
+    // went out after the cutoff the sweep passes in, so mirror that here --
+    // a stub more permissive than production tests nothing.
+    markReminded: (id, atSec, notRemindedSinceSec) => {
+      const target = rows.find(r => r.id === id)
+      if (!target || target.status !== 'pending') return false
+      if (target.reminded_at != null && target.reminded_at > notRemindedSinceSec) return false
+      target.reminded_at = atSec
+      remindedMarks.push(id)
+      return true
+    },
     markNoResponse: (id, reason) => { noResponses.push({ id, reason }); return true },
     ...over,
   }
@@ -97,6 +108,17 @@ describe('stale approval-verification sweep', () => {
     )
     expect(noResponses).toEqual([])
     expect(reminders).toEqual(['lackor2-bot'])
+  })
+
+  // Ha ket sopres atfed (indulaskori + a 2 perces timer), a masodik nem kuldhet
+  // meg egy emlekeztetot ugyanarra a sorra: a dontes a sweep-e, a versenyt a
+  // tarolo zarja ki -- es ha az nemet mond, kuldeni sem szabad.
+  it('nem kuld, ha a tarolo elutasitja a jelolest (atfedo sopresek)', () => {
+    const { reminders, result } = harness([row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })], {
+      markReminded: () => false,
+    })
+    expect(reminders).toEqual([])
+    expect(result.reminded).toEqual([])
   })
 
   it('gives up past the timeout so the counter can resolve', () => {

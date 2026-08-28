@@ -63,10 +63,12 @@ export function codeBridgeProjectOf(agent: string): string | null {
  * ⚠ LANDING POLICY -- THE ONE PLACE TO CHANGE IT.
  *
  * Whether an agent that fixed something may merge it into the main branch by
- * itself is the owner's call. Asked on 2026-08-28, answered the same day:
- * free rein. The fixer commits and lands on its own, and does not wait for a
- * review -- consistent with the rule that a single reviewer must never become
- * the fleet's bottleneck (CLAUDE.md, 2026-08-25).
+ * itself is the owner's call, and it HAS been made -- do not read this block
+ * as still open. Source: Boss, Telegram message 4404, 2026-08-28, answering
+ * the choice with a single letter, "A" = free rein. The fixer commits and
+ * lands on its own and does not wait for a review, consistent with the rule
+ * that a single reviewer must never become the fleet's bottleneck (CLAUDE.md,
+ * 2026-08-25).
  *
  * The green suite is what replaces the review here, so the two halves are NOT
  * separable: "land it yourself" only holds together with the full-suite +

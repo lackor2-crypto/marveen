@@ -3577,12 +3577,34 @@ export function listPendingVerificationsOlderThan(cutoffEpochSec: number): Appro
   `).all(cutoffEpochSec) as ApprovalVerification[]
 }
 
-/** Marks the nudge as sent so an agent is only ever reminded once per task. */
-export function markVerificationReminded(id: string, atEpochSec: number): boolean {
+/**
+ * Records that a nudge is going out, and refuses if one already went out
+ * AFTER `notRemindedSinceEpochSec`.
+ *
+ * The cutoff is passed IN, by the sweep, which is the only place that knows
+ * the repeat window. This used to be a hardcoded `reminded_at IS NULL`, and
+ * that one predicate quietly cancelled the repeat feature above it (kanban
+ * 2a32b51e): the sweep decided a second nudge was due, called this, got 0
+ * rows changed -- and the guard `if (markReminded(...))` meant the reminder
+ * was never even attempted. Exactly one nudge ever went out per task, while
+ * both the code comments and the owner's request said they repeat. The unit
+ * test could not see it because its harness stubs this function as always
+ * true; a real-database test now covers it.
+ *
+ * This stays a WRITE-then-send guard rather than the decision itself: two
+ * sweep ticks overlapping must not both send, and whichever loses the UPDATE
+ * race gets `false` and stays quiet.
+ */
+export function markVerificationReminded(
+  id: string,
+  atEpochSec: number,
+  notRemindedSinceEpochSec: number,
+): boolean {
   return db.prepare(`
     UPDATE approval_verifications SET reminded_at = ?
-     WHERE id = ? AND status = 'pending' AND reminded_at IS NULL
-  `).run(atEpochSec, id).changes > 0
+     WHERE id = ? AND status = 'pending'
+       AND (reminded_at IS NULL OR reminded_at <= ?)
+  `).run(atEpochSec, id, notRemindedSinceEpochSec).changes > 0
 }
 
 /** Gives up on a row: terminal 'noresponse' state so the counter can resolve.

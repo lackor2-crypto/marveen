@@ -85,9 +85,17 @@ export interface VerificationSweepDeps {
    * sajat channels-munkamenete -- lasd verification-sweep-job.ts.
    */
   agentExists(agent: string): boolean
-  /** Delivers the one-time nudge. Return false if it could not be queued. */
+  /** Delivers the nudge. Return false if it could not be queued. */
   sendReminder(row: ApprovalVerification): boolean
-  markReminded(id: string, atEpochSec: number): boolean
+  /**
+   * Records the nudge, refusing if one already went out after
+   * `notRemindedSinceEpochSec`. The cutoff comes from HERE, because the repeat
+   * window is the sweep's decision -- the store only closes the race between
+   * two overlapping ticks. (Kanban 2a32b51e: while the store made that call
+   * itself, with a hardcoded "never nudged before", the repeat below was dead
+   * code and exactly one reminder ever went out.)
+   */
+  markReminded(id: string, atEpochSec: number, notRemindedSinceEpochSec: number): boolean
   markNoResponse(id: string, reason: string, atEpochSec: number): boolean
 }
 
@@ -131,9 +139,11 @@ export function runVerificationSweep(deps: VerificationSweepDeps): VerificationS
     // ott lesz a postaladajaban.
     const sinceLastNudgeMs = row.reminded_at == null ? null : deps.now - row.reminded_at * 1000
     if (sinceLastNudgeMs === null || sinceLastNudgeMs >= VERIFICATION_REMINDER_REPEAT_MS) {
-      // Mark first: if the send throws or the router drops it, the row still
-      // times out normally instead of being nudged again on every sweep tick.
-      if (deps.markReminded(row.id, nowSec)) {
+      // Mark first: if the send throws or the router drops it, the row waits
+      // out the repeat window instead of being nudged again on the next tick
+      // two minutes later.
+      const repeatCutoffSec = Math.floor((deps.now - VERIFICATION_REMINDER_REPEAT_MS) / 1000)
+      if (deps.markReminded(row.id, nowSec, repeatCutoffSec)) {
         if (deps.sendReminder(row)) reminded.push(row.id)
       }
     }
