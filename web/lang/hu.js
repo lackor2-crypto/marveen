@@ -1245,6 +1245,8 @@ window._i18n.hu = {
   'agents.marveen_channel_tip':    'Online: a fő asszisztens csatornáját a --channels session kezeli, ezért fixen online (nincs külön token-ellenőrzés).',
   'agents.running_tip':            'Fut: él az ágens tmux session-je (a Claude Code folyamat fut). Forrás: tmux list-sessions.',
   'agents.stopped_tip':            'Leállva: nincs élő tmux session az ágensnek. Forrás: tmux list-sessions.',
+  'agents.running_reauth_tip':     'Fut, de NEM dolgozik: a tmux session él (a Claude Code folyamat fut), viszont a bejelentkezés lejárt, ezért egyetlen kérést sem tud kiszolgálni. A „Fut” a folyamatot méri, nem a bejelentkezést. Következő lépés: a piros sáv „Bejelentkezés” gombja.',
+  'agents.online_reauth_tip':      'Online: van bekonfigurált csatorna-token (saját bot) — de ez a Telegram-botról szól, nem a Claude-bejelentkezésről. Az ágens most nincs bejelentkezve, ezért nem válaszol. Következő lépés: a piros sáv „Bejelentkezés” gombja.',
   'agents.online_tip':             'Online: van bekonfigurált csatorna-token (saját bot). Figyelem: ez nem élő kapcsolat, csak a token meglétét jelzi.',
   'agents.offline_tip':            'Offline: nincs csatorna bekötve (channel-less, csak inter-agent ágens).',
   'agents.tmux_copy_aria':         'tmux attach parancs másolása',

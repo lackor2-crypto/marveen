@@ -2338,6 +2338,8 @@ window._i18n.en = {
   'agents.marveen_channel_tip':    'Online: the main assistant channel is managed by the --channels session, so it is always online (no separate token check).',
   'agents.running_tip':            'Running: the agent has a live tmux session (Claude Code process running). Source: tmux list-sessions.',
   'agents.stopped_tip':            'Stopped: no live tmux session for this agent. Source: tmux list-sessions.',
+  'agents.running_reauth_tip':     'Running, but NOT working: the tmux session is alive (Claude Code process running), but the login has expired, so it cannot serve a single request. \"Running\" measures the process, not the login. Next step: the Log in button in the red bar.',
+  'agents.online_reauth_tip':      'Online: a channel token is configured (own bot) — but that is about the Telegram bot, not the Claude login. This agent is not logged in right now, so it will not reply. Next step: the Log in button in the red bar.',
   'agents.online_tip':             'Online: a channel token is configured (own bot). Note: this is not a live connection check, only confirms the token exists.',
   'agents.offline_tip':            'Offline: no channel configured (channel-less, inter-agent only).',
   'agents.tmux_copy_aria':         'Copy tmux attach command',

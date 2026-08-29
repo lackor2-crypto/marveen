@@ -112,6 +112,14 @@ function liveStatusRegion(pane: string): string | null {
 // was built to close, so this check is deliberately stricter than a substring
 // match on both axes:
 //
+//   0. WHITESPACE-TOLERANT: Claude Code renders a NON-BREAKING space
+//      (U+00A0) between the bullet and the text. A plain space/tab anchor
+//      silently missed it -- measured 2026-08-29 on a live pane sitting at
+//      "Not logged in" with NO badge on its card, while another agent whose
+//      failure landed in the live status line badged fine. Blank-looking is
+//      not the same as blank. We therefore accept ANY horizontal whitespace
+//      ([^\S\r\n]) rather than enumerating invisible characters -- the next
+//      renderer change (U+202F, U+2007, U+FEFF...) must not blind us again.
 //   1. ANCHORED: the marker must be the START of a rendered result line (right
 //      after Claude Code's own bullet), never buried in prose. An agent that
 //      merely discusses "...then it prints Please run /login..." cannot match.
@@ -124,7 +132,7 @@ function liveStatusRegion(pane: string): string | null {
 // state which always lands in the live region, and matching it in scrollback is
 // the documented 2026-07-15 false positive.
 const BULLET_FAILURE_RX =
-  /^[ \t]*[●⎿✗][ \t]*(?:Please run\s+\/login|API Error:\s*401|Invalid bearer token|Invalid authentication credentials|OAuth token (?:has )?expired|Not logged in)/i
+  /^[^\S\r\n]*[●⎿✗][^\S\r\n]*(?:Please run\s+\/login|API Error:\s*401|Invalid bearer token|Invalid authentication credentials|OAuth token (?:has )?expired|Not logged in)/i
 
 // A later success in the same transcript retires an earlier failure.
 const RECOVERY_RX = /(?:Login successful|Logged in successfully|Successfully logged in|Login complete)/i

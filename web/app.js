@@ -4195,14 +4195,22 @@ function monogramColor(name) {
 }
 
 // Tooltip text for the "Fut" / "Leállva" footer indicator (process state).
-function processTip(isRunning) {
+//
+// Boss, 2026-08-29: a kartyan egyszerre allt a piros "Bejelentkezes" sav es a
+// zold "Fut" + "Online" -- ami mind a harom IGAZ, csak harom KULONBOZO dolgot
+// mer (folyamat / csatorna-token / Claude-auth), es egyutt olvasva ellentmondas.
+// A jelzo szovege marad, de hover-en megmondjuk, mit jelent EBBEN az allapotban:
+// fut, csak epp egyetlen kerest sem tud kiszolgalni.
+function processTip(isRunning, needsReauth) {
+  if (isRunning && needsReauth) return t('agents.running_reauth_tip')
   return isRunning
     ? t('agents.running_tip')
     : t('agents.stopped_tip')
 }
 
 // Tooltip text for the "Online" / "Offline" footer indicator (channel state).
-function channelTip(isConnected) {
+function channelTip(isConnected, needsReauth) {
+  if (isConnected && needsReauth) return t('agents.online_reauth_tip')
   return isConnected
     ? t('agents.online_tip')
     : t('agents.offline_tip')
@@ -5015,8 +5023,8 @@ function renderAgents() {
       </div>
       <div class="agent-card-footer">
         <span class="agent-model-badge ${escapeHtml(modelClass)}">${escapeHtml(modelLabel)}</span>
-        <span class="process-indicator" title="${escapeHtml(processTip(isRunning))}"><span class="process-dot ${runDotClass}"></span>${runLabel}</span>
-        <span class="tg-status" title="${escapeHtml(channelTip(chConnected))}"><span class="tg-dot ${chDotClass}"></span>${chLabel}</span>
+        <span class="process-indicator" title="${escapeHtml(processTip(isRunning, agent.needsReauth))}"><span class="process-dot ${runDotClass}"></span>${runLabel}</span>
+        <span class="tg-status" title="${escapeHtml(channelTip(chConnected, agent.needsReauth))}"><span class="tg-dot ${chDotClass}"></span>${chLabel}</span>
       </div>
       ${agent.needsReauth ? `
         <div class="agent-reauth-banner">

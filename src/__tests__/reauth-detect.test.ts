@@ -23,6 +23,59 @@ describe('detectReauthNeeded', () => {
     expect(r.reason).toMatch(/401|credential/i)
   })
 
+  // 2026-08-29, measured on a live pane: Claude Code puts a NON-BREAKING space
+  // (U+00A0) between the transcript bullet and the text. The anchor used to
+  // allow only space/tab, so this agent sat at "Not logged in" for hours with a
+  // perfectly clean card while a second agent -- whose failure happened to land
+  // in the live status line -- badged correctly.
+  it('anchors through a non-breaking space after the bullet', () => {
+    const pane = [
+      '  \u23bf \u00a0Not logged in \u00b7 Please run /login',
+      '',
+      '\u273b Crunched for 0s \u00b7 done 7:45 PM',
+      '\u2500'.repeat(70) + ' Seg\u00e9dmunk\u00e1s \u2500',
+      '\u276f ',
+      '\u2500'.repeat(80),
+      '  Opus 4.8 (1M context) | 5h 0% | 7d 100%',
+    ].join('\n')
+    expect(detectReauthNeeded(pane).needsReauth).toBe(true)
+  })
+
+  // Not just NBSP: the anchor must survive ANY invisible horizontal space a
+  // future renderer may emit. Enumerating characters is how the 2026-08-29 bug
+  // happened in the first place.
+  it.each([
+    ['NBSP', '\u00a0'],
+    ['narrow NBSP', '\u202f'],
+    ['figure space', '\u2007'],
+    ['BOM/ZWNBSP', '\ufeff'],
+  ])('anchors through %s after the bullet', (_name, ws) => {
+    const pane = [
+      '  \u23bf ' + ws + 'Not logged in \u00b7 Please run /login',
+      '',
+      '\u2500'.repeat(70) + ' Agent \u2500',
+      '\u276f ',
+      '\u2500'.repeat(80),
+      '  Opus 4.8 (1M context) | 5h 0% | 7d 100%',
+    ].join('\n')
+    expect(detectReauthNeeded(pane).needsReauth).toBe(true)
+  })
+
+  // The other half of the guarantee: widening the whitespace class must NOT
+  // widen what counts as a failure. Prose that merely mentions the marker,
+  // however it is spaced, still must not badge.
+  it('still ignores the marker buried in prose', () => {
+    const pane = [
+      '\u25cf I checked it and\u00a0 Not logged in is what it would print.',
+      '', '', '', '',
+      '\u2500'.repeat(70) + ' Agent \u2500',
+      '\u276f ',
+      '\u2500'.repeat(80),
+      '  Opus 4.8 (1M context) | 5h 0% | 7d 100%',
+    ].join('\n')
+    expect(detectReauthNeeded(pane).needsReauth).toBe(false)
+  })
+
   it('detects "Not logged in"', () => {
     expect(detectReauthNeeded('Not logged in - Please run /login').needsReauth).toBe(true)
   })
