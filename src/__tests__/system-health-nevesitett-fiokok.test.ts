@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { namedLoginRows, googleClientRows } from '../web/system-health.js'
+import { namedLoginRows, googleClientRows, vaultBindingRows } from '../web/system-health.js'
 import type { NamedCred } from '../web/system-health.js'
 import type { ClaudePlan } from '../web/claude-plans.js'
 
@@ -130,6 +130,59 @@ describe('Google kapcsolokulcs', () => {
   })
 })
 
+
+describe('arva Vault-kotesek', () => {
+  // Egy kotes azt mondja: "ez az MCP-szerver ezt a kulcsot kapja". Ha a kulcs
+  // eltunt, a szerver URES kulcsot kap -- nem hibazik, csak nem mukodik.
+  const kotesFajl = (tartalom: string): string => {
+    const p = join(gyoker(), 'vault-bindings.json')
+    writeFileSync(p, tartalom)
+    return p
+  }
+  const kotes = (id: string, envVar: string) => ({ vaultSecretId: id, envVar, targets: [] })
+
+  it('a halott kulcsra mutato kotest PIROSSAL, neven nevezi', () => {
+    const p = kotesFajl(JSON.stringify({ bindings: [kotes('sk1', 'BRAVE_API_KEY'), kotes('sk2', 'MAS_KEY')] }))
+    const r = vaultBindingRows(p, () => ['sk2'])
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('vault_binding_orphan')
+    expect(r[0].status).toBe('bad')
+    expect(String(r[0].params!.names)).toContain('BRAVE_API_KEY')
+    expect(String(r[0].params!.names)).not.toContain('MAS_KEY')
+  })
+
+  it('mind el: ZOLD sor', () => {
+    const p = kotesFajl(JSON.stringify({ bindings: [kotes('sk1', 'A'), kotes('sk2', 'B')] }))
+    const r = vaultBindingRows(p, () => ['sk1', 'sk2'])
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('vault_binding_ok')
+    expect(r[0].params).toMatchObject({ n: 2 })
+  })
+
+  it('friss telepites (nincs kotes-fajl): CSEND', () => {
+    expect(vaultBindingRows(join(gyoker(), 'nincs.json'), () => [])).toEqual([])
+  })
+
+  it('ures kotes-lista: CSEND, nem zold hazugsag', () => {
+    const p = kotesFajl(JSON.stringify({ bindings: [] }))
+    expect(vaultBindingRows(p, () => [])).toEqual([])
+  })
+
+  it('olvashatatlan fajl: "nem latok oda", NEM "nulla kotes"', () => {
+    const p = kotesFajl('{ ez nem json')
+    const r = vaultBindingRows(p, () => [])
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('vault_binding_blind')
+  })
+
+  it('ha a KULCSLISTAT nem erem el, nem allitom, hogy arvak', () => {
+    const p = kotesFajl(JSON.stringify({ bindings: [kotes('sk1', 'A')] }))
+    const r = vaultBindingRows(p, () => { throw new Error('vault zarva') })
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('vault_binding_blind')
+  })
+})
+
 describe('minden uj sornak van magyar ES angol szovege', () => {
   // A felulet minden sorat ket nyelven kell tudni kiirni; kulonben a sor
   // helyen a nyers azonosito jelenne meg.
@@ -137,6 +190,7 @@ describe('minden uj sornak van magyar ES angol szovege', () => {
     'named_login_out', 'named_login_blind', 'named_login_ok',
     'named_login_unreadable', 'named_login_broken', 'named_login_none_valid',
     'google_client_missing', 'google_client_blind',
+    'vault_binding_orphan', 'vault_binding_ok', 'vault_binding_blind',
   ]
   for (const nyelv of ['hu', 'en']) {
     it(`${nyelv}: mind a ${idk.length} sor + teendo megvan`, async () => {

@@ -60,6 +60,7 @@ import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-logi
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { googleOauthClientPresent, listGoogleAccounts } from './google-auth-runner.js'
+import { listSecrets } from './vault.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
@@ -455,6 +456,47 @@ export function googleClientRows(
   }
   if (db === 0) return []
   return [{ id: 'google_client_missing', status: 'bad', params: { n: db } }]
+}
+
+/**
+ * ARVA VAULT-KOTESEK. Egy kotes azt mondja: "ez az MCP-szerver ezt a
+ * kulcsot kapja". Ha a kulcs kozben eltunt a Vaultbol, a kotes ottmarad, es a
+ * szerver egy URES kornyezeti valtozot kap -- se hibauzenet, se piros pont,
+ * csak annyi, hogy az az egy eszkoz nem mukodik.
+ *
+ * A NULLA itt is ket dolog: nincs kotes-fajl = friss telepites, csend. Van
+ * fajl, de nem tudom elolvasni = nem latok oda, nem "nulla kotes".
+ */
+export function vaultBindingRows(
+  kotesPath: string = join(PROJECT_ROOT, 'store', 'vault-bindings.json'),
+  kulcsIdk: () => string[] = () => listSecrets().map(k => k.id),
+): HealthRow[] {
+  if (!existsSync(kotesPath)) return []
+  let lista: Array<{ vaultSecretId?: unknown; envVar?: unknown }>
+  try {
+    const o = JSON.parse(readFileSync(kotesPath, 'utf-8')) as { bindings?: unknown }
+    if (!Array.isArray(o?.bindings)) throw new Error('nincs bindings lista')
+    lista = o.bindings as Array<{ vaultSecretId?: unknown; envVar?: unknown }>
+  } catch {
+    return [{ id: 'vault_binding_blind', status: 'warn', params: { f: kotesPath } }]
+  }
+  if (lista.length === 0) return []
+  let megvan: Set<string>
+  try { megvan = new Set(kulcsIdk()) } catch {
+    // A koteseket latom, a kulcsokat nem -- ilyenkor NEM allitom, hogy arvak.
+    return [{ id: 'vault_binding_blind', status: 'warn', params: { f: kotesPath } }]
+  }
+  const arvak: string[] = []
+  for (const b of lista) {
+    if (typeof b?.vaultSecretId !== 'string') continue
+    if (!megvan.has(b.vaultSecretId)) {
+      arvak.push(typeof b.envVar === 'string' && b.envVar ? b.envVar : b.vaultSecretId)
+    }
+  }
+  if (arvak.length > 0) {
+    return [{ id: 'vault_binding_orphan', status: 'bad', params: { n: arvak.length, names: arvak.join(', ') } }]
+  }
+  return [{ id: 'vault_binding_ok', status: 'ok', params: { n: lista.length } }]
 }
 
 /**
@@ -1288,6 +1330,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     claudeAuthRow(),
     ...namedLoginRows(),
     ...googleClientRows(),
+    ...vaultBindingRows(),
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),
