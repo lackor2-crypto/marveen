@@ -183,6 +183,78 @@ describe('arva Vault-kotesek', () => {
   })
 })
 
+/** A CLI helyett: nev -> cim. Ami nincs benne, arrol nem tudunk semmit. */
+const cimVal = (terkep: Record<string, string>) => (dir: string): string | undefined =>
+  terkep[dir.split('/').pop() as string]
+
+describe('KI VAN A SLOTBAN -- ket elofizetes egy fiokon', () => {
+  // Boss, 2026-08-29: a lackor3 es az usalackor ugyanabban a Claude-fiokban ult,
+  // ketten ettek egyetlen fiok kereteit, a masik elofizetes meg allt. Semmi nem
+  // szolt rola.
+  it('ket nevesitett fiok azonos cimen: PIROS sor, mindket nevvel', () => {
+    const h = gyoker()
+    const tervek = [fiok(h, 'usalackor'), fiok(h, 'lackor3')]
+    const r = namedLoginRows(jegyzek(h, tervek), () => tervek,
+      probaVal({ usalackor: 'be', lackor3: 'be' }),
+      cimVal({ usalackor: 'usalackor@gmail.com', lackor3: 'usalackor@gmail.com' }))
+    const sor = r.find(x => x.id === 'named_login_same_account')
+    expect(sor?.status).toBe('bad')
+    expect(sor?.params).toMatchObject({ n: 2, names: 'usalackor, lackor3', email: 'usalackor@gmail.com' })
+  })
+
+  it('a piros sor MELLE nem jarhat megnyugtato zold sor', () => {
+    // Elesben pont ez tortent: "2 nevesitett bejelentkezes rendben" allt a
+    // figyelmeztetes mellett. A felrevezeto zold rosszabb, mint a hallgatas.
+    const h = gyoker()
+    const tervek = [fiok(h, 'usalackor'), fiok(h, 'lackor3')]
+    const r = namedLoginRows(jegyzek(h, tervek), () => tervek,
+      probaVal({ usalackor: 'be', lackor3: 'be' }),
+      cimVal({ usalackor: 'k@o.hu', lackor3: 'k@o.hu' }))
+    expect(r.map(x => x.id)).not.toContain('named_login_ok')
+  })
+
+  it('a gep sajat fiokjara atcsuszott elofizetes ugyanaz a hiba', () => {
+    const h = gyoker()
+    const tervek = [fiok(h, 'lackor3')]
+    const r = namedLoginRows(jegyzek(h, tervek), () => tervek,
+      probaVal({ lackor3: 'be', '.claude': 'be' }),
+      cimVal({ lackor3: 'lackor2@gmail.com', '.claude': 'lackor2@gmail.com' }))
+    const sor = r.find(x => x.id === 'named_login_same_as_host')
+    expect(sor?.status).toBe('bad')
+    expect(sor?.params).toMatchObject({ email: 'lackor2@gmail.com' })
+  })
+
+  it('elteres a rogzitett cimtol: neven nevezi, mi van most bent', () => {
+    const h = gyoker()
+    const t1 = fiok(h, 'lackor3')
+    const tervek = [{ ...t1, expectedEmail: 'lackor3@gmail.com' }]
+    const r = namedLoginRows(jegyzek(h, tervek), () => tervek,
+      probaVal({ lackor3: 'be' }), cimVal({ lackor3: 'usalackor@gmail.com' }))
+    const sor = r.find(x => x.id === 'named_login_drift')
+    expect(sor?.status).toBe('bad')
+    expect(String(sor?.params?.names)).toContain('usalackor@gmail.com')
+  })
+
+  it('kulon fiokok: csend (es a zold sor kijar)', () => {
+    const h = gyoker()
+    const tervek = [fiok(h, 'usalackor'), fiok(h, 'lackor3')]
+    const r = namedLoginRows(jegyzek(h, tervek), () => tervek,
+      probaVal({ usalackor: 'be', lackor3: 'be' }),
+      cimVal({ usalackor: 'usalackor@gmail.com', lackor3: 'lackor3@gmail.com' }))
+    expect(r.map(x => x.id)).toEqual(['named_login_ok'])
+  })
+
+  it('cim nelkul NEM allitunk utkozest -- a nem tudom nem bizonyitek', () => {
+    // Ha a proba nem adott cimet, ket fiok latszolag "ugyanaz a semmi" -- ebbol
+    // utkozest allitani talalgatas lenne.
+    const h = gyoker()
+    const tervek = [fiok(h, 'usalackor'), fiok(h, 'lackor3')]
+    const r = namedLoginRows(jegyzek(h, tervek), () => tervek,
+      probaVal({ usalackor: 'be', lackor3: 'be' }), cimVal({}))
+    expect(r.map(x => x.id)).not.toContain('named_login_same_account')
+  })
+})
+
 describe('minden uj sornak van magyar ES angol szovege', () => {
   // A felulet minden sorat ket nyelven kell tudni kiirni; kulonben a sor
   // helyen a nyers azonosito jelenne meg.

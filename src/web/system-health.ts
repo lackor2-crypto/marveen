@@ -494,7 +494,11 @@ export function namedLoginRows(
   if (vak.length > 0) {
     rows.push({ id: 'named_login_blind', status: 'warn', params: { n: vak.length, names: vak.join(', ') } })
   }
-  if (kint.length === 0 && vak.length === 0) {
+  // A zold sor csak akkor jarhat, ha TENYLEG nincs semmi baj. Elesben eppen ez
+  // allt egy piros sor mellett: "2 nevesitett bejelentkezes rendben", kozben a
+  // kettobol ketto ugyanabban a fiokban ult. Egy felrevezeto zold sor rosszabb,
+  // mint a hallgatas.
+  if (kint.length === 0 && vak.length === 0 && rows.length === 0) {
     rows.push({ id: 'named_login_ok', status: 'ok', params: { n: rendben } })
   }
   return rows
