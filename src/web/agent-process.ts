@@ -1541,6 +1541,46 @@ export async function dismissResumeSummaryModalIfPresent(session: string, host: 
   }
 }
 
+// A `/login` NEM ir ki azonnal URL-t: eloszor egy MENUT nyit.
+//
+//     Select login method:
+//     > 1. Claude account with subscription - Pro, Max, Team, or Enterprise
+//       2. Anthropic Console account - API usage billing
+//       3. 3rd-party platform - Amazon Bedrock, Microsoft Foundry, or Vertex AI
+//
+// Merve 2026-08-29-en az agent-lackor3 paneljen: a bejelentkezes-gomb azert
+// "nem csinalt semmit", mert a vegpont URL-re vart, ami a valasztas ELOTT nem
+// is letezhet. Ez a lepes viszi at a menun.
+//
+// A valasztas MINDIG az 1-es (elofizetes) -- ez a kiemelt alapertelmezes, es
+// minden Marveen-ugynok igy hitelesit (a `.credentials.json`-jukban
+// `claudeAiOauth` / `subscriptionType` all). A 2-es API-szamlazasra valtana,
+// vagyis PENZUGYI kovetkezmenye lenne: azt sose valasztjuk magunktol.
+// Ahogy a modell-hozzajarulasnal: szam eloszor, csak utana Enter -- egy
+// puszta Enter egy jovobeli menuben mast is kijelolhetne.
+const LOGIN_METHOD_MENU_RX = /Select login method:/
+
+export function paneShowsLoginMethodMenu(pane: string): boolean {
+  return LOGIN_METHOD_MENU_RX.test(pane)
+}
+
+/** true, ha tenylegesen valaszoltunk a menure (tehat volt mire). */
+export async function answerLoginMethodMenu(session: string, host: string | null = null): Promise<boolean> {
+  try {
+    const pane = captureTmux(host, ['capture-pane', '-t', session, '-p'])
+    if (!paneShowsLoginMethodMenu(pane)) return false
+    runTmux(host, ['send-keys', '-t', session, '1'], { timeout: 5000 })
+    await delay(150)
+    runTmux(host, ['send-keys', '-t', session, 'Enter'], { timeout: 5000 })
+    await delay(300)
+    logger.info({ session }, 'Answered /login method menu: option 1 (Claude subscription), never the API-billing option')
+    return true
+  } catch (err) {
+    logger.warn({ err, session }, 'Failed to probe/answer /login method menu')
+    return false
+  }
+}
+
 // Runtime backstop for the model overage-consent dialog ("Fable 5 now uses
 // usage credits" -- see detectsModelConsentDialog in pane-state.ts for the
 // full anatomy and the drift root cause). The stampFableOverageConsent

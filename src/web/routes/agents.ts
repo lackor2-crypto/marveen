@@ -104,8 +104,7 @@ import {
   agentSessionName,
   sendPromptToSession,
   capturePane,
-  capturePaneAsync,
-} from '../agent-process.js'
+  capturePaneAsync, answerLoginMethodMenu, paneShowsLoginMethodMenu } from '../agent-process.js'
 import { addDesiredAgent, removeDesiredAgent } from '../agent-desired-state.js'
 import { RemoteStatusCache, BackgroundCache } from '../remote-status-cache.js'
 import type { AgentRunState } from '../ssh-tmux.js'
@@ -122,6 +121,7 @@ import { snapshotShowsQuotaExhausted } from '../../rate-limit-status.js'
 import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded } from '../reauth-detect.js'
+import { extractAuthUrl, type ExtractedAuthUrl } from '../auth-url-extract.js'
 import { readAutoRestartConfig, writeAutoRestartConfig } from '../auto-restart-store.js'
 import { readContextGuardConfig, writeContextGuardConfig } from '../context-guard-store.js'
 import { getContextGuardStatus } from '../context-guard-runner.js'
@@ -2076,25 +2076,58 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const session = agentSessionName(name)
     const host = readAgentRemoteHost(name)
     try {
-      await sendPromptToSession(session, '/login', host)
-      // Wait for Claude Code to render the auth URL (typically 3-6s)
-      let authUrl: string | null = null
+      // Ha az elozo kattintasbol a menu mar NYITVA all, TILOS ujra `/login`-t
+      // gepelni: a karakterek a MENUBE mennenek, es egy valasztas-menuben a
+      // leutesek jelolest valtanak. (A Boss 2026-08-29-en pontosan ketszer
+      // kattintott, mert lassunak tunt.) Ilyenkor a menut valaszoljuk meg, es
+      // nem kuldunk uj parancsot.
+      let answeredMenu = false
+      const prePane = capturePane(session, host)
+      if (prePane && paneShowsLoginMethodMenu(prePane)) {
+        answeredMenu = await answerLoginMethodMenu(session, host)
+      } else {
+        await sendPromptToSession(session, '/login', host)
+      }
+      // Wait for Claude Code to render the auth URL (typically 3-6s).
+      // A bejelentkezes fej nelkuli tmux session-ben fut: BONGESZO SOSEM FOG
+      // MEGNYILNI, a CLI ezert kiirja az URL-t. Ha nem adjuk vissza, a
+      // felhasznalo szamara a gomb NEM CSINAL SEMMIT -- pontosan ezt merte a
+      // Boss 2026-08-29-en. A kiolvasas (domain-fuggetlen minta + a panel
+      // tordelesenek osszefuzese) a `extractAuthUrl`-ben van, sajat teszttel.
+      let extracted: ExtractedAuthUrl | null = null
+      let sawPane = false
       for (let i = 0; i < 12; i++) {
         execSync('sleep 1', { timeout: 3000 })
         const pane = capturePane(session, host)
         if (!pane) continue
-        const urlMatch = pane.match(/https:\/\/console\.anthropic\.com\/[^\s"']+/)
-          || pane.match(/https:\/\/auth\.anthropic\.com\/[^\s"']+/)
-          || pane.match(/https:\/\/claude\.ai\/[^\s"']+login[^\s"']*/)
-        if (urlMatch) {
-          authUrl = urlMatch[0]
-          break
+        sawPane = true
+        // A `/login` eloszor a bejelentkezesi mod menujet nyitja; az URL a
+        // valasztas UTAN jelenik meg. Amig ez a lepes hianyzott, a vegpont
+        // egy sosem erkezo URL-re jart le -- a felhasznalonak ugy latszott,
+        // hogy a gomb nem csinal semmit.
+        if (paneShowsLoginMethodMenu(pane)) {
+          answeredMenu = (await answerLoginMethodMenu(session, host)) || answeredMenu
+          continue
         }
+        extracted = extractAuthUrl(pane)
+        if (extracted) break
       }
-      if (authUrl) {
-        json(res, { ok: true, authUrl })
+      if (extracted) {
+        json(res, { ok: true, authUrl: extracted.url, urlLineCount: extracted.lineCount })
+      } else if (!sawPane) {
+        // A NULLA KET DOLGOT JELENTHET: itt nem az a helyzet, hogy nincs URL,
+        // hanem hogy a panelbe NEM LATTUNK BELE. Ezt kulon kell mondani.
+        json(res, {
+          ok: false,
+          errorKey: 'agents.auth_pane_unreadable',
+          error: 'Nem tudtam beleolvasni az ugynok paneljebe (tmux capture ures). Az ugynok fut? Inditsd ujra, majd probald ismet.',
+        })
       } else {
-        json(res, { ok: false, error: 'Auth URL nem jelent meg 12 masodpercen belul. Probald ujra, vagy nezd a tmux session-t.' })
+        json(res, {
+          ok: false,
+          errorKey: answeredMenu ? 'agents.auth_url_timeout_after_menu' : 'agents.auth_url_timeout',
+          error: 'Az ugynok panelje 12 masodpercen belul nem irt ki bejelentkezesi URL-t. Lehet, hogy mar be van jelentkezve -- frissitsd az oldalt; ha a piros sav megmarad, probald ujra.',
+        })
       }
     } catch (err) {
       logger.error({ err, name }, 'Auth init failed')

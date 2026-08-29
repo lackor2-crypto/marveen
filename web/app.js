@@ -7436,7 +7436,12 @@ document.getElementById('authFlowInitBtn').addEventListener('click', async () =>
       urlEl.textContent = data.authUrl
       resultDiv.hidden = false
     } else {
-      errorDiv.textContent = data.error || 'Auth URL nem talalhato'
+      // A szerver `errorKey`-t is kuld: a kepernyore kerulo szoveg igy
+      // ketnyelvu marad. A nyers `data.error` csak tartalek, ha egy regebbi
+      // szerver meg nem ismeri a kulcsot.
+      errorDiv.textContent = (data.errorKey && t(data.errorKey))
+        || data.error
+        || t('agents.auth_url_missing')
       errorDiv.hidden = false
     }
   } catch {
@@ -7451,7 +7456,7 @@ document.getElementById('authFlowInitBtn').addEventListener('click', async () =>
 
 document.getElementById('authFlowCopyBtn').addEventListener('click', () => {
   const url = document.getElementById('authFlowUrl').textContent
-  navigator.clipboard.writeText(url).then(() => showToast('URL masolva'))
+  navigator.clipboard.writeText(url).then(() => showToast(t('agents.auth_url_copied')))
 })
 
 document.getElementById('memoryIsolationToggle').addEventListener('change', async (e) => {
