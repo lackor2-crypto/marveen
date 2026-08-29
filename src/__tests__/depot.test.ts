@@ -437,6 +437,22 @@ describe('a beallitas es a vegpontok a helyukon vannak', () => {
     expect(css).toContain('.iroda-settings-categories[hidden] { display: none; }')
   })
 
+  it('latszik, hogy a Drive es a Fotok a Raktar ALATT van, es hogy nyitva van-e', () => {
+    // Boss, 2026-08-29: "nem latom tisztan hogy most le van e nyitva a raktar
+    // vagy nincsen. azt hittem hogy nem is a raktar alatt van a drive es fotok."
+    const css = readFileSync(join(process.cwd(), 'web/style.css'), 'utf8')
+    // A gyerek-sorok behuzva, bal oldali vonallal -- ez mondja ki a hovatartozast.
+    expect(css).toMatch(/\.sb-group-items \{[^}]*margin: 2px 0 4px 19px[^}]*border-left: 1px solid var\(--border\)/)
+    // A nyil kontrasztban IS jelzi a nyitott allapotot, nem csak iranyban.
+    expect(css).toContain('.sb-group.open .sb-group-chevron { transform: rotate(90deg); opacity: 1; }')
+    // A forgas NEM atmenetes: kepkocka nelkul a regi erteken ragadna, es a nyil
+    // nyitottat mutatna egy csukott csoportra (merve 2026-08-29).
+    expect(css).not.toMatch(/\.sb-group-chevron \{[^}]*transition:[^}]*transform/)
+    // A fejlec kiemelodik, ha a csoporton belul all az aktiv oldal.
+    expect(css).toContain('.sb-group.has-active-child > .sb-group-header')
+    expect(app).toContain("g.classList.toggle('has-active-child', !!g.querySelector('.sb-group-items .sb-link.active'))")
+  })
+
   it('a felulet kimondja, mi megy fel es mi NEM jon vissza', () => {
     // 2026-08-15-ig ez a teszt azt orizte, hogy a szinkron EGYIRANYU. A Boss
     // ezt elvetette: "amit a gepemen szerkesztek az felmenne a drive ra! ...

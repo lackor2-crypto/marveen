@@ -411,9 +411,31 @@ body {
 }
 .sb-group-header:hover { color: var(--text); background: var(--accent-soft); }
 .sb-group-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.sb-group-chevron { flex-shrink: 0; transition: transform var(--transition); }
-.sb-group.open .sb-group-chevron { transform: rotate(90deg); }
-.sb-group-items { display: flex; flex-direction: column; gap: 2px; }
+/* A nyil elfordul, de onmagaban tul halk volt ahhoz, hogy elarulja, nyitva
+   van-e a csoport (Boss, 2026-08-29: "nem latom tisztan hogy most le van e
+   nyitva a raktar"). Csukva halvany es oldalra mutat, nyitva teli erossegu es
+   lefele -- ket jel egyszerre, iranyban ES kontrasztban. */
+/* A nyil FORGASA szandekosan nem atmenetes. Merve 2026-08-29-en: ha a lap nem
+   rajzol kepkockat (fejnelkuli futas, de egy megterhelt gepen is elofordul), az
+   atmenetes transform a REGI erteken ragad -- a nyil nyitottat mutat, mikozben
+   a csoport mar be van csukva. Az allapot-jelzes nem allhat animacion. */
+.sb-group-chevron { flex-shrink: 0; opacity: 0.45; }
+.sb-group.open .sb-group-chevron { transform: rotate(90deg); opacity: 1; }
+/* Ha a csoporton BELUL all az aktiv oldal, a fejlec is mondja ki. Enelkul egy
+   csukott csoport elnyeli a "hol vagyok" jelzest, nyitottnal pedig nem latszik,
+   hogy az az oldal ODA tartozik. */
+.sb-group.has-active-child > .sb-group-header { color: var(--text); }
+/* Csak a SZINT valtoztatja, az atlatszatlansagot NEM: az marad a nyitva/csukva
+   jelzes. Kulonben egy csukott csoport, amiben eppen az aktiv oldal all,
+   ugyanolyan erosnek latszana, mint egy nyitott. */
+.sb-group.has-active-child > .sb-group-header .sb-group-chevron { color: var(--accent); }
+/* A csoport TARTALMAT be kell huzni, kulonben a Drive es a Fotok pontosan
+   ugy nez ki, mint egy elso szintu menupont. A Boss 2026-08-29-en pont ezt
+   jelezte: "azt hittem hogy nem is a raktar alatt van a drive es fotok".
+   A bal oldali vonal KIMONDJA a hovatartozast, nem csak sugallja -- a behuzas
+   (19px) az ikon szelessegehez igazodik, hogy a gyerek-sorok a szulo CIMKEJE
+   ala essenek. */
+.sb-group-items { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px 19px; padding-left: 11px; border-left: 1px solid var(--border); }
 .sb-group:not(.open) .sb-group-items { display: none; }
 /* The email accounts group header is a real nav item ("Email"), not a
  * section label like "CSAPAT" -- override the muted/uppercase group-header

@@ -715,6 +715,12 @@ function switchPage(pageId) {
   // class and they'd stay visually "active" forever after first being
   // selected once, regardless of which page is actually open.
   document.querySelectorAll('.sb-link[data-page], .nav-link[data-page]').forEach((l) => l.classList.toggle('active', l.dataset.page === pageId))
+  // A csoport-fejlec is mutassa, ha a csoporton BELUL all az aktiv oldal.
+  // Enelkul egy csukott csoport elnyeli a "hol vagyok" jelzest, es nyitottnal
+  // sem derul ki, hogy az az oldal ODA tartozik (Boss, 2026-08-29).
+  document.querySelectorAll('.sb-group').forEach((g) => {
+    g.classList.toggle('has-active-child', !!g.querySelector('.sb-group-items .sb-link.active'))
+  })
   openSidebarGroupForPage(pageId)
   // A Raktar csoport a #navIroda-ban van, ahova a SIDEBAR_GROUPS gepezet
   // szandekosan nem lat el (az csak a #navMarvin csoportjait sopri). Ha a
