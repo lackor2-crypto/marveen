@@ -2916,6 +2916,8 @@ window._i18n.en = {
   'agents.channel.disconnected': 'Not connected',
   'agents.strict_mode':          ' (strict)',
   'agents.marveen_boss':         '{bot} & {owner}',
+  'agents.btn.account_logout':            'Sign out ({account})',
+  'agents.btn.account_logout_tip':        'Signs out the Claude account this agent works with. It shows you who it stops before doing it.',
   'agents.btn.login':            'Login',
 
   // --- Agent model switch card ---

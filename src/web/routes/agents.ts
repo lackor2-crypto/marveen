@@ -51,6 +51,7 @@ import {
   type AuthMode,
 } from '../agent-config.js'
 import { readClaudePlans, resolveAgentConfigDir } from '../claude-plans.js'
+import { claudeLoginForAgent } from '../default-login-dependents.js'
 import {
   readAgentTeam,
   writeAgentTeam,
@@ -443,6 +444,12 @@ interface AgentSummary {
   /** Named Claude subscription plan id (see claude-plans.ts), or null when the
    *  agent uses the raw claudeConfigDir / default resolution. */
   claudePlan: string | null
+  /** WHICH Claude login this agent actually runs under, or null when it uses
+   *  none (other provider / own API key). The card joins this to the accounts
+   *  list BY configDir to show the sign-out button; the rule that decides
+   *  "uses a Claude login at all" stays here so the page cannot re-derive it
+   *  differently (Boss, 2026-08-29: the button goes on the agent card too). */
+  claudeAccount: { configDir: string | null } | null
   team: TeamConfig
   hasTelegram: boolean
   telegramBotUsername?: string
@@ -546,6 +553,7 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     authMode: readAgentAuthMode(name),
     securityProfile: readAgentSecurityProfile(name),
     claudePlan: readAgentClaudePlan(name),
+    claudeAccount: claudeLoginForAgent(name),
     team: readAgentTeam(name),
     hasTelegram: tg.hasTelegram,
     telegramBotUsername: tg.botUsername,

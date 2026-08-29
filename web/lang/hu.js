@@ -2980,6 +2980,8 @@ window._i18n.hu = {
   'agents.channel.disconnected': 'Nincs bekötve',
   'agents.strict_mode':          ' (szigorú)',
   'agents.marveen_boss':         '{bot} & {owner}',
+  'agents.btn.account_logout':            'Kijelentkeztetés ({account})',
+  'agents.btn.account_logout_tip':        'Kijelentkezteti azt a Claude-fiókot, amellyel ez az ügynök dolgozik. Előbb megmutatja, kit állít meg vele.',
   'agents.btn.login':            'Bejelentkezés',
 
   // --- Agent model switch card ---

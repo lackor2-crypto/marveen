@@ -4324,6 +4324,52 @@ function mainAccountLabel() {
   return base.charAt(0).toUpperCase() + base.slice(1)
 }
 
+// A Claude-bejelentkezesek allapota, hogy az ugynok kartyaja tudja: van-e mit
+// kijelentkeztetni rajta, es KI az.
+//
+// Boss, 2026-08-29: "ted ra a kartyara is!" -- a kijelentkeztetes gombja ne
+// csak a Fiokok oldalon legyen. A kartya NEM szamolja ujra, melyik ugynok fut
+// Claude-bejelentkezessel: azt a szerver mondja meg (agent.claudeAccount), ez
+// itt csak az ALLAPOTOT (be van-e jelentkezve, milyen e-maillel) fuzi hozza.
+// Az osszefuzes kulcsa a configDir, nem a terv-azonosito: egy nyers
+// claudeConfigDir-rel futo ugynoknek nincs sora a listaban, es ilyenkor a
+// helyes valasz a "nem tudom", nem az, hogy odaertjuk az alapertelmezettet.
+let _claudeAccountRows = null
+let _claudeAccountsPending = false
+function primeClaudeAccounts(onLoaded) {
+  if (_claudeAccountRows || _claudeAccountsPending) return
+  _claudeAccountsPending = true
+  fetch('/api/accounts/claude')
+    .then(res => (res.ok ? res.json() : null))
+    .catch(() => null)
+    .then((data) => {
+      _claudeAccountsPending = false
+      _claudeAccountRows = (data && Array.isArray(data.accounts)) ? data.accounts : []
+      if (typeof onLoaded === 'function') onLoaded()
+    })
+}
+
+// A megtalalt fiok sora, vagy null. A null itt "nem lattam oda" (meg nem jott
+// meg a lista, vagy nincs ilyen sor) -- ilyenkor a kartya inkabb NEM mutat
+// gombot, mint hogy rosszra mutasson.
+function claudeAccountRowFor(claudeAccount) {
+  if (!claudeAccount || !_claudeAccountRows) return null
+  const want = claudeAccount.configDir === undefined ? null : claudeAccount.configDir
+  return _claudeAccountRows.find(r => (r.configDir ?? null) === want) || null
+}
+
+// A kartyara kerulo kijelentkeztetes-gomb. Csak akkor van, ha az ugynok
+// tenylegesen Claude-bejelentkezessel dolgozik ES az a fiok be is van
+// jelentkezve -- kijelentkeztetni egy mar kijelentkezett fiokot ertelmetlen,
+// visszahozni pedig a meglevo bejelentkezes-gomb dolga.
+function agentLogoutButtonHtml(agent) {
+  const row = claudeAccountRowFor(agent && agent.claudeAccount)
+  if (!row || !row.identity || !row.identity.loggedIn) return ''
+  const who = row.identity.email || (row.isDefault ? mainAccountLabel() : (row.label || row.id || ''))
+  const label = t('agents.btn.account_logout', { account: row.isDefault ? mainAccountLabel() : stripModelSuffix(row.label || row.id || '') })
+  return `<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
+}
+
 function accountBadgeHtml(claudePlan, isMain) {
   primePlanLabels()
   let label
@@ -4749,6 +4795,11 @@ async function saveGateConfig(name, enabled, thresholdEl) {
 }
 
 function renderAgents() {
+  // A fiokok allapota kell a kartyara kerulo kijelentkeztetes-gombhoz. Egyszer
+  // toltodik be, es amikor megjott, egyszer ujrarajzolunk -- addig a kartya
+  // gomb nelkul all, mert egy talalgatott gomb rosszabb, mint egy kesobb
+  // megjeleno.
+  primeClaudeAccounts(() => renderAgents())
   // Hide for the duration of THIS render too (not just the very first paint,
   // covered by the `hidden` attribute already on the static HTML) -- while
   // it's mid-reparent below (briefly a plain last child of agentsGrid again,
@@ -4895,12 +4946,23 @@ function renderAgents() {
           Terminal
         </button>
         ${contextButtonsHtml(agent.name)}
+        ${agentLogoutButtonHtml(agent)}
       </div>
       ${contextControlsHtml(agent.name, agent.contextTokens, isRunning, agent.contextState, agent.contextQuota)}
     `
     // Login button handler (start → confirm flow)
     card.querySelectorAll('.agent-login-btn').forEach(btn => {
       btn.addEventListener('click', (e) => { e.stopPropagation(); handleAgentLogin(agent.name, btn) })
+    })
+    // Sign-out button: the SAME confirm-with-names path as the Accounts page,
+    // so it can never turn into a quieter, more dangerous second copy.
+    card.querySelector('.agent-account-logout-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const b = e.currentTarget
+      _claudeAuthLogout(b.dataset.plan || '', b.dataset.who || '').then(() => {
+        _claudeAccountRows = null
+        primeClaudeAccounts(() => renderAgents())
+      })
     })
     // Terminal button
     card.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
@@ -16867,7 +16929,10 @@ async function _claudeAuthLogout(planId, who) {
     if (!data.ok) { showToast(data.error || t('common.error_save'), 10000, true); return }
     showToast(t('claudeauth.logout_done', { who: data.email || who }), 9000, true)
   } catch (err) { showToast(String(err.message || err), 10000, true); return }
-  _claudeAuthTick()
+  // A Fiokok oldal listajat csak akkor frissitjuk innen, ha ott is vagyunk: az
+  // ugynok kartyajarol hivva azok az elemek nincsenek a lapon, es egy hianyzo
+  // doboz nem borithatja fel a mar sikeres kijelentkeztetest.
+  if (document.getElementById('claudeAccountPanel')) _claudeAuthTick()
 }
 
 function _accHubClaudePart(rows) {

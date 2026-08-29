@@ -69,6 +69,11 @@ export function defaultLoginDependents(): string[] {
  * bejelentkezesenel, csak nem a `null` config-konyvtarra, hanem a megadottra:
  * ha `configDir` null, ez pontosan a defaultLoginDependents() halmaza.
  */
+export function usesClaudeLogin(authMode: string, resolvedModel: string): boolean {
+  if (authMode === 'api') return false
+  return resolvedModel.startsWith('claude-')
+}
+
 export function agentsUsingLogin(configDir: string | null): string[] {
   const names = [MAIN_AGENT_ID, ...listAgentNames()]
   const out: string[] = []
@@ -76,13 +81,37 @@ export function agentsUsingLogin(configDir: string | null): string[] {
     try {
       const own = resolveAgentConfigDir(name).configDir
       const model = resolveOpenRouterModel(readAgentModel(name))
-      if (readAgentAuthMode(name) === 'api') continue
-      if (!model.startsWith('claude-')) continue
+      if (!usesClaudeLogin(readAgentAuthMode(name), model)) continue
       if (own !== configDir) continue
       out.push(name)
     } catch { /* egy olvashatatlan agens-konfig nem donthet a mondatrol */ }
   }
   return out
+}
+
+/**
+ * A MASIK IRANY: ez az agens melyik bejelentkezes alatt fut?
+ *
+ * Boss, 2026-08-29: "ted ra a kartyara is!" -- a kijelentkeztetes gombja
+ * keruljon az ugynok kartyajara is. Ehhez a kartyanak tudnia kell, MELYIK
+ * fiokrol van szo, es hogy egyaltalan Claude-bejelentkezessel dolgozik-e.
+ *
+ * A szabalyt SZANDEKOSAN itt tartjuk, nem a bongeszoben: ugyanaz a
+ * `usesClaudeLogin` dont, mint az agentsUsingLogin-nal, tehat a kartya es az
+ * elonezet nem tud ketteválni. A felulet csak OSSZEFUZI ezt a bejelentkezesi
+ * allapottal -- nem szamolja ujra.
+ *
+ * null = ez az agens nem hasznal Claude-bejelentkezest (mas szolgaltato, vagy
+ * sajat API-kulcs), tehat nincs mit kijelentkeztetni rajta.
+ */
+export function claudeLoginForAgent(name: string): { configDir: string | null } | null {
+  try {
+    const model = resolveOpenRouterModel(readAgentModel(name))
+    if (!usesClaudeLogin(readAgentAuthMode(name), model)) return null
+    return { configDir: resolveAgentConfigDir(name).configDir }
+  } catch {
+    return null
+  }
 }
 
 /** Az ágensek, amelyek EZ ALATT IS dolgoznak: saját fiók vagy más szolgáltató. */
