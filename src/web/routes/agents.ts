@@ -197,7 +197,20 @@ import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 function reconcileReauthWithDisk(name: string, state: ReauthState): ReauthState {
   if (!state.needsReauth) return state
   if (state.source !== 'status-line') return state
-  const fresh = readCredentialFreshness(readAgentClaudeConfigDir(name))
+  // A config-konyvtar a TERVBOL jon, nem az agens sajat mezojebol.
+  //
+  // 2026-08-29, merve: a `readAgentClaudeConfigDir` MINDKET agensre `null`-t
+  // adott (`claudeConfigDir: None` az agent-config.json-ban), mert a valodi
+  // konyvtart a `claudePlan` jeloli ki (usalackor -> store/accounts/usalackor).
+  // Igy ez a halo NEMAN TEHETETLEN volt: mindig 'unknown'-t kapott, tehat soha
+  // nem irt volna felul semmit. Ugyanazt a feloldot hasznaljuk, mint az
+  // INDITO (`resolveAgentConfigDir`) -- kulonben mas konyvtarat neznenk, mint
+  // amibol az agens tenylegesen hitelesit.
+  //
+  // Ha nincs sajat konyvtar (az agens a megosztott host-bejelentkezest
+  // hasznalja), `null` megy tovabb -> 'unknown' -> NEM irunk felul. A
+  // bizonytalansag sosem ok a figyelmeztetes eltuntetesere.
+  const fresh = readCredentialFreshness(resolveAgentConfigDir(name).configDir || null)
   // 'expired' / 'missing' -> a sav jogos. 'unknown' -> NEM LATOK ODA, tehat
   // nem irom felul: a bizonytalansag sosem lehet ok a figyelmeztetes
   // eltuntetesere.
