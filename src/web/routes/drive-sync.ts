@@ -1167,6 +1167,41 @@ interface FelmenoEredmeny {
 }
 
 /**
+ * Milyen surun irjuk ki a paros allapotat MENET KOZBEN.
+ *
+ * A beallitas-fajl nehany MB, percenkent egyszer kiirni elhanyagolhato -- egy
+ * orakig futo mentesnel viszont ez a kulonbseg a "latom, hol tart" es a
+ * "orakkal ezelotti szamot mutat" kozott.
+ */
+const KOZBEN_MENTES_MS = 60 * 1000
+
+/**
+ * A paros allapotanak kiirasa lemezre.
+ *
+ * KULON FUGGVENY, mert MENET KOZBEN is hivjuk, nem csak a paros vegen.
+ *
+ * MIERT. 2026-08-29-en a mentes-paros futasa tobb oras volt, es kozben egy
+ * masik folyamat ujrainditotta a szolgaltatast. A feltoltott 1704 fajl fent
+ * volt a Drive-on, de a NYILVANTARTASBA nem kerult be -- azt csak a paros
+ * vegen irtuk volna ki, az a pillanat pedig soha nem jott el. Igy a kovetkezo
+ * futas ugyanazt a 1704 fajlt kezdte elolrol, a felulet pedig egy orakkal
+ * korabbi szamot mutatott ("meg 2922 fajl var"), mintha semmi nem tortent
+ * volna. Ket kar egy okbol: elvegzett munka dobtuk el, es hamis szamot
+ * mutattunk.
+ *
+ * Ugyanaz a szabaly, mint mindenhol: amit MAR tudunk, azt azonnal irjuk ki --
+ * a leallitas ne vigyen el adatot.
+ */
+function mentsdAParost(pair: SyncPair, cfg: SyncConfig): void {
+  const live = loadSyncConfig()
+  live.state = { ...live.state, ...cfg.state }
+  live.pairs = live.pairs.map((p) => (p.id === pair.id
+    ? { ...p, lastRunAt: pair.lastRunAt, lastResult: pair.lastResult, lastPending: pair.lastPending }
+    : p))
+  saveSyncConfig(live)
+}
+
+/**
  * A FELMENO ag: helyi uj/modositott fajl a Drive-ra, helyi torles a Kukaba.
  *
  * Kulon fuggveny, mert kulon a felelossege: a lefele menet legrosszabb esetben
@@ -1264,6 +1299,25 @@ async function uploadPhase(a: {
   // felment mentes nem mutathat zold "rendben"-t.
   let feltoltve = 0
   let maradt = 0
+  // KOZBENSO MENTES. `0`, hogy az ELSO feltoltes azonnal kiirja: onnantol a
+  // felulet "eppen fut" allapotot mutat, nem egy korabbi futas szamait.
+  let utoljaraMentve = 0
+  const kozbenMentes = (): void => {
+    if (Date.now() - utoljaraMentve < KOZBEN_MENTES_MS) return
+    utoljaraMentve = Date.now()
+    pair.lastRunAt = new Date().toISOString()
+    // A mondat MEGMONDJA, hogy futas kozben keszult. Ha a futas felbeszakad,
+    // ez a sor marad ott -- es akkor sem hazudik, hanem eppen azt mondja meg,
+    // hogy megszakadt. A `lastPending`-hez NEM nyulunk: futas kozben nem
+    // tudjuk, mennyi van hatra, es egy talalgatott szam rosszabb a reginel.
+    pair.lastResult = `folyamatban: eddig ${feltoltve} fájl ment fel – ha ez a sor megmarad, a futás félbeszakadt`
+    try {
+      mentsdAParost(pair, cfg)
+    } catch (e) {
+      // A mentes IRASA nem allithatja meg magat a mentest.
+      logger.warn(`[drive-sync] a kozbenso allapot kiirasa nem sikerult: ${String(e)}`)
+    }
+  }
   for (const rel of helyiek) {
     const teljes = teljesRel(rel)
     const abs = join(gyokerAbs, rel)
@@ -1322,6 +1376,9 @@ async function uploadPhase(a: {
       }
       feltoltve++
       if (job) { job.uploaded++; job.bytes += st.size }
+      // A frissen felkerult fajl MAR benne van a `state`-ben: innentol egy
+      // megszakadt futas sem kuldi fel megegyszer.
+      kozbenMentes()
     } catch (err: any) {
       gond({
         pair, phase: 'feltöltés', failed: true,
@@ -1441,14 +1498,10 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
       })
     }
     pair.lastRunAt = new Date().toISOString()
-    // Parosonkent mentunk, nem a vegen: egy megszakadt futas utan sem kezdjuk
-    // elolrol azt, ami mar lejott.
-    const live = loadSyncConfig()
-    live.state = { ...live.state, ...cfg.state }
-    live.pairs = live.pairs.map((p) => (p.id === pair.id
-      ? { ...p, lastRunAt: pair.lastRunAt, lastResult: pair.lastResult, lastPending: pair.lastPending }
-      : p))
-    saveSyncConfig(live)
+    // Parosonkent mentunk, nem a vegen -- es a feltoltes kozben is (lasd
+    // `kozbenMentes`): egy megszakadt futas utan sem kezdjuk elolrol azt, ami
+    // mar lement vagy felment.
+    mentsdAParost(pair, cfg)
   }
   if (job) {
     job.running = false
