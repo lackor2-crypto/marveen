@@ -136,12 +136,19 @@ describe('MINDIG torlodik, mielott a doboz lathatova valik', () => {
     // A Claude-bejelentkeztetes es az MCP-csatlakozo gombja nem kulon fuggveny,
     // hanem beagyazott kezelo -- ezert a doboz megjeleniteset korulvevo
     // szoveget nezzuk, ugyanazzal a SORREND-szaballyal.
+    // A KERESES a SORRENDET meri, nem egy betuhu sort. 2026-08-29-en a
+    // claudeAuthFlow megmutatasa `const box = ...; if (box) box.hidden = false`
+    // alakra bomlott (hogy egy hianyzo doboz ne dobjon friss telepitesen), es a
+    // fix szoveget kereso valtozat ezt "eltunt a megmutatas"-nak latta, holott a
+    // torles tovabbra is megelozte. Egy elveszett horgony rosszabb, mint egy
+    // atirt betu: a mintanak a viselkedest kell megfognia.
     for (const [id, show] of [
-      ['claudeAuthLink', "document.getElementById('claudeAuthFlow').hidden = false"],
-      ['mconnLink', 'flow.hidden = false'],
-    ]) {
-      const showAt = app.indexOf(show)
-      expect(showAt, show).toBeGreaterThan(-1)
+      ['claudeAuthLink', /getElementById\('claudeAuthFlow'\)[\s\S]{0,120}?hidden = false/],
+      ['mconnLink', /flow\.hidden = false/],
+    ] as [string, RegExp][]) {
+      const m = show.exec(app)
+      expect(m, `${id}: sehol nem lesz lathato a doboz`).not.toBeNull()
+      const showAt = (m as RegExpExecArray).index
       const before = app.slice(Math.max(0, showAt - 400), showAt)
       expect(before, `${id}: a torles hianyzik a doboz megmutatasa elol`).toContain(`_setConsentLink('${id}', '')`)
     }
