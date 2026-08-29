@@ -188,6 +188,7 @@ describe('minden uj sornak van magyar ES angol szovege', () => {
   // helyen a nyers azonosito jelenne meg.
   const idk = [
     'named_login_out', 'named_login_blind', 'named_login_ok',
+    'named_login_same_account', 'named_login_same_as_host', 'named_login_drift',
     'named_login_unreadable', 'named_login_broken', 'named_login_none_valid',
     'google_client_missing', 'google_client_blind',
     'vault_binding_orphan', 'vault_binding_ok', 'vault_binding_blind',

@@ -19,10 +19,11 @@
 // kept pure (raw JSON string + homeDir in, validated array out) so it unit-
 // tests without the fs, mirroring resolveClaudeConfigDir in agent-config.ts.
 
-import { readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PROJECT_ROOT } from '../config.js'
+import { atomicWriteFileSync } from './atomic-write.js'
 import {
   expandAndValidateConfigDir,
   readAgentClaudeConfigDir,
@@ -140,6 +141,63 @@ export function readClaudePlans(): ClaudePlan[] {
   }
   plansCache = { mtimeMs, plans }
   return plans
+}
+
+/**
+ * KI LAKIK EBBEN A SLOTBAN -- a cim rogzitese.
+ *
+ * Boss, 2026-08-29: ket kulon nevu elofizetes csendben ugyanarra az Anthropic-
+ * fiokra mutatott, mert sehol nem volt leirva, kinek KELLENE ott lennie. Az
+ * `expectedEmail` mezo a semaban evek ota ott volt, hasznalva soha nem lett.
+ *
+ * Az ELSO sikeres bejelentkezes rogziti a cimet (friss telepitesen sincs mit
+ * kezzel beallitani), a kesobbiek ehhez merodnek. Feluletet ez a fuggveny SOSE
+ * ir felul magatol: ha mas cim jon be, azt a hivo jelenti a felhasznalonak, es
+ * o dont -- egy csendben atirt azonossag pont az a hiba, amit ez orizne.
+ *
+ * `force: true` eseten a felhasznalo kifejezett dontese irja at.
+ */
+export function pinExpectedEmail(
+  planId: string,
+  email: string,
+  opts: { force?: boolean; path?: string } = {},
+): { ok: true; changed: boolean } | { ok: false; error: string } {
+  const path = opts.path || CLAUDE_PLANS_PATH
+  const cim = (email || '').trim()
+  if (!planId || !cim) return { ok: false, error: 'hianyzo azonosito vagy cim' }
+  if (!existsSync(path)) return { ok: false, error: 'nincs fiok-nyilvantartas' }
+  let raw: string
+  try { raw = readFileSync(path, 'utf-8') } catch (e) {
+    return { ok: false, error: `a nyilvantartas nem olvashato: ${(e as Error).message}` }
+  }
+  let list: unknown
+  try { list = JSON.parse(raw) } catch (e) {
+    return { ok: false, error: `a nyilvantartas serult: ${(e as Error).message}` }
+  }
+  if (!Array.isArray(list)) return { ok: false, error: 'a nyilvantartas nem lista' }
+  let changed = false
+  for (const entry of list) {
+    if (!entry || typeof entry !== 'object') continue
+    const o = entry as Record<string, unknown>
+    if (o.id !== planId) continue
+    const eddigi = typeof o.expectedEmail === 'string' ? o.expectedEmail.trim() : ''
+    if (eddigi && !opts.force) {
+      // Mar van rogzitett cim: ha ez ugyanaz, nincs teendo; ha mas, azt NEM itt
+      // dontjuk el.
+      return { ok: true, changed: false }
+    }
+    if (eddigi.toLowerCase() === cim.toLowerCase()) return { ok: true, changed: false }
+    o.expectedEmail = cim
+    changed = true
+  }
+  if (!changed) return { ok: true, changed: false }
+  try {
+    atomicWriteFileSync(path, JSON.stringify(list, null, 2) + '\n')
+  } catch (e) {
+    return { ok: false, error: `a nyilvantartas nem irhato: ${(e as Error).message}` }
+  }
+  plansCache = null
+  return { ok: true, changed: true }
 }
 
 // Resolve a single plan id to its plan, or null when the id is blank/unknown.

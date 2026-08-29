@@ -361,6 +361,11 @@ export type NamedCred = 'be' | 'ki' | 'vak'
  * megkulonboztethetetlen a "ki van jelentkezve"-tol. Az onellenorzesben pont
  * ez a kulonbseg a lenyeg, ezert kerdezzuk kulon.
  */
+/** A legutobbi proba altal LATOTT cim, config-konyvtaranként. A cim ugyanabbol
+ *  a valaszbol jon, amibol a be/ki/vak allapot -- igy az azonossag-ellenorzes
+ *  nem inditja ujra a CLI-t fiokonkent masodszor is. */
+const utolsoCim = new Map<string, string | null>()
+
 export function namedLoginProbe(configDir: string): NamedCred {
   let out: string
   try {
@@ -383,14 +388,24 @@ export function namedLoginProbe(configDir: string): NamedCred {
   try {
     const o = JSON.parse(out) as Record<string, unknown>
     if (!o || typeof o !== 'object') return 'vak'
+    utolsoCim.set(configDir, typeof o.email === 'string' && o.email.trim() ? o.email.trim() : null)
     return o.loggedIn === true ? 'be' : 'ki'
   } catch { return 'vak' }
+}
+
+/** Kit latott a legutobbi proba ebben a konyvtarban. `undefined` = nem tudom
+ *  (nem futott proba, vagy nem lehetett elolvasni) -- ez NEM "nincs cim". */
+export function namedLoginEmail(configDir: string): string | null | undefined {
+  return utolsoCim.get(configDir)
 }
 
 export function namedLoginRows(
   plansPath: string = CLAUDE_PLANS_PATH,
   ertelmez: (raw: string) => ClaudePlan[] = raw => resolveClaudePlans(raw, homedir()),
   proba: (configDir: string) => NamedCred = namedLoginProbe,
+  // A cim ugyanabbol a valaszbol jon, amibol a be/ki/vak allapot: nincs masodik
+  // CLI-hivas fiokonkent. Tesztbol injektalhato.
+  cimOlvaso: (configDir: string) => string | null | undefined = namedLoginEmail,
 ): HealthRow[] {
   if (!existsSync(plansPath)) return []
   let raw: string
@@ -410,6 +425,12 @@ export function namedLoginRows(
   }
   const kint: string[] = []
   const vak: string[] = []
+  // KI VAN A SLOTBAN. Cimenkent gyujtve: ha ket kulon nevu elofizetes ugyanarra
+  // az Anthropic-fiokra mutat, ketten eszik ugyanannak az egy fioknak a
+  // kereteit, es a masik hasznalatlanul all -- Boss, 2026-08-29. A rogzitett
+  // cimtol valo eltereshez ugyanez a menet adja az adatot.
+  const cimenkent = new Map<string, string[]>()
+  const elcsuszott: string[] = []
   let rendben = 0
   for (const p of plans) {
     const nev = p.label || p.id
@@ -419,11 +440,54 @@ export function namedLoginRows(
     try { mappa = statSync(p.configDir).isDirectory() } catch { mappa = false }
     if (!mappa) { vak.push(nev); continue }
     const st = proba(p.configDir)
-    if (st === 'be') rendben++
-    else if (st === 'ki') kint.push(nev)
+    if (st === 'be') {
+      rendben++
+      const cim = cimOlvaso(p.configDir)
+      if (cim) {
+        const kulcs = cim.trim().toLowerCase()
+        cimenkent.set(kulcs, [...(cimenkent.get(kulcs) || []), nev])
+        const vart = (p.expectedEmail || '').trim().toLowerCase()
+        if (vart && vart !== kulcs) elcsuszott.push(`${nev} (${cim})`)
+      }
+    } else if (st === 'ki') kint.push(nev)
     else vak.push(nev)
   }
+  // A gep sajat bejelentkezese is beleszamit: ha egy nevesitett elofizetes arra
+  // csuszik at, az ugyanaz a hiba.
+  const sajatDir = join(homedir(), '.claude')
+  let sajatCim: string | null = null
+  if (proba(sajatDir) === 'be') {
+    const cim = cimOlvaso(sajatDir)
+    if (cim) sajatCim = cim.trim().toLowerCase()
+  }
   const rows: HealthRow[] = []
+  for (const [cim, nevek] of cimenkent) {
+    // Ket kulon nevu elofizetes ugyanazon a fiokon...
+    if (nevek.length >= 2) {
+      rows.push({
+        id: 'named_login_same_account',
+        status: 'bad',
+        params: { n: nevek.length, names: nevek.join(', '), email: cim },
+      })
+      continue
+    }
+    // ...vagy egy elofizetes a gep SAJAT fiokjan. A backend nem ad magyar szot
+    // a felületnek: a sajat fiokot a lap nevezi meg, ezert kulon sor-azonosito.
+    if (sajatCim && cim === sajatCim) {
+      rows.push({
+        id: 'named_login_same_as_host',
+        status: 'bad',
+        params: { names: nevek.join(', '), email: cim },
+      })
+    }
+  }
+  if (elcsuszott.length > 0) {
+    rows.push({
+      id: 'named_login_drift',
+      status: 'bad',
+      params: { n: elcsuszott.length, names: elcsuszott.join(', ') },
+    })
+  }
   if (kint.length > 0) {
     rows.push({ id: 'named_login_out', status: 'bad', params: { n: kint.length, names: kint.join(', ') } })
   }

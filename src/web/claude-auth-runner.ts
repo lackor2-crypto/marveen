@@ -22,7 +22,13 @@ import { logger } from '../logger.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
-import { readClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
+import { readClaudePlans, CLAUDE_PLANS_PATH, pinExpectedEmail } from './claude-plans.js'
+import {
+  auditIdentities,
+  decidePostLogin,
+  type IdentityAudit,
+  type SlotVerdict,
+} from './account-identity-guard.js'
 import { exactTmuxTarget } from './tmux-target.js'
 import {
   parseAuthStatus,
@@ -138,19 +144,45 @@ const LOGIN_MAX_AGE_MS = 15 * 60_000
  *  it reports the install's default (~/.claude), which is where the main agent
  *  lives unless it was given a plan of its own. */
 export function readIdentity(configDir?: string | null): AuthIdentity {
+  return readIdentityDetailed(configDir).identity
+}
+
+/**
+ * Ugyanaz, de megmondja azt is, hogy SIKERULT-E megkerdezni.
+ *
+ * A `readIdentity()` a sikertelen probat is "nincs bejelentkezve"-kent adja
+ * vissza -- a lapnak ez eleg, az azonossag-orzesnek NEM: ott a "nem latok oda"
+ * es a "ki van jelentkezve" ket kulonbozo mondat, es a kettot osszekeverve
+ * hamis zold sorokat irnank ki. (MERVE: kijelentkezett fiokra a CLI exit 1-gyel
+ * lep ki, de a valasz JSON-t AKKOR IS kiirja -- ezert vesszuk elo a kimenetet a
+ * hibaobjektumbol is; csak az az igazi vaksag, amikor nincs mit elolvasni.)
+ */
+export function readIdentityDetailed(configDir?: string | null): { identity: AuthIdentity; probeOk: boolean } {
+  let out: string
   try {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir
-    const out = execFileSync(CLAUDE(), ['auth', 'status', '--json'], {
+    out = execFileSync(CLAUDE(), ['auth', 'status', '--json'], {
       timeout: 20_000, encoding: 'utf-8', env,
     })
-    return parseAuthStatus(out)
   } catch (err) {
-    // A missing CLI, a timeout, a directory never logged into: the page still
-    // renders, it just cannot claim anyone is signed in there.
-    logger.debug({ err, configDir }, 'claude-auth: status probe failed')
-    return UNKNOWN_IDENTITY
+    const st = (err as { stdout?: string | Buffer })?.stdout
+    const text = st === undefined || st === null ? '' : (typeof st === 'string' ? st : st.toString('utf-8'))
+    if (!text.trim()) {
+      // A missing CLI, a timeout, a directory never logged into: the page still
+      // renders, it just cannot claim anyone is signed in there.
+      logger.debug({ err, configDir }, 'claude-auth: status probe failed')
+      return { identity: UNKNOWN_IDENTITY, probeOk: false }
+    }
+    out = text
   }
+  try {
+    const o = JSON.parse(out) as unknown
+    if (!o || typeof o !== 'object') return { identity: UNKNOWN_IDENTITY, probeOk: false }
+  } catch {
+    return { identity: UNKNOWN_IDENTITY, probeOk: false }
+  }
+  return { identity: parseAuthStatus(out), probeOk: true }
 }
 
 export interface AccountRow {
@@ -162,6 +194,12 @@ export interface AccountRow {
   planType: string | null
   channelsAllowed: boolean | null
   identity: AuthIdentity
+  /** Sikerult-e megkerdezni a CLI-t. `false` = nem latok oda (nem "kijelentkezve"). */
+  probeOk: boolean
+  /** Kinek KELLENE ebben a slotban lennie (claude-plans.json). */
+  expectedEmail: string | null
+  /** Az azonossag-ellenorzes iteletе errol a slotrol. */
+  identityVerdict: SlotVerdict
 }
 
 /**
@@ -189,6 +227,7 @@ export function listAccounts(force = false): AccountRow[] {
 }
 
 function buildAccountRows(): AccountRow[] {
+  const def = readIdentityDetailed(null)
   const rows: AccountRow[] = [{
     id: null,
     // No label from here: the row is marked isDefault and the PAGE names it, so
@@ -198,9 +237,13 @@ function buildAccountRows(): AccountRow[] {
     isDefault: true,
     planType: null,
     channelsAllowed: null,
-    identity: readIdentity(null),
+    identity: def.identity,
+    probeOk: def.probeOk,
+    expectedEmail: null,
+    identityVerdict: { kind: 'signed_out' },
   }]
   for (const plan of readClaudePlans()) {
+    const got = readIdentityDetailed(plan.configDir)
     rows.push({
       id: plan.id,
       label: plan.label,
@@ -208,10 +251,39 @@ function buildAccountRows(): AccountRow[] {
       isDefault: false,
       planType: plan.planType,
       channelsAllowed: plan.channelsAllowed,
-      identity: readIdentity(plan.configDir),
+      identity: got.identity,
+      probeOk: got.probeOk,
+      expectedEmail: plan.expectedEmail ?? null,
+      identityVerdict: { kind: 'signed_out' },
     })
   }
+  // KI VAN EBBEN A SLOTBAN. Egy menetben, hogy az utkozes-kereses (ket slot
+  // ugyanazon a fiokon) mindenkit lasson -- a gep sajat bejelentkezeset is.
+  const audit = auditIdentities(rows.map(r => ({
+    id: r.id,
+    label: r.isDefault ? '' : (r.label || r.id || ''),
+    email: r.identity.email,
+    loggedIn: r.identity.loggedIn,
+    probeOk: r.probeOk,
+    expectedEmail: r.expectedEmail,
+  })))
+  for (const row of rows) {
+    row.identityVerdict = audit.bySlot[row.id ?? ''] ?? { kind: 'signed_out' }
+  }
   return rows
+}
+
+/** Az osszes fiok azonossag-vizsgalata (utkozesek is), a gyorsitotarbol. */
+export function identityAudit(force = false): IdentityAudit {
+  const rows = listAccounts(force)
+  return auditIdentities(rows.map(r => ({
+    id: r.id,
+    label: r.isDefault ? '' : (r.label || r.id || ''),
+    email: r.identity.email,
+    loggedIn: r.identity.loggedIn,
+    probeOk: r.probeOk,
+    expectedEmail: r.expectedEmail,
+  })))
 }
 
 function sessionExists(): boolean {
@@ -463,6 +535,10 @@ export interface LoginStatus {
   reused?: boolean
   /** Every login this install has, refreshed on each poll. */
   accounts: AccountRow[]
+  /** Kitolt a bejelentkezes MAS fiokba, mint amit ehhez a slothoz rogzitettunk.
+   *  A bongeszo azt a fiokot hagyja jova, amelyik eppen be van benne
+   *  jelentkezve -- ha az nem a jo, ezt a felhasznalonak latnia KELL. */
+  identityDrift?: { planId: string; expected: string; actual: string } | null
   /** State, not event: is ~/.claude signed in at this very moment? */
   defaultLoggedIn: boolean
 }
@@ -476,7 +552,7 @@ export interface LoginStatus {
 function idle(accounts: AccountRow[], phase: LoginPaneState['phase'] = 'idle', error: string | null = null): LoginStatus {
   return {
     active: false, phase, url: null, browserUrl: null, error, label: null, planId: null, done: false,
-    accounts, defaultLoggedIn: isDefaultLoggedIn(accounts),
+    accounts, defaultLoggedIn: isDefaultLoggedIn(accounts), identityDrift: null,
   }
 }
 
@@ -510,12 +586,32 @@ export function loginStatus(): LoginStatus {
     const registered = configDir === null || planId === null
       ? true
       : current.registered || registerPlan(planId, label, configDir)
+    // KI JELENTKEZETT BE VALOJABAN. A bongeszo azt a fiokot hagyja jova,
+    // amelyik EPPEN be van benne jelentkezve -- nem azt, amelyiket ide
+    // szantuk. Az elso bejelentkezes rogziti a slot cimet, minden kesobbi
+    // ehhez merodik; eltereskor NEM irjuk felul csendben, hanem szolunk.
+    let drift: { planId: string; expected: string; actual: string } | null = null
+    if (planId && configDir !== null) {
+      const eddigi = readClaudePlans().find(p => p.id === planId)?.expectedEmail ?? null
+      const dontes = decidePostLogin(eddigi, identity.email)
+      if (dontes.kind === 'pin') {
+        const w = pinExpectedEmail(planId, dontes.email)
+        if (w.ok && w.changed) {
+          logger.info({ planId }, 'claude-auth: slot cime rogzitve az elso bejelentkezesnel')
+        } else if (!w.ok) {
+          logger.warn({ planId, err: w.error }, 'claude-auth: a slot cimet nem sikerult rogziteni')
+        }
+      } else if (dontes.kind === 'drift') {
+        drift = { planId, expected: dontes.expected, actual: dontes.actual }
+        logger.warn({ planId }, 'claude-auth: MAS fiok jelentkezett be, mint amit ehhez a slothoz rogzitettunk')
+      }
+    }
     killSession(); current = null
     const accounts = listAccounts(true)
     const status = idle(accounts, 'done')
     return {
       ...status, done: true, planId, label, isDefault: configDir === null, reused,
-      defaultLoggedIn: isDefaultLoggedIn(accounts),
+      defaultLoggedIn: isDefaultLoggedIn(accounts), identityDrift: drift,
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
   }

@@ -4362,8 +4362,49 @@ function primeClaudeAccounts(onLoaded) {
     .then((data) => {
       _claudeAccountsPending = false
       _claudeAccountRows = (data && Array.isArray(data.accounts)) ? data.accounts : []
+      _claudeIdentityCollisions = (data && Array.isArray(data.identityCollisions)) ? data.identityCollisions : []
       if (typeof onLoaded === 'function') onLoaded()
     })
+}
+
+// KI VAN EBBEN A SLOTBAN -- a felulet oldala.
+//
+// Boss, 2026-08-29: "ne legyen ugyanabba a fiokba bejelentkezve. hat hiszen a
+// lackor3 az egy kulon email klon fiokkal... mit keres az az usalackorban?"
+// Ket kulon nevu elofizetes csendben ugyanarra a Claude-fiokra mutatott: ketten
+// ettek ugyanannak az egy fioknak a kereteit, a masik meg allt hasznalatlanul.
+// A szerver ket dolgot ad: slotonkenti iteletet (`identityVerdict`) es a
+// cimenkenti utkozeseket.
+let _claudeIdentityCollisions = []
+
+// A sor, amit a fiok mellett latni KELL, vagy ures sztring. Az ures itt azt
+// jelenti, hogy nincs baj -- a "nem latok oda" kulon itelet ('blind'), es azt
+// is kiirjuk, nehogy egy nema sor "rendben"-nek latsszon.
+function accountIdentityWarningHtml(row) {
+  if (!row) return ''
+  const v = row.identityVerdict || null
+  const cim = (row.identity && row.identity.email) || ''
+  const utkozes = (_claudeIdentityCollisions || []).find(c => Array.isArray(c.ids)
+    && c.ids.some(id => (id || '') === (row.id || '')))
+  if (utkozes) {
+    const tarsak = (utkozes.labels || []).filter(l => l && l !== (row.label || row.id || ''))
+    const szoveg = t('accounts.identity.collision', {
+      email: utkozes.email,
+      others: tarsak.length ? tarsak.join(', ') : t('accounts.identity.host_account'),
+    })
+    return `<div class="agent-account-identity-warn">⚠️ ${escapeHtml(szoveg)}</div>`
+  }
+  if (v && v.kind === 'drift') {
+    const szoveg = t('accounts.identity.drift', { expected: v.expected, actual: v.actual })
+    return `<div class="agent-account-identity-warn">⚠️ ${escapeHtml(szoveg)}
+      <button type="button" class="btn-secondary btn-compact agent-account-pin-btn"
+        data-plan="${escapeAttr(row.id || '')}" data-email="${escapeAttr(cim)}">${escapeHtml(t('accounts.identity.accept_new'))}</button>
+    </div>`
+  }
+  if (v && v.kind === 'blind') {
+    return `<div class="agent-account-identity-warn">⚠️ ${escapeHtml(t('accounts.identity.blind'))}</div>`
+  }
+  return ''
 }
 
 // A megtalalt fiok sora, vagy null. A null itt "nem lattam oda" (meg nem jott
@@ -4387,6 +4428,7 @@ function claudeAccountsFingerprint(rows) {
     r.id || '', r.configDir || '',
     (r.identity && r.identity.loggedIn) ? '1' : '0',
     (r.identity && r.identity.email) || '',
+    (r.identityVerdict && r.identityVerdict.kind) || '',
   ].join('|')).join(';')
 }
 
@@ -4401,6 +4443,7 @@ function refreshClaudeAccounts(onChanged) {
       const before = claudeAccountsFingerprint(_claudeAccountRows)
       const after = claudeAccountsFingerprint(data.accounts)
       _claudeAccountRows = data.accounts
+      _claudeIdentityCollisions = Array.isArray(data.identityCollisions) ? data.identityCollisions : []
       _claudeAccountsPending = false
       if (before !== after && typeof onChanged === 'function') onChanged()
     })
@@ -4441,14 +4484,17 @@ function claudeAccountRowFor(claudeAccount) {
 function agentLogoutButtonHtml(agent) {
   const row = claudeAccountRowFor(agent && agent.claudeAccount)
   if (!row || !row.identity) return ''
+  // A figyelmeztetes a gomb FOLE kerul: eloszor azt kell latni, KI van a
+  // fiokban, es csak utana a gombot, ami vele csinal valamit.
+  const warn = accountIdentityWarningHtml(row)
   if (row.identity.loggedIn) {
     const who = row.identity.email || (row.isDefault ? mainAccountLabel() : (row.label || row.id || ''))
     const label = t('agents.btn.account_logout', { account: row.isDefault ? mainAccountLabel() : stripModelSuffix(row.label || row.id || '') })
-    return `<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
+    return `${warn}<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
   }
   const name = row.isDefault ? mainAccountLabel() : (row.label || row.id || '')
   const label = t('agents.btn.account_relogin', { account: stripModelSuffix(name) })
-  return `<button type="button" class="btn-primary btn-compact agent-account-relogin-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-default="${row.isDefault ? '1' : '0'}" data-who="${escapeAttr(name)}" title="${escapeAttr(t('agents.btn.account_relogin_tip'))}">${escapeHtml(label)}</button>`
+  return `${warn}<button type="button" class="btn-primary btn-compact agent-account-relogin-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-default="${row.isDefault ? '1' : '0'}" data-who="${escapeAttr(name)}" title="${escapeAttr(t('agents.btn.account_relogin_tip'))}">${escapeHtml(label)}</button>`
 }
 
 /**
@@ -4460,6 +4506,25 @@ function agentLogoutButtonHtml(agent) {
  * kozott").
  */
 function wireAccountLogoutButton(cardEl) {
+  // "Mostantol EZ a cim tartozzon ehhez az elofizeteshez." Csak kifejezett
+  // dontesre, megerositessel: a bejelentkezes magatol SOSE irja felul.
+  cardEl.querySelector('.agent-account-pin-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const b = e.currentTarget
+    const email = b.dataset.email || ''
+    if (!confirm(t('accounts.identity.accept_confirm', { email }))) return
+    fetch('/api/accounts/claude/pin-email', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId: b.dataset.plan || '', email }),
+    })
+      .then(res => res.json())
+      .catch(() => null)
+      .then((data) => {
+        if (!data || !data.ok) { showToast((data && data.error) || t('common.error_save'), 8000, true); return }
+        showToast(t('accounts.identity.accept_done', { email }), 6000)
+        reloadAccountsAndRedraw()
+      })
+  })
   cardEl.querySelector('.agent-account-logout-btn')?.addEventListener('click', (e) => {
     e.stopPropagation()
     const b = e.currentTarget
@@ -17533,6 +17598,15 @@ async function _claudeAuthTick() {
     // in the list, it just had no credentials.
     else showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
     _claudeAuthPendingTab = null
+    // MAS FIOK JOTT BE, MINT AMIT IDE ROGZITETTUNK. A bongeszo azt a fiokot
+    // hagyja jova, amelyik eppen be van benne jelentkezve -- ezt a
+    // felhasznalonak latnia kell, mert kulonben ket elofizetes csendben egy
+    // fiok kereteit eszi.
+    if (s.identityDrift) {
+      showToast(t('accounts.identity.drift_after_login', {
+        expected: s.identityDrift.expected, actual: s.identityDrift.actual,
+      }), 20000, true)
+    }
     // A sikeres bejelentkezes elavultta teszi a kartyak fiok-gyorsitotarat.
     // Enelkul a Beallitasok fulon tovabbra is "Bejelentkezes" allna egy mar
     // bejelentkezett fiokon.

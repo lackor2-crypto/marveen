@@ -11,7 +11,8 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
-import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutAccount, listAccounts } from '../claude-auth-runner.js'
+import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutAccount, listAccounts, identityAudit } from '../claude-auth-runner.js'
+import { pinExpectedEmail } from '../claude-plans.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
 import type { RouteContext } from './types.js'
@@ -71,11 +72,36 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // A felulet ebbol irja a mondatot, tehat nem tud elavulni attol, hogy
     // valaki uj fiokot kot be vagy modellt valt (Boss, 2026-08-21: "ez hamis
     // allitas. mert most is tudok veled dolgozni!").
+    // KI VAN EBBEN A SLOTBAN. Az utkozes-lista (ket nevesitett elofizetes
+    // ugyanazon a Claude-fiokon) es a `blind` szam egyutt jar: ha nem lattunk
+    // oda minden fiokba, a lista HIANYOS lehet, es a lap ezt ki is mondja --
+    // egy ures utkozes-lista nem azonos azzal, hogy nincs baj.
+    const audit = identityAudit()
     json(res, {
       ...loginStatus(),
       dependents: defaultLoginDependents().length,
       unaffected: unaffectedByDefaultLogin().length,
+      identityCollisions: audit.collisions,
+      identityBlind: audit.blind,
     })
+    return true
+  }
+
+  // "Mostantol EZ a cim tartozzon ehhez az elofizeteshez." Csak kifejezett
+  // felhasznaloi dontesre fut: a bejelentkezes maga SOSE irja felul csendben,
+  // amit egyszer rogzitettunk -- pont az a hiba lenne, amit ez oriz.
+  if (path === '/api/accounts/claude/pin-email' && method === 'POST') {
+    let body: { planId?: unknown; email?: unknown } = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
+    const planId = typeof body.planId === 'string' ? body.planId.trim() : ''
+    const email = typeof body.email === 'string' ? body.email.trim() : ''
+    if (!planId || !email) {
+      json(res, { ok: false, error: 'Hiányzik az előfizetés azonosítója vagy a cím.' }, 400)
+      return true
+    }
+    const r = pinExpectedEmail(planId, email, { force: true })
+    if (r.ok) listAccounts(true)
+    json(res, r.ok ? { ok: true } : { ok: false, error: r.error }, r.ok ? 200 : 500)
     return true
   }
 

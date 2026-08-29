@@ -11115,3 +11115,17 @@ details.upstream-box > summary > h4 {
 .cb-tabs-pick {
   border-top: none;
 }
+
+/* KI VAN EBBEN A SLOTBAN -- figyelmeztetes a fiok-doboz felett. Boss,
+   2026-08-29: ket kulon nevu elofizetes ugyanarra a Claude-fiokra mutatott. */
+.agent-account-identity-warn {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--danger, #d9534f);
+  background: color-mix(in srgb, var(--danger, #d9534f) 12%, transparent);
+  color: var(--text, inherit);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+.agent-account-identity-warn button { margin-top: 6px; }

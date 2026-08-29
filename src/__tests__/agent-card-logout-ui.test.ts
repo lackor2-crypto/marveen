@@ -50,14 +50,21 @@ type Row = {
   isDefault: boolean
   configDir: string | null
   identity: { loggedIn: boolean; email?: string | null }
+  identityVerdict?: { kind: string; expected?: string; actual?: string }
 }
+type Collision = { email: string; ids: (string | null)[]; labels: string[] }
 
 const usedKeys: string[] = []
-function build(rows: Row[] | null) {
+// A gomb NEM egyedul all a dobozban: fole kerul a "ki van ebben a slotban"
+// figyelmeztetes. A ketto egy fuggvenybol jon ki, tehat a homokozonak mindkettot
+// ismernie kell -- kulonben itt zold marad az, ami a bongeszoben eldol.
+function build(rows: Row[] | null, collisions: Collision[] = []) {
   return new Function(
-    't', 'escapeHtml', 'escapeAttr', 'mainAccountLabel', 'stripModelSuffix', 'rows',
+    't', 'escapeHtml', 'escapeAttr', 'mainAccountLabel', 'stripModelSuffix', 'rows', 'collisions',
     `let _claudeAccountRows = rows
+     let _claudeIdentityCollisions = collisions
      ${extractFn(app, 'claudeAccountRowFor')}
+     ${extractFn(app, 'accountIdentityWarningHtml')}
      ${extractFn(app, 'agentLogoutButtonHtml')}
      return agentLogoutButtonHtml`,
   )(
@@ -67,6 +74,7 @@ function build(rows: Row[] | null) {
     () => 'Gep',
     (v: string) => String(v),
     rows,
+    collisions,
   ) as (agent: unknown) => string
 }
 
@@ -169,6 +177,63 @@ describe('a gomb magaval viszi, MELYIK fiokrol van szo', () => {
     expect(body, 'nem csukja be a kartyat').not.toContain('closeModal(agentDetailOverlay)')
     // A doboz IDE jon: a hivas atadja a befogado elemet.
     expect(body).toMatch(/_claudeAuthStartFlow\(payload,\s*host\)/)
+  })
+})
+
+describe('KI VAN EBBEN A SLOTBAN -- a doboz megmondja', () => {
+  // Boss, 2026-08-29: "ne legyen ugyanabba a fiokba bejelentkezve. hat hiszen a
+  // lackor3 az egy kulon email klon fiokkal... mit keres az az usalackorban?"
+  // Ket kulon nevu elofizetes csendben ugyanazt a Claude-fiokot hasznalta:
+  // ketten ettek egyetlen fiok kereteit, a masik elofizetes meg allt. Semmi nem
+  // szolt. Mostantol pont ott szol, ahol a fiok latszik.
+  const agens = { name: 'x', claudeAccount: { configDir: '/x/usalackor' } }
+
+  it('ket elofizetes egy fiokon: a figyelmeztetes a GOMB FOLOTT all', () => {
+    const html = build([row({})], [{
+      email: 'usalackor@gmail.com', ids: ['usalackor', 'lackor3'],
+      labels: ['Usalackor', 'Lackor3'],
+    }])(agens)
+    expect(html).toContain('agent-account-identity-warn')
+    expect(html).toContain('accounts.identity.collision')
+    // Eloszor azt kell latni, KI van a fiokban, csak utana a gombot.
+    expect(html.indexOf('agent-account-identity-warn'))
+      .toBeLessThan(html.indexOf('agent-account-logout-btn'))
+  })
+
+  it('a kijelentkezett (bejelentkezes-gombos) allapotban is ott a figyelmeztetes', () => {
+    const html = build([row({ identity: { loggedIn: false } })], [{
+      email: 'usalackor@gmail.com', ids: ['usalackor', null], labels: ['Usalackor'],
+    }])(agens)
+    expect(html).toContain('agent-account-identity-warn')
+    expect(html.indexOf('agent-account-identity-warn'))
+      .toBeLessThan(html.indexOf('agent-account-relogin-btn'))
+  })
+
+  it('mas cim jott be, mint amit ide rogzitettunk: van gomb az elfogadasara', () => {
+    const html = build([row({
+      identityVerdict: { kind: 'drift', expected: 'lackor3@gmail.com', actual: 'usalackor@gmail.com' },
+    })])(agens)
+    expect(html).toContain('accounts.identity.drift')
+    expect(html).toContain('agent-account-pin-btn')
+    expect(html).toContain('data-email="a@example.com"')
+  })
+
+  it('a NEM LATOK ODA sajat sort kap, nem csendet', () => {
+    // A nulla ket dolgot jelenthet: a nema doboz "rendben"-nek latszana.
+    const html = build([row({ identityVerdict: { kind: 'blind' } })])(agens)
+    expect(html).toContain('accounts.identity.blind')
+  })
+
+  it('rendben levo fioknal egy szot sem szolunk', () => {
+    const html = build([row({ identityVerdict: { kind: 'ok', actual: 'a@example.com' } })])(agens)
+    expect(html).not.toContain('agent-account-identity-warn')
+  })
+
+  it('a figyelmeztetes csak az ERINTETT slotra jon ki', () => {
+    const html = build([row({})], [{
+      email: 'lackor2@gmail.com', ids: ['masik', null], labels: ['Masik'],
+    }])(agens)
+    expect(html).not.toContain('agent-account-identity-warn')
   })
 })
 
