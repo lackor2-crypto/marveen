@@ -394,6 +394,50 @@ export function mentesMappaNev(localPath: string): string {
   return safeSegment(tiszta ? tiszta.split('/').join(' - ') : 'A teljes raktár')
 }
 
+/**
+ * ELO access token: a futas KOZBEN is frissul.
+ *
+ * A Google access token ~1 orat el, a teljes raktar mentese ennel sokkal
+ * tovabb tart. Korabban a paros futasanak ELEJEN kertuk el egyszer, es azt az
+ * egy sztringet hasznaltuk vegig -- a lejarat pillanataban onnantol MINDEN
+ * keres elbukott. MERVE 2026-08-29: 252 sikeres feltoltes (72 MB) utan 4608 db
+ *   Drive 401: "Request had invalid authentication credentials."
+ * A mentes igy SOHA nem tudott vegigmenni: nem a halozat es nem a jogosultsag
+ * volt a baj, hanem az, hogy egy oranal hosszabb munkat egy oras tokennel
+ * probaltunk elvegezni.
+ *
+ * Ezert a halozati fuggvenyek mostantol `TokenForras`-t kapnak: lehet sima
+ * sztring (a rovid, egy-keres API-vegpontoknak valtozatlanul jo), vagy egy
+ * szolgaltato, amit minden keres elott megkerdezunk. 401-nel EGYSZER
+ * eroltetett frissitessel ujraprobalunk -- ha a friss tokennel is 401 jon,
+ * akkor tenyleg a hozzaferes a baj, es azt mar nem szabad elnyelni.
+ */
+export type TokenForras = string | ((eroltetett?: boolean) => Promise<string>)
+
+/** A tokent ennyi ido utan mar nem hisszuk el (a Google ~1 orat ad). */
+const TOKEN_ELETTARTAM_MS = 45 * 60 * 1000
+
+async function tokenErteke(t: TokenForras, eroltetett = false): Promise<string> {
+  return typeof t === 'string' ? t : await t(eroltetett)
+}
+
+/**
+ * Egy fiokhoz kotott, magat frissito token-szolgaltato.
+ *
+ * Sajat gyorsitotarat visz, ezert nem globalis: ket paros ket kulonbozo fiokja
+ * nem tudja egymas tokenjet felulirni.
+ */
+export function tokenSzolgaltato(account?: string): (eroltetett?: boolean) => Promise<string> {
+  let ertek = ''
+  let ido = 0
+  return async (eroltetett = false) => {
+    if (!eroltetett && ertek && Date.now() - ido < TOKEN_ELETTARTAM_MS) return ertek
+    ertek = await getAccessToken(account)
+    ido = Date.now()
+    return ertek
+  }
+}
+
 function getAccessToken(account?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [join(PROJECT_ROOT, 'scripts', 'google-auth.py'), 'token']
@@ -408,14 +452,19 @@ function getAccessToken(account?: string): Promise<string> {
   })
 }
 
-async function driveJson(url: string, token: string, init: RequestInit = {}): Promise<any> {
-  const res = await fetch(url, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.headers || {}) } })
-  if (!res.ok) throw new Error(`Drive ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  return res.json()
+async function driveJson(url: string, token: TokenForras, init: RequestInit = {}): Promise<any> {
+  for (let probal = 0; ; probal++) {
+    const t = await tokenErteke(token, probal > 0)
+    const res = await fetch(url, { ...init, headers: { Authorization: `Bearer ${t}`, ...(init.headers || {}) } })
+    if (res.ok) return res.json()
+    const szoveg = (await res.text()).slice(0, 200)
+    if (res.status === 401 && probal === 0 && typeof token !== 'string') continue
+    throw new Error(`Drive ${res.status}: ${szoveg}`)
+  }
 }
 
 /** Uj mappa a Drive-on. Visszaadja az azonositojat. */
-async function createDriveFolder(name: string, parentId: string, token: string): Promise<string> {
+async function createDriveFolder(name: string, parentId: string, token: TokenForras): Promise<string> {
   const created = await driveJson(`${DRIVE_FILES_URL}?fields=id`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -441,27 +490,35 @@ async function createDriveFolder(name: string, parentId: string, token: string):
  * "Marveen mentés" mappat gyartana, es harom bekotes utan a Boss harom
  * egyforma mappa kozul valogathatna a Drive-jan.
  */
-async function ensureDriveFolderByName(name: string, parentId: string, token: string): Promise<string> {
+async function ensureDriveFolderByName(name: string, parentId: string, token: TokenForras): Promise<string> {
   const gyerekek = await listFolder(parentId, token)
   const meg = gyerekek.find((f: any) => f.mimeType === 'application/vnd.google-apps.folder' && f.name === name)
   if (meg) return String(meg.id)
   return await createDriveFolder(name, parentId, token)
 }
 
-async function putBytes(uploadUrl: string, method: 'POST' | 'PATCH', localPath: string, token: string, contentType = 'application/octet-stream'): Promise<any> {
+async function putBytes(uploadUrl: string, method: 'POST' | 'PATCH', localPath: string, token: TokenForras, contentType = 'application/octet-stream'): Promise<any> {
   const size = statSync(localPath).size
-  const res = await fetch(uploadUrl, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': contentType,
-      'Content-Length': String(size),
-    },
-    body: Readable.toWeb(createReadStream(localPath)) as any,
-    duplex: 'half',
-  } as any)
-  if (!res.ok) throw new Error(`Drive ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  return res.json()
+  // Az olvaso-folyam MINDEN probalkozasnal ujra keszul: egy elhasznalt folyamot
+  // nem lehet megegyszer feltolteni, es a csendben ures torzs rosszabb, mint a
+  // hibauzenet.
+  for (let probal = 0; ; probal++) {
+    const t = await tokenErteke(token, probal > 0)
+    const res = await fetch(uploadUrl, {
+      method,
+      headers: {
+        Authorization: `Bearer ${t}`,
+        'Content-Type': contentType,
+        'Content-Length': String(size),
+      },
+      body: Readable.toWeb(createReadStream(localPath)) as any,
+      duplex: 'half',
+    } as any)
+    if (res.ok) return res.json()
+    const szoveg = (await res.text()).slice(0, 200)
+    if (res.status === 401 && probal === 0 && typeof token !== 'string') continue
+    throw new Error(`Drive ${res.status}: ${szoveg}`)
+  }
 }
 
 /**
@@ -471,7 +528,7 @@ async function putBytes(uploadUrl: string, method: 'POST' | 'PATCH', localPath: 
  * konnyu csendben elrontani valamit, es egy elrontott hatar rossz bajtokat tolt
  * fel. Igy mindket lepes kulon elszal, ha baj van.
  */
-async function uploadNewFile(name: string, parentId: string, localPath: string, token: string): Promise<{ id: string; modifiedTime: string }> {
+async function uploadNewFile(name: string, parentId: string, localPath: string, token: TokenForras): Promise<{ id: string; modifiedTime: string }> {
   const created = await driveJson(`${DRIVE_FILES_URL}?fields=id`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -489,7 +546,7 @@ async function uploadNewFile(name: string, parentId: string, localPath: string, 
  * azonosito ugyanaz marad, tehat a Doc megorzi a megosztasait, a linkjet es a
  * verzio-tortenetet -- nem uj fajl keletkezik a regi helyere.
  */
-async function updateDriveFile(fileId: string, localPath: string, token: string, contentType?: string): Promise<string> {
+async function updateDriveFile(fileId: string, localPath: string, token: TokenForras, contentType?: string): Promise<string> {
   const done = await putBytes(`${DRIVE_UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media&fields=modifiedTime`, 'PATCH', localPath, token, contentType)
   return String(done.modifiedTime || '')
 }
@@ -502,7 +559,7 @@ async function updateDriveFile(fileId: string, localPath: string, token: string,
  * a gepedrol semmit nem tud torolni); egy sajat baleset ellen viszont menedek.
  * `files.delete` helyett ezert `trashed: true`.
  */
-async function trashDriveFile(fileId: string, token: string): Promise<void> {
+async function trashDriveFile(fileId: string, token: TokenForras): Promise<void> {
   await driveJson(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id`, token, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -511,7 +568,7 @@ async function trashDriveFile(fileId: string, token: string): Promise<void> {
 }
 
 /** Egy Drive-mappa tartalma, lapozassal egyutt. */
-async function listFolder(folderId: string, token: string): Promise<any[]> {
+async function listFolder(folderId: string, token: TokenForras): Promise<any[]> {
   const out: any[] = []
   let pageToken = ''
   do {
@@ -684,8 +741,11 @@ export function walkLocalFiles(
   return { files, dirs, csonkolt }
 }
 
-async function downloadTo(url: string, token: string, dest: string): Promise<number> {
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+async function downloadTo(url: string, token: TokenForras, dest: string): Promise<number> {
+  let res = await fetch(url, { headers: { Authorization: `Bearer ${await tokenErteke(token)}` } })
+  if (res.status === 401 && typeof token !== 'string') {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${await tokenErteke(token, true)}` } })
+  }
   if (!res.ok || !res.body) throw new Error(`Drive ${res.status}`)
   mkdirSync(dirname(dest), { recursive: true })
   const tmp = `${dest}.part`
@@ -818,7 +878,10 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
       : 'nincs raktár beállítva')
   }
   const base = hely.base
-  const token = await getAccessToken(pair.account)
+  // Szolgaltato, nem sztring: a mentes tobb oraig is tarthat, a token egy oraig el.
+  const token = tokenSzolgaltato(pair.account)
+  // Fail-fast: ha a hozzaferes MOST sincs meg, ne a 3000. fajlnal deruljon ki.
+  await token()
   const state = cfg.state[pair.id] || {}
   cfg.state[pair.id] = state
   // Szelessegi bejaras: mappa + a hozza tartozo HELYI utvonal.
@@ -1058,7 +1121,7 @@ async function uploadPhase(a: {
   pair: SyncPair
   cfg: SyncConfig
   state: Record<string, SyncFileState>
-  token: string
+  token: TokenForras
   base: string
   gyoker: string
   gyokerAbs: string
@@ -1268,8 +1331,13 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
   const cfg = loadSyncConfig()
   for (const pair of pairs) {
     if (job) job.pair = pairLabel(pair)
+    // A futas hiba-szamlaloja KOZOS a parosok kozott, ezert a paros sajat
+    // hibait a kulonbsegbol olvassuk ki -- kulonben az elso paros hibai
+    // ravetulnenek a tobbire.
+    const hibaElotte = job?.failed || 0
     try {
       const { csonkolt, brake, maradt } = await syncPair(pair, cfg)
+      const hibas = (job?.failed || 0) - hibaElotte
       // Csonka mentesre NEM irhatunk "rendben"-t: a listaban ez az egy szo
       // mondja meg, megbizhat-e benne. A hatarok a naplo-dobozban is ott
       // vannak, de oda csak az nez, aki eppen figyeli a futast.
@@ -1290,13 +1358,23 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
       // viszont egy rendben zajlo, tobb ejszakas elso feltoltes. Sajat, sarga
       // sora van (`drive_sync_incomplete`). Zold "rendben" viszont nem lehet:
       // amig var fajl, a mentes NINCS kesz.
+      //
+      // AZ ELBUKOTT FAJLOK IS "NEM RENDBEN". 2026-08-29-en a mentes 252 fajlt
+      // toltott fel es 8926-ot elrontott (lejart token), a paros mégis
+      // "rendben"-t irt ki, mert a lanc csak a VARAKOZO fajlokat nezte -- azok
+      // pedig elfogytak: minden fajlra sor kerult, csak epp elbukott. Egy zold
+      // "rendben" egy ures mentes folott a legrosszabb fajta csend.
+      // A hibak HANGOSABBAK a "folyamatban"-nal: az utobbi rendben zajlo elso
+      // feltoltes, ez viszont teendo.
       pair.lastResult = brake
         ? `vészfék: ${brake.wouldDelete} fájl hiányzik a gépedről, ezért fent semmit nem töröltem`
         : csonkolt.length
           ? `részleges: ${csonkoltSzoveg(csonkolt, MAX_FOLDERS, MAX_FILES)} – a többi kimaradt`
-          : maradt
-            ? `folyamatban: még ${maradt} fájl vár feltöltésre – a következő futás onnan folytatja`
-            : 'rendben'
+          : hibas
+            ? `${hibas} fájl nem ment fel – a Hibák dobozban látod, melyik miért`
+            : maradt
+              ? `folyamatban: még ${maradt} fájl vár feltöltésre – a következő futás onnan folytatja`
+              : 'rendben'
       pair.lastPending = maradt
     } catch (err: any) {
       pair.lastResult = String(err?.message || err).slice(0, 200)
