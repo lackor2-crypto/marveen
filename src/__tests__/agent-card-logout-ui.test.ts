@@ -31,6 +31,7 @@ const app = readFileSync(join(ROOT, 'web', 'app.js'), 'utf8')
 const hu = readFileSync(join(ROOT, 'web', 'lang', 'hu.js'), 'utf8')
 const en = readFileSync(join(ROOT, 'web', 'lang', 'en.js'), 'utf8')
 const agentsRoute = readFileSync(join(ROOT, 'src', 'web', 'routes', 'agents.ts'), 'utf8')
+const html = readFileSync(join(ROOT, 'web', 'index.html'), 'utf8')
 
 function extractFn(src: string, name: string): string {
   const start = src.search(new RegExp(`(?:async )?function ${name}\\(`))
@@ -135,8 +136,8 @@ describe('a gomb magaval viszi, MELYIK fiokrol van szo', () => {
     expect(html).toContain('data-who="a@example.com"')
   })
 
-  it('a kartya tenylegesen kirajzolja a gombot', () => {
-    expect(app).toContain('${agentLogoutButtonHtml(agent)}')
+  it('a gomb tenylegesen kirajzolodik valahol', () => {
+    expect(app).toContain('agentLogoutButtonHtml(agent)')
     expect(app).toContain('.agent-account-logout-btn')
   })
 
@@ -184,18 +185,20 @@ describe('a fo agens kartyaja sem marad ki', () => {
     expect(marveenRoute).toContain("from '../default-login-dependents.js'")
   })
 
-  it('a fo agens kartyaja kirajzolja a gombot', () => {
-    expect(app).toContain('${agentLogoutButtonHtml(m)}')
+  it('a fo agens ugyanazt a dobozt kapja, nem sajat valtozatot', () => {
+    // Mindket megnyito ugyanazt a rendezot hivja, es a doboz maga egyetlen
+    // helyen letezik a HTML-ben -- tehat nem tud ketfele elcsuszni.
+    const openers = app.match(/renderAgentLogoutSetting\(currentAgent\)/g) || []
+    expect(openers.length, 'a fo agens es az al-agens megnyitoja is bekoti').toBe(3)
+    const groups = html.match(/id="agentLogoutGroup"/g) || []
+    expect(groups.length, 'pontosan egy kijelentkeztetes-doboz letezik').toBe(1)
   })
 
-  it('a ket kartya UGYANAZT a bekotest hasznalja, nem ket masolatot', () => {
+  it('egyetlen bekoto ut van, nem ket masolat', () => {
     // A megerosito ut (nevek + visszakerdezes) egyetlen helyen el. Ha valaki
     // masol belole egy masodikat, az elobb-utobb halkabb lesz -- ezert szamolunk.
     const defs = app.match(/function wireAccountLogoutButton\(/g) || []
     expect(defs.length, 'pontosan egy bekoto fuggveny letezhet').toBe(1)
-    const calls = app.match(/wireAccountLogoutButton\((?:card|mCard)\)/g) || []
-    expect(calls.length, 'mindket kartya bekoti a gombot').toBe(2)
-    // Es tovabbra sincs kozvetlen, kezzel irt masodik esemenykezelo.
     const inline = app.match(/\.agent-account-logout-btn'\)\?\.addEventListener/g) || []
     expect(inline.length, 'csak a kozos fuggvenyben kotodik esemeny').toBe(1)
   })
@@ -205,5 +208,51 @@ describe('a fo agens kartyaja sem marad ki', () => {
     // akkor nincs gomb -- akkor sem, ha o a fo agens.
     const html = build([row({})])({ name: 'main', claudeAccount: null })
     expect(html).toBe('')
+  })
+})
+
+/**
+ * BELULRE, A BEALLITASOK ALA -- NEM A KARTYA ELEJERE.
+ *
+ * Boss, 2026-08-29: "jaajj de mondtam hogy ne kivulre tedd. hanem belulre a
+ * belaitasok ala." A gomb tehat az ugynok sajat lapjan, a Beallitasok fulon
+ * lakik, a Claude-elofizetes alatt -- ugyanott, ahol a bejelentkezes is.
+ *
+ * Amit ez ovni akar: a kartya elejere visszacsuszo gombot. Az elozo korben
+ * pont az volt a kifogas, hogy kint van; ha valaki visszateszi, ez elhasal.
+ */
+describe('a gomb a Beallitasok fulon van, nem a kartyan', () => {
+  it('a kartyak akcio-sora nem tartalmazza a gombot', () => {
+    expect(app).not.toContain('${agentLogoutButtonHtml(agent)}')
+    expect(app).not.toContain('${agentLogoutButtonHtml(m)}')
+  })
+
+  it('a doboz a Beallitasok fulon belul van', () => {
+    const tab = html.slice(html.indexOf('id="tabSettings"'))
+    const end = tab.indexOf('id="tabChannel"')
+    const settingsTab = end > 0 ? tab.slice(0, end) : tab
+    expect(settingsTab).toContain('id="agentLogoutGroup"')
+    expect(settingsTab).toContain('id="agentLogoutSlot"')
+  })
+
+  it('alapbol rejtve all, es csak akkor nyilik ki, ha van mit kijelentkeztetni', () => {
+    expect(html).toContain('id="agentLogoutGroup" hidden')
+    const fn = extractFn(app, 'renderAgentLogoutSetting')
+    expect(fn).toContain('group.hidden = !html')
+  })
+
+  it('a fioklista hianya nem gomb-hianynak latszik, hanem megkerdezi a forrast', () => {
+    // A nulla ket dolgot jelenthet: "nincs fiok" vagy "meg nem lattam oda".
+    // Itt a masodik esetben ujra kell kerdezni, nem eldonteni.
+    const fn = extractFn(app, 'renderAgentLogoutSetting')
+    expect(fn).toContain('if (!_claudeAccountRows)')
+    expect(fn).toContain('primeClaudeAccounts(')
+  })
+
+  it('a doboz felirata ketnyelvu', () => {
+    for (const key of ['agents.settings.logout_label', 'agents.settings.logout_desc']) {
+      expect(hu, `hu: ${key}`).toContain(`'${key}'`)
+      expect(en, `en: ${key}`).toContain(`'${key}'`)
+    }
   })
 })

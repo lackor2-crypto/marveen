@@ -2916,6 +2916,8 @@ window._i18n.en = {
   'agents.channel.disconnected': 'Not connected',
   'agents.strict_mode':          ' (strict)',
   'agents.marveen_boss':         '{bot} & {owner}',
+  'agents.settings.logout_label':         'Claude account',
+  'agents.settings.logout_desc':          'Signs out the Claude account this agent works with. It first shows you exactly who it stops, and only then does it. You can come back with the Sign in button or the wizard.',
   'agents.btn.account_logout':            'Sign out ({account})',
   'agents.btn.account_logout_tip':        'Signs out the Claude account this agent works with. It shows you who it stops before doing it.',
   'agents.btn.login':            'Login',

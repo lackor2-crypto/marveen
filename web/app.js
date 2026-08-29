@@ -4031,6 +4031,9 @@ async function openMarveenDetail() {
   // Reuse the agent detail modal for Marveen
   currentAgent = { ...m, name: mainAgentId(), claudeMd: '', soulMd: '', mcpJson: '', skills: [] }
   setupAutoRestartUI(currentAgent)
+  // A fo agens UGYANAZT a Beallitasok fulet kapja, tehat a kijelentkeztetes is
+  // ugyanoda kerul. "Nincs megkulonboztetes agent es agent kozott" (Boss).
+  renderAgentLogoutSetting(currentAgent)
 
   const displayName = m.name || 'Marveen'
   document.getElementById('agentDetailTitle').textContent = displayName
@@ -4371,10 +4374,12 @@ function agentLogoutButtonHtml(agent) {
 }
 
 /**
- * A gomb bekotese -- EGY helyen, mert ket kartya hasznalja (Marvin sajat
- * kartyaja es a tobbi ugynoke, Boss 2026-08-29: "nincs megkulonboztetes agent
- * es agent kozott"). Ha ez ket masolat lenne, az egyik elobb-utobb csendesebb
- * es veszelyesebb valtozatta valna, mint a masik.
+ * A gomb bekotese -- EGY helyen. Boss, 2026-08-29: "ne kivulre tedd. hanem
+ * belulre a beallitasok ala." A gomb ezert mar nem a kartya elejen ul, hanem
+ * az ugynok sajat Beallitasok fulen, a Claude-elofizetes alatt -- es mivel a
+ * fo agens UGYANEZT a modalt hasznalja, egyetlen helyen keletkezik, nem ket,
+ * egymastol elcsuszo masolatban ("nincs megkulonboztetes agent es agent
+ * kozott").
  */
 function wireAccountLogoutButton(cardEl) {
   cardEl.querySelector('.agent-account-logout-btn')?.addEventListener('click', (e) => {
@@ -4382,9 +4387,41 @@ function wireAccountLogoutButton(cardEl) {
     const b = e.currentTarget
     _claudeAuthLogout(b.dataset.plan || '', b.dataset.who || '').then(() => {
       _claudeAccountRows = null
-      primeClaudeAccounts(() => renderAgents())
+      primeClaudeAccounts(() => {
+        renderAgents()
+        // A doboz a nyitott modalban ul: ha csak a kartyakat rajzolnank ujra,
+        // a gomb ott maradna egy mar kijelentkezett fiokra mutatva.
+        if (currentAgent) renderAgentLogoutSetting(currentAgent)
+      })
     })
   })
+}
+
+/**
+ * A Beallitasok ful kijelentkeztetes-doboza. Ugyanaz a szabaly, mint a
+ * kartyan volt: csak akkor latszik, ha az ugynok tenylegesen
+ * Claude-bejelentkezessel dolgozik ES az a fiok be is van jelentkezve.
+ * A fioklista aszinkron jon, ezert ha meg nincs meg, megkerjuk, es a
+ * megerkezesekor ujrarajzoljuk -- a hianyzo lista "nem lattam oda", nem
+ * "nincs fiok", tehat addig nem allitunk semmit.
+ */
+function renderAgentLogoutSetting(agent) {
+  const group = document.getElementById('agentLogoutGroup')
+  const slot = document.getElementById('agentLogoutSlot')
+  if (!group || !slot) return
+  if (!_claudeAccountRows) {
+    group.hidden = true
+    slot.innerHTML = ''
+    primeClaudeAccounts(() => {
+      // Csak akkor rajzolunk ujra, ha kozben nem valtottal masik ugynokre.
+      if (currentAgent && agent && currentAgent.name === agent.name) renderAgentLogoutSetting(agent)
+    })
+    return
+  }
+  const html = agentLogoutButtonHtml(agent)
+  slot.innerHTML = html
+  group.hidden = !html
+  if (html) wireAccountLogoutButton(group)
 }
 
 function accountBadgeHtml(claudePlan, isMain) {
@@ -4874,7 +4911,6 @@ function renderAgents() {
           Terminal
         </button>
         ${contextButtonsHtml(mainAgentId())}
-        ${agentLogoutButtonHtml(m)}
       </div>
       ${contextControlsHtml(mainAgentId(), m.contextTokens, true, m.contextState, m.contextQuota)}
     `
@@ -4884,7 +4920,6 @@ function renderAgents() {
     mCard.querySelector('.agent-conversation-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openConversationModal(mainAgentId(), t('agents.marveen_boss'))
     })
-    wireAccountLogoutButton(mCard)
     mCard.addEventListener('click', () => openMarveenDetail())
     wireContextControls(mCard, mainAgentId())
     agentsGrid.insertBefore(mCard, addBtn)
@@ -4965,7 +5000,6 @@ function renderAgents() {
           Terminal
         </button>
         ${contextButtonsHtml(agent.name)}
-        ${agentLogoutButtonHtml(agent)}
       </div>
       ${contextControlsHtml(agent.name, agent.contextTokens, isRunning, agent.contextState, agent.contextQuota)}
     `
@@ -4973,9 +5007,6 @@ function renderAgents() {
     card.querySelectorAll('.agent-login-btn').forEach(btn => {
       btn.addEventListener('click', (e) => { e.stopPropagation(); handleAgentLogin(agent.name, btn) })
     })
-    // Sign-out button: the SAME confirm-with-names path as the Accounts page,
-    // so it can never turn into a quieter, more dangerous second copy.
-    wireAccountLogoutButton(card)
     // Terminal button
     card.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openTerminalModal(agent.name)
@@ -5992,6 +6023,7 @@ async function openAgentDetail(agentName) {
     document.getElementById('editAgentPlanDesc'),
     currentAgent.claudePlan || '',
   )
+  renderAgentLogoutSetting(currentAgent)
   renderTeamEditor(currentAgent, agents)
   updateAuthModeUI(currentAgent.authMode || 'shared', currentAgent.hasApiKey || false)
   const memIsoToggle = document.getElementById('memoryIsolationToggle')

@@ -4070,6 +4070,17 @@
             <small id="editAgentPlanDesc" style="display:block;margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.4"></small>
             <button class="btn-secondary btn-compact agent-save-section" id="savePlanBtn" data-i18n="common.btn.save">Mentés</button>
           </div>
+          <!-- Kijelentkeztetés. Boss, 2026-08-29: "ne kivulre tedd. hanem
+               belulre a beallitasok ala." A gomb a kártya elejéről ide
+               került, oda, ahol a Claude-előfizetés és a bejelentkezés is van.
+               Ugyanez a doboz szolgálja a fő ágensét is: a két ügynök
+               UGYANEZT a modalt használja, tehát nem lehet belőle két,
+               egymástól elcsúszó változat. -->
+          <div class="form-group" id="agentLogoutGroup" hidden>
+            <label data-i18n="agents.settings.logout_label">Claude-fiók</label>
+            <div id="agentLogoutSlot"></div>
+            <small style="display:block;margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.4" data-i18n="agents.settings.logout_desc">Kijelentkeztetheted azt a Claude-fiókot, amellyel ez az ügynök dolgozik. Előbb megmutatja, pontosan kit állít meg vele, és csak azután csinálja meg. Vissza a Bejelentkezés gombbal vagy a varázslóval jöhet.</small>
+          </div>
           <div class="form-group">
             <label for="editClaudeMd">CLAUDE.md</label>
             <textarea id="editClaudeMd" class="code-textarea" rows="12"></textarea>

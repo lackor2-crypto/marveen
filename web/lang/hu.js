@@ -2980,6 +2980,8 @@ window._i18n.hu = {
   'agents.channel.disconnected': 'Nincs bekötve',
   'agents.strict_mode':          ' (szigorú)',
   'agents.marveen_boss':         '{bot} & {owner}',
+  'agents.settings.logout_label':         'Claude-fiók',
+  'agents.settings.logout_desc':          'Kijelentkeztetheted azt a Claude-fiókot, amellyel ez az ügynök dolgozik. Előbb megmutatja, pontosan kit állít meg vele, és csak azután csinálja meg. Vissza a Bejelentkezés gombbal vagy a varázslóval jöhet.',
   'agents.btn.account_logout':            'Kijelentkeztetés ({account})',
   'agents.btn.account_logout_tip':        'Kijelentkezteti azt a Claude-fiókot, amellyel ez az ügynök dolgozik. Előbb megmutatja, kit állít meg vele.',
   'agents.btn.login':            'Bejelentkezés',
