@@ -4369,6 +4369,43 @@ function primeClaudeAccounts(onLoaded) {
 // A megtalalt fiok sora, vagy null. A null itt "nem lattam oda" (meg nem jott
 // meg a lista, vagy nincs ilyen sor) -- ilyenkor a kartya inkabb NEM mutat
 // gombot, mint hogy rosszra mutasson.
+// A GYORSITOTAR EMLEK, NEM FORRAS.
+//
+// Boss, 2026-08-29 este: bejelentkezett a kartyarol, majd megnyitotta ugyanannak
+// az ugynoknek a Beallitasok fulet, es ott tovabbra is "Bejelentkezes (Usalackor)"
+// allt -- "ott mar a kijelentkezest kellene latnom". A `_claudeAccountRows`
+// lapbetolteskor egyszer tolt fel, es csak KIjelentkezes utan urult; a
+// BEjelentkezes utan nem. Igy a gomb arrol az allapotrol beszelt, ami a lekerdezes
+// pillanataban volt igaz.
+//
+// Ket kulon dolgot javit ez: (a) minden bejelentkezes vegen urul a tar (lasd a
+// _claudeAuthTick "kesz" agat), (b) a doboz kirajzolasakor MINDIG fut egy friss
+// lekerdezes is, es csak akkor rajzolunk ujra, ha az allapot tenyleg valtozott --
+// igy nincs villogas, es nem kell kitalalni, mikor avult el a tar.
+function claudeAccountsFingerprint(rows) {
+  return (rows || []).map(r => [
+    r.id || '', r.configDir || '',
+    (r.identity && r.identity.loggedIn) ? '1' : '0',
+    (r.identity && r.identity.email) || '',
+  ].join('|')).join(';')
+}
+
+// Sikertelen lekerdezesnel a REGI adat marad, es nem hivjuk a visszahivast: a
+// "nem lattam oda" nem azonos azzal, hogy "nincs fiok".
+function refreshClaudeAccounts(onChanged) {
+  fetch('/api/accounts/claude')
+    .then(res => (res.ok ? res.json() : null))
+    .catch(() => null)
+    .then((data) => {
+      if (!data || !Array.isArray(data.accounts)) return
+      const before = claudeAccountsFingerprint(_claudeAccountRows)
+      const after = claudeAccountsFingerprint(data.accounts)
+      _claudeAccountRows = data.accounts
+      _claudeAccountsPending = false
+      if (before !== after && typeof onChanged === 'function') onChanged()
+    })
+}
+
 function claudeAccountRowFor(claudeAccount) {
   if (!claudeAccount || !_claudeAccountRows) return null
   const want = claudeAccount.configDir === undefined ? null : claudeAccount.configDir
@@ -4463,6 +4500,12 @@ function renderAgentLogoutSetting(agent) {
   slot.innerHTML = html
   group.hidden = !html
   if (html) wireAccountLogoutButton(group)
+  // Kirajzoltuk abbol, amink van (nincs varakozas), es KOZBEN megkerdezzuk a
+  // szervert. Ha kozben mas lett az allapot -- masik fulon, a varazsloban vagy
+  // eppen az iment, a kartya gombjarol --, ez rajzolja at.
+  refreshClaudeAccounts(() => {
+    if (currentAgent && agent && currentAgent.name === agent.name) renderAgentLogoutSetting(agent)
+  })
 }
 
 function accountBadgeHtml(claudePlan, isMain) {
@@ -17481,6 +17524,15 @@ async function _claudeAuthTick() {
     // in the list, it just had no credentials.
     else showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
     _claudeAuthPendingTab = null
+    // A sikeres bejelentkezes elavultta teszi a kartyak fiok-gyorsitotarat.
+    // Enelkul a Beallitasok fulon tovabbra is "Bejelentkezes" allna egy mar
+    // bejelentkezett fiokon.
+    _claudeAccountRows = null
+    _claudeAccountsPending = false
+    primeClaudeAccounts(() => {
+      renderAgents()
+      if (currentAgent) renderAgentLogoutSetting(currentAgent)
+    })
     if (_claudeAuthOnDone) { const cb = _claudeAuthOnDone; _claudeAuthOnDone = null; cb(s) }
     return
   }
