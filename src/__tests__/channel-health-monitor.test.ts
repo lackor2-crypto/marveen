@@ -12,6 +12,10 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('../platform.js', () => ({
   resolveFromPath: (name: string) => `/usr/local/bin/${name}`,
+  // A modul-szintu binaris-feloldas lusta lett (makeLazyBinResolver), mert a
+  // dobo `resolveFromPath` IMPORT-IDOBEN dontotte el a modult -- es vele az
+  // egesz dashboardot -- ha a binaris nem volt a PATH-on.
+  makeLazyBinResolver: (name: string) => () => `/usr/local/bin/${name}`,
 }))
 
 vi.mock('../logger.js', () => ({

@@ -14,7 +14,7 @@
 // megnezzuk, mi az.
 
 import { describe, it, expect } from 'vitest'
-import { detectsLoginInProgress, detectsBlockingMenu } from '../pane-state.js'
+import { detectsLoginInProgress, detectsLoginInProgressStrict, detectsBlockingMenu } from '../pane-state.js'
 
 const AUTH_URL =
   'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a&response_type=code'
@@ -56,9 +56,13 @@ describe('a bejelentkezesi kepernyot nem szabad beragadt menunek nezni', () => {
     expect(detectsLoginInProgress(pane)).toBe(false)
   })
 
-  it('a beviteli sor onmagaban sem eleg', () => {
+  // 2026-08-29 este, MERVE: a ket-jeles feltetel ugyanazon az estan KETSZER
+  // engedte at az Escape-et egy elo bejelentkezesre ("es nem is jelentkezett
+  // be"). A beviteli sor ott volt, az url nem latszott a capture pillanataban.
+  it('a beviteli sor ONMAGABAN is bejelentkezes (a szigoru alak meg nem az)', () => {
     const pane = ['   Paste code here if prompted >', '   Esc to cancel'].join('\n')
-    expect(detectsLoginInProgress(pane)).toBe(false)
+    expect(detectsLoginInProgress(pane)).toBe(true)
+    expect(detectsLoginInProgressStrict(pane)).toBe(false)
   })
 
   it('egy sima, valodi menu NEM bejelentkezes -- azt tovabbra is fel kell oldani', () => {

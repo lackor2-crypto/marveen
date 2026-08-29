@@ -2340,6 +2340,8 @@ window._i18n.en = {
   'agents.model.no_data':			'No data for this agent.',
   'agents.model.ok_agents':			'OK: {list}',
   'agents.reauth.reason':			'Re-authentication required',
+  'agents.reauth.disk_missing':			'This account is signed out — no credentials on disk.',
+  'agents.reauth.disk_expired':			'This account\'s credentials have expired — sign in again.',
   'agents.soul_md_generating':			'Generating SOUL.md...',
   'agents.status.online':          'Online',
   'agents.status.offline':         'Offline',
@@ -2922,6 +2924,7 @@ window._i18n.en = {
   'agents.auth.btn_starting':    'Starting...',
   'agents.auth.btn_confirming':  'Confirming...',
   'agents.auth.btn_confirm':     'Auth done → Confirm',
+  'agents.auth.toast_restart_after_login': 'Signed in. Restarting {name} so it picks up the fresh credentials.',
   // --- Mobile login localhost warning ---
   'mobile_login.localhost_warn': "Mobile login works over your machine's local network (LAN) IP. You opened the dashboard on localhost and no usable LAN address was found. Open the dashboard on your machine's LAN IP (e.g. http://192.168.x.x:3420) and try mobile login from there.",
 
@@ -2941,6 +2944,10 @@ window._i18n.en = {
   // --- Agent auth flow extra ---
   'agents.auth.btn_logged_in':   'Logged in',
   'agents.auth.toast_started':   'Auth flow started - allow in browser, then click Confirm',
+  'agents.auth.toast_started_url': "I opened the approval page in a new tab (the link is on your clipboard too). Approve it, then click: Auth done → Confirm.",
+  'agents.auth.toast_started_nourl': "I started the sign-in, but did not see the link on the agent pane within 12 seconds — that does not mean there is none. Try the button again; if it repeats, open the agent Terminal view.",
+  'agents.auth.toast_unproven': "Still no valid credentials on disk after confirming — the sign-in did not complete. Start again with the Sign in button.",
+  'agents.auth_confirm_unproven': "Still no valid credentials on disk after confirming — the sign-in did not complete. Start again with the Sign in button.",
   'agents.auth.toast_success':   'Login successful',
 
   // --- Token collect error ---

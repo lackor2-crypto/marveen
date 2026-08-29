@@ -5028,7 +5028,7 @@ function renderAgents() {
       </div>
       ${agent.needsReauth ? `
         <div class="agent-reauth-banner">
-          <span class="agent-reauth-reason">${escapeHtml(agent.reauthReason || t('agents.reauth.reason'))}</span>
+          <span class="agent-reauth-reason">${escapeHtml(agent.reauthReasonKey ? t(agent.reauthReasonKey) : (agent.reauthReason || t('agents.reauth.reason')))}</span>
           <button class="btn-danger btn-compact agent-login-btn" data-phase="start">${t('agents.btn.login')}</button>
         </div>` : ''}
       <div class="agent-card-actions">
@@ -5046,7 +5046,7 @@ function renderAgents() {
     `
     // Login button handler (start → confirm flow)
     card.querySelectorAll('.agent-login-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => { e.stopPropagation(); handleAgentLogin(agent.name, btn) })
+      btn.addEventListener('click', (e) => { e.stopPropagation(); handleAgentLogin(agent.name, btn, agent.claudePlan || null, card, isRunning) })
     })
     // Terminal button
     card.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
@@ -16903,6 +16903,14 @@ let _claudeAuthPoll = null
 // the operator opened by hand (because they ARE on another device) would snap
 // shut again the next time the auto link is (re)read. Mirrors _wizClaudeManualDecided.
 let _claudeAuthManualDecided = false
+// A kattintas gesztusaban megnyitott, meg URES ful. A felugro-blokkolo CSAK a
+// kattintashoz kotott window.open-t engedi at; az auth-cim viszont csak
+// masodpercekkel kesobb all elo (a CLI-nek el kell indulnia). Ezert nyitunk
+// elore egy ures fulet, es KESOBB iranyitjuk a cimre.
+let _claudeAuthPendingTab = null
+// Amit a bejelentkezes VEGEN kell elvegezni (az ugynok kartyajarol indulva: a
+// friss hitelesitest a mar futo CLI nem olvassa be magatol -> ujrainditas).
+let _claudeAuthOnDone = null
 
 function _claudeAuthSetState(text, kind) {
   const el = document.getElementById('claudeAuthState')
@@ -17444,6 +17452,13 @@ async function _claudeAuthTick() {
     if (autoUrl) { autoLink.href = autoUrl; autoWrap.hidden = false }
     else { autoWrap.hidden = true }
   }
+  if (autoUrl && _claudeAuthPendingTab) {
+    // Megjott a cim -> a kattintaskor nyitott ures ful MOST megy oda. Igy a
+    // felhasznalonak egyetlen kattintas az egesz, es a bejelentkezes a
+    // localhost-kapun magatol fejezodik be (nincs masolando kod).
+    try { _claudeAuthPendingTab.location.href = autoUrl } catch { /* a fulet bezarhattak */ }
+    _claudeAuthPendingTab = null
+  }
   if (s.url) _setConsentLink('claudeAuthLink', s.url)
   // A kodos resz csak akkor NYITOTT alapbol, ha nincs automata ut -- egyszer
   // dontunk rola folyamatonkent, hogy ne csukjuk vissza a user orra elott,
@@ -17465,10 +17480,17 @@ async function _claudeAuthTick() {
     // "Hozzaadva" is a false sentence after a repair: the account was already
     // in the list, it just had no credentials.
     else showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
+    _claudeAuthPendingTab = null
+    if (_claudeAuthOnDone) { const cb = _claudeAuthOnDone; _claudeAuthOnDone = null; cb(s) }
     return
   }
   if (!s.active) {
     _claudeAuthStopPoll()
+    // A folyamat vege sikertelenul: a horog NEM sulhet el (kulonben egy meg
+    // nem bejelentkezett ugynokot inditanank ujra), es az ures ful sem marad
+    // felfuggesztve egy cimre, ami mar nem jon.
+    _claudeAuthPendingTab = null
+    _claudeAuthOnDone = null
     if (s.error) _claudeAuthSetState(s.error, 'bad')
     return
   }
@@ -28103,7 +28125,51 @@ document.getElementById('ideaCategoryFilter')?.addEventListener('change', loadId
 
 
 // === Agent reauth login flow ===
-async function handleAgentLogin(agentName, btn) {
+async function handleAgentLogin(agentName, btn, planId, card, wasRunning) {
+  // AZ AUTOMATA UT -- ITT NINCS MASOLANDO KOD.
+  //
+  // Boss, 2026-08-29: "kiirja az autorization utan hogy masoljam a kapott
+  // kodot. de ennek nem szabadna megjelennie. mert automatan kellene
+  // tortennie. azt kellene mondania hogy great minden okes."
+  //
+  // Az ok MERVE (nem tippelve, sajat proba-sessionnel): a CLI-nek KET
+  // OAuth-folyama van, es a kettot a `BROWSER` kornyezeti valtozo valasztja
+  // szet. Ha a CLI nem lat bongeszot -- pontosan ez a helyzet egy fej nelkuli
+  // tmux panelen --, a redirect_uri a platform.claude.com/oauth/code/callback,
+  // ami KIIRJA a kodot, es varja, hogy visszahozd. Ha lat, a redirect_uri
+  // http://localhost:34819/callback, es a bejelentkezes magatol fejezodik be.
+  //
+  // A masodikat a vezerlopult MAR TUDJA (claude-auth-runner.ts: bongeszo-shim
+  // + sajat tmux session) -- csak ez a gomb nem hivta, hanem az ugynok sajat
+  // paneljebe gepelt `/login`-t. Mostantol a fiokhoz kotott kartyak az
+  // automata utat hasznaljak; a regi, kodos ut tartalek marad azoknak, akiknek
+  // nincs sajat Claude-fiokjuk (megosztott host-bejelentkezes).
+  if (planId) {
+    let tab = null
+    try { tab = window.open('', '_blank') } catch { tab = null }
+    _claudeAuthPendingTab = tab
+    _claudeAuthOnDone = async () => {
+      // A mar futo CLI a friss hitelesitest NEM olvassa be magatol: e nelkul a
+      // kartya zoldre valtana, az ugynok viszont tovabbra sem dolgozna.
+      if (!wasRunning) { loadAgents(); return }
+      showToast(t('agents.auth.toast_restart_after_login', { name: agentName }), 9000)
+      try { await fetch(`/api/agents/${encodeURIComponent(agentName)}/restart`, { method: 'POST' }) }
+      catch { /* ha nem indult ujra, a kartya allapota megmutatja */ }
+      loadAgents()
+    }
+    btn.disabled = true
+    const startText = btn.textContent
+    btn.textContent = t('agents.auth.btn_starting')
+    const started = await _claudeAuthStartFlow({ planId }, card || null)
+    btn.disabled = false
+    btn.textContent = startText
+    if (!started) {
+      _claudeAuthOnDone = null
+      _claudeAuthPendingTab = null
+      if (tab) { try { tab.close() } catch { /* mar bezarhattak */ } }
+    }
+    return
+  }
   const phase = btn.dataset.phase || 'start'
   btn.disabled = true
   const origText = btn.textContent
@@ -28114,16 +28180,41 @@ async function handleAgentLogin(agentName, btn) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phase }),
     })
-    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || 'HTTP ' + res.status) }
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { throw new Error(data.error || 'HTTP ' + res.status) }
     if (phase === 'start') {
+      // A BONGESZO ITT NYILIK MEG, NEM AZ UGYNOKNEL.
+      //
+      // Boss, 2026-08-29: "azt mondja hogy nyissam meg a bongeszot es
+      // erositsem meg. de nem tudom megnyitni. nem is nyilik meg bongeszo
+      // stb. hazudik." Igaza volt: az ugynok fej nelkuli tmux session-ben fut,
+      // ott bongeszo sosem nyilik meg. A CLI a panelre irja ki az URL-t -- a
+      // szerver mostantol visszaadja, mi pedig ABBAN a bongeszoben nyitjuk
+      // meg, amelyikben a vezerlopult fut. Vagyis nalad.
       btn.dataset.phase = 'confirm'
       btn.textContent = t('agents.auth.btn_confirm')
       btn.disabled = false
-      showToast(t('agents.auth.toast_started'))
-    } else {
+      if (data.authUrl) {
+        window.open(data.authUrl, '_blank', 'noopener')
+        try { await navigator.clipboard.writeText(data.authUrl) } catch { /* a vagolap nem mindig engedelyezett */ }
+        showToast(t('agents.auth.toast_started_url'), 9000)
+      } else {
+        // A NULLA KET DOLGOT JELENTHET: nem allitjuk, hogy nincs URL -- azt
+        // mondjuk meg, hogy nem lattuk meg.
+        showToast(t('agents.auth.toast_started_nourl'), 12000, true)
+      }
+    } else if (data.proven) {
       btn.textContent = t('agents.auth.btn_logged_in')
       showToast(t('agents.auth.toast_success'))
       setTimeout(() => loadAgents(), 1500)
+    } else {
+      // A "sikeresen lefutott" NEM bizonyitek. Amig a lemezen nincs ervenyes
+      // hitelesites, nem mondunk sikert -- ez a hazug fekete csik oka volt.
+      btn.dataset.phase = 'start'
+      btn.textContent = origText
+      btn.disabled = false
+      showToast((data.errorKey && t(data.errorKey)) || data.error || t('agents.auth.toast_unproven'), 12000, true)
+      loadAgents()
     }
   } catch (e) {
     showToast('Hiba: ' + (e.message || e))

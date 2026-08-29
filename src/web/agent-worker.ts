@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync
 import { join } from 'node:path'
 import { homedir, userInfo } from 'node:os'
 import { createHash } from 'node:crypto'
-import { resolveFromPath, tryResolveFromPath } from '../platform.js'
+import { resolveFromPath, tryResolveFromPath, makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, DEFAULT_AGENT_MODEL } from '../config.js'
 import {
@@ -41,7 +41,7 @@ import { exactTmuxTarget } from './tmux-target.js'
 // answer to <reqid>.out and signal with <reqid>.done; runAgent polls the files.
 // =============================================================================
 
-const TMUX = resolveFromPath('tmux')
+const TMUX = makeLazyBinResolver('tmux')
 
 // MARVEEN_WORKER_MODEL stays a process-level escape hatch (systemd
 // `Environment=`), but the .env-backed DEFAULT_AGENT_MODEL is what an operator
@@ -486,7 +486,7 @@ function startWorkerSessionFor(ctx: WorkerCtx): void {
     `export CLAUDE_CONFIG_DIR=${shArg(ctx.configDir)}; ` +
     `cd ${shArg(ctx.home)} && ` +
     `${shArg(claudeLaunchBin)} --dangerously-skip-permissions --model ${shArg(WORKER_MODEL)}`
-  execFileSync(TMUX, ['new-session', '-d', '-s', ctx.session, '-c', ctx.home, 'bash', '-lc', launch], { timeout: 8000 })
+  execFileSync(TMUX(), ['new-session', '-d', '-s', ctx.session, '-c', ctx.home, 'bash', '-lc', launch], { timeout: 8000 })
   logger.info({ session: ctx.session, cwd: ctx.home }, 'agent-worker: launched interactive worker session')
   logWorkerClaudeVersion(ctx)
 }
@@ -563,7 +563,7 @@ function selfHealWorkerOnce(ctx: WorkerCtx): boolean {
   if (!shouldSelfHeal(cls)) return false
   logger.warn({ cls, session: ctx.session }, 'agent-worker: pane parked on unexpected chrome -- bounded Escape self-heal')
   for (let i = 0; i < WORKER_SELF_HEAL_MAX_ESCAPES; i++) {
-    try { execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Escape'], { timeout: 5000 }) } catch { break }
+    try { execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Escape'], { timeout: 5000 }) } catch { break }
     try { execFileSync('/bin/sleep', ['0.5'], { timeout: 2000 }) } catch { /* best effort */ }
     const now = classifyWorkerPane(capturePane(ctx.session))
     if (now === 'idle' || now === 'busy') {
@@ -619,16 +619,16 @@ function restartWorkerSession(ctx: WorkerCtx): void {
     logger.warn({ session: ctx.session }, 'agent-worker: WEB_ONLY mode -- refusing to restart (kill) a worker session')
     return
   }
-  try { execFileSync(TMUX, ['kill-session', '-t', exactTmuxTarget(ctx.session)], { timeout: 5000 }) } catch { /* not running */ }
+  try { execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(ctx.session)], { timeout: 5000 }) } catch { /* not running */ }
   try { startWorkerSessionFor(ctx) } catch (err) { logger.warn({ err, session: ctx.session }, 'agent-worker: restart failed') }
 }
 
 // Reset context between requests so unrelated one-shots never share/grow context.
 function clearWorkerContext(ctx: WorkerCtx): void {
   try {
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(ctx.session), '-l', '/clear'], { timeout: 5000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), '-l', '/clear'], { timeout: 5000 })
     execFileSync('/bin/sleep', ['0.2'], { timeout: 2000 })
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Enter'], { timeout: 5000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(ctx.session), 'Enter'], { timeout: 5000 })
     execFileSync('/bin/sleep', ['0.5'], { timeout: 2000 })
   } catch (err) {
     logger.warn({ err }, 'agent-worker: /clear failed (continuing)')

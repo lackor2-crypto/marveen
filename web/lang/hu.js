@@ -1215,6 +1215,8 @@ window._i18n.hu = {
   'agents.status.running':         'Fut',
   'agents.status.stopped':         'Leállva',
   'agents.reauth.reason':          'Újrabejelentkezés szükséges',
+  'agents.reauth.disk_missing':    'Ez a fiók ki van jelentkezve — nincs hitelesítés a lemezen.',
+  'agents.reauth.disk_expired':    'A fiók hitelesítése lejárt — jelentkezz be újra.',
   'agents.btn.conversation':       'Beszélgetés',
   'agents.model.analyzing':        'Elemzés...',
   'agents.model.no_data':          'Nincs adat ehhez az ágenshez.',
@@ -2986,6 +2988,7 @@ window._i18n.hu = {
   'agents.auth.btn_starting':    'Indítás...',
   'agents.auth.btn_confirming':  'Megerősítés...',
   'agents.auth.btn_confirm':     'Auth kész → Megerősít',
+  'agents.auth.toast_restart_after_login': 'Bejelentkezve. Újraindítom a(z) {name} ügynököt, hogy a friss hitelesítést használja.',
   // --- Mobile login localhost warning ---
   'mobile_login.localhost_warn': 'A mobil-belépés a géped helyi hálózati (LAN) IP-jén működik. Most localhoston nyitottad meg a dashboardot, és nem találtam használható LAN-címet. Nyisd meg a dashboardot a géped LAN-IP-jén (pl. http://192.168.x.x:3420), és onnan próbáld a mobil-belépést.',
 
@@ -3005,6 +3008,10 @@ window._i18n.hu = {
   // --- Agent auth flow extra ---
   'agents.auth.btn_logged_in':   'Bejelentkezve',
   'agents.auth.toast_started':   'Auth folyamat elindítva - engedélyezd a böngészőben, majd kattints Megerősít',
+  'agents.auth.toast_started_url': "Megnyitottam a jóváhagyó oldalt egy új lapon (a link a vágólapon is). Hagyd jóvá, majd kattints: Auth kész → Megerősít.",
+  'agents.auth.toast_started_nourl': "Elindítottam a bejelentkezést, de 12 másodpercen belül nem láttam meg a linket az ágens paneljén — ez nem azt jelenti, hogy nincs. Próbáld újra a gombbal; ha ismétlődik, nyisd meg az ágens Terminál nézetét.",
+  'agents.auth.toast_unproven': "A megerősítés után sincs érvényes hitelesítés a lemezen — a bejelentkezés nem fejeződött be. Indítsd újra a Bejelentkezés gombbal.",
+  'agents.auth_confirm_unproven': "A megerősítés után sincs érvényes hitelesítés a lemezen — a bejelentkezés nem fejeződött be. Indítsd újra a Bejelentkezés gombbal.",
   'agents.auth.toast_success':   'Bejelentkezés sikeres',
 
   // --- Token collect error ---

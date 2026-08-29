@@ -194,8 +194,46 @@ import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 //
 // Es nem NEMA: a badge helyett a `reauthNote` mondja meg, mit talaltunk, hogy
 // a tulajdonos ne egy eltuno piros savot lasson magyarazat nelkul.
-function reconcileReauthWithDisk(name: string, state: ReauthState): ReauthState {
-  if (!state.needsReauth) return state
+// A MASIK IRANY: a KIJELENTKEZES NEM LATSZIK A PANELEN.
+//
+// Boss, 2026-08-29: "a szakertot meg kijelentkeztettem es nem jelenik meg a
+// piros csik.. hogy bejelentkezes." Az ujrameres a forrast kerdezte meg: a
+// `/logout` TORLI a `.credentials.json`-t (merve: 22:27-re mindket fiok
+// konyvtarabol eltunt), a mar kirajzolt allapotsor viszont valtozatlan marad,
+// amig a kovetkezo keres el nem hasal. A detektor csak a kepernyot nezte,
+// tehat a kartya azt allitotta, minden rendben.
+//
+// A KEPERNYO HALLGATASA NEM BIZONYITEK. Ugyanaz a szabaly, mint a nullanal:
+// "nincs jel" es "nem latok oda" ket kulon dolog, es egyik sem "rendben van".
+//
+// Amikor NEM allitunk semmit:
+//   * authMode === 'api'  -- sajat API-kulccsal dolgozik, nincs is ilyen fajlja
+//   * verdict 'unknown'   -- nincs sajat config-konyvtara (megosztott host-
+//                            bejelentkezes), vagy a fajl olvashatatlan
+function reauthFromDisk(name: string, state: ReauthState, authMode: string | null): ReauthState {
+  if (authMode === 'api') return state
+  const fresh = readCredentialFreshness(resolveAgentConfigDir(name).configDir || null)
+  if (fresh.verdict === 'missing') {
+    return {
+      needsReauth: true,
+      source: 'credentials',
+      reasonKey: 'agents.reauth.disk_missing',
+      reason: 'Ez a fiok ki van jelentkezve: nincs hitelesito fajl a sajat config-konyvtaraban.',
+    }
+  }
+  if (fresh.verdict === 'expired') {
+    return {
+      needsReauth: true,
+      source: 'credentials',
+      reasonKey: 'agents.reauth.disk_expired',
+      reason: 'A fiok hitelesitese lejart a lemezen.',
+    }
+  }
+  return state
+}
+
+function reconcileReauthWithDisk(name: string, state: ReauthState, authMode: string | null): ReauthState {
+  if (!state.needsReauth) return reauthFromDisk(name, state, authMode)
   if (state.source !== 'status-line') return state
   // A config-konyvtar a TERVBOL jon, nem az agens sajat mezojebol.
   //
@@ -528,10 +566,16 @@ interface AgentSummary {
    *  running-but-walled agent is otherwise indistinguishable from a quiet one
    *  (Boss, 2026-08-24: the Segedmunkas looked green for five hours). */
   contextQuota: { resetsAt: number | null; rateLimitType: string | null; message: string; rejectedTurns: number } | null
-  /** True when the running session's pane shows a login/401 auth failure --
-   *  drives the dashboard "reauth needed" badge + one-click /login button. */
+  /** True when the agent cannot authenticate. KET forrasbol jon, es a
+   *  kulonbseg szamit: a futo session panelje (kirajzolt, elavulhato szoveg),
+   *  ES maga a hitelesito fajl a config-konyvtarban (a forras, ami allo
+   *  agensnel is mukodik es a kijelentkezest is eszreveszi). */
   needsReauth: boolean
   reauthReason?: string
+  /** Forditasi kulcs a sav szovegehez, ha a jelzes a lemezrol jott -- igy a
+   *  kepernyore kerulo mondat ketnyelvu. `null`, ha csak a regi, szerver-
+   *  oldali magyar `reauthReason` all rendelkezesre. */
+  reauthReasonKey?: string | null
   /** Dispatch-success badge for free-tier agents (kanban 502005f0) -- null
    *  for paid agents, where this signal doesn't apply the same way. */
   reliability: ReliabilityScore | null
@@ -576,9 +620,15 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
 
   // Reauth badge: only meaningful for a running session (a stopped agent has
   // no pane to inspect). One capture-pane per running agent on the list poll.
-  const reauth = running
-    ? reconcileReauthWithDisk(name, detectReauthNeeded(capturePane(agentSessionName(name))))
-    : { needsReauth: false }
+  // A panel csak futo session-nel letezik; a LEMEZ viszont allo agensnel is
+  // megmondja, hogy ki van-e jelentkezve -- ezert megy at mindketto ugyanazon
+  // a haloon.
+  const authMode = readAgentAuthMode(name)
+  const reauth = reconcileReauthWithDisk(
+    name,
+    running ? detectReauthNeeded(capturePane(agentSessionName(name))) : { needsReauth: false },
+    authMode,
+  )
 
   // Kanban 502005f0: only free-tier OpenRouter agents get the badge -- a
   // paid Claude account failing to dispatch is an incident worth its own
@@ -602,7 +652,7 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     modelProfileError: modelResolution.error ?? null,
     activeModel: running ? readActiveModelFromProjectDir(dir, runningSince ?? undefined, resolveAgentConfigDir(name).configDir ?? undefined) : null,
     runningSince,
-    authMode: readAgentAuthMode(name),
+    authMode,
     securityProfile: readAgentSecurityProfile(name),
     claudePlan: readAgentClaudePlan(name),
     claudeAccount: claudeLoginForAgent(name),
@@ -628,6 +678,9 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
     contextQuota: contextReading.quota ?? null,
     needsReauth: reauth.needsReauth,
     reauthReason: reauth.reason,
+    // A kepernyore kerulo szoveg KETNYELVU: ha van kulcs, a felulet azt
+    // forditja; a `reauthReason` marad tartaleknak (regi, magyar mondatok).
+    reauthReasonKey: reauth.reasonKey ?? null,
     reliability,
   }
 }

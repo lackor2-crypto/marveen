@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
-import { resolveFromPath } from '../platform.js'
+import { makeLazyBinResolver } from '../platform.js'
 import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { readClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
@@ -37,8 +37,8 @@ import {
   type LoginPaneState,
 } from '../claude-auth.js'
 
-const TMUX = resolveFromPath('tmux')
-const CLAUDE = resolveFromPath('claude')
+const TMUX = makeLazyBinResolver('tmux')
+const CLAUDE = makeLazyBinResolver('claude')
 
 // Not derived from an agent id: this is the INSTALL's own login flow, not any
 // one agent's. Prefixed so it is obvious in `tmux ls` what it belongs to.
@@ -141,7 +141,7 @@ export function readIdentity(configDir?: string | null): AuthIdentity {
   try {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir
-    const out = execFileSync(CLAUDE, ['auth', 'status', '--json'], {
+    const out = execFileSync(CLAUDE(), ['auth', 'status', '--json'], {
       timeout: 20_000, encoding: 'utf-8', env,
     })
     return parseAuthStatus(out)
@@ -216,7 +216,7 @@ function buildAccountRows(): AccountRow[] {
 
 function sessionExists(): boolean {
   try {
-    execFileSync(TMUX, ['has-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
+    execFileSync(TMUX(), ['has-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
     return true
   } catch {
     return false
@@ -225,7 +225,7 @@ function sessionExists(): boolean {
 
 function killSession(): void {
   try {
-    execFileSync(TMUX, ['kill-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
+    execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(LOGIN_SESSION)], { timeout: 5_000, stdio: 'ignore' })
   } catch { /* not running: nothing to kill */ }
 }
 
@@ -233,7 +233,7 @@ function capturePane(): string {
   try {
     // -e keeps the escape sequences, which is where the OSC-8 hyperlink (and
     // therefore the clean URL) lives; -J joins the wrapped lines.
-    return execFileSync(TMUX, ['capture-pane', '-p', '-e', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)], {
+    return execFileSync(TMUX(), ['capture-pane', '-p', '-e', '-J', '-t', exactTmuxTarget(LOGIN_SESSION)], {
       timeout: 5_000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024,
     })
   } catch {
@@ -322,11 +322,11 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   killSession()
   const args = ['auth', 'login', opts.useConsole ? '--console' : '--claudeai']
   if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
-  const quoted = [CLAUDE, ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
+  const quoted = [CLAUDE(), ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX, spawnArgs(null, command, shim), { timeout: 10_000 })
+    execFileSync(TMUX(), spawnArgs(null, command, shim), { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the default login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
@@ -422,13 +422,13 @@ export function startLogin(
 
   const args = ['auth', 'login', opts.useConsole ? '--console' : '--claudeai']
   if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
-  const quoted = [CLAUDE, ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
+  const quoted = [CLAUDE(), ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
   // Wrapped in a shell that outlives the command, so a failure leaves its
   // message ON the pane instead of taking the window down with it.
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX, spawnArgs(configDir, command, shim), { timeout: 10_000 })
+    execFileSync(TMUX(), spawnArgs(configDir, command, shim), { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
@@ -554,8 +554,8 @@ export function submitCode(code: string): { ok: boolean; error?: string } {
   try {
     // '--' so a code that happens to begin with a hyphen is read as the literal
     // text it is, not as an option.
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), '-l', '--', clean], { timeout: 5_000 })
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), 'Enter'], { timeout: 5_000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), '-l', '--', clean], { timeout: 5_000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(LOGIN_SESSION), 'Enter'], { timeout: 5_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not deliver the pasted code')
     return { ok: false, error: 'A kódot nem sikerült átadni.' }
@@ -620,7 +620,7 @@ export function logoutAccount(planId: string | null): LogoutResult {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir
     else delete env.CLAUDE_CONFIG_DIR
-    execFileSync(CLAUDE, ['auth', 'logout'], { timeout: 30_000, stdio: 'ignore', env })
+    execFileSync(CLAUDE(), ['auth', 'logout'], { timeout: 30_000, stdio: 'ignore', env })
   } catch (err) {
     logger.warn({ err, planId }, 'claude-auth: logout failed')
     return { ok: false, error: 'A kijelentkeztetés nem sikerült. A részletek a dashboard naplójában vannak.' }

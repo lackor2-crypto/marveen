@@ -30,7 +30,18 @@ export interface ReauthState {
    *  * 'first-run-gate' -- a TUI-t blokkolo elso inditasi keperno. A folyamat
    *    akkor sem tud dolgozni, ha a hitelesites ervenyes, ezert szinten nem
    *    irhato felul. */
-  source?: 'status-line' | 'transcript' | 'first-run-gate'
+  source?: 'status-line' | 'transcript' | 'first-run-gate' | 'credentials'
+  /**
+   * 'credentials' -- maga a HITELESITO FAJL a config-konyvtarban. Nem a
+   * kepernyorol jon, hanem a forrasbol, ezert olyat is eszrevesz, amirol a
+   * panel hallgat: kijelentkezes utan a mar kirajzolt allapotsor valtozatlan
+   * marad (Boss, 2026-08-29: "a szakertot meg kijelentkeztettem es nem jelenik
+   * meg a piros csik").
+   *
+   * Forditasi kulcs a `reason` helyett, ha van -- igy a kepernyore kerulo
+   * szoveg KETNYELVU marad (a `reason` szerver-oldali magyar mondat).
+   */
+  reasonKey?: string
 }
 
 // Each entry: a distinctive marker Claude Code renders on an auth failure, and

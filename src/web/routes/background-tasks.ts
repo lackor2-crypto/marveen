@@ -5,15 +5,15 @@ import {
   getBackgroundTask, getRunningBackgroundTasks, markOrphanedTasksFailed,
   type BackgroundTask,
 } from '../../db.js'
-import { resolveFromPath } from '../../platform.js'
+import { makeLazyBinResolver } from '../../platform.js'
 import { APP_TZ } from '../../config.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 import { exactTmuxTarget } from '../tmux-target.js'
 
-const TMUX = resolveFromPath('tmux')
-const CLAUDE = resolveFromPath('claude')
+const TMUX = makeLazyBinResolver('tmux')
+const CLAUDE = makeLazyBinResolver('claude')
 const MAX_CONCURRENT = 3
 const TIMEOUT_MS = 30 * 60 * 1000
 
@@ -25,7 +25,7 @@ function bgSessionName(id: string): string {
 
 function isBgSessionAlive(session: string): boolean {
   try {
-    const out = execFileSync(TMUX, ['list-sessions', '-F', '#{session_name}'], { timeout: 3000, encoding: 'utf-8' })
+    const out = execFileSync(TMUX(), ['list-sessions', '-F', '#{session_name}'], { timeout: 3000, encoding: 'utf-8' })
     return out.split('\n').some(l => l.trim() === session)
   } catch {
     return false
@@ -34,7 +34,7 @@ function isBgSessionAlive(session: string): boolean {
 
 function captureSession(session: string): string | null {
   try {
-    return execFileSync(TMUX, ['capture-pane', '-t', exactTmuxTarget(session), '-p', '-S', '-500'], { timeout: 5000, encoding: 'utf-8' })
+    return execFileSync(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-p', '-S', '-500'], { timeout: 5000, encoding: 'utf-8' })
   } catch {
     return null
   }
@@ -42,7 +42,7 @@ function captureSession(session: string): string | null {
 
 function killSession(session: string): void {
   try {
-    execFileSync(TMUX, ['kill-session', '-t', exactTmuxTarget(session)], { timeout: 3000 })
+    execFileSync(TMUX(), ['kill-session', '-t', exactTmuxTarget(session)], { timeout: 3000 })
   } catch { /* already dead */ }
 }
 
@@ -57,11 +57,11 @@ export function spawnBackgroundTask(agentId: string, prompt: string): Background
 
   const shellCmd = [
     `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"`,
-    `${CLAUDE} -p "$BG_PROMPT" --output-format text 2>&1`,
+    `${CLAUDE()} -p "$BG_PROMPT" --output-format text 2>&1`,
   ].join(' && ')
 
   try {
-    execFileSync(TMUX, [
+    execFileSync(TMUX(), [
       'new-session', '-d', '-s', session, '-x', '200', '-y', '50',
       `${shellCmd}; echo '___BG_DONE___'; sleep 5`,
     ], {

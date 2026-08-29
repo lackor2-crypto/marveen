@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { resolveFromPath } from '../../platform.js'
+import { makeLazyBinResolver } from '../../platform.js'
 import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import { agentDir } from '../agent-config.js'
@@ -10,8 +10,11 @@ import { literalKeyArgs, specialKeyArgs, loginSequence, type LoginStep } from '.
 import { readTerminalInputEnabled, writeTerminalInputEnabled } from '../terminal-input-store.js'
 import type { RouteContext } from './types.js'
 import { exactTmuxTarget } from '../tmux-target.js'
+import { extractAuthUrl, type ExtractedAuthUrl } from '../auth-url-extract.js'
+import { readCredentialFreshness } from '../credential-freshness.js'
+import { resolveAgentConfigDir } from '../claude-plans.js'
 
-const TMUX = resolveFromPath('tmux')
+const TMUX = makeLazyBinResolver('tmux')
 
 // Per-agent dashboard terminal: live pane stream (SSE), keystroke injection,
 // and the scripted /login flow. All gated by the dashboard token (the SSE
@@ -22,9 +25,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// A panel egyszeri kiolvasasa. A /login folyamat ezzel nezi meg, kiirta-e mar
+// a CLI a bejelentkezesi URL-t: az ugynok FEJ NELKULI session-ben fut, ott
+// bongeszo sosem nyilik meg, tehat az URL a panelen jelenik meg vagy sehol.
+function capturePaneFor(session: string): string | null {
+  try {
+    return execFileSync(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-p'], {
+      timeout: 5000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024,
+    })
+  } catch {
+    // "Nem latok oda" -- NEM azonos azzal, hogy nincs URL.
+    return null
+  }
+}
+
 function isTmuxSessionAlive(session: string): boolean {
   try {
-    execFileSync(TMUX, ['has-session', '-t', exactTmuxTarget(session)], { timeout: 3000, stdio: 'ignore' })
+    execFileSync(TMUX(), ['has-session', '-t', exactTmuxTarget(session)], { timeout: 3000, stdio: 'ignore' })
     return true
   } catch {
     return false
@@ -47,7 +64,7 @@ function resolveTarget(name: string): SessionTarget {
 // caller can surface a 500 rather than silently swallowing a tmux failure.
 function tmux(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile(TMUX, args, { timeout: 5000 }, (err) => {
+    execFile(TMUX(), args, { timeout: 5000 }, (err) => {
       if (err) reject(err)
       else resolve()
     })
@@ -143,7 +160,7 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
       // the visible pane) so the frontend can offer scroll-back; the frontend
       // repaints the full snapshot (clear-scrollback + clear + home) each changed
       // frame and only when the user is at the bottom, so scrolling up is stable.
-      execFile(TMUX, ['capture-pane', '-t', exactTmuxTarget(session), '-S', '-2000', '-e', '-p'], { timeout: 3000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      execFile(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-S', '-2000', '-e', '-p'], { timeout: 3000, encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
         inFlight = false
         if (closed) return
         const pane = err ? '' : (stdout ?? '')
@@ -244,9 +261,60 @@ export async function tryHandleAgentTerminal(ctx: RouteContext): Promise<boolean
       return true
     }
     try {
+      // A SIKER NEM AZ, HOGY A BILLENTYUK ELMENTEK.
+      //
+      // 2026-08-29, Boss: "alul a fekete csikon azt mondja hogy nyissam meg a
+      // bongeszot es erositsem meg. de nem tudom megnyitni. nem is nyilik meg
+      // bongeszo stb. hazudik. illetve miert meg mindig ott marad a piros
+      // bejelentkezes."
+      //
+      // Ket kulon hiba volt ebben az agban:
+      //
+      //  1. A 'start' fazis csak elkuldte a billentyuket, es a felulet azt
+      //     irta ki: "engedelyezd a bongeszoben". Az ugynok FEJ NELKULI tmux
+      //     session-ben fut -- ott bongeszo SOHA nem nyilik meg. A CLI ezert
+      //     kiirja az URL-t a panelre; eddig senki nem olvasta ki. Mostantol
+      //     visszaadjuk, es a felulet meg is nyitja.
+      //
+      //  2. A 'confirm' fazis `{ok:true}`-t adott, ha a send-keys sikerult --
+      //     tehat a "Bejelentkezes sikeres" uzenet CSAK annyit jelentett, hogy
+      //     a billentyuk elmentek. Semmit nem mert, ezert mondhatta sikernek
+      //     azt, amit a piros sav helyesen kudarcnak mutatott. Mostantol a
+      //     LEMEZ dont.
       await runLoginSteps(session, loginSequence(phase))
       logger.info({ name, phase }, 'agent-terminal: /login sequence sent')
-      json(res, { ok: true, phase })
+
+      if (phase === 'start') {
+        let extracted: ExtractedAuthUrl | null = null
+        for (let i = 0; i < 12; i++) {
+          await sleep(1000)
+          const pane = capturePaneFor(session)
+          if (!pane) continue
+          extracted = extractAuthUrl(pane)
+          if (extracted) break
+        }
+        // A NULLA KET DOLGOT JELENTHET: ha nem lattuk meg az URL-t, azt
+        // mondjuk meg -- nem azt, hogy nincs.
+        json(res, { ok: true, phase, authUrl: extracted ? extracted.url : null })
+        return true
+      }
+
+      // phase === 'confirm': a sikert BIZONYITANI kell, nem felteteleZni.
+      const configDir = resolveAgentConfigDir(name).configDir || null
+      let fresh = readCredentialFreshness(configDir)
+      for (let i = 0; i < 15 && fresh.verdict !== 'valid'; i++) {
+        await sleep(1000)
+        fresh = readCredentialFreshness(configDir)
+      }
+      if (fresh.verdict === 'valid') {
+        json(res, { ok: true, phase, proven: true, expiresAt: fresh.expiresAt ?? null })
+      } else if (fresh.verdict === 'unknown') {
+        // NEM LATOK ODA -- se sikert, se kudarcot nem allitok.
+        json(res, { ok: false, phase, proven: false, errorKey: 'agents.auth_code_unverifiable', error: fresh.detail })
+      } else {
+        json(res, { ok: false, phase, proven: false, errorKey: 'agents.auth_confirm_unproven', error: fresh.detail })
+      }
+      return true
     } catch (err) {
       logger.warn({ err, name, phase }, 'agent-terminal: /login sequence failed')
       json(res, { error: 'login sequence failed' }, 500)

@@ -631,6 +631,28 @@ const LOGIN_AUTH_URL_RX = /https:\/\/\S*(?:oauth|\/authorize|client_id=)/i
  */
 export function detectsLoginInProgress(pane: string): boolean {
   if (!pane || !pane.trim()) return false
+  // A KET JEL NEM EGYENERTEKU -- 2026-08-29 este MERVE.
+  //
+  // Eredetileg mindkettot megkoveteltuk (url ES beviteli sor), mert a
+  // scrollbackben allo REGI url onmagaban tenyleg nem bizonyit bejelentkezest.
+  // Az orjarat ettol fuggetlenul KETSZER lotte ki a Boss bejelentkezeset
+  // ugyanazon az estan: a "Paste code here if prompted >" sor ott volt, az url
+  // viszont nem latszott a capture pillanataban (a TUI ujrarajzolja a
+  // kepernyot, es a ~500 karakteres url ilyenkor kicsuszik a lathato reszbol).
+  //
+  // A beviteli sor ONMAGABAN eleg: ezt a widgetet a CLI kizarolag addig
+  // rajzolja, amig kodra var. A tevedes ara aszimmetrikus -- tulzott
+  // ovatossagnal egy beragadt menu egy korrel kesobb oldodik fel, forditva
+  // viszont egy folyamatban levo bejelentkezes hal meg.
+  if (LOGIN_PASTE_PROMPT_RX.test(pane)) return true
+  // Url onmagaban NEM: a scrollbackben allo regi link nem esemeny.
+  return false
+}
+
+/** A szigoru, ket-jeles alak -- ott kell, ahol a BIZONYOSSAG a ter (nem az
+ *  ovatossag). A kulonbseg szandekos, es teszt meri. */
+export function detectsLoginInProgressStrict(pane: string): boolean {
+  if (!pane || !pane.trim()) return false
   return LOGIN_PASTE_PROMPT_RX.test(pane) && LOGIN_AUTH_URL_RX.test(pane)
 }
 

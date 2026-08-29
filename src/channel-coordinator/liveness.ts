@@ -10,7 +10,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { resolveFromPath } from '../platform.js'
+import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { PROJECT_ROOT } from '../config.js'
 import { channelStateDir, type ChannelProviderType } from '../channel-provider.js'
@@ -18,7 +18,7 @@ import { agentDir } from '../web/agent-config.js'
 import { matchesProviderPollerCmd } from './provider-poller-match.js'
 import { exactTmuxTarget } from '../web/tmux-target.js'
 
-const TMUX = resolveFromPath('tmux')
+const TMUX = makeLazyBinResolver('tmux')
 
 // Keep in sync with channel-monitor.ts. The scheduled keepalive refreshes
 // store/.channel-keepalive every ~6 min REGARDLESS of inbound traffic, so a
@@ -34,7 +34,7 @@ export const RESPAWN_STAMP_FILE = join(PROJECT_ROOT, 'store', '.channel-last-res
 
 export function getClaudePidForSession(session: string): number | null {
   try {
-    const out = execFileSync(TMUX, ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'], { timeout: 3000, encoding: 'utf-8' })
+    const out = execFileSync(TMUX(), ['list-panes', '-t', exactTmuxTarget(session), '-F', '#{pane_pid}'], { timeout: 3000, encoding: 'utf-8' })
     const panePid = parseInt(out.trim().split('\n')[0], 10)
     if (!panePid) return null
     const cmd = execFileSync('/bin/ps', ['-p', String(panePid), '-o', 'comm='], { timeout: 3000, encoding: 'utf-8' }).trim()

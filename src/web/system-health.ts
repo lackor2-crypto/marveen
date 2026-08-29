@@ -50,7 +50,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs'
 import { statfsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { resolveFromPath } from '../platform.js'
+import { makeLazyBinResolver } from '../platform.js'
 import { join, dirname } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { lastWakeAt } from '../wake-detect.js'
@@ -343,7 +343,7 @@ export function upstreamRows(
  * Csak fajl, halozat nelkul: a modul tobbi soraval egyutt minden lekeresnel
  * lefut.
  */
-const CLAUDE_BIN = resolveFromPath('claude')
+const CLAUDE_BIN = makeLazyBinResolver('claude')
 
 export type NamedCred = 'be' | 'ki' | 'vak'
 
@@ -364,7 +364,7 @@ export type NamedCred = 'be' | 'ki' | 'vak'
 export function namedLoginProbe(configDir: string): NamedCred {
   let out: string
   try {
-    out = execFileSync(CLAUDE_BIN, ['auth', 'status', '--json'], {
+    out = execFileSync(CLAUDE_BIN(), ['auth', 'status', '--json'], {
       timeout: 20_000, encoding: 'utf-8',
       env: { ...process.env, NO_COLOR: '1', CLAUDE_CONFIG_DIR: configDir },
       stdio: ['ignore', 'pipe', 'ignore'],

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { resolveFromPath } from '../platform.js'
+import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, CHANNEL_PROVIDER } from '../config.js'
 import { readAgentChannelProvider } from './agent-config.js'
@@ -9,7 +9,7 @@ import { getProvider, type ChannelProviderType } from '../channel-provider.js'
 import { paneLooksIdle, detectPaneState } from '../pane-state.js'
 import { exactTmuxTarget } from './tmux-target.js'
 
-const TMUX = resolveFromPath('tmux')
+const TMUX = makeLazyBinResolver('tmux')
 const MAX_UP_ATTEMPTS = 8
 
 /**
@@ -35,7 +35,7 @@ const MAX_UP_ATTEMPTS = 8
 function dismissMcpMenu(session: string): void {
   for (let i = 0; i < 4; i++) {
     try {
-      execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
+      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
       execFileSync('/bin/sleep', ['0.4'], { timeout: 1000 })
     } catch {
       return
@@ -178,10 +178,10 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
   }
 
   try {
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
     execFileSync('/bin/sleep', ['1'], { timeout: 2000 })
 
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), '/mcp', 'Enter'], { timeout: 3000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), '/mcp', 'Enter'], { timeout: 3000 })
     execFileSync('/bin/sleep', ['1'], { timeout: 3000 })
 
     const pane1 = capturePane(session)
@@ -193,9 +193,9 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
 
     let matchedAt = -1
     for (let upCount = 1; upCount <= MAX_UP_ATTEMPTS; upCount++) {
-      execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Up'], { timeout: 3000 })
+      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Up'], { timeout: 3000 })
       execFileSync('/bin/sleep', ['0.2'], { timeout: 1000 })
-      execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 3000 })
+      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 3000 })
       execFileSync('/bin/sleep', ['1'], { timeout: 3000 })
 
       const pane = capturePane(session)
@@ -203,7 +203,7 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
         matchedAt = upCount
         break
       }
-      execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
+      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 3000 })
       execFileSync('/bin/sleep', ['0.5'], { timeout: 1000 })
     }
 
@@ -240,7 +240,7 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
         onTarget = true
         break
       }
-      execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Down'], { timeout: 3000 })
+      execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Down'], { timeout: 3000 })
       execFileSync('/bin/sleep', ['0.3'], { timeout: 1000 })
       submenu = capturePane(session) ?? ''
     }
@@ -254,7 +254,7 @@ export function attemptChannelMcpReconnect(agentName: string): ReconnectResult {
       return { ok: false, message: `Could not select ${target.source} within ${SUBMENU_MAX_STEPS} steps` }
     }
 
-    execFileSync(TMUX, ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 3000 })
+    execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Enter'], { timeout: 3000 })
     execFileSync('/bin/sleep', ['2'], { timeout: 4000 })
     dismissMcpMenu(session)
 
