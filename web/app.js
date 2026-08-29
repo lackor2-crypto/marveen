@@ -4370,6 +4370,23 @@ function agentLogoutButtonHtml(agent) {
   return `<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
 }
 
+/**
+ * A gomb bekotese -- EGY helyen, mert ket kartya hasznalja (Marvin sajat
+ * kartyaja es a tobbi ugynoke, Boss 2026-08-29: "nincs megkulonboztetes agent
+ * es agent kozott"). Ha ez ket masolat lenne, az egyik elobb-utobb csendesebb
+ * es veszelyesebb valtozatta valna, mint a masik.
+ */
+function wireAccountLogoutButton(cardEl) {
+  cardEl.querySelector('.agent-account-logout-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const b = e.currentTarget
+    _claudeAuthLogout(b.dataset.plan || '', b.dataset.who || '').then(() => {
+      _claudeAccountRows = null
+      primeClaudeAccounts(() => renderAgents())
+    })
+  })
+}
+
 function accountBadgeHtml(claudePlan, isMain) {
   primePlanLabels()
   let label
@@ -4857,6 +4874,7 @@ function renderAgents() {
           Terminal
         </button>
         ${contextButtonsHtml(mainAgentId())}
+        ${agentLogoutButtonHtml(m)}
       </div>
       ${contextControlsHtml(mainAgentId(), m.contextTokens, true, m.contextState, m.contextQuota)}
     `
@@ -4866,6 +4884,7 @@ function renderAgents() {
     mCard.querySelector('.agent-conversation-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openConversationModal(mainAgentId(), t('agents.marveen_boss'))
     })
+    wireAccountLogoutButton(mCard)
     mCard.addEventListener('click', () => openMarveenDetail())
     wireContextControls(mCard, mainAgentId())
     agentsGrid.insertBefore(mCard, addBtn)
@@ -4956,14 +4975,7 @@ function renderAgents() {
     })
     // Sign-out button: the SAME confirm-with-names path as the Accounts page,
     // so it can never turn into a quieter, more dangerous second copy.
-    card.querySelector('.agent-account-logout-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation()
-      const b = e.currentTarget
-      _claudeAuthLogout(b.dataset.plan || '', b.dataset.who || '').then(() => {
-        _claudeAccountRows = null
-        primeClaudeAccounts(() => renderAgents())
-      })
-    })
+    wireAccountLogoutButton(card)
     // Terminal button
     card.querySelector('.agent-terminal-btn')?.addEventListener('click', (e) => {
       e.stopPropagation(); openTerminalModal(agent.name)

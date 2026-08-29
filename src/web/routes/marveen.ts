@@ -19,6 +19,7 @@ import { readContextReadingFromProjectDir } from '../active-model.js'
 import { mainAgentModelNow } from '../main-agent-model.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import { readAutoRestartConfig } from '../auto-restart-store.js'
+import { claudeLoginForAgent } from '../default-login-dependents.js'
 import type { RouteContext } from './types.js'
 
 /**
@@ -101,6 +102,14 @@ export async function tryHandleMarveen(ctx: RouteContext, webDir: string): Promi
       description,
       model: getActiveMarveenModel(),
       costPerMInput: knownModelCostPerM(getActiveMarveenModel()),
+      // MELYIK Claude-bejelentkezes alatt fut a fo agens -- ugyanaz a mezo es
+      // ugyanaz a szabaly, mint az al-agenseknel (/api/agents). Boss,
+      // 2026-08-29: "nincs megkulonboztetes agent es agent kozott!" -- a
+      // kijelentkeztetes gombja Marvin sajat kartyajara is kell, es a kartya
+      // ehhez ugyanugy a szervertol kerdezi meg a fiokot, nem talalja ki.
+      // null = nem Claude-bejelentkezessel dolgozik (mas szolgaltato vagy
+      // sajat API-kulcs), tehat nincs mit kijelentkeztetni.
+      claudeAccount: claudeLoginForAgent(MAIN_AGENT_ID),
       tmuxSession: MAIN_CHANNELS_SESSION,
       // Boss 2026-08-24 ("probalom ujrainditani a marvint de nem sikerult"):
       // this field was the literal `true`. It said "running" while the session

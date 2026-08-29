@@ -160,3 +160,50 @@ describe('a felirat ketnyelvu', () => {
     expect(usedKeys).toContain('agents.btn.account_logout')
   })
 })
+
+/**
+ * NINCS MEGKULONBOZTETES AGENS ES AGENS KOZOTT.
+ *
+ * Boss, 2026-08-29: "persze hogy rakd be. nincs megkulonboztetes agent es agent
+ * kozott!" -- a fo agens sajat kartyaja mashonnan (`/api/marveen`) kapja az
+ * adatait, mint a tobbi ugynoke (`/api/agents`), es emiatt eloszor kimaradt
+ * belole a gomb. Pontosan ez az a fajta elteres, amit senki nem vesz eszre:
+ * mindket lap mukodik, csak az egyik kartyan hianyzik egy lehetoseg.
+ *
+ * Amit ez a harom eset ovni akar:
+ *   1. a fo agens kartyaja is kirajzolja a gombot,
+ *   2. a fiokot a SZERVER mondja meg neki is (ugyanaz a fuggveny, ugyanaz a
+ *      mezonev) -- nem a bongeszo talalja ki, hogy "a fo agens az alapertelmezett",
+ *   3. a ket kartya UGYANAZT a bekoto utat hasznalja, nem ket masolatot.
+ */
+describe('a fo agens kartyaja sem marad ki', () => {
+  const marveenRoute = readFileSync(join(ROOT, 'src', 'web', 'routes', 'marveen.ts'), 'utf8')
+
+  it('a /api/marveen is kuldi a fiokot, ugyanazzal a szaballyal', () => {
+    expect(marveenRoute).toContain('claudeAccount: claudeLoginForAgent(MAIN_AGENT_ID)')
+    expect(marveenRoute).toContain("from '../default-login-dependents.js'")
+  })
+
+  it('a fo agens kartyaja kirajzolja a gombot', () => {
+    expect(app).toContain('${agentLogoutButtonHtml(m)}')
+  })
+
+  it('a ket kartya UGYANAZT a bekotest hasznalja, nem ket masolatot', () => {
+    // A megerosito ut (nevek + visszakerdezes) egyetlen helyen el. Ha valaki
+    // masol belole egy masodikat, az elobb-utobb halkabb lesz -- ezert szamolunk.
+    const defs = app.match(/function wireAccountLogoutButton\(/g) || []
+    expect(defs.length, 'pontosan egy bekoto fuggveny letezhet').toBe(1)
+    const calls = app.match(/wireAccountLogoutButton\((?:card|mCard)\)/g) || []
+    expect(calls.length, 'mindket kartya bekoti a gombot').toBe(2)
+    // Es tovabbra sincs kozvetlen, kezzel irt masodik esemenykezelo.
+    const inline = app.match(/\.agent-account-logout-btn'\)\?\.addEventListener/g) || []
+    expect(inline.length, 'csak a kozos fuggvenyben kotodik esemeny').toBe(1)
+  })
+
+  it('a fo agens kartyaja sem esik vissza az alapertelmezettre magatol', () => {
+    // Ha a szerver azt mondja, nincs Claude-bejelentkezese (mas szolgaltato),
+    // akkor nincs gomb -- akkor sem, ha o a fo agens.
+    const html = build([row({})])({ name: 'main', claudeAccount: null })
+    expect(html).toBe('')
+  })
+})
