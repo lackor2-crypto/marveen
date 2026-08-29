@@ -4361,16 +4361,28 @@ function claudeAccountRowFor(claudeAccount) {
   return _claudeAccountRows.find(r => (r.configDir ?? null) === want) || null
 }
 
-// A kartyara kerulo kijelentkeztetes-gomb. Csak akkor van, ha az ugynok
-// tenylegesen Claude-bejelentkezessel dolgozik ES az a fiok be is van
-// jelentkezve -- kijelentkeztetni egy mar kijelentkezett fiokot ertelmetlen,
-// visszahozni pedig a meglevo bejelentkezes-gomb dolga.
+// A kartyara kerulo kijelentkeztetes/bejelentkezes-gomb. Csak akkor van, ha
+// az ugynok tenylegesen Claude-bejelentkezessel dolgozik -- ha nincs ilyen
+// sora (peldaul API-kulccsal fut), a doboz nem jelenik meg.
+//
+// Boss, 2026-08-29: kijelentkeztetett egy ugynokot INNEN, es utana nem
+// tudta visszahozni -- a doboz teljesen eltunt, mert ez a fuggveny csak a
+// "bejelentkezve van" agra adott vissza gombot. A "Vissza a Bejelentkezes
+// gombbal... johet" szoveg (agents.settings.logout_desc) mar akkor is ezt
+// igerte, csak nem volt hozza gomb. A visszautat a mar letezo
+// _claudeAuthStartFlow adja (ugyanaz, amit a Fiokok oldal relogin gombja
+// hasznal), csak innen, a kartya sajat Beallitasok fulerol indul.
 function agentLogoutButtonHtml(agent) {
   const row = claudeAccountRowFor(agent && agent.claudeAccount)
-  if (!row || !row.identity || !row.identity.loggedIn) return ''
-  const who = row.identity.email || (row.isDefault ? mainAccountLabel() : (row.label || row.id || ''))
-  const label = t('agents.btn.account_logout', { account: row.isDefault ? mainAccountLabel() : stripModelSuffix(row.label || row.id || '') })
-  return `<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
+  if (!row || !row.identity) return ''
+  if (row.identity.loggedIn) {
+    const who = row.identity.email || (row.isDefault ? mainAccountLabel() : (row.label || row.id || ''))
+    const label = t('agents.btn.account_logout', { account: row.isDefault ? mainAccountLabel() : stripModelSuffix(row.label || row.id || '') })
+    return `<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
+  }
+  const name = row.isDefault ? mainAccountLabel() : (row.label || row.id || '')
+  const label = t('agents.btn.account_relogin', { account: stripModelSuffix(name) })
+  return `<button type="button" class="btn-primary btn-compact agent-account-relogin-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-default="${row.isDefault ? '1' : '0'}" data-who="${escapeAttr(name)}" title="${escapeAttr(t('agents.btn.account_relogin_tip'))}">${escapeHtml(label)}</button>`
 }
 
 /**
@@ -4394,6 +4406,21 @@ function wireAccountLogoutButton(cardEl) {
         if (currentAgent) renderAgentLogoutSetting(currentAgent)
       })
     })
+  })
+  // A visszaut a #claudeAuthFlow dobozt nyitja meg es indit pollingot -- az
+  // viszont a Fiokok lap sajat DOM-agan lakik (#accountsPage), ami `hidden`,
+  // amig a kartya-modal masik lapon van nyitva. Ha csak a dobozt nyitnank
+  // meg (mint a Fiokok oldal sajat relogin gombja teszi), a felhasznalo
+  // semmit nem latna -- pontosan az a nema "lattam-e oda" hiba, ami miatt
+  // Boss nem talalta a Bejelentkezes gombot. Ezert elobb at kell valtani a
+  // Fiokok lapra ES be kell csukni a kartya-modalt, csak utana nyithat a doboz.
+  cardEl.querySelector('.agent-account-relogin-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    const b = e.currentTarget
+    const payload = b.dataset.default === '1' ? { target: 'default' } : { planId: b.dataset.plan }
+    switchPage('accounts')
+    closeModal(agentDetailOverlay)
+    _claudeAuthStartFlow(payload)
   })
 }
 
@@ -16931,7 +16958,14 @@ async function _claudeAuthStartFlow(payload) {
   // ELOZO folyamat linkjet, es a doboz elobb jelenik meg, mint a friss link.
   _setConsentLink('claudeAuthLink', '')
   const box = document.getElementById('claudeAuthFlow')
-  if (box) box.hidden = false
+  if (box) {
+    box.hidden = false
+    // Boss, 2026-08-29: a kartyarol ide navigalva ("bejelentkezes" gomb) a doboz
+    // lattavatlan messze lent ul, a "Uj Claude-fiok hozzaadasa" panel alatt -- a
+    // gepnek unhide-olva volt, a felhasznalonak semmi nem tortent, mert a lap
+    // tetejen allt. Ugyanez a mintakov, mint a _gconnOpenBlocked-nal.
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
   _claudeAuthSetState(t('claudeauth.state_starting'), null)
   try {
     const res = await fetch('/api/accounts/claude/login', {

@@ -92,7 +92,7 @@ describe('a szabaly a szerveren marad', () => {
   })
 })
 
-describe('a gomb csak akkor van ott, ha van mit kijelentkeztetni', () => {
+describe('a gomb csak akkor van ott, ha van mit kijelentkeztetni VAGY visszahozni', () => {
   it('Claude-bejelentkezes nelkuli agensen nincs gomb', () => {
     expect(build([row({})])({ name: 'nemotron', claudeAccount: null })).toBe('')
   })
@@ -103,10 +103,16 @@ describe('a gomb csak akkor van ott, ha van mit kijelentkeztetni', () => {
     expect(build(null)({ name: 'x', claudeAccount: { configDir: '/x/usalackor' } })).toBe('')
   })
 
-  it('mar kijelentkezett fiokon nincs gomb', () => {
+  it('mar kijelentkezett fiokon bejelentkezes-gomb van, nem semmi', () => {
+    // Boss, 2026-08-29: kijelentkeztetett egy ugynokot INNEN, es a doboz utana
+    // teljesen eltunt -- nem tudta visszahozni. A "Vissza a Bejelentkezes
+    // gombbal... johet" szoveg mar akkor is ezt igerte, csak nem volt hozza gomb.
     const html = build([row({ identity: { loggedIn: false } })])(
       { name: 'x', claudeAccount: { configDir: '/x/usalackor' } })
-    expect(html).toBe('')
+    expect(html).not.toBe('')
+    expect(html).toContain('agent-account-relogin-btn')
+    expect(html).toContain('data-plan="usalackor"')
+    expect(html).toContain('data-default="0"')
   })
 
   it('ismeretlen config-konyvtar NEM esik vissza az alapertelmezettre', () => {
@@ -147,11 +153,30 @@ describe('a gomb magaval viszi, MELYIK fiokrol van szo', () => {
     const handler = app.slice(app.indexOf(".agent-account-logout-btn'"))
     expect(handler.slice(0, 400)).toContain('_claudeAuthLogout(')
   })
+
+  it('a visszahozo gomb elobb lathatova teszi a bejelentkezes-dobozt, csak azutan nyitja meg', () => {
+    // A #claudeAuthFlow doboz a Fiokok lap sajat, `hidden` DOM-agan lakik. Ha
+    // csak _claudeAuthStartFlow-t hivnank a kartya-modalbol, a doboz nema
+    // maradna a nezo szamara -- pontosan ez volt a hiba, amit Boss jelzett.
+    const handler = app.slice(app.indexOf(".agent-account-relogin-btn'"))
+    const body = handler.slice(0, 500)
+    const switchIdx = body.indexOf('switchPage(')
+    const closeIdx = body.indexOf('closeModal(agentDetailOverlay)')
+    const flowIdx = body.indexOf('_claudeAuthStartFlow(')
+    expect(switchIdx, 'switchPage a Fiokok lapra').toBeGreaterThan(-1)
+    expect(closeIdx, 'a kartya-modal bezarodik').toBeGreaterThan(-1)
+    expect(flowIdx, 'a bejelentkezes-folyamat inditasa').toBeGreaterThan(-1)
+    expect(switchIdx).toBeLessThan(flowIdx)
+    expect(closeIdx).toBeLessThan(flowIdx)
+  })
 })
 
 describe('a felirat ketnyelvu', () => {
   it('mindket kulcs megvan magyarul es angolul', () => {
-    for (const key of ['agents.btn.account_logout', 'agents.btn.account_logout_tip']) {
+    for (const key of [
+      'agents.btn.account_logout', 'agents.btn.account_logout_tip',
+      'agents.btn.account_relogin', 'agents.btn.account_relogin_tip',
+    ]) {
       expect(hu, `hu: ${key}`).toContain(`'${key}'`)
       expect(en, `en: ${key}`).toContain(`'${key}'`)
     }
@@ -159,6 +184,11 @@ describe('a felirat ketnyelvu', () => {
   it('a felirat a t()-n megy at, nem beegetve', () => {
     build([row({})])({ name: 'x', claudeAccount: { configDir: '/x/usalackor' } })
     expect(usedKeys).toContain('agents.btn.account_logout')
+  })
+  it('a visszahozo gomb felirata is a t()-n megy at', () => {
+    usedKeys.length = 0
+    build([row({ identity: { loggedIn: false } })])({ name: 'x', claudeAccount: { configDir: '/x/usalackor' } })
+    expect(usedKeys).toContain('agents.btn.account_relogin')
   })
 })
 

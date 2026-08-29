@@ -2984,6 +2984,8 @@ window._i18n.hu = {
   'agents.settings.logout_desc':          'Kijelentkeztetheted azt a Claude-fiókot, amellyel ez az ügynök dolgozik. Előbb megmutatja, pontosan kit állít meg vele, és csak azután csinálja meg. Vissza a Bejelentkezés gombbal vagy a varázslóval jöhet.',
   'agents.btn.account_logout':            'Kijelentkeztetés ({account})',
   'agents.btn.account_logout_tip':        'Kijelentkezteti azt a Claude-fiókot, amellyel ez az ügynök dolgozik. Előbb megmutatja, kit állít meg vele.',
+  'agents.btn.account_relogin':           'Bejelentkezés ({account})',
+  'agents.btn.account_relogin_tip':       'Átvisz a Fiókok oldalra, és megnyitja a bejelentkezés lépéseit ehhez a Claude-fiókhoz.',
   'agents.btn.login':            'Bejelentkezés',
 
   // --- Agent model switch card ---

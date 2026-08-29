@@ -2920,6 +2920,8 @@ window._i18n.en = {
   'agents.settings.logout_desc':          'Signs out the Claude account this agent works with. It first shows you exactly who it stops, and only then does it. You can come back with the Sign in button or the wizard.',
   'agents.btn.account_logout':            'Sign out ({account})',
   'agents.btn.account_logout_tip':        'Signs out the Claude account this agent works with. It shows you who it stops before doing it.',
+  'agents.btn.account_relogin':           'Sign in ({account})',
+  'agents.btn.account_relogin_tip':       'Takes you to the Accounts page and opens the sign-in steps for this Claude account.',
   'agents.btn.login':            'Login',
 
   // --- Agent model switch card ---
