@@ -11,7 +11,7 @@ Bármikor, amikor a feladat email kiküldése, és van email-küldő eszközöd
 fő ágensre.
 
 **Nem kell a fő ágens.** Az email-küldés 2026-08-20 óta NEM fő-ágens-only
-képesség (Boss döntése, ekkor szűnt meg a governance hard-gate). Ha van
+képesség ({{OWNER_NAME}} döntése, ekkor szűnt meg a governance hard-gate). Ha van
 email-küldő eszközöd, közvetlenül használd:
 
 ```

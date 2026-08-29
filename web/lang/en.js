@@ -418,6 +418,12 @@ window._i18n.en = {
   'health.command_task_fail_action': 'These are commands, not conversations — when they fail, no message is produced anywhere. The card under Schedules shows the reason.',
   'health.mcp_needs_auth':     '{n} MCP connections are waiting for authorization: {names}',
   'health.mcp_needs_auth_action': 'Until they are authorized the agents still answer happily — they just do not have that one tool, and nothing else shows it. Authorize claude.ai connectors in your claude.ai settings, and the rest with /mcp in an interactive session.',
+  'health.skills_not_seeded':  '{n} skill(s) exist only on this machine: {names}',
+  'health.skills_not_seeded_action': 'A fresh install will NOT get these — the installer only copies the repo seed-skills/ directory. If the skill is not personal (not about one named person or account), move it into seed-skills/ with placeholders; if it is personal, add scope: personal to its SKILL.md front matter.',
+  'health.skills_seed_missing': 'Cannot check skills: the repo seed-skills/ directory is missing.',
+  'health.skills_seed_missing_action': 'This does not mean you are fine — it means I cannot see. Check that the project root points where you expect and that seed-skills/ exists in the clone.',
+  'health.skills_unreadable':  'Cannot check skills: the skills directory is not readable.',
+  'health.skills_unreadable_action': 'Silence here does not mean clean. Check the permissions on ~/.claude/skills/ and seed-skills/.',
   // The LIVE Google check. 2026-08-22: all ten accounts were dead and nothing
   // said so -- the expiry watcher is time-based (blind to revocation) and the
   // live probe only ran when somebody opened the Accounts page.

@@ -12,7 +12,7 @@ Akkor is, ha érted. Akkor is, ha 90%-ban biztos vagy benne, melyiket akarta.
 Akkor is, ha ezzel lassabb leszel. A tippelt értelmezés **rosszabb a
 kérdésnél** — a kérdés kerül 10 másodpercbe, a rossz tipp visszafordíthatatlan.
 
-Boss, 2026-08-24: „ha kétértelmű, akkor kötelezően vissza kell kérdeznie!"
+{{OWNER_NAME}}, 2026-08-24: „ha kétértelmű, akkor kötelezően vissza kell kérdeznie!"
 
 ## Miért van ez a szabály (a valódi eset)
 

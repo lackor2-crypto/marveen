@@ -1092,6 +1092,59 @@ export function driveSyncRows(
   return rows
 }
 
+/**
+ * Helyben maradt, NEM szemelyes skillek.
+ *
+ * A `~/.claude/skills/` ala irt skill csak ezen az egy gepen letezik: a
+ * telepito KIZAROLAG a repo `seed-skills/` mappajat masolja ki. 2026-08-29-en
+ * az auditon 15 altalanos skill (kanban, service-restart, teszt-triage,
+ * delegalas, WSL-GUI...) volt csak helyben -- egy uj user egyiket sem kapta
+ * meg, es semmi nem szolt erte. Ez a sor szol erte.
+ *
+ * A NULLA KET DOLGOT JELENTHET: friss telepitesen nincs meg a skills-mappa
+ * (helyes a csend), de ha a mappa megvan es nem olvashato, VAGY a seed-skills
+ * hianyzik, akkor nem "tiszta" -- akkor nem latok oda, es azt kell mondani.
+ */
+export function skillSeedRows(
+  home: string = homedir(),
+  projectRoot: string = PROJECT_ROOT,
+): HealthRow[] {
+  const helyi = join(home, '.claude', 'skills')
+  if (!existsSync(helyi)) return []           // friss telepites: nincs mit osszevetni
+  const seed = join(projectRoot, 'seed-skills')
+  if (!existsSync(seed)) {
+    return [{ id: 'skills_seed_missing', status: 'warn', params: {} }]
+  }
+  let helyiNevek: string[]
+  let seedNevek: Set<string>
+  try {
+    helyiNevek = readdirSync(helyi)
+    seedNevek = new Set(readdirSync(seed))
+  } catch {
+    return [{ id: 'skills_unreadable', status: 'warn', params: {} }]
+  }
+  const hianyzik: string[] = []
+  for (const n of helyiNevek) {
+    if (n.startsWith('.')) continue
+    if (seedNevek.has(n)) continue
+    const md = join(helyi, n, 'SKILL.md')
+    if (!existsSync(md)) continue
+    let fej = ''
+    try { fej = readFileSync(md, 'utf-8').slice(0, 2000) } catch { continue }
+    // Szemelyes skill (konkret emberre/fiokra szol) szandekosan marad helyben.
+    if (/^\s*scope:\s*personal\s*$/m.test(fej)) continue
+    const t = tisztaNev(n)
+    if (t) hianyzik.push(t)
+  }
+  if (hianyzik.length === 0) return []
+  hianyzik.sort()
+  return [{
+    id: 'skills_not_seeded',
+    status: 'warn',
+    params: { n: hianyzik.length, names: hianyzik.slice(0, 8).join(', ') },
+  }]
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -1105,6 +1158,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...googleLiveRows(now),
     ...googleDuplicateRows(),
     ...codeBridgeRows(now),
+    ...skillSeedRows(),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

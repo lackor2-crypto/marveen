@@ -5777,7 +5777,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       </div>
       <div class="agent-card-footer">
         <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model || t('cb.card.model_unknown'))}</span>
-        <!-- Boss, 2026-08-23: a modell-magyarazat NEM a kartyan van, hanem a
+        <!-- Tulajdonosi kikotes, 2026-08-23: a modell-magyarazat NEM a kartyan van, hanem a
              reszletes ablak MODELL csempeje alatt (web/index.html,
              #cbTileModelNote) -- a kartyan mar eleg informacio all, ott az
              allapot ("fut"/"leallitva" + "online"/"offline") a fontos. -->

@@ -5,7 +5,7 @@ description: A BEÉRKEZŐ mappa iratainak besorolása az egységes életfába (k
 
 # BEÉRKEZŐ — automatikus iratrendezés
 
-A Boss véglegesített alapterve (2026-08-21) szerint ez **az egyik legfontosabb
+A {{OWNER_NAME}} véglegesített alapterve (2026-08-21) szerint ez **az egyik legfontosabb
 Marvin-funkció**: bármi bedobható, és Marvin eldönti, hova tartozik.
 
 ## Mikor használd

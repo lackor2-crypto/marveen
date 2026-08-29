@@ -14,7 +14,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gitPullRows, commandTaskRows, mcpAuthRows } from '../web/system-health.js'
+import { gitPullRows, commandTaskRows, mcpAuthRows, skillSeedRows } from '../web/system-health.js'
+import { mkdirSync } from 'node:fs'
 
 const NAP = 86400000
 const MOST = Date.parse('2026-08-22T12:00:00Z')
@@ -245,6 +246,58 @@ describe('MCP: hitelesitesre varo kapcsolat', () => {
   it('a szervernevet is MEGTISZTITJA', () => {
     const p = ir('f.json', { 'x<b>y': { timestamp: MOST } })
     expect(String(mcpAuthRows(MOST, [p])[0].params?.names)).not.toContain('<')
+  })
+})
+
+// === Helyben ragadt skillek =================================================
+//
+// Boss, 2026-08-29: "ha nem szemelyes akkor globalisan kell megirni a
+// skilleket is!" A ~/.claude/skills/ ala irt skill csak ezen a gepen letezik;
+// friss telepitesen a user nem is tud rola. 2026-08-29-en 15 ilyen skill volt.
+describe('skillek: ami csak helyben van', () => {
+  const gyoker = mkdtempSync(join(tmpdir(), 'marveen-skills-'))
+  const home = join(gyoker, 'home')
+  const projekt = join(gyoker, 'repo')
+  const skill = (hova: string, nev: string, fej = ''): void => {
+    mkdirSync(join(hova, nev), { recursive: true })
+    writeFileSync(join(hova, nev, 'SKILL.md'), `---\nname: ${nev}\n${fej}---\n\nx\n`)
+  }
+  const helyi = join(home, '.claude', 'skills')
+  const seed = join(projekt, 'seed-skills')
+
+  it('friss telepites: nincs skills-mappa -> HALLGAT', () => {
+    expect(skillSeedRows(join(gyoker, 'nincs-ilyen-home'), projekt)).toEqual([])
+  })
+
+  it('a seedelt skillrol nem szol, a helyben ragadtrol igen', () => {
+    skill(helyi, 'kanban-card-creation')
+    skill(helyi, 'csak-itt-van')
+    skill(seed, 'kanban-card-creation')
+    const r = skillSeedRows(home, projekt)
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('skills_not_seeded')
+    expect(r[0].status).toBe('warn')
+    expect(r[0].params).toMatchObject({ n: 1, names: 'csak-itt-van' })
+  })
+
+  it('a szemelyesnek jelolt skill szandekosan marad helyben', () => {
+    skill(helyi, 'sajat-ugy', 'scope: personal\n')
+    const nevek = String(skillSeedRows(home, projekt)[0].params?.names)
+    expect(nevek).not.toContain('sajat-ugy')
+  })
+
+  // A NULLA KET DOLGOT JELENTHET: ha nincs mihez hasonlitani, az nem "tiszta".
+  it('hianyzo seed-skills eseten NEM hallgat, hanem megmondja hogy nem lat oda', () => {
+    const r = skillSeedRows(home, join(gyoker, 'nincs-ilyen-repo'))
+    expect(r).toHaveLength(1)
+    expect(r[0].id).toBe('skills_seed_missing')
+  })
+
+  it('a lemezrol jott nevet MEGTISZTITJA', () => {
+    skill(helyi, 'rossz<img onerror=x>')
+    const nevek = String(skillSeedRows(home, projekt)[0].params?.names)
+    expect(nevek).not.toContain('<')
+    expect(nevek).not.toContain('=')
   })
 })
 

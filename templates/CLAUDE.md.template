@@ -465,3 +465,33 @@ változott meg — ha az ok érdekes, azt is mérd meg.
 
 Részletek: `recheck-before-restating` skill. Ez a szabály minden ügynök
 CLAUDE.md-jébe automatikusan bekerül (`ensureRecheckSection`).
+
+## ⛔ A SKILLEKET IS GLOBÁLISAN KELL MEGÍRNI (2026-08-29, {{OWNER_NAME}})
+
+**{{OWNER_NAME}}:** „ha nem személyes akkor globálisan kell megírni a skilleket is!" —
+„hogy friss telepítésnél már tudja használni a user."
+
+A `~/.claude/skills/` alá írt skill **csak azon az egy gépen létezik**. Friss
+telepítésen nincs meg, a user nem hívhatja, és semmi nem szól érte: a tudás
+elveszett. A telepítő KIZÁRÓLAG a repó `seed-skills/` mappáját másolja ki
+(`install-linux.sh`), helyőrző-cserével.
+
+**Minden új vagy módosított skillnél az ELSŐ döntés: személyes-e?**
+
+- **Személyes** = konkrét emberre, fiókra, számlára, magánügyre szól
+  (pl. WhatsApp-küldés egy megnevezett embernek, saját kereskedési számla
+  elemzése) → maradhat `~/.claude/skills/` alatt.
+- **MINDEN MÁS GLOBÁLIS** → `seed-skills/<nev>/SKILL.md` a fő ágban, a
+  gépspecifikus értékek helyőrzőre cserélve: `{{OWNER_NAME}}`,
+  `{{MAIN_AGENT_ID}}`, `{{PROJECT_ROOT}}`, `{{WEB_PORT}}`, `{{BOT_NAME}}`,
+  `{{INSTALL_DIR}}`. Magyar toldalékkal együtt is: a tulajdonos neve
+  toldalékkal is helyőrzőre megy (`{{OWNER_NAME}}-nak`). A `template-identity-hygiene` teszt bukik, ha beégetett
+  név marad benne.
+
+Kétség esetén **globális**: egy fölöslegesen megosztott munkamódszer nem árt,
+egy elveszett viszont igen. Ez a „friss telepítésen is működjön" szabály a
+TUDÁSRA alkalmazva — és ugyanúgy kötelező.
+
+**Gép is figyeli:** az Áttekintés önellenőrzése kilistázza azokat a helyben
+maradt skilleket, amik nincsenek `seed-skills/`-ben és nincsenek személyesnek
+jelölve (a SKILL.md fejlécében `scope: personal`).

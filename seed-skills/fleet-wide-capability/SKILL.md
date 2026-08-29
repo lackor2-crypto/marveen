@@ -38,7 +38,7 @@ Kivétel csak indoklással létezik (`src/agent-parity.ts`).
   (a router a sub-ágenseknek közvetlenül injektál). Az ilyet deklaráld
   kivételként (`MAIN_ONLY_HOOKS` / `SUBAGENT_ONLY_HOOKS`, kötelező `why`), ne
   hagyd sodródni. Megjegyzés: a kormányzási gate-ek (email-send-gate,
-  self-pace-gate) 2026-08-20-án megszűntek (Boss döntése) -- ezek voltak az
+  self-pace-gate) 2026-08-20-án megszűntek ({{OWNER_NAME}} döntése) -- ezek voltak az
   egyetlen sub-ágens-only hookok, most a `SUBAGENT_ONLY_HOOKS` üres.
 - **A sablon-hook nem duplikálódik**, ha az ágensnél már ott van ugyanaz a
   szkript más formában: az `upgradeLegacyHookCommands()` átírja a sablon

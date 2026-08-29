@@ -53,13 +53,13 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    lásd a scheduled-task `last-full-date.txt` state-fájlját). Minden további
    aznapi futásnál csak egy 2-3 soros RÖVID üzenet: LONG / SHORT / OLDALAZÁS
    + aktuális ár + 1 mondat indoklás, idősíkonkénti levezetés nélkül.
-5b. ⛔ KÖTELEZŐ KÜLDÉSI SÉMA -- MINDIG UGYANEZ A NÉGY BLOKK (Boss 2026-08-27,
+5b. ⛔ KÖTELEZŐ KÜLDÉSI SÉMA -- MINDIG UGYANEZ A NÉGY BLOKK ({{OWNER_NAME}} 2026-08-27,
    Telegram üzenet 534/536/547/549): "Allitsd fol egy semat, es mindig ugyanabban
    a semaban magyarazd el. [...] hosszu tav ... kozeptav ... rovid tav ...
    osszefoglalo ... ez legyen alap." Kiss Zoltán VAK, képernyőolvasót használ ->
    SIMA SZÖVEG, ékezet nélkül, se angol szakszó, se emoji, se táblázat.
 
-   IDŐTÁV-CSOPORTOSÍTÁS (Boss 2026-08-27, üzenet 547/549 -- KÖTELEZŐ):
+   IDŐTÁV-CSOPORTOSÍTÁS ({{OWNER_NAME}} 2026-08-27, üzenet 547/549 -- KÖTELEZŐ):
    HOSSZÚ TÁV = D1 + H4 ; KÖZÉPTÁV = H1 (órás chart) ; RÖVID TÁV = M15 + M5 + M1.
 
    Az üzenet MINDIG pontosan ez a négy blokk, ebben a sorrendben:
@@ -75,12 +75,12 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    Osszefoglalo: <vegso jelzes + mit tegyen roviden>
    ```
 
-   NE írd a blokk-fejlécbe zárójelben az idősíkot (Boss 2026-08-27, üzenet 555:
+   NE írd a blokk-fejlécbe zárójelben az idősíkot ({{OWNER_NAME}} 2026-08-27, üzenet 555:
    "nem kell mindig mondanod, hogy melyik idosavot nezed"). Tehát `Rovid tav:`,
    nem `Rovid tav (M15, M5, M1):` -- az idősíkokat te nézed meg, a címzettnek nem
    kell tudnia, melyikből jön a jelzés.
 
-   Szóhasználat -- MINDIG magyar (Boss 543): Irány `emelkedo`/`csokkeno`/`oldalazo`
+   Szóhasználat -- MINDIG magyar ({{OWNER_NAME}} 543): Irány `emelkedo`/`csokkeno`/`oldalazo`
    trend (a "bullish"/"BUY"/"SELL" mint címke TILOS). Erősség `eros`/`kozepes`/
    `gyenge` -- "eros" csak ha az adott táv egyezik a hosszú távú iránnyal. Az
    Osszefoglalo VÉGSŐ jelzése MINDIG az 5-fokú magyar skála EGYIKE: `eros vetel` /
@@ -88,14 +88,14 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    a három táv élő chartból (D1, H4, H1, M15, M5, M1). RÖVID futás: csak a rövid
    táv (M15/M5/M1) élő, a felső két táv a reggeli emlékből ("-- reggel merve").
    A rövid táv blokkban KÖTELEZŐ a sztochasztik állapota KÜLÖN M5-re ÉS M1-re
-   (Boss 2026-08-27, üzenet 555), pl. "M5-on a sztochasztik tuladott, M1-en
+   ({{OWNER_NAME}} 2026-08-27, üzenet 555), pl. "M5-on a sztochasztik tuladott, M1-en
    tulvett" -- röviden, magyarázat nélkül; ha a rövid táv a reggeli emlékből jön,
    nincs friss M5/M1 sztochasztik, ne találd ki. Továbbá KÖTELEZŐ jelezni, hogy
-   M5-ön az ár a SZÁZAS (piros) mozgóátlag ALATT vagy FELETT van (Boss 2026-08-27,
+   M5-ön az ár a SZÁZAS (piros) mozgóátlag ALATT vagy FELETT van ({{OWNER_NAME}} 2026-08-27,
    üzenet 557), pl. "M5-on az ar a szazas mozgoatlag alatt van" -- csak M5-ön.
    A belépés-időzítést (hol léphet be, kb. meddig várjon) a rövid táv blokk végén
    MINDIG az M1-ből (legfeljebb az M5-ből is) add meg -- az M1-et MINDEN futásnál
-   KÖTELEZŐ megnézni (Boss 2026-08-27, üzenet 551).
+   KÖTELEZŐ megnézni ({{OWNER_NAME}} 2026-08-27, üzenet 551).
 6. Küldés `notify-with-fallback` + `kiss-zoltan-contact-accessibility`
    szerint: SIMA SZÖVEG (ékezet nélkül, mert a PowerShell fájl-kódolás
    Task Scheduleren át törhet ékezeteken), WhatsApp elsőként, a

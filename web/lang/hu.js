@@ -442,6 +442,12 @@ window._i18n.hu = {
   'health.command_task_fail_action': 'Ezek nem beszélgetések, hanem parancsok — ha elhasalnak, semmilyen üzenet nem keletkezik róluk. Az Ütemezések alatt a kártyán ott a hiba oka.',
   'health.mcp_needs_auth':     '{n} MCP-kapcsolat hitelesítésre vár: {names}',
   'health.mcp_needs_auth_action': 'Amíg nincs hitelesítve, az ágensek ettől még vidáman válaszolnak — csak épp ez az egy eszközük nincs meg, és ez sehol máshol nem látszik. A claude.ai csatlakozásait a claude.ai beállításaiban, a többit egy interaktív munkamenetben a /mcp paranccsal tudod engedélyezni.',
+  'health.skills_not_seeded':  '{n} skill csak ezen a gépen létezik: {names}',
+  'health.skills_not_seeded_action': 'Ezeket egy friss telepítés NEM kapja meg — a telepítő csak a repó seed-skills/ mappáját másolja. Ha nem személyes (nem egy konkrét emberre vagy fiókra szól), tedd át seed-skills/ alá helyőrzőkkel; ha személyes, írd a SKILL.md fejlécébe: scope: personal.',
+  'health.skills_seed_missing': 'Nem tudom ellenőrizni a skilleket: a repó seed-skills/ mappája nincs meg.',
+  'health.skills_seed_missing_action': 'Ez nem azt jelenti, hogy rendben vagy — azt jelenti, hogy nem látok oda. Ellenőrizd, hogy a projekt gyökere jó helyre mutat-e, és hogy a seed-skills/ mappa megvan-e a klónban.',
+  'health.skills_unreadable':  'Nem tudom ellenőrizni a skilleket: a skills-mappa nem olvasható.',
+  'health.skills_unreadable_action': 'A csend itt nem jelent tisztát. Nézd meg a ~/.claude/skills/ és a seed-skills/ mappa jogosultságait.',
   // Az ELO Google-ellenorzes. 2026-08-22: mind a 10 fiok halott volt, es errol
   // semmi nem szolt -- a lejarat-figyelo idoalapu (a visszavonast nem latja), az
   // elo probe meg csak akkor futott, ha valaki megnyitotta a Fiokok oldalt.

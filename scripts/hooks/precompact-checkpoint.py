@@ -623,8 +623,8 @@ def self_test():
     #    holds -- a silently empty field here would mean nothing is remembered.
     p = build_payload({"objective": "a kapu javitasa", "decisions": ["BE marad ki"]},
                       ["src/web/reflect.ts"], [USER_TAG + "javitsd ki a kapu kuszobet"], "auto")
-    rp = reflect_payload("lackor2-bot", "auto", p)
-    check("reflect-agent", rp["agent"], "lackor2-bot")
+    rp = reflect_payload("proba-agens", "auto", p)
+    check("reflect-agent", rp["agent"], "proba-agens")
     check("reflect-instructions", rp["instructions"], [USER_TAG + "javitsd ki a kapu kuszobet"])
     check("reflect-files", rp["filesChanged"], ["src/web/reflect.ts"])
     check("reflect-decisions", rp["decisions"], ["BE marad ki"])

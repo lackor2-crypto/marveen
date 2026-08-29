@@ -887,7 +887,7 @@ export function initDatabase(dbPathOverride?: string): void {
       reminded_at INTEGER,
       -- How many nudges this row has already had. The sweep needs it to STOP:
       -- an agent that is idle but silent would otherwise be messaged every
-      -- ninety seconds for four hours (kanban 2a32b51e, Boss 2026-08-28).
+      -- ninety seconds for four hours (kanban 2a32b51e, tulajdonosi kikotes 2026-08-28).
       reminder_count INTEGER NOT NULL DEFAULT 0
         CHECK(reminder_count >= 0),
       UNIQUE(approval_id, agent)

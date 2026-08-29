@@ -170,7 +170,7 @@ export function reconcileWaitingApprovals(): { raised: number; withdrawn: number
       const ok = resolveApproval(
         pending.id, 'timeout', MAIN_AGENT_ID, null,
         `A kérés tárgya nem várakozik döntésre: a kártya ${hol}. Az egyeztetés zárta le `
-        + 'automatikusan, nem Boss döntése -- ha a munka ismét várakozóba kerül, új kérés keletkezik.',
+        + 'automatikusan, nem a tulajdonos döntése -- ha a munka ismét várakozóba kerül, új kérés keletkezik.',
       )
       if (ok) withdrawn++
     }
@@ -289,7 +289,7 @@ export function withdrawApprovalForCardLeavingWaiting(
     const ok = resolveApproval(
       pending.id, 'timeout', resolvedBy, null,
       `A kártya átkerült a(z) "${newStatus}" oszlopba, tehát már nem várakozik döntésre. `
-      + 'A kérést a mozgatás zárta le automatikusan, nem Boss döntése -- ha a munka később '
+      + 'A kérést a mozgatás zárta le automatikusan, nem a tulajdonos döntése -- ha a munka később '
       + 'ismét várakozóba kerül, új kérés keletkezik.',
     )
     if (ok) {

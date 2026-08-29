@@ -13,6 +13,28 @@ description: List, inspect, patch, or delete skills from ~/.claude/skills/. Use 
 - User says "update skill X" or "fix skill Y"
 - Periodic audit: check for stale or duplicate skills
 
+## FIRST DECISION: personal or global?
+
+**A skill written only into `~/.claude/skills/` exists on this one machine
+only.** A fresh install never gets it -- the user cannot call it and nothing
+warns about it. The installer copies ONLY the repo's `seed-skills/` directory.
+
+So before you create or patch a skill, decide:
+
+- **Personal** = it is about a named person, a specific account, a private
+  matter (e.g. messaging one named contact, analysing the owner's own trading
+  account). Keep it local, and mark it in the SKILL.md front matter with
+  `scope: personal` so the self-check stops nagging about it.
+- **EVERYTHING ELSE IS GLOBAL** -> write it to `seed-skills/<name>/SKILL.md`
+  in the repository, with machine-specific values replaced by placeholders:
+  `{{OWNER_NAME}}`, `{{MAIN_AGENT_ID}}`, `{{PROJECT_ROOT}}`, `{{WEB_PORT}}`,
+  `{{BOT_NAME}}`, `{{INSTALL_DIR}}`. Hungarian suffixes count too: the owner name with a suffix still
+  becomes `{{OWNER_NAME}}-nak`. The `template-identity-hygiene` test fails on any
+  hardcoded identity left behind.
+
+**When in doubt: global.** A shared working method costs nothing if it turns
+out to be niche; a lost one costs the next install everything it knew.
+
 ## Arguments
 
 | Argument | Required | Description |

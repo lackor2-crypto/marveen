@@ -108,7 +108,7 @@ def merge(live, tpl):
 # the project file would have added a SECOND copy of every hook to the main
 # agent -- each one firing twice -- which is why this is spelled out rather than
 # inferred from the directory layout.
-targets = [("lackor2-bot", os.path.join(os.path.expanduser("~"), ".claude", "settings.json"), ROOT)]
+targets = [(main_agent_id(), os.path.join(os.path.expanduser("~"), ".claude", "settings.json"), ROOT)]
 for name in sorted(os.listdir(os.path.join(ROOT, "agents"))):
     p = os.path.join(ROOT, "agents", name, ".claude", "settings.json")
     if os.path.isfile(p):

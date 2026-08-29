@@ -134,7 +134,7 @@ TOML-format-drift incidensnel):
    majd a szokasos menetrenddel ellenorizd es telepitsd (npx tsc --noEmit
    -p . -> a valtozott fajlok szinkronizalasa a szigetelt worktree-be ->
    npx vitest run ott -> npm run build -> systemctl --user restart
-   lackor2-bot-dashboard.service -> curl-lel ellenorizd a
+   <MAIN_AGENT_ID>-dashboard.service -> curl-lel ellenorizd a
    /api/email/fastpath-status-t).
 4. Ha a gyokerok egy VALODI hianyzo/rossz hitelesito adat (uj fiok rossz
    jelszoval, OAuth2 fiok jelszo-parancs nelkul, stb.): ezt NEM lehet

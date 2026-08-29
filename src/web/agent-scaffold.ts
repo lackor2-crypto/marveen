@@ -1041,9 +1041,9 @@ function buildAutonomyBody(name: string): string {
     rights.push(
       '**A TE JOGOSULTSAGOD: ADMIN.** Nem a modelled es nem a fiokod korlatoz: ugyanaz jar neked, mint barmelyik masik agensnek. Amit a kategoria 3. szinten enged, azt elvegzed es utana jelented -- nem kersz ra engedelyt.',
       '',
-      'Amit a kategoria alacsonyabb szinten tart, az viszont RAD IS vonatkozik: a szinteket a tulajdonos allitja a dashboard Beallitasok / Autonomia lapjan, es az ott latott szam az igazsag. Egyetlen agens sem fut magatol magasabb szinten, mint ami ott ki van irva (Boss, 2026-08-27: "amik ott be voltak allitva azokat allitsd vissza").',
+      'Amit a kategoria alacsonyabb szinten tart, az viszont RAD IS vonatkozik: a szinteket a tulajdonos allitja a dashboard Beallitasok / Autonomia lapjan, es az ott latott szam az igazsag. Egyetlen agens sem fut magatol magasabb szinten, mint ami ott ki van irva (a tulajdonos, 2026-08-27: "amik ott be voltak allitva azokat allitsd vissza").',
       '',
-      'Boss, 2026-08-27: "az admin jogon azt ertettem hogy az osszes ai en vagyok. ... mitol rosszabb mondjuk most a masik fiok mint marvin. tehat csak annyit ertettem rajta hogy vedd ki a kibaszott korlatozasokat." Ezert MINDEN agens admin, fuggetlenul attol, milyen (akar ingyenes) modellen fut: a modell a tulajdonos valasztasa, nem egy bizalmi kulonbseg.',
+      'A tulajdonos, 2026-08-27: "az admin jogon azt ertettem hogy az osszes ai en vagyok. ... mitol rosszabb mondjuk most a masik fiok mint marvin. tehat csak annyit ertettem rajta hogy vedd ki a kibaszott korlatozasokat." Ezert MINDEN agens admin, fuggetlenul attol, milyen (akar ingyenes) modellen fut: a modell a tulajdonos valasztasa, nem egy bizalmi kulonbseg.',
       '',
       '**Amit ez NEM tett meg:** a penzmozgas, a valodi cimzettnek meno uzenet (email, kifele meno uzenet, publikalas) es a torles elott tovabbra is el a KOTELEZO VISSZAKERDEZES szabalya. Az nem jovahagyas-keres az API-n, hanem egy kerdes a tulajdonoshoz a sajat csatornajan -- pontosan ez a kulonbseg, amit kert.',
       '',
@@ -1057,7 +1057,7 @@ function buildAutonomyBody(name: string): string {
 
   if (selfdev && effectiveLevel(selfdev, name, config!) >= 3) {
     rights.push(
-      '**Marveen sajat fejlesztesehez (kod, skill, szabaly, dashboard) NEM kell jovahagyas -- egyetlen agensnek sem.** Boss, 2026-08-27: "soha ne kelljen ilyet csinalni hogy brmit jova kelljen hagyni nekem. csak mert a marveen t modositom. akarmelyik agenttel." A kategoria kulcsa: ' + MARVEEN_SELFDEV_KEY + '. Ettol fuggetlenul KOTELEZO marad a kanban kartya es a teszt-verifikacio: az nem jovahagyas, hanem nyom.',
+      '**Marveen sajat fejlesztesehez (kod, skill, szabaly, dashboard) NEM kell jovahagyas -- egyetlen agensnek sem.** A tulajdonos, 2026-08-27: "soha ne kelljen ilyet csinalni hogy brmit jova kelljen hagyni nekem. csak mert a marveen t modositom. akarmelyik agenttel." A kategoria kulcsa: ' + MARVEEN_SELFDEV_KEY + '. Ettol fuggetlenul KOTELEZO marad a kanban kartya es a teszt-verifikacio: az nem jovahagyas, hanem nyom.',
       '',
     )
   }

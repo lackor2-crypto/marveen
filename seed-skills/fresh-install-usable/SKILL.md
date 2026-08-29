@@ -5,7 +5,7 @@ description: KÖTELEZŐ minden fejlesztésnél. Minden funkciót úgy kell megí
 
 # FRISSEN TELEPÍTETT MARVEENBEN IS MŰKÖDJÖN
 
-Boss szó szerinti kikötése (2026-08-21):
+{{OWNER_NAME}} szó szerinti kikötése (2026-08-21):
 
 > „ugy csinald hogy a marveen feluleten egy ujjonnan telepitett marveen ban is
 > meg tudja a user ezt csinalni. ki tudja alakitani sajat magatol a
@@ -68,7 +68,7 @@ curl" / „ezt Claude állítja be neki" a válasz — a munka nincs kész.
 
 ## ⛔ A NULLA KÉT DOLGOT JELENTHET (2026-08-23)
 
-Boss: „remelem akik ujonnan telepitik a marveent azoknak ez nem fog elojonni.
+{{OWNER_NAME}}: „remelem akik ujonnan telepitik a marveent azoknak ez nem fog elojonni.
 azoknak sem." — és: „ugy kell fejleszteni hogy az ujonnan telepitett
 marveenban is mukodjon minden!!!"
 
