@@ -122,3 +122,6 @@ __pycache__/
 *.apk
 *.7z
 *.rar
+
+# munkafajlok (merokod, egyszeri szkriptek)
+_munka/
