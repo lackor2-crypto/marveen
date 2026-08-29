@@ -590,7 +590,21 @@ export interface LoginStatus {
   /** Kitolt a bejelentkezes MAS fiokba, mint amit ehhez a slothoz rogzitettunk.
    *  A bongeszo azt a fiokot hagyja jova, amelyik eppen be van benne
    *  jelentkezve -- ha az nem a jo, ezt a felhasznalonak latnia KELL. */
-  identityDrift?: { planId: string; expected: string; actual: string } | null
+  identityDrift?: {
+    planId: string
+    expected: string
+    actual: string
+    /** Sikerult-e visszavonni a rossz bejelentkezest (kijelentkeztetes).
+     *  A `false` NEM azt jelenti, hogy nem is probaltuk -- azt a `revertError`
+     *  mondja meg. Ha nem sikerult, a hely a ROSSZ fiok keretet fogyasztja,
+     *  es ezt hangosan meg kell mondani. */
+    reverted: boolean
+    revertError?: string | null
+  } | null
+  /** Melyik cim tartozik ehhez a helyhez, MIKOZBEN fut a bejelentkezes. A
+   *  bongeszo azt a fiokot hagyja jova, amelyik eppen be van benne
+   *  jelentkezve, ezert ezt MEG A KATTINTAS ELOTT ki kell irni. */
+  expectedEmail?: string | null
   /** State, not event: is ~/.claude signed in at this very moment? */
   defaultLoggedIn: boolean
 }
@@ -642,7 +656,7 @@ export function loginStatus(): LoginStatus {
     // amelyik EPPEN be van benne jelentkezve -- nem azt, amelyiket ide
     // szantuk. Az elso bejelentkezes rogziti a slot cimet, minden kesobbi
     // ehhez merodik; eltereskor NEM irjuk felul csendben, hanem szolunk.
-    let drift: { planId: string; expected: string; actual: string } | null = null
+    let drift: LoginStatus['identityDrift'] = null
     if (planId && configDir !== null) {
       const eddigi = readClaudePlans().find(p => p.id === planId)?.expectedEmail ?? null
       const dontes = decidePostLogin(eddigi, identity.email)
@@ -654,11 +668,40 @@ export function loginStatus(): LoginStatus {
           logger.warn({ planId, err: w.error }, 'claude-auth: a slot cimet nem sikerult rogziteni')
         }
       } else if (dontes.kind === 'drift') {
-        drift = { planId, expected: dontes.expected, actual: dontes.actual }
+        drift = { planId, expected: dontes.expected, actual: dontes.actual, reverted: false, revertError: null }
         logger.warn({ planId }, 'claude-auth: MAS fiok jelentkezett be, mint amit ehhez a slothoz rogzitettunk')
       }
     }
     killSession(); current = null
+
+    // NEM ELEG SZOLNI: VISSZA IS KELL VONNI.
+    //
+    // Boss, 2026-08-30: "most ha direkt az usalackorral vagyok a bongeszoben
+    // bejelentkezve es igy probalok bejelentkezni a lackor3-al, akkor mi
+    // tortenik? szol a rendszer hogy ezt nem lehet? mert meg kellene tiltani!"
+    //
+    // Eddig a figyelmeztetes utan a ROSSZ fiok bent maradt a helyen -- vagyis
+    // pontosan az az allapot allt elo, ami miatt az egesz or szuletett: ket
+    // hely egy fiokon. A tiltas itt csak egyfele nezhet ki: a most letrejott
+    // hitelesitest azonnal elvesszuk, es a hely ures marad, a rogzitett cimre
+    // varva. Ez nem "adat torlese": annak a bejelentkezesnek a visszavonasa,
+    // amelyik meg sem lett volna szabad.
+    //
+    // Es ha a visszavonas maga nem sikerul, azt NEM szepitjuk: akkor a hely
+    // tenylegesen a rossz fiok keretet fogyasztja, es ezt kell a legkiabalobb
+    // sorban kimondani.
+    if (drift) {
+      const vissza = logoutAccount(drift.planId)
+      drift = { ...drift, reverted: vissza.ok, revertError: vissza.ok ? null : (vissza.error ?? null) }
+      if (vissza.ok) {
+        logger.warn({ planId: drift.planId, expected: drift.expected },
+          'claude-auth: a rossz fiokkal letrejott bejelentkezes visszavonva')
+      } else {
+        logger.error({ planId: drift.planId, err: vissza.error },
+          'claude-auth: a rossz fiokot NEM sikerult kijelentkeztetni -- a hely a rossz fiok keretet fogyasztja')
+      }
+    }
+
     const accounts = listAccounts(true)
     const status = idle(accounts, 'done')
     return {
@@ -687,6 +730,7 @@ export function loginStatus(): LoginStatus {
     label: current.label, planId: current.planId, done: false,
     isDefault: current.configDir === null, accounts,
     defaultLoggedIn: isDefaultLoggedIn(accounts),
+    expectedEmail: current.expectedEmail ?? null,
   }
 }
 

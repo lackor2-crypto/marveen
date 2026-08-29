@@ -22,9 +22,14 @@ Három dolog jár együtt, és mind a három kell:
 2. **Egy cím egyszer.** Ha a cím már egy másik helyhez tartozik — akár mérve
    (most az ül ott), akár rögzítve (annak kell ott lennie) —, a felvételt el
    kell utasítani, és meg kell nevezni, melyik helyhez tartozik.
-3. **Eltéréskor hangos jelzés.** Ha a bejelentkezés végén más fiók jött be, mint
-   a rögzített, azt SOHA nem szabad csendben felülírni: meg kell mondani, mi
-   történt, és a felhasználó dönt.
+3. **Eltéréskor a bejelentkezést VISSZA KELL VONNI.** Ha a végén más fiók jött
+   be, mint a rögzített, a szólás önmagában kevés: amíg a rossz hitelesítés ott
+   marad, a hely a rossz fiók keretét fogyasztja — vagyis pontosan az az állapot
+   áll elő, ami ellen a szabály szól. A most létrejött bejelentkezést azonnal el
+   kell venni, a hely maradjon üresen, a rögzített címre várva. A rögzített cím
+   felülírása csak kifejezett, megerősített felhasználói döntésre történhet.
+   Ha maga a visszavonás nem sikerül, azt a leghangosabb sorban kell kimondani
+   — az a valódi vészhelyzet, nem az elutasított bejelentkezés.
 
 ## Miért van ez a szabály (a valódi eset)
 
@@ -53,10 +58,16 @@ a szerver akkor se engedje, ha valaki megkerüli a lapot):
   **egyaránt foglaltság**;
 - a cím a helyhez rögzül a bejelentkezés előtt.
 
+**Bejelentkezés ELŐTT és KÖZBEN:** írd ki, melyik cím tartozik ehhez a helyhez.
+A böngésző azt a fiókot hagyja jóvá, amelyik éppen be van benne jelentkezve, és
+utána már csak visszavonni lehet — olcsóbb előre szólni, mint utána kijavítani.
+
 **Bejelentkezés után:** hasonlítsd össze a ténylegesen bejelentkezett címet a
 rögzítettel. Egyezik → csend. Nincs még rögzítve → az első bejelentkezés
-rögzíti. Eltér → jelzés, és a felülírás csak kifejezett, megerősített
-felhasználói döntésre történhet.
+rögzíti. Eltér → **visszavonás** (a most létrejött hitelesítés elvétele) + emberi
+mondat, ami megmondja a következő lépést: jelentkezz ki a szolgáltatás
+weboldaláról, vagy nyiss privát ablakot a helyes fiókkal, és indítsd újra.
+Ilyenkor a „kész / hozzáadva" mondat is hazugság lenne — azt el kell hagyni.
 
 **Az önellenőrzésben** legyen saját sor rá: két hely azonos címen, hely a gép
 saját fiókján, eltérés a rögzített címtől. És a megnyugtató zöld sor **csak
@@ -76,8 +87,9 @@ ismeretlen cím nem „ugyanaz a semmi". A „nem tudom" nem bizonyíték.
   `auditIdentities()`, `decidePostLogin()`, `decideNewAccountEmail()`.
 - `src/web/claude-plans.ts` — `pinExpectedEmail()`: az első bejelentkezés
   rögzít, később magától soha nem ír felül.
-- `src/web/claude-auth-runner.ts` — a felvételi út kötelező címe és a
-  bejelentkezés utáni eltérés-jelzés.
+- `src/web/claude-auth-runner.ts` — a felvételi út kötelező címe, a
+  bejelentkezés utáni eltérés-jelzés, és az eltérés VISSZAVONÁSA
+  (`logoutAccount`) a `reverted` / `revertError` mezőkkel.
 - `src/web/system-health.ts` — `named_login_same_account`,
   `named_login_same_as_host`, `named_login_drift`.
 - Felület: figyelmeztetés a fiók-doboz gombja fölött + „Mostantól ez a helyes

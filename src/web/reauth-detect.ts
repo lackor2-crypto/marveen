@@ -44,26 +44,42 @@ export interface ReauthState {
   reasonKey?: string
 }
 
-// Each entry: a distinctive marker Claude Code renders on an auth failure, and
-// the short reason surfaced to the UI. Ordered most-specific first.
-const REAUTH_MARKERS: { rx: RegExp; reason: string; firstRunGate?: true }[] = [
+// Each entry: a distinctive marker Claude Code renders on an auth failure, the
+// short reason kept for LOGS and owner escalations (English, verbatim marker
+// wording -- it is evidence), and the i18n key for the SCREEN.
+//
+// Boss, 2026-08-30: "a segedmunkas bejelentkezesnel latok egy not logged in
+// feliratot. pedig most magyarra van allitva a felulet nyelve!" -- merve: a
+// kartya a nyers `reason`-t irta ki. Minden bejegyzesnek KOTELEZO a kulcsa
+// (`reasonKey`), kulonben angol szoveg kerul a magyar feluletre; a
+// `reauth-reason-ketnyelvu` teszt bukik, ha egy uj marker kimarad.
+const REAUTH_MARKERS: { rx: RegExp; reason: string; reasonKey: string; firstRunGate?: true }[] = [
   // Not a token failure: Claude Code's FIRST-RUN picker, shown when
   // ~/.claude.json lost hasCompletedOnboarding. It blocks the TUI exactly like
   // a dead login (2026-07-15 bootcamp "mass /login": the on-disk credential was
   // valid the whole time) and needs the same owner-visible badge/escalation.
   // A monitored respawn self-heals it via ensureSharedClaudeOnboarded().
-  { rx: /Select login method/i, reason: 'First-run onboarding picker (Select login method)', firstRunGate: true },
+  { rx: /Select login method/i, reason: 'First-run onboarding picker (Select login method)',
+    reasonKey: 'agents.reauth.m_first_run_picker', firstRunGate: true },
   // The state the picker advances into when something blindly hits Enter on it
   // (e.g. channels.sh's first-run guard): a browser OAuth prompt no headless
   // box can complete. Same first-run-gate family, same restart heal.
-  { rx: /Use the url below to sign in|Paste code here if prompted/i, reason: 'Browser sign-in screen (first-run gate)', firstRunGate: true },
-  { rx: /Invalid authentication credentials/i, reason: 'Invalid authentication credentials (401)' },
-  { rx: /Please run\s+\/login/i, reason: 'Please run /login' },
-  { rx: /Not logged in/i, reason: 'Not logged in' },
-  { rx: /\bAPI Error:\s*401\b/i, reason: 'API Error: 401' },
-  { rx: /OAuth token (?:has )?expired/i, reason: 'OAuth token expired' },
-  { rx: /Invalid API key/i, reason: 'Invalid API key' },
-  { rx: /session has expired.*\/login/i, reason: 'Session expired' },
+  { rx: /Use the url below to sign in|Paste code here if prompted/i, reason: 'Browser sign-in screen (first-run gate)',
+    reasonKey: 'agents.reauth.m_first_run_browser', firstRunGate: true },
+  { rx: /Invalid authentication credentials/i, reason: 'Invalid authentication credentials (401)',
+    reasonKey: 'agents.reauth.m_invalid_credentials' },
+  { rx: /Please run\s+\/login/i, reason: 'Please run /login',
+    reasonKey: 'agents.reauth.m_needs_login' },
+  { rx: /Not logged in/i, reason: 'Not logged in',
+    reasonKey: 'agents.reauth.m_not_logged_in' },
+  { rx: /\bAPI Error:\s*401\b/i, reason: 'API Error: 401',
+    reasonKey: 'agents.reauth.m_api_401' },
+  { rx: /OAuth token (?:has )?expired/i, reason: 'OAuth token expired',
+    reasonKey: 'agents.reauth.m_oauth_expired' },
+  { rx: /Invalid API key/i, reason: 'Invalid API key',
+    reasonKey: 'agents.reauth.m_invalid_api_key' },
+  { rx: /session has expired.*\/login/i, reason: 'Session expired',
+    reasonKey: 'agents.reauth.m_session_expired' },
 ]
 
 // Only scan the live tail of the pane, not the whole scrollback. A real auth
@@ -185,7 +201,11 @@ function transcriptWedge(pane: string): ReauthState | null {
   }
   if (lastFail < 0 || lastRecovery > lastFail) return null
   const marker = REAUTH_MARKERS.find((m) => !m.firstRunGate && m.rx.test(lastFailLine))
-  return { needsReauth: true, reason: marker ? marker.reason : 'Auth failure in transcript' }
+  return {
+    needsReauth: true,
+    reason: marker ? marker.reason : 'Auth failure in transcript',
+    reasonKey: marker ? marker.reasonKey : 'agents.reauth.m_transcript_generic',
+  }
 }
 
 /**
@@ -206,6 +226,7 @@ export function detectReauthNeeded(pane: string | null | undefined): ReauthState
       return {
         needsReauth: true,
         reason: m.reason,
+        reasonKey: m.reasonKey,
         source: m.firstRunGate ? 'first-run-gate' : 'status-line',
       }
     }

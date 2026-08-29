@@ -5145,7 +5145,7 @@ function renderAgents() {
       </div>
       ${agent.needsReauth ? `
         <div class="agent-reauth-banner">
-          <span class="agent-reauth-reason">${escapeHtml(agent.reauthReasonKey ? t(agent.reauthReasonKey) : (agent.reauthReason || t('agents.reauth.reason')))}</span>
+          <span class="agent-reauth-reason" title="${escapeAttr(agent.reauthReason ? t('agents.reauth.raw_tip', { raw: agent.reauthReason }) : '')}">${escapeHtml(agent.reauthReasonKey ? t(agent.reauthReasonKey) : t('agents.reauth.reason'))}</span>
           <button class="btn-danger btn-compact agent-login-btn" data-phase="start">${t('agents.btn.login')}</button>
         </div>` : ''}
       <div class="agent-card-actions">
@@ -17600,19 +17600,25 @@ async function _claudeAuthTick() {
     document.getElementById('claudeAuthLabel').value = ''
     document.getElementById('claudeAuthEmail').value = ''
     _claudeAuthSetState('', null)
+    // A visszavont bejelentkezes NEM siker: ilyenkor a "Hozzaadva" pont az
+    // ellenkezojet allitana annak, ami tortent.
+    const _driftBlocked = !!(s.identityDrift && s.identityDrift.reverted)
     if (s.error) showToast(s.error, 10000, true)
     // "Hozzaadva" is a false sentence after a repair: the account was already
     // in the list, it just had no credentials.
-    else showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
+    else if (!_driftBlocked) showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
     _claudeAuthPendingTab = null
     // MAS FIOK JOTT BE, MINT AMIT IDE ROGZITETTUNK. A bongeszo azt a fiokot
     // hagyja jova, amelyik eppen be van benne jelentkezve -- ezt a
     // felhasznalonak latnia kell, mert kulonben ket elofizetes csendben egy
     // fiok kereteit eszi.
     if (s.identityDrift) {
-      showToast(t('accounts.identity.drift_after_login', {
-        expected: s.identityDrift.expected, actual: s.identityDrift.actual,
-      }), 20000, true)
+      const d = s.identityDrift
+      // Harom kulon mondat, mert harom kulon allapot: visszavontam / nem
+      // sikerult visszavonni / regi valasz, amiben meg nincs is visszavonas.
+      const key = d.reverted ? 'accounts.identity.drift_blocked'
+        : (d.revertError ? 'accounts.identity.drift_block_failed' : 'accounts.identity.drift_after_login')
+      showToast(t(key, { expected: d.expected, actual: d.actual, err: d.revertError || '' }), 25000, true)
     }
     // A sikeres bejelentkezes elavultta teszi a kartyak fiok-gyorsitotarat.
     // Enelkul a Beallitasok fulon tovabbra is "Bejelentkezes" allna egy mar
@@ -17631,8 +17637,12 @@ async function _claudeAuthTick() {
     if (s.error) _claudeAuthSetState(s.error, 'bad')
     return
   }
-  if (s.phase === 'starting') _claudeAuthSetState(t('claudeauth.state_starting'), null)
-  else if (s.phase === 'awaiting-code') _claudeAuthSetState(t(autoUrl ? 'claudeauth.state_awaiting_auto' : 'claudeauth.state_awaiting'), null)
+  // A rogzitett cim MEG A KATTINTAS ELOTT: a bongeszo azt a fiokot hagyja
+  // jova, amelyik eppen be van benne jelentkezve, es utana mar csak visszavonni
+  // lehet. Olcsobb elore szolni, mint utana kijavitani.
+  const _expectHint = s.expectedEmail ? ' ' + t('claudeauth.expect_hint', { email: s.expectedEmail }) : ''
+  if (s.phase === 'starting') _claudeAuthSetState(t('claudeauth.state_starting') + _expectHint, null)
+  else if (s.phase === 'awaiting-code') _claudeAuthSetState(t(autoUrl ? 'claudeauth.state_awaiting_auto' : 'claudeauth.state_awaiting') + _expectHint, null)
   else if (s.phase === 'working') _claudeAuthSetState(t('claudeauth.state_working'), null)
   else if (s.phase === 'failed') _claudeAuthSetState(s.error || t('claudeauth.state_failed'), 'bad')
 }
