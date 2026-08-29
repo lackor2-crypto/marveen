@@ -925,6 +925,12 @@ const ASKBACK_BLOCK_RE = new RegExp(
   `${ASKBACK_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${ASKBACK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+const DELEGATE_CHECK_BEGIN = '<!-- BEGIN GENERATED: delegate-availability-rule (auto-generated, do not edit by hand) -->'
+const DELEGATE_CHECK_END = '<!-- END GENERATED: delegate-availability-rule -->'
+const DELEGATE_CHECK_BLOCK_RE = new RegExp(
+  `${DELEGATE_CHECK_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${DELEGATE_CHECK_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 const AUTONOMY_BEGIN = '<!-- BEGIN GENERATED: autonomy-wiring (auto-generated, do not edit by hand) -->'
 const AUTONOMY_END = '<!-- END GENERATED: autonomy-wiring -->'
 const AUTONOMY_BLOCK_RE = new RegExp(
@@ -1232,6 +1238,54 @@ function buildRecheckBody(): string {
   ].join('\n')
 }
 
+// The fourth mandatory rule. Incident (2026-08-29): a login-box bugfix was
+// handed to a sub-agent that was, at that exact moment, sitting at "Not
+// logged in -- Please run /login" -- unable to process anything, including
+// the very message carrying the task. A second attempt went to another
+// sub-agent that had already hit its own weekly usage wall. Both handoffs
+// were pure waste: the task sat untouched until the owner pointed out what a
+// single status check would have shown before either message was sent.
+function buildDelegateCheckBody(): string {
+  return [
+    '## MUNKA ATADASA ELOTT KOTELEZO ELLENORIZNI: ONLINE-E A CIMZETT',
+    '',
+    'Mielott barkinek (sub-agensnek, flotta-tagnak) munkat adnal at, ELOSZOR',
+    'ellenorizd elo forrasbol, hogy a cimzett egyaltalan tud-e most dolgozni --',
+    'fut-e, be van-e jelentkezve, nincs-e kimerult keretnel. Ez nem opcio es',
+    'nem utolagos ellenorzes: ez az ELSO lepes, meg a feladat megfogalmazasa',
+    'elott.',
+    '',
+    'Miert: egy feladatot egy olyan agensnek adtak ki, amelyik pontosan abban a',
+    'pillanatban "Not logged in -- Please run /login" allapotban ult -- semmit',
+    'nem tudott feldolgozni, meg a feladatot hordozo uzenetet sem. A masodik',
+    'probalkozas egy masik agensnek ment, amelyik mar a sajat heti keretet is',
+    'kimeritette. Mindket atadas tiszta veszteseg volt: a feladat erintetlenul',
+    'allt, amig a tulajdonos ra nem mutatott arra, amit egyetlen allapot-',
+    'lekerdezes mar elore megmutatott volna.',
+    '',
+    'Mit jelent az ellenorzes: a cimzett agens ELO allapota -- fut-e a folyamata,',
+    'be van-e jelentkezve (nincs "Please run /login" vagy hasonlo a panelen),',
+    'nincs-e kimerulve a kerete (5 orasnal a sajat, masnal akar a heti is szamit,',
+    'ha az az adott szolgaltatas tenyleges hasznalati korlatja). Ez API-hivassal',
+    'vagy a panel/tmux allapot elolvasasaval tortenik, SOSE a legutobbi ismert',
+    'allapotbol vagy emlekezetbol -- lasd a `recheck-before-restating` szabalyt,',
+    'ugyanaz az elv vonatkozik ide is.',
+    '',
+    'Ha a cimzett NEM elerheto: ket ut van, sorrendben probald. (1) Van-e',
+    'HARMADIK agens, aki elerheto ES megfelel a feladat kovetelmenyeinek',
+    '(kepesseg, jogosultsag, kontextus) -- ha igen, oda add ki. (2) Ha nincs',
+    'ilyen, a feladatot magadnak kell elvegezned -- nem maradhat kiadatlanul es',
+    'nem varakozhat egy nem-elerheto cimzettre "majd ha helyreall" alapon,',
+    'hacsak a feladat maga nem kifejezetten arra vár (pl. a cimzett sajat',
+    'bejelentkezesenek helyreallitasa).',
+    '',
+    'NE alkalmazd ezt, ha a feladat maga eppen a cimzett elerhetetlensegenek',
+    'elharitasarol szol (pl. "allitsd helyre X bejelentkezeset") -- ott a cel',
+    'eppen az, hogy a cimzett ujra elerheto legyen, tehat az elerhetetlenseg nem',
+    'ok az elutasitasra, csak azt donti el, ki vegzi el a helyreallitast.',
+  ].join('\n')
+}
+
 // Idempotently ensures the ask-back block is present and current in the
 // agent's CLAUDE.md. Same five-rule idempotency contract as
 // ensureFleetRosterSection(). The main agent's CLAUDE.md lives at
@@ -1425,6 +1479,63 @@ export function ensureGlobalRecheckRule(): void {
 
   const updated = RECHECK_BLOCK_RE.test(existing)
     ? existing.replace(RECHECK_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+// Same shape again, for the delegate-availability rule (2026-08-29): check the
+// recipient is actually online before handing off work, not after.
+export function ensureDelegateCheckSection(name: string): AskBackOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${DELEGATE_CHECK_BEGIN}\n${buildDelegateCheckBody()}\n${DELEGATE_CHECK_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = DELEGATE_CHECK_BLOCK_RE.test(existing)
+    ? existing.replace(DELEGATE_CHECK_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+// The machine-wide half: see the comment on ensureGlobalAskBackRule for why
+// ~/.claude/CLAUDE.md is the only file that reaches a worktree-based agent.
+export function ensureGlobalDelegateCheckRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${DELEGATE_CHECK_BEGIN}\n${buildDelegateCheckBody()}\n${DELEGATE_CHECK_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = DELEGATE_CHECK_BLOCK_RE.test(existing)
+    ? existing.replace(DELEGATE_CHECK_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'

@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -678,6 +678,11 @@ export function startWebServer(port = 3420): http.Server {
         const greeting = ensureWakeGreetingSection(agentName)
         if (greeting === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (greeting === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...and the delegate-availability rule (check the recipient is online
+        // BEFORE handing off work, 2026-08-29). Same folding as the others.
+        const delegateCheck = ensureDelegateCheckSection(agentName)
+        if (delegateCheck === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (delegateCheck === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -685,6 +690,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalAskBackRule()
       ensureGlobalRecheckRule()
       ensureGlobalWakeGreetingRule()
+      ensureGlobalDelegateCheckRule()
       // Zero writes means two different things, so both are said out loud
       // rather than inferred from a count: 'no-file' agents are covered by the
       // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads

@@ -828,6 +828,17 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
       echo "WARN: $CHANNEL_PROVIDER plugin (bot.pid) disappeared -- ${PLUGIN_DEAD_GRACE}s grace before restart" >&2
     elif [ "$((NOW - PLUGIN_DEAD_SINCE))" -ge "$PLUGIN_DEAD_GRACE" ]; then
       echo "WARN: $CHANNEL_PROVIDER plugin dead for $((NOW - PLUGIN_DEAD_SINCE))s -- exiting for service-manager restart" >&2
+      # Diagnostic-only (2026-08-29, Boss kérésére a gyakori restart kivizsgálása
+      # után): a poller sajat stdout/stderr-je a tmux pane-ben vesz el -- a
+      # respawn utan a scrollback torlodik, tehat eddig SOHA nem lehetett
+      # latni MIERT halt meg a bot.pid folyamat. Ez csak a pane utolso pár
+      # sorát menti egy tartós fájlba, mielőtt a session lecserélődik --
+      # semmilyen viselkedést nem valtoztat.
+      {
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S') plugin dead-grace exit, pane content: ==="
+        $TMUX capture-pane -t "=$SESSION:" -p -S -60 2>/dev/null || true
+        echo
+      } >> "$INSTALL_DIR/store/channel-poller-crash-context.log" 2>/dev/null || true
       RESTART_REQUESTED=1
       break
     fi
