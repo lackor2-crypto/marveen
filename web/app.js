@@ -16800,6 +16800,10 @@ function _keyServicesFromAccounts(data) {
 // paste is unavoidable -- but the waiting, the detecting and the registering all
 // happen here instead of in a terminal, which is what the card was about.
 let _claudeAuthPoll = null
+// Decided once per flow, not on every 2s poll tick -- otherwise a manual box
+// the operator opened by hand (because they ARE on another device) would snap
+// shut again the next time the auto link is (re)read. Mirrors _wizClaudeManualDecided.
+let _claudeAuthManualDecided = false
 
 function _claudeAuthSetState(text, kind) {
   const el = document.getElementById('claudeAuthState')
@@ -16914,12 +16918,34 @@ function _accHubMerge(claudeAccounts, googleAccounts, mcpAccounts) {
   }
 
   // A Claude login joins the SAME card when the address matches.
+  //
+  // Boss, 2026-08-29: kijelentkezes utan a Claude-resz ATKOLTOZOTT egy sajat,
+  // arva kartyara a lap aljara ("minek ezeket itt lentebb is ujra odatenni?
+  // igy atlathatatlan"). Ok: az e-mail cimet CSAK a bejelentkezett fioktol
+  // tudjuk, tehat kijelentkezeskor a kulcs "usalackor@gmail.com"-rol
+  // "claude:usalackor"-ra valt -- ugyanaz a fiok, ket kulonbozo kartyan,
+  // aszerint hogy epp be van-e lepve. A "Bejelentkezes" gomb megvolt, csak
+  // nem ott, ahol elotte a "Kijelentkezes" allt.
+  //
+  // Ha nincs e-mail, a fiok SAJAT NEVE (id/label) donti el, melyik kartyara
+  // tartozik: a Google-sorok ugyanezt a nevet viselik (usalackor), es azok a
+  // kartyak mar allnak. Tudatosan csak PONTOS nev-egyezesre lep: ha nincs
+  // ilyen nevu Google-sor, marad a sajat kartya, mert a "nem talalom" nem
+  // ugyanaz, mint a "biztosan kulon fiok".
+  const googleKeyByName = new Map()
+  for (const c of cards) {
+    for (const g of c.google) {
+      const n = _hubEmailKey(g.id)
+      if (n && !googleKeyByName.has(n)) googleKeyByName.set(n, c.key)
+    }
+  }
   const claudeCardKey = new Map()
   let defaultClaudeKey = null
   for (const a of claudeAccounts || []) {
     const id = a.identity || {}
     const email = _hubEmailKey(id.email)
-    const key = email || 'claude:' + (a.id || '')
+    const byName = email ? null : (googleKeyByName.get(_hubEmailKey(a.label || a.id || '')) || null)
+    const key = email || byName || 'claude:' + (a.id || '')
     const c = card(key, id.email || a.label || a.id || '')
     if (!c.email && id.email) c.email = id.email
     c.claude.push(a)
@@ -16957,6 +16983,7 @@ async function _claudeAuthStartFlow(payload) {
   // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
   // ELOZO folyamat linkjet, es a doboz elobb jelenik meg, mint a friss link.
   _setConsentLink('claudeAuthLink', '')
+  _claudeAuthManualDecided = false
   const box = document.getElementById('claudeAuthFlow')
   if (box) {
     box.hidden = false
@@ -17244,7 +17271,29 @@ async function _claudeAuthTick() {
   } catch { return }
   _claudeAuthRenderList(s.accounts)
 
+  // KET cim tartozik ugyanahhoz a bejelentkezeshez, es nem mindegy, melyiket
+  // adjuk oda -- ugyanaz a minta, mint a wizClaude dobozon (lasd ott a bovebb
+  // magyarazatot). A `browserUrl` a gep sajat kapujara ter vissza es magatol
+  // befejezodik; `url` egy oldalra visz, ami kodot ir ki, amit kezzel kell
+  // visszahozni. Ez a doboz eddig CSAK a masodikat mutatta -- a HTML/CSS/i18n
+  // mar keszen allt az elsohoz, csak ide nem volt bekotve (Boss, 2026-08-29:
+  // "old meg automatikusan").
+  const autoUrl = s.browserUrl || null
+  const autoWrap = document.getElementById('claudeAuthAutoWrap')
+  const autoLink = document.getElementById('claudeAuthAutoLink')
+  if (autoWrap && autoLink) {
+    if (autoUrl) { autoLink.href = autoUrl; autoWrap.hidden = false }
+    else { autoWrap.hidden = true }
+  }
   if (s.url) _setConsentLink('claudeAuthLink', s.url)
+  // A kodos resz csak akkor NYITOTT alapbol, ha nincs automata ut -- egyszer
+  // dontunk rola folyamatonkent, hogy ne csukjuk vissza a user orra elott,
+  // ha o maga nyitotta ki (masik gepen van).
+  const manualBox = document.getElementById('claudeAuthManual')
+  if (manualBox && !_claudeAuthManualDecided && (autoUrl || s.url)) {
+    _claudeAuthManualDecided = true
+    manualBox.open = !autoUrl
+  }
 
   if (s.done) {
     _claudeAuthStopPoll()
@@ -17265,7 +17314,7 @@ async function _claudeAuthTick() {
     return
   }
   if (s.phase === 'starting') _claudeAuthSetState(t('claudeauth.state_starting'), null)
-  else if (s.phase === 'awaiting-code') _claudeAuthSetState(t('claudeauth.state_awaiting'), null)
+  else if (s.phase === 'awaiting-code') _claudeAuthSetState(t(autoUrl ? 'claudeauth.state_awaiting_auto' : 'claudeauth.state_awaiting'), null)
   else if (s.phase === 'working') _claudeAuthSetState(t('claudeauth.state_working'), null)
   else if (s.phase === 'failed') _claudeAuthSetState(s.error || t('claudeauth.state_failed'), 'bad')
 }

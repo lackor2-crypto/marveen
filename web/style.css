@@ -10116,6 +10116,21 @@ body {
   min-height: 1.2em;
 }
 .claude-auth-state-bad { color: #b45309; }
+/* The auto (loopback) path: one button, not a step list -- it needs nothing
+   copied back, so it does not get the numbered-steps treatment. */
+.claude-auth-auto { margin-bottom: 12px; }
+.claude-auth-auto[hidden] { display: none; }
+.claude-auth-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+/* Collapsed by default only when the auto link exists (decided in JS); a
+   fallback for "opened Marveen from another device" is not a step, it is an
+   escape hatch, so the summary reads as one. */
+.claude-auth-manual summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.claude-auth-manual .claude-auth-steps { margin-top: 8px; }
 
 /* The account list: one row per parallel login. Plain rows, no status colours --
    an account that is not signed in is a fact, not a fault. */

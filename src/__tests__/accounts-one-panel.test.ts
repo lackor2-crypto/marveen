@@ -107,6 +107,46 @@ describe('_accHubMerge: one card per identity', () => {
     expect(new Set(cards.map(c => c.key)).size).toBe(4)
   })
 
+  it('a kijelentkezett fiok NEM koltozik at egy sajat kartyara', () => {
+    // Boss, 2026-08-29 (kepernyokeppel): kijelentkezes utan az "Usalackor" es
+    // "Lackor3" kulon kartyakent jelent meg a lap aljan, a sajat
+    // "Bejelentkezes" gombjaval -- kozben a Google-kartyajuk ugyanarrol a
+    // fiokrol fentebb allt. "minek ezeket itt lentebb is ujra odatenni? igy
+    // atlathatatlan az egesz."
+    //
+    // Ok: az e-mail cimet csak a BEJELENTKEZETT fioktol tudjuk, tehat a
+    // kartya kulcsa a bejelentkezes allapotatol fuggott. Ugyanaz a fiok, ket
+    // helyen, aszerint hogy epp be van-e lepve.
+    const loggedIn = merge(
+      [cAcct('usalackor', { identity: { loggedIn: true, email: 'usalackor@gmail.com' } })],
+      [gAcct('usalackor', { email: 'usalackor@gmail.com' })],
+      [],
+    )
+    expect(loggedIn).toHaveLength(1)
+
+    // Ugyanaz a fiok kijelentkezve: nincs e-mail, de a NEVE ugyanaz.
+    const loggedOut = merge(
+      [cAcct('usalackor')],
+      [gAcct('usalackor', { email: 'usalackor@gmail.com' })],
+      [],
+    )
+    expect(loggedOut).toHaveLength(1)
+    expect(loggedOut[0].email.toLowerCase()).toBe('usalackor@gmail.com')
+    expect(loggedOut[0].claude).toHaveLength(1)
+    expect(loggedOut[0].google).toHaveLength(1)
+  })
+
+  it('a nev-egyezes PONTOS: idegen nevu fiok nem olvad ossze', () => {
+    // A visszaesés a masik iranyba is hiba volna: ket kulon fiok egy kartyan.
+    // A "nem talalom" nem ugyanaz, mint a "biztosan ugyanaz".
+    const cards = merge(
+      [cAcct('valaki-mas')],
+      [gAcct('usalackor', { email: 'usalackor@gmail.com' })],
+      [],
+    )
+    expect(cards).toHaveLength(2)
+  })
+
   it('connectors land on the Claude account they belong to', () => {
     const cards = merge(
       [

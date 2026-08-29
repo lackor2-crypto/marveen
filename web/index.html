@@ -2163,24 +2163,37 @@
           </div>
 
           <div class="claude-auth-flow" id="claudeAuthFlow" hidden>
-            <ol class="claude-auth-steps">
-              <li>
-                <span data-i18n="claudeauth.step1">Nyisd meg ezt a linket, és jelentkezz be azzal a fiókkal, amit hozzá akarsz adni:</span>
-                <div class="claude-auth-linkrow">
-                  <a id="claudeAuthLink" href="#" target="_blank" rel="noopener noreferrer" data-i18n="claudeauth.open_link">Bejelentkezési oldal megnyitása</a>
-                  <button class="btn-secondary btn-compact" id="claudeAuthCopyBtn" data-i18n="claudeauth.copy_link">Link másolása</button>
-                </div>
-              </li>
-              <li>
-                <span data-i18n="claudeauth.step2">A böngésző a végén ad egy kódot. Másold ki, és illeszd be ide:</span>
-                <div class="claude-auth-linkrow">
-                  <input class="input-sm" type="text" id="claudeAuthCode" style="flex:1;min-width:180px"
-                         data-i18n-placeholder="claudeauth.code_ph" placeholder="Ide illeszd be a kódot">
-                  <button class="btn-primary btn-compact" id="claudeAuthCodeBtn" data-i18n="claudeauth.send_code">Küldés</button>
-                </div>
-              </li>
-              <li data-i18n="claudeauth.step3">Ennyi. A többit magamtól észreveszem, nem kell semmit visszamásolnod.</li>
-            </ol>
+            <!-- Az automata ut: a jovahagyas a gep sajat loopback-kapujara ter
+                 vissza es magatol befejezodik, kod-masolas nelkul (ugyanaz a
+                 minta, mint a wizClaude-nal, lasd claude-auth-runner.ts
+                 browserUrl). Ha nincs elkapva, ez a blokk rejtve marad, es a
+                 kodos ut lent NYITVA van -- egyetlen ut helyett menedek. -->
+            <div class="claude-auth-auto" id="claudeAuthAutoWrap" hidden>
+              <a id="claudeAuthAutoLink" class="btn-primary btn-compact" href="#" target="_blank" rel="noopener noreferrer" data-i18n="claudeauth.open_authorize">Jóváhagyó oldal megnyitása</a>
+              <p class="claude-auth-note" data-i18n="claudeauth.auto_note">Új lapon nyílik. Nyomd meg rajta a jóváhagyást, és kész is: magától befejeződik, nem kell semmit visszamásolnod.</p>
+            </div>
+            <details class="claude-auth-manual" id="claudeAuthManual">
+              <summary data-i18n="claudeauth.manual_summary">Nem ezen a gépen nyitottad meg? Kód bemásolása</summary>
+              <p class="claude-auth-note" data-i18n="claudeauth.manual_intro">Erre csak akkor van szükség, ha a Marveent egy MÁSIK gépről vagy telefonról nyitottad meg. Olyankor a jóváhagyás nem tud visszatalálni ide, ezért a Claude oldala kiír egy kódot, és azt kell ide bemásolnod.</p>
+              <ol class="claude-auth-steps">
+                <li>
+                  <span data-i18n="claudeauth.step1">Nyisd meg ezt a linket, és jelentkezz be azzal a fiókkal, amit hozzá akarsz adni:</span>
+                  <div class="claude-auth-linkrow">
+                    <a id="claudeAuthLink" href="#" target="_blank" rel="noopener noreferrer" data-i18n="claudeauth.open_link">Bejelentkezési oldal megnyitása</a>
+                    <button class="btn-secondary btn-compact" id="claudeAuthCopyBtn" data-i18n="claudeauth.copy_link">Link másolása</button>
+                  </div>
+                </li>
+                <li>
+                  <span data-i18n="claudeauth.step2">A böngésző a végén ad egy kódot. Másold ki, és illeszd be ide:</span>
+                  <div class="claude-auth-linkrow">
+                    <input class="input-sm" type="text" id="claudeAuthCode" style="flex:1;min-width:180px"
+                           data-i18n-placeholder="claudeauth.code_ph" placeholder="Ide illeszd be a kódot">
+                    <button class="btn-primary btn-compact" id="claudeAuthCodeBtn" data-i18n="claudeauth.send_code">Küldés</button>
+                  </div>
+                </li>
+                <li data-i18n="claudeauth.step3">Ennyi. A többit magamtól észreveszem, nem kell semmit visszamásolnod.</li>
+              </ol>
+            </details>
             <p class="claude-auth-state" id="claudeAuthState"></p>
             <button class="btn-secondary btn-compact" id="claudeAuthCancelBtn" data-i18n="claudeauth.cancel">Mégsem</button>
           </div>
