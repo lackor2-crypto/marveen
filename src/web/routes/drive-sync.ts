@@ -106,11 +106,21 @@ export const MAX_LOCAL_FILES = 200_000
 /**
  * Ennel nagyobb fajlt nem kuldunk fel egy darabban.
  *
- * A Drive "simple upload" ilyen mereten mar megbizhatatlan (egy megszakadt
- * kapcsolat utan elolrol kezdodne); a darabolt (resumable) feltoltes kulon
- * munka. Addig inkabb KIMONDJUK, hogy kimaradt, mint hogy csendben elhasaljon.
+ * A feltoltes EGY keresben megy, folytatas nelkul: ha a kapcsolat megszakad,
+ * a fajl elolrol kezdodik. Ez nem adatvesztes -- a kovetkezo futas ujraprobalja
+ * --, de elpazarolt ido, ezert van felso hatar. A darabolt (resumable)
+ * feltoltes kulon munka lenne. Amig nincs meg, inkabb KIMONDJUK, hogy egy fajl
+ * kimaradt, mint hogy csendben elhasaljon.
+ *
+ * 2026-08-29: 100 -> 600 MB (a tulajdonos kerte). MERVE ekkor: a Rendszer
+ * mappan kivul PONTOSAN 3 fajl esett a ket hatar koze -- egy 540 MB-os MT4
+ * naplo, egy 149 MB-os teszt-zip es a 133 MB-os GOLD1.hst --, vagyis 822 MB,
+ * ami eddig minden mentesbol kimaradt. A 600 MB folotti fajlok mind a
+ * `Rendszer/Tarolok` alatt vannak, azt pedig a teljes-raktar mentes amugy is
+ * kihagyja. A legnagyobb beengedett fajl a mert ~14 MB/perc mellett ~40 perc
+ * egy keresben; idokorlat nem vagja el, a keresekre nem allitunk timeoutot.
  */
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+const MAX_UPLOAD_BYTES = 600 * 1024 * 1024
 /**
  * Vészfék. Ha egy futas a nyilvantartott fajlok ennel nagyobb hanyadat torolne
  * a Drive-on, EGYET SEM torlunk, es szolunk.
