@@ -10362,6 +10362,14 @@ body {
    accounts. */
 .acc-block { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 14px; }
 .acc-block-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+/* A hozzaadas fent ul, de osszecsukva: egy sor, amig nem kell. A summary
+   ugy nez ki, mint egy gomb, mert az is -- a nyito haromszog onmagaban
+   nem mondja meg, hogy ott egy urlap van. */
+.acc-add-details { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+.acc-add-summary { cursor: pointer; padding: 10px 12px; font-size: 13px; font-weight: 600; list-style: revert; }
+.acc-add-summary:hover { background: var(--bg-hover, rgba(0,0,0,0.03)); }
+.acc-add-details[open] .acc-add-summary { border-bottom: 1px solid var(--border); }
+.acc-add-details > .acc-block { margin: 10px 12px; }
 
 /* === Per-agent context controls (kanban dbe5bcce + 14a1d048) ===
    Sits at the bottom of an agent card, under the action buttons, separated the

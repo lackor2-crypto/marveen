@@ -283,6 +283,62 @@ describe('the page is one panel', () => {
   })
 })
 
+describe('a bejelentkezes ott tortenik, ahonnan inditottak', () => {
+  // Boss, 2026-08-29: "az agent kartyajan a beallitasokban ranyomtam a
+  // bejelentkezes gombra es ide hozott. ne hozzon engem onnan sehova sem. ott
+  // helyben jelentkezzen be es maradjon is ott!"
+  it('a kartya gombja NEM valt lapot es NEM csukja be a kartyat', () => {
+    const fn = extractFn(app, 'wireAccountLogoutButton')
+    const relogin = fn.slice(fn.indexOf('agent-account-relogin-btn'))
+    expect(relogin).not.toContain("switchPage('accounts')")
+    expect(relogin).not.toContain('closeModal(agentDetailOverlay)')
+    // A doboz IDE jon: a hivas atadja a befogado elemet.
+    expect(relogin).toMatch(/_claudeAuthStartFlow\(payload,\s*host\)/)
+  })
+
+  it('EGY bejelentkezes-doboz van, nem ketto', () => {
+    // Ket peldany elobb-utobb elcsuszik egymastol -- ez szulte a 2026-08-29-i
+    // hibasorozatot. A meglevo elemet mozgatjuk, nem masoljuk.
+    const count = (html.match(/id="claudeAuthFlow"/g) || []).length
+    expect(count).toBe(1)
+  })
+
+  it('a kartya bezarasa visszateszi a dobozt a helyere', () => {
+    // Kulonben a doboz a modallal egyutt tunne el a DOM-bol, es a Fiokok
+    // lapon soha tobbe nem jelenne meg.
+    const fn = extractFn(app, 'closeModal')
+    expect(fn).toContain('_claudeAuthReturnFlowHome()')
+  })
+})
+
+describe('a hozzaadas felul van, de nem all utban', () => {
+  it('a hozzaado panel a kartyalista ELOTT all', () => {
+    // Friss telepitesen nulla kartya van; a "adj hozza egy fiokot" nem lehet a
+    // lap aljan.
+    const add = html.indexOf('id="accountsAddDetails"')
+    const list = html.indexOf('id="accountsHubList"')
+    expect(add).toBeGreaterThan(-1)
+    expect(list).toBeGreaterThan(-1)
+    expect(add).toBeLessThan(list)
+  })
+
+  it('alapbol OSSZECSUKVA all', () => {
+    const tag = html.slice(html.indexOf('<details class="acc-add-details"'), html.indexOf('id="accountsAddDetails"') + 40)
+    expect(tag).not.toContain(' open')
+  })
+
+  it('ures listanal magatol kinyilik -- de csak ha mar valaszolt egy forras', () => {
+    // A NULLA ket dolgot jelenthet: "meg nincs fiok" vagy "meg nem jott meg a
+    // lista". Betolteskor kinyilni-becsukodni ugyanolyan hazugsag volna.
+    const fn = extractFn(app, '_accHubSyncAddOpen')
+    expect(fn).toContain('_hubSeen.claude || _hubSeen.google || _hubSeen.mcp')
+    expect(fn).toContain('if (!answered) return')
+    expect(fn).toContain('cardCount === 0')
+    // Amit o maga nyitott ki, azt nem csukjuk ossze az orra elott.
+    expect(fn).toContain("userTouched")
+  })
+})
+
 describe('the buttons still reach their handlers', () => {
   it('both delegated click handlers are bound to the card list', () => {
     // The rows are re-rendered on every poll; the listener must sit on the

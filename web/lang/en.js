@@ -61,6 +61,7 @@ window._i18n.en = {
   'acchub.part_mcp':           'Claude Code connectors',
   'acchub.keys_title':         'Keys and other services',
   'acchub.keys_lead':          'These have no card of their own because they are not "somebody": pasted keys (a long code each, with which Marveen reaches a service) and services with nothing to disconnect -- they are either set or they are not.',
+  'acchub.add_toggle':         'Add an account (Claude or Google)',
   'acchub.add_claude':         'Add a Claude account or a key',
   'acchub.add_google':         'Connect a Google account (mail, Drive, calendar)',
   'acchub.add_mcp':            'Check the Claude Code connectors',

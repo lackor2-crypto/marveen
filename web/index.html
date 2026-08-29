@@ -2116,16 +2116,15 @@
             <span data-i18n="gconn.no_client">Ehhez előbb egy egyszeri beállítás kell (Google OAuth kliens-fájl). A Beállítások → Telepítés varázslóban lépésről lépésre le van írva, hogyan szerezd meg.</span>
           </div>
 
-          <div class="acc-hub" id="accountsHubList"></div>
-
-          <div class="acc-block">
-            <div class="acc-block-title" data-i18n="acchub.keys_title">Kulcsok és egyéb szolgáltatások</div>
-            <p class="claude-auth-warn" data-i18n="acchub.keys_lead">Ezeknek nincs saját kártyájuk, mert nem „valaki”: beillesztett kulcsok (egy-egy hosszú kód, amivel a Marveen elér egy szolgáltatást) és olyan szolgáltatások, amiknél nincs mit leválasztani — vagy be vannak állítva, vagy nincsenek.</p>
-            <div class="claude-auth-list" id="accountsKeyList"></div>
-            <p class="claude-auth-warn" data-i18n="claudeauth.other_hint">Ez a lista azt mutatja, amit a Marveen maga használ a munkához. Bármi más fiókot (YouTube, bank, egy weboldal belépője) a Vaultban tarthatsz, ott bármilyen kártyát létre tudsz hozni.</p>
-            <p class="claude-auth-warn"><a href="#" id="claudeAuthVaultLink" data-i18n="claudeauth.other_link">Ugrás a Vaultra</a></p>
-          </div>
-
+          <!-- Boss, 2026-08-29: "ezt az egeszet pedig nem kellene legfelulre
+               tenni? ott ertelmesebb helye lenne". Igen -- friss telepitesen
+               NULLA kartya van, es a legfontosabb teendo (adj hozza egy fiokot)
+               eddig a lap aljara volt szamuzve. Fel kerult, de OSSZECSUKVA: aki
+               tiz fiokkal jon ellenorizni, ne gorgessen at egy urlapon minden
+               alkalommal. Ha meg egy kartya sincs, a JS magatol kinyitja
+               (renderAccountsHub) -- ott ez az egyetlen ertelmes teendo. -->
+          <details class="acc-add-details" id="accountsAddDetails">
+            <summary class="acc-add-summary" data-i18n="acchub.add_toggle">Új fiók hozzáadása (Claude vagy Google)</summary>
           <!-- Innentol lefele mar nem "mi van bekotve", hanem "hogyan kotok be
                ujat": harom kulon folyamat, de mind az EGY panelen belul, es a
                listajukat egyik sem ismetli meg -- azt a kartyak mutatjak. -->
@@ -2278,6 +2277,18 @@
             <p class="claude-auth-state" id="gconnState"></p>
             <button class="btn-secondary btn-compact" id="gconnCancelBtn" data-i18n="common.cancel">Mégse</button>
           </div>
+          </div>
+
+          </details>
+
+          <div class="acc-hub" id="accountsHubList"></div>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="acchub.keys_title">Kulcsok és egyéb szolgáltatások</div>
+            <p class="claude-auth-warn" data-i18n="acchub.keys_lead">Ezeknek nincs saját kártyájuk, mert nem „valaki”: beillesztett kulcsok (egy-egy hosszú kód, amivel a Marveen elér egy szolgáltatást) és olyan szolgáltatások, amiknél nincs mit leválasztani — vagy be vannak állítva, vagy nincsenek.</p>
+            <div class="claude-auth-list" id="accountsKeyList"></div>
+            <p class="claude-auth-warn" data-i18n="claudeauth.other_hint">Ez a lista azt mutatja, amit a Marveen maga használ a munkához. Bármi más fiókot (YouTube, bank, egy weboldal belépője) a Vaultban tarthatsz, ott bármilyen kártyát létre tudsz hozni.</p>
+            <p class="claude-auth-warn"><a href="#" id="claudeAuthVaultLink" data-i18n="claudeauth.other_link">Ugrás a Vaultra</a></p>
           </div>
 
           <!-- Claude Code kapcsolatok. A MERT: a claude.ai-on bekapcsolt kapcsolat

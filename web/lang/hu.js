@@ -62,6 +62,7 @@ window._i18n.hu = {
   'acchub.part_mcp':           'Claude Code kapcsolatok',
   'acchub.keys_title':         'Kulcsok és egyéb szolgáltatások',
   'acchub.keys_lead':          'Ezeknek nincs saját kártyájuk, mert nem „valaki”: beillesztett kulcsok (egy-egy hosszú kód, amivel a Marveen elér egy szolgáltatást) és olyan szolgáltatások, amiknél nincs mit leválasztani — vagy be vannak állítva, vagy nincsenek.',
+  'acchub.add_toggle':         'Új fiók hozzáadása (Claude vagy Google)',
   'acchub.add_claude':         'Új Claude-fiók vagy kulcs hozzáadása',
   'acchub.add_google':         'Google-fiók bekötése (levél, Drive, naptár)',
   'acchub.add_mcp':            'Claude Code kapcsolatok ellenőrzése',

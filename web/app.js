@@ -3409,6 +3409,12 @@ function closeModal(overlay) {
   // click-outside, Esc, programmatic -- so the next opener cannot
   // inherit a stale 'global' flag from an earlier Skills-page open.
   if (overlay && overlay.id === 'skillModalOverlay') skillModalScope = null
+  // A bejelentkezes-doboz a kartya Beallitasok fulere KOLTOZIK, amikor onnan
+  // inditjak. Ha a kartya ugy csukodik be, hogy a doboz meg benne ul, a doboz
+  // a modallal egyutt tunne el -- es a Fiokok lapon tobbe nem jelenne meg.
+  // Ezert minden zaras visszateszi a helyere. Ket doboz helyett egy, ami
+  // mindig ott van, ahol epp kell.
+  if (overlay && overlay.id === 'agentDetailOverlay') _claudeAuthReturnFlowHome()
 }
 
 // Wizard open
@@ -4418,9 +4424,9 @@ function wireAccountLogoutButton(cardEl) {
     e.stopPropagation()
     const b = e.currentTarget
     const payload = b.dataset.default === '1' ? { target: 'default' } : { planId: b.dataset.plan }
-    switchPage('accounts')
-    closeModal(agentDetailOverlay)
-    _claudeAuthStartFlow(payload)
+    // Se lapvaltas, se modal-bezaras: a doboz IDE jon, a gomb ala.
+    const host = document.getElementById('agentLogoutGroup') || b.parentNode
+    _claudeAuthStartFlow(payload, host)
   })
 }
 
@@ -16979,7 +16985,41 @@ function _accHubPart(labelKey, body) {
 // One place that opens the login flow box and starts polling, whether the
 // operator is ADDING an account (name typed above) or bringing a signed-out one
 // BACK (button on its row). Two copies of this drifted apart once already.
-async function _claudeAuthStartFlow(payload) {
+// Hova tartozik alapbol a bejelentkezes-doboz (a Fiokok lap sajat aga).
+// Egy dobozunk van, nem ketto: a masodik peldany elobb-utobb elcsuszna az
+// elsotol -- pontosan ez szulte a 2026-08-29-i hibasorozatot. Ezert a MEGLEVO
+// elemet mozgatjuk oda, ahonnan inditottak, majd vissza.
+let _claudeAuthHome = null
+
+function _claudeAuthMoveFlowTo(host) {
+  const box = document.getElementById('claudeAuthFlow')
+  if (!box) return null
+  if (!_claudeAuthHome) _claudeAuthHome = { parent: box.parentNode, next: box.nextSibling }
+  const target = host || _claudeAuthHome.parent
+  if (host) {
+    host.appendChild(box)
+  } else if (_claudeAuthHome.parent) {
+    _claudeAuthHome.parent.insertBefore(box, _claudeAuthHome.next)
+  }
+  return target ? box : box
+}
+
+/** Vissza a helyere -- a kartya bezarasakor, kulonben a doboz a modallal
+ *  egyutt tunne el a DOM-bol, es a Fiokok lapon soha tobbe nem jelenne meg. */
+function _claudeAuthReturnFlowHome() {
+  if (!_claudeAuthHome) return
+  const box = document.getElementById('claudeAuthFlow')
+  if (box && _claudeAuthHome.parent) _claudeAuthHome.parent.insertBefore(box, _claudeAuthHome.next)
+}
+
+// `host`: az az elem, amelyen BELUL a doboznak meg kell jelennie. Ha nincs
+// megadva, a doboz a sajat helyen (Fiokok lap) nyilik.
+//
+// Boss, 2026-08-29: "ne hozzon engem onnan sehova sem. ott helyben
+// jelentkezzen be es maradjon is ott!" -- eddig a kartya gombja atvitt a
+// Fiokok lapra ES becsukta a kartyat, mert a doboz csak ott letezett.
+async function _claudeAuthStartFlow(payload, host) {
+  _claudeAuthMoveFlowTo(host || null)
   // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
   // ELOZO folyamat linkjet, es a doboz elobb jelenik meg, mint a friss link.
   _setConsentLink('claudeAuthLink', '')
@@ -17192,6 +17232,30 @@ function _accHubCardHtml(c) {
   </div>`
 }
 
+// Boss, 2026-08-29: a hozzaadas fent van, de osszecsukva. Az EGYETLEN eset,
+// amikor magatol kinyilik: nincs meg egy kartya sem -- friss telepitesen ott
+// ez az egyetlen ertelmes teendo, es egy osszecsukott sor mogott elrejtve
+// ugyanaz a nema zsakutca volna, mint a bejelentkezes-gombnal.
+//
+// A NULLA ket dolgot jelenthet: "meg nincs fiok" vagy "meg nem jott meg a
+// lista". Ezert nem a kartyak szamabol dontunk, hanem megkerdezzuk a
+// forrasokat: amig egyik loader sem valaszolt (_hubSeen), nem nyitunk ki
+// semmit -- a betoltes kozbeni villanas ugyanolyan hazugsag volna.
+function _accHubSyncAddOpen(cardCount) {
+  const det = document.getElementById('accountsAddDetails')
+  if (!det) return
+  if (det.dataset.wired !== '1') {
+    det.dataset.wired = '1'
+    // Amint o maga hozzanyul, a gep nem allitgatja tovabb: semmi nem csukja
+    // ossze az orra elott azt, amit epp kinyitott.
+    det.addEventListener('toggle', () => { det.dataset.userTouched = '1' })
+  }
+  if (det.dataset.userTouched === '1') return
+  const answered = _hubSeen.claude || _hubSeen.google || _hubSeen.mcp
+  if (!answered) return
+  det.open = cardCount === 0
+}
+
 function renderAccountsHub() {
   _accHubRenderKeys()
   const el = document.getElementById('accountsHubList')
@@ -17203,9 +17267,11 @@ function renderAccountsHub() {
     // makes the operator think everything was lost.
     const loading = !_hubSeen.claude && !_hubSeen.google && !_hubSeen.mcp
     el.innerHTML = `<div class="conn-empty">${escapeHtml(t(loading ? 'acchub.loading' : 'acchub.empty'))}</div>`
+    _accHubSyncAddOpen(0)
     return
   }
   el.innerHTML = cards.map(_accHubCardHtml).join('')
+  _accHubSyncAddOpen(cards.length)
   // Delegated, because this list is rebuilt on every poll tick: a listener put
   // on the buttons themselves would be thrown away two seconds later.
   if (el.dataset.wired !== '1') {
