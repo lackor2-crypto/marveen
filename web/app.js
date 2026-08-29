@@ -16817,6 +16817,59 @@ function _accHubPart(labelKey, body) {
   </div>`
 }
 
+// One place that opens the login flow box and starts polling, whether the
+// operator is ADDING an account (name typed above) or bringing a signed-out one
+// BACK (button on its row). Two copies of this drifted apart once already.
+async function _claudeAuthStartFlow(payload) {
+  // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
+  // ELOZO folyamat linkjet, es a doboz elobb jelenik meg, mint a friss link.
+  _setConsentLink('claudeAuthLink', '')
+  const box = document.getElementById('claudeAuthFlow')
+  if (box) box.hidden = false
+  _claudeAuthSetState(t('claudeauth.state_starting'), null)
+  try {
+    const res = await fetch('/api/accounts/claude/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = await res.json()
+    if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return false }
+  } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad'); return false }
+  _claudeAuthStopPoll()
+  _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
+  _claudeAuthTick()
+  return true
+}
+
+// Signing out is the one irreversible button on this page, so it says WHO it
+// stops before it does it -- by name, asked from the server, not guessed here.
+async function _claudeAuthLogout(planId, who) {
+  let preview = null
+  try {
+    const res = await fetch('/api/accounts/claude/logout-preview?planId=' + encodeURIComponent(planId || ''))
+    preview = await res.json()
+  } catch { /* a failed preview must not silently become a logout */ }
+  if (!preview || !preview.ok) {
+    showToast((preview && preview.error) || t('claudeauth.logout_preview_failed'), 8000, true)
+    return
+  }
+  const agents = Array.isArray(preview.agents) ? preview.agents : []
+  const msg = agents.length
+    ? t('claudeauth.logout_confirm_agents', { who, agents: agents.join(', ') })
+    : t('claudeauth.logout_confirm_none', { who })
+  if (!confirm(msg)) return
+  try {
+    const res = await fetch('/api/accounts/claude/logout', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId: planId || null }),
+    })
+    const data = await res.json()
+    if (!data.ok) { showToast(data.error || t('common.error_save'), 10000, true); return }
+    showToast(t('claudeauth.logout_done', { who: data.email || who }), 9000, true)
+  } catch (err) { showToast(String(err.message || err), 10000, true); return }
+  _claudeAuthTick()
+}
+
 function _accHubClaudePart(rows) {
   const body = rows.map(a => {
     const id = a.identity || {}
@@ -16826,11 +16879,21 @@ function _accHubClaudePart(rows) {
     // The default row is NAMED here rather than by the backend: the server
     // should not be shipping a Hungarian word to an English dashboard.
     const name = a.isDefault ? t('claudeauth.row_default') : (a.label || a.id || '')
+    // Boss, 2026-08-29: sign out and back in has to be doable HERE. Without the
+    // first button the only route was `claude auth logout` in a terminal, and
+    // without the second a signed-out account could not be repaired at all --
+    // typing its name into the "add account" box opened a SECOND directory
+    // under a "-2" name while the agent stayed pinned to the first one.
+    const plan = a.isDefault ? '' : (a.id || '')
+    const btn = id.loggedIn
+      ? `<button type="button" class="btn-secondary btn-compact acc-claude-logout" data-plan="${escapeAttr(plan)}" data-who="${escapeAttr(id.email || name)}">${escapeHtml(t('claudeauth.logout_btn'))}</button>`
+      : `<button type="button" class="btn-secondary btn-compact acc-claude-relogin" data-plan="${escapeAttr(plan)}" data-default="${a.isDefault ? '1' : '0'}" data-who="${escapeAttr(name)}">${escapeHtml(t('claudeauth.relogin_btn'))}</button>`
     return `<div class="conn-row">
       <div class="conn-row-main">
         <span class="conn-row-name">${escapeHtml(name)}</span>
         <span class="conn-row-sub">${who}</span>
       </div>
+      <div class="conn-row-actions">${btn}</div>
     </div>`
   }).join('')
   return _accHubPart('acchub.part_claude', body)
@@ -16973,6 +17036,22 @@ function renderAccountsHub() {
     return
   }
   el.innerHTML = cards.map(_accHubCardHtml).join('')
+  // Delegated, because this list is rebuilt on every poll tick: a listener put
+  // on the buttons themselves would be thrown away two seconds later.
+  if (el.dataset.wired !== '1') {
+    el.dataset.wired = '1'
+    el.addEventListener('click', (e) => {
+      const out = e.target.closest('.acc-claude-logout')
+      if (out) { _claudeAuthLogout(out.dataset.plan || '', out.dataset.who || ''); return }
+      const back = e.target.closest('.acc-claude-relogin')
+      if (back) {
+        // The install's own account is repaired through the 'default' target;
+        // a named one by its id. Neither asks the operator to type a name.
+        const payload = back.dataset.default === '1' ? { target: 'default' } : { planId: back.dataset.plan }
+        _claudeAuthStartFlow(payload)
+      }
+    })
+  }
 }
 
 // Which services can be added, and how. A login entry needs the provider's own
@@ -17032,7 +17111,9 @@ async function _claudeAuthTick() {
     document.getElementById('claudeAuthEmail').value = ''
     _claudeAuthSetState('', null)
     if (s.error) showToast(s.error, 10000, true)
-    else showToast(t('claudeauth.done', { label: s.label || '' }), 8000, true)
+    // "Hozzaadva" is a false sentence after a repair: the account was already
+    // in the list, it just had no credentials.
+    else showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
     return
   }
   if (!s.active) {
@@ -17061,22 +17142,7 @@ async function renderClaudeAccountPanel(keyServices) {
     const label = document.getElementById('claudeAuthLabel').value.trim()
     const email = document.getElementById('claudeAuthEmail').value.trim()
     if (!label) { showToast(t('claudeauth.need_label'), 6000, true); return }
-    // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
-    // ELOZO folyamat linkjet, es a doboz elobb jelenik meg, mint a friss link.
-    _setConsentLink('claudeAuthLink', '')
-    document.getElementById('claudeAuthFlow').hidden = false
-    _claudeAuthSetState(t('claudeauth.state_starting'), null)
-    try {
-      const res = await fetch('/api/accounts/claude/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(email ? { label, email } : { label }),
-      })
-      const data = await res.json()
-      if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return }
-    } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad'); return }
-    _claudeAuthStopPoll()
-    _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
-    _claudeAuthTick()
+    await _claudeAuthStartFlow(email ? { label, email } : { label })
   })
 
   document.getElementById('claudeAuthService').addEventListener('change', _claudeAuthSyncServiceUi)

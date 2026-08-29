@@ -61,6 +61,30 @@ export function defaultLoginDependents(): string[] {
   return out
 }
 
+/**
+ * KI hasznalja EZT a bejelentkezest -- nem csak a gep sajatjat.
+ *
+ * Boss, 2026-08-29: kijelentkeztetni is lehessen a feluletrol, de csak ugy,
+ * hogy elotte LATSZIK, kit allit meg. Ugyanaz a szamolas, mint a gep sajat
+ * bejelentkezesenel, csak nem a `null` config-konyvtarra, hanem a megadottra:
+ * ha `configDir` null, ez pontosan a defaultLoginDependents() halmaza.
+ */
+export function agentsUsingLogin(configDir: string | null): string[] {
+  const names = [MAIN_AGENT_ID, ...listAgentNames()]
+  const out: string[] = []
+  for (const name of names) {
+    try {
+      const own = resolveAgentConfigDir(name).configDir
+      const model = resolveOpenRouterModel(readAgentModel(name))
+      if (readAgentAuthMode(name) === 'api') continue
+      if (!model.startsWith('claude-')) continue
+      if (own !== configDir) continue
+      out.push(name)
+    } catch { /* egy olvashatatlan agens-konfig nem donthet a mondatrol */ }
+  }
+  return out
+}
+
 /** Az ágensek, amelyek EZ ALATT IS dolgoznak: saját fiók vagy más szolgáltató. */
 export function unaffectedByDefaultLogin(): string[] {
   const dependents = new Set(defaultLoginDependents())

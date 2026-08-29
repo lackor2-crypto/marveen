@@ -30,6 +30,7 @@ import {
   isLoginComplete,
   pickBrowserAuthUrl,
   planIdFromLabel,
+  idsBlockingReuse,
   buildPlanEntry,
   UNKNOWN_IDENTITY,
   type AuthIdentity,
@@ -119,6 +120,10 @@ interface LoginSession {
   label: string
   codeSubmitted: boolean
   registered: boolean
+  /** True when this flow REPAIRS an account that already existed, rather than
+   *  adding one. The page says two different sentences: "added, you can pick it
+   *  for an agent" is false after a repair. */
+  reused: boolean
   /** Where the browser shim writes; `null` when the shim could not be put in
    *  place, which downgrades this flow to the pasted-code path. */
   urlLog: string | null
@@ -328,14 +333,24 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   }
   current = {
     startedAt: Date.now(), configDir: null, planId: null, label: '',
-    codeSubmitted: false, registered: true, urlLog: shim?.log ?? null,
+    codeSubmitted: false, registered: true, reused: true, urlLog: shim?.log ?? null,
   }
   logger.info('claude-auth: login session started for the install default (~/.claude)')
   return { ok: true, isDefault: true }
 }
 
 export function startLogin(
-  opts: { label?: string; email?: string; useConsole?: boolean; target?: 'default' | 'new'; force?: boolean } = {},
+  opts: {
+    label?: string
+    email?: string
+    useConsole?: boolean
+    target?: 'default' | 'new'
+    force?: boolean
+    /** Log back INTO this existing account instead of adding one. The page
+     *  sends the id, so a repair never depends on the operator re-typing the
+     *  name the same way. */
+    planId?: string
+  } = {},
 ): StartLoginResult {
   // target 'default' logs into ~/.claude -- the login the MAIN AGENT uses.
   //
@@ -350,22 +365,51 @@ export function startLogin(
   // config dir, so it could never repair the account that was actually broken.
   if (opts.target === 'default') return startDefaultLogin(opts)
 
-  const label = (opts.label ?? '').trim()
-  if (!label) return { ok: false, error: 'Adj nevet a fióknak (pl. "Munkahelyi" vagy az e-mail címed).' }
+  // Boss, 2026-08-29: he wanted to sign an account out and bring it back
+  // through the page. Both halves of that live here -- the id path (the page
+  // knows WHICH account, nothing is typed) and, below, a `taken` list that no
+  // longer counts a signed-out account as an occupied name.
+  const rows = listAccounts(true).filter(r => !r.isDefault && r.id)
+  const reId = (opts.planId ?? '').trim()
+  let planId: string
+  let label: string
+  let configDir: string
+  // "Added" and "signed back in" are two different sentences on the page.
+  let reused = false
 
-  const taken = readClaudePlans().map(p => p.id)
-  const planId = planIdFromLabel(label, taken)
-  const configDir = join(accountsRoot(), planId)
-  if (existsSync(configDir) && readIdentity(configDir).loggedIn) {
-    // Never log INTO an account that is actually signed in: that would overwrite
-    // a working login, the exact opposite of adding one.
-    //
-    // An EMPTY directory is a different thing entirely. A cancelled attempt
-    // leaves one behind (removing directories on a cancel is the worse failure
-    // mode), and refusing that name forever afterwards -- with "that account
-    // already exists", which was not even true -- is a trap the operator can
-    // neither see nor clear from the page.
-    return { ok: false, error: 'Ilyen nevű fiók már be van jelentkezve. Válassz másik nevet.' }
+  if (reId) {
+    const row = rows.find(r => r.id === reId)
+    if (!row || !row.configDir) {
+      return { ok: false, error: 'Ezt a fiókot nem találom a listában. Frissítsd az oldalt, és próbáld újra.' }
+    }
+    if (row.identity.loggedIn) {
+      return { ok: false, error: 'Ez a fiók be van jelentkezve. Előbb jelentkeztesd ki, és utána jelentkezz be újra.' }
+    }
+    planId = reId
+    label = row.label || reId
+    configDir = row.configDir
+    reused = true
+  } else {
+    label = (opts.label ?? '').trim()
+    if (!label) return { ok: false, error: 'Adj nevet a fióknak (pl. "Munkahelyi" vagy az e-mail címed).' }
+
+    const taken = idsBlockingReuse(rows.map(r => ({ id: r.id as string, loggedIn: r.identity.loggedIn })))
+    planId = planIdFromLabel(label, taken)
+    // A registered plan may point somewhere other than store/accounts/<id>; when
+    // the name resolves to one of them, repair THAT directory, not a lookalike.
+    configDir = rows.find(r => r.id === planId)?.configDir ?? join(accountsRoot(), planId)
+    reused = rows.some(r => r.id === planId)
+    if (existsSync(configDir) && readIdentity(configDir).loggedIn) {
+      // Never log INTO an account that is actually signed in: that would overwrite
+      // a working login, the exact opposite of adding one.
+      //
+      // An EMPTY directory is a different thing entirely. A cancelled attempt
+      // leaves one behind (removing directories on a cancel is the worse failure
+      // mode), and refusing that name forever afterwards -- with "that account
+      // already exists", which was not even true -- is a trap the operator can
+      // neither see nor clear from the page.
+      return { ok: false, error: 'Ilyen nevű fiók már be van jelentkezve. Válassz másik nevet.' }
+    }
   }
 
   killSession()
@@ -391,7 +435,7 @@ export function startLogin(
   }
   current = {
     startedAt: Date.now(), configDir, planId, label,
-    codeSubmitted: false, registered: false, urlLog: shim?.log ?? null,
+    codeSubmitted: false, registered: false, reused, urlLog: shim?.log ?? null,
   }
   // Deliberately no URL, no email, no code in this line.
   logger.info({ planId }, 'claude-auth: login session started for a new account')
@@ -415,6 +459,8 @@ export interface LoginStatus {
   done: boolean
   /** True when the finished (or running) flow targeted ~/.claude itself. */
   isDefault?: boolean
+  /** True when the flow signed an EXISTING account back in. */
+  reused?: boolean
   /** Every login this install has, refreshed on each poll. */
   accounts: AccountRow[]
   /** State, not event: is ~/.claude signed in at this very moment? */
@@ -459,7 +505,7 @@ export function loginStatus(): LoginStatus {
   // pane text: the account is in once `claude auth status` says so there.
   const identity = readIdentity(current.configDir)
   if (isLoginComplete(identity)) {
-    const { planId, label, configDir } = current
+    const { planId, label, configDir, reused } = current
     // The default login has no plan row to write: it IS the install's account.
     const registered = configDir === null || planId === null
       ? true
@@ -468,7 +514,7 @@ export function loginStatus(): LoginStatus {
     const accounts = listAccounts(true)
     const status = idle(accounts, 'done')
     return {
-      ...status, done: true, planId, label, isDefault: configDir === null,
+      ...status, done: true, planId, label, isDefault: configDir === null, reused,
       defaultLoggedIn: isDefaultLoggedIn(accounts),
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
@@ -527,6 +573,69 @@ export function cancelLogin(): void {
 }
 
 /** Test seam. */
+export interface LogoutResult {
+  ok: boolean
+  error?: string
+  /** Who was signed out -- so the page can say it back instead of "done". */
+  email?: string | null
+}
+
+/**
+ * Sign an account OUT from the page.
+ *
+ * Boss, 2026-08-29: he wanted to test the login wizard the honest way -- sign
+ * an account out, then bring it back through the page. There was no way to do
+ * the first half: `claude auth logout` in a terminal was the only route, which
+ * is precisely the terminal trip this whole card exists to remove.
+ *
+ * `planId` null means the install's OWN login (~/.claude), the one the main
+ * agent uses. That is deliberately allowed -- refusing it would leave the most
+ * important account as the one thing the page cannot repair -- but it is also
+ * why the route hands the page a list of the agents this stops FIRST, and the
+ * page asks before calling this.
+ */
+export function logoutAccount(planId: string | null): LogoutResult {
+  // A live flow owns the tmux window and a half-finished OAuth challenge;
+  // pulling the credentials out from under it would leave both in a state
+  // neither side could explain.
+  if (current) return { ok: false, error: 'Épp fut egy bejelentkezés. Előbb fejezd be vagy szakítsd meg.' }
+
+  let configDir: string | null = null
+  if (planId) {
+    const row = listAccounts(true).find(r => r.id === planId)
+    if (!row || !row.configDir) {
+      return { ok: false, error: 'Ezt a fiókot nem találom a listában. Frissítsd az oldalt, és próbáld újra.' }
+    }
+    configDir = row.configDir
+  }
+
+  const before = readIdentity(configDir)
+  if (!before.loggedIn) return { ok: false, error: 'Ez a fiók már nincs bejelentkezve.' }
+
+  try {
+    // The default account must NOT inherit a CLAUDE_CONFIG_DIR from whatever
+    // started the dashboard: this is the one call here that destroys something,
+    // so which directory it hits is stated outright rather than left to the
+    // environment.
+    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
+    if (configDir) env.CLAUDE_CONFIG_DIR = configDir
+    else delete env.CLAUDE_CONFIG_DIR
+    execFileSync(CLAUDE, ['auth', 'logout'], { timeout: 30_000, stdio: 'ignore', env })
+  } catch (err) {
+    logger.warn({ err, planId }, 'claude-auth: logout failed')
+    return { ok: false, error: 'A kijelentkeztetés nem sikerült. A részletek a dashboard naplójában vannak.' }
+  }
+
+  invalidateAccountCache()
+  // Ask the CLI, do not assume: an exit code of 0 is not the same sentence as
+  // "this account is signed out now".
+  if (readIdentity(configDir).loggedIn) {
+    return { ok: false, error: 'A parancs lefutott, de a fiók továbbra is be van jelentkezve.' }
+  }
+  logger.info({ planId }, 'claude-auth: account signed out')
+  return { ok: true, email: before.email ?? null }
+}
+
 export function _resetClaudeAuthForTest(): void {
   current = null
   invalidateAccountCache()

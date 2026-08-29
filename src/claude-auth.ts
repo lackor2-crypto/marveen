@@ -261,6 +261,25 @@ export function planIdFromLabel(label: string, taken: string[] = []): string {
   return `${seed}-${Date.now()}`
 }
 
+/**
+ * Which registered plan ids may NOT be re-used by a new login.
+ *
+ * Boss, 2026-08-29: he wanted to test the wizard by signing an account OUT and
+ * bringing it back through the page. As written it could not: `planIdFromLabel`
+ * treated EVERY registered id as taken, so typing the same name again opened a
+ * second directory (`usalackor-2`) while the agent stayed pinned -- via its
+ * CLAUDE_CONFIG_DIR -- to the first one. The wizard reported success and the
+ * agent stayed logged out.
+ *
+ * A plan whose credentials are gone is exactly the thing that needs repairing,
+ * so it does not block its own name. A plan that IS signed in still does:
+ * logging into it would overwrite a working login, which is the one outcome
+ * `startLogin` has always refused.
+ */
+export function idsBlockingReuse(plans: { id: string; loggedIn: boolean }[]): string[] {
+  return plans.filter(p => p.loggedIn).map(p => p.id)
+}
+
 export interface NewPlanEntry {
   id: string
   label: string

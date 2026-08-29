@@ -99,6 +99,18 @@ window._i18n.hu = {
   'claudeauth.state_working':   'Megkaptam a kódot, ellenőrzöm...',
   'claudeauth.state_failed':    'A bejelentkezés nem sikerült. Próbáld újra, vagy nyisd meg újra a linket.',
   'claudeauth.done':            'Kész, a(z) {label} fiók hozzáadva. Mostantól kiválasztható az ágenseknél.',
+  'claudeauth.done_back':       'Kész, a(z) {label} fiók újra be van jelentkezve. Az ügynökei mostantól újra tudnak dolgozni.',
+  // Kijelentkeztetes es visszajelentkezes a Fiokok oldalrol (Boss, 2026-08-29):
+  // enelkul a kijelentkezteteshez terminal kellett, a visszahozas pedig egy
+  // MASODIK fiokot nyitott volna "-2" nev alatt.
+  'claudeauth.logout_btn':      'Kijelentkeztetés',
+  // Nem "ujra": friss telepitesen ez a sor meg SOSEM volt bejelentkezve, es
+  // ott az "ujra" azt sugallna, hogy valami elromlott.
+  'claudeauth.relogin_btn':     'Bejelentkezés',
+  'claudeauth.logout_confirm_agents': 'Kijelentkezteted ezt a fiókot: {who}?\n\nEzek az ügynökök ezt a fiókot használják, és addig nem tudnak dolgozni, amíg vissza nem jelentkezel: {agents}\n\nVissza ugyanitt tudod hozni, a "Bejelentkezés" gombbal.',
+  'claudeauth.logout_confirm_none':   'Kijelentkezteted ezt a fiókot: {who}?\n\nEgyetlen ügynök sem használja most, tehát senkit nem állít meg. Vissza ugyanitt tudod hozni, a "Bejelentkezés" gombbal.',
+  'claudeauth.logout_done':     '{who} kijelentkeztetve. A "Bejelentkezés" gombbal tudod visszahozni.',
+  'claudeauth.logout_preview_failed': 'Nem tudtam megnézni, kit érintene a kijelentkeztetés, ezért nem is kezdtem bele. Frissítsd az oldalt, és próbáld újra.',
   'accounts.core_title':         'Alapvető — ezek nélkül el sem indulna',
   'accounts.optional_title':     'Opcionális',
   'accounts.status.not_configured': 'Nincs beállítva',

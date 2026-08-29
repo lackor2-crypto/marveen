@@ -11,9 +11,9 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
 import { getSecret } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
-import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity } from '../claude-auth-runner.js'
+import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutAccount, listAccounts } from '../claude-auth-runner.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
-import { defaultLoginDependents, unaffectedByDefaultLogin } from '../default-login-dependents.js'
+import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
 import type { RouteContext } from './types.js'
 
 // GitHub already supports multiple accounts under the hood (.github-tokens.json
@@ -80,7 +80,7 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/accounts/claude/login' && method === 'POST') {
-    let body: { label?: unknown; email?: unknown; useConsole?: unknown; target?: unknown; force?: unknown } = {}
+    let body: { label?: unknown; email?: unknown; useConsole?: unknown; target?: unknown; force?: unknown; planId?: unknown } = {}
     try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
     // target 'default' repairs the install's OWN login (~/.claude) instead of
     // adding a parallel account -- the wizard's step and the Overview's red row
@@ -93,6 +93,10 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
       useConsole: body.useConsole === true,
       target: body.target === 'default' ? 'default' : 'new',
       force: body.force === true,
+      // Re-login into an account that is already registered but signed out --
+      // the repair path the page needs so a logged-out account does not turn
+      // into a second one under a "-2" name.
+      planId: typeof body.planId === 'string' ? body.planId : undefined,
     })
     json(
       res,
@@ -110,6 +114,39 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/accounts/claude/login/finish' && method === 'POST') {
     const r = hardRestartMarveenChannels()
     json(res, r.ok ? { ok: true } : { ok: false, error: r.error }, r.ok ? 200 : 500)
+    return true
+  }
+
+  // WHO does this sign out? Asked before the button is pressed, never after.
+  // Boss, 2026-08-29 wanted to sign an account out and bring it back from the
+  // page; a logout with no preview would be the same class of surprise as a
+  // delete with no list of what is about to go.
+  if (path === '/api/accounts/claude/logout-preview' && method === 'GET') {
+    const raw = (ctx.url.searchParams.get('planId') ?? '').trim()
+    const planId = raw === '' ? null : raw
+    const row = planId === null
+      ? listAccounts().find(r => r.isDefault)
+      : listAccounts().find(r => r.id === planId)
+    if (!row) { json(res, { ok: false, error: 'Ezt a fiókot nem találom a listában.' }, 404); return true }
+    json(res, {
+      ok: true,
+      planId,
+      isDefault: row.isDefault,
+      loggedIn: row.identity.loggedIn,
+      email: row.identity.email ?? null,
+      // Names, not a count: "két ügynök" tells the operator nothing about
+      // whether the one they care about is in there.
+      agents: agentsUsingLogin(row.configDir),
+    })
+    return true
+  }
+
+  if (path === '/api/accounts/claude/logout' && method === 'POST') {
+    let body: { planId?: unknown } = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
+    const planId = typeof body.planId === 'string' && body.planId.trim() !== '' ? body.planId.trim() : null
+    const result = logoutAccount(planId)
+    json(res, result.ok ? { ok: true, email: result.email ?? null } : { ok: false, error: result.error }, result.ok ? 200 : 400)
     return true
   }
 
