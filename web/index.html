@@ -4040,10 +4040,21 @@
                 </button>
               </div>
               <div id="authFlowResult" hidden style="margin-top:10px;padding:10px 12px;background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border)">
-                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Nyisd meg a bongeszodben:</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px" data-i18n="agents.auth_open_url">1. Nyisd meg a böngésződben:</div>
                 <div style="display:flex;align-items:center;gap:8px">
                   <a id="authFlowUrl" href="#" target="_blank" style="font-size:13px;color:var(--accent);word-break:break-all;flex:1"></a>
-                  <button class="btn-secondary btn-compact" id="authFlowCopyBtn" style="flex-shrink:0">Masolas</button>
+                  <button class="btn-secondary btn-compact" id="authFlowCopyBtn" style="flex-shrink:0" data-i18n="agents.auth_copy_btn">Másolás</button>
+                </div>
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+                  <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px" data-i18n="agents.auth_code_label">2. Illeszd be ide a böngészőtől kapott kódot:</div>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <input type="text" id="authFlowCodeInput" autocomplete="off" spellcheck="false" data-i18n-placeholder="agents.auth_code_placeholder" placeholder="a böngészőből másolt kód" style="flex:1;padding:8px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-card);color:var(--text);font-family:monospace;font-size:13px">
+                    <button class="btn-primary btn-compact" id="authFlowCodeBtn" style="flex-shrink:0">
+                      <span class="btn-text" data-i18n="agents.auth_code_btn">Beküldés</span>
+                      <span class="btn-loading" hidden><span class="spinner"></span></span>
+                    </button>
+                  </div>
+                  <div id="authFlowCodeStatus" hidden style="margin-top:8px;font-size:12px"></div>
                 </div>
               </div>
               <div id="authFlowError" hidden style="margin-top:10px;font-size:12px;color:var(--danger)"></div>

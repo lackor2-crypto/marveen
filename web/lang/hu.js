@@ -1237,6 +1237,15 @@ window._i18n.hu = {
   'agents.auth_url_timeout': 'Az ágens 12 másodpercen belül nem írt ki bejelentkezési URL-t. Elképzelhető, hogy már be van jelentkezve — frissítsd az oldalt. Ha a piros sáv megmarad, kattints újra a „Bejelentkezés” gombra.',
   'agents.auth_url_timeout_after_menu': 'A bejelentkezési mód menüjét kiválasztottam (1 = Claude-előfizetés), de az ágens 12 másodpercen belül nem írt ki URL-t. Következő lépés: kattints újra a „Bejelentkezés” gombra — a menü már nem lesz útban.',
   'agents.auth_url_missing': 'A bejelentkezési URL nem érkezett meg. Következő lépés: kattints újra a „Bejelentkezés” gombra.',
+  'agents.auth_open_url': '1. Nyisd meg a böngésződben:',
+  'agents.auth_copy_btn': 'Másolás',
+  'agents.auth_code_label': '2. Illeszd be ide a böngészőtől kapott kódot:',
+  'agents.auth_code_placeholder': 'a böngészőből másolt kód',
+  'agents.auth_code_btn': 'Beküldés',
+  'agents.auth_code_empty': 'Írd be a kódot, mielőtt beküldöd.',
+  'agents.auth_code_ok': 'Bejelentkezve — a hitelesítés kiírva a lemezre.',
+  'agents.auth_code_rejected': 'A CLI nem fogadta el a kódot. Kérj új URL-t a Bejelentkezés gombbal, és próbáld újra.',
+  'agents.auth_code_unverifiable': 'Elküldtem a kódot, de a sikerét nem tudom bizonyítani (nem látok bele a hitelesítés-könyvtárba). Frissítsd az oldalt, és nézd meg, eltűnt-e a piros sáv.',
   'agents.auth_url_copied': 'URL másolva',
   'agents.toast.avatar_error':   'Hiba az avatar mentése során',
   'agents.status.online':          'Online',
@@ -2991,7 +3000,7 @@ window._i18n.hu = {
 
   // --- Agent model save + host oauth toasts ---
   'agents.toast.model_save_restart': 'Modell mentve, agent újraindítása...',
-  'agents.toast.host_oauth_restart': 'Agent újraindítva host OAuth-tal',
+  'agents.toast.host_oauth_restart': 'Agent újraindítva a host hitelesítésével — ez nem bejelentkezés',
 
   // --- Agent auth flow extra ---
   'agents.auth.btn_logged_in':   'Bejelentkezve',

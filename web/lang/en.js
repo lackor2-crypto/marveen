@@ -2257,6 +2257,15 @@ window._i18n.en = {
   'agents.auth_url_timeout': 'The agent printed no login URL within 12 seconds. It may already be logged in - reload the page. If the red banner stays, click "Log in" again.',
   'agents.auth_url_timeout_after_menu': 'I picked the login method (1 = Claude subscription), but the agent printed no URL within 12 seconds. Next step: click "Log in" again - the menu is out of the way now.',
   'agents.auth_url_missing': 'The login URL did not arrive. Next step: click "Log in" again.',
+  'agents.auth_open_url': '1. Open this in your browser:',
+  'agents.auth_copy_btn': 'Copy',
+  'agents.auth_code_label': '2. Paste the code you got from the browser:',
+  'agents.auth_code_placeholder': 'code copied from the browser',
+  'agents.auth_code_btn': 'Submit',
+  'agents.auth_code_empty': 'Enter the code before submitting.',
+  'agents.auth_code_ok': 'Signed in — credentials written to disk.',
+  'agents.auth_code_rejected': 'The CLI did not accept the code. Request a new URL with the Sign in button and try again.',
+  'agents.auth_code_unverifiable': 'I sent the code, but I cannot prove it worked (no visibility into the credentials directory). Reload the page and check whether the red banner is gone.',
   'agents.auth_url_copied': 'URL copied',
   'agents.error.restart':			'Failed to restart agent',
   'agents.main_badge':			'main assistant',
@@ -2927,7 +2936,7 @@ window._i18n.en = {
 
   // --- Agent model save + host oauth toasts ---
   'agents.toast.model_save_restart': 'Model saved, restarting agent...',
-  'agents.toast.host_oauth_restart': 'Agent restarted with host OAuth',
+  'agents.toast.host_oauth_restart': 'Agent restarted with the host credentials — this is not a sign-in',
 
   // --- Agent auth flow extra ---
   'agents.auth.btn_logged_in':   'Logged in',

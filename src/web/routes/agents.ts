@@ -115,14 +115,14 @@ import { followUpManualCompaction } from '../manual-compact-followup.js'
 import { COMPACT_COMMAND } from '../../context-compaction-instructions.js'
 import { readGateConfig, readGateRunState, writeGateRunState } from '../context-restart-gate-store.js'
 import { COMPACT_RETRY_WINDOW_MS, type ContextReadingState } from '../../context-restart-gate.js'
-import { detectPermissionMode } from '../../pane-state.js'
+import { detectPermissionMode, detectsLoginInProgress } from '../../pane-state.js'
 import { computeAgentActivityLabel } from '../../agent-activity-label.js'
 import { snapshotShowsQuotaExhausted } from '../../rate-limit-status.js'
 import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
 import { detectReauthNeeded, type ReauthState } from '../reauth-detect.js'
 import { extractAuthUrl, type ExtractedAuthUrl } from '../auth-url-extract.js'
-import { readCredentialFreshness } from '../credential-freshness.js'
+import { readCredentialFreshness, type CredentialFreshness } from '../credential-freshness.js'
 import { readAutoRestartConfig, writeAutoRestartConfig } from '../auto-restart-store.js'
 import { readContextGuardConfig, writeContextGuardConfig } from '../context-guard-store.js'
 import { getContextGuardStatus } from '../context-guard-runner.js'
@@ -2184,6 +2184,98 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     } catch (err) {
       logger.error({ err, name }, 'Auth init failed')
       json(res, { error: 'Auth flow indítása sikertelen' }, 500)
+    }
+    return true
+  }
+
+  // POST /api/agents/:name/auth/code -- a bongeszobol kapott kod beillesztese.
+  //
+  // 2026-08-29, merve: az `auth/init` addig vitte a folyamatot, hogy kiirta az
+  // URL-t, de a MASODIK felet nem lehetett befejezni a feluletrol: a panel a
+  // "Paste code here" sornal allt, es a kodot csak `tmux attach`-csal lehetett
+  // bejuttatni. Friss telepitesen ez jarhatatlan -- a bejelentkezesnek vegig
+  // kell mennie a feluletrol, terminal nelkul.
+  //
+  // A SIKER NEM AZ, HOGY A KERES HIBA NELKUL LEFUTOTT. A beillesztes utan
+  // ujrameressel bizonyitjuk: a `.credentials.json`-nak a BEKULDES UTAN kell
+  // irodnia. Egy mar meglevo, ervenyes fajl semmit nem bizonyit a mostani
+  // kodrol -- ezert kell az mtime-osszehasonlitas, nem eleg a 'valid'.
+  const authCodeMatch = path.match(/^\/api\/agents\/([^/]+)\/auth\/code$/)
+  if (authCodeMatch && method === 'POST') {
+    const name = decodeURIComponent(authCodeMatch[1])
+    if (!existsSync(agentDir(name))) { json(res, { error: 'Agent not found' }, 404); return true }
+    if (!isAgentRunning(name)) { json(res, { error: 'Agent is not running' }, 400); return true }
+    let code = ''
+    try {
+      const parsed = JSON.parse((await readBody(req)).toString()) as { code?: string }
+      code = typeof parsed.code === 'string' ? parsed.code.trim() : ''
+    } catch {
+      json(res, { ok: false, errorKey: 'agents.auth_code_empty', error: 'Ertelmezhetetlen keres.' }, 400)
+      return true
+    }
+    if (!code) {
+      json(res, { ok: false, errorKey: 'agents.auth_code_empty', error: 'Ures kodot nem kuldok el.' }, 400)
+      return true
+    }
+    const session = agentSessionName(name)
+    const host = readAgentRemoteHost(name)
+    try {
+      // A config-konyvtar a TERVBOL jon -- ugyanaz a feloldo, mint az INDITOE.
+      const configDir = resolveAgentConfigDir(name).configDir || null
+      const before = readCredentialFreshness(configDir)
+      const startedAt = Date.now()
+
+      // A kod TITOK: sem a naplo, sem a valasz nem tartalmazhatja. Csak azt
+      // rogzitjuk, hogy tortent beillesztes, es milyen hosszuval.
+      logger.info({ name, session, codeLength: code.length }, 'Submitting login code to agent pane (the code itself is never logged)')
+      await sendPromptToSession(session, code, host)
+
+      const written = (f: CredentialFreshness): boolean =>
+        f.verdict === 'valid' && (f.mtimeMs ?? 0) >= startedAt
+
+      let after = before
+      for (let i = 0; i < 20; i++) {
+        execSync('sleep 1', { timeout: 3000 })
+        after = readCredentialFreshness(configDir)
+        if (written(after)) break
+      }
+
+      if (written(after)) {
+        json(res, { ok: true, proof: 'credentials-written', expiresAt: after.expiresAt ?? null })
+        return true
+      }
+
+      // A NULLA KET DOLGOT JELENTHET. Ha nincs sajat config-konyvtar, vagy a
+      // fajl olvashatatlan, akkor NEM azt mertuk, hogy a bejelentkezes elbukott,
+      // hanem hogy NEM LATUNK ODA. Ilyenkor tilos sikert allitani -- de kudarcot
+      // is. A kulonbseget a panel donti el: ha meg mindig a kodra var, a kod
+      // tenyleg nem ment at.
+      const pane = capturePane(session, host)
+      const stillWaiting = pane != null && detectsLoginInProgress(pane)
+      if (stillWaiting) {
+        json(res, {
+          ok: false,
+          errorKey: 'agents.auth_code_rejected',
+          error: 'A panel tovabbra is a kodra var -- a CLI nem fogadta el a kodot. Kerj uj URL-t a Bejelentkezes gombbal, es probald ujra.',
+        })
+        return true
+      }
+      if (configDir === null || after.verdict === 'unknown') {
+        json(res, {
+          ok: false,
+          errorKey: 'agents.auth_code_unverifiable',
+          error: 'Elkuldtem a kodot, es a panel mar nem a kodra var -- de a sikeret nem tudom BIZONYITANI, mert nem latok bele a hitelesites-konyvtarba. Frissitsd az oldalt, es nezd meg, eltunt-e a piros sav.',
+        })
+        return true
+      }
+      json(res, {
+        ok: false,
+        errorKey: 'agents.auth_code_rejected',
+        error: 'A kod beillesztese utan sem irodott friss hitelesites a lemezre. Kerj uj URL-t a Bejelentkezes gombbal, es probald ujra.',
+      })
+    } catch (err) {
+      logger.error({ err, name }, 'Auth code submit failed')
+      json(res, { error: 'A kod beillesztese sikertelen' }, 500)
     }
     return true
   }

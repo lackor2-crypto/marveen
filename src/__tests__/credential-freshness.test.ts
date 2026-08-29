@@ -78,3 +78,47 @@ describe('readCredentialFreshness', () => {
     expect(readCredentialFreshness(null, NOW).detail.length).toBeGreaterThan(10)
   })
 })
+
+describe('mtimeMs -- a bejelentkezes bizonyitasanak alapja', () => {
+  // Miert kell kulon idobelyeg: egy MAR MEGLEVO, ervenyes hitelesites
+  // onmagaban semmit nem bizonyit arrol, hogy a MOSTANI kod atment. Az
+  // `auth/code` vegpont ezert nem a 'valid' verdiktet nezi, hanem azt, hogy a
+  // fajl a bekuldes UTAN irodott-e. Enelkul a vegpont egy hetekkel korabbi
+  // fajlra is sikert jelentene -- pontosan az a hamis siker, ami miatt ez a
+  // javitas keszult ("mar lent a fekete csikban mondta hogy sikeres",
+  // kozben a piros sav helyesen maradt).
+  it('ervenyes fajlnal visszaadja az irasi idot', () => {
+    const before = Date.now()
+    write({ claudeAiOauth: { expiresAt: Date.now() + 3_600_000 } })
+    const got = readCredentialFreshness(dir)
+    expect(got.verdict).toBe('valid')
+    expect(typeof got.mtimeMs).toBe('number')
+    // A fajlt EPP MOST irtuk: az idobelyegnek a meres kezdete utanra kell esnie.
+    // (1 mp turés a fajlrendszer felbontasa miatt.)
+    expect(got.mtimeMs as number).toBeGreaterThanOrEqual(before - 1000)
+  })
+
+  it('hianyzo fajlnal NINCS ido -- nem hazudunk nullat', () => {
+    // A hivo `(mtimeMs ?? 0) >= startedAt` tesztet hasznal, tehat a hianyzo
+    // ertek helyes viselkedese a "nem bizonyitott" -- nem egy kitalalt idopont.
+    const got = readCredentialFreshness(dir)
+    expect(got.verdict).toBe('missing')
+    expect(got.mtimeMs).toBeUndefined()
+  })
+
+  it('ismeretlen config-konyvtarnal sincs ido', () => {
+    const got = readCredentialFreshness(null)
+    expect(got.verdict).toBe('unknown')
+    expect(got.mtimeMs).toBeUndefined()
+  })
+
+  it('a lejart fajlnak is van ideje -- de az NEM bizonyitek', () => {
+    // Fontos kulonbseg: a friss iras onmagaban nem eleg. A vegpont a KETTOT
+    // egyutt koveteli meg (ervenyes ES friss), kulonben egy lejart, de eppen
+    // ujrairt fajl is sikernek latszana.
+    write({ claudeAiOauth: { expiresAt: NOW - 1000 } })
+    const got = readCredentialFreshness(dir, NOW)
+    expect(got.verdict).toBe('expired')
+    expect(typeof got.mtimeMs).toBe('number')
+  })
+})

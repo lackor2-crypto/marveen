@@ -34,6 +34,15 @@ export interface CredentialFreshness {
   verdict: CredentialVerdict
   /** Unix ms, ha ismert. Titkot nem tartalmaz. */
   expiresAt?: number
+  /**
+   * A hitelesito fajl utolso irasa (Unix ms), ha le tudtuk kerdezni.
+   *
+   * Azert kell, hogy a bejelentkezes sikeret BIZONYITANI lehessen: egy mar
+   * meglevo, ervenyes fajl onmagaban nem bizonyitja, hogy a MOSTANI kod
+   * atment -- csak az, ha a fajl a beillesztes UTAN irodott. Titkot nem
+   * tartalmaz, csak idobelyeget.
+   */
+  mtimeMs?: number
   /** Miért ez a verdikt -- emberi mondat, naplóhoz és a súgóhoz. */
   detail: string
 }
@@ -51,11 +60,12 @@ export function readCredentialFreshness(
   }
   const path = join(configDir, '.credentials.json')
   let raw: string
+  let mtimeMs: number | undefined
   try {
     if (!existsSync(path)) {
       return { verdict: 'missing', detail: 'Nincs .credentials.json ebben a config-konyvtarban.' }
     }
-    statSync(path)
+    mtimeMs = statSync(path).mtimeMs
     raw = readFileSync(path, 'utf8')
   } catch (err) {
     // Jogosultsag, csatolas-hiba, versenyhelyzet: "nem latok oda", nem "nincs".
@@ -65,17 +75,17 @@ export function readCredentialFreshness(
   try {
     parsed = JSON.parse(raw)
   } catch {
-    return { verdict: 'unknown', detail: 'A .credentials.json nem ertelmezheto JSON -- nem tudom, ervenyes-e.' }
+    return { verdict: 'unknown', mtimeMs, detail: 'A .credentials.json nem ertelmezheto JSON -- nem tudom, ervenyes-e.' }
   }
   const oauth = (parsed as Record<string, any>)?.claudeAiOauth
   const expiresAt = typeof oauth?.expiresAt === 'number' ? oauth.expiresAt : undefined
   if (expiresAt === undefined) {
     // Van fajl, de nem tudjuk megmondani a lejaratat (mas hitelesitesi mod,
     // jovobeli mezonev). Nem allitjuk, hogy ervenyes.
-    return { verdict: 'unknown', detail: 'Van .credentials.json, de nincs benne ismert lejarat-mezo.' }
+    return { verdict: 'unknown', mtimeMs, detail: 'Van .credentials.json, de nincs benne ismert lejarat-mezo.' }
   }
   if (expiresAt <= now) {
-    return { verdict: 'expired', expiresAt, detail: 'A hitelesites lejart.' }
+    return { verdict: 'expired', expiresAt, mtimeMs, detail: 'A hitelesites lejart.' }
   }
-  return { verdict: 'valid', expiresAt, detail: 'Ervenyes hitelesites van a lemezen.' }
+  return { verdict: 'valid', expiresAt, mtimeMs, detail: 'Ervenyes hitelesites van a lemezen.' }
 }

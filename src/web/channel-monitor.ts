@@ -1526,7 +1526,12 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
             // amit a tulajdonos eppen csinal. Nem kuldunk billentyut; szolunk,
             // es megmondjuk a KOVETKEZO LEPEST.
             logger.warn({ session: t.session, agent: label }, 'Blocking "menu" is a login in progress -- NOT sending Escape (it would cancel the login)')
-            sendAlert(`🔑 A(z) ${label} agentnel EPP FUT egy bejelentkezes: a panel a kodra var ("Paste code here"). Escape-et NEM kuldtem, mert az megszakitana. Kovetkezo lepes: a vezerlopulton az agens kartyajan a "Bejelentkezes" gombbal kapott URL-t nyisd meg, majd a kapott kodot illeszd be: tmux attach -t ${t.session}`)
+            // A KOVETKEZO LEPES a FELULETRE mutat, nem a terminalra: 2026-08-29 ota a
+            // bejelentkezes masodik fele (a kod beillesztese) is elvegezheto a
+            // vezerlopultrol. Amig ez a sor `tmux attach`-ot javasolt, maga a
+            // riasztas kuldte a tulajdonost a terminalba egy olyan lepesert,
+            // amire mar volt feluleti ut.
+            sendAlert(`🔑 A(z) ${label} agentnel EPP FUT egy bejelentkezes: a panel a kodra var ("Paste code here"). Escape-et NEM kuldtem, mert az megszakitana. Kovetkezo lepes a vezerlopulton, az agens kartyajan: nyisd meg a "Bejelentkezes" gombbal kapott URL-t, majd a kapott kodot illeszd be ugyanott a kod-mezobe, es nyomj Bekuldest.`)
           } else if (paneNow != null && detectsModelConsentDialog(paneNow)) {
             logger.warn({ session: t.session, agent: label }, 'Blocking "menu" is the model usage-credit consent dialog -- answering it safely instead of Escape')
             await dismissModelConsentDialogIfPresent(t.session)

@@ -7342,7 +7342,21 @@ function selectAuthModeCard(mode) {
   })
   document.getElementById('authModeSharedSection').hidden = mode !== 'shared'
   document.getElementById('authModeApiKeySection').hidden = mode !== 'api'
-  document.getElementById('authModeOwnTeamSection').hidden = mode !== 'own_team'
+  // A bejelentkezo panel lathatosaga a TERVBOL is jon, nem csak az authMode
+  // mezobol.
+  //
+  // 2026-08-29, merve: lackor3 `authMode` mezoje 'shared' volt, ezert ez a
+  // szekcio -- benne az EGYETLEN bejelentkezo gomb -- rejtve maradt. Kozben a
+  // `claude-plans.json` szerint sajat fiokja van (store/accounts/lackor3), a
+  // panelje pedig a bejelentkezesi kodra vart. A ket mezo ellentmondott
+  // egymasnak, es a felulet a ROSSZAT kerdezte meg: a Boss szava szerint "az
+  // autorizacios panel fel sem jon".
+  //
+  // Ha az ugynoknek sajat hitelesites-konyvtara van, akkor sajat fiokbol
+  // hitelesit -- tehat SZUKSEGE VAN a bejelentkezesre, fuggetlenul attol, mit
+  // mond az authMode mezo. A panel elrejtese ilyenkor zsakutcaba viszi.
+  const hasOwnAccount = Boolean(currentAgent && currentAgent.claudePlan)
+  document.getElementById('authModeOwnTeamSection').hidden = mode !== 'own_team' && !hasOwnAccount
   document.getElementById('authFlowResult').hidden = true
   document.getElementById('authFlowError').hidden = true
   document.getElementById('authSharedError').hidden = true
@@ -7457,6 +7471,72 @@ document.getElementById('authFlowInitBtn').addEventListener('click', async () =>
 document.getElementById('authFlowCopyBtn').addEventListener('click', () => {
   const url = document.getElementById('authFlowUrl').textContent
   navigator.clipboard.writeText(url).then(() => showToast(t('agents.auth_url_copied')))
+})
+
+// A bejelentkezes MASODIK fele: a bongeszotol kapott kod beillesztese.
+//
+// Enelkul a folyamat feluton allt meg -- a kodot csak `tmux attach`-csal
+// lehetett bejuttatni, ami friss telepitesen jarhatatlan.
+//
+// A szerver valasza itt NEM "elkuldtem", hanem "bizonyitottan beirodott a
+// hitelesites". Ezert allithatunk sikert -- es ezert nem allitunk, ha nem.
+document.getElementById('authFlowCodeBtn').addEventListener('click', async () => {
+  if (!currentAgent) return
+  const btn = document.getElementById('authFlowCodeBtn')
+  const btnText = btn.querySelector('.btn-text')
+  const btnLoading = btn.querySelector('.btn-loading')
+  const input = document.getElementById('authFlowCodeInput')
+  const statusEl = document.getElementById('authFlowCodeStatus')
+  const code = input.value.trim()
+  statusEl.hidden = true
+  if (!code) {
+    statusEl.textContent = t('agents.auth_code_empty')
+    statusEl.style.color = 'var(--danger)'
+    statusEl.hidden = false
+    return
+  }
+  btnText.hidden = true
+  btnLoading.hidden = false
+  btn.disabled = true
+  try {
+    const res = await fetch(`/api/agents/${encodeURIComponent(currentAgent.name)}/auth/code`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    })
+    const data = await res.json()
+    if (data.ok) {
+      // A kod titok: azonnal toroljuk a mezobol, hogy ne maradjon a kepernyon.
+      input.value = ''
+      statusEl.textContent = t('agents.auth_code_ok')
+      statusEl.style.color = 'var(--success)'
+      statusEl.hidden = false
+      showToast(t('agents.auth_code_ok'))
+      loadAgents()
+      const detailRes = await fetch(`/api/agents/${encodeURIComponent(currentAgent.name)}`)
+      if (detailRes.ok) {
+        currentAgent = await detailRes.json()
+        updateProcessControl(currentAgent)
+      }
+    } else {
+      statusEl.textContent = (data.errorKey && t(data.errorKey)) || data.error || t('agents.auth_code_rejected')
+      statusEl.style.color = data.errorKey === 'agents.auth_code_unverifiable' ? 'var(--warning)' : 'var(--danger)'
+      statusEl.hidden = false
+    }
+  } catch {
+    statusEl.textContent = t('agents.error.auth_network')
+    statusEl.style.color = 'var(--danger)'
+    statusEl.hidden = false
+  } finally {
+    btnText.hidden = false
+    btnLoading.hidden = true
+    btn.disabled = false
+  }
+})
+
+// Enter a kod-mezoben = bekuldes (a beillesztes utan ez a termeszetes mozdulat).
+document.getElementById('authFlowCodeInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('authFlowCodeBtn').click() }
 })
 
 document.getElementById('memoryIsolationToggle').addEventListener('change', async (e) => {
