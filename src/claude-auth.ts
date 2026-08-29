@@ -24,14 +24,25 @@
 //      a tmux window and scrapes the pane, the same way everything else in this
 //      fork talks to a Claude process.
 //
-//   2. The redirect_uri is https://platform.claude.com/oauth/code/callback -- a
-//      HOSTED page, not a localhost listener. The browser therefore shows the
-//      code to the human, and the CLI waits for it to be pasted back. There is
-//      no callback we could intercept, so the "no copying anything by hand" half
-//      of the original UX wish is not reachable through this CLI; what IS
-//      reachable is that the DASHBOARD does the waiting and the detecting, so
-//      the user pastes one code into the page instead of running a terminal
-//      session. See the card comment for the full reasoning.
+//   2. The CLI offers TWO endings to the SAME login, and the pane only shows
+//      the worse one. Re-measured 2026-08-29 (CLI 2.1.251) by running the login
+//      with $BROWSER pointed at a script that recorded its argument:
+//
+//        handed to $BROWSER: ...&redirect_uri=http%3A%2F%2Flocalhost%3A36237%2Fcallback
+//        printed on the pane: ...&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback
+//
+//      Same code_challenge, same state: one login, two redirect targets. The
+//      first is the automatic one -- the CLI really does listen on that port
+//      (verified: LISTEN 127.0.0.1:36237, and a bare GET /callback answers 400),
+//      so a browser that comes back to it finishes the login with nothing typed.
+//      The second is the manual fallback, which shows the human a code to paste.
+//
+//      This file used to state the opposite ("no callback we could intercept"),
+//      because the only thing measured back then was the pane text. The pane is
+//      the fallback by design: a printed URL may well be opened on ANOTHER
+//      machine, where a localhost port means nothing. So both stay -- the
+//      loopback URL is what the page offers first, and the pasted code is what
+//      rescues the case where the browser is not on this machine.
 //
 // This module is dependency-free so the parsing is testable without tmux, a
 // browser or an account. The I/O lives in src/web/claude-auth-runner.ts.
@@ -91,6 +102,48 @@ export function extractAuthUrl(pane: string): string | null {
     if (c.includes('state=')) return c
   }
   return candidates[0] ?? null
+}
+
+/**
+ * Is this redirect target the CLI's own loopback listener?
+ *
+ * Deliberately strict: http on localhost/127.0.0.1 with the /callback path and
+ * nothing else. The value decides whether the page tells the user "this will
+ * finish by itself", and a promise like that must not rest on a loose match.
+ */
+export function isLoopbackCallback(redirectUri: string): boolean {
+  let u: URL
+  try { u = new URL(redirectUri) } catch { return false }
+  if (u.protocol !== 'http:') return false
+  if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1') return false
+  return u.pathname === '/callback' && !!u.port
+}
+
+/**
+ * The automatic authorize URL, out of whatever the CLI handed to $BROWSER.
+ *
+ * The log is append-only and may hold more than one line: a cancelled attempt
+ * leaves its URL behind, and a browser wrapper can be called with flags before
+ * the address. The LAST usable line wins, because that is the flow now running.
+ *
+ * A line only counts as usable when it is an authorize URL, carries the `state`
+ * parameter (a fragment written mid-flush does not), and redirects to a
+ * loopback callback. Anything else -- including the manual URL, if it ever ends
+ * up here -- is ignored rather than offered as "automatic".
+ */
+export function pickBrowserAuthUrl(raw: string): string | null {
+  const lines = raw.split(/\r?\n/)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    if (!line.startsWith('http://') && !line.startsWith('https://')) continue
+    let u: URL
+    try { u = new URL(line) } catch { continue }
+    if (!u.pathname.endsWith('/oauth/authorize')) continue
+    if (!u.searchParams.get('state')) continue
+    if (!isLoopbackCallback(u.searchParams.get('redirect_uri') ?? '')) continue
+    return line
+  }
+  return null
 }
 
 /** Strip escapes so the pane can be matched as plain text. */

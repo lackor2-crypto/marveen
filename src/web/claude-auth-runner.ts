@@ -16,7 +16,7 @@
 // ONE login flow at a time, though: they all drive the same tmux window, and two
 // people pasting codes into one pane helps nobody.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, existsSync, readFileSync } from 'node:fs'
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
 import { resolveFromPath } from '../platform.js'
@@ -28,6 +28,7 @@ import {
   parseAuthStatus,
   readLoginPane,
   isLoginComplete,
+  pickBrowserAuthUrl,
   planIdFromLabel,
   buildPlanEntry,
   UNKNOWN_IDENTITY,
@@ -48,6 +49,60 @@ const LOGIN_SESSION = 'marveen-claude-login'
 const PANE_WIDTH = 400
 const PANE_HEIGHT = 40
 
+/** Scratch space for ONE login flow: the browser stand-in and what it caught.
+ *  Under STORE_DIR like everything else this install owns, so no path is
+ *  assumed and a second install on the same machine keeps its own. */
+function loginTmpDir(): string {
+  return join(STORE_DIR, 'claude-login')
+}
+
+/**
+ * Put a stand-in for a browser on the flow's PATH and hand back where it
+ * writes.
+ *
+ * This is the whole automatic path. `claude auth login` opens the browser with
+ * a DIFFERENT url than the one it prints (see claude-auth.ts): the printed one
+ * goes to a hosted page that shows a code, the opened one comes back to a
+ * loopback port the CLI itself is listening on. A detached tmux window has no
+ * browser to open anything with, so that better url used to be built, handed to
+ * a program that was not there, and lost. The shim catches it, and the page can
+ * offer the ending that needs nothing typed.
+ *
+ * Failure here is not fatal: without a shim the flow behaves exactly as it did
+ * before -- printed url, pasted code -- so the login still works.
+ */
+function prepareBrowserShim(): { shim: string; log: string } | null {
+  try {
+    const dir = loginTmpDir()
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const shim = join(dir, 'open-url.sh')
+    const log = join(dir, 'browser-url.txt')
+    // "$@": a browser is normally invoked with the address alone, but a wrapper
+    // may put flags in front of it, and dropping those would drop the address.
+    // Exit 0 always -- a non-zero here would look to the CLI like "no browser".
+    writeFileSync(shim, '#!/bin/sh\nprintf \'%s\\n\' "$@" >> "$MARVEEN_LOGIN_URL_LOG"\nexit 0\n', { mode: 0o700 })
+    // Truncated per flow, not appended to: a url left over from a cancelled
+    // attempt is a live-looking link to a challenge that no longer exists.
+    writeFileSync(log, '', { mode: 0o600 })
+    return { shim, log }
+  } catch (err) {
+    logger.warn({ err }, 'claude-auth: no browser shim -- the pasted-code path still works')
+    return null
+  }
+}
+
+/** The automatic url this flow caught, if it caught one. Never logged: it
+ *  carries the PKCE challenge and the state parameter. */
+function readBrowserUrl(log: string | null): string | null {
+  if (!log) return null
+  try {
+    return pickBrowserAuthUrl(readFileSync(log, 'utf-8'))
+  } catch {
+    // Not written yet is the normal case for the first second of a flow.
+    return null
+  }
+}
+
 /** Where a new account's credentials go. Same convention the existing plans
  *  already use (store/accounts/<id>), so nothing here invents a second layout. */
 function accountsRoot(): string {
@@ -64,6 +119,9 @@ interface LoginSession {
   label: string
   codeSubmitted: boolean
   registered: boolean
+  /** Where the browser shim writes; `null` when the shim could not be put in
+   *  place, which downgrades this flow to the pasted-code path. */
+  urlLog: string | null
 }
 let current: LoginSession | null = null
 
@@ -217,11 +275,16 @@ export interface StartLoginResult {
  *  CLAUDE_CONFIG_DIR, so the CLI writes to ~/.claude -- the install's own
  *  login. Setting it to the literal home path instead would work today and
  *  break the moment the CLI changes where the default lives. */
-function spawnArgs(configDir: string | null, command: string): string[] {
+function spawnArgs(
+  configDir: string | null,
+  command: string,
+  shim: { shim: string; log: string } | null,
+): string[] {
   return [
     'new-session', '-d', '-s', LOGIN_SESSION,
     '-x', String(PANE_WIDTH), '-y', String(PANE_HEIGHT),
     ...(configDir ? ['-e', `CLAUDE_CONFIG_DIR=${configDir}`] : []),
+    ...(shim ? ['-e', `BROWSER=${shim.shim}`, '-e', `MARVEEN_LOGIN_URL_LOG=${shim.log}`] : []),
     '-e', 'NO_COLOR=1',
     'sh', '-c', command,
   ]
@@ -256,13 +319,17 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
   const quoted = [CLAUDE, ...args].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
+  const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX, spawnArgs(null, command), { timeout: 10_000 })
+    execFileSync(TMUX, spawnArgs(null, command, shim), { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the default login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
   }
-  current = { startedAt: Date.now(), configDir: null, planId: null, label: '', codeSubmitted: false, registered: true }
+  current = {
+    startedAt: Date.now(), configDir: null, planId: null, label: '',
+    codeSubmitted: false, registered: true, urlLog: shim?.log ?? null,
+  }
   logger.info('claude-auth: login session started for the install default (~/.claude)')
   return { ok: true, isDefault: true }
 }
@@ -315,13 +382,17 @@ export function startLogin(
   // Wrapped in a shell that outlives the command, so a failure leaves its
   // message ON the pane instead of taking the window down with it.
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
+  const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX, spawnArgs(configDir, command), { timeout: 10_000 })
+    execFileSync(TMUX, spawnArgs(configDir, command, shim), { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
   }
-  current = { startedAt: Date.now(), configDir, planId, label, codeSubmitted: false, registered: false }
+  current = {
+    startedAt: Date.now(), configDir, planId, label,
+    codeSubmitted: false, registered: false, urlLog: shim?.log ?? null,
+  }
   // Deliberately no URL, no email, no code in this line.
   logger.info({ planId }, 'claude-auth: login session started for a new account')
   return { ok: true, planId }
@@ -331,6 +402,11 @@ export interface LoginStatus {
   active: boolean
   phase: LoginPaneState['phase']
   url: string | null
+  /** The url that finishes BY ITSELF: it redirects to the CLI's own loopback
+   *  port, so nothing has to be copied back. `null` means this flow only has
+   *  the printed url, and the code must be pasted. The page must not promise
+   *  "automatic" without this. */
+  browserUrl: string | null
   error: string | null
   /** The account being added, while a flow is running. */
   label: string | null
@@ -353,7 +429,7 @@ export interface LoginStatus {
 // ora hossza?" Nothing was running; the status just had no word for that.
 function idle(accounts: AccountRow[], phase: LoginPaneState['phase'] = 'idle', error: string | null = null): LoginStatus {
   return {
-    active: false, phase, url: null, error, label: null, planId: null, done: false,
+    active: false, phase, url: null, browserUrl: null, error, label: null, planId: null, done: false,
     accounts, defaultLoggedIn: isDefaultLoggedIn(accounts),
   }
 }
@@ -411,7 +487,9 @@ export function loginStatus(): LoginStatus {
   const pane = readLoginPane(capturePane(), current.codeSubmitted)
   const accounts = listAccounts()
   return {
-    active: true, phase: pane.phase, url: pane.url, error: pane.error,
+    active: true, phase: pane.phase, url: pane.url,
+    browserUrl: readBrowserUrl(current.urlLog),
+    error: pane.error,
     label: current.label, planId: current.planId, done: false,
     isDefault: current.configDir === null, accounts,
     defaultLoggedIn: isDefaultLoggedIn(accounts),

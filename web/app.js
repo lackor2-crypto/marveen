@@ -22511,6 +22511,9 @@ let _wizClaudeFinishing = false
 // meg is mondjuk, mikor lesz belole "ez tul sokaig tart".
 let _wizClaudeStartedAt = 0
 let _wizClaudeFailCount = 0
+// Egyszer dontunk arrol, hogy a kod-bemasolos resz nyitva alljon-e; utana a
+// felhasznalo dontese az ura.
+let _wizClaudeManualDecided = false
 
 function _wizClaudeStopPoll() {
   if (_wizClaudePoll) { clearInterval(_wizClaudePoll); _wizClaudePoll = null }
@@ -22548,12 +22551,22 @@ function wizardClaudeLoginHtml() {
       <div id="wizClaudeFlow" hidden>
         <p style="margin:12px 0 4px;font-size:13px;font-weight:600">${escapeHtml(t('wizclaude.step1'))}</p>
         <div id="wizClaudeLinkWrap" style="font-size:13px;word-break:break-all"></div>
-        <p style="margin:14px 0 4px;font-size:13px;font-weight:600">${escapeHtml(t('wizclaude.step2'))}</p>
-        <p style="margin:0 0 6px;font-size:12px;color:var(--text-muted);line-height:1.5">${escapeHtml(t('wizclaude.step2_note'))}</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <input type="text" class="input" id="wizClaudeCode" autocomplete="off" spellcheck="false"
-            placeholder="${escapeAttr(t('wizclaude.code_placeholder'))}" style="flex:1 1 260px;min-width:0">
-          <button class="btn-primary" id="wizClaudeCodeBtn">${escapeHtml(t('wizclaude.code_send'))}</button>
+        <!-- A kod bemasolasa nem lepes tobbe, hanem MENEDEK. A jovahagyas a
+             gep sajat kapujara ter vissza es magatol befejezodik; kodra csak
+             annak van szuksege, aki masik gaprol nyitotta meg a Marveent.
+             Ezert van osszecsukva -- de nyithato, mert az az eset valodi. -->
+        <details id="wizClaudeManual" style="margin-top:14px">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600">${escapeHtml(t('wizclaude.manual_summary'))}</summary>
+          <p style="margin:8px 0 6px;font-size:12px;color:var(--text-muted);line-height:1.5">${escapeHtml(t('wizclaude.manual_intro'))}</p>
+          <div id="wizClaudeManualLink" style="font-size:12px;word-break:break-all;margin-bottom:8px"></div>
+          <p style="margin:0 0 6px;font-size:12px;color:var(--text-muted);line-height:1.5">${escapeHtml(t('wizclaude.step2_note'))}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <input type="text" class="input" id="wizClaudeCode" autocomplete="off" spellcheck="false"
+              placeholder="${escapeAttr(t('wizclaude.code_placeholder'))}" style="flex:1 1 260px;min-width:0">
+            <button class="btn-primary" id="wizClaudeCodeBtn">${escapeHtml(t('wizclaude.code_send'))}</button>
+          </div>
+        </details>
+        <div style="margin-top:12px">
           <button class="btn-secondary" id="wizClaudeCancelBtn">${escapeHtml(t('wizclaude.cancel'))}</button>
         </div>
       </div>
@@ -22576,6 +22589,7 @@ function wireWizardClaudeLogin() {
   _wizClaudeFinishing = false
   _wizClaudeStartedAt = 0
   _wizClaudeFailCount = 0
+  _wizClaudeManualDecided = false
   _wizClaudeTick()
   _wizClaudeStartPoll()
 
@@ -22583,6 +22597,7 @@ function wireWizardClaudeLogin() {
     _wizClaudeFinishing = false
     _wizClaudeStartedFlow = true
     _wizClaudeStartedAt = Date.now()
+    _wizClaudeManualDecided = false
     _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_starting'))}</span>`)
     document.getElementById('wizClaudeLinkWrap').innerHTML = ''
     // A poll MAR MOST fut, nem csak a valasz utan: ha a kerelem valamiert
@@ -22726,15 +22741,39 @@ async function _wizClaudeTick() {
 
   if (s.active) {
     _wizClaudeShow('flow')
-    if (s.url) {
+    // KET cim tartozik ugyanahhoz a bejelentkezeshez, es nem mindegy, melyiket
+    // adjuk oda. A `browserUrl` a gep sajat kapujara ter vissza, tehat a
+    // jovahagyas utan magatol befejezodik; az `url` egy oldalra visz, ami kodot
+    // ir ki, amit kezzel kell visszahozni. Eddig csak a masodik letezett itt --
+    // nem azert, mert a program nem tudta az elsot, hanem mert senki nem kapta
+    // el (a reszletek: src/claude-auth.ts).
+    const autoUrl = s.browserUrl || null
+    const primaryUrl = autoUrl || s.url || null
+    if (primaryUrl) {
       document.getElementById('wizClaudeLinkWrap').innerHTML =
-        `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener noreferrer" class="btn-primary btn-compact"
+        `<a href="${escapeAttr(primaryUrl)}" target="_blank" rel="noopener noreferrer" class="btn-primary btn-compact"
             style="display:inline-block;margin-bottom:8px">${escapeHtml(t('wizclaude.open_authorize'))} &#8599;</a>
-         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${escapeHtml(t('wizclaude.link_note'))}</div>`
+         <div style="font-size:11px;color:var(--text-muted);margin-top:4px">${escapeHtml(
+           autoUrl ? t('wizclaude.auto_note') : t('wizclaude.link_note'))}</div>`
+    }
+    const manualWrap = document.getElementById('wizClaudeManualLink')
+    if (manualWrap) {
+      manualWrap.innerHTML = s.url
+        ? `<a href="${escapeAttr(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('wizclaude.manual_link'))} &#8599;</a>`
+        : ''
+    }
+    // Ha nincs automata cim (nem sikerult elkapni), a kodos resz NEM menedek
+    // tobbe, hanem az egyetlen ut -- akkor nyitva kell allnia. Egyszer dontunk
+    // rola folyamatonkent, hogy ne csukjuk vissza a user orra elott.
+    const manualBox = document.getElementById('wizClaudeManual')
+    if (manualBox && !_wizClaudeManualDecided && primaryUrl) {
+      _wizClaudeManualDecided = true
+      manualBox.open = !autoUrl
     }
     if (s.phase === 'awaiting-code') {
       _wizClaudeStartedAt = 0
-      _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_awaiting'))}</span>`)
+      _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(
+        autoUrl ? t('wizclaude.state_awaiting_auto') : t('wizclaude.state_awaiting'))}</span>`)
     } else if (s.phase === 'working') {
       _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_working'))}</span>`)
     } else if (s.phase === 'failed') {
