@@ -30285,8 +30285,85 @@ async function loadDepoPage() {
       el.addEventListener('change', () => _depoSaveSyncSettings())
     }
   })
+  // KULSO TORLES ELLENI VEDELEM (6. pont).
+  bind('depoGuardRefreshBtn', () => _depoGuardRefresh())
+  bind('depoGuardClearBtn', () => _depoGuardClear())
+  var grd = document.getElementById('depoGuardEnabled')
+  if (grd && !grd._depoBound) {
+    grd._depoBound = 1
+    grd.addEventListener('change', () => _depoGuardToggle(grd.checked))
+  }
   _depoClearDrivePick()
   await _depoRefresh()
+}
+
+/* ============ KULSO TORLES ELLENI VEDELEM (specifikacio 6. pont) ============
+ *
+ * A lenyeg a LATHATOSAG: a lefele menetben nincs torles, de eddig semmi nem
+ * mutatta, ha a Drive-rol eltunt valami. Ez a harom fuggveny a kepernyore
+ * hozza -- a helyi fajlhoz egyik sem nyul.
+ *
+ * A NULLA KET DOLGOT JELENTHET: az ures listahoz a MAGYARAZATOT a kiszolgalo
+ * adja (`summary`), mert csak ott tudhato, letezik-e egyaltalan a naplo. A
+ * bongeszo nem talalgat.
+ */
+async function _depoGuardRefresh() {
+  var sum = document.getElementById('depoGuardSummary')
+  var list = document.getElementById('depoGuardList')
+  if (!sum && !list) return
+  var d = null
+  var hiba = ''
+  try {
+    d = await _depoGet('/api/drive/sync/external?lang=' + encodeURIComponent(window._lang || 'hu'))
+  } catch (e) {
+    // A TENYLEGES hibauzenet megy ki, nem tippelt ok.
+    hiba = (e && e.message) ? e.message : String(e)
+  }
+  if (hiba) {
+    if (sum) sum.textContent = t('dguard.load_failed') + ' ' + hiba
+    if (list) list.innerHTML = ''
+    return
+  }
+  var chk = document.getElementById('depoGuardEnabled')
+  if (chk) chk.checked = d.enabled !== false
+  if (sum) sum.textContent = d.summary || ''
+  if (!list) return
+  var sorok = d.changes || []
+  if (!sorok.length) { list.innerHTML = ''; return }
+  list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('dguard.col_when')) + '</th>'
+    + '<th>' + escapeHtml(t('dguard.col_what')) + '</th>'
+    + '<th>' + escapeHtml(t('dguard.col_file')) + '</th>'
+    + '<th>' + escapeHtml(t('dguard.col_note')) + '</th></tr></thead><tbody>'
+    + sorok.map(function (c) {
+      return '<tr><td>' + escapeHtml(String(c.at || '').slice(0, 16).replace('T', ' ')) + '</td>'
+        + '<td>' + escapeHtml(c.kind || '') + '</td>'
+        // A TELJES helyi ut: ezt kell megnyitni, ha vissza akarod nezni a fajlt.
+        + '<td>' + (c.localPath ? '<code>' + escapeHtml(c.localPath) + '</code>' : '<span class="subtitle">—</span>') + '</td>'
+        + '<td>' + escapeHtml(c.note || '') + '</td></tr>'
+    }).join('')
+    + '</tbody></table></div>'
+}
+
+async function _depoGuardToggle(enabled) {
+  try {
+    await _depoPost('/api/drive/sync/external', { enabled: !!enabled })
+  } catch (e) {
+    alert(t('dguard.save_failed') + ' ' + ((e && e.message) ? e.message : String(e)))
+  }
+  await _depoGuardRefresh()
+}
+
+async function _depoGuardClear() {
+  // A naplo uritese NEM torol fajlt -- de akkor is megkerdezzuk, mert a
+  // feljegyzett esemenyek nem jonnek vissza.
+  if (!confirm(t('dguard.clear_confirm'))) return
+  try {
+    await _depoPost('/api/drive/sync/external', { clear: true })
+  } catch (e) {
+    alert(t('dguard.clear_failed') + ' ' + ((e && e.message) ? e.message : String(e)))
+  }
+  await _depoGuardRefresh()
 }
 
 /**
@@ -30647,6 +30724,9 @@ async function _depoRefresh() {
     if (s.job && s.job.running) _depoStartPoll()
   }
   if (s) _depoRenderBackups(s)
+  // KULON tolt, a `s`-tol fuggetlenul: ha a `/api/drive/sync` elhasal, a
+  // vedelem allapotat akkor is latni kell -- eppen olyankor a legfontosabb.
+  await _depoGuardRefresh()
   // Serult beallitas-fajl: a lista ilyenkor URESEN all. Magyarazat nelkul ez ugy
   // nez ki, mintha a felhasznalo maga valasztotta volna le a mappait. Ez a
   // figyelmeztetes a vészfék-doboz UTAN all be, hogy ne nyomja el a job-uzenet.
@@ -31358,9 +31438,189 @@ async function loadIntezoPage() {
   const active = document.querySelector('input[name="intezoBadge"][value="' + mode + '"]')
   if (active) active.checked = true
 
+  // BEERKEZO-LANC (specifikacio 22-23.).
+  bind('inboxRefreshBtn', 'click', () => _inboxRefresh())
+  bind('inboxPreviewBtn', 'click', () => _inboxPreview())
+  bind('inboxFileBtn', 'click', () => _inboxFile())
+  var ibItems = document.getElementById('inboxItems')
+  if (ibItems && !ibItems._intezoBound) {
+    ibItems._intezoBound = 1
+    // Delegalva: a lista minden frissiteskor ujra keszul.
+    ibItems.addEventListener('change', () => _inboxSyncButtons())
+  }
+  var ibCh = document.getElementById('inboxChainChoices')
+  if (ibCh && !ibCh._intezoBound) {
+    ibCh._intezoBound = 1
+    ibCh.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-inbox-step]')
+      if (b) _inboxChain(b.getAttribute('data-inbox-step'))
+    })
+  }
+
   await _intezoLegend()
   await _intezoMountOptions()
   await _intezoStatus()
+  await _intezoOpen(_intezoPath)
+  await _inboxRefresh()
+}
+
+/* ================ BEERKEZO-LANC (specifikacio 22-23. pont) ================
+ *
+ * A lanc lepeseit a KISZOLGALO adja, mert a lanc MAGA A FA. A bongeszo nem
+ * tart sajat kategoria-listat: ha a fa bovul, a valasztek magatol kovetni
+ * fogja.
+ *
+ * Amit ez a resz SOSEM tesz: nem valaszt gazdat a felhasznalo helyett (23.
+ * pont 1. szabaly). A "Besorolás ide" gomb addig szurke, amig nincs kijelolt
+ * tetel ES kivalasztott cel.
+ */
+var _inboxTarget = ''
+
+async function _inboxRefresh() {
+  var st = document.getElementById('inboxStatus')
+  var box = document.getElementById('inboxItems')
+  if (!st && !box) return
+  var d = null
+  try {
+    d = await _intezoGet('/api/life/inbox/items?lang=' + (window._lang || 'hu'))
+  } catch (e) {
+    // A TENYLEGES hibauzenet. Nem talalgatunk okot.
+    if (st) st.textContent = t('inbox.load_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+    if (box) box.innerHTML = ''
+    return
+  }
+  // A kiszolgalo mondja meg, MIERT ures -- nincs depo / nincs fa / nem
+  // olvashato / tenyleg ures. A bongeszo ezt nem tudja eldonteni.
+  if (st) st.textContent = d.message || ''
+  if (box) {
+    var items = d.items || []
+    box.innerHTML = !items.length ? '' : items.map(function (it) {
+      return '<label style="display:flex;gap:8px;align-items:flex-start;padding:4px 0">'
+        + '<input type="checkbox" class="inbox-item" value="' + escapeAttr(it.name) + '"'
+        + (it.credentialWarning ? ' disabled' : '') + '>'
+        + '<span><strong>' + escapeHtml(it.name) + '</strong>'
+        + (it.sizeHuman ? ' <span class="subtitle">· ' + escapeHtml(it.sizeHuman) + '</span>' : '')
+        + (it.credentialWarning
+          ? '<br><span class="subtitle" style="color:var(--warning, #c77)">🔒 ' + escapeHtml(it.credentialWarning) + '</span>'
+          : '')
+        + '</span></label>'
+    }).join('')
+  }
+  await _inboxChain(d.reason === 'ok' ? '' : null)
+  _inboxSyncButtons()
+}
+
+async function _inboxChain(rel) {
+  var box = document.getElementById('inboxChainBox')
+  if (!box) return
+  if (rel === null) { box.hidden = true; return }
+  var d = null
+  try {
+    d = await _intezoGet('/api/life/inbox/chain?lang=' + (window._lang || 'hu')
+      + '&rel=' + encodeURIComponent(rel || ''))
+  } catch (e) {
+    box.hidden = true
+    return
+  }
+  box.hidden = false
+  _inboxTarget = d.rel || ''
+  var crumb = document.getElementById('inboxChainCrumb')
+  var q = document.getElementById('inboxChainQuestion')
+  var ch = document.getElementById('inboxChainChoices')
+  var note = document.getElementById('inboxChainNote')
+  if (crumb) {
+    crumb.textContent = (_inboxTarget
+      ? t('inbox.here') + ' ' + d.display
+      : t('inbox.start'))
+  }
+  if (q) q.textContent = d.question || ''
+  if (ch) {
+    var vissza = _inboxTarget
+      ? '<button class="btn-secondary btn-compact" data-inbox-step="' + escapeAttr(_inboxUpRel(_inboxTarget)) + '">↑ ' + escapeHtml(t('inbox.back')) + '</button>'
+      : ''
+    ch.innerHTML = vissza + (d.choices || []).map(function (c) {
+      return '<button class="btn-secondary btn-compact" data-inbox-step="' + escapeAttr(c.rel) + '"'
+        + (c.hint ? ' title="' + escapeAttr(c.hint) + '"' : '') + '>' + escapeHtml(c.name) + '</button>'
+    }).join('')
+  }
+  if (note) note.textContent = d.message || ''
+  _inboxSyncButtons()
+}
+
+function _inboxUpRel(rel) {
+  var i = String(rel || '').lastIndexOf('/')
+  return i < 0 ? '' : rel.slice(0, i)
+}
+
+function _inboxSelected() {
+  var out = []
+  document.querySelectorAll('.inbox-item:checked').forEach(function (c) { out.push(c.value) })
+  return out
+}
+
+function _inboxSyncButtons() {
+  var btn = document.getElementById('inboxFileBtn')
+  if (!btn) return
+  // Cel NELKUL nem sorolunk be: a gazdat nem talaljuk ki.
+  btn.disabled = !(_inboxSelected().length && _inboxTarget)
+}
+
+async function _inboxPreview() {
+  var box = document.getElementById('inboxPreview')
+  if (!box) return
+  var names = _inboxSelected()
+  var d = null
+  try {
+    d = await _depoPost('/api/life/inbox/preview?lang=' + (window._lang || 'hu'),
+      { names: names, target: _inboxTarget })
+  } catch (e) {
+    box.innerHTML = '<p class="subtitle">' + escapeHtml(t('inbox.preview_failed') + ' ' + ((e && e.message) ? e.message : String(e))) + '</p>'
+    return
+  }
+  var sorok = d.plans || []
+  box.innerHTML = '<p class="subtitle">' + escapeHtml(d.message || '') + '</p>'
+    + (!sorok.length ? '' : '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+      + '<th>' + escapeHtml(t('inbox.col_item')) + '</th>'
+      + '<th>' + escapeHtml(t('inbox.col_target')) + '</th>'
+      + '<th>' + escapeHtml(t('inbox.col_result')) + '</th></tr></thead><tbody>'
+      + sorok.map(function (p) {
+        return '<tr><td>' + escapeHtml(p.name) + '</td>'
+          + '<td><code>' + escapeHtml(p.targetRel) + '</code></td>'
+          + '<td>' + (p.status === 'ok'
+            ? escapeHtml(t('inbox.ok'))
+            : '<span style="color:var(--warning, #c77)">' + escapeHtml(p.message) + '</span>') + '</td></tr>'
+      }).join('')
+      + '</tbody></table></div>')
+}
+
+async function _inboxFile() {
+  var names = _inboxSelected()
+  if (!names.length || !_inboxTarget) return
+  // A lemezre iro lepes elott megerosites -- a celt is kimondva.
+  if (!confirm(t('inbox.confirm', { n: names.length, target: _inboxTarget }))) return
+  var d = null
+  try {
+    d = await _depoPost('/api/life/inbox/file?lang=' + (window._lang || 'hu'),
+      { names: names, target: _inboxTarget })
+  } catch (e) {
+    showToast(t('inbox.file_failed') + ' ' + ((e && e.message) ? e.message : String(e)))
+    return
+  }
+  showToast(d.message || '')
+  // Ami megallt, azt NEVEN NEVEZVE hagyjuk a kepernyon.
+  var box = document.getElementById('inboxPreview')
+  if (box && (d.failed || []).length) {
+    box.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+      + '<th>' + escapeHtml(t('inbox.col_item')) + '</th>'
+      + '<th>' + escapeHtml(t('inbox.col_result')) + '</th></tr></thead><tbody>'
+      + d.failed.map(function (f) {
+        return '<tr><td>' + escapeHtml(f.name) + '</td><td>' + escapeHtml(f.message) + '</td></tr>'
+      }).join('')
+      + '</tbody></table></div>'
+  } else if (box) {
+    box.innerHTML = ''
+  }
+  await _inboxRefresh()
   await _intezoOpen(_intezoPath)
 }
 
@@ -31478,7 +31738,10 @@ function _intezoBadge(entry) {
   const src = entry.source || {}
   const colors = { local: '#6b7280', drive: '#2563eb', photos: '#d97706', git: '#7c3aed', mixed: '#0f766e' }
   const color = colors[src.kind] || '#6b7280'
-  const label = mode === 'icon' ? (src.icon || '•') : ('[' + (src.short || '?') + ']')
+  // Szoveges modban a KIOSZTOTT sorszam all a jelvenyben (DRIVE_02), nem
+  // csak a fajta: ket Drive-fiok kulonben pontosan ugyanugy nezne ki. Ha meg
+  // nincs sorszam, a fajta-rovidites marad -- kitalalt szamot nem irunk ki.
+  const label = mode === 'icon' ? (src.icon || '•') : ('[' + (src.storageId || src.short || '?') + ']')
   const tip = escapeHtml((src.label || '') + (src.details && src.details.length
     ? '\n' + src.details.map((d) => d.label + ': ' + d.value).join('\n') : ''))
   return '<span class="intezo-badge" title="' + tip + '" style="color:' + color
@@ -31833,19 +32096,28 @@ async function _intezoInfo(rel, quiet) {
   const src = info.source || {}
   const rows = [
     [t('intezo.info_type'), info.type],
-    ['Kihez tartozik', info.owner || '—'],
+    [t('intezo.info_owner'), info.owner || '—'],
     [t('intezo.info_digital'), info.digitalLocation || t('intezo.tree_root')],
     [t('intezo.info_source'), (src.icon || '') + ' ' + (src.label || '')],
   ]
   if (info.mount) rows.push([t('intezo.info_mounted'), info.mount.label + '  (' + info.mount.target + ')'])
   ;(src.details || []).forEach((d) => rows.push([d.label, d.value]))
+  // A 20. pont ot mezoje. Az azonosito HIANYA is sor: a storageNote egy
+  // MERT okbol jon (nincs raktar / nem tarolobol jon / nincs kiosztva
+  // sorszam), tehat sose ures kepernyot mutatunk helyette.
+  const stg = info.storage || {}
+  rows.push([t('intezo.st_logical'), stg.logicalPath || t('intezo.tree_root')])
+  rows.push([t('intezo.st_id'), stg.storageId || stg.storageNote || '—'])
+  if (stg.storageType) rows.push([t('intezo.st_type'), stg.storageType])
+  if (stg.physicalPath) rows.push([t('intezo.st_physical'), stg.physicalPath])
+  if (stg.sourceProvider) rows.push([t('intezo.st_provider'), stg.sourceProvider])
   if (!info.isDir) rows.push([t('intezo.info_size'), info.sizeHuman || '—'])
   // A datumformatum is a felulet nyelvet koveti, nem a telepitesét.
   rows.push([t('intezo.info_mtime'), info.mtime
     ? new Date(info.mtime).toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU') : '—'])
   rows.push([t('intezo.info_physical'),
     t(info.physical && info.physical.physical ? 'intezo.info_has' : 'intezo.info_hasnt')])
-  if (info.physicalLocationHuman) rows.push(['Fizikai hely', info.physicalLocationHuman])
+  if (info.physicalLocationHuman) rows.push([t('intezo.info_physloc'), info.physicalLocationHuman])
 
   rowsEl.innerHTML = rows.map((r) =>
     '<tr><td style="padding:4px 10px 4px 0;opacity:.7;white-space:nowrap">' + escapeHtml(r[0])

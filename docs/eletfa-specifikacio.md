@@ -492,18 +492,33 @@ a terv a szándék, ez a mérleg.
   `Rendszer` alá került; ez a kettő a Boss döntése alapján nem mozdult, és élő
   szinkron-cél is, tehát az elmozdítása a letöltéseket a régi útra írná.
 
-### Még nincs kész
+### Elkészült — 2026-08-29
 
-Ezek **nem** részei ennek a körnek, és külön fejlesztést igényelnek:
+A korábbi „még nincs kész" lista mind a négy pontja megvan:
 
 1. **Több Drive-tároló kezelése** (5., 33.) — `DRIVE_01..10`, Beállítások → Tárolók.
-   Ma egy Drive-fiók van bekötve.
-2. **Külső törlés elleni védelem** (6.) — a Drive-ból érkező törlés ne törölhesse
-   vissza a helyi életfát. Ez a szinkron-motor módosítása, nem a fáé.
-3. **A Beérkező-lánc automatikus besorolása** (22–23.) — a mappa és a szabályok
-   megvannak, a mozgató logika nem.
-4. **A per-fájl adatmodell** (20.) — `storageId`, `physicalPath`, `sourceProvider`
-   minden fájlra. Ma a forrásjelvény a mappa bekötéséből következtet.
+2. **Külső törlés elleni védelem** (6.) — a szinkron lefelé **soha nem töröl**;
+   a Drive-on eltűnt fájl a gépeden marad, és a Depó oldalon egy naplósorban meg
+   is jelenik (`store/external-deletions.jsonl`). Csonkolt bejárásnál nem
+   következtet törlésre, hanem `kihagyva` sort ír — a nulla itt is két dolgot
+   jelenthet. Alapból BE, a felületről kapcsolható.
+   Kód: `src/external-delete-guard.ts`, `GET/POST /api/drive/sync/external`.
+3. **A Beérkező-lánc** (22–23.) — az Intéző „Beérkező" kártyája végigvezet a
+   `KIHEZ TARTOZIK? → MELYIK TERÜLET? → … → HOVA KERÜLJÖN?` láncon. A lépések
+   magából a fából jönnek (nincs külön szabálylista, ami elavulhatna), a
+   gazdát **nem találja ki**, előnézet előzi meg az írást, azonos névnél megáll,
+   és a jelszó/kulcs/token nevű fájlokat nem sorolja be (21., 23.).
+   Kód: `src/life-inbox.ts`, `/api/life/inbox/*`.
+4. **A per-fájl adatmodell** (20.) — minden fájlra `logicalPath`, `storageId`,
+   `storageType`, `physicalPath`, `sourceProvider`; a részletek panel mind az
+   ötöt kiírja, a szöveges jelvény pedig a **kiosztott sorszámot** mutatja
+   (`[DRIVE_02]`), így két Drive-fiók már nem néz ki egyformán. Sorszámot sosem
+   tippel: hiánynál a három ok (`no-depot` / `not-storage` / `unregistered`)
+   külön, emberi mondattal jelenik meg.
+   Kód: `src/storage-index.ts`, `src/life-sources.ts`.
+
+Mérés: `src/__tests__/external-delete-guard.test.ts` (10),
+`src/__tests__/life-inbox.test.ts` (12), `src/__tests__/storage-index.test.ts` (8).
 
 ### Ami változatlanul tilos
 

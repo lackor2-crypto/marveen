@@ -26,6 +26,7 @@ import { APP_LANG } from './config.js'
 import { depotRoot, DEPOT_PROJECTS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { detectSource, type SourceInfo } from './life-sources.js'
+import { storageMissText } from './storage-index.js'
 import { getPhysical, movePhysical, forgetPhysical, type PhysicalRecord } from './life-documents.js'
 import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName,
@@ -94,7 +95,13 @@ export interface LifeEntry {
   sizeHuman: string
   /** Modositas ideje ISO-ban, vagy ures, ha nem tudtuk megallapitani. */
   mtime: string
-  source: { kind: string; label: string; short: string; icon: string }
+  source: {
+    kind: string; label: string; short: string; icon: string
+    /** `DRIVE_01` -- vagy `null`, ha nem allapithato meg (20. pont). */
+    storageId: string | null
+    /** A tarolo emberi neve, ha van. */
+    storageName: string
+  }
   /**
    * Egy mondatnyi sugo: mit szoktak ebbe a mappaba tenni.
    *
@@ -225,7 +232,13 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     size: isDir ? 0 : st.size,
     sizeHuman: isDir ? '' : humanSize(st.size),
     mtime: (() => { try { return st.mtime.toISOString() } catch { return '' } })(),
-    source: { kind: src.kind, label: src.label, short: src.short, icon: src.icon },
+    // A `storageId` MAR A LISTABAN ott van, nem csak az informacios panelen:
+    // a jelveny buborekja igy meg tudja mondani, MELYIK Drive-rol jott a sor
+    // (20. pont). `null`, ha nem tudjuk -- kitalalni tilos.
+    source: {
+      kind: src.kind, label: src.label, short: src.short, icon: src.icon,
+      storageId: src.storageId ?? null, storageName: src.storageName || '',
+    },
     physical: getPhysical(rel).physical,
     mounted: '',
     caution: cautionFor(rel, name, abs, isDir, lang),
@@ -455,6 +468,22 @@ export interface LifeInfo {
   /** Digitalis hely emberi mondatban: `Név / Jogi / Németország / Bíróság`. */
   digitalLocation: string
   source: SourceInfo
+  /**
+   * A specifikacio 20. pontjanak OT mezoje, egyben.
+   *
+   * A `source` reszletei emberi mondatok a panelre; ez a gepi valtozat --
+   * ebbol dolgozik minden, ami egy fajlt vissza akar vezetni a tarolojahoz.
+   * A `storageId` `null` is lehet: a `storageNote` mondja meg, miert.
+   */
+  storage: {
+    logicalPath: string
+    storageId: string | null
+    storageType: string | null
+    physicalPath: string
+    sourceProvider: string
+    /** Emberi mondat, ha nincs azonosito. Ures, ha van. */
+    storageNote: string
+  }
   physical: PhysicalRecord
   /** A papir helye emberi mondatban (ugyanaz a fa, nyilakkal). */
   physicalLocationHuman: string
@@ -526,6 +555,7 @@ export function lifeInfo(rel: string, lang = APP_LANG): LifeInfo | null {
   const isDir = st ? st.isDirectory() : false
   const physical = getPhysical(cleanRel)
   const mounted = resolveMount(cleanRel)
+  const src = detectSource(abs, isDir, isDir)
   return {
     rel: cleanRel,
     mount: mounted ? { label: mounted.mount.label, target: mounted.target } : null,
@@ -538,7 +568,15 @@ export function lifeInfo(rel: string, lang = APP_LANG): LifeInfo | null {
     mtime: st ? (() => { try { return st!.mtime.toISOString() } catch { return '' } })() : '',
     owner: ownerOf(cleanRel, loadLifeConfig()),
     digitalLocation: humanLocation(cleanRel.includes('/') ? cleanRel.slice(0, cleanRel.lastIndexOf('/')) : ''),
-    source: detectSource(abs, isDir, isDir),
+    source: src,
+    storage: {
+      logicalPath: cleanRel,
+      storageId: src.storageId ?? null,
+      storageType: src.storageType ?? null,
+      physicalPath: src.physicalPath || toDisplayPath(abs),
+      sourceProvider: src.sourceProvider || src.kind,
+      storageNote: src.storageId ? '' : storageMissText(src.storageMiss || 'not-storage', lang),
+    },
     physical,
     physicalLocationHuman: physical.location ? humanLocation(physical.location) : '',
   }

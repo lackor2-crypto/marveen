@@ -31,6 +31,7 @@ import {
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
+import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
 import {
@@ -536,6 +537,46 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/inbox' && method === 'GET') {
     send(res, 200, { count: inboxCount() })
+    return true
+  }
+
+  // A BEERKEZO-LANC (specifikacio 22-23.).
+  //
+  // Negy vegpont, kulon felelosseggel: MI VAR (es ha semmi, MIERT), HOVA mehet
+  // (a lanc kovetkezo lepese), MI TORTENNE (elonezet), es a vegrehajtas. Az
+  // elonezet szandekosan kulon all: a lemezre iro lepes elott latni kell, mi
+  // all meg es miert.
+  if (path === '/api/life/inbox/items' && method === 'GET') {
+    send(res, 200, inboxStatus(uiLang(url)))
+    return true
+  }
+
+  if (path === '/api/life/inbox/chain' && method === 'GET') {
+    send(res, 200, inboxChainStep(url.searchParams.get('rel') || '', uiLang(url)))
+    return true
+  }
+
+  if (path === '/api/life/inbox/preview' && method === 'POST') {
+    const body = await readJson(req)
+    const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : []
+    send(res, 200, inboxPreview(names, String(body?.target ?? ''), uiLang(url)))
+    return true
+  }
+
+  if (path === '/api/life/inbox/file' && method === 'POST') {
+    const body = await readJson(req)
+    const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : []
+    if (!names.length) {
+      send(res, 400, { error: 'no_items', message: 'Nem jelöltél ki tételt.' })
+      return true
+    }
+    const target = String(body?.target ?? '')
+    if (!target) {
+      // A gazdat NEM talaljuk ki (23. pont, 1. szabaly): cel nelkul megallunk.
+      send(res, 400, { error: 'no_target', message: 'Előbb válaszd ki, hova kerüljön – nem találom ki helyetted.' })
+      return true
+    }
+    send(res, 200, inboxFile(names, target, uiLang(url)))
     return true
   }
 

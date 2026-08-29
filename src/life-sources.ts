@@ -28,6 +28,7 @@ import { join, dirname, sep } from 'node:path'
 import { PROJECT_ROOT } from './config.js'
 import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
+import { storageAt, storageMissText, type StorageMissReason } from './storage-index.js'
 
 /**
  * A forrasok gepi nevei.
@@ -53,6 +54,30 @@ export interface SourceInfo {
   icon: string
   /** Reszletek a buborekba es az informacios panelbe, sorrendben. */
   details: SourceDetail[]
+  /**
+   * A specifikacio 20. pontjanak PER-FAJL adatmodellje.
+   *
+   * Eddig a jelveny csak a FAJTAT mondta meg ("Drive"), azt nem, hogy MELYIK
+   * Drive-rol van szo -- `DRIVE_02` es `DRIVE_07` egyformanak latszott. Ez a
+   * negy mezo teszi a jelvenyt visszakeresheteve; az otodik mezo, a
+   * `logicalPath`, a hivo oldalan all (`lifeInfo`), mert az a fa-beli hely,
+   * nem a forrase.
+   *
+   * A `storageId` szandekosan lehet `null`: ha nem tudjuk, azt mondjuk ki, nem
+   * pedig egy kitalalt azonositot. A `storageMiss` mondja meg, MIERT nincs --
+   * a harom ok (nincs raktar / nem tarolo alol jon / nincs meg kiosztva
+   * sorszam) KULON kezelendo. Ez a "nulla ket dolgot jelenthet" szabalya:
+   * "nincs azonosito" nem ugyanaz, mint "nem lattam oda".
+   */
+  storageId?: string | null
+  storageType?: string | null
+  /** A tarolo emberi neve (`lackor2`), ha van. */
+  storageName?: string
+  storageMiss?: StorageMissReason | null
+  /** A fajl TENYLEGES helye a lemezen, emberi alakban. */
+  physicalPath?: string
+  /** Melyik felismero valaszolt (`drive`, `photos`, `git`, `local`). */
+  sourceProvider?: string
 }
 
 export interface SourceProvider {
@@ -398,7 +423,18 @@ export function detectSource(abs: string, isDir: boolean, deep = false): SourceI
     if (kinds.size > 1) break
   }
   if (kinds.size <= 1) return own
-  return mixedSource([...kinds])
+  // VEGYES mappa: NINCS egy tarolo-azonositoja, es ez nem hianyzo adat, hanem
+  // a helyes valasz -- tobb tarolobol jon a tartalma. Egyet kivalasztani
+  // kozuluk pont az a hazugsag lenne, ami ellen a `vegyes` fajta van.
+  return {
+    ...mixedSource([...kinds]),
+    storageId: null,
+    storageType: null,
+    storageName: '',
+    storageMiss: null,
+    physicalPath: toDisplayPath(abs),
+    sourceProvider: 'mixed',
+  }
 }
 
 function firstMatch(abs: string, isDir: boolean): SourceInfo {
@@ -407,9 +443,45 @@ function firstMatch(abs: string, isDir: boolean): SourceInfo {
     // Egy felismero hibaja nem allithatja meg a listazast: a kovetkezot
     // kerdezzuk, es a vegen ott a `local`, ami mindig valaszol.
     try { r = p.detect(abs, isDir) } catch { r = null }
-    if (r) return r
+    if (r) return withStorage(r, abs)
   }
-  return localProvider().detect(abs, isDir)!
+  return withStorage(localProvider().detect(abs, isDir)!, abs)
+}
+
+/**
+ * A 20. pont mezoinek RAAKASZTASA a felismero valaszara.
+ *
+ * KOZPONTILAG, es nem minden felismeroben kulon -- ket okbol. Egy: igy egy
+ * kesobbi tarolo (NAS, OneDrive) is megkapja oket anelkul, hogy errol tudnia
+ * kellene; ez ugyanaz a bovithetoseg, amiert a felismerok regiszterben allnak.
+ * Ketto: igy nem lehet elfelejteni. Ha minden felismero maga toltene ki, a
+ * kovetkezo pontosan ott bukna el, ahol ez a mezo eloszor szamit.
+ *
+ * A `storageAt` SOSE dob es sosem talalgat: ha nincs kiosztott sorszam, `null`
+ * jon vissza egy MEGNEVEZETT okkal, es a felhasznalo azt latja, nem egy
+ * kitalalt `DRIVE_01`-et.
+ */
+function withStorage(info: SourceInfo, abs: string): SourceInfo {
+  let m
+  try { m = storageAt(abs) } catch { m = null }
+  const details = [...info.details]
+  if (m && m.id) {
+    // A LATHATO azonosito. A 20. pont szerint ez az, ami egy fajlt tartosan
+    // a taroloahoz koti -- a mappanev atnevezheto, ez nem.
+    details.push({ label: 'Tároló azonosító', value: m.name && m.name !== m.account ? `${m.id} (${m.name})` : m.id })
+  } else if (m && m.reason === 'unregistered') {
+    details.push({ label: 'Tároló azonosító', value: storageMissText('unregistered') })
+  }
+  return {
+    ...info,
+    details,
+    storageId: m ? m.id : null,
+    storageType: m ? m.kind : null,
+    storageName: m ? m.name : '',
+    storageMiss: m ? m.reason : null,
+    physicalPath: toDisplayPath(abs),
+    sourceProvider: info.kind,
+  }
 }
 
 /** Minden bekotott tarolo -- a felulet ebbol epiti a jelmagyarazatot. */

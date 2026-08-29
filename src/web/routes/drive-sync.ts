@@ -48,6 +48,10 @@ import {
   recordSyncFailure, loadSyncFailures, clearSyncFailures, failuresAsText, syncFailureRuns,
   type SyncFailurePhase,
 } from '../../drive-sync-failures.js'
+import {
+  noteExternalScan, recordExternalChange, externalGuardEnabled, loadExternalChanges,
+  clearExternalChanges, setExternalGuardEnabled, externalSummaryText,
+} from '../../external-delete-guard.js'
 import type { RouteContext } from './types.js'
 
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
@@ -929,6 +933,10 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
   // nevet, a masodikat kihagyjuk es NEVEN NEVEZZUK.
   const hasznaltUtak = new Set<string>()
   const utkozoIdk = new Set<string>()
+  // KULSO TORLES ELLENI VEDELEM (6. pont): amit MOST lattunk a Drive-on. Amire
+  // a nyilvantartasban van sor, de ebben a halmazban nincs, azt fent toroltek.
+  // A kovetkeztetes CSAK teljes bejarasnal all meg -- lasd `noteExternalScan`.
+  const latottIdk = new Set<string>()
   while (queue.length) {
     const cur = queue.shift()!
     if (++folders > MAX_FOLDERS) {
@@ -982,6 +990,10 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
         csonkaOkok.add('fájl-korlát')
         return { csonkolt: [...csonkaOkok], brake: null, maradt: 0 }
       }
+      // A fajl LETEZIK a Drive-on. Ez fuggetlen attol, le tudjuk-e tolteni (egy
+      // Urlapot nem tudunk, de attol meg nem toroltek le) -- ezert all a
+      // kihagyo agak ELOTT.
+      latottIdk.add(f.id)
       const plan = driveDownloadPlan(f.id, f.mimeType, seg)
       if (plan.unsupported) {
         // Urlap, Site, terkep: ezeknek nincs letoltheto alakjuk. Nem hiba,
@@ -1044,6 +1056,19 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
         try {
           mkdirSync(dirname(dest), { recursive: true })
           renameSync(regiAbs, dest)
+          // TAVOLROL VEZERELT HELYI VALTOZAS. Egy bajt sem vesz el, de a
+          // gepeden levo fajl neve egy Drive-beli lepes miatt valtozott meg --
+          // ha valaki a Drive-odat turja fel, ennek latszodnia kell.
+          if (externalGuardEnabled()) {
+            recordExternalChange({
+              runId: job?.runId || 'futás-azonosító-nélkül',
+              at: new Date().toISOString(),
+              account: pair.account, pair: pairLabel(pair), pairId: pair.id,
+              kind: 'átnevezés', driveId: f.id, localPath: dest, relPath: rel,
+              driveName: f.name || seg,
+              note: `A Drive-on átnevezték, ezért a gépeden is átneveztem: ${known.path} → ${rel}. A tartalomhoz nem nyúltam.`,
+            })
+          }
           known = { ...known, path: rel }
           state[f.id] = known
         } catch (err: any) {
@@ -1108,6 +1133,27 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
   }
 
   const csonkolt = [...csonkaOkok]
+  // KULSO TORLES ELLENI VEDELEM (6. pont). Mentes-parosnal nincs ertelme: ott a
+  // Drive a CEL, nem forras -- a bejaras el sem jut a fajlok allapotaig, es egy
+  // ottani torles nem "kulso torles", hanem a mentes hianya (azt a felmeno ag
+  // potolja). Nem-mentes parosnal viszont a nyilvantartas es a most latott
+  // halmaz kulonbsege pontosan a fentrol torolt fajlokat adja -- de csak akkor,
+  // ha a bejaras TELJES volt.
+  if (!pair.backup) {
+    const tracked = new Map<string, string>()
+    for (const [id, st] of Object.entries(state)) {
+      if (st && typeof st.path === 'string' && st.path) tracked.set(id, st.path)
+    }
+    noteExternalScan({
+      runId: job?.runId || 'futás-azonosító-nélkül',
+      account: pair.account, pair: pairLabel(pair), pairId: pair.id,
+      base,
+      tracked,
+      seen: latottIdk,
+      complete: csonkolt.length === 0,
+      incompleteReason: csonkolt.length ? csonkoltSzoveg(csonkolt, MAX_FOLDERS, MAX_FILES) : '',
+    })
+  }
   const felmeno = await uploadPhase({ pair, cfg, state, token, base, gyoker, gyokerAbs, folderIds, csonkolt, utkozoIdk, driveUtak })
   return { csonkolt, brake: felmeno.brake, maradt: felmeno.maradt }
 }
@@ -1734,6 +1780,41 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/drive/sync/failures/clear' && method === 'POST') {
     clearSyncFailures()
     json(res, { ok: true })
+    return true
+  }
+
+  // KULSO TORLES ELLENI VEDELEM (6. pont) -- allapot es naplo.
+  //
+  // Friss telepitesen ez a vegpont is valaszol: a vedelem BE, a lista ures, es
+  // az `summary` megmondja, hogy azert ures, mert MEG NEM FUTOTT ilyen
+  // szinkron -- nem azert, mert nem tortent semmi.
+  if (path === '/api/drive/sync/external' && method === 'GET') {
+    const lang = ctx.url.searchParams.get('lang') === 'en' ? 'en' : 'hu'
+    const load = loadExternalChanges({ limit: 500 })
+    json(res, {
+      enabled: externalGuardEnabled(),
+      changes: load.list,
+      fileExists: load.fileExists,
+      readError: load.readError,
+      summary: externalSummaryText(load, lang),
+    })
+    return true
+  }
+
+  if (path === '/api/drive/sync/external' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    if (data.clear === true) {
+      // Csak a NAPLOT uriti. Fajlt nem torol -- itt nincs mit elveszteni.
+      clearExternalChanges()
+      json(res, { ok: true, enabled: externalGuardEnabled(), cleared: true })
+      return true
+    }
+    if (typeof data.enabled !== 'boolean') {
+      json(res, { error: 'Hiányzik, hogy be- vagy kikapcsoljam a védelmet.', code: 'bad_request' }, 400)
+      return true
+    }
+    setExternalGuardEnabled(data.enabled)
+    json(res, { ok: true, enabled: data.enabled })
     return true
   }
 

@@ -1900,6 +1900,33 @@
         <p id="depoSyncBrake" class="subtitle"
            style="display:none;margin-top:10px;padding:10px;border-radius:6px;
                   border:1px solid var(--warning, #c77);background:rgba(200,120,60,.12)"></p>
+
+        <!-- KULSO TORLES ELLENI VEDELEM (a specifikacio 6. pontja).
+             Boss: "ha valaki feltori a drivomat akkor a gepemrol ne tudjon
+             torolni." A lefele menetben nincs es nem is lesz torles; ez a doboz
+             azt teszi LATHATOVA, mi tunt el a Drive-rol -- es hogy nalad
+             megvan. A naplo uressege ket dolgot jelenthet, ezert a szoveget a
+             kiszolgalo adja (meg nem futott ilyen szinkron / nem tortent semmi). -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border, #333)">
+          <h3 style="margin:0 0 6px;font-size:14px" data-i18n="dguard.title">Külső törlés elleni védelem</h3>
+          <p class="subtitle" style="margin:0 0 10px" data-i18n="dguard.what">
+            Ami a Drive-on törlődik, az a gépeden MEGMARAD. A Marveen soha nem
+            töröl le nálad fájlt azért, mert a felhőben eltűnt — csak megmutatja,
+            mi tűnt el, hogy te dönthess róla.
+          </p>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="depoGuardEnabled" checked>
+            <span data-i18n="dguard.watch_label">Figyeld és jegyezd fel, ha a Drive-on törölnek vagy átneveznek valamit</span>
+          </label>
+          <p id="depoGuardSummary" class="subtitle" style="margin:10px 0 0"></p>
+          <div id="depoGuardList" style="margin-top:8px"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+            <button class="btn-secondary btn-compact" id="depoGuardRefreshBtn"
+                    data-i18n="dguard.refresh">Frissítés</button>
+            <button class="btn-secondary btn-compact" id="depoGuardClearBtn"
+                    data-i18n="dguard.clear">Napló ürítése</button>
+          </div>
+        </div>
       </div>
 
       <!-- A MASIK IRANY. A fenti kartya a felhot hozza LE, ez a munkadat viszi
@@ -2937,6 +2964,40 @@
            ha a panel ott allna, minden frissites megsemmisitene -- a rajta
            levo esemenykezelokkel egyutt. -->
       <div id="intezoInfoHome"></div>
+
+      <!-- BEERKEZO-LANC (a specifikacio 22-23. pontja).
+           Barmit ide lehet dobni, es a besorolas egy LANCON megy vegig:
+           kihez tartozik -> melyik terulet -> melyik orszag -> melyik ugy ->
+           melyik dokumentumtipus -> hova keruljon. A lepeseket MAGA A FA adja,
+           ezert nincs kulon szabaly-lista, amit karban kellene tartani.
+           A gazdat SOSEM talaljuk ki: a celt ember jeloli ki. -->
+      <div class="card" id="intezoInboxCard">
+        <h2 data-i18n="inbox.title">Beérkező – besorolás</h2>
+        <p class="subtitle" data-i18n="inbox.what">
+          Ide bármit ledobhatsz: szken, PDF, e-mail melléklet, letöltés, banki
+          vagy hatósági levél. A besorolás kérdésről kérdésre halad, és a
+          lépéseket maga a fa adja. Jelszót, API-kulcsot, tokent NEM engedek be
+          az életfába — az a Marvin Vaultba való.
+        </p>
+        <p id="inboxStatus" class="subtitle" style="margin:8px 0"></p>
+        <div id="inboxItems"></div>
+
+        <!-- A LANC. A morzsa mutatja, hol tartunk; a kerdes azt, mire valaszolsz. -->
+        <div id="inboxChainBox" style="margin-top:14px" hidden>
+          <p id="inboxChainCrumb" class="subtitle" style="margin:0 0 4px"></p>
+          <p id="inboxChainQuestion" style="margin:0 0 8px;font-weight:600"></p>
+          <div id="inboxChainChoices" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+          <p id="inboxChainNote" class="subtitle" style="margin:8px 0 0"></p>
+        </div>
+
+        <!-- ELONEZET a lemezre iro lepes ELOTT. Ami megall, itt all meg. -->
+        <div id="inboxPreview" style="margin-top:12px"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+          <button class="btn-secondary btn-compact" id="inboxRefreshBtn" data-i18n="inbox.refresh">Frissítés</button>
+          <button class="btn-secondary btn-compact" id="inboxPreviewBtn" data-i18n="inbox.preview">Előnézet</button>
+          <button class="btn-primary btn-compact" id="inboxFileBtn" disabled data-i18n="inbox.file">Besorolás ide</button>
+        </div>
+      </div>
 
       <!-- RESZLETES INFORMACIO: jobb oldali panel egy kijelolt tetelrol.
            Itt all a fizikai peldany is -- ugyanabban a faban megadott hellyel,
