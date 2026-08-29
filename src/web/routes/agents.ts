@@ -120,8 +120,9 @@ import { computeAgentActivityLabel } from '../../agent-activity-label.js'
 import { snapshotShowsQuotaExhausted } from '../../rate-limit-status.js'
 import { readRateLimitSnapshot } from '../rate-limit-status-io.js'
 import { checkAgentPutFields, AGENT_PUT_WRITABLE_FIELDS } from '../agent-put-fields.js'
-import { detectReauthNeeded } from '../reauth-detect.js'
+import { detectReauthNeeded, type ReauthState } from '../reauth-detect.js'
 import { extractAuthUrl, type ExtractedAuthUrl } from '../auth-url-extract.js'
+import { readCredentialFreshness } from '../credential-freshness.js'
 import { readAutoRestartConfig, writeAutoRestartConfig } from '../auto-restart-store.js'
 import { readContextGuardConfig, writeContextGuardConfig } from '../context-guard-store.js'
 import { getContextGuardStatus } from '../context-guard-runner.js'
@@ -173,6 +174,42 @@ import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
+
+// AZ ELAVULT KEPERNYOSZOVEG NE JELENTSEN KIESEST.
+//
+// Boss, 2026-08-29: "a szakerto nel ott van hogy bejelentkezes pirossal, de a
+// ket kis jelzo azt mondja hogy fut es hogy online???" Az ujrameres a FORRAST
+// kerdezte meg: a Szakerto `.credentials.json`-ja ervenyes volt, es a heti
+// kerete kozben 6%-rol 8%-ra nott -- tehat DOLGOZOTT. A panel allapotsora
+// egyszeruen elavult szoveg volt.
+//
+// A felulirast KET forras egyetertesehez kotjuk, mert egyikuk sem eleg:
+//   * a lemezen ERVENYES hitelesites van (nem lejart, nem hianyzik), ES
+//   * a detektor csak az ALLAPOTSORBOL jelzett -- vagyis nincs egyetlen
+//     TENYLEGESEN VISSZAUTASITOTT keres sem a naplobán.
+// Egy visszavont token a lemezen meg ervenyesnek latszhat; olyankor viszont a
+// hivasok 401-et kapnak, a detektor `source === 'transcript'`-et ad, es a sav
+// MARAD. Az elso inditasi keperno (`first-run-gate`) sem irhato felul: az a
+// TUI-t blokkolja, barmilyen ervenyes is a hitelesites.
+//
+// Es nem NEMA: a badge helyett a `reauthNote` mondja meg, mit talaltunk, hogy
+// a tulajdonos ne egy eltuno piros savot lasson magyarazat nelkul.
+function reconcileReauthWithDisk(name: string, state: ReauthState): ReauthState {
+  if (!state.needsReauth) return state
+  if (state.source !== 'status-line') return state
+  const fresh = readCredentialFreshness(readAgentClaudeConfigDir(name))
+  // 'expired' / 'missing' -> a sav jogos. 'unknown' -> NEM LATOK ODA, tehat
+  // nem irom felul: a bizonytalansag sosem lehet ok a figyelmeztetes
+  // eltuntetesere.
+  if (fresh.verdict !== 'valid') return state
+  return {
+    needsReauth: false,
+    source: state.source,
+    reason: `A panel allapotsora meg "${state.reason}"-t mutat, de a lemezen ervenyes hitelesites van`
+      + (fresh.expiresAt ? ` (${new Date(fresh.expiresAt).toISOString()}-ig)` : '')
+      + ' es egyetlen keres sem lett visszautasitva. A kirajzolt sor elavult.',
+  }
+}
 
 const VALID_PROVIDERS = new Set<ChannelProviderType>(['telegram', 'slack', 'discord', 'googlechat', 'teams'])
 
@@ -526,7 +563,9 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
 
   // Reauth badge: only meaningful for a running session (a stopped agent has
   // no pane to inspect). One capture-pane per running agent on the list poll.
-  const reauth = running ? detectReauthNeeded(capturePane(agentSessionName(name))) : { needsReauth: false }
+  const reauth = running
+    ? reconcileReauthWithDisk(name, detectReauthNeeded(capturePane(agentSessionName(name))))
+    : { needsReauth: false }
 
   // Kanban 502005f0: only free-tier OpenRouter agents get the badge -- a
   // paid Claude account failing to dispatch is an incident worth its own

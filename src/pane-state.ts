@@ -606,6 +606,34 @@ export function detectsBlockingMenu(pane: string): boolean {
   return MENU_NAV_RX.test(footerRegion) || MENU_ESC_RX.test(footerRegion)
 }
 
+// FOLYAMATBAN LEVO BEJELENTKEZES -- ez NEM beragadt menu.
+//
+// Boss, 2026-08-29: "ezt irta ki a marvin miutan megprobaltam bejelentkezni a
+// lackor3 al! es nem is jelentkezett be." Az orjarat egy Escape-et kuldott a
+// panelre, mert a bejelentkezes masodik kepernyoje ("Paste code here if
+// prompted >", felette az OAuth-URL-lel) kivulrol pontosan ugy nez ki, mint
+// egy beragadt interaktiv menu: nincs busy-jel, nincs idle-lablec, es a
+// lablecben ott az "Esc to cancel". Az Escape viszont KILOVI a bejelentkezest
+// -- pont azt, amit a tulajdonos eppen csinal.
+//
+// Ez ugyanaz a csapda, mint a modell-hozzajarulasi dialogus: a vak Escape ott
+// is "cancelled"-et rogzitett. A megoldas is ugyanaz: eloszor megnezzuk, mi az.
+//
+// A jelzes SZANDEKOSAN ket dolgot kerdez (az URL-t ES a beviteli sort), mert
+// a scrollbackben feljebb allo, regi URL onmagaban nem bizonyitja, hogy MOST
+// bejelentkezes zajlik.
+const LOGIN_PASTE_PROMPT_RX = /Paste code here|Paste the code|Enter the code/i
+const LOGIN_AUTH_URL_RX = /https:\/\/\S*(?:oauth|\/authorize|client_id=)/i
+
+/**
+ * True, ha a panelen EPP FUT egy bejelentkezes, es a felhasznalo beillesztesere
+ * var. Ilyenkor tilos billentyut kuldeni ra: az megszakitana.
+ */
+export function detectsLoginInProgress(pane: string): boolean {
+  if (!pane || !pane.trim()) return false
+  return LOGIN_PASTE_PROMPT_RX.test(pane) && LOGIN_AUTH_URL_RX.test(pane)
+}
+
 // Claude Code FIRST-RUN gates: the interactive dialogs a brand-new install
 // parks on before the prompt ever renders -- the per-project "Do you trust the
 // files in this folder?" consent, the --dangerously-skip-permissions "Bypass

@@ -31,7 +31,7 @@ import { reapChannelOrphans, reapDetachedChannelClaudes, collectPollerEvidence }
 import { probeTelegramConflict } from './channel-conflict-probe.js'
 import { schedulePluginUnlockAfterRespawn, wasPluginConfirmedAbsent, clearPluginAbsent } from './channel-plugin-unlock.js'
 import {
-  detectPaneState, decidePaneErrorAlert, detectsBlockingMenu, detectsFirstRunGate, detectsModelConsentDialog, type PaneErrorAlertState, type PaneState,
+  detectPaneState, decidePaneErrorAlert, detectsBlockingMenu, detectsFirstRunGate, detectsModelConsentDialog, detectsLoginInProgress, type PaneErrorAlertState, type PaneState,
   stuckInputSignature, decideStuckInputRecovery, parkedChannelInput,
   parkedInputText, shouldClearTruncatedPreamble,
   parkedInputRowCount, submitLanded, decideStuckInputAction,
@@ -1519,7 +1519,15 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
           // first and answer it safely (option 1, keep the configured model);
           // only a genuine menu gets the blind Escape.
           const paneNow = capturePane(t.session)
-          if (paneNow != null && detectsModelConsentDialog(paneNow)) {
+          if (paneNow != null && detectsLoginInProgress(paneNow)) {
+            // 2026-08-29: a bejelentkezes MASODIK kepernyoje ("Paste code
+            // here", felette az OAuth-URL-lel) kivulrol beragadt menunek
+            // latszik. Az Escape viszont kilovi a bejelentkezest -- pont azt,
+            // amit a tulajdonos eppen csinal. Nem kuldunk billentyut; szolunk,
+            // es megmondjuk a KOVETKEZO LEPEST.
+            logger.warn({ session: t.session, agent: label }, 'Blocking "menu" is a login in progress -- NOT sending Escape (it would cancel the login)')
+            sendAlert(`🔑 A(z) ${label} agentnel EPP FUT egy bejelentkezes: a panel a kodra var ("Paste code here"). Escape-et NEM kuldtem, mert az megszakitana. Kovetkezo lepes: a vezerlopulton az agens kartyajan a "Bejelentkezes" gombbal kapott URL-t nyisd meg, majd a kapott kodot illeszd be: tmux attach -t ${t.session}`)
+          } else if (paneNow != null && detectsModelConsentDialog(paneNow)) {
             logger.warn({ session: t.session, agent: label }, 'Blocking "menu" is the model usage-credit consent dialog -- answering it safely instead of Escape')
             await dismissModelConsentDialogIfPresent(t.session)
             sendAlert(`🎛️ A(z) ${label} session a modell-hozzájárulás dialóguson parkolt; az 1-es opcióval (a beállított modell megtartása) továbbléptettem. Modellváltás NEM történt.`)

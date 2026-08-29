@@ -13,10 +13,11 @@
 // Amit ezek a tesztek oriznek:
 //   * a VS Code listajaban szereplo beszelgetes a FO listaba kerul, akkor is,
 //     ha eppen nem fut -- ott kijelolheto, es ezt kerte a tulajdonos;
-//   * a ket forras UNIOJA szamit, nem az egyik a masik helyett: merve
-//     2026-08-28-an harom claude.exe futott, de a VS Code listaja ket
-//     beszelgetest tartalmazott -- barmelyikre egyedul hagyatkozva elveszett
-//     volna egy elo beszelgetes;
+//   * 2026-08-29 ota A VS CODE LISTAJA A DONTO, ha meg tudtuk nezni: ami fut,
+//     de a panelen nincs ott, az NEM ful (a kartya 12-t mutatott 2 helyett).
+//     A `live` csak ott tolt ki, ahol az adott fulrol NINCS VS Code-meres;
+//   * ami emiatt kiesik a fo listabol, de FUT, az a closedTabs-ban elerheto
+//     marad -- kulonben egy beragadt folyamatot nem lehetne leallitani;
 //   * ha LATJUK a VS Code listajat, a maradek NEM kerul kulon dobozba
 //     (Boss: "ezek a tobbiek amik mar be voltak zarva nem erdekesek");
 //   * a NULLA KET DOLGOT JELENTHET: ha NEM latjuk a VS Code listajat, a regi
@@ -77,6 +78,20 @@ function reportMeasuredState(): void {
   ])
 }
 
+/** Ugyanaz az allapot, de a CELPONT (current) az, amit a VS Code listaz.
+ *  A `current` fulet ugyanis SOSEM dobjuk el -- oda megy a feladat, ha senki
+ *  nem valaszt kulon --, es az elozo fixture-ben eppen a futo ful volt a
+ *  celpont. Az "ami fut, de nincs a listaban" szabalyt tehat csak igy lehet
+ *  tisztan megmerni: kulonben a `current` szabaly fedne el az eredmenyt. */
+function reportRunningNotListed(): void {
+  recordCodeWorkerSeen('WINPC', 'discovery', 3)
+  recordCodeCandidates('WINPC', [
+    { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 3000, title: '47-es kanban kartya', primary: true, live: false, vscodeOpen: true },
+    { workspacePath: WS, sessionId: RUNNING, mtime: 2000, title: 'Fut, de a panelen nincs ott', primary: false, live: true, vscodeOpen: false, pid: 9908 },
+    { workspacePath: WS, sessionId: GONE, mtime: 1000, title: 'Regen bezart beszelgetes', primary: false, live: false, vscodeOpen: false },
+  ])
+}
+
 describe('a VS Code panelen nyitott beszelgetes a FO listaba kerul', () => {
   it('a nyitott, de nem futo ful ott van a fo listaban -- ez volt a bejelentes', () => {
     reportMeasuredState()
@@ -89,13 +104,46 @@ describe('a VS Code panelen nyitott beszelgetes a FO listaba kerul', () => {
     expect(tab.vscodeOpen).toBe(true)
   })
 
-  it('a ket forras UNIOJA szamit: a futo beszelgetes akkor sem esik ki, ha a VS Code listaja nem ismeri', () => {
-    // Merve 2026-08-28: harom claude.exe futott, a VS Code listaja ketto
-    // beszelgetest tartalmazott. Csak a listara hagyatkozva elveszne egy elo
-    // beszelgetes -- pont az ellenkezo iranyu hiba.
+  it('A VS CODE LISTAJA A DONTO: ami fut, de a panelen nincs ott, az NEM ful', () => {
+    // 2026-08-29 (Boss): "a vscode agent kartyajan megint tul sok a chat. a
+    // vscode szofverben (...) csak kb 2 chat ablak van. a marveen ban meg vagy
+    // 12. ezt a hibat mar javitottuk vagy 12 szer."
+    //
+    // Merve: 7 ful `live === true`, de csak 2 `vscodeOpen === true`. Az UNIO
+    // 7-et mutatott. A kerdes nem az, hogy FUT-e valami, hanem hogy a
+    // felhasznalo LATJA-E FULKENT -- erre egyedul a VS Code listaja a forras.
+    //
+    // A RUNNING ful itt `vscodeOpen === false`: fut, de a panelen nincs ott.
+    // A fo listaba tehat nem valo. Ettol NEM veszik el -- lasd a kovetkezo
+    // teszt: a `closedTabs`-ban elerheto marad, hogy le lehessen allitani.
+    reportRunningNotListed()
+    const g = listCodeTabs().projects[0]!
+    expect(g.tabs.map((t) => t.sessionId)).toEqual([LISTED_ONLY])
+  })
+
+  it('egy KONKRET fulrol hianyzo meresnel a `live` tolti ki a hianyt', () => {
+    // A projekt tobbi fulet megmertuk, de errol az EGYrol nincs VS Code-adat.
+    // "Nem latok oda" != "nincs ott": ilyenkor a futo folyamat a legjobb
+    // tudasunk, tehat a fo listaban marad.
+    recordCodeWorkerSeen('WINPC', 'discovery', 2)
+    recordCodeCandidates('WINPC', [
+      { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 3000, title: 'Nyitva', primary: true, live: false, vscodeOpen: true },
+      { workspacePath: WS, sessionId: RUNNING, mtime: 2000, title: 'Fut, nincs rola meres', primary: false, live: true },
+    ])
+    const g = listCodeTabs().projects[0]!
+    expect(g.tabs.map((t) => t.sessionId).sort()).toEqual([LISTED_ONLY, RUNNING].sort())
+  })
+
+  it('a CELPONT (current) akkor is a fo listaban marad, ha a VS Code nem listazza', () => {
+    // Ez nem kivetel a szabaly alol, hanem a lap mukodokepessege: a feladat
+    // oda megy, ha senki nem valaszt kulon. Ha eltunne, a projekt
+    // cimezhetetlennek latszana. A `reportMeasuredState` fixture-ben eppen a
+    // futo (`vscodeOpen === false`) ful a celpont.
     reportMeasuredState()
     const g = listCodeTabs().projects[0]!
-    expect(g.tabs.map((t) => t.sessionId).sort()).toEqual([RUNNING, LISTED_ONLY].sort())
+    const target = g.tabs.find((t) => t.current)!
+    expect(target.sessionId).toBe(RUNNING)
+    expect(target.vscodeOpen).toBe(false)
   })
 
   it('ami se nem fut, se nincs a VS Code listajaban, az nem kerul a fo listaba', () => {
@@ -106,10 +154,24 @@ describe('a VS Code panelen nyitott beszelgetes a FO listaba kerul', () => {
 })
 
 describe('ha latjuk a VS Code listajat, a "tobbi beszelgetes" doboz elmarad', () => {
-  it('a closedTabs URES -- a tulajdonos szerint feleslegesek', () => {
+  it('a valoban bezart beszelgetes nem kerul a closedTabs-ba sem -- felesleges', () => {
+    // Boss, 2026-08-28: "ezek a tobbiek amik mar be voltak zarva nem
+    // erdekesek. (...) ugy sem lehet rajuk kattintani". A GONE se nem fut, se
+    // nincs a VS Code listajaban -- sehol nem jelenik meg.
     reportMeasuredState()
     const g = listCodeTabs().projects[0]!
-    expect(g.closedTabs).toEqual([])
+    expect(g.closedTabs.map((t) => t.sessionId)).not.toContain(GONE)
+  })
+
+  it('DE ami FUT es kiesett a fo listabol, az elerheto marad -- kulonben nem lehetne leallitani', () => {
+    // 2026-08-29: a fo listat a VS Code listaja donti el, igy a futo, de be nem
+    // toltott ful kikerul onnan. Nyomtalanul viszont NEM tunhet el: 2026-08-23-an
+    // pont egy beragadt, futo folyamatot kellett leallitani a kartyarol. Ha a
+    // felulet nem mutatja, a felhasznalonak nincs mivel megfognia.
+    reportRunningNotListed()
+    const g = listCodeTabs().projects[0]!
+    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([RUNNING])
+    expect(g.closedTabs[0]!.live).toBe(true)
   })
 
   it('DE ha NEM latunk oda, a regi viselkedes marad: a tobbi beszelgetes elerheto', () => {

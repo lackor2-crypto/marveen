@@ -12,6 +12,25 @@
 export interface ReauthState {
   needsReauth: boolean
   reason?: string
+  /** MELYIK forras jelzett. A ketto NEM egyenerteku:
+   *
+   *  * 'status-line' -- a beviteli mezo folotti allapotsor. Ez KIRAJZOLT
+   *    SZOVEG, ami ELAVULHAT: a Claude Code sikeres bejelentkezes utan sem
+   *    rajzolja ujra. Merve 2026-08-29-en a Szakerton: az allapotsor "Not
+   *    logged in"-t irt, kozben az ugynok ervenyes hitelesitessel DOLGOZOTT.
+   *    Ezt a jelzest ezert szabad felulirni egy frissebb, lemezrol vett
+   *    meressel.
+   *
+   *  * 'transcript' -- a naplobol vett, horgonyzott hibasor: egy KERES, amit
+   *    a szolgaltatas TENYLEG VISSZAUTASITOTT. Ez esemeny, nem kirajzolt
+   *    allapot, es SOSEM szabad felulirni: ha egy hivas 401-et kapott, akkor
+   *    kapott, barmit is mutat a hitelesito fajl (pl. visszavont token, ami
+   *    a lemezen meg nem jart le).
+   *
+   *  * 'first-run-gate' -- a TUI-t blokkolo elso inditasi keperno. A folyamat
+   *    akkor sem tud dolgozni, ha a hitelesites ervenyes, ezert szinten nem
+   *    irhato felul. */
+  source?: 'status-line' | 'transcript' | 'first-run-gate'
 }
 
 // Each entry: a distinctive marker Claude Code renders on an auth failure, and
@@ -172,7 +191,13 @@ export function detectReauthNeeded(pane: string | null | undefined): ReauthState
   const region = liveStatusRegion(pane) ?? tailOf(pane, TAIL_LINES)
   if (ESCALATION_QUOTE_MARKERS.some((rx) => rx.test(region))) return { needsReauth: false }
   for (const m of REAUTH_MARKERS) {
-    if (m.rx.test(region)) return { needsReauth: true, reason: m.reason }
+    if (m.rx.test(region)) {
+      return {
+        needsReauth: true,
+        reason: m.reason,
+        source: m.firstRunGate ? 'first-run-gate' : 'status-line',
+      }
+    }
   }
   // Fall back to the transcript for the "CLI thinks it is authenticated but the
   // API rejects every call" family, which never reaches the live status line.
@@ -180,5 +205,6 @@ export function detectReauthNeeded(pane: string | null | undefined): ReauthState
   // escalation lives in the transcript, which is exactly what we are about to
   // scan.
   if (ESCALATION_QUOTE_MARKERS.some((rx) => rx.test(pane))) return { needsReauth: false }
-  return transcriptWedge(pane) ?? { needsReauth: false }
+  const wedge = transcriptWedge(pane)
+  return wedge ? { ...wedge, source: 'transcript' } : { needsReauth: false }
 }

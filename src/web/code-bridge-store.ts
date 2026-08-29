@@ -1408,11 +1408,41 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   // A ketto unioja kell, nem az egyik helyett a masik: merve 2026-08-28-an
   // harom claude.exe futott, de a VS Code listajaban ket beszelgetes szerepelt.
   // Barmelyik forrasra egyedul hagyatkozva elveszett volna egy elo beszelgetes.
+  // 2026-08-29 (Boss): "a vscode agent kartyajan megint tul sok a chat. a
+  // vscode szofverben itt ahol most irok itt csak kb 2 chat ablak van. a
+  // marveen ban meg vagy 12. (...) ezt a hibat mar javitottuk vagy 12 szer.
+  // nem lehet ezt megolvdani veglegesen hogy ugyanazt mutassa mint a vscode?"
+  //
+  // Merve ugyanekkor: 7 ful `live === true`, de csak 2 `vscodeOpen === true`.
+  // Az UNIO tehat 7-et mutatott, a VS Code 2-t. A hiba azert jott vissza
+  // sokadszor, mert a ket iranyt egymas ellen javitottuk: eloszor kevés volt
+  // (a nyitott, de nem futo ful hianyzott), most sok (a futo, de be nem
+  // toltott ful is bekerult). Az unio mindkettot befogadja -- ezert nott.
+  //
+  // A VEGLEGES SZABALY: A VS CODE LISTAJA A DONTO, ha meg tudtuk nezni.
+  // A kerdes nem az, hogy fut-e valami, hanem hogy a FELHASZNALO LATJA-E
+  // FULKENT -- es erre egyedul a VS Code sajat listaja a forras. A `live`
+  // csak ott tolti ki a hianyt, ahol a fulrol NINCS VS Code-meres.
+  //
+  // A 2026-08-28-as bejelentes ettol nem serul: ott a ful `vscodeOpen === true`
+  // volt (`live === false`), tehat tovabbra is a fo listaba kerul.
+  // A masik iranyu esetet (fut, de a VS Code nem listazza) pedig nem dobjuk el
+  // nyomtalanul -- lasd a `closedTabs` szamitasat lejjebb: ott marad
+  // elerhetonek, hogy le lehessen allitani.
+  const vscodeMeasuredIn = (tabs: CodeTab[]): boolean => tabs.some((t) => t.vscodeOpen !== null)
+
   const filterOpen = (tabs: CodeTab[]): CodeTab[] => {
     // A NULLA KET DOLGOT JELENTHET: ha EGYIK forrast sem tudtuk megmerni, nem
     // "semmi nincs nyitva", hanem "nem latunk oda" -- olyankor nem szurunk.
     if (!tabs.some((t) => t.live !== null || t.vscodeOpen !== null)) return tabs
-    const kept = tabs.filter((t) => t.live === true || t.vscodeOpen === true || t.current)
+    const kept = vscodeMeasuredIn(tabs)
+      ? tabs.filter((t) => t.vscodeOpen === true
+          // Egy KONKRET fulrol hianyozhat a meres akkor is, ha a projekt tobbi
+          // fulet megmertuk. Arra a fulre a `live` marad a legjobb tudasunk --
+          // ez megint a "nem latok oda" != "nincs" kulonbseg.
+          || (t.vscodeOpen === null && t.live === true)
+          || t.current)
+      : tabs.filter((t) => t.live === true || t.current)
     return kept.length > 0 ? kept : tabs.filter((t) => t.current)
   }
 
@@ -1445,9 +1475,15 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
       // regi: olyankor a `live === false` meg nem bizonyitja, hogy a ful be van
       // zarva (pont ez volt a 649-es bejelentes), es egy nyitott beszelgetes
       // tunne el nyomtalanul.
-      const vscodeMeasured = g.tabs.some((t) => t.vscodeOpen !== null)
+      // 2026-08-29: EGY kivetellel. Ami FUT, de a VS Code nem listazza, az nem
+      // "bezart beszelgetes": egy futo folyamat, amit a felhasznalonak latnia
+      // kell, kulonben nem tudja leallitani (a 2026-08-23-as beragadt folyamat
+      // esete). A fo listabol kikerul -- mert fulkent tenyleg nincs ott --, de
+      // elerheto marad. Ami se nem fut, se nincs a listaban, az tenyleg
+      // felesleges, es tovabbra sem jelenik meg.
+      const vscodeMeasured = vscodeMeasuredIn(g.tabs)
       const closedTabs = vscodeMeasured
-        ? []
+        ? g.tabs.filter((t) => !shownIds.has(t.sessionId) && t.live === true).sort(byTime)
         : g.tabs.filter((t) => !shownIds.has(t.sessionId)).sort(byTime)
       return { ...g, tabs: shown, closedTabs }
     })

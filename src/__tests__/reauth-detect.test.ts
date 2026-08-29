@@ -311,3 +311,56 @@ describe('detectReauthNeeded: 401 rendered in the transcript (env-token family)'
     expect(detectReauthNeeded(chat).needsReauth).toBe(false)
   })
 })
+
+// MELYIK FORRAS JELZETT -- a ketto nem egyenerteku.
+//
+// Boss, 2026-08-29: "a szakerto nel ott van hogy bejelentkezes pirossal, de a
+// ket kis jelzo azt mondja hogy fut es hogy online???" Az ujrameres kideritette,
+// hogy az ugynok ervenyes hitelesitessel DOLGOZOTT: a panel allapotsora elavult
+// szoveg volt. Az allapotsor tehat felulirhato egy frissebb, lemezrol vett
+// meressel -- a naploban allo, TENYLEG VISSZAUTASITOTT keres viszont SOHA.
+describe('a jelzes forrasa', () => {
+  it('az allapotsorbol jott jelzes "status-line" -- ez elavulhat', () => {
+    const pane = [
+      '──────────────────────────────────────────────────',
+      '  Not logged in \u00b7 Run /login',
+      '──────────────────────────────────────────────────',
+      '  \u276f ',
+    ].join('\n')
+    const got = detectReauthNeeded(pane)
+    expect(got.needsReauth).toBe(true)
+    expect(got.source).toBe('status-line')
+  })
+
+  it('a naplobeli, visszautasitott keres "transcript" -- ez esemeny, nem kirajzolt allapot', () => {
+    const pane = [
+      '  \u23bf API Error: 401 Invalid bearer token',
+      '',
+      '',
+      '',
+      '──────────────────────────────────────────────────',
+      '  \u276f ',
+      '──────────────────────────────────────────────────',
+      '  Opus 4.8 | 5h 8% | 7d 63%',
+    ].join('\n')
+    const got = detectReauthNeeded(pane)
+    expect(got.needsReauth).toBe(true)
+    expect(got.source).toBe('transcript')
+  })
+
+  it('az elso inditasi keperno "first-run-gate" -- ez a TUI-t blokkolja, ervenyes hitelesitessel is', () => {
+    const pane = [
+      '──────────────────────────────────────────────────',
+      '  Select login method:',
+      '  1. Claude account with subscription',
+      '──────────────────────────────────────────────────',
+    ].join('\n')
+    const got = detectReauthNeeded(pane)
+    expect(got.needsReauth).toBe(true)
+    expect(got.source).toBe('first-run-gate')
+  })
+
+  it('ha nincs jelzes, nincs forras sem', () => {
+    expect(detectReauthNeeded('  \u276f \n').source).toBeUndefined()
+  })
+})
