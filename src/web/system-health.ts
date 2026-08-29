@@ -50,12 +50,16 @@
 import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, accessSync, constants } from 'node:fs'
 import { statfsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { resolveFromPath } from '../platform.js'
 import { join, dirname } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { lastWakeAt } from '../wake-detect.js'
 import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
 import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
+import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
+import type { ClaudePlan } from './claude-plans.js'
+import { googleOauthClientPresent, listGoogleAccounts } from './google-auth-runner.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
@@ -317,6 +321,140 @@ export function upstreamRows(
     }
   }
   return rows
+}
+
+/**
+ * A NEVESITETT (agens-sajat) Claude-bejelentkezesek.
+ *
+ * MIERT KELL KULON SOR. A claudeAuthRow() csak a telepites sajat ~/.claude
+ * bejelentkezeset nezi, es a zold szovege KIFEJEZETTEN megnyugtat a tobbi
+ * agens felol: "tovabbi N agens sajat fiokkal dolgozik, azokat ez nem erinti."
+ * Ez igaz arra, hogy az alapertelmezett bejelentkezes nem erinti oket -- de
+ * arrol egyetlen sor sem szolt, ha egy ilyen sajat fiok maga jelentkezett ki.
+ * Pontosan igy tudott az usalackor napokig halottan ulni ugy, hogy az
+ * Attekintes vegig zold volt (Boss, 2026-08-29).
+ *
+ * A NULLA ITT KET DOLGOT JELENT. Ha nincs regiszter-fajl, ez friss telepites:
+ * nincs nevesitett fiok, a csend a helyes valasz. Ha VAN fajl, de nem tudom
+ * elolvasni vagy ertelmezni, az nem "nulla fiok", hanem "nem latok oda" -- es
+ * az a leghangosabb sor, mert ilyenkor errol a keprol semmit nem tudok.
+ *
+ * Csak fajl, halozat nelkul: a modul tobbi soraval egyutt minden lekeresnel
+ * lefut.
+ */
+const CLAUDE_BIN = resolveFromPath('claude')
+
+export type NamedCred = 'be' | 'ki' | 'vak'
+
+/**
+ * MIERT A CLI ES NEM A FAJL. Az elso valtozat a fiok-mappa
+ * .credentials.json-jat olvasta -- es MERVE mindket elo fiokrol azt allitotta
+ * volna, hogy ki van jelentkezve, holott mindketto dolgozott: ezeknel a
+ * bejelentkezes egyaltalan nem abban a fajlban lakik. Egy hamis piros sor
+ * rosszabb a hianyzo sornal, mert leszoktatja az embert arrol, hogy odanezzen.
+ * A hiteles forras a CLI sajat valasza -- ugyanaz, amit a Fiokok oldal is
+ * kerdez.
+ *
+ * A HARMADIK ALLAPOT NEM LUXUS. A kesz readIdentity() a sikertelen probat is
+ * loggedIn:false-kent adja vissza, vagyis nala a "nem tudtam megkerdezni"
+ * megkulonboztethetetlen a "ki van jelentkezve"-tol. Az onellenorzesben pont
+ * ez a kulonbseg a lenyeg, ezert kerdezzuk kulon.
+ */
+export function namedLoginProbe(configDir: string): NamedCred {
+  let out: string
+  try {
+    out = execFileSync(CLAUDE_BIN, ['auth', 'status', '--json'], {
+      timeout: 20_000, encoding: 'utf-8',
+      env: { ...process.env, NO_COLOR: '1', CLAUDE_CONFIG_DIR: configDir },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+  } catch (e) {
+    // MERVE: kijelentkezett fiokra a CLI exit 1-gyel lep ki, de a valaszt
+    // AKKOR IS kiirja. Ha itt csak elkapnank a hibat, minden kijelentkezes
+    // "nem latok oda"-kent jelenne meg -- pontosan a megkulonboztetes veszne
+    // el, amiert ez a sor keszul. Ezert a kimenetet a hibaobjektumbol is
+    // elovesszuk; csak az az igazi vaksag, amikor nincs mit elolvasni.
+    const st = (e as { stdout?: string | Buffer })?.stdout
+    if (st === undefined || st === null) return 'vak'
+    out = typeof st === 'string' ? st : st.toString('utf-8')
+    if (!out.trim()) return 'vak'
+  }
+  try {
+    const o = JSON.parse(out) as Record<string, unknown>
+    if (!o || typeof o !== 'object') return 'vak'
+    return o.loggedIn === true ? 'be' : 'ki'
+  } catch { return 'vak' }
+}
+
+export function namedLoginRows(
+  plansPath: string = CLAUDE_PLANS_PATH,
+  ertelmez: (raw: string) => ClaudePlan[] = raw => resolveClaudePlans(raw, homedir()),
+  proba: (configDir: string) => NamedCred = namedLoginProbe,
+): HealthRow[] {
+  if (!existsSync(plansPath)) return []
+  let raw: string
+  try { raw = readFileSync(plansPath, 'utf-8') } catch {
+    return [{ id: 'named_login_unreadable', status: 'warn', params: { f: plansPath } }]
+  }
+  try {
+    if (!Array.isArray(JSON.parse(raw))) throw new Error('nem lista')
+  } catch {
+    return [{ id: 'named_login_broken', status: 'bad', params: { f: plansPath } }]
+  }
+  const plans = ertelmez(raw)
+  if (plans.length === 0) {
+    // A fajl ott van es ertelmes JSON, megis egy tetel sem allta ki az
+    // ellenorzest: a Fiokok oldal ures lesz, minden ok nelkul.
+    return [{ id: 'named_login_none_valid', status: 'warn', params: { f: plansPath } }]
+  }
+  const kint: string[] = []
+  const vak: string[] = []
+  let rendben = 0
+  for (const p of plans) {
+    const nev = p.label || p.id
+    // A hianyzo mappa nem "kijelentkezve": arrol a fiokrol egyszeruen nem
+    // tudok semmit. A kettot sose keverjuk ossze.
+    let mappa = false
+    try { mappa = statSync(p.configDir).isDirectory() } catch { mappa = false }
+    if (!mappa) { vak.push(nev); continue }
+    const st = proba(p.configDir)
+    if (st === 'be') rendben++
+    else if (st === 'ki') kint.push(nev)
+    else vak.push(nev)
+  }
+  const rows: HealthRow[] = []
+  if (kint.length > 0) {
+    rows.push({ id: 'named_login_out', status: 'bad', params: { n: kint.length, names: kint.join(', ') } })
+  }
+  if (vak.length > 0) {
+    rows.push({ id: 'named_login_blind', status: 'warn', params: { n: vak.length, names: vak.join(', ') } })
+  }
+  if (kint.length === 0 && vak.length === 0) {
+    rows.push({ id: 'named_login_ok', status: 'ok', params: { n: rendben } })
+  }
+  return rows
+}
+
+/**
+ * A Google OAuth-kliens. Enelkul a Fiokok oldal "Google-fiok bekotese" gombja
+ * elindul, aztan elhal -- es a mar bekotott cimek egyike sem tud tokent
+ * frissiteni: se level, se naptar, se Drive, se fotok.
+ *
+ * A NULLA itt is ket dolog: friss telepitesen sem kliens, sem fiok nincs, az
+ * a normalis allapot -- csend. Ha viszont MAR van bekotott cim es kozben a
+ * kliens-fajl eltunt, az nema uzemszunet, es azt ki kell mondani.
+ */
+export function googleClientRows(
+  vanKulcs: boolean = googleOauthClientPresent(),
+  hanyCim: () => number = () => listGoogleAccounts().length,
+): HealthRow[] {
+  if (vanKulcs) return []
+  let db = 0
+  try { db = hanyCim() } catch {
+    return [{ id: 'google_client_blind', status: 'warn', params: {} }]
+  }
+  if (db === 0) return []
+  return [{ id: 'google_client_missing', status: 'bad', params: { n: db } }]
 }
 
 /**
@@ -1148,6 +1286,8 @@ export function skillSeedRows(
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
+    ...namedLoginRows(),
+    ...googleClientRows(),
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),

@@ -16928,8 +16928,8 @@ function _accHubMerge(claudeAccounts, googleAccounts, mcpAccounts) {
   // Boss, 2026-08-29: kijelentkezes utan a Claude-resz ATKOLTOZOTT egy sajat,
   // arva kartyara a lap aljara ("minek ezeket itt lentebb is ujra odatenni?
   // igy atlathatatlan"). Ok: az e-mail cimet CSAK a bejelentkezett fioktol
-  // tudjuk, tehat kijelentkezeskor a kulcs "usalackor@gmail.com"-rol
-  // "claude:usalackor"-ra valt -- ugyanaz a fiok, ket kulonbozo kartyan,
+  // tudjuk, tehat kijelentkezeskor a kulcs az e-mail cimrol a fiok sajat
+  // azonositojara ("claude:<id>") valt -- ugyanaz a fiok, ket kulonbozo kartyan,
   // aszerint hogy epp be van-e lepve. A "Bejelentkezes" gomb megvolt, csak
   // nem ott, ahol elotte a "Kijelentkezes" allt.
   //

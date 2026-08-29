@@ -154,20 +154,21 @@ describe('a gomb magaval viszi, MELYIK fiokrol van szo', () => {
     expect(handler.slice(0, 400)).toContain('_claudeAuthLogout(')
   })
 
-  it('a visszahozo gomb elobb lathatova teszi a bejelentkezes-dobozt, csak azutan nyitja meg', () => {
-    // A #claudeAuthFlow doboz a Fiokok lap sajat, `hidden` DOM-agan lakik. Ha
-    // csak _claudeAuthStartFlow-t hivnank a kartya-modalbol, a doboz nema
-    // maradna a nezo szamara -- pontosan ez volt a hiba, amit Boss jelzett.
+  it('a bejelentkezes HELYBEN tortenik: se lapvaltas, se modal-bezaras', () => {
+    // EZ A TESZT MEGFORDULT. Korabban azt kovetelte, hogy a gomb ELOBB
+    // atvigyen a Fiokok lapra es becsukja a kartyat -- mert a #claudeAuthFlow
+    // doboz csak ott letezett, es maskepp nem latszott volna.
+    //
+    // Boss, 2026-08-29: "ne hozzon engem onnan sehova sem. ott helyben
+    // jelentkezzen be es maradjon is ott!" A megoldas nem egy masodik doboz,
+    // hanem a MEGLEVO elem atkoltoztetese a hivo hely ala -- igy a
+    // lapvaltasra nincs is szukseg tobbe.
     const handler = app.slice(app.indexOf(".agent-account-relogin-btn'"))
     const body = handler.slice(0, 500)
-    const switchIdx = body.indexOf('switchPage(')
-    const closeIdx = body.indexOf('closeModal(agentDetailOverlay)')
-    const flowIdx = body.indexOf('_claudeAuthStartFlow(')
-    expect(switchIdx, 'switchPage a Fiokok lapra').toBeGreaterThan(-1)
-    expect(closeIdx, 'a kartya-modal bezarodik').toBeGreaterThan(-1)
-    expect(flowIdx, 'a bejelentkezes-folyamat inditasa').toBeGreaterThan(-1)
-    expect(switchIdx).toBeLessThan(flowIdx)
-    expect(closeIdx).toBeLessThan(flowIdx)
+    expect(body, 'nem valt lapot').not.toContain("switchPage('accounts')")
+    expect(body, 'nem csukja be a kartyat').not.toContain('closeModal(agentDetailOverlay)')
+    // A doboz IDE jon: a hivas atadja a befogado elemet.
+    expect(body).toMatch(/_claudeAuthStartFlow\(payload,\s*host\)/)
   })
 })
 
