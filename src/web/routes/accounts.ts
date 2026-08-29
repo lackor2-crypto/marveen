@@ -126,7 +126,9 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     })
     json(
       res,
-      result.ok ? { ok: true, planId: result.planId, isDefault: result.isDefault === true } : { ok: false, error: result.error },
+      result.ok
+        ? { ok: true, planId: result.planId, isDefault: result.isDefault === true }
+        : { ok: false, error: result.error, errorKey: result.errorKey, errorParams: result.errorParams },
       result.ok ? 200 : 400,
     )
     return true

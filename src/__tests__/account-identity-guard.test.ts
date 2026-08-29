@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   auditIdentities,
+  decideNewAccountEmail,
   decidePostLogin,
   hasIdentityProblem,
   normalizeEmail,
@@ -188,4 +189,94 @@ describe('a rogzitett cim lemezre irasa', () => {
     const r = pinExpectedEmail('lackor3', 'x@y.hu', { path: join(dir, 'nincs.json') })
     expect(r.ok).toBe(false)
   })
+})
+
+describe('UJ FIOK FELVETELE: sajat cimhez kotve, nem egy meglevohoz', () => {
+  // Boss, 2026-08-30: "ha valaki szeretne felvenni egy uj fiokot, akkor azt
+  // mindenfelekeppen ahhoz az emailhez kell kotni, amivel regisztralni akar.
+  // nem egy meglevohoz!!!"
+  const megvan = [
+    be('usalackor', 'usalackor@gmail.com'),
+    be(null, 'lackor2@gmail.com'),
+    { id: 'lackor3', label: 'Lackor3', email: null, loggedIn: false, probeOk: true,
+      expectedEmail: 'lackor3@gmail.com' },
+  ]
+
+  it('cim nelkul nem lehet uj fiokot felvenni', () => {
+    expect(decideNewAccountEmail('', megvan)).toEqual({ kind: 'missing' })
+    expect(decideNewAccountEmail(null, megvan)).toEqual({ kind: 'missing' })
+    expect(decideNewAccountEmail('   ', megvan)).toEqual({ kind: 'missing' })
+  })
+
+  it('a fel-cim sem eleg', () => {
+    expect(decideNewAccountEmail('valaki', megvan).kind).toBe('invalid')
+    expect(decideNewAccountEmail('valaki@gep', megvan).kind).toBe('invalid')
+    expect(decideNewAccountEmail('a b@c.hu', megvan).kind).toBe('invalid')
+  })
+
+  it('MAR HASZNALT cimet nem lehet meg egyszer felvenni', () => {
+    const d = decideNewAccountEmail('usalackor@gmail.com', megvan)
+    expect(d).toEqual({ kind: 'taken', by: 'usalackor', email: 'usalackor@gmail.com' })
+  })
+
+  it('a gep sajat fiokjanak cime is foglalt', () => {
+    expect(decideNewAccountEmail('lackor2@gmail.com', megvan).kind).toBe('taken')
+  })
+
+  it('a ROGZITETT cim akkor is foglal, ha az a fiok epp ki van jelentkezve', () => {
+    // Ez a lenyeg: a hely mar el van igerve valakinek. Ha ezt engednenk, a
+    // visszajelentkezes utan ket slot ulne egy fiokon.
+    expect(decideNewAccountEmail('lackor3@gmail.com', megvan).kind).toBe('taken')
+  })
+
+  it('nagybetu es szokoz nem kerulo ut', () => {
+    expect(decideNewAccountEmail('  UsaLackor@Gmail.com ', megvan).kind).toBe('taken')
+  })
+
+  it('sajat, meg nem hasznalt cim: mehet, es normalizalva megy tovabb', () => {
+    expect(decideNewAccountEmail(' Uj.Fiok@Pelda.hu ', megvan))
+      .toEqual({ kind: 'ok', email: 'uj.fiok@pelda.hu' })
+  })
+
+  it('friss telepitesen (meg egyetlen fiok sincs) barmelyik cim mehet', () => {
+    expect(decideNewAccountEmail('elso@pelda.hu', [])).toEqual({ kind: 'ok', email: 'elso@pelda.hu' })
+  })
+})
+
+describe('a felulet is keri a cimet, nem csak a szerver', () => {
+  // Ket retegben all: a gomb be sem kuldi cim nelkul, a szerver pedig akkor sem
+  // engedi, ha valaki megkeruli a lapot.
+  const app = readFileSync('web/app.js', 'utf-8')
+  const html = readFileSync('web/index.html', 'utf-8')
+
+  it('a hozzaadas gombja cim nelkul nem indit folyamatot', () => {
+    const kezdet = app.indexOf("getElementById('claudeAuthStartBtn')")
+    expect(kezdet).toBeGreaterThan(-1)
+    const blokk = app.slice(kezdet, kezdet + 1200)
+    expect(blokk).toContain("t('claudeauth.need_email')")
+    // A regi, feltételes payload ("email ? {label,email} : {label}") pont azt
+    // engedte at, ami a hibat okozta.
+    expect(blokk).not.toContain('email ? { label, email } : { label }')
+  })
+
+  it('az urlap mezoje kotelezonek van jelolve', () => {
+    const i = html.indexOf('id="claudeAuthEmail"')
+    expect(i).toBeGreaterThan(-1)
+    expect(html.slice(i - 200, i + 200)).toContain('required')
+  })
+
+  it('a hiba a felulet nyelven jelenik meg (kulcs, nem magyar mondat)', () => {
+    expect(app).toContain('function _claudeAuthErrorText(data)')
+    expect(app).toContain('_claudeAuthSetState(_claudeAuthErrorText(data)')
+  })
+
+  for (const nyelv of ['hu', 'en']) {
+    it(`${nyelv}: mind a negy uj szoveg megvan`, () => {
+      const s = readFileSync(`web/lang/${nyelv}.js`, 'utf-8')
+      for (const k of ['claudeauth.need_email', 'claudeauth.err_email_required',
+        'claudeauth.err_email_invalid', 'claudeauth.err_email_taken']) {
+        expect(s, `${nyelv}: ${k}`).toContain(`'${k}':`)
+      }
+    })
+  }
 })

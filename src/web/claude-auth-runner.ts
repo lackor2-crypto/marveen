@@ -26,6 +26,7 @@ import { readClaudePlans, CLAUDE_PLANS_PATH, pinExpectedEmail } from './claude-p
 import {
   auditIdentities,
   decidePostLogin,
+  decideNewAccountEmail,
   type IdentityAudit,
   type SlotVerdict,
 } from './account-identity-guard.js'
@@ -124,6 +125,8 @@ interface LoginSession {
   configDir: string | null
   planId: string | null
   label: string
+  /** Melyik cimhez kotottuk ezt az UJ slotot a felvetelkor. */
+  expectedEmail?: string | null
   codeSubmitted: boolean
   registered: boolean
   /** True when this flow REPAIRS an account that already existed, rather than
@@ -316,13 +319,16 @@ function capturePane(): string {
 /** Append the finished login to the registry, so an agent can be pointed at it.
  *  Read-modify-write of a small operator-owned file; the reader validates, so a
  *  malformed row would simply be ignored rather than breaking the fleet. */
-function registerPlan(id: string, label: string, configDir: string): boolean {
+function registerPlan(id: string, label: string, configDir: string, expectedEmail?: string | null): boolean {
   try {
     let raw: unknown = []
     if (existsSync(CLAUDE_PLANS_PATH)) raw = JSON.parse(readFileSync(CLAUDE_PLANS_PATH, 'utf-8'))
     const list = Array.isArray(raw) ? raw : []
     if (list.some(p => p && typeof p === 'object' && (p as { id?: unknown }).id === id)) return true
-    list.push(buildPlanEntry(id, label, configDir))
+    // A slot cime MAR a felvetelkor ide kerul: ha a bongeszo mas fiokot hagy
+    // jova, az azonnal elteres lesz, nem uj igazsag.
+    const entry = buildPlanEntry(id, label, configDir)
+    list.push(expectedEmail ? { ...entry, expectedEmail } : entry)
     atomicWriteFileSync(CLAUDE_PLANS_PATH, JSON.stringify(list, null, 2))
     invalidateAccountCache()
     logger.info({ planId: id }, 'claude-auth: new account registered')
@@ -336,6 +342,10 @@ function registerPlan(id: string, label: string, configDir: string): boolean {
 export interface StartLoginResult {
   ok: boolean
   error?: string
+  /** A hiba i18n-kulcsa, ha van: igy a felulet a SAJAT nyelven irja ki. A
+   *  magyar `error` marad tartaleknak (regi hivasi utak). */
+  errorKey?: string
+  errorParams?: Record<string, string>
   planId?: string
   /** True when the flow targets the install's own ~/.claude login. */
   isDefault?: boolean
@@ -446,6 +456,9 @@ export function startLogin(
   let planId: string
   let label: string
   let configDir: string
+  // Melyik cimhez kotjuk az UJ slotot. Javitasnal (reId) null: ott a slot cime
+  // mar rogzitve van, es nem ez a hely irja at.
+  let ujCim: string | null = null
   // "Added" and "signed back in" are two different sentences on the page.
   let reused = false
 
@@ -461,9 +474,48 @@ export function startLogin(
     label = row.label || reId
     configDir = row.configDir
     reused = true
+    // Ehhez a slothoz mar tudjuk, KINEK kell bejelentkeznie: adjuk oda a
+    // CLI-nek tippnek, hogy ne a bongeszoben eppen bent levo fiokot kinalja.
+    if (!opts.email && row.expectedEmail) opts = { ...opts, email: row.expectedEmail }
   } else {
     label = (opts.label ?? '').trim()
     if (!label) return { ok: false, error: 'Adj nevet a fióknak (pl. "Munkahelyi" vagy az e-mail címed).' }
+
+    // UJ FIOK = SAJAT CIM. Boss, 2026-08-30: "ha valaki szeretne felvenni egy uj
+    // fiokot, akkor azt mindenfelekeppen ahhoz az emailhez kell kotni, amivel
+    // regisztralni akar. nem egy meglevohoz!!!"
+    //
+    // A bongeszo azt a fiokot hagyja jova, amelyik EPPEN be van benne
+    // jelentkezve -- cim nelkul igy csuszott ket kulon nevu elofizetes egyetlen
+    // fiokba. A cimet a slothoz rogzitjuk, meg a bejelentkezes ELOTT.
+    const mind = listAccounts(true)
+    const dontes = decideNewAccountEmail(opts.email, mind.map(r => ({
+      id: r.id, label: r.label, email: r.identity.email ?? null,
+      loggedIn: r.identity.loggedIn, probeOk: r.probeOk, expectedEmail: r.expectedEmail,
+    })))
+    if (dontes.kind === 'missing') {
+      return {
+        ok: false,
+        errorKey: 'claudeauth.err_email_required',
+        error: 'Add meg annak a fióknak az e-mail címét, amelyikkel be akarsz jelentkezni. Új előfizetést csak saját címhez lehet kötni.',
+      }
+    }
+    if (dontes.kind === 'invalid') {
+      return {
+        ok: false,
+        errorKey: 'claudeauth.err_email_invalid',
+        error: 'Ez nem néz ki e-mail címnek. Írd be teljesen (pl. valaki@pelda.hu).',
+      }
+    }
+    if (dontes.kind === 'taken') {
+      return {
+        ok: false,
+        errorKey: 'claudeauth.err_email_taken',
+        errorParams: { email: dontes.email, account: dontes.by },
+        error: `Ez a cím (${dontes.email}) már ehhez a fiókhoz tartozik: ${dontes.by}. Egy új előfizetést a SAJÁT címéhez kell kötni, különben ketten fogyasztanák ugyanannak a fióknak a keretét.`,
+      }
+    }
+    ujCim = dontes.email
 
     const taken = idsBlockingReuse(rows.map(r => ({ id: r.id as string, loggedIn: r.identity.loggedIn })))
     planId = planIdFromLabel(label, taken)
@@ -506,7 +558,7 @@ export function startLogin(
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
   }
   current = {
-    startedAt: Date.now(), configDir, planId, label,
+    startedAt: Date.now(), configDir, planId, label, expectedEmail: ujCim,
     codeSubmitted: false, registered: false, reused, urlLog: shim?.log ?? null,
   }
   // Deliberately no URL, no email, no code in this line.
@@ -585,7 +637,7 @@ export function loginStatus(): LoginStatus {
     // The default login has no plan row to write: it IS the install's account.
     const registered = configDir === null || planId === null
       ? true
-      : current.registered || registerPlan(planId, label, configDir)
+      : current.registered || registerPlan(planId, label, configDir, current.expectedEmail ?? null)
     // KI JELENTKEZETT BE VALOJABAN. A bongeszo azt a fiokot hagyja jova,
     // amelyik EPPEN be van benne jelentkezve -- nem azt, amelyiket ide
     // szantuk. Az elso bejelentkezes rogziti a slot cimet, minden kesobbi

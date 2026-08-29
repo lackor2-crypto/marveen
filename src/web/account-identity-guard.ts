@@ -157,3 +157,46 @@ export function decidePostLogin(
   if (expected !== actual) return { kind: 'drift', expected, actual }
   return { kind: 'ok', email: actual }
 }
+
+/**
+ * UJ FIOK FELVETELE -- ehhez KOTELEZO megadni, melyik cimmel jelentkezik be.
+ *
+ * Boss, 2026-08-30: "ha valaki szeretne felvenni egy uj fiokot, akkor azt
+ * mindenfelekeppen ahhoz az emailhez kell kotni, amivel regisztralni akar.
+ * nem egy meglevohoz!!!"
+ *
+ * Enelkul pontosan az tortenik, ami tortent: a bongeszo azt a fiokot hagyja
+ * jova, amelyik EPPEN be van benne jelentkezve, es az uj slot csendben ugyanabba
+ * a fiokba kerul, mint egy meglevo. Ketten esznek egy keretet, es semmi nem szol.
+ *
+ * A cim megadasa utan a slothoz ROGZITJUK a cimet, meg a bejelentkezes ELOTT --
+ * igy ha megis mas fiok jon be, az azonnal elteres (`drift`), nem uj igazsag.
+ */
+export type NewAccountEmailDecision =
+  | { kind: 'missing' }
+  | { kind: 'invalid' }
+  | { kind: 'taken'; by: string; email: string }
+  | { kind: 'ok'; email: string }
+
+export function decideNewAccountEmail(
+  raw: string | null | undefined,
+  slots: IdentitySlot[],
+): NewAccountEmailDecision {
+  const nyers = (raw ?? '').trim()
+  if (!nyers) return { kind: 'missing' }
+  // Szandekosan szigoru, de nem tulokos: egy kukac, korulotte szokoz nelkuli
+  // resz, es a domainben legyen pont. A tobbit a bejelentkezes maga donti el.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nyers)) return { kind: 'invalid' }
+  const cim = normalizeEmail(nyers) as string
+  for (const s of slots) {
+    // A MERT cim es a ROGZITETT cim egyarant foglaltsag: az elobbi azt mondja,
+    // ki ul ott most, az utobbi azt, kinek KELL ott lennie. Barmelyik egyezes
+    // eseten ez a cim mar el van kelve.
+    const mert = normalizeEmail(s.email)
+    const rogzitett = normalizeEmail(s.expectedEmail)
+    if ((mert && mert === cim) || (rogzitett && rogzitett === cim)) {
+      return { kind: 'taken', by: s.label || s.id || '', email: cim }
+    }
+  }
+  return { kind: 'ok', email: cim }
+}

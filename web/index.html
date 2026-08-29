@@ -2141,11 +2141,11 @@
             <div class="claude-auth-actions">
               <input class="input-sm" type="text" id="claudeAuthLabel" style="min-width:200px"
                      data-i18n-placeholder="claudeauth.label_ph" placeholder="A fiók neve (pl. Munkahelyi)">
-              <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:200px"
-                     data-i18n-placeholder="claudeauth.email_ph" placeholder="E-mail cím (nem kötelező)">
+              <input class="input-sm" type="email" id="claudeAuthEmail" style="min-width:200px" required
+                     data-i18n-placeholder="claudeauth.email_ph" placeholder="Ennek a fióknak az e-mail címe (kötelező)">
               <button class="btn-secondary" id="claudeAuthStartBtn" data-i18n="claudeauth.start">Új fiók hozzáadása</button>
             </div>
-            <p class="claude-auth-warn" data-i18n="claudeauth.warn">A nevet te találod ki, csak neked szól: ezen a néven fogod látni a listában és az ágensek beállításánál. Az e-mail cím megadása nem kötelező, csak előre kitölti a bejelentkezési oldalon.</p>
+            <p class="claude-auth-warn" data-i18n="claudeauth.warn">A nevet te találod ki, csak neked szól: ezen a néven fogod látni a listában és az ágensek beállításánál. Az e-mail cím KÖTELEZŐ, és annak a fióknak a címe legyen, amelyikkel be akarsz jelentkezni: ehhez kötjük a helyet, és szólunk, ha mégis másik fiók jelentkezik be. Egy már használt címet nem lehet még egyszer felvenni — ketten fogyasztanák ugyanannak a fióknak a keretét.</p>
           </div>
 
           <!-- Kulcsos szolgaltato: ide beilleszted a kulcsot, es ott a link hogy honnan -->

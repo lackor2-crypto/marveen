@@ -17236,6 +17236,13 @@ function _claudeAuthReturnFlowHome() {
 // Boss, 2026-08-29: "ne hozzon engem onnan sehova sem. ott helyben
 // jelentkezzen be es maradjon is ott!" -- eddig a kartya gombja atvitt a
 // Fiokok lapra ES becsukta a kartyat, mert a doboz csak ott letezett.
+// A szerver kuldhet i18n-KULCSOT is a hiba melle: igy a mondat a felulet
+// nyelven jelenik meg, nem mindig magyarul. A magyar `error` a tartalek.
+function _claudeAuthErrorText(data) {
+  if (data && data.errorKey) return t(data.errorKey, data.errorParams || {})
+  return (data && data.error) || t('common.error_save')
+}
+
 async function _claudeAuthStartFlow(payload, host) {
   _claudeAuthMoveFlowTo(host || null)
   // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
@@ -17258,7 +17265,7 @@ async function _claudeAuthStartFlow(payload, host) {
       body: JSON.stringify(payload),
     })
     const data = await res.json()
-    if (!data.ok) { _claudeAuthSetState(data.error || t('common.error_save'), 'bad'); return false }
+    if (!data.ok) { _claudeAuthSetState(_claudeAuthErrorText(data), 'bad'); return false }
   } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad'); return false }
   _claudeAuthStopPoll()
   _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
@@ -17645,7 +17652,12 @@ async function renderClaudeAccountPanel(keyServices) {
     const label = document.getElementById('claudeAuthLabel').value.trim()
     const email = document.getElementById('claudeAuthEmail').value.trim()
     if (!label) { showToast(t('claudeauth.need_label'), 6000, true); return }
-    await _claudeAuthStartFlow(email ? { label, email } : { label })
+    // UJ FIOK = SAJAT CIM, kotelezoen. Boss, 2026-08-30: "mindenfelekeppen ahhoz
+    // az emailhez kell kotni, amivel regisztralni akar. nem egy meglevohoz!!!"
+    // A cim nelkuli felvetel ugyanis a bongeszoben EPPEN bent levo fiokba
+    // csuszik bele -- igy ult ket kulon nevu elofizetes egyetlen fiokon.
+    if (!email) { showToast(t('claudeauth.need_email'), 8000, true); return }
+    await _claudeAuthStartFlow({ label, email })
   })
 
   document.getElementById('claudeAuthService').addEventListener('change', _claudeAuthSyncServiceUi)
