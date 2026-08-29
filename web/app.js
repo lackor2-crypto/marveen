@@ -17554,6 +17554,17 @@ function _claudeAuthStopPoll() {
   if (_claudeAuthPoll) { clearInterval(_claudeAuthPoll); _claudeAuthPoll = null }
 }
 
+// LEZARULT != SIKERULT. A `done` csak annyit jelent, hogy a folyamat veget
+// ert: a visszavont (mas fiokkal letrejott) bejelentkezes is `done`. Ez a
+// kulonbseg egy helyen van kimondva, mert ket helyen kerdezik meg.
+function _claudeAuthDoneOk(s) {
+  if (!s) return false
+  if (s.loginOk === true) return true
+  if (s.loginOk === false) return false
+  // Regi valasz, amiben meg nincs meg a mezo: a jelekbol, ovatosan.
+  return !s.error && !s.identityDrift
+}
+
 async function _claudeAuthTick() {
   let s
   try {
@@ -17602,11 +17613,14 @@ async function _claudeAuthTick() {
     _claudeAuthSetState('', null)
     // A visszavont bejelentkezes NEM siker: ilyenkor a "Hozzaadva" pont az
     // ellenkezojet allitana annak, ami tortent.
-    const _driftBlocked = !!(s.identityDrift && s.identityDrift.reverted)
-    if (s.error) showToast(s.error, 10000, true)
+    // A hiba es a figyelmeztetes NEM tunhet el magatol: pont ezt kell
+    // elolvasni. Eddig 10-25 masodperces csik volt, es a kovetkezo uzenet
+    // (az ugynok ujrainditasa) egyszeruen felulirta -- a Boss ebbol annyit
+    // latott, hogy "nem szol ez semmit".
+    if (s.error) showToast(s.error, { type: 'error', big: true })
     // "Hozzaadva" is a false sentence after a repair: the account was already
     // in the list, it just had no credentials.
-    else if (!_driftBlocked) showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
+    else if (_claudeAuthDoneOk(s)) showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
     _claudeAuthPendingTab = null
     // MAS FIOK JOTT BE, MINT AMIT IDE ROGZITETTUNK. A bongeszo azt a fiokot
     // hagyja jova, amelyik eppen be van benne jelentkezve -- ezt a
@@ -17618,7 +17632,7 @@ async function _claudeAuthTick() {
       // sikerult visszavonni / regi valasz, amiben meg nincs is visszavonas.
       const key = d.reverted ? 'accounts.identity.drift_blocked'
         : (d.revertError ? 'accounts.identity.drift_block_failed' : 'accounts.identity.drift_after_login')
-      showToast(t(key, { expected: d.expected, actual: d.actual, err: d.revertError || '' }), 25000, true)
+      showToast(t(key, { expected: d.expected, actual: d.actual, err: d.revertError || '' }), { type: 'warn', big: true })
     }
     // A sikeres bejelentkezes elavultta teszi a kartyak fiok-gyorsitotarat.
     // Enelkul a Beallitasok fulon tovabbra is "Bejelentkezes" allna egy mar
@@ -17634,7 +17648,12 @@ async function _claudeAuthTick() {
     // felfuggesztve egy cimre, ami mar nem jon.
     _claudeAuthPendingTab = null
     _claudeAuthOnDone = null
-    if (s.error) _claudeAuthSetState(s.error, 'bad')
+    if (s.error) {
+      _claudeAuthSetState(s.error, 'bad')
+      // A doboz a kartyan belul ul: ha a kartya bezarul, az allapotsor vele
+      // megy. A csik akkor is ott marad.
+      showToast(s.error, { type: 'error', big: true })
+    }
     return
   }
   // A rogzitett cim MEG A KATTINTAS ELOTT: a bongeszo azt a fiokot hagyja
@@ -28300,7 +28319,21 @@ async function handleAgentLogin(agentName, btn, planId, card, wasRunning) {
     let tab = null
     try { tab = window.open('', '_blank') } catch { tab = null }
     _claudeAuthPendingTab = tab
-    _claudeAuthOnDone = async () => {
+    _claudeAuthOnDone = async (s) => {
+      // LEZARULT != SIKERULT.
+      //
+      // Boss, 2026-08-30: "nem szol ez semmit. csak pusztan nem jeletkezik be."
+      // A kepernyon ekkor a "Bejelentkezve. Ujraindítom a(z) lackor3
+      // ugynokot..." csik allt -- kozben (store/dashboard.log 00:42:01) mas
+      // fiok jelentkezett be, es a rendszer visszavonta. Ez a horog nem nezte
+      // meg, letrejott-e egyaltalan a bejelentkezes.
+      //
+      // Ha nem: (a) nem mondunk sikert, (b) NEM inditjuk ujra az ugynokot --
+      // egy bejelentkezetlen (vagy rossz fiokkal bejelentkezett) ugynok
+      // ujrainditasa csak elfedne a bajt --, es (c) nem irjuk felul a mar
+      // kint allo figyelmeztetest, mert az mondja meg, mi tortent es mi a
+      // kovetkezo lepes.
+      if (!_claudeAuthDoneOk(s)) { loadAgents(); return }
       // A mar futo CLI a friss hitelesitest NEM olvassa be magatol: e nelkul a
       // kartya zoldre valtana, az ugynok viszont tovabbra sem dolgozna.
       if (!wasRunning) { loadAgents(); return }

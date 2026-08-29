@@ -77,8 +77,10 @@ describe('a felulet harom kulon allapotot mond, nem egyet', () => {
   })
 
   it('a visszavont bejelentkezesre NEM ir "Hozzaadva"-t', () => {
-    expect(APP).toContain('const _driftBlocked = !!(s.identityDrift && s.identityDrift.reverted)')
-    expect(APP).toContain("else if (!_driftBlocked) showToast(t(s.reused ? 'claudeauth.done_back'")
+    // A feltetel 2026-08-30-on szigorodott: nem eleg a visszavont eltereset
+    // kizarni, a sikeruzenet CSAK valodi sikerre johet ki. A dontes egyetlen
+    // helyen all -- lasd hamis-siker-bejelentkezes.test.ts.
+    expect(APP).toContain("else if (_claudeAuthDoneOk(s)) showToast(t(s.reused ? 'claudeauth.done_back'")
   })
 
   it('a rogzitett cim MAR A BEJELENTKEZES ALATT kint van', () => {

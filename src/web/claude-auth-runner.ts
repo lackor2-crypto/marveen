@@ -585,6 +585,14 @@ export interface LoginStatus {
   isDefault?: boolean
   /** True when the flow signed an EXISTING account back in. */
   reused?: boolean
+  /** LETREJOTT-E a helyre az a bejelentkezes, amit kertunk. `false`, ha mas
+   *  fiok jelentkezett be (akar visszavontuk, akar nem sikerult visszavonni),
+   *  vagy ha a nyilvantartasba felvetel bukott.
+   *
+   *  A `done` ettol KULON all: az csak annyit mond, hogy a folyamat veget ert.
+   *  A felulet EBBOL dontse el, mondhat-e "Bejelentkezve"-t -- a `done`-bol
+   *  levont kovetkeztetes szulte a 2026-08-30-i hamis sikeruzenetet. */
+  loginOk?: boolean
   /** Every login this install has, refreshed on each poll. */
   accounts: AccountRow[]
   /** Kitolt a bejelentkezes MAS fiokba, mint amit ehhez a slothoz rogzitettunk.
@@ -707,6 +715,9 @@ export function loginStatus(): LoginStatus {
     return {
       ...status, done: true, planId, label, isDefault: configDir === null, reused,
       defaultLoggedIn: isDefaultLoggedIn(accounts), identityDrift: drift,
+      // Elteresnel a hely URES marad (visszavontuk), vagy a ROSSZ fiok ul
+      // benne (a visszavonas bukott) -- egyik sem az, amit kertunk.
+      loginOk: !drift && registered,
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
   }
