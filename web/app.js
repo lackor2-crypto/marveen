@@ -700,6 +700,11 @@ function switchPage(pageId) {
   // mely-hivatkozasok (#codeBridge hash, az Attekintes onellenorzes-sorai)
   // valtozatlanul ide erkeznek: az Ugynokok lapra visszuk, es kinyitjuk.
   if (pageId === 'codeBridge') { switchPage('agents'); openCodeBridgeModal(); return }
+  // A Raktar (regi neven Depo) sem kulon lap tobbe: a beallitasai az Iroda ->
+  // Beallitasok ala kerultek, a Raktar menupont alatt pedig a TARTALOM (Drive,
+  // Fotok) all (Boss, 2026-08-27). A regi #depo mely-hivatkozasok -- a lapon
+  // belul maradt gombok, a konyvjelzok -- valtozatlanul ide erkeznek.
+  if (pageId === 'depo') { switchPage('irodaSettings'); openIrodaDepotSettings(); return }
   // Guard unsaved settings before leaving the settings page
   if (!document.getElementById('settingsPage').hidden && pageId !== 'settings' && !confirmSettingsLeave()) return
   pages.forEach((p) => (p.hidden = p.id !== pageId + 'Page'))
@@ -711,6 +716,17 @@ function switchPage(pageId) {
   // selected once, regardless of which page is actually open.
   document.querySelectorAll('.sb-link[data-page], .nav-link[data-page]').forEach((l) => l.classList.toggle('active', l.dataset.page === pageId))
   openSidebarGroupForPage(pageId)
+  // A Raktar csoport a #navIroda-ban van, ahova a SIDEBAR_GROUPS gepezet
+  // szandekosan nem lat el (az csak a #navMarvin csoportjait sopri). Ha a
+  // Drive vagy a Fotok az aktiv lap, a csoport nem maradhat csukva: a "hol
+  // vagyok" jelzes nem bujhat el egy osszecsukott menu mogott.
+  if (pageId === 'drive' || pageId === 'photos') {
+    const depotGroup = document.querySelector('.sb-group[data-group="depot-content"]')
+    if (depotGroup && !depotGroup.classList.contains('open')) {
+      depotGroup.classList.add('open')
+      document.getElementById('depotNavToggle')?.setAttribute('aria-expanded', 'true')
+    }
+  }
   // Kanban and Email need full-width layout (overrides main's max-width: 1200px)
   document.querySelector('main').classList.toggle('kanban-active', pageId === 'kanban')
   document.querySelector('main').classList.toggle('email-active', pageId === 'email')
@@ -750,8 +766,7 @@ function switchPage(pageId) {
   // A Depo oldal kerdezgeti a szervert, amig egy koltoztetes vagy szinkron fut.
   // Elnavigalva nincs kinek mutatni -- de a MUNKA a szerveren fut tovabb, es
   // ide visszaterve a poll magatol ujraindul (lasd _depoRefresh).
-  if (pageId !== 'depo') _depoStopPoll()
-  if (pageId === 'depo') loadDepoPage()
+  if (pageId !== 'irodaSettings') _depoStopPoll()
   if (pageId === 'intezo') loadIntezoPage()
   // Elhagyva a Fotok oldalt: a kepek blob URL-jei feleslegesen ulnek a
   // memoriaban, es egy futo Picker-lekerdezes sem szolhat bele mas lapba.
@@ -839,7 +854,11 @@ const WORKSPACE_LS_KEY = 'marveen.workspace'
 function irodaPages() {
   // Az Email kezzel: nem statikus link, hanem a fiokonkenti almenu (a
   // ensureEmailAccountNav() rakja be), ami a munkateruleten kivul meg nem letezik.
-  const set = { email: true }
+  // A `depo` szinten kezzel: a Raktar beallitasai atkerultek az Iroda ->
+  // Beallitasok ala, ezert nincs sajat data-page="depo" linkje. Enelkul a
+  // munkateruelet-visszaallitas "nem irodai"-nak latna, es a #depo hivatkozas
+  // az Emailre dobna -- pontosan az a hiba, amit 2026-08-15-en jeleztel.
+  const set = { email: true, depo: true }
   document.querySelectorAll('#navIroda [data-page]').forEach((l) => { set[l.dataset.page] = true })
   return set
 }
@@ -881,6 +900,17 @@ document.getElementById('emailNavToggle')?.addEventListener('click', () => {
   const open = !group.classList.contains('open')
   group.classList.toggle('open', open)
   document.getElementById('emailNavToggle')?.setAttribute('aria-expanded', open ? 'true' : 'false')
+})
+
+// Raktar-almenu (Iroda -> Raktar): a Depo TARTALMA, azaz a Drive es a Fotok.
+// Ugyanaz a kezi kezeles, mint az Emailnel, ugyanabbol az okbol: a
+// SIDEBAR_GROUPS gepezet szandekosan csak a #navMarvin csoportjaira fut.
+document.getElementById('depotNavToggle')?.addEventListener('click', () => {
+  const group = document.querySelector('.sb-group[data-group="depot-content"]')
+  if (!group) return
+  const open = !group.classList.contains('open')
+  group.classList.toggle('open', open)
+  document.getElementById('depotNavToggle')?.setAttribute('aria-expanded', open ? 'true' : 'false')
 })
 {
   let savedWs = 'marvin'
@@ -24798,6 +24828,10 @@ function ensureEmailAccountNav() {
 let irodaSettingsActiveAccount = null
 let irodaSettingsCategoryWired = false
 let irodaSettingsInDetailView = false
+// MELYIK reszletes nezet all nyitva: 'email' vagy 'depot'. A nyelvvaltas
+// ujrahivja a lap betoltojet, es a MASIK nezetet ujrarajzolni annyi, mint
+// kidobni a felhasznalot onnan, ahol epp dolgozott.
+let irodaSettingsDetailKind = 'email'
 function loadIrodaSettings() {
   // switchPage('irodaSettings') re-fires on every language switch too (see
   // setLang() -- it re-triggers the current page's loader so translated
@@ -24807,24 +24841,47 @@ function loadIrodaSettings() {
   // marad ugyanott az oldal"). Re-render the SAME sub-view in place instead
   // of resetting it.
   if (irodaSettingsInDetailView) {
+    if (irodaSettingsDetailKind === 'depot') { loadDepoPage(); return }
     renderIrodaSettingsTabs()
     renderIrodaSettingsForm(irodaSettingsActiveAccount)
     return
   }
-  document.getElementById('irodaSettingsCategoryList').hidden = false
-  document.getElementById('irodaSettingsDetailView').hidden = true
+  closeIrodaSettingsDetail()
   if (irodaSettingsCategoryWired) return
   irodaSettingsCategoryWired = true
   document.querySelectorAll('#irodaSettingsCategoryList .iroda-settings-category-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.dataset.category === 'email') openIrodaEmailSettings()
+      if (btn.dataset.category === 'depot') openIrodaDepotSettings()
     })
   })
-  document.getElementById('irodaSettingsBackBtn').addEventListener('click', () => {
-    irodaSettingsInDetailView = false
-    document.getElementById('irodaSettingsCategoryList').hidden = false
-    document.getElementById('irodaSettingsDetailView').hidden = true
-  })
+  document.getElementById('irodaSettingsBackBtn').addEventListener('click', closeIrodaSettingsDetail)
+  document.getElementById('irodaSettingsDepotBackBtn')?.addEventListener('click', closeIrodaSettingsDetail)
+}
+
+// Vissza a csempekhez. A Raktar kartyai kerdezgetik a szervert, amig egy
+// koltoztetes vagy szinkron fut -- a csempe-listan nincs kinek mutatni, ezert
+// a pollt itt is le kell allitani. A MUNKA a szerveren fut tovabb, es
+// visszalepve a poll magatol ujraindul (lasd _depoRefresh).
+function closeIrodaSettingsDetail() {
+  irodaSettingsInDetailView = false
+  _depoStopPoll()
+  document.getElementById('irodaSettingsCategoryList').hidden = false
+  document.getElementById('irodaSettingsDetailView').hidden = true
+  const depotView = document.getElementById('irodaSettingsDepotView')
+  if (depotView) depotView.hidden = true
+}
+
+// Raktar beallitasok: ugyanazok a kartyak, mint a regi Depo lapon (az
+// azonositoik valtozatlanok), csak mar a Beallitasok ala beepulve.
+function openIrodaDepotSettings() {
+  irodaSettingsInDetailView = true
+  irodaSettingsDetailKind = 'depot'
+  document.getElementById('irodaSettingsCategoryList').hidden = true
+  document.getElementById('irodaSettingsDetailView').hidden = true
+  const depotView = document.getElementById('irodaSettingsDepotView')
+  if (depotView) depotView.hidden = false
+  loadDepoPage()
 }
 
 function renderIrodaSettingsTabs() {
@@ -24845,8 +24902,12 @@ function renderIrodaSettingsTabs() {
 
 async function openIrodaEmailSettings() {
   irodaSettingsInDetailView = true
+  irodaSettingsDetailKind = 'email'
+  _depoStopPoll()
   document.getElementById('irodaSettingsCategoryList').hidden = true
   document.getElementById('irodaSettingsDetailView').hidden = false
+  const depotView = document.getElementById('irodaSettingsDepotView')
+  if (depotView) depotView.hidden = true
   ensureEmailAccountNav()
   if (emailAccountsFetchPromise) await emailAccountsFetchPromise
   if (!irodaSettingsActiveAccount && emailAccounts.length) irodaSettingsActiveAccount = emailAccounts[0].id

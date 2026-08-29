@@ -342,6 +342,12 @@ body {
  * settings categories (more will join it later), same "pick a category,
  * then drill into its form" shape as Marvin's own Beallitasok tabs. */
 .iroda-settings-categories { display: flex; flex-wrap: wrap; gap: 12px; }
+/* A `display: flex` erosebb a bongeszo sajat `[hidden] { display: none }`
+   szabalyanal, ezert enelkul a csempe-lista AKKOR IS a kepernyon marad, amikor
+   a JS mar elrejtette -- a reszletes nezet ala csuszva. Merve 2026-08-29-en a
+   Raktar csempen; ugyanez allt az Email csempere is. Ugyanaz a csapda, mint a
+   .kanban-board/.kanban-col eseteben. */
+.iroda-settings-categories[hidden] { display: none; }
 .iroda-settings-category-btn {
   display: flex;
   flex-direction: column;

@@ -2208,6 +2208,8 @@ window._i18n.hu = {
   'irodaSettings.placeholder':   'Hamarosan: email-fiók beállítások (IMAP/SMTP).',
   'irodaSettings.category.email':      'Email beállítások',
   'irodaSettings.category.email_desc': 'IMAP/SMTP fiókok kezelése',
+  'irodaSettings.category.depot':      'Raktár beállítások',
+  'irodaSettings.category.depot_desc': 'Hol legyenek a fájljaid, Drive- és fotó-másolat, mentés',
   'irodaSettings.back':                'Vissza',
   'irodaSettings.new_account':         'Új fiók',
   'irodaSettings.field.email':         'Email cím',

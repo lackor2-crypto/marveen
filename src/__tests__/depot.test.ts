@@ -414,12 +414,27 @@ describe('a beallitas es a vegpontok a helyukon vannak', () => {
     expect(web).toContain('tryHandleDriveSync(routeCtx)')
   })
 
-  it('van Depo oldal a feluleten, es el is indul', () => {
-    expect(html).toContain('data-page="depo"')
+  it('a Raktar beallitasai elerhetok a feluletrol, es el is indulnak', () => {
+    // A kartyak 2026-08-27 ota az Iroda -> Beallitasok "Raktar beallitasok"
+    // csempeje alatt vannak (Boss: "a depo mappa alatti dolgokat at kellene
+    // tenni a beallitasokba"). Az azonositok valtozatlanok.
+    expect(html).toContain('data-category="depot"')
+    expect(html).toContain('id="irodaSettingsDepotView"')
     expect(html).toContain('id="depoPage"')
-    expect(app).toContain("if (pageId === 'depo') loadDepoPage()")
+    expect(app).toContain('function openIrodaDepotSettings()')
+    expect(app).toContain('loadDepoPage()')
     // Elnavigalva a poll leall -- kulonben orokke ketyegne a hatterben.
-    expect(app).toContain("if (pageId !== 'depo') _depoStopPoll()")
+    expect(app).toContain("if (pageId !== 'irodaSettings') _depoStopPoll()")
+    // ... es a csempekhez visszalepve is, mert ott sincs kinek mutatni.
+    expect(app).toContain('function closeIrodaSettingsDetail() {')
+  })
+
+  it('a csempe-lista tenyleg eltunik a reszletes nezet alol', () => {
+    // A `.iroda-settings-categories` `display: flex`-e erosebb a bongeszo
+    // `[hidden] { display: none }` szabalyanal: felulirás nelkul a csempek
+    // akkor is latszanak, amikor a JS mar elrejtette oket.
+    const css = readFileSync(join(process.cwd(), 'web/style.css'), 'utf8')
+    expect(css).toContain('.iroda-settings-categories[hidden] { display: none; }')
   })
 
   it('a felulet kimondja, mi megy fel es mi NEM jon vissza', () => {

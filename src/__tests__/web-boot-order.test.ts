@@ -62,11 +62,19 @@ describe('a munkateruelet-visszaallitas nem a .active menupontra tamaszkodik', (
     expect(APP).toContain("setWorkspace(ws, { persist: false, page: named || undefined })")
   })
 
-  it('a Depo benne van az Iroda oldalaiban (a markupbol olvasva)', () => {
-    const html = readFileSync(join(process.cwd(), 'web/index.html'), 'utf8')
-    const nav = html.slice(html.indexOf('id="navIroda"'), html.indexOf('id="navIroda"') + 12000)
-    expect(nav).toContain('data-page="depo"')
-    // A lista a markupbol jon, nem kezzel karbantartott felsorolasbol.
+  it('a Raktar benne van az Iroda oldalaiban (kezzel, mert mar nincs linkje)', () => {
+    // 2026-08-27-ig ez azt orizte, hogy van `data-page="depo"` link a
+    // #navIroda-ban. A Raktar beallitasai azota az Iroda -> Beallitasok ala
+    // kerultek, ezert sajat linkje MAR NINCS -- viszont a `#depo`
+    // mely-hivatkozas el, es irodainak KELL szamitania, kulonben a
+    // munkateruelet-visszaallitas az Emailre dobja (Boss, 2026-08-15).
+    expect(APP).toContain('const set = { email: true, depo: true }')
+    // A tobbi oldal listaja tovabbra is a markupbol jon, nem kezzel
+    // karbantartott felsorolasbol.
     expect(APP).toContain("document.querySelectorAll('#navIroda [data-page]')")
+  })
+
+  it('a #depo mely-hivatkozas a Raktar beallitasokat nyitja ki', () => {
+    expect(APP).toContain("if (pageId === 'depo') { switchPage('irodaSettings'); openIrodaDepotSettings(); return }")
   })
 })

@@ -1575,6 +1575,8 @@ window._i18n.en = {
   'irodaSettings.placeholder':   'Coming soon: email account settings (IMAP/SMTP).',
   'irodaSettings.category.email':      'Email settings',
   'irodaSettings.category.email_desc': 'Manage IMAP/SMTP accounts',
+  'irodaSettings.category.depot':      'Depot settings',
+  'irodaSettings.category.depot_desc': 'Where your files live, Drive and photo copies, backup',
   'irodaSettings.back':                'Back',
   'irodaSettings.new_account':         'New account',
   'irodaSettings.field.email':         'Email address',
