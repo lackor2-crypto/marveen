@@ -4406,6 +4406,21 @@ function refreshClaudeAccounts(onChanged) {
     })
 }
 
+// EGY hely, ahol a fiok-allapot valtozasa utan ujrarajzolunk: a kartyalista ES
+// a nyitott modal doboza. A kijelentkeztetes es a bejelentkezes vege ugyanezt
+// hivja -- ket masolat elobb-utobb elcsuszna egymastol (ezt szamolja meg az
+// agent-card-logout-ui teszt is).
+function reloadAccountsAndRedraw() {
+  _claudeAccountRows = null
+  _claudeAccountsPending = false
+  primeClaudeAccounts(() => {
+    renderAgents()
+    // A doboz a nyitott modalban ul: ha csak a kartyakat rajzolnank ujra, a
+    // gomb ott maradna egy mar elavult allapotra mutatva.
+    if (currentAgent) renderAgentLogoutSetting(currentAgent)
+  })
+}
+
 function claudeAccountRowFor(claudeAccount) {
   if (!claudeAccount || !_claudeAccountRows) return null
   const want = claudeAccount.configDir === undefined ? null : claudeAccount.configDir
@@ -4449,13 +4464,7 @@ function wireAccountLogoutButton(cardEl) {
     e.stopPropagation()
     const b = e.currentTarget
     _claudeAuthLogout(b.dataset.plan || '', b.dataset.who || '').then(() => {
-      _claudeAccountRows = null
-      primeClaudeAccounts(() => {
-        renderAgents()
-        // A doboz a nyitott modalban ul: ha csak a kartyakat rajzolnank ujra,
-        // a gomb ott maradna egy mar kijelentkezett fiokra mutatva.
-        if (currentAgent) renderAgentLogoutSetting(currentAgent)
-      })
+      reloadAccountsAndRedraw()
     })
   })
   // A visszaut a #claudeAuthFlow dobozt nyitja meg es indit pollingot -- az
@@ -17527,12 +17536,7 @@ async function _claudeAuthTick() {
     // A sikeres bejelentkezes elavultta teszi a kartyak fiok-gyorsitotarat.
     // Enelkul a Beallitasok fulon tovabbra is "Bejelentkezes" allna egy mar
     // bejelentkezett fiokon.
-    _claudeAccountRows = null
-    _claudeAccountsPending = false
-    primeClaudeAccounts(() => {
-      renderAgents()
-      if (currentAgent) renderAgentLogoutSetting(currentAgent)
-    })
+    reloadAccountsAndRedraw()
     if (_claudeAuthOnDone) { const cb = _claudeAuthOnDone; _claudeAuthOnDone = null; cb(s) }
     return
   }
