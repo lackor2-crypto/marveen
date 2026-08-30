@@ -5,6 +5,35 @@ description: List, inspect, patch, or delete skills from ~/.claude/skills/. Use 
 
 # Skill Management -- CRUD for the Skill Library
 
+## ⛔ KÖTELEZŐ ELSŐ LÉPÉS: kire szól ez a skill?
+
+{{OWNER_NAME}}, 2026-08-30: „a skill létrehozásának a lépésére, hogy ez most
+personal vagy nem personal. Hogy ez mindig legyen kitöltve, akkor, amikor egy
+új skill generálódik." — és: „ne lehessen létrehozni skillt e nélkül hogy ezt meg
+ne adnad. és ha nem személyes hanem általánosan használható bárkinek, akkor
+viszont azt be kell égetni a marveenba! mindig."
+
+**Minden SKILL.md fejlécében ott kell lennie a `scope:` sornak. Ennélkül a skill
+nem kész.** A Marveen felülete el sem indítja a létrehozást nélküle
+(`skill_scope_required`), és kézzel írt skillre ugyanez a szabály.
+
+| Érték | Mikor | Mi történik |
+|---|---|---|
+| `scope: personal` | konkrét emberre, fiókra, számlára, magánügyre szól | marad a `~/.claude/skills/` alatt |
+| `scope: global` | bárkinek hasznos | **beég**: átmegy a repó `seed-skills/` mappájába is, mert a telepítő KIZÁRÓLAG azt másolja ki |
+| `scope: review` | **csak gépi út írhatja** (tömörítés-reflexió, import) | még senki nem döntött; az Áttekintés önellenőrzése számon kéri |
+
+**Kétség esetén `global`:** egy fölöslegesen megosztott munkamódszer nem árt,
+egy elveszett viszont igen.
+
+`global` skillhez a gépspecifikus értékeket helyőrzőre cseréld (`{{OWNER_NAME}}`,
+`{{MAIN_AGENT_ID}}`, `{{PROJECT_ROOT}}`, `{{WEB_PORT}}`), magyar toldalékkal
+együtt is (`Bossnak` → `{{OWNER_NAME}}-nak`).
+
+**A mért eset.** 2026-08-30-án négy skill létezett csak ezen a gépen; kettőt
+GÉP írt a tömörítés-reflexióból, ember nélkül. Az egyikük a `skill-factory`
+volt — vagyis maga a skill-gyár sem lett volna meg egy friss telepítésen.
+
 ## When to use
 
 - User asks "what skills do I have?" or "list skills"

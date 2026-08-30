@@ -1393,6 +1393,57 @@ export function skillSeedRows(
   }]
 }
 
+/**
+ * Skillek, amiket GEP hozott letre, es meg senki nem dontotte el, kire szolnak.
+ *
+ * Boss, 2026-08-30: "a skill letrehozasanak a lepesere, hogy ez most personal
+ * vagy nem personal. Hogy ez mindig legyen kitoltve."
+ *
+ * A `scope: review` szandekosan NEM csendes alapertek. A gepi ut (a tomorites-
+ * reflexio, az import) nem tud donteni, ezert bevallja, hogy nem dontott -- es
+ * ez a sor keri szamon. E nelkul a "meg nem dontottuk el" pontosan ugy nezne
+ * ki, mintha eldontottuk volna, hogy szemelyes: ez a nulla ket jelentese.
+ */
+export function skillScopeReviewRows(
+  home: string = homedir(),
+  projectRoot: string = PROJECT_ROOT,
+): HealthRow[] {
+  const helyi = join(home, '.claude', 'skills')
+  if (!existsSync(helyi)) return []            // friss telepites: helyes a csend
+  let nevek: string[]
+  try { nevek = readdirSync(helyi) } catch { return [] }  // a skills_unreadable sor mar szol rola
+  const var_: string[] = []
+  for (const n of nevek) {
+    if (n.startsWith('.')) continue
+    const md = join(helyi, n, 'SKILL.md')
+    if (!existsSync(md)) continue
+    let fej = ''
+    try { fej = readFileSync(md, 'utf-8').slice(0, 2000) } catch { continue }
+    // KETFELE "nem tudom" van, es MINDKETTO besorolasra var:
+    //  - `scope: review`  -> gep irta, senki nem dontott,
+    //  - nincs scope sor   -> regi fajl, sosem kerdezte meg senki.
+    // A ketto kozott a felhasznalonak nincs teendo-kulonbsege, ezert egy sor.
+    const fm = /^---\s*\r?\n([\s\S]*?)\n---/.exec(fej)
+    const scopeSor = fm ? /^\s*scope:\s*([a-z]+)\s*$/mi.exec(fm[1]) : null
+    const ertek = scopeSor ? scopeSor[1].toLowerCase() : null
+    if (ertek === 'personal' || ertek === 'global') continue
+    // A HARMADIK dontott allapot: nincs scope sora, de a seed-skills/ alatt MAR
+    // ott van -- tehat egy friss telepites megkapja. Ez eldolt, nincs mit
+    // kerdezni rajta. (Merve 2026-08-30: 59 helyi skillbol 55 ilyen volt; enelkul
+    // a sor 55 hamis figyelmeztetest adott volna, es elnyelte volna a valodit.)
+    if (existsSync(join(projectRoot, 'seed-skills', n, 'SKILL.md'))) continue
+    const t = tisztaNev(n)
+    if (t) var_.push(t)
+  }
+  if (var_.length === 0) return []
+  var_.sort()
+  return [{
+    id: 'skills_scope_review',
+    status: 'warn',
+    params: { n: var_.length, names: var_.slice(0, 8).join(', ') },
+  }]
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -1410,6 +1461,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...googleDuplicateRows(),
     ...codeBridgeRows(now),
     ...skillSeedRows(),
+    ...skillScopeReviewRows(),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

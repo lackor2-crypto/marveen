@@ -8442,6 +8442,10 @@ document.getElementById('addSkillBtn').addEventListener('click', () => {
   skillModalScope = null  // per-agent flow keyed off currentAgent
   document.getElementById('skillName').value = ''
   document.getElementById('skillDescription').value = ''
+  // KOTELEZO MEZO, alapertelmezes NELKUL. Boss, 2026-08-30: "ne lehessen
+  // letrehozni skillt e nelkul hogy ezt meg ne adnad." Egy elore bejelolt
+  // valasz pont az a csendes alapertek lenne, ami a bajt okozta.
+  document.querySelectorAll('input[name="skillScope"]').forEach(r => { r.checked = false })
   skillFile = null
   document.getElementById('skillFileName').textContent = ''
   // Reset to create tab
@@ -8486,6 +8490,8 @@ document.getElementById('saveSkillBtn').addEventListener('click', async () => {
   if (!isGlobal && !currentAgent) return
   const name = document.getElementById('skillName').value.trim()
   if (!name) { document.getElementById('skillName').focus(); return }
+  const scopePick = document.querySelector('input[name="skillScope"]:checked')
+  if (!scopePick) { showToast(t('skills.modal.scope_required')); return }
 
   const btn = document.getElementById('saveSkillBtn')
   btn.disabled = true
@@ -8502,14 +8508,20 @@ document.getElementById('saveSkillBtn').addEventListener('click', async () => {
       body: JSON.stringify({
         name,
         description: document.getElementById('skillDescription').value.trim(),
+        skillScope: scopePick.value,
       }),
     })
     if (!res.ok) {
       const err = await res.json()
       throw new Error(err.error || 'Hiba')
     }
+    const out = await res.json().catch(() => ({}))
     closeModal(skillModalOverlay)
-    showToast(t('skills.toast.added'))
+    // A "sikeresen lefutott" nem bizonyitek: kimondjuk, hogy a beegetes
+    // megtortent-e, es azt is, ha nev-utkozes miatt NEM.
+    if (out.seeded) showToast(t('skills.toast.added_seeded'))
+    else if (out.seedReason === 'already-exists') showToast(t('skills.toast.added_seed_conflict'))
+    else showToast(t('skills.toast.added'))
     if (isGlobal) {
       loadGlobalSkills()
     } else {
@@ -15477,6 +15489,10 @@ if (skillsPageNewBtn) {
     skillModalScope = 'global'
     document.getElementById('skillName').value = ''
     document.getElementById('skillDescription').value = ''
+  // KOTELEZO MEZO, alapertelmezes NELKUL. Boss, 2026-08-30: "ne lehessen
+  // letrehozni skillt e nelkul hogy ezt meg ne adnad." Egy elore bejelolt
+  // valasz pont az a csendes alapertek lenne, ami a bajt okozta.
+  document.querySelectorAll('input[name="skillScope"]').forEach(r => { r.checked = false })
     skillFile = null
     document.getElementById('skillFileName').textContent = ''
     document.querySelectorAll('.skill-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.skillTab === 'create'))
@@ -15707,6 +15723,39 @@ function _skillDetailExitEdit() {
   editBtn.disabled = false
 }
 
+/** A `scope:` sor a SKILL.md fejlecebol. `null` = nincs ilyen sor. */
+function readScopeFromMd(md) {
+  const text = String(md || '')
+  if (!/^---\s*\r?\n/.test(text)) return null
+  const end = text.indexOf('\n---', 4)
+  if (end === -1) return null
+  const m = /^\s*scope:\s*([a-z]+)\s*$/mi.exec(text.slice(0, end))
+  return m ? m[1].toLowerCase() : null
+}
+
+/**
+ * Besorolas egy kattintassal. A valaszt NEM ertelmezzuk at: a szerver mondja
+ * meg, beegett-e a seed-skills ala, es ha nem, miert nem -- a csend itt azt
+ * jelentene, hogy megtortent.
+ */
+async function setSkillScope(skillName, agentId, skillScope) {
+  try {
+    const res = await fetch('/api/skills/scope', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: skillName, agent: agentId || undefined, skillScope }),
+    })
+    const out = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(out.error || 'HTTP ' + res.status)
+    if (out.seeded) showToast(t('skills.scope.saved_seeded'))
+    else if (out.seedReason === 'already-exists') showToast(t('skills.scope.saved_seed_conflict'))
+    else showToast(t('skills.scope.saved'))
+    openSkillDetail(skillName, skillName, agentId)
+  } catch (err) {
+    showToast(t('skills.scope.save_failed', { err: err.message }))
+  }
+}
+
 async function openSkillDetail(skillName, displayLabel, agentId = null) {
   _skillDetailCurrentName = skillName
   _skillDetailCurrentAgentId = agentId
@@ -15745,10 +15794,29 @@ async function openSkillDetail(skillName, displayLabel, agentId = null) {
         ? t('skills.source.user')
         : t('skills.source.unknown')
       const mtimeStr = detail.mtime ? formatMtime(detail.mtime) : ''
+      // KIRE SZOL: a `scope:` sor a fejlecbol. A harom allapotot KULON mondjuk
+      // ki -- a "meg senki nem dontotte el" (review) es a "nincs is ilyen sora"
+      // nem ugyanaz, mint a "szemelyes". Ez a `scope: review` sorok kijarata:
+      // egy kattintas besorol, es `global` eseten AZONNAL be is eget.
+      const curScope = detail.skillScope || readScopeFromMd(detail.content || '')
+      const scopeName = curScope === 'personal' ? t('skills.scope.personal_short')
+        : curScope === 'global' ? t('skills.scope.global_short')
+        : curScope === 'review' ? t('skills.scope.review_short')
+        : t('skills.scope.missing_short')
+      const scopeCls = (curScope === 'personal' || curScope === 'global') ? 'ok' : 'todo'
       metaEl.innerHTML = `
         <div class="skill-detail-source">${t('skills.detail.source_label')} <strong>${sourceLabel}</strong>${mtimeStr ? ` &middot; <span title="${escapeHtml(t('skills.mtime.title'))}">${escapeHtml(mtimeStr)}</span>` : ''}</div>
+        <div class="skill-detail-scope ${scopeCls}">
+          <span class="skill-kw-label">${t('skills.scope.label')}</span>
+          <strong>${escapeHtml(scopeName)}</strong>
+          <button class="btn-mini" data-skill-scope="personal">${escapeHtml(t('skills.scope.set_personal'))}</button>
+          <button class="btn-mini" data-skill-scope="global">${escapeHtml(t('skills.scope.set_global'))}</button>
+        </div>
         <div class="skill-detail-note">${t('skills.detail.auto_available')}</div>
       `
+      metaEl.querySelectorAll('[data-skill-scope]').forEach(b => {
+        b.addEventListener('click', () => setSkillScope(name, detail.agentId || null, b.dataset.skillScope))
+      })
     }
 
     // Keywords

@@ -4352,6 +4352,26 @@
             <label for="skillDescription" data-i18n="skills.modal.desc_label">Írd le szabadon, mit csináljon ez a skill</label>
             <textarea id="skillDescription" rows="5" placeholder="pl. Piackutatási riportokat készít: versenytárs elemzés, piaci trendek, SWOT analízis. A riportot strukturáltan, táblázatokkal adja vissza magyarul." data-i18n-placeholder="skills.create.desc_ph"></textarea>
           </div>
+          <div class="form-group">
+            <label data-i18n="skills.modal.scope_label">Kire szól ez a skill? (kötelező)</label>
+            <div class="skill-scope-choice">
+              <label class="skill-scope-opt">
+                <input type="radio" name="skillScope" value="personal">
+                <span>
+                  <strong data-i18n="skills.modal.scope_personal">Személyes — csak ezen a gépen</strong>
+                  <small data-i18n="skills.modal.scope_personal_hint">Konkrét emberre, fiókra, számlára, magánügyre szól.</small>
+                </span>
+              </label>
+              <label class="skill-scope-opt">
+                <input type="radio" name="skillScope" value="global">
+                <span>
+                  <strong data-i18n="skills.modal.scope_global">Általános — bárkinek hasznos</strong>
+                  <small data-i18n="skills.modal.scope_global_hint">Bekerül a seed-skills/ mappába, tehát friss telepítésen is meglesz.</small>
+                </span>
+              </label>
+            </div>
+            <p class="hint" data-i18n="skills.modal.scope_hint">E nélkül nem hozható létre skill. Ha általános, a Marveen automatikusan be is égeti a seed-skills/ mappába, hogy egy friss telepítés is megkapja.</p>
+          </div>
           <button class="btn-primary" id="saveSkillBtn">
             <span class="btn-text" data-i18n="skills.modal.generate_btn">Skill generálás</span>
             <span class="btn-loading" hidden><span class="spinner"></span> <span data-i18n="common.generating">Generálás...</span></span>

@@ -11129,3 +11129,23 @@ details.upstream-box > summary > h4 {
   line-height: 1.4;
 }
 .agent-account-identity-warn button { margin-top: 6px; }
+
+
+/* KIRE SZOL EGY SKILL -- a kotelezo scope-valaszto es a besorolas-jelzo.
+   Boss, 2026-08-30: "ne lehessen letrehozni skillt e nelkul hogy ezt meg ne
+   adnad." A valasztas ezert nagy talalati feluletu es alapertelmezes nelkuli. */
+.skill-scope-choice { display: flex; flex-direction: column; gap: 8px; }
+.skill-scope-opt {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer;
+}
+.skill-scope-opt:hover { border-color: var(--accent); }
+.skill-scope-opt input { margin-top: 3px; flex: none; }
+.skill-scope-opt span { display: flex; flex-direction: column; gap: 2px; }
+.skill-scope-opt small { color: var(--text-muted); }
+.skill-detail-scope {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 6px 0;
+}
+.skill-detail-scope.todo strong { color: var(--warning, #c98a00); }

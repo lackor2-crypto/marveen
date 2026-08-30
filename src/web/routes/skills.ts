@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, readdirSync, mkdirSync, writeFileSync, unlinkSync, rmSync, statSync, lstatSync } from 'node:fs'
+import { createReadStream, existsSync, readdirSync, mkdirSync, writeFileSync, readFileSync, unlinkSync, rmSync, statSync, lstatSync } from 'node:fs'
 import { join, sep, basename } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -8,6 +8,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { AGENTS_BASE_DIR, listAgentNames, readFileOr, agentDir } from '../agent-config.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../../config.js'
 import { generateSkillMd } from '../agent-scaffold.js'
+import { parseHumanSkillScope, withSkillScope, seedGlobalSkill, HUMAN_SKILL_SCOPES, readSkillScope, MACHINE_SKILL_SCOPE } from '../skill-scope.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json } from '../http-helpers.js'
 import { sanitizeSkillName, shellEscape } from '../sanitize.js'
@@ -276,6 +277,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
         name: skillName,
         description: parseSkillDescription(content),
         keywords: parseSkillKeywords(content),
+        skillScope: readSkillScope(content),
         content,
         agents: [],
         agentId: agentParam,
@@ -355,10 +357,18 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/skills' && method === 'POST') {
     const body = await readBody(req)
-    const { name: rawSkillName, description } = JSON.parse(body.toString()) as { name: string; description: string }
+    const { name: rawSkillName, description, skillScope: rawScope } = JSON.parse(body.toString()) as { name: string; description: string; skillScope?: string }
     const skillName = sanitizeSkillName(rawSkillName || '')
     if (!skillName) { json(res, { error: 'Skill name is required' }, 400); return true }
     if (!description) { json(res, { error: 'Skill description is required' }, 400); return true }
+    // KOTELEZO MEZO. Boss, 2026-08-30: "ne lehessen letrehozni skillt e nelkul
+    // hogy ezt meg ne adnad." Nincs alapertelmezes -- egy kitalalt ertek pont
+    // azt a dontest hamisitana meg, amit a mezo orizni hivatott.
+    const skillScope = parseHumanSkillScope(rawScope)
+    if (!skillScope) {
+      json(res, { error: 'skillScope is required', allowed: HUMAN_SKILL_SCOPES, code: 'skill_scope_required' }, 400)
+      return true
+    }
 
     const GLOBAL_SKILLS_DIR = join(homedir(), '.claude', 'skills')
     const skillDir = join(GLOBAL_SKILLS_DIR, skillName)
@@ -370,15 +380,20 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
     mkdirSync(skillDir, { recursive: true })
 
     try {
-      const skillMd = await generateSkillMd(skillName, description)
+      const skillMd = withSkillScope(await generateSkillMd(skillName, description), skillScope, skillName)
       atomicWriteFileSync(join(skillDir, 'SKILL.md'), skillMd)
+      // A BEEGETES. Boss, 2026-08-30: "ha nem szemelyes hanem altalanosan
+      // hasznlalhato barkinek, akkor viszont azt be kel egetni a marveenba!"
+      // A telepito KIZAROLAG a seed-skills/ mappat masolja ki, tehat e nelkul
+      // a skill ezen a gepen ragadna.
+      const seed = seedGlobalSkill(skillName, skillMd, skillScope)
+      json(res, { ok: true, name: skillName, skillScope, seeded: seed.seeded, seedReason: seed.seeded ? null : seed.reason })
+      return true
     } catch (err) {
       rmSync(skillDir, { recursive: true, force: true })
       json(res, { error: 'Failed to generate skill' }, 500)
       return true
     }
-    json(res, { ok: true, name: skillName })
-    return true
   }
 
   if (path === '/api/skills/import' && method === 'POST') {
@@ -459,8 +474,25 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
         return true
       }
 
-      logger.info({ skills: extracted }, 'Global skill(s) imported')
-      json(res, { ok: true, imported: extracted })
+      // Az import is LETREHOZAS: itt sincs ott ember, aki eldontse, kire szol
+      // a behozott skill, ezert `review` kerul a fejlecebe -- de csak ha meg
+      // nincs sajat scope-ja. Egy `global` jelolessel erkezo skill viszont
+      // AZONNAL be is eg a seed-skills ala.
+      const seededOnImport: string[] = []
+      for (const f of extracted) {
+        const md = join(skillsDir, f, 'SKILL.md')
+        try {
+          const content = readFileSync(md, 'utf-8')
+          const sc = readSkillScope(content)
+          if (!sc) {
+            atomicWriteFileSync(md, withSkillScope(content, MACHINE_SKILL_SCOPE, f))
+          } else if (sc === 'global' && seedGlobalSkill(f, content, 'global').seeded) {
+            seededOnImport.push(f)
+          }
+        } catch (err) { logger.warn({ err, skill: f }, 'skill import: scope stamp failed') }
+      }
+      logger.info({ skills: extracted, seeded: seededOnImport }, 'Global skill(s) imported')
+      json(res, { ok: true, imported: extracted, seeded: seededOnImport })
       return true
     } catch (err) {
       try { unlinkSync(tmpPath) } catch { /* ignored */ }
@@ -562,8 +594,54 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
     const { content } = JSON.parse(body.toString()) as { content: string }
     if (typeof content !== 'string') { json(res, { error: 'content is required' }, 400); return true }
     atomicWriteFileSync(skillMdPath, content)
-    logger.info({ skillName }, 'Skill updated via dashboard')
-    json(res, { ok: true })
+    const savedScope = readSkillScope(content)
+    const seededOnSave = savedScope === 'global' ? seedGlobalSkill(skillName, content, 'global').seeded : false
+    logger.info({ skillName, skillScope: savedScope, seeded: seededOnSave }, 'Skill updated via dashboard')
+    json(res, { ok: true, skillScope: savedScope, seeded: seededOnSave })
+    return true
+  }
+
+  // BESOROLAS EGY KATTINTASSAL -- ez a `scope: review` sorok kijarata.
+  //
+  // Boss, 2026-08-30: "hogy ez mindig legyen kitoltve". A gepi uton szuletett
+  // skillek `review` jelolessel allnak; itt dol el, kire szolnak. `global`
+  // eseten UGYANEBBEN a lepesben be is eg a seed-skills/ ala -- kulon gomb
+  // nelkul, mert egy kulon lepes pont az a lepes, ami elmarad.
+  if (path === '/api/skills/scope' && method === 'POST') {
+    const body = await readBody(req)
+    const { name: rawName, skillScope: rawScope, agent } = JSON.parse(body.toString()) as { name?: string; skillScope?: string; agent?: string }
+    const skillName = sanitizeSkillName(rawName || '')
+    if (!skillName) { json(res, { error: 'Skill name is required' }, 400); return true }
+    const skillScope = parseHumanSkillScope(rawScope)
+    if (!skillScope) {
+      json(res, { error: 'skillScope is required', allowed: HUMAN_SKILL_SCOPES, code: 'skill_scope_required' }, 400)
+      return true
+    }
+    let root: string
+    if (agent) {
+      const valid = new Set([MAIN_AGENT_ID, ...listAgentNames()])
+      if (!valid.has(agent)) { json(res, { error: 'Skill not found' }, 404); return true }
+      root = agent === MAIN_AGENT_ID
+        ? join(PROJECT_ROOT, '.claude', 'skills')
+        : join(agentDir(agent), '.claude', 'skills')
+    } else {
+      root = join(homedir(), '.claude', 'skills')
+    }
+    const skillDir = join(root, skillName)
+    if (!skillDir.startsWith(root + sep)) { json(res, { error: 'Invalid skill name' }, 400); return true }
+    const skillMdPath = join(skillDir, 'SKILL.md')
+    if (!existsSync(skillMdPath)) { json(res, { error: 'Skill not found' }, 404); return true }
+    let content: string
+    try { content = readFileSync(skillMdPath, 'utf-8') } catch (err) {
+      // Nem talalgatunk okot: a tenyleges hibauzenet megy vissza.
+      json(res, { error: err instanceof Error ? err.message : String(err) }, 500)
+      return true
+    }
+    const updated = withSkillScope(content, skillScope, skillName)
+    atomicWriteFileSync(skillMdPath, updated)
+    const seed = seedGlobalSkill(skillName, updated, skillScope)
+    logger.info({ skillName, skillScope, seeded: seed.seeded }, 'Skill scope set via dashboard')
+    json(res, { ok: true, name: skillName, skillScope, seeded: seed.seeded, seedReason: seed.seeded ? null : seed.reason })
     return true
   }
 

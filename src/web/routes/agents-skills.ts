@@ -8,6 +8,7 @@ import { MAIN_AGENT_ID } from '../../config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { agentDir, skillsRootFor } from '../agent-config.js'
 import { generateSkillMd } from '../agent-scaffold.js'
+import { parseHumanSkillScope, withSkillScope, seedGlobalSkill, HUMAN_SKILL_SCOPES } from '../skill-scope.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json } from '../http-helpers.js'
 import { sanitizeAgentName, sanitizeSkillName, safeJoin } from '../sanitize.js'
@@ -196,26 +197,32 @@ export async function tryHandleAgentsSkills(ctx: RouteContext): Promise<boolean>
     const agentName = decodeURIComponent(skillsMatch[1])
     if (!agentExistsFor(agentName)) { json(res, { error: 'Agent not found' }, 404); return true }
     const body = await readBody(req)
-    const { name: rawSkillName, description } = JSON.parse(body.toString()) as { name: string; description: string }
+    const { name: rawSkillName, description, skillScope: rawScope } = JSON.parse(body.toString()) as { name: string; description: string; skillScope?: string }
     const skillName = sanitizeSkillName(rawSkillName || '')
     if (!skillName) { json(res, { error: 'Skill name is required' }, 400); return true }
     if (!description) { json(res, { error: 'Skill description is required' }, 400); return true }
+    // Ugyanaz a kapu, mint a globalis skilleknel: scope nelkul nincs skill.
+    const skillScope = parseHumanSkillScope(rawScope)
+    if (!skillScope) {
+      json(res, { error: 'skillScope is required', allowed: HUMAN_SKILL_SCOPES, code: 'skill_scope_required' }, 400)
+      return true
+    }
 
     const skillDir = join(skillsRootFor(agentName), skillName)
     if (existsSync(skillDir)) { json(res, { error: 'Skill already exists' }, 409); return true }
     mkdirSync(skillDir, { recursive: true })
 
     try {
-      const skillMd = await generateSkillMd(skillName, description)
+      const skillMd = withSkillScope(await generateSkillMd(skillName, description), skillScope, skillName)
       atomicWriteFileSync(join(skillDir, 'SKILL.md'), skillMd)
+      const seed = seedGlobalSkill(skillName, skillMd, skillScope)
+      json(res, { ok: true, name: skillName, skillScope, seeded: seed.seeded, seedReason: seed.seeded ? null : seed.reason })
+      return true
     } catch (err) {
       rmSync(skillDir, { recursive: true, force: true })
       json(res, { error: 'Failed to generate skill' }, 500)
       return true
     }
-
-    json(res, { ok: true, name: skillName })
-    return true
   }
 
   return false

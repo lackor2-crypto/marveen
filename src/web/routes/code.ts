@@ -18,6 +18,7 @@ import { json, readBody, serveFile } from '../http-helpers.js'
 import { parseMultipart } from '../multipart.js'
 import { probeWorkspace } from '../code-bridge-workspace.js'
 import { generateSkillMd } from '../agent-scaffold.js'
+import { parseHumanSkillScope, withSkillScope, seedGlobalSkill, HUMAN_SKILL_SCOPES } from '../skill-scope.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
 import { expectedWorkerVersion } from '../code-worker-version.js'
@@ -440,7 +441,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }
 
     if (method === 'POST') {
-      const body = await parseJsonBody<{ project?: string; name?: string; description?: string }>(ctx)
+      const body = await parseJsonBody<{ project?: string; name?: string; description?: string; skillScope?: string }>(ctx)
       if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
       const alias = normalizeAlias(String(body.project ?? ''))
       const skillName = sanitizeCodeSkillName(String(body.name ?? ''))
@@ -448,6 +449,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       if (!alias) { json(res, { error: 'project is required' }, 400); return true }
       if (!skillName) { json(res, { error: 'invalid skill name' }, 400); return true }
       if (!description) { json(res, { error: 'skill description is required' }, 400); return true }
+      // Scope nelkul itt sincs skill -- a kapu minden letrehozo uton ugyanaz.
+      const skillScope = parseHumanSkillScope(body.skillScope)
+      if (!skillScope) {
+        json(res, { error: 'skillScope is required', allowed: HUMAN_SKILL_SCOPES, code: 'skill_scope_required' }, 400)
+        return true
+      }
 
       const { session, probe } = readProject(alias)
       if (!session || !probe) { json(res, { error: 'unknown project: ' + alias }, 404); return true }
@@ -458,16 +465,22 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       const skillDir = join(codeSkillsDir(probe.localPath!), skillName)
       if (existsSync(skillDir)) { json(res, { error: 'skill already exists' }, 409); return true }
       mkdirSync(skillDir, { recursive: true })
+      let seeded = false
       try {
-        atomicWriteFileSync(join(skillDir, 'SKILL.md'), await generateSkillMd(skillName, description))
+        const skillMd = withSkillScope(await generateSkillMd(skillName, description), skillScope, skillName)
+        atomicWriteFileSync(join(skillDir, 'SKILL.md'), skillMd)
+        // Egy kod-projektben szuletett altalanos skill is beeg a Marveenbe:
+        // "menet kozben is ha egy olyan altalanos skill jon letre azt is mind
+        // be kell egetni" (Boss, 2026-08-30).
+        seeded = seedGlobalSkill(skillName, skillMd, skillScope).seeded
       } catch (err) {
         rmSync(skillDir, { recursive: true, force: true })
         logger.warn({ err, alias, skillName }, 'code-bridge: skill generation failed')
         json(res, { error: err instanceof Error ? err.message : String(err) }, 500)
         return true
       }
-      logger.info({ alias, skillName, skillDir }, 'code-bridge: skill created')
-      json(res, { ok: true, name: skillName, skillDir })
+      logger.info({ alias, skillName, skillDir, skillScope, seeded }, 'code-bridge: skill created')
+      json(res, { ok: true, name: skillName, skillDir, skillScope, seeded })
       return true
     }
 

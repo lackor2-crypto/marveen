@@ -22,6 +22,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
+import { MACHINE_SKILL_SCOPE, withSkillScope, readSkillScope } from './skill-scope.js'
 import { PROJECT_ROOT, STORE_DIR, MAIN_AGENT_ID } from '../config.js'
 import { logger } from '../logger.js'
 import { atomicWriteFileSync } from './atomic-write.js'
@@ -216,6 +217,11 @@ export function renderSkillMd(p: SkillProposal, agent: string, now: Date = new D
     '---',
     `name: ${p.name}`,
     `description: ${p.description.replace(/\r?\n/g, ' ')}`,
+    // GEPI UT: nincs itt ember, aki eldontse, kire szol. A `review` nem csendes
+    // alapertek -- az Attekintes onellenorzese kiirja, hany skill var
+    // besorolasra, hogy a "meg nem dontottuk el" ne latsszon dontesnek.
+    // (Pont igy szuletett a gold-technical-analysis es a whatsapp-send.)
+    `scope: ${MACHINE_SKILL_SCOPE}`,
     '---',
     '',
     `# ${p.name}`,
@@ -237,6 +243,13 @@ export function patchSkillMd(existing: string, p: SkillProposal, agent: string, 
   if (existing.includes(heading)) return null
   if (existing.length > SKILL_FILE_MAX_CHARS) return null
   const addition = [heading, '', autoNote(agent, now), '', bodyWithoutFrontmatter(p.body), ''].join('\n')
+  // Egy regi, scope nelkuli SKILL.md-t a bovites alkalmaval latunk el a
+  // mezovel -- de csak akkor, ha meg nincs: egy MEGLEVO emberi dontest
+  // (personal/global) semmi nem irhat felul a hatunk mogott.
+  // HOZZAFUZES, NEM ATIRAS: a meglevo fajl fejlecehez itt nem nyulunk. Ha
+  // hianyzik belole a `scope:` sor, azt az Attekintes onellenorzese keri
+  // szamon (skills_scope_review) -- nem hallgatolagosan, egy mentes melle
+  // rejtve. A `scope: review` bepecsetelese az UJ fajl dolga (renderSkillMd).
   return `${existing.replace(/\s+$/, '')}\n\n${addition}`
 }
 

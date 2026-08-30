@@ -36,6 +36,7 @@ import { startContextGuardRunner } from './web/context-guard-runner.js'
 import { startContextRestartGateRunner } from './web/context-restart-gate-runner.js'
 import { collectTokenUsage } from './web/token-usage.js'
 import { logger } from './logger.js'
+import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { tryHandleAuth } from './web/routes/auth.js'
 import { tryHandleSecurity } from './web/routes/security.js'
 import { tryHandleProfiles } from './web/routes/profiles.js'
@@ -582,6 +583,13 @@ export function startWebServer(port = 3420): http.Server {
   kukaSepres()
   const kukaSepresInterval = setInterval(kukaSepres, 24 * 60 * 60 * 1000)
 
+  // "De menet kozben is ha egy olyan altalanos skill jon letre azt is mind be
+  // kell egetni!" (Boss, 2026-08-30) -- a letrehozas pillanataban valo beegetes
+  // csak azt fogja meg, amit Marveen ir. Egy agens kozvetlenul is tehet fajlt a
+  // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
+  // friss telepites is megkapja. Nem ir felul meglevot.
+  const skillSeederInterval = startGlobalSkillSeeder()
+
   const tokenCollectInterval = webOnly ? undefined : setInterval(() => {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Periodic token usage collection failed'))
   }, 60 * 60 * 1000)
@@ -776,6 +784,7 @@ export function startWebServer(port = 3420): http.Server {
     clearInterval(verificationSweepInterval)
     clearInterval(authSessionSweepInterval)
     clearInterval(kukaSepresInterval)
+    clearInterval(skillSeederInterval)
     clearInterval(updateCheckerInterval)
     if (federationPollerInterval) clearInterval(federationPollerInterval)
     if (capabilityRunnerInterval) clearInterval(capabilityRunnerInterval)
