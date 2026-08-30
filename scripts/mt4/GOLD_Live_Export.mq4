@@ -30,7 +30,7 @@
 //|     fallback contains, so live and hst readings stay comparable.   |
 //+------------------------------------------------------------------+
 #property copyright "Marveen"
-#property link      "https://github.com/Szotasz/marveen"
+#property link      "https://github.com/lackor2-crypto/marveen"
 #property version   "1.00"
 #property strict
 
