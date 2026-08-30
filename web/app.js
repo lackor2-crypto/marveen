@@ -19677,12 +19677,15 @@ function _upstreamMeasureErrText(data, httpStatus) {
   const d = data || {}
   const key = d.reason ? 'overview.upstream.measure_err.' + d.reason : ''
   const translated = key ? t(key) : ''
-  // A 404 NEM ismeretlen hiba: a sajat vegpontunk hianyzik, tehat a futo
-  // szerver REGEBBI, mint ez a felulet (a bongeszo a lemezrol frissult, a
-  // backend viszont a korabbi buildbol fut). Ez kimondhato -- nem talalgatas,
-  // hanem az egyetlen dolog, amit egy sajat utvonalra kapott 404 jelenthet.
-  if (httpStatus === 404 && !translated) {
-    return t('overview.upstream.measure_err.endpoint_missing')
+  // A sajat utvonalunkra kapott 404-nek egyetlen jelentese van: a futo szerver
+  // NEM ISMERI a vegpontot, tehat regebbi, mint ez a felulet (a bongeszo a
+  // lemezrol mar az uj app.js-t toltotte be, a backend meg a korabbi buildbol
+  // fut). Csak akkor mondjuk ki, ha a valasz NEM a mi protokollunkban jott:
+  // ha van `reason` vagy `error`, akkor a vegpont letezik es O beszelt -- az
+  // o mondatat nem irjuk felul talalgatassal. A nyers `detail` itt sem vesz el.
+  if (httpStatus === 404 && !d.reason && !d.error) {
+    const s = t('overview.upstream.measure_err.endpoint_missing')
+    return d.detail ? s + ' — ' + d.detail : s
   }
   const sentence = (translated && translated !== key)
     ? translated
