@@ -117,7 +117,9 @@ describe('a szamok kora, nem a fajl kora', () => {
     expect(ov).toContain('isStale(rlSnapshot.measuredAt, Date.now())')
     expect(ov).toContain('isStale(snap.measuredAt, Date.now())')
     // Es tovabb is adja, hogy a felulet ki tudja irni, mennyire regi.
-    expect(ov).toContain('measuredAt: rlSnapshot?.measuredAt ?? null')
+    // (2026-08-30 ota zarojelben all, mert elo panel-leolvasasnal a MOSTANI
+    // ido lep a helyebe -- a mezo maga es a jelentese valtozatlan.)
+    expect(ov).toContain('rlSnapshot?.measuredAt ?? null')
   })
 
   it('a felulet MINDIG kiirja a meres korat, ha van mit', () => {

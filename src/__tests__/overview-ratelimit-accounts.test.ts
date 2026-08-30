@@ -97,13 +97,31 @@ describe('usage-limit widget: server payload', () => {
     // on every render tick but only refreshes the percentages when Claude
     // actually reported them, so updatedAt made an hours-old reading look
     // fresh forever. See rate-limit-measured-at.test.ts.
-    expect(OVERVIEW).toContain('stale: rlSnapshot ? isStale(rlSnapshot.measuredAt, Date.now()) : false')
+    expect(OVERVIEW).toContain('const mainSnapFresh = rlSnapshot ? !isStale(rlSnapshot.measuredAt, Date.now()) : false')
+    // 2026-08-30: a fo fiok is kap panel-leolvasast, de a kor akkor is a
+    // MERES kora marad -- elo leolvasasnal a mostani, kulonben a pillanatkepe.
+    expect(OVERVIEW).toContain('measuredAt: mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null)')
+  })
+
+  it('a bongeszo-frissites elo merest ker, a hattér-ketyego nem', () => {
+    // Boss 2026-08-30: "amikor frissiti a user a bongeszot az oldalt, akkor az
+    // is frissuljon". A `measure=1` kapcsolja be az elo forrasok ujra-
+    // megkerdezeset; a percenkenti ujrarajzolas es a 3 perces hattér-toltes
+    // NEM kaphatja meg, kulonben folyamatosan tmuxot kapargatnank.
+    expect(OVERVIEW).toContain("ctx.url.searchParams.get('measure') === '1'")
+    expect(APP).toContain("fetch('/api/overview?measure=1')")
+    const tickFetch = APP.indexOf("const res = await fetch('/api/overview')")
+    expect(tickFetch, 'a hattér-ujratoltes maradjon meres nelkuli').toBeGreaterThan(-1)
   })
 
   it('a plan falls back to an old snapshot rather than to no row at all', () => {
-    // Order matters: fresh snapshot -> live pane scrape -> stale snapshot.
+    // Order matters: live (eager) scrape -> fresh snapshot -> cached pane
+    // scrape -> stale snapshot.
+    const eager = OVERVIEW.indexOf('const eagerScrape = measureNow ? scrapeClaudeAccountUsage(plan.id) : null')
+    expect(eager).toBeGreaterThan(-1)
     const fresh = OVERVIEW.indexOf('if (snapFresh && snap.fiveHour?.usedPct != null)')
-    const scrape = OVERVIEW.indexOf('const scraped = scrapeClaudeAccountUsage(plan.id)')
+    const scrape = OVERVIEW.indexOf('const scraped = eagerScrape ?? scrapeClaudeAccountUsage(plan.id)')
+    expect(fresh).toBeGreaterThan(eager)
     const staleFallback = OVERVIEW.indexOf('fiveHourPct: snap?.fiveHour?.usedPct ?? null')
     expect(fresh).toBeGreaterThan(-1)
     expect(scrape).toBeGreaterThan(fresh)

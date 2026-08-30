@@ -19688,7 +19688,14 @@ function renderOverviewUpstreamSync(upstreamSync) {
 
 async function loadOverview() {
   try {
-    const res = await fetch('/api/overview')
+    // `measure=1`: ezt a betoltest a FELHASZNALO valtotta ki (oldalfrissites,
+    // vagy az Attekintes megnyitasa), tehat a kiszolgalo minden elo forrast
+    // ujra megkerdez, nem csak a lemezen allo pillanatkepet olvassa fel. Igy a
+    // "X perce merve" a frissites utan a MOSTANI meres kora -- Boss 2026-08-30:
+    // "amikor frissiti a user a bongeszot az oldalt, akkor az is frissuljon".
+    // Ahol nem sikerul elo merest szerezni (a fiok epp nem jelent semmit), ott
+    // szandekosan marad a regi, oszinte kor: "0 perce" csak valodi meresre jar.
+    const res = await fetch('/api/overview?measure=1')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const d = await res.json()
     // Stats

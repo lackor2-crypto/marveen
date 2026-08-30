@@ -24,6 +24,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { readUpstreamSyncStatus } from '../upstream-sync-status-io.js'
 import { readUpstreamChanges } from '../upstream-changes-io.js'
 import { exactTmuxTarget } from '../tmux-target.js'
+import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
@@ -131,31 +132,63 @@ export function sanityCheckFiveHour<T extends { usedPct: number | null; resetsAt
   return row
 }
 
-function scrapeClaudeAccountUsage(planId: string): { usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean } {
-  let pane: string | null = null
+// Melyik tmux-panelekben allhat egy fiok elo hasznalat-sava?
+//
+// A terv-fiokok sajat `agent-<id>` sessionben futnak. A FO fiok viszont nem:
+// az a `<MAIN_AGENT_ID>-channels` sessionben el, es mellette ott futnak a
+// munkas-sessionok is (`-worker`, `-worker-fast`) -- ugyanazon a Claude-
+// fiokon. Ezert nem talalgatunk neveket, hanem megkerdezzuk magat a tmuxot,
+// mi fut most (Boss 2026-08-30: bongeszo-frissiteskor a fo fiokot is ujra
+// kell merni, ne csak a terveket). Ha a tmux nem valaszol -- friss telepites,
+// meg nem indult semmi --, a channels-session nevevel probalkozunk, es a
+// capture ugyanugy nullakkal ter vissza; ez a "nem latok oda", nem a "nincs".
+function usageScrapeSessions(accountId: string): string[] {
+  if (accountId !== MAIN_AGENT_ID) return [`agent-${accountId}`]
   try {
-    // -S -2000: the "used X%" banner is transient (only shown right after it
-    // renders, then scrolls out of the default single-screen capture once the
-    // agent replies to anything) -- read back deep into scrollback so a long
-    // busy stretch (lots of tool-call output) doesn't push it out of range.
-    // Best-effort: any tmux failure (session not found, etc) -> nulls.
-    pane = execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(`agent-${planId}`), '-p', '-S', '-2000'], { timeout: 3000 }).toString()
-  } catch { /* pane unavailable, fall through with nulls */ }
+    const out = execFileSync('/usr/bin/tmux', ['list-sessions', '-F', '#{session_name}'], { timeout: 3000 }).toString()
+    const live = out.split('\n').map(s => s.trim())
+      .filter(s => s === MAIN_CHANNELS_SESSION || s.startsWith(`${MAIN_AGENT_ID}-`))
+    if (live.length) return live
+  } catch { /* nincs tmux vagy nincs session -- lasd lent */ }
+  return [MAIN_CHANNELS_SESSION]
+}
 
-  const fresh = pane ? sanityCheckFiveHour(scrapeFreshUsage(pane)) : { usedPct: null, model: null, resetsAt: null }
+function scrapeClaudeAccountUsage(accountId: string): { usedPct: number | null; model: string | null; resetsAt: number | null; stale: boolean; capturedAt?: number | null } {
+  const panes: string[] = []
+  for (const session of usageScrapeSessions(accountId)) {
+    try {
+      // -S -2000: the "used X%" banner is transient (only shown right after it
+      // renders, then scrolls out of the default single-screen capture once the
+      // agent replies to anything) -- read back deep into scrollback so a long
+      // busy stretch (lots of tool-call output) doesn't push it out of range.
+      // Best-effort: any tmux failure (session not found, etc) -> nulls.
+      panes.push(execFileSync('/usr/bin/tmux', ['capture-pane', '-t', exactTmuxTarget(session), '-p', '-S', '-2000'], { timeout: 3000 }).toString())
+    } catch { /* pane unavailable, try the next one */ }
+  }
+
+  let fresh: { usedPct: number | null; model: string | null; resetsAt: number | null } = { usedPct: null, model: null, resetsAt: null }
+  for (const pane of panes) {
+    const candidate = sanityCheckFiveHour(scrapeFreshUsage(pane))
+    if (candidate.usedPct !== null) { fresh = candidate; break }
+    // Meg ha a szazalek nincs is meg, a modell-sor mar hasznos.
+    if (fresh.model === null && candidate.model !== null) fresh = { ...fresh, model: candidate.model }
+  }
   if (fresh.usedPct !== null) {
     const v = { usedPct: fresh.usedPct, model: fresh.model, resetsAt: fresh.resetsAt }
-    writeScrapedUsage(planId, v)
+    writeScrapedUsage(accountId, v)
     return { ...fresh, stale: false }
   }
   // The cache can hold a row written before the guard above existed (or by an
   // older build), so it gets the same check on the way out -- otherwise a
   // poisoned entry keeps serving the impossible "100% / resets in 23h" pairing
   // forever, since nothing overwrites it while the fresh scrape finds nothing.
-  const cached = readScrapedUsage(planId)
+  const cached = readScrapedUsage(accountId)
   if (cached) {
     const checked = sanityCheckFiveHour(cached)
-    if (checked.usedPct !== null) return { usedPct: checked.usedPct, model: cached.model, resetsAt: checked.resetsAt, stale: true }
+    // A kora a gyorsitotar sajat idobelyege -- nem a statusline-pillanatkepe,
+    // es nem a mostani ido: mind a ketto mast allitana, mint amikor a szam
+    // tenylegesen keletkezett.
+    if (checked.usedPct !== null) return { usedPct: checked.usedPct, model: cached.model, resetsAt: checked.resetsAt, stale: true, capturedAt: cached.capturedAt }
   }
   return { usedPct: null, model: null, resetsAt: null, stale: false }
 }
@@ -305,6 +338,14 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/overview' && method === 'GET') {
+    // `?measure=1`: a felhasznalo MOST kerte az adatot (bongeszo-frissites vagy
+    // az Attekintes megnyitasa), tehat minden elo forrast ujra megkerdezunk --
+    // nem elegszunk meg a lemezen allo pillanatkeppel akkor sem, ha az meg nem
+    // szamit elavultnak. A hattérben ketyego 3 perces ujratoltes ezt NEM kapja
+    // meg: ott a lemezrol olvasas eleg, es nem akarunk percenkent tmuxot
+    // kapargatni (Boss 2026-08-30: "amikor frissiti a user a bongeszot, akkor
+    // az is frissuljon").
+    const measureNow = ctx.url.searchParams.get('measure') === '1'
     const subAgents = listAgentNames()
     const running = subAgents.filter(n => isAgentRunning(n)).length + 1
     const total = subAgents.length + 1
@@ -445,6 +486,20 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // was actually running Opus 5. Drop it whenever a live model is known.
     const accountLabel = (label: string, model: string | null) =>
       model ? label.replace(/\s*\([^)]*\)\s*$/, '').trim() || label : label
+    // A FO fiok eddig KIZAROLAG a statusline-pillanatkepbol kapta a szamait --
+    // a panel-leolvasas csak a terv-fiokoknak jart. Igy ha a fo agens epp nem
+    // rajzolt, a "X perce merve" attol sem mozdult, hogy a Boss ujratoltotte az
+    // oldalt, holott a panelen ott allt a friss savja. Mostantol ugyanaz a ket
+    // forras all mogotte, mint a tobbi fiok mogott.
+    const mainSnapFresh = rlSnapshot ? !isStale(rlSnapshot.measuredAt, Date.now()) : false
+    const mainScrape = (measureNow || !mainSnapFresh || rlSnapshot?.fiveHour?.usedPct == null)
+      ? scrapeClaudeAccountUsage(MAIN_AGENT_ID) : null
+    // A pillanatkep a gazdagabb forras (5 oras ES heti ablak), a panel-
+    // leolvasas viszont MOSTANI. Csak akkor lep a helyebe, ha tenyleg elo
+    // (`!stale`) es tenyleg van benne szam -- kulonben marad a pillanatkep, es
+    // vele egyutt marad a HONEST kora is. "0 perce merve" csak akkor kerul ki,
+    // ha a nulla valodi meresbol jott.
+    const mainLiveScrape = mainScrape && !mainScrape.stale && mainScrape.usedPct !== null ? mainScrape : null
     const claudeAccounts = [
       {
         id: MAIN_AGENT_ID,
@@ -455,10 +510,10 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // (Haiku)"). The org-chart's own main-node label (a few lines above,
         // `agentsForTeam`) is a SEPARATE field and correctly stays "Marvin".
         label: 'Lackor2',
-        model: rlSnapshot?.model ?? null,
-        fiveHourPct: rlSnapshot?.fiveHour?.usedPct ?? null,
+        model: mainLiveScrape?.model ?? rlSnapshot?.model ?? null,
+        fiveHourPct: mainLiveScrape ? mainLiveScrape.usedPct : (rlSnapshot?.fiveHour?.usedPct ?? null),
         sevenDayPct: rlSnapshot?.sevenDay?.usedPct ?? null,
-        fiveHourResetsAt: rlSnapshot?.fiveHour?.resetsAt ?? null,
+        fiveHourResetsAt: mainLiveScrape ? mainLiveScrape.resetsAt : (rlSnapshot?.fiveHour?.resetsAt ?? null),
         sevenDayResetsAt: rlSnapshot?.sevenDay?.resetsAt ?? null,
         // The other rows mark a stale reading with a "~"; this one used to
         // present an hours-old snapshot as a fresh number.
@@ -467,8 +522,8 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // kepernyo-frissiteskor ujrairja a fajlt, de a SZAZALEKOKAT csak akkor,
         // amikor a Claude jelentette oket -- egy sokat rajzolo, de keveset
         // dolgozo agens igy a vegtelensegig frissnek mutatott egy regi merest.
-        stale: rlSnapshot ? isStale(rlSnapshot.measuredAt, Date.now()) : false,
-        measuredAt: rlSnapshot?.measuredAt ?? null,
+        stale: mainLiveScrape ? false : (rlSnapshot ? !mainSnapFresh : false),
+        measuredAt: mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null),
       },
       ...readClaudePlans().map(plan => {
         // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok
@@ -486,6 +541,27 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         const snap = readRateLimitSnapshot(plan.id)
         // measuredAt, nem updatedAt -- lasd a Lackor2-sor melletti indoklast.
         const snapFresh = snap && !isStale(snap.measuredAt, Date.now())
+        // Boss 2026-08-30: bongeszo-frissiteskor (`measure=1`) akkor is
+        // megnezzuk a panelt, ha a pillanatkep meg friss -- kulonben a kor
+        // csak azert nem mozdul, mert senki nem nezett ra a panelre. Elo
+        // leolvasas (nem gyorsitotarbol) MEGELOZI a pillanatkepet: az a szam
+        // most keletkezett.
+        const eagerScrape = measureNow ? scrapeClaudeAccountUsage(plan.id) : null
+        if (eagerScrape && !eagerScrape.stale && eagerScrape.usedPct !== null) {
+          return {
+            id: plan.id,
+            label: accountLabel(plan.label, eagerScrape.model ?? snap?.model ?? readAgentModel(plan.id)),
+            model: eagerScrape.model ?? snap?.model ?? readAgentModel(plan.id),
+            fiveHourPct: eagerScrape.usedPct,
+            // A panel-sav csak az 5 oras ablakrol beszel; a heti tovabbra is
+            // csak a pillanatkepbol johet.
+            sevenDayPct: snap?.sevenDay?.usedPct ?? null,
+            fiveHourResetsAt: eagerScrape.resetsAt,
+            sevenDayResetsAt: snap?.sevenDay?.resetsAt ?? null,
+            stale: false,
+            measuredAt: Date.now(),
+          }
+        }
         if (snapFresh && snap.fiveHour?.usedPct != null) {
           return {
             id: plan.id,
@@ -499,7 +575,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
             measuredAt: snap.measuredAt,
           }
         }
-        const scraped = scrapeClaudeAccountUsage(plan.id)
+        const scraped = eagerScrape ?? scrapeClaudeAccountUsage(plan.id)
         if (scraped.usedPct !== null) {
           return {
             id: plan.id,
@@ -515,7 +591,9 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
             stale: scraped.stale || !snapFresh,
             // A panel-leolvasas MOST tortent; ha az elavult (`scraped.stale`),
             // akkor a gyorsitotarazott ertek kora a pillanatkepe.
-            measuredAt: scraped.stale ? (snap?.measuredAt ?? null) : Date.now(),
+            // ... es a gyorsitotar sajat idobelyege pontosabban valaszol arra,
+            // hogy MIKOR mertuk ezt a szamot, mint a pillanatkep kora.
+            measuredAt: scraped.stale ? (scraped.capturedAt ?? snap?.measuredAt ?? null) : Date.now(),
           }
         }
         // Nothing scrapeable either (idle pane, banner scrolled away). An old
