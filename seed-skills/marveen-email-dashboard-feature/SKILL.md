@@ -1,6 +1,7 @@
 ---
 name: marveen-email-dashboard-feature
 description: Marveen email-dashboard funkciók biztonságos, fork-barát megépítése Himalaya backenddel, HU/EN i18n-nel és izolált tesztekkel. Használd email kereső, szűrő, lista vagy postafiók UI/API fejlesztésénél.
+scope: global
 ---
 
 # Marveen email-dashboard funkció

@@ -1,6 +1,7 @@
 ---
 name: inbox-document-sorting
 description: A BEÉRKEZŐ mappa iratainak besorolása az egységes életfába (kihez tartozik, milyen terület, melyik ország, milyen ügy, milyen dokumentumtípus, hová kerüljön). Akkor használd, ha a felhasználó beszkennelt papírt, PDF-et, e-mail mellékletet, hatósági/banki/bírósági iratot vagy fotót dobott a Beérkezőbe, vagy ha megkér, hogy rendezd el a Beérkezőt.
+scope: global
 ---
 
 # BEÉRKEZŐ — automatikus iratrendezés

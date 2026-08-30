@@ -1,6 +1,7 @@
 ---
 name: notify-with-fallback
 description: Szöveges üzenet kézbesítése egy elsődleges csatornán (pl. WhatsApp Desktop, Telegram), saját magadnak ellenőrizve hogy sikerült-e, és csak sikertelenség esetén másodlagos csatornára (pl. email) esve vissza. Akkor használd, ha {{OWNER_NAME}} egy adott kontaktnak/csatornának ad küldési sorrendet ("előbb X-en, ha nem megy Y-on"), nem csak egy csatornát.
+scope: global
 ---
 
 # Elsődleges csatorna + fallback küldés

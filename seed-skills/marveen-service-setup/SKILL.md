@@ -1,6 +1,7 @@
 ---
 name: marveen-service-setup
 description: Amikor a user "automatizált Claude Code setupot / autostart / boot utan induljon / systemd service / indito scriptet" ker a marveen flottahoz. ELOSZOR nezd meg mi fut mar, ne duplikalj.
+scope: global
 ---
 # Marveen autostart / service setup
 

@@ -1,6 +1,7 @@
 ---
 name: ledger-recall
 description: Amikor {{OWNER_NAME}} korábbi beszélgetésre utal vissza ("ezt már mondtam", "nem ezt beszéltük", "emlékszel amikor...", "mit kértem pontosan"), és a jelen session kontextusa (SessionStart-kor betöltött kivonat vagy a folyó beszélgetés) nem tartalmazza elég pontosan -- keress rá a ledger adatbázisban kulcsszóval, ne találgass és ne kérdezz vissza feleslegesen.
+scope: global
 ---
 
 # Ledger visszakeresés

@@ -1,6 +1,7 @@
 ---
 name: marveen-fork-friendly-development
 description: ÁLLANDÓ, ELSŐDLEGES SZABÁLY -- minden Marveen KÖVETETT kódját (src/, web/, scripts/, package.json) érintő fejlesztésnél vedd figyelembe, hogy ez egy fork (upstream: Szotasz/marveen), és minimalizáld a jövőbeli upstream-merge ütközéseit. Trigger: új funkció építése, meglévő megosztott fájl (web/app.js, src/db.ts, src/web.ts, web/style.css, package.json) módosítása, vagy upstream merge/pull végzése.
+scope: global
 ---
 
 # Marveen fork-barát fejlesztés

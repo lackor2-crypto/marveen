@@ -1,6 +1,7 @@
 ---
 name: voice-message-never-lost
 description: Egy Telegram hangüzenet nem kapott automatikus "[Hang átirat]:" injektálást (mid-turn érkezett, nem indított új promptot). Ne mondd hogy "nem tudom átírni" -- hívd meg közvetlenül a /api/voice/directive végpontot.
+scope: global
 ---
 
 # Hangüzenet sosem vész el

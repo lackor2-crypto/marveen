@@ -1,6 +1,7 @@
 ---
 name: marveen-test-suite-triage
 description: Amikor egy Marveen kanban-kártya (vagy {{OWNER_NAME}}) egy konkrét, kis számú hibázó tesztet említ, vagy meg kell állapítani hogy egy tesztsikertelenség a SAJÁT mai munkád okozta-e vagy már korábban is megvolt. Trigger -- "hibás teszt", "X/Y sikertelen", "regresszió-e ez", bármilyen vitest hiba triázsa.
+scope: global
 ---
 
 # Marveen tesztkör triázs: teljes futtatás + baseline-diff

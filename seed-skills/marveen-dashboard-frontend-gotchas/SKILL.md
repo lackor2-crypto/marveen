@@ -1,6 +1,7 @@
 ---
 name: marveen-dashboard-frontend-gotchas
 description: Ismert buktatók a Marveen dashboard vanilla JS/CSS frontendjén (web/app.js, web/style.css, web/index.html) -- a `hidden` attribútum csendes felülírása, DOM-elem újraszülőzés amikor egy másik függvény insertBefore-referenciaként használja, grid-divider minták. Nézd át MIELŐTT egy agent-kártya/lista/rács jellegű UI-t módosítasz.
+scope: global
 ---
 
 # Marveen dashboard frontend -- ismert buktatók

@@ -1,6 +1,7 @@
 ---
 name: self-rename
 description: A gazda megkér, hogy nevezd át magad ("mostantól legyél X", "nevezd át magad X-re", "hívjunk inkább X-nek"). Biztonságos önátnevezés: persona (CLAUDE.md/SOUL.md) + BRAND_NAME + dashboard-restart. SOHA nem nyúl a BOT_NAME/MAIN_AGENT_ID/SERVICE_ID plumbinghoz.
+scope: global
 ---
 # Self-rename -- az agent biztonságos átnevezése
 

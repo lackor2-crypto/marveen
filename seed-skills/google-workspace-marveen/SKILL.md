@@ -1,6 +1,7 @@
 ---
 name: google-workspace-marveen
 description: Gmail / Google Drive / Google Calendar bekotese Marveenen belul, sajat Google Cloud OAuth appal (nincs desktop app / GUI kliens). Trigger: "kosd be a Gmail/Drive/Calendar-t", google integracio, OAuth setup.
+scope: global
 ---
 # Google Workspace (Gmail/Drive/Calendar) integracio Marveenen belul
 

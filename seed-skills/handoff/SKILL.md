@@ -1,6 +1,7 @@
 ---
 name: handoff
 description: Generate a HANDOFF.md context transfer document for session continuity. Use when switching sessions, handing off to another agent, or preserving complex task context before a context window reset. Trigger on "/handoff" command or "handoff:" prefix in inter-agent messages.
+scope: global
 ---
 
 # Handoff -- Session Context Transfer

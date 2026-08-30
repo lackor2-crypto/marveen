@@ -1,6 +1,7 @@
 ---
 name: mobile-dashboard-access
 description: A Marveen dashboard biztonsagos telefonos elerese (PWA + token/eszközkulcs). WSL2-n Tailscale Serve az ajanlott ut. Trigger: "telefonrol/mobilrol elerjem Marveent", mobil dashboard, remote access setup.
+scope: global
 ---
 # Mobil dashboard elerés (WSL2)
 

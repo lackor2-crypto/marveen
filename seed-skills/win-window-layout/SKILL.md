@@ -1,6 +1,7 @@
 ---
 name: win-window-layout
 description: {{OWNER_NAME}} Windows-asztalanak ablak-elrendezeset menti el es allitja vissza WSL-bol (PersistentWindows + Task Scheduler Interactive). Akkor hasznald, ha {{OWNER_NAME}} azt keri hogy "mentsd el az ablakok allasat", "allitsd vissza az iroda-elrendezest", vagy ha egy tobb-ablakos munkakornyezetet kell reprodukalni (pl. monitor-valtas / RDP utan szethullott ablakok).
+scope: global
 ---
 
 # Windows ablak-elrendezés mentése és visszaállítása

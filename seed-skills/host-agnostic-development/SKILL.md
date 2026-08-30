@@ -1,6 +1,7 @@
 ---
 name: host-agnostic-development
 description: Használd MINDEN Marveen-fejlesztésnél, mielőtt kódot, scriptet, skillt vagy sablont írnál. Marveen nyílt forráskódú -- semmilyen gépspecifikus adat (tulajdonos neve, ágens-id, abszolút útvonal, GitHub-fiók, repo-URL, chat-id) nem kerülhet fixen a kódba, mert akkor csak a szerző gépén működik. Ez a skill megmondja, honnan kell olvasni helyette.
+scope: global
 ---
 
 # Gépfüggetlen fejlesztés

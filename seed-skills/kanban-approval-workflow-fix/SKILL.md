@@ -1,6 +1,7 @@
 ---
 name: kanban-approval-workflow-fix
 description: Approval gomb és PUT route hiányzó feldolgozása – összesen 3 OK javítása.
+scope: global
 ---
 
 # Kanban approval workflow fix

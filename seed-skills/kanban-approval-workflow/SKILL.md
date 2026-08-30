@@ -1,6 +1,7 @@
 ---
 name: kanban-approval-workflow
 description: Amikor egy kanban kártyához tartozó munka elkészült és sikeresen le lett tesztelve (élesben kipróbálva), ugyanabban a lépésben: (1) git commit helyben, (2) kártya waiting-be, (3) azonnal jóváhagyás-kérés az API-n, (4) Telegram-jelzés a tulajdonosnak ({{OWNER_NAME}}). Egyik lépés se maradjon ki és ne csússzon későbbre.
+scope: global
 ---
 
 # Kanban -> tesztelés -> jóváhagyás -> commit

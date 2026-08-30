@@ -1,6 +1,7 @@
 ---
 name: windows-desktop-screenshot
 description: Valódi képernyőkép készítése {{OWNER_NAME}} Windows asztaláról (nem böngésző-URL, hanem BÁRMILYEN futó desktop-app, pl. MetaTrader) WSL-ből, Task Scheduler Interactive-mintával. Akkor használd, ha egy már FUTÓ Windows alkalmazás tartalmát kell látnod/elemezned (chart, ablak, bármi vizuális), vagy azt előtérbe kell hoznod.
+scope: global
 ---
 
 # Windows desktop screenshot WSL-ből

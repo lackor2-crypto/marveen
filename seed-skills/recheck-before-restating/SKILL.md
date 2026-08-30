@@ -1,6 +1,7 @@
 ---
 name: recheck-before-restating
 description: KÖTELEZŐ újramérés. Ha egy tényt MÁSODSZOR is kimondasz — mert a felhasználó visszakérdez, mert összefoglalóba írod, vagy mert egy következő lépés épül rá —, előbb újra le kell mérned. A saját korábbi válaszod és az emlékezet nem forrás. Minden állapotra, dátumra, verzióra, jelszóra, darabszámra és listára érvényes.
+scope: global
 ---
 
 # Újra állítás előtt újra meg kell nézni

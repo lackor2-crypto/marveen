@@ -1,6 +1,7 @@
 ---
 name: marveen-learned-rules
 description: Élő szabály-gyűjtemény a Marveen-en elkövetett hibákból. MINDEN Marveen-adat/dashboard/DB művelet ELŐTT nézd át a vonatkozó szabályt, hogy egy már egyszer elkövetett hibát ne ismételj meg. Error->recovery után ide KÖTELEZŐ új szabályt írni.
+scope: global
 ---
 # Marveen tanult szabályok (élő rulebook)
 

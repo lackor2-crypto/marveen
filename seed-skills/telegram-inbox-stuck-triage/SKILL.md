@@ -1,6 +1,7 @@
 ---
 name: telegram-inbox-stuck-triage
 description: Amikor egy [TELEGRAM-INBOX-STUCK] rendszer-figyelmeztetés érkezik (inter-agent üzenet from_agent "system", vagy <untrusted source="agent:system"> csomagolásban) egy másik ágens Telegram-üzenetének kézbesítési elakadásáról. Trigger -- "idle probe reports the session as busy", "X másodperce vár kézbesítésre".
+scope: global
 ---
 
 # Telegram-inbox-stuck triázs

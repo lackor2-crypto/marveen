@@ -13,7 +13,7 @@
 //
 // Ez a fajl az, ami megbuktatja a munkat, ha barmelyik reteg kinyilik.
 import { describe, it, expect } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readFileSync as rf } from 'node:fs'
@@ -297,6 +297,59 @@ describe('a szabaly a tudasban is benne van', () => {
     const s = rf(join(ROOT, 'seed-skills/skill-factory/SKILL.md'), 'utf-8')
     expect(s).toContain('KÖTELEZŐ ELSŐ LÉPÉS')
     expect(s).toContain('scope: review')
+  })
+})
+
+// A BEEGETETT KESZLET EPSEGE. Ezek a fajlok azok, amiket egy friss telepites
+// TENYLEG megkap -- itt kell epnek lenniuk, nem ezen a gepen.
+describe('seed-skills: a beegetett keszlet', () => {
+  const seedDir = join(ROOT, 'seed-skills')
+  const nevek = readdirSync(seedDir).filter((n) => !n.startsWith('.')
+    && existsSync(join(seedDir, n, 'SKILL.md')))
+
+  it('van mit ellenorizni (a nulla itt "nem latok oda" lenne)', () => {
+    expect(nevek.length).toBeGreaterThan(0)
+  })
+
+  it('mindegyiknek van `scope:` sora', () => {
+    const hianyzik = nevek.filter((n) =>
+      readSkillScope(rf(join(seedDir, n, 'SKILL.md'), 'utf-8')) === null)
+    expect(hianyzik).toEqual([])
+  })
+
+  it('egyik sem szemelyes -- ami ide bekerul, azt mindenki megkapja', () => {
+    const szemelyes = nevek.filter((n) =>
+      readSkillScope(rf(join(seedDir, n, 'SKILL.md'), 'utf-8')) === 'personal')
+    expect(szemelyes).toEqual([])
+  })
+
+  // A whatsapp-send csonk tanulsaga: egy .py-t igert, ami sehol nem volt a
+  // skill mellett. Egy nem letezo fajlra mutato skill rosszabb a semminel --
+  // az ugynok elindul rajta, es a hiba a felenel derul ki.
+  it('nem hivatkozik nem letezo scripts/ fajlra', () => {
+    const hianyzo: string[] = []
+    for (const n of nevek) {
+      const md = rf(join(seedDir, n, 'SKILL.md'), 'utf-8')
+      for (const m of md.matchAll(/scripts\/([A-Za-z0-9_.-]+\.(?:py|sh|json|js|ts|ps1))/g)) {
+        // Ket ervenyes hely van, es MINDKETTOT meg kell nezni: a skill sajat
+        // mappaja (a telepito ezt masolja a skill-lel egyutt) es a repo kozos
+        // scripts/ mappaja. Csak az egyiket nezni hamis riasztast ad.
+        const sajat = join(seedDir, n, 'scripts', m[1])
+        const kozos = join(ROOT, 'scripts', m[1])
+        if (!existsSync(sajat) && !existsSync(kozos)) hianyzo.push(`${n} -> scripts/${m[1]}`)
+      }
+    }
+    expect(hianyzo).toEqual([])
+  })
+
+  // Gepspecifikus ertek a beegetett keszletben mas gepen hazugsag.
+  it('nincs benne a fejleszto gepere jellemzo ut', () => {
+    const rossz: string[] = []
+    for (const n of nevek) {
+      const md = rf(join(seedDir, n, 'SKILL.md'), 'utf-8')
+      if (/\/home\/boss\//.test(md)) rossz.push(n)
+    }
+    expect(rossz).toEqual([])
   })
 })
 

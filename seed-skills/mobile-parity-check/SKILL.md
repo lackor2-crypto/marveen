@@ -1,6 +1,7 @@
 ---
 name: mobile-parity-check
 description: KOTELEZO lepes minden Marveen dashboard-fejlesztes vegen (web/app.js, web/index.html, web/style.css, vagy barmi ami a dashboardon lathato UI-t erint) -- a valtoztatast MOBIL nezetben is ellenorizni es igazitani kell, nem csak asztalin. {{OWNER_NAME}} telefonrol hasznalja a dashboardot, es tobbszor talalt olyan funkciot ami asztalin jo volt, mobilon viszont elerhetetlen. Trigger: barmilyen dashboard-UI valtoztatas elkeszult, vagy {{OWNER_NAME}} mobil-hibat jelez.
+scope: global
 ---
 
 # Mobil-paritás: amit asztalin megcsinálsz, mobilon is meg kell csinálni

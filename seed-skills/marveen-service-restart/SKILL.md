@@ -1,6 +1,7 @@
 ---
 name: marveen-service-restart
 description: A Marveen dashboard (vagy barmely {{MAIN_AGENT_ID}}-* szolgaltatas) ujrainditasa build/deploy utan. Hasznald MINDIG, amikor a dist/ ujraepult es eletbe kell leptetni. TILOS kezzel kill + nohup node dist/index.js -- az systemd-n KIVUL futo peldanyt csinal, amit semmi nem hoz vissza.
+scope: global
 ---
 # Marveen szolgaltatas ujrainditas
 

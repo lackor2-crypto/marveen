@@ -1,6 +1,7 @@
 ---
 name: user-is-not-a-programmer
 description: Használd MINDEN olyan fejlesztésnél, ahol a felhasználó lát vagy csinál valamit -- felület, hibaüzenet, beállítás, varázsló, értesítés. A Marveen felhasználója nem programozó. Egy funkció nincs kész attól, hogy működik; akkor kész, ha egy laikus egyedül végig tud rajta menni.
+scope: global
 ---
 
 # A felhasználó nem programozó

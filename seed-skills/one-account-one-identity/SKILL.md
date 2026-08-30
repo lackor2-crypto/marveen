@@ -1,6 +1,7 @@
 ---
 name: one-account-one-identity
 description: Egy hely = egy fiók. Új nevesített fiókot (előfizetést, hozzáférést, munkamenetet) MINDIG ahhoz az e-mail címhez kell kötni, amelyikkel be akarnak jelentkezni — soha nem egy meglévőhöz. A cím a felvételkor kötelező, a helyhez rögzül, és ha később más fiók jelentkezik be, azt hangosan jelezni kell. Akkor is érvényes, ha a bejelentkezés böngészőn át történik.
+scope: global
 ---
 
 # Egy hely = egy fiók

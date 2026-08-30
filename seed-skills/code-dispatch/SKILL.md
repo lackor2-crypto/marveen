@@ -1,6 +1,7 @@
 ---
 name: code-dispatch
 description: Programozási/fejlesztési feladat ÁTADÁSA a projekt saját VS Code Claude Code sessionjének a kód-hídon keresztül (POST /api/code/tasks), majd AZONNALI kilépés -- az eredményt a Claude Code küldi vissza közvetlenül, nem te. Akkor használd, ha {{OWNER_NAME}} kódot íratna/javíttatna egy konkrét projektben ("csináld meg a X projektben", "javítsd a Y-t a tradingbotban", "/code ..."), vagy ha azt kéri, listázd ki a VS Code chat füleket. NE használd, ha a feladat nem kód, vagy ha nincs regisztrált session a projekthez.
+scope: global
 ---
 
 # Kód-feladat átadása a VS Code Claude Code sessionnek

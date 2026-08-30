@@ -1,6 +1,7 @@
 ---
 name: verify-via-live-pane-before-diagnosing
 description: Amikor {{OWNER_NAME}} egy dashboard/UI-jelenseget kerdojelez meg (pl. "miert nem latszik X az OpenRouter oldalon", "miert varakozik a jelzo miskozben dolgozom"), NE csak a kodból/grep-ből vezesd le a diagnozist -- ellenorizd a valodi elo allapotot (tmux capture-pane az erintett agent session-jen) MIELOTT elkulditi a magyarazatot. Trigger: "miert nem latom", "miert mutat X-et", agent-statusz/aktivitas-megjelenites megkerdojelezese.
+scope: global
 ---
 
 # Élő pane ellenőrzés diagnózis előtt

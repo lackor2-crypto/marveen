@@ -1,6 +1,7 @@
 ---
 name: statusline-zero-cost-monitoring
 description: Amikor a Marveen dashboardnak élő adatot kell mutatnia a fő-agent (vagy bármely Claude Code session) saját állapotáról -- pl. plan usage %/keret-limit, context-window %, aktuális modell -- ÉS a megoldás NEM fogyaszthat extra tokent/modellhívást. Trigger: "figyeld a keretet/limitet", "keret %", "usage limit dashboardon", vagy bármi ami polling/heartbeat-tel oldható meg DE {{OWNER_NAME}} elutasította a token-költséget.
+scope: global
 ---
 # Claude Code statusLine mint nulla-költségű helyi adatforrás
 

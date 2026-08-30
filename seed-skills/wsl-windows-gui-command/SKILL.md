@@ -1,6 +1,7 @@
 ---
 name: wsl-windows-gui-command
 description: Windows GUI/tray alkalmazas inditasa vagy parancssori kapcsolo eljuttatasa WSL-bol. Hasznald amikor egy .exe-t WSL-bol hivsz es az "lefut" (exit 0) de semmi nem tortenik, vagy amikor egy tray-appnak parancsot kell kuldeni. Feladatutemezo (LogonType Interactive) + UTF-8 BOM minta.
+scope: global
 ---
 # Windows GUI-parancs WSL-bol
 

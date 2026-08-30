@@ -1,6 +1,7 @@
 ---
 name: commit-only-your-hunks
 description: Commit YOUR changes from a file several agents are editing at once, without carrying anyone else's work into your commit. Use whenever `git status` shows a shared file (web/app.js, web/style.css, web/lang/*.js, src/web.ts) modified and you were not the only one in it, or when a peer says "csak a sajat hunkjaidat commitold" / "git apply --cached". Also use before ANY commit in this repo's live checkout, because several agents share it by design.
+scope: global
 ---
 # Commit only your own hunks
 

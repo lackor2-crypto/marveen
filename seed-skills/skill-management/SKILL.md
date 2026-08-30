@@ -1,6 +1,7 @@
 ---
 name: skill-management
 description: List, inspect, patch, or delete skills from ~/.claude/skills/. Use when the user asks about available skills, wants to modify an existing skill, or when a retrospective proposes skill changes. Trigger on "/skills" command or skill-related retrospective actions.
+scope: global
 ---
 
 # Skill Management -- CRUD for the Skill Library
