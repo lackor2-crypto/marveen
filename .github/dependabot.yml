@@ -1,0 +1,43 @@
+# Fuggoseg-figyelo.
+#
+# A projekt 16 kulso csomagot hasznal. Ha valamelyikben biztonsagi hibat
+# javitanak, e nelkul a fajl nelkul csak veletlenul szereznenk rola tudomast.
+# A Dependabot heti egyszer megnezi, es magatol nyit javito pull requestet --
+# amit a CI (.github/workflows/ci.yml) azonnal le is tesztel.
+
+version: 2
+
+updates:
+  # 1) A npm csomagok (package.json + package-lock.json)
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Budapest
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      # A fejlesztoi fuggosegek egyetlen PR-be kerulnek: kulon-kulon csak zajt
+      # csinalnanak, es a CI ugyanugy lemeri oket egyszerre.
+      dev-dependencies:
+        dependency-type: development
+
+  # 2) Maguk a GitHub Action-ok (actions/checkout, actions/setup-node).
+  #    Ezek is elavulnak, es egy elavult action-verzio nema hibaforras.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Budapest
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(ci)"

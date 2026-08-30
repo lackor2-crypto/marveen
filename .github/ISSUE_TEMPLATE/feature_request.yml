@@ -1,0 +1,33 @@
+name: "💡 Ötlet / Feature request"
+description: "Valami, ami még nincs, de jó lenne. / Something that does not exist yet but should."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **HU:** Írd le, milyen problémát oldana meg — a megoldás ötlete jöhet utána.
+        **EN:** Describe the problem it would solve first; the proposed solution can come after.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: "Milyen problémát oldana meg? / What problem would this solve?"
+      description: "A helyzetet írd le, ne a megoldást. Mikor akadtál el, és min? / Describe the situation, not the solution."
+    validations:
+      required: true
+
+  - type: textarea
+    id: javaslat
+    attributes:
+      label: "Mit javasolsz? / What do you propose?"
+      description: "Ha van konkrét elképzelésed, ide. Ha nincs, hagyd üresen — a probléma önmagában is értékes. / Leave empty if you have no concrete idea; the problem alone is valuable."
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternativak
+    attributes:
+      label: "Mit próbáltál helyette? / What did you try instead?"
+      description: "Kerülőút, másik eszköz, kézi megoldás. / Workaround, another tool, doing it by hand."
+    validations:
+      required: false

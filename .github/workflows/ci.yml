@@ -1,0 +1,74 @@
+name: CI
+
+# Miert van ez a fajl?
+#   A teljes teszt-suite eddig KIZAROLAG a fejlesztoi gepen futott, a push
+#   pillanataban (pre-push hook). Egy masik gep, egy masik Node-verzio vagy egy
+#   idegen hozzajarulas kodja soha nem lett megmerve. Ez a workflow ugyanazt a
+#   kaput lefuttatja egy URES, FRISS gepen -- vagyis pontosan azt az allapotot
+#   meri, amit a projekt alapszabalya megkovetel: "frissen telepitett
+#   Marveenben is mukodjon".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Egy agra egyszerre egy futas eleg: az ujabb push leallitja a regebbit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# A legszukebb jog, amivel a munka elvegezheto: csak olvasas.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # A package.json engines mezoje: ">=20.19.0 <24". Mind a ket
+        # veghatart merjuk, kulonben csak arrol tudunk, amit a fejlesztoi gep
+        # eppen hasznal (.nvmrc = 22).
+        node: ['20.19', '22']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install (npm ci)
+        run: npm ci
+
+      # A teszt-suite megtagadja a futast, ha eles telepitesben talalja magat.
+      # Egy CI checkoutban ennek sosem szabad bekovetkeznie -- de ha megis, a
+      # hibauzenet legyen KIMONDOTT, ne egy rejtelyes "REFUSING TO RUN TESTS".
+      - name: Guard - a checkout nem lehet eles telepites
+        run: |
+          hiba=0
+          for m in store/.dashboard-token store/claudeclaw.db .env; do
+            if [ -e "$m" ]; then
+              echo "::error::A CI checkoutban ott van a(z) '$m' -- ez eles telepites nyoma. A suite ilyenkor nem fut le, es a zold pipa NEM jelentene semmit."
+              hiba=1
+            fi
+          done
+          [ "$hiba" -eq 0 ] && echo "OK: a checkout tiszta, a tesztek valoban lefutnak."
+          exit $hiba
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Syntax check (web/)
+        run: npm run syntax-check
+
+      - name: Teszt-suite (vitest run)
+        run: npm test

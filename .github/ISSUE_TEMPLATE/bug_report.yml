@@ -1,0 +1,83 @@
+name: "🐛 Hibabejelentés / Bug report"
+description: "Valami nem úgy működik, ahogy kellene. / Something does not work as it should."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **HU:** Köszönjük a bejelentést! Minél pontosabban töltöd ki, annál gyorsabban javítható.
+        **EN:** Thanks for reporting! The more precise this is, the faster it can be fixed.
+
+        ⚠️ **Biztonsági hibát NE itt jelents** — a [SECURITY.md](https://github.com/lackor2-crypto/marveen/blob/main/SECURITY.md) írja le, hogyan.
+        ⚠️ **Do not report security issues here** — see [SECURITY.md](https://github.com/lackor2-crypto/marveen/blob/main/SECURITY.md).
+
+        ⚠️ Jelszót, tokent, API-kulcsot **soha ne másolj be**. / Never paste passwords, tokens or API keys.
+
+  - type: textarea
+    id: mi-tortent
+    attributes:
+      label: "Mi történt? / What happened?"
+      description: "A TÉNYLEGES viselkedés. Ha van hibaüzenet, másold be szó szerint — ne írd át és ne foglald össze. / The ACTUAL behaviour. Paste the error message verbatim if there is one."
+      placeholder: "Rákattintottam a ... gombra, és ez jelent meg: ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: mit-vartal
+    attributes:
+      label: "Mit vártál? / What did you expect?"
+      description: "Mi lett volna a helyes viselkedés? / What would the correct behaviour have been?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: lepesek
+    attributes:
+      label: "Hogyan lehet előidézni? / Steps to reproduce"
+      description: "Számozott lépések a nulláról. / Numbered steps from a clean start."
+      placeholder: |
+        1. Megnyitom a Dashboardot
+        2. Áttekintés fül
+        3. Rákattintok a ... gombra
+        4. Megjelenik a hiba
+    validations:
+      required: true
+
+  - type: dropdown
+    id: friss-telepites
+    attributes:
+      label: "Friss telepítésen is előjön? / Does it happen on a fresh install too?"
+      description: "Ez a legfontosabb kérdés: ha csak a te gépeden jön elő, más helyen kell keresni az okot. / The single most important question."
+      options:
+        - "Nem tudom / I don't know"
+        - "Igen, friss telepítésen is / Yes, on a fresh install too"
+        - "Nem, csak a meglévő telepítésemen / No, only on my existing install"
+    validations:
+      required: true
+
+  - type: input
+    id: verzio
+    attributes:
+      label: "Verzió / Version"
+      description: "A `package.json` version mezője, vagy a `git log -1 --oneline` első oszlopa."
+      placeholder: "1.29.0 vagy 8c61f00"
+    validations:
+      required: true
+
+  - type: input
+    id: kornyezet
+    attributes:
+      label: "Környezet / Environment"
+      description: "Operációs rendszer és Node-verzió (`node -v`)."
+      placeholder: "Ubuntu 24.04 WSL2 / Node v22.23.2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: naplo
+    attributes:
+      label: "Napló / Logs"
+      description: "Ha van releváns naplórészlet, ide. Jelszót, tokent előtte törölj ki! / Relevant log excerpt. Remove any secrets first!"
+      render: text
+    validations:
+      required: false

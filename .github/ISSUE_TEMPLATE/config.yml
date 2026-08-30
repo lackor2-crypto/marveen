@@ -1,0 +1,13 @@
+# Az ures ("blank") issue MARAD engedelyezve: aki nem talal magara illo
+# sablont, ne akadjon el -- egy rosszul kategorizalt bejelentes is tobbet er a
+# semmilyennel.
+blank_issues_enabled: true
+
+contact_links:
+  - name: "🔒 Biztonsági hiba / Security issue"
+    url: https://github.com/lackor2-crypto/marveen/blob/main/SECURITY.md
+    about: "Biztonsági hibát NE nyilvános issue-ban jelents. / Do not report security issues in a public issue."
+
+  - name: "🏠 Az eredeti Marveen projekt / The upstream Marveen project"
+    url: https://github.com/Szotasz/marveen/issues
+    about: "Ha a hiba az eredeti projektben is megvan, ott a helye. / If the bug exists upstream too, report it there."
