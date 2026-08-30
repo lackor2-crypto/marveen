@@ -41,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-08-28.2'
+$script:WorkerVersion = '2026-08-30.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -216,7 +216,19 @@ function Read-TranscriptInfo {
 # Mindket mezo $null lehet: az azt jelenti, hogy NEM LATUNK ODA.
 function Read-TranscriptUsage {
   param([string]$Path, [int]$TailLines = 60)
-  $out = @{ tokens = $null; model = $null }
+  # A `lastActivity` a naplo SAJAT utolso idobelyege -- NEM a fajl mtime-ja.
+  #
+  # Boss, 2026-08-30: "nem a friss chatet latom a marveenban." Merve ugyanekkor
+  # a Fejlesztes mappajaban: OT naplo mtime-ja ezredmasodpercre azonos volt
+  # (1788044767588 es ...600), mikozben a tenyleges utolso uzenetuk 08-28
+  # 11:00-tol 08-29 19:48-ig szort. Valami tomegesen hozzajuk nyult, es ettol a
+  # "melyik a frissebb" sorrend ezen a csoporton belul veletlenszeru lett.
+  #
+  # A fajl mtime-ja azt meri, mikor NYULTAK a fajlhoz; a naplo utolso
+  # idobelyege azt, mikor DOLGOZTAK vele. A feluleten a masodik a kerdes.
+  # `$null` = nem talaltunk idobelyeget = NEM LATUNK ODA; a szerver ilyenkor
+  # esik vissza az mtime-ra, es ezt kulon agon kezeli.
+  $out = @{ tokens = $null; model = $null; lastActivity = $null }
   try {
     $lines = @(Get-Content -LiteralPath $Path -Tail $TailLines -Encoding UTF8 -ErrorAction Stop)
   } catch {
@@ -224,7 +236,17 @@ function Read-TranscriptUsage {
   }
   for ($i = $lines.Count - 1; $i -ge 0; $i--) {
     $line = $lines[$i]
-    if (-not $line -or $line -notmatch '"usage"') { continue }
+    if (-not $line) { continue }
+
+    if ($null -eq $out.lastActivity -and $line -match '"timestamp"\s*:\s*"([^"]{10,40})"') {
+      try {
+        $ts = [DateTimeOffset]::Parse($Matches[1], [System.Globalization.CultureInfo]::InvariantCulture,
+          [System.Globalization.DateTimeStyles]::RoundtripKind)
+        $out.lastActivity = [int64]$ts.ToUnixTimeMilliseconds()
+      } catch { }
+    }
+
+    if ($line -notmatch '"usage"') { continue }
     try {
       $obj = $line | ConvertFrom-Json
       $u = $obj.message.usage
@@ -239,7 +261,9 @@ function Read-TranscriptUsage {
         $out.tokens = $sum
         if ($obj.message.model) { $out.model = [string]$obj.message.model }
         elseif ($obj.model) { $out.model = [string]$obj.model }
-        return $out
+        # Nem lepunk ki azonnal: az idobelyeg meg hianyozhat, es ugyanezt a
+        # tombot jarnank be ujra erte.
+        if ($null -ne $out.lastActivity) { return $out }
       }
     } catch { }
   }
@@ -284,177 +308,39 @@ function Get-OpenSessionIds {
   return $open
 }
 
-# MIT LAT A FELHASZNALO A VS CODE PANELEN.
+# ============================================================================
+# NE OLVASD UJRA A VS CODE `state.vscdb`-JET. EZ AZ UT ZSAKUTCA.
 #
-# A `Get-OpenSessionIds` a FUTO FOLYAMATOT meri, es ez keveset mert. Boss,
-# 2026-08-28 (Telegram 649): "latom hogy ott van a listaban a 47 es kanban
-# kartya nevu chat, de nem tudom kijelolni! (...) egy ellenorzest kellene tenni
-# a vscode nevu programban levo claude code chatre hogy ott mi van chat. amit a
-# user lat. es azt megjeleniteni."
-#
-# Merve ugyanekkor: a "47-es kanban kartya" beszelgeteshez (sessionId
-# 3d3f27b8-...) 22:45:09-ig nem futott claude.exe, kozben a VS Code panelen ott
-# volt. A "nyitott ful" es a "futo folyamat" KET KULONBOZO dolog.
-#
-# A VS Code a sajat listajat a munkateruleti allapotaba irja:
-#   %APPDATA%\<VS Code valtozat>\User\workspaceStorage\<hash>\state.vscdb
+# 2026-08-30-ig itt allt egy ~170 soros blokk, ami a
+#   %APPDATA%\<VS Code>\User\workspaceStorage\<hash>\state.vscdb
 #   -> ItemTable['agentSessions.model.cache']
-# JSON tomb, elemenkent `resource` = "agent-host-claude:/<sessionId>", `label`,
-# `metadata.workingDirectoryPath`.
+# kulcsot olvasta winsqlite3-mal, es abbol adta a `vscodeOpen` mezot. A szerver
+# ezt tekintette DONTONEK ("A VS CODE LISTAJA A DONTO", 2026-08-29).
 #
-# A fajl SQLite, a worker meg PowerShell: a Windows sajat `winsqlite3.dll`-jet
-# hasznaljuk (Windows 10 1803 ota resze a rendszernek). Ha nincs meg vagy nem
-# betolheto, a valasz `$null` = NEM LATUNK ODA -- nem pedig "semmi nincs
-# nyitva". A kettot osszemosni pontosan az a hiba, ami ezt a kort okozta.
-$script:VSCodeSqliteReady = $null
-
-function Initialize-VSCodeSqlite {
-  if ($null -ne $script:VSCodeSqliteReady) { return $script:VSCodeSqliteReady }
-  $script:VSCodeSqliteReady = $false
-  $dll = Join-Path $env:SystemRoot 'System32\winsqlite3.dll'
-  if (-not (Test-Path -LiteralPath $dll)) {
-    Write-Log 'winsqlite3.dll nincs a rendszerben -- a VS Code listajat nem tudjuk elolvasni' 'WARN'
-    return $false
-  }
-  if (([System.Management.Automation.PSTypeName]'MarveenSqlite').Type) {
-    $script:VSCodeSqliteReady = $true
-    return $true
-  }
-  # C# 5 nyelvi szint: a worker PowerShell 5.1-en is fut.
-  $code = @'
-using System;
-using System.Runtime.InteropServices;
-
-public static class MarveenSqlite {
-  private const int SQLITE_OK = 0;
-  private const int SQLITE_ROW = 100;
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern int sqlite3_open16([MarshalAs(UnmanagedType.LPWStr)] string filename, out IntPtr db);
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern int sqlite3_prepare16_v2(IntPtr db, [MarshalAs(UnmanagedType.LPWStr)] string sql, int nByte, out IntPtr stmt, IntPtr tail);
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern int sqlite3_bind_text16(IntPtr stmt, int idx, [MarshalAs(UnmanagedType.LPWStr)] string value, int nByte, IntPtr destructor);
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern int sqlite3_step(IntPtr stmt);
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern IntPtr sqlite3_column_text16(IntPtr stmt, int col);
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern int sqlite3_finalize(IntPtr stmt);
-
-  [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)]
-  private static extern int sqlite3_close(IntPtr db);
-
-  // Egy szoveges ertek egy kulcs alol. `null` = nem tudtuk elolvasni VAGY
-  // nincs ilyen kulcs -- a hivo oldalan ez a ketto egyforman "nem latok oda",
-  // mert egy hianyzo kulcs sem bizonyitja, hogy nincs nyitott beszelgetes.
-  public static string ReadItemTableValue(string dbPath, string key) {
-    IntPtr db = IntPtr.Zero;
-    IntPtr stmt = IntPtr.Zero;
-    try {
-      if (sqlite3_open16(dbPath, out db) != SQLITE_OK) { return null; }
-      if (sqlite3_prepare16_v2(db, "SELECT value FROM ItemTable WHERE key = ?", -1, out stmt, IntPtr.Zero) != SQLITE_OK) { return null; }
-      // SQLITE_TRANSIENT (-1): az SQLite maga masolja le a kulcsot.
-      if (sqlite3_bind_text16(stmt, 1, key, -1, new IntPtr(-1)) != SQLITE_OK) { return null; }
-      if (sqlite3_step(stmt) != SQLITE_ROW) { return null; }
-      IntPtr p = sqlite3_column_text16(stmt, 0);
-      if (p == IntPtr.Zero) { return null; }
-      return Marshal.PtrToStringUni(p);
-    } catch (Exception) {
-      return null;
-    } finally {
-      if (stmt != IntPtr.Zero) { sqlite3_finalize(stmt); }
-      if (db != IntPtr.Zero) { sqlite3_close(db); }
-    }
-  }
-}
-'@
-  try {
-    Add-Type -TypeDefinition $code -ErrorAction Stop
-    $script:VSCodeSqliteReady = $true
-  } catch {
-    Write-Log ('a VS Code allapotfajl olvasoja nem toltheto be: ' + $_.Exception.Message) 'WARN'
-    $script:VSCodeSqliteReady = $false
-  }
-  return $script:VSCodeSqliteReady
-}
-
-# A VS Code valtozatai kulon mappaban tarolnak. Egyik sincs fixen beirva
-# utkent: az `%APPDATA%` a rendszerbol jon, a valtozatok neve pedig az, amit a
-# Microsoft/VSCodium hasznal -- nem gepfuggo azonosito.
-$script:VSCodeAppDirs = @('Code', 'Code - Insiders', 'VSCodium')
-
-function Get-VSCodeStateDbPaths {
-  $roots = @()
-  foreach ($name in $script:VSCodeAppDirs) {
-    $dir = Join-Path $env:APPDATA (Join-Path $name 'User\workspaceStorage')
-    if (Test-Path -LiteralPath $dir) { $roots += $dir }
-  }
-  $out = @()
-  foreach ($root in $roots) {
-    foreach ($d in @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
-      $db = Join-Path $d.FullName 'state.vscdb'
-      if (Test-Path -LiteralPath $db) { $out += $db }
-    }
-  }
-  return $out
-}
-
-# A VS Code altal LISTAZOTT Claude-beszelgetesek azonositoi.
+# EZ A KULCS NEM ERRE VALO. Az Anthropic sajat hibajegye, claude-code#74894:
+#   "agentSessions.model.cache in state.vscdb: Contains entries exclusively
+#    from a different provider (openai-codex), with no Claude Code entries.
+#    This is NOT a reliable source."
+#   "the actual session index appears to live in extension-host memory and does
+#    not get correctly rebuilt/rehydrated on reopen"
+# A `memento/webviewView.claudeVSCodeSessionsList` kulcs sem session-lista,
+# csak UI-allapot (ossze van-e csukva a panel).
 #
-# Visszateres:
-#   hashtable : sessionId -> $true (akar ures is: TENYLEG egy sincs listazva)
-#   $null     : nem tudtuk megnezni -- ez NEM ugyanaz, mint az ures halmaz
-function Get-VSCodeListedSessionIds {
-  $dbs = @(Get-VSCodeStateDbPaths)
-  if ($dbs.Count -eq 0) { return $null }
-  if (-not (Initialize-VSCodeSqlite)) { return $null }
-
-  $listed = @{}
-  $readOk = 0
-  foreach ($db in $dbs) {
-    # SOHA nem a VS Code sajat fajljat nyitjuk meg: masolatot olvasunk. Igy egy
-    # futo VS Code zarolasa nem akaszt meg, es semmi esely arra, hogy a
-    # felhasznalo allapotfajljaba beleirjunk.
-    $tmp = Join-Path $env:TEMP ('marveen-vscode-state-' + [Guid]::NewGuid().ToString('N') + '.db')
-    try {
-      Copy-Item -LiteralPath $db -Destination $tmp -Force -ErrorAction Stop
-    } catch {
-      continue
-    }
-    try {
-      $raw = [MarveenSqlite]::ReadItemTableValue($tmp, 'agentSessions.model.cache')
-      # A megnyitas maga sikerult: ettol kezdve a "nincs kulcs" mar meres.
-      $readOk++
-      if ([string]::IsNullOrWhiteSpace($raw)) { continue }
-      $items = $null
-      try { $items = $raw | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-      foreach ($it in @($items)) {
-        $resource = [string]$it.resource
-        if ([string]::IsNullOrWhiteSpace($resource)) { continue }
-        # "agent-host-claude:/<sessionId>" -- csak a Claude-szolgaltatoe erdekel,
-        # egy Copilot-beszelgetes azonositoja nem a mi fulunk.
-        if ($resource -notmatch '^agent-host-claude:/(.+)$') { continue }
-        $sid = $Matches[1].Trim()
-        if ($sid) { $listed[$sid] = $true }
-        # Az `archived` mezot SZANDEKOSAN nem szurjuk: nem tudtuk megmerni, mit
-        # jelent a panelen. A ket lehetseges tevedes nem egyforma sulyu -- egy
-        # felesleges sor zavaro, egy eltunt elo beszelgetes viszont pontosan az
-        # a hiba, amit ez a valtoztatas javit.
-      }
-    } finally {
-      Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
-    }
-  }
-  # Egyetlen adatbazist sem sikerult megnyitni -> nem latunk oda.
-  if ($readOk -eq 0) { return $null }
-  return $listed
-}
+# MERVE ITT, 2026-08-30 12:02-kor: a kulcs pontosan ket azonositot tartalmazott
+# (be83a34f, 635961c4), mindketto utoljara 08-29-en dolgozott, es a KET EPPEN
+# FUTO beszelgetes (pid 8664 es 16548) egyiket sem tartalmazta. A kartya ezert
+# mutatott elavult sort, es ezert hianyzott rola az, amiben a tulajdonos eppen
+# irt. Ugyanez a hiba jott vissza 12 koron at, valtakozva "tul keves" es "tul
+# sok" alakban -- mert a forras volt rossz, nem a szuro.
+#
+# AMIT A FELHASZNALO LAT A PANELEN, AZT KIVULROL NEM LEHET MEGMERNI. Ezert a
+# worker mostantol csak azt jelenti, ami TENYLEG merheto:
+#   * `live` + `pid`      -- fut-e a folyamat (Get-OpenSessionIds);
+#   * `lastActivity`      -- mikor dolgoztak vele utoljara (a naplo idobelyege).
+# A "nyitott ful" fogalma szandekosan nincs tobbe. Ha valaki megis vissza
+# akarja hozni: a tamogatott ut a Claude Code SessionStart/SessionEnd hookja
+# (push, hivatalos), NEM a VS Code belso allapotfajlja.
+# ============================================================================
 
 # Not every transcript belongs to a project. A `claude` started in the home
 # root, in C:\Windows\system32 (the default cwd of a shortcut) or in a temp
@@ -514,19 +400,10 @@ $script:TabMaxAgeDays = 21
 function Get-LocalSessions {
   $projectsDir = Get-ClaudeProjectsDir
   if (-not $projectsDir) { return @() }
+  # EGYETLEN nyitottsag-meres marad: fut-e a folyamat. Amit a felhasznalo a
+  # panelen lat, azt kivulrol nem lehet megmerni -- lasd a `state.vscdb`
+  # sirkovet fentebb. `$null` = nem tudtuk megnezni (nincs sessions mappa).
   $open = Get-OpenSessionIds
-  # AMIT A FELHASZNALO LAT a VS Code panelen. Kulon meres a `$open` mellett:
-  # az a folyamatot meri, ez a fulet (Boss, 2026-08-28 -- Telegram 649).
-  $vscodeListed = Get-VSCodeListedSessionIds
-  # A ketto UNIOJA az, ami "nyitottnak" szamit. `$null` = egyik forrast sem
-  # tudtuk megnezni; olyankor a regi viselkedes marad, mert a "nem latok oda"
-  # nem ugyanaz, mint a "semmi nincs nyitva".
-  $openOrListed = $null
-  if ($null -ne $open -or $null -ne $vscodeListed) {
-    $openOrListed = @{}
-    if ($null -ne $open) { foreach ($k in $open.Keys) { $openOrListed[[string]$k] = $true } }
-    if ($null -ne $vscodeListed) { foreach ($k in $vscodeListed.Keys) { $openOrListed[[string]$k] = $true } }
-  }
   $out = New-Object System.Collections.ArrayList
   $cutoff = (Get-Date).ToUniversalTime().AddDays(-$script:TabMaxAgeDays)
   foreach ($dir in (Get-ChildItem -Path $projectsDir -Directory -ErrorAction SilentlyContinue)) {
@@ -537,28 +414,21 @@ function Get-LocalSessions {
       Sort-Object LastWriteTimeUtc -Descending)
     if ($files.Count -eq 0) { continue }
 
-    # Ha latjuk, mi van NYITVA, akkor az elsodleges (a projekt sessionje) egy
-    # nyitott ful legyen: egy tegnap bezart beszelgetes lehet a legfrissebb
-    # fajl, de a feladat nem oda valo. Ha egyik sem nyitott (vagy nem latunk
-    # oda), marad a regi sorrend: a legfrissebb fajl.
-    # Harom csoport, ebben a sorrendben:
-    #   1. FUT a folyamata  -- ide mehet feladat azonnal, ez legyen az elsodleges;
-    #   2. a VS Code LISTAZZA -- a felhasznalo latja a panelen, tehat nyitott ful,
-    #      csak eppen nem fut most (Boss, 2026-08-28: "az elo, az nincs bezarva");
-    #   3. minden mas.
-    # A futo elozi meg a listazottat: a projekt sessionje maradjon az, amelyik
-    # tenyleg dolgozik -- ezen a valtoztatas szandekosan nem modosit.
-    if ($null -ne $open -or $null -ne $vscodeListed) {
-      $g1 = @($files | Where-Object { $null -ne $open -and $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
-      $g2 = @($files | Where-Object {
-        $sidName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
-        (-not ($null -ne $open -and $open.ContainsKey($sidName))) -and ($null -ne $vscodeListed -and $vscodeListed.ContainsKey($sidName))
-      })
-      $g3 = @($files | Where-Object {
-        $sidName = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
-        -not ($null -ne $openOrListed -and $openOrListed.ContainsKey($sidName))
-      })
-      if ($g1.Count -gt 0 -or $g2.Count -gt 0) { $files = @($g1) + @($g2) + @($g3) }
+    # A projekt ELSODLEGES sessionje az legyen, amelyik tenyleg dolgozik: egy
+    # tegnap befejezett beszelgetes lehet a legfrissebb FAJL, de a feladat nem
+    # oda valo. Ket csoport, ebben a sorrendben:
+    #   1. FUT a folyamata -- ide mehet feladat azonnal;
+    #   2. minden mas.
+    #
+    # A csoportokon BELUL a fajl mtime-ja rendez. Ez szandekosan csak
+    # eloszures: a mtime tomegesen atirodhat (lasd `Read-TranscriptUsage`),
+    # ezert a MEGJELENITES sorrendjet nem ez adja, hanem a szerver a
+    # `lastActivity` alapjan. Itt a mtime csak azt donti el, melyik 10 fajlt
+    # nezzuk meg egyaltalan -- egy nagyvonalu meritest, nem a vegso sorrendet.
+    if ($null -ne $open) {
+      $g1 = @($files | Where-Object { $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
+      $g2 = @($files | Where-Object { -not $open.ContainsKey([System.IO.Path]::GetFileNameWithoutExtension($_.Name)) })
+      if ($g1.Count -gt 0) { $files = @($g1) + @($g2) }
     }
 
     $isPrimary = $true
@@ -567,15 +437,15 @@ function Get-LocalSessions {
       # Age cap applies to the EXTRA tabs only: the primary session stays
       # reportable however old it is, or a project untouched for a month would
       # drop out of /projects and every task addressed to it would fail.
-      # A DARAB- ES KORHATAR A NYITOTT FULEKRE NEM VONATKOZIK.
+      # A DARAB- ES KORHATAR A FUTO BESZELGETESEKRE NEM VONATKOZIK.
       #
-      # Enelkul egy honapja nyitva hagyott beszelgetes kiesne a jelentesbol, es
+      # Enelkul egy honapja elindult, de MA IS FUTO beszelgetes kiesne a jelentesbol, es
       # a kartyan pont az hianyozna, amit a felhasznalo eppen nez -- ugyanaz a
       # hiba masik okbol. A korlatok celja a lemezen felgyult REGI naplok
-      # levagasa volt, nem a nyitott fuleke.
+      # levagasa volt, nem az elo munkae.
       $sidName = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
-      $isOpenOrListed = ($null -ne $openOrListed) -and $openOrListed.ContainsKey($sidName)
-      if (-not $isPrimary -and -not $isOpenOrListed) {
+      $isRunning = ($null -ne $open) -and $open.ContainsKey($sidName)
+      if (-not $isPrimary -and -not $isRunning) {
         if ($kept -ge $script:MaxTabsPerWorkspace) { break }
         if ($f.LastWriteTimeUtc -lt $cutoff) { break }
       }
@@ -584,23 +454,22 @@ function Get-LocalSessions {
       if (-not (Test-DispatchableWorkspace -Path $info.cwd)) { continue }
       $sid = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
       # $null = nem tudtuk megnezni (nincs sessions mappa). A `$false` ezzel
-      # szemben MERES: a ful nincs nyitva a VS Code-ban.
+      # szemben MERES: a beszelgetes folyamata NEM fut.
       $live = $null
       $sidPid = $null
       if ($null -ne $open) {
         $live = [bool]$open.ContainsKey($sid)
         if ($live) { $sidPid = [int]$open[$sid] }
       }
-      # `$null` = nem tudtuk megnezni a VS Code listajat. A `$false` ezzel
-      # szemben MERES: a beszelgetes nincs ott a panelen.
-      $vscodeOpen = $null
-      if ($null -ne $vscodeListed) { $vscodeOpen = [bool]$vscodeListed.ContainsKey($sid) }
       $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
         workspacePath = $info.cwd
         sessionId     = $sid
         live          = $live
-        vscodeOpen    = $vscodeOpen
+        # A naplo SAJAT utolso idobelyege. `$null` = nem talaltunk ilyet (vagy
+        # regi worker jelent) -- ilyenkor a szerver a mtime-ra esik vissza, es
+        # NEM tesz ugy, mintha tudna a valodi idot.
+        lastActivity  = $usage.lastActivity
         mtime         = [int64]([DateTimeOffset]$f.LastWriteTimeUtc).ToUnixTimeMilliseconds()
         title         = $info.title
         primary       = $isPrimary

@@ -41,7 +41,7 @@ function extractFn(src: string, name: string): string {
 }
 
 interface Tab {
-  sessionId?: string; title?: string | null; live?: boolean | null; vscodeOpen?: boolean | null
+  sessionId?: string; title?: string | null; live?: boolean | null; lastActivity?: number | null
   contextTokens?: number | null; mtime?: number | null
   current?: boolean; pid?: number | null; hasTranscript?: boolean; shortId?: string
 }
@@ -123,8 +123,13 @@ describe('ures ful-lista + mert kontextus: a kartya nem mond ket dolgot egyszerr
     expect(html).not.toContain('tabs_blind')
   })
 
-  it('a bezart ful (live === false) nem szamit elo fulnek', () => {
-    const e: Entry = { tabs: [{ sessionId: 'abcdef12', live: false, contextTokens: 108_000 }], tabsReason: 'ok', contextTokens: 108_000 }
+  it('az ures-ag akkor fut, ha a szerver TENYLEG nem kuldott sort', () => {
+    // 2026-08-30 elott ez a teszt egy nem futo sort adott at, es azt varta,
+    // hogy a felulet SAJAT MAGA dobja el. Az a masodik szures szunt meg: a
+    // szetvalogatas a szerveren tortenik (`listCodeTabs`), a felulet azt
+    // jeleniti meg, amit kapott. Ket szuro egymas ellen dolgozott -- ez volt az
+    // egyik oka annak, hogy a hiba 12 koron at visszajart.
+    const e: Entry = { tabs: [], closedTabs: [{ sessionId: 'abcdef12', live: false, contextTokens: 108_000 }], tabsReason: 'ok', contextTokens: 108_000 }
     expect(api.cbTabsEmptyHasCtx(e)).toBe(true)
     expect(api.cbTabsPickHtml(e)).toContain('cb.card.tabs_none_ctx|n=108')
   })
@@ -184,11 +189,16 @@ describe('a bekotott beszelgetes sora akkor is kiall, ha nem fut', () => {
     expect(api.cbTabsPickHtml(live)).not.toContain('tab_not_running')
   })
 
-  it('a NEM bekotott, nem futo ful tovabbra sem kerul a fo listaba', () => {
+  it('a NEM bekotott, nem futo ful a LEGUTOBBI csoportban jelenik meg', () => {
     // Boss, 2026-08-23: "amit a vscode ban kitorolnek azt a maveen kartyaja se
-    // mutassa" -- a kivetel CSAK a bekotott sorra vonatkozik, masra nem.
-    const e: Entry = { tabs: [{ sessionId: 'abcdef12', live: false, contextTokens: 108_000 }], tabsReason: 'ok', contextTokens: 108_000 }
+    // mutassa" -- a "Fut most" lista tehat tiszta marad. De nyomtalanul nem
+    // tunhet el: azt, hogy a VS Code-ban be van-e zarva, nem tudjuk megmerni
+    // (claude-code#74894), tehat nem is allitjuk. Amit merunk: nem fut.
+    const e: Entry = { tabs: [], closedTabs: [{ sessionId: 'abcdef12', title: 'tegnapi', live: false, contextTokens: 108_000 }], tabsReason: 'ok' }
     expect(api.cbHasTabRows(e)).toBe(false)
+    const html = api.cbClosedTabsHtml(e)
+    expect(html).toContain('tegnapi')
+    expect(html).toContain('cb.card.tabs_closed')
   })
 })
 
@@ -311,56 +321,46 @@ describe('a kulon kontextus-sor nem ismetli meg a szamot', () => {
   })
 })
 
-// NYITVA VAN A PANELEN, DE NEM FUT -- ezt a ket allapotot a kartya nem mondhatja
-// egyformanak.
+// A "NYITVA VAN A PANELEN" ALLAPOT MEGSZUNT -- ES NEM IS TERHET VISSZA.
 //
-// Boss, 2026-08-28 (Telegram 649): a "47-es kanban kartya" nyitva volt a VS Code
-// paneljen, kozben a Claude Code folyamata nem futott. Ha a kartya ilyenkor
-// csak annyit ir ki, hogy "nem fut", az szemben all azzal, amit a sajat
-// kepernyojen lat -- pedig mindketto igaz, csak KET KULONBOZO dologrol szol.
-describe('a "nyitva, de nem fut" allapot sajat mondatot kap', () => {
-  it('ha a VS Code listaja ismeri a fulet, a nyitottsagot mondja ki, nem csak azt hogy nem fut', () => {
+// 2026-08-30-ig itt allt negy teszt, ami azt orizte, hogy a kartya kulon
+// mondatot ad a "nyitva, de nem fut" fulnek. A mondat egy MERHETETLEN allitason
+// alapult: a nyitottsagot a VS Code `state.vscdb` fajljabol olvastuk, ami erre
+// nem alkalmas (Anthropic claude-code#74894 -- "This is NOT a reliable source",
+// a valodi lista a bovitmeny MEMORIAJABAN el). Amit nem tudunk megmerni, arrol
+// nem allitunk semmit: a `cb.card.tab_open_not_running` kulcspar torolve.
+//
+// Reszletek es a meres: `code-tabs-vscode-open.test.ts` fejlece.
+describe('a "nyitva, de nem fut" allitas nem terhet vissza', () => {
+  it('a nem futo ful EGY mondatot kap, es az a merest mondja', () => {
     const html = api.cbTabsPickHtml({
-      tabs: [{ sessionId: 'aaaa-bbbb', title: '47-es kanban kartya', live: false, vscodeOpen: true, current: false }],
-      tabsReason: 'ok',
-    })
-    expect(html).toContain('cb.card.tab_open_not_running')
-    expect(html).toContain('cb.card.tab_open_not_running_help')
-    // A regi, szukebb mondat NEM sulhet el ilyenkor.
-    expect(html).not.toContain('"cb.card.tab_not_running"')
-  })
-
-  it('ha a VS Code listaja NEM ismeri, marad a regi mondat', () => {
-    const html = api.cbTabsPickHtml({
-      tabs: [{ sessionId: 'aaaa-bbbb', title: 'regen bezart', live: false, vscodeOpen: false, current: true }],
+      tabs: [{ sessionId: 'aaaa-bbbb', title: '47-es kanban kartya', live: false, current: true }],
       tabsReason: 'ok',
     })
     expect(html).toContain('cb.card.tab_not_running')
-    expect(html).not.toContain('cb.card.tab_open_not_running')
   })
 
-  it('ha NEM latunk oda (regi worker), szinten a regi mondat megy -- nem talalunk ki nyitottsagot', () => {
+  it('a futo ful nem kap ilyen mondatot', () => {
     const html = api.cbTabsPickHtml({
-      tabs: [{ sessionId: 'aaaa-bbbb', title: 'nem tudjuk', live: false, vscodeOpen: null, current: true }],
-      tabsReason: 'ok',
-    })
-    expect(html).toContain('cb.card.tab_not_running')
-    expect(html).not.toContain('cb.card.tab_open_not_running')
-  })
-
-  it('a futo ful egyik mondatot sem kapja meg', () => {
-    const html = api.cbTabsPickHtml({
-      tabs: [{ sessionId: 'aaaa-bbbb', title: 'fut', live: true, vscodeOpen: true, current: true }],
+      tabs: [{ sessionId: 'aaaa-bbbb', title: 'fut', live: true, current: true }],
       tabsReason: 'ok',
     })
     expect(html).not.toContain('cb.card.tab_not_running')
-    expect(html).not.toContain('cb.card.tab_open_not_running')
   })
 
-  it('az uj mondat MINDKET nyelven megvan -- felezett forditas nem kesz munka', () => {
+  it('a torolt kulcsok EGYIK nyelvben sem elnek tovabb', () => {
+    // Felig eltavolitott szoveg ugyanolyan hiba, mint a felig leforditott.
     for (const key of ['cb.card.tab_open_not_running', 'cb.card.tab_open_not_running_help']) {
-      expect(hu, 'hianyzik a magyar kulcs: ' + key).toContain("'" + key + "'")
-      expect(en, 'hianyzik az angol kulcs: ' + key).toContain("'" + key + "'")
+      expect(hu, 'ott maradt a magyar kulcs: ' + key).not.toContain("'" + key + "'")
+      expect(en, 'ott maradt az angol kulcs: ' + key).not.toContain("'" + key + "'")
     }
+    expect(app, 'az app.js meg hivatkozik ra').not.toContain('tab_open_not_running')
+  })
+
+  it('a felulet NEM szur masodszor: a szerver csoportjait jeleniti meg', () => {
+    // Amikor a kartya sajat feltetellel megismetelte a szerver szuresét, a
+    // ket szuro egymas ellen dolgozott -- ez volt az egyik oka annak, hogy a
+    // hiba 12 koron at visszajart. Egy meres, egy hely.
+    expect(app, 'visszakerult a masodik szuro').not.toContain('vscodeOpen')
   })
 })

@@ -5479,21 +5479,14 @@ function cbContextRowHtml(e) {
  *  akor miert nem jeleniti meg?" A kartya TUDOTT a beszelgetesrol, es megsem
  *  mutatta meg. Mostantol megmutatja -- kiirva, hogy nem fut. */
 function cbTabRows(e) {
-  // A NYITOTTSAG KET FORRASBOL JON, es barmelyik eleg.
+  // ITT MAR NEM SZURUNK MASODSZOR.
   //
-  // Ez a szuro EDDIG csak a futo folyamatot ismerte, es ezzel MASODSZOR is
-  // kiszurte azt, amit a szerver mar atengedett -- ugyanaz a hiba ket helyen.
-  // Boss, 2026-08-28 (Telegram 649): "viszont a 47 es kanban kartya nevu chat
-  // az elo, az nincs bezarva. az kellene." Merve ugyanekkor: a fulhoz nem
-  // futott claude.exe, kozben a VS Code panelen nyitva volt.
-  //
-  //   * `live !== false`       : fut, vagy nem latunk oda (regi worker);
-  //   * `vscodeOpen === true`  : ott van a VS Code sajat listajaban -- ezt LATJA
-  //     a felhasznalo, tehat a kartyan is ott a helye;
-  //   * `current`              : a bekotott beszelgetes sosem tunhet el.
-  return (e.tabs || []).filter(function (tb) {
-    return tb.live !== false || tb.vscodeOpen === true || tb.current
-  })
+  // A szetvalogatast a szerver vegzi (`listCodeTabs`): a `tabs` a FUT MOST
+  // csoport, a `closedTabs` a LEGUTOBBI. Amikor a felulet ugyanezt megismetelte
+  // egy sajat feltetellel, a ket szuro egymas ellen dolgozott -- ugyanaz a hiba
+  // ket helyen, es ez volt az egyik oka annak, hogy a javitas 12 koron at
+  // visszajart. Egy meres, egy hely.
+  return (e.tabs || [])
 }
 /** Van-e legalabb egy kiirhato ful-sor? Ha van, a kontextus szama MAR OTT all
  *  a bejelolt sor vegen, es a kulon "kontextus: 94k token" sor csak ismetles. */
@@ -5610,10 +5603,19 @@ function cbClosedTabsHtml(e) {
     // Az "utoljara irt" a legfontosabb adat egy nem futo beszelgetesnel: ebbol
     // ismered fel, melyik volt a tegnapi. Ha nem tudjuk megnezni a naplo idejet,
     // inkabb semmit nem irunk oda -- egy kitalalt "regen" rosszabb a semminel.
-    const when = (typeof tb.mtime === 'number' && tb.mtime > 0)
-      ? '<span class="cb-tab-when" title="' + escapeAttr(t('cb.card.tab_last_write')) + '">'
-        + escapeHtml(formatRelative(tb.mtime)) + '</span>'
-      : ''
+    // A `lastActivity` a MERES (a naplo sajat utolso idobelyege), a `mtime`
+    // csak kozelites -- egy tomeges fajlmuvelet ot naplot allitott azonos
+    // mtime-ra, mikozben a valodi idejuk masfel napot fogott at. Ha egyik sincs
+    // meg, inkabb semmit nem irunk oda: egy kitalalt "regen" rosszabb a
+    // semminel.
+    const whenAt = (typeof tb.lastActivity === 'number' && tb.lastActivity > 0)
+      ? tb.lastActivity
+      : ((typeof tb.mtime === 'number' && tb.mtime > 0) ? tb.mtime : null)
+    const whenKey = (typeof tb.lastActivity === 'number' && tb.lastActivity > 0)
+      ? 'cb.card.tab_last_write' : 'cb.card.tab_last_write_approx'
+    const when = whenAt === null ? ''
+      : '<span class="cb-tab-when" title="' + escapeAttr(t(whenKey)) + '">'
+        + escapeHtml(formatRelative(whenAt)) + '</span>'
     return '<div class="cb-tab-row cb-tab-row-closed">'
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + ctx
@@ -5657,7 +5659,14 @@ function cbTabsPickHtml(e) {
     // NEMA FUL: nyitott folyamat, de oraк ota nem irt semmit. Ez az az eset,
     // amit a VS Code-ban mar nem talalsz meg (a fule bezarult, a folyamat el),
     // ezert kulon mondjuk ki -- es ezert van mellette bezaras-gomb.
-    const idleMs = (typeof tb.mtime === 'number' && tb.mtime > 0) ? (Date.now() - tb.mtime) : null
+    // A VALODI utolso tevekenyseg, ha a worker meri; kulonben a fajl mtime-ja.
+    // A ketto nem ugyanaz: egy tomeges fajlmuvelet ot naplo mtime-jat allitotta
+    // egyforma ertekre, mikozben a valodi idejuk masfel napot fogott at. A
+    // `lastActivity` a meres, a `mtime` a kozelites -- ebben a sorrendben.
+    const actAt = (typeof tb.lastActivity === 'number' && tb.lastActivity > 0)
+      ? tb.lastActivity
+      : ((typeof tb.mtime === 'number' && tb.mtime > 0) ? tb.mtime : null)
+    const idleMs = actAt === null ? null : (Date.now() - actAt)
     const idleH = idleMs === null ? null : Math.floor(idleMs / 3600000)
     const idle = (idleH !== null && idleH >= CB_TAB_IDLE_HOURS && !tb.current)
       ? '<span class="cb-tab-idle" title="' + escapeAttr(t('cb.card.tab_idle', { h: idleH }) + ' \u2014 ' + t('cb.card.tab_idle_help', { h: idleH })) + '"'
@@ -5681,7 +5690,7 @@ function cbTabsPickHtml(e) {
     // kozben a folyamata nem futott. Ha ilyenkor csak annyit irnank ki, hogy
     // "nem fut", az szemben allna azzal, amit a sajat kepernyojen lat. A
     // nyitottsagot a VS Code sajat listajabol MERJUK -- ha megvan, mondjuk is.
-    const notRunningKey = tb.vscodeOpen === true ? 'cb.card.tab_open_not_running' : 'cb.card.tab_not_running'
+    const notRunningKey = 'cb.card.tab_not_running'
     const notRunning = tb.live === false
       ? '<span class="cb-tab-closed" title="' + escapeAttr(t(notRunningKey + '_help')) + '">'
         + escapeHtml(t(notRunningKey)) + '</span>'

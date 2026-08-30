@@ -632,7 +632,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // ugyanazt tudja roluk megmutatni, csak mas helyen es mas jelolessel.
     const tabRow = (tb: CodeTab, currentSessionId: string): {
       sessionId: string; shortId: string; title: string | null; live: boolean | null
-      vscodeOpen: boolean | null
+      lastActivity: number | null
       current: boolean; contextTokens: number | null; model: string | null
       pid: number | null; mtime: number | null; hasTranscript: boolean
     } => ({
@@ -640,10 +640,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       shortId: tb.shortId,
       title: tb.title,
       live: tb.live,
-      // Ott van-e a VS Code sajat listajaban. A felulet ebbol tudja
-      // megkulonboztetni a "nyitva van, csak eppen nem fut" fulet a valoban
-      // bezarttol -- eddig a kettot egynek vette.
-      vscodeOpen: tb.vscodeOpen,
+      // A naplo VALODI utolso idobelyege. A felulet EZT irja ki es EZ szerint
+      // rendez -- nem a `mtime` szerint, ami tomeges fajlmuvelet utan
+      // veletlenszeru sorrendet adott (lasd `CodeCandidate.lastActivity`).
+      // `null` = nem latunk oda (regi worker) -- olyankor a felulet a `mtime`-ra
+      // esik vissza, es meg is mondja, hogy az csak kozelites.
+      lastActivity: tb.lastActivity,
       current: tb.sessionId === currentSessionId,
       contextTokens: tb.contextTokens,
       model: tb.model,
@@ -759,14 +761,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
        *  es cimezheto legyen), de projektkent csak a primary regisztralodik --
        *  kulonben egy mappa 10 fule 10 alias ala akarna beulni ugyanazon a neven. */
       primary?: boolean
-      /** Nyitva van-e a ful a VS Code-ban (elo PID a ~/.claude/sessions alapjan).
+      /** FUT-E a beszelgetes folyamata (elo PID a ~/.claude/sessions alapjan).
        *  Regi worker nem kuldi -> ott `undefined`, ami "nem latunk oda". */
       live?: boolean | null
-      /** Ott van-e a beszelgetes a VS Code SAJAT listajaban -- abban, amit a
-       *  felhasznalo a panelen lat. Kulon mero a `live` mellett: az a folyamatot
-       *  meri, ez a fulet, es a ketto nem ugyanaz (Boss, 2026-08-28).
+      /** A naplo VALODI utolso idobelyege, unix ms-ben -- NEM a fajl mtime-ja.
        *  Regi worker nem kuldi -> `undefined`, ami "nem latunk oda". */
-      vscodeOpen?: boolean | null
+      lastActivity?: number | null
       contextTokens?: number
       /** Melyik modell felel a beszelgetesben (a transcript utolso soraból). */
       model?: string

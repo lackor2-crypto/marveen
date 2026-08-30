@@ -1,28 +1,32 @@
-// AMIT A FELHASZNALO LAT A VS CODE PANELEN, AZ LATSSZON A KARTYAN IS.
+// A "NYITOTT FUL" MERHETETLEN -- EZ A FAJL AZT ORZI, HOGY NE PROBALJUK UJRA.
 //
-// Boss, 2026-08-28 (Telegram 649): "latom hogy ott van a listaban a 47 es
-// kanban kartya nevu chat, de nem tudom kijelolni! miert? hiszen lattad hogy
-// azt meg hasznalom a vscode ban. (...) viszont a 47 es kanban kartya nevu chat
-// az elo, az nincs bezarva. az kellene."
+// A fajl neve tortenelmi. 2026-08-30-ig ezek a tesztek azt a szabalyt oriztek,
+// hogy "A VS CODE LISTAJA A DONTO": a kartya a VS Code
+// `state.vscdb` -> `agentSessions.model.cache` kulcsabol olvasta ki, melyik
+// beszelgetes van nyitva a panelen. A szabaly HAMIS VOLT, es 12 koron at ez
+// hozta vissza ugyanazt a hibat.
 //
-// A MERT ok: a kartya eddig a FUTO FOLYAMATOT ismerte (`live`), es egy nyitott,
-// de eppen tetlen fulhoz nem fut folyamat. Merve ugyanaznap: a 3d3f27b8
-// beszelgeteshez 22:45:09-ig nem futott claude.exe, kozben a VS Code panelen
-// ott volt. A "nyitott ful" es a "futo folyamat" KET KULONBOZO dolog.
+// Az Anthropic sajat hibajegye (claude-code#74894) szo szerint:
+//   "agentSessions.model.cache in state.vscdb: Contains entries exclusively
+//    from a different provider (openai-codex), with no Claude Code entries.
+//    This is NOT a reliable source."
+//   "the actual session index appears to live in extension-host memory and
+//    does not get correctly rebuilt/rehydrated on reopen."
 //
-// Amit ezek a tesztek oriznek:
-//   * a VS Code listajaban szereplo beszelgetes a FO listaba kerul, akkor is,
-//     ha eppen nem fut -- ott kijelolheto, es ezt kerte a tulajdonos;
-//   * 2026-08-29 ota A VS CODE LISTAJA A DONTO, ha meg tudtuk nezni: ami fut,
-//     de a panelen nincs ott, az NEM ful (a kartya 12-t mutatott 2 helyett).
-//     A `live` csak ott tolt ki, ahol az adott fulrol NINCS VS Code-meres;
-//   * ami emiatt kiesik a fo listabol, de FUT, az a closedTabs-ban elerheto
-//     marad -- kulonben egy beragadt folyamatot nem lehetne leallitani;
-//   * ha LATJUK a VS Code listajat, a maradek NEM kerul kulon dobozba
-//     (Boss: "ezek a tobbiek amik mar be voltak zarva nem erdekesek");
-//   * a NULLA KET DOLGOT JELENTHET: ha NEM latjuk a VS Code listajat, a regi
-//     viselkedes marad -- olyankor a `live === false` meg nem bizonyitja, hogy
-//     a ful be van zarva, es egy nyitott beszelgetes tunne el nyomtalanul.
+// Merve 2026-08-30 12:02-kor: a DB 6 perccel korabban irodott, megis pontosan
+// ket azonositot tartalmazott, mindketto elozo napi, es EGYIK SEM a ket akkor
+// futo beszelgetes kozul valo. Boss ugyanekkor, kepernyokeppel: "eletfa van a
+// jobb oldalt es bal oldalt egyelatalan nem latszik. nem a friss zhatet latom a
+// maveenban."
+//
+// AMIT MOSTANTOL ORZUNK -- ket csoport, mindketto MERHETO jelbol:
+//   * FUT MOST (`tabs`)        : `live === true` (elo folyamat) vagy `current`;
+//   * LEGUTOBBI (`closedTabs`) : minden mas, a naplo VALODI utolso idobelyege
+//     (`lastActivity`) szerint rendezve -- NEM a fajl mtime-ja szerint;
+//   * a NULLA KET DOLGOT JELENTHET: ha a `live` sehol nem meres, nem
+//     valogatunk szet semmit;
+//   * a `vscodeOpen` mezo NEM LETEZIK tobbe -- se a jeloltben, se a fulben, se
+//     az API valaszaban. Ha valaki visszateszi, ez a fajl bukik.
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Readable } from 'node:stream'
@@ -35,11 +39,9 @@ import {
 import { tryHandleCode } from '../web/routes/code.js'
 
 const WS = 'C:\\ws\\tozsde'
-// A meres szereploi: a futo beszelgetes es az, amelyik a panelen nyitva van,
-// de nem fut. A harmadik sem nem fut, sem nincs a VS Code listajaban.
 const RUNNING = 'aaaaaaaa-0000-4000-8000-000000000001'
-const LISTED_ONLY = 'bbbbbbbb-0000-4000-8000-000000000002'
-const GONE = 'cccccccc-0000-4000-8000-000000000003'
+const IDLE = 'bbbbbbbb-0000-4000-8000-000000000002'
+const OLD = 'cccccccc-0000-4000-8000-000000000003'
 
 beforeEach(() => {
   initDatabase(':memory:')
@@ -67,133 +69,52 @@ async function call(method: string, path: string, body?: unknown): Promise<Captu
   return out
 }
 
-/** A 2026-08-28-an MERT allapot: egy futo beszelgetes, egy csak a VS Code
- *  listajaban szereplo (nyitott ful, nem fut), es egy, ami sehol nincs. */
+/** Egy futo beszelgetes es ket nem futo. A `primary` a futo -- ez all a
+ *  legkozelebb a valos allapothoz. */
 function reportMeasuredState(): void {
   recordCodeWorkerSeen('WINPC', 'discovery', 3)
   recordCodeCandidates('WINPC', [
-    { workspacePath: WS, sessionId: RUNNING, mtime: 3000, title: 'MT4 CSV elemzes', primary: true, live: true, vscodeOpen: false, pid: 9908 },
-    { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 2000, title: '47-es kanban kartya', primary: false, live: false, vscodeOpen: true },
-    { workspacePath: WS, sessionId: GONE, mtime: 1000, title: 'Regen bezart beszelgetes', primary: false, live: false, vscodeOpen: false },
+    { workspacePath: WS, sessionId: RUNNING, mtime: 3000, lastActivity: 3000, title: 'MT4 CSV elemzes', primary: true, live: true, pid: 9908 },
+    { workspacePath: WS, sessionId: IDLE, mtime: 2000, lastActivity: 2000, title: '47-es kanban kartya', primary: false, live: false },
+    { workspacePath: WS, sessionId: OLD, mtime: 1000, lastActivity: 1000, title: 'Tegnapi beszelgetes', primary: false, live: false },
   ])
 }
 
-/** Ugyanaz az allapot, de a CELPONT (current) az, amit a VS Code listaz.
- *  A `current` fulet ugyanis SOSEM dobjuk el -- oda megy a feladat, ha senki
- *  nem valaszt kulon --, es az elozo fixture-ben eppen a futo ful volt a
- *  celpont. Az "ami fut, de nincs a listaban" szabalyt tehat csak igy lehet
- *  tisztan megmerni: kulonben a `current` szabaly fedne el az eredmenyt. */
-function reportRunningNotListed(): void {
-  recordCodeWorkerSeen('WINPC', 'discovery', 3)
-  recordCodeCandidates('WINPC', [
-    { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 3000, title: '47-es kanban kartya', primary: true, live: false, vscodeOpen: true },
-    { workspacePath: WS, sessionId: RUNNING, mtime: 2000, title: 'Fut, de a panelen nincs ott', primary: false, live: true, vscodeOpen: false, pid: 9908 },
-    { workspacePath: WS, sessionId: GONE, mtime: 1000, title: 'Regen bezart beszelgetes', primary: false, live: false, vscodeOpen: false },
-  ])
-}
-
-describe('a VS Code panelen nyitott beszelgetes a FO listaba kerul', () => {
-  it('a nyitott, de nem futo ful ott van a fo listaban -- ez volt a bejelentes', () => {
+describe('KET CSOPORT: ami fut, es ami legutobb futott', () => {
+  it('a FO listaba a futo beszelgetes kerul', () => {
     reportMeasuredState()
     const g = listCodeTabs().projects[0]!
-    expect(g.tabs.map((t) => t.sessionId)).toContain(LISTED_ONLY)
-    const tab = g.tabs.find((t) => t.sessionId === LISTED_ONLY)!
-    // A ket meres KULON marad: nem fut, de nyitva van. Ha ezeket osszemosnank,
-    // visszakapnank a hibat.
-    expect(tab.live).toBe(false)
-    expect(tab.vscodeOpen).toBe(true)
+    expect(g.tabs.map((t) => t.sessionId)).toEqual([RUNNING])
+    expect(g.tabs[0]!.live).toBe(true)
   })
 
-  it('A VS CODE LISTAJA A DONTO: ami fut, de a panelen nincs ott, az NEM ful', () => {
-    // 2026-08-29 (Boss): "a vscode agent kartyajan megint tul sok a chat. a
-    // vscode szofverben (...) csak kb 2 chat ablak van. a marveen ban meg vagy
-    // 12. ezt a hibat mar javitottuk vagy 12 szer."
-    //
-    // Merve: 7 ful `live === true`, de csak 2 `vscodeOpen === true`. Az UNIO
-    // 7-et mutatott. A kerdes nem az, hogy FUT-e valami, hanem hogy a
-    // felhasznalo LATJA-E FULKENT -- erre egyedul a VS Code listaja a forras.
-    //
-    // A RUNNING ful itt `vscodeOpen === false`: fut, de a panelen nincs ott.
-    // A fo listaba tehat nem valo. Ettol NEM veszik el -- lasd a kovetkezo
-    // teszt: a `closedTabs`-ban elerheto marad, hogy le lehessen allitani.
-    reportRunningNotListed()
+  it('ami nem fut, az NEM tunik el: a LEGUTOBBI csoportba kerul', () => {
+    // A regi szabaly a "se nem fut, se nincs a VS Code listajaban" sorokat
+    // nyomtalanul eldobta. Mivel a VS Code listajat nem lehet megmerni, ez
+    // pont azt dobta el, amibe a felhasznalo gepelt.
+    reportMeasuredState()
     const g = listCodeTabs().projects[0]!
-    expect(g.tabs.map((t) => t.sessionId)).toEqual([LISTED_ONLY])
+    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([IDLE, OLD])
   })
 
-  it('egy KONKRET fulrol hianyzo meresnel a `live` tolti ki a hianyt', () => {
-    // A projekt tobbi fulet megmertuk, de errol az EGYrol nincs VS Code-adat.
-    // "Nem latok oda" != "nincs ott": ilyenkor a futo folyamat a legjobb
-    // tudasunk, tehat a fo listaban marad.
-    recordCodeWorkerSeen('WINPC', 'discovery', 2)
-    recordCodeCandidates('WINPC', [
-      { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 3000, title: 'Nyitva', primary: true, live: false, vscodeOpen: true },
-      { workspacePath: WS, sessionId: RUNNING, mtime: 2000, title: 'Fut, nincs rola meres', primary: false, live: true },
-    ])
-    const g = listCodeTabs().projects[0]!
-    expect(g.tabs.map((t) => t.sessionId).sort()).toEqual([LISTED_ONLY, RUNNING].sort())
-  })
-
-  it('a CELPONT (current) akkor is a fo listaban marad, ha a VS Code nem listazza', () => {
-    // Ez nem kivetel a szabaly alol, hanem a lap mukodokepessege: a feladat
-    // oda megy, ha senki nem valaszt kulon. Ha eltunne, a projekt
-    // cimezhetetlennek latszana. A `reportMeasuredState` fixture-ben eppen a
-    // futo (`vscodeOpen === false`) ful a celpont.
+  it('a CELPONT (current) akkor is a fo listaban van, ha eppen nem fut', () => {
+    // Oda megy a feladat, ha senki nem valaszt kulon. Ha eltunne, a projekt
+    // cimezhetetlennek latszana.
+    upsertCodeSession({ project: 'tozsde', workspacePath: WS, sessionId: IDLE, pinned: true })
     reportMeasuredState()
     const g = listCodeTabs().projects[0]!
     const target = g.tabs.find((t) => t.current)!
-    expect(target.sessionId).toBe(RUNNING)
-    expect(target.vscodeOpen).toBe(false)
+    expect(target.sessionId).toBe(IDLE)
+    expect(target.live).toBe(false)
   })
 
-  it('ami se nem fut, se nincs a VS Code listajaban, az nem kerul a fo listaba', () => {
-    reportMeasuredState()
-    const g = listCodeTabs().projects[0]!
-    expect(g.tabs.map((t) => t.sessionId)).not.toContain(GONE)
-  })
-})
-
-describe('ha latjuk a VS Code listajat, a "tobbi beszelgetes" doboz elmarad', () => {
-  it('a valoban bezart beszelgetes nem kerul a closedTabs-ba sem -- felesleges', () => {
-    // Boss, 2026-08-28: "ezek a tobbiek amik mar be voltak zarva nem
-    // erdekesek. (...) ugy sem lehet rajuk kattintani". A GONE se nem fut, se
-    // nincs a VS Code listajaban -- sehol nem jelenik meg.
-    reportMeasuredState()
-    const g = listCodeTabs().projects[0]!
-    expect(g.closedTabs.map((t) => t.sessionId)).not.toContain(GONE)
-  })
-
-  it('DE ami FUT es kiesett a fo listabol, az elerheto marad -- kulonben nem lehetne leallitani', () => {
-    // 2026-08-29: a fo listat a VS Code listaja donti el, igy a futo, de be nem
-    // toltott ful kikerul onnan. Nyomtalanul viszont NEM tunhet el: 2026-08-23-an
-    // pont egy beragadt, futo folyamatot kellett leallitani a kartyarol. Ha a
-    // felulet nem mutatja, a felhasznalonak nincs mivel megfognia.
-    reportRunningNotListed()
-    const g = listCodeTabs().projects[0]!
-    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([RUNNING])
-    expect(g.closedTabs[0]!.live).toBe(true)
-  })
-
-  it('DE ha NEM latunk oda, a regi viselkedes marad: a tobbi beszelgetes elerheto', () => {
-    // Regi worker, vagy olvashatatlan VS Code allapotfajl: `vscodeOpen` sehol
-    // nincs megmerve. Olyankor a `live === false` meg NEM bizonyitja, hogy a
-    // ful be van zarva -- egy nyitott beszelgetes tunne el nyomtalanul.
-    recordCodeWorkerSeen('WINPC', 'discovery', 2)
-    recordCodeCandidates('WINPC', [
-      { workspacePath: WS, sessionId: RUNNING, mtime: 3000, title: 'MT4 CSV elemzes', primary: true, live: true, pid: 9908 },
-      { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 2000, title: '47-es kanban kartya', primary: false, live: false },
-    ])
-    const g = listCodeTabs().projects[0]!
-    expect(g.tabs.map((t) => t.sessionId)).toEqual([RUNNING])
-    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([LISTED_ONLY])
-    expect(g.closedTabs[0]!.vscodeOpen).toBeNull()
-  })
-
-  it('ha EGYIK forrast sem tudtuk megmerni, semmit nem szurunk ki', () => {
+  it('A NULLA KET DOLGOT JELENTHET: meres nelkul nem valogatunk szet semmit', () => {
+    // Regi worker: egyetlen `live` meres sincs. Ez NEM azt jelenti, hogy semmi
+    // nem fut -- olyankor minden sor a fo listaban marad.
     recordCodeWorkerSeen('WINPC', 'discovery', 2)
     recordCodeCandidates('WINPC', [
       { workspacePath: WS, sessionId: RUNNING, mtime: 3000, title: 'egyik', primary: true },
-      { workspacePath: WS, sessionId: LISTED_ONLY, mtime: 2000, title: 'masik', primary: false },
+      { workspacePath: WS, sessionId: IDLE, mtime: 2000, title: 'masik', primary: false },
     ])
     const g = listCodeTabs().projects[0]!
     expect(g.tabs).toHaveLength(2)
@@ -201,27 +122,75 @@ describe('ha latjuk a VS Code listajat, a "tobbi beszelgetes" doboz elmarad', ()
   })
 })
 
-describe('a meres vegigmegy a worker jelentesetol a feluletig', () => {
-  it('a regi worker hianyzo mezoje `null`, nem `false` -- a ketto mast jelent', () => {
-    recordCodeWorkerSeen('WINPC', 'discovery', 1)
+describe('A SORREND A NAPLO VALODI IDEJET koveti, nem a fajl mtime-jat', () => {
+  it('egyforma mtime mellett a `lastActivity` dont -- ez volt a masodik hiba', () => {
+    // Merve 2026-08-30: ot naplo mtime-ja EZREDMASODPERCRE megegyezett
+    // (1788044767588), mert egy tomeges fajlmuvelet mindet atirta, mikozben a
+    // valodi utolso uzenetuk 08-28 11:00 es 08-29 19:48 kozott szort. Az
+    // mtime szerinti rendezes ilyenkor VELETLENSZERU sorrendet ad.
+    recordCodeWorkerSeen('WINPC', 'discovery', 3)
     recordCodeCandidates('WINPC', [
-      { workspacePath: WS, sessionId: RUNNING, mtime: 3000, title: 'egy', primary: true },
+      { workspacePath: WS, sessionId: OLD, mtime: 1788044767588, lastActivity: 1000, title: 'legregebbi', primary: true, live: false },
+      { workspacePath: WS, sessionId: RUNNING, mtime: 1788044767588, lastActivity: 3000, title: 'legfrissebb', primary: false, live: false },
+      { workspacePath: WS, sessionId: IDLE, mtime: 1788044767588, lastActivity: 2000, title: 'kozepso', primary: false, live: false },
     ])
-    expect(listCodeTabs().projects[0]!.tabs[0]!.vscodeOpen).toBeNull()
+    const g = listCodeTabs().projects[0]!
+    // A `primary` a celpont, tehat a fo listaban all; a tobbi a Legutobbiban,
+    // a VALODI ido szerint.
+    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([RUNNING, IDLE])
   })
 
-  it('a /api/code/projects valasza tartalmazza a merest, nem csak a szerver tudja', async () => {
+  it('ha nincs `lastActivity` (regi worker), a mtime-ra esunk vissza', () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 3)
+    recordCodeCandidates('WINPC', [
+      { workspacePath: WS, sessionId: OLD, mtime: 1000, title: 'regi', primary: true, live: false },
+      { workspacePath: WS, sessionId: RUNNING, mtime: 3000, title: 'uj', primary: false, live: false },
+      { workspacePath: WS, sessionId: IDLE, mtime: 2000, title: 'kozepso', primary: false, live: false },
+    ])
+    const g = listCodeTabs().projects[0]!
+    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([RUNNING, IDLE])
+    // Es a hianyzo meres `null` marad -- nem 0, nem a mtime bemasolva. A
+    // felulet ebbol tudja, hogy amit kiir, csak kozelites.
+    expect(g.closedTabs[0]!.lastActivity).toBeNull()
+  })
+
+  it('a 0 es a negativ ertek nem meres, hanem hianyzo adat', () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 1)
+    recordCodeCandidates('WINPC', [
+      { workspacePath: WS, sessionId: RUNNING, mtime: 3000, lastActivity: 0, title: 'egy', primary: true, live: true },
+    ])
+    expect(listCodeTabs().projects[0]!.tabs[0]!.lastActivity).toBeNull()
+  })
+})
+
+describe('a `vscodeOpen` fogalma NEM TERHET VISSZA', () => {
+  it('a jelentesbol erkezo `vscodeOpen` mezo nyomtalanul eltunik', () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 1)
+    // Egy REGI worker meg kuldheti. Nem szabad, hogy barmit befolyasoljon.
+    recordCodeCandidates('WINPC', [
+      { workspacePath: WS, sessionId: RUNNING, mtime: 3000, title: 'egy', primary: true, live: true, vscodeOpen: false } as any,
+      { workspacePath: WS, sessionId: IDLE, mtime: 2000, title: 'ketto', primary: false, live: false, vscodeOpen: true } as any,
+    ])
+    const g = listCodeTabs().projects[0]!
+    expect(g.tabs[0]).not.toHaveProperty('vscodeOpen')
+    // A `vscodeOpen: true` NEM emeli be a fo listaba: csak a futas szamit.
+    expect(g.tabs.map((t) => t.sessionId)).toEqual([RUNNING])
+    expect(g.closedTabs.map((t) => t.sessionId)).toEqual([IDLE])
+  })
+
+  it('a /api/code/projects valasza `lastActivity`-t ad, `vscodeOpen`-t nem', async () => {
     upsertCodeSession({ project: 'tozsde', workspacePath: WS, sessionId: RUNNING, pinned: true })
     reportMeasuredState()
     const out = await call('GET', '/api/code/projects')
     expect(out.status).toBe(200)
     const p = out.body.projects.find((x: any) => x.workspacePath === WS)
     expect(p).toBeTruthy()
-    const listed = p.tabs.find((t: any) => t.sessionId === LISTED_ONLY)
-    expect(listed).toBeTruthy()
-    expect(listed.vscodeOpen).toBe(true)
-    expect(listed.live).toBe(false)
-    // A doboz, amit a tulajdonos feleslegesnek nevezett, ures marad.
-    expect(p.closedTabs).toEqual([])
+    const run = p.tabs.find((t: any) => t.sessionId === RUNNING)
+    expect(run).toBeTruthy()
+    expect(run).not.toHaveProperty('vscodeOpen')
+    expect(run.lastActivity).toBe(3000)
+    expect(run.live).toBe(true)
+    // A tobbi beszelgetes elerheto marad -- ez a "Legutobbi" csoport.
+    expect(p.closedTabs.map((t: any) => t.sessionId)).toEqual([IDLE, OLD])
   })
 })
