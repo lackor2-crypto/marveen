@@ -49,6 +49,14 @@ jobs:
       - name: Install (npm ci)
         run: npm ci
 
+      # A fejlesztoi gepen (WSL) van ffmpeg, ezert a fenykepek-racs bolyegkep-
+      # tesztjei ott zoldek. MERT: 2026-08-30, elso eles CI-futas -- a
+      # futtatogepen NEM volt ffmpeg, "spawn ffmpeg ENOENT" 5 tesztet buktatott.
+      # A termek maga ffmpeg nelkul is mukodik (teljes meretu kepre esik
+      # vissza), de a bolyegkep-viselkedest csak ffmpeg-gel lehet leellenorizni.
+      - name: ffmpeg telepitese
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
+
       # A teszt-suite megtagadja a futast, ha eles telepitesben talalja magat.
       # Egy CI checkoutban ennek sosem szabad bekovetkeznie -- de ha megis, a
       # hibauzenet legyen KIMONDOTT, ne egy rejtelyes "REFUSING TO RUN TESTS".

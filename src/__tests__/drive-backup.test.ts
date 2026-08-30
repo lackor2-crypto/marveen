@@ -12,7 +12,7 @@
  *   * a listazasi plafon csendben leallitana a feltoltest,
  *   * a felig felment mentes ZOLD sort mutatna az Attekintesen.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -224,7 +224,22 @@ describe('#47 -- az elonezet merese nem fagyaszthatja le a dashboardot', () => {
     // EZ A LENYEG. MERVE 2026-08-29: a teljes raktar bejarasa 52 masodperc; a
     // Node egy szalon fut, tehat szinkron bejarassal egy gombnyomasra egy
     // percre befagyna az egesz felulet -- hibauzenet nelkul.
+    //
+    // A meres sajat lelegzetvetele (`drive-sync.ts`) VALODI oran (Date.now())
+    // meri, hogy eltelt-e mar 15 ms -- csak akkor ad at vezerlest. Ha a teszt
+    // is a valodi orara bizna magat, gyors/ures lemezen (MERVE: 2026-08-30, a
+    // GitHub Actions futtatoja) az 1200 apro fajl bejarasa a 15 ms-os szelet
+    // ALATT lefuthat, es a masodperc-oragomb egyszer sem kap szot -- nem azert,
+    // mert a lelegzetvetel elromlott, hanem mert a gep egyszeruen tul gyors
+    // volt ahhoz, hogy a verseny lefusson. Ezert itt az orat magunk toljuk
+    // elore: a lelegzetvetel mechanizmusat vizsgaljuk, nem a gep sebesseget.
     const gyoker = mkdtempSync(join(tmpdir(), 'mentes-lelegzet-'))
+    const valodiNow = Date.now.bind(Date)
+    let hivas = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => {
+      hivas++
+      return valodiNow() + hivas * 2 // minden hivas 2 ms-ot "telik" -- 8 hivas utan mar biztos tullepi a 15 ms-os szeletet
+    })
     try {
       // Eleg fajl ahhoz, hogy tobb adag legyen belole.
       for (let i = 0; i < 1200; i++) writeFileSync(join(gyoker, `f${i}.txt`), 'x')
@@ -237,6 +252,7 @@ describe('#47 -- az elonezet merese nem fagyaszthatja le a dashboardot', () => {
       }
       expect(masFutott).toBe(true)
     } finally {
+      nowSpy.mockRestore()
       rmSync(gyoker, { recursive: true, force: true })
     }
   })
