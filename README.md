@@ -296,7 +296,7 @@ A token 1 évig érvényes. Ne állíts be `ANTHROPIC_API_KEY`-t mellé.
 
 ## Közösség és támogatás
 
-Kérdésed van, vagy hibát találtál **ebben a változatban**? A repó a [github.com/lackor2-crypto/marveen](https://github.com/lackor2-crypto/marveen) címen érhető el.
+Kérdésed van, vagy hibát találtál **ebben a változatban**? Nyiss egy issue-t: [github.com/lackor2-crypto/marveen/issues](https://github.com/lackor2-crypto/marveen/issues)
 
 Általános Marveen-kérdésekhez (nem csak ehhez a forkhoz) az **eredeti projekt** közössége a jó hely -- ezeket Szota Szabolcs tartja fenn, nem ez a fork:
 
