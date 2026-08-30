@@ -66,6 +66,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/hooks/no-stray-files.py\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

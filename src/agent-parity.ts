@@ -37,6 +37,10 @@ export const FLEET_WIDE_BY_CODE: ReadonlyArray<{ script: string; why: string }> 
     script: 'egress-gate.mjs',
     why: 'ensureEgressGate() writes it into every agent (the main one included) on each dashboard start; it stays out of the template because the command embeds the resolved node binary path.',
   },
+  {
+    script: 'no-stray-files.py',
+    why: 'ensureStrayFileGate() writes it into every agent (the main one included) on each dashboard start; it stays out of the template because the command embeds the resolved PROJECT_ROOT, which differs per install and per worktree.',
+  },
 ]
 
 /** Hook scripts that are legitimately the main agent's alone. Every entry

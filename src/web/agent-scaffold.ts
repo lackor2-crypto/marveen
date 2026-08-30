@@ -1849,3 +1849,179 @@ Output ONLY the markdown content, no code fences.`
   }
   return cleaned
 }
+
+
+// ---------------------------------------------------------------------------
+// NYOMTALAN MUNKA: az eletfat nem szemeteljuk tele.
+//
+// Boss, 2026-08-30: "onmagatol ne keletkezzen semmilyen fajl (...) senki nem
+// tehet plusz fajlt ebbe az eletfaba (...) es akkor kesobb itt kiderul, hogy na
+// egyebkent meg 8 darab fajl ott van" -- majd ugyanabban a beszelgetesben:
+// "hogyha ideiglenesen (...) kell letrehozni egy fajlt, akkor azt utana, amikor
+// a fejlesztes keszen van, utana torolni kell", es "amikor vege van a munkanak
+// commit es push azonnal".
+//
+// A mert eset: 2026-08-29 18:34-18:37 kozott nyolc fajl keletkezett a repo
+// gyokereben (negy Playwright-probaszkript + a kimeneteik). Nem a repo kodja
+// irta oket, es egy napig ott alltak -- a commitolatlan-munka ora ugyanis a
+// nem-kovetett fajlokat szandekosan eldobja. Ket reteg volt nyitva egyszerre:
+// semmi nem allitotta meg a keletkezest, es semmi nem vette eszre utana.
+//
+// Ket reteg zarul be: (1) a PreToolUse kapu megallitja a gyokerbe irast es az
+// ideiglenes nevu fajlt, es megmondja, hova irja helyette; (2) a szabaly
+// szoveg minden agens CLAUDE.md-jebe es a gepszintu ~/.claude/CLAUDE.md-be
+// bekerul, ugyanugy, ahogy a visszakerdezes- es az ujrameres-szabaly.
+// ---------------------------------------------------------------------------
+
+const NO_STRAY_BEGIN = '<!-- BEGIN GENERATED: no-stray-files-rule (auto-generated, do not edit by hand) -->'
+const NO_STRAY_END = '<!-- END GENERATED: no-stray-files-rule -->'
+const NO_STRAY_BLOCK_RE = new RegExp(
+  `${NO_STRAY_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${NO_STRAY_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+function buildNoStrayBody(): string {
+  return [
+    '## NYOMTALAN MUNKA -- AZ ELETFAT NEM SZEMETELJUK TELE',
+    '',
+    'Onmagatol NE keletkezzen semmilyen fajl. Amit letrehozol, azt vagy kertek,',
+    'vagy a munka vegtermeke -- minden mas szemet, es a szemet nem marad a fan.',
+    '',
+    '1. **Ideiglenes fajl SOHA nem a projekt fajaba megy.** Probaszkript,',
+    '   kepernyokep, dump, kimenet, kiserleti masolat -> `/tmp/` vagy a session',
+    '   sajat scratch-konyvtara. A projekt GYOKERBE kulonosen nem: ott csak',
+    '   commitolt, a projekthez tartozo fajl allhat.',
+    '2. **Amit a fejleszteshez letrehoztal, a fejlesztes vegen TOROLD LE.** A',
+    '   "kesz" nem kesz, amig ott all egy fajl, amire mar nincs szukseg.',
+    '3. **A munkaegyseg vegen a fa legyen tiszta.** Nezd meg',
+    '   (`git status --porcelain`), mit hagytal magad utan, es szamolj el MINDEN',
+    '   sorral: commit vagy torles. A "majd kesobb" nem opcio -- egy nap mulva',
+    '   mar senki nem tudja, kell-e meg.',
+    '4. **A lezart munka vegen: hatasvizsgalat + bugkereses (szelesen es melyen),',
+    '   utana AZONNAL commit ES push.** Nem maradhat commitolatlan vagy',
+    '   pusholatlan munka: a kovetkezo agens felbehagyott munkat lat belole, es',
+    '   vagy hozzanyul, vagy megall miatta.',
+    '5. **Ugyanez all a chat-naplora**: a lezart munkaegysegrol MEG UGYANABBAN a',
+    '   valaszban irj bejegyzest, ne a session vegen.',
+    '',
+    'Torles elott a visszakerdezes-szabaly is all: ha nem te hoztad letre a fajlt,',
+    'vagy nem vagy biztos benne, hogy eldobhato, KERDEZZ -- vagy mozgasd el',
+    '`/tmp/` ala (visszaforditható), es ugy kerdezz.',
+    '',
+    'A kapu: `scripts/hooks/no-stray-files.py` (PreToolUse) megallitja az uj',
+    'fajlt a projekt gyokereben es az ideiglenes nevu fajlt a fan belul, es',
+    'megmondja, hova ird helyette. Kikapcsolo (csak indokolt esetben):',
+    '`MARVEEN_STRAY_FILE_GATE=0`.',
+    '',
+    'Reszletek: `nyomtalan-munka` skill.',
+  ].join('\n')
+}
+
+function noStrayGateCommand(): string {
+  const script = join(PROJECT_ROOT, 'scripts', 'hooks', 'no-stray-files.py')
+  // Ugyanaz az alak, mint a file-claim-gate-e: hianyzo szkript eseten exit 0
+  // (atenged), sosem 127. Egy nem letezo hook NEM allithatja meg a flottat.
+  return `bash -c '[ -f ${script} ] && exec python3 ${script}; exit 0'`
+}
+
+/**
+ * Idempotensen bekoti a szemet-kaput egy settings.json objektumba.
+ *
+ * MIERT BLOKKOLHAT, amikor a file-claim-gate mar nem (Boss, 2026-08-25, #13):
+ * ott a tiltas azt jelentette volna, hogy az agens ALL, mert nincs hova irnia.
+ * Itt van hova: a kapu uzenete megnevezi a helyes utat, az agens egy masodperc
+ * mulva ujra ir, csak jo helyre. A tiltas nem munkat vesz el, hanem cimet javit.
+ */
+export function injectStrayFileGate(existing: Record<string, unknown>): void {
+  const hooks = (existing.hooks && typeof existing.hooks === 'object'
+    ? existing.hooks
+    : (existing.hooks = {})) as Record<string, unknown>
+  const command = noStrayGateCommand()
+  if (isUnsafeHookCommand(command)) return
+  const entry = {
+    matcher: 'Write|Edit|MultiEdit|NotebookEdit',
+    hooks: [{ type: 'command', command, timeout: 10 }],
+  }
+  const prev = Array.isArray(hooks.PreToolUse) ? (hooks.PreToolUse as unknown[]) : []
+  hooks.PreToolUse = [
+    ...prev.filter((e) => !JSON.stringify(e).includes('no-stray-files.py')),
+    entry,
+  ]
+}
+
+/** Minden agens settings.json-jaba beviszi a szemet-kaput. true = irt. */
+export function ensureStrayFileGate(name: string): boolean {
+  const settingsPath = agentSettingsPath(name)
+  let settings: Record<string, unknown> = {}
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { return false }
+  }
+  const command = noStrayGateCommand()
+  const hooks = (settings.hooks && typeof settings.hooks === 'object')
+    ? settings.hooks as Record<string, unknown>
+    : {}
+  const ptu = Array.isArray(hooks.PreToolUse) ? hooks.PreToolUse as unknown[] : []
+  const ptuJson = JSON.stringify(ptu)
+  if (ptuJson.includes('no-stray-files.py') && hookCommandWired(ptuJson, command)) return false
+  if (isUnsafeHookCommand(command)) return false
+  injectStrayFileGate(settings)
+  if (name !== MAIN_AGENT_ID) mkdirSync(join(agentDir(name), '.claude'), { recursive: true })
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return true
+}
+
+export type NoStrayOutcome = 'written' | 'current' | 'skipped-main' | 'no-file' | 'unreadable'
+
+export function ensureNoStrayFilesSection(name: string): NoStrayOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${NO_STRAY_BEGIN}\n${buildNoStrayBody()}\n${NO_STRAY_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = NO_STRAY_BLOCK_RE.test(existing)
+    ? existing.replace(NO_STRAY_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: egy worktree-ben dolgozo agens sosem olvassa a sajat
+ *  agents/<nev>/CLAUDE.md-jet, a ~/.claude/CLAUDE.md-t viszont mindig. */
+export function ensureGlobalNoStrayFilesRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${NO_STRAY_BEGIN}\n${buildNoStrayBody()}\n${NO_STRAY_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = NO_STRAY_BLOCK_RE.test(existing)
+    ? existing.replace(NO_STRAY_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}

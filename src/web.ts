@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -638,6 +638,7 @@ export function startWebServer(port = 3420): http.Server {
       const patched: string[] = []
       const stalePatched: string[] = []
       const egressPatched: string[] = []
+      const strayPatched: string[] = []
       const govPatched: string[] = []
       const skillsLinked: string[] = []
       const pruned: string[] = []
@@ -654,6 +655,9 @@ export function startWebServer(port = 3420): http.Server {
         if (ensureAgentHooks(agentName)) patched.push(agentName)
         if (ensureAgentStalenessHook(agentName)) stalePatched.push(agentName)
         if (ensureEgressGate(agentName)) egressPatched.push(agentName)
+        // A szemet-kapu ugyanugy MINDEN agensre megy, a fo agensre is:
+        // a repo gyokerebe irt probaszkript ugyanolyan szemet barkitol.
+        if (ensureStrayFileGate(agentName)) strayPatched.push(agentName)
         if (ensureGovernanceGatesRemoved(agentName)) govPatched.push(agentName)
         // Same knowledge for everyone, not just the supervisor (CLAUDE.md,
         // agens-paritas): link the agent at the shared skill library.
@@ -680,6 +684,11 @@ export function startWebServer(port = 3420): http.Server {
         if (greeting === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
         // ...and the delegate-availability rule (check the recipient is online
         // BEFORE handing off work, 2026-08-29). Same folding as the others.
+        // ...es a nyomtalan-munka szabaly (semmi ne keletkezzen magatol,
+        // az ideiglenes fajl a munka vegen torolve, a vegen commit+push).
+        const noStray = ensureNoStrayFilesSection(agentName)
+        if (noStray === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (noStray === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
         const delegateCheck = ensureDelegateCheckSection(agentName)
         if (delegateCheck === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (delegateCheck === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
@@ -691,6 +700,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalRecheckRule()
       ensureGlobalWakeGreetingRule()
       ensureGlobalDelegateCheckRule()
+      ensureGlobalNoStrayFilesRule()
       // Zero writes means two different things, so both are said out loud
       // rather than inferred from a count: 'no-file' agents are covered by the
       // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads
@@ -703,6 +713,7 @@ export function startWebServer(port = 3420): http.Server {
       if (patched.length) logger.info({ patched }, 'PreCompact hook backfilled into agent settings.json')
       if (stalePatched.length) logger.info({ patched: stalePatched }, 'staleness-guard UserPromptSubmit hook backfilled into agent settings.json')
       if (egressPatched.length) logger.info({ patched: egressPatched }, 'egress-gate WebFetch hook backfilled into agent settings.json')
+      if (strayPatched.length) logger.info({ agents: strayPatched }, 'no-stray-files gate wired into agent settings')
       if (govPatched.length) logger.info({ patched: govPatched }, 'legacy governance hard-gates (email-send + self-pace) stripped from agent settings.json')
       if (skillsLinked.length) logger.info({ linked: skillsLinked }, 'shared skill library linked into agent .claude/skills')
       // Every agent has just been brought up to the template; anything the main

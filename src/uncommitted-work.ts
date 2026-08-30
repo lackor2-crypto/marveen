@@ -70,3 +70,86 @@ export function describeUncommitted(stale: DirtyFile[], now: number): string {
     + names.join(', ') + more
     + '. Ha keszen van, commitold; ha nem, erdemes sajat worktree-ben folytatni (scripts/agent-worktree.sh).'
 }
+
+// ---------------------------------------------------------------------------
+// A MASODIK ES A HARMADIK MODJA ANNAK, HOGY MUNKA MARADJON A FAN
+//
+// Boss, 2026-08-30: "mindig szokott maradni commitolatlan pusholatlan dolgok es
+// akkor a masik agent eszreveszi o itt van egy felbehagyott munka -- nem, amikor
+// vege van a munkanak commit es push azonnal" -- es kulon: "onmagatol ne
+// keletkezzen semmilyen fajl (...) kesobb itt kiderul, hogy na egyebkent meg 8
+// darab fajl ott van".
+//
+// A fenti figyelo eddig CSAK a kovetett, modositott fajlokat nezte, mert egy
+// nem-kovetett scratch fajl "nem kockazatban levo munka". Ez igaz -- de attol
+// meg ott van, es 2026-08-29-en pontosan igy allt egy napig nyolc probaszkript
+// a repo gyokereben, szo nelkul. Ket uj kategoria, KULON mondattal, mert ket
+// kulon teendo tartozik hozzajuk:
+//
+//   * szemet (nem-kovetett)  -> torold, vagy ha kell, commitold;
+//   * pusholatlan commit     -> pushold, kulonben a kovetkezo agens felbehagyott
+//                               munkat lat.
+//
+// A pusholatlan darabszam lehet NULL is, es az NEM nulla: "nincs upstream" vagy
+// "nem tudtam megkerdezni a gitet" mas, mint "minden fel van pusholva". A hivo
+// a null-t NEM mondja ki nullakent.
+// ---------------------------------------------------------------------------
+
+export interface TreeMess {
+  /** Kovetett, modositott fajlok, amik mar tul regota allnak. */
+  dirty: DirtyFile[]
+  /** Nem-kovetett fajlok, amik mar tul regota allnak. */
+  stray: DirtyFile[]
+  /** Felpusholatlan commitok szama, vagy null = nem tudtam megkerdezni. */
+  unpushed: number | null
+  /** Az ag neve a pusholatlan mondathoz ('' = nem tudom). */
+  branch: string
+}
+
+export function messSignature(m: TreeMess): string {
+  return [
+    dirtySignature(m.dirty),
+    dirtySignature(m.stray),
+    m.unpushed === null ? '?' : String(m.unpushed),
+  ].join('#')
+}
+
+/** Van-e egyaltalan mondanivalo. A null unpushed sosem indit riasztast. */
+export function messIsEmpty(m: TreeMess): boolean {
+  return m.dirty.length === 0 && m.stray.length === 0 && !(m.unpushed && m.unpushed > 0)
+}
+
+export function shouldAlertMess(m: TreeMess, state: UncommittedAlertState): boolean {
+  if (messIsEmpty(m)) return false
+  return messSignature(m) !== state.lastSignature
+}
+
+function oraja(files: DirtyFile[], now: number): number {
+  return Math.max(1, Math.round((now - files[0].modifiedAt) / 3_600_000))
+}
+
+function nevek(files: DirtyFile[]): string {
+  const names = files.slice(0, 6).map(f => f.path)
+  return names.join(', ') + (files.length > names.length ? ` (+${files.length - names.length} tovabbi)` : '')
+}
+
+/** Egy-harom rovid sor a tulajdonos csatornajara. Null, ha nincs mit mondani. */
+export function describeMess(m: TreeMess, now: number): string | null {
+  if (messIsEmpty(m)) return null
+  const sorok: string[] = []
+  if (m.dirty.length) {
+    sorok.push(`📝 ${m.dirty.length} commitolatlan fajl all a repoban, a legregebbi ${oraja(m.dirty, now)} oraja: `
+      + nevek(m.dirty)
+      + '. Ha keszen van, commitold; ha nem, erdemes sajat worktree-ben folytatni (scripts/agent-worktree.sh).')
+  }
+  if (m.stray.length) {
+    sorok.push(`🧹 ${m.stray.length} nem-kovetett fajl all a repoban, a legregebbi ${oraja(m.stray, now)} oraja: `
+      + nevek(m.stray)
+      + '. Ez nem kockazatban levo munka, hanem szemet: ha a fejlesztes keszen van, TOROLD -- ha a projekt resze, commitold.')
+  }
+  if (m.unpushed && m.unpushed > 0) {
+    sorok.push(`⬆️ ${m.unpushed} commit nincs felpusholva${m.branch ? ` (${m.branch})` : ''}. `
+      + 'A munka vegen a push is a munka resze: pusholatlanul a kovetkezo agens felbehagyott munkat lat.')
+  }
+  return sorok.join('\n')
+}

@@ -40,6 +40,7 @@ export const KNOWN_HOOK_SCRIPTS: readonly string[] = [
   'channel-inbox-stop-drain.py',
   'ledger-capture.py',
   'fresh-install-rule.py',
+  'no-stray-files.py',
 ]
 
 // Path fragment that marks a checkout as an agent worktree. Kept

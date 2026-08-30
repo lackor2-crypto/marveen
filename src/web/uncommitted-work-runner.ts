@@ -13,11 +13,12 @@ import { PROJECT_ROOT } from '../config.js'
 import { sendAlert } from './channel-monitor.js'
 import {
   INITIAL_UNCOMMITTED_STATE,
-  describeUncommitted,
-  dirtySignature,
-  shouldAlertUncommitted,
+  describeMess,
+  messSignature,
+  shouldAlertMess,
   staleDirtyFiles,
   type DirtyFile,
+  type TreeMess,
   type UncommittedAlertState,
 } from '../uncommitted-work.js'
 
@@ -35,8 +36,32 @@ export function _resetUncommittedForTest(): void {
 
 function gitStatusPorcelain(): Promise<string | null> {
   return new Promise(resolve => {
-    execFile('git', ['-C', PROJECT_ROOT, 'status', '--porcelain'], { timeout: 20_000 }, (err, stdout) => {
+    // --untracked-files=all: a szemet gyakran egy alkonyvtarban ul, es az
+    // alapertelmezett `normal` mod ilyenkor csak a KONYVTARAT irja ki egy
+    // sorban. Egy sor "scratch/" nem mondja meg, hany fajl van benne.
+    execFile('git', ['-C', PROJECT_ROOT, 'status', '--porcelain', '--untracked-files=all'], { timeout: 20_000 }, (err, stdout) => {
       resolve(err ? null : stdout)
+    })
+  })
+}
+
+/** Hany commit all felpusholatlanul. null = NEM tudtam megkerdezni (nincs
+ *  upstream, vagy a git nem valaszolt) -- ez nem ugyanaz, mint a nulla, es a
+ *  hivo nem is mondja ki nullakent. */
+function gitUnpushedCount(): Promise<number | null> {
+  return new Promise(resolve => {
+    execFile('git', ['-C', PROJECT_ROOT, 'rev-list', '--count', '@{u}..HEAD'], { timeout: 20_000 }, (err, stdout) => {
+      if (err) return resolve(null)
+      const n = Number.parseInt(stdout.trim(), 10)
+      resolve(Number.isFinite(n) ? n : null)
+    })
+  })
+}
+
+function gitBranch(): Promise<string> {
+  return new Promise(resolve => {
+    execFile('git', ['-C', PROJECT_ROOT, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 20_000 }, (err, stdout) => {
+      resolve(err ? '' : stdout.trim())
     })
   })
 }
@@ -58,26 +83,55 @@ export function parseDirtyPaths(porcelain: string): string[] {
   return out
 }
 
+function withMtime(paths: string[]): DirtyFile[] {
+  const out: DirtyFile[] = []
+  for (const path of paths) {
+    try {
+      out.push({ path, modifiedAt: statSync(join(PROJECT_ROOT, path)).mtimeMs })
+    } catch { /* deleted file: nothing to lose, skip */ }
+  }
+  return out
+}
+
+/** A NEM-kovetett (`??`) utak. Ezeket a parseDirtyPaths szandekosan eldobja --
+ *  es pontosan ezert allt 2026-08-29-en nyolc probaszkript egy napig a repo
+ *  gyokereben anelkul, hogy barmi szolt volna miatta. */
+export function parseStrayPaths(porcelain: string): string[] {
+  const out: string[] = []
+  for (const line of porcelain.split('\n')) {
+    if (!line.trim()) continue
+    if (line.slice(0, 2) !== '??') continue
+    out.push(line.slice(3).trim().replace(/^"|"$/g, ''))
+  }
+  return out
+}
+
 async function tick(): Promise<void> {
   try {
     const porcelain = await gitStatusPorcelain()
     if (porcelain === null) return
     const now = Date.now()
-    const files: DirtyFile[] = []
-    for (const path of parseDirtyPaths(porcelain)) {
-      try {
-        files.push({ path, modifiedAt: statSync(join(PROJECT_ROOT, path)).mtimeMs })
-      } catch { /* deleted file: nothing to lose, skip */ }
+    const [unpushed, branch] = await Promise.all([gitUnpushedCount(), gitBranch()])
+    const mess: TreeMess = {
+      dirty: staleDirtyFiles(withMtime(parseDirtyPaths(porcelain)), now),
+      stray: staleDirtyFiles(withMtime(parseStrayPaths(porcelain)), now),
+      unpushed,
+      branch,
     }
-    const stale = staleDirtyFiles(files, now)
-    if (!shouldAlertUncommitted(stale, state)) {
+    if (!shouldAlertMess(mess, state)) {
       // Remember a clean tree so the NEXT mess is reported as news.
-      if (stale.length === 0 && state.lastSignature) state = { ...state, lastSignature: '' }
+      const sig = messSignature(mess)
+      if (sig !== state.lastSignature && state.lastSignature) state = { ...state, lastSignature: '' }
       return
     }
-    state = { lastSignature: dirtySignature(stale), lastAlertAt: now }
-    logger.info({ uncommitted: stale.map(f => f.path) }, 'uncommitted work has been sitting in the working tree')
-    sendAlert(describeUncommitted(stale, now))
+    state = { lastSignature: messSignature(mess), lastAlertAt: now }
+    logger.info({
+      uncommitted: mess.dirty.map(f => f.path),
+      stray: mess.stray.map(f => f.path),
+      unpushed: mess.unpushed,
+    }, 'work left behind in the working tree')
+    const szoveg = describeMess(mess, now)
+    if (szoveg) sendAlert(szoveg)
   } catch (err) {
     logger.warn({ err }, 'uncommitted-work watcher: tick error')
   }
