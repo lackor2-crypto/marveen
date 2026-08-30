@@ -3456,7 +3456,8 @@ window._i18n.en = {
   'overview.upstream.measure_no_result': 'The measurement finished but wrote no result, and I do not know why. The log: store/upstream-measure.log',
   'overview.upstream.measure_timeout': 'The measurement did not finish within five minutes, and I cannot see from here how far it got. The log: store/upstream-measure.log',
   'overview.upstream.measure_unreachable': 'The dashboard did not answer the request to start the measurement. The error: {why}',
-  'overview.upstream.measure_failed_unknown': 'The measurement could not be started (HTTP {code}) and the server did not say why. The log: store/upstream-measure.log',
+  'overview.upstream.measure_err.endpoint_missing': 'The measurement did not start: this page is newer than the running server, which does not know the endpoint yet. Rebuild and restart the dashboard, then the button will work.',
+  'overview.upstream.measure_failed_unknown': 'The measurement could not be started (HTTP {code}) and the server did not say why. The run never started, so no log was written.',
   // The server's reason codes. The raw technical detail (path, exception) is
   // appended AFTER the sentence, verbatim -- we never guess the cause.
   'overview.upstream.measure_err.already-running': 'A measurement is already running. I will wait, and the result will appear on its own.',

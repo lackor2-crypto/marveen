@@ -3528,7 +3528,8 @@ window._i18n.hu = {
   'overview.upstream.measure_no_result': 'A mérés befejeződött, de nem írt eredményt, és nem tudom, miért. A napló: store/upstream-measure.log',
   'overview.upstream.measure_timeout': 'A mérés öt perc alatt sem fejeződött be, és innen nem látom, hol tart. A napló: store/upstream-measure.log',
   'overview.upstream.measure_unreachable': 'A vezérlőpult nem válaszolt a mérés indítására. A hiba: {why}',
-  'overview.upstream.measure_failed_unknown': 'A mérést nem sikerült elindítani (HTTP {code}), és a szerver nem mondta meg, miért. A napló: store/upstream-measure.log',
+  'overview.upstream.measure_err.endpoint_missing': 'A mérés nem indult el: ez a felület újabb, mint a háttérben futó szerver (a végpontot még nem ismeri). Építsd újra és indítsd újra a dashboardot — utána a gomb működni fog.',
+  'overview.upstream.measure_failed_unknown': 'A mérést nem sikerült elindítani (HTTP {code}), és a szerver nem mondta meg, miért. A futás el sem indult, ezért napló sem keletkezett róla.',
   // A szerver okkódjai. A nyers technikai részlet (útvonal, kivétel) a mondat
   // UTÁN megy ki, változatlanul — az okot sosem találgatjuk.
   'overview.upstream.measure_err.already-running': 'Már fut egy mérés. Megvárom, és az eredmény magától megjelenik.',
