@@ -296,17 +296,13 @@ A token 1 évig érvényes. Ne állíts be `ANTHROPIC_API_KEY`-t mellé.
 
 ## Közösség és támogatás
 
-Kérdésed van? Csatlakozz az AI a mindennapokban közösséghez:
+Kérdésed van, vagy hibát találtál **ebben a változatban**? A repó a [github.com/lackor2-crypto/marveen](https://github.com/lackor2-crypto/marveen) címen érhető el.
 
-- **Skool közösség**: [skool.com/ai-a-mindennapokban](https://skool.com/ai-a-mindennapokban) -- oktatóanyagok, kérdések, tapasztalatcsere
-- **YouTube**: [AI a mindennapokban](https://www.youtube.com/@aiamindennapokban) -- videók, tutorialok
+Általános Marveen-kérdésekhez (nem csak ehhez a forkhoz) az **eredeti projekt** közössége a jó hely -- ezeket Szota Szabolcs tartja fenn, nem ez a fork:
+
+- **Skool közösség**: [skool.com/ai-a-mindennapokban](https://skool.com/ai-a-mindennapokban)
+- **YouTube**: [AI a mindennapokban](https://www.youtube.com/@aiamindennapokban)
 - **Weboldal**: [aiamindennapokban.hu](https://aiamindennapokban.hu)
-
-## Támogasd a projektet
-
-Ha hasznos számodra a Marveen, támogasd a fejlesztést:
-
-[![Támogatás](https://img.shields.io/badge/Támogatás-Donably-orange)](https://www.donably.com/ai-a-mindennapokban-szabolccsal)
 
 ## Köszönet
 
