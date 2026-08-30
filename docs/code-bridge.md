@@ -277,7 +277,7 @@ szövegre esik vissza.
 | Parancs | Mit csinál |
 |---|---|
 | `/code <projekt> [#<ful>] <feladat>` | átadja a feladatot a projekt sessionjének (opcionálisan egy konkrét chat fülnek) |
-| `/tabs [projekt]` | milyen chat fülek vannak nyitva, **címmel** |
+| `/tabs [projekt]` | milyen chat fülek vannak, **címmel** (fut most / legutóbbi) |
 | `/status [projekt]` | mi fut, mi vár |
 | `/result [id vagy projekt]` | a TELJES eredmény (darabolva, nem csonkolva) |
 | `/projects` | a regisztrált sessionök |
@@ -289,25 +289,65 @@ karakteres kivonat); a részletes eredmény `/result`-tal kérhető.
 
 ### Chat fülek: egy projektben több beszélgetés
 
-Egy VS Code workspace-ben több chat fül lehet nyitva, mindegyik **külön
-session, külön problémával**. A híd ezt látja, mert a worker minden
-beszélgetés-naplót jelent a mappából, a fül **címével** együtt (azt a
-`{"type":"ai-title"}` sor adja, ugyanaz, amit a VS Code a fülön mutat).
+Egy VS Code workspace-ben több chat fül lehet, mindegyik **külön session,
+külön problémával**. A híd ezt látja, mert a worker minden beszélgetés-naplót
+jelent a mappából, a fül **címével** együtt (azt a `{"type":"ai-title"}` sor
+adja, ugyanaz, amit a VS Code a fülön mutat).
+
+#### ⛔ AMIT NEM TUDUNK MEGMÉRNI: hogy melyik fül van NYITVA
+
+2026-08-30-ig a kártya azt állította, hogy tudja, melyik beszélgetés van
+**nyitva** a VS Code panelen. Nem tudta. A forrás a VS Code
+`state.vscdb` &rarr; `agentSessions.model.cache` kulcsa volt; az Anthropic saját
+hibajegye (claude-code#74894) szó szerint: *"Contains entries exclusively from a
+different provider (openai-codex), with no Claude Code entries. This is NOT a
+reliable source."* -- *"the actual session index appears to live in
+extension-host memory and does not get correctly rebuilt/rehydrated on reopen."*
+
+Mérve 2026-08-30 12:02-kor: a DB 6 perccel korábban íródott, mégis pontosan két
+azonosítót tartalmazott, mindkettő előző napi, és **egyik sem** a két akkor
+futó beszélgetés közül való. Emiatt került a "bezárt" listába pont az, amibe
+a tulajdonos éppen gépelt -- 12 körön át.
+
+**A fogalom ezért megszűnt.** Nincs `vscodeOpen` mező sem a workerben, sem a
+szerverben, sem az API válaszában. Ha valaki visszatenné, a
+`src/__tests__/code-tabs-vscode-open.test.ts` megbuktatja.
+
+#### Két csoport, mindkettő mérhető jelből
+
+| Csoport | API-mező | Mit jelent |
+|---|---|---|
+| **Fut most** | `tabs` | élő folyamat (`live === true`, pid-ből mérve), vagy a bekötött célpont (`current`) |
+| **Legutóbbi** | `closedTabs` | minden más beszélgetés, a napló **valódi** utolsó időbélyege szerint |
+
+- A `closedTabs` neve történelmi: **nem** azt jelenti, hogy a fül be van zárva
+  -- azt nem tudjuk. Csak annyit jelent, hogy nem fut hozzá folyamat.
+- A sorrendet a `lastActivity` adja: a napló saját utolsó `timestamp` mezője.
+  **Nem a fájl mtime-ja** -- 2026-08-30-on öt napló mtime-ja ezredmásodpercre
+  megegyezett (`1788044767588`) egy tömeges fájlművelet miatt, miközben a valódi
+  utolsó üzenetük 08-28 11:00 és 08-29 19:48 között szórt.
+- Ha a `lastActivity` `null` (régi worker), a felület az mtime-ot mutatja, és
+  **be is vallja**, hogy közelítés.
+- Ha a `live` sehol nem mérés, nem válogatunk szét semmit: minden sor a fő
+  listában marad. (A nulla két dolgot jelenthet.)
+
+#### Címzés
 
 - **Az ügynök-kártya = MAPPA, nem fül.** Egy workspace-hez egy kártya tartozik;
   a fülek azon belül vannak. Új chathez nem kell új kártya.
 - **Címzés nélkül** a feladat a projekt élő fülébe megy (a regisztrált session,
-  vagy ha az nincs, a legfrissebb napló) -- pontosan úgy, mint korábban.
+  vagy ha az nincs, a legfrissebb napló).
 - **Címezni** a rövid azonosító elejével lehet (`/code tradingbot #a1b2c3d4 ...`,
   vagy REST-en a `sessionId` mező). Ha a töredék több fülre illik, a híd
   **hibát ad a jelöltekkel** -- nem választ helyetted.
-- A lista szűkített: projektenként a 10 legfrissebb fül, 21 napnál nem régebbi.
+- A lista szűkített: projektenként a 10 legfrissebb fül, 21 napnál nem régebbi
+  -- de ami **fut**, az a korlát alól kivétel: az sosem esik ki.
 
 **Az üres lista két dolgot jelenthet**, ezért a `GET /api/code/tabs` egy
 `reason` mezőt is ad (`ok` / `empty` / `worker-never` / `worker-stale`): az
-`empty` azt jelenti, hogy tényleg nincs nyitott beszélgetés, a `worker-*`
-viszont azt, hogy **nem látunk oda**. A felület és a Telegram is ezt a mezőt
-mondja vissza -- "nincs chat fül" csak `empty` esetén hangzik el.
+`empty` azt jelenti, hogy tényleg nincs beszélgetés, a `worker-*` viszont azt,
+hogy **nem látunk oda**. A felület és a Telegram is ezt a mezőt mondja vissza
+-- "nincs chat fül" csak `empty` esetén hangzik el.
 
 ### Élőben nézni, mit csinál éppen: a Claude mobilalkalmazás
 
