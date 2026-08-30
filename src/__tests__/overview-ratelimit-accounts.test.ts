@@ -100,7 +100,9 @@ describe('usage-limit widget: server payload', () => {
     expect(OVERVIEW).toContain('const mainSnapFresh = rlSnapshot ? !isStale(rlSnapshot.measuredAt, Date.now()) : false')
     // 2026-08-30: a fo fiok is kap panel-leolvasast, de a kor akkor is a
     // MERES kora marad -- elo leolvasasnal a mostani, kulonben a pillanatkepe.
-    expect(OVERVIEW).toContain('measuredAt: mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null)')
+    // 2026-08-30 (masodik kor): elso helyen az ELO fiok-lekerdezes kora all --
+    // az az egyetlen szam, ami tetlen agens mellett is a MOSTANI allapot.
+    expect(OVERVIEW).toContain('measuredAt: mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null))')
   })
 
   it('a bongeszo-frissites elo merest ker, a hattér-ketyego nem', () => {

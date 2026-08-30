@@ -8,7 +8,11 @@ import {
   agentDir, listAgentNames, readAgentDisplayName,
 } from '../agent-config.js'
 import { readAgentTeam } from '../agent-team.js'
-import { isAgentRunning } from '../agent-process.js'
+import { isAgentRunning, resolveMainAgentConfigDir } from '../agent-process.js'
+import {
+  liveUsageForAccount, readAccountAccessToken, readFleetToken,
+  type LiveUsageResult,
+} from '../claude-usage-api.js'
 import { logger } from '../../logger.js'
 import { getSecret } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
@@ -142,6 +146,27 @@ export function sanityCheckFiveHour<T extends { usedPct: number | null; resetsAt
 // kell merni, ne csak a terveket). Ha a tmux nem valaszol -- friss telepites,
 // meg nem indult semmi --, a channels-session nevevel probalkozunk, es a
 // capture ugyanugy nullakkal ter vissza; ez a "nem latok oda", nem a "nincs".
+/**
+ * Melyik config-konyvtar hordozza egy fiok bejelentkezeset -- es ezzel azt a
+ * tokent, amivel a fiok keret-allapota LEKERDEZHETO (claude-usage-api.ts).
+ *
+ * A terv-fiokoknal ez a regiszterben all. A fo agens harom modban futhat
+ * (lasd scripts/channels.sh): sajat `MAIN_AGENT_CONFIG_DIR`-ben, izolalt
+ * dirben a flotta setup-tokenjevel, vagy a kozos `~/.claude`-ban. Az elso es a
+ * harmadik hordoz `.credentials.json`-t; a masodik nem, ott a flotta-token a
+ * hitelesites -- ezert ket helyre nezunk, ebben a sorrendben.
+ */
+function usageTokenForAccount(accountId: string, plans: ReturnType<typeof readClaudePlans>): string | null {
+  if (accountId !== MAIN_AGENT_ID) {
+    const plan = plans.find(p => p.id === accountId)
+    return plan ? readAccountAccessToken(plan.configDir) : null
+  }
+  const explicit = resolveMainAgentConfigDir()
+  const fromDir = readAccountAccessToken(explicit ?? join(homedir(), '.claude'))
+  if (fromDir) return fromDir
+  return readFleetToken(join(PROJECT_ROOT, 'store', '.claude-oauth-token'))
+}
+
 function usageScrapeSessions(accountId: string): string[] {
   if (accountId !== MAIN_AGENT_ID) return [`agent-${accountId}`]
   try {
@@ -484,6 +509,31 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // LIVE model next to the name, so that parenthetical is duplicated at best
     // and wrong at worst -- that config still said Opus 4.8 while the account
     // was actually running Opus 5. Drop it whenever a live model is known.
+    // ELO meres: magat a FIOKOT kerdezzuk meg (claude-usage-api.ts), nem azt,
+    // mit latott utoljara az agense.
+    //
+    // Boss 2026-08-30: "ha a vscode dolgozik, es a marveen nem, ugyanazzal a
+    // claude fiokkal, akkor a marveen nal lehet hogy 6% van, es sohasem
+    // frissul es kozben a vscode nal meg 98% van! (...) brutalis kulonbseg."
+    // Pontosan igy volt: a statusline-pillanatkep egy AGENS utolso jelentese,
+    // nem a fiok allapota. Ugyanaz a vegpont, amit a VS Code bovitmeny hasznal.
+    const plans = readClaudePlans()
+    const liveUsage = new Map<string, LiveUsageResult>(
+      await Promise.all([MAIN_AGENT_ID, ...plans.map(p => p.id)].map(async id =>
+        [id, await liveUsageForAccount(id, usageTokenForAccount(id, plans), { force: measureNow })] as const)),
+    )
+    for (const [id, r] of liveUsage) {
+      // A csend nem valasz: ha az elo meres elesik, az legalabb a naplobol
+      // kiderul -- a felulet ilyenkor a regi (jelolt koru) pillanatkepre esik
+      // vissza, nem talal ki szamot.
+      if (!r.ok) logger.warn({ account: id, reason: r.reason, detail: r.detail }, 'overview: nincs elo keret-meres erre a fiokra')
+    }
+    /** Az elo meres soraiva alakitva, vagy null, ha nem sikerult. */
+    const liveRow = (id: string) => {
+      const r = liveUsage.get(id)
+      return r && r.ok ? r.usage : null
+    }
+
     const accountLabel = (label: string, model: string | null) =>
       model ? label.replace(/\s*\([^)]*\)\s*$/, '').trim() || label : label
     // A FO fiok eddig KIZAROLAG a statusline-pillanatkepbol kapta a szamait --
@@ -491,8 +541,9 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
     // rajzolt, a "X perce merve" attol sem mozdult, hogy a Boss ujratoltotte az
     // oldalt, holott a panelen ott allt a friss savja. Mostantol ugyanaz a ket
     // forras all mogotte, mint a tobbi fiok mogott.
+    const mainLive = liveRow(MAIN_AGENT_ID)
     const mainSnapFresh = rlSnapshot ? !isStale(rlSnapshot.measuredAt, Date.now()) : false
-    const mainScrape = (measureNow || !mainSnapFresh || rlSnapshot?.fiveHour?.usedPct == null)
+    const mainScrape = (!mainLive && (measureNow || !mainSnapFresh || rlSnapshot?.fiveHour?.usedPct == null))
       ? scrapeClaudeAccountUsage(MAIN_AGENT_ID) : null
     // A pillanatkep a gazdagabb forras (5 oras ES heti ablak), a panel-
     // leolvasas viszont MOSTANI. Csak akkor lep a helyebe, ha tenyleg elo
@@ -510,11 +561,14 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // (Haiku)"). The org-chart's own main-node label (a few lines above,
         // `agentsForTeam`) is a SEPARATE field and correctly stays "Marvin".
         label: 'Lackor2',
+        // A modell nevet az elo vegpont nem mondja meg -- az marad a
+        // pillanatkepbol/panelbol; a SZAZALEKOK viszont az elo merestol jonnek,
+        // ha van.
         model: mainLiveScrape?.model ?? rlSnapshot?.model ?? null,
-        fiveHourPct: mainLiveScrape ? mainLiveScrape.usedPct : (rlSnapshot?.fiveHour?.usedPct ?? null),
-        sevenDayPct: rlSnapshot?.sevenDay?.usedPct ?? null,
-        fiveHourResetsAt: mainLiveScrape ? mainLiveScrape.resetsAt : (rlSnapshot?.fiveHour?.resetsAt ?? null),
-        sevenDayResetsAt: rlSnapshot?.sevenDay?.resetsAt ?? null,
+        fiveHourPct: mainLive?.fiveHour?.usedPct ?? (mainLiveScrape ? mainLiveScrape.usedPct : (rlSnapshot?.fiveHour?.usedPct ?? null)),
+        sevenDayPct: mainLive?.sevenDay?.usedPct ?? (rlSnapshot?.sevenDay?.usedPct ?? null),
+        fiveHourResetsAt: mainLive?.fiveHour?.resetsAt ?? (mainLiveScrape ? mainLiveScrape.resetsAt : (rlSnapshot?.fiveHour?.resetsAt ?? null)),
+        sevenDayResetsAt: mainLive?.sevenDay?.resetsAt ?? (rlSnapshot?.sevenDay?.resetsAt ?? null),
         // The other rows mark a stale reading with a "~"; this one used to
         // present an hours-old snapshot as a fresh number.
         //
@@ -522,8 +576,8 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // kepernyo-frissiteskor ujrairja a fajlt, de a SZAZALEKOKAT csak akkor,
         // amikor a Claude jelentette oket -- egy sokat rajzolo, de keveset
         // dolgozo agens igy a vegtelensegig frissnek mutatott egy regi merest.
-        stale: mainLiveScrape ? false : (rlSnapshot ? !mainSnapFresh : false),
-        measuredAt: mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null),
+        stale: mainLive ? false : (mainLiveScrape ? false : (rlSnapshot ? !mainSnapFresh : false)),
+        measuredAt: mainLive ? mainLive.measuredAt : (mainLiveScrape ? Date.now() : (rlSnapshot?.measuredAt ?? null)),
       },
       ...readClaudePlans().map(plan => {
         // Boss 2026-08-10 ("nem igaz, hogy nem lehet lekerni, ha a fiok
@@ -546,6 +600,23 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         // csak azert nem mozdul, mert senki nem nezett ra a panelre. Elo
         // leolvasas (nem gyorsitotarbol) MEGELOZI a pillanatkepet: az a szam
         // most keletkezett.
+        // Elso helyen az ELO fiok-lekerdezes (lasd claude-usage-api.ts): ez az
+        // egyetlen forras, ami akkor is a mostani szamot adja, ha ennek a
+        // fioknak a Marveen-agense eppen tetlen, de mas kliens (VS Code) egeti.
+        const planLive = liveRow(plan.id)
+        if (planLive) {
+          return {
+            id: plan.id,
+            label: accountLabel(plan.label, snap?.model ?? readAgentModel(plan.id)),
+            model: snap?.model ?? readAgentModel(plan.id),
+            fiveHourPct: planLive.fiveHour?.usedPct ?? snap?.fiveHour?.usedPct ?? null,
+            sevenDayPct: planLive.sevenDay?.usedPct ?? snap?.sevenDay?.usedPct ?? null,
+            fiveHourResetsAt: planLive.fiveHour?.resetsAt ?? snap?.fiveHour?.resetsAt ?? null,
+            sevenDayResetsAt: planLive.sevenDay?.resetsAt ?? snap?.sevenDay?.resetsAt ?? null,
+            stale: false,
+            measuredAt: planLive.measuredAt,
+          }
+        }
         const eagerScrape = measureNow ? scrapeClaudeAccountUsage(plan.id) : null
         if (eagerScrape && !eagerScrape.stale && eagerScrape.usedPct !== null) {
           return {
