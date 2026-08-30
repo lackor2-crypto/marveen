@@ -414,7 +414,15 @@
           <span class="overview-card-meta" id="overviewUpstreamMeta"></span>
         </div>
         <div class="overview-upstream-body" id="overviewUpstreamBody"></div>
-        <button class="btn-secondary upstream-changes-btn" id="overviewUpstreamChangesBtn" hidden></button>
+        <div class="upstream-actions">
+          <button class="btn-secondary upstream-changes-btn" id="overviewUpstreamChangesBtn" hidden></button>
+          <!-- Letoltes + ujrameres. A munkakonyvtarhoz NEM nyul: a mero szkript
+               `git merge-tree --write-tree`-vel dolgozik, tehat nem huz be
+               semmit, csak megnezi, mi van az upstreamben. Ezert nincs elotte
+               megerosites -- nincs mit visszacsinalni. -->
+          <button class="btn-secondary upstream-measure-btn" id="overviewUpstreamMeasureBtn" hidden></button>
+        </div>
+        <div class="upstream-measure-note" id="overviewUpstreamMeasureNote" hidden></div>
       </div>
       <div class="overview-grid">
         <div class="overview-card">
@@ -3377,6 +3385,16 @@
       <div class="updates-commits">
         <h3 data-i18n="tokenUsage.changes_title">Változások</h3>
         <div id="updatesCommitList" class="updates-commit-list"></div>
+      </div>
+
+      <!-- Frissítési források: honnan frissül ez a telepítés (origin), és melyik
+           eredeti projektből jönnek a beolvasztható változások (upstream).
+           Egyik cím sincs beégetve: mindkettőt a gitből olvassuk, és INNEN
+           állítható -- friss telepítésen is, terminál nélkül. -->
+      <div class="updates-remotes">
+        <h3 data-i18n="updates.remotes.title">Frissítési források</h3>
+        <p class="updates-remotes-intro" data-i18n="updates.remotes.intro">Ezekből a git-tárolókból frissül ez a telepítés. A címek a gitből jönnek, és itt átállíthatók.</p>
+        <div id="updatesRemotesBody" class="updates-remotes-body"></div>
       </div>
     </div>
 

@@ -2923,6 +2923,40 @@ window._i18n.en = {
   'updates.install_failed':      'Install failed',
   'updates.config_failed':       'Config failed',
 
+  // --- Update sources (git remotes) ---
+  // The server sends an error CODE, not a finished sentence, so on-screen text
+  // stays bilingual. Unknown codes fall through to the RAW message -- we never
+  // invent a cause on the user's behalf.
+  'updates.err.no-origin-remote':   'This installation does not know where to update from: no "origin" git source is configured. Set one below, under Update sources.',
+  'updates.err.not-a-git-checkout': 'This folder is not a git repository, so updates cannot be checked. Marveen must be installed as a git repository (git clone).',
+  'updates.remotes.title':          'Update sources',
+  'updates.remotes.intro':          'These git repositories are what this installation updates from. The addresses come from git and can be changed here.',
+  'updates.remotes.origin':         'Update source (origin)',
+  'updates.remotes.origin_hint':    'This installation updates from here. Without it the Update button has nothing to work from.',
+  'updates.remotes.upstream':       'Original project (upstream)',
+  'updates.remotes.upstream_hint':  'If this installation is a copy of another Marveen, name the original here — the Upstream sync box then appears on the Overview. Leave it empty and there is no such box; on a standalone installation that is the normal state.',
+  'updates.remotes.not_set':        'Not configured',
+  'updates.remotes.set':            'Set',
+  'updates.remotes.change':         'Change',
+  'updates.remotes.remove':         'Remove',
+  'updates.remotes.save':           'Save',
+  'updates.remotes.cancel':         'Cancel',
+  'updates.remotes.placeholder':    'https://github.com/owner/repo.git',
+  'updates.remotes.loading':        'Loading sources...',
+  'updates.remotes.unreadable':     'The git sources could not be read, so nothing is listed here right now. Git said:',
+  'updates.remotes.saved':          'Source saved: {name}',
+  'updates.remotes.removed':        'Source removed: {name}',
+  'updates.remotes.measure_started':'The measurement has started. The Upstream sync box will appear on the Overview within a minute with fresh data.',
+  'updates.remotes.measure_cleared':'The measurement has started. The Upstream sync box on the Overview will disappear once the stale result is replaced.',
+  'updates.remotes.measure_failed': 'The address was saved, but the measurement did not start ({reason}). Until it does, the Overview box shows the earlier state.',
+  'updates.remotes.confirm_remove': 'Remove the upstream source? The Upstream sync box on the Overview will disappear. You can set the address again here at any time.',
+  'updates.remotes.err.bad-url':    'That address is not accepted. Use https://... , ssh://... or git@host:owner/repo.git only.',
+  'updates.remotes.err.bad-name':   'Unknown source name — only origin and upstream can be set here.',
+  'updates.remotes.err.git-failed': 'Git rejected the operation:',
+  'updates.remotes.err.bad-body':   'The request could not be processed. Reload the page and try again.',
+  'updates.remotes.err.network':    'The server did not respond. Check that Marveen is running and try again.',
+  'updates.remotes.err.unknown':    'Saving failed:',
+
   // --- Common copy buttons ---
   'common.copy':                 'Copy',
   'common.copied':               'Copied!',
@@ -3400,14 +3434,35 @@ window._i18n.en = {
   'overview.upstream.conflicts_where': 'The names of the {n} conflicting files are in the file view of “What changed? — itemised list”.',
   'overview.upstream.reverted': 'The {sha} pull was reverted, so these numbers are measured against the state BEFORE it — otherwise git would still consider those commits pulled.',
   'overview.upstream.uptodate': 'Up to date: nothing to pull from upstream.',
-  'overview.upstream.uptodate_stale': 'Nothing to pull compared to the last fetched state — but this measurement could not reach the network, so it says nothing about upstream right now.',
+  'overview.upstream.uptodate_stale': 'Nothing to pull compared to the last fetched state — but this measurement could not fetch the upstream side, so it says nothing about upstream right now.',
   'overview.upstream.ahead': 'We are {n} commit(s) ahead.',
   'overview.upstream.failed': 'The measurement failed, so I do not know the divergence right now. The reason: {why}',
-  'overview.upstream.err.fetch-failed': 'the fetch could not reach the upstream repository (network or access).',
+  // We do NOT guess why the fetch failed: git's own message goes out below it.
+  'overview.upstream.err.fetch-failed': 'the fetch did not reach the upstream repository.',
   'overview.upstream.err.no-upstream-remote': 'this repository has no remote named "upstream".',
   'overview.upstream.err.no-upstream-branch': 'the upstream development branch was not found (neither upstream/HEAD nor upstream/main).',
   'overview.upstream.err.no-local-branch': 'the local branch to compare against was not found.',
-  'overview.upstream.no_fetch':  'The upstream side was not refreshed (no network), so this compares against the last fetched state.',
+  'overview.upstream.no_fetch':  'The upstream side was not refreshed this time, so this compares against the last fetched state.',
+  'overview.upstream.fetch_failed_why': 'The fetch error, verbatim: ',
+  // Which repository upstream is. Read from git — whoever forks this Marveen
+  // sees THEIR OWN source here, not ours.
+  'overview.upstream.source': 'Source: {repo}',
+  // --- "Fetch and re-measure" button ---
+  'overview.upstream.measure':      'Fetch and re-measure',
+  'overview.upstream.measuring':    'Measuring…',
+  'overview.upstream.measure_started': 'The fetch (git fetch) and re-measure have started. This can take a few minutes; nothing is pulled in.',
+  'overview.upstream.measure_done': 'Done — the numbers above are current.',
+  'overview.upstream.measure_done_with_problem': 'The measurement finished but could not measure everything. The reason is on the line above.',
+  'overview.upstream.measure_no_result': 'The measurement finished but wrote no result, and I do not know why. The log: store/upstream-measure.log',
+  'overview.upstream.measure_timeout': 'The measurement did not finish within five minutes, and I cannot see from here how far it got. The log: store/upstream-measure.log',
+  'overview.upstream.measure_unreachable': 'The dashboard did not answer the request to start the measurement. The error: {why}',
+  'overview.upstream.measure_failed_unknown': 'The measurement could not be started (HTTP {code}) and the server did not say why. The log: store/upstream-measure.log',
+  // The server's reason codes. The raw technical detail (path, exception) is
+  // appended AFTER the sentence, verbatim -- we never guess the cause.
+  'overview.upstream.measure_err.already-running': 'A measurement is already running. I will wait, and the result will appear on its own.',
+  'overview.upstream.measure_err.script-missing': 'The measurement script is missing. Update the installation, or clone the repository again.',
+  'overview.upstream.measure_err.store-unwritable': 'store/ is not writable, so the measurement log could not be created either — I will not start it blind. Check the permissions on store/.',
+  'overview.upstream.measure_err.spawn-failed': 'The measurement could not be started.',
   // --- Overview: rate-limit / usage-window widget (kanban ef06b18d) ---
   'overview.ratelimit.title':        'Usage limit',
   'overview.ratelimit.five_hour':    '5-hour window',

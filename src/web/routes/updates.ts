@@ -13,6 +13,8 @@ import {
   type GitRunner, type PidfileRunner,
 } from '../../update-preflight.js'
 import { json, readBody } from '../http-helpers.js'
+import { readRemotes, setRemote, removeRemote } from '../git-remotes.js'
+import { startMeasure } from '../upstream-measure-runner.js'
 import { claudeAgentRunnable } from '../../update-agent-capability.js'
 import { runScheduledTaskNow } from '../schedule-runner.js'
 import type { RouteContext } from './types.js'
@@ -113,6 +115,77 @@ export async function tryHandleUpdates(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/updates/check' && method === 'POST') {
     const status = await refreshUpdateStatus()
     json(res, status)
+    return true
+  }
+
+  // === Frissitesi forrasok (git remote-ok) ===
+  // Sem az `origin`, sem az `upstream` cime nincs beegetve: a gitbol olvassuk,
+  // es INNEN, a feluletrol allithato -- egy friss telepitesen is, terminal
+  // nelkul. A valasz kulon mondja meg, hogy egy remote NINCS beallitva
+  // (readable:true + null), vagy hogy NEM TUDTUK megnezni (readable:false + a
+  // git tenyleges hibauzenete).
+  if (path === '/api/updates/remotes' && method === 'GET') {
+    json(res, readRemotes())
+    return true
+  }
+
+  if (path === '/api/updates/remotes' && method === 'POST') {
+    let name = ''
+    let url = ''
+    try {
+      const buf = await readBody(ctx.req, { maxBytes: 64 * 1024 })
+      const parsed = JSON.parse(buf.toString()) as { name?: unknown; url?: unknown }
+      name = typeof parsed.name === 'string' ? parsed.name.trim() : ''
+      url = typeof parsed.url === 'string' ? parsed.url : ''
+    } catch {
+      json(res, { error: 'Invalid JSON body', reason: 'bad-body' }, 400)
+      return true
+    }
+    const result = setRemote(name, url)
+    if (!result.ok) {
+      logger.warn({ name, reason: result.reason, detail: result.detail }, 'git remote set rejected')
+      json(res, { error: `git remote: ${result.reason}`, reason: result.reason, detail: result.detail ?? null },
+        result.reason === 'git-failed' ? 500 : 400)
+      return true
+    }
+    logger.info({ name }, 'git remote set from dashboard')
+    // Az `origin` a frissites-ellenorzes forrasa: cimvaltas utan a gyorsitotar
+    // meg a REGI repot mutatna, ezert azonnal ujramerunk.
+    if (name === 'origin') await refreshUpdateStatus().catch(() => {})
+    // Az `upstream`-nel a merest is elinditjuk. Enelkul az Attekintes doboza
+    // nema maradna (nincs meresi eredmeny), es a felhasznalo azt latna, hogy a
+    // beallitasanak nem lett semmi kovetkezmenye -- a merest pedig sehonnan
+    // nem tudna elinditani, mert a gomb epp abban a rejtett dobozban van.
+    const measure = name === 'upstream' ? startMeasure() : null
+    json(res, {
+      ok: true,
+      remotes: readRemotes(),
+      measureStarted: measure ? measure.ok : null,
+      measureReason: measure && !measure.ok ? measure.reason : null,
+    })
+    return true
+  }
+
+  if (path === '/api/updates/remotes' && method === 'DELETE') {
+    const name = ctx.url.searchParams.get('name') || ''
+    const result = removeRemote(name)
+    if (!result.ok) {
+      json(res, { error: `git remote remove: ${result.reason}`, reason: result.reason, detail: result.detail ?? null },
+        result.reason === 'git-failed' ? 500 : 400)
+      return true
+    }
+    logger.info({ name }, 'git remote removed from dashboard')
+    // Ujramerunk: a korabbi meresi eredmeny mostantol ELAVULT (egy mar nem
+    // letezo forrasrol szolna), es az Attekintes doboza azt mutatna tovabb. Az
+    // ujramerest a script `no-upstream-remote`-ra irja at, amitol a doboz
+    // elhallgat -- ez a helyes allapot, ha nincs upstream.
+    const measure = startMeasure()
+    json(res, {
+      ok: true,
+      remotes: readRemotes(),
+      measureStarted: measure.ok,
+      measureReason: measure.ok ? null : measure.reason,
+    })
     return true
   }
 

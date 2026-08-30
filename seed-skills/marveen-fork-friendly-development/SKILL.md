@@ -1,12 +1,14 @@
 ---
 name: marveen-fork-friendly-development
-description: ÁLLANDÓ, ELSŐDLEGES SZABÁLY -- minden Marveen KÖVETETT kódját (src/, web/, scripts/, package.json) érintő fejlesztésnél vedd figyelembe, hogy ez egy fork (upstream: Szotasz/marveen), és minimalizáld a jövőbeli upstream-merge ütközéseit. Trigger: új funkció építése, meglévő megosztott fájl (web/app.js, src/db.ts, src/web.ts, web/style.css, package.json) módosítása, vagy upstream merge/pull végzése.
+description: ÁLLANDÓ, ELSŐDLEGES SZABÁLY -- minden Marveen KÖVETETT kódját (src/, web/, scripts/, package.json) érintő fejlesztésnél vedd figyelembe, hogy ez egy fork (hogy MELYIK projekt az upstream, azt a git `upstream` remote-ja mondja meg — sehol nincs beégetve), és minimalizáld a jövőbeli upstream-merge ütközéseit. Trigger: új funkció építése, meglévő megosztott fájl (web/app.js, src/db.ts, src/web.ts, web/style.css, package.json) módosítása, vagy upstream merge/pull végzése.
 scope: global
 ---
 
 # Marveen fork-barát fejlesztés
 
-{{OWNER_NAME}} állandó szabálya (2026-08-06): mivel Marveen a saját GitHubjára (a te fork-fiókod alá, `<YOUR_GH_ACCOUNT>/marveen`) forkolt verzió az eredeti Szotasz/marveen-ből, és mindkét oldal folyamatosan fejlődik egymástól függetlenül, MINDEN jövőbeli fejlesztésnél ELSŐDLEGES szempontként vedd figyelembe, hogy minél kevesebb ütközés legyen egy jövőbeli upstream-merge-nél.
+{{OWNER_NAME}} állandó szabálya (2026-08-06): mivel ez a Marveen egy fork (a saját GitHub-fiókod alatt, `<YOUR_GH_ACCOUNT>/marveen`), és a forrásprojekt is fejlődik tovább nélküle, MINDEN jövőbeli fejlesztésnél ELSŐDLEGES szempontként vedd figyelembe, hogy minél kevesebb ütközés legyen egy jövőbeli upstream-merge-nél.
+
+**Melyik projekt az upstream?** Sose a fejből, sose beégetve: a `git remote get-url upstream` mondja meg, a felületen pedig a **Frissítések → Frissítési források** rész mutatja és állítja. Ha nincs ilyen remote, ez a telepítés nem forkolt semmit — ilyenkor az egész upstream-szinkron tárgytalan, és az Áttekintés Upstream szinkron doboza sem jelenik meg. Ez nem hiba, hanem a helyes állapot.
 
 **Miért fontos:** 2026-08-06-i állapotfelmérés szerint a fork (main) 25 commit-tal állt az upstream előtt (főleg az email-funkció), az upstream közben 33 commit-tal ment tovább nélkülünk, és 10 fájlt mindkét oldal módosított -- ezek közül a legkritikusabb a `web/app.js` (monolitikus, több ezer soros fájl, szinte minden dashboard-funkció ide megy mindkét oldalon). {{OWNER_NAME}} explicit kérte, hogy ez legyen minden jövőbeli fejlesztés elsődleges szempontja, ne csak egy utólagos megfontolás.
 

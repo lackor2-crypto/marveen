@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Megmeri, mennyivel jar elottunk az upstream (Szotasz/marveen), es abbol
-# mennyi huzhato at utkozes nelkul. Az eredmenyt a store/upstream-sync-status.json
-# fajlba irja, ezt olvassa az Attekintes "Upstream szinkron" doboza.
+# Megmeri, mennyivel jar elottunk az `upstream` remote (barmelyik repo is az --
+# a cimet a gitbol olvassuk, sehol nincs beegetve), es abbol mennyi huzhato at
+# utkozes nelkul. Az eredmenyt a store/upstream-sync-status.json fajlba irja,
+# ezt olvassa az Attekintes "Upstream szinkron" doboza.
+#
+# Nincs `upstream` remote -> `no-upstream-remote` ok, ures szamok, a doboz
+# HALLGAT. Ez a helyes viselkedes egy friss telepitesen: aki nem forkolt, annak
+# nincs mit szinkronizalnia.
 #
 # MIERT LETEZIK EZ A SCRIPT
 # -------------------------
@@ -43,16 +48,45 @@ if [ -z "${LOCAL_REF}" ] || [ "${LOCAL_REF}" = "HEAD" ]; then
 fi
 
 # --- 2. Elerheto-e egyaltalan az upstream tavoli? -------------------------
+# A remote CIMET is kiolvassuk. Enelkul a doboz meg tudja mondani, mennyivel
+# vagyunk lemaradva, de azt nem, hogy MITOL -- es aki ezt a Marveent forkolja,
+# annak MAS a forrasa. Semmilyen repo-nev nem lehet beegetve a kodba.
 ERR=""
-if ! git remote get-url upstream >/dev/null 2>&1; then
+UPSTREAM_URL=""
+UPSTREAM_REPO=""
+if ! UPSTREAM_URL="$(git remote get-url upstream 2>/dev/null)"; then
   ERR="no-upstream-remote"
+  UPSTREAM_URL=""
+fi
+if [ -n "${UPSTREAM_URL}" ]; then
+  # "git@github.com:Owner/Repo.git" es "https://github.com/Owner/Repo.git"
+  # egyarant "Owner/Repo" lesz. Ami nem GitHub-cim, az valtozatlanul megy ki:
+  # jobb a nyers URL, mint egy ures mezo.
+  UPSTREAM_REPO="$(printf '%s' "${UPSTREAM_URL}" | sed -E 's#^.*github\.com[:/]##; s#\.git$##')"
 fi
 
 # --- 3. Frissites. A halozat hianya nem hiba, csak regebbi upstream-oldal.
+# ★ A HIBA OKAT SOSE TALALGATJUK. Korabban a git stderr-je a /dev/null-ba ment,
+#   es a felulet minden sikertelen fetch-re azt irta ki, hogy "nincs halozat" --
+#   holott ugyanigy lehet lejart kulcs, atnevezett repo vagy DNS-hiba. A
+#   tenyleges uzenet innentol a JSON-ba kerul, es a felulet AZT mutatja.
 FETCH_OK=false
+FETCH_ERR=""
 if [ -z "${ERR}" ]; then
-  if timeout 180 git fetch --quiet --prune upstream >/dev/null 2>&1; then
+  FETCH_OUT="$(timeout 180 git fetch --quiet --prune upstream 2>&1)"
+  FETCH_RC=$?
+  if [ "${FETCH_RC}" -eq 0 ]; then
     FETCH_OK=true
+  else
+    # Az utolso nem-ures sor a beszedes: a git a lenyeget oda irja.
+    FETCH_ERR="$(printf '%s' "${FETCH_OUT}" | grep . | tail -1 | cut -c1-300)"
+    if [ -z "${FETCH_ERR}" ]; then
+      if [ "${FETCH_RC}" -eq 124 ]; then
+        FETCH_ERR="git fetch upstream: idotullepes (180 mp) -- a szerver nem valaszolt"
+      else
+        FETCH_ERR="git fetch upstream: nincs kimenet, kilepokod ${FETCH_RC}"
+      fi
+    fi
   fi
 fi
 
@@ -176,11 +210,11 @@ fi
 # idezojel/backslash ne tudja elrontani a formatumot.
 python3 - "${OUT}" "${LOCAL_REF}" "${UPSTREAM_REF}" "${AHEAD}" "${BEHIND}" \
          "${CONFLICTS}" "${CLEAN}" "${CONFLICT_LIST}" "${FETCH_OK}" "${ERR}" "${RUN_TYPE}" \
-         "${CONTENT}" "${REVERTED_MERGE}" <<'PY'
+         "${CONTENT}" "${REVERTED_MERGE}" "${UPSTREAM_REPO}" "${FETCH_ERR}" <<'PY'
 import json, os, sys, datetime
 
 (out, local_ref, up_ref, ahead, behind, conflicts, clean, clist, fetch_ok, err,
- run_type, content, reverted) = sys.argv[1:14]
+ run_type, content, reverted, up_repo, fetch_err) = sys.argv[1:16]
 
 def num(s):
     try:
@@ -207,7 +241,12 @@ data = {
     'revertedMerge': reverted or None,
     'localRef': local_ref or None,
     'upstreamRef': up_ref or None,
+    # MELYIK repo az upstream. A gitbol olvasva, sehol nincs beegetve: a
+    # forkolo sajat forrasat latja, nem a mienket.
+    'upstreamRepo': up_repo or None,
     'fetchOk': fetch_ok == 'true',
+    # A fetch TENYLEGES hibauzenete (nem talalgatott ok). Ures = nem hasalt el.
+    'fetchError': fetch_err or None,
     'error': err or None,
     'lastRunType': run_type,
 }
@@ -218,7 +257,7 @@ with open(tmp, 'w', encoding='utf-8') as f:
 os.replace(tmp, out)
 print(json.dumps({k: data[k] for k in
       ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'contentDiffCount', 'revertedMerge',
-       'upstreamRef', 'fetchOk', 'error')}, ensure_ascii=False))
+       'upstreamRef', 'upstreamRepo', 'fetchOk', 'fetchError', 'error')}, ensure_ascii=False))
 PY
 
 rm -f /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$

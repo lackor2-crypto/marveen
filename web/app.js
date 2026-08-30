@@ -18961,6 +18961,18 @@ function labelUpstreamViewTabs(data) {
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('overviewUpstreamChangesBtn')
   if (btn) btn.addEventListener('click', openUpstreamChanges)
+  const measureBtn = document.getElementById('overviewUpstreamMeasureBtn')
+  if (measureBtn) measureBtn.addEventListener('click', startUpstreamMeasure)
+  // Egy meres futhat MASHOL is: egy masik bongeszofulon, vagy a heti idozitobol.
+  // Ilyenkor a gomb nem kinalhat egy masodik parhuzamos fetch-et -- rakapcsolodunk
+  // a mar futora, es ugyanugy kiirjuk az eredmenyt, mintha mi inditottuk volna.
+  fetch('/api/upstream/measure').then(r => r.ok ? r.json() : null).then(d => {
+    if (d && d.running) {
+      _upstreamMeasureButtonBusy(true)
+      _upstreamMeasureNote(t('overview.upstream.measure_started'), null)
+      _pollUpstreamMeasure(d.startedAt || Date.now())
+    }
+  }).catch(() => { /* a doboz enelkul is helyes; a gomb kattinthato marad */ })
   const close = document.getElementById('upstreamChangesClose')
   const overlay = document.getElementById('upstreamChangesModal')
   if (close && overlay) close.addEventListener('click', () => closeModal(overlay))
@@ -19531,9 +19543,178 @@ if (document.readyState === 'loading') {
 // Mihez kepest? Onallo fuggveny, mert a "naprakesz" es a "nem sikerult a
 // meres" agnak is ki kell irnia: szam nelkul is tudni kell, melyik ket pontot
 // vetettuk ossze.
+// === Kezi upstream-meres ("Letoltes es ujrameres") =========================
+//
+// Boss, 2026-08-30: "csinalj egy gombot is oda az upstream szinkronhoz [...]
+// hogy ha lat uj frissitest akkor a user is el tudja inditani."
+//
+// Amit a gomb csinal: `git fetch upstream` + ujrameres. Amit NEM csinal: nem
+// huz be semmit. A mero szkript `git merge-tree --write-tree`-vel dolgozik,
+// ami csak objektumokat ir az objektum-adatbazisba -- a munkakonyvtart nem
+// billenti meg, tehat akkor is biztonsagos, ha epp egy ugynok dolgozik a
+// repoban. Nincs mit visszacsinalni, ezert nincs elotte megerosites sem.
+//
+// A meres halozatot hasznal (a fetch akar 180 mp), ezert nem varjuk meg egy
+// HTTP-keresesben: a szerver hatterben inditja, mi pedig kerdezgetjuk.
+let _upstreamMeasureRunning = false
+let _upstreamMeasureTimer = null
+
+/** Meddig kerdezgetjuk, mielott kimondjuk, hogy nem tudjuk, mi tortent.
+ *  A szkript sajat fetch-korlatja 180 mp, plusz a git-muveletek ideje. */
+const UPSTREAM_MEASURE_GIVEUP_MS = 5 * 60_000
+const UPSTREAM_MEASURE_POLL_MS = 3_000
+
+function _upstreamMeasureNote(text, kind) {
+  const el = document.getElementById('overviewUpstreamMeasureNote')
+  if (!el) return
+  if (!text) {
+    el.hidden = true
+    el.textContent = ''
+    return
+  }
+  el.hidden = false
+  el.textContent = text
+  el.className = 'upstream-measure-note' + (kind ? ' upstream-measure-note-' + kind : '')
+}
+
+function _upstreamMeasureButtonBusy(busy) {
+  const btn = document.getElementById('overviewUpstreamMeasureBtn')
+  if (!btn) return
+  btn.hidden = false
+  btn.disabled = busy
+  btn.textContent = busy ? t('overview.upstream.measuring') : t('overview.upstream.measure')
+}
+
+function _stopUpstreamMeasurePoll() {
+  if (_upstreamMeasureTimer) clearInterval(_upstreamMeasureTimer)
+  _upstreamMeasureTimer = null
+  _upstreamMeasureRunning = false
+}
+
+/**
+ * Amig a meres tart, kerdezgetjuk a szervert. Ket dolog zarja le: a szerver
+ * azt mondja, nem fut tobbe (ilyenkor a friss allapotot azonnal kirajzoljuk),
+ * vagy lejar a turelmi ido. Az utobbit KIMONDJUK -- egy magatol elhalo,
+ * "dolgozom" allapotban ragadt gomb ugyanaz a nema hiba, mint egy elrejtett doboz.
+ */
+function _pollUpstreamMeasure(startedAt) {
+  _stopUpstreamMeasurePoll()
+  _upstreamMeasureRunning = true
+  _upstreamMeasureTimer = setInterval(async () => {
+    if (Date.now() - startedAt > UPSTREAM_MEASURE_GIVEUP_MS) {
+      _stopUpstreamMeasurePoll()
+      _upstreamMeasureButtonBusy(false)
+      _upstreamMeasureNote(t('overview.upstream.measure_timeout'), 'err')
+      return
+    }
+    let data
+    try {
+      const res = await fetch('/api/upstream/measure')
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      data = await res.json()
+    } catch (err) {
+      // Egy elbukott lekerdezes meg nem a meres bukasa (a dashboard epp
+      // ujraindulhat egy frissites kozben), ezert csak a kovetkezo korre
+      // varunk -- de a turelmi ido tovabb ketyeg, tehat nem ragadhatunk itt.
+      return
+    }
+    if (data.running) return
+    _stopUpstreamMeasurePoll()
+    _upstreamMeasureButtonBusy(false)
+    if (data.status) {
+      renderOverviewUpstreamSync(data.status)
+      // A "kesz" nem azonos a "sikerult"-tel: ha a meres hibaval allt meg, azt
+      // a doboz maga mondja el: itt csak a lezarast nyugtazzuk.
+      _upstreamMeasureNote(data.status.error || data.status.fetchError
+        ? t('overview.upstream.measure_done_with_problem')
+        : t('overview.upstream.measure_done'),
+      data.status.error || data.status.fetchError ? 'err' : 'ok')
+    } else {
+      // Lefutott, de nincs eredmenyfajl. Nem talalgatunk okot: megmondjuk,
+      // hol all a naplo.
+      _upstreamMeasureNote(t('overview.upstream.measure_no_result'), 'err')
+    }
+  }, UPSTREAM_MEASURE_POLL_MS)
+}
+
+async function startUpstreamMeasure() {
+  if (_upstreamMeasureRunning) return
+  _upstreamMeasureButtonBusy(true)
+  _upstreamMeasureNote(t('overview.upstream.measure_started'), null)
+  let res, data
+  try {
+    res = await fetch('/api/upstream/measure', { method: 'POST' })
+    data = await res.json().catch(() => ({}))
+  } catch (err) {
+    _upstreamMeasureButtonBusy(false)
+    _upstreamMeasureNote(t('overview.upstream.measure_unreachable', { why: (err && err.message) || String(err) }), 'err')
+    return
+  }
+  if (res.ok) {
+    _pollUpstreamMeasure(Date.now())
+    return
+  }
+  if (res.status === 409) {
+    // Mar fut egy meres (masik bongeszofulon, vagy a heti idozitobol): ez nem
+    // hiba, csak ra kell kapcsolodni a mar futora.
+    _upstreamMeasureNote(_upstreamMeasureErrText(data, res.status), null)
+    _pollUpstreamMeasure(Date.now())
+    return
+  }
+  _upstreamMeasureButtonBusy(false)
+  _upstreamMeasureNote(_upstreamMeasureErrText(data, res.status), 'err')
+}
+
+/**
+ * A szerver harom darabban adja vissza a hibat, es mind a harom kell:
+ *   reason -- gepi kod, EBBOL forditunk (minden kepernyore kerulo szoveg
+ *             ketnyelvu; a szerver beegetett mondata epp ezt kerulne meg)
+ *   error  -- angol tartalek, ha a kodot nem ismerjuk (uj szerver, regi felulet)
+ *   detail -- a NYERS technikai reszlet (utvonal, kivetel-uzenet). Ezt sose
+ *             dobjuk el es sose helyettesitjuk talalgatott okkal.
+ */
+function _upstreamMeasureErrText(data, httpStatus) {
+  const d = data || {}
+  const key = d.reason ? 'overview.upstream.measure_err.' + d.reason : ''
+  const translated = key ? t(key) : ''
+  const sentence = (translated && translated !== key)
+    ? translated
+    : (d.error || t('overview.upstream.measure_failed_unknown', { code: httpStatus }))
+  return d.detail ? sentence + ' — ' + d.detail : sentence
+}
+
 function pairHtml(u) {
   return (u.localRef && u.upstreamRef)
     ? `<div class="upstream-sync-pair">${escapeHtml(t('overview.upstream.pair', { local: u.localRef, upstream: u.upstreamRef }))}</div>`
+    : ''
+}
+
+/**
+ * MELYIK repo az upstream. Eddig sehol nem allt ki, es ez nem kozombos:
+ * ez a doboz azt meri, mennyivel jarunk egy MASIK repo mogott -- aki ezt a
+ * Marveent forkolja, annak MI vagyunk az az "masik repo". A nev a gitbol jon
+ * (`git remote get-url upstream`), sehol nincs beegetve, tehat mindenki a sajat
+ * forrasat latja itt. Ures = a meres nem tudta megallapitani; ilyenkor nem
+ * talalgatunk nevet, csak nem irunk sort.
+ */
+function upstreamRepoHtml(u) {
+  return u.upstreamRepo
+    ? `<div class="upstream-sync-source">${escapeHtml(t('overview.upstream.source', { repo: u.upstreamRepo }))}</div>`
+    : ''
+}
+
+/**
+ * ★ A LETOLTES TENYLEGES HIBAUZENETE -- nem talalgatott ok.
+ *
+ * A doboz korabban minden sikertelen fetchre azt irta ki, hogy "nincs halozat".
+ * Ez egy TIPP volt, es a tippelt ok rosszabb a semminel: ugyanigy nez ki egy
+ * lejart kulcs, egy atnevezett repo es egy DNS-hiba is -- mindharomnal mas a
+ * kovetkezo lepes, es a felhasznalot a halozata fele kuldtuk. A git sajat
+ * uzenete innentol kimegy, valtozatlanul.
+ */
+function fetchErrorHtml(u) {
+  return u.fetchError
+    ? `<div class="upstream-sync-fetcherr">${escapeHtml(t('overview.upstream.fetch_failed_why'))}<code>${escapeHtml(u.fetchError)}</code></div>`
     : ''
 }
 
@@ -19541,7 +19722,29 @@ function renderOverviewUpstreamSync(upstreamSync) {
   const box = document.getElementById('overviewUpstreamSync')
   const body = document.getElementById('overviewUpstreamBody')
   const meta = document.getElementById('overviewUpstreamMeta')
-  if (!upstreamSync || upstreamSync.aheadCount === null && upstreamSync.behindCount === null) {
+  // ★ A CSEND ITT KETSZER JELENTETT MAST, ES A DOBOZ EDDIG NEM VALASZTOTTA SZET.
+  //
+  // A regi feltetel `aheadCount === null && behindCount === null` eseten elrejtette
+  // a dobozt. A mero szkript viszont PONTOSAN ilyen fajlt ir minden elhasalt
+  // meresnel (barmelyik `ERR` eseten a ket szam uresen marad) -- vagyis a lenti
+  // "a meres elhasalt" ag SOHA nem jutott kepernyore. Elszakadt upstream-remote,
+  // lejart kulcs, atnevezett ag: mindegyik ugyanugy nezett ki, mint a naprakesz
+  // allapot, azaz sehogy. Innentol a csend CSAK ket esetben helyes, es mindkettot
+  // magatol a forrastol kerdezzuk meg, nem a szamokbol kovetkeztetjuk:
+  //
+  //   1. nincs meres     -- a szkript meg soha nem futott (friss telepites)
+  //   2. nincs upstream  -- ez a telepites nem forkolt semmit, nincs mit szinkronizalni
+  //
+  // Minden mas esetben a doboz LATSZIK, es kimondja, mit nem tud.
+  if (!upstreamSync) {
+    box.hidden = true
+    return
+  }
+  if (upstreamSync.error === 'no-upstream-remote') {
+    // Nincs `upstream` remote: ennek a telepitesnek nincs forrasa, amibol
+    // szinkronizalhatna. Ez NEM hiba -- egy nem forkolt Marveenben ez a normalis
+    // allapot, ezert a doboz hallgat. Aki forkolt es be akarja kotni, a
+    // Frissitesek lapon talalja meg a forras beallitasat.
     box.hidden = true
     return
   }
@@ -19574,6 +19777,15 @@ function renderOverviewUpstreamSync(upstreamSync) {
     changesBtn.hidden = false
     changesBtn.textContent = t('upstream.changes.open')
   }
+  // A "Letoltes es ujrameres" gomb MINDIG ott van, amikor a doboz latszik --
+  // az elhasalt meresnel a leginkabb, hiszen ott az ujraprobalas az egyetlen
+  // ertelmes kovetkezo lepes. A gomb letolt es mer; behuzni semmit nem huz be.
+  const measureBtn = document.getElementById('overviewUpstreamMeasureBtn')
+  if (measureBtn && !_upstreamMeasureRunning) {
+    measureBtn.hidden = false
+    measureBtn.disabled = false
+    measureBtn.textContent = t('overview.upstream.measure')
+  }
   meta.classList.toggle('upstream-meta-stale', age !== null && age > 10)
   const behind = upstreamSync.behindCount ?? 0
   const conflicts = upstreamSync.conflictCount ?? upstreamSync.conflictingFiles.length
@@ -19594,7 +19806,11 @@ function renderOverviewUpstreamSync(upstreamSync) {
     const why = errText === errKey ? upstreamSync.error : errText
     body.innerHTML =
       '<div class="upstream-sync-offline">' + escapeHtml(t('overview.upstream.failed', { why })) + '</div>'
+      + fetchErrorHtml(upstreamSync)
+      + upstreamRepoHtml(upstreamSync)
       + (pairHtml(upstreamSync) || '')
+    // Nincs friss lista, amit megnyithatnank -- de a MERES ujraindithato, es
+    // ez az egyetlen ertelmes kovetkezo lepes, ezert a gomb marad.
     if (changesBtn) changesBtn.hidden = true
     return
   }
@@ -19623,7 +19839,9 @@ function renderOverviewUpstreamSync(upstreamSync) {
       + (ahead !== null && ahead > 0
           ? '<div class="upstream-sync-commits">' + escapeHtml(t('overview.upstream.ahead', { n: ahead })) + '</div>'
           : '')
+      + fetchErrorHtml(upstreamSync)
       + revertedNote
+      + upstreamRepoHtml(upstreamSync)
       + (pairHtml(upstreamSync) || '')
     // Nincs mit felsorolni: a "Mi valtozott?" gomb ilyenkor ures listara nyilna.
     if (changesBtn) changesBtn.hidden = true
@@ -19659,8 +19877,10 @@ function renderOverviewUpstreamSync(upstreamSync) {
   const pair = pairHtml(upstreamSync)
   // Ha a meres nem ert el a halozathoz, az upstream oldal az utolso letoltott
   // allapot -- a szamok ekkor is igazak, csak nem a MOSTANI upstreamre.
+  // A hibauzenet KULON sor: a "nem frissult" tenyet mondja ki, az OKAT pedig a
+  // git sajat szava -- nem a mienk.
   const offline = (upstreamSync.fetchOk === false)
-    ? `<div class="upstream-sync-offline">${escapeHtml(t('overview.upstream.no_fetch'))}</div>`
+    ? `<div class="upstream-sync-offline">${escapeHtml(t('overview.upstream.no_fetch'))}</div>` + fetchErrorHtml(upstreamSync)
     : ''
   // A sor egeszehez tartozo magyarazat: kimondja, hogy a commit es a fajl ket
   // kulon mertekegyseg, es osszerakja a ket fajlszamot. Csak akkor all ki, ha
@@ -19681,6 +19901,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
     ${commitLine}
     ${explain}
     ${revertedNote}
+    ${upstreamRepoHtml(upstreamSync)}
     ${pair}
     ${offline}
   `
@@ -19923,7 +20144,7 @@ async function loadUpdates() {
     const lat = (data.latest || '').slice(0, 7) || '–'
     if (data.error) {
       summary.className = 'updates-summary error'
-      summary.innerHTML = `<strong>${t('updates.check_failed')}:</strong> ${escapeHtmlUpdates(data.error)}<br>${t('updates.current_label')} <code>${cur}</code>`
+      summary.innerHTML = `<strong>${t('updates.check_failed')}:</strong> ${escapeHtmlUpdates(updatesErrText(data.error))}<br>${t('updates.current_label')} <code>${cur}</code>`
       applyBtn.hidden = true
     } else if (data.behind === 0) {
       summary.className = 'updates-summary up-to-date'
@@ -19977,10 +20198,26 @@ async function loadUpdates() {
     }
   } catch (err) {
     summary.className = 'updates-summary error'
-    summary.textContent = 'Hiba: ' + (err.message || err)
+    summary.textContent = t('updates.toast.error', { msg: err.message || err })
     applyBtn.hidden = true
   }
   renderDiagnoseOffer()
+  loadUpdateRemotes()
+}
+
+// A kiszolgalo HIBAKODJAI emberi mondatta. Ismeretlen kod eseten a NYERS
+// uzenet megy ki valtozatlanul: az okot sosem talaljuk ki a felhasznalo
+// helyett, es a hibat sosem nyeljuk el.
+const UPDATES_ERR_KEYS = {
+  'no-origin-remote': 'updates.err.no-origin-remote',
+  'not-a-git-checkout': 'updates.err.not-a-git-checkout',
+  // Regebbi kiszolgalo meg az angol mondatot kuldte ugyanerre az esetre.
+  'Not a git checkout': 'updates.err.not-a-git-checkout',
+}
+
+function updatesErrText(code) {
+  const key = UPDATES_ERR_KEYS[String(code ?? '')]
+  return key ? t(key) : String(code ?? '')
 }
 
 // Post-rollback diagnosis offer (PR-D). Reads /api/updates/status: if the last
@@ -20023,6 +20260,197 @@ async function runDiagnose() {
   } catch (err) {
     if (btn) btn.disabled = false
     showToast(t('updates.diagnose.failed', { msg: err.message || err }))
+  }
+}
+
+// === Frissitesi forrasok (git remote-ok) ===
+// Sem az `origin`, sem az `upstream` cime nincs beegetve: a gitbol olvassuk,
+// es INNEN allithato -- friss telepitesen is, terminal es API-hivas nelkul.
+// Aki minket forkol, a SAJAT forrasat latja itt; aki csak telepit, ures
+// `upstream`-et, es az Attekintesen nincs is Upstream szinkron doboza.
+
+async function loadUpdateRemotes() {
+  const body = document.getElementById('updatesRemotesBody')
+  if (!body) return
+  body.textContent = t('updates.remotes.loading')
+  let data = null
+  try {
+    data = await (await fetch('/api/updates/remotes')).json()
+  } catch {
+    body.innerHTML = `<p class="error-text">${escapeHtmlUpdates(t('updates.remotes.err.network'))}</p>`
+    return
+  }
+  renderUpdateRemotes(data)
+}
+
+function renderUpdateRemotes(data) {
+  const body = document.getElementById('updatesRemotesBody')
+  if (!body) return
+  // ★ A NULLA KET DOLGOT JELENTHET: "nincs beallitva forras" vs "nem tudtuk
+  //   megnezni". A masodikat KI KELL mondani a git sajat uzenetevel egyutt --
+  //   kulonben egy elromlott git-checkout ugy nezne ki, mint egy szuz gep.
+  if (!data || data.readable === false) {
+    body.innerHTML = `<p class="error-text">${escapeHtmlUpdates(t('updates.remotes.unreadable'))}</p>`
+      + ((data && data.error) ? `<pre class="updates-remote-gitmsg">${escapeHtmlUpdates(data.error)}</pre>` : '')
+    return
+  }
+  body.innerHTML = ''
+  body.appendChild(updatesRemoteRow('origin', data.origin))
+  body.appendChild(updatesRemoteRow('upstream', data.upstream))
+}
+
+function updatesRemoteRow(name, info) {
+  const row = document.createElement('div')
+  row.className = 'updates-remote-row'
+  row.dataset.remote = name
+
+  const head = document.createElement('div')
+  head.className = 'updates-remote-head'
+  const label = document.createElement('span')
+  label.className = 'updates-remote-label'
+  label.textContent = t('updates.remotes.' + name)
+  const url = document.createElement('code')
+  url.className = 'updates-remote-url'
+  if (info && info.url) {
+    url.textContent = info.url
+  } else {
+    url.textContent = t('updates.remotes.not_set')
+    url.classList.add('is-unset')
+  }
+  head.append(label, url)
+  row.appendChild(head)
+
+  const hint = document.createElement('p')
+  hint.className = 'updates-remote-hint'
+  hint.textContent = t('updates.remotes.' + name + '_hint')
+  row.appendChild(hint)
+
+  const actions = document.createElement('div')
+  actions.className = 'updates-remote-actions'
+  const editBtn = document.createElement('button')
+  editBtn.className = 'btn-secondary btn-compact'
+  editBtn.textContent = (info && info.url) ? t('updates.remotes.change') : t('updates.remotes.set')
+  editBtn.addEventListener('click', () => openUpdatesRemoteEditor(row, name, info))
+  actions.appendChild(editBtn)
+  // Csak az `upstream` vehato le. Az `origin` nelkul a telepites nem tudna
+  // frissulni, ezert azt el sem kinaljuk levetelre.
+  if (name === 'upstream' && info && info.url) {
+    const rmBtn = document.createElement('button')
+    rmBtn.className = 'btn-secondary btn-compact'
+    rmBtn.textContent = t('updates.remotes.remove')
+    rmBtn.addEventListener('click', () => removeUpdatesUpstreamRemote(row, rmBtn))
+    actions.appendChild(rmBtn)
+  }
+  row.appendChild(actions)
+
+  const msg = document.createElement('div')
+  msg.className = 'updates-remote-msg'
+  msg.hidden = true
+  row.appendChild(msg)
+  return row
+}
+
+function updatesRemoteMsg(row, text, kind) {
+  const msg = row && row.querySelector('.updates-remote-msg')
+  if (!msg) return
+  msg.textContent = text
+  msg.className = 'updates-remote-msg updates-remote-msg-' + (kind || 'ok')
+  msg.hidden = !text
+}
+
+function openUpdatesRemoteEditor(row, name, info) {
+  const existing = row.querySelector('.updates-remote-editor')
+  if (existing) { existing.querySelector('input').focus(); return }
+  const box = document.createElement('div')
+  box.className = 'updates-remote-editor'
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'updates-remote-input'
+  input.placeholder = t('updates.remotes.placeholder')
+  input.value = (info && info.url) || ''
+  const save = document.createElement('button')
+  save.className = 'btn-primary btn-compact'
+  save.textContent = t('updates.remotes.save')
+  const cancel = document.createElement('button')
+  cancel.className = 'btn-secondary btn-compact'
+  cancel.textContent = t('updates.remotes.cancel')
+  cancel.addEventListener('click', () => box.remove())
+  save.addEventListener('click', () => saveUpdatesRemote(row, name, input.value, save))
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveUpdatesRemote(row, name, input.value, save) })
+  box.append(input, save, cancel)
+  row.appendChild(box)
+  input.focus()
+  input.select()
+}
+
+// A kiszolgalo hibakodjabol emberi mondat. Ismeretlen kodnal a nyers uzenet
+// megy ki -- talalgatni nem talalgatunk.
+function updatesRemoteErrText(data, httpStatus) {
+  const reason = data && data.reason
+  const known = ['bad-url', 'bad-name', 'git-failed', 'bad-body']
+  if (known.includes(reason)) {
+    const base = t('updates.remotes.err.' + reason)
+    // A `git-failed` mellett ott all a git SAJAT uzenete is -- azt idezzuk, nem
+    // talalgatunk helyette okot. A tobbi kodnal a mondat maga a magyarazat.
+    return (reason === 'git-failed' && data.detail) ? base + ' ' + data.detail : base
+  }
+  const raw = (data && (data.error || data.detail)) || ('HTTP ' + httpStatus)
+  return t('updates.remotes.err.unknown') + ' ' + raw
+}
+
+async function saveUpdatesRemote(row, name, url, btn) {
+  btn.disabled = true
+  updatesRemoteMsg(row, '', 'ok')
+  try {
+    const res = await fetch('/api/updates/remotes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, url }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      updatesRemoteMsg(row, updatesRemoteErrText(data, res.status), 'err')
+      btn.disabled = false
+      return
+    }
+    showToast(t('updates.remotes.saved', { name }))
+    renderUpdateRemotes(data.remotes)
+    if (name === 'upstream') {
+      // A meres tolti fel az Attekintes dobozat. Ha nem indult el, azt KI KELL
+      // mondani: kulonben a felhasznalo azt latna, hogy a beallitasanak nem
+      // lett semmi kovetkezmenye, es nem tudna, mi a kovetkezo lepes.
+      const upRow = document.querySelector('.updates-remote-row[data-remote="upstream"]')
+      if (data.measureStarted) updatesRemoteMsg(upRow, t('updates.remotes.measure_started'), 'ok')
+      else if (data.measureStarted === false) updatesRemoteMsg(upRow, t('updates.remotes.measure_failed', { reason: data.measureReason || '?' }), 'err')
+    } else {
+      // Az origin cimenek valtozasa a frissites-ellenorzest is atirja.
+      loadUpdates()
+    }
+  } catch {
+    updatesRemoteMsg(row, t('updates.remotes.err.network'), 'err')
+    btn.disabled = false
+  }
+}
+
+async function removeUpdatesUpstreamRemote(row, btn) {
+  if (!confirm(t('updates.remotes.confirm_remove'))) return
+  btn.disabled = true
+  try {
+    const res = await fetch('/api/updates/remotes?name=upstream', { method: 'DELETE' })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      updatesRemoteMsg(row, updatesRemoteErrText(data, res.status), 'err')
+      btn.disabled = false
+      return
+    }
+    showToast(t('updates.remotes.removed', { name: 'upstream' }))
+    renderUpdateRemotes(data.remotes)
+    const upRow = document.querySelector('.updates-remote-row[data-remote="upstream"]')
+    if (data.measureStarted) updatesRemoteMsg(upRow, t('updates.remotes.measure_cleared'), 'ok')
+    else if (data.measureStarted === false) updatesRemoteMsg(upRow, t('updates.remotes.measure_failed', { reason: data.measureReason || '?' }), 'err')
+  } catch {
+    updatesRemoteMsg(row, t('updates.remotes.err.network'), 'err')
+    btn.disabled = false
   }
 }
 

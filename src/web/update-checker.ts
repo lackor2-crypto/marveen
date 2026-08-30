@@ -41,12 +41,18 @@ export interface UpdateStatus {
   fork?: boolean
 }
 
+// ★ NINCS BEEGETETT REPO-NEV. Korabban itt (es a parseGitHubRemote tartalekaban)
+//   a fejlesztoi gepre jellemzo `Szotasz/marveen` allt. Minden olyan telepitesen,
+//   ahol a git-remote nem volt kiolvashato, a felulet MAGABIZTOSAN egy IDEGEN
+//   repot nevezett meg frissitesi forraskent -- egy tippet, tenykent eloadva.
+//   Ures string = "meg nem tudom, honnan frissulok"; a refreshUpdateStatus ezt
+//   `no-origin-remote` hibava valtja, es a felulet AZT mondja ki.
 let updateStatusCache: UpdateStatus = {
   current: '',
   latest: '',
   behind: 0,
   commits: [],
-  remote: 'Szotasz/marveen',
+  remote: '',
   lastChecked: 0,
 }
 
@@ -79,6 +85,16 @@ export function trackedBranch(): string {
   }
 }
 
+/**
+ * Melyik GitHub-repobol frissulunk (`Owner/Repo`), az `origin` remote-bol.
+ *
+ * Ures string = NEM TUDJUK. Ez nem ugyanaz, mint egy tartalek nev: korabban
+ * itt `Szotasz/marveen` allt, es minden telepites, aminek nem volt olvashato
+ * origin remote-ja, ezt a repot nevezte meg a sajat frissitesi forrasakent --
+ * majd a GitHub-hivas errol az IDEGEN repobol jelentett "uj verziot", amit az
+ * update.sh soha nem tudott volna behozni. A hivo dolga, hogy az ures erteket
+ * kimondott hibava valtsa; talalgatni nem talalgatunk.
+ */
 export function parseGitHubRemote(): string {
   try {
     const url = execFileSync('/usr/bin/git', ['config', '--get', 'remote.origin.url'], { cwd: PROJECT_ROOT, timeout: 3000, encoding: 'utf-8' }).trim()
@@ -86,7 +102,7 @@ export function parseGitHubRemote(): string {
     const m = url.match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/i)
     if (m) return m[1]
   } catch { /* fall through */ }
-  return 'Szotasz/marveen'
+  return ''
 }
 
 type GhCompare = {
@@ -192,7 +208,18 @@ export async function refreshUpdateStatus(): Promise<UpdateStatus> {
     lastChecked: Date.now(),
   }
   if (!current) {
-    status.error = 'Not a git checkout'
+    // Hibakod, nem kesz mondat: a felulet ebbol csinal ketnyelvu, a KOVETKEZO
+    // LEPEST kimondo szoveget. (Korabban itt egy angol mondat allt, ami minden
+    // nyelven angolul jelent meg a kepernyon.)
+    status.error = 'not-a-git-checkout'
+    updateStatusCache = status
+    return status
+  }
+  // Nincs kiolvashato `origin` remote: ilyenkor NEM tudjuk, honnan frissulunk.
+  // A GitHub-hivas egy ures repo-nevvel amugy is ertelmetlen URL-t kepezne, es
+  // a valaszabol szuletne egy magyarazat nelkuli hiba. Inkabb kimondjuk.
+  if (!remote) {
+    status.error = 'no-origin-remote'
     updateStatusCache = status
     return status
   }

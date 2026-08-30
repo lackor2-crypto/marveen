@@ -27,6 +27,7 @@ import { readAgentModel } from '../agent-config.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { readUpstreamSyncStatus } from '../upstream-sync-status-io.js'
 import { readUpstreamChanges } from '../upstream-changes-io.js'
+import { measureState, startMeasure } from '../upstream-measure-runner.js'
 import { exactTmuxTarget } from '../tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
@@ -359,6 +360,41 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       return true
     }
     jsonMaybeGzip(req, res, { available: true, ...view })
+    return true
+  }
+
+  // Kezi upstream-meres a feluletrol: LETOLT (git fetch upstream) es UJRAMER.
+  //
+  // Eddig a meres csak a heti idozitobol futott: aki latta a dobozban, hogy
+  // van behuzando valtozas, terminal nelkul nem tudott frisset kerni. A
+  // munkakonyvtarhoz ez sem nyul (a szkript merge-tree-vel dolgozik), tehat
+  // akkor is biztonsagos, ha epp egy ugynok dolgozik a repoban.
+  //
+  // GET: fut-e epp, es mi a legfrissebb allapot -- a felulet ezt kerdezgeti,
+  // amig a meres tart. A `status` MINDIG a lemezrol frissen olvasva megy ki,
+  // nem a kereses inditasakor keszult masolat.
+  if (path === '/api/upstream/measure' && method === 'GET') {
+    const state = measureState()
+    json(res, { running: state.running, startedAt: state.startedAt, status: readUpstreamSyncStatus() })
+    return true
+  }
+
+  // POST: inditas. Egy dupla kattintasbol nem lesz ket parhuzamos fetch --
+  // a masodik 409-cel es egy emberi mondattal ter vissza.
+  if (path === '/api/upstream/measure' && method === 'POST') {
+    const started = startMeasure()
+    if (!started.ok) {
+      // `reason` a gepi kod (ebbol forditja a felulet a mondatot), `error` az
+      // angol tartalek, `detail` a nyers technikai reszlet. Az okot nem a
+      // statuszkodbol kell kitalalni.
+      json(
+        res,
+        { error: started.message, reason: started.reason, detail: started.detail ?? null },
+        started.reason === 'already-running' ? 409 : 500,
+      )
+      return true
+    }
+    json(res, { ok: true, running: true })
     return true
   }
 

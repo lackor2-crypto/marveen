@@ -43,9 +43,20 @@ export interface UpstreamSyncStatus {
   // main against upstream/develop.
   localRef: string | null
   upstreamRef: string | null
+  // ★ MELYIK repo az upstream (`Owner/Repo`, vagy nyers URL, ha nem GitHub).
+  // A gitbol olvasva -- ez a mezo teszi a dobozt altalanossa: aki EZT a
+  // Marveent forkolja, a SAJAT forrasat latja itt, nem a mienket. Semmilyen
+  // repo-nev nem lehet beegetve. Null = a meres nem tudta megallapitani
+  // (nincs `upstream` remote, vagy meg a mezo elotti iras keszitette).
+  upstreamRepo: string | null
   // False when the run could not reach the network, so the upstream side of
   // the comparison is whatever was last fetched, not what is there now.
   fetchOk: boolean
+  // ★ A sikertelen fetch TENYLEGES hibauzenete. Eddig a git stderr-je a
+  // /dev/null-ba ment, es a felulet MINDEN esetre azt irta ki, hogy "nincs
+  // halozat" -- egy TALALGATOTT ok, ami rossz iranyba kuldi az embert (lejart
+  // kulcs, atnevezett repo, DNS ugyanigy nez ki). Null = nem hasalt el.
+  fetchError: string | null
   // How old the measurement is, in whole days, computed server-side so the
   // browser clock cannot disagree with the server about staleness.
   ageDays: number | null
@@ -96,10 +107,12 @@ export function readUpstreamSyncStatus(now: number = Date.now()): UpstreamSyncSt
       revertedMerge: str(o.revertedMerge),
       localRef: str(o.localRef),
       upstreamRef: str(o.upstreamRef),
+      upstreamRepo: str(o.upstreamRepo),
       // Pre-script snapshots have no fetchOk field. Absent is not "yes":
       // an unknown network state is reported the same as a failed one, so
       // the card never claims freshness it cannot back up.
       fetchOk: o.fetchOk === true,
+      fetchError: str(o.fetchError),
       ageDays: ageInDays(checkedAt, now),
       error: str(o.error),
     }
