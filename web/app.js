@@ -4625,7 +4625,14 @@ function contextButtonsHtml(name) {
         <button class="btn-secondary btn-compact ctx-clear-btn" title="${escapeAttr(t('agents.ctx.clear_tip'))}">${escapeHtml(t('agents.ctx.clear'))}</button>`
 }
 
-// Human-readable reset instant for a quota wall, in the viewer's own locale.
+// Human-readable reset instant for a quota wall, in the language the PAGE is
+// set to -- not the browser's.
+//
+// Boss, 2026-08-30: a magyar feluleten a lackor3 kartyajan ez allt: "...csak
+// varni kell: Mon 09:00 PM". A `toLocaleString(undefined, ...)` a BONGESZO
+// nyelvet veszi, es a kepernyore igy angol nap-nev es AM/PM kerult egy magyar
+// mondat kozepere. Az i18n-or erre VAK, mert a forrasban nincs angol szoveg.
+// A lap tobbi datuma (kanban, utemezes) mar igy csinalja.
 // Returns the "should already have reopened" wording when the moment has passed
 // but the transcript still ends on a rejection: saying "reopens 14:00" at 15:00
 // would read as a working clock reporting the past.
@@ -4633,7 +4640,7 @@ function quotaResetText(resetsAt) {
   if (typeof resetsAt !== 'number' || !isFinite(resetsAt) || resetsAt <= 0) return null;
   if (resetsAt <= Date.now()) return t('agents.ctx.quota_reset_now');
   try {
-    return new Date(resetsAt).toLocaleString(undefined, {
+    return new Date(resetsAt).toLocaleString((window._lang || 'hu') === 'en' ? 'en-US' : 'hu-HU', {
       weekday: 'short', hour: '2-digit', minute: '2-digit',
     });
   } catch { return new Date(resetsAt).toISOString(); }
@@ -17565,6 +17572,23 @@ function _claudeAuthDoneOk(s) {
   return !s.error && !s.identityDrift
 }
 
+// Sikeres bejelentkezes utan: dolgozhat-e egyaltalan az ugynok? A valaszt a
+// KARTYATOL kerdezzuk meg (agents API), nem a bejelentkezes kimenetelebol
+// kovetkeztetjuk. Ha nem tudjuk megkerdezni, hallgatunk -- a talalgatott ok
+// rosszabb a semminel.
+async function _claudeAuthWarnIfQuotaBlocked(agentName) {
+  try {
+    const res = await fetch('/api/agents')
+    const data = await res.json()
+    const rows = Array.isArray(data) ? data : (data && data.agents) || []
+    const row = rows.find(a => a && a.name === agentName)
+    if (!row || row.contextState !== 'quota-blocked') return
+    const when = row.contextQuota ? quotaResetText(row.contextQuota.resetsAt) : null
+    showToast(t(when ? 'agents.auth.login_ok_but_quota' : 'agents.auth.login_ok_but_quota_unknown',
+      { name: agentName, when: when || '' }), { type: 'warn', big: true })
+  } catch { /* nem tudtam megkerdezni -- nem talalgatok */ }
+}
+
 async function _claudeAuthTick() {
   let s
   try {
@@ -17653,6 +17677,17 @@ async function _claudeAuthTick() {
       // A doboz a kartyan belul ul: ha a kartya bezarul, az allapotsor vele
       // megy. A csik akkor is ott marad.
       showToast(s.error, { type: 'error', big: true })
+    } else {
+      // A CSEND NEM VALASZ.
+      //
+      // Boss, 2026-08-30: "amikor bejelentkeztem a jo email cimmel akkor meg
+      // nem sikerult a bejelentkezes" -- a rossz cimnel kapott figyelmeztetest,
+      // a jonal SEMMIT. Ez az ag futott le: a folyamat veget ert, hibauzenet
+      // nelkul, es a felulet nem szolt. Ilyenkor NEM talalgatunk okot: azt
+      // mondjuk ki, hogy nem tudjuk, sikerult-e, es megmondjuk a kovetkezo
+      // lepest. A sajat Megse gomb nem jut ide (elobb leallitja a lekerdezest).
+      _claudeAuthSetState(t('claudeauth.ended_unknown'), 'bad')
+      showToast(t('claudeauth.ended_unknown'), { type: 'warn', big: true })
     }
     return
   }
@@ -24518,8 +24553,13 @@ function tuFillBuckets(data, bucketSeconds) {
   return filled
 }
 
+// Ugyanaz a hiba, ugyanabbol az okbol, mint a quotaResetText-nel: az
+// `undefined` locale a BONGESZO nyelvet veszi, nem azt, amire a lap van
+// allitva. Az i18n-or erre vak, mert a forrasban nincs angol szoveg -- a
+// kepernyore megis angol formatum kerul.
 function tuFormatLocalDate(ts) {
-  return new Date(ts * 1000).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const locale = (window._lang || 'hu') === 'en' ? 'en-US' : 'hu-HU'
+  return new Date(ts * 1000).toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function tuFormatLocalShort(ts) {
@@ -28341,6 +28381,15 @@ async function handleAgentLogin(agentName, btn, planId, card, wasRunning) {
       try { await fetch(`/api/agents/${encodeURIComponent(agentName)}/restart`, { method: 'POST' }) }
       catch { /* ha nem indult ujra, a kartya allapota megmutatja */ }
       loadAgents()
+      // A BEJELENTKEZES NEM AZ EGYETLEN OK, AMIERT NEM DOLGOZIK.
+      //
+      // 2026-08-30-i meres: a lackor3 hitelesitese rendben volt (Pro, ervenyes
+      // token), az ugynokot a HETI KERET allitotta meg -- 7d 100%, ujranyilik
+      // 08-31 21:00. A "Bejelentkezve" csik utan tovabbra sem dolgozott, es
+      // ebbol a bejelentkezes bukasa latszott. A rendszer TUDTA a valodi okot
+      // (a kartyan ott is allt), csak a bejelentkezes vegen nem mondta ki --
+      // igy a felhasznalo a rossz dolgot javitotta ujra meg ujra.
+      await _claudeAuthWarnIfQuotaBlocked(agentName)
     }
     btn.disabled = true
     const startText = btn.textContent

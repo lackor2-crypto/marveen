@@ -710,6 +710,21 @@ export function loginStatus(): LoginStatus {
       }
     }
 
+    // A CSEND KET DOLGOT JELENTHETETT -- ES PONT EZEN BUKOTT EL A BOSS.
+    //
+    // 2026-08-30-ig egy SIKERES bejelentkezes egyetlen naplosort sem irt: az
+    // elteres ket WARN-t hagyott maga utan, a siker es a felbeszakadas viszont
+    // egyformán semmit. A store/dashboard.log 01:01:17-es kiserletenek (a jo
+    // email cimmel) ezert nincs kimenetel-sora -- se igy, se ugy --, es a Boss
+    // ebbol azt latta, hogy "nem sikerult a bejelentkezes". Mostantol MINDEN
+    // kimenetel nyomot hagy, a jo is: a naplobol utolag eldontheto legyen,
+    // melyik tortent.
+    const rendben = !drift && registered
+    if (rendben) {
+      logger.info({ planId, label, reused: reused === true }, 'claude-auth: bejelentkezes SIKERULT')
+    } else if (!registered) {
+      logger.error({ planId }, 'claude-auth: a bejelentkezes letrejott, de a nyilvantartasba felvetel BUKOTT')
+    }
     const accounts = listAccounts(true)
     const status = idle(accounts, 'done')
     return {
@@ -717,7 +732,7 @@ export function loginStatus(): LoginStatus {
       defaultLoggedIn: isDefaultLoggedIn(accounts), identityDrift: drift,
       // Elteresnel a hely URES marad (visszavontuk), vagy a ROSSZ fiok ul
       // benne (a visszavonas bukott) -- egyik sem az, amit kertunk.
-      loginOk: !drift && registered,
+      loginOk: rendben,
       error: registered ? null : 'A fiók bejelentkezett, de a nyilvántartásba nem sikerült felvenni.',
     }
   }

@@ -75,7 +75,12 @@ describe('lezarult != sikerult', () => {
 describe('a szerver kimondja, letrejott-e a bejelentkezes', () => {
   it('a `loginOk` kulon mezo, nem a `done`-bol kell kitalalni', () => {
     expect(RUNNER).toContain('loginOk?: boolean')
-    expect(RUNNER).toContain('loginOk: !drift && registered')
+    // A feltetel 2026-08-30-on EGY nevesitett valtozoba kerult (`rendben`),
+    // mert a naplozas is ugyanabbol a dontesbol dolgozik -- lasd
+    // bejelentkezes-csendje.test.ts. A jelentes valtozatlan: elteres vagy
+    // sikertelen nyilvantartasba-vetel eseten nincs siker.
+    expect(RUNNER).toContain('const rendben = !drift && registered')
+    expect(RUNNER).toContain('loginOk: rendben,')
   })
 
   it('a kesz-valaszban ott van a mezo (nem csak a tipusban)', () => {

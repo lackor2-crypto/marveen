@@ -105,6 +105,7 @@ window._i18n.en = {
   'claudeauth.state_failed':    'Sign-in did not complete. Try again, or reopen the link.',
   'claudeauth.done':            'Done -- account {label} added. You can now pick it for an agent.',
   'claudeauth.done_back':       'Done -- account {label} is signed in again. Its agents can work again.',
+  'claudeauth.ended_unknown':   'The login ended, but I CANNOT tell whether it worked: it closed without a message. Check the agent card to see whether it is signed in -- if not, start the login again.',
   'claudeauth.logout_btn':      'Sign out',
   'claudeauth.relogin_btn':     'Sign in',
   'claudeauth.logout_confirm_agents': 'Sign this account out: {who}?\n\nThese agents use it and cannot work until you sign back in: {agents}\n\nYou can bring it back right here, with the "Sign in" button.',
@@ -2959,6 +2960,8 @@ window._i18n.en = {
   'agents.auth.btn_confirming':  'Confirming...',
   'agents.auth.btn_confirm':     'Auth done → Confirm',
   'agents.auth.toast_restart_after_login': 'Signed in. Restarting {name} so it picks up the fresh credentials.',
+  'agents.auth.login_ok_but_quota': 'The login is FINE. {name} still CANNOT work: its weekly limit is used up and reopens at {when}. This is not an auth problem -- signing in again will not help.',
+  'agents.auth.login_ok_but_quota_unknown': 'The login is FINE. {name} still CANNOT work: the provider is rejecting its turns (usage limit). The log did not say when the window reopens. This is not an auth problem -- signing in again will not help.',
   // --- Mobile login localhost warning ---
   'mobile_login.localhost_warn': "Mobile login works over your machine's local network (LAN) IP. You opened the dashboard on localhost and no usable LAN address was found. Open the dashboard on your machine's LAN IP (e.g. http://192.168.x.x:3420) and try mobile login from there.",
 

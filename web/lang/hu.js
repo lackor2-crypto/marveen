@@ -106,6 +106,7 @@ window._i18n.hu = {
   'claudeauth.state_failed':    'A bejelentkezés nem sikerült. Próbáld újra, vagy nyisd meg újra a linket.',
   'claudeauth.done':            'Kész, a(z) {label} fiók hozzáadva. Mostantól kiválasztható az ágenseknél.',
   'claudeauth.done_back':       'Kész, a(z) {label} fiók újra be van jelentkezve. Az ügynökei mostantól újra tudnak dolgozni.',
+  'claudeauth.ended_unknown':   'A bejelentkezés véget ért, de NEM tudom megmondani, sikerült-e: üzenet nélkül zárult le. Nézd meg az ágens kártyáján, be van-e jelentkezve — ha nem, indítsd újra a bejelentkezést.',
   // Kijelentkeztetes es visszajelentkezes a Fiokok oldalrol (Boss, 2026-08-29):
   // enelkul a kijelentkezteteshez terminal kellett, a visszahozas pedig egy
   // MASODIK fiokot nyitott volna "-2" nev alatt.
@@ -3023,6 +3024,8 @@ window._i18n.hu = {
   'agents.auth.btn_confirming':  'Megerősítés...',
   'agents.auth.btn_confirm':     'Auth kész → Megerősít',
   'agents.auth.toast_restart_after_login': 'Bejelentkezve. Újraindítom a(z) {name} ügynököt, hogy a friss hitelesítést használja.',
+  'agents.auth.login_ok_but_quota': 'A bejelentkezés RENDBEN van. A(z) {name} ettől még NEM tud dolgozni: a heti kerete elfogyott, újranyílik: {when}. Ez nem hitelesítési hiba — újabb bejelentkezés nem segít rajta.',
+  'agents.auth.login_ok_but_quota_unknown': 'A bejelentkezés RENDBEN van. A(z) {name} ettől még NEM tud dolgozni: a szolgáltató elutasítja a fordulóit (keret-limit). A napló nem írta le, mikor nyílik újra. Ez nem hitelesítési hiba — újabb bejelentkezés nem segít rajta.',
   // --- Mobile login localhost warning ---
   'mobile_login.localhost_warn': 'A mobil-belépés a géped helyi hálózati (LAN) IP-jén működik. Most localhoston nyitottad meg a dashboardot, és nem találtam használható LAN-címet. Nyisd meg a dashboardot a géped LAN-IP-jén (pl. http://192.168.x.x:3420), és onnan próbáld a mobil-belépést.',
 
