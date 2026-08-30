@@ -495,6 +495,34 @@ Ezért a végrehajtó minden bejelentkezése (felderítés, feladat-kivétel,
 - A felderítés projektmappánként a **legfrissebb, legalább 2 KB-os** naplót
   veszi -- egy épp indított, üres session nem írja felül a régit.
 
+### Hosszú háttérfolyamat indítása egy dispatch-elt feladaton belül
+
+Mérve 2026-08-30: egy dispatch-elt feladat (a `91454649` kártya munkája) a
+teljes teszt-suite-ot `nohup npm test > log 2>&1 & disown`-nal indította a
+Windows-oldali worker `wsl.exe -d Ubuntu -- bash -lc "..."` hívásán belül. A
+folyamat **2 másodperccel** az indítás után elhalt (SIGHUP, kilépőkód 129),
+mielőtt egyetlen tesztfájl is lefutott volna -- a `nohup`+`disown` NEM védte
+meg, mert a `wsl.exe` hívás saját pty-je a tool-hívás végén megszűnik, és ez
+levitte magával a gyereket is. A végrehajtó egyszer ránézett (`ps aux`), látta
+hogy fut, és ebből *"folyamatban van"*-t jelentett Bossnak -- anélkül, hogy
+visszaellenőrizte volna, túléli-e a pillanatot. Fél óráig senki nem tudta,
+hogy a suite valójában nulla tesztet futtatott le.
+
+**Ha egy dispatch-elt feladat maga is hosszú (percekig futó) háttérfolyamatot
+indít, a promptba írd bele ezt a két szabályt:**
+
+1. **`setsid`-del indítson, ne `nohup ... &`-nal.** A `setsid parancs > log 2>&1 &`
+   valódi, a hívó pty-től teljesen független munkamenetet nyit, ami túléli a
+   `wsl.exe`-hívás lezárását. A `nohup`+`disown` ezen a hívási úton nem
+   elegendő.
+2. **Sose jelentsen "fut"-ot vagy "kész"-t egyetlen pillanatnyi ellenőrzésből.**
+   Két, időben eltolt ellenőrzés kell (pl. indítás után azonnal, majd +20
+   másodperccel), mielőtt kimondja hogy a folyamat túlélte a kritikus pontot;
+   "kész"-t pedig csak a log végén álló tényleges kilépőkód-sor (nem a
+   folyamat puszta hiánya) igazolhat.
+
+Ez a `code-dispatch` skill Kemény szabályai közé is bekerült (7. pont).
+
 ## 9. Elfogadási mérések
 
 A címzés-teszteket **három, kifejezetten erre létrehozott workspace-en** futtattuk

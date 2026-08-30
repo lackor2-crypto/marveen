@@ -40,11 +40,20 @@ adja fel, és a sor egyszerre egy feladatot futtat — nem kell egyeztetned senk
 6. **A promptot SZÓ SZERINT add tovább.** Ne fogalmazd át, ne rövidítsd, ne
    egészítsd ki a saját értelmezéseddel -- a projekt sessionje jobban ismeri a
    kódot, mint te; a te parafrázisod csak információt veszít.
-7. **A chat fület NE találgasd.** Ha a tulajdonos fülre utal ("a tegnapi
+7. **Ha a feladat maga hosszú (percekig futó) háttérfolyamatot indít** (pl.
+   teljes teszt-suite), írd bele a promptba ezt a két szabályt (mérve
+   2026-08-30, lásd `docs/code-bridge.md` 8. szakasz): (a) a háttérfolyamatot
+   `setsid`-del indítsa, ne `nohup ... &`-nal -- a `wsl.exe`-hívás saját pty-je
+   a tool-hívás végén megszűnik, és a `nohup`+`disown` ezt nem éli túl (mért
+   eset: SIGHUP, kilépőkód 129, 2 másodperc múlva); (b) sose jelentsen
+   "fut"-ot vagy "kész"-t egyetlen pillanatnyi ellenőrzésből -- két, időben
+   eltolt ellenőrzés kell (indítás után azonnal + kb. +20 mp), és "kész"-t
+   csak a log végén álló tényleges kilépőkód-sor igazolhat.
+8. **A chat fület NE találgasd.** Ha a tulajdonos fülre utal ("a tegnapi
    indikátoros beszélgetésbe"), kérd le a füleket (2. lépés), és a **címek**
    alapján válassz. Ha két cím is illik rá, kérdezz vissza. Rossz fül = egy
    idegen beszélgetés közepébe írsz bele, ami ott értelmezhetetlen.
-8. **Az azonosítót ne mondd fel cím helyett.** A fület a **címe** azonosítja a
+9. **Az azonosítót ne mondd fel cím helyett.** A fület a **címe** azonosítja a
    tulajdonosnak; az UUID a gépnek szól. Ha van cím, azt mondd (a rövid
    azonosító legfeljebb zárójelben).
 
