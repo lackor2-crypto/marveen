@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { PROJECT_ROOT } from '../config.js'
 
 /**
@@ -29,7 +30,23 @@ export type RemotesResult =
   | { readable: true; origin: RemoteInfo | null; upstream: RemoteInfo | null }
   | { readable: false; error: string }
 
-const GIT = '/usr/bin/git'
+// A git eleresi utja. A `/usr/bin/git` a tipikus hely, de nem mindenhol az
+// (Homebrew, Nix, egyedi telepites) -- ha nincs ott, a PATH-ra bizzuk. Igy egy
+// friss telepites nem azon bukik el, hogy mashol all a binaris.
+const GIT = existsSync('/usr/bin/git') ? '/usr/bin/git' : 'git'
+
+/**
+ * Minden git-hivas kornyezete.
+ *
+ * ★ LC_ALL=C: a git hibauzenetei LEFORDULNAK, ha a rendszeren fel van telepitve
+ *   a git-l10n (ezen a gepen nincs -- ott ez sosem latszana). Mi viszont a
+ *   "No such remote" szovegre TAMASZKODUNK, hogy megkulonboztessuk a "nincs
+ *   ilyen forras"-t (ez normalis) a "nem tudom megnezni"-tol (ez hiba). Egy
+ *   nemet vagy francia telepitesen ez a kettő osszecsuszna, es egy friss
+ *   telepites hibasnak latszana. Ezert a gepnek angolul valaszol a git; a
+ *   felhasznalo ettol fuggetlenul a sajat nyelven latja a felulet mondatait.
+ */
+const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', GIT_TERMINAL_PROMPT: '0' }
 
 // A git hibauzenete ugy, AHOGY VAN (utolso ertelmes sor). Sosem irjuk felul
 // tippelt okkal ("nincs halozat", "rossz kulcs") -- azt a felhasznalo a sajat
@@ -50,7 +67,7 @@ export function repoFromUrl(url: string): string {
 function readOne(name: string): { url: string } | { missing: true } | { error: string } {
   try {
     const url = execFileSync(GIT, ['remote', 'get-url', name], {
-      cwd: PROJECT_ROOT, timeout: 5000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'],
+      cwd: PROJECT_ROOT, timeout: 5000, encoding: 'utf-8', env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'],
     }).trim()
     return url ? { url } : { missing: true }
   } catch (err) {
@@ -67,7 +84,7 @@ export function readRemotes(): RemotesResult {
   // Eloszor magat a forrast kerdezzuk meg: git-checkout-e egyaltalan? Ha nem,
   // a "nincs upstream" valasz hazugsag lenne.
   try {
-    execFileSync(GIT, ['rev-parse', '--git-dir'], { cwd: PROJECT_ROOT, timeout: 5000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+    execFileSync(GIT, ['rev-parse', '--git-dir'], { cwd: PROJECT_ROOT, timeout: 5000, encoding: 'utf-8', env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
   } catch (err) {
     return { readable: false, error: gitErrText(err) }
   }
@@ -123,7 +140,7 @@ export function setRemote(name: string, url: string): WriteResult {
     ? ['remote', 'set-url', name, check.url]
     : ['remote', 'add', name, check.url]
   try {
-    execFileSync(GIT, args, { cwd: PROJECT_ROOT, timeout: 10_000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+    execFileSync(GIT, args, { cwd: PROJECT_ROOT, timeout: 10_000, encoding: 'utf-8', env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
     return { ok: true }
   } catch (err) {
     return { ok: false, reason: 'git-failed', detail: gitErrText(err) }
@@ -138,7 +155,7 @@ export function setRemote(name: string, url: string): WriteResult {
 export function removeRemote(name: string): WriteResult {
   if (name !== 'upstream') return { ok: false, reason: 'bad-name' }
   try {
-    execFileSync(GIT, ['remote', 'remove', name], { cwd: PROJECT_ROOT, timeout: 10_000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
+    execFileSync(GIT, ['remote', 'remove', name], { cwd: PROJECT_ROOT, timeout: 10_000, encoding: 'utf-8', env: GIT_ENV, stdio: ['ignore', 'pipe', 'pipe'] })
     return { ok: true }
   } catch (err) {
     return { ok: false, reason: 'git-failed', detail: gitErrText(err) }

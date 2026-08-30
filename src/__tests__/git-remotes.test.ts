@@ -113,6 +113,38 @@ describe('readRemotes', () => {
   })
 })
 
+// ★ A git hibauzenetei LEFORDULNAK, ha a rendszeren fent van a git-l10n. Mi a
+//   "No such remote" szovegre tamaszkodunk, amikor a "nincs ilyen forras"-t
+//   (normalis) elvalasztjuk a "nem tudom megnezni"-tol (hiba) -- egy nemet vagy
+//   francia telepitesen ez a ketto osszecsuszna. A modul ezert LC_ALL=C-vel
+//   hivja a gitet.
+//
+//   ⚠ Ez a teszt egy angol-only gepen akkor is atmenne, ha a modul NEM allitana
+//   a nyelvet (nincs mibol forditani). Az erteke az, hogy egy forditasokkal
+//   telepitett gepen (es a CI-n, ha ott van l10n) azonnal elbukik.
+describe('idegen nyelvu kornyezet', () => {
+  it('ellenseges LC_ALL mellett is "nincs ilyen forras", nem "nem tudom megnezni"', () => {
+    const mentett = { LC_ALL: process.env.LC_ALL, LANGUAGE: process.env.LANGUAGE, LANG: process.env.LANG }
+    process.env.LC_ALL = 'de_DE.UTF-8'
+    process.env.LANGUAGE = 'de'
+    process.env.LANG = 'de_DE.UTF-8'
+    try {
+      removeRemote('upstream')
+      const r = readRemotes()
+      expect(r.readable).toBe(true)
+      if (!r.readable) return
+      expect(r.upstream).toBeNull()
+      expect(r.origin).not.toBeNull()
+    } finally {
+      for (const [k, v] of Object.entries(mentett)) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+      setRemote('upstream', 'https://github.com/Szotasz/marveen.git')
+    }
+  })
+})
+
 describe('setRemote / removeRemote', () => {
   it('csak az origin es az upstream allithato', () => {
     expect(setRemote('evil', 'https://github.com/a/b.git')).toEqual({ ok: false, reason: 'bad-name' })
