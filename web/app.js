@@ -5623,7 +5623,12 @@ function cbClosedTabsHtml(e) {
       + cbTabOpenBtn(tb, label)
       + '</div>'
   }).join('')
-  return '<details class="cb-tabs-closed">'
+  // Boss, 2026-08-31: "csak egyet latok az uj nevu chat fulet. de kozben meg
+  // van 4 ful." -- a masik harom PONTOSAN ITT volt, csak osszecsukva es
+  // elhalvanyulva (opacity .6, 11px) allt egy alig eszrevheto haromszog
+  // mogott. A szerver adata jo volt, a felulet rejtette el. Mostantol
+  // NYITVA all alapertelmezetten -- osszecsukhato marad, de nem indul zartan.
+  return '<details class="cb-tabs-closed" open>'
     + '<summary title="' + escapeAttr(t('cb.card.tabs_closed_help')) + '">'
     + escapeHtml(t('cb.card.tabs_closed', { n: closed.length })) + '</summary>'
     + rows + '</details>'
