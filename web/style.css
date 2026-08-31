@@ -11163,18 +11163,21 @@ details.upstream-box > summary > h4 {
 
 /* A MAPPA TOBBI BESZELGETESE (Boss, 2026-08-28: "a kartyan csak eg chat van
    megjelenitve, most, de a vscode ban van vagy 3 beszelgetes").
-   Osszecsukva all: a fo lista a cimezheto beszelgeteseke marad, ez alatta egy
-   halk sor, amit ki lehet nyitni. */
+   Osszecsukhato marad, de mostantol NYITVA indul (app.js: `open` attributum) --
+   Boss, 2026-08-31: "csak egyet latok". A szerver adata mindig jo volt, ezt a
+   sort viszont .6 opacity + 11px alig lehetett eszrevenni. Emelt kontraszttal
+   most mar sima szoveg-sulylyal all, nem lablecnek. */
 .cb-tabs-closed {
   margin-top: 4px;
   font-size: 12px;
 }
 .cb-tabs-closed > summary {
   cursor: pointer;
-  font-size: 11px;
-  opacity: .6;
+  font-size: 12px;
+  opacity: .85;
   list-style: none;
   padding: 2px 0;
+  font-weight: 600;
 }
 .cb-tabs-closed > summary::-webkit-details-marker { display: none; }
 .cb-tabs-closed > summary::before {
@@ -11184,11 +11187,11 @@ details.upstream-box > summary > h4 {
   transition: transform .12s ease;
 }
 .cb-tabs-closed[open] > summary::before { transform: rotate(90deg); }
-.cb-tabs-closed > summary:hover { opacity: .9; }
+.cb-tabs-closed > summary:hover { opacity: 1; }
 /* A nem futo sorok halvanyabbak, es nincs bennuk radiogomb -- a behuzas
    igazitja oket a fo lista cimeihez. */
 .cb-tab-row-closed {
-  opacity: .75;
+  opacity: .92;
   cursor: default;
   padding-left: 16px;
 }
