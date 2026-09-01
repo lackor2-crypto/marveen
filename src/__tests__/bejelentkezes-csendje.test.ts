@@ -103,6 +103,24 @@ describe('2) a nema lezarulas is megszolal', () => {
     expect(blokk).toContain("t('claudeauth.done_back'")
   })
 
+  it('a default fiok sikeruzenete NEM ures nevvel ir ki -- sem a sikeres, sem a race-fallback agban', () => {
+    // A default flow `current.label`-je (claude-auth-runner.ts:
+    // startDefaultLogin) mindig '', es a lista soraban is `label: r.isDefault
+    // ? '' : ...` (listAccounts). Enelkul MINDEN default-repair sikeruzenete
+    // "Kesz, a(z)  fiok..."-kent irna ki -- nev nelkul --, mert a `{label}`
+    // ures stringre cserelodne. Mindket helyen ugyanarra a nevre kell esni
+    // vissza, amit a Fiokok lap sora is mutat a default sorra.
+    const sikerAg = APP.indexOf("else if (_claudeAuthDoneOk(s)) showToast(t(s.reused ? 'claudeauth.done_back'")
+    expect(sikerAg, 'siker-ag not found').toBeGreaterThan(-1)
+    const sikerSor = APP.slice(sikerAg, APP.indexOf('\n', sikerAg))
+    expect(sikerSor).toContain("s.isDefault ? t('claudeauth.row_default') : ''")
+
+    const raceAg = APP.indexOf("showToast(t('claudeauth.done_back', { label: target.label")
+    expect(raceAg, 'race-fallback ag not found').toBeGreaterThan(-1)
+    const raceSor = APP.slice(raceAg, APP.indexOf('\n', raceAg))
+    expect(raceSor).toContain("target.isDefault ? t('claudeauth.row_default') : ''")
+  })
+
   it('a celzott fiokot MEG A FLOW INDULASA ELOTT rogziti, mielott az elso tick lefutna', () => {
     // Ha csak egy aktiv tick allitana be a celt, egy azonnal (aktiv fazis
     // nelkul) vegetero flow soha nem tudna kesobb ellenorizni a listat.

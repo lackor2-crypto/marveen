@@ -17428,6 +17428,13 @@ function _claudeAuthErrorText(data) {
 // csuszhassanak megint szet.
 function _claudeAuthOpenAutoTab(payload) {
   if (!payload || !payload.planId) return null
+  // Turelmetlen ujraklikkeles (a backend most mar debounce-olja az inditast,
+  // de MINDEN kattintas ide fut be, meg a figyelmen kivul hagyott ismetles is)
+  // eddig minden alkalommal egy UJ ures fulet nyitott, es a regit ott hagyta
+  // orokre ures maradni -- csak az UTOLSO kapta meg a cimet, amikor megjott.
+  // Ha a korabbi fulet mar hasznaltuk (navigaltunk rajta), _claudeAuthPendingTab
+  // mar null, tehat itt nincs mit bezarni.
+  if (_claudeAuthPendingTab) { try { _claudeAuthPendingTab.close() } catch { /* mar bezarhattak */ } }
   let tab = null
   try { tab = window.open('', '_blank') } catch { tab = null }
   _claudeAuthPendingTab = tab
@@ -17849,7 +17856,11 @@ async function _claudeAuthTick() {
     if (s.error) showToast(s.error, { type: 'error', big: true })
     // "Hozzaadva" is a false sentence after a repair: the account was already
     // in the list, it just had no credentials.
-    else if (_claudeAuthDoneOk(s)) showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || '' }), 8000, true)
+    // A DEFAULT fiok `current.label`-je mindig '' (claude-auth-runner.ts:
+    // startDefaultLogin current-je), tehat egy default-repair sikeruzenete
+    // enelkul "a(z)  fiok..."-kent irna ki -- nev nelkul. Ugyanaz a nev, amit
+    // a Fiokok lap sora is mutat a default sorra.
+    else if (_claudeAuthDoneOk(s)) showToast(t(s.reused ? 'claudeauth.done_back' : 'claudeauth.done', { label: s.label || (s.isDefault ? t('claudeauth.row_default') : '') }), 8000, true)
     _claudeAuthPendingTab = null
     // MAS FIOK JOTT BE, MINT AMIT IDE ROGZITETTUNK. A bongeszo azt a fiokot
     // hagyja jova, amelyik eppen be van benne jelentkezve -- ezt a
@@ -17899,7 +17910,10 @@ async function _claudeAuthTick() {
         : (_claudeAuthTrackedPlanId != null ? (s.accounts || []).find(a => a.id === _claudeAuthTrackedPlanId) : null)
       if (target && target.identity && target.identity.loggedIn) {
         _claudeAuthSetState('', null)
-        showToast(t('claudeauth.done_back', { label: target.label }), 8000, true)
+        // Ugyanaz az ures-label hiba, mint a `s.done` agban feljebb: a
+        // default sor `label`-je a listaban is '' (claude-auth-runner.ts
+        // listAccounts: `label: r.isDefault ? '' : ...`).
+        showToast(t('claudeauth.done_back', { label: target.label || (target.isDefault ? t('claudeauth.row_default') : '') }), 8000, true)
       } else {
         // Boss, 2026-08-30: "amikor bejelentkeztem a jo email cimmel akkor meg
         // nem sikerult a bejelentkezes" -- a rossz cimnel kapott figyelmeztetest,
