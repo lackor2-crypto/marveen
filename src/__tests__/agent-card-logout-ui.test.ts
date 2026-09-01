@@ -172,7 +172,10 @@ describe('a gomb magaval viszi, MELYIK fiokrol van szo', () => {
     // hanem a MEGLEVO elem atkoltoztetese a hivo hely ala -- igy a
     // lapvaltasra nincs is szukseg tobbe.
     const handler = app.slice(app.indexOf(".agent-account-relogin-btn'"))
-    const body = handler.slice(0, 500)
+    // 1600: a gomb 2026-09-01 ota elore nyit egy ures fulet a nevesitett-fiokos
+    // (automata/loopback) bejelentkezeshez es letiltja magat inditas kozben --
+    // a hivas emiatt messzebb kerult, mint a regi, rovidebb kezelo.
+    const body = handler.slice(0, 1600)
     expect(body, 'nem valt lapot').not.toContain("switchPage('accounts')")
     expect(body, 'nem csukja be a kartyat').not.toContain('closeModal(agentDetailOverlay)')
     // A doboz IDE jon: a hivas atadja a befogado elemet.

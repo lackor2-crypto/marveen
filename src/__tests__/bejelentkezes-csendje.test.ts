@@ -113,8 +113,15 @@ describe('3) sikeres bejelentkezes utan a keret-limit is elhangzik', () => {
 
   it('csak a SIKERES ag hivja, az ujrainditas utan', () => {
     // A horgon BELUL nezzuk a sorrendet: a lapon tobb helyen is van
-    // /restart hivas, a globalis indexOf a legelsot talalna meg.
-    const kezd = APP.indexOf('_claudeAuthOnDone = async (s) => {')
+    // /restart hivas, a globalis indexOf a legelsot talalna meg. 2026-09-01
+    // ota a `_claudeAuthOnDone = async (s) => {` szoveg MASODSZOR is
+    // megjelenik a fajlban (wireAccountLogoutButton, a Beallitasok
+    // dobozhoz -- az korabban all, mint handleAgentLogin) -- ezert a
+    // keresest a fuggveny SAJAT kezdetehez rogzitjuk, nem az elso
+    // egyezeshez az egesz fajlban.
+    const fnStart = APP.indexOf('async function handleAgentLogin(')
+    expect(fnStart, 'handleAgentLogin not found').toBeGreaterThan(-1)
+    const kezd = APP.indexOf('_claudeAuthOnDone = async (s) => {', fnStart)
     expect(kezd).toBeGreaterThan(-1)
     const horog = APP.slice(kezd, APP.indexOf('\n    }\n', kezd))
     const okKapu = horog.indexOf('if (!_claudeAuthDoneOk(s)) { loadAgents(); return }')
