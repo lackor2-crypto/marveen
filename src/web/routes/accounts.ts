@@ -15,21 +15,8 @@ import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutA
 import { pinExpectedEmail } from '../claude-plans.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
+import { gitAccountsWithToken } from '../../git-accounts.js'
 import type { RouteContext } from './types.js'
-
-// GitHub already supports multiple accounts under the hood (.github-tokens.json
-// is keyed by account name) -- surface the names too, not just a yes/no, so
-// Boss's "how many GitHub accounts are actually connected?" has a real answer.
-function githubAccountNames(): string[] {
-  const p = join(PROJECT_ROOT, 'store', '.github-tokens.json')
-  if (!existsSync(p)) return []
-  try {
-    const data = JSON.parse(readFileSync(p, 'utf-8'))
-    return data && typeof data === 'object' ? Object.keys(data) : []
-  } catch {
-    return []
-  }
-}
 
 // Google went multi-account the same way (kanban b0c697ce, 2026-08-10):
 // store/google-tokens.json keyed by account name, with a "_default" pointer
@@ -194,7 +181,12 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/accounts' && method === 'GET') {
-    const githubAccounts = githubAccountNames()
+    // git-accounts.ts owns the real store (store/.git-tokens.json, plus
+    // gh-CLI-borrowed logins) -- this used to read a different, dead file
+    // (store/.github-tokens.json) that nothing ever wrote, so this row always
+    // showed "not configured" no matter how many GitHub accounts were set up
+    // on the Storages page.
+    const githubAccounts = gitAccountsWithToken()
     const google = googleAccountNames()
     json(res, {
       core: [

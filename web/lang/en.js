@@ -61,10 +61,17 @@ window._i18n.en = {
   'acchub.part_mcp':           'Claude Code connectors',
   'acchub.keys_title':         'Keys and other services',
   'acchub.keys_lead':          'These have no card of their own because they are not "somebody": pasted keys (a long code each, with which Marveen reaches a service) and services with nothing to disconnect -- they are either set or they are not.',
-  'acchub.add_toggle':         'Add an account (Claude or Google)',
+  'acchub.add_toggle':         'Add an account (Claude, Google or GitHub)',
   'acchub.add_claude':         'Add a Claude account or a key',
   'acchub.add_google':         'Connect a Google account (mail, Drive, calendar)',
+  'acchub.add_github':         'Add a GitHub account (to access repos)',
   'acchub.add_mcp':            'Check the Claude Code connectors',
+  'acchub.github_name_ph':     'e.g. lackor2, or your company\'s GitHub name',
+  'acchub.github_add':         'Add a GitHub account',
+  'acchub.github_name_help':   'You pick the name — it becomes the folder name in storage too, and Marveen uses it to look up your repos on GitHub. After you press the button, a window asks for the access key (token) — you can create and paste that here too, right from the interface.',
+  'acchub.github_need_name':   'Type the name to add the GitHub account under.',
+  'acchub.github_name_only':   'The {name} account is added, but without a key it can\'t reach any repos yet. You can add one anytime on the Depot page with the 🔑 button.',
+  'acchub.github_checking':    'Checking the key with GitHub…',
   'claudeauth.acct_default':   'default',
   'claudeauth.kind_account':   'account',
   'claudeauth.other_link':     'Go to the Vault',
@@ -123,9 +130,16 @@ window._i18n.en = {
   'accounts.google.desc':        'Access to email, calendar, and files. Needs its own Google Cloud OAuth app, so this isn\'t a one-click connect yet.',
   'accounts.google.agent_hint':  'You can set this up with me right now: tell me in chat "connect my Google account" and I\'ll walk you through a browser login.',
   'accounts.github.label':       'GitHub',
-  'accounts.github.desc':        'Repo access, PRs, code operations. Login-based (device code), so this isn\'t a one-click connect either.',
-  'accounts.github.agent_hint':  'You can set this up with me right now: tell me in chat "connect my GitHub account" and I\'ll give you a code and a link to log in.',
+  'accounts.github.desc':        'Access and clone repos with an access key (token). Added with one button; the key itself is created on GitHub\'s own site.',
   'accounts.connected_accounts': '{n} accounts connected: {names}',
+
+  // --- GitHub access key (both the Depot page's 🔑 button and the
+  // Accounts page's "Add a GitHub account" button open this same modal) ---
+  'ghtoken.title':             'Access key — {account}',
+  'ghtoken.desc':              'Your GitHub "Personal Access Token". The button takes you straight to the creation page with the <code>repo</code> scope pre-checked — just press <b>Generate token</b> there, then paste the key you get back here.',
+  'ghtoken.get_link':          'Create a key on GitHub →',
+  'ghtoken.placeholder':       'ghp_… or github_pat_…',
+  'ghtoken.note':              'The key stays in Marveen\'s locked storage: it never goes into the life tree, never into the repo\'s settings, and the interface never gets it back either. Saving it empty removes the existing key.',
 
   // --- Google accounts (many addresses live at the same time) ---
   'gconn.title':              'Google accounts (mail, Drive, calendar)',

@@ -62,10 +62,17 @@ window._i18n.hu = {
   'acchub.part_mcp':           'Claude Code kapcsolatok',
   'acchub.keys_title':         'Kulcsok és egyéb szolgáltatások',
   'acchub.keys_lead':          'Ezeknek nincs saját kártyájuk, mert nem „valaki”: beillesztett kulcsok (egy-egy hosszú kód, amivel a Marveen elér egy szolgáltatást) és olyan szolgáltatások, amiknél nincs mit leválasztani — vagy be vannak állítva, vagy nincsenek.',
-  'acchub.add_toggle':         'Új fiók hozzáadása (Claude vagy Google)',
+  'acchub.add_toggle':         'Új fiók hozzáadása (Claude, Google vagy GitHub)',
   'acchub.add_claude':         'Új Claude-fiók vagy kulcs hozzáadása',
   'acchub.add_google':         'Google-fiók bekötése (levél, Drive, naptár)',
+  'acchub.add_github':         'GitHub-fiók hozzáadása (repók eléréséhez)',
   'acchub.add_mcp':            'Claude Code kapcsolatok ellenőrzése',
+  'acchub.github_name_ph':     'pl. lackor2 vagy a céged GitHub-neve',
+  'acchub.github_add':         'GitHub-fiók hozzáadása',
+  'acchub.github_name_help':   'A nevet te találod ki — ez lesz a mappa neve is a raktárban, és ez alapján keresi a Marveen a repóidat a GitHubon. A gomb megnyomása után egy ablak kéri a hozzáférési kulcsot (tokent) — azt is itt, a felületről tudod elkészíteni és beilleszteni.',
+  'acchub.github_need_name':   'Írd be, milyen néven vedd fel a GitHub-fiókot.',
+  'acchub.github_name_only':   'A(z) {name} fiók felvéve, de kulcs nélkül még nem tud repókat elérni. A Raktár oldalon, a 🔑 gombbal bármikor pótolhatod.',
+  'acchub.github_checking':    'Ellenőrzöm a kulcsot a GitHubnál…',
   'claudeauth.acct_default':   'alapértelmezett',
   'claudeauth.kind_account':   'fiók',
   'claudeauth.other_link':     'Ugrás a Vaultra',
@@ -129,9 +136,16 @@ window._i18n.hu = {
   'accounts.google.desc':        'Email, naptár és fájlok elérése. Saját Google Cloud OAuth-alkalmazást igényel, ezért ez jelenleg nem egy gombnyomás.',
   'accounts.google.agent_hint':  'Ezt jelenleg velem tudod bekötni: írd be a chatben "kösd be a Google-fiókomat", és végigvezetlek egy böngészős bejelentkezésen.',
   'accounts.github.label':       'GitHub',
-  'accounts.github.desc':        'Repók elérése, PR-ek, kód-műveletek. Bejelentkezés-alapú (device-code), ezért ez sem egy gombnyomás.',
-  'accounts.github.agent_hint':  'Ezt jelenleg velem tudod bekötni: írd be a chatben "kösd be a GitHub-fiókomat", és kapsz egy kódot és egy linket a bejelentkezéshez.',
+  'accounts.github.desc':        'Repók elérése és letöltése egy hozzáférési kulccsal (token). Egy gombbal hozzáadható, a kulcsot a GitHub oldalán kell elkészíteni.',
   'accounts.connected_accounts': '{n} fiók csatlakoztatva: {names}',
+
+  // --- GitHub hozzaferesi kulcs (a Raktar oldal 🔑 gombja es a Fiokok oldal
+  // GitHub-fiok hozzaadasa gombja is ezt a modalt nyitja -- egy helyen all) ---
+  'ghtoken.title':             'Hozzáférési kulcs — {account}',
+  'ghtoken.desc':              'A GitHub „Personal Access Token"-je. A gomb pontosan a készítő oldalra visz, a <code>repo</code> jogosultság előre bejelölve — ott csak a <b>Generate token</b> gombot kell megnyomnod, aztán a kapott kulcsot ide beilleszteni.',
+  'ghtoken.get_link':          'Kulcs készítése a GitHubon →',
+  'ghtoken.placeholder':       'ghp_… vagy github_pat_…',
+  'ghtoken.note':              'A kulcs a Marveen zárt tárolójában marad: nem kerül az életfába, nem kerül a repó beállításai közé, és a felület sem kapja vissza. Üresen hagyva és mentve a meglévő kulcsot törlöm.',
 
   // --- Google-fiokok (tobb cim egyszerre) ---
   // Boss, 2026-08-14: "lehet hogy 10 email lesz csatlakoztatva. mindegyiknek

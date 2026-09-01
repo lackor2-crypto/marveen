@@ -17044,7 +17044,11 @@ const ACCOUNT_EXTRA_INFO = {
   'claude-code': { labelKey: 'accounts.claude_code.label', descKey: 'accounts.claude_code.desc' },
   telegram: { labelKey: 'accounts.telegram.label', descKey: 'accounts.telegram.desc' },
   google: { labelKey: 'accounts.google.label', descKey: 'accounts.google.desc', flow: 'agent', agentHintKey: 'accounts.google.agent_hint' },
-  github: { labelKey: 'accounts.github.label', descKey: 'accounts.github.desc', flow: 'agent', agentHintKey: 'accounts.github.agent_hint' },
+  // Boss, 2026-08-30: volt idő, amikor ez a fiók CSAK a chatben, az ágenssel
+  // volt bekötheto (flow: 'agent') -- azóta a githubConnSection blokk (lásd
+  // web/index.html) valódi gombot ad ide, ezért a "kérdezd meg az ágenst"
+  // útmutatás (agentHintKey) elavult, és törölve lett innen.
+  github: { labelKey: 'accounts.github.label', descKey: 'accounts.github.desc' },
 }
 
 function _accountInfoFor(id) {
@@ -18280,11 +18284,77 @@ async function _mconnFinish() {
   renderOverviewConnections()
 }
 
+// --- GitHub add (Fiokok oldal) ------------------------------------------------
+//
+// A hozzaferes-kulcs bekerese/ellenorzese/tarolasa MAR KESZ es MUKODIK a
+// Raktar oldalon (src/git-accounts.ts: setGitToken -- ellenoriz a GitHub
+// /user vegpontjanal, csak utana ment; a kulcs SOSE megy vissza a
+// bongeszonek). Ez a fuggveny NEM masolja le azt a logikat: ugyanazt a
+// modal-t (_storagesAskToken) es ugyanazokat a vegpontokat
+// (/api/storages/git-account, /api/storages/git-token) hivja, amiket a
+// Raktar oldal 🔑 gombja is -- csak innen, a Fiokok oldalrol inditva.
+//
+// Boss, 2026-08-21 (mas kontextusban, de ide is igaz): "az felkesz munka!" --
+// a puszta nevfelvetel onmagaban nem eleg, ezert ez a gomb rogton tovabb is
+// megy a kulcs bekeresere, nem all meg a nev felvetelenel.
+async function _ghAccountsAdd() {
+  const inp = document.getElementById('ghAddName')
+  const name = inp ? inp.value.trim() : ''
+  if (!name) { showToast(t('acchub.github_need_name'), 6000, true); return }
+
+  // Csak akkor probaljuk ujra felvenni a nevet, ha meg nincs a regiszterben --
+  // az addGitAccount masodszorra HIBAT ad ("mar fel van veve"), es azt itt
+  // nem hiba, hanem a celallapot. Nem sztring-egyezessel dontjuk el (a
+  // hibaszoveg barmikor valtozhat), hanem tenylegesen megkerdezzuk, mi van.
+  let already = false
+  try {
+    const s = await _depoGet('/api/storages')
+    already = (s.rows || []).some(r => r.kind === 'git' && r.account === name)
+  } catch { /* nem sikerult lekerdezni -- egyszeruen megprobaljuk felvenni */ }
+
+  if (!already) {
+    try {
+      await _depoPost('/api/storages/git-account', { account: name })
+    } catch (err) {
+      _connSetState('ghAddState', err.message || t('common.error_save'), 'bad')
+      return
+    }
+  }
+
+  // Ugyanaz a modal, amit a Raktar oldal 🔑 gombja is nyit -- nem masolat.
+  const tok = await _storagesAskToken(name)
+  if (tok === null) {
+    // A fiok neve mar felkerult a listara, csak kulcs nelkul -- ez egy
+    // ertelmes felbehagyott allapot, nem hiba: a Raktar oldalon barmikor
+    // folytathato.
+    _connSetState('ghAddState', t('acchub.github_name_only', { name }), null)
+    if (inp) inp.value = ''
+    loadAccountsPage()
+    return
+  }
+
+  _connSetState('ghAddState', t('acchub.github_checking'), null)
+  try {
+    const tr = await _depoPost('/api/storages/git-token',
+      tok.trim() ? { account: name, token: tok.trim() } : { account: name, remove: true })
+    _connSetState('ghAddState', tr.message || t('common.saved'), tr.ok === false ? 'bad' : null)
+  } catch (err) {
+    _connSetState('ghAddState', err.message || t('common.error_save'), 'bad')
+  }
+  if (inp) inp.value = ''
+  loadAccountsPage()
+}
+
 // --- wiring ------------------------------------------------------------------
 
 function renderConnectionsPanel() {
   const gsec = document.getElementById('googleConnSection')
   const msec = document.getElementById('mcpConnSection')
+  const ghsec = document.getElementById('githubConnSection')
+  if (ghsec && ghsec.dataset.wired !== '1') {
+    ghsec.dataset.wired = '1'
+    document.getElementById('ghAddBtn').addEventListener('click', _ghAccountsAdd)
+  }
   if (!gsec || !msec) return
 
   if (gsec.dataset.wired !== '1') {
@@ -32227,20 +32297,16 @@ function _storagesAskToken(account) {
     var url = 'https://github.com/settings/tokens/new?scopes=repo&description=Marveen+-+'
       + encodeURIComponent(account)
     ov.innerHTML = '<div class="modal-content" style="max-width:560px;padding:18px">'
-      + '<h3 style="margin:0 0 10px">🔑 Hozzáférési kulcs — ' + escapeHtml(account) + '</h3>'
-      + '<p class="subtitle" style="margin:0 0 10px">A GitHub „Personal Access Token”-je. '
-      + 'A gomb pontosan a készítő oldalra visz, a <code>repo</code> jogosultság előre bejelölve — '
-      + 'ott csak a <b>Generate token</b> gombot kell megnyomnod, aztán a kapott kulcsot ide beilleszteni.</p>'
+      + '<h3 style="margin:0 0 10px">🔑 ' + t('ghtoken.title', { account: escapeHtml(account) }) + '</h3>'
+      + '<p class="subtitle" style="margin:0 0 10px">' + t('ghtoken.desc') + '</p>'
       + '<p style="margin:0 0 12px"><a class="btn-primary" href="' + url + '" target="_blank" rel="noopener noreferrer" '
-      + 'style="display:inline-block;text-decoration:none">🔗 Kulcs készítése a GitHubon →</a></p>'
-      + '<input type="password" id="storTokInput" placeholder="ghp_… vagy github_pat_…" autocomplete="off" '
+      + 'style="display:inline-block;text-decoration:none">🔗 ' + t('ghtoken.get_link') + '</a></p>'
+      + '<input type="password" id="storTokInput" placeholder="' + t('ghtoken.placeholder') + '" autocomplete="off" '
       + 'style="width:100%;box-sizing:border-box;padding:8px;font-family:monospace">'
-      + '<p style="margin:8px 0 0;font-size:12px;opacity:.75">A kulcs a Marveen zárt tárolójában marad: '
-      + 'nem kerül az életfába, nem kerül a repó beállításai közé, és a felület sem kapja vissza. '
-      + 'Üresen hagyva és mentve a meglévő kulcsot törlöm.</p>'
+      + '<p style="margin:8px 0 0;font-size:12px;opacity:.75">' + t('ghtoken.note') + '</p>'
       + '<div style="margin-top:14px;text-align:right">'
-      + '<button class="btn-secondary" id="storTokCancel">Mégse</button> '
-      + '<button class="btn-primary" id="storTokOk">Mentés</button></div></div>'
+      + '<button class="btn-secondary" id="storTokCancel">' + t('common.cancel') + '</button> '
+      + '<button class="btn-primary" id="storTokOk">' + t('common.save') + '</button></div></div>'
     document.body.appendChild(ov)
     var inp = ov.querySelector('#storTokInput')
     if (inp) inp.focus()

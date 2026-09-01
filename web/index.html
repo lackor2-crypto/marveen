@@ -2132,7 +2132,7 @@
                alkalommal. Ha meg egy kartya sincs, a JS magatol kinyitja
                (renderAccountsHub) -- ott ez az egyetlen ertelmes teendo. -->
           <details class="acc-add-details" id="accountsAddDetails">
-            <summary class="acc-add-summary" data-i18n="acchub.add_toggle">Új fiók hozzáadása (Claude vagy Google)</summary>
+            <summary class="acc-add-summary" data-i18n="acchub.add_toggle">Új fiók hozzáadása (Claude, Google vagy GitHub)</summary>
           <!-- Innentol lefele mar nem "mi van bekotve", hanem "hogyan kotok be
                ujat": harom kulon folyamat, de mind az EGY panelen belul, es a
                listajukat egyik sem ismetli meg -- azt a kartyak mutatjak. -->
@@ -2285,6 +2285,27 @@
             <p class="claude-auth-state" id="gconnState"></p>
             <button class="btn-secondary btn-compact" id="gconnCancelBtn" data-i18n="common.cancel">Mégse</button>
           </div>
+          </div>
+
+          <!-- GitHub-fiokok. Boss (Telegram, 2026-08-30): "fiokok alatt latok
+               lent felsorolva git fiokokat. de hozzadadni sehol sem lehet...
+               szoval itt a feledat hogy github fiokot is lehessen felvenni
+               itt. merthogy az is egy fiok." A hozzaferes-kulcs (PAT)
+               bekerese/ellenorzese/tarolasa MAR KESZ a Raktar oldalon
+               (src/git-accounts.ts, _storagesAskToken) -- ez a blokk nem
+               masolja le, csak UGYANAZT a modal-t es vegpontokat hivja innen
+               is, hogy a fiok ezen a lapon is felveheto legyen, ne csak ott. -->
+          <div class="acc-block" id="githubConnSection">
+            <div class="acc-block-title" data-i18n="acchub.add_github">GitHub-fiók hozzáadása (repók eléréséhez)</div>
+            <p class="claude-auth-warn" data-i18n="accounts.github.desc">Repók elérése és letöltése egy hozzáférési kulccsal (token). Egy gombbal hozzáadható, a kulcsot a GitHub oldalán kell elkészíteni.</p>
+
+          <div class="claude-auth-actions" id="ghAddRow">
+            <input class="input-sm" type="text" id="ghAddName" style="min-width:220px"
+                   data-i18n-placeholder="acchub.github_name_ph" placeholder="pl. lackor2 vagy a céged GitHub-neve">
+            <button class="btn-secondary" id="ghAddBtn" data-i18n="acchub.github_add">GitHub-fiók hozzáadása</button>
+          </div>
+          <p class="claude-auth-warn" data-i18n="acchub.github_name_help">A nevet te találod ki — ez lesz a mappa neve is a raktárban, és ez alapján keresi a Marveen a repóidat a GitHubon. A gomb megnyomása után egy ablak kéri a hozzáférési kulcsot (tokent) — azt is itt, a felületről tudod elkészíteni és beilleszteni.</p>
+          <p class="claude-auth-state" id="ghAddState"></p>
           </div>
 
           </details>
