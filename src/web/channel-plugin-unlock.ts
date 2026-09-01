@@ -37,6 +37,7 @@ import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
 import type { ChannelProviderType } from '../channel-provider.js'
 import { exactTmuxTarget } from './tmux-target.js'
+import { detectsBlockingMenu } from '../pane-state.js'
 
 const TMUX = makeLazyBinResolver('tmux')
 
@@ -218,6 +219,39 @@ function sendUnlockKeystrokes(session: string, provider: ChannelProviderType): v
     execFileSync('/bin/sleep', [String(KEYSTROKE_SETTLE_MS / 1000)], { timeout: KEYSTROKE_SETTLE_MS + 2000 })
     execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 5000 })
     logger.warn({ session }, 'channel-plugin-unlock: sent /mcp+Up+Enter+Enter+Esc+Esc unlock sequence')
+
+    // ELLENORIZZUK, HOGY A KET ESCAPE TENYLEG BEZARTA-E A MENUT.
+    //
+    // 2026-09-01: usalackornal ez a szekvencia lefutott (20:29:09), de a panel
+    // MEG MINDIG menuben allt kb. 2 perccel kesobb -- a channel-monitor.ts
+    // altalanos, minden agensre kiterjedo or vette eszre (45s megerositesi
+    // ablakkal) es kuldott meg egy Escape-et 20:31:00-kor. Az agens kozben
+    // "siket" volt: nem dolgozott fel uzenetet. Ahelyett hogy erre a lassabb,
+    // masodperces debounce-u biztonsagi halora biznank, ez a modul maga
+    // ellenorzi es zarja be a sajat menujet: `detectsBlockingMenu` ugyanaz a
+    // fuggveny, amit az altalanos or hasznal, es kifejezetten KIZARJA a busy
+    // es idle allapotokat -- tehat sose kuld Escape-et egy epp valaszolo
+    // agensre, csak egy tenylegesen nyitva maradt menure.
+    let paneAfterClose = ''
+    try {
+      paneAfterClose = execFileSync(TMUX(), ['capture-pane', '-t', exactTmuxTarget(session), '-p'], {
+        timeout: 3000,
+        encoding: 'utf-8',
+      })
+    } catch (err) {
+      logger.warn({ err, session }, 'channel-plugin-unlock: capture-pane after close-out failed')
+    }
+    if (paneAfterClose && detectsBlockingMenu(paneAfterClose)) {
+      logger.warn({ session }, 'channel-plugin-unlock: menu still open after 2 Escapes, sending one more')
+      try {
+        execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(session), 'Escape'], { timeout: 5000 })
+      } catch (err) {
+        logger.warn({ err, session }, 'channel-plugin-unlock: third Escape failed')
+      }
+      // Nem probalkozunk vegtelenul: ha ez sem eleg, a channel-monitor.ts
+      // altalanos ore ugyis felveszi percen belul -- ez itt csak a tipikus
+      // esetben zarja rovidre azt a nehany perces siket ablakot.
+    }
   } catch (err) {
     logger.error({ err, session }, 'channel-plugin-unlock: failed to deliver unlock keystrokes')
   }

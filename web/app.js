@@ -4505,7 +4505,7 @@ function agentLogoutButtonHtml(agent) {
  * egymastol elcsuszo masolatban ("nincs megkulonboztetes agent es agent
  * kozott").
  */
-function wireAccountLogoutButton(cardEl) {
+function wireAccountLogoutButton(cardEl, agent) {
   // "Mostantol EZ a cim tartozzon ehhez az elofizeteshez." Csak kifejezett
   // dontesre, megerositessel: a bejelentkezes magatol SOSE irja felul.
   cardEl.querySelector('.agent-account-pin-btn')?.addEventListener('click', (e) => {
@@ -4539,13 +4539,44 @@ function wireAccountLogoutButton(cardEl) {
   // semmit nem latna -- pontosan az a nema "lattam-e oda" hiba, ami miatt
   // Boss nem talalta a Bejelentkezes gombot. Ezert elobb at kell valtani a
   // Fiokok lapra ES be kell csukni a kartya-modalt, csak utana nyithat a doboz.
-  cardEl.querySelector('.agent-account-relogin-btn')?.addEventListener('click', (e) => {
+  cardEl.querySelector('.agent-account-relogin-btn')?.addEventListener('click', async (e) => {
     e.stopPropagation()
     const b = e.currentTarget
+    if (b.disabled) return
     const payload = b.dataset.default === '1' ? { target: 'default' } : { planId: b.dataset.plan }
     // Se lapvaltas, se modal-bezaras: a doboz IDE jon, a gomb ala.
     const host = document.getElementById('agentLogoutGroup') || b.parentNode
-    _claudeAuthStartFlow(payload, host)
+    // Boss, 2026-09-01: ez a gomb turelmetlen ujraklikkelesre minden alkalommal
+    // ujrainditotta a folyamatot -- a backend most mar felismeri es figyelmen
+    // kivul hagyja az ismetelt inditast, de a gomb maga is jelezze, hogy mar
+    // fut valami, kulonben a felhasznalo ugyanugy kattintgat tovabb.
+    b.disabled = true
+    const startText = b.textContent
+    b.textContent = t('agents.auth.btn_starting')
+    const wasRunning = !!(agent && agent.running)
+    const tab = _claudeAuthOpenAutoTab(payload)
+    if (payload.planId) {
+      _claudeAuthOnDone = async (s) => {
+        if (!_claudeAuthDoneOk(s)) { loadAgents(); return }
+        if (!wasRunning || !agent || !agent.name) { loadAgents(); return }
+        showToast(t('agents.auth.toast_restart_after_login', { name: agent.name }), 9000)
+        try { await fetch(`/api/agents/${encodeURIComponent(agent.name)}/restart`, { method: 'POST' }) }
+        catch { /* ha nem indult ujra, a kartya allapota megmutatja */ }
+        loadAgents()
+        await _claudeAuthWarnIfQuotaBlocked(agent.name)
+      }
+    }
+    try {
+      const started = await _claudeAuthStartFlow(payload, host)
+      if (!started && payload.planId) {
+        _claudeAuthOnDone = null
+        _claudeAuthPendingTab = null
+        if (tab) { try { tab.close() } catch { /* mar bezarhattak */ } }
+      }
+    } finally {
+      b.disabled = false
+      b.textContent = startText
+    }
   })
 }
 
@@ -4573,7 +4604,7 @@ function renderAgentLogoutSetting(agent) {
   const html = agentLogoutButtonHtml(agent)
   slot.innerHTML = html
   group.hidden = !html
-  if (html) wireAccountLogoutButton(group)
+  if (html) wireAccountLogoutButton(group, agent)
   // Kirajzoltuk abbol, amink van (nincs varakozas), es KOZBEN megkerdezzuk a
   // szervert. Ha kozben mas lett az allapot -- masik fulon, a varazsloban vagy
   // eppen az iment, a kartya gombjarol --, ez rajzolja at.
@@ -17355,6 +17386,26 @@ function _claudeAuthErrorText(data) {
   return (data && data.error) || t('common.error_save')
 }
 
+// Named-account (planId) bejelentkezesnel a CLI az AUTOMATA (loopback) utat
+// hasznalja: nincs masolando kod, csak egy URL, amit egy ELORE (a kattintas
+// szinkron reszeben, meg az elso await elott) nyitott ures fulnek kell
+// atadni -- kesobb, amikor a poll megkapja. Ha nem nyitunk fulet elore, a
+// bongeszo popup-blokkja utolag mar nem engedi at, ES a doboz kodos resze is
+// csukva marad automata utnal (_claudeAuthTick: `manualBox.open = !autoUrl`)
+// -- a felhasznalonak semmi nem tortenik, pedig a bejelentkezes a hatterben
+// elindult. Boss, 2026-09-01: pontosan ez volt a "kivul azonnal behozza a
+// bongeszot, belul nem csinal semmit" panasz oka -- a kartya sajat
+// ujra-bejelentkezes gombja (handleAgentLogin) mar tudta ezt, a masik ketto
+// (Beallitasok doboz, Fiokok lap sajat sora) nem. Egy helyen, hogy ne
+// csuszhassanak megint szet.
+function _claudeAuthOpenAutoTab(payload) {
+  if (!payload || !payload.planId) return null
+  let tab = null
+  try { tab = window.open('', '_blank') } catch { tab = null }
+  _claudeAuthPendingTab = tab
+  return tab
+}
+
 async function _claudeAuthStartFlow(payload, host) {
   _claudeAuthMoveFlowTo(host || null)
   // Ugyanaz a hibaosztaly, mint a Google-jovahagyasnal: a horgony megtartja az
@@ -17621,7 +17672,10 @@ function renderAccountsHub() {
         // The install's own account is repaired through the 'default' target;
         // a named one by its id. Neither asks the operator to type a name.
         const payload = back.dataset.default === '1' ? { target: 'default' } : { planId: back.dataset.plan }
-        _claudeAuthStartFlow(payload)
+        const tab = _claudeAuthOpenAutoTab(payload)
+        _claudeAuthStartFlow(payload).then((started) => {
+          if (!started && tab) { try { tab.close() } catch { /* mar bezarhattak */ } }
+        })
       }
     })
   }
@@ -28972,9 +29026,7 @@ async function handleAgentLogin(agentName, btn, planId, card, wasRunning) {
   // automata utat hasznaljak; a regi, kodos ut tartalek marad azoknak, akiknek
   // nincs sajat Claude-fiokjuk (megosztott host-bejelentkezes).
   if (planId) {
-    let tab = null
-    try { tab = window.open('', '_blank') } catch { tab = null }
-    _claudeAuthPendingTab = tab
+    const tab = _claudeAuthOpenAutoTab({ planId })
     _claudeAuthOnDone = async (s) => {
       // LEZARULT != SIKERULT.
       //

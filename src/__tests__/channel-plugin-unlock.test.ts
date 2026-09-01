@@ -74,13 +74,26 @@ describe('channel-plugin-unlock helper contract', () => {
     // Exactly two Enters after Up.
     const enterMatches = afterUp.match(/send-keys[^]*?'Enter'\]/g) ?? []
     expect(enterMatches.length).toBe(2)
-    // Exactly two Escapes after the second Enter.
+    // Three Escapes after the second Enter: two unconditional (action menu,
+    // server list) plus one conditional third that only fires if a
+    // post-close verification (detectsBlockingMenu) still finds the pane
+    // stuck in a menu. 2026-09-01: usalackor's pane was STILL menu'd ~2 min
+    // after the unconditional pair, and only the separate, slower
+    // channel-monitor.ts safety net (45s confirm window) caught it -- the
+    // agent went deaf in between. The third Escape is gated, not blind: it
+    // never fires on a busy or already-idle pane.
     const escapeMatches = afterUp.match(/send-keys[^]*?'Escape'\]/g) ?? []
-    expect(escapeMatches.length).toBe(2)
-    // Order: both Escapes must come AFTER the last Enter.
+    expect(escapeMatches.length).toBe(3)
+    // Order: all Escapes must come AFTER the last Enter.
     const lastEnterIdx = afterUp.lastIndexOf("'Enter'")
     const firstEscapeIdx = afterUp.indexOf("'Escape'")
     expect(firstEscapeIdx).toBeGreaterThan(lastEnterIdx)
+    // The third Escape must be gated behind detectsBlockingMenu, not sent
+    // unconditionally like the first two.
+    expect(sendBody).toMatch(/detectsBlockingMenu\(paneAfterClose\)/)
+    const gateIdx = sendBody.indexOf('detectsBlockingMenu(paneAfterClose)')
+    const thirdEscapeIdx = afterUp.lastIndexOf("'Escape'")
+    expect(upIdx + thirdEscapeIdx).toBeGreaterThan(gateIdx)
   })
 
   it('schedules the probe with a cold-start delay >= 25 seconds', () => {

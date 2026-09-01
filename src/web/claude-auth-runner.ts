@@ -401,6 +401,15 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
     }
   }
 
+  // Egy MAR FUTO default-bejelentkezest nem oljuk meg ujra, ugyanabbol az
+  // okbol, mint a nevesitett-fiok folyamatnal lejjebb: turelmetlen
+  // ujraklikkeles ne nullazza az elozo probalkozast, mielott barmit
+  // mutathatott volna.
+  if (current && current.planId === null && sessionExists() && Date.now() - current.startedAt <= LOGIN_MAX_AGE_MS) {
+    logger.info('claude-auth: default login session already running, ignoring duplicate start click')
+    return { ok: true, isDefault: true }
+  }
+
   killSession()
   const args = ['auth', 'login', opts.useConsole ? '--console' : '--claudeai']
   if (opts.email && /^[^\s@]+@[^\s@]+$/.test(opts.email)) args.push('--email', opts.email)
@@ -534,6 +543,20 @@ export function startLogin(
       // neither see nor clear from the page.
       return { ok: false, error: 'Ilyen nevű fiók már be van jelentkezve. Válassz másik nevet.' }
     }
+  }
+
+  // Egy MAR FUTO, ugyanehhez a fiokhoz tartozo folyamatot nem oljuk meg ujra:
+  // a turelmetlen ujraklikkeles eddig minden kattintasnal nullazta az elozo
+  // probalkozast, meg mielott az egyaltalan URL-t mutathatott volna. Boss,
+  // 2026-09-01: usalackort ujra be akarta jelentkeztetni, a gombra tobbszor
+  // kattintott, es a naplo 7 kulon "login session started" bejegyzest mutatott
+  // 90 masodperc alatt, 3 masodperces kozokkel -- minden kattintas torolte az
+  // elozot, mielott barmi lathato tortenhetett volna. A gomb maga (a
+  // Beallitasok fulon) nem is tiltotta le magat a folyamat alatt, ezert semmi
+  // nem allitotta meg az ujrakattintast a felhasznalo oldalan.
+  if (current && current.planId === planId && sessionExists() && Date.now() - current.startedAt <= LOGIN_MAX_AGE_MS) {
+    logger.info({ planId }, 'claude-auth: login session already running, ignoring duplicate start click')
+    return { ok: true, planId }
   }
 
   killSession()
