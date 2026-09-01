@@ -77,11 +77,38 @@ describe('2) a nema lezarulas is megszolal', () => {
   })
 
   it('a figyelmeztetes ragadós (nem villan el 8 masodperc alatt)', () => {
-    const kezd = APP.indexOf("} else {\n      // A CSEND NEM VALASZ.")
+    const kezd = APP.indexOf("} else if (wasPolling) {\n      // A CSEND NEM VALASZ")
     expect(kezd).toBeGreaterThan(-1)
     const blokk = APP.slice(kezd, kezd + 1200)
     expect(blokk).toContain("{ type: 'warn', big: true }")
     expect(blokk).not.toMatch(/showToast\(t\('claudeauth\.ended_unknown'\),\s*\d/)
+  })
+
+  it('a figyelmeztetes csak akkor szol, ha VOLT kovetett folyamat (wasPolling)', () => {
+    // Boss, 2026-09-01: kijelentkezes utan is megszolalt ugyanez a doboz,
+    // pedig nem is bejelentkezes volt folyamatban. A `_claudeAuthTick`-et
+    // tobb, egymastol fuggetlen hely is meghivja alkalmi lista-frissitesnek
+    // (kijelentkezes, a Fiokok panel ujra-megnyitasa) -- ilyenkor nincs
+    // kovetett folyamat, tehat a "vege lett, de nem tudom hogyan" uzenetnek
+    // sincs ertelme. A `wasPolling` a sajat idozito letezesehez koti a doboz
+    // megszolalasat, nem csak az `s.error` hianyahoz.
+    const fnStart = APP.indexOf('async function _claudeAuthTick(')
+    expect(fnStart, '_claudeAuthTick not found').toBeGreaterThan(-1)
+    const wasPollingSor = APP.indexOf('const wasPolling = _claudeAuthPoll !== null', fnStart)
+    const agFeltetel = APP.indexOf('} else if (wasPolling) {', fnStart)
+    expect(wasPollingSor, 'wasPolling declaration missing').toBeGreaterThan(-1)
+    expect(agFeltetel, 'wasPolling guard missing on the else branch').toBeGreaterThan(-1)
+    expect(wasPollingSor).toBeLessThan(agFeltetel)
+  })
+
+  it('a lap ujra-lathatova valasakor azonnal ujraker, ha van kovetett folyamat', () => {
+    // Boss, 2026-09-01: "mar regen lefutott a bongeszoben... es frissitettem
+    // es akkor vegre be volt jelentkezve" -- a hattarba tolt Marveen-fulon a
+    // bongeszo lelassitja a setInterval-t, es a kartya addig pirosat mutat,
+    // amig a felhasznalo maga ujra nem tolti az oldalt. A visibilitychange
+    // figyelo ezt valtja ki azonnal, ahelyett hogy a lelassult idozitore
+    // varna.
+    expect(APP).toContain("document.addEventListener('visibilitychange', () => {\n  if (!document.hidden && _claudeAuthPoll !== null) _claudeAuthTick()\n})")
   })
 
   it('a sajat Megse gomb nem jut ide: elobb allitja le a lekerdezest', () => {

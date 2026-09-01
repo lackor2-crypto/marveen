@@ -17159,6 +17159,21 @@ function _keyServicesFromAccounts(data) {
 // paste is unavoidable -- but the waiting, the detecting and the registering all
 // happen here instead of in a terminal, which is what the card was about.
 let _claudeAuthPoll = null
+// A bongeszo HATTERBE tolt fulon lassitja/szunetelteti a setInterval-t
+// ("intensive throttling"), es a bejelentkezesnel EPP ez a tipikus eset: a
+// felhasznalo az UJ (OAuth) fulre valt at, hogy ott fejezze be, es a Marveen
+// ful kozben hattarba kerul. A folyamat kozben sikeresen lezarul odaat, de a
+// lelassult idozito meg sokaig nem er oda a kovetkezo tick-hez -- a kartya
+// tovabbra is pirosat mutat, pedig mar regen kesz van. Boss, 2026-09-01: "mar
+// regen lefutott a bongeszoben... es frissitettem es akkor vegre be volt
+// jelentkezve... nem frissul kozben? miert nem ellenorizgeti le magat tobbszor
+// is?" A fix: amikor a lap ujra lathato lesz, ha eppen fut kovetett folyamat,
+// EGYSZER azonnal megkerdezzuk -- nem varjuk meg, mig az elhalasztott idozito
+// magatol odaer. Ugyanaz a minta, mint a verzio-ellenorzesnel es a kanban
+// keresonel (lasd feljebb a tobbi `visibilitychange` figyelot).
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && _claudeAuthPoll !== null) _claudeAuthTick()
+})
 // Decided once per flow, not on every 2s poll tick -- otherwise a manual box
 // the operator opened by hand (because they ARE on another device) would snap
 // shut again the next time the auto link is (re)read. Mirrors _wizClaudeManualDecided.
@@ -17749,6 +17764,18 @@ async function _claudeAuthWarnIfQuotaBlocked(agentName) {
 }
 
 async function _claudeAuthTick() {
+  // A hivas KETFELEKEPPEN erkezhet: a sajat 2mp-es idozitobol (valodi
+  // folyamatot kovetunk), VAGY egyszeri, alkalmi hivasként -- peldaul
+  // _claudeAuthLogout a kijelentkezes utan csak a lista frissiteset akarja.
+  // Ha az alkalmi hivaskor nincs kovetett folyamat, a hatterben `current` mar
+  // null, tehat a valasz pontosan ugyanugy nez ki, mint egy "a folyamat veget
+  // ert, uzenet nelkul" allapot -- a lenti `!s.active` ag ezt eddig nem tudta
+  // megkulonboztetni, es kijelentkezes UTAN is kiirta a "NEM tudom megmondani,
+  // sikerult-e" figyelmeztetest. Boss, 2026-09-01: "amikor kijelentkeztem
+  // akkor is kiirta ezt a szoveget". A `wasPolling` a belepeskor rogziti, hogy
+  // tenyleg fut-e sajat idozito -- csak akkor van ertelme "vege lett"-et
+  // mondani, ha egyaltalan tudtunk valamirol, aminek vege lehetett.
+  const wasPolling = _claudeAuthPoll !== null
   let s
   try {
     const res = await fetch('/api/accounts/claude')
@@ -17836,8 +17863,8 @@ async function _claudeAuthTick() {
       // A doboz a kartyan belul ul: ha a kartya bezarul, az allapotsor vele
       // megy. A csik akkor is ott marad.
       showToast(s.error, { type: 'error', big: true })
-    } else {
-      // A CSEND NEM VALASZ.
+    } else if (wasPolling) {
+      // A CSEND NEM VALASZ -- DE CSAK AKKOR, HA VOLT MIT KOVETNI.
       //
       // Boss, 2026-08-30: "amikor bejelentkeztem a jo email cimmel akkor meg
       // nem sikerult a bejelentkezes" -- a rossz cimnel kapott figyelmeztetest,
@@ -17845,6 +17872,12 @@ async function _claudeAuthTick() {
       // nelkul, es a felulet nem szolt. Ilyenkor NEM talalgatunk okot: azt
       // mondjuk ki, hogy nem tudjuk, sikerult-e, es megmondjuk a kovetkezo
       // lepest. A sajat Megse gomb nem jut ide (elobb leallitja a lekerdezest).
+      //
+      // A `wasPolling` nelkul ez a doboz akkor is megszolalt, amikor
+      // _claudeAuthLogout hivta meg egyszeri lista-frissitesnek, kovetett
+      // folyamat nelkul (`current` mar null) -- vagyis KIJELENTKEZES utan is
+      // kiirta, hogy "nem tudom, sikerult-e a BEjelentkezes". Boss, 2026-09-01:
+      // "amikor kijelentkeztem akkor is kiirta ezt a szoveget... vicces".
       _claudeAuthSetState(t('claudeauth.ended_unknown'), 'bad')
       showToast(t('claudeauth.ended_unknown'), { type: 'warn', big: true })
     }
