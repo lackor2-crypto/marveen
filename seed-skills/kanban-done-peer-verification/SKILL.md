@@ -42,7 +42,7 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
    ```bash
    curl -s -X POST http://localhost:3420/api/approvals/<approval_id>/verify-result \
      -H "Content-Type: application/json" \
-     -H "Authorization: Bearer $(cat /home/boss/marveen/store/.dashboard-token)" \
+     -H "Authorization: Bearer $(cat store/.dashboard-token)" \
      -d '{"agent":"<sajat_agent_id>","status":"pass","report":"rovid, tenyszeru osszefoglalo"}'
    ```
    `status: fail` -- ha bármi eltér az állítástól; a `report`-ban KONKRÉTAN
