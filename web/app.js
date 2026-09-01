@@ -5587,10 +5587,20 @@ function cbTabOpenBtn(tb, label) {
  *  panelen, de nem futott (aznap egy sort sem irtak). A ketto nem mond ellent
  *  egymasnak: a "nyitott ful" es a "futo folyamat" ket kulonbozo dolog.
  *
- *  Ezek a sorok ezert NEM a fo listaba valok (oda a cimezheto, futo
- *  beszelgetesek mennek -- 2026-08-23: "amit a vscode ban kitorolnek azt a
- *  maveen kartyaja se mutassa"), de elerhetonek KELL lenniuk: osszecsukott
- *  reszletezoben ulnek, es a tartalmuk ugyanugy megnyithato. */
+ *  Boss, 2026-09-01: "a jobb oldalt igaz hogy ott van vagy 10 chat ablak, de
+ *  kijelolni megis csak egyet tudok! a legutobbi 9-bol egyet sem tudok
+ *  kijelolni aktualisnak. hogy abba dolgozzunk." -- ez itt EGY VALODI
+ *  funkcio-hianyt jelzett, nem csak lathatosagot: ezek a sorok korabban sima
+ *  <div>-ek voltak, radiogomb nelkul, tehat nem is voltak kijelolhetok.
+ *  Kiderult, hogy ez feleslegesen szigoru volt: az `enqueueCodeTask` (lasd
+ *  src/web/code-bridge-store.ts) a projekt AKTUALIS (`pinned`) sessionjere
+ *  cimez alapertelmezesben, es a `claude --resume <id>` egy NEM FUTO
+ *  sessionre is hibatlanul lefut headless modban (merve 2026-08-23, task
+ *  139b9c8f) -- csak egy MOST FUTO (elo PID-du) fulnel nem szol bele, mert az
+ *  a sajat folyamataban tartja a kontextust. A "lezart" fulek tehat EPP UGY
+ *  cimezhetok, mint az elok -- ugyanaz a `cb-tab-radio` + `cbPickSession`
+ *  mechanizmus jar ide is, ugyanabban a radio-csoportban (`cbtab-<project>`),
+ *  hogy a ketto kolcsonosen kizarja egymast (csak egy lehet "aktualis"). */
 function cbClosedTabsHtml(e) {
   const closed = (e.closedTabs || [])
   if (closed.length === 0) return ''
@@ -5616,19 +5626,28 @@ function cbClosedTabsHtml(e) {
     const when = whenAt === null ? ''
       : '<span class="cb-tab-when" title="' + escapeAttr(t(whenKey)) + '">'
         + escapeHtml(formatRelative(whenAt)) + '</span>'
-    return '<div class="cb-tab-row cb-tab-row-closed">'
+    return '<label class="cb-tab-row cb-tab-row-closed" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
+      + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
+      + ' value="' + escapeAttr(tb.sessionId) + '"'
+      + ' data-label="' + escapeAttr(label) + '"'
+      + (tb.current ? ' checked' : '') + '>'
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + ctx
       + when
       + cbTabOpenBtn(tb, label)
-      + '</div>'
+      + '</label>'
   }).join('')
   // Boss, 2026-08-31: "csak egyet latok az uj nevu chat fulet. de kozben meg
-  // van 4 ful." -- a masik harom PONTOSAN ITT volt, csak osszecsukva es
-  // elhalvanyulva (opacity .6, 11px) allt egy alig eszrevheto haromszog
-  // mogott. A szerver adata jo volt, a felulet rejtette el. Mostantol
-  // NYITVA all alapertelmezetten -- osszecsukhato marad, de nem indul zartan.
-  return '<details class="cb-tabs-closed" open>'
+  // van 4 ful." -- akkor meg lathatosagi hiba volt (opacity .6, 11px egy alig
+  // eszrevheto haromszog mogott), azt NYITOTT alapertelmezessel javitottam.
+  // Boss, 2026-09-01, ugyanerre az uj JELOLHETOSEGI javitasra visszaterve:
+  // "en azt szeretnem ha nem lenne kibontva alapbol a legutobbi" -- mostantol
+  // a radiogomb miatt mar VALODI funkcio van itt, tehat a felfedes celja
+  // (lathatosag) mar nem all fenn ugyanugy: visszaallt osszecsukott
+  // alapallapotra, a kontraszt-javitas (summary opacity/felkoveritas) viszont
+  // marad, hogy a "Legutobbi (N)" felirat maga is jol lathato legyen zart
+  // allapotban is.
+  return '<details class="cb-tabs-closed">'
     + '<summary title="' + escapeAttr(t('cb.card.tabs_closed_help')) + '">'
     + escapeHtml(t('cb.card.tabs_closed', { n: closed.length })) + '</summary>'
     + rows + '</details>'

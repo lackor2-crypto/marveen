@@ -3751,7 +3751,7 @@ window._i18n.en = {
   'cb.card.tab_open': 'Open conversation',
   'cb.card.tab_open_help': 'Shows what is in this conversation: what you typed, what Claude answered, and the actions it ran. Read-only — it starts and changes nothing.',
   'cb.card.tabs_closed': 'Recent ({n})',
-  'cb.card.tabs_closed_help': 'The other conversations in this folder, ordered by the REAL last entry in their transcript, newest first. We measured that their Claude Code process is not running — so they cannot be addressed — but their transcripts exist and can be read. Whether their tab is still open in the VS Code panel is something Marveen CANNOT measure: VS Code keeps that in its own memory and never writes it to disk. So we claim nothing about it.',
+  'cb.card.tabs_closed_help': 'The other conversations in this folder, ordered by the REAL last entry in their transcript, newest first. We measured that their Claude Code process is not running, but they can be selected as current all the same (same as the list above) — a task reaches a non-running conversation just fine. Their transcripts exist and can be read. Whether their tab is still open in the VS Code panel is something Marveen CANNOT measure: VS Code keeps that in its own memory and never writes it to disk. So we claim nothing about it.',
   'cb.card.tab_last_write': 'When this conversation was last written to. The transcript’s own last timestamp — a measurement, not the file date.',
   'cb.card.tab_last_write_approx': 'Roughly when this conversation was last written to. This is the FILE date, not the transcript’s: the worker is outdated, so I cannot give the exact time.',
   'cb.card.model_unknown': 'no visibility',

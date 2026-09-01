@@ -11162,11 +11162,11 @@ details.upstream-box > summary > h4 {
 }
 
 /* A MAPPA TOBBI BESZELGETESE (Boss, 2026-08-28: "a kartyan csak eg chat van
-   megjelenitve, most, de a vscode ban van vagy 3 beszelgetes").
-   Osszecsukhato marad, de mostantol NYITVA indul (app.js: `open` attributum) --
-   Boss, 2026-08-31: "csak egyet latok". A szerver adata mindig jo volt, ezt a
-   sort viszont .6 opacity + 11px alig lehetett eszrevenni. Emelt kontraszttal
-   most mar sima szoveg-sulylyal all, nem lablecnek. */
+   megjelenitve, most, de a vscode ban van vagy 3 beszelgetes"). Osszecsukhato,
+   alapertelmezesben ZARVA (Boss, 2026-09-01: "nem lenne kibontva alapbol") --
+   a kontraszt-emeles (Boss, 2026-08-31: "csak egyet latok", .6 opacity + 11px
+   alig latszott) viszont marad, hogy a "Legutobbi (N)" felirat zartan is jol
+   olvashato legyen, ne csak nyitva. */
 .cb-tabs-closed {
   margin-top: 4px;
   font-size: 12px;
@@ -11188,12 +11188,15 @@ details.upstream-box > summary > h4 {
 }
 .cb-tabs-closed[open] > summary::before { transform: rotate(90deg); }
 .cb-tabs-closed > summary:hover { opacity: 1; }
-/* A nem futo sorok halvanyabbak, es nincs bennuk radiogomb -- a behuzas
-   igazitja oket a fo lista cimeihez. */
+/* Boss, 2026-09-01: "kijelolni megis csak egyet tudok... a legutobbi 9-bol
+   egyet sem tudok kijelolni aktualisnak" -- mostantol EZEKNEK a soroknak is
+   van radiogombjuk (app.js: cbClosedTabsHtml, ugyanaz a `cb-tab-radio` +
+   `cbtab-<project>` csoport, mint az elo fuleknek), ezert a korabbi
+   "nincs bennuk radiogomb" behuzas-kompenzacio (padding-left) es a
+   cursor:default mar nem igaz -- a `.cb-tab-row` sajat cursor:pointer +
+   gap-elrendezese eleve helyesen igazitja oket. */
 .cb-tab-row-closed {
   opacity: .92;
-  cursor: default;
-  padding-left: 16px;
 }
 .cb-tab-when {
   flex: 0 0 auto;

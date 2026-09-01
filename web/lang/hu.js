@@ -3822,7 +3822,7 @@ window._i18n.hu = {
   'cb.card.tab_open': 'Beszélgetés megnyitása',
   'cb.card.tab_open_help': 'Megmutatja, mi van ebben a beszélgetésben: amit beírtál, amit a Claude válaszolt, és a futtatott műveleteket. Csak olvasás — semmit nem indít el és nem módosít.',
   'cb.card.tabs_closed': 'Legutóbbi ({n})',
-  'cb.card.tabs_closed_help': 'A mappa többi beszélgetése, a naplójuk VALÓDI utolsó bejegyzése szerint, a legfrissebbel elöl. MÉRTÜK, hogy a Claude Code folyamatuk most nem fut — ezért nem címezhetők —, de a naplójuk megvan, és megnyitva elolvashatók. Azt, hogy a VS Code paneljén nyitva van-e még a fülük, Marveen NEM tudja megmérni: a VS Code ezt csak a saját memóriájában tartja, nem írja lemezre. Ezért nem is állítunk róla semmit.',
+  'cb.card.tabs_closed_help': 'A mappa többi beszélgetése, a naplójuk VALÓDI utolsó bejegyzése szerint, a legfrissebbel elöl. MÉRTÜK, hogy a Claude Code folyamatuk most nem fut, de kijelölhetők aktuálisnak (ugyanúgy, mint a fenti lista) — egy feladat egy nem futó beszélgetésbe is célba ér. A naplójuk megvan, megnyitva elolvashatók. Azt, hogy a VS Code paneljén nyitva van-e még a fülük, Marveen NEM tudja megmérni: a VS Code ezt csak a saját memóriájában tartja, nem írja lemezre. Ezért nem is állítunk róla semmit.',
   'cb.card.tab_last_write': 'Ekkor írt utoljára ebbe a beszélgetésbe. A napló saját utolsó időbélyege — mérés, nem a fájl dátuma.',
   'cb.card.tab_last_write_approx': 'Körülbelül ekkor írt utoljára ebbe a beszélgetésbe. Ez a FÁJL dátuma, nem a naplóé: a végrehajtó régi, ezért a pontos időt nem tudom megmondani.',
   'cb.card.model_unknown': 'nem látok oda',
