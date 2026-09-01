@@ -71,11 +71,22 @@ PY
 ```
 
 ## Kapcsolódó: ágens-ütközés (kanban 37129602)
-Ha ketten ugyanazt a fájlt szerkesztenétek, három réteg véd:
-- `scripts/agent-worktree.sh <agens>` -- saját munkakönyvtár nagy munkához
+Ha ketten ugyanazt a fájlt szerkesztenétek, **egy** réteg véd, a másik kettő csak
+láthatóvá teszi az ütközést:
+- `scripts/agent-worktree.sh <agens>` -- saját munkakönyvtár nagy munkához. **Ez az
+  egyetlen valódi védelem**: az ütközés merge-időre tolódik, ahol a git látja.
 - `/api/file-claims` -- ki tartja épp a fájlt (20 perces lejárat, forduló végén felszabadul)
-- `file-claim-gate.py` PreToolUse hook -- megtagadja a felülírást, megmondja ki és mióta
+- `file-claim-gate.py` PreToolUse hook -- **2026-08-25 óta (Boss #13) MÁR NEM tagadja
+  meg az Edit/Write-ot.** Egy online ágens soha ne álljon tétlenül egy szabály miatt.
+  Ütközéskor csak NAPLÓZ (`store/agent-audit.jsonl`, op=claim-collision) és átengedi,
+  hogy a felülírás ne legyen néma. Emellett minden ágens minden művelete
+  (edit/write/delete/move/bash) bekerül ugyanebbe a naplóba az `agent-audit-log.py`
+  hookon át.
 
-A kapu bizonytalanságnál MINDIG enged (dashboard nem elérhető, `store/`, saját
-ágens-mappa, repón kívüli fájl). Kikapcsoló: `MARVEEN_FILE_CLAIMS=0`.
-Tiltásnál ne kerüld meg: várj, egyeztess, vagy worktree-zz.
+A hookok bizonytalanságnál MINDIG engednek (dashboard nem elérhető, `store/`, saját
+ágens-mappa, repón kívüli fájl). Kikapcsolók: `MARVEEN_FILE_CLAIMS=0`,
+`MARVEEN_AUDIT_LOG=0`.
+
+**Ne várd, hogy a kapu megállít -- nem fog.** Nagy vagy kockázatos munkánál dolgozz
+saját worktree-ben és merge-elj később; az audit-napló utólag megmutatja, ki nyúlt
+ugyanahhoz a fájlhoz.

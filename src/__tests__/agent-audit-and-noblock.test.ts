@@ -9,7 +9,7 @@
 // These tests lock both: the gate can no longer exit 2 (deny), and the audit
 // hook records every change-making tool call, classifying deletes and moves.
 import { describe, it, expect } from 'vitest'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -99,5 +99,62 @@ describe('template wiring', () => {
       (e) => String(e.matcher || '').includes('Bash') && JSON.stringify(e).includes('agent-audit-log.py'),
     )
     expect(entry, 'audit hook must match Bash so deletes and moves are logged').toBeTruthy()
+  })
+})
+
+// A #13-as szabaly a KODBAN mar le van zarva (fent). Ez a blokk a SZALLITOTT
+// DOKUMENTACIOT zarja le. 2026-08-25-en a templates/CLAUDE.md.template helyesen
+// frissult, a seed-skills/ viszont kimaradt, es tovabbra is azt allitotta, hogy a
+// kapu "megtagadja a felulirast". A helyi CLAUDE.md gitignore-olt (a sablonbol
+// generalodik), ezert egy FRISS telepites a szabalyt csak a sablonbol es a
+// seed-skills/-bol tanulja meg -- ott egy elavult mondat pont azt a vedelmet igeri,
+// ami nincs, es az agens ratamaszkodik sajat worktree helyett.
+describe('rule #13 removed: the shipped docs must not promise a block', () => {
+  const DOC_DIRS = ['seed-skills', 'templates', 'docs']
+  const STALE = /megtagadja a fel[uü]l[ií]r[aá]st|refuses the overwrite|denies the overwrite/i
+  const NO_BLOCK = /(m[aá]r )?nem tagadja meg|nem blokkol|a BLOKK kiv[eé]ve|no longer (block|den)/i
+
+  function docs(): string[] {
+    const out: string[] = []
+    for (const d of DOC_DIRS) {
+      const base = join(ROOT, d)
+      if (!existsSync(base)) continue
+      for (const rel of readdirSync(base, { recursive: true, encoding: 'utf-8' })) {
+        const p = join(base, String(rel))
+        if (!/\.(md|template)$/.test(p)) continue
+        if (!statSync(p).isFile()) continue
+        out.push(p)
+      }
+    }
+    return out
+  }
+
+  // A prozat sorra tordeljuk, igy a keresett mondat AT IS LOGHAT a sortoresen
+  // ("MAR NEM tagadja\n  meg az Edit/Write-ot"). Nyers szovegen keresve ez nema
+  // hamis riasztas lenne -- pontosan az a fajta, amitol a teszt hasznalhatatlan.
+  const flat = (p: string) => readFileSync(p, 'utf-8').replace(/\s+/g, ' ')
+
+  // A "magyarazza is el" kovetelmeny csak PROZAra all: a settings.json.template
+  // parancssorban hivatkozik a hookra, nem szabalyt ismertet.
+  const isProse = (p: string) => p.endsWith('.md') || p.endsWith('CLAUDE.md.template')
+
+  it('finds the docs to check at all (a zero here would hide every drift)', () => {
+    expect(docs().length).toBeGreaterThan(0)
+    expect(docs().filter(isProse).length).toBeGreaterThan(0)
+  })
+
+  it('no shipped doc claims the gate refuses an overwrite', () => {
+    const offenders = docs().filter((p) => STALE.test(flat(p)))
+    expect(offenders.map((p) => p.slice(ROOT.length + 1)), 'rule #13 removed the deny path').toEqual([])
+  })
+
+  it('every prose doc that names the gate also says it no longer blocks', () => {
+    const named = docs().filter((p) => isProse(p) && flat(p).includes('file-claim-gate'))
+    expect(named.length, 'the rule must be documented somewhere a fresh install can read').toBeGreaterThan(0)
+    const silent = named.filter((p) => !NO_BLOCK.test(flat(p)))
+    expect(
+      silent.map((p) => p.slice(ROOT.length + 1)),
+      'a doc naming the gate must state that it only logs, so nobody relies on a block that is gone',
+    ).toEqual([])
   })
 })
