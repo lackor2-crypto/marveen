@@ -77,11 +77,42 @@ describe('2) a nema lezarulas is megszolal', () => {
   })
 
   it('a figyelmeztetes ragadós (nem villan el 8 masodperc alatt)', () => {
-    const kezd = APP.indexOf("} else if (wasPolling) {\n      // A CSEND NEM VALASZ")
+    const kezd = APP.indexOf("showToast(t('claudeauth.ended_unknown')")
     expect(kezd).toBeGreaterThan(-1)
-    const blokk = APP.slice(kezd, kezd + 1200)
+    const blokk = APP.slice(kezd, kezd + 200)
     expect(blokk).toContain("{ type: 'warn', big: true }")
     expect(blokk).not.toMatch(/showToast\(t\('claudeauth\.ended_unknown'\),\s*\d/)
+  })
+
+  it('a "nem tudom" elott MEGNEZI a friss accounts listat -- ha az mar bejelentkezve mutatja a celzott fiokot, nem hazudik bizonytalansagot', () => {
+    // Boss, 2026-09-01: "de a bejelentkezes utan kiirja meg mindig az a szar
+    // szoveget" -- a panelen MAR "Kijelentkeztetes" allt (tehat a fiok
+    // lathatoan be volt jelentkezve), a doboz megis "nem tudom, sikerult-e"-t
+    // irt ki. Oka: a `done` jel egyszeri (loginStatus() -- "whichever poller
+    // observes the completion consumes it"), es EZ a lekerdezes nem latta.
+    // A friss `s.accounts` viszont MINDEN lekerdezesnel ujraszamolodik, es
+    // mar tudja a valaszt -- ezt kell megnezni `ended_unknown` kiirasa elott.
+    const agFeltetel = APP.indexOf('} else if (wasPolling) {')
+    expect(agFeltetel).toBeGreaterThan(-1)
+    const unknownIdx = APP.indexOf("showToast(t('claudeauth.ended_unknown')", agFeltetel)
+    expect(unknownIdx).toBeGreaterThan(-1)
+    const blokk = APP.slice(agFeltetel, unknownIdx)
+    expect(blokk).toContain('_claudeAuthTrackedIsDefault')
+    expect(blokk).toContain('_claudeAuthTrackedPlanId')
+    expect(blokk).toContain('identity.loggedIn')
+    expect(blokk).toContain("t('claudeauth.done_back'")
+  })
+
+  it('a celzott fiokot MEG A FLOW INDULASA ELOTT rogziti, mielott az elso tick lefutna', () => {
+    // Ha csak egy aktiv tick allitana be a celt, egy azonnal (aktiv fazis
+    // nelkul) vegetero flow soha nem tudna kesobb ellenorizni a listat.
+    const fnStart = APP.indexOf('async function _claudeAuthStartFlow(')
+    expect(fnStart, '_claudeAuthStartFlow not found').toBeGreaterThan(-1)
+    const rogzitesIdx = APP.indexOf('_claudeAuthTrackedPlanId = payload', fnStart)
+    const pollIdx = APP.indexOf('_claudeAuthPoll = setInterval(_claudeAuthTick, 2000)', fnStart)
+    expect(rogzitesIdx, 'tracked planId rogzites hianyzik').toBeGreaterThan(-1)
+    expect(pollIdx).toBeGreaterThan(-1)
+    expect(rogzitesIdx).toBeLessThan(pollIdx)
   })
 
   it('a figyelmeztetes csak akkor szol, ha VOLT kovetett folyamat (wasPolling)', () => {

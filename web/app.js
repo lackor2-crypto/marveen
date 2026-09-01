@@ -17174,6 +17174,19 @@ let _claudeAuthPoll = null
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && _claudeAuthPoll !== null) _claudeAuthTick()
 })
+// Melyik fiokot figyeljuk EPP -- a flow inditasakor rogzitve, MEG MIELOTT az
+// elso tick lefutna. A `loginStatus()` a `done` jelzest EGYSZERI elnek szanja
+// (lasd a backend megjegyzeset: "whichever poller observes the completion
+// consumes it"), tehat ha KET fulon/panelen fut lekerdezes ugyanarra a
+// fiokra, csak az egyik latja a `done`-t -- a masik itt, a `!s.active`
+// agban koti ki, hibauzenet ES `done` nelkul. Eddig ilyenkor MINDIG "nem
+// tudom, sikerult-e" jott, pedig a friss `s.accounts` lista (ami MINDEN
+// lekerdezesnel ujraszamolodik, nem egyszeri) mar tartalmazza a valaszt --
+// csak eddig senki nem nezte meg. Boss, 2026-09-01: "de a bejelentkezes utan
+// kiirja meg mindig az a szar szoveget" -- pedig a panelen MAR "Kijelentkeztetes"
+// allt, tehat a fiok lathatoan be volt jelentkezve.
+let _claudeAuthTrackedPlanId = null
+let _claudeAuthTrackedIsDefault = false
 // Decided once per flow, not on every 2s poll tick -- otherwise a manual box
 // the operator opened by hand (because they ARE on another device) would snap
 // shut again the next time the auto link is (re)read. Mirrors _wizClaudeManualDecided.
@@ -17445,6 +17458,12 @@ async function _claudeAuthStartFlow(payload, host) {
     const data = await res.json()
     if (!data.ok) { _claudeAuthSetState(_claudeAuthErrorText(data), 'bad'); return false }
   } catch (err) { _claudeAuthSetState(String(err.message || err), 'bad'); return false }
+  // MIELOTT barmilyen tick lefutna: ha ez a poller maga nem latja majd a
+  // `done` elet (mert egy masik fulon fut le), ebbol a ket ertekbol kell
+  // tudnunk utolag megnezni a friss accounts listaban, tenyleg bejelentkezett-e
+  // a celzott fiok.
+  _claudeAuthTrackedPlanId = payload && payload.planId ? payload.planId : null
+  _claudeAuthTrackedIsDefault = !!(payload && payload.target === 'default')
   _claudeAuthStopPoll()
   _claudeAuthPoll = setInterval(_claudeAuthTick, 2000)
   _claudeAuthTick()
@@ -17864,22 +17883,39 @@ async function _claudeAuthTick() {
       // megy. A csik akkor is ott marad.
       showToast(s.error, { type: 'error', big: true })
     } else if (wasPolling) {
-      // A CSEND NEM VALASZ -- DE CSAK AKKOR, HA VOLT MIT KOVETNI.
+      // A CSEND NEM VALASZ -- DE ELOBB MEGNEZZUK, TENYLEG NEM TUDJUK-E.
       //
-      // Boss, 2026-08-30: "amikor bejelentkeztem a jo email cimmel akkor meg
-      // nem sikerult a bejelentkezes" -- a rossz cimnel kapott figyelmeztetest,
-      // a jonal SEMMIT. Ez az ag futott le: a folyamat veget ert, hibauzenet
-      // nelkul, es a felulet nem szolt. Ilyenkor NEM talalgatunk okot: azt
-      // mondjuk ki, hogy nem tudjuk, sikerult-e, es megmondjuk a kovetkezo
-      // lepest. A sajat Megse gomb nem jut ide (elobb leallitja a lekerdezest).
-      //
-      // A `wasPolling` nelkul ez a doboz akkor is megszolalt, amikor
-      // _claudeAuthLogout hivta meg egyszeri lista-frissitesnek, kovetett
-      // folyamat nelkul (`current` mar null) -- vagyis KIJELENTKEZES utan is
-      // kiirta, hogy "nem tudom, sikerult-e a BEjelentkezes". Boss, 2026-09-01:
-      // "amikor kijelentkeztem akkor is kiirta ezt a szoveget... vicces".
-      _claudeAuthSetState(t('claudeauth.ended_unknown'), 'bad')
-      showToast(t('claudeauth.ended_unknown'), { type: 'warn', big: true })
+      // A `done` jel EGYSZERI (lasd loginStatus() megjegyzeset a backendben):
+      // ha KET fulon/panelen fut lekerdezes ugyanarra a fiokra, csak az egyik
+      // latja a `done`-t, a masik itt kot ki -- `s.error` es `s.done` nelkul,
+      // pedig a fiok VALOJABAN bejelentkezett. A friss `s.accounts` (ez MINDEN
+      // lekerdezesnel ujraszamolodik, nem egyszeri) mar tudja a valaszt. Boss,
+      // 2026-09-01: "de a bejelentkezes utan kiirja meg mindig az a szar
+      // szoveget" -- pedig a panelen MAR "Kijelentkeztetes" allt, tehat a fiok
+      // lathatoan be volt jelentkezve; csak EZ a lekerdezes nem latta a sajat
+      // `done` elet.
+      const target = _claudeAuthTrackedIsDefault
+        ? (s.accounts || []).find(a => a.isDefault)
+        : (_claudeAuthTrackedPlanId != null ? (s.accounts || []).find(a => a.id === _claudeAuthTrackedPlanId) : null)
+      if (target && target.identity && target.identity.loggedIn) {
+        _claudeAuthSetState('', null)
+        showToast(t('claudeauth.done_back', { label: target.label }), 8000, true)
+      } else {
+        // Boss, 2026-08-30: "amikor bejelentkeztem a jo email cimmel akkor meg
+        // nem sikerult a bejelentkezes" -- a rossz cimnel kapott figyelmeztetest,
+        // a jonal SEMMIT. Ez az ag futott le: a folyamat veget ert, hibauzenet
+        // nelkul, es a felulet nem szolt. Ilyenkor NEM talalgatunk okot tovabb:
+        // azt mondjuk ki, hogy nem tudjuk, sikerult-e, es megmondjuk a kovetkezo
+        // lepest. A sajat Megse gomb nem jut ide (elobb leallitja a lekerdezest).
+        //
+        // A `wasPolling` nelkul ez a doboz akkor is megszolalt, amikor
+        // _claudeAuthLogout hivta meg egyszeri lista-frissitesnek, kovetett
+        // folyamat nelkul (`current` mar null) -- vagyis KIJELENTKEZES utan is
+        // kiirta, hogy "nem tudom, sikerult-e a BEjelentkezes". Boss, 2026-09-01:
+        // "amikor kijelentkeztem akkor is kiirta ezt a szoveget... vicces".
+        _claudeAuthSetState(t('claudeauth.ended_unknown'), 'bad')
+        showToast(t('claudeauth.ended_unknown'), { type: 'warn', big: true })
+      }
     }
     return
   }
