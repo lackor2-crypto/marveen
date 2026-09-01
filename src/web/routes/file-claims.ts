@@ -2,9 +2,10 @@
 //
 // The consumer is scripts/hooks/file-claim-gate.py, a PreToolUse hook that runs
 // on EVERY Edit/Write in the fleet -- so these handlers must be fast and must
-// never throw: an exception here becomes a blocked edit for whoever is holding
-// the keyboard. Errors resolve to "allowed" on the hook side, but they should
-// not happen in the first place.
+// never throw. Nobody gets blocked by a failure here (the hook fails open, and
+// since rule #13 it never denies at all); what an exception costs is the
+// VISIBILITY -- a collision that should have been logged silently is not, which
+// is the exact failure mode the claim registry exists to prevent.
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { claimPath, listLiveClaims, releaseClaims, sweepExpiredClaims } from '../file-claims-store.js'
@@ -27,9 +28,10 @@ export async function tryHandleFileClaims(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  // Claim (or refresh) one path. Answers { allowed, ... } -- the hook turns a
-  // false into a denial with the message built here, so the wording lives in
-  // one place for every agent.
+  // Claim (or refresh) one path. Answers { allowed, ... }. Since rule #13 the
+  // hook does NOT turn a false into a denial: it writes the message built here
+  // into the audit trail as the note of an op=claim-collision line and lets the
+  // edit through. The wording still lives in one place for every agent.
   if (path === '/api/file-claims' && method === 'POST') {
     try {
       const body = JSON.parse((await readBody(req)).toString() || '{}')

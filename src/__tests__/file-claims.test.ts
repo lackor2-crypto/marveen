@@ -70,11 +70,20 @@ describe('isGuardedPath', () => {
 })
 
 describe('describeBlock', () => {
-  it('tells the blocked agent what to do, not just what happened', () => {
+  it('tells the colliding agent what to do, not just what happened', () => {
     const msg = describeBlock('web/app.js', 'lackor3', 12 * 60_000, 'wizard')
     expect(msg).toContain('lackor3')
     expect(msg).toContain('12 perce')
     expect(msg).toContain('worktree')
+  })
+
+  // Rule #13 (Boss, 2026-08-25): the gate lets the write through, so this text
+  // lands in the audit trail, not in a refusal. Telling the reader to wait would
+  // park an agent that is in fact free to work -- the one thing #13 forbids.
+  it('never tells the agent to wait for a release that will never be enforced', () => {
+    const msg = describeBlock('web/app.js', 'lackor3', 12 * 60_000, null)
+    expect(msg).not.toMatch(/varj|várj|wait until/i)
+    expect(msg).not.toMatch(/ne ird felul|ne írd felül/i)
   })
 
   it('rounds a fresh claim up to a minute rather than saying zero', () => {

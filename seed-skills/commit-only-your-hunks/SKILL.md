@@ -62,9 +62,13 @@ non-interactive equivalent.
   hunting for it.
 - **Heredoc + `&&` on the same line breaks the commit message.** Write the
   message to a file and use `git commit -F <file>`.
-- **Claim the file first** (`POST /api/file-claims`) and release it after; the
-  PreToolUse gate denies an edit another agent holds. Committing does not
-  release the claim -- do it explicitly.
+- **Claim the file first** (`POST /api/file-claims`) and release it after. Do not
+  expect it to protect you: since 2026-08-25 (rule #13) the PreToolUse gate no
+  longer denies an edit another agent holds -- it records the collision
+  (`store/agent-audit.jsonl`, `op=claim-collision`) and lets the write through, so
+  the overwrite is traceable rather than prevented. The claim tells a colleague
+  you are here; a git worktree is what actually keeps you apart. Committing does
+  not release the claim -- do it explicitly.
 
 ## Ellenorzes
 - `git diff --cached --stat` lists ONLY the files your task touched.

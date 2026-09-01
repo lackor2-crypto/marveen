@@ -111,17 +111,49 @@ describe('template wiring', () => {
 // ami nincs, es az agens ratamaszkodik sajat worktree helyett.
 describe('rule #13 removed: the shipped docs must not promise a block', () => {
   const DOC_DIRS = ['seed-skills', 'templates', 'docs']
-  const STALE = /megtagadja a fel[uü]l[ií]r[aá]st|refuses the overwrite|denies the overwrite/i
-  const NO_BLOCK = /(m[aá]r )?nem tagadja meg|nem blokkol|a BLOKK kiv[eé]ve|no longer (block|den)/i
+  // A doksi-javitas (2df60bf) utani hatasvizsgalat tanulsaga: az elso valtozat
+  // CSAK a magyar "megtagadja a felulirast" fordulatot es CSAK a doc-mappakat
+  // nezte, ezert atengedte a commit-only-your-hunks skill angol mondatat ("the
+  // PreToolUse gate denies an edit") es ket elavult KOD-kommentart is. Egy or,
+  // ami a hiba egyetlen megfogalmazasat ismeri, a kovetkezo megfogalmazasnal
+  // hallgat -- ezert szoveg helyett a KIJELENTEST keressuk, tobb nyelven, a
+  // kodban is.
+  const SCAN_DIRS = [...DOC_DIRS, 'src', 'scripts', 'web']
+  const SCAN_EXT = /\.(md|template|ts|js|mjs|py|sh)$/
+  const SKIP = /node_modules|[/\\](dist|coverage)[/\\]/
 
-  function docs(): string[] {
+  // Ezek a fordulatok barhol elavultak: a felulirast/Edit-et semmi nem tagadja meg.
+  const STALE_PHRASES = [
+    /megtagadja (az? )?fel[uü]l[ií]r[aá]st/i,
+    /(denies|refuses|blocks) (an?|the) (edit|write|overwrite)/i,
+    /turns? a false into a denial/i,
+  ]
+  // Ez viszont CSAK a claim-kapurol szolo fajlokban elavult. A rendszerben tobb
+  // mas kapu is van, amelyik JOGOSAN blokkol (context-restart-gate, a flotta
+  // memoria-kapuja) -- az elso valtozat ezeket is megbuktatta, vagyis az or a
+  // sajat temajan kivul is riasztott volna, amig valaki ki nem kapcsolja.
+  const GATE_ONLY_PHRASES = [/gate (denies|refuses|blocks)\b/i]
+  // "no longer denies an edit" is a CORRECT sentence: the phrase is only stale
+  // when nothing negates it. Without this, the honest wording would trip the
+  // guard and the next author would "fix" it by deleting the explanation.
+  const NEGATED = /(no longer|not|never|nem|stopped|kiv[eé]ve)\s*\S{0,14}$/i
+
+  const NO_BLOCK = /(m[aá]r )?nem tagadja meg|nem blokkol|a BLOKK kiv[eé]ve|no longer (block|den)/i
+  // Ugyanaz a kapu ketfele neven szerepel a szovegekben.
+  const NAMES_GATE = /file-claim-gate|file-claim gate|PreToolUse gate/i
+
+  // Ez a fajl maga tartalmazza a fenti fordulatokat regex-literalkent -- sajat
+  // magat vizsgalva mindig bukna. A kizaras szandekos es szuk: EGY fajl.
+  const SELF = join(ROOT, 'src', '__tests__', 'agent-audit-and-noblock.test.ts')
+
+  function walk(dirs: string[], ext: RegExp): string[] {
     const out: string[] = []
-    for (const d of DOC_DIRS) {
+    for (const d of dirs) {
       const base = join(ROOT, d)
       if (!existsSync(base)) continue
       for (const rel of readdirSync(base, { recursive: true, encoding: 'utf-8' })) {
         const p = join(base, String(rel))
-        if (!/\.(md|template)$/.test(p)) continue
+        if (!ext.test(p) || SKIP.test(p) || p === SELF) continue
         if (!statSync(p).isFile()) continue
         out.push(p)
       }
@@ -129,10 +161,34 @@ describe('rule #13 removed: the shipped docs must not promise a block', () => {
     return out
   }
 
+  const docs = () => walk(DOC_DIRS, /\.(md|template)$/)
+  const scanned = () => walk(SCAN_DIRS, SCAN_EXT)
+
+  /** Stale claims in one file: a phrase match with no negation in front of it. */
+  function staleHits(text: string): string[] {
+    const hits: string[] = []
+    const phrases = NAMES_GATE.test(text) ? [...STALE_PHRASES, ...GATE_ONLY_PHRASES] : STALE_PHRASES
+    for (const re of phrases) {
+      const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+      for (const m of text.matchAll(g)) {
+        const before = text.slice(Math.max(0, m.index - 40), m.index)
+        if (!NEGATED.test(before)) hits.push(m[0])
+      }
+    }
+    return hits
+  }
+
   // A prozat sorra tordeljuk, igy a keresett mondat AT IS LOGHAT a sortoresen
   // ("MAR NEM tagadja\n  meg az Edit/Write-ot"). Nyers szovegen keresve ez nema
   // hamis riasztas lenne -- pontosan az a fajta, amitol a teszt hasznalhatatlan.
-  const flat = (p: string) => readFileSync(p, 'utf-8').replace(/\s+/g, ' ')
+  //
+  // A sor eleji komment-jelet is le kell szedni, kulonben a KODBAN ugyanez a
+  // rejtozkodes marad: a "turns a\n// false into a denial" osszefuzve
+  // "turns a // false into a denial" lesz, amire egyetlen mintank sem illik.
+  // Ezt a hatasvizsgalat merte ki: az or eloszor pont ezt a kommentart hagyta ki.
+  const flat = (p: string) => readFileSync(p, 'utf-8')
+    .replace(/^[ \t]*(\/\/+|#+|\*+)[ \t]?/gm, ' ')
+    .replace(/\s+/g, ' ')
 
   // A "magyarazza is el" kovetelmeny csak PROZAra all: a settings.json.template
   // parancssorban hivatkozik a hookra, nem szabalyt ismertet.
@@ -141,15 +197,20 @@ describe('rule #13 removed: the shipped docs must not promise a block', () => {
   it('finds the docs to check at all (a zero here would hide every drift)', () => {
     expect(docs().length).toBeGreaterThan(0)
     expect(docs().filter(isProse).length).toBeGreaterThan(0)
+    // A kod-bejaras kulon szam: ha a src/ atnevezodik, a nulla ne "tiszta"-nak
+    // latsszon.
+    expect(scanned().length, 'the code scan must actually reach src/ and scripts/').toBeGreaterThan(docs().length)
   })
 
-  it('no shipped doc claims the gate refuses an overwrite', () => {
-    const offenders = docs().filter((p) => STALE.test(flat(p)))
-    expect(offenders.map((p) => p.slice(ROOT.length + 1)), 'rule #13 removed the deny path').toEqual([])
+  it('no shipped doc or code comment claims the gate refuses an edit', () => {
+    const offenders = scanned()
+      .map((p) => ({ file: p.slice(ROOT.length + 1), hits: staleHits(flat(p)) }))
+      .filter((r) => r.hits.length > 0)
+    expect(offenders, 'rule #13 removed the deny path; say what the gate does now').toEqual([])
   })
 
   it('every prose doc that names the gate also says it no longer blocks', () => {
-    const named = docs().filter((p) => isProse(p) && flat(p).includes('file-claim-gate'))
+    const named = docs().filter((p) => isProse(p) && NAMES_GATE.test(flat(p)))
     expect(named.length, 'the rule must be documented somewhere a fresh install can read').toBeGreaterThan(0)
     const silent = named.filter((p) => !NO_BLOCK.test(flat(p)))
     expect(

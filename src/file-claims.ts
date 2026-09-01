@@ -9,7 +9,15 @@
 // is layer A of this card; but a worktree cannot help the LIVE checkout the
 // running install is served from, which is exactly where the collisions
 // happened. So: a claim registry (layer B) that says who holds what, and a
-// PreToolUse gate (layer C) that refuses an edit when someone else holds it.
+// PreToolUse gate (layer C) that consults it on every Edit/Write.
+//
+// The gate NO LONGER REFUSES anything (Boss, 2026-08-25, rule #13: an online
+// agent must never sit idle because a rule turned down its Edit). On a collision
+// it records one `op=claim-collision` line in store/agent-audit.jsonl and lets
+// the write through, so an overwrite is TRACEABLE rather than prevented. What
+// this module decides is therefore "is this file held by someone else", not
+// "may this edit happen" -- the answer feeds a log line, not a veto. Real
+// separation for big or risky work comes from a git worktree (layer A).
 //
 // Two properties matter more than completeness:
 //   - it must FAIL OPEN. A gate that blocks editing when the dashboard is down
@@ -23,20 +31,20 @@
 // database or a clock. The I/O lives in src/web/file-claims-store.ts.
 
 /** How long a claim stays valid without being refreshed. Long enough to cover
- *  a slow edit-test cycle, short enough that a crashed agent frees the file
- *  before anyone is blocked for real. */
+ *  a slow edit-test cycle, short enough that a crashed agent stops showing up as
+ *  the holder of a file nobody is actually working on. */
 export const CLAIM_TTL_MS = 20 * 60_000
 
 /**
  * Most files one agent may hold at once.
  *
- * Not a performance limit -- a safety one. The gate promises to fail OPEN when
- * it is unsure, but a registry full of claims is not unsure: it answers "held"
- * with confidence, and a few thousand claims from one runaway (or injected)
- * agent would stop every other agent from editing anything for the whole TTL
- * (lackor3's second review). Past the ceiling, claims simply stop being
- * recorded, so the protection degrades to "no protection" rather than to
- * "nobody may work".
+ * Not a performance limit -- a safety one. Written when the gate still blocked,
+ * where a few thousand claims from one runaway (or injected) agent would have
+ * stopped every other agent from editing anything for the whole TTL (lackor3's
+ * second review). Since rule #13 nobody is stopped, so the ceiling now guards
+ * the registry and the collision log instead: one runaway agent must not be able
+ * to make every colleague's edit look like a collision. Past the ceiling claims
+ * simply stop being recorded -- the visibility degrades, the work never does.
  */
 export const MAX_CLAIMS_PER_AGENT = 40
 
@@ -45,7 +53,7 @@ export interface FileClaim {
   path: string
   agent: string
   claimedAt: number
-  /** Free-text hint shown to whoever is blocked ("kanban 7951be7d"). */
+  /** Free-text hint shown to whoever collides with the claim ("kanban 7951be7d"). */
   note: string | null
 }
 
@@ -82,8 +90,8 @@ export function decideClaim(
   }
 }
 
-// Paths nobody should ever be blocked on. Guarding them buys nothing and costs
-// real deadlocks:
+// Paths that never take part in claiming at all. Guarding them buys nothing and
+// would fill the collision log with noise:
 //   - an agent's OWN directory is private to it by construction;
 //   - store/ is runtime state written by every agent constantly (claims,
 //     snapshots, logs) -- claiming it would serialise the whole fleet;
@@ -111,12 +119,23 @@ export function isGuardedPath(relPath: string, agentsOwnPrefix: string | null): 
   return !NEVER_GUARDED.some(re => re.test(relPath))
 }
 
-/** Human sentence for a blocked edit. Written for the agent that reads it, so
- *  it says what to do rather than only what happened. */
+/**
+ * Human sentence for a claim collision. Written for the agent that reads it, so
+ * it says what to do rather than only what happened.
+ *
+ * It must NOT tell anyone to wait. Since rule #13 (2026-08-25) the gate lets the
+ * write through and only logs, so this text ends up as the `note` of a
+ * `op=claim-collision` audit line -- and in the batch path, as the reason the
+ * orchestrator could not hand a file to an agent. A sentence like "wait until it
+ * is released" would describe a block that no longer exists and would park an
+ * agent that is in fact free to work, which is exactly what #13 forbids.
+ */
 export function describeBlock(path: string, holder: string, heldForMs: number, note: string | null): string {
   const mins = Math.max(1, Math.round(heldForMs / 60_000))
   const noteText = note ? ` (${note})` : ''
-  return `A(z) ${path} fajlon most ${holder} dolgozik${noteText}, ${mins} perce. `
-    + 'Ne ird felul: vagy varj amig elengedi, vagy egyeztess vele agens-uzenetben, '
-    + 'vagy dolgozz sajat git worktree-ben (scripts/agent-worktree.sh) es merge-eld kesobb.'
+  return `A(z) ${path} fajlon ${holder} is dolgozik${noteText}, ${mins} perce. `
+    + 'Ez FIGYELMEZTETES, nem tiltas: az irast a kapu atengedi, es a felulirasod '
+    + 'nyomot hagy (store/agent-audit.jsonl, op=claim-collision). Ha az utkozes '
+    + 'valodi, egyeztess vele agens-uzenetben, vagy dolgozz sajat git worktree-ben '
+    + '(scripts/agent-worktree.sh) es merge-eld kesobb.'
 }
