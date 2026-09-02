@@ -113,10 +113,18 @@ describe('a beszelgetes-ablak nem nezhet ki uresnek teli atirat felett', () => {
     expect(render).toMatch(/conversation\.empty_filtered/)
     expect(render).toMatch(/conversation\.empty_search/)
     // A csupasz "nincs uzenet" csak akkor, ha tenyleg nulla bejegyzes van.
-    // Az ablak 900 karakterre bovult, mert a lanc kozben tobb okot (no-path,
-    // no-session, too-large, unsafe-path, unreachable) is megkulonboztet --
-    // a vegso fallback attol meg ugyanaz marad.
-    expect(render).toMatch(/hidden\s*\?[\s\S]{0,900}:\s*t\('conversation\.empty'\)/)
+    // A reason -> mondat lanc 2026-09-02 ota a `convReasonText()`-ben lakik,
+    // mert ugyanazt a mondatot az elo-kovetes allapotjelzoje is kiirja: ha ket
+    // helyen allna, a badge es a lista mast mondhatna UGYANARROL a naplorol.
+    // Az or ezert ket lepesben ellenorzi ugyanazt az invarianst.
+    expect(render).toMatch(/hidden\s*\?[\s\S]{0,900}:\s*convReasonText\(conversationReason\)/)
+    const reasonText = extractFn(app, 'convReasonText')
+    // A lanc kozben tobb okot (no-path, no-session, too-large, unsafe-path,
+    // unreachable) is megkulonboztet -- a vegso fallback attol meg ugyanaz.
+    expect(reasonText).toMatch(/reason \?[\s\S]{0,300}:\s*t\('conversation\.empty'\)/)
+    for (const r of ['no-path', 'no-session', 'too-large', 'unsafe-path']) {
+      expect(reasonText, `${r} nincs megkulonboztetve`).toContain(`'${r}'`)
+    }
   })
 
   it('a kereses es a szuro kulon uzenetet kap', () => {

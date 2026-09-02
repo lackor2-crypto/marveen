@@ -64,6 +64,7 @@ const harness = `
   ${extractFn(app, 'cbTabRows')}
   ${extractFn(app, 'cbHasTabRows')}
   ${extractFn(app, 'cbTabsEmptyHasCtx')}
+  ${extractFn(app, 'cbTabLiveBtn')}
   ${extractFn(app, 'cbTabOpenBtn')}
   ${extractFn(app, 'cbClosedTabsHtml')}
   ${extractFn(app, 'cbTabsPickHtml')}

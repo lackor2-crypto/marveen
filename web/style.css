@@ -8507,6 +8507,10 @@ a.link-waiting {
   white-space: nowrap; cursor: help;
   font-variant-numeric: tabular-nums;
 }
+/* A jelzot a JS `el.hidden = true`-val rejti el (unknown allapot). A fenti
+   `display: inline-flex` viszont eroesebb a bongeszo `[hidden]` szabalyanal,
+   ezert kell ez a sor -- nelkule az elrejtett badge a kepernyon maradna. */
+.conv-live[hidden] { display: none; }
 .conv-live::before {
   content: ''; width: 7px; height: 7px; border-radius: 50%;
   background: currentColor; flex: 0 0 auto;
