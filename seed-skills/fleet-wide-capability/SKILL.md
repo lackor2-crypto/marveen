@@ -76,8 +76,9 @@ láthatóvá teszi az ütközést:
 - `scripts/agent-worktree.sh <agens>` -- saját munkakönyvtár nagy munkához. **Ez az
   egyetlen valódi védelem**: az ütközés merge-időre tolódik, ahol a git látja.
 - `/api/file-claims` -- ki tartja épp a fájlt (20 perces lejárat, forduló végén felszabadul)
-- `file-claim-gate.py` PreToolUse hook -- **2026-08-25 óta (Boss #13) MÁR NEM tagadja
-  meg az Edit/Write-ot.** Egy online ágens soha ne álljon tétlenül egy szabály miatt.
+- `file-claim-gate.py` PreToolUse hook -- **2026-08-25 óta ({{OWNER_NAME}} #13) MÁR
+  NEM tagadja meg az Edit/Write-ot.** Egy online ágens soha ne álljon tétlenül egy
+  szabály miatt.
   Ütközéskor csak NAPLÓZ (`store/agent-audit.jsonl`, op=claim-collision) és átengedi,
   hogy a felülírás ne legyen néma. Emellett minden ágens minden művelete
   (edit/write/delete/move/bash) bekerül ugyanebbe a naplóba az `agent-audit-log.py`

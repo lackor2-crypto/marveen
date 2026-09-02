@@ -21,9 +21,10 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
 1. **Azonosítsd a kártyát és a releváns commitokat.** A jóváhagyás leírása
    megnevezi a kártyát (pl. `95a1a07b`) -- `git log --oneline -- <érintett
    fájlok>` a commit-történet felderítéséhez. Ha TÖBB commit is érinti
-   ugyanazt a területet (pl. egy korábbi fix-et egy KÉSŐBBI Boss-kérés felül
-   is írt), olvasd el mindkettő teljes commit-üzenetét (`git show <hash>
-   --stat`) -- a legfrissebb Boss-kérés az irányadó, ne a korábbi.
+   ugyanazt a területet (pl. egy korábbi fix-et {{OWNER_NAME}} egy KÉSŐBBI
+   kérése felül is írt), olvasd el mindkettő teljes commit-üzenetét (`git show
+   <hash> --stat`) -- {{OWNER_NAME}} legfrissebb kérése az irányadó, ne a
+   korábbi.
 2. **Olvasd el a tényleges kódot**, ne csak a commit-üzenetet: `Read`/`grep`
    a releváns fájlokra, és vesd össze a commit állítását a kóddal (pl. "a
    `<details>` `open` nélkül van" -- nézd meg tényleg nincs-e `open`).
@@ -57,7 +58,7 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
 - Ha egy kártya története TÖBB, egymást felülíró javítást tartalmaz (pl.
   "nyisd meg alapból" -> később "zárd vissza alapból, de tedd
   kijelölhetővé"), NE az elsőt vedd mérvadónak -- a `git log` időrendje
-  dönt, és a legutolsó Boss-kérés az érvényes elvárás.
+  dönt, és {{OWNER_NAME}} legutolsó kérése az érvényes elvárás.
 - Ha egy ellenőrzéshez elkerülhetetlen lenne egy író hívás, NE tedd meg --
   írd le a jelentésben, mit nem tudtál így ellenőrizni, és jelöld `status:
   fail`-nek vagy magyarázd meg a hiányt a `report`-ban, ne találgass.

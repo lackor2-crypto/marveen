@@ -29,7 +29,10 @@ egy elveszett viszont igen.
 
 `global` skillhez a gépspecifikus értékeket helyőrzőre cseréld (`{{OWNER_NAME}}`,
 `{{MAIN_AGENT_ID}}`, `{{PROJECT_ROOT}}`, `{{WEB_PORT}}`), magyar toldalékkal
-együtt is (`Bossnak` → `{{OWNER_NAME}}-nak`).
+együtt is: a tulajdonos nevének RAGOZOTT alakja is helyőrzőre megy, kötőjellel
+(`…nak` → `{{OWNER_NAME}}-nak`, `…nál` → `{{OWNER_NAME}}-nál`). Konkrét nevet a
+példába se írj: a következő telepítőt épp úgy hívhatják, és akkor nála a saját
+neve néz vissza rá egy általános szabályból.
 
 **A mért eset.** 2026-08-30-án négy skill létezett csak ezen a gépen; kettőt
 GÉP írt a tömörítés-reflexióból, ember nélkül. Az egyikük a `skill-factory`
