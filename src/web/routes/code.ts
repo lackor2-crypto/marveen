@@ -40,7 +40,7 @@ import {
   requestCodeTabClose, takeCodeTabCloseRequests, findCodeTab,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
 } from '../code-bridge-store.js'
-import { readCodeConversation } from '../code-conversation.js'
+import { readCodeConversation, statCodeConversation } from '../code-conversation.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
@@ -587,13 +587,30 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const offsetRaw = Number(url.searchParams.get('offset'))
     const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0
 
+    // KONNYU MOD (`meta=1`): CSAK az allapot, tartalom nelkul.
+    //
+    // Ezt kerdezi az elo kovetes 2-3 masodpercenkent. Egy `statSync` fut, a
+    // naplo egyetlen bajtja sem olvasodik be -- enelkul a kovetes minden
+    // korben vegigolvasna egy akar tobb tiz MB-os naplot (ebben a mappaban
+    // 156 MB-os is van), es a "friss chat" funkcio maga tenne
+    // hasznalhatatlanna a szervert.
+    const metaOnly = url.searchParams.get('meta') === '1'
+
     const tab = findCodeTab(sessionId)
     if (!tab) {
       json(res, {
         sessionId, entries: [], total: 0, offset: 0, hasOlder: false,
-        title: null, live: null, transcriptPath: null, mtime: null,
+        title: null, live: null, transcriptPath: null, mtime: null, meta: metaOnly,
         // Nem "ures a beszelgetes": ilyen sessiont EGYETLEN worker sem jelentett.
         reason: 'no-session',
+      })
+      return true
+    }
+    if (metaOnly) {
+      json(res, {
+        sessionId, title: tab.title, live: tab.live,
+        contextTokens: tab.contextTokens, model: tab.model, meta: true,
+        ...statCodeConversation(tab.transcriptPath, sessionId),
       })
       return true
     }

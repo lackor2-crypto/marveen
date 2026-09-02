@@ -5259,8 +5259,16 @@
         <input type="text" id="conversationSearch" placeholder="Keresés a beszélgetésben…" data-i18n-placeholder="messages.conv.search_placeholder" autocomplete="off">
         <label class="conversation-filter"><input type="checkbox" id="conversationShowActions"> <span data-i18n="conversation.filter_label">Műveletek/jegyzetek mutatása</span></label>
         <button class="btn-secondary btn-compact" id="conversationRefresh" data-i18n="common.btn.refresh">Frissítés</button>
+        <!-- ELO JELZO. A szoveget az app.js irja bele (renderConvLive), mert
+             MERT allapotot mond: "elo" / "elo, nincs uj sor" / "nem latok
+             oda" / "szuneteltetve". Ures allapotban REJTVE all -- amirol nem
+             mertunk semmit, arrol nem allitunk semmit. -->
+        <span id="conversationLive" class="conv-live" hidden></span>
       </div>
       <div id="conversationContainer" class="conversation-container"></div>
+      <!-- "N uj sor": csak akkor all ki, ha a felhasznalo feljebb gorgetett es
+           kozben uj sorok erkeztek. A szoveget az app.js irja (renderConvNewPill). -->
+      <button type="button" id="conversationNewPill" class="conv-new-pill" hidden></button>
     </div>
   </div>
   <!-- Mobile login: QR of the ?token= bootstrap URL, shown only on an

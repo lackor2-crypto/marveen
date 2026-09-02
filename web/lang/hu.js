@@ -1721,6 +1721,16 @@ window._i18n.hu = {
   'conversation.empty_too_large': 'A napló túl nagy ahhoz, hogy egyben megnyissam (64 MB fölött). A beszélgetés megvan, csak innen nem olvasható — a VS Code-ban nyisd meg.',
   'conversation.empty_unsafe':   'A jelentett napló-útvonal nem olyan, amilyet a Claude Code készít, ezért nem nyitottam meg. Ez a munkás hibája — frissítsd a munkás szkriptjét.',
   'conversation.empty_unreachable': 'A naplót nem tudtam megnyitni. A rendszer ezt mondta: {msg}',
+  // ÉLŐ KÖVETÉS. A négy állapot SZÁNDÉKOSAN külön mondat: az „áll, mert kész a
+  // feladat” és a „nem látok oda” két különböző válasz, más következő lépéssel.
+  'conversation.live':           'élő',
+  'conversation.liveIdle':       'élő · nincs új sor',
+  'conversation.livePaused':     'szüneteltetve',
+  'conversation.livePaused_help': 'Visszalapoztál a korábbi részre, ezért nem húzom rá a legfrissebb sorokat. A „Frissítés” visszakapcsolja az élő követést.',
+  'conversation.blind':          'nem látok oda',
+  'conversation.updatedAt':      'utoljára frissült: {time}',
+  'conversation.updated_help':   'Ekkor írt utoljára ebbe a beszélgetésbe a Claude Code. Ha áll a szám, a munka éppen nem ír semmit — ez nem hiba.',
+  'conversation.newLines':       '{n} új sor ↓',
   'mobile_login.no_token':       'Nincs eltárolt token. Előbb lépj be itt.',
   'mobile_login.cdn_error':      'A QR-generátor nem töltött be (CDN). Hálózat?',
   'mobile_login.generating':     'QR készítése...',
@@ -3915,6 +3925,8 @@ window._i18n.hu = {
   // folyamata már nem él — oda megy a feladat, tehát látnod kell.
   'cb.card.tab_not_running': 'nem fut',
   'cb.card.tab_not_running_help': 'A Claude Code folyamata MÁR NEM FUT (ezt mértük, nem tipp) — a naplója a lemezen van, és a VS Code-ban megnyitva folytatható. Feladatot ettől még kaphat: a Marveen ilyenkor a mentett beszélgetést folytatja.',
+  'cb.card.tab_live': 'Élő nézet',
+  'cb.card.tab_live_help': 'Megnyitja ezt a beszélgetést, és magától frissül, ahogy a Claude Code dolgozik — jönnek a sorok, látod, melyik fájlt írja és mit válaszol. Csak olvasás.',
   'cb.card.tab_open': 'Beszélgetés megnyitása',
   'cb.card.tab_open_help': 'Megmutatja, mi van ebben a beszélgetésben: amit beírtál, amit a Claude válaszolt, és a futtatott műveleteket. Csak olvasás — semmit nem indít el és nem módosít.',
   'cb.card.tabs_closed': 'Legutóbbi ({n})',

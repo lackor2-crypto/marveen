@@ -8492,7 +8492,62 @@ a.link-waiting {
 }
 
 /* === Agent conversation (readable transcript) modal === */
-.conversation-modal { width: min(820px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
+/* `position: relative` az "N uj sor" bugyborek miatt: az a lista FOLOTT lebeg,
+   nem benne -- kulonben egyutt gorogne a sorokkal, es pont akkor tunne el,
+   amikor kellene. */
+.conversation-modal { width: min(820px, 94vw); max-height: 88vh; display: flex; flex-direction: column; position: relative; }
+
+/* === ELO KOVETES: allapotjelzo + "uj sorok" bugyborek === */
+.conv-live {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex: 0 0 auto;
+  font-size: 11.5px; line-height: 1.5;
+  padding: 3px 10px; border-radius: 11px;
+  border: 1px solid var(--border); color: var(--text-muted, #888);
+  white-space: nowrap; cursor: help;
+  font-variant-numeric: tabular-nums;
+}
+.conv-live::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor; flex: 0 0 auto;
+}
+/* ELO: zold, lukteto pont -- ez az egyetlen allapot, ami mozgast igér. */
+.conv-live-live { color: var(--success, #3fb950); border-color: var(--success, #3fb950); }
+.conv-live-live::before { animation: convLivePulse 1.8s ease-in-out infinite; }
+@keyframes convLivePulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+/* ELO, DE NINCS UJ SOR: latjuk a naplot, csak all. Ez NEM hiba -- ezert nem
+   piros, csak halkabb. */
+.conv-live-idle { color: var(--text-muted, #888); }
+/* NEM LATOK ODA: a napló elerhetetlen. Ez az EGYETLEN riaszto szinu allapot,
+   mert csak itt van tenyleg teendo. */
+.conv-live-blind { color: var(--warning, #d29922); border-color: var(--warning, #d29922); }
+/* SZUNETEL: a felhasznalo visszalapozott, ezert nem huzunk ra frisset. */
+.conv-live-paused { color: var(--text-muted, #888); border-style: dashed; }
+@media (prefers-reduced-motion: reduce) {
+  .conv-live-live::before { animation: none; }
+}
+
+.conv-new-pill {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 18px; z-index: 5;
+  padding: 7px 16px; border-radius: 16px;
+  border: 1px solid var(--accent, #4a9eff);
+  background: var(--bg, #161616); color: var(--accent, #4a9eff);
+  font-size: 12px; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+.conv-new-pill:hover { background: var(--accent, #4a9eff); color: #fff; }
+
+/* MOBIL. A Boss telefonrol nezi: a szuk eszkoztarban a keresomezo kapja a
+   helyet, a jelzo pedig sajat sorba tordel (a `.conversation-toolbar` mar
+   `flex-wrap: wrap`), es nem tori szet a fejlecet. A bugyborek feljebb ul, hogy
+   a kenyelmi zonaban legyen. */
+@media (max-width: 600px) {
+  .conv-live { font-size: 11px; padding: 3px 8px; }
+  .conversation-toolbar { gap: 8px; padding: 8px 10px; }
+  .conversation-toolbar #conversationSearch { min-width: 120px; }
+  .conv-new-pill { bottom: 24px; padding: 9px 18px; font-size: 13px; }
+}
 .conversation-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border, #2a2a2a); flex-wrap: wrap; }
 .conversation-toolbar #conversationSearch { flex: 1; min-width: 160px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #1c1c1c); color: inherit; }
 .conversation-filter { display: flex; align-items: center; gap: 5px; font-size: 12px; opacity: .85; white-space: nowrap; }
@@ -11212,6 +11267,28 @@ details.upstream-box > summary > h4 {
   cursor: help;
   white-space: nowrap;
 }
+/* "ELO NEZET" -- csak a MOST FUTO fuleken. Kiirt nevvel all ki, nem jellel:
+   ez az a gomb, amit a tulaj keres, amikor azt akarja latni, mi tortenik most.
+   A `flex: 0 0 auto` + `nowrap` miatt a ful cime rovidul, nem a gomb -- a cim
+   ugyis `text-overflow: ellipsis`-szel dolgozik. */
+.cb-tab-live-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  flex: 0 0 auto;
+  font-size: 11px; line-height: 1.4;
+  padding: 1px 8px; border-radius: 9px;
+  border: 1px solid var(--success, #788c5d);
+  background: transparent; color: var(--success, #788c5d);
+  cursor: pointer; white-space: nowrap;
+}
+.cb-tab-live-btn:hover { background: var(--success, #788c5d); color: var(--bg, #161616); }
+.cb-tab-live-btn:hover .cb-tab-live-dot { background: currentColor; }
+.cb-tab-live-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--success, #788c5d); flex: 0 0 auto;
+  animation: convLivePulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .cb-tab-live-dot { animation: none; } }
+
 /* "Beszelgetes megnyitasa" -- ugyanaz a nem-tolakodo gomb, mint a bezarase,
    csak a masik iranyba (olvasas, nem beavatkozas). */
 .cb-tab-open {

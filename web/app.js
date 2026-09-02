@@ -3422,6 +3422,10 @@ function closeModal(overlay) {
   // Ezert minden zaras visszateszi a helyere. Ket doboz helyett egy, ami
   // mindig ott van, ahol epp kell.
   if (overlay && overlay.id === 'agentDetailOverlay') _claudeAuthReturnFlowHome()
+  // AZ ELO KOVETES ALLJON LE, barmelyik uton csukodott be az ablak -- gomb,
+  // Esc, kattintas a hatterre. Ha csak a bezaro gombra figyelnenk, az Esc utan
+  // a lekerdezes a hattérben tovabb futna, lathatatlanul, a lap eleteig.
+  if (overlay && overlay.id === 'conversationOverlay') convFollowReset()
 }
 
 // Wizard open
@@ -5632,6 +5636,26 @@ function cbRunTip() {
     : (cbRunOn() ? t('cb.card.run_on_help') : t('cb.card.run_off_help'))
 }
 
+/** "ELO NEZET" -- a MOST FUTO beszelgetesekhez.
+ *
+ *  Ugyanazt az ablakot nyitja, mint a `☰`, de sajat, kiirt nevvel: ez az a
+ *  gomb, amit akkor keresel, amikor azt akarod latni, mit csinal a Claude Code
+ *  EPPEN MOST. A `☰` egy jel, amit ismerni kell; ez egy mondat, amit olvasni.
+ *
+ *  KET MERT FELTETEL, es egyik sem tipp:
+ *    * `hasTranscript` -- van mit megnyitni (a worker elkuldte a napló utjat);
+ *    * `live === true` -- a beszelgetes folyamata MOST FUT.
+ *  A `live === null` (nem mertuk) NEM eleg: olyan fulre nem igerunk elo
+ *  nezetet, amirol nem tudjuk, el-e. A hallgatas ott a helyes valasz. */
+function cbTabLiveBtn(tb, label) {
+  if (!tb || !tb.hasTranscript || tb.live !== true) return ''
+  return '<button type="button" class="cb-tab-live-btn" data-session="' + escapeAttr(tb.sessionId) + '"'
+    + ' data-label="' + escapeAttr(label || '') + '"'
+    + ' title="' + escapeAttr(t('cb.card.tab_live') + ' — ' + t('cb.card.tab_live_help')) + '"'
+    + ' aria-label="' + escapeAttr(t('cb.card.tab_live')) + '">'
+    + '<span class="cb-tab-live-dot"></span>' + escapeHtml(t('cb.card.tab_live')) + '</button>'
+}
+
 /** A "beszelgetes megnyitasa" gomb egy ful-sorhoz.
  *
  *  CSAK akkor all ki, ha a worker elkuldte a napló utjat (`hasTranscript`).
@@ -5798,6 +5822,7 @@ function cbTabsPickHtml(e) {
       + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
       + notRunning
       + idle
+      + cbTabLiveBtn(tb, label)
       + cbTabOpenBtn(tb, label)
       + closeBtn
       + '</label>'
@@ -6054,7 +6079,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A BESZELGETES MEGNYITASA. Ugyanaz az ablak, mint az ugynokoknel -- csak a
     // forras mas. A `preventDefault` itt is kell: a fo lista gombjai egy
     // <label>-en belul allnak, es kattintasra kulonben ATALLITANA a cel-fult.
-    card.querySelectorAll('.cb-tab-open').forEach((btn) => {
+    card.querySelectorAll('.cb-tab-open, .cb-tab-live-btn').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault()
         ev.stopPropagation()
@@ -30078,6 +30103,9 @@ async function openConversationModal(agentName, displayName) {
   if (!overlay || !container) return
   conversationSource = { kind: 'agent', id: agentName }
   conversationAgentName = agentName
+  // Az ugynok-naplot nem kovetjuk elo ben: a korabbi (VS Code) kovetes
+  // maradeka nem szolhat bele ebbe az ablakba.
+  convFollowReset()
   title.textContent = t('conversation.title', { name: displayName || agentName })
   container.innerHTML = `<div class="conversation-empty">${t('conversation.loading')}</div>`
   openModal(overlay)
@@ -30095,10 +30123,15 @@ async function openCodeConversationModal(sessionId, label) {
   if (!overlay || !container) return
   conversationSource = { kind: 'code', id: sessionId }
   conversationAgentName = null
+  convFollowReset()
   title.textContent = t('conversation.title', { name: label || String(sessionId).slice(0, 8) })
   container.innerHTML = `<div class="conversation-empty">${t('conversation.loading')}</div>`
   openModal(overlay)
   await loadConversation({ autoRevealDetail: true })
+  // ELO KOVETES BEKAPCSOLVA -- kezi kapcsolo nelkul. A VS Code chatet azert
+  // nyitja meg valaki, hogy lassa, mi tortenik MOST; ha ehhez meg egy gombot
+  // kellene megtalalnia, a funkcio nem letezne a szamara.
+  convFollowStart()
 }
 
 // Latest page (offset=0); resets the loaded window.
@@ -30117,6 +30150,14 @@ async function loadConversation(opts = {}) {
     // A szerver gepi okot ad, mi emberi mondatot csinalunk belole; ismeretlen
     // kodra a NYERS uzenetet mutatjuk, tippelt okot sosem irunk oda.
     conversationReason = conversationEntries.length === 0 ? (d.reason || null) : null
+    // Az ELO KOVETES kiindulopontja. A `total` (az OSSZES bejegyzes szama) es az
+    // `mtime` innentol a mercenk: a kovetes ehhez a ket szamhoz hasonlit, es
+    // csak akkor tolt le barmit, ha valamelyik elmozdult.
+    convFollowTotal = typeof d.total === 'number' ? d.total : conversationEntries.length
+    convFollowMtime = typeof d.mtime === 'number' ? d.mtime : null
+    convFollowMeta = { mtime: convFollowMtime, reason: d.reason || null }
+    convFollowPaused = false
+    convFollowNew = 0
     // Most agents in this fleet never talk on Telegram -- their whole record is
     // narration + tool calls, which the detail filter hides. Opening on the
     // default filter then shows "no messages" over a full transcript, which
@@ -30130,6 +30171,8 @@ async function loadConversation(opts = {}) {
       if (box && !hasChannelTraffic && conversationEntries.length) box.checked = true
     }
     renderConversation()
+    renderConvLive()
+    renderConvNewPill()
   } catch {
     if (container) container.innerHTML = `<div class="conversation-empty">${t('conversation.error')}</div>`
   }
@@ -30142,6 +30185,12 @@ async function loadConversation(opts = {}) {
 async function loadOlderConversation() {
   if (conversationLoadingOlder || !conversationHasOlder) return
   conversationLoadingOlder = true
+  // A KOVETES SZUNETEL, amint a felhasznalo visszalapoz. Enelkul a kovetkezo
+  // kor rahuzna a legfrissebb ablakot a betoltott elozmenyre, es a most
+  // felolvasott regi resz eltunne a szeme elol -- ez a lapozast hasznalhatatlanna
+  // tenne. A szunet a modal bezarasaig vagy a "Frissites"-ig tart.
+  convFollowPaused = true
+  renderConvLive()
   const btn = document.getElementById('conversationLoadOlder')
   if (btn) { btn.disabled = true; btn.textContent = t('conversation.loading') }
   const token = localStorage.getItem('marveen-dashboard-token') || ''
@@ -30166,6 +30215,293 @@ async function loadOlderConversation() {
   }
 }
 
+// ============================================================================
+// ELO KOVETES -- a VS Code chat MAGATOL frissul, ahogy a terminal
+// ============================================================================
+//
+// Boss: a kod-hid ablaka eddig EGYSZER toltott: aki nezte, bezarta-ujranyitotta,
+// hogy lassa, mit ir eppen a Claude Code. Ez a resz teszi elove.
+//
+// ★ MIERT NEM HUZZUK LE A NAPLOT 2-3 MASODPERCENKENT
+// Egy transcript ebben a mappaban 50-150 MB is lehet (a szerver 64 MB-nal meg
+// vissza is utasitja). Ha a kovetes minden korben letoltene es ujra parse-olna,
+// az "elo nezet" maga olna meg a szervert. Ezert ket lepcso van:
+//   1. a KONNYU kerdes (`meta=1`) csak egy `statSync`-et futtat -- mtime, meret,
+//      ok. Ez megy 2-3 masodpercenkent;
+//   2. a TARTALOM csak akkor jon le, ha az mtime elmozdult.
+// Egy alvo beszelgetes igy ORAKIG nem okoz egyetlen bajtnyi olvasast sem.
+//
+// ★ A NULLA KET DOLGOT JELENTHET -- itt HAROM allapotot kell szetvalasztani:
+//   * "elo"          : latjuk a naplot, es most is ir bele valaki;
+//   * "elo, nincs uj": latjuk a naplot, de all (a feladat kesz) -- ez NEM hiba;
+//   * "nem latok oda": a szerver `reason`-t adott (no-path / ENOENT / ...).
+// A kettot NEM a sorok szamabol talaljuk ki, hanem a MERT `mtime`-bol es a
+// szerver `reason`-jebol. Ha nem mertunk, a jelzo nem allit semmit: elbujik.
+
+/** Milyen surun kerdezzuk meg, valtozott-e a naplo. */
+const CONV_FOLLOW_MS = 2500
+/** Ennyi kepponton belul a "aljan all" -- eddig rantjuk le magatol. */
+const CONV_NEAR_BOTTOM_PX = 40
+/** Ennyi csend utan mar nem "elo", hanem "elo, de nincs uj sor". */
+const CONV_IDLE_MS = 120000
+
+/**
+ * AZ ALJAN ALL-E a lista? (tiszta fuggveny -- DOM nelkul tesztelheto)
+ *
+ * Ha igen, az uj sorok utan lehuzzuk; ha a felhasznalo feljebb gorgetett
+ * (mert epp OLVAS valamit), nem rantjuk el a szeme elol -- olyankor csak
+ * szolunk, hogy jott uj.
+ */
+function convIsNearBottom(scrollTop, scrollHeight, clientHeight, threshold) {
+  const px = typeof threshold === 'number' ? threshold : CONV_NEAR_BOTTOM_PX
+  return (scrollHeight - scrollTop - clientHeight) <= px
+}
+
+/**
+ * MI A JELZO ALLAPOTA a MERT adatbol. (tiszta fuggveny)
+ *
+ * Sorrend SZAMIT: a mert `reason` (nem latok oda) eros ebb, mint a felulet
+ * sajat szunet-allapota -- kulonben egy elerhetetlen naplo mellett a jelzo
+ * "szuneteltetve"-t mondana, mintha barmikor folytathato lenne.
+ * Visszateres: 'unknown' | 'blind' | 'paused' | 'idle' | 'live'
+ */
+function convLiveState(meta, nowMs, opts) {
+  const o = opts || {}
+  // MEG NEM MERTUNK. Nem "elo" es nem "hiba" -- errol nem allitunk semmit.
+  if (!meta) return 'unknown'
+  if (meta.reason) return 'blind'
+  if (o.paused) return 'paused'
+  const m = meta.mtime
+  if (typeof m !== 'number' || !isFinite(m)) return 'unknown'
+  const idle = typeof o.idleMs === 'number' ? o.idleMs : CONV_IDLE_MS
+  return (nowMs - m) > idle ? 'idle' : 'live'
+}
+
+/**
+ * MENNYI UJ SOR JOTT, es hozza lehet-e fuzni. (tiszta fuggveny)
+ *
+ * A szerver mindig a LEGFRISSEBB ablakot adja vissza (offset=0), plusz a
+ * `total`-t: az OSSZES bejegyzes szamat. A ketto kulonbsegebol pontosan tudjuk,
+ * hany sor keletkezett -- nem kell tartalmat osszehasonlitani.
+ *   * 'none'    : nem valtozott;
+ *   * 'append'  : ennyi uj sor jott, es benne van a lehuzott ablakban -> fuzheto;
+ *   * 'replace' : tobb uj sor jott, mint amennyi az ablakba fer (vagy a `total`
+ *     visszaesett, mert mas naplo kerult a helyere) -- ilyenkor a hozzafuzes
+ *     LYUKAS idovonalat adna, ezert ujrarajzolunk.
+ */
+function convFollowPlan(prevTotal, next) {
+  const entries = (next && Array.isArray(next.entries)) ? next.entries : []
+  const total = (next && typeof next.total === 'number' && isFinite(next.total)) ? next.total : 0
+  if (typeof prevTotal !== 'number' || total < prevTotal) return { mode: 'replace', added: entries, total }
+  const delta = total - prevTotal
+  if (delta === 0) return { mode: 'none', added: [], total }
+  if (delta > entries.length) return { mode: 'replace', added: entries, total }
+  return { mode: 'append', added: entries.slice(entries.length - delta), total }
+}
+
+/** A KET SZURO EGY HELYEN (reszlet-pipa + kereses). Azert kulon, mert a teljes
+ *  ujrarajzolas ES a hozzafuzes is ezt hasznalja -- ha ketten ketfelekeppen
+ *  szurnenek, az elo nezetben mas sorok jelennenek meg, mint frissites utan. */
+function convFilterEntries(entries, mainKinds, showActions, query) {
+  let list = Array.isArray(entries) ? entries : []
+  if (!showActions) list = list.filter((e) => mainKinds.includes(e.kind))
+  const q = (query || '').toLowerCase().trim()
+  if (q) list = list.filter((e) => (e.text || '').toLowerCase().includes(q))
+  return list
+}
+
+/** A GEPI OK -> EMBERI MONDAT. Egy helyen, mert ketto is mutatja: az ures
+ *  lista es az elo jelzo bugyborekja. Ismeretlen kodra a NYERS uzenet megy ki,
+ *  tippelt okot sosem irunk oda. */
+function convReasonText(reason) {
+  return reason === 'no-path' ? t('conversation.empty_no_path')
+    : reason === 'no-session' ? t('conversation.empty_no_session')
+    : reason === 'too-large' ? t('conversation.empty_too_large')
+    : reason === 'unsafe-path' ? t('conversation.empty_unsafe')
+    : reason ? t('conversation.empty_unreachable', { msg: reason })
+    : t('conversation.empty')
+}
+
+// --- a kovetes allapota -------------------------------------------------
+let convFollowTimer = null
+/** Az utoljara BETOLTOTT tartalom napló-ideje; ehhez merjuk a valtozast. */
+let convFollowMtime = null
+/** Az utoljara BETOLTOTT allapot bejegyzes-szama (a napló EGESZE, nem az ablak). */
+let convFollowTotal = null
+/** A legutobbi konnyu meres nyers valasza (`mtime` + `reason`). */
+let convFollowMeta = null
+/** Visszalapozas alatt a kovetes all -- lasd `loadOlderConversation`. */
+let convFollowPaused = false
+/** Hany uj sor jott, amit a felhasznalo meg nem latott (feljebb gorgetett). */
+let convFollowNew = 0
+/** Fut-e eppen egy kor; enelkul egy lassu valasz alatt torlodnanak a korok. */
+let convFollowBusy = false
+
+function convFollowStop() {
+  if (convFollowTimer !== null) { clearInterval(convFollowTimer); convFollowTimer = null }
+}
+
+/** Bezaraskor MINDENT visszaallitunk: idozito, mercek, jelzo, pill. A
+ *  `closeModal` hivja, tehat MINDEN zarasi uton lefut -- gomb, Esc es
+ *  kattintas a hatterre is. */
+function convFollowReset() {
+  convFollowStop()
+  convFollowMtime = null
+  convFollowTotal = null
+  convFollowMeta = null
+  convFollowPaused = false
+  convFollowNew = 0
+  renderConvLive()
+  renderConvNewPill()
+}
+
+/** Elinditja a kovetest -- CSAK VS Code beszelgetesre. Az ugynok-naplok nem
+ *  igy frissulnek, ott a kovetes csak felesleges forgalom lenne. */
+function convFollowStart() {
+  convFollowStop()
+  if (conversationSource.kind !== 'code' || !conversationSource.id) return
+  convFollowTimer = setInterval(convFollowTick, CONV_FOLLOW_MS)
+  renderConvLive()
+}
+
+async function convFollowTick() {
+  if (convFollowTimer === null || convFollowBusy || convFollowPaused) return
+  // REJTETT FUL: nem kerdezunk. A felhasznalo nem latja, es a telefonjan ez
+  // felesleges halozat es akkumulator. Lathatova valaskor azonnal kerdezunk.
+  if (document.hidden) return
+  if (conversationSource.kind !== 'code' || !conversationSource.id) return
+  convFollowBusy = true
+  try {
+    const token = localStorage.getItem('marveen-dashboard-token') || ''
+    const r = await fetch(conversationUrl(0) + '&meta=1', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    })
+    const d = await r.json()
+    convFollowMeta = d
+    renderConvLive()
+    // NEM LATUNK ODA: nincs mit lehuzni. A jelzo ezt mondja is -- nem allitunk
+    // "elo"-t olyan naplora, amit meg sem tudunk nezni.
+    if (d.reason) return
+    // A TARTALOM CSAK AKKOR jon le, ha a napló tenyleg valtozott.
+    if (convFollowMtime !== null && typeof d.mtime === 'number' && d.mtime <= convFollowMtime) return
+    await convFollowPull()
+  } catch {
+    // Nem ertuk el a szervert. Ez sem "elo", sem "nem latok oda" -- nem tudjuk.
+    // A jelzo elbujik a kovetkezo sikeres meresig, semmit nem allitunk.
+    convFollowMeta = null
+    renderConvLive()
+  } finally {
+    convFollowBusy = false
+  }
+}
+
+/** A TARTALOM lehuzasa es HOZZAFUZESE -- csak akkor fut, ha az mtime elmozdult. */
+async function convFollowPull() {
+  const token = localStorage.getItem('marveen-dashboard-token') || ''
+  const r = await fetch(conversationUrl(0), { headers: { 'Authorization': 'Bearer ' + token } })
+  const d = await r.json()
+  // Kozben visszalapozhatott vagy bezarhatta -- akkor a valasz mar nem az ove.
+  if (convFollowPaused || convFollowTimer === null) return
+  const plan = convFollowPlan(convFollowTotal, d)
+  convFollowTotal = plan.total
+  if (typeof d.mtime === 'number') convFollowMtime = d.mtime
+  if (plan.mode === 'none') return
+  if (plan.mode === 'replace') {
+    conversationEntries = Array.isArray(d.entries) ? d.entries : []
+    conversationReason = conversationEntries.length === 0 ? (d.reason || null) : null
+    conversationHasOlder = plan.total > conversationEntries.length
+    renderConversation()
+    convFollowNew = 0
+    renderConvNewPill()
+    return
+  }
+  conversationEntries = conversationEntries.concat(plan.added)
+  conversationReason = null
+  conversationHasOlder = plan.total > conversationEntries.length
+  convAppendRows(plan.added)
+}
+
+/** UJ SOROK A LISTA VEGERE -- ujrarajzolas nelkul.
+ *
+ *  A teljes `renderConversation()` minden korben ujraepitene a DOM-ot: a lista
+ *  megvillanna, a kijelolt szoveg elveszne, es a gorgetes megugrana. Ezert az
+ *  uj sorok egyszeruen hozza vannak fuzve. */
+function convAppendRows(added) {
+  const container = document.getElementById('conversationContainer')
+  if (!container) return
+  // Ha most NEM sorok allnak bent (ures-uzenet vagy csak a "Korabbiak" gomb),
+  // a hozzafuzes az uzenet MELLE irna az elso sort -> teljes ujrarajzolas.
+  if (!container.querySelector('.conv-row')) { renderConversation(); return }
+  const mainKinds = CONV_MAIN_KINDS[conversationSource.kind] || CONV_MAIN_KINDS.agent
+  const showActions = document.getElementById('conversationShowActions')?.checked
+  const q = document.getElementById('conversationSearch')?.value || ''
+  const rows = convFilterEntries(added, mainKinds, showActions, q)
+  if (!rows.length) return
+  // A gorgetes allasat MEG A BEILLESZTES ELOTT kell megmerni: utana a
+  // scrollHeight mar az uj sorokkal egyutt szamol, es minden "aljan all"-nak
+  // latszana.
+  const near = convIsNearBottom(container.scrollTop, container.scrollHeight, container.clientHeight)
+  container.insertAdjacentHTML('beforeend', rows.map(renderConvEntry).join(''))
+  if (near) {
+    container.scrollTop = container.scrollHeight
+    convFollowNew = 0
+  } else {
+    // OLVAS valamit feljebb. Nem rantjuk el a szeme elol -- szolunk.
+    convFollowNew += rows.length
+  }
+  renderConvNewPill()
+}
+
+/** "N uj sor" bugyborek. Csak akkor all ki, ha tenyleg van olyan sor, amit a
+ *  felhasznalo meg nem latott. */
+function renderConvNewPill() {
+  const pill = document.getElementById('conversationNewPill')
+  if (!pill) return
+  if (convFollowNew > 0) {
+    pill.textContent = t('conversation.newLines', { n: convFollowNew })
+    pill.hidden = false
+  } else {
+    pill.hidden = true
+  }
+}
+
+/** AZ ELO JELZO. Amit MERTUNK, azt mondja -- es amit nem, arrol hallgat. */
+function renderConvLive() {
+  const el = document.getElementById('conversationLive')
+  if (!el) return
+  // Az ugynok-naplokat nem kovetjuk: ott a jelzo semmit nem allitana.
+  if (conversationSource.kind !== 'code') { el.hidden = true; return }
+  const state = convLiveState(convFollowMeta, Date.now(), { paused: convFollowPaused })
+  if (state === 'unknown') { el.hidden = true; el.removeAttribute('title'); return }
+  el.hidden = false
+  el.className = 'conv-live conv-live-' + state
+  if (state === 'blind') {
+    // NEM "elo". A gepi kod helyett az emberi mondat megy a bugyborekba --
+    // ugyanaz a mondat, amit a lista is mutat, ha ures.
+    el.textContent = t('conversation.blind')
+    el.title = convReasonText(convFollowMeta && convFollowMeta.reason)
+    return
+  }
+  if (state === 'paused') {
+    el.textContent = t('conversation.livePaused')
+    el.title = t('conversation.livePaused_help')
+    return
+  }
+  const when = (convFollowMeta && typeof convFollowMeta.mtime === 'number')
+    ? fmtConvClock(convFollowMeta.mtime) : ''
+  el.textContent = (state === 'idle' ? t('conversation.liveIdle') : t('conversation.live'))
+    + (when ? ' · ' + t('conversation.updatedAt', { time: when }) : '')
+  el.title = t('conversation.updated_help')
+}
+
+/** Ora-pontos ido a jelzohoz (HH:MM:SS) -- a masodperc itt szamit, ebbol latod,
+ *  hogy tenyleg mozog. */
+function fmtConvClock(ms) {
+  try {
+    return new Date(ms).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch { return '' }
+}
+
 function fmtConvTs(ts) {
   if (!ts) return ''
   try {
@@ -30180,10 +30516,11 @@ function renderConversation(opts = {}) {
   const prevTop = container.scrollTop
   const q = (document.getElementById('conversationSearch')?.value || '').toLowerCase().trim()
   const showActions = document.getElementById('conversationShowActions')?.checked
-  let list = conversationEntries
   const mainKinds = CONV_MAIN_KINDS[conversationSource.kind] || CONV_MAIN_KINDS.agent
-  if (!showActions) list = list.filter(e => mainKinds.includes(e.kind))
-  if (q) list = list.filter(e => (e.text || '').toLowerCase().includes(q))
+  // UGYANAZ a szuro, mint amit az elo hozzafuzes hasznal (`convAppendRows`):
+  // ha a ketto szetcsuszna, az elo nezet mas sorokat mutatna, mint egy
+  // frissites utani ujrarajzolas.
+  const list = convFilterEntries(conversationEntries, mainKinds, showActions, q)
   // "Korábbiak betöltése" sits at the top so the operator can page further back;
   // shown whenever the server still has older entries beyond the loaded window.
   const olderBtn = conversationHasOlder
@@ -30200,12 +30537,7 @@ function renderConversation(opts = {}) {
       // oda" ket kulonbozo valasz: a szerver gepi okot ad, es mindegyiknek
       // sajat mondata van, ami a KOVETKEZO LEPEST mondja. Ismeretlen kodra a
       // nyers uzenet megy ki -- tippelt okot nem irunk oda.
-      : conversationReason === 'no-path' ? t('conversation.empty_no_path')
-      : conversationReason === 'no-session' ? t('conversation.empty_no_session')
-      : conversationReason === 'too-large' ? t('conversation.empty_too_large')
-      : conversationReason === 'unsafe-path' ? t('conversation.empty_unsafe')
-      : conversationReason ? t('conversation.empty_unreachable', { msg: conversationReason })
-      : t('conversation.empty')
+      : convReasonText(conversationReason)
     container.innerHTML = olderBtn || `<div class="conversation-empty">${msg}</div>`
   } else {
     container.innerHTML = olderBtn + list.map(renderConvEntry).join('')
@@ -30250,7 +30582,25 @@ document.getElementById('conversationClose')?.addEventListener('click', () => {
 })
 document.getElementById('conversationSearch')?.addEventListener('input', () => renderConversation())
 document.getElementById('conversationShowActions')?.addEventListener('change', () => renderConversation())
-document.getElementById('conversationRefresh')?.addEventListener('click', () => loadConversation())
+// A "Frissites" a visszalapozas utani szunetet is FELOLDJA: a felhasznalo ezzel
+// mondja azt, hogy megint a legfrissebbet akarja latni.
+document.getElementById('conversationRefresh')?.addEventListener('click', async () => {
+  await loadConversation()
+  convFollowStart()
+})
+// "N uj sor" -> ugras az aljara. Ez az EGYETLEN eset, amikor a lista magatol
+// elmozdul a felhasznalo alatt: mert o kerte.
+document.getElementById('conversationNewPill')?.addEventListener('click', () => {
+  const container = document.getElementById('conversationContainer')
+  if (container) container.scrollTop = container.scrollHeight
+  convFollowNew = 0
+  renderConvNewPill()
+})
+// REJTETT FUL: a kor uresen fordul (lasd `convFollowTick`), es amint a lap
+// ujra lathato, AZONNAL kerdezunk -- nem varunk a kovetkezo utemre.
+document.addEventListener('visibilitychange', () => {
+  if (convFollowTimer !== null && !document.hidden) convFollowTick()
+})
 
 // === Federation page ===
 // State lets live BEFORE the router IIFE (top-level code runs in order; a

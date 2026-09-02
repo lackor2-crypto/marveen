@@ -187,6 +187,76 @@ function parseLine(line: string, out: CodeConvEntry[]): void {
   }
 }
 
+/** A napló ELERHETOSEGE -- a tartalma NELKUL. */
+export interface CodeConvMeta {
+  transcriptPath: string | null
+  /** Mikor irt utoljara a beszelgetes (ms). `null` = nem tudtuk megnezni. */
+  mtime: number | null
+  /** A napló merete bajtban. `null` = nem tudtuk megnezni. */
+  size: number | null
+  /** MIERT nem olvashato. `null` = olvashato. Sosem tipp. */
+  reason: string | null
+}
+
+/**
+ * A KAPU-LANC EGY HELYEN -- ezt hasznalja a teljes beolvasas ES a konnyu
+ * (`meta=1`) lekerdezes is.
+ *
+ * MIERT KOZOS: az elo kovetes 2-3 masodpercenkent kerdez ra a naplora, es ha
+ * ez a konnyu ut sajat kapu-lancot kapna, elobb-utobb MAS okot mondana, mint a
+ * teljes beolvasas -- ugyanarra a fajlra ket kulonbozo valasz. A felhasznalo
+ * ilyenkor azt latja, hogy a jelzo "elo", a lista meg azt irja, "nem latok
+ * oda". A `local` mezot csak a beolvasas hasznalja; kifele nem megy.
+ */
+function statTranscript(
+  transcriptPath: string | null,
+  sessionId: string,
+): CodeConvMeta & { local: string | null } {
+  const no = (reason: string, path: string | null = null): CodeConvMeta & { local: null } =>
+    ({ transcriptPath: path, mtime: null, size: null, reason, local: null })
+
+  // 1. NEM LATUNK ODA: a worker meg nem kuldi az utat (regi peldany).
+  if (!transcriptPath) return no('no-path')
+  // 2. Az ut nem olyan, amilyet a Claude Code gyart -- ilyet nem nyitunk meg.
+  if (!isSafeTranscriptPath(transcriptPath, sessionId)) return no('unsafe-path', transcriptPath)
+
+  // 3. A Claude Code gepen ervenyes ut -> a MI gepunk szemevel. Ugyanaz a
+  //    forditas, ami a workspace-eknel is fut (Windows `C:\...` -> `/mnt/c/...`).
+  const local = toLocalWorkspacePath(transcriptPath)
+  if (local === null) return no('unreachable: this path cannot be opened from here', transcriptPath)
+
+  try {
+    const st = statSync(local)
+    // A "tul nagy" nem elerhetetlenseg: az mtime-ot MEGTUDTUK, tehat a
+    // valtozast tovabbra is latjuk -- csak a tartalmat nem nyitjuk meg.
+    return {
+      transcriptPath, mtime: st.mtimeMs, size: st.size,
+      reason: st.size > MAX_FILE_BYTES ? 'too-large' : null,
+      local,
+    }
+  } catch (err) {
+    // A TENYLEGES hibauzenet megy tovabb (ENOENT / EACCES / EIO): mindharomnal
+    // MAS a kovetkezo lepes, es a tippelt ok rosszabb a semminel.
+    return no(err instanceof Error ? err.message : String(err), transcriptPath)
+  }
+}
+
+/**
+ * CSAK AZ ALLAPOT: mikor irtak utoljara a naplot, es latunk-e ra egyaltalan.
+ *
+ * Ez az elo kovetes olcso kerdese. Egy `statSync`, semmi beolvasas -- ebben a
+ * mappaban 156 MB-os transcript is van, azt 2-3 masodpercenkent beolvasni a
+ * szervert vinne el. A felulet ebbol dont: ha az `mtime` nott, akkor -- es CSAK
+ * akkor -- keri le a tartalmat.
+ */
+export function statCodeConversation(
+  transcriptPath: string | null,
+  sessionId: string,
+): CodeConvMeta {
+  const { local: _local, ...meta } = statTranscript(transcriptPath, sessionId)
+  return meta
+}
+
 /**
  * A napló -> idovonal, lapozva.
  *
@@ -199,40 +269,21 @@ export function readCodeConversation(
   sessionId: string,
   opts: { limit: number; offset: number },
 ): CodeConvResult {
-  const empty = (reason: string | null, path: string | null = null): CodeConvResult => ({
-    entries: [], total: 0, offset: 0, hasOlder: false, transcriptPath: path, mtime: null, reason,
+  const empty = (
+    reason: string | null, path: string | null = null, mtime: number | null = null,
+  ): CodeConvResult => ({
+    entries: [], total: 0, offset: 0, hasOlder: false, transcriptPath: path, mtime, reason,
   })
 
-  // 1. NEM LATUNK ODA: a worker meg nem kuldi az utat (regi peldany).
-  if (!transcriptPath) return empty('no-path')
-  // 2. Az ut nem olyan, amilyet a Claude Code gyart -- ilyet nem nyitunk meg.
-  if (!isSafeTranscriptPath(transcriptPath, sessionId)) return empty('unsafe-path', transcriptPath)
-
-  // 3. A Claude Code gepen ervenyes ut -> a MI gepunk szemevel. Ugyanaz a
-  //    forditas, ami a workspace-eknel is fut (Windows `C:\...` -> `/mnt/c/...`).
-  const local = toLocalWorkspacePath(transcriptPath)
-  if (local === null) return empty('unreachable: this path cannot be opened from here', transcriptPath)
-
-  let size = 0
-  let mtime: number | null = null
-  try {
-    const st = statSync(local)
-    size = st.size
-    mtime = st.mtimeMs
-  } catch (err) {
-    // A TENYLEGES hibauzenet megy tovabb (ENOENT / EACCES / EIO): mindharomnal
-    // MAS a kovetkezo lepes, es a tippelt ok rosszabb a semminel.
-    return empty(err instanceof Error ? err.message : String(err), transcriptPath)
-  }
-  if (size > MAX_FILE_BYTES) {
-    return { ...empty('too-large', transcriptPath), mtime }
-  }
+  const st = statTranscript(transcriptPath, sessionId)
+  if (st.reason !== null || st.local === null) return empty(st.reason, st.transcriptPath, st.mtime)
+  const { local, mtime } = st
 
   let raw: string
   try {
     raw = readFileSync(local, 'utf8')
   } catch (err) {
-    return { ...empty(err instanceof Error ? err.message : String(err), transcriptPath), mtime }
+    return empty(err instanceof Error ? err.message : String(err), transcriptPath, mtime)
   }
 
   const all: CodeConvEntry[] = []

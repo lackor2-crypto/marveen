@@ -2665,6 +2665,17 @@ window._i18n.en = {
   'conversation.empty_too_large':	'The transcript is too large to open in one piece (over 64 MB). The conversation is intact, it just cannot be read from here — open it in VS Code.',
   'conversation.empty_unsafe':	'The reported transcript path is not one Claude Code produces, so I did not open it. This is a worker fault — update the worker script.',
   'conversation.empty_unreachable':	'I could not open the transcript. The system said: {msg}',
+  // LIVE FOLLOW. The four states are deliberately separate sentences: "idle
+  // because the task is done" and "I cannot see it" are different answers with
+  // different next steps.
+  'conversation.live':			'live',
+  'conversation.liveIdle':		'live · no new lines',
+  'conversation.livePaused':		'paused',
+  'conversation.livePaused_help':	'You paged back to earlier entries, so I am not pulling the newest lines over them. "Refresh" turns live following back on.',
+  'conversation.blind':			'cannot see it',
+  'conversation.updatedAt':		'last updated: {time}',
+  'conversation.updated_help':	'When Claude Code last wrote into this conversation. If the number stands still, the run is simply not writing right now — that is not an error.',
+  'conversation.newLines':		'{n} new lines ↓',
   'memories.agent_all':			'All agents',
   'memories.stat.total':			'Total',
   'memories.stat.vectors_btn':			'Generate vectors',
@@ -3843,6 +3854,8 @@ window._i18n.en = {
   // when its process is gone -- the next task goes there, so you must see it.
   'cb.card.tab_not_running': 'not running',
   'cb.card.tab_not_running_help': 'Its Claude Code process is NO LONGER RUNNING (measured, not guessed) — the transcript is on disk and can be resumed by opening it in VS Code. It can still be given a task: Marveen resumes the saved conversation.',
+  'cb.card.tab_live': 'Live view',
+  'cb.card.tab_live_help': 'Opens this conversation and keeps it updating on its own as Claude Code works — lines arrive, you see which file it writes and what it answers. Read-only.',
   'cb.card.tab_open': 'Open conversation',
   'cb.card.tab_open_help': 'Shows what is in this conversation: what you typed, what Claude answered, and the actions it ran. Read-only — it starts and changes nothing.',
   'cb.card.tabs_closed': 'Recent ({n})',
