@@ -349,12 +349,47 @@ szerverben, sem az API válaszában. Ha valaki visszatenné, a
 hogy **nem látunk oda**. A felület és a Telegram is ezt a mezőt mondja vissza
 -- "nincs chat fül" csak `empty` esetén hangzik el.
 
-### Élőben nézni, mit csinál éppen: a Claude mobilalkalmazás
+### Élő nézet a felületen: olvasni ÉS beleírni
 
-A híd **feladatot ad és eredményt hoz** -- a munka menetét nem közvetíti.
-Ha élőben látnád, mit csinál éppen a gépeden a VS Code Claude Code (melyik
-fájlt írja, hol tart), arra a **Claude mobilalkalmazás "Code" füle** való: ott
-ugyanezek a sessionök látszanak, folyamatában, és beszélgetni is lehet velük.
+A kód-híd kártyáján minden beszélgetés-sor mellett **egy** gomb áll, és az
+mindig ugyanazt az ablakot nyitja:
+
+| Amit a sor mutat | A gomb felirata | Mit jelent |
+|---|---|---|
+| `live === true` (**mértük**, hogy fut) | **Élő nézet** + pulzáló pont | a folyamat most fut, a nézet magától frissül |
+| `live === false` vagy `null` (nem fut / nem mértük) | **Megnyitás** | a tartalom ugyanúgy olvasható, csak nem ígérünk „élőt" |
+
+Egy sor -- egy gomb. (Korábban egy `☰` jel is ott állt ugyanezzel a
+funkcióval; Boss, 2026-09-02: „mind a kettő ugyanazt teszi ... az a 3 vonal
+akkor nem kellene." Azóta csak a kiírt nevű gomb van, a **lenyíló „Legutóbbi"**
+listában is.)
+
+Az ablak alján egy **küldő sor** ül: beírsz egy utasítást, és az
+**ugyanabba a beszélgetésbe** megy, a teljes előzménnyel -- a végrehajtó
+`claude --resume <sessionId>`-del folytatja a meglévő sessiont, tehát nem
+indul új szál és nem vész el a kontextus. A sor öt állapotot tud
+megkülönböztetni, és mindegyikről más mondatot mond:
+
+| Állapot | Mit mond |
+|---|---|
+| ügynök-napló (nem kód-beszélgetés) | a sor **meg sem jelenik** |
+| a sessiont egy worker sem jelentette | nem tudja, hova küldje -- indítsd el a workert |
+| a mappa nincs bekötve projektként | nincs hová küldeni -- vedd fel a Kód-híd lapon |
+| a worker **mérten** nem jelentkezik | elküldhető, de sorba áll a worker visszatéréséig |
+| a worker állapotát **nem mértük** (nem értük el a szervert) | elküldhető, sorba áll -- és megmondja, hogy ezt most nem tudta megmérni |
+
+A küldés a szokásos sort használja (`POST /api/code/tasks`, `sessionId`-vel
+címezve), tehát ugyanaz a végrehajtó, ugyanaz a jóváhagyási mód és ugyanaz a
+Feladatok-lista, mint a Telegramról vagy ügynöktől feladott munkánál.
+
+Egy figyelmeztetés itt is áll: amíg egy feladat fut, ne írj ugyanabba a
+beszélgetésbe párhuzamosan a VS Code-ból is.
+
+### Élőben nézni a saját gépeden: a Claude mobilalkalmazás
+
+A felület élő nézete a **napló**-t mutatja (ami a sessionben történt), a
+mobilalkalmazás „Code" füle pedig magát a **folyamatot**: ott ugyanezek a
+sessionök látszanak, és közvetlenül is lehet velük beszélgetni.
 
 Ez a hídat **kiegészíti, nem váltja ki**. Három út vezet ugyanahhoz a
 sessionhöz:

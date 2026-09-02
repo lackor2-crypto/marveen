@@ -64,8 +64,7 @@ const harness = `
   ${extractFn(app, 'cbTabRows')}
   ${extractFn(app, 'cbHasTabRows')}
   ${extractFn(app, 'cbTabsEmptyHasCtx')}
-  ${extractFn(app, 'cbTabLiveBtn')}
-  ${extractFn(app, 'cbTabOpenBtn')}
+  ${extractFn(app, 'cbTabViewBtn')}
   ${extractFn(app, 'cbClosedTabsHtml')}
   ${extractFn(app, 'cbTabsPickHtml')}
   ${extractFn(app, 'cbEntryFromProject')}
@@ -206,13 +205,19 @@ describe('a bekotott beszelgetes sora akkor is kiall, ha nem fut', () => {
 describe('a beszelgetes TARTALMA megnyithato', () => {
   it('van gomb, ha a worker elkuldte a naplo utjat', () => {
     const html = api.cbTabsPickHtml({ tabs: [{ sessionId: 's1', title: 'x', live: true, current: true, hasTranscript: true }], tabsReason: 'ok' })
-    expect(html).toContain('cb-tab-open')
-    expect(html).toContain('cb.card.tab_open')
+    expect(html).toContain('cb-tab-live-btn')
+    expect(html).toContain('cb.card.tab_live')
   })
 
   it('NINCS gomb, ha nem latunk oda (regi worker) -- nem kinalunk halott gombot', () => {
     const html = api.cbTabsPickHtml({ tabs: [{ sessionId: 's1', title: 'x', live: true, current: true, hasTranscript: false }], tabsReason: 'ok' })
-    expect(html).not.toContain('cb-tab-open')
+    expect(html).not.toContain('cb-tab-live-btn')
+  })
+
+  it('★ EGY gomb all a soron, nem ketto (Boss: "az a 3 vonal akkor nem kellene")', () => {
+    const html = api.cbTabsPickHtml({ tabs: [{ sessionId: 's1', title: 'x', live: true, current: true, hasTranscript: true }], tabsReason: 'ok' })
+    expect((html.match(/cb-tab-live-btn/g) || []).length).toBe(1)
+    expect(html).not.toContain('☰')
   })
 })
 
@@ -236,7 +241,13 @@ describe('a mappa tobbi beszelgetese elerheto marad', () => {
     expect(html).toContain('tegnapi kor')
     expect(html).toContain('masik')
     // Az elsore van gomb (van naplo-ut), a masodikra nincs.
-    expect((html.match(/cb-tab-open/g) || []).length).toBe(1)
+    expect((html.match(/cb-tab-live-btn/g) || []).length).toBe(1)
+    // ★ Boss, 2026-09-02: "a lenyilo menuben ... oda is oda kellene tenni ezt
+    // az elo nezetet." A lenyilo sorok nem futnak, tehat "Megnyitas" a felirat
+    // -- de a gomb ott van, es ugyanazt az ablakot nyitja.
+    expect(html).toContain('cb-tab-view-btn')
+    expect(html).toContain('cb.card.tab_open_short')
+    expect(html).not.toContain('☰')
     // Az "utoljara irt" csak ott all ki, ahol tenyleg megmertuk.
     expect((html.match(/cb-tab-when/g) || []).length).toBe(1)
   })

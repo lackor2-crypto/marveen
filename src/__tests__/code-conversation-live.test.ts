@@ -149,11 +149,11 @@ const harness = `
   ${extractFn(app, 'convLiveState')}
   ${extractFn(app, 'convFollowPlan')}
   ${extractFn(app, 'convFilterEntries')}
-  ${extractFn(app, 'cbTabLiveBtn')}
+  ${extractFn(app, 'cbTabViewBtn')}
   return {
     convIsNearBottom: convIsNearBottom, convLiveState: convLiveState,
     convFollowPlan: convFollowPlan, convFilterEntries: convFilterEntries,
-    cbTabLiveBtn: cbTabLiveBtn,
+    cbTabViewBtn: cbTabViewBtn,
   }
 `
 interface Entry { kind: string; text?: string }
@@ -170,7 +170,7 @@ const api = new Function(harness)() as {
     next: { entries?: Entry[]; total?: number },
   ) => { mode: string; added: Entry[]; total: number }
   convFilterEntries: (e: Entry[], main: string[], showActions: boolean, q: string) => Entry[]
-  cbTabLiveBtn: (tb: Record<string, unknown> | null, label: string) => string
+  cbTabViewBtn: (tb: Record<string, unknown> | null, label: string) => string
 }
 
 describe('convIsNearBottom: mikor szabad magatol lerantani a listat', () => {
@@ -291,30 +291,52 @@ describe('convFilterEntries: a hozzafuzes UGYANAZT szuri, mint az ujrarajzolas',
   })
 })
 
-describe('"Elo nezet" gomb: csak arra, amirol MERTUK, hogy fut', () => {
-  it('futo ful + van napló -> kiall a gomb, forditott felirattal', () => {
-    const html = api.cbTabLiveBtn({ sessionId: SESSION, live: true, hasTranscript: true }, 'Kanban #47')
+// Boss, 2026-09-02: "a kartyan van az a 3 vonal egymas alatt es mellette az elo
+// nezet. de mind a ketto ugyanazt teszi ... az a 3 vonal akkor nem kellene." --
+// es: "a lenyilo menuben abban a legutobbi chatekben, oda is oda kellene tenni
+// ezt az elo nezetet." Azota EGY gomb van soronkent, KET felirattal.
+describe('Megnyito gomb: egy alak, ket allapot -- es az "elo" MERES', () => {
+  it('futo ful + van napló -> "Elo nezet" + pulzalo pont', () => {
+    const html = api.cbTabViewBtn({ sessionId: SESSION, live: true, hasTranscript: true }, 'Kanban #47')
     expect(html).toContain('cb-tab-live-btn')
+    expect(html).toContain('cb-tab-live-dot')
     expect(html).toContain('cb.card.tab_live')
     expect(html).toContain(SESSION)
     // A felirat a forditason megy at -- nincs beegetett magyar szoveg.
     expect(html).not.toMatch(/Élő|Live view/)
   })
 
-  it('★ nem fut -> nincs gomb (nem igerunk elo nezetet allo beszelgetesre)', () => {
-    expect(api.cbTabLiveBtn({ sessionId: SESSION, live: false, hasTranscript: true }, 'x')).toBe('')
+  it('★ nem fut -> VAN gomb, de "Megnyitas" -- elo nezetet nem igerunk ra', () => {
+    const html = api.cbTabViewBtn({ sessionId: SESSION, live: false, hasTranscript: true }, 'x')
+    expect(html).toContain('cb-tab-view-btn')
+    expect(html).toContain('cb.card.tab_open_short')
+    expect(html).not.toContain('cb.card.tab_live')
+    // A PULZALO PONT az "elo" jele. Allo beszelgetesen ott nincs mit jelezni.
+    expect(html).not.toContain('cb-tab-live-dot')
   })
 
-  it('★ NEM MERTUK, hogy fut-e (`live: null`) -> a hallgatas a helyes valasz', () => {
-    expect(api.cbTabLiveBtn({ sessionId: SESSION, live: null, hasTranscript: true }, 'x')).toBe('')
+  it('★ NEM MERTUK, hogy fut-e (`live: null`) -> ugyanaz, mint a nem-futo: nem allitunk elot', () => {
+    const html = api.cbTabViewBtn({ sessionId: SESSION, live: null, hasTranscript: true }, 'x')
+    expect(html).toContain('cb-tab-view-btn')
+    expect(html).not.toContain('cb-tab-live-dot')
   })
 
   it('nincs napló (regi worker) -> nincs gomb, amit hibauzenet jutalmazna', () => {
-    expect(api.cbTabLiveBtn({ sessionId: SESSION, live: true, hasTranscript: false }, 'x')).toBe('')
+    expect(api.cbTabViewBtn({ sessionId: SESSION, live: true, hasTranscript: false }, 'x')).toBe('')
+    expect(api.cbTabViewBtn({ sessionId: SESSION, live: false, hasTranscript: false }, 'x')).toBe('')
   })
 
   it('hianyzo ful nem dob kivetelt', () => {
-    expect(api.cbTabLiveBtn(null, 'x')).toBe('')
+    expect(api.cbTabViewBtn(null, 'x')).toBe('')
+  })
+
+  it('★ a `☰` SEHOL nem marad meg -- a ket gombbol egy lett', () => {
+    const live = api.cbTabViewBtn({ sessionId: SESSION, live: true, hasTranscript: true }, 'x')
+    const idle = api.cbTabViewBtn({ sessionId: SESSION, live: false, hasTranscript: true }, 'x')
+    expect(live).not.toContain('☰')
+    expect(idle).not.toContain('☰')
+    expect(live).not.toContain('cb-tab-open"')
+    expect(idle).not.toContain('cb-tab-open"')
   })
 })
 

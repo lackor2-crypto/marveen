@@ -5636,37 +5636,36 @@ function cbRunTip() {
     : (cbRunOn() ? t('cb.card.run_on_help') : t('cb.card.run_off_help'))
 }
 
-/** "ELO NEZET" -- a MOST FUTO beszelgetesekhez.
+/** A BESZELGETES MEGNYITASA -- EGY gomb soronkent.
  *
- *  Ugyanazt az ablakot nyitja, mint a `☰`, de sajat, kiirt nevvel: ez az a
- *  gomb, amit akkor keresel, amikor azt akarod latni, mit csinal a Claude Code
- *  EPPEN MOST. A `☰` egy jel, amit ismerni kell; ez egy mondat, amit olvasni.
+ *  Boss, 2026-09-02: "a kartyan van az a 3 vonal egymas alatt es mellette az
+ *  elo nezet. de mind a ketto ugyanazt teszi ... az a 3 vonal akkor nem
+ *  kellene." Igaza volt: a `☰` es az "Elo nezet" UGYANAZT az ablakot nyitotta,
+ *  csak az egyik jelbol, a masik mondatbol. Maradt a mondat.
  *
- *  KET MERT FELTETEL, es egyik sem tipp:
- *    * `hasTranscript` -- van mit megnyitni (a worker elkuldte a napló utjat);
- *    * `live === true` -- a beszelgetes folyamata MOST FUT.
- *  A `live === null` (nem mertuk) NEM eleg: olyan fulre nem igerunk elo
- *  nezetet, amirol nem tudjuk, el-e. A hallgatas ott a helyes valasz. */
-function cbTabLiveBtn(tb, label) {
-  if (!tb || !tb.hasTranscript || tb.live !== true) return ''
-  return '<button type="button" class="cb-tab-live-btn" data-session="' + escapeAttr(tb.sessionId) + '"'
-    + ' data-label="' + escapeAttr(label || '') + '"'
-    + ' title="' + escapeAttr(t('cb.card.tab_live') + ' — ' + t('cb.card.tab_live_help')) + '"'
-    + ' aria-label="' + escapeAttr(t('cb.card.tab_live')) + '">'
-    + '<span class="cb-tab-live-dot"></span>' + escapeHtml(t('cb.card.tab_live')) + '</button>'
-}
-
-/** A "beszelgetes megnyitasa" gomb egy ful-sorhoz.
+ *  Boss ugyanekkor: "es a lenyilo menuben abban a legutobbi chatekben, oda is
+ *  oda kellene tenni ezt az elo nezetet." -- ezert all ki a gomb a NEM FUTO
+ *  beszelgetesekre is; ott viszont mas a felirat, mert mast is jelent.
  *
- *  CSAK akkor all ki, ha a worker elkuldte a napló utjat (`hasTranscript`).
- *  Egy regi worker mellett nem lenne mit megnyitni -- olyankor a hallgatas a
- *  helyes valasz, nem egy gomb, ami hibauzenettel jutalmaz. */
-function cbTabOpenBtn(tb, label) {
+ *  KET FELIRAT, MERES SZERINT -- es egyik sem tipp:
+ *    * `live === true` (MERTUK, hogy fut) -> "Elo nezet" + pulzalo pont;
+ *    * barmi mas (`false` = nem fut, `null` = nem mertuk) -> "Megnyitas",
+ *      pont nelkul. Elo nezetet nem igerunk arra, amirol nem tudjuk, hogy el.
+ *  A `hasTranscript` mindketto elott all: ha a worker el sem kuldte a napló
+ *  utjat, nincs mit megnyitni -- olyankor a hallgatas a helyes valasz, nem egy
+ *  gomb, ami hibauzenettel jutalmaz. */
+function cbTabViewBtn(tb, label) {
   if (!tb || !tb.hasTranscript) return ''
-  return '<button type="button" class="cb-tab-open" data-session="' + escapeAttr(tb.sessionId) + '"'
+  const live = tb.live === true
+  const full = live ? t('cb.card.tab_live') : t('cb.card.tab_open')
+  const help = live ? t('cb.card.tab_live_help') : t('cb.card.tab_open_help')
+  const text = live ? t('cb.card.tab_live') : t('cb.card.tab_open_short')
+  return '<button type="button" class="cb-tab-live-btn' + (live ? '' : ' cb-tab-view-btn') + '"'
+    + ' data-session="' + escapeAttr(tb.sessionId) + '"'
     + ' data-label="' + escapeAttr(label || '') + '"'
-    + ' title="' + escapeAttr(t('cb.card.tab_open') + ' — ' + t('cb.card.tab_open_help')) + '"'
-    + ' aria-label="' + escapeAttr(t('cb.card.tab_open')) + '">☰</button>'
+    + ' title="' + escapeAttr(full + ' — ' + help) + '"'
+    + ' aria-label="' + escapeAttr(full) + '">'
+    + (live ? '<span class="cb-tab-live-dot"></span>' : '') + escapeHtml(text) + '</button>'
 }
 
 /** A MAPPA TOBBI BESZELGETESE -- azok, amiknek a folyamata mar nem fut.
@@ -5724,7 +5723,7 @@ function cbClosedTabsHtml(e) {
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + ctx
       + when
-      + cbTabOpenBtn(tb, label)
+      + cbTabViewBtn(tb, label)
       + '</label>'
   }).join('')
   // Boss, 2026-08-31: "csak egyet latok az uj nevu chat fulet. de kozben meg
@@ -5822,8 +5821,7 @@ function cbTabsPickHtml(e) {
       + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
       + notRunning
       + idle
-      + cbTabLiveBtn(tb, label)
-      + cbTabOpenBtn(tb, label)
+      + cbTabViewBtn(tb, label)
       + closeBtn
       + '</label>'
   }).join('')
@@ -6079,7 +6077,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A BESZELGETES MEGNYITASA. Ugyanaz az ablak, mint az ugynokoknel -- csak a
     // forras mas. A `preventDefault` itt is kell: a fo lista gombjai egy
     // <label>-en belul allnak, es kattintasra kulonben ATALLITANA a cel-fult.
-    card.querySelectorAll('.cb-tab-open, .cb-tab-live-btn').forEach((btn) => {
+    card.querySelectorAll('.cb-tab-live-btn').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault()
         ev.stopPropagation()
@@ -30170,9 +30168,11 @@ async function loadConversation(opts = {}) {
       const hasChannelTraffic = conversationEntries.some(e => main.includes(e.kind))
       if (box && !hasChannelTraffic && conversationEntries.length) box.checked = true
     }
+    conversationSendInfo = convSendInfoFrom(d)
     renderConversation()
     renderConvLive()
     renderConvNewPill()
+    renderConvSend()
   } catch {
     if (container) container.innerHTML = `<div class="conversation-empty">${t('conversation.error')}</div>`
   }
@@ -30322,6 +30322,40 @@ function convReasonText(reason) {
     : t('conversation.empty')
 }
 
+/**
+ * LEHET-E EBBE A BESZELGETESBE IRNI, es ha nem, MIERT. (tiszta fuggveny)
+ *
+ * A doboz alapbol REJTVE all, es csak akkor jon elo, ha van ertelme: ugynok-
+ * naplora nem lehet utasitast kuldeni, ott a beviteli mezo hazugsag lenne.
+ *
+ * ★ A NULLA KET DOLGOT JELENTHET -- itt HAROM allapotot kell szetvalasztani:
+ *   * `workerOnline === false` : MERTUK, es a munkas nem jelentkezik;
+ *   * `workerOnline` nem logikai: NEM mertuk (nem ertuk el a szervert);
+ *   * `project === null`       : a mappa nincs bekotve a kod-hidba.
+ * Mind a harom MAS mondat es MAS kovetkezo lepes. A ket "nem megy most" kozul
+ * egyik sem hiba -- de a felhasznalonak tudnia kell, melyikrol van szo.
+ *
+ * Ami NEM tiltja a kuldest: a `no-path` / `too-large` / `unsafe-path`. Azok
+ * arrol szolnak, hogy a NAPLOT nem tudjuk elolvasni -- a beszelgetes maga el,
+ * a feladat sorba allhat.
+ *
+ * Visszateres: { show, can, note } -- a `note` i18n KULCS, nem kesz szoveg,
+ * hogy a fuggveny nyelv-fuggetlen es DOM nelkul tesztelheto maradjon.
+ */
+function convSendState(info) {
+  const i = info || {}
+  // Ugynok-naplo (vagy meg semmit nem tudunk): a sor el sem jon.
+  if (i.kind !== 'code') return { show: false, can: false, note: null }
+  // Ilyen fulrol EGYETLEN munkas sem tud -- nincs hova cimezni.
+  if (i.reason === 'no-session') return { show: true, can: false, note: 'conversation.send.no_session' }
+  // Kuldeni csak PROJEKT-nevvel lehet. A hianya nem hiba, hanem egy el nem
+  // vegzett beallitas -- a mondat a kovetkezo lepest mondja.
+  if (!i.project) return { show: true, can: false, note: 'conversation.send.no_project' }
+  if (i.workerOnline === false) return { show: true, can: true, note: 'conversation.send.offline' }
+  if (typeof i.workerOnline !== 'boolean') return { show: true, can: true, note: 'conversation.send.unknown' }
+  return { show: true, can: true, note: 'conversation.send.ready' }
+}
+
 // --- a kovetes allapota -------------------------------------------------
 let convFollowTimer = null
 /** Az utoljara BETOLTOTT tartalom napló-ideje; ehhez merjuk a valtozast. */
@@ -30336,6 +30370,15 @@ let convFollowPaused = false
 let convFollowNew = 0
 /** Fut-e eppen egy kor; enelkul egy lassu valasz alatt torlodnanak a korok. */
 let convFollowBusy = false
+/** A KULDESHEZ kellő kornyezet, ahogy a szerver MOST mondta (projekt, munkas).
+ *  Minden konnyu kor frissiti, tehat a mondat sosem tegnapi allapotot allit. */
+let conversationSendInfo = null
+/** Fut-e eppen egy kuldes (ketszer kattintas ellen). */
+let convSendBusy = false
+/** A kuldes sajat, MULO uzenete ({ text, error }). Amig all, eroesebb az
+ *  allapot-mondatnal: amit a felhasznalo epp most tett, azt ne irja felul a
+ *  2,5 masodperces kor. */
+let convSendMsg = null
 
 function convFollowStop() {
   if (convFollowTimer !== null) { clearInterval(convFollowTimer); convFollowTimer = null }
@@ -30351,8 +30394,17 @@ function convFollowReset() {
   convFollowMeta = null
   convFollowPaused = false
   convFollowNew = 0
+  // A FELIG BEIRT UTASITAS IS TORLODIK. Megtartani kenyelmesebb volna, de a
+  // kovetkezo megnyitas MAS beszelgetes lehet -- az ott felejtett szoveg
+  // elkuldese csendes felrekuldes volna.
+  conversationSendInfo = null
+  convSendMsg = null
+  convSendBusy = false
+  const sendTa = document.getElementById('conversationSendPrompt')
+  if (sendTa) sendTa.value = ''
   renderConvLive()
   renderConvNewPill()
+  renderConvSend()
 }
 
 /** Elinditja a kovetest -- CSAK VS Code beszelgetesre. Az ugynok-naplok nem
@@ -30378,7 +30430,11 @@ async function convFollowTick() {
     })
     const d = await r.json()
     convFollowMeta = d
+    // UJRA MERVE: a projekt es a munkas allapota minden korben frissul, tehat a
+    // kuldo sor mondata nem egy perccel ezelotti allapotot allit.
+    conversationSendInfo = convSendInfoFrom(d)
     renderConvLive()
+    renderConvSend()
     // NEM LATUNK ODA: nincs mit lehuzni. A jelzo ezt mondja is -- nem allitunk
     // "elo"-t olyan naplora, amit meg sem tudunk nezni.
     if (d.reason) return
@@ -30389,7 +30445,12 @@ async function convFollowTick() {
     // Nem ertuk el a szervert. Ez sem "elo", sem "nem latok oda" -- nem tudjuk.
     // A jelzo elbujik a kovetkezo sikeres meresig, semmit nem allitunk.
     convFollowMeta = null
+    // A PROJEKTET NEM DOBJUK EL: attol, hogy most nem ertuk el a szervert, a
+    // mappa nem lett "bekotetlen" -- azt allitani talalgatas volna. Csak azt
+    // jelezzuk, ami tenyleg ismeretlen lett: jelentkezik-e a munkas.
+    if (conversationSendInfo) conversationSendInfo = { ...conversationSendInfo, workerOnline: null }
     renderConvLive()
+    renderConvSend()
   } finally {
     convFollowBusy = false
   }
@@ -30494,6 +30555,96 @@ function renderConvLive() {
   el.title = t('conversation.updated_help')
 }
 
+/** A SZERVER VALASZABOL a kuldeshez kello kornyezet. Csak azt vesszuk at,
+ *  amit a valasz TENYLEG mondott: a hianyzo `workerOnline` `null` marad
+ *  (= nem mertuk), nem csuszik at `false`-ba (= mertuk, nem jelentkezik). */
+function convSendInfoFrom(d) {
+  return {
+    kind: conversationSource.kind,
+    reason: (d && d.reason) || null,
+    project: (d && typeof d.project === 'string' && d.project) ? d.project : null,
+    workerOnline: (d && typeof d.workerOnline === 'boolean') ? d.workerOnline : null,
+  }
+}
+
+/** A KULDO SOR kirajzolasa: latszik-e, aktiv-e, es mit mond. */
+function renderConvSend() {
+  const box = document.getElementById('conversationSend')
+  if (!box) return
+  const st = convSendState(conversationSendInfo)
+  box.hidden = !st.show
+  if (!st.show) return
+  const btn = document.getElementById('conversationSendBtn')
+  const ta = document.getElementById('conversationSendPrompt')
+  if (btn) btn.disabled = !st.can || convSendBusy
+  if (ta) ta.disabled = !st.can
+  const note = document.getElementById('conversationSendNote')
+  if (!note) return
+  if (convSendMsg) {
+    note.textContent = convSendMsg.text
+    note.removeAttribute('title')
+    note.className = 'conv-send-note' + (convSendMsg.error ? ' conv-send-note-warn' : '')
+    return
+  }
+  note.textContent = st.note ? t(st.note) : ''
+  // A hosszabb magyarazat bugyborekba megy, hogy a sor egysoros maradjon.
+  if (st.note === 'conversation.send.ready') note.title = t('conversation.send.ready_help')
+  else note.removeAttribute('title')
+  note.className = 'conv-send-note' + (st.can ? '' : ' conv-send-note-warn')
+}
+
+/** AZ UTASITAS ELKULDESE UGYANEBBE A BESZELGETESBE.
+ *
+ *  A `sessionId` a MOST nezett beszelgetes -- ettol lesz ez folytatas es nem
+ *  uj szal: a munkas `claude -p --resume <id>`-val inditja, amitol a session_id
+ *  ugyanaz marad es az elozmeny megvan (merve 2026-08-26). Enelkul a feladat a
+ *  projekt legfrissebb beszelgetesebe menne, vagyis akar egy MASIKBA -- ami
+ *  csendes felrekuldes volna. */
+async function convSendSubmit() {
+  const ta = document.getElementById('conversationSendPrompt')
+  if (!ta || convSendBusy) return
+  const st = convSendState(conversationSendInfo)
+  if (!st.can) return
+  const text = (ta.value || '').trim()
+  if (!text) { convSendMsg = { text: t('conversation.send.empty'), error: true }; renderConvSend(); return }
+  // ELORE szolunk a hosszrol: a szerver 12 000 karakternel utasitja vissza, es
+  // egy hosszu, gonddal megirt utasitast nem a kuldes pillanataban kell
+  // elveszteni.
+  if (text.length > 12000) {
+    convSendMsg = { text: t('conversation.send.too_long', { n: text.length }), error: true }
+    renderConvSend()
+    return
+  }
+  convSendBusy = true
+  convSendMsg = { text: t('conversation.send.sending'), error: false }
+  renderConvSend()
+  try {
+    const token = localStorage.getItem('marveen-dashboard-token') || ''
+    const r = await fetch('/api/code/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({
+        project: conversationSendInfo.project,
+        prompt: text,
+        origin: 'dashboard',
+        requestedBy: 'dashboard',
+        sessionId: conversationSource.id,
+      }),
+    })
+    let d = null
+    try { d = await r.json() } catch { /* nem JSON */ }
+    if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status))
+    ta.value = ''
+    convSendMsg = { text: t('conversation.send.sent', { id: String((d && d.id) || '').slice(0, 8) }), error: false }
+  } catch (err) {
+    // A TENYLEGES hibauzenet megy ki. Az okot nem talalgatjuk.
+    convSendMsg = { text: t('conversation.send.failed', { msg: err.message }), error: true }
+  } finally {
+    convSendBusy = false
+    renderConvSend()
+  }
+}
+
 /** Ora-pontos ido a jelzohoz (HH:MM:SS) -- a masodperc itt szamit, ebbol latod,
  *  hogy tenyleg mozog. */
 function fmtConvClock(ms) {
@@ -30595,6 +30746,17 @@ document.getElementById('conversationNewPill')?.addEventListener('click', () => 
   if (container) container.scrollTop = container.scrollHeight
   convFollowNew = 0
   renderConvNewPill()
+})
+document.getElementById('conversationSendBtn')?.addEventListener('click', () => convSendSubmit())
+// Ctrl+Enter (Mac: Cmd+Enter) = kuldes. A sima Enter UJ SORT ir: egy utasitas
+// tobb mondat, es a felenel elkuldott feladat rosszabb a semminel.
+document.getElementById('conversationSendPrompt')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); convSendSubmit() }
+})
+// Amint ujra ir, a korabbi visszajelzes ("Atadva…", "Nem sikerult…") lejar --
+// kulonben a regi mondat az uj utasitasrol allitana valamit.
+document.getElementById('conversationSendPrompt')?.addEventListener('input', () => {
+  if (convSendMsg) { convSendMsg = null; renderConvSend() }
 })
 // REJTETT FUL: a kor uresen fordul (lasd `convFollowTick`), es amint a lap
 // ujra lathato, AZONNAL kerdezunk -- nem varunk a kovetkezo utemre.

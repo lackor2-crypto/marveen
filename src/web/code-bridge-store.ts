@@ -1498,19 +1498,47 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   }
 }
 
-/** Egy beszelgetes a jelentett fulek kozul -- futo ES nem futo egyarant.
+/** Egy beszelgetes a jelentett fulek kozul -- ES a korulotte levo kornyezet.
  *
- *  A beszelgetes-nezet ezen keresztul jut el a naplo utjahoz. Kifejezetten a
- *  `closedTabs`-ot IS nezi: a nem futo beszelgetes tartalma ugyanugy olvashato
- *  kell hogy legyen, kulonben a nezet pont azt nem mutatna meg, amiert
- *  keszult. `null` = ilyen sessiont egyetlen worker sem jelentett -- ami mas,
- *  mint hogy "ures a beszelgetes". */
-export function findCodeTab(sessionId: string, now = Date.now()): CodeTab | null {
+ *  Kifejezetten a `closedTabs`-ot IS nezi: a nem futo beszelgetes tartalma
+ *  ugyanugy olvashato kell hogy legyen, kulonben a nezet pont azt nem mutatna
+ *  meg, amiert keszult. `null` = ilyen sessiont egyetlen worker sem jelentett
+ *  -- ami mas, mint hogy "ures a beszelgetes".
+ *
+ *  MIERT jon a ful mellett a projekt is. Utasitast kuldeni csak PROJEKT-nevvel
+ *  lehet (`POST /api/code/tasks`), a projekt viszont a CSOPORTON ul, nem a
+ *  fulon. Ha a hivo kulon kerdezne le, ketszer jarnank be ugyanazt a listat, es
+ *  a ket valasz kozott a ful at is kerulhetne masik csoportba. Egy bejaras, egy
+ *  igazsag.
+ *
+ *  A `workerOnline` ugyanebbol a bejarasbol jon, ingyen -- es kell, mert a
+ *  NULLA KET DOLGOT JELENTHET: egy sorban allo utasitas azert nem indul el,
+ *  mert meg nem kerult sorra, VAGY mert a vegrehajto egyaltalan nem jelentkezik.
+ *  A ketto kozott a felhasznalonak latnia kell a kulonbseget. */
+export interface CodeTabLocation {
+  tab: CodeTab
+  /** `null`, ha a mappa NINCS bekotve a kod-hidba. Ez nem hiba, hanem egy el
+   *  nem vegzett beallitas -- a hivonak emberi mondatot kell belole csinalnia,
+   *  ami a KOVETKEZO LEPEST mondja. */
+  project: string | null
+  workspacePath: string
+  workerOnline: boolean
+}
+
+export function findCodeTabLocation(sessionId: string, now = Date.now()): CodeTabLocation | null {
   const id = (sessionId || '').trim()
   if (!id) return null
-  for (const g of listCodeTabs(now).projects) {
+  const view = listCodeTabs(now)
+  for (const g of view.projects) {
     for (const tb of [...g.tabs, ...g.closedTabs]) {
-      if (tb.sessionId === id) return tb
+      if (tb.sessionId === id) {
+        return {
+          tab: tb,
+          project: g.project,
+          workspacePath: g.workspacePath,
+          workerOnline: view.workerOnline,
+        }
+      }
     }
   }
   return null

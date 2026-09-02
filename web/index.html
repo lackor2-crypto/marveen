@@ -5269,6 +5269,24 @@
       <!-- "N uj sor": csak akkor all ki, ha a felhasznalo feljebb gorgetett es
            kozben uj sorok erkeztek. A szoveget az app.js irja (renderConvNewPill). -->
       <button type="button" id="conversationNewPill" class="conv-new-pill" hidden></button>
+      <!-- UTASITAS-KULDES UGYANEBBE A BESZELGETESBE.
+           Boss (2026-09-02): "azt ide szepen hozzacsatolod az elo nezet ablak
+           ala". A feladat a MEGLEVO sessionben fut le (`claude --resume`),
+           tehat NEM uj szal: a session_id ugyanaz marad, az elozmenyt ismeri.
+           (Merve 2026-08-26, lasd a munkas szkript fejlecet.)
+           Alapbol REJTVE all: ugynok-naplora nem lehet irni, es amig nem
+           tudjuk, hova mennne, addig nem kinalunk beviteli mezot. -->
+      <div id="conversationSend" class="conv-send" hidden>
+        <textarea id="conversationSendPrompt" class="conv-send-input" rows="2"
+          data-i18n-placeholder="conversation.send.placeholder"
+          placeholder="Írd ide az utasítást ennek a beszélgetésnek…"></textarea>
+        <div class="conv-send-row">
+          <button class="btn-primary btn-compact" id="conversationSendBtn" data-i18n="conversation.send.btn">Küldés</button>
+          <!-- A MONDATOT az app.js irja (renderConvSend): allapotot mond, es a
+               nem-kuldheto esetben a KOVETKEZO LEPEST. -->
+          <span id="conversationSendNote" class="conv-send-note"></span>
+        </div>
+      </div>
     </div>
   </div>
   <!-- Mobile login: QR of the ?token= bootstrap URL, shown only on an

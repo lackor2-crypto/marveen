@@ -37,7 +37,7 @@ import {
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
-  requestCodeTabClose, takeCodeTabCloseRequests, findCodeTab,
+  requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
 } from '../code-bridge-store.js'
 import { readCodeConversation, statCodeConversation } from '../code-conversation.js'
@@ -596,20 +596,29 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // hasznalhatatlanna a szervert.
     const metaOnly = url.searchParams.get('meta') === '1'
 
-    const tab = findCodeTab(sessionId)
-    if (!tab) {
+    // A `project` es a `workerOnline` az UTASITAS-KULDESHEZ kell (a beviteli
+    // sor a nezet aljan). Ugyanabbol a bejarasbol jonnek, mint maga a ful,
+    // tehat nem kerul egy kerdessel sem tobbe -- es nem is csuszhatnak szet
+    // attol, amit a nezet epp mutat.
+    const loc = findCodeTabLocation(sessionId)
+    if (!loc) {
       json(res, {
         sessionId, entries: [], total: 0, offset: 0, hasOlder: false,
         title: null, live: null, transcriptPath: null, mtime: null, meta: metaOnly,
+        // A kuldo sor ebbol tudja, hogy nincs hova kuldeni. A `null` itt nem
+        // "nincs bekotve", hanem "ilyen fulrol nem tudunk" -- a ket mondat mas.
+        project: null, workerOnline: null,
         // Nem "ures a beszelgetes": ilyen sessiont EGYETLEN worker sem jelentett.
         reason: 'no-session',
       })
       return true
     }
+    const tab = loc.tab
     if (metaOnly) {
       json(res, {
         sessionId, title: tab.title, live: tab.live,
         contextTokens: tab.contextTokens, model: tab.model, meta: true,
+        project: loc.project, workerOnline: loc.workerOnline,
         ...statCodeConversation(tab.transcriptPath, sessionId),
       })
       return true
@@ -621,6 +630,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       live: tab.live,
       contextTokens: tab.contextTokens,
       model: tab.model,
+      project: loc.project,
+      workerOnline: loc.workerOnline,
       ...conv,
     })
     return true
