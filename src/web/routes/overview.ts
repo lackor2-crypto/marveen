@@ -14,7 +14,7 @@ import {
   type LiveUsageResult,
 } from '../claude-usage-api.js'
 import { logger } from '../../logger.js'
-import { getSecret } from '../vault.js'
+import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 import { readRateLimitSnapshot, readScrapedUsage, writeScrapedUsage } from '../rate-limit-status-io.js'
@@ -31,8 +31,13 @@ import { measureState, startMeasure } from '../upstream-measure-runner.js'
 import { exactTmuxTarget } from '../tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
-import { GLM_VAULT_KEY } from '../glm-models.js'
-import { buildOpportunities, countClaudePlans, countGoogleAccounts } from '../opportunities.js'
+import { KEY_SERVICE_CATALOG } from '../key-service-dependents.js'
+import { keyServiceView } from '../key-service-slots.js'
+import { gitAccountsWithToken } from '../../git-accounts.js'
+import {
+  buildOpportunities, countClaudePlans, countGithubAccounts, countGoogleAccounts,
+  type KeyServiceCount,
+} from '../opportunities.js'
 import { connectorCatalogCounts } from './connectors.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
@@ -248,21 +253,33 @@ function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string
   }
 }
 
-// Known optional capabilities the system supports but that need a per-user
-// setup step (a vault key, a token, ...) before they actually work. The
-// Overview page surfaces whichever of these are still unconfigured so the
-// user doesn't have to already know they exist. Add new entries here as more
-// opt-in integrations show up; the frontend owns the id -> label/desc/link
-// mapping (i18n strings live in web/lang/*.js, not baked in here).
-//
-// Ezek LEHETŐSÉGEK, nem hibák: a /api/opportunities végponton mennek ki, a
-// csukott "További lehetőségeid" gomb alá -- nem riasztószínnel az Áttekintés
-// tetejére. A miértje az opportunities.ts fejlécében áll.
-export const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
-  { id: 'openrouter', configured: () => getSecret('openrouter-fleet-key') !== null },
-  { id: 'groq-stt', configured: () => getSecret('groq-stt-key') !== null },
-  { id: 'zai', configured: () => getSecret(GLM_VAULT_KEY) !== null },
-]
+/**
+ * Hány kulcs van szolgáltatásonként, és nem tűnt-e el a választott hely.
+ *
+ * A trezorba EGYSZER nézünk bele (a listázás fájlolvasás), és onnan minden
+ * szolgáltatás a saját férőhelyeit kapja meg -- nem szolgáltatásonként
+ * újraolvasva.
+ */
+export function keyServiceCounts(): KeyServiceCount[] {
+  // Itt all meg minden trezor-hiba: a lehetoseg-lista tobbi sora (Claude,
+  // Google, GitHub, connectorok) akkor is kimegy, ha a trezor olvashatatlan.
+  try { return keyServiceCountsInner() } catch {
+    return KEY_SERVICE_CATALOG.map(c => ({ id: c.id, count: null }))
+  }
+}
+
+function keyServiceCountsInner(): KeyServiceCount[] {
+  const state = vaultFileState()
+  if (state === 'unreadable') {
+    // Nem nulla: nem látok oda. Minden sor ezt mondja ki, nem a "0 kulcs"-ot.
+    return KEY_SERVICE_CATALOG.map(c => ({ id: c.id, count: null }))
+  }
+  const secrets = state === 'missing' ? [] : listSecrets()
+  return KEY_SERVICE_CATALOG.map(c => {
+    const view = keyServiceView(c.vaultId, secrets)
+    return { id: c.id, count: view.count, activeMissing: view.activeMissing }
+  })
+}
 
 // A munkamenet-naplok (JSONL) atolvasasa ennek a vegpontnak a legdragabb
 // resze: 2026-08-19-en az /api/overview EGYEDUL 1056 ms volt, es mivel a Node
@@ -362,9 +379,10 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
   // src/web/opportunities.ts fejlécében áll.
   if (path === '/api/opportunities' && method === 'GET') {
     const items = buildOpportunities({
-      keyServices: CAPABILITY_CHECKS,
+      keyServices: () => keyServiceCounts(),
       claudePlans: () => countClaudePlans(),
       googleAccounts: () => countGoogleAccounts(),
+      githubAccounts: () => countGithubAccounts(gitAccountsWithToken),
       connectors: () => connectorCatalogCounts(),
     })
     json(res, { items })

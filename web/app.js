@@ -13418,9 +13418,20 @@ function renderVaultKnownIntegrations() {
     s.id,
     ...(s.fields || []).filter(f => f.bindingId && f.hasValue).map(f => f.bindingId),
   ]))
-  const items = Object.values(CAPABILITY_INFO).map(info => {
+  // CSAK a kulcsos bejegyzesek. A CAPABILITY_INFO azota a Claude-elofizetest,
+  // a Google- es GitHub-fiokot es a connectorokat is felsorolja (azok a
+  // "Tovabbi lehetosegeid" listaba kellenek), azoknak viszont nincs
+  // `vaultId`-juk es nincs lepes-leirasuk -- szures nelkul ures cimke es ures
+  // utmutato sorok jelentek volna meg itt, egy trezor-oldalon, olyan
+  // dolgokrol, amiknek semmi kozuk a trezorhoz.
+  const items = Object.values(CAPABILITY_INFO).filter(info => info.vaultId).map(info => {
     const configured = configuredIds.has(info.vaultId)
-    const help = configured ? '' : `<div class="vault-known-help">
+    const help = configured
+      // Bekotve sem all meg a sor: ide MEG felfer egy kulcs (masodik
+      // elofizetes), ezert a kattintas nem nema tobbe. Boss, 2026-09-02:
+      // "akar felvihetne kesobb egy legujabb glm elofizetest is. masodikat."
+      ? `<div class="vault-known-help"><div class="vault-known-steps">${escapeHtml(t('vault.known.add_another'))}</div></div>`
+      : `<div class="vault-known-help">
         <div class="vault-known-steps">${escapeHtml(t(info.stepsKey))}</div>
         <a class="vault-known-link" href="${info.helpUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('vault.known.get_key_link'))} →</a>
       </div>`
@@ -13437,14 +13448,36 @@ function renderVaultKnownIntegrations() {
   }).join('')
   panel.innerHTML = `<div class="vault-known-title">${escapeHtml(t('vault.known.title'))}</div><div class="vault-known-list">${items}</div>`
   panel.querySelectorAll('.vault-known-item').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', async () => {
       const id = el.getAttribute('data-vault-id')
-      if (configuredIds.has(id)) return
       const labelKey = el.getAttribute('data-label-key')
+      let targetId = id
+      let label = t(labelKey)
+      if (configuredIds.has(id)) {
+        // Mar van kulcs ezen a neven. A masodik NEM irhatja felul az elsot,
+        // ezert a kovetkezo szabad ferohelyet kerdezzuk meg a szervertol --
+        // egy helyen szamoljuk (`nextSlotId`), nem ketszer, kulonben a ket
+        // szamolas elobb-utobb kulonbozo nevet adna ugyanarra a kerdesre.
+        let next = null
+        try {
+          const res = await fetch('/api/key-services')
+          const data = await res.json()
+          const svc = (data.services || []).find(s => s.vaultId === id)
+          next = svc ? svc.nextSlotId : null
+        } catch { /* lentebb kimondjuk, hogy nem sikerult */ }
+        if (!next) {
+          // NEM talalgatunk nevet: egy rossz ferohely-nev felulirna a meglevo
+          // kulcsot. Inkabb nem csinalunk semmit, es megmondjuk, miert.
+          showToast(t('vault.known.add_another_failed'), 8000, true)
+          return
+        }
+        targetId = next
+        label = t(labelKey) + ' ' + t('vault.known.another_suffix')
+      }
       const addPanel = document.getElementById('vaultAddPanel')
       addPanel.hidden = false
-      document.getElementById('vaultPageIdInput').value = id
-      document.getElementById('vaultPageLabelInput').value = t(labelKey)
+      document.getElementById('vaultPageIdInput').value = targetId
+      document.getElementById('vaultPageLabelInput').value = label
       document.getElementById('vaultPageValueInput').focus()
     })
   })
@@ -16858,36 +16891,55 @@ function formatRelative(ts) {
 
 // "Tovabbi lehetosegeid": maps an opportunity id (as returned by
 // /api/opportunities) to its display strings and the page it should open.
-// Add new opt-in integrations here as they gain a CAPABILITY_CHECKS entry
-// server-side (src/web/routes/overview.ts).
+// Add new opt-in integrations here as they gain a KEY_SERVICE_CATALOG entry
+// server-side (src/web/key-service-dependents.ts).
 //
 // `page` = hova visz a kattintas. Ami nem hianyzik, csak nincs kihasznalva,
 // annak is KELL kattintasi celja: kulonben a sor csak kozli, hogy valamit nem
 // hasznalsz, es magadra hagy vele.
+// `kind: 'key'` = beillesztett kulcs, aminek FEROHELYEI vannak: egy
+// szolgaltatashoz tobb kulcs is tartozhat (`zai-coding-key`,
+// `zai-coding-key.2`, ...). Ezek a sorok EZERT nem tunnek el, amint bekototted
+// az elsot -- Boss, 2026-09-02: "akar felvihetne kesobb egy legujabb glm
+// elofizetest is. masodikat. nem? tehat akkor miert tunne el onnan a
+// listabol?" A tobbi sor fiok vagy connector: azokbol eddig is lehetett tobb.
 const CAPABILITY_INFO = {
   openrouter: {
     labelKey: 'overview.capability.openrouter.label', descKey: 'overview.capability.openrouter.desc', vaultId: 'openrouter-fleet-key',
-    stepsKey: 'vault.known.openrouter.steps', helpUrl: 'https://openrouter.ai/keys',
+    stepsKey: 'vault.known.openrouter.steps', helpUrl: 'https://openrouter.ai/keys', kind: 'key',
   },
   'groq-stt': {
     labelKey: 'overview.capability.groq_stt.label', descKey: 'overview.capability.groq_stt.desc', vaultId: 'groq-stt-key',
-    stepsKey: 'vault.known.groq_stt.steps', helpUrl: 'https://console.groq.com/keys',
+    stepsKey: 'vault.known.groq_stt.steps', helpUrl: 'https://console.groq.com/keys', kind: 'key',
   },
   zai: {
     labelKey: 'overview.capability.zai.label', descKey: 'overview.capability.zai.desc', vaultId: 'zai-coding-key',
-    stepsKey: 'vault.known.zai.steps', helpUrl: 'https://z.ai/manage-apikey/apikey-list',
+    stepsKey: 'vault.known.zai.steps', helpUrl: 'https://z.ai/manage-apikey/apikey-list', kind: 'key',
   },
-  // Ezek nem kulcsok, hanem FEROHELYEK: mindig van meg egy Claude-elofizetes,
-  // meg egy Google-fiok, meg egy connector, amit be lehetne kotni. Boss,
-  // 2026-09-02: "most van harom, es mi van akkor, ha egy negyediket fogok
-  // folvenni, vagy az haromból az egyiket kijelentkeztetem [...] ezek nem
-  // hibak". Ezert a leirasuk a JELENLEGI szamot mondja, nem hianyt.
+  // A DeepSeek eddig SEHOL nem latszott a Fiokok oldalon es a lehetosegek
+  // kozott sem, pedig az ugynokok modell-valasztojaban vegig ott volt, es a
+  // kulcsa ugyanugy beilleszheto. Boss, 2026-09-02: "es meg ha van tobb
+  // bekotesi lehetoseg akkor azt is megjeleniteni ott."
+  deepseek: {
+    labelKey: 'overview.capability.deepseek.label', descKey: 'overview.capability.deepseek.desc', vaultId: 'DEEPSEEK_API_KEY',
+    stepsKey: 'vault.known.deepseek.steps', helpUrl: 'https://platform.deepseek.com/api_keys', kind: 'key',
+  },
+  // Ezek nem kulcsok, hanem FIOKOK es CONNECTOROK: mindig van meg egy
+  // Claude-elofizetes, meg egy Google- vagy GitHub-fiok, meg egy connector,
+  // amit be lehetne kotni. Boss, 2026-09-02: "most van harom, es mi van akkor,
+  // ha egy negyediket fogok folvenni, vagy az haromból az egyiket
+  // kijelentkeztetem [...] ezek nem hibak". Ezert a leirasuk a JELENLEGI
+  // szamot mondja, nem hianyt.
   'claude-plan': {
     labelKey: 'overview.opportunity.claude_plan.label', descKey: 'overview.opportunity.claude_plan.desc',
     page: 'accounts',
   },
   'google-account': {
     labelKey: 'overview.opportunity.google_account.label', descKey: 'overview.opportunity.google_account.desc',
+    page: 'accounts',
+  },
+  github: {
+    labelKey: 'overview.opportunity.github.label', descKey: 'overview.opportunity.github.desc',
     page: 'accounts',
   },
   connector: {
@@ -16999,6 +17051,12 @@ function renderOverviewOpportunities(items, unreachable) {
   if (!known.length) { box.hidden = true; list.innerHTML = ''; return }
 
   box.hidden = false
+  // A szam azt mondja meg, HANY sor van a gomb alatt -- nem azt, hany hianyzik.
+  // A bekotott sorok is ott maradnak, mert mindegyikbol lehet meg egy (Boss,
+  // 2026-09-02: "a lehetoseg tovabbra is fennal. nem?"), es a csukott gomb igy
+  // sem tevesztheto ossze az uressel. Egyetlen szam egyetlen jelentessel: ket
+  // szam egy feliratban (osszes + hianyzo) pont az, amit a felhasznalo ossze
+  // fog adni.
   labelEl.textContent = t('overview.opportunities.title_n', { n: known.length })
   list.hidden = !_opportunitiesOpen
   toggle.setAttribute('aria-expanded', String(_opportunitiesOpen))
@@ -17010,9 +17068,23 @@ function renderOverviewOpportunities(items, unreachable) {
     // A `variant` a koztes eset: a lehetoseg all, csak kevesebbet tudok rola,
     // ezert egy szukebb mondat megy ki -- nem talalgatunk bele szamot.
     const descKey = o.variant ? `${info.descKey}_${o.variant}` : info.descKey
-    const desc = o.state === 'unknown'
-      ? t('overview.opportunities.unknown')
-      : t(descKey, o.params || {})
+    let desc
+    if (o.state === 'unknown') {
+      desc = t('overview.opportunities.unknown')
+    } else if (o.state === 'connected' && info.kind === 'key') {
+      // A KULCSOS sorok bekotve MAST mondanak, mint uresen. A sajat leirasuk
+      // ("kattints a beallitashoz") mar nem igaz, viszont a lehetoseg all: a
+      // ferohelyek ota IDE MEG felfer egy ujabb elofizetes kulcsa. Egy kozos
+      // mondat, mert a cimke mar megnevezte a szolgaltatast.
+      desc = t('overview.opportunity.key_connected', o.params || {})
+    } else {
+      desc = t(descKey, o.params || {})
+    }
+    // A valasztott kulcs-hely eltunt: a rendszer az alap-helyre esett vissza es
+    // tovabb dolgozik -- vagyis MASIK elofizetest kolt, hibauzenet nelkul.
+    // Halk sor ide is kell, de a hangos valtozata az Onellenorzesben all
+    // (`key_slot_orphan`), mert ez mar elromlott allapot, nem lehetoseg.
+    if (o.activeMissing) desc += ' ' + t('overview.opportunity.active_missing')
     return `<a href="#" class="overview-capability-item"
       style="background:rgba(127,127,127,.12);color:var(--text)"
       onclick="switchPage('${page}');return false">
@@ -17238,8 +17310,19 @@ const ACCOUNT_EXTRA_INFO = {
   github: { labelKey: 'accounts.github.label', descKey: 'accounts.github.desc' },
 }
 
+// KULCSOS bejegyzes-e ez a CAPABILITY_INFO sor?
+//
+// A lista azota FIOKOKAT is tartalmaz (Claude-elofizetes, Google, GitHub,
+// connector) -- azok NEM beillesztheto kulcsok, nincs `vaultId`-juk, es nem
+// szabad a kulcs-urlapra vinni oket. A `vaultId` megletet kerdezzuk meg, mert
+// pontosan az valaszol arra, hogy van-e hova beilleszteni egy kulcsot.
+function _keyCapabilityFor(id) {
+  const info = CAPABILITY_INFO[id]
+  return info && info.vaultId ? info : null
+}
+
 function _accountInfoFor(id) {
-  const vaultInfo = CAPABILITY_INFO[id]
+  const vaultInfo = _keyCapabilityFor(id)
   return vaultInfo ? { ...vaultInfo, flow: 'vault' } : ACCOUNT_EXTRA_INFO[id]
 }
 
@@ -17283,7 +17366,7 @@ function _keyServicesFromAccounts(data) {
     .filter(item => item.id !== 'claude-code')
     .map(item => {
       const info = _accountInfoFor(item.id) || {}
-      const vaultInfo = CAPABILITY_INFO[item.id]
+      const vaultInfo = _keyCapabilityFor(item.id)
       // What KIND of thing this is, in the operator's words rather than ours.
       // Calling Google and GitHub "kulcs" was wrong -- Boss said it plainly:
       // "a telegram is csak egy fiok... a github is! a google is". Only the
@@ -17303,6 +17386,18 @@ function _keyServicesFromAccounts(data) {
         stepsKey: info.stepsKey || null,
         configured: !!item.configured,
         addable: !!vaultInfo,
+        // FEROHELYEK: egy kulcsos szolgaltatashoz tobb kulcs is tartozhat
+        // (`zai-coding-key`, `zai-coding-key.2`, ...). Ezek a mezok CSAK a
+        // kulcsos sorokon ertelmesek -- egy Google-fioknal nincs mit szamolni,
+        // ezert ott `undefined` marad, nem 0 es nem null.
+        //
+        // A NULLA KET DOLGOT JELENTHET: a `count === null` azt jelenti, hogy a
+        // szerver nem tudta elolvasni a trezort -- NEM azt, hogy nincs kulcs.
+        slots: vaultInfo && Array.isArray(item.slots) ? item.slots : [],
+        count: vaultInfo ? (item.count === undefined ? null : item.count) : undefined,
+        activeSlotId: vaultInfo ? (item.activeSlotId || null) : null,
+        activeMissing: !!item.activeMissing,
+        nextSlotId: vaultInfo ? (item.nextSlotId || null) : null,
       }
     })
 }
@@ -17370,6 +17465,19 @@ function _claudeAuthSetState(text, kind) {
 // pages was one concept in two places (Boss, 2026-08-12: "jo otlet, csinald ugy").
 let _claudeAuthKeyServices = []
 
+// HOVA kerul a most beillesztendo kulcs, ha NEM az alap-helyre.
+//
+// Ez a mezo egyetlen nemá hiba miatt letezik. A Fiokok lap 2 masodpercenkent
+// ujrarajzol, es a rajzolas visszaallitja a beillesztő urlap `dataset.vaultId`
+// mezojet az alap-nevre. E nelkul: ranyomsz a "meg egy kulcs" gombra, beirod a
+// MASODIK GLM-elofizetes kulcsat, es mire a mentesre ersz, a cel mar megint az
+// ELSO kulcs helye -- felulirod, hibauzenet nelkul. Pontosan az a baj, ami
+// miatt ez az egesz ujraepult.
+//
+// `null` = az alap-hely (a szokasos eset). A valasztas eldobodik, ha mas
+// szolgaltatast valasztasz a legordulobol, es a sikeres mentes utan is.
+let _accKeySlotTarget = null
+
 // The Claude half no longer draws a list of its own: the same address was being
 // listed here, in the Google section and in the connector section, three times
 // on one screen (Boss, 2026-08-14: "van 3 panel es mind a 3 ugyanazt mutatja").
@@ -17402,9 +17510,11 @@ function _accHubRenderKeys() {
     el.dataset.wired = '1'
     el.addEventListener('click', (e) => {
       const inBtn = e.target.closest('.acc-key-login')
-      if (inBtn) { _accKeyLogin(inBtn.dataset.vaultId || ''); return }
+      if (inBtn) { _accKeyLogin(inBtn.dataset.vaultId || '', inBtn.dataset.slotId || '', inBtn.dataset.label || '', inBtn.dataset.mode || 'add'); return }
       const outBtn = e.target.closest('.acc-key-logout')
       if (outBtn) { _accKeyLogout(outBtn.dataset.vaultId || '', outBtn.dataset.label || ''); return }
+      const pickBtn = e.target.closest('.acc-key-active')
+      if (pickBtn) { _accKeySetActive(pickBtn.dataset.vaultId || '', pickBtn.dataset.slotId || ''); return }
     })
   }
   // Google is left OUT on purpose: its row here would name the very same
@@ -17413,7 +17523,11 @@ function _accHubRenderKeys() {
   // es a masodikban is"). Telegram and GitHub have no card, so they stay.
   el.innerHTML = _claudeAuthKeyServices.filter(k => k.id !== 'google').map(k => {
     let who
-    if (!k.configured) {
+    if (k.count === null) {
+      // A NULLA KET DOLGOT JELENTHET: a trezort nem tudtuk elolvasni. Ez NEM
+      // "nincs kulcs" -- azt a felulet ki is mondja, nem hallgatja el.
+      who = `<span class="claude-auth-empty">${escapeHtml(t('acchub.key_count_unknown'))}</span>`
+    } else if (!k.configured) {
       who = `<span class="claude-auth-empty">${escapeHtml(t('claudeauth.key_unset'))}</span>`
     } else if (k.accounts.length) {
       // Name them, marking which one is used by default when there is a choice.
@@ -17422,6 +17536,10 @@ function _accHubRenderKeys() {
           ? ` <span class="claude-auth-plan">${escapeHtml(t('claudeauth.acct_default'))}</span>` : ''
         return escapeHtml(name) + mark
       }).join(', ')
+    } else if (typeof k.count === 'number' && k.count > 1) {
+      // TOBB kulcs egy szolgaltatashoz: a darabszam itt all, a nevek es a
+      // valaszthato "aktiv" jeloles pedig a sor alatt, kulon sorokban.
+      who = `<span class="claude-auth-plan">${escapeHtml(t('acchub.key_count', { n: k.count }))}</span>`
     } else {
       who = `<span class="claude-auth-plan">${escapeHtml(t('claudeauth.key_set'))}</span>`
     }
@@ -17431,18 +17549,74 @@ function _accHubRenderKeys() {
     // it says is worse than no button.
     let actions = ''
     if (k.addable) {
-      const login = `<button type="button" class="btn-secondary btn-compact acc-key-login" data-vault-id="${escapeAttr(k.vaultId)}">${escapeHtml(t(k.configured ? 'acchub.key_replace_btn' : 'acchub.key_login_btn'))}</button>`
+      // MELYIK FEROHELY FELEL MOST a szolgaltatasert? A `getSecret` sorrendje:
+      // a valasztott hely (ha van), utana az alap-nev, es CSAK a vegen egy
+      // masik kartya kotott mezoje. A "csere" gomb tehat csak akkor csere, ha
+      // erre a helyre mutat -- es csak akkor, ha kozvetlenul irhato.
+      const answeringId = k.activeSlotId || k.vaultId
+      const answering = Array.isArray(k.slots) ? k.slots.find(s => s.slotId === answeringId) : null
+      // Egy masik kartya kotott mezojet innen nem lehet felulirni: oda a
+      // kartya sajat lapjan kell nyulni. Ilyenkor NINCS mit cserelni.
+      const replaceable = answering && !answering.boundOn ? answering.slotId : null
+      // Ide kerul a beillesztett kulcs: ha van mit cserelni, arra a helyre --
+      // kulonben a kovetkezo SZABAD ferohelyre.
+      const loginSlot = replaceable || k.nextSlotId || k.vaultId
+      const loginKey = replaceable
+        ? 'acchub.key_replace_btn'
+        : (k.configured ? 'acchub.key_add_btn' : 'acchub.key_login_btn')
+      const loginLabel = replaceable ? k.label : (k.configured ? k.label + ' ' + t('vault.known.another_suffix') : k.label)
+      const login = `<button type="button" class="btn-secondary btn-compact acc-key-login" data-vault-id="${escapeAttr(k.vaultId)}" data-slot-id="${escapeAttr(loginSlot)}" data-mode="${replaceable ? 'replace' : 'add'}" data-label="${escapeAttr(loginLabel)}">${escapeHtml(t(loginKey))}</button>`
+      // A "meg egy kulcs" csak akkor kap sort, ha MASHOVA visz, mint az elso
+      // gomb. Ket gomb ugyanarra a ferohelyre ket kulonbozo igeretet tesz,
+      // teljesiteni viszont csak az egyiket tudja -- pontosan ez allt az
+      // OpenRouter soraban (a kulcsa egy masik kartya kotott mezojen lakik,
+      // igy az alap-nev szabad volt, es mindket gomb oda mutatott).
+      const add = (k.configured && k.nextSlotId && k.nextSlotId !== loginSlot)
+        ? `<button type="button" class="btn-secondary btn-compact acc-key-login" data-vault-id="${escapeAttr(k.vaultId)}" data-slot-id="${escapeAttr(k.nextSlotId)}" data-mode="add" data-label="${escapeAttr(k.label + ' ' + t('vault.known.another_suffix'))}">${escapeHtml(t('acchub.key_add_btn'))}</button>`
+        : ''
       const logout = k.configured
         ? `<button type="button" class="btn-secondary btn-compact acc-key-logout" data-vault-id="${escapeAttr(k.vaultId)}" data-label="${escapeAttr(k.label)}">${escapeHtml(t('acchub.key_logout_btn'))}</button>`
         : ''
-      actions = `<span class="claude-auth-rowactions">${login}${logout}</span>`
+      actions = `<span class="claude-auth-rowactions">${login}${add}${logout}</span>`
     }
+    // A ferohely-sorok CSAK akkor jelennek meg, ha tenyleg tobb kulcs van:
+    // egyetlen kulcsnal nincs mibol valasztani, es egy magaban allo "aktiv"
+    // jeloles csak zajt csinalna a sor alatt.
+    let slotRows = ''
+    if (k.addable && Array.isArray(k.slots) && k.slots.length > 1) {
+      const active = k.activeSlotId || k.vaultId
+      slotRows = k.slots.map(s => {
+        const isActive = s.slotId === active
+        // Egy MASIK kartya mezoje: azt nem lehet aktivva tenni (a rendszer a
+        // kartya sajat erteket olvasna, nem a mezot), ezert nincs gombja --
+        // de a sora ott van, kulonben ugy tunne, hogy nincs is ott a kulcs.
+        const pick = s.boundOn
+          ? `<span class="claude-auth-plan">${escapeHtml(t('acchub.key_slot_bound', { card: s.boundOn }))}</span>`
+          : (isActive
+            ? `<span class="claude-auth-plan">${escapeHtml(t('acchub.key_slot_active'))}</span>`
+            : `<button type="button" class="btn-secondary btn-compact acc-key-active" data-vault-id="${escapeAttr(k.vaultId)}" data-slot-id="${escapeAttr(s.slotId)}">${escapeHtml(t('acchub.key_slot_use'))}</button>`)
+        const del = s.boundOn
+          ? ''
+          : `<button type="button" class="btn-secondary btn-compact acc-key-logout" data-vault-id="${escapeAttr(s.slotId)}" data-label="${escapeAttr(s.label)}">${escapeHtml(t('acchub.key_logout_btn'))}</button>`
+        return `<div class="claude-auth-row claude-auth-subrow">
+          <span class="claude-auth-rowlabel">${escapeHtml(s.label)}</span>
+          <span class="claude-auth-rowwho">${pick}</span>
+          <span class="claude-auth-rowactions">${del}</span>
+        </div>`
+      }).join('')
+    }
+    // A valasztott ferohely eltunt: a rendszer az alap-kulcsra esett vissza es
+    // TOVABB dolgozik -- vagyis masik elofizetes keretet kolti, hibauzenet
+    // nelkul. Ezt itt is kimondjuk, nem csak az Onellenorzesben.
+    const warn = k.activeMissing
+      ? `<div class="claude-auth-row claude-auth-subrow"><span class="claude-auth-empty">${escapeHtml(t('acchub.key_active_missing'))}</span></div>`
+      : ''
     return `<div class="claude-auth-row">
       <span class="claude-auth-rowlabel">${escapeHtml(k.label)}</span>
       <span class="claude-auth-rowwho">${who}</span>
       <span class="claude-auth-kind">${escapeHtml(t(k.kind === 'key' ? 'claudeauth.kind_key' : 'claudeauth.kind_account'))}</span>
       ${actions}
-    </div>`
+    </div>${warn}${slotRows}`
   }).join('')
 }
 
@@ -17451,8 +17625,16 @@ function _accHubRenderKeys() {
 // Nem uj urlapot nyit: a lap MAR tud kulcsot fogadni, csak eddig meg kellett
 // keresni a legordulo menuben. Ez a gomb odaviszi, es ki is valasztja -- a
 // sor, amirol elindult, es a mezo, ahova beilleszt, ugyanaz a szolgaltatas.
-function _accKeyLogin(vaultId) {
+function _accKeyLogin(vaultId, slotId, label, mode) {
   if (!vaultId) return
+  // Ha nem az alap-helyre megy, a celt MEGJEGYEZZUK -- a 2 masodperces
+  // ujrarajzolas kulonben visszaallitana az alap-nevre (lasd _accKeySlotTarget).
+  // A `mode` azt mondja meg, MIT igert a gomb: uj hely melle ('add') vagy a
+  // mostani felulirasa ('replace'). Ket kulonbozo mondat jar hozzajuk, mert a
+  // ketto kozul az egyik visszafordithatatlan.
+  _accKeySlotTarget = (slotId && slotId !== vaultId)
+    ? { serviceId: vaultId, slotId, label: label || slotId, mode: mode === 'replace' ? 'replace' : 'add' }
+    : null
   const details = document.getElementById('accountsAddDetails')
   if (details) details.open = true
   const sel = document.getElementById('claudeAuthService')
@@ -17466,6 +17648,35 @@ function _accKeyLogin(vaultId) {
     input.scrollIntoView({ behavior: 'smooth', block: 'center' })
     input.focus()
   }
+}
+
+// MELYIK KULCSOT HASZNALJA a flotta, ha tobb is van egy szolgaltatashoz.
+//
+// A valasztas azonositot ment, SOHA nem kulcs-erteket: a mutato a
+// store/key-service-active.json-ban lakik, a titok a trezorban marad.
+async function _accKeySetActive(serviceId, slotId) {
+  if (!serviceId || !slotId) return
+  let data = null
+  try {
+    const res = await fetch('/api/key-services/active', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceId, slotId }),
+    })
+    data = await res.json()
+  } catch (err) { showToast(String(err.message || err), 10000, true); return }
+  if (!data || !data.ok) { showToast(_claudeAuthErrorText(data), 10000, true); return }
+  // Nem csak annyit mondunk, hogy "kesz": kimondjuk, KIT ERINT. Az atallitas
+  // masik elofizetes keretet kezdi el kolteni, es a valtas ugyanugy azonnal
+  // hat, mint a kulcs kivetele -- az erintett agenseket ujra kell inditani.
+  const agents = Array.isArray(data.agents) ? data.agents : []
+  let msg = agents.length
+    ? t('acchub.key_active_done_agents', { agents: agents.join(', ') })
+    : t('acchub.key_active_done')
+  if (data.rosterOk === false || (typeof data.blind === 'number' && data.blind > 0)) {
+    msg += ' ' + t('acchub.key_logout_blind_note')
+  }
+  showToast(msg, 9000, true)
+  loadAccountsPage()
 }
 
 // KIJELENTKEZTETES egy kulcsos szolgaltatasnal = a kulcs kivetele a Vaultbol.
@@ -18011,12 +18222,27 @@ function _claudeAuthSyncServiceUi() {
   const isKey = chosen && chosen.kind === 'key'
   document.getElementById('claudeAuthLoginMode').hidden = !!isKey
   document.getElementById('claudeAuthKeyMode').hidden = !isKey
+  const note = document.getElementById('claudeAuthKeySlotNote')
+  if (note) note.hidden = true
   if (isKey) {
     const help = document.getElementById('claudeAuthKeyHelp')
     help.href = chosen.helpUrl || '#'
     document.getElementById('claudeAuthKeySteps').textContent = chosen.stepsKey ? t(chosen.stepsKey) : ''
-    document.getElementById('claudeAuthKeyMode').dataset.vaultId = chosen.vaultId
-    document.getElementById('claudeAuthKeyMode').dataset.label = chosen.label
+    // Alaphelyzetben az alap-hely a cel. A "meg egy kulcs" gomb viszont uj
+    // ferohelyre iranyit, es azt a valasztast az ujrarajzolas NEM torolheti el
+    // -- kulonben a masodik elofizetes kulcsa nemán felulirna az elsot.
+    const target = (_accKeySlotTarget && _accKeySlotTarget.serviceId === chosen.vaultId)
+      ? _accKeySlotTarget : null
+    document.getElementById('claudeAuthKeyMode').dataset.vaultId = target ? target.slotId : chosen.vaultId
+    document.getElementById('claudeAuthKeyMode').dataset.label = target ? target.label : chosen.label
+    // ELONEZET a lemezre iras elott: kimondjuk, HOVA kerul, mert a felhasznalo
+    // joggal hinne, hogy a meglevo kulcsot irja felul.
+    if (note && target) {
+      note.textContent = target.mode === 'replace'
+        ? t('claudeauth.key_replace_note', { label: target.label })
+        : t('claudeauth.key_slot_note', { label: target.label })
+      note.hidden = false
+    }
   }
 }
 
@@ -18229,7 +18455,12 @@ async function renderClaudeAccountPanel(keyServices) {
     await _claudeAuthStartFlow({ label, email })
   })
 
-  document.getElementById('claudeAuthService').addEventListener('change', _claudeAuthSyncServiceUi)
+  // Mas szolgaltatasra valtva a ferohely-valasztas ervenyet veszti: a
+  // "meg egy GLM-kulcs" cel nem vandorolhat at az OpenRouter urlapjara.
+  document.getElementById('claudeAuthService').addEventListener('change', () => {
+    _accKeySlotTarget = null
+    _claudeAuthSyncServiceUi()
+  })
 
   // The page itself says where the OTHER accounts go, instead of that answer
   // living only in a chat message.
@@ -18251,6 +18482,9 @@ async function renderClaudeAccountPanel(keyServices) {
       })
       if (!res.ok) throw new Error('HTTP ' + res.status)
       input.value = ''
+      // A cel elfogyott: a kovetkezo beillesztes megint az alap-helyre menne,
+      // hacsak nem a "meg egy kulcs" gombbal indul.
+      _accKeySlotTarget = null
       showToast(t('claudeauth.key_saved', { label: host.dataset.label || id }), 6000, true)
       loadAccountsPage()
     } catch (err) { showToast(`${t('common.error_save')}: ${err.message}`) }

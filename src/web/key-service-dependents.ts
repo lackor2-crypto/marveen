@@ -35,11 +35,33 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { AGENTS_BASE_DIR, readAgentModel } from './agent-config.js'
 import { resolveOpenRouterModel, AUTO_PREFIX } from './openrouter-models.js'
 import { isGlmModel, GLM_VAULT_KEY } from './glm-models.js'
+import { baseServiceId } from './key-service-slots.js'
 
 /** Vault-azonosítók egy helyen, hogy a string ne szóródjon szét a kódban. */
 export const OPENROUTER_VAULT_KEY = 'openrouter-fleet-key'
 export const DEEPSEEK_VAULT_KEY = 'DEEPSEEK_API_KEY'
 export const GROQ_VAULT_KEY = 'groq-stt-key'
+
+/**
+ * MELYIK KULCSOS SZOLGÁLTATÁSOKAT ISMERI A MARVEEN -- egyetlen listában.
+ *
+ * `id` = a felület azonosítója (ehhez tartoznak az i18n-kulcsok), `vaultId` =
+ * a trezor ALAP-neve. Egy szolgáltatáshoz több kulcs is tartozhat
+ * (`zai-coding-key`, `zai-coding-key.2`, ...) -- a férőhelyek modellje a
+ * key-service-slots.ts-ben lakik.
+ *
+ * Új beilleszthető kulcs EGYETLEN helyre kerül: ide. Onnantól magától
+ * megjelenik a Fiókok oldalon, a "További lehetőségeid" listában és a
+ * férőhely-kezelőben is. Három külön lista előbb-utóbb szétcsúszik: a
+ * DeepSeek pontosan így maradt ki a Fiókok oldaláról és a lehetőség-listából,
+ * pedig az ügynökök modell-választójában végig ott volt.
+ */
+export const KEY_SERVICE_CATALOG: Array<{ id: string; vaultId: string }> = [
+  { id: 'openrouter', vaultId: OPENROUTER_VAULT_KEY },
+  { id: 'groq-stt', vaultId: GROQ_VAULT_KEY },
+  { id: 'zai', vaultId: GLM_VAULT_KEY },
+  { id: 'deepseek', vaultId: DEEPSEEK_VAULT_KEY },
+]
 
 export interface KeyServiceImpact {
   vaultId: string
@@ -103,9 +125,16 @@ const FEATURE_KEYS: Record<string, string[]> = {
 /** Amit modell-oldalról ismerünk. A FEATURE_KEYS-szel együtt adja az "ismert" halmazt. */
 const KEY_SERVICE_IDS = new Set([GLM_VAULT_KEY, DEEPSEEK_VAULT_KEY, OPENROUTER_VAULT_KEY])
 
-/** Ismerjük-e egyáltalán ezt a kulcsot? */
+/**
+ * Ismerjük-e egyáltalán ezt a kulcsot?
+ *
+ * A `zai-coding-key.2` UGYANANNAK a szolgáltatásnak a második férőhelye, tehát
+ * ugyanaz áll meg tőle. E nélkül a második GLM-kulcs kivételekor az előnézet
+ * azt mondaná, hogy "nem tudjuk, mi használja" -- pedig pontosan tudjuk.
+ */
 export function isKnownKeyService(vaultId: string): boolean {
-  return KEY_SERVICE_IDS.has(vaultId) || vaultId in FEATURE_KEYS
+  const base = baseServiceId(vaultId)
+  return KEY_SERVICE_IDS.has(base) || base in FEATURE_KEYS
 }
 
 /**
@@ -119,8 +148,10 @@ export function impactOfRemoving(
   agentModels: Array<{ name: string; model: string }>,
   roster: { blind: number; rosterOk: boolean } = { blind: 0, rosterOk: true },
 ): KeyServiceImpact {
-  const featureKeys = FEATURE_KEYS[vaultId] ?? []
-  const modelSide = KEY_SERVICE_IDS.has(vaultId)
+  // A férőhely ugyanaz a szolgáltatás: `zai-coding-key.2` -> `zai-coding-key`.
+  const base = baseServiceId(vaultId)
+  const featureKeys = FEATURE_KEYS[base] ?? []
+  const modelSide = KEY_SERVICE_IDS.has(base)
   const blind = roster.blind
   const rosterOk = roster.rosterOk
   if (!modelSide && featureKeys.length === 0) {
@@ -129,7 +160,7 @@ export function impactOfRemoving(
     return { vaultId, known: false, agents: [], featureKeys: [], featureKey: null, blind, rosterOk }
   }
   const agents = modelSide
-    ? agentModels.filter(a => requiredKeyForModel(a.model) === vaultId).map(a => a.name)
+    ? agentModels.filter(a => requiredKeyForModel(a.model) === base).map(a => a.name)
     : []
   return {
     vaultId,

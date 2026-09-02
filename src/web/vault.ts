@@ -4,6 +4,7 @@ import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'node:
 import { PROJECT_ROOT } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { isKeychainAvailable, keychainStore, keychainRetrieve } from './keychain.js'
+import { activeSlotFor, readActiveMap, setActiveSlotFor } from './key-service-active.js'
 import { logger } from '../logger.js'
 import {
   normalizeVaultFields, fieldsToMeta, normalizeTags, pushHistory, secretValuesReplaced,
@@ -126,6 +127,25 @@ function readVault(): VaultStore {
 
 function writeVault(store: VaultStore): void {
   atomicWriteFileSync(VAULT_PATH, JSON.stringify(store, null, 2) + '\n', { mode: 0o600 })
+}
+
+/**
+ * MAGA A FAJL allapota -- mert a fenti `readVault()` egy olvashatatlan
+ * trezort URES trezornak mutat, es a ketto nem ugyanaz.
+ *
+ * Friss telepitesen a "0 kulcs" a helyes, csendes valasz. Egy serult
+ * vault.json-nal ugyanaz a 0 azt uzenne, hogy nincs baj -- kozben minden
+ * kulcs elerhetetlen. Ezert nem a talalatok szamabol kovetkeztetunk, hanem
+ * megkerdezzuk a forrast.
+ */
+export function vaultFileState(): 'missing' | 'ok' | 'unreadable' {
+  if (!existsSync(VAULT_PATH)) return 'missing'
+  try {
+    const parsed = JSON.parse(readFileSync(VAULT_PATH, 'utf-8'))
+    return parsed && typeof parsed === 'object' && Array.isArray(parsed.entries) ? 'ok' : 'unreadable'
+  } catch {
+    return 'unreadable'
+  }
 }
 
 export function listSecrets(): Array<{ id: string, label: string, createdAt: string, updatedAt: string, category?: string, url?: string, notes?: string, fields?: VaultFieldMeta[] }> {
@@ -304,6 +324,23 @@ export function updateSecretMeta(id: string, meta: { label?: string } & VaultEnt
 
 export function getSecret(id: string): string | null {
   const store = readVault()
+  // EGY SZOLGALTATAS, TOBB KULCS. Ha a felhasznalo valasztott (`zai-coding-key`
+  // helyett mondjuk `zai-coding-key.2`), akkor a valasztott hely felel -- igy
+  // minden hivo (ugynok-inditas, level, hangatiras) automatikusan a jo kulccsal
+  // dolgozik, es nem kellett szazfele atirni a `getSecret` hivasokat.
+  //
+  // Ha SOHA nem valasztottak (ez a friss telepites es a mai telepitesek
+  // allapota), a `pinned` null, es innentol bitre a regi viselkedes fut.
+  const pinned = activeSlotFor(id)
+  if (pinned && pinned !== id) {
+    const chosen = store.entries.find(e => e.id === pinned)
+    if (chosen) return decrypt(chosen.encrypted)
+    // A valasztott kartyat torolhettek. NEM esunk vissza nemakent az alap
+    // helyre: az azt jelentene, hogy a flotta mas elofizetes penzet kolti,
+    // mint amit a felhasznalo kivalasztott. Visszaesunk (mert a semmi meg
+    // rosszabb volna), de hangosan -- es a felulet is kiirja (activeMissing).
+    logger.warn({ serviceId: id, pinned }, 'key-service: a valasztott kulcs-hely eltunt, az alap-hely lep eletbe')
+  }
   const entry = store.entries.find(e => e.id === id)
   if (entry) return decrypt(entry.encrypted)
   // Not a top-level entry: it may be a FIELD on a card, bound to this id. That
@@ -332,6 +369,12 @@ export function deleteSecret(id: string): boolean {
   store.entries = store.entries.filter(e => e.id !== id)
   if (store.entries.length === before) return false
   writeVault(store)
+  // Ha epp a VALASZTOTT kulcs-helyet vettuk ki, a mutato is menjen vele.
+  // Enelkul a felulet orokke azt panaszolna, hogy "a valasztott kulcs eltunt"
+  // -- egy olyan torles utan, amit maga a felhasznalo kert es hagyott jova.
+  for (const [serviceId, slotId] of Object.entries(readActiveMap())) {
+    if (slotId === id) setActiveSlotFor(serviceId, null)
+  }
   return true
 }
 

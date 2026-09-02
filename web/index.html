@@ -2171,6 +2171,11 @@
           <!-- Kulcsos szolgaltato: ide beilleszted a kulcsot, es ott a link hogy honnan -->
           <div class="claude-auth-mode" id="claudeAuthKeyMode" hidden>
             <p class="claude-auth-keysteps" id="claudeAuthKeySteps"></p>
+            <!-- HOVA kerul a kulcs. Csak akkor latszik, ha nem az alap-helyre
+                 megy: a masodik GLM-elofizetes kulcsa uj ferohelyre kerul, es
+                 ezt ki kell mondani, kulonben a felhasznalo joggal hiszi, hogy
+                 felulirja az elsot. -->
+            <p class="claude-auth-warn" id="claudeAuthKeySlotNote" hidden></p>
             <div class="claude-auth-actions">
               <input class="input-sm" type="password" id="claudeAuthKeyValue" style="flex:1;min-width:220px"
                      data-i18n-placeholder="claudeauth.key_ph" placeholder="Ide illeszd be a kulcsot">

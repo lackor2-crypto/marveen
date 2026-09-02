@@ -139,11 +139,19 @@ describe('setup is reachable from a fresh install', () => {
   })
 
   it('the Accounts and Overview endpoints report the same key', () => {
+    // A GLM-sor 2026-09-02 ota nem soronkent all a ket vegpontban, hanem a
+    // KEY_SERVICE_CATALOG-bol jon -- ugyanabbol az egy listabol, amibol a
+    // Fiokok oldal, a "Tovabbi lehetosegeid" es a ferohely-kezelo is dolgozik.
+    // Az or SZANDEKA valtozatlan: a GLM egyik feluletrol sem tunhet el nemán.
+    // Ezert itt most azt tartjuk, hogy mindket vegpont a katalogusbol dolgozik,
+    // ES hogy a katalogusban tenylegesen benne van a GLM.
     for (const f of ['accounts.ts', 'overview.ts']) {
       const src = readFileSync(join(SRC, 'web', 'routes', f), 'utf-8')
-      expect(src).toContain('GLM_VAULT_KEY')
-      expect(src).toContain(`id: 'zai'`)
+      const direct = src.includes('GLM_VAULT_KEY') && src.includes(`id: 'zai'`)
+      expect(direct || src.includes('KEY_SERVICE_CATALOG')).toBe(true)
     }
+    const catalog = readFileSync(join(SRC, 'web', 'key-service-dependents.ts'), 'utf-8')
+    expect(catalog).toContain(`{ id: 'zai', vaultId: GLM_VAULT_KEY }`)
   })
 
   it('both dashboard languages describe it', () => {

@@ -9,15 +9,16 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PROJECT_ROOT, TELEGRAM_BOT_TOKEN } from '../../config.js'
-import { getSecret } from '../vault.js'
+import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
 import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutAccount, listAccounts, identityAudit } from '../claude-auth-runner.js'
 import { pinExpectedEmail } from '../claude-plans.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
 import { gitAccountsWithToken } from '../../git-accounts.js'
-import { GLM_VAULT_KEY } from '../glm-models.js'
-import { keyServiceImpact } from '../key-service-dependents.js'
+import { keyServiceImpact, KEY_SERVICE_CATALOG } from '../key-service-dependents.js'
+import { keyServiceView, nextSlotId } from '../key-service-slots.js'
+import { setActiveSlotFor } from '../key-service-active.js'
 import type { RouteContext } from './types.js'
 
 // Google went multi-account the same way (kanban b0c697ce, 2026-08-10):
@@ -203,6 +204,110 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // --- KULCS-FÉRŐHELYEK: több előfizetés EGY szolgáltatáshoz ----------------
+  //
+  // Boss, 2026-09-02: "akár felvihetne később egy legújabb GLM előfizetést is.
+  // másodikat. nem? tehát akkor miért tűnne el onnan a listából?"
+  //
+  // Eddig egy szolgáltatás egy trezor-nevet ismert, tehát a második kulcs
+  // FELÜLÍRTA volna az elsőt -- a lehetőség tényleg megszűnt, amint éltél vele.
+  // Mostantól férőhelyek vannak (`zai-coding-key`, `zai-coding-key.2`, ...),
+  // ez a végpont pedig megmutatja, mi hol van, és melyik az aktív.
+  //
+  // Titok SOHA nem megy ki innen: csak azonosítók, címkék és időbélyegek.
+  if (path === '/api/key-services' && method === 'GET') {
+    const state = vaultFileState()
+    // A NULLA KÉT DOLGOT JELENTHET. Olvashatatlan trezornál a `listSecrets()`
+    // ÜRES listát ad -- ami pontosan úgy néz ki, mint egy friss telepítés.
+    // Ezért magától a fájltól kérdezzük meg, és a felület kimondja, ha nem
+    // láttunk oda: nem "0 kulcsod van", hanem "nem tudtam megnézni".
+    const secrets = state === 'ok' ? listSecrets() : []
+    const takenIds = secrets.map(s => s.id)
+    json(res, {
+      ok: true,
+      vaultReadable: state !== 'unreadable',
+      services: KEY_SERVICE_CATALOG.map(svc => {
+        const view = keyServiceView(svc.vaultId, state === 'unreadable' ? null : secrets)
+        return {
+          id: svc.id,
+          vaultId: svc.vaultId,
+          slots: view.slots,
+          count: view.count,
+          activeSlotId: view.activeSlotId,
+          activeMissing: view.activeMissing,
+          // Ide megy a KÖVETKEZŐ kulcs. A gomb enélkül az alap-nevet küldené,
+          // és felülírná az elsőt -- pontosan azt, ami miatt ez az egész
+          // átalakítás kellett.
+          nextSlotId: state === 'unreadable' ? null : nextSlotId(svc.vaultId, takenIds),
+        }
+      }),
+    })
+    return true
+  }
+
+  // Melyik férőhely legyen az AKTÍV -- vagyis melyik előfizetést költse a flotta.
+  //
+  // Visszafordítható (bármikor visszaváltható), ezért nincs előnézet-kényszer;
+  // de a válasz megmondja, kit érint, mert a következő indulásuktól ők fognak
+  // más kulcsot használni.
+  if (path === '/api/key-services/active' && method === 'POST') {
+    let body: { serviceId?: unknown; slotId?: unknown } = {}
+    try { body = JSON.parse((await readBody(req)).toString() || '{}') } catch { /* defaults */ }
+    const serviceId = typeof body.serviceId === 'string' ? body.serviceId.trim() : ''
+    const svc = KEY_SERVICE_CATALOG.find(s => s.vaultId === serviceId || s.id === serviceId)
+    if (!svc) {
+      json(res, { ok: false, errorKey: 'acchub.key_active_err_unknown', error: 'Ismeretlen kulcs-szolgáltatás.' }, 400)
+      return true
+    }
+    // `null` = "ne legyen kijelölés": ilyenkor az alap-hely lép életbe, pont
+    // úgy, mint egy friss telepítésen. Ez a visszaút, nem hiba.
+    const slotId = body.slotId === null || body.slotId === undefined
+      ? null
+      : (typeof body.slotId === 'string' ? body.slotId.trim() : '')
+    if (slotId === '') {
+      json(res, { ok: false, errorKey: 'acchub.key_active_err_noslot', error: 'Hiányzik a slotId.' }, 400)
+      return true
+    }
+    if (vaultFileState() === 'unreadable') {
+      // Nem tudjuk ellenőrizni, létezik-e a hely. Egy nem létező helyre mutató
+      // kijelölés néma hiba lenne (más előfizetés pénzét költené), ezért inkább
+      // nem írunk semmit, és megmondjuk, miért.
+      json(res, { ok: false, errorKey: 'acchub.key_active_err_vault', error: 'A trezor most nem olvasható, ezért nem tudom ellenőrizni a kulcs-helyet. Nyisd meg a Trezor oldalt.' }, 409)
+      return true
+    }
+    if (slotId !== null) {
+      const view = keyServiceView(svc.vaultId)
+      const slot = view.slots.find(s => s.slotId === slotId)
+      if (!slot) {
+        json(res, { ok: false, errorKey: 'acchub.key_active_err_missing', error: 'Ez a kulcs-hely nincs meg a trezorban.' }, 404)
+        return true
+      }
+      if (slot.boundOn) {
+        // Egy MÁSIK kártya mezője: a `getSecret` a kijelölt kártya SAJÁT
+        // értékét olvasná, nem a mezőt -- vagyis némán mást adna vissza.
+        json(res, { ok: false, errorKey: 'acchub.key_active_err_bound', error: 'Ez a kulcs egy másik kártya mezője, azt nem lehet aktívvá tenni. Vedd fel külön kulcsként.' }, 400)
+        return true
+      }
+    }
+    setActiveSlotFor(svc.vaultId, slotId)
+    const after = keyServiceView(svc.vaultId)
+    const impact = keyServiceImpact(svc.vaultId)
+    json(res, {
+      ok: true,
+      serviceId: svc.vaultId,
+      activeSlotId: after.activeSlotId,
+      // Kit érint: a következő indulásuktól ezek az ügynökök (és funkciók) a
+      // most választott kulcsot használják.
+      agents: impact.agents,
+      featureKeys: impact.featureKeys,
+      // Ha nem láttunk bele minden ügynökbe, azt is kimondjuk -- az üres lista
+      // különben "senkit nem érint"-nek olvasódna.
+      blind: impact.blind,
+      rosterOk: impact.rosterOk,
+    })
+    return true
+  }
+
   if (path === '/api/accounts' && method === 'GET') {
     // git-accounts.ts owns the real store (store/.git-tokens.json, plus
     // gh-CLI-borrowed logins) -- this used to read a different, dead file
@@ -211,6 +316,13 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
     // on the Storages page.
     const githubAccounts = gitAccountsWithToken()
     const google = googleAccountNames()
+    // A NULLA KÉT DOLGOT JELENTHET: olvashatatlan trezornál a `listSecrets()`
+    // ÜRES listát ad, ami pontosan úgy néz ki, mint egy friss telepítés. Ezért
+    // magától a fájltól kérdezzük meg, és romlott trezornál `count: null` megy
+    // ki -- nem "0 kulcsod van".
+    const vaultState = vaultFileState()
+    const keySecrets = vaultState === 'ok' ? listSecrets() : []
+    const takenIds = keySecrets.map(s => s.id)
     json(res, {
       core: [
         // Which login, not just "yes there is one": the whole point of #52 is
@@ -221,13 +333,28 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
       optional: [
         { id: 'google', configured: google.accounts.length > 0, accounts: google.accounts, defaultAccount: google.default },
         { id: 'github', configured: githubAccounts.length > 0, accounts: githubAccounts },
-        { id: 'openrouter', configured: getSecret('openrouter-fleet-key') !== null },
-        { id: 'groq-stt', configured: getSecret('groq-stt-key') !== null },
-        // GLM (Z.ai) is a paid coding SUBSCRIPTION, so it belongs on this page
-        // next to the Claude logins rather than buried in a model dropdown:
-        // it is an account the operator pays for, and this is where accounts
-        // are seen and set up.
-        { id: 'zai', configured: getSecret(GLM_VAULT_KEY) !== null },
+        // A kulcsos szolgáltatások EGYETLEN listából jönnek
+        // (KEY_SERVICE_CATALOG), hogy a Fiókok oldal, a "További lehetőségeid"
+        // és a férőhely-kezelő ne tudjon szétcsúszni. A GLM (Z.ai) és a
+        // DeepSeek is fizetett kódoló ELŐFIZETÉS, tehát a helyük itt van, a
+        // Claude-bejelentkezések mellett, nem egy modell-legördülő mélyén.
+        //
+        // A `configured` ugyanaz a kérdés, amit az egész rendszer feltesz
+        // (`getSecret(id) !== null`); a `count`/`slots` azt mondja meg, HÁNY
+        // kulcs van, és a `nextSlotId`, hogy hova kerül a következő.
+        ...KEY_SERVICE_CATALOG.map(svc => {
+          const view = keyServiceView(svc.vaultId, vaultState === 'unreadable' ? null : keySecrets)
+          return {
+            id: svc.id,
+            vaultId: svc.vaultId,
+            configured: getSecret(svc.vaultId) !== null,
+            count: view.count,
+            slots: view.slots,
+            activeSlotId: view.activeSlotId,
+            activeMissing: view.activeMissing,
+            nextSlotId: vaultState === 'unreadable' ? null : nextSlotId(svc.vaultId, takenIds),
+          }
+        }),
       ],
     })
     return true

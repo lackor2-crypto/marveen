@@ -4,7 +4,7 @@
 // The loader shim is the brand-completeness idiom: shim window, import the
 // classic scripts for their window._i18n side effect.
 import { describe, it, expect, beforeAll } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -93,6 +93,31 @@ describe('every key the page asks for exists', () => {
       [...app.matchAll(/(?:^|[^A-Za-z0-9_$.])t\(\s*'([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)'/g)].map(m => m[1]),
     )
     expect(keys.size, 'no t() calls found -- the regex has drifted').toBeGreaterThan(500)
+    expect([...keys].filter(k => !(k in hu)), 'missing from hu.js').toEqual([])
+    expect([...keys].filter(k => !(k in en)), 'missing from en.js').toEqual([])
+  })
+
+  it("the server's every errorKey resolves in BOTH languages", () => {
+    // A hatterbol jovo hibamondat ugyanugy a kepernyore kerul, mint a felulet
+    // sajat szovege -- csak ezt az i18n-or eddig nem nezte. 2026-09-02-en ot uj
+    // hibauzenet indult ugy, hogy CSAK magyarul letezett: angol feluleten
+    // magyarul jelent volna meg. A szerver `errorKey`-t is kuld a mondat melle,
+    // es a kliens azt forditja -- ez a teszt azt tartja, hogy legyen mit.
+    const keys = new Set<string>()
+    const walk = (dir: string): string[] => {
+      const out: string[] = []
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, e.name)
+        if (e.isDirectory()) out.push(...walk(full))
+        else if (e.name.endsWith('.ts')) out.push(full)
+      }
+      return out
+    }
+    for (const file of walk(join(__dirname, '..', 'web'))) {
+      const src = readFileSync(file, 'utf8')
+      for (const m of src.matchAll(/errorKey:\s*'([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)'/g)) keys.add(m[1])
+    }
+    expect(keys.size, 'no errorKey found -- the regex has drifted').toBeGreaterThan(5)
     expect([...keys].filter(k => !(k in hu)), 'missing from hu.js').toEqual([])
     expect([...keys].filter(k => !(k in en)), 'missing from en.js').toEqual([])
   })

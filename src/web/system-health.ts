@@ -62,6 +62,8 @@ import type { ClaudePlan } from './claude-plans.js'
 import { googleOauthClientPresent, listGoogleAccounts } from './google-auth-runner.js'
 import { listSecrets, getSecret } from './vault.js'
 import { allAgentModels, requiredKeyForModel } from './key-service-dependents.js'
+import { keyServiceView } from './key-service-slots.js'
+import { readActiveMap } from './key-service-active.js'
 import type { AgentRoster } from './key-service-dependents.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
@@ -1509,6 +1511,53 @@ export function skillScopeReviewRows(
   }]
 }
 
+
+/**
+ * A VÁLASZTOTT KULCS-HELY ELTŰNT -- a legnémább hiba ezen a területen.
+ *
+ * Egy szolgáltatáshoz több kulcs is tartozhat (`zai-coding-key`,
+ * `zai-coding-key.2`, ...), és a `store/key-service-active.json` mondja meg,
+ * melyiket költse a flotta. Ha a kijelölt kártyát kívülről törlik (a Trezor
+ * oldalon, vagy egy import után), a `getSecret()` az ALAP-helyre esik vissza
+ * és tovább dolgozik -- vagyis minden fut, csak épp egy MÁSIK előfizetés
+ * pénzét égeti. Kifelé semmi nem látszik belőle: se hiba, se leállás.
+ *
+ * Ezért kap sort. A törlés saját útján (DELETE /api/vault/:id) a mutató
+ * magától törlődik, tehát ez a sor csak akkor szólal meg, ha tényleg
+ * kívülről tűnt el a kártya.
+ *
+ * A NULLA KÉT DOLGOT JELENTHET. Friss telepítésen senki nem választott
+ * semmit -- az a helyes, CSENDES eset, nem "rendben van" zöld sor. Ha viszont
+ * a trezort magát nem tudom elolvasni, akkor nem tudhatom, megvan-e a
+ * kijelölt hely: az `unknown`, nem a "rendben".
+ */
+export function keySlotRows(
+  active: () => Record<string, string> = readActiveMap,
+  nezet: (id: string) => { slots: Array<{ slotId: string }>; count: number | null } = id => keyServiceView(id),
+): HealthRow[] {
+  let map: Record<string, string>
+  try { map = active() } catch { return [{ id: 'key_slot_blind', status: 'warn', params: {} }] }
+  const parok = Object.entries(map).filter(([, slotId]) => typeof slotId === 'string' && slotId !== '')
+  // Senki nem választott: friss telepítés. Csend.
+  if (parok.length === 0) return []
+  const arvak: string[] = []
+  for (const [serviceId, slotId] of parok) {
+    let view: { slots: Array<{ slotId: string }>; count: number | null }
+    try { view = nezet(serviceId) } catch { return [{ id: 'key_slot_blind', status: 'warn', params: {} }] }
+    // `count === null` = nem láttam a trezorba. Az üres `slots` ilyenkor NEM
+    // azt jelenti, hogy eltűnt a hely -- nem tudom, mit jelent.
+    if (view.count === null) return [{ id: 'key_slot_blind', status: 'warn', params: {} }]
+    if (!view.slots.some(s => s.slotId === slotId)) arvak.push(`${serviceId} -> ${slotId}`)
+  }
+  if (arvak.length > 0) {
+    return [{
+      id: 'key_slot_orphan',
+      status: 'bad',
+      params: { n: arvak.length, names: arvak.join(', ') },
+    }]
+  }
+  return [{ id: 'key_slot_ok', status: 'ok', params: { n: parok.length } }]
+}
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -1516,6 +1565,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...googleClientRows(),
     ...vaultBindingRows(),
     ...providerKeyRows(),
+    ...keySlotRows(),
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),

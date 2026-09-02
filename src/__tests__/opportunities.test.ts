@@ -142,9 +142,10 @@ describe('a NULLA ket dolgot jelenthet -- a forrast kerdezzuk meg, nem a darabsz
 /** Egy alap fuggoseg-keszlet, amit tesztenkent felulirunk. */
 function deps(over: Partial<OpportunityDeps> = {}): OpportunityDeps {
   return {
-    keyServices: [],
+    keyServices: () => [],
     claudePlans: () => 0,
     googleAccounts: () => 0,
+    githubAccounts: () => 0,
     connectors: () => ({ total: 0, installed: 0 }),
     ...over,
   }
@@ -155,44 +156,82 @@ describe('buildOpportunities: az olvashatatlan forras kimondott sor lesz', () =>
     const items = buildOpportunities(deps({
       claudePlans: () => null,
       googleAccounts: () => null,
+      githubAccounts: () => null,
       connectors: () => ({ total: null, installed: null }),
     }))
     const byId = Object.fromEntries(items.map(i => [i.id, i]))
     expect(byId['claude-plan'].state).toBe('unknown')
     expect(byId['google-account'].state).toBe('unknown')
+    expect(byId['github'].state).toBe('unknown')
     expect(byId['connector'].state).toBe('unknown')
     for (const i of items) expect(i.params?.n).toBeUndefined()
   })
 
-  it('a hibat dobo kulcs-proba is "unknown", nem elnyelt hiba', () => {
+  it('az olvashatatlan trezor kulcs-sora is "unknown", nem "nincs kulcs"', () => {
     const items = buildOpportunities(deps({
-      keyServices: [{ id: 'zai', configured: () => { throw new Error('vault zarva') } }],
+      keyServices: () => [{ id: 'zai', count: null }],
     }))
     expect(items.find(i => i.id === 'zai')?.state).toBe('unknown')
+    expect(items.find(i => i.id === 'zai')?.params?.n).toBeUndefined()
   })
 
-  it('a beallitott kulcs-szolgaltatas NEM kerul a listaba', () => {
+  it('a kulcs-proba dobasat NEM nyeljuk el -- a csend ugyanaz lenne, mint a rendben', () => {
+    // Ha elnyelnenk, a kulcs-sorok nyomtalanul eltunnenek, es a lista pont ugy
+    // nezne ki, mint egy friss telepitesen. A hiba igy a vegpontig eljut, es a
+    // felulet kimondott "most nem tudtam lekerdezni" sort rajzol.
+    expect(() => buildOpportunities(deps({
+      keyServices: () => { throw new Error('vault zarva') },
+    }))).toThrow()
+  })
+
+  it('a BEKOTOTT kulcs-szolgaltatas sora MARAD, es azt mondja, hany van', () => {
+    // Boss, 2026-09-02: "de miert tunik el? a lehetoseg tovabbra is fennal.
+    // nem? akar felvihetne kesobb egy legujabb glm elofizetest is. masodikat."
     const items = buildOpportunities(deps({
-      keyServices: [
-        { id: 'zai', configured: () => true },
-        { id: 'groq_stt', configured: () => false },
+      keyServices: () => [
+        { id: 'zai', count: 1 },
+        { id: 'groq-stt', count: 0 },
+        { id: 'openrouter', count: 3 },
       ],
     }))
-    expect(items.find(i => i.id === 'zai')).toBeUndefined()
-    expect(items.find(i => i.id === 'groq_stt')?.state).toBe('available')
+    const byId = Object.fromEntries(items.map(i => [i.id, i]))
+    expect(byId['zai']).toBeDefined()
+    expect(byId['zai'].state).toBe('connected')
+    expect(byId['zai'].params?.n).toBe(1)
+    expect(byId['groq-stt'].state).toBe('available')
+    expect(byId['openrouter'].params?.n).toBe(3)
+  })
+
+  it('az eltunt aktiv kulcs a soron is megjelenik (nem nemá visszaeses)', () => {
+    const items = buildOpportunities(deps({
+      keyServices: () => [{ id: 'zai', count: 2, activeMissing: true }],
+    }))
+    expect(items.find(i => i.id === 'zai')?.activeMissing).toBe(true)
+    for (const lang of [hu, en]) {
+      expect(lang).toContain("'overview.opportunity.active_missing'")
+    }
+    expect(app).toContain("t('overview.opportunity.active_missing')")
   })
 
   it('a fiok-sorok akkor is ott vannak, ha mar van bekotve fiok', () => {
     // Ez a lenyeg: a negyedik elofizetes vagy a masodik Google-fiok LEHETOSEG,
     // nem hianyossag -- akkor is felajanlhato, ha nem "hianyzik" semmi.
-    const items = buildOpportunities(deps({ claudePlans: () => 3, googleAccounts: () => 1 }))
+    const items = buildOpportunities(deps({
+      claudePlans: () => 3, googleAccounts: () => 1, githubAccounts: () => 2,
+    }))
     expect(items.find(i => i.id === 'claude-plan')?.params?.n).toBe(3)
     expect(items.find(i => i.id === 'google-account')?.params?.n).toBe(1)
+    expect(items.find(i => i.id === 'github')?.params?.n).toBe(2)
   })
 
-  it('ha minden connector be van kotve, nincs connector-sor', () => {
+  it('ha minden connector be van kotve, a sor MARAD, csak mast mond', () => {
     const items = buildOpportunities(deps({ connectors: () => ({ total: 5, installed: 5 }) }))
-    expect(items.find(i => i.id === 'connector')).toBeUndefined()
+    const row = items.find(i => i.id === 'connector')
+    expect(row?.state).toBe('connected')
+    expect(row?.variant).toBe('all_installed')
+    for (const lang of [hu, en]) {
+      expect(lang).toContain("'overview.opportunity.connector.desc_all_installed'")
+    }
   })
 
   it('ha a katalogust latom, de a bekototteket nem, csak a teljes szamot mondom', () => {
@@ -211,11 +250,43 @@ describe('buildOpportunities: az olvashatatlan forras kimondott sor lesz', () =>
     expect(app).toContain('`${info.descKey}_${o.variant}`')
   })
 
-  it('a hianyzo connectorok szama a kulonbseg', () => {
+  it('a hianyzo connectorok szama a kulonbseg -- es a sor akkor is marad', () => {
+    // Mar van bekotve ketto, tehat "connected": a sor nem hianyt jelez, hanem
+    // azt mondja meg, hol tartasz es mennyi van meg hatra.
     const items = buildOpportunities(deps({ connectors: () => ({ total: 9, installed: 2 }) }))
     const row = items.find(i => i.id === 'connector')
-    expect(row?.state).toBe('available')
+    expect(row?.state).toBe('connected')
+    expect(row?.variant).toBeUndefined()
     expect(row?.params).toMatchObject({ n: 7, total: 9, installed: 2 })
+  })
+})
+
+describe('minden felsorolt szolgaltatasnak van felirata -- egy lista, nem harom', () => {
+  const catalog = readFileSync(join(PROJECT_ROOT, 'src', 'web', 'key-service-dependents.ts'), 'utf8')
+  const block = /export const KEY_SERVICE_CATALOG[\s\S]*?\n\]/.exec(catalog)?.[0] ?? ''
+  const ids = Array.from(block.matchAll(/\{ id: '([a-z0-9-]+)'/g)).map(m => m[1])
+
+  it('a katalogus nem ures, es a DeepSeek is benne van', () => {
+    // A DeepSeek eddig CSAK az ugynokok modell-valasztojaban letezett: a Fiokok
+    // oldalarol es a lehetoseg-listabol kimaradt, mert harom kulon lista volt.
+    expect(ids.length).toBeGreaterThanOrEqual(4)
+    expect(ids).toContain('deepseek')
+  })
+
+  it('minden katalogus-id-hez van CAPABILITY_INFO sor a kliensen', () => {
+    for (const id of ids) {
+      expect(app).toMatch(new RegExp("(^|\\n)\\s*'?" + id + "'?:\\s*\\{", 'm'))
+    }
+  })
+
+  it('minden katalogus-id feliratai megvannak MINDKET nyelven', () => {
+    for (const id of ids) {
+      const key = 'overview.capability.' + id.replace(/-/g, '_')
+      for (const lang of [hu, en]) {
+        expect(lang).toContain("'" + key + ".label'")
+        expect(lang).toContain("'" + key + ".desc'")
+      }
+    }
   })
 })
 
