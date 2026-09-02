@@ -59,6 +59,10 @@ import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
+// EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
+// oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
+// mondott ellentetes mondatot.
+import { isAgentManagedChannel } from './mcp-connectors.js'
 import { googleOauthClientPresent, listGoogleAccounts } from './google-auth-runner.js'
 import { listSecrets, getSecret } from './vault.js'
 import { allAgentModels, requiredKeyForModel } from './key-service-dependents.js'
@@ -697,9 +701,15 @@ function olvasJson<T>(path: string): T | null {
 }
 
 /** A kartyak es a szerverek nevei a LEMEZROL jonnek, a kliens pedig escape
- *  nelkul rendereli a params-t. Ezert csak ez a szukitett keszlet mehet at. */
+ *  nelkul rendereli a params-t. Ezert csak ez a szukitett keszlet mehet at.
+ *
+ *  A `:` `@` `/` 2026-09-02 ota bent van, mert nelkuluk a nev OLVASHATATLANNA
+ *  valt: a `plugin:telegram:telegram` ugy jelent meg az Attekintesben, hogy
+ *  `plugintelegramtelegram` (Boss: "nem tiszta nekem hogy mit es hol kell
+ *  csinalni"). Mindharom karakter HTML-semleges -- `<`, `>`, `&`, `"`, `'`
+ *  tovabbra sem mehet at, tehat a szures oka valtozatlanul all. */
 function tisztaNev(s: string): string {
-  return String(s).replace(/[^A-Za-z0-9._ -]/g, '').trim().slice(0, 40)
+  return String(s).replace(/[^A-Za-z0-9._:@/ -]/g, '').trim().slice(0, 40)
 }
 
 interface GitSyncEredmeny {
@@ -879,11 +889,28 @@ export function commandTaskRows(
  */
 export const MCP_AUTH_CACHE = 'mcp-needs-auth-cache.json'
 
-/** Hol laknak a config-konyvtarak: a kozos, plusz minden agens sajatja. */
-export function mcpCacheHelyek(home: string = homedir()): string[] {
+/**
+ * Hol laknak a config-konyvtarak: a kozos, minden agens sajatja, ES a
+ * megnevezett elofizetesek (`claude-plans.json` -> `configDir`).
+ *
+ * A tervek 2026-09-02 ota vannak benne. A NULLA KET DOLGOT JELENTHET: a ket
+ * terv-konyvtarban ugyanugy ott ult egy bejegyzes, csak eppen egyetlen kereso
+ * sem nezett oda -- ha ott egy VALODI hitelesites-keres all, az Attekintes
+ * nemasagat a felhasznalo "nincs teendo"-nek olvassa, holott a helyes olvasat
+ * "nem latok oda" lett volna.
+ */
+export function mcpCacheHelyek(
+  home: string = homedir(),
+  tervKonyvtarak: () => string[] = () => {
+    if (!existsSync(CLAUDE_PLANS_PATH)) return []
+    try {
+      return resolveClaudePlans(readFileSync(CLAUDE_PLANS_PATH, 'utf-8'), home).map(p => p.configDir)
+    } catch { return [] }
+  },
+): string[] {
   const utak = [join(home, '.claude', MCP_AUTH_CACHE)]
   let nevek: string[] = []
-  try { nevek = readdirSync(home) } catch { return utak }
+  try { nevek = readdirSync(home) } catch { nevek = [] }
   for (const n of nevek) {
     // A munkas-konyvtarak neve a bot nevet koveti (`.marveen-worker`,
     // `.lackor2-bot-worker-fast`, ...), ezert nem listat tartunk, hanem
@@ -891,6 +918,10 @@ export function mcpCacheHelyek(home: string = homedir()): string[] {
     if (!n.startsWith('.')) continue
     const p = join(home, n, '.claude-config', MCP_AUTH_CACHE)
     if (existsSync(p)) utak.push(p)
+  }
+  for (const dir of tervKonyvtarak()) {
+    const p = join(dir, MCP_AUTH_CACHE)
+    if (existsSync(p) && !utak.includes(p)) utak.push(p)
   }
   return utak
 }
@@ -906,6 +937,19 @@ export function mcpAuthRows(
     for (const nev of Object.keys(d)) {
       const e = d[nev] || {}
       if (e.ttlMs && e.timestamp && e.timestamp + e.ttlMs < now) continue
+      // A csatorna-pluginokat (Telegram, Slack, ...) AZ AGENS inditja, es
+      // nincs is hitelesitesi folyamatuk: az egyetlen hitelesito adatuk a
+      // `TELEGRAM_BOT_TOKEN` a sajat `.env`-jukben. Amikor a Claude Code
+      // "hitelesitest kero"-nek konyveli oket, az egy FELREOSZTALYOZOTT
+      // kapcsolodasi hiba (a plugin a sajat allapot-konyvtara nelkul indult,
+      // `-32000: Connection closed`) -- ugyanaz a jelenseg, amit a
+      // mcp-connectors.ts a Fiokok oldalon mar nyugodtan "az ugynok
+      // inditja"-nak nevez.
+      //
+      // Enelkul az Attekintes olyan hitelesitest kert szamon, amit ember NEM
+      // tud elvegezni (Boss, 2026-09-02: "ezt a telegrammot kellene
+      // ujrainditani? nem tudom"), mikozben a hid vegig elt.
+      if (isAgentManagedChannel(nev)) continue
       const t = tisztaNev(nev)
       if (t) varo.add(t)
     }

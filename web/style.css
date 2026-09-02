@@ -10333,6 +10333,22 @@ body {
   background: var(--bg);
   font-size: 13px;
 }
+/* Az Attekintes onellenorzesebol ideugorva a MEGNEVEZETT kapcsolat-sor
+   villan fel -- ugyanaz a "hova is kattintottam" valasz, mint a kanban-
+   kartyanal. Enelkul a kattintas a Fiokok lapra dobott, es Boss szava
+   szerint "semmit nem latok pirossal szurkevel hogy hol kellene javitani".
+   A sor sajat --bg-je a nyugalmi fazis, hogy sotet temaban se legyen
+   kirivo feher villanas. */
+@keyframes conn-row-flash-pulse {
+  0%, 100% { background: var(--bg); box-shadow: none; }
+  50% {
+    background: color-mix(in srgb, var(--warning) 30%, var(--bg));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 55%, transparent);
+  }
+}
+.conn-row-flash {
+  animation: conn-row-flash-pulse 0.6s ease-in-out 4;
+}
 .conn-row-main {
   display: flex;
   flex-wrap: wrap;

@@ -18079,7 +18079,11 @@ function _accHubMcpServerHtml(acct, s) {
     action = `<span class="conn-note conn-note-bad">${escapeHtml(t('mconn.fix_broken', { msg: s.reason || '' }))}</span>`
   }
   const what = _connWhat(s.name)
-  return `<div class="conn-row">
+  // `data-mcp-server` a NYERS nev (nem a szep cimke): az Attekintes
+  // onellenorzese ezen keresztul talalja meg pontosan azt a sort, amirol
+  // beszel. Enelkul a kattintas csak a Fiokok lapra dobott, ahol Boss szava
+  // szerint "semmit nem latok hogy hol vagyok mit kellene csinalni".
+  return `<div class="conn-row" data-mcp-server="${escapeAttr(s.name || '')}">
     <div class="conn-row-main">
       <span class="conn-row-name">${escapeHtml(_connLabel(s.name))}</span>
       <span class="conn-pill ${pillClass}">${escapeHtml(t(statusKey))}</span>
@@ -18113,6 +18117,62 @@ function _accHubMcpPart(rows) {
     return `${head}${inner}<div class="conn-note">${escapeHtml(who)}</div>`
   }).join('')
   return _accHubPart('acchub.part_mcp', body)
+}
+
+/**
+ * A szerver a nevet megszurve kuldi (tisztaNev): ami nem fer bele a
+ * megengedett karakter-keszletbe, az kiesik, 40 karakter felett pedig levagja.
+ * Ezert a DOM-beli NYERS nevet ugyanugy megszurve hasonlitjuk ossze -- kulonben
+ * egy hosszu vagy szokatlan nevu kapcsolatnal a kiemeles neman elmaradna,
+ * es a felhasznalo megint csak nezne a lapot.
+ */
+function _mcpNameKey(s) {
+  return String(s || '').replace(/[^A-Za-z0-9._:@/ -]/g, '').trim().slice(0, 40).toLowerCase()
+}
+
+function _findMcpConnRow(names) {
+  const keys = names.map(_mcpNameKey).filter(Boolean)
+  if (!keys.length) return null
+  for (const el of document.querySelectorAll('.conn-row[data-mcp-server]')) {
+    if (keys.includes(_mcpNameKey(el.dataset.mcpServer))) return el
+  }
+  return null
+}
+
+/**
+ * Az Attekintes MCP-soranak kattintasi celja.
+ *
+ * Boss, 2026-09-02: "de a fiok oldalra visz ahol semmit nem latok hogy hol
+ * vagyok mit kellene csinalni [...] szoval nem tiszta nekem hogy mit es hol
+ * kell csinalni." A sor eddig az alapertelmezett agra esett (switchPage
+ * 'accounts'), ami a lap TETEJERE dobott, kiemeles nelkul -- ugyanaz a nema
+ * zsakutca, amit 2026-08-26-on a kod-hid soroknal mar egyszer jeleztel.
+ *
+ * A kapcsolat-lista kulon korben erkezik, ezert varunk ra -- de nem
+ * vegtelenul, es a sikertelenseget KIMONDJUK: a nema semmittevesbol a
+ * felhasznalo azt olvassa ki, hogy a kattintas nem mukodik.
+ */
+async function jumpToMcpConnector(namesCsv) {
+  const names = String(namesCsv || '').split(',').map(x => x.trim()).filter(Boolean)
+  switchPage('accounts')
+  try { await loadAccountsPage() } catch { /* a varakozo ciklus ugyis megnezi */ }
+  let el = null
+  for (let i = 0; i < 25 && !el; i++) {
+    el = _findMcpConnRow(names)
+    if (!el) await new Promise(r => setTimeout(r, 200))
+  }
+  if (!el) {
+    // Ket kulon eset, de a teendo ugyanaz: mondjuk meg, hogy NEM talaltuk --
+    // "nem latok oda", nem "nincs semmi".
+    showToast(t('mconn.jump_not_found', { names: names.join(', ') || '?' }), 9000, true)
+    return
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.remove('conn-row-flash')
+  // Reflow, kulonben az animacio nem indul ujra, ha ez a sor mar villant egyszer.
+  void el.offsetWidth
+  el.classList.add('conn-row-flash')
+  setTimeout(() => el.classList.remove('conn-row-flash'), 2600)
 }
 
 function _accHubCardHtml(c) {
@@ -19400,7 +19460,16 @@ async function renderOverviewConnections() {
             || h.id === 'code_bridge_worker_stale' || h.id === 'code_bridge_worker_unversioned'
             || h.id === 'code_bridge_worker_unknown')
             ? "openCodeBridgeModal()"
-            : null,
+            // A hitelesitesre varo MCP-kapcsolat sora a MEGNEVEZETT
+            // kapcsolat-sorra ugrik a Fiokok lapon, es fel is villantja.
+            // Enelkul ez is az alapertelmezett agra esett -- a lap tetejere,
+            // kiemeles nelkul (Boss, 2026-09-02).
+            // A `&quot;` nem szepitkezes: az onclick egy HTML-attributumba
+            // kerul, ott a nyers `"` lezarna az attributumot (ugyanezert
+            // csereli a `guide` ag is).
+            : h.id === 'mcp_needs_auth'
+              ? `jumpToMcpConnector(${JSON.stringify(glNames).replace(/"/g, '&quot;')})`
+              : null,
       guide: h.id === 'google_live_bad'
         ? {
           id: 'google:live',

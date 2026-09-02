@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { gitPullRows, commandTaskRows, mcpAuthRows, skillSeedRows } from '../web/system-health.js'
+import { gitPullRows, commandTaskRows, mcpAuthRows, mcpCacheHelyek, skillSeedRows } from '../web/system-health.js'
 import { mkdirSync } from 'node:fs'
 
 const NAP = 86400000
@@ -245,7 +245,75 @@ describe('MCP: hitelesitesre varo kapcsolat', () => {
 
   it('a szervernevet is MEGTISZTITJA', () => {
     const p = ir('f.json', { 'x<b>y': { timestamp: MOST } })
-    expect(String(mcpAuthRows(MOST, [p])[0].params?.names)).not.toContain('<')
+    const nevek = String(mcpAuthRows(MOST, [p])[0].params?.names)
+    expect(nevek).not.toContain('<')
+    expect(nevek).not.toContain('>')
+  })
+
+  // Boss, 2026-09-02: "ezt a telegramm ot kellene ujrainidtani? nem tudom."
+  //
+  // A csatorna-pluginnak NINCS hitelesitesi folyamata: az egyetlen hitelesito
+  // adata a bot token a sajat .env-jeben. A Claude Code megis beirja a
+  // needs-auth gyorsitotarba, amikor a plugin a sajat allapot-konyvtara nelkul
+  // nem tud elindulni -- ez felreosztalyozott kapcsolodasi hiba, nem teendo.
+  // Az Attekintes ettol olyan hitelesitest kert szamon, amit ember nem tud
+  // elvegezni, mikozben a Fiokok lap ugyanezt a kapcsolatot mar nyugodtan
+  // "az ugynok inditja"-nak nevezte.
+  it('a csatorna-plugin (Telegram) NEM hitelesitest varo kapcsolat', () => {
+    const p = ir('g.json', { 'plugin:telegram:telegram': { timestamp: MOST } })
+    expect(mcpAuthRows(MOST, [p])).toEqual([])
+  })
+
+  it('a valodi kapcsolat AKKOR IS latszik, ha csatorna-plugin is van mellette', () => {
+    const p = ir('h.json', {
+      'plugin:telegram:telegram': { timestamp: MOST },
+      'plugin:slack:slack': { timestamp: MOST },
+      jira: { timestamp: MOST },
+    })
+    const r = mcpAuthRows(MOST, [p])
+    expect(r).toHaveLength(1)
+    // A szures nem "mindent elnyel": pontosan egy nevet hagy allni, es a
+    // szamlalo is EGYET mond, nem harmat.
+    expect(r[0].params).toMatchObject({ n: 1, names: 'jira' })
+  })
+
+  // A `:` nelkul a nev OLVASHATATLAN volt: a felhasznalo `plugintelegramtelegram`
+  // -t latott, amit sehol nem tud visszakeresni -- se a Fiokok lapon, se a
+  // sajat gepen.
+  it('a nev OLVASHATO marad: a ketpontot nem eszi meg', () => {
+    const p = ir('i.json', { 'plugin:notion:notion': { timestamp: MOST } })
+    expect(mcpAuthRows(MOST, [p])[0].params?.names).toBe('plugin:notion:notion')
+  })
+})
+
+// A NULLA KET DOLGOT JELENTHET -- a megnevezett elofizetesek (claude-plans.json)
+// konyvtaraiba egyetlen kereso sem nezett bele, holott a Claude Code oda is
+// irja a needs-auth gyorsitotarat. Egy VALODI hitelesites-keres igy neman
+// eltunt volna: az Attekintes csendjet a felhasznalo "nincs teendo"-nek olvassa,
+// pedig a helyes olvasat "nem latok oda" lett volna.
+describe('MCP: hol keres a gyorsitotar-bejaras', () => {
+  const home = mkdtempSync(join(tmpdir(), 'marveen-mcphome-'))
+  const terv = join(home, 'accounts', 'lackor3')
+  mkdirSync(terv, { recursive: true })
+  const p = join(terv, 'mcp-needs-auth-cache.json')
+  writeFileSync(p, JSON.stringify({ jira: { timestamp: MOST } }))
+
+  it('a terv-konyvtar cache-et megtalalja', () => {
+    const helyek = mcpCacheHelyek(home, () => [terv])
+    expect(helyek).toContain(p)
+    expect(mcpAuthRows(MOST, helyek)[0].params).toMatchObject({ n: 1, names: 'jira' })
+  })
+
+  it('...es enelkul NEM latta volna (a teszt nem vak)', () => {
+    // Kontroll: ha a terv-konyvtarak listaja ures, ugyanez a bejegyzes
+    // lathatatlan marad. Ez bizonyitja, hogy a fenti allitas az UJ agat meri.
+    expect(mcpCacheHelyek(home, () => [])).not.toContain(p)
+    expect(mcpAuthRows(MOST, mcpCacheHelyek(home, () => []))).toEqual([])
+  })
+
+  it('a nem letezo terv-konyvtar nem szemetel be a listaba', () => {
+    const helyek = mcpCacheHelyek(home, () => [join(home, 'nincs-ilyen')])
+    expect(helyek.some(x => x.includes('nincs-ilyen'))).toBe(false)
   })
 })
 
