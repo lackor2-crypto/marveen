@@ -47,6 +47,8 @@ window._i18n.hu = {
   'overview.capability.openrouter.desc':  'Egyetlen kulccsal bármilyen AI-modellt használhatsz a Marvinban (GPT, Gemini és még tucatnyi más) — kattints a beállításhoz',
   'overview.capability.groq_stt.label':   'Groq gyors hangátirat',
   'overview.capability.groq_stt.desc':    'Gyorsabb, felhő-alapú hangátirat Telegram hangüzenetekhez (nélküle helyi, lassabb átirat fut) — kattints a beállításhoz',
+  'overview.capability.zai.label':        'GLM (Z.ai előfizetés)',
+  'overview.capability.zai.desc':         'Havidíjas kódoló előfizetés a Claude mellé: az ügynökeid egy része GLM-en futhat, a Claude-keret pedig marad a nehezebb munkára — kattints a beállításhoz',
   'nav.accounts':                'Fiókok',
   'accounts.page_title':         'Fiókok',
   'accounts.page_subtitle':      'Minden fiók és API-kulcs, ami a Marvinhoz kapcsolódik — egy helyen',
@@ -2792,6 +2794,7 @@ window._i18n.hu = {
   'vault.known.get_key_link':    'Kulcs igénylése itt',
   'vault.known.openrouter.steps': '1. Nyisd meg az OpenRouter oldalát, regisztrálj vagy jelentkezz be.\n2. Az "API Keys" menüben hozz létre egy új kulcsot.\n3. Másold ki a kulcsot.\n4. Illeszd be a lenti Érték mezőbe, adj neki nevet, és mentsd el.',
   'vault.known.groq_stt.steps':   '1. Nyisd meg a Groq Console oldalát, regisztrálj vagy jelentkezz be (ingyenes).\n2. Az "API Keys" menüben hozz létre egy új kulcsot.\n3. Másold ki a kulcsot.\n4. Illeszd be a lenti Érték mezőbe, adj neki nevet, és mentsd el.',
+  'vault.known.zai.steps':        '1. Válts elő GLM Coding Plan előfizetést a z.ai oldalán (Lite / Pro / Max). Kulcs enélkül is készíthető, de a kódoló végpontot csak az előfizetés nyitja meg.\n2. Nyisd meg az API-kulcsok oldalt, és hozz létre egy új kulcsot.\n3. Másold ki a kulcsot.\n4. Illeszd be a lenti Érték mezőbe, adj neki nevet, és mentsd el.\n5. Ezután a GLM modellek megjelennek az ügynökök Modell-listájában.',
 
   // --- Drive fájlböngésző ---
   'drive.page_title':          'Drive fájlok',
@@ -3590,6 +3593,10 @@ window._i18n.hu = {
   'agents.deepseek_hint_pre': 'DeepSeek-V4-Pro nincs konfigurálva.',
   'agents.deepseek_link': 'API kulcs hozzáadása',
   'agents.deepseek_hint_post': 'a Vault oldalon.',
+  'agents.model.glm_group':    '🧩 GLM (Z.ai előfizetés)',
+  'agents.glm_hint_pre':       'A GLM (Z.ai) előfizetés nincs bekötve.',
+  'agents.glm_link':           'Kulcs hozzáadása',
+  'agents.glm_hint_post':      'a Széf oldalon.',
   'channel.btn.slack_manifest': 'Slack App létrehozása (manifest)',
 
   // --- Fleet Migration ---

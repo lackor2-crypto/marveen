@@ -16,6 +16,7 @@ import { pinExpectedEmail } from '../claude-plans.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
 import { gitAccountsWithToken } from '../../git-accounts.js'
+import { GLM_VAULT_KEY } from '../glm-models.js'
 import type { RouteContext } from './types.js'
 
 // Google went multi-account the same way (kanban b0c697ce, 2026-08-10):
@@ -200,6 +201,11 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
         { id: 'github', configured: githubAccounts.length > 0, accounts: githubAccounts },
         { id: 'openrouter', configured: getSecret('openrouter-fleet-key') !== null },
         { id: 'groq-stt', configured: getSecret('groq-stt-key') !== null },
+        // GLM (Z.ai) is a paid coding SUBSCRIPTION, so it belongs on this page
+        // next to the Claude logins rather than buried in a model dropdown:
+        // it is an account the operator pays for, and this is where accounts
+        // are seen and set up.
+        { id: 'zai', configured: getSecret(GLM_VAULT_KEY) !== null },
       ],
     })
     return true

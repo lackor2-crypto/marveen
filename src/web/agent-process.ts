@@ -47,6 +47,7 @@ import { writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureAutonomy
 import { schedulePluginUnlockAfterRespawn } from './channel-plugin-unlock.js'
 import { getSecret } from './vault.js'
 import { resolveOpenRouterModel } from './openrouter-models.js'
+import { GLM_BASE_URL, GLM_FAST_MODEL, GLM_TIMEOUT_MS, GLM_VAULT_KEY, isGlmModel } from './glm-models.js'
 import { reapChannelOrphans, reapDetachedChannelClaudes } from './channel-poller-reap.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { notifyChannel } from '../notify.js'
@@ -1090,10 +1091,16 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     const authMode = readAgentAuthMode(name)
     const isClaude = model.startsWith('claude-')
     const isDeepseek = model.startsWith('deepseek-')
+    // GLM must be classified BEFORE the Ollama fallback. `glm-5.3` has no '/'
+    // and none of the known prefixes, so the old chain filed it under Ollama
+    // and pointed the agent at localhost:11434 -- which does not raise an
+    // error, it just answers from the wrong model (or hangs when Ollama is not
+    // running). Silent wrongness, not a visible failure.
+    const isGLM = !isClaude && !isDeepseek && isGlmModel(model)
     // OpenRouter model ids are `provider/model` (contain '/'); Ollama tags use
     // ':' and no '/'. This discriminator keeps OpenRouter ids off the Ollama path.
-    const isOpenRouter = !isClaude && !isDeepseek && model.includes('/')
-    const isOllama = !isClaude && !isDeepseek && !isOpenRouter
+    const isOpenRouter = !isClaude && !isDeepseek && !isGLM && model.includes('/')
+    const isOllama = !isClaude && !isDeepseek && !isGLM && !isOpenRouter
     // ANTHROPIC_MODEL is REQUIRED for non-Claude models: the interactive TUI
     // validates the `--model` flag against known Anthropic models and silently
     // falls back to the built-in default (claude-opus-...) for an unrecognized
@@ -1108,6 +1115,30 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // (the SDK appends /v1/messages). Key from the vault (openrouter-fleet-key).
     const openrouterKey = isOpenRouter ? (getSecret('openrouter-fleet-key') ?? '') : ''
     const openrouterEnv = isOpenRouter ? `export ANTHROPIC_AUTH_TOKEN="${openrouterKey}" && export ANTHROPIC_BASE_URL=https://openrouter.ai/api && export ANTHROPIC_MODEL='${model}' && ` : ''
+    // GLM (Z.ai Coding Plan): Anthropic-compatible CODING endpoint, key in the
+    // vault. Three env vars beyond the usual pair, each earning its place:
+    //   ANTHROPIC_DEFAULT_HAIKU_MODEL -- Claude Code's background calls
+    //     (titles, small classifications) run on its haiku-class model. Left
+    //     unset they go out as `claude-haiku-...` against Z.ai and come back
+    //     "model does not exist" WHILE the main conversation works, so it reads
+    //     as a random glitch instead of a missing setting.
+    //   ANTHROPIC_DEFAULT_OPUS/SONNET_MODEL -- same reasoning for anything that
+    //     asks for a tier by name rather than taking ANTHROPIC_MODEL.
+    //   API_TIMEOUT_MS -- GLM streams slower on long tool-heavy turns; the
+    //     default client timeout cuts those off mid-answer.
+    // `unset ANTHROPIC_API_KEY` guards the documented cross-provider gotcha: an
+    // inherited Anthropic key beats ANTHROPIC_AUTH_TOKEN and the request goes
+    // to Z.ai carrying the wrong credential (401 that looks like a bad Z.ai key).
+    const glmKey = isGLM ? (getSecret(GLM_VAULT_KEY) ?? '') : ''
+    if (isGLM && !glmKey) {
+      // Say WHICH key and WHERE, because the alternative is a 401 in a tmux
+      // pane nobody is watching. The dropdown only offers GLM when the key is
+      // present, so this fires when the key was removed after the fact.
+      logger.warn({ name, model, vaultId: GLM_VAULT_KEY }, `GLM model selected but vault key '${GLM_VAULT_KEY}' is missing -- add it on the dashboard Accounts page; the agent will get a 401 from Z.ai until then`)
+    }
+    const glmEnv = isGLM
+      ? `export ANTHROPIC_AUTH_TOKEN="${glmKey}" && unset ANTHROPIC_API_KEY && export ANTHROPIC_BASE_URL=${GLM_BASE_URL} && export ANTHROPIC_MODEL='${model}' && export ANTHROPIC_DEFAULT_OPUS_MODEL='${model}' && export ANTHROPIC_DEFAULT_SONNET_MODEL='${model}' && export ANTHROPIC_DEFAULT_HAIKU_MODEL='${GLM_FAST_MODEL}' && export API_TIMEOUT_MS=${GLM_TIMEOUT_MS} && `
+      : ''
     // When authMode is 'api', the agent uses its own ANTHROPIC_API_KEY from
     // the vault instead of the host's OAuth. The vault entry ID follows the
     // convention `agent-{name}-api-key`. We inject it as an env var so Claude
@@ -1395,7 +1426,7 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     const promptSuggestionEnv = 'export CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false && '
     // Single-quote `${model}` so values like `claude-opus-4-8[1m]` (1M-context
     // suffix) are not glob-expanded by the shell that tmux spawns the command in.
-    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
+    const cmd = `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH" && ${unsetTokens} && ${promptSuggestionEnv}${mcpEnv}${channelSetup}${apiKeyEnv}${claudeConfigEnv}${oauthTokenEnv}${ollamaEnv}${deepseekEnv}${openrouterEnv}${glmEnv}cd "${dir}" && ${claudeBin()} ${continueFlag}${skipFlag}${autocompactFlag()}--model '${model}' ${channelFlag}`.trimEnd()
     // -x 80 -y 60 gives the pane the same 60-row height as the main channel
     // session (lackor2-bot-channels), instead of tmux's detached default of
     // 80x24. The dashboard Terminal viewer bottom-anchors a pane snapshot, so a

@@ -163,6 +163,20 @@ async function main() {
     warn('DeepSeek kihagyva — kesobb a dashboard /vault oldalrol hozzaadhato')
   }
 
+  // GLM (Z.ai Coding Plan) — havidijas elofizetes, nem token-alapu elszamolas
+  console.log('\nGLM (Z.ai) kodolo elofizetes tamogatas (opcionalis).')
+  console.log('A GLM Coding Plan HAVIDIJAS (Lite/Pro/Max), nem tokenre megy, es')
+  console.log('Anthropic-kompatibilis vegpontot ad. Kulcs: https://z.ai/manage-apikey/apikey-list')
+  const glmKey = await ask('Z.ai API kulcs (Enter a kihagyashoz):')
+  if (glmKey) {
+    const { setSecret } = await import('../dist/web/vault.js')
+    setSecret('zai-coding-key', 'Z.ai Coding Plan', glmKey)
+    ok('Z.ai kulcs mentve a vault-ba (zai-coding-key)')
+    ok('A glm-5.3 modell most mar elerheto agensekhez')
+  } else {
+    warn('GLM kihagyva — kesobb a dashboard Fiokok vagy /vault oldalarol hozzaadhato')
+  }
+
   // .env iras
   header('4. .env fajl irasa')
   let envContent = '# Marveen konfiguracio\n'

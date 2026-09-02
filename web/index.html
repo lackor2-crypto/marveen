@@ -3773,6 +3773,8 @@
               </optgroup>
               <optgroup label="🌊 DeepSeek (alternatív)" id="agentModelDeepseekGroup">
               </optgroup>
+              <optgroup label="🧩 GLM (Z.ai előfizetés)" data-i18n-label="agents.model.glm_group" id="agentModelGlmGroup" style="display:none">
+              </optgroup>
               <optgroup label="🔀 OpenRouter - Auto (heti frissítésű ajánlott)" id="agentModelOpenrouterAutoGroup" style="display:none">
               </optgroup>
               <optgroup label="🔀 OpenRouter - kézi" id="agentModelOpenrouterManualGroup" style="display:none">
@@ -3954,6 +3956,8 @@
               </optgroup>
               <optgroup label="🌊 DeepSeek (alternatív)" id="deepseekModelGroup">
               </optgroup>
+              <optgroup label="🧩 GLM (Z.ai előfizetés)" data-i18n-label="agents.model.glm_group" id="glmModelGroup" style="display:none">
+              </optgroup>
               <optgroup label="🔀 OpenRouter - Auto (heti frissítésű ajánlott)" id="openrouterAutoGroup" style="display:none">
               </optgroup>
               <optgroup label="🔀 OpenRouter - kézi" id="openrouterManualGroup" style="display:none">
@@ -3966,6 +3970,9 @@
             <button class="btn-secondary btn-compact" id="openrouterBrowseBtn" style="margin-left:6px;display:none" title="Kézi OpenRouter modellek listájának szerkesztése (pipával)">🔀 OpenRouter kézi lista</button>
             <small id="deepseekHint" style="display:none;margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.4">
               <span data-i18n="agents.deepseek_hint_pre">DeepSeek-V4-Pro nincs konfigurálva.</span> <a href="#" id="deepseekConfigLink" data-i18n="agents.deepseek_link">API kulcs hozzáadása</a> <span data-i18n="agents.deepseek_hint_post">a Vault oldalon.</span>
+            </small>
+            <small id="glmHint" style="display:none;margin-top:6px;color:var(--text-muted);font-size:12px;line-height:1.4">
+              <span data-i18n="agents.glm_hint_pre">A GLM (Z.ai) előfizetés nincs bekötve.</span> <a href="#" id="glmConfigLink" data-i18n="agents.glm_link">Kulcs hozzáadása</a> <span data-i18n="agents.glm_hint_post">a Széf oldalon.</span>
             </small>
             <div id="modelSuggestionResult" style="display:none;margin-top:8px;font-size:12.5px;padding:8px 10px;border-radius:6px;background:var(--surface-hover);color:var(--text-muted)"></div>
           </div>

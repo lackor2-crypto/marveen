@@ -1204,6 +1204,13 @@ function renderStaticI18n() {
   document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
     el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel))
   })
+  // <optgroup label="..."> is the one visible string the generic sweep above
+  // cannot reach: the text lives in an attribute, and the element has no text
+  // node of its own. Without this, every model-picker group heading is stuck in
+  // whichever language it was typed in.
+  document.querySelectorAll('[data-i18n-label]').forEach(el => {
+    el.setAttribute('label', t(el.dataset.i18nLabel))
+  })
   // Elements whose translation contains inline markup (strong/code/a): set innerHTML.
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
     el.innerHTML = t(el.dataset.i18nHtml)
@@ -6789,6 +6796,26 @@ async function loadAvailableModels() {
       }
     }
     if (hint) hint.style.display = deepseekModels.length === 0 ? 'block' : 'none'
+
+    // GLM (Z.ai Coding Plan). Same gating shape as DeepSeek: the server only
+    // sends the models once the key is in the vault, so an empty list here
+    // always means "not connected yet" -- and the hint below says exactly that
+    // with a link to where you connect it, rather than leaving an empty group.
+    const glmModels = Array.isArray(data.glm) ? data.glm : []
+    const glmHint = document.getElementById('glmHint')
+    for (const group of [document.getElementById('glmModelGroup'), document.getElementById('agentModelGlmGroup')]) {
+      if (!group) continue
+      group.innerHTML = ''
+      if (glmModels.length === 0) { group.style.display = 'none'; continue }
+      group.style.display = ''
+      for (const m of glmModels) {
+        const opt = document.createElement('option')
+        opt.value = m.id
+        opt.textContent = `🧩 ${m.label}`
+        group.appendChild(opt)
+      }
+    }
+    if (glmHint) glmHint.style.display = glmModels.length === 0 ? 'block' : 'none'
 
     // OpenRouter: two optgroups per select (Auto = weekly-fresh tier
     // recommendation, value `openrouter-auto:<tier>`; Manual = the 2 concrete
@@ -16801,6 +16828,10 @@ const CAPABILITY_INFO = {
     labelKey: 'overview.capability.groq_stt.label', descKey: 'overview.capability.groq_stt.desc', vaultId: 'groq-stt-key',
     stepsKey: 'vault.known.groq_stt.steps', helpUrl: 'https://console.groq.com/keys',
   },
+  zai: {
+    labelKey: 'overview.capability.zai.label', descKey: 'overview.capability.zai.desc', vaultId: 'zai-coding-key',
+    stepsKey: 'vault.known.zai.steps', helpUrl: 'https://z.ai/manage-apikey/apikey-list',
+  },
 }
 
 // Setup state on the Overview, because that is where you look first. The card
@@ -21097,6 +21128,13 @@ initOnboarding()
 // a Vault page-re visz, ahol a felhasználó egy DEEPSEEK_API_KEY
 // secret-et tud felvenni, és visszatérve frissítjük a model listát.
 document.getElementById('deepseekConfigLink')?.addEventListener('click', (e) => {
+  e.preventDefault()
+  location.hash = 'vault'
+})
+
+// Same for GLM: the Vault page carries the "known integrations" panel, and the
+// zai-coding-key entry there spells out where the key comes from.
+document.getElementById('glmConfigLink')?.addEventListener('click', (e) => {
   e.preventDefault()
   location.hash = 'vault'
 })

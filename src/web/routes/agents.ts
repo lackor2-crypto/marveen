@@ -14,6 +14,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { CHANNEL_PLUGIN_IDS } from '../plugin-ids.js'
 import { getSecret, setSecret, deleteSecret, listSecrets } from '../vault.js'
 import { loadOpenRouterCatalog, fetchAllOpenRouterModels, loadCuratedManual, addCuratedManual, removeCuratedManual } from '../openrouter-models.js'
+import { GLM_MODELS, GLM_VAULT_KEY } from '../glm-models.js'
 import {
   agentDir,
   agentConfigRoot,
@@ -736,8 +737,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
   // surfacing the option in the UI without the key would let the operator
   // pick a model that 401s on first prompt.
   //
-  // NOTE: loadAvailableModels() in web/app.js consumes only `deepseek` and
-  // `openrouter` from this payload -- the Claude options are static <option>
+  // NOTE: loadAvailableModels() in web/app.js consumes only `deepseek`, `glm`
+  // and `openrouter` from this payload -- the Claude options are static <option>
   // elements in web/index.html (wizard + edit panel). The `claude` array is
   // therefore an API-only listing today; keep it in sync with those options so
   // a client that does read it (or a future refactor that drops the static
@@ -747,6 +748,11 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     // OpenRouter is gated behind the vault key, same as DeepSeek: surfacing the
     // options without the key would let the operator pick a model that 401s.
     const hasOpenRouter = getSecret('openrouter-fleet-key') !== null
+    // GLM (Z.ai Coding Plan), gated the same way. The distinction that matters
+    // here: an empty `glm` array means "no key yet", NOT "no such models" -- so
+    // `glmConfigured` travels with it and the UI says which of the two it is
+    // instead of silently showing an empty group.
+    const hasGlm = getSecret(GLM_VAULT_KEY) !== null
     const orCatalog = loadOpenRouterCatalog()
     json(res, {
       claude: [
@@ -764,6 +770,10 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           ]
         : [],
       deepseekConfigured: hasDeepseek,
+      // GLM Coding Plan models. Subscription-billed at Z.ai, so unlike the
+      // OpenRouter route to the same family these do not cost per token.
+      glm: hasGlm ? GLM_MODELS : [],
+      glmConfigured: hasGlm,
       // OpenRouter tiers for the model picker. `auto` per tier feeds the "Auto"
       // mode (stored as `openrouter-auto:<tierKey>`, resolved weekly-fresh at
       // launch); `manual` (2 ids) feeds the "Manual" mode.

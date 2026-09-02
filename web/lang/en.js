@@ -47,6 +47,8 @@ window._i18n.en = {
   'overview.capability.openrouter.desc':  'One key unlocks any AI model in Marvin (GPT, Gemini, and dozens more) — click to set up',
   'overview.capability.groq_stt.label':   'Groq fast voice transcription',
   'overview.capability.groq_stt.desc':    'Faster, cloud-based transcription for Telegram voice messages (without it, a slower local transcript runs instead) — click to set up',
+  'overview.capability.zai.label':        'GLM (Z.ai subscription)',
+  'overview.capability.zai.desc':         'A flat-rate coding subscription alongside Claude: some of your agents can run on GLM, keeping the Claude allowance for the heavier work — click to set up',
   'nav.accounts':                'Accounts',
   'accounts.page_title':         'Accounts',
   'accounts.page_subtitle':      'Every account and API key connected to Marvin — in one place',
@@ -2088,6 +2090,7 @@ window._i18n.en = {
   'vault.known.get_key_link':    'Get a key here',
   'vault.known.openrouter.steps': '1. Open OpenRouter, sign up or log in.\n2. Under "API Keys", create a new key.\n3. Copy the key.\n4. Paste it into the Value field below, name it, and save.',
   'vault.known.groq_stt.steps':   '1. Open Groq Console, sign up or log in (free).\n2. Under "API Keys", create a new key.\n3. Copy the key.\n4. Paste it into the Value field below, name it, and save.',
+  'vault.known.zai.steps':        '1. Take out a GLM Coding Plan subscription at z.ai (Lite / Pro / Max). A key can be created without one, but only the subscription opens the coding endpoint.\n2. Open the API keys page and create a new key.\n3. Copy the key.\n4. Paste it into the Value field below, name it, and save.\n5. The GLM models then appear in every agent\'s Model list.',
 
   // --- Drive file browser ---
   'drive.page_title':          'Drive files',
@@ -3519,6 +3522,10 @@ window._i18n.en = {
   'agents.deepseek_hint_pre': 'DeepSeek-V4-Pro is not configured.',
   'agents.deepseek_link': 'Add API key',
   'agents.deepseek_hint_post': 'on the Vault page.',
+  'agents.model.glm_group':    '🧩 GLM (Z.ai subscription)',
+  'agents.glm_hint_pre':       'The GLM (Z.ai) subscription is not connected.',
+  'agents.glm_link':           'Add key',
+  'agents.glm_hint_post':      'on the Vault page.',
   'channel.btn.slack_manifest': 'Create Slack App (manifest)',
 
   // --- Fleet Migration ---

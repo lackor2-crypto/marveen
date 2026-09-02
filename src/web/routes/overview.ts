@@ -31,6 +31,7 @@ import { measureState, startMeasure } from '../upstream-measure-runner.js'
 import { exactTmuxTarget } from '../tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
+import { GLM_VAULT_KEY } from '../glm-models.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -254,6 +255,7 @@ function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string
 const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
   { id: 'openrouter', configured: () => getSecret('openrouter-fleet-key') !== null },
   { id: 'groq-stt', configured: () => getSecret('groq-stt-key') !== null },
+  { id: 'zai', configured: () => getSecret(GLM_VAULT_KEY) !== null },
 ]
 
 // A munkamenet-naplok (JSONL) atolvasasa ennek a vegpontnak a legdragabb
