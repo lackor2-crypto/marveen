@@ -20,6 +20,35 @@ const warn = (msg: string) => console.log(`${YELLOW}⚠${RESET} ${msg}`)
 const fail = (msg: string) => console.log(`${RED}✗${RESET} ${msg}`)
 const header = (msg: string) => console.log(`\n${BOLD}${msg}${RESET}\n`)
 
+/**
+ * Kulcs mentese a Vaultba -- FRISS KLONON IS.
+ *
+ * A kulcsok a Vaultba mennek, nem a .env-be, es a Vault-modult eddig a
+ * `../dist/web/vault.js` utrol toltottuk be. A `npm run setup` viszont tsx-szel
+ * fut, build NELKUL, es a `dist/` nincs a repoban: egy friss klonon ez az egy
+ * sor dobott -- pont azutan, hogy a felhasznalo mar beirta a kulcsot, es meg
+ * azelott, hogy a .env kiirodott volna. A `src/` ut az elsodleges (a fajl
+ * teteje is onnan importal), a `dist/` csak tartalek.
+ *
+ * `false` = nem mentettuk. Ilyenkor a hivo MEGMONDJA -- egy elnyelt hiba itt
+ * azt jelentene, hogy a felhasznalo azt hiszi, bekotott egy szolgaltatast.
+ */
+async function saveSecret(id: string, label: string, value: string): Promise<boolean> {
+  for (const modul of ['../src/web/vault.js', '../dist/web/vault.js']) {
+    try {
+      const vault = await import(modul) as { setSecret: (id: string, label: string, value: string) => void }
+      vault.setSecret(id, label, value)
+      return true
+    } catch (err) {
+      if (modul.startsWith('../dist')) {
+        fail(`A kulcsot nem tudtam a Vaultba menteni: ${err instanceof Error ? err.message : String(err)}`)
+        warn('Add hozza kesobb a dashboard Fiokok vagy /vault oldalan — a telepites folytatodik.')
+      }
+    }
+  }
+  return false
+}
+
 const rl = createInterface({ input: process.stdin, output: process.stdout })
 function ask(question: string): Promise<string> {
   return new Promise((resolve) => {
@@ -155,10 +184,10 @@ async function main() {
     // Mentsuk a vault-ba (titkositott tarolas), nem a sima .env-be:
     // a kulcs igy a dashboard felulet rotacios kontrollja ala kerul es
     // nem jelenik meg a .env fajl tartalmaban hat hosszan.
-    const { setSecret } = await import('../dist/web/vault.js')
-    setSecret('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY', dsKey)
-    ok('DeepSeek API kulcs mentve a vault-ba (DEEPSEEK_API_KEY)')
-    ok('A deepseek-v4-pro modell most mar elerheto agensekhez')
+    if (await saveSecret('DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY', dsKey)) {
+      ok('DeepSeek API kulcs mentve a vault-ba (DEEPSEEK_API_KEY)')
+      ok('A deepseek-v4-pro modell most mar elerheto agensekhez')
+    }
   } else {
     warn('DeepSeek kihagyva — kesobb a dashboard /vault oldalrol hozzaadhato')
   }
@@ -169,10 +198,10 @@ async function main() {
   console.log('Anthropic-kompatibilis vegpontot ad. Kulcs: https://z.ai/manage-apikey/apikey-list')
   const glmKey = await ask('Z.ai API kulcs (Enter a kihagyashoz):')
   if (glmKey) {
-    const { setSecret } = await import('../dist/web/vault.js')
-    setSecret('zai-coding-key', 'Z.ai Coding Plan', glmKey)
-    ok('Z.ai kulcs mentve a vault-ba (zai-coding-key)')
-    ok('A glm-5.3 modell most mar elerheto agensekhez')
+    if (await saveSecret('zai-coding-key', 'Z.ai Coding Plan', glmKey)) {
+      ok('Z.ai kulcs mentve a vault-ba (zai-coding-key)')
+      ok('A glm-5.3 modell most mar elerheto agensekhez')
+    }
   } else {
     warn('GLM kihagyva — kesobb a dashboard Fiokok vagy /vault oldalarol hozzaadhato')
   }

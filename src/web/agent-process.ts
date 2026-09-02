@@ -1305,7 +1305,15 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // stable token instead -- this is what makes the Linux credentials-guard
     // rename safe (a shared sub-agent with no env token would otherwise be
     // locked out once credentials.json is moved aside). No-op without a token.
-    if (!claudeConfigDir && hasFleetOauthToken()) {
+    //
+    // ONLY for agents that actually talk to Anthropic. A BYO-endpoint agent
+    // (GLM/DeepSeek/OpenRouter/Ollama) runs against a THIRD-PARTY base URL, so
+    // handing it a Claude fleet credential is at best pointless and at worst a
+    // Claude token offered to someone else's endpoint. The same condition is
+    // spelled out a few lines below for the isolated-config branch; this line
+    // was the one place it was missing.
+    const needsFleetOauth = isClaude && authMode !== 'api'
+    if (!claudeConfigDir && needsFleetOauth && hasFleetOauthToken()) {
       oauthTokenEnv = `export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')" && `
     }
     // Isolation must also cover CHANNEL-LESS Claude-OAuth agents, not just
@@ -1317,8 +1325,8 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // exported right next to it is fine (dani/geri recurring outage,
     // 2026-07-25). Only agents that never touch Anthropic OAuth stay on the
     // shared root: local/BYO-endpoint models (Ollama/DeepSeek/OpenRouter) and
-    // per-agent API-key (authMode 'api') agents.
-    const needsFleetOauth = isClaude && authMode !== 'api'
+    // per-agent API-key (authMode 'api') agents. (`needsFleetOauth` is defined
+    // above, where the same condition now also gates the plain token export.)
     if (!claudeConfigDir && (hasChannel || needsFleetOauth) && name !== MAIN_AGENT_ID) {
       if (hasFleetOauthToken()) {
         // Token present -> isolation works; any earlier degradation is resolved,

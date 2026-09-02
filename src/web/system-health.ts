@@ -60,7 +60,9 @@ import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-logi
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { googleOauthClientPresent, listGoogleAccounts } from './google-auth-runner.js'
-import { listSecrets } from './vault.js'
+import { listSecrets, getSecret } from './vault.js'
+import { allAgentModels, requiredKeyForModel } from './key-service-dependents.js'
+import type { AgentRoster } from './key-service-dependents.js'
 import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
@@ -565,6 +567,69 @@ export function vaultBindingRows(
     return [{ id: 'vault_binding_orphan', status: 'bad', params: { n: arvak.length, names: arvak.join(', ') } }]
   }
   return [{ id: 'vault_binding_ok', status: 'ok', params: { n: lista.length } }]
+}
+
+/**
+ * SAJÁT KULCSOS ÁGENS KULCS NÉLKÜL. Egy GLM-re, DeepSeekre vagy OpenRouterre
+ * állított ágens akkor is ELINDUL, ha a kulcsa nincs a Vaultban: üres
+ * `ANTHROPIC_AUTH_TOKEN`-nel indul, és a 401 a saját tmux-paneljében jelenik
+ * meg, ahova senki nem néz. Kívülről ez egy futó ágens, ami nem válaszol --
+ * pontosan az a néma hiba, amiért ez a kártya létezik.
+ *
+ * A kijelentkeztető gomb (2026-09-02) óta ezt az állapotot két kattintással
+ * elő lehet állítani, tehát a hurok itt záródik be: a kulcs kivétele után az
+ * Áttekintés kimondja, kit hagyott kulcs nélkül.
+ *
+ * A besorolás ugyanaz az egy függvény, amit az indító és a törlés-előnézet
+ * használ (`requiredKeyForModel`), így a sor nem tud elcsúszni attól, ami
+ * valójában történik.
+ *
+ * A NULLA itt is két dolog: friss telepítésen nincs saját kulcsos ágens, az a
+ * normális állapot -- csend. Ha viszont az ágensek mappáját vagy a Vaultot nem
+ * tudom elolvasni, azt nem nevezem rendben lévőnek.
+ */
+export function providerKeyRows(
+  roster: () => AgentRoster = allAgentModels,
+  vanKulcs: (id: string) => boolean = id => {
+    const v = getSecret(id)
+    return typeof v === 'string' && v.trim() !== ''
+  },
+): HealthRow[] {
+  let r: AgentRoster
+  try { r = roster() } catch { return [{ id: 'provider_key_blind', status: 'warn', params: {} }] }
+  if (!r.rosterOk) return [{ id: 'provider_key_blind', status: 'warn', params: {} }]
+  const kell = new Map<string, string[]>()
+  for (const a of r.models) {
+    const id = requiredKeyForModel(a.model)
+    if (!id) continue
+    const lista = kell.get(id)
+    if (lista) lista.push(a.name)
+    else kell.set(id, [a.name])
+  }
+  if (kell.size === 0) return r.blind > 0 ? [{ id: 'provider_key_blind', status: 'warn', params: {} }] : []
+  const hianyzo: string[] = []
+  const hianyzoKulcsok: string[] = []
+  let osszes = 0
+  for (const [id, nevek] of kell) {
+    osszes += nevek.length
+    let megvan: boolean
+    try { megvan = vanKulcs(id) } catch {
+      return [{ id: 'provider_key_blind', status: 'warn', params: {} }]
+    }
+    if (!megvan) {
+      hianyzo.push(...nevek)
+      hianyzoKulcsok.push(id)
+    }
+  }
+  if (hianyzo.length > 0) {
+    return [{
+      id: 'provider_key_missing',
+      status: 'bad',
+      params: { n: hianyzo.length, names: hianyzo.join(', '), keys: hianyzoKulcsok.join(', ') },
+    }]
+  }
+  if (r.blind > 0) return [{ id: 'provider_key_blind', status: 'warn', params: {} }]
+  return [{ id: 'provider_key_ok', status: 'ok', params: { n: osszes } }]
 }
 
 /**
@@ -1450,6 +1515,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...namedLoginRows(),
     ...googleClientRows(),
     ...vaultBindingRows(),
+    ...providerKeyRows(),
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),

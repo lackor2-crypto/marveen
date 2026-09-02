@@ -174,7 +174,32 @@ describe('törölni csak előnézet után lehet', () => {
   it('az ismeretlen esetet a lista hossza ELŐTT dönti el', () => {
     // Ha a sorrend megfordul, egy ismeretlen kulcs a "senki nem használja"
     // mondatot kapná -- pont az a hamis megnyugtatás, ami ellen a mező van.
-    expect(fn.indexOf('!impact.known')).toBeLessThan(fn.indexOf('impact.agents.length'))
+    expect(fn.indexOf('!impact.known')).toBeLessThan(fn.indexOf('agents.length'))
+  })
+
+  it('ha ágens IS és funkció IS lóg rajta, mindkettőt kimondja', () => {
+    // Az OpenRouter-kulcson akkor is dolgozik a levél-fordítás és a
+    // modell-összemérés, ha épp egy ágens is fut rajta. A régi lánc az első
+    // találatnál megállt, és a funkciót elhallgatta.
+    expect(fn).toContain('acchub.key_logout_confirm_both')
+    const both = fn.indexOf('acchub.key_logout_confirm_both')
+    const csakAgens = fn.indexOf('acchub.key_logout_confirm_agents')
+    expect(both).toBeLessThan(csakAgens)
+  })
+
+  it('a tömbös featureKeys mellett a régi mezőre is visszaesik', () => {
+    // Egy meg nem frissített (nyitva felejtett) oldal se essen vissza némán a
+    // "senki nem használja" mondatra egy frissebb szerver mellett.
+    expect(fn).toContain('Array.isArray(impact.featureKeys)')
+    expect(fn).toContain('impact.featureKey')
+  })
+
+  it('a hiányos ágens-lista figyelmeztetést kap a kérdés ELŐTT', () => {
+    // A NULLA KÉT DOLOG. Ha egy ágenshez nem tudtunk odanézni, a felsorolás
+    // hiányos lehet -- ezt a törlés előtt kell kimondani, nem utána.
+    expect(fn).toContain('impact.rosterOk === false')
+    expect(fn).toContain('acchub.key_logout_blind_note')
+    expect(fn.indexOf('acchub.key_logout_blind_note')).toBeLessThan(fn.indexOf('if (!confirm(msg)) return'))
   })
 
   it('a törlés a meglévő vault-úton megy, nem egy másodikon', () => {
@@ -192,8 +217,11 @@ describe('mindkét nyelv leírja', () => {
     'acchub.key_logout_confirm_feature',
     'acchub.key_logout_confirm_none',
     'acchub.key_logout_confirm_unknown',
+    'acchub.key_logout_confirm_both',
+    'acchub.key_logout_blind_note',
     'acchub.key_logout_done',
     'acchub.key_impact.groq_stt',
+    'acchub.key_impact.openrouter_feature',
   ]
 
   for (const lang of ['hu.js', 'en.js']) {

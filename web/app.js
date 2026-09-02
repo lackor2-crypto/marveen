@@ -4620,12 +4620,40 @@ function renderAgentLogoutSetting(agent) {
   })
 }
 
-function accountBadgeHtml(claudePlan, isMain) {
+/**
+ * MELYIK SZOLGALTATO ALATT FUT -- a modellbol, nem talalgatasbol.
+ *
+ * A jelveny korabban MINDEN nem-Claude agensre azt irta ki, hogy "OpenRouter",
+ * mert amikor keszult, tenyleg csak az volt. Egy GLM-agens kartyajan ez HAMIS
+ * ALLITAS: a Z.ai-elofizetes alatt futo agensrol azt mondana, hogy egy masik
+ * (token-alapon szamlazott) szolgaltatot hasznal -- pont azt tenne
+ * felismerhetetlenne, aminek a megkulonboztetesere a jelveny letezik.
+ *
+ * A sorrend SZANDEKOSAN ugyanaz, mint az inditoban (agent-process.ts) es a
+ * kulcs-elonezetben (key-service-dependents.ts: requiredKeyForModel). A GLM-et
+ * az Ollama-visszaeses ELOTT kell eldonteni: a `glm-5.3`-ban nincs '/'.
+ *
+ * `null` = a modell alapjan nem szolgaltato dont, hanem a gep sajat
+ * Claude-bejelentkezese; a hivo ilyenkor azt irja ki.
+ */
+function providerBadgeLabel(model, authMode) {
+  const m = typeof model === 'string' ? model.trim() : ''
+  if (m === '') return null
+  if (m.startsWith('claude-')) return authMode === 'api' ? t('agents.account_badge_apikey') : null
+  if (m.startsWith('deepseek-')) return 'DeepSeek'
+  if (m.startsWith('glm-')) return 'GLM (Z.ai)'
+  // `openrouter-auto:<tier>` a heti ajanlast jeloli: OpenRouter, csak meg nem
+  // valasztotta ki a konkret modellt (ott meg nincs '/').
+  if (m.startsWith('openrouter-auto:') || m.includes('/')) return 'OpenRouter'
+  return t('agents.account_badge_local')
+}
+
+function accountBadgeHtml(claudePlan, isMain, model, authMode) {
   primePlanLabels()
   let label
   if (isMain) label = mainAccountLabel()
   else if (claudePlan) label = stripModelSuffix((_planLabelCache && _planLabelCache[claudePlan]) || claudePlan)
-  else label = 'OpenRouter'
+  else label = providerBadgeLabel(model, authMode) || mainAccountLabel()
   return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
 }
 
@@ -5175,7 +5203,7 @@ function renderAgents() {
     const runLabel = isRunning ? t('agents.status.running') : t('agents.status.stopped')
 
     card.innerHTML = `
-      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false)}${costBadgeHtml(agent.costPerMInput)}${reliabilityBadgeHtml(agent.reliability)}</div>
+      <div class="agent-card-badges">${accountBadgeHtml(agent.claudePlan, false, agent.model, agent.authMode)}${costBadgeHtml(agent.costPerMInput)}${reliabilityBadgeHtml(agent.reliability)}</div>
       <div class="agent-card-top">
         <div class="${avatarClass}"${avatarStyle}>${avatarHtml}</div>
         <div class="agent-card-info">
@@ -6225,10 +6253,20 @@ async function openAgentDetail(agentName) {
   const chConnected = agentIsConnected(currentAgent)
   document.getElementById('agentDetailChStatus').innerHTML = `<span class="tg-status"><span class="tg-dot ${chConnected ? 'connected' : 'disconnected'}"></span>${chConnected ? t('agents.channel.connected') : t('agents.channel.disconnected')}</span>`
 
-  // Settings tab - load Ollama + DeepSeek models then set value
-  loadAvailableModels()
-  loadOllamaModels().then(() => {
+  // Settings tab - load Ollama + DeepSeek/GLM/OpenRouter models then set value.
+  //
+  // MINDKETTOT MEG KELL VARNI. A ket betoltes ugyanazt a <select>-et irja: a
+  // `loadAvailableModels()` kicsereli a GLM/DeepSeek/OpenRouter optgroupok
+  // tartalmat. Ha ez a valasz er be masodikkent, kitorli azt az <option>-t,
+  // amit az iment kivalasztottunk -- a select ilyenkor NEM ures marad, hanem
+  // az elso opciora ugrik, es a "Modell mentese" gomb csendben MAS modellt
+  // mentene. Nem hibauzenet, hanem hamis allapot: pont az a fajta nema
+  // elromlas, amit a legnehezebb eszrevenni.
+  const agentAtModelLoad = currentAgent
+  Promise.allSettled([loadAvailableModels(), loadOllamaModels()]).then(() => {
     const sel = document.getElementById('editAgentModel')
+    // Kozben masik ugynokre valthattal: akkor ez a valasz mar nem rola szol.
+    if (!sel || !currentAgent || currentAgent !== agentAtModelLoad) return
     const mv = currentAgent.activeModel || currentAgent.model || 'claude-opus-4-8[1m]'
     // The model <select> is one shared element reused per agent. A manual
     // OpenRouter id (or openrouter-auto:tier) may not be among the static/auto
@@ -6798,10 +6836,13 @@ async function loadAvailableModels() {
     if (hint) hint.style.display = deepseekModels.length === 0 ? 'block' : 'none'
 
     // GLM (Z.ai Coding Plan). Same gating shape as DeepSeek: the server only
-    // sends the models once the key is in the vault, so an empty list here
-    // always means "not connected yet" -- and the hint below says exactly that
-    // with a link to where you connect it, rather than leaving an empty group.
+    // sends the models once the key is in the vault -- and it SAYS SO in a
+    // separate field (`glmConfigured`), so the hint never infers from the
+    // length of the list. An empty list on its own could mean two things ("not
+    // connected yet" or "the answer never arrived"); the explicit field is
+    // what tells those apart.
     const glmModels = Array.isArray(data.glm) ? data.glm : []
+    const glmConnected = data.glmConfigured === true || glmModels.length > 0
     const glmHint = document.getElementById('glmHint')
     for (const group of [document.getElementById('glmModelGroup'), document.getElementById('agentModelGlmGroup')]) {
       if (!group) continue
@@ -6815,7 +6856,7 @@ async function loadAvailableModels() {
         group.appendChild(opt)
       }
     }
-    if (glmHint) glmHint.style.display = glmModels.length === 0 ? 'block' : 'none'
+    if (glmHint) glmHint.style.display = glmConnected ? 'none' : 'block'
 
     // OpenRouter: two optgroups per select (Auto = weekly-fresh tier
     // recommendation, value `openrouter-auto:<tier>`; Manual = the 2 concrete
@@ -17359,14 +17400,31 @@ async function _accKeyLogout(vaultId, label) {
     showToast((impact && impact.error) || t('acchub.key_impact_failed'), 8000, true)
     return
   }
-  // HAROM kulonbozo eset, harom kulonbozo mondat. Az ures lista MAGABAN nem
+  // NEGY kulonbozo eset, negy kulonbozo mondat. Az ures lista MAGABAN nem
   // jelenti azt, hogy "semmi nem all meg" -- lehet, hogy nem agensek hasznaljak,
-  // es lehet, hogy egyszeruen nem latunk oda.
+  // lehet, hogy agens IS es funkcio IS log rajta (OpenRouter: leveleket fordit
+  // es modellt figyel akkor is, ha egyetlen agens sem fut rajta), es lehet, hogy
+  // egyszeruen nem latunk oda.
+  //
+  // A `featureKeys` tomb; a regi `featureKey` mezot csak azert nezzuk meg, hogy
+  // egy meg be nem toltott (regi) oldal se essen vissza a "senki nem hasznalja"
+  // mondatra egy frissebb szerver mellett.
+  const agents = Array.isArray(impact.agents) ? impact.agents : []
+  const featureKeys = Array.isArray(impact.featureKeys)
+    ? impact.featureKeys
+    : (impact.featureKey ? [impact.featureKey] : [])
+  const what = featureKeys.map(k => t(k)).join('; ')
   let msg
   if (!impact.known) msg = t('acchub.key_logout_confirm_unknown', { label })
-  else if (Array.isArray(impact.agents) && impact.agents.length) msg = t('acchub.key_logout_confirm_agents', { label, agents: impact.agents.join(', ') })
-  else if (impact.featureKey) msg = t('acchub.key_logout_confirm_feature', { label, what: t(impact.featureKey) })
+  else if (agents.length && what) msg = t('acchub.key_logout_confirm_both', { label, agents: agents.join(', '), what })
+  else if (agents.length) msg = t('acchub.key_logout_confirm_agents', { label, agents: agents.join(', ') })
+  else if (what) msg = t('acchub.key_logout_confirm_feature', { label, what })
   else msg = t('acchub.key_logout_confirm_none', { label })
+  // A NULLA KET DOLGOT JELENTHET. Ha egy agenshez nem tudtunk odanezni, a fenti
+  // lista HIANYOS lehet -- ezt a torles elott ki kell mondani, nem utana.
+  if (impact.rosterOk === false || (typeof impact.blind === 'number' && impact.blind > 0)) {
+    msg += '\n\n' + t('acchub.key_logout_blind_note')
+  }
   if (!confirm(msg)) return
   try {
     const res = await fetch('/api/vault/' + encodeURIComponent(vaultId), { method: 'DELETE' })

@@ -264,6 +264,7 @@ describe('minden uj sornak van magyar ES angol szovege', () => {
     'named_login_unreadable', 'named_login_broken', 'named_login_none_valid',
     'google_client_missing', 'google_client_blind',
     'vault_binding_orphan', 'vault_binding_ok', 'vault_binding_blind',
+    'provider_key_missing', 'provider_key_ok', 'provider_key_blind',
   ]
   for (const nyelv of ['hu', 'en']) {
     it(`${nyelv}: mind a ${idk.length} sor + teendo megvan`, async () => {
