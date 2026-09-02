@@ -17255,12 +17255,33 @@ function _claudeAuthRenderList(accounts) {
   renderAccountsHub()
 }
 
-// The keys stay a list, and stay SEPARATE from the account cards: a key is a
-// pasted string, not a person -- a card with a "disconnect" button on it would
-// promise something that makes no sense for a key.
+// The keys stay a list rather than becoming person-cards -- a key is a pasted
+// string, not somebody -- but they DO get the same two buttons the account rows
+// have.
+//
+// Boss, 2026-09-02: "nem ertem hogy miert nincs kijelentkezes gomb (...) Hogyha
+// peldaul eppen ki akarom jelentkeztetni, akkor nem tudom. Akkor csak ugy ott
+// van es nem tudok vele mit csinalni. Hat ilyet ne csinaljunk mar."
+//
+// He was right, and the comment that used to stand here ("a disconnect button
+// would promise something that makes no sense for a key") was the code talking
+// itself out of the work. Taking a key out is exactly what signing an account
+// out is; only the mechanism differs. Whoever pasted it in wants to be able to
+// take it out -- from the page, without a terminal.
 function _accHubRenderKeys() {
   const el = document.getElementById('accountsKeyList')
   if (!el) return
+  // Delegated once: this list is redrawn on every accounts poll, so listeners
+  // bound to the buttons themselves would be discarded seconds later.
+  if (el.dataset.wired !== '1') {
+    el.dataset.wired = '1'
+    el.addEventListener('click', (e) => {
+      const inBtn = e.target.closest('.acc-key-login')
+      if (inBtn) { _accKeyLogin(inBtn.dataset.vaultId || ''); return }
+      const outBtn = e.target.closest('.acc-key-logout')
+      if (outBtn) { _accKeyLogout(outBtn.dataset.vaultId || '', outBtn.dataset.label || ''); return }
+    })
+  }
   // Google is left OUT on purpose: its row here would name the very same
   // addresses the cards above already show, one by one -- which is the
   // duplication this rebuild removed ("az elsoben felsorolod a gmail fiokokat
@@ -17279,12 +17300,81 @@ function _accHubRenderKeys() {
     } else {
       who = `<span class="claude-auth-plan">${escapeHtml(t('claudeauth.key_set'))}</span>`
     }
+    // Buttons only where this page can actually finish the job. Telegram and
+    // GitHub are set up by their own flows (GitHub has its own section right
+    // above), so they stay listed but button-less: a button that cannot do what
+    // it says is worse than no button.
+    let actions = ''
+    if (k.addable) {
+      const login = `<button type="button" class="btn-secondary btn-compact acc-key-login" data-vault-id="${escapeAttr(k.vaultId)}">${escapeHtml(t(k.configured ? 'acchub.key_replace_btn' : 'acchub.key_login_btn'))}</button>`
+      const logout = k.configured
+        ? `<button type="button" class="btn-secondary btn-compact acc-key-logout" data-vault-id="${escapeAttr(k.vaultId)}" data-label="${escapeAttr(k.label)}">${escapeHtml(t('acchub.key_logout_btn'))}</button>`
+        : ''
+      actions = `<span class="claude-auth-rowactions">${login}${logout}</span>`
+    }
     return `<div class="claude-auth-row">
       <span class="claude-auth-rowlabel">${escapeHtml(k.label)}</span>
       <span class="claude-auth-rowwho">${who}</span>
       <span class="claude-auth-kind">${escapeHtml(t(k.kind === 'key' ? 'claudeauth.kind_key' : 'claudeauth.kind_account'))}</span>
+      ${actions}
     </div>`
   }).join('')
+}
+
+// BEJELENTKEZES egy kulcsos szolgaltatasnal = a kulcs beillesztese.
+//
+// Nem uj urlapot nyit: a lap MAR tud kulcsot fogadni, csak eddig meg kellett
+// keresni a legordulo menuben. Ez a gomb odaviszi, es ki is valasztja -- a
+// sor, amirol elindult, es a mezo, ahova beilleszt, ugyanaz a szolgaltatas.
+function _accKeyLogin(vaultId) {
+  if (!vaultId) return
+  const details = document.getElementById('accountsAddDetails')
+  if (details) details.open = true
+  const sel = document.getElementById('claudeAuthService')
+  if (!sel) return
+  sel.value = 'key:' + vaultId
+  _claudeAuthSyncServiceUi()
+  const input = document.getElementById('claudeAuthKeyValue')
+  if (input) {
+    input.value = ''
+    // A gorgetes ELOTT nyitottuk ki a reszletezot, kulonben a cel meg 0 magas.
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    input.focus()
+  }
+}
+
+// KIJELENTKEZTETES egy kulcsos szolgaltatasnal = a kulcs kivetele a Vaultbol.
+//
+// Ugyanaz a sorrend, mint a Claude-kijelentkezesnel: eloszor MEGKERDEZZUK, mit
+// allit meg, es csak utana torlunk. A kulcs nem jon vissza, tehat elonezet
+// nelkul ez pont az a meglepetes-fajta, amit a torles-szabaly tilt.
+async function _accKeyLogout(vaultId, label) {
+  if (!vaultId) return
+  let impact = null
+  try {
+    const res = await fetch('/api/accounts/key/impact?vaultId=' + encodeURIComponent(vaultId))
+    impact = await res.json()
+  } catch { /* egy elbukott elonezet nem valhat nemán torlesse */ }
+  if (!impact || !impact.ok) {
+    showToast((impact && impact.error) || t('acchub.key_impact_failed'), 8000, true)
+    return
+  }
+  // HAROM kulonbozo eset, harom kulonbozo mondat. Az ures lista MAGABAN nem
+  // jelenti azt, hogy "semmi nem all meg" -- lehet, hogy nem agensek hasznaljak,
+  // es lehet, hogy egyszeruen nem latunk oda.
+  let msg
+  if (!impact.known) msg = t('acchub.key_logout_confirm_unknown', { label })
+  else if (Array.isArray(impact.agents) && impact.agents.length) msg = t('acchub.key_logout_confirm_agents', { label, agents: impact.agents.join(', ') })
+  else if (impact.featureKey) msg = t('acchub.key_logout_confirm_feature', { label, what: t(impact.featureKey) })
+  else msg = t('acchub.key_logout_confirm_none', { label })
+  if (!confirm(msg)) return
+  try {
+    const res = await fetch('/api/vault/' + encodeURIComponent(vaultId), { method: 'DELETE' })
+    const data = await res.json()
+    if (!data.ok) { showToast(data.error || t('common.error_save'), 10000, true); return }
+  } catch (err) { showToast(String(err.message || err), 10000, true); return }
+  showToast(t('acchub.key_logout_done', { label }), 9000, true)
+  loadAccountsPage()
 }
 
 // --- ONE panel, one card per account -----------------------------------------

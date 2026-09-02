@@ -17,6 +17,7 @@ import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
 import { gitAccountsWithToken } from '../../git-accounts.js'
 import { GLM_VAULT_KEY } from '../glm-models.js'
+import { keyServiceImpact } from '../key-service-dependents.js'
 import type { RouteContext } from './types.js'
 
 // Google went multi-account the same way (kanban b0c697ce, 2026-08-10):
@@ -153,6 +154,27 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
       // Names, not a count: "két ügynök" tells the operator nothing about
       // whether the one they care about is in there.
       agents: agentsUsingLogin(row.configDir),
+    })
+    return true
+  }
+
+  // Ugyanez a kérdés a KULCSOS szolgáltatásokra.
+  //
+  // Boss, 2026-09-02: "mi az, hogy nem lehet kijelentkeztetni egy fiókot? meg
+  // bejelentkeztetni". A kulcs kivétele visszafordíthatatlan (a régi érték nem
+  // jön vissza), tehát ugyanaz jár neki, mint a Claude-kijelentkezésnek: előtte
+  // LÁTSZANIA kell, mit állít meg. Maga a törlés a meglévő DELETE /api/vault/:id
+  // úton megy -- egy titkot egy helyen törlünk, nem kettőn.
+  if (path === '/api/accounts/key/impact' && method === 'GET') {
+    const vaultId = (ctx.url.searchParams.get('vaultId') ?? '').trim()
+    if (vaultId === '') { json(res, { ok: false, error: 'Hiányzik a vaultId.' }, 400); return true }
+    const impact = keyServiceImpact(vaultId)
+    json(res, {
+      ok: true,
+      ...impact,
+      // Külön mező, mert a "nincs bekötve" és a "be van kötve, de senki nem
+      // használja" két különböző mondat -- a lista hosszából egyik sem derül ki.
+      configured: getSecret(vaultId) !== null,
     })
     return true
   }

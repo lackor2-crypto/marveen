@@ -1585,11 +1585,16 @@ main {
   animation: aging-pulse 2.2s ease-in-out infinite;
 }
 
-/* Flash a card after jumping to it from the Approvals page (Boss 2026-08-07)
-   -- box-shadow only, so it never fights the priority/aging left border. */
+/* Flash a card after jumping to it from the Approvals page (Boss 2026-08-07;
+   2026-09-02: a vekony keret-pulzalas alig latszott -- "toltse be az egesz
+   hattere a kartyanak, piros-feher-piros". A TELJES hatter es szoveg-szin
+   valt piros/normal kozott, nem csak egy keskeny box-shadow gyuru. A "feher"
+   fazis a kartya sajat --bg-card szinet hasznalja (nem szinesen beegetett
+   #fff), hogy sotet temaban ne egy kirivo feher villanas legyen, hanem a
+   kartya sajat also-allapota -- piros/normal valtakozas ott is jol latszik. */
 @keyframes kanban-card-flash-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
-  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent); }
+  0%, 100% { background: var(--bg-card); color: var(--text); box-shadow: none; }
+  50% { background: var(--danger); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 45%, transparent); }
 }
 .kanban-card-flash {
   animation: kanban-card-flash-pulse 0.6s ease-in-out 4;
@@ -10238,6 +10243,16 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.3px;
   color: var(--text-muted);
+}
+/* A kulcs-sor gombjai (be-/kijelentkeztetes). A .claude-auth-kind margin-left:
+   auto-ja mar jobbra tolta a sor vegen allo elemeket, ezert ez csak a gombokat
+   tartja egymas mellett -- es tordelheto, hogy keskeny kepernyon a gomb ne
+   szoruljon le a sorrol. */
+.claude-auth-rowactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 .claude-auth-keysteps {
   margin: 8px 0;
