@@ -85,6 +85,58 @@ function collectConfiguredServerSlugs(): Set<string> {
   return slugs
 }
 
+/**
+ * Hány connector áll rendelkezésre, és ebből hány van tényleg bekötve.
+ *
+ * A "További lehetőségeid" doboz kérdezi meg (src/web/opportunities.ts). Külön
+ * függvény, de UGYANAZ a katalógus-betöltés és UGYANAZ az "installed" szabály,
+ * amit a /api/mcp-catalog végpont használ -- egy második, saját számolás előbb-
+ * utóbb elcsúszna attól, amit az oldal mutat.
+ *
+ * A NULLA ITT IS KÉT DOLGOT JELENTHET. Ha a katalógusfájlt nem tudom
+ * elolvasni, az `total` NEM nulla, hanem `null`: friss telepítésen a katalógus
+ * ott van és tele van, tehát a "0 elérhető" sosem a normális állapot -- az
+ * mindig azt jelenti, hogy nem látok oda. A felület a kettőt külön mondja ki.
+ * Ugyanez a bekötött oldalon: amíg a `claude mcp list` egyszer sem futott le,
+ * az `installed` `null` (nem néztem meg), nem 0 (nincs bekötve).
+ */
+export function connectorCatalogCounts(): { total: number | null; installed: number | null } {
+  let catalog: any[]
+  try { catalog = loadMcpCatalog() } catch (err) {
+    logger.warn({ err }, 'opportunities: MCP-katalógus nem olvasható')
+    return { total: null, installed: null }
+  }
+  // MÉRVE 2026-09-02, közvetlenül a szolgáltatás újraindítása után: a válasz
+  // `installed: 0` volt, holott a bekötött listát még SENKI nem kérdezte le --
+  // az `mcpListCache` induló állapota üres tömb `lastRefreshed: 0`-val. Ez a
+  // hamis nulla pontosan az a hiba, amit ez a doboz nem követhet el: a
+  // "14-ből 0 van bekötve" mondat egy soha le nem futott mérésből született
+  // volna. A frissítést NEM indítjuk el innen (az `claude mcp list` folyamatot
+  // spawnol, és az Áttekintés nem várakoztathat rá) -- ehelyett kimondjuk,
+  // hogy nem néztük meg, és a sor a Connectorok oldalra küld, ahol a lekérdezés
+  // tényleg lefut.
+  const cache = getMcpListCache()
+  if (!cache.lastRefreshed) return { total: catalog.length, installed: null }
+  let installed = 0
+  try {
+    const installedIds = new Set<string>()
+    for (const entry of cache.entries) installedIds.add(entry.normalizedId)
+    const configuredSlugs = collectConfiguredServerSlugs()
+    for (const item of catalog) {
+      const itemId = slugifyMcp(String(item.id ?? ''))
+      const itemNameSlug = slugifyMcp(String(item.name ?? ''))
+      if (installedIds.has(itemId) || installedIds.has(itemNameSlug)
+        || catalogMatchesConfigured(itemId, itemNameSlug, configuredSlugs)) installed++
+    }
+  } catch (err) {
+    // A katalógust látom, a bekötött listát nem: a "0 bekötve" ilyenkor
+    // hazugság lenne, ezért a szám marad ismeretlen.
+    logger.warn({ err }, 'opportunities: a bekötött connectorok listája nem olvasható')
+    return { total: catalog.length, installed: null }
+  }
+  return { total: catalog.length, installed }
+}
+
 // Persist a user-installed MCP into the gitignored local catalog so it shows up
 // in the dashboard catalog as a user-local entry (and can be re-installed). Env
 // values are stored blank -- only the variable names are kept, mirroring the

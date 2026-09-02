@@ -32,6 +32,8 @@ import { exactTmuxTarget } from '../tmux-target.js'
 import { MAIN_CHANNELS_SESSION } from '../main-agent.js'
 import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
 import { GLM_VAULT_KEY } from '../glm-models.js'
+import { buildOpportunities, countClaudePlans, countGoogleAccounts } from '../opportunities.js'
+import { connectorCatalogCounts } from './connectors.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -252,7 +254,11 @@ function scrapeFreshUsage(pane: string): { usedPct: number | null; model: string
 // user doesn't have to already know they exist. Add new entries here as more
 // opt-in integrations show up; the frontend owns the id -> label/desc/link
 // mapping (i18n strings live in web/lang/*.js, not baked in here).
-const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
+//
+// Ezek LEHETŐSÉGEK, nem hibák: a /api/opportunities végponton mennek ki, a
+// csukott "További lehetőségeid" gomb alá -- nem riasztószínnel az Áttekintés
+// tetejére. A miértje az opportunities.ts fejlécében áll.
+export const CAPABILITY_CHECKS: Array<{ id: string; configured: () => boolean }> = [
   { id: 'openrouter', configured: () => getSecret('openrouter-fleet-key') !== null },
   { id: 'groq-stt', configured: () => getSecret('groq-stt-key') !== null },
   { id: 'zai', configured: () => getSecret(GLM_VAULT_KEY) !== null },
@@ -348,6 +354,22 @@ async function countUserTurns(fromMs: number, toMs: number = Number.POSITIVE_INF
 
 export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
+
+  // TOVÁBBI LEHETŐSÉGEID -- amit a Marveen tud, de ez a telepítés még nem
+  // használ. Külön végpont, mert a csukott gomb alatt lakik: az Áttekintés
+  // betöltésének nem kell cipelnie, és a lista sose fest riasztószínt.
+  // A miértje (és a "nulla kontra nem látok oda" szabály) az
+  // src/web/opportunities.ts fejlécében áll.
+  if (path === '/api/opportunities' && method === 'GET') {
+    const items = buildOpportunities({
+      keyServices: CAPABILITY_CHECKS,
+      claudePlans: () => countClaudePlans(),
+      googleAccounts: () => countGoogleAccounts(),
+      connectors: () => connectorCatalogCounts(),
+    })
+    json(res, { items })
+    return true
+  }
 
   // Tetelesen: mi valtozott az upstreamben, emberi nyelven.
   //
@@ -518,8 +540,6 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
         avatarUrl: '',
       })
     }
-
-    const unconfiguredCapabilities = CAPABILITY_CHECKS.filter(c => !c.configured()).map(c => c.id)
 
     const rlSnapshot = readRateLimitSnapshot(MAIN_AGENT_ID)
     const rateLimit = rlSnapshot ? {
@@ -731,7 +751,6 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
       skills: { count: skillCount, today: skillsToday },
       team: agentsForTeam,
       activity: activity.slice(0, 8),
-      unconfiguredCapabilities,
       rateLimit,
       claudeAccounts,
       openrouterCredits,

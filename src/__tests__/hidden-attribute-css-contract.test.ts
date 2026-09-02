@@ -41,7 +41,14 @@ function hasHiddenOverride(cls: string): boolean {
 // automatically instead of needing a new test.
 function hiddenClassNames(): string[] {
   const out = new Set<string>()
-  for (const tag of html.matchAll(/<[a-z]+[^>]*\bhidden\b[^>]*>/gi)) {
+  // `\bhidden\b` also matched `aria-hidden="true"`, which is a DIFFERENT
+  // attribute: it hides an element from screen readers and says nothing about
+  // `display`. A decorative `<span aria-hidden>` tripped this on 2026-09-02,
+  // and "fixing" it would have meant a meaningless `[hidden]` rule for an
+  // element that is never hidden that way. So the name must not be preceded
+  // by `-` or a word character, and must end the attribute (`hidden`,
+  // `hidden>`, `hidden/>` or `hidden=""`).
+  for (const tag of html.matchAll(/<[a-z]+[^>]*(?<![-\w])hidden(?=[\s>/=])[^>]*>/gi)) {
     const cls = /class="([^"]+)"/.exec(tag[0])
     if (!cls) continue
     for (const c of cls[1].split(/\s+/)) if (c) out.add(c)

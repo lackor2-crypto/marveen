@@ -16856,10 +16856,14 @@ function formatRelative(ts) {
   return t('common.time.day_abbr', { n: day })
 }
 
-// Overview "unused capabilities" widget: maps a capability id (as returned
-// by /api/overview's unconfiguredCapabilities) to its display strings and
-// the page it should link to. Add new opt-in integrations here as they gain
-// a CAPABILITY_CHECKS entry server-side (src/web/routes/overview.ts).
+// "Tovabbi lehetosegeid": maps an opportunity id (as returned by
+// /api/opportunities) to its display strings and the page it should open.
+// Add new opt-in integrations here as they gain a CAPABILITY_CHECKS entry
+// server-side (src/web/routes/overview.ts).
+//
+// `page` = hova visz a kattintas. Ami nem hianyzik, csak nincs kihasznalva,
+// annak is KELL kattintasi celja: kulonben a sor csak kozli, hogy valamit nem
+// hasznalsz, es magadra hagy vele.
 const CAPABILITY_INFO = {
   openrouter: {
     labelKey: 'overview.capability.openrouter.label', descKey: 'overview.capability.openrouter.desc', vaultId: 'openrouter-fleet-key',
@@ -16872,6 +16876,23 @@ const CAPABILITY_INFO = {
   zai: {
     labelKey: 'overview.capability.zai.label', descKey: 'overview.capability.zai.desc', vaultId: 'zai-coding-key',
     stepsKey: 'vault.known.zai.steps', helpUrl: 'https://z.ai/manage-apikey/apikey-list',
+  },
+  // Ezek nem kulcsok, hanem FEROHELYEK: mindig van meg egy Claude-elofizetes,
+  // meg egy Google-fiok, meg egy connector, amit be lehetne kotni. Boss,
+  // 2026-09-02: "most van harom, es mi van akkor, ha egy negyediket fogok
+  // folvenni, vagy az haromból az egyiket kijelentkeztetem [...] ezek nem
+  // hibak". Ezert a leirasuk a JELENLEGI szamot mondja, nem hianyt.
+  'claude-plan': {
+    labelKey: 'overview.opportunity.claude_plan.label', descKey: 'overview.opportunity.claude_plan.desc',
+    page: 'accounts',
+  },
+  'google-account': {
+    labelKey: 'overview.opportunity.google_account.label', descKey: 'overview.opportunity.google_account.desc',
+    page: 'accounts',
+  },
+  connector: {
+    labelKey: 'overview.opportunity.connector.label', descKey: 'overview.opportunity.connector.desc',
+    page: 'connectors',
   },
 }
 
@@ -16934,19 +16955,82 @@ async function renderOverviewSetupStatus() {
     </a>`
 }
 
-function renderOverviewCapabilities(ids) {
-  const box = document.getElementById('overviewCapabilities')
-  const list = document.getElementById('overviewCapabilitiesList')
-  const known = (ids || []).filter(id => CAPABILITY_INFO[id])
+// TOVABBI LEHETOSEGEID -- amit a Marveen tud, de ez a telepites meg nem
+// hasznal. Ez NEM az Onellenorzes: ide csak olyasmi kerul, ami sose volt
+// bekotve es nem is kell. Ami elromlott, az az Onellenorzes kartyaja marad --
+// kulonben a ket allitas osszekeveredik, es a piros elveszti a jelenteset.
+//
+// Alapbol csukva es szandekosan halkan: egy kihagyott lehetoseg nem surgos.
+// A gomb viszont mindig megmondja, HANY dolog van alatta, hogy a csukott
+// allapot ne legyen osszetevesztheto az uressel.
+let _opportunitiesOpen = false
+
+function renderOverviewOpportunities(items, unreachable) {
+  const box = document.getElementById('overviewOpportunities')
+  const list = document.getElementById('overviewOpportunitiesList')
+  const toggle = document.getElementById('overviewOpportunitiesToggle')
+  const labelEl = document.getElementById('overviewOpportunitiesLabel')
+  if (!box || !list || !toggle || !labelEl) return
+
+  // A gomb egyszer kap kezelot: a doboz HTML-je statikus (csak a lista tartalma
+  // rajzolodik ujra), igy egy addEventListener kitart minden ujrarajzolast.
+  if (toggle.dataset.wired !== '1') {
+    toggle.dataset.wired = '1'
+    toggle.addEventListener('click', () => {
+      _opportunitiesOpen = !_opportunitiesOpen
+      list.hidden = !_opportunitiesOpen
+      toggle.setAttribute('aria-expanded', String(_opportunitiesOpen))
+    })
+  }
+
+  // A halo elszakadt: NEM tuntetjuk el a gombot, mert a nyomtalan eltunes
+  // pontosan ugy nez ki, mintha nem lenne egyetlen lehetoseg sem.
+  if (unreachable) {
+    box.hidden = false
+    labelEl.textContent = t('overview.opportunities.unreachable')
+    list.innerHTML = ''
+    list.hidden = true
+    toggle.setAttribute('aria-expanded', 'false')
+    _opportunitiesOpen = false
+    return
+  }
+
+  const known = (items || []).filter(o => o && CAPABILITY_INFO[o.id])
   if (!known.length) { box.hidden = true; list.innerHTML = ''; return }
+
   box.hidden = false
-  list.innerHTML = known.map(id => {
-    const info = CAPABILITY_INFO[id]
-    return `<a href="#" class="overview-capability-item" onclick="switchPage('accounts');return false">
+  labelEl.textContent = t('overview.opportunities.title_n', { n: known.length })
+  list.hidden = !_opportunitiesOpen
+  toggle.setAttribute('aria-expanded', String(_opportunitiesOpen))
+  list.innerHTML = known.map(o => {
+    const info = CAPABILITY_INFO[o.id]
+    const page = info.page || 'accounts'
+    // Az "unknown" nem hiba es nem is ajanlat: azt mondja ki, hogy a forrast
+    // magat nem tudtam elolvasni. A nulla ket dolgot jelenthet -- ez a masik.
+    // A `variant` a koztes eset: a lehetoseg all, csak kevesebbet tudok rola,
+    // ezert egy szukebb mondat megy ki -- nem talalgatunk bele szamot.
+    const descKey = o.variant ? `${info.descKey}_${o.variant}` : info.descKey
+    const desc = o.state === 'unknown'
+      ? t('overview.opportunities.unknown')
+      : t(descKey, o.params || {})
+    return `<a href="#" class="overview-capability-item"
+      style="background:rgba(127,127,127,.12);color:var(--text)"
+      onclick="switchPage('${page}');return false">
       <div class="overview-capability-label">${escapeHtml(t(info.labelKey))}</div>
-      <div class="overview-capability-desc">${escapeHtml(t(info.descKey))}</div>
+      <div class="overview-capability-desc" style="color:var(--text-muted)">${escapeHtml(desc)}</div>
     </a>`
   }).join('')
+}
+
+async function loadOverviewOpportunities() {
+  try {
+    const res = await fetch('/api/opportunities')
+    if (!res.ok) throw new Error('fetch failed')
+    const d = await res.json()
+    renderOverviewOpportunities(d.items, false)
+  } catch {
+    renderOverviewOpportunities([], true)
+  }
 }
 
 // Rate-limit / usage-window widget (kanban ef06b18d): shows the main
@@ -20354,9 +20438,9 @@ async function loadOverview() {
     document.getElementById('statMemoriesSub').textContent = `${t('overview.stat.sub.memories')} · ${d.memories.categories} category`
     document.getElementById('statSkills').textContent = d.skills.count
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
-    renderOverviewCapabilities(d.unconfiguredCapabilities)
     renderOverviewSetupStatus()
     renderOverviewConnections()
+    loadOverviewOpportunities()
     renderOverviewRateLimit(d.rateLimit, d.openrouterCredits, d.claudeAccounts)
     renderOverviewUpstreamSync(d.upstreamSync)
     // Team: reuse the hierarchy graph renderer so the overview card shows

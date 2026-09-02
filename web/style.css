@@ -879,14 +879,24 @@ main {
   color: var(--text-muted);
 }
 
+/* Az ALAPERTELMEZES SEMLEGES, nem riaszto. Boss, 2026-09-02: itt ult
+   vesz-pirosban egyetlen be nem kotott, teljesen opcionalis szolgaltatas
+   ("Ezeket meg nem hasznalod ki"), mert ez az osztaly `#dc2626`-ot adott, es
+   az a kartya -- a Beallitas es az Onellenorzes kartyaval ellentetben --
+   rajzolaskor SOSE irta felul. Riasztoszint kenyelmi funkciora kolteni
+   ugyanaz a hiba, mint elhallgatni egy valodi uzemszunetet: aki megtanulja,
+   hogy a piros semmit nem jelent, a kovetkezo pirosat sem nezi meg.
+   Amelyik kartya tenyleg riasztani akar, az a sajat tonusaval festi at
+   (`box.style.background`) -- a piros ezzel dontes lett, nem alapallapot. */
 .overview-capabilities {
   margin-bottom: 20px;
   padding: 16px 20px;
   border-radius: var(--radius);
-  background: #dc2626;
+  background: var(--card-bg, rgba(127,127,127,.10));
+  border: 1px solid var(--border);
 }
 .overview-capabilities-title {
-  color: #000;
+  color: var(--text);
   font-weight: 700;
   font-size: 13px;
   margin-bottom: 10px;
@@ -905,6 +915,10 @@ main {
 @media (max-width: 720px) {
   .overview-capabilities-list { grid-template-columns: 1fr; }
 }
+/* A `display: grid` erosebb a bongeszo `[hidden] { display: none }` szabalyanal,
+   ezert a csukott lehetoseg-lista e sor nelkul VEGIG latszana -- pont az a
+   "nyitva felejtett" allapot, amit a csukott gomb elkerulni akar. */
+.overview-capabilities-list[hidden] { display: none; }
 .overview-capability-item {
   display: block;
   padding: 10px 14px;
@@ -918,6 +932,29 @@ main {
 .overview-capability-item:hover { opacity: 0.8; }
 .overview-capability-label { font-weight: 700; font-size: 13px; }
 .overview-capability-desc { font-size: 12px; color: #ccc; margin-top: 2px; }
+
+/* TOVABBI LEHETOSEGEID -- a csukott gomb. Szandekosan a leghalkabb elem az
+   egesz Attekintesen: nincs hattere, nincs kerete, nem szinez. Amit kinal, az
+   nem hianyzik semmibol, csak letezik -- es aki nem kivancsi ra, annak
+   egyetlen sort foglal. Nyitva a listaja ugyanazt a ket oszlopos racsot
+   hasznalja, mint a tobbi Attekintes-kartya. */
+.overview-opportunities { margin: -8px 0 20px; }
+.overview-opportunities-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.overview-opportunities-toggle:hover { color: var(--text); }
+.overview-opportunities-caret { display: inline-block; transition: transform var(--transition); }
+.overview-opportunities-toggle[aria-expanded="true"] .overview-opportunities-caret { transform: rotate(90deg); }
+#overviewOpportunitiesList { margin-top: 8px; }
 
 .overview-grid {
   display: grid;

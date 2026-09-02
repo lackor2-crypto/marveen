@@ -381,10 +381,6 @@
         <div class="overview-capabilities-title" data-i18n="overview.setup.title">Beállítás</div>
         <div class="overview-capabilities-list" id="overviewSetupStatusList"></div>
       </div>
-      <div class="overview-capabilities" id="overviewCapabilities" hidden>
-        <div class="overview-capabilities-title" data-i18n="overview.capabilities.title">Ezeket még nem használod ki</div>
-        <div class="overview-capabilities-list" id="overviewCapabilitiesList"></div>
-      </div>
       <!-- Kapcsolatok (Google-fiokok + Claude Code connectorok). Kulon kartya a
            telepito-varazslotol: az ott felsorolt hianyok EGYSZERI beallitasok, ez
            viszont ELROMLIK menet kozben (lejar egy Google-token, uj gepen meg
@@ -400,6 +396,22 @@
             <div class="overview-capability-label" data-i18n="conn.ov_checking">Ellenőrzés folyamatban…</div>
           </div>
         </div>
+      </div>
+      <!-- TOVABBI LEHETOSEGEID. Az Onellenorzes ALATT: eloszor az jon, ami
+           elromolhatott, utana a kinalat. Boss, 2026-09-02: "ezek nem hibak
+           hanem lehetosegek [...] egy ilyen ful, hogy tovabbi lehetosegeid,
+           amit a Marvin meg tud, de nem hasznaltak ki. Gomb, valami ilyesmi,
+           es az ala keruljon ez, de nem igy ide villogo ki pirossal."
+           Alapbol CSUKVA: egy be nem kotott, opcionalis szolgaltatas nem
+           foglalhat helyet a lap tetejen. -->
+      <div class="overview-opportunities" id="overviewOpportunities" hidden>
+        <button type="button" class="overview-opportunities-toggle" id="overviewOpportunitiesToggle"
+                aria-expanded="false" aria-controls="overviewOpportunitiesList"
+                data-i18n-title="overview.opportunities.tooltip">
+          <span class="overview-opportunities-caret" aria-hidden="true">▸</span>
+          <span id="overviewOpportunitiesLabel" data-i18n="overview.opportunities.title">További lehetőségeid</span>
+        </button>
+        <div class="overview-capabilities-list" id="overviewOpportunitiesList" hidden></div>
       </div>
       <div class="overview-card overview-ratelimit" id="overviewRateLimit" hidden>
         <div class="overview-card-head">
