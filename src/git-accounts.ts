@@ -139,9 +139,20 @@ export function hasGitToken(account: string): boolean {
   return Boolean(resolveToken(account))
 }
 
-/** Melyik fiokhoz van kulcs. Csak nevek. */
+/**
+ * Melyik REGISZTRALT fiokhoz van HASZNALHATO kulcs. Csak nevek.
+ *
+ * Boss, 2026-09-02: a Fiokok oldal ures GitHub-listat mutatott a lackor2 es
+ * usalackor fiokra, pedig mindketto regisztralva van a Raktar oldalon
+ * (storages.json gitAccounts), es mindketto mukodik is git-muveletekhez --
+ * csak gh-CLI-bol kolcsonzott kulccsal, nem sajat PAT-tal. Ez a fuggveny
+ * eddig CSAK a sajat token-tarolo (readTokens) kulcsait nezte, tehat egy
+ * gh-CLI-bol felismert fiokot soha nem mutatott -- pedig a hasGitToken()
+ * (amit a tenyleges git-muveletek hasznalnak) MAR figyelembe vette a
+ * gh-forrast is. A ket fuggveny szetvalt, es a felulet a szukebbet hasznalta.
+ */
 export function gitAccountsWithToken(): string[] {
-  return Object.keys(readTokens()).filter((a) => readTokens()[a]?.token)
+  return readStorageRegistry().gitAccounts.filter((a) => hasGitToken(a))
 }
 
 export function gitTokenInfo(account: string): { has: boolean; login: string; addedAt: string; source: '' | 'sajat' | 'gh' | 'kolcson' } {
