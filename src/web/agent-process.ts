@@ -38,6 +38,7 @@ import {
   type AgentRunState,
 } from './ssh-tmux.js'
 import { parseTelegramToken } from './telegram.js'
+import { CHANNEL_STATE_ENV_VAR, CHANNEL_TOKEN_ENV_VARS, channelStateNowhereDirs } from './mcp-probe-env.js'
 import { getProvider, getProviderType, channelStateDir, readChannelToken, type ChannelProviderType } from '../channel-provider.js'
 import { CHANNEL_PROVIDER, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, SUBAGENT_INBOX_TEE } from '../config.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
@@ -166,6 +167,62 @@ export function hasFleetOauthToken(): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * The `export <PROVIDER>_STATE_DIR=...` prefix for one agent's launch command.
+ *
+ * `ownProvider` is the provider this agent actually runs (null = channel-less).
+ * That one gets `agentChannelDir`, exactly as before. EVERY OTHER provider gets
+ * a directory that does not exist and never will.
+ *
+ * Why the others matter (Boss, 2026-09-02): the old code exported a state dir
+ * only when the agent had a channel, so a channel-less agent launched with none
+ * at all -- and an unset TELEGRAM_STATE_DIR resolves to
+ * `(CLAUDE_CONFIG_DIR ?? ~/.claude)/channels/telegram`, the LIVE bridge's own
+ * directory, whose bot.pid the plugin SIGTERMs on startup. That is kanban #193's
+ * bug by a second route.
+ *
+ * MEASURED on this install, so the size of the hole is not guessed: the only
+ * thing standing between a channel-less agent and the live poller today is
+ * `<agentDir>/.claude/settings.json` setting every channel plugin to false
+ * (verified for all 8 agents) -- because the shared ~/.claude/settings.json has
+ * `telegram@claude-plugins-official: true`, no agent has an isolated config dir
+ * (there is no fleet OAuth token), and telegram 0.0.6 ignores CLAUDE_CONFIG_DIR
+ * outright. And that settings write is best-effort: its failure path only logs
+ * "Could not scope channel plugins for sub-agent" and launches anyway. This
+ * turns that warn-and-proceed from "kills the operator's bridge" into
+ * "harmlessly points at /tmp".
+ *
+ * Nothing is created: an unused nowhere-dir is never written to, because the
+ * credentials are unset in the same command line, and the plugin exits at its
+ * token gate before it would mkdir. channel-poller-reap.ts matches pollers by
+ * an EXACT state-dir value, so a nowhere-dir is simply never a reap target.
+ */
+/**
+ * The `unset ...` clause that strips inherited channel credentials from an
+ * agent's shell, so the plugin can only read the ones in its own state dir.
+ *
+ * Derived from the provider registry rather than hand-listed: the hand-written
+ * version named four variables and had been missing googlechat's and teams'
+ * five ever since those providers were added.
+ */
+export function buildChannelUnsetCommand(): string {
+  return `unset ${CHANNEL_TOKEN_ENV_VARS.join(' ')}`
+}
+
+export function buildChannelStateExports(
+  ownProvider: ChannelProviderType | null,
+  agentChannelDir: string,
+): string {
+  const nowhere = channelStateNowhereDirs()
+  return (Object.keys(CHANNEL_STATE_ENV_VAR) as ChannelProviderType[])
+    .map(provider => {
+      const envVar = CHANNEL_STATE_ENV_VAR[provider]
+      const dir = provider === ownProvider ? agentChannelDir : nowhere[envVar]
+      return `export ${envVar}="${dir}" && `
+    })
+    .join('')
 }
 
 // H1 silent-degradation hardening (2026-06-30, refined 2026-07-10).
@@ -307,13 +364,58 @@ function maybeAlertSharedConfigCollision(name: string): void {
 // falls back to the shared ~/.claude (degraded, but never a launch failure).
 const ISOLATED_CONFIG_SKIP = new Set(['settings.json', 'plugins', '.credentials.json'])
 
+// WHERE an agent's auto-provisioned isolated config dir lives. One function, so
+// a read-only caller (agentSpawnConfigDir) cannot look in a different place
+// than the provisioner writes to.
+export function isolatedConfigDirPath(name: string): string {
+  return join(agentDir(name), '.claude-config')
+}
+
 export function ensureIsolatedChannelConfigDir(
   name: string,
   // null = channel-less agent: provision the isolated dir with EVERY channel
   // plugin disabled (scopeChannelPlugins(null)) instead of enabling one.
   providerType: ChannelProviderType | null,
 ): string | null {
-  return provisionIsolatedConfigDir(join(agentDir(name), '.claude-config'), agentDir(name), providerType, name)
+  return provisionIsolatedConfigDir(isolatedConfigDirPath(name), agentDir(name), providerType, name)
+}
+
+/**
+ * Which Claude login a NON-interactive, one-shot spawn for `name` must use --
+ * resolved exactly like the launch path below, but READ-ONLY.
+ *
+ * Why it exists: routes/background-tasks.ts spawns `claude -p` for a named
+ * agent and never set CLAUDE_CONFIG_DIR, so every background task ran on the
+ * install default -- the operator's own login -- no matter which agent the UI
+ * said it belonged to (Boss, 2026-09-02). It could not corrupt anything, but it
+ * billed and authenticated as the wrong account.
+ *
+ * Deliberately NOT `ensureIsolatedChannelConfigDir`: provisioning is a side
+ * effect (it creates a directory tree and symlinks a config root), and a
+ * background task is the wrong moment to provision an agent that has never been
+ * launched. So the isolated dir is used only when it ALREADY exists, and
+ * otherwise this returns null -- which is precisely today's behaviour, the
+ * shared ~/.claude. No install can get a worse login out of this than it has.
+ *
+ * `useFleetToken` mirrors the launch path's gating: the isolated dir carries no
+ * .credentials.json by design, so without CLAUDE_CODE_OAUTH_TOKEN a spawn
+ * pointed at it would come up logged OUT. An explicit per-agent/plan config dir
+ * is expected to hold its own login and gets no token, same as at launch.
+ */
+export function agentSpawnConfigDir(name: string): { configDir: string | null; useFleetToken: boolean } {
+  try {
+    const explicit = resolveAgentConfigDir(name).configDir
+    if (explicit) return { configDir: explicit, useFleetToken: false }
+    // MAIN comes up via channels.sh and has no agents/<name> dir, so existsSync
+    // is false for it and this falls through to the shared root, as it should.
+    const isolated = isolatedConfigDirPath(name)
+    if (existsSync(isolated) && hasFleetOauthToken()) return { configDir: isolated, useFleetToken: true }
+  } catch (err) {
+    // agentDir() throws on a name that never went through sanitizeAgentName.
+    // A background task must not die over that -- fall back to the default.
+    logger.warn({ err, name }, 'agentSpawnConfigDir: could not resolve a config dir; using the install default')
+  }
+  return { configDir: null, useFleetToken: false }
 }
 
 // The main channels agent (started by scripts/channels.sh, cwd = PROJECT_ROOT)
@@ -1391,14 +1493,16 @@ export function startAgentProcess(name: string, opts: { fresh?: boolean } = {}):
     // price of a reachable bot (file/db memory persists either way). Channel-
     // less agents keep --continue to preserve their accumulated context.
     const continueFlag = (hasPriorSession && !opts.fresh && !hasChannel) ? '--continue ' : ''
-    const stateEnvVar = agentProvider === 'slack' ? 'SLACK_STATE_DIR' : agentProvider === 'discord' ? 'DISCORD_STATE_DIR' : agentProvider === 'googlechat' ? 'GOOGLECHAT_STATE_DIR' : agentProvider === 'teams' ? 'TEAMS_STATE_DIR' : 'TELEGRAM_STATE_DIR'
-    const unsetTokens = 'unset TELEGRAM_BOT_TOKEN SLACK_BOT_TOKEN SLACK_APP_TOKEN DISCORD_BOT_TOKEN'
+    // Every channel credential the plugin registry knows about, not the four
+    // that were listed by hand (googlechat and teams were missing).
+    const unsetTokens = buildChannelUnsetCommand()
     // Slack plugin is third-party; its "not on approved allowlist" check is
     // bypassed via `allowedChannelPlugins` in /Library/Application Support/ClaudeCode/managed-settings.json.
-    const auditLogEnv = agentProvider === 'slack' ? ` && export SLACK_AUDIT_LOG="${agentChannelDir}/audit.jsonl"` : ''
-    const channelSetup = hasChannel
-      ? `export ${stateEnvVar}="${agentChannelDir}"${auditLogEnv} && `
+    const auditLogEnv = hasChannel && agentProvider === 'slack'
+      ? `export SLACK_AUDIT_LOG="${agentChannelDir}/audit.jsonl" && `
       : ''
+    const channelSetup =
+      buildChannelStateExports(hasChannel ? agentProvider : null, agentChannelDir) + auditLogEnv
     // When the per-agent mcp.json+tee path is active (SUBAGENT_INBOX_TEE), the
     // plugin is already loaded as a plain MCP server, so ALSO passing --channels
     // would register the plugin a SECOND way -- a duplicate poller racing the tee

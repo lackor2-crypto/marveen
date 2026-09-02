@@ -29,7 +29,11 @@ import { existsSync, readFileSync, readdirSync, mkdtempSync, mkdirSync, writeFil
 import { join, dirname, sep } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { channelProbeStateEnv, CHANNEL_STATE_ENV_VAR, CHANNEL_TOKEN_ENV_VARS } from '../web/mcp-probe-env.js'
+import {
+  channelProbeStateEnv, channelStateNowhereDirs,
+  CHANNEL_STATE_ENV_VAR, CHANNEL_TOKEN_ENV_VARS,
+} from '../web/mcp-probe-env.js'
+import { getProvider, type ChannelProviderType } from '../channel-provider.js'
 
 const projectRoot = join(fileURLToPath(import.meta.url), '..', '..', '..')
 const webDir = join(projectRoot, 'src', 'web')
@@ -216,6 +220,185 @@ describe('szonda-leltar', () => {
     const body = src.match(/function spawnArgs\([\s\S]*?\n\}/)
     expect(body, 'spawnArgs() eltunt a claude-auth-runner.ts-bol').not.toBeNull()
     expect(body![0]).toContain('channelProbeStateEnv()')
+  })
+})
+
+// --- the credential list is DERIVED, not hand-maintained ----------------------
+
+describe('CHANNEL_TOKEN_ENV_VARS a szolgaltato-nyilvantartasbol szarmazik', () => {
+  const providers = Object.keys(CHANNEL_STATE_ENV_VAR) as ChannelProviderType[]
+
+  it('minden szolgaltato osszes sajat kulcsat tartalmazza', () => {
+    // The hand-written list named four variables while the registry already
+    // described nine, so googlechat and teams were simply absent. Deriving is
+    // what makes a NEW provider impossible to forget.
+    for (const provider of providers) {
+      for (const key of getProvider(provider).envKeys) {
+        if (key === 'GOOGLE_APPLICATION_CREDENTIALS') continue
+        expect(CHANNEL_TOKEN_ENV_VARS, `${provider}.${key} kimaradt`).toContain(key)
+      }
+    }
+    // The two that were missing, named explicitly: a derivation that silently
+    // returned [] would satisfy nothing here.
+    expect(CHANNEL_TOKEN_ENV_VARS).toContain('GOOGLECHAT_PROJECT_ID')
+    expect(CHANNEL_TOKEN_ENV_VARS).toContain('TEAMS_BOT_APP_ID')
+    expect(CHANNEL_TOKEN_ENV_VARS).toContain('TEAMS_BOT_APP_PASSWORD')
+    expect(CHANNEL_TOKEN_ENV_VARS.length).toBeGreaterThanOrEqual(9)
+  })
+
+  it('a NEM csatorna-specifikus Google valtozot kihagyja', () => {
+    // Blanking it would break unrelated Google tooling in the same process --
+    // a workspace MCP server would fail its health check and the Connections
+    // page would call a working connector broken.
+    expect(getProvider('googlechat').envKeys).toContain('GOOGLE_APPLICATION_CREDENTIALS')
+    expect(CHANNEL_TOKEN_ENV_VARS).not.toContain('GOOGLE_APPLICATION_CREDENTIALS')
+  })
+
+  it('nincs duplikatum (a slack ket kulcsa, a tobbi egy)', () => {
+    expect(new Set(CHANNEL_TOKEN_ENV_VARS).size).toBe(CHANNEL_TOKEN_ENV_VARS.length)
+  })
+})
+
+// --- the agent launch: every provider gets a state dir, not just its own ------
+
+describe('buildChannelStateExports (az agens inditasa)', () => {
+  const CHAN = '/home/x/marveen/agents/demo/.claude/channels/telegram'
+
+  // Both readers must be resolved from the SAME module registry. An earlier
+  // vi.resetModules() hands a dynamic import a FRESH mcp-probe-env, and its
+  // per-process probe base is randomised on first use -- so a top-level import
+  // of channelStateNowhereDirs would describe a DIFFERENT instance, and the
+  // comparison would be between two unrelated random paths. (Measured: the two
+  // bases differed only in the random half, same pid.)
+  async function load() {
+    const agent = await import('../web/agent-process.js')
+    const { channelStateNowhereDirs: nowhereOf } = await import('../web/mcp-probe-env.js')
+    return { ...agent, nowhere: nowhereOf() }
+  }
+
+  it('a sajat szolgaltato a VALODI konyvtarat kapja, a tobbi a sehovat', async () => {
+    const { buildChannelStateExports, nowhere } = await load()
+    const out = buildChannelStateExports('telegram', CHAN)
+    expect(out).toContain(`export TELEGRAM_STATE_DIR="${CHAN}"`)
+    for (const provider of Object.keys(CHANNEL_STATE_ENV_VAR) as ChannelProviderType[]) {
+      const envVar = CHANNEL_STATE_ENV_VAR[provider]
+      expect(out, `${envVar} nincs exportalva`).toContain(`export ${envVar}="`)
+      if (provider !== 'telegram') {
+        expect(out).toContain(`export ${envVar}="${nowhere[envVar]}"`)
+      }
+    }
+  })
+
+  it('csatorna NELKULI agens is kap mind az ot valtozot, mind sehova', async () => {
+    // This is the hole: with no export at all, TELEGRAM_STATE_DIR resolves to
+    // (CLAUDE_CONFIG_DIR ?? ~/.claude)/channels/telegram -- the LIVE bridge's
+    // own dir, whose bot.pid the plugin SIGTERMs at startup.
+    const { buildChannelStateExports, nowhere } = await load()
+    const out = buildChannelStateExports(null, CHAN)
+    expect(out).not.toContain(CHAN)
+    for (const envVar of Object.values(CHANNEL_STATE_ENV_VAR)) {
+      expect(out, `${envVar} nincs exportalva`).toContain(`export ${envVar}="`)
+      expect(out).toContain(`export ${envVar}="${nowhere[envVar]}"`)
+    }
+    // No value may resolve under a real config root.
+    expect(out).not.toContain(join(homedir(), '.claude', 'channels'))
+  })
+
+  it('a nowhere-konyvtarak nem letezenek (semmi nem jon letre)', async () => {
+    const { nowhere } = await load()
+    for (const dir of Object.values(nowhere)) {
+      expect(existsSync(dir), `letrejott: ${dir}`).toBe(false)
+    }
+  })
+
+  it('shell-be fuzheto: minden tag `&& `-vel zarul', async () => {
+    const { buildChannelStateExports } = await load()
+    const out = buildChannelStateExports('slack', CHAN)
+    expect(out.endsWith(' && ')).toBe(true)
+    expect(out.split(' && ').filter(Boolean).length).toBe(Object.keys(CHANNEL_STATE_ENV_VAR).length)
+  })
+
+  it('az unset-zaradek minden csatorna-hitelesitot megnevez', async () => {
+    const { buildChannelUnsetCommand } = await load()
+    const cmd = buildChannelUnsetCommand()
+    for (const envVar of CHANNEL_TOKEN_ENV_VARS) {
+      expect(cmd, `${envVar} nincs unset-elve`).toContain(envVar)
+    }
+    expect(cmd.startsWith('unset ')).toBe(true)
+    expect(cmd).not.toContain('GOOGLE_APPLICATION_CREDENTIALS')
+  })
+})
+
+// --- background tasks: the agent's OWN login, and no live channel state -------
+
+describe('buildBackgroundTaskSpawn (hatterfeladat)', () => {
+  afterEach(() => { vi.resetModules(); vi.doUnmock('../web/agent-process.js') })
+
+  async function load(spawnCfg: { configDir: string | null; useFleetToken: boolean }) {
+    vi.resetModules()
+    vi.doMock('../web/agent-process.js', () => ({
+      agentSpawnConfigDir: () => spawnCfg,
+      FLEET_OAUTH_TOKEN_PATH: '/store/.claude-oauth-token',
+    }))
+    return import('../web/routes/background-tasks.js')
+  }
+
+  it('az agens sajat CLAUDE_CONFIG_DIR-jevel indul', async () => {
+    const mod = await load({ configDir: '/home/x/marveen/agents/demo/.claude-config', useFleetToken: true })
+    const { tmuxArgs, configDir } = mod.buildBackgroundTaskSpawn('demo', 'bg-AB12', '/usr/bin/claude')
+    const cmd = tmuxArgs[tmuxArgs.length - 1]
+    expect(configDir).toBe('/home/x/marveen/agents/demo/.claude-config')
+    expect(cmd).toContain('export CLAUDE_CONFIG_DIR="/home/x/marveen/agents/demo/.claude-config"')
+    // The isolated dir carries no .credentials.json, so without this the task
+    // would launch logged OUT -- a worse outcome than the bug being fixed.
+    expect(cmd).toContain(`export CLAUDE_CODE_OAUTH_TOKEN="$(cat '/store/.claude-oauth-token')"`)
+    // Read at run time, never interpolated: the secret must not be in `ps`.
+    expect(cmd).not.toMatch(/CLAUDE_CODE_OAUTH_TOKEN="[A-Za-z0-9_-]{8}/)
+  })
+
+  it('explicit config dir eseten NEM ad flotta-tokent', async () => {
+    const mod = await load({ configDir: '/opt/claude-alt', useFleetToken: false })
+    const cmd = mod.buildBackgroundTaskSpawn('demo', 'bg-AB12', '/usr/bin/claude').tmuxArgs.at(-1)!
+    expect(cmd).toContain('export CLAUDE_CONFIG_DIR="/opt/claude-alt"')
+    expect(cmd).not.toContain('CLAUDE_CODE_OAUTH_TOKEN')
+  })
+
+  it('feloldhatatlan agens eseten a telepites alapertelmezese marad (mai viselkedes)', async () => {
+    const mod = await load({ configDir: null, useFleetToken: false })
+    const { tmuxArgs, configDir } = mod.buildBackgroundTaskSpawn('nincs-ilyen', 'bg-AB12', '/usr/bin/claude')
+    expect(configDir).toBeNull()
+    expect(tmuxArgs.at(-1)!).not.toContain('CLAUDE_CONFIG_DIR')
+  })
+
+  it('minden csatorna-allapot valtozot es hitelesitot atad a tmux -e-n', async () => {
+    const mod = await load({ configDir: null, useFleetToken: false })
+    const { tmuxArgs } = mod.buildBackgroundTaskSpawn('demo', 'bg-AB12', '/usr/bin/claude')
+    const passed: Record<string, string> = {}
+    for (let i = 0; i < tmuxArgs.length - 1; i++) {
+      if (tmuxArgs[i] !== '-e') continue
+      const eq = tmuxArgs[i + 1].indexOf('=')
+      passed[tmuxArgs[i + 1].slice(0, eq)] = tmuxArgs[i + 1].slice(eq + 1)
+    }
+    for (const envVar of Object.values(CHANNEL_STATE_ENV_VAR)) {
+      expect(passed[envVar], `${envVar} nem ment at`).toBeTruthy()
+      expect(passed[envVar]).toContain('marveen-mcp-probe')
+      expect(passed[envVar].startsWith(join(homedir(), '.claude'))).toBe(false)
+    }
+    for (const envVar of CHANNEL_TOKEN_ENV_VARS) {
+      expect(passed[envVar], `${envVar} nem lett kiuritve`).toBe('')
+    }
+  })
+
+  it('a promptot tovabbra is $BG_PROMPT-on adja at (meglevo funkcio)', async () => {
+    // Regression guard for the change itself: the prompt reaches the pane
+    // through tmux's client environment, and `-e` was added right next to it.
+    // MEASURED on a throwaway tmux server: BG_PROMPT still arrives with -e set.
+    const mod = await load({ configDir: null, useFleetToken: false })
+    const { tmuxArgs } = mod.buildBackgroundTaskSpawn('demo', 'bg-AB12', '/usr/bin/claude')
+    const cmd = tmuxArgs.at(-1)!
+    expect(cmd).toContain('-p "$BG_PROMPT"')
+    expect(cmd).toContain('___BG_DONE___')
+    expect(tmuxArgs.slice(0, 6)).toEqual(['new-session', '-d', '-s', 'bg-AB12', '-x', '200'])
   })
 })
 

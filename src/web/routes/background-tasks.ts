@@ -11,6 +11,8 @@ import { logger } from '../../logger.js'
 import { readBody, json } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 import { exactTmuxTarget } from '../tmux-target.js'
+import { agentSpawnConfigDir, FLEET_OAUTH_TOKEN_PATH } from '../agent-process.js'
+import { channelProbeStateEnv } from '../mcp-probe-env.js'
 
 const TMUX = makeLazyBinResolver('tmux')
 const CLAUDE = makeLazyBinResolver('claude')
@@ -46,6 +48,56 @@ function killSession(session: string): void {
   } catch { /* already dead */ }
 }
 
+/**
+ * Everything about HOW a background task is launched, as one pure value.
+ *
+ * Extracted so the launch decision is testable by calling it, rather than by a
+ * regex over this file: a source scan cannot tell which of several occurrences
+ * of a variable actually reached the child (that mistake is written up in
+ * mcp-probe-channel-isolation.test.ts).
+ */
+export function buildBackgroundTaskSpawn(
+  agentId: string,
+  session: string,
+  claudeBin: string,
+): { tmuxArgs: string[]; configDir: string | null } {
+  // The agent's OWN Claude login. Without this every background task ran on the
+  // install default no matter which agent the UI attributed it to -- it took an
+  // agentId and then ignored it for authentication (Boss, 2026-09-02).
+  const spawn = agentSpawnConfigDir(agentId)
+  // $(cat) at run time, exactly like the interactive launcher: the secret never
+  // lands in the command string, so it cannot show up in `ps` or in a log.
+  const configEnv = spawn.configDir
+    ? `export CLAUDE_CONFIG_DIR="${spawn.configDir}" && ` +
+      (spawn.useFleetToken ? `export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')" && ` : '')
+    : ''
+  const shellCmd = [
+    `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"`,
+    `${configEnv}${claudeBin} -p "$BG_PROMPT" --output-format text 2>&1`,
+  ].join(' && ')
+
+  // Channel isolation, precautionary. MEASURED 2026-09-02: `claude -p` does not
+  // load the channel plugin (probe run, rc=0, no state dir created, live bot.pid
+  // untouched) even though the shared root has telegram enabled -- so this
+  // changes nothing today. It is here because the line above just gave this
+  // spawn a CLAUDE_CONFIG_DIR, and CLAUDE_CONFIG_DIR is half of how the plugin
+  // picks its state dir: the day headless mode does load plugins, an
+  // uninsulated background task would SIGTERM the agent's own poller.
+  const envArgs: string[] = []
+  for (const [key, value] of Object.entries(channelProbeStateEnv())) {
+    envArgs.push('-e', `${key}=${value}`)
+  }
+
+  return {
+    configDir: spawn.configDir,
+    tmuxArgs: [
+      'new-session', '-d', '-s', session, '-x', '200', '-y', '50',
+      ...envArgs,
+      `${shellCmd}; echo '___BG_DONE___'; sleep 5`,
+    ],
+  }
+}
+
 export function spawnBackgroundTask(agentId: string, prompt: string): BackgroundTask | { error: string } {
   const id = randomBytes(4).toString('hex').toUpperCase()
   const session = bgSessionName(id)
@@ -55,16 +107,10 @@ export function spawnBackgroundTask(agentId: string, prompt: string): Background
     return { error: `Maximum ${MAX_CONCURRENT} egyidejű háttérfeladat ágensenként.` }
   }
 
-  const shellCmd = [
-    `export PATH="/opt/homebrew/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin:$PATH"`,
-    `${CLAUDE()} -p "$BG_PROMPT" --output-format text 2>&1`,
-  ].join(' && ')
+  const { tmuxArgs } = buildBackgroundTaskSpawn(agentId, session, CLAUDE())
 
   try {
-    execFileSync(TMUX(), [
-      'new-session', '-d', '-s', session, '-x', '200', '-y', '50',
-      `${shellCmd}; echo '___BG_DONE___'; sleep 5`,
-    ], {
+    execFileSync(TMUX(), tmuxArgs, {
       timeout: 5000,
       env: { ...process.env, BG_PROMPT: prompt },
     })
