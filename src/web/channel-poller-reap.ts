@@ -28,14 +28,10 @@ import { join } from 'node:path'
 import type { ChannelProviderType } from '../channel-provider.js'
 import { channelStateDir } from '../channel-provider.js'
 import { logger } from '../logger.js'
-
-const STATE_ENV_VAR: Record<ChannelProviderType, string> = {
-  telegram: 'TELEGRAM_STATE_DIR',
-  slack: 'SLACK_STATE_DIR',
-  discord: 'DISCORD_STATE_DIR',
-  googlechat: 'GOOGLECHAT_STATE_DIR',
-  teams: 'TEAMS_STATE_DIR',
-}
+// One map, two readers: the reap looks for LIVE pollers by this env var, the
+// mcp probes point the very same var somewhere harmless. Sharing it means a new
+// provider cannot be added to one side only.
+import { CHANNEL_STATE_ENV_VAR as STATE_ENV_VAR } from './mcp-probe-env.js'
 
 // Parse `ps eww -e` output and return every PID whose process environment
 // contains `<envVar>=<value>`. Exported for testability.

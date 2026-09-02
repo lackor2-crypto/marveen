@@ -4,6 +4,7 @@ import { tmpdir, homedir } from 'node:os'
 import { execFile } from 'node:child_process'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
+import { channelProbeStateEnv } from './mcp-probe-env.js'
 import {
   applyRefreshOutcome,
   scrubPaths as scrubPathsBase,
@@ -100,6 +101,11 @@ export function refreshMcpListCache(): Promise<McpListCache> {
           timeout: 30_000,
           encoding: 'utf-8',
           maxBuffer: 10 * 1024 * 1024,
+          // A private cwd keeps a planted .mcp.json out; this keeps the live
+          // channel poller out of reach. Without it the telegram plugin starts
+          // against ~/.claude/channels/telegram, SIGTERMs the running bridge
+          // and the channels service crash-loops. See mcp-probe-env.ts (#193).
+          env: { ...process.env, ...channelProbeStateEnv() },
         }, (err, stdoutStr, stderrStr) => {
           // A non-zero exit is not fatal on its own: `claude mcp list`
           // can exit with code 1 when any one of the configured servers

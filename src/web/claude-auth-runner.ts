@@ -31,6 +31,7 @@ import {
   type SlotVerdict,
 } from './account-identity-guard.js'
 import { exactTmuxTarget } from './tmux-target.js'
+import { channelProbeStateEnv } from './mcp-probe-env.js'
 import {
   parseAuthStatus,
   readLoginPane,
@@ -373,6 +374,14 @@ function spawnArgs(
     ...(configDir ? ['-e', `CLAUDE_CONFIG_DIR=${configDir}`] : []),
     ...(shim ? ['-e', `BROWSER=${shim.shim}`, '-e', `MARVEEN_LOGIN_URL_LOG=${shim.log}`] : []),
     '-e', 'NO_COLOR=1',
+    // The login pane must never be able to resolve a LIVE channel state dir.
+    // Any claude process that boots the telegram plugin SIGTERMs whatever
+    // bot.pid names before it starts polling, and this pane runs on the install
+    // default (~/.claude) whenever the login is for the default account. Five
+    // env vars are cheaper than proving whether `claude auth login` loads plugin
+    // MCP servers, and they cost a sign-in nothing: a login has no use for a
+    // channel state dir. See mcp-probe-env.ts (#193).
+    ...Object.entries(channelProbeStateEnv()).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
     'sh', '-c', command,
   ]
 }

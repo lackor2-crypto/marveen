@@ -17,6 +17,7 @@ import { makeLazyBinResolver } from '../platform.js'
 import { readClaudePlans, resolveAgentConfigDir } from './claude-plans.js'
 import { listAgentNames } from './agent-config.js'
 import { exactTmuxTarget } from './tmux-target.js'
+import { channelProbeStateEnv } from './mcp-probe-env.js'
 import {
   parseMcpList,
   summarizeMcp,
@@ -101,7 +102,12 @@ function cacheKey(target: AccountTarget): string {
 
 function runMcpList(configDir: string | null): Promise<{ stdout: string; error: string | null }> {
   return new Promise((resolve) => {
-    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
+    // channelProbeStateEnv() LAST: the probe must never resolve a live channel
+    // state dir -- not the default account's (~/.claude/channels/...), and not
+    // one the dashboard inherited from the shell that launched it. Without it
+    // the telegram plugin SIGTERMs the live poller and the channels service
+    // crash-loops every ten minutes. See mcp-probe-env.ts (#193).
+    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', ...channelProbeStateEnv() }
     if (configDir) env.CLAUDE_CONFIG_DIR = configDir
     let bin: string
     try { bin = claudeBin() } catch {
@@ -270,6 +276,10 @@ export function startMcpLogin(accountId: string | null, server: string): { ok: b
   // then fail inside the login pane (tmux env). Same environment for both.
   if (process.env.PATH) args.push('-e', `PATH=${process.env.PATH}`)
   if (target.configDir) args.push('-e', `CLAUDE_CONFIG_DIR=${target.configDir}`)
+  // Same isolation as the status probe: `claude mcp login` health-checks the
+  // account's servers on the way in, so the channel plugin must not be able to
+  // reach a live state dir from this pane either (#193).
+  for (const [key, value] of Object.entries(channelProbeStateEnv())) args.push('-e', `${key}=${value}`)
   args.push('sh', '-c', command)
   try {
     execFileSync(tmuxBin(), args, { timeout: 10_000 })
