@@ -89,20 +89,34 @@ if [ "$DO_MERGE" -eq 0 ]; then
 fi
 
 # --- 3. CI bevarasa ------------------------------------------------------------
+# A `gh pr checks --watch` megbizhatatlan: ha a checkek meg nem regisztraltak
+# (nehany masodperc keses a PR-nyitas utan), "no checks reported"-tel azonnal
+# elszall. Ezert a statusCheckRollup-ot POLL-ozzuk, ami determinisztikus.
 echo "land-pr: varakozas a CI-re (ez ~2-3 perc)..." >&2
-# A checkek nehany masodperc keslessel jelennek meg a PR-en; a --watch
-# "no checks reported"-tel azonnal elszallna, ha meg egy sincs. Elobb
-# megvarjuk, amig legalabb egy check regisztral (max ~90s).
-appeared=0
-for _i in $(seq 1 18); do
-  if ! gh pr checks "$PR_URL" 2>&1 | grep -qi "no checks reported"; then appeared=1; break; fi
-  sleep 5
+deadline=$(( $(date +%s) + 900 ))   # max 15 perc
+while true; do
+  roll="$(gh pr view "$PR_URL" -R "$REPO" --json statusCheckRollup --jq '.statusCheckRollup' 2>/dev/null || echo '[]')"
+  verdict="$(printf '%s' "$roll" | python3 -c '
+import sys, json
+try: d = json.load(sys.stdin)
+except Exception: d = []
+if not d: print("EMPTY"); sys.exit()
+pend = fail = 0
+for c in d:
+    st = (c.get("status") or "").upper()          # QUEUED / IN_PROGRESS / COMPLETED
+    con = (c.get("conclusion") or "").upper()      # SUCCESS / FAILURE / ...
+    if st != "COMPLETED": pend += 1
+    elif con not in ("SUCCESS", "NEUTRAL", "SKIPPED"): fail += 1
+print("FAIL" if fail else ("PENDING" if pend else "PASS"))
+' 2>/dev/null || echo EMPTY)"
+  case "$verdict" in
+    PASS) echo "land-pr: a CI zold." >&2; break ;;
+    FAIL) die "a CI NEM zold ezen a PR-en. A PR nyitva marad: $PR_URL -- javitsd a hibat es pushold ujra a branchet." ;;
+    *) : ;;  # EMPTY (meg nincs check) vagy PENDING -> varunk tovabb
+  esac
+  [ "$(date +%s)" -ge "$deadline" ] && die "a CI nem fejezodott be idoben (~15 perc): $PR_URL"
+  sleep 15
 done
-[ "$appeared" -eq 1 ] || die "a CI checkek nem jelentek meg a PR-en (~90s alatt): $PR_URL"
-# Most watch-olunk, amig a checkek befejeznek; nem-nulla kilepes = valamelyik piros.
-if ! gh pr checks "$PR_URL" --watch --interval 15 --fail-fast >&2; then
-  die "a CI NEM zold ezen a PR-en. A PR nyitva marad: $PR_URL -- javitsd a hibat es pushold ujra a branchet."
-fi
 
 # --- 4. merge zold CI utan -----------------------------------------------------
 gh pr merge "$PR_URL" --squash --delete-branch \
