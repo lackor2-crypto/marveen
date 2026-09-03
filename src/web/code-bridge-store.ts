@@ -296,24 +296,34 @@ export function getCodeSession(project: string): CodeSession | null {
  * IS AN ERROR, never a guess: silently picking one of two projects would run a
  * refactor in the wrong repository.
  */
-export function resolveProject(raw: string): { session: CodeSession } | { error: string; candidates?: string[] } {
+/** A kod-hid hibavalaszai: a nyers angol `error` (naplo/back-compat) MELLETT egy
+ *  i18n-KULCS (`errorKey`) + parameterek, hogy a felulet a sajat nyelven mutassa
+ *  a hibat, ne gepi angol kodot (Boss, 2026-08-23: "a user egy komuves"). */
+export type CodeBridgeError = {
+  error: string
+  errorKey?: string
+  errorParams?: Record<string, string | number>
+  candidates?: string[]
+}
+
+export function resolveProject(raw: string): { session: CodeSession } | CodeBridgeError {
   const alias = normalizeAlias(raw)
-  if (!alias) return { error: 'empty project name' }
+  if (!alias) return { error: 'empty project name', errorKey: 'cb.err.empty_project' }
   const exact = getCodeSession(alias)
   if (exact) return { session: exact }
 
   const all = listCodeSessions()
-  if (all.length === 0) return { error: 'no sessions registered yet -- start the Windows worker first' }
+  if (all.length === 0) return { error: 'no sessions registered yet -- start the Windows worker first', errorKey: 'cb.err.no_sessions_registered' }
 
   const byPrefix = all.filter((s) => s.project.startsWith(alias))
   if (byPrefix.length === 1) return { session: byPrefix[0]! }
-  if (byPrefix.length > 1) return { error: `ambiguous project "${alias}"`, candidates: byPrefix.map((s) => s.project) }
+  if (byPrefix.length > 1) return { error: `ambiguous project "${alias}"`, errorKey: 'cb.err.ambiguous_project', errorParams: { project: alias }, candidates: byPrefix.map((s) => s.project) }
 
   const bySub = all.filter((s) => s.project.includes(alias))
   if (bySub.length === 1) return { session: bySub[0]! }
-  if (bySub.length > 1) return { error: `ambiguous project "${alias}"`, candidates: bySub.map((s) => s.project) }
+  if (bySub.length > 1) return { error: `ambiguous project "${alias}"`, errorKey: 'cb.err.ambiguous_project', errorParams: { project: alias }, candidates: bySub.map((s) => s.project) }
 
-  return { error: `unknown project "${alias}"`, candidates: all.map((s) => s.project) }
+  return { error: `unknown project "${alias}"`, errorKey: 'cb.err.unknown_project', errorParams: { project: alias }, candidates: all.map((s) => s.project) }
 }
 
 export interface UpsertSessionInput {
@@ -563,16 +573,16 @@ export interface EnqueueInput {
   sessionId?: string | null
 }
 
-export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | { error: string; candidates?: string[] } {
+export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | CodeBridgeError {
   ensureTables()
   const prompt = input.prompt.trim()
-  if (!prompt) return { error: 'empty prompt' }
-  if (prompt.length > PROMPT_MAX_CHARS) return { error: `prompt too long (${prompt.length} > ${PROMPT_MAX_CHARS})` }
+  if (!prompt) return { error: 'empty prompt', errorKey: 'cb.err.empty_prompt' }
+  if (prompt.length > PROMPT_MAX_CHARS) return { error: `prompt too long (${prompt.length} > ${PROMPT_MAX_CHARS})`, errorKey: 'cb.err.prompt_too_long', errorParams: { len: prompt.length, max: PROMPT_MAX_CHARS } }
 
   const resolved = resolveProject(input.project)
   if ('error' in resolved) return resolved
   if (isExcludedProject(resolved.session.project)) {
-    return { error: `project "${resolved.session.project}" is excluded from the code bridge (CODE_BRIDGE_EXCLUDE)` }
+    return { error: `project "${resolved.session.project}" is excluded from the code bridge (CODE_BRIDGE_EXCLUDE)`, errorKey: 'cb.err.project_excluded', errorParams: { project: resolved.session.project } }
   }
 
   // Fulre cimzes. A `claude.exe --resume` egy nem letezo azonositora is elindul
@@ -599,7 +609,7 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | { err
       targetSessionId = prefix[0]!.sessionId
     } else if (prefix.length > 1) {
       const amb = prefix.map((c) => `${c.sessionId.slice(0, 8)}${c.title ? ` (${c.title})` : ''}`).join(', ')
-      return { error: `"${wantedTab}" tobb fulre is illik: ${amb} -- adj meg tobb karaktert` }
+      return { error: `"${wantedTab}" tobb fulre is illik: ${amb} -- adj meg tobb karaktert`, errorKey: 'cb.err.tab_ambiguous', errorParams: { tab: wantedTab, matches: amb } }
     } else if (tabsHere.length === 0) {
       // A worker meg nem jelentett errol a mappa rol semmit: nem tudjuk, hogy a
       // ful nincs meg, vagy csak nem latunk oda. Ezt a KETTOT nem szabad
@@ -614,6 +624,8 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | { err
           error:
             `nem latok ra a(z) "${resolved.session.project}" projekt beszelgeteseire, ezert a "${wantedTab}" ` +
             `fulet nem tudom feloldani -- fut a Windows worker? (teljes session-UUID-t cimzes nelkul is atengedek)`,
+          errorKey: 'cb.err.tab_unresolvable',
+          errorParams: { project: resolved.session.project, tab: wantedTab },
         }
       }
     } else {
@@ -624,6 +636,8 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | { err
         error:
           `nincs "${wantedTab.slice(0, 12)}" azonositoju chat ful a(z) "${resolved.session.project}" projektben -- ` +
           `a worker ezeket a beszelgeteseket latja: ${known}`,
+        errorKey: 'cb.err.tab_not_found',
+        errorParams: { tab: wantedTab.slice(0, 12), project: resolved.session.project, known },
       }
     }
   }

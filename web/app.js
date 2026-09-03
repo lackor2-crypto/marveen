@@ -5598,7 +5598,7 @@ async function cbCloseTab(sessionId, label) {
       const msg = code === 'worker-offline' ? t('cb.card.tab_close_worker_off')
         : code === 'no-pid' ? t('cb.card.tab_close_no_pid')
         : code === 'unknown session' ? t('cb.card.tab_close_unknown')
-        : (code || ('HTTP ' + res.status))
+        : cbErrText(body, res)
       showToast(t('cb.card.tab_close_failed', { msg: msg }), 'error')
       return
     }
@@ -5839,7 +5839,7 @@ async function cbPickSession(project, workspacePath, sessionId) {
       body: JSON.stringify({ project: project, workspacePath: workspacePath, sessionId: sessionId, pinned: true }),
     })
     const body = await res.json().catch(function () { return null })
-    if (!res.ok) { showToast(t('cb.card.tabs_pick_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
+    if (!res.ok) { showToast(t('cb.card.tabs_pick_failed', { msg: cbErrText(body, res) }), 'error'); return }
     showToast(t('cb.card.tabs_pick_done'), 'success')
     await loadCodeBridgeCards()
     renderAgents()
@@ -5858,7 +5858,7 @@ async function cbDeleteProject(project) {
   try {
     const res = await fetch('/api/code/projects/' + encodeURIComponent(project), { method: 'DELETE' })
     const body = await res.json().catch(() => null)
-    if (!res.ok) { showToast(t('cb.card.delete_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
+    if (!res.ok) { showToast(t('cb.card.delete_failed', { msg: cbErrText(body, res) }), 'error'); return }
     showToast(t('cb.card.delete_done', { p: project }), 'success')
     await loadCodeBridgeCards()
     renderAgents()
@@ -5932,7 +5932,7 @@ async function cbMaintenance(project, action, target) {
       }),
     })
     const body = await res.json().catch(() => null)
-    if (!res.ok) { showToast(t('cb.card.maint_failed', { msg: (body && body.error) || ('HTTP ' + res.status) }), 'error'); return }
+    if (!res.ok) { showToast(t('cb.card.maint_failed', { msg: cbErrText(body, res) }), 'error'); return }
     showToast(action === 'clear' ? t('cb.card.clear_queued') : t('cb.card.compact_queued'), 'success')
   } catch (err) {
     // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
@@ -17909,6 +17909,16 @@ function _claudeAuthReturnFlowHome() {
 function _claudeAuthErrorText(data) {
   if (data && data.errorKey) return t(data.errorKey, data.errorParams || {})
   return (data && data.error) || t('common.error_save')
+}
+
+// A kod-hid szerver-hibai a nyers angol `error` MELLETT egy i18n-kulcsot
+// (`errorKey`) + parametereket kuldenek, hogy a hiba a felulet nyelven
+// jelenjen meg, ne gepi angol kod (Boss, 2026-08-23: "a user egy komuves").
+// A nyers `error` a tartalek; a HTTP-statusz csak ha semmi mas nincs.
+function cbErrText(data, res) {
+  if (data && data.errorKey) return t(data.errorKey, data.errorParams || {})
+  if (data && data.error) return data.error
+  return 'HTTP ' + (res && res.status ? res.status : '?')
 }
 
 // Named-account (planId) bejelentkezesnel a CLI az AUTOMATA (loopback) utat
@@ -30713,7 +30723,7 @@ async function convSendSubmit() {
       try { d = await r.json() } catch { /* nem JSON */ }
       if (!r.ok) {
         // A TENYLEGES hibauzenet megy ki. Az okot nem talalgatjuk.
-        const m = t('conversation.send.failed', { msg: (d && d.error) || ('HTTP ' + r.status) })
+        const m = t('conversation.send.failed', { msg: cbErrText(d, r) })
         out = { text: m, toast: m, error: true }
       } else {
         const id = String((d && d.id) || '').slice(0, 8)
@@ -35810,7 +35820,7 @@ async function _intezoCfgSave() {
     const text = await res.text()
     let data = null
     try { data = text ? JSON.parse(text) : null } catch (e) { /* nem JSON */ }
-    if (!res.ok) throw new Error((data && data.error) || ('HTTP ' + res.status))
+    if (!res.ok) throw new Error(cbErrText(data, res))
     return data
   }
 

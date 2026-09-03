@@ -175,7 +175,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   const alwaysOn = path === '/api/code/health' || path === '/api/code/config'
     || path === '/api/code/worker-script' || path === '/api/code/avatar'
   if (!CODE_BRIDGE_ENABLED && !alwaysOn) {
-    json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)' }, 503)
+    json(res, { error: 'code bridge disabled (CODE_BRIDGE_ENABLED=0)', errorKey: 'cb.err.bridge_disabled' }, 503)
     return true
   }
 
@@ -282,7 +282,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/code/config' && method === 'POST') {
     const body = await parseJsonBody<Record<string, unknown>>(ctx)
-    if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
+    if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
     const ALLOWED = [
       'CODE_BRIDGE_ENABLED', 'CODE_PERMISSION_MODE', 'CODE_BOT_TOKEN',
       'CODE_BOT_ALLOWED_CHAT_IDS', 'CODE_BRIDGE_EXCLUDE',
@@ -295,10 +295,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // a configured token. Clearing is deliberate: send null.
       if (key === 'CODE_BOT_TOKEN' && raw === '') continue
       const out = setOverride(key, raw === null ? '' : raw)
-      if (!out.ok) { json(res, { error: key + ': ' + out.error }, 400); return true }
+      if (!out.ok) { json(res, { error: key + ': ' + out.error, errorKey: 'cb.err.config_invalid', errorParams: { key, detail: out.error } }, 400); return true }
       saved.push(key)
     }
-    if (saved.length === 0) { json(res, { error: 'no known settings in body' }, 400); return true }
+    if (saved.length === 0) { json(res, { error: 'no known settings in body', errorKey: 'cb.err.no_known_settings' }, 400); return true }
     logger.info({ saved }, 'code-bridge: config updated from dashboard')
     // Every one of these is a boot-time const in config.ts, so the page has to
     // say so rather than let the owner believe it already took effect.
@@ -324,7 +324,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       res.end(text)
     } catch (err) {
       logger.warn({ err, name }, 'code-bridge: worker script unreadable')
-      json(res, { error: 'worker script not found in this install' }, 404)
+      json(res, { error: 'worker script not found in this install', errorKey: 'cb.err.worker_script_missing' }, 404)
     }
     return true
   }
@@ -368,12 +368,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       if (contentType.includes('application/json')) {
         let galleryAvatar = ''
         try { galleryAvatar = String((JSON.parse(body.toString()) as { galleryAvatar?: string }).galleryAvatar ?? '') } catch { /* lentebb elbukik */ }
-        if (!galleryAvatar) { json(res, { error: 'no avatar specified' }, 400); return true }
+        if (!galleryAvatar) { json(res, { error: 'no avatar specified', errorKey: 'cb.err.no_avatar_specified' }, 400); return true }
         if (galleryAvatar.includes('..') || galleryAvatar.includes('/') || galleryAvatar.includes('\\')) {
-          json(res, { error: 'invalid avatar name' }, 400); return true
+          json(res, { error: 'invalid avatar name', errorKey: 'cb.err.invalid_avatar_name' }, 400); return true
         }
         const srcPath = join(PROJECT_ROOT, 'web', 'avatars', galleryAvatar)
-        if (!existsSync(srcPath)) { json(res, { error: 'avatar not found' }, 404); return true }
+        if (!existsSync(srcPath)) { json(res, { error: 'avatar not found', errorKey: 'cb.err.avatar_not_found' }, 404); return true }
         const ext = AVATAR_EXTS.includes(extname(galleryAvatar).toLowerCase()) ? extname(galleryAvatar).toLowerCase() : '.png'
         replaceAvatar((target) => copyFileSync(srcPath, target), ext)
         json(res, { ok: true })
@@ -381,7 +381,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       }
 
       const { file } = parseMultipart(body, contentType)
-      if (!file) { json(res, { error: 'no file uploaded' }, 400); return true }
+      if (!file) { json(res, { error: 'no file uploaded', errorKey: 'cb.err.no_file_uploaded' }, 400); return true }
       const ext = AVATAR_EXTS.includes(extname(file.name).toLowerCase()) ? extname(file.name).toLowerCase() : '.png'
       replaceAvatar((target) => writeFileSync(target, file.data), ext)
       json(res, { ok: true })
@@ -410,9 +410,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }
 
     if (method === 'GET') {
-      if (!project) { json(res, { error: 'project query parameter is required' }, 400); return true }
+      if (!project) { json(res, { error: 'project query parameter is required', errorKey: 'cb.err.project_required' }, 400); return true }
       const { session, probe } = readProject(project)
-      if (!session || !probe) { json(res, { error: 'unknown project: ' + project }, 404); return true }
+      if (!session || !probe) { json(res, { error: 'unknown project: ' + project, errorKey: 'cb.err.unknown_project', errorParams: { project } }, 404); return true }
       if (!probe.reachable) {
         json(res, { project, ...probe, skills: [] })
         return true
@@ -442,28 +442,28 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
     if (method === 'POST') {
       const body = await parseJsonBody<{ project?: string; name?: string; description?: string; skillScope?: string }>(ctx)
-      if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
+      if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
       const alias = normalizeAlias(String(body.project ?? ''))
       const skillName = sanitizeCodeSkillName(String(body.name ?? ''))
       const description = String(body.description ?? '').trim()
-      if (!alias) { json(res, { error: 'project is required' }, 400); return true }
-      if (!skillName) { json(res, { error: 'invalid skill name' }, 400); return true }
-      if (!description) { json(res, { error: 'skill description is required' }, 400); return true }
+      if (!alias) { json(res, { error: 'project is required', errorKey: 'cb.err.project_required' }, 400); return true }
+      if (!skillName) { json(res, { error: 'invalid skill name', errorKey: 'cb.err.invalid_skill_name' }, 400); return true }
+      if (!description) { json(res, { error: 'skill description is required', errorKey: 'cb.err.skill_description_required' }, 400); return true }
       // Scope nelkul itt sincs skill -- a kapu minden letrehozo uton ugyanaz.
       const skillScope = parseHumanSkillScope(body.skillScope)
       if (!skillScope) {
-        json(res, { error: 'skillScope is required', allowed: HUMAN_SKILL_SCOPES, code: 'skill_scope_required' }, 400)
+        json(res, { error: 'skillScope is required', errorKey: 'cb.err.skill_scope_required', allowed: HUMAN_SKILL_SCOPES, code: 'skill_scope_required' }, 400)
         return true
       }
 
       const { session, probe } = readProject(alias)
-      if (!session || !probe) { json(res, { error: 'unknown project: ' + alias }, 404); return true }
+      if (!session || !probe) { json(res, { error: 'unknown project: ' + alias, errorKey: 'cb.err.unknown_project', errorParams: { project: alias } }, 404); return true }
       // Nem irunk vakon: ha nem latunk a mappara, azt mondjuk meg, es nem azt,
       // hogy "sikerult". A `reason` a tenyleges hibauzenet.
-      if (!probe.reachable) { json(res, { error: probe.reason, ...probe }, 409); return true }
+      if (!probe.reachable) { json(res, { error: probe.reason, errorKey: 'cb.err.project_unreachable', errorParams: { reason: probe.reason }, ...probe }, 409); return true }
 
       const skillDir = join(codeSkillsDir(probe.localPath!), skillName)
-      if (existsSync(skillDir)) { json(res, { error: 'skill already exists' }, 409); return true }
+      if (existsSync(skillDir)) { json(res, { error: 'skill already exists', errorKey: 'cb.err.skill_exists' }, 409); return true }
       mkdirSync(skillDir, { recursive: true })
       let seeded = false
       try {
@@ -476,7 +476,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       } catch (err) {
         rmSync(skillDir, { recursive: true, force: true })
         logger.warn({ err, alias, skillName }, 'code-bridge: skill generation failed')
-        json(res, { error: err instanceof Error ? err.message : String(err) }, 500)
+        json(res, { error: err instanceof Error ? err.message : String(err), errorKey: 'cb.err.skill_generate_failed', errorParams: { detail: err instanceof Error ? err.message : String(err) } }, 500)
         return true
       }
       logger.info({ alias, skillName, skillDir, skillScope, seeded }, 'code-bridge: skill created')
@@ -486,13 +486,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
     if (method === 'DELETE') {
       const skillName = sanitizeCodeSkillName(url.searchParams.get('name') ?? '')
-      if (!project) { json(res, { error: 'project query parameter is required' }, 400); return true }
-      if (!skillName) { json(res, { error: 'invalid skill name' }, 400); return true }
+      if (!project) { json(res, { error: 'project query parameter is required', errorKey: 'cb.err.project_required' }, 400); return true }
+      if (!skillName) { json(res, { error: 'invalid skill name', errorKey: 'cb.err.invalid_skill_name' }, 400); return true }
       const { session, probe } = readProject(project)
-      if (!session || !probe) { json(res, { error: 'unknown project: ' + project }, 404); return true }
-      if (!probe.reachable) { json(res, { error: probe.reason, ...probe }, 409); return true }
+      if (!session || !probe) { json(res, { error: 'unknown project: ' + project, errorKey: 'cb.err.unknown_project', errorParams: { project } }, 404); return true }
+      if (!probe.reachable) { json(res, { error: probe.reason, errorKey: 'cb.err.project_unreachable', errorParams: { reason: probe.reason }, ...probe }, 409); return true }
       const skillDir = join(codeSkillsDir(probe.localPath!), skillName)
-      if (!existsSync(skillDir)) { json(res, { error: 'skill not found' }, 404); return true }
+      if (!existsSync(skillDir)) { json(res, { error: 'skill not found', errorKey: 'cb.err.skill_not_found' }, 404); return true }
       rmSync(skillDir, { recursive: true, force: true })
       logger.info({ project, skillName }, 'code-bridge: skill deleted')
       json(res, { ok: true })
@@ -581,7 +581,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // felulet ezekbol kulon-kulon mondatot csinal -- tippelt okot egyik sem tud.
   if (path === '/api/code/conversation' && method === 'GET') {
     const sessionId = (url.searchParams.get('session') ?? '').trim()
-    if (!sessionId) { json(res, { error: 'session is required' }, 400); return true }
+    if (!sessionId) { json(res, { error: 'session is required', errorKey: 'cb.err.session_required' }, 400); return true }
     const limitRaw = Number(url.searchParams.get('limit'))
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 2000) : 400
     const offsetRaw = Number(url.searchParams.get('offset'))
@@ -731,7 +731,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/code/projects' && method === 'POST') {
     const body = await parseJsonBody<{ project?: string; workspacePath?: string; sessionId?: string; title?: string; pinned?: boolean }>(ctx)
-    if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
+    if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
     // A session-azonositot a worker MAR ISMERI: ha erre a mappara jelentett
     // sessiont, akkor senkinek nem kell UUID-t begepelnie -- sem a feluleten,
     // sem a REST-en at. Ezt kerdezte a Boss: "es mit irjak a UUID hez?
@@ -748,13 +748,16 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         error: !sessionId && body.project && workspacePath
           ? 'sessionId is required: the worker has not reported a session for this workspace'
           : 'project, workspacePath and sessionId are required',
+        errorKey: !sessionId && body.project && workspacePath
+          ? 'cb.err.session_required_for_workspace'
+          : 'cb.err.project_workspace_session_required',
       }, 400)
       return true
     }
     // Mapping an excluded alias would create a row that discovery deletes on its
     // next pass and that no task can use -- say so instead of accepting it.
     if (isExcludedProject(body.project)) {
-      json(res, { error: `project "${body.project}" is excluded from the code bridge (CODE_BRIDGE_EXCLUDE)` }, 400)
+      json(res, { error: `project "${body.project}" is excluded from the code bridge (CODE_BRIDGE_EXCLUDE)`, errorKey: 'cb.err.project_excluded', errorParams: { project: body.project } }, 400)
       return true
     }
     try {
@@ -772,7 +775,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       })
       json(res, session)
     } catch (err) {
-      json(res, { error: err instanceof Error ? err.message : String(err) }, 400)
+      json(res, { error: err instanceof Error ? err.message : String(err), errorKey: 'cb.err.project_map_failed', errorParams: { detail: err instanceof Error ? err.message : String(err) } }, 400)
     }
     return true
   }
@@ -955,15 +958,15 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   // tenylegesen bezarult ful a kovetkezo jelentesbol tunik el a listarol.
   if (path.startsWith('/api/code/tabs/') && path.endsWith('/close') && method === 'POST') {
     const sessionId = decodeURIComponent(path.slice('/api/code/tabs/'.length, -'/close'.length))
-    if (!sessionId) { json(res, { error: 'sessionId required' }, 400); return true }
+    if (!sessionId) { json(res, { error: 'sessionId required', errorKey: 'cb.err.session_required' }, 400); return true }
     const tab = listCodeTabs().projects.flatMap((p) => p.tabs).find((t) => t.sessionId === sessionId)
-    if (!tab) { json(res, { error: 'unknown session' }, 404); return true }
+    if (!tab) { json(res, { error: 'unknown session', errorKey: 'cb.err.unknown_session' }, 404); return true }
     // A NULLA ket dolgot jelenthet: ha nincs PID, akkor NEM azt mondjuk, hogy
     // nincs mit bezarni, hanem hogy nem latunk oda -- kulonben a felhasznalo
     // azt hinne, mar nem fut.
-    if (tab.pid === null) { json(res, { error: 'no-pid' }, 409); return true }
+    if (tab.pid === null) { json(res, { error: 'no-pid', errorKey: 'cb.err.tab_no_pid' }, 409); return true }
     const health = codeBridgeHealth()
-    if (!health.workerOnline) { json(res, { error: 'worker-offline' }, 409); return true }
+    if (!health.workerOnline) { json(res, { error: 'worker-offline', errorKey: 'cb.err.worker_offline' }, 409); return true }
     requestCodeTabClose(sessionId)
     json(res, { accepted: true, sessionId, pid: tab.pid })
     return true
@@ -983,8 +986,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
        *  beszelgetese kapja a feladatot. */
       sessionId?: string
     }>(ctx)
-    if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
-    if (!body.project || !body.prompt) { json(res, { error: 'project and prompt are required' }, 400); return true }
+    if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
+    if (!body.project || !body.prompt) { json(res, { error: 'project and prompt are required', errorKey: 'cb.err.project_and_prompt_required' }, 400); return true }
     const origin = (['telegram', 'agent', 'dashboard', 'api'] as const).includes(body.origin as CodeTaskOrigin)
       ? (body.origin as CodeTaskOrigin)
       : 'api'
@@ -1048,7 +1051,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const rawId = safeDecode(taskMatch[1]!)
     const action = taskMatch[2]
     const task = getCodeTask(rawId) ?? getCodeTaskByPrefix(rawId)
-    if (!task) { json(res, { error: 'task not found' }, 404); return true }
+    if (!task) { json(res, { error: 'task not found', errorKey: 'cb.err.task_not_found' }, 404); return true }
 
     if (!action && method === 'GET') { json(res, task); return true }
 
@@ -1139,7 +1142,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // arrive for a task the owner believes was called off. The Telegram bot
       // has always answered this way; the REST surface now says the same thing.
       if (task.status === 'running') {
-        json(res, { error: 'task is already running -- the CLI cannot be stopped remotely', task }, 409)
+        json(res, { error: 'task is already running -- the CLI cannot be stopped remotely', errorKey: 'cb.err.task_already_running', task }, 409)
         return true
       }
       const updated = cancelCodeTask(task.id)

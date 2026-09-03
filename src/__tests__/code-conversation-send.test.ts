@@ -366,8 +366,11 @@ describe('★ a bekotes forras-szintu garanciai', () => {
 
   it('a kuldes hibajanal a TENYLEGES uzenet megy ki, nem tippelt ok', () => {
     const fn = extractFn(app, 'convSendSubmit')
-    // Szerver-hiba: a szerver SAJAT mondata, kulonben a HTTP-kod.
-    expect(fn).toContain("(d && d.error) || ('HTTP ' + r.status)")
+    // Szerver-hiba: a szerver SAJAT valasza. A `cbErrText` a szerver
+    // i18n-KULCSAT (`errorKey`) forditja a felulet nyelvere, ha van; kulonben a
+    // nyers `error`; vegso soron a HTTP-kod. Igy a komuves nem gepi angol kodot
+    // lat (Boss: "a user egy komuves"), de tippelt okot tovabbra sem irunk oda.
+    expect(fn).toContain('cbErrText(d, r)')
     // Kivetel: a kivetel sajat uzenete. Sehol nem allitunk okot magunktol.
     expect(fn).toContain("(err && err.message) || String(err)")
     expect(fn).not.toMatch(/valoszinuleg|altalaban|szokott/i)

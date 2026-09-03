@@ -81,9 +81,11 @@ describe('bezaras: a feluletrol le lehet allitani egy beszelgetest', () => {
 
   it('a vegpont csak akkor fogadja el, ha van mit leallitani', () => {
     expect(code).toContain("path.endsWith('/close')")
-    // A hianyzo PID nem "nincs mit bezarni", hanem "nem latok oda".
-    expect(code).toContain("json(res, { error: 'no-pid' }, 409)")
-    expect(code).toContain("json(res, { error: 'worker-offline' }, 409)")
+    // A hianyzo PID nem "nincs mit bezarni", hanem "nem latok oda". A nyers
+    // `error` kod megmarad (worker/back-compat), de MELLETTE i18n-kulcs is megy,
+    // hogy a komuves ne gepi angol kodot lasson (Boss: "a user egy komuves").
+    expect(code).toContain("error: 'no-pid', errorKey: 'cb.err.tab_no_pid' }, 409)")
+    expect(code).toContain("error: 'worker-offline', errorKey: 'cb.err.worker_offline' }, 409)")
     // A worker a jelentes VALASZABAN kapja meg a kereseket.
     expect(code).toContain('closeSessions: takeCodeTabCloseRequests()')
   })
