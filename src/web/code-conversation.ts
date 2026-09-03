@@ -36,6 +36,17 @@ export interface CodeConvEntry {
   text: string
   /** Emberi cimke a muveletekhez (`Bash`, `Read: file.ts`); mashol `null`. */
   label: string | null
+  /**
+   * ITT UJ AG KEZDODIK: ez a beiras nem a folotte allo valaszra epul, hanem egy
+   * KORABBI pontra -- a beszelgetes ketteagazott.
+   *
+   * Enelkul a nezet hazudik: a napló fajlsorrendben olvasva ket parhuzamos agat
+   * egyetlen folyamatos beszelgetesnek mutat. Merve (2026-09-03, a
+   * 277f9773 napló): a Marveenbol kuldott utasitas es a VS Code panelbe irt
+   * uzenet UGYANARRA a szulore (`9431bd96`) epult, egy ora kulonbseggel --
+   * a ket ag nem latja egymast, es eddig semmi nem szolt errol.
+   */
+  branchStart?: true
 }
 
 export interface CodeConvResult {
@@ -45,8 +56,11 @@ export interface CodeConvResult {
   offset: number
   /** Van-e meg regebbi bejegyzes a betoltott ablak elott. */
   hasOlder: boolean
-  /** A napló utja azon a gepen, ahol a Claude Code fut (a felulet mutatja). */
+  /** A napló utja azon a gepen, ahol a Claude Code fut.
+   *  (A dashboard NEM irja ki: az ugynok-API es a hibakereses hasznalja.) */
   transcriptPath: string | null
+  /** Hany helyen agazik ketté a beszelgetes a betoltott ablakban. `0` = egy szal. */
+  branchCount: number
   /** Mikor irt utoljara a beszelgetes (ms). `null` = nem tudtuk megnezni. */
   mtime: number | null
   /** MIERT nincs tartalom. `null` = van. Sosem tipp: vagy a mi mondatunk arrol,
@@ -148,31 +162,74 @@ function isMachineNoise(text: string): boolean {
 }
 
 /** A napló egy sorabol legfeljebb egy-ket idovonal-bejegyzes. */
-function parseLine(line: string, out: CodeConvEntry[]): void {
+/**
+ * HOL AGAZIK KETTE A BESZELGETES.
+ *
+ * A napló nem lista, hanem FA: minden rekord megmondja, melyikre epul
+ * (`parentUuid`). Ha ket kulon BEIRAS epul ugyanarra a szulore, az ket
+ * parhuzamos ag -- a ket oldal nem latja egymast.
+ *
+ * MIERT CSAK A BEIRASOK SZAMITANAK. Merve a 277f9773 naplón: 32 helyen volt
+ * kozos szulo, de 31 ezek kozul `assistant` + `user` testverpar 0-3 masodpercen
+ * belul -- ez MINDEN szerszamhivas normalis szerkezete. Ha azokat is jelolnenk,
+ * a nezet tele lenne hamis "elagazas" csikkal, es a nezo leszokna roluk.
+ * Egyetlen egy volt valodi: ket `user` beiras ugyanarrol a szulorol, egy ora
+ * kulonbseggel. Ezert a szabaly a TIPUSRA epul, nem idokulonbsegre: az
+ * idohatar onkenyes lenne, a "ket ember ket beirasa" nem az.
+ *
+ * A masodik es tovabbi beiras kap jelolest -- az ELSO a maga idejeben szabalyos
+ * folytatas volt, nem az tert el.
+ *
+ * @param turns a BEGEPELT fordulók lanc-adatai, a napló sorrendjeben
+ * @returns azoknak a beirasoknak az azonositoi, ahol uj ag kezdodik
+ */
+export function findConversationBranchStarts(
+  turns: ReadonlyArray<{ uuid: string; parentUuid: string | null }>,
+): Set<string> {
+  const seenParent = new Set<string>()
+  const starts = new Set<string>()
+  for (const turn of turns) {
+    // Gyokér-beiras (nincs szuloje): ez a beszelgetes/kompakt-szakasz eleje,
+    // nem elagazas. Ket kulon gyokér nem egymas agai.
+    if (!turn.parentUuid || !turn.uuid) continue
+    if (seenParent.has(turn.parentUuid)) starts.add(turn.uuid)
+    else seenParent.add(turn.parentUuid)
+  }
+  return starts
+}
+
+/** A napló-rekord lanc-adatai -- csak a begepelt fordulóknal kell. */
+interface ChainInfo { uuid: string; parentUuid: string | null }
+
+function parseLine(line: string, out: CodeConvEntry[]): ChainInfo | null {
   let d: Record<string, unknown>
   try {
     d = JSON.parse(line) as Record<string, unknown>
   } catch {
-    return
+    return null
   }
   const type = d['type']
   const ts = typeof d['timestamp'] === 'string' ? (d['timestamp'] as string) : null
   const msg = d['message'] as Record<string, unknown> | undefined
-  if (!msg) return
+  if (!msg) return null
 
   if (type === 'user') {
     // A `isMeta`/`isCompactSummary` sorok nem beirasok, hanem a Claude Code
     // sajat konyvelese.
-    if (d['isMeta'] === true || d['isCompactSummary'] === true) return
+    if (d['isMeta'] === true || d['isCompactSummary'] === true) return null
     const text = userText(msg['content'])
-    if (text === null || isMachineNoise(text)) return
+    if (text === null || isMachineNoise(text)) return null
     out.push({ ts, kind: 'user', text: clip(text), label: null })
-    return
+    // A lanc-adat CSAK innen mehet tovabb: ekkorra mar kiestek a szerszam-
+    // valaszok es a gepi sorok, tehat ami marad, az valoban BEGEPELT forduló.
+    const uuid = typeof d['uuid'] === 'string' ? (d['uuid'] as string) : ''
+    const parentUuid = typeof d['parentUuid'] === 'string' ? (d['parentUuid'] as string) : null
+    return uuid ? { uuid, parentUuid } : null
   }
 
   if (type === 'assistant') {
     const content = msg['content']
-    if (!Array.isArray(content)) return
+    if (!Array.isArray(content)) return null
     for (const block of content as Array<Record<string, unknown>>) {
       const bt = block['type']
       if (bt === 'text') {
@@ -185,6 +242,8 @@ function parseLine(line: string, out: CodeConvEntry[]): void {
       }
     }
   }
+  // Csak a begepelt fordulóknak van lanc-adata: az elagazast azok mutatjak meg.
+  return null
 }
 
 /** A napló ELERHETOSEGE -- a tartalma NELKUL. */
@@ -273,6 +332,7 @@ export function readCodeConversation(
     reason: string | null, path: string | null = null, mtime: number | null = null,
   ): CodeConvResult => ({
     entries: [], total: 0, offset: 0, hasOlder: false, transcriptPath: path, mtime, reason,
+    branchCount: 0,
   })
 
   const st = statTranscript(transcriptPath, sessionId)
@@ -287,16 +347,28 @@ export function readCodeConversation(
   }
 
   const all: CodeConvEntry[] = []
+  // A begepelt fordulók lanc-adatai + az a hely, ahova a bejegyzesuk kerult.
+  // Egy `user` rekord PONTOSAN egy bejegyzest ad, ezert az index stabil.
+  const turns: Array<{ uuid: string; parentUuid: string | null; at: number }> = []
   for (const line of raw.split('\n')) {
     const t = line.trim()
-    if (t) parseLine(t, all)
+    if (!t) continue
+    const at = all.length
+    const chain = parseLine(t, all)
+    if (chain) turns.push({ ...chain, at })
+  }
+  const starts = findConversationBranchStarts(turns)
+  for (const turn of turns) {
+    if (starts.has(turn.uuid)) all[turn.at]!.branchStart = true
   }
 
   const total = all.length
   const end = Math.max(0, total - opts.offset)
   const start = Math.max(0, end - opts.limit)
+  const window = all.slice(start, end)
   return {
-    entries: all.slice(start, end),
+    entries: window,
+    branchCount: window.filter((e) => e.branchStart === true).length,
     total,
     offset: opts.offset,
     hasOlder: start > 0,

@@ -2658,6 +2658,10 @@ window._i18n.en = {
   // VS Code conversation: the prompt is YOURS, the answer is Claude's. Same
   // window as for agents -- but there the traffic is Telegram, here there is none.
   'conversation.you':			'You',
+  // BRANCH. The log is a tree: when two prompts build on the same reply, two
+  // parallel branches run and neither can see the other. The sentence states
+  // only what was measured (what the message builds on) -- it never guesses why.
+  'conversation.branch.here':	'A new branch starts here: this message does not build on the reply above it, but on an earlier point. The two branches cannot see each other.',
   // WHY it is empty. Each one names a different cause and the NEXT STEP -- an
   // empty window on its own cannot tell "nothing in it yet" from "I cannot see there".
   'conversation.empty_no_path':	'I cannot see into this conversation: the Windows worker does not send the transcript path (older build). Update the worker script from the code bridge window and it opens after its next report.',

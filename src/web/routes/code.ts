@@ -605,6 +605,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       json(res, {
         sessionId, entries: [], total: 0, offset: 0, hasOlder: false,
         title: null, live: null, transcriptPath: null, mtime: null, meta: metaOnly,
+        // A `branchCount` a hibas uton is KIMEGY, nem marad hianyzo mezo: a
+        // felulet a hianyzot ugyanugy "nulla elagazas"-nak olvasna, mint a
+        // valodi nullat -- pedig itt nem tudunk rola, nem azt tudjuk, hogy nincs.
+        branchCount: 0,
         // A kuldo sor ebbol tudja, hogy nincs hova kuldeni. A `null` itt nem
         // "nincs bekotve", hanem "ilyen fulrol nem tudunk" -- a ket mondat mas.
         project: null, workerOnline: null,

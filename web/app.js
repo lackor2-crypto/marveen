@@ -30801,11 +30801,18 @@ function renderConversation(opts = {}) {
 function renderConvEntry(e) {
   const ts = fmtConvTs(e.ts)
   const txt = escapeHtml(e.text || '').replace(/\n/g, '<br>')
+  // ITT KETTEAGAZOTT A BESZELGETES. A napló fa, nem lista: ha ket beiras
+  // ugyanarra a valaszra epul, az ket PARHUZAMOS ag, es a ket oldal nem latja
+  // egymast. Enelkul a csik nelkul a nezet folyamatos beszelgetest mutatna --
+  // az olvaso pedig joggal hinne, hogy a Claude a fenti sorokat is ismerte.
+  const branch = e.branchStart
+    ? `<div class="conv-row conv-branch"><div class="conv-branch-text">⑂ ${escapeHtml(t('conversation.branch.here'))}</div></div>`
+    : ''
   // VS Code chat: amit TE irtal be, es amit a Claude valaszolt. Ugyanazokat a
   // buborekokat hasznaljuk, mint a Telegram-forgalomnal (bal/jobb oldal), csak
   // a fejlec-cimke mas -- itt nincs Telegram.
   if (e.kind === 'user') {
-    return `<div class="conv-row conv-in"><div class="conv-bubble"><div class="conv-meta">${escapeHtml(t('conversation.you'))} · ${ts}</div><div class="conv-text">${txt}</div></div></div>`
+    return `${branch}<div class="conv-row conv-in"><div class="conv-bubble"><div class="conv-meta">${escapeHtml(t('conversation.you'))} · ${ts}</div><div class="conv-text">${txt}</div></div></div>`
   }
   if (e.kind === 'assistant') {
     return `<div class="conv-row conv-out"><div class="conv-bubble"><div class="conv-meta">Claude · ${ts}</div><div class="conv-text">${txt}</div></div></div>`

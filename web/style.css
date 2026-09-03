@@ -8628,6 +8628,21 @@ a.link-waiting {
 .conv-text { white-space: normal; word-break: break-word; }
 .conv-row.conv-note { justify-content: center; }
 .conv-note-text { font-size: 12px; opacity: .55; font-style: italic; max-width: 88%; }
+/* ELAGAZAS-CSIK. Nem buborek: a beszelgetes KETTEVALASAT jeloli, ezert
+   vegigmegy a szelessegen, es nem lehet osszekeverni egy uzenettel. Halkabb,
+   mint egy figyelmeztetes (nem hiba tortent), de eleg lathato ahhoz, hogy a
+   folytatolagosnak latszo ket ag ne mosodjon ossze. */
+.conv-row.conv-branch { justify-content: center; margin: 10px 0 2px; }
+.conv-branch-text {
+  font-size: 11.5px;
+  line-height: 1.45;
+  max-width: 92%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--border, rgba(128, 128, 128, .45));
+  opacity: .8;
+  text-align: center;
+}
 .conv-row.conv-action { justify-content: flex-start; }
 .conv-action-text { font-size: 11.5px; opacity: .5; font-family: 'JetBrains Mono', monospace; display: flex; gap: 8px; align-items: baseline; }
 .conv-action-ts { opacity: .6; font-size: 10px; }

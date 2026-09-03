@@ -1713,6 +1713,10 @@ window._i18n.hu = {
   // VS Code beszélgetés: a beírás a TIED, a válasz a Claude-é. Ugyanaz az ablak,
   // mint az ügynököknél — de ott Telegram-forgalom van, itt nincs.
   'conversation.you':            'Te',
+  // ELÁGAZÁS. A napló fa: ha két beírás ugyanarra a válaszra épül, két
+  // párhuzamos ág fut, és egyik sem látja a másikat. A mondat CSAK azt állítja,
+  // amit mértünk (mire épül az üzenet) — az okát nem találgatja.
+  'conversation.branch.here':    'Innentől új ág: ez az üzenet nem a fölötte lévő válaszra épül, hanem egy korábbi pontra. A két ág nem látja egymást.',
   // MIÉRT üres. Mindegyik MÁS okot mond, és mindegyik a KÖVETKEZŐ LÉPÉST — az
   // üres ablak önmagában nem mondja meg, hogy „még nincs benne semmi” vagy
   // „nem látok oda”.
