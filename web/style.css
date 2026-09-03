@@ -8582,6 +8582,15 @@ a.link-waiting {
 .conv-send-note { font-size: 12px; color: var(--text-muted, #888); flex: 1; min-width: 140px; }
 /* Amiert NEM lehet elkuldeni, az nem halk mellekmondat: azt latni kell. */
 .conv-send-note-warn { color: var(--warning, #d29922); }
+/* ELAGAZAS-FIGYELMEZTETES a mezo folott. Nem hiba (a kuldes mehet), ezert nem
+   piros -- de nem is halk szurke: azt mondja el, ami a kuldes UTAN mar nem
+   valtoztathato meg. Ugyanaz a szaggatott keret, mint a `⑂` elvalasztonal, hogy
+   a ketto osszetartozzon. */
+.conv-send-branch {
+  font-size: 12px; line-height: 1.45; padding: 6px 10px; border-radius: 6px;
+  border: 1px dashed var(--warning, #d29922); color: var(--warning, #d29922);
+  opacity: .95;
+}
 /* Ha a kuldo sor lathato, a lista alja mar nem a modal alja -- a lekerekites
    oda vandorol. Tisztan kozmetika: `:has()` nelkul is csak egy hajszalnyi
    sarok latszik ki, semmi nem torik el. */
@@ -8599,6 +8608,7 @@ a.link-waiting {
   /* Telefonon a kuldo sor szukebb, de MARAD -- ez a funkcio ott is kell. */
   .conv-send { padding: 8px 10px; gap: 6px; }
   .conv-send-note { font-size: 11.5px; min-width: 100%; }
+  .conv-send-branch { font-size: 11.5px; padding: 5px 8px; }
 }
 .conversation-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border, #2a2a2a); flex-wrap: wrap; }
 .conversation-toolbar #conversationSearch { flex: 1; min-width: 160px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input, #1c1c1c); color: inherit; }

@@ -5277,6 +5277,11 @@
            Alapbol REJTVE all: ugynok-naplora nem lehet irni, es amig nem
            tudjuk, hova mennne, addig nem kinalunk beviteli mezot. -->
       <div id="conversationSend" class="conv-send" hidden>
+        <!-- ELAGAZAS-FIGYELMEZTETES. Akkor jon elo, ha FUT egy folyamat ezen a
+             beszelgetesen: amit ilyenkor innen kuldesz, kulon agra kerul, es a
+             futo oldal nem fogja latni. A mezo FOLOTT all, hogy a beiras ELOTT
+             lassa. A szoveget az app.js irja (renderConvSend). -->
+        <div id="conversationSendBranch" class="conv-send-branch" hidden></div>
         <!-- A HELYORZO NEM NEV: ha a felhasznalo ir bele, eltunik, es a
              kepolvaso onnantol egy nevtelen mezot mond be. Ezert kap sajat,
              leforditott nevet is. -->

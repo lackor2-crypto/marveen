@@ -211,15 +211,18 @@ const css = readFileSync(join(ROOT, 'web', 'style.css'), 'utf-8')
 // eslint-disable-next-line @typescript-eslint/no-implied-eval
 const api = new Function(`
   ${extractFn(app, 'convSendState')}
+  ${extractFn(app, 'convSendBranchWarn')}
   ${extractFn(app, 'convSendOutcome')}
   ${extractFn(app, 'convDraftSave')}
   ${extractFn(app, 'convDraftLoad')}
   return {
-    convSendState: convSendState, convSendOutcome: convSendOutcome,
+    convSendState: convSendState, convSendBranchWarn: convSendBranchWarn,
+    convSendOutcome: convSendOutcome,
     convDraftSave: convDraftSave, convDraftLoad: convDraftLoad,
   }
 `)() as {
   convSendState: (info: unknown) => { show: boolean; can: boolean; note: string | null }
+  convSendBranchWarn: (info: unknown) => boolean
   convSendOutcome: (
     sentSession: unknown, nowSession: unknown, sameWindow: boolean,
     taValue: string, sentText: string, ok: boolean,
@@ -499,5 +502,79 @@ describe('piszkozat: beszelgetesenkent, es csak oda kerul vissza', () => {
     // A visszateves a `convFollowReset()` UTAN all -- kulonben a reset
     // ugyanabban a menetben ujra kiuritene a mezot.
     expect(fn.indexOf('convFollowReset()')).toBeLessThan(fn.indexOf('convDraftLoad('))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ELORE SZOLUNK, HOGY EZ KULON AGRA KERUL
+//
+// Boss, 2026-09-03: "irtam hello t de itt nem latom csak a marveenban."
+// Merve ugyanazon a naplón: a Marveenbol kuldott "hello" (01:30:04) es a
+// panelbol irt uzenet (01:32:04) UGYANARRA a szulore (`4f335e78`) epult -- ket
+// ag lett, es egyik sem latja a masikat. A `⑂` elvalaszto UTOLAG mondja el,
+// hogy ez megtortent; ez a mondat ELORE, a beviteli mezo folott.
+// ---------------------------------------------------------------------------
+describe('convSendBranchWarn: elore szolunk-e az elagazasrol', () => {
+  const ok = { kind: 'code', reason: null, project: 'tozsde', workerOnline: true }
+
+  it('★ FUT egy folyamat -> szolunk', () => {
+    expect(api.convSendBranchWarn({ ...ok, live: true })).toBe(true)
+  })
+
+  it('nem fut folyamat -> nincs mirol szolni (nem lesz elagazas)', () => {
+    expect(api.convSendBranchWarn({ ...ok, live: false })).toBe(false)
+  })
+
+  it('★ A NULLA KET DOLGOT JELENTHET: `live: null` = nem latunk oda -> HALLGATUNK', () => {
+    // Regi munkas vagy hianyzo `sessions` mappa. A "nem tudom" nem lehet
+    // "nincs futo folyamat" -- de riasztani sem szabad olyanrol, amit nem
+    // mertunk.
+    expect(api.convSendBranchWarn({ ...ok, live: null })).toBe(false)
+    expect(api.convSendBranchWarn({ ...ok })).toBe(false)
+  })
+
+  it('★ ha kuldeni UGYSEM lehet, a mondat csak zaj', () => {
+    // Ilyenkor a kovetkezo lepes nem ez, hanem amit a `convSendState` mond.
+    expect(api.convSendBranchWarn({ ...ok, project: null, live: true })).toBe(false)
+    expect(api.convSendBranchWarn({ ...ok, reason: 'no-session', project: null, live: true })).toBe(false)
+  })
+
+  it('ugynok-naplo -> a doboz el sem jon, tehat itt sincs mondat', () => {
+    expect(api.convSendBranchWarn({ ...ok, kind: 'agent', live: true })).toBe(false)
+  })
+
+  it('hianyzo bemenet nem dob kivetelt', () => {
+    expect(api.convSendBranchWarn(null)).toBe(false)
+    expect(api.convSendBranchWarn(undefined)).toBe(false)
+    expect(api.convSendBranchWarn({})).toBe(false)
+  })
+
+  it('★ a `live` TENYLEG atjon a szerver valaszabol (kulonben a mondat sosem sulne el)', () => {
+    const fn = extractFn(app, 'convSendInfoFrom')
+    expect(fn).toContain('live:')
+    // Ugyanaz az elv, mint a `workerOnline`-nal: a hianyzo mezo `null` marad.
+    expect(fn).toContain("typeof d.live === 'boolean'")
+  })
+
+  it('★ a mondat a BEVITELI MEZO FOLOTT all -- a beiras elott, nem utana', () => {
+    expect(html).toContain('id="conversationSendBranch"')
+    expect(html.indexOf('id="conversationSendBranch"'))
+      .toBeLessThan(html.indexOf('id="conversationSendPrompt"'))
+  })
+
+  it('★ mindket nyelven megvan, es van sajat stilusa', () => {
+    for (const key of ['conversation.send.branch_warn', 'conversation.send.branch_warn_help']) {
+      expect(hu).toContain(key)
+      expect(en).toContain(key)
+    }
+    expect(css).toContain('.conv-send-branch')
+  })
+
+  it('★ a "nem rajzolja ujra magatol" allitas eltunt -- MERTUK, hogy nem az volt', () => {
+    // A regi sugo azt allitotta, a VS Code panel "nem feltetlenul rajzolja ujra
+    // magatol". A meres mast mutatott: nem rajzolasi kerdes, hanem ELAGAZAS --
+    // a futo oldal SOSEM szerez tudomast a kozben beirt fordulórol.
+    expect(hu).not.toContain('nem feltétlenül rajzolja újra magától')
+    expect(en).not.toContain('may not redraw by itself')
   })
 })

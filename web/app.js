@@ -30371,6 +30371,34 @@ function convSendState(info) {
   return { show: true, can: true, note: 'conversation.send.ready' }
 }
 
+/**
+ * SZOLUNK-E ELORE, HOGY EZ KULON AGRA KERUL. (tiszta fuggveny)
+ *
+ * Boss, 2026-09-03: "irtam hello t de itt nem latom csak a marveenban."
+ * Merve ugyanazon a naplón: a Marveenbol kuldott "hello" es a panelbol irt
+ * uzenet UGYANARRA a szulore epult -- ket ag lett, es egyik sem latja a
+ * masikat. A `⑂` jel UTOLAG mondja el, hogy ez megtortent; ez a mondat ELORE.
+ *
+ * ★ AMIT MERUNK, AZT MONDJUK. A `live` NEM azt jelenti, hogy "nyitva van a
+ * VS Code-ban" -- azt a fogalmat a repó 2026-08-30-an szandekosan kivette,
+ * mert merhetetlen. A `live === true` annyit jelent: FUT egy folyamat ezen a
+ * beszelgetesen (`~/.claude/sessions/<pid>.json` + a folyamat letezese). Pont
+ * ez a fork kockazata: a futo oldal a SAJAT memoriajabol dolgozik, es a
+ * kozben beirt fordulórol nem szerez tudomast.
+ *
+ * ★ A NULLA KET DOLGOT JELENTHET: `live === null` = NEM LATUNK ODA (regi
+ * munkas, vagy nincs `sessions` mappa). Olyankor HALLGATUNK -- a "nem tudom"
+ * nem lehet "nincs futo folyamat".
+ *
+ * Ha kuldeni ugysem lehet, a mondat csak zaj: a kovetkezo lepes ilyenkor nem
+ * ez, hanem amit a `convSendState` mond.
+ */
+function convSendBranchWarn(info) {
+  const st = convSendState(info)
+  if (!st.show || !st.can) return false
+  return (info || {}).live === true
+}
+
 // --- a kovetes allapota -------------------------------------------------
 let convFollowTimer = null
 /** Az utoljara BETOLTOTT tartalom napló-ideje; ehhez merjuk a valtozast. */
@@ -30598,6 +30626,9 @@ function convSendInfoFrom(d) {
     reason: (d && d.reason) || null,
     project: (d && typeof d.project === 'string' && d.project) ? d.project : null,
     workerOnline: (d && typeof d.workerOnline === 'boolean') ? d.workerOnline : null,
+    // FUT-E MOST folyamat ezen a beszelgetesen. Ugyanaz az elv, mint fent: a
+    // hianyzo mezo `null` marad (= nem latunk oda), nem csuszik at `false`-ba.
+    live: (d && typeof d.live === 'boolean') ? d.live : null,
   }
 }
 
@@ -30612,6 +30643,17 @@ function renderConvSend() {
   const ta = document.getElementById('conversationSendPrompt')
   if (btn) btn.disabled = !st.can || convSendBusy
   if (ta) ta.disabled = !st.can
+  // ELORE SZOLUNK az elagazasrol -- a beviteli mezo FOLOTT, tehat mielott
+  // beleir, nem utana. A mondat allapot, nem hibauzenet: a kuldest nem tiltja.
+  const branch = document.getElementById('conversationSendBranch')
+  if (branch) {
+    const warn = convSendBranchWarn(conversationSendInfo)
+    branch.hidden = !warn
+    if (warn) {
+      branch.textContent = '⑂ ' + t('conversation.send.branch_warn')
+      branch.title = t('conversation.send.branch_warn_help')
+    }
+  }
   const note = document.getElementById('conversationSendNote')
   if (!note) return
   if (convSendMsg) {
