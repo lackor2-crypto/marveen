@@ -28,6 +28,16 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
 2. **Olvasd el a tényleges kódot**, ne csak a commit-üzenetet: `Read`/`grep`
    a releváns fájlokra, és vesd össze a commit állítását a kóddal (pl. "a
    `<details>` `open` nélkül van" -- nézd meg tényleg nincs-e `open`).
+2b. **Olvasd el a kártya TELJES komment-történetét, ne csak a legutolsót.**
+   Egy korábbi komment gyakran explicit "AMI NYITVA MARAD" / "nem javítottam"
+   listát hagy hátra egy adott, konkrét hibáról -- ha a LEGUTOLSÓ (a kérést
+   kiváltó) komment ezt nem említi, az NEM jelenti, hogy megoldódott. Nézd meg
+   FRISSEN a kódban, hogy a korábban jelzett nyitott hiba tényleg javítva
+   van-e. Valós eset (2026-09-02): egy korábbi komment explicit jelezte, hogy
+   a szerver hibaválaszai gépi angol kódot adnak vissza `message` mező
+   nélkül (sérti a fresh-install-usable/user-is-not-a-programmer szabályt) --
+   a kártyát `waiting`-be mozgató belső ellenőrzés ezt nem említette, de a
+   friss `grep` igazolta: a hiba MÉG MINDIG ott volt.
 3. **Csak-olvasó teszt-futtatás izolált worktree-ben.** A cél NEM az élő
    rendszer módosítása. Ha van már a jóváhagyás commitjához tartozó worktree
    (`git worktree list`), használd azt; ha nincs, hozz létre egyet, DE ne
