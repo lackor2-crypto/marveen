@@ -664,11 +664,30 @@ async function checkAgent(name: string, nowMs: number): Promise<void> {
 
 const sweepTimers = new Map<string, NodeJS.Timeout>()
 
+// Publish that the gate is off for this agent, instead of leaving whatever
+// status row the last enabled sweep wrote. Without this, a status.json entry
+// from days ago (enabled:true, action:block) is indistinguishable from a live
+// decision made five minutes ago -- the exact "frozen row reads as a working
+// gate" defect this file exists to prevent (see the writeGateStatus call
+// below for the fuller history). Kanban 2f7b6d4f, usalackor 2026-08-23.
+function publishDisabledStatus(name: string, cfg: { thresholdTokens: number }): void {
+  writeGateStatus(name, {
+    ts: Date.now(),
+    action: 'disabled',
+    reason: 'gate disabled for this agent',
+    contextTokens: null,
+    thresholdTokens: cfg.thresholdTokens,
+    enabled: false,
+    aboveThreshold: false,
+  })
+}
+
 function scheduleSweep(name: string, delayMs: number): void {
   sweepTimers.set(name, setTimeout(async () => {
     const cfg = readGateConfig(name)
     if (!cfg.enabled) {
       sweepTimers.delete(name)
+      publishDisabledStatus(name, cfg)
       return
     }
     try { await checkAgent(name, Date.now()) }
@@ -705,4 +724,21 @@ export function startContextRestartGateRunner(): void {
     }
     offset += 2_000  // 2s stagger per agent
   }
+}
+
+// Re-arm the sweep loop for one agent after its config changes at runtime.
+//
+// scheduleSweep's disabled branch deletes the agent's timer and stops
+// rescheduling itself (see above) -- so once an agent's gate has been off for
+// one tick, nothing brings the loop back when the UI flips it back on. The
+// settings.ts POST handler that writes the new config calls this right after,
+// so toggling the switch takes effect immediately instead of waiting for the
+// next dashboard restart. Idempotent: if a timer is already pending for this
+// agent (either an active enabled loop, or a disabled one-shot that has not
+// fired yet), do nothing -- a second timer would just race the first.
+// Kanban 2f7b6d4f, usalackor 2026-08-23 ("bekapcsolaskor hivjon egy
+// exportalt ensureSweepScheduled(agent)-et").
+export function ensureSweepScheduled(name: string): void {
+  if (sweepTimers.has(name)) return
+  scheduleSweep(name, INITIAL_DELAY_MS)
 }

@@ -11,6 +11,7 @@ import type { PendingSessionScope } from '../../settings-restart-pending.js'
 import { logConfigChange, getLastConfigChangeAt, getConfigValueAt } from '../../db.js'
 import { setStoreWriteActor } from '../../store-watcher.js'
 import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.js'
+import { ensureSweepScheduled } from '../context-restart-gate-runner.js'
 import { BROKER_ROLE_IDS, assignRole, type BrokerRoleId } from '../../context-broker.js'
 import { getCodeSession } from '../code-bridge-store.js'
 import {
@@ -411,6 +412,11 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
         enabled: body?.enabled,
         thresholdTokens: body?.thresholdTokens,
       })
+      // Without this, flipping the switch on saved the new config but left the
+      // sweep loop dead until the next dashboard restart -- scheduleSweep stops
+      // rescheduling itself the moment it sees a disabled config, and nothing
+      // else ever restarts it. Kanban 2f7b6d4f, usalackor 2026-08-23.
+      ensureSweepScheduled(agent)
       logger.info({ agent, saved }, 'Context-restart gate config updated')
       json(res, { ok: true, agent, config: saved })
     } catch (err) {
