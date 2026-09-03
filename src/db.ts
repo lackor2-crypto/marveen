@@ -845,7 +845,7 @@ export function initDatabase(dbPathOverride?: string): void {
       action_description TEXT NOT NULL,
       action_payload TEXT,
       status TEXT NOT NULL DEFAULT 'pending'
-        CHECK(status IN ('pending','approved','rejected','timeout')),
+        CHECK(status IN ('pending','approved','rejected','timeout','withdrawn')),
       timeout_at INTEGER,
       telegram_message_id INTEGER,
       requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -965,6 +965,58 @@ export function initDatabase(dbPathOverride?: string): void {
     }
   } catch (err) {
     logger.warn({ err }, 'approval_verifications schema migration failed -- continuing')
+  }
+
+  // Migration (Boss 2026-09-03): a pending kanban_done approval used to be
+  // resolved with status 'timeout' when its card LEFT the waiting column, even
+  // though nothing timed out (timeout_at was null) -- it was WITHDRAWN by the
+  // move. Boss saw an approval read "Lejárt" and vanish from the queue and
+  // rightly called it a bug: a withdrawal must not look like a spontaneous
+  // expiry. 'withdrawn' is now a real terminal status. Table rebuild because
+  // the status CHECK constraint is part of the schema; idempotent (guarded on
+  // the constraint text). The column list is read from the live table so a
+  // pre-resolution_reason database copies correctly too.
+  try {
+    const apSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'").get() as { sql: string } | undefined
+    if (apSchema?.sql && !apSchema.sql.includes("'withdrawn'")) {
+      const have = new Set(
+        (db.prepare('PRAGMA table_info(approvals)').all() as { name: string }[]).map(c => c.name),
+      )
+      const carry: Array<[string, string]> = [
+        ['id', 'id'], ['agent_id', 'agent_id'], ['category', 'category'],
+        ['action_description', 'action_description'], ['action_payload', 'action_payload'],
+        ['status', 'status'], ['timeout_at', 'timeout_at'],
+        ['telegram_message_id', 'telegram_message_id'], ['requested_at', 'requested_at'],
+        ['resolved_at', 'resolved_at'], ['resolved_by', 'resolved_by'],
+        ['resolution_reason', 'NULL'],
+      ]
+      const cols = carry.map(([name]) => name).join(', ')
+      const src = carry.map(([name, fallback]) => (have.has(name) ? name : fallback)).join(', ')
+      db.exec(`
+        CREATE TABLE approvals_new (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT NOT NULL,
+          category TEXT NOT NULL,
+          action_description TEXT NOT NULL,
+          action_payload TEXT,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK(status IN ('pending','approved','rejected','timeout','withdrawn')),
+          timeout_at INTEGER,
+          telegram_message_id INTEGER,
+          requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          resolved_at INTEGER,
+          resolved_by TEXT,
+          resolution_reason TEXT
+        );
+        INSERT INTO approvals_new (${cols}) SELECT ${src} FROM approvals;
+        DROP TABLE approvals;
+        ALTER TABLE approvals_new RENAME TO approvals;
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, requested_at)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_approvals_agent ON approvals(agent_id, requested_at)`)
+    }
+  } catch (err) {
+    logger.warn({ err }, 'approvals schema migration (withdrawn status) failed -- continuing')
   }
   // Older DBs that already had 'noresponse' but not the column (never shipped,
   // but cheap to be safe about).
@@ -3405,7 +3457,7 @@ export interface Approval {
   category: string
   action_description: string
   action_payload: string | null
-  status: 'pending' | 'approved' | 'rejected' | 'timeout'
+  status: 'pending' | 'approved' | 'rejected' | 'timeout' | 'withdrawn'
   timeout_at: number | null
   telegram_message_id: number | null
   requested_at: number
@@ -3485,7 +3537,7 @@ export function updateApprovalDescription(id: string, actionDescription: string,
   `).run(actionDescription, actionPayload ?? null, id).changes > 0
 }
 
-export function resolveApproval(id: string, status: 'approved' | 'rejected' | 'timeout', resolvedBy: string, telegramMessageId?: number | null, resolutionReason?: string | null): boolean {
+export function resolveApproval(id: string, status: 'approved' | 'rejected' | 'timeout' | 'withdrawn', resolvedBy: string, telegramMessageId?: number | null, resolutionReason?: string | null): boolean {
   const now = Math.floor(Date.now() / 1000)
   return db.prepare(`
     UPDATE approvals

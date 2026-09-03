@@ -22474,14 +22474,21 @@ async function loadApprovalsPage() {
 }
 
 function _renderApprovalsStats() {
-  const counts = { pending: 0, approved: 0, rejected: 0, timeout: 0 }
+  const counts = { pending: 0, approved: 0, rejected: 0, timeout: 0, withdrawn: 0 }
   for (const a of _approvalsAll) counts[a.status] = (counts[a.status] || 0) + 1
   const statsEl = document.getElementById('approvalsStats')
+  // A 'withdrawn' (visszavonva) kartya csak akkor jelenik meg, ha van ilyen --
+  // egy friss telepitesen (nulla visszavont) ne foglaljon helyet feleslegesen,
+  // de amint van, ne tunjon el a szambol (korabban 'timeout' ala esett).
+  const withdrawnCard = counts.withdrawn > 0
+    ? `<div class="stat-card"><div class="stat-value" style="color:var(--text-muted)">${counts.withdrawn}</div><div class="stat-label">${t('approvals.stat.withdrawn')}</div></div>`
+    : ''
   statsEl.innerHTML = `
     <div class="stat-card"><div class="stat-value" style="color:var(--warning)">${counts.pending}</div><div class="stat-label">${t('approvals.stat.pending')}</div></div>
     <div class="stat-card"><div class="stat-value" style="color:var(--success)">${counts.approved}</div><div class="stat-label">${t('approvals.stat.approved')}</div></div>
     <div class="stat-card"><div class="stat-value" style="color:var(--danger)">${counts.rejected}</div><div class="stat-label">${t('approvals.stat.rejected')}</div></div>
     <div class="stat-card"><div class="stat-value" style="color:var(--text-muted)">${counts.timeout}</div><div class="stat-label">${t('approvals.stat.timeout')}</div></div>
+    ${withdrawnCard}
   `
 
   // Sidebar badge: show pending count, hidden when zero
@@ -23047,7 +23054,7 @@ async function _openKanbanCardFromApproval(cardId) {
 }
 
 function _approvalBadge(status) {
-  const colors = { pending: 'var(--warning)', approved: 'var(--success)', rejected: 'var(--danger)', timeout: 'var(--text-muted)' }
+  const colors = { pending: 'var(--warning)', approved: 'var(--success)', rejected: 'var(--danger)', timeout: 'var(--text-muted)', withdrawn: 'var(--text-muted)' }
   const color = colors[status] || 'var(--text-muted)'
   return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:color-mix(in srgb,${color} 15%,transparent);color:${color}">${t('approvals.status.' + status) || status}</span>`
 }

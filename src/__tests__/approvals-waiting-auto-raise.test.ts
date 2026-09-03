@@ -149,7 +149,7 @@ describe('pendingApprovalForCard', () => {
  * live orphans came from.
  */
 describe('a card leaving waiting withdraws its own approval', () => {
-  it('resolves the auto-raised request as timeout, naming the new column', () => {
+  it('resolves the auto-raised request as WITHDRAWN, naming the new column', () => {
     card('bb66291d', 'Iroda nezet a Memoria oldalon', 'usalackor')
     const raised = ensureApprovalForWaitingCard('bb66291d', 'usalackor')
     expect(raised).not.toBeNull()
@@ -159,8 +159,11 @@ describe('a card leaving waiting withdraws its own approval', () => {
     expect(pendingApprovalForCard('bb66291d')).toBeUndefined()
 
     const after = listApprovals({}).find(a => a.id === raised!.id)!
-    // timeout, not rejected: nobody judged the work, the card just went back.
-    expect(after.status).toBe('timeout')
+    // 'withdrawn', NOT 'timeout' (Boss 2026-09-03): nothing expired -- timeout_at
+    // was null -- the card just moved, so labelling it "Lejárt" made a withdrawal
+    // look like a spontaneous expiry. Not 'rejected' either: nobody judged the work.
+    expect(after.status).toBe('withdrawn')
+    expect(after.status).not.toBe('timeout')
     expect(after.resolution_reason).toContain('in_progress')
   })
 
@@ -225,7 +228,9 @@ describe('reconcileWaitingApprovals -- the invariant checked as a whole', () => 
 
     expect(reconcileWaitingApprovals()).toEqual({ raised: 0, withdrawn: 1 })
     const after = listApprovals({}).find(a => a.id === stale.id)!
-    expect(after.status).toBe('timeout')
+    // 'withdrawn', not 'timeout': the reconcile withdraws a request whose card is
+    // no longer waiting; it did not expire on a timer (Boss 2026-09-03).
+    expect(after.status).toBe('withdrawn')
     expect(after.resolution_reason).toContain('done')
   })
 

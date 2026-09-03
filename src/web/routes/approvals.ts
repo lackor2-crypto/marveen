@@ -168,9 +168,10 @@ export function reconcileWaitingApprovals(): { raised: number; withdrawn: number
       if (card && card.status === 'waiting') continue
       const hol = card ? `a(z) "${card.status}" oszlopban van` : 'már nem létezik'
       const ok = resolveApproval(
-        pending.id, 'timeout', MAIN_AGENT_ID, null,
-        `A kérés tárgya nem várakozik döntésre: a kártya ${hol}. Az egyeztetés zárta le `
-        + 'automatikusan, nem a tulajdonos döntése -- ha a munka ismét várakozóba kerül, új kérés keletkezik.',
+        pending.id, 'withdrawn', MAIN_AGENT_ID, null,
+        `A kérés tárgya nem várakozik döntésre: a kártya ${hol}. Az egyeztetés vonta vissza `
+        + 'automatikusan, nem a tulajdonos döntése és nem is időbeli lejárat -- ha a munka ismét '
+        + 'várakozóba kerül, új kérés keletkezik.',
       )
       if (ok) withdrawn++
     }
@@ -287,10 +288,10 @@ export function withdrawApprovalForCardLeavingWaiting(
     if (!pending || pending.category !== 'kanban_done') return false
     const resolvedBy = (actor || MAIN_AGENT_ID).trim()
     const ok = resolveApproval(
-      pending.id, 'timeout', resolvedBy, null,
+      pending.id, 'withdrawn', resolvedBy, null,
       `A kártya átkerült a(z) "${newStatus}" oszlopba, tehát már nem várakozik döntésre. `
-      + 'A kérést a mozgatás zárta le automatikusan, nem a tulajdonos döntése -- ha a munka később '
-      + 'ismét várakozóba kerül, új kérés keletkezik.',
+      + 'A kérést a mozgatás vonta vissza automatikusan, nem a tulajdonos döntése és nem is időbeli '
+      + 'lejárat -- ha a munka később ismét várakozóba kerül, új kérés keletkezik.',
     )
     if (ok) {
       logger.info({ cardId, newStatus, approvalId: pending.id },
