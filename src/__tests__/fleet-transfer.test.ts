@@ -13,18 +13,27 @@ import { _encryptForTest, _decryptForTest, ENCRYPTED_FLEET_VERSION, MIN_VAULT_PA
 // Crypto round-trip
 // ---------------------------------------------------------------------------
 
+// A scrypt-alapu kulcsderivalas szandekosan CPU-nehez. A pre-push kapu a teljes
+// suite-ot nagy parhuzamossag alatt futtatja, es a 5000 ms-os alapertelmezett
+// timeout ott keves lehet -- egy derivalas terheles alatt tullepi, es a
+// FUGGETLEN futas ugyanarra a kodra zold. Ez ugyanaz a "flaky kapu terheles
+// alatt" tunet, mint a nyomtalan-munka git-olvasas hamis pozitivja (kartya
+// 1a273800): NEM tartalmi hiba, csak eroforras-kimerules. Ezert a derivalo
+// teszteknek bo timeout kell, kulonben a kapu hamisan blokkolja a landolast.
+const CRYPTO_TIMEOUT_MS = 20_000
+
 describe('encrypt/decrypt round-trip', () => {
   it('decrypts to the original plaintext', () => {
     const plaintext = JSON.stringify({ hello: 'world', num: 42 })
     const password = 'correct-horse-battery-staple'
     const blob = _encryptForTest(plaintext, password)
     expect(_decryptForTest(blob, password)).toBe(plaintext)
-  })
+  }, CRYPTO_TIMEOUT_MS)
 
   it('throws on wrong password (GCM auth tag mismatch)', () => {
     const blob = _encryptForTest('secret data', 'right-password-1234')
     expect(() => _decryptForTest(blob, 'wrong-password-1234')).toThrow()
-  })
+  }, CRYPTO_TIMEOUT_MS)
 
   it('throws on truncated blob (L1 sanity check)', () => {
     const tooShort = Buffer.from('dGVzdA==').toString('base64')
@@ -35,7 +44,7 @@ describe('encrypt/decrypt round-trip', () => {
     const fleet = JSON.stringify({ schemaVersion: 1, agents: [] })
     const blob = _encryptForTest(fleet, 'pw-12345678')
     expect(() => JSON.parse(blob)).toThrow()
-  })
+  }, CRYPTO_TIMEOUT_MS)
 
   it('constants are correct values', () => {
     expect(ENCRYPTED_FLEET_VERSION).toBe(1)
@@ -133,7 +142,7 @@ describe('importFleet: encrypted wrapper detection', () => {
     expect((result as any).errors).toContain(
       'A fájl titkosítva van -- add meg a vault jelszót az importhoz.'
     )
-  })
+  }, CRYPTO_TIMEOUT_MS)
 
   it('returns error DiffReport on wrong password (no file writes)', async () => {
     const { importFleet } = await import('../web/fleet-transfer.js')
@@ -148,7 +157,7 @@ describe('importFleet: encrypted wrapper detection', () => {
       'Helytelen vault jelszó -- a titkosított fájl nem dekódolható.'
     )
     expect(atomicWriteFileSync).not.toHaveBeenCalled()
-  })
+  }, CRYPTO_TIMEOUT_MS)
 
   it('succeeds (dry-run) with correct password', async () => {
     const { importFleet } = await import('../web/fleet-transfer.js')
@@ -158,7 +167,7 @@ describe('importFleet: encrypted wrapper detection', () => {
     const result = importFleet(wrapper, { vaultPassword: 'correct-pw-12345', apply: false })
     expect('dryRun' in result).toBe(true)
     expect((result as any).errors).toHaveLength(0)
-  })
+  }, CRYPTO_TIMEOUT_MS)
 
   it('accepts plaintext fleet JSON without password', async () => {
     const { importFleet } = await import('../web/fleet-transfer.js')

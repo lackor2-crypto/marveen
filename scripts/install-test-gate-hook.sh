@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# Idempotent installer: blocks a push to main/master if the pushed commit's
-# full test suite (or tsc --noEmit) is not green.
+# Idempotent installer: GYORS, determinisztikus lokalis pre-push kapu a
+# main/master push elott -- tsc --noEmit (typecheck) + node --check (JS syntax).
+# A TELJES teszt-suite NEM itt fut, hanem a CI-ban (.github/workflows/ci.yml).
 #
 # MIERT LETEZIK EZ:
 # 2026-08-28-an egy merge (44aa096) ket elavult teszt-regexet vitt fel a
 # main-re. A "teljes suite legyen zold landolas elott" addig CSAK szabaly
-# volt (FIX_LANDING_POLICY), technikai kikenyszerites nelkul -- csak azert
-# derult ki, mert valaki utolag kezzel lefuttatta. Boss dontese (2026-08-28):
-# ez ne fordulhasson elo megint, kelljen hozza technikai kapu, ne csak
-# fegyelem. Ez a hook pontosan azt a kezi ellenorzest automatizalja, amit
-# addig egy agensnek kellett volna mindig eszben tartania.
+# volt (FIX_LANDING_POLICY), technikai kikenyszerites nelkul. Boss dontese
+# (2026-08-28): kelljen hozza technikai kapu.
+#
+# 2026-09-03 (Boss, kartya 61a83b22): a szakma egyertelmu -- a TELJES suite
+# egy pre-push hookban ANTI-PATTERN. A terhelt fejlesztoi/flotta-gepen a
+# parhuzamos git/fajlrendszer-subprocessek miatt rendszertelenul 30+ tesztet
+# buktatott 435-bol, holott izolaltan 435/435 zold; orakra blokkolta a
+# landolast (#101). A teljes suite helye a CI: tiszta, dedikalt runneren,
+# Node 20 ES 22, ~2 perc, flakyseg nelkul -- ES a CI a HIVATALOS (required)
+# teljes-suite kapu. Ez a lokalis hook csak gyors elore-jelzest ad (tipus- es
+# syntax-hiba), hogy a nyilvanvalo tores meg a CI elott kiderüljön.
 #
 # A puskolt commit-ot egy IDEIGLENES, elkulonitett worktree-be teszi at es
-# OTT futtatja a suite-ot -- fuggetlenul attol, hogy a hivo checkout "elo"-
-# nek szamit-e (lasd src/__tests__/setup/assert-not-live-install.ts, ami
-# a fo /home/boss-szerü checkoutban MINDIG megtagadja a futtatast).
+# OTT futtatja a gyors ellenorzest -- fuggetlenul attol, hogy a hivo checkout
+# "elo"-nek szamit-e (lasd src/__tests__/setup/assert-not-live-install.ts).
 #
 # Composes with the shared pre-push.d dispatcher (see install-git-guard-hook.sh).
 #
@@ -55,7 +61,7 @@ done
 # Nincs main/master push ebben a batch-ben -- a kapunak nincs dolga.
 [ -n "$target_sha" ] || exit 0
 
-echo "pre-push: teljes teszt suite + tsc ellenorzese ${target_branch} push elott (commit ${target_sha:0:7})..." >&2
+echo "pre-push: gyors ellenorzes (tsc + syntax-check) ${target_branch} push elott (commit ${target_sha:0:7})..." >&2
 
 PARENT_DIR="$(mktemp -d)"
 TMP_WT="$PARENT_DIR/test-gate-${target_sha:0:12}"
@@ -88,17 +94,28 @@ if ! (cd "$TMP_WT" && npx tsc --noEmit) >"$FAIL_LOG" 2>&1; then
   exit 1
 fi
 
-if ! (cd "$TMP_WT" && npx vitest run) >"$FAIL_LOG" 2>&1; then
+# GYORS JS-syntax ellenorzes (node --check) -- NEM a teljes teszt-suite.
+# MIERT NINCS ITT A TELJES SUITE (2026-09-03, Boss dontese, kartya 61a83b22):
+# a teljes vitest-suite egy pre-push hookban ANTI-PATTERN (a szakma egyertelmu
+# allaspontja). A terhelt fejlesztoi/flotta-gepen a parhuzamos git/fajlrendszer-
+# subprocessek miatt rendszertelenul 30+ tesztet buktatott el 435-bol, holott a
+# tartalom izolaltan 435/435 zold volt -- ez orakra blokkolta a landolast
+# (#101). A retry csak elfedte volna a hibat. A TELJES suite helye a CI
+# (.github/workflows/ci.yml): tiszta, dedikalt ubuntu runneren, Node 20 ES 22,
+# ~2 perc, flakyseg NELKUL -- az a HIVATALOS teljes-suite kapu. Itt lokalisan
+# csak a gyors, determinisztikus ellenorzest futtatjuk (tipushiba + JS syntax),
+# ami masodpercek alatt lefut es sosem flaky.
+if ! (cd "$TMP_WT" && npm run syntax-check) >"$FAIL_LOG" 2>&1; then
   echo "" >&2
-  echo "BLOKKOLVA: a teljes teszt suite NEM zold a ${target_branch}-re puskolt commit-on (${target_sha:0:7})." >&2
+  echo "BLOKKOLVA: a web/ JS syntax-check (node --check) NEM tiszta a ${target_branch}-re puskolt commit-on (${target_sha:0:7})." >&2
   echo "" >&2
   tail -60 "$FAIL_LOG" >&2
   echo "" >&2
-  echo "Javitsd a hibat, majd probald ujra. Vesztheszet: MARVEEN_SKIP_TEST_GATE=1 git push ..." >&2
+  echo "Javitsd a hibat, majd probald ujra. A teljes teszt-suite-ot a CI meri. Vesztheszet: MARVEEN_SKIP_TEST_GATE=1 git push ..." >&2
   exit 1
 fi
 
-echo "pre-push: teljes teszt suite + tsc zold, push engedelyezve (${target_sha:0:7})." >&2
+echo "pre-push: gyors ellenorzes (tsc + syntax-check) zold, push engedelyezve (${target_sha:0:7}). A teljes suite-ot a CI meri (.github/workflows/ci.yml)." >&2
 exit 0
 EOF
 chmod +x "$GATE"
@@ -127,4 +144,4 @@ EOF
   chmod +x "$DISPATCH"
 fi
 
-echo "✓ test-gate: full-suite + tsc push gate for main/master installed."
+echo "✓ test-gate: gyors pre-push kapu (tsc + syntax-check) telepitve main/master-re. A teljes suite a CI-ban fut."
