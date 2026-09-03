@@ -11,8 +11,9 @@
 # Ez a landolas UJ, HIVATALOS utja: nem direktben pusholunk a main-re, hanem
 # felnyomunk egy branchet, PR-t nyitunk, MEGVARJUK amig a CI zold, es CSAK akkor
 # merge-elunk. Igy egy rossz commit sosem kerul a main-re a teljes suite nelkul.
-# A lokalis pre-push kapu (install-test-gate-hook.sh) kozben gyorsan lefut
-# (tsc + syntax-check) a branch push-nal is -- azonnali elore-jelzes.
+# A lokalis pre-push kapu (install-test-gate-hook.sh) csak a KOZVETLEN main/master
+# push-nal fut (tsc + syntax-check); a land-pr egy FEATURE branchet pushol, azt a
+# kapu atengedi -- a gyors ellenorzest itt a CI vegzi el a PR-en.
 #
 # Hasznalat (egy git worktree-bol, a landolando commitokkal a HEAD-en):
 #   scripts/land-pr.sh "PR cim" ["PR leiras"]
@@ -92,8 +93,19 @@ fi
 # A `gh pr checks --watch` megbizhatatlan: ha a checkek meg nem regisztraltak
 # (nehany masodperc keses a PR-nyitas utan), "no checks reported"-tel azonnal
 # elszall. Ezert a statusCheckRollup-ot POLL-ozzuk, ami determinisztikus.
+#
+# A "nulla check" KET dolgot jelenthet: (a) meg nem regisztralt (par masodperc
+# keses a PR-nyitas utan), vagy (b) NINCS is CI -- egy fork-on a GitHub Actions
+# alapbol KI van kapcsolva, es akkor a rollup OROKRE ures marad. A kettot NEM a
+# varakozasbol, hanem a FORRASBOL kulonboztetjuk meg: egy rovid tureshatar
+# (EMPTY_GRACE) utan megkerdezzuk `gh run list`-tel, indult-e egyaltalan
+# workflow-futas a branchre. Ha nincs, azonnal die-olunk emberi uzenettel -- nem
+# varakozunk vakon a 15 perces timeoutig.
 echo "land-pr: varakozas a CI-re (ez ~2-3 perc)..." >&2
-deadline=$(( $(date +%s) + 900 ))   # max 15 perc
+start=$(date +%s)
+deadline=$(( start + 900 ))     # max 15 perc
+EMPTY_GRACE=120                 # ennyi masodpercnyi ures rollup utan: van-e egyaltalan CI?
+ci_confirmed=0                  # 1, ha mar lattunk regisztralt futast (nem kell ujra gh run list)
 while true; do
   roll="$(gh pr view "$PR_URL" -R "$REPO" --json statusCheckRollup --jq '.statusCheckRollup' 2>/dev/null || echo '[]')"
   verdict="$(printf '%s' "$roll" | python3 -c '
@@ -103,8 +115,16 @@ except Exception: d = []
 if not d: print("EMPTY"); sys.exit()
 pend = fail = 0
 for c in d:
-    st = (c.get("status") or "").upper()          # QUEUED / IN_PROGRESS / COMPLETED
-    con = (c.get("conclusion") or "").upper()      # SUCCESS / FAILURE / ...
+    # StatusContext (klasszikus commit-status): "state" mezo van, "status" nincs.
+    state = (c.get("state") or "").upper()          # SUCCESS / PENDING / EXPECTED / ERROR / FAILURE
+    if state:
+        if state == "SUCCESS": pass
+        elif state in ("PENDING", "EXPECTED"): pend += 1
+        else: fail += 1                              # ERROR / FAILURE
+        continue
+    # CheckRun (GitHub Actions): "status" + "conclusion".
+    st = (c.get("status") or "").upper()            # QUEUED / IN_PROGRESS / COMPLETED
+    con = (c.get("conclusion") or "").upper()        # SUCCESS / FAILURE / ...
     if st != "COMPLETED": pend += 1
     elif con not in ("SUCCESS", "NEUTRAL", "SKIPPED"): fail += 1
 print("FAIL" if fail else ("PENDING" if pend else "PASS"))
@@ -112,7 +132,23 @@ print("FAIL" if fail else ("PENDING" if pend else "PASS"))
   case "$verdict" in
     PASS) echo "land-pr: a CI zold." >&2; break ;;
     FAIL) die "a CI NEM zold ezen a PR-en. A PR nyitva marad: $PR_URL -- javitsd a hibat es pushold ujra a branchet." ;;
-    *) : ;;  # EMPTY (meg nincs check) vagy PENDING -> varunk tovabb
+    PENDING) ci_confirmed=1 ;;   # van regisztralt check -> biztos, hogy fut CI, csak meg nem kesz
+    EMPTY)
+      # Meg egy check sem regisztralt. A tureshatar utan megnezzuk a FORRASbol,
+      # van-e egyaltalan futas -- kulonben egy Actions-nelkuli fork 15 percig varna.
+      if [ "$ci_confirmed" -eq 0 ] && [ "$(( $(date +%s) - start ))" -ge "$EMPTY_GRACE" ]; then
+        runs="$(gh run list -R "$REPO" --branch "$BRANCH" --limit 1 --json databaseId --jq 'length' 2>/dev/null || echo 0)"
+        if [ "${runs:-0}" = "0" ]; then
+          msg="${EMPTY_GRACE}s alatt egyetlen CI-futas sem indult el ezen a branchen ($BRANCH). "
+          msg="${msg}Ez majdnem biztosan azt jelenti, hogy a GitHub Actions KI van kapcsolva ezen a repon/fork-on -- "
+          msg="${msg}a rollup ilyenkor orokre ures marad. Teendo: GitHub -> Settings -> Actions -> General -> "
+          msg="${msg}'Allow all actions and reusable workflows', majd pushold ujra a branchet (PR nyitva: $PR_URL). "
+          msg="${msg}Vagy landolj kezzel, miutan lokalisan zold a teljes suite: 'npm test' -> 'gh pr merge $PR_URL --squash --delete-branch'."
+          die "$msg"
+        fi
+        ci_confirmed=1   # van futas, csak meg nem jelent meg a PR rollupjaban -> varunk tovabb
+      fi
+      ;;
   esac
   [ "$(date +%s)" -ge "$deadline" ] && die "a CI nem fejezodott be idoben (~15 perc): $PR_URL"
   sleep 15

@@ -97,7 +97,7 @@ Kesz: $DIR  (branch: $BRANCH)
   cd $DIR
   npx vitest run            # a tesztek itt FUTNAK (elo telepitesen nem)
   git add -A && git commit
-  cd $BASE && git merge $BRANCH && npm run build   # majd dashboard ujraindit
+  scripts/land-pr.sh "commit cim"   # branch -> PR -> CI zold -> merge (a main-re direkt push TILOS)
 
 Ha vegeztel:  scripts/agent-worktree.sh --remove $AGENT
 EOF
