@@ -11,6 +11,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { cleanGitEnv } from '../git-env.js'
 
 const depot = mkdtempSync(join(tmpdir(), 'marveen-gitguard-'))
 const store = mkdtempSync(join(tmpdir(), 'marveen-gstore-'))
@@ -27,11 +28,14 @@ const { DEPOT_PROJECTS } = await import('../depot.js')
 
 const REPO = join(depot, 'GIT_REPOS', 'proba')
 
+// cleanGitEnv, nem process.env: egy orokolt GIT_DIR felulirja a `cwd`-t, es a
+// commit az ELO repoba kerul. 2026-09-03-an ez a helper irta a `src/a.ts`-t a
+// Marveen main again (ab45b33). Lasd git-env.ts.
 function git(cwd: string, ...args: string[]) {
   execFileSync('git', args, {
     cwd,
     stdio: 'ignore',
-    env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
+    env: { ...cleanGitEnv(), GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
   })
 }
 
@@ -93,7 +97,7 @@ describe('repoStatus', () => {
   it('feltoltott allapotban nyugodtan torolhetonek mondja', async () => {
     // Egy helyi "tavoli" repo: pontosan az az eset, amikor minden fent van.
     const remote = join(depot, 'tavoli.git')
-    execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'ignore' })
+    execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'ignore', env: cleanGitEnv() })
     git(REPO, 'remote', 'add', 'origin', remote)
     git(REPO, 'push', '-q', '-u', 'origin', 'main')
     const st = await repoStatus('GIT_REPOS/proba')
@@ -105,7 +109,7 @@ describe('repoStatus', () => {
 
   it('a fel nem toltott commitokat megszamolja', async () => {
     const remote = join(depot, 'tavoli2.git')
-    execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'ignore' })
+    execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'ignore', env: cleanGitEnv() })
     git(REPO, 'remote', 'add', 'origin', remote)
     git(REPO, 'push', '-q', '-u', 'origin', 'main')
     writeFileSync(join(REPO, 'src', 'c.ts'), 'z', 'utf8')

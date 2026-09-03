@@ -16,6 +16,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from 'node:fs'
 import { join, basename, dirname } from 'node:path'
 import { PROJECT_ROOT, WINDOW_BACKUP_REPO_URL } from './config.js'
+import { cleanGitEnv } from './git-env.js'
 import { logger } from './logger.js'
 import { readPwStatus, backupLayouts, runPwAction, PW_DATA_DIR_FALLBACK, type PwStatus, type PwRunResult } from './persistent-windows.js'
 import { WIN_SETTINGS_DIR } from './windows-settings.js'
@@ -53,7 +54,9 @@ interface GitResult { code: number; stdout: string; stderr: string }
 
 function git(args: string[], cwd: string): Promise<GitResult> {
   return new Promise(resolve => {
-    execFile('git', args, { cwd, timeout: GIT_TIMEOUT_MS }, (err, stdout, stderr) => {
+    // env: egy orokolt GIT_DIR felulirna a `cwd`-t, es a mentes egy MASIK
+    // repoba menne -- eszrevetlenul. Lasd git-env.ts.
+    execFile('git', args, { cwd, env: cleanGitEnv(), timeout: GIT_TIMEOUT_MS }, (err, stdout, stderr) => {
       const e = err as (NodeJS.ErrnoException & { code?: number | string }) | null
       resolve({
         code: e ? (typeof e.code === 'number' ? e.code : 1) : 0,

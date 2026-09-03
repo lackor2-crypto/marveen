@@ -21,6 +21,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { cleanGitEnv } from '../git-env.js'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const GATE = join(REPO, 'scripts', 'hooks', 'no-stray-files.py')
@@ -36,18 +37,20 @@ function futtat(
   const r = spawnSync('python3', [GATE], {
     input: JSON.stringify({ tool_name: tool, tool_input: { file_path: filePath } }),
     encoding: 'utf-8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: gyoker, ...env },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: gyoker, ...env }, // git-env-ok: a python3 kaput inditjuk, nem git-et
   })
   return { code: r.status ?? -1, err: r.stderr || '' }
 }
 
 function ideiglenesRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), 'nyomtalan-'))
-  execFileSync('git', ['-C', dir, 'init', '-q'])
+  // env: a `-C dir` NEM rogziti a repot -- egy orokolt GIT_DIR felulirja, es
+  // az `init` az ELO repot inicializalna ujra. Lasd git-env.ts.
+  execFileSync('git', ['-C', dir, 'init', '-q'], { env: cleanGitEnv() })
   writeFileSync(join(dir, 'package.json'), '{}\n')
   mkdirSync(join(dir, 'src'), { recursive: true })
   writeFileSync(join(dir, 'src', 'a.ts'), 'export const a = 1\n')
-  execFileSync('git', ['-C', dir, 'add', 'package.json', 'src/a.ts'])
+  execFileSync('git', ['-C', dir, 'add', 'package.json', 'src/a.ts'], { env: cleanGitEnv() })
   return dir
 }
 
@@ -283,9 +286,13 @@ describe('A FA MOST is tiszta -- ez a teszt buktatja meg a munkat', () => {
   it('nincs nem-kovetett fajl a repo gyokereben', () => {
     /** Gyoker-szintu VALODI stray-ek, vagy null ha az olvasat megbizhatatlan. */
     const rootStrays = (): string[] | null => {
-      const lf = spawnSync('git', ['-C', REPO, 'ls-files'], { encoding: 'utf-8' })
+      // env: a `-C REPO` nem eleg -- egy orokolt GIT_DIR (hookbol inditott
+      // futasnal a git beallitja) EGY MASIK repo szemetet mutatna ennek a
+      // reponak a neveben. Lasd git-env.ts.
+      const env = cleanGitEnv()
+      const lf = spawnSync('git', ['-C', REPO, 'ls-files'], { encoding: 'utf-8', env })
       if (lf.status !== 0) return null
-      const st = spawnSync('git', ['-C', REPO, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf-8' })
+      const st = spawnSync('git', ['-C', REPO, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf-8', env })
       if (st.status !== 0) return null
       return classifyRootStrays(lf.stdout || '', st.stdout || '')
     }

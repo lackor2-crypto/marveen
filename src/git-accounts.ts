@@ -28,6 +28,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { PROJECT_ROOT } from './config.js'
 import { depotRoot } from './depot.js'
+import { cleanGitEnv } from './git-env.js'
 import { repoStatus } from './git-guard.js'
 import { toLifeRel } from './life-explorer.js'
 import { readStorageRegistry, writeStorageRegistry, removeGitAccount, storageKindRoot } from './storages.js'
@@ -317,7 +318,9 @@ function ensureAskpass(): string {
 export function gitEnvFor(account: string): NodeJS.ProcessEnv {
   const token = resolveToken(account)?.token
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    // cleanGitEnv, nem process.env: egy orokolt GIT_DIR minden hivast atteritene
+    // arra a repora, fuggetlenul attol, melyik `cwd`-t adjuk meg. Lasd git-env.ts.
+    ...cleanGitEnv(),
     // Ne alljon meg jelszot varva egy szolgaltatasban, ahol nincs, aki beirja.
     GIT_TERMINAL_PROMPT: '0',
   }
@@ -471,7 +474,7 @@ exit 1
 
 export async function lockRepoReadOnly(dir: string): Promise<boolean> {
   // 1. reteg: a push-cim sehova nem mutat -- a veletlen push itt hasal el.
-  const r = await git(dir, ['remote', 'set-url', '--push', 'origin', NO_PUSH], process.env)
+  const r = await git(dir, ['remote', 'set-url', '--push', 'origin', NO_PUSH], cleanGitEnv())
 
   // 2. reteg: a hook a CIMTOL FUGGETLENUL fut le. Aki a cimet visszaallitja,
   // meg mindig ebbe utkozik. Ket fuggetlen retegbol egyet visszavonni keves.
@@ -536,9 +539,9 @@ export function setReadOnlyException(account: string, repo: string, kivetel: boo
  * vedene, tehat utana mar nem nezne meg senki.
  */
 export async function unlockRepoReadOnly(dir: string): Promise<boolean> {
-  const cim = await git(dir, ['remote', 'get-url', 'origin'], process.env, 15000)
+  const cim = await git(dir, ['remote', 'get-url', 'origin'], cleanGitEnv(), 15000)
   if (!cim.ok) return false
-  const r = await git(dir, ['remote', 'set-url', '--push', 'origin', cim.out.trim()], process.env)
+  const r = await git(dir, ['remote', 'set-url', '--push', 'origin', cim.out.trim()], cleanGitEnv())
   try { rmSync(join(dir, '.git', 'hooks', 'pre-push'), { force: true }) } catch { return false }
   return r.ok
 }
@@ -565,7 +568,7 @@ export async function lockAccountReadOnly(account: string): Promise<{ locked: st
 
 /** Csak-olvasasra van-e allitva ez a repo. A felulet ezt mutatja meg. */
 export async function isRepoReadOnly(dir: string): Promise<boolean> {
-  const r = await git(dir, ['remote', 'get-url', '--push', 'origin'], process.env, 15000)
+  const r = await git(dir, ['remote', 'get-url', '--push', 'origin'], cleanGitEnv(), 15000)
   const cim = r.ok && r.out.includes('CSAK-OLVASAS')
   let hook = false
   try { hook = readFileSync(join(dir, '.git', 'hooks', 'pre-push'), 'utf8').includes('csak-olvasas zar') } catch {}

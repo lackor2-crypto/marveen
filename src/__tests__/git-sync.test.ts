@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'nod
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { cleanGitEnv } from '../git-env.js'
 
 const depot = mkdtempSync(join(tmpdir(), 'marveen-gitsync-'))
 const store = mkdtempSync(join(tmpdir(), 'marveen-gsstore-'))
@@ -23,17 +24,20 @@ const { findRepos, syncRepo, syncAllRepos, lastSyncRun } = await import('../git-
 const WORK = join(depot, 'Munka', 'proba')
 const REMOTE = join(depot, '.tavoli.git')
 
+// cleanGitEnv, nem process.env: egy orokolt GIT_DIR (a git minden hookban
+// beallitja) felulirja a `cwd`-t, es ezek a commitok az ELO repo main again
+// kotnenek ki. 2026-09-03-an pontosan ez tortent. Lasd git-env.ts.
 function git(cwd: string, ...args: string[]) {
   execFileSync('git', args, {
     cwd, stdio: 'ignore',
-    env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
+    env: { ...cleanGitEnv(), GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
   })
 }
 
 /** Egy uj commit KOZVETLENUL a tavoli repoba -- mintha masik gepen szuletett volna. */
 function commitOnRemote(text: string) {
   const tmp = mkdtempSync(join(tmpdir(), 'marveen-push-'))
-  execFileSync('git', ['clone', '-q', '-b', 'main', REMOTE, tmp], { stdio: 'ignore' })
+  execFileSync('git', ['clone', '-q', '-b', 'main', REMOTE, tmp], { stdio: 'ignore', env: cleanGitEnv() })
   writeFileSync(join(tmp, 'tavoli.txt'), text, 'utf8')
   git(tmp, 'add', '-A')
   git(tmp, 'commit', '-qm', 'masik gepen')
@@ -44,7 +48,7 @@ function commitOnRemote(text: string) {
 beforeEach(() => {
   rmSync(join(depot, 'Munka'), { recursive: true, force: true })
   rmSync(REMOTE, { recursive: true, force: true })
-  execFileSync('git', ['init', '-q', '--bare', REMOTE], { stdio: 'ignore' })
+  execFileSync('git', ['init', '-q', '--bare', REMOTE], { stdio: 'ignore', env: cleanGitEnv() })
   mkdirSync(WORK, { recursive: true })
   git(WORK, 'init', '-q', '-b', 'main')
   writeFileSync(join(WORK, 'a.txt'), 'x', 'utf8')

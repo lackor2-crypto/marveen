@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, openSync, closeSync, readFileSync, statSync, unl
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
 import { logger } from '../logger.js'
+import { cleanGitEnv } from '../git-env.js'
 
 const PIDFILE = join(STORE_DIR, 'upstream-measure.pid')
 const SCRIPT = join(PROJECT_ROOT, 'scripts', 'upstream-divergence-check.sh')
@@ -143,7 +144,9 @@ export function startMeasure(now: number = Date.now()): StartResult {
       stdio: ['ignore', outFd, outFd],
       // A szkript sajat GIT_TERMINAL_PROMPT=0-t allit; itt is kizarjuk, hogy
       // egy jelszot varo git orokre allo folyamatot hagyjon maga utan.
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      // cleanGitEnv: a szkript vegig a `cwd`-re szamit, egy orokolt GIT_DIR
+      // viszont az OSSZES git-hivasat egy masik repora teritene. Lasd git-env.ts.
+      env: { ...cleanGitEnv(), GIT_TERMINAL_PROMPT: '0' },
     })
     if (typeof child.pid !== 'number') {
       try { closeSync(outFd) } catch { /* mar zarva */ }

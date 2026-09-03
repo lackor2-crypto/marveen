@@ -33,6 +33,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, rmSync, statSync, type Dirent } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
+import { cleanGitEnv } from './git-env.js'
 import { explorerRoot, resolveLifePath, toLifeRel } from './life-explorer.js'
 import { listMounts, removeMount } from './life-mounts.js'
 import { logger } from './logger.js'
@@ -142,7 +143,9 @@ export interface RepoStatus {
 
 function git(cwd: string, args: string[]): Promise<{ ok: boolean; out: string }> {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd, timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+    // env: egy orokolt GIT_DIR a `cwd`-t is felulirna, es egy MASIK repo
+    // allapotat mernenk ennek a reponak a neveben. Lasd git-env.ts.
+    execFile('git', args, { cwd, env: cleanGitEnv(), timeout: 15000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
       resolve({ ok: !err, out: String(stdout || '').trim() })
     })
   })

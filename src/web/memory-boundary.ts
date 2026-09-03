@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { cleanGitEnv } from '../git-env.js'
 import { logger } from '../logger.js'
 
 // --- Per-agent auto-memory isolation (opt-in) --------------------------------
@@ -32,7 +33,9 @@ export function provisionMemoryBoundaryDir(dir: string): boolean {
   try {
     const gitDir = join(dir, '.git')
     if (!existsSync(gitDir)) {
-      execFileSync('git', ['init', '--quiet'], { cwd: dir, timeout: 10_000 })
+      // env: an inherited GIT_DIR overrides `cwd` entirely -- `git init` would
+      // then re-initialise THAT repository instead of this stub. See git-env.ts.
+      execFileSync('git', ['init', '--quiet'], { cwd: dir, env: cleanGitEnv(), timeout: 10_000 })
     }
     // (Re)write the exclude on every call: idempotent, and it also repairs a
     // stub whose exclude was lost. `*` keeps `git status` empty forever.

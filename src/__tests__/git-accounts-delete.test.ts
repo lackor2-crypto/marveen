@@ -10,6 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { cleanGitEnv } from '../git-env.js'
 
 const depot = mkdtempSync(join(tmpdir(), 'marveen-acc-'))
 const store = mkdtempSync(join(tmpdir(), 'marveen-accstore-'))
@@ -25,10 +26,12 @@ const { DEPOT_PROJECTS } = await import('../depot.js')
 
 const GIT = join(depot, DEPOT_PROJECTS)
 
+// cleanGitEnv, nem process.env: egy orokolt GIT_DIR felulirja a `cwd`-t, es a
+// commit az ELO repoba kerul. Lasd git-env.ts.
 function git(cwd: string, ...args: string[]) {
   execFileSync('git', args, {
     cwd, stdio: 'ignore',
-    env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
+    env: { ...cleanGitEnv(), GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' },
   })
 }
 
@@ -42,7 +45,7 @@ function repo(account: string, name: string, remote: boolean) {
   git(dir, 'commit', '-qm', 'egy')
   if (remote) {
     const bare = join(depot, '.tavoli-' + account + '-' + name + '.git')
-    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'ignore' })
+    execFileSync('git', ['init', '-q', '--bare', bare], { stdio: 'ignore', env: cleanGitEnv() })
     git(dir, 'remote', 'add', 'origin', bare)
     git(dir, 'push', '-q', '-u', 'origin', 'main')
   }

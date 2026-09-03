@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { cleanGitEnv } from '../git-env.js'
 import { provisionMemoryBoundaryDir } from '../web/memory-boundary.js'
 
 describe('provisionMemoryBoundaryDir', () => {
@@ -21,7 +22,7 @@ describe('provisionMemoryBoundaryDir', () => {
     expect(existsSync(join(dir, '.git'))).toBe(true)
     expect(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf-8')).toBe('*\n')
     // the boundary is a real git root: rev-parse resolves to the agent dir itself
-    const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf-8' }).trim()
+    const top = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf-8', env: cleanGitEnv() }).trim()
     expect(top).toBe(execFileSync('realpath', [dir], { encoding: 'utf-8' }).trim())
   })
 
@@ -30,7 +31,7 @@ describe('provisionMemoryBoundaryDir', () => {
     mkdirSync(join(dir, 'workspace'))
     writeFileSync(join(dir, 'workspace', 'note.txt'), 'data\n')
     expect(provisionMemoryBoundaryDir(dir)).toBe(true)
-    const status = execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf-8' })
+    const status = execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf-8', env: cleanGitEnv() })
     expect(status).toBe('')
   })
 

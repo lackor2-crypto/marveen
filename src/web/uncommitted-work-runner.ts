@@ -10,6 +10,7 @@ import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
 import { PROJECT_ROOT } from '../config.js'
+import { cleanGitEnv } from '../git-env.js'
 import { sendAlert } from './channel-monitor.js'
 import {
   INITIAL_UNCOMMITTED_STATE,
@@ -39,7 +40,10 @@ function gitStatusPorcelain(): Promise<string | null> {
     // --untracked-files=all: a szemet gyakran egy alkonyvtarban ul, es az
     // alapertelmezett `normal` mod ilyenkor csak a KONYVTARAT irja ki egy
     // sorban. Egy sor "scratch/" nem mondja meg, hany fajl van benne.
-    execFile('git', ['-C', PROJECT_ROOT, 'status', '--porcelain', '--untracked-files=all'], { timeout: 20_000 }, (err, stdout) => {
+    // env: `-C PROJECT_ROOT` does NOT pin the repository -- an inherited
+    // GIT_DIR overrides it, and we would report a different repo's mess as if
+    // it were this one's. See git-env.ts.
+    execFile('git', ['-C', PROJECT_ROOT, 'status', '--porcelain', '--untracked-files=all'], { env: cleanGitEnv(), timeout: 20_000 }, (err, stdout) => {
       resolve(err ? null : stdout)
     })
   })
@@ -50,7 +54,7 @@ function gitStatusPorcelain(): Promise<string | null> {
  *  hivo nem is mondja ki nullakent. */
 function gitUnpushedCount(): Promise<number | null> {
   return new Promise(resolve => {
-    execFile('git', ['-C', PROJECT_ROOT, 'rev-list', '--count', '@{u}..HEAD'], { timeout: 20_000 }, (err, stdout) => {
+    execFile('git', ['-C', PROJECT_ROOT, 'rev-list', '--count', '@{u}..HEAD'], { env: cleanGitEnv(), timeout: 20_000 }, (err, stdout) => {
       if (err) return resolve(null)
       const n = Number.parseInt(stdout.trim(), 10)
       resolve(Number.isFinite(n) ? n : null)
@@ -60,7 +64,7 @@ function gitUnpushedCount(): Promise<number | null> {
 
 function gitBranch(): Promise<string> {
   return new Promise(resolve => {
-    execFile('git', ['-C', PROJECT_ROOT, 'rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 20_000 }, (err, stdout) => {
+    execFile('git', ['-C', PROJECT_ROOT, 'rev-parse', '--abbrev-ref', 'HEAD'], { env: cleanGitEnv(), timeout: 20_000 }, (err, stdout) => {
       resolve(err ? '' : stdout.trim())
     })
   })

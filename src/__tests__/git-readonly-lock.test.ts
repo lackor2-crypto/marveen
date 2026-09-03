@@ -19,12 +19,16 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { cleanGitEnv } from '../git-env.js'
 import {
   lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly,
   setReadOnlyException, isReadOnlyException,
 } from '../git-accounts.js'
 
-const G = { encoding: 'utf8' as const, stdio: 'pipe' as const }
+// env: a `cwd` NEM donti el, melyik repon dolgozunk -- egy orokolt GIT_DIR
+// (a git minden hookban beallitja) felulirja, es ezek a hivasok az ELO repoba
+// irnanak. Pontosan ez tortent 2026-09-03-an. Lasd git-env.ts.
+const G = { encoding: 'utf8' as const, stdio: 'pipe' as const, env: cleanGitEnv() }
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { ...G, cwd }).toString()
 
 let base = ''

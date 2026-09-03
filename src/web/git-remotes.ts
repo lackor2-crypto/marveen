@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { PROJECT_ROOT } from '../config.js'
+import { cleanGitEnv } from '../git-env.js'
 
 /**
  * A ket git-remote, amibol a Marveen frissul, KIOLVASVA -- sehol nem beegetve.
@@ -45,8 +46,13 @@ const GIT = existsSync('/usr/bin/git') ? '/usr/bin/git' : 'git'
  *   nemet vagy francia telepitesen ez a kettő osszecsuszna, es egy friss
  *   telepites hibasnak latszana. Ezert a gepnek angolul valaszol a git; a
  *   felhasznalo ettol fuggetlenul a sajat nyelven latja a felulet mondatait.
+ *
+ * ★ cleanGitEnv: a `cwd: PROJECT_ROOT` NEM rogziti a repot -- egy orokolt
+ *   GIT_DIR (a git minden hookban exportalja) felulirja, es akkor egy MASIK
+ *   repo forrasait olvasnank ki, sot a `remote remove` ott torolne. Lasd
+ *   git-env.ts.
  */
-const GIT_ENV = { ...process.env, LC_ALL: 'C', LANGUAGE: 'C', GIT_TERMINAL_PROMPT: '0' }
+const GIT_ENV = { ...cleanGitEnv(), LC_ALL: 'C', LANGUAGE: 'C', GIT_TERMINAL_PROMPT: '0' }
 
 // A git hibauzenete ugy, AHOGY VAN (utolso ertelmes sor). Sosem irjuk felul
 // tippelt okkal ("nincs halozat", "rossz kulcs") -- azt a felhasznalo a sajat
