@@ -80,3 +80,28 @@ jobs:
 
       - name: Teszt-suite (vitest run)
         run: npm test
+
+  # Aggregalt, STABIL nevu zaro kapu. A branch protection EZT jelolje required
+  # status check-nek a matrix-fuggo "Node 20.19" / "Node 22" nevek helyett: azok
+  # a `test` job matrixabol (node-verziok) szarmaznak, tehat ha a matrix valtozik
+  # (verzio csere/hozzaadas), a regi nevu required check TOBBE nem regisztral, es
+  # enforce_admins=true mellett a PR OROKRE mergelhetetlen -- admin sem tudja
+  # feluliratni. Ez a job neve fix ("ci-passed"), tehat a matrix szabadon
+  # valtozhat. Push-ra ES pull_request-re is fut (a workflow triggerei), es
+  # `if: always()` + a `needs.test.result` ellenorzes miatt PIROS, ha barmelyik
+  # matrix-ag nem 'success'. Kartya 7e82036c (kapcs. 61a83b22).
+  ci-passed:
+    name: ci-passed
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: A test matrix eredmenye
+        run: |
+          echo "test job result: ${{ needs.test.result }}"
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "::error::A teljes teszt-matrix nem 'success' (eredmeny: ${{ needs.test.result }}) -- a CI piros, a merge blokkolt."
+            exit 1
+          fi
+          echo "OK: a teljes teszt-matrix (Node 20.19 ES 22) zold."
