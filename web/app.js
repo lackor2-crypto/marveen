@@ -30122,6 +30122,11 @@ async function openCodeConversationModal(sessionId, label) {
   conversationSource = { kind: 'code', id: sessionId }
   conversationAgentName = null
   convFollowReset()
+  // A SAJAT piszkozata visszakerul: amit ide felig beirt, azt ne kelljen ujra
+  // megirnia. Mas beszelgetesebol semmi nem szivarog at.
+  convSendDraftFor = sessionId
+  const draftTa = document.getElementById('conversationSendPrompt')
+  if (draftTa) draftTa.value = convDraftLoad(convSendDrafts, sessionId)
   title.textContent = t('conversation.title', { name: label || String(sessionId).slice(0, 8) })
   container.innerHTML = `<div class="conversation-empty">${t('conversation.loading')}</div>`
   openModal(overlay)
@@ -30379,6 +30384,16 @@ let convSendBusy = false
  *  allapot-mondatnal: amit a felhasznalo epp most tett, azt ne irja felul a
  *  2,5 masodperces kor. */
 let convSendMsg = null
+/** HANYADIK ABLAK van nyitva. Minden zaras/valtas lepteti (`convFollowReset`),
+ *  es a kuldes ehhez meri magat: ami MENET KOZBEN bezart ablakba erne vissza,
+ *  az mar egy MASIK beszelgetesrol allitana valamit. */
+let convSendEpoch = 0
+/** Felig beirt utasitasok BESZELGETESENKENT (kulcs: sessionId). Ezert nem lesz
+ *  belole csendes felrekuldes: a szoveg csak a SAJAT ablakaba kerul vissza. */
+const convSendDrafts = new Map()
+/** Melyik beszelgeteshez tartozik a mezoben ALLO szoveg. Zaraskor csak ez
+ *  tudja, hova kell eltenni -- a `conversationSource` addigra mar az uje. */
+let convSendDraftFor = null
 
 function convFollowStop() {
   if (convFollowTimer !== null) { clearInterval(convFollowTimer); convFollowTimer = null }
@@ -30394,14 +30409,23 @@ function convFollowReset() {
   convFollowMeta = null
   convFollowPaused = false
   convFollowNew = 0
-  // A FELIG BEIRT UTASITAS IS TORLODIK. Megtartani kenyelmesebb volna, de a
-  // kovetkezo megnyitas MAS beszelgetes lehet -- az ott felejtett szoveg
-  // elkuldese csendes felrekuldes volna.
   conversationSendInfo = null
   convSendMsg = null
   convSendBusy = false
+  // MASIK ABLAK KOVETKEZIK. Ebbol tudja a `convSendOutcome`, hogy egy menet
+  // kozben visszaero kuldes meg ide szol-e, vagy mar csak buborekba mehet.
+  convSendEpoch++
   const sendTa = document.getElementById('conversationSendPrompt')
-  if (sendTa) sendTa.value = ''
+  if (sendTa) {
+    // A FELIG BEIRT UTASITAS NEM VESZ EL: leteszi magat a SAJAT beszelgetese
+    // melle, es kesobb is csak oda kerul vissza. Eddig egy veletlen Esc
+    // nyomtalanul elvitt egy gonddal megirt utasitast; a beszelgetesenkenti
+    // tarolastol ez megszunik anelkul, hogy a csendes felrekuldes veszelye
+    // visszajonne -- mas beszelgetes mezojebe sosem kerul at.
+    convDraftSave(convSendDrafts, convSendDraftFor, sendTa.value)
+    sendTa.value = ''
+  }
+  convSendDraftFor = null
   renderConvLive()
   renderConvNewPill()
   renderConvSend()
@@ -30600,6 +30624,44 @@ function renderConvSend() {
  *  ugyanaz marad es az elozmeny megvan (merve 2026-08-26). Enelkul a feladat a
  *  projekt legfrissebb beszelgetesebe menne, vagyis akar egy MASIKBA -- ami
  *  csendes felrekuldes volna. */
+/** PISZKOZAT ELTEVESE. Az ures szoveg TORLI a bejegyzest -- kulonben egy
+ *  szandekosan kiuritett mezobe visszajonne a regi szoveg, ami meglepetes. */
+function convDraftSave(drafts, sessionId, text) {
+  if (!drafts || !sessionId) return drafts
+  if ((text || '').trim()) drafts.set(sessionId, text)
+  else drafts.delete(sessionId)
+  return drafts
+}
+
+/** PISZKOZAT VISSZATEVESE -- kizarolag a sajat beszelgetesebe. */
+function convDraftLoad(drafts, sessionId) {
+  if (!drafts || !sessionId) return ''
+  return drafts.get(sessionId) || ''
+}
+
+/** HOVA KERUL a kuldes eredmenye, es szabad-e uriteni a mezot.
+ *
+ *  A kuldes alatt (halozat + szerver) barmi tortenhet, es mind a harom eset
+ *  egy-egy csendes karos lepes lenne:
+ *   * bezartak vagy masik beszelgetesre valtottak (`sameWindow` hamis) -> az
+ *     "Atadva" mondat mar egy MASIK beszelgetes alatt allna. Ilyenkor a hir
+ *     buborekban megy ki: nem tunik el, de nem is allit valotlant.
+ *   * kozben tovabb gepelt (`taValue !== sentText`) -> a mezot NEM uritjuk,
+ *     mert ami benne all, azt mar nem kuldtuk el.
+ *   * NEM SIKERULT (`ok` hamis) -> a mezo marad, ahogy volt. Pont a
+ *     sikertelen kuldes utan kell a szoveg: azt kellene ujra megirnia.
+ *
+ *  Az uritest a BESZELGETES azonossaga donti el, nem az ablake: ha idokozben
+ *  ugyanazt a beszelgetest nyitotta ujra, az elkuldott szoveg ott is elfogy;
+ *  masik beszelgetes mezojehez viszont sosem nyulunk. */
+function convSendOutcome(sentSession, nowSession, sameWindow, taValue, sentText, ok) {
+  return {
+    inRow: sameWindow === true,
+    toast: sameWindow !== true,
+    clear: ok === true && !!sentSession && sentSession === nowSession && taValue === sentText,
+  }
+}
+
 async function convSendSubmit() {
   const ta = document.getElementById('conversationSendPrompt')
   if (!ta || convSendBusy) return
@@ -30618,29 +30680,63 @@ async function convSendSubmit() {
   convSendBusy = true
   convSendMsg = { text: t('conversation.send.sending'), error: false }
   renderConvSend()
+  // MELYIK ABLAKBOL es MELYIK BESZELGETESBE indult. A valasz csak ide szol.
+  const epoch = convSendEpoch
+  const sentSession = conversationSource && conversationSource.id
+  let out = null
   try {
     const token = localStorage.getItem('marveen-dashboard-token') || ''
-    const r = await fetch('/api/code/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-      body: JSON.stringify({
-        project: conversationSendInfo.project,
-        prompt: text,
-        origin: 'dashboard',
-        requestedBy: 'dashboard',
-        sessionId: conversationSource.id,
-      }),
-    })
-    let d = null
-    try { d = await r.json() } catch { /* nem JSON */ }
-    if (!r.ok) throw new Error((d && d.error) || ('HTTP ' + r.status))
-    ta.value = ''
-    convSendMsg = { text: t('conversation.send.sent', { id: String((d && d.id) || '').slice(0, 8) }), error: false }
+    let r = null
+    try {
+      r = await fetch('/api/code/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({
+          project: conversationSendInfo.project,
+          prompt: text,
+          origin: 'dashboard',
+          requestedBy: 'dashboard',
+          sessionId: conversationSource.id,
+        }),
+      })
+    } catch {
+      // A keres EL SEM JUTOTT a szerverig. Ez nem talalgatas: a `fetch` csak
+      // ezert dob -- a szerver-hiba mar valasszal jon. Sajat, leforditott
+      // mondatot kap, kulonben egy angol bongeszo-szoveg allna a magyar sor
+      // kozepen, es a felhasznalo a szerverre gyanakodna a halozat helyett.
+      const m = t('conversation.send.network')
+      out = { text: m, toast: m, error: true }
+      r = null
+    }
+    if (r) {
+      let d = null
+      try { d = await r.json() } catch { /* nem JSON */ }
+      if (!r.ok) {
+        // A TENYLEGES hibauzenet megy ki. Az okot nem talalgatjuk.
+        const m = t('conversation.send.failed', { msg: (d && d.error) || ('HTTP ' + r.status) })
+        out = { text: m, toast: m, error: true }
+      } else {
+        const id = String((d && d.id) || '').slice(0, 8)
+        out = { text: t('conversation.send.sent', { id }), toast: t('conversation.send.sent_bg', { id }), error: false }
+      }
+    }
   } catch (err) {
-    // A TENYLEGES hibauzenet megy ki. Az okot nem talalgatjuk.
-    convSendMsg = { text: t('conversation.send.failed', { msg: err.message }), error: true }
+    const m = t('conversation.send.failed', { msg: (err && err.message) || String(err) })
+    out = { text: m, toast: m, error: true }
   } finally {
     convSendBusy = false
+    const ok = !!out && !out.error
+    const nowSession = conversationSource && conversationSource.id
+    const res = convSendOutcome(sentSession, nowSession, epoch === convSendEpoch, ta.value, text, ok)
+    if (res.clear) ta.value = ''
+    // A SIKERESEN ATADOTT szoveg piszkozata is elfogy -- kulonben egy kesobbi
+    // megnyitasnal visszajonne a mar elkuldott utasitas, es a felhasznalo
+    // johiszemuen masodszor is elkuldene.
+    if (ok) convDraftSave(convSendDrafts, sentSession, '')
+    if (res.inRow) convSendMsg = out ? { text: out.text, error: out.error } : null
+    // MAS ABLAK VAN NYITVA -- de a valasz nem veszhet el nemam: buborekban megy
+    // ki, mert a kuldo sor mar egy masik beszelgetesrol beszelne.
+    else if (out) showToast(out.toast, out.error ? { type: 'error' } : { duration: 6000 })
     renderConvSend()
   }
 }
@@ -30756,7 +30852,9 @@ document.getElementById('conversationSendPrompt')?.addEventListener('keydown', (
 // Amint ujra ir, a korabbi visszajelzes ("Atadva…", "Nem sikerult…") lejar --
 // kulonben a regi mondat az uj utasitasrol allitana valamit.
 document.getElementById('conversationSendPrompt')?.addEventListener('input', () => {
-  if (convSendMsg) { convSendMsg = null; renderConvSend() }
+  // MENET KOZBEN NEM: amig a kuldes fut, a "Kuldes…" jelzes marad. Kulonben
+  // pont a legbizonytalanabb pillanatban tunne el az egyetlen visszajelzes.
+  if (convSendMsg && !convSendBusy) { convSendMsg = null; renderConvSend() }
 })
 // REJTETT FUL: a kor uresen fordul (lasd `convFollowTick`), es amint a lap
 // ujra lathato, AZONNAL kerdezunk -- nem varunk a kovetkezo utemre.

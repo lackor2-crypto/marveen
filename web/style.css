@@ -7510,7 +7510,12 @@ a.link-waiting {
   .agent-card { padding: 20px 14px; min-height: auto; }
   .agent-avatar { width: 44px; height: 44px; font-size: 18px; }
   .modal { width: 95%; }
-  .modal-agent-detail { max-width: 100%; }
+  /* OSSZETETT VALASZTO KELL. A fentebbi `.modal.modal-agent-detail` (0,2,0)
+     fogta meg a 900px-t; egy egyosztalyos `.modal-agent-detail` (0,1,0) ezt nem
+     tudja felulirni, tehat ez a sor eddig NEM csinalt semmit. Ma nem is latszott
+     (640px-ig a 95% amugy is 900px alatt van), de a szandekarol hazudott -- az
+     elso szelesebb toresponton pedig mar kart okozna. */
+  .modal.modal-agent-detail { max-width: 100%; }
   .header-left { gap: 16px; }
   .mem-toolbar { flex-direction: column; }
   .mem-stats { gap: 8px; }

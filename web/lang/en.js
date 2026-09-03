@@ -2679,6 +2679,7 @@ window._i18n.en = {
 
   // --- sending an instruction from the bottom of the live view ---
   'conversation.send.placeholder':	'Type an instruction for this conversation…',
+  'conversation.send.aria':	'Instruction for this conversation',
   'conversation.send.btn':		'Send',
   'conversation.send.ready':		'Goes into this same conversation, with its full history.',
   'conversation.send.ready_help':	'The existing session continues (claude --resume), so Claude Code knows the earlier rounds and decisions. An open VS Code panel may not redraw by itself — you see the reply here, in the live view.',
@@ -2688,7 +2689,9 @@ window._i18n.en = {
   'conversation.send.no_session':	'No worker has ever reported this conversation, so I do not know where to send the instruction. Start the Windows worker — it shows up here within a minute.',
   'conversation.send.sending':	'Sending…',
   'conversation.send.sent':		'Handed over ({id}). The reply appears here, in the live view.',
+  'conversation.send.sent_bg':	'Handed over ({id}) — you closed this conversation meanwhile. The reply appears in its own conversation.',
   'conversation.send.failed':	'Could not send it: {msg}',
+  'conversation.send.network':	'The request never reached the server, so the instruction did not start. Check the connection and send it again — your text is kept.',
   'conversation.send.empty':	'Say what it should do.',
   'conversation.send.too_long':	'{n} / 12000 characters — the other side will not take that much.',
   'memories.agent_all':			'All agents',

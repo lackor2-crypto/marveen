@@ -211,9 +211,21 @@ const css = readFileSync(join(ROOT, 'web', 'style.css'), 'utf-8')
 // eslint-disable-next-line @typescript-eslint/no-implied-eval
 const api = new Function(`
   ${extractFn(app, 'convSendState')}
-  return { convSendState: convSendState }
+  ${extractFn(app, 'convSendOutcome')}
+  ${extractFn(app, 'convDraftSave')}
+  ${extractFn(app, 'convDraftLoad')}
+  return {
+    convSendState: convSendState, convSendOutcome: convSendOutcome,
+    convDraftSave: convDraftSave, convDraftLoad: convDraftLoad,
+  }
 `)() as {
   convSendState: (info: unknown) => { show: boolean; can: boolean; note: string | null }
+  convSendOutcome: (
+    sentSession: unknown, nowSession: unknown, sameWindow: boolean,
+    taValue: string, sentText: string, ok: boolean,
+  ) => { inRow: boolean; toast: boolean; clear: boolean }
+  convDraftSave: (drafts: Map<string, string>, sessionId: unknown, text: string) => Map<string, string>
+  convDraftLoad: (drafts: Map<string, string>, sessionId: unknown) => string
 }
 
 describe('convSendState: latszik-e a doboz, es lehet-e kuldeni', () => {
@@ -302,12 +314,20 @@ describe('★ a bekotes forras-szintu garanciai', () => {
     expect(extractFn(app, 'convFollowTick')).toContain('workerOnline: null')
   })
 
-  it('★ bezaraskor a felig beirt utasitas is torlodik', () => {
-    // A kovetkezo megnyitas MAS beszelgetes lehet; az ott felejtett szoveg
-    // elkuldese csendes felrekuldes volna.
+  it('★ bezaraskor a felig beirt utasitas ELTEVODIK, nem vesz el', () => {
+    // A mezot uriteni kell (a kovetkezo megnyitas MAS beszelgetes lehet, es az
+    // ott felejtett szoveg elkuldese csendes felrekuldes volna) -- de eldobni
+    // nem szabad: egy veletlen Esc igy vitt el eddig egy gonddal megirt
+    // utasitast. A ketto egyszerre csak ugy megy, ha a szoveg a SAJAT
+    // beszelgetese melle kerul.
     const fn = extractFn(app, 'convFollowReset')
     expect(fn).toContain('conversationSendInfo = null')
     expect(fn).toContain("getElementById('conversationSendPrompt')")
+    expect(fn).toContain('convDraftSave(convSendDrafts, convSendDraftFor, sendTa.value)')
+    expect(fn).toContain("sendTa.value = ''")
+    // ES lepteti az ablak-szamlalot, kulonben egy menet kozbeni kuldes valasza
+    // a kovetkezo beszelgetes ala esne be.
+    expect(fn).toContain('convSendEpoch++')
   })
 
   it('a doboz alapbol REJTVE erkezik a markupban', () => {
@@ -335,7 +355,8 @@ describe('★ a bekotes forras-szintu garanciai', () => {
       'conversation.send.ready_help', 'conversation.send.offline', 'conversation.send.unknown',
       'conversation.send.no_project', 'conversation.send.no_session', 'conversation.send.sending',
       'conversation.send.sent', 'conversation.send.failed', 'conversation.send.empty',
-      'conversation.send.too_long',
+      'conversation.send.too_long', 'conversation.send.sent_bg', 'conversation.send.network',
+      'conversation.send.aria',
     ]
     for (const k of keys) {
       expect(hu, `hu.js: ${k}`).toContain(`'${k}'`)
@@ -344,7 +365,136 @@ describe('★ a bekotes forras-szintu garanciai', () => {
   })
 
   it('a kuldes hibajanal a TENYLEGES uzenet megy ki, nem tippelt ok', () => {
-    expect(extractFn(app, 'convSendSubmit'))
-      .toContain("t('conversation.send.failed', { msg: err.message })")
+    const fn = extractFn(app, 'convSendSubmit')
+    // Szerver-hiba: a szerver SAJAT mondata, kulonben a HTTP-kod.
+    expect(fn).toContain("(d && d.error) || ('HTTP ' + r.status)")
+    // Kivetel: a kivetel sajat uzenete. Sehol nem allitunk okot magunktol.
+    expect(fn).toContain("(err && err.message) || String(err)")
+    expect(fn).not.toMatch(/valoszinuleg|altalaban|szokott/i)
+  })
+
+  it('★ a HALOZATI bukas MAS mondat, mint a szerver-hiba', () => {
+    // Nem talalgatas, hanem szerkezeti tudas: a `fetch` KIZAROLAG akkor dob, ha
+    // a keres el sem jutott a szerverig -- a szerver hibaja mar valasszal jon.
+    // A ketto mas kovetkezo lepest kivan, es eddig egy angol bongeszo-szoveg
+    // ("Failed to fetch") allt a magyar mondat kozepen.
+    const fn = extractFn(app, 'convSendSubmit')
+    expect(fn).toContain("t('conversation.send.network')")
+    const i = fn.indexOf("r = await fetch('/api/code/tasks'")
+    const j = fn.indexOf("t('conversation.send.network')")
+    expect(i).toBeGreaterThan(-1)
+    expect(j).toBeGreaterThan(i)
+  })
+
+  it('★ menet kozbeni gepeles nem oltja ki a "Kuldes…" jelzest', () => {
+    // Eddig barmelyik leutes torolte a visszajelzest -- pont a legbizonytalanabb
+    // pillanatban tunt volna el az egyetlen jel, hogy a kuldes fut.
+    const i = app.indexOf("getElementById('conversationSendPrompt')?.addEventListener('input'")
+    expect(i).toBeGreaterThan(-1)
+    expect(app.slice(i, i + 400)).toContain('convSendMsg && !convSendBusy')
+  })
+
+  it('★ a beviteli mezonek NEVE is van, nem csak helyorzoje', () => {
+    // A helyorzo eltunik, amint ir bele: a kepolvaso onnantol egy nevtelen
+    // mezot mondana be.
+    const m = /<textarea id="conversationSendPrompt"[\s\S]*?><\/textarea>/.exec(html)
+    expect(m).not.toBeNull()
+    expect(m![0]).toContain('data-i18n-aria-label="conversation.send.aria"')
+    expect(m![0]).toMatch(/aria-label="[^"]+"/)
+  })
+
+  it('★ a mobil `.modal-agent-detail` szabaly OSSZETETT valasztoval all', () => {
+    // Egy egyosztalyos `.modal-agent-detail` (0,1,0) nem tudja felulirni a
+    // fentebbi `.modal.modal-agent-detail` (0,2,0) 900px-et: a sor eddig NEM
+    // csinalt semmit, csak a szandekarol hazudott.
+    expect(css).not.toMatch(/\n\s*\.modal-agent-detail\s*\{/)
+    expect(css).toMatch(/\.modal\.modal-agent-detail\s*\{[^}]*max-width:\s*100%/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ★ AMI A KULDES ALATT TORTENIK -- a valasz nem eshet MAS beszelgetes ala
+// ---------------------------------------------------------------------------
+
+describe('convSendOutcome: hova kerul a valasz, es szabad-e uriteni a mezot', () => {
+  const S1 = 'session-egy'
+  const S2 = 'session-ketto'
+
+  it('ugyanaz az ablak, valtozatlan mezo, sikeres kuldes -> sor + urites', () => {
+    expect(api.convSendOutcome(S1, S1, true, 'csinald meg', 'csinald meg', true))
+      .toEqual({ inRow: true, toast: false, clear: true })
+  })
+
+  it('★ kozben BEZARTAK -> buborek, es a mezohez NEM nyulunk', () => {
+    // A kuldo sor ilyenkor mar egy masik beszelgetesrol beszelne, a mezoben
+    // pedig az ott epp begepelt szoveg all.
+    const r = api.convSendOutcome(S1, S2, false, 'mas szoveg', 'csinald meg', true)
+    expect(r.inRow).toBe(false)
+    expect(r.toast).toBe(true)
+    expect(r.clear).toBe(false)
+  })
+
+  it('★ kozben MASIK beszelgetesre valtott -> ott sem urulhet a mezo', () => {
+    expect(api.convSendOutcome(S1, S2, false, 'csinald meg', 'csinald meg', true).clear).toBe(false)
+  })
+
+  it('★ ugyanazt a beszelgetest nyitotta ujra -> az elkuldott szoveg elfogy', () => {
+    // Az ablak lepett (buborek jar), de a mezoben a SAJAT, mar elkuldott
+    // szovege all -- azt itt is le kell venni, kulonben masodszor is elkuldi.
+    const r = api.convSendOutcome(S1, S1, false, 'csinald meg', 'csinald meg', true)
+    expect(r.toast).toBe(true)
+    expect(r.clear).toBe(true)
+  })
+
+  it('★ kozben TOVABB GEPELT -> a mezot nem uritjuk', () => {
+    expect(api.convSendOutcome(S1, S1, true, 'csinald meg, de maskepp', 'csinald meg', true).clear)
+      .toBe(false)
+  })
+
+  it('★ SIKERTELEN kuldes -> a szoveg marad (azt kellene ujra megirnia)', () => {
+    expect(api.convSendOutcome(S1, S1, true, 'csinald meg', 'csinald meg', false).clear).toBe(false)
+  })
+
+  it('hianyzo session nem urit veletlenul (ket `undefined` nem "ugyanaz")', () => {
+    expect(api.convSendOutcome(undefined, undefined, true, '', '', true).clear).toBe(false)
+    expect(api.convSendOutcome(null, null, true, 'x', 'x', true).clear).toBe(false)
+  })
+})
+
+describe('piszkozat: beszelgetesenkent, es csak oda kerul vissza', () => {
+  it('eltevés utan a SAJAT beszelgetesebe jon vissza', () => {
+    const d = new Map<string, string>()
+    api.convDraftSave(d, 'A', 'felig megirt utasitas')
+    expect(api.convDraftLoad(d, 'A')).toBe('felig megirt utasitas')
+  })
+
+  it('★ MAS beszelgetesbe SOSEM -- ez volt a csendes felrekuldes veszelye', () => {
+    const d = new Map<string, string>()
+    api.convDraftSave(d, 'A', 'felig megirt utasitas')
+    expect(api.convDraftLoad(d, 'B')).toBe('')
+  })
+
+  it('★ a kiuritett mezo TORLI a piszkozatot (nem jon vissza a regi szoveg)', () => {
+    const d = new Map<string, string>()
+    api.convDraftSave(d, 'A', 'valami')
+    api.convDraftSave(d, 'A', '   ')
+    expect(api.convDraftLoad(d, 'A')).toBe('')
+    expect(d.has('A')).toBe(false)
+  })
+
+  it('session nelkul nem tesz el es nem ad vissza semmit', () => {
+    const d = new Map<string, string>()
+    api.convDraftSave(d, null, 'valami')
+    expect(d.size).toBe(0)
+    expect(api.convDraftLoad(d, null)).toBe('')
+  })
+
+  it('★ megnyitaskor a felulet tenyleg visszateszi a sajat piszkozatot', () => {
+    const fn = extractFn(app, 'openCodeConversationModal')
+    expect(fn).toContain('convSendDraftFor = sessionId')
+    expect(fn).toContain('convDraftLoad(convSendDrafts, sessionId)')
+    // A visszateves a `convFollowReset()` UTAN all -- kulonben a reset
+    // ugyanabban a menetben ujra kiuritene a mezot.
+    expect(fn.indexOf('convFollowReset()')).toBeLessThan(fn.indexOf('convDraftLoad('))
   })
 })

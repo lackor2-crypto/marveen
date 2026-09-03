@@ -5277,8 +5277,13 @@
            Alapbol REJTVE all: ugynok-naplora nem lehet irni, es amig nem
            tudjuk, hova mennne, addig nem kinalunk beviteli mezot. -->
       <div id="conversationSend" class="conv-send" hidden>
+        <!-- A HELYORZO NEM NEV: ha a felhasznalo ir bele, eltunik, es a
+             kepolvaso onnantol egy nevtelen mezot mond be. Ezert kap sajat,
+             leforditott nevet is. -->
         <textarea id="conversationSendPrompt" class="conv-send-input" rows="2"
           data-i18n-placeholder="conversation.send.placeholder"
+          data-i18n-aria-label="conversation.send.aria"
+          aria-label="Utasítás ennek a beszélgetésnek"
           placeholder="Írd ide az utasítást ennek a beszélgetésnek…"></textarea>
         <div class="conv-send-row">
           <button class="btn-primary btn-compact" id="conversationSendBtn" data-i18n="conversation.send.btn">Küldés</button>

@@ -1734,6 +1734,7 @@ window._i18n.hu = {
 
   // --- utasítás-küldés az élő nézet aljáról ---
   'conversation.send.placeholder':  'Írd ide az utasítást ennek a beszélgetésnek…',
+  'conversation.send.aria':         'Utasítás ennek a beszélgetésnek',
   'conversation.send.btn':          'Küldés',
   'conversation.send.ready':        'Ugyanebbe a beszélgetésbe megy, a teljes előzménnyel.',
   'conversation.send.ready_help':   'A meglévő session folytatódik (claude --resume), tehát a Claude Code ismeri a korábbi köröket és a döntéseket. A megnyitott VS Code panel nem feltétlenül rajzolja újra magától — a választ itt, az élő nézetben látod.',
@@ -1743,7 +1744,9 @@ window._i18n.hu = {
   'conversation.send.no_session':   'Ezt a beszélgetést egyetlen munkás sem jelentette be, ezért nem tudom, hová küldjem az utasítást. Indítsd el a Windows-munkást — egy percen belül itt lesz.',
   'conversation.send.sending':      'Küldés…',
   'conversation.send.sent':         'Átadva ({id}). A válasz itt, az élő nézetben jelenik meg.',
+  'conversation.send.sent_bg':      'Átadva ({id}) — közben bezártad ezt a beszélgetést. A válasz a saját beszélgetésében jelenik meg.',
   'conversation.send.failed':       'Nem sikerült elküldeni: {msg}',
+  'conversation.send.network':      'A kérés el sem jutott a szerverig, ezért az utasítás nem indult el. Nézd meg a kapcsolatot, és küldd el újra — a szöveg megmarad.',
   'conversation.send.empty':        'Írd le, mit csináljon.',
   'conversation.send.too_long':     '{n} / 12000 karakter — ennyit a másik oldal nem vesz át.',
   'mobile_login.no_token':       'Nincs eltárolt token. Előbb lépj be itt.',
