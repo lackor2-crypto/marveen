@@ -89,9 +89,11 @@ if [ "${BLOCK}" -eq 1 ]; then
      Upstream is the original project this one was forked from. We pull from
      it; pushing to it is not ours to do.
 
-     You most likely meant:
+     You most likely meant to land on your OWN fork. Note: a direct push to
+     origin main is blocked too now (branch protection + the local test-gate).
+     The official way to land is a PR that the CI gates:
 
-         git push origin main
+         scripts/land-pr.sh "commit cim"   # branch -> PR -> CI zold -> merge
 
      If you really do have something for upstream, the way to offer it is a
      pull request on GitHub, not a direct push.

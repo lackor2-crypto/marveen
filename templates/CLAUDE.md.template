@@ -180,8 +180,10 @@ A helper felnyom egy branchet, PR-t nyit a `main`-re, MEGVÁRJA amíg a CI zöld
   flotta-gépen a párhuzamos git/fájlrendszer-subprocessek miatt terhelés-függően
   hamisan bukott (30-34/435), holott izoláltan zöld. A teljes suite helye a CI
   (`.github/workflows/ci.yml`): tiszta, dedikált runneren, ~2 perc, flakység nélkül.
-- A lokális pre-push kapu ezért CSAK gyors, determinisztikus ellenőrzést futtat
-  (tsc + syntax-check) -- azonnali előre-jelzés, sosem flaky.
+- A gyors, determinisztikus előre-jelzés (tsc) NEM vész el: a `land-pr.sh` maga
+  futtat egy `npx tsc --noEmit`-et a branch push ELŐTT, és piros típushibánál meg
+  sem nyitja a PR-t. (A lokális pre-push kapu csak a KÖZVETLEN `main`/`master`
+  push-nál fut; a feature-branchet átengedi -- ezért méri a land-pr saját maga.)
 - A `main`-en a CI KÖTELEZŐ status check, tehát rossz commit nem juthat be a
   teljes suite nélkül. ({{OWNER_NAME}} döntése, 2026-09-03.)
 
