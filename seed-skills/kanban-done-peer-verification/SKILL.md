@@ -102,3 +102,29 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
 - A jelentés (`report`) tartalmazza: mit néztél meg (fájl/sor), milyen
   tesztet futtattál és milyen eredménnyel, és ha volt korlátozás (nem
   futtattad a teljes suite-ot), azt is.
+
+## Ha a saját FAIL-edre javítási feladatot kapsz (más mód, nem csak-olvasó)
+
+Egy `fail` után {{OWNER_NAME}} eldöntheti, hogy a JAVÍTÁST is a te ágensedre
+bízza -- ez explicit szövegben jön ("Javitasi feladat... kodot IRHATSZ",
+"LANDOLAS: szabad kezed van"), és MÁS mint a fenti csak-olvasó eljárás:
+kódot írhatsz, izolált worktree-ben (`git worktree add -b <ag>-<kartya>-<tema>
+<path> HEAD`), a végén KÖTELEZŐ a TELJES `npx vitest run` + `npx tsc --noEmit`
+zöld, és ha zöld, önállóan COMMITOLHATSZ és LANDOLHATSZ a main-re -- nem kell
+review-ra várni. Csak akkor `verify-result: pass`, ha a teljes suite (nem csak
+a célzott fájlok) zöld volt.
+
+**Ütközés-elhárítás:** ha KÖZBEN a kártyát eredetileg mozgató ágens (aki a
+`fail`-t kapta tőled) jelzi, hogy ő is nekiáll ugyanennek a javításnak
+("megjavitom, kerlek ujra-verifikalj"), AZONNAL szólj neki inter-agent
+üzenettel, hogy {{OWNER_NAME}} már közvetlenül neked adta a javítást, és NE
+dolgozzon rá -- két ágens ugyanarra a fájlra írt párhuzamos commitja néma
+felülírás/ütközés kockázata. Valós eset (2026-09-03, kártya `2f7b6d4f`): a
+delegálás és a kolléga saját kezdeményezésű "megjavitom" üzenete percek
+különbséggel érkezett -- a korai, tiszta leállító üzenet előzte meg, hogy két
+worktree-ben párhuzamosan íródjon ugyanaz a két fix.
+
+A javítás után: (1) `verify-result` a MÁR MEGLÉVŐ approval-ra (ugyanaz az id,
+amit a `fail`-hez is használtál), `status:"pass"`, a `report`-ban a commit
+azonosítójával; (2) kanban komment a kártyára, mi lett javítva és melyik
+commit; (3) inter-agent üzenet a delegáló ágensnek a commit id-vel.
