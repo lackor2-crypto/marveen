@@ -163,6 +163,32 @@ A kártyára kerüljön:
 3. caveat/tranzitív függőség, ha van
 4. a landolás ténye
 
+### Landolás a fő ágba: PR + CI (NEM direkt push)
+
+A `main`-re DIREKT PUSH TILOS (a GitHub branch protection elutasítja). A landolás
+hivatalos útja egy CI-gated PR -- ezt a `scripts/land-pr.sh` intézi:
+
+```bash
+# egy git worktree-ből (scripts/agent-worktree.sh), a landolandó commitokkal a HEAD-en:
+scripts/land-pr.sh "commit/PR cím" ["leírás"]
+```
+
+A helper felnyom egy branchet, PR-t nyit a `main`-re, MEGVÁRJA amíg a CI zöld,
+és CSAK akkor merge-el. Miért így:
+
+- A teljes teszt-suite egy pre-push hookban ANTI-PATTERN: a terhelt fejlesztői/
+  flotta-gépen a párhuzamos git/fájlrendszer-subprocessek miatt terhelés-függően
+  hamisan bukott (30-34/435), holott izoláltan zöld. A teljes suite helye a CI
+  (`.github/workflows/ci.yml`): tiszta, dedikált runneren, ~2 perc, flakység nélkül.
+- A lokális pre-push kapu ezért CSAK gyors, determinisztikus ellenőrzést futtat
+  (tsc + syntax-check) -- azonnali előre-jelzés, sosem flaky.
+- A `main`-en a CI KÖTELEZŐ status check, tehát rossz commit nem juthat be a
+  teljes suite nélkül. ({{OWNER_NAME}} döntése, 2026-09-03.)
+
+Ha a CI piros a PR-en: a helper nyitva hagyja a PR-t; javítsd a hibát és pushold
+újra a branchet -- ne kerüld meg. Vészhelyzeti kapu-kihagyás CSAK a lokális
+gyors-kapunál van (`MARVEEN_SKIP_TEST_GATE=1`); a CI-t megkerülni nem lehet.
+
 ## Ütemezett feladatok
 
 Az ütemezett feladatok a `~/.claude/scheduled-tasks/` mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
