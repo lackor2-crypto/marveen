@@ -88,7 +88,21 @@ if ! (cd "$TMP_WT" && npx tsc --noEmit) >"$FAIL_LOG" 2>&1; then
   exit 1
 fi
 
-if ! (cd "$TMP_WT" && npx vitest run) >"$FAIL_LOG" 2>&1; then
+# Ket reteg a TERHELES-FUGGO hamis bukas ellen (--maxWorkers=2 --retry=2):
+# a suite teljes parhuzamossaggal (~nproc-1 worker) futtatva rendszertelenul
+# 30+ tesztet is elbuktatott 435-bol -- git/fajlrendszer-allapotot subprocess-
+# szel vizsgalo tesztek (nyomtalan-munka, git-sync, memory-boundary) egyszerre
+# futva vagy a megosztott repo indexet olvassak inkonzisztensen, vagy a nagy
+# parhuzamos subprocess-teher (git/python/tsc) alatt eleve elindulni sem tudo
+# folyamatot kapnak. A tartalom kozben zold: ugyanaz a commit izolaltan/
+# egyesevel 435/435. Csak a worker-szam felezese (=4) NEM volt eleg -- egy
+# kesobbi futas megint 30-at buktatott. Ezert (1) alacsony parhuzamossag
+# (maxWorkers=2), ami drasztikusan csokkenti az egyideju subprocess-terhelest,
+# ES (2) --retry=2: egy terheles-flaky teszt ujrafuttatva mar zold (a
+# csendesebb pillanatban lefut), egy VALODI hiba viszont mind a 3 futason
+# elbukik, tehat a kapu nem gyengul. 2026-09-03: ez blokkolta a #101 (b4beb9b4)
+# landolasat 3x. Lasd a pre-push-gate-flaky-under-load skillt.
+if ! (cd "$TMP_WT" && npx vitest run --maxWorkers=2 --retry=2) >"$FAIL_LOG" 2>&1; then
   echo "" >&2
   echo "BLOKKOLVA: a teljes teszt suite NEM zold a ${target_branch}-re puskolt commit-on (${target_sha:0:7})." >&2
   echo "" >&2
