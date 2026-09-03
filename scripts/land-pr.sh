@@ -13,7 +13,9 @@
 # merge-elunk. Igy egy rossz commit sosem kerul a main-re a teljes suite nelkul.
 # A lokalis pre-push kapu (install-test-gate-hook.sh) csak a KOZVETLEN main/master
 # push-nal fut (tsc + syntax-check); a land-pr egy FEATURE branchet pushol, azt a
-# kapu atengedi -- a gyors ellenorzest itt a CI vegzi el a PR-en.
+# kapu ATENGEDI. Ezert a gyors tipushiba-ellenorzest a land-pr MAGA futtatja le a
+# branch push ELOTT (npx tsc --noEmit) -- igy egy nyilvanvalo tores nem csak 2-3
+# perc CI-kor derul ki, hanem azonnal, meg push elott. A TELJES suite-ot a CI meri.
 #
 # Hasznalat (egy git worktree-bol, a landolando commitokkal a HEAD-en):
 #   scripts/land-pr.sh "PR cim" ["PR leiras"]
@@ -53,7 +55,10 @@ TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null)" \
 # A cel-repo az origin-bol (host-agnosztikus). FONTOS: a repo egy FORK, ezert a
 # `gh` alapbol az UPSTREAM-re nyitna PR-t -- minden gh hivasnal explicit -R kell.
 ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
-REPO="$(printf '%s' "$ORIGIN_URL" | sed -E 's#^(https://[^/]+/|git@[^:]+:)##; s#\.git$##')"
+# Harom remote-sema: https://host/owner/repo(.git), git@host:owner/repo(.git),
+# es ssh://git@host/owner/repo(.git). Az utolsonal a "ssh://<user@host>/" prefixet
+# vagjuk le (a [^/]+ elnyeli a "git@host" reszt, mert abban nincs '/').
+REPO="$(printf '%s' "$ORIGIN_URL" | sed -E 's#^(https?://[^/]+/|ssh://[^/]+/|git@[^:]+:)##; s#\.git$##')"
 case "$REPO" in */*) : ;; *) die "nem sikerult a repot kiolvasni az origin-bol ('$ORIGIN_URL')." ;; esac
 
 # A landolando commitok a HEAD-en. Ha a HEAD == origin/main, nincs mit landolni.
@@ -73,7 +78,16 @@ fi
 
 echo "land-pr: branch='$BRANCH'  cim='$TITLE'  (HEAD $AHEAD commit-tal elorebb az origin/main-nal)" >&2
 
-# --- 1. branch felnyomasa (a gyors pre-push kapu itt fut le) --------------------
+# --- 0. gyors lokalis tipusellenorzes a push ELOTT -----------------------------
+# A pre-push kapu a feature-branch push-t atengedi (csak main/master push-nal fut),
+# ezert a gyors, determinisztikus tipushiba-szurest ITT vegezzuk el: egy elgepelt
+# tipus ne 2-3 perc CI utan derüljön ki, hanem meg push elott. A teljes suite a CI-e.
+echo "land-pr: gyors lokalis tipusellenorzes (npx tsc --noEmit)..." >&2
+if ! npx tsc --noEmit; then
+  die "a lokalis 'npx tsc --noEmit' nem futott le tisztan, ezert NEM pusholok. Ha tipushiba: javitsd push elott. Ha 'tsc: not found' vagy hasonlo: a worktree-ben hianyozhat a node_modules -- futtass 'npm ci'-t (vagy hasznald a scripts/agent-worktree.sh-t, ami symlinkeli). A teljes suite-ot a CI meri."
+fi
+
+# --- 1. branch felnyomasa (a gyors pre-push kapu a main-push-nal futna, itt nem) ----
 git push -u origin "HEAD:refs/heads/$BRANCH" || die "a branch push nem sikerult (lasd a fenti kimenetet)."
 
 # --- 2. PR nyitasa (vagy meglevo ujrahasznalasa) -------------------------------

@@ -13,13 +13,16 @@ import { _encryptForTest, _decryptForTest, ENCRYPTED_FLEET_VERSION, MIN_VAULT_PA
 // Crypto round-trip
 // ---------------------------------------------------------------------------
 
-// A scrypt-alapu kulcsderivalas szandekosan CPU-nehez. A pre-push kapu a teljes
-// suite-ot nagy parhuzamossag alatt futtatja, es a 5000 ms-os alapertelmezett
-// timeout ott keves lehet -- egy derivalas terheles alatt tullepi, es a
-// FUGGETLEN futas ugyanarra a kodra zold. Ez ugyanaz a "flaky kapu terheles
-// alatt" tunet, mint a nyomtalan-munka git-olvasas hamis pozitivja (kartya
-// 1a273800): NEM tartalmi hiba, csak eroforras-kimerules. Ezert a derivalo
-// teszteknek bo timeout kell, kulonben a kapu hamisan blokkolja a landolast.
+// A scrypt-alapu kulcsderivalas szandekosan CPU-nehez, es egy derivalas terheles
+// alatt konnyen tullepi a vitest 5000 ms-os alapertelmezett teszt-timeoutjat --
+// miközben a FUGGETLEN futas ugyanarra a kodra zold. Ez nem tartalmi hiba, csak
+// eroforras-kimerules, ugyanaz a "flaky terheles alatt" tunet, mint a
+// nyomtalan-munka git-olvasas hamis pozitivja (kartya 1a273800).
+// A teljes suite mostantol a CI-ban fut (nem a pre-push kapuban, 2026-09-03,
+// kartya 61a83b22), de a terheles ott is valos: a GitHub Actions runner ket
+// Node-verziot (20.19 ES 22) parhuzamosan hajt, ffmpeg-telepitessel egyutt. Egy
+// szoros timeout ott epp ugy hamisan pirosra valtana a CI-t -- ami mostantol
+// KOTELEZO status check --, ezert a merge-t blokkolna. Ezert kell a bo timeout.
 const CRYPTO_TIMEOUT_MS = 20_000
 
 describe('encrypt/decrypt round-trip', () => {
