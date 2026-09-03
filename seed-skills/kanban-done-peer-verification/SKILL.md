@@ -62,6 +62,27 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
 - Ha egy ellenőrzéshez elkerülhetetlen lenne egy író hívás, NE tedd meg --
   írd le a jelentésben, mit nem tudtál így ellenőrizni, és jelöld `status:
   fail`-nek vagy magyarázd meg a hiányt a `report`-ban, ne találgass.
+- **Ne bízz a kártya korábbi kommentjeiben állapotként** -- a kommentek egy
+  MÚLTBELI pillanatot rögzítenek (pl. "stale backend, nem jó a build"), de
+  azóta új commit/rebuild/restart történhetett. A `recheck-before-restating`
+  elvét itt is alkalmazd: mérd meg FRISSEN (git log commit-időbélyeg vs.
+  `dist/**` fájl mtime vs. a futó process induló ideje), és csak a saját friss
+  mérésedet írd a `report`-ba -- ha eltér a komment állításától, azt is jelezd.
+  Valós eset (2026-09-02): egy korábbi komment "stale backend"-et jelzett, a
+  friss mérés (dist mtime + futó process induló ideje + élő GET-hívás)
+  igazolta, hogy a build és a restart azóta megtörtént -- a komment elavult
+  volt, nem a jelenlegi állapot.
+- **Futó process megtalálásához `ss -tlnp | grep <port>` megbízhatóbb, mint
+  `pgrep -f`** -- a `pgrep -f "node.*dist/web"`-szerű minta rááll a SAJÁT
+  shell-parancsodra is (ha a parancssorodban szerepel hasonló szöveg), és egy
+  bash-wrapper processzt ad vissza a tényleges node-process helyett. A port
+  alapján keresés egyértelmű.
+- **API GET-hívásnál a param-nevet OLVASD KI a forrásból, ne találd ki** -- egy
+  rossz param-név gyakran félrevezető hibaüzenetet ad vissza (pl. "session is
+  required", ami úgy néz ki, mintha a session nem létezne, holott csak a
+  paraméter neve rossz). Egy ilyen hibaüzenet önmagában NEM bizonyíték
+  semmire -- grep-eld ki a hibaszöveget a forrásból, és a helyes paraméterrel
+  próbáld újra, mielőtt bármilyen következtetést levonnál belőle.
 
 ## Ellenőrzés
 
