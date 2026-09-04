@@ -155,6 +155,16 @@ describe('land-pr.sh: a nulla ket dolgot jelenthet', () => {
     expect(script).not.toContain('python3')
   })
 
+  it('a branch push NEM allitja at a jelenlegi branch upstream-jet (`push -u`)', () => {
+    // Merve a #14 landolasakor: a `git push -u origin HEAD:refs/heads/<land>`
+    // a MAIN upstream-jet allitotta at az eldobhato land-branchre
+    // (branch.main.merge = refs/heads/land/20260904-212327-ffd4403), amit a
+    // merge utan a script torol is. Egy kesobbi `git pull` a main-en igy egy
+    // nemletezo branchet keresne. A script sehol nem hasznal trackinget.
+    const offenders = code.filter((line) => /git\s+push\s+(-u|--set-upstream)\b/.test(line))
+    expect(offenders).toEqual([])
+  })
+
   it('a kulon fajlba emelt, tesztelheto parsert hasznalja', () => {
     expect(existsSync(join(REPO, 'scripts', 'lib', 'ci-verdict.mjs'))).toBe(true)
     expect(script).toContain('ci-verdict.mjs')

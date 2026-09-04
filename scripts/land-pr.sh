@@ -147,7 +147,14 @@ fi
 cleanup
 
 # --- 1. branch felnyomasa (a gyors pre-push kapu a main-push-nal futna, itt nem) ----
-git push -u origin "HEAD:refs/heads/$BRANCH" || die "a branch push nem sikerult (lasd a fenti kimenetet)."
+# `-u` NELKUL, szandekosan. A `-u` a JELENLEGI branch upstream-jet allitja at az
+# eldobhato land-branchre. Ha a main-rol landolsz (a tipikus eset), a lokalis
+# main ezutan az `origin/land/2026...`-ot koveti -- egy kesobbi `git pull` a
+# main-en a mar TOROLT land-branchet huzna. Merve 2026-09-04-en a #14-nel:
+#   branch.main.merge = refs/heads/land/20260904-212327-ffd4403
+# A script sehol nem tamaszkodik a trackingre: minden git-refspec es minden gh
+# hivas (-R) explicit.
+git push origin "HEAD:refs/heads/$BRANCH" || die "a branch push nem sikerult (lasd a fenti kimenetet)."
 
 # --- 2. PR nyitasa (vagy meglevo ujrahasznalasa) -------------------------------
 PR_URL="$(gh pr list -R "$REPO" --head "$BRANCH" --base main --state open --json url --jq '.[0].url' 2>/dev/null || true)"
