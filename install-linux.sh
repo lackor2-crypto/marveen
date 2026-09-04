@@ -1630,6 +1630,7 @@ NODE_PATH="$(which node)"
 DASH_UNIT="${SERVICE_ID}-dashboard"
 CHAN_UNIT="${SERVICE_ID}-channels"
 MORN_UNIT="${SERVICE_ID}-morning"
+DEPLOY_UNIT="${SERVICE_ID}-deploy"
 
 # Detect the host timezone so the scheduled-task runner (which reads
 # cron expressions in Node's local TZ) fires at the operator's wall
@@ -1776,6 +1777,46 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+# ${DEPLOY_UNIT}.service + .timer -- auto-deploy: when origin/main advances past
+# what the running app serves, materialize it, rebuild, and restart the
+# dashboard. Closes the "landed code never reaches the running app" gap (kanban
+# 3b92bbec): the fleet lands via PRs, but nothing pulled origin/main onto the
+# checkout the service runs from, nor rebuilt dist/. scripts/deploy-live.sh is
+# conservative (never clobbers a local hand-edit, builds before restarting,
+# always exits 0), so a bad tick cannot take the app down.
+cat >"$SYSTEMD_DIR/${DEPLOY_UNIT}.service" <<EOF
+[Unit]
+Description=${BOT_NAME} auto-deploy (materialize origin/main, build, restart dashboard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/scripts/deploy-live.sh
+Environment=PATH=$HOME/.local/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=$HOME
+${TZ_LINE}
+StandardOutput=append:$INSTALL_DIR/store/deploy.log
+StandardError=append:$INSTALL_DIR/store/deploy.log
+EOF
+
+# Like the morning timer: NO [Unit] Requires=/Wants= on the service, so a
+# user-manager restart does not queue an immediate deploy on every start; the
+# [Timer] elapse is the only trigger.
+cat >"$SYSTEMD_DIR/${DEPLOY_UNIT}.timer" <<EOF
+[Unit]
+Description=Run the ${BOT_NAME} auto-deploy check every 3 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=3min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
+EOF
+
 # marveen-host-watchdog.service -- host/WSL-VM restart detector (btime-based).
 # Distinguishes a whole-VM restart (all units down at once, NOT an app crash)
 # from a service crash, and Telegrams it. See scripts/host-restart-watchdog.sh.
@@ -1860,7 +1901,7 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
   # macOS branch had. `if` rather than `&&`: a failing enable inside an if
   # CONDITION is exempt from errexit and from the ERR trap, so the installer
   # reports it instead of dying on it.
-  if systemctl --user enable "${DASH_UNIT}" "${CHAN_UNIT}" "${MORN_UNIT}.timer" "${SERVICE_ID}-host-watchdog.service" 2>/dev/null; then
+  if systemctl --user enable "${DASH_UNIT}" "${CHAN_UNIT}" "${MORN_UNIT}.timer" "${DEPLOY_UNIT}.timer" "${SERVICE_ID}-host-watchdog.service" 2>/dev/null; then
     ok "systemd unitok generalva es engedelyezve"
   else
     warn "A unit-fajlok elkeszultek, de az engedelyezesuk nem sikerult -- ujrainditas utan a szolgaltatasok nem indulnak el maguktol."
@@ -1878,8 +1919,13 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
     echo -e "  ${DIM}Javitas most:${NC}"
     echo -e "  ${DIM}systemctl --user enable \\${NC}"
     echo -e "  ${DIM}    ${DASH_UNIT} ${CHAN_UNIT} \\${NC}"
-    echo -e "  ${DIM}    ${MORN_UNIT}.timer ${SERVICE_ID}-host-watchdog.service${NC}"
+    echo -e "  ${DIM}    ${MORN_UNIT}.timer ${DEPLOY_UNIT}.timer ${SERVICE_ID}-host-watchdog.service${NC}"
   fi
+  # Start the deploy timer now too: `enable` only adds the WantedBy symlink, so
+  # on an already-running user manager the timer would not tick until the next
+  # boot. --now starts it immediately so a fresh install auto-deploys from the
+  # first landed PR onward, without a reboot.
+  systemctl --user start "${DEPLOY_UNIT}.timer" 2>/dev/null || true
   systemctl --user start "${DASH_UNIT}" "${CHAN_UNIT}" 2>/dev/null || true
   sleep 2
   for svc in "${DASH_UNIT}" "${CHAN_UNIT}"; do
