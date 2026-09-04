@@ -172,9 +172,24 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
     chartja nincs nyitva az MT4-ben. Ilyenkor **hagyd ki a kört azon az
     idősíkon**, ne küldj ki róla régi árat.
   - `verdikt: nem_tudom` (kód 0) = régi az adat, DE nincs friss live snapshot,
-    ezért a script nem találgatja, hogy hétvége/ünnep van-e vagy egy chart halott.
-    A piac-nyitva jelzés EGYETLEN becsületes forrása a live snapshot frissessége;
-    a naptári hétvégét a script szándékosan nem használja verdiktre.
+    ezért a tiszta függvény nem találgatja, hogy hétvége/ünnep van-e vagy egy
+    chart halott. A piac-nyitva jelzés EGYETLEN becsületes automatikus forrása a
+    live snapshot frissessége; a naptári hétvégét a függvény szándékosan nem
+    használja verdiktre. **TEENDŐ (kötelező, ezt a script NEM dönti el
+    helyetted):** `nem_tudom` mellett SOHA ne küldj ki egy idősíkot azonnal.
+    Neked kell eldöntened a naptárból/óráról (`date`, Europe/Budapest), amit a
+    tiszta függvény szándékosan nem néz:
+    - Ha MOST kereskedési idő van (hétköznap, nem ünnep, a piacnak nyitva
+      kellene lennie) és mégis régi az adat -> a chart halott, kezeld
+      `elavult`-ként: **hagyd ki a kört azon az idősíkon**, ne küldj róla régi
+      árat. {{OWNER_NAME}} eredeti esete ez: M5 3855 perc (~64 óra) hétköznap
+      SOSEM magyarázható hétvégével, tehát elavult -> kihagyni, nem kiküldeni.
+    - Ha MOST tényleg zárva a piac (hétvége/ünnep, a GOLD legfeljebb ~49 órát
+      áll egy hétvégén), a régi adat várható -> nincs új jelzés, csendben
+      hagyd ki, ne küldj elavultat frissként.
+    Vagyis a `nem_tudom` nem "zöld út", hanem "nézd meg te a naptárt". A
+    végleges, kézi döntést kiváltó megoldás a `gold_live.txt`-et író
+    `GOLD_Live_Export` EA (kártya 70efa568).
   - `verdikt: nincs_adat` = azon az idősíkon nincs beolvasott gyertya (friss
     telepítésen ez normális, nem hiba).
   Ha több tíz perces az adat és közben nyitva a piac, inkább hagyd ki a kört,
