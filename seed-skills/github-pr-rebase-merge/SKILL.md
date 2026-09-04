@@ -18,7 +18,7 @@ scope: global
 Ha két PR (`A`, `B`) ugyanazt a fájlt módosítja, az egyik merge után a másik CONFLICTING lesz a GitHub UI-ban, és `gh pr merge B` elbukik. Külső forkhoz nem tudsz force-pusholni egy rebaselt változatot, szóval két opció marad:
 
 1. A szerző rebaselje manuálisan és pusholja (lassú, emberfüggő)
-2. **Lokálisan rebaseled, majd squash-mergeled main-be, és a PR-t manuálisan close-olod** -- ez a skill
+2. **Lokálisan rebaseled, saját branchre teszed, PR-ként a CI kapuján át landolod, és az eredeti PR-t manuálisan close-olod** -- ez a skill
 
 ## Eljárás
 
@@ -62,31 +62,47 @@ git push --force-with-lease
 # Ha "rejected (stale info)" vagy "remote rejected" -> nincs write access, menj a 5. pontra
 ```
 
-### 3. Ha nincs push access (fork scenario)
+### 3. Ha nincs push access a PR branch-éhez (fork scenario)
+
+⛔ **NE a main-re pushold.** A korábbi recept itt `git checkout main` +
+`git merge --squash` + `git push origin main` volt. Ez ma két okból rossz:
+
+1. **Branch protection alatt egyszerűen elbukik.** Ha a main-en van required
+   status check és `enforce_admins: true`, a GitHub a közvetlen push-t
+   visszautasítja -- adminként is. (A Marveen repóján pontosan ez a helyzet: a
+   required check a `ci-passed`.) A hibaüzenet ilyenkor `protected branch hook
+   declined`, és a munkád ott áll félkészen.
+2. **Kihagyná a CI-t.** A squash-commit úgy kerülne a main-re, hogy a teljes
+   teszt-suite soha nem futott le rá -- pont az a lyuk, amiért a PR-alapú
+   landolás bevezetésre került.
+
+Helyette: a rebaselt tartalmat tedd a **saját** repód egy branch-ére, és onnan
+menjen PR-ként, ugyanúgy a CI kapuján át.
 
 ```bash
-# Checkoutold main-re, squash-mergeld a rebaselt branchet
-git checkout main
-git merge --squash <rebaselt-branch-név>
+# 1. A rebaselt tartalom SAJÁT branchre (a fork branch-ét nem tudod pusholni,
+#    a sajátodat igen)
+git checkout -b pr-<N>-rebased
 
-# Commitold co-author-ral
-git commit -m "$(cat <<'EOF'
-<eredeti PR title> (#N)
+# 2. Ha squasholtál, a szerző elismerése maradjon meg a commit üzenetében:
+#      Co-authored-by: <szerző> <szerző-email>
 
-Rebased and merged manually due to conflict with <prior PR or series>.
+# 3. Landolás a rendes úton: branch -> PR -> CI zöld -> merge
+scripts/land-pr.sh "<eredeti PR title> (#N)"
 
-Co-authored-by: <szerző> <szerző-email>
-EOF
-)"
+# Ha a repóban nincs land-pr.sh, kézzel ugyanez:
+#   git push -u origin HEAD
+#   gh pr create --base main --fill
+#   # VÁRD MEG a zöld CI-t, és CSAK utána:
+#   gh pr merge --squash --delete-branch
 
-git push origin main
-
-# Zárd a PR-t manuálisan
-gh pr close N --comment "Merged manually via rebase due to conflict with <prior PR>. See <commit-sha> on main." --delete-branch
+# 4. Zárd az eredeti PR-t, hivatkozva az új PR-re
+gh pr close N --comment "Rebased and landed via #<uj-PR> due to conflict with <prior PR>." --delete-branch
 ```
 
 ## Buktatók
 
+- **A main-re SOHA ne pusholj közvetlenül.** Nem stílus kérdése: ahol required status check + `enforce_admins` van (a Marveen repóján `ci-passed`), a push `protected branch hook declined`-dal elbukik, és a félkész állapotot neked kell kitakarítanod. Minden út a PR-on és a zöld CI-n át vezet -- `scripts/land-pr.sh`.
 - **`gh pr merge` nem elég, ha CONFLICTING.** Ne próbálkozz vele, mert `--merge` vagy `--rebase` flag se oldja meg, ha a patch egyszerűen nem applikál. Menj egyenesen a lokális rebaselésre.
 - **`gh pr checkout N` után a branch név a PR head ref-je**, pl. `v3-07-mcp-state-detection`. Ne tévesszen meg, hogy lokális branchként jelenik meg. Push-kor az `origin` a FORK URL-je (`<owner>/<repo>.git`), nem a saját origin.
 - **"Skipped deleting the remote branch of a fork"** üzenet normális `gh pr close --delete-branch`-nál. Csak a lokális branchet törli.
