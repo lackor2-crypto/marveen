@@ -138,6 +138,7 @@ import {
 import { sanitizeAgentName, safeJoin } from '../sanitize.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, jsonMaybeGzip, serveFile } from '../http-helpers.js'
+import { getPendingWork } from '../pending-work.js'
 import {
   exportAgentBundle,
   importAgentBundle,
@@ -1438,6 +1439,20 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       json(res, { error: 'Agent not found' }, 404); return true
     }
     json(res, getChannelHealth(name))
+    return true
+  }
+
+  // GET /api/agents/:name/pending-work -- Kanban #207 (d345eb2c): a friss/ujrainditott
+  // session fuggo munkaja az ELO adatbol (in_progress kanban + hot emlek), amit a
+  // pending-work-replay.py hook injektal SessionStart-kor. A getPendingWork sose dob:
+  // DB-hiba -> olvashatatlan:true (KULON a "nincs fuggo munka"-tol). Lasd src/web/pending-work.ts.
+  const pendingWorkMatch = path.match(/^\/api\/agents\/([^/]+)\/pending-work$/)
+  if (pendingWorkMatch && method === 'GET') {
+    const name = decodeURIComponent(pendingWorkMatch[1])
+    if (name !== MAIN_AGENT_ID && !existsSync(agentDir(name))) {
+      json(res, { error: 'Agent not found' }, 404); return true
+    }
+    json(res, getPendingWork(name))
     return true
   }
 
