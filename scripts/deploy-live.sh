@@ -64,8 +64,10 @@ LOG="$STATE_DIR/deploy.log"
 SHA_FILE="$STATE_DIR/.deployed-sha"
 LOCK="$STATE_DIR/deploy.lock"
 BRANCH="main"
-HTTP_WAIT_TRIES=20
-HTTP_WAIT_GAP=2
+# Overridable only so the test suite can drive the health loop fast; production
+# uses the defaults (20 tries x 2s = up to ~40s for a slow restart to answer).
+HTTP_WAIT_TRIES="${MARVEEN_DEPLOY_HTTP_TRIES:-20}"
+HTTP_WAIT_GAP="${MARVEEN_DEPLOY_HTTP_GAP:-2}"
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" >> "$LOG" 2>/dev/null || true; }
@@ -146,6 +148,35 @@ fi
 # We compare the work tree against the LAST DEPLOYED sha (what we put there). If
 # it differs from that by anything other than moving toward TARGET, someone
 # edited the live checkout by hand -- stop and let a human sort it out.
+#
+# First run, or a lost/missing .deployed-sha: we have NO recorded baseline, so
+# the STRAY check below has nothing to compare against and would materialize
+# unconditionally -- silently dropping any hand-edit of a tracked file. But we
+# must NOT simply refuse whenever the tree differs from origin/main either: a
+# STALE install differs by definition, and refusing there is exactly the
+# incident this guard exists to fix (a tree that is a clean materialization of
+# an OLDER commit must still deploy). So distinguish stale from hand-edited:
+# find the most recent commit (within the last 20 of origin/main) that the work
+# tree is a CLEAN materialization of, and adopt it as the baseline. If the tree
+# matches no known commit, it carries genuine local edits -> stop for a manual
+# bootstrap rather than clobber them.
+if [ -z "$DEPLOYED" ]; then
+  BASELINE=""
+  for c in $(git --git-dir="$GIT_DIR" rev-list --max-count=20 "origin/$BRANCH" 2>/dev/null); do
+    if [ -z "$(git_root diff --name-only "$c" -- . 2>/dev/null | head -1)" ]; then
+      BASELINE="$c"; break
+    fi
+  done
+  if [ -n "$BASELINE" ]; then
+    DEPLOYED="$BASELINE"
+    log "no .deployed-sha -- work tree is a clean materialization of $(git --git-dir="$GIT_DIR" rev-parse --short "$BASELINE" 2>/dev/null), adopting it as baseline for the hand-edit check."
+  else
+    log "no .deployed-sha and the work tree is not a clean materialization of any of the last 20 origin/$BRANCH commits -- likely a hand-edited/bootstrap checkout, NOT auto-deploying. Land or revert by hand first."
+    alert "Marveen deploy: nincs .deployed-sha es a fa egyetlen ismert commitnak sem tiszta materializacioja -- kezi bootstrap kell, nem deployolok. store/deploy.log."
+    exit 0
+  fi
+fi
+
 if [ -n "$DEPLOYED" ]; then
   LOCAL_EDITS="$(git_root diff --name-only "$DEPLOYED" -- . 2>/dev/null)"
   # Files that legitimately change between DEPLOYED and TARGET:
@@ -209,8 +240,15 @@ if [ "${MARVEEN_DEPLOY_SKIP_HEALTH:-0}" = "1" ]; then
 fi
 ok=0
 for i in $(seq 1 "$HTTP_WAIT_TRIES"); do
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" 2>/dev/null || echo 000)"
-  if [ "$code" != "000" ]; then ok=1; break; fi
+  # The assignment's exit status is curl's, so `|| code=000` fires exactly on a
+  # curl failure -- and overwrites, rather than appends to, the "000" curl
+  # already printed for a refused connection (the old `|| echo 000` produced
+  # "000000", which is != "000", so ok=1 on the first tick and the health check
+  # never actually verified: store/deploy.log said "HTTP 000000"). Only a real
+  # HTTP answer counts as up: 2xx/3xx, plus 401/403 because a password-protected
+  # dashboard answers with those.
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL" 2>/dev/null)" || code=000
+  case "$code" in 2*|3*|401|403) ok=1; break;; esac
   sleep "$HTTP_WAIT_GAP"
 done
 
