@@ -155,11 +155,28 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
   `gold-data.py` ezt előnyben részesíti a `.hst`-vel szemben. Ha a kimenet
   `forras: hst`, akkor az EA nincs a charton vagy nem fut.
 - **Olvasd el a `frissesseg` blokkot, mielőtt bármit kiküldenél.** A script már
-  megkülönbözteti a három esetet, nem neked kell a percszámból kitalálni:
+  megkülönbözteti az eseteket, nem neked kell a percszámból kitalálni:
   `mt4_fut: false` = nem fut a terminál, az adat áll; `megjegyzes` = mi a baj
   emberi mondatban. Hibás út vagy hiányzó GOLD-előzmény esetén a script már NEM
   0-val lép ki (2 = nincs meg a MetaTrader mappa, 3 = megvan de nincs GOLD
   előzmény, 4 = minden idősík hibás) -- korábban ilyenkor is sikert jelzett.
+- **A frissesség idősíkonként dől el (kanban 891a30f6), nem a legfrissebből.**
+  A `frissesseg.idosikok` blokk minden idősíkra külön verdiktet ad: `ok` /
+  `elavult` / `nem_tudom` / `nincs_adat`. A döntést az UTOLSÓ GYERTYA kora hozza
+  (nem a fájl mtime-ja, ami gyertya nélkül is frissülhet), idősíkonként arányos
+  küszöbbel (N×az idősík perce), így egy éjszakai D1 nem riaszt hamisan, egy 30+
+  perces M5 viszont igen. A régi hiba az volt, hogy a legfrissebb idősíket
+  nézte, és ha csak az M5 állt 3855 percet, a jelzés SOHA nem futott le.
+  - `verdikt: elavult` + **kilépőkód 5** = az MT4 fut ÉS a piac nyitva (a live
+    snapshot friss), de van idősík, ami nem frissül -- valószínűleg annak a
+    chartja nincs nyitva az MT4-ben. Ilyenkor **hagyd ki a kört azon az
+    idősíkon**, ne küldj ki róla régi árat.
+  - `verdikt: nem_tudom` (kód 0) = régi az adat, DE nincs friss live snapshot,
+    ezért a script nem találgatja, hogy hétvége/ünnep van-e vagy egy chart halott.
+    A piac-nyitva jelzés EGYETLEN becsületes forrása a live snapshot frissessége;
+    a naptári hétvégét a script szándékosan nem használja verdiktre.
+  - `verdikt: nincs_adat` = azon az idősíkon nincs beolvasott gyertya (friss
+    telepítésen ez normális, nem hiba).
   Ha több tíz perces az adat és közben nyitva a piac, inkább hagyd ki a kört,
   mint hogy régi adatot küldj ki friss jelzésként -- Kiss Zoltán nem lát
   chartot, csak a számokat hallja, nála egy csendben elavult ár rosszabb mint

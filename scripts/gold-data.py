@@ -46,6 +46,18 @@ SYMBOL = "GOLD"
 TIMEFRAMES = {"D1": 1440, "H1": 60, "M15": 15, "M5": 5}
 HEADER_SIZE = 148
 
+# FRISSESSEG-KAPU kuszob (kanban 891a30f6). A dontest az UTOLSO GYERTYA kora hozza,
+# nem a fajl mtime-ja (az .hst mtime frissulhet uj gyertya nelkul is). A kuszob
+# idosikonkent aranyos: N x az idosik perce, also korlattal. Igy egy D1 gyertya
+# ejjel (majdnem egy napos, de a mai nap FRISS gyertyaja) nem riaszt hamisan
+# (6 x 1440 = 8640 perc = 6 nap), egy 30+ perces M5 viszont igen (6 x 5 = 30 perc).
+FRISSESSEG_N = 6
+FRISSESSEG_MIN_PERC = 20  # also korlat, hogy a legrovidebb idosik se legyen tul szoros
+# A live EA-snapshot ennel fiatalabb "generated" bejegyzese jelenti azt, hogy a
+# piac NYITVA van ES az MT4 tenylegesen tolt. Ennel oregebb (vagy hianyzo) snapshot
+# eseten NEM talalgatunk: lehet hetvege/unnep, de lehet halott EA is.
+LIVE_FRISS_PERC = 15
+
 # A GOLD_Live_Export EA a telepites MQL4/Files mappajaba irja a friss snapshotot
 # (kanban 70efa568 / #93). Ha ez a fajl letezik es ervenyes, ELSOBBSEGET elvez a
 # .hst-vel szemben, mert az MT4 a .hst-t csak ritkan flusholja lemezre -> a
@@ -420,6 +432,13 @@ def analyse(tf, minutes, live, history_dir):
         "tf": tf,
         "forras": source,
         "utolso_gyertya": datetime.fromtimestamp(last["t"], timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        # A DONTESRE alkalmas szam: az utolso gyertya kora. A fajl mtime (lentebb)
+        # frissulhet uj gyertya nelkul is, ezert a frissesseg-kapu ezt hasznalja.
+        # Megjegyzes a broker-idorol: az .hst gyertyaideje broker-idozonaban van
+        # (jellemzoen UTC+2/+3) -- egy pozitiv eltolas a friss gyertyat meg
+        # fiatalabbnak (akar negativnak) mutatja, tehat sosem okoz HAMIS "elavult"-ot;
+        # a kaput ugyis csak nagy (tobb oras/napos) elmaradasnal billenti at.
+        "utolso_gyertya_kora_perc": round((time.time() - last["t"]) / 60),
         "fajl_frissitve": datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m-%d %H:%M"),
         "fajl_kora_perc": round((time.time() - stamp) / 60),
         "o": round(last["o"], 2), "h": round(last["h"], 2),
@@ -438,6 +457,150 @@ def analyse(tf, minutes, live, history_dir):
     else:
         out["hst_verzio"] = version
     return out
+
+
+def piac_nyitva_becsles(live, most, friss_perc=LIVE_FRISS_PERC):
+    """A "piac nyitva" jelzest EGYETLEN becsuletes forrasbol vesszuk: a live EA-
+    snapshot frissessegebol. Ha a snapshot friss, a piac nyitva ES az MT4 tolti az
+    adatot -> True. Ha nincs snapshot vagy elavult, NEM talalgatunk (lehet hetvege,
+    de lehet halott EA is) -> None. A naptari hetveget SZANDEKOSAN nem hasznaljuk
+    verdiktre: unnepnap is van, es a piac-orak brokerenkent elternek -- a hetvege-ora
+    legfeljebb a kiirt SZOVEGET lagyithatja, a verdiktet soha.
+
+    Visszaad: True (nyitva es tolt) vagy None (nem tudom). False-t szandekosan
+    SOHA nem ad: nincs olyan forrasunk, ami a zarva-t pozitivan igazolna."""
+    if live is None:
+        return None
+    try:
+        kor_perc = (most - live["generated"]) / 60
+    except (KeyError, TypeError):
+        return None
+    return True if kor_perc <= friss_perc else None
+
+
+def frissesseg_kapu(idosikok, running, live, most, n=FRISSESSEG_N):
+    """TISZTA fuggveny (kanban 891a30f6): idosikonkent eldonti, friss-e az adat.
+    Minden bemenet parameter -- idosikok = analyse() eredmenyeinek listaja,
+    running = mt4_running() (bool/None, csak a szoveghez), live = read_live()
+    (dict/None), most = time.time() --, hogy a --selftest halozat es fajl nelkul
+    hivhassa.
+
+    A REGI hiba, amit javit (bd->891a30f6): a fo kimenet a legFRISSEBB idosik korat
+    nezte (min(ages)) es csak akkor szolt, ha AZ is 2 orajas volt. Igy ha D1/H1/M15
+    friss es csak az M5 all 3855 perce, a figyelmeztetes SOHA nem futott le. Itt
+    idosikonkent, KULON verdikttel dontunk, es az osszesitest a legELAVULTABB hozza.
+
+    Idosikonkenti verdikt:
+      'ok'         -- az utolso gyertya a kuszob alatt (N x idosik-perc, also korlat).
+      'elavult'    -- a gyertya a kuszob folott ES a piac nyitva (live friss): ez
+                      valodi baj, ez az idosik chartja valoszinuleg nincs nyitva.
+      'nem_tudom'  -- a gyertya a kuszob folott, DE nincs friss live snapshot, tehat
+                      nem tudom, a piac zarva van-e (hetvege/unnep) vagy az MT4 nem
+                      tolti ezt az idosikot.
+      'nincs_adat' -- ezen az idosikon nincs beolvasott gyertya (hianyzo .hst, tul
+                      keves gyertya): friss telepitesen ez a normal, NEM 'elavult'."""
+    piac = piac_nyitva_becsles(live, most)
+    reszletek = {}
+    korok = []
+    for r in idosikok:
+        tf = r.get("tf", "?")
+        if "utolso_gyertya_kora_perc" not in r:
+            reszletek[tf] = {
+                "allapot": "nincs_adat",
+                "gyertya_kora_perc": None,
+                "kuszob_perc": None,
+                "indoklas": r.get("error", "nincs beolvasott gyertya ezen az idosikon"),
+            }
+            continue
+        kora = r["utolso_gyertya_kora_perc"]
+        korok.append(kora)
+        kuszob = max(n * TIMEFRAMES.get(tf, 0), FRISSESSEG_MIN_PERC)
+        gy = r.get("utolso_gyertya", "?")
+        if kora <= kuszob:
+            allapot = "ok"
+            indoklas = f"{tf}: friss (utolso gyertya {kora} perce, kuszob {kuszob} perc)."
+        elif piac is True:
+            allapot = "elavult"
+            indoklas = (f"FIGYELEM -- a(z) {tf} chart nincs nyitva vagy nem frissul az "
+                        f"MT4-ben, pedig a piac nyitva (a live snapshot friss): "
+                        f"utolso gyertya {gy}, {kora} perce -- a kuszob {kuszob} perc.")
+        else:
+            allapot = "nem_tudom"
+            indoklas = (f"{tf}: az utolso gyertya {gy}, {kora} perce (kuszob {kuszob} "
+                        f"perc), de nincs friss live snapshot, ezert nem tudom, a piac "
+                        f"zarva van-e (hetvege/unnep), vagy az MT4 nem tolti ezt az idosikot.")
+        reszletek[tf] = {
+            "allapot": allapot,
+            "gyertya_kora_perc": kora,
+            "kuszob_perc": kuszob,
+            "indoklas": indoklas,
+        }
+    van_elavult = any(v["allapot"] == "elavult" for v in reszletek.values())
+    van_nemtudom = any(v["allapot"] == "nem_tudom" for v in reszletek.values())
+    if van_elavult:
+        verdikt = "elavult"
+    elif not korok:
+        verdikt = "nincs_adat"
+    elif van_nemtudom:
+        verdikt = "nem_tudom"
+    else:
+        verdikt = "ok"
+    return {
+        "verdikt": verdikt,
+        "piac_nyitva": piac,
+        "legelavultabb_adat_kora_perc": max(korok) if korok else None,
+        "idosikok": reszletek,
+    }
+
+
+def _selftest():
+    """Rejtett onellenorzo (a repoban nincs python teszt-futtato). Halozat es fajl
+    NELKUL, szintetikus bemeneteken hivja a tiszta fuggvenyeket. Hibanal nem-nullaval
+    lep ki -- a src/__tests__/gold-frissesseg.test.ts ezt execFileSync-kel futtatja."""
+    most = 1_000_000_000  # fix epoch -> determinisztikus
+    failures = []
+
+    def check(cond, msg):
+        if not cond:
+            failures.append(msg)
+
+    # piac-becsles: csak True vagy None, SOHA nem False
+    check(piac_nyitva_becsles(None, most) is None, "live=None -> None")
+    check(piac_nyitva_becsles({"generated": most - 60}, most) is True, "friss live -> True")
+    check(piac_nyitva_becsles({"generated": most - 3 * 3600}, most) is None,
+          "elavult live -> None (nem False, nem True)")
+
+    d1 = {"tf": "D1", "utolso_gyertya_kora_perc": 1380, "utolso_gyertya": "reggeli D1"}
+    m5_regi = {"tf": "M5", "utolso_gyertya_kora_perc": 3855,
+               "utolso_gyertya": "2026-08-21 18:45 UTC"}
+
+    # 1) friss D1 + 3855 perces M5, friss live -> M5 'elavult', D1 'ok', verdikt 'elavult'
+    k = frissesseg_kapu([d1, m5_regi], True, {"generated": most - 120}, most)
+    check(k["idosikok"]["M5"]["allapot"] == "elavult", "M5(3855) + piac nyitva -> elavult")
+    check(k["idosikok"]["D1"]["allapot"] == "ok", "D1(1380) friss -> ok (ejjel nem riaszt)")
+    check(k["verdikt"] == "elavult", "osszesitett verdikt elavult (a legelavultabb hozza)")
+    check(k["legelavultabb_adat_kora_perc"] == 3855, "legelavultabb = 3855 (nem a min)")
+
+    # 2) nulla .hst (hianyzo fajl) -> 'nincs_adat', NEM 'elavult'
+    k2 = frissesseg_kapu([{"tf": "M5", "error": "nincs history fajl: /.../GOLD5.hst"}],
+                         True, {"generated": most - 120}, most)
+    check(k2["idosikok"]["M5"]["allapot"] == "nincs_adat", "hianyzo .hst -> nincs_adat")
+    check(k2["idosikok"]["M5"]["allapot"] != "elavult", "hianyzo .hst NEM elavult")
+    check(k2["verdikt"] == "nincs_adat", "csak hianyzo idosik -> verdikt nincs_adat")
+
+    # 3) nincs live snapshot -> 'nem_tudom', NEM 'ok'
+    k3 = frissesseg_kapu([d1, m5_regi], True, None, most)
+    check(k3["idosikok"]["M5"]["allapot"] == "nem_tudom", "nincs live + regi M5 -> nem_tudom")
+    check(k3["idosikok"]["M5"]["allapot"] != "ok", "nincs live + regi M5 NEM ok")
+    check(k3["idosikok"]["D1"]["allapot"] == "ok", "nincs live + friss D1 -> ok")
+
+    if failures:
+        print("SELFTEST BUKAS (%d):" % len(failures), file=sys.stderr)
+        for f in failures:
+            print("  - " + f, file=sys.stderr)
+        return 1
+    print("selftest OK")
+    return 0
 
 
 def fail(human, message, hint=None, code=2):
@@ -462,7 +625,12 @@ def main():
     ap.add_argument("--human", action="store_true", help="rovid, olvashato kimenet")
     ap.add_argument("--keres", action="store_true",
                     help="a MetaTrader mappa ujra-keresese (a gyorsitotar es a .env megkerulesevel)")
+    ap.add_argument("--selftest", action="store_true",
+                    help=argparse.SUPPRESS)  # rejtett: a frissesseg-kapu onellenorzese
     args = ap.parse_args()
+
+    if args.selftest:
+        return _selftest()
 
     # 1. lepes: HOL van a MetaTrader? Ha nincs meg, az nem "ures meres", hanem hiba.
     res = resolve_terminal_dir(force_search=args.keres)
@@ -493,19 +661,34 @@ def main():
     out = [analyse(tf, m, live, history_dir) for tf, m in wanted.items()]
 
     running = mt4_running()
+    most = time.time()
+    # A frissesseg-kapu idosikonkent, az UTOLSO GYERTYA korabol dont (kanban 891a30f6).
+    kapu = frissesseg_kapu(out, running, live, most)
     ages = [r["fajl_kora_perc"] for r in out if "fajl_kora_perc" in r]
-    frissesseg = {"mt4_fut": running,
-                  "legfrissebb_adat_kora_perc": min(ages) if ages else None}
+    frissesseg = {
+        "mt4_fut": running,
+        "piac_nyitva": kapu["piac_nyitva"],
+        "verdikt": kapu["verdikt"],
+        # kompat: a REGI mezo (fajl mtime alapjan, a legfrissebb idosik) marad,
+        "legfrissebb_adat_kora_perc": min(ages) if ages else None,
+        # DE a dontest mostantol a legELAVULTABB idosik GYERTYA-kora hozza:
+        "legelavultabb_adat_kora_perc": kapu["legelavultabb_adat_kora_perc"],
+        "idosikok": kapu["idosikok"],
+    }
     if running is None:
         frissesseg["megjegyzes"] = ("Nem tudtam megnezni, fut-e az MT4, ezert az adat "
                                     "korat nem tudom megmagyarazni.")
     elif not running:
         frissesseg["megjegyzes"] = ("Az MT4 NEM fut, ezert ez az adat nem frissul -- "
                                     "a lentiek a legutobbi futas ota valtozatlanok.")
-    elif ages and min(ages) > 120:
-        frissesseg["megjegyzes"] = ("Az MT4 fut, de az adat tobb mint 2 orajas. Hetvegen "
-                                    "ez normalis (zarva a piac); hetkoznap viszont a "
-                                    "GOLD_Live_Export EA hianyzik a chartrol.")
+    elif kapu["verdikt"] == "elavult":
+        frissesseg["megjegyzes"] = ("Az MT4 fut es a piac nyitva, DE van olyan idosik, "
+                                    "amelyik nem frissul (lasd idosikonkent lentebb). "
+                                    "Valoszinuleg annak a chartja nincs nyitva az MT4-ben.")
+    elif kapu["verdikt"] == "nem_tudom":
+        frissesseg["megjegyzes"] = ("Van tobb tizperces/orajas idosik, de nincs friss "
+                                    "live snapshot, ezert nem tudom, a piac zarva van-e "
+                                    "(hetvege/unnep) vagy egy chart nem frissul.")
 
     if args.human:
         print(f"[mappa] {root}  (forras: {res['forras']})")
@@ -533,14 +716,26 @@ def main():
                   f"MACD {r['macd']}/{r['macd_signal']}  ATR {r['atr14']}  "
                   f"Stoch {r['stoch_k']}/{r['stoch_d']}")
             print(f"      utolso gyertya: {r['utolso_gyertya']} | {r['fajl_kora_perc']} perce")
+        # Frissesseg-kapu: idosikonkent egy emberi mondat -- csak akkor, ha nem 'ok',
+        # hogy a valos problema (nem frissulo chart) ne vesszen el a szamok kozott.
+        for tf, v in kapu["idosikok"].items():
+            if v["allapot"] != "ok":
+                print(v["indoklas"])
         if "megjegyzes" in frissesseg:
             print("FIGYELEM -- " + frissesseg["megjegyzes"])
     else:
         print(json.dumps({"frissesseg": frissesseg, "idosikok": out},
                          ensure_ascii=False, indent=2))
 
-    # Ha MINDEN idosik hibas, az nem sikeres futas -- az utemezo lassa is.
-    return 0 if any("error" not in r for r in out) else 4
+    # Kilepokod (az utemezo ezt latja):
+    #   4 = MINDEN idosik hibas (nincs egy hasznalhato sem)
+    #   5 = az MT4 fut es a piac nyitva, DE van elavult idosik (valodi, teendot igenylo baj)
+    #   0 = kulonben (a 'nem_tudom' NEM buktat: nem vagyunk biztosak benne, hogy baj van)
+    if not any("error" not in r for r in out):
+        return 4
+    if kapu["verdikt"] == "elavult":
+        return 5
+    return 0
 
 
 if __name__ == "__main__":
