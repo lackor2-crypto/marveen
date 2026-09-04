@@ -72,6 +72,7 @@ import { tryHandleOverview } from './web/routes/overview.js'
 import { tryHandleAccounts } from './web/routes/accounts.js'
 import { tryHandleConnections } from './web/routes/connections.js'
 import { tryHandleDriveBrowser } from './web/routes/drive-browser.js'
+import { tryHandleGithubBrowser } from './web/routes/github-browser.js'
 // Ez a negy modul 2026-08-16-an KIESETT a bekotesbol (a munkafa egy regebbi
 // allapotra ugrott vissza, es a web.ts-t senki nem allitotta helyre). A
 // route-fajlok vegig megvoltak es le is fordultak a dist-be -- csak SOHA nem
@@ -237,6 +238,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleAccounts(routeCtx)) return
       if (await tryHandleConnections(routeCtx)) return
       if (await tryHandleDriveBrowser(routeCtx)) return
+      if (await tryHandleGithubBrowser(routeCtx)) return
       if (await tryHandleDriveSync(routeCtx)) return
       if (await tryHandlePhotosPicker(routeCtx)) return
       if (await tryHandleDepot(routeCtx)) return
