@@ -99,5 +99,10 @@ Kesz: $DIR  (branch: $BRANCH)
   git add -A && git commit
   scripts/land-pr.sh "commit cim"   # branch -> PR -> CI zold -> merge (a main-re direkt push TILOS)
 
+A landolt kod NEM kerul magatol a futo alkalmazasba: a dashboard a $BASE
+checkout dist/-jebol fut. Ezt a scripts/deploy-live.sh viszi ki (idozitve fut:
+fetch origin/main -> npm run build -> dashboard ujraindit). Ha azonnal kell:
+  $BASE/scripts/deploy-live.sh
+
 Ha vegeztel:  scripts/agent-worktree.sh --remove $AGENT
 EOF
