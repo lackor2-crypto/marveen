@@ -182,6 +182,34 @@ function githubApi(token: string, path: string): Promise<{ ok: boolean; status: 
     .catch(() => ({ ok: false, status: 0, body: null }))
 }
 
+/**
+ * Egy hitelesitett GitHub API keres EGY regisztralt fiok neveben.
+ *
+ * A KULCS SOSE HAGYJA EL A SZERVERT: itt oldjuk fel belul (`resolveToken`), es
+ * csak a kesz `Response` megy vissza a hivonak -- magat a tokent nem adjuk ki.
+ * Ez a github-bongeszo (`src/github-browse.ts`) EGYETLEN utja a GitHubhoz, igy
+ * a `resolveToken` privat maradhat, es egy route SOHA nem lat nyers kulcsot.
+ *
+ * A `path` lehet abszolut URL (pl. egy lapozo `Link`-fejlecbol) vagy
+ * `/`-kezdetu API-ut; az utobbi ele a `https://api.github.com` kerul. A hivo
+ * `init`-je felulir minden alapertelmezett fejlecet a sajatjaval.
+ */
+export async function githubRequest(account: string, path: string, init: RequestInit = {}): Promise<Response> {
+  const tok = resolveToken(account)?.token
+  if (!tok) throw new Error(`Ehhez a fiókhoz („${account}") nincs használható GitHub-kulcs.`)
+  const url = /^https?:\/\//i.test(path) ? path : 'https://api.github.com' + path
+  return fetch(url, {
+    ...init,
+    headers: {
+      Authorization: 'Bearer ' + tok,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Marveen',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(init.headers || {}),
+    },
+  })
+}
+
 export interface TokenCheck {
   ok: boolean
   message: string

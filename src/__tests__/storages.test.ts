@@ -173,14 +173,22 @@ describe('szerkesztes', () => {
 })
 
 describe('regiszter beolvasasa', () => {
-  it('hianyzo fajl = ures regiszter, nem hiba', () => {
-    expect(readStorageRegistry(join(root, 'nincs.json'))).toEqual(EMPTY)
+  it('hianyzo fajl = ures regiszter, nem hiba, es NEM olvashatatlan', () => {
+    const reg = readStorageRegistry(join(root, 'nincs.json'))
+    expect(reg).toEqual(EMPTY)
+    // Friss telepites: a csend helyes -- az olvashatatlan jelzo NINCS beallitva.
+    expect(reg.olvashatatlan).toBeUndefined()
   })
 
-  it('romlott fajl = ures regiszter, nem dobas', () => {
+  it('romlott fajl = ures regiszter (nem dobas), de OLVASHATATLAN-nak jelolve', () => {
     const p = join(root, 'rossz.json')
     writeFileSync(p, '{ ez nem json')
-    expect(readStorageRegistry(p)).toEqual(EMPTY)
+    const reg = readStorageRegistry(p)
+    // A hasznos mezok uresek (nem dobunk), de a hianyzo fajltol KULONBOZIK:
+    // itt volt adat, csak nem latunk oda -> a hivo ne mondja "nincs git-fiok"-ot.
+    expect(reg.ids).toEqual({})
+    expect(reg.gitAccounts).toEqual([])
+    expect(reg.olvashatatlan).toBe(true)
   })
 
   it('a hibas mezoket kiszurni, a jokat megtartani', () => {

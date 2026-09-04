@@ -86,6 +86,17 @@ export interface StorageRegistryFile {
   disabled: Record<string, boolean>
   /** A Git-fiokok -- ezeknek nincs Google-tokenjuk, csak itt leteznek. */
   gitAccounts: string[]
+  /**
+   * IGAZ, ha a regiszter-fajl OTT VAN, de nem ertelmezheto (romlott JSON).
+   *
+   * A NULLA KET DOLGOT JELENTHET (fresh-install szabaly): friss telepitesen a
+   * fajl MEG NINCS -> a ures regiszter helyes, es a felulet halgasson; egy
+   * romlott fajl viszont azt jelenti, hogy VOLT ott adat, csak nem latunk oda
+   * -- ilyenkor a hivo (Attekintes/Fiokok) NEM mondhatja azt, hogy "nincs
+   * git-fiok", mert az elnyeli a hibat. Ez a mezo valasztja szet a kettot:
+   * hianyzo fajl -> nincs beallitva (undefined), romlott fajl -> `true`.
+   */
+  olvashatatlan?: boolean
 }
 
 export function storageRegistryPath(): string {
@@ -101,6 +112,11 @@ export function storageKey(kind: StorageKind, account: string): string {
  * ettol meg latszanak (a lemez a forras), csak a nevek es az azonositok
  * allnak vissza alapertelmezesre. Sose dobunk, mert ez az oldal betoltesenek
  * az utjaban all.
+ *
+ * DE a ket "ures" NEM ugyanaz: a HIANYZO fajl friss telepites (a csend helyes),
+ * a ROMLOTT fajl viszont elveszett adat (ott VOLT valami, csak nem latjuk). Az
+ * utobbit `olvashatatlan: true` jelzi, hogy a hivo ne mondja "nincs git-fiok"-ot
+ * egy nema hibara -- lasd a mezo doksijat es a fresh-install szabalyt.
  */
 export function readStorageRegistry(file = storageRegistryPath()): StorageRegistryFile {
   const empty: StorageRegistryFile = { ids: {}, names: {}, disabled: {}, gitAccounts: [] }
@@ -116,7 +132,9 @@ export function readStorageRegistry(file = storageRegistryPath()): StorageRegist
         : [],
     }
   } catch {
-    return empty
+    // A fajl OTT VAN, de romlott: ezt KULON jelezzuk, kulonben a hivo egy
+    // elveszett regisztert osszetevesztene egy friss telepitessel.
+    return { ...empty, olvashatatlan: true }
   }
 }
 
