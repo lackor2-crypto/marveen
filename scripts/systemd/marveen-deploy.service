@@ -1,0 +1,19 @@
+# NOTE: replace /path/to/marveen (install dir), /home/USER (home), and USER=youruser with your values.
+# Auto-deploy: pull origin/main onto the checkout the app runs from, rebuild,
+# and restart the dashboard when (and only when) main advanced past what is
+# live. Closes the "landed code never reaches the running app" gap (kanban
+# 3b92bbec). See scripts/deploy-live.sh -- it is conservative: it never clobbers
+# a local hand-edit, builds before restarting, and always exits 0.
+[Unit]
+Description=Marveen auto-deploy (materialize origin/main, build, restart dashboard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/path/to/marveen/scripts/deploy-live.sh
+Environment=PATH=/home/USER/.local/bin:/home/USER/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=/home/USER
+Environment=TZ=Europe/Budapest
+StandardOutput=append:/path/to/marveen/store/deploy.log
+StandardError=append:/path/to/marveen/store/deploy.log
