@@ -1271,6 +1271,14 @@ function buildWakeGreetingBody(): string {
     'kotott ki mindket felet: kifutott kerettel nem irsz, mert arrol nincs mit',
     'mondani -- a visszatereskor viszont kotelezo megszolalni, es a koszones az',
     'elso mondat.',
+    '',
+    'EGYETLEN KIVETEL: ha a session inditasakor kapsz egy "EBREDES-KOSZONES: NE',
+    'koszonj" sort, akkor NE koszonj -- csak folytasd, illetve add meg a valaszt.',
+    'Azt a sort egy meres allitja elo a beszelgetes-naplobol, es csak akkor',
+    'szolal meg, ha a tulajdonos EPP MOST irt es meg valaszra var: az o',
+    'szemszogebol ilyenkor a beszelgetes egy pillanatra sem szakadt meg, tehat a',
+    'koszones nem eletjel, hanem megszakitas. Minden mas esetben -- csend a',
+    'csatornan, vagy nem merheto allapot -- a fenti szabaly all valtozatlanul.',
   ].join('\n')
 }
 

@@ -139,6 +139,8 @@ import { sanitizeAgentName, safeJoin } from '../sanitize.js'
 import { parseMultipart } from '../multipart.js'
 import { readBody, json, jsonMaybeGzip, serveFile } from '../http-helpers.js'
 import { getPendingWork } from '../pending-work.js'
+import { getWakeGreetingDecision } from '../wake-greeting-signal.js'
+import { buildWakeGreetingContext, composeSessionStartContext } from '../../wake-greeting.js'
 import {
   exportAgentBundle,
   importAgentBundle,
@@ -1452,7 +1454,20 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     if (name !== MAIN_AGENT_ID && !existsSync(agentDir(name))) {
       json(res, { error: 'Agent not found' }, 404); return true
     }
-    json(res, getPendingWork(name))
+    // #202 (231cb999): ugyanez a valasz hordozza a koszones-dontest is. A hook
+    // szandekosan buta marad (csak `additionalContext`-et injektal), igy a
+    // valtozas NEM igenyel uj hookot es semmit nem kell szetterjeszteni a
+    // flottara -- a dontes itt, egy tesztelheto tiszta fuggvenyben szuletik.
+    // A koszones a fuggo munka ELE kerul: az elso mondatrol szol, a fuggo munka
+    // a masodikrol; es akkor is kimegy, ha nincs fuggo munka.
+    const pending = getPendingWork(name)
+    const wakeGreeting = getWakeGreetingDecision(name)
+    const greetingContext = buildWakeGreetingContext(wakeGreeting)
+    json(res, {
+      ...pending,
+      additionalContext: composeSessionStartContext(greetingContext, pending.additionalContext),
+      wakeGreeting,
+    })
     return true
   }
 
