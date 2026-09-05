@@ -30,7 +30,12 @@ def main():
     # Double-check (the matcher should already filter): only the telegram reply.
     if "telegram" not in tool or "reply" not in tool:
         sys.exit(0)
-    agent_id = ledger_lib.agent_id_from_cwd(payload.get("cwd"))
+    # WRITER -> strict derivation (see ledger_lib.known_agent_id): an outbound row
+    # filed under an invented agent is worse than no row -- it is never deduped,
+    # so it accumulates, and the wake-greeting decision reads this same table.
+    agent_id = ledger_lib.known_agent_id(payload.get("cwd"))
+    if not agent_id:
+        sys.exit(0)
     tool_input = payload.get("tool_input") or {}
     chat_id = tool_input.get("chat_id")
     chat_id = "" if chat_id is None else str(chat_id).strip()

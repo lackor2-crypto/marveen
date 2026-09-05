@@ -109,6 +109,32 @@ def agent_id_from_cwd(cwd):
     return base or main_agent_id()
 
 
+def known_agent_id(cwd):
+    """Like agent_id_from_cwd(), but returns None when the cwd does not name a
+    REAL agent -- for the hooks that WRITE rows.
+
+    agent_id_from_cwd() ends in a best-effort basename fallback, which is
+    load-bearing for worktrees (<install>/.worktrees/<id>) but also invents an
+    agent for any other directory. That is how `store` ended up in
+    conversation_log as an agent with three outbound rows and no inbound ones:
+    a session whose cwd happened to be <install>/store. Junk ids are not
+    harmless -- the wake-greeting decision (kanban #202) reads exactly this
+    table, and a row filed under a name nobody owns is a measurement nobody
+    can act on.
+
+    Readers keep the permissive derivation on purpose (a wrong lookup returns
+    nothing); only the writers are strict, because a bad write persists.
+    """
+    guess = agent_id_from_cwd(cwd)
+    if not guess:
+        return None
+    if guess == main_agent_id():
+        return guess
+    if os.path.isdir(os.path.join(_install_dir(), "agents", guess)):
+        return guess
+    return None
+
+
 def connect():
     con = sqlite3.connect(db_path(), timeout=10)
     con.execute("PRAGMA busy_timeout=10000")

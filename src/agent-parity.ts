@@ -62,6 +62,31 @@ export const MAIN_ONLY_HOOKS: ReadonlyArray<{ script: string; why: string }> = [
  *  sub-agent has that the main agent lacks. */
 export const SUBAGENT_ONLY_HOOKS: ReadonlyArray<{ script: string; why: string }> = []
 
+/**
+ * WHERE the main agent's hooks actually come from -- BOTH files, not one.
+ *
+ * A settings.json is not the whole truth: the harness merges the USER file
+ * (~/.claude/settings.json) with the PROJECT file (<repo>/.claude/settings.json),
+ * and the main agent runs from the project root, so it gets both. Until #202 the
+ * parity check read only the user file, and every capability wired into the
+ * project file was structurally invisible to it -- the ledger-capture hook sat
+ * there for months while the check stayed green. A gate that cannot see half the
+ * evidence reports "no drift" when it means "I did not look there".
+ *
+ * Pure on purpose: the caller supplies the two roots, so the runtime check and
+ * the live-install test cannot drift apart on WHICH files count.
+ */
+export function mainAgentSettingsPaths(homeDir: string, repoRoot: string): string[] {
+  return [`${homeDir}/.claude/settings.json`, `${repoRoot}/.claude/settings.json`]
+}
+
+/** The union of several settings.json hook blobs -- see mainAgentSettingsPaths. */
+export function unionHookScripts(blobs: unknown[]): Set<string> {
+  const out = new Set<string>()
+  for (const blob of blobs) for (const name of hookScriptNames(blob)) out.add(name)
+  return out
+}
+
 /** Extract the script basenames referenced by a settings.json hooks block.
  *  Commands differ in shape between installs (bare `python3 /abs/path.py`, the
  *  fail-open `bash -c '[ -f ... ] && exec ...'` wrapper, a symlinked

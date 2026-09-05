@@ -2448,9 +2448,15 @@ export function hasOpenInboundQuestion(agentId: string): boolean {
  * valaszra varo uzenet", hanem hogy ehhez az agenshez EGYALTALAN nincs bejovo
  * naplo (friss telepites, vagy nincs bekotve a ledger-capture hook) -- azaz nem
  * latunk oda. A hivo ezt kulon agra kell hogy vigye.
+ *
+ * `oldestUnansweredAt` a LEGREGEBBI valaszra varo bejovo sor ideje -- ez donti el,
+ * MENNYIT vart a tulajdonos. A `lastInboundAt` erre alkalmatlan: ha valaki 5 orayal
+ * ezelott irt (valasz nelkul), majd 2 perce ujra, a legfrissebb sorbol 2 perc jon ki,
+ * es az 5 oras kieses lathatatlan marad -- pont ott, ahol az eletjel a legfontosabb.
  */
 export function getConversationEdge(agentId: string): {
   lastInboundAt: number | null
+  oldestUnansweredAt: number | null
   answered: boolean
   inboundRows: number
 } {
@@ -2464,7 +2470,7 @@ export function getConversationEdge(agentId: string): {
        WHERE agent_id = ? AND direction = 'in'
        ORDER BY created_at DESC, id DESC LIMIT 1`,
   ).get(agentId) as { id: number; created_at: number } | undefined
-  if (!row) return { lastInboundAt: null, answered: false, inboundRows }
+  if (!row) return { lastInboundAt: null, oldestUnansweredAt: null, answered: false, inboundRows }
 
   const laterOut = db.prepare(
     `SELECT 1 FROM conversation_log
@@ -2473,8 +2479,32 @@ export function getConversationEdge(agentId: string): {
        LIMIT 1`,
   ).get(agentId, row.created_at, row.created_at, row.id)
 
+  // A LEGREGEBBI meg meg nem valaszolt bejovo sor: az utolso kimeno UTAN erkezett
+  // elso bejovo. Kimeno sor nelkul a legelso bejovo sor maga. Ha a legutolso
+  // bejovora mar erkezett valasz, ez szuksegszeruen null -- ugyanaz az allapot,
+  // csak a masik oldalrol nezve.
+  const lastOut = db.prepare(
+    `SELECT created_at, id FROM conversation_log
+       WHERE agent_id = ? AND direction = 'out'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(agentId) as { created_at: number; id: number } | undefined
+
+  const oldestOpen = (lastOut
+    ? db.prepare(
+      `SELECT created_at FROM conversation_log
+         WHERE agent_id = ? AND direction = 'in'
+           AND (created_at > ? OR (created_at = ? AND id > ?))
+         ORDER BY created_at ASC, id ASC LIMIT 1`,
+    ).get(agentId, lastOut.created_at, lastOut.created_at, lastOut.id)
+    : db.prepare(
+      `SELECT created_at FROM conversation_log
+         WHERE agent_id = ? AND direction = 'in'
+         ORDER BY created_at ASC, id ASC LIMIT 1`,
+    ).get(agentId)) as { created_at: number } | undefined
+
   return {
     lastInboundAt: row.created_at * 1000,
+    oldestUnansweredAt: oldestOpen ? oldestOpen.created_at * 1000 : null,
     answered: !!laterOut,
     inboundRows,
   }

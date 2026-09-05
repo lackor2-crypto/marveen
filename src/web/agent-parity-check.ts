@@ -11,6 +11,7 @@
 // or a declared exception, and a watcher quietly patching one install would
 // hide the drift from the repo, which is where it must be fixed.
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../config.js'
@@ -18,7 +19,10 @@ import { agentSettingsPath, fleetSkillsDir } from './agent-scaffold.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { agentConfigRoot, listAgentNames } from './agent-config.js'
 import { sendAlert } from './channel-monitor.js'
-import { findParityDrift, describeParityDrift, hookScriptNames, type ParityDrift } from '../agent-parity.js'
+import {
+  findParityDrift, describeParityDrift, hookScriptNames, unionHookScripts,
+  mainAgentSettingsPaths, type ParityDrift,
+} from '../agent-parity.js'
 
 const TEMPLATE_PATH = join(PROJECT_ROOT, 'templates', 'settings.json.template')
 // Restarting is routine here, and an identical alert on every restart trains
@@ -82,9 +86,14 @@ export function checkAgentParity(): { drift: ParityDrift[]; skillGaps: string[] 
   // settings.json used to take the skill-library check down with it, hiding a
   // second, unrelated gap (lackor3's review).
   const skillGaps = agentsMissingSharedSkills()
+  // #202: the main agent's hooks come from the user file AND the project file.
+  // Reading only the first is what let ledger-capture.py hide from this gate.
   const mainSettings = agentSettingsPath(MAIN_AGENT_ID)
+  const mainPaths = mainAgentSettingsPaths(homedir(), PROJECT_ROOT)
   const comparable = existsSync(mainSettings) && existsSync(TEMPLATE_PATH)
-  const mainScripts = comparable ? hookScriptNames(readJsonHooks(mainSettings)) : new Set<string>()
+  const mainScripts = comparable
+    ? unionHookScripts(mainPaths.filter(p => existsSync(p)).map(readJsonHooks))
+    : new Set<string>()
   const templateScripts = comparable ? hookScriptNames(readJsonHooks(TEMPLATE_PATH)) : new Set<string>()
   // A settings file we could not parse yields an empty set, which would read as
   // "everything is missing" and alert about the whole fleet. Say nothing rather

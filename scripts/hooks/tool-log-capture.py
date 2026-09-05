@@ -102,6 +102,13 @@ def main():
     if not session_id or not tool_name:
         sys.exit(0)
 
+    # WRITER -> strict agent resolution (kanban #202). This hook now runs for the
+    # whole fleet, so the permissive basename fallback would file activity under
+    # invented ids (that is how `store` became an "agent" in conversation_log).
+    agent_id = ledger_lib.known_agent_id(cwd)
+    if not agent_id:
+        sys.exit(0)
+
     token = _dashboard_token()
     if not token:
         sys.exit(0)
@@ -114,7 +121,7 @@ def main():
         'tool_name': tool_name,
         'input_summary': _input_summary(tool_input, tool_name),
         'success': success,
-        'agent_id': ledger_lib.agent_id_from_cwd(cwd),
+        'agent_id': agent_id,
         # trace_id holds the CC-native tool_use_id: stable, unique per call,
         # present in both Pre and PostToolUse payloads (empirically verified).
         # No PreToolUse hook needed -- CC already gives us the correlation key
