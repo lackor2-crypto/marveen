@@ -7,7 +7,10 @@
 // the second failure mode -- a dispatched task that silently never comes back.
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { initDatabase } from '../db.js'
+import {
+  initDatabase, createApproval, createKanbanCard,
+  createOrResetApprovalVerification, resolveApprovalVerification,
+} from '../db.js'
 import {
   resetCodeBridgeTablesForTests,
   normalizeAlias, aliasFromWorkspacePath,
@@ -374,17 +377,18 @@ describe('telegram command surface', () => {
 })
 
 describe('completion notification', () => {
-  it('is short, programmatic, and carries the id needed for /result', () => {
+  it('is programmatic, carries the id needed for /result, and opens with the subject', () => {
     seedThree()
     enqueueCodeTask({ project: 'tradingbot', prompt: 'x' })
     const claimed = claimNextCodeTask('w')!
     const done = completeCodeTask(claimed.id, { ok: true, result: 'Fixed the rounding.', durationMs: 72_000, numTurns: 3 })!
     const msg = buildCompletionMessage(done)
+    expect(msg.split('\n')[0]).toContain('Feladat: x')
     expect(msg).toContain('tradingbot')
     expect(msg).toContain('1m 12s')
     expect(msg).toContain('Fixed the rounding.')
     expect(msg).toContain(`/result ${shortId(done.id)}`)
-    expect(msg.split('\n').length).toBeLessThanOrEqual(4)
+    expect(msg.split('\n').length).toBeLessThanOrEqual(5)
   })
 
   it('shows the error instead of a summary when the task failed', () => {
@@ -393,6 +397,31 @@ describe('completion notification', () => {
     const claimed = claimNextCodeTask('w')!
     const failed = completeCodeTask(claimed.id, { ok: false, error: 'workspace not found' })!
     expect(buildCompletionMessage(failed)).toContain('workspace not found')
+  })
+
+  it('does not print a bare checkmark when the linked approval verification failed', () => {
+    seedThree()
+    createKanbanCard({ id: 'deadbeef', title: 'Valami javitasa', status: 'waiting' })
+    const approvalId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    createApproval({
+      id: approvalId,
+      agent_id: 'code:tradingbot',
+      category: 'kanban_done',
+      action_description: 'Kartya: Valami javitasa',
+      action_payload: JSON.stringify({ kanban_card_id: 'deadbeef' }),
+    })
+    createOrResetApprovalVerification(approvalId, 'code:tradingbot', 'verify')
+    resolveApprovalVerification(approvalId, 'code:tradingbot', 'fail', 'nem jo')
+
+    const prompt = `report back with:\ncurl -s -X POST http://localhost:3420/api/approvals/${approvalId}/verify-result`
+    enqueueCodeTask({ project: 'tradingbot', prompt, requestedBy: 'code:tradingbot' })
+    const claimed = claimNextCodeTask('w')!
+    const done = completeCodeTask(claimed.id, { ok: true, result: 'Megneztem, hibas.' })!
+    const msg = buildCompletionMessage(done)
+    expect(msg.split('\n')[0]).toContain('Kartya #')
+    expect(msg.split('\n')[0]).toContain('Valami javitasa')
+    expect(msg).not.toMatch(/^✅/m)
+    expect(msg).toContain('FAIL')
   })
 })
 

@@ -25,7 +25,11 @@ import {
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
   listCodeTabs,
 } from './code-bridge-store.js'
-import { shortId } from './code-bridge-notify.js'
+import { shortId, chunkMessage } from './code-bridge-notify.js'
+
+// Re-exported for callers/tests that historically imported it from here --
+// it now lives in code-bridge-notify.ts (see that file for why).
+export { chunkMessage }
 
 // --- Ki ez a bot (a kartya neve) -------------------------------------------
 //
@@ -104,7 +108,6 @@ export async function resolveCodeBotIdentity(now = Date.now()): Promise<CodeBotI
 
 const OFFSET_FILE = join(STORE_DIR, 'code-bot-offset')
 const LONGPOLL_SEC = 30
-const TG_LIMIT = 3800
 
 let timer: NodeJS.Timeout | null = null
 let stopped = false
@@ -382,22 +385,6 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
 }
 
 // ---- transport ----------------------------------------------------------
-
-/** Telegram caps a message at 4096 chars; a long /result is split rather than
- *  truncated -- the point of /result is to see the WHOLE thing. */
-export function chunkMessage(text: string, limit = TG_LIMIT): string[] {
-  if (text.length <= limit) return [text]
-  const out: string[] = []
-  let rest = text
-  while (rest.length > limit) {
-    const cut = rest.lastIndexOf('\n', limit)
-    const at = cut > limit * 0.5 ? cut : limit
-    out.push(rest.slice(0, at))
-    rest = rest.slice(at).replace(/^\n/, '')
-  }
-  if (rest.length) out.push(rest)
-  return out
-}
 
 async function reply(chatId: string, text: string): Promise<void> {
   for (const part of chunkMessage(text)) {
