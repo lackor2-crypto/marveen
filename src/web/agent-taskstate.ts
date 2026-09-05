@@ -10,7 +10,8 @@ import { logger } from '../logger.js'
 // the specific in-flight task-state and the agent "continues amnesically" --
 // worst case RE-DELEGATING work already in flight. The PreCompact agent-hook
 // (type:agent, already context-aware) writes a STRUCTURED record here; a
-// SessionStart hook re-injects it on source=compact|resume.
+// SessionStart hook re-injects it on source=compact|resume|startup (see
+// REPLAY_SOURCES below -- startup covers a crash/watchdog respawn mid-task).
 //
 // Fail-safe by design: if the PreCompact extraction fails (AUP/#209) no record
 // is written -> re-injection no-ops -> Claude's own compact summary is used ->
@@ -37,7 +38,13 @@ export const TASKSTATE_TTL_MS = 12 * 60 * 60 * 1000
 // planned restart right after finishing work replays nothing (the record was
 // either consumed or is empty), and at worst a stale-but-unconsumed record
 // costs one short injected block that the agent can discard.
-const REPLAY_SOURCES = new Set(['compact', 'resume', 'startup'])
+// Exported so a template-drift test can pin the SessionStart hook matcher in
+// templates/settings.json.template to the same set (2026-09-04, #207 follow-up:
+// this set already included 'startup' while the template's matcher still said
+// 'compact|resume', so the taskstate-replay hook never even ran on a crash
+// restart -- the harness gates hook invocation on the matcher BEFORE this
+// function is reached, so the code-level fix alone was never enough).
+export const REPLAY_SOURCES = new Set(['compact', 'resume', 'startup'])
 
 // Structured state fields (Boss's context-management knowledge base, kanban
 // 55af1bfe -> docs/context-compaction-knowledge.md). A one-line summary plus a
@@ -120,8 +127,10 @@ export function isEmptyTaskState(r: TaskStateContent): boolean {
 
 /**
  * Pure decision: should this record be re-injected at SessionStart?
- * Replays ONLY when: record exists, not yet consumed, source is compact|resume
- * (never cold startup), within TTL, and the record actually holds a task.
+ * Replays ONLY when: record exists, not yet consumed, source is in
+ * REPLAY_SOURCES (compact|resume|startup -- startup IS included, see the
+ * comment above REPLAY_SOURCES), within TTL, and the record actually holds
+ * a task.
  */
 export function shouldReplayTaskState(
   record: AgentTaskState | null,

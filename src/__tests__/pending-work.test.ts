@@ -8,6 +8,8 @@
 // jelenthet").
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   getPendingWork,
   buildPendingWorkContext,
@@ -22,6 +24,7 @@ import {
   type InProgressSnapshot,
 } from '../web/pending-work.js'
 import { currentBotName, MAIN_AGENT_ID } from '../config.js'
+import { REPLAY_SOURCES } from '../web/agent-taskstate.js'
 
 const AGENT = 'lackor3'
 
@@ -168,6 +171,29 @@ describe('pending-work #207', () => {
       expect(r.olvashatatlan).toBe(false)
       expect(r.unassignedInProgressCount).toBe(0)
       expect(r.othersInProgressCount).toBe(0)
+    })
+  })
+
+  // CASE 6 -- template/code drift guard (2026-09-04 follow-up to #207): the
+  // SessionStart matcher gates whether the harness invokes taskstate-replay.py
+  // AT ALL -- it runs BEFORE agent-taskstate.ts's own source check, so a
+  // matcher that lags REPLAY_SOURCES silently reproduces the exact "restart ->
+  // idle session" bug this feature exists to fix, even though the TS decision
+  // logic is correct. This test pins the two together so they cannot drift again.
+  describe('6) SessionStart template matcher covers every REPLAY_SOURCES entry', () => {
+    it('templates/settings.json.template matcher includes every REPLAY_SOURCES source', () => {
+      const templatePath = join(__dirname, '..', '..', 'templates', 'settings.json.template')
+      const settings = JSON.parse(readFileSync(templatePath, 'utf-8')) as {
+        hooks?: { SessionStart?: Array<{ matcher?: string; hooks?: Array<{ command?: string }> }> }
+      }
+      const group = (settings.hooks?.SessionStart ?? []).find((g) =>
+        (g.hooks ?? []).some((h) => (h.command ?? '').includes('taskstate-replay.py')),
+      )
+      expect(group, 'taskstate-replay.py SessionStart entry missing from the template').toBeDefined()
+      const matcherSources = new Set((group?.matcher ?? '').split('|').filter(Boolean))
+      for (const source of REPLAY_SOURCES) {
+        expect(matcherSources.has(source), `template matcher "${group?.matcher}" is missing source "${source}"`).toBe(true)
+      }
     })
   })
 
