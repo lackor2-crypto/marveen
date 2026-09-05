@@ -34546,6 +34546,8 @@ function _intezoPlaceInfoCard() {
  * marad fenn, amelyiket epp nezik.
  */
 let _faSugok = null
+/** IKON-TABLA a szerverrol (kanban #167). A kulcs a lemezen levo mappanev. */
+let _faIkonok = null
 async function _faSugokBetolt() {
   if (_faSugok) return _faSugok
   try {
@@ -34553,7 +34555,8 @@ async function _faSugokBetolt() {
     // a zárójeles magyarázat viszont a felület nyelvét követi.
     const r = await _intezoGet('/api/life/hints?lang=' + (window._lang || 'hu'))
     _faSugok = (r && r.hints) ? r.hints : {}
-  } catch (e) { _faSugok = {} }
+    _faIkonok = (r && r.icons) ? r.icons : {}
+  } catch (e) { _faSugok = {}; _faIkonok = {} }
   return _faSugok
 }
 
@@ -34562,6 +34565,23 @@ function _faSugo(entry) {
   if (entry && entry.hint) return entry.hint
   const nev = (entry && entry.name) ? entry.name : String(entry || '')
   return (_faSugok && _faSugok[nev]) ? _faSugok[nev] : ''
+}
+
+/**
+ * Egy mappa IKONJA (kanban #167).
+ *
+ * Az ikon nem itt talalodik ki: a szabaly egy helyen all (a szerver
+ * `naming-conventions.ts` tablaja), es a `/api/life/hints` hozza. A helyi
+ * agak azok, amiket a lista MAR tud, es a tabla nem tudhat: a git-terulet
+ * (piros, nem piszkalando) es a BEERKEZO. Amire nincs szabaly, az a semleges
+ * mappa-ikon -- kitalalt ikon nincs.
+ */
+function _faIkon(entry) {
+  if (entry && entry.caution) return '📛 '
+  if (_faBeerkezo(entry)) return '📥 '
+  const nev = (entry && entry.name) ? entry.name : String(entry || '')
+  const ikon = (_faIkonok && _faIkonok[nev]) ? _faIkonok[nev] : ''
+  return ikon ? (ikon + ' ') : '📁 '
 }
 
 /** A BEERKEZO-e ez a mappa. A nevet a szerver adja, nyelvfuggo. */
@@ -34616,7 +34636,7 @@ function _intezoRender() {
       // mappa. jobb nem piszkalni".
       + (e.caution ? ' style="color:var(--danger,#d33)" title="' + escapeHtml(e.caution) + '"' : '')
       + '>'
-      + (e.isDir ? (e.caution ? '📛 ' : (_faBeerkezo(e) ? '📥 ' : '📁 ')) : '') + escapeHtml(e.name) + '</a>'
+      + (e.isDir ? _faIkon(e) : '') + escapeHtml(e.name) + '</a>'
       // A magyarazat: halvanyabb es kisebb, hogy a NEV maradjon a fo informacio.
       // Aki mar tudja, hova tesz, annak ne alljon utban; aki nem tudja, annak
       // ott legyen ugyanabban a sorban.
@@ -34772,7 +34792,7 @@ function _intezoOpenFolderPicker(mode) {
       // A git-repok itt is jelolve vannak: aki ide tallozik, lassa elore,
       // hogy oda nem fog tudni bepakolni.
       const sugo = _faSugo(f)
-      b.textContent = (f.caution ? '📛 ' : (_faBeerkezo(f) ? '📥 ' : '📁 ')) + f.name
+      b.textContent = _faIkon(f) + f.name
         + (f.caution ? '  (git — ide nem)' : (sugo ? '  (' + sugo + ')' : ''))
       if (f.caution) b.title = f.caution
       b.addEventListener('click', () => { here = f.rel; draw() })
@@ -35387,6 +35407,30 @@ async function _intezoPurgeKeres(body) {
   await _intezoOpen(_intezoPath)
 }
 
+/**
+ * NEV-TANACS a sikeres letrehozas/atnevezes utan (kanban #167).
+ *
+ * NEM hiba es NEM tiltas: a mappa mar letrejott. Ha a nev kesobb bajt csinalna
+ * (szokoz/ekezet a gep-zonaban, shell-jel, vezeto kotojel), a felhasznalo itt
+ * EGY kerdessel atnevezheti a javasolt nevre. Ha nemet mond, marad ugy, ahogy
+ * o akarta -- a sajat fajaban ez az o dontese.
+ *
+ * Visszateres: igaz, ha az atnevezes megtortent (a hivo ilyenkor is
+ * ujraolvassa a listat, tehat kulon teendo nincs).
+ */
+async function _intezoNevTanacs(r) {
+  if (!r || !r.notice || !r.suggestion || !r.rel) return false
+  if (!confirm(t('intezo.name_advice_ask', { message: r.notice, suggestion: r.suggestion }))) return false
+  try {
+    const rr = await _depoPost('/api/life/rename', { rel: r.rel, name: r.suggestion })
+    showToast(rr.message || t('intezo.done'))
+    return true
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.rename_failed'))
+    return false
+  }
+}
+
 /** Uj mappa EGY MASIK mappaba (a jobb klikkelt sorba), nem a mostaniba. */
 async function _intezoMkdirInto(rel) {
   const name = prompt(t('intezo.mkdir_prompt'))
@@ -35394,6 +35438,7 @@ async function _intezoMkdirInto(rel) {
   try {
     const r = await _depoPost('/api/life/mkdir', { parent: rel, name: name })
     showToast(r.message || t('intezo.done'))
+    await _intezoNevTanacs(r)
     // BELEPUNK abba a mappaba, amibe az uj mappa kerult -- kulonben a
     // felhasznalo egy olyan listat lat, amiben az uj mappa nincs is benne, es
     // csak hisz a visszajelzesnek. Boss, 2026-08-22: "jobb lenne ha az
@@ -35410,6 +35455,7 @@ async function _intezoRename(entry) {
   try {
     const r = await _depoPost('/api/life/rename', { rel: entry.rel, name: name })
     showToast(r.message || t('intezo.done'))
+    await _intezoNevTanacs(r)
     _intezoClearSelection()
     await _intezoOpen(_intezoPath)
   } catch (e) {
@@ -35442,6 +35488,7 @@ async function _intezoMkdir() {
   try {
     const r = await _depoPost('/api/life/mkdir', { parent: _intezoPath, name: name })
     showToast(r.message || t('intezo.done'))
+    await _intezoNevTanacs(r)
     await _intezoOpen(_intezoPath)
   } catch (e) {
     showToast((e && e.message) ? e.message : t('intezo.mkdir_failed'))

@@ -199,6 +199,53 @@ Részletesen: `fresh-install-usable` skill + CLAUDE.md „FRISSEN TELEPÍTETT
 MARVEENBEN IS MŰKÖDJÖN".
 
 
+### R9 -- Elnevezés: KÉT zóna van, és a rossz zóna NÉMÁN hibázik
+
+**Honnan jött (2026-08-24, Botond Péter, {{OWNER_NAME}} továbbította):** „Normál esetben a gép
+is a slugos konvencióra törekszik. De szóközt soha ne használj könyvtárnevekben.
+Meg speci karaktert. A szóköz miatt külön paraméternek veszik a parancsok. [...]
+Aztán ha valami újat csinál, akkor azok alapján hozza létre."
+
+**Szabály -- LÉTREHOZÁS ELŐTT döntsd el, melyik zónában vagy:**
+
+| Zóna | Hol | Mi jár | Mi tilos |
+|---|---|---|---|
+| **Ember-zóna** | életfa, dokumentumok, bármi amit EMBER olvas | ékezet és szóköz **rendben**, sőt kötelező: a mappanév a felület nyelvét követi | vezető kötőjel (a parancsok kapcsolónak nézik), és a shell saját jelei: `$ \` ; & ! # ( ) ' " [ ] { } * ? ~` |
+| **Gép-zóna** | `GIT_REPOS` és minden alatta, repó- és ágnév, script, fájlnév amihez gép nyúl, URL-részlet | `kisbetű-kötőjel` slug | ékezet, szóköz, nagybetű, bármilyen speciális jel |
+
+**A zónát a SZÜLŐ útja dönti el**, nem a készülő elem sajátja -- különben magát a
+`GIT_REPOS` mappát is slugosítani akarnánk, holott annak a neve szándékosan fix.
+
+**Miért nem elég a gondos idézőjelezés.** Botond azt írja, „ékezet lényegében nem
+baj". A mérés ennek ellentmond. 2026-09-05-én újramérve (nem emlékezetből):
+`cmd.exe /c "echo árvíztűrő"` -- a bemenet UTF-8 (`á` = `c3 a1`, `ű` = `c5 b1`),
+a kimenet egybájtos OEM (`á` -> `a0`, `ű` -> `fb`, `ő` -> `8b`). Vagyis a
+`cmd.exe` **átírja** az ékezetet, és **hibaüzenetet nem ad** -- ugyanez tette
+tönkre az MT4-költözésnél a `.bat` útvonalát. A némaság a rossz benne:
+hibaüzenetre valaki utánanéz, rossz útvonalra nem.
+
+**Ikon: soha ne találj ki.** A konvenció `src/naming-conventions.ts`
+(`iconForKey` / `iconForFolderName`), és a kulcs a **gépi** név (`legal`), nem a
+lemezen látszó (`Jogi` / `Legal`) -- az nyelvfüggő. Amire nincs szabály, az a
+semleges mappa-ikon; kitalált ikon nincs.
+
+**Gépi út (ne fejből ellenőrizd):**
+- kódból: `checkNameForPath(szuloRel, nev, lang)` -> `{ ok, zone, suggestion, message }`
+- felületről / API-ból: `GET /api/life/name-check?parent=...&name=...`
+- a `mkdirLife` / `renameLife` sikeres eredménye mellett is jön `notice` +
+  `suggestion`, ha a név később bajt csinálna
+
+**NEM TILTUNK, TANÁCSOLUNK.** A művelet sikerül, a felhasználó pedig lát egy
+mondatot és egy javasolt nevet. A saját fájában joga van szóközös nevet adni.
+
+**A nulla itt is két dolgot jelent.** Ha „nem találsz vonatkozó szabályt", külön
+kell tudnod, hogy tényleg nincs rá szabály, vagy ez a skill be sem töltődött.
+Amíg ezt a sort olvasod, a skill betöltődött. Ha egy ügynök úgy nyilatkozik,
+hogy „nincs elnevezési szabály", az **csak** akkor igaz, ha ezt az R9-et látta és
+tényleg nem vonatkozik az esetre -- különben a skillt nem érte el, és azt kell
+mondania, nem azt, hogy nincs szabály.
+
+
 ## Új szabály hozzáadása (a folyamat)
 Amikor hibát követek el és kijavítom (user-korrekció VAGY saját felismerés):
 1. Írj ide egy új `### R<n> -- rövid cím` szekciót: **Hiba:** mi történt konkrétan,
