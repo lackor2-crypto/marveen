@@ -157,8 +157,9 @@ export function buildPendingWorkContext(
   const lines: string[] = [SENTINEL]
   lines.push(
     'Ez a session ures jaratban indult (ujrainditas, osszeomlas vagy watchdog-restart utan), de van fuggo munkad. ' +
-      'Ha epp most ebredtel es meg NEM koszontel a tulajdonosnak a sajat csatornajan, tedd meg egy rovid mondattal ' +
-      '("Szia, itt vagyok, felebredtem"). DE ha a csatorna-visszajatszas mar koszont helyetted, NE koszonj masodszor.',
+      'A koszonesrol NE magadtol donts: ha ezen az inditason kaptal EBREDES-KOSZONES sort (feljebb), az dont -- kovesd. ' +
+      'Ha nem kaptal ilyet, es meg NEM koszontel a tulajdonosnak a sajat csatornajan, tedd meg egy rovid mondattal ' +
+      '("Szia, itt vagyok, felebredtem"). Ha a csatorna-visszajatszas mar koszont helyetted, NE koszonj masodszor.',
   )
   if (cards.length) {
     lines.push(

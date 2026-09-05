@@ -2437,6 +2437,49 @@ export function hasOpenInboundQuestion(agentId: string): boolean {
   return !laterOut
 }
 
+/**
+ * A beszelgetes-ledger ket szelso pontja egy agensre, a felebredeskori
+ * koszones-dontesehez (kanban #202 / 231cb999, lasd src/wake-greeting.ts).
+ *
+ * A `created_at` a tablaban MASODPERC; itt valtjuk ezredmasodpercre, hogy a
+ * dontesi logika egyetlen mertekegyseggel dolgozzon.
+ *
+ * `inboundRows` szandekosan kulon jon: a nulla itt nem azt jelenti, hogy "nincs
+ * valaszra varo uzenet", hanem hogy ehhez az agenshez EGYALTALAN nincs bejovo
+ * naplo (friss telepites, vagy nincs bekotve a ledger-capture hook) -- azaz nem
+ * latunk oda. A hivo ezt kulon agra kell hogy vigye.
+ */
+export function getConversationEdge(agentId: string): {
+  lastInboundAt: number | null
+  answered: boolean
+  inboundRows: number
+} {
+  const counted = db.prepare(
+    `SELECT COUNT(*) AS cnt FROM conversation_log WHERE agent_id = ? AND direction = 'in'`,
+  ).get(agentId) as { cnt: number } | undefined
+  const inboundRows = counted?.cnt ?? 0
+
+  const row = db.prepare(
+    `SELECT id, created_at FROM conversation_log
+       WHERE agent_id = ? AND direction = 'in'
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+  ).get(agentId) as { id: number; created_at: number } | undefined
+  if (!row) return { lastInboundAt: null, answered: false, inboundRows }
+
+  const laterOut = db.prepare(
+    `SELECT 1 FROM conversation_log
+       WHERE agent_id = ? AND direction = 'out'
+         AND (created_at > ? OR (created_at = ? AND id > ?))
+       LIMIT 1`,
+  ).get(agentId, row.created_at, row.created_at, row.id)
+
+  return {
+    lastInboundAt: row.created_at * 1000,
+    answered: !!laterOut,
+    inboundRows,
+  }
+}
+
 // System/automation participants that are not real conversation peers. They are
 // excluded as THREAD rows in the dashboard sidebar (you don't chat with the
 // heartbeat or the coordinator), but messages involving them still count toward

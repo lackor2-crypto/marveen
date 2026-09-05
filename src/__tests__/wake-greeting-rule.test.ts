@@ -24,6 +24,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { MAIN_AGENT_ID } from '../config.js'
 import { agentDir } from '../web/agent-config.js'
 import { ensureWakeGreetingSection, ensureGlobalWakeGreetingRule } from '../web/agent-scaffold.js'
+import { buildWakeGreetingContext, decideWakeGreeting } from '../wake-greeting.js'
 
 const THROWAWAY = 'zz-wake-greeting-probe'
 
@@ -83,6 +84,29 @@ describe('ensureWakeGreetingSection', () => {
     expect(ensureWakeGreetingSection(MAIN_AGENT_ID)).toBe('skipped-main')
     // Nem letezo agens: 'no-file', nem osszeomlas es nem uj fajl.
     expect(ensureWakeGreetingSection(THROWAWAY)).toBe('no-file')
+  })
+
+  // Kanban #202 (231cb999): a szabaly maga mondja ki a kivetelt, es UGYANARRA a
+  // jelolore hivatkozik, amit az injektalt blokk hasznal. Ha a ketto elcsuszna,
+  // az agens ket egymasnak ellentmondo utasitast kapna, es a regebbi (a
+  // CLAUDE.md-ben allo, "MINDIG koszonj") nyerne -- azaz a #202 csendben
+  // hatastalanna valna, miközben minden teszt zold marad.
+  it('kimondja a #202 kivetelt, ugyanazzal a jelolovel, amit az injektalt blokk hasznal', () => {
+    const path = seed('# zz-wake-greeting-probe\n')
+    ensureWakeGreetingSection(THROWAWAY)
+    const out = readFileSync(path, 'utf-8')
+
+    const injected = buildWakeGreetingContext(
+      decideWakeGreeting(
+        { lastInboundAt: 1_000_000, answered: false, inboundRows: 1, readable: true },
+        1_000_000 + 60_000,
+      ),
+    ) ?? ''
+    expect(injected).toContain('EBREDES-KOSZONES')
+    expect(out).toContain('EBREDES-KOSZONES')
+    expect(out).toContain('NE')
+    // A kivetel SZUK: a csend es a nem merheto allapot NEM nemitja el a koszonest.
+    expect(out).toContain('Minden mas esetben')
   })
 
   it('a szoveg gepfuggetlen: nincs benne agens-nev, tulajdonos-nev, /home ut', () => {
