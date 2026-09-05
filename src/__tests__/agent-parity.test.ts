@@ -20,6 +20,8 @@ import {
   MAIN_ONLY_HOOKS,
   SUBAGENT_ONLY_HOOKS,
   FLEET_WIDE_BY_CODE,
+  unionHookScripts,
+  mainAgentSettingsPaths,
 } from '../agent-parity.js'
 
 const REPO_ROOT = join(__dirname, '..', '..')
@@ -107,8 +109,14 @@ describe('this install', () => {
   const agentsDir = join(REPO_ROOT, 'agents')
   const fleetSkills = join(homedir(), '.claude', 'skills')
 
+  // #202: the main agent's hooks come from TWO files -- the user-scope
+  // ~/.claude/settings.json and the repo's own .claude/settings.json, both of
+  // which Claude Code loads for it. Reading only the first is how four ledger
+  // hooks ran for the main agent and no one else while this gate stayed green:
+  // it was not looking at the file they were in.
   it.skipIf(!existsSync(mainSettings))('runs nothing the rest of the fleet is denied', () => {
-    const drift = findParityDrift(hookScriptNames(hooksOf(mainSettings)), hookScriptNames(hooksOf(TEMPLATE_PATH)))
+    const paths = mainAgentSettingsPaths(homedir(), REPO_ROOT).filter(p => existsSync(p))
+    const drift = findParityDrift(unionHookScripts(paths.map(hooksOf)), hookScriptNames(hooksOf(TEMPLATE_PATH)))
     expect(drift, describeParityDrift(drift)).toEqual([])
   })
 

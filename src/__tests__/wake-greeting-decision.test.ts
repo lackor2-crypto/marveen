@@ -164,15 +164,15 @@ describe('getConversationEdge (a ledger-olvasas maga)', () => {
       )
 
       // Ures naplo: nulla bejovo sor -> a hivo "nem latok oda"-kent kezeli.
-      expect(getConversationEdge('a1')).toEqual({ lastInboundAt: null, answered: false, inboundRows: 0 })
+      expect(getConversationEdge('a1')).toEqual({ lastInboundAt: null, oldestUnansweredAt: null, answered: false, inboundRows: 0 })
 
       ins.run('a1', 'c', 'in', '1', 'regi kerdes', '2026-01-01T00:00:00Z', 1000)
       ins.run('a1', 'c', 'out', null, 'valasz', '2026-01-01T00:00:10Z', 1010)
-      expect(getConversationEdge('a1')).toEqual({ lastInboundAt: 1000 * 1000, answered: true, inboundRows: 1 })
+      expect(getConversationEdge('a1')).toEqual({ lastInboundAt: 1000 * 1000, oldestUnansweredAt: null, answered: true, inboundRows: 1 })
 
       // Uj kerdes a valasz utan -> nyitott.
       ins.run('a1', 'c', 'in', '2', 'uj kerdes', '2026-01-01T00:00:20Z', 1020)
-      expect(getConversationEdge('a1')).toEqual({ lastInboundAt: 1020 * 1000, answered: false, inboundRows: 2 })
+      expect(getConversationEdge('a1')).toEqual({ lastInboundAt: 1020 * 1000, oldestUnansweredAt: 1020 * 1000, answered: false, inboundRows: 2 })
 
       // UGYANABBAN a masodpercben erkezo valasz: az id dont (ugyanaz a szabaly,
       // amit a ledger_lib.open_question hasznal) -- kulonben egy gyors valasz
@@ -181,7 +181,7 @@ describe('getConversationEdge (a ledger-olvasas maga)', () => {
       expect(getConversationEdge('a1').answered).toBe(true)
 
       // Mas agens naploja SOSE keveredik ide.
-      expect(getConversationEdge('a2')).toEqual({ lastInboundAt: null, answered: false, inboundRows: 0 })
+      expect(getConversationEdge('a2')).toEqual({ lastInboundAt: null, oldestUnansweredAt: null, answered: false, inboundRows: 0 })
       raw.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })

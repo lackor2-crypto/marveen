@@ -30,6 +30,16 @@
     ],
     "SessionStart": [
       {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/ledger-replay.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/ledger-replay.py; exit 0'",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "startup|compact|resume",
         "hooks": [
           {
@@ -57,6 +67,11 @@
     "UserPromptSubmit": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/ledger-capture.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/ledger-capture.py; exit 0'",
+            "timeout": 15
+          },
           {
             "type": "command",
             "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/fresh-install-rule.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/fresh-install-rule.py; exit 0'",
@@ -154,8 +169,22 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/ledger-outbound.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/ledger-outbound.py; exit 0'",
+            "timeout": 15
+          },
+          {
+            "type": "command",
             "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/telegram_progress_reply_clear.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/telegram_progress_reply_clear.py; exit 0'",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c '[ -f {{PROJECT_ROOT}}/scripts/hooks/tool-log-capture.py ] && exec python3 {{PROJECT_ROOT}}/scripts/hooks/tool-log-capture.py; exit 0'",
+            "timeout": 5
           }
         ]
       }

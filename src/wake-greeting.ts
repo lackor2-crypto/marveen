@@ -29,6 +29,19 @@
 export interface ConversationEdge {
   /** A tulajdonos utolso uzenete (direction='in'), vagy null ha nincs ilyen sor. */
   lastInboundAt: number | null
+  /**
+   * A LEGREGEBBI meg valasz nelkul allo tulajdonos-uzenet ideje, vagy null.
+   *
+   * EZ a varakozas hossza, nem a `lastInboundAt`. A ketto akkor valik el, amikor
+   * a tulajdonos a kieses alatt TOBBSZOR is irt: ha 5 orayal ezelott kerdezett,
+   * es a valasz elmaradasa miatt 2 perce ujra irt ("?"), akkor a legfrissebb sor
+   * 2 percet mutat -- es a kod "folyamatos"-nak latna azt az 5 orat, amit a
+   * tulajdonos vegigvart. Pont ott maradna el az eletjel, ahol a legtobbet er.
+   *
+   * Opcionalis, hogy a regi hivok (es a tesztek) ne toerjenek el: ha hianyzik,
+   * a `lastInboundAt` a tartalek -- az a #202 elso valtozatanak viselkedese.
+   */
+  oldestUnansweredAt?: number | null
   /** Kapott-e mar a LEGUTOLSO bejovo uzenet kesobbi kimeno valaszt. Ugyanaz a
    *  feltetel, amit a ledger_lib.open_question() hasznal (azonos masodpercnel
    *  az id dont), hogy a ket oldal ne mondhasson mast ugyanarrol az allapotrol. */
@@ -111,7 +124,13 @@ export function decideWakeGreeting(
   }
 
   // 5. Van valaszra varo uzenet: a KORA donti el, eszlelte-e a tulajdonos a szunetet.
-  const waitedMs = nowMs - edge.lastInboundAt
+  //    A LEGREGEBBI valaszra varo sortol merunk (lasd `oldestUnansweredAt`): a
+  //    varakozas akkor kezdodott, amikor eloszor irt, nem amikor utoljara.
+  const openedAt = edge.oldestUnansweredAt ?? edge.lastInboundAt
+  // Egy jovobeli (elallitott ora) vagy a legutolso bejovonal KESOBBI nyito
+  // idobelyeg ellentmondas -- ott sem talalgatunk (lasd a 3. pontot).
+  if (openedAt > nowMs) return unknown('ora-elorement')
+  const waitedMs = nowMs - openedAt
   return waitedMs >= threshold
     ? { verdict: 'kieses', greet: true, waitedMs, reason: 'valasz-nelkul-a-kuszob-felett' }
     : { verdict: 'folyamatos', greet: false, waitedMs, reason: 'valasz-nelkul-de-friss' }

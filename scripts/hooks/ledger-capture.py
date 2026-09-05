@@ -32,7 +32,11 @@ def main():
         payload = json.load(sys.stdin)
     except Exception:
         sys.exit(0)
-    agent_id = ledger_lib.agent_id_from_cwd(payload.get("cwd"))
+    # WRITER -> strict derivation: an unrecognised cwd files rows under an agent
+    # nobody owns (see ledger_lib.known_agent_id). Silence beats a junk row.
+    agent_id = ledger_lib.known_agent_id(payload.get("cwd"))
+    if not agent_id:
+        sys.exit(0)
     prompt = payload.get("prompt") or ""
     for m in CHANNEL_RX.finditer(prompt):
         attrs, text = m.group(1), m.group(2)
