@@ -72,6 +72,14 @@ _t() {
     hu:hint_openrouter_url) echo "  Kulcsot itt szerezhetsz: https://openrouter.ai/settings/keys" ;;
     en:hint_openrouter_later) echo "  Skipped. Add it later: Dashboard -> Vault page." ;;
     hu:hint_openrouter_later) echo "  Kihagyva. Később itt állíthatod be: Dashboard -> Vault oldal." ;;
+    en:ok_openrouter_saved) echo "OpenRouter API key saved to the Vault" ;;
+    hu:ok_openrouter_saved) echo "OpenRouter API-kulcs elmentve a Vault-ba" ;;
+    en:warn_openrouter_failed) echo "Could not save the key -- add it later on the dashboard's Vault page." ;;
+    hu:warn_openrouter_failed) echo "Nem sikerult elmenteni a kulcsot -- add meg kesobb a dashboard Vault oldalan." ;;
+    en:warn_openrouter_empty) echo "No key entered, skipping." ;;
+    hu:warn_openrouter_empty) echo "Kulcs nem lett megadva, kihagyas." ;;
+    en:next_steps.4_openrouter) echo "  4. Optional: OpenRouter / other API keys on the dashboard's Vault page" ;;
+    hu:next_steps.4_openrouter) echo "  4. Opcionalis: OpenRouter/egyeb API-kulcsok a dashboard Vault oldalan" ;;
     en:prompt_whisper) echo "  Would you like to install Whisper? (y/n) [n]: " ;;
     hu:prompt_whisper) echo "  Szeretnéd telepíteni a Whisper-t? (i/n) [n]: " ;;
     en:prompt_swap) echo "  Create a 2 GB swap file? (y/n) [y]: " ;;
