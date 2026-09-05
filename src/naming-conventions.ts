@@ -29,6 +29,11 @@
 // meresunk ennek ellentmond -- az MT4 koltozesnel a `.bat` fajlnak ekezet
 // nelkuli utat kellett adni, mert a `cmd.exe` OEM kodlapja NEMAN verte szet az
 // ekezetet: nem hibauzenetet adott, hanem rossz utat. A nemasag a rossz benne.
+// UJRAMERVE 2026-09-05 (a kartya ezt kerte, ne higgyuk el emlekezetbol):
+// `cmd.exe /c "echo arvizturo"` ekezetes bemenettel -- a bemenet UTF-8
+// (a = c3 a1, u" = c5 b1), a kimenet egybajtos OEM (a -> a0, u" -> fb,
+// o" -> 8b), hibauzenet nelkul. Tehat a `cmd.exe` valoban ATIRJA az ekezetet
+// es hallgat rola.
 // Ezert a gep-zonaban az ekezet nem "nem szokas", hanem figyelmeztetendo.
 //
 // EZ A MODUL NEM TILT. Figyelmeztet, es MEGMONDJA a kovetkezo lepest (a

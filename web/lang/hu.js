@@ -814,6 +814,7 @@ window._i18n.hu = {
   'intezo.trash_confirm': 'Biztosan a Kukába teszem ezt a {what}?\n\n{name}\n\nNem törlöm véglegesen: a Rendszer / Kuka alatt megmarad, onnan vissza tudod hozni.',
   'intezo.trash_failed': 'Nem sikerült a Kukába tenni.',
   'intezo.rename_prompt': 'Mi legyen az új neve?',
+  'intezo.name_advice_ask': '{message}\n\nJavasolt név: {suggestion}\n\nÁtnevezzem erre? A mappa már elkészült, ez csak javaslat -- ha nemet mondasz, marad a te neved.',
   'intezo.rename_failed': 'Nem sikerült átnevezni.',
   'intezo.mkdir_prompt': 'Mi legyen az új mappa neve?',
   'intezo.mkdir_failed': 'Nem sikerült létrehozni a mappát.',

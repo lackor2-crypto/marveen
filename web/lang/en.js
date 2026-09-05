@@ -788,6 +788,7 @@ window._i18n.en = {
   'intezo.trash_confirm': 'Shall I really move this {what} to the Trash?\n\n{name}\n\nIt is not deleted for good: it stays under System / Trash, and you can bring it back from there.',
   'intezo.trash_failed': 'Could not move it to the Trash.',
   'intezo.rename_prompt': 'What should its new name be?',
+  'intezo.name_advice_ask': '{message}\n\nSuggested name: {suggestion}\n\nShall I rename it to that? The folder is already created; this is only a suggestion -- if you say no, your name stays.',
   'intezo.rename_failed': 'Could not rename it.',
   'intezo.mkdir_prompt': 'What should the new folder be called?',
   'intezo.mkdir_failed': 'Could not create the folder.',

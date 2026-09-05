@@ -5,6 +5,8 @@
 // le van irva, hanem attol, hogy a LETREHOZAS elott lefut. Ezert ezek a
 // tesztek nem a szoveget egyeztetik, hanem a dontest merik.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   namingZone, slugify, checkName, checkNameForPath,
   iconForKey, iconForFolderName, keysWithoutIcon, iconTable,
@@ -133,5 +135,59 @@ describe('ikon-konvencio: uj mappa nem szulethet ikon nelkul', () => {
     expect(iconForFolderName(huName)).toBe(iconForKey('legal'))
     expect(iconForFolderName(enName)).toBe(iconForKey('legal'))
     expect(iconForFolderName('Valami saját mappa')).toBe(DEFAULT_FOLDER_ICON)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DRIFT: a szabaly ott van-e, ahol az ugynok ES a felhasznalo tenylegesen
+// talalkozik vele. Egy modul, amit senki nem hiv, es egy skill-szoveg, amit
+// senki nem olvas, ugyanugy nulla -- ezert itt a SZALAT merjuk, nem a ket
+// veget kulon.
+describe('a konvencio el is jut oda, ahol dontenek', () => {
+  const root = resolve(__dirname, '..', '..')
+  const skillPath = resolve(root, 'seed-skills', 'marveen-learned-rules', 'SKILL.md')
+  const skill = readFileSync(skillPath, 'utf8')
+
+  it('a marveen-learned-rules skill tartalmazza a ket zonat, es GLOBALIS', () => {
+    // A kartya 1. pontja: a szabaly a MAR LETEZO gyujtemenybe kerul, ne uj
+    // rendszer epuljon. A `scope: global` azert kell, mert a telepito
+    // kizarolag a seed-skills/ mappat masolja ki -- e nelkul a tudas ezen az
+    // egy gepen maradna.
+    expect(skill).toMatch(/^scope:\s*global\s*$/m)
+    expect(skill).toContain('### R9')
+    expect(skill).toContain(MACHINE_ZONE_DIR)
+    expect(skill).toMatch(/ember-zóna/i)
+    expect(skill).toMatch(/gép-zóna/i)
+    // A kartya kesz-kriteriuma: sablon, nem beegetett nev.
+    expect(skill).toContain('{{OWNER_NAME}}')
+  })
+
+  it('a skill megmondja, hogyan kell GEPPEL ellenorizni, nem fejbol', () => {
+    expect(skill).toContain('checkNameForPath')
+    expect(skill).toContain('/api/life/name-check')
+  })
+
+  it('a nulla ket dolgot jelent -- a skill ezt kimondja', () => {
+    // Kartya: "ha egy ugynok nem talal vonatkozo szabalyt, kulon kell tudni,
+    // hogy tenyleg nincs ra szabaly, vagy a skill be sem toltodott."
+    expect(skill).toMatch(/nulla itt is két dolgot jelent/i)
+  })
+
+  it('a felulet tenyleg megkerdezi a felhasznalot (nem csak a szerver tud rola)', () => {
+    const app = readFileSync(resolve(root, 'web', 'app.js'), 'utf8')
+    // Harom hely hoz letre vagy nevez at: ket mkdir es egy rename. Ha valaki
+    // negyediket ir, ez a szam megbuktatja, es kiderul, hogy ott kimaradt.
+    expect(app.match(/await _intezoNevTanacs\(r\)/g) ?? []).toHaveLength(3)
+    expect(app).toContain("t('intezo.name_advice_ask'")
+    // Az ikon a szerver tablajabol jon, nem a frontendbol.
+    expect(app).toContain('function _faIkon(')
+    expect(app).toContain('_faIkonok')
+  })
+
+  it('a mondat MINDKET nyelven megvan', () => {
+    for (const lang of ['hu', 'en']) {
+      const f = readFileSync(resolve(root, 'web', 'lang', `${lang}.js`), 'utf8')
+      expect(f, lang).toContain("'intezo.name_advice_ask'")
+    }
   })
 })
