@@ -85,6 +85,39 @@ export const STARTUP_STALE_AFTER_MS = 30 * 60_000
  *  pay for. The blocked case -- the one Boss hit -- reads 100. */
 export const WAKE_MIN_USED_PCT = 50
 
+/** Below this, "the process just came back" is not a real outage worth an
+ *  owner wake -- it is a routine deploy-restart, which takes single-digit
+ *  seconds (store/deploy.log). Kanban e70f012a: the startup branch could not
+ *  tell a genuine reboot/crash/long-disconnect apart from a plain `systemctl
+ *  restart`, so every deploy-triggered restart re-announced "ujraindulas/
+ *  kapcsolat-visszateres" to the owner even though nothing was ever actually
+ *  down -- three such pings on 2026-09-05 alone. 15 minutes is comfortably
+ *  above any restart this fleet performs on purpose, and comfortably below
+ *  what a real reboot or network outage takes. */
+export const REAL_OUTAGE_AFTER_MS = 15 * 60_000
+
+/**
+ * Whether the gap since this runner was last known to be alive looks like a
+ * genuine outage (host reboot, crash, long network loss) rather than a quick,
+ * routine restart.
+ *
+ * `lastAliveAt` is null on a fresh install (no heartbeat file yet) or when it
+ * could not be read -- both are treated as "assume a real outage": a missed
+ * startup wake is invisible to the owner, so unread data must not be read as
+ * "everything was fine" (fresh-install-usable: absence of evidence is not
+ * evidence of absence). A `lastAliveAt` in the future is the same
+ * clock-moved-backwards case `decideWake` already guards against, and gets
+ * the same treatment.
+ */
+export function looksLikeRealOutage(
+  lastAliveAt: number | null,
+  bootTime: number,
+  thresholdMs: number = REAL_OUTAGE_AFTER_MS,
+): boolean {
+  if (lastAliveAt === null || lastAliveAt > bootTime) return true
+  return bootTime - lastAliveAt >= thresholdMs
+}
+
 /**
  * The most recently crossed boundary that is WORTH waking for, or null.
  *

@@ -11,10 +11,12 @@ import {
   crossedWindow,
   decideWake,
   decideWakes,
+  looksLikeRealOutage,
   recordWakeAttempt,
   recordWakeSuccess,
   INITIAL_WAKE_STATE,
   MIN_WAKE_GAP_MS,
+  REAL_OUTAGE_AFTER_MS,
   STARTUP_STALE_AFTER_MS,
   WAKE_MIN_USED_PCT,
   type WakeCandidate,
@@ -156,6 +158,34 @@ describe('recordWakeAttempt / recordWakeSuccess', () => {
     const prev = { lastWakeAt: 0, lastResetAt: 1234 }
     const s = recordWakeSuccess(recordWakeAttempt(prev, NOW), { agent: 'a', reason: 'startup', resetAt: null })
     expect(s).toEqual({ lastWakeAt: NOW, lastResetAt: 1234 })
+  })
+})
+
+describe('looksLikeRealOutage', () => {
+  // kanban e70f012a: a deploy-restart takes single-digit seconds, so a short
+  // gap must never be read as a genuine outage, whatever an individual
+  // agent's own data looks like.
+  it('a routine deploy-restart (seconds of downtime) is not a real outage', () => {
+    expect(looksLikeRealOutage(NOW - 20_000, NOW)).toBe(false)
+  })
+
+  it('a gap past the threshold is a real outage', () => {
+    expect(looksLikeRealOutage(NOW - REAL_OUTAGE_AFTER_MS, NOW)).toBe(true)
+    expect(looksLikeRealOutage(NOW - REAL_OUTAGE_AFTER_MS - 1, NOW)).toBe(true)
+    expect(looksLikeRealOutage(NOW - REAL_OUTAGE_AFTER_MS + 1, NOW)).toBe(false)
+  })
+
+  it('no heartbeat on record (fresh install, or an unreadable file) defaults to "assume a real outage"', () => {
+    expect(looksLikeRealOutage(null, NOW)).toBe(true)
+  })
+
+  it('a heartbeat in the future (clock moved backwards) also defaults to "assume a real outage"', () => {
+    expect(looksLikeRealOutage(NOW + 60_000, NOW)).toBe(true)
+  })
+
+  it('a custom threshold is honoured', () => {
+    expect(looksLikeRealOutage(NOW - 61_000, NOW, 60_000)).toBe(true)
+    expect(looksLikeRealOutage(NOW - 59_000, NOW, 60_000)).toBe(false)
   })
 })
 
