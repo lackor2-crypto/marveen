@@ -24,6 +24,7 @@ import { atomicWriteFileSync } from './atomic-write.js'
 import { sendAlert } from './channel-monitor.js'
 import {
   decideWakes,
+  looksLikeRealOutage,
   recordWakeAttempt,
   recordWakeSuccess,
   INITIAL_WAKE_STATE,
@@ -48,6 +49,7 @@ export const LIMIT_WAKE_INITIAL_DELAY_MS = 45_000
 export const LIMIT_WAKE_INTERVAL_MS = 20_000
 
 const STATE_PATH = join(STORE_DIR, 'limit-wake-state.json')
+const ALIVE_PATH = join(STORE_DIR, 'limit-wake-alive.json')
 const WAKE_SCRIPT = join(PROJECT_ROOT, 'scripts', 'agent-wake.sh')
 
 // The in-memory copy is the AUTHORITY; the file is best-effort persistence.
@@ -94,6 +96,30 @@ function writeStates(states: Record<string, WakeState>): void {
     // Worth a line: without persistence every dashboard restart re-arms the
     // startup wake, which is exactly the ping storm the cooldown prevents.
     logger.warn({ err, path: STATE_PATH }, 'limit-wake: could not persist state')
+  }
+}
+
+/** Last time THIS runner (any process instance) was confirmed alive, read
+ *  once at boot before it gets overwritten. Missing or unreadable -> null,
+ *  which looksLikeRealOutage treats as "assume a real outage" (see there). */
+function readLastAliveAt(): number | null {
+  try {
+    const raw = JSON.parse(readFileSync(ALIVE_PATH, 'utf-8'))
+    const at = (raw as { lastAliveAt?: unknown } | null)?.lastAliveAt
+    return typeof at === 'number' && Number.isFinite(at) ? at : null
+  } catch {
+    return null
+  }
+}
+
+function writeLastAliveAt(now: number): void {
+  try {
+    atomicWriteFileSync(ALIVE_PATH, JSON.stringify({ lastAliveAt: now }))
+  } catch (err) {
+    // Same failure shape as writeStates: if this cannot be written, every
+    // future boot reads null and defaults to "assume a real outage" -- the
+    // pre-fix behaviour, not a new failure mode.
+    logger.warn({ err, path: ALIVE_PATH }, 'limit-wake: could not persist liveness heartbeat')
   }
 }
 
@@ -230,9 +256,17 @@ const STARTUP_WINDOW_MS = 5 * 60_000
 let startupDeadline: number | null = null
 const startupDone = new Set<string>()
 
+// Decided ONCE, from the first tick's clock, against the heartbeat the
+// PREVIOUS process instance left behind: did this boot follow a real outage,
+// or just a routine restart? A `false` here means the startup branch stays
+// closed for this process's whole lifetime, whatever any individual agent's
+// own data looks like -- see looksLikeRealOutage in ../limit-wake.ts.
+let realOutageAtBoot: boolean | null = null
+
 /** Test seam. */
 export function _resetLimitWakeForTest(): void {
   startupDeadline = null
+  realOutageAtBoot = null
   startupDone.clear()
   states = null
 }
@@ -243,8 +277,11 @@ async function tick(): Promise<void> {
   // dashboard down over a missing tmux binary.
   try {
     const now = Date.now()
+    // Read BEFORE writing: this is the previous instance's last heartbeat.
+    if (realOutageAtBoot === null) realOutageAtBoot = looksLikeRealOutage(readLastAliveAt(), now)
+    writeLastAliveAt(now)
     if (startupDeadline === null) startupDeadline = now + STARTUP_WINDOW_MS
-    const startupOpen = now < startupDeadline
+    const startupOpen = realOutageAtBoot && now < startupDeadline
     const startupPassFor = (agent: string) => startupOpen && !startupDone.has(agent)
 
     const candidates = collectCandidates()
