@@ -373,6 +373,70 @@ export function syncAgentPromptHooks(
   return changed
 }
 
+/**
+ * Widen an existing command hook's matcher to the template's, by exact command
+ * string. A command hook is moved OUT of its stale-matcher group into the group
+ * that already carries the template's matcher (creating one if none exists);
+ * a group left empty afterwards is dropped. Siblings in the old group that are
+ * not in the template (or belong under a different matcher) are left alone.
+ *
+ * Why this exists (kanban d345eb2c / #207, 2026-09-05): PR #17 widened
+ * templates/settings.json.template's SessionStart matcher for
+ * taskstate-replay.py from "compact|resume" to "startup|compact|resume" (a
+ * fresh startup needs the same pending-work replay a compact/resume gets).
+ * ensureAgentHooks' add-pass below only ADDS a hook whose exact command string
+ * is missing from the event -- since taskstate-replay.py's command was already
+ * present (just under the narrow matcher), the add-pass saw nothing to do and
+ * the live fleet kept the stale matcher through every restart since. Confirmed
+ * live: all 9 deployed agents still carried "compact|resume" days after the
+ * template fix shipped. syncAgentPromptHooks already solved this exact class of
+ * bug for `type: "agent"` prompt hooks (kanban 55af1bfe); this generalizes it to
+ * `type: "command"` hooks. Runs after upgradeLegacyHookCommands so a legacy
+ * bare-form command has already been normalized to the template's exact string.
+ *
+ * Exported for unit testing.
+ */
+export function syncAgentHookMatchers(
+  existingHooks: Record<string, unknown>,
+  tplHooks: Record<string, unknown>,
+): boolean {
+  let changed = false
+  for (const [event, tplEntriesRaw] of Object.entries(tplHooks)) {
+    const existEntries = existingHooks[event]
+    if (!Array.isArray(existEntries)) continue
+    const entries = existEntries as HookEntry[]
+    const targets = new Map<string, HookEntry>()
+
+    for (const tplEntry of tplEntriesRaw as HookEntry[]) {
+      const matcherKey = tplEntry.matcher ?? ''
+      for (const tplHook of tplEntry.hooks ?? []) {
+        if (!tplHook.command) continue
+        for (const entry of entries) {
+          if ((entry.matcher ?? '') === matcherKey) continue
+          const hooks = entry.hooks ?? []
+          const idx = hooks.findIndex((h) => h.command === tplHook.command)
+          if (idx === -1) continue
+          const [hook] = hooks.splice(idx, 1)
+          let target = targets.get(matcherKey) ?? entries.find((e) => (e.matcher ?? '') === matcherKey)
+          if (!target) {
+            target = { matcher: tplEntry.matcher, hooks: [] }
+            entries.push(target)
+          }
+          targets.set(matcherKey, target)
+          if (!target.hooks) target.hooks = []
+          target.hooks.push(hook)
+          changed = true
+        }
+      }
+    }
+
+    for (let i = entries.length - 1; i >= 0; i--) {
+      if ((entries[i].hooks ?? []).length === 0) entries.splice(i, 1)
+    }
+  }
+  return changed
+}
+
 // Idempotent migration: every agent's settings.json should carry the
 // PreCompact hook (memory save + skill reflection). Pre-refactor agents
 // were scaffolded before scaffoldAgentDir seeded the template, so their
@@ -403,12 +467,17 @@ export function ensureAgentHooks(name: string): boolean {
     //      so the exact-match dedup in step 2 sees the upgraded commands and skips
     //      them -- avoiding the double-entry bug where the wrapper is added alongside
     //      the old bare command.
+    //   0.5. Matcher-widen pass: move a command hook that already exists but under
+    //      a stale matcher into the group with the template's matcher (kanban #207) --
+    //      otherwise step 2's exact-command dedup would see the command as "already
+    //      present" and never touch its matcher.
     //   1. If a hook event is entirely missing: add it wholesale.
     //   2. If the event exists: add any template hook commands not yet present
     //      as a new hook group entry (preserves existing hooks like telegram_progress.py).
     //   3. Sync the timeout of any command hook whose command matches but timeout differs.
     const existingHooks = existing.hooks as Record<string, unknown>
     let changed = upgradeLegacyHookCommands(existingHooks, tplHooks)
+    if (syncAgentHookMatchers(existingHooks, tplHooks)) changed = true
     // Prompt-carrying (type:agent) hooks are command-less, so the command-keyed
     // passes below cannot see them. Sync them from the template first.
     if (syncAgentPromptHooks(existingHooks, tplHooks)) changed = true
