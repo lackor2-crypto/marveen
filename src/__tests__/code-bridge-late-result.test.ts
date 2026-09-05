@@ -141,8 +141,11 @@ describe('completion ping', () => {
     expect(msg).toContain('Kod-hid')
     expect(msg).toContain('marvin')
     expect(msg).toContain('/result')
-    // Short stays short: this is the whole point of the direct ping.
-    expect(msg.split('\n').length).toBeLessThanOrEqual(4)
+    // 2026-09-05: no longer capped at 4 -- the message now also opens with a
+    // subject line (which task/card this is about), so a bit of length was
+    // traded for that clarity on Boss's explicit request. Still bounded: no
+    // meta line here (no numTurns/cost), so subject + head + result + footer.
+    expect(msg.split('\n').length).toBeLessThanOrEqual(5)
   })
 })
 
