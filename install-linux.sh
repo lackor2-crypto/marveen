@@ -2122,12 +2122,12 @@ if [[ "$DO_OPENROUTER" == "i" || "$DO_OPENROUTER" == "y" ]]; then
         setSecret('openrouter-fleet-key', 'OpenRouter (telepitokor)', process.argv[1])
       })
     " "$OPENROUTER_KEY_INPUT" 2>/dev/null; then
-      ok "OpenRouter API-kulcs elmentve a Vault-ba"
+      ok "$(_t ok_openrouter_saved)"
     else
-      warn "Nem sikerult elmenteni a kulcsot -- add meg kesobb a dashboard Vault oldalan."
+      warn "$(_t warn_openrouter_failed)"
     fi
   else
-    warn "Kulcs nem lett megadva, kihagyas."
+    warn "$(_t warn_openrouter_empty)"
   fi
 else
   echo -e "  ${DIM}$(_t hint_openrouter_later)${NC}"
@@ -2172,7 +2172,7 @@ echo -e "  ${DIM}1. Nyisd meg a dashboardot a fenti URL-lel${NC}"
 echo -e "  ${DIM}2. Irj a botodnak Telegramon -- mar valaszolnia kell${NC}"
 echo -e "  ${DIM}3. A Csapat oldalon hozhatsz letre tobb agenst${NC}"
 if [[ "$DO_OPENROUTER" != "i" && "$DO_OPENROUTER" != "y" ]]; then
-  echo -e "  ${DIM}4. Opcionalis: OpenRouter/egyeb API-kulcsok a dashboard Vault oldalan${NC}"
+  echo -e "  ${DIM}$(_t next_steps.4_openrouter)${NC}"
 fi
 echo ""
 echo -e "  ${DIM}Hasznos parancsok:${NC}"

@@ -1331,6 +1331,40 @@ if [ "$CHANNEL_PROVIDER" = "telegram" ] && [ "$CHAT_ID" = "0" ]; then
   echo -e "${ORANGE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 fi
 
+# ─────────────────────────────────────────────
+# OpenRouter (opcionalis)
+# ─────────────────────────────────────────────
+# Mirrors install-linux.sh: optional, skippable, and it runs AFTER `npm run
+# build` (dist/ exists) so it can write straight into the same encrypted Vault
+# (src/web/vault.ts) the dashboard's Vault page uses -- no parallel storage, no
+# plaintext .env entry. Until 2026-09-05 only the Linux installer offered this,
+# so a macOS install silently ended without a fleet key and the multi-model
+# debate feature looked broken rather than unconfigured.
+echo ""
+echo -e "${BOLD}$(_t section_openrouter)${NC}"
+echo -e "${DIM}  $(_t desc_openrouter)${NC}"
+read -rp "$(_t prompt_openrouter)" DO_OPENROUTER
+DO_OPENROUTER=${DO_OPENROUTER:-n}
+if [[ "$DO_OPENROUTER" == "i" || "$DO_OPENROUTER" == "y" ]]; then
+  echo -e "  ${DIM}$(_t hint_openrouter_url)${NC}"
+  read -p "  OPENROUTER_API_KEY: " OPENROUTER_KEY_INPUT
+  if [ -n "$OPENROUTER_KEY_INPUT" ]; then
+    if "$NODE_PATH" -e "
+      import('$INSTALL_DIR/dist/web/vault.js').then(({ setSecret }) => {
+        setSecret('openrouter-fleet-key', 'OpenRouter (telepitokor)', process.argv[1])
+      })
+    " "$OPENROUTER_KEY_INPUT" 2>/dev/null; then
+      ok "$(_t ok_openrouter_saved)"
+    else
+      warn "$(_t warn_openrouter_failed)"
+    fi
+  else
+    warn "$(_t warn_openrouter_empty)"
+  fi
+else
+  echo -e "  ${DIM}$(_t hint_openrouter_later)${NC}"
+fi
+
 # Git hookok (pre-push teszt-kapu, force-push vedelem, stb.) friss telepitesen
 # is eljenek MAR AZ ELSO push elott -- eddig csak az update.sh futtatta a
 # sync-hooks.sh-t, tehat egy vadonatuj gepen a kapu csak az elso "Frissites"
@@ -1364,6 +1398,9 @@ echo -e "  ${DIM}$(_t next_steps.title)${NC}"
 echo -e "  ${DIM}$(_t next_steps.1)${NC}"
 echo -e "  ${DIM}$(_t next_steps.2)${NC}"
 echo -e "  ${DIM}$(_t next_steps.3)${NC}"
+if [[ "$DO_OPENROUTER" != "i" && "$DO_OPENROUTER" != "y" ]]; then
+  echo -e "  ${DIM}$(_t next_steps.4_openrouter)${NC}"
+fi
 echo ""
 echo -e "  ${DIM}Frissites: ./update.sh${NC}"
 echo -e "  ${DIM}Leallitas: ./scripts/stop.sh${NC}"
