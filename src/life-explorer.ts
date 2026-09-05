@@ -33,6 +33,7 @@ import {
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
+import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
 import { lifeHint, personHint, companyHint, samplePersonHint, sampleCompanyHint,
   devKnowledgeHint, devMoreHint, projectHint } from './life-hints.js'
@@ -588,6 +589,16 @@ export interface MoveResult {
   rel: string
   message: string
   code?: string
+  /**
+   * FIGYELMEZTETES a nevre, kanban #167. NEM hiba: a muvelet sikerult (`ok`
+   * true marad), csak a nev olyan, ami kesobb bajt csinal -- a `notice` a
+   * mondat, a `suggestion` a kovetkezo lepes ("javasolt nev: ..."). Vak
+   * tiltas helyett tanacs: a sajat fajaban a felhasznalonak joga van
+   * szokozos nevet adni.
+   */
+  notice?: string
+  suggestion?: string
+  noticeCode?: string
 }
 
 /**
@@ -660,6 +671,18 @@ function statSafe(p: string): Stats | null {
   try { return statSync(p) } catch { return null }
 }
 
+/**
+ * A nev-tanacs raakasztasa egy SIKERES eredmenyre (kanban #167).
+ *
+ * Kulon fuggveny, mert ket helyrol kell (letrehozas es atnevezes), es mert a
+ * tanacs SOSE valtoztatja meg az `ok` mezot: a mappa letrejott, a felhasznalo
+ * pedig lat egy mondatot arrol, mi lesz ebbol kesobb baj, es mi a jobb nev.
+ */
+function withNameAdvice(result: MoveResult, advice: NameAdvice): MoveResult {
+  if (advice.ok) return result
+  return { ...result, notice: advice.message, suggestion: advice.suggestion, noticeCode: advice.code }
+}
+
 /** Uj mappa a fan belul. A nev nem lehet utvonal -- csak nev. */
 export function mkdirLife(parentRel: string, name: string, lang = APP_LANG): MoveResult {
   const clean = safeLifeName(name)
@@ -682,7 +705,10 @@ export function mkdirLife(parentRel: string, name: string, lang = APP_LANG): Mov
   } catch (err: any) {
     return { ok: false, rel: '', code: 'failed', message: T(lang, `Nem sikerült létrehozni: ${String(err?.code || err?.message || err)}`, `Could not create it: ${String(err?.code || err?.message || err)}`) }
   }
-  return { ok: true, rel: toLifeRel(target), message: T(lang, `Kész: ${clean}`, `Done: ${clean}`) }
+  return withNameAdvice(
+    { ok: true, rel: toLifeRel(target), message: T(lang, `Kész: ${clean}`, `Done: ${clean}`) },
+    checkNameForPath(parentRel, clean, lang),
+  )
 }
 
 /**
@@ -722,7 +748,10 @@ export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveR
   const newRel = toLifeRel(target)
   movePhysical(rel, newRel)
   logger.info({ from: rel, to: newRel }, '[intezo] atnevezve')
-  return { ok: true, rel: newRel, message: T(lang, `Új neve: ${clean}`, `Its new name: ${clean}`) }
+  return withNameAdvice(
+    { ok: true, rel: newRel, message: T(lang, `Új neve: ${clean}`, `Its new name: ${clean}`) },
+    checkNameForPath(rel.split('/').slice(0, -1).join('/'), clean, lang),
+  )
 }
 
 /**

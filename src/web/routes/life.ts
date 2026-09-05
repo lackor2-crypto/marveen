@@ -7,6 +7,7 @@
 //   GET  /api/life/list       -- egy mappa tartalma, forrasjelvenyekkel
 //   GET  /api/life/info       -- a reszletes informacios panel egy tetelrol
 //   GET  /api/life/search     -- nev szerinti kereses a fan belul
+//   GET  /api/life/name-check -- LETREHOZAS ELOTT: rendben van-e ez a nev
 //   POST /api/life/mkdir      -- uj mappa
 //   POST /api/life/move       -- athelyezes a fan belul
 //   GET  /api/life/repo-status -- egy git-repo allapota emberi mondatban
@@ -34,6 +35,7 @@ import {
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
+import { checkNameForPath, MACHINE_ZONE_DIR, iconTable } from '../../naming-conventions.js'
 import {
   lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly, setReadOnlyException,
 } from '../../git-accounts.js'
@@ -201,6 +203,25 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const rel = url.searchParams.get('path') || ''
     const q = url.searchParams.get('q') || ''
     send(res, 200, searchLife(rel, q, 200, uiLang(url)))
+    return true
+  }
+
+  // LETREHOZAS ELOTTI ellenorzo (kanban #167). A felulet gepeles kozben hivja,
+  // igy a figyelmeztetes AKKOR latszik, amikor meg olcso valtoztatni -- nem
+  // utolag. Sosem tilt es sosem ir: csak megmondja, mi lesz ebbol baj, es mi a
+  // javasolt nev helyette.
+  if (path === '/api/life/name-check' && method === 'GET') {
+    const parent = url.searchParams.get('parent') ?? ''
+    const name = url.searchParams.get('name') ?? ''
+    const advice = checkNameForPath(parent, name, uiLang(url))
+    send(res, 200, {
+      ok: advice.ok,
+      zone: advice.zone,
+      machineZoneDir: MACHINE_ZONE_DIR,
+      suggestion: advice.suggestion,
+      message: advice.message,
+      code: advice.code,
+    })
     return true
   }
 
@@ -381,7 +402,15 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     for (const [key, szoveg] of Object.entries(lifeHints(hintLang))) {
       out[lifeName(key, APP_LANG)] = szoveg
     }
-    send(res, 200, { hints: out })
+    // IKON-KONVENCIO (kanban #167) ugyanabbol a hivasbol: a kulcs itt is a
+    // lemezen levo mappanev, kulonben a felulet nem tudna, melyik sorhoz
+    // tartozik. Igy az ikon nem a frontendben talalodik ki -- egy helyen all a
+    // szabaly, es a szerver mondja meg.
+    const icons: Record<string, string> = {}
+    for (const [key, ikon] of Object.entries(iconTable())) {
+      icons[lifeName(key, APP_LANG)] = ikon
+    }
+    send(res, 200, { hints: out, icons })
     return true
   }
 
