@@ -10,19 +10,20 @@
 // It never edits settings: the fix is a template change (fleet-wide, permanent)
 // or a declared exception, and a watcher quietly patching one install would
 // hide the drift from the repo, which is where it must be fixed.
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT, STORE_DIR } from '../config.js'
-import { agentSettingsPath, fleetSkillsDir } from './agent-scaffold.js'
+import { agentSettingsPath } from './agent-scaffold.js'
 import { atomicWriteFileSync } from './atomic-write.js'
-import { agentConfigRoot, listAgentNames } from './agent-config.js'
 import { sendAlert } from './channel-monitor.js'
 import {
   findParityDrift, describeParityDrift, hookScriptNames, unionHookScripts,
-  mainAgentSettingsPaths, type ParityDrift,
+  mainAgentSettingsPaths, describeSkillLibraryParity,
+  type ParityDrift, type SkillLibraryParity,
 } from '../agent-parity.js'
+import { skillLibraryParity } from './skill-library-parity.js'
 
 const TEMPLATE_PATH = join(PROJECT_ROOT, 'templates', 'settings.json.template')
 // Restarting is routine here, and an identical alert on every restart trains
@@ -56,36 +57,15 @@ function rememberAlert(sig: string): void {
   } catch { /* best-effort: at worst the same alert repeats on the next start */ }
 }
 
-/** Agents whose .claude/skills is not the shared library. ensureAgentSkills()
- *  links it on every startup, so a name here means the link could not be made
- *  (a real directory is in the way, or the filesystem refused the symlink) --
- *  and that agent knows less than the rest of the fleet without saying so. */
-function agentsMissingSharedSkills(): string[] {
-  const shared = fleetSkillsDir()
-  if (!existsSync(shared)) return []
-  let sharedReal: string
-  try { sharedReal = realpathSync(shared) } catch { return [] }
-  const missing: string[] = []
-  for (const name of listAgentNames()) {
-    const link = join(agentConfigRoot(name), '.claude', 'skills')
-    try {
-      if (realpathSync(link) !== sharedReal) missing.push(name)
-    } catch {
-      missing.push(name)
-    }
-  }
-  return missing
-}
-
 /** Compare the main agent's hooks with the fleet template AND check that every
  *  agent shares the skill library; alert on either kind of gap. Both lists are
  *  empty when the fleet is uniform. */
-export function checkAgentParity(): { drift: ParityDrift[]; skillGaps: string[] } {
+export function checkAgentParity(): { drift: ParityDrift[]; skills: SkillLibraryParity } {
   // The skill check does not depend on the hook comparison, so it runs even
   // when the settings files are missing or unparseable -- an unreadable main
   // settings.json used to take the skill-library check down with it, hiding a
   // second, unrelated gap (lackor3's review).
-  const skillGaps = agentsMissingSharedSkills()
+  const skills = skillLibraryParity()
   // #202: the main agent's hooks come from the user file AND the project file.
   // Reading only the first is what let ledger-capture.py hide from this gate.
   const mainSettings = agentSettingsPath(MAIN_AGENT_ID)
@@ -101,22 +81,30 @@ export function checkAgentParity(): { drift: ParityDrift[]; skillGaps: string[] 
   const canCompare = mainScripts.size > 0 && templateScripts.size > 0
 
   const drift = canCompare ? findParityDrift(mainScripts, templateScripts) : []
-  const sig = signature(drift) + '|skills:' + skillGaps.slice().sort().join(',')
-  if (drift.length === 0 && skillGaps.length === 0) {
+  const sig = signature(drift) + '|skills:' + skills.verdict + ':' + skills.missing.slice().sort().join(',')
+  // 'not_measured' is NOT silence: an unmeasured half used to leave this branch
+  // as quiet as a clean one, and the caller then logged "parity verified".
+  if (drift.length === 0 && skills.verdict === 'ok') {
     if (existsSync(MARKER_PATH)) rememberAlert('')
-    return { drift, skillGaps }
+    return { drift, skills }
   }
 
-  logger.warn({ parityDrift: drift, skillGaps }, 'agent parity: a capability is not wired for every agent')
+  logger.warn({ parityDrift: drift, skills }, 'agent parity: a capability is not wired for every agent, or could not be measured')
   if (!alreadyAlerted(sig)) {
     const parts: string[] = []
     if (drift.length > 0) parts.push(describeParityDrift(drift))
-    if (skillGaps.length > 0) parts.push(`kozos skill-konyvtar hianyzik: ${skillGaps.join(', ')}`)
+    if (skills.verdict !== 'ok') parts.push(describeSkillLibraryParity(skills))
+    // A fejlec kovesse a TENYT: egy meg nem elvegzett meres nem ugyanaz, mint
+    // egy megmert elteres, es a ket allitas mas teendot kivan.
+    const onlyUnmeasured = drift.length === 0 && skills.verdict === 'not_measured'
     sendAlert(
-      '⚠️ Agens-paritas: nem minden agens kapja meg ugyanazt. ' + parts.join('; ') +
-      '. Szabaly: ami az egyik agensnek jar, az mindnek jar (CLAUDE.md, agens-paritas).',
+      (onlyUnmeasured
+        ? '⚠️ Agens-paritas: NEM tudtam megmerni, hogy minden agens ugyanazt kapja-e. '
+        : '⚠️ Agens-paritas: nem minden agens kapja meg ugyanazt. ')
+      + parts.join('; ')
+      + '. Szabaly: ami az egyik agensnek jar, az mindnek jar (CLAUDE.md, agens-paritas).',
     )
     rememberAlert(sig)
   }
-  return { drift, skillGaps }
+  return { drift, skills }
 }
