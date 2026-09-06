@@ -255,7 +255,7 @@ while true; do
           msg="${EMPTY_GRACE}s alatt egyetlen CI-futas sem indult el ezen a branchen ($BRANCH), es a 'gh run list' SIKERES lekerdezese is nulla futast talalt. "
           msg="${msg}Ez azt jelenti, hogy a GitHub Actions ki van kapcsolva ezen a repon/fork-on -- a rollup ilyenkor orokre ures marad. "
           msg="${msg}Teendo: GitHub -> Settings -> Actions -> General -> 'Allow all actions and reusable workflows', majd pushold ujra a branchet (PR nyitva: $PR_URL). "
-          msg="${msg}Vagy landolj kezzel, miutan lokalisan zold a teljes suite: 'npm test' -> 'gh pr merge $PR_URL --squash --delete-branch'."
+          msg="${msg}Vagy landolj kezzel, miutan lokalisan zold a teljes suite: 'npm test' -> 'gh pr merge $PR_URL --squash' (a remote branchet utana: git push origin --delete $BRANCH)."
           die "$msg"
         fi
         ci_confirmed=1   # van futas, csak meg nem jelent meg a PR rollupjaban
@@ -270,9 +270,51 @@ while true; do
 done
 
 # --- 4. merge zold CI utan -----------------------------------------------------
-gh pr merge "$PR_URL" --squash --delete-branch \
-  || die "a merge nem sikerult (talan branch protection / jogosultsag). PR: $PR_URL"
-echo "land-pr: MERGE-ELVE es a branch torolve. PR: $PR_URL" >&2
+# A `--delete-branch` SZANDEKOSAN nincs itt. A gh a remote branch torlese utan a
+# LOKALIS branchet is el akarja takaritani, es ahhoz atvalt az alap agra -- ha azt
+# egy MASIK worktree tartja (a flottan ez a tipikus allapot), a lepes
+#   failed to run git: fatal: 'main' is already used by worktree at ...
+# hibaval bukik, MIUTAN a merge mar megtortent. Haromszor jelentett igy hamis
+# kudarcot mergelt PR-nel (2026-09-06: PR #29, #31, #32). A remote branchet lentebb
+# magunk toroljuk; a lokalis branch a worktree gazdajara tartozik.
+set +e
+merge_out="$(gh pr merge "$PR_URL" -R "$REPO" --squash 2>&1)"
+merge_rc=$?
+set -e
+
+# A merge SIKERET nem a kilepokodbol talaljuk ki: MEGKERDEZZUK a forrast. A
+# kilepokod egy kesobbi, lokalis lepesen is elbukhat, es akkor a szkript egy
+# sikeres landolast jelentene kudarcnak.
+set +e
+pr_state="$(gh pr view "$PR_URL" -R "$REPO" --json state --jq '.state' 2>&1)"
+state_rc=$?
+set -e
+
+if [ "$state_rc" -ne 0 ]; then
+  # NEM LATOK ODA. Nem allitjuk sem azt, hogy sikerult, sem azt, hogy nem.
+  [ "$merge_rc" -eq 0 ] || die "a 'gh pr merge' hibaval tert vissza (exit $merge_rc), es a PR allapotat sem tudom visszaolvasni, tehat NEM tudom, mergelodott-e. PR: $PR_URL -- a gh merge sajat uzenete: $merge_out -- a 'gh pr view' hibaja: $pr_state"
+  echo "land-pr: a merge lefutott, de a PR allapotat nem tudtam visszaolvasni ($pr_state). Ellenorizd: $PR_URL" >&2
+elif [ "$pr_state" != "MERGED" ]; then
+  # Itt tenyleg nem tortent meg a merge. A gh SAJAT hibauzenetet adjuk vissza --
+  # a korabbi "talan branch protection / jogosultsag" TALALGATAS volt, es pont
+  # azt a szabalyt sertette meg, amit ez a szkript maskepp betart.
+  die "a merge nem tortent meg -- a PR allapota: $pr_state. PR: $PR_URL -- a gh sajat hibauzenete: ${merge_out:-<a gh nem irt semmit>}"
+elif [ "$merge_rc" -ne 0 ]; then
+  # A MERGE MEGVAN (a forras szerint MERGED), csak a gh egy kesobbi, LOKALIS
+  # lepese bukott el. Ez figyelmeztetes, nem kudarc.
+  echo "land-pr: FIGYELEM -- a merge SIKERULT (a PR allapota MERGED), de a 'gh pr merge' hibaval tert vissza (exit $merge_rc). A gh sajat uzenete: $merge_out" >&2
+fi
+
+# A remote branch takaritasa. Best-effort, a VALODI hibauzenettel: egy ott maradt
+# branch nem rontja el a mar megtortent landolast.
+set +e
+del_out="$(git push origin --delete "$BRANCH" 2>&1)"
+del_rc=$?
+set -e
+[ "$del_rc" -eq 0 ] \
+  || echo "land-pr: a '$BRANCH' remote branchet nem sikerult torolni (exit $del_rc): $del_out -- a landolast ez nem befolyasolja." >&2
+
+echo "land-pr: MERGE-ELVE. PR: $PR_URL" >&2
 
 # --- 5. lokalis main frissitese ------------------------------------------------
 git fetch -q origin main && echo "land-pr: origin/main = $(git rev-parse --short origin/main). Frissitsd a lokalis checkoutod, ha kell." >&2
