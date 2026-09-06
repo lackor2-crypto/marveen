@@ -176,7 +176,7 @@ async function resolveCostPerMInput(model: string): Promise<number | null> {
 }
 import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
-import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
+import { listCodeSessions, codeBridgeHealth, listCodeTasks } from '../code-bridge-store.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 
 // AZ ELAVULT KEPERNYOSZOVEG NE JELENTSEN KIESEST.
@@ -950,6 +950,38 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         ? 'unreachable'
         : (running && compaction.compacting ? 'working' : label(running, pane, name, quotaExhaustedOf(running, name)))
       entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name), compacting: compaction.compacting })
+    }
+
+    // Kartya #213 (83321629): a VS Code kulso programozo (kod-hid) MASHOL mar
+    // teljes erteku csomopontkent szamit (lasd az org chart 'vscode:<projekt>'
+    // csomopontjait fentebb) -- de a bal-menu "dolgozik" jelvenye es az
+    // Aktivitas lap kizarolag EBBOL a listabol szamol, es a hidat eddig
+    // sehol nem sorolta fel benne. Csendben marad, ha meg egyetlen mappa sincs
+    // bekotve (friss telepites: a nulla itt tenyleg "meg nincs", nem "nem
+    // lattunk oda") -- csak akkor jelenik meg, ha van legalabb egy regisztralt
+    // munkameneti session, azaz mar VALODI ugynok, nem csak lehetoseg.
+    const codeSessions = listCodeSessions()
+    if (codeSessions.length > 0) {
+      const codeHealth = codeBridgeHealth()
+      const runningProjects = new Set(listCodeTasks({ status: 'running' }).map(t => t.project))
+      const codeBot = await resolveCodeBotIdentity()
+      const codeRunning = runningProjects.size > 0
+      entries.push({
+        name: 'code-bridge',
+        displayName: codeBot.reason === 'ok' && codeBot.name
+          ? codeBot.name
+          : (APP_LANG === 'hu' ? 'Kód-híd' : 'Code bridge'),
+        isMain: false,
+        // `running` itt SZANDEKOSAN nem `workerOnline`: ez a mezo mashol
+        // ("Aktivitas" lap) egy tmux-terminal megnyithatosagat jelenti, a
+        // kod-hidnak viszont nincs sajat tmux ablaka -- egy `running:true`
+        // egy soha meg nem nyilo terminalra mutatna. A szamlaloknak csak a
+        // `state` szamit.
+        running: false,
+        state: !codeHealth.workerOnline ? 'stopped' : (codeRunning ? 'working' : 'idle'),
+        mode: null,
+        tail: [],
+      })
     }
 
     jsonMaybeGzip(req, res, entries)
