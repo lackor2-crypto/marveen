@@ -8176,22 +8176,6 @@ a.link-waiting {
 }
 .activity-tail-empty { margin: 0; font-size: 12px; color: var(--text-muted); font-style: italic; }
 
-/* A kod-hid kartyajan a "dolgozik" jelzo EGYBEN gomb is: megnyitja azt a
-   beszelgetest, amiben a feladat epp fut (kanban #213). A szint es a lelegzo
-   pulzust a meglevo .activity-badge.act-working adja -- uj osztalyt nem
-   talalunk ki, csak a gomb sajat alapstilusat vesszuk le rola. */
-button.activity-badge {
-  border: 0;
-  font: inherit;
-  line-height: inherit;
-  cursor: default;
-}
-button.activity-badge[data-code-session] { cursor: pointer; }
-/* Kimondva, mert ez a hazban mar tobbszor elromlott: egy `display` szabaly
-   erosebb tud lenni a bongeszo `[hidden]`-jenel, es a jelzo akkor is ott
-   maradna, amikor a hid epp nem dolgozik. */
-button.activity-badge[hidden] { display: none; }
-
 /* Live "working" tint on an agent's Terminal button (Agents page). Mirrors the
    Activity page's green working badge, including the breathe pulse. The SVG uses
    currentColor, so the icon greens with the label. */

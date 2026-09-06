@@ -1627,62 +1627,6 @@ export interface CodeBridgeHealth {
   done24h: number
 }
 
-/** A kod-hid neve a flotta-listakban (/api/agents/activity). Nem ugynok-nev:
- *  nincs mogotte tmux-session, es a felulet a `kind` mezobol tudja, hogy ezt a
- *  kartyat nem terminal, hanem beszelgetes nyitja. */
-export const CODE_BRIDGE_ACTIVITY_ID = 'code-bridge'
-
-/** A kod-hid mint FLOTTA-TAG: "dolgozik-e most, es min".
- *
- *  Miert kulon fuggveny a `codeBridgeHealth()` mellett: ezt a
- *  /api/agents/activity hivja, amit a felulet HAROM MASODPERCENKENT ker le.
- *  A health hat COUNT-ot es a teljes worker-listat futtat, plusz a 24 oras
- *  statisztikat -- annak ott van a helye, ahol egyszer nyilik meg egy ablak.
- *  Itt csak az kell, amibol a "dolgozik" allapot es a mit-csinal sor kijon.
- *
- *  A `present` a NULLA KET JELENTESET valasztja szet: nulla futo feladat egy
- *  friss telepitesen azt jelenti, hogy nincs is kod-hid (ilyenkor a flotta-
- *  listaban NEM talalunk ki egy nem letezo csapattagot), egy bekotott hidnal
- *  viszont azt, hogy epp nincs munkaja. A kettot nem a szamokbol talaljuk ki,
- *  hanem magatol a forrastol kerdezzuk: van-e valaha bejelentkezett worker
- *  vagy regisztralt beszelgetes. */
-export interface CodeBridgeActivity {
-  /** Letezik-e egyaltalan kod-hid ezen a telepitesen (worker vagy session). */
-  present: boolean
-  workerOnline: boolean
-  queued: number
-  /** A MOST futo feladatok, a legregebbi eloszor. Felso hatar, mert ez egy
-   *  3 masodperces vegpont: a lista a felulet farok-sorait tolti, nem konyvel. */
-  running: Array<{ project: string; prompt: string; sessionId: string | null }>
-}
-
-export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
-  ensureTables()
-  const db = getDb()
-  const lastSeen = Number(
-    (db.prepare(`SELECT MAX(last_seen_at) AS n FROM code_workers`).get() as Record<string, unknown> | undefined)?.['n'] ?? 0,
-  )
-  const sessions = Number(
-    (db.prepare(`SELECT COUNT(*) AS n FROM code_sessions`).get() as Record<string, unknown> | undefined)?.['n'] ?? 0,
-  )
-  const queued = Number(
-    (db.prepare(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'queued'`).get() as Record<string, unknown> | undefined)?.['n'] ?? 0,
-  )
-  const rows = db
-    .prepare(`SELECT project, prompt, session_id FROM code_tasks WHERE status = 'running' ORDER BY started_at LIMIT 8`)
-    .all() as Array<Record<string, unknown>>
-  return {
-    present: lastSeen > 0 || sessions > 0,
-    workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
-    queued,
-    running: rows.map((r) => ({
-      project: String(r['project'] ?? ''),
-      prompt: String(r['prompt'] ?? ''),
-      sessionId: r['session_id'] == null ? null : String(r['session_id']),
-    })),
-  }
-}
-
 export function codeBridgeHealth(now = Date.now()): CodeBridgeHealth {
   ensureTables()
   const db = getDb()
