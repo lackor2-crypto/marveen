@@ -10,7 +10,7 @@
 // repo could tell.
 
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import {
@@ -23,6 +23,7 @@ import {
   unionHookScripts,
   mainAgentSettingsPaths,
 } from '../agent-parity.js'
+import { skillLibraryParity } from '../web/skill-library-parity.js'
 
 const REPO_ROOT = join(__dirname, '..', '..')
 const TEMPLATE_PATH = join(REPO_ROOT, 'templates', 'settings.json.template')
@@ -106,7 +107,6 @@ describe('the shipped template is the fleet-wide source of truth', () => {
 
 describe('this install', () => {
   const mainSettings = join(homedir(), '.claude', 'settings.json')
-  const agentsDir = join(REPO_ROOT, 'agents')
   const fleetSkills = join(homedir(), '.claude', 'skills')
 
   // #202: the main agent's hooks come from TWO files -- the user-scope
@@ -124,19 +124,37 @@ describe('this install', () => {
   // agent's ~/.claude/skills at install time, and until 2026-08-11 no sub-agent
   // could see any of them -- a delegate was missing the very procedures it is
   // judged by. ensureAgentSkills() links every agent at that same library.
-  it.skipIf(!existsSync(agentsDir) || !existsSync(fleetSkills))('gives every agent the same skill library', () => {
-    const missing = readdirSync(agentsDir, { withFileTypes: true })
-      .filter(e => e.isDirectory())
-      .map(e => e.name)
-      .filter(name => existsSync(join(agentsDir, name, '.claude')))
-      .filter(name => {
-        const link = join(agentsDir, name, '.claude', 'skills')
-        try {
-          return realpathSync(link) !== realpathSync(fleetSkills)
-        } catch {
-          return true
-        }
-      })
-    expect(missing, `agents without the shared skill library: ${missing.join(', ')}`).toEqual([])
+  //
+  // NO skipIf HERE ANY MORE (kartya 3119f0bc). It used to be
+  //   it.skipIf(!existsSync(<repo>/agents) || !existsSync(fleetSkills))
+  // which meant the check ran NOWHERE: `agents/` is not tracked in git, so a
+  // worktree and CI never have it, and on the live install the suite refuses to
+  // start at all. A gate that cannot fail is not a gate. Now the measurement
+  // answers with a VERDICT, so "I could not look" is a statement the test can
+  // assert on, instead of a silent skip.
+  it('says whether every agent shares the skill library -- or that it could not look', () => {
+    const p = skillLibraryParity()
+    expect(['ok', 'gaps', 'not_measured']).toContain(p.verdict)
+
+    if (p.verdict === 'gaps') {
+      // Real drift: name the agents. This is the failure the check exists for.
+      expect(p.missing, `agents without the shared skill library: ${p.missing.join(', ')}`).toEqual([])
+    }
+    if (p.verdict === 'ok') {
+      // 'ok' is a claim about a measurement, so it must carry the count.
+      expect(typeof p.examined).toBe('number')
+      expect(p.reason).toBe('')
+    }
+    if (p.verdict === 'not_measured') {
+      // ...and "I could not look" must SAY why, never pass as silence.
+      expect(p.examined).toBeNull()
+      expect(p.reason).not.toBe('')
+    }
+
+    // The live half that used to hide behind the skip: on THIS machine, if the
+    // shared library is not there, the verdict may not be 'ok' -- that is the
+    // exact case (a fresh install before the seed-skills are rendered) where the
+    // old code returned an empty list and the dashboard logged "parity verified".
+    if (!existsSync(fleetSkills)) expect(p.verdict).toBe('not_measured')
   })
 })

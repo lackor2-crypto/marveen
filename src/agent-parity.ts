@@ -146,3 +146,90 @@ export function describeParityDrift(drift: ParityDrift[]): string {
       : `${d.script}: a sablonban van, de a fo agensnel nem fut (kosd be a fo agensnel is, vagy vedd fel SUBAGENT_ONLY_HOOKS-ba indoklassal)`)
     .join('; ')
 }
+
+/**
+ * A KOZOS SKILL-KONYVTAR fele -- kulon a hook-paritastol, mert mas a forrasa.
+ *
+ * MIERT KELL SAJAT VERDIKT (kartya 3119f0bc): a korabbi valasz egy string[] volt,
+ * es az URES LISTA ket, egymast kizaro dolgot jelentett. "Egy agens sem marad ki"
+ * -- vagy "meg nezni sem tudtam". Harom ilyen vak ag volt: nem letezett a kozos
+ * konyvtar (ilyenkor EGYETLEN agens sem kapja meg, azaz maximalis az elteres),
+ * a realpath dobott ra, es ures volt az agens-lista. Mindharom esetben a
+ * dashboard indulaskor kiirta, hogy "Agent parity verified: every agent shares
+ * the same hooks and skill library" -- egy el nem vegzett meresre allitott sikert,
+ * eppen azon a friss telepitesen, ahol a seed-skillek meg nincsenek kirenderelve.
+ *
+ * Tiszta fuggveny (nincs fs, nincs env): a hivo szedi ossze a tenyeket, igy
+ * ugyanez a logika szolgal a runtime ellenorzest ES a tesztet -- a teszt akkor is
+ * meri, amikor a gepen nincs mit merni (worktree, CI).
+ */
+export type SkillLibraryVerdict = 'ok' | 'gaps' | 'not_measured'
+
+export interface SkillLibraryParity {
+  verdict: SkillLibraryVerdict
+  /** Agensek, akiknek a .claude/skills-e NEM a kozos konyvtar. Csak 'gaps'-nal nem ures. */
+  missing: string[]
+  /** Hany agenst neztunk vegig. null = nem tudtunk odanezni -- ez NEM nulla. */
+  examined: number | null
+  /** Miert nem tudtunk merni, emberi mondatban. Merve: ures sztring. */
+  reason: string
+}
+
+export function summarizeSkillLibraryParity(input: {
+  /** Letezik-e egyaltalan a kozos skill-konyvtar. */
+  sharedLibraryExists: boolean
+  /** A kozos konyvtar feloldasakor kapott hiba (realpath), ha volt. */
+  sharedLibraryError?: string | null
+  /** Az agensek nevei. null = nem tudtuk kilistazni (ez NEM ures lista). */
+  agents: string[] | null
+  /** Az agensek listazasakor kapott hiba, ha volt. */
+  agentsError?: string | null
+  /** Akik kozul nem a kozos konyvtarra mutat a linkje. */
+  missing: string[]
+}): SkillLibraryParity {
+  if (!input.sharedLibraryExists) {
+    return {
+      verdict: 'not_measured',
+      missing: [],
+      examined: null,
+      // Ez a legfontosabb ag: nem "nincs elteres", hanem "mindenki kimarad,
+      // csak eppen nincs mihez hasonlitani".
+      reason: 'a kozos skill-konyvtar nem letezik, tehat nincs mihez hasonlitani (friss telepites: a seed-skillek meg nincsenek kirenderelve)',
+    }
+  }
+  if (input.sharedLibraryError) {
+    return {
+      verdict: 'not_measured',
+      missing: [],
+      examined: null,
+      reason: `a kozos skill-konyvtar nem olvashato: ${input.sharedLibraryError}`,
+    }
+  }
+  if (input.agents === null) {
+    return {
+      verdict: 'not_measured',
+      missing: [],
+      examined: null,
+      reason: `az agens-lista nem olvashato: ${input.agentsError || 'ismeretlen hiba'}`,
+    }
+  }
+  // Nulla agens EGY telepitesen legitim allapot (meg nincs sub-agens), es ettol
+  // meg MERVE van: vegignezhettuk a listat, csak ures volt. Ezert ez 'ok', nem
+  // 'not_measured' -- de az examined=0 kimondja, hogy nem volt kit megnezni.
+  const missing = input.missing.slice().sort()
+  return {
+    verdict: missing.length > 0 ? 'gaps' : 'ok',
+    missing,
+    examined: input.agents.length,
+    reason: '',
+  }
+}
+
+/** Egy emberi mondat a verdiktbol -- a naplohoz es a tulajdonosnak szolo uzenethez. */
+export function describeSkillLibraryParity(p: SkillLibraryParity): string {
+  if (p.verdict === 'gaps') return `kozos skill-konyvtar hianyzik: ${p.missing.join(', ')}`
+  if (p.verdict === 'not_measured') return `a kozos skill-konyvtar paritasat NEM tudtam megmerni -- ${p.reason}`
+  return p.examined === 0
+    ? 'a kozos skill-konyvtar rendben (nincs sub-agens, akit meg kellene nezni)'
+    : `a kozos skill-konyvtar rendben (${p.examined} agens megnezve)`
+}

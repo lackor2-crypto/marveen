@@ -741,8 +741,13 @@ export function startWebServer(port = 3420): http.Server {
       // "verified" while agents were running without the shared skill library,
       // because only the hook drift was consulted (lackor3's review).
       const parity = checkAgentParity()
-      if (parity.drift.length === 0 && parity.skillGaps.length === 0) {
-        logger.info('Agent parity verified: every agent shares the same hooks and skill library')
+      // "Verified" is a claim about a MEASUREMENT, not about silence: the skill
+      // half used to return an empty list on three blind branches, and this line
+      // then announced parity for a check that never looked (kartya 3119f0bc).
+      if (parity.drift.length === 0 && parity.skills.verdict === 'ok') {
+        logger.info({ agentsExamined: parity.skills.examined }, 'Agent parity verified: every agent shares the same hooks and skill library')
+      } else if (parity.drift.length === 0 && parity.skills.verdict === 'not_measured') {
+        logger.warn({ reason: parity.skills.reason }, 'Agent parity NOT verified: the shared skill library could not be measured')
       }
     } catch (err) {
       logger.warn({ err }, 'Agent hook backfill skipped')
