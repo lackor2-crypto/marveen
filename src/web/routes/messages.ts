@@ -14,6 +14,7 @@ import { isKnownAgent } from '../agent-config.js'
 import { OWNER_NAME } from '../../config.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
+import { checkCardWork, cardWorkNotice, claimCardWork, resolveCardRefs, type CardWorkNotice } from '../card-work-guard.js'
 import { parseQualifiedId, formatQualifiedId } from '../federation/address.js'
 import { getFederationConfig } from '../federation/config.js'
 import type { RouteContext } from './types.js'
@@ -27,14 +28,14 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     // every mistyped curl into a 500 "Szerver hiba", which reads as "the server
     // broke" and sends the caller looking in the wrong place. (Measured
     // 2026-08-22 16:57:59 while testing the code bridge.)
-    let parsed: { from: string; to: string; content: string; origin_note?: string }
+    let parsed: { from: string; to: string; content: string; origin_note?: string; card?: string }
     try {
       parsed = JSON.parse(body.toString()) as typeof parsed
     } catch {
       json(res, { error: 'invalid JSON body' }, 400)
       return true
     }
-    const { from, to, content, origin_note } = parsed
+    const { from, to, content, origin_note, card } = parsed
     if (!from?.trim() || !to?.trim() || !content?.trim()) {
       json(res, { error: 'from, to, and content are required' }, 400)
       return true
@@ -140,9 +141,42 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     // Card 06f062e4: optional attributability tag, self-declared like `from`
     // itself -- capped short so it stays a label, not a second content field.
     const trimmedOriginNote = origin_note?.trim().slice(0, 120) || null
+    // Kartya 8382d142 -- "ne legyen ketszer fent". Az inter-agent kiadas ugyanugy
+    // munka-kiadas, mint a kod-hid: a 2026-09-06-i duplikacio EPP igy tortent
+    // (az egyik vegrehajto uzenetben kapta a feladatot, semmi nyoma nem volt a
+    // code_tasks-ban). Ket kulonbseg a kod-hidhoz kepest, szandekosan:
+    //   - Uzenetet SOHA nem utasitunk el. Egy uzenet lehet kerdes, valasz vagy
+    //     visszajelzes; a 403 itt tobb kart okozna, mint amennyit megelozne.
+    //     Csak figyelmeztetunk, es a kuldo dont.
+    //   - Bejelentest (claim) CSAK a kifejezett `card` mezore irunk. Egy sima
+    //     chat-emlites ("kosz a #134-et") nem foglalhatja le a kartyat; aki a
+    //     mezot kitolti, az kimondta, hogy MUNKAT ad ki ra.
+    let warning: CardWorkNotice | undefined
+    const declared = card?.trim()
+    const guardText = declared || normalizedContent
+    const verdict = checkCardWork(guardText, { skipLanded: !declared, ignoreHolder: storedTo })
+    if (verdict.kind === 'active') {
+      const t0 = verdict.tasks[0]
+      const c0 = verdict.claims[0]
+      const who = t0 ? (t0.requestedBy ?? '?') : (c0 ? c0.holder : '?')
+      const what = t0 ? `${t0.project} (${t0.status})` : (c0 ? c0.kind : '?')
+      warning = cardWorkNotice('cb.warn.card_active_msg', { card: `#${verdict.card.seq}`, who, what })
+      logger.warn({ from: from.trim(), to: storedTo, card: verdict.card.cardId, who, what }, 'Agent message dispatches work on a card that already has active work')
+    } else if (declared && verdict.kind === 'landed') {
+      const c = verdict.commits[0]!
+      warning = cardWorkNotice('cb.warn.card_landed', { card: `#${verdict.card.seq}`, commit: c.hash.slice(0, 8), subject: c.subject })
+    } else if (declared && verdict.kind === 'unknown') {
+      // A NULLA ket dolgot jelenthet: ez az ag mondja ki, hogy nem lattunk oda.
+      warning = cardWorkNotice('cb.warn.card_uncheckable', { detail: verdict.detail })
+    }
     const msg = createAgentMessage(from.trim(), storedTo, normalizedContent, trimmedOriginNote)
-    logger.info({ id: msg.id, from: msg.from_agent, to: msg.to_agent, originNote: msg.origin_note }, 'Agent message created')
-    json(res, msg)
+    if (declared) {
+      // A cimzett a munkavegzo: a kovetkezo kiadas O rajta akad fenn, nem a kuldon.
+      const target = resolveCardRefs(declared)[0]
+      if (target) claimCardWork({ cardId: target.cardId, holder: storedTo, kind: 'message', ref: String(msg.id) })
+    }
+    logger.info({ id: msg.id, from: msg.from_agent, to: msg.to_agent, originNote: msg.origin_note, card: declared ?? null, warning: warning?.key }, 'Agent message created')
+    json(res, warning ? { ...msg, warning } : msg)
     return true
   }
 

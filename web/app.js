@@ -35997,7 +35997,13 @@ async function _intezoCfgSave() {
     const text = await res.text()
     let data = null
     try { data = text ? JSON.parse(text) : null } catch (e) { /* nem JSON */ }
-    if (!res.ok) throw new Error(cbErrText(data, res))
+    if (!res.ok) {
+      const err = new Error(cbErrText(data, res))
+      // A hivo tudni akarja, MELYIK hiba jott (pl. a kartya-utkozes utan fel
+      // tudja ajanlani a "megis" ujrakuldest) -- a szoveg ehhez keves.
+      err.data = data
+      throw err
+    }
     return data
   }
 
@@ -37126,13 +37132,32 @@ async function _intezoCfgSave() {
       if (!prompt.value.trim()) { if (status) status.textContent = 'Írd le, mit csináljon.'; return }
       tgt.setAttribute('disabled', 'disabled')
       if (status) status.textContent = 'Küldés…'
-      try {
-        const task = await cbPostJson('/api/code/tasks', {
+      // "Ne legyen ketszer fent" (kanban 8382d142): ha ugyanarra a kartyara mar
+      // megy munka, a szerver ELUTASITJA a masodik kiadast. Ez nem zsakutca --
+      // megmutatjuk az emberi mondatot, es a felhasznalo dontheti el, hogy megis
+      // menjen (force). A mar landolt munka csak figyelmeztetes, at is megy.
+      const sendTask = async function (force) {
+        return cbPostJson('/api/code/tasks', {
           project: sel.value, prompt: prompt.value, origin: 'dashboard', requestedBy: 'dashboard',
           // Ures = a projekt aktualis beszelgetese, vagyis a korabbi viselkedes.
           sessionId: (tabSel && tabSel.value) ? tabSel.value : null,
+          force: force === true,
         })
+      }
+      try {
+        let task
+        try {
+          task = await sendTask(false)
+        } catch (err) {
+          if (!(err && err.data && err.data.errorKey === 'cb.err.card_busy')) throw err
+          if (!confirm(err.message + '\n\n' + t('cb.confirm.card_force'))) {
+            if (status) status.textContent = t('cb.status.card_busy_cancelled')
+            return
+          }
+          task = await sendTask(true)
+        }
         prompt.value = ''
+        if (task && task.warning) showToast(t(task.warning.key, task.warning.params || {}), { type: 'warn', duration: 12000 })
         if (status) status.textContent = 'Átadva: ' + task.project + ' (' + String(task.id).slice(0, 8) + ')'
         cbRefresh()
       } catch (err) {

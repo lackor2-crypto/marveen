@@ -986,6 +986,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
        *  listajabol). Elhagyva minden a regi marad: a projekt legfrissebb
        *  beszelgetese kapja a feladatot. */
       sessionId?: string
+      /** A kartya-utkozes tudatos felulbiralasa (kanban 8382d142). */
+      force?: boolean
     }>(ctx)
     if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
     if (!body.project || !body.prompt) { json(res, { error: 'project and prompt are required', errorKey: 'cb.err.project_and_prompt_required' }, 400); return true }
@@ -999,10 +1001,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       requestedBy: body.requestedBy ?? null,
       chatId: body.chatId ?? null,
       sessionId: body.sessionId ?? null,
+      force: body.force === true,
     })
     if ('error' in out) { json(res, out, 400); return true }
-    logger.info({ task: out.task.id, project: out.task.project, origin }, 'code-bridge: task queued')
-    json(res, out.task, 201)
+    logger.info({ task: out.task.id, project: out.task.project, origin, cardRef: out.task.cardRef, warning: out.warning?.key }, 'code-bridge: task queued')
+    // A figyelmeztetes a TASK MELLE megy, nem helyette: a kiadas megtortent,
+    // de a hivonak latnia kell, hogy ezen a kartyan mar tortent valami.
+    json(res, out.warning ? { ...out.task, warning: out.warning } : out.task, 201)
     return true
   }
 

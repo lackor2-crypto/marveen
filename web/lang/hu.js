@@ -4017,6 +4017,13 @@ window._i18n.hu = {
   'cb.ago.days':             '{n} napja',
 
   // --- Kod-hid hibauzenetek (a szerver i18n-kulcsot kuld a nyers angol helyett) ---
+  'cb.confirm.card_force': 'Mégis elküldöd? Ha a másik végrehajtó tényleg dolgozik, ugyanaz a munka kétszer készül el.',
+  'cb.status.card_busy_cancelled': 'Nem küldtem el -- ezen a kártyán már megy munka.',
+  'cb.err.card_busy': 'Erre a kártyára ({card} -- {title}) MÁR fut egy kiadás: a(z) {task} feladat {status} állapotban van a(z) {project} projektben, {who} adta ki. Két végrehajtó ugyanazon a kártyán duplán dolgozna, ezért ezt nem küldöm el. Ha tudod, hogy a másik már nem dolgozik rajta, küldd el újra a \"mégis\" kapcsolóval.',
+  'cb.warn.card_active_msg': 'Elküldtem, de figyelem: a(z) {card} kártyán MÁR dolgozik valaki ({who} -- {what}). Nézzétek meg, mielőtt két ügynök ugyanazt csinálja meg.',
+  'cb.warn.card_forced': 'Elküldtem, pedig a(z) {card} kártyán már fut a(z) {task} feladat -- te kérted, hogy mégis menjen.',
+  'cb.warn.card_landed': 'Figyelem: a(z) {card} kártyára már landolt munka a fő ágon ({commit} -- {subject}). Ha ez folytatás vagy javítás, minden rendben; ha nem tudtál róla, nézd meg, mielőtt kétszer csináljátok meg.',
+  'cb.warn.card_uncheckable': 'Nem tudtam megnézni, dolgozik-e már valaki ezen a kártyán: {detail}. Elküldtem, de ezt nem ellenőriztem.',
   'cb.err.bridge_disabled':      'A kód-híd ki van kapcsolva.',
   'cb.err.invalid_json':         'Hibás kérés (érvénytelen adat).',
   'cb.err.no_known_settings':    'Nincs menthető beállítás a kérésben.',

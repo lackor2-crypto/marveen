@@ -3946,6 +3946,13 @@ window._i18n.en = {
   'cb.ago.days':             '{n}d ago',
 
   // --- Code bridge error messages (server sends an i18n key instead of raw English) ---
+  'cb.confirm.card_force': 'Send it anyway? If the other executor really is working, the same work gets done twice.',
+  'cb.status.card_busy_cancelled': 'Not sent -- work is already in flight on this card.',
+  'cb.err.card_busy': 'This card ({card} -- {title}) ALREADY has a dispatch in flight: task {task} is {status} in project {project}, sent by {who}. Two executors on one card do the same work twice, so this one was not sent. If you know the other one has stopped, send it again with the \"anyway\" switch.',
+  'cb.warn.card_active_msg': 'Sent, but heads up: someone is ALREADY working on card {card} ({who} -- {what}). Check before two agents do the same work twice.',
+  'cb.warn.card_forced': 'Sent, even though task {task} is already running on card {card} -- you asked for it anyway.',
+  'cb.warn.card_landed': 'Heads up: work for card {card} has already landed on the main branch ({commit} -- {subject}). If this is a follow-up or a fix, all good; if you did not know about it, check before it gets done twice.',
+  'cb.warn.card_uncheckable': 'I could not check whether someone is already working on this card: {detail}. It was sent, but this was not verified.',
   'cb.err.bridge_disabled':      'The code bridge is turned off.',
   'cb.err.invalid_json':         'Invalid request (bad data).',
   'cb.err.no_known_settings':    'No known setting in the request.',
