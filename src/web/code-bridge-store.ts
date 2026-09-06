@@ -32,6 +32,7 @@
 // workspacePath) through code_sessions. Several sessions are addressable at the
 // same time and a task claimed for `tradingbot` can never land in `marvin`.
 
+import { checkCardWork, cardWorkNotice, type CardWorkNotice } from './card-work-guard.js'
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE } from '../config.js'
@@ -76,6 +77,8 @@ export interface CodeTask {
   startedAt: number | null
   finishedAt: number | null
   leaseExpiresAt: number | null
+  /** A kanban kartya, amirol a feladat szol -- a szovegbol feloldva. */
+  cardRef: string | null
 }
 
 // A claimed task whose worker went silent (crash, reboot, network drop) must not
@@ -150,6 +153,10 @@ function ensureTables(): void {
   // Osszevonva elveszne, hogy a cimzes explicit volt-e, es a claim felulirna a
   // kerest -- a feladat nemaan masik fulbe menne, mint amit a tulaj valasztott.
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN target_session_id TEXT') } catch { /* mar letezik */ }
+  // Melyik kanban kartyara szol ez a feladat (kanban 8382d142). A szovegbol
+  // oldjuk fel es ITT rogzitjuk, hogy a kesobbi kiadas ne a prompt ujra-
+  // olvasasabol talalgasson. Ures marad, ha a szoveg egy kartyat sem nevez meg.
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN card_ref TEXT') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -557,6 +564,7 @@ function rowToTask(row: Record<string, unknown>): CodeTask {
     startedAt: (row['started_at'] as number | null) ?? null,
     finishedAt: (row['finished_at'] as number | null) ?? null,
     leaseExpiresAt: (row['lease_expires_at'] as number | null) ?? null,
+    cardRef: (row['card_ref'] as string | null) ?? null,
   }
 }
 
@@ -571,9 +579,16 @@ export interface EnqueueInput {
   /** Egy konkret chat ful azonositoja a projekt mappajabol. Ures = a projekt
    *  aktualis beszelgetese (a korabbi, valtozatlan viselkedes). */
   sessionId?: string | null
+  /** A kartya-utkozes (kanban 8382d142) felulbiralasa: a hivo LATTA a masik
+   *  kiadast, es tudatosan kuldi megis. Naploba kerul. */
+  force?: boolean
 }
 
-export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | CodeBridgeError {
+/** Amit a kiadas melle MONDANI kell, de nem allitja meg: mar landolt munka a
+ *  kartyan, vagy egy meres, amit nem sikerult elvegezni. */
+export type EnqueueWarning = CardWorkNotice
+
+export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?: EnqueueWarning } | CodeBridgeError {
   ensureTables()
   const prompt = input.prompt.trim()
   if (!prompt) return { error: 'empty prompt', errorKey: 'cb.err.empty_prompt' }
@@ -642,12 +657,51 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | CodeB
     }
   }
 
+  // "Ne legyen ketszer fent" (kanban 8382d142): megy-e mar munka erre a
+  // kartyara? A FUTO masik kiadas megallitja a masodikat; a mar landolt munka
+  // csak szol, mert a folytatas jogos; amit nem sikerult megmerni, azt sem
+  // hallgatjuk el.
+  const verdict = checkCardWork(prompt)
+  let warning: EnqueueWarning | undefined
+  if (verdict.kind === 'active') {
+    // Ket forrasbol johet: egy masik kod-hid task, VAGY egy agens bejelentett
+    // munkaja (uzenetben kiadott feladat). A 2026-09-06-i duplikacio epp a
+    // masodik fajta volt, ezert mindketto egyformán szamit.
+    const other = verdict.tasks[0]
+    const claim = verdict.claims[0]
+    const who = other ? (other.requestedBy ?? '?') : (claim ? claim.holder : '?')
+    const what = other ? other.id.slice(0, 8) : (claim?.ref ?? String(claim?.id ?? '?'))
+    const state = other ? other.status : (claim ? claim.kind : '?')
+    const busyParams = {
+      card: `#${verdict.card.seq}`,
+      title: verdict.card.title,
+      task: what,
+      status: state,
+      project: other ? other.project : '-',
+      who,
+    }
+    if (!input.force) {
+      // `error` = ember-olvashato mondat a telepites nyelven (curl/CLI hivo is
+      // ezt latja), `errorKey` = ugyanaz a felulet sajat nyelven.
+      return {
+        error: cardWorkNotice('cb.err.card_busy', busyParams).message,
+        errorKey: 'cb.err.card_busy',
+        errorParams: busyParams,
+      }
+    }
+    warning = cardWorkNotice('cb.warn.card_forced', { card: `#${verdict.card.seq}`, task: what })
+  } else if (verdict.kind === 'landed') {
+    warning = cardWorkNotice('cb.warn.card_landed', { card: `#${verdict.card.seq}`, commit: verdict.commits[0]!.hash.slice(0, 8), subject: verdict.commits[0]!.subject })
+  } else if (verdict.kind === 'unknown') {
+    warning = cardWorkNotice('cb.warn.card_uncheckable', { detail: verdict.detail })
+  }
+
   const id = randomUUID()
   const now = Date.now()
   getDb()
     .prepare(
-      `INSERT INTO code_tasks (id, project, prompt, status, origin, requested_by, chat_id, target_session_id, created_at)
-       VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
+      `INSERT INTO code_tasks (id, project, prompt, status, origin, requested_by, chat_id, target_session_id, created_at, card_ref)
+       VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       id,
@@ -658,8 +712,9 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask } | CodeB
       input.chatId ?? null,
       targetSessionId,
       now,
+      verdict.refs[0]?.cardId ?? null,
     )
-  return { task: getCodeTask(id)! }
+  return warning ? { task: getCodeTask(id)!, warning } : { task: getCodeTask(id)! }
 }
 
 export function getCodeTask(id: string): CodeTask | null {
