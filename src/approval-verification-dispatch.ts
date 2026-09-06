@@ -88,6 +88,40 @@ export const FIX_LANDING_POLICY: readonly string[] = [
   `kanban kartya, ird vissza ra, MIT javitottal es mi a commit azonositoja.`,
 ]
 
+// --- What the identifier in the description IS -----------------------------
+
+/**
+ * A bare 8-hex kanban id reads exactly like an abbreviated git commit, and a
+ * verifier acted on that reading.
+ *
+ * Measured, 2026-09-06: an approval said "Kártya: ... (11da9dcb) -- várakozóba
+ * került". The verifying agent searched `main` and every branch for commit
+ * `11da9dcb`, found nothing, and reported the approval FAILED with "a commit
+ * NEM létezik". The id was a kanban card (#223); the work it stood for was on
+ * main all along, under a different commit. Nothing was broken except the
+ * sentence -- and the false failure cost a full second review round.
+ *
+ * So the prompt says out loud what the number is, and that a missing git
+ * object for it is NOT a finding. This is the project rule "csupasz hash vagy
+ * azonosito magyarazat nelkul SOHA", applied to the text a machine writes for
+ * another machine.
+ *
+ * Deliberately keyed off the DESCRIPTION, not off the category: the trap is a
+ * hex token that looks like a commit, and any category can carry one. No
+ * token, no hint -- an unconditional paragraph would be noise in the prompts
+ * that never had the problem.
+ */
+export function descriptionMentionsCardId(actionDescription: string): boolean {
+  return /\b[0-9a-f]{8}\b/i.test(actionDescription || '')
+}
+
+export const CARD_ID_HINT: readonly string[] = [
+  `AZ AZONOSITOROL: a leirasban szereplo 8 jegyu hexa szam KANBAN-KARTYA azonosito, NEM git commit. Ha`,
+  `commitkent keresed, nem fogod megtalalni -- es ez onmagaban NEM hiba, tehat ne jelentsd annak. A`,
+  `kartyahoz tartozo commitot a kartya kommentjeibol vagy a fo ag naplojabol keresd (git log --grep), a`,
+  `kartyat magat pedig a GET /api/kanban vegponton. Ha igy sem talalod meg, azt ird meg -- ne talalgasd.`,
+]
+
 // --- Prompts ---------------------------------------------------------------
 
 export interface VerificationPromptInput {
@@ -125,6 +159,9 @@ export function buildVerificationPrompt(input: VerificationPromptInput): string 
     `Kategoria: ${input.category}`,
     `Leiras: ${input.actionDescription}`,
     ``,
+    // Both modes get it: the fixer chasing a non-existent commit wastes the
+    // same round the verifier did, and it is the one holding a write permission.
+    ...(descriptionMentionsCardId(input.actionDescription) ? [...CARD_ID_HINT, ``] : []),
   ]
 
   if (input.mode === 'fix') {
