@@ -35,8 +35,13 @@ GATE="$HOOK_DIR/pre-push.d/20-require-green-suite-main"
 MARK="marveen-pre-push-dispatcher"
 mkdir -p "$HOOK_DIR/pre-push.d"
 
-# 1. The gate sub-hook: run the full suite (+ tsc) on the pushed commit,
-#    in an isolated worktree, before allowing a push to main/master.
+# 1. The gate sub-hook: a FAST, deterministic check on the pushed commit
+#    (npx tsc --noEmit + node --check on the changed scripts) before allowing a
+#    push to main/master. It deliberately does NOT run the full suite: on a
+#    loaded fleet machine the parallel git/filesystem subprocesses made it fail
+#    under load (30-34 of 435) while an isolated run stayed green, so the full
+#    suite moved to CI, where it is the required status check on main
+#    (see .github/workflows/ci.yml and scripts/land-pr.sh).
 cat > "$GATE" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
