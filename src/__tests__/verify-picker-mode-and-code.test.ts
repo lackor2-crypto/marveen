@@ -105,6 +105,9 @@ describe('the mode chooser fits a phone', () => {
   })
 
   it('does not widen the popover', () => {
-    expect(CSS).toMatch(/\.verify-picker-popover \{[^}]*width: 240px/)
+    // A plafon tovabbra is 240px (asztalin a min() ezt valasztja, tehat ott
+    // valtozatlan a megjelenes); a min() csak LEFELE enged egy 240px-nel
+    // keskenyebb telefonon, ahol a fix 240 kilogott volna. Kanban #232.
+    expect(CSS).toMatch(/\.verify-picker-popover \{[^}]*width: min\(240px, calc\(100vw - 16px\)\)/)
   })
 })
