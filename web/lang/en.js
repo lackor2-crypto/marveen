@@ -2718,6 +2718,17 @@ window._i18n.en = {
     '0% means search currently matches literal words only. The button next to it starts building them.',
   'memories.vectors_off_note':         'Meaning-based (semantic) search is not switched on. Search works without it, but only on keywords, not on related words. Turning it on needs a local model server (Ollama) on your machine; until then this button cannot build vectors. This is a convenience, not a core feature.',
   'memories.toast.vector_none':        'No vectors were built: the local model server (Ollama) is not reachable. Keyword search keeps working.',
+  // Kanban #134: zero means FOUR different things, two of which are healthy.
+  // Every message names the next step.
+  'memories.stat.vectors_progress':    'Generating... {done}/{total}',
+  'memories.toast.vector_nothing_to_do': 'Nothing to do: all {total} memories already have a vector. Meaning-based search is working.',
+  'memories.toast.vector_no_memories': 'There are no memories saved yet, so there is nothing to vectorize. That is fine: once memories pile up, this button is the next step.',
+  'memories.toast.vector_model_missing': 'The model server answers ({url}), but the {model} model has not been pulled. Open a terminal and run: ollama pull {model} -- then press this button again.',
+  'memories.toast.vector_unreachable_local': 'The local model server (Ollama) does not answer on this machine ({url}). Start it in a terminal: ollama serve -- if it is not installed: https://ollama.com/download. Keyword search keeps working meanwhile.',
+  'memories.toast.vector_unreachable_remote': 'The configured model server cannot be reached from here: {url}. It does not run on this machine, so check that it is started over there and that it accepts connections over the network (OLLAMA_HOST=0.0.0.0). Keyword search keeps working meanwhile.',
+  'memories.toast.vector_partial':     '{done} memories got a vector, {failed} did not. Press the button again to finish the rest.',
+  'memories.toast.vector_error_detail': 'Vector generation stopped. The server said: {detail}',
+  'memories.toast.vector_status_unknown': 'Could not read the generation status. The job may still be running on the server -- reload the page in a minute.',
   'memories.stat.vectors_gen':			'Generating...',
   'memories.toast.vector_count':			'{count} memories vectorized',
   'messages.empty':			'No messages',

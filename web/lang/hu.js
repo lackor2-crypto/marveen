@@ -1661,6 +1661,17 @@ window._i18n.hu = {
     '0% azt jelenti hogy a kereses egyelore csak szo szerinti egyezesre keres. A melletti gombbal inditod el a keszitesuket.',
   'memories.vectors_off_note':         'A jelentés szerinti (szemantikus) keresés nincs bekapcsolva. A keresés enélkül is működik, csak kulcsszavakra keres, nem rokon értelmű szavakra. Bekapcsolásához egy helyi modell-szerver kell a gépeden (Ollama); amíg az nincs, a gomb nem tud vektorokat készíteni. Ez kényelmi funkció, nem alapfunkció.',
   'memories.toast.vector_none':        'Egy vektor sem készült: a helyi modell-szerver (Ollama) nem érhető el. A keresés kulcsszavakkal tovább működik.',
+  // Kanban #134: a nulla NEGY dolgot jelenthet, es kettő közülük egeszseges
+  // allapot. Mindegyik mondja meg, mi a KOVETKEZO lepes.
+  'memories.stat.vectors_progress':    'Generálás... {done}/{total}',
+  'memories.toast.vector_nothing_to_do': 'Nincs teendő: mind a(z) {total} emlékhez már van vektor. A jelentés szerinti keresés működik.',
+  'memories.toast.vector_no_memories': 'Még egy emlék sincs elmentve, így nincs is mihez vektort készíteni. Ez rendben van: ahogy gyűlnek az emlékek, ez a gomb lesz a következő lépés.',
+  'memories.toast.vector_model_missing': 'A modell-szerver válaszol ({url}), de a(z) {model} modell nincs letöltve. Nyiss egy terminált és futtasd: ollama pull {model} -- utána nyomd meg újra ezt a gombot.',
+  'memories.toast.vector_unreachable_local': 'A helyi modell-szerver (Ollama) nem válaszol ezen a gépen ({url}). Indítsd el egy terminálban: ollama serve -- ha nincs telepítve: https://ollama.com/download. A keresés addig is működik kulcsszavakkal.',
+  'memories.toast.vector_unreachable_remote': 'A beállított modell-szerver nem érhető el innen: {url}. Ez nem ezen a gépen fut, ezért ellenőrizd, hogy a másik gépen elindult-e, és hogy a hálózaton át engedi-e a kapcsolatot (OLLAMA_HOST=0.0.0.0). A keresés addig is működik kulcsszavakkal.',
+  'memories.toast.vector_partial':     '{done} emlékhez készült vektor, {failed} nem sikerült. A többit egy újabb gombnyomással pótolhatod.',
+  'memories.toast.vector_error_detail': 'A vektor-generálás elakadt. A szerver ezt mondta: {detail}',
+  'memories.toast.vector_status_unknown': 'Nem sikerült lekérdezni a generálás állapotát. A munka a szerveren attól még futhat -- frissítsd az oldalt egy perc múlva.',
   'memories.stat.vectors_gen':   'Generálás...',
   'memories.toast.vector_count': '{count} emlekhez vektor generalva',
   'memories.btn.new':            'Új emlék',

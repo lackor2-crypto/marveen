@@ -12,3 +12,11 @@ export const TOOL_TIMEOUTS = {
   // (search silently fell back to FTS). 90s covers the slow CPU path.
   'ollama-embedding': 90_000,
 } as const
+
+// How many CONSECUTIVE embedding failures end a backfill run. A dead or
+// mis-configured server answers the same way to every one of a few hundred
+// memories, so the run has nothing left to learn after a handful of tries --
+// it would only burn hours (measured: a healthy 138-memory run already takes
+// ~3.5 minutes, kanban #134). A single failure does not stop the run: one
+// oversized memory must not cancel the rest.
+export const OLLAMA_EMBED_FAILFAST = 3
