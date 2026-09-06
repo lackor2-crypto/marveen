@@ -9818,6 +9818,67 @@ document.getElementById('saveMemBtn').addEventListener('click', async () => {
   }
 })
 
+// A backfill run can take minutes on a slow CPU -- a synchronous POST would
+// sit behind a browser/proxy timeout with the owner seeing nothing at all.
+// Kanban #134: start the job, poll its live state, and read the REASON it
+// ended instead of guessing one from a zero count.
+let embeddingBackfillPolling = false
+
+async function startEmbeddingBackfill() {
+  const btn = document.getElementById('memBackfillBtn')
+  if (embeddingBackfillPolling) return // single-flight on the client too
+  embeddingBackfillPolling = true
+  if (btn) { btn.disabled = true; btn.textContent = t('memories.backfill.running') }
+  try {
+    await fetch('/api/memories/backfill', { method: 'POST' })
+    await pollEmbeddingBackfill()
+  } catch {
+    embeddingBackfillPolling = false
+    if (btn) { btn.disabled = false; btn.textContent = t('memories.stat.vectors_btn') }
+    showToast(t('memories.toast.vector_error'), { type: 'error', big: true })
+  }
+}
+
+async function pollEmbeddingBackfill() {
+  const btn = document.getElementById('memBackfillBtn')
+  try {
+    const r = await fetch('/api/memories/backfill')
+    const data = await r.json()
+    if (data.state === 'running') {
+      if (btn) btn.textContent = t('memories.backfill.progress', { done: data.done || 0, candidates: data.candidates || 0 })
+      setTimeout(pollEmbeddingBackfill, 2000)
+      return
+    }
+    // state === 'done' (or 'idle', which should not happen right after a POST)
+    embeddingBackfillPolling = false
+    if (btn) { btn.disabled = false; btn.textContent = t('memories.stat.vectors_btn') }
+    reportBackfillOutcome(data)
+    loadMemStats()
+  } catch {
+    embeddingBackfillPolling = false
+    if (btn) { btn.disabled = false; btn.textContent = t('memories.stat.vectors_btn') }
+    showToast(t('memories.toast.vector_error'), { type: 'error', big: true })
+  }
+}
+
+function reportBackfillOutcome(data) {
+  const reason = data.reason
+  if (reason === 'nothing_to_do') {
+    // A healthy zero: every memory already has a vector. NOT an error.
+    showToast(t('memories.backfill.reason.nothing_to_do'))
+  } else if (reason === 'unreachable') {
+    showToast(t('memories.toast.vector_none'), { type: 'warn', big: true })
+  } else if (reason === 'model_missing') {
+    showToast(t('memories.backfill.reason.model_missing'), { type: 'warn', big: true })
+  } else if (reason === 'partial') {
+    showToast(t('memories.backfill.reason.partial', { done: data.done || 0, failed: data.failed || 0, detail: data.detail || '' }), { type: 'warn', big: true })
+  } else if (reason === 'all_failed') {
+    showToast(t('memories.backfill.reason.all_failed', { detail: data.detail || '' }), { type: 'error', big: true })
+  } else if (data.done > 0) {
+    showToast(t('memories.toast.vector_count', { count: data.done }))
+  }
+}
+
 async function loadMemStats() {
   try {
     const res = await fetch('/api/memories/stats')
@@ -9833,22 +9894,7 @@ async function loadMemStats() {
       <button class="btn-secondary btn-compact" id="memBackfillBtn" style="margin-left:auto;font-size:11px;padding:6px 12px;align-self:center">${t('memories.stat.vectors_btn')}</button>
       ${embCount === 0 && stats.total > 0 ? `<div class="mem-vectors-note">${escapeHtml(t('memories.vectors_off_note'))}</div>` : ''}
     `
-    document.getElementById('memBackfillBtn')?.addEventListener('click', async () => {
-      const btn = document.getElementById('memBackfillBtn')
-      if (btn) { btn.textContent = t('memories.stat.vectors_gen'); btn.disabled = true }
-      try {
-        const r = await fetch('/api/memories/backfill', { method: 'POST' })
-        const data = await r.json()
-        // A zero count is not a result, it is a failure with a friendly face:
-        // the embedding backend is not running. Saying "0 generated" left the
-        // owner with a button that did nothing and no idea why.
-        // A nulla darab nem eredmeny hanem hiba, es a magyarazata hosszu: ez a
-        // csik maradjon kint amig a felhasznalo el nem tunteti.
-        if (data.count > 0) showToast(t('memories.toast.vector_count', { count: data.count }))
-        else showToast(t('memories.toast.vector_none'), { type: 'warn', big: true })
-        loadMemStats()
-      } catch { showToast(t('memories.toast.vector_error'), { type: 'error', big: true }) }
-    })
+    document.getElementById('memBackfillBtn')?.addEventListener('click', startEmbeddingBackfill)
   } catch (err) {
     console.error('Stats hiba:', err)
   }

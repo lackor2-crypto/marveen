@@ -2711,7 +2711,9 @@ export function markPendingTaskRetryAlert(taskName: string, agentName: string, t
 
 // --- Vector Search (Ollama + nomic-embed-text) ---
 
-const EMBED_MODEL = 'nomic-embed-text'
+// Exported so the model-missing check (below) and the backfill result never
+// re-type the name: a fork that changes the model only has to change it here.
+export const EMBED_MODEL = 'nomic-embed-text'
 
 export async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
@@ -2788,20 +2790,99 @@ export async function hybridSearch(agentId: string, query: string, limit: number
   return ranked.slice(0, limit).map(([id]) => byId.get(id)!)
 }
 
-export async function backfillEmbeddings(): Promise<number> {
+// Why a backfill run ended, read from the ACTUAL source, never guessed from a
+// zero count (kanban #134): a zero-candidate run (nothing left to vectorize)
+// and an unreachable Ollama both leave `done === 0`, but they need opposite
+// messages -- one is healthy, the other is not.
+export type BackfillReason = 'ok' | 'partial' | 'nothing_to_do' | 'unreachable' | 'model_missing' | 'all_failed'
+
+export interface BackfillResult {
+  candidates: number
+  done: number
+  failed: number
+  reason: BackfillReason
+  /** The failing side's own message. Only set when reason is a failure. */
+  detail?: string
+}
+
+/**
+ * Asks OLLAMA_URL itself whether it can serve embeddings, BEFORE looking at
+ * how many memories need one. Order matters: a candidate count of zero means
+ * nothing without first knowing the source answered at all.
+ */
+async function probeOllamaEmbedding(): Promise<{ ok: true } | { ok: false; reason: 'unreachable' | 'model_missing'; detail: string }> {
+  let resp: Response
+  try {
+    resp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(3_000) })
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    logger.debug({ err, ollamaUrl: OLLAMA_URL }, 'Ollama probe failed (not reachable)')
+    return { ok: false, reason: 'unreachable', detail }
+  }
+  if (!resp.ok) {
+    return { ok: false, reason: 'unreachable', detail: `HTTP ${resp.status}` }
+  }
+  let data: { models?: { name: string }[] }
+  try {
+    data = await resp.json() as { models?: { name: string }[] }
+  } catch (err) {
+    return { ok: false, reason: 'unreachable', detail: err instanceof Error ? err.message : String(err) }
+  }
+  const hasModel = (data.models || []).some(m => m.name.split(':')[0] === EMBED_MODEL)
+  if (!hasModel) {
+    return { ok: false, reason: 'model_missing', detail: `${EMBED_MODEL} not in /api/tags` }
+  }
+  return { ok: true }
+}
+
+/**
+ * The backfill itself, WITH the reason it ended -- kanban #134: the button
+ * used to collapse "nothing to vectorize" and "Ollama unreachable" into the
+ * same "0 generated" message. The source (probe) is asked BEFORE the
+ * candidate count is even looked at, so a healthy zero and a broken zero
+ * never get confused again.
+ *
+ * `backfillEmbeddings()` below keeps the original number-returning shape so
+ * existing callers (src/index.ts, fleet-transfer.ts, tests) compile
+ * unchanged.
+ */
+export async function runEmbeddingBackfill(onProgress?: (done: number, candidates: number) => void): Promise<BackfillResult> {
+  const probe = await probeOllamaEmbedding()
+  if (!probe.ok) {
+    return { candidates: 0, done: 0, failed: 0, reason: probe.reason, detail: probe.detail }
+  }
+
   const rows = db.prepare('SELECT id, content, keywords FROM memories WHERE embedding IS NULL').all() as { id: number; content: string; keywords: string | null }[]
-  let count = 0
+  if (rows.length === 0) {
+    return { candidates: 0, done: 0, failed: 0, reason: 'nothing_to_do' }
+  }
+
+  let done = 0
+  let failed = 0
+  let lastDetail = ''
   for (const row of rows) {
     const text = row.content + (row.keywords ? ' ' + row.keywords : '')
     const emb = await generateEmbedding(text)
     if (emb) {
       db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(emb), row.id)
-      count++
+      done++
+    } else {
+      failed++
+      lastDetail = 'embedding generation returned no vector'
     }
+    onProgress?.(done + failed, rows.length)
     // Small delay to not overwhelm Ollama
     await new Promise(r => setTimeout(r, 100))
   }
-  return count
+
+  const reason: BackfillReason = done === 0 ? 'all_failed' : (failed > 0 ? 'partial' : 'ok')
+  return { candidates: rows.length, done, failed, reason: reason, detail: failed > 0 ? lastDetail : undefined }
+}
+
+/** The pre-#134 shape: how many memories got a vector. Kept so existing
+ *  callers that only ever wanted the number stay valid without a rewrite. */
+export async function backfillEmbeddings(): Promise<number> {
+  return (await runEmbeddingBackfill()).done
 }
 
 // --- Pending Channel Requests ---

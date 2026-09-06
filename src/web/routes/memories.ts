@@ -1,8 +1,8 @@
 import {
   saveAgentMemory, getAgentMemories, searchAgentMemories, getMemoryStats, updateMemory,
-  hybridSearch, backfillEmbeddings, clearMemoryCache,
+  hybridSearch, runEmbeddingBackfill, clearMemoryCache,
   searchMemories, getMemoriesForChat, getDb, touchMemoriesAccessed,
-  type Memory,
+  type Memory, type BackfillResult,
 } from '../../db.js'
 import { MAIN_AGENT_ID, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from '../../config.js'
 import { logger } from '../../logger.js'
@@ -14,6 +14,47 @@ import type { RouteContext } from './types.js'
 // Canonical memory categories. Kept in sync with the DB CHECK constraint in
 // src/db.ts so the API rejects bad values before they even reach SQLite.
 const MEMORY_CATEGORIES = new Set(['hot', 'warm', 'cold', 'shared'])
+
+// --- Embedding backfill job (kanban #134) ---
+//
+// A synchronous POST here used to hang the request for as long as the whole
+// backfill took (minutes on a slow CPU), which the browser/proxy could time
+// out silently -- the owner saw nothing at all, not even a wrong message.
+// Now POST starts the job and returns immediately; GET reports live state.
+// Single-flight: a second POST while one is running joins the same job
+// instead of starting a competing loop over the same rows.
+interface BackfillJob {
+  jobId: string
+  state: 'running' | 'done'
+  candidates: number
+  done: number
+  result?: BackfillResult
+}
+
+let currentBackfillJob: BackfillJob | null = null
+
+function startBackfillJob(): BackfillJob {
+  if (currentBackfillJob && currentBackfillJob.state === 'running') return currentBackfillJob
+
+  const job: BackfillJob = { jobId: `bf-${Date.now()}`, state: 'running', candidates: 0, done: 0 }
+  currentBackfillJob = job
+
+  runEmbeddingBackfill((done, candidates) => {
+    job.done = done
+    job.candidates = candidates
+  }).then(result => {
+    job.candidates = result.candidates
+    job.done = result.done
+    job.result = result
+    job.state = 'done'
+  }).catch(err => {
+    logger.error({ err }, 'Embedding backfill job failed')
+    job.result = { candidates: job.candidates, done: job.done, failed: 0, reason: 'unreachable', detail: err instanceof Error ? err.message : String(err) }
+    job.state = 'done'
+  })
+
+  return job
+}
 
 export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
@@ -204,13 +245,23 @@ Respond ONLY with JSON, nothing else. Replace every <...> placeholder:
   }
 
   if (path === '/api/memories/backfill' && method === 'POST') {
-    try {
-      const count = await backfillEmbeddings()
-      json(res, { ok: true, count })
-    } catch (err) {
-      logger.error({ err }, 'Backfill failed')
-      json(res, { error: 'Backfill failed' }, 500)
-    }
+    const job = startBackfillJob()
+    json(res, { jobId: job.jobId, candidates: job.candidates, state: job.state }, 202)
+    return true
+  }
+
+  if (path === '/api/memories/backfill' && method === 'GET') {
+    if (!currentBackfillJob) { json(res, { state: 'idle' }); return true }
+    const job = currentBackfillJob
+    json(res, {
+      jobId: job.jobId,
+      state: job.state,
+      done: job.done,
+      candidates: job.candidates,
+      reason: job.result?.reason,
+      failed: job.result?.failed,
+      detail: job.result?.detail,
+    })
     return true
   }
 
