@@ -171,6 +171,59 @@ describe('land-pr.sh: a nulla ket dolgot jelenthet', () => {
   })
 })
 
+describe('land-pr.sh: a merge eredmenyet a FORRASTOL kerdezi, nem talalgatja', () => {
+  const script = readFileSync(LAND_PR, 'utf8')
+  const code = executableBashLines(script)
+
+  // A valos eset (2026-09-06, PR #29 / #31 / #32): a merge MEGTORTENT, de a
+  // `gh pr merge --delete-branch` lokalis takaritasa elbukott
+  //   failed to run git: fatal: 'main' is already used by worktree at ...
+  // mert az alap agat egy masik worktree tartja. A szkript ebbol azt jelentette,
+  // hogy "a merge nem sikerult (talan branch protection / jogosultsag)" --
+  // haromszor egymas utan, egy sikeres landolasrol.
+  it('nem allitja a saját talalgatasat a gh hibauzenete helyett', () => {
+    // Csak a VEGREHAJTHATO sorokat nezzuk: a kommentben leirt tortenet ("a
+    // korabbi 'talan branch protection' talalgatas volt") tanulsag, azt hagyni
+    // KELL -- kulonben nem tudjuk leirni, mit ne csinaljon a kovetkezo.
+    const offenders = code.filter((line) => line.includes('talan branch protection'))
+    expect(offenders).toEqual([])
+    const guesses = code.filter((line) => /merge/i.test(line) && /\btalan\b/i.test(line))
+    expect(guesses).toEqual([])
+  })
+
+  it('a merge utan VISSZAOLVASSA a PR allapotat, es azt hiszi el', () => {
+    expect(script).toContain('--json state')
+    expect(script).toContain('MERGED')
+    expect(script).toContain('pr_state')
+    expect(script).toContain('state_rc')
+  })
+
+  it('a gh SAJAT hibauzenetet adja tovabb, ha tenyleg nem mergelodott', () => {
+    expect(script).toContain('merge_out')
+    expect(script).toContain('a gh sajat hibauzenete')
+  })
+
+  it('a nem mergelt es a nem-latok-oda eset KULON ag', () => {
+    // Ha a `gh pr view` maga hibazik, a szkript nem mondhatja sem azt, hogy
+    // sikerult, sem azt, hogy nem -- ez ugyanaz a nullas szabaly.
+    expect(script).toContain('NEM tudom, mergelodott-e')
+  })
+
+  it('nem hasznal --delete-branch-et (az bukik masik worktree-vel)', () => {
+    const offenders = code.filter((line) => line.includes('--delete-branch'))
+    expect(offenders).toEqual([])
+  })
+
+  it('a remote branchet magatol takaritja, es a takaritas hibaja NEM bukassa el a landolast', () => {
+    const del = code.filter((line) => /git\s+push\s+origin\s+--delete/.test(line))
+    expect(del.length).toBeGreaterThan(0)
+    // A takaritas utan nem `die` all, hanem egy figyelmeztetes.
+    const after = script.slice(script.indexOf('del_rc='))
+    expect(after).toContain('a landolast ez nem befolyasolja')
+    expect(after.slice(0, after.indexOf('MERGE-ELVE'))).not.toContain('die "')
+  })
+})
+
 describe('land-pr.sh: a CI-varas hatarideje nem rovidebb a CI legrosszabb eseténel', () => {
   it('a hatarido lefedi a ci.yml osszes soros timeout-jat', () => {
     const ci = readFileSync(CI_YML, 'utf8')
