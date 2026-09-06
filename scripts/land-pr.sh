@@ -305,14 +305,30 @@ elif [ "$merge_rc" -ne 0 ]; then
   echo "land-pr: FIGYELEM -- a merge SIKERULT (a PR allapota MERGED), de a 'gh pr merge' hibaval tert vissza (exit $merge_rc). A gh sajat uzenete: $merge_out" >&2
 fi
 
-# A remote branch takaritasa. Best-effort, a VALODI hibauzenettel: egy ott maradt
-# branch nem rontja el a mar megtortent landolast.
+# A remote branch takaritasa. ELOSZOR megkerdezzuk, letezik-e meg: a GitHub
+# "automatically delete head branches" beallitasa a merge-kor MAGA torli, es
+# akkor a torles
+#   ! [remote rejected] ... (cannot lock ref ...: unable to resolve reference ...)
+# hibaval bukna -- egy hangos figyelmeztetes arrol, hogy a dolog RENDBEN van.
+# (Merve a PR #33 landolasakor, ezzel a szkripttel.) A "nincs ott" es a "nem
+# latok oda" itt is ket kulon eset: a ls-remote KILEPOKODJA donti el, nem a
+# kimenet uressege.
 set +e
-del_out="$(git push origin --delete "$BRANCH" 2>&1)"
-del_rc=$?
+ls_out="$(git ls-remote --heads origin "$BRANCH" 2>&1)"
+ls_rc=$?
 set -e
-[ "$del_rc" -eq 0 ] \
-  || echo "land-pr: a '$BRANCH' remote branchet nem sikerult torolni (exit $del_rc): $del_out -- a landolast ez nem befolyasolja." >&2
+if [ "$ls_rc" -ne 0 ]; then
+  echo "land-pr: nem tudtam megnezni, megvan-e meg a '$BRANCH' remote branch (exit $ls_rc): $ls_out -- nem nyulok hozza. A landolas ettol fuggetlenul megtortent." >&2
+elif [ -z "$ls_out" ]; then
+  : # A GitHub mar letorolte a merge-kor. Nincs mit tenni, es nincs mirol szolni.
+else
+  set +e
+  del_out="$(git push origin --delete "$BRANCH" 2>&1)"
+  del_rc=$?
+  set -e
+  [ "$del_rc" -eq 0 ] \
+    || echo "land-pr: a '$BRANCH' remote branchet nem sikerult torolni (exit $del_rc): $del_out -- a landolast ez nem befolyasolja." >&2
+fi
 
 echo "land-pr: MERGE-ELVE. PR: $PR_URL" >&2
 

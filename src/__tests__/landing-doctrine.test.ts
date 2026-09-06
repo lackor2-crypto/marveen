@@ -214,6 +214,18 @@ describe('land-pr.sh: a merge eredmenyet a FORRASTOL kerdezi, nem talalgatja', (
     expect(offenders).toEqual([])
   })
 
+  it('nem panaszkodik arra, hogy a GitHub mar letorolte a branchet', () => {
+    // Merve a PR #33 landolasakor: a repo "automatically delete head branches"
+    // beallitasa a merge-kor maga torli a branchet, es a mi torlesunk ekkor
+    //   ! [remote rejected] ... unable to resolve reference ...
+    // hibaval bukott -- hangos figyelmeztetes arrol, hogy minden rendben van.
+    expect(script).toContain('git ls-remote --heads origin')
+    expect(script).toContain('ls_rc')
+    // A "nincs ott" es a "nem latok oda" kulon ag: az uressegbol nem
+    // kovetkeztetunk, ha maga a lekerdezes hibazott.
+    expect(script).toContain('nem tudtam megnezni, megvan-e meg')
+  })
+
   it('a remote branchet magatol takaritja, es a takaritas hibaja NEM bukassa el a landolast', () => {
     const del = code.filter((line) => /git\s+push\s+origin\s+--delete/.test(line))
     expect(del.length).toBeGreaterThan(0)
