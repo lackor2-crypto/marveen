@@ -6812,20 +6812,42 @@ function switchAgentTab(tab) {
 }
 
 // === Settings save buttons ===
+// #136 (d9cb27ec): egy URES lista ket ellentetes dolgot jelenthetett -- "nem fut
+// a szerver" es "fut, de nincs benne beszelgeto modell" --, es a felulet
+// mindkettore ugyanazt a semmit mutatta. A szerver mostantol megmondja, melyik
+// eset all fenn (verdict), a hint sor pedig kiirja, mit tegyen a felhasznalo.
 async function loadOllamaModels() {
   const group = document.getElementById('ollamaModelGroup')
+  const hint = document.getElementById('ollamaModelHint')
   if (!group) return
   group.innerHTML = ''
+  const showHint = (text) => {
+    if (!hint) return
+    hint.textContent = text || ''
+    hint.style.display = text ? 'block' : 'none'
+  }
+  showHint('')
   try {
     const res = await fetch('/api/ollama/models')
-    const models = await res.json()
-    for (const m of models) {
+    const data = await res.json()
+    // Regi (tomb) valasz is elofordulhat, ha a bongeszo a korabbi oldalt tartja
+    // gyorsitotarban: olyankor nincs verdict, es nem talalgatunk okot.
+    const list = Array.isArray(data) ? { models: data, verdict: data.length ? 'ok' : null } : (data || {})
+    for (const m of (list.models || [])) {
       const opt = document.createElement('option')
       opt.value = m.name
-      opt.textContent = `${m.name} (${m.size})`
+      opt.textContent = m.size ? `${m.name} (${m.size})` : m.name
       group.appendChild(opt)
     }
-  } catch { /* Ollama not available */ }
+    const url = list.url || ''
+    if (list.verdict === 'unreachable') showHint(t('agents.model.ollama_unreachable', { url, error: list.error || '' }))
+    else if (list.verdict === 'no_models') showHint(t('agents.model.ollama_no_models', { url }))
+    else if (list.verdict === 'embed_only') showHint(t('agents.model.ollama_embed_only', { url, n: list.totalModels }))
+  } catch (e) {
+    // A lekerdezes maga hasalt el (halozat, JSON). A TENYLEGES uzenetet mondjuk
+    // meg, nem egy kitalalt okot.
+    showHint(t('agents.model.ollama_unreachable', { url: '', error: (e && e.message) || String(e) }))
+  }
 }
 
 // Populates the DeepSeek optgroups in both the wizard and the agent edit

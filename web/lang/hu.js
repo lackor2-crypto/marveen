@@ -1343,6 +1343,12 @@ window._i18n.hu = {
   'agents.reauth.m_transcript_generic': 'A naplóban hitelesítési hiba van — egy kérést a szolgáltatás tényleg visszautasított.',
   'agents.reauth.raw_tip':              'A gép szó szerinti jelzése: {raw}',
   'agents.btn.conversation':       'Beszélgetés',
+  // #136 (d9cb27ec): a helyi modell-lista URES allapota eddig nema volt -- ugyanaz
+  // a semmi jott ki abbol, hogy nem fut a szerver, es abbol, hogy fut, de nincs
+  // benne beszelgeto modell. Mostantol mindharom eset megmondja magat.
+  'agents.model.ollama_unreachable': 'A helyi modell-szerver (Ollama) nem válaszol ezen a címen: {url}. A hibaüzenet: {error}. Amíg nem fut, helyi modellt nem tudsz választani. A címet a Beállítások oldalon, az OLLAMA_URL sorban tudod átírni.',
+  'agents.model.ollama_no_models': 'A helyi modell-szerver (Ollama) fut ({url}), de egyetlen modell sincs letöltve bele. Nyiss egy parancsablakot, és tölts le egy beszélgető modellt (ollama pull, a választék: https://ollama.com/library) -- utána frissítsd ezt az oldalt.',
+  'agents.model.ollama_embed_only': 'A helyi modell-szerver (Ollama) fut ({url}), és {n} modell van benne, de mind beágyazó (embed) modell. Azok a kereséshez kellenek, beszélgetni nem tudnak velük. Tölts le egy beszélgető modellt (ollama pull, a választék: https://ollama.com/library), és megjelenik itt.',
   'agents.model.analyzing':        'Elemzés...',
   'agents.model.no_data':          'Nincs adat ehhez az ágenshez.',
   'agents.model.error':            'Hiba az elemzés során.',
@@ -2777,7 +2783,9 @@ window._i18n.hu = {
   'settings.desc.KANBAN_SWIMLANE_DEFAULT_GROUP': 'A tábla alapértelmezett csoportosítása betöltéskor. none = lapos nézet.',
   'settings.desc.KANBAN_SWIMLANE_SEPARATOR_COLOR': 'Az swimlane-elválasztó fejléc háttérszíne.',
   'settings.desc.DASHBOARD_PUBLIC_URL':        'A dashboard nyilvánosan elérhető URL-je (pl. https://{agentId}.example.com). Üres = nincs CORS whitelist bővítés.',
-  'settings.desc.OLLAMA_URL':                  'Az Ollama API alap-URL-je. Memória-embedding és modell-javaslat ezt használja.',
+  // #136 (d9cb27ec): a regi mondat negybol ket hasznalatot emlitett, es a
+  // legnagyobb kovetkezmenyut (agens helyi modellen) kihagyta.
+  'settings.desc.OLLAMA_URL':                  'Annak a helyi modell-szervernek (Ollama) a címe, ami a saját gépeden futtat egy kisebb mesterséges intelligenciát. Négy dolgot hajt: a memória jelentés szerinti (szemantikus) keresését, az importált emlékek automatikus besorolását (enélkül minden behozott emlék a "warm" polcra kerül), a felület helyi modell-listáját, és azt, hogy egy ágens teljesen a saját gépeden futó modellel dolgozzon. Elhagyható: ha üresen hagyod vagy nem fut a szerver, a Marveen működik tovább, a keresés kulcsszavakkal megy.',
   'settings.desc.DASHBOARD_LANG':              'A dashboard alapértelmezett megjelenítési nyelve (hu = magyar, en = angol). A böngészőben mentett preferencia (localStorage) felülírja.',
   'settings.desc.HEARTBEAT_START_HOUR':        'A heartbeat aktív időablakának kezdete (helyi idő, 0-22). Előtte nem küld értesítést.',
   'settings.desc.HEARTBEAT_END_HOUR':          'A heartbeat aktív időablakának vége (helyi idő, 1-24). Ettől nem küld értesítést.',

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { summarizeOllamaModels, type OllamaTag } from '../../ollama-model-list.js'
 import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
 import { execSync } from 'node:child_process'
@@ -983,17 +984,26 @@ export async function tryHandleConnectors(ctx: RouteContext): Promise<boolean> {
 
   // === Ollama ===
   if (path === '/api/ollama/models' && method === 'GET') {
+    // #136 (d9cb27ec): a valasz mar NEM csupasz tomb. Egy ures tomb ket
+    // ellentetes dolgot jelentett (nem fut a szerver / fut, de nincs benne
+    // beszelgeto modell), es a felulet mindkettore ugyanazt a semmit mutatta.
+    // A dontes a summarizeOllamaModels tiszta fuggvenyben szuletik; a hibat a
+    // TENYLEGES uzenetevel adjuk tovabb, nem talalgatva.
     try {
       const resp = await fetch(`${OLLAMA_URL}/api/tags`, { signal: AbortSignal.timeout(5000) })
-      const data = await resp.json() as { models?: { name: string; size: number; details?: { parameter_size?: string } }[] }
-      const models = (data.models || []).filter(m => !m.name.includes('embed')).map(m => ({
-        name: m.name,
-        size: Math.round(m.size / 1024 / 1024 / 1024 * 10) / 10 + ' GB',
-        params: m.details?.parameter_size || '',
+      if (!resp.ok) {
+        json(res, summarizeOllamaModels({
+          url: OLLAMA_URL, reachable: false, tags: null, error: `HTTP ${resp.status} ${resp.statusText}`.trim(),
+        }))
+        return true
+      }
+      const data = await resp.json() as { models?: OllamaTag[] }
+      json(res, summarizeOllamaModels({ url: OLLAMA_URL, reachable: true, tags: data.models || [] }))
+    } catch (err) {
+      json(res, summarizeOllamaModels({
+        url: OLLAMA_URL, reachable: false, tags: null,
+        error: err instanceof Error ? err.message : String(err),
       }))
-      json(res, models)
-    } catch {
-      json(res, [])
     }
     return true
   }

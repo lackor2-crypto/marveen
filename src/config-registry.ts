@@ -322,7 +322,11 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'OLLAMA_URL',
     type: 'string',
     default: 'http://localhost:11434',
-    description: 'Az Ollama API alap-URL-je. Memória-embedding és modell-javaslat ezt használja.',
+    // #136 (d9cb27ec): a regi mondat ket hasznalatot emlitett a negybol, es
+    // eppen a legnagyobb kovetkezmenyut hagyta ki (agens futtatasa helyi
+    // modellen). A felhasznalonak megjeleno szoveg a settings.desc.OLLAMA_URL
+    // kulcs a lang-fajlokban; ez itt a tartalek, ha nincs forditas.
+    description: 'Annak a helyi modell-szervernek (Ollama) a címe, ami a saját gépeden futtat egy kisebb mesterséges intelligenciát. Négy dolgot hajt: a memória jelentés szerinti (szemantikus) keresését, az importált emlékek automatikus besorolását (enélkül minden behozott emlék "warm" lesz), a felület helyi modell-listáját, és azt, hogy egy ágens teljesen a saját gépeden futó modellel dolgozzon. Elhagyható: ha üresen hagyod vagy nem fut a szerver, a Marveen működik tovább, a keresés kulcsszavakkal megy.',
     module: 'system',
     secret: false,
     requiresRestart: true,
