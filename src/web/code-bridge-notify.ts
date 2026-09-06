@@ -20,7 +20,7 @@
 
 import { sendTelegramMessage } from './telegram.js'
 import { resolveOwnerChatId } from '../owner-chat.js'
-import { CODE_BOT_TOKEN, TELEGRAM_BOT_TOKEN } from '../config.js'
+import { CODE_BOT_TOKEN, TELEGRAM_BOT_TOKEN, APP_LANG } from '../config.js'
 import { logger } from '../logger.js'
 import { formatDuration, type CodeTask } from './code-bridge-store.js'
 import { getApproval, getKanbanCard, listApprovalVerifications } from '../db.js'
@@ -61,6 +61,57 @@ export function chunkMessage(text: string, limit = TG_LIMIT): string[] {
   return out
 }
 
+// ---- the wording, in the install's language ------------------------------
+//
+// Boss, 2026-09-06: "ha angolra van allitva akor angolul". This notice is the
+// one piece of the code bridge the owner actually reads, and it used to be
+// hardcoded Hungarian no matter what the dashboard was set to.
+//
+// House idiom (same as cardWorkNotice in card-work-guard.ts): one {hu, en}
+// table, one lookup, {param} substitution. Nothing here calls a model -- this
+// path is deliberately token-free (see the file header), so the table is the
+// only way the language can change.
+//
+// WHAT THIS FILE CANNOT TRANSLATE: `task.result` / `task.error` -- the
+// executor's own words, quoted verbatim. Translating them here would need a
+// model call, which this path must not make. The language of THAT text is
+// settled where it is written, by the preface the dispatcher puts in front of
+// every task (buildCodeTaskPreamble, point 5), not here.
+type NotifyLang = 'hu' | 'en'
+
+/** The install language, narrowed to the two the table carries. Anything that
+ *  is not Hungarian reads English -- the same fallback buildCodeTaskPreamble
+ *  uses, so the preface and the notice never disagree. */
+export function notifyLang(): NotifyLang {
+  return APP_LANG === 'hu' ? 'hu' : 'en'
+}
+
+const NOTIFY_TEXT: Record<string, { hu: string; en: string }> = {
+  'subject.task': { hu: 'Feladat: {text}', en: 'Task: {text}' },
+  'subject.card': { hu: 'Kartya #{seq}: {title}', en: 'Card #{seq}: {title}' },
+  'subject.approval': { hu: 'Jovahagyas: {text}', en: 'Approval: {text}' },
+  'head.verdict_fail': {
+    hu: '⚠️ Kod-hid: kesz, DE az ellenorzes FAIL-t adott',
+    en: '⚠️ Code bridge: finished, BUT the verification came back FAIL',
+  },
+  'head.verdict_noresponse': {
+    hu: '⚠️ Kod-hid: kesz, DE az ellenorzestol nem jott valasz',
+    en: '⚠️ Code bridge: finished, BUT the verification never answered',
+  },
+  'head.done': { hu: '✅ Kod-hid: {project} kesz', en: '✅ Code bridge: {project} finished' },
+  'head.error': { hu: '❌ Kod-hid: {project} hiba', en: '❌ Code bridge: {project} failed' },
+  'head.other': { hu: '⚠️ Kod-hid: {project} {status}', en: '⚠️ Code bridge: {project} {status}' },
+  'footer.result': { hu: 'Teljes eredmeny: /result {id}', en: 'Full result: /result {id}' },
+}
+
+/** Unknown key returns the key itself: a searchable string beats an empty one,
+ *  which would look like "there was no notice at all". */
+export function notifyText(key: string, lang: NotifyLang, params: Record<string, string> = {}): string {
+  const row = NOTIFY_TEXT[key]
+  const raw = row ? (lang === 'en' ? row.en : row.hu) : key
+  return raw.replace(/\{(\w+)\}/g, (m, name: string) => params[name] ?? m)
+}
+
 const APPROVAL_ID_RE = /\/api\/approvals\/([0-9a-f-]{36})\/verify-result/i
 
 function firstLine(text: string, maxLen = 200): string {
@@ -79,16 +130,18 @@ export interface TaskSubject {
  *  the kanban card it was raised from, this becomes "Kartya #207: ...". A task
  *  with no approval (a plain /code command) falls back to its prompt's own
  *  first line -- there is no card to name. */
-export function resolveTaskSubject(task: CodeTask): TaskSubject {
+export function resolveTaskSubject(task: CodeTask, lang: NotifyLang = notifyLang()): TaskSubject {
   const approvalId = task.prompt.match(APPROVAL_ID_RE)?.[1]
   const approval = approvalId ? getApproval(approvalId) : undefined
-  if (!approval) return { label: `Feladat: ${firstLine(task.prompt)}`, verdict: null }
+  if (!approval) {
+    return { label: notifyText('subject.task', lang, { text: firstLine(task.prompt) }), verdict: null }
+  }
 
   const cardId = approvalCardId(approval.action_payload, approval.action_description)
   const card = cardId ? getKanbanCard(cardId) : undefined
   const label = card
-    ? `Kartya #${card.seq}: ${card.title}`
-    : `Jovahagyas: ${firstLine(approval.action_description)}`
+    ? notifyText('subject.card', lang, { seq: String(card.seq), title: card.title })
+    : notifyText('subject.approval', lang, { text: firstLine(approval.action_description) })
 
   const mine = task.requestedBy
     ? listApprovalVerifications(approval.id).find(v => v.agent === task.requestedBy)
@@ -99,21 +152,22 @@ export function resolveTaskSubject(task: CodeTask): TaskSubject {
 
 /** Pure: the exact text that goes out. Kept separate from the send so a test can
  *  assert the wording without touching the network. */
-export function buildCompletionMessage(task: CodeTask): string {
-  const subject = resolveTaskSubject(task)
+export function buildCompletionMessage(task: CodeTask, lang: NotifyLang = notifyLang()): string {
+  const subject = resolveTaskSubject(task, lang)
   // A worker that finished technically ("done") but whose own verification
   // came back "fail"/"noresponse" is NOT a checkmark -- that mismatch is
   // exactly the confusion this file was rewritten to stop causing.
+  const p = { project: task.project, status: task.status }
   const head =
     task.status === 'done' && subject.verdict === 'fail'
-      ? `⚠️ Kod-hid: kesz, DE az ellenorzes FAIL-t adott`
+      ? notifyText('head.verdict_fail', lang)
       : task.status === 'done' && subject.verdict === 'noresponse'
-        ? `⚠️ Kod-hid: kesz, DE az ellenorzestol nem jott valasz`
+        ? notifyText('head.verdict_noresponse', lang)
         : task.status === 'done'
-          ? `✅ Kod-hid: ${task.project} kesz`
+          ? notifyText('head.done', lang, p)
           : task.status === 'error'
-            ? `❌ Kod-hid: ${task.project} hiba`
-            : `⚠️ Kod-hid: ${task.project} ${task.status}`
+            ? notifyText('head.error', lang, p)
+            : notifyText('head.other', lang, p)
   // Subject first: "Ezek mit jelentenek???" (Boss, 2026-08-20) was about which
   // BOT sent this; "melyik munkara [vonatkozik]" (2026-09-05) is about which
   // CARD it is. The very first words now answer the second question too.
@@ -128,7 +182,7 @@ export function buildCompletionMessage(task: CodeTask): string {
   // across multiple Telegram messages when it does not fit one.
   const body = task.result ?? task.error
   if (body) lines.push(body)
-  lines.push(`Teljes eredmeny: /result ${shortId(task.id)}`)
+  lines.push(notifyText('footer.result', lang, { id: shortId(task.id) }))
   return lines.join('\n')
 }
 
