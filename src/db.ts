@@ -2871,6 +2871,61 @@ export async function hybridSearch(agentId: string, query: string, limit: number
   return ranked.slice(0, limit).map(([id]) => byId.get(id)!)
 }
 
+// The cheap question, asked BEFORE a run that could take minutes: is the
+// embedding server there at all, and does it have the model? An embedding
+// request answers the same question, but on the expensive deadline
+// (`ollama-embedding`, 90s x OLLAMA_EMBED_FAILFAST) -- a target that accepts
+// the connection and then swallows the packets would keep the owner waiting
+// ~4.5 minutes for "not reachable". The probe says it in ~3 seconds.
+//
+// It NEVER guesses. When /api/tags answers in a shape this code does not
+// understand (no `models` array -- a proxy, a different server, a future
+// version), the probe returns `unknown` and the run goes ahead: the real
+// embedding request is then the authority on what is wrong. A probe that
+// cannot see is not the same as a probe that saw nothing.
+export type EmbedProbe =
+  | { ok: true }
+  | { ok: false; reason: 'unreachable' | 'model_missing'; detail: string }
+  | { ok: 'unknown'; detail: string }
+
+/** `nomic-embed-text` and `nomic-embed-text:latest` are the same model. */
+function sameModel(a: string, b: string): boolean {
+  return a.split(':')[0] === b.split(':')[0]
+}
+
+export async function probeEmbeddingTarget(url: string = OLLAMA_URL): Promise<EmbedProbe> {
+  let resp: Response
+  try {
+    resp = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(TOOL_TIMEOUTS['ollama-probe']) })
+  } catch (err) {
+    // The server's own words, not our summary of them.
+    return { ok: false, reason: 'unreachable', detail: err instanceof Error ? err.message : String(err) }
+  }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '')
+    return { ok: false, reason: 'unreachable', detail: body.slice(0, 300) || `HTTP ${resp.status}` }
+  }
+
+  let data: { models?: unknown }
+  try {
+    data = await resp.json() as { models?: unknown }
+  } catch (err) {
+    return { ok: 'unknown', detail: err instanceof Error ? err.message : String(err) }
+  }
+
+  // No `models` key at all: something answered, but not something we can read.
+  // Saying "the model is missing" here would be a guess about a server we do
+  // not recognise.
+  if (!Array.isArray(data.models)) return { ok: 'unknown', detail: 'no models[] in /api/tags' }
+
+  const names = (data.models as { name?: unknown }[])
+    .map(m => (typeof m?.name === 'string' ? m.name : ''))
+    .filter(Boolean)
+  if (names.some(n => sameModel(n, EMBED_MODEL))) return { ok: true }
+  return { ok: false, reason: 'model_missing', detail: `${EMBED_MODEL} not in /api/tags (${names.length} model(s) there)` }
+}
+
 // Why the backfill ended. The four "zero" cases the dashboard used to collapse
 // into one red message (kanban #134):
 //   nothing_to_do -- every memory already has a vector. HEALTHY, not an error.
@@ -2916,7 +2971,17 @@ export async function runEmbeddingBackfill(onProgress?: BackfillProgress): Promi
 
   if (rows.length === 0) {
     // Zero candidates is the GOOD outcome, and it has two distinct shapes.
+    // The DB alone decides this, so a healthy install with a stopped Ollama
+    // still gets the healthy message -- there is genuinely nothing to do.
     return { ...base, done: 0, failed: 0, reason: total === 0 ? 'no_memories' : 'nothing_to_do' }
+  }
+
+  // There IS work: ask the server the cheap question first (kanban 11da9dcb).
+  // `unknown` is not a verdict -- the run continues and the embedding request
+  // itself decides.
+  const probe = await probeEmbeddingTarget(target)
+  if (probe.ok === false) {
+    return { ...base, done: 0, failed: 0, reason: probe.reason, detail: probe.detail }
   }
 
   let done = 0
