@@ -1,9 +1,10 @@
 import {
   saveAgentMemory, getAgentMemories, searchAgentMemories, getMemoryStats, updateMemory,
-  hybridSearch, backfillEmbeddings, clearMemoryCache,
+  hybridSearch, clearMemoryCache,
   searchMemories, getMemoriesForChat, getDb, touchMemoriesAccessed,
   type Memory,
 } from '../../db.js'
+import { startEmbeddingBackfill, getEmbeddingBackfillStatus } from '../../embedding-backfill.js'
 import { MAIN_AGENT_ID, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from '../../config.js'
 import { logger } from '../../logger.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
@@ -203,14 +204,22 @@ Respond ONLY with JSON, nothing else. Replace every <...> placeholder:
     return true
   }
 
+  // The run does NOT happen inside this request (kanban #134): a healthy pass
+  // over 138 memories takes ~3.5 minutes and the browser gives up at 2m29s,
+  // so the owner saw an error at the end of a SUCCESSFUL operation. The POST
+  // starts the job and answers immediately; the GET below reports progress.
   if (path === '/api/memories/backfill' && method === 'POST') {
     try {
-      const count = await backfillEmbeddings()
-      json(res, { ok: true, count })
+      json(res, { ok: true, ...startEmbeddingBackfill() })
     } catch (err) {
-      logger.error({ err }, 'Backfill failed')
-      json(res, { error: 'Backfill failed' }, 500)
+      logger.error({ err }, 'Backfill start failed')
+      json(res, { error: 'backfill_start_failed', message: 'A vektor-generalast nem sikerult elinditani.' }, 500)
     }
+    return true
+  }
+
+  if (path === '/api/memories/backfill/status' && method === 'GET') {
+    json(res, { ok: true, ...getEmbeddingBackfillStatus() })
     return true
   }
 

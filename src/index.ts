@@ -12,7 +12,7 @@ import { execFileSync, execSync } from 'node:child_process'
 import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
-import { initDatabase, backfillEmbeddings } from './db.js'
+import { initDatabase, runEmbeddingBackfill } from './db.js'
 import { migrateLegacyAliases } from './web/code-bridge-store.js'
 import { readBrokerConfig, writeBrokerConfig } from './web/context-broker-store.js'
 import { runDecaySweep, runDailyDigest } from './memory.js'
@@ -470,9 +470,13 @@ async function main(): Promise<void> {
 
   // Backfill embeddings for memories saved before Ollama was available.
   // Fire-and-forget: a missing or slow Ollama instance must not block startup.
-  backfillEmbeddings().then(count => {
-    if (count > 0) logger.info({ count }, 'Embedding backfill befejezve')
-  }).catch(err => logger.warn({ err }, 'Embedding backfill hiba (Ollama nem elerheto)'))
+  runEmbeddingBackfill().then(result => {
+    // Log the reason too, not just the count: "0" alone cannot say whether
+    // every memory already had a vector or the embedding server never
+    // answered (kanban #134).
+    if (result.done > 0 || result.failed > 0) logger.info({ ...result }, 'Embedding backfill befejezve')
+    else logger.debug({ ...result }, 'Embedding backfill: nincs teendo')
+  }).catch(err => logger.warn({ err }, 'Embedding backfill hiba'))
 
   // A fában lévő git-repók automatikus szinkronja. Boss: "meg az osszes git
   // ahol van a mapparendszerben. mind szinkronizaljon automatan". Sose ir

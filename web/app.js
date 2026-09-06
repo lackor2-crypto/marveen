@@ -9818,6 +9818,90 @@ document.getElementById('saveMemBtn').addEventListener('click', async () => {
   }
 })
 
+// --- Vektor-generalas allapota (kanban #134) -------------------------------
+// A generalas a SZERVEREN fut, nem ebben a keresben: egy egeszseges kor 138
+// emlekre ~3,5 perc, a bongeszo keres viszont 2p29mp utan elszall -- eddig
+// ezert latott a felhasznalo hibat egy SIKERES muvelet vegen. Itt csak
+// pollozunk, es a vegen a NEGY kulon esetet kulon mondjuk el.
+let _memBackfillTimer = null
+
+function _memBackfillResetBtn() {
+  const btn = document.getElementById('memBackfillBtn')
+  if (btn) { btn.textContent = t('memories.stat.vectors_btn'); btn.disabled = false }
+}
+
+function _memBackfillProgress(st) {
+  const btn = document.getElementById('memBackfillBtn')
+  if (!btn) return
+  btn.disabled = true
+  btn.textContent = st && st.candidates > 0
+    ? t('memories.stat.vectors_progress', { done: st.done || 0, total: st.candidates })
+    : t('memories.stat.vectors_gen')
+}
+
+// A nulla NEGY dolgot jelenthet, es kettő közülük EGESZSEGES allapot -- azokra
+// nem jar piros csik. A hiba okat a szerver merte (valasz-kod es valasz-torzs),
+// nem talalgatjuk itt.
+function _memBackfillMessage(st) {
+  const reason = st && st.reason
+  if (reason === 'nothing_to_do') return { text: t('memories.toast.vector_nothing_to_do', { total: st.total }), opts: {} }
+  if (reason === 'no_memories') return { text: t('memories.toast.vector_no_memories'), opts: {} }
+  // A modell NEVET a szerver kuldi (EMBED_MODEL), nem a forditas irja le
+  // masodszor -- kulonben egy mas modellre allitott telepites rossz
+  // `ollama pull` parancsot tanacsolna.
+  const named = { url: (st && st.target) || '', model: (st && st.model) || '' }
+  let base
+  if (reason === 'model_missing') base = { text: t('memories.toast.vector_model_missing', named), opts: { type: 'warn', big: true } }
+  else if (reason === 'unreachable') {
+    const key = st.remote ? 'memories.toast.vector_unreachable_remote' : 'memories.toast.vector_unreachable_local'
+    base = { text: t(key, named), opts: { type: 'warn', big: true } }
+  }
+  else if (reason === 'error') base = { text: t('memories.toast.vector_error_detail', { detail: (st && st.detail) || '' }), opts: { type: 'error', big: true } }
+  else return { text: t('memories.toast.vector_count', { count: (st && st.done) || 0 }), opts: {} }
+  // Reszeredmeny: ha kozben MAR keszult vektor, azt is ki kell mondani --
+  // kulonben a felhasznalo ugy latja, hogy semmi nem tortent, holott a munka
+  // egy resze kesz van, es egy ujabb gombnyomas folytatja.
+  if (st && st.done > 0 && st.failed > 0) {
+    // Az OK jon eloszor (azt kell megjavitani), utana a reszeredmeny -- a
+    // "nyomd meg ujra" mondat csak a javitas utan ertelmes.
+    return { text: base.text + ' ' + t('memories.toast.vector_partial', { done: st.done, failed: st.failed }), opts: base.opts }
+  }
+  return base
+}
+
+async function _memBackfillPoll() {
+  if (_memBackfillTimer) { clearTimeout(_memBackfillTimer); _memBackfillTimer = null }
+  let st = null
+  try {
+    const r = await fetch('/api/memories/backfill/status')
+    st = await r.json()
+  } catch {
+    // Nem tudtuk lekerdezni -- ez NEM azt jelenti, hogy a munka elromlott.
+    _memBackfillResetBtn()
+    showToast(t('memories.toast.vector_status_unknown'), { type: 'warn' })
+    return
+  }
+  if (st && st.running) {
+    _memBackfillProgress(st)
+    _memBackfillTimer = setTimeout(_memBackfillPoll, 2000)
+    return
+  }
+  _memBackfillResetBtn()
+  const msg = _memBackfillMessage(st)
+  showToast(msg.text, msg.opts)
+  loadMemStats()
+}
+
+// Lap-betolteskor: ha epp fut egy kor, mutassuk -- de ha meg SOSE futott
+// (everRan false), ne mondjunk semmit. A "nem tudom" nem eredmeny.
+async function _memBackfillResume() {
+  try {
+    const r = await fetch('/api/memories/backfill/status')
+    const st = await r.json()
+    if (st && st.running) { _memBackfillProgress(st); _memBackfillTimer = setTimeout(_memBackfillPoll, 2000) }
+  } catch { /* a gomb marad hasznalhato */ }
+}
+
 async function loadMemStats() {
   try {
     const res = await fetch('/api/memories/stats')
@@ -9839,16 +9923,13 @@ async function loadMemStats() {
       try {
         const r = await fetch('/api/memories/backfill', { method: 'POST' })
         const data = await r.json()
-        // A zero count is not a result, it is a failure with a friendly face:
-        // the embedding backend is not running. Saying "0 generated" left the
-        // owner with a button that did nothing and no idea why.
-        // A nulla darab nem eredmeny hanem hiba, es a magyarazata hosszu: ez a
-        // csik maradjon kint amig a felhasznalo el nem tunteti.
-        if (data.count > 0) showToast(t('memories.toast.vector_count', { count: data.count }))
-        else showToast(t('memories.toast.vector_none'), { type: 'warn', big: true })
-        loadMemStats()
-      } catch { showToast(t('memories.toast.vector_error'), { type: 'error', big: true }) }
+        if (!r.ok) { showToast(data.message || t('memories.toast.vector_error'), { type: 'error', big: true }); _memBackfillResetBtn(); return }
+        _memBackfillPoll()
+      } catch { showToast(t('memories.toast.vector_error'), { type: 'error', big: true }); _memBackfillResetBtn() }
     })
+    // Ha a lap ujratoltodott egy futo generalas kozben, vegyuk fel a fonalat:
+    // a munka a szerveren fut, nem a bongeszo kereseben (kanban #134).
+    _memBackfillResume()
   } catch (err) {
     console.error('Stats hiba:', err)
   }

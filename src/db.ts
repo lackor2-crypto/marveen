@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, chmodSync, openSync, c
 import { STORE_DIR, DB_FILENAME, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from './config.js'
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
-import { TOOL_TIMEOUTS } from './tool-timeouts.js'
+import { TOOL_TIMEOUTS, OLLAMA_EMBED_FAILFAST } from './tool-timeouts.js'
 
 let db: Database.Database
 
@@ -2741,25 +2741,78 @@ export function markPendingTaskRetryAlert(taskName: string, agentName: string, t
 
 // --- Vector Search (Ollama + nomic-embed-text) ---
 
-const EMBED_MODEL = 'nomic-embed-text'
+// Exported so nothing has to re-type the name: the failure message that tells
+// the owner WHICH model to pull is built from this constant, so a fork that
+// changes the model does not end up advising the wrong `ollama pull`.
+export const EMBED_MODEL = 'nomic-embed-text'
 
-export async function generateEmbedding(text: string): Promise<number[] | null> {
+// Why an embedding attempt failed. `null` embedding alone cannot tell the
+// owner what to DO -- "not reachable" and "model not pulled" need opposite
+// answers, and until 2026-09-05 the dashboard called both of them "Ollama is
+// not reachable" (kanban #134).
+export type EmbedFailReason = 'unreachable' | 'model_missing' | 'error'
+
+export interface EmbedAttempt {
+  embedding: number[] | null
+  /** null when the embedding succeeded. */
+  reason: EmbedFailReason | null
+  /** The actual message from the failing side -- never a guessed cause. */
+  detail?: string
+}
+
+/** True when OLLAMA_URL points somewhere other than this machine. */
+export function embeddingTargetIsRemote(url: string = OLLAMA_URL): boolean {
   try {
-    const resp = await fetch(`${OLLAMA_URL}/api/embeddings`, {
+    const host = new URL(url).hostname.toLowerCase()
+    return !(host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host === '0.0.0.0')
+  } catch {
+    return false
+  }
+}
+
+// One embedding attempt, WITH the reason when it fails. The reason is read out
+// of the actual response (status + body), never inferred from the fact that we
+// got nothing back: a zero-length result and an unreachable server look
+// identical from the caller's side, and that is exactly the confusion this
+// function exists to remove.
+export async function generateEmbeddingDetailed(text: string): Promise<EmbedAttempt> {
+  let resp: Response
+  try {
+    resp = await fetch(`${OLLAMA_URL}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: EMBED_MODEL, prompt: text.slice(0, 2000) }),
       signal: AbortSignal.timeout(TOOL_TIMEOUTS['ollama-embedding']),
     })
-    const data = await resp.json() as { embedding?: number[] }
-    return data.embedding || null
   } catch (err) {
     // Debug-level so it doesn't spam default INFO logs when Ollama isn't
     // running (the common case on most user machines). Enables "why does
     // hybrid search only return FTS results?" diagnostics without noise.
-    logger.debug({ err, ollamaUrl: OLLAMA_URL }, 'Embedding generation failed (Ollama not running?)')
-    return null
+    logger.debug({ err, ollamaUrl: OLLAMA_URL }, 'Embedding generation failed (Ollama not reachable?)')
+    return { embedding: null, reason: 'unreachable', detail: err instanceof Error ? err.message : String(err) }
   }
+
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '')
+    // Ollama answers a missing model with 404 and "model 'x' not found, try
+    // pulling it first". That is a one-command fix, not an outage.
+    const missing = resp.status === 404 || /not found|pull/i.test(body)
+    const detail = body.slice(0, 300) || `HTTP ${resp.status}`
+    logger.debug({ status: resp.status, body: detail, ollamaUrl: OLLAMA_URL }, 'Embedding generation rejected')
+    return { embedding: null, reason: missing ? 'model_missing' : 'error', detail }
+  }
+
+  try {
+    const data = await resp.json() as { embedding?: number[]; error?: string }
+    if (data.embedding && data.embedding.length > 0) return { embedding: data.embedding, reason: null }
+    return { embedding: null, reason: 'error', detail: data.error || 'empty embedding' }
+  } catch (err) {
+    return { embedding: null, reason: 'error', detail: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function generateEmbedding(text: string): Promise<number[] | null> {
+  return (await generateEmbeddingDetailed(text)).embedding
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -2818,20 +2871,90 @@ export async function hybridSearch(agentId: string, query: string, limit: number
   return ranked.slice(0, limit).map(([id]) => byId.get(id)!)
 }
 
-export async function backfillEmbeddings(): Promise<number> {
+// Why the backfill ended. The four "zero" cases the dashboard used to collapse
+// into one red message (kanban #134):
+//   nothing_to_do -- every memory already has a vector. HEALTHY, not an error.
+//   no_memories   -- there is not a single memory yet (fresh install). Healthy.
+//   unreachable   -- no answer from OLLAMA_URL (not running, or not from here).
+//   model_missing -- the server answers but the embedding model is not pulled.
+export type BackfillReason = 'ok' | 'nothing_to_do' | 'no_memories' | 'unreachable' | 'model_missing' | 'error'
+
+export interface BackfillResult {
+  /** Memories in the database, regardless of vector state. */
+  total: number
+  /** Memories still without a vector when the run started. */
+  candidates: number
+  done: number
+  failed: number
+  reason: BackfillReason
+  /** The failing side's own message. Empty when nothing failed. */
+  detail?: string
+  /** Which embedding server was asked -- so the message can name it. */
+  target: string
+  /** Which model was asked for -- so the message can name it instead of
+   *  re-typing it in a translation file. */
+  model: string
+  /** True when that server is not on this machine. */
+  remote: boolean
+}
+
+export type BackfillProgress = (done: number, candidates: number) => void
+
+/**
+ * The backfill itself, with the REASON it ended.
+ *
+ * `backfillEmbeddings()` below keeps the original number-returning shape, so
+ * existing callers (and forks) compile unchanged -- kanban #134 must not turn
+ * into a signature change everybody has to follow.
+ */
+export async function runEmbeddingBackfill(onProgress?: BackfillProgress): Promise<BackfillResult> {
+  const target = OLLAMA_URL
+  const remote = embeddingTargetIsRemote(target)
+  const total = (db.prepare('SELECT COUNT(*) AS n FROM memories').get() as { n: number }).n
   const rows = db.prepare('SELECT id, content, keywords FROM memories WHERE embedding IS NULL').all() as { id: number; content: string; keywords: string | null }[]
-  let count = 0
+  const base = { total, candidates: rows.length, target, remote, model: EMBED_MODEL }
+
+  if (rows.length === 0) {
+    // Zero candidates is the GOOD outcome, and it has two distinct shapes.
+    return { ...base, done: 0, failed: 0, reason: total === 0 ? 'no_memories' : 'nothing_to_do' }
+  }
+
+  let done = 0
+  let failed = 0
+  let streak = 0
+  let lastReason: EmbedFailReason | null = null
+  let lastDetail = ''
+
   for (const row of rows) {
     const text = row.content + (row.keywords ? ' ' + row.keywords : '')
-    const emb = await generateEmbedding(text)
-    if (emb) {
-      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(emb), row.id)
-      count++
+    const attempt = await generateEmbeddingDetailed(text)
+    if (attempt.embedding) {
+      db.prepare('UPDATE memories SET embedding = ? WHERE id = ?').run(JSON.stringify(attempt.embedding), row.id)
+      done++
+      streak = 0
+      onProgress?.(done, rows.length)
+    } else {
+      failed++
+      streak++
+      lastReason = attempt.reason
+      lastDetail = attempt.detail || ''
+      // Fail fast. A successful run takes ~3.5 minutes for 138 memories
+      // (measured 2026-08-15); with a dead server the same loop would sit
+      // there for hours re-asking a question already answered.
+      if (streak >= OLLAMA_EMBED_FAILFAST) break
     }
     // Small delay to not overwhelm Ollama
     await new Promise(r => setTimeout(r, 100))
   }
-  return count
+
+  const reason: BackfillReason = failed === 0 ? 'ok' : (lastReason ?? 'error')
+  return { ...base, done, failed, reason, detail: lastDetail || undefined }
+}
+
+/** The pre-#134 shape: how many memories got a vector. Kept so callers that
+ *  only ever wanted the number -- and any fork's own callers -- stay valid. */
+export async function backfillEmbeddings(): Promise<number> {
+  return (await runEmbeddingBackfill()).done
 }
 
 // --- Pending Channel Requests ---
