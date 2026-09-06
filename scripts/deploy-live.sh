@@ -109,9 +109,23 @@ if ! git --git-dir="$GIT_DIR" fetch --quiet origin "$BRANCH" 2>>"$LOG"; then
   exit 0
 fi
 
-TARGET="$(git --git-dir="$GIT_DIR" rev-parse "origin/$BRANCH" 2>/dev/null)"
+# The BARE name "origin/$BRANCH" is not an unambiguous ref: git searches
+# refs/heads/ BEFORE refs/remotes/, so a local branch literally named
+# "origin/main" (a mistyped `git branch origin/main`, or a
+# `git fetch origin main:origin/main`) shadows the remote-tracking ref -- and the
+# `2>/dev/null` here swallowed even the "refname is ambiguous" warning that would
+# have said so. That happened on 2026-09-06: from 19:46 every tick finished OK in
+# about a second, reporting "already current" while reading a 14-commit-old
+# commit, so nothing that landed afterwards ever reached the live install. A
+# green "Finished" on an unmeasured state is the failure this file exists to
+# prevent, so read the full ref and say the shadow out loud.
+MAIN_REF="refs/remotes/origin/$BRANCH"
+if git --git-dir="$GIT_DIR" show-ref --verify --quiet "refs/heads/origin/$BRANCH"; then
+  log "WARNING: a local branch named 'origin/$BRANCH' (refs/heads/origin/$BRANCH) shadows the remote-tracking ref. Deploying from $MAIN_REF. Clean it up with: git branch -D origin/$BRANCH"
+fi
+TARGET="$(git --git-dir="$GIT_DIR" rev-parse "$MAIN_REF" 2>/dev/null)"
 if [ -z "$TARGET" ]; then
-  log "origin/$BRANCH did not resolve -- skipping."
+  log "$MAIN_REF did not resolve -- skipping."
   exit 0
 fi
 SHORT="$(git --git-dir="$GIT_DIR" rev-parse --short "$TARGET" 2>/dev/null)"

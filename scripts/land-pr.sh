@@ -91,10 +91,28 @@ case "$REPO" in */*) : ;; *) die "nem sikerult a repot kiolvasni az origin-bol (
 
 # A landolando commitok a HEAD-en. Ha a HEAD == origin/main, nincs mit landolni.
 git fetch -q origin main || die "nem sikerult fetch-elni az origin/main-t."
+
+# A CSUPASZ "origin/main" NEM egyertelmu ref. A git keresesi sorrendjeben a
+# refs/heads/ ELOREBB van a refs/remotes/-nel, tehat ha valaki letrehoz egy
+# `origin/main` nevu LOKALIS agat (elgepelt `git branch origin/main`, vagy egy
+# `git fetch origin main:origin/main`), onnantol minden `origin/main` olvasas AZT
+# a helyi agat latja a tavoli helyett -- es a git egy "warning: refname
+# 'origin/main' is ambiguous." sort is a kimenet ELEJERE tesz. 2026-09-06-an ez
+# allitotta meg a landolast: a `rev-list --count` valasza "warning: ...\n17" lett,
+# amit a lenti szam-ellenorzes -- helyesen -- nem fogadott el szamnak.
+# Ezert MINDENHOL a teljes refet olvassuk, es hangosan szolunk az arnyek-agrol.
+MAIN_REF="refs/remotes/origin/main"
+if git show-ref --verify --quiet refs/heads/origin/main; then
+  echo "land-pr: FIGYELEM -- letezik egy 'origin/main' nevu LOKALIS ag" >&2
+  echo "land-pr: (refs/heads/origin/main), ami elfedi a tavoli agat. Most a teljes" >&2
+  echo "land-pr: refbol dolgozom ($MAIN_REF), de erdemes eltakaritani:" >&2
+  echo "land-pr:   git branch -D origin/main" >&2
+fi
+
 # A "0" itt KET dolgot jelenthetne: tenyleg nincs mit landolni, vagy a git hivas
 # elszallt. A kettot a kilepokod donti el, nem a szam.
 set +e
-AHEAD="$(git rev-list --count origin/main..HEAD 2>&1)"
+AHEAD="$(git rev-list --count "$MAIN_REF"..HEAD 2>&1)"
 ahead_rc=$?
 set -e
 [ "$ahead_rc" -eq 0 ] \
@@ -347,5 +365,5 @@ fi
 echo "land-pr: MERGE-ELVE. PR: $PR_URL" >&2
 
 # --- 5. lokalis main frissitese ------------------------------------------------
-git fetch -q origin main && echo "land-pr: origin/main = $(git rev-parse --short origin/main). Frissitsd a lokalis checkoutod, ha kell." >&2
+git fetch -q origin main && echo "land-pr: origin/main = $(git rev-parse --short "$MAIN_REF"). Frissitsd a lokalis checkoutod, ha kell." >&2
 echo "land-pr: KESZ. Az elo peldanyra a scripts/deploy-live.sh viszi ki (idozitve fut)." >&2
