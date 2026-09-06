@@ -226,6 +226,14 @@ describe('land-pr.sh: a merge eredmenyet a FORRASTOL kerdezi, nem talalgatja', (
     expect(script).toContain('nem tudtam megnezni, megvan-e meg')
   })
 
+  it('a torles CELJAT nezi: ha a branch kozben eltunt, az siker', () => {
+    // A GitHub sajat torlese es a mienk versenyez: a ls-remote meg lathatja a
+    // refet, mire a push mar nem talalja. A kilepokod ilyenkor 1, de a dolgunk
+    // el van vegezve. Merve a PR #34 landolasakor.
+    expect(script).toContain('still_rc')
+    expect(script).toContain('Mar nincs ott: a cel teljesult')
+  })
+
   it('a remote branchet magatol takaritja, es a takaritas hibaja NEM bukassa el a landolast', () => {
     const del = code.filter((line) => /git\s+push\s+origin\s+--delete/.test(line))
     expect(del.length).toBeGreaterThan(0)
