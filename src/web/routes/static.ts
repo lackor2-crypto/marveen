@@ -52,6 +52,31 @@ export function appShellVersion(webDir: string): string {
   ].join('-')
 }
 
+// WordPress child-theme-szerű felülíró réteg (kártya #67, dec7b061): egy fork
+// SOSE módosítsa a tracked web/app.js és web/style.css fájlokat, hogy upstream
+// pull-nál nulla legyen az ütközés. Aki mégis saját CSS/JS-t akar, azt a
+// (gitignore-olt, tehát sosem commitolt) web/custom.css és web/custom.js
+// fájlba teszi -- ha egyik sincs jelen, a kimenő HTML BYTE-FOR-BYTE ugyanaz,
+// mint felülíró réteg nélkül (fresh install: a fájlok nem léteznek, tehát ez a
+// függvény nem-op). A custom.js az app.js UTÁN fut (monkey-patch minta: a
+// core előbb definiálja a window.* globálékat, a custom felülírhatja őket).
+export function injectCustomOverrides(html: string, webDir: string): string {
+  let out = html
+  if (existsSync(join(webDir, 'custom.css'))) {
+    out = out.replace(
+      /<\/head>/,
+      `  <link rel="stylesheet" href="/custom.css?v=${assetVersion(webDir, 'custom.css')}">\n</head>`,
+    )
+  }
+  if (existsSync(join(webDir, 'custom.js'))) {
+    out = out.replace(
+      /<\/body>/,
+      `  <script src="/custom.js?v=${assetVersion(webDir, 'custom.js')}"></script>\n</body>`,
+    )
+  }
+  return out
+}
+
 function serveIndexHtml(ctx: RouteContext, webDir: string): void {
   const { req, res } = ctx
   try {
@@ -59,7 +84,11 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
     const s = statSync(filePath)
     // Every versioned asset token is part of the index ETag: a cached
     // index.html must be invalidated whenever any rewritten ?v= URL changes.
-    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}"`
+    // A custom.css/custom.js verziója is bekerül, hogy egy felülíró réteg
+    // szerkesztése is érvénytelenítse a gyorsítótárazott index.html-t --
+    // hiányukban assetVersion konstans '0'-t ad, tehát fresh installon ez a
+    // két tag nem változtatja meg a viselkedést, csak egy fix "-0-0" toldalékot ad.
+    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}"`
     const ifNoneMatch = req.headers['if-none-match']
     if (ifNoneMatch === etag) {
       res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' })
@@ -96,12 +125,13 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
         /(<meta name="apple-mobile-web-app-title" content=")[^"]*(">)/,
         `$1${escapeAttr(BRAND_NAME)}$2`,
       )
+    const html2 = injectCustomOverrides(html, webDir)
     res.writeHead(200, {
       'Content-Type': MIME['.html'],
       ETag: etag,
       'Cache-Control': 'no-cache',
     })
-    res.end(html)
+    res.end(html2)
   } catch {
     res.writeHead(404); res.end('Not found')
   }
@@ -145,6 +175,21 @@ export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promis
   // a new URL. index.html itself stays no-cache.
   if (path === '/style.css') { serveFile(req, res, join(webDir, 'style.css'), { cacheSeconds: 86400 }); return true }
   if (path === '/app.js') { serveFile(req, res, join(webDir, 'app.js'), { cacheSeconds: 86400 }); return true }
+  // Felülíró réteg (kártya #67): gitignore-olt, opcionális fájlok. Csak akkor
+  // kerülnek 200-at adva kiszolgálásra, ha ténylegesen léteznek -- fresh
+  // installon (nincs custom.css/js) ez a két ág 404-et ad, de az index.html
+  // sosem hivatkozik rájuk (injectCustomOverrides fent), tehát a böngésző meg
+  // sem kéri őket.
+  if (path === '/custom.css') {
+    const p = join(webDir, 'custom.css')
+    if (existsSync(p)) { serveFile(req, res, p, { cacheSeconds: 86400 }); return true }
+    res.writeHead(404); res.end(); return true
+  }
+  if (path === '/custom.js') {
+    const p = join(webDir, 'custom.js')
+    if (existsSync(p)) { serveFile(req, res, p, { cacheSeconds: 86400 }); return true }
+    res.writeHead(404); res.end(); return true
+  }
   if (path === '/manifest.json') {
     // Brand the manifest (name/short_name -> BRAND_NAME, byte-preserving for the
     // shipped default via buildManifest) and, when a main-agent avatar is stored,
