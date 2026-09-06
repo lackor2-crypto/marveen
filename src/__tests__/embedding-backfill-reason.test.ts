@@ -22,11 +22,12 @@ import {
   clearMemoryCache,
   generateEmbeddingDetailed,
   runEmbeddingBackfill,
+  probeEmbeddingTarget,
   backfillEmbeddings,
   embeddingTargetIsRemote,
   EMBED_MODEL,
 } from '../db.js'
-import { OLLAMA_EMBED_FAILFAST } from '../tool-timeouts.js'
+import { OLLAMA_EMBED_FAILFAST, TOOL_TIMEOUTS } from '../tool-timeouts.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const read = (rel: string) => readFileSync(join(__dirname, '../../', rel), 'utf-8')
@@ -62,13 +63,18 @@ function addMemory(content: string, withVector = false): number {
   return Number(info.lastInsertRowid)
 }
 
-function stubFetch(impl: () => Promise<Response> | Response) {
+function stubFetch(impl: (input?: unknown) => Promise<Response> | Response) {
   const spy = vi.fn(impl)
   globalThis.fetch = spy as unknown as typeof fetch
   return spy
 }
 
 const okEmbedding = () => new Response(JSON.stringify({ embedding: [0.1, 0.2, 0.3] }), { status: 200 })
+const isProbe = (input: unknown) => String(input).includes('/api/tags')
+/** A server that is up and HAS the model: the probe passes, the embedding
+ *  requests behave as the test wants. */
+const healthyProbe = (embed: () => Promise<Response> | Response) => (input?: unknown) =>
+  isProbe(input) ? new Response(JSON.stringify({ models: [{ name: `${EMBED_MODEL}:latest` }] }), { status: 200 }) : embed()
 
 // ---------------------------------------------------------------------------
 // 1. The reason is READ from the answer, not guessed from the outcome
@@ -136,29 +142,30 @@ describe('runEmbeddingBackfill tells the two zeros apart', () => {
   it('candidates + a working server -> ok, and the vectors land in the rows', async () => {
     addMemory('needs a vector')
     addMemory('this one too')
-    stubFetch(okEmbedding)
+    stubFetch(healthyProbe(okEmbedding))
     const r = await runEmbeddingBackfill()
     expect(r).toMatchObject({ candidates: 2, done: 2, failed: 0, reason: 'ok' })
     const left = getDb().prepare('SELECT COUNT(*) AS n FROM memories WHERE embedding IS NULL').get() as { n: number }
     expect(left.n).toBe(0)
   })
 
-  it('candidates + a dead server -> unreachable, and it gives up after the fail-fast streak', async () => {
+  it('a server that dies MID-RUN gives up after the fail-fast streak', async () => {
+    // The probe cannot catch this one: the server was there when asked.
     for (let i = 0; i < 20; i++) addMemory(`memory ${i}`)
-    const spy = stubFetch(() => { throw new Error('connect ECONNREFUSED') })
+    const spy = stubFetch(healthyProbe(() => { throw new Error('connect ECONNREFUSED') }))
     const r = await runEmbeddingBackfill()
     expect(r.reason).toBe('unreachable')
     expect(r.candidates).toBe(20)
     expect(r.done).toBe(0)
     expect(r.failed).toBe(OLLAMA_EMBED_FAILFAST)
     // Without the fail-fast this loop would ask 20 times for an answer it
-    // already has -- hours of waiting on a server that is simply not there.
-    expect(spy).toHaveBeenCalledTimes(OLLAMA_EMBED_FAILFAST)
+    // already has -- hours of waiting on a server that is no longer there.
+    expect(spy).toHaveBeenCalledTimes(OLLAMA_EMBED_FAILFAST + 1) // + the probe
   })
 
-  it('candidates + a server missing the model -> model_missing (a one-command fix)', async () => {
+  it('a model deleted MID-RUN is still model_missing (a one-command fix)', async () => {
     for (let i = 0; i < 5; i++) addMemory(`memory ${i}`)
-    stubFetch(() => new Response('model not found, try pulling it first', { status: 404 }))
+    stubFetch(healthyProbe(() => new Response('model not found, try pulling it first', { status: 404 })))
     const r = await runEmbeddingBackfill()
     expect(r.reason).toBe('model_missing')
     expect(r.detail).toContain('pulling')
@@ -167,11 +174,11 @@ describe('runEmbeddingBackfill tells the two zeros apart', () => {
   it('reports partial progress: what succeeded stays, and the reason is still told', async () => {
     for (let i = 0; i < 6; i++) addMemory(`memory ${i}`)
     let n = 0
-    stubFetch(() => {
+    stubFetch(healthyProbe(() => {
       n++
       if (n <= 2) return okEmbedding()
       throw new Error('connect ECONNREFUSED')
-    })
+    }))
     const seen: Array<[number, number]> = []
     const r = await runEmbeddingBackfill((done, candidates) => { seen.push([done, candidates]) })
     expect(r.done).toBe(2)
@@ -184,7 +191,7 @@ describe('runEmbeddingBackfill tells the two zeros apart', () => {
 
   it('names the target and the model it asked, so the message never re-types them', async () => {
     addMemory('needs a vector')
-    stubFetch(okEmbedding)
+    stubFetch(healthyProbe(okEmbedding))
     const r = await runEmbeddingBackfill()
     expect(r.model).toBe(EMBED_MODEL)
     expect(typeof r.target).toBe('string')
@@ -199,7 +206,7 @@ describe('backfillEmbeddings keeps its pre-#134 shape', () => {
   it('still resolves to a plain number of embedded memories', async () => {
     addMemory('one')
     addMemory('two')
-    stubFetch(okEmbedding)
+    stubFetch(healthyProbe(okEmbedding))
     const n = await backfillEmbeddings()
     expect(typeof n).toBe('number')
     expect(n).toBe(2)
@@ -247,5 +254,102 @@ describe('the backfill request only starts the job', () => {
   it('the browser polls the status endpoint instead of holding one request open', () => {
     expect(APP).toContain('/api/memories/backfill/status')
     expect(APP).toContain('_memBackfillPoll')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 6. The cheap question comes first (kanban 11da9dcb)
+// ---------------------------------------------------------------------------
+const tags = (names: string[]) =>
+  new Response(JSON.stringify({ models: names.map(name => ({ name })) }), { status: 200 })
+
+describe('probeEmbeddingTarget asks before the expensive loop', () => {
+  it('a thrown request is unreachable, with the failing side own message', async () => {
+    stubFetch(() => { throw new Error('connect ECONNREFUSED 127.0.0.1:11434') })
+    const p = await probeEmbeddingTarget()
+    expect(p).toMatchObject({ ok: false, reason: 'unreachable' })
+    expect((p as { detail: string }).detail).toContain('ECONNREFUSED')
+  })
+
+  it('the model is found even when the server spells it with a tag', async () => {
+    stubFetch(() => tags(['llama3:8b', `${EMBED_MODEL}:latest`]))
+    expect(await probeEmbeddingTarget()).toEqual({ ok: true })
+  })
+
+  it('a server without the model is model_missing, and says how many it has', async () => {
+    stubFetch(() => tags(['llama3:8b']))
+    const p = await probeEmbeddingTarget()
+    expect(p).toMatchObject({ ok: false, reason: 'model_missing' })
+    expect((p as { detail: string }).detail).toContain(EMBED_MODEL)
+  })
+
+  it('an answer it cannot read is "unknown" -- NOT a missing model', async () => {
+    // A proxy, a different server, a future Ollama: this code has no business
+    // claiming the model is absent when it cannot see the list at all.
+    stubFetch(() => new Response(JSON.stringify({ something: 'else' }), { status: 200 }))
+    expect(await probeEmbeddingTarget()).toMatchObject({ ok: 'unknown' })
+    stubFetch(() => new Response('not json at all', { status: 200 }))
+    expect(await probeEmbeddingTarget()).toMatchObject({ ok: 'unknown' })
+  })
+
+  it('asks on the CHEAP deadline, not the 90s embedding one', async () => {
+    const spy = stubFetch(() => tags([EMBED_MODEL]))
+    await probeEmbeddingTarget()
+    const init = spy.mock.calls[0][1] as RequestInit
+    expect(String(spy.mock.calls[0][0])).toContain('/api/tags')
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(TOOL_TIMEOUTS['ollama-probe']).toBeLessThan(TOOL_TIMEOUTS['ollama-embedding'])
+  })
+})
+
+describe('the backfill run uses the probe as its first question', () => {
+  it('a dead server is reported WITHOUT spending a single embedding request', async () => {
+    for (let i = 0; i < 20; i++) addMemory(`memory ${i}`)
+    const spy = stubFetch(() => { throw new Error('connect ECONNREFUSED') })
+    const r = await runEmbeddingBackfill()
+    expect(r.reason).toBe('unreachable')
+    expect(r.candidates).toBe(20)
+    expect(r.failed).toBe(0)
+    // One probe, and nothing else: before this, the same verdict cost
+    // OLLAMA_EMBED_FAILFAST embedding attempts on the 90s deadline.
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(String(spy.mock.calls[0][0])).toContain('/api/tags')
+  })
+
+  it('a missing model is reported from the probe, before any embedding request', async () => {
+    addMemory('needs a vector')
+    const spy = stubFetch(() => tags(['llama3:8b']))
+    const r = await runEmbeddingBackfill()
+    expect(r.reason).toBe('model_missing')
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('a healthy probe lets the run through', async () => {
+    addMemory('needs a vector')
+    stubFetch(req => (String(req).includes('/api/tags') ? tags([EMBED_MODEL]) : okEmbedding()))
+    const r = await runEmbeddingBackfill()
+    expect(r).toMatchObject({ done: 1, failed: 0, reason: 'ok' })
+  })
+
+  it('an unreadable probe does NOT decide -- the embedding request does', async () => {
+    addMemory('needs a vector')
+    const spy = stubFetch(req =>
+      String(req).includes('/api/tags')
+        ? new Response(JSON.stringify({ something: 'else' }), { status: 200 })
+        : new Response('model not found, try pulling it first', { status: 404 }))
+    const r = await runEmbeddingBackfill()
+    // The verdict comes from the side that actually refused the work.
+    expect(r.reason).toBe('model_missing')
+    expect(r.detail).toContain('pulling')
+    expect(spy.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('nothing to do means nothing is asked -- not even the probe', async () => {
+    addMemory('already vectorised', true)
+    const spy = stubFetch(() => { throw new Error('server is down') })
+    const r = await runEmbeddingBackfill()
+    expect(r.reason).toBe('nothing_to_do')
+    // A stopped Ollama must not turn a healthy install into a warning.
+    expect(spy).not.toHaveBeenCalled()
   })
 })

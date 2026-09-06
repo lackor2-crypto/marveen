@@ -11,6 +11,11 @@ export const TOOL_TIMEOUTS = {
   // former 30s deadline and left large memories permanently un-vectorized
   // (search silently fell back to FTS). 90s covers the slow CPU path.
   'ollama-embedding': 90_000,
+  // The CHEAP question ("are you there, and do you have the model?") asked
+  // before a backfill run. It must not inherit the 90s embedding deadline: a
+  // target that swallows packets would otherwise keep the owner waiting
+  // minutes for an answer the probe can give in seconds (kanban 11da9dcb).
+  'ollama-probe': 3_000,
 } as const
 
 // How many CONSECUTIVE embedding failures end a backfill run. A dead or
