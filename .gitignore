@@ -2,6 +2,12 @@
 node_modules
 dist/
 
+# Fork-friendly override layer (kanban #67, dec7b061): a helyi felülírás sosem
+# kerül upstream-be, tehát pull-nál nulla az ütközés (lásd src/web/routes/static.ts
+# injectCustomOverrides).
+/web/custom.css
+/web/custom.js
+
 # Python bytecode cache (e.g. scripts/hooks/__pycache__/*.pyc)
 __pycache__/
 *.pyc
