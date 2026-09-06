@@ -486,6 +486,161 @@ export function getTokenDetails(
   return db.prepare(sql).all(...params) as TokenDetail[]
 }
 
+export interface ContextUsageTurn {
+  agent: string
+  timestamp: number
+  model: string | null
+  /** input + cache_read + cache_creation -- what actually goes up the wire,
+   *  including the cheaper cached portion (see docs/context-size-monitor.md). */
+  upContextTokens: number
+  cacheReadTokens: number
+  cacheCreationTokens: number
+  outputTokens: number
+  /** true when a Boss inbound message (conversation_log direction='in') landed
+   *  for this agent strictly after the previous turn and at/before this one --
+   *  i.e. this turn is the model call that answered Boss, not routine agent work. */
+  bossTriggered: boolean
+}
+
+export interface ContextUsageAgentSummary {
+  agent: string
+  turns: number
+  bossTriggeredTurns: number
+  latestUpContextTokens: number
+  maxUpContextTokens: number
+  firstSeen: number
+  lastSeen: number
+}
+
+export interface ContextUsageResult {
+  turns: ContextUsageTurn[]
+  byAgent: ContextUsageAgentSummary[]
+}
+
+/** Card e0c9338e / docs/context-size-monitor.md: per-turn upward context size,
+ *  with turns that answered a Boss message flagged. Boss-turn correlation is
+ *  timestamp-based (conversation_log has no FK into token_usage): a turn counts
+ *  as Boss-triggered when an inbound message for that agent arrived strictly
+ *  after the previous turn's timestamp and at/before this turn's timestamp. */
+export function getContextUsage(
+  opts: { agent?: string; since?: number; limit?: number } = {},
+): ContextUsageResult {
+  const db = getDb()
+  const conditions: string[] = []
+  const params: any[] = []
+  if (opts.agent) { conditions.push('agent = ?'); params.push(opts.agent) }
+  if (opts.since) { conditions.push('timestamp >= ?'); params.push(opts.since) }
+  const where = conditions.length ? ' WHERE ' + conditions.join(' AND ') : ''
+
+  const rows = db.prepare(`
+    SELECT agent, timestamp, model, input_tokens, output_tokens,
+      cache_read_tokens, cache_creation_tokens
+    FROM token_usage
+    ${where}
+    ORDER BY agent ASC, timestamp ASC
+    ${opts.limit ? 'LIMIT ' + Math.floor(opts.limit) : ''}
+  `).all(...params) as {
+    agent: string; timestamp: number; model: string | null
+    input_tokens: number; output_tokens: number
+    cache_read_tokens: number; cache_creation_tokens: number
+  }[]
+
+  const inboundConditions: string[] = []
+  const inboundParams: any[] = []
+  if (opts.agent) { inboundConditions.push('agent_id = ?'); inboundParams.push(opts.agent) }
+  if (opts.since) { inboundConditions.push('created_at >= ?'); inboundParams.push(opts.since) }
+  inboundConditions.push("direction = 'in'")
+  const inboundWhere = ' WHERE ' + inboundConditions.join(' AND ')
+
+  const inboundRows = db.prepare(`
+    SELECT agent_id, created_at FROM conversation_log
+    ${inboundWhere}
+    ORDER BY agent_id ASC, created_at ASC
+  `).all(...inboundParams) as { agent_id: string; created_at: number }[]
+
+  const inboundByAgent = new Map<string, number[]>()
+  for (const r of inboundRows) {
+    if (!inboundByAgent.has(r.agent_id)) inboundByAgent.set(r.agent_id, [])
+    inboundByAgent.get(r.agent_id)!.push(r.created_at)
+  }
+
+  const turns: ContextUsageTurn[] = []
+  const summaryByAgent = new Map<string, ContextUsageAgentSummary>()
+  let prevAgent: string | null = null
+  let prevTs = -Infinity
+  let inboundIdx = 0
+  let inboundList: number[] = []
+
+  for (const r of rows) {
+    if (r.agent !== prevAgent) {
+      prevAgent = r.agent
+      prevTs = -Infinity
+      inboundList = inboundByAgent.get(r.agent) ?? []
+      inboundIdx = 0
+    }
+    // Advance past inbound messages already accounted for by an earlier turn.
+    while (inboundIdx < inboundList.length && inboundList[inboundIdx] <= prevTs) inboundIdx++
+    const bossTriggered = inboundIdx < inboundList.length && inboundList[inboundIdx] <= r.timestamp
+    if (bossTriggered) inboundIdx++
+
+    const upContextTokens = r.input_tokens + r.cache_read_tokens + r.cache_creation_tokens
+    turns.push({
+      agent: r.agent,
+      timestamp: r.timestamp,
+      model: r.model,
+      upContextTokens,
+      cacheReadTokens: r.cache_read_tokens,
+      cacheCreationTokens: r.cache_creation_tokens,
+      outputTokens: r.output_tokens,
+      bossTriggered,
+    })
+
+    const summary = summaryByAgent.get(r.agent) ?? {
+      agent: r.agent, turns: 0, bossTriggeredTurns: 0,
+      latestUpContextTokens: 0, maxUpContextTokens: 0,
+      firstSeen: r.timestamp, lastSeen: r.timestamp,
+    }
+    summary.turns += 1
+    if (bossTriggered) summary.bossTriggeredTurns += 1
+    summary.latestUpContextTokens = upContextTokens
+    summary.maxUpContextTokens = Math.max(summary.maxUpContextTokens, upContextTokens)
+    summary.firstSeen = Math.min(summary.firstSeen, r.timestamp)
+    summary.lastSeen = Math.max(summary.lastSeen, r.timestamp)
+    summaryByAgent.set(r.agent, summary)
+
+    prevTs = r.timestamp
+  }
+
+  return { turns, byAgent: [...summaryByAgent.values()].sort((a, b) => b.lastSeen - a.lastSeen) }
+}
+
+/** md-export (Boss kerte kulon: "mentsuk md-be", docs/context-size-monitor.md). */
+export function exportContextUsageMarkdown(result: ContextUsageResult, generatedAt: number): string {
+  const lines: string[] = []
+  lines.push('# Kontextus-meret figyelo')
+  lines.push('')
+  lines.push(`Generalva: ${new Date(generatedAt * 1000).toISOString()}`)
+  lines.push('')
+  lines.push('## Osszefoglalo agensenkent')
+  lines.push('')
+  lines.push('| Agens | Fordulok | Boss-fordulok | Utolso felmeno kontextus | Csucs felmeno kontextus |')
+  lines.push('| --- | --- | --- | --- | --- |')
+  for (const a of result.byAgent) {
+    lines.push(`| ${a.agent} | ${a.turns} | ${a.bossTriggeredTurns} | ${a.latestUpContextTokens} | ${a.maxUpContextTokens} |`)
+  }
+  lines.push('')
+  lines.push('## Fordulok')
+  lines.push('')
+  lines.push('| Idobelyeg | Agens | Modell | Felmeno kontextus | Boss-fordulo |')
+  lines.push('| --- | --- | --- | --- | --- |')
+  for (const t of result.turns) {
+    const iso = new Date(t.timestamp * 1000).toISOString()
+    lines.push(`| ${iso} | ${t.agent} | ${t.model ?? '-'} | ${t.upContextTokens} | ${t.bossTriggered ? 'igen' : ''} |`)
+  }
+  lines.push('')
+  return lines.join('\n')
+}
+
 export function correlateWithKanban(): void {
   const db = getDb()
   const uncorrelated = db.prepare(`

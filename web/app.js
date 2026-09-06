@@ -788,7 +788,7 @@ function switchPage(pageId) {
   // 'team' page is merged into 'agents' -- redirect for any lingering deep-links
   if (pageId === 'messages') loadMessagesPage()
   if (pageId === 'tokenUsage') loadTokenUsage()
-  if (pageId === 'costs') loadCosts()
+  if (pageId === 'costs') { loadCosts(); loadContextUsage() }
   if (pageId === 'ideas') loadIdeasPage()
   // These two loaders live in IIFEs further down this file, so a DIRECT load of
   // their hash (a refresh, or a link straight to #naplo / #archived) reaches
@@ -15198,6 +15198,53 @@ async function loadCosts() {
     el.innerHTML = html
   } catch (err) {
     el.innerHTML = `<div style="${mutedStyle}">${t('costs.load_failed')}</div>`
+  }
+}
+
+// ============================================================
+// === Kontextus-meret figyelo (kartya e0c9338e, docs/context-size-monitor.md) ===
+// ============================================================
+
+document.getElementById('refreshContextUsageBtn').addEventListener('click', loadContextUsage)
+
+async function loadContextUsage() {
+  const el = document.getElementById('contextUsageContent')
+  const mutedStyle = 'color:var(--text-muted);font-size:13px'
+  el.innerHTML = `<div style="${mutedStyle}">${t('context_usage.loading')}</div>`
+  try {
+    const res = await fetch('/api/context-usage?limit=2000')
+    const data = await res.json()
+    if (!res.ok) throw new Error(data?.error || 'request failed')
+
+    const byAgent = Array.isArray(data.byAgent) ? data.byAgent : []
+    if (byAgent.length === 0) {
+      el.innerHTML = `<div style="${mutedStyle}">${t('context_usage.no_data')}</div>`
+      return
+    }
+
+    const fmtNum = (n) => (typeof n === 'number' ? n.toLocaleString('hu-HU') : '—')
+    const fmtTime = (ts) => ts ? new Date(ts * 1000).toLocaleString('hu-HU', { timeZone: 'Europe/Budapest' }) : '—'
+
+    el.innerHTML = `<div style="overflow-x:auto;margin-top:8px"><table style="width:100%;border-collapse:collapse">
+      <thead><tr style="text-align:left;border-bottom:1px solid var(--border,#333)">
+        <th style="padding:6px 8px">${t('context_usage.col_agent')}</th>
+        <th style="padding:6px 8px">${t('context_usage.col_turns')}</th>
+        <th style="padding:6px 8px">${t('context_usage.col_boss_turns')}</th>
+        <th style="padding:6px 8px">${t('context_usage.col_latest')}</th>
+        <th style="padding:6px 8px">${t('context_usage.col_peak')}</th>
+        <th style="padding:6px 8px">${t('context_usage.col_last_seen')}</th>
+      </tr></thead>
+      <tbody>${byAgent.map((a) => `<tr style="border-bottom:1px solid var(--border,#222)">
+        <td style="padding:6px 8px">${escapeHtml(a.agent)}</td>
+        <td style="padding:6px 8px">${fmtNum(a.turns)}</td>
+        <td style="padding:6px 8px">${fmtNum(a.bossTriggeredTurns)}</td>
+        <td style="padding:6px 8px">${fmtNum(a.latestUpContextTokens)}</td>
+        <td style="padding:6px 8px">${fmtNum(a.maxUpContextTokens)}</td>
+        <td style="padding:6px 8px;${mutedStyle}">${fmtTime(a.lastSeen)}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>`
+  } catch (err) {
+    el.innerHTML = `<div style="${mutedStyle}">${t('context_usage.load_failed')}</div>`
   }
 }
 
