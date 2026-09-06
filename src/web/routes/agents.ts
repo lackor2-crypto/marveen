@@ -4,7 +4,7 @@ import { homedir, platform, tmpdir } from 'node:os'
 import { execSync } from 'node:child_process'
 import { logger } from '../../logger.js'
 import { isModelProfileId, MODEL_PROFILE_IDS } from '../../model-profiles.js'
-import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG, STORE_DIR, CODE_BRIDGE_ENABLED } from '../../config.js'
+import { MAIN_AGENT_ID, currentBotName, PROJECT_ROOT, APP_LANG, STORE_DIR } from '../../config.js'
 import { createAgentMessage, listPendingChannelRequests, updateChannelRequestStatus, getDb, claimPendingForAgent, markMessageFailed, getRecentVerificationsForAgent, logConfigChange } from '../../db.js'
 import { computeReliabilityScore, type ReliabilityScore } from '../../agent-reliability.js'
 import { isFreeOpenRouterModel } from '../../openrouter-dispatch-throttle.js'
@@ -176,7 +176,7 @@ async function resolveCostPerMInput(model: string): Promise<number | null> {
 }
 import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
-import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID } from '../code-bridge-store.js'
+import { listCodeSessions, codeBridgeHealth } from '../code-bridge-store.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 
 // AZ ELAVULT KEPERNYOSZOVEG NE JELENTSEN KIESEST.
@@ -881,7 +881,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null }> = []
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null }> = []
 
     // A compaction the dashboard itself started (gate or card button). The pane
     // shows none of the usual busy signals while it runs, so without this the
@@ -950,54 +950,6 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         ? 'unreachable'
         : (running && compaction.compacting ? 'working' : label(running, pane, name, quotaExhaustedOf(running, name)))
       entries.push({ name, displayName: readAgentDisplayName(name) || name, isMain: false, running, state, mode: modeOf(running, pane), tail: tailOf(pane), model: readAgentModel(name), compacting: compaction.compacting })
-    }
-
-    // A KOD-HID (VS Code) IS FLOTTA-TAG (kanban #213). Nincs tmux-panelje es
-    // nincs sajat processze ezen a gepen, ezert a fenti ket forras egyike sem
-    // latja -- a bal menu "dolgozik" szamlaloja ettol 1-et mutatott, mikozben
-    // Marvin ES a kulso programozo is dolgozott. A meres EGY helyen bovul,
-    // igy MINDEN fogyaszto (Tevekenyseg lap, szamlalo, "mindent ujraindit"
-    // megerosites) ugyanazt a flottat latja -- ez az agens-paritas szabalya.
-    //
-    // Nem talalunk ki csapattagot: `present` csak akkor igaz, ha volt mar
-    // bejelentkezett worker vagy regisztralt beszelgetes. Friss telepitesen
-    // tehat NEM jelenik meg egy nem letezo tag (a nulla itt "nincs is hid",
-    // nem "epp nem dolgozik").
-    {
-      const act = codeBridgeActivity()
-      // Nevutkozes: ha valaki tenylegesen `code-bridge` neven vett fel egy
-      // ugynokot, az ove az elsobbseg -- ket azonos kulcs a felulet Map-jeben
-      // nemaan elnyelne az egyiket.
-      const taken = entries.some((e) => e.name === CODE_BRIDGE_ACTIVITY_ID)
-      if (act.present && !taken) {
-        const first = act.running[0] ?? null
-        const state = act.running.length > 0
-          ? 'working'
-          : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')
-        entries.push({
-          name: CODE_BRIDGE_ACTIVITY_ID,
-          // Termeknev, mindket nyelven ugyanaz -- nem forditando szoveg.
-          displayName: 'VS Code',
-          isMain: false,
-          // "El-e a vegrehajto": ezt olvassa a felulet ures farok-szovege.
-          // A kattinthatosagot NEM ez donti el (nincs mit tmux-ban megnyitni),
-          // hanem a `codeSessionId`.
-          running: act.workerOnline,
-          state,
-          mode: null,
-          // MIT csinal epp: projekt + a feladat elso sora. Nem forditunk rajta,
-          // mert ez a beadott feladat sajat szovege.
-          tail: act.running.map((r) => {
-            const line = (r.prompt.split('\n').find((l) => l.trim().length > 0) ?? '').trim()
-            const short = line.length > 160 ? line.slice(0, 157) + '...' : line
-            return short ? `${r.project} · ${short}` : r.project
-          }),
-          kind: 'code-bridge',
-          // Innen nyilik a BESZELGETES (chat ful), nem egy terminal.
-          codeSessionId: first?.sessionId ?? null,
-          codeLabel: first?.project ?? null,
-        })
-      }
     }
 
     jsonMaybeGzip(req, res, entries)
