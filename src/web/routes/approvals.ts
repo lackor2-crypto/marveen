@@ -208,6 +208,31 @@ export function pendingApprovalForCard(cardId: string): Approval | undefined {
 }
 
 /**
+ * How the card names ITSELF in an approval that a machine wrote.
+ *
+ * The old wording was `Kártya: <cím> (11da9dcb)`. A bare 8-hex token reads
+ * exactly like an abbreviated git commit, and on 2026-09-06 a verifying agent
+ * read it that way: it searched the main branch and every other branch for
+ * commit `11da9dcb`, found nothing, and reported the approval FAILED --
+ * "a commit NEM létezik". It was a kanban card id (#223), and the work it
+ * stood for had been on main for hours under a different commit. The code was
+ * fine; the sentence was not, and the false failure cost a second review round
+ * plus a fix dispatch.
+ *
+ * So the identifier says what it IS, in the sentence that carries it. Same
+ * project rule as in agent messages: "Csupasz hash vagy azonosito magyarazat
+ * nelkul SOHA."
+ *
+ * `seq` is optional on the card, and a missing one is NOT printed as `#undefined`
+ * -- an absent running number means "this row has none", not "number unknown",
+ * and inventing either would be worse than leaving it out.
+ */
+export function autoApprovalCardLabel(card: { id: string; seq?: number; title: string }): string {
+  const seq = typeof card.seq === 'number' ? `#${card.seq} ` : ''
+  return `Kártya ${seq}(kanban-azonosító: ${card.id}, nem git commit): ${card.title}`
+}
+
+/**
  * Raise the approval that a card entering `waiting` implies.
  *
  * Boss, 2026-08-11: "ha mar egyszer bekerult a varakozo kanban dobozba akkor
@@ -243,7 +268,7 @@ export function ensureApprovalForWaitingCard(
       agent_id: requester,
       category: 'kanban_done',
       action_description: descriptionOverride?.trim()
-        || `Kártya: ${card.title} (${card.id}) -- várakozóba került, tehát a munka elkészült rajta. `
+        || `${autoApprovalCardLabel(card)} -- várakozóba került, tehát a munka elkészült rajta. `
         + 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: '
         + `a felelős ágens egészítse ki, mielőtt ${currentOwnerName()} dönt.`,
       action_payload: JSON.stringify({ kanban_card_id: card.id }),

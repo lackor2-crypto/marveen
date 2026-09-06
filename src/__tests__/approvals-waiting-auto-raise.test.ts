@@ -18,6 +18,7 @@ import { initDatabase, createKanbanCard, createApproval, listApprovals, resolveA
 import {
   ensureApprovalForWaitingCard, pendingApprovalForCard,
   withdrawApprovalForCardLeavingWaiting, reconcileWaitingApprovals,
+  autoApprovalCardLabel,
 } from '../web/routes/approvals.js'
 import { approvalCardId } from '../kanban-related.js'
 
@@ -309,5 +310,45 @@ describe('a sajat szoveggel kert jovahagyas', () => {
     card('f6071829', 'Ures szoveggel kert', 'usalackor')
     const a = ensureApprovalForWaitingCard('f6071829', 'usalackor', '   ')!
     expect(a.action_description).toContain('elkészült')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The identifier says what it IS -- measured 2026-09-06 (approval c8cd45ce)
+// ---------------------------------------------------------------------------
+//
+// The old wording was `Kártya: <cím> (11da9dcb)`. A verifying agent read the
+// bare 8-hex token as an abbreviated git commit, searched main and every other
+// branch for it, found nothing, and reported the approval FAILED -- "a commit
+// NEM létezik". It was a kanban card id (#223), and the work it stood for was
+// on main under a different commit. Nothing was broken but the sentence.
+describe('the auto-raised description names its identifier as a card, not a commit', () => {
+  it('says kanban-azonosító and says it is not a commit', () => {
+    const label = autoApprovalCardLabel({ id: '11da9dcb', seq: 223, title: 'Vektor-backfill' })
+    expect(label).toContain('kanban-azonosító')
+    expect(label).toContain('nem git commit')
+    expect(label).toContain('#223')
+    expect(label).toContain('11da9dcb')
+    expect(label).toContain('Vektor-backfill')
+  })
+
+  it('a card with no running number is not labelled #undefined', () => {
+    // An absent seq means "this row has none", not "the number is unknown".
+    // Printing either invented state is worse than leaving the number out.
+    const label = autoApprovalCardLabel({ id: 'aa55180c', title: 'Nev nelkuli sorszam' })
+    expect(label).not.toContain('undefined')
+    expect(label).not.toContain('#')
+    expect(label).toContain('aa55180c')
+  })
+
+  it('the raised approval carries that wording, and stays machine-readable', () => {
+    card('aa55180c', 'Fajlbongeszo a dashboardon')
+    const raised = ensureApprovalForWaitingCard('aa55180c', null)
+    expect(raised!.action_description).toContain('kanban-azonosító')
+    expect(raised!.action_description).toContain('nem git commit')
+    // The id scrape must keep working: the payload is preferred, but the text
+    // fallback is what older rows rely on.
+    expect(approvalCardId(null, raised!.action_description)).toBe('aa55180c')
+    expect(approvalCardId(raised!.action_payload, raised!.action_description)).toBe('aa55180c')
   })
 })

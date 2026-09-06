@@ -17,6 +17,7 @@ import { PROJECT_ROOT } from '../config.js'
 import {
   parseVerificationMode, buildVerificationPrompt, FIX_LANDING_POLICY,
   isCodeBridgeAgent, codeBridgeProjectOf, codeBridgeAgentId, CODE_AGENT_PREFIX,
+  descriptionMentionsCardId,
   type VerificationPromptInput,
 } from '../approval-verification-dispatch.js'
 
@@ -173,5 +174,55 @@ describe('the route and the sweep both know about code: targets', () => {
     // Re-queueing would make the executor apply the same fix a second time.
     expect(SWEEP).toContain("if (codeBridgeProjectOf(row.agent) !== null) {")
     expect(SWEEP).toContain('return false')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A kanban id is not a commit -- measured 2026-09-06 (approval c8cd45ce)
+// ---------------------------------------------------------------------------
+//
+// An approval read "Kártya: ... (11da9dcb) -- várakozóba került". A verifying
+// agent searched the main branch and every other branch for commit `11da9dcb`,
+// found nothing, and reported FAIL: "a commit NEM létezik". It was a kanban
+// card id (#223); the work had been on main for hours under a different
+// commit. The code was fine -- the sentence was, and a whole review round plus
+// a fix dispatch went into a false failure.
+//
+// Two halves, and BOTH are needed: the prompt tells the reader what the number
+// is, and the sentence that carries the number says it too (that half is
+// guarded in approvals-waiting-auto-raise.test.ts).
+describe('the prompt says what the 8-hex identifier IS', () => {
+  const withCard = { ...BASE, actionDescription: 'Kártya #223 (kanban-azonosító: 11da9dcb, nem git commit): valami' }
+
+  it('names it a kanban card id and forbids reporting the missing commit as a defect', () => {
+    for (const mode of ['verify', 'fix'] as const) {
+      const p = buildVerificationPrompt({ ...withCard, mode })
+      expect(p, `${mode} prompt`).toContain('KANBAN-KARTYA azonosito, NEM git commit')
+      expect(p, `${mode} prompt`).toMatch(/NEM hiba/)
+    }
+  })
+
+  it('says WHERE the commit can be found instead, rather than leaving a dead end', () => {
+    const p = buildVerificationPrompt({ ...withCard, mode: 'verify' })
+    expect(p).toContain('git log --grep')
+    expect(p).toContain('/api/kanban')
+    // "Nem talalod" is a report, never a guess -- same rule as everywhere else.
+    expect(p).toContain('ne talalgasd')
+  })
+
+  it('stays out of prompts whose description carries no such token', () => {
+    // Keyed off the description, not the category: an unconditional paragraph
+    // would be noise in every prompt that never had the problem.
+    const p = buildVerificationPrompt({ ...BASE, mode: 'verify' })
+    expect(p).not.toContain('KANBAN-KARTYA azonosito')
+  })
+
+  it('the detector reads the description, and an empty one is not a match', () => {
+    expect(descriptionMentionsCardId('Kártya (11da9dcb) kész')).toBe(true)
+    expect(descriptionMentionsCardId('11DA9DCB')).toBe(true)
+    expect(descriptionMentionsCardId('nincs benne azonosito')).toBe(false)
+    // A missing description must not throw -- it reaches here straight from a DB row.
+    expect(descriptionMentionsCardId('')).toBe(false)
+    expect(descriptionMentionsCardId(undefined as unknown as string)).toBe(false)
   })
 })
