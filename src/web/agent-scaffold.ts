@@ -2102,3 +2102,126 @@ export function ensureGlobalNoStrayFilesRule(): void {
   if (updated === existing) return
   atomicWriteFileSync(path, updated)
 }
+
+const LANDING_BEGIN = '<!-- BEGIN GENERATED: landing-rule (auto-generated, do not edit by hand) -->'
+const LANDING_END = '<!-- END GENERATED: landing-rule -->'
+const LANDING_BLOCK_RE = new RegExp(
+  `${LANDING_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${LANDING_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+/**
+ * A landolas hivatalos utja, agens-olvashato formaban.
+ *
+ * MIERT KELL IDE (kartya #230, a #215 ellenorzesebol): ez a szoveg eddig CSAK a
+ * templates/CLAUDE.md.template-ben allt. A CLAUDE.md fajlok nincsenek git-ben
+ * kovetve, tehat a sablon kizarolag TELEPITESKOR (illetve uj agens
+ * letrehozasakor) er el egy fajlt -- a mar letezo elo CLAUDE.md-kbe semmi nem
+ * viszi be utolag. Merve 2026-09-06-an az elo telepitesen: a projekt CLAUDE.md-ben
+ * es mind a nyolc agens CLAUDE.md-jeben nulla talalat a "land-pr"-re. Ugyanaz a
+ * sablon-vs-elo szinkron-res, ami a negy ledger-hookot is hetekig a fo agensnel
+ * tartotta. Az egyetlen ut, ami visszamenoleg IS hat, ez a marker-blokkos
+ * csalad -- ezert kap sajat ensure*-t.
+ */
+function buildLandingBody(): string {
+  return [
+    '## LANDOLAS A FO AGBA: PR + CI, NEM DIREKT PUSH',
+    '',
+    'A `main`-re DIREKT PUSH TILOS -- a GitHub branch protection elutasitja. A',
+    'landolas hivatalos utja egy CI-vel kapuzott PR, es ezt a `scripts/land-pr.sh`',
+    'intezi helyetted:',
+    '',
+    '```bash',
+    '# sajat git worktree-bol (scripts/agent-worktree.sh <nev>), a landolando',
+    '# commitokkal a HEAD-en:',
+    'scripts/land-pr.sh "commit/PR cim" ["leiras"]',
+    '```',
+    '',
+    'A helper felnyom egy branchet, PR-t nyit a `main`-re, MEGVARJA amig a CI zold,',
+    'es CSAK akkor merge-el. A cim KOTELEZO argumentum.',
+    '',
+    'Miert igy:',
+    '',
+    '- **A teljes teszt-suite egy pre-push hookban anti-minta.** A terhelt flotta-gepen',
+    '  a parhuzamos git- es fajlrendszer-subprocessek miatt terheles-fuggoen hamisan',
+    '  bukott, holott izolaltan zold. A teljes suite helye a CI',
+    '  (`.github/workflows/ci.yml`): tiszta, dedikalt runneren.',
+    '- **A gyors, determinisztikus elore-jelzes nem vesz el.** A `land-pr.sh` maga',
+    '  futtat egy `npx tsc --noEmit`-et a branch push ELOTT, es tipushibanal meg sem',
+    '  nyitja a PR-t. A lokalis pre-push kapu csak a KOZVETLEN `main`/`master`',
+    '  push-nal fut (tsc + syntax-ellenorzes), a feature-branchet atengedi.',
+    '- **A main-en a CI kotelezo status check**, tehat rossz commit nem juthat be a',
+    '  teljes suite nelkul.',
+    '',
+    'Ha a CI piros a PR-en: a helper NYITVA hagyja a PR-t. Javitsd a hibat es pushold',
+    'ujra a branchet -- ne kerüld meg. Veszhelyzeti kapu-kihagyas CSAK a lokalis',
+    'gyors-kapunal van (`MARVEEN_SKIP_TEST_GATE=1`); a CI-t megkerulni nem lehet.',
+    '',
+    'A land-pr kimenetet a TENY szerint olvasd, ne a kilepokod szerint: a script a',
+    'merge utan visszakerdez a forrasnak (`gh pr view --json state`), es kulon',
+    'mondja ki azt is, ha NEM latott oda. A "MERGE-ELVE" sor a landolas bizonyiteka.',
+    '',
+    'A landolt kod NEM kerul magatol a futo alkalmazasba: az elo peldanyra a',
+    '`scripts/deploy-live.sh` viszi ki.',
+  ].join('\n')
+}
+
+export type LandingOutcome = 'written' | 'current' | 'skipped-main' | 'no-file' | 'unreadable'
+
+/** Beviszi a landolasi szabalyt egy agens sajat CLAUDE.md-jebe. A fo agens ezt a
+ *  gepszintu valtozatbol kapja (lasd ensureGlobalLandingRule), ugyanugy, mint a
+ *  tobbi marker-blokkot. */
+export function ensureLandingSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${LANDING_BEGIN}\n${buildLandingBody()}\n${LANDING_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = LANDING_BLOCK_RE.test(existing)
+    ? existing.replace(LANDING_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: egy worktree-ben dolgozo agens sosem olvassa a sajat
+ *  agents/<nev>/CLAUDE.md-jet -- es a landolas eppen worktree-bol tortenik,
+ *  tehat ez a valtozat a fontosabb a kettobol. */
+export function ensureGlobalLandingRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${LANDING_BEGIN}\n${buildLandingBody()}\n${LANDING_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = LANDING_BLOCK_RE.test(existing)
+    ? existing.replace(LANDING_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
