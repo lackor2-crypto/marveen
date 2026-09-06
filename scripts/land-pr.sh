@@ -326,8 +326,22 @@ else
   del_out="$(git push origin --delete "$BRANCH" 2>&1)"
   del_rc=$?
   set -e
-  [ "$del_rc" -eq 0 ] \
-    || echo "land-pr: a '$BRANCH' remote branchet nem sikerult torolni (exit $del_rc): $del_out -- a landolast ez nem befolyasolja." >&2
+  if [ "$del_rc" -ne 0 ]; then
+    # A CELT nezzuk, nem a kilepokodot: a GitHub torlese es a mienk versenyez
+    # egymassal (a merge-kor indul, es a ls-remote meg lathatja a refet par
+    # masodpercig). Ha a branch KOZBEN eltunt, a dolgunk el van vegezve --
+    # errol nincs mit mondani. Merve a PR #34 landolasakor:
+    #   error: unable to delete '...': remote ref does not exist
+    set +e
+    still="$(git ls-remote --heads origin "$BRANCH" 2>/dev/null)"
+    still_rc=$?
+    set -e
+    if [ "$still_rc" -eq 0 ] && [ -z "$still" ]; then
+      : # Mar nincs ott: a cel teljesult.
+    else
+      echo "land-pr: a '$BRANCH' remote branchet nem sikerult torolni (exit $del_rc): $del_out -- a landolast ez nem befolyasolja." >&2
+    fi
+  fi
 fi
 
 echo "land-pr: MERGE-ELVE. PR: $PR_URL" >&2
