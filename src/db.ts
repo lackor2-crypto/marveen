@@ -5,6 +5,7 @@ import { STORE_DIR, DB_FILENAME, ALLOWED_CHAT_ID, OLLAMA_URL, APP_TZ } from './c
 import { getEffectiveSettingValue } from './settings-store.js'
 import { logger } from './logger.js'
 import { TOOL_TIMEOUTS, OLLAMA_EMBED_FAILFAST } from './tool-timeouts.js'
+import { EMBED_MODEL } from './embedding-model.js'
 
 let db: Database.Database
 
@@ -2741,10 +2742,12 @@ export function markPendingTaskRetryAlert(taskName: string, agentName: string, t
 
 // --- Vector Search (Ollama + nomic-embed-text) ---
 
-// Exported so nothing has to re-type the name: the failure message that tells
-// the owner WHICH model to pull is built from this constant, so a fork that
-// changes the model does not end up advising the wrong `ollama pull`.
-export const EMBED_MODEL = 'nomic-embed-text'
+// Re-exported so nothing has to re-type the name: the failure message that
+// tells the owner WHICH model to pull is built from this constant, so a fork
+// that changes the model does not end up advising the wrong `ollama pull`. It
+// LIVES in src/embedding-model.ts -- a leaf module -- so the setup wizard's
+// pure-data registry can read it without importing the database.
+export { EMBED_MODEL }
 
 // Why an embedding attempt failed. `null` embedding alone cannot tell the
 // owner what to DO -- "not reachable" and "model not pulled" need opposite

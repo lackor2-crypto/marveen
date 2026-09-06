@@ -24923,7 +24923,9 @@ function renderWizardStep(host) {
   if (_wizardStepIdx >= todo.length) return renderWizardDone(host)
 
   const item = todo[_wizardStepIdx]
-  const steps = (item.stepKeys || []).map(k => `<li style="margin-bottom:6px">${escapeHtml(t(k))}</li>`).join('')
+  // A lepes-mondatok a SZERVERTOL kapjak a behelyettesitendo ertekeket
+  // (pl. az embedding-modell neve), hogy ne a forditasba legyen beirva.
+  const steps = (item.stepKeys || []).map(k => `<li style="margin-bottom:6px">${escapeHtml(t(k, item.stepParams || {}))}</li>`).join('')
   // Boss, 2026-08-21: "ha raklikkelek azonnal a regisztracios oldalra akarna
   // menni [...] de ez a gomb ne jelenjemn meg itt akor ha meg loginolni kell!
   // arra a folyamatra vigyen ahol az auth folyamat van [...] mert itt nem

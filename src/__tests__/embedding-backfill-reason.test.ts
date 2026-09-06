@@ -217,11 +217,16 @@ describe('backfillEmbeddings keeps its pre-#134 shape', () => {
 // 4. The model name has exactly ONE source
 // ---------------------------------------------------------------------------
 describe('the model name is never re-typed outside EMBED_MODEL', () => {
-  it('neither translation file hardcodes it in the backfill messages', () => {
-    // Scope: the messages this button produces. `wizard.item.ollama_step2`
-    // still spells the model out in both locales -- it is a static wizard
-    // step with no parameters, so fixing it needs EMBED_MODEL exposed to the
-    // browser. Named here so it stays visible instead of being forgotten.
+  it('NEITHER translation file spells it out anywhere (kanban 5d0dfdc7)', () => {
+    // Was scoped to the backfill messages while `wizard.item.ollama_step2`
+    // still spelled the model out in both locales. That step now takes it as a
+    // {model} parameter from the wizard registry, so the rule holds for the
+    // WHOLE file: a translated sentence must never name what the code embeds
+    // with -- a fork changing the model would otherwise keep advising the old
+    // `ollama pull`, in every language, with every test green.
+    for (const [name, src] of [['hu.js', HU], ['en.js', EN]] as const) {
+      expect(src, `${name} re-types the model name`).not.toContain(EMBED_MODEL)
+    }
     for (const [name, src] of [['hu.js', HU], ['en.js', EN]] as const) {
       const lines = src.split('\n').filter(l => l.includes('memories.toast.vector_'))
       expect(lines.length, `${name} has no vector_* messages`).toBeGreaterThan(5)
@@ -235,6 +240,31 @@ describe('the model name is never re-typed outside EMBED_MODEL', () => {
   it('app.js feeds the placeholder from the status, not from a literal', () => {
     expect(APP).not.toContain(EMBED_MODEL)
     expect(APP).toMatch(/model:\s*\(st && st\.model\)/)
+  })
+
+  it('the wizard step gets the model from the registry, and the browser renders it', () => {
+    const registry = read('src/web/setup-wizard-registry.ts')
+    // The registry names the constant, never the value.
+    expect(registry).toContain("import { EMBED_MODEL } from '../embedding-model.js'")
+    expect(registry).toContain('stepParams: { model: EMBED_MODEL }')
+    expect(registry).not.toContain(EMBED_MODEL === 'nomic-embed-text' ? "'nomic-embed-text'" : EMBED_MODEL)
+    // A step rendered WITHOUT its params would print the raw {model} on screen.
+    expect(APP).toContain('t(k, item.stepParams || {})')
+    for (const [name, src] of [['hu.js', HU], ['en.js', EN]] as const) {
+      const line = src.split('\n').find(l => l.includes('wizard.item.ollama_step2'))
+      expect(line, `${name} has no ollama_step2`).toBeTruthy()
+      expect(line!, `${name} must take the model as a parameter`).toContain('{model}')
+    }
+  })
+
+  it('EMBED_MODEL lives in a leaf module, so pure-data files can read it', () => {
+    // The wizard registry is deliberately dependency-free; importing db.ts
+    // there would drag the database in just to learn a name.
+    const leaf = read('src/embedding-model.ts')
+    expect(leaf).toContain(`export const EMBED_MODEL = '${EMBED_MODEL}'`)
+    expect(leaf).not.toContain('import ')
+    // db.ts keeps exporting it, so nothing that imported it before breaks.
+    expect(read('src/db.ts')).toContain('export { EMBED_MODEL }')
   })
 })
 

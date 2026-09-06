@@ -21,6 +21,8 @@
 // screen. Keeping it a pure module (no fs, no env access) is what lets the
 // tests exercise the classification without a live install.
 
+import { EMBED_MODEL } from '../embedding-model.js'
+
 /** How a capability gets configured, which decides what the wizard renders. */
 export type SetupItemKind =
   /** A plain .env key the wizard can write directly. */
@@ -64,6 +66,15 @@ export interface SetupItem {
   helpKey: string
   /** Numbered, do-this-then-that instructions for obtaining the value. */
   stepKeys?: string[]
+  /**
+   * Values substituted into the step sentences ({name} placeholders).
+   *
+   * A step that names a CONSTANT of this install -- the embedding model, a
+   * port, a directory -- must take it from the code, not from the translation:
+   * the sentence would otherwise keep advising the old value in every language
+   * after a fork changed it, with every test still green (kanban 5d0dfdc7).
+   */
+  stepParams?: Record<string, string>
   /**
    * Real, clickable destinations. "See the description" with nothing to click
    * is what this replaces -- if we send someone to a website, we link it.
@@ -230,6 +241,8 @@ export const SETUP_ITEMS: SetupItem[] = [
     labelKey: 'wizard.item.ollama', descKey: 'wizard.item.ollama_desc',
     helpKey: 'wizard.item.ollama_help',
     stepKeys: ['wizard.item.ollama_step1', 'wizard.item.ollama_step2'],
+    // Az `ollama pull <modell>` parancs a KODBOL kapja a modell nevet.
+    stepParams: { model: EMBED_MODEL },
     links: [{ url: 'https://ollama.com/download', labelKey: 'wizard.link.ollama_download' }],
     exampleKey: 'wizard.item.ollama_example',
     required: false, tier: 'extra', placeholder: 'http://localhost:11434',
