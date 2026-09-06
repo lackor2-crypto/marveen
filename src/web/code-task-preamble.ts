@@ -151,6 +151,20 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
     : '4. If any step cannot run on your machine (the path is unreachable, a tool is missing), do NOT guess and do'
       + ' NOT work around it: stop and report exactly which command produced which error message.')
 
+  // 5. WHY THE LANGUAGE IS SAID OUT LOUD (kanban #233)
+  // The completion notice quotes the executor's closing summary VERBATIM --
+  // that path is deliberately token-free, so nothing downstream can translate
+  // it (see code-bridge-notify.ts). The install language therefore has to be
+  // stated here, at the only point where the text is still being written.
+  // Boss, 2026-09-06: "ha angolra van allitva akor angolul".
+  out.push(hu
+    ? '5. A ZARO OSSZEFOGLALOT -- amit a tulajdonos a Telegramon fog olvasni -- MAGYARUL ird meg, ez ennek a'
+      + ' telepitesnek a nyelve. A Marveen szo szerint idezi, forditani nem tudja. A kod, a kommentek, a commit-uzenetek'
+      + ' es a nyers parancs-kimenetek maradnak ugy, ahogy vannak.'
+    : '5. Write the CLOSING SUMMARY -- the text the owner will read in Telegram -- in ENGLISH, this install\'s'
+      + ' language. Marveen quotes it verbatim and cannot translate it. Code, comments, commit messages and raw'
+      + ' command output stay as they are.')
+
   return out.join('\n')
 }
 
