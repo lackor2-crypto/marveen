@@ -3856,6 +3856,7 @@ window._i18n.en = {
   'cb.health.worker_offline_since': '— last seen {ago}. Until it runs, tasks only pile up in the queue. Start it with the command on the Windows executor card.',
   'cb.health.unknown_host': 'unknown machine',
   'cb.card.busy': '{n} running · {q} queued',
+  'cb.card.busy_help': 'The external programmer is working right now: a task is running in VS Code. Measured live, every 3 seconds.',
   'cb.card.queued': '{n} queued',
   'cb.card.stop_pending': 'stopped — waiting for restart',
   'cb.card.stop_pending_help': 'You already flipped the switch, but the code bridge reads it at dashboard startup: the change takes effect after the dashboard restarts.',
