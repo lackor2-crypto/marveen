@@ -1158,7 +1158,7 @@ window._i18n.hu = {
   // az Ollama telepitese onmagaban ures keret. Egy nulláról indulo felhasznalo
   // pontosan ugyanide futna be, ezert mindketto bekerult a lepesek koze.
   'wizard.item.ollama_step1': 'Töltsd le és telepítsd az Ollamát a lenti linkről. FIGYELEM: ha a Marveen Windowson, WSL-ben (Linux-alrendszerben) fut, akkor az Ollamát is a Linux oldalra kell telepíteni. A Windowsra telepített Ollama futni fog, de a Marveen nem fogja látni. Ha nem tudod melyik eset a tiéd, kérdezd meg a Marveent.',
-  'wizard.item.ollama_step2': 'Telepítés után tölts le hozzá egy modellt is, különben üres marad: nyiss egy parancsablakot és add ki ezt: ollama pull nomic-embed-text (kb. 274 MB). Enélkül az Ollama fut, de a Marveen nem tud vele mit kezdeni. Végül írd be ide a címet: http://localhost:11434 -- ez azt jelenti, hogy a saját gépeden fut. Ez az alapérték, általában nem kell megváltoztatni.',
+  'wizard.item.ollama_step2': 'Telepítés után tölts le hozzá egy modellt is, különben üres marad: nyiss egy parancsablakot és add ki ezt: ollama pull {model} (kb. 274 MB). Enélkül az Ollama fut, de a Marveen nem tud vele mit kezdeni. Végül írd be ide a címet: http://localhost:11434 -- ez azt jelenti, hogy a saját gépeden fut. Ez az alapérték, általában nem kell megváltoztatni.',
   'wizard.item.ollama_example': 'http://localhost:11434',
   'wizard.link.ollama_download': 'Ollama letöltése',
   'wizard.unsaved_warning': 'Amit eddig beírtál, még NINCS elmentve. A mentés a varázsló végén történik egyben. Ha most kilépsz, az eddigi beírásaid elvesznek.',

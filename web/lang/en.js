@@ -1126,7 +1126,7 @@ window._i18n.en = {
   'wizard.item.main_model_example': 'claude-opus-5',
   'wizard.item.ollama_help': 'This is a program that runs a smaller AI on YOUR OWN machine. Marveen uses it to find your older conversations faster, without needing the internet. Entirely optional: without it search still works, just more simply. If you do not have it installed, leave this empty.',
   'wizard.item.ollama_step1': 'Download and install Ollama from the link below. NOTE: if Marveen runs on Windows inside WSL (the Linux subsystem), install Ollama on the LINUX side too. An Ollama installed on Windows will run, but Marveen cannot see it. If you are not sure which case is yours, ask Marveen.',
-  'wizard.item.ollama_step2': 'After installing, download a model as well, otherwise it stays empty: open a command window and run: ollama pull nomic-embed-text (about 274 MB). Without this Ollama runs, but Marveen can do nothing with it. Finally, type the address here: http://localhost:11434 -- that means it runs on your own machine. This is the default; you usually do not need to change it.',
+  'wizard.item.ollama_step2': 'After installing, download a model as well, otherwise it stays empty: open a command window and run: ollama pull {model} (about 274 MB). Without this Ollama runs, but Marveen can do nothing with it. Finally, type the address here: http://localhost:11434 -- that means it runs on your own machine. This is the default; you usually do not need to change it.',
   'wizard.item.ollama_example': 'http://localhost:11434',
   'wizard.link.ollama_download': 'Download Ollama',
   'wizard.unsaved_warning': 'What you have typed so far is NOT saved yet. Saving happens in one go at the end of the wizard. Leave now and your entries are lost.',
