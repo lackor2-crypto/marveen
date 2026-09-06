@@ -48,6 +48,7 @@ import { notifyCodeTaskFinished } from '../code-bridge-notify.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { readBrokerConfig } from '../context-broker-store.js'
 import { BROKER_ROLE_IDS } from '../../context-broker.js'
+import { withCodeTaskPreamble } from '../code-task-preamble.js'
 import type { RouteContext } from './types.js'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
@@ -1042,7 +1043,18 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const extra = expect === null ? {} : { expectedWorkerVersion: expect }
     if (!task) { json(res, { task: null, ...extra }); return true }
     logger.info({ task: task.id, project: task.project, session: task.sessionId, host }, 'code-bridge: task claimed')
-    json(res, { task, permissionMode: CODE_PERMISSION_MODE, ...extra })
+    // Az elohang (#222) CSAK itt keletkezik, es csak a valaszban: a tarolt sor
+    // -- amit a tulajdonos a feluleten olvas -- a sajat szovege marad, a worker
+    // pedig ugyis ezt a `prompt` mezot irja a CLI stdin-jere. Lasd
+    // code-task-preamble.ts (miert claim-idoben, es mit NEM allithat magarol).
+    const dispatched = {
+      ...task,
+      prompt: withCodeTaskPreamble(task.prompt, {
+        workspacePath: task.workspacePath ?? '',
+        hostKind: detectHostKind(),
+      }),
+    }
+    json(res, { task: dispatched, permissionMode: CODE_PERMISSION_MODE, ...extra })
     return true
   }
 
