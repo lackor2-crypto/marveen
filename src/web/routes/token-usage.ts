@@ -6,6 +6,8 @@ import {
   getModelDistribution,
   getToolStats,
   correlateWithKanban,
+  getContextUsage,
+  exportContextUsageMarkdown,
 } from '../token-usage.js'
 import { json, jsonMaybeGzip } from '../http-helpers.js'
 import { logger } from '../../logger.js'
@@ -94,6 +96,27 @@ export async function tryHandleTokenUsage(ctx: RouteContext): Promise<boolean> {
       q,
     })
     json(res, details)
+    return true
+  }
+
+  // Kartya e0c9338e / docs/context-size-monitor.md: fordulonkenti felmeno
+  // kontextus-meret, Boss-fordulo jelolessel + opcionalis md-export.
+  if (path === '/api/context-usage' && method === 'GET') {
+    const agent = url.searchParams.get('agent') || undefined
+    const since = url.searchParams.get('since')
+    const limit = url.searchParams.get('limit')
+    const result = getContextUsage({
+      agent,
+      since: since ? parseInt(since) : undefined,
+      limit: limit ? parseInt(limit) : undefined,
+    })
+    if (url.searchParams.get('format') === 'md') {
+      const md = exportContextUsageMarkdown(result, Math.floor(Date.now() / 1000))
+      res.writeHead(200, { 'Content-Type': 'text/markdown; charset=utf-8' })
+      res.end(md)
+      return true
+    }
+    json(res, result)
     return true
   }
 
