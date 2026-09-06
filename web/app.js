@@ -22842,27 +22842,67 @@ function _currentVerifyAnchor() {
   return fresh
 }
 
+// REGRESSZIO, 2026-09-06 (Boss: "nem lehet kattintani az ellenorzes inditasat,
+// nem is lehet gorgetni"). A fenti flip-up MEGVOLT, megis a kepernyo ala kerult
+// az "Indit" gomb. Ket, egymast erosito mereshiba okozta:
+//
+//   1. `maxHeight = ''` csak az INLINE erteket torli -- a stilluslap
+//      `.verify-picker-popover { max-height: 320px }` szabalya tovabb el, tehat
+//      a `natural` legfeljebb 320 lehetett, akkor is, ha a tartalom 420 volt.
+//   2. A felfele nyitas a TETEJET szamolta ki ebbol az alulmert magassagbol
+//      (`rect.top - GAP - capped`), a `maxHeight`-et viszont a NAGYOBB `room`
+//      ertekre allitotta -- igy a doboz a szamitottnal lejjebb ert, tullogva a
+//      also kepernyoszelen. Kozben `overflow-y:auto` mellett sem jelent meg
+//      gorgetosav (a maxHeight nagyobb volt a tartalomnal), a `position:fixed`
+//      miatt pedig a lap gorgetese sem hozta fel: pontosan a "se kattintani, se
+//      gorgetni" allapot.
+//
+// A javitas: (a) `none`-nal merunk, ami VERI a stilluslapot; (b) felfele
+// nyitaskor az ALSO elet rogzitjuk (`bottom`), igy a doboz a vegleges
+// magassagatol FUGGETLENUL a horgony folott vegzodik; (c) a `max-height` mindig
+// a TENYLEGES szabad hely, sosem egy padlo-ertek, ami tullogna rajta; (d) ha
+// egyik oldalon sincs hasznalhato hely (alacsony ablak), mindket elhez
+// kifeszitjuk es hagyjuk gorgetni -- a fel kepernyon kilogo doboz helyett.
 function _placeVerifyPicker() {
   const pop = _verifyPickerPopover
   const anchor = _currentVerifyAnchor()
   if (!pop || !anchor) return
   const MARGIN = 8
   const GAP = 4
+  // Ez alatt a magassag alatt a popover ugyis gorgetni fog: ilyenkor nem
+  // "melyik oldalon fer el" a kerdes, hanem hogy a doboz a kepernyon belul
+  // maradjon.
+  const MIN_USABLE = 160
   const rect = anchor.getBoundingClientRect()
   // Anchor present but not laid out (hidden/collapsed): leave the popover
   // where it is instead of computing a position from zeros.
   if (!rect.width && !rect.height) return
-  pop.style.maxHeight = ''
+  // `none` es NEM `''`: az ures ertek csak az inline szabalyt veszi le, a
+  // stilluslap 320px-es plafonjat nem -- abbol lett alulmert magassag.
+  pop.style.maxHeight = 'none'
   const natural = pop.offsetHeight
-  const below = window.innerHeight - rect.bottom - GAP - MARGIN
-  const above = rect.top - GAP - MARGIN
+  const below = Math.max(0, window.innerHeight - rect.bottom - GAP - MARGIN)
+  const above = Math.max(0, rect.top - GAP - MARGIN)
   const openUp = natural > below && above > below
-  const room = Math.max(140, openUp ? above : below)
-  const capped = Math.min(natural, room)
-  pop.style.maxHeight = `${room}px`
-  pop.style.top = openUp
-    ? `${Math.max(MARGIN, rect.top - GAP - capped)}px`
-    : `${rect.bottom + GAP}px`
+  const room = openUp ? above : below
+  if (room < MIN_USABLE) {
+    // Sehol nincs eleg hely (alacsony ablak, kozepen allo horgony): a doboz a
+    // teljes hasznalhato magassagot kapja mindket elhez rogzitve, es gorget.
+    pop.style.top = `${MARGIN}px`
+    pop.style.bottom = `${MARGIN}px`
+    pop.style.maxHeight = `${Math.max(0, window.innerHeight - 2 * MARGIN)}px`
+  } else if (openUp) {
+    // Az ALSO elt rogzitjuk a horgony fole. A `top`-bol szamolt valtozat a
+    // vegleges magassag elozetes ismeretet igenyelte volna, es minden mereshiba
+    // az UTOLSO sort -- a cselekvo gombot -- tolta le a kepernyorol.
+    pop.style.top = ''
+    pop.style.bottom = `${Math.max(MARGIN, window.innerHeight - rect.top + GAP)}px`
+    pop.style.maxHeight = `${room}px`
+  } else {
+    pop.style.bottom = ''
+    pop.style.top = `${rect.bottom + GAP}px`
+    pop.style.maxHeight = `${room}px`
+  }
   pop.style.left = `${Math.min(Math.max(MARGIN, rect.left - 100), window.innerWidth - pop.offsetWidth - MARGIN)}px`
 }
 function _repositionVerifyPicker(e) {

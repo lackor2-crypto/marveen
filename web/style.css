@@ -1978,9 +1978,25 @@ main.email-active .page-header { flex-shrink: 0; }
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   padding: 12px;
-  width: 240px;
+  /* Telefonon a fix 240px kilogna a keskeny kepernyorol; asztalin a min() a
+     240-et valasztja, tehat ott valtozatlan a megjelenes. */
+  width: min(240px, calc(100vw - 16px));
   max-height: 320px;
   overflow-y: auto;
+}
+/* Az INDITO GOMB SOSEM CSUSZHAT LE. A popover magassagat a viewport szabja meg
+   (_placeVerifyPicker), tehat hosszu agens-listanal a doboz gorget -- a
+   cselekvo gomb viszont ilyenkor is a lathato also elen marad. Boss ketszer
+   akadt el ugyanezen (2026-08-10 es 2026-09-06): a gomb a kepernyo ala kerult,
+   es nem lehetett sem elerni, sem odagorgetni.
+   A negativ `bottom` a popover sajat 12px-es also belso margojat egyenliti ki,
+   igy a gomb pontosan a doboz aljara tapad. */
+.verify-picker-popover #verifyPickerGo {
+  position: sticky;
+  bottom: -12px;
+  z-index: 1;
+  /* A hatteret NEM allitjuk at: a .btn-primary mar opak (var(--text)), es egy
+     sajat szin itt csendben elszinezne a gombot. */
 }
 .verify-picker-list {
   display: flex;
