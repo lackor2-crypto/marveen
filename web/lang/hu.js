@@ -3919,6 +3919,7 @@ window._i18n.hu = {
   'cb.health.worker_offline_since': '— utoljára {ago} jelentkezett. Amíg nem fut, a feladatok csak gyűlnek a sorban. Indítsd el a Windows-végrehajtó kártya parancsával.',
   'cb.health.unknown_host': 'ismeretlen gép',
   'cb.card.busy': '{n} fut · {q} sorban',
+  'cb.card.busy_help': 'A külső programozó éppen dolgozik: fut egy feladat a VS Code-ban. Élő mérés, 3 másodpercenként.',
   'cb.card.queued': '{n} sorban',
   'cb.card.stop_pending': 'leállítva — újraindításra vár',
   'cb.card.stop_pending_help': 'A kapcsolót már átállítottad, de a kód-híd a vezérlőpult indulásakor olvassa be: a váltás a vezérlőpult újraindítása után lép életbe.',
