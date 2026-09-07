@@ -3977,7 +3977,7 @@ async function loadDeletedAgents() {
     return `<div class="list-row" style="display:flex;align-items:center;gap:12px;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
       <div>
         <strong>${escapeHtml(e.name)}</strong>
-        <div style="color:var(--text-muted);font-size:12px">${escapeHtml(when)} · ${model} · ${profile}</div>
+        <div class="muted-sm">${escapeHtml(when)} · ${model} · ${profile}</div>
         ${blocked ? `<div class="error-text" style="font-size:12px">${escapeHtml(t('agents.deleted.name_taken'))}</div>` : ''}
       </div>
       <button class="btn-secondary btn-compact" data-restore-entry="${escapeHtml(e.entry)}"${blocked ? ' disabled' : ''}>${escapeHtml(t('agents.deleted.restore_btn'))}</button>
@@ -7417,7 +7417,7 @@ document.getElementById('modelSuggestBtn').addEventListener('click', async () =>
 document.getElementById('analyzeAllModelsBtn').addEventListener('click', async () => {
   const panel = document.getElementById('agentsModelAnalysis')
   panel.style.display = 'block'
-  panel.innerHTML = '<p style="color:var(--text-muted);font-size:13px">' + t('agents.model.analyzing_all') + '</p>'
+  panel.innerHTML = '<p class="muted-13">' + t('agents.model.analyzing_all') + '</p>'
   try {
     const res = await fetch('/api/agents/model-suggest', { method: 'POST' })
     if (!res.ok) throw new Error()
@@ -14847,7 +14847,7 @@ async function openConnectorDetail(connector) {
       listEl.appendChild(item)
     }
     if (subAgents.length === 0 && !mainAgent) {
-      listEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('connectors.no_agents')}</p>`
+      listEl.innerHTML = `<p class="muted-13">${t('connectors.no_agents')}</p>`
     }
   } catch {
     document.getElementById('connectorAgentList').innerHTML = ''
@@ -21049,7 +21049,7 @@ async function loadOverview() {
     const act = document.getElementById('overviewActivity')
     act.innerHTML = ''
     if (!d.activity || d.activity.length === 0) {
-      act.innerHTML = '<div style="color:var(--text-muted);font-size:13px">' + t('overview.no_activity') + '</div>'
+      act.innerHTML = '<div class="muted-13">' + t('overview.no_activity') + '</div>'
     } else {
       for (const a of d.activity) {
         const icon = a.icon === 'delegate'
@@ -21068,7 +21068,7 @@ async function loadOverview() {
       }
     }
   } catch (err) {
-    document.getElementById('overviewActivity').innerHTML = '<div style="color:var(--text-muted);font-size:13px">' + t('overview.error', { msg: escapeHtml(String(err.message || err)) }) + '</div>'
+    document.getElementById('overviewActivity').innerHTML = '<div class="muted-13">' + t('overview.error', { msg: escapeHtml(String(err.message || err)) }) + '</div>'
   }
 }
 
@@ -21291,7 +21291,7 @@ async function loadUpdates() {
     } else if (data.commits && data.commits.length) {
       list.innerHTML = data.commits.map(commitCard).join('')
     } else if (data.behind === 0) {
-      list.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('updates.no_changes')}</p>`
+      list.innerHTML = `<p class="muted-13">${t('updates.no_changes')}</p>`
     }
   } catch (err) {
     summary.className = 'updates-summary error'
@@ -22182,7 +22182,7 @@ async function doRecall() {
     renderRecallSummary(summary, data)
     renderRecallTimeline(timeline, data)
   } catch (err) {
-    timeline.innerHTML = `<p style="color:var(--danger)">${t('recall.load_error')}</p>`
+    timeline.innerHTML = `<p class="c-danger">${t('recall.load_error')}</p>`
   }
 }
 
@@ -22335,7 +22335,7 @@ async function loadBgTasks() {
     if (agentVal) params.set('agent', agentVal)
     if (showAll) params.set('all', 'true')
     const res = await fetch('/api/background-tasks?' + params.toString())
-    if (!res.ok) { list.innerHTML = `<p style="color:var(--danger)">${t('bgTasks.error')}</p>`; return }
+    if (!res.ok) { list.innerHTML = `<p class="c-danger">${t('bgTasks.error')}</p>`; return }
     const tasks = await res.json()
 
     if (!tasks.length) {
@@ -22367,7 +22367,7 @@ async function loadBgTasks() {
       </div>`
     }).join('')
   } catch {
-    list.innerHTML = `<p style="color:var(--danger)">${t('bgTasks.load_error')}</p>`
+    list.innerHTML = `<p class="c-danger">${t('bgTasks.load_error')}</p>`
   }
 }
 
@@ -22414,7 +22414,7 @@ async function cancelBgTask(id) {
 // ============================================================
 
 async function renderAutonomyContent(gridEl, footerEl) {
-  gridEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('autonomy.loading')}</p>`
+  gridEl.innerHTML = `<p class="muted-13">${t('autonomy.loading')}</p>`
 
   try {
     const res = await fetch('/api/autonomy')
@@ -22473,7 +22473,7 @@ async function renderAutonomyContent(gridEl, footerEl) {
       }
     }
   } catch (err) {
-    gridEl.innerHTML = `<p style="color:var(--danger)">${t('autonomy.error')}</p>`
+    gridEl.innerHTML = `<p class="c-danger">${t('autonomy.error')}</p>`
     if (footerEl) footerEl.textContent = ''
   }
 }
@@ -23452,7 +23452,7 @@ async function loadDebatePage() {
     _renderDebateStats(stats)
     _renderDebateSessionList(sessions)
   } catch (err) {
-    listEl.innerHTML = `<p style="color:var(--danger)">${t('debate.load_error')}</p>`
+    listEl.innerHTML = `<p class="c-danger">${t('debate.load_error')}</p>`
   }
 }
 
@@ -23469,7 +23469,7 @@ function _renderDebateStats(stats) {
       <div class="stat-label" title="${escapeAttr(m.model)}">${escapeHtml(m.model)}</div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
         ${t('debate.stat.calls_n', { n: m.calls })} &middot; ${t('debate.stat.tokens_io', { in: m.tokensIn, out: m.tokensOut })}
-        ${m.fail ? ` &middot; <span style="color:var(--danger)">${t('debate.stat.failed_n', { n: m.fail })}</span>` : ''}
+        ${m.fail ? ` &middot; <span class="c-danger">${t('debate.stat.failed_n', { n: m.fail })}</span>` : ''}
       </div>
     </div>`).join('')
   statsEl.innerHTML = totalCard + modelCards
@@ -23540,7 +23540,7 @@ async function _openDebateSession(id) {
     const session = await res.json()
     _renderDebateSessionDetail(session)
   } catch (err) {
-    detailEl.innerHTML = `<p style="color:var(--danger)">${t('debate.load_error')}</p>`
+    detailEl.innerHTML = `<p class="c-danger">${t('debate.load_error')}</p>`
   }
 }
 
@@ -23640,7 +23640,7 @@ async function loadOpenRouterPage() {
     _renderOpenRouterStats(data)
     _renderOpenRouterModelList(data)
   } catch (err) {
-    listEl.innerHTML = `<p style="color:var(--danger)">${t('openrouterPage.load_error')}</p>`
+    listEl.innerHTML = `<p class="c-danger">${t('openrouterPage.load_error')}</p>`
   }
 }
 
@@ -24510,7 +24510,7 @@ async function renderWindowLayoutPanel(host) {
     host.innerHTML = `
       <div class="card" style="margin-bottom:16px">
         <h3>${t('winlayout.title')}</h3>
-        <p style="color:var(--text-muted);font-size:13px">${data.supported ? t('winlayout.not_installed') : t('winlayout.not_windows')}</p>
+        <p class="muted-13">${data.supported ? t('winlayout.not_installed') : t('winlayout.not_windows')}</p>
       </div>`
     return
   }
@@ -24600,7 +24600,7 @@ async function renderWindowsSettingsPanel(host) {
     return
   }
   if (!data.supported) {
-    host.innerHTML = `<div class="card"><h3>${t('winset.title')}</h3><p style="color:var(--text-muted);font-size:13px">${t('winlayout.not_windows')}</p></div>`
+    host.innerHTML = `<div class="card"><h3>${t('winset.title')}</h3><p class="muted-13">${t('winlayout.not_windows')}</p></div>`
     return
   }
 
@@ -24945,7 +24945,7 @@ function wireWizardClaudeLogin() {
     } catch (err) {
       _wizClaudeStartedFlow = false
       _wizClaudeShow('start')
-      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(
+      _wizClaudeSet('wizClaudeState', `<span class="c-danger">${escapeHtml(
         err && err.name === 'AbortError' ? t('wizclaude.state_no_answer') : String(err.message || err))}</span>`)
       return
     } finally {
@@ -24968,10 +24968,10 @@ function wireWizardClaudeLogin() {
         body: JSON.stringify({ code }),
       })
       const data = await res.json()
-      if (!data.ok) { _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(data.error || t('common.error_save'))}</span>`); return }
+      if (!data.ok) { _wizClaudeSet('wizClaudeState', `<span class="c-danger">${escapeHtml(data.error || t('common.error_save'))}</span>`); return }
       input.value = ''
     } catch (err) {
-      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(String(err.message || err))}</span>`)
+      _wizClaudeSet('wizClaudeState', `<span class="c-danger">${escapeHtml(String(err.message || err))}</span>`)
     }
   })
 
@@ -25091,7 +25091,7 @@ async function _wizClaudeTick() {
     } else if (s.phase === 'working') {
       _wizClaudeSet('wizClaudeState', `<span style="color:var(--text-muted)">${escapeHtml(t('wizclaude.state_working'))}</span>`)
     } else if (s.phase === 'failed') {
-      _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(s.error || t('wizclaude.state_failed'))}</span>`)
+      _wizClaudeSet('wizClaudeState', `<span class="c-danger">${escapeHtml(s.error || t('wizclaude.state_failed'))}</span>`)
     } else {
       // 'starting'. Van felso hatara: 40 masodperc utan megmondjuk, hogy ez
       // mar nem "egy pillanat", es hogy mit lehet tenni.
@@ -25111,7 +25111,7 @@ async function _wizClaudeTick() {
   _wizClaudeStartedAt = 0
   _wizClaudeShow('start')
   if (s.error) {
-    _wizClaudeSet('wizClaudeState', `<span style="color:var(--danger)">${escapeHtml(s.error)}</span>`)
+    _wizClaudeSet('wizClaudeState', `<span class="c-danger">${escapeHtml(s.error)}</span>`)
     return
   }
   // Ha a CLI nem adja vissza az e-mailt, ne irjunk ki ures helyet ket
@@ -25120,7 +25120,7 @@ async function _wizClaudeTick() {
     ? `<span style="color:#22c55e">${escapeHtml(who
         ? t('wizclaude.current_ok', { who, n, others })
         : t('wizclaude.current_ok_anon', { n, others }))}</span>`
-    : `<span style="color:var(--danger)">${escapeHtml(t('wizclaude.current_none', { n, others }))}</span>`)
+    : `<span class="c-danger">${escapeHtml(t('wizclaude.current_none', { n, others }))}</span>`)
 }
 
 // Az Attekintes piros sorabol EGY kattintassal a bejelentkezteteshez, nem a
@@ -27296,7 +27296,7 @@ async function renderIrodaSettingsForm(account) {
       cfg = await res.json()
       if (!res.ok) throw new Error(cfg.error || `HTTP ${res.status}`)
     } catch (err) {
-      wrap.innerHTML = `<p style="color:var(--danger)">${t('irodaSettings.load_error')} ${escapeHtml(err.message)}</p>`
+      wrap.innerHTML = `<p class="c-danger">${t('irodaSettings.load_error')} ${escapeHtml(err.message)}</p>`
       return
     }
   }
@@ -31245,7 +31245,7 @@ async function loadFederationPage() {
   const masterEl = document.getElementById('federationMaster')
   const peersEl = document.getElementById('federationPeers')
   if (!statsEl || !masterEl || !peersEl) return
-  peersEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('common.loading')}</p>`
+  peersEl.innerHTML = `<p class="muted-13">${t('common.loading')}</p>`
   try {
     const [peersRes, statusRes] = await Promise.all([
       fetch('/api/federation/peers'),
@@ -31256,7 +31256,7 @@ async function loadFederationPage() {
     if (statusRes && Array.isArray(statusRes.peers)) federatedPeerStatus = statusRes.peers
     renderFederationPage()
   } catch (e) {
-    peersEl.innerHTML = `<p style="color:var(--danger)">${t('federation.error', { msg: escapeHtml(String(e.message || e)) })}</p>`
+    peersEl.innerHTML = `<p class="c-danger">${t('federation.error', { msg: escapeHtml(String(e.message || e)) })}</p>`
   }
 }
 
@@ -31330,7 +31330,7 @@ function renderFederationPage() {
   })
 
   if (!view.peers.length) {
-    peersEl.innerHTML = `<p style="color:var(--text-muted);font-size:13px">${t('federation.peers_empty')}</p>`
+    peersEl.innerHTML = `<p class="muted-13">${t('federation.peers_empty')}</p>`
     return
   }
   peersEl.innerHTML = ''

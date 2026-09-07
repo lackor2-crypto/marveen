@@ -11522,3 +11522,13 @@ details.upstream-box > summary > h4 {
   margin: 6px 0;
 }
 .skill-detail-scope.todo strong { color: var(--warning, #c98a00); }
+
+/* Segedosztalyok az ismetlodo, beegetett inline stilusok helyett
+   (kanban #166 / 5df5f509, batch 1). A meglevo var(--...) valtozokra epulnek,
+   uj fuggoseg es CDN nelkul. Csak class NELKULI elemekre kerultek (ahol nincs
+   versengo osztaly), igy a deklaraciok es a szamitott stilus valtozatlan. A
+   fajl vegen allnak, hogy sorrend-alapon se veszthessenek egy kesobbi
+   azonos-specificitasu szabaly ellen. */
+.c-danger { color: var(--danger); }
+.muted-sm { color: var(--text-muted); font-size: 12px; }
+.muted-13 { color: var(--text-muted); font-size: 13px; }
