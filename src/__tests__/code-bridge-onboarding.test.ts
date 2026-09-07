@@ -36,10 +36,13 @@ describe('a vegrehajto kartyaja a fizetos savban all', () => {
   })
 
   it('is called exactly once, right after the Marveen card', () => {
-    // A fuggveny DEFINICIOJA ugyanezt a szoveget tartalmazza, ezert a hivast a
-    // sor eleji behuzas kulonbozteti meg tole.
-    const calls = app.split('\n  renderCodeBridgeAgentCards(agentsGrid, addBtn)').length - 1
-    expect(calls).toBe(1)
+    // A fuggveny DEFINICIOJA ugyanezt a szoveget tartalmazza, ezert a hivast az
+    // kulonbozteti meg tole, hogy NEM elozi meg `function `. Az indentaciora NEM
+    // kotjuk: a hivas try/catch-ben all (kanban #235, a flotta-lista izolacioja,
+    // hogy egy elhasalt csapattag-kartya ne vigye el a tobbit), tehat behuzva van.
+    const total = app.split('renderCodeBridgeAgentCards(agentsGrid, addBtn)').length - 1
+    const defs = app.split('function renderCodeBridgeAgentCards(agentsGrid, addBtn)').length - 1
+    expect(total - defs).toBe(1)
     const marveen = app.indexOf('agentsGrid.insertBefore(mCard, addBtn)')
     const call = app.indexOf('renderCodeBridgeAgentCards(agentsGrid, addBtn)')
     expect(marveen).toBeGreaterThan(-1)
