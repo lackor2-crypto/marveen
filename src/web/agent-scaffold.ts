@@ -2225,3 +2225,106 @@ export function ensureGlobalLandingRule(): void {
   if (updated === existing) return
   atomicWriteFileSync(path, updated)
 }
+
+// --- EGY HIBA = EGY KARTYA doktrina (Boss, 2026-09-07) ---
+// Sajat markeres-blokk, mint a tobbi doktrina (ask-back, recheck, landing), hogy
+// minden agens CLAUDE.md-jebe ES a gepszintu ~/.claude/CLAUDE.md-be is eljusson,
+// visszamenoleg is -- nem csak telepiteskor. Boss panasza (2026-09-07): a
+// kartyak egymasra hivatkozgatasa, a felbehagyott es a masik kartya ala
+// athelyezett hibak a problema forrasa; egy kartyat azonnal, teljesen keszre
+// kell csinalni.
+const ONECARD_BEGIN = '<!-- BEGIN GENERATED: one-card-one-fix-rule (auto-generated, do not edit by hand) -->'
+const ONECARD_END = '<!-- END GENERATED: one-card-one-fix-rule -->'
+const ONECARD_BLOCK_RE = new RegExp(
+  `${ONECARD_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${ONECARD_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
+function buildOneCardOneFixBody(): string {
+  return [
+    '## EGY HIBA = EGY KARTYA, AZONNAL ES TELJESEN KESZRE',
+    '',
+    'A tulajdonos (2026-09-07): "egy hiba egy kartya es kesz! nem szabad keverni',
+    'mas kartyakal! ... ha van egy kartya akkor szigoruan tilos kivenni a',
+    'kartyabol egy adott hibat es betenni egy masik kartya ala! ... azonnal keszre',
+    'kell csinalni a kartyat. ... ha uj hibak jonnek elo azt azonnal javitani',
+    'kell! ... ha egy kartya bug javitasanal elojon masik uj hiba azt ugy kell',
+    'venni hogy az user kerte annak is a javitasat."',
+    '',
+    '1. **Egy hiba = egy kartya.** A kartya onmagaban all. Ne hivatkozgass',
+    '   kartyarol kartyara, es ne szabdald szet egy hibat tobb kartyara -- az',
+    '   egymasra hivatkozo, egymastol fuggo kartyak akadnak ossze es allitjak meg',
+    '   egymast.',
+    '2. **SZIGORUAN TILOS egy adott hibat kivenni egy kartyabol es athelyezni egy',
+    '   masik kartya ala.** Ami egy kartyan van, azt ott kell befejezni.',
+    '3. **A kartyat azonnal, teljesen keszre kell csinalni.** Nincs "felbehagyom",',
+    '   nincs "majd" -- addig megy, amig kesz, es nem var masik kartyara.',
+    '4. **Ha a javitas kozben UJ hiba jon elo, azt AZONNAL javitani kell** -- ugy',
+    '   veve, mintha a tulajdonos annak a javitasat is kerte volna. Nincs "erre',
+    '   nincs felhatalmazasom", nincs "ezt a user nem kerte": a felmerult hiba',
+    '   javitasa a kartya resze, nem uj engedelyhez kotott kulon feladat.',
+    '',
+    'Ez NEM mond ellent a "kapcsolodo kartya belinkelese" szabalynak: valodi',
+    'kapcsolatot tovabbra is jelezni kell. A tilalom a hiba SZETDARABOLASAra es',
+    'MASIK kartya ala tolasara vonatkozik, es arra, hogy egy kartyat felbehagyj,',
+    'mert egy masikra varsz.',
+  ].join('\n')
+}
+
+/** Beviszi az "egy hiba = egy kartya" doktrinat egy agens sajat CLAUDE.md-jebe.
+ *  A fo agens ezt a gepszintu valtozatbol kapja (ensureGlobalOneCardOneFixRule),
+ *  ugyanugy, mint a tobbi marker-blokkot. */
+export function ensureOneCardOneFixSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${ONECARD_BEGIN}\n${buildOneCardOneFixBody()}\n${ONECARD_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = ONECARD_BLOCK_RE.test(existing)
+    ? existing.replace(ONECARD_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: egy worktree-ben dolgozo agens (es a fo agens) sosem
+ *  olvassa a sajat agents/<nev>/CLAUDE.md-jet, ~/.claude/CLAUDE.md az egyetlen
+ *  fajl, amit minden Claude Code session olvas, barhonnan is fut. */
+export function ensureGlobalOneCardOneFixRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${ONECARD_BEGIN}\n${buildOneCardOneFixBody()}\n${ONECARD_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = ONECARD_BLOCK_RE.test(existing)
+    ? existing.replace(ONECARD_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
