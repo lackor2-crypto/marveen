@@ -523,3 +523,29 @@ TUDÁSRA alkalmazva — és ugyanúgy kötelező.
 **Gép is figyeli:** az Áttekintés önellenőrzése kilistázza azokat a helyben
 maradt skilleket, amik nincsenek `seed-skills/`-ben és nincsenek személyesnek
 jelölve (a SKILL.md fejlécében `scope: personal`).
+
+## ⛔ EGY HIBA = EGY KÁRTYA, AZONNAL ÉS TELJESEN KÉSZRE (2026-09-07, {{OWNER_NAME}})
+
+{{OWNER_NAME}}: „egy hiba egy kártya és kész! nem szabad keverni más kártyákkal!
+... ha van egy kártya akkor szigorúan tilos kivenni a kártyából egy adott hibát
+és betenni egy másik kártya alá! ... azonnal készre kell csinálni a kártyát. ...
+ha új hibák jönnek elő azt azonnal javítani kell! ... ha egy kártya bug
+javításánál előjön másik új hiba azt úgy kell venni hogy az user kérte annak is a
+javítását."
+
+1. **Egy hiba = egy kártya.** A kártya önmagában áll. Ne hivatkozgass kártyáról
+   kártyára, és ne szabdald szét egy hibát több kártyára -- az egymásra
+   hivatkozó, egymástól függő kártyák akadnak össze és állítják meg egymást.
+2. **SZIGORÚAN TILOS egy adott hibát kivenni egy kártyából és áthelyezni egy
+   másik kártya alá.** Ami egy kártyán van, azt ott kell befejezni.
+3. **A kártyát azonnal, teljesen készre kell csinálni.** Nincs „félbehagyom",
+   nincs „majd" -- addig megy, amíg kész, és nem vár másik kártyára.
+4. **Ha a javítás közben ÚJ hiba jön elő, azt AZONNAL javítani kell** -- úgy
+   véve, mintha a tulajdonos annak a javítását is kérte volna. Nincs „erre nincs
+   felhatalmazásom", nincs „ezt a user nem kérte": a felmerült hiba javítása a
+   kártya része, nem új engedélyhez kötött külön feladat.
+
+Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
+kapcsolatot továbbra is jelezni kell. A tilalom a hiba SZÉTDARABOLÁSÁRA és MÁSIK
+kártya alá tolására vonatkozik, és arra, hogy egy kártyát félbehagyj, mert egy
+másikra vársz.
