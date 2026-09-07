@@ -356,6 +356,10 @@ const NOTICE_TEXT: Record<string, { hu: string; en: string }> = {
     hu: 'Nem tudtam megnézni, dolgozik-e már valaki ezen a kártyán: {detail}. Elküldtem, de ezt nem ellenőriztem.',
     en: 'I could not check whether someone is already working on this card: {detail}. It was sent, but this was not verified.',
   },
+  'cb.warn.project_not_pinned': {
+    hu: 'Nincs a(z) "{project}" projektre kitűzött VS Code ablak, ezért a(z) "{session}" beszélgetésnek adtam ki. Nem akadály: az utasítás elejére fűzött előhang megmondja neki, hol a munka, és bármelyik session dolgozhat a megadott úton.',
+    en: 'No VS Code window is pinned to project "{project}", so I dispatched it to the "{session}" session. Not a blocker: the preface prepended to the task tells it where the work lives, and any session can work on the given path.',
+  },
 }
 
 /** Behelyettesitett, ember-olvashato mondat a telepites nyelven. Ismeretlen
