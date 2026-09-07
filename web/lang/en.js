@@ -1630,6 +1630,7 @@ window._i18n.en = {
   'approvals.verify.summary_noresponse': '🟠 {done}/{total} agents replied',
   'approvals.verify.noresponse_timeout':    'No answer: the agent got the task and never reported back. This says nothing about the change itself.',
   'approvals.verify.noresponse_agent_gone': 'No answer: this agent no longer exists, it was removed.',
+  'approvals.verify.noresponse_not_waiting': 'Stopped: the card left the waiting column (or the decision was made), so this review was not carried on. It is not the agent fault.',
   'approvals.verify.picker_loading':  'Loading agents...',
   'approvals.verify.picker_title':    'Which agent(s) should verify this?',
   'approvals.verify.pick_all_free':   'Select all free agents',

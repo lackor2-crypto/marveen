@@ -85,6 +85,7 @@ describe('the sweep actually sends a SECOND reminder, against the real store', (
       now: nowMs,
       listPendingOlderThan: listPendingVerificationsOlderThan,
       agentExists: () => true,
+    isStillNeeded: () => true,
       sendReminder: (r) => { sent.push(r.agent); return true },
       markReminded: markVerificationReminded,
       markNoResponse: markVerificationNoResponse,

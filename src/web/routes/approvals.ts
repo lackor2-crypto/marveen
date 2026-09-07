@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { PROJECT_ROOT, MAIN_AGENT_ID, WEB_PORT, currentOwnerName } from '../../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID, WEB_PORT, APP_LANG, currentOwnerName } from '../../config.js'
 import {
   createApproval, getApproval, resolveApproval, listApprovals, expireTimedOutApprovals,
   createAgentMessage, moveKanbanCard, getKanbanCard, addKanbanComment,
   createOrResetApprovalVerification, listApprovalVerifications, resolveApprovalVerification,
+  cancelPendingVerifications,
   listPendingApprovals, updateApprovalDescription,
   type Approval,
 } from '../../db.js'
@@ -23,6 +24,7 @@ import {
   isCodeBridgeAgent, codeBridgeProjectOf,
   type VerificationMode,
 } from '../../approval-verification-dispatch.js'
+import { NO_RESPONSE_NOT_WAITING } from '../../approval-verification-sweep.js'
 import { enqueueCodeTask, getCodeSession } from '../code-bridge-store.js'
 import { CODE_BRIDGE_ENABLED } from '../../config.js'
 import type { RouteContext } from './types.js'
@@ -120,7 +122,7 @@ function notifyRequester(approval: Approval): void {
 // the PATCH resolve handler (moves the card to done) and the verify-result
 // handler (posts the finding as a comment) -- malformed/missing payload just
 // means "no linked card", never an error worth surfacing.
-function kanbanCardIdFromApproval(approval: Approval): string | null {
+export function kanbanCardIdFromApproval(approval: Approval): string | null {
   if (!approval.action_payload) return null
   try {
     const payload = JSON.parse(approval.action_payload) as { kanban_card_id?: unknown }
@@ -322,6 +324,10 @@ export function withdrawApprovalForCardLeavingWaiting(
       logger.info({ cardId, newStatus, approvalId: pending.id },
         'Approval withdrawn for card leaving waiting')
     }
+    // A kartya elhagyta a varakozot -- innentol senki ne dolgozzon rajta
+    // tovabb. Akkor is lezarjuk, ha a visszavonas maga nem sikerult: a futo
+    // ellenorzesek attol meg feleslegesek.
+    stopVerificationsForApproval(pending.id, `card_left_waiting:${newStatus}`)
     return ok
   } catch (err) {
     // Non-fatal for the same reason as the raising side: the move already
@@ -331,6 +337,79 @@ export function withdrawApprovalForCardLeavingWaiting(
   }
 }
 
+
+/**
+ * Leallitja az OSSZES meg futo ellenorzest ezen a jovahagyason.
+ *
+ * Boss, 2026-09-07: "amikor egy kartya a kesz be kerul akkor onnantol mar ne
+ * futtason semmit sem az ingyenes sem. ... ha mar kikerult onnan attol a
+ * pillanattol ne kezdjen bele semmibe sem."
+ *
+ * A sopres 30 masodpercenkent ut -- az "attol a pillanattol" ennel pontosabb,
+ * ezert a kartya-mozgatas es a dontes maga is meghivja ezt. A ketto nem
+ * duplikalja egymast: a lezaras `status = 'pending'` feltetelre megy, tehat a
+ * masodik hivas nulla sort erint, es egy MAR BEJELENTETT pass/fail eredmenyt
+ * soha nem ir felul.
+ */
+export function stopVerificationsForApproval(approvalId: string, why: string): number {
+  try {
+    const stopped = cancelPendingVerifications(approvalId, NO_RESPONSE_NOT_WAITING, Math.floor(Date.now() / 1000))
+    if (stopped > 0) {
+      logger.info({ approvalId, stopped, why }, 'Running verifications stopped -- the approval is no longer open for review')
+    }
+    return stopped
+  } catch (err) {
+    // Nem fatalis: a dontes/mozgatas mar megtortent, es egy konyveles-hiba nem
+    // vonhatja vissza. A sopres a kovetkezo fordulóban ugyanezt lezarja.
+    logger.warn({ err, approvalId }, 'Failed to stop running verifications')
+    return 0
+  }
+}
+
+/**
+ * MIERT NEM INDULHAT ITT ELLENORZES. `null` = indulhat.
+ *
+ * Boss, 2026-09-07: "csak addig futtathat amig a varakozoban van a kartya".
+ * A kapu tehat nem azt nezi, KI inditja (a tulajdonos valaszto-ablaka, egy
+ * agens vagy egy szkript ugyanazt a vegpontot hivja), hanem azt, hogy a munka
+ * MEG NYITVA all-e dontesre.
+ *
+ * A "nem latok oda" itt sem tiltas: ha a jovahagyashoz nem tartozik kartya,
+ * vagy a kartyat nem talaljuk, nem talalunk ki tiltast -- csak azt allitjuk
+ * meg, amirol MERTUK, hogy mar nem varakozik.
+ */
+export type VerifyBlockedReason = 'approval_closed' | 'card_not_waiting'
+
+export function verificationDispatchBlockedReason(approval: Approval): VerifyBlockedReason | null {
+  if (approval.status !== 'pending') return 'approval_closed'
+  const cardId = kanbanCardIdFromApproval(approval)
+  if (!cardId) return null
+  let card
+  try {
+    card = getKanbanCard(cardId)
+  } catch {
+    return null
+  }
+  if (!card) return null
+  return card.status === 'waiting' ? null : 'card_not_waiting'
+}
+
+/** A felhasznalonak szolo mondat, mindket nyelven (a felulet a `message`
+ *  mezot mutatja, nem az `error` kodot -- user-is-not-a-programmer). */
+const VERIFY_BLOCKED_TEXT: Record<VerifyBlockedReason, { hu: string; en: string }> = {
+  approval_closed: {
+    hu: 'Ez a jóváhagyás már le van zárva, ezért nem indítható rá új ellenőrzés. Ha mégis kell, a kártyát előbb vissza kell tenni a várakozó oszlopba.',
+    en: 'This approval is already closed, so no new review can be started on it. If you still need one, move the card back to the waiting column first.',
+  },
+  card_not_waiting: {
+    hu: 'A kártya nem a várakozó oszlopban áll, ezért nem indítható rá ellenőrzés. Ellenőrzést csak addig futtatunk, amíg a kártya döntésre vár.',
+    en: 'The card is not in the waiting column, so no review can be started on it. Reviews only run while the card is waiting for a decision.',
+  },
+}
+
+export function verifyBlockedMessage(reason: VerifyBlockedReason): string {
+  return APP_LANG === 'hu' ? VERIFY_BLOCKED_TEXT[reason].hu : VERIFY_BLOCKED_TEXT[reason].en
+}
 
 /**
  * Map whatever the caller called itself to this install's canonical agent id.
@@ -592,6 +671,10 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const approval = getApproval(idMatch[1])
     logger.info({ id: idMatch[1], status, resolved_by, reason: resolutionReason }, 'Approval resolved')
     if (approval) notifyRequester(approval)
+    // A dontes megszuletett: a meg futo ellenorzeseknek nincs mit eldonteniuk.
+    // Ez az "attol a pillanattol" fele -- a sopres kulonben csak a kovetkezo
+    // fordulóban (max. 30 mp) venne eszre, es addig meg kimehetne egy nudge.
+    stopVerificationsForApproval(idMatch[1], `approval_resolved:${status}`)
     // Kártya 62c63a5e (#108): a verify-result ág már régóta rámásolja a
     // reviewer-agent leletét a kapcsolódó kártyára, de maga a záró döntés
     // (ez az endpoint) eddig semmit nem írt oda -- a resolutionReason csak
@@ -643,6 +726,16 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     const approvalId = verifyMatch[1]
     const approval = getApproval(approvalId)
     if (!approval) { json(res, { error: 'Not found' }, 404); return true }
+
+    // A KAPU (Boss, 2026-09-07): ellenorzest csak addig lehet kiosztani, amig a
+    // munka tenylegesen dontesre var. Ez zarja ki azt is, hogy barmi
+    // automatikusan elinduljon egy mar lezart kartyan -- fuggetlenul attol,
+    // hogy a tulajdonos valaszto-ablaka, egy agens vagy egy szkript hivja.
+    const blocked = verificationDispatchBlockedReason(approval)
+    if (blocked) {
+      json(res, { error: blocked, message: verifyBlockedMessage(blocked) }, 409)
+      return true
+    }
 
     let body: { agents?: unknown; mode?: unknown }
     try {

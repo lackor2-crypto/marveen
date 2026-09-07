@@ -141,6 +141,21 @@ export const VERIFICATION_TIMEOUT_MS = 4 * 60 * 60 * 1000
  *  language the sweep happened to be written in. */
 export const NO_RESPONSE_TIMEOUT = 'noresponse:timeout'
 export const NO_RESPONSE_AGENT_GONE = 'noresponse:agent_gone'
+/**
+ * A feladat MEGSZUNT, nem az agens hallgatott: a jovahagyas lezarult, vagy a
+ * kartyaja kikerult a varakozobol.
+ *
+ * Boss, 2026-09-07: "amikor egy kartya a kesz be kerul akkor onnantol mar ne
+ * futtason semmit sem az ingyenes sem. ... csak addig futtathat amig a
+ * varakozoban van a kartya. ha mar kikerult onnan attol a pillanattol ne
+ * kezdjen bele semmibe sem."
+ *
+ * Merve ugyanaznap: negy pending ellenorzesbol HAROM olyan jovahagyashoz
+ * tartozott, amit a tulajdonos mar jovahagyott es amelyik kartyaja mar
+ * 'done'-ban allt -- es mindharom agens hat emlekeztetot kapott a lezart
+ * munkara. A sopres csak a SOR allapotat nezte, a jovahagyasét nem.
+ */
+export const NO_RESPONSE_NOT_WAITING = 'noresponse:not_waiting'
 
 export interface VerificationSweepDeps {
   /** Wall clock, ms. */
@@ -153,6 +168,17 @@ export interface VerificationSweepDeps {
    * sajat channels-munkamenete -- lasd verification-sweep-job.ts.
    */
   agentExists(agent: string): boolean
+  /**
+   * Van-e meg ertelme ennek a sornak: fut-e meg a jovahagyas, es a hozza
+   * tartozo kartya a varakozoban all-e. `false` eseten a sor AZONNAL lezarul
+   * (NO_RESPONSE_NOT_WAITING), emlekezteto nelkul -- ez Boss 2026-09-07-i
+   * kikotese.
+   *
+   * A hivo dolga eldonteni, es a hivonak KELL a "nem latok oda" esetet
+   * `true`-nak vennie: egy olvasasi hiba miatt lezart ellenorzes ugyanaz a
+   * hazugsag lenne, mint a nullat "nincs"-nek olvasni.
+   */
+  isStillNeeded(row: ApprovalVerification): boolean
   /** Delivers the nudge. Return false if it could not be queued. */
   sendReminder(row: ApprovalVerification): boolean
   /**
@@ -215,6 +241,15 @@ export async function runVerificationSweep(deps: VerificationSweepDeps): Promise
 
   for (const row of deps.listPendingOlderThan(cutoffSec)) {
     const ageMs = deps.now - row.requested_at * 1000
+
+    // A LEZART MUNKAN NEM DOLGOZUNK TOVABB. Ez all a legelso helyen, meg az
+    // agens-letezes elott: a cel nem az, hogy udvariasan kivarjuk a
+    // hataridot, hanem hogy attol a pillanattol ne torténjen semmi, amikor
+    // a kartya elhagyta a varakozot. Emlekezteto sem megy ki.
+    if (!deps.isStillNeeded(row)) {
+      if (deps.markNoResponse(row.id, NO_RESPONSE_NOT_WAITING, nowSec)) expired.push(row.id)
+      continue
+    }
 
     // An agent that no longer exists can never answer -- do not wait out the
     // full timeout for it, and never try to message it. This is the path that
