@@ -1336,13 +1336,22 @@ function renderActivity(entries) {
     const modeChip = a.mode && !AUTONOMOUS_MODES.includes(a.mode)
       ? '<span class="act-mode-badge" title="' + escapeHtml(t('activity.tooltip.mode', { mode: a.mode })) + '">' + escapeHtml(a.mode) + '</span>'
       : ''
-    const canOpen = !!a.running
+    // A kod-hid (VS Code) mogott NINCS tmux-panel: ott a "megnyitas" a
+    // BESZELGETES (chat ful), es csak akkor van mit megnyitni, ha a futo
+    // feladat mellett ott a session azonositoja. Ezert nem a `running`
+    // dönti el a kattinthatosagot nala -- egy terminal-ablak, ami sosem
+    // tud megnyilni, rosszabb, mint egy nem kattinthato kartya.
+    const isCodeBridge = a.kind === 'code-bridge'
+    const canOpen = isCodeBridge ? !!a.codeSessionId : !!a.running
     const termIcon = canOpen
-      ? '<svg class="act-term-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" title="' + t('activity.tooltip.terminal') + '"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'
+      ? '<svg class="act-term-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" title="' + (isCodeBridge ? t('cb.card.tab_live') : t('activity.tooltip.terminal')) + '"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'
+      : ''
+    const codeAttrs = isCodeBridge && a.codeSessionId
+      ? ' data-code-session="' + escapeAttr(a.codeSessionId) + '" data-code-label="' + escapeAttr(a.codeLabel || '') + '"'
       : ''
     return (
       divider +
-      '<div class="activity-card ' + meta.cls + (canOpen ? ' act-clickable' : '') + '" data-agent="' + escapeHtml(a.name) + '">' +
+      '<div class="activity-card ' + meta.cls + (canOpen ? ' act-clickable' : '') + '" data-agent="' + escapeHtml(a.name) + '"' + codeAttrs + '>' +
         '<div class="activity-card-head">' +
           '<span class="activity-name">' + escapeHtml(a.displayName || a.name) + mainBadge + '</span>' +
           '<span style="display:flex;align-items:center;gap:8px">' +
@@ -1365,7 +1374,10 @@ function renderActivity(entries) {
   if (actList) {
     actList.addEventListener('click', (e) => {
       const card = e.target.closest('.activity-card.act-clickable[data-agent]')
-      if (card) openTerminalModal(card.dataset.agent)
+      if (!card) return
+      // Kod-hid: a beszelgetes nyilik meg, nem a (nem letezo) tmux terminal.
+      if (card.dataset.codeSession) openCodeConversationModal(card.dataset.codeSession, card.dataset.codeLabel || '')
+      else openTerminalModal(card.dataset.agent)
     })
   }
 })()
@@ -5166,7 +5178,16 @@ function renderAgents() {
   // 2026-08-22). A besorolas a lap egyetlen jelzese arrol, mi megy kozos,
   // limitalt ingyen-poolon: a kod-hid a sajat Claude Code elofizetesedet
   // hasznalja, tehat a felso savba tartozik.
-  renderCodeBridgeAgentCards(agentsGrid, addBtn)
+  // Egy csapattag-kartya (kod-hid / VS Code) renderelese SOHA nem akaszthatja
+  // meg a tobbi ugynok-kartyat. A #44 (kanban #213) elhasalt VS Code-kartyaja
+  // emiatt tuntette el az EGESZ listat -- csak Marvin latszott (Boss, 2026-09-06,
+  // kanban #235), mert a dobott hiba a Marvin utani, tobbi-agens ciklus ELE esett.
+  // Izolaljuk: egy dobott hiba csak a sajat kartyajat vigye, ne a teljes flottat.
+  try {
+    renderCodeBridgeAgentCards(agentsGrid, addBtn)
+  } catch (err) {
+    console.error('renderCodeBridgeAgentCards failed; skipping code-bridge card, fleet list stays intact', err)
+  }
 
   // Paid/unrestricted agents first, then a divider, then free-tier OpenRouter
   // agents -- otherwise the two tiers render interleaved and there's no way
@@ -5259,7 +5280,13 @@ function renderAgents() {
     wireContextControls(card, agent.name)
     agentsGrid.insertBefore(card, addBtn)
   }
-  renderFederatedAgentCards(agentsGrid, addBtn)
+  // Ugyanaz az izolacio, mint a kod-hid kartyanal: egy federalt kartya dobott
+  // hibaja se vihesse el a mar kirakott flotta-listat (kanban #235).
+  try {
+    renderFederatedAgentCards(agentsGrid, addBtn)
+  } catch (err) {
+    console.error('renderFederatedAgentCards failed; skipping federated cards, fleet list stays intact', err)
+  }
   // Straddle the "+ new agent" button on the divider line itself (half in the
   // paid section, half in the free one) -- otherwise it only ever lands after
   // the last card in DOM order, i.e. visually inside the free section, which
@@ -5369,6 +5396,31 @@ async function refreshAgentTerminalBusy() {
       btn.classList.toggle('agent-terminal-btn--busy', working)
     })
   }
+  // A kod-hid kartyaja: nincs Terminal gombja (nincs mit megnyitni tmux-ban),
+  // ezert a "most dolgozik" jelzot kulon kapcsoljuk -- UGYANABBOL a meresbol,
+  // amibol a tobbi kartya zold gombja. Igy nem lesz ket kulonbozo "dolgozik"
+  // fogalom a feluleten, es a jelzo 3 masodpercenkent frissul, nem a kartyak
+  // egyperces adat-frissitesevel.
+  if (agentsGrid) {
+    const cbEntry = entries.find((e) => e.kind === 'code-bridge') || null
+    const cbWorking = !!cbEntry && cbEntry.state === 'working'
+    agentsGrid.querySelectorAll('.code-bridge-agent-card [data-cb-busy]').forEach((el) => {
+      el.hidden = !cbWorking
+      // A beszelgetes azonositoja a jelzon ul: enelkul a kattintas nem tudna,
+      // MIT nyisson. Ha nincs (regi kiszolgalo, vagy nem tudjuk, hol fut), a
+      // jelzo latszik, de nem nyit semmit -- nem igerunk olyan ablakot,
+      // amirol nem tudjuk, hogy letezik.
+      if (cbWorking && cbEntry.codeSessionId) {
+        el.dataset.codeSession = cbEntry.codeSessionId
+        el.dataset.codeLabel = cbEntry.codeLabel || ''
+      } else {
+        delete el.dataset.codeSession
+        delete el.dataset.codeLabel
+      }
+    })
+  }
+  // A bal menu szamlaloja: a kod-hid MAR BENNE VAN az `entries`-ben (a
+  // kiszolgalo teszi bele), ezert kulon agat nem kap -- egy meres, egy szam.
   const workingCount = entries.filter((e) => e.state === 'working').length
   const badge = document.getElementById('agentsWorkingBadge')
   if (badge) {
@@ -6041,6 +6093,13 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
              reszletes ablak MODELL csempeje alatt (web/index.html,
              #cbTileModelNote) -- a kartyan mar eleg informacio all, ott az
              allapot ("fut"/"leallitva" + "online"/"offline") a fontos. -->
+        <!-- "MOST DOLGOZIK" (kanban #213). A `.process-dot.running` a SZOLGALTATAS
+             allapota ("be van kapcsolva"), nem a munkae -- a kartya ettol akkor is
+             zolden vilagitott, amikor a kulso programozo semmit nem csinalt. Ez a
+             jelzo a tobbi kartya zold Terminal-gombjanak a parja: ugyanaz a hazbeli
+             `.activity-badge.act-working` osztaly, ugyanaz a lelegzo pulzus, es a
+             HAROM masodperces meresbol frissul (refreshAgentTerminalBusy). -->
+        <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${codeBridgeCards.running > 0 ? '' : ' hidden'}>${escapeHtml(t('activity.state.working'))}</button>
         <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>
@@ -6053,9 +6112,22 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
       ${e.roleHolder ? cbClosedTabsHtml(e) : ''}
       ${e.roleHolder && !cbHasTabRows(e) && !cbTabsEmptyHasCtx(e) ? cbContextRowHtml(e) : ''}
       ${e.roleHolder ? roleRowHtml(e.roleHolder) : ''}`
-    card.querySelector('.code-bridge-open-btn').addEventListener('click', (ev) => {
+    // Null-safe: ha az innerHTML sablon barmiert nem allitotta elo a gombot,
+    // a puszta `.addEventListener` egy null-on dobna, es a #235 szerint EGY
+    // kartya hibaja se akaszthatja meg a rendert -- a `?.` ezt is lezarja.
+    card.querySelector('.code-bridge-open-btn')?.addEventListener('click', (ev) => {
       ev.stopPropagation()
       openCodeBridgeModal()
+    })
+    // A "dolgozik" jelzo EGYBEN a folyamat megnyitasa is (kanban #213/2. pont):
+    // amikor nem Boss inditotta a munkat, hanem Marvin vagy a Jovahagyasok lap,
+    // eddig SEMMI nem latszott -- se ful, se folyamat. A jelzo a 3 masodperces
+    // meresbol kapja, MELYIK beszelgetesben fut a feladat, tehat fuggetlenul
+    // attol, KI adta ki, egy kattintassal ott a chat.
+    const cbBusyBtn = card.querySelector('[data-cb-busy]')
+    if (cbBusyBtn) cbBusyBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      if (cbBusyBtn.dataset.codeSession) openCodeConversationModal(cbBusyBtn.dataset.codeSession, cbBusyBtn.dataset.codeLabel || '')
     })
     // A jelolonegyzet ugyanoda ment, ahova az ugynok-kartyaka -- a kulonbseg
     // csak a "gazda" neve (`vscode:<projekt>`). A stopPropagation azert kell,
