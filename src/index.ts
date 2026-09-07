@@ -25,6 +25,7 @@ import { logger } from './logger.js'
 import { startWakeDetect } from './wake-detect.js'
 import { startGitSync } from './git-sync.js'
 import { startGoogleLiveCheck } from './web/google-live-check.js'
+import { startMainInboxReceipt, stopMainInboxReceipt } from './web/main-inbox-receipt.js'
 import { startInviteMonitor, stopInviteMonitor } from './web/channel-invites.js'
 import { ensureDiscordChannelGroup } from './web/discord-group-bootstrap.js'
 import { startChannelRequestWatcher, stopChannelRequestWatcher } from './web/channel-request-watcher.js'
@@ -392,6 +393,7 @@ const shutdown = (): void => {
     try { stopInviteMonitor() } catch (err) { logger.warn({ err }, 'stopInviteMonitor threw during shutdown') }
     try { stopChannelRequestWatcher() } catch (err) { logger.warn({ err }, 'stopChannelRequestWatcher threw during shutdown') }
     try { stopStoreWatcher() } catch (err) { logger.warn({ err }, 'stopStoreWatcher threw during shutdown') }
+    try { stopMainInboxReceipt() } catch (err) { logger.warn({ err }, 'stopMainInboxReceipt threw during shutdown') }
     if (gitSyncInterval) clearInterval(gitSyncInterval)
     if (googleLiveInterval) clearInterval(googleLiveInterval)
     if (decayInterval) clearInterval(decayInterval)
@@ -493,6 +495,12 @@ async function main(): Promise<void> {
   // senki nem kerdezi meg a Google-t -- 2026-08-22-en pontosan ez tortent,
   // mind a 10 fiokkal, egesz napon at, nemán.
   googleLiveInterval = startGoogleLiveCheck()
+
+  // ERKEZESI NYUGTA A FO AGENSNEK (kanban #214). Az al-agensek nyugtajat a tee
+  // kuldi; a fo agens csatornaja nem azon az uton indul, ezert egy hosszu
+  // fordulo kozben erkezo uzenetre eddig SEMMI nem valaszolt. Ez a figyelo a
+  // beszelgetes-naplot olvassa, es a turelmi ido utan maga nyugtaz.
+  startMainInboxReceipt()
 
   // Memory decay (24h cycle)
   runDecaySweep()

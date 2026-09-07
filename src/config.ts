@@ -422,6 +422,25 @@ export const HEARTBEAT_AGENT_ENABLED =
 export const SUBAGENT_INBOX_TEE =
   ['1', 'true', 'yes', 'on'].includes((cfg('SUBAGENT_INBOX_TEE') ?? '').trim().toLowerCase())
 
+// Erkezesi nyugta a FO agensnek (kanban #214), DEFAULT ON.
+// Az al-agensek nyugtajat a tee kuldi (SUBAGENT_INBOX_TEE); a fo agens
+// csatornaja nem azon az uton indul, ezert ott a beszelgetes-naplot olvassa egy
+// figyelo (src/web/main-inbox-receipt.ts). Csak OLVAS: nem indit masodik
+// Telegram-lekerdezot (az 409 Conflict volna), es nem nyul a pluginhoz.
+// Kikapcsolas: MAIN_INBOX_RECEIPT=0.
+export const MAIN_INBOX_RECEIPT = !['0', 'false', 'no', 'off'].includes(
+  (cfg('MAIN_INBOX_RECEIPT') ?? '').trim().toLowerCase(),
+)
+
+// Turelmi ido: ennyi masodpercig varunk, hatha az agens magatol atveszi az
+// uzenetet (uresjaratban ez ~1 masodperc, es olyankor a telegram_progress.py
+// helyorzoje amugy is megszolal). Csak az ennel tovabb sorban allo uzenet kap
+// nyugtat -- pontosan az az eset, amit a #214 panaszol.
+export const MAIN_INBOX_RECEIPT_GRACE_SEC = Math.max(
+  3,
+  parseInt((cfg('MAIN_INBOX_RECEIPT_GRACE_SEC') ?? '15').trim() || '15', 10) || 15,
+)
+
 // Sub-agent Telegram inbox wake-nudge (opt-in, DEFAULT OFF).
 // The message-router can nudge an idle sub-agent whose derived Telegram inbox
 // (<state>/inbox-pending.jsonl) has stuck inbound messages, so its drain hook
