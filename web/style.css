@@ -8192,6 +8192,15 @@ button.activity-badge[data-code-session] { cursor: pointer; }
    maradna, amikor a hid epp nem dolgozik. */
 button.activity-badge[hidden] { display: none; }
 
+/* A "nem sikerult kirajzolni" helyettesito kartya (kanban #235). Nem vesz-jelzes:
+   a tobbi ugynok ettol meg rendben van, ezert borostyan, nem piros -- de latszania
+   KELL, mert a nema eltunes ugy nezett ki, mintha nem is lenne kod-hid. */
+.cb-card-broken { border-color: #f59e0b; }
+.cb-card-broken-detail {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; color: var(--text-muted); word-break: break-word;
+}
+
 /* Live "working" tint on an agent's Terminal button (Agents page). Mirrors the
    Activity page's green working badge, including the breathe pulse. The SVG uses
    currentColor, so the icon greens with the label. */

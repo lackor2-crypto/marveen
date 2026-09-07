@@ -3933,6 +3933,8 @@ window._i18n.hu = {
   'cb.health.unknown_host': 'ismeretlen gép',
   'cb.card.busy': '{n} fut · {q} sorban',
   'cb.card.busy_help': 'A külső programozó éppen dolgozik: fut egy feladat a VS Code-ban. Élő mérés, 3 másodpercenként.',
+  'cb.card.broken': 'A kód-híd be van kötve, de ezt a kártyát most nem sikerült kirajzolni. A többi ügynök nem érintett. A hiba szövege alatta áll -- add oda annak, aki javítja.',
+  'cb.card.broken_badge': 'hibás kártya',
   'cb.card.queued': '{n} sorban',
   'cb.card.stop_pending': 'leállítva — újraindításra vár',
   'cb.card.stop_pending_help': 'A kapcsolót már átállítottad, de a kód-híd a vezérlőpult indulásakor olvassa be: a váltás a vezérlőpult újraindítása után lép életbe.',
