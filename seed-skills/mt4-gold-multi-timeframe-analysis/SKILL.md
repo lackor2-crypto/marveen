@@ -113,6 +113,81 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    vagy sem WhatsApp, sem email nem ment.
 
 ## Buktatók
+
+### ⛔ AUTO TRADING KIKAPCSOLVA -> AZ EA NEM ÍR, ÉS SEMMI NEM SZÓL RÓLA (2026-09-07, valós eset)
+
+Az MT4 újraindítása után az **Auto Trading KIKAPCSOLVA jöhet vissza**. Ilyenkor a
+`GOLD_Live_Export` EA ott ül a charton, a fejlécében az áll hogy "működik" -- de
+**egyetlen sort sem ír**. Tünet: a `gold_live.txt` mtime-ja nem változik, és a
+`gold-data.py --human` "EA snapshot ... N perce" száma csak nő. A tulajdonos
+2026-09-07-én ezt előbb vette észre, mint én.
+
+**MÉRD MEG, ne tippeld.** A gomb állapota screenshotról olvasható le:
+- **piros stop ikon** a sárga mappa sarkában = Auto Trading **KI**
+- **zöld play ikon** = Auto Trading **BE**
+
+Bekapcsolás: kattintás a `(455, 57)` pontra (1920 széles, maximalizált ablak),
+**interaktív scheduled taskon át**. A kattintás **kapcsoló (toggle)**, ezért
+KÖTELEZŐ előtte ÉS utána is screenshotot csinálni, és a két ikont
+összehasonlítani -- ha már be volt kapcsolva, ezzel épp KIkapcsolod.
+Összehasonlításhoz elég egy kivágás: `PIL.Image.crop((400,42,520,74))`.
+
+### ⛔ A FORCE-KILL ELVESZTI A CHART-ÁLLAPOTOT, ÉS VELE AZ EA-T (2026-09-07, valós eset)
+
+`Stop-Process -Force` után az MT4 **nem menti el a profilt**, ezért a következő
+indításnál az EA **nem kerül vissza a chartra**. A bizonyíték a naplóban van
+(`MQL4/Logs/<YYYYMMDD>.log`): ha a restart után **nincs**
+`Expert ...\GOLD_Live_Export GOLD,H1: loaded successfully` sor, akkor az EA
+jelenleg nincs feltéve -- akkor sem, ha a chart máskülönben rendben látszik.
+Ugyanez viszi el a `GOLD1.hst` friss M1-gyertyáit is (lásd lentebb).
+
+Ezért a bezárás MINDIG: `WM_CLOSE` (`PostMessage 0x0010`) az `EnumWindows`-szal
+megtalált **valódi** ablak-handle-re, interaktív scheduled taskon át. A közvetlen
+WSL-powershell `CloseMainWindow()` hiába fut le -- ott a `MainWindowTitle` üres,
+tehát nincs handle, amire küldhetné. Csak akkor `Stop-Process -Force`, ha a
+`WM_CLOSE` után ~10 másodperccel is fut a folyamat, és akkor is tudd, hogy ezzel
+elvesztetted a profilt.
+
+### ⛔ A GOLD CHART-FÜL KOORDINÁTÁJA NEM FIX -- ELLENŐRIZD AZ ABLAKCÍMET
+
+A `l3_gold_short.ps1` `x=115`-öt kattint a fülsávon (`y=955`). 2026-09-07-én ez
+már a **UsaTec** fülre esett, és az egész kör egy idegen instrumentum chartjáról
+készült -- a státuszfájl közben végig `SHOT_OK`-ot írt. A fülsáv sorrendje
+változik, tehát a koordináta nem bizonyíték.
+
+**Kattintás után KÖTELEZŐ az ablakcímet visszaolvasni** (`GetWindowText`), és csak
+akkor elfogadni a screenshotot, ha `[GOLD,<idősík>]` áll benne. A GOLD általában
+a **legelső** fül (`x` kb. 41), de ezt is a címmel igazold, ne a koordinátával.
+
+### ⛔ KÉT GOLD CHART VAN: AZ EGYIKEN AZ EA ÜL, A MÁSIKON AZ INDIKÁTOROK
+
+Az egyik `GOLD,H1` fülön a `GOLD_Live_Export` EA fut, és azon **nincs egyetlen
+indikátor sem**. A másik `GOLD,H1` fülön ott a teljes készlet (MA20/MA100,
+Bollinger, Sto(5,3,3), RSI(14), MACD(12,26,9), ATR(14)). Ha az EA-s chartról
+csinálsz screenshotot, **nem lesz mit leolvasnod** -- és ez nem hiba, hanem a
+rossz fül.
+
+**Ettől függetlenül nem kell OCR-ezni:** a `gold-data.py` maga számolja az
+indikátorokat az EA exportjából, és az értékei egyeznek az MT4-ével. 2026-09-07-i
+kereszt-ellenőrzés H1-en: `gold-data.py` Sto 78,59/60,12, RSI 48,57, MACD
+-8,478/-11,713 -- az MT4 chartján Sto 80,53/59,58, RSI 49,16, MACD -8,366/-11,700
+(az eltérés a néhány perces snapshot-korkülönbség). **A számok forrása a
+`gold-data.py`; a screenshot arra való, hogy lásd a chart szerkezetét.**
+
+### ⛔ AZ M1 NINCS AZ EA EXPORTJÁBAN -- ÉS A .hst CSAK TISZTA BEZÁRÁSKOR FRISSÜL
+
+A `gold_live.txt` `TF` sorai: **D1, H1, M15, M5**. **M1 nincs köztük**, és a
+`gold-data.py --tf` sem fogad el M1-et. Az M1 egyetlen lemezes forrása a
+`history/<szerver>/GOLD1.hst`, amit az MT4 **csak tiszta bezáráskor** ír ki --
+force-kill után órákkal korábbi marad (2026-09-07: 10:42-es gyertya 17:45-kor).
+
+Következmény: **ha az M1 sztochasztik kell az üzenetbe, az MT4-et előtte
+rendesen be kell zárni** (WM_CLOSE), és utána olvasni a `GOLD1.hst`-t
+(`read_hst` + `stochastic(bars)` a `gold-data.py`-ból). Ha ez nem tehető meg,
+**akkor az üzenetbe azt kell írni, hogy nem volt leolvasható** -- értéket
+kitalálni TILOS. A tulajdonos szabálya (üzenet 555) az, hogy az M1 és M5
+sztochasztik szerepeljen; a "nem mértem" ezt teljesíti, a kitalált szám nem.
+
 - A WhatsApp chat state-jét MINDIG nézd meg friss screenshottal küldés
   ELŐTT -- előfordulhat hogy egy korábbi 30-perces ciklus már küldött
   üzenetet és Zoltán válaszolt rá (pl. hangüzenettel); ez nem hiba, csak
