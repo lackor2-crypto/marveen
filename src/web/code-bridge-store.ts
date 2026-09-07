@@ -1654,6 +1654,26 @@ export interface CodeBridgeActivity {
   /** A MOST futo feladatok, a legregebbi eloszor. Felso hatar, mert ez egy
    *  3 masodperces vegpont: a lista a felulet farok-sorait tolti, nem konyvel. */
   running: Array<{ project: string; prompt: string; sessionId: string | null }>
+  /** AZ ELOBEN FUTO BESZELGETESEK (kanban #235).
+   *
+   *  A `running` CSAK azt latja, amit a Marveen KULDOTT KI a hidnak
+   *  (`code_tasks`). A tulajdonos sajat VS Code-munkaja sosem hoz letre ilyen
+   *  sort, ezert a kartya "nem dolgozik"-ot mutatott, mikozben harom eloben
+   *  futo beszelgetes allt mellette (merve 2026-09-07: `live: true` a
+   *  5164/3924/9764 PID-eken, kozben `code_tasks.running = 0`).
+   *
+   *  Az "elo" definicioja UGYANAZ, mint a kod-hid kartyajan (`listCodeTabs`,
+   *  `live === true`): egy meres, ket felulet -- nem lesz ket kulonbozo
+   *  "dolgozik" fogalom. A `live === null` (regi worker, nem latunk oda) NEM
+   *  elo: csak a kifejezett igen szamit meresnek. */
+  liveSessions: Array<{ project: string; title: string | null; sessionId: string; current: boolean }>
+  /** Mertuk-e egyaltalan az eloseget EBBEN a folyamatban.
+   *
+   *  A jeloltlista memoriaban el: a Marveen ujrainditasa utan a worker online,
+   *  a lista megis ures. Az ures `liveSessions` ilyenkor NEM azt jelenti, hogy
+   *  nincs elo beszelgetes, hanem hogy meg nem lattunk oda -- a nulla ket
+   *  jelentese, kulon mezoben. */
+  liveMeasured: boolean
 }
 
 export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
@@ -1671,6 +1691,27 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   const rows = db
     .prepare(`SELECT project, prompt, session_id FROM code_tasks WHERE status = 'running' ORDER BY started_at LIMIT 8`)
     .all() as Array<Record<string, unknown>>
+  // Az ELO beszelgetesek ugyanabbol a forrasbol, amibol a kod-hid kartyaja
+  // dolgozik (worker-jelentes), es ugyanazzal a szaballyal: `live === true`.
+  // A bekotott mappa REGISZTRALT neve nyer; ha nincs bekotve, a mappanevbol
+  // kepzett alias all a helyen -- nem talalunk ki projektnevet.
+  const registered = listCodeSessions()
+  const byPath = new Map(registered.map((r) => [r.workspacePath.toLowerCase(), r]))
+  const liveSessions = listCodeCandidates()
+    .filter((c) => c.live === true)
+    .sort((a, b) => (b.lastActivity ?? b.mtime ?? 0) - (a.lastActivity ?? a.mtime ?? 0))
+    .slice(0, 8)
+    .map((c) => {
+      const reg = byPath.get(c.workspacePath.toLowerCase()) ?? null
+      return {
+        project: reg ? reg.project : aliasFromWorkspacePath(c.workspacePath),
+        title: c.title,
+        sessionId: c.sessionId,
+        // Melyik ful a projekt AKTUALIS beszelgetese: a felulet ezt nyitja
+        // meg elsokent, hogy ugyanoda vigyen, ahova egy feladat menne.
+        current: reg ? reg.sessionId === c.sessionId : c.primary,
+      }
+    })
   return {
     present: lastSeen > 0 || sessions > 0,
     workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
@@ -1680,6 +1721,8 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
       prompt: String(r['prompt'] ?? ''),
       sessionId: r['session_id'] == null ? null : String(r['session_id']),
     })),
+    liveSessions,
+    liveMeasured: candidatesEverReported,
   }
 }
 
