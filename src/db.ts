@@ -3973,6 +3973,24 @@ export function markVerificationNoResponse(id: string, reason: string, atEpochSe
   `).run(reason, atEpochSec, id).changes > 0
 }
 
+/**
+ * Lezar MINDEN meg futo ellenorzest egy jovahagyason, egy lepesben.
+ *
+ * Boss, 2026-09-07: "ha mar kikerult onnan attol a pillanattol ne kezdjen bele
+ * semmibe sem." A sopres 30 masodpercenkent ut; az "attol a pillanattol" ennel
+ * pontosabb, ezert a kartya-mozgatas es a jovahagyas lezarasa maga is hivja.
+ *
+ * `status = 'pending'` a felteteles resz: egy mar bejelentett pass/fail
+ * eredmenyt SOHA nem irunk felul -- az elvegzett munka eredmenye akkor is
+ * ervenyes marad, ha kozben lezarult a jovahagyas.
+ */
+export function cancelPendingVerifications(approvalId: string, reason: string, atEpochSec: number): number {
+  return db.prepare(`
+    UPDATE approval_verifications SET status = 'noresponse', report = ?, resolved_at = ?
+     WHERE approval_id = ? AND status = 'pending'
+  `).run(reason, atEpochSec, approvalId).changes
+}
+
 export function expireTimedOutApprovals(): number {
   const now = Math.floor(Date.now() / 1000)
   return db.prepare(`

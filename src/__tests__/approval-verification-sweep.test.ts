@@ -45,6 +45,7 @@ async function harness(rows: ApprovalVerification[], over: Partial<VerificationS
     // younger than the reminder threshold is never even offered to the sweep.
     listPendingOlderThan: (cutoffSec) => rows.filter(r => r.status === 'pending' && r.requested_at <= cutoffSec),
     agentExists: () => true,
+    isStillNeeded: () => true,
     sendReminder: (r) => { reminders.push(r.agent); return true },
     // Kanban 2a32b51e: a stub that always said yes is exactly what let a dead
     // repeat window ship green. The real store refuses when a nudge already
@@ -110,7 +111,7 @@ describe('stale approval-verification sweep', () => {
   it('elerheto agenst nem zar le agent_gone-nal, hanem nudge-ol', async () => {
     const { noResponses, reminders } = await harness(
       [row({ ageMs: VERIFICATION_REMINDER_MS + 1000, agent: 'lackor2-bot', id: 'a1:lackor2-bot' })],
-      { agentExists: (a) => a === 'lackor2-bot' },
+      { agentExists: (a) => a === 'lackor2-bot', isStillNeeded: () => true },
     )
     expect(noResponses).toEqual([])
     expect(reminders).toEqual(['lackor2-bot'])
@@ -138,7 +139,7 @@ describe('stale approval-verification sweep', () => {
   it('closes rows belonging to an agent that no longer exists, without messaging it', async () => {
     const { noResponses, reminders } = await harness(
       [row({ ageMs: VERIFICATION_REMINDER_MS + 1000 })],
-      { agentExists: () => false },
+      { agentExists: () => false, isStillNeeded: () => true },
     )
     expect(noResponses).toEqual([{ id: 'a1:gemma', reason: NO_RESPONSE_AGENT_GONE }])
     expect(reminders).toEqual([])

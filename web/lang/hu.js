@@ -2147,6 +2147,7 @@ window._i18n.hu = {
   'approvals.verify.summary_noresponse': '🟠 {done}/{total} ágens válaszolt',
   'approvals.verify.noresponse_timeout':    'Nem válaszolt: megkapta a feladatot, de nem jelentett vissza. Ez nem a változtatás hibája.',
   'approvals.verify.noresponse_agent_gone': 'Nem válaszolt: ez az ágens már nem létezik, törölve lett.',
+  'approvals.verify.noresponse_not_waiting': 'Leállítva: a kártya kikerült a várakozóból (vagy megszületett a döntés), ezért ez az ellenőrzés már nem futott tovább. Ez nem az ágens hibája.',
   'approvals.verify.picker_loading':  'Ágensek betöltése...',
   'approvals.verify.picker_title':    'Melyik ágens(ek) ellenőrizzék?',
   'approvals.verify.pick_all_free':   'Összes ingyenes kiválasztása',

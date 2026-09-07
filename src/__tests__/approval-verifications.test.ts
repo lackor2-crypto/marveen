@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initDatabase, createApproval, createKanbanCard, getKanbanComments } from '../db.js'
+import { initDatabase, createApproval, createKanbanCard, getKanbanComments, resolveApproval } from '../db.js'
 
 vi.mock('../config.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../config.js')>()
@@ -174,7 +174,12 @@ describe('approval verifications', () => {
   })
 
   it('posts the verification finding as a comment on a linked kanban card', async () => {
-    createKanbanCard({ id: 'card1', title: 'Some feature' })
+    // A kartya a VARAKOZOBAN all, mert egy kanban_done jovahagyas kartyaja
+    // ott all -- es 2026-09-07 ota csak addig lehet ra ellenorzest kiosztani
+    // (kanban 4f781150, Boss: "csak addig futtathat amig a varakozoban van a
+    // kartya"). A regi fixture 'planned'-ben hagyta, ami sosem volt valos
+    // allapot ehhez a jovahagyas-tipushoz.
+    createKanbanCard({ id: 'card1', title: 'Some feature', status: 'waiting' })
     const approval = createApproval({
       id: 'a8', agent_id: 'lackor2-bot', category: 'kanban_done', action_description: 'Ship it',
       action_payload: JSON.stringify({ kanban_card_id: 'card1' }),
@@ -187,6 +192,35 @@ describe('approval verifications', () => {
     expect(comments[0].author).toBe('gemma')
     expect(comments[0].content).toContain('drag-and-drop is broken')
     expect(comments[0].content).toContain('❌')
+  })
+
+  it('refuses to dispatch when the linked card has left the waiting column', async () => {
+    // Boss, 2026-09-07: "ha mar kikerult onnan attol a pillanattol ne kezdjen
+    // bele semmibe sem." A kapu nem azt nezi, KI hivja a vegpontot.
+    createKanbanCard({ id: 'card9', title: 'Kesz munka', status: 'done' })
+    const approval = createApproval({
+      id: 'a10', agent_id: 'lackor2-bot', category: 'kanban_done', action_description: 'Ship it',
+      action_payload: JSON.stringify({ kanban_card_id: 'card9' }),
+    })
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] })
+    await tryHandleApprovals(ctx)
+
+    expect(out.status).toBe(409)
+    expect(out.body.error).toBe('card_not_waiting')
+    // A felulet EMBERI mondatot mutat, nem a gepi kodot.
+    expect(String(out.body.message).length).toBeGreaterThan(30)
+    expect(listApprovalVerifications(approval.id)).toHaveLength(0)
+  })
+
+  it('refuses to dispatch on an approval that is already resolved', async () => {
+    const approval = createApproval({ id: 'a11', agent_id: 'lackor2-bot', category: 'code_change', action_description: 'Fix W' })
+    resolveApproval(approval.id, 'approved', 'boss', null, 'ok')
+    const { ctx, out } = fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] })
+    await tryHandleApprovals(ctx)
+
+    expect(out.status).toBe(409)
+    expect(out.body.error).toBe('approval_closed')
+    expect(listApprovalVerifications(approval.id)).toHaveLength(0)
   })
 
   it('re-dispatching to the same agent resets a prior fail back to pending', async () => {

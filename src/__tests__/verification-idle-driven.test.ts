@@ -50,6 +50,7 @@ async function harness(rows: ApprovalVerification[], over: Partial<VerificationS
     now: NOW,
     listPendingOlderThan: (cutoffSec) => rows.filter(r => r.status === 'pending' && r.requested_at <= cutoffSec),
     agentExists: () => true,
+    isStillNeeded: () => true,
     sendReminder: (r) => { reminders.push(r.agent); return true },
     markReminded: (id, atSec, notSinceSec) => {
       const t = rows.find(r => r.id === id)
@@ -172,6 +173,7 @@ describe('spam-vedelem: eskalacio es a mar sorban allo uzenet', () => {
     const base: Omit<VerificationSweepDeps, 'now'> = {
       listPendingOlderThan: (c) => rows.filter(x => x.status === 'pending' && x.requested_at <= c),
       agentExists: () => true,
+    isStillNeeded: () => true,
       sendReminder: (x) => { reminders.push(x.agent); return true },
       markReminded: (id, atSec, notSinceSec) => {
         const t = rows.find(x => x.id === id)!
@@ -294,6 +296,7 @@ describe('valodi adatbazissal: a szamlalo es a visszaallitas', () => {
       now: nowMs,
       listPendingOlderThan: listPendingVerificationsOlderThan,
       agentExists: () => true,
+    isStillNeeded: () => true,
       sendReminder: (x) => { sent.push(x.agent); return true },
       markReminded: markVerificationReminded,
       markNoResponse: markVerificationNoResponse,

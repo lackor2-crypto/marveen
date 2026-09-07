@@ -22960,6 +22960,10 @@ function _verifyAgentLabel(agent) {
 function _verifyReportText(v) {
   if (v.status === 'noresponse') {
     if (v.report === 'noresponse:agent_gone') return t('approvals.verify.noresponse_agent_gone')
+    // NEM az agens hallgatott: a munka zarult le alatta (a kartya kikerult a
+    // varakozobol, vagy megszuletett a dontes). Ezt kulon kell mondani,
+    // kulonben a megbizhatosag-jelzo egy nem letezo mulasztast rona fel.
+    if (v.report === 'noresponse:not_waiting') return t('approvals.verify.noresponse_not_waiting')
     return t('approvals.verify.noresponse_timeout')
   }
   return v.report || ''
@@ -23252,7 +23256,9 @@ async function _openVerifyPicker(anchorBtn, approvalId, requesterAgentId) {
         body: JSON.stringify({ agents: chosen, mode: _verifyPickedMode() }),
       })
       const result = await res.json()
-      if (!res.ok) throw new Error(result.error || 'HTTP ' + res.status)
+      // A szerver EMBERI mondata nyer a gepi kod felett (user-is-not-a-programmer):
+      // a `message` az, amit a felhasznalo elolvashat, az `error` csak azonosito.
+      if (!res.ok) throw new Error(result.message || result.error || 'HTTP ' + res.status)
       if (result.failed && result.failed.length) {
         showToast(t('approvals.verify.some_failed', { list: result.failed.map(f => `${f.agent}: ${f.error}`).join('; ') }))
       } else {

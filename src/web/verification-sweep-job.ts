@@ -8,6 +8,8 @@ import { join } from 'node:path'
 import { PROJECT_ROOT, WEB_PORT } from '../config.js'
 import {
   createAgentMessage,
+  getApproval,
+  getKanbanCard,
   getPendingMessages,
   listPendingVerificationsOlderThan,
   markVerificationReminded,
@@ -21,7 +23,7 @@ import {
   type AgentActivity,
   type VerificationSweepResult,
 } from '../approval-verification-sweep.js'
-import { verificationSender } from './routes/approvals.js'
+import { kanbanCardIdFromApproval, verificationSender } from './routes/approvals.js'
 import { isMainChannelsAgent, MAIN_CHANNELS_SESSION } from './main-agent.js'
 import { agentSessionName, capturePane, isSessionReadyForPrompt, sessionExistsOnHost } from './agent-process.js'
 import { codeBridgeProjectOf } from '../approval-verification-dispatch.js'
@@ -128,6 +130,33 @@ async function sweepOnce(now: number): Promise<VerificationSweepResult> {
       return isMainChannelsAgent(agent)
         ? sessionExistsOnHost(null, MAIN_CHANNELS_SESSION)
         : existsSync(agentDir(agent))
+    },
+    // BOSS 2026-09-07: "csak addig futtathat amig a varakozoban van a kartya.
+    // ha mar kikerult onnan attol a pillanattol ne kezdjen bele semmibe sem."
+    //
+    // Ket kerdes, ebben a sorrendben, es MINDKETTOT a sajat forrasatol
+    // kerdezzuk meg -- nem a sor korabol kovetkeztetunk:
+    //   1. fut-e meg a jovahagyas (pending), es
+    //   2. ha kartyahoz kotodik, a kartya a 'waiting' oszlopban all-e.
+    //
+    // Amit NEM zarunk le: amit nem tudtunk megnezni. Ha a lekerdezes dob, vagy
+    // a jovahagyas nem talalhato, `true`-t adunk -- a "nem latok oda" nem
+    // ugyanaz, mint a "nem kell tobbe", es egy olvasasi hiba miatt eldobott
+    // ellenorzes nemaan veszitene el egy valodi feladatot.
+    isStillNeeded: (row) => {
+      try {
+        const approval = getApproval(row.approval_id)
+        if (!approval) return true
+        if (approval.status !== 'pending') return false
+        const cardId = kanbanCardIdFromApproval(approval)
+        if (!cardId) return true
+        const card = getKanbanCard(cardId)
+        if (!card) return true
+        return card.status === 'waiting'
+      } catch (err) {
+        logger.warn({ err, row: row.id }, 'Could not check whether a verification is still needed; keeping it')
+        return true
+      }
     },
     sendReminder: (row) => {
       // A code-bridge row cannot be nudged: there is no inbox to put a message

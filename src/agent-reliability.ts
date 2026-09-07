@@ -6,6 +6,7 @@
 // got ANY answer back (still 'pending' long after it should have replied)
 // counts against the score.
 import type { ApprovalVerification } from './db.js'
+import { NO_RESPONSE_NOT_WAITING } from './approval-verification-sweep.js'
 
 /** A pending verification older than this is presumed dead (provider error,
  *  crash, rate-limit -- something kept the agent from ever calling back),
@@ -36,6 +37,12 @@ export function computeReliabilityScore(rows: ApprovalVerification[], nowMs: num
     // back. Count it directly instead of re-deriving it from the age, so the
     // badge agrees with what the approvals page shows.
     if (row.status === 'noresponse') {
+      // KIVETEL: a sor nem azert zarult le, mert az agens hallgatott, hanem
+      // mert a MUNKA szunt meg alatta (a kartya kikerult a varakozobol, vagy
+      // megszuletett a dontes -- Boss 2026-09-07). Ezt sem mellette, sem
+      // ellene nem szamoljuk: egy visszavont feladat elmulasztasat felrona a
+      // jelzo, holott az agensnek semmi dolga nem volt vele.
+      if (row.report === NO_RESPONSE_NOT_WAITING) continue
       stuckCount++
       continue
     }
