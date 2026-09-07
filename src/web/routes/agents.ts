@@ -971,7 +971,19 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
       const taken = entries.some((e) => e.name === CODE_BRIDGE_ACTIVITY_ID)
       if (act.present && !taken) {
         const first = act.running[0] ?? null
-        const state = act.running.length > 0
+        // A KIOSZTOTT FELADAT ES A SAJAT MUNKA UGYANANNYIRA MUNKA (kanban #235).
+        //
+        // Boss, 2026-09-07: "csak eppen a vscode nal az elo nezet nem zold.
+        // tehat az meg nem mukodik." Mert allapot ugyanekkor: HAROM eloben futo
+        // beszelgetes (`live: true`) es NULLA kiosztott feladat -- a kartya
+        // megis idle-t mutatott, mert a "dolgozik" csak a `code_tasks` sorokat
+        // nezte. A hid attol meg dolgozik, hogy nem a Marveen adta neki a
+        // munkat: pont ez a kulonbseg latszott hibanak.
+        //
+        // Az "elo" definicioja ugyanaz, mint a kod-hid kartyajan
+        // (`live === true`), hogy ne legyen ket kulonbozo "dolgozik" fogalom.
+        const liveFirst = act.liveSessions.find((s) => s.current) ?? act.liveSessions[0] ?? null
+        const state = act.running.length > 0 || act.liveSessions.length > 0
           ? 'working'
           : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')
         entries.push({
@@ -987,15 +999,25 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           mode: null,
           // MIT csinal epp: projekt + a feladat elso sora. Nem forditunk rajta,
           // mert ez a beadott feladat sajat szovege.
-          tail: act.running.map((r) => {
-            const line = (r.prompt.split('\n').find((l) => l.trim().length > 0) ?? '').trim()
-            const short = line.length > 160 ? line.slice(0, 157) + '...' : line
-            return short ? `${r.project} · ${short}` : r.project
-          }),
+          tail: [
+            ...act.running.map((r) => {
+              const line = (r.prompt.split('\n').find((l) => l.trim().length > 0) ?? '').trim()
+              const short = line.length > 160 ? line.slice(0, 157) + '...' : line
+              return short ? `${r.project} · ${short}` : r.project
+            }),
+            // A beszelgetes SAJAT cime, forditas nelkul -- ugyanaz a szoveg,
+            // amit a tulajdonos a VS Code-ban lat a fulon.
+            ...act.liveSessions.map((s) => (s.title ? `${s.project} · ${s.title}` : s.project)),
+          ].slice(0, 8),
           kind: 'code-bridge',
-          // Innen nyilik a BESZELGETES (chat ful), nem egy terminal.
-          codeSessionId: first?.sessionId ?? null,
-          codeLabel: first?.project ?? null,
+          // Innen nyilik a BESZELGETES (chat ful), nem egy terminal. A kiosztott
+          // feladate az elsobbseg (arra kattintva azt latja, amit epp keresne),
+          // de ha az nem hordoz session-azonositot -- gyakori, mert a feladat a
+          // projektre is cimezheto --, akkor az ELO beszelgetes all a helyen.
+          // E nelkul a kartyan nem jelent meg az "Elo nezet", meg akkor sem,
+          // amikor a hid tenylegesen dolgozott: `canOpen = !!codeSessionId`.
+          codeSessionId: first?.sessionId ?? liveFirst?.sessionId ?? null,
+          codeLabel: first?.project ?? liveFirst?.project ?? null,
         })
       }
     }

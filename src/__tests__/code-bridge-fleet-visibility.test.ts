@@ -103,8 +103,11 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     expect(route).toMatch(/if \(act\.present && !taken\)/)
   })
 
-  it('a "dolgozik" a FUTO feladatbol jon, nem a bekapcsolt allapotbol', () => {
-    expect(route).toMatch(/act\.running\.length > 0\s*\n?\s*\? 'working'/)
+  it('a "dolgozik" a VALODI MUNKABOL jon, nem a bekapcsolt allapotbol', () => {
+    // Kanban #235: a feltetel BOVULT (a kiosztott feladat MELLE az eloben futo
+    // beszelgetes is munka), de a lenyege valtozatlan -- a puszta "be van
+    // kapcsolva es online" tovabbra sem "dolgozik".
+    expect(route).toMatch(/act\.running\.length > 0 \|\| act\.liveSessions\.length > 0\s*\n?\s*\? 'working'/)
     expect(route).toContain("(act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')")
   })
 
