@@ -57,6 +57,18 @@ export function skillLibraryParity(): SkillLibraryParity {
   }
   const missing: string[] = []
   for (const name of agents ?? []) {
+    // Only a CONFIGURED agent counts. listAgentNames() returns every directory
+    // under agents/, and a bare directory that holds just a CLAUDE.md is NOT a
+    // set-up agent: it is either an agent mid-scaffold (before ensureAgentSkills
+    // links the library) or -- the case that actually bit us -- a throwaway that
+    // a PARALLEL test created under the shared agents/ base and had not cleaned
+    // up yet. A real agent always has a .claude/settings.json (written at
+    // scaffold time); a bare directory never does. Counting the bare directory
+    // as "missing the shared skill library" was a false positive that made this
+    // check flaky under parallel test load (measured 2026-09-07: the ask-back
+    // and one-card rule tests each seed a bare agents/zz-* dir). The link check
+    // below still flags a real, configured agent whose skills symlink is broken.
+    if (!existsSync(join(agentConfigRoot(name), '.claude', 'settings.json'))) continue
     const link = join(agentConfigRoot(name), '.claude', 'skills')
     try {
       if (realpathSync(link) !== sharedReal) missing.push(name)
