@@ -101,4 +101,32 @@ describe('rate-limit-guard hook (behavioural)', () => {
     writeSnapshot({ fiveHour: { usedPct: null }, sevenDay: { usedPct: null }, updatedAt: Date.now() })
     expect(runHook().trim()).toBe('')
   })
+
+  // Boss, 2026-09-07: right after a 5h reset the snapshot can still hold the old
+  // (high) usedPct with a FRESH updatedAt (so the updatedAt-age guard does not
+  // catch it), but the window's resetsAt has already passed -- that number is
+  // for an ELAPSED window, not the current one. The guard announced 98% while
+  // the real usage had reset to ~28%, and the agent restated it. A past-reset
+  // window must be treated as unknown, not warned on. resetsAt is the authority,
+  // same rule as the TS side (snapshotShowsQuotaExhausted).
+  it('stays silent when the window has already reset (past resetsAt, fresh updatedAt)', () => {
+    writeSnapshot({
+      fiveHour: { usedPct: 98, resetsAt: Date.now() - 60_000 },
+      sevenDay: { usedPct: 10 },
+      updatedAt: Date.now(),
+    })
+    expect(runHook().trim()).toBe('')
+  })
+
+  it('still warns when resetsAt is in the future (window is live, number is current)', () => {
+    writeSnapshot({
+      fiveHour: { usedPct: 97, resetsAt: Date.now() + 60 * 60_000 },
+      sevenDay: { usedPct: 20 },
+      updatedAt: Date.now(),
+    })
+    const out = runHook()
+    expect(out).toContain('KERET-FIGYELMEZTETES')
+    expect(out).toContain('97%')
+    expect(out.toLowerCase()).toContain('ne vegezz kodolast')
+  })
 })
