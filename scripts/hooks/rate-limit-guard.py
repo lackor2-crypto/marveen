@@ -90,15 +90,33 @@ def main():
     except (OSError, ValueError):
         return
 
+    now_ms = time.time() * 1000
+
     updated_at = snap.get('updatedAt')
     if not isinstance(updated_at, (int, float)):
         return
-    if time.time() * 1000 - updated_at >= STALE_AFTER_MS:
+    if now_ms - updated_at >= STALE_AFTER_MS:
         return  # stale -- agent has been idle/off since last statusline tick, don't trust the number
 
     def pct_of(window):
         w = snap.get(window)
         if not isinstance(w, dict):
+            return None
+        # resetsAt is the authority, not updatedAt freshness -- same rule as the
+        # TS side (src/rate-limit-status.ts, snapshotShowsQuotaExhausted). Within
+        # a window usedPct only grows until the reset, so it stays true only as
+        # long as resetsAt is in the FUTURE. Once resetsAt has passed the window
+        # has rolled over and usedPct belongs to that ELAPSED window, not the
+        # current one -- and right after a reset the snapshot can still hold the
+        # old (high) usedPct with a fresh updatedAt, so the updatedAt-age guard
+        # above does NOT catch it. Treat a past-reset window as unknown rather
+        # than warn on a stale number (Boss, 2026-09-07: the guard announced 98%
+        # moments after the 5h window had reset to ~28%, and the agent restated
+        # it). A missing/unknown resetsAt is left as-is: the updatedAt guard is
+        # the only staleness signal we have then, and a fresh high reading still
+        # warrants the warning.
+        resets_at = w.get('resetsAt')
+        if isinstance(resets_at, (int, float)) and resets_at <= now_ms:
             return None
         p = w.get('usedPct')
         return p if isinstance(p, (int, float)) else None
