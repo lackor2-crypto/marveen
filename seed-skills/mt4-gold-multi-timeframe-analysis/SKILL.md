@@ -159,13 +159,20 @@ változik, tehát a koordináta nem bizonyíték.
 akkor elfogadni a screenshotot, ha `[GOLD,<idősík>]` áll benne. A GOLD általában
 a **legelső** fül (`x` kb. 41), de ezt is a címmel igazold, ne a koordinátával.
 
-### ⛔ KÉT GOLD CHART VAN -- 2026-09-07 ÓTA AZ EA AZ INDIKÁTOROSON ÜL
+### ⛔ A GOLD CHART -- 2026-09-07 ÓTA EGY VAN, RAJTA AZ EA IS
 
-A fülsáv **első** eleme a `GOLD,H1` chart: ezen nincs indikátor. Az indikátoros
-chart a `GOLD,Daily` fül (SuperTrend, Sto(5,3,3), RSI(14), MACD(12,26,9),
-ATR(14), Bollinger, MA20/MA100) -- **2026-09-07 óta a `GOLD_Live_Export` EA is
-ezen ül**, a tulajdonos kifejezett kérésére: "hat ha neked az ugy jobb az
-elemzeshez tedd fel persze ra. rajta is hagyhatod ha akarod."
+Sokáig **két** GOLD chart volt: egy `GOLD,H1` indikátorok nélkül, és egy
+indikátoros (SuperTrend, Sto(5,3,3), RSI(14), MACD(12,26,9), ATR(14),
+Bollinger, MA20/MA100). 2026-09-07 estéjére **egy** maradt: az indikátoros,
+és **ezen ül a `GOLD_Live_Export` EA is**, a tulajdonos kifejezett kérésére:
+"hat ha neked az ugy jobb az elemzeshez tedd fel persze ra. rajta is hagyhatod
+ha akarod."
+
+**Az idősíkja NEM állandó** -- a tulajdonos váltogatja (2026-09-07 21:14-kor
+`Daily` -> `M15`, naplóban `uninit reason 3`). Ezért a chartot **soha ne az
+idősíkjáról azonosítsd**, hanem abból, hogy `GOLD` és rajta vannak az
+indikátorok. Hogy induláskor melyik chartra kerül fel az EA, azt a mentett
+profil dönti el -- lásd lentebb: "MELYIK CHARTRA JÖN FEL AZ EA".
 
 Miért így jobb: egy chart ad friss exportot ÉS leolvasható indikátort, tehát
 idősík-váltás után az **M1 sztochasztik is leolvasható a képernyőről** -- az
@@ -212,6 +219,44 @@ lépést screenshottal kell igazolni** -- vakon egyet sem.
    `20:25:36.064 Expert Sajat\GOLD_Live_Export GOLD,Daily: loaded successfully`,
    közvetlenül az öt indikátor betöltése után. Enélkül a "felraktam" állítás
    nem bizonyított.
+
+### ⛔ MELYIK CHARTRA JÖN FEL AZ EA -- A `.chr` DÖNTI EL, NEM A NAPLÓ
+
+A napló azt mondja meg, mi **történt**; a mentett profil azt, mi **fog**. Az MT4
+minden nyitott chartot egy `profiles/<profil>/chartNN.chr` fájlba ment
+bezáráskor (a profil nevét a `profiles/lastprofile.ini` mondja meg), és
+induláskor ezekből állítja vissza -- az EA abban a fájlban van, amelyik chartra
+fel volt téve.
+
+Az egyetlen megbízható ellenőrzés (WSL-ből, csak olvasás, semmit nem módosít):
+
+```bash
+T=$(cat store/mt4-terminal-dir.txt)
+cd "$T/profiles/default" && for f in chart*.chr; do
+  printf '%-14s %-8s per=%-4s EA=%s\n' "$f" \
+    "$(grep -a -m1 '^symbol=' "$f" | tr -d '\r' | cut -d= -f2)" \
+    "$(grep -a -m1 '^period=' "$f" | tr -d '\r' | cut -d= -f2)" \
+    "$(grep -ac 'GOLD_Live_Export' "$f")"
+done
+grep -al 'GOLD_Live_Export' chart*.chr   # ennyi peldany fog elindulni
+```
+
+Ha ez **egynél több** fájlt sorol fel, a következő indításnál **több EA
+példány** fogja ugyanazt a `gold_live.txt`-t írni.
+
+**Mért hiba, 2026-09-07.** Levettem az EA-t a `GOLD,H1`-ről (`20:23:16 uninit
+reason 1`), felraktam az indikátorosra, bezártam, újraindítottam -- és az EA
+**mindkét** charton feljött: `20:25:35.774 GOLD,H1` ÉS `20:25:36.064
+GOLD,Daily: loaded successfully`. A levétel megtörtént, de a bezáráskor mentett
+profil még tartalmazta a H1 chartot az EA-val, tehát egy ideig két példány
+írta a `gold_live.txt`-t. Azért nem vettem észre, mert a naplóban **csak az új
+chart betöltési sorát kerestem**: egy `grep`, ami csak azt igazolja, amit
+látni akarsz, semmit nem igazol.
+
+**A helyes bizonyítás tehát kettő, együtt:** (1) az új chart betöltési sora a
+naplóban, ÉS (2) a `grep -al 'GOLD_Live_Export' chart*.chr` **pontosan egy**
+fájlt ad vissza. A profil a bezárás pillanatának állapotát menti, ezért a
+`.chr`-t mindig a bezárás UTÁN nézd meg, soha nem előtte.
 
 ### ⛔ AZ M1 NINCS AZ EA EXPORTJÁBAN -- ÉS A .hst CSAK TISZTA BEZÁRÁSKOR FRISSÜL
 
