@@ -14,7 +14,7 @@ import {
 import {
   resetCodeBridgeTablesForTests,
   normalizeAlias, aliasFromWorkspacePath,
-  upsertCodeSession, listCodeSessions, getCodeSession, deleteCodeSession, resolveProject,
+  upsertCodeSession, listCodeSessions, getCodeSession, deleteCodeSession, resolveProject, pickFallbackSession,
   enqueueCodeTask, claimNextCodeTask, completeCodeTask, heartbeatCodeTask,
   getCodeTask, getCodeTaskByPrefix, listCodeTasks, latestCodeTaskForProject, cancelCodeTask,
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
@@ -139,11 +139,57 @@ describe('dispatch routing', () => {
     expect(claimNextCodeTask('w')).toBeNull()
   })
 
-  it('refuses an unknown project instead of guessing one', () => {
-    seedThree()
-    const out = enqueueCodeTask({ project: 'nosuchthing', prompt: 'do it' })
-    expect('error' in out).toBe(true)
-    if ('error' in out) expect(out.candidates).toContain('marvin')
+  // Kanban #236: a kod-hid NE utasitsa el a feladatot pusztan azert, mert nincs a
+  // cel-repora kituzott VS Code ablak. Ha van elerheto session, arra esik vissza,
+  // es a claim-idoben hozzafuzott elohang routolja a munkat -- de a KETERTELMU
+  // nevet tovabbra sem talalja ki (az valodi hiba), es ha SEMMI sincs regisztralva,
+  // azt megmondja (a nulla ott "nem latok oda", nem "van hova kuldeni").
+  describe('unpinned dispatch (#236)', () => {
+    it('routes to an available session instead of refusing when nothing is pinned to the target', () => {
+      seedThree()
+      const out = enqueueCodeTask({ project: 'nosuchthing', prompt: 'do it' })
+      expect('error' in out).toBe(false)
+      if (!('error' in out)) {
+        expect(out.task.status).toBe('queued')
+        // A tarolt projekt VALODI, claimelheto sessionre mutat (a claim
+        // getCodeSession(task.project)-et var), kulonben a feladat sosem indulna el.
+        expect(getCodeSession(out.task.project)).not.toBeNull()
+        expect(out.warning?.key).toBe('cb.warn.project_not_pinned')
+        expect(out.warning?.params['project']).toBe('nosuchthing')
+      }
+    })
+
+    it('the fallback task is actually claimable end-to-end (nem csak nem-hiba)', () => {
+      seedThree()
+      const out = enqueueCodeTask({ project: 'nosuchthing', prompt: 'do it' })
+      expect('error' in out).toBe(false)
+      const claimed = claimNextCodeTask('worker-1')
+      expect(claimed).not.toBeNull()
+      expect(claimed!.status).toBe('running')
+      expect(claimed!.workspacePath).toBeTruthy()
+    })
+
+    it('still refuses when NOTHING is registered -- that is a real error, not a routing choice', () => {
+      const out = enqueueCodeTask({ project: 'marvin', prompt: 'do it' })
+      expect('error' in out).toBe(true)
+      if ('error' in out) expect(out.errorKey).toBe('cb.err.no_sessions_registered')
+    })
+
+    it('still refuses an AMBIGUOUS name instead of guessing (#236 does not weaken this)', () => {
+      seedThree()
+      upsertCodeSession({ project: 'tradingdesk', workspacePath: 'C:\\ws\\desk', sessionId: 'dddddddd-0000-4000-8000-000000000004' })
+      const out = enqueueCodeTask({ project: 'trading', prompt: 'do it' })
+      expect('error' in out).toBe(true)
+      if ('error' in out) expect(out.errorKey).toBe('cb.err.ambiguous_project')
+    })
+
+    it('pickFallbackSession returns a real session when any exist, null when none', () => {
+      expect(pickFallbackSession()).toBeNull()
+      seedThree()
+      const s = pickFallbackSession()
+      expect(s).not.toBeNull()
+      expect(getCodeSession(s!.project)).not.toBeNull()
+    })
   })
 
   it('refuses an empty or oversized prompt', () => {

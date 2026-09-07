@@ -4049,6 +4049,7 @@ window._i18n.hu = {
   'cb.warn.card_forced': 'Elküldtem, pedig a(z) {card} kártyán már fut a(z) {task} feladat -- te kérted, hogy mégis menjen.',
   'cb.warn.card_landed': 'Figyelem: a(z) {card} kártyára már landolt munka a fő ágon ({commit} -- {subject}). Ha ez folytatás vagy javítás, minden rendben; ha nem tudtál róla, nézd meg, mielőtt kétszer csináljátok meg.',
   'cb.warn.card_uncheckable': 'Nem tudtam megnézni, dolgozik-e már valaki ezen a kártyán: {detail}. Elküldtem, de ezt nem ellenőriztem.',
+  'cb.warn.project_not_pinned': 'Nincs a(z) "{project}" projektre kitűzött VS Code ablak, ezért a(z) "{session}" beszélgetésnek adtam ki. Nem akadály: az utasítás elejére fűzött előhang megmondja neki, hol a munka, és bármelyik session dolgozhat a megadott úton.',
   'cb.err.bridge_disabled':      'A kód-híd ki van kapcsolva.',
   'cb.err.invalid_json':         'Hibás kérés (érvénytelen adat).',
   'cb.err.no_known_settings':    'Nincs menthető beállítás a kérésben.',

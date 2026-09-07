@@ -333,6 +333,30 @@ export function resolveProject(raw: string): { session: CodeSession } | CodeBrid
   return { error: `unknown project "${alias}"`, errorKey: 'cb.err.unknown_project', errorParams: { project: alias }, candidates: all.map((s) => s.project) }
 }
 
+/**
+ * A fallback session a kod-hid diszpecserenek, amikor a kert nev NEM old fel egy
+ * kituzott sessionre (kanban #236).
+ *
+ * WHY (Boss, 2026-09-07): "mindegy hogy hol van fejlesztesben, mt4 alatt vagy a
+ * kukaban a file, akkor is dolgozz rajta!" -- egy Claude Code session a sajat
+ * kituzott mappajatol FUGGETLENUL barmelyik elerheto uton tud dolgozni. Az, hogy
+ * egyetlen ablak sincs eppen a cel-repora kituzve, NEM ok az elutasitasra: a
+ * claim-idoben hozzafuzott elohang (code-task-preamble) megmondja a sessionnek,
+ * hol a munka. Ez a fuggveny valaszt egy elo sessiont, amelyre visszaeshetunk.
+ *
+ * A valasztas a LEGUTOBB AKTIV, nem kizart sessionre esik (transcript-mtime, majd
+ * updatedAt szerint), determinisztikus dontetlen-feloldassal (projekt-nev), hogy
+ * a viselkedes teszttel rogzitheto legyen. Ha nincs egy elerheto session sem,
+ * `null` -- a hivo ilyenkor a valodi "nincs regisztralt session" hibat adja
+ * (nem talalgat: a nulla itt "nem latok oda", nem "van hova kuldeni").
+ */
+export function pickFallbackSession(): CodeSession | null {
+  const usable = listCodeSessions().filter((s) => !isExcludedProject(s.project))
+  if (usable.length === 0) return null
+  const recency = (s: CodeSession): number => s.transcriptMtime ?? s.updatedAt ?? 0
+  return usable.sort((a, b) => (recency(b) - recency(a)) || a.project.localeCompare(b.project))[0]!
+}
+
 export interface UpsertSessionInput {
   project: string
   workspacePath: string
@@ -594,7 +618,23 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
   if (!prompt) return { error: 'empty prompt', errorKey: 'cb.err.empty_prompt' }
   if (prompt.length > PROMPT_MAX_CHARS) return { error: `prompt too long (${prompt.length} > ${PROMPT_MAX_CHARS})`, errorKey: 'cb.err.prompt_too_long', errorParams: { len: prompt.length, max: PROMPT_MAX_CHARS } }
 
-  const resolved = resolveProject(input.project)
+  let resolved = resolveProject(input.project)
+  // Kanban #236: NE utasitsd el a feladatot pusztan azert, mert egyetlen VS Code
+  // ablak sincs a cel-repora kituzve. Ha a nev nem old fel kituzott sessionre
+  // (`unknown_project`), de VAN elerheto session, arra esunk vissza -- a claim-
+  // idoben hozzafuzott elohang (code-task-preamble) mondja meg a sessionnek, HOL a
+  // munka. A tobbi hiba (ambiguous, empty, no-sessions) valodi, azt tovabbadjuk.
+  let pinFallback: EnqueueWarning | undefined
+  if ('error' in resolved && resolved.errorKey === 'cb.err.unknown_project') {
+    const fallback = pickFallbackSession()
+    if (fallback) {
+      pinFallback = cardWorkNotice('cb.warn.project_not_pinned', {
+        project: normalizeAlias(input.project),
+        session: fallback.project,
+      })
+      resolved = { session: fallback }
+    }
+  }
   if ('error' in resolved) return resolved
   if (isExcludedProject(resolved.session.project)) {
     return { error: `project "${resolved.session.project}" is excluded from the code bridge (CODE_BRIDGE_EXCLUDE)`, errorKey: 'cb.err.project_excluded', errorParams: { project: resolved.session.project } }
@@ -662,7 +702,10 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
   // csak szol, mert a folytatas jogos; amit nem sikerult megmerni, azt sem
   // hallgatjuk el.
   const verdict = checkCardWork(prompt)
-  let warning: EnqueueWarning | undefined
+  // A "nincs kituzott session" figyelmeztetes az alapertelmezes: ha a kartya-orseg
+  // nem ir felul egy sajat (fontosabb) uzenettel, ez marad -- a kiadas megtortent,
+  // csak jelezzuk, hova kerult valojaban.
+  let warning: EnqueueWarning | undefined = pinFallback
   if (verdict.kind === 'active') {
     // Ket forrasbol johet: egy masik kod-hid task, VAGY egy agens bejelentett
     // munkaja (uzenetben kiadott feladat). A 2026-09-06-i duplikacio epp a
