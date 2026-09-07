@@ -159,20 +159,59 @@ változik, tehát a koordináta nem bizonyíték.
 akkor elfogadni a screenshotot, ha `[GOLD,<idősík>]` áll benne. A GOLD általában
 a **legelső** fül (`x` kb. 41), de ezt is a címmel igazold, ne a koordinátával.
 
-### ⛔ KÉT GOLD CHART VAN: AZ EGYIKEN AZ EA ÜL, A MÁSIKON AZ INDIKÁTOROK
+### ⛔ KÉT GOLD CHART VAN -- 2026-09-07 ÓTA AZ EA AZ INDIKÁTOROSON ÜL
 
-Az egyik `GOLD,H1` fülön a `GOLD_Live_Export` EA fut, és azon **nincs egyetlen
-indikátor sem**. A másik `GOLD,H1` fülön ott a teljes készlet (MA20/MA100,
-Bollinger, Sto(5,3,3), RSI(14), MACD(12,26,9), ATR(14)). Ha az EA-s chartról
-csinálsz screenshotot, **nem lesz mit leolvasnod** -- és ez nem hiba, hanem a
-rossz fül.
+A fülsáv **első** eleme a `GOLD,H1` chart: ezen nincs indikátor. Az indikátoros
+chart a `GOLD,Daily` fül (SuperTrend, Sto(5,3,3), RSI(14), MACD(12,26,9),
+ATR(14), Bollinger, MA20/MA100) -- **2026-09-07 óta a `GOLD_Live_Export` EA is
+ezen ül**, a tulajdonos kifejezett kérésére: "hat ha neked az ugy jobb az
+elemzeshez tedd fel persze ra. rajta is hagyhatod ha akarod."
+
+Miért így jobb: egy chart ad friss exportot ÉS leolvasható indikátort, tehát
+idősík-váltás után az **M1 sztochasztik is leolvasható a képernyőről** -- az
+egyetlen járható út, mert az M1 nincs az EA exportjában (lásd lentebb).
 
 **Ettől függetlenül nem kell OCR-ezni:** a `gold-data.py` maga számolja az
-indikátorokat az EA exportjából, és az értékei egyeznek az MT4-ével. 2026-09-07-i
-kereszt-ellenőrzés H1-en: `gold-data.py` Sto 78,59/60,12, RSI 48,57, MACD
--8,478/-11,713 -- az MT4 chartján Sto 80,53/59,58, RSI 49,16, MACD -8,366/-11,700
-(az eltérés a néhány perces snapshot-korkülönbség). **A számok forrása a
-`gold-data.py`; a screenshot arra való, hogy lásd a chart szerkezetét.**
+indikátorokat az EA exportjából, és az értékei egyeznek az MT4-ével.
+2026-09-07-i kereszt-ellenőrzés H1-en: `gold-data.py` Sto 78,59/60,12, RSI
+48,57, MACD -8,478/-11,713 -- az MT4 chartján Sto 80,53/59,58, RSI 49,16, MACD
+-8,366/-11,700 (az eltérés a néhány perces snapshot-korkülönbség). A számok
+forrása a `gold-data.py`; a screenshot arra való, hogy lásd a chart szerkezetét
+és azt, amit a `gold-data.py` nem tud (M1).
+
+### Az EA áthelyezése egyik chartról a másikra (mért, működő eljárás)
+
+Ha az EA rossz charton ül, ez a sorrend működik (2026-09-07, végigmérve).
+Minden koordináta 1920x1200-as, maximalizált ablakra érvényes, és **minden
+lépést screenshottal kell igazolni** -- vakon egyet sem.
+
+0. A vezérlő szkriptet **rejtett ablakkal** indítsd
+   (`powershell.exe -NoProfile -WindowStyle Hidden -File ...` egy `/IT`
+   scheduled taskban). Enélkül a PowerShell konzolablak a képernyő közepére
+   ugrik, elveszi a fókuszt, és **a kattintásaid a konzolra mennek** -- a
+   státuszfájl közben végig sikert ír.
+1. **ELŐSZÖR vedd le a régi chartról, csak UTÁNA tedd fel az újra.** Fordított
+   sorrendnél egy pillanatra két példány írja ugyanazt a `gold_live.txt`-t.
+2. Levétel: chart-fül kattintás -> jobb klikk a chart közepén (`900,400`) ->
+   egérrel rá az `Expert Advisors` sorra (`975,514`) -> `Remove` (`1147,537`).
+   Igazolás: a chart bal felső sarkából eltűnik az EA státusz-szövege, a jobb
+   felsőből a mosolygó fej.
+3. Felrakás: a CÉL chart-fülre kattintás -> `Ctrl+N` (Navigátor; kapcsoló, ne
+   nyomd meg kétszer) -> a `Sajat` mappa kinyitása (`38,295`) ->
+   `GOLD_Live_Export` dupla kattintás (`142,313`) -> a megnyíló ablakban `OK`
+   (`941,858`).
+4. Igazolás **a chart fejlécéből**, nem a naplóból: ott áll, hogy
+   `HU: mukodik | kiiras 30 mp-enkent | sikeres: N | utolso: <ido>`, és a
+   számláló nő. A lemezes napló és a `gold_live.txt` mtime-ja WSL-ből nézve
+   **percekkel késhet** -- a fejléc az élő forrás.
+5. **Rögzítés (enélkül a következő indításnál elveszik):** `WM_CLOSE`
+   (`PostMessage 0x0010`) az ablak-handle-re. A napló `uninit reason 9`-et ír
+   (= terminál bezárás), és az MT4 ilyenkor menti a profilt.
+6. **Bizonyítás:** indítsd újra (`MarvinMT4Launch`), és a naplóban az ÚJ
+   betöltési sornak az ÚJ chartot kell mondania. 2026-09-07:
+   `20:25:36.064 Expert Sajat\GOLD_Live_Export GOLD,Daily: loaded successfully`,
+   közvetlenül az öt indikátor betöltése után. Enélkül a "felraktam" állítás
+   nem bizonyított.
 
 ### ⛔ AZ M1 NINCS AZ EA EXPORTJÁBAN -- ÉS A .hst CSAK TISZTA BEZÁRÁSKOR FRISSÜL
 
