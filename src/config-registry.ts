@@ -59,6 +59,30 @@ const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/
 
 export const SETTINGS_REGISTRY: SettingDefinition[] = [
   {
+    key: 'MAIN_INBOX_RECEIPT',
+    type: 'boolean',
+    default: '1',
+    description:
+      'Ha egy hosszabb feladat közben írsz, a Marveen néhány másodpercen belül visszajelez, hogy megkapta az üzenetet ("Megkaptam, sorban áll"). Amikor tényleg nekiáll, ez a visszajelzés eltűnik. Kikapcsolva nincs ilyen jelzés -- az érdemi válasz ettől függetlenül megjön.',
+    module: 'system',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
+    key: 'MAIN_INBOX_RECEIPT_GRACE_SEC',
+    type: 'int',
+    default: 15,
+    min: 3,
+    max: 300,
+    description:
+      'Ennyi másodpercig vár a rendszer, mielőtt visszajelez az üzenet megérkezéséről. Ha a Marveen ennél hamarabb elkezdi olvasni, nem küld külön jelzést.',
+    module: 'system',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
     key: 'LIFE_TRASH_DAYS',
     type: 'int',
     default: 60,
