@@ -3857,6 +3857,8 @@ window._i18n.en = {
   'cb.health.unknown_host': 'unknown machine',
   'cb.card.busy': '{n} running · {q} queued',
   'cb.card.busy_help': 'The external programmer is working right now: a task is running in VS Code. Measured live, every 3 seconds.',
+  'cb.card.broken': 'The code bridge is connected, but this card could not be drawn. The other agents are unaffected. The error text is below -- hand it to whoever fixes it.',
+  'cb.card.broken_badge': 'broken card',
   'cb.card.queued': '{n} queued',
   'cb.card.stop_pending': 'stopped — waiting for restart',
   'cb.card.stop_pending_help': 'You already flipped the switch, but the code bridge reads it at dashboard startup: the change takes effect after the dashboard restarts.',

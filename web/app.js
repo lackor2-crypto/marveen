@@ -5186,7 +5186,13 @@ function renderAgents() {
   try {
     renderCodeBridgeAgentCards(agentsGrid, addBtn)
   } catch (err) {
-    console.error('renderCodeBridgeAgentCards failed; skipping code-bridge card, fleet list stays intact', err)
+    // A NEMA ELEJTES ONMAGABAN HIBA (kanban #235, Boss 2026-09-07). A #47-ben
+    // ez a catch csak a naploba irt, es a VS Code kartya SZO NELKUL eltunt a
+    // laprol -- kivulrol pontosan ugy nezett ki, mint amikor nincs is kod-hid.
+    // A ket allapotot nem szabad osszekeverni: ha VAN kod-hid, de nem tudtuk
+    // kirajzolni, azt ki kell mondani, a hiba szovegevel egyutt.
+    console.error('renderCodeBridgeAgentCards failed; showing a broken-card placeholder, fleet list stays intact', err)
+    renderCodeBridgeBrokenCard(agentsGrid, addBtn, err)
   }
 
   // Paid/unrestricted agents first, then a divider, then free-tier OpenRouter
@@ -6030,6 +6036,31 @@ function cbEntryFromProject(r, ctx) {
   }
 }
 
+/** A kod-hid kartyaja nem allt elo -- MONDJUK KI, ne tunjon el nyomtalanul.
+ *  Kanban #235: a nema elejtes miatt a lap ugy nezett ki, mintha nem is lenne
+ *  kod-hid. Ez a helyettesito kartya a KULONBSEGET mondja meg (van hid, de a
+ *  kartyat nem tudtuk kirajzolni), es odaadja a hibauzenetet is, hogy ne
+ *  kelljen a bongeszo-konzolt nyitni hozza. */
+function renderCodeBridgeBrokenCard(agentsGrid, addBtn, err) {
+  try {
+    if (!agentsGrid || !addBtn) return
+    if (codeBridgeCards.state === 'loading' || codeBridgeCards.state === 'absent') return
+    const card = document.createElement('div')
+    card.className = 'agent-card code-bridge-agent-card cb-card-broken'
+    const detail = (err && (err.message || String(err))) || ''
+    card.innerHTML =
+      '<div class="agent-card-top">'
+        + '<div class="agent-avatar avatar-mono" style="background:#b45309">!</div>'
+        + '<div class="agent-card-info">'
+          + '<div class="agent-name">VS Code <span class="federated-badge">' + escapeHtml(t('cb.card.broken_badge')) + '</span></div>'
+          + '<div class="agent-desc">' + escapeHtml(t('cb.card.broken')) + '</div>'
+        + '</div>'
+      + '</div>'
+      + '<div class="agent-card-footer"><span class="cb-card-broken-detail">' + escapeHtml(detail) + '</span></div>'
+    agentsGrid.insertBefore(card, addBtn)
+  } catch { /* a helyettesito kartya sem allhat a flotta-lista utjaba */ }
+}
+
 function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
   // Amig az elso lekeres be nem futott, nem rakunk ki felrevezeto kartyat.
   if (codeBridgeCards.state === 'loading' || codeBridgeCards.state === 'absent') return
@@ -6093,12 +6124,16 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
              reszletes ablak MODELL csempeje alatt (web/index.html,
              #cbTileModelNote) -- a kartyan mar eleg informacio all, ott az
              allapot ("fut"/"leallitva" + "online"/"offline") a fontos. -->
-        <!-- "MOST DOLGOZIK" (kanban #213). A `.process-dot.running` a SZOLGALTATAS
+        <!-- "MOST DOLGOZIK" (kanban #213). A .process-dot.running a SZOLGALTATAS
              allapota ("be van kapcsolva"), nem a munkae -- a kartya ettol akkor is
              zolden vilagitott, amikor a kulso programozo semmit nem csinalt. Ez a
              jelzo a tobbi kartya zold Terminal-gombjanak a parja: ugyanaz a hazbeli
-             `.activity-badge.act-working` osztaly, ugyanaz a lelegzo pulzus, es a
-             HAROM masodperces meresbol frissul (refreshAgentTerminalBusy). -->
+             .activity-badge.act-working osztaly, ugyanaz a lelegzo pulzus, es a
+             HAROM masodperces meresbol frissul (refreshAgentTerminalBusy).
+             FIGYELEM (kanban #235, 2026-09-07): ez a komment egy TEMPLATE LITERAL
+             belsejeben all, ezert IDEZOJEL-BACKTICK NEM KERULHET bele -- a backtick
+             kilep a sablonbol, es a szoveg kozepe kifejezeskent ertekelodik ki
+             (ReferenceError: dot is not defined). -->
         <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${codeBridgeCards.running > 0 ? '' : ' hidden'}>${escapeHtml(t('activity.state.working'))}</button>
         <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
