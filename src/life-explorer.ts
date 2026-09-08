@@ -712,6 +712,36 @@ export function mkdirLife(parentRel: string, name: string, lang = APP_LANG): Mov
 }
 
 /**
+ * Egy TOBB szintes celutvonal letrehozasa egyben (kartya #246) -- a
+ * `mkdirLife` csak EGY szintet tud, itt viszont a hianyzo koztes szintek
+ * (pl. `Németország`, mielott a `Jobcenter` alá kerulne) egyaltalan nem
+ * leteznek meg. Minden szintet kulon `mkdirLife`-fal hozunk letre, hogy a
+ * nevesitesi es biztonsagi ellenorzes (utvonal-kilepes, git-repo ala nem
+ * irunk, nev-tanacs) valtozatlanul mindegyik szinten lefusson. Ha egy koztes
+ * szint mar letezik, azt csendben kihagyjuk -- nem hiba.
+ */
+export function mkdirLifePath(rel: string, lang = APP_LANG): MoveResult {
+  const parts = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean)
+  if (!parts.length) {
+    return { ok: false, rel: '', code: 'bad_name', message: T(lang, 'Adj meg egy célmappát.', 'Give a target folder.') }
+  }
+  let acc = ''
+  for (const part of parts) {
+    const parentRel = acc
+    acc = acc ? `${acc}/${part}` : part
+    const abs = resolveLifePath(acc)
+    if (!abs) {
+      return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül.', 'This place is not inside the Marveen folder.') }
+    }
+    if (existsSync(abs)) continue
+    const step = mkdirLife(parentRel, part, lang)
+    if (!step.ok) return step
+  }
+  const finalAbs = resolveLifePath(acc) as string
+  return { ok: true, rel: toLifeRel(finalAbs), message: T(lang, `Kész: ${humanLocation(acc)}`, `Done: ${humanLocation(acc)}`) }
+}
+
+/**
  * ATNEVEZES.
  *
  * Kulon fuggveny, nem az athelyezes egy esete: az athelyezes MASIK mappaba

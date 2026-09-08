@@ -278,3 +278,50 @@ describe('POST /api/life/inbox/enroll-face', () => {
     expect(out.body.message).toContain('arc')
   })
 })
+
+// CELMAPPA LETREHOZASA A HELYSZINEN (kartya #246): a "hova kerulne" javaslat
+// gyakran meg nem letezo mappara mutat -- ez a vegpont a VALODI utvonalkezelon
+// keresztul hozza letre, EGY kattintasra, a Beerkezobol kilepes nelkul.
+describe('POST /api/life/inbox/create-target-folder', () => {
+  const PERSON = 'Teszt Elek'
+
+  beforeEach(() => {
+    rmSync(join(store, 'life-tree.json'), { force: true })
+    rmSync(join(depot, PERSON), { recursive: true, force: true })
+  })
+
+  it('ures rel-re emberi hibat ad, nem nyul a lemezhez', async () => {
+    const { ctx, out } = ctxFor('/api/life/inbox/create-target-folder', 'POST', { rel: '' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.ok).toBe(false)
+    expect(typeof out.body.message).toBe('string')
+    expect(out.body.message.length).toBeGreaterThan(5)
+  })
+
+  it('letrehozza a tobbszintes, meg nem letezo celutvonalat egy hivasban', async () => {
+    const rel = `${PERSON}/Hatóságok/Németország/Jobcenter`
+    const { ctx, out } = ctxFor('/api/life/inbox/create-target-folder', 'POST', { rel })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.ok).toBe(true)
+    expect(existsSync(join(depot, PERSON, 'Hatóságok', 'Németország', 'Jobcenter'))).toBe(true)
+  })
+
+  it('mar letezo celutvonalra is ok, nem hibazik (idempotens)', async () => {
+    const rel = `${PERSON}/Hatóságok`
+    mkdirSync(join(depot, PERSON, 'Hatóságok'), { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/inbox/create-target-folder', 'POST', { rel })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.ok).toBe(true)
+  })
+
+  it('a fabol kivezeto utvonalat elutasitja, nem hoz letre semmit', async () => {
+    const { ctx, out } = ctxFor('/api/life/inbox/create-target-folder', 'POST', { rel: '../../kiszoktem' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.ok).toBe(false)
+    expect(existsSync(join(depot, '..', 'kiszoktem'))).toBe(false)
+  })
+})

@@ -2962,6 +2962,9 @@ window._i18n.en = {
   'inbox.confirm_all':			'Place all {n} selected item(s) into their given target folders?',
   'inbox.place_all_done':			'{ok} / {n} item(s) placed.',
   'inbox.place_all_failures':			'These failed:',
+  'inbox.create_folder':			'Create this folder',
+  'inbox.confirm_create_folder':			'Create this folder: {path}?',
+  'inbox.create_folder_failed':			'Could not create the folder:',
 
   // Protection against external deletion (spec point 6)
   'dguard.title':			'Protection against external deletion',
