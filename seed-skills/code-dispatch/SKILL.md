@@ -211,6 +211,30 @@ Egy sor a tulajdonosnak (magyarul, a fül CÍMÉVEL, rövid azonosítóval), és
 - Amíg egy feladat fut, a tulajdonos ne gépeljen abba a VS Code panelbe --
   és a Claude mobilalkalmazásból se írjon ugyanabba a beszélgetésbe.
 
+## Buktatók
+
+- **A `status=error` NEM mindig kódhiba.** Egy híd-feladat `error` állapotban
+  végződhet úgy, hogy a `result` mező ezt írja: `You've hit your session limit ·
+  resets Xam`. Ez a VÉGREHAJTÓ (a VS Code Claude Code) saját keret-kimerülése,
+  nem a te kódod és nem a feladat hibája. **SOSE találgasd a hiba okát** -- olvasd
+  el a teljes feladat-rekordot (`result`, `error`, `summary`), és a szó szerinti
+  szöveg dönti el, mi történt.
+- **Ilyenkor a részleges munka a worktree-ben MEGVAN.** A végrehajtó izolált git
+  worktree-ben dolgozik (`.worktrees/code-<projekt>-<kartya>`, branch
+  `work/code-<projekt>-<kartya>`); a limit előtti szerkesztések ott állnak,
+  gyakran commit nélkül (`git -C <worktree> status`). Ne dobd el, és ne kezdd
+  újra a feladatot: ELŐSZÖR ellenőrizd, mi van a worktree-ben.
+- **A helyreállítás:** (1) igazold, hogy a részleges munka megvan a worktree-ben;
+  (2) várd meg a `result`-ban megnevezett reset időpontját (ellenőrizd, hogy a
+  végrehajtó worker újra online és a kerete visszaállt -- SOSE emlékezetből);
+  (3) add fel ÚJRA a feladatot egy FOLYTATÁS-prompttal, ami a megőrzött
+  worktree-re mutat, és kéri, hogy onnan folytassa, kis lépésekben commitolva
+  (hogy egy újabb megszakadás ne veszítsen munkát). A kártyát közben hagyd
+  `waiting`-ben. Valós eset (2026-09-08): a #204 (0fc6d115) első feladása
+  session-limitbe ütközött 2am reset szöveggel; a részleges munka
+  (`src/life-inbox-analyze.ts` + két módosított fájl) megmaradt, és 04:00-kor,
+  a reset után újrafeladva folytatódott.
+
 ## Három út ugyanahhoz a VS Code sessionhöz
 
 A tulajdonosnak három, egymást kiegészítő útja van; ez a készség az elsőről szól.
