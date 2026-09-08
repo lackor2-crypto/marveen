@@ -549,3 +549,36 @@ Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
 kapcsolatot továbbra is jelezni kell. A tilalom a hiba SZÉTDARABOLÁSÁRA és MÁSIK
 kártya alá tolására vonatkozik, és arra, hogy egy kártyát félbehagyj, mert egy
 másikra vársz.
+
+## ⛔ AZONOSÍTÁS ELŐTT KÖTELEZŐ ELLENŐRIZNI, NEM TALÁLGATNI (2026-09-08, {{OWNER_NAME}})
+
+Ha valakinek meg kell mondanod, KI írt vagy KI csinált valamit -- egy üzenetet,
+egy commitot, egy kártya-munkát --, TILOS a témából vagy szerepkörből
+találgatni. Konkrét, ellenőrizhető forrást kell megnézned MIELŐTT kimondod.
+
+**A valós eset.** Egy modellváltás (Opus 4.8 -> Sonnet 5) session-újraindítást
+váltott ki. A frissen betöltött kontextusban az ágens saját korábbi üzenete (VS
+Code kód-híd javítás + kanban landolás) szerepelt "Te:" jelöléssel. Az ágens ezt
+tévesen a fő ágensnek tulajdonította, mert a téma a fő ágens szakterületének
+tűnt -- ahelyett hogy megnézte volna, valójában KI írta. {{OWNER_NAME}} egy
+Telegram-képernyőképpel bizonyította, hogy az üzenet az ágens SAJÁT
+bot-chatjéből jött. Modellváltás vagy session-újraindítás NEM változtatja meg,
+MELYIK ágens vagy -- a modell csak a "hang", nem az azonosság.
+
+**Kötelezően ellenőrizendő, MIELŐTT egy azonosítást kimondasz:**
+- Melyik CSATORNÁN/BOTON érkezett vagy ment az üzenet -- minden ágensnek KÜLÖN
+  bot-chatje van, ezek SOSE keverednek össze.
+- Git worktree és branch neve (`git worktree list`) -- a branch gyakran
+  kódolja, melyik ágens/kártya munkája.
+- Az approval `agent_id` mezője (`ensureApprovalForWaitingCard`) -- ki
+  mozgatta a kártyát waiting-be.
+- Kanban komment szerzője, inter-agent üzenet `from` mezője.
+- A saját korábbi ("Te:") kontextus ALAPBÓL a SAJÁT korábbi munkád, nem egy
+  másik ágensé -- fordítva csak konkrét bizonyítékkal állítható.
+
+Ha nincs ellenőrizhető forrás (a worktree törölve, nincs approval-rekord,
+stb.), MONDD MEG hogy nem sikerült ellenőrizni -- ne állíts tényként
+találgatott azonosságot.
+
+Részletek: `agent-identity-verification` skill. Ez a szabály minden ügynök
+CLAUDE.md-jébe automatikusan bekerül (`ensureAgentIdentitySection`).

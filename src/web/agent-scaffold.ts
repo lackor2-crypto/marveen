@@ -1006,6 +1006,20 @@ const AUTONOMY_BLOCK_RE = new RegExp(
   `${AUTONOMY_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${AUTONOMY_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+// --- AZONOSITAS ELOTT KOTELEZO ELLENORIZNI doktrina (Boss, 2026-09-08) ---
+// Sajat markeres-blokk, mint a tobbi doktrina (ask-back, recheck, landing,
+// one-card), hogy minden agens CLAUDE.md-jebe ES a gepszintu
+// ~/.claude/CLAUDE.md-be is eljusson, visszamenoleg is -- nem csak
+// telepiteskor. Valos eset (2026-09-08): lackor3 sajat korabbi uzenetet (VS
+// Code kod-hid javitas + kanban landolas) tevesen Marvinnak tulajdonitotta a
+// modellvaltas (Opus 4.8 -> Sonnet 5) utani session-ujrainditasban, mert a
+// temabol talalgatott ahelyett hogy ellenorizte volna a forrast.
+const AGENT_IDENTITY_BEGIN = '<!-- BEGIN GENERATED: agent-identity-rule (auto-generated, do not edit by hand) -->'
+const AGENT_IDENTITY_END = '<!-- END GENERATED: agent-identity-rule -->'
+const AGENT_IDENTITY_BLOCK_RE = new RegExp(
+  `${AGENT_IDENTITY_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${AGENT_IDENTITY_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 // Builds the text body that goes between the BEGIN/END markers.
 // Single source of truth -- called by both generateClaudeMd() (initial
 // generation) and ensureFleetRosterSection() (idempotent update on respawn).
@@ -2321,6 +2335,116 @@ export function ensureGlobalOneCardOneFixRule(): void {
 
   const updated = ONECARD_BLOCK_RE.test(existing)
     ? existing.replace(ONECARD_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+// The sixth mandatory rule. Incident (2026-09-08): after a model switch
+// (Opus 4.8 -> Sonnet 5) forced a session restart, the freshly loaded context
+// contained the agent's OWN prior message about a VS Code code-bridge fix and
+// a kanban landing. The topic looked like the main agent's territory, so it
+// was attributed to the main agent without checking -- when in fact it was
+// this agent's own earlier turn. The owner corrected it with a Telegram
+// screenshot proving the message came from this agent's own bot chat. The
+// root cause was guessing from topic/role fit instead of checking a concrete
+// source (which bot chat it arrived on, which worktree/branch did the work,
+// which agent_id is on the approval that the kanban move raised).
+function buildAgentIdentityBody(): string {
+  return [
+    '## AZONOSITAS ELOTT KOTELEZO ELLENORIZNI, NEM TALALGATNI',
+    '',
+    'Ha valakinek (a tulajdonosnak vagy egy masik agensnek) meg kell mondanod,',
+    'KI irt vagy KI csinalt valamit -- egy uzenetet, egy commitot, egy',
+    'kartya-munkat --, TILOS a temabol vagy szerepkorbol talalgatni. Konkret,',
+    'ellenorizheto forrast kell megnezned MIELOTT kimondod.',
+    '',
+    'Miert: sajat korabbi uzenetemet (VS Code kod-hid javitas + kanban',
+    'landolas) tevesen a fo agensnek tulajdonitottam, mert a tema az o',
+    'szakteruletenek tunt. Valojaban en irtam, meg egy korabbi modellkent,',
+    'mielott a fiok masik modellre valtott es a session ujraindult -- a',
+    'modellvaltas/ujrainditas nem torolte az en azonossagomat, csak a friss',
+    'kontextusban rosszul azonositottam a sajat korabbi szavaimat. A',
+    'tulajdonos egy csatorna-kepernyokeppel bizonyitotta, hogy az uzenet a',
+    'SAJAT bot-chatembol jott.',
+    '',
+    'Kotelezoen ellenorizendo, MIELOTT egy azonositast kimondasz:',
+    '- Melyik CSATORNAN/BOTON erkezett vagy ment az uzenet -- minden agensnek',
+    '  KULON csatornaja/bot-chat-je van, ezek SOSE keverednek ossze.',
+    '- Git worktree es branch neve (`git worktree list`) -- a branch gyakran',
+    '  kodolja, melyik agens/kartya munkaja.',
+    '- Az approval `agent_id` mezoje (lasd `ensureApprovalForWaitingCard`) --',
+    '  ki mozgatta a kartyat waiting-be.',
+    '- Kanban komment szerzoje, inter-agent uzenet `from` mezoje.',
+    '- A sajat korabbi ("Te:") kontextus ALAPBOL a SAJAT korabbi munkad, nem',
+    '  egy masik agense -- forditva csak konkret bizonyitekkal allithato.',
+    '',
+    'Modellvaltas vagy session-ujrainditas NEM valtoztatja meg, MELYIK agens',
+    'vagy: ugyanaz az agens-azonossag futhat egyik modellkent is, masikkent',
+    'is -- a modell csak a "hang", nem az azonossag.',
+    '',
+    'Ha nincs ellenorizheto forras (a worktree torolve, nincs approval-rekord,',
+    'stb.), MONDD MEG hogy nem sikerult ellenorizni -- ne allits tenykent',
+    'talalgatott azonossagot.',
+    '',
+    'Reszletek: `agent-identity-verification` skill.',
+  ].join('\n')
+}
+
+/** Beviszi az azonositas-ellenorzesi doktrinat egy agens sajat CLAUDE.md-jebe.
+ *  A fo agens ezt a gepszintu valtozatbol kapja (ensureGlobalAgentIdentityRule),
+ *  ugyanugy, mint a tobbi marker-blokkot. */
+export function ensureAgentIdentitySection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${AGENT_IDENTITY_BEGIN}\n${buildAgentIdentityBody()}\n${AGENT_IDENTITY_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = AGENT_IDENTITY_BLOCK_RE.test(existing)
+    ? existing.replace(AGENT_IDENTITY_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: egy worktree-ben dolgozo agens (es a fo agens) sosem
+ *  olvassa a sajat agents/<nev>/CLAUDE.md-jet, ~/.claude/CLAUDE.md az egyetlen
+ *  fajl, amit minden Claude Code session olvas, barhonnan is fut. */
+export function ensureGlobalAgentIdentityRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${AGENT_IDENTITY_BEGIN}\n${buildAgentIdentityBody()}\n${AGENT_IDENTITY_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = AGENT_IDENTITY_BLOCK_RE.test(existing)
+    ? existing.replace(AGENT_IDENTITY_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'
