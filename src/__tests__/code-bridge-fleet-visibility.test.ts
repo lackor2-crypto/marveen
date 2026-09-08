@@ -22,6 +22,7 @@ import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask,
   recordCodeWorkerSeen, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
+  completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage,
 } from '../web/code-bridge-store.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -111,6 +112,14 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     expect(route).toContain("(act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')")
   })
 
+  it('a keret-kimerult hid LIMITED-et mutat, nem "dolgozik" (a kvota elol)', () => {
+    // Boss, 2026-09-08: a VS Code hid zold "dolgozik"-ot villogtatott, mikozben
+    // a fiokja heti limitbe futott tegnap este. A `live === true` csak azt
+    // jelenti, hogy a folyamat cimezheto, nem azt, hogy general -- ezert a
+    // tartos kvota-jel elol all, ugyanugy, mint a tmux-agenseknel.
+    expect(route).toMatch(/act\.quotaBlocked\s*\n?\s*\? 'limited'/)
+  })
+
   it('nevutkozes eseten a valodi ugynok az erosebb', () => {
     // Ket azonos kulcs a felulet Map-jeben nemaan elnyelne az egyiket.
     expect(route).toContain('const taken = entries.some((e) => e.name === CODE_BRIDGE_ACTIVITY_ID)')
@@ -118,6 +127,65 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
 
   it('az azonosito nem lehet veletlenul ugynok-nev is', () => {
     expect(CODE_BRIDGE_ACTIVITY_ID).toBe('code-bridge')
+  })
+})
+
+describe('codeBridgeActivity: kvota-blokk (keret-kimerules)', () => {
+  beforeEach(() => { _resetCodeCandidates() })
+
+  // A legutobbi feladatot keret-kimerules hibaval zarja le.
+  const failLatestWithLimit = (msg: string): void => {
+    recordCodeWorkerSeen('windows', 'discovery', 1)
+    const enq = enqueueCodeTask({ project: 'marvin', prompt: 'valami', origin: 'api' })
+    const id = 'task' in enq ? enq.task.id : ''
+    claimNextCodeTask('windows')
+    completeCodeTask(id, { ok: false, error: msg })
+  }
+
+  it('a szoveg-felismero a keret-kimerules uzeneteket fogja meg', () => {
+    expect(isCodeUsageLimitMessage("You've hit your weekly limit · resets Sep 11, 9am")).toBe(true)
+    expect(isCodeUsageLimitMessage('usage limit reached')).toBe(true)
+    expect(isCodeUsageLimitMessage('Some other crash')).toBe(false)
+    expect(isCodeUsageLimitMessage(null)).toBe(false)
+  })
+
+  it('a legutobbi feladat keret-kimerules hibaja -> quotaBlocked', () => {
+    upsertCodeSession(WS)
+    failLatestWithLimit("You've hit your weekly limit · resets Sep 11, 9am (Europe/Budapest)")
+    expect(codeBridgeActivity().quotaBlocked).toBe(true)
+  })
+
+  it('egy elo ful (live:true) sem old fel, ha nincs frissebb VALODI tevekenyseg', () => {
+    upsertCodeSession(WS)
+    const blockedAt = Date.now()
+    failLatestWithLimit("You've hit your weekly limit")
+    // A ful FOLYAMATA el (live:true), de az utolso tevekenysege a limit ELOTTI:
+    // pont ez a hibas eset, amit Boss latott.
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: blockedAt - 60_000 },
+    ])
+    const act = codeBridgeActivity()
+    expect(act.liveSessions.length).toBeGreaterThan(0)
+    expect(act.quotaBlocked).toBe(true)
+  })
+
+  it('frissebb VALODI tevekenyseg feloldja (a fiok mar dolgozik megint)', () => {
+    upsertCodeSession(WS)
+    failLatestWithLimit("You've hit your weekly limit")
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: Date.now() + 5_000 },
+    ])
+    expect(codeBridgeActivity().quotaBlocked).toBe(false)
+  })
+
+  it('mas hiba (nem keret-kimerules) NEM blokkol', () => {
+    upsertCodeSession(WS)
+    failLatestWithLimit('Some other crash')
+    expect(codeBridgeActivity().quotaBlocked).toBe(false)
+  })
+
+  it('friss telepitesen (nincs lezart feladat) nem blokkolt', () => {
+    expect(codeBridgeActivity().quotaBlocked).toBe(false)
   })
 })
 
