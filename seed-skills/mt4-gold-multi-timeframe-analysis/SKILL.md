@@ -54,6 +54,22 @@ reggel 8-kor és egyszer délután 15-kor, a rövidtávot pedig 45 percenkénte"
    lásd a scheduled-task `last-full-date.txt` state-fájlját). Minden további
    aznapi futásnál csak egy 2-3 soros RÖVID üzenet: LONG / SHORT / OLDALAZÁS
    + aktuális ár + 1 mondat indoklás, idősíkonkénti levezetés nélkül.
+
+   **⛔ FLEET-DEDUP -- KÖTELEZŐ minden sikeres küldés után (2026-09-08, valós hiány):**
+   a `last-full-date.txt` PER-AGENS -- csak a futtató ágens saját
+   `~/.claude/scheduled-tasks/` mappájában van, MÁS ágens (aki egy későbbi `any`
+   sloton épp ő kapja a fire-t) NEM látja, tehát önmagában NEM véd a duplikáció
+   ellen. Minden sikeres küldés után KÖTELEZŐ egy **`shared` kategóriájú**
+   memóriát írni `arany-elemzes-elkuldve` kulccsal, benne: slot (dátum+idő),
+   típus (TELJES/RÖVID), küldő ágens, ár, verdikt, és a kézbesítés-bizonyíték
+   (script exit-kód + verify-screenshot út). A memória KÖTELEZŐEN `shared` --
+   `hot`-ban a többi ágens nem feltétlenül látja, és pont az a lényeg, hogy lássa.
+   Küldés ELŐTT minden ágens ellenőrizze ezt a shared emléket a mai dátumra: ha
+   már van TELJES mára, csak RÖVID mehet; ha ugyanarra a slotra már van bármi, ne
+   küldjön. Szóhasználat: a WhatsApp szürke pipa = "KIMENT" (a szerverig jutott),
+   NEM "megkapta" (az a készülékig). Valós hiba 2026-09-08: a reggeli TELJES
+   kiment, de csak a `last-full-date.txt` frissült -> egy másik ágens kívülről nem
+   látta, duplikálás-kockázat; utólag pótolva.
 5b. ⛔ KÖTELEZŐ KÜLDÉSI SÉMA -- MINDIG UGYANEZ A NÉGY BLOKK ({{OWNER_NAME}} 2026-08-27,
    Telegram üzenet 534/536/547/549): "Allitsd fol egy semat, es mindig ugyanabban
    a semaban magyarazd el. [...] hosszu tav ... kozeptav ... rovid tav ...
