@@ -34500,6 +34500,25 @@ async function loadIntezoPage() {
     })
   }
 
+  // AI-JAVASLAT (kartya #204).
+  bind('inboxAnalyzeBtn', 'click', () => _inboxAnalyze())
+  bind('inboxPlaceAllBtn', 'click', () => _inboxPlaceAll())
+  var ibSug = document.getElementById('inboxSuggestions')
+  if (ibSug && !ibSug._intezoBound) {
+    ibSug._intezoBound = 1
+    ibSug.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-place-name]')
+      if (b) _inboxPlaceOne(b.getAttribute('data-place-name'))
+    })
+    ibSug.addEventListener('change', function (ev) {
+      var pick = ev.target.closest('.ib-target-pick')
+      if (!pick || !pick.value) return
+      var row = pick.closest('[data-row-name]')
+      var input = row && row.querySelector('.ib-target')
+      if (input) input.value = pick.value
+    })
+  }
+
   await _intezoLegend()
   await _intezoMountOptions()
   await _intezoStatus()
@@ -34662,6 +34681,180 @@ async function _inboxFile() {
       + '</tbody></table></div>'
   } else if (box) {
     box.innerHTML = ''
+  }
+  await _inboxRefresh()
+  await _intezoOpen(_intezoPath)
+}
+
+/* ================ AI-JAVASLAT (kartya #204) ================
+ *
+ * Ez a LANC MELLETT fut, nem helyette: a szerver megprobal tulajdonost,
+ * kategoriat, datumot es nevet javasolni tetelenkent, bizonytalansaggal. A
+ * tenyleges athelyezes MINDIG a szerkesztheto mezok AKTUALIS ertekevel megy,
+ * ugyanazokkal a biztonsagi szabalyokkal, mint a lanc-alapu Besorolás (soha
+ * nem ir felul, hitelesito adatot nem fogad be).
+ */
+var _inboxSuggestions = []
+var _inboxKnownFolders = []
+
+function _inboxRow(name) {
+  var rows = document.querySelectorAll('#inboxSuggestions [data-row-name]')
+  for (var i = 0; i < rows.length; i++) {
+    if (rows[i].getAttribute('data-row-name') === name) return rows[i]
+  }
+  return null
+}
+
+function _inboxOwnerOptions(sug) {
+  var out = '<option value=""' + (!sug.owner.personId ? ' selected' : '') + '>? '
+    + escapeHtml(t('inbox.owner_unknown')) + '</option>'
+  out += (sug.owner.options || []).map(function (o) {
+    return '<option value="' + escapeAttr(o.id) + '"' + (o.id === sug.owner.personId ? ' selected' : '') + '>'
+      + escapeHtml(o.name) + '</option>'
+  }).join('')
+  return out
+}
+
+function _inboxTargetOptions(sug) {
+  return '<option value="">' + escapeHtml(t('inbox.pick_folder')) + '</option>'
+    + _inboxKnownFolders.map(function (f) {
+      return '<option value="' + escapeAttr(f.rel) + '"' + (f.rel === sug.targetRel ? ' selected' : '') + '>'
+        + escapeHtml(f.display) + '</option>'
+    }).join('')
+}
+
+function _inboxRenderSuggestions() {
+  return '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('inbox.col_item')) + '</th>'
+    + '<th>' + escapeHtml(t('inbox.col_type')) + '</th>'
+    + '<th>' + escapeHtml(t('inbox.col_owner')) + '</th>'
+    + '<th>' + escapeHtml(t('inbox.col_date')) + '</th>'
+    + '<th>' + escapeHtml(t('inbox.col_target')) + '</th>'
+    + '<th>' + escapeHtml(t('inbox.col_name')) + '</th>'
+    + '<th></th></tr></thead><tbody>'
+    + _inboxSuggestions.map(function (sug) {
+      if (sug.credentialWarning) {
+        return '<tr data-row-name="' + escapeAttr(sug.name) + '"><td>' + escapeHtml(sug.name) + '</td>'
+          + '<td colspan="5"><span style="color:var(--warning, #c77)">🔒 ' + escapeHtml(sug.credentialWarning) + '</span></td>'
+          + '<td></td></tr>'
+      }
+      var warnStyle = sug.needsReview ? ' style="background:var(--warning-bg, #fff8e6)"' : ''
+      var noteHtml = (sug.notes || []).length
+        ? '<br><span class="subtitle">' + sug.notes.map(escapeHtml).join('<br>') + '</span>' : ''
+      return '<tr data-row-name="' + escapeAttr(sug.name) + '"' + warnStyle + '>'
+        + '<td><strong>' + escapeHtml(sug.name) + '</strong>' + noteHtml + '</td>'
+        + '<td>' + escapeHtml(sug.type.label) + '</td>'
+        + '<td><select class="ib-owner">' + _inboxOwnerOptions(sug) + '</select></td>'
+        + '<td><input type="date" class="ib-date" value="' + escapeAttr(sug.date.value || '') + '"></td>'
+        + '<td><select class="ib-target-pick">' + _inboxTargetOptions(sug) + '</select>'
+        + '<input type="text" class="ib-target" value="' + escapeAttr(sug.targetRel || '') + '"'
+        + ' style="width:100%;margin-top:4px" placeholder="' + escapeAttr(t('inbox.target_placeholder')) + '"></td>'
+        + '<td><input type="text" class="ib-name" value="' + escapeAttr(sug.suggestedName || '') + '"></td>'
+        + '<td><button class="btn-primary btn-compact" data-place-name="' + escapeAttr(sug.name) + '">'
+        + escapeHtml(t('inbox.place')) + '</button></td></tr>'
+    }).join('')
+    + '</tbody></table></div>'
+}
+
+async function _inboxAnalyze() {
+  var note = document.getElementById('inboxAnalyzeNote')
+  var box = document.getElementById('inboxSuggestions')
+  var allBtn = document.getElementById('inboxPlaceAllBtn')
+  if (!box) return
+  if (note) note.textContent = t('inbox.analyzing')
+  var d = null
+  try {
+    d = await _depoPost('/api/life/inbox/analyze?lang=' + (window._lang || 'hu'), {})
+  } catch (e) {
+    if (note) note.textContent = t('inbox.analyze_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+    box.innerHTML = ''
+    if (allBtn) allBtn.hidden = true
+    return
+  }
+  _inboxSuggestions = d.suggestions || []
+  _inboxKnownFolders = d.knownFolders || []
+  var notes = []
+  if (d.message) notes.push(escapeHtml(d.message))
+  // A hianyzo modell NEM nema elakadas: emberi mondat all a gomb alatt, es a
+  // sorok ettol meg tovabbra is kezzel kitolthetok (bizonytalansag != hiba).
+  if (!d.ocrAvailable) notes.push(escapeHtml(t('inbox.ocr_missing')))
+  if (!d.faceRecognitionAvailable) notes.push(escapeHtml(t('inbox.face_missing')))
+  if (note) note.innerHTML = notes.join('<br>')
+  var placeable = _inboxSuggestions.filter(function (s) { return !s.credentialWarning })
+  if (allBtn) allBtn.hidden = !placeable.length
+  box.innerHTML = !_inboxSuggestions.length ? '' : _inboxRenderSuggestions()
+}
+
+async function _inboxPlaceOne(name) {
+  var row = _inboxRow(name)
+  if (!row) return
+  var targetInput = row.querySelector('.ib-target')
+  var nameInput = row.querySelector('.ib-name')
+  var target = targetInput ? targetInput.value.trim() : ''
+  var newName = nameInput ? nameInput.value.trim() : ''
+  if (!target) { showToast(t('inbox.no_target')); return }
+  // A lemezre iro lepes elott megerosites -- a celt is kimondva.
+  if (!confirm(t('inbox.confirm_one', { name: name, target: target }))) return
+  var d = null
+  try {
+    d = await _depoPost('/api/life/inbox/place?lang=' + (window._lang || 'hu'),
+      { name: name, targetRel: target, newName: newName })
+  } catch (e) {
+    showToast(t('inbox.place_failed') + ' ' + ((e && e.message) ? e.message : String(e)))
+    return
+  }
+  showToast(d.message || '')
+  if (d.ok) {
+    _inboxSuggestions = _inboxSuggestions.filter(function (s) { return s.name !== name })
+    var box = document.getElementById('inboxSuggestions')
+    if (box) box.innerHTML = _inboxSuggestions.length ? _inboxRenderSuggestions() : ''
+    var allBtn = document.getElementById('inboxPlaceAllBtn')
+    if (allBtn) allBtn.hidden = !_inboxSuggestions.filter(function (s) { return !s.credentialWarning }).length
+    await _inboxRefresh()
+    await _intezoOpen(_intezoPath)
+  }
+}
+
+async function _inboxPlaceAll() {
+  var rows = _inboxSuggestions.filter(function (s) { return !s.credentialWarning }).map(function (s) {
+    var row = _inboxRow(s.name)
+    var targetInput = row ? row.querySelector('.ib-target') : null
+    var nameInput = row ? row.querySelector('.ib-name') : null
+    return {
+      name: s.name,
+      target: targetInput ? targetInput.value.trim() : '',
+      newName: nameInput ? nameInput.value.trim() : '',
+    }
+  }).filter(function (r) { return r.target })
+  if (!rows.length) { showToast(t('inbox.no_target')); return }
+  // Egyetlen osszesito megerosites -- de a celt SOSEM talaljuk ki: csak azok
+  // kerulnek athelyezesre, akiknek MAR van kitoltott celmappaja.
+  if (!confirm(t('inbox.confirm_all', { n: rows.length }))) return
+  var okCount = 0
+  var failMsgs = []
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i]
+    try {
+      var d = await _depoPost('/api/life/inbox/place?lang=' + (window._lang || 'hu'),
+        { name: r.name, targetRel: r.target, newName: r.newName })
+      if (d && d.ok) {
+        okCount++
+        _inboxSuggestions = _inboxSuggestions.filter(function (s) { return s.name !== r.name })
+      } else {
+        failMsgs.push(r.name + ': ' + ((d && d.message) ? d.message : ''))
+      }
+    } catch (e) {
+      failMsgs.push(r.name + ': ' + ((e && e.message) ? e.message : String(e)))
+    }
+  }
+  showToast(t('inbox.place_all_done', { ok: okCount, n: rows.length }))
+  var box = document.getElementById('inboxSuggestions')
+  if (box) box.innerHTML = _inboxSuggestions.length ? _inboxRenderSuggestions() : ''
+  var allBtn = document.getElementById('inboxPlaceAllBtn')
+  if (allBtn) allBtn.hidden = !_inboxSuggestions.filter(function (s) { return !s.credentialWarning }).length
+  var note = document.getElementById('inboxAnalyzeNote')
+  if (note && failMsgs.length) {
+    note.innerHTML = escapeHtml(t('inbox.place_all_failures')) + '<br>' + failMsgs.map(escapeHtml).join('<br>')
   }
   await _inboxRefresh()
   await _intezoOpen(_intezoPath)

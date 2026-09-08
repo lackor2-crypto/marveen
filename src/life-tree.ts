@@ -177,6 +177,15 @@ export interface LifePerson {
   mediaGroups: string[]
   /** Sajat, SZEMELYES projektek. Ezek NEM ceges projektek (spec 12. pont). */
   projects: LifeProject[]
+  /**
+   * Kinek a mappaja ala kerul ez a szemely irat/media ugyeben (kartya #204).
+   *
+   * Egy MASIK szemely `id`-ja, vagy hianyzik. Peldaul egy kiskoru gyereknel ez
+   * az anya `id`-ja: a Beerkezo-elemzo ilyenkor NEM a gyerek sajat mappajat
+   * ajanlja celul, hanem a gondviseloet. SZANDEKOSAN nem nev, mert a nev
+   * valtozhat -- lasd `id` a sajat mezonel.
+   */
+  custodianId?: string
 }
 
 export interface LifeCompany {
@@ -389,6 +398,33 @@ function keyList(raw: unknown, allowed: string[], fallback: string[]): string[] 
  * felhasznalo faja NEM EPULT FEL, es a felulet csak annyit mondott, "szerver
  * hiba". A hianyzo mezo nem hibauzenetet erdemel, hanem alapertelmezest.
  */
+/**
+ * A gondviselo-hivatkozasok (`custodianId`) tisztitasa a HELYBEN kapott
+ * `persons` tombon (kartya #204: "gyerek MINDIG az anya alá").
+ *
+ * Egy hivatkozas csak MASIK, LETEZO szemelyre mutathat, es kort sem alkothat
+ * -- kulonben a `resolveFilingPerson()` lanc-kovetese vegtelen ciklusba
+ * futna. Egy serult/korbezart hivatkozast csendben eldobunk, nem hibazunk --
+ * innentol ez a kozos pont a beallitas mindket belepesi utjahoz
+ * (`normalizeLifeConfig()` es a webes `parseConfig()` is ezt hivja).
+ */
+export function sanitizeCustodianIds(persons: LifePerson[]): void {
+  const byId = new Map(persons.map((p) => [p.id, p]))
+  for (const p of persons) {
+    if (!p.custodianId) { p.custodianId = undefined; continue }
+    if (!byId.has(p.custodianId) || p.custodianId === p.id) { p.custodianId = undefined; continue }
+    let cur: LifePerson | undefined = byId.get(p.custodianId)
+    let hops = 0
+    let cyclic = false
+    while (cur) {
+      if (cur.id === p.id) { cyclic = true; break }
+      if (++hops > persons.length) { cyclic = true; break }
+      cur = cur.custodianId ? byId.get(cur.custodianId) : undefined
+    }
+    if (cyclic) p.custodianId = undefined
+  }
+}
+
 export function normalizeLifeConfig(raw: any): LifeConfig {
   const persons: LifePerson[] = Array.isArray(raw?.persons)
     ? raw.persons.filter((p: any) => p && typeof p.name === 'string' && p.name.trim()).map((p: any) => {
@@ -412,9 +448,11 @@ export function normalizeLifeConfig(raw: any): LifeConfig {
             development: x.development !== false,
           }))
           : [],
+        custodianId: p.custodianId ? String(p.custodianId) : undefined,
       } as LifePerson
     })
     : []
+  sanitizeCustodianIds(persons)
   const companies: LifeCompany[] = Array.isArray(raw?.companies)
     ? raw.companies.filter((c: any) => c && typeof c.name === 'string' && c.name.trim()).map((c: any) => ({
       id: String(c.id || newLifeId('company')),
@@ -424,6 +462,31 @@ export function normalizeLifeConfig(raw: any): LifeConfig {
     }))
     : []
   return { persons, companies }
+}
+
+/**
+ * Kinek a mappajaba kerul egy iratugy, ha a szemelynek gondviseloje van
+ * (kartya #204: "gyerek MINDIG az anya alá").
+ *
+ * A lancot legfeljebb a szemelyek szamaig kovetjuk: korbezart lanc vagy
+ * ismeretlen `personId` eseten az UTOLSO ERVENYES azonositot adja vissza,
+ * sose all meg hiba nelkul, es sose talalgat -- ismeretlen `personId`-nal
+ * egyszeruen onmagat adja vissza.
+ */
+export function resolveFilingPerson(personId: string, config: LifeConfig): string {
+  const byId = new Map(config.persons.map((p) => [p.id, p]))
+  let cur = byId.get(personId)
+  if (!cur) return personId
+  const seen = new Set<string>([personId])
+  let hops = 0
+  while (cur.custodianId) {
+    if (seen.has(cur.custodianId) || ++hops > config.persons.length) break
+    const next = byId.get(cur.custodianId)
+    if (!next) break
+    seen.add(next.id)
+    cur = next
+  }
+  return cur.id
 }
 
 /**

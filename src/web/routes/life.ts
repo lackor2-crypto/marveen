@@ -20,6 +20,8 @@
 //   GET  /api/life/mount-options -- mit lehet bekotni (magatol osszeszedve)
 //   GET  /api/life/sources    -- a jelvenyek jelmagyarazata (forrasfajtak)
 //   GET  /api/life/inbox      -- hany irat var a BEERKEZO-ben
+//   POST /api/life/inbox/analyze -- AI-javaslat (tipus/tulajdonos/datum/nev) tetelenkent
+//   POST /api/life/inbox/place   -- egy tetel elhelyezese a javaslat (vagy szerkesztett ertek) alapjan
 //
 // Minden hibauzenet MAGYAR MONDAT, es azt mondja meg, mit tegyen a
 // felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
@@ -30,9 +32,11 @@ import {
   inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
+  sanitizeCustodianIds,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
+import { analyzeInbox, getOcrAdapter, getFaceAdapter } from '../../life-inbox-analyze.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, iconTable } from '../../naming-conventions.js'
@@ -41,7 +45,7 @@ import {
 } from '../../git-accounts.js'
 import { depotRoot } from '../../depot.js'
 import { storageKindRoot } from '../../storages.js'
-import { join as pathJoin } from 'node:path'
+import { join as pathJoin, extname as pathExtname, basename as pathBasename } from 'node:path'
 import { APP_LANG } from '../../config.js'
 import {
   listLife, lifeInfo, moveLife, mkdirLife, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
@@ -609,6 +613,51 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // AI-JAVASLAT (kartya #204). A meglevo lanc (fent) MARAD -- ez csak egy
+  // MASIK modon ad celt: a felhasznalo helyett eloszor a szerver probal
+  // tulajdonost/kategoriat/datumot/nevet javasolni, bizonytalansaggal. A
+  // tenyleges athelyezes MINDIG a fenti `inboxFile()`-ra epul, ugyanazokkal a
+  // biztonsagi szabalyokkal (soha nem ir felul, hitelesito adatot kiszuri).
+  if (path === '/api/life/inbox/analyze' && method === 'POST') {
+    const body = await readJson(req)
+    const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : undefined
+    send(res, 200, analyzeInbox(names, uiLang(url)))
+    return true
+  }
+
+  if (path === '/api/life/inbox/place' && method === 'POST') {
+    const body = await readJson(req)
+    const name = String(body?.name ?? '').trim()
+    const targetRel = String(body?.targetRel ?? body?.target ?? '').trim()
+    if (!name) {
+      send(res, 400, { error: 'no_item', message: 'Nem jelöltél ki tételt.' })
+      return true
+    }
+    if (!targetRel) {
+      // A gazdat itt SEM talaljuk ki: az AI-javaslat csak ajanlat, a vegso
+      // celt a felhasznalonak kell megerositenie.
+      send(res, 400, { error: 'no_target', message: 'Előbb válaszd ki, hova kerüljön – nem találom ki helyetted.' })
+      return true
+    }
+    const lang = uiLang(url)
+    const result = inboxFile([name], targetRel, lang)
+    if (!result.moved.length) {
+      send(res, 200, { ok: false, rel: '', message: result.failed[0]?.message || result.message })
+      return true
+    }
+    let rel = result.moved[0].rel
+    let message = result.message
+    const newBase = String(body?.newName ?? '').trim()
+    if (newBase) {
+      const ext = pathExtname(pathBasename(name))
+      const rn = renameLife(rel, safeLifeName(newBase) + ext, lang)
+      if (rn.ok) { rel = rn.rel; message = rn.message }
+      else message = `${message} ${rn.message}`
+    }
+    send(res, 200, { ok: true, rel, message })
+    return true
+  }
+
   return false
 }
 
@@ -643,6 +692,11 @@ function parseConfig(body: any): LifeConfig | string {
       mediaKinds: toKeyList(p?.mediaKinds, MEDIA_KINDS, defaultMediaKinds()),
       mediaGroups: toNameList(p?.mediaGroups),
       projects: toProjects(p?.projects),
+      // Gondviselo (kartya #204): masik szemely id-jara mutathat, "gyerek
+      // mindig az anya alá". A hivatkozas ervenyesseget (letezik-e, nincs-e
+      // kor) a `sanitizeCustodianIds()` ellenorzi LENT, amikor mar minden
+      // szemely id-je ismert.
+      custodianId: String(p?.custodianId ?? '').trim() || undefined,
     })
   }
   // Pontosan EGY gazda kell: a gazda kapja a teljes (12 kategoriás) agat, es
@@ -650,6 +704,7 @@ function parseConfig(body: any): LifeConfig | string {
   // eldonteni, kie a "Munka" -- ha egy sem, senkie.
   const owners = persons.filter((p) => p.role === 'owner')
   if (owners.length !== 1) return 'Pontosan egy személy legyen a gazda (a saját ágad). Jelöld meg, melyik az.'
+  sanitizeCustodianIds(persons)
 
   const companies: LifeCompany[] = []
   for (const c of companiesIn) {
