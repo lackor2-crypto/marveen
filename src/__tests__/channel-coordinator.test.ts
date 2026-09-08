@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mapUpdate, getUpdates, TelegramApiError } from '../channel-coordinator/telegram-client.js'
+import { mapUpdate, getUpdates, probeLatestPendingChat, TelegramApiError } from '../channel-coordinator/telegram-client.js'
 import {
   initIngestDb,
   insertIncomingEvent,
@@ -236,6 +236,46 @@ describe('getUpdates error classification', () => {
     stubFetch(200, { ok: true, result: [{ update_id: 1 }] })
     const r = await getUpdates('tok', 1, 30, 100)
     expect(r).toHaveLength(1)
+  })
+})
+
+// ---- probeLatestPendingChat (mocked fetch) -------------------------------
+// Non-destructive offset=-1 probe used by dead-agent-reply.ts. Same error
+// classification as getUpdates (shared probeTail helper), plus the mapping
+// from the raw update to { updateId, chatId }.
+
+describe('probeLatestPendingChat', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  function stubFetch(status: number, body: unknown) {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => body,
+    })))
+  }
+
+  it('returns null when the pending queue is empty', async () => {
+    stubFetch(200, { ok: true, result: [] })
+    expect(await probeLatestPendingChat('tok')).toBeNull()
+  })
+
+  it('extracts update_id and chat_id from the latest pending message', async () => {
+    stubFetch(200, {
+      ok: true,
+      result: [{ update_id: 99, message: { message_id: 5, date: 1, chat: { id: 8736799466 }, text: 'hi' } }],
+    })
+    expect(await probeLatestPendingChat('tok')).toEqual({ updateId: 99, chatId: 8736799466 })
+  })
+
+  it('a 409 maps to conflict, same as getUpdates', async () => {
+    stubFetch(409, { ok: false, error_code: 409, description: 'Conflict' })
+    await expect(probeLatestPendingChat('tok')).rejects.toMatchObject({ kind: 'conflict' })
+  })
+
+  it('a 401 maps to fatal', async () => {
+    stubFetch(401, { ok: false, error_code: 401, description: 'Unauthorized' })
+    await expect(probeLatestPendingChat('tok')).rejects.toMatchObject({ kind: 'fatal' })
   })
 })
 

@@ -19,6 +19,7 @@ import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
 import { startTelegramInboxWakeWatcher } from './web/telegram-inbox-wake.js'
+import { startDeadAgentReplyWatcher } from './web/dead-agent-reply.js'
 import { startUpdateChecker } from './web/update-checker.js'
 import { startScheduleRunner } from './web/schedule-runner.js'
 import { startChannelPluginMonitor } from './web/channel-monitor.js'
@@ -420,6 +421,12 @@ export function startWebServer(port = 3420): http.Server {
   const telegramWakeInterval = webOnly ? undefined : startTelegramInboxWakeWatcher()
   if (!webOnly) logger.info('Telegram inbox wake watcher started (500ms poll)')
 
+  // Answers Boss's OWN inbound Telegram message on behalf of a sub-agent whose
+  // process is dead ("nem elek most") -- never fires on an autonomous
+  // crash/restart by itself. See src/web/dead-agent-reply.ts.
+  const deadAgentReplyInterval = webOnly ? undefined : startDeadAgentReplyWatcher()
+  if (!webOnly && deadAgentReplyInterval) logger.info('Dead-agent Telegram reply watcher started (5s poll)')
+
   const scheduleInterval = webOnly ? undefined : startScheduleRunner()
   if (!webOnly) logger.info('Schedule runner started (60s poll)')
 
@@ -785,6 +792,7 @@ export function startWebServer(port = 3420): http.Server {
   server.close = (cb?: (err?: Error) => void) => {
     clearInterval(routerInterval)
     clearInterval(telegramWakeInterval)
+    if (deadAgentReplyInterval) clearInterval(deadAgentReplyInterval)
     clearInterval(scheduleInterval)
     if (pluginMonitorInterval) clearInterval(pluginMonitorInterval)
     workerLivenessCancelled = true

@@ -189,16 +189,14 @@ export async function getUpdates(
   return json.result ?? []
 }
 
-// Probe the current server-side high-water update_id WITHOUT confirming anything
-// and WITHOUT sending allowed_updates. Telegram's negative offset returns the
-// last |offset| updates from the end of the queue and does not advance the
-// confirmed pointer, so this is a non-destructive read. We deliberately omit
-// allowed_updates here: Telegram REMEMBERS the last allowed_updates passed, so
-// sending our whitelist on a seed call could alter what a subsequent (or the
-// native plugin's) poll receives. Returns the highest pending update_id, or
-// null when the queue is empty. Used to seed poll_offset on entering a backfill
-// window so we never re-deliver below the true high-water.
-export async function probeHighWater(token: string): Promise<number | null> {
+// Shared fetch for the offset=-1 "read the tail without confirming" trick used
+// by both probes below. Telegram's negative offset returns the last |offset|
+// updates from the end of the queue and does not advance the confirmed
+// pointer, so this is a non-destructive read. We deliberately omit
+// allowed_updates: Telegram REMEMBERS the last allowed_updates passed, so
+// sending our whitelist on a probe call could alter what a subsequent (or the
+// native plugin's) poll receives.
+async function probeTail(token: string, limit: number, label: string): Promise<RawUpdate[]> {
   const controller = new AbortController()
   const abortTimer = setTimeout(() => controller.abort(), 10_000)
   let res: Response
@@ -206,20 +204,44 @@ export async function probeHighWater(token: string): Promise<number | null> {
     res = await fetch(`${API_BASE}/bot${token}/getUpdates`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ offset: -1, limit: 1, timeout: 0 }),
+      body: JSON.stringify({ offset: -1, limit, timeout: 0 }),
       signal: controller.signal,
     })
   } catch (err) {
-    throw new TelegramApiError('transient', `high-water probe network error: ${err instanceof Error ? err.message : String(err)}`)
+    throw new TelegramApiError('transient', `${label} network error: ${err instanceof Error ? err.message : String(err)}`)
   } finally {
     clearTimeout(abortTimer)
   }
   if (!res.ok) {
-    if (res.status === 401) throw new TelegramApiError('fatal', '401 unauthorized (high-water probe)')
-    if (res.status === 409) throw new TelegramApiError('conflict', '409 conflict (high-water probe)')
-    throw new TelegramApiError('transient', `high-water probe HTTP ${res.status}`)
+    if (res.status === 401) throw new TelegramApiError('fatal', `401 unauthorized (${label})`)
+    if (res.status === 409) throw new TelegramApiError('conflict', `409 conflict (${label})`)
+    throw new TelegramApiError('transient', `${label} HTTP ${res.status}`)
   }
   const json = await res.json() as { ok: boolean; result?: RawUpdate[] }
-  const last = json.result && json.result.length ? json.result[json.result.length - 1] : null
+  return json.result ?? []
+}
+
+// Probe the current server-side high-water update_id WITHOUT confirming
+// anything. Returns the highest pending update_id, or null when the queue is
+// empty. Used to seed poll_offset on entering a backfill window so we never
+// re-deliver below the true high-water.
+export async function probeHighWater(token: string): Promise<number | null> {
+  const results = await probeTail(token, 1, 'high-water probe')
+  const last = results.length ? results[results.length - 1] : null
   return last ? last.update_id : null
+}
+
+// Probe the single latest PENDING (unconfirmed) update, with enough shape to
+// reply to it -- chat_id. "Pending" here means Telegram still has it queued
+// because NOTHING has called getUpdates with a real (non-negative) offset
+// past it -- exactly the situation when an agent's own poller (a child of its
+// own tmux session) is dead and nothing else is confirming updates. Used by
+// dead-agent-reply.ts to detect an inbound message for an agent that cannot
+// answer it itself.
+export async function probeLatestPendingChat(token: string): Promise<{ updateId: number; chatId: number | null } | null> {
+  const results = await probeTail(token, 1, 'pending-chat probe')
+  const last = results.length ? results[results.length - 1] : null
+  if (!last) return null
+  const ev = mapUpdate(last)
+  return { updateId: last.update_id, chatId: ev?.chat_id ?? null }
 }
