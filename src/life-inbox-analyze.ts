@@ -20,7 +20,7 @@ import { extname, join } from 'node:path'
 import { APP_LANG } from './config.js'
 import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, inboxDir,
-  resolveFilingPerson, PERSON_CATEGORIES,
+  resolveFilingPerson,
   type LifeConfig,
 } from './life-tree.js'
 import { explorerRoot, humanLocation } from './life-explorer.js'
@@ -527,16 +527,50 @@ export interface KnownFolder {
   personId: string
 }
 
+// A teljes fa vegigjarasat felulrol korlatozzuk -- egy bekotott (Drive/Fotok)
+// ag ala ne induljon el egy tobbezres bejaras, csak mert valaki egyszer
+// rakattintott egy szemelyre. A mely mappastruktura (Boss, 2026-09-08: "a
+// hova kerulne ott a legmelyebb pontig lehessen kivalasztani") tobb szaz
+// sajat mappaig biztosan elfer eb ala.
+const MAX_KNOWN_FOLDERS = 4000
+const MAX_KNOWN_FOLDER_DEPTH = 12
+
+function walkKnownFolders(absDir: string, relPrefix: string, personId: string, out: KnownFolder[], depth: number): void {
+  if (depth > MAX_KNOWN_FOLDER_DEPTH || out.length >= MAX_KNOWN_FOLDERS) return
+  let names: string[]
+  try { names = readdirSync(absDir) } catch { return }
+  for (const name of names) {
+    if (out.length >= MAX_KNOWN_FOLDERS) return
+    // A rejtett/rendszer-tetelek itt is zajt visznek, ugyanugy mint az
+    // Intezoben -- lasd `life-explorer.ts` listLife().
+    if (name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information') continue
+    const abs = join(absDir, name)
+    let st
+    try { st = statSync(abs) } catch { continue }
+    if (!st.isDirectory()) continue
+    const rel = relPrefix ? `${relPrefix}/${name}` : name
+    out.push({ rel, display: humanLocation(rel), personId })
+    walkKnownFolders(abs, rel, personId, out, depth + 1)
+  }
+}
+
+/**
+ * A MAR LETEZO mappak a fan belul, teljes melysegben (kartya #246).
+ *
+ * Korabban ez csak a rogzitett `PERSON_CATEGORIES` ket szintjet (pl.
+ * `Név/Hatóságok`) ellenorizte -- egy mar letrehozott melyebb almappa (pl.
+ * `Név/Hatóságok/Németország/Jobcenter`) nem volt kivalaszthato a "hova
+ * kerulne" listaban, csak a ket felso szint. Boss (2026-09-08): "a hova
+ * kerulne ott a legmelyebb pontig lehessen kivalasztani a legalso mappat is".
+ */
 export function buildKnownFolders(config: LifeConfig, lang: string = APP_LANG): KnownFolder[] {
   const root = explorerRoot()
   if (!root) return []
   const out: KnownFolder[] = []
   for (const person of config.persons) {
-    for (const key of PERSON_CATEGORIES) {
-      const rel = `${person.name}/${lifeName(key, lang)}`
-      const abs = join(root, ...rel.split('/'))
-      if (existsSync(abs)) out.push({ rel, display: humanLocation(rel), personId: person.id })
-    }
+    const personAbs = join(root, person.name)
+    if (!existsSync(personAbs)) continue
+    walkKnownFolders(personAbs, person.name, person.id, out, 0)
   }
   return out
 }
@@ -554,6 +588,7 @@ export interface InboxSuggestion {
   category: { key: string; label: string; confidence: number }
   targetRel: string
   targetDisplay: string
+  targetExists: boolean
   suggestedName: string
   ext: string
   needsReview: boolean
@@ -578,7 +613,7 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
       owner: { personId: '', name: '', confidence: 0, uncertain: true, options },
       date: { value: '', source: 'none', confidence: 0 },
       category: { key: '', label: '', confidence: 0 },
-      targetRel: '', targetDisplay: '', suggestedName: '', ext,
+      targetRel: '', targetDisplay: '', targetExists: false, suggestedName: '', ext,
       needsReview: true, notes: [item.credentialWarning],
     }
   }
@@ -599,12 +634,15 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
   const targetRel = ownerPerson && categoryGuess.key ? `${ownerPerson.name}/${categoryLabel}` : ''
   const targetAbs = targetRel ? join(explorerRoot() || '', ...targetRel.split('/')) : ''
   const targetExists = targetAbs ? existsSync(targetAbs) : false
-  const targetDisplay = targetExists ? humanLocation(targetRel) : ''
+  // A megjelenites AKKOR IS all, ha a mappa meg nem letezik -- kulonben a
+  // felhasznalo nem latna, MIT ajanlunk fel neki letrehozasra (elonezet
+  // nelkul visszafordithatatlan lepest kockazna).
+  const targetDisplay = targetRel ? humanLocation(targetRel) : ''
 
   if (targetRel && !targetExists) {
     notes.push(T(lang,
-      'A javasolt célmappa még nem létezik – előbb hozd létre a könyvtárszerkezetet az Életfa oldalon, vagy válassz másik célt.',
-      'The suggested target folder does not exist yet – create the folder structure on the Life tree page first, or pick another target.'))
+      'A javasolt célmappa még nem létezik – kattints a „Mappa létrehozása" gombra, ha ide szeretnéd tenni, vagy válassz másik célt.',
+      'The suggested target folder does not exist yet – click "Create folder" if you want to file it here, or pick another target.'))
   }
 
   const suggestedName = suggestFileName(ownerPerson?.name || '', dateGuess.value, tokens)
@@ -618,7 +656,7 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
     type: { value: sniff.kind, label: typeLabel(sniff.kind, lang), confidence: sniff.confidence },
     owner: ownerGuess, date: dateGuess,
     category: { key: categoryGuess.key, label: categoryLabel, confidence: categoryGuess.confidence },
-    targetRel: targetExists ? targetRel : '', targetDisplay, suggestedName, ext,
+    targetRel, targetDisplay, targetExists, suggestedName, ext,
     needsReview, notes,
   }
 }

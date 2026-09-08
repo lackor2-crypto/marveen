@@ -34516,6 +34516,26 @@ async function loadIntezoPage() {
       var row = pick.closest('[data-row-name]')
       var input = row && row.querySelector('.ib-target')
       if (input) input.value = pick.value
+      // A legordulobol valasztott mappa MAR letezik -- a letrehozas gombnak
+      // ilyenkor nincs dolga.
+      var cfBtn = row && row.querySelector('[data-create-folder-name]')
+      if (cfBtn) cfBtn.hidden = true
+    })
+    ibSug.addEventListener('click', function (ev) {
+      var cf = ev.target.closest('[data-create-folder-name]')
+      if (cf) _inboxCreateFolder(cf.getAttribute('data-create-folder-name'))
+    })
+    // Kezzel begepelt uj utvonalnal elo kell venni a gombot, ha az AKTUALIS
+    // ertek nem szerepel a mar ismert (letezo) mappak kozott.
+    ibSug.addEventListener('input', function (ev) {
+      var input = ev.target.closest('.ib-target')
+      if (!input) return
+      var row = input.closest('[data-row-name]')
+      var cfBtn = row && row.querySelector('[data-create-folder-name]')
+      if (!cfBtn) return
+      var val = input.value.trim()
+      var exists = _inboxKnownFolders.some(function (f) { return f.rel === val })
+      cfBtn.hidden = !val || exists
     })
   }
 
@@ -34748,7 +34768,11 @@ function _inboxRenderSuggestions() {
         + '<td><input type="date" class="ib-date" value="' + escapeAttr(sug.date.value || '') + '"></td>'
         + '<td><select class="ib-target-pick">' + _inboxTargetOptions(sug) + '</select>'
         + '<input type="text" class="ib-target" value="' + escapeAttr(sug.targetRel || '') + '"'
-        + ' style="width:100%;margin-top:4px" placeholder="' + escapeAttr(t('inbox.target_placeholder')) + '"></td>'
+        + ' style="width:100%;margin-top:4px" placeholder="' + escapeAttr(t('inbox.target_placeholder')) + '">'
+        + '<button type="button" class="btn-secondary btn-compact" style="margin-top:4px;width:100%"'
+        + ' data-create-folder-name="' + escapeAttr(sug.name) + '"'
+        + (sug.targetRel && !sug.targetExists ? '' : ' hidden') + '>'
+        + escapeHtml(t('inbox.create_folder')) + '</button></td>'
         + '<td><input type="text" class="ib-name" value="' + escapeAttr(sug.suggestedName || '') + '"></td>'
         + '<td><button class="btn-primary btn-compact" data-place-name="' + escapeAttr(sug.name) + '">'
         + escapeHtml(t('inbox.place')) + '</button></td></tr>'
@@ -34813,6 +34837,42 @@ async function _inboxPlaceOne(name) {
     await _inboxRefresh()
     await _intezoOpen(_intezoPath)
   }
+}
+
+/**
+ * A "hova kerulne" celmappa helyben letrehozasa (kartya #246). KIZAROLAG
+ * erre a fuggvenyre erkezo, kifejezett gombkattintasra fut le -- az elemzes
+ * maga sose hoz letre semmit, csak javasol (Boss, 2026-09-08: "ha kifejezetten
+ * rakattintok akkor hozza letre a mappat igen"). Elonezet: a megerosito
+ * kerdes kimondja a PONTOS utvonalat, mielott barmi a lemezre kerulne.
+ */
+async function _inboxCreateFolder(name) {
+  var row = _inboxRow(name)
+  if (!row) return
+  var targetInput = row.querySelector('.ib-target')
+  var rel = targetInput ? targetInput.value.trim() : ''
+  if (!rel) return
+  if (!confirm(t('inbox.confirm_create_folder', { path: rel.split('/').join(' / ') }))) return
+  var d = null
+  try {
+    d = await _depoPost('/api/life/inbox/create-target-folder?lang=' + (window._lang || 'hu'), { rel: rel })
+  } catch (e) {
+    showToast(t('inbox.create_folder_failed') + ' ' + ((e && e.message) ? e.message : String(e)))
+    return
+  }
+  if (!d || !d.ok) {
+    showToast((d && d.message) || t('inbox.create_folder_failed'))
+    return
+  }
+  showToast(d.message || '')
+  var createdRel = d.rel || rel
+  if (!_inboxKnownFolders.some(function (f) { return f.rel === createdRel })) {
+    _inboxKnownFolders.push({ rel: createdRel, display: createdRel.split('/').join(' / '), personId: '' })
+  }
+  var sug = _inboxSuggestions.filter(function (s) { return s.name === name })[0]
+  if (sug) { sug.targetRel = createdRel; sug.targetExists = true }
+  var box = document.getElementById('inboxSuggestions')
+  if (box) box.innerHTML = _inboxSuggestions.length ? _inboxRenderSuggestions() : ''
 }
 
 async function _inboxPlaceAll() {

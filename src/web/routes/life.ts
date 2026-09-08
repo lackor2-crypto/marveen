@@ -23,6 +23,7 @@
 //   POST /api/life/inbox/analyze -- AI-javaslat (tipus/tulajdonos/datum/nev) tetelenkent
 //   POST /api/life/inbox/place   -- egy tetel elhelyezese a javaslat (vagy szerkesztett ertek) alapjan
 //   POST /api/life/inbox/enroll-face -- egy BEERKEZO fenykep hozzaadasa a helyi arcfelismero galeriahoz
+//   POST /api/life/inbox/create-target-folder -- a "hova kerulne" celmappa helyben letrehozasa (kartya #246)
 //
 // Minden hibauzenet MAGYAR MONDAT, es azt mondja meg, mit tegyen a
 // felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
@@ -51,7 +52,7 @@ import { join as pathJoin, extname as pathExtname, basename as pathBasename } fr
 import { existsSync } from 'node:fs'
 import { APP_LANG } from '../../config.js'
 import {
-  listLife, lifeInfo, moveLife, mkdirLife, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
+  listLife, lifeInfo, moveLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
 } from '../../life-explorer.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount } from '../../life-mounts.js'
@@ -694,6 +695,32 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const result = enrollFace(absPhotoPath, personId, lang)
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  // CELMAPPA LETREHOZASA A HELYSZINEN (kartya #246). A "hova kerulne"
+  // javaslat gyakran egy MEG NEM LETEZO mappara mutat (pl. a szemely alatt
+  // meg soha nem volt "Hatóságok/Németország/Jobcenter" alag). Korabban
+  // ilyenkor a felhasznalonak at kellett mennie az Eletfa oldalra, ott
+  // kezzel letrehozni, majd vissza a Beerkezobe -- ez a vegpont ugyanezt EGY
+  // kattintassal, a Beerkezoben, teszi lehetove. A letrehozas KIZAROLAG erre
+  // a vegpontra erkezo, kifejezett kattintasra tortenik -- az elemzes
+  // (`/inbox/analyze`) maga SOSE hoz letre semmit, csak javasol.
+  if (path === '/api/life/inbox/create-target-folder' && method === 'POST') {
+    const body = await readJson(req)
+    const lang = uiLang(url)
+    const rel = String(body?.rel ?? '').trim()
+    if (!rel) {
+      send(res, 400, { ok: false, rel: '', message: T(lang, 'Nem adtál meg célmappát.', 'You did not give a target folder.') })
+      return true
+    }
+    const blocked = writeBlockReason(rel)
+    if (blocked) {
+      send(res, 400, { ok: false, rel: '', code: 'git_repo', message: blocked })
+      return true
+    }
+    const result = mkdirLifePath(rel, lang)
     send(res, result.ok ? 200 : 400, result)
     return true
   }

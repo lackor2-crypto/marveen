@@ -2445,6 +2445,9 @@ window._i18n.hu = {
   'inbox.confirm_all':           'Elhelyezem mind a(z) {n} kijelölt tételt a megadott célmappákba?',
   'inbox.place_all_done':        '{ok} / {n} tétel elhelyezve.',
   'inbox.place_all_failures':    'Ezeknél nem sikerült:',
+  'inbox.create_folder':         'Mappa létrehozása itt',
+  'inbox.confirm_create_folder': 'Létrehozom ezt a mappát: {path}?',
+  'inbox.create_folder_failed':  'A mappa létrehozása nem sikerült:',
 
   // Külső törlés elleni védelem (a specifikáció 6. pontja)
   'dguard.title':                'Külső törlés elleni védelem',
