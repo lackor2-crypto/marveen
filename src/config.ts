@@ -464,6 +464,17 @@ export const SUBAGENT_TELEGRAM_WAKE_ENABLED =
 export const LIMIT_WAKE_ENABLED =
   !['0', 'false', 'no', 'off'].includes((cfg('LIMIT_WAKE_ENABLED') ?? '').trim().toLowerCase())
 
+// Dead sub-agent Telegram reply (DEFAULT ON, kill switch DEAD_AGENT_REPLY_ENABLED=0).
+// Boss, 2026-09-08 (Telegram uzenet 821): amikor O ir egy sub-agensnek es az
+// eppen nem el (tmux/folyamat halott), egy valasz jojjon vissza hogy "nem elek
+// most" -- de a halott agens sajat folyamata ezt nem tudja elkuldeni, mert a
+// Telegram-pollozoja (channel-inbound-tee.mjs) az O tmux/session folyamatfajaban
+// fut, tehat vele egyutt hal meg. Kizarolag Boss SAJAT bejovo uzenetere jar
+// reakcio -- onallo allapotvaltasra (crash/restart/reset) SOHA. Lasd
+// src/web/dead-agent-reply.ts.
+export const DEAD_AGENT_REPLY_ENABLED =
+  !['0', 'false', 'no', 'off'].includes((cfg('DEAD_AGENT_REPLY_ENABLED') ?? '').trim().toLowerCase())
+
 // Google Calendar account the heartbeat summarises (next 2h). Empty (the
 // default) means the agent uses whatever calendar its MCP server is
 // authenticated as, so no personal address is baked into the shipped
