@@ -1717,6 +1717,34 @@ export interface CodeBridgeActivity {
    *  nincs elo beszelgetes, hanem hogy meg nem lattunk oda -- a nulla ket
    *  jelentese, kulon mezoben. */
   liveMeasured: boolean
+  /** KVOTA-BLOKK: a hid fiokja epp a keretebe utkozott, tehat a keret
+   *  visszaallasaig NEM dolgozik, barmennyire is "el" (`live === true`) egy ful.
+   *
+   *  Miert kell: a `live === true` csak annyit jelent, hogy a Claude Code
+   *  FOLYAMAT el es cimezheto -- NEM azt, hogy epp general. Egy heti-limitbe
+   *  futott beszelgetes folyamata is ott ul a "You've hit your weekly limit"
+   *  banneren, tehat `live: true` marad, es a hid orokke "dolgozik"-ot mutatott
+   *  (Boss, 2026-09-08: "a vscode agent ... a dolgozik gomb villog zolden ...
+   *  tegnap este ota"). Ez pontosan a tmux-agensek mar megoldott hibaja
+   *  (`computeAgentActivityLabel` + `snapshotShowsQuotaExhausted`): a tartos
+   *  kvota-jel felulirja a "latszik, hogy busy"-t.
+   *
+   *  A jel a hid sajat, MERT jelzese: a legutobb lezart feladat egy
+   *  keret-kimerules hiba. Onmagat oldja fel -- ha barmelyik elo beszelgetes
+   *  VALODI tevekenysege (a napló `lastActivity`-je) frissebb annal a hibanal,
+   *  a fiok mar dolgozik megint, tehat NEM blokkolt. A `lastActivity === null`
+   *  (regi worker, nem latunk oda) nem old fel: csak a mert, frissebb aktivitas
+   *  szamit -- ugyanaz a "nulla ket dolgot jelenthet" elv, mint a `liveMeasured`. */
+  quotaBlocked: boolean
+}
+
+// Igaz, ha a szoveg egy Claude Code keret-kimerules uzenet ("You've hit your
+// weekly limit ...", "usage limit reached", stb.). Szandekosan tolerans: a
+// pontos szoveg valtozhat, a "hit your <ablak> limit" / "usage limit reached"
+// alak a stabil resze. Csak a code-hid kvota-blokk jelehez hasznaljuk (kijelzo).
+export function isCodeUsageLimitMessage(text: string | null | undefined): boolean {
+  if (!text) return false
+  return /hit your\b[\w\s-]{0,30}\blimit\b/i.test(text) || /usage limit reached/i.test(text)
 }
 
 export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
@@ -1740,21 +1768,46 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   // kepzett alias all a helyen -- nem talalunk ki projektnevet.
   const registered = listCodeSessions()
   const byPath = new Map(registered.map((r) => [r.workspacePath.toLowerCase(), r]))
-  const liveSessions = listCodeCandidates()
+  // A mert `lastActivity` a kvota-blokk feloldasahoz kell, ezert eloszor a
+  // NYERS jelolteket tartjuk meg, es csak utana kepezzuk a farok-sorokat.
+  const liveCands = listCodeCandidates()
     .filter((c) => c.live === true)
     .sort((a, b) => (b.lastActivity ?? b.mtime ?? 0) - (a.lastActivity ?? a.mtime ?? 0))
     .slice(0, 8)
-    .map((c) => {
-      const reg = byPath.get(c.workspacePath.toLowerCase()) ?? null
-      return {
-        project: reg ? reg.project : aliasFromWorkspacePath(c.workspacePath),
-        title: c.title,
-        sessionId: c.sessionId,
-        // Melyik ful a projekt AKTUALIS beszelgetese: a felulet ezt nyitja
-        // meg elsokent, hogy ugyanoda vigyen, ahova egy feladat menne.
-        current: reg ? reg.sessionId === c.sessionId : c.primary,
-      }
-    })
+  const liveSessions = liveCands.map((c) => {
+    const reg = byPath.get(c.workspacePath.toLowerCase()) ?? null
+    return {
+      project: reg ? reg.project : aliasFromWorkspacePath(c.workspacePath),
+      title: c.title,
+      sessionId: c.sessionId,
+      // Melyik ful a projekt AKTUALIS beszelgetese: a felulet ezt nyitja
+      // meg elsokent, hogy ugyanoda vigyen, ahova egy feladat menne.
+      current: reg ? reg.sessionId === c.sessionId : c.primary,
+    }
+  })
+  // KVOTA-BLOKK: a legutobb LEZART feladat egy keret-kimerules hiba-e, es
+  // van-e ota VALODI, frissebb elo tevekenyseg (ami feloldja). Lasd a
+  // `CodeBridgeActivity.quotaBlocked` dokumentaciojat.
+  const lastTerminal = db
+    .prepare(
+      `SELECT status, summary, error, finished_at FROM code_tasks
+       WHERE status IN ('error','done') AND finished_at IS NOT NULL
+       ORDER BY finished_at DESC LIMIT 1`,
+    )
+    .get() as Record<string, unknown> | undefined
+  let quotaBlocked = false
+  if (lastTerminal && String(lastTerminal['status']) === 'error') {
+    const msg = `${String(lastTerminal['summary'] ?? '')} ${String(lastTerminal['error'] ?? '')}`
+    if (isCodeUsageLimitMessage(msg)) {
+      const blockedAt = Number(lastTerminal['finished_at'] ?? 0)
+      // Csak MERT, frissebb aktivitas old fel (`lastActivity != null`). A `null`
+      // (nem latunk oda) nem old fel -- a nulla ket dolgot jelenthet.
+      const recovered = liveCands.some(
+        (c) => c.lastActivity != null && c.lastActivity > blockedAt,
+      )
+      quotaBlocked = !recovered
+    }
+  }
   return {
     present: lastSeen > 0 || sessions > 0,
     workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
@@ -1766,6 +1819,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     })),
     liveSessions,
     liveMeasured: candidatesEverReported,
+    quotaBlocked,
   }
 }
 

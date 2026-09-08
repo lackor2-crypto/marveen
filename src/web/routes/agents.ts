@@ -983,9 +983,17 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         // Az "elo" definicioja ugyanaz, mint a kod-hid kartyajan
         // (`live === true`), hogy ne legyen ket kulonbozo "dolgozik" fogalom.
         const liveFirst = act.liveSessions.find((s) => s.current) ?? act.liveSessions[0] ?? null
-        const state = act.running.length > 0 || act.liveSessions.length > 0
-          ? 'working'
-          : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')
+        // A KVOTA-BLOKK ELOSZOR (ugyanaz az elv, mint `computeAgentActivityLabel`
+        // 57. sora a tmux-agenseknel): egy keret-kimerult fiok NEM dolgozik,
+        // barmennyire is "el" egy ful. A `live === true` csak azt jelenti, hogy
+        // a folyamat cimezheto -- egy heti-limitbe futott session folyamata is
+        // ott ul a banneren, ezert mutatott a hid orokke zold "dolgozik"-ot
+        // (Boss, 2026-09-08). Reszletek: `CodeBridgeActivity.quotaBlocked`.
+        const state = act.quotaBlocked
+          ? 'limited'
+          : (act.running.length > 0 || act.liveSessions.length > 0
+              ? 'working'
+              : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped'))
         entries.push({
           name: CODE_BRIDGE_ACTIVITY_ID,
           // Termeknev, mindket nyelven ugyanaz -- nem forditando szoveg.
