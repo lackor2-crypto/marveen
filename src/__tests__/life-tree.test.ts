@@ -23,6 +23,7 @@ vi.mock('../config.js', async () => {
 const {
   safeLifeName, planLifeTree, ensureLifeTree, lifeTreeStatus, saveLifeConfig,
   defaultCountrySplit, defaultMediaKinds, MEDIA_COUNTRY_KEY,
+  sanitizeCustodianIds, resolveFilingPerson,
 } = await import('../life-tree.js')
 const { resolveLifePath, listLife, moveLife, mkdirLife, searchLife, humanSize, humanLocation } = await import('../life-explorer.js')
 const { setPhysical, getPhysical, movePhysical } = await import('../life-documents.js')
@@ -320,5 +321,76 @@ describe('apro segedek', () => {
     setPhysical('X/a/2.pdf', { physical: true, location: 'polc' })
     expect(movePhysical('X/a', 'Y/b')).toBe(2)
     expect(getPhysical('Y/b/1.pdf').physical).toBe(true)
+  })
+})
+
+// GONDVISELO (custodianId, kartya #204): "a gyerek mindig az anya alá kerül".
+// A mezo szabadon szerkesztheto bemenetbol jon (API/fajl), ezert a sajat
+// magara mutatas es a kor (A->B->A) NEM dobhat hibat -- csendben, de
+// eszrevehetoen (a mezo torlodik) kell helyre allnia.
+function person(id: string, custodianId?: string) {
+  return {
+    id, name: id, role: 'person' as const, countries: [], countrySplit: [],
+    mediaKinds: [], mediaGroups: [], projects: [], custodianId,
+  }
+}
+
+describe('sanitizeCustodianIds', () => {
+  it('erintetlenul hagyja a rendben levo lancot', () => {
+    const persons = [person('gyerek', 'anya'), person('anya')]
+    sanitizeCustodianIds(persons)
+    expect(persons[0].custodianId).toBe('anya')
+  })
+  it('torli az onmagara mutatast', () => {
+    const persons = [person('a', 'a')]
+    sanitizeCustodianIds(persons)
+    expect(persons[0].custodianId).toBeUndefined()
+  })
+  it('torli a nem letezo hivatkozast', () => {
+    const persons = [person('a', 'nincs-ilyen')]
+    sanitizeCustodianIds(persons)
+    expect(persons[0].custodianId).toBeUndefined()
+  })
+  it('megszakitja a kort: a lanc lezarodik, nincs vegtelen ciklus', () => {
+    const persons = [person('a', 'b'), person('b', 'a')]
+    sanitizeCustodianIds(persons)
+    // A kort meg KELL tornie: legalabb az egyik hivatkozas torlodik, igy nem
+    // marad a->b->a hurok. NEM kovetelmeny, hogy MINDKETTO torlodjon -- egy
+    // link elvagasa is lezarja a lancot (a masik ekkor egy ervenyes gyokerre
+    // mutat), es a filing-lanc kovetese igy is veges.
+    const cleared = persons.filter((p) => p.custodianId === undefined).length
+    expect(cleared).toBeGreaterThanOrEqual(1)
+    // A megmaradt lanc mindket iranybol egy gondviselo-nelkuli gyokerben all
+    // meg -- ez az, amit a resolveFilingPerson vegtelen ciklus nelkul elvar.
+    const config = { persons, companies: [] }
+    const rootA = persons.find((p) => p.id === resolveFilingPerson('a', config))!
+    const rootB = persons.find((p) => p.id === resolveFilingPerson('b', config))!
+    expect(rootA.custodianId).toBeUndefined()
+    expect(rootB.custodianId).toBeUndefined()
+  })
+})
+
+describe('resolveFilingPerson', () => {
+  it('a lanc vegen a vegso gondviselot adja', () => {
+    const config = { persons: [person('gyerek', 'anya'), person('anya')], companies: [] }
+    expect(resolveFilingPerson('gyerek', config)).toBe('anya')
+  })
+  it('gondviselo nelkul sajat magat adja', () => {
+    const config = { persons: [person('felnott')], companies: [] }
+    expect(resolveFilingPerson('felnott', config)).toBe('felnott')
+  })
+  it('tobb lepcsos lancon is vegigmegy', () => {
+    const config = { persons: [person('unoka', 'szulo'), person('szulo', 'nagyszulo'), person('nagyszulo')], companies: [] }
+    expect(resolveFilingPerson('unoka', config)).toBe('nagyszulo')
+  })
+  it('megszakadt lancnal az utolso ERVENYES tagnal all meg, nem dob hibat', () => {
+    // `custodianId` egy olyan id-ra mutat, ami mar nincs a listaban -- ez nem
+    // lehet a sanitize UTAN, de a fuggveny onmagaban is veedett kell legyen.
+    const config = { persons: [{ ...person('gyerek'), custodianId: 'nincs-ilyen' }], companies: [] }
+    expect(resolveFilingPerson('gyerek', config)).toBe('gyerek')
+  })
+  it('ismeretlen szemely-id-t valtoztatas nelkul visszaad', () => {
+    const config = { persons: [person('a')], companies: [] }
+    expect(resolveFilingPerson('nincs-ilyen', config)).toBe('nincs-ilyen')
   })
 })
