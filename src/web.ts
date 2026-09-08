@@ -37,6 +37,7 @@ import { startContextRestartGateRunner } from './web/context-restart-gate-runner
 import { collectTokenUsage } from './web/token-usage.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { initVisionAdapters } from './life-vision-adapter.js'
 import { tryHandleAuth } from './web/routes/auth.js'
 import { tryHandleSecurity } from './web/routes/security.js'
 import { tryHandleProfiles } from './web/routes/profiles.js'
@@ -591,6 +592,12 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // Ha a helyi OCR/arcfelismero venv telepitve van (Boss level-2 jovahagyasa
+  // utan, `scripts/install-vision.sh`), koti be a valodi adaptereket -- ha
+  // nincs (friss telepites), csendben az alapertelmezett "nincs telepitve"
+  // adapterek maradnak, lasd `life-inbox-analyze.ts`.
+  initVisionAdapters()
 
   const tokenCollectInterval = webOnly ? undefined : setInterval(() => {
     collectTokenUsage().catch(err => logger.warn({ err }, 'Periodic token usage collection failed'))
