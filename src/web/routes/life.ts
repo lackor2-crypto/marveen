@@ -30,6 +30,7 @@ import {
   inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
+  sanitizeCustodianIds,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
@@ -643,6 +644,11 @@ function parseConfig(body: any): LifeConfig | string {
       mediaKinds: toKeyList(p?.mediaKinds, MEDIA_KINDS, defaultMediaKinds()),
       mediaGroups: toNameList(p?.mediaGroups),
       projects: toProjects(p?.projects),
+      // Gondviselo (kartya #204): masik szemely id-jara mutathat, "gyerek
+      // mindig az anya alá". A hivatkozas ervenyesseget (letezik-e, nincs-e
+      // kor) a `sanitizeCustodianIds()` ellenorzi LENT, amikor mar minden
+      // szemely id-je ismert.
+      custodianId: String(p?.custodianId ?? '').trim() || undefined,
     })
   }
   // Pontosan EGY gazda kell: a gazda kapja a teljes (12 kategoriás) agat, es
@@ -650,6 +656,7 @@ function parseConfig(body: any): LifeConfig | string {
   // eldonteni, kie a "Munka" -- ha egy sem, senkie.
   const owners = persons.filter((p) => p.role === 'owner')
   if (owners.length !== 1) return 'Pontosan egy személy legyen a gazda (a saját ágad). Jelöld meg, melyik az.'
+  sanitizeCustodianIds(persons)
 
   const companies: LifeCompany[] = []
   for (const c of companiesIn) {
