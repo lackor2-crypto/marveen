@@ -253,10 +253,45 @@ profil még tartalmazta a H1 chartot az EA-val, tehát egy ideig két példány
 chart betöltési sorát kerestem**: egy `grep`, ami csak azt igazolja, amit
 látni akarsz, semmit nem igazol.
 
-**A helyes bizonyítás tehát kettő, együtt:** (1) az új chart betöltési sora a
-naplóban, ÉS (2) a `grep -al 'GOLD_Live_Export' chart*.chr` **pontosan egy**
-fájlt ad vissza. A profil a bezárás pillanatának állapotát menti, ezért a
-`.chr`-t mindig a bezárás UTÁN nézd meg, soha nem előtte.
+**A profil a bezárás pillanatának állapotát menti**, ezért a `.chr`-t mindig a
+bezárás UTÁN nézd meg, soha nem előtte.
+
+**DE A `.chr` NEM AZ EGYETLEN FORRÁS -- ez a mérés 2026-09-08-án megbukott.**
+A `MarvinMT4Launch` task nem csupaszon indítja a terminált, hanem egy indítási
+konfigurációval: `terminal.exe "<MT4>\config\marveen-startup.ini" /portable`.
+Abban a fájlban egy `[StartUp]` blokk áll:
+
+```ini
+[StartUp]
+Symbol=GOLD
+Period=H1
+Expert=Sajat\GOLD_Live_Export
+```
+
+Ez **minden indításkor** nyit egy `GOLD,H1` chartot és felteszi rá az EA-t --
+a profiltól **függetlenül**. Mért bizonyíték (2026-09-08 07:16, a profilban
+ekkor egyetlen `.chr` tartalmazta az EA-t):
+
+```
+07:16:56.337  Expert Sajat\GOLD_Live_Export GOLD,H1:  loaded successfully
+07:16:56.604  Expert Sajat\GOLD_Live_Export GOLD,M15: loaded successfully
+```
+
+Vagyis **két példány** indult, és mindkettő ugyanazt a `gold_live.txt`-t írja.
+(Az adat ettől még értelmezhető maradt: a `gold-data.py` `verdikt: ok`-ot
+adott -- de két író ugyanarra a fájlra nem szándékolt állapot.)
+
+**A helyes bizonyítás tehát HÁROM dolog, együtt:** (1) az új chart betöltési
+sora a naplóban, (2) `grep -al 'GOLD_Live_Export' chart*.chr` -> **pontosan
+egy** fájl, ÉS (3) az indítási `.ini`-ben **nincs** `[StartUp] Expert=` sor:
+
+```bash
+T=$(cat store/mt4-terminal-dir.txt); cat "$T/config/marveen-startup.ini"
+```
+
+Figyelem: ugyanennek a fájlnak az `[Experts] Enabled=true` sora az, ami az
+**AutoTrading-ot bekapcsolja** induláskor -- azt tehát NEM szabad kidobni,
+csak a `[StartUp]` blokkot (lásd a "kikapcsolt Auto Trading" buktatót).
 
 ### ⛔ AZ M1 NINCS AZ EA EXPORTJÁBAN -- ÉS A .hst CSAK TISZTA BEZÁRÁSKOR FRISSÜL
 
