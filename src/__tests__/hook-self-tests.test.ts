@@ -26,6 +26,11 @@ const HOOKS = [
   // is a real answer or a platform limit banner (kanban aa38f01b). That call is
   // pure, so it belongs here rather than behind a live Telegram turn.
   'telegram_progress_clear.py',
+  // Added 2026-09-08 (kanban 34f8f2dc): the UserPromptSubmit hook now decides
+  // whether to send the honest "keret kimerult" status instead of the
+  // "dolgozom rajta" placeholder. Same reasoning -- pure, testable, no live
+  // Telegram turn needed.
+  'telegram_progress.py',
 ]
 
 describe('python hook self-tests', () => {
