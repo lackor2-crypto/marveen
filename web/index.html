@@ -3053,6 +3053,21 @@
         <p id="inboxStatus" class="subtitle" style="margin:8px 0"></p>
         <div id="inboxItems"></div>
 
+        <!-- AI-JAVASLAT (kartya #204). Csak AJANL -- a tenyleges athelyezes
+             mindig az "Elhelyezes" gombon at, elonezettel, felulirasa nelkul.
+             A soronkenti mezok (tulajdonos/datum/celmappa/nev) SZERKESZTHETOK,
+             mert a gepnek soha nem talalgatnia kell a gazdat: friss
+             telepitesen (nincs ismert arc) minden sor bizonytalan indul, es a
+             kezi valasztas marad az egyetlen ut. -->
+        <div id="inboxAnalyzeBox" style="margin-top:14px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn-secondary btn-compact" id="inboxAnalyzeBtn" data-i18n="inbox.analyze">Elemzés (AI-javaslat)</button>
+            <button class="btn-primary btn-compact" id="inboxPlaceAllBtn" hidden data-i18n="inbox.place_all">Mind elhelyezése</button>
+          </div>
+          <p id="inboxAnalyzeNote" class="subtitle" style="margin:8px 0"></p>
+          <div id="inboxSuggestions"></div>
+        </div>
+
         <!-- A LANC. A morzsa mutatja, hol tartunk; a kerdes azt, mire valaszolsz. -->
         <div id="inboxChainBox" style="margin-top:14px" hidden>
           <p id="inboxChainCrumb" class="subtitle" style="margin:0 0 4px"></p>
