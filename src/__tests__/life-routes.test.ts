@@ -25,6 +25,18 @@ vi.mock('../config.js', async (orig) => {
   return { ...actual, STORE_DIR: store }
 })
 
+// A valodi OCR/arcfelismero venv (dlib) telepitve lehet EZEN a gepen, de a
+// route-teszt NEM akar tole fuggeni -- ezert a `enrollFace` fuggvenyt itt
+// determinisztikusan mockoljuk, a szemely-azonosito alapjan dontve.
+vi.mock('../life-vision-adapter.js', () => ({
+  enrollFace: vi.fn((absPath: string, personId: string, lang: string = 'hu') => {
+    if (absPath.includes('homalyos')) {
+      return { ok: false, message: lang === 'en' ? 'no face found' : 'nem talalhato arc' }
+    }
+    return { ok: true, savedPath: `/fake-gallery/${personId}/fake.jpg`, message: lang === 'en' ? 'saved' : 'elmentve' }
+  }),
+}))
+
 const { tryHandleLife } = await import('../web/routes/life.js')
 
 /**
@@ -202,5 +214,67 @@ describe('POST /api/life/inbox/analyze es /api/life/inbox/place', () => {
     expect(out.body.ok).toBe(false)
     expect(readFileSync(join(celDir, 'szamla.pdf'), 'utf8')).toBe('regi')
     expect(existsSync(join(inbox, 'szamla.pdf'))).toBe(true)
+  })
+})
+
+describe('POST /api/life/inbox/enroll-face', () => {
+  const inbox = join(depot, 'Beérkező')
+  let personId = ''
+
+  beforeEach(async () => {
+    rmSync(join(store, 'life-tree.json'), { force: true })
+    rmSync(inbox, { recursive: true, force: true })
+    mkdirSync(inbox, { recursive: true })
+    const { ctx, out } = ctxFor('/api/life/config', 'POST', { persons: [owner], companies: [] })
+    await tryHandleLife(ctx)
+    personId = out.body.config.persons[0].id
+  })
+
+  it('tetel nelkul emberi hibat ad', async () => {
+    const { ctx, out } = ctxFor('/api/life/inbox/enroll-face', 'POST', { personId })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.error).toBe('no_item')
+  })
+
+  it('szemely nelkul emberi hibat ad', async () => {
+    writeFileSync(join(inbox, 'apu.jpg'), 'x')
+    const { ctx, out } = ctxFor('/api/life/inbox/enroll-face', 'POST', { name: 'apu.jpg' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.error).toBe('no_person')
+  })
+
+  it('ismeretlen szemely-azonositora emberi hibat ad', async () => {
+    writeFileSync(join(inbox, 'apu.jpg'), 'x')
+    const { ctx, out } = ctxFor('/api/life/inbox/enroll-face', 'POST', { name: 'apu.jpg', personId: 'nincs-ilyen' })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.error).toBe('unknown_person')
+  })
+
+  it('mar nem letezo BEERKEZO-tetelre emberi hibat ad', async () => {
+    const { ctx, out } = ctxFor('/api/life/inbox/enroll-face', 'POST', { name: 'nincs-ilyen.jpg', personId })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.error).toBe('not_found')
+  })
+
+  it('sikeres eseten az enrollFace eredmenyet adja vissza valtozatlanul', async () => {
+    writeFileSync(join(inbox, 'apu.jpg'), 'x')
+    const { ctx, out } = ctxFor('/api/life/inbox/enroll-face', 'POST', { name: 'apu.jpg', personId })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.ok).toBe(true)
+    expect(out.body.savedPath).toBe(`/fake-gallery/${personId}/fake.jpg`)
+  })
+
+  it('sikertelen arcfelismeresnel 400-at ad az enrollFace uzenetevel', async () => {
+    writeFileSync(join(inbox, 'homalyos.jpg'), 'x')
+    const { ctx, out } = ctxFor('/api/life/inbox/enroll-face', 'POST', { name: 'homalyos.jpg', personId })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(400)
+    expect(out.body.ok).toBe(false)
+    expect(out.body.message).toContain('arc')
   })
 })

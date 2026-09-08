@@ -26,7 +26,7 @@ import {
 import { explorerRoot, humanLocation } from './life-explorer.js'
 import { inboxStatus, credentialRisk, type InboxItem, type InboxReason } from './life-inbox.js'
 
-function T(lang: string, hu: string, en: string): string {
+export function T(lang: string, hu: string, en: string): string {
   return lang === 'en' ? en : hu
 }
 

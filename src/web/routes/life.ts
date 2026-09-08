@@ -22,6 +22,7 @@
 //   GET  /api/life/inbox      -- hany irat var a BEERKEZO-ben
 //   POST /api/life/inbox/analyze -- AI-javaslat (tipus/tulajdonos/datum/nev) tetelenkent
 //   POST /api/life/inbox/place   -- egy tetel elhelyezese a javaslat (vagy szerkesztett ertek) alapjan
+//   POST /api/life/inbox/enroll-face -- egy BEERKEZO fenykep hozzaadasa a helyi arcfelismero galeriahoz
 //
 // Minden hibauzenet MAGYAR MONDAT, es azt mondja meg, mit tegyen a
 // felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
@@ -29,14 +30,15 @@ import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   ensureLifeTree, lifeTreeStatus, loadLifeConfig, saveLifeConfig,
-  inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists,
+  inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists, inboxDir,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
   sanitizeCustodianIds,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
-import { analyzeInbox, getOcrAdapter, getFaceAdapter } from '../../life-inbox-analyze.js'
+import { analyzeInbox, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox-analyze.js'
+import { enrollFace } from '../../life-vision-adapter.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, iconTable } from '../../naming-conventions.js'
@@ -46,6 +48,7 @@ import {
 import { depotRoot } from '../../depot.js'
 import { storageKindRoot } from '../../storages.js'
 import { join as pathJoin, extname as pathExtname, basename as pathBasename } from 'node:path'
+import { existsSync } from 'node:fs'
 import { APP_LANG } from '../../config.js'
 import {
   listLife, lifeInfo, moveLife, mkdirLife, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
@@ -655,6 +658,43 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       else message = `${message} ${rn.message}`
     }
     send(res, 200, { ok: true, rel, message })
+    return true
+  }
+
+  // ARCFELISMERES-BETANITAS (kartya #204). A felhasznalo egy mar beerkezett
+  // BEERKEZO tetelt jelol ki (fenykep) es kivalasztja, kihez tartozik -- ez
+  // kerul a helyi arcfelismero galeriajaba (`store/face-gallery/<personId>`),
+  // hogy legkozelebb magatol felismerje.
+  if (path === '/api/life/inbox/enroll-face' && method === 'POST') {
+    const body = await readJson(req)
+    const lang = uiLang(url)
+    const name = String(body?.name ?? '').trim()
+    const personId = String(body?.personId ?? '').trim()
+    if (!name) {
+      send(res, 400, { error: 'no_item', message: T(lang, 'Nem jelöltél ki tételt.', 'You did not select an item.') })
+      return true
+    }
+    if (!personId) {
+      send(res, 400, { error: 'no_person', message: T(lang, 'Előbb válaszd ki, kihez tartozik a fotó.', 'First choose who the photo belongs to.') })
+      return true
+    }
+    const config = loadLifeConfig()
+    if (!config.persons.some((p) => p.id === personId)) {
+      send(res, 400, { error: 'unknown_person', message: T(lang, 'Nincs ilyen személy a fában.', 'No such person in the tree.') })
+      return true
+    }
+    const dir = inboxDir(lang)
+    if (!dir) {
+      send(res, 400, { error: 'no_tree', message: T(lang, 'Az életfa gyökere még nincs beállítva.', 'The life-tree root is not set up yet.') })
+      return true
+    }
+    const absPhotoPath = pathJoin(dir, pathBasename(name))
+    if (!existsSync(absPhotoPath)) {
+      send(res, 400, { error: 'not_found', message: T(lang, 'Ez a tétel már nincs a BEÉRKEZŐ-ben.', 'This item is no longer in the INBOX.') })
+      return true
+    }
+    const result = enrollFace(absPhotoPath, personId, lang)
+    send(res, result.ok ? 200 : 400, result)
     return true
   }
 
