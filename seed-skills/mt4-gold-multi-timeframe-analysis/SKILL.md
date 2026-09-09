@@ -407,6 +407,39 @@ sztochasztik szerepeljen; a "nem mértem" ezt teljesíti, a kitalált szám nem.
   chartot, csak a számokat hallja, nála egy csendben elavult ár rosszabb mint
   a hallgatás.
 
+### ⛔ A whatsapp-send.py "SENT" ALLAPOTA NEM BIZONYITEK A TENYLEGES KEZBESITESRE (2026-09-09, valos eset)
+
+A script `send_whatsapp_message()` fuggvenye csak azt ellenorzi, hogy a
+billentyu-parancs-sorozat (`{ESC}` -> `^f` -> kereses -> `{ENTER}` ->
+`^v` -> `{ENTER}`) vegigfutott-e egy korai `NOT_FOREGROUND` /
+`CLIPBOARD_MISMATCH` guard nelkul, es ha igen, `SENT`-et ir -> a Python
+wrapper ebbol csinal exit 0-t es "delivered"-et. **Ez NEM bizonyitja, hogy a
+szoveg tenylegesen bekerult egy uzenet-buborekba a helyes beszelgetesben** --
+a WhatsApp ablak kozben elvesztheti a fokuszt vagy bezarodhat ugy, hogy a
+script ezt nem veszi eszre.
+
+Valos eset: egy TELJES GOLD elemzest a script exit 0-val "delivered"-nek
+jelezte, a fleet-dedup emlek es a napi naplo erre alapozva ment ki. A
+cimzett Telegramon jelezte, hogy nem kapta meg -- a `--select-only`
+diagnosztikaval (`whatsapp-send.py ... --select-only`) kideult, hogy a chat
+helyesen megnyilt, de a szoveg TENYLEG hianyzott belole. Kozben a
+`Get-Process -Name 'WhatsApp*'` `MainWindowHandle=0`-t mutatott -- az ablak
+kozben bezarodott vagy hattterbe kerult.
+
+**Kotelezo eljaras minden kuldes utan, MIELOTT a fleet-dedup emlek
+(`arany-elemzes-elkuldve`) megirodik:**
+1. Ne csak az exit kodot/`"SENT"` allapotot nezd -- nyisd meg magat a
+   `whatsapp_verify.png`-t (vagy futtass utana egy `--select-only`-t) es
+   nezd meg a TARTALMAT: a kikuldott szoveg TENYLEG lathato-e egy
+   uzenet-buborekban a cimzett beszelgetesben, nem csak azt, hogy a fajl
+   letezik.
+2. Csak ha ez vizualisan is megerositve van, ird meg a dedup emleket. Ha
+   nem, kuldd ujra, es CSAK az ujboli, tartalom-szinten igazolt kuldes
+   szamit valos kezbesitesnek a dedup szempontjabol.
+3. Ha egy korabban rossz emlek mar megiródott, ne torold -- irj ra egy
+   KORREKCIO emleket, ami kifejezetten hivatkozik a hibas azonositora, es a
+   napi naploba is ird bele a helyesbitest.
+
 ## Ellenőrzés
 - Mind a 4 PNG friss időbélyegű és tényleg a várt idősík-címet mutatja
   (`[GOLD,Daily]`, `[GOLD,H1]`, `[GOLD,M15]`, `[GOLD,M5]` az ablak címében).
