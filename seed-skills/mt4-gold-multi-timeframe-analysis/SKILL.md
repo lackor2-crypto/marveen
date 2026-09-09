@@ -407,32 +407,52 @@ sztochasztik szerepeljen; a "nem mértem" ezt teljesíti, a kitalált szám nem.
   chartot, csak a számokat hallja, nála egy csendben elavult ár rosszabb mint
   a hallgatás.
 
-### ⛔ A whatsapp-send.py "SENT" ALLAPOTA NEM BIZONYITEK A TENYLEGES KEZBESITESRE (2026-09-09, valos eset)
+### ⛔ A whatsapp-send.py "SENT" ALLAPOTA -- MAR KODSZINTEN JAVITVA (2026-09-09, valos eset -> tenyleges fix)
 
-A script `send_whatsapp_message()` fuggvenye csak azt ellenorzi, hogy a
-billentyu-parancs-sorozat (`{ESC}` -> `^f` -> kereses -> `{ENTER}` ->
+**Ez a bekezdes eredetileg csak dokumentaltan (skill-buktatoval) volt lezarva
+-- Boss 2026-09-09 explicit ezt kifogasolta: "nem kell kanban kartya. csak
+javitsd ki siman. hogy legyen ellenorzes erre is." A tenyleges kod-fix azota
+landolt.** A `send_whatsapp_message()` regi valtozata csak azt ellenorizte,
+hogy a billentyu-parancs-sorozat (`{ESC}` -> `^f` -> kereses -> `{ENTER}` ->
 `^v` -> `{ENTER}`) vegigfutott-e egy korai `NOT_FOREGROUND` /
-`CLIPBOARD_MISMATCH` guard nelkul, es ha igen, `SENT`-et ir -> a Python
-wrapper ebbol csinal exit 0-t es "delivered"-et. **Ez NEM bizonyitja, hogy a
-szoveg tenylegesen bekerult egy uzenet-buborekba a helyes beszelgetesben** --
-a WhatsApp ablak kozben elvesztheti a fokuszt vagy bezarodhat ugy, hogy a
-script ezt nem veszi eszre.
+`CLIPBOARD_MISMATCH` guard nelkul, es ha igen, `SENT`-et irt -> a Python
+wrapper ebbol csinalt exit 0-t es "delivered"-et, ANELKUL hogy barmi
+tenylegesen ellenorizte volna, hogy a szoveg bekerult-e egy uzenet-buborekba.
 
 Valos eset: egy TELJES GOLD elemzest a script exit 0-val "delivered"-nek
 jelezte, a fleet-dedup emlek es a napi naplo erre alapozva ment ki. A
 cimzett Telegramon jelezte, hogy nem kapta meg -- a `--select-only`
-diagnosztikaval (`whatsapp-send.py ... --select-only`) kideult, hogy a chat
-helyesen megnyilt, de a szoveg TENYLEG hianyzott belole. Kozben a
-`Get-Process -Name 'WhatsApp*'` `MainWindowHandle=0`-t mutatott -- az ablak
-kozben bezarodott vagy hattterbe kerult.
+diagnosztikaval kideult, hogy a chat helyesen megnyilt, de a szoveg TENYLEG
+hianyzott belole.
+
+**A javitas (kod, nem csak dokumentacio):** a Windows-oldali `send_script`
+mostantol egy kepponthash-t vesz a chat-terulet (fejlec es beviteli sor
+NELKULI resze, `GetWindowRect`-bol szamolva) allapotarol KOZVETLENUL az
+`Enter` elott es KOZVETLENUL utana (egy 1.5 mp-es ujraprobalkozassal, ha az
+elso osszehasonlitas meg nem valtozott). Ha a ket hash MEGEGYEZIK -- semmi
+nem valtozott a kepernyon --, a script `SENT_UNVERIFIED`-et ir `SENT` helyett,
+es a Python oldal ezt HIBAKENT kezeli (nem exit 0, ujraprobalkozik). Ez
+pontosan azt a hibamodot fogja meg, ami a valos esetben tortent: a
+billentyu-sorozat lefuthat ugy, hogy semmi nem jelenik meg sehol.
+
+**Miert kepponthash es nem UI Automation:** elobb UI Automation-t probaltam
+(`System.Windows.Automation`), de elo teszttel kiderult, hogy a WhatsApp
+Desktop ablak automation-faja mar a cimsavnal megall (9 elem, a tartalom
+nem erheto el rajta keresztul) -- ez a megkozelites hasznalhatatlan lett
+volna. A kepponthash-t is elo teszttel igazoltam MIELOTT bekerult volna a
+kuldesi utba: nyugalmi allapotban ketszer vett hash egyezik (nincs
+hamis-pozitiv villogasbol), egy valodi UI-valtozas (keresőmezőbe gepeles)
+utan pedig kulonbozik -- tehat a mechanizmus tenylegesen erzekeli, ha
+"semmi sem tortent a kepernyon", ami pontosan a 2026-09-09-i hiba volt.
 
 **Kotelezo eljaras minden kuldes utan, MIELOTT a fleet-dedup emlek
-(`arany-elemzes-elkuldve`) megirodik:**
-1. Ne csak az exit kodot/`"SENT"` allapotot nezd -- nyisd meg magat a
-   `whatsapp_verify.png`-t (vagy futtass utana egy `--select-only`-t) es
-   nezd meg a TARTALMAT: a kikuldott szoveg TENYLEG lathato-e egy
-   uzenet-buborekban a cimzett beszelgetesben, nem csak azt, hogy a fajl
-   letezik.
+(`arany-elemzes-elkuldve`) megirodik (ez TOVABBRA IS ervenyes, a kod-fix
+CSAK a script sajat SENT/SENT_UNVERIFIED jelzeset teszi megbizhatobba, nem
+helyettesiti a masodik, fuggetlen emberi/vizualis megerositest):**
+1. Ne csak az exit kodot nezd -- nyisd meg magat a `whatsapp_verify.png`-t
+   (vagy futtass utana egy `--select-only`-t) es nezd meg a TARTALMAT: a
+   kikuldott szoveg TENYLEG lathato-e egy uzenet-buborekban a cimzett
+   beszelgetesben, nem csak azt, hogy a fajl letezik.
 2. Csak ha ez vizualisan is megerositve van, ird meg a dedup emleket. Ha
    nem, kuldd ujra, es CSAK az ujboli, tartalom-szinten igazolt kuldes
    szamit valos kezbesitesnek a dedup szempontjabol.

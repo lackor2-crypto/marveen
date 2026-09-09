@@ -12,7 +12,15 @@ Flow:
 1. Resolve powershell.exe (WSL PATH often has no /mnt/c entries).
 2. Ensure WhatsApp is running (optional, --skip-launch to bypass).
 3. Write a .ps1 to C:\\Users\\Public and run it via Task Scheduler Interactive.
-4. Wait for the script's own result file -- this is the ONLY success signal.
+4. Wait for the script's own result file -- this is the ONLY success signal,
+   and (2026-09-09) that signal itself now requires a content-level check: a
+   pixel-hash of the chat area must actually change after Enter is pressed.
+   A prior real incident had this script report "SENT" (exit 0) for a message
+   that never reached the recipient's chat at all -- the keystroke sequence
+   ran to completion without hitting any of the existing early-exit guards,
+   but nothing was ever typed into a real, selected conversation. The pixel
+   check catches exactly that: no visible change means SENT_UNVERIFIED, which
+   is treated as a failure, not a delivery.
 5. Email fallback if WhatsApp failed every attempt. The mail is SENT, not
    drafted -- Boss 2026-08-16: "nem kuldod el hanem piszkozatba teszed? mert ha
    errol akkor nem, azt azonnal el kell kuldeni a cimzettnek." That is the
@@ -254,7 +262,11 @@ def send_whatsapp_message(message: str, dry_run: bool = False,
                           select_only: bool = False) -> bool:
     """
     Deliver the message. Returns True ONLY when the Windows-side script wrote
-    SENT into its result file -- never on a bare exit code.
+    SENT into its result file -- never on a bare exit code, and (2026-09-09)
+    never on the keystroke sequence alone either: SENT now requires a
+    pixel-hash of the chat area to have actually changed between "just before
+    Enter" and "just after Enter". A completed paste+Enter with no visible
+    change comes back as SENT_UNVERIFIED and counts as a failure.
 
     dry_run stops once WhatsApp is focused, before any keystroke.
     select_only goes one step further: it opens the contact's chat and takes a
@@ -276,14 +288,54 @@ $selectOnly = ${'true' if select_only else 'false'}
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)]
+public struct RECT {{ public int Left; public int Top; public int Right; public int Bottom; }}
 public class Win32X {{
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 }}
 "@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# Content-level delivery check (2026-09-09, real false positive: this script
+# wrote SENT after a full keystroke sequence even though nothing ever reached
+# Kiss Zoltan's chat -- the paste+Enter had silently landed nowhere real).
+# UI Automation was tried first and rejected: probed live against the actual
+# WhatsApp Desktop window and its automation tree stops at the title bar (9
+# elements total, no message content reachable) -- the app's content area is
+# not exposed through System.Windows.Automation. A screen-pixel hash of the
+# message-list region (excluding the header and the compose bar) is used
+# instead: hashed twice at idle it is provably stable (measured: identical),
+# and a real UI change (probed by typing into the search box) is provably
+# detected (measured: different hash). If the region hash is unchanged after
+# pressing Enter, nothing rendered -- exactly today's failure mode -- and the
+# result is SENT_UNVERIFIED instead of SENT, so a bare completed keystroke
+# sequence can never again be reported as delivered.
+function Get-ChatRegionHash($hwnd) {{
+  $rect = New-Object RECT
+  [Win32X]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+  $winW = $rect.Right - $rect.Left
+  $winH = $rect.Bottom - $rect.Top
+  $marginTop = 90
+  $marginBottom = 110
+  $h = $winH - $marginTop - $marginBottom
+  if ($h -lt 50) {{ $h = [Math]::Max(50, $winH - 40); $marginTop = 20 }}
+  $x = $rect.Left
+  $y = $rect.Top + $marginTop
+  $w = $winW
+  $bmp = New-Object System.Drawing.Bitmap $w, $h
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size $w, $h))
+  $g.Dispose()
+  $ms = New-Object System.IO.MemoryStream
+  $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Bmp)
+  $bmp.Dispose()
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  return [System.Convert]::ToBase64String($sha.ComputeHash($ms.ToArray()))
+}}
 
 function Write-Result($text) {{
   $text | Out-File -FilePath {result_win} -Encoding utf8 -Force
@@ -354,21 +406,45 @@ if ($clip -ne $message) {{
   exit
 }}
 
+$beforeHash = Get-ChatRegionHash($proc.MainWindowHandle)
+
 [System.Windows.Forms.SendKeys]::SendWait("^v")
 Start-Sleep -Milliseconds 800
 [System.Windows.Forms.SendKeys]::SendWait("{{ENTER}}")
 Start-Sleep -Milliseconds 2000
 
+$afterHash = Get-ChatRegionHash($proc.MainWindowHandle)
+if ($afterHash -eq $beforeHash) {{
+  # Give the UI one more chance -- a slow render should not be mistaken for
+  # nothing having happened, but a real "landed nowhere" failure will still
+  # show no change on the recheck either.
+  Start-Sleep -Milliseconds 1500
+  $afterHash = Get-ChatRegionHash($proc.MainWindowHandle)
+}}
+
 Save-Screen("{PUBLIC_WIN}\\whatsapp_verify.png")
-Write-Result "SENT"
+
+if ($afterHash -eq $beforeHash) {{
+  Write-Result "SENT_UNVERIFIED"
+}} else {{
+  Write-Result "SENT"
+}}
 '''
 
     print("  → running WhatsApp automation...")
     rc, out, state = run_ps1_task("send", send_script, "ws_send",
                                   result_file=result_wsl, wait_seconds=60)
 
+    if state.startswith("SENT_UNVERIFIED"):
+        print(f"  ✗ keystrokes completed but the chat area did not change at all "
+              f"(screenshot: {PUBLIC_WIN}\\whatsapp_verify.png) -- NOT counted as "
+              f"delivered. This is exactly the 2026-09-09 false-positive: the "
+              f"paste+Enter sequence can finish without the message landing "
+              f"anywhere real.")
+        return False
     if state.startswith("SENT"):
-        print(f"  ✓ message delivered (screenshot: {PUBLIC_WIN}\\whatsapp_verify.png)")
+        print(f"  ✓ message delivered -- chat area visibly changed after sending "
+              f"(screenshot: {PUBLIC_WIN}\\whatsapp_verify.png)")
         return True
     if state.startswith("SELECTED"):
         print(f"  ✓ chat opened, nothing sent -- check {PUBLIC_WIN}\\whatsapp_target.png "
