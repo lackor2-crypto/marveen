@@ -23,6 +23,7 @@ import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask,
   recordCodeWorkerSeen, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
   completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage,
+  LIVE_SESSION_STALE_MS,
 } from '../web/code-bridge-store.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -108,7 +109,12 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     // Kanban #235: a feltetel BOVULT (a kiosztott feladat MELLE az eloben futo
     // beszelgetes is munka), de a lenyege valtozatlan -- a puszta "be van
     // kapcsolva es online" tovabbra sem "dolgozik".
-    expect(route).toMatch(/act\.running\.length > 0 \|\| act\.liveSessions\.length > 0\s*\n?\s*\? 'working'/)
+    // Kartya f9aff668 (2026-09-10, Boss): a `liveSessions.length > 0` onmagaban
+    // TOVABB BOVULT `&& act.liveRecentlyActive`-tel -- egy elo, de regen inaktiv
+    // beszelgetes se "dolgozik" tobbe. Lasd `CodeBridgeActivity.liveRecentlyActive`.
+    expect(route).toMatch(
+      /act\.running\.length > 0 \|\| \(act\.liveSessions\.length > 0 && act\.liveRecentlyActive\)\s*\n?\s*\? 'working'/
+    )
     expect(route).toContain("(act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')")
   })
 
@@ -186,6 +192,58 @@ describe('codeBridgeActivity: kvota-blokk (keret-kimerules)', () => {
 
   it('friss telepitesen (nincs lezart feladat) nem blokkolt', () => {
     expect(codeBridgeActivity().quotaBlocked).toBe(false)
+  })
+})
+
+describe('codeBridgeActivity: liveRecentlyActive (kartya 90a050af utoda -- befejezett/inaktiv beszelgetes)', () => {
+  beforeEach(() => { _resetCodeCandidates() })
+
+  // Boss, 2026-09-10: a VS Code hid zold "dolgozik"-ot mutatott, mikozben a
+  // konkret beszelgetes mar kb 10 perce megallt. A `live === true` csak azt
+  // jelenti, hogy a folyamat cimezheto, nem azt, hogy general -- ugyanaz a
+  // hibaosztaly, mint a kvota-blokknal (90a050af), csak itt nincs kvota-hiba,
+  // a beszelgetes egyszeruen befejezodott/inaktiv.
+
+  it('regi (elavult) MERT aktivitasu elo ful NEM szamit liveRecentlyActive-nak', () => {
+    upsertCodeSession(WS)
+    recordCodeCandidates('windows', [
+      {
+        workspacePath: WS.workspacePath,
+        sessionId: WS.sessionId,
+        live: true,
+        lastActivity: Date.now() - LIVE_SESSION_STALE_MS - 60_000,
+      },
+    ])
+    const act = codeBridgeActivity()
+    expect(act.liveSessions.length).toBeGreaterThan(0)
+    expect(act.liveRecentlyActive).toBe(false)
+  })
+
+  it('friss MERT aktivitasu elo ful liveRecentlyActive marad', () => {
+    upsertCodeSession(WS)
+    recordCodeCandidates('windows', [
+      {
+        workspacePath: WS.workspacePath,
+        sessionId: WS.sessionId,
+        live: true,
+        lastActivity: Date.now() - 30_000,
+      },
+    ])
+    expect(codeBridgeActivity().liveRecentlyActive).toBe(true)
+  })
+
+  it('meres hianyaban (lastActivity ES mtime is null) NEM szigoritunk -- true marad', () => {
+    upsertCodeSession(WS)
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: null },
+    ])
+    expect(codeBridgeActivity().liveRecentlyActive).toBe(true)
+  })
+
+  it('friss telepitesen (nincs elo ful) liveRecentlyActive false, de ez nem szamit -- nincs is liveSessions', () => {
+    const act = codeBridgeActivity()
+    expect(act.liveSessions).toEqual([])
+    expect(act.liveRecentlyActive).toBe(false)
   })
 })
 
