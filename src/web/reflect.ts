@@ -233,16 +233,102 @@ export function renderSkillMd(p: SkillProposal, agent: string, now: Date = new D
   ].join('\n')
 }
 
+/** A GEPI regio hatarolo jelolo. A markdown-nezetben lathatatlan, de a fajlban
+ *  ott all -- es EPPEN ez a lenyeg: az idempotenciat magabol a fajlbol olvassuk
+ *  ki, nem egy datumbol es nem egy kulso allapotfajlbol. Kulso allapot
+ *  elcsuszik, amint valaki kezzel hozzanyul a fajlhoz; a fajlba irt jelolo
+ *  soha. (Ez a bevett minta: Ansible `blockinfile` BEGIN/END markerei.) */
+const MACHINE_BEGIN = '<!-- marveen:reflect:begin -->'
+const MACHINE_END = '<!-- marveen:reflect:end -->'
+
+/** Hany gepi tanulsag maradhat egy fajlban. A regebbi kiesik: egy skill
+ *  attol lesz hasznalhato, hogy rovid, nem attol, hogy mindent megoriz. */
+const MACHINE_MAX_LESSONS = 3
+
+/** A markdown fejlecek, ahogy a fajl SAJAT szekcioi latszanak. */
+function topHeadings(md: string): string[] {
+  return [...md.matchAll(/^#{1,3}\s+(.+?)\s*$/gm)].map((m) => m[1]!.trim().toLowerCase())
+}
+
+/**
+ * A gepi szoveg fejleceit EGGYEL LEJJEBB tolja. Enelkul egy javaslat `## `
+ * fejlecei a fajl sajat szekcioival EGY SZINTRE kerulnek, es osszekeverednek
+ * veluk -- pontosan igy lett 11 darab "## Buktatok" az approval-request-handling
+ * skillben (merve 2026-09-11). Lefokozva a gepi resz mindig a sajat tanulsaga
+ * ALATT marad, nem a fajl szerkezeteben.
+ */
+export function demoteHeadings(md: string): string {
+  return md.replace(/^(#{1,5})(\s+\S)/gm, (_m, hashes: string, rest: string) => `#${hashes}${rest}`)
+}
+
+/**
+ * Igaz, ha a javaslat torzse csak a fajl SAJAT szekciocimeit mondja vissza.
+ * Ilyenkor nem tanulsag, hanem egy ures skill-vaz ("Mikor hasznald / Eljaras /
+ * Buktatok / Ellenorzes"), amit a modell akkor ir, amikor UJ skillt javasolt --
+ * a meglevo, kezzel irt fajlba beleirva viszont csak higitja.
+ */
+export function isGenericSkeleton(existing: string, body: string): boolean {
+  const bodyHeads = topHeadings(body)
+  if (bodyHeads.length < 2) return false
+  const have = new Set(topHeadings(existing))
+  return bodyHeads.every((h) => have.has(h))
+}
+
 /**
  * Patch, never rewrite: an existing skill may be hand-written and in daily use.
- * Returns null when there is nothing to add (already patched today, or the file
- * has grown past the cap).
+ *
+ * A gepi resz EGYETLEN, jelolokkel hatarolt regioban el a fajl vegen. Ha a
+ * regio mar ott van, azt FRISSITJUK (a legfrissebb tanulsagok maradnak), NEM
+ * fuzunk hozza egy masodikat -- fuggetlenul attol, hogy milyen nap van.
+ *
+ * `null` = nincs mit hozzatenni: a fajl tullepte a meretkapot, ugyanez a
+ * tanulsag mar bent van, vagy a javaslat csak a fajl sajat szekciocimeit
+ * mondja vissza.
  */
 export function patchSkillMd(existing: string, p: SkillProposal, agent: string, now: Date = new Date()): string | null {
-  const heading = `## Tanulság (${stamp(now).slice(0, 10)})`
-  if (existing.includes(heading)) return null
   if (existing.length > SKILL_FILE_MAX_CHARS) return null
-  const addition = [heading, '', autoNote(agent, now), '', bodyWithoutFrontmatter(p.body), ''].join('\n')
+  const body = bodyWithoutFrontmatter(p.body)
+  if (!body) return null
+
+  const head = existing.indexOf(MACHINE_BEGIN)
+  const tail = existing.indexOf(MACHINE_END)
+  const region = head >= 0 && tail > head ? existing.slice(head + MACHINE_BEGIN.length, tail) : ''
+  const before = head >= 0 && tail > head
+    ? existing.slice(0, head).replace(/\s+$/, '')
+    : existing.replace(/\s+$/, '')
+  const after = head >= 0 && tail > head ? existing.slice(tail + MACHINE_END.length).replace(/^\s+/, '') : ''
+
+  // A fajl SAJAT (ember irta) resze donti el, mi szamit ismetlesnek -- a
+  // korabbi gepi blokkok nem.
+  if (isGenericSkeleton(before, body)) return null
+
+  const lesson = [
+    `### Tanulság (${stamp(now).slice(0, 10)})`,
+    '',
+    autoNote(agent, now),
+    '',
+    demoteHeadings(body),
+  ].join('\n').trim()
+
+  // Ugyanaz a tanulsag ketszer nem kell -- ezt a TARTALOM donti el, nem a nap.
+  if (region.includes(demoteHeadings(body).trim())) return null
+
+  const kept = region
+    .split(/^(?=### Tanulság \()/m)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const lessons = [...kept, lesson].slice(-MACHINE_MAX_LESSONS)
+
+  const block = [
+    MACHINE_BEGIN,
+    '',
+    '## Gépi tanulságok / Machine-written lessons',
+    '',
+    lessons.join('\n\n'),
+    '',
+    MACHINE_END,
+  ].join('\n')
+
   // Egy regi, scope nelkuli SKILL.md-t a bovites alkalmaval latunk el a
   // mezovel -- de csak akkor, ha meg nincs: egy MEGLEVO emberi dontest
   // (personal/global) semmi nem irhat felul a hatunk mogott.
@@ -250,7 +336,7 @@ export function patchSkillMd(existing: string, p: SkillProposal, agent: string, 
   // hianyzik belole a `scope:` sor, azt az Attekintes onellenorzese keri
   // szamon (skills_scope_review) -- nem hallgatolagosan, egy mentes melle
   // rejtve. A `scope: review` bepecsetelese az UJ fajl dolga (renderSkillMd).
-  return `${existing.replace(/\s+$/, '')}\n\n${addition}`
+  return `${before}\n\n${block}${after ? `\n\n${after}` : '\n'}`
 }
 
 // ---------------------------------------------------------------------------
