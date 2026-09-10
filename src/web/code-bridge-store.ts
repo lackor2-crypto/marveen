@@ -52,7 +52,12 @@ export interface CodeSession {
    *  felderites talalta egy mar meglevo -- esetleg a tulaj altal kezzel
    *  hasznalt -- fulben. Csak ilyen sessiont hasznal ujra a claimNextCodeTask
    *  alapertelmezett (cimzes nelkuli) dispatch -- lasd `startFresh` a
-   *  CodeTask-on es a kartya 032aa826-ot. */
+   *  CodeTask-on es a kartya 032aa826-ot.
+   *
+   *  EGY BESZELGETESROL szol, nem a mapparol: ha a sor masik beszelgetesre all
+   *  at (felderites atviszi egy nyitott fulre, vagy a tulaj kezzel kot be
+   *  masikat), a jeloles TORLODIK -- lasd `upsertCodeSession`. Csak a lezarult
+   *  `startFresh` feladat visszairasa allithatja vissza igazra. */
   marvinOwned: boolean
   updatedAt: number
 }
@@ -463,6 +468,29 @@ export function upsertCodeSession(
     }
   }
 
+  // A `marvinOwned` EGY BESZELGETESROL allit valamit ("ezt a fult Marvin maga
+  // nyitotta"), nem a mapparol. Ha tehat a sor MASIK beszelgetesre all at --
+  // a felderites atviszi egy nyitott fulre (`repointStale`), vagy a tulaj
+  // kezzel kot be egy masikat --, az allitas a REGI fulrol szolt, es az uj
+  // fulre nem igaz: ilyenkor torolni kell, nem oroklodni.
+  //
+  // Enelkul (kartya f0745809, masodik kor) ket dolog romlik el egyszerre:
+  //  - a "dolgozik" zold jelzes Boss SAJAT, kezzel hasznalt fulere is kigyulna,
+  //    mert a sor tovabbra is "Marvin sajatja"-t allit rola, es
+  //  - a `claimNextCodeTask` `startFresh = !task.targetSessionId &&
+  //    !session.marvinOwned` szabalya miatt a kovetkezo cimzes nelkuli feladat
+  //    NEM friss beszelgetest nyitna, hanem RESUME-elne Boss fulebe -- pont az,
+  //    amit a kartya 032aa826 kizart.
+  // A kifejezett `marvinOwned` (a lezarult `startFresh` feladat visszairasa)
+  // termeszetesen tovabbra is nyer: az MERES, nem oroklodes.
+  const sessionChanged = !!existing && existing.sessionId !== input.sessionId
+  const marvinOwned =
+    input.marvinOwned !== undefined
+      ? input.marvinOwned
+      : sessionChanged
+        ? false
+        : (existing?.marvinOwned ?? false)
+
   getDb()
     .prepare(
       `INSERT INTO code_sessions (project, workspace_path, session_id, title, host, transcript_mtime, pinned, marvin_owned, updated_at)
@@ -485,7 +513,7 @@ export function upsertCodeSession(
       host: input.host ?? null,
       transcript_mtime: input.transcriptMtime ?? null,
       pinned: input.pinned === undefined ? (existing?.pinned ?? false) ? 1 : 0 : input.pinned ? 1 : 0,
-      marvin_owned: input.marvinOwned === undefined ? (existing?.marvinOwned ?? false) ? 1 : 0 : input.marvinOwned ? 1 : 0,
+      marvin_owned: marvinOwned ? 1 : 0,
       updated_at: now,
     })
   return getCodeSession(project)!
@@ -1813,7 +1841,14 @@ export interface CodeBridgeActivity {
    *  (bekotetlen) live jelolt SOSE szamit ide, mert nincs `marvinOwned` allitasa
    *  -- ez szandekosan szigorubb, mint a `liveSessions` altalanos listaja, ami
    *  tovabbra is MINDEN elo fulet felsorol (a farok-szoveghez, nem a
-   *  jelzo-donteshez). */
+   *  jelzo-donteshez).
+   *
+   *  A parositas MAPPA + BESZELGETES, nem csak mappa (masodik kor, 2026-09-10):
+   *  a `code_sessions` sor projektenkent egy darab, a worker viszont EGY
+   *  mappabol TOBB fulet jelent -- csak a mappara nezve a tulaj sajat kezzel
+   *  hasznalt masik fule ugyanabban a projektben megint zoldet adna. Ezt a
+   *  `CodeSession.marvinOwned` beszelgetes-szintu ervenyessege egesziti ki:
+   *  amint a sor masik beszelgetesre all at, a jeloles torlodik. */
   liveMarvinOwnedActive: boolean
 }
 
@@ -1905,12 +1940,23 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     return ts == null || now - ts <= LIVE_SESSION_STALE_MS
   })
   // MARVIN-SAJAT (marvinOwned) SZUKITES: ugyanaz a meres mint `liveRecentlyActive`,
-  // de csak azokra a jeloltekre, amiknek a regisztralt `CodeSession`-je
-  // `marvinOwned === true`. Egy nem-regisztralt jelolt sose szamit ide (nincs
-  // `marvinOwned` allitasa). Lasd `CodeBridgeActivity.liveMarvinOwnedActive`.
+  // de csak arra az EGY beszelgetesre, amit a regisztralt `CodeSession`
+  // `marvinOwned === true`-val megnevez. Egy nem-regisztralt jelolt sose szamit
+  // ide (nincs `marvinOwned` allitasa). Lasd
+  // `CodeBridgeActivity.liveMarvinOwnedActive`.
+  //
+  // A `sessionId`-t IS ossze kell vetni, nem eleg a mappa (kartya f0745809,
+  // masodik kor): a `code_sessions` sor `ON CONFLICT(project)` miatt
+  // PROJEKTENKENT egy darab, tehat a `marvinOwned` a mappahoz tartozna, nem a
+  // beszelgeteshez -- es a worker EGY mappabol TOBB fulet jelent (`primary` +
+  // `MaxTabsPerWorkspace`). Csak a mappara parositva Boss SAJAT kezzel hasznalt
+  // masik fule ugyanabban a projektben megint "dolgozik"-ra valtana, pontosan
+  // az, amit ez a kartya kizar. Ugyanez az osszehasonlitas all a `liveSessions`
+  // `current` mezojeben is nehany sorral feljebb.
   const liveMarvinOwnedActive = liveCands.some((c) => {
     const reg = byPath.get(c.workspacePath.toLowerCase())
     if (!reg?.marvinOwned) return false
+    if (reg.sessionId !== c.sessionId) return false
     const ts = c.lastActivity ?? c.mtime
     return ts == null || now - ts <= LIVE_SESSION_STALE_MS
   })
