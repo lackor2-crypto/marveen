@@ -6,7 +6,7 @@
 // shouldWakeForTelegramInbox in telegram-inbox-wake.test.ts.
 
 import { describe, it, expect } from 'vitest'
-import { decideDeadAgentReply, deadAgentReplyText, DEAD_AGENT_REPLY_TEXT } from '../web/dead-agent-reply.js'
+import { decideDeadAgentReply, deadAgentReplyText, DEAD_AGENT_REPLY_TEXT, resolveOwnTelegramStateDir } from '../web/dead-agent-reply.js'
 
 const BASE = {
   isRunning: false,
@@ -101,22 +101,39 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const AGENT = 'deadone'
+const MAIN = 'mainagent'
 const CHAT = 8736799466
 const UPDATE = 4242
 
 let store: string
+let agentsBase: string
+let fakeHome: string
 let stateDir: string
 let calls: Array<{ url: string; body: unknown }>
 let logs: Array<{ level: string; obj: Record<string, unknown>; msg: string }>
 let respond: () => Response | Promise<Response>
+/** Sub-agent run state seen by the module. Default: not running. */
+let subRunState: 'running' | 'stopped' | 'unreachable'
+/** Main agent (`<id>-channels` session) run state. Default: alive, so the
+ *  older wire tests keep measuring exactly one agent. */
+let mainRunState: 'running' | 'stopped' | 'unreachable'
 
 beforeEach(() => {
   store = mkdtempSync(join(tmpdir(), 'dead-agent-store-'))
-  stateDir = mkdtempSync(join(tmpdir(), 'dead-agent-chan-'))
+  // The agent's OWN channel dir, in the real per-agent layout, so the wire
+  // tests exercise the ownership resolver instead of a stubbed path.
+  agentsBase = mkdtempSync(join(tmpdir(), 'dead-agent-agents-'))
+  stateDir = join(agentsBase, AGENT, '.claude', 'channels', 'telegram')
   mkdirSync(stateDir, { recursive: true })
   writeFileSync(join(stateDir, '.env'), 'TELEGRAM_BOT_TOKEN=123:FAKE\n')
+  // The main agent's native channels dir lives under $HOME.
+  fakeHome = mkdtempSync(join(tmpdir(), 'dead-agent-home-'))
+  mkdirSync(join(fakeHome, '.claude', 'channels', 'telegram'), { recursive: true })
+  writeFileSync(join(fakeHome, '.claude', 'channels', 'telegram', '.env'), 'TELEGRAM_BOT_TOKEN=999:MAIN\n')
   calls = []
   logs = []
+  subRunState = 'stopped'
+  mainRunState = 'running'
   respond = () => new Response(JSON.stringify({ ok: true }), { status: 200 })
 })
 
@@ -126,32 +143,40 @@ afterEach(() => {
   vi.doUnmock('../config.js')
   vi.doUnmock('../web/agent-config.js')
   vi.doUnmock('../web/agent-process.js')
-  vi.doUnmock('../web/voice-directive.js')
   vi.doUnmock('../channel-coordinator/telegram-client.js')
   vi.doUnmock('../logger.js')
+  vi.doUnmock('node:os')
   rmSync(store, { recursive: true, force: true })
-  rmSync(stateDir, { recursive: true, force: true })
+  rmSync(agentsBase, { recursive: true, force: true })
+  rmSync(fakeHome, { recursive: true, force: true })
 })
 
 /** Load the module with every edge stubbed EXCEPT the piece under test: the
  *  path from "a reply was decided" to "the owner actually has it". */
 async function loadTick() {
   vi.resetModules()
+  vi.doMock('node:os', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:os')>()
+    return { ...actual, homedir: () => fakeHome }
+  })
   vi.doMock('../config.js', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../config.js')>()
-    return { ...actual, STORE_DIR: store, MAIN_AGENT_ID: 'mainagent', APP_LANG: 'hu', DEAD_AGENT_REPLY_ENABLED: true }
+    return {
+      ...actual,
+      STORE_DIR: store,
+      MAIN_AGENT_ID: MAIN,
+      APP_LANG: 'hu',
+      DEAD_AGENT_REPLY_ENABLED: true,
+      currentBotName: () => 'Marvin',
+    }
   })
   vi.doMock('../web/agent-config.js', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../web/agent-config.js')>()
-    return { ...actual, listAgentNames: () => [AGENT], readAgentDisplayName: () => 'Deadone' }
+    return { ...actual, AGENTS_BASE_DIR: agentsBase, listAgentNames: () => [AGENT], readAgentDisplayName: () => 'Deadone' }
   })
   vi.doMock('../web/agent-process.js', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../web/agent-process.js')>()
-    return { ...actual, isAgentRunning: () => false }
-  })
-  vi.doMock('../web/voice-directive.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../web/voice-directive.js')>()
-    return { ...actual, resolveAgentChannelStateDir: () => stateDir }
+    return { ...actual, agentRunState: () => subRunState, mainChannelsRunState: () => mainRunState }
   })
   vi.doMock('../channel-coordinator/telegram-client.js', async (importOriginal) => {
     const actual = await importOriginal<typeof import('../channel-coordinator/telegram-client.js')>()
@@ -252,5 +277,94 @@ describe('decideAfterSendFailure (tiszta ujraprobalasi szabaly)', () => {
     expect(decideAfterSendFailure({ permanent: false, attempts: 1, maxAttempts: 3 })).toBe('retry')
     expect(decideAfterSendFailure({ permanent: false, attempts: 2, maxAttempts: 3 })).toBe('retry')
     expect(decideAfterSendFailure({ permanent: false, attempts: 3, maxAttempts: 3 })).toBe('give-up')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A FO AGENS IS BENNE VAN (a tulajdonos dontese, 2026-09-10: "marvinra is
+// legyen ervenyes"), es a modul SOHA nem beszelhet mas agens tokenjevel.
+// ---------------------------------------------------------------------------
+
+describe('resolveOwnTelegramStateDir (kie a token -- tiszta szabaly)', () => {
+  const has = (dirs: string[]) => (d: string) => dirs.includes(d)
+
+  it('sub-agens: a SAJAT csatorna-mappaja', () => {
+    const own = '/base/gypsy/.claude/channels/telegram'
+    expect(resolveOwnTelegramStateDir({
+      agent: 'gypsy', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([own]),
+    })).toBe(own)
+  })
+
+  it('sub-agens: a home-alias mappa is a sajatja', () => {
+    const alias = '/home/x/.claude/channels/telegram-gypsy'
+    expect(resolveOwnTelegramStateDir({
+      agent: 'gypsy', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([alias]),
+    })).toBe(alias)
+  })
+
+  it('sub-agens sajat .env NELKUL: null -- SOHA nem a fo agens kozos mappaja', () => {
+    // Ez a valodi, meresbol jott hiba: a kozos ~/.claude/channels/telegram
+    // mappara valo visszaeses a FO agens bot-tokenjet adta volna a
+    // sub-agensnek, es a tulajdonos sajat Marvin-chatjeben jelent volna meg
+    // egy "<sub-agens> nem el" uzenet.
+    const shared = '/home/x/.claude/channels/telegram'
+    expect(resolveOwnTelegramStateDir({
+      agent: 'gypsy', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([shared]),
+    })).toBeNull()
+  })
+
+  it('fo agens: a kozos mappa AZ ove (a natv --channels poller allapota)', () => {
+    const shared = '/home/x/.claude/channels/telegram'
+    expect(resolveOwnTelegramStateDir({
+      agent: 'marvin', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: has([shared]),
+    })).toBe(shared)
+  })
+
+  it('fo agens .env nelkul (friss telepites): null, nem talalgat', () => {
+    expect(resolveOwnTelegramStateDir({
+      agent: 'marvin', mainAgentId: 'marvin', agentsBaseDir: '/base', home: '/home/x', hasEnv: () => false,
+    })).toBeNull()
+  })
+})
+
+describe('a fo agens sem maradhat nemasagban', () => {
+  it('ha a channels munkamenet nem fut, a fo agens neveben IS kimegy a valasz', async () => {
+    mainRunState = 'stopped'
+    subRunState = 'running'
+    const { runDeadAgentReplyTick } = await loadTick()
+    await runDeadAgentReplyTick()
+    await runDeadAgentReplyTick()
+
+    expect(calls.length, 'a fo agensnek is valaszolnia kell').toBe(1)
+    expect(calls[0].url).toContain('/bot999:MAIN/') // a SAJAT tokenje, nem a sub-agense
+    expect((calls[0].body as { text: string }).text).toContain('Marvin')
+    expect(persistedFor(MAIN)).toBe(UPDATE)
+  })
+
+  it('elo fo agens mellett csak a halott sub-agensert megy ki uzenet', async () => {
+    mainRunState = 'running'
+    subRunState = 'stopped'
+    const { runDeadAgentReplyTick } = await loadTick()
+    await runDeadAgentReplyTick()
+    await runDeadAgentReplyTick()
+
+    expect(calls.length).toBe(1)
+    expect(calls[0].url).toContain('/bot123:FAKE/')
+    expect(persistedFor(MAIN)).toBeUndefined()
+    expect(persistedFor(AGENT)).toBe(UPDATE)
+  })
+})
+
+describe('"nem lattam oda" nem azonos a "halott"-tal', () => {
+  it('unreachable allapotnal nem kuld es nem is dont', async () => {
+    subRunState = 'unreachable'
+    const { runDeadAgentReplyTick } = await loadTick()
+    await runDeadAgentReplyTick()
+    await runDeadAgentReplyTick()
+    await runDeadAgentReplyTick()
+
+    expect(calls.length, 'egy nem merheto agenst tilos halottnak kikialtani').toBe(0)
+    expect(persistedFor(AGENT)).toBeUndefined()
+    expect(logs.some((l) => l.level === 'warn' && l.msg.includes('unreachable'))).toBe(true)
   })
 })

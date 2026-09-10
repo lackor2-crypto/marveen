@@ -964,6 +964,30 @@ export function isAgentRunning(name: string): boolean {
   return agentRunState(name) === 'running'
 }
 
+/**
+ * Run state of the MAIN agent. It is NOT reachable through agentRunState():
+ * that derives the session name with agentSessionName() (`agent-<name>`), which
+ * the main agent does not have -- it lives in the long-lived
+ * `<id>-channels` session started by systemd/launchd (see main-agent.ts).
+ * Asking agentRunState() about it therefore always answers 'stopped', i.e. a
+ * confident WRONG "it is dead", which is exactly the kind of unmeasured verdict
+ * this repo forbids.
+ *
+ * Always local: the main agent has no agents/<name> dir and so no remote
+ * config (isMainChannelsAgent), so a failed probe means "no tmux server here",
+ * i.e. 'stopped' -- never 'unreachable'.
+ */
+export function mainChannelsRunState(): AgentRunState {
+  try {
+    return classifyRunState(listLocalSessions(), MAIN_CHANNELS_SESSION, false)
+  } catch (err) {
+    const status = (err && typeof err === 'object' && 'status' in err)
+      ? (err as { status?: number | null }).status
+      : undefined
+    return classifyRunStateFromExit(status, false)
+  }
+}
+
 // Host-aware "does this tmux session exist" check, shared by the message router
 // and schedule runner. For a remote agent the list-sessions query runs on the
 // laptop over ssh; an ssh failure returns false (the loop retries next tick),
