@@ -28,6 +28,7 @@ import { NO_RESPONSE_NOT_WAITING } from '../../approval-verification-sweep.js'
 import { enqueueCodeTask, getCodeSession } from '../code-bridge-store.js'
 import { CODE_BRIDGE_ENABLED } from '../../config.js'
 import type { RouteContext } from './types.js'
+import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
 
@@ -706,7 +707,13 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
       if (linkedCardId) {
         try {
           const card = getKanbanCard(linkedCardId)
-          if (card) moveKanbanCard(card.id, 'done', card.sort_order, resolved_by.trim())
+          if (card) {
+            moveKanbanCard(card.id, 'done', card.sort_order, resolved_by.trim())
+            // Kanban 2741d289 (#252): a masodik ut a `done`-ra. A zaro uzenet
+            // ITT is ki kell menjen, kulonben a jovahagyas-gombbal lezart
+            // kartyanal a cset utolso uzenete tovabbra is elo temanak latszik.
+            fireCodeSessionCloseNotice(card.id)
+          }
         } catch { /* malformed payload -- approval itself already succeeded, don't fail the request over this */ }
       }
     }
