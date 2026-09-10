@@ -275,7 +275,7 @@ bezárás UTÁN nézd meg, soha nem előtte.
 **DE A `.chr` NEM AZ EGYETLEN FORRÁS -- ez a mérés 2026-09-08-án megbukott.**
 A `MarvinMT4Launch` task nem csupaszon indítja a terminált, hanem egy indítási
 konfigurációval: `terminal.exe "<MT4>\config\marveen-startup.ini" /portable`.
-Abban a fájlban egy `[StartUp]` blokk áll:
+Abban a fájlban **2026-09-10-ig** egy `[StartUp]` blokk is állt:
 
 ```ini
 [StartUp]
@@ -284,7 +284,7 @@ Period=H1
 Expert=Sajat\GOLD_Live_Export
 ```
 
-Ez **minden indításkor** nyit egy `GOLD,H1` chartot és felteszi rá az EA-t --
+Ez **minden indításkor** nyitott egy `GOLD,H1` chartot és feltette rá az EA-t --
 a profiltól **függetlenül**. Mért bizonyíték (2026-09-08 07:16, a profilban
 ekkor egyetlen `.chr` tartalmazta az EA-t):
 
@@ -293,9 +293,36 @@ ekkor egyetlen `.chr` tartalmazta az EA-t):
 07:16:56.604  Expert Sajat\GOLD_Live_Export GOLD,M15: loaded successfully
 ```
 
-Vagyis **két példány** indult, és mindkettő ugyanazt a `gold_live.txt`-t írja.
+Vagyis **két példány** indult, és mindkettő ugyanazt a `gold_live.txt`-t írta.
 (Az adat ettől még értelmezhető maradt: a `gold-data.py` `verdikt: ok`-ot
 adott -- de két író ugyanarra a fájlra nem szándékolt állapot.)
+
+**És nem kettőnél állt meg: indításonként eggyel nőtt.** A 2026-09-10-i napló
+négy task-indítása (kanban 8768b81b):
+
+```
+10:31  3 peldany   (2x GOLD,H1 + 1x GOLD,M15)
+11:30  4 peldany   (3x GOLD,H1 + 1x GOLD,M1)
+12:30  5 peldany   (4x GOLD,H1 + 1x GOLD,M1)
+15:11  6 peldany   (5x GOLD,H1 + 1x GOLD,M15)
+```
+
+**A `[StartUp]` blokk 2026-09-10-en KIKERULT a fájlból** (a tulajdonos "A"
+döntése). Az EA-t azóta **kizárólag a mentett profil** hozza fel: a
+`profiles/default/chart01.chr` chart-szintű `<expert>` blokkja
+(`name=Sajat\GOLD_Live_Export`). Élő bizonyíték, ugyanaz a task, közvetlenül
+a változtatás után:
+
+```
+22:35:44.380  Started with configuration file '...\config\marveen-startup.ini'
+22:35:47.831  Expert Sajat\GOLD_Live_Export GOLD,M15: loaded successfully
+```
+
+**Egyetlen** betöltési sor, és a `gold_live.txt` 30 másodpercenként frissült
+(`gold-data.py` -> `mt4_fut: true`, `verdikt: "ok"`, legfrissebb adat 0 perces).
+
+**NE tedd vissza a `[StartUp]` blokkot.** Ha egy jövőbeli mérésnél nem találod a
+fájlban, az nem hiányzik: szándékosan nincs ott.
 
 **A helyes bizonyítás tehát HÁROM dolog, együtt:** (1) az új chart betöltési
 sora a naplóban, (2) `grep -al 'GOLD_Live_Export' chart*.chr` -> **pontosan
@@ -306,8 +333,16 @@ T=$(cat store/mt4-terminal-dir.txt); cat "$T/config/marveen-startup.ini"
 ```
 
 Figyelem: ugyanennek a fájlnak az `[Experts] Enabled=true` sora az, ami az
-**AutoTrading-ot bekapcsolja** induláskor -- azt tehát NEM szabad kidobni,
-csak a `[StartUp]` blokkot (lásd a "kikapcsolt Auto Trading" buktatót).
+**AutoTrading-ot bekapcsolja** induláskor -- azt tehát NEM szabad kidobni, és
+**magát a fájlt sem szabad törölni** (a régi "a futás után törlendő" komment
+tévedés volt, kanban 70efa568 / #93; a törlése némította el az EA-t
+2026-09-07-en, kanban 4c88b5f7). Lásd a "kikapcsolt Auto Trading" buktatót.
+
+**A `.chr` EA-blokkja viszont MENTHETŐ** -- ezt 2026-09-10-en megmértem. A
+korábbi "az EA-felrakás nem menthető a profilba" tapasztalat arra vonatkozott,
+amikor valaki **kézzel** írt `<expert>` blokkot a `.chr`-be: azt az MT4 tényleg
+eldobja. Amit az MT4 maga ment ki tiszta bezáráskor (`WM_CLOSE`, `uninit
+reason 9`), azt visszatölti.
 
 ### ⛔ AZ M1 NINCS AZ EA EXPORTJÁBAN -- ÉS A .hst CSAK TISZTA BEZÁRÁSKOR FRISSÜL
 
