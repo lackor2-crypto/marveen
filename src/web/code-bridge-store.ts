@@ -36,6 +36,7 @@ import { checkCardWork, cardWorkNotice, type CardWorkNotice } from './card-work-
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE } from '../config.js'
+import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
 
 export type CodeTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export type CodeTaskOrigin = 'telegram' | 'agent' | 'dashboard' | 'api'
@@ -1793,7 +1794,15 @@ export interface CodeBridgeActivity {
    *  VALODI tevekenysege (a napló `lastActivity`-je) frissebb annal a hibanal,
    *  a fiok mar dolgozik megint, tehat NEM blokkolt. A `lastActivity === null`
    *  (regi worker, nem latunk oda) nem old fel: csak a mert, frissebb aktivitas
-   *  szamit -- ugyanaz a "nulla ket dolgot jelenthet" elv, mint a `liveMeasured`. */
+   *  szamit -- ugyanaz a "nulla ket dolgot jelenthet" elv, mint a `liveMeasured`.
+   *
+   *  ES LEJAR MAGATOL (kanban 13fc793f): az aktivitas-alapu feloldas egyedul
+   *  kevesnek bizonyult. Ha a VS Code be van zarva, egyetlen jelolt sincs,
+   *  amitol frissebb aktivitas johetne -- a jel ilyenkor OROKRE igaz maradt, es
+   *  a kartya a keret visszaallasa utan is a hazug "keret elfogyott"-ot
+   *  allitotta. A blokk ezert a bannerben megnevezett visszaallasig tart
+   *  (`quotaBlockExpiresAt`), vagy -- ha a szoveg nem hordoz idopontot --
+   *  `QUOTA_BLOCK_FALLBACK_MS`-ig. */
   quotaBlocked: boolean
   /** VAN-E LEGALABB EGY ELO BESZELGETES, AMINEK MERT AKTIVITASA FRISS (Boss,
    *  2026-09-10, valos eset).
@@ -1869,6 +1878,31 @@ export function isCodeUsageLimitMessage(text: string | null | undefined): boolea
   return /hit your\b[\w\s-]{0,30}\blimit\b/i.test(text) || /usage limit reached/i.test(text)
 }
 
+/** Ha a keret-kimerules uzenete NEM nevez meg visszaallasi idopontot, ennyi ido
+ *  utan jar le a kvota-blokk magatol.
+ *
+ *  Ot ora = a LEGROVIDEBB valodi Claude-ablak. Szandekosan a rovidebb: ha rosszul
+ *  becsulunk, a kartya 'idle'-t mutat egy meg mindig blokkolt hidra -- az sokkal
+ *  olcsobb tevedes, mint a hazug "keret elfogyott" (ezt a kartyat epp az
+ *  szulte), es a zold "dolgozik"-hoz sem vezet: ahhoz mert, FRISS aktivitas
+ *  kellene, ami egy tenylegesen blokkolt fioknal nincs. */
+export const QUOTA_BLOCK_FALLBACK_MS = 5 * 60 * 60 * 1000
+
+/** Meddig all a kvota-blokk: a bannerben megnevezett visszaallasig, vagy --
+ *  ha a szoveg nem hordoz idopontot -- `QUOTA_BLOCK_FALLBACK_MS`-ig.
+ *
+ *  A megnevezett idopontot a HIBA sajat idejehez horgonyozzuk, nem a mostanihoz:
+ *  a banner nem ir evet, a csupasz ora meg napot sem, es a mostani idohoz merve
+ *  egy "resets 2am" naprol napra elorecsuszna -- a lejarat sosem kovetkezne be,
+ *  vagyis pontosan az a vegtelen blokk maradna, ami ellen ez a fuggveny szol.
+ *
+ *  A szakma ugyanezt mondja a megszakito (circuit breaker) mintanal: a nyitott
+ *  allapotnak kotelezo onmagatol lejarnia (Open -> Half-Open), es ahol a
+ *  szolgaltato megmondja a visszaallas idejet (Retry-After), azt kell kovetni. */
+export function quotaBlockExpiresAt(message: string, blockedAt: number): number {
+  return parseUsageLimitResetAt(message, blockedAt) ?? blockedAt + QUOTA_BLOCK_FALLBACK_MS
+}
+
 export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   ensureTables()
   const db = getDb()
@@ -1927,7 +1961,13 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
       const recovered = liveCands.some(
         (c) => c.lastActivity != null && c.lastActivity > blockedAt,
       )
-      quotaBlocked = !recovered
+      // ... ES A BLOKK MAGATOL IS LEJAR (kanban 13fc793f). Az aktivitas-alapu
+      // feloldas egyedul nem eleg: ha a VS Code be van zarva, egyetlen jelolt
+      // sincs, amitol frissebb aktivitas johetne, es a jel OROKRE igaz marad --
+      // a kartya a keret visszaallasa utan is azt allitja, hogy "keret
+      // elfogyott". Semmi nem jaratja le magatol: a lezart `code_tasks` sorokat
+      // csak a kezi elozmeny-torles tunteti el. Lasd `quotaBlockExpiresAt`.
+      quotaBlocked = !recovered && now < quotaBlockExpiresAt(msg, blockedAt)
     }
   }
   // FRISS AKTIVITAS: van-e legalabb egy elo beszelgetes, aminek a MERT
