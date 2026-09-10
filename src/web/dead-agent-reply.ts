@@ -35,6 +35,18 @@
 // DEBOUNCE: a session must read as not-running for DOWN_DEBOUNCE consecutive
 // ticks before we call it dead -- a restart/redeploy blip must never earn a
 // spurious "not alive" reply seconds before the agent comes back.
+//
+// DELIVERY IS VERIFIED, NEVER ASSUMED (2026-09-10). The first version awaited
+// sendMessage and then recorded the update as answered without looking at the
+// response at all. Telegram answers 400/403 for "chat not found" / "bot was
+// blocked", and it also answers HTTP 200 with ok:false in the body -- so a
+// REJECTED send was indistinguishable from a delivered one: the owner got
+// nothing, the log said "replied", the state file said "already answered", and
+// nothing ever retried. An undelivered message is not a reply, so the state is
+// now written only AFTER the Bot API confirms ok:true; a transient failure is
+// retried on the next tick (bounded by MAX_SEND_ATTEMPTS so a permanently
+// unreachable chat cannot become a 5-second hot loop), and a give-up is logged
+// at ERROR saying plainly that it did NOT go out.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
@@ -47,6 +59,11 @@ import { atomicWriteFileSync } from './atomic-write.js'
 
 const TICK_MS = 5000
 const DOWN_DEBOUNCE = 2
+/** How many ticks a TRANSIENT send failure is retried before the module gives
+ *  up on that one message. Bounded on purpose: an unbounded retry would turn a
+ *  permanently unreachable chat into a 5-second hot loop against the Bot API,
+ *  which is a worse failure than the silent one it replaces. */
+const MAX_SEND_ATTEMPTS = 3
 
 const STATE_PATH = join(STORE_DIR, 'dead-agent-reply-state.json')
 
@@ -105,6 +122,26 @@ export function decideDeadAgentReply(params: {
   return { downStreak, lastRepliedUpdateId: pending.updateId, reply: { chatId: pending.chatId, updateId: pending.updateId } }
 }
 
+/**
+ * Pure policy for a send that did NOT go through. Kept separate (and exported)
+ * for the same reason decideDeadAgentReply is: the rule that decides whether
+ * the owner's message is retried or written off must be testable without the
+ * network.
+ *
+ * 'retry'   -- leave the state untouched, so the next tick sends again.
+ * 'give-up' -- record the update as handled so we stop hammering, and say out
+ *              loud that the reply was NOT delivered. Never call this
+ *              "replied": a message the owner did not receive did not happen.
+ */
+export function decideAfterSendFailure(params: {
+  permanent: boolean
+  attempts: number
+  maxAttempts: number
+}): 'retry' | 'give-up' {
+  if (params.permanent) return 'give-up'
+  return params.attempts >= params.maxAttempts ? 'give-up' : 'retry'
+}
+
 // ---- I/O: token + persisted "already replied to" memory -----------------
 
 function botToken(stateDir: string): string | null {
@@ -131,6 +168,10 @@ let persistedLoaded = false
 // the "confirmed dead" verdict by a few more ticks, never a correctness bug,
 // so it is not persisted.
 const downStreaks: Record<string, number> = {}
+// Consecutive failed send attempts for the message currently being answered.
+// Runtime-only, like downStreaks: losing it on restart costs at most a few
+// extra attempts, never a wrong verdict.
+const sendAttempts: Record<string, { updateId: number; attempts: number }> = {}
 
 function loadPersisted(): void {
   if (persistedLoaded) return
@@ -156,17 +197,53 @@ function writePersisted(): void {
   }
 }
 
-async function sendReply(token: string, chatId: number, text: string): Promise<void> {
+/** What actually happened to the sendMessage call.
+ *
+ *  WHY THIS IS NOT A `void`: the first version of this module awaited fetch and
+ *  then recorded the update as answered, without ever looking at the response.
+ *  Telegram answers HTTP 200 for success but also 400/403 for "chat not found"
+ *  / "bot was blocked" -- and a rejected send used to be indistinguishable from
+ *  a delivered one. The owner then got NOTHING, while the log said "replied"
+ *  and the state file said "already answered", so it was never retried. This is
+ *  the same silent-send trap the repo's own rule forbids for /api/messages
+ *  ("egy uzenet CSAK akkor szamit elkuldottnek, ha visszajott egy id"). */
+type SendOutcome =
+  | { ok: true }
+  /** permanent: retrying cannot help (4xx other than 429) -- stop and say so.
+   *  transient: network error, 429 or 5xx -- worth another tick. */
+  | { ok: false; permanent: boolean; reason: string }
+
+async function sendReply(token: string, chatId: number, text: string): Promise<SendOutcome> {
+  let res: Response
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text }),
       signal: AbortSignal.timeout(10_000),
     })
   } catch (err) {
-    logger.warn({ err }, 'dead-agent-reply: sendMessage failed')
+    return { ok: false, permanent: false, reason: `network error: ${err instanceof Error ? err.message : String(err)}` }
   }
+  if (res.ok) {
+    // HTTP 200 is not yet proof: the Bot API reports its own failures in the
+    // body with ok:false. Read it, and never guess -- an unparseable body is
+    // reported as exactly that, not as success.
+    try {
+      const body = await res.json() as { ok?: boolean; description?: string }
+      if (body?.ok === true) return { ok: true }
+      return { ok: false, permanent: true, reason: `Bot API ok=false: ${body?.description ?? '(no description)'}` }
+    } catch (err) {
+      return { ok: false, permanent: false, reason: `unreadable response body: ${err instanceof Error ? err.message : String(err)}` }
+    }
+  }
+  let description = ''
+  try {
+    const body = await res.json() as { description?: string }
+    description = body?.description ? ` -- ${body.description}` : ''
+  } catch { /* body is optional context, never the verdict */ }
+  const permanent = res.status >= 400 && res.status < 500 && res.status !== 429
+  return { ok: false, permanent, reason: `HTTP ${res.status}${description}` }
 }
 
 async function checkAgent(name: string): Promise<void> {
@@ -191,6 +268,7 @@ async function checkAgent(name: string): Promise<void> {
         // agent that is genuinely dead never produces a 409 here (nothing is
         // holding its getUpdates slot), so treat this as alive and back off.
         downStreaks[name] = 0
+        delete sendAttempts[name]
         if (prevLastReplied !== null) {
           persisted[name] = { lastRepliedUpdateId: null }
           writePersisted()
@@ -210,15 +288,50 @@ async function checkAgent(name: string): Promise<void> {
     lastRepliedUpdateId: prevLastReplied,
   })
   downStreaks[name] = decision.downStreak
-  if (decision.lastRepliedUpdateId !== prevLastReplied) {
-    persisted[name] = { lastRepliedUpdateId: decision.lastRepliedUpdateId }
-    writePersisted()
-  }
-  if (!decision.reply || !token) return
 
+  if (!decision.reply || !token) {
+    // Nothing to send. The only state change worth keeping here is the
+    // alive-reset (lastRepliedUpdateId -> null), so a later dead spell is
+    // treated as fresh.
+    if (decision.lastRepliedUpdateId !== prevLastReplied) {
+      persisted[name] = { lastRepliedUpdateId: decision.lastRepliedUpdateId }
+      writePersisted()
+    }
+    delete sendAttempts[name]
+    return
+  }
+
+  const { chatId, updateId } = decision.reply
   const display = readAgentDisplayName(name) || name
-  await sendReply(token, decision.reply.chatId, deadAgentReplyText(APP_LANG, display))
-  logger.info({ agent: name, chatId: decision.reply.chatId, updateId: decision.reply.updateId },
+  const outcome = await sendReply(token, chatId, deadAgentReplyText(APP_LANG, display))
+
+  if (!outcome.ok) {
+    const prior = sendAttempts[name]
+    const attempts = prior && prior.updateId === updateId ? prior.attempts + 1 : 1
+    sendAttempts[name] = { updateId, attempts }
+    const verdict = decideAfterSendFailure({ permanent: outcome.permanent, attempts, maxAttempts: MAX_SEND_ATTEMPTS })
+    if (verdict === 'retry') {
+      // State deliberately NOT persisted: the next tick must try again.
+      logger.warn({ agent: name, chatId, updateId, attempts, reason: outcome.reason },
+        'dead-agent-reply: reply NOT delivered, retrying on the next tick')
+      return
+    }
+    // Written off. Persist so this does not become a 5s hot loop, but the log
+    // must say plainly that the owner never got it -- an undelivered message is
+    // not a reply.
+    persisted[name] = { lastRepliedUpdateId: updateId }
+    writePersisted()
+    delete sendAttempts[name]
+    logger.error({ agent: name, chatId, updateId, attempts, permanent: outcome.permanent, reason: outcome.reason },
+      'dead-agent-reply: reply could NOT be delivered, giving up on this message')
+    return
+  }
+
+  // Delivered -- and only now is it true that this update has been answered.
+  persisted[name] = { lastRepliedUpdateId: updateId }
+  writePersisted()
+  delete sendAttempts[name]
+  logger.info({ agent: name, chatId, updateId },
     'dead-agent-reply: replied on Boss\'s behalf-triggered message for a dead sub-agent')
 }
 
