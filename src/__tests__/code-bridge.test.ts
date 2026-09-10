@@ -287,12 +287,27 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
     expect(claimed.sessionId).toBe(MARVIN.sessionId)
   })
 
-  it('a marvinOwned jelzes tulel egy sima (marvinOwned nelkuli) upsertet -- ugyanaz a mintazat mint a pinned-nel', () => {
+  // ATIRVA (kartya f0745809, 2026-09-10): ez a teszt eddig azt rogzitette, hogy
+  // a jeloles egy MASIK beszelgetesre atallo upsertet is tulel -- "ugyanaz a
+  // mintazat mint a pinned-nel". A `pinned` viszont a MAPPARA vonatkozik, a
+  // `marvinOwned` pedig EGY BESZELGETESRE ("ezt a fult Marvin maga nyitotta"),
+  // ezert a ket mintazat nem ugyanaz. Az oroklodes ket valodi hibat okozott:
+  // a felderites atvitte a jelolest a tulaj sajat kezzel hasznalt fulere, amitol
+  // (a) a "dolgozik" zold jelzes kigyulladt ra, es (b) a `claimNextCodeTask`
+  // RESUME-elt volna bele friss szal helyett -- pont amit a 032aa826 kizart.
+  it('a marvinOwned jelzes NEM megy at egy masik beszelgetesre allo upsertre', () => {
     seedThree()
     upsertCodeSession({ ...MARVIN, marvinOwned: true })
     upsertCodeSession({ project: 'marvin', workspacePath: MARVIN.workspacePath, sessionId: 'later-session' })
-    expect(getCodeSession('marvin')!.marvinOwned).toBe(true)
     expect(getCodeSession('marvin')!.sessionId).toBe('later-session')
+    expect(getCodeSession('marvin')!.marvinOwned).toBe(false)
+  })
+
+  it('a marvinOwned jelzes UGYANARRA a beszelgetesre viszont megmarad', () => {
+    seedThree()
+    upsertCodeSession({ ...MARVIN, marvinOwned: true })
+    upsertCodeSession({ project: 'marvin', workspacePath: MARVIN.workspacePath, sessionId: MARVIN.sessionId })
+    expect(getCodeSession('marvin')!.marvinOwned).toBe(true)
   })
 })
 

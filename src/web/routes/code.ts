@@ -1144,7 +1144,18 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
             // kommentek) nem valtoztat a marvin_owned jeloleset -- csak a
             // dispatch altal SAJAT MAGATOL inditott friss beszelgetest
             // szabad ujrahasznalando "Marvin sajatja" sorra allitani.
-            ...(task.startFresh ? { marvinOwned: true } : {}),
+            //
+            // KIMONDVA, NEM OROKLESSEL (kartya f0745809, masodik kor): az
+            // `upsertCodeSession` mostantol TORLI a jelolest, ha a sor masik
+            // beszelgetesre all at -- kulonben a felderites atvinne a jelolest
+            // egy olyan fulre, amit a TULAJ nyitott. Ez az EGYETLEN hely, ami
+            // tudja, hogy az uj beszelgetes MARVIN SAJAT futasabol szuletett
+            // (a CLI ott fejezte be), ezert itt kell kimondani. Ket eset:
+            //  - `startFresh`: a futas maga nyitotta a friss fult -> Marvine.
+            //  - mar Marvin-sajat sor, amibol a futas kozben uj beszelgetes
+            //    lett (pl. a prompt maga volt "/clear") -> tovabbra is Marvine.
+            // Ha a sor NEM volt Marvine es nem is startFresh, marad hamis.
+            marvinOwned: task.startFresh || cur.marvinOwned,
           })
           logger.info({ task: updated.id, project: updated.project, from: updated.sessionId, to: endedIn }, 'code-bridge: project repointed to the conversation the run ended in')
         }

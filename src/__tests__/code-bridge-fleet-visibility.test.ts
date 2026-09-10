@@ -23,7 +23,7 @@ import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask,
   recordCodeWorkerSeen, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
   completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage,
-  LIVE_SESSION_STALE_MS,
+  LIVE_SESSION_STALE_MS, getCodeSession,
 } from '../web/code-bridge-store.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -292,6 +292,41 @@ describe('codeBridgeActivity: liveMarvinOwnedActive (kartya f0745809 -- Boss saj
     expect(codeBridgeActivity().liveMarvinOwnedActive).toBe(false)
   })
 
+  // MASODIK KOR (2026-09-10, ellenorzes jovahagyas elott): az elso javitas a
+  // jeloltet CSAK `workspacePath` szerint parositotta a regisztralt sorral. A
+  // `code_sessions` sor viszont `ON CONFLICT(project)` miatt PROJEKTENKENT egy
+  // darab, a worker pedig EGY mappabol TOBB fulet jelent (`primary` +
+  // `MaxTabsPerWorkspace`) -- igy a `marvinOwned` a MAPPARA ervenyesult, nem a
+  // beszelgetesre, es Boss sajat kezzel hasznalt MASIK fule ugyanabban a
+  // projektben megint "dolgozik"-ra valtott. Pontosan az, amit a kartya cime
+  // kizar: "ne a projekt barmely masik, Boss altal kezzel hasznalt fulere".
+
+  it('ugyanabban a mappaban Boss MASIK fule nem szamit, ha Marvine mar nem el', () => {
+    const BOSS_SID = 'bbbbbbbb-0000-4000-8000-000000000002'
+    upsertCodeSession({ ...WS, marvinOwned: true })
+    recordCodeCandidates('windows', [
+      // Marvin sajat fule: MAR NEM el (befejezte a feladatot).
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: false, lastActivity: Date.now() - 30_000, primary: true },
+      // Boss sajat, kezzel hasznalt masik fule UGYANABBAN a mappaban: el es friss.
+      { workspacePath: WS.workspacePath, sessionId: BOSS_SID, live: true, lastActivity: Date.now() - 5_000, primary: false },
+    ])
+    const act = codeBridgeActivity()
+    // Az altalanos meres tovabbra is lat egy elo, friss fulet -- a szukebb,
+    // Marvin-sajat mezo viszont NEM, mert az a beszelgetes nem Marvine.
+    expect(act.liveRecentlyActive).toBe(true)
+    expect(act.liveMarvinOwnedActive).toBe(false)
+  })
+
+  it('ugyanabban a mappaban Marvin SAJAT fule szamit, Boss masik fule mellett is', () => {
+    const BOSS_SID = 'bbbbbbbb-0000-4000-8000-000000000002'
+    upsertCodeSession({ ...WS, marvinOwned: true })
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: Date.now() - 5_000, primary: true },
+      { workspacePath: WS.workspacePath, sessionId: BOSS_SID, live: true, lastActivity: Date.now() - 5_000, primary: false },
+    ])
+    expect(codeBridgeActivity().liveMarvinOwnedActive).toBe(true)
+  })
+
   it('elavult MERT aktivitasu marvinOwned ful sem szamit liveMarvinOwnedActive-nak', () => {
     upsertCodeSession({ ...WS, marvinOwned: true })
     recordCodeCandidates('windows', [
@@ -303,6 +338,39 @@ describe('codeBridgeActivity: liveMarvinOwnedActive (kartya f0745809 -- Boss saj
       },
     ])
     expect(codeBridgeActivity().liveMarvinOwnedActive).toBe(false)
+  })
+})
+
+describe('CodeSession.marvinOwned: a jeloles a BESZELGETESROL szol, nem a mapparol', () => {
+  // Ha a sor masik beszelgetesre all at (felderites atviszi egy nyitott fulre,
+  // vagy a tulaj kezzel kot be masikat), a regi "Marvin sajatja" allitas a REGI
+  // fulrol szolt. Atoroklove ket dolgot rontana el: a zold "dolgozik" jelzest
+  // Boss fulere, es a `claimNextCodeTask` friss-inditasat (RESUME-elne Boss
+  // fulebe, amit a kartya 032aa826 kizart).
+
+  it('masik beszelgetesre atallva a jeloles TORLODIK', () => {
+    const MASIK = 'bbbbbbbb-0000-4000-8000-000000000002'
+    upsertCodeSession({ ...WS, marvinOwned: true })
+    expect(getCodeSession(WS.project)?.marvinOwned).toBe(true)
+    const utan = upsertCodeSession({ ...WS, sessionId: MASIK })
+    expect(utan.sessionId).toBe(MASIK)
+    expect(utan.marvinOwned).toBe(false)
+  })
+
+  it('UGYANARRA a beszelgetesre frissitve a jeloles MEGMARAD', () => {
+    upsertCodeSession({ ...WS, marvinOwned: true })
+    const utan = upsertCodeSession({ ...WS, title: 'uj cim' })
+    expect(utan.sessionId).toBe(WS.sessionId)
+    expect(utan.marvinOwned).toBe(true)
+  })
+
+  it('a kifejezett marvinOwned MERES, tehat masik beszelgetesnel is nyer', () => {
+    const UJ = 'cccccccc-0000-4000-8000-000000000003'
+    upsertCodeSession({ ...WS })
+    // Ezt a lezarult `startFresh` feladat visszairasa csinalja (routes/code.ts).
+    const utan = upsertCodeSession({ ...WS, sessionId: UJ, marvinOwned: true })
+    expect(utan.sessionId).toBe(UJ)
+    expect(utan.marvinOwned).toBe(true)
   })
 })
 
