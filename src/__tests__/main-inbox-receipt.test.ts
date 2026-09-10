@@ -18,6 +18,7 @@ import {
   runReceiptTick,
   type ReceiptDeps,
 } from '../web/main-inbox-receipt.js'
+import type { AgentRunState } from '../web/ssh-tmux.js'
 
 const ARRIVAL = JSON.stringify({
   type: 'queue-operation',
@@ -92,8 +93,11 @@ describe('runReceiptTick', () => {
   let stateDir: string
   let calls: Array<{ method: string; body: Record<string, unknown> }>
   let now = 0
+  /** A fo agens eletjele -- a tesztek ezt allitjak at. */
+  let mainState: AgentRunState = 'running'
 
   const deps = (): ReceiptDeps => ({
+    runState: () => mainState,
     transcriptDir,
     stateDir,
     apiBase: 'http://stub',
@@ -116,6 +120,7 @@ describe('runReceiptTick', () => {
     mkdirSync(stateDir, { recursive: true })
     writeFileSync(join(stateDir, '.env'), 'TELEGRAM_BOT_TOKEN=123:ABC\n')
     calls = []
+    mainState = 'running'
     now = Date.parse('2026-09-07T10:56:48.894Z')
   })
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
@@ -196,5 +201,62 @@ describe('runReceiptTick', () => {
     mkdirSync(join(dir, 'nincs-ilyen'))
     await runReceiptTick(st, d)
     expect(st.lastSilenceReason).toBe('no-session-transcript')
+  })
+
+  // ---- Eletjel-kapu (a d3ce7696 kartya hatasvizsgalatabol) ----------------
+  //
+  // A d3ce7696 ota a dead-agent-reply a FO agensre is szol. Ha a fo agens
+  // meghal egy mar sorbaallt uzenettel, a ket modul egymasnak dolgozott: a
+  // halal-verdikt ~10 mp-nel ment ki, a nyugta 15 mp-nel -- a tulajdonos
+  // utolso szava tehat a hamis "megkaptam, sorban all" volt, es az soha nem
+  // torlodott, mert az atvetel (ami torolne) mar nem jott el.
+
+  it('halott fo agensnel NEM igeri, hogy az uzenet sorban all', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    mainState = 'stopped'
+    now += 20_000 // a turelmi ido MAR letelt: elo agensnel itt menne a nyugta
+    await runReceiptTick(st, deps())
+    await runReceiptTick(st, deps())
+    expect(calls).toHaveLength(0)
+    expect(st.lastSilenceReason).toBe('main-agent-not-running')
+    // Igazoltan halott (2 kor) utan a fuggo erkezes el is tunik: erre a
+    // dead-agent-reply adja a helyes valaszt, nem mi.
+    expect(st.pending.size).toBe(0)
+  })
+
+  it('EGYETLEN "nem fut" meres meg nem nemitja el a jogos nyugtat', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    now += 20_000
+    mainState = 'stopped'
+    await runReceiptTick(st, deps()) // egy meresi kihagyas
+    expect(calls).toHaveLength(0)
+    expect(st.pending.size).toBe(1)
+    mainState = 'running'
+    await runReceiptTick(st, deps())
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.method).toBe('sendMessage')
+  })
+
+  it('a MAR kikuldott nyugtat nem dobja el: az meg torolheto, ha megis atveszi', async () => {
+    const f = join(transcriptDir, 's.jsonl')
+    writeFileSync(f, '')
+    const st = createReceiptState()
+    await runReceiptTick(st, deps())
+    appendFileSync(f, ARRIVAL + '\n')
+    now += 20_000
+    await runReceiptTick(st, deps())
+    expect(calls).toHaveLength(1)
+    mainState = 'stopped'
+    await runReceiptTick(st, deps())
+    await runReceiptTick(st, deps())
+    expect(st.pending.size).toBe(1)
   })
 })

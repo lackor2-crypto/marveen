@@ -39,6 +39,8 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { logger } from '../logger.js'
 import { PROJECT_ROOT, APP_LANG, MAIN_INBOX_RECEIPT, MAIN_INBOX_RECEIPT_GRACE_SEC } from '../config.js'
+import { mainChannelsRunState } from './agent-process.js'
+import type { AgentRunState } from './ssh-tmux.js'
 
 /** Same wording as the sub-agent path (scripts/channel-inbound-tee.mjs), so the
  *  owner sees one receipt style across the whole fleet. */
@@ -137,17 +139,29 @@ export interface ReceiptDeps {
   lang: string
   now: () => number
   fetchImpl: typeof fetch
+  /** A fo agens ELETJELE. Injektalva, hogy a szabaly teszteleheto legyen
+   *  tmux nelkul is -- es hogy a modul soha ne talalgasson: a nyugta egy
+   *  IGERET (lesz valasz), amit csak elo agensrol szabad kimondani. */
+  runState: () => AgentRunState
 }
 
 export interface ReceiptState {
   offsets: Map<string, number>
   pending: Map<string, PendingArrival>
   lastSilenceReason?: string
+  /** Egymast koveto "nem fut" meresek szama. Lasd DEAD_CONFIRM_TICKS. */
+  deadStreak: number
 }
 
 export function createReceiptState(): ReceiptState {
-  return { offsets: new Map(), pending: new Map() }
+  return { offsets: new Map(), pending: new Map(), deadStreak: 0 }
 }
+
+/** Ennyi egymast koveto "nem fut" meres utan tekintjuk a fo agenst igazoltan
+ *  halottnak. SZANDEKOSAN ugyanaz a debounce, mint a dead-agent-reply
+ *  moduljae (DOWN_DEBOUNCE = 2, 5 masodperces kor): igy nem keletkezik olyan
+ *  ablak, amiben egyik modul sem szolal meg. */
+const DEAD_CONFIRM_TICKS = 2
 
 function botToken(stateDir: string): string | null {
   try {
@@ -266,6 +280,41 @@ export async function runReceiptTick(state: ReceiptState, deps: ReceiptDeps): Pr
     }
   }
 
+  // ELETJEL-KAPU (a d3ce7696 kartya hatasvizsgalatabol, 2026-09-10).
+  //
+  // A nyugta azt IGERI, hogy az uzenet sorban all, tehat lesz ra valasz. A fo
+  // agens halalakor ez hazugsag: az erkezes meg bekerult a naploba (a folyamat
+  // akkor meg elt), atveve viszont soha nem lesz, mert a sor a munkamenettel
+  // egyutt elveszett -- es a nyugta torlese (ami az ATVETELKOR futna) sem fut
+  // le, tehat a hamis "sorban all" orokre a chatben marad.
+  //
+  // A d3ce7696 ota a dead-agent-reply a FO agensre is szol, es a ket idozites
+  // egymasnak dolgozott: a halal-verdikt ~10 masodpercnel megy ki (2 kor x 5
+  // mp), a nyugta 15 masodpercnel -- vagyis a tulajdonos eloszor azt kapta,
+  // hogy "nem elek most", majd RA azt, hogy "megkaptam, sorban all". Az utolso
+  // szo volt a hamis.
+  //
+  // Ezert: amig a fo agens merhetoen NEM fut, nem igerunk sorban allast. Ez nem
+  // talalgatas -- a mainChannelsRunState() a fo agens sajat `<id>-channels`
+  // tmux munkamenetet meri, es sosem ad 'unreachable'-t (mindig helyi). Egyetlen
+  // meres viszont keves: ugyanazt a ket kort varjuk ki, mint a dead-agent-reply,
+  // kulonben egy pillanatnyi meresi hiba nemitana el egy JOGOS nyugtat.
+  if (deps.runState() !== 'running') {
+    state.deadStreak += 1
+    if (state.deadStreak >= DEAD_CONFIRM_TICKS) {
+      // Igazoltan halott. A meg ki NEM kuldott nyugtakat eldobjuk: ezekre a
+      // dead-agent-reply adja a helyes valaszt. A mar kikuldotteket meghagyjuk
+      // -- azok a halal ELOTT mentek ki (a sorrend tehat helyes: "megkaptam",
+      // utana "nem elek"), es meg torolhetok, ha az agens megis atveszi oket.
+      for (const [mid, p] of [...state.pending]) {
+        if (p.receiptMessageId === undefined) state.pending.delete(mid)
+      }
+    }
+    state.lastSilenceReason = 'main-agent-not-running'
+    return
+  }
+  state.deadStreak = 0
+
   const due = [...state.pending.values()].filter((p) => p.receiptMessageId === undefined && deps.now() - p.atMs >= deps.graceMs)
   if (due.length === 0) return
   const token = botToken(deps.stateDir)
@@ -307,6 +356,7 @@ export function startMainInboxReceipt(): NodeJS.Timeout | null {
     lang: APP_LANG,
     now: () => Date.now(),
     fetchImpl: fetch,
+    runState: () => mainChannelsRunState(),
   }
   let loggedSilence = ''
   const tick = () => {
