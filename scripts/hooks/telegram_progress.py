@@ -35,7 +35,6 @@ hook correct even if installed globally across agents with different bots.
 """
 import sys, os, json, re, time, urllib.request
 
-PLACEHOLDER = "✍️ Dolgozom rajta…"   # ✍️ Dolgozom rajta…
 REACTION = "✍️"                            # ✍️
 
 CRITICAL_THRESHOLD_PCT = 95  # mirrors rate-limit-guard.py / src/rate-limit-status.ts
@@ -111,31 +110,128 @@ def five_hour_state(snap, now_ms):
     return used_pct, resets_at
 
 
-def format_wait_hu(resets_at_ms, now_ms):
+# --- Install-specific settings (kanban 0a1ec18e) ----------------------------
+#
+# This hook renders a time and a sentence for a human, and both are properties
+# of the INSTALL, not of the machine this was written on. Hardcoding either one
+# is the "host-agnostic development" rule's exact failure: it works here and
+# quietly misinforms everyone else. The timezone has one official source
+# (SCHEDULER_TZ -> APP_TZ in src/config.ts, which exists precisely because it
+# replaced ~15 hardcoded 'Europe/Budapest' literals), and the language has one
+# official source (the .lang file -> APP_LANG).
+
+
+def install_setting(project_root, key):
+    """A setting as the dashboard would resolve it.
+
+    Precedence: os.environ > store/config-overrides.json > .env, the same order
+    as scripts/voice/_vtools.py and Node's getEffectiveSettingValue(). Settings
+    changed on the Settings page land in config-overrides.json, NOT in .env --
+    reading only .env would render the new value in the UI and change nothing
+    here, the worst kind of failure because it looks like it worked.
+    """
+    v = os.environ.get(key)
+    if v and v.strip():
+        return v.strip()
+    try:
+        with open(os.path.join(project_root, "store", "config-overrides.json"), encoding="utf-8") as f:
+            v = json.load(f).get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    except Exception:
+        pass
+    try:
+        with open(os.path.join(project_root, ".env"), encoding="utf-8") as f:
+            m = re.search(r"^" + re.escape(key) + r"=(.*)$", f.read(), re.M)
+        if m and m.group(1).strip():
+            return m.group(1).strip().strip("'\"")
+    except Exception:
+        pass
+    return None
+
+
+def install_lang(project_root):
+    """'hu' or 'en' -- the install language (mirrors readInstallLang() in
+    src/config.ts: the .lang file, defaulting to Hungarian)."""
+    try:
+        with open(os.path.join(project_root, ".lang"), encoding="utf-8") as f:
+            raw = f.read().strip().lower()
+        if raw.startswith("en"):
+            return "en"
+        if raw:
+            return "hu"
+    except Exception:
+        pass
+    return "hu"
+
+
+def install_zone(project_root):
+    """(tzinfo_or_None, label). None means "use the machine's own zone" -- the
+    same fallback resolveAppTz() takes when SCHEDULER_TZ is unset. A configured
+    but unusable zone falls back too rather than throwing: a wrong-looking hour
+    is bad, no message at all is worse."""
+    name = install_setting(project_root, "SCHEDULER_TZ")
+    if name:
+        try:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(name), name
+        except Exception:
+            pass
+    try:
+        import datetime
+        local = datetime.datetime.now().astimezone()
+        return None, (local.tzname() or "")
+    except Exception:
+        return None, ""
+
+
+def format_wait(resets_at_ms, now_ms, lang="hu"):
     """'{H} ora {M} percig' / '{M} percig' -- the ETA phrasing Boss asked for
-    (uzenet 808: "3 ora 35 perc ig")."""
+    (uzenet 808: "3 ora 35 perc ig"), and its English counterpart."""
     remaining_min = max(0, round((resets_at_ms - now_ms) / 60_000))
     hours, minutes = divmod(remaining_min, 60)
+    if lang == "en":
+        if hours > 0:
+            return f"{hours}h {minutes}m"
+        return f"{minutes} minutes"
     if hours > 0:
         return f"{hours} óra {minutes} percig"
     return f"{minutes} percig"
 
 
-def quota_honest_message(used_pct, resets_at_ms, now_ms):
-    eta = format_wait_hu(resets_at_ms, now_ms)
+# Every line that reaches a screen exists in both languages (project rule).
+QUOTA_TEXT = {
+    "hu": {
+        "until": " (kb. {local}-ig, {zone})",
+        "body": "⏳ Jelenleg kifogytam a token-keretemből: az 5 órás keretem {pct}%-on áll. "
+                "Kb. {eta} nem tudom rendesen fogadni/feldolgozni a kéréseidet{until}, utána újra itt vagyok.",
+    },
+    "en": {
+        "until": " (until about {local}, {zone})",
+        "body": "⏳ I have run out of my token budget: my 5-hour window is at {pct}%. "
+                "For about {eta} I cannot properly take or work on your requests{until}, after that I am back.",
+    },
+}
+
+PLACEHOLDER_TEXT = {"hu": "✍️ Dolgozom rajta…", "en": "✍️ Working on it…"}
+
+
+def placeholder_text(lang="hu"):
+    return PLACEHOLDER_TEXT.get(lang, PLACEHOLDER_TEXT["hu"])
+
+
+def quota_honest_message(used_pct, resets_at_ms, now_ms, lang="hu", zone=None, zone_label=""):
+    t = QUOTA_TEXT.get(lang, QUOTA_TEXT["hu"])
+    eta = format_wait(resets_at_ms, now_ms, lang)
     try:
         import datetime
-        from zoneinfo import ZoneInfo
-        local = datetime.datetime.fromtimestamp(
-            resets_at_ms / 1000, tz=ZoneInfo("Europe/Budapest")
-        ).strftime("%H:%M")
-        until = f" (kb. {local}-ig, Europe/Budapest)"
+        # `zone=None` renders in the machine's own zone -- the same fallback the
+        # dashboard takes when SCHEDULER_TZ is unset.
+        local = datetime.datetime.fromtimestamp(resets_at_ms / 1000, tz=zone).strftime("%H:%M")
+        until = t["until"].format(local=local, zone=zone_label) if zone_label else f" ({local})"
     except Exception:
         until = ""
-    return (
-        f"⏳ Jelenleg kifogytam a token-keretemből: az 5 órás keretem {round(used_pct)}%-on áll. "
-        f"Kb. {eta} nem tudom rendesen fogadni/feldolgozni a kéréseidet{until}, utána újra itt vagyok."
-    )
+    return t["body"].format(pct=round(used_pct), eta=eta, until=until)
 
 
 def quota_status_message_if_critical(cwd, now_ms=None):
@@ -161,7 +257,10 @@ def quota_status_message_if_critical(cwd, now_ms=None):
     used_pct, resets_at = state
     if used_pct < CRITICAL_THRESHOLD_PCT:
         return None
-    return quota_honest_message(used_pct, resets_at, now_ms)
+    zone, zone_label = install_zone(project_root)
+    return quota_honest_message(
+        used_pct, resets_at, now_ms, install_lang(project_root), zone, zone_label,
+    )
 
 
 def state_dir():
@@ -247,6 +346,12 @@ def main():
     # Kanban 34f8f2dc: know BEFORE sending anything whether our own 5-hour
     # frame is already critical -- if so, the placeholder would be a lie.
     honest_status = quota_status_message_if_critical(os.getcwd())
+    # Kanban 0a1ec18e: the placeholder is screen text too, so it follows the
+    # INSTALL language, not the language this hook happened to be written in.
+    # A missing project root (hook running outside a Marveen tree) keeps the
+    # documented default -- Hungarian -- rather than failing the turn.
+    root = find_project_root(os.getcwd())
+    placeholder = placeholder_text(install_lang(root) if root else "hu")
     if honest_status:
         log(sd, "[submit] critical quota -- sending honest status instead of placeholder")
 
@@ -275,7 +380,7 @@ def main():
         # placeholder already signals receipt, so a reaction would be redundant
         # (per user preference 2026-06-07).
         try:
-            resp = api(tok, "sendMessage", {"chat_id": chat_id, "text": PLACEHOLDER, "disable_notification": True})
+            resp = api(tok, "sendMessage", {"chat_id": chat_id, "text": placeholder, "disable_notification": True})
             pmid = resp.get("result", {}).get("message_id")
             if pmid:
                 entry = {"chat_id": chat_id, "message_id": pmid}
@@ -306,8 +411,13 @@ def _self_test():
     import tempfile
 
     fails = []
+    ran = []
 
     def check(name, got, want):
+        # A FIXED count in the summary line would keep saying "11 checks" no
+        # matter how many actually ran -- a number that cannot be wrong is not a
+        # measurement. Count what really executed.
+        ran.append(name)
         if got != want:
             fails.append("%s: expected %r, got %r" % (name, want, got))
 
@@ -356,7 +466,45 @@ def _self_test():
         msg = quota_status_message_if_critical(d, now)
         check("at/over threshold -> honest message", msg is not None, True)
         check("honest message names the ETA", "3 óra 35 percig" in (msg or ""), True)
-        check("honest message is not the lie", PLACEHOLDER in (msg or ""), False)
+        check("honest message is not the lie", placeholder_text("hu") in (msg or ""), False)
+
+        # --- kanban 0a1ec18e: the message must follow the INSTALL, not this
+        # machine. A wrong hour or a Hungarian sentence on an English install
+        # is the same defect the honest message exists to prevent.
+        os.environ.pop("SCHEDULER_TZ", None)
+        with open(os.path.join(d, ".env"), "w") as f:
+            f.write("MAIN_AGENT_ID=main\nSCHEDULER_TZ=America/New_York\n")
+        msg = quota_status_message_if_critical(d, now) or ""
+        check("zone comes from .env", "America/New_York" in msg, True)
+        check("no hardcoded developer zone", "Europe/Budapest" in msg, False)
+
+        # Settings-page values land in config-overrides.json and must WIN over
+        # .env -- otherwise the UI would show a change that changes nothing.
+        with open(os.path.join(d, "store", "config-overrides.json"), "w") as f:
+            json.dump({"SCHEDULER_TZ": "UTC"}, f)
+        msg = quota_status_message_if_critical(d, now) or ""
+        check("config-overrides wins over .env", "UTC" in msg, True)
+        # now + 3h35m == 2001-09-09 05:21 UTC -- the hour is really rendered in
+        # the configured zone, not just named in the text.
+        check("hour rendered in the configured zone", "05:21" in msg, True)
+
+        # An unusable zone must fall back to the machine, not throw the turn away.
+        with open(os.path.join(d, "store", "config-overrides.json"), "w") as f:
+            json.dump({"SCHEDULER_TZ": "Not/AZone"}, f)
+        check("bad zone still produces a message",
+              bool(quota_status_message_if_critical(d, now)), True)
+        os.remove(os.path.join(d, "store", "config-overrides.json"))
+
+        # Language: the install's .lang decides, the default stays Hungarian.
+        check("default language is hu", install_lang(d), "hu")
+        with open(os.path.join(d, ".lang"), "w") as f:
+            f.write("en\n")
+        check("lang file read", install_lang(d), "en")
+        msg = quota_status_message_if_critical(d, now) or ""
+        check("english install gets english text", "5-hour window" in msg, True)
+        check("english install has no hungarian text", "keretem" in msg, False)
+        check("english ETA phrasing", "3h 35m" in msg, True)
+        os.remove(os.path.join(d, ".lang"))
 
         # A missing snapshot file (fresh install, no statusline tick yet)
         # must not throw and must not gate -- there is simply nothing to say.
@@ -364,16 +512,22 @@ def _self_test():
         check("missing snapshot -> normal placeholder",
               quota_status_message_if_critical(d, now), None)
 
-    # format_wait_hu: hours+minutes and minutes-only phrasing.
+    # The placeholder is screen text as well -- both languages, and never the
+    # same string twice (a "bilingual" pair that is one string is not bilingual).
+    check("placeholder hu", placeholder_text("hu"), "✍️ Dolgozom rajta…")
+    check("placeholder en differs", placeholder_text("en") != placeholder_text("hu"), True)
+    check("unknown language falls back to hu", placeholder_text("de"), placeholder_text("hu"))
+
+    # format_wait: hours+minutes and minutes-only phrasing.
     check("hours+minutes phrasing",
-          format_wait_hu(now + 3 * 3600_000 + 35 * 60_000, now), "3 óra 35 percig")
-    check("minutes-only phrasing", format_wait_hu(now + 12 * 60_000, now), "12 percig")
+          format_wait(now + 3 * 3600_000 + 35 * 60_000, now), "3 óra 35 percig")
+    check("minutes-only phrasing", format_wait(now + 12 * 60_000, now), "12 percig")
 
     if fails:
         for f in fails:
             print("FAIL " + f)
         return 1
-    print("telegram_progress.py --self-test: OK (%d checks)" % 11)
+    print("telegram_progress.py --self-test: OK (%d checks)" % len(ran))
     return 0
 
 
