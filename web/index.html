@@ -3013,6 +3013,8 @@
              hely. -->
         <div id="intezoActionBar" class="intezo-actions" hidden>
           <span id="intezoActionName" class="intezo-actions-name"></span>
+          <button class="btn-secondary btn-compact" data-intezo-act="preview" data-i18n="intezo.preview" hidden>Előnézet</button>
+          <button class="btn-secondary btn-compact" data-intezo-act="download" data-i18n="intezo.download" hidden>Letöltés</button>
           <button class="btn-secondary btn-compact" data-intezo-act="move" data-i18n="intezo.move">Áthelyezés másik mappába</button>
           <button class="btn-secondary btn-compact" data-intezo-act="mount" data-i18n="intezo.mount_title">Mit mutasson ez a mappa?</button>
           <button class="btn-secondary btn-compact" data-intezo-act="paper" data-i18n="intezo.physical_title">Fizikai (papír) példány</button>
@@ -3090,6 +3092,13 @@
            nem azonositoval. Boss: "Nem kell QR-kod. Nem kell mappa-ID." -->
       <div class="card" id="intezoInfoCard" hidden>
         <h2 data-i18n="intezo.info_title">Részletes információ</h2>
+
+        <!-- ELONEZET: csak akkor latszik, ha a kijelolt fajl tipusa a
+             bongeszoben kozvetlenul megjelenitheto (PDF/kep/video/szoveg,
+             kartya #164). Egyeb tipusnal (docx, exe, stb.) rejtve marad -- a
+             letoltes gomb megy helyette. -->
+        <div id="intezoPreviewBox" hidden style="margin:0 0 14px"></div>
+
         <table style="width:100%;font-size:14px">
           <tbody id="intezoInfoRows"></tbody>
         </table>
