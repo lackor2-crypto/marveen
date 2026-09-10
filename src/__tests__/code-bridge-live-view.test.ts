@@ -131,11 +131,16 @@ describe('codeBridgeActivity: a nulla ket jelentese az elosegnel', () => {
 })
 
 describe('/api/agents/activity: ebbol lesz zold az "Elo nezet"', () => {
-  it('a "dolgozik" a kiosztott feladatbol VAGY a FRISSEN aktiv elo beszelgetesbol jon', () => {
+  it('a "dolgozik" a kiosztott feladatbol VAGY a FRISSEN aktiv MARVIN-SAJAT beszelgetesbol jon', () => {
     // Kartya f9aff668 (2026-09-10): egy elo, de regen inaktiv beszelgetes ONMAGABAN
     // mar nem eleg -- lasd `CodeBridgeActivity.liveRecentlyActive`.
+    // Kartya f0745809 (2026-09-10, Boss masodik hanguzenete): TOVABB SZUKULT --
+    // csak a Marvin altal NYITOTT (`marvinOwned`) friss beszelgetes szamit,
+    // Boss SAJAT, nem Marvin-nyitotta fulje (pl. MetaTrader-elemzes) mar nem.
+    // Lasd `CodeBridgeActivity.liveMarvinOwnedActive`. Az altalanos `liveSessions`
+    // lista (lentebb, az "Elo nezet" linkhez) ettol fuggetlenul valtozatlan.
     expect(route).toMatch(
-      /act\.running\.length > 0 \|\| \(act\.liveSessions\.length > 0 && act\.liveRecentlyActive\)\s*\n?\s*\? 'working'/
+      /act\.running\.length > 0 \|\| act\.liveMarvinOwnedActive\s*\n?\s*\? 'working'/
     )
   })
 

@@ -111,9 +111,15 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     // kapcsolva es online" tovabbra sem "dolgozik".
     // Kartya f9aff668 (2026-09-10, Boss): a `liveSessions.length > 0` onmagaban
     // TOVABB BOVULT `&& act.liveRecentlyActive`-tel -- egy elo, de regen inaktiv
-    // beszelgetes se "dolgozik" tobbe. Lasd `CodeBridgeActivity.liveRecentlyActive`.
+    // beszelgetes se "dolgozik" tobbe.
+    // Kartya f0745809 (2026-09-10, Boss masodik hanguzenete): a feltetel MOST
+    // SZUKULT -- a `liveSessions.length > 0 && act.liveRecentlyActive` (BARMELY
+    // elo, friss ful) helyett `act.liveMarvinOwnedActive` (CSAK a Marvin altal
+    // NYITOTT, friss beszelgetes). Boss SAJAT kezzel hasznalt masik fulje (pl.
+    // MetaTrader-elemzes) mar nem szamit "dolgozik"-nak. Lasd
+    // `CodeBridgeActivity.liveMarvinOwnedActive`.
     expect(route).toMatch(
-      /act\.running\.length > 0 \|\| \(act\.liveSessions\.length > 0 && act\.liveRecentlyActive\)\s*\n?\s*\? 'working'/
+      /act\.running\.length > 0 \|\| act\.liveMarvinOwnedActive\s*\n?\s*\? 'working'/
     )
     expect(route).toContain("(act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')")
   })
@@ -244,6 +250,59 @@ describe('codeBridgeActivity: liveRecentlyActive (kartya 90a050af utoda -- befej
     const act = codeBridgeActivity()
     expect(act.liveSessions).toEqual([])
     expect(act.liveRecentlyActive).toBe(false)
+  })
+})
+
+describe('codeBridgeActivity: liveMarvinOwnedActive (kartya f0745809 -- Boss sajat fulje ne legyen "dolgozik")', () => {
+  beforeEach(() => { _resetCodeCandidates() })
+
+  // Boss, 2026-09-10 (masodik hanguzenet): a kartya 032aa826 ota a Marvin
+  // dispatch MINDIG friss, sajat beszelgetest nyit (`marvinOwned`), ezert a
+  // "dolgozik" jelzesnek is erre kell szukulnie -- Boss SAJAT kezzel hasznalt,
+  // nem Marvin-nyitotta fulje (pl. MetaTrader-elemzes) ne mutasson "dolgozik"-ot.
+
+  it('marvinOwned session friss elo aktivitasa liveMarvinOwnedActive=true', () => {
+    upsertCodeSession({ ...WS, marvinOwned: true })
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: Date.now() - 30_000 },
+    ])
+    const act = codeBridgeActivity()
+    expect(act.liveRecentlyActive).toBe(true)
+    expect(act.liveMarvinOwnedActive).toBe(true)
+  })
+
+  it('NEM marvinOwned (Boss sajat fulje) friss elo aktivitasa NEM szamit liveMarvinOwnedActive-nak', () => {
+    upsertCodeSession({ ...WS, marvinOwned: false })
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: Date.now() - 30_000 },
+    ])
+    const act = codeBridgeActivity()
+    // Az altalanos meres tovabbra is "friss elo"-nek latja -- csak a szukebb,
+    // marvinOwned-ra szurt mezo lesz false. A liveSessions lista is megmarad
+    // (az "Elo nezet" link mukodjon Boss sajat fuljere is).
+    expect(act.liveRecentlyActive).toBe(true)
+    expect(act.liveSessions.length).toBeGreaterThan(0)
+    expect(act.liveMarvinOwnedActive).toBe(false)
+  })
+
+  it('nem regisztralt (bekotetlen) elo jelolt sose szamit liveMarvinOwnedActive-nak', () => {
+    recordCodeCandidates('windows', [
+      { workspacePath: WS.workspacePath, sessionId: WS.sessionId, live: true, lastActivity: Date.now() - 30_000 },
+    ])
+    expect(codeBridgeActivity().liveMarvinOwnedActive).toBe(false)
+  })
+
+  it('elavult MERT aktivitasu marvinOwned ful sem szamit liveMarvinOwnedActive-nak', () => {
+    upsertCodeSession({ ...WS, marvinOwned: true })
+    recordCodeCandidates('windows', [
+      {
+        workspacePath: WS.workspacePath,
+        sessionId: WS.sessionId,
+        live: true,
+        lastActivity: Date.now() - LIVE_SESSION_STALE_MS - 60_000,
+      },
+    ])
+    expect(codeBridgeActivity().liveMarvinOwnedActive).toBe(false)
   })
 })
 

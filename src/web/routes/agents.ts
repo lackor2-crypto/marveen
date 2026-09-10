@@ -997,9 +997,20 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         // hogy dolgozik zold... kb 10 perce mar megallt"). A ténylegesen
         // KIOSZTOTT feladat (`running`) ettol fuggetlenul mindig szamit.
         // Reszletek: `CodeBridgeActivity.liveRecentlyActive`.
+        //
+        // MARVIN-SAJAT (marvinOwned) SZUKITES (kartya f0745809, Boss
+        // hanguzenet 2026-09-10): a fenti frisseseg onmagaban tulzottan tag
+        // volt -- BARMELY elo, friss fulet "dolgozik"-nak mutatta, akkor is,
+        // ha Boss a SAJAT kezevel dolgozott egy MASIK, nem Marvin-nyitotta
+        // fulon (pl. MetaTrader-elemzes). A kartya 032aa826 ota a Marvin
+        // dispatch MINDIG friss, sajat beszelgetest nyit (`marvinOwned`),
+        // ezert a "dolgozik" jelzes is erre szukul: csak a marvinOwned
+        // reszhalmaz friss aktivitasa szamit, a `liveSessions` altalanos
+        // listaja (a farok-szoveghez / "Elo nezet" linkhez) valtozatlan
+        // marad. Reszletek: `CodeBridgeActivity.liveMarvinOwnedActive`.
         const state = act.quotaBlocked
           ? 'limited'
-          : (act.running.length > 0 || (act.liveSessions.length > 0 && act.liveRecentlyActive)
+          : (act.running.length > 0 || act.liveMarvinOwnedActive
               ? 'working'
               : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped'))
         entries.push({
