@@ -1736,7 +1736,42 @@ export interface CodeBridgeActivity {
    *  (regi worker, nem latunk oda) nem old fel: csak a mert, frissebb aktivitas
    *  szamit -- ugyanaz a "nulla ket dolgot jelenthet" elv, mint a `liveMeasured`. */
   quotaBlocked: boolean
+  /** VAN-E LEGALABB EGY ELO BESZELGETES, AMINEK MERT AKTIVITASA FRISS (Boss,
+   *  2026-09-10, valos eset).
+   *
+   *  A `live === true` -- ugyanugy, mint a `quotaBlocked`-nel -- csak annyit
+   *  jelent, hogy a VS Code Claude Code FOLYAMAT fut es cimezheto (a worker
+   *  `Get-OpenSessionIds` PID-ellenorzese), NEM azt, hogy epp general valamit.
+   *  Ha Boss befejez egy beszelgetest, de nyitva hagyja a VS Code-ot, a
+   *  folyamat tovabbra is "el" marad -- a kartya emiatt meg ~10 perccel a
+   *  beszelgetes vege utan is zold "dolgozik"-ot mutatott (Boss, Telegram:
+   *  "meg mindig latom, hogy dolgozik zold, es kozben mar regen leallt a VS
+   *  Code szoftver... itt mar reges regen megallt, kb 10 perce").
+   *
+   *  Ugyanaz a hibaosztaly, mint a `quotaBlocked`, csak masik ok: ott a
+   *  keret-kimerules maszkolta a "process el, de nem dolgozik" allapotot, itt
+   *  egy egyszeruen befejezett/varakozo beszelgetes. A javitas ugyanazt a
+   *  mert `lastActivity` jelet hasznalja: ha EGYETLEN elo beszelgetesnek sincs
+   *  a frissesegi ablakon (`LIVE_SESSION_STALE_MS`) beluli aktivitasa, ez a
+   *  mezo `false` -- a hivo ilyenkor a `liveSessions`-t onmagaban mar nem
+   *  veszi "dolgozik" jelnek, csak a tenylegesen kiosztott (`running`)
+   *  feladatot.
+   *
+   *  A `lastActivity === null` (regi worker, vagy meg nincs meres) `true`-nak
+   *  szamit -- nincs bizonyitekunk az inaktivitasra, tehat NEM valtoztatunk a
+   *  regi viselkedesen (ugyanaz a "csak POZITIV bizonyitek dont" elv, mint a
+   *  `quotaBlocked` feloldasanal, csak forditott iranyban: itt a hianyzo
+   *  meres nem szigorit, hanem a regi, megengedobb allapotot tartja meg). */
+  liveRecentlyActive: boolean
 }
+
+/** Meddig szamit egy `live === true` beszelgetes "meg dolgozik"-nak MERT
+ *  aktivitas nelkul. 3 perc: eleg rovid ahhoz, hogy egy befejezett
+ *  beszelgetes ne mutasson orokke zoldet, de eleg hosszu ahhoz, hogy egy
+ *  hosszabb, naplo-iras nelkuli gondolkodasi/eszkoz-lepes ne villogtassa ki
+ *  hamisan. Ugyanabban a nagysagrendben, mint a fajl tobbi hasonlo hatarideje
+ *  (`ORPHAN_GRACE_MS` = 3 perc). */
+export const LIVE_SESSION_STALE_MS = 3 * 60 * 1000
 
 // Igaz, ha a szoveg egy Claude Code keret-kimerules uzenet ("You've hit your
 // weekly limit ...", "usage limit reached", stb.). Szandekosan tolerans: a
@@ -1808,6 +1843,15 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
       quotaBlocked = !recovered
     }
   }
+  // FRISS AKTIVITAS: van-e legalabb egy elo beszelgetes, aminek a MERT
+  // `lastActivity`-je (vagy annak hianyaban a fajl `mtime`-ja) a frissesegi
+  // ablakon belul van. Lasd `CodeBridgeActivity.liveRecentlyActive`. A meres
+  // hianya (mindket ertek `null`) `true`-t ad -- nincs bizonyitek az
+  // inaktivitasra, tehat nem szigoritunk a regi viselkedesen.
+  const liveRecentlyActive = liveCands.some((c) => {
+    const ts = c.lastActivity ?? c.mtime
+    return ts == null || now - ts <= LIVE_SESSION_STALE_MS
+  })
   return {
     present: lastSeen > 0 || sessions > 0,
     workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
@@ -1820,6 +1864,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     liveSessions,
     liveMeasured: candidatesEverReported,
     quotaBlocked,
+    liveRecentlyActive,
   }
 }
 

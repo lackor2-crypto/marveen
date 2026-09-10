@@ -989,9 +989,17 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         // a folyamat cimezheto -- egy heti-limitbe futott session folyamata is
         // ott ul a banneren, ezert mutatott a hid orokke zold "dolgozik"-ot
         // (Boss, 2026-09-08). Reszletek: `CodeBridgeActivity.quotaBlocked`.
+        //
+        // A FRISSESEG UTANA: egy `live === true` beszelgetes onmagaban meg
+        // nem "dolgozik", ha MERT aktivitasa regi -- a folyamat cimezheto
+        // marad akkor is, ha a beszelgetes mar befejezodott es Boss csak
+        // nyitva hagyta a VS Code-ot (Boss, 2026-09-10: "meg mindig latom,
+        // hogy dolgozik zold... kb 10 perce mar megallt"). A ténylegesen
+        // KIOSZTOTT feladat (`running`) ettol fuggetlenul mindig szamit.
+        // Reszletek: `CodeBridgeActivity.liveRecentlyActive`.
         const state = act.quotaBlocked
           ? 'limited'
-          : (act.running.length > 0 || act.liveSessions.length > 0
+          : (act.running.length > 0 || (act.liveSessions.length > 0 && act.liveRecentlyActive)
               ? 'working'
               : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped'))
         entries.push({

@@ -131,8 +131,12 @@ describe('codeBridgeActivity: a nulla ket jelentese az elosegnel', () => {
 })
 
 describe('/api/agents/activity: ebbol lesz zold az "Elo nezet"', () => {
-  it('a "dolgozik" a kiosztott feladatbol VAGY az elo beszelgetesbol jon', () => {
-    expect(route).toMatch(/act\.running\.length > 0 \|\| act\.liveSessions\.length > 0\s*\n?\s*\? 'working'/)
+  it('a "dolgozik" a kiosztott feladatbol VAGY a FRISSEN aktiv elo beszelgetesbol jon', () => {
+    // Kartya f9aff668 (2026-09-10): egy elo, de regen inaktiv beszelgetes ONMAGABAN
+    // mar nem eleg -- lasd `CodeBridgeActivity.liveRecentlyActive`.
+    expect(route).toMatch(
+      /act\.running\.length > 0 \|\| \(act\.liveSessions\.length > 0 && act\.liveRecentlyActive\)\s*\n?\s*\? 'working'/
+    )
   })
 
   it('a megnyithato beszelgetes visszaesik az ELO fulre, ha a feladat nem hordoz azonositot', () => {
