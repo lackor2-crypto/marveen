@@ -1140,6 +1140,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
             workspacePath: cur.workspacePath,
             sessionId: endedIn,
             host: cur.host,
+            // Kartya 032aa826: a MEGLEVO "Torles" gombos utveszt (fentebbi
+            // kommentek) nem valtoztat a marvin_owned jeloleset -- csak a
+            // dispatch altal SAJAT MAGATOL inditott friss beszelgetest
+            // szabad ujrahasznalando "Marvin sajatja" sorra allitani.
+            ...(task.startFresh ? { marvinOwned: true } : {}),
           })
           logger.info({ task: updated.id, project: updated.project, from: updated.sessionId, to: endedIn }, 'code-bridge: project repointed to the conversation the run ended in')
         }

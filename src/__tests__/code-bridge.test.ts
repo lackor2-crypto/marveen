@@ -251,6 +251,51 @@ describe('dispatch routing', () => {
   })
 })
 
+// Kartya 032aa826: a Marvin VS Code dispatch ne az AKTUALIS (felderites altal
+// talalt, akar a tulaj altal eppen kezzel hasznalt) fulbe irjon cimzes nelkul --
+// csak egy bizonyitottan Marvin-sajat beszelgetest hasznaljon ujra.
+describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () => {
+  it('cimzes nelkuli feladat friss beszelgetest kap, ha a projektnek nincs meg Marvin-sajat sora', () => {
+    seedThree()
+    enqueueCodeTask({ project: 'marvin', prompt: 'valami' })
+    const claimed = claimNextCodeTask('w')!
+    expect(claimed.startFresh).toBe(true)
+    // A runIn meg mindig a felderites altal latott sessiont hordozza -- ezt a
+    // workernek kell figyelmen kivul hagynia, ha startFresh igaz (lasd
+    // marvin-code-worker.ps1 Invoke-CodeTask).
+    expect(claimed.sessionId).toBe(MARVIN.sessionId)
+  })
+
+  it('a cimzett (target) ful ERŐSEBB -- explicit cimzesnel sose friss', () => {
+    seedThree()
+    const uuid = 'eeeeeeee-0000-4000-8000-000000000099'
+    const out = enqueueCodeTask({ project: 'marvin', prompt: 'valami', sessionId: uuid })
+    expect('task' in out).toBe(true)
+    const claimed = claimNextCodeTask('w')!
+    expect(claimed.targetSessionId).toBe(uuid)
+    expect(claimed.startFresh).toBe(false)
+    expect(claimed.sessionId).toBe(uuid)
+  })
+
+  it('ha a projekt sora mar Marvin-sajat (marvinOwned), cimzes nelkul is ujrahasznalja -- nem nyit ujabb friss szalat mindig', () => {
+    seedThree()
+    upsertCodeSession({ ...MARVIN, marvinOwned: true })
+    expect(getCodeSession('marvin')!.marvinOwned).toBe(true)
+    enqueueCodeTask({ project: 'marvin', prompt: 'valami' })
+    const claimed = claimNextCodeTask('w')!
+    expect(claimed.startFresh).toBe(false)
+    expect(claimed.sessionId).toBe(MARVIN.sessionId)
+  })
+
+  it('a marvinOwned jelzes tulel egy sima (marvinOwned nelkuli) upsertet -- ugyanaz a mintazat mint a pinned-nel', () => {
+    seedThree()
+    upsertCodeSession({ ...MARVIN, marvinOwned: true })
+    upsertCodeSession({ project: 'marvin', workspacePath: MARVIN.workspacePath, sessionId: 'later-session' })
+    expect(getCodeSession('marvin')!.marvinOwned).toBe(true)
+    expect(getCodeSession('marvin')!.sessionId).toBe('later-session')
+  })
+})
+
 describe('lease / liveness', () => {
   it('re-queues a task whose worker stopped heartbeating', () => {
     seedThree()
