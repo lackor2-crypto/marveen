@@ -1794,6 +1794,27 @@ export interface CodeBridgeActivity {
    *  `quotaBlocked` feloldasanal, csak forditott iranyban: itt a hianyzo
    *  meres nem szigorit, hanem a regi, megengedobb allapotot tartja meg). */
   liveRecentlyActive: boolean
+  /** VAN-E FRISSEN AKTIV, MARVIN-SAJAT (marvinOwned) ELO BESZELGETES (kartya
+   *  f0745809, Boss hanguzenet 2026-09-10).
+   *
+   *  A kartya 032aa826 ota a Marvin cimzes nelkuli dispatch-nal MINDIG friss,
+   *  sajat beszelgetest nyit (`CodeSession.marvinOwned`), ezert Boss szerint az
+   *  osszeakadas-veszely megszunt, es a "dolgozik" zold jelzesnek IS szukulnie
+   *  kell: csak akkor mutasson dolgozast, ha TENYLEGESEN a Marvin altal nyitott
+   *  beszelgetesben van friss aktivitas -- NE akkor, ha Boss a SAJAT kezevel
+   *  dolgozik egy MASIK, nem Marvin-nyitotta fulon (pl. MetaTrader-elemzes egy
+   *  masik projektfulon). Boss szoveg szerint: "a szamitogepemben levo masik
+   *  szoftverben, ha en dolgozok egy fulon, azt ne mutassa, hogy dolgozik."
+   *
+   *  Ez SZUKITI a `liveRecentlyActive`-et (ami barmely elo, friss aktivitasu
+   *  fulre igaz, fuggetlenul attol, ki nyitotta) a marvinOwned reszhalmazra --
+   *  ugyanaz a `lastActivity`/`LIVE_SESSION_STALE_MS` meres, csak a jelolt
+   *  regisztralt `CodeSession.marvinOwned` mezojevel szurve. Egy nem-regisztralt
+   *  (bekotetlen) live jelolt SOSE szamit ide, mert nincs `marvinOwned` allitasa
+   *  -- ez szandekosan szigorubb, mint a `liveSessions` altalanos listaja, ami
+   *  tovabbra is MINDEN elo fulet felsorol (a farok-szoveghez, nem a
+   *  jelzo-donteshez). */
+  liveMarvinOwnedActive: boolean
 }
 
 /** Meddig szamit egy `live === true` beszelgetes "meg dolgozik"-nak MERT
@@ -1883,6 +1904,16 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     const ts = c.lastActivity ?? c.mtime
     return ts == null || now - ts <= LIVE_SESSION_STALE_MS
   })
+  // MARVIN-SAJAT (marvinOwned) SZUKITES: ugyanaz a meres mint `liveRecentlyActive`,
+  // de csak azokra a jeloltekre, amiknek a regisztralt `CodeSession`-je
+  // `marvinOwned === true`. Egy nem-regisztralt jelolt sose szamit ide (nincs
+  // `marvinOwned` allitasa). Lasd `CodeBridgeActivity.liveMarvinOwnedActive`.
+  const liveMarvinOwnedActive = liveCands.some((c) => {
+    const reg = byPath.get(c.workspacePath.toLowerCase())
+    if (!reg?.marvinOwned) return false
+    const ts = c.lastActivity ?? c.mtime
+    return ts == null || now - ts <= LIVE_SESSION_STALE_MS
+  })
   return {
     present: lastSeen > 0 || sessions > 0,
     workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
@@ -1896,6 +1927,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     liveMeasured: candidatesEverReported,
     quotaBlocked,
     liveRecentlyActive,
+    liveMarvinOwnedActive,
   }
 }
 
