@@ -6,6 +6,7 @@
 //   POST /api/life/config     -- ezek szerkesztese
 //   GET  /api/life/list       -- egy mappa tartalma, forrasjelvenyekkel
 //   GET  /api/life/info       -- a reszletes informacios panel egy tetelrol
+//   GET  /api/life/file       -- egy fajl BAJTJAI (elonezet/letoltes, kartya #164)
 //   GET  /api/life/search     -- nev szerinti kereses a fan belul
 //   GET  /api/life/name-check -- LETREHOZAS ELOTT: rendben van-e ez a nev
 //   POST /api/life/mkdir      -- uj mappa
@@ -49,11 +50,14 @@ import {
 import { depotRoot } from '../../depot.js'
 import { storageKindRoot } from '../../storages.js'
 import { join as pathJoin, extname as pathExtname, basename as pathBasename } from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync, createReadStream } from 'node:fs'
+import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
 import {
   listLife, lifeInfo, moveLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
+  resolveLifePath,
 } from '../../life-explorer.js'
+import { contentDispositionHeader } from './drive-browser.js'
 import { listSourceKinds } from '../../life-sources.js'
 import { listMounts, addMount, removeMount } from '../../life-mounts.js'
 import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
@@ -102,6 +106,38 @@ async function readJson(req: RouteContext['req']): Promise<any> {
 
 function send(res: RouteContext['res'], status: number, data: unknown): void {
   json(res, data, status)
+}
+
+// A bongeszoben KOZVETLENUL megjelenithetp fajltipusok (kartya #164, 1. fazis).
+// Ami nincs itt (docx/xlsx/exe/stb.), az a mostani fazisban CSAK letoltheto --
+// a szerkesztheto-dokumentum-elonezet (PDF-konverzio) es a natives megnyitas
+// kesobbi fazis, ebbe a kartyaba szandekosan NEM tartozik bele.
+const LIFE_PREVIEW_MIME: Record<string, string> = {
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+  mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
+  txt: 'text/plain; charset=utf-8', md: 'text/markdown; charset=utf-8',
+  js: 'text/plain; charset=utf-8', mjs: 'text/plain; charset=utf-8', cjs: 'text/plain; charset=utf-8',
+  ts: 'text/plain; charset=utf-8', tsx: 'text/plain; charset=utf-8', jsx: 'text/plain; charset=utf-8',
+  json: 'text/plain; charset=utf-8', css: 'text/plain; charset=utf-8',
+  html: 'text/plain; charset=utf-8', htm: 'text/plain; charset=utf-8',
+  py: 'text/plain; charset=utf-8', sh: 'text/plain; charset=utf-8', bash: 'text/plain; charset=utf-8',
+  yml: 'text/plain; charset=utf-8', yaml: 'text/plain; charset=utf-8', csv: 'text/plain; charset=utf-8',
+  xml: 'text/plain; charset=utf-8', c: 'text/plain; charset=utf-8', cpp: 'text/plain; charset=utf-8',
+  h: 'text/plain; charset=utf-8', hpp: 'text/plain; charset=utf-8', java: 'text/plain; charset=utf-8',
+  go: 'text/plain; charset=utf-8', rs: 'text/plain; charset=utf-8', php: 'text/plain; charset=utf-8',
+  rb: 'text/plain; charset=utf-8', sql: 'text/plain; charset=utf-8', ini: 'text/plain; charset=utf-8',
+  toml: 'text/plain; charset=utf-8', log: 'text/plain; charset=utf-8',
+}
+
+// Meret-korlat, amin tul mar NEM ajanlunk elonezetet (csak letoltest) egy
+// nem-video fajlnal -- lasd a hasznalati helyen levo magyarazatot.
+const MAX_LIFE_PREVIEW_BYTES = 200 * 1024 * 1024 // 200 MB
+
+function lifeFileKind(name: string): { mime: string | null; previewable: boolean } {
+  const ext = pathExtname(name).slice(1).toLowerCase()
+  const mime = LIFE_PREVIEW_MIME[ext] || null
+  return { mime, previewable: mime !== null }
 }
 
 export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
@@ -203,7 +239,95 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       send(res, 404, { error: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül.' })
       return true
     }
+    const kind = lifeFileKind(info.name || '')
+    info.mimeType = kind.mime
+    info.previewable = kind.previewable
     send(res, 200, info)
+    return true
+  }
+
+  // A FAJL TARTALMANAK kiszolgalasa elonezethez/letoltesehez (kartya #164).
+  // A BIZTONSAGI HATART szandekosan a MAR MEGLEVO resolveLifePath() adja: ez
+  // a vegpont nem ir sajat utvonal-ellenorzest, csak arra ereszt bajtot, amit
+  // az mar (realpath-szinten, szimlinket is kovetve) a fa BELSEJENEK itelt.
+  if (path === '/api/life/file' && method === 'GET') {
+    const rel = url.searchParams.get('rel') || ''
+    const abs = resolveLifePath(rel)
+    if (!abs) {
+      send(res, 404, { error: 'outside', message: T(uiLang(url),
+        'Ez a hely nincs a Marveen mappáján belül.',
+        'This location is outside the Marveen folder.') })
+      return true
+    }
+    let st: ReturnType<typeof statSync> | null = null
+    try { st = statSync(abs) } catch { st = null }
+    if (!st || st.isDirectory()) {
+      send(res, 404, { error: 'not_a_file', message: T(uiLang(url),
+        'Ez a fájl nem található a lemezen, vagy egy mappa.',
+        'This file was not found on disk, or it is a folder.') })
+      return true
+    }
+
+    const name = pathBasename(abs)
+    const kind = lifeFileKind(name)
+    const forceDownload = url.searchParams.get('download') === '1'
+    // Kepnel/PDF-nel/szovegnel a meret-korlat felett MAR CSAK letoltest
+    // ajanlunk -- egy tobb szaz MB-os fajl egyben a bongeszo memoriajaba
+    // folyatva rosszabb, mint egy egyszeru letoltes-gomb. Videonal ez nem
+    // gond: a Range-tamogatas darabokban adja at, sose egyben.
+    const isVideo = Boolean(kind.mime && kind.mime.startsWith('video/'))
+    const previewable = kind.previewable && (isVideo || st.size <= MAX_LIFE_PREVIEW_BYTES)
+    const disposition = !forceDownload && previewable ? 'inline' : 'attachment'
+
+    const range = req.headers.range
+    if (range && isVideo) {
+      const match = /^bytes=(\d*)-(\d*)$/.exec(String(range))
+      if (!match || (!match[1] && !match[2])) {
+        res.writeHead(416, { 'Content-Range': `bytes */${st.size}` })
+        res.end()
+        return true
+      }
+      let startPos = match[1] ? parseInt(match[1], 10) : st.size - parseInt(match[2], 10)
+      let endPos = match[1] && match[2] ? parseInt(match[2], 10) : st.size - 1
+      if (Number.isNaN(startPos) || startPos < 0) startPos = 0
+      if (Number.isNaN(endPos) || endPos > st.size - 1) endPos = st.size - 1
+      if (startPos > endPos || startPos >= st.size) {
+        res.writeHead(416, { 'Content-Range': `bytes */${st.size}` })
+        res.end()
+        return true
+      }
+      res.writeHead(206, {
+        'Accept-Ranges': 'bytes',
+        'Content-Type': kind.mime || 'application/octet-stream',
+        'Content-Disposition': contentDispositionHeader(name, disposition),
+        'Content-Range': `bytes ${startPos}-${endPos}/${st.size}`,
+        'Content-Length': endPos - startPos + 1,
+        'Cache-Control': 'private, no-store',
+      })
+      try {
+        await pipeline(createReadStream(abs, { start: startPos, end: endPos }), res)
+      } catch (err: any) {
+        logger.debug({ err: err?.message }, '[eletfa] a videoreszlet kuldese felbeszakadt')
+        res.destroy()
+      }
+      return true
+    }
+
+    res.writeHead(200, {
+      'Accept-Ranges': 'bytes',
+      'Content-Type': kind.mime || 'application/octet-stream',
+      'Content-Disposition': contentDispositionHeader(name, disposition),
+      'Content-Length': st.size,
+      'Cache-Control': 'private, no-store',
+    })
+    try {
+      await pipeline(createReadStream(abs), res)
+    } catch (err: any) {
+      // A bongeszo elnavigalt/megszakitotta a letoltest -- ez a leggyakoribb
+      // eset, es NEM hiba. A valasz feje mar elment, uzenetet mar nem kuldhetunk.
+      logger.debug({ err: err?.message }, '[eletfa] a fajl kuldese felbeszakadt')
+      res.destroy()
+    }
     return true
   }
 

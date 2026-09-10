@@ -35459,7 +35459,75 @@ async function _intezoInfo(rel, quiet) {
   _intezoRenderMount(info)
   _intezoRenderGit(info)
   _intezoRenderActions()
+  void _intezoRenderPreview(info)
   _intezoRender()
+}
+
+/** A vegpont URL-je egy fajl bajtjaihoz -- elonezetre vagy letoltesre. */
+function _intezoFileUrl(rel, download) {
+  let url = '/api/life/file?rel=' + encodeURIComponent(rel) + '&lang=' + (window._lang || 'hu')
+  if (download) url += '&download=1'
+  return url
+}
+
+// Szoveg-elonezetnel ennyi karakter utan levagjuk -- egy tobb-MB-os logfajl
+// egy `<pre>`-be folyatva lassitana a lapot, nem csak a hasznos resze latszik.
+const _INTEZO_TEXT_PREVIEW_LIMIT = 200 * 1024
+
+/**
+ * A KIJELOLT FAJL ELONEZETE (kartya #164, 2. fazis).
+ *
+ * A szerver dontotte el (`/api/life/info` -> `previewable`/`mimeType`), hogy
+ * ez a fajl bongeszoben kozvetlenul megjeleníthető-e -- itt csak a
+ * MEGJELENITES modjat valasztjuk tipus szerint. Ami nincs a negy ag egyikeben
+ * sem (docx, exe, stb.), az rejtve marad: azt csak a Letoltes gomb kezeli.
+ */
+async function _intezoRenderPreview(info) {
+  const box = document.getElementById('intezoPreviewBox')
+  if (!box) return
+  box.innerHTML = ''
+  if (info.isDir || !info.previewable) { box.hidden = true; return }
+  box.hidden = false
+  const mime = info.mimeType || ''
+  const url = _intezoFileUrl(info.rel, false)
+  if (mime.indexOf('image/') === 0) {
+    const img = document.createElement('img')
+    img.src = url
+    img.alt = info.name || ''
+    img.style.cssText = 'max-width:100%;max-height:420px;display:block;border-radius:8px'
+    box.appendChild(img)
+  } else if (mime === 'application/pdf') {
+    const frame = document.createElement('iframe')
+    frame.src = url
+    frame.title = info.name || ''
+    frame.style.cssText = 'width:100%;height:480px;border:1px solid var(--border,#3336);border-radius:8px'
+    box.appendChild(frame)
+  } else if (mime.indexOf('video/') === 0) {
+    const video = document.createElement('video')
+    video.src = url
+    video.controls = true
+    video.style.cssText = 'max-width:100%;max-height:420px;display:block;border-radius:8px'
+    box.appendChild(video)
+  } else if (mime.indexOf('text/') === 0) {
+    const pre = document.createElement('pre')
+    pre.style.cssText = 'max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;'
+      + 'background:rgba(127,127,127,.08);border-radius:8px;padding:10px;font-size:12px;margin:0'
+    pre.textContent = t('intezo.preview_loading')
+    box.appendChild(pre)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) { pre.textContent = t('intezo.preview_failed'); return }
+      let text = await res.text()
+      if (text.length > _INTEZO_TEXT_PREVIEW_LIMIT) {
+        text = text.slice(0, _INTEZO_TEXT_PREVIEW_LIMIT) + '\n\n… ' + t('intezo.preview_truncated')
+      }
+      pre.textContent = text
+    } catch (e) {
+      pre.textContent = t('intezo.preview_failed')
+    }
+  } else {
+    box.hidden = true
+  }
 }
 
 /**
@@ -35599,6 +35667,15 @@ function _intezoRenderActions() {
   // Bekotni csak mappat lehet -- fajlnal a gomb ne igerjen semmit.
   const mount = bar.querySelector('[data-intezo-act="mount"]')
   if (mount) mount.disabled = !_intezoSelected.isDir
+
+  // Elonezet/letoltes csak FAJLNAL van ertelme -- mappaknal rejtve marad.
+  // Az Elonezet gomb ezen felul csak azoknal a fajltipusoknal latszik, amiket
+  // a szerver bongeszoben-megjelenithetonek jelolt (kartya #164).
+  const preview = bar.querySelector('[data-intezo-act="preview"]')
+  const download = bar.querySelector('[data-intezo-act="download"]')
+  const isFile = !_intezoSelected.isDir
+  if (preview) preview.hidden = !isFile || !_intezoSelected.previewable
+  if (download) download.hidden = !isFile
 }
 
 /** A panel egy reszehez gorget, es elore lathatova teszi a panelt. */
@@ -35628,6 +35705,8 @@ function _intezoActionClick(ev) {
     return
   }
   switch (btn.getAttribute('data-intezo-act')) {
+    case 'preview': _intezoJumpTo('intezoPreviewBox'); break
+    case 'download': window.open(_intezoFileUrl(_intezoSelected.rel, true), '_blank'); break
     case 'move': _intezoStartPick('move'); break
     case 'mount': {
       _intezoJumpTo('intezoMountTitle')
