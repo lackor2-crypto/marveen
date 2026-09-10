@@ -25,6 +25,7 @@ import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
+import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
 
 // A headless agent cannot "drag" a card to done, so the dispatch hands it the
 // exact curl commands to (1) post a short, human-readable result summary as a
@@ -338,6 +339,10 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     if (moveKanbanCard(id, status, sort_order ?? 0, actor)) {
       // Wake the assigned agent once when the card enters in_progress.
       if (status === 'in_progress') fireKanbanDispatch(id)
+      // Kanban 2741d289 (#252). Boss: "ha az [a kartya] mar le van zarva, akkor
+      // oda mar nem irok tobbet." A lezaras jelet a CSET-ben kell hagyni, mert a
+      // kovetkezo dispatch-ot vegzo agens azt latja, nem az adatbazist.
+      if (status === 'done') fireCodeSessionCloseNotice(id)
       // A card only belongs in waiting once the work on it is finished, so
       // waiting MEANS "done, awaiting Boss" -- and then Boss must actually have
       // something to decide about. Raising the approval here rather than
