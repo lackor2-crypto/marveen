@@ -184,8 +184,70 @@ describe('skill file rendering', () => {
     const existing = '---\nname: kapu-kuszob-hangolas\ndescription: kezzel irt\n---\n\n# Kezzel irt tartalom\n'
     const patched = patchSkillMd(existing, goodSkill, 'lackor2-bot', NOW) as string
     expect(patched.startsWith(existing.trimEnd())).toBe(true)
-    expect(patched).toContain('## Tanulság (2026-08-14)')
+    expect(patched).toContain('Tanulság (2026-08-14)')
     expect(patchSkillMd(patched, goodSkill, 'lackor2-bot', NOW)).toBeNull()
+  })
+
+  // Kanban 6b22faff (#254). A merés (2026-09-11, ~/.claude/skills, 64 skill):
+  // 7 fájlban állt gépi blokk, az approval-request-handling-ban 11 darab
+  // "## Buktatók" fejléc egymás alatt. A dátumhoz kötött őrség csak UGYANAZON
+  // A NAPON fogott, a hozzáfűzött törzs fejlécei pedig a fájl saját szekcióival
+  // egy szintre kerültek.
+  it('a gépi rész EGYETLEN, jelölőkkel határolt régióban marad -- másnap sem lesz belőle kettő', () => {
+    const existing = '---\nname: kapu-kuszob-hangolas\n---\n\n# Kézzel írt\n\n## Buktatók\n\n- valódi tapasztalat\n'
+    const nap1 = patchSkillMd(existing, goodSkill, 'lackor2-bot', NOW) as string
+    const masnap = new Date('2026-08-15T10:30:00')
+    const nap2 = patchSkillMd(nap1, { ...goodSkill, body: 'Egy MÁSIK tanulság, elég hosszú ahhoz hogy elmenjen a validáción és tényleg új legyen.' }, 'lackor2-bot', masnap) as string
+    expect(nap2).not.toBeNull()
+    // Egy régió, nem kettő.
+    expect(nap2.split('<!-- marveen:reflect:begin -->').length - 1).toBe(1)
+    expect(nap2.split('<!-- marveen:reflect:end -->').length - 1).toBe(1)
+    // Mindkét tanulság bent van, a régión BELÜL.
+    const region = nap2.slice(nap2.indexOf('<!-- marveen:reflect:begin -->'), nap2.indexOf('<!-- marveen:reflect:end -->'))
+    expect(region).toContain('Tanulság (2026-08-14)')
+    expect(region).toContain('Tanulság (2026-08-15)')
+  })
+
+  it('a gépi szöveg fejlécei NEM keverednek a fájl saját szekcióival', () => {
+    const existing = '---\nname: kapu-kuszob-hangolas\n---\n\n# Kézzel írt\n\n## Buktatók\n\n- valódi tapasztalat\n'
+    // Pontosan az a vázas törzs, amit a modell új skillhez ír.
+    const vaz = '## Mikor használd\nA telepítéskor.\n\n## Eljárás\n1. Ellenőrizd.\n\n## Egyéb buktató\n- Figyelj a memóriára és mindenre.'
+    const patched = patchSkillMd(existing, { ...goodSkill, body: vaz }, 'lackor2-bot', NOW) as string
+    // A fájl saját "## Buktatók" fejléce EGYETLEN marad.
+    expect(patched.split(/^## Buktatók\s*$/m).length - 1).toBe(1)
+    // A gépi rész fejlécei le vannak fokozva.
+    expect(patched).toContain('### Mikor használd')
+    expect(patched).not.toMatch(/^## Mikor használd\s*$/m)
+  })
+
+  it('a fájl SAJÁT szekciócímeit visszamondó üres vázat nem írja bele', () => {
+    const existing = '---\nname: x\n---\n\n# Kézzel írt\n\n## Mikor használd\n\nigazi tartalom\n\n## Eljárás\n\nigazi lépések\n'
+    const vaz = '## Mikor használd\nA kódok telepítésekor, amikor gyors megoldásra van szükség.\n\n## Eljárás\n1. Ellenőrizd a kódot a legfrissebb verzióra.'
+    expect(patchSkillMd(existing, { ...goodSkill, body: vaz }, 'lackor2-bot', NOW)).toBeNull()
+  })
+
+  it('ugyanazt a tanulságot nem írja be kétszer, akkor sem ha más napon jön', () => {
+    const existing = '---\nname: x\n---\n\n# Kézzel írt\n'
+    const egyszer = patchSkillMd(existing, goodSkill, 'lackor2-bot', NOW) as string
+    expect(patchSkillMd(egyszer, goodSkill, 'lackor2-bot', new Date('2026-09-01T10:00:00'))).toBeNull()
+  })
+
+  it('a régió nem nő korlátlanul: legfeljebb három tanulság marad benne', () => {
+    let md = '---\nname: x\n---\n\n# Kézzel írt\n'
+    for (let i = 1; i <= 5; i++) {
+      const next = patchSkillMd(
+        md,
+        { ...goodSkill, body: `A(z) ${i}. tanulság, elég hosszú törzzsel ahhoz hogy önálló bejegyzésnek számítson.` },
+        'lackor2-bot',
+        new Date(`2026-08-1${i}T10:00:00`),
+      )
+      expect(next, `a ${i}. körben null jött vissza`).not.toBeNull()
+      md = next as string
+    }
+    expect(md.split('Tanulság (').length - 1).toBe(3)
+    // A legrégebbi esett ki, a legfrissebb bent van.
+    expect(md).not.toContain('A(z) 1. tanulság')
+    expect(md).toContain('A(z) 5. tanulság')
   })
 
   it('leaves a file that already grew too large alone', () => {
