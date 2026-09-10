@@ -47,13 +47,14 @@
 // retried on the next tick (bounded by MAX_SEND_ATTEMPTS so a permanently
 // unreachable chat cannot become a 5-second hot loop), and a give-up is logged
 // at ERROR saying plainly that it did NOT go out.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { logger } from '../logger.js'
-import { APP_LANG, DEAD_AGENT_REPLY_ENABLED, MAIN_AGENT_ID, STORE_DIR } from '../config.js'
-import { listAgentNames, readAgentDisplayName } from './agent-config.js'
-import { isAgentRunning } from './agent-process.js'
-import { resolveAgentChannelStateDir } from './voice-directive.js'
+import { APP_LANG, DEAD_AGENT_REPLY_ENABLED, MAIN_AGENT_ID, STORE_DIR, currentBotName } from '../config.js'
+import { AGENTS_BASE_DIR, listAgentNames, readAgentDisplayName } from './agent-config.js'
+import { agentRunState, mainChannelsRunState } from './agent-process.js'
+import type { AgentRunState } from './ssh-tmux.js'
 import { probeLatestPendingChat, TelegramApiError } from '../channel-coordinator/telegram-client.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 
@@ -140,6 +141,74 @@ export function decideAfterSendFailure(params: {
 }): 'retry' | 'give-up' {
   if (params.permanent) return 'give-up'
   return params.attempts >= params.maxAttempts ? 'give-up' : 'retry'
+}
+
+/**
+ * Which Telegram channel state dir belongs to THIS agent -- and null when the
+ * agent has none of its own.
+ *
+ * WHY NOT resolveAgentChannelStateDir(): that resolver ends its candidate list
+ * with the shared `~/.claude/channels/<provider>` dir and returns it even when
+ * no per-agent config exists. That is right for the voice directive (worst case
+ * it reads a setting that is not there), but WRONG here: this module reads a
+ * BOT TOKEN from the dir and then speaks in that agent's name. Measured on this
+ * host 2026-09-10: five sub-agents (lagunas, lagunaxs, nemotron*) have no
+ * Telegram .env at all, so the fallback handed them the MAIN agent's token --
+ * i.e. a dead sub-agent would have made the owner's own Marvin bot announce
+ * "<sub-agent> is not alive", reading the owner's Marvin conversation to find
+ * the chat. An agent with no channel of its own cannot be messaged, so there is
+ * nothing to answer: null, and the caller skips it.
+ *
+ * The main agent is the one legitimate owner of the shared dir: it runs the
+ * native `claude --channels` poller, whose state lives there.
+ *
+ * Pure (hasEnv is injected) so the ownership rule is testable without a home
+ * directory, and host-agnostic: every path comes from the install's own config.
+ */
+export function resolveOwnTelegramStateDir(params: {
+  agent: string
+  mainAgentId: string
+  agentsBaseDir: string
+  home: string
+  hasEnv: (dir: string) => boolean
+}): string | null {
+  const { agent, mainAgentId, agentsBaseDir, home, hasEnv } = params
+  if (agent === mainAgentId) {
+    const dir = join(home, '.claude', 'channels', 'telegram')
+    return hasEnv(dir) ? dir : null
+  }
+  const own = [
+    join(agentsBaseDir, agent, '.claude', 'channels', 'telegram'),
+    join(home, '.claude', 'channels', `telegram-${agent}`),
+  ]
+  return own.find(hasEnv) ?? null
+}
+
+function ownTelegramStateDir(name: string): string | null {
+  return resolveOwnTelegramStateDir({
+    agent: name,
+    mainAgentId: MAIN_AGENT_ID,
+    agentsBaseDir: AGENTS_BASE_DIR,
+    home: homedir(),
+    hasEnv: (dir) => existsSync(join(dir, '.env')),
+  })
+}
+
+/**
+ * Run state for ANY agent, main included. The main agent has no
+ * `agent-<name>` tmux session, so agentRunState() would confidently answer
+ * 'stopped' for it forever -- the owner would get "Marvin is not alive" every
+ * time he wrote to a perfectly healthy Marvin.
+ */
+function runStateOf(name: string): AgentRunState {
+  return name === MAIN_AGENT_ID ? mainChannelsRunState() : agentRunState(name)
+}
+
+/** Display name for the reply text. The main agent has no agents/<name> dir,
+ *  so its name comes from the install's own brand config, not from a file that
+ *  does not exist. */
+function displayNameOf(name: string): string {
+  return (name === MAIN_AGENT_ID ? currentBotName() : readAgentDisplayName(name)) || name
 }
 
 // ---- I/O: token + persisted "already replied to" memory -----------------
@@ -247,9 +316,17 @@ async function sendReply(token: string, chatId: number, text: string): Promise<S
 }
 
 async function checkAgent(name: string): Promise<void> {
-  const running = isAgentRunning(name)
-  const stateDir = resolveAgentChannelStateDir(name, 'telegram')
-  const token = botToken(stateDir)
+  const state = runStateOf(name)
+  if (state === 'unreachable') {
+    // "I could not look" is not "it is dead". A remote agent behind a dropped
+    // ssh link must never be announced as not alive -- and nothing else about
+    // its state may be advanced from a measurement that did not happen.
+    logger.warn({ agent: name }, 'dead-agent-reply: run state unreachable, no verdict this tick')
+    return
+  }
+  const running = state === 'running'
+  const stateDir = ownTelegramStateDir(name)
+  const token = stateDir ? botToken(stateDir) : null
 
   const prevLastReplied = persisted[name]?.lastRepliedUpdateId ?? null
   const prevDownStreak = downStreaks[name] ?? 0
@@ -302,7 +379,7 @@ async function checkAgent(name: string): Promise<void> {
   }
 
   const { chatId, updateId } = decision.reply
-  const display = readAgentDisplayName(name) || name
+  const display = displayNameOf(name)
   const outcome = await sendReply(token, chatId, deadAgentReplyText(APP_LANG, display))
 
   if (!outcome.ok) {
@@ -332,7 +409,7 @@ async function checkAgent(name: string): Promise<void> {
   writePersisted()
   delete sendAttempts[name]
   logger.info({ agent: name, chatId, updateId },
-    'dead-agent-reply: replied on Boss\'s behalf-triggered message for a dead sub-agent')
+    'dead-agent-reply: replied on the owner\'s message for an agent whose process is not running')
 }
 
 export async function runDeadAgentReplyTick(): Promise<void> {
@@ -344,13 +421,19 @@ export async function runDeadAgentReplyTick(): Promise<void> {
     logger.warn({ err }, 'dead-agent-reply: listAgentNames failed')
     return
   }
-  for (const name of names) {
-    // The main agent's channel runs natively (--channels), not via the
-    // per-agent MCP tee this module is built around; touching it here would
-    // cross the CATASTROPHE GUARD line other modules already respect
-    // (telegram-inbox-wake.ts: "the main agent [...] has no local derived
-    // inbox to drain").
-    if (name === MAIN_AGENT_ID) continue
+  // The main agent is INCLUDED (owner's decision, 2026-09-10: "marvinra is
+  // legyen ervenyes"). It used to be skipped here, mirroring the CATASTROPHE
+  // GUARD in telegram-inbox-wake.ts -- but that guard is about not WRITING into
+  // the main agent's session (it has no local derived inbox to drain), and this
+  // module never writes to any session: it reads liveness and answers on the
+  // agent's own bot. The gap that left was the worst one: if Marvin's channels
+  // session is down and the owner writes to him, NOTHING answered at all
+  // (main-inbox-receipt.ts only acknowledges when the agent is ALIVE but busy).
+  // Two independent facts must both say "dead" before a word goes out: the
+  // `<id>-channels` tmux session is gone (runStateOf) AND the Bot API does not
+  // answer 409 Conflict on getUpdates -- a 409 means something IS still polling
+  // that token, which is exactly what a live native poller does.
+  for (const name of new Set([MAIN_AGENT_ID, ...names])) {
     try {
       await checkAgent(name)
     } catch (err) {
