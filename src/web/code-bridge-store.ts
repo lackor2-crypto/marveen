@@ -48,6 +48,12 @@ export interface CodeSession {
   host: string | null
   transcriptMtime: number | null
   pinned: boolean
+  /** Ezt a beszelgetest MARVIN maga nyitotta (friss-inditas eredmenye), nem
+   *  felderites talalta egy mar meglevo -- esetleg a tulaj altal kezzel
+   *  hasznalt -- fulben. Csak ilyen sessiont hasznal ujra a claimNextCodeTask
+   *  alapertelmezett (cimzes nelkuli) dispatch -- lasd `startFresh` a
+   *  CodeTask-on es a kartya 032aa826-ot. */
+  marvinOwned: boolean
   updatedAt: number
 }
 
@@ -79,6 +85,12 @@ export interface CodeTask {
   leaseExpiresAt: number | null
   /** A kanban kartya, amirol a feladat szol -- a szovegbol feloldva. */
   cardRef: string | null
+  /** A claim allitotta be: sem cimzett ful (targetSessionId), sem mar bizonyitottan
+   *  Marvin-sajat (marvinOwned) session nem volt a projekthez, ezert a worker NEM
+   *  resume-el, hanem vadonatuj, ures beszelgetest indit. Enelkul az alapertelmezett
+   *  dispatch a projekt "aktualis" (felderites altal talalt, akar a tulaj altal eppen
+   *  kezzel hasznalt) fulebe irna -- lasd kartya 032aa826. */
+  startFresh: boolean
 }
 
 // A claimed task whose worker went silent (crash, reboot, network drop) must not
@@ -157,6 +169,11 @@ function ensureTables(): void {
   // oldjuk fel es ITT rogzitjuk, hogy a kesobbi kiadas ne a prompt ujra-
   // olvasasabol talalgasson. Ures marad, ha a szoveg egy kartyat sem nevez meg.
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN card_ref TEXT') } catch { /* mar letezik */ }
+  // Kartya 032aa826: a Marvin VS Code dispatch ne az AKTUALIS (felderites
+  // altal talalt, akar a tulaj altal eppen kezzel hasznalt) fulbe irjon --
+  // csak olyan sessiont hasznaljon ujra alapertelmezesben, amit MAGA nyitott.
+  try { db.exec('ALTER TABLE code_sessions ADD COLUMN marvin_owned INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN start_fresh INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -279,6 +296,7 @@ function rowToSession(row: Record<string, unknown>): CodeSession {
     host: (row['host'] as string | null) ?? null,
     transcriptMtime: (row['transcript_mtime'] as number | null) ?? null,
     pinned: Boolean(row['pinned']),
+    marvinOwned: Boolean(row['marvin_owned']),
     updatedAt: row['updated_at'] as number,
   }
 }
@@ -341,6 +359,9 @@ export interface UpsertSessionInput {
   host?: string | null
   transcriptMtime?: number | null
   pinned?: boolean
+  /** Csak a claim/eredmeny-visszaolvaso hivja igazzal, amikor egy `startFresh`
+   *  feladat lezarult -- lasd `CodeSession.marvinOwned` es kartya 032aa826. */
+  marvinOwned?: boolean
 }
 
 /**
@@ -420,8 +441,8 @@ export function upsertCodeSession(
 
   getDb()
     .prepare(
-      `INSERT INTO code_sessions (project, workspace_path, session_id, title, host, transcript_mtime, pinned, updated_at)
-       VALUES (@project, @workspace_path, @session_id, @title, @host, @transcript_mtime, @pinned, @updated_at)
+      `INSERT INTO code_sessions (project, workspace_path, session_id, title, host, transcript_mtime, pinned, marvin_owned, updated_at)
+       VALUES (@project, @workspace_path, @session_id, @title, @host, @transcript_mtime, @pinned, @marvin_owned, @updated_at)
        ON CONFLICT(project) DO UPDATE SET
          workspace_path = excluded.workspace_path,
          session_id = excluded.session_id,
@@ -429,6 +450,7 @@ export function upsertCodeSession(
          host = COALESCE(excluded.host, code_sessions.host),
          transcript_mtime = COALESCE(excluded.transcript_mtime, code_sessions.transcript_mtime),
          pinned = excluded.pinned,
+         marvin_owned = excluded.marvin_owned,
          updated_at = excluded.updated_at`,
     )
     .run({
@@ -439,6 +461,7 @@ export function upsertCodeSession(
       host: input.host ?? null,
       transcript_mtime: input.transcriptMtime ?? null,
       pinned: input.pinned === undefined ? (existing?.pinned ?? false) ? 1 : 0 : input.pinned ? 1 : 0,
+      marvin_owned: input.marvinOwned === undefined ? (existing?.marvinOwned ?? false) ? 1 : 0 : input.marvinOwned ? 1 : 0,
       updated_at: now,
     })
   return getCodeSession(project)!
@@ -565,6 +588,7 @@ function rowToTask(row: Record<string, unknown>): CodeTask {
     finishedAt: (row['finished_at'] as number | null) ?? null,
     leaseExpiresAt: (row['lease_expires_at'] as number | null) ?? null,
     cardRef: (row['card_ref'] as string | null) ?? null,
+    startFresh: Boolean(row['start_fresh']),
   }
 }
 
@@ -798,12 +822,19 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       // konkret fulet valasztott, annak a feladata nem csuszhat at abba, ami
       // kozben a legfrissebb lett. Cimzes nelkul minden marad a regiben.
       const runIn = task.targetSessionId ?? session.sessionId
+      // Kartya 032aa826: cimzes NELKUL a "projekt aktualis beszelgetese" a
+      // felderites altal legutobb latott ful -- ez lehet olyan is, amit a
+      // tulaj EPP KEZZEL hasznal (pl. MetaTrader programozas), es a dispatch
+      // belezavarna. Csak akkor szabad ujrahasznalni, ha az a beszelgetes
+      // BIZONYITOTTAN Marvin sajatja (marvinOwned) -- kulonben a worker friss,
+      // ures beszelgetest indit (lasd marvin-code-worker.ps1 Invoke-CodeTask).
+      const startFresh = !task.targetSessionId && !session.marvinOwned
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
-               started_at = COALESCE(started_at, ?), attempts = attempts + 1, lease_expires_at = ?
+               start_fresh = ?, started_at = COALESCE(started_at, ?), attempts = attempts + 1, lease_expires_at = ?
          WHERE id = ?`,
-      ).run(host, runIn, session.workspacePath, now, now + LEASE_MS, task.id)
+      ).run(host, runIn, session.workspacePath, startFresh ? 1 : 0, now, now + LEASE_MS, task.id)
       return getCodeTask(task.id)
     }
     return null

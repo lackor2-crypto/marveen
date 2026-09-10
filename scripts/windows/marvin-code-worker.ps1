@@ -599,7 +599,17 @@ function Invoke-CodeTask {
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   $psi.FileName = $claude
   # Every argument here is ASCII by construction (a uuid and two keywords).
-  $psi.Arguments = '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode
+  # Kartya 032aa826: startFresh = true azt jelenti, hogy a claim NEM talalt
+  # bizonyitottan Marvin-sajat (korabban maga altal nyitott) beszelgetest a
+  # projekthez, tehat NEM resume-elunk a felderites altal latott -- akar a
+  # tulaj altal eppen kezzel hasznalt -- fulbe, hanem uj, ures beszelgetest
+  # indit a CLI (`-p` --resume nelkul), pont ugy, mint a bizonyitottan mukodo
+  # "/clear" ut a #48-as (Torles) gombnal.
+  if ($Task.startFresh) {
+    $psi.Arguments = '-p --output-format json --permission-mode ' + $PermissionMode
+  } else {
+    $psi.Arguments = '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode
+  }
   $psi.WorkingDirectory = $workspace
   $psi.UseShellExecute = $false
   $psi.CreateNoWindow = $true
