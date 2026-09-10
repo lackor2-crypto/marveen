@@ -1374,6 +1374,8 @@ function buildDelegateCheckBody(): string {
     'elharitasarol szol (pl. "allitsd helyre X bejelentkezeset") -- ott a cel',
     'eppen az, hogy a cimzett ujra elerheto legyen, tehat az elerhetetlenseg nem',
     'ok az elutasitasra, csak azt donti el, ki vegzi el a helyreallitast.',
+    '',
+    'Reszletek: `delegate-availability-check` skill.',
   ].join('\n')
 }
 
