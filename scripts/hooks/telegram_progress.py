@@ -150,19 +150,38 @@ def install_setting(project_root, key):
     return None
 
 
+def _norm_lang(raw):
+    """Raw language value -> 'en' / 'hu' / None. Mirrors the en-prefix test in
+    readInstallLang(): anything starting with 'en' is English, any other
+    non-empty value is Hungarian, empty/missing is unknown."""
+    if not raw:
+        return None
+    raw = raw.strip().lower()
+    if raw.startswith("en"):
+        return "en"
+    if raw:
+        return "hu"
+    return None
+
+
 def install_lang(project_root):
-    """'hu' or 'en' -- the install language (mirrors readInstallLang() in
-    src/config.ts: the .lang file, defaulting to Hungarian)."""
+    """'hu' or 'en' -- the install language. Mirrors readInstallLang() in
+    src/config.ts: MARVEEN_LANG wins FIRST (environ > config-overrides.json >
+    .env, the same precedence install_setting uses for SCHEDULER_TZ), THEN the
+    .lang file, defaulting to Hungarian. Reading only .lang would ignore a
+    language set the way the dashboard resolves it -- the exact "Settings-page
+    value changes nothing here" failure this hook already avoids for the
+    timezone (install_zone/install_setting), and had left half-done for the
+    language (kanban 0a1ec18e)."""
+    lang = _norm_lang(install_setting(project_root, "MARVEEN_LANG"))
+    if lang:
+        return lang
     try:
         with open(os.path.join(project_root, ".lang"), encoding="utf-8") as f:
-            raw = f.read().strip().lower()
-        if raw.startswith("en"):
-            return "en"
-        if raw:
-            return "hu"
+            lang = _norm_lang(f.read())
     except Exception:
-        pass
-    return "hu"
+        lang = None
+    return lang or "hu"
 
 
 def install_zone(project_root):
@@ -496,6 +515,9 @@ def _self_test():
         os.remove(os.path.join(d, "store", "config-overrides.json"))
 
         # Language: the install's .lang decides, the default stays Hungarian.
+        # MARVEEN_LANG (env) must not leak in from the test runner's own process
+        # -- install_setting reads os.environ first, exactly as for SCHEDULER_TZ.
+        os.environ.pop("MARVEEN_LANG", None)
         check("default language is hu", install_lang(d), "hu")
         with open(os.path.join(d, ".lang"), "w") as f:
             f.write("en\n")
@@ -505,6 +527,29 @@ def _self_test():
         check("english install has no hungarian text", "keretem" in msg, False)
         check("english ETA phrasing", "3h 35m" in msg, True)
         os.remove(os.path.join(d, ".lang"))
+
+        # kanban 0a1ec18e (nyelv-fel): the language must ALSO honor MARVEEN_LANG
+        # the way the dashboard resolves it (environ > config-overrides > .env),
+        # not only the .lang file. A language set that way without a .lang file
+        # otherwise renders in the wrong tongue -- the same config-overrides-must-
+        # win failure the timezone half already avoids, left half-done here.
+        with open(os.path.join(d, "store", "config-overrides.json"), "w") as f:
+            json.dump({"MARVEEN_LANG": "en"}, f)
+        check("MARVEEN_LANG (config-overrides) sets language", install_lang(d), "en")
+        # config-overrides must win over .env for the language too.
+        with open(os.path.join(d, ".env"), "w") as f:
+            f.write("MAIN_AGENT_ID=main\nMARVEEN_LANG=hu\n")
+        check("config-overrides lang wins over .env", install_lang(d), "en")
+        os.remove(os.path.join(d, "store", "config-overrides.json"))
+        # ...and the .env value is honored when config-overrides is absent.
+        check("MARVEEN_LANG (.env) sets language", install_lang(d), "hu")
+        # MARVEEN_LANG wins over a .lang file (mirrors readInstallLang order).
+        with open(os.path.join(d, ".lang"), "w") as f:
+            f.write("en\n")
+        check("MARVEEN_LANG wins over .lang", install_lang(d), "hu")
+        os.remove(os.path.join(d, ".lang"))
+        with open(os.path.join(d, ".env"), "w") as f:
+            f.write("MAIN_AGENT_ID=main\n")
 
         # A missing snapshot file (fresh install, no statusline tick yet)
         # must not throw and must not gate -- there is simply nothing to say.
