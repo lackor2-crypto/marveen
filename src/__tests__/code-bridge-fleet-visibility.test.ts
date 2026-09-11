@@ -178,7 +178,13 @@ describe('codeBridgeActivity: kvota-blokk (keret-kimerules)', () => {
     // Egyetlen jelolt sincs (a VS Code be van zarva), tehat frissebb aktivitas
     // SOSE johet: a regi kod itt orokre "keret elfogyott"-ot allitott volna.
     const t0 = Date.now()
-    failLatestWithLimit("You've hit your session limit · resets 11pm (Europe/Budapest)")
+    // ZONA NELKULI banner (ez is valodi alak): igy a kiirt ora a telepites
+    // zonajaban ertendo, es az alabbi helyi-ido szamitas BARMELYIK gepen
+    // ugyanazt adja. Zona-jelolessel a vartertéket is abban a zonaban kellene
+    // szamolni -- azt a `usage-limit-reset.test.ts` IDOZONA-esetei fedik le
+    // (a CI UTC-ben fut, a fejlesztogep Budapesten: pont ez a kulonbseg
+    // buktatta el ezt a tesztet).
+    failLatestWithLimit("You've hit your session limit · resets 11pm")
     const d = new Date(t0)
     const sameDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 0, 0, 0).getTime()
     const resetAt = sameDay >= t0 ? sameDay : sameDay + 24 * 60 * 60 * 1000
