@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
 import type http from 'node:http'
 import { Readable } from 'node:stream'
 import { crc32 as zlibCrc32 } from 'node:zlib'
+import { readFileSync } from 'node:fs'
 
 // The vault is mocked: these tests must never read or write the real
 // store/vault.json, and the route's contract is "what it does with what the
@@ -334,5 +335,34 @@ describe('the downloadable extension', () => {
     const data = Buffer.concat(r.res.chunks)
     expect(data.readUInt32LE(0)).toBe(0x04034b50)
     expect(data.includes(Buffer.from('marveen-autofill/manifest.json'))).toBe(true)
+  })
+})
+
+// The route handler above is tested in full, but the handler is only reachable
+// if src/web.ts hands the request to it -- and two lines there can kill this
+// feature without a single test going red: the blanket `OPTIONS -> 204` that
+// runs before routing, and the CSRF gate that rejects every foreign Origin.
+// A Chrome service worker is a foreign origin BY CONSTRUCTION, so both of them
+// apply to it. This is a source contract, not a running server: it cannot prove
+// the pipeline works, only that the two orderings it depends on are still there.
+describe('the request pipeline still reaches the handler', () => {
+  const web = readFileSync(new URL('../web.ts', import.meta.url), 'utf8')
+
+  it('answers the extension preflight BEFORE the blanket OPTIONS 204', () => {
+    const branch = web.indexOf('isExtensionOrigin(origin) && isAutofillWireEndpoint(path, method)')
+    const blanket = web.indexOf("if (method === 'OPTIONS')")
+    expect(branch).toBeGreaterThan(-1)
+    expect(blanket).toBeGreaterThan(-1)
+    expect(branch).toBeLessThan(blanket)
+  })
+
+  it('exempts the extension wire from the CSRF gate, and nothing else', () => {
+    expect(web).toContain('const extensionWire = isAutofillWireEndpoint(path, method) && isExtensionOrigin(origin)')
+    expect(web).toMatch(/if \(!extensionWire && isBlockedCrossOriginWrite\(/)
+  })
+
+  it('routes /api/autofill to this handler', () => {
+    expect(web).toContain('tryHandleAutofill')
+    expect(web).toMatch(/await tryHandleAutofill\(routeCtx\)/)
   })
 })
