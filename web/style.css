@@ -11537,6 +11537,10 @@ details.upstream-box > summary > h4 {
    The pairing code is meant to be read off the screen and typed into a
    browser popup, so it gets the widest character spacing on the page: a
    mistyped 8-character code is the single most likely way this flow fails. */
+.acc-block-subtitle { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+/* The code box is display:flex, which would win over the [hidden] default, so
+   it states the override itself (hidden-attribute-css-contract.test.ts). */
+.autofill-code-box[hidden] { display: none; }
 .autofill-code-box {
   display: flex;
   flex-wrap: wrap;

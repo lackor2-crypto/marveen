@@ -2379,21 +2379,18 @@
             <button class="btn-secondary btn-compact" id="mconnCancelBtn" data-i18n="common.cancel">Mégse</button>
           </div>
           </div>
-        </div>
-      </div>
 
-      <!-- === Automatikus kitoltes (bongeszo-kiterjesztes) ===
-           A kartya (#96, 21311fdb) keresere: a Vault a TAR, ez a lap a
-           HASZNALAT kezdete. A vault-ban mar ott van a jelszo; innen lehet
-           odaadni a bongeszonek ugy, hogy a jelszo NEM kerul at masolassal.
-           EXTRA funkcio -- semleges szinnel, mert nelkule is mukodik minden. -->
-      <div class="accounts-section" id="autofillSection">
-        <div class="accounts-section-title" data-i18n="autofill.title">Automatikus kitöltés a böngészőben</div>
-        <div class="claude-auth-box">
-          <p class="claude-auth-lead" data-i18n="autofill.lead">Ha egy weboldal belépőjét elmentetted a Vaultba, a böngésződ ki tudja tölteni onnan a felhasználónevet és a jelszót -- nem a böngésző saját jelszókezelőjéből, hanem a Marveen Vaultjából. Ehhez egy kis kiegészítő kell a böngészőbe, és egy egyszeri párosítás. Extra kényelmi funkció: nélküle is minden működik, csak kézzel kell másolgatni.</p>
-
-          <div class="acc-block">
-            <div class="acc-block-title" data-i18n="autofill.setup_title">Beállítás három lépésben</div>
+          <!-- === Automatikus kitoltes (bongeszo-kiterjesztes) ===
+               A kartya (#96, 21311fdb) keresere: a Vault a TAR, ez a lap a
+               HASZNALAT kezdete. A vault-ban mar ott van a jelszo; innen lehet
+               odaadni a bongeszonek ugy, hogy a jelszo NEM kerul at masolassal.
+               EXTRA funkcio -- semleges szinnel, mert nelkule is mukodik minden.
+               Sajat `accounts-section`-t NEM kap: a Fiokok lap EGY panel
+               (accounts-one-panel.test.ts), ez is annak egy blokkja. -->
+          <div class="acc-block" id="autofillSection">
+            <div class="acc-block-title" data-i18n="autofill.title">Automatikus kitöltés a böngészőben</div>
+            <p class="claude-auth-warn" data-i18n="autofill.lead">Ha egy weboldal belépőjét elmentetted a Vaultba, a böngésződ ki tudja tölteni onnan a felhasználónevet és a jelszót -- nem a böngésző saját jelszókezelőjéből, hanem a Marveen Vaultjából. Ehhez egy kis kiegészítő kell a böngészőbe, és egy egyszeri párosítás. Extra kényelmi funkció: nélküle is minden működik, csak kézzel kell másolgatni.</p>
+            <div class="acc-block-subtitle" data-i18n="autofill.setup_title">Beállítás három lépésben</div>
             <ol class="claude-auth-steps">
               <li>
                 <span data-i18n="autofill.step1">Töltsd le a kiegészítőt, és csomagold ki egy olyan mappába, ami megmarad (a böngésző onnan fogja betölteni).</span>
