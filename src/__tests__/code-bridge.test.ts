@@ -277,13 +277,22 @@ describe('friss beszelgetes cimzes nelkuli dispatchnal (kartya 032aa826)', () =>
     expect(claimed.sessionId).toBe(uuid)
   })
 
-  it('ha a projekt sora mar Marvin-sajat (marvinOwned), cimzes nelkul is ujrahasznalja -- nem nyit ujabb friss szalat mindig', () => {
+  // ATIRVA (kartya 2741d289, #252, 2026-09-11): ez a teszt eddig azt rogzitette,
+  // hogy a `marvinOwned` jeloles ONMAGABAN eleg az ujrahasznalashoz. Boss ezt
+  // felulirta (Telegram, uzenet 821): az ujrahasznalas hatarat a KANBAN KARTYA
+  // AZONOSITOJA adja, es ha a feladat egyetlen kartyat sem nevez meg, akkor
+  // MINDIG uj beszelgetes indul. A jeloles tovabbra is szamit -- csak mar nem
+  // helyettesiti a temat.
+  it('kartya NELKUL a Marvin-sajat sor SEM hasznalodik ujra: friss szal indul (#252)', () => {
     seedThree()
     upsertCodeSession({ ...MARVIN, marvinOwned: true })
     expect(getCodeSession('marvin')!.marvinOwned).toBe(true)
     enqueueCodeTask({ project: 'marvin', prompt: 'valami' })
     const claimed = claimNextCodeTask('w')!
-    expect(claimed.startFresh).toBe(false)
+    expect(claimed.cardRef).toBe(null)
+    expect(claimed.startFresh).toBe(true)
+    // A runIn tovabbra is a projekt sorat hordozza -- startFresh mellett a
+    // worker figyelmen kivul hagyja (marvin-code-worker.ps1 Invoke-CodeTask).
     expect(claimed.sessionId).toBe(MARVIN.sessionId)
   })
 

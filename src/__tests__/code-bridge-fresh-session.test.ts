@@ -54,11 +54,15 @@ describe('claim valasz hordozza a startFresh jelzest', () => {
     expect(claimed.body.task.startFresh).toBe(true)
   })
 
-  it('mar Marvin-sajat projektnel a claim startFresh=false-t ad', async () => {
+  // ATIRVA (kartya 2741d289, #252, 2026-09-11): Boss dontese (uzenet 821) szerint
+  // kartya nelkul MINDIG uj beszelgetes indul -- a `marvinOwned` jeloles onmagaban
+  // mar nem valt ki temat.
+  it('mar Marvin-sajat projektnel is startFresh=true, ha a feladat egy kartyat sem nevez meg (#252)', async () => {
     upsertCodeSession({ project: 'marvin', workspacePath: WS, sessionId: OLD, marvinOwned: true })
     enqueueCodeTask({ project: 'marvin', prompt: 'valami' })
     const claimed = await call('POST', '/api/code/tasks/claim', { host: 'w' })
-    expect(claimed.body.task.startFresh).toBe(false)
+    expect(claimed.body.task.cardRef).toBe(null)
+    expect(claimed.body.task.startFresh).toBe(true)
   })
 })
 
@@ -81,9 +85,13 @@ describe('/result: a session csak startFresh feladatnal lesz marvinOwned', () =>
   })
 
   it('nem-startFresh (pl. a meglevo Torles-gombos /clear) vegen a repoint NEM allitja be a marvinOwned-ot', async () => {
-    // Mar Marvin-sajat sor -- a claim igy startFresh=false-t ad (ujrahasznalja).
+    // Mar Marvin-sajat sor. A #252 ota a jeloles onmagaban mar NEM eleg a
+    // nem-friss claimhez (kartya nelkul mindig uj szal indul), ezert itt a
+    // beszelgetes CIMZESEVEL allitjuk elo ugyanazt a helyzetet -- a cimzett ful
+    // valtozatlanul a legerosebb jel, es a teszt targya nem a claim, hanem az,
+    // hogy a repoint mit csinal a marvinOwned jelolessel.
     upsertCodeSession({ project: 'marvin', workspacePath: WS, sessionId: OLD, marvinOwned: true })
-    enqueueCodeTask({ project: 'marvin', prompt: '/clear' })
+    enqueueCodeTask({ project: 'marvin', prompt: '/clear', sessionId: OLD })
     const claimed = await call('POST', '/api/code/tasks/claim', { host: 'w' })
     expect(claimed.body.task.startFresh).toBe(false)
     const id = claimed.body.task.id as string
