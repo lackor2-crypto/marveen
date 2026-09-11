@@ -706,6 +706,8 @@ window._i18n.hu = {
   'intezo.preview_loading': 'Betöltés…',
   'intezo.preview_failed': 'Az előnézet nem tölthető be.',
   'intezo.preview_truncated': '(a fájl további része nem jelenik meg itt — töltsd le a teljes tartalomhoz)',
+  'intezo.preview_close': 'Bezárás',
+  'intezo.preview_move_hint': 'Húzd a fejlécnél fogva a mozgatáshoz; a jobb alsó sarkánál átméretezheted.',
   'intezo.move': 'Áthelyezés másik mappába',
   'intezo.cfg_open': 'Kik szerepeljenek a fában?',
   'intezo.cfg_title': 'Kik szerepeljenek a fában?',

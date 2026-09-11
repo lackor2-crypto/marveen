@@ -35475,60 +35475,185 @@ function _intezoFileUrl(rel, download) {
 const _INTEZO_TEXT_PREVIEW_LIMIT = 200 * 1024
 
 /**
- * A KIJELOLT FAJL ELONEZETE (kartya #164, 2. fazis).
+ * A KIJELOLT FAJL ELONEZETE (kartya #164, 2. fazis; kartya 58ceda58 valtoztatas).
  *
- * A szerver dontotte el (`/api/life/info` -> `previewable`/`mimeType`), hogy
- * ez a fajl bongeszoben kozvetlenul megjeleníthető-e -- itt csak a
- * MEGJELENITES modjat valasztjuk tipus szerint. Ami nincs a negy ag egyikeben
- * sem (docx, exe, stb.), az rejtve marad: azt csak a Letoltes gomb kezeli.
+ * Boss (2026-09-11): az elonezet NE a lenyilo info-panelben alljon, hanem egy
+ * kulon, MOZGATHATO lebego ablakban (#intezoPreviewWindow). Ez a fuggveny mar
+ * csak dont: egy elonezheto fajl kijelolesekor felnyitja/frissiti az ablakot,
+ * kulonben (mappa, nem elonezheto tipus) becsukja. A tenyleges megjelenites az
+ * `_intezoOpenPreviewWindow`-ban van.
+ *
+ * A szerver dontotte el (`/api/life/info` -> `previewable`/`mimeType`), hogy a
+ * fajl bongeszoben kozvetlenul megjelenitheto-e.
  */
 async function _intezoRenderPreview(info) {
+  // A regi inline elonezet-doboz megszunt (kartya 58ceda58). Ha egy regebbi,
+  // meg ki nem cserelt HTML-ben megis ott van, tartsuk rejtve.
   const box = document.getElementById('intezoPreviewBox')
-  if (!box) return
-  box.innerHTML = ''
-  if (info.isDir || !info.previewable) { box.hidden = true; return }
-  box.hidden = false
+  if (box) { box.innerHTML = ''; box.hidden = true }
+  if (!info || info.isDir || !info.previewable) { _intezoClosePreviewWindow(false); return }
+  // Ha a felhasznalo szandekosan bezarta az ablakot, ne nyissuk ra ujra
+  // magatol minden kovetkezo kijelolesnel -- az "Elonezet" gomb nyitja vissza.
+  if (_intezoPreviewDismissed) return
+  await _intezoOpenPreviewWindow(info)
+}
+
+// Igaz, ha a felhasznalo a sajat kezevel (× vagy Esc) csukta be az elonezet-
+// ablakot. Ilyenkor a kovetkezo fajl-kijeloles nem nyitja ra ujra automatikusan.
+let _intezoPreviewDismissed = false
+
+/** Az elonezet-ablak DOM-ja -- egyszer jon letre, utana ujrahasznaljuk. */
+function _intezoPreviewWindowEl() {
+  let el = document.getElementById('intezoPreviewWindow')
+  if (el) return el
+  el = document.createElement('div')
+  el.id = 'intezoPreviewWindow'
+  el.className = 'intezo-pw'
+  el.hidden = true
+  // A "×" jel nem forditando szoveg; a cimke/aria a nyitaskor kap t()-erteket.
+  el.innerHTML =
+    '<div class="intezo-pw-head" id="intezoPreviewHead">'
+    + '<span class="intezo-pw-title" id="intezoPreviewTitle"></span>'
+    + '<button type="button" class="intezo-pw-close" id="intezoPreviewClose">×</button>'
+    + '</div>'
+    + '<div class="intezo-pw-body" id="intezoPreviewBody"></div>'
+  document.body.appendChild(el)
+  const closeBtn = el.querySelector('#intezoPreviewClose')
+  if (closeBtn) closeBtn.addEventListener('click', () => _intezoClosePreviewWindow(true))
+  _intezoSetupPreviewDrag(el.querySelector('#intezoPreviewHead'), el)
+  return el
+}
+
+/**
+ * Az ablak mozgatasa a fejlecenel fogva. Pointer-esemenyek (eger + erintes is).
+ * Mobilon (<=640px) az ablak teljes-kepernyos, ott nincs huzas.
+ */
+function _intezoSetupPreviewDrag(handle, win) {
+  if (!handle) return
+  let startX = 0, startY = 0, baseLeft = 0, baseTop = 0, dragging = false
+  handle.addEventListener('pointerdown', (e) => {
+    if (window.innerWidth <= 640) return
+    if (e.target && e.target.closest && e.target.closest('.intezo-pw-close')) return
+    dragging = true
+    const r = win.getBoundingClientRect()
+    baseLeft = r.left; baseTop = r.top
+    startX = e.clientX; startY = e.clientY
+    win.classList.add('dragging')
+    try { handle.setPointerCapture(e.pointerId) } catch (_) {}
+    e.preventDefault()
+  })
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return
+    const w = win.offsetWidth
+    let nl = baseLeft + (e.clientX - startX)
+    let nt = baseTop + (e.clientY - startY)
+    // Ne lehessen teljesen lehuzni a kepernyorol: legalabb ~60px marad latszodni.
+    nl = Math.max(60 - w, Math.min(nl, window.innerWidth - 60))
+    nt = Math.max(0, Math.min(nt, window.innerHeight - 40))
+    win.style.left = nl + 'px'
+    win.style.top = nt + 'px'
+  })
+  const end = (e) => {
+    if (!dragging) return
+    dragging = false
+    win.classList.remove('dragging')
+    try { handle.releasePointerCapture(e.pointerId) } catch (_) {}
+  }
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+}
+
+/**
+ * Felnyitja (vagy frissiti) az elonezet-ablakot a kijelolt fajlra. A tipus-
+ * agak ugyanazok, mint korabban az inline doboznal (kep/PDF/video/szoveg).
+ */
+async function _intezoOpenPreviewWindow(info) {
+  if (!info || !info.previewable) { _intezoClosePreviewWindow(false); return }
+  _intezoPreviewDismissed = false
+  const el = _intezoPreviewWindowEl()
+  const titleEl = el.querySelector('#intezoPreviewTitle')
+  const head = el.querySelector('#intezoPreviewHead')
+  const closeBtn = el.querySelector('#intezoPreviewClose')
+  const body = el.querySelector('#intezoPreviewBody')
+  if (titleEl) titleEl.textContent = info.name || t('intezo.preview')
+  if (head) head.title = t('intezo.preview_move_hint')
+  if (closeBtn) { closeBtn.title = t('intezo.preview_close'); closeBtn.setAttribute('aria-label', t('intezo.preview_close')) }
+  if (!body) return
+  body.innerHTML = ''
   const mime = info.mimeType || ''
   const url = _intezoFileUrl(info.rel, false)
   if (mime.indexOf('image/') === 0) {
     const img = document.createElement('img')
     img.src = url
     img.alt = info.name || ''
-    img.style.cssText = 'max-width:100%;max-height:420px;display:block;border-radius:8px'
-    box.appendChild(img)
+    body.appendChild(img)
   } else if (mime === 'application/pdf') {
     const frame = document.createElement('iframe')
     frame.src = url
     frame.title = info.name || ''
-    frame.style.cssText = 'width:100%;height:480px;border:1px solid var(--border,#3336);border-radius:8px'
-    box.appendChild(frame)
+    body.appendChild(frame)
   } else if (mime.indexOf('video/') === 0) {
     const video = document.createElement('video')
     video.src = url
     video.controls = true
-    video.style.cssText = 'max-width:100%;max-height:420px;display:block;border-radius:8px'
-    box.appendChild(video)
+    body.appendChild(video)
   } else if (mime.indexOf('text/') === 0) {
     const pre = document.createElement('pre')
-    pre.style.cssText = 'max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;'
-      + 'background:rgba(127,127,127,.08);border-radius:8px;padding:10px;font-size:12px;margin:0'
     pre.textContent = t('intezo.preview_loading')
-    box.appendChild(pre)
+    body.appendChild(pre)
     try {
       const res = await fetch(url)
-      if (!res.ok) { pre.textContent = t('intezo.preview_failed'); return }
-      let text = await res.text()
-      if (text.length > _INTEZO_TEXT_PREVIEW_LIMIT) {
-        text = text.slice(0, _INTEZO_TEXT_PREVIEW_LIMIT) + '\n\n… ' + t('intezo.preview_truncated')
+      if (!res.ok) { pre.textContent = t('intezo.preview_failed') }
+      else {
+        let text = await res.text()
+        if (text.length > _INTEZO_TEXT_PREVIEW_LIMIT) {
+          text = text.slice(0, _INTEZO_TEXT_PREVIEW_LIMIT) + '\n\n… ' + t('intezo.preview_truncated')
+        }
+        pre.textContent = text
       }
-      pre.textContent = text
     } catch (e) {
       pre.textContent = t('intezo.preview_failed')
     }
   } else {
-    box.hidden = true
+    // Nem elonezheto tipus -- ne nyiljon ures ablak.
+    _intezoClosePreviewWindow(false)
+    return
   }
+  // Pozicionalas. Mobilon a CSS teljes-kepernyos, ott nem allitunk inline
+  // poziciot; asztalin az elso nyitasnal kozepre-folole tesszuk, kesobb a
+  // felhasznalo altal huzott hely marad.
+  if (window.innerWidth <= 640) {
+    el.style.left = ''; el.style.top = ''; el.style.width = ''; el.style.height = ''
+  } else if (!el.style.left) {
+    const w = Math.min(720, Math.floor(window.innerWidth * 0.92))
+    el.style.left = Math.max(8, Math.floor((window.innerWidth - w) / 2)) + 'px'
+    el.style.top = '80px'
+  }
+  el.hidden = false
 }
+
+/**
+ * Becsukja az elonezet-ablakot. `userDismissed=true`, ha a felhasznalo a sajat
+ * kezevel csukta be (×/Esc) -- ilyenkor a kovetkezo kijeloles nem nyitja vissza.
+ */
+function _intezoClosePreviewWindow(userDismissed) {
+  const el = document.getElementById('intezoPreviewWindow')
+  if (el) {
+    el.hidden = true
+    // A body kiuritese fontos: leallitja a video/hang lejatszast es elengedi
+    // a PDF-iframe-et, kulonben a hatterben tovabb szolna/toltene.
+    const body = el.querySelector('#intezoPreviewBody')
+    if (body) body.innerHTML = ''
+  }
+  if (userDismissed) _intezoPreviewDismissed = true
+}
+
+// Esc: ha az elonezet-ablak nyitva van, csukja be (a felhasznalo szandeka).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return
+  const el = document.getElementById('intezoPreviewWindow')
+  if (el && !el.hidden) _intezoClosePreviewWindow(true)
+})
 
 /**
  * A GIT-BLOKK: mit szabad ezzel a repoval, es mi tortenne torleskor.
@@ -35690,6 +35815,7 @@ function _intezoJumpTo(id) {
 function _intezoClearSelection() {
   _intezoSelected = null
   _intezoDetachInfoCard()
+  _intezoClosePreviewWindow(false)
   const card = document.getElementById('intezoInfoCard')
   if (card) card.hidden = true
   _intezoRenderActions()
@@ -35705,7 +35831,7 @@ function _intezoActionClick(ev) {
     return
   }
   switch (btn.getAttribute('data-intezo-act')) {
-    case 'preview': _intezoJumpTo('intezoPreviewBox'); break
+    case 'preview': if (_intezoSelected) void _intezoOpenPreviewWindow(_intezoSelected); break
     case 'download': window.open(_intezoFileUrl(_intezoSelected.rel, true), '_blank'); break
     case 'move': _intezoStartPick('move'); break
     case 'mount': {

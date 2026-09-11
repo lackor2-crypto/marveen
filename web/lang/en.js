@@ -680,6 +680,8 @@ window._i18n.en = {
   'intezo.preview_loading': 'Loading…',
   'intezo.preview_failed': 'The preview could not be loaded.',
   'intezo.preview_truncated': '(the rest of the file is not shown here — download it to see the full content)',
+  'intezo.preview_close': 'Close',
+  'intezo.preview_move_hint': 'Drag it by the header to move; resize from the bottom-right corner.',
   'intezo.move': 'Move to another folder',
   'intezo.cfg_open': 'Who should be in the tree?',
   'intezo.cfg_title': 'Who should be in the tree?',
