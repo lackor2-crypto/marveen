@@ -1106,6 +1106,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         numTurns: typeof body.numTurns === 'number' ? body.numTurns : null,
       }, Date.now(), resHost)
       if (!updated) { json(res, { error: 'task not found' }, 404); return true }
+      let finished = updated
       if (outcome !== 'accepted') {
         // A result for a task that was cancelled, already finished, or handed to
         // another host. It is stored where it can do no harm, but announcing it
@@ -1167,13 +1168,18 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         // a tema-folytatas (code-topic-session.ts) --, es mindketto IDEGEN csetbe
         // celzott volna. A projekt sorat fentebb mar atallitottuk; ha a feladate
         // maradna a regin, a ketto mast allitana ugyanarrol a futasrol.
-        recordCodeTaskEndedSession(updated.id, endedIn)
+        const withEnded = recordCodeTaskEndedSession(updated.id, endedIn)
+        // A VALASZ is a friss sort vigye: kulonben a vegpont meg a futas ELOTTI
+        // beszelgetest nevezne meg, egy sorral azutan, hogy az adatbazisban mar
+        // atallitottuk. Egy vegpont nem mondhat mast, mint amit ugyanabban a
+        // pillanatban kiirt.
+        if (withEnded) finished = withEnded
       }
       logger.info({ task: updated.id, status: updated.status }, 'code-bridge: task finished')
       // Not awaited: the worker must be free to pick up the next task even if
       // Telegram is slow or down, and the result is already durable.
-      void notifyCodeTaskFinished(updated)
-      json(res, updated)
+      void notifyCodeTaskFinished(finished)
+      json(res, finished)
       return true
     }
 

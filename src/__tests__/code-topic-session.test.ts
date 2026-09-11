@@ -158,6 +158,20 @@ describe('tema-folytatas a teljes uton', () => {
     expect(getCodeSession('marvin')!.sessionId).toBe(FRESH)
   })
 
+  it('a /result VALASZA is a friss szalat nevezi meg, nem a futas elottit', async () => {
+    seedCard(CARD, 'tema-kartya')
+    upsertCodeSession({ project: 'marvin', workspacePath: WS, sessionId: OLD })
+    enqueueCodeTask({ project: 'marvin', prompt: `dolgozz a ${CARD.slice(0, 8)} kartyan` })
+    const claimed = await call('POST', '/api/code/tasks/claim', { host: 'w' })
+    const id = claimed.body.task.id as string
+    const done = await call('POST', `/api/code/tasks/${id}/result`, {
+      ok: true, result: 'kesz', host: 'w', resultSessionId: FRESH,
+    })
+    // Egy vegpont nem mondhat mast, mint amit ugyanabban a pillanatban kiirt.
+    expect(done.body.sessionId).toBe(FRESH)
+    expect(getCodeTask(id)!.sessionId).toBe(FRESH)
+  })
+
   it('UGYANARRA a kartyara a kovetkezo feladat a REGI szalba megy tovabb', async () => {
     seedCard(CARD, 'tema-kartya')
     upsertCodeSession({ project: 'marvin', workspacePath: WS, sessionId: OLD })
