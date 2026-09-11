@@ -11550,6 +11550,11 @@ details.upstream-box > summary > h4 {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
 }
+/* A `hidden` attributumot a fenti `display:flex` amugy felulirna (a szerzoi
+   szabaly eros a bongeszo `[hidden]{display:none}` alapertelmezesenel), ezert
+   itt kifejezetten elrejtjuk. Enelkul a ×/Esc kiuriti a torzset (a foto eltunik),
+   de az ablak kerete lathato maradna, es nem lehetne bezarni. */
+.intezo-pw[hidden] { display: none !important; }
 .intezo-pw.dragging { opacity: 0.96; }
 .intezo-pw-head {
   flex-shrink: 0;
