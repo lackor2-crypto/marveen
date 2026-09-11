@@ -73,6 +73,20 @@ export interface SyncResult {
   state: 'updated' | 'current' | 'skipped' | 'offline' | 'error'
   /** Emberi mondat arrol, mi tortent -- ezt olvassa a felhasznalo. */
   message: string
+  /**
+   * Melyik fiok ala tartozik a repo, vagy `''` ha nem allapithato meg.
+   *
+   * A `rel` a BEKOTOTT utat adja (azt latja a felhasznalo a fajlfaban), es
+   * abban a fiok neve nem szerepel -- lasd `accountFromRepoPath()`. A felulet
+   * viszont fiokonkent csoportosit, es a fiokot nem talalgathatja ki egy
+   * utvonalbol. Ezert a szinkron ADJA MEG, ahol amugy is tudja: a
+   * `syncRepo()` mar kiszamolja a git-hivasokhoz.
+   *
+   * Az ures string itt "nem tudom", nem "nincs fiokja": a felulet ezeket
+   * kulon csoportba teszi, es nem allitja rola, hogy barmelyik fiokhoz
+   * tartozna.
+   */
+  account: string
 }
 
 export interface SyncRun {
@@ -213,45 +227,71 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
     // hibatlanul lejon. Ezert nem 'error', hanem 'offline' -- es a hivo fel
     // ilyenkor UJRAPROBALJA, nem pedig riaszt.
     if (halozatiHiba(fetched.err)) {
-      return { rel, state: 'offline', message: 'Most nincs hálózat a távoli tárolóhoz — újrapróbálom, amint van. ' + elsoSor }
+      return { rel, account, state: 'offline', message: 'Most nincs hálózat a távoli tárolóhoz — újrapróbálom, amint van. ' + elsoSor }
     }
     return {
-      rel, state: 'error',
+      rel, account, state: 'error',
       message: 'Nem sikerült elérni a távoli tárolót. ' + elsoSor,
     }
   }
 
   const up = await git(abs, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
   if (!up.ok || !up.out) {
-    return { rel, state: 'skipped', message: 'Nincs távoli ága, amihez igazodhatna — csak helyben létezik.' }
+    return { rel, account, state: 'skipped', message: 'Nincs távoli ága, amihez igazodhatna — csak helyben létezik.' }
   }
 
   // 2. Van-e barmi, amit elveszithetnenk?
   const st = await git(abs, ['status', '--porcelain'])
   const dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
   if (dirty) {
-    return { rel, state: 'skipped', message: `${dirty} fájl módosítva van itt — nem nyúlok hozzá, amíg nincs elmentve (commit + push).` }
+    return { rel, account, state: 'skipped', message: `${dirty} fájl módosítva van itt — nem nyúlok hozzá, amíg nincs elmentve (commit + push).` }
   }
   const ahead = await git(abs, ['rev-list', '--count', '@{upstream}..HEAD'])
   const aheadN = Number(ahead.out) || 0
   if (aheadN) {
-    return { rel, state: 'skipped', message: `${aheadN} commit van itt, ami nincs feltöltve — előbb küldd fel (push), utána frissítek.` }
+    return { rel, account, state: 'skipped', message: `${aheadN} commit van itt, ami nincs feltöltve — előbb küldd fel (push), utána frissítek.` }
   }
   const behind = await git(abs, ['rev-list', '--count', 'HEAD..@{upstream}'])
   const behindN = Number(behind.out) || 0
-  if (!behindN) return { rel, state: 'current', message: 'Naprakész.' }
+  if (!behindN) return { rel, account, state: 'current', message: 'Naprakész.' }
 
   // 3. Csak ELORELEPES. Ha nem az, a `--ff-only` maga tagadja meg.
   const pulled = await git(abs, ['merge', '--ff-only', '@{upstream}'])
   if (!pulled.ok) {
-    return { rel, state: 'skipped', message: 'A helyi és a távoli ág szétvált — ezt kézzel kell rendezni, magamtól nem írom felül.' }
+    return { rel, account, state: 'skipped', message: 'A helyi és a távoli ág szétvált — ezt kézzel kell rendezni, magamtól nem írom felül.' }
   }
-  return { rel, state: 'updated', message: `Frissítve: ${behindN} új commit jött le.` }
+  return { rel, account, state: 'updated', message: `Frissítve: ${behindN} új commit jött le.` }
 }
 
 /** Az utolso futas allapota, vagy `null`, ha meg sose futott. */
 export function lastSyncRun(): SyncRun | null {
   try { return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as SyncRun } catch { return null }
+}
+
+/**
+ * Ugyanaz, de megmondja azt is, MIERT nincs futas.
+ *
+ * A `lastSyncRun()` egyetlen `null`-ba olvaszt ket ellentetes allitast: "meg
+ * sose futott" (friss telepites -- helyes a csend) es "ott a fajl, de nem
+ * tudtam elolvasni" (elromlott valami -- szolni kell). A felulet nem tud
+ * kulonbseget tenni koztuk, ha csak a `null`-t latja, es a rossz mondat
+ * megnyugtat egy olyan allapotban, ami epp riasztast erdemelne.
+ */
+export interface SyncState {
+  run: SyncRun | null
+  /** A naplo-fajl nincs a lemezen: a szinkron meg sose futott ezen a gepen. */
+  neverRan: boolean
+  /** A fajl ott van, de nem olvashato/ertelmezheto. Ures string, ha nincs ilyen baj. */
+  readError: string
+}
+
+export function lastSyncState(): SyncState {
+  if (!existsSync(STATE_FILE)) return { run: null, neverRan: true, readError: '' }
+  try {
+    return { run: JSON.parse(readFileSync(STATE_FILE, 'utf8')) as SyncRun, neverRan: false, readError: '' }
+  } catch (err: any) {
+    return { run: null, neverRan: false, readError: String(err?.message || err).slice(0, 200) }
+  }
 }
 
 let running = false
@@ -287,7 +327,10 @@ export async function syncAllRepos(): Promise<SyncRun> {
       try {
         results.push(await syncRepo(abs))
       } catch (err: any) {
-        results.push({ rel: toLifeRel(abs), state: 'error', message: String(err?.message || err).slice(0, 160) })
+        // A fiokot itt MI szamoljuk ki: a `syncRepo()` elszallt, mielott
+        // visszaadta volna. Ha az utvonalbol sem derul ki, ures marad -- ami
+        // "nem tudom", es a felulet igy is mutatja.
+        results.push({ rel: toLifeRel(abs), account: accountOfPath(abs), state: 'error', message: String(err?.message || err).slice(0, 160) })
       }
     }
   } finally {

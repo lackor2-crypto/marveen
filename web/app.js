@@ -726,7 +726,7 @@ function switchPage(pageId) {
   // szandekosan nem lat el (az csak a #navMarvin csoportjait sopri). Ha a
   // Drive vagy a Fotok az aktiv lap, a csoport nem maradhat csukva: a "hol
   // vagyok" jelzes nem bujhat el egy osszecsukott menu mogott.
-  if (pageId === 'drive' || pageId === 'photos') {
+  if (pageId === 'drive' || pageId === 'photos' || pageId === 'gitrepos') {
     const depotGroup = document.querySelector('.sb-group[data-group="depot-content"]')
     if (depotGroup && !depotGroup.classList.contains('open')) {
       depotGroup.classList.add('open')
@@ -778,6 +778,7 @@ function switchPage(pageId) {
   // memoriaban, es egy futo Picker-lekerdezes sem szolhat bele mas lapba.
   if (pageId !== 'photos') { _photosStopPoll(); _photosReleaseBlobs() }
   if (pageId === 'photos') loadPhotosPage()
+  if (pageId === 'gitrepos') loadGitReposPage()
   if (pageId === 'accounts') loadAccountsPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
@@ -38136,3 +38137,188 @@ function marveenProcessHtml(m) {
   return `<span class="process-indicator" title="${escapeAttr(t('agents.marveen_process_unknown_tip'))}">`
     + `<span class="process-dot stopped"></span>${escapeHtml(t('agents.marveen_process_unknown'))}</span>`
 }
+
+// ============================================================
+// === Git tarolok (Raktar) ===
+// ============================================================
+// Ez a lap NEM szinkronizal es NEM klonoz: a `git-sync` utolso menetenek
+// eredmenyet mutatja meg, fiokonkent csoportositva, es a repot a MEGLEVO
+// Intezoben nyitja meg (ugyanaz a `rel`, amit a szinkron ad vissza).
+//
+// Push/feltoltes szandekosan NINCS rajta: a szinkron csak lefele huz, es a
+// helyben modositott repot kihagyja. Egy feltoltes-gomb itt azt igerne, amit
+// a hatter nem csinal meg.
+
+// A repo-allapotok sorrendje a listaban: ami FIGYELMET kEr, az all elol. A
+// "naprakesz" a vegen -- abbol van a legtobb, es abbol nincs mit megnezni.
+const GITREPOS_STATE_ORDER = { error: 0, offline: 1, skipped: 2, updated: 3, current: 4 }
+const GITREPOS_STATE_KEY = {
+  updated: 'gitrepos.state.updated',
+  current: 'gitrepos.state.current',
+  skipped: 'gitrepos.state.skipped',
+  offline: 'gitrepos.state.offline',
+  error: 'gitrepos.state.error',
+}
+
+function _gitreposStateLabel(state) {
+  return t(GITREPOS_STATE_KEY[state] || 'gitrepos.state.unknown')
+}
+
+/** A repo neve = a bekotott ut utolso szakasza. */
+function _gitreposRepoName(rel) {
+  const parts = String(rel || '').split('/').filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : String(rel || '')
+}
+
+/**
+ * A NULLA TOBB DOLGOT JELENT -- itt dol el, melyiket mondjuk.
+ *
+ * Ot kulonbozo allapot ad ures listat, es csak az egyik "minden rendben".
+ * A sorrend szandekos: a hangosabb allitas nyer, kulonben egy lecsatolt
+ * meghajto ugy nezne ki, mint egy friss telepites.
+ *
+ * Visszaad: { tone: 'ok'|'info'|'warn', text } vagy null, ha van mit mutatni.
+ */
+function _gitreposEmptyState(data) {
+  if (data.readError) {
+    return { tone: 'warn', text: t('gitrepos.empty.read_error', { err: data.readError }) }
+  }
+  const run = data.last
+  if (run && run.rootError) {
+    return { tone: 'warn', text: t('gitrepos.empty.root_error', { err: run.rootError }) }
+  }
+  if (data.neverRan) {
+    return { tone: 'info', text: t('gitrepos.empty.never_ran') }
+  }
+  const accounts = Array.isArray(data.accounts) ? data.accounts : []
+  if (!accounts.length) {
+    return { tone: 'info', text: t('gitrepos.empty.no_accounts') }
+  }
+  if (run && (run.results || []).length === 0) {
+    return { tone: 'info', text: t('gitrepos.empty.no_repos', { n: accounts.length }) }
+  }
+  return null
+}
+
+function _gitreposRenderLastRun(data) {
+  const el = document.getElementById('gitreposLastRun')
+  if (!el) return
+  const run = data.last
+  if (!run || !run.finishedAt) { el.textContent = ''; return }
+  const ts = Date.parse(run.finishedAt)
+  const when = Number.isFinite(ts) ? formatRelative(ts) : run.finishedAt
+  el.textContent = t('gitrepos.last_run', {
+    when,
+    n: (run.results || []).length,
+    updated: run.updated || 0,
+    skipped: run.skipped || 0,
+  })
+}
+
+function _gitreposRenderList(data) {
+  const host = document.getElementById('gitreposList')
+  if (!host) return
+  const results = (data.last && data.last.results) || []
+  if (!results.length) { host.innerHTML = ''; return }
+
+  // Fiokonkent. Az ures fiok-nev NEM "nincs fiokja", hanem "nem tudom" --
+  // ezert kap sajat, megnevezett csoportot a vegen, es nem olvad bele
+  // egyik valodi fiokba sem.
+  const groups = new Map()
+  for (const r of results) {
+    const key = r.account || ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(r)
+  }
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (!a) return 1
+    if (!b) return -1
+    return a.localeCompare(b, undefined, { sensitivity: 'base' })
+  })
+
+  host.innerHTML = keys.map((key) => {
+    const rows = groups.get(key).slice().sort((a, b) => {
+      const d = (GITREPOS_STATE_ORDER[a.state] ?? 9) - (GITREPOS_STATE_ORDER[b.state] ?? 9)
+      return d || _gitreposRepoName(a.rel).localeCompare(_gitreposRepoName(b.rel))
+    })
+    const title = key ? escapeHtml(key) : escapeHtml(t('gitrepos.unknown_account'))
+    return `<div class="card gitrepos-account">
+      <div class="gitrepos-account-head">
+        <h3 class="gitrepos-account-title">${title}</h3>
+        <span class="gitrepos-account-count">${escapeHtml(t('gitrepos.repo_count', { n: rows.length }))}</span>
+      </div>
+      ${key ? '' : `<p class="gitrepos-unknown-note">${escapeHtml(t('gitrepos.unknown_account_note'))}</p>`}
+      <div class="gitrepos-rows">${rows.map((r) => `
+        <button type="button" class="gitrepos-row" data-gitrepo-open="${escapeAttr(r.rel)}"
+                title="${escapeAttr(t('gitrepos.open_hint'))}">
+          <span class="gitrepos-row-main">
+            <span class="gitrepos-row-name">${escapeHtml(_gitreposRepoName(r.rel))}</span>
+            <span class="gitrepos-row-msg">${escapeHtml(r.message || '')}</span>
+          </span>
+          <span class="gitrepos-badge gitrepos-badge-${escapeAttr(r.state)}">${escapeHtml(_gitreposStateLabel(r.state))}</span>
+        </button>`).join('')}</div>
+    </div>`
+  }).join('')
+}
+
+async function loadGitReposPage() {
+  const box = document.getElementById('gitreposStateBox')
+  const host = document.getElementById('gitreposList')
+  if (!box || !host) return
+  let data
+  try {
+    const res = await fetch('/api/storages/git-sync')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    data = await res.json()
+  } catch (err) {
+    // "Nem lattam oda" -- ez NEM ugyanaz, mint a "nincs egy taroló sem".
+    host.innerHTML = ''
+    document.getElementById('gitreposLastRun').textContent = ''
+    box.hidden = false
+    box.className = 'info-box gitrepos-state-warn'
+    box.textContent = t('gitrepos.load_failed', { err: String(err && err.message || err) })
+    return
+  }
+  _gitreposRenderLastRun(data)
+  _gitreposRenderList(data)
+  const empty = _gitreposEmptyState(data)
+  if (empty) {
+    box.hidden = false
+    box.className = 'info-box gitrepos-state-' + empty.tone
+    box.textContent = empty.text
+  } else {
+    box.hidden = true
+    box.textContent = ''
+  }
+}
+
+document.addEventListener('click', async (ev) => {
+  const open = ev.target.closest('[data-gitrepo-open]')
+  if (open) {
+    // A meglevo Intezoben nyitjuk meg, ugyanazon a bekotott uton, amit a
+    // szinkron adott vissza. Nem uj klon, nem masolat.
+    const rel = open.getAttribute('data-gitrepo-open') || ''
+    switchPage('intezo')
+    if (typeof _intezoOpen === 'function') await _intezoOpen(rel)
+    return
+  }
+  if (ev.target.closest('#gitreposSyncBtn')) {
+    const btn = document.getElementById('gitreposSyncBtn')
+    if (!btn || btn.disabled) return
+    btn.disabled = true
+    const eredeti = btn.textContent
+    btn.textContent = t('gitrepos.syncing')
+    try {
+      const res = await fetch('/api/storages/git-sync', { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status))
+      showToast(body.message || t('gitrepos.sync_done'))
+    } catch (err) {
+      showToast(t('gitrepos.sync_failed', { err: String(err && err.message || err) }), { type: 'error' })
+    } finally {
+      btn.disabled = false
+      btn.textContent = eredeti
+      await loadGitReposPage()
+    }
+  }
+})
