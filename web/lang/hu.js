@@ -708,6 +708,8 @@ window._i18n.hu = {
   'intezo.preview_truncated': '(a fájl további része nem jelenik meg itt — töltsd le a teljes tartalomhoz)',
   'intezo.preview_close': 'Bezárás',
   'intezo.preview_move_hint': 'Húzd a fejlécnél fogva a mozgatáshoz; a jobb alsó sarkánál átméretezheted.',
+  'intezo.preview_unsupported': 'Ezt a fájltípust itt nem tudom megmutatni: {name}. Töltsd le, és a géped saját programja nyitja meg (pl. Word, Excel).',
+  'intezo.preview_open_download': 'Letöltés / Megnyitás',
   'intezo.move': 'Áthelyezés másik mappába',
   'intezo.cfg_open': 'Kik szerepeljenek a fában?',
   'intezo.cfg_title': 'Kik szerepeljenek a fában?',

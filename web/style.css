@@ -11544,7 +11544,9 @@ details.upstream-box > summary > h4 {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  resize: both;
+  /* Az atmeretezes sajat fogantyuval megy (.intezo-pw-resize), nem a natives
+     `resize: both`-tal: azt eltakarja a torzs, igy nem lehet megfogni (Boss, 871). */
+  resize: none;
   background: var(--bg-modal);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -11616,6 +11618,40 @@ details.upstream-box > summary > h4 {
   font-size: 12px;
   color: var(--text);
 }
+/* Nem elonezheto tipus (.docx stb.): kozepre igazitott uzenet + letoltes gomb. */
+.intezo-pw-nopreview {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+}
+.intezo-pw-nopreview-msg {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+/* Sajat atmeretezo-fogantyu a jobb also sarokban (a natives grip helyett). */
+.intezo-pw-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  z-index: 3;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0.5;
+  background: linear-gradient(135deg,
+    transparent 0 45%, var(--text-muted) 45% 55%,
+    transparent 55% 65%, var(--text-muted) 65% 75%,
+    transparent 75%);
+}
+.intezo-pw-resize:hover { opacity: 1; }
+.intezo-pw.resizing { user-select: none; }
 @media (max-width: 640px) {
   .intezo-pw {
     top: 8px;
@@ -11629,6 +11665,7 @@ details.upstream-box > summary > h4 {
     resize: none;
   }
   .intezo-pw-head { cursor: default; }
+  .intezo-pw-resize { display: none; }
 }
 
 /* Segedosztalyok az ismetlodo, beegetett inline stilusok helyett
