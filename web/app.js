@@ -38372,12 +38372,30 @@ function _gitreposRenderLastRun(data) {
   if (!run || !run.finishedAt) { el.textContent = ''; return }
   const ts = Date.parse(run.finishedAt)
   const when = Number.isFinite(ts) ? formatRelative(ts) : run.finishedAt
-  el.textContent = t('gitrepos.last_run', {
+  const results = run.results || []
+  let text = t('gitrepos.last_run', {
     when,
-    n: (run.results || []).length,
+    n: results.length,
     updated: run.updated || 0,
-    skipped: run.skipped || 0,
   })
+  // A felso sor ne csak szamot mondjon a kihagyott tarolokrol ("1 kimaradt"),
+  // hanem az OKAT is (Boss, 2026-09-11). Az okot a szinkron per-repo uzenetei
+  // adjak (pl. "Commit es push hianya miatt kimaradt ..."); tobb kulonbozo ok
+  // eseten mindet kiirjuk. Ha valamiert nincs uzenet, marad a puszta szam --
+  // a kihagyas tenye SOSE tunhet el nemaan.
+  const skippedCount = run.skipped || 0
+  if (skippedCount > 0) {
+    const reasons = [...new Set(
+      results
+        .filter((r) => r.state === 'skipped')
+        .map((r) => (r.message || '').trim())
+        .filter(Boolean),
+    )]
+    text += ' ' + (reasons.length
+      ? reasons.join(' · ')
+      : t('gitrepos.last_run_skipped', { skipped: skippedCount }))
+  }
+  el.textContent = text
 }
 
 function _gitreposRenderList(data) {

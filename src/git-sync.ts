@@ -273,7 +273,9 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
   const ahead = await git(abs, ['rev-list', '--count', '@{upstream}..HEAD'])
   const aheadN = Number(ahead.out) || 0
   if (aheadN) {
-    return { rel, account, state: 'skipped', message: `${aheadN} commit van itt, ami nincs feltöltve — előbb küldd fel (push), utána frissítek.` }
+    // Egyseges "Commit es push hianya miatt kimaradt" mondat, mint a dirty
+    // esetnel (#260, Boss): a felso osszefoglalo sor is ezt az okot mutatja.
+    return { rel, account, state: 'skipped', message: `Commit és push hiánya miatt kimaradt (${aheadN} még fel nem töltött commit van itt — előbb küldd fel (push), utána frissítek).` }
   }
   const behind = await git(abs, ['rev-list', '--count', 'HEAD..@{upstream}'])
   const behindN = Number(behind.out) || 0
