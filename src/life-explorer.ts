@@ -33,6 +33,7 @@ import {
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
+import { displayLabelFor } from './life-labels.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
 import { lifeHint, personHint, companyHint, samplePersonHint, sampleCompanyHint,
@@ -89,6 +90,13 @@ function topOrder(lang: string): string[] {
 
 export interface LifeEntry {
   name: string
+  /**
+   * A feluleten MUTATOTT nev, ha el ter a lemez-nevtol (store/life-labels.json).
+   * `null`/hianyzik, ha a valodi `name` latszik. A navigacio mindig a `rel`/`name`
+   * szerint megy -- ez csak a felirat, hogy pl. a `GIT_REPOS` "Marveen Repos"-kent
+   * latsszon, miközben a lemez-ut es a szinkron valtozatlan marad.
+   */
+  displayName?: string | null
   /** Utvonal a gyokertol, per-jellel. Ezt kuldi vissza a felulet. */
   rel: string
   isDir: boolean
@@ -228,6 +236,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
   const src: SourceInfo = detectSource(abs, isDir, deep && isDir)
   return {
     name,
+    displayName: displayLabelFor(rel),
     rel,
     isDir,
     size: isDir ? 0 : st.size,

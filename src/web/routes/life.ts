@@ -43,6 +43,7 @@ import { analyzeInbox, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox
 import { enrollFace } from '../../life-vision-adapter.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
+import { setDisplayLabel } from '../../life-labels.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, iconTable } from '../../naming-conventions.js'
 import {
   lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly, setReadOnlyException,
@@ -438,6 +439,23 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     const baj = bekotesOrzo(rel)
     if (baj) { send(res, 400, { ok: false, rel: '', ...baj }); return true }
     send(res, 200, renameLife(rel, String(body?.name ?? ''), uiLang(url)))
+    return true
+  }
+
+  // MEGJELENITETT nev: a lemez-nevet NEM bantja, ezert git-repora es bekotott
+  // mappara is szabad (epp az a lenyeg, hogy pl. a GIT_REPOS "Marveen Repos"-kent
+  // latsszon, miközben az ut es a szinkron valtozatlan). Ures nev = torles ->
+  // visszaall a valodi mappanev. Csak azt kotjuk ki, hogy a mappa a fan BELUL
+  // legyen -- a resolveLifePath dönti el (szimlinket is kovetve).
+  if (path === '/api/life/display-name' && method === 'POST') {
+    const body = await readJson(req)
+    const rel = String(body?.rel ?? '')
+    if (!resolveLifePath(rel)) {
+      send(res, 400, { ok: false, code: 'outside', message: 'Ez a hely nincs a Marveen mappáján belül.' })
+      return true
+    }
+    const result = setDisplayLabel(rel, String(body?.name ?? ''))
+    send(res, result.ok ? 200 : 400, result)
     return true
   }
 
