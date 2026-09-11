@@ -11523,6 +11523,109 @@ details.upstream-box > summary > h4 {
 }
 .skill-detail-scope.todo strong { color: var(--warning, #c98a00); }
 
+/* === Intezo: mozgathato elonezet-ablak (kartya 58ceda58, Boss 2026-09-11) ===
+   Boss: a fajl-elonezet ne a lenyilo info-panelben alljon, hanem kulon,
+   MOZGATHATO lebego ablakban. Ez NEM a kozepre-rogzitett .modal-lightbox: ezt a
+   fejlecenel fogva athuzhatod (pointer-esemeny, eger+erintes), es a jobb also
+   sarkanal atmeretezheted (resize: both). A poziciot/meretet a JS allitja inline
+   asztali gepen; mobilon (<=640px) teljes-kepernyos lap, ott nincs szabad huzas
+   (egy pici kijelzon hasznalhatatlan volna). Tema-fuggetlen: var(--...)-ra epul. */
+.intezo-pw {
+  position: fixed;
+  top: 80px;
+  left: 16px;
+  width: min(720px, 92vw);
+  height: min(560px, 80vh);
+  min-width: 260px;
+  min-height: 200px;
+  max-width: 96vw;
+  max-height: 92vh;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+  background: var(--bg-modal);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+.intezo-pw.dragging { opacity: 0.96; }
+.intezo-pw-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-input);
+  cursor: move;
+  user-select: none;
+  touch-action: none; /* a huzas ne gorgesse a lapot erintokepernyon */
+}
+.intezo-pw-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.intezo-pw-close {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition, 0.15s ease);
+}
+.intezo-pw-close:hover { background: var(--danger, #d64545); color: #fff; }
+.intezo-pw-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: var(--bg-card);
+}
+.intezo-pw-body img { max-width: 100%; height: auto; border-radius: 8px; }
+.intezo-pw-body iframe, .intezo-pw-body video { width: 100%; height: 100%; border: 0; }
+.intezo-pw-body video { max-height: 100%; }
+.intezo-pw-body pre {
+  margin: 0;
+  width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  color: var(--text);
+}
+@media (max-width: 640px) {
+  .intezo-pw {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    resize: none;
+  }
+  .intezo-pw-head { cursor: default; }
+}
+
 /* Segedosztalyok az ismetlodo, beegetett inline stilusok helyett
    (kanban #166 / 5df5f509, batch 1). A meglevo var(--...) valtozokra epulnek,
    uj fuggoseg es CDN nelkul. Csak class NELKULI elemekre kerultek (ahol nincs

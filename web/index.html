@@ -3160,11 +3160,11 @@
       <div class="card" id="intezoInfoCard" hidden>
         <h2 data-i18n="intezo.info_title">Részletes információ</h2>
 
-        <!-- ELONEZET: csak akkor latszik, ha a kijelolt fajl tipusa a
-             bongeszoben kozvetlenul megjelenitheto (PDF/kep/video/szoveg,
-             kartya #164). Egyeb tipusnal (docx, exe, stb.) rejtve marad -- a
-             letoltes gomb megy helyette. -->
-        <div id="intezoPreviewBox" hidden style="margin:0 0 14px"></div>
+        <!-- ELONEZET: a kijelolt fajl tartalma NEM itt, az info-panelben
+             jelenik meg, hanem egy kulon, MOZGATHATO lebego ablakban
+             (#intezoPreviewWindow, a body vegen jon letre futasidoben) --
+             kartya 58ceda58, Boss 2026-09-11. Az "Elonezet" akciogomb es egy
+             elonezheto fajl kijelolese nyitja meg. -->
 
         <table style="width:100%;font-size:14px">
           <tbody id="intezoInfoRows"></tbody>
