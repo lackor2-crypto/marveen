@@ -328,4 +328,19 @@ describe('a lista fiokonkent csoportosit, es a figyelmet kero sor all elol', () 
   it('ures eredmenynel nem hagy ott regi tartalmat', () => {
     expect(render([])).toBe('')
   })
+
+  // Boss, 2026-09-11 (kepernyokep): minden naprakesz sor KETSZER irta ki
+  // ("docs Naprakesz. Naprakesz.") -- a badge es a szerver-uzenet ugyanaz volt.
+  it('a naprakesz sor NEM ismetli a szerver-uzenetet; a tobbi allapot igen', () => {
+    const html = render([
+      { rel: 'a/friss', account: 'a', state: 'current', message: 'NAPRAKESZ_UZENET' },
+      { rel: 'a/valtozott', account: 'a', state: 'updated', message: 'FRISSULT_UZENET' },
+      { rel: 'a/kimaradt', account: 'a', state: 'skipped', message: 'KIHAGYAS_OKA' },
+    ])
+    // current: a badge eleg, a felesleges uzenet nem jelenik meg
+    expect(html).not.toContain('NAPRAKESZ_UZENET')
+    // updated / skipped: az uzenet EXTRA infot ad, megjelenik
+    expect(html).toContain('FRISSULT_UZENET')
+    expect(html).toContain('KIHAGYAS_OKA')
+  })
 })
