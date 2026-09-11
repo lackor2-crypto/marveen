@@ -35412,7 +35412,14 @@ function _intezoRender() {
       // mappa. jobb nem piszkalni".
       + (e.caution ? ' style="color:var(--danger,#d33)" title="' + escapeHtml(e.caution) + '"' : '')
       + '>'
-      + (e.isDir ? _faIkon(e) : '') + escapeHtml(e.name) + '</a>'
+      // A MEGJELENITETT nev (ha van, store/life-labels.json) elsobbseget elvez a
+      // lemez-nev elott -- a navigacio viszont vegig a data-open=rel-en megy,
+      // tehat az ut es a szinkron valtozatlan. A cimen a valodi nev buborekban.
+      + (e.isDir ? _faIkon(e) : '')
+      + (e.displayName
+          ? '<span title="' + escapeHtml(t('intezo.real_name', { name: e.name })) + '">' + escapeHtml(e.displayName) + '</span>'
+          : escapeHtml(e.name))
+      + '</a>'
       // A magyarazat: halvanyabb es kisebb, hogy a NEV maradjon a fo informacio.
       // Aki mar tudja, hova tesz, annak ne alljon utban; aki nem tudja, annak
       // ott legyen ugyanabban a sorban.
@@ -36143,6 +36150,9 @@ async function _intezoOpenMenu(ev, entry) {
     if (entry.isDir) m.appendChild(_intezoMenuItem('📂  ' + t('intezo.menu_open'), () => _intezoOpen(entry.rel)))
     if (entry.isDir) m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: entry.name || entry.rel }), () => _intezoMkdirInto(entry.rel)))
     m.appendChild(_intezoMenuItem('✏️  ' + t('intezo.menu_rename'), () => _intezoRename(entry)))
+    // MEGJELENITETT nev: a lemez-nevet nem bantja, ezert git-repora es bekotott
+    // mappara is mukodik (a valodi atnevezes ott elszakitana a szinkront).
+    m.appendChild(_intezoMenuItem('🏷️  ' + t('intezo.menu_display_name'), () => _intezoSetDisplayName(entry)))
     m.appendChild(_intezoMenuItem('➡️  ' + t('intezo.menu_move'), () => _intezoStartPick('move')))
     if (entry.isDir) {
       m.appendChild(_intezoMenuItem('🔗  ' + t('intezo.menu_mount'), () => {
@@ -36311,6 +36321,24 @@ async function _intezoRename(entry) {
     const r = await _depoPost('/api/life/rename', { rel: entry.rel, name: name })
     showToast(r.message || t('intezo.done'))
     await _intezoNevTanacs(r)
+    _intezoClearSelection()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.rename_failed'))
+  }
+}
+
+// A feluleten MUTATOTT nev beallitasa (a lemez-nev valtozatlan marad). Ures
+// valasz -> a valodi mappanev all vissza. Ezert mukodik olyan mappan is (pl.
+// GIT_REPOS), amit a szinkron miatt tilos tenylegesen atnevezni.
+async function _intezoSetDisplayName(entry) {
+  const jelenlegi = entry.displayName || ''
+  const name = prompt(t('intezo.display_name_prompt', { name: entry.name || '' }), jelenlegi)
+  if (name === null) return // Megsem
+  if (name === jelenlegi) return
+  try {
+    const r = await _depoPost('/api/life/display-name', { rel: entry.rel, name: name })
+    showToast(r.message || t('intezo.done'))
     _intezoClearSelection()
     await _intezoOpen(_intezoPath)
   } catch (e) {
