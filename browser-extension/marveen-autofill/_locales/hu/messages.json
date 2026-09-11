@@ -1,0 +1,20 @@
+{
+  "ext_name":        { "message": "Marveen kitöltés" },
+  "ext_desc":        { "message": "A bejelentkező űrlapot a Marveen széfjéből tölti ki, nem a böngésző saját jelszókezelőjéből." },
+  "popup_title":     { "message": "Marveen kitöltés" },
+  "label_url":       { "message": "Marveen címe" },
+  "label_code":      { "message": "Párosító kód" },
+  "label_name":      { "message": "Ennek a böngészőnek a neve" },
+  "btn_pair":        { "message": "Párosítás" },
+  "btn_unpair":      { "message": "Böngésző leválasztása" },
+  "hint_code":       { "message": "Nyisd meg a Marveen felületét, menj a Fiókok oldalra, és nyomd meg az \"Új párosító kód\" gombot. Az ott látható 8 karaktert írd ide." },
+  "state_paired":    { "message": "Párosítva. A mentett oldalakon a széfből töltjük ki a bejelentkezést." },
+  "state_unpaired":  { "message": "Még nincs párosítva." },
+  "auto_label":      { "message": "Töltse ki magától, ha pontosan egy találat van" },
+  "err_unknown_code":{ "message": "A felület nem ismeri ezt a kódot. Nézd meg a karaktereket, vagy kérj újat." },
+  "err_expired":     { "message": "Ez a kód lejárt. Kérj újat a felületen." },
+  "err_already_used":{ "message": "Ezzel a kóddal már párosítottak egy böngészőt. Kérj újat." },
+  "err_unreachable": { "message": "Nem értem el a Marveent ezen a címen. Fut a felület?" },
+  "err_permission":  { "message": "A böngésző nem adott hozzáférést ehhez a címhez, így a párosítás nem folytatható." },
+  "pick_title":      { "message": "Marveen: melyik bejelentkezés?" }
+}

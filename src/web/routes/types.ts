@@ -19,9 +19,19 @@ export interface RouteContext {
    *  the request carried no valid credential (only possible on ungated public
    *  paths, which are reached without a principal). `user` is set for the
    *  'session' kind; `peer` mirrors fedPeer for the 'federation' kind;
-   *  `device` is the key name for the 'device' kind. Lets routes distinguish
-   *  a human session from a token/fleet caller or an enrolled device. */
-  auth?: { kind: 'token' | 'session' | 'federation' | 'device'; user?: string; peer?: string; device?: string }
+   *  Lets routes distinguish a human session from a token/fleet caller or an
+   *  enrolled device.
+   *  `device` is the key name for the 'device' kind; `client`/`clientId` name
+   *  the paired browser for the 'autofill' kind (card 21311fdb), which the
+   *  gate only ever produces on the /api/autofill/* wire endpoints. */
+  auth?: {
+    kind: 'token' | 'session' | 'federation' | 'device' | 'autofill'
+    user?: string
+    peer?: string
+    device?: string
+    client?: string
+    clientId?: number
+  }
 }
 
 export type RouteHandler = (ctx: RouteContext) => Promise<boolean>

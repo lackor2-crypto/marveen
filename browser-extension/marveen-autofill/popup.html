@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font: 13px system-ui, sans-serif; width: 300px; margin: 0; padding: 14px; color: #111; background: #fff; }
+  h1 { font-size: 14px; margin: 0 0 10px; }
+  label { display: block; margin: 10px 0 4px; font-weight: 600; font-size: 12px; }
+  input[type=text] { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #c7c7c7; border-radius: 6px; font: inherit; }
+  button { margin-top: 12px; width: 100%; padding: 8px; border: 0; border-radius: 6px; background: #4f46e5; color: #fff; font: inherit; cursor: pointer; }
+  button.secondary { background: #e5e7eb; color: #111; }
+  .hint { margin: 8px 0 0; color: #555; font-size: 12px; line-height: 1.4; }
+  .state { margin: 0 0 4px; padding: 8px; border-radius: 6px; background: #f4f4f5; font-size: 12px; }
+  .err { color: #b91c1c; font-size: 12px; margin-top: 8px; }
+  .row { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #18181b; color: #f4f4f5; }
+    input[type=text] { background: #27272a; color: #f4f4f5; border-color: #3f3f46; }
+    .state { background: #27272a; }
+    .hint { color: #a1a1aa; }
+    button.secondary { background: #3f3f46; color: #f4f4f5; }
+  }
+</style>
+</head>
+<body>
+  <h1 id="title"></h1>
+  <p class="state" id="state"></p>
+
+  <div id="pairForm">
+    <label id="labelUrl" for="url"></label>
+    <input type="text" id="url" spellcheck="false">
+    <label id="labelCode" for="code"></label>
+    <input type="text" id="code" spellcheck="false" autocapitalize="characters" placeholder="XXXX-XXXX">
+    <label id="labelName" for="name"></label>
+    <input type="text" id="name" spellcheck="false">
+    <button id="pairBtn"></button>
+    <p class="hint" id="hintCode"></p>
+    <p class="err" id="err" hidden></p>
+  </div>
+
+  <div id="pairedBox" hidden>
+    <div class="row">
+      <input type="checkbox" id="auto">
+      <label for="auto" id="autoLabel" style="margin:0;font-weight:400"></label>
+    </div>
+    <button class="secondary" id="unpairBtn"></button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
