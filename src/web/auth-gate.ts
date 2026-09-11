@@ -12,9 +12,10 @@
 //   2. Authorization: Bearer <device key>        -> { kind: 'device', device, deviceId }
 //   3. SSE pane-stream ?token=<dashboard token>   -> { kind: 'token' }  (path-scoped)
 //   4. SSE pane-stream ?token=<device key>        -> { kind: 'device' } (path-scoped)
-//   5. Federation inbound token, endpoint-scoped  -> { kind: 'federation', peer }
-//   6. mv_session cookie                          -> { kind: 'session', user }
-//   7. none of the above                          -> { kind: 'none' }
+//   5. Autofill token, endpoint-scoped            -> { kind: 'autofill', client }
+//   6. Federation inbound token, endpoint-scoped  -> { kind: 'federation', peer }
+//   7. mv_session cookie                          -> { kind: 'session', user }
+//   8. none of the above                          -> { kind: 'none' }
 //
 // requiresAuth() is the separate "is this path gated at all" predicate: public
 // probes (auth status, login, avatars) return false; everything under /api/ and
@@ -25,12 +26,14 @@ import { checkBearerToken } from './dashboard-auth.js'
 import { identifyFederationCaller } from './federation/config.js'
 import { resolveSession } from './auth-sessions.js'
 import { resolveDeviceKey } from './auth-device-keys.js'
+import { resolveAutofillClient } from './autofill-clients.js'
 
 export type AuthResult =
   | { kind: 'token' }
   | { kind: 'device'; device: string; deviceId: number }
   | { kind: 'federation'; peer: string }
   | { kind: 'session'; user: string }
+  | { kind: 'autofill'; client: string; clientId: number }
   | { kind: 'none' }
 
 export const SESSION_COOKIE_NAME = 'mv_session'
@@ -55,6 +58,26 @@ function isSsePaneStream(path: string, method: string): boolean {
   return method === 'GET' && /^\/api\/agents\/[^/]+\/pane\/stream$/.test(path)
 }
 
+/**
+ * The browser extension's wire endpoints (card 21311fdb / #96).
+ *
+ * The autofill token is scoped here and NOWHERE else, the same way federation
+ * tokens are scoped to their two endpoints. A browser extension is the most
+ * exposed client in the house; if its token ever leaks, what leaks with it is
+ * "ask for the login of a site you already paired", not the dashboard.
+ *
+ * OPTIONS is included because the browser sends the CORS preflight without
+ * credentials -- refusing it would block the real request that follows.
+ */
+export function isAutofillWireEndpoint(path: string, method: string): boolean {
+  if (method === 'OPTIONS') return path.startsWith('/api/autofill/')
+  return method === 'POST' && (
+    path === '/api/autofill/pair' ||
+    path === '/api/autofill/lookup' ||
+    path === '/api/autofill/credential'
+  )
+}
+
 export function isFederationWireEndpoint(path: string, method: string): boolean {
   return (
     (path === '/api/federation/manifest' && method === 'GET') ||
@@ -69,6 +92,11 @@ export function requiresAuth(path: string, method: string): boolean {
   if (path === '/api/auth/status' && method === 'GET') return false
   if (path === '/api/auth/login' && method === 'POST') return false
   if (method === 'GET' && (path === '/api/marveen/avatar' || /^\/api\/agents\/[^/]+\/avatar$/.test(path))) return false
+  // Pairing carries its own credential -- the short code the user reads off the
+  // dashboard -- so it cannot require one of the others. The preflight carries
+  // none at all, by definition.
+  if (path === '/api/autofill/pair' && method === 'POST') return false
+  if (method === 'OPTIONS' && path.startsWith('/api/autofill/')) return false
   if (path === '/.well-known/fleetq' && method === 'GET') return true
   return path.startsWith('/api/')
 }
@@ -103,14 +131,24 @@ export function resolveAuth(
     if (dk) return { kind: 'device', device: dk.name, deviceId: dk.id }
   }
 
-  // 4. Scoped per-peer federation tokens: valid ONLY on the two wire endpoints,
+  // 4. The browser extension's own token: valid ONLY on the autofill wire
+  //    endpoints. It is checked here rather than in the bearer lane above so
+  //    that a leaked extension token cannot be replayed against any other
+  //    endpoint -- the scope is enforced by the gate, not by good manners in
+  //    the route.
+  if (isAutofillWireEndpoint(path, method) && bearerMatch) {
+    const client = resolveAutofillClient(bearerMatch[1]!.trim())
+    if (client) return { kind: 'autofill', client: client.name, clientId: client.id }
+  }
+
+  // 5. Scoped per-peer federation tokens: valid ONLY on the two wire endpoints,
   //    and only while federation is enabled (identifyFederationCaller fail-closes).
   if (isFederationWireEndpoint(path, method)) {
     const peer = identifyFederationCaller(req.headers.authorization, checkBearerToken)
     if (peer !== null) return { kind: 'federation', peer }
   }
 
-  // 5. Browser-login session cookie.
+  // 6. Browser-login session cookie.
   const cookieValue = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME]
   if (cookieValue) {
     const session = resolveSession(cookieValue)

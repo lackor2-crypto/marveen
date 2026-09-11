@@ -17619,7 +17619,224 @@ async function loadAccountsPage() {
   } catch { /* ignore */ }
   renderClaudeAccountPanel(_keyServicesFromAccounts(_lastAccountsData))
   renderConnectionsPanel()
+  loadAutofillPanel()
 }
+
+// === Autofill (browser extension) panel, Accounts page ===
+//
+// Card #96 (21311fdb). The vault is the STORE; this panel is where a saved
+// login becomes usable in the browser without the password ever passing
+// through a clipboard. Everything here is a convenience: it is styled
+// neutrally on purpose, because a missing extra must never look like a fault
+// (CLAUDE.md, "a felhasznalo nem programozo").
+//
+// The zero here has two meanings and they are kept apart: an empty list from a
+// successful request says "nothing yet", a failed request says "nem sikerult
+// lekerdezni" -- never the same sentence.
+let _autofillExpiryTimer = null
+
+const AUTOFILL_OUTCOME_KEY = {
+  served: 'autofill.outcome.served',
+  refused_domain: 'autofill.outcome.refused_domain',
+  no_password: 'autofill.outcome.no_password',
+  no_match: 'autofill.outcome.no_match',
+}
+
+function autofillClientName(row) {
+  return row.unnamed ? t('autofill.unnamed_browser') : row.name
+}
+
+function renderAutofillClients(clients) {
+  const list = document.getElementById('autofillClientList')
+  if (!list) return
+  if (!clients.length) {
+    list.innerHTML = `<p class="claude-auth-empty">${escapeHtml(t('autofill.no_browsers'))}</p>`
+    return
+  }
+  list.innerHTML = clients.map(c => {
+    const used = c.last_used_at
+      ? t('autofill.last_used', { when: formatRelative(c.last_used_at * 1000) })
+      : t('autofill.never_used')
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(autofillClientName(c))}</span>
+      <span class="claude-auth-rowwho">${escapeHtml(t('autofill.paired_at', { when: formatRelative(c.created_at * 1000) }))} &middot; ${escapeHtml(used)}</span>
+      <button class="btn-secondary btn-compact" style="margin-left:auto" data-autofill-revoke="${escapeAttr(String(c.id))}">${escapeHtml(t('autofill.revoke'))}</button>
+    </div>`
+  }).join('')
+}
+
+function renderAutofillEvents(events) {
+  const list = document.getElementById('autofillEventList')
+  if (!list) return
+  if (!events.length) {
+    list.innerHTML = `<p class="claude-auth-empty">${escapeHtml(t('autofill.no_events'))}</p>`
+    return
+  }
+  list.innerHTML = events.map(e => {
+    const what = t(AUTOFILL_OUTCOME_KEY[e.outcome] || 'autofill.outcome.other', {
+      entry: e.entry_label || t('autofill.unknown_entry'),
+      host: e.host,
+    })
+    const who = e.unnamed ? t('autofill.unnamed_browser') : e.client_name
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(what)}</span>
+      <span class="claude-auth-rowwho">${escapeHtml(who)} &middot; ${escapeHtml(formatRelative(e.created_at * 1000))}</span>
+    </div>`
+  }).join('')
+}
+
+// The outstanding code survives a page reload, so the panel has to be able to
+// say "one is still live" without knowing the code itself (the server keeps
+// only its hash). Showing the expiry is what makes the difference between
+// "ask for a new one" and "the one on your screen still works".
+function renderAutofillPending(expiresAt) {
+  const state = document.getElementById('autofillPairState')
+  if (!state) return
+  if (_autofillExpiryTimer) { clearInterval(_autofillExpiryTimer); _autofillExpiryTimer = null }
+  if (!expiresAt) {
+    // No code is outstanding: it was either used up by a browser or it timed
+    // out. Leaving the eight characters on screen would invite the user to
+    // type a code that can no longer work, so the box goes away with them.
+    const box = document.getElementById('autofillCodeBox')
+    if (box) box.hidden = true
+    state.textContent = ''
+    return
+  }
+  const tick = () => {
+    // The pairing happens in ANOTHER window (the browser popup), so nothing
+    // here would ever redraw on its own. While a code is live the panel polls,
+    // and the poll ends the moment the code is used or expires -- that is what
+    // makes the new browser appear in the list without a page reload.
+    if (document.getElementById('accountsPage')?.hidden) {
+      clearInterval(_autofillExpiryTimer); _autofillExpiryTimer = null
+      return
+    }
+    const left = Math.max(0, Math.round(expiresAt - Date.now() / 1000))
+    if (left <= 0) {
+      state.textContent = t('autofill.code_expired')
+      clearInterval(_autofillExpiryTimer); _autofillExpiryTimer = null
+      loadAutofillPanel()
+      return
+    }
+    state.textContent = t('autofill.code_live', { min: Math.ceil(left / 60) })
+    if (Date.now() - started > 5000) loadAutofillPanel()
+  }
+  const started = Date.now()
+  tick()
+  _autofillExpiryTimer = setInterval(tick, 10000)
+}
+
+async function loadAutofillPanel() {
+  const section = document.getElementById('autofillSection')
+  if (!section) return
+  const baseUrl = document.getElementById('autofillBaseUrl')
+  if (baseUrl) baseUrl.textContent = location.origin
+  const list = document.getElementById('autofillClientList')
+  let data
+  try {
+    const res = await fetch('/api/autofill/clients')
+    if (!res.ok) throw new Error(String(res.status))
+    data = await res.json()
+  } catch (e) {
+    // NOT the empty state: this is "nem lattam oda", and it has to say so.
+    if (list) list.innerHTML = `<p class="claude-auth-warn">${escapeHtml(t('autofill.load_failed', { err: String(e.message || e) }))}</p>`
+    return
+  }
+  renderAutofillClients(data.clients || [])
+  renderAutofillEvents(data.events || [])
+  renderAutofillPending(data.pending_pairing_expires_at)
+
+  const dlBtn = document.getElementById('autofillDownloadBtn')
+  const dlState = document.getElementById('autofillDownloadState')
+  if (dlBtn) dlBtn.hidden = !data.extension_available
+  if (dlState) dlState.textContent = data.extension_available ? '' : t('autofill.extension_missing')
+}
+
+document.addEventListener('click', async (ev) => {
+  const target = ev.target
+  if (!(target instanceof HTMLElement)) return
+
+  const copyBtn = target.closest('#autofillExtUrlCopyBtn, #autofillBaseUrlCopyBtn, #autofillCodeCopyBtn')
+  if (copyBtn) {
+    ev.preventDefault()
+    const srcId = copyBtn.id === 'autofillExtUrlCopyBtn' ? 'autofillExtUrl'
+      : copyBtn.id === 'autofillBaseUrlCopyBtn' ? 'autofillBaseUrl' : 'autofillCode'
+    const text = document.getElementById(srcId)?.textContent || ''
+    try {
+      await navigator.clipboard.writeText(text)
+      showToast(t('autofill.copied'))
+    } catch {
+      showToast(t('autofill.copy_failed'))
+    }
+    return
+  }
+
+  if (target.closest('#autofillDownloadBtn')) {
+    ev.preventDefault()
+    const state = document.getElementById('autofillDownloadState')
+    try {
+      const res = await fetch('/api/autofill/extension.zip')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        if (state) state.textContent = body.message || t('autofill.extension_missing')
+        return
+      }
+      const objectUrl = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = 'marveen-autofill.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objectUrl)
+      if (state) state.textContent = t('autofill.downloaded')
+    } catch (e) {
+      if (state) state.textContent = t('autofill.load_failed', { err: String(e.message || e) })
+    }
+    return
+  }
+
+  if (target.closest('#autofillPairBtn')) {
+    ev.preventDefault()
+    const state = document.getElementById('autofillPairState')
+    if (state) state.textContent = t('common.loading')
+    try {
+      const res = await fetch('/api/autofill/pairing', { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (state) state.textContent = body.message || t('autofill.pair_failed')
+        return
+      }
+      const box = document.getElementById('autofillCodeBox')
+      const code = document.getElementById('autofillCode')
+      if (code) code.textContent = body.code
+      if (box) box.hidden = false
+      renderAutofillPending(body.expires_at)
+    } catch (e) {
+      if (state) state.textContent = t('autofill.load_failed', { err: String(e.message || e) })
+    }
+    return
+  }
+
+  const revoke = target.closest('[data-autofill-revoke]')
+  if (revoke) {
+    ev.preventDefault()
+    const id = revoke.getAttribute('data-autofill-revoke')
+    if (!confirm(t('autofill.revoke_confirm'))) return
+    try {
+      const res = await fetch(`/api/autofill/clients/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        showToast(body.message || t('autofill.revoke_failed'))
+        return
+      }
+      showToast(t('autofill.revoked'))
+      loadAutofillPanel()
+    } catch {
+      showToast(t('autofill.revoke_failed'))
+    }
+  }
+})
 
 // The key-backed services the Accounts payload already reports, paired with the
 // "where do I get this" metadata the setup wizard defined -- reused rather than

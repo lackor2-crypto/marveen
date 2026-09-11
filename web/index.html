@@ -2381,6 +2381,68 @@
           </div>
         </div>
       </div>
+
+      <!-- === Automatikus kitoltes (bongeszo-kiterjesztes) ===
+           A kartya (#96, 21311fdb) keresere: a Vault a TAR, ez a lap a
+           HASZNALAT kezdete. A vault-ban mar ott van a jelszo; innen lehet
+           odaadni a bongeszonek ugy, hogy a jelszo NEM kerul at masolassal.
+           EXTRA funkcio -- semleges szinnel, mert nelkule is mukodik minden. -->
+      <div class="accounts-section" id="autofillSection">
+        <div class="accounts-section-title" data-i18n="autofill.title">Automatikus kitöltés a böngészőben</div>
+        <div class="claude-auth-box">
+          <p class="claude-auth-lead" data-i18n="autofill.lead">Ha egy weboldal belépőjét elmentetted a Vaultba, a böngésződ ki tudja tölteni onnan a felhasználónevet és a jelszót -- nem a böngésző saját jelszókezelőjéből, hanem a Marveen Vaultjából. Ehhez egy kis kiegészítő kell a böngészőbe, és egy egyszeri párosítás. Extra kényelmi funkció: nélküle is minden működik, csak kézzel kell másolgatni.</p>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="autofill.setup_title">Beállítás három lépésben</div>
+            <ol class="claude-auth-steps">
+              <li>
+                <span data-i18n="autofill.step1">Töltsd le a kiegészítőt, és csomagold ki egy olyan mappába, ami megmarad (a böngésző onnan fogja betölteni).</span>
+                <div class="claude-auth-linkrow">
+                  <button class="btn-primary btn-compact" id="autofillDownloadBtn" data-i18n="autofill.download_btn">Kiegészítő letöltése</button>
+                  <span class="claude-auth-state" id="autofillDownloadState"></span>
+                </div>
+              </li>
+              <li>
+                <span data-i18n="autofill.step2">Chrome (vagy Edge): nyisd meg a bővítmények oldalát, kapcsold be jobb fent a „Fejlesztői módot”, nyomd meg a „Kicsomagolt bővítmény betöltése” gombot, és válaszd ki a kicsomagolt mappát.</span>
+                <div class="claude-auth-linkrow">
+                  <code class="autofill-copyable" id="autofillExtUrl">chrome://extensions</code>
+                  <button class="btn-secondary btn-compact" id="autofillExtUrlCopyBtn" data-i18n="autofill.copy">Másolás</button>
+                </div>
+                <p class="claude-auth-warn" data-i18n="autofill.step2_hint">A böngésző biztonsági okból nem engedi, hogy erre a címre innen rákattints -- másold ki, és illeszd be a böngésző címsorába.</p>
+              </li>
+              <li>
+                <span data-i18n="autofill.step3">Kattints a kiegészítő ikonjára. A „Marveen címe” mezőbe ez kerüljön:</span>
+                <div class="claude-auth-linkrow">
+                  <code class="autofill-copyable" id="autofillBaseUrl"></code>
+                  <button class="btn-secondary btn-compact" id="autofillBaseUrlCopyBtn" data-i18n="autofill.copy">Másolás</button>
+                </div>
+                <span data-i18n="autofill.step3b">A „Párosítási kód” mezőbe pedig az, amit ez a gomb ad:</span>
+                <div class="claude-auth-linkrow">
+                  <button class="btn-primary btn-compact" id="autofillPairBtn" data-i18n="autofill.pair_btn">Új párosítási kód</button>
+                  <span class="claude-auth-state" id="autofillPairState"></span>
+                </div>
+                <div class="autofill-code-box" id="autofillCodeBox" hidden>
+                  <span class="autofill-code" id="autofillCode"></span>
+                  <button class="btn-secondary btn-compact" id="autofillCodeCopyBtn" data-i18n="autofill.copy">Másolás</button>
+                  <span class="claude-auth-state" id="autofillCodeExpiry"></span>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="autofill.browsers_title">Párosított böngészők</div>
+            <p class="claude-auth-warn" data-i18n="autofill.browsers_lead">Ezek a böngészők kérhetnek jelszót a Vaultból. Mindegyik csak ahhoz a kártyához jut hozzá, aminek a címe megegyezik azzal az oldallal, amin éppen áll -- és csak akkor, ha te (vagy a beállítás) rábólintasz. Ha egy gépet eladsz vagy elveszítesz, itt vedd le a hozzáférését.</p>
+            <div class="claude-auth-list" id="autofillClientList"></div>
+          </div>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="autofill.log_title">Mi történt</div>
+            <p class="claude-auth-warn" data-i18n="autofill.log_lead">Minden kiadott és minden megtagadott jelszó bekerül ide, a legutóbbi legfelül. A jelszó maga sehol nem szerepel, csak az, melyik kártyából, melyik oldalra ment.</p>
+            <div class="claude-auth-list" id="autofillEventList"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- === Vault Page === -->
