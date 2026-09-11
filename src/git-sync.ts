@@ -154,16 +154,40 @@ function accountOfPath(abs: string): string {
 }
 
 /**
- * Vegso mentsvar: a fiok a TAVOLI CIMBOL.
+ * Egy git remote-URL-bol kiolvassa a fiokot. Ketfele helyen lehet:
  *
- * Egy kezzel klonozott repo barhol allhat a faban, tehat az utvonal nem mond
- * semmit. A `https://<fiok>@github.com/...` cimben viszont ott a
- * felhasznalonev -- ami NEM titok (a kulcs sosem kerul a `.git/config`-ba).
+ *  1. userinfo:  `https://<fiok>@github.com/...`  -- az AUTH-fiok, amivel
+ *     lehuztuk (elsodleges; ez NEM titok, a kulcs sosem kerul a config-ba).
+ *  2. az UT elso szegmense:  `https://github.com/<fiok>/<repo>`  vagy a
+ *     scp-alaku `git@github.com:<fiok>/<repo>`  -- a repo TULAJDONOSA.
+ *
+ * A userinfo az elsodleges; ha az nincs, az ut-tulajdonos akkor is megmondja,
+ * melyik fiokhoz tartozik a repo. Egy kezzel, HELYBEN klonozott repo (pl. az
+ * MT4-mappaban ulo MQL4) barhol allhat a faban, es a fizikai utban nincs benne
+ * a fiok -- ilyenkor EZ menti meg az "ismeretlen fiok"-tol. Ures string csak
+ * akkor, ha egyik alakbol sem olvashato ki (pl. nincs remote).
+ *
+ * Tiszta fuggveny (nincs I/O), hogy egysegteszt lefedhesse. Boss, 2026-09-11:
+ * "ilyen nincs hogy nem lehet tudni hogy melyik git fiokbol jott le az a repo".
  */
+export function accountFromRemoteUrl(url: string): string {
+  const u = (url || '').trim()
+  if (!u) return ''
+  // 1) userinfo: scheme://<fiok>@host/...
+  const userinfo = u.match(/^https?:\/\/([A-Za-z0-9._-]+)@/)
+  if (userinfo) return userinfo[1]
+  // 2a) http(s)/ssh URL ut-tulajdonosa: scheme://[user@]host/<owner>/<repo>
+  const urlPath = u.match(/^(?:https?|ssh):\/\/(?:[A-Za-z0-9._-]+@)?[^/]+\/([A-Za-z0-9._-]+)\//)
+  if (urlPath) return urlPath[1]
+  // 2b) scp-alaku ssh: user@host:<owner>/<repo>
+  const scp = u.match(/^[A-Za-z0-9._-]+@[^:/]+:([A-Za-z0-9._-]+)\//)
+  if (scp) return scp[1]
+  return ''
+}
+
 async function accountFromRemote(abs: string): Promise<string> {
   const r = await git(abs, ['remote', 'get-url', 'origin'], 15000)
-  const m = r.out.match(/^https:\/\/([A-Za-z0-9._-]+)@/)
-  return m ? m[1] : ''
+  return accountFromRemoteUrl(r.out)
 }
 
 function git(cwd: string, args: string[], timeout = 120000, account = ''): Promise<{ ok: boolean; out: string; err: string }> {
