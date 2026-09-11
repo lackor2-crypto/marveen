@@ -35727,7 +35727,10 @@ async function _intezoRenderPreview(info) {
   // meg ki nem cserelt HTML-ben megis ott van, tartsuk rejtve.
   const box = document.getElementById('intezoPreviewBox')
   if (box) { box.innerHTML = ''; box.hidden = true }
-  if (!info || info.isDir || !info.previewable) { _intezoClosePreviewWindow(false); return }
+  // Mappara nincs elonezet. FAJLNAL viszont mindig felnyitjuk az ablakot: ha a
+  // tipus nem jelenitheto meg bongeszoben (pl. .docx), akkor sem nema semmi --
+  // az ablak egy "toltsd le / nyisd meg" gombot mutat (Boss, 869).
+  if (!info || info.isDir) { _intezoClosePreviewWindow(false); return }
   // Ha a felhasznalo szandekosan bezarta az ablakot, ne nyissuk ra ujra
   // magatol minden kovetkezo kijelolesnel -- az "Elonezet" gomb nyitja vissza.
   if (_intezoPreviewDismissed) return
@@ -35753,10 +35756,12 @@ function _intezoPreviewWindowEl() {
     + '<button type="button" class="intezo-pw-close" id="intezoPreviewClose">×</button>'
     + '</div>'
     + '<div class="intezo-pw-body" id="intezoPreviewBody"></div>'
+    + '<div class="intezo-pw-resize" id="intezoPreviewResize" aria-hidden="true"></div>'
   document.body.appendChild(el)
   const closeBtn = el.querySelector('#intezoPreviewClose')
   if (closeBtn) closeBtn.addEventListener('click', () => _intezoClosePreviewWindow(true))
   _intezoSetupPreviewDrag(el.querySelector('#intezoPreviewHead'), el)
+  _intezoSetupPreviewResize(el.querySelector('#intezoPreviewResize'), el)
   return el
 }
 
@@ -35800,11 +35805,51 @@ function _intezoSetupPreviewDrag(handle, win) {
 }
 
 /**
+ * Az ablak atmeretezese a jobb also sarok fogantyujaval (Boss, 871: "tudjam
+ * szejjel es lefele is huzni"). Sajat fogantyu, mert a natives `resize: both`
+ * grip-jet eltakarja a torzs (.intezo-pw-body, overflow:auto), igy nem lehet
+ * megfogni. Pointer-esemenyek (eger + erintes). Mobilon nincs (teljes-kepernyos).
+ */
+function _intezoSetupPreviewResize(handle, win) {
+  if (!handle) return
+  let startX = 0, startY = 0, baseW = 0, baseH = 0, resizing = false
+  handle.addEventListener('pointerdown', (e) => {
+    if (window.innerWidth <= 640) return
+    resizing = true
+    const r = win.getBoundingClientRect()
+    baseW = r.width; baseH = r.height
+    startX = e.clientX; startY = e.clientY
+    // Rogzitjuk a bal-felso sarkot, hogy huzas kozben ne "ugorjon" az ablak.
+    win.style.left = r.left + 'px'
+    win.style.top = r.top + 'px'
+    win.classList.add('resizing')
+    try { handle.setPointerCapture(e.pointerId) } catch (_) {}
+    e.preventDefault(); e.stopPropagation()
+  })
+  handle.addEventListener('pointermove', (e) => {
+    if (!resizing) return
+    // Also hatarok a CSS min-width/min-height-tal egyeznek; felul a kepernyo.
+    const nw = Math.max(260, baseW + (e.clientX - startX))
+    const nh = Math.max(200, baseH + (e.clientY - startY))
+    win.style.width = Math.min(nw, window.innerWidth - 16) + 'px'
+    win.style.height = Math.min(nh, window.innerHeight - 16) + 'px'
+  })
+  const end = (e) => {
+    if (!resizing) return
+    resizing = false
+    win.classList.remove('resizing')
+    try { handle.releasePointerCapture(e.pointerId) } catch (_) {}
+  }
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+}
+
+/**
  * Felnyitja (vagy frissiti) az elonezet-ablakot a kijelolt fajlra. A tipus-
  * agak ugyanazok, mint korabban az inline doboznal (kep/PDF/video/szoveg).
  */
 async function _intezoOpenPreviewWindow(info) {
-  if (!info || !info.previewable) { _intezoClosePreviewWindow(false); return }
+  if (!info || info.isDir) { _intezoClosePreviewWindow(false); return }
   _intezoPreviewDismissed = false
   const el = _intezoPreviewWindowEl()
   const titleEl = el.querySelector('#intezoPreviewTitle')
@@ -35851,9 +35896,23 @@ async function _intezoOpenPreviewWindow(info) {
       pre.textContent = t('intezo.preview_failed')
     }
   } else {
-    // Nem elonezheto tipus -- ne nyiljon ures ablak.
-    _intezoClosePreviewWindow(false)
-    return
+    // Nem elonezheto tipus (.docx, .xlsx, .zip, stb.): a bongeszo nem tudja
+    // beagyazva megmutatni. Ne nema semmi es ne ures ablak (Boss, 869) -- egy
+    // mondat + egy gomb, amivel letoltodik/megnyilik (a gep sajat programja
+    // nyitja meg, pl. Word). Ugyanaz az ut, mint a muveletsav "Letoltes" gombja.
+    const wrap = document.createElement('div')
+    wrap.className = 'intezo-pw-nopreview'
+    const msg = document.createElement('p')
+    msg.className = 'intezo-pw-nopreview-msg'
+    msg.textContent = t('intezo.preview_unsupported', { name: info.name || '' })
+    const dl = document.createElement('button')
+    dl.type = 'button'
+    dl.className = 'btn-primary'
+    dl.textContent = t('intezo.preview_open_download')
+    dl.addEventListener('click', () => { window.open(_intezoFileUrl(info.rel, true), '_blank') })
+    wrap.appendChild(msg)
+    wrap.appendChild(dl)
+    body.appendChild(wrap)
   }
   // Pozicionalas. Mobilon a CSS teljes-kepernyos, ott nem allitunk inline
   // poziciot; asztalin az elso nyitasnal kozepre-folole tesszuk, kesobb a

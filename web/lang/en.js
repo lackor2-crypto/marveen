@@ -682,6 +682,8 @@ window._i18n.en = {
   'intezo.preview_truncated': '(the rest of the file is not shown here — download it to see the full content)',
   'intezo.preview_close': 'Close',
   'intezo.preview_move_hint': 'Drag it by the header to move; resize from the bottom-right corner.',
+  'intezo.preview_unsupported': "This file type can't be shown here: {name}. Download it and your computer's own app will open it (e.g. Word, Excel).",
+  'intezo.preview_open_download': 'Download / Open',
   'intezo.move': 'Move to another folder',
   'intezo.cfg_open': 'Who should be in the tree?',
   'intezo.cfg_title': 'Who should be in the tree?',
