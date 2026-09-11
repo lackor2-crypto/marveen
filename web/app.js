@@ -35636,7 +35636,14 @@ async function _intezoInfo(rel, quiet) {
     return
   }
   _intezoSelected = info
-  if (!quiet) card.hidden = false
+  if (!quiet) {
+    card.hidden = false
+    // Szandekos (nem-quiet) kijeloles: a felhasznalo maga valasztott egy elemet,
+    // tehat az elonezet-ablak ujra nyilhat. Enelkul, ha egyszer bezarta az ablakot
+    // (× / Esc -> _intezoPreviewDismissed=true), egy elonezheto fajl ujra-kattintasa
+    // sem nyitotta volna vissza. A csendes (quiet) frissites tovabbra sem popupol.
+    _intezoPreviewDismissed = false
+  }
 
   const src = info.source || {}
   const rows = [
