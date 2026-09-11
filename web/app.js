@@ -35379,7 +35379,11 @@ function _intezoRender() {
 
   if (crumbs) {
     crumbs.innerHTML = (L.breadcrumb || []).map((b, i, arr) =>
-      '<a href="#" data-crumb="' + escapeHtml(b.rel) + '">' + escapeHtml(b.name) + '</a>'
+      // A cimsor is a MEGJELENITETT nevet mutatja (ha van), de a navigacio a
+      // valodi rel-en megy -- az ut es a szinkron valtozatlan.
+      ('<a href="#" data-crumb="' + escapeHtml(b.rel) + '"'
+        + (b.displayName ? ' title="' + escapeHtml(t('intezo.real_name', { name: b.name })) + '"' : '')
+        + '>' + escapeHtml(b.displayName || b.name) + '</a>')
       + (i < arr.length - 1 ? ' <span style="opacity:.5">›</span> ' : '')).join('')
     crumbs.querySelectorAll('a[data-crumb]').forEach((a) => {
       a.addEventListener('click', (e) => { e.preventDefault(); _intezoOpen(a.getAttribute('data-crumb')) })
@@ -38286,7 +38290,7 @@ function _gitreposRenderList(data) {
         <button type="button" class="gitrepos-row" data-gitrepo-open="${escapeAttr(r.rel)}"
                 title="${escapeAttr(t('gitrepos.open_hint'))}">
           <span class="gitrepos-row-main">
-            <span class="gitrepos-row-name">${escapeHtml(_gitreposRepoName(r.rel))}</span>
+            <span class="gitrepos-row-name"${r.displayName ? ` title="${escapeAttr(t('intezo.real_name', { name: _gitreposRepoName(r.rel) }))}"` : ''}>${escapeHtml(r.displayName || _gitreposRepoName(r.rel))}</span>
             ${r.state === 'current' ? '' : `<span class="gitrepos-row-msg">${escapeHtml(r.message || '')}</span>`}
           </span>
           <span class="gitrepos-badge gitrepos-badge-${escapeAttr(r.state)}">${escapeHtml(_gitreposStateLabel(r.state))}</span>

@@ -329,6 +329,18 @@ describe('a lista fiokonkent csoportosit, es a figyelmet kero sor all elol', () 
     expect(render([])).toBe('')
   })
 
+  // Boss, 2026-09-11: a GIT_REPOS a lapon is a MEGJELENITETT nevet mutassa
+  // (store/life-labels.json -> az endpoint displayName-t ad a sorhoz).
+  it('a MEGJELENITETT nev (displayName) elsobbseget elvez a repo-nev elott', () => {
+    const html = render([
+      { rel: 'a/Fejlesztes/GIT_REPOS', account: 'a', state: 'current', message: 'x', displayName: 'Marveen Repos' },
+      { rel: 'a/masik', account: 'a', state: 'current', message: 'y' },
+    ])
+    expect(html).toContain('Marveen Repos')     // a displayName latszik
+    expect(html).not.toContain('>GIT_REPOS<')    // a nyers nev NEM cimkekent
+    expect(html).toContain('masik')              // ahol nincs displayName, a valodi nev
+  })
+
   // Boss, 2026-09-11 (kepernyokep): minden naprakesz sor KETSZER irta ki
   // ("docs Naprakesz. Naprakesz.") -- a badge es a szerver-uzenet ugyanaz volt.
   it('a naprakesz sor NEM ismetli a szerver-uzenetet; a tobbi allapot igen', () => {
