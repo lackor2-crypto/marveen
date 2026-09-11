@@ -11568,4 +11568,36 @@ details.upstream-box > summary > h4 {
   background: var(--bg);
   user-select: all;
   word-break: break-all;
+/* === Git tarolok (Raktar) === */
+.gitrepos-lastrun { margin: 6px 0 0; font-size: 13px; color: var(--text-dim, #6b7280); }
+.gitrepos-account { margin-bottom: 14px; }
+.gitrepos-account-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.gitrepos-account-title { margin: 0; font-size: 15px; }
+.gitrepos-account-count { font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-unknown-note { margin: 0 0 10px; font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-rows { display: flex; flex-direction: column; gap: 6px; }
+/* A sor gomb, mert kattinthato -- de listasorkent kell kineznie. */
+.gitrepos-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; padding: 9px 12px; cursor: pointer;
+  background: var(--bg-subtle, #f9fafb); border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px; font: inherit; color: inherit;
+}
+.gitrepos-row:hover { background: var(--bg-hover, #f3f4f6); }
+.gitrepos-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gitrepos-row-name { font-weight: 600; font-size: 13px; }
+.gitrepos-row-msg { font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-badge { flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.gitrepos-badge-current { background: #ecfdf5; color: #047857; }
+.gitrepos-badge-updated { background: #eff6ff; color: #1d4ed8; }
+.gitrepos-badge-skipped { background: #fffbeb; color: #b45309; }
+.gitrepos-badge-offline { background: #f3f4f6; color: #4b5563; }
+.gitrepos-badge-error   { background: #fef2f2; color: #b91c1c; }
+/* Az ures allapot HANGEREJE: az "ok" es az "info" megnyugtat, a "warn" szol.
+   Egy extra funkcio hianya SOSE piros -- Boss, 2026-08-11. */
+.gitrepos-state-info { border-left: 3px solid var(--accent, #2563eb); }
+.gitrepos-state-warn { border-left: 3px solid #b45309; }
+@media (max-width: 600px) {
+  .gitrepos-row { flex-wrap: wrap; }
+  .gitrepos-badge { order: -1; }
 }

@@ -279,6 +279,14 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             <span class="sb-label" data-i18n="nav.photos">Fotók</span>
           </a>
+          <!-- Git-tarolok: a Drive es a Fotok testvere, mert ugyanaz a dolguk --
+               leszinkronizalt TARTALOM, amit a Raktarban nezunk meg. Nem uj
+               szinkron es nem uj klon: a lap azt mutatja meg, ami a
+               Rendszer/Tarolok/Git ala mar lejott (Boss, 2026-09-11). -->
+          <a href="#" class="sb-link" data-page="gitrepos">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+            <span class="sb-label" data-i18n="nav.gitrepos">Git tárolók</span>
+          </a>
         </div>
       </div>
       <a href="#" class="sb-link sb-link-settings" data-page="irodaSettings">
@@ -3330,6 +3338,34 @@
         </div>
         <div class="photo-lightbox-stage" id="photoLightboxStage"></div>
       </div>
+    </div>
+
+    <!-- === Git tarolok (Raktar) === -->
+    <!-- Ez a lap NEM szinkronizal ujra es NEM klonoz: azt mutatja meg, ami a
+         git-sync utolso menetebol mar a lemezen van. Feltoltes/push
+         SZANDEKOSAN nincs rajta -- a szinkron csak lefele huz, es a helyben
+         modositott repot kihagyja. -->
+    <div class="page" id="gitreposPage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 data-i18n="gitrepos.page_title">Git tárolók</h1>
+            <p class="subtitle" data-i18n="gitrepos.page_subtitle">A leszinkronizált git tárolók és az, hogy mikor frissültek utoljára</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-secondary" id="gitreposSyncBtn" data-i18n="gitrepos.sync_now">Szinkron most</button>
+          </div>
+        </div>
+        <p class="gitrepos-lastrun" id="gitreposLastRun"></p>
+      </div>
+
+      <!-- A NULLA TOBB DOLGOT JELENTHET. Ez a doboz mondja meg, MELYIKET:
+           sose futott / nem olvashato a naplo / nem jarhato be a tarolo-gyoker
+           / nincs bekotve git-fiok / fut, csak meg nincs repo. Mind kulon
+           mondat, es csak az egyik "minden rendben". -->
+      <div class="info-box" id="gitreposStateBox" hidden></div>
+
+      <div id="gitreposList"></div>
     </div>
 
     <!-- === Debate (Vitaztatas) Page === -->

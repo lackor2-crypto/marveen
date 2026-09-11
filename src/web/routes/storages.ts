@@ -26,7 +26,7 @@ import {
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
 import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
-import { syncAllRepos, lastSyncRun } from '../../git-sync.js'
+import { syncAllRepos, lastSyncState } from '../../git-sync.js'
 import type { RouteContext } from './types.js'
 
 async function readJson(req: RouteContext['req']): Promise<any> {
@@ -205,7 +205,23 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/storages/git-sync' && method === 'GET') {
-    json(res, { ok: true, last: lastSyncRun() })
+    // A felulet EGY hivasbol kell hogy meg tudja mondani, mit lat -- es
+    // kulon-kulon azt is, hogy MIERT nem lat semmit. Negy kulonbozo "ures"
+    // van itt, es mind mas mondatot erdemel:
+    //   neverRan        -> friss telepites, meg sose futott a szinkron
+    //   readError       -> ott a naplo, de nem olvashato (ez mar baj)
+    //   run.rootError   -> a tarolo-gyoker nem jarhato be (pl. lecsatolt meghajto)
+    //   accounts ures   -> nincs egyetlen git-fiok sem bekotve
+    // Az utolso kettot a `results` darabszama NEM kulonbozteti meg: mindketto
+    // nulla repot ad.
+    const st = lastSyncState()
+    json(res, {
+      ok: true,
+      last: st.run,
+      neverRan: st.neverRan,
+      readError: st.readError,
+      accounts: readStorageRegistry().gitAccounts,
+    })
     return true
   }
 
