@@ -268,7 +268,7 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
   const st = await git(abs, ['status', '--porcelain'])
   const dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
   if (dirty) {
-    return { rel, account, state: 'skipped', message: `${dirty} fájl módosítva van itt — nem nyúlok hozzá, amíg nincs elmentve (commit + push).` }
+    return { rel, account, state: 'skipped', message: `Commit és push hiánya miatt kimaradt (${dirty} helyben módosított fájl van itt — amíg nincs mentve, nem írom felül).` }
   }
   const ahead = await git(abs, ['rev-list', '--count', '@{upstream}..HEAD'])
   const aheadN = Number(ahead.out) || 0
