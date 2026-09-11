@@ -32,10 +32,35 @@ végzés” önmagában nem hely, csak akkor az, ha tudjuk, KIÉ és MELYIK orsz
 
 Ebből áll össze: **hová kell kerülnie.**
 
+## Mély elemzés — minden iratnál KÖTELEZŐ (nem elég ránézni)
+
+{{OWNER_NAME}} kikötése (2026-09-11): egyetlen iratot sem szabad felszínesen,
+csak a fájl nevére vagy egy gyors pillantásra hagyatkozva besorolni. **Olvasd el
+a fájl EGÉSZ tartalmát**, ne csak nagyítsd meg vagy nézd a bélyegképét:
+
+- **Tartalom ÉS fájlnév együtt.** A fájl NEVE és a benne lévő SZÖVEG külön-külön
+  is árulkodó, de a döntést a kettő EGYÜTT adja. Pl. az
+  `Income_and_Expense_Statement_LASZLO_FILLED.docx` neve is („LASZLO"), tartalma
+  is a tulajdonost nevezi meg; a `Német lakcímkártya a fiammal.pdf` a gazda
+  lakcímkártyája, tehát a gazdához tartozik, akkor is, ha „a fiammal".
+- **A dátum szinte mindig BENNE van.** Ne hagyd üresen, ha a tartalomból vagy a
+  fájl metaadatából (EXIF, dokumentum-dátum) kiolvasható. Keresd a kiállítás/
+  érvényesség/ügyirat dátumát a szövegben.
+- **Vesd össze az életfával.** A `GET /api/life/config` megadja a felvett
+  **személyeket**, a fa pedig a **hivatalokat, országokat, ügyeket**. A
+  tartalomban talált nevet, hatóságot, országot, ügyszámot MINDIG vesd össze
+  ezekkel — így derül ki, kihez és melyik meglévő ághoz tartozik. Ne találj ki
+  új személyt; de ha a tartalom egyértelműen egy MEGLÉVŐ személyre mutat (mint a
+  lakcímkártyánál), akkor nevezd meg, ne írj „nem tudom"-ot.
+- **„Nem tudom" csak akkor, ha tényleg nem derül ki.** A `? nem tudom` és az üres
+  dátum a végső eset, nem az alapértelmezés. Előbb olvasd el az egészet, és csak
+  ha a tartalom + név + életfa együtt sem dönt, akkor hagyd nyitva és kérdezz.
+
 ## Amit tenned kell
 
 1. `GET /api/life/list?path=ÉLET/BEÉRKEZŐ` — mi vár besorolásra.
-2. Nézd meg az irat tartalmát (PDF/kép esetén olvasd ki, ami olvasható).
+2. **Olvasd el a teljes tartalmát** (PDF/kép esetén OCR-rel is), és elemezd a
+   nevét is — lásd fent a „Mély elemzés" szakaszt. Ne hagyatkozz a bélyegképre.
 3. Fusd végig az öt kérdést. Ha egy szinten nincs meg a célmappa, hozd létre:
    `POST /api/life/mkdir {parent, name}`.
 4. `POST /api/life/move {from, to}` — a `to` a **célmappa**, nem a célfájl.
