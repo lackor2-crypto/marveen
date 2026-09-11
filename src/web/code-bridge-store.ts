@@ -35,7 +35,7 @@
 import { checkCardWork, cardWorkNotice, type CardWorkNotice } from './card-work-guard.js'
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
-import { CODE_BRIDGE_EXCLUDE } from '../config.js'
+import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
 import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
 import { logger } from '../logger.js'
 import {
@@ -2002,7 +2002,17 @@ export const QUOTA_BLOCK_FALLBACK_MS = 5 * 60 * 60 * 1000
  *  allapotnak kotelezo onmagatol lejarnia (Open -> Half-Open), es ahol a
  *  szolgaltato megmondja a visszaallas idejet (Retry-After), azt kell kovetni. */
 export function quotaBlockExpiresAt(message: string, blockedAt: number): number {
-  return parseUsageLimitResetAt(message, blockedAt) ?? blockedAt + QUOTA_BLOCK_FALLBACK_MS
+  // A zona a banner sajat jelolesebol ("... 9am (Europe/Budapest)"), annak
+  // hianyaban a telepites zonajabol (`APP_TZ`) jon -- NEM a szolgaltatas-
+  // folyamat veletlen zonajabol. Egy UTC-ben futo service kulonben ket orat
+  // tevedne ugyanazon a banneren, es a blokk ket oraval korabban oldodna fel.
+  const named = parseUsageLimitResetAt(message, blockedAt, APP_TZ)
+  // Egy megnevezett idopont, ami NEM a blokk utan van, nem lejarat: vagy
+  // felreertettuk a szoveget, vagy nem is a most nyilt ablakrol szol. Ilyenkor
+  // a fallback-ablak a helyes valasz -- a nulla hosszu (azonnal lejaro) blokk
+  // ugyanolyan hazug allapot, mint az orokke allo, csak a masik iranyban.
+  if (named !== null && named > blockedAt) return named
+  return blockedAt + QUOTA_BLOCK_FALLBACK_MS
 }
 
 export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
