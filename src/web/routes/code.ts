@@ -31,6 +31,7 @@ import {
   dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
+  recordCodeTaskEndedSession,
   clearFinishedCodeTasks,
   pruneUnreportedCodeSessions,
   recordCodeCandidates,
@@ -1159,6 +1160,14 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
           })
           logger.info({ task: updated.id, project: updated.project, from: updated.sessionId, to: endedIn }, 'code-bridge: project repointed to the conversation the run ended in')
         }
+        // Kartya 2741d289 (#252): a FELADAT sora is alljon at. A `session_id`-t a
+        // claim toltotte ki a futas ELOTT, tehat egy `startFresh` feladatnal a
+        // projekt AKKORI szalat nevezi meg, nem azt, amit a futas nyitott. Erre a
+        // mezore ket dolog epul -- a zaro uzenet (code-session-close-notice.ts) es
+        // a tema-folytatas (code-topic-session.ts) --, es mindketto IDEGEN csetbe
+        // celzott volna. A projekt sorat fentebb mar atallitottuk; ha a feladate
+        // maradna a regin, a ketto mast allitana ugyanarrol a futasrol.
+        recordCodeTaskEndedSession(updated.id, endedIn)
       }
       logger.info({ task: updated.id, status: updated.status }, 'code-bridge: task finished')
       // Not awaited: the worker must be free to pick up the next task even if

@@ -37,6 +37,12 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE } from '../config.js'
 import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
+import { logger } from '../logger.js'
+import {
+  decideTopicSession,
+  type SessionVisibility,
+  type TopicSessionDeps,
+} from './code-topic-session.js'
 
 export type CodeTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export type CodeTaskOrigin = 'telegram' | 'agent' | 'dashboard' | 'api'
@@ -868,6 +874,61 @@ export function latestCodeTaskForProject(project: string): CodeTask | null {
  * unmappable task would stall every runnable one behind it. Orphans that stay
  * orphans are failed (and announced) by failOrphanedCodeTasks() below.
  */
+/**
+ * A tema-dontes (kartya 2741d289, #252) ELO adatforrasai. Kulon fuggveny, hogy a
+ * dontes maga tesztelheto maradjon adatbazis nelkul.
+ */
+function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
+  return {
+    priorSessionsForCard: (cardRef, project, excludeTaskId) => {
+      const rows = getDb()
+        .prepare(
+          `SELECT session_id FROM code_tasks
+            WHERE card_ref = ? AND project = ? AND id != ?
+              AND session_id IS NOT NULL AND session_id != ''
+              AND (start_fresh = 1 OR (target_session_id IS NOT NULL AND target_session_id != ''))
+            ORDER BY created_at DESC
+            LIMIT 20`,
+        )
+        .all(cardRef, project, excludeTaskId) as { session_id: string }[]
+      const seen = new Set<string>()
+      const out: string[] = []
+      for (const r of rows) {
+        if (seen.has(r.session_id)) continue
+        seen.add(r.session_id)
+        out.push(r.session_id)
+      }
+      return out
+    },
+    wasClosed: (cardRef, sessionId) => {
+      // A tablat a code-session-close-notice.ts hozza letre az ELSO zaro
+      // uzenetnel. Ha meg nincs, az nem "nem latok oda", hanem a kimondhato
+      // teny, hogy meg egyetlen lezaras sem tortent -- ezert `false`.
+      try {
+        return !!getDb()
+          .prepare('SELECT 1 FROM code_session_close_notices WHERE card_id = ? AND session_id = ?')
+          .get(cardRef, sessionId)
+      } catch {
+        return false
+      }
+    },
+    sessionVisible: (sessionId): SessionVisibility => {
+      // A projekt BEKOTOTT sora az adatbazisban all, tehat az ujrainditast is
+      // tulelli: ha a tema-szal EPP ez, akkor biztosan letezik.
+      if (session.sessionId === sessionId) return 'yes'
+      const here = listCodeCandidates().filter(
+        (c) => c.workspacePath.toLowerCase() === session.workspacePath.toLowerCase(),
+      )
+      // URES LISTA = NEM LATUNK ODA, nem "nincs ilyen szal": a jeloltlista a
+      // memoriaban el, es minden vezerlopult-ujrainditas kiuriti (amig a worker
+      // ujra nem jelent). Ezt a kettot osszemosni pont az a hiba lenne, amit a
+      // #255 javitott a kvota-blokknal.
+      if (here.length === 0) return 'unknown'
+      return here.some((c) => c.sessionId === sessionId) ? 'yes' : 'no'
+    },
+  }
+}
+
 export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | null {
   ensureTables()
   const db = getDb()
@@ -890,17 +951,35 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       const session = getCodeSession(task.project)
       if (!session) continue
 
-      // A megcimzett ful ERŐSEBB, mint a projekt aktualis beszelgetese: aki egy
-      // konkret fulet valasztott, annak a feladata nem csuszhat at abba, ami
-      // kozben a legfrissebb lett. Cimzes nelkul minden marad a regiben.
-      const runIn = task.targetSessionId ?? session.sessionId
-      // Kartya 032aa826: cimzes NELKUL a "projekt aktualis beszelgetese" a
-      // felderites altal legutobb latott ful -- ez lehet olyan is, amit a
-      // tulaj EPP KEZZEL hasznal (pl. MetaTrader programozas), es a dispatch
-      // belezavarna. Csak akkor szabad ujrahasznalni, ha az a beszelgetes
-      // BIZONYITOTTAN Marvin sajatja (marvinOwned) -- kulonben a worker friss,
+      // Kartya 2741d289 (#252): TEMA-ALAPU ujrahasznalas. Boss dontese
+      // (2026-09-11, uzenet 821) szerint a "ugyanaz a tema"-t a KANBAN KARTYA
+      // AZONOSITOJA donti el, kartya nelkul pedig MINDIG uj beszelgetes indul.
+      // A dontes maga mellekhatas-mentesen a code-topic-session.ts-ben el.
+      const topic = decideTopicSession(
+        { cardRef: task.cardRef, project: task.project, taskId: task.id },
+        liveTopicSessionDeps(session),
+      )
+      if (topic.kind === 'fresh' && topic.why === 'cannot_see') {
+        // A NULLA KET DOLGOT JELENT: nem azt mondjuk ki, hogy a szal nincs meg,
+        // hanem azt, hogy nem lattunk oda -- es uj beszelgetest nyitunk, mert az
+        // sosem rossz cimzett. Ez a sor az egyetlen nyoma, ezert kimondja.
+        logger.warn(
+          { task: task.id, project: task.project, card: task.cardRef },
+          'code-bridge: nem latok ra a projekt beszelgeteseire, ezert a tema-folytatas helyett uj beszelgetes indul',
+        )
+      }
+      // A megcimzett ful ERŐSEBB mindennel: aki egy konkret fulet valasztott,
+      // annak a feladata nem csuszhat at sem a tema-folytatasba, sem abba, ami
+      // kozben a legfrissebb lett.
+      const runIn = task.targetSessionId ?? (topic.kind === 'reuse' ? topic.sessionId : session.sessionId)
+      // Kartya 032aa826 ota: cimzes NELKUL a projekt "aktualis" beszelgetese a
+      // felderites altal legutobb latott ful -- ez lehet olyan is, amit a tulaj
+      // EPP KEZZEL hasznal (pl. MetaTrader programozas), es a dispatch
+      // belezavarna. A #252 ota ezt a `marvinOwned` jeloles MAR NEM oldja fel:
+      // ahhoz, hogy ne friss beszelgetes induljon, TEMA-egyezes kell (ugyanaz a
+      // kartya, meg nem lezart, meg lathato szalban). Kulonben a worker friss,
       // ures beszelgetest indit (lasd marvin-code-worker.ps1 Invoke-CodeTask).
-      const startFresh = !task.targetSessionId && !session.marvinOwned
+      const startFresh = !task.targetSessionId && topic.kind !== 'reuse'
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
@@ -1044,6 +1123,29 @@ export function completeCodeTaskDetailed(
 }
 
 /** Back-compat wrapper: the tests and older callers want just the task. */
+/**
+ * Atirja a feladat sorat arra a beszelgetesre, AMIBEN A FUTAS VEGZODOTT (a CLI
+ * sajat jelentese, `resultSessionId`).
+ *
+ * MIERT KELL (kartya 2741d289, #252). A `session_id` oszlopot a claim tolti ki,
+ * MIELOTT a futas elindul -- egy `startFresh` feladatnal tehat a projekt AKKORI
+ * beszelgeteset tartalmazza, holott a CLI utana egy vadonatuj szalat nyitott. Ket
+ * dolog epul erre a mezore, es mindketto ROSSZ szalat kapott volna:
+ *   - a zaro uzenet (code-session-close-notice.ts), ami igy egy IDEGEN -- akar a
+ *     tulaj altal kezzel hasznalt -- csetbe irta volna, hogy "lezarva";
+ *   - a tema-folytatas (code-topic-session.ts), ami ugyanoda adta volna ki a
+ *     kartya kovetkezo feladatat.
+ * A projekt bekotott sorat (`code_sessions`) a hivo mar atallitotta; ez a
+ * fuggveny ugyanazt teszi meg a FELADAT sorával, hogy a ketto ne mondjon mast.
+ */
+export function recordCodeTaskEndedSession(id: string, sessionId: string): CodeTask | null {
+  ensureTables()
+  const clean = sessionId.trim()
+  if (!clean) return getCodeTask(id)
+  getDb().prepare(`UPDATE code_tasks SET session_id = ? WHERE id = ?`).run(clean, id)
+  return getCodeTask(id)
+}
+
 export function completeCodeTask(id: string, input: CompleteInput, now = Date.now()): CodeTask | null {
   return completeCodeTaskDetailed(id, input, now).task
 }
