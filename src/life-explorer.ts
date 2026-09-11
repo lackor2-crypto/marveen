@@ -145,8 +145,8 @@ export interface LifeListing {
   rel: string
   /** Emberi utvonal a cimsorba (`F:\Marveen\Kovács Anna\...`). */
   display: string
-  /** Kattinthato morzsak: [{ name, rel }], a gyokerrel kezdve. */
-  breadcrumb: Array<{ name: string; rel: string }>
+  /** Kattinthato morzsak: [{ name, rel, displayName }], a gyokerrel kezdve. */
+  breadcrumb: Array<{ name: string; rel: string; displayName?: string | null }>
   /** A szulomappa relativ utvonala, vagy null a gyokerben. */
   parent: string | null
   folders: LifeEntry[]
@@ -449,14 +449,16 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
   return { ...base, folders, files }
 }
 
-function buildBreadcrumb(rel: string): Array<{ name: string; rel: string }> {
-  const crumbs: Array<{ name: string; rel: string }> = [{ name: 'Marveen', rel: '' }]
+function buildBreadcrumb(rel: string): Array<{ name: string; rel: string; displayName?: string | null }> {
+  const crumbs: Array<{ name: string; rel: string; displayName?: string | null }> = [{ name: 'Marveen', rel: '' }]
   if (!rel) return crumbs
   const parts = rel.split('/').filter(Boolean)
   let acc = ''
   for (const p of parts) {
     acc = acc ? `${acc}/${p}` : p
-    crumbs.push({ name: p, rel: acc })
+    // A cimsor is a MEGJELENITETT nevet mutassa (store/life-labels.json), hogy
+    // pl. a GIT_REPOS itt is "Marveen Repos"-kent lassszon. A `rel` valtozatlan.
+    crumbs.push({ name: p, rel: acc, displayName: displayLabelFor(acc) })
   }
   return crumbs
 }
