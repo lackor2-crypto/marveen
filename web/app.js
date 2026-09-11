@@ -38242,6 +38242,12 @@ function _gitreposRenderList(data) {
       return d || _gitreposRepoName(a.rel).localeCompare(_gitreposRepoName(b.rel))
     })
     const title = key ? escapeHtml(key) : escapeHtml(t('gitrepos.unknown_account'))
+    // A soron belul a badge (allapot-cimke) es a szerver-uzenet a "naprakesz"
+    // esetben ugyanaz volt, ezert ketszer latszott (Boss, 2026-09-11). A
+    // badge eleg; a szerver-uzenetet csak akkor mutatjuk, ha EXTRA infot ad
+    // (frissult -> hany commit, kihagyott -> az ok, halozat/hiba). Ezert lent
+    // a msg-span a 'current' allapotnal kimarad. (JS-komment: NEM kerul a
+    // renderelt HTML-be, kulonben a sor-sorrend tesztje ratapadna a szavakra.)
     return `<div class="card gitrepos-account">
       <div class="gitrepos-account-head">
         <h3 class="gitrepos-account-title">${title}</h3>
@@ -38253,7 +38259,7 @@ function _gitreposRenderList(data) {
                 title="${escapeAttr(t('gitrepos.open_hint'))}">
           <span class="gitrepos-row-main">
             <span class="gitrepos-row-name">${escapeHtml(_gitreposRepoName(r.rel))}</span>
-            <span class="gitrepos-row-msg">${escapeHtml(r.message || '')}</span>
+            ${r.state === 'current' ? '' : `<span class="gitrepos-row-msg">${escapeHtml(r.message || '')}</span>`}
           </span>
           <span class="gitrepos-badge gitrepos-badge-${escapeAttr(r.state)}">${escapeHtml(_gitreposStateLabel(r.state))}</span>
         </button>`).join('')}</div>
