@@ -13,9 +13,12 @@ const at = (y: number, m: number, d: number, h: number, min = 0): number =>
 
 describe('parseUsageLimitResetAt', () => {
   it('csupasz ora: a horgony napjan, ha meg nem mult el', () => {
-    const anchor = at(2026, 8, 11, 2, 17) // 2026-09-11 02:17
+    // A banner megnevezi a zonat, tehat az ELVART pillanat is abban a zonaban
+    // ertendo -- `at()` (folyamat-zona) itt csak azon a gepen adna helyes
+    // vartertéket, amelyik veletlenul Budapesten all.
+    const anchor = Date.UTC(2026, 8, 11, 0, 17) // 2026-09-11 02:17 Budapesten
     expect(parseUsageLimitResetAt("You've hit your session limit · resets 9am (Europe/Budapest)", anchor))
-      .toBe(at(2026, 8, 11, 9))
+      .toBe(Date.UTC(2026, 8, 11, 7))
   })
 
   it('csupasz ora: MASNAP, ha a horgony napjan mar elmult (ejfelt atlepo ablak)', () => {
@@ -26,8 +29,9 @@ describe('parseUsageLimitResetAt', () => {
 
   it('datummal es perccel is', () => {
     const anchor = at(2026, 8, 8, 2, 17)
-    expect(parseUsageLimitResetAt("You've hit your weekly limit · resets Sep 11, 9am (Europe/Budapest)", anchor))
-      .toBe(at(2026, 8, 11, 9))
+    expect(parseUsageLimitResetAt("You've hit your weekly limit · resets Sep 11, 9am (Europe/Budapest)", Date.UTC(2026, 8, 8, 0, 17)))
+      .toBe(Date.UTC(2026, 8, 11, 7))
+    // Zona nelkuli banner, atadott zona nelkul: marad a folyamat zonaja.
     expect(parseUsageLimitResetAt('usage limit reached · resets 6:20pm', anchor))
       .toBe(at(2026, 8, 8, 18, 20))
   })
@@ -61,5 +65,45 @@ describe('parseUsageLimitResetAt', () => {
     expect(parseUsageLimitResetAt('resets Feb 30, 9am', anchor)).toBeNull()  // nem letezo nap
     expect(parseUsageLimitResetAt('resets 19pm', anchor)).toBeNull()         // nem 12 oras alak
     expect(parseUsageLimitResetAt('resets soon', anchor)).toBeNull()
+  })
+
+  // --- Masodik kor (13fc793f ellenorzese): idozona + evfordulo-elcsuszas ---
+
+  it('IDOZONA: a bannerben megnevezett zona dont, nem a folyamate', () => {
+    const anchor = Date.UTC(2026, 8, 8, 0, 0)
+    // "9am (Europe/Budapest)" 2026-09-11-en = 07:00 UTC (CEST, +2).
+    expect(parseUsageLimitResetAt('resets Sep 11, 9am (Europe/Budapest)', anchor))
+      .toBe(Date.UTC(2026, 8, 11, 7, 0))
+    // Ugyanaz a fali-ora Tokioban (+9) mas pillanat -- a kettonek KULONBOZNIE kell,
+    // kulonben a zonat nem vettuk figyelembe.
+    expect(parseUsageLimitResetAt('resets Sep 11, 9am (Asia/Tokyo)', anchor))
+      .toBe(Date.UTC(2026, 8, 11, 0, 0))
+  })
+
+  it('IDOZONA: zonatlan banner eseten a telepites zonaja (APP_TZ) dont', () => {
+    const anchor = Date.UTC(2026, 8, 8, 0, 0)
+    expect(parseUsageLimitResetAt('resets Sep 11, 9am', anchor, 'Europe/Budapest'))
+      .toBe(Date.UTC(2026, 8, 11, 7, 0))
+    expect(parseUsageLimitResetAt('resets Sep 11, 9am', anchor, 'UTC'))
+      .toBe(Date.UTC(2026, 8, 11, 9, 0))
+  })
+
+  it('IDOZONA: ismeretlen zona nem dob es nem ad hamis idot -- a folyamat zonaja marad', () => {
+    const anchor = at(2026, 8, 8, 2, 0)
+    expect(parseUsageLimitResetAt('resets Sep 11, 9am (Nem/Letezik)', anchor)).toBe(at(2026, 8, 11, 9))
+    expect(parseUsageLimitResetAt('resets Sep 11, 9am', anchor, 'Nem/Letezik')).toBe(at(2026, 8, 11, 9))
+  })
+
+  it('EVFORDULO: egy MULTBELI datum a multban marad, nem csuszik a kovetkezo evre', () => {
+    // Egy panelen ott ragadt, regi banner szeptemberben. A "kovetkezo ilyen datum"
+    // szabaly ebbol 2027 augusztusat csinalna: egy majdnem egy evvel kesobbi,
+    // sosem jovo lejarat -- pont az "orokke all" allapot, datum-szinten.
+    const anchor = at(2026, 8, 20, 12, 0)
+    expect(parseUsageLimitResetAt('resets Aug 14, 9am', anchor)).toBe(at(2026, 7, 14, 9))
+  })
+
+  it('EVFORDULO: a januari uzenet "Dec 30"-a az ELOZO ev decembere', () => {
+    const anchor = at(2027, 0, 2, 1, 0)
+    expect(parseUsageLimitResetAt('resets Dec 30, 9am', anchor)).toBe(at(2026, 11, 30, 9))
   })
 })

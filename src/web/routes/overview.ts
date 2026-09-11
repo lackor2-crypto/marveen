@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readdir, readFile, stat as statAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName } from '../../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName, APP_TZ } from '../../config.js'
 import { getDb, countTaskRunsBetween } from '../../db.js'
 import {
   agentDir, listAgentNames, readAgentDisplayName,
@@ -54,9 +54,11 @@ import { parseUsageLimitResetAt } from '../../usage-limit-reset.js'
 // A banner "resets ..." reszenek ertelmezese EGY helyen el (kanban 13fc793f):
 // ugyanezt a szoveget olvassa a kod-hid kvota-blokkjanak lejarata is, es ket
 // masolat ket kulonbozo idopontot adna ugyanarra a bannerre. Itt a horgony a
-// MOSTANI ido, mert a panelbol most kapartuk ki a sort.
+// MOSTANI ido, mert a panelbol most kapartuk ki a sort. A zona elsosorban a
+// banner sajat zarojeles jelolesebol jon; ha az hianyzik, a telepites zonaja
+// (`APP_TZ`) dont -- nem a szolgaltatas-folyamat veletlen zonaja.
 function parseResetsAt(pane: string, nowMs: number = Date.now()): number | null {
-  return parseUsageLimitResetAt(pane, nowMs)
+  return parseUsageLimitResetAt(pane, nowMs, APP_TZ)
 }
 
 // Last successful scrape per plan, persisted to disk (store/rate-limit-status/
