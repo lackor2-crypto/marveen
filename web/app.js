@@ -36486,7 +36486,17 @@ async function _intezoPurgeKeres(body) {
  * ujraolvassa a listat, tehat kulon teendo nincs).
  */
 async function _intezoNevTanacs(r) {
-  if (!r || !r.notice || !r.suggestion || !r.rel) return false
+  if (!r || !r.notice) return false
+  // A CSEND NEM VALASZ.
+  //
+  // Boss, 2026-09-12, MERT hiba: egy olyan nev, amibol nem kepezheto javaslat
+  // (pl. csupa ekezet vagy irasjel a GIT_REPOS alatt), figyelmeztetest KAPOTT
+  // a szervertol -- de ez a sor `!r.suggestion`-nel NEMAN visszafordult, es a
+  // felhasznalo semmit nem latott. Eppen a legrosszabb nevnel hallgattunk.
+  //
+  // Ha nincs mit javasolni, a figyelmeztetes attol meg elhangzik: csak
+  // atnevezni nem tudunk helyette.
+  if (!r.suggestion || !r.rel) { showToast(r.notice); return false }
   if (!confirm(t('intezo.name_advice_ask', { message: r.notice, suggestion: r.suggestion }))) return false
   try {
     const rr = await _depoPost('/api/life/rename', { rel: r.rel, name: r.suggestion })

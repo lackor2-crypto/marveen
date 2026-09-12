@@ -82,6 +82,28 @@ export function slugify(name: string): string {
  */
 const SHELL_HAZARD_RE = /[$`;&!#()'"\][{}*?~]/
 
+/**
+ * A KITERJESZTES nem resze a nevnek -- a slugositas nem eheti meg.
+ *
+ * Boss, 2026-09-12, MERT hiba (nem tipp): a `naplo.md` javasolt neve
+ * `naplo-md` volt. Aki elfogadta a tanacsot, egy MEGNYITHATATLAN fajlt
+ * kapott: a pont eltunt, tehat a `.md` tobbe nem kiterjesztes, hanem a nev
+ * vege. A figyelmeztetes igy tobb kart okozott, mint amennyit hasznalt.
+ *
+ * Csak azt tekintjuk kiterjesztesnek, ami tenylegesen annak latszik: az
+ * utolso pont utan 1-8 BETU. Igy egy `v1.2` NEVU mappa nem esik ide (a `2`
+ * nem betu), es tovabbra is a regi uton megy vegig -- verzioszamot nem
+ * neznek kiterjesztesnek.
+ *
+ * Ures `ext` = nincs kiterjesztes, a hivo a teljes nevet slugositja.
+ */
+export function splitExtension(name: string): { base: string; ext: string } {
+  const raw = String(name || '')
+  const m = /^(.*[^.])\.([A-Za-z]{1,8})$/.exec(raw)
+  if (!m) return { base: raw, ext: '' }
+  return { base: m[1]!, ext: m[2]!.toLowerCase() }
+}
+
 /** Egy figyelmeztetes: mi a baj, es MI LEGYEN HELYETTE. */
 export interface NameAdvice {
   /** true, ha nincs mit szolni. */
@@ -111,7 +133,10 @@ export function checkName(name: string, zone: NamingZone, lang: string = APP_LAN
   if (!raw.trim()) return ok
 
   if (zone === 'machine') {
-    const slug = slugify(raw)
+    // A kiterjesztest KULON kezeljuk: a slugositas csak a nevre vonatkozik.
+    const { base, ext } = splitExtension(raw)
+    const slugBase = slugify(base)
+    const slug = slugBase ? (ext ? `${slugBase}.${ext}` : slugBase) : ''
     if (!slug) {
       return {
         ok: false, zone, suggestion: '', code: 'machine_zone_not_slug',
