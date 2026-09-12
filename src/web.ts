@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -756,6 +756,12 @@ export function startWebServer(port = 3420): http.Server {
         const identityRule = ensureAgentIdentitySection(agentName)
         if (identityRule === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (identityRule === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es a "soha ne dolgozz kozvetlenul az elo tree-ben" szabaly (Boss,
+        // 2026-09-12): minden munka izolalt worktree-ben + land-pr.sh; a fo
+        // checkout main-jere kozvetlen commit megallitja az auto-deploy-t.
+        const noLiveTree = ensureNoLiveTreeSection(agentName)
+        if (noLiveTree === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (noLiveTree === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -768,6 +774,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalLandingRule()
       ensureGlobalOneCardOneFixRule()
       ensureGlobalAgentIdentityRule()
+      ensureGlobalNoLiveTreeRule()
       // Zero writes means two different things, so both are said out loud
       // rather than inferred from a count: 'no-file' agents are covered by the
       // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads
