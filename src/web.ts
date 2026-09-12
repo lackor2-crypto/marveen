@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { execSync, execFileSync } from 'node:child_process'
 import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID } from './config.js'
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
-import { resolveAuth, requiresAuth, isFederationWireEndpoint, type AuthResult } from './web/auth-gate.js'
+import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
 import { autoPurgeTrash } from './life-explorer.js'
 import { getEffectiveSettingValue } from './settings-store.js'
@@ -115,6 +115,7 @@ import { tryHandleAuditLog } from './web/routes/audit-log.js'
 import { tryHandleFleetQ } from './web/routes/fleet-q.js'
 import { tryHandleStatic } from './web/routes/static.js'
 import { tryHandleVoice } from './web/routes/voice.js'
+import { tryHandleAutofill, isExtensionOrigin } from './web/routes/autofill.js'
 import { tryHandleVaultSsh } from './web/routes/vault-ssh.js'
 import { tryHandleFleet } from './web/routes/fleet.js'
 import { tryHandleVaultSshKeys } from './web/routes/vault-ssh-keys.js'
@@ -160,6 +161,18 @@ export function startWebServer(port = 3420): http.Server {
       res.setHeader('Vary', 'Origin')
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    } else if (isExtensionOrigin(origin) && isAutofillWireEndpoint(path, method)) {
+      // The autofill extension (card 21311fdb) is a cross-origin client by
+      // construction -- chrome-extension://<id> can never be on a host
+      // allowlist. Its preflight is answered here, BEFORE the generic 204
+      // below, because a 204 without Access-Control-* headers makes the
+      // browser drop the real request and the feature look dead for no
+      // visible reason. Narrow on both sides: extension origins only, and
+      // only on the three autofill wire endpoints.
+      res.setHeader('Access-Control-Allow-Origin', origin!)
+      res.setHeader('Vary', 'Origin')
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
     }
     if (method === 'OPTIONS') { res.writeHead(204); res.end(); return }
 
@@ -167,7 +180,14 @@ export function startWebServer(port = 3420): http.Server {
     // Same-origin fetches (Origin absent, allowlisted, or matching the host the
     // server was actually reached on -- e.g. a Tailscale Serve / reverse-proxy
     // hostname) are accepted; a foreign Origin is rejected (the CSRF defence).
-    if (isBlockedCrossOriginWrite(method, origin, req.headers.host, req.headers['x-forwarded-host'] as string | undefined, allowedOrigins)) {
+    // The browser extension (card 21311fdb) is cross-origin by construction:
+    // a Chrome service worker sends `Origin: chrome-extension://<id>`. Letting
+    // it through is safe exactly where it is narrow -- only on the autofill
+    // wire endpoints, and only for an extension origin, never a web page's.
+    // Those endpoints carry a bearer token of their own, so the ambient-cookie
+    // risk this gate exists for does not apply to them.
+    const extensionWire = isAutofillWireEndpoint(path, method) && isExtensionOrigin(origin)
+    if (!extensionWire && isBlockedCrossOriginWrite(method, origin, req.headers.host, req.headers['x-forwarded-host'] as string | undefined, allowedOrigins)) {
       logger.warn({ method, path, origin, host: req.headers.host, xForwardedHost: req.headers['x-forwarded-host'] }, 'CSRF: blocked write from foreign origin')
       res.writeHead(403, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Origin not allowed' }))
@@ -197,6 +217,7 @@ export function startWebServer(port = 3420): http.Server {
       : auth.kind === 'device' ? { kind: 'device' as const, device: auth.device }
       : auth.kind === 'session' ? { kind: 'session' as const, user: auth.user }
       : auth.kind === 'federation' ? { kind: 'federation' as const, peer: auth.peer }
+      : auth.kind === 'autofill' ? { kind: 'autofill' as const, client: auth.client, clientId: auth.clientId }
       : undefined
 
     // The mobile-login QR needs a URL the phone can actually reach. When the
@@ -238,6 +259,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleRecall(routeCtx)) return
       if (await tryHandleOverview(routeCtx)) return
       if (await tryHandleAccounts(routeCtx)) return
+      if (await tryHandleAutofill(routeCtx)) return
       if (await tryHandleConnections(routeCtx)) return
       if (await tryHandleDriveBrowser(routeCtx)) return
       if (await tryHandleGithubBrowser(routeCtx)) return

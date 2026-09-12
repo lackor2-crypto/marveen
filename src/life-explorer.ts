@@ -33,6 +33,7 @@ import {
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
+import { displayLabelFor } from './life-labels.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
 import { lifeHint, personHint, companyHint, samplePersonHint, sampleCompanyHint,
@@ -89,6 +90,13 @@ function topOrder(lang: string): string[] {
 
 export interface LifeEntry {
   name: string
+  /**
+   * A feluleten MUTATOTT nev, ha el ter a lemez-nevtol (store/life-labels.json).
+   * `null`/hianyzik, ha a valodi `name` latszik. A navigacio mindig a `rel`/`name`
+   * szerint megy -- ez csak a felirat, hogy pl. a `GIT_REPOS` "Marveen Repos"-kent
+   * latsszon, miközben a lemez-ut es a szinkron valtozatlan marad.
+   */
+  displayName?: string | null
   /** Utvonal a gyokertol, per-jellel. Ezt kuldi vissza a felulet. */
   rel: string
   isDir: boolean
@@ -137,8 +145,8 @@ export interface LifeListing {
   rel: string
   /** Emberi utvonal a cimsorba (`F:\Marveen\Kovács Anna\...`). */
   display: string
-  /** Kattinthato morzsak: [{ name, rel }], a gyokerrel kezdve. */
-  breadcrumb: Array<{ name: string; rel: string }>
+  /** Kattinthato morzsak: [{ name, rel, displayName }], a gyokerrel kezdve. */
+  breadcrumb: Array<{ name: string; rel: string; displayName?: string | null }>
   /** A szulomappa relativ utvonala, vagy null a gyokerben. */
   parent: string | null
   folders: LifeEntry[]
@@ -228,6 +236,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
   const src: SourceInfo = detectSource(abs, isDir, deep && isDir)
   return {
     name,
+    displayName: displayLabelFor(rel),
     rel,
     isDir,
     size: isDir ? 0 : st.size,
@@ -440,14 +449,16 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
   return { ...base, folders, files }
 }
 
-function buildBreadcrumb(rel: string): Array<{ name: string; rel: string }> {
-  const crumbs: Array<{ name: string; rel: string }> = [{ name: 'Marveen', rel: '' }]
+function buildBreadcrumb(rel: string): Array<{ name: string; rel: string; displayName?: string | null }> {
+  const crumbs: Array<{ name: string; rel: string; displayName?: string | null }> = [{ name: 'Marveen', rel: '' }]
   if (!rel) return crumbs
   const parts = rel.split('/').filter(Boolean)
   let acc = ''
   for (const p of parts) {
     acc = acc ? `${acc}/${p}` : p
-    crumbs.push({ name: p, rel: acc })
+    // A cimsor is a MEGJELENITETT nevet mutassa (store/life-labels.json), hogy
+    // pl. a GIT_REPOS itt is "Marveen Repos"-kent lassszon. A `rel` valtozatlan.
+    crumbs.push({ name: p, rel: acc, displayName: displayLabelFor(acc) })
   }
   return crumbs
 }

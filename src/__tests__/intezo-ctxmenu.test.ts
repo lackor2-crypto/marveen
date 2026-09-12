@@ -87,7 +87,12 @@ describe('az adatlap NEM nyilik ki maganak', () => {
 
   it('a kinyitas egyedul kereskor tortenik', () => {
     const info = fnBody('async function _intezoInfo(')
-    expect(info).toContain('if (!quiet) card.hidden = false')
+    // A lenyeg: az adatlap kinyitasa (`card.hidden = false`) CSAK a `!quiet`
+    // agban tortenhet -- egy csendes (quiet) frissites nem nyithatja ki. A
+    // pontos alak (egysoros vagy blokk) nem szamit, csak hogy a `card.hidden =
+    // false` a `!quiet` kapun belul van. (A blokk-alak azert kellett, mert a
+    // szandekos kijeloles ott allitja vissza a `_intezoPreviewDismissed`-et.)
+    expect(info).toMatch(/if \(!quiet\)(?:\s*\{)?[^}]*card\.hidden = false/)
   })
 })
 

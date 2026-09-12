@@ -22,7 +22,7 @@ import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask,
   recordCodeWorkerSeen, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
-  completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage,
+  completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage, QUOTA_BLOCK_FALLBACK_MS,
   LIVE_SESSION_STALE_MS, getCodeSession,
 } from '../web/code-bridge-store.js'
 
@@ -163,8 +163,51 @@ describe('codeBridgeActivity: kvota-blokk (keret-kimerules)', () => {
 
   it('a legutobbi feladat keret-kimerules hibaja -> quotaBlocked', () => {
     upsertCodeSession(WS)
+    // A banner szovege VALODI (Boss, 2026-09-08), de a benne allo naptari
+    // datumot NEM szabad a teszt igazsagava tenni: a blokk azota lejar a
+    // megnevezett visszaallaskor (kanban 13fc793f), tehat egy fix datummal ez a
+    // teszt 2026-09-11 9:00-kor magatol pirosra valtott volna. A `now`-t ezert
+    // kifejezetten a hiba PILLANATAHOZ kotjuk.
+    const t0 = Date.now()
     failLatestWithLimit("You've hit your weekly limit · resets Sep 11, 9am (Europe/Budapest)")
-    expect(codeBridgeActivity().quotaBlocked).toBe(true)
+    expect(codeBridgeActivity(t0).quotaBlocked).toBe(true)
+  })
+
+  it('a blokk LEJAR a bannerben megnevezett visszaallaskor -- zart VS Code mellett is', () => {
+    upsertCodeSession(WS)
+    // Egyetlen jelolt sincs (a VS Code be van zarva), tehat frissebb aktivitas
+    // SOSE johet: a regi kod itt orokre "keret elfogyott"-ot allitott volna.
+    const t0 = Date.now()
+    // ZONA NELKULI banner (ez is valodi alak): igy a kiirt ora a telepites
+    // zonajaban ertendo, es az alabbi helyi-ido szamitas BARMELYIK gepen
+    // ugyanazt adja. Zona-jelolessel a vartertéket is abban a zonaban kellene
+    // szamolni -- azt a `usage-limit-reset.test.ts` IDOZONA-esetei fedik le
+    // (a CI UTC-ben fut, a fejlesztogep Budapesten: pont ez a kulonbseg
+    // buktatta el ezt a tesztet).
+    failLatestWithLimit("You've hit your session limit · resets 11pm")
+    const d = new Date(t0)
+    const sameDay = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 0, 0, 0).getTime()
+    const resetAt = sameDay >= t0 ? sameDay : sameDay + 24 * 60 * 60 * 1000
+    expect(codeBridgeActivity(resetAt - 60_000).quotaBlocked).toBe(true)
+    expect(codeBridgeActivity(resetAt + 60_000).quotaBlocked).toBe(false)
+  })
+
+  it('idopont nelkuli uzenetnel a blokk legfeljebb ot oraig all (nem vegtelen)', () => {
+    upsertCodeSession(WS)
+    const t0 = Date.now()
+    failLatestWithLimit('usage limit reached')
+    expect(codeBridgeActivity(t0 + QUOTA_BLOCK_FALLBACK_MS - 60_000).quotaBlocked).toBe(true)
+    expect(codeBridgeActivity(t0 + QUOTA_BLOCK_FALLBACK_MS + 60_000).quotaBlocked).toBe(false)
+  })
+
+  it('a lejarat a HIBA idejehez horgonyzott, nem a mostanihoz', () => {
+    upsertCodeSession(WS)
+    const t0 = Date.now()
+    failLatestWithLimit('usage limit reached')
+    // Ket nappal kesobb megnezve a blokk mar nem all: a hiba akkor tortent,
+    // amikor tortent -- a mostani idohoz merve a lejarat naprol napra
+    // elorecsuszna, es sosem kovetkezne be.
+    expect(codeBridgeActivity(t0 + 2 * 24 * 60 * 60 * 1000).quotaBlocked).toBe(false)
   })
 
   it('egy elo ful (live:true) sem old fel, ha nincs frissebb VALODI tevekenyseg', () => {

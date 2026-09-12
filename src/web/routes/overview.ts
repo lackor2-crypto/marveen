@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { readdir, readFile, stat as statAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName } from '../../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName, APP_TZ } from '../../config.js'
 import { getDb, countTaskRunsBetween } from '../../db.js'
 import {
   agentDir, listAgentNames, readAgentDisplayName,
@@ -39,6 +39,7 @@ import {
   type KeyServiceCount,
 } from '../opportunities.js'
 import { connectorCatalogCounts } from './connectors.js'
+import { parseUsageLimitResetAt } from '../../usage-limit-reset.js'
 
 // Multiple named Claude accounts (Boss 2026-08-09, the usalackor/lackor3
 // multi-account project): these run as full interactive Claude Code TUI
@@ -50,39 +51,14 @@ import { connectorCatalogCounts } from './connectors.js'
 // the welcome-box model line straight out of the live tmux pane -- same
 // technique already used for auth/init's URL scrape. Best-effort: any parse
 // miss just omits that field rather than failing the whole overview call.
-const MONTH_ABBRS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
-
-// Claude Code prints the reset moment as either a bare time ("resets 6:20pm")
-// or a dated time once the window is more than a day out ("resets Aug 14,
-// 9am") -- both followed by a timezone parenthetical this parser ignores (the
-// host clock is already Europe/Budapest, see CLAUDE.md time-handling rules).
-// Best-effort: any miss returns null rather than throwing, same contract as
-// the usedPct/model scrape above.
+// A banner "resets ..." reszenek ertelmezese EGY helyen el (kanban 13fc793f):
+// ugyanezt a szoveget olvassa a kod-hid kvota-blokkjanak lejarata is, es ket
+// masolat ket kulonbozo idopontot adna ugyanarra a bannerre. Itt a horgony a
+// MOSTANI ido, mert a panelbol most kapartuk ki a sort. A zona elsosorban a
+// banner sajat zarojeles jelolesebol jon; ha az hianyzik, a telepites zonaja
+// (`APP_TZ`) dont -- nem a szolgaltatas-folyamat veletlen zonaja.
 function parseResetsAt(pane: string, nowMs: number = Date.now()): number | null {
-  // The minute part is only printed when non-zero -- "resets 9pm" and
-  // "resets Aug 14, 9am" are both real, observed forms alongside the
-  // "resets 6:20pm" form, so `:MM` must be optional here.
-  const m = pane.match(/resets\s+(?:([A-Za-z]{3})\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i)
-  if (!m) return null
-  const [, monAbbr, dayStr, hStr, minStr, ap] = m
-  let hours = Number(hStr) % 12
-  if (/pm/i.test(ap)) hours += 12
-  const minutes = minStr ? Number(minStr) : 0
-  const now = new Date(nowMs)
-  let year = now.getFullYear()
-  let month = now.getMonth()
-  let day = now.getDate()
-  if (monAbbr) {
-    const mi = MONTH_ABBRS.indexOf(monAbbr.toLowerCase())
-    if (mi >= 0) { month = mi; day = Number(dayStr) }
-  }
-  let dt = new Date(year, month, day, hours, minutes, 0, 0)
-  // Bare time (no month/day) that already lies in the past means the window
-  // rolls over past midnight -- it means tomorrow, not today.
-  if (!monAbbr && dt.getTime() <= nowMs) {
-    dt = new Date(year, month, day + 1, hours, minutes, 0, 0)
-  }
-  return dt.getTime()
+  return parseUsageLimitResetAt(pane, nowMs, APP_TZ)
 }
 
 // Last successful scrape per plan, persisted to disk (store/rate-limit-status/

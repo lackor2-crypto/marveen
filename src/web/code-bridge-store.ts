@@ -33,9 +33,21 @@
 // same time and a task claimed for `tradingbot` can never land in `marvin`.
 
 import { checkCardWork, cardWorkNotice, type CardWorkNotice } from './card-work-guard.js'
+import {
+  browseStatus, windowsParent,
+  BROWSE_TTL_MS, BROWSE_PICKUP_TTL_MS,
+  type BrowseEntry, type BrowseResult,
+} from './code-folder-browse.js'
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
-import { CODE_BRIDGE_EXCLUDE } from '../config.js'
+import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
+import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
+import { logger } from '../logger.js'
+import {
+  decideTopicSession,
+  type SessionVisibility,
+  type TopicSessionDeps,
+} from './code-topic-session.js'
 
 export type CodeTaskStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
 export type CodeTaskOrigin = 'telegram' | 'agent' | 'dashboard' | 'api'
@@ -310,6 +322,50 @@ export function listCodeSessions(): CodeSession[] {
   ensureTables()
   const rows = getDb().prepare(`SELECT * FROM code_sessions ORDER BY project`).all() as Record<string, unknown>[]
   return rows.map(rowToSession)
+}
+
+/** MELYIK BESZELGETESBEN DOLGOZOTT AZ AGENS -- merve, nem beallitva.
+ *
+ *  Boss, 2026-09-12: "ne kelljen jelolgetni semmit, hanem automatikusan az
+ *  legyen jelolve amit a agent hasznal. az a chat. es user ne tudja jelolgetni."
+ *  A kartyan eddig egy radiogomb allitotta a `code_sessions.session_id`-t
+ *  (`pinned: true`), tehat a jeloles azt mutatta, amit a FELHASZNALO valasztott.
+ *  Mostantol azt mutatja, amit az AGENS tenylegesen hasznalt.
+ *
+ *  A forras a `code_tasks.session_id`: ezt a claim tolti ki, a befejezes pedig
+ *  atallitja arra, amiben a futas VEGZODOTT (lasd routes/code.ts,
+ *  `resultSessionId`) -- egy `startFresh` futasnal tehat a frissen nyitott
+ *  beszelgetest nevezi meg, nem a regit.
+ *
+ *  A futo feladat eros: ha epp fut valami, AZ az aktualis. Ha nem fut semmi, a
+ *  LEGUTOBBI futas beszelgetese marad jelolve a kovetkezo futasig (Boss
+ *  valasztasa, 2026-09-12).
+ *
+ *  `null` KET dolgot NEM keverhet ossze: itt kizarolag azt jelenti, hogy ehhez
+ *  a projekthez MEG EGYSZER SEM futott feladat (friss telepites). A hivo ezt
+ *  meg tudja kulonboztetni a bekotestol -- lasd `currentSource` a
+ *  /api/code/projects valaszban.
+ */
+export function lastAgentRunSession(project: string): {
+  sessionId: string
+  taskId: string
+  at: number
+  running: boolean
+} | null {
+  ensureTables()
+  const row = getDb()
+    .prepare(
+      `SELECT id, session_id, status, COALESCE(started_at, created_at) AS at
+         FROM code_tasks
+        WHERE project = ?
+          AND session_id IS NOT NULL AND session_id != ''
+          AND status IN ('running', 'done', 'error', 'cancelled')
+        ORDER BY (status = 'running') DESC, at DESC
+        LIMIT 1`,
+    )
+    .get(project) as { id: string; session_id: string; status: string; at: number } | undefined
+  if (!row) return null
+  return { sessionId: row.session_id, taskId: row.id, at: Number(row.at) || 0, running: row.status === 'running' }
 }
 
 export function getCodeSession(project: string): CodeSession | null {
@@ -867,6 +923,61 @@ export function latestCodeTaskForProject(project: string): CodeTask | null {
  * unmappable task would stall every runnable one behind it. Orphans that stay
  * orphans are failed (and announced) by failOrphanedCodeTasks() below.
  */
+/**
+ * A tema-dontes (kartya 2741d289, #252) ELO adatforrasai. Kulon fuggveny, hogy a
+ * dontes maga tesztelheto maradjon adatbazis nelkul.
+ */
+function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
+  return {
+    priorSessionsForCard: (cardRef, project, excludeTaskId) => {
+      const rows = getDb()
+        .prepare(
+          `SELECT session_id FROM code_tasks
+            WHERE card_ref = ? AND project = ? AND id != ?
+              AND session_id IS NOT NULL AND session_id != ''
+              AND (start_fresh = 1 OR (target_session_id IS NOT NULL AND target_session_id != ''))
+            ORDER BY created_at DESC
+            LIMIT 20`,
+        )
+        .all(cardRef, project, excludeTaskId) as { session_id: string }[]
+      const seen = new Set<string>()
+      const out: string[] = []
+      for (const r of rows) {
+        if (seen.has(r.session_id)) continue
+        seen.add(r.session_id)
+        out.push(r.session_id)
+      }
+      return out
+    },
+    wasClosed: (cardRef, sessionId) => {
+      // A tablat a code-session-close-notice.ts hozza letre az ELSO zaro
+      // uzenetnel. Ha meg nincs, az nem "nem latok oda", hanem a kimondhato
+      // teny, hogy meg egyetlen lezaras sem tortent -- ezert `false`.
+      try {
+        return !!getDb()
+          .prepare('SELECT 1 FROM code_session_close_notices WHERE card_id = ? AND session_id = ?')
+          .get(cardRef, sessionId)
+      } catch {
+        return false
+      }
+    },
+    sessionVisible: (sessionId): SessionVisibility => {
+      // A projekt BEKOTOTT sora az adatbazisban all, tehat az ujrainditast is
+      // tulelli: ha a tema-szal EPP ez, akkor biztosan letezik.
+      if (session.sessionId === sessionId) return 'yes'
+      const here = listCodeCandidates().filter(
+        (c) => c.workspacePath.toLowerCase() === session.workspacePath.toLowerCase(),
+      )
+      // URES LISTA = NEM LATUNK ODA, nem "nincs ilyen szal": a jeloltlista a
+      // memoriaban el, es minden vezerlopult-ujrainditas kiuriti (amig a worker
+      // ujra nem jelent). Ezt a kettot osszemosni pont az a hiba lenne, amit a
+      // #255 javitott a kvota-blokknal.
+      if (here.length === 0) return 'unknown'
+      return here.some((c) => c.sessionId === sessionId) ? 'yes' : 'no'
+    },
+  }
+}
+
 export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | null {
   ensureTables()
   const db = getDb()
@@ -889,17 +1000,35 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       const session = getCodeSession(task.project)
       if (!session) continue
 
-      // A megcimzett ful ERŐSEBB, mint a projekt aktualis beszelgetese: aki egy
-      // konkret fulet valasztott, annak a feladata nem csuszhat at abba, ami
-      // kozben a legfrissebb lett. Cimzes nelkul minden marad a regiben.
-      const runIn = task.targetSessionId ?? session.sessionId
-      // Kartya 032aa826: cimzes NELKUL a "projekt aktualis beszelgetese" a
-      // felderites altal legutobb latott ful -- ez lehet olyan is, amit a
-      // tulaj EPP KEZZEL hasznal (pl. MetaTrader programozas), es a dispatch
-      // belezavarna. Csak akkor szabad ujrahasznalni, ha az a beszelgetes
-      // BIZONYITOTTAN Marvin sajatja (marvinOwned) -- kulonben a worker friss,
+      // Kartya 2741d289 (#252): TEMA-ALAPU ujrahasznalas. Boss dontese
+      // (2026-09-11, uzenet 821) szerint a "ugyanaz a tema"-t a KANBAN KARTYA
+      // AZONOSITOJA donti el, kartya nelkul pedig MINDIG uj beszelgetes indul.
+      // A dontes maga mellekhatas-mentesen a code-topic-session.ts-ben el.
+      const topic = decideTopicSession(
+        { cardRef: task.cardRef, project: task.project, taskId: task.id },
+        liveTopicSessionDeps(session),
+      )
+      if (topic.kind === 'fresh' && topic.why === 'cannot_see') {
+        // A NULLA KET DOLGOT JELENT: nem azt mondjuk ki, hogy a szal nincs meg,
+        // hanem azt, hogy nem lattunk oda -- es uj beszelgetest nyitunk, mert az
+        // sosem rossz cimzett. Ez a sor az egyetlen nyoma, ezert kimondja.
+        logger.warn(
+          { task: task.id, project: task.project, card: task.cardRef },
+          'code-bridge: nem latok ra a projekt beszelgeteseire, ezert a tema-folytatas helyett uj beszelgetes indul',
+        )
+      }
+      // A megcimzett ful ERŐSEBB mindennel: aki egy konkret fulet valasztott,
+      // annak a feladata nem csuszhat at sem a tema-folytatasba, sem abba, ami
+      // kozben a legfrissebb lett.
+      const runIn = task.targetSessionId ?? (topic.kind === 'reuse' ? topic.sessionId : session.sessionId)
+      // Kartya 032aa826 ota: cimzes NELKUL a projekt "aktualis" beszelgetese a
+      // felderites altal legutobb latott ful -- ez lehet olyan is, amit a tulaj
+      // EPP KEZZEL hasznal (pl. MetaTrader programozas), es a dispatch
+      // belezavarna. A #252 ota ezt a `marvinOwned` jeloles MAR NEM oldja fel:
+      // ahhoz, hogy ne friss beszelgetes induljon, TEMA-egyezes kell (ugyanaz a
+      // kartya, meg nem lezart, meg lathato szalban). Kulonben a worker friss,
       // ures beszelgetest indit (lasd marvin-code-worker.ps1 Invoke-CodeTask).
-      const startFresh = !task.targetSessionId && !session.marvinOwned
+      const startFresh = !task.targetSessionId && topic.kind !== 'reuse'
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
@@ -1043,6 +1172,29 @@ export function completeCodeTaskDetailed(
 }
 
 /** Back-compat wrapper: the tests and older callers want just the task. */
+/**
+ * Atirja a feladat sorat arra a beszelgetesre, AMIBEN A FUTAS VEGZODOTT (a CLI
+ * sajat jelentese, `resultSessionId`).
+ *
+ * MIERT KELL (kartya 2741d289, #252). A `session_id` oszlopot a claim tolti ki,
+ * MIELOTT a futas elindul -- egy `startFresh` feladatnal tehat a projekt AKKORI
+ * beszelgeteset tartalmazza, holott a CLI utana egy vadonatuj szalat nyitott. Ket
+ * dolog epul erre a mezore, es mindketto ROSSZ szalat kapott volna:
+ *   - a zaro uzenet (code-session-close-notice.ts), ami igy egy IDEGEN -- akar a
+ *     tulaj altal kezzel hasznalt -- csetbe irta volna, hogy "lezarva";
+ *   - a tema-folytatas (code-topic-session.ts), ami ugyanoda adta volna ki a
+ *     kartya kovetkezo feladatat.
+ * A projekt bekotott sorat (`code_sessions`) a hivo mar atallitotta; ez a
+ * fuggveny ugyanazt teszi meg a FELADAT sorával, hogy a ketto ne mondjon mast.
+ */
+export function recordCodeTaskEndedSession(id: string, sessionId: string): CodeTask | null {
+  ensureTables()
+  const clean = sessionId.trim()
+  if (!clean) return getCodeTask(id)
+  getDb().prepare(`UPDATE code_tasks SET session_id = ? WHERE id = ?`).run(clean, id)
+  return getCodeTask(id)
+}
+
 export function completeCodeTask(id: string, input: CompleteInput, now = Date.now()): CodeTask | null {
   return completeCodeTaskDetailed(id, input, now).task
 }
@@ -1516,6 +1668,81 @@ export function takeCodeTabCloseRequests(now = Date.now()): string[] {
   return out
 }
 
+/* ===================== MAPPA-TALLOZAS (kartya: agens-munkamappa) =====================
+ *
+ * Ugyanaz a csatorna, mint a ful-bezarasnal: a KERES a jelentes valaszaval megy
+ * ki a Windows-gepre, az EREDMENY egy kulon POST-tal jon vissza. Memoriaban
+ * tartjuk, nem adatbazisban -- egy tallozas masodpercekig el, es egy
+ * ujrainditas utan a felhasznalo ugyis ujra rakattint. A dontesi logika a
+ * `code-folder-browse.ts`-ben ul, hogy adatbazis nelkul is tesztelheto legyen.
+ */
+const codeBrowseRequests = new Map<string, BrowseResult>()
+
+/** Csak teszthez. */
+export function _resetCodeBrowseRequests(): void { codeBrowseRequests.clear() }
+
+/** UJ TALLOZAS-KERES. Ures `path` = a gep MEGHAJTOI. */
+export function requestFolderBrowse(path: string, now = Date.now()): BrowseResult {
+  // Regi kerteket takaritunk, hogy a terkep ne nojon hatartalanul egy hosszan
+  // futo peldanyban.
+  for (const [id, r] of codeBrowseRequests) {
+    if (now - r.createdAt > BROWSE_TTL_MS * 4) codeBrowseRequests.delete(id)
+  }
+  const id = randomUUID()
+  const req: BrowseResult = {
+    id,
+    path: (path || '').trim(),
+    status: 'pending',
+    parent: null,
+    entries: [],
+    error: null,
+    createdAt: now,
+    answeredAt: null,
+  }
+  codeBrowseRequests.set(id, req)
+  return req
+}
+
+/** A jelentes valaszaba: mit kell most bejarni. A kiadott keresek NEM tunnek
+ *  el (kulonben az eredmenynek nem lenne hova visszajonnie), csak azok maradnak
+ *  ki, amikre mar jott valasz vagy tul regiek. */
+export function takeFolderBrowseRequests(now = Date.now()): { id: string; path: string }[] {
+  const out: { id: string; path: string }[] = []
+  for (const r of codeBrowseRequests.values()) {
+    if (r.answeredAt !== null) continue
+    if (now - r.createdAt > BROWSE_PICKUP_TTL_MS) continue
+    out.push({ id: r.id, path: r.path })
+  }
+  return out
+}
+
+/** A vegrehajto valasza. A hibat SZO SZERINT taroljuk -- a felulet a gep sajat
+ *  mondatat mutatja meg, nem egy kitalalt okot. */
+export function recordFolderBrowseResult(
+  id: string,
+  data: { ok: boolean; entries?: BrowseEntry[]; parent?: string | null; error?: string | null },
+  now = Date.now(),
+): boolean {
+  const req = codeBrowseRequests.get(id)
+  if (!req) return false
+  req.answeredAt = now
+  req.status = data.ok ? 'ok' : 'error'
+  req.entries = Array.isArray(data.entries) ? data.entries : []
+  req.parent = data.parent ?? windowsParent(req.path)
+  req.error = data.ok ? null : ((data.error ?? '').trim() || null)
+  return true
+}
+
+/** A felulet lekerdezese. `null` = ilyen keres nincs (mar kitakaritottuk vagy
+ *  sosem letezett) -- ezt a hivo 404-kent mondja el, nem ures listakent. */
+export function getFolderBrowse(id: string, now = Date.now()): BrowseResult | null {
+  const req = codeBrowseRequests.get(id)
+  if (!req) return null
+  const workers = listCodeWorkers()
+  const seenAt = workers.length > 0 ? Math.max(...workers.map((w) => w.lastSeenAt)) : null
+  return { ...req, status: browseStatus(req, seenAt, now, WORKER_STALE_MS) }
+}
+
 /** A jelentett beszelgetesek projektenkent csoportositva -- ez all a
  *  `/api/code/tabs` es a `/tabs` Telegram-parancs mogott is, hogy a ket felulet
  *  ne kulon logikaval szamolja ki ugyanazt. */
@@ -1793,7 +2020,15 @@ export interface CodeBridgeActivity {
    *  VALODI tevekenysege (a napló `lastActivity`-je) frissebb annal a hibanal,
    *  a fiok mar dolgozik megint, tehat NEM blokkolt. A `lastActivity === null`
    *  (regi worker, nem latunk oda) nem old fel: csak a mert, frissebb aktivitas
-   *  szamit -- ugyanaz a "nulla ket dolgot jelenthet" elv, mint a `liveMeasured`. */
+   *  szamit -- ugyanaz a "nulla ket dolgot jelenthet" elv, mint a `liveMeasured`.
+   *
+   *  ES LEJAR MAGATOL (kanban 13fc793f): az aktivitas-alapu feloldas egyedul
+   *  kevesnek bizonyult. Ha a VS Code be van zarva, egyetlen jelolt sincs,
+   *  amitol frissebb aktivitas johetne -- a jel ilyenkor OROKRE igaz maradt, es
+   *  a kartya a keret visszaallasa utan is a hazug "keret elfogyott"-ot
+   *  allitotta. A blokk ezert a bannerben megnevezett visszaallasig tart
+   *  (`quotaBlockExpiresAt`), vagy -- ha a szoveg nem hordoz idopontot --
+   *  `QUOTA_BLOCK_FALLBACK_MS`-ig. */
   quotaBlocked: boolean
   /** VAN-E LEGALABB EGY ELO BESZELGETES, AMINEK MERT AKTIVITASA FRISS (Boss,
    *  2026-09-10, valos eset).
@@ -1869,6 +2104,41 @@ export function isCodeUsageLimitMessage(text: string | null | undefined): boolea
   return /hit your\b[\w\s-]{0,30}\blimit\b/i.test(text) || /usage limit reached/i.test(text)
 }
 
+/** Ha a keret-kimerules uzenete NEM nevez meg visszaallasi idopontot, ennyi ido
+ *  utan jar le a kvota-blokk magatol.
+ *
+ *  Ot ora = a LEGROVIDEBB valodi Claude-ablak. Szandekosan a rovidebb: ha rosszul
+ *  becsulunk, a kartya 'idle'-t mutat egy meg mindig blokkolt hidra -- az sokkal
+ *  olcsobb tevedes, mint a hazug "keret elfogyott" (ezt a kartyat epp az
+ *  szulte), es a zold "dolgozik"-hoz sem vezet: ahhoz mert, FRISS aktivitas
+ *  kellene, ami egy tenylegesen blokkolt fioknal nincs. */
+export const QUOTA_BLOCK_FALLBACK_MS = 5 * 60 * 60 * 1000
+
+/** Meddig all a kvota-blokk: a bannerben megnevezett visszaallasig, vagy --
+ *  ha a szoveg nem hordoz idopontot -- `QUOTA_BLOCK_FALLBACK_MS`-ig.
+ *
+ *  A megnevezett idopontot a HIBA sajat idejehez horgonyozzuk, nem a mostanihoz:
+ *  a banner nem ir evet, a csupasz ora meg napot sem, es a mostani idohoz merve
+ *  egy "resets 2am" naprol napra elorecsuszna -- a lejarat sosem kovetkezne be,
+ *  vagyis pontosan az a vegtelen blokk maradna, ami ellen ez a fuggveny szol.
+ *
+ *  A szakma ugyanezt mondja a megszakito (circuit breaker) mintanal: a nyitott
+ *  allapotnak kotelezo onmagatol lejarnia (Open -> Half-Open), es ahol a
+ *  szolgaltato megmondja a visszaallas idejet (Retry-After), azt kell kovetni. */
+export function quotaBlockExpiresAt(message: string, blockedAt: number): number {
+  // A zona a banner sajat jelolesebol ("... 9am (Europe/Budapest)"), annak
+  // hianyaban a telepites zonajabol (`APP_TZ`) jon -- NEM a szolgaltatas-
+  // folyamat veletlen zonajabol. Egy UTC-ben futo service kulonben ket orat
+  // tevedne ugyanazon a banneren, es a blokk ket oraval korabban oldodna fel.
+  const named = parseUsageLimitResetAt(message, blockedAt, APP_TZ)
+  // Egy megnevezett idopont, ami NEM a blokk utan van, nem lejarat: vagy
+  // felreertettuk a szoveget, vagy nem is a most nyilt ablakrol szol. Ilyenkor
+  // a fallback-ablak a helyes valasz -- a nulla hosszu (azonnal lejaro) blokk
+  // ugyanolyan hazug allapot, mint az orokke allo, csak a masik iranyban.
+  if (named !== null && named > blockedAt) return named
+  return blockedAt + QUOTA_BLOCK_FALLBACK_MS
+}
+
 export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   ensureTables()
   const db = getDb()
@@ -1927,7 +2197,13 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
       const recovered = liveCands.some(
         (c) => c.lastActivity != null && c.lastActivity > blockedAt,
       )
-      quotaBlocked = !recovered
+      // ... ES A BLOKK MAGATOL IS LEJAR (kanban 13fc793f). Az aktivitas-alapu
+      // feloldas egyedul nem eleg: ha a VS Code be van zarva, egyetlen jelolt
+      // sincs, amitol frissebb aktivitas johetne, es a jel OROKRE igaz marad --
+      // a kartya a keret visszaallasa utan is azt allitja, hogy "keret
+      // elfogyott". Semmi nem jaratja le magatol: a lezart `code_tasks` sorokat
+      // csak a kezi elozmeny-torles tunteti el. Lasd `quotaBlockExpiresAt`.
+      quotaBlocked = !recovered && now < quotaBlockExpiresAt(msg, blockedAt)
     }
   }
   // FRISS AKTIVITAS: van-e legalabb egy elo beszelgetes, aminek a MERT

@@ -31,16 +31,20 @@ import {
   dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
+  recordCodeTaskEndedSession,
   clearFinishedCodeTasks,
   pruneUnreportedCodeSessions,
   recordCodeCandidates,
+  lastAgentRunSession,
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
   requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation,
+  requestFolderBrowse, takeFolderBrowseRequests, recordFolderBrowseResult, getFolderBrowse,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
 } from '../code-bridge-store.js'
 import { readCodeConversation, statCodeConversation } from '../code-conversation.js'
+import { displayName } from '../code-folder-browse.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
@@ -692,7 +696,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // `null` = nem latunk oda (regi worker) -- olyankor a felulet a `mtime`-ra
       // esik vissza, es meg is mondja, hogy az csak kozelites.
       lastActivity: tb.lastActivity,
-      current: tb.sessionId === currentSessionId,
+      // A JELOLES NEM BEALLITAS, HANEM MERES. Boss, 2026-09-12: "user ne tudjon
+      // kattintgatni jelolni ott a kartyan" -- ezert a `currentSessionId` mar
+      // nem a kezi valasztas, hanem az agens utolso futasanak beszelgetese
+      // (lasd `lastAgentRunSession`), es csak akkor esik vissza a bekotott
+      // sorra, ha meg egyetlen feladat sem futott. A kettot a `currentSource`
+      // kulonbozteti meg, hogy a felulet se allitson tobbet, mint amit tudunk.
+      current: currentSessionId !== '' && tb.sessionId === currentSessionId,
       contextTokens: tb.contextTokens,
       model: tb.model,
       // A bezaras-gombhoz: van-e egyaltalan mit leallitani. `null` = nem
@@ -706,15 +716,26 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // tudnia kell, hogy van-e ertelme a gombnak: regi worker mellett nincs.
       hasTranscript: typeof tb.transcriptPath === 'string' && tb.transcriptPath.length > 0,
     })
-    const projects = listCodeSessions().map((p) => ({
+    const projects = listCodeSessions().map((p) => {
+      // MEG NEM FUTOTT vs NEM LATOK ODA: a `lastAgentRunSession` `null`-ja
+      // kizarolag azt jelenti, hogy ehhez a projekthez meg egyszer sem futott
+      // feladat (friss telepites). Ilyenkor a bekotott beszelgetest jeloljuk,
+      // es a felulet MEGMONDJA, hogy ez meg csak a bekotes, nem futas.
+      const run = lastAgentRunSession(p.project)
+      const markSessionId = run ? run.sessionId : p.sessionId
+      const currentSource: 'agent_run' | 'binding' = run ? 'agent_run' : 'binding'
+      return {
       ...p,
-      tabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.tabs ?? []).map((tb) => tabRow(tb, p.sessionId)),
+      currentSource,
+      currentRunning: run ? run.running : false,
+      currentAt: run ? run.at : null,
+      tabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.tabs ?? []).map((tb) => tabRow(tb, markSessionId)),
       // A mappa TOBBI beszelgetese: nyitva lehetnek a VS Code panelen, de a
       // folyamatuk mar nem fut (Boss, 2026-08-28: "a kartyan csak eg chat van
       // megjelenitve, most, de a vscode ban van vagy 3 beszelgetes"). A fo
       // listaba nem valok -- oda a cimezheto, futo beszelgetesek mennek --, de
       // a tartalmuk ugyanugy megnyithato.
-      closedTabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.closedTabs ?? []).map((tb) => tabRow(tb, p.sessionId)),
+      closedTabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.closedTabs ?? []).map((tb) => tabRow(tb, markSessionId)),
       roleHolder: `vscode:${p.project}`,
       roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
       contextTokens: tokensBySession.get(p.sessionId) ?? null,
@@ -723,7 +744,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // mi van kivalasztva a vscodban"). `null` = nem latunk oda -- kitalalt
       // modellnevet nem irunk ki.
       model: modelBySession.get(p.sessionId) ?? null,
-    }))
+      }
+    })
     // `tabsReason`: a felulet enelkul nem tudna megkulonboztetni a "nincs
     // tobb nyitott beszelgetes"-t a "nem futott meg a Windows-munkas"-tol.
     json(res, { projects, permissionMode: CODE_PERMISSION_MODE, rolesAssigned: anyAssigned, tabsReason: tabs.reason })
@@ -945,7 +967,79 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       pruned,
       projects: listCodeSessions(),
       closeSessions: takeCodeTabCloseRequests(),
+      // A TALLOZAS-KERES ugyanezen az uton megy ki: a Marveen a WSL-ben fut, a
+      // mappak a Windowson vannak, es a `/mnt/c` bejarasa ezen a gepen EIO-val
+      // all le -- a szerver tehat NEM tudja maga felsorolni oket, tippelnie meg
+      // tilos. A vegrehajto viszont ott fut, ahol a mappak vannak.
+      browseRequests: takeFolderBrowseRequests(),
     })
+    return true
+  }
+
+  // MAPPA-TALLOZAS INDITASA. Boss, 2026-09-12: "a gyokermappat kivalasztani
+  // kitallozva lehessen" -- kezi utgepeles helyett.
+  //
+  // A valasz NEM a mappa tartalma: a kereses a vegrehajto kovetkezo
+  // jelentesevel megy at, ezert itt csak az AZONOSITOT adjuk vissza, amin a
+  // felulet erdeklodhet. Igy a felhasznalo "varakozik" allapotot lat, nem egy
+  // hazug ures listat.
+  if (path === '/api/code/browse' && method === 'POST') {
+    const body = await parseJsonBody<{ path?: string }>(ctx)
+    if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
+    // Ures ut = a gep MEGHAJTOI. Ez nem hianyzo adat, hanem ervenyes keres:
+    // valahonnan el kell indulni, es a kiindulopontot sem gepelheti be senki.
+    const req = requestFolderBrowse(body.path ?? '')
+    json(res, { id: req.id, path: req.path, status: req.status })
+    return true
+  }
+
+  // A TALLOZAS ALLAPOTA. Ot kulonbozo allapot, es egyiket sem mossuk ossze:
+  // 'pending' (varunk), 'no_worker' (NEM LATUNK ODA), 'ok' + ures lista (a
+  // mappa tenyleg ures), 'error' (a gep sajat uzenetevel), 'expired'.
+  if (path.startsWith('/api/code/browse/') && method === 'GET') {
+    const id = decodeURIComponent(path.slice('/api/code/browse/'.length))
+    const found = id ? getFolderBrowse(id) : null
+    if (!found) {
+      // Nem ures lista, hanem 404: egy nem letezo kerest nem szabad ugy
+      // megmutatni, mintha ures mappa volna.
+      json(res, { error: 'unknown browse request', errorKey: 'cb.err.browse_unknown' }, 404)
+      return true
+    }
+    json(res, found)
+    return true
+  }
+
+  // A VEGREHAJTO VALASZA. A hibauzenetet szo szerint vesszuk at -- a felulet a
+  // gep sajat mondatat mutatja meg, nem egy kitalalt okot.
+  if (path.startsWith('/api/code/browse-result/') && method === 'POST') {
+    const id = decodeURIComponent(path.slice('/api/code/browse-result/'.length))
+    const body = await parseJsonBody<{
+      ok?: boolean
+      entries?: { name?: string; path?: string; isRepo?: boolean | null }[]
+      parent?: string | null
+      error?: string | null
+    }>(ctx)
+    if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
+    const entries = (body.entries ?? [])
+      .filter((e) => typeof e?.path === 'string' && e.path.trim().length > 0)
+      .map((e) => ({
+        name: (e.name ?? '').trim() || displayName(e.path as string),
+        path: (e.path as string).trim(),
+        isRepo: typeof e.isRepo === 'boolean' ? e.isRepo : null,
+      }))
+    const applied = recordFolderBrowseResult(id, {
+      ok: body.ok === true,
+      entries,
+      parent: body.parent ?? undefined,
+      error: body.error ?? null,
+    })
+    if (!applied) {
+      // Elkesett valasz: a keres mar kitakaritodott. Nem hiba a vegrehajto
+      // oldalan, de sikert sem allitunk rola.
+      json(res, { accepted: false, reason: 'unknown or expired browse request' }, 404)
+      return true
+    }
+    json(res, { accepted: true, id, count: entries.length })
     return true
   }
 
@@ -1045,7 +1139,25 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // a worker oldalan "nem egyezik"-nek latszana, es vegtelen
     // frissitesi korbe kergetne. A "nem latok oda" nem "elavult".
     const expect = expectedWorkerVersion()
-    const extra = expect === null ? {} : { expectedWorkerVersion: expect }
+    const extra: { expectedWorkerVersion?: string; browseRequests?: { id: string; path: string }[] } =
+      expect === null ? {} : { expectedWorkerVersion: expect }
+    // A TALLOZAS-KERES EZEN A CSATORNAN IS KIMEGY.
+    //
+    // Boss, 2026-09-12, eles meres: a mappa-tallozas 60 masodpercig NEM
+    // valaszolt. Az ok nem talalgatas -- a vegrehajto naploja mondta ki
+    // (`worker.log`): a "sessions reported" sorok percenkent kovetkeznek, a
+    // fo ciklus viszont 3 masodpercenkent ker munkat (`$PollSeconds = 3`).
+    // A keres eddig CSAK a percenkenti jelentes valaszan fert fel, tehat egy
+    // mappara kattintas utan a felulet akar egy teljes percig pergett.
+    //
+    // Egy tallozo, ami egy percig gondolkodik, hasznalhatatlan. Ezert a keres
+    // mostantol a gyors csatornan is utazik. A ket csatorna nem zavarja
+    // egymast: a kereseket kiado `takeFolderBrowseRequests()` nem veszi ki
+    // oket a nyilvantartasbol, a valasz pedig `answeredAt`-et allit -- egy
+    // ketszer kikuldott keres masodik valasza ugyanazt az eredmenyt irja
+    // felul, tehat a duplikatum artalmatlan.
+    const browseRequests = takeFolderBrowseRequests()
+    if (browseRequests.length > 0) extra.browseRequests = browseRequests
     if (!task) { json(res, { task: null, ...extra }); return true }
     logger.info({ task: task.id, project: task.project, session: task.sessionId, host }, 'code-bridge: task claimed')
     // Az elohang (#222) CSAK itt keletkezik, es csak a valaszban: a tarolt sor
@@ -1105,6 +1217,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         numTurns: typeof body.numTurns === 'number' ? body.numTurns : null,
       }, Date.now(), resHost)
       if (!updated) { json(res, { error: 'task not found' }, 404); return true }
+      let finished = updated
       if (outcome !== 'accepted') {
         // A result for a task that was cancelled, already finished, or handed to
         // another host. It is stored where it can do no harm, but announcing it
@@ -1159,12 +1272,25 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
           })
           logger.info({ task: updated.id, project: updated.project, from: updated.sessionId, to: endedIn }, 'code-bridge: project repointed to the conversation the run ended in')
         }
+        // Kartya 2741d289 (#252): a FELADAT sora is alljon at. A `session_id`-t a
+        // claim toltotte ki a futas ELOTT, tehat egy `startFresh` feladatnal a
+        // projekt AKKORI szalat nevezi meg, nem azt, amit a futas nyitott. Erre a
+        // mezore ket dolog epul -- a zaro uzenet (code-session-close-notice.ts) es
+        // a tema-folytatas (code-topic-session.ts) --, es mindketto IDEGEN csetbe
+        // celzott volna. A projekt sorat fentebb mar atallitottuk; ha a feladate
+        // maradna a regin, a ketto mast allitana ugyanarrol a futasrol.
+        const withEnded = recordCodeTaskEndedSession(updated.id, endedIn)
+        // A VALASZ is a friss sort vigye: kulonben a vegpont meg a futas ELOTTI
+        // beszelgetest nevezne meg, egy sorral azutan, hogy az adatbazisban mar
+        // atallitottuk. Egy vegpont nem mondhat mast, mint amit ugyanabban a
+        // pillanatban kiirt.
+        if (withEnded) finished = withEnded
       }
       logger.info({ task: updated.id, status: updated.status }, 'code-bridge: task finished')
       // Not awaited: the worker must be free to pick up the next task even if
       // Telegram is slow or down, and the result is already durable.
-      void notifyCodeTaskFinished(updated)
-      json(res, updated)
+      void notifyCodeTaskFinished(finished)
+      json(res, finished)
       return true
     }
 

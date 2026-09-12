@@ -26,7 +26,19 @@ import {
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
 import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
-import { syncAllRepos, lastSyncRun } from '../../git-sync.js'
+import { syncAllRepos, lastSyncState } from '../../git-sync.js'
+import { displayLabelFor } from '../../life-labels.js'
+
+/**
+ * A szinkron-eredmenyek sorait kiegesziti a MEGJELENITETT nevvel (ha van --
+ * store/life-labels.json). Igy a Git tarolok lap ugyanazt a nevet mutatja,
+ * mint az Intezo (pl. GIT_REPOS -> "Marveen Repos"), a szinkron-utak
+ * valtozatlanul maradnak. `null`, ahol nincs beallitva.
+ */
+function withDisplayNames(run: any): any {
+  if (!run || !Array.isArray(run.results)) return run
+  return { ...run, results: run.results.map((r: any) => ({ ...r, displayName: displayLabelFor(r.rel) })) }
+}
 import type { RouteContext } from './types.js'
 
 async function readJson(req: RouteContext['req']): Promise<any> {
@@ -205,13 +217,29 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/storages/git-sync' && method === 'GET') {
-    json(res, { ok: true, last: lastSyncRun() })
+    // A felulet EGY hivasbol kell hogy meg tudja mondani, mit lat -- es
+    // kulon-kulon azt is, hogy MIERT nem lat semmit. Negy kulonbozo "ures"
+    // van itt, es mind mas mondatot erdemel:
+    //   neverRan        -> friss telepites, meg sose futott a szinkron
+    //   readError       -> ott a naplo, de nem olvashato (ez mar baj)
+    //   run.rootError   -> a tarolo-gyoker nem jarhato be (pl. lecsatolt meghajto)
+    //   accounts ures   -> nincs egyetlen git-fiok sem bekotve
+    // Az utolso kettot a `results` darabszama NEM kulonbozteti meg: mindketto
+    // nulla repot ad.
+    const st = lastSyncState()
+    json(res, {
+      ok: true,
+      last: withDisplayNames(st.run),
+      neverRan: st.neverRan,
+      readError: st.readError,
+      accounts: readStorageRegistry().gitAccounts,
+    })
     return true
   }
 
   if (path === '/api/storages/git-sync' && method === 'POST') {
     const run = await syncAllRepos()
-    json(res, { ok: true, last: run, message: `${run.results.length} repót néztem át: ${run.updated} frissült, ${run.skipped} kimaradt, ${run.errors} hibázott.` })
+    json(res, { ok: true, last: withDisplayNames(run), message: `${run.results.length} repót néztem át: ${run.updated} frissült, ${run.skipped} kimaradt, ${run.errors} hibázott.` })
     return true
   }
 

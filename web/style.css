@@ -11330,8 +11330,27 @@ details.upstream-box > summary > h4 {
    kartyakon is van alatta.") */
 .cb-tabs-pick { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
 .cb-tabs-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; margin-bottom: 2px; }
-.cb-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 0; }
-.cb-tab-row input { margin: 0; flex: 0 0 auto; }
+/* A SOR NEM KATTINTHATO. Boss, 2026-09-12: "user ne tudjon kattintgatni
+   jelolni ott a kartyan" -- a radiogombok megszuntek, ezert a `cursor: pointer`
+   is: egy kez-kurzor olyan muveletet igerne, ami nincs. A soron BELUL levo
+   gombok (megnyitas, bezaras) sajat kurzort kapnak, azok tovabbra is elnek. */
+.cb-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: default; padding: 2px 0; }
+.cb-tab-row button { cursor: pointer; }
+/* A JELZO helyet MINDIG kitoltjuk -- a jeloletlen soroknal egy lathatatlan,
+   azonos szelessegu elemmel --, kulonben a cimek soronkent mas oszlopban
+   kezdodnenek, es a lista olvashatatlanul ugralna. */
+.cb-tab-mark {
+  flex: 0 0 auto;
+  font-size: 11px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.cb-tab-mark-off { width: 10px; height: 1em; }
+.cb-tab-mark-running { color: var(--ok, #2e9e5b); }
+.cb-tab-mark-last { color: var(--text); opacity: .75; }
+/* "Meg nem futott" -- szandekosan halvanyabb es semleges: ez NEM meres arrol,
+   hogy az agens itt dolgozott volna. */
+.cb-tab-mark-bound { color: var(--text); opacity: .5; font-weight: 500; }
 /* A CIM viszi az egesz maradek helyet: egyedul az mondja meg, melyik
    beszelgetes ez. A `min-width: 0` nelkul a flex-elem nem megy a tartalma ala,
    es a jelzok szoritjak ossze a cimet -- pont forditva, mint kellene. */
@@ -11445,13 +11464,10 @@ details.upstream-box > summary > h4 {
 }
 .cb-tabs-closed[open] > summary::before { transform: rotate(90deg); }
 .cb-tabs-closed > summary:hover { opacity: 1; }
-/* Boss, 2026-09-01: "kijelolni megis csak egyet tudok... a legutobbi 9-bol
-   egyet sem tudok kijelolni aktualisnak" -- mostantol EZEKNEK a soroknak is
-   van radiogombjuk (app.js: cbClosedTabsHtml, ugyanaz a `cb-tab-radio` +
-   `cbtab-<project>` csoport, mint az elo fuleknek), ezert a korabbi
-   "nincs bennuk radiogomb" behuzas-kompenzacio (padding-left) es a
-   cursor:default mar nem igaz -- a `.cb-tab-row` sajat cursor:pointer +
-   gap-elrendezese eleve helyesen igazitja oket. */
+/* Ezek a sorok ugyanugy nezenek ki, mint az elok: ugyanaz a `.cb-tab-row`
+   elrendezes, ugyanaz a jelzo-oszlop (`.cb-tab-mark`). 2026-09-12 ota egyikben
+   sincs radiogomb -- a jelolest a szerver meri, nem a felhasznalo allitja --,
+   ezert kulon behuzas-kompenzacio sem kell. */
 .cb-tab-row-closed {
   opacity: .92;
 }
@@ -11523,6 +11539,151 @@ details.upstream-box > summary > h4 {
 }
 .skill-detail-scope.todo strong { color: var(--warning, #c98a00); }
 
+/* === Intezo: mozgathato elonezet-ablak (kartya 58ceda58, Boss 2026-09-11) ===
+   Boss: a fajl-elonezet ne a lenyilo info-panelben alljon, hanem kulon,
+   MOZGATHATO lebego ablakban. Ez NEM a kozepre-rogzitett .modal-lightbox: ezt a
+   fejlecenel fogva athuzhatod (pointer-esemeny, eger+erintes), es a jobb also
+   sarkanal atmeretezheted (resize: both). A poziciot/meretet a JS allitja inline
+   asztali gepen; mobilon (<=640px) teljes-kepernyos lap, ott nincs szabad huzas
+   (egy pici kijelzon hasznalhatatlan volna). Tema-fuggetlen: var(--...)-ra epul. */
+.intezo-pw {
+  position: fixed;
+  top: 80px;
+  left: 16px;
+  width: min(720px, 92vw);
+  height: min(560px, 80vh);
+  min-width: 260px;
+  min-height: 200px;
+  max-width: 96vw;
+  max-height: 92vh;
+  z-index: 250;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* Az atmeretezes sajat fogantyuval megy (.intezo-pw-resize), nem a natives
+     `resize: both`-tal: azt eltakarja a torzs, igy nem lehet megfogni (Boss, 871). */
+  resize: none;
+  background: var(--bg-modal);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+/* A `hidden` attributumot a fenti `display:flex` amugy felulirna (a szerzoi
+   szabaly eros a bongeszo `[hidden]{display:none}` alapertelmezesenel), ezert
+   itt kifejezetten elrejtjuk. Enelkul a ×/Esc kiuriti a torzset (a foto eltunik),
+   de az ablak kerete lathato maradna, es nem lehetne bezarni. */
+.intezo-pw[hidden] { display: none !important; }
+.intezo-pw.dragging { opacity: 0.96; }
+.intezo-pw-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-input);
+  cursor: move;
+  user-select: none;
+  touch-action: none; /* a huzas ne gorgesse a lapot erintokepernyon */
+}
+.intezo-pw-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.intezo-pw-close {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all var(--transition, 0.15s ease);
+}
+.intezo-pw-close:hover { background: var(--danger, #d64545); color: #fff; }
+.intezo-pw-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: var(--bg-card);
+}
+.intezo-pw-body img { max-width: 100%; height: auto; border-radius: 8px; }
+.intezo-pw-body iframe, .intezo-pw-body video { width: 100%; height: 100%; border: 0; }
+.intezo-pw-body video { max-height: 100%; }
+.intezo-pw-body pre {
+  margin: 0;
+  width: 100%;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  color: var(--text);
+}
+/* Nem elonezheto tipus (.docx stb.): kozepre igazitott uzenet + letoltes gomb. */
+.intezo-pw-nopreview {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 24px;
+}
+.intezo-pw-nopreview-msg {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+/* Sajat atmeretezo-fogantyu a jobb also sarokban (a natives grip helyett). */
+.intezo-pw-resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  z-index: 3;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0.5;
+  background: linear-gradient(135deg,
+    transparent 0 45%, var(--text-muted) 45% 55%,
+    transparent 55% 65%, var(--text-muted) 65% 75%,
+    transparent 75%);
+}
+.intezo-pw-resize:hover { opacity: 1; }
+.intezo-pw.resizing { user-select: none; }
+@media (max-width: 640px) {
+  .intezo-pw {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    resize: none;
+  }
+  .intezo-pw-head { cursor: default; }
+  .intezo-pw-resize { display: none; }
+}
+
 /* Segedosztalyok az ismetlodo, beegetett inline stilusok helyett
    (kanban #166 / 5df5f509, batch 1). A meglevo var(--...) valtozokra epulnek,
    uj fuggoseg es CDN nelkul. Csak class NELKULI elemekre kerultek (ahol nincs
@@ -11532,3 +11693,125 @@ details.upstream-box > summary > h4 {
 .c-danger { color: var(--danger); }
 .muted-sm { color: var(--text-muted); font-size: 12px; }
 .muted-13 { color: var(--text-muted); font-size: 13px; }
+
+/* === Autofill panel (Accounts page, card #96) ===
+   The pairing code is meant to be read off the screen and typed into a
+   browser popup, so it gets the widest character spacing on the page: a
+   mistyped 8-character code is the single most likely way this flow fails. */
+.acc-block-subtitle { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+/* The code box is display:flex, which would win over the [hidden] default, so
+   it states the override itself (hidden-attribute-css-contract.test.ts). */
+.autofill-code-box[hidden] { display: none; }
+.autofill-code-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg);
+}
+.autofill-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  user-select: all;
+}
+.autofill-copyable {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg);
+  user-select: all;
+  word-break: break-all;
+/* === Git tarolok (Raktar) === */
+.gitrepos-lastrun { margin: 6px 0 0; font-size: 13px; color: var(--text-dim, #6b7280); }
+.gitrepos-account { margin-bottom: 14px; }
+.gitrepos-account-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.gitrepos-account-title { margin: 0; font-size: 15px; }
+.gitrepos-account-count { font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-unknown-note { margin: 0 0 10px; font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-rows { display: flex; flex-direction: column; gap: 6px; }
+/* A sor gomb, mert kattinthato -- de listasorkent kell kineznie. */
+.gitrepos-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; padding: 9px 12px; cursor: pointer;
+  background: var(--bg-subtle, #f9fafb); border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px; font: inherit; color: inherit;
+}
+.gitrepos-row:hover { background: var(--bg-hover, #f3f4f6); }
+.gitrepos-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gitrepos-row-name { font-weight: 600; font-size: 13px; }
+.gitrepos-row-msg { font-size: 12px; color: var(--text-dim, #6b7280); }
+.gitrepos-badge { flex: 0 0 auto; font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+.gitrepos-badge-current { background: #ecfdf5; color: #047857; }
+.gitrepos-badge-updated { background: #eff6ff; color: #1d4ed8; }
+.gitrepos-badge-skipped { background: #fffbeb; color: #b45309; }
+.gitrepos-badge-offline { background: #f3f4f6; color: #4b5563; }
+.gitrepos-badge-error   { background: #fef2f2; color: #b91c1c; }
+/* Az ures allapot HANGEREJE: az "ok" es az "info" megnyugtat, a "warn" szol.
+   Egy extra funkcio hianya SOSE piros -- Boss, 2026-08-11. */
+.gitrepos-state-info { border-left: 3px solid var(--accent, #2563eb); }
+.gitrepos-state-warn { border-left: 3px solid #b45309; }
+@media (max-width: 600px) {
+  .gitrepos-row { flex-wrap: wrap; }
+  .gitrepos-badge { order: -1; }
+}
+
+/* === MAPPA-TALLOZO (Boss, 2026-09-12: "a gyokermappat kivalasztani kitallozva
+   lehessen") ===
+   A lista a VEGREHAJTO gepet mutatja, nem a bongeszoet -- ezert korlatos
+   magassagu gorgetheto doboz, nem operacios-rendszer-parbeszed. */
+.cb-browse-row { display: flex; gap: 8px; align-items: center; }
+.cb-browse-row .input { flex: 1 1 auto; min-width: 0; }
+.cb-browse-box {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.cb-browse-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Az UT viszi a maradek helyet, es hosszu utnal a VEGE a fontos (ott van a
+   mappa neve), ezert balrol csonkolunk. */
+.cb-browse-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: 12px;
+  opacity: .85;
+}
+.cb-browse-list {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cb-browse-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: inherit;
+}
+.cb-browse-item:hover { background: var(--hover, rgba(127,127,127,.12)); }
+.cb-browse-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-browse-repo { flex: 0 0 auto; font-size: 11px; opacity: .6; }
+.cb-browse-status { margin-top: 8px; }

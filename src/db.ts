@@ -1097,6 +1097,45 @@ export function initDatabase(dbPathOverride?: string): void {
   // line in the same step. Null for keys minted outside the pairing flow.
   try { db.exec(`ALTER TABLE device_keys ADD COLUMN install_id TEXT`) } catch { /* column already exists */ }
 
+  // --- Browser autofill (card 21311fdb / #96) ---
+  // The Chrome extension's own credential, the short pairing code that mints
+  // it, and the log of what was actually handed out. Kept apart from
+  // device_keys on purpose: an autofill client is NOT a dashboard principal,
+  // it may only reach /api/autofill/* (auth-gate.ts scopes it there). Only
+  // sha256() of the token and of the pairing code is stored.
+  // Zero rows on a fresh install = the feature is simply not paired yet, and
+  // every endpoint says so in words instead of failing blank.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS autofill_clients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      last_used_at INTEGER
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS autofill_pairings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code_hash TEXT NOT NULL UNIQUE,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used_at INTEGER
+    )
+  `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS autofill_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER,
+      client_name TEXT NOT NULL,
+      host TEXT NOT NULL,
+      entry_id TEXT,
+      entry_label TEXT,
+      outcome TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )
+  `)
+
   // --- OTel Distributed Tracing (card def5a189) ---
   // SQLite-native span store. No external OTel SDK: spans are written via
   // /api/spans and the message-router middleware injects trace context into

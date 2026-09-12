@@ -1,0 +1,20 @@
+{
+  "ext_name":        { "message": "Marveen autofill" },
+  "ext_desc":        { "message": "Fills login forms from your Marveen vault instead of the browser's own password manager." },
+  "popup_title":     { "message": "Marveen autofill" },
+  "label_url":       { "message": "Marveen address" },
+  "label_code":      { "message": "Pairing code" },
+  "label_name":      { "message": "Name this browser" },
+  "btn_pair":        { "message": "Pair" },
+  "btn_unpair":      { "message": "Disconnect this browser" },
+  "hint_code":       { "message": "Open the Marveen dashboard, go to Accounts, and press \"New pairing code\". Type the 8 characters you see here." },
+  "state_paired":    { "message": "Paired. Logins on saved sites will be filled from the vault." },
+  "state_unpaired":  { "message": "Not paired yet." },
+  "auto_label":      { "message": "Fill automatically when there is exactly one match" },
+  "err_unknown_code":{ "message": "The dashboard does not know this code. Check the characters, or ask for a new one." },
+  "err_expired":     { "message": "This code has expired. Ask the dashboard for a new one." },
+  "err_already_used":{ "message": "This code already paired another browser. Ask for a new one." },
+  "err_unreachable": { "message": "Could not reach Marveen at that address. Is the dashboard running?" },
+  "err_permission":  { "message": "The browser did not grant access to that address, so pairing cannot continue." },
+  "pick_title":      { "message": "Marveen: which login?" }
+}

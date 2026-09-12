@@ -241,9 +241,20 @@ describe('a felulet nem ker begepelt utvonalat', () => {
     expect(from, 'a cbAddBtn kezeloje nincs meg a lapon').toBeGreaterThan(-1)
     expect(to, 'a cbBotSaveBtn kezeloje nincs meg a lapon').toBeGreaterThan(from)
     const handler = app.slice(from, to)
-    expect(handler).toContain('Adj nevet a projektnek')
-    expect(handler).toContain('Add meg a projekt mappáját')
-    expect(handler).toContain('a session-azonosító most kötelező')
+    // 2026-09-12 ota ezek a mondatok a NYELVI FAJLBAN allnak, nem a kodban --
+    // igy angol feluleten is a felhasznalo nyelven szolalnak meg. A teszt
+    // allitasa valtozatlan: a harom eset a KATTINTASKOR, a szerver megkerdezese
+    // ELOTT elsul, es magyarul is ott van a mondat.
+    const hu = readFileSync(join(ROOT, 'web/lang/hu.js'), 'utf8')
+    const cases: [string, string][] = [
+      ['cb.manual.err_no_name', 'Adj nevet a projektnek'],
+      ['cb.manual.err_no_folder', 'Add meg a projekt mappáját'],
+      ['cb.manual.err_need_session', 'a session-azonosító most kötelező'],
+    ]
+    for (const [key, sentence] of cases) {
+      expect(handler.includes(`t('${key}')`), `a kezelo nem hivja: ${key}`).toBe(true)
+      expect(hu.includes(sentence), `hianyzik a magyar mondat: ${sentence}`).toBe(true)
+    }
     expect(handler).toContain('cbSamePath(')
   })
 })

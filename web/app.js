@@ -726,7 +726,7 @@ function switchPage(pageId) {
   // szandekosan nem lat el (az csak a #navMarvin csoportjait sopri). Ha a
   // Drive vagy a Fotok az aktiv lap, a csoport nem maradhat csukva: a "hol
   // vagyok" jelzes nem bujhat el egy osszecsukott menu mogott.
-  if (pageId === 'drive' || pageId === 'photos') {
+  if (pageId === 'drive' || pageId === 'photos' || pageId === 'gitrepos') {
     const depotGroup = document.querySelector('.sb-group[data-group="depot-content"]')
     if (depotGroup && !depotGroup.classList.contains('open')) {
       depotGroup.classList.add('open')
@@ -778,6 +778,7 @@ function switchPage(pageId) {
   // memoriaban, es egy futo Picker-lekerdezes sem szolhat bele mas lapba.
   if (pageId !== 'photos') { _photosStopPoll(); _photosReleaseBlobs() }
   if (pageId === 'photos') loadPhotosPage()
+  if (pageId === 'gitrepos') loadGitReposPage()
   if (pageId === 'accounts') loadAccountsPage()
   if (pageId === 'approvals') loadApprovalsPage()
   if (pageId === 'debate') loadDebatePage()
@@ -5745,9 +5746,14 @@ function cbTabViewBtn(tb, label) {
  *  sessionre is hibatlanul lefut headless modban (merve 2026-08-23, task
  *  139b9c8f) -- csak egy MOST FUTO (elo PID-du) fulnel nem szol bele, mert az
  *  a sajat folyamataban tartja a kontextust. A "lezart" fulek tehat EPP UGY
- *  cimezhetok, mint az elok -- ugyanaz a `cb-tab-radio` + `cbPickSession`
- *  mechanizmus jar ide is, ugyanabban a radio-csoportban (`cbtab-<project>`),
- *  hogy a ketto kolcsonosen kizarja egymast (csak egy lehet "aktualis"). */
+ *  cimezhetok, mint az elok.
+ *
+ *  2026-09-12 OTA NINCS KEZI VALASZTAS. Boss: "user ne tudjon kattintgatni
+ *  jelolni ott a kartyan." A korabbi `cb-tab-radio` + `cbPickSession` par
+ *  (`pinned: true`-val rogzitett valasztas) megszunt; helyette mindket lista
+ *  ugyanazt a PASSZIV jelzot kapja (`cbTabMark`), amit a szerver merese tolt
+ *  ki. Igy is csak egy sor lehet jelolt, de nem azert, mert egy radio-csoport
+ *  kizarja a tobbit, hanem mert egy beszelgetesben dolgozott az agens. */
 function cbClosedTabsHtml(e) {
   const closed = (e.closedTabs || [])
   if (closed.length === 0) return ''
@@ -5773,16 +5779,13 @@ function cbClosedTabsHtml(e) {
     const when = whenAt === null ? ''
       : '<span class="cb-tab-when" title="' + escapeAttr(t(whenKey)) + '">'
         + escapeHtml(formatRelative(whenAt)) + '</span>'
-    return '<label class="cb-tab-row cb-tab-row-closed" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
-      + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
-      + ' value="' + escapeAttr(tb.sessionId) + '"'
-      + ' data-label="' + escapeAttr(label) + '"'
-      + (tb.current ? ' checked' : '') + '>'
+    return '<div class="cb-tab-row cb-tab-row-closed" title="' + escapeAttr(t('cb.card.tabs_id_help', { s: tb.sessionId })) + '">'
+      + cbTabMark(tb, e)
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + ctx
       + when
       + cbTabViewBtn(tb, label)
-      + '</label>'
+      + '</div>'
   }).join('')
   // Boss, 2026-08-31: "csak egyet latok az uj nevu chat fulet. de kozben meg
   // van 4 ful." -- akkor meg lathatosagi hiba volt (opacity .6, 11px egy alig
@@ -5866,45 +5869,54 @@ function cbTabsPickHtml(e) {
       ? '<span class="cb-tab-closed" title="' + escapeAttr(t(notRunningKey + '_help')) + '">'
         + escapeHtml(t(notRunningKey)) + '</span>'
       : ''
-    return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
-      + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
-      + ' value="' + escapeAttr(tb.sessionId) + '"'
+    return '<div class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_id_help', { s: tb.sessionId })) + '"'
       // A PID nem dísz: ebbol tudja a Tomorites/Torles gomb, hogy a ful EPP
       // NYITVA van a VS Code-ban -- egy futo beszelgetesre a headless `/clear`
       // nem hat, es a gombnak ezt meg kell mondania, nem sikert jelentenie.
       + (typeof tb.pid === 'number' && tb.pid > 0 ? ' data-pid="' + escapeAttr(String(tb.pid)) + '"' : '')
-      + ' data-label="' + escapeAttr(label) + '"'
-      + (tb.current ? ' checked' : '') + '>'
+      + ' data-session="' + escapeAttr(tb.sessionId) + '">'
+      + cbTabMark(tb, e)
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
       + notRunning
       + idle
       + cbTabViewBtn(tb, label)
       + closeBtn
-      + '</label>'
+      + '</div>'
   }).join('')
   return '<div class="cb-tabs-pick"><div class="cb-tabs-head">' + escapeHtml(t('cb.card.tabs_title')) + '</div>' + rows + '</div>'
 }
 
-/** A valasztott beszelgetes ROGZITESE. `pinned: true` nelkul a felderites egy
- *  percen belul visszaallitana a legfrissebb fulre, es a valasztas hatastalannak
- *  latszana -- ugyanaz a csapda, mint a kartya-levetelnel volt. */
-async function cbPickSession(project, workspacePath, sessionId) {
-  try {
-    const res = await fetch('/api/code/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: project, workspacePath: workspacePath, sessionId: sessionId, pinned: true }),
-    })
-    const body = await res.json().catch(function () { return null })
-    if (!res.ok) { showToast(t('cb.card.tabs_pick_failed', { msg: cbErrText(body, res) }), 'error'); return }
-    showToast(t('cb.card.tabs_pick_done'), 'success')
-    await loadCodeBridgeCards()
-    renderAgents()
-  } catch (err) {
-    // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
-    showToast(t('cb.card.tabs_pick_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
-  }
+/** A JELOLES, AMIT A FELHASZNALO NEM TUD ALLITANI.
+ *
+ *  Boss, 2026-09-12: "ne kelljen jelolgetni semmit, hanem automatikusan az
+ *  legyen jelolve amit a agent hasznal. az a chat. (...) a lenyeg hogy lassam
+ *  hogy amiben dolgozik annak a chatnek mi a neve. ezert az legyen jelolve de
+ *  user ne tudjon kattintgatni jelolni ott a kartyan."
+ *
+ *  Ezert itt NINCS `<input>`: a sor egy sima jelzo, amin nincs mit kattintani.
+ *  A jelolest a szerver MERI (`lastAgentRunSession`), nem a felhasznalo allitja.
+ *
+ *  HAROM KULONBOZO ALLAPOT, es egyiket sem mossuk ossze a masikkal:
+ *   - `currentRunning`: EPP MOST ebben dolgozik az agens.
+ *   - `currentSource === 'agent_run'`: itt dolgozott UTOLJARA (a jeloles a
+ *     kovetkezo futasig marad -- Boss valasztasa).
+ *   - `currentSource === 'binding'`: MEG EGYSZER SEM futott feladat ehhez a
+ *     projekthez (friss telepites), ezert csak a bekotott beszelgetest tudjuk
+ *     megmutatni. Ez nem ugyanaz, mint hogy "itt dolgozott" -- ki is irjuk.
+ */
+function cbTabMark(tb, e) {
+  if (!tb.current) return '<span class="cb-tab-mark cb-tab-mark-off" aria-hidden="true"></span>'
+  const running = e && e.currentRunning === true
+  const source = (e && e.currentSource) || 'binding'
+  const key = running ? 'cb.card.tab_mark_running'
+    : (source === 'agent_run' ? 'cb.card.tab_mark_last' : 'cb.card.tab_mark_bound')
+  const cls = running ? 'cb-tab-mark-running'
+    : (source === 'agent_run' ? 'cb-tab-mark-last' : 'cb-tab-mark-bound')
+  return '<span class="cb-tab-mark ' + cls + '" role="img"'
+    + ' title="' + escapeAttr(t(key + '_help')) + '"'
+    + ' aria-label="' + escapeAttr(t(key)) + '">'
+    + escapeHtml(t(key)) + '</span>'
 }
 
 /** A kartya levetele. NEM torol se mappat, se beszelgetest -- csak a Marveen
@@ -6194,11 +6206,6 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A "tobbi beszelgetes" reszletezo kinyitasa nem nyithatja ki a
     // beallitas-ablakot is.
     card.querySelector('.cb-tabs-closed')?.addEventListener('click', (ev) => ev.stopPropagation())
-    card.querySelectorAll('.cb-tab-radio').forEach((box) => {
-      box.addEventListener('change', () => {
-        if (box.checked) cbPickSession(e.project, e.workspacePath, box.value)
-      })
-    })
     card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.ctx-current')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.cb-delete-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbDeleteProject(e.project) })
@@ -17619,7 +17626,224 @@ async function loadAccountsPage() {
   } catch { /* ignore */ }
   renderClaudeAccountPanel(_keyServicesFromAccounts(_lastAccountsData))
   renderConnectionsPanel()
+  loadAutofillPanel()
 }
+
+// === Autofill (browser extension) panel, Accounts page ===
+//
+// Card #96 (21311fdb). The vault is the STORE; this panel is where a saved
+// login becomes usable in the browser without the password ever passing
+// through a clipboard. Everything here is a convenience: it is styled
+// neutrally on purpose, because a missing extra must never look like a fault
+// (CLAUDE.md, "a felhasznalo nem programozo").
+//
+// The zero here has two meanings and they are kept apart: an empty list from a
+// successful request says "nothing yet", a failed request says "nem sikerult
+// lekerdezni" -- never the same sentence.
+let _autofillExpiryTimer = null
+
+const AUTOFILL_OUTCOME_KEY = {
+  served: 'autofill.outcome.served',
+  refused_domain: 'autofill.outcome.refused_domain',
+  no_password: 'autofill.outcome.no_password',
+  no_match: 'autofill.outcome.no_match',
+}
+
+function autofillClientName(row) {
+  return row.unnamed ? t('autofill.unnamed_browser') : row.name
+}
+
+function renderAutofillClients(clients) {
+  const list = document.getElementById('autofillClientList')
+  if (!list) return
+  if (!clients.length) {
+    list.innerHTML = `<p class="claude-auth-empty">${escapeHtml(t('autofill.no_browsers'))}</p>`
+    return
+  }
+  list.innerHTML = clients.map(c => {
+    const used = c.last_used_at
+      ? t('autofill.last_used', { when: formatRelative(c.last_used_at * 1000) })
+      : t('autofill.never_used')
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(autofillClientName(c))}</span>
+      <span class="claude-auth-rowwho">${escapeHtml(t('autofill.paired_at', { when: formatRelative(c.created_at * 1000) }))} &middot; ${escapeHtml(used)}</span>
+      <button class="btn-secondary btn-compact" style="margin-left:auto" data-autofill-revoke="${escapeAttr(String(c.id))}">${escapeHtml(t('autofill.revoke'))}</button>
+    </div>`
+  }).join('')
+}
+
+function renderAutofillEvents(events) {
+  const list = document.getElementById('autofillEventList')
+  if (!list) return
+  if (!events.length) {
+    list.innerHTML = `<p class="claude-auth-empty">${escapeHtml(t('autofill.no_events'))}</p>`
+    return
+  }
+  list.innerHTML = events.map(e => {
+    const what = t(AUTOFILL_OUTCOME_KEY[e.outcome] || 'autofill.outcome.other', {
+      entry: e.entry_label || t('autofill.unknown_entry'),
+      host: e.host,
+    })
+    const who = e.unnamed ? t('autofill.unnamed_browser') : e.client_name
+    return `<div class="claude-auth-row">
+      <span class="claude-auth-rowlabel">${escapeHtml(what)}</span>
+      <span class="claude-auth-rowwho">${escapeHtml(who)} &middot; ${escapeHtml(formatRelative(e.created_at * 1000))}</span>
+    </div>`
+  }).join('')
+}
+
+// The outstanding code survives a page reload, so the panel has to be able to
+// say "one is still live" without knowing the code itself (the server keeps
+// only its hash). Showing the expiry is what makes the difference between
+// "ask for a new one" and "the one on your screen still works".
+function renderAutofillPending(expiresAt) {
+  const state = document.getElementById('autofillPairState')
+  if (!state) return
+  if (_autofillExpiryTimer) { clearInterval(_autofillExpiryTimer); _autofillExpiryTimer = null }
+  if (!expiresAt) {
+    // No code is outstanding: it was either used up by a browser or it timed
+    // out. Leaving the eight characters on screen would invite the user to
+    // type a code that can no longer work, so the box goes away with them.
+    const box = document.getElementById('autofillCodeBox')
+    if (box) box.hidden = true
+    state.textContent = ''
+    return
+  }
+  const tick = () => {
+    // The pairing happens in ANOTHER window (the browser popup), so nothing
+    // here would ever redraw on its own. While a code is live the panel polls,
+    // and the poll ends the moment the code is used or expires -- that is what
+    // makes the new browser appear in the list without a page reload.
+    if (document.getElementById('accountsPage')?.hidden) {
+      clearInterval(_autofillExpiryTimer); _autofillExpiryTimer = null
+      return
+    }
+    const left = Math.max(0, Math.round(expiresAt - Date.now() / 1000))
+    if (left <= 0) {
+      state.textContent = t('autofill.code_expired')
+      clearInterval(_autofillExpiryTimer); _autofillExpiryTimer = null
+      loadAutofillPanel()
+      return
+    }
+    state.textContent = t('autofill.code_live', { min: Math.ceil(left / 60) })
+    if (Date.now() - started > 5000) loadAutofillPanel()
+  }
+  const started = Date.now()
+  tick()
+  _autofillExpiryTimer = setInterval(tick, 10000)
+}
+
+async function loadAutofillPanel() {
+  const section = document.getElementById('autofillSection')
+  if (!section) return
+  const baseUrl = document.getElementById('autofillBaseUrl')
+  if (baseUrl) baseUrl.textContent = location.origin
+  const list = document.getElementById('autofillClientList')
+  let data
+  try {
+    const res = await fetch('/api/autofill/clients')
+    if (!res.ok) throw new Error(String(res.status))
+    data = await res.json()
+  } catch (e) {
+    // NOT the empty state: this is "nem lattam oda", and it has to say so.
+    if (list) list.innerHTML = `<p class="claude-auth-warn">${escapeHtml(t('autofill.load_failed', { err: String(e.message || e) }))}</p>`
+    return
+  }
+  renderAutofillClients(data.clients || [])
+  renderAutofillEvents(data.events || [])
+  renderAutofillPending(data.pending_pairing_expires_at)
+
+  const dlBtn = document.getElementById('autofillDownloadBtn')
+  const dlState = document.getElementById('autofillDownloadState')
+  if (dlBtn) dlBtn.hidden = !data.extension_available
+  if (dlState) dlState.textContent = data.extension_available ? '' : t('autofill.extension_missing')
+}
+
+document.addEventListener('click', async (ev) => {
+  const target = ev.target
+  if (!(target instanceof HTMLElement)) return
+
+  const copyBtn = target.closest('#autofillExtUrlCopyBtn, #autofillBaseUrlCopyBtn, #autofillCodeCopyBtn')
+  if (copyBtn) {
+    ev.preventDefault()
+    const srcId = copyBtn.id === 'autofillExtUrlCopyBtn' ? 'autofillExtUrl'
+      : copyBtn.id === 'autofillBaseUrlCopyBtn' ? 'autofillBaseUrl' : 'autofillCode'
+    const text = document.getElementById(srcId)?.textContent || ''
+    try {
+      await navigator.clipboard.writeText(text)
+      showToast(t('autofill.copied'))
+    } catch {
+      showToast(t('autofill.copy_failed'))
+    }
+    return
+  }
+
+  if (target.closest('#autofillDownloadBtn')) {
+    ev.preventDefault()
+    const state = document.getElementById('autofillDownloadState')
+    try {
+      const res = await fetch('/api/autofill/extension.zip')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        if (state) state.textContent = body.message || t('autofill.extension_missing')
+        return
+      }
+      const objectUrl = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = objectUrl
+      a.download = 'marveen-autofill.zip'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(objectUrl)
+      if (state) state.textContent = t('autofill.downloaded')
+    } catch (e) {
+      if (state) state.textContent = t('autofill.load_failed', { err: String(e.message || e) })
+    }
+    return
+  }
+
+  if (target.closest('#autofillPairBtn')) {
+    ev.preventDefault()
+    const state = document.getElementById('autofillPairState')
+    if (state) state.textContent = t('common.loading')
+    try {
+      const res = await fetch('/api/autofill/pairing', { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (state) state.textContent = body.message || t('autofill.pair_failed')
+        return
+      }
+      const box = document.getElementById('autofillCodeBox')
+      const code = document.getElementById('autofillCode')
+      if (code) code.textContent = body.code
+      if (box) box.hidden = false
+      renderAutofillPending(body.expires_at)
+    } catch (e) {
+      if (state) state.textContent = t('autofill.load_failed', { err: String(e.message || e) })
+    }
+    return
+  }
+
+  const revoke = target.closest('[data-autofill-revoke]')
+  if (revoke) {
+    ev.preventDefault()
+    const id = revoke.getAttribute('data-autofill-revoke')
+    if (!confirm(t('autofill.revoke_confirm'))) return
+    try {
+      const res = await fetch(`/api/autofill/clients/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        showToast(body.message || t('autofill.revoke_failed'))
+        return
+      }
+      showToast(t('autofill.revoked'))
+      loadAutofillPanel()
+    } catch {
+      showToast(t('autofill.revoke_failed'))
+    }
+  }
+})
 
 // The key-backed services the Accounts payload already reports, paired with the
 // "where do I get this" metadata the setup wizard defined -- reused rather than
@@ -35161,7 +35385,11 @@ function _intezoRender() {
 
   if (crumbs) {
     crumbs.innerHTML = (L.breadcrumb || []).map((b, i, arr) =>
-      '<a href="#" data-crumb="' + escapeHtml(b.rel) + '">' + escapeHtml(b.name) + '</a>'
+      // A cimsor is a MEGJELENITETT nevet mutatja (ha van), de a navigacio a
+      // valodi rel-en megy -- az ut es a szinkron valtozatlan.
+      ('<a href="#" data-crumb="' + escapeHtml(b.rel) + '"'
+        + (b.displayName ? ' title="' + escapeHtml(t('intezo.real_name', { name: b.name })) + '"' : '')
+        + '>' + escapeHtml(b.displayName || b.name) + '</a>')
       + (i < arr.length - 1 ? ' <span style="opacity:.5">›</span> ' : '')).join('')
     crumbs.querySelectorAll('a[data-crumb]').forEach((a) => {
       a.addEventListener('click', (e) => { e.preventDefault(); _intezoOpen(a.getAttribute('data-crumb')) })
@@ -35194,7 +35422,14 @@ function _intezoRender() {
       // mappa. jobb nem piszkalni".
       + (e.caution ? ' style="color:var(--danger,#d33)" title="' + escapeHtml(e.caution) + '"' : '')
       + '>'
-      + (e.isDir ? _faIkon(e) : '') + escapeHtml(e.name) + '</a>'
+      // A MEGJELENITETT nev (ha van, store/life-labels.json) elsobbseget elvez a
+      // lemez-nev elott -- a navigacio viszont vegig a data-open=rel-en megy,
+      // tehat az ut es a szinkron valtozatlan. A cimen a valodi nev buborekban.
+      + (e.isDir ? _faIkon(e) : '')
+      + (e.displayName
+          ? '<span title="' + escapeHtml(t('intezo.real_name', { name: e.name })) + '">' + escapeHtml(e.displayName) + '</span>'
+          : escapeHtml(e.name))
+      + '</a>'
       // A magyarazat: halvanyabb es kisebb, hogy a NEV maradjon a fo informacio.
       // Aki mar tudja, hova tesz, annak ne alljon utban; aki nem tudja, annak
       // ott legyen ugyanabban a sorban.
@@ -35407,7 +35642,14 @@ async function _intezoInfo(rel, quiet) {
     return
   }
   _intezoSelected = info
-  if (!quiet) card.hidden = false
+  if (!quiet) {
+    card.hidden = false
+    // Szandekos (nem-quiet) kijeloles: a felhasznalo maga valasztott egy elemet,
+    // tehat az elonezet-ablak ujra nyilhat. Enelkul, ha egyszer bezarta az ablakot
+    // (× / Esc -> _intezoPreviewDismissed=true), egy elonezheto fajl ujra-kattintasa
+    // sem nyitotta volna vissza. A csendes (quiet) frissites tovabbra sem popupol.
+    _intezoPreviewDismissed = false
+  }
 
   const src = info.source || {}
   const rows = [
@@ -35475,60 +35717,244 @@ function _intezoFileUrl(rel, download) {
 const _INTEZO_TEXT_PREVIEW_LIMIT = 200 * 1024
 
 /**
- * A KIJELOLT FAJL ELONEZETE (kartya #164, 2. fazis).
+ * A KIJELOLT FAJL ELONEZETE (kartya #164, 2. fazis; kartya 58ceda58 valtoztatas).
  *
- * A szerver dontotte el (`/api/life/info` -> `previewable`/`mimeType`), hogy
- * ez a fajl bongeszoben kozvetlenul megjeleníthető-e -- itt csak a
- * MEGJELENITES modjat valasztjuk tipus szerint. Ami nincs a negy ag egyikeben
- * sem (docx, exe, stb.), az rejtve marad: azt csak a Letoltes gomb kezeli.
+ * Boss (2026-09-11): az elonezet NE a lenyilo info-panelben alljon, hanem egy
+ * kulon, MOZGATHATO lebego ablakban (#intezoPreviewWindow). Ez a fuggveny mar
+ * csak dont: egy elonezheto fajl kijelolesekor felnyitja/frissiti az ablakot,
+ * kulonben (mappa, nem elonezheto tipus) becsukja. A tenyleges megjelenites az
+ * `_intezoOpenPreviewWindow`-ban van.
+ *
+ * A szerver dontotte el (`/api/life/info` -> `previewable`/`mimeType`), hogy a
+ * fajl bongeszoben kozvetlenul megjelenitheto-e.
  */
 async function _intezoRenderPreview(info) {
+  // A regi inline elonezet-doboz megszunt (kartya 58ceda58). Ha egy regebbi,
+  // meg ki nem cserelt HTML-ben megis ott van, tartsuk rejtve.
   const box = document.getElementById('intezoPreviewBox')
-  if (!box) return
-  box.innerHTML = ''
-  if (info.isDir || !info.previewable) { box.hidden = true; return }
-  box.hidden = false
+  if (box) { box.innerHTML = ''; box.hidden = true }
+  // Mappara nincs elonezet. FAJLNAL viszont mindig felnyitjuk az ablakot: ha a
+  // tipus nem jelenitheto meg bongeszoben (pl. .docx), akkor sem nema semmi --
+  // az ablak egy "toltsd le / nyisd meg" gombot mutat (Boss, 869).
+  if (!info || info.isDir) { _intezoClosePreviewWindow(false); return }
+  // Ha a felhasznalo szandekosan bezarta az ablakot, ne nyissuk ra ujra
+  // magatol minden kovetkezo kijelolesnel -- az "Elonezet" gomb nyitja vissza.
+  if (_intezoPreviewDismissed) return
+  await _intezoOpenPreviewWindow(info)
+}
+
+// Igaz, ha a felhasznalo a sajat kezevel (× vagy Esc) csukta be az elonezet-
+// ablakot. Ilyenkor a kovetkezo fajl-kijeloles nem nyitja ra ujra automatikusan.
+let _intezoPreviewDismissed = false
+
+/** Az elonezet-ablak DOM-ja -- egyszer jon letre, utana ujrahasznaljuk. */
+function _intezoPreviewWindowEl() {
+  let el = document.getElementById('intezoPreviewWindow')
+  if (el) return el
+  el = document.createElement('div')
+  el.id = 'intezoPreviewWindow'
+  el.className = 'intezo-pw'
+  el.hidden = true
+  // A "×" jel nem forditando szoveg; a cimke/aria a nyitaskor kap t()-erteket.
+  el.innerHTML =
+    '<div class="intezo-pw-head" id="intezoPreviewHead">'
+    + '<span class="intezo-pw-title" id="intezoPreviewTitle"></span>'
+    + '<button type="button" class="intezo-pw-close" id="intezoPreviewClose">×</button>'
+    + '</div>'
+    + '<div class="intezo-pw-body" id="intezoPreviewBody"></div>'
+    + '<div class="intezo-pw-resize" id="intezoPreviewResize" aria-hidden="true"></div>'
+  document.body.appendChild(el)
+  const closeBtn = el.querySelector('#intezoPreviewClose')
+  if (closeBtn) closeBtn.addEventListener('click', () => _intezoClosePreviewWindow(true))
+  _intezoSetupPreviewDrag(el.querySelector('#intezoPreviewHead'), el)
+  _intezoSetupPreviewResize(el.querySelector('#intezoPreviewResize'), el)
+  return el
+}
+
+/**
+ * Az ablak mozgatasa a fejlecenel fogva. Pointer-esemenyek (eger + erintes is).
+ * Mobilon (<=640px) az ablak teljes-kepernyos, ott nincs huzas.
+ */
+function _intezoSetupPreviewDrag(handle, win) {
+  if (!handle) return
+  let startX = 0, startY = 0, baseLeft = 0, baseTop = 0, dragging = false
+  handle.addEventListener('pointerdown', (e) => {
+    if (window.innerWidth <= 640) return
+    if (e.target && e.target.closest && e.target.closest('.intezo-pw-close')) return
+    dragging = true
+    const r = win.getBoundingClientRect()
+    baseLeft = r.left; baseTop = r.top
+    startX = e.clientX; startY = e.clientY
+    win.classList.add('dragging')
+    try { handle.setPointerCapture(e.pointerId) } catch (_) {}
+    e.preventDefault()
+  })
+  handle.addEventListener('pointermove', (e) => {
+    if (!dragging) return
+    const w = win.offsetWidth
+    let nl = baseLeft + (e.clientX - startX)
+    let nt = baseTop + (e.clientY - startY)
+    // Ne lehessen teljesen lehuzni a kepernyorol: legalabb ~60px marad latszodni.
+    nl = Math.max(60 - w, Math.min(nl, window.innerWidth - 60))
+    nt = Math.max(0, Math.min(nt, window.innerHeight - 40))
+    win.style.left = nl + 'px'
+    win.style.top = nt + 'px'
+  })
+  const end = (e) => {
+    if (!dragging) return
+    dragging = false
+    win.classList.remove('dragging')
+    try { handle.releasePointerCapture(e.pointerId) } catch (_) {}
+  }
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+}
+
+/**
+ * Az ablak atmeretezese a jobb also sarok fogantyujaval (Boss, 871: "tudjam
+ * szejjel es lefele is huzni"). Sajat fogantyu, mert a natives `resize: both`
+ * grip-jet eltakarja a torzs (.intezo-pw-body, overflow:auto), igy nem lehet
+ * megfogni. Pointer-esemenyek (eger + erintes). Mobilon nincs (teljes-kepernyos).
+ */
+function _intezoSetupPreviewResize(handle, win) {
+  if (!handle) return
+  let startX = 0, startY = 0, baseW = 0, baseH = 0, resizing = false
+  handle.addEventListener('pointerdown', (e) => {
+    if (window.innerWidth <= 640) return
+    resizing = true
+    const r = win.getBoundingClientRect()
+    baseW = r.width; baseH = r.height
+    startX = e.clientX; startY = e.clientY
+    // Rogzitjuk a bal-felso sarkot, hogy huzas kozben ne "ugorjon" az ablak.
+    win.style.left = r.left + 'px'
+    win.style.top = r.top + 'px'
+    win.classList.add('resizing')
+    try { handle.setPointerCapture(e.pointerId) } catch (_) {}
+    e.preventDefault(); e.stopPropagation()
+  })
+  handle.addEventListener('pointermove', (e) => {
+    if (!resizing) return
+    // Also hatarok a CSS min-width/min-height-tal egyeznek; felul a kepernyo.
+    const nw = Math.max(260, baseW + (e.clientX - startX))
+    const nh = Math.max(200, baseH + (e.clientY - startY))
+    win.style.width = Math.min(nw, window.innerWidth - 16) + 'px'
+    win.style.height = Math.min(nh, window.innerHeight - 16) + 'px'
+  })
+  const end = (e) => {
+    if (!resizing) return
+    resizing = false
+    win.classList.remove('resizing')
+    try { handle.releasePointerCapture(e.pointerId) } catch (_) {}
+  }
+  handle.addEventListener('pointerup', end)
+  handle.addEventListener('pointercancel', end)
+}
+
+/**
+ * Felnyitja (vagy frissiti) az elonezet-ablakot a kijelolt fajlra. A tipus-
+ * agak ugyanazok, mint korabban az inline doboznal (kep/PDF/video/szoveg).
+ */
+async function _intezoOpenPreviewWindow(info) {
+  if (!info || info.isDir) { _intezoClosePreviewWindow(false); return }
+  _intezoPreviewDismissed = false
+  const el = _intezoPreviewWindowEl()
+  const titleEl = el.querySelector('#intezoPreviewTitle')
+  const head = el.querySelector('#intezoPreviewHead')
+  const closeBtn = el.querySelector('#intezoPreviewClose')
+  const body = el.querySelector('#intezoPreviewBody')
+  if (titleEl) titleEl.textContent = info.name || t('intezo.preview')
+  if (head) head.title = t('intezo.preview_move_hint')
+  if (closeBtn) { closeBtn.title = t('intezo.preview_close'); closeBtn.setAttribute('aria-label', t('intezo.preview_close')) }
+  if (!body) return
+  body.innerHTML = ''
   const mime = info.mimeType || ''
   const url = _intezoFileUrl(info.rel, false)
   if (mime.indexOf('image/') === 0) {
     const img = document.createElement('img')
     img.src = url
     img.alt = info.name || ''
-    img.style.cssText = 'max-width:100%;max-height:420px;display:block;border-radius:8px'
-    box.appendChild(img)
+    body.appendChild(img)
   } else if (mime === 'application/pdf') {
     const frame = document.createElement('iframe')
     frame.src = url
     frame.title = info.name || ''
-    frame.style.cssText = 'width:100%;height:480px;border:1px solid var(--border,#3336);border-radius:8px'
-    box.appendChild(frame)
+    body.appendChild(frame)
   } else if (mime.indexOf('video/') === 0) {
     const video = document.createElement('video')
     video.src = url
     video.controls = true
-    video.style.cssText = 'max-width:100%;max-height:420px;display:block;border-radius:8px'
-    box.appendChild(video)
+    body.appendChild(video)
   } else if (mime.indexOf('text/') === 0) {
     const pre = document.createElement('pre')
-    pre.style.cssText = 'max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word;'
-      + 'background:rgba(127,127,127,.08);border-radius:8px;padding:10px;font-size:12px;margin:0'
     pre.textContent = t('intezo.preview_loading')
-    box.appendChild(pre)
+    body.appendChild(pre)
     try {
       const res = await fetch(url)
-      if (!res.ok) { pre.textContent = t('intezo.preview_failed'); return }
-      let text = await res.text()
-      if (text.length > _INTEZO_TEXT_PREVIEW_LIMIT) {
-        text = text.slice(0, _INTEZO_TEXT_PREVIEW_LIMIT) + '\n\n… ' + t('intezo.preview_truncated')
+      if (!res.ok) { pre.textContent = t('intezo.preview_failed') }
+      else {
+        let text = await res.text()
+        if (text.length > _INTEZO_TEXT_PREVIEW_LIMIT) {
+          text = text.slice(0, _INTEZO_TEXT_PREVIEW_LIMIT) + '\n\n… ' + t('intezo.preview_truncated')
+        }
+        pre.textContent = text
       }
-      pre.textContent = text
     } catch (e) {
       pre.textContent = t('intezo.preview_failed')
     }
   } else {
-    box.hidden = true
+    // Nem elonezheto tipus (.docx, .xlsx, .zip, stb.): a bongeszo nem tudja
+    // beagyazva megmutatni. Ne nema semmi es ne ures ablak (Boss, 869) -- egy
+    // mondat + egy gomb, amivel letoltodik/megnyilik (a gep sajat programja
+    // nyitja meg, pl. Word). Ugyanaz az ut, mint a muveletsav "Letoltes" gombja.
+    const wrap = document.createElement('div')
+    wrap.className = 'intezo-pw-nopreview'
+    const msg = document.createElement('p')
+    msg.className = 'intezo-pw-nopreview-msg'
+    msg.textContent = t('intezo.preview_unsupported', { name: info.name || '' })
+    const dl = document.createElement('button')
+    dl.type = 'button'
+    dl.className = 'btn-primary'
+    dl.textContent = t('intezo.preview_open_download')
+    dl.addEventListener('click', () => { window.open(_intezoFileUrl(info.rel, true), '_blank') })
+    wrap.appendChild(msg)
+    wrap.appendChild(dl)
+    body.appendChild(wrap)
   }
+  // Pozicionalas. Mobilon a CSS teljes-kepernyos, ott nem allitunk inline
+  // poziciot; asztalin az elso nyitasnal kozepre-folole tesszuk, kesobb a
+  // felhasznalo altal huzott hely marad.
+  if (window.innerWidth <= 640) {
+    el.style.left = ''; el.style.top = ''; el.style.width = ''; el.style.height = ''
+  } else if (!el.style.left) {
+    const w = Math.min(720, Math.floor(window.innerWidth * 0.92))
+    el.style.left = Math.max(8, Math.floor((window.innerWidth - w) / 2)) + 'px'
+    el.style.top = '80px'
+  }
+  el.hidden = false
 }
+
+/**
+ * Becsukja az elonezet-ablakot. `userDismissed=true`, ha a felhasznalo a sajat
+ * kezevel csukta be (×/Esc) -- ilyenkor a kovetkezo kijeloles nem nyitja vissza.
+ */
+function _intezoClosePreviewWindow(userDismissed) {
+  const el = document.getElementById('intezoPreviewWindow')
+  if (el) {
+    el.hidden = true
+    // A body kiuritese fontos: leallitja a video/hang lejatszast es elengedi
+    // a PDF-iframe-et, kulonben a hatterben tovabb szolna/toltene.
+    const body = el.querySelector('#intezoPreviewBody')
+    if (body) body.innerHTML = ''
+  }
+  if (userDismissed) _intezoPreviewDismissed = true
+}
+
+// Esc: ha az elonezet-ablak nyitva van, csukja be (a felhasznalo szandeka).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return
+  const el = document.getElementById('intezoPreviewWindow')
+  if (el && !el.hidden) _intezoClosePreviewWindow(true)
+})
 
 /**
  * A GIT-BLOKK: mit szabad ezzel a repoval, es mi tortenne torleskor.
@@ -35690,6 +36116,7 @@ function _intezoJumpTo(id) {
 function _intezoClearSelection() {
   _intezoSelected = null
   _intezoDetachInfoCard()
+  _intezoClosePreviewWindow(false)
   const card = document.getElementById('intezoInfoCard')
   if (card) card.hidden = true
   _intezoRenderActions()
@@ -35705,7 +36132,7 @@ function _intezoActionClick(ev) {
     return
   }
   switch (btn.getAttribute('data-intezo-act')) {
-    case 'preview': _intezoJumpTo('intezoPreviewBox'); break
+    case 'preview': if (_intezoSelected) void _intezoOpenPreviewWindow(_intezoSelected); break
     case 'download': window.open(_intezoFileUrl(_intezoSelected.rel, true), '_blank'); break
     case 'move': _intezoStartPick('move'); break
     case 'mount': {
@@ -35925,6 +36352,9 @@ async function _intezoOpenMenu(ev, entry) {
     if (entry.isDir) m.appendChild(_intezoMenuItem('📂  ' + t('intezo.menu_open'), () => _intezoOpen(entry.rel)))
     if (entry.isDir) m.appendChild(_intezoMenuItem('📁  ' + t('intezo.menu_mkdir_into', { name: entry.name || entry.rel }), () => _intezoMkdirInto(entry.rel)))
     m.appendChild(_intezoMenuItem('✏️  ' + t('intezo.menu_rename'), () => _intezoRename(entry)))
+    // MEGJELENITETT nev: a lemez-nevet nem bantja, ezert git-repora es bekotott
+    // mappara is mukodik (a valodi atnevezes ott elszakitana a szinkront).
+    m.appendChild(_intezoMenuItem('🏷️  ' + t('intezo.menu_display_name'), () => _intezoSetDisplayName(entry)))
     m.appendChild(_intezoMenuItem('➡️  ' + t('intezo.menu_move'), () => _intezoStartPick('move')))
     if (entry.isDir) {
       m.appendChild(_intezoMenuItem('🔗  ' + t('intezo.menu_mount'), () => {
@@ -36056,7 +36486,17 @@ async function _intezoPurgeKeres(body) {
  * ujraolvassa a listat, tehat kulon teendo nincs).
  */
 async function _intezoNevTanacs(r) {
-  if (!r || !r.notice || !r.suggestion || !r.rel) return false
+  if (!r || !r.notice) return false
+  // A CSEND NEM VALASZ.
+  //
+  // Boss, 2026-09-12, MERT hiba: egy olyan nev, amibol nem kepezheto javaslat
+  // (pl. csupa ekezet vagy irasjel a GIT_REPOS alatt), figyelmeztetest KAPOTT
+  // a szervertol -- de ez a sor `!r.suggestion`-nel NEMAN visszafordult, es a
+  // felhasznalo semmit nem latott. Eppen a legrosszabb nevnel hallgattunk.
+  //
+  // Ha nincs mit javasolni, a figyelmeztetes attol meg elhangzik: csak
+  // atnevezni nem tudunk helyette.
+  if (!r.suggestion || !r.rel) { showToast(r.notice); return false }
   if (!confirm(t('intezo.name_advice_ask', { message: r.notice, suggestion: r.suggestion }))) return false
   try {
     const rr = await _depoPost('/api/life/rename', { rel: r.rel, name: r.suggestion })
@@ -36093,6 +36533,24 @@ async function _intezoRename(entry) {
     const r = await _depoPost('/api/life/rename', { rel: entry.rel, name: name })
     showToast(r.message || t('intezo.done'))
     await _intezoNevTanacs(r)
+    _intezoClearSelection()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.rename_failed'))
+  }
+}
+
+// A feluleten MUTATOTT nev beallitasa (a lemez-nev valtozatlan marad). Ures
+// valasz -> a valodi mappanev all vissza. Ezert mukodik olyan mappan is (pl.
+// GIT_REPOS), amit a szinkron miatt tilos tenylegesen atnevezni.
+async function _intezoSetDisplayName(entry) {
+  const jelenlegi = entry.displayName || ''
+  const name = prompt(t('intezo.display_name_prompt', { name: entry.name || '' }), jelenlegi)
+  if (name === null) return // Megsem
+  if (name === jelenlegi) return
+  try {
+    const r = await _depoPost('/api/life/display-name', { rel: entry.rel, name: name })
+    showToast(r.message || t('intezo.done'))
     _intezoClearSelection()
     await _intezoOpen(_intezoPath)
   } catch (e) {
@@ -36820,8 +37278,6 @@ async function _intezoCfgSave() {
             '<td style="padding:6px 8px">' + (p.pinned ? 'igen' : '—') + '</td>' +
             '<td style="padding:6px 8px">' + cbAgo(p.updatedAt) + '</td>' +
             '<td style="padding:6px 8px;white-space:nowrap">' +
-              '<button class="btn-secondary btn-compact cb-pin" data-project="' + escapeAttr(p.project) + '" data-pinned="' + (p.pinned ? '1' : '0') + '">' +
-                (p.pinned ? 'Elenged' : 'Kitűz') + '</button> ' +
               '<button class="btn-secondary btn-compact cb-del" data-project="' + escapeAttr(p.project) + '">Törlés</button>' +
             '</td>' +
           '</tr>'
@@ -36972,6 +37428,111 @@ async function _intezoCfgSave() {
     return norm(a) !== '' && norm(a) === norm(b)
   }
 
+  /* ============================ MAPPA-TALLOZO ============================
+   *
+   * Boss, 2026-09-12: "de valami kezzel kell beirni verzio van. az nem jo.
+   * tehat a gyokermappat kivalasztani kitallozva lehessen."
+   *
+   * A lista NEM a bongeszo gepert jarja be, es nem is a szerverert: a Marveen a
+   * WSL-ben fut, ahol a Windows-mappak nem olvashatok. A bejarast a vegrehajto
+   * vegzi a sajat gepen, ezert a valasz nem azonnali -- a kerest a vegrehajto
+   * kovetkezo jelentese viszi at.
+   *
+   * NEGY ALLAPOT, es egyiket sem mossuk ossze a masikkal: varakozunk /
+   * nem latunk oda (nem fut a vegrehajto) / megnezte es tenyleg ures /
+   * a gep hibat uzent. Az ures lista onmagaban SOHA nem uzenet. */
+  let _cbBrowsePath = ''
+  let _cbBrowseTimer = null
+
+  function cbBrowseEls() {
+    return {
+      box: document.getElementById('cbBrowseBox'),
+      list: document.getElementById('cbBrowseList'),
+      status: document.getElementById('cbBrowseStatus'),
+      pathEl: document.getElementById('cbBrowsePath'),
+      up: document.getElementById('cbBrowseUp'),
+      pick: document.getElementById('cbBrowsePick'),
+      input: document.getElementById('cbAddWorkspace'),
+    }
+  }
+
+  function cbBrowseStop() {
+    if (_cbBrowseTimer) { clearTimeout(_cbBrowseTimer); _cbBrowseTimer = null }
+  }
+
+  /** Egy szint bejarasa. `path` ures = a vegrehajto gep meghajtoi. */
+  async function cbBrowseOpen(path) {
+    cbBrowseStop()
+    const els = cbBrowseEls()
+    if (!els.box) return
+    els.box.hidden = false
+    _cbBrowsePath = String(path == null ? '' : path)
+    if (els.pathEl) els.pathEl.textContent = _cbBrowsePath || t('cb.browse.drives')
+    if (els.list) els.list.innerHTML = ''
+    if (els.status) els.status.textContent = t('cb.browse.waiting')
+    if (els.up) els.up.disabled = _cbBrowsePath === ''
+    let id = ''
+    try {
+      const started = await cbPostJson('/api/code/browse', { path: _cbBrowsePath })
+      id = (started && started.id) || ''
+    } catch (err) {
+      // A TENYLEGES hibat mondjuk el, nem tippet arrol, mi lehetett.
+      if (els.status) els.status.textContent = t('cb.browse.failed', { msg: String(err && err.message ? err.message : err) })
+      return
+    }
+    if (!id) { if (els.status) els.status.textContent = t('cb.browse.failed', { msg: 'no id' }); return }
+    cbBrowsePoll(id)
+  }
+
+  function cbBrowsePoll(id) {
+    cbBrowseStop()
+    const tick = async function () {
+      const els = cbBrowseEls()
+      if (!els.box || els.box.hidden) { cbBrowseStop(); return }
+      let r = null
+      try {
+        const res = await cbFetch('/api/code/browse/' + encodeURIComponent(id))
+        r = await res.json()
+      } catch (err) {
+        if (els.status) els.status.textContent = t('cb.browse.failed', { msg: String(err && err.message ? err.message : err) })
+        return
+      }
+      if (!r || !r.status) return
+      if (r.status === 'pending') {
+        // Meg varunk -- ez NEM ugyanaz, mint hogy ures a mappa.
+        if (els.status) els.status.textContent = t('cb.browse.waiting')
+        _cbBrowseTimer = setTimeout(tick, 1200)
+        return
+      }
+      cbBrowseStop()
+      if (r.status === 'no_worker') { if (els.status) els.status.textContent = t('cb.browse.no_worker'); return }
+      if (r.status === 'expired') { if (els.status) els.status.textContent = t('cb.browse.expired'); return }
+      if (r.status === 'error') {
+        if (els.status) els.status.textContent = t('cb.browse.error', { msg: r.error || '' })
+        return
+      }
+      const entries = r.entries || []
+      if (els.status) els.status.textContent = entries.length === 0 ? t('cb.browse.empty') : ''
+      if (els.list) {
+        els.list.innerHTML = entries.map(function (e) {
+          return '<button type="button" class="cb-browse-item" data-path="' + escapeAttr(e.path) + '">'
+            + '<span class="cb-browse-name">' + escapeHtml(e.name) + '</span>'
+            + (e.isRepo ? '<span class="cb-browse-repo">' + escapeHtml(t('cb.browse.repo')) + '</span>' : '')
+            + '</button>'
+        }).join('')
+      }
+    }
+    tick()
+  }
+
+  /** A kezi/tallozos blokk kinyitasa, ha mashonnan nem johet munkamappa.
+   *  Csak NYIT: ha a felhasznalo becsukta es kozben jott talalat, nem csukjuk
+   *  ra vissza -- egy magatol becsukodo panel ellopja a mar megkezdett gepelest. */
+  function cbOpenManualIfEmpty(empty) {
+    const d = document.getElementById('cbManualAdd')
+    if (d && empty && !d.open) d.open = true
+  }
+
   function cbRenderCandidates(resp) {
     const el = document.getElementById('cbCandidatesBox')
     if (!el) return
@@ -37003,8 +37564,14 @@ async function _intezoCfgSave() {
           + 'Nyiss meg egy projektet VS Code-ban, indíts benne egy Claude Code beszélgetést — egy percen belül itt lesz.'
         : 'Ehhez előbb el kell indulnia a végrehajtónak (lásd a <em>Windows-végrehajtó</em> részt lentebb): '
           + 'ő járja be a gépet, és ő jelenti a mappákat.') + '</p>'
+      // FRISS TELEPITES: ha nincs felderitett mappa, a kezi/tallozos blokk az
+      // EGYETLEN ut, amin a munkamappa bekerul. Osszecsukva a felhasznalo
+      // zsakutcat lat, ezert ilyenkor magatol kinyitjuk. Ha mar van talalat,
+      // nem nyuzsgunk: csak akkor nyitjuk, ha uresen allunk.
+      cbOpenManualIfEmpty(true)
       return
     }
+    cbOpenManualIfEmpty(_cbCandidates.length === 0)
     el.innerHTML = _cbCandidates.map(function (c) {
       const parts = String(c.workspacePath).split(/[\\/]/).filter(function (x) { return x })
       const folder = parts.length ? parts[parts.length - 1] : c.workspacePath
@@ -37724,20 +38291,6 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (tgt.classList.contains('cb-pin')) {
-      const project = tgt.getAttribute('data-project')
-      const pinned = tgt.getAttribute('data-pinned') === '1'
-      const row = _cbProjects.find(function (p) { return p.project === project })
-      if (!row) return
-      try {
-        await cbPostJson('/api/code/projects', {
-          project: row.project, workspacePath: row.workspacePath, sessionId: row.sessionId, pinned: !pinned,
-        })
-        cbRefresh()
-      } catch (err) { showToast('Nem sikerült: ' + err.message, { type: 'error' }) }
-      return
-    }
-
     if (tgt.classList.contains('cb-del')) {
       const project = tgt.getAttribute('data-project')
       if (!confirm('Törlöd a(z) "' + project + '" leképezést? A session maga nem sérül; a felderítés vissza is teheti, ha a workspace nyitva van.')) return
@@ -37791,6 +38344,53 @@ async function _intezoCfgSave() {
       return
     }
 
+    if (tgt.id === 'cbBrowseBtn') {
+      // Onnan indulunk, ami a mezoben all -- ha ures, a meghajtoktol.
+      const cur = document.getElementById('cbAddWorkspace')
+      cbBrowseOpen(cur && cur.value.trim() ? cur.value.trim() : '')
+      return
+    }
+
+    if (tgt.id === 'cbBrowseClose') {
+      cbBrowseStop()
+      const box = document.getElementById('cbBrowseBox')
+      if (box) box.hidden = true
+      return
+    }
+
+    if (tgt.id === 'cbBrowseUp') {
+      // A szulot a szerver szamolta ki (Windows-alaku ut, a Linux `path` modul
+      // ertelmetlenseget csinalna belole); ha nincs, a meghajtok kovetkeznek.
+      const pathEl = document.getElementById('cbBrowsePath')
+      const cur = _cbBrowsePath
+      if (!cur) return
+      const up = cur.replace(/[\\/]+$/, '')
+      const idx = Math.max(up.lastIndexOf('\\'), up.lastIndexOf('/'))
+      const parent = idx > 2 ? up.slice(0, idx) : ''
+      if (pathEl) pathEl.textContent = parent || t('cb.browse.drives')
+      cbBrowseOpen(parent)
+      return
+    }
+
+    if (tgt.id === 'cbBrowsePick') {
+      const input = document.getElementById('cbAddWorkspace')
+      const status = document.getElementById('cbBrowseStatus')
+      if (!_cbBrowsePath) { if (status) status.textContent = t('cb.browse.nothing_picked'); return }
+      if (input) input.value = _cbBrowsePath
+      cbBrowseStop()
+      const box = document.getElementById('cbBrowseBox')
+      if (box) box.hidden = true
+      if (status) status.textContent = ''
+      showToast(t('cb.browse.picked', { p: _cbBrowsePath }), { type: 'success' })
+      return
+    }
+
+    if (tgt.closest && tgt.closest('.cb-browse-item')) {
+      const item = tgt.closest('.cb-browse-item')
+      cbBrowseOpen(item.getAttribute('data-path') || '')
+      return
+    }
+
     if (tgt.id === 'cbAddBtn') {
       const project = document.getElementById('cbAddProject')
       const ws = document.getElementById('cbAddWorkspace')
@@ -37801,14 +38401,14 @@ async function _intezoCfgSave() {
       const wsPath = ws.value.trim()
       const uuid = sid.value.trim()
       const say = function (msg) { if (status) status.textContent = msg }
-      // Elore szolunk, magyarul. A szerver hibauzenete angol, es itt egyenesen
-      // a felhasznalo ele kerulne -- ezt a hatart a lapnak kell allnia.
-      if (!name) { say('Adj nevet a projektnek — ezt írod majd a /code után.'); project.focus(); return }
-      if (!wsPath) { say('Add meg a projekt mappáját (VS Code → jobb gomb a gyökérmappán → Copy Path).'); ws.focus(); return }
+      // Elore szolunk, a felhasznalo nyelven. A szerver hibauzenete angol, es
+      // itt egyenesen a felhasznalo ele kerulne -- ezt a hatart a lapnak kell
+      // allnia. Ezek a mondatok 2026-09-12-ig beegetett magyarok voltak.
+      if (!name) { say(t('cb.manual.err_no_name')); project.focus(); return }
+      if (!wsPath) { say(t('cb.manual.err_no_folder')); ws.focus(); return }
       const known = _cbCandidates.some(function (c) { return cbSamePath(c.workspacePath, wsPath) })
       if (!uuid && !known) {
-        say('Ehhez a mappához a végrehajtó nem jelentett beszélgetést, ezért a session-azonosító most kötelező. '
-          + 'A VS Code Claude Code panelben a /status parancs írja ki.')
+        say(t('cb.manual.err_need_session'))
         sid.focus(); return
       }
       try {
@@ -37816,9 +38416,9 @@ async function _intezoCfgSave() {
           project: name, workspacePath: wsPath, sessionId: uuid, pinned: true,
         })
         project.value = ''; ws.value = ''; sid.value = ''
-        if (status) status.textContent = 'Felvéve.'
+        if (status) status.textContent = t('cb.manual.added')
         cbRefresh()
-      } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
+      } catch (err) { if (status) status.textContent = t('cb.manual.add_failed', { msg: String(err && err.message ? err.message : err) }) }
       return
     }
 
@@ -37919,3 +38519,212 @@ function marveenProcessHtml(m) {
   return `<span class="process-indicator" title="${escapeAttr(t('agents.marveen_process_unknown_tip'))}">`
     + `<span class="process-dot stopped"></span>${escapeHtml(t('agents.marveen_process_unknown'))}</span>`
 }
+
+// ============================================================
+// === Git tarolok (Raktar) ===
+// ============================================================
+// Ez a lap NEM szinkronizal es NEM klonoz: a `git-sync` utolso menetenek
+// eredmenyet mutatja meg, fiokonkent csoportositva, es a repot a MEGLEVO
+// Intezoben nyitja meg (ugyanaz a `rel`, amit a szinkron ad vissza).
+//
+// Push/feltoltes szandekosan NINCS rajta: a szinkron csak lefele huz, es a
+// helyben modositott repot kihagyja. Egy feltoltes-gomb itt azt igerne, amit
+// a hatter nem csinal meg.
+
+// A repo-allapotok sorrendje a listaban: ami FIGYELMET kEr, az all elol. A
+// "naprakesz" a vegen -- abbol van a legtobb, es abbol nincs mit megnezni.
+const GITREPOS_STATE_ORDER = { error: 0, offline: 1, skipped: 2, updated: 3, current: 4 }
+const GITREPOS_STATE_KEY = {
+  updated: 'gitrepos.state.updated',
+  current: 'gitrepos.state.current',
+  skipped: 'gitrepos.state.skipped',
+  offline: 'gitrepos.state.offline',
+  error: 'gitrepos.state.error',
+}
+
+function _gitreposStateLabel(state) {
+  return t(GITREPOS_STATE_KEY[state] || 'gitrepos.state.unknown')
+}
+
+/** A repo neve = a bekotott ut utolso szakasza. */
+function _gitreposRepoName(rel) {
+  const parts = String(rel || '').split('/').filter(Boolean)
+  return parts.length ? parts[parts.length - 1] : String(rel || '')
+}
+
+/**
+ * A NULLA TOBB DOLGOT JELENT -- itt dol el, melyiket mondjuk.
+ *
+ * Ot kulonbozo allapot ad ures listat, es csak az egyik "minden rendben".
+ * A sorrend szandekos: a hangosabb allitas nyer, kulonben egy lecsatolt
+ * meghajto ugy nezne ki, mint egy friss telepites.
+ *
+ * Visszaad: { tone: 'ok'|'info'|'warn', text } vagy null, ha van mit mutatni.
+ */
+function _gitreposEmptyState(data) {
+  if (data.readError) {
+    return { tone: 'warn', text: t('gitrepos.empty.read_error', { err: data.readError }) }
+  }
+  const run = data.last
+  if (run && run.rootError) {
+    return { tone: 'warn', text: t('gitrepos.empty.root_error', { err: run.rootError }) }
+  }
+  if (data.neverRan) {
+    return { tone: 'info', text: t('gitrepos.empty.never_ran') }
+  }
+  const accounts = Array.isArray(data.accounts) ? data.accounts : []
+  if (!accounts.length) {
+    return { tone: 'info', text: t('gitrepos.empty.no_accounts') }
+  }
+  if (run && (run.results || []).length === 0) {
+    return { tone: 'info', text: t('gitrepos.empty.no_repos', { n: accounts.length }) }
+  }
+  return null
+}
+
+function _gitreposRenderLastRun(data) {
+  const el = document.getElementById('gitreposLastRun')
+  if (!el) return
+  const run = data.last
+  if (!run || !run.finishedAt) { el.textContent = ''; return }
+  const ts = Date.parse(run.finishedAt)
+  const when = Number.isFinite(ts) ? formatRelative(ts) : run.finishedAt
+  const results = run.results || []
+  let text = t('gitrepos.last_run', {
+    when,
+    n: results.length,
+    updated: run.updated || 0,
+  })
+  // A felso sor ne csak szamot mondjon a kihagyott tarolokrol ("1 kimaradt"),
+  // hanem az OKAT is (Boss, 2026-09-11). Az okot a szinkron per-repo uzenetei
+  // adjak (pl. "Commit es push hianya miatt kimaradt ..."); tobb kulonbozo ok
+  // eseten mindet kiirjuk. Ha valamiert nincs uzenet, marad a puszta szam --
+  // a kihagyas tenye SOSE tunhet el nemaan.
+  const skippedCount = run.skipped || 0
+  if (skippedCount > 0) {
+    const reasons = [...new Set(
+      results
+        .filter((r) => r.state === 'skipped')
+        .map((r) => (r.message || '').trim())
+        .filter(Boolean),
+    )]
+    text += ' ' + (reasons.length
+      ? reasons.join(' · ')
+      : t('gitrepos.last_run_skipped', { skipped: skippedCount }))
+  }
+  el.textContent = text
+}
+
+function _gitreposRenderList(data) {
+  const host = document.getElementById('gitreposList')
+  if (!host) return
+  const results = (data.last && data.last.results) || []
+  if (!results.length) { host.innerHTML = ''; return }
+
+  // Fiokonkent. Az ures fiok-nev NEM "nincs fiokja", hanem "nem tudom" --
+  // ezert kap sajat, megnevezett csoportot a vegen, es nem olvad bele
+  // egyik valodi fiokba sem.
+  const groups = new Map()
+  for (const r of results) {
+    const key = r.account || ''
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(r)
+  }
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (!a) return 1
+    if (!b) return -1
+    return a.localeCompare(b, undefined, { sensitivity: 'base' })
+  })
+
+  host.innerHTML = keys.map((key) => {
+    const rows = groups.get(key).slice().sort((a, b) => {
+      const d = (GITREPOS_STATE_ORDER[a.state] ?? 9) - (GITREPOS_STATE_ORDER[b.state] ?? 9)
+      return d || _gitreposRepoName(a.rel).localeCompare(_gitreposRepoName(b.rel))
+    })
+    const title = key ? escapeHtml(key) : escapeHtml(t('gitrepos.unknown_account'))
+    // A soron belul a badge (allapot-cimke) es a szerver-uzenet a "naprakesz"
+    // esetben ugyanaz volt, ezert ketszer latszott (Boss, 2026-09-11). A
+    // badge eleg; a szerver-uzenetet csak akkor mutatjuk, ha EXTRA infot ad
+    // (frissult -> hany commit, kihagyott -> az ok, halozat/hiba). Ezert lent
+    // a msg-span a 'current' allapotnal kimarad. (JS-komment: NEM kerul a
+    // renderelt HTML-be, kulonben a sor-sorrend tesztje ratapadna a szavakra.)
+    return `<div class="card gitrepos-account">
+      <div class="gitrepos-account-head">
+        <h3 class="gitrepos-account-title">${title}</h3>
+        <span class="gitrepos-account-count">${escapeHtml(t('gitrepos.repo_count', { n: rows.length }))}</span>
+      </div>
+      ${key ? '' : `<p class="gitrepos-unknown-note">${escapeHtml(t('gitrepos.unknown_account_note'))}</p>`}
+      <div class="gitrepos-rows">${rows.map((r) => `
+        <button type="button" class="gitrepos-row" data-gitrepo-open="${escapeAttr(r.rel)}"
+                title="${escapeAttr(t('gitrepos.open_hint'))}">
+          <span class="gitrepos-row-main">
+            <span class="gitrepos-row-name"${r.displayName ? ` title="${escapeAttr(t('intezo.real_name', { name: _gitreposRepoName(r.rel) }))}"` : ''}>${escapeHtml(r.displayName || _gitreposRepoName(r.rel))}</span>
+            ${r.state === 'current' ? '' : `<span class="gitrepos-row-msg">${escapeHtml(r.message || '')}</span>`}
+          </span>
+          <span class="gitrepos-badge gitrepos-badge-${escapeAttr(r.state)}">${escapeHtml(_gitreposStateLabel(r.state))}</span>
+        </button>`).join('')}</div>
+    </div>`
+  }).join('')
+}
+
+async function loadGitReposPage() {
+  const box = document.getElementById('gitreposStateBox')
+  const host = document.getElementById('gitreposList')
+  if (!box || !host) return
+  let data
+  try {
+    const res = await fetch('/api/storages/git-sync')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    data = await res.json()
+  } catch (err) {
+    // "Nem lattam oda" -- ez NEM ugyanaz, mint a "nincs egy taroló sem".
+    host.innerHTML = ''
+    document.getElementById('gitreposLastRun').textContent = ''
+    box.hidden = false
+    box.className = 'info-box gitrepos-state-warn'
+    box.textContent = t('gitrepos.load_failed', { err: String(err && err.message || err) })
+    return
+  }
+  _gitreposRenderLastRun(data)
+  _gitreposRenderList(data)
+  const empty = _gitreposEmptyState(data)
+  if (empty) {
+    box.hidden = false
+    box.className = 'info-box gitrepos-state-' + empty.tone
+    box.textContent = empty.text
+  } else {
+    box.hidden = true
+    box.textContent = ''
+  }
+}
+
+document.addEventListener('click', async (ev) => {
+  const open = ev.target.closest('[data-gitrepo-open]')
+  if (open) {
+    // A meglevo Intezoben nyitjuk meg, ugyanazon a bekotott uton, amit a
+    // szinkron adott vissza. Nem uj klon, nem masolat.
+    const rel = open.getAttribute('data-gitrepo-open') || ''
+    switchPage('intezo')
+    if (typeof _intezoOpen === 'function') await _intezoOpen(rel)
+    return
+  }
+  if (ev.target.closest('#gitreposSyncBtn')) {
+    const btn = document.getElementById('gitreposSyncBtn')
+    if (!btn || btn.disabled) return
+    btn.disabled = true
+    const eredeti = btn.textContent
+    btn.textContent = t('gitrepos.syncing')
+    try {
+      const res = await fetch('/api/storages/git-sync', { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status))
+      showToast(body.message || t('gitrepos.sync_done'))
+    } catch (err) {
+      showToast(t('gitrepos.sync_failed', { err: String(err && err.message || err) }), { type: 'error' })
+    } finally {
+      btn.disabled = false
+      btn.textContent = eredeti
+      await loadGitReposPage()
+    }
+  }
+})

@@ -66,6 +66,18 @@ if "$DEST/venv/bin/python" -c "import face_recognition" 2>/dev/null; then
   _skip "face_recognition already installed"
 else
   echo "    Compiling dlib + face_recognition -- this can take 10-20 minutes..."
+  # face_recognition_models (the large landmark-data package face_recognition
+  # depends on) is too big for PyPI, so upstream ships it as a dependency-link
+  # in setup.py instead of a normal PyPI release. setuptools >=81 dropped the
+  # legacy easy_install machinery that used to resolve those links, so a plain
+  # "pip install face_recognition" fails on modern toolchains with a
+  # setuptools/pkg_resources error before it ever reaches dlib. Fix (matches
+  # the current community-documented workaround, see ageitgey/face_recognition
+  # issues #1265 and #764): pin setuptools below 81, then install
+  # face_recognition_models directly from its git repo before face_recognition
+  # itself.
+  "$DEST/venv/bin/pip" install --quiet "setuptools<81"
+  "$DEST/venv/bin/pip" install --quiet git+https://github.com/ageitgey/face_recognition_models
   "$DEST/venv/bin/pip" install --quiet face_recognition
   _pass "face_recognition installed"
 fi

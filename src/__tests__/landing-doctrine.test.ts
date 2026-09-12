@@ -171,6 +171,66 @@ describe('land-pr.sh: a nulla ket dolgot jelenthet', () => {
   })
 })
 
+// kanban #257: az ures rollup NEM automatikusan "Actions kikapcsolva". Egy
+// utkozo (main moge maradt) PR-en a workflow el sem indul -> ugyanaz az ures
+// rollup. A szkript a merge-allapotbol dont, mielott diagnosztizalna.
+describe('land-pr.sh: ures rollup != "Actions kikapcsolva" (utkozo PR)', () => {
+  const script = readFileSync(LAND_PR, 'utf8')
+
+  it('a kulon fajlba emelt, tesztelheto diagnosztat hasznalja', () => {
+    expect(existsSync(join(REPO, 'scripts', 'lib', 'empty-run-diagnosis.mjs'))).toBe(true)
+    expect(script).toContain('empty-run-diagnosis.mjs')
+  })
+
+  it('a merge-allapotot a FORRASTOL kerdezi (gh pr view --json mergeable)', () => {
+    expect(script).toContain('--json mergeable,mergeStateStatus')
+  })
+
+  it('a merge-lekerdezes hibajat a KILEPOKOD donti el (nem a kimenet alakja)', () => {
+    expect(script).toContain('mrg_rc')
+  })
+
+  // A CONFLICT ag rebase-t tanit, es NEM az Actions-kapcsolot.
+  it('a CONFLICT ag rebase-t tanit, nem "Actions kikapcsolva"-t', () => {
+    const start = script.indexOf('CONFLICT)')
+    expect(start).toBeGreaterThan(-1)
+    const rest = script.slice(start)
+    const branch = rest.slice(0, rest.indexOf(';;'))
+    expect(branch).toContain('rebase')
+    expect(branch).not.toContain('Actions ki van kapcsolva')
+  })
+
+  // Az UNKNOWN ag NEM die-ol: a GitHub meg szamol, tovabb kell pollozni.
+  it('az UNKNOWN ag nem die-ol (tovabb pollozik a deadline-ig)', () => {
+    const start = script.indexOf('UNKNOWN)')
+    expect(start).toBeGreaterThan(-1)
+    const rest = script.slice(start)
+    const branch = rest.slice(0, rest.indexOf(';;'))
+    expect(branch).not.toContain('die ')
+  })
+
+  // Csak az ACTIONS_OFF ag mondja ki a kikapcsolt-Actions uzenetet.
+  it('az "Actions ki van kapcsolva" uzenet csak az ACTIONS_OFF aghoz kotott', () => {
+    const start = script.indexOf('ACTIONS_OFF)')
+    expect(start).toBeGreaterThan(-1)
+    const rest = script.slice(start)
+    const branch = rest.slice(0, rest.indexOf(';;'))
+    expect(branch).toContain('Actions ki van kapcsolva')
+  })
+
+  // Regresszio: a ci_confirmed=1 CSAK a runs>0 (else) agra kerulhet -- kulonben
+  // az UNKNOWN/nem-latok-oda esetek utan az EMPTY-grace blokk kimaradna.
+  it('a ci_confirmed=1 az else (runs>0) aghoz kotott, nem felteteltelen', () => {
+    const idx = script.indexOf('ci_confirmed=1   # van futas')
+    expect(idx).toBeGreaterThan(-1)
+    const before = script.slice(0, idx)
+    // a legkozelebbi megelozo strukturalis kulcsszo az `else` legyen, ne `fi`
+    const lastElse = before.lastIndexOf('\n        else')
+    const lastFi = before.lastIndexOf('\n        fi')
+    expect(lastElse).toBeGreaterThan(lastFi)
+  })
+})
+
 describe('land-pr.sh: a merge eredmenyet a FORRASTOL kerdezi, nem talalgatja', () => {
   const script = readFileSync(LAND_PR, 'utf8')
   const code = executableBashLines(script)

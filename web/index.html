@@ -279,6 +279,14 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
             <span class="sb-label" data-i18n="nav.photos">Fotók</span>
           </a>
+          <!-- Git-tarolok: a Drive es a Fotok testvere, mert ugyanaz a dolguk --
+               leszinkronizalt TARTALOM, amit a Raktarban nezunk meg. Nem uj
+               szinkron es nem uj klon: a lap azt mutatja meg, ami a
+               Rendszer/Tarolok/Git ala mar lejott (Boss, 2026-09-11). -->
+          <a href="#" class="sb-link" data-page="gitrepos">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+            <span class="sb-label" data-i18n="nav.gitrepos">Git tárolók</span>
+          </a>
         </div>
       </div>
       <a href="#" class="sb-link sb-link-settings" data-page="irodaSettings">
@@ -2379,6 +2387,65 @@
             <button class="btn-secondary btn-compact" id="mconnCancelBtn" data-i18n="common.cancel">Mégse</button>
           </div>
           </div>
+
+          <!-- === Automatikus kitoltes (bongeszo-kiterjesztes) ===
+               A kartya (#96, 21311fdb) keresere: a Vault a TAR, ez a lap a
+               HASZNALAT kezdete. A vault-ban mar ott van a jelszo; innen lehet
+               odaadni a bongeszonek ugy, hogy a jelszo NEM kerul at masolassal.
+               EXTRA funkcio -- semleges szinnel, mert nelkule is mukodik minden.
+               Sajat `accounts-section`-t NEM kap: a Fiokok lap EGY panel
+               (accounts-one-panel.test.ts), ez is annak egy blokkja. -->
+          <div class="acc-block" id="autofillSection">
+            <div class="acc-block-title" data-i18n="autofill.title">Automatikus kitöltés a böngészőben</div>
+            <p class="claude-auth-warn" data-i18n="autofill.lead">Ha egy weboldal belépőjét elmentetted a Vaultba, a böngésződ ki tudja tölteni onnan a felhasználónevet és a jelszót -- nem a böngésző saját jelszókezelőjéből, hanem a Marveen Vaultjából. Ehhez egy kis kiegészítő kell a böngészőbe, és egy egyszeri párosítás. Extra kényelmi funkció: nélküle is minden működik, csak kézzel kell másolgatni.</p>
+            <div class="acc-block-subtitle" data-i18n="autofill.setup_title">Beállítás három lépésben</div>
+            <ol class="claude-auth-steps">
+              <li>
+                <span data-i18n="autofill.step1">Töltsd le a kiegészítőt, és csomagold ki egy olyan mappába, ami megmarad (a böngésző onnan fogja betölteni).</span>
+                <div class="claude-auth-linkrow">
+                  <button class="btn-primary btn-compact" id="autofillDownloadBtn" data-i18n="autofill.download_btn">Kiegészítő letöltése</button>
+                  <span class="claude-auth-state" id="autofillDownloadState"></span>
+                </div>
+              </li>
+              <li>
+                <span data-i18n="autofill.step2">Chrome (vagy Edge): nyisd meg a bővítmények oldalát, kapcsold be jobb fent a „Fejlesztői módot”, nyomd meg a „Kicsomagolt bővítmény betöltése” gombot, és válaszd ki a kicsomagolt mappát.</span>
+                <div class="claude-auth-linkrow">
+                  <code class="autofill-copyable" id="autofillExtUrl">chrome://extensions</code>
+                  <button class="btn-secondary btn-compact" id="autofillExtUrlCopyBtn" data-i18n="autofill.copy">Másolás</button>
+                </div>
+                <p class="claude-auth-warn" data-i18n="autofill.step2_hint">A böngésző biztonsági okból nem engedi, hogy erre a címre innen rákattints -- másold ki, és illeszd be a böngésző címsorába.</p>
+              </li>
+              <li>
+                <span data-i18n="autofill.step3">Kattints a kiegészítő ikonjára. A „Marveen címe” mezőbe ez kerüljön:</span>
+                <div class="claude-auth-linkrow">
+                  <code class="autofill-copyable" id="autofillBaseUrl"></code>
+                  <button class="btn-secondary btn-compact" id="autofillBaseUrlCopyBtn" data-i18n="autofill.copy">Másolás</button>
+                </div>
+                <span data-i18n="autofill.step3b">A „Párosítási kód” mezőbe pedig az, amit ez a gomb ad:</span>
+                <div class="claude-auth-linkrow">
+                  <button class="btn-primary btn-compact" id="autofillPairBtn" data-i18n="autofill.pair_btn">Új párosítási kód</button>
+                  <span class="claude-auth-state" id="autofillPairState"></span>
+                </div>
+                <div class="autofill-code-box" id="autofillCodeBox" hidden>
+                  <span class="autofill-code" id="autofillCode"></span>
+                  <button class="btn-secondary btn-compact" id="autofillCodeCopyBtn" data-i18n="autofill.copy">Másolás</button>
+                  <span class="claude-auth-state" id="autofillCodeExpiry"></span>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="autofill.browsers_title">Párosított böngészők</div>
+            <p class="claude-auth-warn" data-i18n="autofill.browsers_lead">Ezek a böngészők kérhetnek jelszót a Vaultból. Mindegyik csak ahhoz a kártyához jut hozzá, aminek a címe megegyezik azzal az oldallal, amin éppen áll -- és csak akkor, ha te (vagy a beállítás) rábólintasz. Ha egy gépet eladsz vagy elveszítesz, itt vedd le a hozzáférését.</p>
+            <div class="claude-auth-list" id="autofillClientList"></div>
+          </div>
+
+          <div class="acc-block">
+            <div class="acc-block-title" data-i18n="autofill.log_title">Mi történt</div>
+            <p class="claude-auth-warn" data-i18n="autofill.log_lead">Minden kiadott és minden megtagadott jelszó bekerül ide, a legutóbbi legfelül. A jelszó maga sehol nem szerepel, csak az, melyik kártyából, melyik oldalra ment.</p>
+            <div class="claude-auth-list" id="autofillEventList"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -3093,11 +3160,11 @@
       <div class="card" id="intezoInfoCard" hidden>
         <h2 data-i18n="intezo.info_title">Részletes információ</h2>
 
-        <!-- ELONEZET: csak akkor latszik, ha a kijelolt fajl tipusa a
-             bongeszoben kozvetlenul megjelenitheto (PDF/kep/video/szoveg,
-             kartya #164). Egyeb tipusnal (docx, exe, stb.) rejtve marad -- a
-             letoltes gomb megy helyette. -->
-        <div id="intezoPreviewBox" hidden style="margin:0 0 14px"></div>
+        <!-- ELONEZET: a kijelolt fajl tartalma NEM itt, az info-panelben
+             jelenik meg, hanem egy kulon, MOZGATHATO lebego ablakban
+             (#intezoPreviewWindow, a body vegen jon letre futasidoben) --
+             kartya 58ceda58, Boss 2026-09-11. Az "Elonezet" akciogomb es egy
+             elonezheto fajl kijelolese nyitja meg. -->
 
         <table style="width:100%;font-size:14px">
           <tbody id="intezoInfoRows"></tbody>
@@ -3271,6 +3338,34 @@
         </div>
         <div class="photo-lightbox-stage" id="photoLightboxStage"></div>
       </div>
+    </div>
+
+    <!-- === Git tarolok (Raktar) === -->
+    <!-- Ez a lap NEM szinkronizal ujra es NEM klonoz: azt mutatja meg, ami a
+         git-sync utolso menetebol mar a lemezen van. Feltoltes/push
+         SZANDEKOSAN nincs rajta -- a szinkron csak lefele huz, es a helyben
+         modositott repot kihagyja. -->
+    <div class="page" id="gitreposPage" hidden>
+      <div class="page-header">
+        <div class="page-header-row">
+          <div>
+            <h1 data-i18n="gitrepos.page_title">Git tárolók</h1>
+            <p class="subtitle" data-i18n="gitrepos.page_subtitle">A leszinkronizált git tárolók és az, hogy mikor frissültek utoljára</p>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-secondary" id="gitreposSyncBtn" data-i18n="gitrepos.sync_now">Szinkron most</button>
+          </div>
+        </div>
+        <p class="gitrepos-lastrun" id="gitreposLastRun"></p>
+      </div>
+
+      <!-- A NULLA TOBB DOLGOT JELENTHET. Ez a doboz mondja meg, MELYIKET:
+           sose futott / nem olvashato a naplo / nem jarhato be a tarolo-gyoker
+           / nincs bekotve git-fiok / fut, csak meg nincs repo. Mind kulon
+           mondat, es csak az egyik "minden rendben". -->
+      <div class="info-box" id="gitreposStateBox" hidden></div>
+
+      <div id="gitreposList"></div>
     </div>
 
     <!-- === Debate (Vitaztatas) Page === -->
@@ -5242,46 +5337,63 @@
              ITT jelenik meg, ahol a muvelet tortent -- nem egy masik kartyan. -->
         <div id="cbCandRestart"></div>
 
-        <details style="margin-top:20px">
-          <summary style="cursor:pointer;font-size:13px">Kézi felvétel — ha a mappa nincs a fenti listában</summary>
-          <p class="subtitle" style="margin-top:8px">
-            Erre ritkán van szükség: akkor, ha a projekt egy <strong>másik gépen</strong> van, vagy ha
-            saját nevet akarsz adni egy már felvett mappának (ugyanazt a mappát újra felvéve
-            átírod a nevét). Ami a fenti listában ott van, azt <strong>ne</strong> gépeld be.
+        <!-- A reszletezot a felulet NYITVA hagyja, ha a fenti felderitett lista
+             ures (friss telepites): olyankor ez az EGYETLEN ut, amin a
+             munkamappa bekerul, es egy osszecsukott blokk mogott a felhasznalo
+             zsakutcat lat. Lasd `cbCandidatesBox` kezelese az app.js-ben. -->
+        <details style="margin-top:20px" id="cbManualAdd">
+          <summary style="cursor:pointer;font-size:13px" data-i18n="cb.manual.title">Munkamappa hozzáadása kézzel vagy tallózással</summary>
+          <p class="subtitle" style="margin-top:8px" data-i18n-html="cb.manual.intro">
+            Itt választhatod ki a <strong>gyökérmappát</strong>, amiben az ágens dolgozhat. Tallózz rá a
+            <em>Tallózás</em> gombbal — gépelni nem kell. Kézi begépelésre csak akkor van szükség, ha a
+            projekt olyan gépen van, ahol nem fut a végrehajtó.
           </p>
 
           <div class="cb-field">
-            <label for="cbAddProject">Projekt neve <span class="cb-req">kötelező</span></label>
-            <input id="cbAddProject" class="input" placeholder="pl. tradingbot">
-            <span class="cb-hint">Ezt a nevet fogod használni: <code>/code tradingbot javítsd ki a bejelentkezést</code>.
+            <label for="cbAddProject"><span data-i18n="cb.manual.name_label">Projekt neve</span> <span class="cb-req" data-i18n="cb.manual.required">kötelező</span></label>
+            <input id="cbAddProject" class="input" data-i18n-placeholder="cb.manual.name_ph" placeholder="pl. tradingbot">
+            <span class="cb-hint" data-i18n-html="cb.manual.name_hint">Ezt a nevet fogod használni: <code>/code tradingbot javítsd ki a bejelentkezést</code>.
               Bármi lehet, de legyen rövid, ékezet és szóköz nélkül.</span>
           </div>
 
           <div class="cb-field">
-            <label for="cbAddWorkspace">A projekt mappája <span class="cb-req">kötelező</span></label>
-            <input id="cbAddWorkspace" class="input" placeholder="C:\Projects\TradingBot">
-            <span class="cb-hint">A <strong>gyökérmappa</strong> azon a gépen, ahol a végrehajtó fut — pontosan az,
-              amit a VS Code megnyitott. Kiírva: VS Code → jobb gomb a felső mappán a bal oldali fában
-              → <em>Copy Path</em>, és illeszd be ide.</span>
+            <label for="cbAddWorkspace"><span data-i18n="cb.manual.folder_label">A projekt mappája</span> <span class="cb-req" data-i18n="cb.manual.required">kötelező</span></label>
+            <div class="cb-browse-row">
+              <input id="cbAddWorkspace" class="input" data-i18n-placeholder="cb.manual.folder_ph" placeholder="C:\Projects\TradingBot">
+              <button class="btn-secondary btn-compact" id="cbBrowseBtn" type="button" data-i18n="cb.manual.browse">Tallózás…</button>
+            </div>
+            <span class="cb-hint" data-i18n-html="cb.manual.folder_hint">A <strong>gyökérmappa</strong> azon a gépen, ahol a végrehajtó fut — pontosan az,
+              amit a VS Code megnyitott. A <em>Tallózás</em> a végrehajtó gépét járja be, ezért csak akkor
+              működik, ha a végrehajtó fut.</span>
           </div>
 
           <div class="cb-field">
-            <label for="cbAddSession">Session-azonosító (UUID) <span class="cb-opt">általában üresen hagyható</span></label>
-            <input id="cbAddSession" class="input" placeholder="hagyd üresen — magunk töltjük ki">
-            <span class="cb-hint">Ez mondja meg, <strong>melyik beszélgetést</strong> folytassa a feladat. Ha a
+            <label for="cbAddSession"><span data-i18n="cb.manual.session_label">Session-azonosító (UUID)</span> <span class="cb-opt" data-i18n="cb.manual.optional">általában üresen hagyható</span></label>
+            <input id="cbAddSession" class="input" data-i18n-placeholder="cb.manual.session_ph" placeholder="hagyd üresen — magunk töltjük ki">
+            <span class="cb-hint" data-i18n-html="cb.manual.session_hint">Ez mondja meg, <strong>melyik beszélgetést</strong> folytassa a feladat. Ha a
               végrehajtó látja a fenti mappát, mi töltjük ki — hagyd üresen. Csak akkor kérjük,
               ha a mappa másik gépen van: olyankor a VS Code Claude Code panelbe írt
               <code>/status</code> mutatja meg.</span>
           </div>
 
           <div style="margin-top:12px">
-            <button class="btn-secondary btn-compact" id="cbAddBtn">Felvétel</button>
+            <button class="btn-secondary btn-compact" id="cbAddBtn" data-i18n="cb.manual.add">Felvétel</button>
             <span id="cbAddStatus" class="subtitle" style="margin-left:8px"></span>
           </div>
-          <p class="subtitle" style="margin-top:8px">
-            A <strong>kitűzve</strong> azt jelenti, hogy a felderítés ezt a sort többé nem írja át.
-          </p>
         </details>
+
+        <!-- A TALLOZO. Nem kulon ablak: a lista ide nyilik ki, hogy a valasztott
+             ut azonnal a fenti mezoben legyen lathato. -->
+        <div id="cbBrowseBox" class="cb-browse-box" hidden>
+          <div class="cb-browse-head">
+            <button class="btn-secondary btn-compact" id="cbBrowseUp" type="button" data-i18n="cb.browse.up">↑ Feljebb</button>
+            <code id="cbBrowsePath" class="cb-browse-path"></code>
+            <button class="btn-secondary btn-compact" id="cbBrowsePick" type="button" data-i18n="cb.browse.pick">Ezt választom</button>
+            <button class="btn-secondary btn-compact" id="cbBrowseClose" type="button" data-i18n="cb.browse.close">Bezárás</button>
+          </div>
+          <div id="cbBrowseList" class="cb-browse-list"></div>
+          <div id="cbBrowseStatus" class="subtitle cb-browse-status"></div>
+        </div>
       </div>
 
         </div>
