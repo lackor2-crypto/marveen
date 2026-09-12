@@ -36,6 +36,7 @@ set -euo pipefail
 
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CI_VERDICT="$BASE/scripts/lib/ci-verdict.mjs"
+EMPTY_DIAG="$BASE/scripts/lib/empty-run-diagnosis.mjs"
 
 die() { echo "land-pr: HIBA -- $*" >&2; exit 1; }
 
@@ -75,6 +76,7 @@ done
 command -v gh >/dev/null 2>&1 || die "a 'gh' CLI nincs telepitve."
 command -v node >/dev/null 2>&1 || die "a 'node' nincs telepitve -- a CI-allapot ertelmezesehez kell."
 [ -f "$CI_VERDICT" ] || die "hianyzik a CI-verdikt parser: $CI_VERDICT"
+[ -f "$EMPTY_DIAG" ] || die "hianyzik az ures-rollup diagnoszta: $EMPTY_DIAG"
 
 # Melyik worktree-bol futunk? (a bare top-level nem jo -- ott nincs HEAD)
 git rev-parse --show-toplevel >/dev/null 2>&1 \
@@ -269,14 +271,52 @@ while true; do
           ''|*[!0-9]*) die "a 'gh run list' valasza nem szam ('$runs'), ezert nem tudom eldonteni, indult-e CI-futas. A PR nyitva marad: $PR_URL" ;;
         esac
         if [ "$runs" -eq 0 ]; then
-          # (b) Most mar BIZTOS: a lekerdezes sikerult, es tenyleg nulla futas van.
-          msg="${EMPTY_GRACE}s alatt egyetlen CI-futas sem indult el ezen a branchen ($BRANCH), es a 'gh run list' SIKERES lekerdezese is nulla futast talalt. "
-          msg="${msg}Ez azt jelenti, hogy a GitHub Actions ki van kapcsolva ezen a repon/fork-on -- a rollup ilyenkor orokre ures marad. "
-          msg="${msg}Teendo: GitHub -> Settings -> Actions -> General -> 'Allow all actions and reusable workflows', majd pushold ujra a branchet (PR nyitva: $PR_URL). "
-          msg="${msg}Vagy landolj kezzel, miutan lokalisan zold a teljes suite: 'npm test' -> 'gh pr merge $PR_URL --squash' (a remote branchet utana: git push origin --delete $BRANCH)."
-          die "$msg"
+          # A nulla futas ONMAGABAN nem "Actions kikapcsolva". Egy UTKOZO PR-en
+          # (a main moge maradt + azonos fajlok) a GitHub el sem inditja a
+          # workflow-t -> ugyanaz az ures rollup. Ezert a PR merge-allapotabol
+          # dontunk, mielott diagnosztizalnank. HAROM allapot, kulon-kulon.
+          set +e
+          mrg_json="$(gh pr view "$PR_URL" -R "$REPO" --json mergeable,mergeStateStatus 2>&1)"
+          mrg_rc=$?
+          set -e
+          if [ "$mrg_rc" -ne 0 ]; then
+            # (c) NEM LATOK ODA: a merge-allapotot sem tudom lekerdezni. Nem
+            # diagnosztizalok se utkozest, se kikapcsolt Actions-t -- tovabb
+            # pollozok, a lenti deadline zarja le.
+            echo "land-pr: a rollup ures, es a PR merge-allapotat sem tudom lekerdezni ('gh pr view' exit $mrg_rc), ezert nem diagnosztizalok -- ujraprobalom. $mrg_json" >&2
+          else
+            set +e
+            diag="$(printf '%s' "$mrg_json" | node "$EMPTY_DIAG" 2>&1)"
+            diag_rc=$?
+            set -e
+            [ "$diag_rc" -eq 0 ] \
+              || die "az ures-rollup diagnozist nem sikerult ertelmezni (empty-run-diagnosis kilepokod $diag_rc): $diag. A PR nyitva marad: $PR_URL"
+            case "$diag" in
+              CONFLICT)
+                # (1) UTKOZO PR: a workflow ezert nem indult el, NEM azert, mert
+                # nincs Actions. A teendo rebase, nem az Actions-kapcsolo.
+                msg="${EMPTY_GRACE}s alatt egyetlen CI-futas sem indult el, mert a PR UTKOZIK a main-nel -- egy utkozo (a main moge maradt, azonos fajlokat erinto) PR-en a GitHub el sem inditja a workflow-t, ezert marad ures a rollup. "
+                msg="${msg}Teendo: hozd naprakeszre es oldd fel az utkozest -- 'git fetch origin main && git rebase origin/main', oldd fel a konfliktusokat, majd 'git push --force-with-lease origin HEAD:$BRANCH'. Ezutan a CI magatol elindul (PR nyitva: $PR_URL)."
+                die "$msg" ;;
+              UNKNOWN)
+                # (2) HARMADIK allapot: a GitHub meg szamolja a mergeable-t (push
+                # utan par masodpercig UNKNOWN). NEM vesszuk tiszta-allapotnak --
+                # tovabb pollozok; a lenti deadline zarja le, tehat nem vegtelen.
+                echo "land-pr: a rollup ures, de a GitHub meg szamolja a PR merge-allapotat (UNKNOWN) -- varok es ujraprobalom." >&2 ;;
+              ACTIONS_OFF)
+                # (3) TISZTA PR ES nulla futas -> most mar BIZTOS: Actions kikapcsolva.
+                msg="${EMPTY_GRACE}s alatt egyetlen CI-futas sem indult el ezen a branchen ($BRANCH), a PR nem utkozik, es a 'gh run list' SIKERES lekerdezese is nulla futast talalt. "
+                msg="${msg}Ez azt jelenti, hogy a GitHub Actions ki van kapcsolva ezen a repon/fork-on -- a rollup ilyenkor orokre ures marad. "
+                msg="${msg}Teendo: GitHub -> Settings -> Actions -> General -> 'Allow all actions and reusable workflows', majd pushold ujra a branchet (PR nyitva: $PR_URL). "
+                msg="${msg}Vagy landolj kezzel, miutan lokalisan zold a teljes suite: 'npm test' -> 'gh pr merge $PR_URL --squash' (a remote branchet utana: git push origin --delete $BRANCH)." ;;
+              *)
+                die "ismeretlen ures-rollup diagnozis ('$diag'). A PR nyitva marad: $PR_URL" ;;
+            esac
+            [ "$diag" = "ACTIONS_OFF" ] && die "$msg"
+          fi
+        else
+          ci_confirmed=1   # van futas, csak meg nem jelent meg a PR rollupjaban
         fi
-        ci_confirmed=1   # van futas, csak meg nem jelent meg a PR rollupjaban
       fi
       ;;
   esac
