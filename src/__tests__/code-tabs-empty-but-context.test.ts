@@ -61,6 +61,10 @@ const harness = `
   // sorba beleker valami. Az idoformazas nem ennek a tesztnek a targya.
   function formatRelative(ts) { return 'relativ:' + ts }
   ${extractFn(app, 'cbFmtKTokens')}
+  // A ful-sor melletti jelzot 2026-09-12 ota kulon segedfuggveny rajzolja
+  // (a kezi radiogomb helyet vette at) -- a sorokat rajzolo fuggvenyek hivjak,
+  // ezert a harnessbe is be kell emelni, kulonben nem is futnak le.
+  ${extractFn(app, 'cbTabMark')}
   ${extractFn(app, 'cbTabRows')}
   ${extractFn(app, 'cbHasTabRows')}
   ${extractFn(app, 'cbTabsEmptyHasCtx')}

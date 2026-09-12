@@ -41,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-12.1'
+$script:WorkerVersion = '2026-09-12.2'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -517,6 +517,7 @@ function Publish-Sessions {
   $resp = Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $body
   Write-Log ('sessions reported: ' + ($resp.registered -join ', '))
   Close-RequestedSessions -Requested $resp.closeSessions -Sessions $sessions
+  Invoke-BrowseRequests -Requested $resp.browseRequests
 }
 
 # EGY BESZELGETES BEZARASA a vezerlopultrol.
@@ -529,6 +530,77 @@ function Publish-Sessions {
 # elotte MEGGYOZODUNK rola, hogy tenyleg az a beszelgetes fut alatta -- a PID
 # ujrahasznosul, es egy tevedesbol kilott idegen folyamat sokkal rosszabb, mint
 # egy vegre nem hajtott kattintas.
+# MAPPA-TALLOZAS A VEZERLOPULT SZAMARA.
+#
+# Boss, 2026-09-12: "a gyokermappat kivalasztani kitallozva lehessen."
+#
+# A Marveen a WSL-ben fut, es ezen a gepen a `/mnt/c` bejarasa EIO-val all le --
+# a szerver tehat NEM tudja maga felsorolni a Windows-mappakat. Mi itt futunk,
+# ahol a mappak vannak, ezert a felsorolas a mi dolgunk. A kerest a jelentes
+# valasza hozza (nincs nyitott portunk), az eredmenyt kulon POST viszi vissza.
+#
+# CSAK MAPPAKAT adunk vissza: munkamappat valasztunk, nem fajlt.
+#
+# A HIBAT SZO SZERINT kuldjuk el. Egy "nincs jogosultsag" es egy "nincs ilyen
+# mappa" ket kulonbozo teendo; kitalalt ok rosszabb a semminel.
+function Invoke-BrowseRequests {
+  param($Requested)
+  if (-not $Requested) { return }
+  foreach ($r in @($Requested)) {
+    if (-not $r -or -not $r.id) { continue }
+    $reqPath = ''
+    if ($r.path) { $reqPath = [string]$r.path }
+    $entries = New-Object System.Collections.ArrayList
+    $ok = $false
+    $errText = $null
+    $parent = $null
+    try {
+      if ([string]::IsNullOrWhiteSpace($reqPath)) {
+        # KIINDULOPONT: a gep meghajtoi. Ezt sem gepelheti be senki, es a
+        # `Get-PSDrive` csak a valoban letezoket adja vissza.
+        foreach ($d in (Get-PSDrive -PSProvider FileSystem -ErrorAction Stop)) {
+          $root = [string]$d.Root
+          if ([string]::IsNullOrWhiteSpace($root)) { continue }
+          [void]$entries.Add(@{ name = $root; path = $root; isRepo = $false })
+        }
+        $ok = $true
+      } else {
+        if (-not (Test-Path -LiteralPath $reqPath -PathType Container)) {
+          throw ('Nincs ilyen mappa a vegrehajto gepen / No such folder on the executor machine: ' + $reqPath)
+        }
+        $parentItem = (Get-Item -LiteralPath $reqPath -ErrorAction Stop).Parent
+        if ($parentItem) { $parent = [string]$parentItem.FullName }
+        foreach ($d in (Get-ChildItem -LiteralPath $reqPath -Directory -Force -ErrorAction Stop)) {
+          # A rejtett/rendszer-mappak csak zajt adnanak a valasztashoz -- a
+          # `.git` maga nem munkamappa. A `.`-tal kezdodoeket ezert kihagyjuk,
+          # de a `.git` LETET jelezzuk: ebbol latszik, melyik a projekt gyokere.
+          if ($d.Name.StartsWith('.')) { continue }
+          $isRepo = $false
+          try { $isRepo = Test-Path -LiteralPath (Join-Path $d.FullName '.git') } catch { $isRepo = $false }
+          [void]$entries.Add(@{ name = $d.Name; path = $d.FullName; isRepo = $isRepo })
+        }
+        $ok = $true
+      }
+    } catch {
+      $ok = $false
+      $errText = $_.Exception.Message
+    }
+    # A PS 5.1 EGY elemu tombot csupasz objektumma lapit -- a szerver ilyenkor
+    # nem listat kapna. Ezert a tombot kezzel epitjuk fel, barhany elemmel.
+    $entriesJson = '[' + ((@($entries) | ForEach-Object { $_ | ConvertTo-Json -Depth 4 -Compress }) -join ',') + ']'
+    $body = '{"ok":' + $(if ($ok) { 'true' } else { 'false' }) +
+      ',"entries":' + $entriesJson +
+      ',"parent":' + $(if ($parent) { ($parent | ConvertTo-Json -Compress) } else { 'null' }) +
+      ',"error":' + $(if ($errText) { ($errText | ConvertTo-Json -Compress) } else { 'null' }) + '}'
+    try {
+      Invoke-Bridge -Path ('/api/code/browse-result/' + $r.id) -Method 'POST' -RawBody $body | Out-Null
+      Write-Log ('browse answered: ' + $reqPath + ' (ok=' + $ok + ', n=' + $entries.Count + ')')
+    } catch {
+      Write-Log ('browse result POST failed: ' + $_.Exception.Message) 'WARN'
+    }
+  }
+}
+
 function Close-RequestedSessions {
   param($Requested, $Sessions)
   if (-not $Requested) { return }

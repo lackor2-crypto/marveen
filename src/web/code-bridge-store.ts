@@ -33,6 +33,11 @@
 // same time and a task claimed for `tradingbot` can never land in `marvin`.
 
 import { checkCardWork, cardWorkNotice, type CardWorkNotice } from './card-work-guard.js'
+import {
+  browseStatus, windowsParent,
+  BROWSE_TTL_MS, BROWSE_PICKUP_TTL_MS,
+  type BrowseEntry, type BrowseResult,
+} from './code-folder-browse.js'
 import { randomUUID } from 'node:crypto'
 import { getDb } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
@@ -317,6 +322,50 @@ export function listCodeSessions(): CodeSession[] {
   ensureTables()
   const rows = getDb().prepare(`SELECT * FROM code_sessions ORDER BY project`).all() as Record<string, unknown>[]
   return rows.map(rowToSession)
+}
+
+/** MELYIK BESZELGETESBEN DOLGOZOTT AZ AGENS -- merve, nem beallitva.
+ *
+ *  Boss, 2026-09-12: "ne kelljen jelolgetni semmit, hanem automatikusan az
+ *  legyen jelolve amit a agent hasznal. az a chat. es user ne tudja jelolgetni."
+ *  A kartyan eddig egy radiogomb allitotta a `code_sessions.session_id`-t
+ *  (`pinned: true`), tehat a jeloles azt mutatta, amit a FELHASZNALO valasztott.
+ *  Mostantol azt mutatja, amit az AGENS tenylegesen hasznalt.
+ *
+ *  A forras a `code_tasks.session_id`: ezt a claim tolti ki, a befejezes pedig
+ *  atallitja arra, amiben a futas VEGZODOTT (lasd routes/code.ts,
+ *  `resultSessionId`) -- egy `startFresh` futasnal tehat a frissen nyitott
+ *  beszelgetest nevezi meg, nem a regit.
+ *
+ *  A futo feladat eros: ha epp fut valami, AZ az aktualis. Ha nem fut semmi, a
+ *  LEGUTOBBI futas beszelgetese marad jelolve a kovetkezo futasig (Boss
+ *  valasztasa, 2026-09-12).
+ *
+ *  `null` KET dolgot NEM keverhet ossze: itt kizarolag azt jelenti, hogy ehhez
+ *  a projekthez MEG EGYSZER SEM futott feladat (friss telepites). A hivo ezt
+ *  meg tudja kulonboztetni a bekotestol -- lasd `currentSource` a
+ *  /api/code/projects valaszban.
+ */
+export function lastAgentRunSession(project: string): {
+  sessionId: string
+  taskId: string
+  at: number
+  running: boolean
+} | null {
+  ensureTables()
+  const row = getDb()
+    .prepare(
+      `SELECT id, session_id, status, COALESCE(started_at, created_at) AS at
+         FROM code_tasks
+        WHERE project = ?
+          AND session_id IS NOT NULL AND session_id != ''
+          AND status IN ('running', 'done', 'error', 'cancelled')
+        ORDER BY (status = 'running') DESC, at DESC
+        LIMIT 1`,
+    )
+    .get(project) as { id: string; session_id: string; status: string; at: number } | undefined
+  if (!row) return null
+  return { sessionId: row.session_id, taskId: row.id, at: Number(row.at) || 0, running: row.status === 'running' }
 }
 
 export function getCodeSession(project: string): CodeSession | null {
@@ -1617,6 +1666,81 @@ export function takeCodeTabCloseRequests(now = Date.now()): string[] {
     codeTabCloseRequests.delete(id)
   }
   return out
+}
+
+/* ===================== MAPPA-TALLOZAS (kartya: agens-munkamappa) =====================
+ *
+ * Ugyanaz a csatorna, mint a ful-bezarasnal: a KERES a jelentes valaszaval megy
+ * ki a Windows-gepre, az EREDMENY egy kulon POST-tal jon vissza. Memoriaban
+ * tartjuk, nem adatbazisban -- egy tallozas masodpercekig el, es egy
+ * ujrainditas utan a felhasznalo ugyis ujra rakattint. A dontesi logika a
+ * `code-folder-browse.ts`-ben ul, hogy adatbazis nelkul is tesztelheto legyen.
+ */
+const codeBrowseRequests = new Map<string, BrowseResult>()
+
+/** Csak teszthez. */
+export function _resetCodeBrowseRequests(): void { codeBrowseRequests.clear() }
+
+/** UJ TALLOZAS-KERES. Ures `path` = a gep MEGHAJTOI. */
+export function requestFolderBrowse(path: string, now = Date.now()): BrowseResult {
+  // Regi kerteket takaritunk, hogy a terkep ne nojon hatartalanul egy hosszan
+  // futo peldanyban.
+  for (const [id, r] of codeBrowseRequests) {
+    if (now - r.createdAt > BROWSE_TTL_MS * 4) codeBrowseRequests.delete(id)
+  }
+  const id = randomUUID()
+  const req: BrowseResult = {
+    id,
+    path: (path || '').trim(),
+    status: 'pending',
+    parent: null,
+    entries: [],
+    error: null,
+    createdAt: now,
+    answeredAt: null,
+  }
+  codeBrowseRequests.set(id, req)
+  return req
+}
+
+/** A jelentes valaszaba: mit kell most bejarni. A kiadott keresek NEM tunnek
+ *  el (kulonben az eredmenynek nem lenne hova visszajonnie), csak azok maradnak
+ *  ki, amikre mar jott valasz vagy tul regiek. */
+export function takeFolderBrowseRequests(now = Date.now()): { id: string; path: string }[] {
+  const out: { id: string; path: string }[] = []
+  for (const r of codeBrowseRequests.values()) {
+    if (r.answeredAt !== null) continue
+    if (now - r.createdAt > BROWSE_PICKUP_TTL_MS) continue
+    out.push({ id: r.id, path: r.path })
+  }
+  return out
+}
+
+/** A vegrehajto valasza. A hibat SZO SZERINT taroljuk -- a felulet a gep sajat
+ *  mondatat mutatja meg, nem egy kitalalt okot. */
+export function recordFolderBrowseResult(
+  id: string,
+  data: { ok: boolean; entries?: BrowseEntry[]; parent?: string | null; error?: string | null },
+  now = Date.now(),
+): boolean {
+  const req = codeBrowseRequests.get(id)
+  if (!req) return false
+  req.answeredAt = now
+  req.status = data.ok ? 'ok' : 'error'
+  req.entries = Array.isArray(data.entries) ? data.entries : []
+  req.parent = data.parent ?? windowsParent(req.path)
+  req.error = data.ok ? null : ((data.error ?? '').trim() || null)
+  return true
+}
+
+/** A felulet lekerdezese. `null` = ilyen keres nincs (mar kitakaritottuk vagy
+ *  sosem letezett) -- ezt a hivo 404-kent mondja el, nem ures listakent. */
+export function getFolderBrowse(id: string, now = Date.now()): BrowseResult | null {
+  const req = codeBrowseRequests.get(id)
+  if (!req) return null
+  const workers = listCodeWorkers()
+  const seenAt = workers.length > 0 ? Math.max(...workers.map((w) => w.lastSeenAt)) : null
+  return { ...req, status: browseStatus(req, seenAt, now, WORKER_STALE_MS) }
 }
 
 /** A jelentett beszelgetesek projektenkent csoportositva -- ez all a
