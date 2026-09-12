@@ -169,6 +169,44 @@ describe('tallozas: a "nem latok oda" sosem latszik "ures"-nek', () => {
   })
 })
 
+describe('tallozas: a valasz a GYORS csatornan is utazik', () => {
+  // Boss, 2026-09-12, ELES MERES (nem tipp): a `worker.log` szerint a
+  // "sessions reported" sorok PERCENKENT kovetkeznek, a fo ciklus viszont
+  // 3 masodpercenkent ker munkat. Amig a tallozas-keres csak a jelentes
+  // valaszan fert fel, egy mappara kattintas utan a felulet 60 masodpercig
+  // pergett. Egy tallozo, ami egy percig gondolkodik, hasznalhatatlan.
+  const CODE_TS = readFileSync(join(ROOT, 'src', 'web', 'routes', 'code.ts'), 'utf8')
+  const PS1 = readFileSync(join(ROOT, 'scripts', 'windows', 'marvin-code-worker.ps1'), 'utf8')
+
+  it('a claim valasza is viszi a kereseket', () => {
+    const from = CODE_TS.indexOf("path === '/api/code/tasks/claim'")
+    expect(from, 'nincs meg a claim vegpont').toBeGreaterThan(0)
+    const body = CODE_TS.slice(from, CODE_TS.indexOf('const taskMatch', from))
+    expect(body.includes('takeFolderBrowseRequests()'), 'a claim nem adja ki a kereseket').toBe(true)
+    expect(body.includes('browseRequests'), 'a claim valaszaban nincs browseRequests mezo').toBe(true)
+  })
+
+  it('a keres akkor is kimegy, ha EPPEN NINCS munka', () => {
+    // A tallozas fuggetlen a feladatoktol: egy uresjaratban levo gepen is
+    // valaszolnia kell. Ezert a mezot a `task: null` agBAN is ki kell adni --
+    // az `extra` a kettos ag KOZOS resze, tehat a kiadas a szetagazas ELOTT all.
+    const from = CODE_TS.indexOf("path === '/api/code/tasks/claim'")
+    const body = CODE_TS.slice(from, CODE_TS.indexOf('const taskMatch', from))
+    const take = body.indexOf('takeFolderBrowseRequests()')
+    const branch = body.indexOf('if (!task) {')
+    expect(take, 'nincs kiadas a claim-ben').toBeGreaterThan(0)
+    expect(take, 'a kiadas a "nincs munka" ag UTAN all -- uresjaratban nem menne ki').toBeLessThan(branch)
+  })
+
+  it('a vegrehajto a gyors ciklusban is kiszolgalja', () => {
+    expect(PS1.includes('$claim.browseRequests'), 'a fo ciklus nem nezi a claim kereseit').toBe(true)
+    // A LASSU ag SZANDEKOSAN megmarad: ha a claim-hivas elakad, a tallozas
+    // nem hal meg, csak lassabb lesz. Ket csatorna egy funkcióra -- ez itt
+    // nem duplikatum, hanem tartalek.
+    expect(PS1.includes('$resp.browseRequests'), 'a jelentes agan eltunt a tartalek').toBe(true)
+  })
+})
+
 describe('Windows-utak: a szerver Linuxon fut, de Windows-utakat szamol', () => {
   it('a meghajto gyokerebol nincs feljebb', () => {
     expect(windowsParent('C:\\')).toBeNull()
