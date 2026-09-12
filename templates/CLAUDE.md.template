@@ -191,6 +191,33 @@ Ha a CI piros a PR-en: a helper nyitva hagyja a PR-t; javítsd a hibát és push
 újra a branchet -- ne kerüld meg. Vészhelyzeti kapu-kihagyás CSAK a lokális
 gyors-kapunál van (`MARVEEN_SKIP_TEST_GATE=1`); a CI-t megkerülni nem lehet.
 
+### ⛔ SOHA NE DOLGOZZ KÖZVETLENÜL AZ ÉLŐ TREE-BEN ({{OWNER_NAME}}, 2026-09-12)
+
+{{OWNER_NAME}} szó szerint: "sohasem dolgozunk közvetlenül az élő tree ben!
+claude md be és mindenhova."
+
+Az élő checkout (a fő `{{PROJECT_ROOT}}` munkafa, amiből a dashboard fut) **NEM
+fejlesztői munkahely**. TILOS ott közvetlenül szerkeszteni, `git add`-elni,
+commitolni vagy branchet váltani. Minden kód-, skill-, szabály- és
+dashboard-munka **izolált git worktree-ben** történik:
+
+1. `scripts/agent-worktree.sh <név>` -- saját munkakönyvtár + branch. Ott
+   szerkessz, ott futtass tesztet (az élő telepítésen a suite amúgy sem indul
+   el), ott commitolj.
+2. `scripts/land-pr.sh "cím"` -- branch -> PR -> CI zöld -> merge. A fő tree
+   main-jére KÖZVETLEN commit is tilos, nem csak a direkt push.
+3. A landolt kódot a `scripts/deploy-live.sh` viszi ki magától az élő
+   példányra (fetch origin/main -> build -> újraindít).
+
+**Miért visszafordíthatatlan a kár (valós eset, 2026-09-12):** egy VS Code
+session közvetlenül az élő fában commitolt a lokális main-re + 58 fájlt
+stagelt. Mivel a fa eltért origin/main-től, a `deploy-live.sh` MINDEN körben
+"REFUSING to deploy"-t írt (helyesen, nem clobberol kézi munkát), tehát a futó
+app beragadt és a jövőbeni landolások sem jutottak ki, amíg valaki kézzel vissza
+nem állította a fát tiszta origin/main-re. A `no-live-tree-commit` guard hook a
+közvetlen commit/add-ot az élő main checkoutban meg is állítja, és megnevezi a
+helyes utat.
+
 ## Ütemezett feladatok
 
 Az ütemezett feladatok a `~/.claude/scheduled-tasks/` mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.

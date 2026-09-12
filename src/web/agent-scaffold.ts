@@ -1020,6 +1020,12 @@ const AGENT_IDENTITY_BLOCK_RE = new RegExp(
   `${AGENT_IDENTITY_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${AGENT_IDENTITY_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+const NO_LIVE_TREE_BEGIN = '<!-- BEGIN GENERATED: no-live-tree-rule (auto-generated, do not edit by hand) -->'
+const NO_LIVE_TREE_END = '<!-- END GENERATED: no-live-tree-rule -->'
+const NO_LIVE_TREE_BLOCK_RE = new RegExp(
+  `${NO_LIVE_TREE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${NO_LIVE_TREE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 // Builds the text body that goes between the BEGIN/END markers.
 // Single source of truth -- called by both generateClaudeMd() (initial
 // generation) and ensureFleetRosterSection() (idempotent update on respawn).
@@ -2447,6 +2453,110 @@ export function ensureGlobalAgentIdentityRule(): void {
 
   const updated = AGENT_IDENTITY_BLOCK_RE.test(existing)
     ? existing.replace(AGENT_IDENTITY_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+// The seventh mandatory rule. Incident (2026-09-12): a VS Code Claude Code
+// session (Opus 5, git identity "T") worked DIRECTLY in the live checkout
+// (the main PROJECT_ROOT tree, not an isolated worktree): it committed onto
+// the local main branch (92494c4), staged 58 files, and edited 2 tracked
+// files. Because those edits diverge from origin/main, scripts/deploy-live.sh
+// began REFUSING to deploy every tick (by design -- it never clobbers local
+// work), so the running app froze and no future landing could reach it until
+// the tree was reset to a clean origin/main. Boss: "sohasem dolgozunk
+// kozvetlenul az elo tree ben! claude md be es mindenhova."
+function buildNoLiveTreeBody(): string {
+  return [
+    '## SOHA NE DOLGOZZ KOZVETLENUL AZ ELO TREE-BEN',
+    '',
+    'A tulajdonos (2026-09-12): "sohasem dolgozunk kozvetlenul az elo tree ben!',
+    'claude md be es mindenhova."',
+    '',
+    'Az elo checkout (a fo PROJECT_ROOT munkafa, amibol a dashboard fut) NEM',
+    'fejlesztoi munkahely. TILOS ott kozvetlenul szerkeszteni, `git add`-elni,',
+    'commitolni vagy branchet valtani. Minden kod-, skill-, szabaly- es',
+    'dashboard-munka izolalt git worktree-ben tortenik:',
+    '',
+    '1. **Worktree eloszor.** `scripts/agent-worktree.sh <nev>` sajat',
+    '   munkakonyvtarat es branchet ad. Ott szerkessz, ott futtass tesztet',
+    '   (az elo telepitesen a suite amugy sem indul el), ott commitolj.',
+    '2. **Landolas PR-rel.** `scripts/land-pr.sh "cim"` -- branch -> PR -> CI zold',
+    '   -> merge. A `main`-re DIREKT push tilos, es a fo tree main-jere KOZVETLEN',
+    '   commit is tilos.',
+    '3. **A landolt kod magatol jut ki.** A `scripts/deploy-live.sh` (idozitve)',
+    '   fast-forwardolja az elo checkoutot origin/main-re es ujraepit. Ha te',
+    '   kozvetlenul irsz az elo faba, ez a deploy MEGTAGADJA a frissitest (nem',
+    '   clobberol kezi munkat), es a futo app beragad -- pontosan ez tortent',
+    '   2026-09-12-en.',
+    '',
+    'Miert visszafordithatatlan a kar: a beragadt deploy utan a mar landolt PR-ek',
+    'sem jutnak ki a futo apphoz, amig valaki kezzel vissza nem allitja a fat',
+    'tiszta origin/main-re -- az elo faban felejtett staged/commitolt munka pedig',
+    'osszeakad az auto-deploy fast-forwarddal.',
+    '',
+    'Ha veletlenul megis az elo faban kezdtel: NE commitolj/pushol ott. Nyiss',
+    'worktree-t (`scripts/agent-worktree.sh`), vidd at oda a valtoztatast, es',
+    'onnan landolj. A guard hook (`no-live-tree-commit`) a kozvetlen',
+    'commit/add-ot az elo main checkoutban meg is allitja.',
+  ].join('\n')
+}
+
+/** Beviszi a "soha ne dolgozz kozvetlenul az elo tree-ben" doktrinat egy agens
+ *  sajat CLAUDE.md-jebe. A fo agens ezt a gepszintu valtozatbol kapja
+ *  (ensureGlobalNoLiveTreeRule), ugyanugy, mint a tobbi marker-blokkot. */
+export function ensureNoLiveTreeSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${NO_LIVE_TREE_BEGIN}\n${buildNoLiveTreeBody()}\n${NO_LIVE_TREE_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = NO_LIVE_TREE_BLOCK_RE.test(existing)
+    ? existing.replace(NO_LIVE_TREE_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: egy worktree-ben dolgozo agens (es a fo agens) sosem
+ *  olvassa a sajat agents/<nev>/CLAUDE.md-jet, ~/.claude/CLAUDE.md az egyetlen
+ *  fajl, amit minden Claude Code session olvas, barhonnan is fut. */
+export function ensureGlobalNoLiveTreeRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${NO_LIVE_TREE_BEGIN}\n${buildNoLiveTreeBody()}\n${NO_LIVE_TREE_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = NO_LIVE_TREE_BLOCK_RE.test(existing)
+    ? existing.replace(NO_LIVE_TREE_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'
