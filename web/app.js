@@ -5746,9 +5746,14 @@ function cbTabViewBtn(tb, label) {
  *  sessionre is hibatlanul lefut headless modban (merve 2026-08-23, task
  *  139b9c8f) -- csak egy MOST FUTO (elo PID-du) fulnel nem szol bele, mert az
  *  a sajat folyamataban tartja a kontextust. A "lezart" fulek tehat EPP UGY
- *  cimezhetok, mint az elok -- ugyanaz a `cb-tab-radio` + `cbPickSession`
- *  mechanizmus jar ide is, ugyanabban a radio-csoportban (`cbtab-<project>`),
- *  hogy a ketto kolcsonosen kizarja egymast (csak egy lehet "aktualis"). */
+ *  cimezhetok, mint az elok.
+ *
+ *  2026-09-12 OTA NINCS KEZI VALASZTAS. Boss: "user ne tudjon kattintgatni
+ *  jelolni ott a kartyan." A korabbi `cb-tab-radio` + `cbPickSession` par
+ *  (`pinned: true`-val rogzitett valasztas) megszunt; helyette mindket lista
+ *  ugyanazt a PASSZIV jelzot kapja (`cbTabMark`), amit a szerver merese tolt
+ *  ki. Igy is csak egy sor lehet jelolt, de nem azert, mert egy radio-csoport
+ *  kizarja a tobbit, hanem mert egy beszelgetesben dolgozott az agens. */
 function cbClosedTabsHtml(e) {
   const closed = (e.closedTabs || [])
   if (closed.length === 0) return ''
@@ -5774,16 +5779,13 @@ function cbClosedTabsHtml(e) {
     const when = whenAt === null ? ''
       : '<span class="cb-tab-when" title="' + escapeAttr(t(whenKey)) + '">'
         + escapeHtml(formatRelative(whenAt)) + '</span>'
-    return '<label class="cb-tab-row cb-tab-row-closed" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
-      + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
-      + ' value="' + escapeAttr(tb.sessionId) + '"'
-      + ' data-label="' + escapeAttr(label) + '"'
-      + (tb.current ? ' checked' : '') + '>'
+    return '<div class="cb-tab-row cb-tab-row-closed" title="' + escapeAttr(t('cb.card.tabs_id_help', { s: tb.sessionId })) + '">'
+      + cbTabMark(tb, e)
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + ctx
       + when
       + cbTabViewBtn(tb, label)
-      + '</label>'
+      + '</div>'
   }).join('')
   // Boss, 2026-08-31: "csak egyet latok az uj nevu chat fulet. de kozben meg
   // van 4 ful." -- akkor meg lathatosagi hiba volt (opacity .6, 11px egy alig
@@ -5867,45 +5869,54 @@ function cbTabsPickHtml(e) {
       ? '<span class="cb-tab-closed" title="' + escapeAttr(t(notRunningKey + '_help')) + '">'
         + escapeHtml(t(notRunningKey)) + '</span>'
       : ''
-    return '<label class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_pick_help', { s: tb.sessionId })) + '">'
-      + '<input type="radio" class="cb-tab-radio" name="cbtab-' + escapeAttr(e.project || '') + '"'
-      + ' value="' + escapeAttr(tb.sessionId) + '"'
+    return '<div class="cb-tab-row" title="' + escapeAttr(t('cb.card.tabs_id_help', { s: tb.sessionId })) + '"'
       // A PID nem dísz: ebbol tudja a Tomorites/Torles gomb, hogy a ful EPP
       // NYITVA van a VS Code-ban -- egy futo beszelgetesre a headless `/clear`
       // nem hat, es a gombnak ezt meg kell mondania, nem sikert jelentenie.
       + (typeof tb.pid === 'number' && tb.pid > 0 ? ' data-pid="' + escapeAttr(String(tb.pid)) + '"' : '')
-      + ' data-label="' + escapeAttr(label) + '"'
-      + (tb.current ? ' checked' : '') + '>'
+      + ' data-session="' + escapeAttr(tb.sessionId) + '">'
+      + cbTabMark(tb, e)
       + '<span class="cb-tab-title" title="' + escapeAttr(label) + '">' + escapeHtml(label) + '</span>'
       + (ctx ? '<span class="cb-tab-ctx" title="' + escapeAttr(ctxFull) + '">' + escapeHtml(ctx) + '</span>' : '')
       + notRunning
       + idle
       + cbTabViewBtn(tb, label)
       + closeBtn
-      + '</label>'
+      + '</div>'
   }).join('')
   return '<div class="cb-tabs-pick"><div class="cb-tabs-head">' + escapeHtml(t('cb.card.tabs_title')) + '</div>' + rows + '</div>'
 }
 
-/** A valasztott beszelgetes ROGZITESE. `pinned: true` nelkul a felderites egy
- *  percen belul visszaallitana a legfrissebb fulre, es a valasztas hatastalannak
- *  latszana -- ugyanaz a csapda, mint a kartya-levetelnel volt. */
-async function cbPickSession(project, workspacePath, sessionId) {
-  try {
-    const res = await fetch('/api/code/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ project: project, workspacePath: workspacePath, sessionId: sessionId, pinned: true }),
-    })
-    const body = await res.json().catch(function () { return null })
-    if (!res.ok) { showToast(t('cb.card.tabs_pick_failed', { msg: cbErrText(body, res) }), 'error'); return }
-    showToast(t('cb.card.tabs_pick_done'), 'success')
-    await loadCodeBridgeCards()
-    renderAgents()
-  } catch (err) {
-    // A TENYLEGES hibat mondjuk, nem tippet arrol, mi lehetett.
-    showToast(t('cb.card.tabs_pick_failed', { msg: String(err && err.message ? err.message : err) }), 'error')
-  }
+/** A JELOLES, AMIT A FELHASZNALO NEM TUD ALLITANI.
+ *
+ *  Boss, 2026-09-12: "ne kelljen jelolgetni semmit, hanem automatikusan az
+ *  legyen jelolve amit a agent hasznal. az a chat. (...) a lenyeg hogy lassam
+ *  hogy amiben dolgozik annak a chatnek mi a neve. ezert az legyen jelolve de
+ *  user ne tudjon kattintgatni jelolni ott a kartyan."
+ *
+ *  Ezert itt NINCS `<input>`: a sor egy sima jelzo, amin nincs mit kattintani.
+ *  A jelolest a szerver MERI (`lastAgentRunSession`), nem a felhasznalo allitja.
+ *
+ *  HAROM KULONBOZO ALLAPOT, es egyiket sem mossuk ossze a masikkal:
+ *   - `currentRunning`: EPP MOST ebben dolgozik az agens.
+ *   - `currentSource === 'agent_run'`: itt dolgozott UTOLJARA (a jeloles a
+ *     kovetkezo futasig marad -- Boss valasztasa).
+ *   - `currentSource === 'binding'`: MEG EGYSZER SEM futott feladat ehhez a
+ *     projekthez (friss telepites), ezert csak a bekotott beszelgetest tudjuk
+ *     megmutatni. Ez nem ugyanaz, mint hogy "itt dolgozott" -- ki is irjuk.
+ */
+function cbTabMark(tb, e) {
+  if (!tb.current) return '<span class="cb-tab-mark cb-tab-mark-off" aria-hidden="true"></span>'
+  const running = e && e.currentRunning === true
+  const source = (e && e.currentSource) || 'binding'
+  const key = running ? 'cb.card.tab_mark_running'
+    : (source === 'agent_run' ? 'cb.card.tab_mark_last' : 'cb.card.tab_mark_bound')
+  const cls = running ? 'cb-tab-mark-running'
+    : (source === 'agent_run' ? 'cb-tab-mark-last' : 'cb-tab-mark-bound')
+  return '<span class="cb-tab-mark ' + cls + '" role="img"'
+    + ' title="' + escapeAttr(t(key + '_help')) + '"'
+    + ' aria-label="' + escapeAttr(t(key)) + '">'
+    + escapeHtml(t(key)) + '</span>'
 }
 
 /** A kartya levetele. NEM torol se mappat, se beszelgetest -- csak a Marveen
@@ -6195,11 +6206,6 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A "tobbi beszelgetes" reszletezo kinyitasa nem nyithatja ki a
     // beallitas-ablakot is.
     card.querySelector('.cb-tabs-closed')?.addEventListener('click', (ev) => ev.stopPropagation())
-    card.querySelectorAll('.cb-tab-radio').forEach((box) => {
-      box.addEventListener('change', () => {
-        if (box.checked) cbPickSession(e.project, e.workspacePath, box.value)
-      })
-    })
     card.querySelector('.ctx-role-row')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.ctx-current')?.addEventListener('click', (ev) => ev.stopPropagation())
     card.querySelector('.cb-delete-btn')?.addEventListener('click', (ev) => { ev.stopPropagation(); cbDeleteProject(e.project) })
@@ -37262,8 +37268,6 @@ async function _intezoCfgSave() {
             '<td style="padding:6px 8px">' + (p.pinned ? 'igen' : '—') + '</td>' +
             '<td style="padding:6px 8px">' + cbAgo(p.updatedAt) + '</td>' +
             '<td style="padding:6px 8px;white-space:nowrap">' +
-              '<button class="btn-secondary btn-compact cb-pin" data-project="' + escapeAttr(p.project) + '" data-pinned="' + (p.pinned ? '1' : '0') + '">' +
-                (p.pinned ? 'Elenged' : 'Kitűz') + '</button> ' +
               '<button class="btn-secondary btn-compact cb-del" data-project="' + escapeAttr(p.project) + '">Törlés</button>' +
             '</td>' +
           '</tr>'
@@ -37414,6 +37418,111 @@ async function _intezoCfgSave() {
     return norm(a) !== '' && norm(a) === norm(b)
   }
 
+  /* ============================ MAPPA-TALLOZO ============================
+   *
+   * Boss, 2026-09-12: "de valami kezzel kell beirni verzio van. az nem jo.
+   * tehat a gyokermappat kivalasztani kitallozva lehessen."
+   *
+   * A lista NEM a bongeszo gepert jarja be, es nem is a szerverert: a Marveen a
+   * WSL-ben fut, ahol a Windows-mappak nem olvashatok. A bejarast a vegrehajto
+   * vegzi a sajat gepen, ezert a valasz nem azonnali -- a kerest a vegrehajto
+   * kovetkezo jelentese viszi at.
+   *
+   * NEGY ALLAPOT, es egyiket sem mossuk ossze a masikkal: varakozunk /
+   * nem latunk oda (nem fut a vegrehajto) / megnezte es tenyleg ures /
+   * a gep hibat uzent. Az ures lista onmagaban SOHA nem uzenet. */
+  let _cbBrowsePath = ''
+  let _cbBrowseTimer = null
+
+  function cbBrowseEls() {
+    return {
+      box: document.getElementById('cbBrowseBox'),
+      list: document.getElementById('cbBrowseList'),
+      status: document.getElementById('cbBrowseStatus'),
+      pathEl: document.getElementById('cbBrowsePath'),
+      up: document.getElementById('cbBrowseUp'),
+      pick: document.getElementById('cbBrowsePick'),
+      input: document.getElementById('cbAddWorkspace'),
+    }
+  }
+
+  function cbBrowseStop() {
+    if (_cbBrowseTimer) { clearTimeout(_cbBrowseTimer); _cbBrowseTimer = null }
+  }
+
+  /** Egy szint bejarasa. `path` ures = a vegrehajto gep meghajtoi. */
+  async function cbBrowseOpen(path) {
+    cbBrowseStop()
+    const els = cbBrowseEls()
+    if (!els.box) return
+    els.box.hidden = false
+    _cbBrowsePath = String(path == null ? '' : path)
+    if (els.pathEl) els.pathEl.textContent = _cbBrowsePath || t('cb.browse.drives')
+    if (els.list) els.list.innerHTML = ''
+    if (els.status) els.status.textContent = t('cb.browse.waiting')
+    if (els.up) els.up.disabled = _cbBrowsePath === ''
+    let id = ''
+    try {
+      const started = await cbPostJson('/api/code/browse', { path: _cbBrowsePath })
+      id = (started && started.id) || ''
+    } catch (err) {
+      // A TENYLEGES hibat mondjuk el, nem tippet arrol, mi lehetett.
+      if (els.status) els.status.textContent = t('cb.browse.failed', { msg: String(err && err.message ? err.message : err) })
+      return
+    }
+    if (!id) { if (els.status) els.status.textContent = t('cb.browse.failed', { msg: 'no id' }); return }
+    cbBrowsePoll(id)
+  }
+
+  function cbBrowsePoll(id) {
+    cbBrowseStop()
+    const tick = async function () {
+      const els = cbBrowseEls()
+      if (!els.box || els.box.hidden) { cbBrowseStop(); return }
+      let r = null
+      try {
+        const res = await cbFetch('/api/code/browse/' + encodeURIComponent(id))
+        r = await res.json()
+      } catch (err) {
+        if (els.status) els.status.textContent = t('cb.browse.failed', { msg: String(err && err.message ? err.message : err) })
+        return
+      }
+      if (!r || !r.status) return
+      if (r.status === 'pending') {
+        // Meg varunk -- ez NEM ugyanaz, mint hogy ures a mappa.
+        if (els.status) els.status.textContent = t('cb.browse.waiting')
+        _cbBrowseTimer = setTimeout(tick, 1200)
+        return
+      }
+      cbBrowseStop()
+      if (r.status === 'no_worker') { if (els.status) els.status.textContent = t('cb.browse.no_worker'); return }
+      if (r.status === 'expired') { if (els.status) els.status.textContent = t('cb.browse.expired'); return }
+      if (r.status === 'error') {
+        if (els.status) els.status.textContent = t('cb.browse.error', { msg: r.error || '' })
+        return
+      }
+      const entries = r.entries || []
+      if (els.status) els.status.textContent = entries.length === 0 ? t('cb.browse.empty') : ''
+      if (els.list) {
+        els.list.innerHTML = entries.map(function (e) {
+          return '<button type="button" class="cb-browse-item" data-path="' + escapeAttr(e.path) + '">'
+            + '<span class="cb-browse-name">' + escapeHtml(e.name) + '</span>'
+            + (e.isRepo ? '<span class="cb-browse-repo">' + escapeHtml(t('cb.browse.repo')) + '</span>' : '')
+            + '</button>'
+        }).join('')
+      }
+    }
+    tick()
+  }
+
+  /** A kezi/tallozos blokk kinyitasa, ha mashonnan nem johet munkamappa.
+   *  Csak NYIT: ha a felhasznalo becsukta es kozben jott talalat, nem csukjuk
+   *  ra vissza -- egy magatol becsukodo panel ellopja a mar megkezdett gepelest. */
+  function cbOpenManualIfEmpty(empty) {
+    const d = document.getElementById('cbManualAdd')
+    if (d && empty && !d.open) d.open = true
+  }
+
   function cbRenderCandidates(resp) {
     const el = document.getElementById('cbCandidatesBox')
     if (!el) return
@@ -37445,8 +37554,14 @@ async function _intezoCfgSave() {
           + 'Nyiss meg egy projektet VS Code-ban, indíts benne egy Claude Code beszélgetést — egy percen belül itt lesz.'
         : 'Ehhez előbb el kell indulnia a végrehajtónak (lásd a <em>Windows-végrehajtó</em> részt lentebb): '
           + 'ő járja be a gépet, és ő jelenti a mappákat.') + '</p>'
+      // FRISS TELEPITES: ha nincs felderitett mappa, a kezi/tallozos blokk az
+      // EGYETLEN ut, amin a munkamappa bekerul. Osszecsukva a felhasznalo
+      // zsakutcat lat, ezert ilyenkor magatol kinyitjuk. Ha mar van talalat,
+      // nem nyuzsgunk: csak akkor nyitjuk, ha uresen allunk.
+      cbOpenManualIfEmpty(true)
       return
     }
+    cbOpenManualIfEmpty(_cbCandidates.length === 0)
     el.innerHTML = _cbCandidates.map(function (c) {
       const parts = String(c.workspacePath).split(/[\\/]/).filter(function (x) { return x })
       const folder = parts.length ? parts[parts.length - 1] : c.workspacePath
@@ -38166,20 +38281,6 @@ async function _intezoCfgSave() {
       return
     }
 
-    if (tgt.classList.contains('cb-pin')) {
-      const project = tgt.getAttribute('data-project')
-      const pinned = tgt.getAttribute('data-pinned') === '1'
-      const row = _cbProjects.find(function (p) { return p.project === project })
-      if (!row) return
-      try {
-        await cbPostJson('/api/code/projects', {
-          project: row.project, workspacePath: row.workspacePath, sessionId: row.sessionId, pinned: !pinned,
-        })
-        cbRefresh()
-      } catch (err) { showToast('Nem sikerült: ' + err.message, { type: 'error' }) }
-      return
-    }
-
     if (tgt.classList.contains('cb-del')) {
       const project = tgt.getAttribute('data-project')
       if (!confirm('Törlöd a(z) "' + project + '" leképezést? A session maga nem sérül; a felderítés vissza is teheti, ha a workspace nyitva van.')) return
@@ -38233,6 +38334,53 @@ async function _intezoCfgSave() {
       return
     }
 
+    if (tgt.id === 'cbBrowseBtn') {
+      // Onnan indulunk, ami a mezoben all -- ha ures, a meghajtoktol.
+      const cur = document.getElementById('cbAddWorkspace')
+      cbBrowseOpen(cur && cur.value.trim() ? cur.value.trim() : '')
+      return
+    }
+
+    if (tgt.id === 'cbBrowseClose') {
+      cbBrowseStop()
+      const box = document.getElementById('cbBrowseBox')
+      if (box) box.hidden = true
+      return
+    }
+
+    if (tgt.id === 'cbBrowseUp') {
+      // A szulot a szerver szamolta ki (Windows-alaku ut, a Linux `path` modul
+      // ertelmetlenseget csinalna belole); ha nincs, a meghajtok kovetkeznek.
+      const pathEl = document.getElementById('cbBrowsePath')
+      const cur = _cbBrowsePath
+      if (!cur) return
+      const up = cur.replace(/[\\/]+$/, '')
+      const idx = Math.max(up.lastIndexOf('\\'), up.lastIndexOf('/'))
+      const parent = idx > 2 ? up.slice(0, idx) : ''
+      if (pathEl) pathEl.textContent = parent || t('cb.browse.drives')
+      cbBrowseOpen(parent)
+      return
+    }
+
+    if (tgt.id === 'cbBrowsePick') {
+      const input = document.getElementById('cbAddWorkspace')
+      const status = document.getElementById('cbBrowseStatus')
+      if (!_cbBrowsePath) { if (status) status.textContent = t('cb.browse.nothing_picked'); return }
+      if (input) input.value = _cbBrowsePath
+      cbBrowseStop()
+      const box = document.getElementById('cbBrowseBox')
+      if (box) box.hidden = true
+      if (status) status.textContent = ''
+      showToast(t('cb.browse.picked', { p: _cbBrowsePath }), { type: 'success' })
+      return
+    }
+
+    if (tgt.closest && tgt.closest('.cb-browse-item')) {
+      const item = tgt.closest('.cb-browse-item')
+      cbBrowseOpen(item.getAttribute('data-path') || '')
+      return
+    }
+
     if (tgt.id === 'cbAddBtn') {
       const project = document.getElementById('cbAddProject')
       const ws = document.getElementById('cbAddWorkspace')
@@ -38243,14 +38391,14 @@ async function _intezoCfgSave() {
       const wsPath = ws.value.trim()
       const uuid = sid.value.trim()
       const say = function (msg) { if (status) status.textContent = msg }
-      // Elore szolunk, magyarul. A szerver hibauzenete angol, es itt egyenesen
-      // a felhasznalo ele kerulne -- ezt a hatart a lapnak kell allnia.
-      if (!name) { say('Adj nevet a projektnek — ezt írod majd a /code után.'); project.focus(); return }
-      if (!wsPath) { say('Add meg a projekt mappáját (VS Code → jobb gomb a gyökérmappán → Copy Path).'); ws.focus(); return }
+      // Elore szolunk, a felhasznalo nyelven. A szerver hibauzenete angol, es
+      // itt egyenesen a felhasznalo ele kerulne -- ezt a hatart a lapnak kell
+      // allnia. Ezek a mondatok 2026-09-12-ig beegetett magyarok voltak.
+      if (!name) { say(t('cb.manual.err_no_name')); project.focus(); return }
+      if (!wsPath) { say(t('cb.manual.err_no_folder')); ws.focus(); return }
       const known = _cbCandidates.some(function (c) { return cbSamePath(c.workspacePath, wsPath) })
       if (!uuid && !known) {
-        say('Ehhez a mappához a végrehajtó nem jelentett beszélgetést, ezért a session-azonosító most kötelező. '
-          + 'A VS Code Claude Code panelben a /status parancs írja ki.')
+        say(t('cb.manual.err_need_session'))
         sid.focus(); return
       }
       try {
@@ -38258,9 +38406,9 @@ async function _intezoCfgSave() {
           project: name, workspacePath: wsPath, sessionId: uuid, pinned: true,
         })
         project.value = ''; ws.value = ''; sid.value = ''
-        if (status) status.textContent = 'Felvéve.'
+        if (status) status.textContent = t('cb.manual.added')
         cbRefresh()
-      } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
+      } catch (err) { if (status) status.textContent = t('cb.manual.add_failed', { msg: String(err && err.message ? err.message : err) }) }
       return
     }
 

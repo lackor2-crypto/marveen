@@ -5337,46 +5337,63 @@
              ITT jelenik meg, ahol a muvelet tortent -- nem egy masik kartyan. -->
         <div id="cbCandRestart"></div>
 
-        <details style="margin-top:20px">
-          <summary style="cursor:pointer;font-size:13px">Kézi felvétel — ha a mappa nincs a fenti listában</summary>
-          <p class="subtitle" style="margin-top:8px">
-            Erre ritkán van szükség: akkor, ha a projekt egy <strong>másik gépen</strong> van, vagy ha
-            saját nevet akarsz adni egy már felvett mappának (ugyanazt a mappát újra felvéve
-            átírod a nevét). Ami a fenti listában ott van, azt <strong>ne</strong> gépeld be.
+        <!-- A reszletezot a felulet NYITVA hagyja, ha a fenti felderitett lista
+             ures (friss telepites): olyankor ez az EGYETLEN ut, amin a
+             munkamappa bekerul, es egy osszecsukott blokk mogott a felhasznalo
+             zsakutcat lat. Lasd `cbCandidatesBox` kezelese az app.js-ben. -->
+        <details style="margin-top:20px" id="cbManualAdd">
+          <summary style="cursor:pointer;font-size:13px" data-i18n="cb.manual.title">Munkamappa hozzáadása kézzel vagy tallózással</summary>
+          <p class="subtitle" style="margin-top:8px" data-i18n-html="cb.manual.intro">
+            Itt választhatod ki a <strong>gyökérmappát</strong>, amiben az ágens dolgozhat. Tallózz rá a
+            <em>Tallózás</em> gombbal — gépelni nem kell. Kézi begépelésre csak akkor van szükség, ha a
+            projekt olyan gépen van, ahol nem fut a végrehajtó.
           </p>
 
           <div class="cb-field">
-            <label for="cbAddProject">Projekt neve <span class="cb-req">kötelező</span></label>
-            <input id="cbAddProject" class="input" placeholder="pl. tradingbot">
-            <span class="cb-hint">Ezt a nevet fogod használni: <code>/code tradingbot javítsd ki a bejelentkezést</code>.
+            <label for="cbAddProject"><span data-i18n="cb.manual.name_label">Projekt neve</span> <span class="cb-req" data-i18n="cb.manual.required">kötelező</span></label>
+            <input id="cbAddProject" class="input" data-i18n-placeholder="cb.manual.name_ph" placeholder="pl. tradingbot">
+            <span class="cb-hint" data-i18n-html="cb.manual.name_hint">Ezt a nevet fogod használni: <code>/code tradingbot javítsd ki a bejelentkezést</code>.
               Bármi lehet, de legyen rövid, ékezet és szóköz nélkül.</span>
           </div>
 
           <div class="cb-field">
-            <label for="cbAddWorkspace">A projekt mappája <span class="cb-req">kötelező</span></label>
-            <input id="cbAddWorkspace" class="input" placeholder="C:\Projects\TradingBot">
-            <span class="cb-hint">A <strong>gyökérmappa</strong> azon a gépen, ahol a végrehajtó fut — pontosan az,
-              amit a VS Code megnyitott. Kiírva: VS Code → jobb gomb a felső mappán a bal oldali fában
-              → <em>Copy Path</em>, és illeszd be ide.</span>
+            <label for="cbAddWorkspace"><span data-i18n="cb.manual.folder_label">A projekt mappája</span> <span class="cb-req" data-i18n="cb.manual.required">kötelező</span></label>
+            <div class="cb-browse-row">
+              <input id="cbAddWorkspace" class="input" data-i18n-placeholder="cb.manual.folder_ph" placeholder="C:\Projects\TradingBot">
+              <button class="btn-secondary btn-compact" id="cbBrowseBtn" type="button" data-i18n="cb.manual.browse">Tallózás…</button>
+            </div>
+            <span class="cb-hint" data-i18n-html="cb.manual.folder_hint">A <strong>gyökérmappa</strong> azon a gépen, ahol a végrehajtó fut — pontosan az,
+              amit a VS Code megnyitott. A <em>Tallózás</em> a végrehajtó gépét járja be, ezért csak akkor
+              működik, ha a végrehajtó fut.</span>
           </div>
 
           <div class="cb-field">
-            <label for="cbAddSession">Session-azonosító (UUID) <span class="cb-opt">általában üresen hagyható</span></label>
-            <input id="cbAddSession" class="input" placeholder="hagyd üresen — magunk töltjük ki">
-            <span class="cb-hint">Ez mondja meg, <strong>melyik beszélgetést</strong> folytassa a feladat. Ha a
+            <label for="cbAddSession"><span data-i18n="cb.manual.session_label">Session-azonosító (UUID)</span> <span class="cb-opt" data-i18n="cb.manual.optional">általában üresen hagyható</span></label>
+            <input id="cbAddSession" class="input" data-i18n-placeholder="cb.manual.session_ph" placeholder="hagyd üresen — magunk töltjük ki">
+            <span class="cb-hint" data-i18n-html="cb.manual.session_hint">Ez mondja meg, <strong>melyik beszélgetést</strong> folytassa a feladat. Ha a
               végrehajtó látja a fenti mappát, mi töltjük ki — hagyd üresen. Csak akkor kérjük,
               ha a mappa másik gépen van: olyankor a VS Code Claude Code panelbe írt
               <code>/status</code> mutatja meg.</span>
           </div>
 
           <div style="margin-top:12px">
-            <button class="btn-secondary btn-compact" id="cbAddBtn">Felvétel</button>
+            <button class="btn-secondary btn-compact" id="cbAddBtn" data-i18n="cb.manual.add">Felvétel</button>
             <span id="cbAddStatus" class="subtitle" style="margin-left:8px"></span>
           </div>
-          <p class="subtitle" style="margin-top:8px">
-            A <strong>kitűzve</strong> azt jelenti, hogy a felderítés ezt a sort többé nem írja át.
-          </p>
         </details>
+
+        <!-- A TALLOZO. Nem kulon ablak: a lista ide nyilik ki, hogy a valasztott
+             ut azonnal a fenti mezoben legyen lathato. -->
+        <div id="cbBrowseBox" class="cb-browse-box" hidden>
+          <div class="cb-browse-head">
+            <button class="btn-secondary btn-compact" id="cbBrowseUp" type="button" data-i18n="cb.browse.up">↑ Feljebb</button>
+            <code id="cbBrowsePath" class="cb-browse-path"></code>
+            <button class="btn-secondary btn-compact" id="cbBrowsePick" type="button" data-i18n="cb.browse.pick">Ezt választom</button>
+            <button class="btn-secondary btn-compact" id="cbBrowseClose" type="button" data-i18n="cb.browse.close">Bezárás</button>
+          </div>
+          <div id="cbBrowseList" class="cb-browse-list"></div>
+          <div id="cbBrowseStatus" class="subtitle cb-browse-status"></div>
+        </div>
       </div>
 
         </div>

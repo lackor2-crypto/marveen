@@ -11330,8 +11330,27 @@ details.upstream-box > summary > h4 {
    kartyakon is van alatta.") */
 .cb-tabs-pick { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
 .cb-tabs-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; margin-bottom: 2px; }
-.cb-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; padding: 2px 0; }
-.cb-tab-row input { margin: 0; flex: 0 0 auto; }
+/* A SOR NEM KATTINTHATO. Boss, 2026-09-12: "user ne tudjon kattintgatni
+   jelolni ott a kartyan" -- a radiogombok megszuntek, ezert a `cursor: pointer`
+   is: egy kez-kurzor olyan muveletet igerne, ami nincs. A soron BELUL levo
+   gombok (megnyitas, bezaras) sajat kurzort kapnak, azok tovabbra is elnek. */
+.cb-tab-row { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: default; padding: 2px 0; }
+.cb-tab-row button { cursor: pointer; }
+/* A JELZO helyet MINDIG kitoltjuk -- a jeloletlen soroknal egy lathatatlan,
+   azonos szelessegu elemmel --, kulonben a cimek soronkent mas oszlopban
+   kezdodnenek, es a lista olvashatatlanul ugralna. */
+.cb-tab-mark {
+  flex: 0 0 auto;
+  font-size: 11px;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.cb-tab-mark-off { width: 10px; height: 1em; }
+.cb-tab-mark-running { color: var(--ok, #2e9e5b); }
+.cb-tab-mark-last { color: var(--text); opacity: .75; }
+/* "Meg nem futott" -- szandekosan halvanyabb es semleges: ez NEM meres arrol,
+   hogy az agens itt dolgozott volna. */
+.cb-tab-mark-bound { color: var(--text); opacity: .5; font-weight: 500; }
 /* A CIM viszi az egesz maradek helyet: egyedul az mondja meg, melyik
    beszelgetes ez. A `min-width: 0` nelkul a flex-elem nem megy a tartalma ala,
    es a jelzok szoritjak ossze a cimet -- pont forditva, mint kellene. */
@@ -11445,13 +11464,10 @@ details.upstream-box > summary > h4 {
 }
 .cb-tabs-closed[open] > summary::before { transform: rotate(90deg); }
 .cb-tabs-closed > summary:hover { opacity: 1; }
-/* Boss, 2026-09-01: "kijelolni megis csak egyet tudok... a legutobbi 9-bol
-   egyet sem tudok kijelolni aktualisnak" -- mostantol EZEKNEK a soroknak is
-   van radiogombjuk (app.js: cbClosedTabsHtml, ugyanaz a `cb-tab-radio` +
-   `cbtab-<project>` csoport, mint az elo fuleknek), ezert a korabbi
-   "nincs bennuk radiogomb" behuzas-kompenzacio (padding-left) es a
-   cursor:default mar nem igaz -- a `.cb-tab-row` sajat cursor:pointer +
-   gap-elrendezese eleve helyesen igazitja oket. */
+/* Ezek a sorok ugyanugy nezenek ki, mint az elok: ugyanaz a `.cb-tab-row`
+   elrendezes, ugyanaz a jelzo-oszlop (`.cb-tab-mark`). 2026-09-12 ota egyikben
+   sincs radiogomb -- a jelolest a szerver meri, nem a felhasznalo allitja --,
+   ezert kulon behuzas-kompenzacio sem kell. */
 .cb-tab-row-closed {
   opacity: .92;
 }
@@ -11746,3 +11762,56 @@ details.upstream-box > summary > h4 {
   .gitrepos-row { flex-wrap: wrap; }
   .gitrepos-badge { order: -1; }
 }
+
+/* === MAPPA-TALLOZO (Boss, 2026-09-12: "a gyokermappat kivalasztani kitallozva
+   lehessen") ===
+   A lista a VEGREHAJTO gepet mutatja, nem a bongeszoet -- ezert korlatos
+   magassagu gorgetheto doboz, nem operacios-rendszer-parbeszed. */
+.cb-browse-row { display: flex; gap: 8px; align-items: center; }
+.cb-browse-row .input { flex: 1 1 auto; min-width: 0; }
+.cb-browse-box {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.cb-browse-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Az UT viszi a maradek helyet, es hosszu utnal a VEGE a fontos (ott van a
+   mappa neve), ezert balrol csonkolunk. */
+.cb-browse-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: 12px;
+  opacity: .85;
+}
+.cb-browse-list {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cb-browse-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: inherit;
+}
+.cb-browse-item:hover { background: var(--hover, rgba(127,127,127,.12)); }
+.cb-browse-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cb-browse-repo { flex: 0 0 auto; font-size: 11px; opacity: .6; }
+.cb-browse-status { margin-top: 8px; }
