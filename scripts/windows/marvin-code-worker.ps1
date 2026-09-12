@@ -41,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-12.2'
+$script:WorkerVersion = '2026-09-12.3'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -886,6 +886,19 @@ function Start-WorkerLoop {
           $script:RestartAfterExit = $true
           return
         }
+      }
+      # A TALLOZAS A GYORS CSATORNAN.
+      #
+      # Eddig a keres csak a percenkenti session-jelentes valaszan fert fel,
+      # tehat egy mappara kattintas utan a felulet akar 60 masodpercig pergett
+      # (eles meres 2026-09-12, `worker.log`). Ez a ciklus 3 masodpercenkent
+      # fut, tehat a valasz is ennyi. A ketszeres kiszolgalas artalmatlan: a
+      # szerver az elso valasz utan `answeredAt`-et allit.
+      #
+      # A jelentes agan SZANDEKOSAN benne marad ugyanez: ha a claim-hivas
+      # barmiert elakad, a tallozas akkor sem hal meg -- csak lassabb lesz.
+      if ($claim -and $claim.browseRequests) {
+        Invoke-BrowseRequests -Requested $claim.browseRequests
       }
       if ($claim -and $claim.task) {
         $mode = 'acceptEdits'

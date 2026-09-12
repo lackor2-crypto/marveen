@@ -1139,7 +1139,25 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // a worker oldalan "nem egyezik"-nek latszana, es vegtelen
     // frissitesi korbe kergetne. A "nem latok oda" nem "elavult".
     const expect = expectedWorkerVersion()
-    const extra = expect === null ? {} : { expectedWorkerVersion: expect }
+    const extra: { expectedWorkerVersion?: string; browseRequests?: { id: string; path: string }[] } =
+      expect === null ? {} : { expectedWorkerVersion: expect }
+    // A TALLOZAS-KERES EZEN A CSATORNAN IS KIMEGY.
+    //
+    // Boss, 2026-09-12, eles meres: a mappa-tallozas 60 masodpercig NEM
+    // valaszolt. Az ok nem talalgatas -- a vegrehajto naploja mondta ki
+    // (`worker.log`): a "sessions reported" sorok percenkent kovetkeznek, a
+    // fo ciklus viszont 3 masodpercenkent ker munkat (`$PollSeconds = 3`).
+    // A keres eddig CSAK a percenkenti jelentes valaszan fert fel, tehat egy
+    // mappara kattintas utan a felulet akar egy teljes percig pergett.
+    //
+    // Egy tallozo, ami egy percig gondolkodik, hasznalhatatlan. Ezert a keres
+    // mostantol a gyors csatornan is utazik. A ket csatorna nem zavarja
+    // egymast: a kereseket kiado `takeFolderBrowseRequests()` nem veszi ki
+    // oket a nyilvantartasbol, a valasz pedig `answeredAt`-et allit -- egy
+    // ketszer kikuldott keres masodik valasza ugyanazt az eredmenyt irja
+    // felul, tehat a duplikatum artalmatlan.
+    const browseRequests = takeFolderBrowseRequests()
+    if (browseRequests.length > 0) extra.browseRequests = browseRequests
     if (!task) { json(res, { task: null, ...extra }); return true }
     logger.info({ task: task.id, project: task.project, session: task.sessionId, host }, 'code-bridge: task claimed')
     // Az elohang (#222) CSAK itt keletkezik, es csak a valaszban: a tarolt sor
