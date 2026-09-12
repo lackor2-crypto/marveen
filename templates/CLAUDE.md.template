@@ -582,3 +582,98 @@ találgatott azonosságot.
 
 Részletek: `agent-identity-verification` skill. Ez a szabály minden ügynök
 CLAUDE.md-jébe automatikusan bekerül (`ensureAgentIdentitySection`).
+
+## ⛔ FÉLBEHAGYOTT MUNKA NINCS: COMMITOLATLAN ÉS PUSHOLATLAN ÁLLAPOTBAN SOHA (2026-09-12, {{OWNER_NAME}})
+
+**{{OWNER_NAME}}:** „nem lehet ugy felbehagyni munkat hogy az a vegen commitkolatlan es
+pusholatlan maradjon. **soha**." — és az indok, amit ugyanabban a mondatban
+kimondott: „**mert most mindenki all. es nem lehet tudni ki hagyta ott oket**."
+
+**A mért eset.** 2026-09-12-én az éles telepítés munkafájában **59 fájl** állt
+commitolatlanul (`git status --porcelain --untracked-files=all`), legalább négy
+külön funkcióból: `browser-extension/marveen-autofill` (8 fájl),
+`src/web/code-folder-browse.ts` + `code-topic-session.ts`, `src/life-labels.ts`,
+`src/usage-limit-reset.ts`. A szerver- és worker-oldal kész volt, a `web/app.js`
+fele hiányzott — emiatt **13 teszt bukott** négy fájlban. A munkát **nem lehetett
+kiadni senkinek**: nincs commit, tehát nincs szerzője, nincs üzenete, nincs
+visszavonható pontja, és a következő ügynök vagy hozzányúl, vagy megáll miatta.
+**Mindenki állt.**
+
+### A pontok
+
+1. **A munkaegység nem ér véget commit és push nélkül.** Nem „majd a végén", nem
+   „ha zöld lesz minden" — a munkaegység **definíció szerint** akkor van kész,
+   amikor fel van pusholva. Ha félbe kell hagynod, akkor is: commitold és
+   pushold fel azt, ami elkészült, **WIP-üzenettel**, ami leírja hol tartasz és
+   mi hiányzik még.
+2. **A félkész munka is commitolható — a névtelen munka nem.** Egy `wip:` prefixű
+   commit egy külön ágon mindig jobb, mint 59 gazdátlan fájl a munkafában: van
+   szerzője, van üzenete, vissza lehet vonni, és a következő ember tudja, hol
+   folytassa.
+3. **Ha zöldre nem tudod hozni, az nem ok a commit elhagyására.** A bukó tesztet
+   írd le a commit-üzenetben (melyik, miért), vagy nyiss rá kártyát. A csend a
+   rosszabb: a bukó teszt látszik, a hiányzó commit nem.
+4. **Idegen, gazdátlan commitolatlan munkát nem törlünk.** Ha gazdátlan munkára
+   találsz, a helyes lépés: **készre vinni és commitolni**, nem eldobni. Törlés
+   előtt a KÖTELEZŐ VISSZAKÉRDEZÉS szabály áll.
+5. **A „pusholatlan" külön kategória a „commitolatlan" mellett.** A lokális
+   commit nem befejezett munka: a másik gépen, a másik ügynöknél nem létezik.
+
+### Gép is figyeli (nem kézi fegyelem)
+
+- **A commitolatlan-munka figyelő** három kategóriát mond ki külön: commitolatlan
+  / szemét (nem-követett) / **pusholatlan commit**. A pusholatlan darabszám lehet
+  `null` is, és az **NEM nulla** — a „nem látok oda" nem ugyanaz, mint a „minden
+  fel van pusholva".
+- **`src/__tests__/felbehagyott-munka-tilos.test.ts`** — a doktrína jelen legyen a
+  `CLAUDE.md`-ben **és** a `templates/CLAUDE.md.template`-ben, hogy friss
+  telepítés is megkapja.
+
+## ⛔ SOHA NEM DOLGOZUNK KÖZVETLENÜL AZ ÉLŐ FÁBAN — MINDIG IZOLÁLT WORKTREE (2026-09-12, {{OWNER_NAME}})
+
+**{{OWNER_NAME}}:** „ilyen ne forduljon elo soha hogy … **Valaki KÖZVETLENÜL az élő
+tree-ben dolgozott, nem izolált worktree-ben** … sohasem dolgozunk kozvetlenul
+az elo tree ben!"
+
+**A mért eset.** Ugyanaz a 2026-09-12-i eset, a másik oldaláról nézve. Az élő
+telepítés (`~/marveen`, amiben a szolgáltatás **fut**) munkafájában folyt a
+fejlesztés, és ennek három mért következménye lett:
+
+1. **A tesztkészletet ott el sem lehet indítani.** A
+   `src/__tests__/setup/assert-not-live-install.ts` őr **szándékosan megtagadja**
+   a futást élő telepítésben (jelzők: `store/.dashboard-token`,
+   `store/claudeclaw.db`) — mert a teszt írná az éles adatbázist. Aki az élő fában
+   dolgozik, **nem tudja lefuttatni a saját tesztjeit**. Pontosan ez történt: 13
+   bukó teszt maradt a fában.
+2. **Az éles repó beállítása elromlott.** Ugyanennek a fának a `.git/config`-jában
+   `core.bare = true` állt (mérve: 1267 követett fájl, valódi munkafa, `.git`
+   **mappa**) — ettől ott **semmilyen** `git status` és `git commit` nem futott le:
+   „this operation must be run in a work tree".
+3. **Egy fa, több gazda.** A félkész `web/app.js` mellé így került be egy másik
+   ügynök munkája is; utólag **nem lehetett szétválasztani**, ki mit hagyott ott.
+
+### A pontok
+
+1. **Fejlesztés izolált worktree-ben megy.** `scripts/agent-worktree.sh <agens>`,
+   vagy `git worktree add --detach <cel> HEAD`. Az élő checkout **futtat**, nem
+   fejleszt.
+2. **Az élő fában csak ez a három művelet megengedett:** olvasás, `git pull` /
+   ág-váltás a telepítés frissítéséhez, és a szolgáltatás üzemeltetése. Szerkesztés
+   nem.
+3. **Ha mégis az élő fában találsz magadra** (idegen félkész munka, hibaelhárítás),
+   az első lépés a worktree felhúzása és a munka átvitele oda — nem a folytatás
+   helyben.
+4. **Az élő fát csak bizonyítással szabad előreléptetni.** Mielőtt a munkafát egy
+   commitra állítod, mutasd meg, hogy nem veszik el semmi: a `git diff <commit>`
+   legyen üres, vagy pontosan a szándékolt változás.
+5. **A teszt-őrt nem kerüljük meg.** Ha az őr megtagadja a futást, az nem hiba,
+   hanem a helyes válasz: rossz helyen vagy. A megoldás a worktree, nem az őr
+   kikapcsolása.
+
+### Gép is figyeli (nem kézi fegyelem)
+
+- **`src/__tests__/setup/assert-not-live-install.ts`** — megtagadja a tesztfutást
+  élő telepítésben. Ez a szabály gépi fele; ne kapcsold ki.
+- **`src/__tests__/felbehagyott-munka-tilos.test.ts`** — ellenőrzi, hogy ez a
+  doktrína a `CLAUDE.md`-ben és a `templates/CLAUDE.md.template`-ben is ott van.
+

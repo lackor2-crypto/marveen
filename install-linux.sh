@@ -482,7 +482,7 @@ if [ ! -f "$INSTALL_DIR/package.json" ]; then
     echo -e "  Repo klonozasa -> ${TARGET_DIR} ..."
     # A repo default branch-e a develop, de a publikus telepito main-rol fut
     # (a Windows/WSL wrapper is main-rol fetcheli a scriptet) -> pineljuk a main-t.
-    git clone --depth 1 --branch main https://github.com/lackor2-crypto/marveen.git "$TARGET_DIR" \
+    git clone --depth 1 --config core.longpaths=true --branch main https://github.com/lackor2-crypto/marveen.git "$TARGET_DIR" \
       || fail "git clone sikertelen: https://github.com/lackor2-crypto/marveen.git (main branch)"
     ok "Repo klonozva: $TARGET_DIR"
   fi

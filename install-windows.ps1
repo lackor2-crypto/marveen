@@ -151,6 +151,73 @@ echo '  ✓ Bun'
 
 Write-Host "  ✓ Függőségek telepítve" -ForegroundColor Green
 
+# Hosszú útvonalak a Windows-oldalon.
+#
+# MIÉRT: a raktár a Windows-meghajtón áll, mélyen, ékezetes mappanevekkel
+# (pl. "F:\Marveen\<név>\Projektek\<projekt>\Fejlesztés\GIT_REPOS\<repó>\..."),
+# és a Windows alapértelmezésben 260 karakternél elvágja az útvonalat. Enélkül
+# a `git clone`/`checkout` friss telepítésen "Filename too long" hibával áll meg
+# -- olyan fájloknál, amiket a felhasználó soha nem lát, ezért nem is érti.
+Write-Host ""
+Write-Host "  Hosszú útvonalak engedélyezése (Windows-oldal)..." -ForegroundColor White
+
+$gitWin = Get-Command git -ErrorAction SilentlyContinue
+if ($gitWin) {
+    git config --global core.longpaths true
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  ✓ git (Windows): core.longpaths bekapcsolva" -ForegroundColor Green
+    } else {
+        Write-Host "  ⚠ A git beállítása nem sikerült. Futtasd kézzel ezt:" -ForegroundColor Yellow
+        Write-Host "      git config --global core.longpaths true" -ForegroundColor Cyan
+    }
+} else {
+    # A NULLA KÉT DOLGOT JELENTHET: itt nem az van, hogy "ki van kapcsolva",
+    # hanem az, hogy NINCS Windows-oldali git. Ezt ki is mondjuk.
+    Write-Host "  • Windows-oldali git nem található — ezt a lépést kihagytam." -ForegroundColor DarkGray
+    Write-Host "    Ha később telepítesz Git for Windows-t, futtasd ezt:" -ForegroundColor DarkGray
+    Write-Host "      git config --global core.longpaths true" -ForegroundColor Cyan
+}
+
+# A rendszerszintű kapcsoló külön dolog: enélkül maga a Windows vágja el az
+# útvonalat, a jó git-beállítás mellett is. Ehhez rendszergazda kell.
+$lpKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+$lpVal = $null
+try {
+    $lpVal = (Get-ItemProperty -Path $lpKey -Name LongPathsEnabled -ErrorAction Stop).LongPathsEnabled
+} catch {
+    $lpVal = $null
+}
+
+if ($lpVal -eq 1) {
+    Write-Host "  ✓ Windows: a hosszú útvonalak rendszerszinten engedélyezve" -ForegroundColor Green
+} else {
+    if ($null -eq $lpVal) {
+        Write-Host "  • A rendszerbeállítást nem tudtam kiolvasni (nincs jogosultság, vagy nincs ilyen érték)." -ForegroundColor Yellow
+    } else {
+        Write-Host "  • A hosszú útvonalak rendszerszinten KI vannak kapcsolva." -ForegroundColor Yellow
+    }
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    $doLp = Read-Host "  Bekapcsoljam most? (i/n) [i]"
+    if ([string]::IsNullOrEmpty($doLp) -or $doLp -eq "i") {
+        if ($isAdmin) {
+            try {
+                Set-ItemProperty -Path $lpKey -Name LongPathsEnabled -Value 1 -Type DWord -ErrorAction Stop
+                Write-Host "  ✓ Bekapcsolva. A gép újraindítása után lép érvénybe." -ForegroundColor Green
+            } catch {
+                Write-Host "  ✗ Nem sikerült: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "    Kapcsold be kézzel egy rendszergazda PowerShell-ben:" -ForegroundColor Yellow
+                Write-Host "      Set-ItemProperty -Path '$lpKey' -Name LongPathsEnabled -Value 1 -Type DWord" -ForegroundColor Cyan
+            }
+        } else {
+            Write-Host "  Ehhez rendszergazda kell. Nyiss egy rendszergazda PowerShell-t, és futtasd:" -ForegroundColor Yellow
+            Write-Host "      Set-ItemProperty -Path '$lpKey' -Name LongPathsEnabled -Value 1 -Type DWord" -ForegroundColor Cyan
+            Write-Host "  Enélkül is működik a telepítés — csak a nagyon mély útvonalaknál akadhat meg." -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host "  Kihagyva. Mély, ékezetes mappanevek mellett a git „Filename too long" hibát adhat." -ForegroundColor DarkGray
+    }
+}
+
 # Step 4: Clone and setup Marveen
 Write-Host ""
 Write-Host "[4/5] Marveen telepítése WSL-ben..." -ForegroundColor White
@@ -165,7 +232,7 @@ INSTALL_DIR="$installPath"
 
 # Clone repo
 if [ ! -d "\$INSTALL_DIR" ]; then
-    git clone --branch main https://github.com/lackor2-crypto/marveen.git "\$INSTALL_DIR"
+    git clone --config core.longpaths=true --branch main https://github.com/lackor2-crypto/marveen.git "\$INSTALL_DIR"
     echo '  ✓ Repó klónozva'
 else
     echo '  ✓ Marveen mappa már létezik'

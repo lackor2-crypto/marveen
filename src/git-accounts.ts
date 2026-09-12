@@ -447,7 +447,7 @@ export async function pullGitAccount(account: string): Promise<PullResult> {
     // a ketto nem ugyanaz, es egy nem letezo felhasznalonev felesleges
     // hitelesitesi hibat okozna.
     const url = repo.cloneUrl.replace('https://', `https://${kolcsonzott || acc}@`)
-    const r = await git(dir, ['clone', '--quiet', url, repo.name], env)
+    const r = await git(dir, ['clone', '--quiet', '--config', 'core.longpaths=true', url, repo.name], env)
     if (r.ok) cloned.push(repo.name)
     else failed.push({ name: repo.name, message: (r.err.split('\n').pop() || '').slice(0, 140) })
   }
