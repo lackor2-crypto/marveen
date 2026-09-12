@@ -17,6 +17,7 @@
 // `setFaceAdapter` hivassal koto be -- ITT egy sor sem valtozik.
 import { existsSync, readdirSync, statSync, openSync, closeSync, readSync, fstatSync } from 'node:fs'
 import { extname, join } from 'node:path'
+import { inflateSync, inflateRawSync } from 'node:zlib'
 import { APP_LANG } from './config.js'
 import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, inboxDir,
@@ -364,7 +365,235 @@ function guessFromIndex(tokens: string[], map: Map<string, Map<string, number>>)
 }
 
 // ---------------------------------------------------------------------------
-// DATUM -- EXIF -> OCR-szoveg -> fajlnev -> nincs (kerdojel).
+// TARTALOM-KINYERES -- a fajl TENYLEGES szovege, nem csak a neve (kartya #265).
+// KIZAROLAG node beepitett eszkozok: nincs uj csomag, nincs apt/pip.
+//   - txt/csv: kozvetlen (bounded) olvasas
+//   - PDF:     a szoveg-reteg FlateDecode-olt content-streamjeibol (zlib)
+//   - docx:    ZIP central-directory -> word/document.xml -> inflateRaw -> XML-strip
+// A "nincs benne datum/nev" es a "nem tudtam elolvasni (OCR kellene)" KET
+// kulonbozo allapot -- a `needsOcr` valasztja szet oket (Boss szabalya: a
+// nulla ket dolgot jelenthet, a kodnak kulon kell tudnia a kettot).
+// ---------------------------------------------------------------------------
+const MAX_CONTENT_BYTES = 8 * 1024 * 1024 // ennel nagyobb fajlbol csak az elejet olvassuk
+const MAX_TEXT_CHARS = 200_000            // a kivont szoveget ennyinel levagjuk (datum/token boven elfer)
+const MAX_PDF_STREAMS = 800               // patologias PDF ellen: ennyi streamnel megallunk
+
+export interface ExtractedContent {
+  /** A fajlbol kiolvasott sima szoveg (ures, ha nem volt/nem sikerult). */
+  text: string
+  /** true, ha a tipus szoveges tartalmat NEM sikerult kiolvasni es OCR kellene
+   *  (kep, vagy szoveg-reteg nelkuli, szkennelt PDF). Ez kulonbozteti meg a
+   *  "nincs benne datum" allapotot a "nem lattam a tartalmat" allapottol. */
+  needsOcr: boolean
+}
+
+function clampText(s: string): string {
+  return s.length > MAX_TEXT_CHARS ? s.slice(0, MAX_TEXT_CHARS) : s
+}
+
+/** A fajl nyers bajtjai, felulrol korlatozva (nagy fajlnal csak az eleje). */
+function readBoundedFile(absPath: string): Buffer {
+  let fd = -1
+  try {
+    fd = openSync(absPath, 'r')
+    const size = fstatSync(fd).size
+    const len = Math.min(size, MAX_CONTENT_BYTES)
+    const buf = Buffer.alloc(len)
+    readSync(fd, buf, 0, len, 0)
+    return buf
+  } catch {
+    return Buffer.alloc(0)
+  } finally {
+    if (fd >= 0) { try { closeSync(fd) } catch { /* mar zart */ } }
+  }
+}
+
+// --- PDF szoveg-reteg ---
+
+/** PDF literal string ((...)) escape-jei feloldva. */
+function decodePdfString(raw: string): string {
+  return raw.replace(/\\([nrtbf()\\]|[0-7]{1,3})/g, (_m, g: string) => {
+    switch (g) {
+      case 'n': return '\n'
+      case 'r': return '\r'
+      case 't': return '\t'
+      case 'b': return '\b'
+      case 'f': return '\f'
+      case '(': return '('
+      case ')': return ')'
+      case '\\': return '\\'
+      default: {
+        const code = parseInt(g, 8)
+        return Number.isNaN(code) ? '' : String.fromCharCode(code)
+      }
+    }
+  })
+}
+
+/** Egy dekodolt content-streambol a Tj/TJ szovegoperandusok szovege. */
+function textFromPdfContent(content: string): string {
+  const out: string[] = []
+  // (...) literal stringek -- content-streamben zarojel csak string-literalban van
+  const litRe = /\((?:\\.|[^\\()])*\)/g
+  let m: RegExpExecArray | null
+  while ((m = litRe.exec(content))) out.push(decodePdfString(m[0].slice(1, -1)))
+  // <...> hex stringek
+  const hexRe = /<([0-9A-Fa-f\s]{2,})>/g
+  while ((m = hexRe.exec(content))) {
+    const hex = m[1].replace(/\s+/g, '')
+    let s = ''
+    for (let i = 0; i + 1 < hex.length; i += 2) {
+      const code = parseInt(hex.slice(i, i + 2), 16)
+      if (code) s += String.fromCharCode(code)
+    }
+    if (s) out.push(s)
+  }
+  return out.join(' ')
+}
+
+/** A PDF osszes content-streamjebol kiolvasott szoveg + volt-e egyaltalan stream. */
+function extractPdfText(buf: Buffer): { text: string; hadStream: boolean } {
+  const latin = buf.toString('latin1')
+  const parts: string[] = []
+  let hadStream = false
+  let seen = 0
+  const re = /stream\r?\n/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(latin)) && seen < MAX_PDF_STREAMS) {
+    const start = m.index + m[0].length
+    const end = latin.indexOf('endstream', start)
+    if (end < 0) break
+    hadStream = true
+    seen++
+    const streamBytes = buf.subarray(start, end)
+    let decoded: string | null = null
+    try {
+      decoded = inflateSync(streamBytes).toString('latin1')
+    } catch {
+      try {
+        decoded = inflateRawSync(streamBytes).toString('latin1')
+      } catch {
+        // nem tomoritett content-stream? csak akkor hasznaljuk, ha szovegoperator van benne
+        const asText = streamBytes.toString('latin1')
+        decoded = /\bTj\b|\bTJ\b|\bBT\b/.test(asText) ? asText : null
+      }
+    }
+    if (decoded) {
+      const t = textFromPdfContent(decoded)
+      if (t.trim()) parts.push(t)
+    }
+    re.lastIndex = end + 'endstream'.length
+  }
+  return { text: parts.join('\n'), hadStream }
+}
+
+// --- docx (ZIP) ---
+
+/** Egy nevesitett bejegyzes tartalma egy ZIP-bufferbol, central-directory alapjan. */
+function readZipEntry(buf: Buffer, wantName: string): Buffer | null {
+  const EOCD_SIG = 0x06054b50
+  const CDH_SIG = 0x02014b50
+  const LFH_SIG = 0x04034b50
+  // End Of Central Directory: hatulrol keressuk (a comment miatt max 64K + 22)
+  let eocd = -1
+  const from = Math.max(0, buf.length - 22 - 0xffff)
+  for (let i = buf.length - 22; i >= from; i--) {
+    if (buf.readUInt32LE(i) === EOCD_SIG) { eocd = i; break }
+  }
+  if (eocd < 0) return null
+  const cdCount = buf.readUInt16LE(eocd + 10)
+  const cdOffset = buf.readUInt32LE(eocd + 16)
+  let p = cdOffset
+  for (let i = 0; i < cdCount; i++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== CDH_SIG) break
+    const method = buf.readUInt16LE(p + 10)
+    const compSize = buf.readUInt32LE(p + 20)
+    const nameLen = buf.readUInt16LE(p + 28)
+    const extraLen = buf.readUInt16LE(p + 30)
+    const commentLen = buf.readUInt16LE(p + 32)
+    const localOff = buf.readUInt32LE(p + 42)
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen)
+    if (name === wantName) {
+      if (localOff + 30 > buf.length || buf.readUInt32LE(localOff) !== LFH_SIG) return null
+      const lNameLen = buf.readUInt16LE(localOff + 26)
+      const lExtraLen = buf.readUInt16LE(localOff + 28)
+      const dataStart = localOff + 30 + lNameLen + lExtraLen
+      const data = buf.subarray(dataStart, dataStart + compSize)
+      if (method === 0) return Buffer.from(data)
+      if (method === 8) { try { return inflateRawSync(data) } catch { return null } }
+      return null
+    }
+    p += 46 + nameLen + extraLen + commentLen
+  }
+  return null
+}
+
+function decodeXmlEntities(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_m, d: string) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9A-Fa-f]+);/g, (_m, h: string) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&amp;/g, '&') // utoljara, hogy ne dekodoljunk ketszer
+}
+
+/** OOXML/HTML-szeru XML -> sima szoveg, a bekezdes/tab/sortores hatarok megtartasaval. */
+function stripXml(xml: string): string {
+  const withBreaks = xml
+    .replace(/<\/w:p>/g, '\n')
+    .replace(/<w:tab\b[^>]*\/?>/g, '\t')
+    .replace(/<w:br\b[^>]*\/?>/g, '\n')
+  return decodeXmlEntities(withBreaks.replace(/<[^>]+>/g, ''))
+}
+
+/**
+ * A Beerkezo-tetel TENYLEGES szovege, ha built-in eszkozzel kiolvashato.
+ * A hivo (analyzeInboxItem) egyszer hivja, es a datum/tulajdonos/kategoria
+ * mind ebbol dolgozik -- egy olvasas, tobb felhasznalas.
+ */
+export function extractTextContent(sniff: TypeSniff, absPath: string): ExtractedContent {
+  if (sniff.kind === 'text' || (sniff.kind === 'spreadsheet' && sniff.mime === 'text/csv')) {
+    return { text: clampText(readBoundedFile(absPath).toString('utf8')), needsOcr: false }
+  }
+  if (sniff.kind === 'pdf') {
+    const { text, hadStream } = extractPdfText(readBoundedFile(absPath))
+    const clean = clampText(text)
+    if (clean.trim()) return { text: clean, needsOcr: false }
+    // Volt content-stream, de nem jott ki szoveg -> szkennelt PDF -> OCR kellene.
+    return { text: '', needsOcr: hadStream }
+  }
+  if (sniff.kind === 'document') {
+    const buf = readBoundedFile(absPath)
+    // Csak az uj, ZIP-alapu .docx-et olvassuk built-innel; a regi binaris .doc-ot nem.
+    if (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b) {
+      const doc = readZipEntry(buf, 'word/document.xml')
+      if (doc) {
+        const clean = clampText(stripXml(doc.toString('utf8')))
+        if (clean.trim()) return { text: clean, needsOcr: false }
+      }
+    }
+    return { text: '', needsOcr: false }
+  }
+  if (sniff.kind === 'image') return { text: '', needsOcr: true }
+  return { text: '', needsOcr: false }
+}
+
+/** A kivont szoveg tokenizalasa (a fajlnev-tokenekkel azonos normalizalas). */
+function tokenizeText(text: string): string[] {
+  if (!text) return []
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !/^\d+$/.test(t))
+    .slice(0, 4000)
+}
+
+// ---------------------------------------------------------------------------
+// DATUM -- EXIF -> tartalom-szoveg -> OCR -> fajlnev -> nincs (kerdojel).
 // ---------------------------------------------------------------------------
 const DATE_PATTERNS: RegExp[] = [
   /(\d{4})[-.](\d{2})[-.](\d{2})/, // 2026-08-21 / 2026.08.21
@@ -389,16 +618,23 @@ function findDateInText(text: string): string {
 
 export interface DateGuess {
   value: string
-  source: 'exif' | 'ocr' | 'filename' | 'none'
+  source: 'exif' | 'content' | 'ocr' | 'filename' | 'none'
   confidence: number
 }
 
-function guessDate(sniff: TypeSniff, abs: string, filename: string, lang: string, notes: string[]): DateGuess {
+function guessDate(sniff: TypeSniff, abs: string, filename: string, content: ExtractedContent, lang: string, notes: string[]): DateGuess {
   if (sniff.kind === 'image' && sniff.imageFormat === 'jpeg') {
     const exif = parseJpegExifDate(abs)
     if (exif) return { value: exif.value, source: 'exif', confidence: 0.9 }
   }
-  if (sniff.kind === 'pdf' || sniff.kind === 'image') {
+  // A fajl TENYLEGES szovegebol (txt / PDF-szovegreteg / docx) -- kartya #265.
+  if (content.text) {
+    const found = findDateInText(content.text)
+    if (found) return { value: found, source: 'content', confidence: 0.75 }
+  }
+  // Ha a tartalmat NEM lehetett szovegkent kiolvasni (kep vagy szkennelt PDF),
+  // az OCR a kovetkezo esely -- ha be van kotve.
+  if (content.needsOcr) {
     const ocr = getOcrAdapter()
     if (ocr.available()) {
       const text = ocr.extractText(abs)
@@ -406,12 +642,19 @@ function guessDate(sniff: TypeSniff, abs: string, filename: string, lang: string
       if (found) return { value: found, source: 'ocr', confidence: 0.55 }
     } else {
       notes.push(T(lang,
-        'OCR nincs telepítve, ezért a dokumentum szövegéből nem tudok dátumot olvasni – csak a fájlnévből.',
-        'OCR is not installed, so I cannot read a date from the document text – filename only.'))
+        'A dokumentum szkennelt (nincs kiolvasható szövegréteg), és OCR nincs telepítve, ezért csak a fájlnévből tudok dátumot olvasni.',
+        'The document is scanned (no extractable text layer) and OCR is not installed, so I can only read a date from the filename.'))
     }
   }
   const fromName = findDateInText(filename)
   if (fromName) return { value: fromName, source: 'filename', confidence: 0.4 }
+  // Elolvastuk a szoveget, de tenyleg nem volt benne datum -- ez NEM olvasasi
+  // hiba (a nulla ket dolgot jelenthet, itt a "nincs" agat mondjuk ki).
+  if (content.text) {
+    notes.push(T(lang,
+      'Elolvastam a dokumentum szövegét, de nem találtam benne dátumot – ez nem olvasási hiba, tényleg nincs felismerhető dátum.',
+      'I read the document text but found no date in it – this is not a read error, there is genuinely no recognizable date.'))
+  }
   return { value: '', source: 'none', confidence: 0 }
 }
 
@@ -433,12 +676,18 @@ export interface CategoryGuess {
   confidence: number
 }
 
-function guessCategory(sniff: TypeSniff, tokens: string[], index: LearnedIndex): CategoryGuess {
-  const flat = tokens.join(' ')
+function guessCategory(sniff: TypeSniff, tokens: string[], contentTokens: string[], index: LearnedIndex): CategoryGuess {
+  const nameFlat = tokens.join(' ')
+  const contentFlat = contentTokens.join(' ')
+  // A tanult index a MAR besorolt fajlok NEVEIBOL epult, ezert azt a fajlnev-
+  // tokenekre futtatjuk; a tartalom csak a kulcsszo-egyezest erositi (#265).
   const fromIndex = guessFromIndex(tokens, index.categoryTokens)
   for (const row of CATEGORY_KEYWORDS) {
-    if (row.words.some((w) => flat.includes(w))) {
-      const confidence = fromIndex && fromIndex.key === row.key ? Math.max(0.7, fromIndex.confidence) : 0.65
+    const inName = row.words.some((w) => nameFlat.includes(w))
+    const inContent = !inName && contentFlat !== '' && row.words.some((w) => contentFlat.includes(w))
+    if (inName || inContent) {
+      const base = inName ? 0.65 : 0.6 // a tartalom valamivel gyengebb jel mint a nev, de eros
+      const confidence = fromIndex && fromIndex.key === row.key ? Math.max(0.7, fromIndex.confidence) : base
       return { key: row.key, confidence }
     }
   }
@@ -498,6 +747,39 @@ function guessOwnerFromIndex(tokens: string[], index: LearnedIndex, config: Life
   const guess = guessFromIndex(tokens, index.personTokens)
   if (!guess) return null
   return finalizeOwner(guess.key, guess.confidence, config)
+}
+
+/**
+ * ELETFA-KERESZTHIVATKOZAS (kartya #265): ha a dokumentum SZOVEGEBEN szerepel
+ * egy, az eletfaban ismert szemely neve, az eros tulajdonos-jel. A nevet a
+ * fajlnev-tokenekkel azonosan normalizaljuk (`tokenize`), es a tartalom-tokenek
+ * halmaza ellen egyeztetunk -- igy az ekezetes nevek (Laszlo/László) is
+ * megbizhatoan illeszkednek, regex-hatar nelkul. A teljes nev (vezetek + kereszt)
+ * egyuttes talalata magabiztos; a reszleges kevesbe az.
+ */
+function guessOwnerFromContentNames(contentTokens: string[], config: LifeConfig, lang: string, notes: string[]): OwnerGuess | null {
+  if (!contentTokens.length) return null
+  const present = new Set(contentTokens)
+  let best: { id: string; name: string; score: number; full: boolean } | null = null
+  for (const p of config.persons) {
+    const parts = tokenize(p.name)
+    if (!parts.length) continue
+    let matched = 0
+    for (const part of parts) if (present.has(part)) matched++
+    if (!matched) continue
+    const full = parts.length >= 2 && matched === parts.length
+    const score = matched + (full ? 2 : 0)
+    if (!best || score > best.score) best = { id: p.id, name: p.name, score, full }
+  }
+  if (!best) return null
+  const confidence = best.full ? 0.85 : Math.min(0.7, 0.4 + best.score * 0.1)
+  const guess = finalizeOwner(best.id, confidence, config)
+  if (guess) {
+    notes.push(T(lang,
+      `A tulajdonost a dokumentum szövegében talált név alapján ismertem fel: ${best.name}.`,
+      `I recognized the owner from a name found in the document text: ${best.name}.`))
+  }
+  return guess
 }
 
 // ---------------------------------------------------------------------------
@@ -620,14 +902,19 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
 
   const sniff = sniffType(abs)
   const tokens = tokenize(item.name)
+  // Egyszer olvassuk ki a TENYLEGES tartalmat, es a datum/tulajdonos/kategoria
+  // mind ebbol dolgozik (kartya #265) -- egy olvasas, tobb felhasznalas.
+  const content = extractTextContent(sniff, abs)
+  const contentTokens = tokenizeText(content.text)
 
   let ownerGuess = guessOwnerFromFace(sniff, abs, config, lang, notes)
+  if (!ownerGuess) ownerGuess = guessOwnerFromContentNames(contentTokens, config, lang, notes)
   if (!ownerGuess) ownerGuess = guessOwnerFromIndex(tokens, index, config)
   if (!ownerGuess) ownerGuess = { personId: '', name: '', confidence: 0, uncertain: true, options: [] }
   ownerGuess = { ...ownerGuess, options }
 
-  const dateGuess = guessDate(sniff, abs, item.name, lang, notes)
-  const categoryGuess = guessCategory(sniff, tokens, index)
+  const dateGuess = guessDate(sniff, abs, item.name, content, lang, notes)
+  const categoryGuess = guessCategory(sniff, tokens, contentTokens, index)
 
   const ownerPerson = config.persons.find((p) => p.id === ownerGuess.personId)
   const categoryLabel = categoryGuess.key ? lifeName(categoryGuess.key, lang) : ''
