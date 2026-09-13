@@ -512,7 +512,7 @@ export function upsertCodeSession(
     // KIMONDOTT engedelyt kap a hivotol (`repointStale`), es a route szamolja
     // ki. Igy a szabaly egy helyen van, es tesztelheto.
     if (existing.pinned && !opts.repointStale) return existing
-    if (existing.workspacePath.toLowerCase() !== input.workspacePath.toLowerCase()) return existing
+    if (!sameWorkspace(existing.workspacePath, input.workspacePath)) return existing
     // Older transcript than the one we already have: ignore (out-of-order report).
     if (
       existing.transcriptMtime !== null &&
@@ -581,10 +581,40 @@ export function deleteCodeSession(project: string): boolean {
   return info.changes > 0
 }
 
-/** A mappa ossze-vissza irt utja (kis/nagybetu, zaro perjel) ugyanazt a helyet
- *  jelenti; a kulcs ezt normalizalja. */
-function workspaceKey(workspacePath: string): string {
-  return workspacePath.trim().replace(/[\\/]+$/, '').toLowerCase()
+/** A mappa ossze-vissza irt utja ugyanazt a helyet jelenti; a kulcs ezt
+ *  normalizalja. Harom fuggetlen forras ir mast-mast ugyanarra a mappara:
+ *
+ *   1. kis/nagybetu (Windows nem erzekeny ra);
+ *   2. `\` vs `/` elvalaszto (a worker `C:\Projects\X`-et jelent, a tulaj
+ *      kezzel `C:/Projects/X`-et is beirhatna);
+ *   3. UNC VEZETO BACKSLASH-SZAM -- kartya c795a495. Boss a dashboard "Csapat"
+ *      fulen `\wsl.localhost\...` alakban (EGY vezeto backslash) rogzitett
+ *      egy workspace-t kezzel, a worker viszont a sajat felderitesebol
+ *      `\\wsl.localhost\...` (KETTO backslash, a helyes UNC-forma) alakot
+ *      jelent. A ketto stringkent KULONBOZik -- a pinnelt sor emiatt SOHA nem
+ *      talalta meg a worker uj jelenteset (`tabsByWorkspace` keresese), es a
+ *      tulaj tovabbra is az ures, "nem latok oda" kartyat nezte volna, MEG A
+ *      WSL-FELDERITES BEKAPCSOLASA UTAN IS.
+ *
+ *  Az elvalasztot eloszor EGYSEGESEN `/`-re hozzuk (2.), utana a vezeto
+ *  perjel-sorozatot KETTORE (3.) -- igy egy sima `C:\X` es egy UNC `\\host\X`
+ *  is a sajat, de STABIL alakjara kepzodik, es a ket UNC-alak (1 vs 2 vezeto
+ *  backslash) mar ugyanoda esik. */
+export function workspaceKey(workspacePath: string): string {
+  return workspacePath
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .replace(/^\/+/, '//')
+    .toLowerCase()
+}
+
+/** Ket workspace-ut UGYANAZT a helyet jelenti-e -- lasd `workspaceKey`. Az
+ *  ures/whitespace-only ut sosem egyezik semmivel, meg egy masik ures uttal
+ *  sem -- ket ismeretlen nem ugyanaz a hely. */
+export function sameWorkspace(a: string, b: string): boolean {
+  const ka = workspaceKey(a)
+  return ka !== '' && ka === workspaceKey(b)
 }
 
 /** A tulaj levette a kartyat: a felderites tobbe ne kosse be ujra ezt a mappat.
@@ -759,7 +789,7 @@ export function enqueueCodeTask(input: EnqueueInput): { task: CodeTask; warning?
   if (wantedTab) {
     const w = wantedTab.toLowerCase()
     const tabsHere = listCodeCandidates().filter(
-      (c) => c.workspacePath.toLowerCase() === resolved.session.workspacePath.toLowerCase(),
+      (c) => sameWorkspace(c.workspacePath, resolved.session.workspacePath),
     )
     const exact = tabsHere.find((c) => c.sessionId.toLowerCase() === w)
     // A listak ROVID azonositot mutatnak (`3cfe9212`), mert egy teljes UUID-t
@@ -966,7 +996,7 @@ function liveTopicSessionDeps(session: CodeSession): TopicSessionDeps {
       // tulelli: ha a tema-szal EPP ez, akkor biztosan letezik.
       if (session.sessionId === sessionId) return 'yes'
       const here = listCodeCandidates().filter(
-        (c) => c.workspacePath.toLowerCase() === session.workspacePath.toLowerCase(),
+        (c) => sameWorkspace(c.workspacePath, session.workspacePath),
       )
       // URES LISTA = NEM LATUNK ODA, nem "nincs ilyen szal": a jeloltlista a
       // memoriaban el, es minden vezerlopult-ujrainditas kiuriti (amig a worker
@@ -1754,8 +1784,8 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
 
   const groups = new Map<string, CodeTabProject>()
   for (const c of listCodeCandidates()) {
-    const key = c.workspacePath.toLowerCase()
-    const registered = known.find((k) => k.workspacePath.toLowerCase() === key)
+    const key = workspaceKey(c.workspacePath)
+    const registered = known.find((k) => workspaceKey(k.workspacePath) === key)
     let g = groups.get(key)
     if (!g) {
       g = {
@@ -2159,7 +2189,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   // A bekotott mappa REGISZTRALT neve nyer; ha nincs bekotve, a mappanevbol
   // kepzett alias all a helyen -- nem talalunk ki projektnevet.
   const registered = listCodeSessions()
-  const byPath = new Map(registered.map((r) => [r.workspacePath.toLowerCase(), r]))
+  const byPath = new Map(registered.map((r) => [workspaceKey(r.workspacePath), r]))
   // A mert `lastActivity` a kvota-blokk feloldasahoz kell, ezert eloszor a
   // NYERS jelolteket tartjuk meg, es csak utana kepezzuk a farok-sorokat.
   const liveCands = listCodeCandidates()
@@ -2167,7 +2197,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     .sort((a, b) => (b.lastActivity ?? b.mtime ?? 0) - (a.lastActivity ?? a.mtime ?? 0))
     .slice(0, 8)
   const liveSessions = liveCands.map((c) => {
-    const reg = byPath.get(c.workspacePath.toLowerCase()) ?? null
+    const reg = byPath.get(workspaceKey(c.workspacePath)) ?? null
     return {
       project: reg ? reg.project : aliasFromWorkspacePath(c.workspacePath),
       title: c.title,
@@ -2230,7 +2260,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   // az, amit ez a kartya kizar. Ugyanez az osszehasonlitas all a `liveSessions`
   // `current` mezojeben is nehany sorral feljebb.
   const liveMarvinOwnedActive = liveCands.some((c) => {
-    const reg = byPath.get(c.workspacePath.toLowerCase())
+    const reg = byPath.get(workspaceKey(c.workspacePath))
     if (!reg?.marvinOwned) return false
     if (reg.sessionId !== c.sessionId) return false
     const ts = c.lastActivity ?? c.mtime

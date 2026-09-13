@@ -38,6 +38,7 @@ import {
   lastAgentRunSession,
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
+  sameWorkspace, workspaceKey,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
   requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation,
   requestFolderBrowse, takeFolderBrowseRequests, recordFolderBrowseResult, getFolderBrowse,
@@ -154,15 +155,6 @@ async function parseJsonBody<T>(ctx: RouteContext): Promise<T | null> {
   } catch {
     return null
   }
-}
-
-/** Ket utvonal ugyanarra a mappara mutat-e. A worker `C:\\Projects\\X`-et
- *  jelent, a begepelt szoveg viszont lehet `c:\\projects\\x\\` -- a Windows
- *  mindkettot ugyanannak latja, tehat mi sem kuldhetjuk a felhasznalot UUID-t
- *  vadaszni egyetlen zaro visszaper miatt. */
-function sameWorkspace(a: string, b: string): boolean {
-  const norm = (x: string) => x.trim().replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
-  return norm(a) !== '' && norm(a) === norm(b)
 }
 
 export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
@@ -517,7 +509,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // haromszor allna a listaban, haromszor felajanlott "Felvetel" gombbal.
     // A tobbi ful a `/api/code/tabs`-on erheto el.
     const candidates = all.filter((c) => c.primary).map((c) => {
-      const registered = known.find((k) => k.workspacePath.toLowerCase() === c.workspacePath.toLowerCase())
+      const registered = known.find((k) => sameWorkspace(k.workspacePath, c.workspacePath))
       const alias = normalizeAlias(aliasFromWorkspacePath(c.workspacePath))
       return {
         workspacePath: c.workspacePath,
@@ -539,7 +531,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         // A mappa legfrissebb beszelgetesenek felirata (a VS Code fulcimke), es
         // hogy HANY beszelgetes tartozik a mappahoz -- a tobbi a `/tabs`-on.
         title: c.title,
-        tabCount: all.filter((x) => x.workspacePath.toLowerCase() === c.workspacePath.toLowerCase()).length,
+        tabCount: all.filter((x) => sameWorkspace(x.workspacePath, c.workspacePath)).length,
       }
     })
     // ★ A NULLA KET DOLGOT JELENTHET. Az ures lista lehet "a worker megnezte a
@@ -677,7 +669,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // Csak azok a fulek mennek ki, amiket a worker NYITOTTKENT mert; a lista
     // uressege ket dolgot jelenthet, ezert megy ki a `tabsReason` is.
     const tabsByWorkspace = new Map<string, typeof tabs.projects[number]>()
-    for (const g of tabs.projects) tabsByWorkspace.set(g.workspacePath.toLowerCase(), g)
+    for (const g of tabs.projects) tabsByWorkspace.set(workspaceKey(g.workspacePath), g)
     // Ugyanaz a sor-alak a futo es a nem futo beszelgetesekhez: a felulet
     // ugyanazt tudja roluk megmutatni, csak mas helyen es mas jelolessel.
     const tabRow = (tb: CodeTab, currentSessionId: string): {
@@ -729,13 +721,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       currentSource,
       currentRunning: run ? run.running : false,
       currentAt: run ? run.at : null,
-      tabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.tabs ?? []).map((tb) => tabRow(tb, markSessionId)),
+      tabs: (tabsByWorkspace.get(workspaceKey(p.workspacePath))?.tabs ?? []).map((tb) => tabRow(tb, markSessionId)),
       // A mappa TOBBI beszelgetese: nyitva lehetnek a VS Code panelen, de a
       // folyamatuk mar nem fut (Boss, 2026-08-28: "a kartyan csak eg chat van
       // megjelenitve, most, de a vscode ban van vagy 3 beszelgetes"). A fo
       // listaba nem valok -- oda a cimezheto, futo beszelgetesek mennek --, de
       // a tartalmuk ugyanugy megnyithato.
-      closedTabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.closedTabs ?? []).map((tb) => tabRow(tb, markSessionId)),
+      closedTabs: (tabsByWorkspace.get(workspaceKey(p.workspacePath))?.closedTabs ?? []).map((tb) => tabRow(tb, markSessionId)),
       roleHolder: `vscode:${p.project}`,
       roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
       contextTokens: tokensBySession.get(p.sessionId) ?? null,
@@ -896,7 +888,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     for (const s of reported) {
       if (!s.workspacePath || !s.sessionId) continue
       if (reportsPrimary && s.primary !== true) continue
-      const explicit = known.find((k) => k.workspacePath.toLowerCase() === s.workspacePath!.toLowerCase())
+      const explicit = known.find((k) => sameWorkspace(k.workspacePath, s.workspacePath!))
       const alias = normalizeAlias(s.project ?? explicit?.project ?? aliasFromWorkspacePath(s.workspacePath))
       if (!alias) continue
       // Fenced off by the owner: don't register it, and clean up a row that was
