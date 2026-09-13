@@ -688,6 +688,17 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     restartTarget: 'dashboard',
   },
   {
+    key: 'CODE_MODEL',
+    type: 'string',
+    default: '',
+    valueSet: ['', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-fable-5-1'],
+    description: 'Melyik modellel fusson a kod-hidon KIADOTT feladat. Uresen hagyva a Claude Code sajat valasztasa marad ervenyben (a projekt beallitasa, illetve amit a VS Code-ban /model-lel allitottal) -- ez az alapertek, mert igy a Marveen nem ir felul olyat, amirol nem kerdeztek meg. FIGYELEM: ez a KIADOTT MUNKARA vonatkozik, nem arra, amit a kartya MUTAT: a kartyan latszo modell meres (a beszelgetes naploja mondja meg, mivel valaszolt utoljara), azt beallitani nem lehet, csak leolvasni.',
+    module: 'kodhid',
+    secret: false,
+    requiresRestart: true,
+    restartTarget: 'dashboard',
+  },
+  {
     key: 'CODE_BOT_TOKEN',
     type: 'string',
     default: '',

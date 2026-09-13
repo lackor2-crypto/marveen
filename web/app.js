@@ -37805,6 +37805,10 @@ async function _intezoCfgSave() {
     if (enabled) enabled.checked = String(cfg.CODE_BRIDGE_ENABLED) === '1'
     const perm = document.getElementById('cbPermMode')
     if (perm) perm.value = cfg.CODE_PERMISSION_MODE || 'acceptEdits'
+    // Ures ertek = "amit a VS Code hasznal". Ez ERVENYES valasztas, nem hianyzo
+    // adat, ezert nincs mogotte alapertelmezes-behelyettesites.
+    const model = document.getElementById('cbModel')
+    if (model) model.value = cfg.CODE_MODEL || ''
     const excl = document.getElementById('cbExclude')
     if (excl) excl.value = cfg.CODE_BRIDGE_EXCLUDE || ''
     _cbSavedExclude = cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true).split(',').filter(function (x) { return x })
@@ -38459,12 +38463,14 @@ async function _intezoCfgSave() {
     if (tgt.id === 'cbSaveOpsBtn') {
       const enabled = document.getElementById('cbEnabled')
       const perm = document.getElementById('cbPermMode')
+      const model = document.getElementById('cbModel')
       const excl = document.getElementById('cbExclude')
       const status = document.getElementById('cbOpsStatus')
       try {
         await cbPostJson('/api/code/config', {
           CODE_BRIDGE_ENABLED: enabled && enabled.checked ? '1' : '0',
           CODE_PERMISSION_MODE: perm ? perm.value : 'acceptEdits',
+          CODE_MODEL: model ? model.value : '',
           CODE_BRIDGE_EXCLUDE: excl ? excl.value.trim() : '',
         })
         if (status) status.textContent = 'Elmentve — a vezérlőpult újraindítása után lép életbe.'

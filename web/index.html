@@ -5197,6 +5197,23 @@
           elakadna egy olyan kérdésen, amit senki nem tud megválaszolni &mdash; nincs ember a végén.
         </p>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+          <label for="cbModel" style="font-size:13px;min-width:120px" data-i18n="cb.ops.model_label">Modell:</label>
+          <select id="cbModel" class="input" style="width:auto">
+            <option value="" data-i18n="cb.ops.model_default">Alapértelmezett (amit a VS Code használ)</option>
+            <option value="claude-opus-5" data-i18n="cb.ops.model_opus">Opus 5 &mdash; a legerősebb</option>
+            <option value="claude-sonnet-5" data-i18n="cb.ops.model_sonnet">Sonnet 5 &mdash; kiegyensúlyozott</option>
+            <option value="claude-haiku-4-5-20251001" data-i18n="cb.ops.model_haiku">Haiku 4.5 &mdash; gyors, olcsó</option>
+            <option value="claude-fable-5-1">Fable 5.1</option>
+          </select>
+        </div>
+        <p class="subtitle" style="margin-top:6px" data-i18n-html="cb.ops.model_help">
+          Ezzel a modellel fut le a <strong>kiadott munka</strong>. Üresen hagyva azt használja, amit a
+          VS Code-ban beállítottál &mdash; ilyenkor a Marveen nem ír felül olyat, amiről nem kérdezett meg.
+          <br>
+          Ez <strong>nem</strong> ugyanaz, mint a kártyán látszó modell: az mérés &mdash; azt mondja meg,
+          mivel válaszolt a beszélgetés utoljára &mdash;, és leolvasni lehet, beállítani nem.
+        </p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
           <label for="cbExclude" style="font-size:13px;min-width:120px">Kizárt projektek:</label>
           <input id="cbExclude" class="input" style="width:320px" placeholder="pl. tozsde_telepitesi_mappa">
         </div>
