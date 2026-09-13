@@ -176,6 +176,22 @@ is, hogy visszakérdezhet, és kitől.
 
 ## Eljárás -- végrehajtó oldal (a drága modell)
 
+> **HA HIBÁT TALÁLSZ, AZONNAL JAVÍTSD -- helyben, ugyanezen a kártyán, külön
+> parancs nélkül.** Ez a megvalósítóra (implementálóra) vonatkozik: ha munka
+> közben bármilyen hibát találsz -- MÉG AKKOR IS, ha nem ehhez a feladathoz
+> tartozik, hanem valami máshoz --, azt ugyanabban a menetben, ott helyben ki
+> kell javítanod. NEM nyitsz rá új kártyát, NEM tolod át másik kártya alá, NEM
+> hagyod ott a hibát, és NEM vársz külön tervre vagy parancsra. A talált hiba
+> javítása a munkád része, nem új engedélyhez kötött feladat. Az ellenőrzés
+> ezután úgyis megnézi (arra kell ellenőrző) -- de a javításra magára nem kell
+> se új terv, se jóváhagyás. Boss 2026-09-13: "ha talál egy hibát, azt
+> mindenféleképpen javítania kell, azon a kártyán, ott, helyben, azonnal... nem
+> kell arra új tervet készíteni; ellenőrizni majd kell, de az implementáló ott
+> helyben azonnal meg kell csinálja, nem kell várnia semmilyen más parancsra".
+> Ez a CLAUDE.md "egy hiba = egy kártya, azonnal és teljesen készre" szabály
+> végrehajtói vetülete -- lásd [[reset-planner-before-dispatch]] és a
+> CLAUDE.md "EGY HIBA = EGY KARTYA" szakaszt.
+
 1. Olvasd el a csomagot, és **mielőtt bármit megnyitnál**, döntsd el: elég ez?
 2. Ha nem elég, **NE kezdj el magad keresgélni a gépen**. Ez a lényeg: a
    keresgélés ugyanannyi tokenbe kerül nálad, mint a gondolkodás, csak nem ér
