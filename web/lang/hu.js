@@ -475,8 +475,6 @@ window._i18n.hu = {
   'accounts.identity.drift_after_login': '⚠️ Nem az a fiók jelentkezett be, amit ide rögzítettünk: {expected} helyett {actual}. A böngésző azt a fiókot hagyja jóvá, amelyik éppen be van benne jelentkezve — jelentkezz ki a claude.ai-ból (vagy nyiss privát ablakot), és próbáld újra.',
   'health.named_login_same_account': '❌ {n} névre szóló előfizetés UGYANABBA a Claude-fiókba van bejelentkezve ({email}): {names}',
   'health.named_login_same_account_action': 'Ezek külön előfizetésnek látszanak, de egyetlen fiók keretét fogyasztják — kétszer olyan gyorsan fogy el, a másik fiók pedig kihasználatlan marad. Nyisd meg a Fiókok oldalt, jelentkeztesd ki azt, amelyik rossz helyen van, majd jelentkezz be a saját címével. A böngésző azt a fiókot hagyja jóvá, amelyik éppen be van benne jelentkezve — ha nem a jót kínálja, előbb lépj ki a claude.ai-ból, vagy használj privát ablakot.',
-  'health.named_login_same_as_host': '❌ Egy névre szóló előfizetés a gép saját fiókjába van bejelentkezve ({email}): {names}',
-  'health.named_login_same_as_host_action': 'Így az ágens nem a saját előfizetését használja, hanem a gépét — a kettő ugyanabból a keretből eszik. Jelentkeztesd ki ezt az előfizetést a Fiókok oldalon, és jelentkezz be a hozzá tartozó címmel.',
   'health.named_login_drift': '❌ {n} fiókban nem az van, akit oda rögzítettünk: {names}',
   'health.named_login_drift_action': 'Az első bejelentkezéskor rögzítettük, melyik cím tartozik ehhez az előfizetéshez, és most más van benne. Vagy jelentkeztesd ki és lépj be a helyes fiókkal, vagy — ha szándékos volt a csere — a Fiókok oldalon fogadd el az új címet.',
   'health.named_login_ok':     '✅ Mind a(z) {n} névre szóló Claude-fiók be van jelentkezve.',

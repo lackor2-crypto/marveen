@@ -450,8 +450,6 @@ window._i18n.en = {
   'accounts.identity.drift_after_login': '⚠️ The account that signed in is not the one pinned here: {actual} instead of {expected}. The browser approves whichever account is signed in there — sign out of claude.ai (or use a private window) and try again.',
   'health.named_login_same_account': '❌ {n} named subscriptions are logged into the SAME Claude account ({email}): {names}',
   'health.named_login_same_account_action': 'They look like separate subscriptions but they spend one account\'s allowance — it runs out twice as fast, and the other account sits unused. Open the Accounts page, sign out the one that is in the wrong place, then sign in with its own address. The browser approves whichever account is currently signed in there — if it offers the wrong one, sign out of claude.ai first or use a private window.',
-  'health.named_login_same_as_host': '❌ A named subscription is logged into this machine\'s own account ({email}): {names}',
-  'health.named_login_same_as_host_action': 'The agent is not using its own subscription but the machine\'s — both eat the same allowance. Sign this subscription out on the Accounts page and sign in with the address that belongs to it.',
   'health.named_login_drift': '❌ {n} accounts hold someone other than the address pinned to them: {names}',
   'health.named_login_drift_action': 'The first login pinned which address belongs to this subscription, and a different one is in it now. Either sign out and log in with the right account, or — if the swap was intentional — accept the new address on the Accounts page.',
   'health.named_login_ok':     '✅ All {n} named Claude accounts are logged in.',
