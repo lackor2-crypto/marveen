@@ -134,6 +134,23 @@ is, hogy visszakérdezhet, és kitől.
 
 ## Eljárás -- kiadó oldal
 
+> **0. lépés -- SZEREP-ALAPÚ kiadásnál (tervező / megvalósító / ellenőrző): a
+> tervezőt kiadás ELŐTT LE KELL NULLÁZNI.** Ha a tulajdonos szerepeket osztott
+> ki (tervező, megvalósító, ellenőrző), a sorrend kötelezően ez: (a) TE, a
+> kontextusgenerátor, előkészíted a munkacsomagot (mi a munka, kikötések); (b)
+> MIELŐTT a tervezőnek kiadnád, a tervező ágenst LENULLÁZOD -- tiszta kontextus,
+> `/clear`, ~0 token --, hogy ne a meglévő token-teher tetejére dolgozzon; (c)
+> csak a tiszta lap visszaigazolása UTÁN küldöd a csomagot. Más ágens tmux-jába
+> NEM írsz kézzel (tiltott): inter-agent üzenetben kéred, hogy futtasson
+> `/clear`-t, és jelezzen vissza egy sorral, hogy tiszta lappal áll -- AKKOR
+> adod ki a tervet. Ugyanez áll a megvalósítóra, ha külön ágens és tele a
+> kontextusa. **Miért:** Boss 2026-09-13 -- a tervező (usalackor) 211 000
+> tokennel, tömörítés-közelben indult, mert nem volt nullázva; a kezdés rögtön
+> el volt rontva, felesleges token-fogyással. Nullázás nélkül a szerep-alapú
+> kiadás pazarol. Az élő futás keret-baseline-ját kiadáskor rögzítsd
+> (`store/pipeline-runs/`), a munka végén mérd újra, és jelentsd, ki mennyit
+> fogyasztott -- így látszik, hogyan teljesítenek a szereplők.
+
 1. **Döntsd el, hogy egyáltalán kiadod-e.** Ha triviális, csináld meg. Ha
    összetett vagy kockázatos, add ki erősebbnek (első szabály).
 2. **Válaszd ki a végrehajtót** a fenti szereptáblából. Ne automatikusan a
