@@ -4420,9 +4420,12 @@ function accountIdentityWarningHtml(row) {
   }
   if (v && v.kind === 'drift') {
     const szoveg = t('accounts.identity.drift', { expected: v.expected, actual: v.actual })
+    // A fo agens sora (isDefault) nem plan: a '__main__' azonosito jelzi a
+    // szervernek, hogy a fo agens sajat tarolojaba rogzitse a cimet.
+    const planKey = row.isDefault ? '__main__' : (row.id || '')
     return `<div class="agent-account-identity-warn">⚠️ ${escapeHtml(szoveg)}
       <button type="button" class="btn-secondary btn-compact agent-account-pin-btn"
-        data-plan="${escapeAttr(row.id || '')}" data-email="${escapeAttr(cim)}">${escapeHtml(t('accounts.identity.accept_new'))}</button>
+        data-plan="${escapeAttr(planKey)}" data-email="${escapeAttr(cim)}">${escapeHtml(t('accounts.identity.accept_new'))}</button>
     </div>`
   }
   if (v && v.kind === 'blind') {
