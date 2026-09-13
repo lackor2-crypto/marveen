@@ -172,6 +172,17 @@ export function isUnderAgentsDir(localPath: string): boolean {
   return workspaceKey(localPath).startsWith(base + '/')
 }
 
+// A KIADOTT MUNKA modellje ELOBOL, nem a boot-ideju `CODE_MODEL` konstansbol.
+// Boss, 2026-09-13: a Marvin VS Code kulso programozo REJTETT sessionokben
+// dolgozik, amiket a VS Code-ban nem lat/nem tud atallitani -- a modellt CSAK a
+// dashboardrol lehet allitani. Ha a boot-konstanst hasznalnank, a valasztobeli
+// valtozas csak dashboard-restart utan hatna (gyakorlatilag disz). Az override-
+// tarat elobol olvasva a kovetkezo kiadott munka MAR az uj modellel indul.
+// Ures = ervenyes valasztas: nincs `--model`, a CLI sajat valasztasa marad.
+function effectiveDispatchModel(): string {
+  return String(getEffectiveSettingValue('CODE_MODEL') ?? '').trim()
+}
+
 export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
   const { res, path, method, url } = ctx
   if (!path.startsWith('/api/code/')) return false
@@ -285,7 +296,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       live: {
         enabled: CODE_BRIDGE_ENABLED,
         permissionMode: CODE_PERMISSION_MODE,
-        model: CODE_MODEL,
+        // A modell MAR elobol jon (a claim is ezt hasznalja), ezert a "live" es
+        // a "stored" ertek egyezik -> nincs hamis "ujrainditas kell" jelzes a
+        // modellnel. A tobbi mezo boot-ideju konstans marad.
+        model: effectiveDispatchModel(),
         botConfigured: CODE_BOT_TOKEN.length > 0,
         allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,
         excluded: CODE_BRIDGE_EXCLUDE,
@@ -314,9 +328,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }
     if (saved.length === 0) { json(res, { error: 'no known settings in body', errorKey: 'cb.err.no_known_settings' }, 400); return true }
     logger.info({ saved }, 'code-bridge: config updated from dashboard')
-    // Every one of these is a boot-time const in config.ts, so the page has to
-    // say so rather than let the owner believe it already took effect.
-    json(res, { saved, restartRequired: true })
+    // A CODE_MODEL AZONNAL el (a claim elobol olvassa) -- ez NEM igenyel
+    // ujrainditast. A tobbi mezo boot-ideju konstans, azoknal marad a
+    // restart-jelzes. Igy egy modell-valtas utan a felulet nem hazudik
+    // "ujrainditas kell"-t (Boss, 2026-09-13: eddig ez tette hasznalhatatlanna).
+    const restartRequired = saved.some((k) => k !== 'CODE_MODEL')
+    json(res, { saved, restartRequired, modelLive: saved.includes('CODE_MODEL') })
     return true
   }
 
@@ -1194,7 +1211,15 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         hostKind: detectHostKind(),
       }),
     }
-    json(res, { task: dispatched, permissionMode: CODE_PERMISSION_MODE, model: CODE_MODEL, ...extra })
+    // A MODELL ELOBOL JON, nem a boot-ideju konstansbol. Boss, 2026-09-13: a
+    // Marvin VS Code kulso programozo REJTETT sessionokben dolgozik, amiket a
+    // VS Code-ban nem lat/nem tud atallitani -- tehat a modellt CSAK innen, a
+    // dashboardrol lehet allitani. Ha ez a boot-ideju `CODE_MODEL` konstans
+    // lenne (mint korabban), a valasztobeli valtozas csak dashboard-restart
+    // utan hatna, azaz gyakorlatilag disz volt. Igy a kovetkezo kiadott munka
+    // MAR az uj modellel indul, restart nelkul. (A worker `--model`-kent adja
+    // tovabb; ures = nincs kapcsolo, a CLI sajat valasztasa marad.)
+    json(res, { task: dispatched, permissionMode: CODE_PERMISSION_MODE, model: effectiveDispatchModel(), ...extra })
     return true
   }
 

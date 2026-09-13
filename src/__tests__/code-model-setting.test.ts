@@ -46,8 +46,25 @@ describe('a beallitas vegig megy: sema -> API -> worker -> CLI', () => {
     expect(ROUTES).toMatch(/'CODE_PERMISSION_MODE', 'CODE_MODEL'/)
   })
 
-  it('a claim valasz elviszi a workerhez (a permissionMode mellett)', () => {
-    expect(ROUTES).toMatch(/permissionMode: CODE_PERMISSION_MODE, model: CODE_MODEL/)
+  it('a claim valasz elviszi a workerhez (a permissionMode mellett), ELOBOL olvasva', () => {
+    // Boss, 2026-09-13: a rejtett dispatch-session modelljet CSAK a dashboardrol
+    // lehet allitani, ezert a claim NEM a boot-ideju CODE_MODEL konstanst adja
+    // (az csak restart utan valtozna -> disz), hanem az elo override-ot.
+    expect(ROUTES).toMatch(/permissionMode: CODE_PERMISSION_MODE, model: effectiveDispatchModel\(\)/)
+    // A helper tenylegesen az elo beallitas-tarbol olvas, nem a konstansbol.
+    expect(ROUTES).toMatch(/function effectiveDispatchModel\(\)[\s\S]*getEffectiveSettingValue\('CODE_MODEL'\)/)
+    // Regresszio-orzes: a claim-valasz NE a puszta boot-konstanst adja vissza.
+    expect(ROUTES).not.toMatch(/model: CODE_MODEL,/)
+  })
+
+  it('a GET live.model is elobol jon (nincs hamis "ujrainditas kell" a modellnel)', () => {
+    // A live blokk model mezoje az effektiv erteket adja, igy a stored == live
+    // -> a felulet nem jelez ujrainditast egy modell-valtas utan.
+    expect(ROUTES).toMatch(/model: effectiveDispatchModel\(\),/)
+  })
+
+  it('a POST restartRequired FALSE, ha csak a CODE_MODEL valtozott', () => {
+    expect(ROUTES).toMatch(/restartRequired = saved\.some\(\(k\) => k !== 'CODE_MODEL'\)/)
   })
 
   it('a worker atadja a CLI-nek, ha van ertek', () => {

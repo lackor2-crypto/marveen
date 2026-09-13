@@ -38470,15 +38470,20 @@ async function _intezoCfgSave() {
       const excl = document.getElementById('cbExclude')
       const status = document.getElementById('cbOpsStatus')
       try {
-        await cbPostJson('/api/code/config', {
+        // A modell AZONNAL el (a claim elobol olvassa) -- a szerver megmondja,
+        // kell-e egyaltalan ujrainditas (csak a boot-ideju mezokhoz). Igy egy
+        // modell-valtas utan a felulet nem hazudik "ujrainditas kell"-t.
+        const resp = await cbPostJson('/api/code/config', {
           CODE_BRIDGE_ENABLED: enabled && enabled.checked ? '1' : '0',
           CODE_PERMISSION_MODE: perm ? perm.value : 'acceptEdits',
           CODE_MODEL: model ? model.value : '',
           CODE_BRIDGE_EXCLUDE: excl ? excl.value.trim() : '',
         })
-        if (status) status.textContent = 'Elmentve — a vezérlőpult újraindítása után lép életbe.'
+        if (status) status.textContent = (resp && resp.restartRequired)
+          ? t('cb.ops.saved_restart')
+          : t('cb.ops.saved_model_live')
         cbLoadConfig()
-      } catch (err) { if (status) status.textContent = 'Nem sikerült: ' + err.message }
+      } catch (err) { if (status) status.textContent = t('cb.ops.save_failed', { err: err.message }) }
       return
     }
 
