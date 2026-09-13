@@ -893,6 +893,21 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     if (!updated) { json(res, { error: 'No pending verification for this approval/agent -- was it dispatched via /verify?' }, 404); return true }
     logger.info({ approvalId, agent, status }, 'Approval verification resolved')
 
+    // Update the approval description to include the verification result, so
+    // the text "még nincs benne, mi lett tesztelve" gets replaced with the
+    // actual finding once it is reported.
+    const approvalBefore = getApproval(approvalId)
+    if (approvalBefore) {
+      const icon = status === 'pass' ? '✅' : '❌'
+      const desc = approvalBefore.action_description || ''
+      // Replace the auto-generated "még nincs benne..." part with the actual finding.
+      const testingMarker = 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: a felelős ágens egészítse ki, mielőtt'
+      const oldDesc = desc.includes(testingMarker)
+        ? desc.substring(0, desc.indexOf(testingMarker)) + `Tesztelve: ${icon} ${agent.trim()} -- ${reportText || '(nincs indoklás)'}`
+        : desc
+      updateApprovalDescription(approvalId, oldDesc)
+    }
+
     // Boss 2026-08-08: "el is lehetne azt is tárolni, hogy mit talált, és a
     // kártyába is tegye hozzá" -- if this approval traces back to a kanban
     // card, leave the finding as a comment there too, not just on the
