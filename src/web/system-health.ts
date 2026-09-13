@@ -460,32 +460,19 @@ export function namedLoginRows(
     } else if (st === 'ki') kint.push(nev)
     else vak.push(nev)
   }
-  // A gep sajat bejelentkezese is beleszamit: ha egy nevesitett elofizetes arra
-  // csuszik at, az ugyanaz a hiba.
-  const sajatDir = join(homedir(), '.claude')
-  let sajatCim: string | null = null
-  if (proba(sajatDir) === 'be') {
-    const cim = cimOlvaso(sajatDir)
-    if (cim) sajatCim = cim.trim().toLowerCase()
-  }
+  // Ha egy nevesitett elofizetes ugyanazon a fiokon ul, mint a gep sajat
+  // (~/.claude) bejelentkezese, az NEM hiba: szandekosan igy van (pl. egy agens
+  // a gep sajat Anthropic-fiokjaval/keretevel dolgozik). Boss, 2026-09-13. Ezt
+  // korabban a `named_login_same_as_host` sor pirosnak jelezte -- levettuk. Ami
+  // hiba MARAD: ha KET KULON NEVU elofizetes ul ugyanazon a fiokon (az egyik
+  // hasznalatlanul all, ketten eszik ugyanazt a keretet -- Boss, 2026-08-29).
   const rows: HealthRow[] = []
   for (const [cim, nevek] of cimenkent) {
-    // Ket kulon nevu elofizetes ugyanazon a fiokon...
     if (nevek.length >= 2) {
       rows.push({
         id: 'named_login_same_account',
         status: 'bad',
         params: { n: nevek.length, names: nevek.join(', '), email: cim },
-      })
-      continue
-    }
-    // ...vagy egy elofizetes a gep SAJAT fiokjan. A backend nem ad magyar szot
-    // a felületnek: a sajat fiokot a lap nevezi meg, ezert kulon sor-azonosito.
-    if (sajatCim && cim === sajatCim) {
-      rows.push({
-        id: 'named_login_same_as_host',
-        status: 'bad',
-        params: { names: nevek.join(', '), email: cim },
       })
     }
   }
