@@ -7,6 +7,7 @@ import {
   assignRole,
   rolesOf,
   EMPTY_ROLES,
+  planRoleClear,
 } from '../context-broker.js'
 import { CAUTION_THRESHOLD_PCT, CRITICAL_THRESHOLD_PCT, STALE_AFTER_MS } from '../rate-limit-status.js'
 
@@ -206,5 +207,50 @@ describe('resolveBroker', () => {
     expect(away.effective).toBe('other')
     expect(back.effective).toBe('broker')
     expect(back.reason).toBe('designated')
+  })
+})
+
+describe('planRoleClear (kartya #275)', () => {
+  it('clears every role holder EXCEPT the dispatcher', () => {
+    const roles = { planner: 'lackor2', implementer: 'usalackor', checker: 'gypsy' }
+    const plan = planRoleClear(roles, 'lackor2')
+    expect(plan.assigned).toEqual(['lackor2', 'usalackor', 'gypsy'])
+    expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
+    expect(plan.toClear).not.toContain('lackor2')
+  })
+
+  it('never clears the dispatcher even when it holds the checker role too', () => {
+    // The "ELLENORZO ha NEM a kiado" rule: a dispatcher that is also the checker
+    // is still spared -- the dispatcher exclusion wins over any role it holds.
+    const roles = { planner: 'usalackor', implementer: 'gypsy', checker: 'lackor2' }
+    const plan = planRoleClear(roles, 'lackor2')
+    expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
+    expect(plan.toClear).not.toContain('lackor2')
+  })
+
+  it('deduplicates an agent holding several roles, clearing it once', () => {
+    const roles = { planner: 'usalackor', implementer: 'usalackor', checker: 'gypsy' }
+    const plan = planRoleClear(roles, 'lackor2')
+    expect(plan.toClear).toEqual(['usalackor', 'gypsy'])
+    expect(plan.rolesByAgent.usalackor).toEqual(['planner', 'implementer'])
+    expect(plan.rolesByAgent.gypsy).toEqual(['checker'])
+  })
+
+  it('fresh install: no roles assigned means clear nobody (assigned is empty)', () => {
+    const plan = planRoleClear(EMPTY_ROLES, 'lackor2')
+    expect(plan.assigned).toEqual([])
+    expect(plan.toClear).toEqual([])
+    expect(plan.rolesByAgent).toEqual({})
+  })
+
+  it('with no dispatcher named, clears all holders (owner-initiated full sweep)', () => {
+    const roles = { planner: 'a', implementer: 'b', checker: null }
+    expect(planRoleClear(roles, null).toClear).toEqual(['a', 'b'])
+    expect(planRoleClear(roles, '   ').toClear).toEqual(['a', 'b'])
+  })
+
+  it('is deterministic in planner/implementer/checker order regardless of input', () => {
+    const roles = { checker: 'c', planner: 'a', implementer: 'b' }
+    expect(planRoleClear(roles, null).assigned).toEqual(['a', 'b', 'c'])
   })
 })

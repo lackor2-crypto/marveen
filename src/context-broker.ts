@@ -111,6 +111,46 @@ export function rolesOf(roles: BrokerRoles, agent: string): BrokerRoleId[] {
   return BROKER_ROLE_IDS.filter((id) => roles[id] === agent)
 }
 
+/**
+ * Which role-holders to context-clear when work is handed out, and which to
+ * spare. Kartya #275: when an agent dispatches role-based work, the pipeline
+ * participants (planner, implementer, checker) must start from a clean window --
+ * a curated work package is worth little if the receiver still carries the
+ * previous task, and a handover is the one moment where dropping context is
+ * safe, because the replacement arrives with it.
+ *
+ * The one participant NEVER cleared is the dispatcher itself: its context IS the
+ * package it just built (the same rule the generator's clean-start already
+ * obeys, cf. broker-role.py). An agent holding several roles is cleared once.
+ * Membership is decided here; whether a member can actually be reached (running,
+ * idle, has a tmux panel at all) is the I/O caller's job -- which is also the
+ * only layer that can tell an UNASSIGNED role (a valid fresh-install state where
+ * nobody is cleared) from a holder whose panel merely is not visible right now.
+ */
+export interface RoleClearPlan {
+  /** Distinct agents holding any role, dispatcher included -- 0 means "nobody assigned". */
+  assigned: string[]
+  /** Agents to clear: `assigned` minus the dispatcher, deduped, deterministic order. */
+  toClear: string[]
+  /** Roles each cleared agent holds, for the caller's per-agent report. */
+  rolesByAgent: Record<string, BrokerRoleId[]>
+}
+
+export function planRoleClear(roles: BrokerRoles, dispatcher: string | null): RoleClearPlan {
+  const norm = normalizeRoles(roles)
+  const self = (dispatcher && dispatcher.trim()) ? dispatcher.trim() : null
+  const seen = new Set<string>()
+  const assigned: string[] = []
+  const rolesByAgent: Record<string, BrokerRoleId[]> = {}
+  for (const id of BROKER_ROLE_IDS) {
+    const holder = norm[id]
+    if (!holder) continue
+    if (!seen.has(holder)) { seen.add(holder); assigned.push(holder) }
+    ;(rolesByAgent[holder] ??= []).push(id)
+  }
+  return { assigned, toClear: assigned.filter((a) => a !== self), rolesByAgent }
+}
+
 export const DEFAULT_BROKER_CONFIG: BrokerConfig = {
   designated: null,
   updatedAt: null,
