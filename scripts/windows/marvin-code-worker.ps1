@@ -2,16 +2,34 @@
 #
 # WHAT IT DOES
 #   1. Discovers the Claude Code sessions on this machine by reading
-#      %USERPROFILE%\.claude\projects\<encoded-cwd>\<session>.jsonl and reports
-#      them to Marveen (project alias -> sessionId + workspace path).
+#      %USERPROFILE%\.claude\projects\<encoded-cwd>\<session>.jsonl AND every
+#      installed WSL distro's own \\wsl.localhost\<distro>\home\*\.claude\projects
+#      (see "WSL DISCOVERY" below), and reports them to Marveen (project alias
+#      -> sessionId + workspace path).
 #   2. Claims one queued task at a time from Marveen.
 #   3. Runs the EXISTING session headless:
 #        claude.exe -p --resume <sessionId> --output-format json
+#      (or, for a WSL-side session, `wsl.exe -d <distro> -- claude ...` -- see
+#      "WSL DISCOVERY")
 #      in the project's own folder, so the conversation history, the project
 #      knowledge and the workspace context are all the ones that session already
 #      has. No --fork-session, no --session-id: nothing new is created.
 #   4. Posts the result back. Marveen sends the short Telegram ping from there,
 #      programmatically -- no model is asked to summarise anything.
+#
+# WSL DISCOVERY (kartya c795a495)
+#   A VS Code Claude Code EGY WSL Remote ablakban is futhat -- ekkor a `claude`
+#   folyamat NEM ezen a Windows gepen fut, hanem a WSL disztribucion BELUL, es a
+#   transcriptje a disztribucio SAJAT fajlrendszereben keletkezik
+#   (`~/.claude/projects/`), SOHA nem a fenti %USERPROFILE% alatt. A regi
+#   felderites ezert soha nem latta ezeket a beszelgeteseket -- Boss szavaival
+#   "nem lat oda". A WSL fajlrendszer viszont a Windows oldalrol UNC-uton ERHETO
+#   EL (`\\wsl.localhost\<distro>\...`), ezt bejarva a felderites ugyanugy
+#   megtalalja oket, mint a windowsos mappakat -- lasd Get-WslDistros,
+#   ConvertFrom-WslUncPath, ConvertTo-WslUncPath es Get-ProjectsSources.
+#   A vegrehajtaskor (Invoke-CodeTask) egy WSL-es feladatot NEM ez a gep futtat
+#   -- a `wsl.exe -d <distro> --cd <posix-ut> -- claude ...` inditja a linuxos
+#   `claude`-ot a sajat disztribucion belul.
 #
 # WHY THE WORKER POLLS INSTEAD OF LISTENING
 #   Marveen runs in WSL and cannot reach Windows: /mnt/c and /mnt/d return EIO on
@@ -41,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-12.3'
+$script:WorkerVersion = '2026-09-13.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -98,6 +116,76 @@ function Get-ClaudeProjectsDir {
   $dir = Join-Path $env:USERPROFILE '.claude\projects'
   if (Test-Path $dir) { return $dir }
   return $null
+}
+
+# ---- WSL felderites (kartya c795a495) ------------------------------------
+#
+# A telepitett WSL disztribuciok listaja. A `wsl.exe -l -q` kimenete UTF-16LE-
+# ben erkezik es null-bajtokkal tarkitott PowerShell 5.1 alatt -- ezt kezzel
+# kell tisztitani, kulonben egyetlen nev sem fog egyezni semmivel (a szellem-
+# karakterek a String-osszehasonlitast is elrontjak).
+function Get-WslDistros {
+  try {
+    $raw = & wsl.exe -l -q 2>$null
+  } catch {
+    return @()
+  }
+  if (-not $raw) { return @() }
+  $names = New-Object System.Collections.ArrayList
+  foreach ($line in @($raw)) {
+    $clean = ([string]$line -replace "`0", '').Trim()
+    if ($clean) { [void]$names.Add($clean) }
+  }
+  return $names.ToArray()
+}
+
+# `\\wsl.localhost\Ubuntu\home\boss\marveen` -> @{ Distro='Ubuntu'; Posix='/home/boss/marveen' }
+# `$null`, ha az utvonal nem ilyen alaku (windowsos vagy meghajtobetus ut).
+function ConvertFrom-WslUncPath {
+  param([string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+  if ($Path -notmatch '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(\\.*)?$') { return $null }
+  $distro = $Matches[1]
+  $rest = if ($Matches[2]) { ($Matches[2] -replace '\\', '/') } else { '/' }
+  return @{ Distro = $distro; Posix = $rest }
+}
+
+# @{ Distro='Ubuntu'; Posix='/home/boss/marveen' } -> `\\wsl.localhost\Ubuntu\home\boss\marveen`
+# A forditott irany a ConvertFrom-WslUncPath-hoz: a transcript SAJAT (POSIX)
+# cwd-jet kell UNC-alakra hoznunk, mielott jelentjuk vagy Test-Path-eljuk --
+# a windowsos oldal (dashboard, Test-DispatchableWorkspace) csak azt ismeri fel.
+function ConvertTo-WslUncPath {
+  param([string]$Distro, [string]$Posix)
+  $winPart = ($Posix.TrimStart('/')) -replace '/', '\'
+  return '\\wsl.localhost\' + $Distro + '\' + $winPart
+}
+
+# Minden forras, ahonnan session-transcript szarmazhat: a sajat Windows
+# .claude\projects, PLUSZ minden telepitett WSL disztribucio minden
+# felhasznalojanak .claude\projects mappaja, UNC-uton (`\\wsl.localhost\...`).
+#
+# MIERT UNC ES NEM `wsl.exe` HIVAS FAJLONKENT: a `\\wsl.localhost\<distro>\...`
+# sima Windows-fajlrendszer-muveletkent viselkedik (Test-Path, Get-ChildItem),
+# es a disztribucio elerese automatikusan elinditja azt, ha epp allt -- ez a 9P
+# fajlrendszer dokumentalt, szokasos viselkedese. Ez gyorsabb es megbizhatobb,
+# mint percenkent uj `wsl.exe` folyamatot inditani minden transcript-fajlhoz.
+#
+# `*` = barmelyik user home-ja -- nem talalgatjuk a felhasznalonevet, a
+# Get-ChildItem wildcard-glob mindet bejarja, amelyik alatt tenyleg letezik a
+# `.claude\projects` mappa.
+function Get-ProjectsSources {
+  $out = New-Object System.Collections.ArrayList
+  $winDir = Get-ClaudeProjectsDir
+  if ($winDir) { [void]$out.Add(@{ Path = $winDir; Distro = $null }) }
+  foreach ($distro in (Get-WslDistros)) {
+    $pattern = '\\wsl.localhost\' + $distro + '\home\*\.claude\projects'
+    try {
+      foreach ($hit in (Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue)) {
+        [void]$out.Add(@{ Path = $hit.FullName; Distro = $distro })
+      }
+    } catch { }
+  }
+  return $out.ToArray()
 }
 
 # The transcript's own `cwd` field is the authority on which folder a session
@@ -398,14 +486,17 @@ $script:MaxTabsPerWorkspace = 10
 $script:TabMaxAgeDays = 21
 
 function Get-LocalSessions {
-  $projectsDir = Get-ClaudeProjectsDir
-  if (-not $projectsDir) { return @() }
+  $sources = @(Get-ProjectsSources)
+  if ($sources.Count -eq 0) { return @() }
   # EGYETLEN nyitottsag-meres marad: fut-e a folyamat. Amit a felhasznalo a
   # panelen lat, azt kivulrol nem lehet megmerni -- lasd a `state.vscdb`
   # sirkovet fentebb. `$null` = nem tudtuk megnezni (nincs sessions mappa).
   $open = Get-OpenSessionIds
   $out = New-Object System.Collections.ArrayList
   $cutoff = (Get-Date).ToUniversalTime().AddDays(-$script:TabMaxAgeDays)
+  foreach ($source in $sources) {
+  $projectsDir = $source.Path
+  $distro = $source.Distro
   foreach ($dir in (Get-ChildItem -Path $projectsDir -Directory -ErrorAction SilentlyContinue)) {
     # A transcript under ~2 KB is an aborted/empty session -- registering it as
     # "the project's session" would throw away the real conversation history.
@@ -451,7 +542,13 @@ function Get-LocalSessions {
       }
       $info = Read-TranscriptInfo -Path $f.FullName
       if (-not $info.cwd) { continue }
-      if (-not (Test-DispatchableWorkspace -Path $info.cwd)) { continue }
+      # A WSL-ben futo Claude Code a SAJAT (POSIX) cwd-jet irja a transcriptbe
+      # -- ezt kell UNC-alakra hoznunk, MIELOTT barmit ellenoriznenk vagy
+      # jelentenenk rola, mert a Test-DispatchableWorkspace / dashboard mind a
+      # windows-oldali (UNC vagy meghajtobetus) alakot varja.
+      $reportedWorkspace = $info.cwd
+      if ($distro) { $reportedWorkspace = ConvertTo-WslUncPath -Distro $distro -Posix $info.cwd }
+      if (-not (Test-DispatchableWorkspace -Path $reportedWorkspace)) { continue }
       $sid = [System.IO.Path]::GetFileNameWithoutExtension($f.Name)
       # $null = nem tudtuk megnezni (nincs sessions mappa). A `$false` ezzel
       # szemben MERES: a beszelgetes folyamata NEM fut.
@@ -463,7 +560,7 @@ function Get-LocalSessions {
       }
       $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
-        workspacePath = $info.cwd
+        workspacePath = $reportedWorkspace
         sessionId     = $sid
         live          = $live
         # A naplo SAJAT utolso idobelyege. `$null` = nem talaltunk ilyet (vagy
@@ -486,6 +583,7 @@ function Get-LocalSessions {
       $kept++
       $isPrimary = $false
     }
+  }
   }
   return $out.ToArray()
 }
@@ -659,7 +757,25 @@ function Invoke-CodeTask {
   $sessionId = [string]$Task.sessionId
   if (-not (Test-Path $workspace)) { throw "workspace not found: $workspace" }
 
-  $claude = Resolve-ClaudeExe
+  # Every argument here is ASCII by construction (a uuid and two keywords).
+  # Kartya 032aa826: startFresh = true azt jelenti, hogy a claim NEM talalt
+  # bizonyitottan Marvin-sajat (korabban maga altal nyitott) beszelgetest a
+  # projekthez, tehat NEM resume-elunk a felderites altal latott -- akar a
+  # tulaj altal eppen kezzel hasznalt -- fulbe, hanem uj, ures beszelgetest
+  # indit a CLI (`-p` --resume nelkul), pont ugy, mint a bizonyitottan mukodo
+  # "/clear" ut a #48-as (Torles) gombnal.
+  $claudeArgs = if ($Task.startFresh) {
+    '-p --output-format json --permission-mode ' + $PermissionMode
+  } else {
+    '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode
+  }
+
+  # Kartya c795a495: ha a workspace egy WSL UNC-ut, a beszelgetes NEM windowsos
+  # claude.exe alatt fut, hanem a WSL disztribucion belul -- a `wsl.exe` inditja
+  # a linuxos `claude`-ot ott. A `--cd` a dokumentalt mod a linux-oldali
+  # munkakonyvtar megadasara; a WorkingDirectory UNC-re allitasa csak tartalek,
+  # arra az esetre, ha a `--cd` valamiert nem hatna egy regebbi wsl.exe-n.
+  $wsl = ConvertFrom-WslUncPath -Path $workspace
 
   # The child is started DIRECTLY -- no cmd.exe, no .bat in between.
   # A batch file is read in the OEM codepage, so a user folder with an accented
@@ -669,18 +785,12 @@ function Invoke-CodeTask {
   # written to the child's stdin as UTF-8 bytes, so there is no quoting to get
   # wrong, no shell metacharacter to escape, and no command-line length limit.
   $psi = New-Object System.Diagnostics.ProcessStartInfo
-  $psi.FileName = $claude
-  # Every argument here is ASCII by construction (a uuid and two keywords).
-  # Kartya 032aa826: startFresh = true azt jelenti, hogy a claim NEM talalt
-  # bizonyitottan Marvin-sajat (korabban maga altal nyitott) beszelgetest a
-  # projekthez, tehat NEM resume-elunk a felderites altal latott -- akar a
-  # tulaj altal eppen kezzel hasznalt -- fulbe, hanem uj, ures beszelgetest
-  # indit a CLI (`-p` --resume nelkul), pont ugy, mint a bizonyitottan mukodo
-  # "/clear" ut a #48-as (Torles) gombnal.
-  if ($Task.startFresh) {
-    $psi.Arguments = '-p --output-format json --permission-mode ' + $PermissionMode
+  if ($wsl) {
+    $psi.FileName = 'wsl.exe'
+    $psi.Arguments = '-d ' + $wsl.Distro + ' --cd "' + $wsl.Posix + '" -- claude ' + $claudeArgs
   } else {
-    $psi.Arguments = '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode
+    $psi.FileName = Resolve-ClaudeExe
+    $psi.Arguments = $claudeArgs
   }
   $psi.WorkingDirectory = $workspace
   $psi.UseShellExecute = $false
