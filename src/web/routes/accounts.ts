@@ -13,6 +13,7 @@ import { getSecret, listSecrets, vaultFileState } from '../vault.js'
 import { json, readBody } from '../http-helpers.js'
 import { startLogin, loginStatus, submitCode, cancelLogin, readIdentity, logoutAccount, listAccounts, identityAudit } from '../claude-auth-runner.js'
 import { pinExpectedEmail } from '../claude-plans.js'
+import { pinMainExpectedEmail } from '../main-account-identity.js'
 import { hardRestartMarveenChannels } from '../channel-monitor.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin, agentsUsingLogin } from '../default-login-dependents.js'
 import { gitAccountsWithToken } from '../../git-accounts.js'
@@ -89,7 +90,11 @@ export async function tryHandleAccounts(ctx: RouteContext): Promise<boolean> {
       json(res, { ok: false, error: 'Hiányzik az előfizetés azonosítója vagy a cím.' }, 400)
       return true
     }
-    const r = pinExpectedEmail(planId, email, { force: true })
+    // A fo agens (~/.claude) fiokja nem plan: sajat tarolo, sajat pin-fuggveny.
+    // A felulet a '__main__' azonositoval jelzi.
+    const r = planId === '__main__'
+      ? pinMainExpectedEmail(email, { force: true })
+      : pinExpectedEmail(planId, email, { force: true })
     if (r.ok) listAccounts(true)
     json(res, r.ok ? { ok: true } : { ok: false, error: r.error }, r.ok ? 200 : 500)
     return true

@@ -23,6 +23,7 @@ import { makeLazyBinResolver } from '../platform.js'
 import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { readClaudePlans, CLAUDE_PLANS_PATH, pinExpectedEmail } from './claude-plans.js'
+import { readMainExpectedEmail, pinMainExpectedEmail } from './main-account-identity.js'
 import {
   auditIdentities,
   decidePostLogin,
@@ -243,7 +244,9 @@ function buildAccountRows(): AccountRow[] {
     channelsAllowed: null,
     identity: def.identity,
     probeOk: def.probeOk,
-    expectedEmail: null,
+    // A fo agens (~/.claude) fiokjahoz rogzitett cim -- ha van, az azonossag-
+    // audit ebbol lat driftet, ugyanugy mint a nevesitett elofizeteseknel.
+    expectedEmail: readMainExpectedEmail(),
     identityVerdict: { kind: 'signed_out' },
   }]
   for (const plan of readClaudePlans()) {
@@ -710,6 +713,24 @@ export function loginStatus(): LoginStatus {
       } else if (dontes.kind === 'drift') {
         drift = { planId, expected: dontes.expected, actual: dontes.actual, reverted: false, revertError: null }
         logger.warn({ planId }, 'claude-auth: MAS fiok jelentkezett be, mint amit ehhez a slothoz rogzitettunk')
+      }
+    } else if (configDir === null || planId === null) {
+      // A FO AGENS (~/.claude) bejelentkezese. Ugyanaz az elv, mint a plan-
+      // fiokoknal: az elso login rogziti a cimet, a kesobbi elteres drift.
+      // Boss, 2026-09-13: eddig a fo agensre EZ hianyzott, ezert csuszott at
+      // nemán, hogy masik fiok kerult bele.
+      const eddigi = readMainExpectedEmail()
+      const dontes = decidePostLogin(eddigi, identity.email)
+      if (dontes.kind === 'pin') {
+        const w = pinMainExpectedEmail(dontes.email)
+        if (w.ok && w.changed) {
+          logger.info('claude-auth: a fo agens fiokjanak cime rogzitve az elso bejelentkezesnel')
+        } else if (!w.ok) {
+          logger.warn({ err: w.error }, 'claude-auth: a fo agens fiokjanak cimet nem sikerult rogziteni')
+        }
+      } else if (dontes.kind === 'drift') {
+        drift = { planId: '__main__', expected: dontes.expected, actual: dontes.actual, reverted: false, revertError: null }
+        logger.warn('claude-auth: a fo agensbe MAS fiok jelentkezett be, mint amit oda rogzitettunk')
       }
     }
     killSession(); current = null

@@ -59,6 +59,7 @@ import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
+import { readMainExpectedEmail, pinMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
 // EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
 // oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
 // mondott ellentetes mondatot.
@@ -517,6 +518,55 @@ export function namedLoginRows(
     rows.push({ id: 'named_login_ok', status: 'ok', params: { n: rendben } })
   }
   return rows
+}
+
+/**
+ * A FO AGENS (~/.claude) fiokjanak azonossag-ellenorzese.
+ *
+ * Boss, 2026-09-13: a fo agens loginja magatol atcsuszott egy masik fiokra, es
+ * SEMMI nem szolt -- a nevesitett elofizetesekre volt drift-ellenorzes, a fo
+ * agensre NEM. Ez a fuggveny potolja: az elso megfigyelt cim rogzul, es ha
+ * kesobb mas fiok van a fo agensben, az piros drift-sor lesz. Fuggetlen a
+ * plan-nyilvantartastol (namedLoginRows), ezert friss telepitesen -- ahol meg
+ * egyetlen plan sincs -- is fut.
+ *
+ * A NULLA/CSEND itt is ket dolog: ha nem tudtuk megkerdezni a fo agens fiokjat,
+ * az 'blind' (warn), NEM "rendben". Elso megfigyeleskor csendben rogzitjuk a
+ * cimet (nincs sor), a kesobbi driftet hangosan jelezzuk.
+ */
+export function mainAccountRows(
+  mainConfigDir: string = join(homedir(), '.claude'),
+  proba: (configDir: string) => NamedCred = namedLoginProbe,
+  cimOlvaso: (configDir: string) => string | null | undefined = namedLoginEmail,
+  olvasRogzitett: () => string | null = readMainExpectedEmail,
+  rogzit: (email: string) => void = (email) => { pinMainExpectedEmail(email) },
+): HealthRow[] {
+  const st = proba(mainConfigDir)
+  const probeOk = st !== 'vak'
+  const loggedIn = st === 'be'
+  const actual = cimOlvaso(mainConfigDir)
+  const verdict = mainAccountVerdict(probeOk, loggedIn, actual, olvasRogzitett())
+  switch (verdict.kind) {
+    case 'blind':
+      return [{ id: 'main_login_blind', status: 'warn', params: {} }]
+    case 'signed_out':
+      // A kijelentkezes maga mashol (claudeAuthRow) mar piros -- itt nem
+      // duplazzuk. Rogzitett cimet sem irunk felul: majd ujra-bejelentkezeskor.
+      return []
+    case 'unpinned':
+      // Elso megfigyeles: rogzitjuk a cimet, es csendben maradunk. Innentol
+      // minden elteres drift lesz. (Friss telepitesen sincs mit kezzel tenni.)
+      rogzit(verdict.actual)
+      return []
+    case 'drift':
+      return [{
+        id: 'main_login_drift',
+        status: 'bad',
+        params: { expected: verdict.expected, actual: verdict.actual },
+      }]
+    case 'ok':
+      return []
+  }
 }
 
 /**
@@ -1612,6 +1662,7 @@ export function keySlotRows(
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
+    ...mainAccountRows(),
     ...namedLoginRows(),
     ...googleClientRows(),
     ...vaultBindingRows(),
