@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-13.3'
+$script:WorkerVersion = '2026-09-13.4'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -373,26 +373,104 @@ function Read-TranscriptUsage {
 # gyozodni -- kulonben egy halott peldany orokre "nyitott fulnek" latszana.
 # Ha a mappa nem letezik/nem olvashato, `$null` a valasz: olyankor NEM TUDJUK,
 # mi van nyitva, es ezt a szerver mashogy kezeli, mint a "semmi nincs nyitva".
-function Get-OpenSessionIds {
-  $dir = Join-Path $env:USERPROFILE '.claude\sessions'
-  if (-not (Test-Path -LiteralPath $dir)) { return $null }
-  $open = @{}
-  $files = @(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction SilentlyContinue)
-  foreach ($f in $files) {
-    try {
-      $o = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
-    } catch { continue }
-    if (-not $o.sessionId -or -not $o.pid) { continue }
-    # A PID ujrahasznosulhat, ezert a folyamat nevet is nezzuk: a Claude Code
-    # node.exe vagy claude.exe alatt fut. Ennel tobbet ez a fajl nem arul el.
-    $p = Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue
-    if (-not $p) { continue }
-    if ($p.ProcessName -notmatch '^(node|claude)$') { continue }
-    # A PID-et is megjegyezzuk, nem csak azt, hogy nyitva van: enelkul a
-    # feluletrol nem lehetne bezarni egy olyan beszelgetest, aminek a fulet a
-    # VS Code-ban mar nem talalod (Boss, 2026-08-23).
-    $open[[string]$o.sessionId] = [int]$o.pid
+# EGY WSL DISZTRIBUCIO FUTO FOLYAMATAI, egyetlen hivasbol.
+#
+# A windowsos `Get-Process` a linux PID-eket NEM latja: kulon PID-nevter. Ezert
+# a WSL-oldali ellenorzes `wsl.exe`-n megy -- de NEM PID-enkent (az percenkent
+# tucatnyi uj folyamat lenne), hanem EGY `ps` hivassal disztronkent, es a
+# valaszt hasheljuk. `$null` = nem tudtuk megnezni (nem indult el a disztro,
+# nincs `ps`): ez MAS, mint az ures lista, es a hivo kulon agon kezeli.
+function Get-WslRunningPids {
+  param([string]$Distro)
+  try {
+    $raw = & wsl.exe -d $Distro -- ps -eo pid=,comm= 2>$null
+  } catch {
+    return $null
   }
+  if (-not $raw) { return $null }
+  $map = @{}
+  foreach ($line in @($raw)) {
+    $clean = ([string]$line -replace "`0", '').Trim()
+    if (-not $clean) { continue }
+    # "  1234 node" -> pid + folyamatnev
+    $m = [regex]::Match($clean, '^(\d+)\s+(\S+)$')
+    if (-not $m.Success) { continue }
+    $map[[int]$m.Groups[1].Value] = [string]$m.Groups[2].Value
+  }
+  if ($map.Count -eq 0) { return $null }
+  return $map
+}
+
+# MELYIK BESZELGETES FUT -- a WINDOWS ES a WSL oldalon egyarant.
+#
+# Kartya c795a495 (negyedik kor). A felderitest kiterjesztettuk a WSL-re, de EZT
+# a merest nem: a fuggveny csak a windowsos `%USERPROFILE%\.claude\sessions`-t
+# olvasta, ezert MINDEN WSL-beli beszelgetes `live = $false`-nak latszott. Ennek
+# ket kovetkezmenye volt a tulaj feluleten (merve 2026-09-13):
+#   * a `repointStale` (elavult bekotes atallitasa) SOSEM teljesult, ezert a
+#     kartya egy TEGNAPI, mar lezart beszelgetest mutatott (haiku) a MOSTANI,
+#     epp futo helyett (opus) -- holott a tulaj kifejezetten azt kerte, hogy
+#     "automatikusan az legyen jelolve amit a agent hasznal";
+#   * a "most itt dolgozik" jelzes sosem gyulhatott ki WSL-beli munkanal.
+#
+# A WSL-ben ugyanaz a nyilvantartas all, mint Windowson:
+# `~/.claude/sessions/<pid>.json` (sessionId + pid + cwd), UNC-n olvashato.
+#
+# A VISSZATERES ERTEKE STRUKTURA (`@{ Pid; Distro }`), nem puszta PID: a
+# `Distro` nelkul egy WSL-PID-et kesobb windowsos PID-kent olnenk meg -- lasd a
+# `Close-RequestedSessions` biztonsagi agat. `$null` tovabbra is azt jelenti,
+# hogy NEM TUDTUK MEGNEZNI (se windowsos, se WSL-oldali forras).
+function Get-OpenSessionIds {
+  $open = @{}
+  $sawAny = $false
+
+  # --- Windows oldal (valtozatlan viselkedes) ---
+  $dir = Join-Path $env:USERPROFILE '.claude\sessions'
+  if (Test-Path -LiteralPath $dir) {
+    $sawAny = $true
+    foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+      try {
+        $o = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
+      } catch { continue }
+      if (-not $o.sessionId -or -not $o.pid) { continue }
+      # A PID ujrahasznosulhat, ezert a folyamat nevet is nezzuk: a Claude Code
+      # node.exe vagy claude.exe alatt fut. Ennel tobbet ez a fajl nem arul el.
+      $p = Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue
+      if (-not $p) { continue }
+      if ($p.ProcessName -notmatch '^(node|claude)$') { continue }
+      # A PID-et is megjegyezzuk, nem csak azt, hogy nyitva van: enelkul a
+      # feluletrol nem lehetne bezarni egy olyan beszelgetest, aminek a fulet a
+      # VS Code-ban mar nem talalod (Boss, 2026-08-23).
+      $open[[string]$o.sessionId] = @{ Pid = [int]$o.pid; Distro = $null }
+    }
+  }
+
+  # --- WSL oldal ---
+  foreach ($distro in (Get-WslDistros)) {
+    $running = Get-WslRunningPids -Distro $distro
+    # `$null` = nem lattunk oda ebbe a disztroba. Ilyenkor NEM allitunk semmit
+    # az ottani beszelgetesekrol -- a "nem tudom" nem lehet "nem fut".
+    if ($null -eq $running) { continue }
+    $sawAny = $true
+    $pattern = '\\wsl.localhost\' + $distro + '\home\*\.claude\sessions'
+    try {
+      foreach ($sdir in (Get-ChildItem -Path $pattern -Directory -ErrorAction SilentlyContinue)) {
+        foreach ($f in @(Get-ChildItem -LiteralPath $sdir.FullName -Filter '*.json' -File -ErrorAction SilentlyContinue)) {
+          try {
+            $o = Get-Content -LiteralPath $f.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json
+          } catch { continue }
+          if (-not $o.sessionId -or -not $o.pid) { continue }
+          $lpid = [int]$o.pid
+          if (-not $running.ContainsKey($lpid)) { continue }
+          # Ugyanaz a nev-ellenorzes, mint Windowson: a PID ujrahasznosul.
+          if ([string]$running[$lpid] -notmatch '^(node|claude)$') { continue }
+          $open[[string]$o.sessionId] = @{ Pid = $lpid; Distro = $distro }
+        }
+      }
+    } catch { }
+  }
+
+  if (-not $sawAny) { return $null }
   return $open
 }
 
@@ -576,9 +654,16 @@ function Get-LocalSessions {
       # szemben MERES: a beszelgetes folyamata NEM fut.
       $live = $null
       $sidPid = $null
+      $sidDistro = $null
       if ($null -ne $open) {
         $live = [bool]$open.ContainsKey($sid)
-        if ($live) { $sidPid = [int]$open[$sid] }
+        if ($live) {
+          $sidPid = [int]$open[$sid].Pid
+          # MELYIK DISZTROBAN fut. A leallitas ezen mulik: egy WSL-PID szamban
+          # egybeeshet egy windowsos folyamateval, es a `Stop-Process` akkor egy
+          # VELETLEN idegen folyamatot olne meg -- lasd Close-RequestedSessions.
+          $sidDistro = $open[$sid].Distro
+        }
       }
       $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
@@ -595,6 +680,10 @@ function Get-LocalSessions {
         contextTokens = $usage.tokens
         model         = $usage.model
         pid           = $sidPid
+        # Melyik WSL-disztroban fut ez a beszelgetes (`$null` = windowsos).
+        # A bezaras-keres ezen mulik, es a szerver is ebbol tudja, hogy a PID
+        # NEM windowsos PID.
+        wslDistro     = $sidDistro
         # A NAPLO TELJES UTJA. Enelkul a vezerlopult nem tudna megmutatni a
         # beszelgetes TARTALMAT: Marveen a WSL-ben fut, a `.jsonl` a Windowson
         # van, es a projekt-mappa neve egy slug, amit kitalalni tippeles volna
@@ -730,6 +819,25 @@ function Close-RequestedSessions {
     $row = @($Sessions | Where-Object { $_.sessionId -eq $sid }) | Select-Object -First 1
     if (-not $row -or -not $row.pid) {
       Write-Log ('close requested for ' + $sid + ' but no live pid is known') 'WARN'
+      continue
+    }
+    # WSL-BELI BESZELGETES: A PID NEM WINDOWSOS PID.
+    #
+    # A ket rendszer PID-nevtere KULON: a linux 1234 es a windowsos 1234 ket
+    # teljesen mas folyamat. Ha itt `Stop-Process`-t hivnank egy WSL-PID-re, egy
+    # VELETLEN idegen windowsos folyamatot olnenk meg -- es a nev-ellenorzes sem
+    # vedene meg, mert eppen lehet egy windowsos `node.exe` is azon a szamon.
+    # Ezert a WSL-oldali leallitas a disztron BELUL tortenik.
+    if ($row.wslDistro) {
+      try {
+        # A `kill -TERM` ugyanaz a szandek, mint a Stop-Process: kerd meg a
+        # folyamatot, hogy alljon le. A `comm` ellenorzes a `Get-OpenSessionIds`
+        # oldalan mar megtortent, amikor ezt a sort elo allapotunak jeloltuk.
+        & wsl.exe -d ([string]$row.wslDistro) -- kill -TERM ([int]$row.pid) 2>$null | Out-Null
+        Write-Log ('closed WSL session ' + $sid + ' (' + $row.wslDistro + ' pid ' + $row.pid + ')')
+      } catch {
+        Write-Log ('closing WSL ' + $sid + ' failed: ' + $_.Exception.Message) 'WARN'
+      }
       continue
     }
     $p = Get-Process -Id ([int]$row.pid) -ErrorAction SilentlyContinue
