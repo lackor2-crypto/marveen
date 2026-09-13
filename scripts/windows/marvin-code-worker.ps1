@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-13.1'
+$script:WorkerVersion = '2026-09-13.2'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -441,7 +441,22 @@ function Get-OpenSessionIds {
 function Test-DispatchableWorkspace {
   param([string]$Path)
   if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-  if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+  # Kartya c795a495 (masodik kor, elesben mert hiba): a Test-Path egy UNC-uton
+  # (pl. \\wsl.localhost\...) NEM MINDIG "nem letezik"-et ad vissza -- ha a
+  # tavoli vegpont (a WSL disztribucio) eppen nem valaszol, VALODI kivetelt
+  # dob (UnauthorizedAccessException, "Access is denied"). Ez volt az EGYETLEN
+  # nem-vedett hivas a fuggvenyben (a tobbi Test-Path/GetFullPath mar try/catch-
+  # csel megy lejjebb), es egyetlen ilyen transcript-cwd MEGALLITOTTA A TELJES
+  # felderitest: a worker minden 60 mp-es korben "loop error: Access is
+  # denied"-del bukott el, es SOHA nem jutott el a sajat self-update-jeig sem
+  # -- meresre kerult a felhasznalo gepen 2026-09-13-an, sor: 444. Egy elerhe-
+  # tetlen workspace itt is csak annyit jelent, mint barhol mashol a fuggveny-
+  # ben: nem cimezheto, nem tobb.
+  try {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
+  } catch {
+    return $false
+  }
 
   $full = ''
   try { $full = [System.IO.Path]::GetFullPath($Path).TrimEnd('\') } catch { return $false }
