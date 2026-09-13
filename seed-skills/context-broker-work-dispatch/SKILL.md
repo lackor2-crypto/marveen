@@ -209,8 +209,15 @@ is, hogy visszakérdezhet, és kitől.
    visszakérdezés három körbe kerül.
 4. Ha nincs elérhető kontextusgenerátor (`effective` üres) vagy nem válaszol
    ésszerű időn belül, **szedd össze magad és menj tovább**. Ne várj rá.
-5. Az eredménnyel együtt küldd vissza azt is, ha a csomag hiányos volt: mi
-   hiányzott. Ebből tanul a következő csomag.
+5. **Az eredményt ANNAK jelentsd, AKI KIADTA a munkát** -- a kiadó
+   (kontextusgenerátor) ágensnek, NEM egy fix névnek és NEM automatikusan a fő
+   ágensnek ("mindig Marvinnak"). Ki a kiadó: a kártyán a szerep-jelölések
+   (tervező / megvalósító / ellenőrző x-ei) és a kontextusgenerátor-pipa
+   mutatják; `GET /api/context-broker` `effective` mezője adja, ki MOST a
+   kiadó/kontextusgenerátor. Neki jelentesz inter-agent üzenettel. Boss
+   2026-09-13: "aki kiosztja a munkát, annak kell jelenteni, nem neked, mindig
+   neked". Az eredménnyel együtt küldd vissza azt is, ha a csomag hiányos volt:
+   mi hiányzott. Ebből tanul a következő csomag.
 
 ## Eljárás -- kontextusgenerátor oldal
 
