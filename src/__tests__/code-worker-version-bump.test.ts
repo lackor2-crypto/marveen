@@ -52,11 +52,11 @@ const VERSION_RX = /(\$script:WorkerVersion\s*=\s*')([^']{1,40})(')/
 
 /** A mostani torzs ujjlenyomata. AKI A SZKRIPTET ATIRJA, ezt is es a
  *  verziosort is frissiti -- a ketto egyutt jar. */
-const BODY_FINGERPRINT = '8c914f3ed598a10c9552c781d2040216973bd06c40bf93cd4758b50012d9ff69'
+const BODY_FINGERPRINT = 'bb0b85c56ba3089014bc72422260d39b5c1991a18bbe1adda825a8fef2e336d3'
 
 /** Ami a `BODY_FINGERPRINT`-hez tartozik. Ezt a szkriptbol olvassuk vissza,
  *  hogy a ket fajl ne tudjon szetcsuszni. */
-const EXPECTED_VERSION = '2026-09-13.5'
+const EXPECTED_VERSION = '2026-09-13.6'
 
 function bodyFingerprint(text: string): string {
   const normalized = text.replace(/\r\n/g, '\n').replace(VERSION_RX, '$1<VERSION>$3')
@@ -108,5 +108,20 @@ describe('worker-szkript: a torzs nem valtozhat a verziosor emelese nelkul', () 
     // Az a verzio azonositja azt a telepitett peldanyt, amelyik a startFresh
     // agat meg nem ismerte. Amig a repo is ezt hirdeti, a self-update nem indul.
     expect(VERSION_RX.exec(ps1)![2]).not.toBe('2026-08-30.1')
+  })
+
+  it('a WSL-oldali claude LOGIN shellben indul (--shell-type login) -- kartya 88a84798', () => {
+    // MERT HIBA (2026-09-13, VS Code kikapcsolva): a `wsl.exe ... -- claude`
+    // egy csupasz, NEM-login PATH-u `/bin/bash -c`-n futott, ahol a ~/.local/bin
+    // (a claude symlink) nincs benne -> `claude: command not found`, a claim
+    // utan nemaan. A `--shell-type login` a felhasznalo sajat profile-javal
+    // allitja a PATH-t, beegetett ut nelkul. Ha ez kiesik, a WSL-sessionokbe
+    // megint nem lehet feladatot futtatni.
+    const i = ps1.indexOf("$psi.FileName = 'wsl.exe'")
+    expect(i, "a wsl.exe agnak legyen egy FileName sora").toBeGreaterThan(0)
+    // A kovetkezo Arguments sor a wsl.exe agban:
+    const argsLine = ps1.slice(i, ps1.indexOf('\n', ps1.indexOf('$psi.Arguments', i)))
+    expect(argsLine).toContain('--shell-type login')
+    expect(argsLine).toContain('-- claude ')
   })
 })

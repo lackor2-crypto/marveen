@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-13.5'
+$script:WorkerVersion = '2026-09-13.6'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -921,6 +921,18 @@ function Invoke-CodeTask {
   # a linuxos `claude`-ot ott. A `--cd` a dokumentalt mod a linux-oldali
   # munkakonyvtar megadasara; a WorkingDirectory UNC-re allitasa csak tartalek,
   # arra az esetre, ha a `--cd` valamiert nem hatna egy regebbi wsl.exe-n.
+  #
+  # Kartya 88a84798 (merve 2026-09-13, VS Code kikapcsolva, eles teszt): a
+  # `wsl.exe ... -- claude` belul egy `/bin/bash -c`-n fut, CSUPASZ, NEM-login
+  # PATH-tal. A `claude` a legtobb telepitesen a `~/.local/bin`-ben ul (symlink),
+  # amit a `~/.profile` ad a PATH-hoz -- azt viszont csak LOGIN shell forrasolja.
+  # Enelkul a futtatas nemasan elhasal: `/bin/bash: line 1: claude: command not
+  # found`, holott a felderites/claim mar sikerult. A `--shell-type login`
+  # (dokumentalt wsl.exe kapcsolo) login shellben inditja a parancsot, igy a
+  # felhasznalo SAJAT profile-ja allitja a PATH-t -- semmi beegetett ut. Merve:
+  # a login shell stdout-ja ures marad, tehat nem rontja a `--output-format json`
+  # kimenetet. NE vedd ki: nelkule a WSL-oldali sessionokbe NEM lehet feladatot
+  # futtatni (a windowsos claude.exe agon nem kell, ott a PATH rendben van).
   $wsl = ConvertFrom-WslUncPath -Path $workspace
 
   # The child is started DIRECTLY -- no cmd.exe, no .bat in between.
@@ -933,7 +945,7 @@ function Invoke-CodeTask {
   $psi = New-Object System.Diagnostics.ProcessStartInfo
   if ($wsl) {
     $psi.FileName = 'wsl.exe'
-    $psi.Arguments = '-d ' + $wsl.Distro + ' --cd "' + $wsl.Posix + '" -- claude ' + $claudeArgs
+    $psi.Arguments = '-d ' + $wsl.Distro + ' --cd "' + $wsl.Posix + '" --shell-type login -- claude ' + $claudeArgs
   } else {
     $psi.FileName = Resolve-ClaudeExe
     $psi.Arguments = $claudeArgs
