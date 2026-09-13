@@ -16,7 +16,8 @@
 
 import { json, readBody, serveFile } from '../http-helpers.js'
 import { parseMultipart } from '../multipart.js'
-import { probeWorkspace } from '../code-bridge-workspace.js'
+import { probeWorkspace, toLocalWorkspacePath } from '../code-bridge-workspace.js'
+import { AGENTS_BASE_DIR } from '../agent-config.js'
 import { generateSkillMd } from '../agent-scaffold.js'
 import { parseHumanSkillScope, withSkillScope, seedGlobalSkill, HUMAN_SKILL_SCOPES } from '../skill-scope.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
@@ -155,6 +156,20 @@ async function parseJsonBody<T>(ctx: RouteContext): Promise<T | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * A flotta sajat agens-munkakonyvtara-e (`<PROJECT_ROOT>/agents/<nev>`).
+ *
+ * Host-agnosztikus: a telepites SAJAT gyokerebol szarmazik (AGENTS_BASE_DIR),
+ * nem beegetett utvonalbol -- egy masik gepen mashol all, es ott is mukodik.
+ * Maga az `agents` mappa NEM esik ide, csak ami ALATTA van: ha valaki oda
+ * nyitna egy beszelgetest, az valodi valasztas volt.
+ */
+export function isUnderAgentsDir(localPath: string): boolean {
+  const base = workspaceKey(AGENTS_BASE_DIR)
+  if (!base) return false
+  return workspaceKey(localPath).startsWith(base + '/')
 }
 
 export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
@@ -902,6 +917,20 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // is latszanak (igy vissza tudja hozni), projektkent viszont nem kotjuk
       // be ujra.
       if (isDismissedWorkspace(s.workspacePath)) continue
+      // A FLOTTA SAJAT AGENS-MAPPAI NEM FEJLESZTESI PROJEKTEK.
+      //
+      // Kartya c795a495: a WSL-felderites bekapcsolasa utan MIND A HAT
+      // flotta-agens munkakonyvtara (`<PROJECT_ROOT>/agents/<nev>`) bekerult a
+      // projektlistaba -- technikailag helyesen (valodi beszelgetesek), de a
+      // tulaj feluleten ez csak zaj: "viszont a csomo agent is projektkent van
+      // ott" (2026-09-13). A szuro ITT all, nem a workerben: a vegrehajto nem
+      // tudja, hol van EZ a telepites gyokere, a szerver viszont igen.
+      //
+      // Ami NEM tortenik: nem toroljuk a mar bekotott sort, es a mappa
+      // JELOLTKENT tovabbra is latszik -- ha valaki egy agens-mappat mégis
+      // projektnek akar, a feluletrol kezzel bekotheti.
+      const localPath = toLocalWorkspacePath(s.workspacePath)
+      if (localPath && isUnderAgentsDir(localPath)) continue
       // ELAVULT-E A BEKOTES?
       //
       // A kituzott sor alapbol erinthetetlen. Egyetlen kivetel van, es azt

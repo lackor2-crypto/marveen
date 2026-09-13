@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-13.2'
+$script:WorkerVersion = '2026-09-13.3'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -457,6 +457,13 @@ function Test-DispatchableWorkspace {
   } catch {
     return $false
   }
+
+  # A WSL DISZTRIBUCIO GYOKERE NEM PROJEKT -- ugyanaz a szabaly, mint lejjebb a
+  # windows-os home/WINDIR/meghajto-gyokerre. Kartya c795a495: a WSL-felderites
+  # bekapcsolasa utan `\\wsl.localhost\Ubuntu\` bekerult a projektek koze
+  # `ubuntu` neven (merve a tulaj feluleten 2026-09-13-an). Egy `claude` barhol
+  # elindulhatott a disztro gyokereben; ettol meg az nem munkamappa.
+  if ($Path -match '^\\\\wsl(?:\.localhost|\$)\\[^\\]+\\?$') { return $false }
 
   $full = ''
   try { $full = [System.IO.Path]::GetFullPath($Path).TrimEnd('\') } catch { return $false }

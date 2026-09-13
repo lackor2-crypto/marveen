@@ -52,11 +52,11 @@ const VERSION_RX = /(\$script:WorkerVersion\s*=\s*')([^']{1,40})(')/
 
 /** A mostani torzs ujjlenyomata. AKI A SZKRIPTET ATIRJA, ezt is es a
  *  verziosort is frissiti -- a ketto egyutt jar. */
-const BODY_FINGERPRINT = 'cd8af21bd61fcc26f6f0249679bb7e9aa9e66c9da45b621d10dc78da2dcd13ee'
+const BODY_FINGERPRINT = 'f2a85905ac88481794f4da45665c3b178feb64a16c2c3f25bbf9b590f845761f'
 
 /** Ami a `BODY_FINGERPRINT`-hez tartozik. Ezt a szkriptbol olvassuk vissza,
  *  hogy a ket fajl ne tudjon szetcsuszni. */
-const EXPECTED_VERSION = '2026-09-13.2'
+const EXPECTED_VERSION = '2026-09-13.3'
 
 function bodyFingerprint(text: string): string {
   const normalized = text.replace(/\r\n/g, '\n').replace(VERSION_RX, '$1<VERSION>$3')
