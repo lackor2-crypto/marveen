@@ -414,6 +414,11 @@ export function namedLoginRows(
   // A cim ugyanabbol a valaszbol jon, amibol a be/ki/vak allapot: nincs masodik
   // CLI-hivas fiokonkent. Tesztbol injektalhato.
   cimOlvaso: (configDir: string) => string | null | undefined = namedLoginEmail,
+  // Az upstream (gep sajat ~/.claude) bejelentkezest szurni kell az utkozes-
+  // ellenorzesbol: ha egy nevesitett elofizetes ugyanazon a fiokon ul, mint a
+  // gep sajat fiokja, az szandekos es nem hiba (Boss, 2026-09-13). Ezt az adatot
+  // az upstream configDir-bol lehet lekerni (szerkeszteshez injektalhato tesztbol).
+  upstreamConfigDir: string = join(homedir(), '.claude'),
 ): HealthRow[] {
   if (!existsSync(plansPath)) return []
   let raw: string
@@ -431,6 +436,15 @@ export function namedLoginRows(
     // ellenorzest: a Fiokok oldal ures lesz, minden ok nelkul.
     return [{ id: 'named_login_none_valid', status: 'warn', params: { f: plansPath } }]
   }
+  // Az upstream (gep sajat) fiokjanak e-mail-cimet elore lekerjuk, hogy szurni
+  // tudjuk az utkozes-ellenorzesbol.
+  const upstreamCim = (() => {
+    const raw = cimOlvaso(upstreamConfigDir)
+    if (!raw) return null
+    const trimmed = raw.trim().toLowerCase()
+    return trimmed.length > 0 ? trimmed : null
+  })()
+
   const kint: string[] = []
   const vak: string[] = []
   // KI VAN A SLOTBAN. Cimenkent gyujtve: ha ket kulon nevu elofizetes ugyanarra
@@ -453,7 +467,13 @@ export function namedLoginRows(
       const cim = cimOlvaso(p.configDir)
       if (cim) {
         const kulcs = cim.trim().toLowerCase()
-        cimenkent.set(kulcs, [...(cimenkent.get(kulcs) || []), nev])
+        // Ha ez az e-mail az upstream-del egyezik, nem adjuk hozzá az ütközés-
+        // partnerek közé (szándékos és állandó kapcsolódás).
+        if (upstreamCim !== null && kulcs === upstreamCim) {
+          // nem adunk hozzá az ütközés-listához
+        } else {
+          cimenkent.set(kulcs, [...(cimenkent.get(kulcs) || []), nev])
+        }
         const vart = (p.expectedEmail || '').trim().toLowerCase()
         if (vart && vart !== kulcs) elcsuszott.push(`${nev} (${cim})`)
       }
