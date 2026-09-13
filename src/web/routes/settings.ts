@@ -14,6 +14,7 @@ import { readGateConfig, writeGateConfig } from '../context-restart-gate-store.j
 import { ensureSweepScheduled } from '../context-restart-gate-runner.js'
 import { BROKER_ROLE_IDS, assignRole, type BrokerRoleId } from '../../context-broker.js'
 import { getCodeSession } from '../code-bridge-store.js'
+import { clearRoleParticipants } from '../context-clear.js'
 import {
   listBrokerCandidates,
   readBrokerConfig,
@@ -498,6 +499,31 @@ export async function tryHandleSettings(ctx: RouteContext): Promise<boolean> {
     } catch (err) {
       logger.error({ err }, 'Failed to update context broker designation')
       json(res, { error: 'Failed to update context broker' }, 500)
+    }
+    return true
+  }
+
+  // Role-based automatic context nullification (kartya #275). When an agent
+  // hands out role-based work it POSTs here with its own id as `dispatcher`; the
+  // server /clears every OTHER role holder (planner/implementer/checker) that is
+  // idle, and never the dispatcher itself. This is the mechanism that makes the
+  // clean-start handover automatic instead of a manual per-agent instruction --
+  // see src/web/context-clear.ts for the guards (idle-only, host-aware, exact
+  // target, inbox-safe). `force:true` overrides only the unprocessed-inbox guard.
+  if (path === '/api/context-broker/dispatch-clear' && method === 'POST') {
+    try {
+      const body = JSON.parse((await readBody(req)).toString())
+      const dispatcher = typeof body?.dispatcher === 'string' && body.dispatcher.trim() ? body.dispatcher.trim() : null
+      const force = body?.force === true
+      const report = await clearRoleParticipants({ dispatcher, force })
+      logger.info(
+        { dispatcher, assigned: report.assignedCount, cleared: report.clearedCount },
+        'Role-based context nullification run',
+      )
+      json(res, { ok: true, ...report })
+    } catch (err) {
+      logger.error({ err }, 'Failed to run role-based context nullification')
+      json(res, { error: 'Failed to nullify role participants' }, 500)
     }
     return true
   }

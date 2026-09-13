@@ -179,15 +179,17 @@ es abbol dontsd el. A kiosztott szerepet ne ird felul azzal, hogy egy masik
 modellt erosebbnek gondolsz."""
 
 CLEAN_START = """
-Tiszta indulas: ha egy UJ feladat elso parancsat adod ki, elotte uritsd ki a
-megbizott agens beszelgeteset, hogy tiszta lappal induljon -- kozvetlenul utana
-kuldd is at a munkacsomagot, ugyanabban a lepesben.
-  POST {base}/api/agents/<agens>/context-action  {{"action":"clear"}}
-Harom eset, amikor NEM szabad:
-  - sajat magadra (a sajat kontextusod a termek, amit epp elkeszitettel)
-  - ha az agens epp dolgozik, vagy van feldolgozatlan uzenete
-  - ha nincs keszen a munkacsomag: torles utan csomag nelkul csak amnezia marad
-Ha a valasz nem ok, ne torolj es ne is eroltess: kuldd el a csomagot ugy is."""
+Tiszta indulas: ha egy UJ feladat elso parancsat adod ki, a szerep-resztvevok
+(tervezo/megvalosito/ellenorzo) induljanak tiszta lappal -- kozvetlenul utana
+kuldd is at nekik a munkacsomagot. EGY hivas nullazza az osszes szerep-birtokost,
+teged kihagyva:
+  POST {base}/api/context-broker/dispatch-clear  {{"dispatcher":"{dispatcher}"}}
+A rendszer magatol betartja a hatart: TEGED sosem nullaz (a sajat kontextusod a
+termek, amit epp elkeszitettel), es aki epp dolgozik, annak a paneljebe nem ir
+(csak idle panelbe). Aki dolgozik vagy van feldolgozatlan uzenete, azt kihagyja
+es a valaszban jelzi -- semmi nem vesz el neman. Egy dolog a te dolgod: eloszor
+keszitsd el a munkacsomagot, es CSAK utana nullazz -- torles utan csomag nelkul
+csak amnezia marad."""
 
 WORKER = """[SZEREP: a munkacsomagot {broker} allitja ossze neked]
 
@@ -243,7 +245,7 @@ def main():
             roster = "  (nincs mas agens felveve)"
         parts.append(GENERATOR.format(roster=roster))
         if cfg.get("cleanStart") is True:
-            parts.append(CLEAN_START.format(base=base))
+            parts.append(CLEAN_START.format(base=base, dispatcher=me))
     elif designated:
         parts.append(WORKER.format(broker=designated))
         secs = cfg.get("handBackAfterSeconds")

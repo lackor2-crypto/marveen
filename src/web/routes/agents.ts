@@ -114,6 +114,7 @@ import { mainAgentModelNow } from '../main-agent-model.js'
 import { isCompactionInFlight, markCompactionStarted, settleCompaction } from '../compaction-inflight.js'
 import { followUpManualCompaction } from '../manual-compact-followup.js'
 import { COMPACT_COMMAND } from '../../context-compaction-instructions.js'
+import { countPendingInbox } from '../context-clear.js'
 import { readGateConfig, readGateRunState, writeGateRunState } from '../context-restart-gate-store.js'
 import { COMPACT_RETRY_WINDOW_MS, type ContextReadingState } from '../../context-restart-gate.js'
 import { detectPermissionMode, detectsLoginInProgress } from '../../pane-state.js'
@@ -1376,34 +1377,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const session = isMain ? MAIN_CHANNELS_SESSION : agentSessionName(name)
     const host = isMain ? null : readAgentRemoteHost(name)
 
-    // Count unprocessed inbound sitting in the sub-agent's local drain queue.
-    // Both inbox-pending.jsonl AND inbox-draining-*.jsonl count -- an interrupted
-    // earlier drain leaves a claimed draining file that still holds real
-    // messages (lackor3, 2026-08-11). Provider-agnostic: sweeps every channel.
-    const countPendingInbox = (): number => {
-      try {
-        const chDir = join(agentDir(name), '.claude', 'channels')
-        if (!existsSync(chDir)) return 0
-        let count = 0
-        for (const provider of readdirSync(chDir)) {
-          const dir = join(chDir, provider)
-          try { if (!statSync(dir).isDirectory()) continue } catch { continue }
-          let files: string[] = []
-          try { files = readdirSync(dir) } catch { files = [] }
-          for (const f of files) {
-            if (f === 'inbox-pending.jsonl' || f.startsWith('inbox-draining-')) {
-              try {
-                count += readFileSync(join(dir, f), 'utf-8').split('\n').filter(l => l.trim()).length
-              } catch { /* unreadable file -> ignore */ }
-            }
-          }
-        }
-        return count
-      } catch { return 0 }
-    }
-
+    // Unprocessed inbound sitting in the sub-agent's local drain queue would be
+    // lost to a /clear. The count lives in context-clear.ts so this button and
+    // the role-based sweep (kartya #275) share ONE definition of what "safe to
+    // clear" means and cannot drift apart.
     if (action === 'clear' && !isMain && body?.force !== true) {
-      const pending = countPendingInbox()
+      const pending = countPendingInbox(name)
       if (pending > 0) { json(res, { ok: false, needsConfirm: true, pending }); return true }
     }
 
