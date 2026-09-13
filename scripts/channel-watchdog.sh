@@ -222,6 +222,32 @@ if [ "$AUTHDEAD" = true ]; then
   if [ -n "$reason" ]; then reason="$reason + auth-dead ($auth_count consecutive ticks)"; else reason="auth-dead ($auth_count consecutive ticks)"; fi
 fi
 
+# Crash-context capture BEFORE the respawn (Boss, 2026-09-13, kartya 6137eabd).
+# A `respawn-pane -k` eldobja a pane scrollbackjet, ezert eddig a watchdog-os
+# ujraindulasnal SOHA nem lehetett latni MIERT halt meg a poller -- csak a
+# channels.sh sajat 180s-grace aga mentette a pane-t. Ez ugyanabba a fajlba ir
+# (store/channel-poller-crash-context.log), a respawn ELOTT: (a) az ok, (b) a
+# poller-liveness jel (a fo bot sajat pollere a bot.pid-ben -- 0 elo poller =
+# a plugin tenyleg meghalt; elo poller = a proba tevedhetett), (c) az utolso
+# ~60 sor pane. Fail-open: barmelyik lepes hibaja sem allitja meg a respawnt.
+{
+  echo "=== $(date '+%Y-%m-%d %H:%M:%S') watchdog respawn ($reason) -- pane content before -k: ==="
+  _wd_botpid_file="$HOME/.claude/channels/$CHANNEL_PROVIDER/bot.pid"
+  _wd_botpid="$(cat "$_wd_botpid_file" 2>/dev/null | tr -d '[:space:]')"
+  if [ -n "$_wd_botpid" ] && [ "$_wd_botpid" -gt 1 ] 2>/dev/null && kill -0 "$_wd_botpid" 2>/dev/null; then
+    echo "poller-evidence: bot.pid=$_wd_botpid ALIVE (a fo bot pollere fut -- a liveness-proba tevedhetett, nem a plugin halt meg)"
+  else
+    echo "poller-evidence: bot.pid=${_wd_botpid:-<nincs>} DEAD (a fo bot pollere nem fut -- a plugin tenyleg meghalt)"
+  fi
+  # Kontextus: hany <provider> poller lathato osszesen a gepen (a fleet-agensek
+  # sajat botjai IS ideszamitanak -- ezert csak tajekoztato, a dontest a bot.pid adja).
+  _wd_pollers="$(/bin/ps eww -e 2>/dev/null | grep -cE "CLAUDE_PLUGIN_ROOT=[^ ]*/${CHANNEL_PROVIDER}(/|@| |$)")"
+  echo "poller-evidence: osszes $CHANNEL_PROVIDER poller a gepen (fleet is): ${_wd_pollers:-?}"
+  "$TMUX_BIN" capture-pane -t "=$SESSION:" -p -S -60 2>/dev/null || true
+  echo
+  unset _wd_botpid_file _wd_botpid _wd_pollers
+} >> "$STORE/channel-poller-crash-context.log" 2>/dev/null || true
+
 log "$reason and session up -- respawn-pane $SESSION (respawn #$((count+1)))"
 if "$TMUX_BIN" respawn-pane -k -t "=$SESSION:" "$RESPAWN_CMD" 2>/dev/null; then
   date +%s > "$RESPAWN_STAMP"
