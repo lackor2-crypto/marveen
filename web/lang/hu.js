@@ -3923,7 +3923,7 @@ window._i18n.hu = {
   'cb.card.settings':       'Beállítások',
   'cb.card.delete':         'Levétel',
   'cb.card.delete_help':    'Leveszi ezt a projektet a kód-hídról: a kártya eltűnik, és a felderítés sem köti be újra. A mappához, a fájlokhoz és a beszélgetéshez NEM nyúl — a kód-híd ablakából egy kattintás visszavenni. Ha a beszélgetést akarod kiüríteni, az a Törlés gomb.',
-  'cb.card.tabs_title': 'Fut most',
+  'cb.card.tabs_title': 'Élő chatek',
   'cb.card.tabs_none': 'Most egy beszélgetés sem fut ebben a mappában.',
   'cb.card.tabs_none_help': 'A Windows-munkás jelentkezett, és egyetlen FUTÓ Claude Code folyamatot sem lát ebben a mappában. Ez nem azt jelenti, hogy nincs beszélgetés: a korábbiak a „Legutóbbi” listában vannak. Nyiss egyet a VS Code-ban, és egy percen belül itt lesz.',
   'cb.card.tabs_none_ctx': 'Most egy beszélgetés sem fut — a bekötötté viszont megvan: {n}k token.',

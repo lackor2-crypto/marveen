@@ -5913,10 +5913,23 @@ function cbTabMark(tb, e) {
     : (source === 'agent_run' ? 'cb.card.tab_mark_last' : 'cb.card.tab_mark_bound')
   const cls = running ? 'cb-tab-mark-running'
     : (source === 'agent_run' ? 'cb-tab-mark-last' : 'cb-tab-mark-bound')
+  // A BEKOTOTT allapot a leggyakoribb: amig a projekthez egyszer sem futott
+  // feladat, MINDEN sor ezt viseli -- es a teljes felirata ("● bekotott
+  // beszelgetes") elvette a helyet attol, amiert a sor egyaltalan ott van: a
+  // beszelgetes CIMETOL. Boss, 2026-09-13: "ami a kartyan van a chat elott hogy
+  // bekotott beszelgetes az nem kell oda. mert magabol a chat szovegebol igy
+  // semmi sem latszik."
+  //
+  // Az INFORMACIO NEM VESZ EL, csak a helyet nem eszi meg: a pont marad (a
+  // szinevel jelol), a teljes szoveg pedig ott van a tooltipben ES az
+  // aria-label-ben -- a kepernyoolvaso ugyanazt mondja, mint eddig. A masik ket
+  // allapot (most itt dolgozik / itt dolgozott utoljara) TOVABBRA IS kiirva
+  // marad: azok ritkak es valodi hirt hoznak, nem alapallapotot.
+  const bound = !running && source !== 'agent_run'
   return '<span class="cb-tab-mark ' + cls + '" role="img"'
     + ' title="' + escapeAttr(t(key + '_help')) + '"'
     + ' aria-label="' + escapeAttr(t(key)) + '">'
-    + escapeHtml(t(key)) + '</span>'
+    + escapeHtml(bound ? '●' : t(key)) + '</span>'
 }
 
 /** A kartya levetele. NEM torol se mappat, se beszelgetest -- csak a Marveen

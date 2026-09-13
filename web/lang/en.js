@@ -3847,7 +3847,7 @@ window._i18n.en = {
   'cb.card.settings':       'Settings',
   'cb.card.delete':         'Remove',
   'cb.card.delete_help':    'Removes this project from the code bridge: the card disappears and discovery will not re-add it. It does NOT touch the folder, the files or the conversation — one click in the code bridge window adds it back. To wipe the conversation, use Clear.',
-  'cb.card.tabs_title': 'Running now',
+  'cb.card.tabs_title': 'Live chats',
   'cb.card.tabs_none': 'No conversation is running in this folder right now.',
   'cb.card.tabs_none_help': 'The Windows worker checked in and sees no RUNNING Claude Code process in this folder. That does not mean there is no conversation: earlier ones are in the “Recent” list. Open one in VS Code and it shows up here within a minute.',
   'cb.card.tabs_none_ctx': 'No conversation is running right now — but the linked one is still there: {n}k tokens.',
