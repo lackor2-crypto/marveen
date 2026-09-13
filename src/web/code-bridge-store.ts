@@ -150,6 +150,32 @@ function ensureTables(): void {
       created_at INTEGER NOT NULL
     )
   `)
+  // A KULCS KEPZESE MEGVALTOZOTT -- a MAR TAROLT sorokat at kell szamolni.
+  //
+  // A MERT ESET (2026-09-13, kartya c795a495). A `workspaceKey` a UNC-utak
+  // egyeztetese miatt atallt `\` -> `/` normalizalasra. A `code_dismissed`
+  // viszont a kulcsot LEMEZRE irja: a tulaj altal 2026-09-12-en levett
+  // `f:\Marveen\...\Fejlesztés` a REGI (backslash-es) kulccsal all a tablaban,
+  // az uj kod viszont mar a perjeles kulcsot keresi -- nem talalja meg, es a
+  // felderites a kovetkezo korben UJRA BEREGISZTRALTA a mappat. A tulaj ugy
+  // latta, hogy amit levett, az "magatol visszajott".
+  //
+  // Ezert a kulcsot a TAROLT `workspace_path`-bol szamoljuk ujra. Idempotens:
+  // ha a kulcs mar a mostani alakban all, nem tortenik iras. Friss telepitesen
+  // a tabla ures, tehat nincs mit migralni -- ott ez a blokk nem csinal semmit.
+  try {
+    const rows = db.prepare('SELECT workspace_key, workspace_path FROM code_dismissed').all() as
+      { workspace_key: string; workspace_path: string }[]
+    const fix = db.prepare('UPDATE OR REPLACE code_dismissed SET workspace_key = ? WHERE workspace_key = ?')
+    for (const r of rows) {
+      const want = workspaceKey(r.workspace_path)
+      if (want && want !== r.workspace_key) fix.run(want, r.workspace_key)
+    }
+  } catch {
+    // Egy migracios hiba NEM allithatja meg a hid inditasat: a rosszabbik eset
+    // az, hogy egy levett mappa ujra megjelenik (a tulaj ujra leveheti), nem az,
+    // hogy a kod-hid el sem indul.
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS code_tasks (
       id TEXT PRIMARY KEY,
@@ -511,8 +537,22 @@ export function upsertCodeSession(
     // fulek listaja a jelentesben erkezik. Ezert dontesi jog helyett egy
     // KIMONDOTT engedelyt kap a hivotol (`repointStale`), es a route szamolja
     // ki. Igy a szabaly egy helyen van, es tesztelheto.
-    if (existing.pinned && !opts.repointStale) return existing
+    // A TU A BESZELGETEST VEDI, NEM A MERT ADATOT.
+    //
+    // A MERT ESET (2026-09-13, kartya c795a495). A `marveen` sor kituzott volt,
+    // es emiatt a felderites MINDEN mezojet eldobta: a `title`, `host` es
+    // `transcript_mtime` `null` maradt, az `updated_at` pedig 10 ORAJA allt,
+    // mikozben a beszelgetes EPP FUTOTT. A kartyan ez ketszeresen is latszott:
+    // ures cim ("nem latok oda"), es -- mert minden "legutobb aktiv" alapu
+    // valasztas a FRISSEBB sort preferalja -- a tulaj a MASIK projekt (MT4)
+    // beszelgeteseit kapta ott, ahol a sajatjait varta.
+    //
+    // A tu SZANDEKA az volt, hogy a sor ne VANDOROLJON AT egy masik
+    // beszelgetesre. Ezt tovabbra is tartjuk: a `session_id` a regi marad.
+    // Minden MAS mezo viszont MERES, nem valasztas -- azt frissiteni kell,
+    // kulonben a kituzes nem vedelem, hanem vaksag.
     if (!sameWorkspace(existing.workspacePath, input.workspacePath)) return existing
+    if (existing.pinned && !opts.repointStale) input = { ...input, sessionId: existing.sessionId }
     // Older transcript than the one we already have: ignore (out-of-order report).
     if (
       existing.transcriptMtime !== null &&
