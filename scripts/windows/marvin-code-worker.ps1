@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-13.4'
+$script:WorkerVersion = '2026-09-13.5'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -876,11 +876,27 @@ function Resolve-ClaudeExe {
 $script:ALLOWED_MODES = @('acceptEdits', 'bypassPermissions', 'default', 'plan')
 
 function Invoke-CodeTask {
-  param([Parameter(Mandatory = $true)]$Task, [string]$PermissionMode = 'acceptEdits')
+  param([Parameter(Mandatory = $true)]$Task, [string]$PermissionMode = 'acceptEdits', [string]$Model = '')
 
   if ($script:ALLOWED_MODES -notcontains $PermissionMode) {
     Write-Log ("unknown permission mode '{0}' -- falling back to acceptEdits" -f $PermissionMode) 'WARN'
     $PermissionMode = 'acceptEdits'
+  }
+
+  # MELYIK MODELLEL fusson ez a feladat (a hid `model` mezoje mondja meg).
+  # URES = NEM adunk `--model` kapcsolot: olyankor a Claude Code sajat
+  # valasztasa marad ervenyben, es nem irunk felul olyat, amirol nem kerdeztek
+  # meg. A nev EGYENES a parancssorra kerul, ezert megszurjuk: csak az a
+  # karakterkeszlet mehet at, amibol a modellnevek allnak (betu, szam, pont,
+  # kotojel). Ami nem ilyen, azt eldobjuk es naplozzuk -- nem talalgatunk.
+  $modelArg = ''
+  $wantModel = ([string]$Model).Trim()
+  if ($wantModel) {
+    if ($wantModel -match '^[A-Za-z0-9._-]{1,64}$') {
+      $modelArg = ' --model ' + $wantModel
+    } else {
+      Write-Log ("refusing suspicious model name '{0}' -- running with the default" -f $wantModel) 'WARN'
+    }
   }
 
   $workspace = [string]$Task.workspacePath
@@ -895,9 +911,9 @@ function Invoke-CodeTask {
   # indit a CLI (`-p` --resume nelkul), pont ugy, mint a bizonyitottan mukodo
   # "/clear" ut a #48-as (Torles) gombnal.
   $claudeArgs = if ($Task.startFresh) {
-    '-p --output-format json --permission-mode ' + $PermissionMode
+    '-p --output-format json --permission-mode ' + $PermissionMode + $modelArg
   } else {
-    '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode
+    '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode + $modelArg
   }
 
   # Kartya c795a495: ha a workspace egy WSL UNC-ut, a beszelgetes NEM windowsos
@@ -1143,9 +1159,12 @@ function Start-WorkerLoop {
       if ($claim -and $claim.task) {
         $mode = 'acceptEdits'
         if ($claim.permissionMode) { $mode = [string]$claim.permissionMode }
+        # Ures = a hid nem ir elo modellt; a CLI sajat valasztasa marad.
+        $model = ''
+        if ($claim.model) { $model = [string]$claim.model }
         $result = $null
         try {
-          $result = Invoke-CodeTask -Task $claim.task -PermissionMode $mode
+          $result = Invoke-CodeTask -Task $claim.task -PermissionMode $mode -Model $model
         } catch {
           $result = @{ ok = $false; error = ('worker error: ' + $_.Exception.Message) }
           Write-Log ('task failed: ' + $_.Exception.Message) 'ERROR'

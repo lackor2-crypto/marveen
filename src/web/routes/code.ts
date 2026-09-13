@@ -24,7 +24,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
 import { expectedWorkerVersion } from '../code-worker-version.js'
 import {
-  CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, PROJECT_ROOT,
+  CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, CODE_MODEL, PROJECT_ROOT,
   CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
 } from '../../config.js'
 import {
@@ -275,6 +275,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     json(res, {
       CODE_BRIDGE_ENABLED: String(getEffectiveSettingValue('CODE_BRIDGE_ENABLED')),
       CODE_PERMISSION_MODE: String(getEffectiveSettingValue('CODE_PERMISSION_MODE')),
+      CODE_MODEL: String(getEffectiveSettingValue('CODE_MODEL')),
       CODE_BOT_ALLOWED_CHAT_IDS: String(getEffectiveSettingValue('CODE_BOT_ALLOWED_CHAT_IDS')),
       CODE_BRIDGE_EXCLUDE: String(getEffectiveSettingValue('CODE_BRIDGE_EXCLUDE')),
       botConfigured: String(getEffectiveSettingValue('CODE_BOT_TOKEN')).length > 0,
@@ -284,6 +285,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       live: {
         enabled: CODE_BRIDGE_ENABLED,
         permissionMode: CODE_PERMISSION_MODE,
+        model: CODE_MODEL,
         botConfigured: CODE_BOT_TOKEN.length > 0,
         allowedChatIds: CODE_BOT_ALLOWED_CHAT_IDS,
         excluded: CODE_BRIDGE_EXCLUDE,
@@ -296,7 +298,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const body = await parseJsonBody<Record<string, unknown>>(ctx)
     if (!body) { json(res, { error: 'invalid JSON', errorKey: 'cb.err.invalid_json' }, 400); return true }
     const ALLOWED = [
-      'CODE_BRIDGE_ENABLED', 'CODE_PERMISSION_MODE', 'CODE_BOT_TOKEN',
+      'CODE_BRIDGE_ENABLED', 'CODE_PERMISSION_MODE', 'CODE_MODEL', 'CODE_BOT_TOKEN',
       'CODE_BOT_ALLOWED_CHAT_IDS', 'CODE_BRIDGE_EXCLUDE',
     ]
     const saved = []
@@ -1192,7 +1194,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         hostKind: detectHostKind(),
       }),
     }
-    json(res, { task: dispatched, permissionMode: CODE_PERMISSION_MODE, ...extra })
+    json(res, { task: dispatched, permissionMode: CODE_PERMISSION_MODE, model: CODE_MODEL, ...extra })
     return true
   }
 

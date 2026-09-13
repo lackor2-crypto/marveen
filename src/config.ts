@@ -507,6 +507,23 @@ export const CODE_BRIDGE_ENABLED =
 // that is a machine-wide blast radius, so it is opt-in, never the default.
 export const CODE_PERMISSION_MODE = (cfg('CODE_PERMISSION_MODE') ?? 'acceptEdits').trim()
 
+// Melyik modellel fusson a KIADOTT feladat. Boss, 2026-09-13: "nem egyszerubb
+// lenne ha a kartyaban a beallitasokban tudnam allitani hogy melyik model
+// legyen? ... ugyanugy ahogy a tobbi agent nel is lehet allitani?" -- de igen,
+// es eddig nem lehetett: a headless CLI a telepites alapertelmezett modelljet
+// kapta (a projekt `.claude/settings.json` `model` mezojet), amirol a feluleten
+// semmi nem szolt.
+//
+// URES = NE ADJUNK `--model` KAPCSOLOT. Ez szandekosan mas, mint egy konkret
+// alapertelmezes beegetese: igy a Claude Code sajat valasztasa marad ervenyben
+// (a projekt settings, illetve amit a felhasznalo a VS Code-ban `/model`-lel
+// allitott), es a Marveen nem ir felul olyat, amirol nem kerdeztek meg.
+//
+// Ez a KIADOTT MUNKARA vonatkozik, nem arra, amit a kartya MUTAT: a kartyan
+// latszo modell meres (a beszelgetes naploja mondja meg, mivel valaszolt),
+// azt beallitani nem lehet, csak leolvasni.
+export const CODE_MODEL = (cfg('CODE_MODEL') ?? '').trim()
+
 // Optional SECOND Telegram bot dedicated to /code. The main bot's getUpdates
 // slot is owned by the native channel plugin inside Marvin's session (two
 // pollers on one token = 409), so bypassing Marvin entirely needs its own bot.
