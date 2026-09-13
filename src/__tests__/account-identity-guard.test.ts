@@ -36,13 +36,27 @@ describe('ket elofizetes ugyanazon a fiokon', () => {
     expect(hasIdentityProblem(a)).toBe(true)
   })
 
-  it('a gep sajat fiokja is beleszamit -- arra atcsuszni ugyanaz a hiba', () => {
+  it('a gep sajat fiokjan ulo egyetlen nevesitett elofizetes NEM utkozes (Boss, 2026-09-13)', () => {
+    // Egy nevesitett agens ugyanazon az Anthropic-fiokon/kereten dolgozhat, mint
+    // a gep sajat ~/.claude bejelentkezese -- szandekos es allando, nem hiba.
     const a = auditIdentities([
       be(null, 'lackor2@gmail.com'),
       be('lackor3', 'lackor2@gmail.com'),
     ])
+    expect(a.collisions).toHaveLength(0)
+    expect(hasIdentityProblem(a)).toBe(false)
+  })
+
+  it('ket KULON NEVESITETT elofizetes egy fiokon TOVABBRA is utkozes -- a host nem szamit bele', () => {
+    const a = auditIdentities([
+      be(null, 'lackor2@gmail.com'),
+      be('usalackor', 'lackor2@gmail.com'),
+      be('lackor3', 'lackor2@gmail.com'),
+    ])
     expect(a.collisions).toHaveLength(1)
-    expect(a.collisions[0].ids).toContain(null)
+    // A host (null) nincs a partnerek kozott; csak a ket nevesitett.
+    expect(a.collisions[0].ids).not.toContain(null)
+    expect(a.collisions[0].ids.sort()).toEqual(['lackor3', 'usalackor'])
   })
 
   it('kulon fiokoknal csend', () => {
