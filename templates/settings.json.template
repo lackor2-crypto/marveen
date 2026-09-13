@@ -199,5 +199,8 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
   }
 }

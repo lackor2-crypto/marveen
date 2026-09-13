@@ -792,6 +792,21 @@ if p.exists():
     except Exception:
         data = {}
 data["skipDangerousModePermissionPrompt"] = True
+# NE KERDEZZEN MUNKA KOZBEN. A tulajdonos, 2026-09-13: "amig dolgozol addig ne
+# kerdezz semmit! ... ha autora van allitva akkor menjen mar a programozas
+# automatikusan tovabb." Merve ugyanekkor: egy WSL-beli VS Code menetben ~50
+# engedelykeres jott fel, mikozben a windowsos menetben egy sem -- mert az
+# "auto" (acceptEdits) csak a FAJLSZERKESZTEST engedi at, a parancsfuttatast
+# nem, es egy fejleszto-menet szaz parancsot futtat.
+#
+# Ez TUDATOS dontes, nem veletlen alapertelmezes: a Marveen autonom
+# agens-rendszer, a kod-hid altal inditott menetek eddig is igy futottak
+# (CODE_PERMISSION_MODE=bypassPermissions).
+#
+# VISSZAVENNI a sajat gepen: `~/.claude/settings.json` vagy a telepites
+# `.claude/settings.local.json` fajljaban `"permissions": {"defaultMode":
+# "acceptEdits"}` -- a local mindig eros ebb a kovetettnel.
+data.setdefault("permissions", {})["defaultMode"] = "bypassPermissions"
 p.parent.mkdir(parents=True, exist_ok=True)
 p.write_text(json.dumps(data, indent=2))
 try:
