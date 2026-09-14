@@ -55,6 +55,7 @@ import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { readBrokerConfig } from '../context-broker-store.js'
 import { BROKER_ROLE_IDS } from '../../context-broker.js'
 import { withCodeTaskPreamble } from '../code-task-preamble.js'
+import { knownModelCostPerM } from '../model-suggest.js'
 import type { RouteContext } from './types.js'
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
@@ -750,6 +751,10 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       const run = lastAgentRunSession(p.project)
       const markSessionId = run ? run.sessionId : p.sessionId
       const currentSource: 'agent_run' | 'binding' = run ? 'agent_run' : 'binding'
+      // Ugyanabbol a modellbol, amit a kartya kiir: ha ismerjuk a $/M arat, a
+      // felulet a "VS Code" jelveny melle teszi. `null` = ismeretlen/ingyenes
+      // modell -> nincs ar-jelveny, nem talalunk ki egyet (Boss, 2026-09-14).
+      const modelForCost = modelBySession.get(p.sessionId) ?? null
       return {
       ...p,
       currentSource,
@@ -769,7 +774,8 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // (Boss, 2026-08-23: "ne fix legyen hanem dinamikus attol fuggoen hogy
       // mi van kivalasztva a vscodban"). `null` = nem latunk oda -- kitalalt
       // modellnevet nem irunk ki.
-      model: modelBySession.get(p.sessionId) ?? null,
+      model: modelForCost,
+      costPerMInput: modelForCost ? knownModelCostPerM(modelForCost) : null,
       }
     })
     // `tabsReason`: a felulet enelkul nem tudna megkulonboztetni a "nincs
