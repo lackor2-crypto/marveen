@@ -847,6 +847,17 @@ while $TMUX has-session -t "=$SESSION:" 2>/dev/null; do
     # --channels). Give it the full cold-start budget, then restart.
     if [ "$NOW" -ge "$PLUGIN_NEVER_STARTED_DEADLINE" ]; then
       echo "WARN: $CHANNEL_PROVIDER plugin never started within $((PLUGIN_NEVER_STARTED_DEADLINE - START_TS))s -- exiting for service-manager restart" >&2
+      # Boss, 2026-09-14 (kartya d4aee0b5): eddig CSAK a "dead-grace" ag (fentebb)
+      # mentette a pane-t a crash-context logba -- ez, a "fel se jott" ag, NEM.
+      # A 10:56-os restart pont ezen az agon ment, ezert nem lehetett latni, MIERT
+      # nem indult el a plugin. Ugyanaz a fail-open pane-mentes, mint a masik agon:
+      # a plugin indulasi hibaja (ami a pane-ben vesz el a respawnnal) igy tartos
+      # nyomot hagy. Semmilyen viselkedest nem valtoztat.
+      {
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S') plugin never-started exit ($((PLUGIN_NEVER_STARTED_DEADLINE - START_TS))s), pane content: ==="
+        $TMUX capture-pane -t "=$SESSION:" -p -S -60 2>/dev/null || true
+        echo
+      } >> "$INSTALL_DIR/store/channel-poller-crash-context.log" 2>/dev/null || true
       RESTART_REQUESTED=1
       break
     fi
