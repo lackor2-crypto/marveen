@@ -722,12 +722,15 @@ export function loginStatus(): LoginStatus {
       const eddigi = readMainExpectedEmail()
       const dontes = decidePostLogin(eddigi, identity.email)
       if (dontes.kind === 'pin') {
-        const w = pinMainExpectedEmail(dontes.email)
-        if (w.ok && w.changed) {
-          logger.info('claude-auth: a fo agens fiokjanak cime rogzitve az elso bejelentkezesnel')
-        } else if (!w.ok) {
-          logger.warn({ err: w.error }, 'claude-auth: a fo agens fiokjanak cimet nem sikerult rogziteni')
-        }
+        // NEM rogzitunk automatikusan (Boss, 2026-09-14): a fo agens elvart
+        // fiokjat a felhasznalo valasztja ki a kartya fiok-gombjabol. Igy egy
+        // friss telepitesen barmelyik fiokkal be lehet lepni, majd masikra
+        // valtani, anelkul hogy a rendszer "hibat" jelezne vagy visszavonna a
+        // bejelentkezest. A drift-orzes (es a lenti visszavonas) csak akkor lep
+        // be, ha a felhasznalo MAGA rogzitett egy cimet, es tenyleg mas kerult
+        // a helyere -- ilyenkor a kartyarol a "valtas" gomb elobb atrogziti a
+        // cimet, tehat a szandekos valtast a rendszer nem vonja vissza.
+        logger.info('claude-auth: a fo agens bejelentkezett; nem rogzitunk automatikusan, a fiokot a felhasznalo valasztja a kartyan')
       } else if (dontes.kind === 'drift') {
         drift = { planId: '__main__', expected: dontes.expected, actual: dontes.actual, reverted: false, revertError: null }
         logger.warn('claude-auth: a fo agensbe MAS fiok jelentkezett be, mint amit oda rogzitettunk')

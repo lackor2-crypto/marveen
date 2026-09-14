@@ -2237,6 +2237,73 @@ main.email-active .page-header { flex-shrink: 0; }
   line-height: 1.4;
   white-space: nowrap;
 }
+/* Drift/utkozes: a jelveny a VALODI bejelentkezett fiokot mutatja, es ha az
+   nem a rogzitett (vagy ket elofizetes ul ugyanazon a fiokon), PIROSSAL --
+   hogy a rossz fiok egy pillantasra latszodjon (Boss, 2026-09-14). */
+.agent-account-badge.account-badge-drift {
+  color: #fff;
+  background: var(--danger, #d64545);
+}
+/* A jelveny KATTINTHATO valtozata: ugyanaz a kinezet, de gomb (fiok-valaszto
+   menu nyilik rola). Boss, 2026-09-14. */
+.agent-account-badge-btn {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.agent-account-badge-btn:hover { filter: brightness(0.94); }
+.agent-account-badge-btn:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
+.agent-account-badge-caret { font-size: 9px; opacity: 0.7; }
+
+/* Fiok-valaszto lenyilo menu (a jelvenyre kattintva). Fix pozicioju popover,
+   a kepernyon belul tartva (mobil is). */
+.acct-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  max-width: min(92vw, 320px);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border, rgba(127,127,127,0.3));
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.25));
+  padding: 6px;
+  color: var(--text, #222);
+}
+.acct-menu-head {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted, #666);
+  padding: 4px 8px 6px;
+}
+.acct-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 7px 8px;
+  border-radius: 7px;
+  color: inherit;
+  font: inherit;
+}
+.acct-menu-item:hover { background: var(--bg-hover, rgba(127,127,127,0.10)); }
+.acct-menu-item.is-current { background: var(--accent-soft, rgba(99,102,241,0.1)); }
+.acct-menu-mark { width: 14px; text-align: center; color: var(--accent, #2563eb); font-size: 12px; flex: none; }
+.acct-menu-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.acct-menu-label { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct-menu-email { font-size: 11px; color: var(--text-muted, #666); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.acct-menu-note { font-size: 10px; color: var(--text-muted, #666); white-space: nowrap; flex: none; }
+.acct-menu-empty { font-size: 12px; color: var(--text-muted, #666); padding: 4px 8px; }
+.acct-menu-sep { height: 1px; background: var(--border, rgba(127,127,127,0.25)); margin: 6px 4px; }
+.acct-menu-login .acct-menu-label { color: var(--accent, #2563eb); }
 .agent-card:hover {
   background: var(--bg-card-hover);
   border-color: var(--accent);

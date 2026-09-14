@@ -59,7 +59,7 @@ import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
-import { readMainExpectedEmail, pinMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
+import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
 // EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
 // oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
 // mondott ellentetes mondatot.
@@ -539,7 +539,6 @@ export function mainAccountRows(
   proba: (configDir: string) => NamedCred = namedLoginProbe,
   cimOlvaso: (configDir: string) => string | null | undefined = namedLoginEmail,
   olvasRogzitett: () => string | null = readMainExpectedEmail,
-  rogzit: (email: string) => void = (email) => { pinMainExpectedEmail(email) },
 ): HealthRow[] {
   const st = proba(mainConfigDir)
   const probeOk = st !== 'vak'
@@ -551,17 +550,22 @@ export function mainAccountRows(
       return [{ id: 'main_login_blind', status: 'warn', params: {} }]
     case 'signed_out':
       // A kijelentkezes maga mashol (claudeAuthRow) mar piros -- itt nem
-      // duplazzuk. Rogzitett cimet sem irunk felul: majd ujra-bejelentkezeskor.
+      // duplazzuk.
       return []
     case 'unpinned':
-      // Elso megfigyeles: rogzitjuk a cimet, es csendben maradunk. Innentol
-      // minden elteres drift lesz. (Friss telepitesen sincs mit kezzel tenni.)
-      rogzit(verdict.actual)
+      // NEM rogzitunk automatikusan (Boss, 2026-09-14): a felhasznalo a kartya
+      // fiok-gombjabol valasztja ki es fixalja a helyes fiokot. Igy egy friss
+      // telepitesen, ahol valaki eloszor egy fiokkal lep be aztan masikkal,
+      // SOHA nem villan fel egy "hiba" -- csak azt latja, melyik fiok van
+      // eppen bent, es a kartyarol allitja be, melyiket akarja.
       return []
     case 'drift':
+      // A felhasznalo MAGA rogzitett egy fiokot, es most tenyleg mas van bent.
+      // Ez valos, de NEM program-hiba: 'warn' (nem 'bad'/piros ❌), es a szoveg
+      // a kartya fiok-gombjahoz iranyit, ahol egy kattintassal javithato.
       return [{
         id: 'main_login_drift',
-        status: 'bad',
+        status: 'warn',
         params: { expected: verdict.expected, actual: verdict.actual },
       }]
     case 'ok':

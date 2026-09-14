@@ -4365,6 +4365,28 @@ function mainAccountLabel() {
   return base.charAt(0).toUpperCase() + base.slice(1)
 }
 
+// A cim helyi reszebol emberi nevet kepez (pl. "nev@pelda.hu" -> "Nev"): a
+// BEJELENTKEZETT fiok cimebol, nem az agent-id-bol vagy a regiszterbol -- igy a
+// jelveny akkor is a valos fiokot mutatja, ha a gep csendben masikra csuszott.
+// Ugyanaz a konvencio, mint a plan-cimkeknel (a cim elso betuje nagybetus).
+function emailToAccountLabel(email) {
+  const local = String(email || '').split('@')[0].trim()
+  if (!local) return ''
+  return local.charAt(0).toUpperCase() + local.slice(1)
+}
+
+// A kartyahoz tartozo ELO fiok-sor a szerver /api/accounts/claude valaszabol.
+// A fo agens (isMain) a sajat (isDefault) sora; egy plan-agens a plan-id
+// szerinti sora. `null` = meg nem jott meg a lista VAGY nincs ilyen sor (pl.
+// API-kulccsal / OpenRouteren futo agens) -- a hivo ilyenkor a regi,
+// id/registry-alapu cimkere esik vissza, sose talalgat egy fiokot.
+function liveAccountRowFor(claudePlan, isMain) {
+  if (!_claudeAccountRows) return null
+  if (isMain) return _claudeAccountRows.find(r => r.isDefault) || null
+  if (claudePlan) return _claudeAccountRows.find(r => (r.id || '') === claudePlan) || null
+  return null
+}
+
 // A Claude-bejelentkezesek allapota, hogy az ugynok kartyaja tudja: van-e mit
 // kijelentkeztetni rajta, es KI az.
 //
@@ -4670,12 +4692,176 @@ function providerBadgeLabel(model, authMode) {
 
 function accountBadgeHtml(claudePlan, isMain, model, authMode) {
   primePlanLabels()
+  // ELO login eloszor: az igazi bejelentkezett fiokot mutatjuk (identity.email),
+  // es ha az elter a rogzitett cimtol (drift) vagy utkozik egy masik
+  // elofizetessel, PIROSSAL -- hogy a rossz fiok azonnal latszodjon (Boss,
+  // 2026-09-14: "ha veletlen masik fiokkal van bejelentkezve akkor legalabb
+  // azonnal latom"). A lista aszinkron jon; amig nincs meg, a lenti visszaeses
+  // a regi, id/registry-alapu cimket adja (soha nem ures jelveny), es a lista
+  // megerkezesekor a renderAgents ujrarajzol.
+  const row = liveAccountRowFor(claudePlan, isMain)
+  if (row && row.identity && row.identity.loggedIn && row.identity.email) {
+    const label = emailToAccountLabel(row.identity.email)
+    const v = row.identityVerdict
+    const collision = (_claudeIdentityCollisions || []).some(c => Array.isArray(c.ids)
+      && c.ids.some(id => (id || '') === (row.id || '')))
+    const drift = collision || (v && v.kind === 'drift')
+    const tip = collision
+      ? t('agents.account_badge_collision_tip', { email: row.identity.email })
+      : (v && v.kind === 'drift')
+        ? t('agents.account_badge_drift_tip', { expected: v.expected, actual: v.actual })
+        : t('agents.account_badge_live_tip', { email: row.identity.email })
+    // A jelveny KATTINTHATO (Boss, 2026-09-14): rakattintva lenyilo menu jon, es
+    // a felhasznalo kivalasztja/fixalja, melyik fiokot akarja ehhez a kartyahoz
+    // (illetve atvalt masikra). A pin-kulcs a fo agensnel '__main__', plannel a
+    // plan-id -- ezt varja a /api/accounts/claude/pin-email vegpont.
+    const pinKey = isMain ? '__main__' : (claudePlan || '')
+    const cls = 'agent-account-badge agent-account-badge-btn' + (drift ? ' account-badge-drift' : '')
+    // A tooltip (Boss, 2026-09-14) elmondja MI ez, MIERT van ott es HOGYAN kell
+    // hasznalni -- eloszor az aktualis allapot (be van jelentkezve / eltero /
+    // utkozes), aztan az altalanos magyarazat.
+    const help = tip + '\n\n' + t('agents.acctmenu.badge_help')
+    return `<button type="button" class="${cls}" data-acct-menu data-pin-key="${escapeAttr(pinKey)}" data-current-email="${escapeAttr(row.identity.email)}" title="${escapeAttr(help)}">${escapeHtml(label)}${drift ? ' ⚠️' : ''}<span class="agent-account-badge-caret" aria-hidden="true">▾</span></button>`
+  }
+  // Visszaeses: nincs elo sor (meg nem toltott be, vagy az agens nem
+  // Claude-loginnal fut) -- a regi, sose-ures cimke.
   let label
   if (isMain) label = mainAccountLabel()
   else if (claudePlan) label = stripModelSuffix((_planLabelCache && _planLabelCache[claudePlan]) || claudePlan)
   else label = providerBadgeLabel(model, authMode) || mainAccountLabel()
   return `<span class="agent-account-badge" title="${escapeAttr(t('agents.account_badge_tip'))}">${escapeHtml(label)}</span>`
 }
+
+// === Fiok-valaszto lenyilo menu a kartya jobb-felso jelvenyen (Boss, 2026-09-14) ===
+//
+// A jelveny a valos bejelentkezett fiokot mutatja; rakattintva ez a menu jon
+// fel, es a felhasznalo MANUALISAN kivalasztja/fixalja, melyik fiokot akarja
+// ehhez a kartyahoz -- vagy atvalt masikra. Igy egy friss telepitesen, ahol
+// valaki eloszor egy fiokkal lep be aztan masikkal, sose lat "hibat": a
+// jelvenybol egy kattintassal beallitja a helyeset.
+//
+// A menu a mar meglevo, ELO fioklistabol (`_claudeAccountRows`) epul -- nem
+// talalgat egy fiokot. Ha a lista meg nem jott meg, a jelveny nem is gomb.
+
+// A menu tartalma egy adott kartyahoz. `pinKey`: '__main__' (fo agens) vagy a
+// plan-id. `currentEmail`: a jelvenyen eppen latszo (bejelentkezett) cim.
+function accountMenuHtml(pinKey, currentEmail) {
+  const seen = new Set()
+  const accts = []
+  for (const r of (_claudeAccountRows || [])) {
+    if (!r.identity || !r.identity.loggedIn || !r.identity.email) continue
+    const em = r.identity.email
+    if (seen.has(em)) continue
+    seen.add(em)
+    accts.push({ email: em, label: emailToAccountLabel(em) })
+  }
+  const items = accts.map(a => {
+    const isCurrent = a.email === currentEmail
+    const action = isCurrent ? 'pin' : 'switch'
+    const note = isCurrent ? t('agents.acctmenu.pin_current') : t('agents.acctmenu.switch_to')
+    return `<button type="button" class="acct-menu-item${isCurrent ? ' is-current' : ''}" data-acct-action="${action}" data-email="${escapeAttr(a.email)}" data-pin-key="${escapeAttr(pinKey)}">
+      <span class="acct-menu-mark" aria-hidden="true">${isCurrent ? '●' : '○'}</span>
+      <span class="acct-menu-main"><span class="acct-menu-label">${escapeHtml(a.label)}</span><span class="acct-menu-email">${escapeHtml(a.email)}</span></span>
+      <span class="acct-menu-note">${escapeHtml(note)}</span>
+    </button>`
+  }).join('')
+  const loginNew = `<button type="button" class="acct-menu-item acct-menu-login" data-acct-action="login-new" data-pin-key="${escapeAttr(pinKey)}">
+    <span class="acct-menu-mark" aria-hidden="true">+</span>
+    <span class="acct-menu-main"><span class="acct-menu-label">${escapeHtml(t('agents.acctmenu.login_other'))}</span></span>
+  </button>`
+  const empty = accts.length ? '' : `<div class="acct-menu-empty">${escapeHtml(t('agents.acctmenu.empty'))}</div>`
+  return `<div class="acct-menu-head">${escapeHtml(t('agents.acctmenu.head'))}</div>${items}${empty}<div class="acct-menu-sep"></div>${loginNew}`
+}
+
+let _acctMenuEl = null
+function _closeAccountMenu() {
+  if (_acctMenuEl) { _acctMenuEl.remove(); _acctMenuEl = null }
+}
+function _openAccountMenu(btn) {
+  _closeAccountMenu()
+  const pinKey = btn.getAttribute('data-pin-key') || ''
+  const currentEmail = btn.getAttribute('data-current-email') || ''
+  const menu = document.createElement('div')
+  menu.className = 'acct-menu'
+  menu.setAttribute('role', 'menu')
+  menu.innerHTML = accountMenuHtml(pinKey, currentEmail)
+  document.body.appendChild(menu)
+  // A jelveny ala, jobbra igazitva -- de a kepernyon belul tartva (mobil).
+  const r = btn.getBoundingClientRect()
+  const mw = menu.offsetWidth
+  let left = Math.min(r.left, window.innerWidth - mw - 8)
+  left = Math.max(8, left)
+  menu.style.left = left + 'px'
+  menu.style.top = (r.bottom + 6) + 'px'
+  _acctMenuEl = menu
+}
+
+// A fiokot RÖGZITI ehhez a kartyahoz (a felhasznalo kifejezett valasztasa,
+// force). Ugyanaz a vegpont, mint a Fiokok oldali "fogadd el a cimet" gombe.
+function _acctMenuPin(pinKey, email) {
+  fetch('/api/accounts/claude/pin-email', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ planId: pinKey, email }),
+  })
+    .then(res => res.json())
+    .catch(() => null)
+    .then((data) => {
+      if (!data || !data.ok) { showToast((data && data.error) || t('common.error_save'), 8000, true); return }
+      showToast(t('agents.acctmenu.pinned', { email }), 6000)
+      reloadAccountsAndRedraw()
+    })
+}
+
+// EGYSZER bekotott, capture-fazisu klikk-kezelo. Capture kell, mert a jelveny a
+// kartyan belul ul, es a kartyanak sajat klikk-kezeloje van (reszletek
+// megnyitasa) -- capture-ben elobb fut le, es a stopPropagation megvedi a
+// menu-nyitast attol, hogy a kartya is reagaljon.
+;(function wireAccountMenu() {
+  if (window._acctMenuWired) return
+  window._acctMenuWired = true
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest && e.target.closest('[data-acct-menu]')
+    if (trigger) {
+      e.preventDefault(); e.stopPropagation()
+      if (_acctMenuEl) { _closeAccountMenu(); return } // ismetelt kattintas = zaras
+      _openAccountMenu(trigger)
+      return
+    }
+    const item = e.target.closest && e.target.closest('[data-acct-action]')
+    if (item && _acctMenuEl) {
+      e.preventDefault(); e.stopPropagation()
+      const action = item.getAttribute('data-acct-action')
+      const pinKey = item.getAttribute('data-pin-key') || ''
+      const email = item.getAttribute('data-email') || ''
+      _closeAccountMenu()
+      if (action === 'pin') {
+        _acctMenuPin(pinKey, email)
+      } else if (action === 'switch') {
+        // Atjelentkezes egy MASIK, mar ismert fiokra. ELOSZOR atrogzitjuk a kartyat
+        // a valasztott fiokra (force), mert ha a felhasznalo korabban mar rogzitett
+        // egy masikat, a bejelentkezes-orzo (claude-auth-runner) a szandekos valtast
+        // "rossz fiokkent" visszavonna. A rogzites utan a kanonikus login-hubra
+        // (Fiokok oldal) viszunk, ahol a bongeszos bejelentkezes befejezheto.
+        fetch('/api/accounts/claude/pin-email', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ planId: pinKey, email }),
+        }).catch(() => null).finally(() => {
+          showToast(t('agents.acctmenu.switch_hint', { email }), 9000)
+          switchPage('accounts')
+        })
+      } else if (action === 'login-new') {
+        switchPage('accounts')
+      }
+      return
+    }
+    // Barmi mas: zarjuk a nyitott menut.
+    if (_acctMenuEl) _closeAccountMenu()
+  }, true)
+  // Gorgetes / Escape / atmeretezes is zarja (a popover fix pozicioju).
+  window.addEventListener('resize', _closeAccountMenu)
+  window.addEventListener('scroll', _closeAccountMenu, true)
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') _closeAccountMenu() })
+})()
 
 // Kanban 502005f0: 0-10 "can this free agent actually be reached" gauge --
 // NOT a quality/trust score, purely dispatch-success (see agent-reliability.ts
@@ -6053,6 +6239,11 @@ function cbEntryFromProject(r, ctx) {
     // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
     // `null` = nem latunk oda -- olyankor sem talalunk ki egyet.
     model: (typeof r.model === 'string' && r.model.trim()) ? r.model.trim() : null,
+    // A token-ar ($/M) a valos executor-modellbol (backend: knownModelCostPerM).
+    // `null` = ismeretlen/ingyenes modell -> a costBadgeHtml nem rajzol arat,
+    // nem talalunk ki egyet (Boss, 2026-09-14: a VS Code kartya is mutassa a
+    // token-arat, a "VS Code" felirat mellett).
+    costPerMInput: (typeof r.costPerMInput === 'number') ? r.costPerMInput : null,
     // Az elo beszelgetesek valasztojahoz: a POST-hoz kell a mappa utja is.
     workspacePath: r.workspacePath || '',
     tabs: Array.isArray(r.tabs) ? r.tabs : [],
@@ -6136,12 +6327,15 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A leiras-sor MAR CSAK akkor all ki, ha van mondanivaloja (bot-hiba).
     const sub = shortDesc(botNote)
     card.innerHTML = `
+      <div class="agent-card-badges">
+        <span class="agent-account-badge" title="${escapeAttr(t('cb.card.account_badge_tip'))}">VS Code</span>${costBadgeHtml(e.costPerMInput)}
+      </div>
       <div class="agent-card-top">
         ${codeBridgeCards.avatar
           ? `<div class="agent-avatar"><img src="/api/code/avatar${avatarBust()}" alt=""></div>`
           : `<div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>`}
         <div class="agent-card-info">
-          <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
+          <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)}</div>
           <div class="cb-external-badge" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(t('cb.card.external_badge'))}</div>
           ${sub ? `<div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>` : ''}
         </div>
