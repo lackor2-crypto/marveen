@@ -16,6 +16,7 @@ import { normalizeKanbanRefs } from '../kanban-ref-normalize.js'
 import { OWNER_NAME, BOT_NAME, MAIN_AGENT_ID, STORE_DIR, WEB_HOST, WEB_PORT, KANBAN_LABEL_COLORS } from '../../config.js'
 import { listAgentNames, readAgentDisplayName } from '../agent-config.js'
 import { isAgentRunning } from '../agent-process.js'
+import { isAgentQuotaBlocked } from '../agent-availability.js'
 import { resolveKanbanDispatchTarget } from '../../kanban-dispatch.js'
 import { findSimilarCards, referencedCardIds, withCrossLink } from '../../kanban-related.js'
 import { ensureApprovalForWaitingCard, withdrawApprovalForCardLeavingWaiting } from './approvals.js'
@@ -94,6 +95,10 @@ function fireKanbanDispatch(id: string): void {
       mainAgentId: MAIN_AGENT_ID,
       agentNames: listAgentNames(),
       isRunning: isAgentRunning,
+      // Awake is not able: don't dispatch a card into an agent that is at its
+      // usage wall (Boss, 2026-09-14 -- the same capability gate as the
+      // scheduler). Fresh install with no snapshot -> not blocked -> unchanged.
+      isBlocked: isAgentQuotaBlocked,
     })
     if (!target) return
     const desc = (card.description ?? '').trim()
