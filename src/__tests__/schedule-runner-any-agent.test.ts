@@ -13,6 +13,7 @@ import { describe, expect, it, beforeEach, vi } from 'vitest'
 const mockState = vi.hoisted(() => ({
   running: new Set<string>(),
   agents: [] as string[],
+  blocked: new Set<string>(),
 }))
 
 vi.mock('../web/agent-process.js', async (orig) => {
@@ -25,6 +26,14 @@ vi.mock('../web/agent-config.js', async (orig) => {
   return { ...actual, listAgentNames: () => mockState.agents }
 })
 
+// isAgentQuotaBlocked is the capability gate added after the 2026-09-14 loss:
+// 'any' must skip an agent that is awake but at its usage wall. Override just
+// that predicate; the pure pickAnyTarget/firstWorkingAgent stay real.
+vi.mock('../web/agent-availability.js', async (orig) => {
+  const actual = await orig<typeof import('../web/agent-availability.js')>()
+  return { ...actual, isAgentQuotaBlocked: (n: string) => mockState.blocked.has(n) }
+})
+
 import { resolveScheduledTargets } from '../web/schedule-runner.js'
 import { MAIN_AGENT_ID } from '../config.js'
 
@@ -32,6 +41,7 @@ describe('resolveScheduledTargets', () => {
   beforeEach(() => {
     mockState.running = new Set<string>()
     mockState.agents = ['lackor3', 'usalackor', 'lagunas']
+    mockState.blocked = new Set<string>()
   })
 
   it('a specific agent stays pinned to exactly that agent', () => {
@@ -75,5 +85,31 @@ describe('resolveScheduledTargets', () => {
     mockState.running = new Set(['lackor3'])
     expect(resolveScheduledTargets(undefined)).toEqual(['lackor3'])
     expect(resolveScheduledTargets('')).toEqual(['lackor3'])
+  })
+
+  // --- capability-aware selection (the 2026-09-14 fix) ---
+
+  it("'any' skips an awake but quota-blocked agent and picks a working one", () => {
+    // The exact loss: main down, lackor3 awake but at its weekly wall. Old code
+    // picked lackor3 (awake) and the prompt fired into a session that could
+    // never run it. Now it rolls to the next agent that can actually work.
+    mockState.running = new Set(['lackor3', 'usalackor'])
+    mockState.blocked = new Set(['lackor3'])
+    expect(resolveScheduledTargets('any')).toEqual(['usalackor'])
+  })
+
+  it("'any' skips the main agent when IT is quota-blocked, preferring a working sub", () => {
+    mockState.running = new Set([MAIN_AGENT_ID, 'lackor3'])
+    mockState.blocked = new Set([MAIN_AGENT_ID])
+    expect(resolveScheduledTargets('any')).toEqual(['lackor3'])
+  })
+
+  it("'any' with EVERY awake agent quota-blocked falls back to the first awake one (queue re-routes when one frees)", () => {
+    // No agent can work right now: rather than drop the task, pin it to an awake
+    // agent so the never-abandon retry queue keeps trying and re-routes the
+    // moment any agent's quota resets. Late beats never.
+    mockState.running = new Set(['lackor3', 'usalackor'])
+    mockState.blocked = new Set(['lackor3', 'usalackor'])
+    expect(resolveScheduledTargets('any')).toEqual(['lackor3'])
   })
 })

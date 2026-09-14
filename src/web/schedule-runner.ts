@@ -49,6 +49,12 @@ import {
   clearStaleParkedInput,
 } from './agent-process.js'
 import { MAIN_CHANNELS_SESSION } from './main-agent.js'
+import {
+  isAgentQuotaBlocked,
+  pickAnyTarget,
+  firstWorkingAgent,
+  decideVerifyStarted,
+} from './agent-availability.js'
 import { sendTelegramMessage } from './telegram.js'
 import { runCommandTask } from './command-task.js'
 import { paneShowsContextSaturation, detectsFirstRunGate, detectPaneState, type PaneState } from '../pane-state.js'
@@ -94,6 +100,12 @@ export interface TaskInflightEntry {
   host: string | null
   injectedAt: number
   alerted: boolean
+  // Whether the target pane was ever observed 'busy' since this injection. An
+  // injected prompt that actually starts running turns the pane busy; one that
+  // fired into a quota-blocked session never does (the pane sits on the usage
+  // limit screen, which reads as idle). The verify-started sweep uses this to
+  // tell "ran and finished" from "never ran" -- see decideVerifyStarted.
+  sawBusy: boolean
   // Per-task stuck threshold, resolved at injection time from the task config
   // (see resolveStuckTimeoutMs). Captured on the entry rather than looked up
   // during the sweep so an edit to the schedule mid-run cannot move the
@@ -707,6 +719,7 @@ async function attemptFireTask(
       host,
       injectedAt: now,
       alerted: false,
+      sawBusy: false,
       timeoutMs: resolveStuckTimeoutMs(task),
     })
 
@@ -781,14 +794,20 @@ export function taskInjectionRank(t: Pick<ScheduledTask, 'forceSend' | 'type'>):
 // single centralized loop in the main process, so choosing the target set HERE
 // is itself the de-dup: nothing else races to dispatch the same occurrence.
 //   'all'  -> broadcast: the main agent + every running sub-agent each run it.
-//   'any'  -> exactly ONE awake agent runs it (whichever is up). This is the
-//             fix for "only Marvin ran it": a task is no longer stranded when
-//             one specific agent happens to be down (Boss, 2026-08-25 -- "amelyi
+//   'any'  -> exactly ONE agent that can actually RUN it. This is the fix for
+//             "only Marvin ran it": a task is no longer stranded when one
+//             specific agent happens to be down (Boss, 2026-08-25 -- "amelyi
 //             agent felebred az csinalja meg"). The pick prefers the main agent
-//             when it is awake (continuity with the historical behaviour), then
-//             running sub-agents in listAgentNames() order, so the choice is
-//             deterministic within a tick. If NONE are awake, fall back to the
-//             main agent so attemptFireTask cold-starts it -- late beats never.
+//             when it can work (continuity with the historical behaviour), then
+//             sub-agents in listAgentNames() order, so the choice is
+//             deterministic within a tick. "Can work" means awake AND not at its
+//             usage wall: on 2026-09-14 'any' picked a quota-exhausted lackor3,
+//             the prompt fired into a session that could never run it, and the
+//             gold analysis was lost -- awake is not the same as able. If none
+//             can work, fall back to the first awake one (the never-abandon
+//             retry queue keeps trying and re-routes when one frees); if none is
+//             even awake, fall back to the main agent so attemptFireTask
+//             cold-starts it -- late beats never.
 //   <name> -> that specific agent, pinned (e.g. a task that must post to one
 //             agent's own channel).
 // An empty/missing agent is treated as 'any' -- the default is no longer "pin
@@ -799,8 +818,7 @@ export function resolveScheduledTargets(agent: string | undefined): string[] {
   }
   if (agent === 'any' || !agent) {
     const ordered = [MAIN_AGENT_ID, ...listAgentNames()]
-    const awake = ordered.find(a => isAgentRunning(a))
-    return [awake ?? MAIN_AGENT_ID]
+    return [pickAnyTarget(ordered, isAgentRunning, isAgentQuotaBlocked, MAIN_AGENT_ID)]
   }
   return [agent]
 }
@@ -1151,12 +1169,42 @@ export function startScheduleRunner(): NodeJS.Timeout {
     for (const [key, entry] of taskInflightMap) {
       const pane = capturePane(entry.session, entry.host)
       const state = pane != null ? detectPaneState(pane) : null
+      // Latch "the injected prompt actually started running" the first time the
+      // pane goes busy. Once true it stays true, so a task that ran and finished
+      // is never mistaken for one that never started.
+      if (state === 'busy') entry.sawBusy = true
+
+      // VERIFY-STARTED (Boss, 2026-09-14): a prompt fired into a quota-blocked
+      // session never runs -- the pane sits on the usage limit screen (reads as
+      // idle) and task_runs already recorded a misleading 'fired'. Once the
+      // 5-minute verify window has passed with no busy observed AND the agent is
+      // provably at its usage wall, hand the task back to the never-abandon
+      // retry queue, which re-routes it (firstWorkingAgent) to an agent that can
+      // actually run it. Only a PROVABLE non-start re-queues, so a fast task
+      // that finished between sweeps is never double-run.
+      const blockedNow = isAgentQuotaBlocked(entry.agentName, now)
+      if (decideVerifyStarted({ injectedAt: entry.injectedAt, sawBusy: entry.sawBusy, blockedNow }, now) === 'refire') {
+        insertPendingTaskRetryIfNew(entry.taskName, entry.agentName, now, 'did-not-start')
+        logger.warn(
+          { task: entry.taskName, agent: entry.agentName, session: entry.session },
+          'Scheduled task fired into a quota-blocked session and never started -- re-queued for delivery to a working agent',
+        )
+        taskInflightMap.delete(key)
+        continue
+      }
+
       const decision = decideTaskTimeout(entry, state, now, {
         graceMs: TASK_FIRE_GRACE_MS,
         timeoutMs: entry.timeoutMs,
         maxTrackMs: TASK_FIRE_MAX_TRACK_MS,
       })
       if (decision === 'clear') {
+        // Do NOT let an idle-reading quota limit screen clear a task that never
+        // started: keep tracking (still inside the verify window) so the
+        // verify-started check above can re-queue it once the window elapses.
+        // Without this guard the busy-timeout watchdog would delete the entry as
+        // "completed" -- the exact silent drop this whole path closes.
+        if (blockedNow && !entry.sawBusy) continue
         taskInflightMap.delete(key)
       } else if (decision === 'alert') {
         sendTaskTimeoutAlert(entry, now - entry.injectedAt)
@@ -1202,20 +1250,50 @@ export function startScheduleRunner(): NodeJS.Timeout {
         continue
       }
 
+      // For an 'any'/unpinned task, re-resolve the target each retry: a row
+      // pinned to an agent that has since hit its usage wall would wait forever
+      // on a dead session while another agent is free. Roll it onto whoever can
+      // actually run it (Boss, 2026-09-14: "ha vegzett az agent akkor utana
+      // elsodleges legyen az utemezett feladat" -- the queued task follows a
+      // freed/working agent instead of starving on the one it first landed on).
+      // A pinned <name> task keeps its target. This is the retry-side companion
+      // to the capability-aware pickAnyTarget in resolveScheduledTargets.
+      let fireAgent = row.agent_name
+      let migrated = false
+      const wantAny = taskDef.agent === 'any' || !taskDef.agent
+      if (wantAny) {
+        const ordered = [MAIN_AGENT_ID, ...listAgentNames()]
+        const working = firstWorkingAgent(ordered, isAgentRunning, isAgentQuotaBlocked)
+        // Don't migrate onto an agent that already has its OWN pending row for
+        // this task in this tick's snapshot: that row will be processed on its
+        // own turn, and migrating here too would fire the task twice.
+        const workingAlreadyQueued =
+          working != null && pendingRows.some(r => r.task_name === row.task_name && r.agent_name === working)
+        if (working && working !== row.agent_name && !workingAlreadyQueued) {
+          deletePendingTaskRetry(row.task_name, row.agent_name)
+          insertPendingTaskRetryIfNew(row.task_name, working, now, row.last_reason ?? 'busy')
+          pendingKeys.delete(key)
+          pendingKeys.add(`${row.task_name}@${working}`)
+          fireAgent = working
+          migrated = true
+        }
+      }
+
       const view = toPendingRetryView(row, now)
-      const result = await attemptFireTask(taskDef, row.agent_name, now, retryPc.prefix)
+      const result = await attemptFireTask(taskDef, fireAgent, now, retryPc.prefix)
       if (result === 'fired' || result === 'missing') {
-        deletePendingTaskRetry(row.task_name, row.agent_name)
+        deletePendingTaskRetry(row.task_name, fireAgent)
         continue
       }
       // Still busy or errored: refresh the retry row and alert ONCE if
       // the age crossed the threshold. `updatePendingTaskRetry` returns
       // false when the row has been cancelled between load and now --
       // in that case, do not re-insert (the operator's cancel wins) and
-      // do not alert.
-      const reason = result === 'mcp-missing' ? mcpMissingReason(row.task_name, row.agent_name) : result
-      const stillPresent = updatePendingTaskRetry(row.task_name, row.agent_name, now, reason)
-      if (stillPresent && view.alertDue) sendPendingRetryAlert(view, now)
+      // do not alert. A just-migrated row is a fresh, improving attempt on a
+      // working agent, so it does not fire a "still stuck" alert this tick.
+      const reason = result === 'mcp-missing' ? mcpMissingReason(row.task_name, fireAgent) : result
+      const stillPresent = updatePendingTaskRetry(row.task_name, fireAgent, now, reason)
+      if (stillPresent && view.alertDue && !migrated) sendPendingRetryAlert(view, now)
     }
 
     // Fire in injection-priority order, not directory order: with several
