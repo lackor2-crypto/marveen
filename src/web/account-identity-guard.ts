@@ -102,6 +102,12 @@ export function auditIdentities(slots: IdentitySlot[]): IdentityAudit {
     bySlot[slot.id ?? ''] = v
     if (v.kind === 'blind') { blind++; continue }
     if (v.kind === 'signed_out') continue
+    // A gep sajat (~/.claude, id=null) bejelentkezese NEM utkozes-partner: ha egy
+    // nevesitett elofizetes ugyanazon a fiokon ul, mint a gep, az szandekos es
+    // allando (az agens a gep sajat fiokjaval/keretevel dolgozik) -- Boss,
+    // 2026-09-13. Ami utkozes MARAD: ket KULON NEVESITETT elofizetes egy fiokon
+    // (az egyik hasznalatlanul all -- Boss, 2026-08-29).
+    if (slot.id === null) continue
     const email = v.kind === 'drift' || v.kind === 'ok' || v.kind === 'unpinned' ? v.actual : null
     if (!email) continue
     const list = byEmail.get(email) || []
