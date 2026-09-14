@@ -23,6 +23,7 @@ import { parseHumanSkillScope, withSkillScope, seedGlobalSkill, HUMAN_SKILL_SCOP
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
 import { expectedWorkerVersion } from '../code-worker-version.js'
+import { knownModelCostPerM } from '../model-suggest.js'
 import {
   CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, CODE_MODEL, PROJECT_ROOT,
   CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
@@ -750,6 +751,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       const run = lastAgentRunSession(p.project)
       const markSessionId = run ? run.sessionId : p.sessionId
       const currentSource: 'agent_run' | 'binding' = run ? 'agent_run' : 'binding'
+      // A modellt a kartya jobb-felso sarkaban ugyanazzal a $/M jelzovel mutatjuk
+      // meg, mint a tobbi ugynok-kartya (Boss, 2026-09-13: "egysegesitsunk").
+      // A modell lehet `null` (nem latunk oda a beszelgetesbe) -> az ar is null,
+      // nem talalunk ki egyet; a knownModelCostPerM ismeretlen modellre is null-t
+      // ad, tehat OpenRouter/ismeretlen tier eseten sincs hamis szam.
+      const cbModel = modelBySession.get(p.sessionId) ?? null
       return {
       ...p,
       currentSource,
@@ -769,7 +776,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // (Boss, 2026-08-23: "ne fix legyen hanem dinamikus attol fuggoen hogy
       // mi van kivalasztva a vscodban"). `null` = nem latunk oda -- kitalalt
       // modellnevet nem irunk ki.
-      model: modelBySession.get(p.sessionId) ?? null,
+      model: cbModel,
+      // `null` = nincs ismert ar (nem latunk a modellre, vagy ismeretlen tier).
+      costPerMInput: cbModel ? knownModelCostPerM(cbModel) : null,
       }
     })
     // `tabsReason`: a felulet enelkul nem tudna megkulonboztetni a "nincs
