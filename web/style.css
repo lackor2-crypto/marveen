@@ -2203,6 +2203,12 @@ main.email-active .page-header { flex-shrink: 0; }
   top: auto;
   right: auto;
 }
+/* A kod-hid (VS Code) kartyan a "VS Code" jelzo ugyanebbe a jobb-felso sorba
+   kerul (Boss 2026-09-13, "egysegesitsunk"), a $/M artol balra. A nev melletti
+   margo-left itt zavaro -- a flex `gap` adja a kozt --, ezert nullazzuk. */
+.agent-card-badges .federated-badge {
+  margin-left: 0;
+}
 /* Kanban 502005f0: free-agent dispatch-reliability gauge, 0-10. A tiny
    track+fill bar (not just a number) so a glance at the grid tells you
    which agents are worth bothering to dispatch right now. */

@@ -4317,6 +4317,14 @@ function costBadgeHtml(costPerMInput) {
   return `<span class="agent-cost-badge" title="${escapeAttr(t('agents.cost_badge_tip'))}">${escapeHtml(label)}</span>`
 }
 
+// A kod-hid (VS Code) kartya "VS Code" jelzoje. Boss (2026-09-13) kerte, hogy a
+// nev mellol a jobb-felso badge-sorba keruljon, a tobbi kartyaval egysegesen --
+// ott a $/M artol BALRA all (a badge-sor flex-sorrendjeben elore). Brand-nev,
+// nem forditando (ugyanaz mindket nyelven), ezert nincs i18n-kulcsa.
+function cbVsCodeBadgeHtml() {
+  return '<span class="federated-badge">VS Code</span>'
+}
+
 // Plan id -> human label, from the /api/claude-plans registry. Cached because
 // the badge renders once per agent card. Populated opportunistically; until it
 // arrives the badge falls back to the raw plan id, which is still this
@@ -6053,6 +6061,9 @@ function cbEntryFromProject(r, ctx) {
     // NEM fix "claude code": az, amivel a beszelgetes eppen valaszolt.
     // `null` = nem latunk oda -- olyankor sem talalunk ki egyet.
     model: (typeof r.model === 'string' && r.model.trim()) ? r.model.trim() : null,
+    // A jobb-felso $/M jelzohoz (a tobbi kartyaval egysegesen). `null` = nincs
+    // ismert ar (nem latunk a modellre, vagy ismeretlen tier) -> nincs jelzo.
+    costPerMInput: (typeof r.costPerMInput === 'number') ? r.costPerMInput : null,
     // Az elo beszelgetesek valasztojahoz: a POST-hoz kell a mappa utja is.
     workspacePath: r.workspacePath || '',
     tabs: Array.isArray(r.tabs) ? r.tabs : [],
@@ -6136,12 +6147,13 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     // A leiras-sor MAR CSAK akkor all ki, ha van mondanivaloja (bot-hiba).
     const sub = shortDesc(botNote)
     card.innerHTML = `
+      <div class="agent-card-badges">${cbVsCodeBadgeHtml()}${costBadgeHtml(e.costPerMInput)}</div>
       <div class="agent-card-top">
         ${codeBridgeCards.avatar
           ? `<div class="agent-avatar"><img src="/api/code/avatar${avatarBust()}" alt=""></div>`
           : `<div class="agent-avatar avatar-mono" style="background:${monogramColor('vscode-' + e.title)}">${escapeHtml(name.replace(/^@/, '').charAt(0).toUpperCase())}</div>`}
         <div class="agent-card-info">
-          <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)} <span class="federated-badge">VS Code</span></div>
+          <div class="agent-name" title="${escapeAttr(subFull)}">${escapeHtml(name)}</div>
           <div class="cb-external-badge" title="${escapeAttr(t('cb.card.external_note'))}">${escapeHtml(t('cb.card.external_badge'))}</div>
           ${sub ? `<div class="agent-desc" title="${escapeAttr(subFull)}">${escapeHtml(sub)}</div>` : ''}
         </div>
