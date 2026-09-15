@@ -1265,6 +1265,35 @@ export function recordCodeTaskEndedSession(id: string, sessionId: string): CodeT
   return getCodeTask(id)
 }
 
+/**
+ * Rogziti, hogy a feladat VEGUL melyik munkakonyvtarban indult el.
+ *
+ * MIERT KULON LEPES (kartya 3837120e, #273). A `claimNextCodeTask` egy SQLite
+ * tranzakcioban fut, es a munkakonyvtar athelyezese egy `git worktree add`
+ * alfolyamat -- masodpercekig tarto, fajlrendszert iro muvelet. Azt nem szabad
+ * egy nyitott tranzakcioba tenni (az egesz adatbazist zarolna), ezert a
+ * dontes/keszites a claim VALASZANAK osszeallitasakor tortenik (routes/code.ts),
+ * es a sort utana, tranzakcion kivul irjuk at erre.
+ *
+ * A sor azert kovet a valaszt, mert ket dolog olvassa: a felulet (hol dolgozik
+ * eppen a vegrehajto) es a kesobbi tema-folytatas. Ha a sor az elo checkoutot
+ * mutatna, holott a futas egy worktree-ben megy, mindketto masat mondana, mint
+ * a valosag.
+ */
+export function recordCodeTaskDispatchWorkspace(
+  id: string,
+  workspacePath: string,
+  startFresh: boolean,
+): CodeTask | null {
+  ensureTables()
+  const clean = workspacePath.trim()
+  if (!clean) return getCodeTask(id)
+  getDb()
+    .prepare(`UPDATE code_tasks SET workspace_path = ?, start_fresh = ? WHERE id = ?`)
+    .run(clean, startFresh ? 1 : 0, id)
+  return getCodeTask(id)
+}
+
 export function completeCodeTask(id: string, input: CompleteInput, now = Date.now()): CodeTask | null {
   return completeCodeTaskDetailed(id, input, now).task
 }

@@ -24,7 +24,7 @@ import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
 import { expectedWorkerVersion } from '../code-worker-version.js'
 import {
-  CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, CODE_MODEL, PROJECT_ROOT,
+  CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, CODE_MODEL, CODE_WORKTREE_ROOT, PROJECT_ROOT,
   CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
 } from '../../config.js'
 import {
@@ -32,7 +32,7 @@ import {
   dismissCodeWorkspace, undismissCodeWorkspace, isDismissedWorkspace,
   enqueueCodeTask, getCodeTask, getCodeTaskByPrefix, listCodeTasks,
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
-  recordCodeTaskEndedSession,
+  recordCodeTaskEndedSession, recordCodeTaskDispatchWorkspace,
   clearFinishedCodeTasks,
   pruneUnreportedCodeSessions,
   recordCodeCandidates,
@@ -55,6 +55,7 @@ import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 import { readBrokerConfig } from '../context-broker-store.js'
 import { BROKER_ROLE_IDS } from '../../context-broker.js'
 import { withCodeTaskPreamble } from '../code-task-preamble.js'
+import { resolveTaskWorkspace } from '../code-live-tree-worktree.js'
 import { knownModelCostPerM } from '../model-suggest.js'
 import type { RouteContext } from './types.js'
 
@@ -1220,12 +1221,79 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // -- amit a tulajdonos a feluleten olvas -- a sajat szovege marad, a worker
     // pedig ugyis ezt a `prompt` mezot irja a CLI stdin-jere. Lasd
     // code-task-preamble.ts (miert claim-idoben, es mit NEM allithat magarol).
+    // KARTYA 3837120e (#273): A MARVEEN-FELADAT NEM AZ ELO CHECKOUTBAN FUT.
+    //
+    // A claim eddig a bekotott session sajat mappajat adta a workernek. Ha az a
+    // mappa EZ a telepites (PROJECT_ROOT), a vegrehajto az elo faban szerkesztett
+    // es commitolt -- amitol a deploy-live.sh fast-forward MEGTAGADJA a
+    // frissitest (nem clobberol kezi munkat), a futo app beragad, es a mar
+    // landolt PR-ek sem jutnak ki (merve 2026-09-12). Raadasul a tesztkeszlet
+    // elo telepitesen SZANDEKOSAN nem indul el
+    // (src/__tests__/setup/assert-not-live-install.ts), tehat a vegrehajto a
+    // sajat munkajat sem tudja ellenorizni ott.
+    //
+    // A korabbi egyetlen vedelem egy TANACSADO mondat volt az elohangban; ez a
+    // sor strukturalissa teszi: a worker MAR egy izolalt worktree utjat kapja
+    // (`--cd` / `WorkingDirectory`, marvin-code-worker.ps1), tehat nincs mit a
+    // vegrehajtonak betartania. Minden mas projekt valtozatlanul a sajat
+    // mappajaban fut -- ezt maga a resolver donti el, nem ez a hivo.
+    //
+    // A `git worktree add` itt fut, a claim-tranzakcion KIVUL (lasd
+    // recordCodeTaskDispatchWorkspace kommentjet).
+    const wt = resolveTaskWorkspace(
+      task.workspacePath ?? '',
+      { id: task.id, cardRef: task.cardRef },
+      { liveRoot: PROJECT_ROOT, worktreeRoot: CODE_WORKTREE_ROOT ?? undefined },
+    )
+    if (wt.wasLiveTree && !wt.redirected) {
+      // A NULLA/HIBA NEM MARADHAT CSENDBEN. Ez az EGYETLEN nyoma annak, hogy a
+      // futas megis az elo faban indul -- es a `reason` a git sajat mondata,
+      // sosem tipp. Az elohang 3. pontja ugyanezt megmondja a vegrehajtonak is.
+      logger.warn(
+        { task: task.id, project: task.project, reason: wt.reason },
+        'code-bridge: nem sikerult izolalt worktree-t nyitni, a feladat az ELO checkoutban indul',
+      )
+    } else if (wt.redirected) {
+      logger.info(
+        { task: task.id, project: task.project, branch: wt.branch, workspace: wt.workspacePath },
+        'code-bridge: a feladat izolalt worktree-ben indul',
+      )
+    }
+
+    // EGY FRISSEN NYITOTT WORKTREE-BEN NINCS MIT FOLYTATNI. A beszelgetes-naplo
+    // annak a mappanak a `~/.claude/projects/<encoded-cwd>` alkonyvtaraban el,
+    // amelyikben rogzult -- egy vadonatuj worktree-ben tehat a `--resume
+    // <sessionId>` biztosan nem talalna meg a szalat, es a futas nemasan
+    // elhasalna. Ezert olyankor uj, ures beszelgetest inditunk. Egy MAR LETEZO
+    // (ugyanahhoz a kartyahoz korabban nyitott) worktree-nel viszont a korabbi
+    // futas is ott zajlott, tehat a folytatas ervenyes es megmarad.
+    const startFresh = task.startFresh || wt.createdWorktree
+    if (wt.redirected && !task.startFresh && wt.createdWorktree) {
+      logger.info(
+        { task: task.id, project: task.project },
+        'code-bridge: uj worktree, ezert uj beszelgetes indul a folytatas helyett',
+      )
+    }
+
     const dispatched = {
       ...task,
+      workspacePath: wt.workspacePath,
+      startFresh,
       prompt: withCodeTaskPreamble(task.prompt, {
-        workspacePath: task.workspacePath ?? '',
+        workspacePath: wt.workspacePath,
         hostKind: detectHostKind(),
+        worktree: {
+          redirected: wt.redirected,
+          branch: wt.branch,
+          reason: wt.reason,
+          wasLiveTree: wt.wasLiveTree,
+        },
       }),
+    }
+    // A SOR KOVESSE A VALOSAGOT: a felulet es a kesobbi tema-folytatas ebbol
+    // olvassa, hol dolgozik a vegrehajto.
+    if (wt.workspacePath !== (task.workspacePath ?? '') || startFresh !== task.startFresh) {
+      recordCodeTaskDispatchWorkspace(task.id, wt.workspacePath, startFresh)
     }
     // A MODELL ELOBOL JON, nem a boot-ideju konstansbol. Boss, 2026-09-13: a
     // Marvin VS Code kulso programozo REJTETT sessionokben dolgozik, amiket a

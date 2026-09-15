@@ -13,8 +13,11 @@
 //     (zaj), de a "nem tudom lefordítani az utat" NEM szamit "mar ott van"-nak;
 //   * a tarolt feladat-sor VALTOZATLAN marad: az elohang csak a valaszban van.
 
-import { describe, it, expect, beforeEach } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { readFileSync, existsSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { join } from 'node:path'
+import { PROJECT_ROOT } from '../config.js'
 import { Readable } from 'node:stream'
 import type http from 'node:http'
 import { initDatabase } from '../db.js'
@@ -209,5 +212,167 @@ describe('withCodeTaskPreamble', () => {
   it('elvalasztoval fuzi ossze, hogy a ket resz ne folyjon egybe', () => {
     const out = withCodeTaskPreamble('A FELADAT', { workspacePath: OUTSIDE, hostKind: 'unix', projectRoot: ROOT, lang: 'hu' })
     expect(out).toMatch(/\n\n---\n\nA FELADAT$/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// KARTYA 3837120e (#273): a 3. pont MAR NEM TANACS, hanem TENY.
+//
+// A kartya pont azt allapitotta meg, hogy egy tanacsado mondat ("dolgozz izolalt
+// worktree-ben") nem strukturalis javitas. Mostantol a dispatcher MAR athelyezte
+// a munkakonyvtarat, es az elohang harom, egymastol elvalaszthatatlan allapot
+// kozul MONDJA KI a helyeset. A legrosszabb allapot a NEMA: ha a vegrehajto azt
+// hiszi, izolaltan all, holott az elo faban -- ezert van sajat, hangos agа.
+// ---------------------------------------------------------------------------
+describe('elohang 3. pont: hol all TENYLEGESEN a vegrehajto (#273)', () => {
+  it('atiranyitva: kimondja hogy MAR worktree-ben all, a branch-csel, es tiltja az elo fat', () => {
+    const hu = buildCodeTaskPreamble({
+      workspacePath: `${ROOT}/.worktrees/code-3837120e`,
+      hostKind: 'unix', projectRoot: ROOT, lang: 'hu',
+      worktree: { redirected: true, branch: 'work/code-3837120e', reason: null, wasLiveTree: true },
+    })
+    expect(hu).toContain('MAR EGY IZOLALT GIT WORKTREE')
+    expect(hu).toContain('work/code-3837120e')
+    expect(hu).toContain('NE valts at az elo')
+    // A verifikacios kotelem nem eshet ki az uj agbol.
+    expect(hu).toContain('npx vitest run')
+    expect(hu).toContain('npx tsc --noEmit')
+    expect(hu).toContain('land-pr.sh')
+    // Es NE mondja neki, hogy nyisson worktree-t: mar benne all.
+    expect(hu).not.toContain('agent-worktree.sh')
+  })
+
+  it('atiranyitva, angolul: ugyanaz, magyar szo nelkul', () => {
+    const en = buildCodeTaskPreamble({
+      workspacePath: `${ROOT}/.worktrees/code-1`,
+      hostKind: 'unix', projectRoot: ROOT, lang: 'en',
+      worktree: { redirected: true, branch: 'work/code-1', reason: null, wasLiveTree: true },
+    })
+    expect(en).toContain('ALREADY AN ISOLATED GIT WORKTREE')
+    expect(en).toContain('work/code-1')
+    expect(en).toContain('do NOT switch to the live')
+    expect(en).not.toMatch(/worktree-ben|elo checkout|hibauzenet/i)
+  })
+
+  it('BUKOTT atiranyitas: hangosan megmondja, hogy az ELO faban all, a git SAJAT hibajaval', () => {
+    const hu = buildCodeTaskPreamble({
+      workspacePath: ROOT,
+      hostKind: 'unix', projectRoot: ROOT, lang: 'hu',
+      worktree: {
+        redirected: false, branch: null, wasLiveTree: true,
+        reason: "fatal: 'work/code-1' is already checked out at '/srv/marveen/.worktrees/code-1'",
+      },
+    })
+    expect(hu).toContain('FIGYELEM')
+    expect(hu).toContain('ELO CHECKOUTBAN')
+    // A git szo szerinti mondata -- ez az, amibol a vegrehajto tudja, mi a baj.
+    expect(hu).toContain('is already checked out at')
+    expect(hu).toContain('NE szerkessz')
+    // Itt IGENIS mondja meg, hogyan nyisson magatol worktree-t.
+    expect(hu).toContain('agent-worktree.sh')
+  })
+
+  it('BUKOTT atiranyitas hibauzenet NELKUL: nem ures mondatot ad, hanem kimondja hogy nincs uzenet', () => {
+    // A NULLA KET DOLGOT JELENT: a "nincs hibauzenet" nem ugyanaz, mint a
+    // "nincs hiba". Ha csak kihagynank, a mondat felreerthetove valna.
+    const hu = buildCodeTaskPreamble({
+      workspacePath: ROOT, hostKind: 'unix', projectRoot: ROOT, lang: 'hu',
+      worktree: { redirected: false, branch: null, reason: null, wasLiveTree: true },
+    })
+    expect(hu).toContain('FIGYELEM')
+    expect(hu).toContain('nem all rendelkezesre')
+  })
+
+  it('NEM az elo fa (mas projekt): a regi, tanacsado mondat marad ervenyben', () => {
+    const hu = buildCodeTaskPreamble({
+      workspacePath: OUTSIDE, hostKind: 'unix', projectRoot: ROOT, lang: 'hu',
+      worktree: { redirected: false, branch: null, reason: null, wasLiveTree: false },
+    })
+    expect(hu).toContain('izolalt git worktree')
+    expect(hu).toContain('agent-worktree.sh')
+    expect(hu).not.toContain('FIGYELEM')
+  })
+
+  it('worktree-informacio NELKUL (regi hivo) sem veszik el a 3. pont', () => {
+    const hu = buildCodeTaskPreamble({ workspacePath: OUTSIDE, hostKind: 'unix', projectRoot: ROOT, lang: 'hu' })
+    expect(hu).toContain('izolalt git worktree')
+    expect(hu).toContain('land-pr.sh')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A HUZAL VEGE (#273): a claim VALASZA tenylegesen mas munkakonyvtarat ad, ha a
+// bekotott session EZ a telepites.
+//
+// Ez a resz nem forraskodot egyeztet: VALODI `git worktree`-t nyit ennek a
+// checkoutnak a `.worktrees/` mappajaban (ami gitignore-olt), majd el is
+// takaritja. Igy a teszt akkor is fog, ha valaki a resolver hivasat kiveszi a
+// claim-bol -- pontosan az a regresszio, amiert a kartya szuletett.
+// ---------------------------------------------------------------------------
+describe('claim: a MARVEEN-feladat nem az elo checkoutban indul (#273)', () => {
+  // A worktree neve a feladatbol szarmazik, ezert a takaritas csak a futas utan
+  // tudja, MIT kell elszedni. (Kanban kartya nelkul a task id eleje adja a
+  // nevet -- ez maga is fontos allitas: kartya nelkul SEM fut az elo faban.)
+  let made: { dir: string; branch: string } | null = null
+  const git = (...args: string[]): void => { spawnSync('git', ['-C', PROJECT_ROOT, ...args], { encoding: 'utf8' }) }
+
+  beforeEach(() => {
+    initDatabase(':memory:')
+    resetCodeBridgeTablesForTests()
+  })
+
+  afterAll(() => {
+    // Nyomtalan munka: amit a teszt letrehozott, azt a teszt szedi el.
+    if (!made) return
+    git('worktree', 'remove', '--force', made.dir)
+    git('worktree', 'prune')
+    git('branch', '-D', made.branch)
+  })
+
+  it('az elo checkoutba bekotott session feladata IZOLALT worktree utjat kapja', async () => {
+    upsertCodeSession({ project: 'marveen', workspacePath: PROJECT_ROOT, sessionId: SID, pinned: true })
+    const queued = enqueueCodeTask({ project: 'marveen', prompt: 'Javitsd a dashboardot.' })
+    expect('task' in queued).toBe(true)
+    const id = (queued as { task: { id: string } }).task.id
+
+    const claimed = await call('POST', '/api/code/tasks/claim', { host: 'WINPC' })
+    expect(claimed.body.task.id).toBe(id)
+
+    const name = `code-${id.slice(0, 8)}`
+    const dir = join(PROJECT_ROOT, '.worktrees', name)
+    made = { dir, branch: `work/${name}` }
+
+    // EZ A KARTYA LENYEGE: nem az elo fa megy ki a workernek.
+    expect(claimed.body.task.workspacePath).not.toBe(PROJECT_ROOT)
+    expect(claimed.body.task.workspacePath).toBe(dir)
+    // Es tenyleg ott van, tenyleg worktree (a git mondja meg, nem mi).
+    expect(existsSync(dir)).toBe(true)
+    expect(spawnSync('git', ['-C', PROJECT_ROOT, 'worktree', 'list'], { encoding: 'utf8' }).stdout).toContain(dir)
+
+    // Az elohang MAR tenyt allit, nem tanacsot ad.
+    expect(claimed.body.task.prompt).toContain('MAR EGY IZOLALT GIT WORKTREE')
+    expect(claimed.body.task.prompt).toContain(made.branch)
+
+    // Frissen nyitott worktree-ben nincs mit folytatni: uj beszelgetes indul,
+    // kulonben a `--resume` egy olyan szalat keresne, ami ott nem letezik.
+    expect(claimed.body.task.startFresh).toBe(true)
+
+    // A TAROLT sor is a valosagot mutatja -- a felulet es a tema-folytatas ebbol
+    // olvassa, hol dolgozik a vegrehajto.
+    expect(getCodeTask(id)!.workspacePath).toBe(dir)
+    // A tulajdonos szovege viszont valtozatlan marad.
+    expect(getCodeTask(id)!.prompt).toBe('Javitsd a dashboardot.')
+  })
+
+  it('MAS projekt feladata valtozatlanul a sajat mappajaban indul', async () => {
+    upsertCodeSession({ project: 'tozsde', workspacePath: OUTSIDE, sessionId: SID, pinned: true })
+    const queued = enqueueCodeTask({ project: 'tozsde', prompt: 'Nezd meg az EA-t.' })
+    const id = (queued as { task: { id: string } }).task.id
+
+    const claimed = await call('POST', '/api/code/tasks/claim', { host: 'WINPC' })
+    expect(claimed.body.task.workspacePath).toBe(OUTSIDE)
+    expect(claimed.body.task.prompt).toContain('agent-worktree.sh')
+    expect(claimed.body.task.prompt).not.toContain('MAR EGY IZOLALT GIT WORKTREE')
+    expect(getCodeTask(id)!.workspacePath).toBe(OUTSIDE)
   })
 })

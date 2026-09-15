@@ -524,6 +524,17 @@ export const CODE_PERMISSION_MODE = (cfg('CODE_PERMISSION_MODE') ?? 'acceptEdits
 // azt beallitani nem lehet, csak leolvasni.
 export const CODE_MODEL = (cfg('CODE_MODEL') ?? '').trim()
 
+// Hova kerulnek a kod-hid izolalt worktree-i (kartya 3837120e, #273).
+//
+// URES = a telepites alatti `.worktrees` -- ugyanaz a hely, amit a
+// scripts/agent-worktree.sh hasznal, es ami a .gitignore-ban mar szerepel.
+// Ezert nincs beegetett ut es nincs mit beallitani egy friss telepitesen: a
+// mappa magatol keletkezik az elso kiadott Marveen-feladatnal.
+//
+// A valtozo neve SZANDEKOSAN ugyanaz, mint a shell-scriptben
+// (MARVEEN_WORKTREE_ROOT): aki ott mar athelyezte, itt is ugyanazt kapja.
+export const CODE_WORKTREE_ROOT = (cfg('MARVEEN_WORKTREE_ROOT') ?? '').trim() || null
+
 // Optional SECOND Telegram bot dedicated to /code. The main bot's getUpdates
 // slot is owned by the native channel plugin inside Marvin's session (two
 // pollers on one token = 409), so bypassing Marvin entirely needs its own bot.
