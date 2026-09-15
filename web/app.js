@@ -4538,7 +4538,16 @@ function agentLogoutButtonHtml(agent) {
   const warn = accountIdentityWarningHtml(row)
   if (row.identity.loggedIn) {
     const who = row.identity.email || (row.isDefault ? mainAccountLabel() : (row.label || row.id || ''))
-    const label = t('agents.btn.account_logout', { account: row.isDefault ? mainAccountLabel() : stripModelSuffix(row.label || row.id || '') })
+    // A felirat azt a fiokot nevezze meg, amit a gomb TENYLEGESEN kileptet -- azaz
+    // az ELO bejelentkezett fiokot (row.identity.email), ugyanugy, ahogy a
+    // jobb-felso elo jelveny es a data-who. Drift eseten (egy fiok van rogzitve,
+    // de a bongeszo egy MASIK fiokkal van bejelentkezve) a regi kod a ROGZITETT
+    // fiok nevet irta ki (mainAccountLabel), miközben a BEJELENTKEZETT fiokot
+    // leptette ki -- a felirat igy hazudott a felhasznalonak arrol, kit allit meg.
+    const acctLabel = row.identity.email
+      ? emailToAccountLabel(row.identity.email)
+      : stripModelSuffix(row.isDefault ? mainAccountLabel() : (row.label || row.id || ''))
+    const label = t('agents.btn.account_logout', { account: acctLabel })
     return `${warn}<button class="btn-secondary btn-compact agent-account-logout-btn" data-plan="${escapeAttr(row.isDefault ? '' : (row.id || ''))}" data-who="${escapeAttr(who)}" title="${escapeAttr(t('agents.btn.account_logout_tip'))}">${escapeHtml(label)}</button>`
   }
   const name = row.isDefault ? mainAccountLabel() : (row.label || row.id || '')

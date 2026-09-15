@@ -63,6 +63,7 @@ function build(rows: Row[] | null, collisions: Collision[] = []) {
     't', 'escapeHtml', 'escapeAttr', 'mainAccountLabel', 'stripModelSuffix', 'rows', 'collisions',
     `let _claudeAccountRows = rows
      let _claudeIdentityCollisions = collisions
+     ${extractFn(app, 'emailToAccountLabel')}
      ${extractFn(app, 'claudeAccountRowFor')}
      ${extractFn(app, 'accountIdentityWarningHtml')}
      ${extractFn(app, 'agentLogoutButtonHtml')}
@@ -148,6 +149,27 @@ describe('a gomb magaval viszi, MELYIK fiokrol van szo', () => {
   it('a gomb megnevezi, KIT jelentkeztet ki', () => {
     const html = build([row({})])({ name: 'x', claudeAccount: { configDir: '/x/usalackor' } })
     expect(html).toContain('data-who="a@example.com"')
+  })
+
+  it('a FELIRAT a tenylegesen kileptetett (elo) fiokot nevezi meg, nem a rogzitettet', () => {
+    // Boss #960 (2026-09-15): a fo agens slotjaban drift volt -- rogzitve
+    // lackor2, de a bongeszo lackor3-mal volt bejelentkezve. A gomb felirata a
+    // ROGZITETT nevet (mainAccountLabel) irta ki, miközben a data-who es a
+    // tenyleges kijelentkeztetes a BEJELENTKEZETT fiokra (lackor3) ment. Igy a
+    // gomb "Kijelentkeztetes (Lackor2)"-t irt, de lackor3@gmail.com-ot leptette
+    // ki. A felirat mostantol az elo fiokot (row.identity.email) nevezi meg,
+    // ugyanazt, amit a data-who is hordoz -- a ketto nem csuszhat el.
+    const html = build([row({
+      isDefault: true, id: null, label: '', configDir: null,
+      identity: { loggedIn: true, email: 'lackor3@gmail.com' },
+      identityVerdict: { kind: 'drift', expected: 'lackor2@gmail.com', actual: 'lackor3@gmail.com' },
+    })])({ name: 'main', claudeAccount: { configDir: null } })
+    // A t() mock az account-parametert a «kulcs:ertek» vegere teszi.
+    expect(html).toContain('«agents.btn.account_logout:Lackor3»')
+    // A rogzitett nev (mainAccountLabel mock = 'Gep') NEM kerulhet a feliratba.
+    expect(html).not.toContain('«agents.btn.account_logout:Gep»')
+    // A felirat es a data-who ugyanarra a fiokra mutat.
+    expect(html).toContain('data-who="lackor3@gmail.com"')
   })
 
   it('a gomb tenylegesen kirajzolodik valahol', () => {
