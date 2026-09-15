@@ -778,9 +778,19 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       costPerMInput: modelForCost ? knownModelCostPerM(modelForCost) : null,
       }
     })
+    // A BEALLITOTT kiadasi-modell (kanban #281): a kartya ezt mutassa AZONNAL,
+    // a per-session merestol (`model` fentebb) elkulonitve. Global ertek (nem
+    // projektenkenti), ezert a valasz tetejere kerul -- igy a "meg nincs
+    // projekt" (friss telepites) kartya is ki tudja irni. Ures = nincs
+    // kenyszeritett modell (a Claude Code sajat alapertelmezese) -> `null`,
+    // NEM kitalalt nev; a felulet ilyenkor az "alapertelmezett" cimket mutatja.
+    // Az ar (token $/M) is a BEALLITOTT modellbol jon (Boss 5635), nem a
+    // meresbol: `null` = ismeretlen/ingyenes -> nincs ar-jelveny.
+    const releaseModel = effectiveDispatchModel()
+    const releaseCostPerMInput = releaseModel ? knownModelCostPerM(releaseModel) : null
     // `tabsReason`: a felulet enelkul nem tudna megkulonboztetni a "nincs
     // tobb nyitott beszelgetes"-t a "nem futott meg a Windows-munkas"-tol.
-    json(res, { projects, permissionMode: CODE_PERMISSION_MODE, rolesAssigned: anyAssigned, tabsReason: tabs.reason })
+    json(res, { projects, permissionMode: CODE_PERMISSION_MODE, rolesAssigned: anyAssigned, tabsReason: tabs.reason, releaseModel: releaseModel || null, releaseCostPerMInput })
     return true
   }
 

@@ -6328,7 +6328,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
     const sub = shortDesc(botNote)
     card.innerHTML = `
       <div class="agent-card-badges">
-        <span class="agent-account-badge" title="${escapeAttr(t('cb.card.account_badge_tip'))}">VS Code</span>${costBadgeHtml(e.costPerMInput)}
+        <span class="agent-account-badge" title="${escapeAttr(t('cb.card.account_badge_tip'))}">VS Code</span>${costBadgeHtml(codeBridgeCards.releaseCostPerMInput)}
       </div>
       <div class="agent-card-top">
         ${codeBridgeCards.avatar
@@ -6341,7 +6341,13 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         </div>
       </div>
       <div class="agent-card-footer">
-        <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model || t('cb.card.model_unknown'))}</span>
+        <!-- Kanban #281: a kartya a BEALLITOTT kiadasi-modellt mutatja (nem a
+             per-session merest) -- azt allitod a beallitasoknal, es AZONNAL
+             latszik, meg mielott barmelyik beszelgetes valaszolt volna. Ures
+             beallitas = "alapertelmezett (Claude Code dont)", NEM "nem latok
+             oda" (friss telepitesen ez a helyes ures allapot). A meres a
+             reszletes ablak MODELL csempeje alatt all (cbTileModel). -->
+        <span class="agent-model-badge ${escapeHtml(codeBridgeCards.releaseModel || '')}" title="${escapeAttr(codeBridgeCards.releaseModel ? t('cb.card.model_set_help') : t('cb.card.model_default_help'))}">${escapeHtml(codeBridgeCards.releaseModel || t('cb.card.model_default'))}</span>
         <!-- Tulajdonosi kikotes, 2026-08-23: a modell-magyarazat NEM a kartyan van, hanem a
              reszletes ablak MODELL csempeje alatt (web/index.html,
              #cbTileModelNote) -- a kartyan mar eleg informacio all, ott az
@@ -6500,6 +6506,13 @@ async function loadCodeBridgeCards() {
     // Enelkul az ures ful-lista nemakent latszana: a felulet nem tudna
     // megkulonboztetni a "nincs nyitott beszelgetes"-t a "nem latunk oda"-tol.
     tabsReason: (projects && typeof projects.tabsReason === 'string') ? projects.tabsReason : null,
+    // A BEALLITOTT kiadasi-modell (kanban #281): a kartya ezt mutatja, nem a
+    // per-session merest. Global ertek, ezert itt (nem projektenkent) all, es a
+    // "meg nincs projekt" kartya is hasznalja. `null` = nincs kenyszeritett
+    // modell (friss telepites / ures beallitas) -> "alapertelmezett" cimke,
+    // NEM "nem latok oda". Regi backend nem kuldi -> `null`.
+    releaseModel: (projects && typeof projects.releaseModel === 'string' && projects.releaseModel.trim()) ? projects.releaseModel.trim() : null,
+    releaseCostPerMInput: (projects && typeof projects.releaseCostPerMInput === 'number') ? projects.releaseCostPerMInput : null,
   }
 }
 
