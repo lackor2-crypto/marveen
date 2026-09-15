@@ -207,6 +207,19 @@ bejelentkezett konzol-session.
   függenek -- mindig egy FRISS screenshotból olvasd le őket, ne bízz egy
   korábbi futásból megjegyzett koordinátában (az ablak mérete/pozíciója
   változhatott).
+- **Egy ütemezett feladat PROMPTJÁBA beégetett koordináta NAPOK múlva is
+  elavulhat, akkor is, ha semmi nyilvánvaló nem változott** (2026-09-15,
+  MT4 arany-elemzés): a toolbar gombok (D1/H4/H1/stb.) pixel-pozíciója
+  2026-09-08-án mért `y=66` értékről `y≈85-87`-re csúszott egy héten
+  belül. TILOS egy korábbi session (vagy egy scheduled-task prompt)
+  beágyazott koordinátáit ténynek venni -- ugyanaz a
+  `recheck-before-restating` elv vonatkozik pixel-koordinátára is, nem
+  csak szövegre. **Pontos újra-mérés technikája**: friss teljes
+  screenshot -> `PIL.Image.open().crop()` a gyanús régióra -> `.resize(...,
+  Image.LANCZOS)` felnagyítás -> `PIL.ImageDraw` rács ráhúzása felirat-
+  szerű koordinátákkal -> a felnagyított, rácsozott képet Read-del
+  vizuálisan leolvasni. Ez sokkal pontosabb, mint egy nyers, kicsinyített
+  teljes-képernyő screenshotból becsülni.
 - `SendKeys::SendWait("{ENTER}")` néhány appban új sort szúr be küldés
   helyett (pl. ha Shift+Enter a "submit" és sima Enter új sor) -- ha nem
   megy el az üzenet, nézd meg az app saját küldés-billentyűjét.
