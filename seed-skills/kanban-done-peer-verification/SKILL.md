@@ -93,6 +93,20 @@ támaszkodjunk. Kapcsolódó: [[kanban-approval-workflow]] (a kérő oldal),
   paraméter neve rossz). Egy ilyen hibaüzenet önmagában NEM bizonyíték
   semmire -- grep-eld ki a hibaszöveget a forrásból, és a helyes paraméterrel
   próbáld újra, mielőtt bármilyen következtetést levonnál belőle.
+- **Auto-létrehozott `kanban_done` jóváhagyás (a kártya `waiting`-be
+  mozgatásából) + NULLA kártya-komment + a kártyára hivatkozó IMPLEMENTÁLÓ
+  commit hiánya = erős FAIL-jel: a leírt munka valószínűleg nincs landolva.**
+  Valós batch (2026-09-15): #273/#276/#274 mind pontosan így bukott (0 komment,
+  0 implementáló commit). DE két finomítás, hogy ne ess át a ló túloldalára:
+  (1) egy commit, ami csak MEGEMLÍTI a kártya-azonosítót (pl. egy docs-commit),
+  NEM implementáció -- #273-nál a `git log --grep` egyetlen találata a #129
+  context-broker DOKUMENTÁCIÓ volt, ami csak hivatkozott a kártyára; (2) a munka
+  landolhat egy TESTVÉR-kártya commitja alatt is -- "nincs a KÁRTYÁRA hivatkozó
+  commit" önmagában NEM FAIL. Mérd meg a VÉGÁLLAPOTOT a kódban
+  (`git show origin/main:<fájl>` + grep), és ha az elvárt viselkedés ott van és
+  helyes, az PASS a hivatkozó commit hiánya ellenére is (valós eset #282, ami a
+  #138/#283 alatt landolt). Röviden: a commit-hivatkozás hiánya kérdést nyit, a
+  VÉGÁLLAPOT-mérés dönt.
 
 ## Ellenőrzés
 
