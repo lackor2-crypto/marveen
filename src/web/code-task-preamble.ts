@@ -50,6 +50,23 @@ export interface PreambleInput {
   distro?: string | null
   /** Test seam; defaults to the install language. */
   lang?: 'hu' | 'en'
+  /**
+   * How the working directory was decided (code-live-tree-worktree.ts).
+   *
+   * Point 3 used to be pure advice ("work in an isolated worktree"), which is
+   * exactly what kanban 3837120e found insufficient. Now the dispatcher has
+   * already moved the cwd, so the point states a FACT -- and when the move
+   * FAILED, it says that too, with git's own error, because an executor that
+   * believes it is isolated while standing in the live checkout is the worst of
+   * the three possible states.
+   */
+  worktree?: {
+    redirected: boolean
+    branch: string | null
+    /** The real error when `redirected` is false and it should have been true. */
+    reason: string | null
+    wasLiveTree: boolean
+  }
 }
 
 /**
@@ -114,6 +131,61 @@ function sourceParagraph(root: string, hostKind: MarveenHostKind, distro: string
 }
 
 /**
+ * Point 3 -- where this run's working directory actually IS.
+ *
+ * Three distinct states, and the text must not blur them (kanban 3837120e):
+ *   redirected        -> you ARE in an isolated worktree; say the branch, and
+ *                        say NOT to switch back to the live checkout.
+ *   live tree, failed -> you are in the LIVE checkout and that is a defect;
+ *                        say git's own error and what to do about it.
+ *   unknown / other   -> the session is somewhere else entirely, so the old
+ *                        advisory sentence is still the right one.
+ */
+function worktreeParagraph(
+  wt: PreambleInput['worktree'],
+  hu: boolean,
+): string {
+  const tail = hu
+    ? ' A vegen teljes teszt (npx vitest run) + tipusellenorzes (npx tsc --noEmit), a landolas scripts/land-pr.sh'
+      + ' (PR + CI) -- a main-re direkt push tilos. Kanban kartyat ne mozgass.'
+    : ' Finish with the full test suite (npx vitest run) + type check (npx tsc --noEmit) and land through'
+      + ' scripts/land-pr.sh (PR + CI) -- never push straight to main. Do not move kanban cards.'
+
+  if (wt?.redirected) {
+    const br = wt.branch ?? '?'
+    return (hu
+      ? `3. A MUNKAKONYVTARAD MAR EGY IZOLALT GIT WORKTREE (branch: ${br}), nem az elo checkout -- a dashboard`
+        + ' iranyitotta ide, neked nem kell worktree-t nyitnod. Itt szerkessz es itt commitolj; NE valts at az elo'
+        + ' checkoutra es ne szerkessz ott, mert az megallitja a futo alkalmazas frissiteset.'
+      : `3. YOUR WORKING DIRECTORY IS ALREADY AN ISOLATED GIT WORKTREE (branch: ${br}), not the live checkout -- the`
+        + ' dashboard put you here, so you do not need to create one. Edit and commit here; do NOT switch to the live'
+        + ' checkout and do not edit there, as that blocks the running app from updating.') + tail
+  }
+
+  if (wt?.wasLiveTree) {
+    const why = (wt.reason ?? '').trim()
+    const shown = why === ''
+      ? (hu ? '(a hibauzenet nem all rendelkezesre)' : '(no error message available)')
+      : why
+    return (hu
+      ? '3. FIGYELEM: az ELO CHECKOUTBAN allsz, mert a dashboard nem tudott izolalt worktree-t nyitni. A git sajat'
+        + ` hibaja: ${shown}. Itt NE szerkessz es NE commitolj -- az elo faban vegzett munka megakasztja az`
+        + ' automatikus deployt, es a tesztkeszlet sem indul el itt. Eloszor huzz fel egy worktree-t'
+        + ' (scripts/agent-worktree.sh <nev>), dolgozz ott, es ha ez sem megy, ALLJ MEG es jelentsd a fenti'
+        + ' hibauzenetet.'
+      : '3. WARNING: you are standing in the LIVE CHECKOUT because the dashboard could not create an isolated'
+        + ` worktree. git's own error: ${shown}. Do NOT edit or commit here -- work in the live tree blocks the`
+        + ' automatic deploy, and the test suite refuses to run here. First create a worktree'
+        + ' (scripts/agent-worktree.sh <name>) and work there; if that fails too, STOP and report the error above.'
+    ) + tail
+  }
+
+  return (hu
+    ? '3. Ha a Marveen forrasan dolgozol: izolalt git worktree-ben (scripts/agent-worktree.sh).'
+    : '3. If you work on the Marveen source: do it in an isolated git worktree (scripts/agent-worktree.sh).') + tail
+}
+
+/**
  * The preface itself. A handful of short numbered points: what decides where the
  * work belongs, where the source is (only when the session is NOT already in it),
  * how to work on it, what to do when a step cannot run here, which language the
@@ -140,12 +212,7 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
     out.push(sourceParagraph(root, input.hostKind, distro, hu))
   }
 
-  out.push(hu
-    ? '3. Ha a Marveen forrasan dolgozol: izolalt git worktree-ben (scripts/agent-worktree.sh), a vegen teljes'
-      + ' teszt + tsc, a landolas scripts/land-pr.sh (PR + CI) -- a main-re direkt push tilos. Kanban kartyat ne mozgass.'
-    : '3. If you work on the Marveen source: do it in an isolated git worktree (scripts/agent-worktree.sh), finish'
-      + ' with the full test suite + tsc, and land through scripts/land-pr.sh (PR + CI) -- never push straight to main.'
-      + ' Do not move kanban cards.')
+  out.push(worktreeParagraph(input.worktree, hu))
 
   out.push(hu
     ? '4. Ha barmelyik lepes ezen a gepen nem fut le (nem ered el az utat, hianyzik egy eszkoz), NE talalgass es ne'
