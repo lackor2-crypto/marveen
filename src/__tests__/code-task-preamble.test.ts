@@ -45,7 +45,37 @@ describe('elohang: a routing-mondat', () => {
     expect(en).toContain("Marveen's own source")
     expect(en).toContain('isolated git worktree')
     expect(en).toContain('do NOT guess')
+    expect(en).toContain('not a fleet agent')
     expect(en).not.toMatch(/feladat|mappa|elohang|javaslat/i)
+  })
+})
+
+describe('elohang: a jelentesi ut (a task-result a jelentes, nem Telegram/inter-agent) -- #274', () => {
+  it('HU: minden esetben ott a vedosor, hogy NE probaljon Telegram/inter-agent uzenetet', () => {
+    for (const ws of [OUTSIDE, ROOT, '']) {
+      const text = buildCodeTaskPreamble({ workspacePath: ws, hostKind: 'unix', projectRoot: ROOT, lang: 'hu' })
+      expect(text).toContain('A JELENTESED a task EREDMENYE')
+      expect(text).toContain('NE probalj Telegram')
+      expect(text).toContain('nem')
+      expect(text).toContain('flotta-agens')
+      expect(text).toContain('a Marveen dashboard')
+    }
+  })
+
+  it('EN: minden esetben ott a vedosor angolul', () => {
+    for (const ws of [OUTSIDE, ROOT, '']) {
+      const text = buildCodeTaskPreamble({ workspacePath: ws, hostKind: 'unix', projectRoot: ROOT, lang: 'en' })
+      expect(text).toContain('YOUR REPORT is the task RESULT')
+      expect(text).toContain('Do NOT try to send Telegram')
+      expect(text).toContain('not a fleet agent')
+      expect(text).toContain('Marveen dashboard notifies the owner')
+    }
+  })
+
+  it('a vedosor a ZARO OSSZEFOGLALO utan all (a jelentesi ut a legvegen zar)', () => {
+    const text = buildCodeTaskPreamble({ workspacePath: OUTSIDE, hostKind: 'unix', projectRoot: ROOT, lang: 'hu' })
+    expect(text.indexOf('ZARO OSSZEFOGLALOT'))
+      .toBeLessThan(text.indexOf('A JELENTESED a task EREDMENYE'))
   })
 })
 

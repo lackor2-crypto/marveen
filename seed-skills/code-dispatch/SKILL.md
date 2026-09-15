@@ -39,7 +39,14 @@ adja fel, és a sor egyszerre egy feladatot futtat — nem kell egyeztetned senk
    és a naplóban, ki kérte a feladatot — más nevében feladni félrevezető.
 6. **A promptot SZÓ SZERINT add tovább.** Ne fogalmazd át, ne rövidítsd, ne
    egészítsd ki a saját értelmezéseddel -- a projekt sessionje jobban ismeri a
-   kódot, mint te; a te parafrázisod csak információt veszít.
+   kódot, mint te; a te parafrázisod csak információt veszít. **NE írj a promptba
+   inter-agent/Telegram jelentési utasítást** ("jelents inter-agent üzenettel",
+   "szólj Telegramon"): a kód-híd session NEM flotta-ágens (nincs Telegram MCP,
+   nincs inter-agent csatorna), így ezt nem tudja megtenni, és csak egy zavaró
+   "nem elérhető..." hibaszöveget ír a valódi válasz elé. Az ő jelentése a task
+   EREDMÉNYE (a záró összefoglaló) + a landolt PR; a tulajdonost a dashboard
+   `notifyCodeTaskFinished` értesíti. (Boss 2026-09-13, #274; a védősort a
+   `code-task-preamble.ts` 6. pontja is beteszi minden taskhoz.)
 7. **Ha a feladat maga hosszú (percekig futó) háttérfolyamatot indít** (pl.
    teljes teszt-suite), írd bele a promptba ezt a két szabályt (mérve
    2026-08-30, lásd `docs/code-bridge.md` 8. szakasz): (a) a háttérfolyamatot

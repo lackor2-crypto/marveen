@@ -219,6 +219,19 @@ is, hogy visszakérdezhet, és kitől.
    neked". Az eredménnyel együtt küldd vissza azt is, ha a csomag hiányos volt:
    mi hiányzott. Ebből tanul a következő csomag.
 
+> **KIVÉTEL -- kód-híd (VS Code headless) implementáló:** ha a megvalósító egy
+> kód-híd session (a dashboard `POST /api/code/tasks` egy VS Code Claude Code
+> példányt futtat headless módban, `claude -p --resume`), az NEM flotta-ágens:
+> nincs Telegram MCP-je és nincs inter-agent tmux-csatornája, ezért a fenti 5.
+> pont (jelentsd inter-agent üzenettel a kiadónak) RÁ NEM vonatkozik. NE kérj
+> tőle inter-agent/Telegram jelentést a munkacsomagban. Az ő "jelentése" a task
+> EREDMÉNYE (a záró összefoglaló) + a landolt PR; a tulajdonost a dashboard
+> `notifyCodeTaskFinished` (src/web/code-bridge-notify.ts) értesíti. Ha mégis
+> ezen az úton kérsz tőle jelentést, csak egy zavaró "nem elérhető az
+> inter-agent / a Telegram MCP nem működik" hibaszöveget fog a valódi válasz elé
+> írni. Ezt a védősort a kód-híd előhang is tartalmazza minden taskhoz, friss
+> telepítésen is (src/web/code-task-preamble.ts, 6. pont). Boss 2026-09-13, #274.
+
 ## Eljárás -- kontextusgenerátor oldal
 
 1. Kapsz egy feladatleírást vagy egy KONTEXTUS-KÉRÉST.
