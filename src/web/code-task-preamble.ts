@@ -114,9 +114,11 @@ function sourceParagraph(root: string, hostKind: MarveenHostKind, distro: string
 }
 
 /**
- * The preface itself. Always four short paragraphs at most: what decides where
- * the work belongs, where the source is (only when the session is NOT already
- * in it), how to work on it, and what to do when a step cannot run here.
+ * The preface itself. A handful of short numbered points: what decides where the
+ * work belongs, where the source is (only when the session is NOT already in it),
+ * how to work on it, what to do when a step cannot run here, which language the
+ * closing summary is in, and how the executor reports back (the task result, NOT
+ * a Telegram/inter-agent message it cannot send).
  */
 export function buildCodeTaskPreamble(input: PreambleInput): string {
   const root = input.projectRoot ?? PROJECT_ROOT
@@ -164,6 +166,26 @@ export function buildCodeTaskPreamble(input: PreambleInput): string {
     : '5. Write the CLOSING SUMMARY -- the text the owner will read in Telegram -- in ENGLISH, this install\'s'
       + ' language. Marveen quotes it verbatim and cannot translate it. Code, comments, commit messages and raw'
       + ' command output stay as they are.')
+
+  // 6. HOW THE EXECUTOR REPORTS BACK (kanban #274)
+  // A code-bridge session is a headless VS Code Claude Code process
+  // (marvin-code-worker.ps1: `claude -p --resume`), NOT a fleet agent: it has no
+  // Telegram MCP plugin and no inter-agent tmux channel. When a task prompt tells
+  // it to "report via inter-agent message" or "on Telegram", it cannot, and it
+  // prepends a confusing error ("usalackor is not reachable on inter-agent, the
+  // Telegram MCP server is down either, so I report in text") in front of the
+  // real answer. The correct return path is the task result itself: the dashboard
+  // (notifyCodeTaskFinished, code-bridge-notify.ts) tells the owner. So the
+  // dispatcher says so, in front of every task -- fresh installs included.
+  out.push(hu
+    ? '6. A JELENTESED a task EREDMENYE (ez a fenti zaro osszefoglalo) + a landolt PR. NE probalj Telegram- vagy'
+      + ' inter-agent uzenetet kuldeni, es NE ird a valasz elejere, hogy ezek "nem mukodnek": ez a session nem'
+      + ' flotta-agens (nincs Telegram MCP, nincs inter-agent csatorna), a tulajdonost a Marveen dashboard'
+      + ' ertesiti helyetted, amikor a task lezarul.'
+    : '6. YOUR REPORT is the task RESULT (the closing summary above) plus the landed PR. Do NOT try to send Telegram'
+      + ' or inter-agent messages, and do NOT prepend a note that they "do not work": this session is not a fleet'
+      + ' agent (no Telegram MCP, no inter-agent channel); the Marveen dashboard notifies the owner for you when the'
+      + ' task finishes.')
 
   return out.join('\n')
 }
