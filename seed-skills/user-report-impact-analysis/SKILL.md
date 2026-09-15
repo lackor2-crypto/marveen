@@ -56,6 +56,19 @@ The user is not a programmer. They will not misdescribe what was on their screen
 - **An earlier timer must not kill a later element.** A `setTimeout` whose id is
   never stored will fire while a NEWER message is on screen and hide it. Keep
   the handle and clear it on every new show.
+- **The same visible string can come from two different sources -- confirm which
+  one.** 2026-09-15, the user changed the code-bridge release model to Opus 5 in
+  settings but the card still read "nem lat oda". That exact phrase exists in the
+  UI twice: `health.code_bridge_worker_unknown_action` (the Windows worker
+  version check) AND `cb.card.model_unknown` (the code-bridge card's model
+  badge). The badge shows the per-session MEASUREMENT (server: card `model` =
+  `modelBySession.get(sessionId)`, `null` until that conversation has produced a
+  measured reply), NOT the SET value the user changed (`CODE_MODEL`, readable at
+  `/api/code/config`). So a setting the user changed correctly can look ignored
+  because the UI shows a measurement next to it. Verify each source
+  independently -- the setting (`/api/code/config`), the worker
+  (`/api/code/health`), and the badge's data source in the render code -- and do
+  NOT assume a placeholder ("unknown"/"nem lat oda") means the setting failed.
 
 ## Ellenorzes
 - You can point to the exact line/mechanism that produced the user's symptom.
