@@ -114,3 +114,42 @@ describe('a felulet: valaszthato, es kimondja, mi NEM ez', () => {
     }
   })
 })
+
+// Kanban #281 (Boss #947): a kartya a BEALLITOTT kiadasi-modellt mutassa
+// AZONNAL, ne a per-session merest. A tulaj Opus 5-re valtott, de a kartya
+// tovabbra is "nem latok oda"-t irt, mert a jelveny a merest (`modelBySession`,
+// `null` amig nem valaszolt a beszelgetes) olvasta, nem a beallitott
+// CODE_MODEL-t. Az ar-jelveny is a beallitott modellbol jon (Boss 5635).
+describe('kanban #281: a kartya a BEALLITOTT modellt mutatja, nem a merest', () => {
+  it('a /api/code/projects valasz elviszi a BEALLITOTT modellt es annak arat', () => {
+    // A global (nem projektenkenti) beallitott modell, ELOBOL olvasva -- igy a
+    // "meg nincs projekt" (friss telepites) kartya is ki tudja irni.
+    expect(ROUTES).toMatch(/const releaseModel = effectiveDispatchModel\(\)/)
+    // Ures beallitas -> `null`, NEM kitalalt nev (fresh-install: a nulla ket
+    // dolgot jelenthet, itt az "alapertelmezett" cimke a helyes).
+    expect(ROUTES).toMatch(/releaseModel: releaseModel \|\| null/)
+    // Az ar a BEALLITOTT modellbol jon (nem a meresbol); ismeretlen -> null.
+    expect(ROUTES).toMatch(/const releaseCostPerMInput = releaseModel \? knownModelCostPerM\(releaseModel\) : null/)
+    expect(ROUTES).toContain('releaseCostPerMInput')
+  })
+
+  it('a kartya-render a BEALLITOTT modellt es annak arat rajzolja (nem a merest)', () => {
+    // A modell-jelveny a beallitott modellt mutatja, ures beallitasnal az
+    // "alapertelmezett" cimket -- NEM a regi "nem latok oda"-t.
+    expect(APP).toContain("codeBridgeCards.releaseModel || t('cb.card.model_default')")
+    expect(APP).toContain("codeBridgeCards.releaseModel ? t('cb.card.model_set_help') : t('cb.card.model_default_help')")
+    // Az ar-jelveny is a beallitott modellbol (releaseCostPerMInput), nem a
+    // per-session meresbol (e.costPerMInput).
+    expect(APP).toContain('costBadgeHtml(codeBridgeCards.releaseCostPerMInput)')
+    // A betolto elteszi a valaszbol a beallitott modellt es arat.
+    expect(APP).toContain('releaseModel: (projects && typeof projects.releaseModel')
+    expect(APP).toContain('releaseCostPerMInput: (projects && typeof projects.releaseCostPerMInput')
+  })
+
+  it('az uj kartya-kulcsok megvannak magyarul ES angolul', () => {
+    for (const key of ['cb.card.model_default', 'cb.card.model_set_help', 'cb.card.model_default_help']) {
+      expect(HU.includes(`'${key}'`), `hianyzik a magyar ${key}`).toBe(true)
+      expect(EN.includes(`'${key}'`), `hianyzik az angol ${key}`).toBe(true)
+    }
+  })
+})
