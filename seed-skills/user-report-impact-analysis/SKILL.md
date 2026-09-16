@@ -69,6 +69,19 @@ The user is not a programmer. They will not misdescribe what was on their screen
   independently -- the setting (`/api/code/config`), the worker
   (`/api/code/health`), and the badge's data source in the render code -- and do
   NOT assume a placeholder ("unknown"/"nem lat oda") means the setting failed.
+- **"It's just a display bug, the process is fine" can hide a REAL shared-state
+  collision.** 2026-09-16, the main agent's account badge flipped to a wrong
+  account after the user logged a *different* app (VS Code Claude Code) into a
+  new account. First read: "the badge is coupled to browser/VS Code state, the
+  running agent is unaffected -- works as intended." WRONG. The badge read
+  `~/.claude` credentials, and the main agent ALSO runs on `~/.claude` (unlike
+  every sub-agent, which has its own `store/accounts/<name>` config dir). So the
+  VS Code login literally rewrote the running agent's credentials underneath it:
+  the "display" reflected a genuine collision that would make the agent run as
+  the wrong account on next restart. Lesson: when a display reads SHARED machine
+  state (a default config/credential/cache dir), check WHO ELSE writes that same
+  state before calling it a cosmetic display bug -- the drift indicator was doing
+  its job, catching a real hazard, not misfiring.
 
 ## Ellenorzes
 - You can point to the exact line/mechanism that produced the user's symptom.
