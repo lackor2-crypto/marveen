@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -23,7 +23,7 @@ vi.mock('../settings-store.js', async (orig) => {
   }
 })
 
-const { resolveMainAgentConfigDir } = await import('../web/agent-process.js')
+const { resolveMainAgentConfigDir, ensureMainAgentChannelState } = await import('../web/agent-process.js')
 const { provisionMainAgentConfigDir } = await import('../web/agent-config.js')
 const { resolveAgentConfigDir } = await import('../web/claude-plans.js')
 const { MAIN_AGENT_ID } = await import('../config.js')
@@ -114,9 +114,82 @@ describe('provisionMainAgentConfigDir', () => {
   })
 })
 
+// An isolated/explicit config dir does NOT carry <dir>/channels/<provider>/.env,
+// so the plugin's server.ts finds no TELEGRAM_BOT_TOKEN and exits at its gate --
+// the main bot goes silent while the shared ~/.claude keeps working (Boss,
+// 2026-09-16, #290). ensureMainAgentChannelState seeds the token (+ existing
+// pairing) into the resolved dir before channels.sh launches.
+describe('ensureMainAgentChannelState', () => {
+  // channelStateDir() with no agentDir -> homedir()/.claude/channels/telegram,
+  // and homedir() is mocked to SANDBOX/home above, so this is the shared source.
+  function seedSharedTelegram(token: string, allowFrom: string[]) {
+    const dir = join(SANDBOX, 'home', '.claude', 'channels', 'telegram')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, '.env'), `TELEGRAM_BOT_TOKEN=${token}\n`)
+    writeFileSync(join(dir, 'access.json'), JSON.stringify({ dmPolicy: 'allowlist', allowFrom }))
+    return dir
+  }
+
+  it('seeds the token .env from the shared dir into the isolated config dir', () => {
+    seedSharedTelegram('111:AAAisolated', ['8736799466'])
+    const isolated = join(SANDBOX, 'home', '.claude-bot')
+    ensureMainAgentChannelState(isolated, 'telegram')
+    const env = join(isolated, 'channels', 'telegram', '.env')
+    expect(existsSync(env)).toBe(true)
+    // Verbatim copy -- the token is READ from the shared file, never hardcoded.
+    expect(readFileSync(env, 'utf-8')).toBe('TELEGRAM_BOT_TOKEN=111:AAAisolated\n')
+    // Credential: owner-only where POSIX modes exist.
+    if (process.platform !== 'win32') {
+      expect(statSync(env).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  it('carries the existing pairing (access.json) so the operator need not re-pair', () => {
+    seedSharedTelegram('222:AAApair', ['8736799466'])
+    const isolated = join(SANDBOX, 'home', '.claude-bot')
+    ensureMainAgentChannelState(isolated, 'telegram')
+    const access = join(isolated, 'channels', 'telegram', 'access.json')
+    expect(existsSync(access)).toBe(true)
+    expect(JSON.parse(readFileSync(access, 'utf-8')).allowFrom).toEqual(['8736799466'])
+  })
+
+  it('is idempotent: never clobbers a token the operator later changed', () => {
+    seedSharedTelegram('333:AAAshared', ['8736799466'])
+    const isolated = join(SANDBOX, 'home', '.claude-bot')
+    const targetDir = join(isolated, 'channels', 'telegram')
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(join(targetDir, '.env'), 'TELEGRAM_BOT_TOKEN=999:USERSET\n')
+    ensureMainAgentChannelState(isolated, 'telegram')
+    // The pre-existing target .env is preserved, not overwritten with the shared one.
+    expect(readFileSync(join(targetDir, '.env'), 'utf-8')).toBe('TELEGRAM_BOT_TOKEN=999:USERSET\n')
+  })
+
+  it('is a no-op for the shared ~/.claude itself (never seeds a dir onto itself)', () => {
+    seedSharedTelegram('444:AAAshared', ['8736799466'])
+    const sharedConfig = join(SANDBOX, 'home', '.claude')
+    // Must not throw and must not disturb the existing shared .env.
+    expect(() => ensureMainAgentChannelState(sharedConfig, 'telegram')).not.toThrow()
+    expect(readFileSync(join(sharedConfig, 'channels', 'telegram', '.env'), 'utf-8'))
+      .toBe('TELEGRAM_BOT_TOKEN=444:AAAshared\n')
+  })
+
+  it('does not throw when there is nothing to seed (fresh install, no channel yet)', () => {
+    const isolated = join(SANDBOX, 'home', '.claude-bot')
+    // No shared dir seeded; best-effort seeding writes nothing and never throws.
+    expect(() => ensureMainAgentChannelState(isolated, 'telegram')).not.toThrow()
+  })
+})
+
 describe('launcher wiring', () => {
   const HELPER = readFileSync(join(__dirname, '../../scripts/main-agent-isolated-config.mjs'), 'utf-8')
   const CHANNELS = readFileSync(join(__dirname, '../../scripts/channels.sh'), 'utf-8')
+
+  it('the helper seeds the channel token into BOTH the explicit and isolated dirs', () => {
+    // Both resolved-dir branches must call the seeder, or an isolated/explicit
+    // main agent comes up with no token and the bot stays silent (#290).
+    expect(HELPER).toMatch(/ensureMainAgentChannelState\(explicit, provider\)/)
+    expect(HELPER).toMatch(/ensureMainAgentChannelState\(dir, provider\)/)
+  })
 
   it('the helper prefers the explicit dir over the isolated one', () => {
     expect(HELPER).toMatch(/const explicit = resolveMainAgentConfigDir\(\)[\s\S]*if \(explicit\)/)
