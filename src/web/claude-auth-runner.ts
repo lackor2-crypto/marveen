@@ -24,7 +24,7 @@ import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { readClaudePlans, CLAUDE_PLANS_PATH, pinExpectedEmail } from './claude-plans.js'
 import { readMainExpectedEmail, pinMainExpectedEmail } from './main-account-identity.js'
-import { resolveMainAgentConfigDir } from './agent-config.js'
+import { resolveMainAgentConfigDir, provisionMainAgentConfigDir } from './agent-config.js'
 import {
   auditIdentities,
   decidePostLogin,
@@ -415,7 +415,15 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   // three touch points below (the already-logged-in guard, the tmux env, the
   // stored session dir) must aim at the SAME dir, or the login lands somewhere
   // the readers never look.
-  const mainDir = resolveMainAgentConfigDir()
+  //
+  // PROVISION here, not the read-only resolveMainAgentConfigDir(): this login is
+  // what ACTIVATES the isolation, so the target dir usually does NOT exist yet
+  // (operator set MAIN_AGENT_CONFIG_DIR to a brand-new path and clicked re-login).
+  // The reader returns null for a missing dir -> the login would fall back to
+  // ~/.claude and never populate the new dir, so activation could never complete
+  // from the UI. provisionMainAgentConfigDir() mkdir's it so the credentials land
+  // inside; once populated the reader + launcher pick it up.
+  const mainDir = provisionMainAgentConfigDir()
   if (!opts.force) {
     const who = readIdentity(mainDir)
     if (who.loggedIn) {
