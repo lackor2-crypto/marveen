@@ -2,6 +2,8 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
+import { getEffectiveSettingValue } from '../settings-store.js'
+import { logger } from '../logger.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { safeJoin } from './sanitize.js'
 import {
@@ -295,6 +297,40 @@ export function resolveClaudeConfigDir(
 export function readAgentClaudeConfigDir(name: string): string | null {
   const configPath = join(agentDir(name), 'agent-config.json')
   return resolveClaudeConfigDir(readFileOr(configPath, '{}'), homedir())
+}
+
+// An EXPLICIT config dir for the MAIN channels agent (MAIN_AGENT_CONFIG_DIR),
+// for the operator who keeps a separate Claude login for the main bot -- e.g. a
+// personal subscription for the bot and a different one for the fleet, OR simply
+// to keep the main agent OFF the shared ~/.claude that the operator's own Claude
+// Code / VS Code install also writes to.
+//
+// Why it lives here and not in agent-process.ts (where it used to): the main
+// agent uniquely defaulted to ~/.claude, so every dashboard READER
+// (resolveAgentConfigDir, the account rows, the drift check, the usage %) had no
+// single place to learn the main agent's real config dir. When the operator
+// logged a DIFFERENT app into ~/.claude, the main agent's badge/usage silently
+// followed it. Putting the resolver in this low-level module lets
+// resolveAgentConfigDir(MAIN_AGENT_ID) and the readers agree with the launcher
+// (scripts/main-agent-isolated-config.mjs resolves the same setting), so the two
+// can never diverge again. (agent-process.ts re-exports it for its old callers.)
+//
+// Fails closed: unset -> null (shared ~/.claude, unchanged default); set but
+// missing on disk -> null + a warn, because silently falling back to the shared
+// root with the WRONG identity is how a bot ends up authenticated as the fleet.
+// Read-only: it never provisions -- MAIN_AGENT_ISOLATED_CONFIG's provisioning
+// (which shares the fleet identity) stays in agent-process.ts and is a separate,
+// launch-time concern.
+export function resolveMainAgentConfigDir(): string | null {
+  let raw = ''
+  try { raw = String(getEffectiveSettingValue('MAIN_AGENT_CONFIG_DIR') ?? '').trim() } catch { return null }
+  if (!raw) return null
+  const dir = raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw
+  if (!existsSync(dir)) {
+    logger.warn({ dir }, 'main-agent config dir: MAIN_AGENT_CONFIG_DIR does not exist, keeping the shared ~/.claude')
+    return null
+  }
+  return dir
 }
 
 // --- Remote agent config (remoteHost + remoteWorkdir) ---

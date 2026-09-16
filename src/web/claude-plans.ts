@@ -22,12 +22,13 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { PROJECT_ROOT } from '../config.js'
+import { PROJECT_ROOT, MAIN_AGENT_ID } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import {
   expandAndValidateConfigDir,
   readAgentClaudeConfigDir,
   readAgentClaudePlan,
+  resolveMainAgentConfigDir,
 } from './agent-config.js'
 
 export const CLAUDE_PLANS_PATH = join(PROJECT_ROOT, 'store', 'claude-plans.json')
@@ -221,7 +222,23 @@ export function resolveAgentConfigDir(
   if (planId) {
     const plan = getClaudePlan(planId)
     if (plan) return { configDir: plan.configDir, planUnresolved: false }
-    return { configDir: readAgentClaudeConfigDir(name), planUnresolved: true }
+    return { configDir: rawConfigDirOrMain(name), planUnresolved: true }
   }
-  return { configDir: readAgentClaudeConfigDir(name), planUnresolved: false }
+  return { configDir: rawConfigDirOrMain(name), planUnresolved: false }
+}
+
+// The main agent is the ONE agent with no agents/<name>/ dir, so its raw
+// claudeConfigDir is always absent and it used to resolve to null == the shared
+// ~/.claude -- the exact "exception" that let a VS Code / other-app login into
+// ~/.claude silently retarget the main agent's identity and usage. When no
+// per-agent override is set, fall back to the explicit MAIN_AGENT_CONFIG_DIR for
+// the main agent (null for everyone else, and null for main when the setting is
+// unset -- byte-identical to the previous behaviour). This is what makes the
+// account badge, the default-login dependents and the drift check read the SAME
+// isolated dir the launcher boots the main agent from.
+function rawConfigDirOrMain(name: string): string | null {
+  const raw = readAgentClaudeConfigDir(name)
+  if (raw) return raw
+  if (name === MAIN_AGENT_ID) return resolveMainAgentConfigDir()
+  return null
 }

@@ -60,6 +60,7 @@ import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-logi
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
+import { resolveMainAgentConfigDir } from './agent-config.js'
 // EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
 // oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
 // mondott ellentetes mondatot.
@@ -1666,7 +1667,12 @@ export function keySlotRows(
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
-    ...mainAccountRows(),
+    // The main agent's drift check must read the SAME dir the agent actually
+    // runs on: its explicit MAIN_AGENT_CONFIG_DIR when set, else the shared
+    // ~/.claude (unchanged default). Otherwise the drift row watches ~/.claude
+    // while the agent runs on an isolated dir -- a false alarm, or worse, silence
+    // about a real drift on the dir that matters.
+    ...mainAccountRows(resolveMainAgentConfigDir() ?? join(homedir(), '.claude')),
     ...namedLoginRows(),
     ...googleClientRows(),
     ...vaultBindingRows(),

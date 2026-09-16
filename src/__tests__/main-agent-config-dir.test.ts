@@ -24,6 +24,8 @@ vi.mock('../settings-store.js', async (orig) => {
 })
 
 const { resolveMainAgentConfigDir } = await import('../web/agent-process.js')
+const { resolveAgentConfigDir } = await import('../web/claude-plans.js')
+const { MAIN_AGENT_ID } = await import('../config.js')
 
 beforeEach(() => {
   SANDBOX = mkdtempSync(join(tmpdir(), 'maincfg-'))
@@ -59,6 +61,24 @@ describe('resolveMainAgentConfigDir', () => {
   it('trims surrounding whitespace from a hand-edited .env value', () => {
     SETTING = `  ${join(SANDBOX, 'home', '.claude-bot')}  `
     expect(resolveMainAgentConfigDir()).toBe(join(SANDBOX, 'home', '.claude-bot'))
+  })
+})
+
+// The whole point of moving the resolver into agent-config.ts: the dashboard
+// READERS resolve the main agent's config dir through resolveAgentConfigDir(),
+// so the account badge, the default-login dependents and the drift check read
+// the SAME dir the launcher boots the main agent from -- instead of the main
+// agent uniquely defaulting to the shared ~/.claude that VS Code also writes to.
+describe('resolveAgentConfigDir(MAIN_AGENT_ID) honours the isolated dir', () => {
+  it('falls back to null (shared ~/.claude, unchanged) when the setting is unset', () => {
+    // No per-agent override for the main agent, no MAIN_AGENT_CONFIG_DIR -> null,
+    // byte-identical to the pre-change behaviour.
+    expect(resolveAgentConfigDir(MAIN_AGENT_ID).configDir).toBeNull()
+  })
+
+  it('returns the explicit MAIN_AGENT_CONFIG_DIR when set', () => {
+    SETTING = join(SANDBOX, 'home', '.claude-bot')
+    expect(resolveAgentConfigDir(MAIN_AGENT_ID).configDir).toBe(join(SANDBOX, 'home', '.claude-bot'))
   })
 })
 

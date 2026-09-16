@@ -24,6 +24,7 @@ import { STORE_DIR } from '../config.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { readClaudePlans, CLAUDE_PLANS_PATH, pinExpectedEmail } from './claude-plans.js'
 import { readMainExpectedEmail, pinMainExpectedEmail } from './main-account-identity.js'
+import { resolveMainAgentConfigDir } from './agent-config.js'
 import {
   auditIdentities,
   decidePostLogin,
@@ -232,13 +233,20 @@ export function listAccounts(force = false): AccountRow[] {
 }
 
 function buildAccountRows(): AccountRow[] {
-  const def = readIdentityDetailed(null)
+  // The default row represents the MAIN AGENT's login. When the operator has
+  // pinned an explicit MAIN_AGENT_CONFIG_DIR, that dir -- not the shared
+  // ~/.claude -- is where the agent runs, so its identity, drift-audit and the
+  // relogin button must all target it. Unset -> null -> ~/.claude, unchanged.
+  // The frontend identifies this row by `isDefault`, not by configDir, so
+  // carrying a non-null dir here is safe (see app.js liveAccountRowFor).
+  const mainDir = resolveMainAgentConfigDir()
+  const def = readIdentityDetailed(mainDir)
   const rows: AccountRow[] = [{
     id: null,
     // No label from here: the row is marked isDefault and the PAGE names it, so
     // an English dashboard never gets a Hungarian word out of the backend.
     label: '',
-    configDir: null,
+    configDir: mainDir,
     isDefault: true,
     planType: null,
     channelsAllowed: null,
@@ -401,8 +409,15 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   // Never silently overwrite a WORKING login: that is the one way this button
   // could make things worse than it found them. `force` is the deliberate
   // "yes, switch accounts" path, and the page has to ask for it.
+  // The main agent's login lives in MAIN_AGENT_CONFIG_DIR when the operator has
+  // pinned one (isolating the bot from the shared ~/.claude that VS Code / the
+  // operator's own Claude Code also write to); unset -> null -> ~/.claude. All
+  // three touch points below (the already-logged-in guard, the tmux env, the
+  // stored session dir) must aim at the SAME dir, or the login lands somewhere
+  // the readers never look.
+  const mainDir = resolveMainAgentConfigDir()
   if (!opts.force) {
-    const who = readIdentity(null)
+    const who = readIdentity(mainDir)
     if (who.loggedIn) {
       return {
         ok: false,
@@ -429,16 +444,18 @@ function startDefaultLogin(opts: { email?: string; useConsole?: boolean; force?:
   const command = `${quoted}; printf '\\nMARVEEN_LOGIN_EXIT=%s\\n' "$?"; sleep 900`
   const shim = prepareBrowserShim()
   try {
-    execFileSync(TMUX(), spawnArgs(null, command, shim), { timeout: 10_000 })
+    execFileSync(TMUX(), spawnArgs(mainDir, command, shim), { timeout: 10_000 })
   } catch (err) {
     logger.warn({ err }, 'claude-auth: could not start the default login session')
     return { ok: false, error: 'A bejelentkezési folyamatot nem sikerült elindítani.' }
   }
   current = {
-    startedAt: Date.now(), configDir: null, planId: null, label: '',
+    startedAt: Date.now(), configDir: mainDir, planId: null, label: '',
     codeSubmitted: false, registered: true, reused: true, urlLog: shim?.log ?? null,
   }
-  logger.info('claude-auth: login session started for the install default (~/.claude)')
+  logger.info({ configDir: mainDir }, mainDir
+    ? 'claude-auth: login session started for the main agent isolated dir (MAIN_AGENT_CONFIG_DIR)'
+    : 'claude-auth: login session started for the install default (~/.claude)')
   return { ok: true, isDefault: true }
 }
 
@@ -784,7 +801,10 @@ export function loginStatus(): LoginStatus {
     const accounts = listAccounts(true)
     const status = idle(accounts, 'done')
     return {
-      ...status, done: true, planId, label, isDefault: configDir === null, reused,
+      // The default/main login is marked by planId === null, NOT by a null
+      // configDir: with MAIN_AGENT_CONFIG_DIR set, the main login carries an
+      // explicit dir but is still the default row.
+      ...status, done: true, planId, label, isDefault: planId === null, reused,
       defaultLoggedIn: isDefaultLoggedIn(accounts), identityDrift: drift,
       // Elteresnel a hely URES marad (visszavontuk), vagy a ROSSZ fiok ul
       // benne (a visszavonas bukott) -- egyik sem az, amit kertunk.
@@ -810,7 +830,7 @@ export function loginStatus(): LoginStatus {
     browserUrl: readBrowserUrl(current.urlLog),
     error: pane.error,
     label: current.label, planId: current.planId, done: false,
-    isDefault: current.configDir === null, accounts,
+    isDefault: current.planId === null, accounts,
     defaultLoggedIn: isDefaultLoggedIn(accounts),
     expectedEmail: current.expectedEmail ?? null,
   }
@@ -874,13 +894,20 @@ export function logoutAccount(planId: string | null): LogoutResult {
   // neither side could explain.
   if (current) return { ok: false, error: 'Épp fut egy bejelentkezés. Előbb fejezd be vagy szakítsd meg.' }
 
+  // The default/main login has no plan row. It is addressed either by a falsy
+  // planId (the card's logout button sends '' for the default row) or by the
+  // '__main__' drift-revert sentinel; both must target the main agent's dir --
+  // its explicit MAIN_AGENT_CONFIG_DIR when set, else ~/.claude (unchanged). A
+  // real plan id keeps looking up its own configDir.
   let configDir: string | null = null
-  if (planId) {
+  if (planId && planId !== '__main__') {
     const row = listAccounts(true).find(r => r.id === planId)
     if (!row || !row.configDir) {
       return { ok: false, error: 'Ezt a fiókot nem találom a listában. Frissítsd az oldalt, és próbáld újra.' }
     }
     configDir = row.configDir
+  } else {
+    configDir = resolveMainAgentConfigDir()
   }
 
   const before = readIdentity(configDir)
