@@ -466,31 +466,16 @@ export function ensureMainAgentIsolatedConfigDir(
   )
 }
 
-// An EXPLICIT config dir for the main channels agent (MAIN_AGENT_CONFIG_DIR),
-// for the operator who already keeps a separate Claude login for the main bot --
-// e.g. a personal subscription for the bot and a different one for the fleet.
-// The isolated-config path above cannot serve that case: it provisions a dir with
-// NO .credentials.json and authenticates from the fleet setup-token, so the main
-// agent necessarily shares the fleet's identity, and it is a hard no-op without
-// that token. Pointing CLAUDE_CONFIG_DIR at an existing, separately logged-in dir
-// is the only way to keep the two identities apart.
+// An EXPLICIT config dir for the main channels agent (MAIN_AGENT_CONFIG_DIR).
+// The implementation moved to agent-config.ts so the dashboard READERS
+// (resolveAgentConfigDir, the account rows, the drift check, the usage %) can
+// resolve the main agent's real config dir from the same single source the
+// launcher uses -- see the header there. Re-exported here so existing callers
+// (overview.ts, the launcher wiring, the unit test) keep importing it unchanged.
 //
-// Fails closed: unset -> null (shared ~/.claude, unchanged default); set but
-// missing on disk -> null + a warn, because silently falling back to the shared
-// root with the WRONG identity is how a bot ends up authenticated as the fleet.
 // Takes precedence over MAIN_AGENT_ISOLATED_CONFIG: an explicit dir is a
 // deliberate choice, and the two cannot both own CLAUDE_CONFIG_DIR.
-export function resolveMainAgentConfigDir(): string | null {
-  let raw = ''
-  try { raw = String(getEffectiveSettingValue('MAIN_AGENT_CONFIG_DIR') ?? '').trim() } catch { return null }
-  if (!raw) return null
-  const dir = raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw
-  if (!existsSync(dir)) {
-    logger.warn({ dir }, 'main-agent config dir: MAIN_AGENT_CONFIG_DIR does not exist, keeping the shared ~/.claude')
-    return null
-  }
-  return dir
-}
+export { resolveMainAgentConfigDir } from './agent-config.js'
 
 // Shared provisioning core for BOTH the sub-agents (ensureIsolatedChannelConfigDir)
 // and the main agent (ensureMainAgentIsolatedConfigDir) -- one code path so the
