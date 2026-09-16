@@ -3215,6 +3215,17 @@
           <button class="btn-secondary" id="intezoMountAddBtn" data-i18n="intezo.mount_add">Bekötés ide</button>
           <button class="btn-secondary" id="intezoMountDelBtn" hidden data-i18n="intezo.mount_del">Bekötés megszüntetése</button>
         </div>
+        <!-- A bekotes MIERT-je: egy ideiglenes elhelyezes oka sehol mashol
+             nincs leirva. -->
+        <div id="intezoMountNoteBox" hidden style="margin-top:10px">
+          <label for="intezoMountNote" style="display:block;font-size:13px;margin-bottom:4px" data-i18n="intezo.mount_note_label">Miért van ez itt? (megjegyzés a bekötéshez)</label>
+          <textarea id="intezoMountNote" rows="2" style="width:100%;max-width:520px" data-i18n-placeholder="intezo.mount_note_ph" placeholder="Pl.: nincs telepített WordPress oldal, ezért állnak egymás mellett."></textarea>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin:6px 0">
+            <input type="checkbox" id="intezoMountProvisional">
+            <span data-i18n="intezo.mount_provisional">Ideiglenes elhelyezés (egy feltétel teljesüléséig áll itt)</span>
+          </label>
+          <button class="btn-secondary" id="intezoMountNoteSaveBtn" data-i18n="intezo.mount_note_save">Megjegyzés mentése</button>
+        </div>
       </div>
     </div>
 

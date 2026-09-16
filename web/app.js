@@ -34972,6 +34972,7 @@ async function loadIntezoPage() {
   bind('intezoCfgSaveBtn', 'click', () => _intezoCfgSave())
   bind('intezoMountAddBtn', 'click', () => _intezoAddMount())
   bind('intezoMountDelBtn', 'click', () => _intezoRemoveMount())
+  bind('intezoMountNoteSaveBtn', 'click', () => _intezoSaveMountNote())
   bind('intezoPhysHas', 'change', () => {
     const on = document.getElementById('intezoPhysHas').checked
     const f = document.getElementById('intezoPhysFields')
@@ -35946,7 +35947,12 @@ async function _intezoInfo(rel, quiet) {
     [t('intezo.info_digital'), info.digitalLocation || t('intezo.tree_root')],
     [t('intezo.info_source'), (src.icon || '') + ' ' + (src.label || '')],
   ]
-  if (info.mount) rows.push([t('intezo.info_mounted'), info.mount.label + '  (' + info.mount.target + ')'])
+  if (info.mount) {
+    rows.push([t('intezo.info_mounted'), info.mount.label + '  (' + info.mount.target + ')'])
+    rows.push([t('intezo.mount_status'), info.mount.reachable ? t('intezo.mount_reachable') : t('intezo.mount_unreachable')])
+    if (info.mount.provisional) rows.push([t('intezo.mount_provisional_short'), t('intezo.yes')])
+    if (info.mount.note) rows.push([t('intezo.mount_note_short'), info.mount.note])
+  }
   ;(src.details || []).forEach((d) => rows.push([d.label, d.value]))
   // A 20. pont ot mezoje. Az azonosito HIANYA is sor: a storageNote egy
   // MERT okbol jon (nincs raktar / nem tarolobol jon / nincs kiosztva
@@ -36467,15 +36473,50 @@ function _intezoRenderMount(info) {
   const canMount = info.isDir
   if (add) add.disabled = !canMount
   if (sel) sel.disabled = !canMount
+  const noteBox = document.getElementById('intezoMountNoteBox')
+  // HAROM kulon allapot, nem egy "nincs": bekotve es elerheto / bekotve, de a
+  // cel nem erheto el / nincs bekotve. Plusz: ha a tarolo fajl serult, a
+  // "nincs bekotve" nem igaz -- azt kulon kimondjuk.
+  const corrupt = info.mountsCorrupt ? ' ' + t('intezo.mount_corrupt') : ''
+  // Csak a bekotes SAJAT pontjan szerkesztheto a megjegyzes, az alatta levo
+  // almappakon nem.
+  const ownMount = info.mount && info.mount.rel === info.rel
   if (info.mount) {
-    state.textContent = 'Ez a mappa most ezt mutatja: ' + info.mount.label
-    if (del) del.hidden = false
+    state.textContent = t('intezo.mount_shows', { label: info.mount.label })
+      + ' — ' + (info.mount.reachable ? t('intezo.mount_reachable') : t('intezo.mount_unreachable'))
+      + (info.mount.provisional ? ' — ' + t('intezo.mount_provisional_short') : '')
+      + corrupt
+    if (del) del.hidden = !ownMount
     if (add) add.disabled = true
   } else {
-    state.textContent = canMount
+    state.textContent = (canMount
       ? t('intezo.mount_own')
-      : t('intezo.mount_dir_only')
+      : t('intezo.mount_dir_only')) + corrupt
     if (del) del.hidden = true
+  }
+  if (noteBox) noteBox.hidden = !ownMount
+  if (ownMount) {
+    const note = document.getElementById('intezoMountNote')
+    const prov = document.getElementById('intezoMountProvisional')
+    if (note) note.value = info.mount.note || ''
+    if (prov) prov.checked = Boolean(info.mount.provisional)
+  }
+}
+
+async function _intezoSaveMountNote() {
+  if (!_intezoSelected) return
+  const note = document.getElementById('intezoMountNote')
+  const prov = document.getElementById('intezoMountProvisional')
+  try {
+    const r = await _depoPost('/api/life/mounts/note', {
+      rel: _intezoSelected.rel,
+      note: note ? note.value : '',
+      provisional: prov ? prov.checked : false,
+    })
+    showToast(r.message || t('intezo.done'))
+    await _intezoInfo(_intezoSelected.rel)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.save_failed'))
   }
 }
 
@@ -36499,7 +36540,18 @@ async function _intezoAddMount() {
 
 async function _intezoRemoveMount() {
   if (!_intezoSelected) return
-  if (!confirm(t('intezo.unmount_confirm2'))) return
+  // Elonezet: mit veszit el a nezetbol (hol latszott, mi van mogotte, es a
+  // megjegyzes, ami a bekotessel egyutt tunik el).
+  let preview = ''
+  try {
+    const data = await _intezoGet('/api/life/mounts')
+    const m = (data.mounts || []).find((x) => x.rel === _intezoSelected.rel)
+    if (m) {
+      preview = '\n\n' + t('intezo.unmount_preview', { rel: m.rel, target: m.target })
+        + (m.note ? '\n' + t('intezo.unmount_preview_note', { note: m.note }) : '')
+    }
+  } catch (e) { preview = '' }
+  if (!confirm(t('intezo.unmount_confirm2') + preview)) return
   try {
     const r = await _depoPost('/api/life/mounts/remove', { rel: _intezoSelected.rel })
     showToast(r.message || t('intezo.done'))

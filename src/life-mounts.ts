@@ -42,14 +42,27 @@ export interface LifeMount {
   /** Emberi felirat a feluletre: "lackor2 Google Fotók". */
   label: string
   addedAt: string
+  /**
+   * MIERT van itt, ahol van. Egy elhelyezes oka (pl. "nincs telepitett
+   * WordPress, ezert allnak egymas mellett") mashol sehol nincs leirva --
+   * fel ev mulva enelkul senki nem tudja, szandekos volt-e. Regi bejegyzesben
+   * hianyzik: ures szovegkent kezeljuk.
+   */
+  note?: string
+  /** Ideiglenes elhelyezes: egy feltetel teljesuleseig all itt. */
+  provisional?: boolean
 }
 
-type Store = { mounts: LifeMount[] }
+type Store = { mounts: LifeMount[]; corrupt?: boolean }
 
 function load(): Store {
   try {
     if (!existsSync(STORE_PATH)) return { mounts: [] }
     const raw = JSON.parse(readFileSync(STORE_PATH, 'utf8'))
+    if (!raw || typeof raw !== 'object' || (raw.mounts !== undefined && !Array.isArray(raw.mounts))) {
+      logger.warn('[eletfa] serult life-mounts.json (nem vart szerkezet), bekotesek nelkul indulok')
+      return { mounts: [], corrupt: true }
+    }
     const mounts = Array.isArray(raw?.mounts) ? raw.mounts : []
     return { mounts: mounts.filter((m: any) => m && typeof m.rel === 'string' && typeof m.target === 'string') }
   } catch (err: any) {
@@ -57,14 +70,14 @@ function load(): Store {
     // hasznalhato, csak a Drive/Fotok agak lesznek uresek. Egy hibauzenet
     // jobb, mint egy elindulni sem hajlando Intezo.
     logger.warn({ err: err?.message }, '[eletfa] serult life-mounts.json, bekotesek nelkul indulok')
-    return { mounts: [] }
+    return { mounts: [], corrupt: true }
   }
 }
 
 function save(store: Store): void {
   mkdirSync(STORE_DIR, { recursive: true })
   const tmp = `${STORE_PATH}.tmp`
-  writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf8')
+  writeFileSync(tmp, JSON.stringify({ mounts: store.mounts }, null, 2), 'utf8')
   renameSync(tmp, STORE_PATH)
 }
 
@@ -74,6 +87,29 @@ function norm(rel: string): string {
 
 export function listMounts(): LifeMount[] {
   return load().mounts.slice().sort((a, b) => a.rel.localeCompare(b.rel, 'hu'))
+}
+
+/** A bekotes celja most elerheto-e (lecsatolt meghajto, torolt mappa). */
+function targetReachable(target: string): boolean {
+  const root = depotRoot()
+  if (!root) return false
+  try { return statSync(join(root, ...target.split('/'))).isDirectory() } catch { return false }
+}
+
+export type MountWithState = LifeMount & { reachable: boolean }
+
+/**
+ * A terkep-nezet adata. A "nulla" itt HAROM kulon dolog, es mindharmat
+ * kulon mondjuk ki:
+ *   - `corrupt: true`      -> a tarolo fajl serult, NEM azt jelenti, hogy nincs bekotes,
+ *   - `reachable: false`   -> be van kotve, de a cel most nem erheto el,
+ *   - ures lista, corrupt nelkul -> tenyleg nincs bekotes (friss telepites).
+ */
+export function mountsOverview(): { mounts: MountWithState[]; corrupt: boolean } {
+  const store = load()
+  const mounts = store.mounts.slice().sort((a, b) => a.rel.localeCompare(b.rel, 'hu'))
+    .map((m) => ({ ...m, note: m.note || '', provisional: Boolean(m.provisional), reachable: targetReachable(m.target) }))
+  return { mounts, corrupt: Boolean(store.corrupt) }
 }
 
 export interface MountResult { ok: boolean; message: string; code?: string; mount?: LifeMount }
@@ -87,7 +123,7 @@ export interface MountResult { ok: boolean; message: string; code?: string; moun
  *   - ha ugyanoda mar van bekotes (melyik latszana?),
  *   - ha a bekotes SAJAT MAGA ALA mutat (vegtelen fa).
  */
-export function addMount(input: { rel: string; target: string; kind?: string; label?: string }): MountResult {
+export function addMount(input: { rel: string; target: string; kind?: string; label?: string; note?: string; provisional?: boolean }): MountResult {
   const root = depotRoot()
   if (!root) return { ok: false, code: 'no_depot', message: 'Nincs beállítva a raktár, ezért nincs mit bekötni.' }
   const rel = norm(input.rel)
@@ -110,6 +146,7 @@ export function addMount(input: { rel: string; target: string; kind?: string; la
   }
 
   const store = load()
+  if (store.corrupt) return corruptRefusal()
   if (store.mounts.some((m) => m.rel === rel)) {
     return { ok: false, code: 'exists', message: 'Erre a helyre már van bekötés. Előbb töröld a régit.' }
   }
@@ -119,6 +156,9 @@ export function addMount(input: { rel: string; target: string; kind?: string; la
     label: String(input.label || target),
     addedAt: new Date().toISOString(),
   }
+  const note = String(input.note || '').trim()
+  if (note) mount.note = note
+  if (input.provisional) mount.provisional = true
   store.mounts.push(mount)
   save(store)
   logger.info({ rel, target }, '[eletfa] bekotes hozzaadva')
@@ -129,6 +169,7 @@ export function addMount(input: { rel: string; target: string; kind?: string; la
 export function removeMount(rel: string): MountResult {
   const key = norm(rel)
   const store = load()
+  if (store.corrupt) return corruptRefusal()
   const before = store.mounts.length
   store.mounts = store.mounts.filter((m) => m.rel !== key)
   if (store.mounts.length === before) {
@@ -136,6 +177,34 @@ export function removeMount(rel: string): MountResult {
   }
   save(store)
   return { ok: true, message: 'A bekötés megszűnt. A fájlok a helyükön maradtak — csak innen nem látszanak többé.' }
+}
+
+/**
+ * A bekotes megjegyzesenek / ideiglenes jelzesenek modositasa. A mutatohoz
+ * (rel, target) nem nyul.
+ */
+export function updateMountNote(rel: string, input: { note?: string; provisional?: boolean }): MountResult {
+  const key = norm(rel)
+  const store = load()
+  if (store.corrupt) return corruptRefusal()
+  const mount = store.mounts.find((m) => m.rel === key)
+  if (!mount) return { ok: false, code: 'missing', message: 'Ilyen bekötés nincs.' }
+  const note = String(input.note || '').trim()
+  if (note) mount.note = note; else delete mount.note
+  if (input.provisional) mount.provisional = true; else delete mount.provisional
+  save(store)
+  return { ok: true, message: 'A bekötés megjegyzése mentve.', mount }
+}
+
+/**
+ * Serult tarolonal NEM irunk: egy mentes a serult fajl helyere az osszes
+ * korabbi bekotest vegleg eltuntetne.
+ */
+function corruptRefusal(): MountResult {
+  return {
+    ok: false, code: 'corrupt',
+    message: 'A bekötések listája (store/life-mounts.json) sérült, ezért most nem módosítom — egy mentés a régi bekötéseket végleg felülírná. Állítsd helyre a fájlt egy mentésből.',
+  }
 }
 
 /**
