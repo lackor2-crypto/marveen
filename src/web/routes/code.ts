@@ -1362,10 +1362,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
     if (action === 'heartbeat' && method === 'POST') {
       if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
-      const body = await parseJsonBody<{ host?: string }>(ctx)
+      const body = await parseJsonBody<{ host?: string; runSessionId?: string }>(ctx)
       const hbHost = (body?.host ?? '').trim() || 'unknown-worker'
       recordCodeWorkerSeen(hbHost, 'heartbeat')
-      const ok = heartbeatCodeTask(task.id, hbHost)
+      // Kartya 15e9476a (#276): a worker megmondja, melyik fulben fut a munka.
+      const ok = heartbeatCodeTask(task.id, hbHost, Date.now(), body?.runSessionId ?? null)
       json(res, { ok }, ok ? 200 : 409)
       return true
     }

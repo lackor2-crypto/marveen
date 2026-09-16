@@ -144,10 +144,12 @@ describe('/api/agents/activity: ebbol lesz zold az "Elo nezet"', () => {
     )
   })
 
-  it('a megnyithato beszelgetes visszaesik az ELO fulre, ha a feladat nem hordoz azonositot', () => {
+  it('a megnyithato beszelgetes: futo feladatnal annak a fule, kulonben az ELO ful', () => {
     // Ez az a sor, ami nelkul a kartyan nem jelent meg az "Elo nezet" ikon:
     // `canOpen = isCodeBridge ? !!a.codeSessionId : !!a.running` (web/app.js).
-    expect(route).toContain('codeSessionId: first?.sessionId ?? liveFirst?.sessionId ?? null')
+    // Kartya 15e9476a (#276): futo feladatnal NEM esik vissza egy masik elo
+    // fulre -- az idegen beszelgetest mutatna zolden.
+    expect(route).toContain('codeSessionId: first ? first.sessionId : (liveFirst?.sessionId ?? null)')
     expect(route).toContain('codeLabel: first?.project ?? liveFirst?.project ?? null')
     expect(route).toContain("const liveFirst = act.liveSessions.find((s) => s.current) ?? act.liveSessions[0] ?? null")
   })

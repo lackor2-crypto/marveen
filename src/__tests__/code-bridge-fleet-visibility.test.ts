@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { initDatabase } from '../db.js'
 import {
-  resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask,
+  resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask, heartbeatCodeTask,
   recordCodeWorkerSeen, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
   completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage, QUOTA_BLOCK_FALLBACK_MS,
   LIVE_SESSION_STALE_MS, getCodeSession,
@@ -71,8 +71,14 @@ describe('codeBridgeActivity: mit csinal epp', () => {
     expect(act.running).toHaveLength(1)
     expect(act.running[0]?.project).toBe('marvin')
     expect(act.running[0]?.prompt).toContain('Javitsd a popovert')
-    // Enelkul a Tevekenyseg-kartya nem tudna megnyitni a beszelgetest.
-    expect(act.running[0]?.sessionId).toBe(WS.sessionId)
+    // Kartya 15e9476a (#276): egy friss futas NEM a claim-kori fulben fut, ezert
+    // a worker jelentese nelkul nem nevezunk meg fult (nulla = nem latjuk)...
+    expect(claimed!.startFresh).toBe(true)
+    expect(act.running[0]?.sessionId).toBeNull()
+    // ...a heartbeatben jelentett ful viszont az, amit a kartya megnyit.
+    const runIn = 'eeeeeeee-0000-4000-8000-00000000000e'
+    heartbeatCodeTask(claimed!.id, 'windows', Date.now(), runIn)
+    expect(codeBridgeActivity().running[0]?.sessionId).toBe(runIn)
   })
 
   it('a sorban allo feladat NEM szamit dolgozasnak', () => {

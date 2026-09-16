@@ -1044,7 +1044,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           // projektre is cimezheto --, akkor az ELO beszelgetes all a helyen.
           // E nelkul a kartyan nem jelent meg az "Elo nezet", meg akkor sem,
           // amikor a hid tenylegesen dolgozott: `canOpen = !!codeSessionId`.
-          codeSessionId: first?.sessionId ?? liveFirst?.sessionId ?? null,
+          //
+          // Kartya 15e9476a (#276): ha VAN futo feladat, a jelzo annak a
+          // tenyleges fulet nyitja (`effectiveRunSessionId`), es NEM esik
+          // vissza egy masik elo fulre -- az egy idegen beszelgetest mutatna
+          // zolden. `null` = nem latjuk a fulet: a jelzo latszik, de nem nyit.
+          codeSessionId: first ? first.sessionId : (liveFirst?.sessionId ?? null),
           codeLabel: first?.project ?? liveFirst?.project ?? null,
         })
       }
