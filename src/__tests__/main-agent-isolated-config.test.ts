@@ -63,7 +63,7 @@ describe('ensureMainAgentIsolatedConfigDir', () => {
     expect(existsSync(dir!)).toBe(true)
   })
 
-  it('linux + setting off (default) -> null (zero behavior change for existing installs)', () => {
+  it('linux + setting explicitly off -> null (no token needed, stays on shared root)', () => {
     SETTING = '0'
     expect(ensureMainAgentIsolatedConfigDir(undefined, 'linux')).toBeNull()
   })
@@ -78,7 +78,7 @@ describe('ensureMainAgentIsolatedConfigDir', () => {
     expect(dir).toBe(join(PROJECT, '.channels-config'))
   })
 
-  it('darwin + setting off (default) -> null (unchanged, no regression)', () => {
+  it('darwin + setting explicitly off -> null (unchanged, no regression)', () => {
     SETTING = '0'
     expect(ensureMainAgentIsolatedConfigDir(undefined, 'darwin')).toBeNull()
   })
