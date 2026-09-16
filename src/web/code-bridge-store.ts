@@ -722,28 +722,6 @@ export function listDismissedWorkspaces(): { workspacePath: string; project: str
  *   * a project with a QUEUED or RUNNING task -- one dropped report (a locked
  *     transcript, a half-written file) would otherwise orphan live work.
  */
-/**
- * Is a task CURRENTLY queued or running with this workspace as its resolved cwd?
- *
- * A dispatched kanban task whose cwd is the live checkout gets redirected into an
- * isolated worktree (<liveRoot>/.worktrees/code-<ref>, resolveTaskWorkspace), and
- * that resolved path is stored on the task (recordCodeTaskDispatchWorkspace ->
- * code_tasks.workspace_path). So an ACTIVE dispatch running in a worktree has a
- * queued/running task pointing at that worktree. This is the lifecycle guard for
- * #289 option A: a dispatch-worktree row is auto-removed from the project list
- * ONLY when no task is still working there -- an in-flight dispatch never vanishes.
- * The comparison is workspaceKey-normalised (case / separator / UNC-safe).
- */
-export function hasActiveTaskForWorkspace(workspacePath: string): boolean {
-  ensureTables()
-  const key = workspaceKey(workspacePath)
-  if (!key) return false
-  const rows = getDb()
-    .prepare(`SELECT workspace_path FROM code_tasks WHERE status IN ('queued', 'running')`)
-    .all() as { workspace_path: string | null }[]
-  return rows.some((r) => r.workspace_path != null && workspaceKey(r.workspace_path) === key)
-}
-
 export function pruneUnreportedCodeSessions(host: string, reportedProjects: string[]): string[] {
   ensureTables()
   const keep = new Set(reportedProjects.map((p) => normalizeAlias(p)))

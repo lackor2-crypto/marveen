@@ -18,11 +18,13 @@ import {
   enqueueCodeTask, claimNextCodeTask, completeCodeTask, heartbeatCodeTask,
   getCodeTask, getCodeTaskByPrefix, listCodeTasks, latestCodeTaskForProject, cancelCodeTask,
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
-  hasActiveTaskForWorkspace, recordCodeTaskDispatchWorkspace,
+  recordCodeTaskDispatchWorkspace,
   LEASE_MS, MAX_ATTEMPTS, PROMPT_MAX_CHARS, ORPHAN_GRACE_MS,
 } from '../web/code-bridge-store.js'
-import { isDispatchWorktreePath } from '../web/routes/code.js'
+import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
 import { PROJECT_ROOT } from '../config.js'
+import { Readable } from 'node:stream'
+import type http from 'node:http'
 import { parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand } from '../web/code-bridge-telegram.js'
 import { buildCompletionMessage, shortId } from '../web/code-bridge-notify.js'
 
@@ -601,39 +603,82 @@ describe('elavult bekotes: a tu tulelte a beszelgetest', () => {
   })
 })
 
-// #289 (Boss #960): a dispatched kanban task's cwd is redirected into an
-// isolated worktree (.worktrees/code-<ref>); the worker then discovers the VS
-// Code window open there and would register it as a DUPLICATE project card.
-// Option A (Boss, 2026-09-16): auto-remove such a worktree card, but ONLY once
-// it is finished / not-claimed -- an in-flight dispatch must stay visible.
-describe('#289 dispatch-worktree auto-removal (option A)', () => {
+// #289 (Boss #960 + kiegeszites 2026-09-16): a telepites `.worktrees/` alatti
+// barmely mappa ugyanennek a reponak egy munkafaja (kiadott feladat `code-<ref>`
+// build-mappaja VAGY agens-fejlesztoi worktree). A worker felderiti a benne
+// nyitott VS Code ablakot, es kulon projekt-kartyakent jelentene be -- innen
+// keletkezett a "3 (vagy 6) Marvin VS Code kartya". Boss kovetelmenye: SEMMILYEN
+// javitas/agens keze nyoman ne keletkezhessen ujra 3+ ilyen kartya, ezert a
+// kizaras FELTETEL NELKULI. Ez a blokk mind az egysegnyi predikatumot, mind a
+// TELJES discovery-ingestiont (POST /api/code/sessions) meghajtja -- ha egy
+// jovobeli valtoztatas megis kartyava tenne egy worktree-ablakot, itt elbukik.
+describe('#289 repo-worktree windows never become project cards', () => {
   const WT = `${PROJECT_ROOT}/.worktrees/code-273`
+  const DEVWT = `${PROJECT_ROOT}/.worktrees/l3-something`
 
-  it('isDispatchWorktreePath recognises a code-* worktree and nothing else', () => {
-    expect(isDispatchWorktreePath(`${PROJECT_ROOT}/.worktrees/code-273`)).toBe(true)
-    expect(isDispatchWorktreePath(`${PROJECT_ROOT}/.worktrees/code-3837120e/src/x.ts`)).toBe(true)
-    // the live checkout root itself is the REAL project, not a worktree
-    expect(isDispatchWorktreePath(PROJECT_ROOT)).toBe(false)
-    // an agent DEV worktree (agent-worktree.sh) is out of #289's scope -> kept
-    expect(isDispatchWorktreePath(`${PROJECT_ROOT}/.worktrees/l3-something`)).toBe(false)
-    // an unrelated folder somewhere else
-    expect(isDispatchWorktreePath('/home/x/other')).toBe(false)
+  it('isRepoWorktreePath matches EVERY worktree under the repo root, nothing outside', () => {
+    // dispatch build-mappa
+    expect(isRepoWorktreePath(`${PROJECT_ROOT}/.worktrees/code-273`)).toBe(true)
+    expect(isRepoWorktreePath(`${PROJECT_ROOT}/.worktrees/code-3837120e/src/x.ts`)).toBe(true)
+    // agens-fejlesztoi worktree is worktree -> szinten kizarva (a szigoritas lenyege)
+    expect(isRepoWorktreePath(DEVWT)).toBe(true)
+    // a worktree-gyoker maga is
+    expect(isRepoWorktreePath(`${PROJECT_ROOT}/.worktrees`)).toBe(true)
+    // az ELO checkout gyokere a VALODI projekt, nem worktree
+    expect(isRepoWorktreePath(PROJECT_ROOT)).toBe(false)
+    // teljesen mas mappa
+    expect(isRepoWorktreePath('/home/x/other')).toBe(false)
+    // hamis pozitiv csapda: azonos prefix, de nem a .worktrees mappa alatt
+    expect(isRepoWorktreePath(`${PROJECT_ROOT}-backup/.worktrees/code-1`)).toBe(false)
   })
 
-  it('the lifecycle guard is true only while a task is queued/running there', () => {
+  // Egy Windows-worker POST /api/code/sessions hivasat utanozza (loopback).
+  async function report(sessions: unknown[]): Promise<number> {
+    const req = Readable.from([Buffer.from(JSON.stringify({ host: 'w', sessions }))]) as unknown as http.IncomingMessage
+    ;(req as any).socket = { remoteAddress: '127.0.0.1' }
+    ;(req as any).headers = { 'content-type': 'application/json' }
+    let status = 0
+    const res = {
+      writeHead(s: number) { status = s; return res },
+      setHeader() { return res },
+      end() {},
+    } as unknown as http.ServerResponse
+    const handled = await tryHandleCode({
+      req, res, path: '/api/code/sessions', method: 'POST',
+      url: new URL('http://127.0.0.1:3420/api/code/sessions'),
+    } as any)
+    expect(handled).toBe(true)
+    return status
+  }
+
+  it('end-to-end: reporting a worktree window registers NO project card', async () => {
+    await report([{ workspacePath: WT, sessionId: 'dddddddd-0000-4000-8000-000000000010' }])
+    expect(listCodeSessions().some((s) => s.workspacePath === WT)).toBe(false)
+    // agens-fejlesztoi worktree ugyanugy nem lesz kartya
+    await report([{ workspacePath: DEVWT, sessionId: 'dddddddd-0000-4000-8000-000000000011' }])
+    expect(listCodeSessions().some((s) => s.workspacePath === DEVWT)).toBe(false)
+  })
+
+  it('end-to-end: a stuck worktree card is removed on the next report', async () => {
+    upsertCodeSession({ project: 'code-273', workspacePath: WT, sessionId: 'dddddddd-0000-4000-8000-000000000012' })
+    expect(getCodeSession('code-273')).toBeTruthy()
+    await report([{ workspacePath: WT, sessionId: 'dddddddd-0000-4000-8000-000000000012' }])
+    expect(getCodeSession('code-273')).toBeFalsy()
+  })
+
+  it('end-to-end: even an IN-FLIGHT dispatch worktree is excluded (Boss: never 3+)', async () => {
+    // egy epp futo dispatch a code_tasks-ben latszik, NEM duplikalt projekt-kartyakent
     upsertCodeSession(MARVIN)
-    expect(hasActiveTaskForWorkspace(WT)).toBe(false)
     const r = enqueueCodeTask({ project: 'marvin', prompt: 'do it' })
-    expect('task' in r).toBe(true)
     const task = (r as { task: { id: string } }).task
-    // the dispatch records the redirected worktree as the task's cwd
     recordCodeTaskDispatchWorkspace(task.id, WT, false)
-    // queued counts as active -> the worktree card stays
-    expect(hasActiveTaskForWorkspace(WT)).toBe(true)
-    // a DIFFERENT worktree is not matched (no false positives)
-    expect(hasActiveTaskForWorkspace(`${PROJECT_ROOT}/.worktrees/code-999`)).toBe(false)
-    // finished -> not active -> the card may be auto-removed
+    await report([{ workspacePath: WT, sessionId: 'dddddddd-0000-4000-8000-000000000013' }])
+    expect(listCodeSessions().some((s) => s.workspacePath === WT)).toBe(false)
     cancelCodeTask(task.id)
-    expect(hasActiveTaskForWorkspace(WT)).toBe(false)
+  })
+
+  it('end-to-end: the REAL live checkout still registers normally', async () => {
+    await report([{ workspacePath: PROJECT_ROOT, sessionId: 'dddddddd-0000-4000-8000-000000000014' }])
+    expect(listCodeSessions().some((s) => s.workspacePath === PROJECT_ROOT)).toBe(true)
   })
 })

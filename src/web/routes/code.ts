@@ -34,7 +34,7 @@ import {
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   recordCodeTaskEndedSession, recordCodeTaskDispatchWorkspace,
   clearFinishedCodeTasks,
-  pruneUnreportedCodeSessions, hasActiveTaskForWorkspace,
+  pruneUnreportedCodeSessions,
   recordCodeCandidates,
   lastAgentRunSession,
   listCodeCandidates,
@@ -177,27 +177,32 @@ export function isUnderAgentsDir(localPath: string): boolean {
 /**
  * A DISPATCH WORKTREE-e ez az ut (`<liveRoot>/.worktrees/code-<ref>`).
  *
- * Amikor Marvin egy kanban-feladatot kiad, es annak cwd-je az elo checkout, a
- * futast egy izolalt worktree-be iranyitjuk at (resolveTaskWorkspace ->
- * worktreeNameFor => `code-<ref>`). A worker ezutan felderiti a worktree-ben
- * NYITOTT VS Code ablakot, es kulon `code-<ref>` PROJEKTKENT jelentene be -- egy
- * duplikalt kartya a valodi projekt mellett, egy belso build-mappahoz (Boss #960:
- * "3 vscode kartya", pedig csak 1 valodi van). Ez nem felhasznaloi projekt.
+ * A telepites SAJAT git worktree-gyokere (`.worktrees/`) alatt MINDEN mappa
+ * UGYANANNAK a reponak egy munkafaja -- nem kulon projekt. Ket forras tolti fel:
+ *  - a kiadott (dispatch) kanban-feladat izolalt build-mappaja
+ *    (resolveTaskWorkspace -> worktreeNameFor => `code-<ref>`), es
+ *  - az agens-fejlesztoi worktree-k (`agent-worktree.sh`, pl. `l3-...`).
+ * Mindket esetben a worker felderiti a worktree-ben NYITOTT VS Code ablakot, es
+ * kulon PROJEKTKENT jelentene be -- egy duplikalt "Marvin VS Code" kartya a
+ * valodi projekt mellett (Boss #960: "3 vscode kartya", pedig csak 1 valodi van).
+ *
+ * Ezert a szuro a TELJES worktree-gyokeret zarja ki, nem csak a `code-` prefixet:
+ * Boss (2026-09-16) kifejezett kovetelmenye, hogy SEMMILYEN javitas/agens keze
+ * nyoman ne keletkezhessen ujra 3 (vagy tobb) VS Code kartya. Barmelyik worktree-
+ * ablak duplikatum, tehat egyik sem lehet projekt-kartya.
  *
  * Host-agnosztikus: az alap a telepites SAJAT worktree-gyokerebol szarmazik
  * (CODE_WORKTREE_ROOT, kulonben `<PROJECT_ROOT>/.worktrees`), nem beegetett
- * utvonalbol. Csak a `code-` prefixu gyerekmappa esik ide (a dispatch
- * konvencioja): az agens-fejlesztoi worktree-k (`agent-worktree.sh`, pl.
- * `l3-...`) mas nevuek, azokat ez a szuro szandekosan nem erinti (#289 hatoköre a
- * dispatch-worktree-k).
+ * utvonalbol. FIGYELEM (#289): ezt a szurot NE lazitsd es NE kerüld meg -- a
+ * `code-bridge` regresszios teszt bukik, ha egy worktree-ablak megint kartyava
+ * valna.
  */
-export function isDispatchWorktreePath(localPath: string): boolean {
+export function isRepoWorktreePath(localPath: string): boolean {
   const root = workspaceKey(CODE_WORKTREE_ROOT ?? join(PROJECT_ROOT, '.worktrees'))
   if (!root) return false
   const key = workspaceKey(localPath)
-  if (!key.startsWith(root + '/')) return false
-  const child = key.slice(root.length + 1).split('/')[0] ?? ''
-  return child.startsWith('code-')
+  // A gyoker maga (ha valaki azt nyitja meg) es barmely alatta levo mappa is ide esik.
+  return key === root || key.startsWith(root + '/')
 }
 
 // A KIADOTT MUNKA modellje ELOBOL, nem a boot-ideju `CODE_MODEL` konstansbol.
@@ -993,15 +998,16 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // projektnek akar, a feluletrol kezzel bekotheti.
       const localPath = toLocalWorkspacePath(s.workspacePath)
       if (localPath && isUnderAgentsDir(localPath)) continue
-      // DISPATCH WORKTREE: nem felhasznaloi projekt, hanem egy kiadott feladat
-      // izolalt build-mappaja (`.worktrees/code-<ref>`). A worker felderiti a
-      // benne nyitott ablakot es kulon kartyakent jelentene be -- ez a #960-as
-      // "3 vscode kartya" zaj. #289 A opcio (Boss dontese, 2026-09-16): a
-      // BEFEJEZETT / nem-claimed dispatch-worktree automatikusan tunjon el, de
-      // egy EPP FUTO dispatch NE. A lifecycle-guard: csak akkor toroljuk (es
-      // hagyjuk ki az ujra-bekotest), ha NINCS queued/running feladat ebben a
-      // worktree-ben. Ha van (aktiv dispatch), a kartya marad.
-      if (localPath && isDispatchWorktreePath(localPath) && !hasActiveTaskForWorkspace(s.workspacePath)) {
+      // REPO-WORKTREE: a telepites `.worktrees/` alatti barmely mappaja ugyanennek
+      // a reponak egy munkafaja (kiadott feladat `code-<ref>` build-mappaja VAGY
+      // agens-fejlesztoi worktree), nem kulon felhasznaloi projekt. A worker a
+      // benne nyitott VS Code ablakot kulon kartyakent jelentene be -- ez a #960-as
+      // "3 vscode kartya" zaj. #289 (Boss 2026-09-16, kiegeszitett kovetelmeny):
+      // SEMMILYEN javitas ne eredményezhessen 3+ VS Code kartyat, ezert a
+      // kizaras FELTETEL NELKULI -- nem regisztraljuk, es a mar bekotott sort
+      // toroljuk. (Egy aktiv dispatch a Dispatch/code-tasks nezetben latszik, nem
+      // duplikalt projekt-kartyakent, tehat nem tunik el semmi valodi.) Ne lazitsd.
+      if (localPath && isRepoWorktreePath(localPath)) {
         deleteCodeSession(alias)
         continue
       }
