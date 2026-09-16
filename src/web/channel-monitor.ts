@@ -22,6 +22,7 @@ import {
   stopAgentProcess,
   scheduleIdentitySetup,
   ensureMainAgentIsolatedConfigDir,
+  resolveMainAgentConfigDir,
   ensureSharedClaudeOnboarded,
   hasFleetOauthToken,
   FLEET_OAUTH_TOKEN_PATH,
@@ -538,6 +539,25 @@ export function readExtraChannelPluginIds(projectRoot: string = PROJECT_ROOT): s
   }
 }
 
+// Resolve the main agent's respawn config dir + auth mode from the SAME source
+// of truth the boot path uses (scripts/main-agent-isolated-config.mjs): the
+// explicit MAIN_AGENT_CONFIG_DIR wins (its own browser login), then the fleet
+// MAIN_AGENT_ISOLATED_CONFIG dir. Returns null => the respawn keeps the shared
+// ~/.claude (isolation off / no token). Without this the in-process respawn-pane
+// restart (the dashboard hard-restart + /api/accounts/claude/login/finish) read
+// ONLY the fleet-isolated dir via ensureMainAgentIsolatedConfigDir() and silently
+// dropped an explicit MAIN_AGENT_CONFIG_DIR -- the main agent came back up on the
+// SHARED root despite the setting, which is exactly the operator-login coupling
+// the setting exists to remove (measured 2026-09-16: live pane had no
+// CLAUDE_CONFIG_DIR after a login-finish restart though the setting was on).
+function resolveMainRespawnConfig(): { dir: string; mode: 'explicit' | 'isolated' } | null {
+  const explicit = resolveMainAgentConfigDir()
+  if (explicit) return { dir: explicit, mode: 'explicit' }
+  const iso = ensureMainAgentIsolatedConfigDir()
+  if (iso) return { dir: iso, mode: 'isolated' }
+  return null
+}
+
 // Build the claude command used to (re)spawn the main channels session via
 // `tmux respawn-pane`. Pure + exported so the contract test can LOCK the
 // presence of the `$HOME/.bun/bin` PATH export (without it the respawned bun
@@ -554,21 +574,36 @@ export function buildMainSessionRespawnCmd(opts: {
   model: string
   continueSession: boolean
   /**
-   * When set (macOS main-agent isolation on), the respawn exports this isolated
-   * CLAUDE_CONFIG_DIR plus the fleet setup-token -- parity with channels.sh CFG_ENV.
-   * Without it the RECOVERY respawn brings the main agent up on the shared
-   * ~/.claude, which on macOS authenticates from the rotating Keychain OAuth
-   * session and periodically 401s ("Please run /login"). null/undefined => keep
-   * the shared root (unchanged behaviour for installs with isolation off).
+   * The main agent's own CLAUDE_CONFIG_DIR to export on respawn -- parity with
+   * channels.sh CFG_ENV. Without it the RECOVERY respawn brings the main agent up
+   * on the shared ~/.claude, which the operator's own Claude Code / VS Code login
+   * ALSO writes to (their login then flips the bot's identity), and which on macOS
+   * authenticates from the rotating Keychain OAuth session and periodically 401s
+   * ("Please run /login"). null/undefined => keep the shared root (unchanged
+   * behaviour for installs with isolation off). The mode below decides how the
+   * respawn authenticates in that dir; see isolatedConfigMode.
    */
   isolatedConfigDir?: string | null
   /**
+   * How the isolatedConfigDir authenticates -- mirrors the `<mode>` contract of
+   * scripts/main-agent-isolated-config.mjs consumed by channels.sh:
+   *   'explicit'  -- MAIN_AGENT_CONFIG_DIR: the dir carries its OWN .credentials.json
+   *                  (the operator logged in there in a browser). Export ONLY
+   *                  CLAUDE_CONFIG_DIR; injecting the fleet token would SWAP the
+   *                  bot's identity to the fleet account.
+   *   'isolated'  -- MAIN_AGENT_ISOLATED_CONFIG: a fleet .channels-config dir with
+   *                  NO credentials of its own; export CLAUDE_CONFIG_DIR + the fleet
+   *                  setup-token so it authenticates like the sub-agents.
+   * Ignored when isolatedConfigDir is null. Defaults to 'isolated' for back-compat.
+   */
+  isolatedConfigMode?: 'explicit' | 'isolated'
+  /**
    * When true (fleet setup-token file present) and there is NO isolated config
    * dir, the respawn still exports CLAUDE_CODE_OAUTH_TOKEN from the fleet token
-   * file. On Linux the isolatedConfigDir is always null (macOS-only), so before
-   * this leg a wizard-entered token never reached a respawned main session at
-   * all -- it fell back to ~/.claude/.credentials.json (2026-07-15 bootcamp,
-   * bug 2 latent path). Keeps main + sub-agents on the SAME auth source.
+   * file. Before this leg a wizard-entered token never reached a respawned main
+   * session that had no isolated dir -- it fell back to ~/.claude/.credentials.json
+   * (2026-07-15 bootcamp, bug 2 latent path). Keeps main + sub-agents on the SAME
+   * auth source.
    */
   fleetToken?: boolean
   /**
@@ -589,10 +624,16 @@ export function buildMainSessionRespawnCmd(opts: {
     // env as the channels.sh boot path, else a recovery respawn comes up
     // un-tuned and can re-starve under load.
     '&& export MCP_SERVER_CONNECTION_BATCH_SIZE=10 MCP_CONNECTION_NONBLOCKING=1 MCP_TIMEOUT=60000',
-    // macOS main-agent config isolation -- parity with channels.sh CFG_ENV. The
-    // token is read at launch via $(cat) so the secret never lands in argv/`ps`.
+    // Main-agent config isolation -- parity with channels.sh CFG_ENV. The token
+    // is read at launch via $(cat) so the secret never lands in argv/`ps`. An
+    // 'explicit' dir (MAIN_AGENT_CONFIG_DIR) carries its OWN login, so it gets
+    // CLAUDE_CONFIG_DIR ONLY -- exporting the fleet token there would swap the
+    // bot's identity. An 'isolated' fleet dir has no credentials of its own and
+    // needs the fleet token too. See main-agent-isolated-config.mjs / channels.sh.
     ...(opts.isolatedConfigDir
-      ? [`&& export CLAUDE_CONFIG_DIR='${opts.isolatedConfigDir}' && export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')"`]
+      ? opts.isolatedConfigMode === 'explicit'
+        ? [`&& export CLAUDE_CONFIG_DIR='${opts.isolatedConfigDir}'`]
+        : [`&& export CLAUDE_CONFIG_DIR='${opts.isolatedConfigDir}' && export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')"`]
       : opts.fleetToken
         ? [`&& export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')"`]
         : []),
@@ -635,6 +676,7 @@ export function respawnMainSessionFresh(): void {
   }
   ensureSharedClaudeOnboarded()
 
+  const respawnCfg = resolveMainRespawnConfig()
   const claudeCmd = buildMainSessionRespawnCmd({
     claudePath: CLAUDE(),
     pluginId: provider.pluginId,
@@ -643,7 +685,8 @@ export function respawnMainSessionFresh(): void {
     // The main session always starts a new conversation -- this is the whole
     // point of the nightly restart (drop the accumulated context).
     continueSession: false,
-    isolatedConfigDir: ensureMainAgentIsolatedConfigDir(),
+    isolatedConfigDir: respawnCfg?.dir ?? null,
+    isolatedConfigMode: respawnCfg?.mode,
     fleetToken: hasFleetOauthToken(),
   })
   execFileSync(TMUX(), ['respawn-pane', '-k', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), claudeCmd], { timeout: 15000 })
@@ -705,17 +748,20 @@ export async function resumeMarveenSession(): Promise<boolean> {
     // bootcamp mass-"/login"); idempotent re-seed before every respawn.
     ensureSharedClaudeOnboarded()
 
+    const respawnCfg = resolveMainRespawnConfig()
     const claudeCmd = buildMainSessionRespawnCmd({
       claudePath: CLAUDE(),
       pluginId: provider.pluginId,
       extraPluginIds: readExtraChannelPluginIds(),
       model: readConfiguredMainModel(),
       continueSession: true,
-      // Parity with channels.sh: a recovery respawn must also land on the
-      // isolated CLAUDE_CONFIG_DIR (macOS), else it re-authenticates from the
-      // rotating Keychain and 401s. Returns null when isolation is off/no token,
-      // preserving the prior shared-root behaviour.
-      isolatedConfigDir: ensureMainAgentIsolatedConfigDir(),
+      // Parity with channels.sh: a recovery respawn must also land on the main
+      // agent's own CLAUDE_CONFIG_DIR -- the explicit MAIN_AGENT_CONFIG_DIR (own
+      // login) or the fleet isolated dir -- else it re-authenticates from the
+      // shared root (operator-login coupling; macOS rotating Keychain 401s).
+      // Returns null when isolation is off/no token, preserving shared-root.
+      isolatedConfigDir: respawnCfg?.dir ?? null,
+      isolatedConfigMode: respawnCfg?.mode,
       fleetToken: hasFleetOauthToken(),
     })
     execFileSync(TMUX(), ['respawn-pane', '-k', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), claudeCmd], { timeout: 15000 })
@@ -918,6 +964,7 @@ function respawnMarveenSessionFresh(): boolean {
   try {
     // Same first-run-picker guard as resumeMarveenSession.
     ensureSharedClaudeOnboarded()
+    const respawnCfg = resolveMainRespawnConfig()
     const claudeCmd = buildMainSessionRespawnCmd({
       claudePath: CLAUDE(),
       pluginId: provider.pluginId,
@@ -925,9 +972,11 @@ function respawnMarveenSessionFresh(): boolean {
       model: readConfiguredMainModel(),
       continueSession: false,
       // Same channels.sh-bypass concern as resumeMarveenSession: this fresh
-      // respawn also skips channels.sh, so it must carry the isolated config
-      // itself or it 401s on the rotating macOS Keychain. null when off/no token.
-      isolatedConfigDir: ensureMainAgentIsolatedConfigDir(),
+      // respawn also skips channels.sh, so it must carry the main agent's own
+      // config dir itself (explicit MAIN_AGENT_CONFIG_DIR or fleet isolated dir)
+      // or it comes up on the shared root. null when off/no token.
+      isolatedConfigDir: respawnCfg?.dir ?? null,
+      isolatedConfigMode: respawnCfg?.mode,
       fleetToken: hasFleetOauthToken(),
     })
     execFileSync(TMUX(), ['respawn-pane', '-k', '-t', exactTmuxTarget(MAIN_CHANNELS_SESSION), claudeCmd], { timeout: 15000 })

@@ -61,10 +61,27 @@ describe('buildMainSessionRespawnCmd', () => {
     expect(cmd).not.toContain('CLAUDE_CONFIG_DIR')
   })
 
-  it('exports BOTH the isolated config dir and the token when isolation is on (unchanged macOS contract)', () => {
+  it('exports BOTH the isolated config dir and the token in isolated mode (fleet dir, no own login)', () => {
+    const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false, isolatedConfigDir: '/tmp/iso', isolatedConfigMode: 'isolated', fleetToken: true })
+    expect(cmd).toContain("export CLAUDE_CONFIG_DIR='/tmp/iso'")
+    expect(cmd).toContain('export CLAUDE_CODE_OAUTH_TOKEN="$(cat ')
+  })
+
+  it('defaults to the isolated (both) contract when no mode is given (back-compat)', () => {
     const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false, isolatedConfigDir: '/tmp/iso', fleetToken: true })
     expect(cmd).toContain("export CLAUDE_CONFIG_DIR='/tmp/iso'")
     expect(cmd).toContain('export CLAUDE_CODE_OAUTH_TOKEN="$(cat ')
+  })
+
+  // EXPLICIT mode = MAIN_AGENT_CONFIG_DIR: the dir has its OWN .credentials.json
+  // (browser login). It must get CLAUDE_CONFIG_DIR ONLY -- injecting the fleet
+  // token would swap the bot's identity to the fleet account. Regression guard
+  // for 2026-09-16: the in-process respawn dropped the explicit dir entirely and
+  // the main agent came up on the shared root.
+  it('exports ONLY the config dir (never the fleet token) in explicit mode, even if fleetToken is set', () => {
+    const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false, isolatedConfigDir: '/home/boss/.claude-marvin', isolatedConfigMode: 'explicit', fleetToken: true })
+    expect(cmd).toContain("export CLAUDE_CONFIG_DIR='/home/boss/.claude-marvin'")
+    expect(cmd).not.toContain('CLAUDE_CODE_OAUTH_TOKEN')
   })
 
   it('exports no auth env at all without a fleet token or isolation (unchanged legacy contract)', () => {
