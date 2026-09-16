@@ -108,6 +108,12 @@ export interface CodeTask {
    *  dispatch a projekt "aktualis" (felderites altal talalt, akar a tulaj altal eppen
    *  kezzel hasznalt) fulebe irna -- lasd kartya 032aa826. */
   startFresh: boolean
+  /** A beszelgetes, amiben a futas MOST TENYLEGESEN folyik -- a worker sajat
+   *  jelentese a heartbeatben (kartya 15e9476a, #276). Egy `startFresh` futasnal
+   *  a `sessionId` a claim-kori (REGI) ful, a friss fule azonositoja csak ebbol
+   *  derul ki futas KOZBEN. `null` = a worker nem jelentette (regi worker, vagy
+   *  meg nem jott heartbeat) -- NEM azt jelenti, hogy nincs ful. */
+  runSessionId: string | null
 }
 
 // A claimed task whose worker went silent (crash, reboot, network drop) must not
@@ -217,6 +223,8 @@ function ensureTables(): void {
   // csak olyan sessiont hasznaljon ujra alapertelmezesben, amit MAGA nyitott.
   try { db.exec('ALTER TABLE code_sessions ADD COLUMN marvin_owned INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
   try { db.exec('ALTER TABLE code_tasks ADD COLUMN start_fresh INTEGER NOT NULL DEFAULT 0') } catch { /* mar letezik */ }
+  // Kartya 15e9476a (#276): a futas KOZBENI beszelgetes, a worker heartbeatjebol.
+  try { db.exec('ALTER TABLE code_tasks ADD COLUMN run_session_id TEXT') } catch { /* mar letezik */ }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_status ON code_tasks(status, created_at)`)
   db.exec(`CREATE INDEX IF NOT EXISTS idx_code_tasks_project ON code_tasks(project, created_at)`)
   // Worker presence. The bridge has exactly ONE silent failure mode: the
@@ -381,11 +389,18 @@ export function lastAgentRunSession(project: string): {
   ensureTables()
   const row = getDb()
     .prepare(
-      `SELECT id, session_id, status, COALESCE(started_at, created_at) AS at
-         FROM code_tasks
-        WHERE project = ?
-          AND session_id IS NOT NULL AND session_id != ''
-          AND status IN ('running', 'done', 'error', 'cancelled')
+      `SELECT id, status, at, sid AS session_id FROM (
+         SELECT id, status, COALESCE(started_at, created_at) AS at,
+                -- Kartya 15e9476a (#276): futas KOZBEN a worker altal jelentett
+                -- ful szamit; egy friss futas jelentes nelkul nem nevez meg fult
+                -- (lasd effectiveRunSessionId).
+                CASE WHEN status = 'running'
+                     THEN COALESCE(NULLIF(run_session_id, ''), CASE WHEN start_fresh = 1 THEN NULL ELSE session_id END)
+                     ELSE session_id END AS sid
+           FROM code_tasks
+          WHERE project = ?
+            AND status IN ('running', 'done', 'error', 'cancelled'))
+        WHERE sid IS NOT NULL AND sid != ''
         ORDER BY (status = 'running') DESC, at DESC
         LIMIT 1`,
     )
@@ -767,8 +782,28 @@ function rowToTask(row: Record<string, unknown>): CodeTask {
     leaseExpiresAt: (row['lease_expires_at'] as number | null) ?? null,
     cardRef: (row['card_ref'] as string | null) ?? null,
     startFresh: Boolean(row['start_fresh']),
+    runSessionId: (row['run_session_id'] as string | null) ?? null,
   }
 }
+
+/** MELYIK BESZELGETESBEN FOLYIK A FUTAS EPPEN (kartya 15e9476a, #276).
+ *
+ *  Boss, 2026-09-13: a VS Code dolgozott, de a dashboard nem mutatta, MELYIK
+ *  fulben. Az ok: egy `startFresh` futas a claim utan UJ beszelgetest nyit, a
+ *  `session_id` viszont a futas vegeig a claim-kori (regi) fult nevezi meg -- a
+ *  zold "most itt dolgozik" jelzes tehat egy idegen fulre esett, az aktivra nem.
+ *
+ *  Sorrend: a worker jelentese (`runSessionId`) nyer; folytatasnal a claim-kori
+ *  ful maga a futas helye; egy friss futasnal jelentes nelkul `null` -- a nulla
+ *  itt "nem latom a fulet", nem "nincs futas", ezert nem talalunk ki egyet. */
+export function effectiveRunSessionId(task: Pick<CodeTask, 'sessionId' | 'runSessionId' | 'startFresh'>): string | null {
+  if (task.runSessionId) return task.runSessionId
+  if (task.startFresh) return null
+  return task.sessionId ?? null
+}
+
+// A CLI `--session-id` kapcsoloja UUID-t var; a heartbeatbol mas nem mehet a sorba.
+const RUN_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const PROMPT_MAX_CHARS = 12_000
 
@@ -1102,7 +1137,7 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
       db.prepare(
         `UPDATE code_tasks
            SET status = 'running', host = ?, session_id = ?, workspace_path = ?,
-               start_fresh = ?, started_at = COALESCE(started_at, ?), attempts = attempts + 1, lease_expires_at = ?
+               start_fresh = ?, run_session_id = NULL, started_at = COALESCE(started_at, ?), attempts = attempts + 1, lease_expires_at = ?
          WHERE id = ?`,
       ).run(host, runIn, session.workspacePath, startFresh ? 1 : 0, now, now + LEASE_MS, task.id)
       return getCodeTask(task.id)
@@ -1142,11 +1177,14 @@ export function failOrphanedCodeTasks(now = Date.now(), graceMs = ORPHAN_GRACE_M
   return failed
 }
 
-export function heartbeatCodeTask(id: string, host: string, now = Date.now()): boolean {
+export function heartbeatCodeTask(id: string, host: string, now = Date.now(), runSessionId?: string | null): boolean {
   ensureTables()
+  // A worker a heartbeatben mondja meg, melyik beszelgetesben fut (kartya
+  // 15e9476a). Ervenytelen/hianyzo ertek a meglevot nem irja felul.
+  const rsid = typeof runSessionId === 'string' && RUN_SESSION_ID_RE.test(runSessionId.trim()) ? runSessionId.trim() : null
   const info = getDb()
-    .prepare(`UPDATE code_tasks SET lease_expires_at = ? WHERE id = ? AND status = 'running' AND host = ?`)
-    .run(now + LEASE_MS, id, host)
+    .prepare(`UPDATE code_tasks SET lease_expires_at = ?, run_session_id = COALESCE(?, run_session_id) WHERE id = ? AND status = 'running' AND host = ?`)
+    .run(now + LEASE_MS, rsid, id, host)
   return info.changes > 0
 }
 
@@ -2251,7 +2289,7 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     (db.prepare(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'queued'`).get() as Record<string, unknown> | undefined)?.['n'] ?? 0,
   )
   const rows = db
-    .prepare(`SELECT project, prompt, session_id FROM code_tasks WHERE status = 'running' ORDER BY started_at LIMIT 8`)
+    .prepare(`SELECT project, prompt, session_id, run_session_id, start_fresh FROM code_tasks WHERE status = 'running' ORDER BY started_at LIMIT 8`)
     .all() as Array<Record<string, unknown>>
   // Az ELO beszelgetesek ugyanabbol a forrasbol, amibol a kod-hid kartyaja
   // dolgozik (worker-jelentes), es ugyanazzal a szaballyal: `live === true`.
@@ -2342,7 +2380,13 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     running: rows.map((r) => ({
       project: String(r['project'] ?? ''),
       prompt: String(r['prompt'] ?? ''),
-      sessionId: r['session_id'] == null ? null : String(r['session_id']),
+      // Kartya 15e9476a (#276): az a ful, amiben a futas MOST folyik -- nem a
+      // claim-kori. Lasd `effectiveRunSessionId`.
+      sessionId: effectiveRunSessionId({
+        sessionId: r['session_id'] == null ? null : String(r['session_id']),
+        runSessionId: r['run_session_id'] == null ? null : String(r['run_session_id']),
+        startFresh: Boolean(r['start_fresh']),
+      }),
     })),
     liveSessions,
     liveMeasured: candidatesEverReported,

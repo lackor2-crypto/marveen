@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-13.6'
+$script:WorkerVersion = '2026-09-16.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -910,8 +910,13 @@ function Invoke-CodeTask {
   # tulaj altal eppen kezzel hasznalt -- fulbe, hanem uj, ures beszelgetest
   # indit a CLI (`-p` --resume nelkul), pont ugy, mint a bizonyitottan mukodo
   # "/clear" ut a #48-as (Torles) gombnal.
+  # Kartya 15e9476a (#276): a friss beszelgetes azonositojat MI adjuk ki
+  # (`--session-id`), es a heartbeat visszakuldi a hidnak -- igy a dashboard
+  # futas KOZBEN is azt a fult jeloli zolden, amiben a munka tenyleg folyik,
+  # nem a claim-kori regit. Folytatasnal a futas helye maga a `$sessionId`.
+  $runSessionId = if ($Task.startFresh) { [guid]::NewGuid().ToString() } else { $sessionId }
   $claudeArgs = if ($Task.startFresh) {
-    '-p --output-format json --permission-mode ' + $PermissionMode + $modelArg
+    '-p --session-id ' + $runSessionId + ' --output-format json --permission-mode ' + $PermissionMode + $modelArg
   } else {
     '-p --resume ' + $sessionId + ' --output-format json --permission-mode ' + $PermissionMode + $modelArg
   }
@@ -976,6 +981,13 @@ function Invoke-CodeTask {
   $proc.StandardInput.BaseStream.Flush()
   $proc.StandardInput.Close()
 
+  # Azonnali elso heartbeat: a hid ebbol tudja meg rogton, melyik fulben fut a
+  # munka, nem csak 60 masodperc mulva.
+  try {
+    Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $runSessionId } | Out-Null
+  } catch {
+    Write-Log ('heartbeat failed: ' + $_.Exception.Message) 'WARN'
+  }
   $lastBeat = Get-Date
   $timedOut = $false
   while (-not $proc.HasExited) {
@@ -983,7 +995,7 @@ function Invoke-CodeTask {
     if (((Get-Date) - $lastBeat).TotalSeconds -ge 60) {
       $lastBeat = Get-Date
       try {
-        Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId } | Out-Null
+        Invoke-Bridge -Path ('/api/code/tasks/' + $Task.id + '/heartbeat') -Method 'POST' -Body @{ host = $script:HostId; runSessionId = $runSessionId } | Out-Null
       } catch {
         Write-Log ('heartbeat failed: ' + $_.Exception.Message) 'WARN'
       }
