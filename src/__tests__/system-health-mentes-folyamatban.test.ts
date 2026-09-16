@@ -79,6 +79,14 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
     expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(false)
   })
 
+  it('elavult auth-naplo (azota hibatlan futas volt) nem ad hamis piros sort', () => {
+    const r = driveSyncRows(MOST, rendben([
+      { account: 'a', lastRunAt: napokkalEzelott(0), lastPending: 10 },
+    ]), kartya, true, { account: 'a', at: napokkalEzelott(3) })
+    expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
+    expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(true)
+  })
+
   it('auth-hiba nelkul (null) a regi incomplete viselkedes marad', () => {
     const r = driveSyncRows(MOST, rendben([
       { account: 'a', lastRunAt: napokkalEzelott(0), lastPending: 10 },
