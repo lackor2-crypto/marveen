@@ -691,8 +691,11 @@ export function startWebServer(port = 3420): http.Server {
       const askBackWritten: string[] = []
       const askBackNoFile: string[] = []
       const askBackUnreadable: string[] = []
-      // Include the main agent (MAIN_AGENT_ID) so the voice hook is also seeded
-      // into ~/.claude/settings.json alongside existing hooks (e.g. telegram_progress.py).
+      // Include the main agent (MAIN_AGENT_ID) so the fleet hooks are also seeded
+      // into the config dir it actually runs on (mainAgentEffectiveConfigDir --
+      // the isolated dir since #290, else ~/.claude) alongside existing hooks
+      // (e.g. telegram_progress.py). Before this the writers hardcoded ~/.claude,
+      // which the isolated main agent no longer reads, so NO hook reached it.
       for (const agentName of [MAIN_AGENT_ID, ...listAgentNames()]) {
         // Self-heal FIRST: drop entries this app previously wrote whose script
         // file no longer exists (e.g. a deleted worktree instance's paths), so

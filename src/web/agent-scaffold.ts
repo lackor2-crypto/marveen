@@ -1,11 +1,11 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, cpSync, lstatSync, symlinkSync, rmSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, OWNER_NAME, MAIN_AGENT_ID, BOT_NAME, CHANNEL_PROVIDER, WEB_PORT, OWNER_DRIVE_FOLDER, APP_TZ, DASHBOARD_PUBLIC_URL, STORE_DIR } from '../config.js'
 import { channelStateDir } from '../channel-provider.js'
 import { runAgent } from '../agent.js'
 import { atomicWriteFileSync } from './atomic-write.js'
-import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities } from './agent-config.js'
+import { agentDir, agentConfigRoot, listAgentNames, readAgentCapabilities, mainAgentEffectiveConfigDir } from './agent-config.js'
 import { resolveProfilePlaceholders, type ProfileTemplate } from './profiles.js'
 import { sanitizeCapabilityTag, CAPABILITY_TAG_MAX_PER_AGENT } from '../prompt-safety.js'
 import { loadAutonomyConfig, isAdminAgent, effectiveLevel, MARVEEN_SELFDEV_KEY, type AutonomyConfig } from '../autonomy.js'
@@ -114,11 +114,17 @@ export function resolveTemplatePlaceholders(content: string): string {
 }
 
 // Return the settings.json path for an agent.
-// The main agent's settings live at ~/.claude/settings.json (not inside agents/).
+// The main agent's settings live in the config dir it ACTUALLY runs on --
+// mainAgentEffectiveConfigDir() (explicit MAIN_AGENT_CONFIG_DIR, else the
+// fleet-isolated .channels-config once provisioned, else the shared ~/.claude).
+// It was hardcoded to ~/.claude before #290 isolated the main agent onto a
+// separate CLAUDE_CONFIG_DIR; the hardcode then wrote every hook to a file the
+// running agent no longer reads, so NO fleet hook reached the main agent.
+// Sub-agents keep their per-agent project settings under agents/<name>/.claude.
 // Exported so the startup self-heal (hook-registration-guard) can prune stale
 // entries from the same files this module writes.
 export function agentSettingsPath(name: string): string {
-  if (name === MAIN_AGENT_ID) return join(homedir(), '.claude', 'settings.json')
+  if (name === MAIN_AGENT_ID) return join(mainAgentEffectiveConfigDir(), 'settings.json')
   return join(agentDir(name), '.claude', 'settings.json')
 }
 
@@ -441,8 +447,9 @@ export function syncAgentHookMatchers(
 // PreCompact hook (memory save + skill reflection). Pre-refactor agents
 // were scaffolded before scaffoldAgentDir seeded the template, so their
 // file is permissions-only. Merge the template's hooks block in place.
-// Also handles the main agent (MAIN_AGENT_ID) whose settings.json is at
-// ~/.claude/settings.json -- voice hook is added alongside existing hooks.
+// Also handles the main agent (MAIN_AGENT_ID) whose settings.json lives in the
+// config dir it actually runs on (mainAgentEffectiveConfigDir) -- voice hook is
+// added alongside existing hooks.
 export function ensureAgentHooks(name: string): boolean {
   const settingsPath = agentSettingsPath(name)
   const tplPath = join(PROJECT_ROOT, 'templates', 'settings.json.template')
@@ -529,8 +536,12 @@ export function ensureAgentHooks(name: string): boolean {
     }
     existing.hooks = safeHooks
   }
-  // For the main agent, ~/.claude already exists; sub-agents need the dir created.
-  if (name !== MAIN_AGENT_ID) mkdirSync(join(agentDir(name), '.claude'), { recursive: true })
+  // Ensure the settings.json's directory exists before writing. Sub-agents need
+  // their agents/<name>/.claude created; the main agent's effective config dir
+  // (mainAgentEffectiveConfigDir) already exists at runtime (the launcher
+  // provisioned it, or it is the shared ~/.claude), but mkdir is idempotent and
+  // guards the case where the isolated dir was configured but not yet populated.
+  mkdirSync(dirname(settingsPath), { recursive: true })
   atomicWriteFileSync(settingsPath, JSON.stringify(existing, null, 2))
   return true
 }
@@ -552,9 +563,10 @@ const _stalenessScript = join(PROJECT_ROOT, 'scripts', 'hooks', 'staleness-guard
 const STALENESS_HOOK_CMD = `bash -c '[ -f ${_stalenessScript} ] && exec python3 ${_stalenessScript}; exit 0'`
 
 export function ensureAgentStalenessHook(name: string): boolean {
-  // agentSettingsPath() maps MAIN_AGENT_ID to ~/.claude/settings.json; using
-  // agentDir() directly here would create a spurious agents/<main> dir and make
-  // the main agent show up as a phantom "down" agent on the dashboard.
+  // agentSettingsPath() maps MAIN_AGENT_ID to its effective config dir's
+  // settings.json (mainAgentEffectiveConfigDir); using agentDir() directly here
+  // would create a spurious agents/<main> dir and make the main agent show up as
+  // a phantom "down" agent on the dashboard.
   const settingsPath = agentSettingsPath(name)
   let settings: Record<string, unknown> = {}
   if (existsSync(settingsPath)) {

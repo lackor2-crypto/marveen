@@ -333,6 +333,40 @@ export function resolveMainAgentConfigDir(): string | null {
   return dir
 }
 
+// The config dir the MAIN channels agent ACTUALLY runs on -- the single place
+// its user-level settings.json (hooks, model, permissions) must be written so
+// Claude Code actually reads them. Mirrors the launcher
+// (scripts/main-agent-isolated-config.mjs / channel-monitor's resolveMainRespawnConfig):
+// an explicit MAIN_AGENT_CONFIG_DIR wins, then the fleet-isolated .channels-config
+// dir once it has been provisioned, else the shared ~/.claude default.
+//
+// Keyed on the isolated dir's EXISTENCE, not on re-deriving the isolation gate
+// (MAIN_AGENT_ISOLATED_CONFIG + a fleet OAuth token): that gate lives in
+// agent-process.ts (ensureMainAgentIsolatedConfigDir), a HIGHER-level module, so
+// importing it here would be a cycle, and copying its logic would let the two
+// drift. The launcher is the single writer of .channels-config -- if it
+// provisioned the dir the main agent runs there; if not (fresh install, isolation
+// off, or no token) the dir is absent and the shared ~/.claude is the correct
+// answer. Read-only: never provisions.
+//
+// Why it matters: before #290 the main agent had no isolated dir, so this was
+// always ~/.claude and agentSettingsPath(MAIN_AGENT_ID) hardcoded that. #290 moved
+// the RUNNING agent onto an isolated CLAUDE_CONFIG_DIR but left every hook/settings
+// writer pointed at ~/.claude -- so NO fleet hook (telegram_progress "Dolgozom
+// rajta", rate-limit-guard, audit-log, no-stray-files gate, staleness-guard)
+// reached the main agent. This resolver reunites the writers with the running dir.
+export function mainAgentEffectiveConfigDir(): string {
+  const explicit = resolveMainAgentConfigDir()
+  if (explicit) return explicit
+  try {
+    if (String(getEffectiveSettingValue('MAIN_AGENT_ISOLATED_CONFIG') ?? '') === '1') {
+      const iso = join(PROJECT_ROOT, '.channels-config')
+      if (existsSync(iso)) return iso
+    }
+  } catch { /* fall through to the shared default */ }
+  return join(homedir(), '.claude')
+}
+
 // The SAME setting as resolveMainAgentConfigDir(), but for the one caller that
 // must CREATE the dir rather than read it: the "log the main agent into its
 // isolated dir" button. The reader deliberately fails closed to ~/.claude WHILE
