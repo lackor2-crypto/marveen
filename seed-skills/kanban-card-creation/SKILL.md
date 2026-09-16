@@ -147,6 +147,15 @@ egyértelmű esetben magad javítsd, kétesnél kérdezz.
 - Ha egy feladat több kategóriát is érinthet, kérdezz -- ne tegyél fel
   több címkét "biztonságból" ha nem vagy benne biztos melyik az
   elsődleges, inkább kérdezz.
+- **Komment (`POST /api/kanban/<id>/comments`) többsoros vagy speciális
+  karaktert (`\n`, `<`, `>`, idézőjel) tartalmazó tartalommal: NE inline
+  `curl -d '{...}'`-dal küldd.** 2026-09-16-án egy többsoros komment némán
+  NEM jött létre inline `-d`-vel (a kártya kommentlistája csak a későbbi,
+  egysoros teszt-kommentet mutatta) -- a curl mégis kilépett hiba nélkül.
+  Írd a JSON-t fájlba és `--data @fájl`-lal küldd, ÉS ellenőrizd a
+  HTTP-kódot + a visszakapott `id`-t (`-w " HTTP:%{http_code}\n"`), pont
+  ahogy az inter-agent üzeneteknél kötelező. A mező `author` + `content`
+  (NEM `agent_id`), különben 400. HTTP 200 + `id` nélkül a komment nincs kész.
 
 ## Ellenőrzés
 
