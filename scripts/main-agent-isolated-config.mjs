@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const projectRoot = join(__dirname, '..')
 
-const { ensureMainAgentIsolatedConfigDir, resolveMainAgentConfigDir } = await import(
+const { ensureMainAgentIsolatedConfigDir, resolveMainAgentConfigDir, ensureMainAgentChannelState } = await import(
   join(projectRoot, 'dist', 'web', 'agent-process.js')
 )
 
@@ -33,11 +33,22 @@ const { ensureMainAgentIsolatedConfigDir, resolveMainAgentConfigDir } = await im
 // the agent: an `explicit` dir carries its OWN .credentials.json (login already
 // done there -- do NOT inject the fleet token, that would swap the identity),
 // while an `isolated` dir carries none and needs the fleet setup-token exported.
+// An isolated OR explicit config dir does NOT carry the channel bridge's
+// <dir>/channels/<provider>/.env, so the plugin's server.ts finds no
+// TELEGRAM_BOT_TOKEN and exits at its gate ("telegram plugin never started
+// within 600s") -- the main bot goes silent while the shared ~/.claude keeps
+// working. ensureMainAgentChannelState seeds the token (+ existing pairing) into
+// the resolved dir before channels.sh launches the session. It is stdout-silent
+// (diagnostics -> stderr), so it never corrupts the "<mode>\t<path>" contract.
+const provider = process.argv[2] || undefined
 const explicit = resolveMainAgentConfigDir()
 if (explicit) {
+  ensureMainAgentChannelState(explicit, provider)
   process.stdout.write(`explicit\t${explicit}\n`)
 } else {
-  const provider = process.argv[2] || undefined
   const dir = ensureMainAgentIsolatedConfigDir(provider)
-  if (dir) process.stdout.write(`isolated\t${dir}\n`)
+  if (dir) {
+    ensureMainAgentChannelState(dir, provider)
+    process.stdout.write(`isolated\t${dir}\n`)
+  }
 }

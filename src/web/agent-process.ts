@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, lstatSync, symlinkSync, rmSync, realpathSync, renameSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, lstatSync, symlinkSync, rmSync, realpathSync, renameSync, statSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { execSync, execFileSync, execFile } from 'node:child_process'
@@ -41,6 +41,7 @@ import { parseTelegramToken } from './telegram.js'
 import { CHANNEL_STATE_ENV_VAR, CHANNEL_TOKEN_ENV_VARS, channelStateNowhereDirs } from './mcp-probe-env.js'
 import { getProvider, getProviderType, channelStateDir, readChannelToken, type ChannelProviderType } from '../channel-provider.js'
 import { CHANNEL_PROVIDER, MAIN_AGENT_ID, STORE_DIR, PROJECT_ROOT, SUBAGENT_INBOX_TEE } from '../config.js'
+import { readEnvFile } from '../env.js'
 import { getEffectiveSettingValue } from '../settings-store.js'
 import { loadProfileTemplate } from './profiles.js'
 import { resolveAgentSecurityProfile } from './agent-team.js'
@@ -464,6 +465,90 @@ export function ensureMainAgentIsolatedConfigDir(
     getProviderType(provider),
     MAIN_AGENT_ID,
   )
+}
+
+// Seed an isolated/explicit main-agent CLAUDE_CONFIG_DIR with the channel
+// bridge's OWN state -- the bot token (.env) and the existing pairing
+// (access.json) -- under <configDir>/channels/<provider>/, exactly where the
+// plugin's server.ts looks (STATE_DIR = <CLAUDE_CONFIG_DIR>/channels/<provider>).
+//
+// Why (Boss, 2026-09-16, #290 "rendesen bekötöm a Telegram-hidat az izolált
+// configba"): scripts/channels.sh DELIBERATELY unsets TELEGRAM_BOT_TOKEN so it
+// never leaks into the tmux session env (that would cause cross-session poller
+// conflicts), so the plugin reads the token ONLY from
+// <CLAUDE_CONFIG_DIR>/channels/<provider>/.env. The shared ~/.claude carries
+// that file; an isolated/explicit config dir does NOT, and nothing seeded it.
+// Result: the main bot's plugin exited at its token gate ("telegram plugin never
+// started within 600s") and the operator's channel went silent -- while every
+// SHARED-dir install kept working, so the hole was invisible until an isolated
+// install (the identity-isolation feature, #290) hit it.
+//
+// Sources, in order (host-agnostic -- NEVER a hardcoded token or chat id):
+//   token   <- shared ~/.claude/channels/<provider>/.env verbatim (the exact
+//              file the non-isolated main agent used), else the install .env's
+//              provider token key (what the installer writes on every install).
+//   pairing <- shared ~/.claude/channels/<provider>/access.json, best-effort:
+//              carries an EXISTING pairing so the operator need not re-pair. A
+//              fresh install has none -> the plugin starts unpaired and the
+//              operator pairs once, exactly as a fresh install always did.
+//
+// Idempotent: writes each file only when absent, so a re-launch never clobbers a
+// token or pairing the operator later changed. stdout-SILENT by contract: the
+// sole caller (scripts/main-agent-isolated-config.mjs) prints a machine-parsed
+// "<mode>\t<path>" line to stdout that scripts/channels.sh parses, so every
+// diagnostic here goes to stderr, never stdout.
+export function ensureMainAgentChannelState(configDir: string, provider?: string): void {
+  try {
+    const providerType = getProviderType(provider)
+    const stateSub = getProvider(providerType).stateDir
+    const targetDir = join(configDir, 'channels', stateSub)
+    const sharedDir = channelStateDir(providerType) // ~/.claude/channels/<sub>
+
+    // Never seed the shared dir onto itself (configDir === ~/.claude): its .env
+    // already exists so the guards below no-op, but skip the work explicitly.
+    let sameAsShared = false
+    try { sameAsShared = realpathSync(targetDir) === realpathSync(sharedDir) }
+    catch { sameAsShared = targetDir === sharedDir }
+    if (sameAsShared) return
+
+    // --- token (.env) ---
+    const targetEnv = join(targetDir, '.env')
+    if (!existsSync(targetEnv)) {
+      let envContent = ''
+      const sharedEnv = join(sharedDir, '.env')
+      if (existsSync(sharedEnv)) {
+        try { envContent = readFileSync(sharedEnv, 'utf-8') } catch { envContent = '' }
+      }
+      if (!envContent) {
+        const key = getProvider(providerType).envKeys[0]
+        if (key) {
+          const token = (readEnvFile([key])[key] ?? '').trim()
+          if (token) envContent = `${key}=${token}\n`
+        }
+      }
+      if (envContent) {
+        mkdirSync(targetDir, { recursive: true, mode: 0o700 })
+        atomicWriteFileSync(targetEnv, envContent)
+        try { chmodSync(targetEnv, 0o600) } catch { /* Windows: no POSIX mode */ }
+      }
+    }
+
+    // --- pairing (access.json), best-effort migration ---
+    const targetAccess = join(targetDir, 'access.json')
+    if (!existsSync(targetAccess)) {
+      const sharedAccess = join(sharedDir, 'access.json')
+      if (existsSync(sharedAccess)) {
+        try {
+          const content = readFileSync(sharedAccess, 'utf-8')
+          mkdirSync(targetDir, { recursive: true, mode: 0o700 })
+          atomicWriteFileSync(targetAccess, content)
+          try { chmodSync(targetAccess, 0o600) } catch { /* Windows: no POSIX mode */ }
+        } catch { /* best-effort: unpaired start is a valid fresh-install state */ }
+      }
+    }
+  } catch (err) {
+    try { process.stderr.write(`ensureMainAgentChannelState: ${String((err as Error)?.message ?? err)}\n`) } catch { /* never fatal */ }
+  }
 }
 
 // An EXPLICIT config dir for the main channels agent (MAIN_AGENT_CONFIG_DIR).
