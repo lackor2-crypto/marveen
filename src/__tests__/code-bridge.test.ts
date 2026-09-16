@@ -18,8 +18,11 @@ import {
   enqueueCodeTask, claimNextCodeTask, completeCodeTask, heartbeatCodeTask,
   getCodeTask, getCodeTaskByPrefix, listCodeTasks, latestCodeTaskForProject, cancelCodeTask,
   reapExpiredCodeLeases, failOrphanedCodeTasks, matchesExcluded, summarizeResult, formatDuration,
+  hasActiveTaskForWorkspace, recordCodeTaskDispatchWorkspace,
   LEASE_MS, MAX_ATTEMPTS, PROMPT_MAX_CHARS, ORPHAN_GRACE_MS,
 } from '../web/code-bridge-store.js'
+import { isDispatchWorktreePath } from '../web/routes/code.js'
+import { PROJECT_ROOT } from '../config.js'
 import { parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand } from '../web/code-bridge-telegram.js'
 import { buildCompletionMessage, shortId } from '../web/code-bridge-notify.js'
 
@@ -595,5 +598,42 @@ describe('elavult bekotes: a tu tulelte a beszelgetest', () => {
     )
     expect(getCodeSession('p')!.sessionId).toBe('bezart')
     expect(getCodeSession('p')!.workspacePath).toBe(WS)
+  })
+})
+
+// #289 (Boss #960): a dispatched kanban task's cwd is redirected into an
+// isolated worktree (.worktrees/code-<ref>); the worker then discovers the VS
+// Code window open there and would register it as a DUPLICATE project card.
+// Option A (Boss, 2026-09-16): auto-remove such a worktree card, but ONLY once
+// it is finished / not-claimed -- an in-flight dispatch must stay visible.
+describe('#289 dispatch-worktree auto-removal (option A)', () => {
+  const WT = `${PROJECT_ROOT}/.worktrees/code-273`
+
+  it('isDispatchWorktreePath recognises a code-* worktree and nothing else', () => {
+    expect(isDispatchWorktreePath(`${PROJECT_ROOT}/.worktrees/code-273`)).toBe(true)
+    expect(isDispatchWorktreePath(`${PROJECT_ROOT}/.worktrees/code-3837120e/src/x.ts`)).toBe(true)
+    // the live checkout root itself is the REAL project, not a worktree
+    expect(isDispatchWorktreePath(PROJECT_ROOT)).toBe(false)
+    // an agent DEV worktree (agent-worktree.sh) is out of #289's scope -> kept
+    expect(isDispatchWorktreePath(`${PROJECT_ROOT}/.worktrees/l3-something`)).toBe(false)
+    // an unrelated folder somewhere else
+    expect(isDispatchWorktreePath('/home/x/other')).toBe(false)
+  })
+
+  it('the lifecycle guard is true only while a task is queued/running there', () => {
+    upsertCodeSession(MARVIN)
+    expect(hasActiveTaskForWorkspace(WT)).toBe(false)
+    const r = enqueueCodeTask({ project: 'marvin', prompt: 'do it' })
+    expect('task' in r).toBe(true)
+    const task = (r as { task: { id: string } }).task
+    // the dispatch records the redirected worktree as the task's cwd
+    recordCodeTaskDispatchWorkspace(task.id, WT, false)
+    // queued counts as active -> the worktree card stays
+    expect(hasActiveTaskForWorkspace(WT)).toBe(true)
+    // a DIFFERENT worktree is not matched (no false positives)
+    expect(hasActiveTaskForWorkspace(`${PROJECT_ROOT}/.worktrees/code-999`)).toBe(false)
+    // finished -> not active -> the card may be auto-removed
+    cancelCodeTask(task.id)
+    expect(hasActiveTaskForWorkspace(WT)).toBe(false)
   })
 })
