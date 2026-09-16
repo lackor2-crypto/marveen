@@ -15,7 +15,7 @@ kártyát. ... ha új hibák jönnek elő azt azonnal javítani kell! ... ha egy
 bug javításánál előjön másik új hiba azt úgy kell venni hogy az user kérte annak
 is a javítását."
 
-## Négy pont
+## Öt pont
 
 1. **Egy hiba = egy kártya.** A kártya önmagában áll. Ne hivatkozgass kártyáról
    kártyára, és ne szabdald szét egy hibát több kártyára. Az egymásra
@@ -30,6 +30,12 @@ is a javítását."
    véve, mintha a tulajdonos annak a javítását is kérte volna. Nincs „erre nincs
    felhatalmazásom", nincs „ezt a user nem kérte". A felmerült hiba javítása a
    kártya része, nem új engedélyhez kötött külön feladat.
+5. **A „várakozó" (waiting) oszlop NEM felmentés a befejezés alól.** Ha egy
+   kártya várakozóban áll, de a munka valójában NINCS kész, azt ugyanúgy be kell
+   fejezni -- nem hands-off attól, hogy waiting-ben van. Nincs olyan, hogy „ez
+   már waiting, ezt már nem csinálom meg". A befejezés a kártya MOZGATÁSA NÉLKÜL
+   is megy: komment a kártyára + a munka izolált worktree-ben, a kártya közben
+   maradhat „várakozó"-ban.
 
 ## Mit NE csinálj
 
@@ -37,6 +43,8 @@ is a javítását."
   „majd külön". Javítsd ugyanabban a munkában.
 - Ne mozgasd a hibát egyik kártyáról a másikra.
 - Ne hagyd félbe a kártyát, mert egy másikra vársz.
+- Ne hagyj ott egy félkész kártyát azzal, hogy „ez már a várakozóban van".
+  A waiting nem terminál állapot; a félkész munkát be kell fejezni.
 
 ## Mi NEM sérül
 
@@ -44,8 +52,15 @@ Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
 kapcsolatot továbbra is jelezni kell. A tilalom a hiba szétdarabolására, másik
 kártya alá tolására, és a félbehagyásra vonatkozik.
 
+Ez NEM mond ellent a visszafelé-mozgatás tilalmának sem: egy kártyát a
+`waiting`-ből korábbi oszlopba mozgatni továbbra is CSAK külön kérdés után
+szabad. A waiting-kártyát a MOZGATÁSA NÉLKÜL fejezed be (komment + worktree) --
+a waiting státusz a munka elvégzését nem blokkolja, csak a visszafelé-húzást köti
+kérdéshez.
+
 ## Ellenőrzés
 
 - A kártya készen van-e ténylegesen (nem félig)?
 - A munka közben felmerült minden hiba javítva lett-e ugyanitt?
 - Nem toltál-e át semmit másik kártya alá?
+- Nem hagytál-e ott egy félkész kártyát csak azért, mert a várakozóban áll?
