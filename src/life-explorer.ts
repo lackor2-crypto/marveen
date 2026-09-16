@@ -32,7 +32,7 @@ import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName,
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
-import { resolveMount, unresolveMount, mountsInside } from './life-mounts.js'
+import { resolveMount, unresolveMount, mountsInside, mountsOverview } from './life-mounts.js'
 import { displayLabelFor } from './life-labels.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
@@ -466,7 +466,9 @@ function buildBreadcrumb(rel: string): Array<{ name: string; rel: string; displa
 export interface LifeInfo {
   rel: string
   /** Ha bekotesen at latszik: mi a valodi helye es minek hivjuk. */
-  mount?: { label: string; target: string } | null
+  mount?: { rel: string; label: string; target: string; note: string; provisional: boolean; reachable: boolean } | null
+  /** A bekotesek tarolo-fajlja serult -- a "nincs bekotes" ilyenkor NEM igaz. */
+  mountsCorrupt?: boolean
   name: string
   isDir: boolean
   exists: boolean
@@ -567,10 +569,20 @@ export function lifeInfo(rel: string, lang = APP_LANG): LifeInfo | null {
   const isDir = st ? st.isDirectory() : false
   const physical = getPhysical(cleanRel)
   const mounted = resolveMount(cleanRel)
+  const overview = mountsOverview()
+  const own = mounted ? overview.mounts.find((m) => m.rel === mounted.mount.rel) : undefined
   const src = detectSource(abs, isDir, isDir)
   return {
     rel: cleanRel,
-    mount: mounted ? { label: mounted.mount.label, target: mounted.target } : null,
+    mount: mounted ? {
+      rel: mounted.mount.rel,
+      label: mounted.mount.label,
+      target: mounted.target,
+      note: own?.note || '',
+      provisional: Boolean(own?.provisional),
+      reachable: own ? own.reachable : false,
+    } : null,
+    mountsCorrupt: overview.corrupt,
     name,
     isDir,
     exists: Boolean(st),

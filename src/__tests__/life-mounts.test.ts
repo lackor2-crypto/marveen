@@ -20,7 +20,7 @@ vi.mock('../config.js', async () => {
 })
 
 const { ensureLifeTree } = await import('../life-tree.js')
-const { addMount, removeMount, listMounts, resolveMount, unresolveMount } = await import('../life-mounts.js')
+const { addMount, removeMount, listMounts, resolveMount, unresolveMount, mountsOverview, updateMountNote } = await import('../life-mounts.js')
 const { resolveLifePath, listLife, moveLife } = await import('../life-explorer.js')
 const { mountCandidates } = await import('../life-mount-candidates.js')
 const { DEPOT_PROJECTS, DEPOT_PHOTOS, DEPOT_DRIVE } = await import('../depot.js')
@@ -152,5 +152,49 @@ describe('mountCandidates', () => {
     const opts = mountCandidates()
     expect(opts.some((o) => o.target === `${DEPOT_PROJECTS}/igazi-repo` && o.kind === 'git')).toBe(true)
     expect(opts.some((o) => o.target === `${DEPOT_PROJECTS}/nem-repo`)).toBe(false)
+  })
+})
+
+describe('bekotes megjegyzes + allapot (#168)', () => {
+  it('ures store: nulla bekotes, NEM serult', () => {
+    expect(mountsOverview()).toEqual({ mounts: [], corrupt: false })
+  })
+
+  it('note + provisional megmarad, a regi (mezo nelkuli) bejegyzes is mukodik', () => {
+    writeFileSync(join(store, 'life-mounts.json'), JSON.stringify({ mounts: [{ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok`, kind: 'photos', label: 'x', addedAt: '' }] }), 'utf8')
+    const regi = mountsOverview().mounts[0]
+    expect(regi.note).toBe('')
+    expect(regi.provisional).toBe(false)
+    expect(regi.reachable).toBe(true)
+    const r = updateMountNote(MEDIA_PHOTOS, { note: 'nincs WP telepites', provisional: true })
+    expect(r.ok).toBe(true)
+    const uj = mountsOverview().mounts[0]
+    expect(uj.note).toBe('nincs WP telepites')
+    expect(uj.provisional).toBe(true)
+    expect(updateMountNote(MEDIA_PHOTOS, { note: '', provisional: false }).ok).toBe(true)
+    expect(listMounts()[0].note).toBeUndefined()
+  })
+
+  it('addMount elfogadja a megjegyzest', () => {
+    const r = addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok`, note: 'miert', provisional: true })
+    expect(r.ok).toBe(true)
+    expect(mountsOverview().mounts[0]).toMatchObject({ note: 'miert', provisional: true })
+  })
+
+  it('eltunt cel: bekotve, de nem elerheto -- nem tunik el a listabol', () => {
+    addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok` })
+    rmSync(join(depot, ...DEPOT_PHOTOS.split('/'), 'teszt-fiok'), { recursive: true, force: true })
+    const o = mountsOverview()
+    expect(o.mounts).toHaveLength(1)
+    expect(o.mounts[0].reachable).toBe(false)
+  })
+
+  it('serult fajl: corrupt jelzes, es nem irjuk felul', () => {
+    writeFileSync(join(store, 'life-mounts.json'), '{ serult', 'utf8')
+    expect(mountsOverview()).toEqual({ mounts: [], corrupt: true })
+    const r = addMount({ rel: MEDIA_PHOTOS, target: `${DEPOT_PHOTOS}/teszt-fiok` })
+    expect(r.code).toBe('corrupt')
+    expect(removeMount(MEDIA_PHOTOS).code).toBe('corrupt')
+    expect(updateMountNote(MEDIA_PHOTOS, { note: 'x' }).code).toBe('corrupt')
   })
 })

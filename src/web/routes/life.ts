@@ -18,6 +18,7 @@
 //   GET  /api/life/mounts     -- mely fa-pontok mutatnak masik helyre
 //   POST /api/life/mounts     -- uj bekotes (Drive-mappa / Fotok / git repo)
 //   POST /api/life/mounts/remove -- bekotes megszuntetese (a fajlok maradnak)
+//   POST /api/life/mounts/note   -- miert van itt / ideiglenes-e (a mutato marad)
 //   GET  /api/life/mount-options -- mit lehet bekotni (magatol osszeszedve)
 //   GET  /api/life/sources    -- a jelvenyek jelmagyarazata (forrasfajtak)
 //   GET  /api/life/inbox      -- hany irat var a BEERKEZO-ben
@@ -60,7 +61,7 @@ import {
 } from '../../life-explorer.js'
 import { contentDispositionHeader } from './drive-browser.js'
 import { listSourceKinds } from '../../life-sources.js'
-import { listMounts, addMount, removeMount } from '../../life-mounts.js'
+import { listMounts, addMount, removeMount, mountsOverview, updateMountNote } from '../../life-mounts.js'
 import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
@@ -646,7 +647,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/life/mounts' && method === 'GET') {
-    send(res, 200, { mounts: listMounts() })
+    send(res, 200, mountsOverview())
     return true
   }
 
@@ -657,6 +658,18 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       target: String(body?.target ?? ''),
       kind: String(body?.kind ?? 'local'),
       label: String(body?.label ?? ''),
+      note: String(body?.note ?? ''),
+      provisional: Boolean(body?.provisional),
+    })
+    send(res, result.ok ? 200 : 400, result)
+    return true
+  }
+
+  if (path === '/api/life/mounts/note' && method === 'POST') {
+    const body = await readJson(req)
+    const result = updateMountNote(String(body?.rel ?? ''), {
+      note: String(body?.note ?? ''),
+      provisional: Boolean(body?.provisional),
     })
     send(res, result.ok ? 200 : 400, result)
     return true
