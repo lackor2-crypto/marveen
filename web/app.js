@@ -20186,7 +20186,7 @@ async function renderOverviewConnections() {
     const glNames = String((h.params && h.params.names) || '')
     rows.push({
       label: t('health.' + h.id, h.params || {}),
-      desc: t('health.' + h.id + '_action'),
+      desc: t('health.' + h.id + '_action', h.params || {}),
       // A bejelentkezes sora nem a Fiokok oldalra dob, hanem oda, ahol
       // ELVEGEZHETO: a varazslo bejelentkezteto lepesere. Ugyanez all a
       // "meg sosem futott / megallt" sorra: az nem teendo, hanem egy gomb --
@@ -20224,7 +20224,7 @@ async function renderOverviewConnections() {
               // A google_live_bad sor kivetel: annak sajat vegigvezetoje van
               // (guide), es azt az itmeHtml az onclick elott venne figyelembe,
               // ezert ott NEM allitunk onclickot.
-              : (h.id === 'google_live_bad' ? null : `openSelfCheckInfo('${h.id}')`),
+              : (h.id === 'google_live_bad' ? null : `openSelfCheckInfo('${h.id}', ${JSON.stringify(h.params || {}).replace(/"/g, '&quot;')})`),
       guide: h.id === 'google_live_bad'
         ? {
           id: 'google:live',
@@ -20925,16 +20925,19 @@ function _renderGuide() {
 // Kattintasra kimondja a KONKRET problemat (a sor cimkeje) ES a teendot (az
 // `_action` szoveg), ahelyett hogy a Fiokok oldalra dobna, ahol semmi dolga.
 // Az azonositobol epul fel, ezert nincs hosszu szoveg egy HTML-attributumban.
-function openSelfCheckInfo(id) {
+function openSelfCheckInfo(id, params) {
   const key = String(id || '')
+  // A sor parameterei ({f}, {account}, {n}...) nelkul a szoveg nyers
+  // helyorzokat mutatna ("{f} fajl ... ({account})").
+  const p = (params && typeof params === 'object') ? params : {}
   if (!key) return
   const titleEl = document.getElementById('selfCheckInfoProblem')
   const bodyEl = document.getElementById('selfCheckInfoAction')
-  if (titleEl) titleEl.textContent = t('health.' + key)
+  if (titleEl) titleEl.textContent = t('health.' + key, p)
   // Nem minden sornak van kulon `_action` kulcsa; ha nincs, a t() magat a
   // kulcsot adna vissza -- ilyenkor inkabb ne mutassunk zavaros gepi szoveget.
   if (bodyEl) {
-    const action = t('health.' + key + '_action')
+    const action = t('health.' + key + '_action', p)
     bodyEl.textContent = (action && action !== 'health.' + key + '_action') ? action : ''
   }
   const ov = document.getElementById('selfCheckInfoOverlay')

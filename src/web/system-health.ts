@@ -1459,7 +1459,7 @@ export function varakozoFajlok(p: DriveSyncParos): number {
  */
 export function utolsoFutasAuthHibas(
   runs: Array<{ runId: string; at: string; count: number }> = syncFailureRuns(),
-): { account: string } | null {
+): { account: string; at?: string } | null {
   const utolso = runs[0]
   if (!utolso || !utolso.runId) return null
   const hibak = loadSyncFailures({ runId: utolso.runId })
@@ -1467,7 +1467,7 @@ export function utolsoFutasAuthHibas(
   const authHibak = hibak.filter((f) => auth.test(f.reason))
   if (!authHibak.length) return null
   const account = authHibak.find((f) => f.account)?.account || ''
-  return { account }
+  return { account, at: utolso.at }
 }
 
 /**
@@ -1481,7 +1481,7 @@ export function driveSyncRows(
   allapot = driveSyncAllapot(join(STORE_DIR, DRIVE_SYNC_FILE)),
   kartya: { letezik: boolean; bekapcsolva: boolean } = driveSyncKartya(),
   depoIrhato: boolean | null = null,
-  authBeragadas: { account: string } | null = utolsoFutasAuthHibas(),
+  authBeragadas: { account: string; at?: string } | null = utolsoFutasAuthHibas(),
 ): HealthRow[] {
   // Olvashatatlan beallitas: a mentes ilyenkor NEM fut. A leghangosabb sor.
   if (allapot.fajta === 'olvashatatlan') return [{ id: 'drive_sync_unreadable', status: 'bad' }]
@@ -1522,7 +1522,17 @@ export function driveSyncRows(
     // NEM "magatol folytatodik" allapotban vannak, hanem beragadtak: a becsuletes
     // sor a `bad` auth-sor, nem a megnyugtato `incomplete`. Enelkul a felulet azt
     // hazudna, hogy nincs teendo, holott a fiokot ujra kell bejelentkeztetni.
-    if (authBeragadas) {
+    // A hibanaplo csak a HIBAS futasokat tartalmazza: ha azota egy hibatlan
+    // futas is lement, a naplo "legutobbi" futasa mar elavult, es a fiok
+    // rendben van. Egy futas naponta egyszer megy, ezert a naplo-bejegyzes
+    // akkor friss, ha legfeljebb egy nappal regebbi a legutobbi futasnal.
+    const legutobbiFutas = Math.max(-Infinity, ...allapot.parok
+      .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
+      .filter((t) => Number.isFinite(t)))
+    const hibaIdo = authBeragadas?.at ? Date.parse(authBeragadas.at) : NaN
+    const authFriss = !!authBeragadas
+      && (!Number.isFinite(legutobbiFutas) || !Number.isFinite(hibaIdo) || hibaIdo >= legutobbiFutas - 86_400_000)
+    if (authBeragadas && authFriss) {
       rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: fajlok, account: authBeragadas.account || '?' } })
     } else {
       rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
