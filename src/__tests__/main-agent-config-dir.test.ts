@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -24,6 +24,7 @@ vi.mock('../settings-store.js', async (orig) => {
 })
 
 const { resolveMainAgentConfigDir } = await import('../web/agent-process.js')
+const { provisionMainAgentConfigDir } = await import('../web/agent-config.js')
 const { resolveAgentConfigDir } = await import('../web/claude-plans.js')
 const { MAIN_AGENT_ID } = await import('../config.js')
 
@@ -79,6 +80,37 @@ describe('resolveAgentConfigDir(MAIN_AGENT_ID) honours the isolated dir', () => 
   it('returns the explicit MAIN_AGENT_CONFIG_DIR when set', () => {
     SETTING = join(SANDBOX, 'home', '.claude-bot')
     expect(resolveAgentConfigDir(MAIN_AGENT_ID).configDir).toBe(join(SANDBOX, 'home', '.claude-bot'))
+  })
+})
+
+// The login button ACTIVATES the isolation, so it must be able to log into a dir
+// that does not exist yet. resolveMainAgentConfigDir() (the reader) deliberately
+// returns null for a missing dir; provisionMainAgentConfigDir() (the login path)
+// CREATES it, so `claude auth login` can write .credentials.json inside. Without
+// this the operator could never activate the isolation from the UI: the login
+// would fall back to ~/.claude and never populate the configured dir.
+describe('provisionMainAgentConfigDir', () => {
+  it('returns null and creates nothing when the setting is unset', () => {
+    expect(provisionMainAgentConfigDir()).toBeNull()
+  })
+
+  it('CREATES a not-yet-existing dir and returns it (activation from the UI)', () => {
+    const target = join(SANDBOX, 'home', '.claude-bot-new')
+    SETTING = target
+    // The read-only resolver still refuses it (does not exist yet)...
+    expect(resolveMainAgentConfigDir()).toBeNull()
+    // ...but the login path provisions it so the credentials can land inside.
+    expect(provisionMainAgentConfigDir()).toBe(target)
+    expect(existsSync(target) && statSync(target).isDirectory()).toBe(true)
+    // Once populated, the reader picks it up too.
+    expect(resolveMainAgentConfigDir()).toBe(target)
+  })
+
+  it('expands a leading ~ before creating', () => {
+    SETTING = '~/.claude-bot-tilde'
+    const target = join(SANDBOX, 'home', '.claude-bot-tilde')
+    expect(provisionMainAgentConfigDir()).toBe(target)
+    expect(existsSync(target)).toBe(true)
   })
 })
 

@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync, statSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, MAIN_AGENT_ID, DEFAULT_AGENT_MODEL } from '../config.js'
@@ -328,6 +328,35 @@ export function resolveMainAgentConfigDir(): string | null {
   const dir = raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw
   if (!existsSync(dir)) {
     logger.warn({ dir }, 'main-agent config dir: MAIN_AGENT_CONFIG_DIR does not exist, keeping the shared ~/.claude')
+    return null
+  }
+  return dir
+}
+
+// The SAME setting as resolveMainAgentConfigDir(), but for the one caller that
+// must CREATE the dir rather than read it: the "log the main agent into its
+// isolated dir" button. The reader deliberately fails closed to ~/.claude WHILE
+// the dir does not exist yet -- but the login is precisely what brings it into
+// existence and writes .credentials.json there. If the login ALSO fell back to
+// ~/.claude (because the reader returned null for the not-yet-created dir), the
+// operator could never activate the isolation from the UI: set MAIN_AGENT_CONFIG_DIR
+// -> re-login -> restart would silently log into ~/.claude and never populate the
+// new dir. So here we expand and mkdir the configured path, so `claude auth login`
+// (spawned with CLAUDE_CONFIG_DIR pointed at it) writes the credentials INTO it.
+// Once populated, resolveMainAgentConfigDir() (the reader) and the launcher
+// (scripts/main-agent-isolated-config.mjs, `explicit` mode) both pick it up.
+//
+// Unset -> null (~/.claude, unchanged). mkdir failure -> null + warn: the login
+// still works against ~/.claude, exactly as it did before this setting existed.
+export function provisionMainAgentConfigDir(): string | null {
+  let raw = ''
+  try { raw = String(getEffectiveSettingValue('MAIN_AGENT_CONFIG_DIR') ?? '').trim() } catch { return null }
+  if (!raw) return null
+  const dir = raw.startsWith('~') ? join(homedir(), raw.slice(1)) : raw
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+  } catch (e) {
+    logger.warn({ dir, err: (e as Error).message }, 'main-agent config dir: could not provision MAIN_AGENT_CONFIG_DIR, keeping the shared ~/.claude')
     return null
   }
   return dir
