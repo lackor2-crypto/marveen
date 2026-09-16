@@ -571,6 +571,14 @@ javítását."
    véve, mintha a tulajdonos annak a javítását is kérte volna. Nincs „erre nincs
    felhatalmazásom", nincs „ezt a user nem kérte": a felmerült hiba javítása a
    kártya része, nem új engedélyhez kötött külön feladat.
+5. **A „várakozó" (waiting) oszlop NEM felmentés a befejezés alól.** Ha egy
+   kártya várakozóban áll, de a munka valójában NINCS kész, azt ugyanúgy be kell
+   fejezni -- nem hands-off attól, hogy waiting-ben van. Nincs olyan, hogy „ez
+   már waiting, ezt már nem csinálom meg". A befejezés a kártya MOZGATÁSA NÉLKÜL
+   is megy: komment a kártyára + a munka izolált worktree-ben, a kártya közben
+   maradhat „várakozó"-ban. Ez NEM mond ellent a visszafelé-mozgatás szabálynak:
+   waiting-ből korábbi oszlopba mozgatni továbbra is CSAK külön kérdés után
+   szabad -- de a munka ELVÉGZÉSÉT a waiting státusz nem blokkolja.
 
 Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
 kapcsolatot továbbra is jelezni kell. A tilalom a hiba SZÉTDARABOLÁSÁRA és MÁSIK

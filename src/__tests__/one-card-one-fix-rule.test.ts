@@ -40,6 +40,9 @@ describe('ensureOneCardOneFixSection', () => {
     ensureOneCardOneFixSection(THROWAWAY)
     const out = readFileSync(path, 'utf-8')
     expect(out).toContain('EGY HIBA = EGY KARTYA')
+    // Point 5 (Boss, 2026-09-16): a waiting-but-unfinished card is still to be
+    // finished, not treated as hands-off.
+    expect(out).toContain('waiting, ezt mar nem csinalom meg')
     expect(out).toContain('Sajat tartalom.')
     // Host-agnostic: the generated block names no owner and no agent literal.
     expect(out).not.toContain('Boss')
@@ -89,12 +92,17 @@ describe('ensureOneCardOneFixSection', () => {
   it('ships the skill in seed-skills so a fresh install has it too', () => {
     const skill = join(PROJECT_ROOT, 'seed-skills', 'one-card-one-fix', 'SKILL.md')
     expect(existsSync(skill)).toBe(true)
-    expect(readFileSync(skill, 'utf-8')).toContain('name: one-card-one-fix')
+    const skillText = readFileSync(skill, 'utf-8')
+    expect(skillText).toContain('name: one-card-one-fix')
+    // The waiting-card clause ships in the seed skill for fresh installs too.
+    expect(skillText).toContain('waiting, ezt már nem csinálom meg')
   })
 
   it('the main-agent CLAUDE.md template carries the rule (fresh clone)', () => {
     const text = readFileSync(join(PROJECT_ROOT, 'templates', 'CLAUDE.md.template'), 'utf-8')
     expect(text).toContain('EGY HIBA = EGY KÁRTYA')
+    // The fresh-clone template also carries the waiting-card clause (point 5).
+    expect(text).toContain('waiting, ezt már nem csinálom meg')
   })
 })
 
