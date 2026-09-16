@@ -5512,6 +5512,27 @@
     </div>
   </div>
 
+  <!-- Info-ablak azokhoz az onellenorzes-sorokhoz, amikhez nincs helyben
+       elvegezheto muvelet (mentes, upstream, git-lehuzas, verzio). Kattintasra
+       kimondja a konkret problemat ES a teendot, ahelyett hogy a Fiokok oldalra
+       dobna (Boss, 2026-09-16). Ugyanugy nem allhat egy .page konteneren belul,
+       mint a vegigvezeto: a gomb az Attekintesen van. -->
+  <div class="modal-overlay" id="selfCheckInfoOverlay" hidden>
+    <div class="modal-content" style="max-width:560px">
+      <div class="modal-header">
+        <h3 data-i18n="selfcheck.info_title">Mi a probléma és mit kell tenned</h3>
+        <button class="modal-close" id="selfCheckInfoClose" aria-label="Bezárás" data-i18n-aria-label="common.close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-desc" id="selfCheckInfoProblem" style="font-weight:600"></p>
+        <p class="modal-desc" id="selfCheckInfoAction"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="selfCheckInfoDone" data-i18n="selfcheck.info_close">Értem</button>
+      </div>
+    </div>
+  </div>
+
   <!-- FIGYELEM: ez a modal NEM allhat egy .page konteneren belul.
        A gomb, ami megnyitja, az Attekintes oldalon van, a modal viszont a
        Kapcsolatok oldal belsejeben allt -- az pedig display:none, amikor nem az

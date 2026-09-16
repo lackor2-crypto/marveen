@@ -60,6 +60,7 @@ import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-logi
 import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
+import { syncFailureRuns, loadSyncFailures } from '../drive-sync-failures.js'
 import { resolveMainAgentConfigDir } from './agent-config.js'
 // EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
 // oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
@@ -1445,6 +1446,31 @@ export function varakozoFajlok(p: DriveSyncParos): number {
 }
 
 /**
+ * Beragadt-e a mentes HITELESITESI hibán (401/403)?
+ *
+ * A `drive_sync_incomplete` sor eddig azt allitotta, "ez nem hiba, magatol
+ * folytatja" -- de ez HAZUGSAG, ha a Google-fiok nem tud belepni: ilyenkor a
+ * fajlok nem "meg feltoltes alatt" allnak, hanem VEGLEG fentragadnak, amig
+ * valaki ujra be nem jelentkezteti a fiokot (Boss, 2026-09-16).
+ *
+ * A jelet a FORRASBOL vesszuk (hibanaplo), nem a varakozo-szambol kovetkeztetve
+ * (a NULLA-elv): ha a LEGUTOBBI futas hibai kozott van auth-hiba, akkor beragadt.
+ * Ha nincs hibanaplo (friss telepites), null -- nincs sor, es ez helyes csend.
+ */
+export function utolsoFutasAuthHibas(
+  runs: Array<{ runId: string; at: string; count: number }> = syncFailureRuns(),
+): { account: string } | null {
+  const utolso = runs[0]
+  if (!utolso || !utolso.runId) return null
+  const hibak = loadSyncFailures({ runId: utolso.runId })
+  const auth = /\b401\b|\b403\b|invalid authentication|unauthorized|insufficient permission|invalid_grant|invalid credentials/i
+  const authHibak = hibak.filter((f) => auth.test(f.reason))
+  if (!authHibak.length) return null
+  const account = authHibak.find((f) => f.account)?.account || ''
+  return { account }
+}
+
+/**
  * A Drive-mentes allapota az Attekintesen.
  *
  * @param depoIrhato a depo elerheto-e. Elerhetetlen depoval a mentes nem tud
@@ -1455,6 +1481,7 @@ export function driveSyncRows(
   allapot = driveSyncAllapot(join(STORE_DIR, DRIVE_SYNC_FILE)),
   kartya: { letezik: boolean; bekapcsolva: boolean } = driveSyncKartya(),
   depoIrhato: boolean | null = null,
+  authBeragadas: { account: string } | null = utolsoFutasAuthHibas(),
 ): HealthRow[] {
   // Olvashatatlan beallitas: a mentes ilyenkor NEM fut. A leghangosabb sor.
   if (allapot.fajta === 'olvashatatlan') return [{ id: 'drive_sync_unreadable', status: 'bad' }]
@@ -1491,7 +1518,15 @@ export function driveSyncRows(
   const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0)
   if (varakozok.length) {
     const fajlok = varakozok.reduce((sum, p) => sum + varakozoFajlok(p), 0)
-    rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
+    // HA a legutobbi futas hitelesitesi hibaba utkozott, akkor a varakozo fajlok
+    // NEM "magatol folytatodik" allapotban vannak, hanem beragadtak: a becsuletes
+    // sor a `bad` auth-sor, nem a megnyugtato `incomplete`. Enelkul a felulet azt
+    // hazudna, hogy nincs teendo, holott a fiokot ujra kell bejelentkeztetni.
+    if (authBeragadas) {
+      rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: fajlok, account: authBeragadas.account || '?' } })
+    } else {
+      rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
+    }
   }
 
   // Mikor futott utoljara BARMELYIK paros?

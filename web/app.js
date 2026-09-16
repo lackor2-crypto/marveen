@@ -20215,7 +20215,16 @@ async function renderOverviewConnections() {
             // csereli a `guide` ag is).
             : h.id === 'mcp_needs_auth'
               ? `jumpToMcpConnector(${JSON.stringify(glNames).replace(/"/g, '&quot;')})`
-              : null,
+              // Minden mas onellenorzes-sor (mentes, upstream, git-lehuzas,
+              // verzio...) eddig az alapertelmezett agra esett, es a Fiokok
+              // oldalra dobta a felhasznalot, ahol semmi dolga -- pont ott nem
+              // latszott "mi a konkret problema es mit kell tenni" (Boss,
+              // 2026-09-16). Ehelyett kattintasra egy info-ablak kimondja a
+              // problemat ES a teendot, es a felhasznalo az Attekintesen marad.
+              // A google_live_bad sor kivetel: annak sajat vegigvezetoje van
+              // (guide), es azt az itmeHtml az onclick elott venne figyelembe,
+              // ezert ott NEM allitunk onclickot.
+              : (h.id === 'google_live_bad' ? null : `openSelfCheckInfo('${h.id}')`),
       guide: h.id === 'google_live_bad'
         ? {
           id: 'google:live',
@@ -20911,6 +20920,38 @@ function _renderGuide() {
   if (steps.some(x => x.auth)) _renderGuideAuth()
 }
 
+// Egy egyszeru info-ablak azokhoz az onellenorzes-sorokhoz, amikhez nincs
+// helyben elvegezheto muvelet (mentes, upstream, git-lehuzas, verzio...).
+// Kattintasra kimondja a KONKRET problemat (a sor cimkeje) ES a teendot (az
+// `_action` szoveg), ahelyett hogy a Fiokok oldalra dobna, ahol semmi dolga.
+// Az azonositobol epul fel, ezert nincs hosszu szoveg egy HTML-attributumban.
+function openSelfCheckInfo(id) {
+  const key = String(id || '')
+  if (!key) return
+  const titleEl = document.getElementById('selfCheckInfoProblem')
+  const bodyEl = document.getElementById('selfCheckInfoAction')
+  if (titleEl) titleEl.textContent = t('health.' + key)
+  // Nem minden sornak van kulon `_action` kulcsa; ha nincs, a t() magat a
+  // kulcsot adna vissza -- ilyenkor inkabb ne mutassunk zavaros gepi szoveget.
+  if (bodyEl) {
+    const action = t('health.' + key + '_action')
+    bodyEl.textContent = (action && action !== 'health.' + key + '_action') ? action : ''
+  }
+  const ov = document.getElementById('selfCheckInfoOverlay')
+  if (!ov) return
+  ov.hidden = false
+  ov.classList.add('active')
+  document.body.style.overflow = 'hidden'
+}
+
+function closeSelfCheckInfo() {
+  const ov = document.getElementById('selfCheckInfoOverlay')
+  if (!ov) return
+  ov.hidden = true
+  ov.classList.remove('active')
+  document.body.style.overflow = ''
+}
+
 function openSelfCheckGuide(target) {
   _selfCheckGuideTarget = target || null
   _selfCheckGuideTab = 'quick'
@@ -21075,6 +21116,18 @@ function _wireSelfCheckGuide() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !ov.hidden) closeSelfCheckGuide()
   })
+  // Az info-ablak (mentes/upstream/git-lehuzas sorok) bezaro-vezetekei.
+  const iov = document.getElementById('selfCheckInfoOverlay')
+  if (iov) {
+    const closeBtn = document.getElementById('selfCheckInfoClose')
+    const doneBtn = document.getElementById('selfCheckInfoDone')
+    if (closeBtn) closeBtn.addEventListener('click', closeSelfCheckInfo)
+    if (doneBtn) doneBtn.addEventListener('click', closeSelfCheckInfo)
+    iov.addEventListener('click', (e) => { if (e.target === iov) closeSelfCheckInfo() })
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !iov.hidden) closeSelfCheckInfo()
+    })
+  }
 }
 
 if (document.readyState === 'loading') {
