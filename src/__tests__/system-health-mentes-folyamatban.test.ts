@@ -66,6 +66,34 @@ describe('a felig felment mentes nem mutathat zold sort', () => {
   })
 })
 
+describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () => {
+  const authStuck = { account: 'nyalomapuncidma' }
+  it('auth-beragadasnal PIROS auth-sor jon, nem a megnyugtato incomplete', () => {
+    const r = driveSyncRows(MOST, rendben([
+      { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastPending: 518 },
+    ]), kartya, true, authStuck)
+    const sor = r.find((x) => x.id === 'drive_sync_auth_stuck')
+    expect(sor?.status).toBe('bad')
+    expect(sor?.params).toMatchObject({ f: 518, account: 'nyalomapuncidma' })
+    // A hazug sor ilyenkor NEM lehet ott.
+    expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(false)
+  })
+
+  it('auth-hiba nelkul (null) a regi incomplete viselkedes marad', () => {
+    const r = driveSyncRows(MOST, rendben([
+      { account: 'a', lastRunAt: napokkalEzelott(0), lastPending: 10 },
+    ]), kartya, true, null)
+    expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(true)
+    expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
+  })
+
+  it('utolsoFutasAuthHibas: csak a LEGUTOBBI futas auth-hibaja szamit', async () => {
+    const mod = await import('../web/system-health.js')
+    // Nincs futas -> nincs beragadas (friss telepites csendje).
+    expect(mod.utolsoFutasAuthHibas([])).toBeNull()
+  })
+})
+
 describe('a varakozo szamot a paros sajat mezojebol vesszuk', () => {
   it('a hianyzo, nulla es romlott ertek egyarant "nincs varakozo"', () => {
     expect(varakozoFajlok({})).toBe(0)
