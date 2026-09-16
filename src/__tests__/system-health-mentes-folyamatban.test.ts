@@ -95,6 +95,37 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
     expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
   })
 
+  // A hiba, amit lackor3 talalt (2026-09-16): tobb fioknal az auth-sor a
+  // GLOBALIS varakozo-fajlszamot ragasztotta az auth-hibas fiok neve melle,
+  // igy egy MASIK, epp toltogeto fiok fajljait az auth-hibas fiokra fogta.
+  it('tobb fioknal az auth-sor CSAK a hibas fiok sajat varakozoit szamolja, nem a globalist', () => {
+    const r = driveSyncRows(MOST, rendben([
+      // Az auth-hibas fiok: sajat 30 fajlja beragadt.
+      { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastPending: 30 },
+      // Egy MASIK, egeszseges fiok: 1125 fajlt tolt fel, magatol halad.
+      { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastPending: 1125 },
+    ]), kartya, true, { account: 'nyalomapuncidma' })
+    const auth = r.find((x) => x.id === 'drive_sync_auth_stuck')
+    // NEM 1155 (30+1125), csak a hibas fiok sajat 30-a.
+    expect(auth?.params).toMatchObject({ f: 30, account: 'nyalomapuncidma' })
+    // A masik fiok varakozoi kulon, megnyugtato sorba kerulnek -- nem az auth-sorba.
+    const inc = r.find((x) => x.id === 'drive_sync_incomplete')
+    expect(inc?.status).toBe('warn')
+    expect(inc?.params).toMatchObject({ n: 1, f: 1125 })
+  })
+
+  it('ha az auth-hibas fioknak nincs sajat varakozoja, az auth-sor 0-t mond, a masik fiok fajljai kulon sorba', () => {
+    const r = driveSyncRows(MOST, rendben([
+      // Az auth-hibas fioknak nincs varakozo fajlja (0), megis be van ragadva a bejelentkezes.
+      { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastResult: 'rendben', lastPending: 0 },
+      { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastPending: 1125 },
+    ]), kartya, true, { account: 'nyalomapuncidma' })
+    // Az auth-hiba tovabbra is latszik (a fiok ujra-bejelentkeztetese teendo), de 0 sajat fajllal.
+    expect(r.find((x) => x.id === 'drive_sync_auth_stuck')?.params).toMatchObject({ f: 0, account: 'nyalomapuncidma' })
+    // A 1125 a masik fioke -- soha nem az auth-hibas fiokra fogva.
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')?.params).toMatchObject({ n: 1, f: 1125 })
+  })
+
   it('utolsoFutasAuthHibas: csak a LEGUTOBBI futas auth-hibaja szamit', async () => {
     const mod = await import('../web/system-health.js')
     // Nincs futas -> nincs beragadas (friss telepites csendje).

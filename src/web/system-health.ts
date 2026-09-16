@@ -1517,7 +1517,6 @@ export function driveSyncRows(
   // mutatni. `warn`: magatol halad, teendo csak akkor van, ha nem fogy.
   const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0)
   if (varakozok.length) {
-    const fajlok = varakozok.reduce((sum, p) => sum + varakozoFajlok(p), 0)
     // HA a legutobbi futas hitelesitesi hibaba utkozott, akkor a varakozo fajlok
     // NEM "magatol folytatodik" allapotban vannak, hanem beragadtak: a becsuletes
     // sor a `bad` auth-sor, nem a megnyugtato `incomplete`. Enelkul a felulet azt
@@ -1533,8 +1532,26 @@ export function driveSyncRows(
     const authFriss = !!authBeragadas
       && (!Number.isFinite(legutobbiFutas) || !Number.isFinite(hibaIdo) || hibaIdo >= legutobbiFutas - 86_400_000)
     if (authBeragadas && authFriss) {
-      rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: fajlok, account: authBeragadas.account || '?' } })
+      // A beragadas CSAK az auth-hibas fiok SAJAT varakozo fajljaira igaz. A
+      // globalis osszeg egy MASIK, egeszseges fiok magatol halado feltoltesebol
+      // is szarmazhat -- azt az auth-hibas fiok neve melle ragasztani ket kulon
+      // fiok ket kulon problemajat mosna ossze (valos eset 2026-09-16: egy 401-es
+      // fiok neve melle egy masik, epp toltogeto fiok 1125 varakozo fajlja kerult).
+      // Ezert fiokonkent bontunk: az auth-sor csak a hibas fiok sajat varakozoit
+      // szamolja, a tobbi fiok varakozoi kulon `incomplete` (warn) sorba mennek.
+      const authFajlok = allapot.parok
+        .filter((p) => String(p.account || '') === authBeragadas.account)
+        .reduce((sum, p) => sum + varakozoFajlok(p), 0)
+      rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: authFajlok, account: authBeragadas.account || '?' } })
+      // A tobbi fiok varakozoi NEM ragadtak be: magatol haladnak. Csak akkor
+      // adunk hozza megnyugtato sort, ha tenylegesen van ilyen fiok.
+      const tobbiek = varakozok.filter((p) => String(p.account || '') !== authBeragadas.account)
+      if (tobbiek.length) {
+        const tobbiFajlok = tobbiek.reduce((sum, p) => sum + varakozoFajlok(p), 0)
+        rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: tobbiek.length, f: tobbiFajlok } })
+      }
     } else {
+      const fajlok = varakozok.reduce((sum, p) => sum + varakozoFajlok(p), 0)
       rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
     }
   }
