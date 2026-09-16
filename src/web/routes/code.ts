@@ -34,7 +34,7 @@ import {
   claimNextCodeTask, heartbeatCodeTask, completeCodeTaskDetailed, cancelCodeTask,
   recordCodeTaskEndedSession, recordCodeTaskDispatchWorkspace,
   clearFinishedCodeTasks,
-  pruneUnreportedCodeSessions,
+  pruneUnreportedCodeSessions, hasActiveTaskForWorkspace,
   recordCodeCandidates,
   lastAgentRunSession,
   listCodeCandidates,
@@ -172,6 +172,32 @@ export function isUnderAgentsDir(localPath: string): boolean {
   const base = workspaceKey(AGENTS_BASE_DIR)
   if (!base) return false
   return workspaceKey(localPath).startsWith(base + '/')
+}
+
+/**
+ * A DISPATCH WORKTREE-e ez az ut (`<liveRoot>/.worktrees/code-<ref>`).
+ *
+ * Amikor Marvin egy kanban-feladatot kiad, es annak cwd-je az elo checkout, a
+ * futast egy izolalt worktree-be iranyitjuk at (resolveTaskWorkspace ->
+ * worktreeNameFor => `code-<ref>`). A worker ezutan felderiti a worktree-ben
+ * NYITOTT VS Code ablakot, es kulon `code-<ref>` PROJEKTKENT jelentene be -- egy
+ * duplikalt kartya a valodi projekt mellett, egy belso build-mappahoz (Boss #960:
+ * "3 vscode kartya", pedig csak 1 valodi van). Ez nem felhasznaloi projekt.
+ *
+ * Host-agnosztikus: az alap a telepites SAJAT worktree-gyokerebol szarmazik
+ * (CODE_WORKTREE_ROOT, kulonben `<PROJECT_ROOT>/.worktrees`), nem beegetett
+ * utvonalbol. Csak a `code-` prefixu gyerekmappa esik ide (a dispatch
+ * konvencioja): az agens-fejlesztoi worktree-k (`agent-worktree.sh`, pl.
+ * `l3-...`) mas nevuek, azokat ez a szuro szandekosan nem erinti (#289 hatoköre a
+ * dispatch-worktree-k).
+ */
+export function isDispatchWorktreePath(localPath: string): boolean {
+  const root = workspaceKey(CODE_WORKTREE_ROOT ?? join(PROJECT_ROOT, '.worktrees'))
+  if (!root) return false
+  const key = workspaceKey(localPath)
+  if (!key.startsWith(root + '/')) return false
+  const child = key.slice(root.length + 1).split('/')[0] ?? ''
+  return child.startsWith('code-')
 }
 
 // A KIADOTT MUNKA modellje ELOBOL, nem a boot-ideju `CODE_MODEL` konstansbol.
@@ -967,6 +993,18 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // projektnek akar, a feluletrol kezzel bekotheti.
       const localPath = toLocalWorkspacePath(s.workspacePath)
       if (localPath && isUnderAgentsDir(localPath)) continue
+      // DISPATCH WORKTREE: nem felhasznaloi projekt, hanem egy kiadott feladat
+      // izolalt build-mappaja (`.worktrees/code-<ref>`). A worker felderiti a
+      // benne nyitott ablakot es kulon kartyakent jelentene be -- ez a #960-as
+      // "3 vscode kartya" zaj. #289 A opcio (Boss dontese, 2026-09-16): a
+      // BEFEJEZETT / nem-claimed dispatch-worktree automatikusan tunjon el, de
+      // egy EPP FUTO dispatch NE. A lifecycle-guard: csak akkor toroljuk (es
+      // hagyjuk ki az ujra-bekotest), ha NINCS queued/running feladat ebben a
+      // worktree-ben. Ha van (aktiv dispatch), a kartya marad.
+      if (localPath && isDispatchWorktreePath(localPath) && !hasActiveTaskForWorkspace(s.workspacePath)) {
+        deleteCodeSession(alias)
+        continue
+      }
       // ELAVULT-E A BEKOTES?
       //
       // A kituzott sor alapbol erinthetetlen. Egyetlen kivetel van, es azt
