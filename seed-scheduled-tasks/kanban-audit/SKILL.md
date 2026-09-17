@@ -10,7 +10,7 @@ description: 4 óránkénti kanban-tábla audit. Tisztítás (7+ napos done arch
 
 ## Autonómia-szint (config-vezérelt, KÖTELEZŐ ELŐSZÖR)
 
-Olvasd be: `jq -r '.categories[]|select(.key=="kanban_archive_done" or .key=="kanban_stuck_nudge")|"\(.key) \(.level)"' {{INSTALL_DIR}}/store/autonomy-config.json`
+Olvasd be (node-dal, mert `jq` nincs feltétlenül telepítve; friss telepítésen sincs): `node -e 'const c=JSON.parse(require("fs").readFileSync("{{INSTALL_DIR}}/store/autonomy-config.json","utf8"));for(const x of (c.categories||[]))if(["kanban_archive_done","kanban_stuck_nudge"].includes(x.key))console.log(x.key,x.level)'`
 
 A két kategória szintje szabályozza a 2. és 4. lépést:
 - **`kanban_archive_done`** (2. lépés): level 3 → archiváld magától (alapért). level 2 → NE archiválj, Telegramon javasold ("X db 7+ napos done archiválásra vár, mehet?") és várj jóváhagyást. level 1 → csak jelezd a számot.
@@ -37,7 +37,7 @@ dbq() { node -e 'const db=new (require("{{INSTALL_DIR}}/node_modules/better-sqli
 
 3. **Beakadt task detection** (előző audit óta nem mozdult): in_progress kártyák amik `updated_at < last_audit_at`:
    ```bash
-   LAST=$(jq -r .last_audit_at {{INSTALL_DIR}}/store/kanban-audit-state.json 2>/dev/null || echo 0)
+   LAST=$(node -e 'try{console.log(JSON.parse(require("fs").readFileSync("{{INSTALL_DIR}}/store/kanban-audit-state.json","utf8")).last_audit_at ?? 0)}catch{console.log(0)}')
    dbq "SELECT id, title, assignee, ROUND((strftime('%s','now')-updated_at)/3600.0,1) as hours_stale FROM kanban_cards WHERE status='in_progress' AND archived_at IS NULL AND updated_at < $LAST ORDER BY hours_stale DESC"
    ```
 
