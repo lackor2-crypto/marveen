@@ -82,7 +82,12 @@ describe('a teljes Drive-nak NEVE van a kepernyon', () => {
     // (nem kozvetlen `errors.push`), hogy a hibalista gepi mezoket is kapjon --
     // a NEV azonban tovabbra is a `pairLabel`, kulonben ": Drive 403" allna ott.
     expect(route).toContain('driveName: pairLabel(pair)')
-    expect(route).toContain('az egész páros elhasalt: ${pair.lastResult}')
+    // 2026-09-17: a nyers hiba (Python-Traceback) NEM mehet a feluletre. A
+    // `pair.lastResult` emberi mondat lesz, a nyers `reszlet` a Hibak dobozba
+    // (gond reason) kerul -- ezt a `sanitizeParosHiba` valasztja szet.
+    expect(route).toContain('const { uzenet, reszlet } = sanitizeParosHiba(err)')
+    expect(route).toContain('pair.lastResult = uzenet')
+    expect(route).toContain('az egész páros elhasalt: ${reszlet}')
   })
 })
 
