@@ -617,3 +617,32 @@ találgatott azonosságot.
 
 Részletek: `agent-identity-verification` skill. Ez a szabály minden ügynök
 CLAUDE.md-jébe automatikusan bekerül (`ensureAgentIdentitySection`).
+
+## ⛔ FELADAT VÉGÉN KÖTELEZŐ „KÉSZ"-JELZÉS A TULAJDONOSNAK (2026-09-16, {{OWNER_NAME}})
+
+Ha egy rád bízott (a tulajdonos, vagy a nevében egy másik ágens által kért)
+feladatot ELVÉGZEL, a végén KÖTELEZŐ egy rövid „kész" üzenet a tulajdonos saját
+csatornáján -- azzal, hogy MI lett kész, és egy ellenőrizhető azonosítóval
+(commit/PR/kártya). Nincs „majd", nincs „nem kért külön visszajelzést": a
+befejezés jelzése a feladat része, nem külön engedélyhez kötött extra.
+
+**A valós eset.** 2026-09-16-án a #290 landolása után valaki úgy döntött, hogy a
+„kész" jelzés fölösleges, mert a tulajdonos nem kért külön visszajelzést. Rossz
+döntés volt. A „ne kelljen figyelned" a HALADÁSRA vonatkozik, a „kész" jelzésre
+SOHA. A tulajdonos a saját csatornáján méri, hol tart a munka; egy csendben
+befejezett feladat kívülről láthatatlan -- pont annyit ér, mintha meg sem
+történt volna.
+
+**Mi tartozik ide, és mi nem (hogy ne legyen zaj):**
+- IDE tartozik minden rád bízott/kért munka befejezése: kód-landolás,
+  elemzés-kiszállítás, javítás, készre vitt kártya.
+- NEM tartozik ide a csendes heartbeat (az csak fontosnál/sürgősnél szól), és a
+  saját belső karbantartás, aminek nincs a tulajdonosnak szóló eredménye.
+- Az üzenet EGY rövid sor az eredménnyel, nem terjedelmes riport. A részletes
+  haladásról menet közben külön szólsz, ha a feladat több lépéses.
+
+Ez nem mond ellent a „kieséskor hallgatsz" szabálynak: kifutott kerettel nem
+írsz. De amint egy feladat kész, a kész-jelzés kötelező.
+
+Ez a szabály minden ügynök CLAUDE.md-jébe automatikusan bekerül
+(`ensureCompletionReportSection` / `ensureGlobalCompletionReportRule`).
