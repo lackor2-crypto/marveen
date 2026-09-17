@@ -134,7 +134,13 @@ DEPLOYED="$(cat "$SHA_FILE" 2>/dev/null || true)"
 
 # What is physically materialized on disk right now? (Diff the work tree against
 # the target; empty means the files already are the target.)
-TREE_DIFF="$(git_root diff --name-only "$TARGET" -- . 2>/dev/null | head -1)"
+# Pathspec is ':/' (repo root), NOT '.': '.' is relative to the shell's cwd, so
+# running this script from a subdirectory of the work tree (e.g. an agent
+# worktree under .worktrees/ that lives inside ROOT) would scope the diff to
+# that subdir and see the rest of the tree as unchanged -- reporting an empty
+# diff, poisoning the .deployed-sha baseline, and REFUSING on the next tick. The
+# ':/' magic pathspec is anchored to the work-tree root regardless of cwd.
+TREE_DIFF="$(git_root diff --name-only "$TARGET" -- :/ 2>/dev/null | head -1)"
 
 # dist/ staleness: any tracked *.ts newer than dist/index.js means a rebuild is
 # due even if the tree already matches (e.g. a materialize happened without a
@@ -177,7 +183,7 @@ fi
 if [ -z "$DEPLOYED" ]; then
   BASELINE=""
   for c in $(git --git-dir="$GIT_DIR" rev-list --max-count=20 "origin/$BRANCH" 2>/dev/null); do
-    if [ -z "$(git_root diff --name-only "$c" -- . 2>/dev/null | head -1)" ]; then
+    if [ -z "$(git_root diff --name-only "$c" -- :/ 2>/dev/null | head -1)" ]; then
       BASELINE="$c"; break
     fi
   done
@@ -192,7 +198,7 @@ if [ -z "$DEPLOYED" ]; then
 fi
 
 if [ -n "$DEPLOYED" ]; then
-  LOCAL_EDITS="$(git_root diff --name-only "$DEPLOYED" -- . 2>/dev/null)"
+  LOCAL_EDITS="$(git_root diff --name-only "$DEPLOYED" -- :/ 2>/dev/null)"
   # Files that legitimately change between DEPLOYED and TARGET:
   FORWARD="$(git --git-dir="$GIT_DIR" diff --name-only "$DEPLOYED" "$TARGET" 2>/dev/null)"
   STRAY="$(comm -23 <(printf '%s\n' "$LOCAL_EDITS" | sort -u) <(printf '%s\n' "$FORWARD" | sort -u) | grep -v '^$' || true)"
