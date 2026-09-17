@@ -1440,6 +1440,31 @@ export function pairLabel(pair: { name?: string; backup?: true; localPath?: stri
   return pair.name || 'a teljes Drive'
 }
 
+/**
+ * Egy elhasalt mentés-páros hibáját KÉT részre bontja.
+ *
+ * A nyers hiba gyakran egy Python Traceback a `google-auth.py` stderr-jéből
+ * (2026-09-17, valós eset: a canadalackor páros `lastResult`-jában egy
+ * "Traceback (most recent call last): ... urllib/request.py ..." állt, magyar
+ * mondat helyett). A `lastResult` az, amit a felhasználó a felületen ELŐL lát,
+ * ezért oda EMBERI mondat kell (fresh-install-usable / user-is-not-a-programmer
+ * szabály); a nyers részlet a Hibák dobozba megy, ahol a technikai leírásnak
+ * helye van.
+ *
+ * `uzenet`: mindig ugyanaz a rövid magyar mondat, gépi szöveg nélkül.
+ * `reszlet`: a nyers hibaszöveg (Error.message vagy maga az érték), a Hibák
+ *   doboznak megőrizve, 300 karakterre vágva.
+ */
+export function sanitizeParosHiba(err: unknown): { uzenet: string; reszlet: string } {
+  const reszlet = String((err as { message?: unknown } | null)?.message ?? err ?? '')
+    .trim()
+    .slice(0, 300)
+  return {
+    uzenet: 'a mentés elakadt egy hibán – a részletet a Hibák dobozban látod',
+    reszlet,
+  }
+}
+
 async function runSync(pairs: SyncPair[]): Promise<void> {
   const cfg = loadSyncConfig()
   for (const pair of pairs) {
@@ -1490,11 +1515,12 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
               : 'rendben'
       pair.lastPending = maradt
     } catch (err: any) {
-      pair.lastResult = String(err?.message || err).slice(0, 200)
+      const { uzenet, reszlet } = sanitizeParosHiba(err)
+      pair.lastResult = uzenet
       gond({
         pair, phase: 'mappa', failed: true,
         driveName: pairLabel(pair),
-        reason: `az egész páros elhasalt: ${pair.lastResult}`,
+        reason: `az egész páros elhasalt: ${reszlet}`,
       })
     }
     pair.lastRunAt = new Date().toISOString()
