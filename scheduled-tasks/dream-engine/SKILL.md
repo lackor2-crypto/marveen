@@ -11,6 +11,14 @@ A cél: az aznapi tudást átkonszolidálni és reggelre (07:30 Reggeli Napindí
 
 Generálj egy `{{INSTALL_DIR}}/DREAM.md` fájlt az alábbi 5 bucket alapján. A formátum a fájl alján van.
 
+**FONTOS — az adatbázist a repo beépített `better-sqlite3`-jával olvasd, NE a `sqlite3` CLI-vel** (az nincs feltétlenül telepítve; friss telepítésen sincs). Segéd-shellfüggvény, futtasd EGYSZER a session elején, utána `dbq "SELECT ..."`-ként hívd:
+
+```bash
+dbq() { node -e 'const db=new (require("{{INSTALL_DIR}}/node_modules/better-sqlite3"))("{{INSTALL_DIR}}/store/claudeclaw.db"); const s=process.argv[1].trim(); const r=/^\s*select/i.test(s)?db.prepare(s).all():db.prepare(s).run(); console.log(JSON.stringify(r,null,2));' "$1"; }
+```
+
+(SELECT-nél a sorokat, egyéb műveletnél a futás-eredményt adja vissza JSON-ban.)
+
 ### Bucket 1 — 💡 Skill-javaslatok (flotta-szintű)
 
 Nézz végig MINDEN agent (a fő-ágens és az összes sub-agent) tegnapi (24h) memóriáit és napi naplóját. Kerítsd ki:
@@ -19,7 +27,7 @@ Nézz végig MINDEN agent (a fő-ágens és az összes sub-agent) tegnapi (24h) 
 
 SQL minta:
 ```bash
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT agent_id, content, keywords FROM memories WHERE created_at > strftime('%s', 'now', '-24 hours') AND category IN ('hot','warm') ORDER BY agent_id, created_at"
+dbq "SELECT agent_id, content, keywords FROM memories WHERE created_at > strftime('%s', 'now', '-24 hours') AND category IN ('hot','warm') ORDER BY agent_id, created_at"
 ```
 
 Output: 0-2 konkrét skill-javaslat. Mindegyikhez: cím + 1 mondat indoklás + "flotta-szintű" vagy "agent: <név>".
@@ -28,12 +36,12 @@ Output: 0-2 konkrét skill-javaslat. Mindegyikhez: cím + 1 mondat indoklás + "
 
 ```bash
 # Vektorizálás ellenőrzés
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT COUNT(*) as total, COUNT(embedding) as with_emb FROM memories"
+dbq "SELECT COUNT(*) as total, COUNT(embedding) as with_emb FROM memories"
 # Ha NEM 100%, hívd meg a backfill endpoint-ot (Ollamaval embeddeli a hianyzo ID-kat):
 curl -s -X POST http://localhost:{{WEB_PORT}}/api/memories/backfill -H "Authorization: Bearer $(cat {{INSTALL_DIR}}/store/.dashboard-token)"
 
 # Antikvált hot-tier (>7 napos hot, nem hivatkozott a memories_fts-en az elmúlt 24h-ban)
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT id, content, accessed_at FROM memories WHERE category='hot' AND accessed_at < strftime('%s', 'now', '-7 days')"
+dbq "SELECT id, content, accessed_at FROM memories WHERE category='hot' AND accessed_at < strftime('%s', 'now', '-7 days')"
 ```
 
 Műveletek:
@@ -43,7 +51,7 @@ Műveletek:
 
 A változtatásokat directly SQL-lel csináld:
 ```bash
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "UPDATE memories SET category='cold' WHERE id IN (...)"
+dbq "UPDATE memories SET category='cold' WHERE id IN (...)"
 ```
 
 Output: rövid statisztika ("X memória cold-tier-be áthelyezve, Y vektorizálatlan rendezve").
@@ -52,7 +60,7 @@ Output: rövid statisztika ("X memória cold-tier-be áthelyezve, Y vektorizála
 
 ```bash
 # Nyitott kanban-kártyák project + priority szerint
-sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "SELECT id, title, status, project, priority, assignee FROM kanban_cards WHERE status IN ('planned','in_progress','waiting') AND archived_at IS NULL ORDER BY project, priority DESC"
+dbq "SELECT id, title, status, project, priority, assignee FROM kanban_cards WHERE status IN ('planned','in_progress','waiting') AND archived_at IS NULL ORDER BY project, priority DESC"
 ```
 
 Csoportosíts project szerint. A daily naplóban (utolsó 7 nap) nézd hogy melyik projekten van aktív mozgás (commit, PR, kanban-átmozgás). Hozz ki egy TOP-3 holnapi javaslatot prioritás+aktivitás súlyozva.
