@@ -129,6 +129,17 @@ export function cronPrevOccurrence(cron: string, fromMs: number, toMs: number, t
   }
 }
 
+// The first occurrence strictly after `fromMs`, or null when the expression
+// cannot be parsed. Lets the scheduler ask "how soon is the NEXT run" -- a
+// dropped tick is harmless only when another one is close behind.
+export function cronNextOccurrence(cron: string, fromMs: number, tz: string = CRON_TZ): number | null {
+  try {
+    return CronExpressionParser.parse(cron, { tz, currentDate: new Date(fromMs) }).next().getTime()
+  } catch {
+    return null
+  }
+}
+
 // Back-compat shim faithful to the old fixed-window semantics -- "did an
 // occurrence happen in the last catchUpMs". Kept for callers/tests that ask
 // the question that way; the scheduler loop itself uses cronDueBetween with
