@@ -11882,3 +11882,22 @@ details.upstream-box > summary > h4 {
 .cb-browse-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cb-browse-repo { flex: 0 0 auto; font-size: 11px; opacity: .6; }
 .cb-browse-status { margin-top: 8px; }
+
+/* Kartya #165: Bongeszo oldal */
+.browser-card { padding: 16px; margin-bottom: 16px; }
+.browser-help { font-size: 13px; opacity: .85; margin: 0 0 12px; line-height: 1.5; }
+.browser-toggle { display: flex; gap: 8px; align-items: center; font-weight: 600; margin-bottom: 10px; }
+.browser-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+.browser-grow { flex: 1 1 200px; min-width: 0; }
+.browser-line { font-size: 13px; margin: 4px 0; word-break: break-word; }
+.browser-ok { color: var(--success, #16a34a); }
+.browser-warn { color: var(--warning, #d97706); }
+.browser-bad { color: var(--danger, #dc2626); }
+.browser-loud { font-weight: 700; font-size: 15px; }
+.browser-sessions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.browser-session-chip { border: 1px solid var(--border, #ccc); border-radius: 12px; padding: 2px 8px; font-size: 12px; }
+.browser-text { max-height: 300px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+.browser-shot { max-width: 100%; border: 1px solid var(--border, #ccc); border-radius: 6px; margin-top: 8px; }
+@media (max-width: 640px) {
+  .browser-row > * { flex: 1 1 100%; }
+}
