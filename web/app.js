@@ -20215,6 +20215,16 @@ async function renderOverviewConnections() {
             // csereli a `guide` ag is).
             : h.id === 'mcp_needs_auth'
               ? `jumpToMcpConnector(${JSON.stringify(glNames).replace(/"/g, '&quot;')})`
+              // A tukor-mentes vészféke NEM bejelentkezesi hiba: a teendo a
+              // Raktar oldalon van (fajlok visszapotlasa VAGY a torles
+              // engedelyezese), nem a Fiokokon -- oda visszuk (Boss,
+              // 2026-09-17). A hitelesitesi-hiba sora VISZONT a Fiokok oldalra
+              // visz, ott kell ujra bejelentkezni ("miert nem visz a fiokok
+              // oldalra ahol meg kel tennem a bejelentkezest").
+              : h.id === 'drive_sync_backup_brake'
+                ? "switchPage('drive')"
+                : h.id === 'drive_sync_auth_stuck'
+                  ? "switchPage('accounts')"
               // Minden mas onellenorzes-sor (mentes, upstream, git-lehuzas,
               // verzio...) eddig az alapertelmezett agra esett, es a Fiokok
               // oldalra dobta a felhasznalot, ahol semmi dolga -- pont ott nem

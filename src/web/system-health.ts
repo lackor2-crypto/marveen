@@ -1382,6 +1382,10 @@ export const DRIVE_SYNC_STALE_DAYS = 3
 
 interface DriveSyncParos {
   account?: string
+  /** A paros ember-neve a feluleten (pl. "A teljes raktár"). */
+  name?: string
+  /** Igaz, ha ez egy tukor-mentes (backup) paros -- csak ezt fekezi a vészfék. */
+  backup?: boolean
   lastRunAt?: string
   lastResult?: string
   /** Hany fajl varakozott meg feltoltesre a legutobbi futas vegen. */
@@ -1427,6 +1431,42 @@ function driveSyncKartya(): { letezik: boolean; bekapcsolva: boolean } {
  */
 export function reszlegesEredmeny(s: string | undefined): boolean {
   return typeof s === 'string' && s.toLowerCase().startsWith('részleges')
+}
+
+/**
+ * BERAGADT-e a mentes a torles-vészféken?
+ *
+ * A backup (tukor) paros vészféke akkor lep be, ha a gepen sok fajl eltunt,
+ * ami fent van a Drive-on: ilyenkor a szinkron BIZTONSAGBOL semmit nem torol,
+ * es a mentes NEM megy magatol tovabb (Boss, 2026-09-17: a 518-as sor a
+ * `vészfék: 1531 fájl hiányzik` allapotot HAZUG "magatol folytatja" szoveggel
+ * mutatta). A jelet a paros SAJAT eredmeny-sorabol vesszuk -- ezt a szoveget
+ * MI irjuk (drive-sync.ts syncAll, "vészfék: N fájl hiányzik..."), nem a
+ * felhasznalo, es nem forditott felulet-szoveg. A sor LETEZESE a backup-flagen
+ * es a prefixen mulik (allapot), a szam csak rada -- ha a szoveg valaha
+ * atfogalmazodik, a sor akkor is megjelenik, csak a darabszam marad el.
+ */
+export function veszfekMiatt(s: string | undefined): boolean {
+  return typeof s === 'string' && s.toLowerCase().startsWith('vészfék')
+}
+
+/** Hany fajl hianyzik a gepről a vészfék-sor szerint (0, ha nem olvashato ki). */
+export function veszfekHianyzo(s: string | undefined): number {
+  if (!veszfekMiatt(s)) return 0
+  const m = /(\d[\d\s. ]*)\s*fájl/i.exec(String(s))
+  if (!m) return 0
+  const n = Number(m[1].replace(/[\s. ]/g, ''))
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
+/**
+ * A fiokok/parosok neveinek rovid felsorolasa a sorban -- kulonben tiz paros
+ * kozott nem talalhato meg, MELYIKROL van szo (Boss, 2026-09-17: "melyik
+ * drive? hiszen van 10!"). Ötödiktol "+N" osszevonas, hogy egy sorba ferjen.
+ */
+function fiokNevek(parok: DriveSyncParos[]): string {
+  const nevek = parok.map((p) => String(p.account || '')).filter(Boolean)
+  return nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
 }
 
 /**
@@ -1507,15 +1547,34 @@ export function driveSyncRows(
   // fiokrol van szo, kulonben tiz paros kozott nem talalhato meg.
   const csonkak = allapot.parok.filter((p) => reszlegesEredmeny(p.lastResult))
   if (csonkak.length) {
-    const nevek = csonkak.map((p) => String(p.account || '')).filter(Boolean)
-    const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
-    rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: lista } })
+    rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: fiokNevek(csonkak) } })
+  }
+
+  // TORLES-VESZFEK a tukor-mentesen. A backup paros vészféke akkor lep be, ha
+  // sok fajl eltunt a gepről, ami fent van a Drive-on -- ilyenkor a szinkron
+  // BIZTONSAGBOL semmit nem torol, es a mentes NEM megy magatol tovabb. Ez NEM
+  // "meg feltoltes alatt" (incomplete): az azt hazudna, hogy magatol folytatja.
+  // Sajat, oszinte sort kap, es MEGNEVEZI, MELYIK a paros (Boss, 2026-09-17:
+  // "nincs benne a drive neve. melyik drive? hiszen van 10!"). A teendo NEM a
+  // bejelentkezes (a fiok belep, csak a torles all), ezert a felulet ezt a sort
+  // a Raktar oldalra vezeti, nem a Fiokokra.
+  const veszfekesek = allapot.parok.filter((p) => p.backup === true && veszfekMiatt(p.lastResult))
+  for (const p of veszfekesek) {
+    const nev = String(p.name || '').trim()
+    rows.push({
+      id: 'drive_sync_backup_brake',
+      status: 'warn',
+      params: { account: String(p.account || '?'), name: nev, missing: veszfekHianyzo(p.lastResult) },
+    })
   }
 
   // MEG NEM ERT A VEGERE. Nem csonka masolat (a kep teljes volt), csak a
   // feltoltes fer bele reszletekben -- de ettol meg nem szabad zold sort
-  // mutatni. `warn`: magatol halad, teendo csak akkor van, ha nem fogy.
-  const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0)
+  // mutatni. `warn`: magatol halad, teendo csak akkor van, ha nem fogy. A
+  // vészfékes backup parost ITT KIVESSZUK: annak sajat (fentebbi) sora van, es
+  // a varakozo szama nala nem "magatol halad", hanem all -- ket ellentetes
+  // uzenetet adna egy parosra.
+  const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0 && !veszfekesek.includes(p))
   if (varakozok.length) {
     // HA a legutobbi futas hitelesitesi hibaba utkozott, akkor a varakozo fajlok
     // NEM "magatol folytatodik" allapotban vannak, hanem beragadtak: a becsuletes
@@ -1548,11 +1607,11 @@ export function driveSyncRows(
       const tobbiek = varakozok.filter((p) => String(p.account || '') !== authBeragadas.account)
       if (tobbiek.length) {
         const tobbiFajlok = tobbiek.reduce((sum, p) => sum + varakozoFajlok(p), 0)
-        rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: tobbiek.length, f: tobbiFajlok } })
+        rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: tobbiek.length, f: tobbiFajlok, names: fiokNevek(tobbiek) } })
       }
     } else {
       const fajlok = varakozok.reduce((sum, p) => sum + varakozoFajlok(p), 0)
-      rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok } })
+      rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: fajlok, names: fiokNevek(varakozok) } })
     }
   }
 
