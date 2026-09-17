@@ -39,9 +39,10 @@ function installScript(dest: string) {
   execFileSync('chmod', ['+x', join(dest, 'scripts', 'deploy-live.sh')])
 }
 
-function runDeploy(extraEnv: Record<string, string> = {}) {
+function runDeploy(extraEnv: Record<string, string> = {}, cwd?: string) {
   return execFileSync('bash', [join(root, 'scripts', 'deploy-live.sh')], {
     encoding: 'utf8',
+    cwd,   // undefined -> inherit; a subdir of the work tree exposes the '-- .' cwd bug
     env: {
       ...process.env, ...GENV,
       MARVEEN_PROJECT_ROOT: root,
@@ -181,6 +182,27 @@ describe('deploy-live.sh', () => {
     expect(restarted()).toBe(false)
     // a kezi modositas megmaradt
     expect(readFileSync(join(root, 'src', 'a.ts'), 'utf8')).toMatch(/hand edit/)
+  })
+
+  // --- FIX3: a git diff pathspec ':/' (repo root), NEM '.'. A '.' a shell
+  // cwd-jehez relativ, tehat ha a scriptet a work tree egy ALKONYVTARABOL
+  // futtatjak (pl. egy .worktrees/<nev> agent-worktree, ami ROOT-on belul ul),
+  // a '.' a diffet arra az alkonyvtarra szukiti -> a fa tobbi reszet
+  // valtozatlannak latja -> TREE_DIFF ures -> "already current"-ot rogzit
+  // deploy NELKUL (megmergezett .deployed-sha baseline), majd a kovetkezo tick
+  // REFUSING-ol. Ez a nema beragadt deploy, amit ez a fajl megelozni hivatott.
+  it('FIX3: work tree ALKONYVTARABOL futtatva is deployol (nem mergezi a baseline-t)', () => {
+    advanceOrigin('src/b.ts', 'export const b = 2\n', 'add b')
+    const sub = join(root, '.worktrees', 'agent-x')   // subdir INSIDE the work tree
+    mkdirSync(sub, { recursive: true })
+    runDeploy({}, sub)                                  // <- cwd = subdir, ez buktatta a '-- .'-ot
+    // A regi '-- .' kod itt built()===false + "already current"-ot logolt volna.
+    expect(existsSync(join(root, 'src', 'b.ts'))).toBe(true)   // tenyleg felmaterializalt
+    expect(built()).toBe(true)
+    expect(restarted()).toBe(true)
+    expect(deployLog()).not.toMatch(/already current/)
+    const target = execFileSync('git', ['--git-dir', join(root, '.git'), 'rev-parse', 'origin/main'], { encoding: 'utf8' }).trim()
+    expect(readFileSync(join(store, '.deployed-sha'), 'utf8').trim()).toBe(target)
   })
 
   it('sikertelen fetch NEM naprakesz -- kulon mondja', () => {
