@@ -18,19 +18,27 @@ A két kategória szintje szabályozza a 2. és 4. lépést:
 
 Ha a config hiányzik vagy a kulcs nincs benne → default level 3 (régi viselkedés).
 
+## Adatbázis-hozzáférés
+
+Az adatbázist a repo beépített `better-sqlite3`-jával olvasd/írd, **NE a `sqlite3` CLI-vel** (az nincs feltétlenül telepítve; friss telepítésen sincs). Futtasd EGYSZER a session elején, utána `dbq "SQL"`-ként hívd (SELECT-nél a sorokat, egyéb műveletnél a futás-eredményt adja vissza JSON-ban):
+
+```bash
+dbq() { node -e 'const db=new (require("{{INSTALL_DIR}}/node_modules/better-sqlite3"))("{{INSTALL_DIR}}/store/claudeclaw.db"); const s=process.argv[1].trim(); const r=/^\s*select/i.test(s)?db.prepare(s).all():db.prepare(s).run(); console.log(JSON.stringify(r,null,2));' "$1"; }
+```
+
 ## Eljárás
 
 1. **State-fájl beolvasás**: `store/kanban-audit-state.json` tartalmazza `last_audit_at` Unix timestampet. Első futáskor null -> ne pingelj senkit, csak állítsd be a state-et.
 
 2. **Tisztítás**: 7+ napos done kártyák archiválása:
    ```bash
-   sqlite3 {{INSTALL_DIR}}/store/claudeclaw.db "UPDATE kanban_cards SET archived_at=unixepoch() WHERE status='done' AND archived_at IS NULL AND updated_at < strftime('%s','now','-7 days')"
+   dbq "UPDATE kanban_cards SET archived_at=unixepoch() WHERE status='done' AND archived_at IS NULL AND updated_at < strftime('%s','now','-7 days')"
    ```
 
 3. **Beakadt task detection** (előző audit óta nem mozdult): in_progress kártyák amik `updated_at < last_audit_at`:
    ```bash
-   LAST=$(jq -r .last_audit_at store/kanban-audit-state.json 2>/dev/null || echo 0)
-   sqlite3 store/claudeclaw.db "SELECT id, title, assignee, ROUND((strftime('%s','now')-updated_at)/3600.0,1) as hours_stale FROM kanban_cards WHERE status='in_progress' AND archived_at IS NULL AND updated_at < $LAST ORDER BY hours_stale DESC"
+   LAST=$(jq -r .last_audit_at {{INSTALL_DIR}}/store/kanban-audit-state.json 2>/dev/null || echo 0)
+   dbq "SELECT id, title, assignee, ROUND((strftime('%s','now')-updated_at)/3600.0,1) as hours_stale FROM kanban_cards WHERE status='in_progress' AND archived_at IS NULL AND updated_at < $LAST ORDER BY hours_stale DESC"
    ```
 
 4. **Beakadt task -> ping**: minden beakadt kártyához küldj inter-agent message-t az assignee-nek (kivéve {{MAIN_AGENT_ID}}-nek és üres assignee-nek):
