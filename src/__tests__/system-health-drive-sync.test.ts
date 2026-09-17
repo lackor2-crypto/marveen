@@ -93,6 +93,8 @@ describe('a Drive-mentes megall vagy megcsonkul, es errol szolni kell', () => {
       driveSyncRows(MOST, rendben([{ account: 'a', lastRunAt: napokkalEzelott(0), lastResult: 'részleges: x' }]), kartya(true), true),
       driveSyncRows(MOST, rendben([{ account: 'a', lastRunAt: napokkalEzelott(30) }]), kartya(true), true),
       driveSyncRows(MOST, rendben([{ account: 'a', lastRunAt: napokkalEzelott(1) }]), kartya(true), true),
+      driveSyncRows(MOST, rendben([{ account: 'usalackor', lastRunAt: napokkalEzelott(0), lastResult: 'kész', lastPending: 200 }]), kartya(true), true, null),
+      driveSyncRows(MOST, rendben([{ account: 'canadalackor', name: 'A teljes raktár', backup: true, lastRunAt: napokkalEzelott(1), lastResult: 'vészfék: 1531 fájl hiányzik a gépedről, ezért fent semmit nem töröltem', lastPending: 518 }]), kartya(true), true, null),
     ]
     for (const r of ossz) for (const sor of r) gyujto.add(sor.id)
     expect(gyujto.size).toBeGreaterThanOrEqual(7)
@@ -108,5 +110,62 @@ describe('a Drive-mentes megall vagy megcsonkul, es errol szolni kell', () => {
   it('a zold sor a felulet zold listajaba is bekerul', () => {
     const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf-8')
     expect(app).toContain("h.id === 'drive_sync_ok'")
+  })
+
+  it('a tukor-mentes vészféke sajat, oszinte sort kap es MEGNEVEZI a parost', () => {
+    const parok = rendben([
+      {
+        account: 'canadalackor', name: 'A teljes raktár', backup: true,
+        lastRunAt: napokkalEzelott(1),
+        lastResult: 'vészfék: 1531 fájl hiányzik a gépedről, ezért fent semmit nem töröltem',
+        lastPending: 518,
+      },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null)
+    const sor = r.find((x) => x.id === 'drive_sync_backup_brake')
+    expect(sor).toBeTruthy()
+    expect(sor?.status).toBe('warn')
+    // A drive/paros neve BENNE van (Boss: "melyik drive? hiszen van 10!").
+    expect(sor?.params).toMatchObject({ account: 'canadalackor', name: 'A teljes raktár', missing: 1531 })
+    // Egy vészfékes parosra NEM keletkezik megteveszto "magatol folytatja"
+    // (incomplete) sor: az ket ellentetes uzenetet adna.
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')).toBeFalsy()
+  })
+
+  it('a vészfék sor akkor is megjelenik, ha a darabszam nem olvashato ki (allapot > szam)', () => {
+    const parok = rendben([
+      { account: 'x', name: 'tukor', backup: true, lastRunAt: napokkalEzelott(1), lastResult: 'vészfék: fájlok hiányoznak', lastPending: 9 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null)
+    const sor = r.find((x) => x.id === 'drive_sync_backup_brake')
+    expect(sor).toBeTruthy()
+    expect(sor?.params).toMatchObject({ missing: 0 })
+  })
+
+  it('a vészfék csak a BACKUP parost fekezi -- egy sima paros varakozoja incomplete marad', () => {
+    const parok = rendben([
+      { account: 'sima', lastRunAt: napokkalEzelott(0), lastResult: 'vészfék: 5 fájl hiányzik', lastPending: 42 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null)
+    // backup:true nelkul NEM vészfék-sor, hanem a szokasos incomplete
+    expect(r.find((x) => x.id === 'drive_sync_backup_brake')).toBeFalsy()
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')).toBeTruthy()
+  })
+
+  it('az incomplete sor MEGNEVEZI, melyik fioknal var fajl', () => {
+    const parok = rendben([
+      { account: 'usalackor', lastRunAt: napokkalEzelott(0), lastResult: 'kész', lastPending: 200 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null)
+    const sor = r.find((x) => x.id === 'drive_sync_incomplete')
+    expect(sor?.params).toMatchObject({ names: 'usalackor' })
+  })
+
+  it('a felulet a vészfék sort a Raktarra, az auth-sort a Fiokokra vezeti', () => {
+    const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf-8')
+    expect(app).toContain("h.id === 'drive_sync_backup_brake'")
+    expect(app).toContain("switchPage('drive')")
+    expect(app).toContain("h.id === 'drive_sync_auth_stuck'")
+    expect(app).toContain("switchPage('accounts')")
   })
 })
