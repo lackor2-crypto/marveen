@@ -1038,6 +1038,12 @@ const NO_LIVE_TREE_BLOCK_RE = new RegExp(
   `${NO_LIVE_TREE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${NO_LIVE_TREE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+const COMPLETION_REPORT_BEGIN = '<!-- BEGIN GENERATED: completion-report-rule (auto-generated, do not edit by hand) -->'
+const COMPLETION_REPORT_END = '<!-- END GENERATED: completion-report-rule -->'
+const COMPLETION_REPORT_BLOCK_RE = new RegExp(
+  `${COMPLETION_REPORT_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${COMPLETION_REPORT_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 // Builds the text body that goes between the BEGIN/END markers.
 // Single source of truth -- called by both generateClaudeMd() (initial
 // generation) and ensureFleetRosterSection() (idempotent update on respawn).
@@ -2578,6 +2584,102 @@ export function ensureGlobalNoLiveTreeRule(): void {
 
   const updated = NO_LIVE_TREE_BLOCK_RE.test(existing)
     ? existing.replace(NO_LIVE_TREE_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+// Builds the "always send a completion signal on the owner's channel" body.
+// Single source of truth for both the per-agent and machine-wide writers.
+// ASCII-only (no accents) to match the other generated blocks; the accented
+// human-facing copy lives in the tracked CLAUDE.md / CLAUDE.md.template.
+function buildCompletionReportBody(): string {
+  return [
+    '## FELADAT VEGEN KOTELEZO KESZ-JELZES A TULAJDONOSNAK',
+    '',
+    'Ha egy rad bizott (a tulajdonos, vagy a neveben egy masik agens altal',
+    'kert) feladatot ELVEGZEL, a vegen KOTELEZO egy rovid "kesz" uzenet a',
+    'tulajdonos sajat csatornajan -- azzal, hogy MI lett kesz, es egy',
+    'ellenorizheto azonositoval (commit/PR/kartya). Nincs "majd", nincs "nem',
+    'kert kulon visszajelzest": a befejezes jelzese a feladat resze, nem kulon',
+    'engedelyhez kotott extra.',
+    '',
+    'Miert: 2026-09-16-an a #290 landolasa utan valaki ugy dontott, hogy a',
+    '"kesz" jelzes folosleges, mert a tulajdonos nem kert kulon visszajelzest.',
+    'Rossz dontes volt. A "ne kelljen figyelned" a HALADASRA vonatkozik, a',
+    '"kesz" jelzesre SOHA. A tulajdonos a sajat csatornajan meri, hogy hol tart',
+    'a munka; egy csendben befejezett feladat kivulrol lathatatlan -- pont',
+    'annyit er, mintha meg sem tortent volna.',
+    '',
+    'Mi tartozik ide, es mi nem (hogy ne legyen zaj):',
+    '- IDE tartozik minden rad bizott/kert munka befejezese: kod-landolas,',
+    '  elemzes-kiszallitas, javitas, keszre vitt kartya.',
+    '- NEM tartozik ide a csendes heartbeat (az csak fontosnal/surgosnel szol),',
+    '  es a sajat belso karbantartas, aminek nincs a tulajdonosnak szolo',
+    '  eredmenye.',
+    '- Az uzenet EGY rovid sor az eredmennyel, nem terjedelmes riport. A',
+    '  reszletes haladasrol menet kozben kulon szolsz, ha a feladat tobb',
+    '  lepeses.',
+    '',
+    'Ez nem mond ellent a "kieskeskor hallgatsz" szabalynak: kifutott kerettel',
+    'nem irsz, mert arrol nincs mit mondani. De amint egy feladat kesz, a',
+    'kesz-jelzes kotelezo.',
+  ].join('\n')
+}
+
+/** Beviszi a "feladat vegen kotelezo kesz-jelzes" doktrinat egy agens sajat
+ *  CLAUDE.md-jebe. A fo agens ezt a gepszintu valtozatbol kapja
+ *  (ensureGlobalCompletionReportRule), ugyanugy, mint a tobbi marker-blokkot. */
+export function ensureCompletionReportSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${COMPLETION_REPORT_BEGIN}\n${buildCompletionReportBody()}\n${COMPLETION_REPORT_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = COMPLETION_REPORT_BLOCK_RE.test(existing)
+    ? existing.replace(COMPLETION_REPORT_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: a fo agens (es a worktree-ben dolgozo agensek) a
+ *  ~/.claude/CLAUDE.md-t olvassak, barhonnan is futnak. */
+export function ensureGlobalCompletionReportRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${COMPLETION_REPORT_BEGIN}\n${buildCompletionReportBody()}\n${COMPLETION_REPORT_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = COMPLETION_REPORT_BLOCK_RE.test(existing)
+    ? existing.replace(COMPLETION_REPORT_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'
