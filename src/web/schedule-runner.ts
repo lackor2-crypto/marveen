@@ -28,7 +28,7 @@ import {
   SCHEDULED_TASK_PREAMBLE,
   wrapScheduledTask,
 } from '../prompt-safety.js'
-import { cronPrevOccurrence, effectiveCronTz } from './cron.js'
+import { cronNextOccurrence, cronPrevOccurrence, effectiveCronTz } from './cron.js'
 import {
   listScheduledTasks,
   SCHEDULED_TASKS_DIR,
@@ -342,6 +342,27 @@ export function decideCatchUp(
 ): CatchUpDecision {
   if (ageMs <= lateThresholdMs) return 'on-time'
   return ageMs <= catchUpMaxAgeMs(task) ? 'catch-up' : 'stale'
+}
+
+// skipIfBusy exists for short-cadence heartbeats: dropping one busy tick is
+// harmless because the next is minutes away. On a sparse schedule the same
+// drop loses the whole period -- the weekly dream-engine (skipIfBusy=true)
+// was dropped on a busy Monday (2026-08-24) and nothing ran for a week. So the
+// flag only drops a tick when the next occurrence is within this gap; a
+// daily/weekly task queues the busy retry instead. Unparseable cron -> keep
+// the old opt-in drop (no worse than before).
+export const SKIP_IF_BUSY_MAX_GAP_MS = 6 * 60 * 60 * 1000
+
+/** Pure: may a busy tick of this task be dropped under skipIfBusy? */
+export function skipIfBusyMayDrop(
+  task: Pick<ScheduledTask, 'schedule' | 'skipIfBusy' | 'forceSend'>,
+  now: number,
+  maxGapMs: number = SKIP_IF_BUSY_MAX_GAP_MS,
+): boolean {
+  if (!task.skipIfBusy || task.forceSend) return false
+  const next = cronNextOccurrence(task.schedule, now)
+  if (next == null) return true
+  return next - now <= maxGapMs
 }
 
 /** Pure: where the first post-start scan window begins. */
@@ -1379,14 +1400,16 @@ export function startScheduleRunner(): NodeJS.Timeout {
           // state is bypassed. Dropping that on skipIfBusy would turn the
           // deferral into a silent loss, so forceSend is exempt from the
           // skip and always queues the retry.
-          if (task.skipIfBusy && !task.forceSend) {
+          // skipIfBusyMayDrop also refuses the drop for a sparse (daily/
+          // weekly) schedule, where one dropped tick loses the whole period.
+          if (skipIfBusyMayDrop(task, now)) {
             // Opt-in skip for short-cadence tasks (e.g. 30-min heartbeats):
             // a single missed tick is harmless because the next one is
             // already on the way, and queueing them produces spurious
             // "60 perce varakozik" Telegram alerts whenever the operator
             // is having an active conversation in the channels session.
-            // Daily/weekly schedules keep skipIfBusy=false so the queue
-            // + alert path catches a long-running busy state.
+            // Daily/weekly schedules queue the retry even with
+            // skipIfBusy=true, so the queue + alert path catches them.
             logger.info({ task: task.name, agent: agentName }, 'Schedule busy, skipIfBusy=true: dropping tick silently')
             appendTaskRun(task.name, agentName, 'skipped')
             continue
