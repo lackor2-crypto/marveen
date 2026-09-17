@@ -142,14 +142,25 @@ describe('a Drive-mentes megall vagy megcsonkul, es errol szolni kell', () => {
     expect(sor?.params).toMatchObject({ missing: 0 })
   })
 
-  it('a vészfék csak a BACKUP parost fekezi -- egy sima paros varakozoja incomplete marad', () => {
+  it('a vészfék a SIMA parost is fekezi -- nem esik a hazug incomplete sorba', () => {
     const parok = rendben([
       { account: 'sima', lastRunAt: napokkalEzelott(0), lastResult: 'vészfék: 5 fájl hiányzik', lastPending: 42 },
     ])
     const r = driveSyncRows(MOST, parok, kartya(true), true, null)
-    // backup:true nelkul NEM vészfék-sor, hanem a szokasos incomplete
-    expect(r.find((x) => x.id === 'drive_sync_backup_brake')).toBeFalsy()
-    expect(r.find((x) => x.id === 'drive_sync_incomplete')).toBeTruthy()
+    const sor = r.find((x) => x.id === 'drive_sync_backup_brake')
+    expect(sor).toBeTruthy()
+    // nev nelkul a fiok neve all a helyen, ne ures idezojel
+    expect(sor?.params).toMatchObject({ account: 'sima', name: 'sima', missing: 5 })
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')).toBeFalsy()
+  })
+
+  it('a vészfék-szoveg nem igér nem letezo feloldo kapcsolot', () => {
+    for (const f of ['web/lang/hu.js', 'web/lang/en.js']) {
+      const t = readFileSync(join(process.cwd(), f), 'utf-8')
+      const sor = t.split('\n').find((l) => l.includes("'health.drive_sync_backup_brake_action'")) || ''
+      expect(sor).not.toMatch(/engedélyezd a törlést|allow deletions/)
+    }
+    expect(readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf-8')).toContain('KAPCSOLD KI')
   })
 
   it('az incomplete sor MEGNEVEZI, melyik fioknal var fajl', () => {

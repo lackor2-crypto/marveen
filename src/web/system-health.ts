@@ -1384,7 +1384,7 @@ interface DriveSyncParos {
   account?: string
   /** A paros ember-neve a feluleten (pl. "A teljes raktár"). */
   name?: string
-  /** Igaz, ha ez egy tukor-mentes (backup) paros -- csak ezt fekezi a vészfék. */
+  /** Igaz, ha ez egy tukor-mentes (backup) paros. A vészfék NEM csak ezt fekezi. */
   backup?: boolean
   lastRunAt?: string
   lastResult?: string
@@ -1436,14 +1436,16 @@ export function reszlegesEredmeny(s: string | undefined): boolean {
 /**
  * BERAGADT-e a mentes a torles-vészféken?
  *
- * A backup (tukor) paros vészféke akkor lep be, ha a gepen sok fajl eltunt,
+ * A vészfék BARMELY parosnal belephet, amelyiknel a torles-atvitel (deleteUp)
+ * be van kapcsolva (drive-sync.ts syncPair -> shouldBrakeDeletions), nem csak a
+ * backup (tukor) parosnal. Akkor lep be, ha a gepen sok fajl eltunt,
  * ami fent van a Drive-on: ilyenkor a szinkron BIZTONSAGBOL semmit nem torol,
  * es a mentes NEM megy magatol tovabb (Boss, 2026-09-17: a 518-as sor a
  * `vészfék: 1531 fájl hiányzik` allapotot HAZUG "magatol folytatja" szoveggel
  * mutatta). A jelet a paros SAJAT eredmeny-sorabol vesszuk -- ezt a szoveget
  * MI irjuk (drive-sync.ts syncAll, "vészfék: N fájl hiányzik..."), nem a
- * felhasznalo, es nem forditott felulet-szoveg. A sor LETEZESE a backup-flagen
- * es a prefixen mulik (allapot), a szam csak rada -- ha a szoveg valaha
+ * felhasznalo, es nem forditott felulet-szoveg. A sor LETEZESE CSAK a prefixen
+ * mulik (allapot), a szam csak rada -- ha a szoveg valaha
  * atfogalmazodik, a sor akkor is megjelenik, csak a darabszam marad el.
  */
 export function veszfekMiatt(s: string | undefined): boolean {
@@ -1550,7 +1552,7 @@ export function driveSyncRows(
     rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: fiokNevek(csonkak) } })
   }
 
-  // TORLES-VESZFEK a tukor-mentesen. A backup paros vészféke akkor lep be, ha
+  // TORLES-VESZFEK (barmely parosnal). A vészfék akkor lep be, ha
   // sok fajl eltunt a gepről, ami fent van a Drive-on -- ilyenkor a szinkron
   // BIZTONSAGBOL semmit nem torol, es a mentes NEM megy magatol tovabb. Ez NEM
   // "meg feltoltes alatt" (incomplete): az azt hazudna, hogy magatol folytatja.
@@ -1558,9 +1560,12 @@ export function driveSyncRows(
   // "nincs benne a drive neve. melyik drive? hiszen van 10!"). A teendo NEM a
   // bejelentkezes (a fiok belep, csak a torles all), ezert a felulet ezt a sort
   // a Raktar oldalra vezeti, nem a Fiokokra.
-  const veszfekesek = allapot.parok.filter((p) => p.backup === true && veszfekMiatt(p.lastResult))
+  // A fek NEM csak a backup parosnal lep be: a drive-sync.ts a deleteUp alapjan
+  // MINDEN parosnal fekez, ezert itt sem szurunk a backup-flagre -- kulonben egy
+  // sima paros vészféke a hazug "magatol folytatja" (incomplete) sorba esne.
+  const veszfekesek = allapot.parok.filter((p) => veszfekMiatt(p.lastResult))
   for (const p of veszfekesek) {
-    const nev = String(p.name || '').trim()
+    const nev = String(p.name || '').trim() || String(p.account || '?')
     rows.push({
       id: 'drive_sync_backup_brake',
       status: 'warn',
