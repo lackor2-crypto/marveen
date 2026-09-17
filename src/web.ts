@@ -119,6 +119,7 @@ import { tryHandleAutofill, isExtensionOrigin } from './web/routes/autofill.js'
 import { tryHandleVaultSsh } from './web/routes/vault-ssh.js'
 import { tryHandleFleet } from './web/routes/fleet.js'
 import { tryHandleVaultSshKeys } from './web/routes/vault-ssh-keys.js'
+import { tryHandleBrowser } from './web/routes/browser.js'
 import type { RouteContext } from './web/routes/types.js'
 
 const WEB_DIR = join(PROJECT_ROOT, 'web')
@@ -295,6 +296,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleFleetQ(routeCtx)) return
       if (await tryHandleCode(routeCtx)) return
       if (await tryHandleFleet(routeCtx)) return
+      if (await tryHandleBrowser(routeCtx)) return
       if (await tryHandleStatic(routeCtx, WEB_DIR)) return
 
       res.writeHead(404)

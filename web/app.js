@@ -791,6 +791,7 @@ function switchPage(pageId) {
   if (pageId === 'tokenUsage') loadTokenUsage()
   if (pageId === 'costs') { loadCosts(); loadContextUsage() }
   if (pageId === 'ideas') loadIdeasPage()
+  if (pageId === 'browser') callPageLoader('loadBrowserPage')
   // These two loaders live in IIFEs further down this file, so a DIRECT load of
   // their hash (a refresh, or a link straight to #naplo / #archived) reaches
   // switchPage before the definition has been parsed: that threw a
@@ -965,7 +966,7 @@ const SIDEBAR_GROUPS = [
   // agenseket dolgoztatjuk egymas ellen egy jobb valaszert -- ugyanaz a fajta
   // dolog mint az Ugynokok/Aktivitas/Uzenetek, nem rendszer-adminisztracio
   // (Boss dontese, 2026-08-10).
-  { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'debate', 'messages', 'tasks', 'bgTasks'] },
+  { key: 'team',        labelKey: 'nav.group.team',        pages: ['agents', 'activity', 'debate', 'browser', 'messages', 'tasks', 'bgTasks'] },
   { key: 'knowledge',   labelKey: 'nav.group.knowledge',   pages: ['memories', 'skills', 'research', 'ideas'] },
   { key: 'stats',       labelKey: 'nav.group.stats',       pages: ['costs', 'tokenUsage'] },
   // 'drive' szandekosan NINCS itt: a Drive fajlbongeszo tartalom, nem
@@ -39079,3 +39080,159 @@ document.addEventListener('click', async (ev) => {
     }
   }
 })
+
+// Kartya #165 (31f3e26f): Bongeszo oldal. A szerver oldali szolgaltatas a
+// src/web/browser-service.ts; itt csak megjelenites + gombok. A hiba mindig a
+// szerver TENYLEGES (Playwright) uzenete, nem talalgatott ok.
+;(function () {
+  let _browserInstallPoll = null
+  let _browserWired = false
+
+  async function browserApi(path, body) {
+    const r = await fetch('/api/browser/' + path, body === undefined ? {} : {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    let data = null
+    try { data = await r.json() } catch { data = { ok: false, error: 'HTTP ' + r.status } }
+    return { status: r.status, data }
+  }
+
+  function renderBrowserStatus(st) {
+    const box = document.getElementById('browserStatusBox')
+    const toggle = document.getElementById('browserEnabledToggle')
+    const controls = document.getElementById('browserControls')
+    if (!box || !toggle || !controls) return
+    toggle.checked = !!st.enabled
+    const rows = []
+    if (!st.playwright.available) {
+      rows.push(`<div class="browser-line browser-bad">${escapeHtml(t('browser.status.no_playwright', { err: st.playwright.error || '' }))}</div>`)
+    } else if (!st.chromium.installed) {
+      rows.push(`<div class="browser-line browser-warn">${escapeHtml(t('browser.status.no_chromium'))}</div>`)
+      if (st.install.running) rows.push(`<div class="browser-line">${escapeHtml(t('browser.status.installing'))}</div>`)
+      else rows.push(`<button class="btn-primary btn-compact" id="browserInstallBtn">${escapeHtml(t('browser.btn.install'))}</button>`)
+      if (st.install.error) rows.push(`<div class="browser-line browser-bad">${escapeHtml(t('browser.status.install_failed', { err: st.install.error }))}</div>`)
+    } else {
+      rows.push(`<div class="browser-line browser-ok">${escapeHtml(t(st.running ? 'browser.status.running' : 'browser.status.ready', { min: st.idleMinutes }))}</div>`)
+    }
+    if (st.sessionsError) rows.push(`<div class="browser-line browser-bad">${escapeHtml(t('browser.status.sessions_error', { err: st.sessionsError }))}</div>`)
+    // Nincs mentett munkamenet: az nem hiba, csend. Lejart munkamenet: a leghangosabb sor.
+    for (const s of st.sessions) {
+      if (s.health === 'expired') rows.unshift(`<div class="browser-line browser-bad browser-loud">${escapeHtml(t('browser.status.session_expired', { name: s.name }))}</div>`)
+      else if (s.health === 'unreadable') rows.unshift(`<div class="browser-line browser-bad">${escapeHtml(t('browser.status.session_unreadable', { name: s.name }))}</div>`)
+    }
+    if (st.sessions.length) {
+      rows.push(`<div class="browser-sessions">${st.sessions.map(s => `<span class="browser-session-chip">${escapeHtml(s.name)} <button class="btn-link" data-browser-del="${escapeHtml(s.name)}" title="${escapeHtml(t('browser.btn.delete_session'))}">✕</button></span>`).join('')}</div>`)
+    }
+    box.innerHTML = rows.join('')
+    controls.hidden = !(st.enabled && st.playwright.available && st.chromium.installed)
+
+    const sel = document.getElementById('browserSessionSelect')
+    if (sel) {
+      const prev = sel.value
+      sel.innerHTML = `<option value="">${escapeHtml(t('browser.session_none'))}</option>` +
+        st.sessions.map(s => `<option value="${escapeHtml(s.name)}"${s.name === prev ? ' selected' : ''}>${escapeHtml(s.name)}</option>`).join('')
+    }
+
+    const installBtn = document.getElementById('browserInstallBtn')
+    if (installBtn) installBtn.addEventListener('click', async () => {
+      installBtn.disabled = true
+      await browserApi('install', {})
+      startInstallPoll()
+      loadBrowserPage()
+    })
+    box.querySelectorAll('[data-browser-del]').forEach(btn => btn.addEventListener('click', async () => {
+      const name = btn.getAttribute('data-browser-del')
+      if (!confirm(t('browser.confirm.delete_session', { name }))) return
+      await fetch('/api/browser/sessions/' + encodeURIComponent(name), { method: 'DELETE' })
+      loadBrowserPage()
+    }))
+    if (st.install.running) startInstallPoll()
+  }
+
+  function startInstallPoll() {
+    if (_browserInstallPoll) return
+    _browserInstallPoll = setInterval(async () => {
+      const page = document.getElementById('browserPage')
+      const { data } = await browserApi('status')
+      if (!data || !data.install || !data.install.running || !page || page.hidden) {
+        clearInterval(_browserInstallPoll); _browserInstallPoll = null
+      }
+      if (data && data.install) renderBrowserStatus(data)
+    }, 3000)
+  }
+
+  function showBrowserResult(data, isError) {
+    const out = document.getElementById('browserResult')
+    const img = document.getElementById('browserShot')
+    if (!out || !img) return
+    const lines = []
+    if (isError) lines.push(`<div class="browser-line browser-bad">${escapeHtml(t('browser.result.error', { err: data.error || '' }))}</div>`)
+    if (data.sessionExpired) lines.push(`<div class="browser-line browser-bad browser-loud">${escapeHtml(t('browser.result.session_expired'))}</div>`)
+    if (data.url) lines.push(`<div class="browser-line">${escapeHtml(data.title ? data.title + ' — ' : '')}${escapeHtml(data.url)}</div>`)
+    if (data.text !== undefined) lines.push(`<pre class="browser-text">${escapeHtml(data.text)}</pre>`)
+    if (data.session && data.action === 'save_session') lines.push(`<div class="browser-line browser-ok">${escapeHtml(t('browser.result.session_saved', { name: data.session }))}</div>`)
+    if (data.pdf) {
+      const a = document.createElement('a')
+      a.href = 'data:application/pdf;base64,' + data.pdf
+      a.download = 'marveen-page.pdf'
+      a.click()
+      lines.push(`<div class="browser-line browser-ok">${escapeHtml(t('browser.result.pdf_saved'))}</div>`)
+    }
+    out.innerHTML = lines.join('')
+    if (data.screenshot) { img.src = 'data:image/png;base64,' + data.screenshot; img.hidden = false }
+  }
+
+  async function runBrowserUiAction(action, extra) {
+    const val = id => (document.getElementById(id)?.value || '').trim()
+    const body = Object.assign({
+      url: val('browserUrlInput'), selector: val('browserSelectorInput'),
+      value: document.getElementById('browserValueInput')?.value || '', name: val('browserSessionName'),
+    }, extra || {})
+    const res = await browserApi(action, body)
+    const data = res.data || {}
+    if (data.needsConfirm) {
+      showBrowserResult(data, false)
+      // Elonezet a visszafordithatatlan lepes elott: a kepernyokep mar latszik.
+      if (confirm(t('browser.confirm.irreversible', { text: data.elementText || body.selector }))) {
+        return runBrowserUiAction(action, Object.assign({}, extra, { confirm: true }))
+      }
+      return
+    }
+    showBrowserResult(data, res.status >= 400 || data.ok === false)
+    if (action === 'save_session' || action === 'open') loadBrowserPage()
+  }
+
+  function wireBrowserPage() {
+    if (_browserWired) return
+    _browserWired = true
+    document.getElementById('browserEnabledToggle')?.addEventListener('change', async (e) => {
+      await browserApi('enabled', { enabled: e.target.checked })
+      loadBrowserPage()
+    })
+    document.getElementById('browserGoBtn')?.addEventListener('click', async () => {
+      const session = document.getElementById('browserSessionSelect')?.value || null
+      const opened = await browserApi('open', { session })
+      if (opened.status >= 400) { showBrowserResult(opened.data || {}, true); return }
+      runBrowserUiAction('navigate')
+    })
+    document.getElementById('browserStopBtn')?.addEventListener('click', async () => {
+      await browserApi('stop', {})
+      loadBrowserPage()
+    })
+    document.querySelectorAll('[data-browser-action]').forEach(btn => btn.addEventListener('click', () => {
+      runBrowserUiAction(btn.getAttribute('data-browser-action'))
+    }))
+  }
+
+  async function loadBrowserPage() {
+    wireBrowserPage()
+    const { status, data } = await browserApi('status')
+    if (status >= 400 || !data || data.enabled === undefined) {
+      const box = document.getElementById('browserStatusBox')
+      if (box) box.innerHTML = `<div class="browser-line browser-bad">${escapeHtml(t('browser.status.load_failed', { err: (data && data.error) || ('HTTP ' + status) }))}</div>`
+      return
+    }
+    renderBrowserStatus(data)
+  }
+  window.loadBrowserPage = loadBrowserPage
+})()
