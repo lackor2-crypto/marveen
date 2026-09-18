@@ -47,7 +47,7 @@ Ha egy tervezett módosítás olyan fájlt érintene, ami ezen a listán szerepe
 
 1. `git fetch upstream main`, állapotfelmérés (hány commit elő/hátra).
 2. Új branch (`upstream-sync-YYYY-MM`) a main-ből, azon `git merge upstream/main`.
-3. **Ha konfliktusmentes**: build + tesztek futtatása annak ellenőrzésére hogy semmi nem tört el, majd kanban kártya (status: waiting) + jóváhagyás-kérés a tulajdonosnak ({{OWNER_NAME}}) a nem-ütköző rész behúzásáról. Push/merge a main-be CSAK jóváhagyás után.
+3. **Ha konfliktusmentes**: a "nem ütközik" ÖNMAGÁBAN nem ok a behúzásra. ELŐBB futtasd az elv-kaput (`tsx scripts/upstream-principle-gate.ts`, lásd az `upstream-principle-gate` skillt): ez a bejövő változás LOGIKÁJÁT nézi a fork elvei ellen (agens-egyenlőség, host-agnoszticitás, nincs kényszerített kontextus-cap, nincs auto-done). Ami RED, azt hagyd ki a merge-ből (a `governance/upstream-exclusions.json` denylist a 3. pont "végleges kihagyás" döntésének kód-kikényszerített megfelelője); ami FLAG (exit 3), azt a tulajdonossal ({{OWNER_NAME}}) döntsd el, ne magadtól. Csak EZUTÁN: build + tesztek, majd kanban kártya (status: waiting) + jóváhagyás-kérés a nem-ütköző, kapun átment rész behúzásáról. Push/merge a main-be CSAK jóváhagyás után.
 4. **Ha van tényleges ütközés**: `git merge --abort`, majd kanban kártya (status: planned) ami felsorolja mely fájlokban/sorokban ütközik, és röviden összefoglalja mit változtatott mindkét oldal -- hogy a tulajdonossal ({{OWNER_NAME}}) együtt fájlonként eldönthető legyen mi kerül be és mi nem.
 5. Telegram-összefoglaló mindkét esetben.
 

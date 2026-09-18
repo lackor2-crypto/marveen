@@ -92,8 +92,8 @@ const hasHardcodedIdentityPattern = (added: string): boolean => {
     // skip obvious comment lines -- comments may name people (allowed).
     if (/^(\/\/|#|\*|<!--)/.test(line)) continue;
     if (
-      /["'`]\/home\/[a-z0-9_.-]+/i.test(line) || // absolute home path literal
-      /github\.com[/:][A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/.test(line) || // repo URL literal
+      /["'`]\/(home|users|root|mnt)\/[a-z0-9_.-]+/i.test(line) || // absolute host-specific path literal
+      /(github|gitlab)\.com[/:][A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|bitbucket\.org[/:][A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/.test(line) || // repo URL literal
       /\bchat_id\b\s*[:=]\s*["']?\d{6,}/i.test(line) || // hardcoded numeric chat id
       /\.service\b/.test(line) && /["'`][a-z0-9_-]+\.service["'`]/i.test(line) // systemd unit literal
     ) {
@@ -104,12 +104,20 @@ const hasHardcodedIdentityPattern = (added: string): boolean => {
 };
 
 const RE = {
+  // NOTE: RED detectors are deliberately conservative. A RED verdict auto-EXCLUDES
+  // (irreversible-ish: the owner never sees a dropped change), so a broad token here
+  // silently discards legitimate/protective upstream fixes. When confidence is only
+  // medium, prefer a FLAG (owner decides) over a RED. That is why 'privileg', bare
+  // '50%'/'150k' were removed from the RED patterns below -- they matched innocent
+  // fixes ("fix privilege check", "cap backup at 150k", "50% opacity").
   agentDiffStrong:
-    /main[_-]?only|subagent[_-]?only|only the main agent|main[- ]agent only|csak a (fo|fő)[- ]?(agens|ágens)|privileg/i,
+    /main[_-]?only|subagent[_-]?only|only the main agent|main[- ]agent only|csak a (fo|fő)[- ]?(agens|ágens)|privileg\w*\s+(agent|agens|ágens|main)|(main|sub)[- ]?agent\w*\s+privileg/i,
   agentDiffSignal: /agent-parity|agent-scaffold|per[_-]?agent|fleet-parity/i,
   contextCap:
-    /auto[- ]?\/?clear|auto[- ]?compact|context[- ]?cap|token[- ]?cap|forced (compact|handoff)|150k|50%|hard.?cap/i,
+    /auto[- ]?\/?clear|auto[- ]?compact|context[- ]?(window[- ]?)?cap|token[- ]?cap|forced (compact|handoff)|(context|token|window)\b.{0,24}\b(cap|150k|50%)|\b(150k|50%)\b.{0,24}(context|token|window|compact|clear)/i,
   autoDone: /(auto[_-]?done)|(move[sd]?\b.{0,20}\bto\s+["']?done)|(status\s*[:=]\s*["']?done.{0,30}(auto|automatic))/i,
+  // A change that PREVENTS auto-done aligns with our principle -- do not exclude it.
+  autoDoneNegated: /prevent|disable|block|forbid|guard|never|no[- ]?auto|stop|megakadalyoz|megakadályoz|letilt|tilt/i,
   bilingualRisk: /(web\/index\.html|web\/app\.js)$/i,
   guardSignal: /\bgate\b|\bguard\b|approval|permission|jovahagy|jóváhagy|engedely|engedély|block|blokk|tilt|forbid|deny/i,
   walletProtective:
@@ -173,7 +181,9 @@ export const PRINCIPLES: Principle[] = [
       hu: "Kartyat 'done'-ra kizarolag a tulajdonos tehet; egy automatikus done-mozgatas szembemegy ezzel.",
       en: "Only the owner may move a card to 'done'; an automatic done-move contradicts this.",
     },
-    detect: (c) => RE.autoDone.test(c.hay) || RE.autoDone.test(c.added.toLowerCase()),
+    detect: (c) =>
+      (RE.autoDone.test(c.hay) || RE.autoDone.test(c.added.toLowerCase())) &&
+      !RE.autoDoneNegated.test(c.hay),
   },
   {
     id: "agent-differentiation-signal",
@@ -238,7 +248,14 @@ const globToRe = (glob: string): RegExp =>
 const denylistHit = (change: ChangeInput, denylist: Denylist): DenylistEntry | undefined => {
   for (const e of denylist.entries) {
     if (e.pathPattern && globToRe(e.pathPattern).test(change.path)) return e;
-    if (e.contentSignature && change.addedLines && contentSignature(change.addedLines) === e.contentSignature)
+    // Guard empty added-lines: contentSignature([]) is a fixed hash that every
+    // deletion-only / binary diff shares -- a signature entry must not match them all.
+    if (
+      e.contentSignature &&
+      change.addedLines &&
+      change.addedLines.length > 0 &&
+      contentSignature(change.addedLines) === e.contentSignature
+    )
       return e;
   }
   return undefined;

@@ -6,9 +6,11 @@
 //   tsx scripts/upstream-principle-gate.ts [--upstream <ref>] [--base <ref>] [--json] [--changes <file.json>]
 //
 // Exit codes:
-//   0  reviewed, nothing excluded (may include items to discuss)
-//   1  reviewed, at least one item EXCLUDED (a merge step should stop)
+//   0  reviewed, fully clean (nothing excluded, nothing to discuss)
+//   1  reviewed, at least one item EXCLUDED (a merge step must stop)
 //   2  could NOT review (missing/unreadable source) -- this is NOT "0 exclusions"
+//   3  reviewed, no exclusions but items to DISCUSS (owner must decide first) --
+//      a pipeline gating on exit 0 must NOT auto-merge flagged items
 //
 // The exit-2 case is deliberate: a zero count must never be confused with "did
 // not look". If the upstream ref cannot be resolved, we fail loud, not silent.
@@ -135,8 +137,10 @@ function main(): void {
     }
   }
 
-  // Exit 1 if anything is excluded, so a merge step can gate on it.
-  process.exit(report.exclude.length > 0 ? 1 : 0);
+  // Exit by meaning: 1 = has exclusions (stop), 3 = only items to discuss (owner
+  // must decide before proceeding), 0 = fully clean. A merge pipeline that gates on
+  // exit 0 must therefore NOT auto-merge flagged (discuss) items.
+  process.exit(report.exclude.length > 0 ? 1 : report.discuss.length > 0 ? 3 : 0);
 }
 
 main();

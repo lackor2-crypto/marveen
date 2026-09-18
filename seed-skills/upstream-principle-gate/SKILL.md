@@ -55,11 +55,14 @@ install of this fork elsewhere.
    (default `merge-base HEAD upstream/main`), or `--changes <file.json>` to
    review a hand-supplied list of `{path, subjects?, addedLines?}`.
 3. Read the exit code by MEANING, not just presence:
-   - `0` = reviewed, nothing excluded (there may still be DISCUSS items to raise).
+   - `0` = reviewed, fully clean (nothing excluded, nothing to discuss).
    - `1` = reviewed, at least one item EXCLUDED -- a merge step must stop / drop
      those paths.
    - `2` = could NOT review (upstream ref missing, denylist unreadable/invalid).
      This is NOT "0 exclusions". Fix the source (fetch upstream) and re-run.
+   - `3` = no exclusions, but there are items to DISCUSS -- the owner must decide
+     before merging. A pipeline that gates only on exit 0 will NOT auto-merge
+     these, which is the point: FLAG is not a green light.
 4. For every EXCLUDE: leave it out of the merge. If it is a NEW standing
    decision (not already covered by a red principle), record it in
    `governance/upstream-exclusions.json` with principle + stable signature +

@@ -136,6 +136,90 @@ describe("upstream principle gate -- denylist validation + signature", () => {
   });
 });
 
+describe("upstream principle gate -- false-positive guards (do NOT auto-drop good fixes)", () => {
+  it("a legit privilege-check fix is NOT excluded as agent-differentiation", () => {
+    const v = classifyChange(
+      { path: "src/security.ts", subjects: "fix: correct privilege check for file access", addedLines: [] },
+      D,
+    );
+    expect(v.verdict).not.toBe("exclude");
+  });
+
+  it("but a genuinely privileged-main-agent change IS excluded", () => {
+    const v = classifyChange(
+      { path: "src/x.ts", subjects: "feat: give the privileged main agent extra tools", addedLines: [] },
+      D,
+    );
+    expect(v.verdict).toBe("exclude");
+    expect(v.principleId).toBe("agent-equality");
+  });
+
+  it("'150k' in an unrelated context (backup size) is NOT excluded", () => {
+    const v = classifyChange(
+      { path: "src/backup.ts", subjects: "fix: cap backup chunk size at 150k for memory", addedLines: [] },
+      D,
+    );
+    expect(v.verdict).not.toBe("exclude");
+  });
+
+  it("'50%' in an unrelated context (UI opacity) is NOT excluded", () => {
+    const v = classifyChange(
+      { path: "src/ui.ts", subjects: "feat: dim disabled buttons to 50% opacity", addedLines: [] },
+      D,
+    );
+    expect(v.verdict).not.toBe("exclude");
+  });
+
+  it("but a real context-window cap IS still excluded", () => {
+    const v = classifyChange(
+      { path: "src/ctx.ts", subjects: "feat: proactive auto-/clear at 150k context window", addedLines: [] },
+      D,
+    );
+    expect(v.verdict).toBe("exclude");
+    expect(v.principleId).toBe("no-forced-context-cap");
+  });
+
+  it("a change that PREVENTS auto-done is NOT excluded (it aligns with us)", () => {
+    const v = classifyChange(
+      { path: "src/kanban.ts", subjects: "fix: prevent auto-move to done on close", addedLines: [] },
+      D,
+    );
+    expect(v.verdict).not.toBe("exclude");
+  });
+});
+
+describe("upstream principle gate -- broadened identity detection", () => {
+  it("a hardcoded /mnt path literal is excluded", () => {
+    const v = classifyChange(
+      { path: "src/net.ts", subjects: "fix: wire path", addedLines: ['const p = "/mnt/f/data";'] },
+      D,
+    );
+    expect(v.verdict).toBe("exclude");
+    expect(v.principleId).toBe("host-agnostic-identity");
+  });
+
+  it("a hardcoded gitlab repo URL is excluded", () => {
+    const v = classifyChange(
+      { path: "src/repo.ts", subjects: "feat: default remote", addedLines: ['const url = "https://gitlab.com/foo/bar.git";'] },
+      D,
+    );
+    expect(v.verdict).toBe("exclude");
+    expect(v.principleId).toBe("host-agnostic-identity");
+  });
+});
+
+describe("upstream principle gate -- empty added-lines cannot collide with a signature entry", () => {
+  it("an empty-diff change does not match a contentSignature denylist entry", () => {
+    const emptySig = contentSignature([]);
+    const dl: Denylist = {
+      version: 1,
+      entries: [{ principle: "no-auto-done", contentSignature: emptySig, note: "x", decidedAt: "", decidedBy: "" }],
+    };
+    const v = classifyChange({ path: "src/whatever.ts", subjects: "fix: delete dead code", addedLines: [] }, dl);
+    expect(v.source).not.toBe("denylist");
+  });
+});
+
 describe("upstream principle gate -- fresh install / zero-means-two-things", () => {
   it("no changes is 'nothing to review', not a crash", () => {
     const r = runGate([], D);
