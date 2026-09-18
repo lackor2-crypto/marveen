@@ -193,6 +193,8 @@ export interface ActionResult {
   /** Mentett munkamenettel belepo-oldalra jutottunk: a munkamenet elszallt. */
   sessionExpired?: boolean
   session?: string | null
+  /** click_xy: gepelheto mezore kattintottunk -> a felulet a gepelo-mezot fokuszalja. */
+  typable?: boolean
 }
 
 export const BROWSER_ACTIONS = ['open', 'navigate', 'click', 'click_xy', 'type', 'key', 'scroll', 'fill', 'wait', 'text', 'screenshot', 'pdf', 'submit', 'save_session'] as const
@@ -262,12 +264,21 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
         if (!Number.isFinite(x) || !Number.isFinite(y)) throw new BrowserError('x/y required')
         const info = await page.evaluate(({ px, py }: { px: number; py: number }) => {
           const at = document.elementFromPoint(px, py) as any
-          if (!at) return { text: '', type: null, tag: null }
-          const el = (at.closest && at.closest('button, a, input, [role=button], [type=submit]')) || at
+          if (!at) return { text: '', type: null, tag: null, typable: false }
+          const el = (at.closest && at.closest('button, a, input, textarea, select, [role=button], [type=submit], [contenteditable]')) || at
+          const tag = (el.tagName || '').toLowerCase()
+          const type = (el.getAttribute && (el.getAttribute('type') || '').toLowerCase()) || ''
+          // Kartya ab6640a3: gepelheto-e a kattintott elem? Ha igen, a felulet a
+          // gepelo-mezot auto-fokuszalja, hogy a "kattints majd irj" folyamat
+          // magatol ertheto legyen.
+          const nonText = ['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'range', 'color', 'image', 'hidden']
+          const typable = tag === 'textarea' || tag === 'select' ||
+            (tag === 'input' && !nonText.includes(type)) || el.isContentEditable === true
           return {
             text: (el.innerText || el.value || (el.getAttribute && el.getAttribute('aria-label')) || '').slice(0, 200),
             type: el.getAttribute ? el.getAttribute('type') : null,
             tag: el.tagName || null,
+            typable,
           }
         }, { px: x, py: y })
         if (isIrreversibleClick(info) && input.confirm !== true) {
@@ -275,7 +286,7 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
         }
         await page.mouse.click(x, y)
         await settleAfterInteraction(page)
-        out = { ...base(), url: page.url(), screenshot: await shot(page) }
+        out = { ...base(), url: page.url(), screenshot: await shot(page), typable: info.typable }
         break
       }
       case 'type':

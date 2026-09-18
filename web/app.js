@@ -39294,6 +39294,25 @@ document.addEventListener('click', async (ev) => {
     }
     showBrowserResult(data, res.status >= 400 || data.ok === false)
     if (action === 'save_session' || action === 'open') loadBrowserPage()
+    // Kartya ab6640a3: ha a felhasznalo a kepen egy GEPELHETO mezore kattintott,
+    // a kurzort magatol a gepelo-mezobe visszuk, es kiirjuk mit tegyen -- igy a
+    // "kattints, majd irj" folyamat nem szorul magyarazatra.
+    if (action === 'click_xy' && data.typable) {
+      const box = document.getElementById('browserTypeInput')
+      if (box) {
+        box.focus()
+        box.classList.add('browser-type-active')
+        const out = document.getElementById('browserResult')
+        if (out) {
+          const hint = document.createElement('div')
+          hint.className = 'browser-line browser-ok'
+          hint.textContent = t('browser.type_hint')
+          out.prepend(hint)
+        }
+      }
+    } else if (action === 'type') {
+      document.getElementById('browserTypeInput')?.classList.remove('browser-type-active')
+    }
   }
 
   function wireBrowserPage() {
@@ -39330,11 +39349,12 @@ document.addEventListener('click', async (ev) => {
       const y = Math.round(clamp((e.clientY - rect.top) / rect.height) * img.naturalHeight)
       runBrowserUiAction('click_xy', { x, y })
     })
+    const sendType = (v) => { const box = document.getElementById('browserTypeInput'); runBrowserUiAction('type', { value: v }); if (box) box.value = '' }
     document.getElementById('browserTypeBtn')?.addEventListener('click', () => {
-      runBrowserUiAction('type', { value: document.getElementById('browserTypeInput')?.value || '' })
+      sendType(document.getElementById('browserTypeInput')?.value || '')
     })
     document.getElementById('browserTypeInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); runBrowserUiAction('type', { value: e.target.value || '' }) }
+      if (e.key === 'Enter') { e.preventDefault(); sendType(e.target.value || '') }
     })
     document.getElementById('browserEnterBtn')?.addEventListener('click', () => runBrowserUiAction('key', { value: 'Enter' }))
     document.getElementById('browserScrollUpBtn')?.addEventListener('click', () => runBrowserUiAction('scroll', { dy: -500 }))
