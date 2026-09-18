@@ -224,3 +224,13 @@ describe('ujrameres frissiti a tetelesen listat', () => {
     expect(app).toMatch(/_upstreamMeasureButtonBusy\(false\)\n\s*\/\/[^\n]*\n[^\n]*\n\s*upstreamChangesCache = null/)
   })
 })
+
+// Boss, 2026-09-18 (kepernyokep): "nincs egy sorban a gombok". A gombonkenti
+// margin-top miatt az uj gomb (amin nem volt) kilogott a sorbol.
+describe('az upstream gombok egy magassagban', () => {
+  const css = readFileSync(join(WEB, 'style.css'), 'utf8')
+  it('a harom gomb kozos szabalyt kap, gombonkenti felso margo nelkul', () => {
+    expect(css).toMatch(/\.upstream-changes-btn,\s*\.upstream-gate-btn,\s*\.upstream-measure-btn \{[^}]*margin: 0/)
+    expect(css).not.toMatch(/\.upstream-(?:changes|gate|measure)-btn \{[^}]*margin-top/)
+  })
+})
