@@ -31,6 +31,11 @@ const HOOKS = [
   // "dolgozom rajta" placeholder. Same reasoning -- pure, testable, no live
   // Telegram turn needed.
   'telegram_progress.py',
+  // Added 2026-09-18 (#317): the shared quota-honesty module both the main hook
+  // and the sub-agent drain import. Its own --self-test covers the 5-hour AND
+  // weekly (Segedmunkas) blocking logic, so the suite runs it directly rather
+  // than only transitively through the two consumers.
+  'rate_limit_status_lib.py',
 ]
 
 describe('python hook self-tests', () => {

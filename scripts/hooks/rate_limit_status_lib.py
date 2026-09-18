@@ -35,6 +35,23 @@ import re
 CRITICAL_THRESHOLD_PCT = 95  # mirrors rate-limit-guard.py / src/rate-limit-status.ts
 STALE_AFTER_MS = 30 * 60_000
 
+# The 5-hour window and the weekly (7-day) window block on DIFFERENT thresholds,
+# and on purpose (Boss, Telegram 2026-09-18 16:37: "segedmunkas meg mindig
+# dolgozom rajta, mond" -- the Segedmunkas/lackor3 snapshot was fiveHour 0% but
+# sevenDay 100%, so a 5-hour-only check let the placeholder lie).
+#
+#   * 5-hour: CRITICAL at 95%. It is a rolling window; at 95% the agent is
+#     within a hair of the cap and about to stop, so we already call it out of
+#     quota (this is the established behavior Boss accepted for the Szakerto).
+#   * weekly: blocks only at a full 100%. A weekly reading below 100% does NOT
+#     stop the account -- and treating e.g. 96% weekly as "out of quota" would
+#     both produce a false positive AND contradict the standing "only the
+#     5-hour window drives pacing" doctrine (rate-limit-guard.py: worst = five).
+#     Here we are answering a NARROWER question than pacing: "is this account
+#     hard-blocked RIGHT NOW so that 'dolgozom rajta' would be a lie?" The
+#     weekly cap answers yes only at 100%.
+WEEKLY_BLOCK_PCT = 100
+
 
 # --- Rate-limit snapshot reading (mirrors rate-limit-guard.py) --------------
 
@@ -86,24 +103,30 @@ def resolve_agent_id(cwd, project_root):
     return None
 
 
-def five_hour_state(snap, now_ms):
-    """(used_pct, resets_at_ms) for the 5-hour window if it can be TRUSTED, else
+def window_state(snap, now_ms, window_key, trust_floor_pct):
+    """(used_pct, resets_at_ms) for the named window if it can be TRUSTED, else
     None. Mirrors pct_of() + the resetsAt-authority rule in rate-limit-guard.py:
     usedPct only means anything while resetsAt is still in the future.
 
     Staleness rule (kanban c99bc49b / #316): a FRESH snapshot is trusted as-is.
-    A STALE one is trusted ONLY when it is already at/over CRITICAL and the
-    window has not yet reset -- because a usedPct that is already critical
-    cannot fall until resetsAt passes, so an old reading of "100% until 17:10"
-    is still true at 15:55. Below critical, a stale reading is genuinely unknown
-    (the agent may have kept working since), so it must not gate anything
-    (recheck-before-restating doctrine)."""
+    A STALE one is trusted ONLY when it is already at/over `trust_floor_pct` and
+    the window has not yet reset -- because a usedPct that is already at the
+    blocking level cannot fall until resetsAt passes, so an old reading of "100%
+    until 17:10" is still true at 15:55. Below the floor, a stale reading is
+    genuinely unknown (the agent may have kept working since), so it must not
+    gate anything (recheck-before-restating doctrine).
+
+    `window_key` is 'fiveHour' or 'sevenDay'; `trust_floor_pct` is the blocking
+    threshold for that window (95 for 5-hour, 100 for weekly -- see the module
+    constants for why they differ). This function does NOT itself decide the
+    window is blocking -- it returns the trustworthy reading and lets the caller
+    compare against the threshold."""
     if not isinstance(snap, dict):
         return None
     updated_at = snap.get('updatedAt')
     if not isinstance(updated_at, (int, float)):
         return None
-    window = snap.get('fiveHour')
+    window = snap.get(window_key)
     if not isinstance(window, dict):
         return None
     resets_at = window.get('resetsAt')
@@ -112,12 +135,39 @@ def five_hour_state(snap, now_ms):
         return None
     if not isinstance(used_pct, (int, float)):
         return None
-    if now_ms - updated_at >= STALE_AFTER_MS and used_pct < CRITICAL_THRESHOLD_PCT:
-        # Stale AND not critical: could have grown since -> unknown, do not gate.
-        # (A stale but critical reading with the window still open is still
-        # reliable, so it falls through and is returned.)
+    if now_ms - updated_at >= STALE_AFTER_MS and used_pct < trust_floor_pct:
+        # Stale AND below the blocking floor: could have grown since -> unknown,
+        # do not gate. (A stale reading already at/over the floor with the window
+        # still open is still reliable, so it falls through and is returned.)
         return None
     return used_pct, resets_at
+
+
+def five_hour_state(snap, now_ms):
+    """Back-compat wrapper: the 5-hour window trusted at the CRITICAL floor."""
+    return window_state(snap, now_ms, 'fiveHour', CRITICAL_THRESHOLD_PCT)
+
+
+def blocked_window(snap, now_ms):
+    """(window_key, used_pct, resets_at_ms) for the window that is HARD-BLOCKING
+    the agent right now -- 5-hour at/over CRITICAL, or weekly at/over
+    WEEKLY_BLOCK_PCT -- or None if neither is. When BOTH are maxed, returns the
+    one that resets LATER, because the agent can answer again only once every
+    blocking window has cleared: that later reset is the honest ETA to give.
+
+    This is the single decision both the main-agent hook (telegram_progress.py)
+    and the sub-agent inbox drain (channel-inbox-drain.py) import, so 'am I out
+    of quota?' is identical for every agent -- the parity Boss asked for."""
+    candidates = []
+    fh = window_state(snap, now_ms, 'fiveHour', CRITICAL_THRESHOLD_PCT)
+    if fh is not None and fh[0] >= CRITICAL_THRESHOLD_PCT:
+        candidates.append(('fiveHour', fh[0], fh[1]))
+    wk = window_state(snap, now_ms, 'sevenDay', WEEKLY_BLOCK_PCT)
+    if wk is not None and wk[0] >= WEEKLY_BLOCK_PCT:
+        candidates.append(('sevenDay', wk[0], wk[1]))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c[2])
 
 
 # --- Install-specific settings (kanban 0a1ec18e) ----------------------------
@@ -201,53 +251,75 @@ def install_zone(project_root):
 
 
 def format_wait(resets_at_ms, now_ms, lang="hu"):
-    """'{H} óra {M} percig' / '{M} percig' and the English counterpart."""
+    """'{D} nap {H} óráig' / '{H} óra {M} percig' / '{M} percig' and the English
+    counterpart. The day tier exists because the weekly window can reset days
+    out -- an ETA of '60 óra' would be unreadable."""
     remaining_min = max(0, round((resets_at_ms - now_ms) / 60_000))
-    hours, minutes = divmod(remaining_min, 60)
+    days, rem = divmod(remaining_min, 1440)
+    hours, minutes = divmod(rem, 60)
     if lang == "en":
+        if days > 0:
+            return f"{days}d {hours}h"
         if hours > 0:
             return f"{hours}h {minutes}m"
         return f"{minutes} minutes"
+    if days > 0:
+        return f"{days} nap {hours} óráig"
     if hours > 0:
         return f"{hours} óra {minutes} percig"
     return f"{minutes} percig"
 
 
 # Every line that reaches a screen exists in both languages (project rule).
+# {window} names WHICH budget is maxed -- naming the 5-hour one when it is
+# actually the weekly cap that is blocking would be a fresh lie (Boss cares
+# about the difference: the weekly one resets days out, the 5-hour one hours).
 QUOTA_TEXT = {
     "hu": {
         "until": " (kb. {local}-ig, {zone})",
-        "body": "⏳ Jelenleg kifogytam a token-keretemből: az 5 órás keretem {pct}%-on áll. "
+        "window": {"fiveHour": "az 5 órás", "sevenDay": "a heti (7 napos)"},
+        "body": "⏳ Jelenleg kifogytam a token-keretemből: {window} keretem {pct}%-on áll. "
                 "Kb. {eta} nem tudom rendesen fogadni/feldolgozni a kéréseidet{until}, utána újra itt vagyok.",
     },
     "en": {
         "until": " (until about {local}, {zone})",
-        "body": "⏳ I have run out of my token budget: my 5-hour window is at {pct}%. "
+        "window": {"fiveHour": "my 5-hour", "sevenDay": "my weekly"},
+        "body": "⏳ I have run out of my token budget: {window} window is at {pct}%. "
                 "For about {eta} I cannot properly take or work on your requests{until}, after that I am back.",
     },
 }
 
 
-def quota_honest_message(used_pct, resets_at_ms, now_ms, lang="hu", zone=None, zone_label=""):
+def quota_honest_message(window_key, used_pct, resets_at_ms, now_ms, lang="hu", zone=None, zone_label=""):
     # Invariant: the caller (quota_status_message_if_critical) passes a
-    # resets_at that five_hour_state already proved to be in the future.
+    # resets_at that blocked_window already proved to be in the future.
     t = QUOTA_TEXT.get(lang, QUOTA_TEXT["hu"])
     eta = format_wait(resets_at_ms, now_ms, lang)
+    window_name = t["window"].get(window_key, t["window"]["fiveHour"])
     try:
         import datetime
         # `zone=None` renders in the machine's own zone.
-        local = datetime.datetime.fromtimestamp(resets_at_ms / 1000, tz=zone).strftime("%H:%M")
+        reset_dt = datetime.datetime.fromtimestamp(resets_at_ms / 1000, tz=zone)
+        now_dt = datetime.datetime.fromtimestamp(now_ms / 1000, tz=zone)
+        # A weekly reset lands on another day, where "%H:%M" alone ("05:00")
+        # would not say WHICH day -- include the date once it is not today.
+        if reset_dt.date() != now_dt.date():
+            fmt = "%m/%d %H:%M" if lang == "en" else "%m.%d. %H:%M"
+        else:
+            fmt = "%H:%M"
+        local = reset_dt.strftime(fmt)
         until = t["until"].format(local=local, zone=zone_label) if zone_label else f" ({local})"
     except Exception:
         until = ""
-    return t["body"].format(pct=round(used_pct), eta=eta, until=until)
+    return t["body"].format(window=window_name, pct=round(used_pct), eta=eta, until=until)
 
 
 def quota_status_message_if_critical(cwd, now_ms=None):
     """The honest out-of-quota text for the agent that owns `cwd` if its own
-    5-hour snapshot is at/over CRITICAL with the window still open, else None
-    (proceed with the normal working receipt). Reads STRICTLY that agent's own
-    snapshot file, so it can never confuse one agent's quota for another's."""
+    snapshot shows a HARD-BLOCKING window (5-hour at/over CRITICAL, or weekly at
+    100%) still open, else None (proceed with the normal working receipt). Reads
+    STRICTLY that agent's own snapshot file, so it can never confuse one agent's
+    quota for another's."""
     import time
     if now_ms is None:
         now_ms = time.time() * 1000
@@ -263,15 +335,13 @@ def quota_status_message_if_critical(cwd, now_ms=None):
             snap = json.load(f)
     except (OSError, ValueError):
         return None
-    state = five_hour_state(snap, now_ms)
+    state = blocked_window(snap, now_ms)
     if state is None:
         return None
-    used_pct, resets_at = state
-    if used_pct < CRITICAL_THRESHOLD_PCT:
-        return None
+    window_key, used_pct, resets_at = state
     zone, zone_label = install_zone(project_root)
     return quota_honest_message(
-        used_pct, resets_at, now_ms, install_lang(project_root), zone, zone_label,
+        window_key, used_pct, resets_at, now_ms, install_lang(project_root), zone, zone_label,
     )
 
 
@@ -319,6 +389,36 @@ def _self_test():
     rolled = {"updatedAt": now - 1000, "fiveHour": {"usedPct": 98, "resetsAt": now - 1000}}
     check("rolled-over window ignored", five_hour_state(rolled, now), None)
 
+    # blocked_window: the weekly cap blocks only at a full 100% (Boss 2026-09-18
+    # -- Segedmunkas snapshot was fiveHour 0% / sevenDay 100%, and the 5-hour-
+    # only check let "dolgozom rajta" go out while the account was hard-blocked).
+    week_maxed = {"updatedAt": now - 60_000,
+                  "fiveHour": {"usedPct": 10, "resetsAt": now + 3600_000},
+                  "sevenDay": {"usedPct": 100, "resetsAt": now + 2 * 86_400_000}}
+    bw = blocked_window(week_maxed, now)
+    check("weekly 100% blocks", bw is not None, True)
+    check("weekly block names weekly window", bw[0] if bw else None, "sevenDay")
+
+    # Weekly below 100% does NOT block (doctrine: only the 5-hour drives pacing).
+    week_high = {"updatedAt": now - 60_000,
+                 "fiveHour": {"usedPct": 10, "resetsAt": now + 3600_000},
+                 "sevenDay": {"usedPct": 99, "resetsAt": now + 2 * 86_400_000}}
+    check("weekly 99% does not block", blocked_window(week_high, now), None)
+
+    # Both maxed -> blocked until the LATER reset (the weekly one), because the
+    # agent can answer again only once every blocking window has cleared.
+    both_maxed = {"updatedAt": now - 60_000,
+                  "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000},
+                  "sevenDay": {"usedPct": 100, "resetsAt": now + 2 * 86_400_000}}
+    bw = blocked_window(both_maxed, now)
+    check("both maxed -> later (weekly) window", bw[0] if bw else None, "sevenDay")
+    check("both maxed -> weekly resetsAt", bw[2] if bw else None, now + 2 * 86_400_000)
+
+    # Weekly 100% but the weekly window already reset -> not blocking.
+    week_expired = {"updatedAt": now - 60_000,
+                    "sevenDay": {"usedPct": 100, "resetsAt": now - 1000}}
+    check("weekly 100% but reset -> None", blocked_window(week_expired, now), None)
+
     with tempfile.TemporaryDirectory() as d:
         os.makedirs(os.path.join(d, "store", "rate-limit-status"))
         os.environ.pop("SCHEDULER_TZ", None)
@@ -365,6 +465,26 @@ def _self_test():
         check("english install no hungarian", "keretem" in msg, False)
         os.remove(os.path.join(d, ".lang"))
 
+        # Weekly-only exhaustion (the Segedmunkas case): the honest message names
+        # the WEEKLY window and a multi-day ETA, never the 5-hour budget.
+        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
+            json.dump({"updatedAt": now - 60_000,
+                       "fiveHour": {"usedPct": 0, "resetsAt": now + 3600_000},
+                       "sevenDay": {"usedPct": 100,
+                                    "resetsAt": now + 2 * 86_400_000 + 3 * 3600_000}}, f)
+        msg = quota_status_message_if_critical(d, now) or ""
+        check("weekly-only -> honest message", msg != "", True)
+        check("weekly-only names weekly window", "heti" in msg, True)
+        check("weekly-only multi-day ETA", "2 nap" in msg, True)
+        check("weekly-only not 5-hour text", "5 órás" in msg, False)
+
+        # Weekly at 99% with the 5-hour window fine -> normal receipt, no lie.
+        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
+            json.dump({"updatedAt": now - 60_000,
+                       "fiveHour": {"usedPct": 20, "resetsAt": now + 3600_000},
+                       "sevenDay": {"usedPct": 99, "resetsAt": now + 2 * 86_400_000}}, f)
+        check("weekly 99% + 5h fine -> None", quota_status_message_if_critical(d, now), None)
+
     # resolve_agent_id: main vs sub-agent vs neither.
     with tempfile.TemporaryDirectory() as d:
         with open(os.path.join(d, ".env"), "w") as f:
@@ -379,6 +499,8 @@ def _self_test():
 
     check("format_wait hu", format_wait(now + 3 * 3600_000 + 35 * 60_000, now), "3 óra 35 percig")
     check("format_wait en", format_wait(now + 3 * 3600_000 + 35 * 60_000, now, "en"), "3h 35m")
+    check("format_wait hu days", format_wait(now + 2 * 86_400_000 + 3 * 3600_000, now), "2 nap 3 óráig")
+    check("format_wait en days", format_wait(now + 2 * 86_400_000 + 3 * 3600_000, now, "en"), "2d 3h")
 
     if fails:
         for f in fails:
