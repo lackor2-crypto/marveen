@@ -25,7 +25,7 @@ import { isRepoWorktreePath, tryHandleCode } from '../web/routes/code.js'
 import { PROJECT_ROOT } from '../config.js'
 import { Readable } from 'node:stream'
 import type http from 'node:http'
-import { parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand } from '../web/code-bridge-telegram.js'
+import { parseCommand, splitProjectAndPrompt, isAllowedChat, chunkMessage, handleCodeCommand, replyForInbound } from '../web/code-bridge-telegram.js'
 import { buildCompletionMessage, shortId } from '../web/code-bridge-notify.js'
 
 const MARVIN = { project: 'marvin', workspacePath: 'C:\\ws\\marvin', sessionId: 'aaaaaaaa-0000-4000-8000-000000000001' }
@@ -493,6 +493,31 @@ describe('telegram command surface', () => {
 
   it('says nothing at all to a command that is not ours', () => {
     expect(handleCodeCommand({ command: 'kanban', args: '' }, '1', 'owner')).toBeNull()
+  })
+
+  // Boss, 2026-09-18 ("a vscode nal telegramot hasznalok. Telegrammon irjon
+  // vissza..."): in its OWN private chat the bot must never sit silent on
+  // something it cannot act on; in a group it must, or it doubles Marvin's bot.
+  describe('replyForInbound', () => {
+    it('answers a plain (non-command) message in a private chat with the command list', () => {
+      const r = replyForInbound('szia', '1', 'owner', true)
+      expect(r).not.toBeNull()
+      expect(r).toMatch(/\/code/)
+    })
+
+    it('stays silent on a plain message in a group chat (would double Marvin)', () => {
+      expect(replyForInbound('szia', '1', 'owner', false)).toBeNull()
+    })
+
+    it('answers an UNKNOWN slash-command in a private chat, silent in a group', () => {
+      expect(replyForInbound('/kanban', '1', 'owner', true)).toMatch(/\/code/)
+      expect(replyForInbound('/kanban', '1', 'owner', false)).toBeNull()
+    })
+
+    it('a recognized command still returns its own answer, in either chat type', () => {
+      expect(replyForInbound('/help', '1', 'owner', true)).toMatch(/Kod-hid/)
+      expect(replyForInbound('/help', '1', 'owner', false)).toMatch(/Kod-hid/)
+    })
   })
 })
 

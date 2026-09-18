@@ -384,6 +384,32 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
   }
 }
 
+/** The reply for ONE inbound message, or null to stay silent.
+ *
+ *  Boss, 2026-09-18 ("a vscode nal telegramot hasznalok. Telegrammon irjon
+ *  vissza..."): in the bot's OWN private chat it must not sit dead-silent on a
+ *  message it cannot act on -- a plain sentence, or an unknown slash-command.
+ *  There it answers with the command list, so the owner always gets something
+ *  back and sees how to use it. A recognized command still returns its own
+ *  answer unchanged.
+ *
+ *  In a GROUP it keeps the old silence for anything unrecognized: Marvin's bot
+ *  is in the same chat, so a reply to every stray line would double every
+ *  message. `isPrivate` is the Telegram chat.type, which the caller passes;
+ *  when it is unknown we err toward silence (treat as not-private), so we can
+ *  never spam a shared chat. */
+export function replyForInbound(
+  text: string,
+  chatId: string,
+  from: string,
+  isPrivate: boolean,
+): string | null {
+  const cmd = parseCommand(text)
+  const answer = cmd ? handleCodeCommand(cmd, chatId, from) : null
+  if (answer) return answer
+  return isPrivate ? HELP : null
+}
+
 // ---- transport ----------------------------------------------------------
 
 async function reply(chatId: string, text: string): Promise<void> {
@@ -399,7 +425,11 @@ async function reply(chatId: string, text: string): Promise<void> {
 
 interface TgUpdate {
   update_id: number
-  message?: { chat?: { id?: number }; from?: { username?: string; first_name?: string }; text?: string }
+  message?: {
+    chat?: { id?: number; type?: string }
+    from?: { username?: string; first_name?: string }
+    text?: string
+  }
 }
 
 async function pollOnce(): Promise<void> {
@@ -433,14 +463,15 @@ async function pollOnce(): Promise<void> {
       logger.warn({ chatId }, 'code-bot: message from a chat that is not allowlisted -- ignored')
       continue
     }
-    const cmd = parseCommand(text)
-    if (!cmd) continue
+    // A missing chat.type is treated as NOT private, so an unrecognized message
+    // can never draw a reply into a shared group (see replyForInbound).
+    const isPrivate = msg?.chat?.type === 'private'
     const from = msg?.from?.username ?? msg?.from?.first_name ?? 'owner'
     let answer: string | null
     try {
-      answer = handleCodeCommand(cmd, chatId, from)
+      answer = replyForInbound(text, chatId, from, isPrivate)
     } catch (err) {
-      logger.error({ err, command: cmd.command }, 'code-bot: command handler threw')
+      logger.error({ err }, 'code-bot: command handler threw')
       answer = `⚠️ Belso hiba: ${err instanceof Error ? err.message : String(err)}`
     }
     if (answer) await reply(chatId, answer)
