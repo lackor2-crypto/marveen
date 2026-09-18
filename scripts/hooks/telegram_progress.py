@@ -16,15 +16,24 @@ hogy dolgozom rajta, hanem azt hogy jelenleg kifogytam a tokenekbol, 100%-on
 vagyok, es nem tudom fogadni a kereseidet eddig es eddig." Before posting the
 placeholder, this hook now checks the agent's OWN 5-hour rate-limit snapshot
 (the same file rate-limit-guard.py reads, store/rate-limit-status/<agent>.json)
--- if it is fresh AND at/over the CRITICAL threshold (mirrors
-CRITICAL_THRESHOLD_PCT in rate-limit-guard.py / src/rate-limit-status.ts), it
+-- if it shows at/over the CRITICAL threshold (mirrors CRITICAL_THRESHOLD_PCT in
+rate-limit-guard.py / src/rate-limit-status.ts) with the window still open, it
 sends an honest status message with a concrete "X ora Y percig" ETA instead of
 the placeholder, and does NOT track it for the Stop-hook cleanup path (it is a
 real, permanent status message, not a "still working" placeholder to delete).
-If the snapshot is missing, stale or the window has already rolled over, this
-falls through to the normal placeholder -- an unreliable number must not be
-guessed at (see recheck-before-restating doctrine), it must simply not gate
-anything.
+A FRESH snapshot is trusted as-is; a STALE one is trusted ONLY when it is
+at/over CRITICAL with the window still in the future -- a critical usedPct
+cannot fall until resetsAt passes, so an old "100% until 17:10" is still true
+now (kanban c99bc49b / #316). That stale-but-critical rule is what catches a
+busy/limit-frozen agent whose statusline stopped ticking (Boss msg 5878),
+WITHOUT the old live-pane scraper: reading the whole tmux pane meant an agent's
+own prose that merely quoted "5h 100%" or "hit your session limit" tripped the
+detector, so an AVAILABLE agent reported as out of quota (Boss msg 5886). If the
+snapshot is missing, or stale-and-below-critical, or the window already rolled
+over, this falls through to the normal placeholder -- an unreliable number must
+not be guessed at (see recheck-before-restating doctrine), it must simply not
+gate anything. The snapshot is read strictly for THIS agent, so it can never
+confuse one agent's quota for another's.
 
 MUST stay silent on stdout — stdout from UserPromptSubmit is injected into the
 model prompt. All diagnostics go to a debug log file under the state dir.
@@ -39,33 +48,6 @@ REACTION = "✍️"                            # ✍️
 
 CRITICAL_THRESHOLD_PCT = 95  # mirrors rate-limit-guard.py / src/rate-limit-status.ts
 STALE_AFTER_MS = 30 * 60_000
-
-# --- Live-pane limit detection (kanban 7f6f7f50) ----------------------------
-#
-# The snapshot gate above only fires when the file is FRESH. A busy or
-# limit-blocked agent stops rendering its statusline, so the snapshot goes
-# stale, five_hour_state() returns None, and the hook falls back to the
-# "Dolgozom rajta" placeholder -- which then LIES, exactly what Boss reported
-# (msg 5878): usalackor sat at 100% ("hit your session limit"), yet every
-# message got "working on it". The fix re-measures from the SOURCE the owner
-# actually looks at -- the live tmux pane -- instead of trusting a stale file
-# (recheck-before-restating doctrine). These patterns are pure/testable.
-LIMIT_BANNER_RX = re.compile(
-    r"hit your (?:session|usage|weekly) limit|usage limit reached|continuing automatically",
-    re.I,
-)
-# The Claude Code statusline: "... | 5h 100% | 7d 29%". This is the LIVE number,
-# with no snapshot lag.
-STATUSLINE_5H_RX = re.compile(r"\b5h\s+(\d{1,3})\s*%", re.I)
-# "resets 5:10pm" / "resets at 5pm" / "continuing automatically at 5:10pm".
-# Minutes optional (the CLI omits ":00"); an optional leading "Mon 14," date
-# part is tolerated but not required.
-PANE_RESET_RX = re.compile(
-    r"(?:reset(?:s)?(?:\s+at)?|continuing automatically at)\s+"
-    r"(?:[A-Za-z]{3,}\.?\s+\d{1,2},?\s*)?"
-    r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",
-    re.I,
-)
 
 
 # --- Rate-limit snapshot reading (mirrors rate-limit-guard.py) --------------
@@ -114,16 +96,30 @@ def resolve_agent_id(cwd, project_root):
 
 
 def five_hour_state(snap, now_ms):
-    """(used_pct, resets_at_ms) for the 5-hour window if the snapshot is fresh
-    and the window has not already rolled over, else None. Mirrors pct_of() +
-    the resetsAt-authority rule in rate-limit-guard.py: usedPct only means
-    anything while resetsAt is still in the future."""
+    """(used_pct, resets_at_ms) for the 5-hour window if it can be TRUSTED, else
+    None. Mirrors pct_of() + the resetsAt-authority rule in rate-limit-guard.py:
+    usedPct only means anything while resetsAt is still in the future.
+
+    Staleness rule (kanban c99bc49b / #316): a FRESH snapshot is trusted as-is.
+    A STALE one is trusted ONLY when it is already at/over CRITICAL and the
+    window has not yet reset -- because a usedPct that is already critical
+    cannot fall until resetsAt passes, so an old reading of "100% until 17:10"
+    is still true at 15:55. Below critical, a stale reading is genuinely unknown
+    (the agent may have kept working since), so it must not gate anything
+    (recheck-before-restating doctrine).
+
+    This is what lets the authoritative PER-AGENT snapshot catch a busy or
+    limit-frozen agent whose statusline stopped ticking (usalackor at 100%,
+    Boss msg 5878) WITHOUT scraping the tmux pane. The pane also carries the
+    model's OWN prose, and prose that merely quotes "5h 100%" or "hit your
+    session limit" wrongly tripped the old live-pane scraper into reporting an
+    AVAILABLE agent as out of quota -- reading Marvin's pane, which was
+    discussing usalackor's 17:10 reset (Boss msg 5886). The snapshot file is
+    read strictly for THIS agent, so it can never confuse one agent for another."""
     if not isinstance(snap, dict):
         return None
     updated_at = snap.get('updatedAt')
     if not isinstance(updated_at, (int, float)):
-        return None
-    if now_ms - updated_at >= STALE_AFTER_MS:
         return None
     window = snap.get('fiveHour')
     if not isinstance(window, dict):
@@ -133,6 +129,11 @@ def five_hour_state(snap, now_ms):
     if not isinstance(resets_at, (int, float)) or resets_at <= now_ms:
         return None
     if not isinstance(used_pct, (int, float)):
+        return None
+    if now_ms - updated_at >= STALE_AFTER_MS and used_pct < CRITICAL_THRESHOLD_PCT:
+        # Stale AND not critical: could have grown since -> unknown, do not gate.
+        # (A stale but critical reading with the window still open is still
+        # reliable, so it falls through and is returned.)
         return None
     return used_pct, resets_at
 
@@ -259,16 +260,6 @@ QUOTA_TEXT = {
     },
 }
 
-# When we KNOW the agent is out of quota (live pane), but could not parse a
-# reliable reset time from it: honest message WITHOUT an ETA we cannot back up.
-# Matches Boss's own wording ("sorba allitottam a feladatot").
-QUOTA_TEXT_NO_ETA = {
-    "hu": "⏳ Jelenleg kifogytam a token-keretemből (5 órás keret {pct}%), ezért most nem tudlak "
-          "rendesen fogadni. Sorba állítottam a kérésedet, és folytatom, amint helyreáll a keretem.",
-    "en": "⏳ I have run out of my token budget (5-hour window {pct}%), so I cannot properly take "
-          "this right now. I have queued your request and will continue as soon as my window resets.",
-}
-
 PLACEHOLDER_TEXT = {"hu": "✍️ Dolgozom rajta…", "en": "✍️ Working on it…"}
 
 
@@ -277,11 +268,8 @@ def placeholder_text(lang="hu"):
 
 
 def quota_honest_message(used_pct, resets_at_ms, now_ms, lang="hu", zone=None, zone_label=""):
-    # No reliable reset time (e.g. live-pane path where the banner had no
-    # "resets ..."): send the honest "queued" message WITHOUT an invented ETA.
-    if not isinstance(resets_at_ms, (int, float)) or resets_at_ms <= now_ms:
-        nt = QUOTA_TEXT_NO_ETA.get(lang, QUOTA_TEXT_NO_ETA["hu"])
-        return nt.format(pct=round(used_pct))
+    # Invariant: the sole caller (quota_status_message_if_critical) passes a
+    # resets_at that five_hour_state already proved to be in the future.
     t = QUOTA_TEXT.get(lang, QUOTA_TEXT["hu"])
     eta = format_wait(resets_at_ms, now_ms, lang)
     try:
@@ -322,119 +310,6 @@ def quota_status_message_if_critical(cwd, now_ms=None):
     return quota_honest_message(
         used_pct, resets_at, now_ms, install_lang(project_root), zone, zone_label,
     )
-
-
-def parse_pane_5h_pct(text):
-    """The LIVE 5-hour usage percent from the pane statusline ("5h 100%"), or
-    None. Un-lagged, unlike the snapshot file. Pure/testable."""
-    m = STATUSLINE_5H_RX.search(text or "")
-    if not m:
-        return None
-    try:
-        v = int(m.group(1))
-    except (TypeError, ValueError):
-        return None
-    return v if 0 <= v <= 100 else None
-
-
-def pane_reset_epoch_ms(text, now_ms, zone=None):
-    """Epoch ms of the next "resets H:MM am/pm" the pane names, or None. If the
-    named local time is already past today, it means tomorrow. Pure/testable
-    (zone is an explicit tzinfo, None = the machine's own zone)."""
-    m = PANE_RESET_RX.search(text or "")
-    if not m:
-        return None
-    try:
-        hour = int(m.group(1))
-        minute = int(m.group(2) or 0)
-        ampm = m.group(3).lower()
-    except (TypeError, ValueError):
-        return None
-    if hour == 12:
-        hour = 0
-    if ampm == "pm":
-        hour += 12
-    if hour > 23 or minute > 59:
-        return None
-    try:
-        import datetime
-        if zone is not None:
-            now_dt = datetime.datetime.fromtimestamp(now_ms / 1000, tz=zone)
-        else:
-            now_dt = datetime.datetime.fromtimestamp(now_ms / 1000).astimezone()
-        cand = now_dt.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if cand <= now_dt:
-            cand = cand + datetime.timedelta(days=1)
-        return cand.timestamp() * 1000
-    except Exception:
-        return None
-
-
-def limit_status_from_pane(text, now_ms, zone=None):
-    """(used_pct, resets_at_ms_or_None) if the LIVE pane shows the agent is out
-    of quota -- a limit banner is present, OR the live 5h statusline is at/over
-    CRITICAL -- else None. This is a fresh MEASUREMENT of the same source the
-    owner sees, so it is not the "guess at a stale number" the snapshot path
-    deliberately refuses. Pure/testable."""
-    if not text:
-        return None
-    pct = parse_pane_5h_pct(text)
-    banner = bool(LIMIT_BANNER_RX.search(text))
-    # The live statusline is the CURRENT truth. If it is present and below
-    # critical, trust it even when a banner line is still visible -- after a
-    # window reset the "hit your session limit" line can linger in the pane as
-    # stale scrollback, and acting on it would wrongly report a healthy agent as
-    # out of quota.
-    if pct is not None and pct < CRITICAL_THRESHOLD_PCT:
-        return None
-    # Nothing points to a limit: no critical percent and no banner.
-    if pct is None and not banner:
-        return None
-    resets = pane_reset_epoch_ms(text, now_ms, zone)
-    # Banner without a parseable percent -> treat as fully spent (100): the
-    # banner itself is the authority ("hit your session limit").
-    return (pct if pct is not None else 100), resets
-
-
-def capture_own_pane():
-    """Live text of THIS agent's OWN tmux pane, or None on any problem.
-
-    Reading one's own pane is allowed; the fleet rule only forbids writing into
-    OTHER agents' panes. Fail-open by design: no tmux, capture error or timeout
-    -> None -> the normal placeholder path runs unchanged."""
-    if not os.environ.get("TMUX") and not os.environ.get("TMUX_PANE"):
-        return None
-    try:
-        import subprocess
-        args = ["tmux", "capture-pane", "-p"]
-        pane = os.environ.get("TMUX_PANE")
-        if pane:
-            args += ["-t", pane]
-        out = subprocess.run(args, capture_output=True, text=True, timeout=4)
-        if out.returncode != 0:
-            return None
-        return out.stdout
-    except Exception:
-        return None
-
-
-def live_pane_quota_message(cwd, now_ms=None):
-    """Honest status text if the LIVE pane shows this agent is out of quota,
-    else None. The un-lagged complement to quota_status_message_if_critical:
-    used when the snapshot is stale/missing but the agent truly cannot work."""
-    if now_ms is None:
-        now_ms = time.time() * 1000
-    text = capture_own_pane()
-    if not text:
-        return None
-    project_root = find_project_root(cwd)
-    zone, zone_label = install_zone(project_root) if project_root else (None, "")
-    st = limit_status_from_pane(text, now_ms, zone)
-    if st is None:
-        return None
-    used_pct, resets_at = st
-    lang = install_lang(project_root) if project_root else "hu"
-    return quota_honest_message(used_pct, resets_at, now_ms, lang, zone, zone_label)
 
 
 def state_dir():
@@ -519,20 +394,15 @@ def main():
 
     # Kanban 34f8f2dc: know BEFORE sending anything whether our own 5-hour
     # frame is already critical -- if so, the placeholder would be a lie.
+    # Kanban c99bc49b (#316): this reads THIS agent's OWN snapshot file, and
+    # five_hour_state now trusts a STALE-but-critical reading (usedPct>=CRITICAL
+    # with the window still open), which is what catches a busy/limit-frozen
+    # agent (usalackor at 100%, Boss msg 5878) that the fresh-only check missed.
+    # The old live-pane scraper that used to run here as a fallback was removed:
+    # it read the whole tmux pane, so an agent's own prose quoting "5h 100%" /
+    # "hit your session limit" made an AVAILABLE agent report as out of quota
+    # (Boss msg 5886 -- Marvin shown blocked until usalackor's 17:10 reset).
     honest_status = quota_status_message_if_critical(os.getcwd())
-    # Kanban 7f6f7f50: the snapshot above is only trusted while FRESH, but a
-    # busy/limit-blocked agent stops ticking its statusline, so the snapshot
-    # goes stale and the check silently falls through to the lying placeholder
-    # (Boss, msg 5878: usalackor at 100% still said "Dolgozom rajta"). Re-measure
-    # from the LIVE pane -- the same source the owner sees -- when the snapshot
-    # did not already catch it.
-    if not honest_status:
-        try:
-            honest_status = live_pane_quota_message(os.getcwd())
-            if honest_status:
-                log(sd, "[submit] live pane shows out-of-quota -- honest status instead of placeholder")
-        except Exception as e:
-            log(sd, f"[submit] live-pane quota check failed (fail-open): {e}")
     # Kanban 0a1ec18e: the placeholder is screen text too, so it follows the
     # INSTALL language, not the language this hook happened to be written in.
     # A missing project root (hook running outside a Marveen tree) keeps the
@@ -619,12 +489,35 @@ def _self_test():
     check("fresh snapshot usable", st is not None, True)
     check("fresh snapshot pct", st[0] if st else None, 100)
 
-    # Stale updatedAt -> unknown, must NOT gate anything (recheck doctrine).
-    stale = {
+    # Stale AND below critical -> unknown (it may have grown since the reading),
+    # must NOT gate anything (recheck doctrine).
+    stale_low = {
+        "updatedAt": now - STALE_AFTER_MS - 1,
+        "fiveHour": {"usedPct": 40, "resetsAt": now + 3600_000},
+    }
+    check("stale low snapshot ignored", five_hour_state(stale_low, now), None)
+
+    # kanban c99bc49b (#316): stale AND at/over critical WITH the window still
+    # open -> STILL trusted. A critical usedPct cannot fall until resetsAt, so an
+    # old "100% until 17:10" is still true now. This is what catches a busy or
+    # limit-frozen agent whose statusline stopped ticking (usalackor, Boss msg
+    # 5878) without scraping the pane -- the scraper's prose false-positive
+    # (Boss msg 5886) is why it was removed.
+    stale_crit = {
         "updatedAt": now - STALE_AFTER_MS - 1,
         "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000},
     }
-    check("stale snapshot ignored", five_hour_state(stale, now), None)
+    st = five_hour_state(stale_crit, now)
+    check("stale critical snapshot still trusted", st is not None, True)
+    check("stale critical snapshot pct", st[0] if st else None, 100)
+    # ...but once the window has reset (resetsAt in the past), even a critical
+    # stale reading no longer applies -> None.
+    stale_crit_expired = {
+        "updatedAt": now - STALE_AFTER_MS - 1,
+        "fiveHour": {"usedPct": 100, "resetsAt": now - 1000},
+    }
+    check("stale critical but window reset -> ignored",
+          five_hour_state(stale_crit_expired, now), None)
 
     # Window already rolled over (resetsAt in the past) -> unknown, same rule
     # as rate-limit-guard.py's pct_of().
@@ -736,41 +629,28 @@ def _self_test():
           format_wait(now + 3 * 3600_000 + 35 * 60_000, now), "3 óra 35 percig")
     check("minutes-only phrasing", format_wait(now + 12 * 60_000, now), "12 percig")
 
-    # --- kanban 7f6f7f50: live-pane limit detection (the un-lagged path) -----
-    # A real Claude Code pane at the session limit.
-    pane_limited = (
-        "  ⎿  You've hit your session limit · resets 5:10pm (Europe/Budapest)\n"
-        "  ⚠ Usage limit reached · continuing automatically at 5:10pm · esc to cancel\n"
-        "  Opus 5 | Ctx 21% | 5h 100% | 7d 29%\n"
-    )
-    check("live pane 5h percent parsed", parse_pane_5h_pct(pane_limited), 100)
-    check("live pane with no statusline -> no pct", parse_pane_5h_pct("just text"), None)
-    st = limit_status_from_pane(pane_limited, now, None)
-    check("limited pane -> status", st is not None, True)
-    check("limited pane -> pct 100", st[0] if st else None, 100)
-    check("limited pane -> a reset time was parsed", (st[1] is not None) if st else False, True)
-    # A healthy, working pane (low usage, no banner) must NOT trigger the honest
-    # message -- otherwise a busy-but-fine agent would wrongly say "out of quota".
-    pane_ok = "  Opus 5 | Ctx 5% | 5h 12% | 7d 20%\n  ⏵⏵ bypass permissions on\n"
-    check("healthy pane -> no override", limit_status_from_pane(pane_ok, now, None), None)
-    # Banner present but statusline scrolled off -> still caught, pct defaults 100.
-    banner_only = "You've hit your session limit · continuing automatically at 9pm\n"
-    st2 = limit_status_from_pane(banner_only, now, None)
-    check("banner alone -> caught", st2 is not None, True)
-    check("banner alone -> pct defaults 100", st2[0] if st2 else None, 100)
-    # A statusline at/over critical with no banner is enough on its own.
-    check("5h 97% alone -> caught",
-          limit_status_from_pane("Opus 5 | 5h 97% | 7d 10%", now, None) is not None, True)
-    # Stale banner still visible AFTER a reset, but the live 5h is low -> the
-    # current statusline wins, no false "out of quota".
-    stale_banner = "You've hit your session limit · resets 9pm\nOpus 5 | 5h 8% | 7d 5%\n"
-    check("stale banner but live 5h low -> healthy",
-          limit_status_from_pane(stale_banner, now, None), None)
-    # No reliable reset time -> honest message WITHOUT an invented ETA.
-    no_eta = quota_honest_message(100, None, now, "hu")
-    check("no-eta message sent", "Sorba állítottam" in no_eta, True)
-    check("no-eta message is not the lie", placeholder_text("hu") in no_eta, False)
-    check("no-eta english variant", "queued" in quota_honest_message(100, None, now, "en"), True)
+    # --- kanban c99bc49b (#316): the STALE-but-critical case must produce a real
+    # honest message end-to-end (this is usalackor's actual case, Boss msg 5878),
+    # while an AVAILABLE agent (low usedPct) must NOT -- which is the false
+    # positive the removed live-pane scraper caused (Boss msg 5886).
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, "store", "rate-limit-status"))
+        with open(os.path.join(d, ".env"), "w") as f:
+            f.write("MAIN_AGENT_ID=main\n")
+        os.environ.pop("SCHEDULER_TZ", None)
+        os.environ.pop("MARVEEN_LANG", None)
+        # Stale (44h old) but 100% with the window still open -> honest message.
+        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
+            json.dump({"updatedAt": now - STALE_AFTER_MS * 20,
+                       "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000}}, f)
+        check("stale-but-critical -> honest message end-to-end",
+              quota_status_message_if_critical(d, now) is not None, True)
+        # Stale AND low (an available agent) -> nothing, normal placeholder.
+        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
+            json.dump({"updatedAt": now - STALE_AFTER_MS * 20,
+                       "fiveHour": {"usedPct": 36, "resetsAt": now - 1000}}, f)
+        check("available agent (stale low) -> normal placeholder",
+              quota_status_message_if_critical(d, now), None)
 
     if fails:
         for f in fails:
