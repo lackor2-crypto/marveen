@@ -200,6 +200,58 @@ function git(cwd: string, args: string[], timeout = 120000, account = ''): Promi
 }
 
 /**
+ * A helyben modositott fajlok kettevalasztva: valodi munka, es "csak sorveg".
+ *
+ * Boss, 2026-09-18 (kartya 83865ddf): "nincs alatt a munka, megis ott maradt
+ * ez a szar". Merve: egy Raktar-taroloban 715 fajl allt modositottkent, es
+ * MIND a 715 csak LF -> CRLF volt (egy Windows-os eszkoz irta at oket) --
+ * `git diff --ignore-cr-at-eol` teljesen ures. A szinkron ezt mentetlen
+ * munkanak latta, kihagyta a tarolot, a "Commit es Push Most" pedig vak
+ * commitot rendelt volna ra: az egesz repo CRLF-re valt volna a GitHubon, es
+ * a Linuxon futo .sh fajlok eltortek volna.
+ *
+ * Csak a TISZTAN munkafas (nem stage-elt) modositas lehet "csak sorveg": ami
+ * stage-elve van, azt valaki szandekosan tette oda, azt nem mi itelunk meg.
+ * A `--name-only` NEM veszi figyelembe az `--ignore-cr-at-eol`-t (merve), a
+ * `--numstat` igen -- ezert a valodi valtozast abbol olvassuk.
+ *
+ * `eolOnly` ures, ha a merest nem sikerult elvegezni: ilyenkor minden
+ * modositas valodi munkanak szamit -- a "nem lattam oda" soha nem lehet
+ * "nincs benne munka".
+ */
+export interface DirtySplit {
+  /** Hany fajlban van VALODI (nem csak sorveg) valtozas, stage-elt vagy untracked is. */
+  real: number
+  /** A csak sorvegben eltero, nem stage-elt fajlok (repo-relativ utak). */
+  eolOnly: string[]
+}
+
+/** A megadott fajlok visszaallitasa a commitolt allapotra, szeletenkent (hosszu parancssor ellen). */
+async function restoreFiles(abs: string, paths: string[], account = ''): Promise<boolean> {
+  for (let i = 0; i < paths.length; i += 200) {
+    const r = await git(abs, ['--literal-pathspecs', 'restore', '--worktree', '--', ...paths.slice(i, i + 200)], 120000, account)
+    if (!r.ok) {
+      logger.warn({ abs, err: r.err }, 'git-sync: csak-sorveg visszaallitas nem sikerult')
+      return false
+    }
+  }
+  return true
+}
+
+export async function splitDirty(abs: string, dirty: number, account = ''): Promise<DirtySplit> {
+  const nul = (s: string) => s.split('\0').filter(Boolean)
+  const modified = await git(abs, ['diff', '--name-only', '-z', '--no-renames', '--diff-filter=M'], 120000, account)
+  const staged = await git(abs, ['diff', '--cached', '--name-only', '-z', '--no-renames'], 120000, account)
+  const realNum = await git(abs, ['diff', '--ignore-cr-at-eol', '--numstat', '-z', '--no-renames', '--diff-filter=M'], 120000, account)
+  if (!modified.ok || !staged.ok || !realNum.ok) return { real: dirty, eolOnly: [] }
+  const stagedSet = new Set(nul(staged.out))
+  // numstat -z: "<add>\t<del>\t<path>\0"
+  const realSet = new Set(nul(realNum.out).map((e) => e.split('\t').slice(2).join('\t')))
+  const eolOnly = nul(modified.out).filter((p) => !realSet.has(p) && !stagedSet.has(p))
+  return { real: Math.max(0, dirty - eolOnly.length), eolOnly }
+}
+
+/**
  * Minden repo a fában.
  *
  * Egy repon BELUL nem keresunk tovabb: a `.git` megtalalasa lezarja az agat.
@@ -238,6 +290,10 @@ export async function findRepos(): Promise<string[]> {
  * Ami itt SOHA nem tortenik: `reset`, `checkout --force`, `pull --rebase`,
  * `stash`. Mind a negy el tudna tuntetni olyan munkat, amirol a felhasznalo
  * azt hiszi, megvan.
+ *
+ * Egyetlen `restore` van: a CSAK sorvegben eltero, nem stage-elt fajlokra
+ * (`splitDirty()`). Azokban nincs munka -- a tartalmuk soronkent azonos a
+ * commitolttal --, es ha maradnanak, a repo sose frissulne (kartya 83865ddf).
  */
 export async function syncRepo(abs: string): Promise<SyncResult> {
   const rel = toLifeRel(abs)
@@ -266,27 +322,48 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
 
   // 2. Van-e barmi, amit elveszithetnenk?
   const st = await git(abs, ['status', '--porcelain'])
-  const dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
+  let dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
+  let eolRestored = 0
+  // A csak-sorveg fajl nem munka: visszaallitjuk (Boss, 2026-09-18, "legyen az
+  // A", kartya 83865ddf). Tartalom nem veszhet el: a `restore` elott ugyanazzal
+  // a merovel UJRA megnezzuk, es csak azt allitjuk vissza, ami most is csak
+  // sorvegben ter el -- ha kozben valaki belejavitott, az mar valodi munka.
   if (dirty) {
-    return { rel, account, state: 'skipped', message: `Commit és push hiánya miatt kimaradt (${dirty} helyben módosított fájl van itt — amíg nincs mentve, nem írom felül).` }
+    const split = await splitDirty(abs, dirty, account)
+    if (split.eolOnly.length) {
+      const again = await splitDirty(abs, dirty, account)
+      const still = new Set(again.eolOnly)
+      const safe = split.eolOnly.filter((p) => still.has(p))
+      if (safe.length && await restoreFiles(abs, safe, account)) {
+        const st2 = await git(abs, ['status', '--porcelain'])
+        dirty = st2.out ? st2.out.split('\n').filter((l) => l.trim()).length : 0
+        eolRestored = safe.length
+        logger.info({ rel, restored: safe.length }, 'git-sync: csak-sorveg fajlok visszaallitva')
+      }
+    }
+  }
+  // A visszaallitast KIMONDJUK: a felhasznalo lassa, hogy a szinkron hozzanyult.
+  const eolNote = eolRestored ? ` (${eolRestored} fájl csak sorvégben tért el, és tartalomvesztés nélkül visszaállítottam.)` : ''
+  if (dirty) {
+    return { rel, account, state: 'skipped', message: `Commit és push hiánya miatt kimaradt (${dirty} helyben módosított fájl van itt — amíg nincs mentve, nem írom felül).` + eolNote }
   }
   const ahead = await git(abs, ['rev-list', '--count', '@{upstream}..HEAD'])
   const aheadN = Number(ahead.out) || 0
   if (aheadN) {
     // Egyseges "Commit es push hianya miatt kimaradt" mondat, mint a dirty
     // esetnel (#260, Boss): a felso osszefoglalo sor is ezt az okot mutatja.
-    return { rel, account, state: 'skipped', message: `Commit és push hiánya miatt kimaradt (${aheadN} még fel nem töltött commit van itt — előbb küldd fel (push), utána frissítek).` }
+    return { rel, account, state: 'skipped', message: `Commit és push hiánya miatt kimaradt (${aheadN} még fel nem töltött commit van itt — előbb küldd fel (push), utána frissítek).` + eolNote }
   }
   const behind = await git(abs, ['rev-list', '--count', 'HEAD..@{upstream}'])
   const behindN = Number(behind.out) || 0
-  if (!behindN) return { rel, account, state: 'current', message: 'Naprakész.' }
+  if (!behindN) return { rel, account, state: 'current', message: 'Naprakész.' + eolNote }
 
   // 3. Csak ELORELEPES. Ha nem az, a `--ff-only` maga tagadja meg.
   const pulled = await git(abs, ['merge', '--ff-only', '@{upstream}'])
   if (!pulled.ok) {
     return { rel, account, state: 'skipped', message: 'A helyi és a távoli ág szétvált — ezt kézzel kell rendezni, magamtól nem írom felül.' }
   }
-  return { rel, account, state: 'updated', message: `Frissítve: ${behindN} új commit jött le.` }
+  return { rel, account, state: 'updated', message: `Frissítve: ${behindN} új commit jött le.` + eolNote }
 }
 
 /**
@@ -302,7 +379,7 @@ export interface CommitPushRepo {
   abs: string
   /** Melyik git-fiokhoz tartozik, vagy `''` ha nem allapithato meg. */
   account: string
-  /** Hany helyben modositott (meg nem commitolt) fajl van. */
+  /** Hany helyben modositott (meg nem commitolt) fajl van -- a csak-sorveg fajlok NELKUL. */
   dirty: number
   /** Hany meg fel nem toltott commit van a helyi agban. */
   ahead: number
@@ -347,7 +424,10 @@ export async function scanReposNeedingCommitPush(): Promise<CommitPushScan> {
       try {
         const account = accountOfPath(abs) || await accountFromRemote(abs)
         const st = await git(abs, ['status', '--porcelain'])
-        const dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
+        const all = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
+        // A csak-sorveg fajl nem munka: arra nem rendelunk commitot (kartya 83865ddf).
+        const split = all ? await splitDirty(abs, all, account) : { real: 0, eolOnly: [] }
+        const dirty = split.real
         const up = await git(abs, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
         const hasUpstream = up.ok && !!up.out
         let ahead = 0
