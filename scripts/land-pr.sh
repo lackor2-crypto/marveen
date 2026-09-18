@@ -223,6 +223,21 @@ POLL_INTERVAL=15
 echo "land-pr: varakozas a CI-re (tipikusan ~2-3 perc; hatarido $(( CI_WAIT_MAX / 60 )) perc)..." >&2
 start="$(date +%s)"
 deadline=$(( start + CI_WAIT_MAX ))
+
+# A main KOTELEZO checkjei (branch protection). A rollup egy RESZHALMAZT is
+# mutathat: merve 2026-09-18, PR #184 -- a 6 masodperces kulcs-minta check mar
+# zold volt, a fo CI (es vele a kotelezo "ci-passed") meg nem is regisztralt, es
+# a land-pr ezt "a CI zold"-nek olvasta. Ha a kotelezo lista lekerheto, a PASS
+# csak akkor PASS, ha mind benne van a rollupban. Ha nem kerheto le (nincs jog,
+# nincs vedelem), azt KIMONDJUK, es a regi viselkedes marad.
+set +e
+REQUIRED_CHECKS="$(gh api "repos/$REPO/branches/main/protection/required_status_checks" --jq '.contexts[]' 2>/dev/null)"
+req_rc=$?
+set -e
+if [ "$req_rc" -ne 0 ] || [ -z "$REQUIRED_CHECKS" ]; then
+  echo "land-pr: a main kotelezo checkjeit nem tudtam lekerdezni -- a CI-t a regisztralt checkekbol itelem meg." >&2
+  REQUIRED_CHECKS=""
+fi
 ci_confirmed=0                  # 1, ha mar lattunk regisztralt futast
 gh_fail_streak=0
 
@@ -265,7 +280,22 @@ while true; do
 
   case "$verdict" in
     RETRY) : ;;
-    PASS) echo "land-pr: a CI zold." >&2; break ;;
+    PASS)
+      missing=""
+      if [ -n "$REQUIRED_CHECKS" ]; then
+        missing="$(REQ="$REQUIRED_CHECKS" node -e '
+          const roll = JSON.parse(require("fs").readFileSync(0, "utf8") || "[]")
+          const seen = new Set(roll.map((c) => c && (c.name || c.context)).filter(Boolean))
+          process.stdout.write(process.env.REQ.split("\n").filter((r) => r && !seen.has(r)).join(", "))
+        ' <<<"$roll")"
+      fi
+      if [ -n "$missing" ]; then
+        # nem break: a hatarido-ellenorzes es a varakozas lent ugyanugy lefut
+        ci_confirmed=1
+        echo "land-pr: a regisztralt checkek zoldek, de a kotelezo meg nem jelent meg ($missing), varok..." >&2
+      else
+        echo "land-pr: a CI zold." >&2; break
+      fi ;;
     FAIL) die "a CI NEM zold ezen a PR-en. A PR nyitva marad: $PR_URL -- javitsd a hibat es pushold ujra a branchet." ;;
     PENDING) ci_confirmed=1 ;;   # van regisztralt check -> biztos, hogy fut CI
     EMPTY)
