@@ -2631,7 +2631,7 @@ function renderNewCardLabelPicker() {
 
 function populateAssigneeSelect(selectId, selected) {
   const sel = document.getElementById(selectId)
-  sel.innerHTML = '<option value="">-- Nincs --</option>'
+  sel.innerHTML = `<option value="">${escapeHtml(t('kanban.meta.none'))}</option>`
   for (const a of kanbanAssignees) {
     const opt = document.createElement('option')
     opt.value = a.name
@@ -2897,7 +2897,7 @@ async function showCardDetail(card) {
     const current = card.assignee || ''
     const sel = document.createElement('select')
     sel.style.cssText = 'padding:2px 6px; border-radius:4px; border:1px solid var(--border); background:var(--bg-card); color:var(--text); font-size:inherit'
-    sel.innerHTML = '<option value="">-- Nincs --</option>'
+    sel.innerHTML = `<option value="">${escapeHtml(t('kanban.meta.none'))}</option>`
     for (const a of kanbanAssignees) {
       const opt = document.createElement('option')
       opt.value = a.name
@@ -41058,7 +41058,12 @@ function _prjToggleNewMenu(force) {
   const open = force !== undefined ? force : menu.hidden
   menu.hidden = !open
   btn.setAttribute('aria-expanded', String(open))
-  if (open) menu.querySelector('.prj-new-item')?.focus()
+  if (!open) return
+  // A menu a kepernyon belul maradjon: alapbol a gomb jobb szelehez igazodik,
+  // de ha igy balra kilogna, a gomb bal szeletol nyilik.
+  menu.classList.remove('prj-open-right')
+  if (menu.getBoundingClientRect().left < 8) menu.classList.add('prj-open-right')
+  menu.querySelector('.prj-new-item')?.focus()
 }
 
 // ---- osszefoglalo ----

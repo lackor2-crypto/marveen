@@ -3815,7 +3815,7 @@
           <input type="text" id="cardTitle" placeholder="Feladat megnevezése" data-i18n-placeholder="kanban.modal.title_ph">
         </div>
         <div class="form-group">
-          <label for="cardDesc" data-i18n="common.description">Leírás <span class="hint">(opcionális)</span></label>
+          <label for="cardDesc" data-i18n="common.description">Leírás <span class="hint" data-i18n="common.optional_paren">(opcionális)</span></label>
           <textarea id="cardDesc" rows="3" placeholder="Részletek, kontextus..." data-i18n-placeholder="kanban.modal.desc_ph"></textarea>
         </div>
         <div class="form-row">
@@ -3835,11 +3835,11 @@
         </div>
         <div class="form-row">
           <div class="form-group form-half">
-            <label for="cardDue" data-i18n="kanban.modal.due_label">Határidő <span class="hint">(opcionális)</span></label>
+            <label for="cardDue" data-i18n="kanban.modal.due_label">Határidő <span class="hint" data-i18n="common.optional_paren">(opcionális)</span></label>
             <input type="date" id="cardDue">
           </div>
           <div class="form-group form-half">
-            <label for="cardProject" data-i18n="common.project">Projekt <span class="hint">(opcionális)</span></label>
+            <label for="cardProject" data-i18n="common.project">Projekt <span class="hint" data-i18n="common.optional_paren">(opcionális)</span></label>
             <input type="text" id="cardProject" list="projectSuggestions" placeholder="pl. Dream Engine" autocomplete="off">
             <datalist id="projectSuggestions"></datalist>
           </div>
@@ -3848,7 +3848,7 @@
              without one). Shown only in create mode -- while editing, labels
              are managed in the card detail modal. -->
         <div class="form-group" id="cardLabelPickGroup">
-          <label data-i18n="kanban.modal.label_required">Címke <span class="hint">(kötelező)</span></label>
+          <label data-i18n="kanban.modal.label_required">Címke <span class="hint" data-i18n="common.required_paren">(kötelező)</span></label>
           <div id="cardLabelPick" class="card-label-pick"></div>
         </div>
         <input type="hidden" id="cardEditId">

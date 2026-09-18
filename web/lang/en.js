@@ -32,6 +32,8 @@ window._i18n.en = {
   'common.confirm':           'Confirm',
   'common.all':               'All',
   'common.none':              'None',
+  'common.optional_paren': '(optional)',
+  'common.required_paren': '(required)',
   'common.unknown':           'Unknown',
   'common.error_load':        'Error loading data',
 

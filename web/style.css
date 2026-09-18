@@ -12078,6 +12078,8 @@ details.upstream-box > summary > h4 {
   background: var(--bg-card); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.18));
 }
 .prj-new-menu[hidden] { display: none; }
+/* Ha a gomb a sor bal szelen all (keskeny kepernyo), a menu jobbra nyilik. */
+.prj-new-menu.prj-open-right { right: auto; left: 0; }
 .prj-new-item { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: none; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; cursor: pointer; }
 .prj-new-item:hover, .prj-new-item:focus-visible { background: var(--accent-soft); }
 .prj-new-item strong { font-size: 14px; }
@@ -12102,7 +12104,6 @@ details.upstream-box > summary > h4 {
 .prj-folder-sub .input:focus, .prj-link-row .input:focus { border-color: var(--accent); }
 .prj-folder-sub input[type="file"] { font-size: 13px; max-width: 100%; }
 @media (max-width: 768px) {
-  .prj-new-menu { right: auto; left: 0; }
   .prj-sections { grid-template-columns: 1fr; }
   .prj-head-actions { justify-content: flex-start; }
   .prj-mig-controls .input { min-width: 0; width: 100%; }

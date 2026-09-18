@@ -32,6 +32,8 @@ window._i18n.hu = {
   'common.confirm':           'Megerősítés',
   'common.all':               'Mind',
   'common.none':              'Nincs',
+  'common.optional_paren': '(opcionális)',
+  'common.required_paren': '(kötelező)',
   'common.unknown':           'Ismeretlen',
   'common.error_load':        'Hiba a betöltés során',
 
