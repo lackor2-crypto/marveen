@@ -1894,6 +1894,20 @@
 
       <div class="card">
         <h2 data-i18n="dsync.title">A Drive-om a gépemen</h2>
+        <!-- TORLES-MEGEROSITO SOR (#301): a lap TETEJEN, csillaggal. A szinkron
+             magatol semmit nem torol; ami torlodne, itt var tetelenkent igenre
+             vagy nemre. Ures sornal az egesz doboz rejtve marad. -->
+        <div id="depoDelQueue" style="display:none;margin:0 0 14px;padding:10px;border-radius:6px;
+             border:1px solid var(--warning, #c77);background:rgba(200,120,60,.10)">
+          <h3 style="margin:0 0 6px;font-size:14px" data-i18n="ddel.title">★ Törlésre váró fájlok – te döntesz</h3>
+          <p class="subtitle" style="margin:0 0 8px" data-i18n="ddel.what">
+            Ezek a fájlok az egyik oldalon eltűntek. A Marveen magától SEMMIT nem töröl:
+            nézd végig egyenként. „Igen, törölhető" = a fájl a Kukába kerül (nem végleg,
+            visszahozható). „Nem, maradjon" = semmi nem történik vele, és többet nem kérdezem.
+          </p>
+          <p id="depoDelQueueNote" class="subtitle" style="margin:0 0 6px"></p>
+          <div id="depoDelQueueList"></div>
+        </div>
         <!-- MIRE VALO -- eloszor ez, csak utana a gombok. Boss 2026-08-15:
              "hulyebiztosan kell leirni hogy mi mire valo es mit kell honnan
              kivalasztani". A gombsor korabban cimke nelkul allt: egy legordulo
@@ -1909,8 +1923,9 @@
           A másolat <strong>oda-vissza</strong> működik: ami a Drive-on új vagy
           módosult, az <strong>lejön</strong>; amit a gépeden létrehozol vagy
           szerkesztesz, az <strong>felmegy</strong>. Ha a gépeden törölsz valamit,
-          az fent is törlődik — de a <strong>Kukába</strong>, ahonnan 30 napig
-          visszahozható.
+          azt <strong>nem törlöm magamtól</strong> a Drive-on: a lap tetején, a ★
+          listában megkérdezem, és igenre a <strong>Kukába</strong> kerül, ahonnan
+          30 napig visszahozható.
           <br>
           <strong>Egy irányban viszont szándékosan nem követ:</strong> ami a
           Drive-on törlődik, az nálad <strong>megmarad</strong>. Így ha valaki
