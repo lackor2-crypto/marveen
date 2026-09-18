@@ -812,7 +812,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       const r = byName.get(s.name)
       return r ? mergeAiIntoSuggestion(s, r, run, config) : s
     })
-    send(res, 200, { ...result, suggestions, ai: { engine: run.engine, model: run.model, note: run.note } })
+    send(res, 200, { ...result, suggestions, ai: { engine: run.engine, model: run.model, note: run.note, pending: run.pending || [] } })
     return true
   }
 

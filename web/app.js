@@ -35657,10 +35657,15 @@ async function _inboxAiRound() {
   names.forEach(function (n) { var s = _inboxSug(n); if (s) { s._aiPending = true; _inboxRedrawCard(s) } })
   var done = 0
   var lastNote = ''
-  for (var i = 0; i < names.length; i += _INBOX_AI_CHUNK) {
+  // A queue, not a fixed split: the server gives back what the (slow, local)
+  // model had no time for in one request, and those go again one by one.
+  var queue = []
+  for (var i = 0; i < names.length; i += _INBOX_AI_CHUNK) queue.push(names.slice(i, i + _INBOX_AI_CHUNK))
+  var retried = {}
+  while (queue.length) {
     if (run !== _inboxAiRun) return
     if (note) note.textContent = t('inbox.ai_working', { done: done, n: names.length })
-    var chunk = names.slice(i, i + _INBOX_AI_CHUNK)
+    var chunk = queue.shift()
     var d = null
     try {
       d = await _depoPost('/api/life/inbox/ai-suggest?lang=' + (window._lang || 'hu'), { names: chunk })
@@ -35670,7 +35675,13 @@ async function _inboxAiRound() {
     if (run !== _inboxAiRun) return
     if (d && d.knownFolders) _inboxKnownFolders = d.knownFolders
     if (d && d.ai && d.ai.note) lastNote = d.ai.note
+    var pending = (d && d.ai && d.ai.pending) || []
+    var requeued = {}
+    pending.forEach(function (n) {
+      if (chunk.indexOf(n) >= 0 && !retried[n]) { retried[n] = 1; requeued[n] = 1; queue.push([n]) }
+    })
     chunk.forEach(function (n) {
+      if (requeued[n]) return
       var old = _inboxSug(n)
       if (!old) return
       var fresh = d && (d.suggestions || []).filter(function (s) { return s.name === n })[0]
@@ -35687,8 +35698,8 @@ async function _inboxAiRound() {
       }
       merged._aiPending = false
       _inboxRedrawCard(merged)
+      done++
     })
-    done += chunk.length
   }
   if (note) note.textContent = lastNote
 }

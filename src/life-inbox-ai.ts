@@ -35,10 +35,12 @@ import { T, type AiInfo, type DateCandidate, type InboxSuggestion, type KnownFol
 import { humanLocation } from './life-explorer.js'
 import type { LifeConfig } from './life-tree.js'
 
-const CLAUDE_TIMEOUT_MS = 180_000
+const CLAUDE_TIMEOUT_MS = 120_000
 // A small model on CPU: tens of seconds per document. One item per call, and
 // after the first timeout we stop asking -- the rules' suggestion stays.
-const OLLAMA_TIMEOUT_MS = 240_000
+// Worst case of one request: 120 s of Claude + one 140 s local answer = 260 s,
+// inside Node's default 300 s request timeout.
+const OLLAMA_TIMEOUT_MS = 140_000
 /** Characters of document text per item: the first pages carry sender, date, subject. */
 const TEXT_PER_ITEM = 4000
 /** Folders listed in the prompt; shallow ones first. */
@@ -55,6 +57,9 @@ export interface ClaudeAccount {
   /** The model the agent itself runs on -- tells which plan the account has. */
   model: string
   fiveHourPct: number | null
+  /** 7-day usage. Display only for WORK decisions -- but an account whose weekly
+   *  limit is really used up cannot answer a call, so it is skipped here. */
+  sevenDayPct?: number | null
   usageAt: number | null
 }
 
@@ -69,8 +74,9 @@ export function orderClaudeAccounts(cands: ClaudeAccount[], now: number = Date.n
   return cands
     .filter((c) => rankModelTier(c.model) >= 200)
     .filter((c) => {
-      if (c.fiveHourPct === null) return true
       if (c.usageAt !== null && now - c.usageAt > STALE_AFTER_MS) return true
+      if (c.sevenDayPct != null && c.sevenDayPct >= 100) return false
+      if (c.fiveHourPct === null) return true
       return tierForPct(c.fiveHourPct) !== 'critical'
     })
     .sort((a, b) => {
@@ -92,6 +98,7 @@ function listClaudeAccounts(): ClaudeAccount[] {
       out.push({
         agent, configDir: dir, model: readAgentModel(agent),
         fiveHourPct: snap?.fiveHour?.usedPct ?? null,
+        sevenDayPct: snap?.sevenDay?.usedPct ?? null,
         usageAt: snap?.updatedAt && snap.updatedAt > 0 ? snap.updatedAt : null,
       })
     } catch { /* one broken agent config must not hide the others */ }
@@ -103,7 +110,8 @@ function listClaudeAccounts(): ClaudeAccount[] {
 // Runners (injectable for tests)
 // ---------------------------------------------------------------------------
 export interface RunnerAnswer { text: string; model: string }
-export type ClaudeRunner = (system: string, prompt: string, account: ClaudeAccount) => Promise<RunnerAnswer | null>
+/** 'limit' = the account answered that its usage limit is hit (session or weekly). */
+export type ClaudeRunner = (system: string, prompt: string, account: ClaudeAccount) => Promise<RunnerAnswer | 'limit' | null>
 /** 'missing' = no local model server / no chat model; null = there is one, but it gave no answer. */
 export type OllamaRunner = (system: string, prompt: string) => Promise<RunnerAnswer | 'missing' | null>
 
@@ -128,7 +136,7 @@ const realClaudeRunner: ClaudeRunner = (system, prompt, account) => {
   return new Promise((resolve) => {
     let out = ''
     let done = false
-    const finish = (v: RunnerAnswer | null) => {
+    const finish = (v: RunnerAnswer | 'limit' | null) => {
       if (done) return
       done = true
       clearTimeout(timer)
@@ -142,6 +150,7 @@ const realClaudeRunner: ClaudeRunner = (system, prompt, account) => {
     child.on('close', () => {
       try {
         const j = JSON.parse(out)
+        if (j.is_error && typeof j.result === 'string' && /\blimit\b/i.test(j.result)) return finish('limit')
         if (j.is_error || typeof j.result !== 'string') return finish(null)
         const model = Object.keys(j.modelUsage || {}).find((m) => m.includes('opus'))
           || Object.keys(j.modelUsage || {})[0] || 'claude'
@@ -336,6 +345,8 @@ export interface AiRun {
   results: AiItemResult[]
   /** One sentence for the UI: which engine answered, or why none did. */
   note: string
+  /** Items the local model had no time for in THIS request (the caller asks again). */
+  pending?: string[]
 }
 
 export interface AiInputItem {
@@ -357,17 +368,38 @@ function promptItem(it: AiInputItem): PromptItem {
   return { name: s.name, kind: s.type.value, text: it.prefetched?.content.text || '', metadata, dateCandidates: dates }
 }
 
+const MAX_CLAUDE_ACCOUNTS = 5
+const REQUEST_BUDGET_MS = 120_000
+const LIMIT_COOLDOWN_MS = 15 * 60_000
+const limitedUntil = new Map<string, number>()
+
+/** Tests only: forget which accounts said "limit". */
+export function resetLimitCooldown(): void { limitedUntil.clear() }
+
 async function runBatch(items: PromptItem[], config: LifeConfig, folders: KnownFolder[], lang: string): Promise<AiRun> {
   const names = items.map((i) => i.name)
   const tried: string[] = []
-  for (const account of accountLister().slice(0, 2)) {
+  // The saved usage numbers can be stale (an account at "36%" may already be
+  // over its session limit), so every candidate gets a try -- a limit answer
+  // comes back in a few seconds -- and an account that said "limit" is left
+  // alone for a while, so the next group of documents does not ask it again.
+  const now = Date.now()
+  const requestStart = now
+  const accounts = accountLister().filter((a) => (limitedUntil.get(a.configDir) ?? 0) <= now)
+  for (const account of accounts.slice(0, MAX_CLAUDE_ACCOUNTS)) {
+    if (Date.now() - requestStart > REQUEST_BUDGET_MS) break
     tried.push(account.agent)
     const ans = await claudeRunner(SYSTEM_PROMPT, buildPrompt(items, config, folders, lang, false), account).catch(() => null)
+    if (ans === 'limit') {
+      limitedUntil.set(account.configDir, Date.now() + LIMIT_COOLDOWN_MS)
+      logger.warn({ agent: account.agent }, 'inbox-ai: Claude account is over its usage limit, trying the next one')
+      continue
+    }
     const results = ans ? parseAiAnswer(ans.text, names, config, folders) : []
-    if (results.length) {
+    if (ans && results.length) {
       return {
-        engine: 'claude', model: ans!.model, results,
-        note: T(lang, `A javaslatot a Claude (${ans!.model}) készítette.`, `Suggested by Claude (${ans!.model}).`),
+        engine: 'claude', model: ans.model, results,
+        note: T(lang, `A javaslatot a Claude (${ans.model}) készítette.`, `Suggested by Claude (${ans.model}).`),
       }
     }
     logger.warn({ agent: account.agent }, 'inbox-ai: Claude account gave no usable answer, trying the next engine')
@@ -377,7 +409,12 @@ async function runBatch(items: PromptItem[], config: LifeConfig, folders: KnownF
   const localResults: AiItemResult[] = []
   let localModel = ''
   let localState: 'missing' | 'failed' | 'ok' = 'failed'
+  const pending: string[] = []
   for (const item of items) {
+    // One HTTP request must end well inside the server's 300 s request
+    // timeout: what does not fit goes back as "pending", and the page asks
+    // for it again in its own request.
+    if (localState === 'ok' && Date.now() - requestStart > REQUEST_BUDGET_MS) { pending.push(item.name); continue }
     const ans = await ollamaRunner(SYSTEM_PROMPT, buildPrompt([item], config, folders, lang, true)).catch(() => null)
     if (ans === 'missing') { localState = 'missing'; break }
     if (!ans) break
@@ -397,7 +434,7 @@ async function runBatch(items: PromptItem[], config: LifeConfig, folders: KnownF
       ? T(lang, 'a Claude most nem válaszolt', 'Claude did not answer now')
       : T(lang, 'ezen a gépen nincs használható Claude-fiók', 'there is no usable Claude account on this machine')
     return {
-      engine: 'ollama', model: localModel, results: localResults,
+      engine: 'ollama', model: localModel, results: localResults, pending,
       note: T(lang,
         `A javaslatot a gépen futó helyi modell (${localModel}) készítette, mert ${why}. Kevésbé pontos, nézd át.`,
         `Suggested by the local model on this machine (${localModel}) because ${why}. Less accurate, please review.`),
@@ -431,6 +468,7 @@ export async function classifyWithAi(inputs: AiInputItem[], config: LifeConfig, 
   for (let i = 0; i < items.length; i += MAX_ITEMS_PER_CALL) {
     const run = await runBatch(items.slice(i, i + MAX_ITEMS_PER_CALL), config, folders, lang)
     merged.results.push(...run.results)
+    if (run.pending?.length) merged.pending = [...(merged.pending || []), ...run.pending]
     if (merged.engine === 'none' || run.engine === 'claude') {
       merged.engine = run.engine; merged.model = run.model; merged.note = run.note
     }
