@@ -39069,13 +39069,14 @@ function marveenProcessHtml(m) {
 // ============================================================
 // === Git tarolok (Raktar) ===
 // ============================================================
-// Ez a lap NEM szinkronizal es NEM klonoz: a `git-sync` utolso menetenek
-// eredmenyet mutatja meg, fiokonkent csoportositva, es a repot a MEGLEVO
-// Intezoben nyitja meg (ugyanaz a `rel`, amit a szinkron ad vissza).
+// Ez a lap a `git-sync` utolso menetenek eredmenyet mutatja meg, fiokonkent
+// csoportositva, es a repot a MEGLEVO Intezoben nyitja meg (ugyanaz a `rel`,
+// amit a szinkron ad vissza).
 //
-// Push/feltoltes szandekosan NINCS rajta: a szinkron csak lefele huz, es a
-// helyben modositott repot kihagyja. Egy feltoltes-gomb itt azt igerne, amit
-// a hatter nem csinal meg.
+// A "Szinkron most" csak lefele huz, es a mentetlen (helyben modositott / fel
+// nem toltott) repot kihagyja. A "Commit es Push Most" gomb ezt a hianyt
+// tolti be: a legokosabb ELO agensre bizza a commit+push-t -- a feltoltest
+// tehat egy AI vegzi el, nem a szinkron.
 
 // A repo-allapotok sorrendje a listaban: ami FIGYELMET kEr, az all elol. A
 // "naprakesz" a vegen -- abbol van a legtobb, es abbol nincs mit megnezni.
@@ -39242,6 +39243,66 @@ async function loadGitReposPage() {
     box.hidden = true
     box.textContent = ''
   }
+  // A "Commit es Push Most" allapotsora kulon, friss felmeresbol tolt -- a
+  // szinkron-allapottol fuggetlenul, mert az mas kerdes (mi var feltoltesre).
+  _gitreposLoadCommitPush()
+}
+
+// Hany tarolo var commit+push-ra, es ki kapta legutobb a munkat. A szamot
+// MINDIG friss felmeresbol vesszuk (a foldi igazsag maguk a tarolok), nem egy
+// stale allapotfajlbol -- igy a worker vegeztevel a szam magatol nullazodik.
+async function _gitreposLoadCommitPush() {
+  const line = document.getElementById('gitreposCommitPushState')
+  const btn = document.getElementById('gitreposCommitPushBtn')
+  if (!line) return
+  let data
+  try {
+    const res = await fetch('/api/storages/git-commit-push')
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    data = await res.json()
+  } catch (err) {
+    // "Nem lattam oda" -- nem allitjuk, hogy nincs mit tenni.
+    line.hidden = false
+    line.textContent = t('gitrepos.commit_push_check_failed', { err: String(err && err.message || err) })
+    if (btn) btn.disabled = false
+    return
+  }
+  _gitreposRenderCommitPush(data)
+}
+
+function _gitreposRenderCommitPush(data) {
+  const line = document.getElementById('gitreposCommitPushState')
+  const btn = document.getElementById('gitreposCommitPushBtn')
+  if (!line) return
+  const parts = []
+  if (data.rootError) {
+    // A NULLA itt "nem lattam oda", nem "minden feltoltve".
+    line.hidden = false
+    line.textContent = t('gitrepos.commit_push_root_error', { err: String(data.rootError) })
+    if (btn) btn.disabled = true
+    return
+  }
+  const n = Number(data.needing) || 0
+  const d = data.lastDispatch
+  if (n === 0) {
+    if (btn) btn.disabled = true
+    // Friss telepitesen (nincs repo, sose adtunk ki munkat) NINCS mit mondani:
+    // ne allitsuk azt, hogy "minden feltoltve", amikor meg tarolo sincs.
+    if (!(d && d.agent)) { line.hidden = true; line.textContent = ''; return }
+    parts.push(t('gitrepos.commit_push_none'))
+  } else {
+    parts.push(t('gitrepos.commit_push_pending', { n: n }))
+    if (btn) btn.disabled = false
+  }
+  if (d && d.agent) {
+    let when = ''
+    try { when = new Date(d.at).toLocaleString((window._lang || 'hu') === 'en' ? 'en-US' : 'hu-HU') } catch (e) { when = String(d.at || '') }
+    parts.push(t('gitrepos.commit_push_last', {
+      agent: d.agent, model: d.model || '?', n: Number(d.repoCount) || 0, when: when,
+    }))
+  }
+  line.hidden = false
+  line.textContent = parts.join(' · ')
 }
 
 document.addEventListener('click', async (ev) => {
@@ -39267,6 +39328,26 @@ document.addEventListener('click', async (ev) => {
       showToast(body.message || t('gitrepos.sync_done'))
     } catch (err) {
       showToast(t('gitrepos.sync_failed', { err: String(err && err.message || err) }), { type: 'error' })
+    } finally {
+      btn.disabled = false
+      btn.textContent = eredeti
+      await loadGitReposPage()
+    }
+  }
+  if (ev.target.closest('#gitreposCommitPushBtn')) {
+    const btn = document.getElementById('gitreposCommitPushBtn')
+    if (!btn || btn.disabled) return
+    btn.disabled = true
+    const eredeti = btn.textContent
+    btn.textContent = t('gitrepos.commit_push_working')
+    try {
+      const res = await fetch('/api/storages/git-commit-push', { method: 'POST' })
+      const body = await res.json().catch(() => ({}))
+      // A szerver a `message` mezot mar emberi mondatban adja (siker es hiba is).
+      if (!res.ok) throw new Error(body.message || ('HTTP ' + res.status))
+      showToast(body.message || t('gitrepos.commit_push_dispatched'))
+    } catch (err) {
+      showToast(String(err && err.message || err), { type: 'error' })
     } finally {
       btn.disabled = false
       btn.textContent = eredeti

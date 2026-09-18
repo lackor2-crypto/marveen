@@ -4333,6 +4333,15 @@ window._i18n.hu = {
   'gitrepos.empty.root_error':      'Nem tudtam bejárni a tároló gyökerét, ezért NEM tudom, van-e ott tároló. Ez nem azt jelenti, hogy nincs. A hiba: {err}',
   'gitrepos.empty.read_error':      'Ott van a szinkron naplója, de nem tudtam elolvasni, ezért nem látok oda. A hiba: {err}',
   'gitrepos.load_failed':           'Nem tudtam lekérdezni a szinkron állapotát, ezért nem látok oda. A hiba: {err}',
+  'gitrepos.commit_push_now':       'Commit és Push Most',
+  'gitrepos.commit_push_hint':      'Az elmaradt (nem commitolt vagy fel nem töltött) tárolókat egy AI-ágens átvizsgálja, commitolja és feltölti. E nélkül a Szinkron kihagyja őket.',
+  'gitrepos.commit_push_working':   'Kiadás...',
+  'gitrepos.commit_push_dispatched':'Kiadtam a munkát a legokosabb elérhető ágensnek.',
+  'gitrepos.commit_push_none':      'Minden tároló commitolva és feltöltve van.',
+  'gitrepos.commit_push_pending':   '{n} tároló vár commit+push-ra.',
+  'gitrepos.commit_push_last':      'Legutóbb kiadva: {agent} ({model}), {n} tároló · {when}.',
+  'gitrepos.commit_push_root_error':'Nem látok a tárolók mappájába, ezért NEM tudom, mi maradt el. Ez nem azt jelenti, hogy nincs. A hiba: {err}',
+  'gitrepos.commit_push_check_failed':'Nem tudtam felmérni, mi vár commit+push-ra, ezért nem látok oda. A hiba: {err}',
 
   // --- Browser (card #165) ---
   "nav.browser": "Böngésző",

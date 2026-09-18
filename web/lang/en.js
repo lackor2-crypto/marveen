@@ -4257,6 +4257,15 @@ window._i18n.en = {
   'gitrepos.empty.root_error':      'I could not walk the depot root, so I do NOT know whether there are repositories there. This does not mean there are none. The error: {err}',
   'gitrepos.empty.read_error':      'The sync log is there but I could not read it, so I cannot see. The error: {err}',
   'gitrepos.load_failed':           'I could not query the sync state, so I cannot see. The error: {err}',
+  'gitrepos.commit_push_now':       'Commit and Push Now',
+  'gitrepos.commit_push_hint':      'An AI agent reviews, commits and pushes the repos that are behind (uncommitted or not yet pushed). Without this, Sync skips them.',
+  'gitrepos.commit_push_working':   'Dispatching...',
+  'gitrepos.commit_push_dispatched':'I handed the work to the most capable available agent.',
+  'gitrepos.commit_push_none':      'Every repository is committed and pushed.',
+  'gitrepos.commit_push_pending':   '{n} repositories are waiting for commit+push.',
+  'gitrepos.commit_push_last':      'Last dispatched: {agent} ({model}), {n} repositories · {when}.',
+  'gitrepos.commit_push_root_error':'I cannot see into the repositories folder, so I do NOT know what is behind. This does not mean there is nothing. The error: {err}',
+  'gitrepos.commit_push_check_failed':'I could not assess what is waiting for commit+push, so I cannot see. The error: {err}',
 
   // --- Browser (card #165) ---
   "nav.browser": "Browser",

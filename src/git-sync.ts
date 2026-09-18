@@ -289,6 +289,88 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
   return { rel, account, state: 'updated', message: `Frissítve: ${behindN} új commit jött le.` }
 }
 
+/**
+ * Egy tarolo, amelynel a szinkron azert allt le, mert MENTETLEN munka van
+ * benne: helyben modositott fajl (`dirty`) vagy fel nem toltott commit
+ * (`ahead`). Ezeket viszi keszre a "Commit es Push Most" gomb -- lasd
+ * `scanReposNeedingCommitPush()`.
+ */
+export interface CommitPushRepo {
+  /** A bekotott (a fan lathato) ut -- ezt olvassa a felhasznalo. */
+  rel: string
+  /** A tenyleges fajlrendszer-ut -- ebbe kell belepni a git-parancsokhoz. */
+  abs: string
+  /** Melyik git-fiokhoz tartozik, vagy `''` ha nem allapithato meg. */
+  account: string
+  /** Hany helyben modositott (meg nem commitolt) fajl van. */
+  dirty: number
+  /** Hany meg fel nem toltott commit van a helyi agban. */
+  ahead: number
+  /** A helyi es a tavoli ag szetvalt (mindketto elorement) -- ovatosan! */
+  diverged: boolean
+  /** Van-e egyaltalan tavoli aga (upstream), amihez igazodhatna/pusholhatna. */
+  hasUpstream: boolean
+}
+
+export interface CommitPushScan {
+  /** CSAK azok a tarolok, amelyekben van mentetlen munka (dirty vagy ahead). */
+  repos: CommitPushRepo[]
+  /**
+   * A depo GYOKERE nem volt bejarhato. Ilyenkor a `repos` ures, de ez NEM azt
+   * jelenti, hogy nincs elmaradt tarolo -- csak azt, hogy nem lattunk oda.
+   * Ugyanaz a nemasagi csapda, mint a `SyncRun.rootError`-nal.
+   */
+  rootError: string
+}
+
+/**
+ * Vegigmegy minden taroloval, es visszaadja azokat, amelyekben MENTETLEN
+ * munka van -- pontosan az a halmaz, amit a szinkron "Commit es push hianya
+ * miatt kimaradt" uzenettel atugrik. Nem ir semmit, csak felmer: a tenyleges
+ * commit+push-t egy AI-agens vegzi el, ennek a listanak az alapjan.
+ *
+ * A NULLA ket dolgot jelenthet: "minden commitolva es feltoltve" (helyes, ha
+ * `rootError` ures) vagy "nem lattam oda" (`rootError` ki van toltve). A
+ * kettot a hivo KULON kezeli, nem a `repos.length`-bol kovetkeztet.
+ */
+export async function scanReposNeedingCommitPush(): Promise<CommitPushScan> {
+  let rootError = ''
+  const gyoker = explorerRoot()
+  if (gyoker) {
+    try { await fsp.readdir(gyoker) } catch (err: any) {
+      rootError = String(err?.message || err).slice(0, 160)
+    }
+  }
+  const repos: CommitPushRepo[] = []
+  if (!rootError) {
+    for (const abs of await findRepos()) {
+      try {
+        const account = accountOfPath(abs) || await accountFromRemote(abs)
+        const st = await git(abs, ['status', '--porcelain'])
+        const dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
+        const up = await git(abs, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+        const hasUpstream = up.ok && !!up.out
+        let ahead = 0
+        let diverged = false
+        if (hasUpstream) {
+          const a = await git(abs, ['rev-list', '--count', '@{upstream}..HEAD'])
+          ahead = Number(a.out) || 0
+          const b = await git(abs, ['rev-list', '--count', 'HEAD..@{upstream}'])
+          const behind = Number(b.out) || 0
+          diverged = ahead > 0 && behind > 0
+        }
+        // Egy repo dirty lehet upstream NELKUL is (helyben klonozott, vagy meg
+        // sose pusholt) -- azt is fel kell venni, mert commit (es elso push)
+        // kell hozza.
+        if (dirty > 0 || ahead > 0) {
+          repos.push({ rel: toLifeRel(abs), abs, account, dirty, ahead, diverged, hasUpstream })
+        }
+      } catch { /* egy repo hibaja ne allitsa meg a tobbi felmereset */ }
+    }
+  }
+  return { repos, rootError }
+}
+
 /** Az utolso futas allapota, vagy `null`, ha meg sose futott. */
 export function lastSyncRun(): SyncRun | null {
   try { return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as SyncRun } catch { return null }

@@ -18,7 +18,7 @@ vi.mock('../config.js', async () => {
   return { ...actual, STORE_DIR: store, PROJECT_ROOT: store }
 })
 
-const { findRepos, syncRepo, syncAllRepos, lastSyncRun } = await import('../git-sync.js')
+const { findRepos, syncRepo, syncAllRepos, lastSyncRun, scanReposNeedingCommitPush } = await import('../git-sync.js')
 
 const WORK = join(depot, 'Munka', 'proba')
 const REMOTE = join(depot, '.tavoli.git')
@@ -64,6 +64,34 @@ describe('findRepos', () => {
     // nagy repo bejarasa percekbe kerulne minden korben.
     mkdirSync(join(WORK, 'melyebb', 'meg-melyebb'), { recursive: true })
     expect((await findRepos()).filter((r) => r.startsWith(WORK))).toEqual([WORK])
+  })
+})
+
+describe('scanReposNeedingCommitPush', () => {
+  it('tiszta, naprakesz repot NEM sorol fel', async () => {
+    const scan = await scanReposNeedingCommitPush()
+    expect(scan.rootError).toBe('')
+    expect(scan.repos.find((r) => r.abs === WORK)).toBeUndefined()
+  })
+
+  it('a helyben MODOSITOTT repot felsorolja (dirty)', async () => {
+    writeFileSync(join(WORK, 'a.txt'), 'amin eppen dolgozom', 'utf8')
+    const scan = await scanReposNeedingCommitPush()
+    const r = scan.repos.find((x) => x.abs === WORK)
+    expect(r).toBeDefined()
+    expect(r!.dirty).toBeGreaterThan(0)
+    expect(r!.ahead).toBe(0)
+  })
+
+  it('a FEL NEM TOLTOTT commitot tartalmazo repot felsorolja (ahead)', async () => {
+    writeFileSync(join(WORK, 'b.txt'), 'sajat', 'utf8')
+    git(WORK, 'add', '-A')
+    git(WORK, 'commit', '-qm', 'meg nincs feltoltve')
+    const scan = await scanReposNeedingCommitPush()
+    const r = scan.repos.find((x) => x.abs === WORK)
+    expect(r).toBeDefined()
+    expect(r!.ahead).toBeGreaterThan(0)
+    expect(r!.hasUpstream).toBe(true)
   })
 })
 

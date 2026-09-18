@@ -9,6 +9,8 @@
 //   POST /api/storages/git-pull   -- a fiok repoinak lehuzasa
 //   GET  /api/storages/git-sync   -- mikor futott az automatikus szinkron
 //   POST /api/storages/git-sync   -- szinkron MOST
+//   GET  /api/storages/git-commit-push -- hany tarolo var commit+push-ra
+//   POST /api/storages/git-commit-push -- a legokosabb elo agens keszre viszi
 //
 // A 33. pont "megnyitas" es "szinkronallapot" tetelet a mar meglevo felulet
 // adja: a mappa megnyitasa az Intezo dolga (a sor `rel`-jere ugrunk), a
@@ -26,7 +28,8 @@ import {
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
 import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
-import { syncAllRepos, lastSyncState } from '../../git-sync.js'
+import { syncAllRepos, lastSyncState, scanReposNeedingCommitPush } from '../../git-sync.js'
+import { dispatchCommitPush, readLastDispatch } from '../commit-push-job.js'
 import { displayLabelFor } from '../../life-labels.js'
 
 /**
@@ -240,6 +243,34 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/storages/git-sync' && method === 'POST') {
     const run = await syncAllRepos()
     json(res, { ok: true, last: withDisplayNames(run), message: `${run.results.length} repót néztem át: ${run.updated} frissült, ${run.skipped} kimaradt, ${run.errors} hibázott.` })
+    return true
+  }
+
+  // COMMIT ES PUSH MOST -- felmeres. A Szinkron azert hagy ki tarolokat, mert
+  // mentetlen munka van bennuk (a szinkron sose ir felul). Ez a vegpont friss
+  // felmeressel mondja meg, HANY ilyen tarolo van, es ki kapta legutobb a
+  // munkat. A NULLA ket dolgot jelenthet: "minden feltoltve" (rootError ures)
+  // vagy "nem lattam oda" (rootError kitoltve) -- ezt kulon adjuk vissza, nem
+  // a repos.length-bol kell kovetkeztetni.
+  if (path === '/api/storages/git-commit-push' && method === 'GET') {
+    const scan = await scanReposNeedingCommitPush()
+    json(res, {
+      ok: true,
+      needing: scan.repos.length,
+      repos: scan.repos.map((r) => ({ rel: r.rel, account: r.account, dirty: r.dirty, ahead: r.ahead, diverged: r.diverged, hasUpstream: r.hasUpstream })),
+      rootError: scan.rootError,
+      lastDispatch: readLastDispatch(),
+    })
+    return true
+  }
+
+  // COMMIT ES PUSH MOST -- kiadas. Felmer, kivalasztja a legokosabb ELO,
+  // token-nel biro agenst, es kiadja neki a munkat. A HTTP-kod az EREDMENYT
+  // koveti: dispatched/nothing -> 200, no_agent -> 409, root_error -> 503.
+  if (path === '/api/storages/git-commit-push' && method === 'POST') {
+    const out = await dispatchCommitPush()
+    const status = out.ok ? 200 : (out.kind === 'no_agent' ? 409 : 503)
+    json(res, out, status)
     return true
   }
 

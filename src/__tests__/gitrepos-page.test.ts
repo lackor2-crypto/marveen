@@ -115,11 +115,17 @@ describe('a lap felulete', () => {
     expect(app).toMatch(/_intezoOpen\(rel\)/)
   })
 
-  it('NINCS push/feltoltes gomb a lapon', () => {
-    // A szinkron csak lefele huz, es a helyben modositottat kihagyja. Egy
-    // feltoltes-gomb olyat igerne, amit a hatter nem csinal meg.
+  it('VAN "Commit es Push Most" gomb, ami a commit-push vegpontra kot', () => {
+    // Boss, 2026-09-18: a Szinkron kihagyja a mentetlen tarolokat, ezert kell
+    // egy gomb, ami a legokosabb ELO agensre bizza a commit+push-t. (Ez
+    // felulirja a korabbi "NINCS push gomb" invariánst -- most a hatter, egy
+    // AI-agensen keresztul, TENYLEG elvegzi.)
     const page = html.slice(html.indexOf('id="gitreposPage"'), html.indexOf('id="gitreposPage"') + 2500)
-    expect(page).not.toMatch(/push|feltölt|feltolt|upload/i)
+    expect(page).toContain('id="gitreposCommitPushBtn"')
+    expect(page).toContain("data-i18n=\"gitrepos.commit_push_now\"")
+    // A gomb a POST /api/storages/git-commit-push vegpontot hivja.
+    expect(app).toContain("/api/storages/git-commit-push")
+    expect(app).toContain("#gitreposCommitPushBtn")
   })
 
   it('a betoltesi hiba KULON mondatot kap, nem az ures allapotot', () => {
