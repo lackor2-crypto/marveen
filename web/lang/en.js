@@ -3671,7 +3671,7 @@ window._i18n.en = {
   'upstream.gate.exclude': 'excluded by principle',
   'upstream.gate.discuss': 'needs your decision',
   'upstream.gate.summary': 'Principle check: {x} excluded, {d} need your decision, {a} can go. Hover a badge for the reason.',
-  'upstream.gate.notrun': 'Principle check: this list was made before the check existed; it is added at the next refresh.',
+  'upstream.gate.notrun': 'Principle check: this list was made before the check existed, so there is nothing to show here yet. Close this window, press “Fetch and re-measure”, and the list is refreshed together with the excluded and to-decide items.',
   'upstream.gate.failed': 'Principle check: could NOT review this time ({error}) -- so a missing badge does not mean the change can go.',
   'upstream.changes.conflict': 'touches a conflicting file',
   'upstream.changes.nohu':    'No summary has been written for this one yet.',

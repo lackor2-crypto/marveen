@@ -3744,7 +3744,7 @@ window._i18n.hu = {
   'upstream.gate.exclude': 'elv miatt kizárva',
   'upstream.gate.discuss': 'döntésre vár',
   'upstream.gate.summary': 'Elv-ellenőrzés: {x} kizárva, {d} a te döntésedre vár, {a} mehet. Vidd az egeret a jelvényre az indokért.',
-  'upstream.gate.notrun': 'Elv-ellenőrzés: ez a lista még az ellenőrzés előtt készült, a következő frissítéskor kerül rá.',
+  'upstream.gate.notrun': 'Elv-ellenőrzés: ez a lista még az ellenőrzés előtt készült, ezért itt most nincs mit mutatni. Zárd be ezt az ablakot, nyomd meg a „Letöltés és újramérés” gombot, és a lista a kizárt és döntésre váró tételekkel együtt frissül.',
   'upstream.gate.failed': 'Elv-ellenőrzés: most NEM sikerült átnézni ({error}) -- a jelvény hiánya ezért nem jelenti, hogy a változás mehet.',
   'upstream.changes.conflict': 'ütköző fájlt érint',
   'upstream.changes.nohu':    'Ehhez még nem készült magyar leírás.',
