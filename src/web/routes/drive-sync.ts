@@ -42,7 +42,6 @@ import { PROJECT_ROOT } from '../../config.js'
 import { readBody, json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { depotAccountDir, depotHealth, depotRoot, DEPOT_DRIVE, DEPOT_SYSTEM_ROOT } from '../../depot.js'
-import { resolveLifePath } from '../../life-explorer.js'
 import { driveDownloadPlan, driveUploadMime, isSafeFolderId } from './drive-browser.js'
 import {
   recordSyncFailure, loadSyncFailures, clearSyncFailures, failuresAsText, syncFailureRuns,
@@ -53,6 +52,8 @@ import {
   clearExternalChanges, setExternalGuardEnabled, externalSummaryText,
 } from '../../external-delete-guard.js'
 import type { RouteContext } from './types.js'
+import { getQueueItem, loadDeleteQueue, removePairFromQueue, removeQueueItem, syncQueueForPair } from '../../drive-delete-queue.js'
+import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
 
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
@@ -807,6 +808,8 @@ export interface SyncJob {
    * A kepernyon ez kulon, feltuno uzenetet kap -- nem szabad elsikkadnia.
    */
   deleteBrake?: { wouldDelete: number; tracked: number }
+  /** Hany tetel var a torles-megerosito sorban a futas vegen (#301). */
+  pendingDeletes?: number
 }
 
 let job: SyncJob | null = null
@@ -1153,6 +1156,21 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
       complete: csonkolt.length === 0,
       incompleteReason: csonkolt.length ? csonkoltSzoveg(csonkolt, MAX_FOLDERS, MAX_FILES) : '',
     })
+    // A LEFELE TORLES MEGEROSITO SORA (#301). A Drive-rol eltunt, de a gepeden
+    // meg meglevo fajlok NEM torlodnek magatol: a sorba kerulnek, es a
+    // felhasznalo tetelenkent donti el, mennek-e a helyi Kukaba. Csak TELJES
+    // bejarasbol: csonka kepben a "nem lattam" nem azt jelenti, hogy "eltunt".
+    if (csonkolt.length === 0) {
+      const lefele: Parameters<typeof syncQueueForPair>[2] = []
+      for (const [id, rel] of tracked) {
+        if (latottIdk.has(id)) continue
+        const abs = join(base, rel)
+        if (!existsSync(abs)) continue
+        lefele.push({ pairLabel: pairLabel(pair), account: pair.account, driveId: id, relPath: rel, localPath: abs, size: state[id]?.size })
+      }
+      const sor = syncQueueForPair(pair.id, 'down', lefele)
+      if (job) job.pendingDeletes = (job.pendingDeletes || 0) + sor.total
+    }
   }
   const felmeno = await uploadPhase({ pair, cfg, state, token, base, gyoker, gyokerAbs, folderIds, csonkolt, utkozoIdk, driveUtak })
   return { csonkolt, brake: felmeno.brake, maradt: felmeno.maradt }
@@ -1393,7 +1411,12 @@ async function uploadPhase(a: {
   // A `maradt` NEM akadaly itt: a helyi kep TELJES (a bejaras nem csonkolt),
   // csak a feltoltes fert bele a koltsegvetesbe. Amirol tudjuk, hogy a gepen
   // mar nincs meg, arrol ettol meg tudjuk.
-  if (cfg.deleteUp === false) return { brake: null, maradt }
+  if (cfg.deleteUp === false) {
+    // Kikapcsolt torles-atvitel: a sorbol is kikerulnek a felmeno tetelek --
+    // egy kikapcsolt funkciohoz ne lehessen igent mondani.
+    syncQueueForPair(pair.id, 'up', [])
+    return { brake: null, maradt }
+  }
   // A torles a Google-natív fajlokra IS vonatkozik -- ott nincs "bajtok
   // egyezese" kerdes, csak annyi: a gepen mar nincs meg. A Rajz/Script is
   // ideszamit, noha a TARTALMUK nem tud felmenni: a torles nem konvertalas.
@@ -1401,7 +1424,8 @@ async function uploadPhase(a: {
   const tracked = Object.keys(state).length
   // 3. FEK: tomeges torles megallitasa. Par fajl torlese hetkoznapi, a
   // nyilvantartas nagy hanyada viszont majdnem biztosan hiba (rossz mappa,
-  // felcsatolasi baj, hiba ebben a kodban) -- olyankor egy sem megy fel.
+  // felcsatolasi baj, hiba ebben a kodban) -- olyankor a megerosito sorba sem
+  // kerul semmi: egy lecsatolt lemez ne arasszon el ezer kerdessel.
   if (shouldBrakeDeletions(torlendok.length, tracked)) {
     if (job) job.deleteBrake = { wouldDelete: torlendok.length, tracked }
     job?.errors.push(
@@ -1410,20 +1434,14 @@ async function uploadPhase(a: {
     )
     return { brake: { wouldDelete: torlendok.length, tracked }, maradt }
   }
-  for (const [id, s] of torlendok) {
-    if (job) job.current = s.path
-    try {
-      await trashDriveFile(id, token)
-      delete state[id]
-      if (job) job.trashed++
-    } catch (err: any) {
-      gond({
-        pair, phase: 'törlés', failed: true,
-        localPath: join(a.base, s.path), driveName: basename(s.path), driveId: id,
-        reason: String(err?.message || err).slice(0, 200),
-      })
-    }
-  }
+  // TETELENKENTI MEGEROSITES (#301): innen SEMMI nem torlodik magatol. A
+  // torlendo fajlok a megerosito sorba kerulnek, es a felhasznalo tetelenkent
+  // mond ra igent (-> Drive-Kuka) vagy nemet (-> marad).
+  const sor = syncQueueForPair(pair.id, 'up', torlendok.map(([id, s]) => ({
+    pairLabel: pairLabel(pair), account: pair.account, driveId: id,
+    relPath: s.path, localPath: join(a.base, s.path), size: s.size,
+  })))
+  if (job) job.pendingDeletes = (job.pendingDeletes || 0) + sor.total
   return { brake: null, maradt }
 }
 
@@ -1535,6 +1553,67 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
     job.finishedAt = new Date().toISOString()
   }
   logger.info({ downloaded: job?.downloaded, failed: job?.failed }, '[drive-sync] futas kesz')
+}
+
+/**
+ * Egy torles-megerosito tetel eldontese (#301).
+ *
+ * `approve: false` (NEM): semmihez nem nyulunk, a tetel kikerul, es a
+ * kovetkezo futas sem kerdezi ujra, amig a helyzet fennall.
+ *
+ * `approve: true` (IGEN), es ez sem vegleges torles:
+ *   * `up`   -> a Drive-peldany a Drive KUKAJABA megy.
+ *   * `down` -> a helyi peldany a raktar Kukajaba (Rendszer / Kuka) megy.
+ *
+ * Minden igen elott UJRA megnezzuk, hogy a helyzet fennall-e: ha a fajl kozben
+ * visszakerult a gepre (up), vagy mar nincs meg (down), nem torlunk semmit.
+ * Futo szinkron kozben nem dontunk -- a futas a sajat nyilvantartasat irja,
+ * es a ketto felulirna egymast.
+ */
+export async function decideDeletion(id: string, approve: boolean): Promise<{ status: number; body: any }> {
+  const item = getQueueItem(id)
+  if (!item) return { status: 404, body: { error: 'not_found', code: 'not_found' } }
+  if (job?.running) return { status: 409, body: { error: 'running', code: 'running' } }
+  if (!approve) {
+    removeQueueItem(id, true)
+    return { status: 200, body: { ok: true, done: 'kept' } }
+  }
+  const cfg = loadSyncConfig()
+  if (cfg.corrupt) return { status: 409, body: { error: 'config_broken', code: 'config_broken' } }
+  const pair = cfg.pairs.find((p) => p.id === item.pairId)
+  const hely = pair ? pairLocalDir(pair) : null
+  if (!pair || !hely) {
+    removeQueueItem(id)
+    return { status: 409, body: { error: 'pair_gone', code: 'pair_gone' } }
+  }
+  // A helyi utat NEM a sorbol vesszuk: azt a paros sajat helyebol szamoljuk
+  // ujra, igy egy kezzel atirt sor-fajl sem tud a raktaron kivulre mutatni.
+  const abs = join(hely.base, item.relPath)
+  const state = cfg.state[pair.id] || {}
+  if (item.direction === 'up') {
+    if (existsSync(abs)) {
+      removeQueueItem(id)
+      return { status: 409, body: { error: 'came_back', code: 'came_back' } }
+    }
+    try {
+      await trashDriveFile(item.driveId, tokenSzolgaltato(item.account))
+    } catch (err: any) {
+      return { status: 502, body: { error: String(err?.message || err).slice(0, 200), code: 'drive_failed' } }
+    }
+  } else {
+    if (!existsSync(abs)) {
+      removeQueueItem(id)
+      return { status: 409, body: { error: 'already_gone', code: 'already_gone' } }
+    }
+    const rel = toLifeRel(abs)
+    const r = rel ? trashLife(rel) : { ok: false, message: 'outside' }
+    if (!r.ok) return { status: 500, body: { error: r.message, code: 'trash_failed' } }
+  }
+  delete state[item.driveId]
+  cfg.state[pair.id] = state
+  saveSyncConfig(cfg)
+  removeQueueItem(id)
+  return { status: 200, body: { ok: true, done: item.direction === 'up' ? 'drive_trash' : 'local_trash' } }
 }
 
 export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
@@ -1802,6 +1881,9 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
     cfg.pairs = cfg.pairs.filter((p) => p.id !== id)
     delete cfg.state[id]
     saveSyncConfig(cfg)
+    // A levalasztott paros torles-kerdesei okafogyottak: igen-t mondani rajuk
+    // mar nem lehetne (nincs nyilvantartas, amibol dolgozni).
+    removePairFromQueue(id)
     // A LEMEZRE nem nyulunk: a mar lehozott fajlok a tieid, egy kapcsolat
     // megszuntetese nem viheti el oket.
     json(res, { ok: true, removed: before - cfg.pairs.length })
@@ -1859,6 +1941,21 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/drive/sync/failures/clear' && method === 'POST') {
     clearSyncFailures()
     json(res, { ok: true })
+    return true
+  }
+
+  // TORLES-MEGEROSITO SOR (#301). Friss telepitesen ures lista -- es a
+  // `fileExists` megmondja, hogy azert ures, mert meg nem futott szinkron.
+  if (path === '/api/drive/sync/deletions' && method === 'GET') {
+    const load = loadDeleteQueue()
+    json(res, { items: load.items, readError: load.readError, running: !!job?.running })
+    return true
+  }
+
+  if (path === '/api/drive/sync/deletions/decide' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const r = await decideDeletion(String(data.id || ''), data.approve === true)
+    json(res, r.body, r.status)
     return true
   }
 

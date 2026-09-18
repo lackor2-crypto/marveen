@@ -33867,6 +33867,89 @@ async function loadDepoPage() {
   await _depoRefresh()
 }
 
+/* ============ TORLES-MEGEROSITO SOR (#301) ============
+ *
+ * A szinkron magatol SEMMIT nem torol. Ami torlodne, az itt all, a kartya
+ * tetejen, csillaggal -- es tetelenkent kell ra igent vagy nemet mondani. Az
+ * igen sem vegleges: a fajl a Kukaba megy (fent a Drive Kukajaba, lent a
+ * raktar Rendszer / Kuka mappajaba).
+ */
+function _depoDelErr(code) {
+  var k = 'ddel.err_' + String(code || '')
+  var v = t(k)
+  return v && v !== k ? v : (t('ddel.err_generic') + ' ' + String(code || ''))
+}
+
+async function _depoDelQueueRefresh() {
+  var box = document.getElementById('depoDelQueue')
+  var list = document.getElementById('depoDelQueueList')
+  var note = document.getElementById('depoDelQueueNote')
+  if (!box || !list) return
+  var d = null
+  try {
+    d = await _depoGet('/api/drive/sync/deletions')
+  } catch (e) {
+    // Nem tudtuk megnezni: ez NEM ugyanaz, mint az ures sor -- kimondjuk.
+    box.style.display = ''
+    if (note) note.textContent = t('ddel.load_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+    list.innerHTML = ''
+    return
+  }
+  var items = (d && d.items) || []
+  if (d && d.readError) {
+    box.style.display = ''
+    if (note) note.textContent = t('ddel.read_error') + ' ' + d.readError
+    list.innerHTML = ''
+    return
+  }
+  if (!items.length) { box.style.display = 'none'; list.innerHTML = ''; return }
+  box.style.display = ''
+  if (note) note.textContent = d.running ? t('ddel.running') : t('ddel.count', { n: items.length })
+  list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('ddel.col_file')) + '</th>'
+    + '<th>' + escapeHtml(t('ddel.col_what')) + '</th>'
+    + '<th>' + escapeHtml(t('ddel.col_since')) + '</th>'
+    + '<th></th></tr></thead><tbody>'
+    + items.map(function (it) {
+      var mi = it.direction === 'up' ? t('ddel.up_what') : t('ddel.down_what')
+      return '<tr><td>★ <code>' + escapeHtml(it.localPath || it.relPath || '') + '</code>'
+        + '<br><span class="subtitle">' + escapeHtml(it.pairLabel || '') + '</span></td>'
+        + '<td>' + escapeHtml(mi) + '</td>'
+        + '<td>' + escapeHtml(String(it.detectedAt || '').slice(0, 16).replace('T', ' ')) + '</td>'
+        + '<td style="white-space:nowrap">'
+        + '<button class="btn-primary btn-compact" data-ddel-yes="' + escapeHtml(it.id) + '"' + (d.running ? ' disabled' : '') + '>' + escapeHtml(t('ddel.yes')) + '</button> '
+        + '<button class="btn-secondary btn-compact" data-ddel-no="' + escapeHtml(it.id) + '"' + (d.running ? ' disabled' : '') + '>' + escapeHtml(t('ddel.no')) + '</button>'
+        + '</td></tr>'
+    }).join('')
+    + '</tbody></table></div>'
+  list.querySelectorAll('[data-ddel-yes]').forEach(function (b) {
+    var it = items.find(function (x) { return x.id === b.getAttribute('data-ddel-yes') })
+    b.addEventListener('click', function () { _depoDelDecide(it, true) })
+  })
+  list.querySelectorAll('[data-ddel-no]').forEach(function (b) {
+    var it = items.find(function (x) { return x.id === b.getAttribute('data-ddel-no') })
+    b.addEventListener('click', function () { _depoDelDecide(it, false) })
+  })
+}
+
+async function _depoDelDecide(it, approve) {
+  if (!it) return
+  // ELONEZET a lepes elott: pontosan mi tortenik, melyik fajllal.
+  if (approve) {
+    var msg = it.direction === 'up'
+      ? t('ddel.confirm_up', { file: it.localPath || it.relPath })
+      : t('ddel.confirm_down', { file: it.localPath || it.relPath })
+    if (!confirm(msg)) return
+  }
+  try {
+    var r = await _depoPost('/api/drive/sync/deletions/decide', { id: it.id, approve: !!approve })
+    showToast(!approve ? t('ddel.kept') : (r && r.done === 'drive_trash' ? t('ddel.done_up') : t('ddel.done_down')))
+  } catch (e) {
+    alert(_depoDelErr((e && e.message) ? e.message : String(e)))
+  }
+  await _depoDelQueueRefresh()
+}
+
 /* ============ KULSO TORLES ELLENI VEDELEM (specifikacio 6. pont) ============
  *
  * A lenyeg a LATHATOSAG: a lefele menetben nincs torles, de eddig semmi nem
@@ -34297,6 +34380,7 @@ async function _depoRefresh() {
   // KULON tolt, a `s`-tol fuggetlenul: ha a `/api/drive/sync` elhasal, a
   // vedelem allapotat akkor is latni kell -- eppen olyankor a legfontosabb.
   await _depoGuardRefresh()
+  await _depoDelQueueRefresh()
   // Serult beallitas-fajl: a lista ilyenkor URESEN all. Magyarazat nelkul ez ugy
   // nez ki, mintha a felhasznalo maga valasztotta volna le a mappait. Ez a
   // figyelmeztetes a vészfék-doboz UTAN all be, hogy ne nyomja el a job-uzenet.
