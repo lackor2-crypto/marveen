@@ -370,12 +370,32 @@ def pane_reset_epoch_ms(text, now_ms, zone=None):
         return None
 
 
+# Only this many lines from the BOTTOM of the pane are the live Claude Code UI
+# chrome (statusline, limit banner, input box). Everything above is scrollback:
+# the conversation and command output, which can itself MENTION "5h 100%" or
+# "hit your session limit" (e.g. when the agent was just discussing this very
+# bug, or printed another agent's pane). Parsing the whole pane turned that
+# scrollback into a false "out of quota" (Boss, msg 5884/5886: Marvin at 5h 36%
+# wrongly reported 100% with ANOTHER agent's reset time, picked up from pasted
+# text in its own scrollback). Kanban 66432a98.
+PANE_CHROME_LINES = 12
+
+
+def bottom_region(text, n=PANE_CHROME_LINES):
+    """The last `n` lines of the pane -- the live UI chrome only, never the
+    scrollback above it. Pure/testable."""
+    if not text:
+        return ""
+    return "\n".join(text.splitlines()[-n:])
+
+
 def limit_status_from_pane(text, now_ms, zone=None):
-    """(used_pct, resets_at_ms_or_None) if the LIVE pane shows the agent is out
-    of quota -- a limit banner is present, OR the live 5h statusline is at/over
-    CRITICAL -- else None. This is a fresh MEASUREMENT of the same source the
-    owner sees, so it is not the "guess at a stale number" the snapshot path
-    deliberately refuses. Pure/testable."""
+    """(used_pct, resets_at_ms_or_None) if the LIVE pane chrome shows the agent
+    is out of quota -- a limit banner is present, OR the live 5h statusline is
+    at/over CRITICAL -- else None. This is a fresh MEASUREMENT of the same source
+    the owner sees, so it is not the "guess at a stale number" the snapshot path
+    deliberately refuses. Callers pass ONLY the bottom chrome region (see
+    bottom_region), so scrollback text can never trigger it. Pure/testable."""
     if not text:
         return None
     pct = parse_pane_5h_pct(text)
@@ -427,9 +447,13 @@ def live_pane_quota_message(cwd, now_ms=None):
     text = capture_own_pane()
     if not text:
         return None
+    # Look ONLY at the live UI chrome at the bottom, never the scrollback above
+    # it -- otherwise conversation/output that merely MENTIONS a limit (or shows
+    # another agent's pane) reads as our own quota state (kanban 66432a98).
+    region = bottom_region(text)
     project_root = find_project_root(cwd)
     zone, zone_label = install_zone(project_root) if project_root else (None, "")
-    st = limit_status_from_pane(text, now_ms, zone)
+    st = limit_status_from_pane(region, now_ms, zone)
     if st is None:
         return None
     used_pct, resets_at = st
@@ -766,6 +790,36 @@ def _self_test():
     stale_banner = "You've hit your session limit · resets 9pm\nOpus 5 | 5h 8% | 7d 5%\n"
     check("stale banner but live 5h low -> healthy",
           limit_status_from_pane(stale_banner, now, None), None)
+    # --- kanban 66432a98: scrollback must NEVER trigger the limit message -----
+    # A pane whose SCROLLBACK contains another agent's "5h 100% ... resets 5:10pm"
+    # (pasted / printed earlier), but whose LIVE chrome at the bottom is healthy.
+    # bottom_region must keep only the chrome, so the detection stays healthy.
+    scrollback_pane = (
+        "  Boss pane dump:\n"
+        "  Opus 5 | Ctx 21% | 5h 100% | 7d 29%\n"
+        "  You've hit your session limit · resets 5:10pm (Europe/Budapest)\n"
+        + ("  ... conversation line ...\n" * 20)
+        + "───────────────── Marvin ─\n"
+        "❯ \n"
+        "──────────────────────────\n"
+        "  ⏵⏵ bypass permissions on · esc to interrupt\n"
+    )
+    check("scrollback limit text is excluded (only chrome seen)",
+          limit_status_from_pane(bottom_region(scrollback_pane), now, None), None)
+    # The SAME text, if it is actually in the live chrome (bottom), still fires.
+    live_limited = (
+        "───────────────── Szakértő ─\n"
+        "❯ \n"
+        "  You've hit your session limit · resets 5:10pm\n"
+        "  ⚠ Usage limit reached · continuing automatically at 5:10pm · esc to cancel\n"
+        "  Opus 5 | Ctx 21% | 5h 100% | 7d 29%\n"
+    )
+    check("live-chrome limit still fires",
+          limit_status_from_pane(bottom_region(live_limited), now, None) is not None, True)
+    # bottom_region keeps only the tail.
+    check("bottom_region keeps only the last lines",
+          bottom_region("a\nb\nc\nd\ne\nf", 3), "d\ne\nf")
+
     # No reliable reset time -> honest message WITHOUT an invented ETA.
     no_eta = quota_honest_message(100, None, now, "hu")
     check("no-eta message sent", "Sorba állítottam" in no_eta, True)
