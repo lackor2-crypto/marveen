@@ -49,6 +49,24 @@ export function isIrreversibleClick(el: { text?: string | null; type?: string | 
   return IRREVERSIBLE_RE.test((el.text || '').trim())
 }
 
+/** A megjelenitett kepernyokepre kattintas -> a valodi bongeszo-viewport
+ *  pixel-koordinatai. A kep aranytartoan jelenik meg (CSS: max-width:100%,
+ *  height:auto), ezert egyszeru aranyszamitas eleg; a szeleket 0..1-re vagjuk,
+ *  hogy egy hatarra eso kattintas se menjen a viewporton kivulre. Kartya
+ *  a5e542ac: a headless Chromium page.mouse.click(x,y) ezt varja. */
+export function mapImageClickToViewport(
+  offsetX: number, offsetY: number, displayW: number, displayH: number, naturalW: number, naturalH: number,
+): { x: number; y: number } | null {
+  const nums = [offsetX, offsetY, displayW, displayH, naturalW, naturalH]
+  if (nums.some(n => !Number.isFinite(n))) return null
+  if (!(displayW > 0) || !(displayH > 0) || !(naturalW > 0) || !(naturalH > 0)) return null
+  const clamp = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
+  return {
+    x: Math.round(clamp(offsetX / displayW) * naturalW),
+    y: Math.round(clamp(offsetY / displayH) * naturalH),
+  }
+}
+
 /** A munkamenet neve a Vault-azonositoba kerul: csak biztonsagos karakterek. */
 export function sessionSlug(name: string): string {
   return String(name || '').trim().toLowerCase()
