@@ -49,6 +49,21 @@ export function isIrreversibleClick(el: { text?: string | null; type?: string | 
   return IRREVERSIBLE_RE.test((el.text || '').trim())
 }
 
+/** Kartya 360da728 (Boss, 2026-09-18): a bongeszo-kepesseg alapbol BE. A config
+ *  FAJL tartalmabol dont (vagy null, ha a fajl nincs / nem olvashato). Hianyzo
+ *  vagy romlott config -> true, tehat egy FRISS telepitesen is bekapcsolva van,
+ *  terminal/API nelkul. Csak a KIFEJEZETT `enabled:false` kapcsol ki -- azt a
+ *  felhasznalo allitotta. Igy a "nincs config" es a "kifejezetten kikapcsolt"
+ *  ket kulon eset, nem mossuk ossze oket. */
+export function browserEnabledFromConfig(raw: string | null | undefined): boolean {
+  if (raw == null) return true
+  try {
+    return JSON.parse(raw).enabled !== false
+  } catch {
+    return true
+  }
+}
+
 /** A megjelenitett kepernyokepre kattintas -> a valodi bongeszo-viewport
  *  pixel-koordinatai. A kep aranytartoan jelenik meg (CSS: max-width:100%,
  *  height:auto), ezert egyszeru aranyszamitas eleg; a szeleket 0..1-re vagjuk,

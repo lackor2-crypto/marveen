@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   sessionHealthFromState, looksLikeLoginUrl, isIrreversibleClick, sessionSlug, normalizeNavigateUrl,
-  mapImageClickToViewport,
+  mapImageClickToViewport, browserEnabledFromConfig,
 } from '../browser-logic.js'
 
 describe('mentett munkamenet allapota', () => {
@@ -56,6 +56,22 @@ describe('bemenetek', () => {
     expect(normalizeNavigateUrl('file:///etc/passwd')).toBeNull()
     expect(normalizeNavigateUrl('javascript:alert(1)')).toBeNull()
     expect(normalizeNavigateUrl('')).toBeNull()
+  })
+})
+
+describe('bongeszo alapbol BE (360da728)', () => {
+  it('nincs config (null) -> bekapcsolva (fresh install)', () => {
+    expect(browserEnabledFromConfig(null)).toBe(true)
+    expect(browserEnabledFromConfig(undefined)).toBe(true)
+  })
+  it('romlott/ures config -> bekapcsolva', () => {
+    expect(browserEnabledFromConfig('')).toBe(true)
+    expect(browserEnabledFromConfig('{ nem json')).toBe(true)
+    expect(browserEnabledFromConfig('{}')).toBe(true)
+  })
+  it('csak a KIFEJEZETT enabled:false kapcsol ki', () => {
+    expect(browserEnabledFromConfig('{"enabled":false}')).toBe(false)
+    expect(browserEnabledFromConfig('{"enabled":true}')).toBe(true)
   })
 })
 

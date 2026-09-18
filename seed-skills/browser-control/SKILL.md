@@ -7,10 +7,10 @@ scope: global
 # Böngésző-vezérlés (Marveen, kártya #165)
 
 A böngésző a dashboard szolgáltatása: EGY hosszabb életű Chromium, tétlenség
-után magától leáll. A képesség alapból KI -- a tulajdonos a dashboard
-**Böngésző** oldalán kapcsolja be. Ha a válasz `code: "disabled"` vagy
-`code: "no_chromium"`, NE kerülgesd: mondd meg {{OWNER_NAME}}nak, hogy a
-Böngésző oldalon kapcsolja be / töltse le.
+után magától leáll. A képesség alapból BE (a tulajdonos a dashboard
+**Böngésző** oldalán tudja kikapcsolni). Ha a válasz `code: "disabled"` (valaki
+kikapcsolta) vagy `code: "no_chromium"` (még nincs letöltve), NE kerülgesd:
+mondd meg {{OWNER_NAME}}nak, hogy a Böngésző oldalon kapcsolja be / töltse le.
 
 ```bash
 TOKEN=$(cat {{PROJECT_ROOT}}/store/.dashboard-token)
