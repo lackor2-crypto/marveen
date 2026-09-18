@@ -20321,6 +20321,7 @@ async function renderOverviewConnections() {
 let upstreamChangesCache = null
 // 'valtozas' = mit csinaltak (a commit az egyseg, 112 tetel)
 // 'fajl'     = melyik fajl valtozott (191 tetel: 22 utkozo + 169 tiszta)
+// 'kapu'     = az elv-kapu kizart es dontesre varo tetelei, indokkal
 let upstreamChangesView = 'valtozas'
 
 function upstreamChangeRow(c) {
@@ -20466,6 +20467,7 @@ function renderUpstreamChanges(data, filter) {
     return
   }
   if (upstreamChangesView === 'fajl') { renderUpstreamFiles(data, filter, body, intro); return }
+  if (upstreamChangesView === 'kapu') { renderUpstreamGate(data, filter, body, intro); return }
   const q = (filter || '').trim().toLowerCase()
   const match = c => !q
     || (c.hu || '').toLowerCase().includes(q)
@@ -20500,6 +20502,57 @@ function renderUpstreamChanges(data, filter) {
   }
 }
 
+// A "kapu" nezet: ami kimarad es ami rad var, egy helyen, a LATHATO indokkal
+// (nem csak a jelveny sugojaban -- a felhasznalo nem fog egerrel vadaszni ra).
+// Az ures lista itt harom kulon dolgot jelenthet, es mindharom kulon mondat:
+// a kapu meg nem futott erre a listara / nem sikerult atnezni / tenyleg nincs.
+function renderUpstreamGate(data, filter, body, intro) {
+  const run = data.principleGate
+  if (intro) {
+    intro.textContent = run && run.ok
+      ? t('upstream.gate.summary_view', { x: run.exclude, d: run.discuss })
+      : upstreamGateSummary(run)
+  }
+  if (!run || !run.ok) {
+    body.innerHTML = `<p class="upstream-changes-empty">${escapeHtml(upstreamGateSummary(run))}</p>`
+    return
+  }
+  const q = (filter || '').trim().toLowerCase()
+  const all = ['javitas', 'fejlesztes', 'egyeb'].flatMap(k => (data.groups && data.groups[k]) || [])
+  const match = c => !q
+    || (c.hu || '').toLowerCase().includes(q)
+    || (c.subject || '').toLowerCase().includes(q)
+    || (c.files || []).some(f => f.toLowerCase().includes(q))
+  const lang = window._lang === 'en' ? 'en' : 'hu'
+  const row = c => {
+    const g = c.gate || {}
+    const why = [g.title && g.title[lang], g.reason && g.reason[lang]].filter(Boolean).join(' -- ')
+    const where = g.evidence && g.evidence !== 'subject' ? g.evidence : ''
+    return upstreamChangeRow(c).replace(/<\/div>\s*$/, '')
+      + `<div class="upstream-gate-why">${escapeHtml(why)}</div>`
+      + (where ? `<div class="upstream-gate-where">${escapeHtml(t('upstream.gate.where', { where }))}</div>` : '')
+      + '</div>'
+  }
+  let html = ''
+  for (const [verdict, labelKey, cls] of [
+    ['exclude', 'upstream.gate.group_exclude', 'upstream-box-gate-exclude'],
+    ['discuss', 'upstream.gate.group_discuss', 'upstream-box-gate-discuss'],
+  ]) {
+    const items = all.filter(c => c.gate && c.gate.verdict === verdict && match(c))
+    if (!items.length) continue
+    html += `
+      <section class="upstream-box ${cls}">
+        <h4>${escapeHtml(t(labelKey, { n: items.length }))}</h4>
+        ${items.map(row).join('')}
+      </section>`
+  }
+  if (!html) {
+    const none = run.exclude + run.discuss === 0 ? 'upstream.gate.none' : 'upstream.changes.nomatch'
+    html = `<p class="upstream-changes-empty">${escapeHtml(t(none))}</p>`
+  }
+  body.innerHTML = html
+}
+
 async function openUpstreamChanges() {
   const overlay = document.getElementById('upstreamChangesModal')
   if (!overlay) return
@@ -20528,6 +20581,8 @@ function setUpstreamChangesView(view) {
   const tabFiles = document.getElementById('upstreamViewFiles')
   if (tabChanges) tabChanges.classList.toggle('active', view === 'valtozas')
   if (tabFiles) tabFiles.classList.toggle('active', view === 'fajl')
+  const tabGate = document.getElementById('upstreamViewGate')
+  if (tabGate) tabGate.classList.toggle('active', view === 'kapu')
   const filterEl = document.getElementById('upstreamChangesFilter')
   renderUpstreamChanges(upstreamChangesCache, filterEl ? filterEl.value : '')
 }
@@ -20540,11 +20595,26 @@ function labelUpstreamViewTabs(data) {
   const fc = (data && data.fileCounts) || null
   if (tabChanges) tabChanges.textContent = t('upstream.view.changes', { n: (data && data.total) || 0 })
   if (tabFiles) tabFiles.textContent = t('upstream.view.files', { n: fc ? fc.total : 0 })
+  const tabGate = document.getElementById('upstreamViewGate')
+  const run = data && data.principleGate
+  if (tabGate) {
+    tabGate.textContent = run && run.ok
+      ? t('upstream.view.gate', { x: run.exclude, d: run.discuss })
+      : t('upstream.view.gate_unknown')
+  }
+}
+
+/** A harmadik gomb: ugyanaz a lista, egybol a kapu-nezetben. */
+function openUpstreamGate() {
+  setUpstreamChangesView('kapu')
+  openUpstreamChanges()
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('overviewUpstreamChangesBtn')
-  if (btn) btn.addEventListener('click', openUpstreamChanges)
+  if (btn) btn.addEventListener('click', () => { setUpstreamChangesView('valtozas'); openUpstreamChanges() })
+  const gateBtn = document.getElementById('overviewUpstreamGateBtn')
+  if (gateBtn) gateBtn.addEventListener('click', openUpstreamGate)
   const measureBtn = document.getElementById('overviewUpstreamMeasureBtn')
   if (measureBtn) measureBtn.addEventListener('click', startUpstreamMeasure)
   // Egy meres futhat MASHOL is: egy masik bongeszofulon, vagy a heti idozitobol.
@@ -20568,6 +20638,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabFiles = document.getElementById('upstreamViewFiles')
   if (tabChanges) tabChanges.addEventListener('click', () => setUpstreamChangesView('valtozas'))
   if (tabFiles) tabFiles.addEventListener('click', () => setUpstreamChangesView('fajl'))
+  const tabGate = document.getElementById('upstreamViewGate')
+  if (tabGate) tabGate.addEventListener('click', () => setUpstreamChangesView('kapu'))
 })
 
 // === Onellenorzes -> vegigvezeto ===========================================
@@ -21418,6 +21490,11 @@ function renderOverviewUpstreamSync(upstreamSync) {
     changesBtn.hidden = false
     changesBtn.textContent = t('upstream.changes.open')
   }
+  const gateBtn = document.getElementById('overviewUpstreamGateBtn')
+  if (gateBtn) {
+    gateBtn.hidden = false
+    gateBtn.textContent = t('upstream.gate.open')
+  }
   // A "Letoltes es ujrameres" gomb MINDIG ott van, amikor a doboz latszik --
   // az elhasalt meresnel a leginkabb, hiszen ott az ujraprobalas az egyetlen
   // ertelmes kovetkezo lepes. A gomb letolt es mer; behuzni semmit nem huz be.
@@ -21453,6 +21530,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
     // Nincs friss lista, amit megnyithatnank -- de a MERES ujraindithato, es
     // ez az egyetlen ertelmes kovetkezo lepes, ezert a gomb marad.
     if (changesBtn) changesBtn.hidden = true
+    if (gateBtn) gateBtn.hidden = true
     return
   }
   // ★ A KOMMIT-TAVOLSAG HAZUDIK EGY VISSZAVONT BEHUZAS UTAN, es ezt a mero
@@ -21486,6 +21564,7 @@ function renderOverviewUpstreamSync(upstreamSync) {
       + (pairHtml(upstreamSync) || '')
     // Nincs mit felsorolni: a "Mi valtozott?" gomb ilyenkor ures listara nyilna.
     if (changesBtn) changesBtn.hidden = true
+    if (gateBtn) gateBtn.hidden = true
     return
   }
   // A harmadik szam MERT ertek, nem szamtani trukk.

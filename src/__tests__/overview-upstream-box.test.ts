@@ -171,3 +171,40 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     expect(code).toMatch(/upstream-stat"\$\{cleanTitle\}.*\$\{clean\}/)
   })
 })
+
+// Harmadik gomb (Boss, 2026-09-18, B valtozat): a kizart ES a dontesre varo
+// tetelek egy helyen. Az indok itt LATHATO szoveg, nem jelveny-sugo -- a
+// felhasznalo nem fog egerrel vadaszni ra.
+describe('upstream elv-kapu gomb es nezet', () => {
+  const html = readFileSync(join(WEB, 'index.html'), 'utf8')
+  const start = app.indexOf('function renderUpstreamGate(')
+  const view = app.slice(start, app.indexOf('\nfunction ', start + 1))
+
+  it('a gomb es a fül letezik, es a kapu-nezetet nyitja', () => {
+    expect(html).toContain('id="overviewUpstreamGateBtn"')
+    expect(html).toContain('id="upstreamViewGate"')
+    expect(app).toMatch(/function openUpstreamGate\(\)\s*\{\s*setUpstreamChangesView\('kapu'\)/)
+  })
+
+  it('a gomb ott tunik el, ahol a tetelesen lista gombja', () => {
+    // Ha a lista gombja elrejtodik (nincs meres / nincs uj valtozas), a kapu
+    // gombja se mutasson egy nem letezo listara.
+    const hides = app.match(/if \(changesBtn\) changesBtn\.hidden = true\n\s*if \(gateBtn\) gateBtn\.hidden = true/g) || []
+    expect(hides.length).toBe(2)
+  })
+
+  it('mindket csoportot mutatja, az indokkal lathatoan', () => {
+    expect(view).toContain("'exclude'")
+    expect(view).toContain("'discuss'")
+    expect(view).toContain('upstream-gate-why')
+  })
+
+  it('a harom ures allapot kulon mondat: nem futott / nem sikerult / tenyleg nincs', () => {
+    expect(view).toMatch(/if \(!run \|\| !run\.ok\)/)
+    expect(view).toContain('upstream.gate.none')
+    for (const k of ['upstream.gate.open', 'upstream.gate.group_exclude', 'upstream.gate.group_discuss',
+      'upstream.gate.none', 'upstream.gate.where', 'upstream.gate.summary_view', 'upstream.view.gate', 'upstream.view.gate_unknown']) {
+      for (const lang of [hu, en]) expect(lang).toContain(`'${k}'`)
+    }
+  })
+})

@@ -11152,6 +11152,11 @@ body {
 }
 .upstream-gate-exclude { background: var(--danger-soft); color: var(--danger); }
 .upstream-gate-discuss { background: var(--warning-soft); color: var(--warning); }
+.upstream-gate-why { margin-top: 4px; font-size: 13px; }
+.upstream-gate-where {
+  margin-top: 2px; font-size: 11px; color: var(--text-muted); word-break: break-word;
+  font-family: var(--font-mono, monospace);
+}
 .upstream-changes-empty { color: var(--text-muted); font-size: 14px; }
 
 /* "Frissult a felulet" csik. Felul, az egesz szelessegben: egy nyitva hagyott
@@ -11186,6 +11191,8 @@ body {
 }
 .upstream-box-conflict h4 { border-bottom-color: var(--danger, #f85149); }
 .upstream-box-clean h4 { border-bottom-color: var(--success); }
+.upstream-box-gate-exclude h4 { border-bottom-color: var(--danger, #f85149); }
+.upstream-box-gate-discuss h4 { border-bottom-color: var(--warning, #d29922); }
 .upstream-file { padding: 8px 0 10px; border-bottom: 1px solid var(--border); }
 .upstream-file:last-child { border-bottom: none; }
 .upstream-file-path {
