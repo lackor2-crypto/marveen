@@ -139,6 +139,16 @@ describe('bekotes', () => {
     expect(Number(m![2]), 'viewport magassag legalabb 900').toBeGreaterThanOrEqual(900)
     expect(svc).toContain('viewport: BROWSER_VIEWPORT')
   })
+  it('a click_xy gepelheto-jelzest ad, a frontend auto-fokuszal (ab6640a3)', () => {
+    const svc = readFileSync(join(root, 'src/web/browser-service.ts'), 'utf8')
+    const app = readFileSync(join(root, 'web/app.js'), 'utf8')
+    expect(svc).toContain('typable')
+    expect(svc).toContain('typable: info.typable')
+    expect(svc).toContain('isContentEditable')
+    expect(app).toContain('data.typable')
+    expect(app).toContain("getElementById('browserTypeInput')")
+    expect(app).toContain("t('browser.type_hint')")
+  })
   it('a frontend a kepre-kattintast es a gepelest bekoti (a5e542ac)', () => {
     const app = readFileSync(join(root, 'web/app.js'), 'utf8')
     const html = readFileSync(join(root, 'web/index.html'), 'utf8')

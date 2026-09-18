@@ -4328,6 +4328,7 @@ window._i18n.hu = {
   "browser.help": "1. Kapcsold be lent a böngésző-képességet. 2. Ha kéri, töltsd le egy gombnyomással a böngészőt. 3. Írj be egy címet, és nyomd meg a Megnyitás gombot. Ha egy oldalra bejelentkeztél, mentsd el a munkamenetet, így legközelebb nem kell újra belépni.",
   "browser.click_help": "Kattints a lenti képre oda, ahová a valódi böngészőben kattintanál. Egy mezőbe kattintás után írd be lent a szöveget, és nyomd meg a Beírás vagy az Enter gombot. A ▲▼ gombokkal görgethetsz.",
   "browser.type_ph": "Amit be akarsz írni",
+  "browser.type_hint": "Egy mezőre kattintottál. A kurzor most itt, a gépelő mezőben van: írd be a szöveget, és nyomd meg a Beírás vagy az Enter gombot.",
   "browser.btn.type": "Beírás",
   "browser.btn.enter": "Enter",
   "browser.btn.scroll_up": "Görgetés fel",

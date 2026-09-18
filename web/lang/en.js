@@ -4252,6 +4252,7 @@ window._i18n.en = {
   "browser.help": "1. Turn on the browser capability below. 2. If asked, download the browser with one click. 3. Type an address and press Open. Once you have logged in to a site, save the session so you do not have to log in again next time.",
   "browser.click_help": "Click the image below where you would click in a real browser. After clicking a field, type your text below and press Type or Enter. Use the ▲▼ buttons to scroll.",
   "browser.type_ph": "Text to type",
+  "browser.type_hint": "You clicked a field. Your cursor is now here in the typing box: type your text and press Type or Enter.",
   "browser.btn.type": "Type",
   "browser.btn.enter": "Enter",
   "browser.btn.scroll_up": "Scroll up",

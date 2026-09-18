@@ -11902,6 +11902,8 @@ details.upstream-box > summary > h4 {
  * pontos marad. */
 .browser-shot { max-width: 100%; height: auto; border: 1px solid var(--border, #ccc); border-radius: 6px; margin-top: 8px; cursor: crosshair; }
 .browser-shot:not([hidden]):hover { border-color: var(--accent, #2563eb); }
+/* Kartya ab6640a3: gepelheto mezore kattintas utan a gepelo-mezo kiemelese. */
+.browser-type-active { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
 .browser-advanced { margin: 4px 0 8px; }
 .browser-advanced > summary { cursor: pointer; font-size: 13px; opacity: .85; margin-bottom: 8px; }
 @media (max-width: 640px) {
