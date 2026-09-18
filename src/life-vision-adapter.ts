@@ -8,8 +8,7 @@
 // Ha a venv/eszkozok hianyoznak (friss telepites, vagy a jovahagyas meg nem
 // tortent meg), `available()` false-t ad -- a hivo (`life-inbox-analyze.ts`)
 // mar eleve keszult erre, a felhasznaloi szoveg is ezt magyarazza el.
-import { existsSync } from 'node:fs'
-import { mkdirSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -19,6 +18,7 @@ import {
   setFaceAdapter, setOcrAdapter, T,
   type FaceAdapter, type FaceMatch, type OcrAdapter,
 } from './life-inbox-analyze.js'
+import { ocrFile, ocrFileAsync, tesseractAvailable } from './life-inbox-systools.js'
 
 const VISION_DIR = process.env.MARVEEN_VISION_DIR || join(homedir(), '.local', 'share', 'marveen-vision')
 const PYTHON = join(VISION_DIR, 'venv', 'bin', 'python')
@@ -53,6 +53,32 @@ export const realOcrAdapter: OcrAdapter = {
     const text = result.stdout.trim()
     return text || null
   },
+}
+
+function isPdfFile(absPath: string): boolean {
+  try {
+    const fd = openSync(absPath, 'r')
+    try {
+      const b = Buffer.alloc(4)
+      readSync(fd, b, 0, 4, 0)
+      return b.toString('ascii') === '%PDF'
+    } finally { closeSync(fd) }
+  } catch {
+    return absPath.toLowerCase().endsWith('.pdf')
+  }
+}
+
+/**
+ * OCR straight through the system `tesseract` CLI (card 56530b08). Needs no
+ * Python venv: a machine that only has `tesseract-ocr` (+ `poppler-utils` for
+ * PDFs) can already read scans. It also OCRs with every installed language
+ * that matters here (hun/deu/eng) and reads the first two PDF pages, where
+ * the venv script is fixed to hun+eng and page one.
+ */
+export const systemOcrAdapter: OcrAdapter = {
+  available: tesseractAvailable,
+  extractText: (absPath: string) => ocrFile(absPath, isPdfFile(absPath)),
+  extractTextAsync: (absPath: string) => ocrFileAsync(absPath, isPdfFile(absPath)),
 }
 
 export const realFaceAdapter: FaceAdapter = {
@@ -131,7 +157,13 @@ let wired = false
 export function initVisionAdapters(): void {
   if (wired) return
   wired = true
-  if (ocrInstalled()) {
+  // The system tesseract first: it needs nothing but the tesseract-ocr
+  // package, reads more languages and pages. The venv script stays the
+  // fallback for a machine where only the venv sees a tesseract.
+  if (tesseractAvailable()) {
+    setOcrAdapter(systemOcrAdapter)
+    logger.info('Helyi OCR-adapter bekotve (rendszer tesseract)')
+  } else if (ocrInstalled()) {
     setOcrAdapter(realOcrAdapter)
     logger.info({ dir: VISION_DIR }, 'Helyi OCR-adapter bekotve')
   }

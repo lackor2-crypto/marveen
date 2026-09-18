@@ -19,6 +19,7 @@ import { existsSync, readdirSync, statSync, openSync, closeSync, readSync, fstat
 import { extname, join } from 'node:path'
 import { inflateSync, inflateRawSync } from 'node:zlib'
 import { APP_LANG } from './config.js'
+import { pdfTextViaPoppler, pdfInfo, type PdfInfo } from './life-inbox-systools.js'
 import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, inboxDir,
   resolveFilingPerson,
@@ -231,6 +232,9 @@ export function parseJpegExifDate(absPath: string): { value: string; raw: string
 export interface OcrAdapter {
   available(): boolean
   extractText(absPath: string): string | null
+  /** Non-blocking variant. The dashboard route prefers it: an OCR of a scan
+   *  takes seconds, and a spawnSync would freeze every other request. */
+  extractTextAsync?(absPath: string): Promise<string | null>
 }
 
 export interface FaceMatch {
@@ -385,6 +389,10 @@ export interface ExtractedContent {
    *  (kep, vagy szoveg-reteg nelkuli, szkennelt PDF). Ez kulonbozteti meg a
    *  "nincs benne datum" allapotot a "nem lattam a tartalmat" allapottol. */
   needsOcr: boolean
+  /** Where the text came from -- the UI names it next to the date/owner. */
+  source?: 'text' | 'pdf' | 'docx' | 'ocr'
+  /** true when OCR actually ran on this file (found text or not). */
+  ocrTried?: boolean
 }
 
 function clampText(s: string): string {
@@ -555,14 +563,24 @@ function stripXml(xml: string): string {
  */
 export function extractTextContent(sniff: TypeSniff, absPath: string): ExtractedContent {
   if (sniff.kind === 'text' || (sniff.kind === 'spreadsheet' && sniff.mime === 'text/csv')) {
-    return { text: clampText(readBoundedFile(absPath).toString('utf8')), needsOcr: false }
+    return { text: clampText(readBoundedFile(absPath).toString('utf8')), needsOcr: false, source: 'text' }
   }
   if (sniff.kind === 'pdf') {
+    // 1) poppler, if the machine has it: it decodes fonts/encodings properly.
+    const poppler = pdfTextViaPoppler(absPath)
+    if (poppler !== null && looksLikeRealText(poppler)) {
+      return { text: clampText(poppler), needsOcr: false, source: 'pdf' }
+    }
+    // 2) the built-in parser. It CANNOT decode font encodings or image
+    //    streams, and on a scan it used to return 200k characters of binary
+    //    noise as "text" -- which switched OCR off (needsOcr=false) and left
+    //    the owner/date empty on a perfectly readable residence card
+    //    (card 56530b08). Noise is not text: we check before trusting it.
     const { text, hadStream } = extractPdfText(readBoundedFile(absPath))
     const clean = clampText(text)
-    if (clean.trim()) return { text: clean, needsOcr: false }
-    // Volt content-stream, de nem jott ki szoveg -> szkennelt PDF -> OCR kellene.
-    return { text: '', needsOcr: hadStream }
+    if (looksLikeRealText(clean)) return { text: clean, needsOcr: false, source: 'pdf' }
+    // No readable text layer -> scanned PDF -> OCR is the next chance.
+    return { text: '', needsOcr: hadStream || poppler !== null }
   }
   if (sniff.kind === 'document') {
     const buf = readBoundedFile(absPath)
@@ -571,13 +589,103 @@ export function extractTextContent(sniff: TypeSniff, absPath: string): Extracted
       const doc = readZipEntry(buf, 'word/document.xml')
       if (doc) {
         const clean = clampText(stripXml(doc.toString('utf8')))
-        if (clean.trim()) return { text: clean, needsOcr: false }
+        if (clean.trim()) return { text: clean, needsOcr: false, source: 'docx' }
       }
     }
     return { text: '', needsOcr: false }
   }
   if (sniff.kind === 'image') return { text: '', needsOcr: true }
   return { text: '', needsOcr: false }
+}
+
+const VOWEL_RE = /[aeiouyáéíóöőúüűäâàèêëîïôœ]/i
+
+/**
+ * Is this human-readable text, or binary noise that merely decoded into
+ * characters? A word here = a run of letters with a vowel in it. Real text
+ * (any European language, OCR output included) is mostly such words; the
+ * noise from an image stream is not.
+ */
+export function looksLikeRealText(s: string): boolean {
+  const compact = s.replace(/\s+/g, ' ').trim()
+  if (!compact) return false
+  const tokens = compact.split(' ').slice(0, 5000)
+  let words = 0
+  for (const tok of tokens) {
+    const letters = tok.replace(/[^\p{L}]/gu, '')
+    if (letters.length >= 2 && letters.length >= tok.length * 0.6 && VOWEL_RE.test(letters)) words++
+  }
+  if (words < 2) return false
+  return words / tokens.length >= 0.3
+}
+
+// ---------------------------------------------------------------------------
+// ELOTOLTES (prefetch) -- a lassu reszek (pdftotext, OCR) EGYSZER futnak le egy
+// fajlra, es a dashboard-utvonal aszinkron varja ki oket. Ugyanaz a fajl
+// (ut + meret + modositasi ido) masodszorra a gyorsitotarbol jon: az AI-lepes
+// ugyanazt a szoveget kapja, amit a heurisztika latott.
+// ---------------------------------------------------------------------------
+export interface Prefetched {
+  content: ExtractedContent
+  pdf: PdfInfo | null
+}
+
+const PREFETCH_CACHE_MAX = 200
+const prefetchCache = new Map<string, Prefetched>()
+
+function cacheKey(absPath: string): string {
+  try {
+    const st = statSync(absPath)
+    return `${absPath}|${st.size}|${st.mtimeMs}`
+  } catch {
+    return ''
+  }
+}
+
+function remember(key: string, value: Prefetched): Prefetched {
+  if (!key) return value
+  if (prefetchCache.size >= PREFETCH_CACHE_MAX) {
+    const oldest = prefetchCache.keys().next().value
+    if (oldest !== undefined) prefetchCache.delete(oldest)
+  }
+  prefetchCache.set(key, value)
+  return value
+}
+
+/** Tests only. */
+export function clearPrefetchCache(): void { prefetchCache.clear() }
+
+function withOcrText(content: ExtractedContent, ocrText: string | null): ExtractedContent {
+  const text = ocrText ? clampText(ocrText) : ''
+  if (text && looksLikeRealText(text)) return { text, needsOcr: false, source: 'ocr', ocrTried: true }
+  return { ...content, ocrTried: true }
+}
+
+/** Synchronous prefetch (tests, CLI). The route uses `prefetchItem`. */
+export function prefetchItemSync(sniff: TypeSniff, absPath: string): Prefetched {
+  const key = cacheKey(absPath)
+  const hit = key ? prefetchCache.get(key) : undefined
+  if (hit) return hit
+  let content = extractTextContent(sniff, absPath)
+  const ocr = getOcrAdapter()
+  if (content.needsOcr && ocr.available()) content = withOcrText(content, ocr.extractText(absPath))
+  const pdf = sniff.kind === 'pdf' ? pdfInfo(absPath) : null
+  return remember(key, { content, pdf })
+}
+
+/** Non-blocking prefetch: OCR runs through the adapter's async path if it has one. */
+export async function prefetchItem(sniff: TypeSniff, absPath: string): Promise<Prefetched> {
+  const key = cacheKey(absPath)
+  const hit = key ? prefetchCache.get(key) : undefined
+  if (hit) return hit
+  let content = extractTextContent(sniff, absPath)
+  const ocr = getOcrAdapter()
+  if (content.needsOcr && ocr.available()) {
+    const text = ocr.extractTextAsync ? await ocr.extractTextAsync(absPath) : ocr.extractText(absPath)
+    content = withOcrText(content, text)
+  }
+  const pdf = sniff.kind === 'pdf' ? pdfInfo(absPath) : null
+  return remember(key, { content, pdf })
 }
 
 /** A kivont szoveg tokenizalasa (a fajlnev-tokenekkel azonos normalizalas). */
@@ -593,7 +701,14 @@ function tokenizeText(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// DATUM -- EXIF -> tartalom-szoveg -> OCR -> fajlnev -> nincs (kerdojel).
+// DATUM -- a jelolteket MIND osszegyujtjuk, forrassal egyutt, es a legjobbat
+// ajanljuk. Sorrend (card 56530b08, Boss: "PDF letrehozasi datum, kep
+// metaadat, fajl datuma"):
+//   EXIF (foto) -> a dokumentum szovege / OCR -> kep-metaadat (PNG) ->
+//   PDF letrehozasi datum -> fajlnev -> a fajl modositasi ideje.
+// A tobbi jelolt `alternatives`-kent megy ki: a felulet megmutatja, hogy
+// peldaul "irat kelte 2017-06-15, szkennelve 2023-02-10" -- es a felhasznalo
+// egy kattintassal valthat.
 // ---------------------------------------------------------------------------
 const DATE_PATTERNS: RegExp[] = [
   /(\d{4})[-.](\d{2})[-.](\d{2})/, // 2026-08-21 / 2026.08.21
@@ -601,6 +716,17 @@ const DATE_PATTERNS: RegExp[] = [
   /(\d{4})(\d{2})(\d{2})(?!\d)/,   // 20260821
 ]
 
+function validDay(y: number, mo: number, d: number): boolean {
+  if (!(mo >= 1 && mo <= 12 && d >= 1 && y >= 1970 && y <= 2100)) return false
+  // A real calendar day: 2021-02-31 is OCR noise, not a date.
+  return d <= new Date(Date.UTC(y, mo, 0)).getUTCDate()
+}
+
+function isoOf(y: number, mo: number, d: number): string {
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+/** The first plausible date in a string (used for FILENAMES). */
 function findDateInText(text: string): string {
   for (const re of DATE_PATTERNS) {
     const m = re.exec(text)
@@ -609,53 +735,200 @@ function findDateInText(text: string): string {
     const y = fourFirst ? m[1] : m[3]
     const mo = m[2]
     const d = fourFirst ? m[3] : m[1]
-    const yy = Number(y), mm = Number(mo), dd = Number(d)
-    if (mm < 1 || mm > 12 || dd < 1 || dd > 31 || yy < 1970 || yy > 2100) continue
+    if (!validDay(Number(y), Number(mo), Number(d))) continue
     return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
   }
   return ''
 }
 
-export interface DateGuess {
-  value: string
-  source: 'exif' | 'content' | 'ocr' | 'filename' | 'none'
-  confidence: number
+/** Lowercase, accents removed: "Juni"/"június"/"März" compare as plain ASCII. */
+export function foldText(s: string): string {
+  return s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
 }
 
-function guessDate(sniff: TypeSniff, abs: string, filename: string, content: ExtractedContent, lang: string, notes: string[]): DateGuess {
-  if (sniff.kind === 'image' && sniff.imageFormat === 'jpeg') {
-    const exif = parseJpegExifDate(abs)
-    if (exif) return { value: exif.value, source: 'exif', confidence: 0.9 }
+// Month names after `foldText` (hu / de / en).
+const MONTHS: Record<string, number> = {
+  januar: 1, january: 1, jan: 1, februar: 2, february: 2, feb: 2,
+  marcius: 3, marz: 3, maerz: 3, march: 3, mar: 3, aprilis: 4, april: 4, apr: 4,
+  majus: 5, mai: 5, may: 5, junius: 6, juni: 6, june: 6, jun: 6,
+  julius: 7, juli: 7, july: 7, jul: 7, augusztus: 8, august: 8, aug: 8,
+  szeptember: 9, september: 9, sept: 9, sep: 9, oktober: 10, october: 10, okt: 10, oct: 10,
+  november: 11, nov: 11, december: 12, dezember: 12, dec: 12, dez: 12,
+}
+const MONTH_ALT = Object.keys(MONTHS).sort((a, b) => b.length - a.length).join('|')
+
+// Words BEFORE a date that make it the document's own date ...
+const ISSUE_HINTS = /(datum|date|dated|kelt|keltezes|ausgestellt|ausstellungsdatum|erstellt|issued|bescheid vom|schreiben vom|vom|am|den|ertesites)\W*$/
+// ... and words that make it someone's birthday or an expiry, not the paper's date.
+const BIRTH_HINTS = /(geb|geboren|geburt\w*|szul\w*|birth|born|dob)\W*[\w .:/-]{0,12}$/
+const EXPIRY_HINTS = /(gultig bis|valid until|valid thru|expires?|ervenyes|lejar\w*)\W*[\w .:/-]{0,12}$/
+
+interface DateHit { value: string; score: number }
+
+/**
+ * Every plausible date in a document text, best first. The document's OWN
+ * date ("Datum:", "kelt", "vom") beats a birthday or an expiry date, and among
+ * equals the most recent one that is not in the future wins -- a letter is
+ * dated after the events it mentions.
+ */
+export function findDatesInText(text: string, today: Date = new Date()): string[] {
+  if (!text) return []
+  const folded = foldText(text.slice(0, MAX_TEXT_CHARS))
+  const hits = new Map<string, DateHit>()
+  const births = new Set<string>()
+  const todayIso = isoOf(today.getFullYear(), today.getMonth() + 1, today.getDate())
+
+  const add = (y: number, mo: number, d: number, at: number) => {
+    if (!validDay(y, mo, d)) return
+    const value = isoOf(y, mo, d)
+    const before = folded.slice(Math.max(0, at - 40), at)
+    // A birthday is never the paper's date -- not even as an alternative chip.
+    if (BIRTH_HINTS.test(before)) { births.add(value); return }
+    let score = 0
+    if (ISSUE_HINTS.test(before)) score += 3
+    if (EXPIRY_HINTS.test(before)) score -= 3
+    if (value > todayIso) score -= 4
+    const prev = hits.get(value)
+    if (!prev || score > prev.score) hits.set(value, { value, score })
   }
-  // A fajl TENYLEGES szovegebol (txt / PDF-szovegreteg / docx) -- kartya #265.
-  if (content.text) {
-    const found = findDateInText(content.text)
-    if (found) return { value: found, source: 'content', confidence: 0.75 }
-  }
-  // Ha a tartalmat NEM lehetett szovegkent kiolvasni (kep vagy szkennelt PDF),
-  // az OCR a kovetkezo esely -- ha be van kotve.
-  if (content.needsOcr) {
-    const ocr = getOcrAdapter()
-    if (ocr.available()) {
-      const text = ocr.extractText(abs)
-      const found = text ? findDateInText(text) : ''
-      if (found) return { value: found, source: 'ocr', confidence: 0.55 }
-    } else {
-      notes.push(T(lang,
-        'A dokumentum szkennelt (nincs kiolvasható szövegréteg), és OCR nincs telepítve, ezért csak a fájlnévből tudok dátumot olvasni.',
-        'The document is scanned (no extractable text layer) and OCR is not installed, so I can only read a date from the filename.'))
+
+  let m: RegExpExecArray | null
+  const numeric: Array<[RegExp, (m: RegExpExecArray) => [number, number, number]]> = [
+    [/(?<!\d)(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?!\d)/g, (x) => [Number(x[1]), Number(x[2]), Number(x[3])]],
+    [/(?<!\d)(\d{1,2})[-./](\d{1,2})[-./](\d{4})(?!\d)/g, (x) => [Number(x[3]), Number(x[2]), Number(x[1])]],
+    [/(?<!\d)(\d{4})\.\s+(\d{1,2})\.\s*(\d{1,2})(?!\d)/g, (x) => [Number(x[1]), Number(x[2]), Number(x[3])]],
+    [new RegExp(`(?<!\\d)(\\d{4})\\.?\\s*(${MONTH_ALT})\\w*\\.?\\s*(\\d{1,2})(?!\\d)`, 'g'), (x) => [Number(x[1]), MONTHS[x[2]], Number(x[3])]],
+    [new RegExp(`(?<!\\d)(\\d{1,2})\\.?\\s*(${MONTH_ALT})\\w*\\.?\\s*(\\d{4})(?!\\d)`, 'g'), (x) => [Number(x[3]), MONTHS[x[2]], Number(x[1])]],
+    [new RegExp(`\\b(${MONTH_ALT})\\w*\\.?\\s+(\\d{1,2}),?\\s+(\\d{4})(?!\\d)`, 'g'), (x) => [Number(x[3]), MONTHS[x[1]], Number(x[2])]],
+  ]
+  for (const [re, pick] of numeric) {
+    while ((m = re.exec(folded))) {
+      const [y, mo, d] = pick(m)
+      add(y, mo, d, m.index)
     }
   }
-  const fromName = findDateInText(filename)
-  if (fromName) return { value: fromName, source: 'filename', confidence: 0.4 }
-  // Elolvastuk a szoveget, de tenyleg nem volt benne datum -- ez NEM olvasasi
-  // hiba (a nulla ket dolgot jelenthet, itt a "nincs" agat mondjuk ki).
-  if (content.text) {
+  return [...hits.values()]
+    .filter((h) => !births.has(h.value))
+    .sort((a, b) => (b.score - a.score) || (a.value < b.value ? 1 : a.value > b.value ? -1 : 0))
+    .map((h) => h.value)
+}
+
+// ---------------------------------------------------------------------------
+// KEP-METAADAT: PNG tEXt/iTXt "Creation Time" / "date:create" es eXIf chunk.
+// ---------------------------------------------------------------------------
+export function parsePngDate(absPath: string): string {
+  const buf = readHead(absPath, 1024 * 1024)
+  if (buf.length < 16 || buf[0] !== 0x89 || buf.toString('ascii', 1, 4) !== 'PNG') return ''
+  let p = 8
+  while (p + 12 <= buf.length) {
+    const len = buf.readUInt32BE(p)
+    const type = buf.toString('ascii', p + 4, p + 8)
+    const dataStart = p + 8
+    const dataEnd = dataStart + len
+    if (dataEnd > buf.length) break
+    if (type === 'tEXt' || type === 'iTXt') {
+      const data = buf.subarray(dataStart, dataEnd)
+      const nul = data.indexOf(0)
+      if (nul > 0) {
+        const key = data.toString('latin1', 0, nul).toLowerCase()
+        if (key === 'creation time' || key === 'date:create' || key === 'datetimeoriginal') {
+          const found = findDatesInText(data.toString('utf8', nul + 1))[0] || exifDateToIso(data.toString('latin1', nul + 1).replace(/^[^\d]*/, ''))
+          if (found) return found
+        }
+      }
+    } else if (type === 'eXIf') {
+      const tiff = buf.subarray(dataStart, dataEnd)
+      const bo = tiff.toString('ascii', 0, 2)
+      if (bo === 'II' || bo === 'MM') {
+        const little = bo === 'II'
+        const ifd0 = parseIfdAsciiTags(tiff, readUInt32(tiff, 4, little), 0, little, new Set([0x0132]))
+        let raw = ifd0.get(0x0132) || ''
+        const sub = ifd0.get(EXIF_SUBIFD_POINTER)
+        if (sub) {
+          const subIfd = parseIfdAsciiTags(tiff, Number(sub), 0, little, new Set([0x9003, 0x9004]))
+          raw = subIfd.get(0x9003) || subIfd.get(0x9004) || raw
+        }
+        const iso = raw ? exifDateToIso(raw) : ''
+        if (iso) return iso
+      }
+    } else if (type === 'IDAT' || type === 'IEND') {
+      break // metadata chunks come before the image data
+    }
+    p = dataEnd + 4
+  }
+  return ''
+}
+
+export type DateSource =
+  | 'exif' | 'content' | 'ocr' | 'imagemeta' | 'pdfmeta' | 'filename' | 'filedate' | 'ai' | 'none'
+
+export interface DateCandidate { value: string; source: DateSource }
+
+export interface DateGuess {
+  value: string
+  source: DateSource
+  confidence: number
+  /** Other dates found, with where they came from (the UI offers them). */
+  alternatives?: DateCandidate[]
+}
+
+const DATE_CONFIDENCE: Record<DateSource, number> = {
+  exif: 0.9, content: 0.75, ocr: 0.6, imagemeta: 0.6, pdfmeta: 0.5,
+  filename: 0.4, filedate: 0.2, ai: 0.8, none: 0,
+}
+
+function fileMtimeIso(abs: string): string {
+  try {
+    const d = statSync(abs).mtime
+    return validDay(d.getFullYear(), d.getMonth() + 1, d.getDate())
+      ? isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate()) : ''
+  } catch {
+    return ''
+  }
+}
+
+function guessDate(sniff: TypeSniff, abs: string, filename: string, pre: Prefetched, lang: string, notes: string[]): DateGuess {
+  const content = pre.content
+  const cands: DateCandidate[] = []
+  const push = (value: string, source: DateSource) => {
+    if (value && !cands.some((c) => c.value === value)) cands.push({ value, source })
+  }
+  if (sniff.kind === 'image' && sniff.imageFormat === 'jpeg') {
+    const exif = parseJpegExifDate(abs)
+    if (exif) push(exif.value, 'exif')
+  }
+  // A fajl TENYLEGES szovegebol (txt / PDF-szovegreteg / docx / OCR).
+  const textDates = content.text ? findDatesInText(content.text) : []
+  for (const v of textDates.slice(0, 3)) push(v, content.source === 'ocr' ? 'ocr' : 'content')
+  if (sniff.kind === 'image' && sniff.imageFormat === 'png') push(parsePngDate(abs), 'imagemeta')
+  if (pre.pdf?.creationDate) push(pre.pdf.creationDate, 'pdfmeta')
+  push(findDateInText(filename), 'filename')
+
+  if (content.needsOcr) {
+    notes.push(content.ocrTried
+      ? T(lang,
+        'A dokumentum szkennelt; a szövegfelismerés (OCR) lefutott, de nem talált benne olvasható szöveget.',
+        'The document is scanned; text recognition (OCR) ran but found no readable text in it.')
+      : T(lang,
+        'A dokumentum szkennelt (nincs kiolvasható szövegréteg), és OCR nincs telepítve, ezért a tartalmából nem tudok dátumot olvasni.',
+        'The document is scanned (no extractable text layer) and OCR is not installed, so I cannot read a date from its content.'))
+  } else if (content.text && !textDates.length) {
+    // Elolvastuk a szoveget, de tenyleg nem volt benne datum -- ez NEM olvasasi
+    // hiba (a nulla ket dolgot jelenthet, itt a "nincs" agat mondjuk ki).
     notes.push(T(lang,
       'Elolvastam a dokumentum szövegét, de nem találtam benne dátumot – ez nem olvasási hiba, tényleg nincs felismerhető dátum.',
       'I read the document text but found no date in it – this is not a read error, there is genuinely no recognizable date.'))
   }
-  return { value: '', source: 'none', confidence: 0 }
+
+  // Last resort: when the file itself was saved. Weak (a copy resets it), so
+  // it is only used when nothing better exists, and the UI says so.
+  if (!cands.length) {
+    const mtime = fileMtimeIso(abs)
+    if (mtime) push(mtime, 'filedate')
+  }
+  if (!cands.length) return { value: '', source: 'none', confidence: 0, alternatives: [] }
+  const [best, ...rest] = cands
+  return { value: best.value, source: best.source, confidence: DATE_CONFIDENCE[best.source], alternatives: rest.slice(0, 4) }
 }
 
 // ---------------------------------------------------------------------------
@@ -759,10 +1032,12 @@ function guessOwnerFromIndex(tokens: string[], index: LearnedIndex, config: Life
  */
 function guessOwnerFromContentNames(contentTokens: string[], config: LifeConfig, lang: string, notes: string[]): OwnerGuess | null {
   if (!contentTokens.length) return null
-  const present = new Set(contentTokens)
+  // Accent-insensitive (card 56530b08): a German authority writes "Korpas"
+  // or "KORPAS, Laszlo", OCR drops accents too -- "Korpás László" must match.
+  const present = new Set(contentTokens.map(foldText))
   let best: { id: string; name: string; score: number; full: boolean } | null = null
   for (const p of config.persons) {
-    const parts = tokenize(p.name)
+    const parts = tokenize(p.name).map(foldText)
     if (!parts.length) continue
     let matched = 0
     for (const part of parts) if (present.has(part)) matched++
@@ -875,11 +1150,33 @@ export interface InboxSuggestion {
   ext: string
   needsReview: boolean
   notes: string[]
+  /** Where the readable text came from ('' = nothing readable). */
+  contentSource?: '' | 'text' | 'pdf' | 'docx' | 'ocr'
+  /** Filled by the AI step (life-inbox-ai.ts); absent on the rule-based pass. */
+  ai?: AiInfo
+}
+
+/** What the AI step adds on top of the rule-based suggestion. */
+export interface AiInfo {
+  /** Which engine answered: 'claude' | 'ollama'. */
+  engine: string
+  /** The concrete model id, e.g. claude-opus-5. */
+  model: string
+  /** Document type in plain words ("Német lakcímbejelentés"). */
+  docType: string
+  /** One sentence: what this document is. */
+  summary: string
+  /** Why this owner/date/folder -- shown under "Miért ezt javaslom?". */
+  reason: string
+  /** true when the AI proposes a folder that does not exist yet. */
+  newFolder: boolean
 }
 
 const REVIEW_THRESHOLD = 0.55
 
-export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: LearnedIndex, lang: string = APP_LANG): InboxSuggestion {
+export function analyzeInboxItem(
+  item: InboxItem, config: LifeConfig, index: LearnedIndex, lang: string = APP_LANG, pre?: Prefetched,
+): InboxSuggestion {
   const dir = inboxDir(lang) || ''
   const abs = join(dir, item.name)
   const ext = extname(item.name)
@@ -893,7 +1190,7 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
       name: item.name, rel: item.rel, credentialWarning: item.credentialWarning,
       type: { value: 'unknown', label: typeLabel('unknown', lang), confidence: 0 },
       owner: { personId: '', name: '', confidence: 0, uncertain: true, options },
-      date: { value: '', source: 'none', confidence: 0 },
+      date: { value: '', source: 'none', confidence: 0, alternatives: [] },
       category: { key: '', label: '', confidence: 0 },
       targetRel: '', targetDisplay: '', targetExists: false, suggestedName: '', ext,
       needsReview: true, notes: [item.credentialWarning],
@@ -904,7 +1201,8 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
   const tokens = tokenize(item.name)
   // Egyszer olvassuk ki a TENYLEGES tartalmat, es a datum/tulajdonos/kategoria
   // mind ebbol dolgozik (kartya #265) -- egy olvasas, tobb felhasznalas.
-  const content = extractTextContent(sniff, abs)
+  const prefetched = pre ?? prefetchItemSync(sniff, abs)
+  const content = prefetched.content
   const contentTokens = tokenizeText(content.text)
 
   let ownerGuess = guessOwnerFromFace(sniff, abs, config, lang, notes)
@@ -913,7 +1211,7 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
   if (!ownerGuess) ownerGuess = { personId: '', name: '', confidence: 0, uncertain: true, options: [] }
   ownerGuess = { ...ownerGuess, options }
 
-  const dateGuess = guessDate(sniff, abs, item.name, content, lang, notes)
+  const dateGuess = guessDate(sniff, abs, item.name, prefetched, lang, notes)
   const categoryGuess = guessCategory(sniff, tokens, contentTokens, index)
 
   const ownerPerson = config.persons.find((p) => p.id === ownerGuess.personId)
@@ -944,7 +1242,7 @@ export function analyzeInboxItem(item: InboxItem, config: LifeConfig, index: Lea
     owner: ownerGuess, date: dateGuess,
     category: { key: categoryGuess.key, label: categoryLabel, confidence: categoryGuess.confidence },
     targetRel, targetDisplay, targetExists, suggestedName, ext,
-    needsReview, notes,
+    needsReview, notes, contentSource: content.source || '',
   }
 }
 
@@ -957,8 +1255,13 @@ export interface AnalyzeResult {
   faceRecognitionAvailable: boolean
 }
 
-/** A Beerkezo AI-javaslatai -- `names` nelkul MINDEN tetelre. */
-export function analyzeInbox(names: string[] | undefined, lang: string = APP_LANG): AnalyzeResult {
+interface InboxBatch {
+  early?: AnalyzeResult
+  items: InboxItem[]
+  base: Pick<AnalyzeResult, 'knownFolders' | 'ocrAvailable' | 'faceRecognitionAvailable'>
+}
+
+function inboxBatch(names: string[] | undefined, lang: string): InboxBatch {
   const base = {
     knownFolders: [] as KnownFolder[],
     ocrAvailable: getOcrAdapter().available(),
@@ -966,23 +1269,60 @@ export function analyzeInbox(names: string[] | undefined, lang: string = APP_LAN
   }
   const status = inboxStatus(lang)
   if (status.reason !== 'ok') {
-    return { reason: status.reason, message: status.message, suggestions: [], ...base }
+    return { items: [], base, early: { reason: status.reason, message: status.message, suggestions: [], ...base } }
   }
   const wanted = names && names.length ? new Set(names) : null
   const items = (wanted ? status.items.filter((i) => wanted.has(i.name)) : status.items).filter((i) => !i.isDir)
   if (!items.length) {
     return {
-      reason: 'empty', suggestions: [], ...base,
-      message: T(lang, 'A BEÉRKEZŐ üres – nincs mit elemezni.', 'The INBOX is empty – nothing to analyze.'),
+      items, base,
+      early: {
+        reason: 'empty', suggestions: [], ...base,
+        message: T(lang, 'A BEÉRKEZŐ üres – nincs mit elemezni.', 'The INBOX is empty – nothing to analyze.'),
+      },
     }
   }
-  const config = loadLifeConfig()
-  const index = buildLearnedIndex(config)
-  const suggestions = items.map((item) => analyzeInboxItem(item, config, index, lang))
+  return { items, base }
+}
+
+function finishBatch(suggestions: InboxSuggestion[], config: LifeConfig, base: InboxBatch['base'], lang: string): AnalyzeResult {
   return {
     reason: 'ok', suggestions,
     knownFolders: buildKnownFolders(config, lang),
     ocrAvailable: base.ocrAvailable, faceRecognitionAvailable: base.faceRecognitionAvailable,
     message: T(lang, `${suggestions.length} tétel elemezve.`, `${suggestions.length} item(s) analyzed.`),
   }
+}
+
+/** A Beerkezo AI-javaslatai -- `names` nelkul MINDEN tetelre. (Szinkron: tesztek, CLI.) */
+export function analyzeInbox(names: string[] | undefined, lang: string = APP_LANG): AnalyzeResult {
+  const batch = inboxBatch(names, lang)
+  if (batch.early) return batch.early
+  const config = loadLifeConfig()
+  const index = buildLearnedIndex(config)
+  const suggestions = batch.items.map((item) => analyzeInboxItem(item, config, index, lang))
+  return finishBatch(suggestions, config, batch.base, lang)
+}
+
+/**
+ * The same, for the dashboard route: the slow parts (OCR of a scan takes
+ * seconds per page) run without blocking the server. Returns the prefetched
+ * text too, so the AI step reads exactly what the rules read.
+ */
+export async function analyzeInboxAsync(
+  names: string[] | undefined, lang: string = APP_LANG,
+): Promise<AnalyzeResult & { prefetched: Map<string, Prefetched> }> {
+  const prefetched = new Map<string, Prefetched>()
+  const batch = inboxBatch(names, lang)
+  if (batch.early) return { ...batch.early, prefetched }
+  const dir = inboxDir(lang) || ''
+  for (const item of batch.items) {
+    if (item.credentialWarning) continue
+    const abs = join(dir, item.name)
+    prefetched.set(item.name, await prefetchItem(sniffType(abs), abs))
+  }
+  const config = loadLifeConfig()
+  const index = buildLearnedIndex(config)
+  const suggestions = batch.items.map((item) => analyzeInboxItem(item, config, index, lang, prefetched.get(item.name)))
+  return { ...finishBatch(suggestions, config, batch.base, lang), prefetched }
 }

@@ -40,7 +40,7 @@ import {
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
-import { analyzeInbox, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox-analyze.js'
+import { analyzeInboxAsync, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox-analyze.js'
 import { enrollFace } from '../../life-vision-adapter.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
@@ -780,7 +780,11 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/life/inbox/analyze' && method === 'POST') {
     const body = await readJson(req)
     const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : undefined
-    send(res, 200, analyzeInbox(names, uiLang(url)))
+    // Async: a scanned PDF needs a multi-second OCR, the dashboard must not
+    // freeze on it (card 56530b08). The prefetched texts stay in the
+    // analyzer's cache for the AI step; they are not sent to the browser.
+    const { prefetched: _prefetched, ...result } = await analyzeInboxAsync(names, uiLang(url))
+    send(res, 200, result)
     return true
   }
 
