@@ -194,14 +194,11 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/projects' && method === 'GET') {
     const includeArchived = url.searchParams.get('archived') === '1'
-    let migrationPending = false
-    try { migrationPending = planProjectMigration().pending } catch (err) {
-      logger.warn({ err }, '[projects] migracio-terv nem keszult el')
-    }
+    // A regi adatok atvetelenek terve kulon vegponton jon (/migration): az
+    // minden kartyat bejar, a lista betoltese ne fizesse meg.
     json(res, {
       projects: listProjects({ includeArchived }),
       depot: { configured: !!explorerRoot() },
-      migrationPending,
     })
     return true
   }

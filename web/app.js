@@ -1486,6 +1486,7 @@ async function loadKanban() {
         if (Array.isArray(storedHiddenCols)) kanbanHiddenColumns = new Set(storedHiddenCols)
       } catch { /* ignore malformed storage */ }
     }
+    const namesReady = refreshProjectNames()
     const [cardsRes, assigneesRes, projectsRes, labelsRes] = await Promise.all([
       fetch('/api/kanban'),
       fetch('/api/kanban/assignees'),
@@ -1504,7 +1505,7 @@ async function loadKanban() {
     kanbanAssignees = await assigneesRes.json()
     kanbanProjects = await projectsRes.json()
     kanbanAllLabels = await labelsRes.json()
-    await refreshProjectNames()
+    await namesReady
     populateProjectFilter()
     populateProjectSuggestions()
     setupAssigneeFilter()
@@ -1629,14 +1630,18 @@ function populateProjectFilter() {
   // a Kanbant egy projektre szurve, hogy a lenyiloban az meg nincs benne.
   const prev = kanbanProjectFilter || sel.value
   sel.innerHTML = '<option value="">Mind</option>'
-  for (const p of kanbanProjects) {
+  // Egy projekt kartya nelkul is szurheto (pl. egy archivalt, ures projekt
+  // Kanban fule) -- kulonben a szuro csendben "Mind"-re ugrana.
+  const values = prev && !kanbanProjects.includes(prev) && (window._projectNames || {})[prev]
+    ? [...kanbanProjects, prev] : kanbanProjects
+  for (const p of values) {
     const opt = document.createElement('option')
     opt.value = p
     opt.textContent = projectLabel(p)
     if (p === prev) opt.selected = true
     sel.appendChild(opt)
   }
-  if (prev && !kanbanProjects.includes(prev)) kanbanProjectFilter = ''
+  if (prev && !values.includes(prev)) kanbanProjectFilter = ''
   _prjSyncKanbanChip()
 }
 
