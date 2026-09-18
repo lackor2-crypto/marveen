@@ -46,219 +46,48 @@ import sys, os, json, re, time, urllib.request
 
 REACTION = "✍️"                            # ✍️
 
-CRITICAL_THRESHOLD_PCT = 95  # mirrors rate-limit-guard.py / src/rate-limit-status.ts
-STALE_AFTER_MS = 30 * 60_000
-
-
-# --- Rate-limit snapshot reading (mirrors rate-limit-guard.py) --------------
-
-def read_env_value(env_path, key):
-    try:
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line.startswith(key + '='):
-                    continue
-                v = line[len(key) + 1:]
-                if v[:1] in ('"', "'") and v[-1:] == v[:1]:
-                    v = v[1:-1]
-                return v
-    except OSError:
-        pass
-    return None
-
-
-def find_project_root(cwd):
-    """Same walk-upward-for-.env logic as rate-limit-guard.py's
-    find_project_root -- kept as a separate copy on purpose, since each hook
-    is copied standalone to ~/.claude/hooks/ at install time and must not
-    depend on a sibling file being present there."""
-    if not cwd:
+# Shared quota-honesty logic (kanban c99bc49b/#316 + the sub-agent parity fix):
+# a single source both this main-agent hook and channel-inbox-drain.py import,
+# so "am I out of quota?" is decided identically for every agent. Fail-open: if
+# the sibling module is missing (a stripped-down install), the honest-status
+# gate is simply skipped and the normal placeholder is sent.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from rate_limit_status_lib import (
+        quota_status_message_if_critical, install_lang, find_project_root,
+    )
+    _HAS_RL = True
+except Exception:
+    _HAS_RL = False
+    def quota_status_message_if_critical(cwd, now_ms=None):
         return None
-    d = os.path.abspath(cwd)
-    while True:
-        env_path = os.path.join(d, '.env')
-        if os.path.isfile(env_path) and read_env_value(env_path, 'MAIN_AGENT_ID') is not None:
-            return d
-        parent = os.path.dirname(d)
-        if parent == d:
-            return None
-        d = parent
-
-
-def resolve_agent_id(cwd, project_root):
-    if os.path.abspath(cwd) == os.path.abspath(project_root):
-        return read_env_value(os.path.join(project_root, '.env'), 'MAIN_AGENT_ID') or 'main'
-    agents_base = os.path.abspath(os.path.join(project_root, 'agents')) + os.sep
-    if os.path.abspath(cwd).startswith(agents_base):
-        return os.path.abspath(cwd)[len(agents_base):].split(os.sep)[0]
-    return None
-
-
-def five_hour_state(snap, now_ms):
-    """(used_pct, resets_at_ms) for the 5-hour window if it can be TRUSTED, else
-    None. Mirrors pct_of() + the resetsAt-authority rule in rate-limit-guard.py:
-    usedPct only means anything while resetsAt is still in the future.
-
-    Staleness rule (kanban c99bc49b / #316): a FRESH snapshot is trusted as-is.
-    A STALE one is trusted ONLY when it is already at/over CRITICAL and the
-    window has not yet reset -- because a usedPct that is already critical
-    cannot fall until resetsAt passes, so an old reading of "100% until 17:10"
-    is still true at 15:55. Below critical, a stale reading is genuinely unknown
-    (the agent may have kept working since), so it must not gate anything
-    (recheck-before-restating doctrine).
-
-    This is what lets the authoritative PER-AGENT snapshot catch a busy or
-    limit-frozen agent whose statusline stopped ticking (usalackor at 100%,
-    Boss msg 5878) WITHOUT scraping the tmux pane. The pane also carries the
-    model's OWN prose, and prose that merely quotes "5h 100%" or "hit your
-    session limit" wrongly tripped the old live-pane scraper into reporting an
-    AVAILABLE agent as out of quota -- reading Marvin's pane, which was
-    discussing usalackor's 17:10 reset (Boss msg 5886). The snapshot file is
-    read strictly for THIS agent, so it can never confuse one agent for another."""
-    if not isinstance(snap, dict):
-        return None
-    updated_at = snap.get('updatedAt')
-    if not isinstance(updated_at, (int, float)):
-        return None
-    window = snap.get('fiveHour')
-    if not isinstance(window, dict):
-        return None
-    resets_at = window.get('resetsAt')
-    used_pct = window.get('usedPct')
-    if not isinstance(resets_at, (int, float)) or resets_at <= now_ms:
-        return None
-    if not isinstance(used_pct, (int, float)):
-        return None
-    if now_ms - updated_at >= STALE_AFTER_MS and used_pct < CRITICAL_THRESHOLD_PCT:
-        # Stale AND not critical: could have grown since -> unknown, do not gate.
-        # (A stale but critical reading with the window still open is still
-        # reliable, so it falls through and is returned.)
-        return None
-    return used_pct, resets_at
-
-
-# --- Install-specific settings (kanban 0a1ec18e) ----------------------------
-#
-# This hook renders a time and a sentence for a human, and both are properties
-# of the INSTALL, not of the machine this was written on. Hardcoding either one
-# is the "host-agnostic development" rule's exact failure: it works here and
-# quietly misinforms everyone else. The timezone has one official source
-# (SCHEDULER_TZ -> APP_TZ in src/config.ts, which exists precisely because it
-# replaced ~15 hardcoded 'Europe/Budapest' literals), and the language has one
-# official source (the .lang file -> APP_LANG).
-
-
-def install_setting(project_root, key):
-    """A setting as the dashboard would resolve it.
-
-    Precedence: os.environ > store/config-overrides.json > .env, the same order
-    as scripts/voice/_vtools.py and Node's getEffectiveSettingValue(). Settings
-    changed on the Settings page land in config-overrides.json, NOT in .env --
-    reading only .env would render the new value in the UI and change nothing
-    here, the worst kind of failure because it looks like it worked.
-    """
-    v = os.environ.get(key)
-    if v and v.strip():
-        return v.strip()
-    try:
-        with open(os.path.join(project_root, "store", "config-overrides.json"), encoding="utf-8") as f:
-            v = json.load(f).get(key)
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    except Exception:
-        pass
-    try:
-        with open(os.path.join(project_root, ".env"), encoding="utf-8") as f:
-            m = re.search(r"^" + re.escape(key) + r"=(.*)$", f.read(), re.M)
-        if m and m.group(1).strip():
-            return m.group(1).strip().strip("'\"")
-    except Exception:
-        pass
-    return None
-
-
-def _norm_lang(raw):
-    """Raw language value -> 'en' / 'hu' / None. Mirrors the en-prefix test in
-    readInstallLang(): anything starting with 'en' is English, any other
-    non-empty value is Hungarian, empty/missing is unknown."""
-    if not raw:
-        return None
-    raw = raw.strip().lower()
-    if raw.startswith("en"):
-        return "en"
-    if raw:
+    def install_lang(project_root):
         return "hu"
-    return None
+    def find_project_root(cwd):
+        return None
 
 
-def install_lang(project_root):
-    """'hu' or 'en' -- the install language. Mirrors readInstallLang() in
-    src/config.ts: MARVEEN_LANG wins FIRST (environ > config-overrides.json >
-    .env, the same precedence install_setting uses for SCHEDULER_TZ), THEN the
-    .lang file, defaulting to Hungarian. Reading only .lang would ignore a
-    language set the way the dashboard resolves it -- the exact "Settings-page
-    value changes nothing here" failure this hook already avoids for the
-    timezone (install_zone/install_setting), and had left half-done for the
-    language (kanban 0a1ec18e)."""
-    lang = _norm_lang(install_setting(project_root, "MARVEEN_LANG"))
-    if lang:
-        return lang
-    try:
-        with open(os.path.join(project_root, ".lang"), encoding="utf-8") as f:
-            lang = _norm_lang(f.read())
-    except Exception:
-        lang = None
-    return lang or "hu"
 
 
-def install_zone(project_root):
-    """(tzinfo_or_None, label). None means "use the machine's own zone" -- the
-    same fallback resolveAppTz() takes when SCHEDULER_TZ is unset. A configured
-    but unusable zone falls back too rather than throwing: a wrong-looking hour
-    is bad, no message at all is worse."""
-    name = install_setting(project_root, "SCHEDULER_TZ")
-    if name:
-        try:
-            from zoneinfo import ZoneInfo
-            return ZoneInfo(name), name
-        except Exception:
-            pass
-    try:
-        import datetime
-        local = datetime.datetime.now().astimezone()
-        return None, (local.tzname() or "")
-    except Exception:
-        return None, ""
 
 
-def format_wait(resets_at_ms, now_ms, lang="hu"):
-    """'{H} ora {M} percig' / '{M} percig' -- the ETA phrasing Boss asked for
-    (uzenet 808: "3 ora 35 perc ig"), and its English counterpart."""
-    remaining_min = max(0, round((resets_at_ms - now_ms) / 60_000))
-    hours, minutes = divmod(remaining_min, 60)
-    if lang == "en":
-        if hours > 0:
-            return f"{hours}h {minutes}m"
-        return f"{minutes} minutes"
-    if hours > 0:
-        return f"{hours} óra {minutes} percig"
-    return f"{minutes} percig"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Every line that reaches a screen exists in both languages (project rule).
-QUOTA_TEXT = {
-    "hu": {
-        "until": " (kb. {local}-ig, {zone})",
-        "body": "⏳ Jelenleg kifogytam a token-keretemből: az 5 órás keretem {pct}%-on áll. "
-                "Kb. {eta} nem tudom rendesen fogadni/feldolgozni a kéréseidet{until}, utána újra itt vagyok.",
-    },
-    "en": {
-        "until": " (until about {local}, {zone})",
-        "body": "⏳ I have run out of my token budget: my 5-hour window is at {pct}%. "
-                "For about {eta} I cannot properly take or work on your requests{until}, after that I am back.",
-    },
-}
 
 PLACEHOLDER_TEXT = {"hu": "✍️ Dolgozom rajta…", "en": "✍️ Working on it…"}
 
@@ -267,49 +96,8 @@ def placeholder_text(lang="hu"):
     return PLACEHOLDER_TEXT.get(lang, PLACEHOLDER_TEXT["hu"])
 
 
-def quota_honest_message(used_pct, resets_at_ms, now_ms, lang="hu", zone=None, zone_label=""):
-    # Invariant: the sole caller (quota_status_message_if_critical) passes a
-    # resets_at that five_hour_state already proved to be in the future.
-    t = QUOTA_TEXT.get(lang, QUOTA_TEXT["hu"])
-    eta = format_wait(resets_at_ms, now_ms, lang)
-    try:
-        import datetime
-        # `zone=None` renders in the machine's own zone -- the same fallback the
-        # dashboard takes when SCHEDULER_TZ is unset.
-        local = datetime.datetime.fromtimestamp(resets_at_ms / 1000, tz=zone).strftime("%H:%M")
-        until = t["until"].format(local=local, zone=zone_label) if zone_label else f" ({local})"
-    except Exception:
-        until = ""
-    return t["body"].format(pct=round(used_pct), eta=eta, until=until)
 
 
-def quota_status_message_if_critical(cwd, now_ms=None):
-    """Returns the honest status text if the agent's own 5-hour snapshot is
-    fresh and at/over CRITICAL_THRESHOLD_PCT, else None (proceed normally)."""
-    if now_ms is None:
-        now_ms = time.time() * 1000
-    project_root = find_project_root(cwd)
-    if not project_root:
-        return None
-    agent_id = resolve_agent_id(cwd, project_root)
-    if not agent_id:
-        return None
-    snapshot_path = os.path.join(project_root, 'store', 'rate-limit-status', f'{agent_id}.json')
-    try:
-        with open(snapshot_path) as f:
-            snap = json.load(f)
-    except (OSError, ValueError):
-        return None
-    state = five_hour_state(snap, now_ms)
-    if state is None:
-        return None
-    used_pct, resets_at = state
-    if used_pct < CRITICAL_THRESHOLD_PCT:
-        return None
-    zone, zone_label = install_zone(project_root)
-    return quota_honest_message(
-        used_pct, resets_at, now_ms, install_lang(project_root), zone, zone_label,
-    )
 
 
 def state_dir():
@@ -462,201 +250,37 @@ def main():
 
 
 def _self_test():
-    """Pure checks for the quota-honesty gate (kanban 34f8f2dc). Run by the
-    suite (src/__tests__/hook-self-tests.test.ts) -- a self-test nobody calls
-    is not a test."""
-    import tempfile
-
+    """Placeholder-text checks (local), plus the shared quota gate via the lib.
+    Run by src/__tests__/hook-self-tests.test.ts -- a self-test nobody calls is
+    not a test."""
     fails = []
-    ran = []
 
-    def check(name, got, want):
-        # A FIXED count in the summary line would keep saying "11 checks" no
-        # matter how many actually ran -- a number that cannot be wrong is not a
-        # measurement. Count what really executed.
-        ran.append(name)
-        if got != want:
-            fails.append("%s: expected %r, got %r" % (name, want, got))
+    # The placeholder is screen text -- both languages, never the same string
+    # twice, unknown language falls back to Hungarian.
+    if placeholder_text("hu") != "✍️ Dolgozom rajta…":
+        fails.append("placeholder hu wrong: %r" % placeholder_text("hu"))
+    if placeholder_text("en") == placeholder_text("hu"):
+        fails.append("placeholder en must differ from hu")
+    if placeholder_text("de") != placeholder_text("hu"):
+        fails.append("unknown language must fall back to hu")
 
-    now = 1_000_000_000_000  # arbitrary fixed epoch ms for deterministic math
-
-    # five_hour_state: fresh + window in the future -> usable
-    fresh = {
-        "updatedAt": now - 60_000,
-        "fiveHour": {"usedPct": 100, "resetsAt": now + (3 * 3600_000 + 35 * 60_000)},
-    }
-    st = five_hour_state(fresh, now)
-    check("fresh snapshot usable", st is not None, True)
-    check("fresh snapshot pct", st[0] if st else None, 100)
-
-    # Stale AND below critical -> unknown (it may have grown since the reading),
-    # must NOT gate anything (recheck doctrine).
-    stale_low = {
-        "updatedAt": now - STALE_AFTER_MS - 1,
-        "fiveHour": {"usedPct": 40, "resetsAt": now + 3600_000},
-    }
-    check("stale low snapshot ignored", five_hour_state(stale_low, now), None)
-
-    # kanban c99bc49b (#316): stale AND at/over critical WITH the window still
-    # open -> STILL trusted. A critical usedPct cannot fall until resetsAt, so an
-    # old "100% until 17:10" is still true now. This is what catches a busy or
-    # limit-frozen agent whose statusline stopped ticking (usalackor, Boss msg
-    # 5878) without scraping the pane -- the scraper's prose false-positive
-    # (Boss msg 5886) is why it was removed.
-    stale_crit = {
-        "updatedAt": now - STALE_AFTER_MS - 1,
-        "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000},
-    }
-    st = five_hour_state(stale_crit, now)
-    check("stale critical snapshot still trusted", st is not None, True)
-    check("stale critical snapshot pct", st[0] if st else None, 100)
-    # ...but once the window has reset (resetsAt in the past), even a critical
-    # stale reading no longer applies -> None.
-    stale_crit_expired = {
-        "updatedAt": now - STALE_AFTER_MS - 1,
-        "fiveHour": {"usedPct": 100, "resetsAt": now - 1000},
-    }
-    check("stale critical but window reset -> ignored",
-          five_hour_state(stale_crit_expired, now), None)
-
-    # Window already rolled over (resetsAt in the past) -> unknown, same rule
-    # as rate-limit-guard.py's pct_of().
-    rolled_over = {
-        "updatedAt": now - 1000,
-        "fiveHour": {"usedPct": 98, "resetsAt": now - 1000},
-    }
-    check("rolled-over window ignored", five_hour_state(rolled_over, now), None)
-
-    # Below critical threshold -> no honest-status override.
-    below = {
-        "updatedAt": now - 1000,
-        "fiveHour": {"usedPct": 40, "resetsAt": now + 3600_000},
-    }
-    with tempfile.TemporaryDirectory() as d:
-        os.makedirs(os.path.join(d, "store", "rate-limit-status"))
-        with open(os.path.join(d, ".env"), "w") as f:
-            f.write("MAIN_AGENT_ID=main\n")
-        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
-            json.dump(below, f)
-        check("below threshold -> normal placeholder",
-              quota_status_message_if_critical(d, now), None)
-
-        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
-            json.dump(fresh, f)
-        msg = quota_status_message_if_critical(d, now)
-        check("at/over threshold -> honest message", msg is not None, True)
-        check("honest message names the ETA", "3 óra 35 percig" in (msg or ""), True)
-        check("honest message is not the lie", placeholder_text("hu") in (msg or ""), False)
-
-        # --- kanban 0a1ec18e: the message must follow the INSTALL, not this
-        # machine. A wrong hour or a Hungarian sentence on an English install
-        # is the same defect the honest message exists to prevent.
-        os.environ.pop("SCHEDULER_TZ", None)
-        with open(os.path.join(d, ".env"), "w") as f:
-            f.write("MAIN_AGENT_ID=main\nSCHEDULER_TZ=America/New_York\n")
-        msg = quota_status_message_if_critical(d, now) or ""
-        check("zone comes from .env", "America/New_York" in msg, True)
-        check("no hardcoded developer zone", "Europe/Budapest" in msg, False)
-
-        # Settings-page values land in config-overrides.json and must WIN over
-        # .env -- otherwise the UI would show a change that changes nothing.
-        with open(os.path.join(d, "store", "config-overrides.json"), "w") as f:
-            json.dump({"SCHEDULER_TZ": "UTC"}, f)
-        msg = quota_status_message_if_critical(d, now) or ""
-        check("config-overrides wins over .env", "UTC" in msg, True)
-        # now + 3h35m == 2001-09-09 05:21 UTC -- the hour is really rendered in
-        # the configured zone, not just named in the text.
-        check("hour rendered in the configured zone", "05:21" in msg, True)
-
-        # An unusable zone must fall back to the machine, not throw the turn away.
-        with open(os.path.join(d, "store", "config-overrides.json"), "w") as f:
-            json.dump({"SCHEDULER_TZ": "Not/AZone"}, f)
-        check("bad zone still produces a message",
-              bool(quota_status_message_if_critical(d, now)), True)
-        os.remove(os.path.join(d, "store", "config-overrides.json"))
-
-        # Language: the install's .lang decides, the default stays Hungarian.
-        # MARVEEN_LANG (env) must not leak in from the test runner's own process
-        # -- install_setting reads os.environ first, exactly as for SCHEDULER_TZ.
-        os.environ.pop("MARVEEN_LANG", None)
-        check("default language is hu", install_lang(d), "hu")
-        with open(os.path.join(d, ".lang"), "w") as f:
-            f.write("en\n")
-        check("lang file read", install_lang(d), "en")
-        msg = quota_status_message_if_critical(d, now) or ""
-        check("english install gets english text", "5-hour window" in msg, True)
-        check("english install has no hungarian text", "keretem" in msg, False)
-        check("english ETA phrasing", "3h 35m" in msg, True)
-        os.remove(os.path.join(d, ".lang"))
-
-        # kanban 0a1ec18e (nyelv-fel): the language must ALSO honor MARVEEN_LANG
-        # the way the dashboard resolves it (environ > config-overrides > .env),
-        # not only the .lang file. A language set that way without a .lang file
-        # otherwise renders in the wrong tongue -- the same config-overrides-must-
-        # win failure the timezone half already avoids, left half-done here.
-        with open(os.path.join(d, "store", "config-overrides.json"), "w") as f:
-            json.dump({"MARVEEN_LANG": "en"}, f)
-        check("MARVEEN_LANG (config-overrides) sets language", install_lang(d), "en")
-        # config-overrides must win over .env for the language too.
-        with open(os.path.join(d, ".env"), "w") as f:
-            f.write("MAIN_AGENT_ID=main\nMARVEEN_LANG=hu\n")
-        check("config-overrides lang wins over .env", install_lang(d), "en")
-        os.remove(os.path.join(d, "store", "config-overrides.json"))
-        # ...and the .env value is honored when config-overrides is absent.
-        check("MARVEEN_LANG (.env) sets language", install_lang(d), "hu")
-        # MARVEEN_LANG wins over a .lang file (mirrors readInstallLang order).
-        with open(os.path.join(d, ".lang"), "w") as f:
-            f.write("en\n")
-        check("MARVEEN_LANG wins over .lang", install_lang(d), "hu")
-        os.remove(os.path.join(d, ".lang"))
-        with open(os.path.join(d, ".env"), "w") as f:
-            f.write("MAIN_AGENT_ID=main\n")
-
-        # A missing snapshot file (fresh install, no statusline tick yet)
-        # must not throw and must not gate -- there is simply nothing to say.
-        os.remove(os.path.join(d, "store", "rate-limit-status", "main.json"))
-        check("missing snapshot -> normal placeholder",
-              quota_status_message_if_critical(d, now), None)
-
-    # The placeholder is screen text as well -- both languages, and never the
-    # same string twice (a "bilingual" pair that is one string is not bilingual).
-    check("placeholder hu", placeholder_text("hu"), "✍️ Dolgozom rajta…")
-    check("placeholder en differs", placeholder_text("en") != placeholder_text("hu"), True)
-    check("unknown language falls back to hu", placeholder_text("de"), placeholder_text("hu"))
-
-    # format_wait: hours+minutes and minutes-only phrasing.
-    check("hours+minutes phrasing",
-          format_wait(now + 3 * 3600_000 + 35 * 60_000, now), "3 óra 35 percig")
-    check("minutes-only phrasing", format_wait(now + 12 * 60_000, now), "12 percig")
-
-    # --- kanban c99bc49b (#316): the STALE-but-critical case must produce a real
-    # honest message end-to-end (this is usalackor's actual case, Boss msg 5878),
-    # while an AVAILABLE agent (low usedPct) must NOT -- which is the false
-    # positive the removed live-pane scraper caused (Boss msg 5886).
-    with tempfile.TemporaryDirectory() as d:
-        os.makedirs(os.path.join(d, "store", "rate-limit-status"))
-        with open(os.path.join(d, ".env"), "w") as f:
-            f.write("MAIN_AGENT_ID=main\n")
-        os.environ.pop("SCHEDULER_TZ", None)
-        os.environ.pop("MARVEEN_LANG", None)
-        # Stale (44h old) but 100% with the window still open -> honest message.
-        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
-            json.dump({"updatedAt": now - STALE_AFTER_MS * 20,
-                       "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000}}, f)
-        check("stale-but-critical -> honest message end-to-end",
-              quota_status_message_if_critical(d, now) is not None, True)
-        # Stale AND low (an available agent) -> nothing, normal placeholder.
-        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
-            json.dump({"updatedAt": now - STALE_AFTER_MS * 20,
-                       "fiveHour": {"usedPct": 36, "resetsAt": now - 1000}}, f)
-        check("available agent (stale low) -> normal placeholder",
-              quota_status_message_if_critical(d, now), None)
+    # The quota decision lives in the shared lib (imported here and by
+    # channel-inbox-drain.py). Run its self-test so this hook's suite entry also
+    # guards the logic it depends on. A stripped install without the lib
+    # (_HAS_RL False) is a valid fail-open state, not a test failure.
+    if _HAS_RL:
+        try:
+            import rate_limit_status_lib
+            if rate_limit_status_lib._self_test() != 0:
+                fails.append("rate_limit_status_lib self-test failed")
+        except Exception as e:
+            fails.append("rate_limit_status_lib self-test raised: %r" % e)
 
     if fails:
         for f in fails:
             print("FAIL " + f)
         return 1
-    print("telegram_progress.py --self-test: OK (%d checks)" % len(ran))
+    print("telegram_progress.py --self-test: OK")
     return 0
 
 

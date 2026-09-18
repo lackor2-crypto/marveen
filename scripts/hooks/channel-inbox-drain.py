@@ -29,6 +29,20 @@ try:
 except ImportError:
     _HAS_LEDGER = False
 
+# Shared quota-honesty logic (kanban c99bc49b/#316 sub-agent parity fix): the
+# SAME module the main-agent hook (telegram_progress.py) imports, so "am I out
+# of quota?" is decided identically for the main agent and every sub-agent.
+# Before this, only the main-agent path was fixed, so a sub-agent at 100% still
+# had its receipt edited to "Dolgozom rajta…" (Boss msg 5892). Fail-open: no
+# lib -> quota gate skipped, the normal working receipt is used.
+try:
+    from rate_limit_status_lib import quota_status_message_if_critical  # noqa: E402
+    _HAS_RL = True
+except Exception:
+    _HAS_RL = False
+    def quota_status_message_if_critical(cwd, now_ms=None):
+        return None
+
 
 # The arrival receipt posted by scripts/channel-inbound-tee.mjs ("Megkaptam,
 # sorban all...") is handed over to the turn here: the text is updated to the
@@ -76,12 +90,26 @@ def _api(tok, method, payload):
         return json.loads(r.read().decode("utf-8"))
 
 
-def _adopt_receipts(state_dir, sid, transcript_path):
+def _adopt_receipts(state_dir, sid, transcript_path, cwd=""):
     """Move the tee's arrival receipts into this session's progress file.
 
     Fail-open in every branch: a receipt that cannot be updated is cosmetic, a
     hook that raises would block message delivery itself.
+
+    Quota honesty (kanban c99bc49b/#316): when THIS sub-agent is out of quota,
+    the receipt must NOT be edited to "Dolgozom rajta…" -- the turn is not being
+    worked on, it is queued behind a spent 5-hour window. In that case the
+    receipt becomes the same honest status the main-agent hook sends. The check
+    reads strictly this agent's own snapshot (via cwd), so it never confuses one
+    agent's quota for another's.
     """
+    working_text = RECEIPT_WORKING_TEXT
+    try:
+        honest = quota_status_message_if_critical(cwd) if cwd else None
+        if honest:
+            working_text = honest
+    except Exception:
+        pass
     progress = os.path.join(state_dir, "progress")
     path = os.path.join(progress, "arrival.jsonl")
     if not os.path.exists(path) or os.path.getsize(path) == 0:
@@ -132,7 +160,7 @@ def _adopt_receipts(state_dir, sid, transcript_path):
                 _api(tok, "editMessageText", {
                     "chat_id": r["chat_id"],
                     "message_id": r["message_id"],
-                    "text": RECEIPT_WORKING_TEXT,
+                    "text": working_text,
                 })
             except Exception:
                 # Already edited, deleted by the user, network hiccup -- the
@@ -374,6 +402,7 @@ def drain(payload):
             state_dir,
             (payload or {}).get("session_id") or "default",
             (payload or {}).get("transcript_path") or "",
+            (payload or {}).get("cwd") or "",
         )
     except Exception:
         pass
@@ -520,6 +549,38 @@ def self_test():
                 f.write(json.dumps({"chat_id": "c2", "message_id": 8}) + "\n")
             assert len(_adopt_receipts(state, "sid2", "")) == 1
             assert calls == []
+
+        # kanban c99bc49b/#316 -- sub-agent quota parity: when THIS agent is out
+        # of quota, the receipt must become the honest status, NOT "Dolgozom
+        # rajta". This is the exact bug Boss saw with the Szakértő (msg 5892).
+        if _HAS_RL:
+            import time as _t
+            with tempfile.TemporaryDirectory() as root:
+                os.environ.pop("SCHEDULER_TZ", None)
+                os.environ.pop("MARVEEN_LANG", None)
+                with open(os.path.join(root, ".env"), "w", encoding="utf-8") as f:
+                    f.write("MAIN_AGENT_ID=marvin\n")
+                sub = os.path.join(root, "agents", "usalackor")
+                state3 = os.path.join(sub, ".claude", "channels", "telegram")
+                os.makedirs(os.path.join(state3, "progress"))
+                with open(os.path.join(state3, ".env"), "w", encoding="utf-8") as f:
+                    f.write("TELEGRAM_BOT_TOKEN=123:abc\n")
+                os.makedirs(os.path.join(root, "store", "rate-limit-status"))
+                now = _t.time() * 1000
+                # Stale (well past 30 min) but 100% with the window still open.
+                with open(os.path.join(root, "store", "rate-limit-status", "usalackor.json"), "w", encoding="utf-8") as f:
+                    json.dump({"updatedAt": now - 3 * 3600_000,
+                               "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000}}, f)
+                with open(os.path.join(state3, "progress", "arrival.jsonl"), "w", encoding="utf-8") as f:
+                    f.write(json.dumps({"chat_id": "cq", "message_id": 42}) + "\n")
+                os.environ["TELEGRAM_API_BASE"] = "http://127.0.0.1:%d" % srv.server_address[1]
+                try:
+                    _adopt_receipts(state3, "sidq", "", sub)
+                finally:
+                    os.environ.pop("TELEGRAM_API_BASE", None)
+                sent = calls[-1][1]["text"] if calls else ""
+                assert sent != RECEIPT_WORKING_TEXT, "out-of-quota agent still got 'Dolgozom rajta'"
+                assert "kifogytam" in sent, "receipt is not the honest out-of-quota status: %r" % sent
     finally:
         srv.shutdown()
 
