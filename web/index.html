@@ -441,6 +441,10 @@
         <div class="overview-upstream-body" id="overviewUpstreamBody"></div>
         <div class="upstream-actions">
           <button class="btn-secondary upstream-changes-btn" id="overviewUpstreamChangesBtn" hidden></button>
+          <!-- Az elv-kapu kizart es dontesre varo tetelei egy helyen (Boss,
+               2026-09-18: harmadik gomb, B valtozat). Ugyanazt a listat nyitja,
+               a "kapu" nezetben. -->
+          <button class="btn-secondary upstream-gate-btn" id="overviewUpstreamGateBtn" hidden></button>
           <!-- Letoltes + ujrameres. A munkakonyvtarhoz NEM nyul: a mero szkript
                `git merge-tree --write-tree`-vel dolgozik, tehat nem huz be
                semmit, csak megnezi, mi van az upstreamben. Ezert nincs elotte
@@ -5645,6 +5649,7 @@
         <div class="upstream-view-tabs" id="upstreamViewTabs">
           <button type="button" class="upstream-view-tab active" id="upstreamViewChanges"></button>
           <button type="button" class="upstream-view-tab" id="upstreamViewFiles"></button>
+          <button type="button" class="upstream-view-tab" id="upstreamViewGate"></button>
         </div>
         <input type="search" class="upstream-changes-filter" id="upstreamChangesFilter" placeholder="Keresés a listában…">
         <div id="upstreamChangesBody"></div>
