@@ -98,6 +98,7 @@ export function buildWorkPackage(repos: CommitPushRepo[]): string {
   lines.push('Lépések tárolónként:')
   lines.push('  1. cd a tároló útjába, és nézd meg mi változott: `git status` + `git diff` (és `git diff --staged`).')
   lines.push('  2. Ellenőrizd, nincs-e a változás közt véletlenül titok/kulcs/nagy bináris. Ha gyanús, NE commitold vakon: hagyd ki azt a fájlt, és a végén jelezd Bossnak.')
+  lines.push('     Csak sorvég-eltérés (LF/CRLF) NEM munka, SOHA ne commitold: `git diff --ignore-cr-at-eol --stat` mutatja a valódi változást. Ami abban nem szerepel, azt `git restore -- <fájl>` állítja vissza (tartalom nem vész el) -- a commitja az egész repót átírná, és eltörné a .sh fájlokat.')
   lines.push('  3. `git add -A`, majd ÉRTELMES commit-üzenettel: `git commit -m "..."` (írd le MIT tartalmaz a változás, ne "wip"/"update").')
   lines.push('  4. `git push`. Ha nincs upstream: `git push -u origin HEAD`.')
   lines.push('  5. Ha a helyi és a távoli ág SZÉTVÁLT (diverged): SOHA ne `push --force`. Húzd le fetch-csel, nézd meg, és ha nem egyértelmű a feloldás, hagyd ki és jelezd Bossnak -- inkább maradjon, mint hogy elvesszen valami.')

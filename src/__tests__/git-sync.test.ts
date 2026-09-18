@@ -83,6 +83,34 @@ describe('scanReposNeedingCommitPush', () => {
     expect(r!.ahead).toBe(0)
   })
 
+  // Kartya 83865ddf: 715 fajl allt "modositottkent", mind csak LF -> CRLF. Arra
+  // commitot rendelni az egesz repot CRLF-re irna at -- ez nem munka.
+  it('a CSAK sorvegben eltero repot NEM sorolja fel', async () => {
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\nketto\n', 'utf8')
+    git(WORK, 'add', '-A'); git(WORK, 'commit', '-qm', 'lf'); git(WORK, 'push', '-q')
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\r\nketto\r\n', 'utf8')
+    const scan = await scanReposNeedingCommitPush()
+    expect(scan.repos.find((x) => x.abs === WORK)).toBeUndefined()
+  })
+
+  it('vegyes esetben CSAK a valodi valtozast szamolja', async () => {
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\n', 'utf8')
+    git(WORK, 'add', '-A'); git(WORK, 'commit', '-qm', 'lf'); git(WORK, 'push', '-q')
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\r\n', 'utf8')
+    writeFileSync(join(WORK, 'a.txt'), 'valodi munka', 'utf8')
+    const r = (await scanReposNeedingCommitPush()).repos.find((x) => x.abs === WORK)
+    expect(r?.dirty).toBe(1)
+  })
+
+  it('a STAGE-elt sorveg-valtozas szandekos: munkanak szamit', async () => {
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\n', 'utf8')
+    git(WORK, 'add', '-A'); git(WORK, 'commit', '-qm', 'lf'); git(WORK, 'push', '-q')
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\r\n', 'utf8')
+    git(WORK, 'add', 'sor.txt')
+    const r = (await scanReposNeedingCommitPush()).repos.find((x) => x.abs === WORK)
+    expect(r?.dirty).toBe(1)
+  })
+
   it('a FEL NEM TOLTOTT commitot tartalmazo repot felsorolja (ahead)', async () => {
     writeFileSync(join(WORK, 'b.txt'), 'sajat', 'utf8')
     git(WORK, 'add', '-A')
@@ -115,6 +143,42 @@ describe('syncRepo', () => {
     expect(r.state).toBe('skipped')
     // A lenyeg: a helyi munka SERTETLEN.
     expect(readFileSync(join(WORK, 'a.txt'), 'utf8')).toBe('amin eppen dolgozom')
+  })
+
+  // Kartya 83865ddf, Boss: "legyen az A" -- a csak-sorveg szemet nem allithatja
+  // meg a frissitest, es tartalom nem veszhet el.
+  it('a CSAK sorvegben eltero fajlt visszaallitja, es utana frissit', async () => {
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\nketto\n', 'utf8')
+    git(WORK, 'add', '-A'); git(WORK, 'commit', '-qm', 'lf'); git(WORK, 'push', '-q')
+    commitOnRemote('uj')
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\r\nketto\r\n', 'utf8')
+    const r = await syncRepo(WORK)
+    expect(r.state).toBe('updated')
+    expect(r.message).toMatch(/1 fájl csak sorvégben/)
+    expect(readFileSync(join(WORK, 'sor.txt'), 'utf8')).toBe('egy\nketto\n')
+    expect(readFileSync(join(WORK, 'tavoli.txt'), 'utf8')).toBe('uj')
+  })
+
+  it('vegyes esetben a VALODI munkahoz nem nyul, es nem frissit', async () => {
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\n', 'utf8')
+    git(WORK, 'add', '-A'); git(WORK, 'commit', '-qm', 'lf'); git(WORK, 'push', '-q')
+    commitOnRemote('uj')
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\r\n', 'utf8')
+    writeFileSync(join(WORK, 'a.txt'), 'amin eppen dolgozom\r\n', 'utf8')
+    const r = await syncRepo(WORK)
+    expect(r.state).toBe('skipped')
+    expect(readFileSync(join(WORK, 'a.txt'), 'utf8')).toBe('amin eppen dolgozom\r\n')
+    expect(readFileSync(join(WORK, 'sor.txt'), 'utf8')).toBe('egy\n')
+  })
+
+  it('a STAGE-elt sorveg-valtozashoz nem nyul', async () => {
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\n', 'utf8')
+    git(WORK, 'add', '-A'); git(WORK, 'commit', '-qm', 'lf'); git(WORK, 'push', '-q')
+    writeFileSync(join(WORK, 'sor.txt'), 'egy\r\n', 'utf8')
+    git(WORK, 'add', 'sor.txt')
+    const r = await syncRepo(WORK)
+    expect(r.state).toBe('skipped')
+    expect(readFileSync(join(WORK, 'sor.txt'), 'utf8')).toBe('egy\r\n')
   })
 
   it('FEL NEM TOLTOTT commit mellett hozza sem nyul', async () => {
