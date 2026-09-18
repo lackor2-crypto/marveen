@@ -14,12 +14,20 @@
 //   GET    /api/projects/:id/delete-preview  -- mit erint a torles
 //   DELETE /api/projects/:id?confirm=1       -- torles = CSAK a kapcsolat bontasa
 //   GET    /api/projects/:id/overview        -- az Attekintes (csak mert forrasbol)
+//   POST   /api/projects/:id/summary         -- AI-osszefoglalo, CSAK kezi keresre (mentve, idoponttal)
+//   GET    /api/projects/:id/ideas           -- a projekt otletei + a meg sehova nem tartozok
+//   POST   /api/projects/:id/ideas           -- uj otlet, a projekthez kotve
+//   POST   /api/projects/:id/links           -- meglevo objektum (otlet) kotese a projekthez
+//   DELETE /api/projects/:id/links/:type/:objectId -- a kotes bontasa (az objektum marad)
+//   GET    /api/projects/:id/folders         -- a projektmappa almappai (hova keruljon az uj fajl)
+//   POST   /api/projects/:id/upload?name=&sub= -- fajl feltoltese a projektmappaba (nyers bajtok)
+//   POST   /api/projects/:id/note            -- uj szoveges jegyzet a projektmappaba
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku. A felulet a
 // kodhoz tartozo, forditott mondatot mutatja (`projects.err.<kod>`), a
 // `message` csak tartalek.
 import { existsSync, statSync } from 'node:fs'
-import { json, readBody } from '../http-helpers.js'
+import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { APP_LANG, MAIN_AGENT_ID } from '../../config.js'
 import { explorerRoot, resolveLifePath, mkdirLife, mkdirLifePath, toLifeRel } from '../../life-explorer.js'
@@ -28,8 +36,15 @@ import { writeBlockReason } from '../../git-guard.js'
 import {
   ensureProjectTables, listProjects, getProject, createProject, updateProject, setProjectArchived,
   projectDeletePreview, deleteProject, projectNameMap, cleanFolderRel, validateProjectInput, projectNameTaken,
+  listProjectIdeas, projectIdeaCandidates, linkObject, unlinkObject, projectForObject, isLinkType, hasTable,
 } from '../../projects.js'
 import { buildProjectOverview } from '../../project-overview.js'
+import { summarizeProject } from '../../project-summary.js'
+import {
+  projectSubfolders, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
+} from '../../project-files.js'
+import { createIdea, getDb } from '../../db.js'
+import { randomUUID } from 'node:crypto'
 import {
   planProjectMigration, applyProjectMigration, listProjectMigrations, revertProjectMigration,
   type MigrationMapping,
@@ -68,6 +83,19 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   apply_failed: { hu: 'Az átvétel nem sikerült, semmi nem változott.', en: 'The migration failed; nothing was changed.' },
   already_reverted: { hu: 'Ezt az átvételt már visszavonták.', en: 'This migration was already reverted.' },
   bad_log: { hu: 'Az átvétel naplója sérült, nem vonható vissza automatikusan.', en: 'The migration log is damaged; it cannot be reverted automatically.' },
+  no_ai: { hu: 'Ezen a gépen most nincs elérhető AI: se bejelentkezett Claude-fiók, se helyi modell.', en: 'No AI is available on this machine right now: no signed-in Claude account and no local model.' },
+  no_answer: { hu: 'Az AI most nem adott használható választ. Próbáld újra pár perc múlva.', en: 'The AI gave no usable answer now. Try again in a few minutes.' },
+  busy: { hu: 'Ehhez a projekthez már készül egy összefoglaló. Várd meg, amíg elkészül.', en: 'A summary for this project is already being made. Wait until it is done.' },
+  title_required: { hu: 'Adj címet az ötletnek.', en: 'Give the idea a title.' },
+  bad_link: { hu: 'Ez a kapcsolat nem értelmezhető.', en: 'This link could not be read.' },
+  idea_missing: { hu: 'Ez az ötlet nem található (lehet, hogy közben törölték).', en: 'This idea was not found (it may have been deleted).' },
+  not_linked: { hu: 'Ez az elem nincs ehhez a projekthez kötve.', en: 'This item is not linked to this project.' },
+  no_folder: { hu: 'A projektnek még nincs mappája. Szerkesztés -> Mappa.', en: 'The project has no folder yet. Edit -> Folder.' },
+  missing: { hu: 'A projekt mappája nem található a Raktárban (lehet, hogy átnevezték vagy áthelyezték).', en: 'The project folder was not found in the Depot (it may have been renamed or moved).' },
+  bad_name: { hu: 'Adj meg egy érvényes fájlnevet.', en: 'Give a valid file name.' },
+  repo_inside: { hu: 'Ez a hely egy git-repó belseje, ide nem teszek fájlt.', en: 'This place is inside a git repository; no file is put here.' },
+  write_failed: { hu: 'Nem sikerült menteni a fájlt.', en: 'Could not save the file.' },
+  too_large: { hu: 'A fájl túl nagy a feltöltéshez (legfeljebb 50 MB). A nagyobbat húzd be közvetlenül a mappába a Windows Intézőben.', en: 'The file is too large to upload (50 MB at most). Drag a bigger one straight into the folder in Windows Explorer.' },
 }
 
 function fail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en', extra: Record<string, unknown> = {}): true {
@@ -275,6 +303,8 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  if (tryUnlink(ctx, lang)) return true
+
   const idMatch = path.match(/^\/api\/projects\/([^/]+)(\/[a-z-]+)?$/)
   if (!idMatch) return false
   const id = decodeURIComponent(idMatch[1])
@@ -335,7 +365,106 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // --- 2. fazis: osszefoglalo, otletek, fajlok --------------------------------
+  if (sub === '/summary' && method === 'POST') {
+    const out = await summarizeProject(id, lang)
+    if (!out.ok) return fail(res, out.code === 'not_found' ? 404 : out.code === 'busy' ? 409 : 503, out.code, lang)
+    logger.info({ id, engine: out.engine, model: out.model }, '[projects] osszefoglalo elkeszult')
+    json(res, { ok: true, project: out.project, engine: out.engine, model: out.model })
+    return true
+  }
+
+  if (sub === '/ideas' && method === 'GET') {
+    json(res, { ideas: listProjectIdeas(id), candidates: projectIdeaCandidates() })
+    return true
+  }
+
+  if (sub === '/ideas' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const title = String(body.title ?? '').trim().slice(0, 300)
+    if (!title) return fail(res, 400, 'title_required', lang)
+    const description = String(body.description ?? '').trim().slice(0, 20000) || null
+    const category = String(body.category ?? '').trim().slice(0, 80) || 'Egyéb'
+    const ideaId = randomUUID().slice(0, 8)
+    // Egy lepesben: az otlet es a kotese -- ne maradhasson projekt nelkuli otlet
+    // egy felbeszakadt keres utan.
+    getDb().transaction(() => {
+      createIdea({ id: ideaId, title, description, category, status: 'new', source: 'manual', kanban_id: null, impact: null, effort: null })
+      linkObject(id, 'idea', ideaId, 'dashboard')
+    })()
+    json(res, { ok: true, id: ideaId })
+    return true
+  }
+
+  if (sub === '/links' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const type = body.type
+    const objectId = String(body.id ?? '').trim()
+    // Egyelore csak otlet kotheto kezzel; a tobbi fajtat (vitaztatas, memoria)
+    // a sajat felulete koti majd.
+    if (type !== 'idea' || !objectId || !isLinkType(type)) return fail(res, 400, 'bad_link', lang)
+    if (!hasTable('idea_box') || !getDb().prepare('SELECT 1 FROM idea_box WHERE id = ?').get(objectId)) return fail(res, 404, 'idea_missing', lang)
+    const before = projectForObject('idea', objectId)
+    linkObject(id, 'idea', objectId, 'dashboard')
+    json(res, { ok: true, movedFrom: before && before !== id ? before : null })
+    return true
+  }
+
+  if (sub === '/folders' && method === 'GET') {
+    const t = projectFileTarget(project, '')
+    json(res, t.ok
+      ? { state: 'ok', path: project.folder_path, subfolders: projectSubfolders(project), maxBytes: PROJECT_UPLOAD_MAX_BYTES }
+      : { state: t.code, path: project.folder_path, subfolders: [], maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    return true
+  }
+
+  if (sub === '/upload' && method === 'POST') {
+    // A tul nagy fajlt meg olvasas elott visszautasitjuk -- igy a bongeszo
+    // valaszt kap, nem egy megszakadt kapcsolatot.
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'too_large', lang)
+      throw e
+    }
+    const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
+    if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
+    logger.info({ id, rel: out.rel, bytes: out.bytes }, '[projects] fajl feltoltve a projektmappaba')
+    json(res, out)
+    return true
+  }
+
+  if (sub === '/note' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const out = writeProjectNote(project, body.sub, body.name, body.text, body.ext)
+    if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
+    json(res, out)
+    return true
+  }
+
   return false
+}
+
+/** DELETE /api/projects/:id/links/:type/:objectId -- a kotes bontasa. Az objektum
+ *  (pl. az otlet) megmarad, csak a projekthez tartozasa szunik meg. */
+function tryUnlink(ctx: RouteContext, lang: 'hu' | 'en'): boolean {
+  const { res, path, method } = ctx
+  const m = path.match(/^\/api\/projects\/([^/]+)\/links\/([a-z_]+)\/([^/]+)$/)
+  if (!m || method !== 'DELETE') return false
+  const id = decodeURIComponent(m[1])
+  const type = m[2]
+  const objectId = decodeURIComponent(m[3])
+  if (!isLinkType(type)) return fail(res, 400, 'bad_link', lang)
+  if (projectForObject(type, objectId) !== id) return fail(res, 404, 'not_linked', lang)
+  unlinkObject(type, objectId)
+  json(res, { ok: true })
+  return true
 }
 
 /** A mezok ellenorzese mappa-letrehozas ELOTT (nev kotelezo, allapot, cimke),

@@ -564,3 +564,37 @@ export function listProjectIdeas(projectId: string): ProjectIdea[] {
   ).all(...ids) as Omit<ProjectIdea, 'via'>[]
   return rows.map((r) => ({ ...r, via: linked.has(r.id) ? 'link' : 'card' }))
 }
+
+/** Az ertek (projekt-id / rovid nev / pontos nev) projektjenek alapertelmezett
+ *  cimkeje -- a projektbol letrehozott uj kartya ezt kapja, ha a keres nem
+ *  nevezett meg cimket (spec 5.). Torolt cimke nem jon vissza: az a kartya
+ *  letrehozasat akasztana meg. */
+export function projectDefaultLabel(value: unknown): string | undefined {
+  if (value === undefined || value === null || !String(value).trim()) return undefined
+  const ref = resolveProjectRef(value)
+  if (!ref) return undefined
+  const row = getDb().prepare('SELECT default_label_id FROM projects WHERE id = ?').get(ref) as { default_label_id: string | null } | undefined
+  const lid = row?.default_label_id
+  if (!lid) return undefined
+  if (hasTable('labels') && !getDb().prepare('SELECT 1 FROM labels WHERE id = ?').get(lid)) return undefined
+  return lid
+}
+
+export interface IdeaCandidate { id: string; title: string; status: string; category: string; updated_at: number }
+
+/** A MEG SEHOVA nem tartozo otletek (se kifejezett kotes, se projektbe sorolt
+ *  kartya) -- ezek kothetok a projekthez. Az elvetettek nem. */
+export function projectIdeaCandidates(limit = 200): IdeaCandidate[] {
+  ensureProjectTables()
+  if (!hasTable('idea_box')) return []
+  const viaCard = hasTable('kanban_cards')
+    ? `AND NOT EXISTS (SELECT 1 FROM kanban_cards k JOIN projects p ON p.id = k.project WHERE k.id = i.kanban_id)`
+    : ''
+  return getDb().prepare(
+    `SELECT i.id, i.title, i.status, i.category, i.updated_at FROM idea_box i
+      WHERE i.status != 'rejected'
+        AND NOT EXISTS (SELECT 1 FROM project_links l WHERE l.object_type = 'idea' AND l.object_id = i.id)
+        ${viaCard}
+      ORDER BY i.updated_at DESC LIMIT ?`,
+  ).all(limit) as IdeaCandidate[]
+}

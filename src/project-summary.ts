@@ -84,18 +84,33 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
 
 export type SummaryOutcome =
   | { ok: true; project: ProjectRow; engine: 'claude' | 'ollama'; model: string }
-  | { ok: false; code: 'not_found' | 'no_ai' | 'no_answer' }
+  | { ok: false; code: 'not_found' | 'no_ai' | 'no_answer' | 'busy' }
+
+/** Egy projektre egyszerre egy keszites fut: egy dupla kattintas ne inditson
+ *  ket (percekig tarto, keretet fogyaszto) AI-hivast. */
+const running = new Set<string>()
+
+export function isSummaryRunning(id: string): boolean {
+  return running.has(id)
+}
 
 export async function summarizeProject(id: string, lang: 'hu' | 'en'): Promise<SummaryOutcome> {
   const p = getProject(id)
   if (!p || p.id !== id) return { ok: false, code: 'not_found' }
+  if (running.has(id)) return { ok: false, code: 'busy' }
   const ov = buildProjectOverview(id)
   if (!ov) return { ok: false, code: 'not_found' }
-  const ask = await askAiJson(SYSTEM, summaryFacts(p, ov, lang), (j) => {
-    const s = j && typeof j.summary === 'string' ? j.summary.replace(/\s+/g, ' ').trim() : ''
-    return s ? s.slice(0, MAX_SUMMARY_CHARS) : null
-  })
-  if (ask.engine === 'none' || !ask.value) return { ok: false, code: ask.reason === 'no_ai' ? 'no_ai' : 'no_answer' }
-  setProjectSummary(id, ask.value, `${ask.engine}:${ask.model}`)
-  return { ok: true, project: getProject(id)!, engine: ask.engine, model: ask.model }
+  running.add(id)
+  try {
+    const ask = await askAiJson(SYSTEM, summaryFacts(p, ov, lang), (j) => {
+      const s = j && typeof j.summary === 'string' ? j.summary.replace(/\s+/g, ' ').trim() : ''
+      return s ? s.slice(0, MAX_SUMMARY_CHARS) : null
+    })
+    if (ask.engine === 'none' || !ask.value) return { ok: false, code: ask.reason === 'no_ai' ? 'no_ai' : 'no_answer' }
+    // A projektet kozben torolhettek: akkor nincs hova menteni.
+    if (!setProjectSummary(id, ask.value, `${ask.engine}:${ask.model}`)) return { ok: false, code: 'not_found' }
+    return { ok: true, project: getProject(id)!, engine: ask.engine, model: ask.model }
+  } finally {
+    running.delete(id)
+  }
 }

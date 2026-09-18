@@ -27,7 +27,7 @@ import { getEffectiveSettingValue } from '../../settings-store.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
-import { resolveProjectRef, listActiveProjectIds } from '../../projects.js'
+import { resolveProjectRef, listActiveProjectIds, projectDefaultLabel } from '../../projects.js'
 
 // A headless agent cannot "drag" a card to done, so the dispatch hands it the
 // exact curl commands to (1) post a short, human-readable result summary as a
@@ -256,7 +256,12 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     // A card is never written without a label -- see src/web/kanban-labels.ts
     // for why that rule lives at the creation point rather than in the caller's
     // instructions.
-    const labels = resolveCardLabels(data.labels ?? data.labelId, { parentId: data.parent_id })
+    // Cimke nelkul kert kartya egy projektben: a projekt alapertelmezett
+    // cimkeje (Iroda -> Projektek, src/projects.ts). Alfeladatnal a szulo nyer.
+    const labelInput = data.labels ?? data.labelId
+    const projectLabel = !data.parent_id && !(Array.isArray(labelInput) ? labelInput.length : labelInput)
+      ? projectDefaultLabel(data.project) : undefined
+    const labels = resolveCardLabels(projectLabel ?? labelInput, { parentId: data.parent_id })
     if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
 
     // The same enforcement the label rule needed, for the same reason. A card
