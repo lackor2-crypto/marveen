@@ -11904,6 +11904,11 @@ details.upstream-box > summary > h4 {
 .browser-shot:not([hidden]):hover { border-color: var(--accent, #2563eb); }
 /* Kartya ab6640a3: gepelheto mezore kattintas utan a gepelo-mezo kiemelese. */
 .browser-type-active { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
+/* Kartya 84ed1dcf: elo gepeles a kepre. A capture-mezo rejtett, de fokuszalhato
+ * (nem display:none, kulonben nem kapna fokuszt / nem hozna fel a mobil billentyuzetet). */
+.browser-key-capture { position: absolute; opacity: 0; height: 1px; width: 1px; padding: 0; border: 0; margin: -1px 0 0; }
+.browser-typemode { margin: 8px 0; padding: 8px 10px; border-radius: 6px; background: var(--accent, #2563eb); color: #fff; font-size: 13px; font-weight: 600; }
+.browser-shot-live { outline: 3px solid var(--accent, #2563eb); outline-offset: 2px; }
 .browser-advanced { margin: 4px 0 8px; }
 .browser-advanced > summary { cursor: pointer; font-size: 13px; opacity: .85; margin-bottom: 8px; }
 @media (max-width: 640px) {

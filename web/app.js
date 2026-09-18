@@ -39294,25 +39294,52 @@ document.addEventListener('click', async (ev) => {
     }
     showBrowserResult(data, res.status >= 400 || data.ok === false)
     if (action === 'save_session' || action === 'open') loadBrowserPage()
-    // Kartya ab6640a3: ha a felhasznalo a kepen egy GEPELHETO mezore kattintott,
-    // a kurzort magatol a gepelo-mezobe visszuk, es kiirjuk mit tegyen -- igy a
-    // "kattints, majd irj" folyamat nem szorul magyarazatra.
-    if (action === 'click_xy' && data.typable) {
-      const box = document.getElementById('browserTypeInput')
-      if (box) {
-        box.focus()
-        box.classList.add('browser-type-active')
-        const out = document.getElementById('browserResult')
-        if (out) {
-          const hint = document.createElement('div')
-          hint.className = 'browser-line browser-ok'
-          hint.textContent = t('browser.type_hint')
-          out.prepend(hint)
-        }
+    // Kartya 84ed1dcf: ha a felhasznalo a kepen egy GEPELHETO mezore kattintott,
+    // ELO GEPELES modot inditunk -- onnantol a billentyuit kozvetlenul a tavoli
+    // bongeszonek tovabbitjuk, mint egy rendes bongeszoben. Gombra kattintasnal
+    // (nem gepelheto) kilepunk a modbol.
+    if (action === 'click_xy') setBrowserTypeMode(!!data.typable)
+  }
+
+  // === Kartya 84ed1dcf: elo gepeles a kepre ===
+  // A leuteseket bufferelve, ~300ms debounce-szal kuldjuk 'type'-kent (kevesebb
+  // korfordulo), a specialis billentyuket (Enter/Tab/Backspace) kulon 'key'-kent.
+  // A kuldes SOROS (send-chain), hogy a sorrend ne csuszhasson ossze.
+  let _browserTypeMode = false
+  let _browserKeyBuffer = ''
+  let _browserFlushTimer = null
+  let _browserSendChain = Promise.resolve()
+
+  function browserQueueSend(action, extra) {
+    _browserSendChain = _browserSendChain.then(async () => {
+      const res = await browserApi(action, Object.assign({ url: '', selector: '', value: '', name: '' }, extra))
+      const data = res.data || {}
+      if (data.screenshot) {
+        const img = document.getElementById('browserShot')
+        if (img) { img.src = 'data:image/png;base64,' + data.screenshot; img.hidden = false }
       }
-    } else if (action === 'type') {
-      document.getElementById('browserTypeInput')?.classList.remove('browser-type-active')
-    }
+      if (res.status >= 400 || data.ok === false) showBrowserResult(data, true)
+    }).catch(() => {})
+    return _browserSendChain
+  }
+
+  function browserFlushKeyBuffer() {
+    if (_browserFlushTimer) { clearTimeout(_browserFlushTimer); _browserFlushTimer = null }
+    if (_browserKeyBuffer) { const v = _browserKeyBuffer; _browserKeyBuffer = ''; browserQueueSend('type', { value: v }) }
+  }
+  function browserScheduleFlush() {
+    if (_browserFlushTimer) clearTimeout(_browserFlushTimer)
+    _browserFlushTimer = setTimeout(browserFlushKeyBuffer, 300)
+  }
+
+  function setBrowserTypeMode(on) {
+    _browserTypeMode = on
+    const banner = document.getElementById('browserTypeMode')
+    if (banner) banner.hidden = !on
+    document.getElementById('browserShot')?.classList.toggle('browser-shot-live', on)
+    const cap = document.getElementById('browserKeyCapture')
+    if (on) { if (cap) { cap.value = ''; cap.focus() } }
+    else { browserFlushKeyBuffer(); if (cap) cap.value = '' }
   }
 
   function wireBrowserPage() {
@@ -39323,12 +39350,14 @@ document.addEventListener('click', async (ev) => {
       loadBrowserPage()
     })
     document.getElementById('browserGoBtn')?.addEventListener('click', async () => {
+      setBrowserTypeMode(false)
       const session = document.getElementById('browserSessionSelect')?.value || null
       const opened = await browserApi('open', { session })
       if (opened.status >= 400) { showBrowserResult(opened.data || {}, true); return }
       runBrowserUiAction('navigate')
     })
     document.getElementById('browserStopBtn')?.addEventListener('click', async () => {
+      setBrowserTypeMode(false)
       await browserApi('stop', {})
       loadBrowserPage()
     })
@@ -39359,6 +39388,28 @@ document.addEventListener('click', async (ev) => {
     document.getElementById('browserEnterBtn')?.addEventListener('click', () => runBrowserUiAction('key', { value: 'Enter' }))
     document.getElementById('browserScrollUpBtn')?.addEventListener('click', () => runBrowserUiAction('scroll', { dy: -500 }))
     document.getElementById('browserScrollDownBtn')?.addEventListener('click', () => runBrowserUiAction('scroll', { dy: 500 }))
+
+    // Kartya 84ed1dcf: elo gepeles. A rejtett capture-mezo fogja a leuteseket
+    // (asztali keydown ES mobil soft-keyboard 'input'), a JS tovabbitja a tavoli
+    // bongeszonek. A nyomtathato karakterek az 'input' eventen at bufferelodnek;
+    // a specialis billentyuk keydown-on kulon 'key'-kent mennek.
+    const cap = document.getElementById('browserKeyCapture')
+    if (cap) {
+      cap.addEventListener('input', () => { _browserKeyBuffer += cap.value; cap.value = ''; browserScheduleFlush() })
+      cap.addEventListener('keydown', (e) => {
+        if (e.ctrlKey || e.metaKey || e.altKey) return // hagyjuk a bongeszo-parancsokat
+        if (e.key === 'Escape') { e.preventDefault(); setBrowserTypeMode(false); return }
+        if (e.key === 'Enter') { e.preventDefault(); browserFlushKeyBuffer(); browserQueueSend('key', { value: 'Enter' }); return }
+        if (e.key === 'Tab') { e.preventDefault(); browserFlushKeyBuffer(); browserQueueSend('key', { value: 'Tab' }); return }
+        if (e.key === 'Backspace') {
+          e.preventDefault()
+          if (_browserKeyBuffer.length > 0) { _browserKeyBuffer = _browserKeyBuffer.slice(0, -1); browserScheduleFlush() }
+          else browserQueueSend('key', { value: 'Backspace' })
+        }
+        // nyomtathato karakter: hagyjuk az 'input' eventre (mobilon is mukodik)
+      })
+      cap.addEventListener('blur', () => setBrowserTypeMode(false))
+    }
   }
 
   async function loadBrowserPage() {

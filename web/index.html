@@ -1543,7 +1543,7 @@
           <button class="btn-primary btn-compact" id="browserGoBtn" data-i18n="browser.btn.go">Megnyitás</button>
           <button class="btn-secondary btn-compact" id="browserStopBtn" data-i18n="browser.btn.stop">Leállítás</button>
         </div>
-        <p class="browser-help" data-i18n="browser.click_help">Kattints a lenti képre oda, ahová a valódi böngészőben kattintanál. Egy mezőbe kattintás után írd be lent a szöveget, és nyomd meg a Beírás vagy az Enter gombot.</p>
+        <p class="browser-help" data-i18n="browser.click_help">Kattints a lenti képre oda, ahová a valódi böngészőben kattintanál. Ha egy beviteli mezőre kattintasz, onnantól egyszerűen GÉPELJ a billentyűzeteden, és a szöveg a képen jelenik meg, mint egy rendes böngészőben. (Telefonon vagy tartaléknak ott a lenti Beírás mező is.)</p>
         <div class="browser-row">
           <input type="text" id="browserTypeInput" class="input browser-grow" placeholder="Amit be akarsz írni" data-i18n-placeholder="browser.type_ph">
           <button class="btn-primary btn-compact" id="browserTypeBtn" data-i18n="browser.btn.type">Beírás</button>
@@ -1571,6 +1571,11 @@
           </div>
         </details>
         <div id="browserResult" class="browser-result"></div>
+        <!-- Kartya 84ed1dcf: elo gepeles a kepre. Ez a rejtett, fokuszalhato mezo
+             hozza fel a mobil billentyuzetet es fogja a leuteseket; a JS tovabbitja
+             a tavoli bongeszonek. -->
+        <input id="browserKeyCapture" class="browser-key-capture" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-hidden="true" tabindex="-1">
+        <div id="browserTypeMode" class="browser-typemode" hidden data-i18n="browser.type_mode_banner">Élő gépelés bekapcsolva: csak írj, és a képen megjelenik. Enter a küldéshez, Esc a kilépéshez.</div>
         <img id="browserShot" class="browser-shot" alt="" hidden data-i18n-alt="browser.shot_alt">
       </div>
     </div>

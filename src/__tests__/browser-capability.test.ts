@@ -146,8 +146,20 @@ describe('bekotes', () => {
     expect(svc).toContain('typable: info.typable')
     expect(svc).toContain('isContentEditable')
     expect(app).toContain('data.typable')
-    expect(app).toContain("getElementById('browserTypeInput')")
-    expect(app).toContain("t('browser.type_hint')")
+    // a typable jelzes vezerli az elo-gepeles modot (84ed1dcf)
+    expect(app).toContain("if (action === 'click_xy') setBrowserTypeMode(!!data.typable)")
+  })
+  it('elo gepeles a kepre: capture-mezo + send-chain (84ed1dcf)', () => {
+    const app = readFileSync(join(root, 'web/app.js'), 'utf8')
+    const html = readFileSync(join(root, 'web/index.html'), 'utf8')
+    expect(html).toContain('id="browserKeyCapture"')
+    expect(html).toContain('id="browserTypeMode"')
+    expect(app).toContain('setBrowserTypeMode')
+    expect(app).toContain('_browserSendChain')            // soros kuldes (sorrend)
+    expect(app).toContain('browserScheduleFlush')          // debounce buffer
+    // a specialis billentyuk kulon key-kent, a kattintas typable-re inditt modot
+    expect(app).toContain("browserQueueSend('key', { value: 'Enter' })")
+    expect(app).toContain("if (action === 'click_xy') setBrowserTypeMode(!!data.typable)")
   })
   it('a frontend a kepre-kattintast es a gepelest bekoti (a5e542ac)', () => {
     const app = readFileSync(join(root, 'web/app.js'), 'utf8')
