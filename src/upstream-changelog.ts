@@ -47,7 +47,29 @@ export interface UpstreamCommit {
   touchesConflict: boolean
   /** rövid magyar leírás; null, amíg nem készült el hozzá. */
   hu: string | null
+  /** Az elv-kapu döntése erről a commitról (src/upstream-principle-gate.ts).
+   *  Hiányzik: merge commit (a kapu a merge-eket nem nézi), vagy a listát a kapu
+   *  előtti írás készítette -- ez NEM ugyanaz, mint az 'allow'. */
+  gate?: CommitGate
 }
+
+/** Per-commit verdict of the principle gate, as shown on the dashboard. */
+export interface CommitGate {
+  verdict: 'exclude' | 'discuss' | 'allow'
+  principleId?: string
+  /** Principle title, both languages (the UI picks one). */
+  title?: { hu: string; en: string }
+  /** Why, both languages. */
+  reason?: { hu: string; en: string }
+  evidence?: string
+}
+
+/** Outcome of the principle gate run for the whole list. ok:false = it could
+ *  NOT review (bad denylist, git error); then no commit carries a verdict, and
+ *  the UI must say so instead of showing every commit as clean. */
+export type PrincipleGateRun =
+  | { ok: true; exclude: number; discuss: number; allow: number }
+  | { ok: false; error: string }
 
 /** Egy eltérő fájl, és ami vele történt.
  *
@@ -74,6 +96,7 @@ export interface UpstreamChangelog {
   base: string
   commits: UpstreamCommit[]
   files?: UpstreamFile[]
+  principleGate?: PrincipleGateRun
 }
 
 /** A fájl-nézet felépítése.

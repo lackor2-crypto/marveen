@@ -16,7 +16,7 @@ import { PROJECT_ROOT } from '../config.js'
 import { ageInDays } from './upstream-sync-status-io.js'
 import {
   groupCommits, fileCounts,
-  type UpstreamCommit, type ChangeKind, type UpstreamFile,
+  type UpstreamCommit, type ChangeKind, type UpstreamFile, type PrincipleGateRun,
 } from '../upstream-changelog.js'
 
 const CHANGES_PATH = join(PROJECT_ROOT, 'store', 'upstream-changes.json')
@@ -35,6 +35,9 @@ export interface UpstreamChangesView {
    *  Üres tömb, ha a listát még a fájl-nézet előtti írás készítette. */
   files: UpstreamFile[]
   fileCounts: { total: number; conflict: number; clean: number }
+  /** The principle gate's run over this list. null = the list was written
+   *  before the gate existed (no verdicts yet) -- NOT "the gate found nothing". */
+  principleGate: PrincipleGateRun | null
 }
 
 export function readUpstreamChanges(now: number = Date.now()): UpstreamChangesView | null {
@@ -68,8 +71,19 @@ export function readUpstreamChanges(now: number = Date.now()): UpstreamChangesVi
       },
       files,
       fileCounts: fileCounts(files),
+      principleGate: readGateRun(raw.principleGate),
     }
   } catch {
     return null
   }
+}
+
+function readGateRun(v: unknown): PrincipleGateRun | null {
+  if (!v || typeof v !== 'object') return null
+  const o = v as Record<string, unknown>
+  if (o.ok === false) return { ok: false, error: typeof o.error === 'string' ? o.error : '?' }
+  if (o.ok === true && [o.exclude, o.discuss, o.allow].every(n => typeof n === 'number')) {
+    return { ok: true, exclude: o.exclude as number, discuss: o.discuss as number, allow: o.allow as number }
+  }
+  return null
 }

@@ -11146,6 +11146,12 @@ body {
   border-radius: 10px; font-size: 11px; font-weight: 600;
   background: var(--danger-soft); color: var(--danger);
 }
+.upstream-gate-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  border-radius: 10px; font-size: 11px; font-weight: 600; cursor: help;
+}
+.upstream-gate-exclude { background: var(--danger-soft); color: var(--danger); }
+.upstream-gate-discuss { background: var(--warning-soft); color: var(--warning); }
 .upstream-changes-empty { color: var(--text-muted); font-size: 14px; }
 
 /* "Frissult a felulet" csik. Felul, az egesz szelessegben: egy nyitva hagyott
