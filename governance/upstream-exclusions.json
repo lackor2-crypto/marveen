@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "_comment": "Baked, git-tracked denylist of upstream changes explicitly excluded from install because they violate a fork principle. Keyed on a STABLE signature (principle + normalized path pattern OR content signature) -- NEVER a raw upstream commit hash, which drifts across forks/rebases. Each entry: which principle it violates, why, when, who decided. This travels with the repo so a fresh install cannot install an excluded item. Empty entries = nothing excluded yet (valid on a fresh install); it does NOT mean the gate did not run.",
+  "entries": []
+}
