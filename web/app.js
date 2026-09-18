@@ -21324,6 +21324,9 @@ function _pollUpstreamMeasure(startedAt) {
     if (data.running) return
     _stopUpstreamMeasurePoll()
     _upstreamMeasureButtonBusy(false)
+    // A meres a tetelesen listat (es rajta a kapu donteset) is ujrairja: a
+    // kovetkezo megnyitas a frisset toltse be, ne a memoriaban maradt regit.
+    upstreamChangesCache = null
     if (data.status) {
       renderOverviewUpstreamSync(data.status)
       // A "kesz" nem azonos a "sikerult"-tel: ha a meres hibaval allt meg, azt

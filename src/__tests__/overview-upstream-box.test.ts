@@ -208,3 +208,19 @@ describe('upstream elv-kapu gomb es nezet', () => {
     }
   })
 })
+
+// Az "Ujrameres" a tetelesen listat is frissiti -- kulonben a kapu-nezet a
+// feluletrol soha nem kap friss dontest (friss telepitesen egyaltalan nem).
+describe('ujrameres frissiti a tetelesen listat', () => {
+  const sh = readFileSync(join(__dirname, '..', '..', 'scripts', 'upstream-divergence-check.sh'), 'utf8')
+
+  it('a mero szkript a meres utan ujrairja a listat, fordito API-hivas nelkul', () => {
+    expect(sh).toMatch(/upstream-changelog\.ts" --no-llm/)
+    // a lista hibaja kimondott, nem nema
+    expect(sh).toContain('a tetelesen lista NEM frissult')
+  })
+
+  it('a felulet a meres vegen eldobja a memoriaban tartott regi listat', () => {
+    expect(app).toMatch(/_upstreamMeasureButtonBusy\(false\)\n\s*\/\/[^\n]*\n[^\n]*\n\s*upstreamChangesCache = null/)
+  })
+})
