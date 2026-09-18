@@ -39316,6 +39316,29 @@ document.addEventListener('click', async (ev) => {
     document.querySelectorAll('[data-browser-action]').forEach(btn => btn.addEventListener('click', () => {
       runBrowserUiAction(btn.getAttribute('data-browser-action'))
     }))
+    // Kartya a5e542ac: a kepernyokepre kattintas -> valos viewport-koordinata
+    // (page.mouse.click a szerveren). A kep aranytartoan jelenik meg, ezert
+    // egyszeru aranyszamitas, a szeleket 0..1-re vagva -- ez a
+    // mapImageClickToViewport (src/browser-logic.ts) frontend-tukre.
+    document.getElementById('browserShot')?.addEventListener('click', (e) => {
+      const img = e.currentTarget
+      if (img.hidden || !img.naturalWidth || !img.naturalHeight) return
+      const rect = img.getBoundingClientRect()
+      if (!(rect.width > 0) || !(rect.height > 0)) return
+      const clamp = v => (v < 0 ? 0 : v > 1 ? 1 : v)
+      const x = Math.round(clamp((e.clientX - rect.left) / rect.width) * img.naturalWidth)
+      const y = Math.round(clamp((e.clientY - rect.top) / rect.height) * img.naturalHeight)
+      runBrowserUiAction('click_xy', { x, y })
+    })
+    document.getElementById('browserTypeBtn')?.addEventListener('click', () => {
+      runBrowserUiAction('type', { value: document.getElementById('browserTypeInput')?.value || '' })
+    })
+    document.getElementById('browserTypeInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); runBrowserUiAction('type', { value: e.target.value || '' }) }
+    })
+    document.getElementById('browserEnterBtn')?.addEventListener('click', () => runBrowserUiAction('key', { value: 'Enter' }))
+    document.getElementById('browserScrollUpBtn')?.addEventListener('click', () => runBrowserUiAction('scroll', { dy: -500 }))
+    document.getElementById('browserScrollDownBtn')?.addEventListener('click', () => runBrowserUiAction('scroll', { dy: 500 }))
   }
 
   async function loadBrowserPage() {

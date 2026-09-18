@@ -26,6 +26,10 @@ curl -s "${H[@]}" $B/status
 | `/api/browser/open` | `{"session":"bank"}` vagy `{"session":null}` | böngésző mentett bejelentkezéssel / anélkül |
 | `/api/browser/navigate` | `{"url":"https://..."}` | `title`, `url`, `screenshot` (base64 PNG), `sessionExpired` |
 | `/api/browser/click` | `{"selector":"text=Tovább"}` | képernyőkép; kockázatos gombnál `needsConfirm:true` |
+| `/api/browser/click_xy` | `{"x":420,"y":260}` | kattintás viewport-koordinátára (a képernyőkép pixelei); kockázatos elemnél `needsConfirm:true` |
+| `/api/browser/type` | `{"value":"szoveg"}` | a fókuszált mezőbe gépel (előtte kattints a mezőre) |
+| `/api/browser/key` | `{"value":"Enter"}` | egy billentyű (Enter, Tab, Backspace, ...) |
+| `/api/browser/scroll` | `{"dy":500}` | görgetés függőlegesen (+ le, - fel) |
 | `/api/browser/fill` | `{"selector":"#email","value":"..."}` | képernyőkép |
 | `/api/browser/wait` | `{"selector":"#lista"}` vagy `{"ms":2000}` | -- |
 | `/api/browser/text` | `{"selector":"main"}` (üres = egész oldal) | `text` |

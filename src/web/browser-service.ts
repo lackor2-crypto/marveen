@@ -152,6 +152,11 @@ export interface ActionInput {
   ms?: number
   confirm?: boolean
   name?: string
+  /** Kartya a5e542ac: kepre-kattintas viewport-koordinatai. */
+  x?: number
+  y?: number
+  /** Gorgetes fuggoleges delta (px, + = le, - = fel). */
+  dy?: number
 }
 
 export interface ActionResult {
@@ -170,7 +175,7 @@ export interface ActionResult {
   session?: string | null
 }
 
-export const BROWSER_ACTIONS = ['open', 'navigate', 'click', 'fill', 'wait', 'text', 'screenshot', 'pdf', 'submit', 'save_session'] as const
+export const BROWSER_ACTIONS = ['open', 'navigate', 'click', 'click_xy', 'type', 'key', 'scroll', 'fill', 'wait', 'text', 'screenshot', 'pdf', 'submit', 'save_session'] as const
 
 async function shot(page: Page): Promise<string> {
   return (await page.screenshot({ type: 'png' })).toString('base64')
@@ -223,6 +228,52 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
         await loc.click()
         await page.waitForLoadState('domcontentloaded').catch(() => {})
         out = { ...base(), url: page.url(), screenshot: await shot(page) }
+        break
+      }
+      case 'click_xy': {
+        // Kartya a5e542ac: a felhasznalo a kepernyokepre kattint (nem CSS-
+        // kivalasztoval). A viewport-koordinatakon allo elemet megnezzuk, hogy a
+        // visszafordithatatlan-kattintas orzo (needsConfirm) ugyanugy vedjen,
+        // mint a selector-alapu 'click'-nel.
+        const x = Number(input.x), y = Number(input.y)
+        if (!Number.isFinite(x) || !Number.isFinite(y)) throw new BrowserError('x/y required')
+        const info = await page.evaluate(({ px, py }: { px: number; py: number }) => {
+          const at = document.elementFromPoint(px, py) as any
+          if (!at) return { text: '', type: null, tag: null }
+          const el = (at.closest && at.closest('button, a, input, [role=button], [type=submit]')) || at
+          return {
+            text: (el.innerText || el.value || (el.getAttribute && el.getAttribute('aria-label')) || '').slice(0, 200),
+            type: el.getAttribute ? el.getAttribute('type') : null,
+            tag: el.tagName || null,
+          }
+        }, { px: x, py: y })
+        if (isIrreversibleClick(info) && input.confirm !== true) {
+          return { ...base(), ok: false, needsConfirm: true, elementText: info.text, screenshot: await shot(page) }
+        }
+        await page.mouse.click(x, y)
+        await page.waitForLoadState('domcontentloaded').catch(() => {})
+        out = { ...base(), url: page.url(), screenshot: await shot(page) }
+        break
+      }
+      case 'type':
+        // A mar fokuszalt mezobe gepel (elotte a felhasznalo a mezore kattintott).
+        await page.keyboard.type(String(input.value ?? ''))
+        out = { ...base(), screenshot: await shot(page) }
+        break
+      case 'key': {
+        const key = String(input.value ?? '').trim()
+        if (!key) throw new BrowserError('key name required')
+        await page.keyboard.press(key)
+        await page.waitForLoadState('domcontentloaded').catch(() => {})
+        out = { ...base(), url: page.url(), screenshot: await shot(page) }
+        break
+      }
+      case 'scroll': {
+        const dy = Number(input.dy)
+        if (!Number.isFinite(dy)) throw new BrowserError('dy required')
+        await page.mouse.wheel(0, dy)
+        await page.waitForTimeout(150)
+        out = { ...base(), screenshot: await shot(page) }
         break
       }
       case 'fill':

@@ -11897,7 +11897,13 @@ details.upstream-box > summary > h4 {
 .browser-sessions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .browser-session-chip { border: 1px solid var(--border, #ccc); border-radius: 12px; padding: 2px 8px; font-size: 12px; }
 .browser-text { max-height: 300px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
-.browser-shot { max-width: 100%; border: 1px solid var(--border, #ccc); border-radius: 6px; margin-top: 8px; }
+/* Kartya a5e542ac: a kepernyokep kattinthato (koordinata-kattintas a headless
+ * bongeszobe). A height:auto tartja az aranyt, amitol a koordinata-atszamitas
+ * pontos marad. */
+.browser-shot { max-width: 100%; height: auto; border: 1px solid var(--border, #ccc); border-radius: 6px; margin-top: 8px; cursor: crosshair; }
+.browser-shot:not([hidden]):hover { border-color: var(--accent, #2563eb); }
+.browser-advanced { margin: 4px 0 8px; }
+.browser-advanced > summary { cursor: pointer; font-size: 13px; opacity: .85; margin-bottom: 8px; }
 @media (max-width: 640px) {
   .browser-row > * { flex: 1 1 100%; }
 }
