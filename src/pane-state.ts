@@ -625,6 +625,35 @@ export function detectsBlockingMenu(pane: string): boolean {
 const LOGIN_PASTE_PROMPT_RX = /Paste code here|Paste the code|Enter the code/i
 const LOGIN_AUTH_URL_RX = /https:\/\/\S*(?:oauth|\/authorize|client_id=)/i
 
+// ESZKOZ-ENGEDELY ABLAK -- a figyelo lezarhatja, de NEM nemakent.
+//
+// Boss, 2026-09-18 (kartya 184881de): "az utolso lepesemet leallitottad ...
+// oldjatok meg. globalisan!" MERVE: egy ugynok Bash-hivasa (rm a sajat
+// scratch-konyvtaraban) engedely-ablakot nyitott ("Do you want to proceed?").
+// A tulajdonos Telegramon van, a panelt nem latja, igy 2 percig senki nem
+// valaszolt. A csatorna-figyelo ezt beragadt menunek nezte es Escape-et
+// kuldott -- ami ezen az ablakon "Nem". A Claude Code erre azt irja az
+// ugynoknek: "The user doesn't want to proceed ... STOP and wait for the
+// user", es az ugynok a tulajdonosra var, aki a kerdest sosem latta.
+//
+// Az Escape itt is a helyes billentyu (egy vak "Igen" tetszoleges parancsot
+// engedelyezne), de UTANA meg kell mondani az ugynoknek, hogy a "nem" gepi
+// volt, nem a tulajdonose. Ehhez kell kulon felismerni.
+const PERMISSION_NO_OPTION_RX = /No, and tell Claude what to do differently/i
+const PERMISSION_QUESTION_RX = /Do you want to (?:proceed|make this edit|create|allow|run|overwrite|delete)\b/i
+const PERMISSION_YES_OPTION_RX = /\b1\.\s*Yes\b/
+// Az ablak alja: a parancs-elonezet folott lehet hosszu, a kerdes es az
+// opciok viszont mindig a panel aljan allnak.
+const PERMISSION_REGION_LINES = 20
+
+/** True, ha a panel alja a Claude Code eszkoz-engedely ablaka. */
+export function detectsPermissionPrompt(pane: string): boolean {
+  if (!pane || !pane.trim()) return false
+  const region = pane.split('\n').slice(-PERMISSION_REGION_LINES).join('\n')
+  if (PERMISSION_NO_OPTION_RX.test(region)) return true
+  return PERMISSION_QUESTION_RX.test(region) && PERMISSION_YES_OPTION_RX.test(region)
+}
+
 /**
  * True, ha a panelen EPP FUT egy bejelentkezes, es a felhasznalo beillesztesere
  * var. Ilyenkor tilos billentyut kuldeni ra: az megszakitana.

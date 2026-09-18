@@ -32,7 +32,7 @@ import { reapChannelOrphans, reapDetachedChannelClaudes, collectPollerEvidence }
 import { probeTelegramConflict } from './channel-conflict-probe.js'
 import { schedulePluginUnlockAfterRespawn, wasPluginConfirmedAbsent, clearPluginAbsent } from './channel-plugin-unlock.js'
 import {
-  detectPaneState, decidePaneErrorAlert, detectsBlockingMenu, detectsFirstRunGate, detectsModelConsentDialog, detectsLoginInProgress, type PaneErrorAlertState, type PaneState,
+  detectPaneState, decidePaneErrorAlert, detectsBlockingMenu, detectsFirstRunGate, detectsModelConsentDialog, detectsLoginInProgress, detectsPermissionPrompt, type PaneErrorAlertState, type PaneState,
   stuckInputSignature, decideStuckInputRecovery, parkedChannelInput,
   parkedInputText, shouldClearTruncatedPreamble,
   parkedInputRowCount, submitLanded, decideStuckInputAction,
@@ -460,6 +460,15 @@ const PANE_ERROR_CLEAR_MS = 5 * 60 * 1000
 // retries if the Escape did not take; clearMs survives brief capture blips.
 const paneMenuState: Map<string, PaneErrorAlertState> = new Map()
 const MENU_RECOVER_CONFIRM_MS = 45_000
+
+// Ezt kapja az ugynok, miutan a figyelo lezarta az engedely-ablakat. A Claude
+// Code sajat szovege ("The user doesn't want to proceed ... STOP and wait for
+// the user") a tulajdonosnak tulajdonitja a "nem"-et; ez a sor helyesbit.
+export const PERMISSION_CANCELLED_NOTE =
+  '[csatorna-figyelő] Az előző eszköz-hívásod engedély-ablakot nyitott a panelen, és percekig senki nem válaszolt rá: '
+  + 'a tulajdonos Telegramon van, a panelt nem látja. Az ablakot a csatorna-figyelő zárta Escape-pel -- '
+  + 'az "elutasítás" NEM a tulajdonos döntése, ne várj rá. Folytasd a munkát: csináld meg engedélyt nem igénylő módon '
+  + '(pl. bontsd szét a parancsot), vagy ha tényleg döntés kell, kérdezd meg a tulajdonost Telegramon.'
 const MENU_RECOVER_DEDUP_MS = 5 * 60 * 1000
 const MENU_RECOVER_CLEAR_MS = 2 * 60 * 1000
 
@@ -1593,6 +1602,18 @@ export function startChannelPluginMonitor(): NodeJS.Timeout | null {
             logger.warn({ session: t.session, agent: label }, 'Blocking "menu" is the model usage-credit consent dialog -- answering it safely instead of Escape')
             await dismissModelConsentDialogIfPresent(t.session)
             sendAlert(`🎛️ A(z) ${label} session a modell-hozzájárulás dialóguson parkolt; az 1-es opcióval (a beállított modell megtartása) továbbléptettem. Modellváltás NEM történt.`)
+          } else if (detectsPermissionPrompt(paneNow)) {
+            // Engedely-ablak (kartya 184881de): lezarjuk, de az ugynok MEGTUDJA,
+            // hogy a "nem" gepi volt -- kulonben a tulajdonosra var, aki a
+            // kerdest sosem latta (a Telegramon van, nem a panelen).
+            logger.warn({ session: t.session, agent: label }, 'Session parked on a tool-permission prompt nobody can answer -- Escape + telling the agent it was not the owner')
+            try {
+              execFileSync(TMUX(), ['send-keys', '-t', exactTmuxTarget(t.session), 'Escape'], { timeout: 5000 })
+              await sendPromptToSession(t.session, PERMISSION_CANCELLED_NOTE)
+            } catch (err) {
+              logger.warn({ err, session: t.session }, 'Permission-prompt recovery failed')
+            }
+            sendAlert(`🔐 A(z) ${label} ágens egy parancsa engedélyt kért a panelen, és erre senki nem válaszolhatott (te Telegramon vagy). Lezártam, és megírtam neki, hogy ez NEM a te döntésed volt: ne várjon rád, csinálja engedélyt nem igénylő módon, vagy kérdezzen tőled Telegramon.`)
           } else {
             logger.warn({ session: t.session, agent: label }, 'Session parked in a blocking interactive menu -- sending Escape to recover')
             try {
