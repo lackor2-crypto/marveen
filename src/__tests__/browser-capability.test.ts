@@ -123,6 +123,22 @@ describe('bekotes', () => {
     expect(svc).toContain('page.mouse.click')
     expect(svc).toContain('page.keyboard.type')
   })
+  it('kattintas utan a friss oldalra var, nem a regire (ab8406b7)', () => {
+    const svc = readFileSync(join(root, 'src/web/browser-service.ts'), 'utf8')
+    // a stale-screenshot bug ellen: load + networkidle varakozas kattintas utan
+    expect(svc).toContain('settleAfterInteraction')
+    expect(svc).toContain("waitForLoadState('networkidle'")
+    // a puszta domcontentloaded-var mar nem all onmagaban a kattintasoknal
+    expect(svc).not.toContain("await page.waitForLoadState('domcontentloaded').catch(() => {})")
+  })
+  it('magasabb viewport, hogy a hosszu parbeszedek gombjai kiferjenek (ab8406b7)', () => {
+    const svc = readFileSync(join(root, 'src/web/browser-service.ts'), 'utf8')
+    expect(svc).toContain('BROWSER_VIEWPORT')
+    const m = svc.match(/BROWSER_VIEWPORT\s*=\s*\{\s*width:\s*(\d+),\s*height:\s*(\d+)/)
+    expect(m, 'BROWSER_VIEWPORT literal').toBeTruthy()
+    expect(Number(m![2]), 'viewport magassag legalabb 900').toBeGreaterThanOrEqual(900)
+    expect(svc).toContain('viewport: BROWSER_VIEWPORT')
+  })
   it('a frontend a kepre-kattintast es a gepelest bekoti (a5e542ac)', () => {
     const app = readFileSync(join(root, 'web/app.js'), 'utf8')
     const html = readFileSync(join(root, 'web/index.html'), 'utf8')

@@ -24,6 +24,22 @@ const CONFIG_DIR = join(PROJECT_ROOT, 'store', 'browser')
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
 export const BROWSER_IDLE_MS = 5 * 60 * 1000
 const ACTION_TIMEOUT_MS = 20_000
+// Kartya ab8406b7: magasabb ablak, hogy a hosszabb parbeszedek (pl. nemet
+// Google-consent) gombjai is kiferjenek. Merve: a nemet "Alle akzeptieren"
+// y~758 (720-nal alatta), 900/1000-nel befer. A gorgeto-gomb a tobbit hozza.
+const BROWSER_VIEWPORT = { width: 1280, height: 1000 }
+
+/** Kartya ab8406b7: egy kattintas NAVIGALHAT is. A puszta
+ *  waitForLoadState('domcontentloaded') a navigalo kattintasnal a REGI oldalra
+ *  ter vissza azonnal, igy a screenshot a kattintas ELOTTI oldalt mutatna -- a
+ *  felhasznalo azt latja, hogy "nem tortent semmi". Ezert adunk eselyt az
+ *  esetleges navigacionak elindulni, majd megvarjuk a betoltest (bounded, hogy
+ *  egy chates oldal se akaszthassa meg). */
+async function settleAfterInteraction(page: Page): Promise<void> {
+  await page.waitForTimeout(400)
+  await page.waitForLoadState('load', { timeout: 8000 }).catch(() => {})
+  await page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {})
+}
 
 // ---------------------------------------------------------------- config
 
@@ -137,7 +153,7 @@ async function ensureRuntime(session: string | null | undefined): Promise<Runtim
   // GPU nelkuli szerver/WSL gepen a kepernyokep GPU-val "Unable to capture
   // screenshot" hibaval all meg (merve 2026-09-17); a szoftveres ut mindenhol megy.
   const browser = await pw.chromium.launch({ headless: true, args: ['--disable-gpu', '--disable-software-rasterizer'] })
-  const context = await browser.newContext(storageState ? { storageState } : {})
+  const context = await browser.newContext({ viewport: BROWSER_VIEWPORT, ...(storageState ? { storageState } : {}) })
   context.setDefaultTimeout(ACTION_TIMEOUT_MS)
   const page = await context.newPage()
   rt = { browser, context, page, session: wanted }
@@ -212,6 +228,9 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
           r.page = fresh
           throw err
         }
+        // A JS-sel renderelt tartalom (pl. cookie-consent overlay) csak a
+        // betoltes utan jelenik meg -- kulonben a screenshot ures/reszleges.
+        await settleAfterInteraction(page)
         out = { ...base(), title: await page.title(), screenshot: await shot(page) }
         if (r.session && looksLikeLoginUrl(page.url())) out.sessionExpired = true
         break
@@ -230,7 +249,7 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
           return { ...base(), ok: false, needsConfirm: true, elementText: info.text, screenshot: await shot(page) }
         }
         await loc.click()
-        await page.waitForLoadState('domcontentloaded').catch(() => {})
+        await settleAfterInteraction(page)
         out = { ...base(), url: page.url(), screenshot: await shot(page) }
         break
       }
@@ -255,7 +274,7 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
           return { ...base(), ok: false, needsConfirm: true, elementText: info.text, screenshot: await shot(page) }
         }
         await page.mouse.click(x, y)
-        await page.waitForLoadState('domcontentloaded').catch(() => {})
+        await settleAfterInteraction(page)
         out = { ...base(), url: page.url(), screenshot: await shot(page) }
         break
       }
@@ -268,7 +287,7 @@ export async function runBrowserAction(input: ActionInput): Promise<ActionResult
         const key = String(input.value ?? '').trim()
         if (!key) throw new BrowserError('key name required')
         await page.keyboard.press(key)
-        await page.waitForLoadState('domcontentloaded').catch(() => {})
+        await settleAfterInteraction(page)
         out = { ...base(), url: page.url(), screenshot: await shot(page) }
         break
       }
