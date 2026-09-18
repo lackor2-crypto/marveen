@@ -12070,7 +12070,30 @@ details.upstream-box > summary > h4 {
 .prj-mig-preview ul { margin: 4px 0 0 18px; }
 .prj-mig-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
 .prj-mig-hist { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+/* 2. fazis: "+ Uj" menu, osszefoglalo, Otletek ful, uj fajl */
+.prj-new-wrap { position: relative; }
+.prj-new-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: 300px; max-width: calc(100vw - 32px);
+  display: flex; flex-direction: column; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-card); box-shadow: var(--shadow-md, 0 8px 24px rgba(0,0,0,.18));
+}
+.prj-new-menu[hidden] { display: none; }
+.prj-new-item { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 8px 10px; border: none; border-radius: var(--radius-sm); background: none; color: var(--text); font: inherit; cursor: pointer; }
+.prj-new-item:hover, .prj-new-item:focus-visible { background: var(--accent-soft); }
+.prj-new-item strong { font-size: 14px; }
+.prj-new-item span { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.prj-section-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prj-summary { margin-bottom: 16px; }
+.prj-summary-text { margin: 10px 0 6px; line-height: 1.55; white-space: pre-wrap; }
+.prj-summary-stale { margin: 4px 0 0; font-size: 12px; color: var(--warning); }
+.prj-item-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.prj-item-actions:empty { display: none; }
+.prj-link-row { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.prj-link-row > label { font-size: 13px; font-weight: 600; }
+.prj-link-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+.prj-link-controls .input { flex: 1 1 240px; width: auto; min-width: 0; }
 @media (max-width: 768px) {
+  .prj-new-menu { right: auto; left: 0; }
   .prj-sections { grid-template-columns: 1fr; }
   .prj-head-actions { justify-content: flex-start; }
   .prj-mig-controls .input { min-width: 0; width: 100%; }

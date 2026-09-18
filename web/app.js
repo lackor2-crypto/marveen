@@ -39861,6 +39861,12 @@ var _prj = {
   mig: null,
   migData: null,
   migOpen: false,
+  // 2. fazis
+  tab: 'overview',
+  ideas: null,
+  summaryBusy: {},
+  summaryErr: null,
+  file: null,
 }
 
 // ---- projekt-nevek a kanbanhoz -----------------------------------------------
@@ -39995,6 +40001,7 @@ async function loadProjectsPage() {
   const root = document.getElementById('projectsRoot')
   if (!root) return
   document.getElementById('prjIntezoChip')?.remove()
+  document.getElementById('prjIdeasChip')?.remove()
   const openId = _prj.openOnLoad
   _prj.openOnLoad = null
   if (openId) { await _prjOpenProject(openId); return }
@@ -40089,6 +40096,7 @@ function _prjTileHtml(p) {
 // ---- projekt-oldal ------------------------------------------------------------
 
 async function _prjOpenProject(id) {
+  if (_prj.current !== id) { _prj.tab = 'overview'; _prj.ideas = null }
   _prj.current = id
   const root = document.getElementById('projectsRoot')
   if (!root) return
@@ -40132,15 +40140,25 @@ function _prjRenderProject() {
         ${status}
         <button type="button" class="btn-secondary" data-prj-act="refresh" title="${escapeAttr(t('projects.refresh_hint'))}">${escapeHtml(t('common.refresh'))}</button>
         <button type="button" class="btn-secondary" data-prj-act="edit">${escapeHtml(t('projects.edit_btn'))}</button>
+        ${p.archived_at ? '' : _prjNewMenuHtml()}
       </div>
     </div>
     <div class="prj-tabs" role="tablist">
-      <button type="button" class="tab-btn active" role="tab" aria-selected="true">${escapeHtml(t('projects.tab.overview'))}</button>
+      <button type="button" class="tab-btn${_prj.tab === 'overview' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'overview'}" data-prj-tab="overview">${escapeHtml(t('projects.tab.overview'))}</button>
       <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-act="kanban" title="${escapeAttr(t('projects.tab.kanban_hint'))}">${escapeHtml(t('projects.tab.kanban'))} ↗</button>
+      <button type="button" class="tab-btn${_prj.tab === 'ideas' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'ideas'}" data-prj-tab="ideas" title="${escapeAttr(t('projects.tab.ideas_hint'))}">${escapeHtml(t('projects.tab.ideas'))}</button>
       <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-act="files" title="${escapeAttr(t('projects.tab.files_hint'))}">${escapeHtml(t('projects.tab.files'))} ↗</button>
     </div>
     <div id="prjFilesNote"></div>
+    ${_prj.tab === 'ideas' ? _prjIdeasTabHtml() : _prjOverviewBodyHtml(ov)}
+  </div>`
+  if (_prj.tab === 'ideas' && (!_prj.ideas || _prj.ideas.pid !== p.id)) _prjLoadIdeas()
+}
+
+function _prjOverviewBodyHtml(ov) {
+  return `
     ${_prjFactsHtml(ov)}
+    ${_prjSummaryHtml(ov)}
     <div class="prj-sections">
       <section class="prj-section">
         <h2>${escapeHtml(t('projects.current.title'))}</h2>
@@ -40162,8 +40180,7 @@ function _prjRenderProject() {
         <p class="prj-section-hint">${escapeHtml(t('projects.activity.hint'))}</p>
         ${_prjActivityHtml(ov)}
       </section>
-    </div>
-  </div>`
+    </div>`
 }
 
 function _prjFactsHtml(ov) {
@@ -41010,6 +41027,438 @@ async function _prjMigRevert(id) {
   await _prjLoadList()
 }
 
+// ---- 2. fazis: "+ Uj", Otletek ful, osszefoglalo ------------------------------------
+//
+// Minden, ami innen szuletik, a MEGLEVO objektum: a kartya a Kanbane (a meglevo
+// "Uj kartya" ablak nyilik meg, a projekt es az alapertelmezett cimke elore
+// kitoltve), az otlet az Otletladae (a projekthez kotve), a fajl a projekt
+// mappajaba kerul a Raktarban. Az osszefoglalo CSAK gombnyomasra keszul.
+
+function _prjNewMenuHtml() {
+  const item = (act, key) => `<button type="button" role="menuitem" class="prj-new-item" data-prj-act="${act}">
+      <strong>${escapeHtml(t('projects.new.' + key))}</strong><span>${escapeHtml(t('projects.new.' + key + '_hint'))}</span></button>`
+  return `<div class="prj-new-wrap">
+    <button type="button" class="btn-primary" data-prj-act="new-menu" aria-haspopup="menu" aria-expanded="false">${escapeHtml(t('projects.new.btn'))}</button>
+    <div class="prj-new-menu" role="menu" hidden>
+      ${item('new-card', 'card')}${item('new-idea', 'idea')}${item('new-file', 'file')}
+    </div>
+  </div>`
+}
+
+function _prjToggleNewMenu(force) {
+  const menu = document.querySelector('#projectsRoot .prj-new-menu')
+  const btn = document.querySelector('#projectsRoot [data-prj-act="new-menu"]')
+  if (!menu || !btn) return
+  const open = force !== undefined ? force : menu.hidden
+  menu.hidden = !open
+  btn.setAttribute('aria-expanded', String(open))
+  if (open) menu.querySelector('.prj-new-item')?.focus()
+}
+
+// ---- osszefoglalo ----
+
+function _prjSummaryBy(by) {
+  const i = String(by || '').indexOf(':')
+  const engine = i < 0 ? by : by.slice(0, i)
+  const model = i < 0 ? '' : by.slice(i + 1)
+  if (engine === 'claude') return t('projects.summary.by_claude', { model })
+  if (engine === 'ollama') return t('projects.summary.by_local', { model })
+  return String(by || '')
+}
+
+function _prjSummaryHtml(ov) {
+  const p = ov.project
+  const busy = !!_prj.summaryBusy[p.id]
+  const has = !!p.summary
+  const latest = (ov.activity && ov.activity[0] && ov.activity[0].at) || 0
+  const stale = has && p.summary_at && latest > p.summary_at * 1000
+  const err = _prj.summaryErr && _prj.summaryErr.id === p.id ? _prj.summaryErr.msg : ''
+  const btnKey = busy ? 'projects.summary.busy_btn' : (has ? 'projects.summary.refresh_btn' : 'projects.summary.make_btn')
+  return `<section class="prj-section prj-summary" id="prjSummary" aria-live="polite">
+    <div class="prj-section-row">
+      <h2>${escapeHtml(t('projects.summary.title'))}</h2>
+      <button type="button" class="${has ? 'btn-secondary' : 'btn-primary'} btn-compact" data-prj-act="summary"${busy ? ' disabled' : ''}>${escapeHtml(t(btnKey))}</button>
+    </div>
+    ${has
+      ? `<p class="prj-summary-text">${escapeHtml(p.summary)}</p>
+        <p class="prj-muted">${escapeHtml(t('projects.summary.made', { when: _prjDate(p.summary_at * 1000, true), by: _prjSummaryBy(p.summary_by) }))}</p>
+        ${stale ? `<p class="prj-summary-stale">${escapeHtml(t('projects.summary.stale'))}</p>` : ''}`
+      : `<p class="prj-section-hint">${escapeHtml(t('projects.summary.hint'))}</p>`}
+    ${busy ? `<p class="prj-muted">${escapeHtml(t('projects.summary.working'))}</p>` : ''}
+    ${err ? `<div class="info-box depo-bad">${escapeHtml(err)}</div>` : ''}
+  </section>`
+}
+
+function _prjRerenderSummary() {
+  const box = document.getElementById('prjSummary')
+  if (!box || !_prj.overview || _prj.tab !== 'overview') return
+  box.outerHTML = _prjSummaryHtml(_prj.overview)
+}
+
+async function _prjRunSummary() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p || _prj.summaryBusy[p.id]) return
+  _prj.summaryBusy[p.id] = true
+  _prj.summaryErr = null
+  _prjRerenderSummary()
+  const r = await _prjApi('POST', '/api/projects/' + encodeURIComponent(p.id) + '/summary')
+  delete _prj.summaryBusy[p.id]
+  if (!r.ok) _prj.summaryErr = { id: p.id, msg: r.message }
+  else {
+    if (_prj.overview && _prj.overview.project.id === p.id) _prj.overview.project = r.data.project
+    showToast(t('projects.summary.done', { name: r.data.project.name }))
+  }
+  _prjRerenderSummary()
+}
+
+// ---- uj kartya: a meglevo "Uj kartya" ablak, elore kitoltve ----
+
+async function _prjNewCard() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return
+  _prjToggleNewMenu(false)
+  await ensureKanbanLabelsLoaded()
+  if (!kanbanAssignees.length) {
+    try { kanbanAssignees = await (await fetch('/api/kanban/assignees')).json() } catch { /* felelos nelkul is letrehozhato */ }
+  }
+  openNewCardModal('planned')
+  const proj = document.getElementById('cardProject')
+  if (proj) proj.value = p.name
+  // A projekt alapertelmezett cimkeje elore kijelolve -- a felhasznalo
+  // atallithatja, de nem kell tudnia, melyik illik ide.
+  if (p.default_label_id) {
+    const idx = kanbanAllLabels.findIndex((l) => l.id === p.default_label_id)
+    const chip = idx >= 0 ? document.getElementById('cardLabelPick')?.children[idx] : null
+    if (chip && !newCardLabels.includes(p.default_label_id)) chip.click()
+  }
+  // Az ablak bezarasa utan (mentes VAGY megse) frissul a projekt-oldal.
+  const ov = document.getElementById('cardModalOverlay')
+  if (!ov) return
+  const obs = new MutationObserver(() => {
+    if (ov.classList.contains('active')) return
+    obs.disconnect()
+    if (_prj.current === p.id && !document.getElementById('projectsPage')?.hidden) _prjOpenProject(p.id)
+  })
+  obs.observe(ov, { attributes: true, attributeFilter: ['class'] })
+}
+
+// ---- uj otlet ----
+
+const _PRJ_IDEA_CATS = ['sales', 'education', 'automation', 'integration', 'system', 'other']
+
+function _prjNewIdea() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return
+  _prjToggleNewMenu(false)
+  const ov = _prjOverlay('prjIdeaOverlay')
+  // A kategoria ugyanugy a kiirt nevvel mentodik, mint az Otletek oldal ablakaban.
+  const cats = _PRJ_IDEA_CATS.map((c) => {
+    const label = t('ideas.category.' + c)
+    return `<option value="${escapeAttr(label)}"${c === 'other' ? ' selected' : ''}>${escapeHtml(label)}</option>`
+  }).join('')
+  ov.innerHTML = `
+  <div class="modal prj-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h2>${escapeHtml(t('projects.idea.title'))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="prj-muted">${escapeHtml(t('projects.idea.intro', { name: p.name }))}</p>
+      <div class="form-group">
+        <label for="prjIdeaTitle">${escapeHtml(t('projects.idea.title_label'))} *</label>
+        <input type="text" id="prjIdeaTitle" class="input" maxlength="300" placeholder="${escapeAttr(t('ideas.modal.title_ph'))}">
+      </div>
+      <div class="form-group">
+        <label for="prjIdeaDesc">${escapeHtml(t('ideas.modal.desc_label'))}</label>
+        <textarea id="prjIdeaDesc" class="input" rows="4" placeholder="${escapeAttr(t('ideas.modal.desc_ph'))}"></textarea>
+      </div>
+      <div class="form-group">
+        <label for="prjIdeaCat">${escapeHtml(t('ideas.modal.category_label'))}</label>
+        <select id="prjIdeaCat" class="input">${cats}</select>
+      </div>
+      <div id="prjIdeaErr" class="info-box depo-bad" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.cancel'))}</button>
+      <button type="button" class="btn-primary" id="prjIdeaSave">${escapeHtml(t('projects.idea.save'))}</button>
+    </div>
+  </div>`
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  const save = async () => {
+    const btn = ov.querySelector('#prjIdeaSave')
+    const errBox = ov.querySelector('#prjIdeaErr')
+    const title = ov.querySelector('#prjIdeaTitle').value.trim()
+    errBox.hidden = true
+    if (!title) { errBox.textContent = t('projects.idea.need_title'); errBox.hidden = false; ov.querySelector('#prjIdeaTitle').focus(); return }
+    if (btn.disabled) return
+    btn.disabled = true
+    const r = await _prjApi('POST', '/api/projects/' + encodeURIComponent(p.id) + '/ideas', {
+      title, description: ov.querySelector('#prjIdeaDesc').value, category: ov.querySelector('#prjIdeaCat').value,
+    })
+    btn.disabled = false
+    if (!r.ok) { errBox.textContent = r.message; errBox.hidden = false; return }
+    closeModal(ov)
+    showToast(t('projects.idea.created', { name: p.name }))
+    _prj.ideas = null
+    if (_prj.current === p.id) { _prj.tab = 'ideas'; _prjRenderProject() }
+  }
+  ov.querySelector('#prjIdeaSave').addEventListener('click', save)
+  ov.querySelector('#prjIdeaTitle').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); save() } })
+  openModal(ov)
+  setTimeout(() => ov.querySelector('#prjIdeaTitle')?.focus(), 150)
+}
+
+// ---- Otletek ful ----
+
+async function _prjLoadIdeas() {
+  const pid = _prj.current
+  if (!pid) return
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/ideas')
+  if (_prj.current !== pid) return
+  _prj.ideas = r.ok
+    ? { pid, ideas: r.data.ideas || [], candidates: r.data.candidates || [], err: null }
+    : { pid, ideas: [], candidates: [], err: r.message }
+  const body = document.getElementById('prjIdeasBody')
+  if (body && _prj.tab === 'ideas') body.outerHTML = _prjIdeasTabHtml()
+}
+
+function _prjIdeaStatus(s) {
+  return `<span class="prj-pill">${escapeHtml(_prjT('ideas.status.' + s, null, s))}</span>`
+}
+
+function _prjIdeasTabHtml() {
+  const p = _prj.overview && _prj.overview.project
+  const d = _prj.ideas
+  if (!p) return ''
+  const canAdd = !p.archived_at
+  let inner
+  if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
+  else {
+    const list = d.ideas.length
+      ? `<ul class="prj-list">${d.ideas.map((i) => {
+        const meta = [escapeHtml(i.category || ''), escapeHtml(t(i.via === 'link' ? 'projects.ideas.via_link' : 'projects.ideas.via_card')), escapeHtml(_prjAgo((i.updated_at || 0) * 1000))]
+        return `<li class="prj-item">
+          <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-idea="${escapeAttr(i.id)}">${escapeHtml(i.title)}</a> ${_prjIdeaStatus(i.status)}</div>
+          ${i.description ? `<div class="prj-item-sub prj-clamp">${escapeHtml(i.description)}</div>` : ''}
+          <div class="prj-item-sub prj-muted">${meta.filter(Boolean).join(' · ')}</div>
+          <div class="prj-item-actions">
+            ${i.kanban_id ? _prjCardLink({ id: i.kanban_id, title: t('projects.ideas.open_card') }) : ''}
+            ${i.via === 'link' ? `<button type="button" class="btn-secondary btn-compact" data-prj-unlink-idea="${escapeAttr(i.id)}">${escapeHtml(t('projects.ideas.unlink'))}</button>` : ''}
+          </div>
+        </li>`
+      }).join('')}</ul>`
+      : _prjEmptyLine('projects.ideas.empty')
+    const pick = canAdd && d.candidates.length
+      ? `<div class="prj-link-row">
+          <label for="prjIdeaPick">${escapeHtml(t('projects.ideas.link_label'))}</label>
+          <div class="prj-link-controls">
+            <select id="prjIdeaPick" class="input"><option value="">${escapeHtml(t('projects.ideas.link_pick'))}</option>${d.candidates.map((c) => `<option value="${escapeAttr(c.id)}">${escapeHtml(c.title)} (${escapeHtml(_prjT('ideas.status.' + c.status, null, c.status))})</option>`).join('')}</select>
+            <button type="button" class="btn-secondary btn-compact" data-prj-act="link-idea">${escapeHtml(t('projects.ideas.link_btn'))}</button>
+          </div>
+          <p class="prj-field-hint">${escapeHtml(t('projects.ideas.link_hint'))}</p>
+        </div>`
+      : ''
+    inner = list + pick
+  }
+  return `<section class="prj-section" id="prjIdeasBody">
+    <div class="prj-section-row">
+      <h2>${escapeHtml(t('projects.ideas.title'))}</h2>
+      ${canAdd ? `<button type="button" class="btn-primary btn-compact" data-prj-act="new-idea">${escapeHtml(t('projects.ideas.new_btn'))}</button>` : ''}
+    </div>
+    <p class="prj-section-hint">${escapeHtml(t('projects.ideas.hint'))}</p>
+    ${inner}
+  </section>`
+}
+
+async function _prjLinkIdea() {
+  const p = _prj.overview && _prj.overview.project
+  const sel = document.getElementById('prjIdeaPick')
+  if (!p || !sel) return
+  if (!sel.value) { showToast(t('projects.ideas.link_pick_first')); sel.focus(); return }
+  const r = await _prjApi('POST', '/api/projects/' + encodeURIComponent(p.id) + '/links', { type: 'idea', id: sel.value })
+  if (!r.ok) { showToast(r.message); return }
+  showToast(t('projects.ideas.linked'))
+  await _prjLoadIdeas()
+}
+
+async function _prjUnlinkIdea(ideaId) {
+  const p = _prj.overview && _prj.overview.project
+  const idea = _prj.ideas && _prj.ideas.ideas.find((i) => i.id === ideaId)
+  if (!p || !idea) return
+  if (!window.confirm(t('projects.ideas.unlink_confirm', { title: idea.title, name: p.name }))) return
+  const r = await _prjApi('DELETE', '/api/projects/' + encodeURIComponent(p.id) + '/links/idea/' + encodeURIComponent(ideaId))
+  if (!r.ok) { showToast(r.message); return }
+  showToast(t('projects.ideas.unlinked'))
+  await _prjLoadIdeas()
+}
+
+/** Az otlet a meglevo Otletek oldalon nyilik meg, a reszleteivel -- onnan a
+ *  "vissza a projekthez" gomb hoz vissza. */
+async function _prjOpenIdea(ideaId) {
+  const p = _prj.overview && _prj.overview.project
+  setWorkspace('marvin', { page: 'ideas' })
+  if (location.hash.slice(1) === 'ideas') switchPage('ideas')
+  else location.hash = 'ideas'
+  const page = document.getElementById('ideasPage')
+  if (page && p) {
+    let bar = document.getElementById('prjIdeasChip')
+    if (!bar) { bar = document.createElement('div'); bar.id = 'prjIdeasChip'; bar.className = 'prj-back-bar'; page.prepend(bar) }
+    bar.innerHTML = `<button type="button" class="prj-back-chip" data-prj-return="${escapeAttr(p.id)}">${escapeHtml(t('projects.back_to_project', { name: p.name }))}</button>
+      <button type="button" class="prj-back-x" data-prj-chip-close="prjIdeasChip" title="${escapeAttr(t('common.close'))}" aria-label="${escapeAttr(t('common.close'))}">×</button>`
+  }
+  await loadIdeasPage()
+  // Az Otletek oldal alapszuroje az aktiv otleteket mutatja; egy "Kanbanban"
+  // allapotu otlet ugyanugy megnyithato.
+  if (!ideas.find((i) => i.id === ideaId)) {
+    try {
+      const all = await (await fetch('/api/ideas')).json()
+      const hit = Array.isArray(all) ? all.find((i) => i.id === ideaId) : null
+      if (hit) ideas.push(hit)
+    } catch { /* ha nem erem el, a lista marad */ }
+  }
+  openIdeaDetail(ideaId)
+}
+
+// ---- uj fajl / jegyzet a projekt mappajaba ----
+
+async function _prjNewFile() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return
+  _prjToggleNewMenu(false)
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(p.id) + '/folders')
+  _prj.file = { pid: p.id, info: r.ok ? r.data : null, err: r.ok ? null : r.message, mode: 'upload', busy: false }
+  const ov = _prjOverlay('prjFileOverlay')
+  ov.innerHTML = _prjFileHtml(p)
+  _prjWireFile(ov, p)
+  openModal(ov)
+}
+
+function _prjFileHtml(p) {
+  const f = _prj.file
+  const info = f.info
+  const head = `<div class="modal-header">
+      <h2>${escapeHtml(t('projects.file.title'))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button>
+    </div>`
+  if (!info || info.state !== 'ok') {
+    const st = info ? info.state : ''
+    let action = ''
+    if (st === 'no_depot') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="depot">${escapeHtml(t('projects.files.open_depot'))}</button>`
+    else if (st === 'no_folder' || st === 'missing') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="edit">${escapeHtml(t('projects.files.set_folder'))}</button>`
+    const msg = f.err ? t('projects.err.load', { msg: f.err }) : _prjT('projects.files.state.' + st, { path: (info && info.path) || '' }, st)
+    return `<div class="modal prj-modal" role="dialog" aria-modal="true">${head}
+      <div class="modal-body"><div class="info-box${st === 'no_folder' || st === 'no_depot' ? '' : ' depo-bad'}">${escapeHtml(msg)} ${action}</div></div>
+      <div class="modal-footer"><button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.close'))}</button></div>
+    </div>`
+  }
+  const subs = [`<option value="">${escapeHtml(t('projects.file.to_root', { name: p.folder_path.split('/').pop() }))}</option>`]
+    .concat((info.subfolders || []).map((s) => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`)).join('')
+  const mb = Math.round((info.maxBytes || 0) / (1024 * 1024))
+  return `<div class="modal prj-modal" role="dialog" aria-modal="true">${head}
+    <div class="modal-body prj-form">
+      <p class="prj-muted">${escapeHtml(t('projects.file.intro', { path: info.path }))}</p>
+      <div class="form-group">
+        <label for="prjFileSub">${escapeHtml(t('projects.file.where'))}</label>
+        <select id="prjFileSub" class="input">${subs}</select>
+      </div>
+      <label class="prj-radio"><input type="radio" name="prjFileMode" value="upload" checked>
+        <span><strong>${escapeHtml(t('projects.file.mode_upload'))}</strong><span class="prj-radio-hint">${escapeHtml(t('projects.file.mode_upload_hint', { mb }))}</span></span></label>
+      <div class="prj-folder-sub" data-for="upload">
+        <input type="file" id="prjFileInput" multiple>
+      </div>
+      <label class="prj-radio"><input type="radio" name="prjFileMode" value="note">
+        <span><strong>${escapeHtml(t('projects.file.mode_note'))}</strong><span class="prj-radio-hint">${escapeHtml(t('projects.file.mode_note_hint'))}</span></span></label>
+      <div class="prj-folder-sub" data-for="note" hidden>
+        <label for="prjNoteName">${escapeHtml(t('projects.file.note_name'))}</label>
+        <input type="text" id="prjNoteName" class="input" maxlength="160" placeholder="${escapeAttr(t('projects.file.note_name_ph'))}">
+        <label for="prjNoteExt">${escapeHtml(t('projects.file.note_format'))}</label>
+        <select id="prjNoteExt" class="input">
+          <option value="md">${escapeHtml(t('projects.file.note_md'))}</option>
+          <option value="txt">${escapeHtml(t('projects.file.note_txt'))}</option>
+        </select>
+        <label for="prjNoteText">${escapeHtml(t('projects.file.note_text'))}</label>
+        <textarea id="prjNoteText" class="input" rows="6"></textarea>
+      </div>
+      <div id="prjFileStatus" class="prj-preview" aria-live="polite" hidden></div>
+    </div>
+    <div class="modal-footer prj-modal-footer">
+      <div class="prj-footer-left"><button type="button" class="btn-secondary" data-prj-act="files">${escapeHtml(t('projects.file.open_intezo'))}</button></div>
+      <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.close'))}</button>
+      <button type="button" class="btn-primary" id="prjFileSave">${escapeHtml(t('projects.file.save_upload'))}</button>
+    </div>
+  </div>`
+}
+
+function _prjWireFile(ov, p) {
+  const f = _prj.file
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  ov.querySelectorAll('input[name="prjFileMode"]').forEach((r) => r.addEventListener('change', () => {
+    f.mode = r.value
+    ov.querySelectorAll('.prj-folder-sub').forEach((el) => { el.hidden = el.getAttribute('data-for') !== f.mode })
+    const btn = ov.querySelector('#prjFileSave')
+    if (btn) btn.textContent = t(f.mode === 'note' ? 'projects.file.save_note' : 'projects.file.save_upload')
+  }))
+  ov.querySelector('#prjFileSave')?.addEventListener('click', () => _prjSubmitFile(ov, p))
+}
+
+async function _prjSubmitFile(ov, p) {
+  const f = _prj.file
+  if (!f || f.busy) return
+  const status = ov.querySelector('#prjFileStatus')
+  const say = (html, bad) => { status.innerHTML = html; status.hidden = false; status.classList.toggle('prj-preview-bad', !!bad) }
+  const sub = ov.querySelector('#prjFileSub').value
+  const base = '/api/projects/' + encodeURIComponent(p.id)
+  const btn = ov.querySelector('#prjFileSave')
+  const lines = []
+  const line = (out, orig) => out.renamed
+    ? t('projects.file.saved_renamed', { name: out.name, orig })
+    : t('projects.file.saved', { name: out.name })
+  if (f.mode === 'note') {
+    const name = ov.querySelector('#prjNoteName').value.trim()
+    if (!name) { say(escapeHtml(t('projects.file.need_name')), true); ov.querySelector('#prjNoteName').focus(); return }
+    f.busy = true; btn.disabled = true
+    const r = await _prjApi('POST', base + '/note', { sub, name, text: ov.querySelector('#prjNoteText').value, ext: ov.querySelector('#prjNoteExt').value })
+    f.busy = false; btn.disabled = false
+    if (!r.ok) { say(escapeHtml(r.message), true); return }
+    say(escapeHtml(line(r.data, name)))
+    ov.querySelector('#prjNoteName').value = ''
+    ov.querySelector('#prjNoteText').value = ''
+    if (_prj.current === p.id) _prjOpenProject(p.id)
+    return
+  }
+  const files = Array.from(ov.querySelector('#prjFileInput').files || [])
+  if (!files.length) { say(escapeHtml(t('projects.file.need_file')), true); return }
+  const max = (f.info && f.info.maxBytes) || 0
+  f.busy = true; btn.disabled = true
+  let failed = 0
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    say(escapeHtml(t('projects.file.uploading', { i: i + 1, n: files.length, name: file.name })) + (lines.length ? '<ul>' + lines.join('') + '</ul>' : ''))
+    if (max && file.size > max) {
+      failed++
+      lines.push(`<li>${escapeHtml(t('projects.file.too_big', { name: file.name, mb: Math.round(max / (1024 * 1024)), path: f.info.path }))}</li>`)
+      continue
+    }
+    let out = null
+    let msg = ''
+    try {
+      const url = base + '/upload?lang=' + encodeURIComponent(window._lang || 'hu') + '&name=' + encodeURIComponent(file.name) + (sub ? '&sub=' + encodeURIComponent(sub) : '')
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file })
+      const data = await res.json().catch(() => null)
+      if (res.ok && data && data.ok) out = data
+      else msg = (data && data.message) || t('projects.err.http', { status: res.status })
+    } catch { msg = t('projects.err.network') }
+    if (out) lines.push(`<li>${escapeHtml(line(out, file.name))}</li>`)
+    else { failed++; lines.push(`<li>${escapeHtml(t('projects.file.failed', { name: file.name, msg }))}</li>`) }
+  }
+  f.busy = false; btn.disabled = false
+  const ok = files.length - failed
+  say(escapeHtml(t('projects.file.upload_done', { ok, n: files.length })) + '<ul>' + lines.join('') + '</ul>', failed > 0)
+  ov.querySelector('#prjFileInput').value = ''
+  if (ok && _prj.current === p.id) _prjOpenProject(p.id)
+}
+
 // ---- esemenyek (egy delegalt figyelo az egesz funkcionak) ----------------------------
 
 document.addEventListener('click', (e) => {
@@ -41027,16 +41476,37 @@ document.addEventListener('click', (e) => {
   }
   const ret = e.target.closest('[data-prj-return]')
   if (ret) { _prjReturnToProject(ret.getAttribute('data-prj-return')); return }
-  if (e.target.closest('[data-prj-chip-close]')) { document.getElementById('prjIntezoChip')?.remove(); return }
+  const chipX = e.target.closest('[data-prj-chip-close]')
+  if (chipX) { document.getElementById(chipX.getAttribute('data-prj-chip-close') || 'prjIntezoChip')?.remove(); return }
   const rev = e.target.closest('[data-prj-revert]')
   if (rev) { _prjMigRevert(rev.getAttribute('data-prj-revert')); return }
   const open = e.target.closest('[data-prj-open]')
   if (open) { _prjOpenProject(open.getAttribute('data-prj-open')); return }
+  // A "+ Uj" menu bezarul, ha mellekattintanak.
+  if (!e.target.closest('.prj-new-wrap')) _prjToggleNewMenu(false)
+  const ideaLink = e.target.closest('[data-prj-idea]')
+  if (ideaLink) { e.preventDefault(); _prjOpenIdea(ideaLink.getAttribute('data-prj-idea')); return }
+  const unlinkIdea = e.target.closest('[data-prj-unlink-idea]')
+  if (unlinkIdea) { _prjUnlinkIdea(unlinkIdea.getAttribute('data-prj-unlink-idea')); return }
+  const tab = e.target.closest('[data-prj-tab]')
+  if (tab) {
+    const which = tab.getAttribute('data-prj-tab')
+    if (which !== _prj.tab) { _prj.tab = which; _prjRenderProject() }
+    return
+  }
   const act = e.target.closest('[data-prj-act]')
   if (!act) return
   const a = act.getAttribute('data-prj-act')
   const p = _prj.overview && _prj.overview.project
+  // Az uj-fajl ablakbol inditott atlepes (Intezo, mappa megadasa) elott az ablak bezarul.
+  if ((a === 'files' || a === 'edit') && act.closest('#prjFileOverlay')) closeModal(_prjOverlay('prjFileOverlay'))
   if (a === 'new') _prjOpenForm('create')
+  else if (a === 'new-menu') _prjToggleNewMenu()
+  else if (a === 'new-card') _prjNewCard()
+  else if (a === 'new-idea') _prjNewIdea()
+  else if (a === 'new-file') _prjNewFile()
+  else if (a === 'summary') _prjRunSummary()
+  else if (a === 'link-idea') _prjLinkIdea()
   else if (a === 'show-archived') { _prj.showArchived = true; _prjRenderList(); _prjRenderMigration() }
   else if (a === 'back') { _prj.current = null; _prj.overview = null; _prjLoadList() }
   else if (a === 'refresh' && p) _prjOpenProject(p.id)
@@ -41053,6 +41523,10 @@ document.addEventListener('click', (e) => {
     history.pushState(null, '', '#irodaSettings')
     switchPage('depo')
   }
+})
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.querySelector('#projectsRoot .prj-new-menu')?.hidden) _prjToggleNewMenu(false)
 })
 
 document.addEventListener('DOMContentLoaded', () => { runLater(refreshProjectNames) })

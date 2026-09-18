@@ -27,25 +27,27 @@ export const PROJECT_UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 export const NOTE_MAX_CHARS = 200_000
 
 export type FileErrorCode =
-  | 'no_folder' | 'no_depot' | 'missing' | 'bad_folder' | 'bad_name' | 'repo_inside' | 'write_failed'
+  | 'no_folder' | 'no_depot' | 'missing' | 'unreachable' | 'bad_folder' | 'bad_name' | 'repo_inside' | 'write_failed'
 
 export type FileTarget = { ok: true; dirAbs: string; dirRel: string } | { ok: false; code: FileErrorCode; message?: string }
 
-/** A projekt mappaja (vagy annak `sub` almappaja) mint iras-cel. */
+/** A projekt mappaja (vagy annak `sub` almappaja) mint iras-cel. A mappa
+ *  allapotkodjai ugyanazok, mint az Attekintesen (`project-overview.ts`):
+ *  "nincs Raktar", "nincs mappa", "nem erem el", "eltunt" -- negy kulon teendo. */
 export function projectFileTarget(p: ProjectRow, sub: unknown): FileTarget {
-  if (!p.folder_path) return { ok: false, code: 'no_folder' }
   if (!explorerRoot()) return { ok: false, code: 'no_depot' }
+  if (!p.folder_path) return { ok: false, code: 'no_folder' }
+  const base = resolveLifePath(p.folder_path)
+  if (!base) return { ok: false, code: 'unreachable' }
+  if (!existsSync(base)) return { ok: false, code: 'missing' }
   const subRel = sub === undefined || sub === null || String(sub).trim() === '' ? '' : cleanFolderRel(sub)
   if (subRel === null) return { ok: false, code: 'bad_folder' }
-  const rel = subRel ? `${p.folder_path}/${subRel}` : p.folder_path
-  const abs = resolveLifePath(rel)
-  if (!abs) return { ok: false, code: 'bad_folder' }
+  const abs = subRel ? resolveLifePath(`${p.folder_path}/${subRel}`) : base
   // A projekt mappajan KIVULRE nem vezethet egy almappa-nev sem.
-  const base = resolveLifePath(p.folder_path)
-  if (!base || (abs !== base && !abs.startsWith(base + sep))) return { ok: false, code: 'bad_folder' }
-  if (!existsSync(abs)) return { ok: false, code: subRel ? 'bad_folder' : 'missing' }
-  try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'missing' } }
-  return { ok: true, dirAbs: abs, dirRel: toLifeRel(abs) || rel }
+  if (!abs || (abs !== base && !abs.startsWith(base + sep))) return { ok: false, code: 'bad_folder' }
+  if (!existsSync(abs)) return { ok: false, code: 'bad_folder' }
+  try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'unreachable' } }
+  return { ok: true, dirAbs: abs, dirRel: toLifeRel(abs) || (subRel ? `${p.folder_path}/${subRel}` : p.folder_path) }
 }
 
 /** A projekt mappajanak kozvetlen almappai (a "hova keruljon" valasztohoz).

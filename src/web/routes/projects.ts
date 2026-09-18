@@ -92,6 +92,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   not_linked: { hu: 'Ez az elem nincs ehhez a projekthez kötve.', en: 'This item is not linked to this project.' },
   no_folder: { hu: 'A projektnek még nincs mappája. Szerkesztés -> Mappa.', en: 'The project has no folder yet. Edit -> Folder.' },
   missing: { hu: 'A projekt mappája nem található a Raktárban (lehet, hogy átnevezték vagy áthelyezték).', en: 'The project folder was not found in the Depot (it may have been renamed or moved).' },
+  unreachable: { hu: 'A projekt mappáját most nem érem el (a Raktár nem elérhető).', en: 'The project folder cannot be reached now (the Depot is not available).' },
   bad_name: { hu: 'Adj meg egy érvényes fájlnevet.', en: 'Give a valid file name.' },
   repo_inside: { hu: 'Ez a hely egy git-repó belseje, ide nem teszek fájlt.', en: 'This place is inside a git repository; no file is put here.' },
   write_failed: { hu: 'Nem sikerült menteni a fájlt.', en: 'Could not save the file.' },
