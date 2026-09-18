@@ -774,6 +774,7 @@ function switchPage(pageId) {
   // ide visszaterve a poll magatol ujraindul (lasd _depoRefresh).
   if (pageId !== 'irodaSettings') _depoStopPoll()
   if (pageId === 'intezo') loadIntezoPage()
+  if (pageId === 'projects') callPageLoader('loadProjectsPage')
   // Elhagyva a Fotok oldalt: a kepek blob URL-jei feleslegesen ulnek a
   // memoriaban, es egy futo Picker-lekerdezes sem szolhat bele mas lapba.
   if (pageId !== 'photos') { _photosStopPoll(); _photosReleaseBlobs() }
@@ -1503,6 +1504,7 @@ async function loadKanban() {
     kanbanAssignees = await assigneesRes.json()
     kanbanProjects = await projectsRes.json()
     kanbanAllLabels = await labelsRes.json()
+    await refreshProjectNames()
     populateProjectFilter()
     populateProjectSuggestions()
     setupAssigneeFilter()
@@ -1623,16 +1625,19 @@ document.getElementById('kanbanGroupBy').addEventListener('change', (e) => {
 
 function populateProjectFilter() {
   const sel = document.getElementById('kanbanProjectFilter')
-  const prev = sel.value
+  // A szuro allapota a valtozo, nem a lenyilo: a Projektek oldal ugy nyitja meg
+  // a Kanbant egy projektre szurve, hogy a lenyiloban az meg nincs benne.
+  const prev = kanbanProjectFilter || sel.value
   sel.innerHTML = '<option value="">Mind</option>'
   for (const p of kanbanProjects) {
     const opt = document.createElement('option')
     opt.value = p
-    opt.textContent = p
+    opt.textContent = projectLabel(p)
     if (p === prev) opt.selected = true
     sel.appendChild(opt)
   }
   if (prev && !kanbanProjects.includes(prev)) kanbanProjectFilter = ''
+  _prjSyncKanbanChip()
 }
 
 function renderKanbanColumnChips() {
@@ -1662,13 +1667,14 @@ function populateProjectSuggestions() {
   dl.innerHTML = ''
   for (const p of kanbanProjects) {
     const opt = document.createElement('option')
-    opt.value = p
+    opt.value = ((window._projectNames || {})[p] || {}).name || p
     dl.appendChild(opt)
   }
 }
 
 document.getElementById('kanbanProjectFilter').addEventListener('change', (e) => {
   kanbanProjectFilter = e.target.value
+  _prjSyncKanbanChip()
   renderKanban()
 })
 
@@ -2180,7 +2186,7 @@ function createCardEl(card, embeddedChildren = []) {
   }
 
   const projectHtml = card.project
-    ? `<span class="kanban-card-project">${escapeHtml(card.project)}</span>`
+    ? `<span class="kanban-card-project">${escapeHtml(projectLabel(card.project))}</span>`
     : ''
 
   // Label footer pills: at most 3 shown + a "+N" overflow indicator. Each pill
@@ -2640,7 +2646,7 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
     description: document.getElementById('cardDesc').value.trim() || null,
     assignee: document.getElementById('cardAssignee').value || null,
     priority: document.getElementById('cardPriority').value,
-    project: document.getElementById('cardProject').value.trim() || null,
+    project: projectRefFromLabel(document.getElementById('cardProject').value) || null,
     due_date: document.getElementById('cardDue').value
       ? Math.floor(new Date(document.getElementById('cardDue').value).getTime() / 1000)
       : null,
@@ -2816,7 +2822,7 @@ async function showCardDetail(card) {
     </div>
     <div class="meta-item">
       <span class="meta-label">${t('kanban.meta.project')}</span>
-      <span class="meta-value">${card.project ? escapeHtml(card.project) : t('kanban.meta.none')}</span>
+      <span class="meta-value">${card.project ? escapeHtml(projectLabel(card.project)) : t('kanban.meta.none')}</span>
     </div>
     <div class="meta-item">
       <span class="meta-label">${t('kanban.meta.deadline')}</span>
@@ -3034,7 +3040,7 @@ async function showCardDetail(card) {
     document.getElementById('cardTitle').value = card.title
     document.getElementById('cardDesc').value = card.description || ''
     document.getElementById('cardPriority').value = card.priority
-    document.getElementById('cardProject').value = card.project || ''
+    document.getElementById('cardProject').value = card.project ? (((window._projectNames || {})[card.project] || {}).name || card.project) : ''
     document.getElementById('cardDue').value = card.due_date
       ? new Date(card.due_date * 1000).toISOString().split('T')[0]
       : ''
@@ -32518,7 +32524,7 @@ async function openResearchDoc(agent, name) {
       ? `<span class="kanban-card-seq" style="font-family:monospace;font-size:11px;color:var(--text-muted);margin-right:5px">#${card.seq}</span>`
       : ''
     const projectHtml = card.project
-      ? `<span class="kanban-card-project">${esc(card.project)}</span>`
+      ? `<span class="kanban-card-project">${esc(projectLabel(card.project))}</span>`
       : ''
     let labelsHtml = ''
     if (Array.isArray(card.labels) && card.labels.length > 0) {
@@ -32555,7 +32561,7 @@ async function openResearchDoc(agent, name) {
       <div class="meta-item"><span class="meta-label">${t('kanban.meta.status')}</span><span class="meta-value">${STATUS_LABELS[card.status]?.() ?? card.status}</span></div>
       <div class="meta-item"><span class="meta-label">${t('kanban.meta.assignee')}</span><span class="meta-value">${card.assignee ? esc(card.assignee) : t('kanban.meta.none')}</span></div>
       <div class="meta-item"><span class="meta-label">${t('kanban.meta.priority')}</span><span class="meta-value">${PRIORITY_LABELS[card.priority]?.() ?? card.priority}</span></div>
-      <div class="meta-item"><span class="meta-label">${t('kanban.meta.project')}</span><span class="meta-value">${card.project ? esc(card.project) : t('kanban.meta.none')}</span></div>
+      <div class="meta-item"><span class="meta-label">${t('kanban.meta.project')}</span><span class="meta-value">${card.project ? esc(projectLabel(card.project)) : t('kanban.meta.none')}</span></div>
       <div class="meta-item"><span class="meta-label">${t('archived.meta.archived_at')}</span><span class="meta-value">${fmtDate(card.archived_at)}</span></div>
     `
     const labelsWrap = document.getElementById('archivedDetailLabelsWrap')
@@ -32890,7 +32896,7 @@ async function openResearchDoc(agent, name) {
   function groupCardsByProject(cards) {
     const map = new Map()
     for (const c of cards) {
-      const key = c.project || t('kanban.gantt.no_project')
+      const key = c.project ? projectLabel(c.project) : t('kanban.gantt.no_project')
       if (!map.has(key)) map.set(key, [])
       map.get(key).push(c)
     }
@@ -39823,3 +39829,1225 @@ document.addEventListener('click', async (ev) => {
   }
   window.loadBrowserPage = loadBrowserPage
 })()
+
+// ============================================================
+// === Iroda -> Projektek (kanban #321, c17e3a2d) ===
+// ============================================================
+//
+// A projekt = egy adatbazis-objektum + egy mappa a Raktarban + a Marveen
+// meglevo objektumainak SZURT nezete (src/projects.ts). Nincs kulon projekt-
+// kanban es nincs masolat: a Kanban ful a meglevo Kanbant nyitja meg erre a
+// projektre szurve, a Fajlok ful a meglevo Intezot a projekt mappajaban.
+//
+// Az Attekintes CSAK mert adatot mutat (src/project-overview.ts): folyamatban
+// levo kartya, foglalas, futo kodfeladat, fuggo jovahagyas, esemenyek. Semmi
+// nem generalodik megnyitaskor, es nincs AI-velemeny a projekt allapotarol.
+//
+// `var`, nem `let`: a kanban mar a fajl ezen resze elott hivhatja a
+// projectLabel()-t, es egy `let` ott meg holt zonaban volna.
+var _prj = {
+  all: [],
+  depotConfigured: false,
+  showArchived: false,
+  current: null,
+  overview: null,
+  openOnLoad: null,
+  form: null,
+  mig: null,
+  migData: null,
+  migOpen: false,
+}
+
+// ---- projekt-nevek a kanbanhoz -----------------------------------------------
+
+/** A kartya `project` mezojenek kiirhato neve: projekt-id -> a projekt neve,
+ *  minden mas (regi szabad szoveg) valtozatlanul. */
+function projectLabel(value) {
+  if (!value) return ''
+  const p = (window._projectNames || {})[value]
+  if (!p) return String(value)
+  return p.archived ? t('projects.name_archived', { name: p.name }) : p.name
+}
+
+/** A kartya-urlapba irt projekt-nev -> projekt-id, ha egyertelmu. Kulonben a
+ *  beirt szoveg megy tovabb (a szerver ugyanigy old fel, ez csak elore jelez). */
+function projectRefFromLabel(text) {
+  const v = String(text || '').trim()
+  if (!v) return v
+  const names = window._projectNames || {}
+  if (names[v]) return v
+  const key = v.normalize('NFC').toLocaleLowerCase('hu')
+  const hits = Object.keys(names).filter((id) => String(names[id].name || '').normalize('NFC').trim().toLocaleLowerCase('hu') === key)
+  return hits.length === 1 ? hits[0] : v
+}
+
+async function refreshProjectNames() {
+  try {
+    const r = await fetch('/api/projects/names')
+    if (r.ok) window._projectNames = await r.json()
+  } catch { /* a kanban ilyenkor a nyers erteket mutatja */ }
+  return window._projectNames || {}
+}
+
+/** A Kanban eszkoztaran: "vissza a projekthez", ha a szuro egy projektre all. */
+function _prjSyncKanbanChip() {
+  const sel = document.getElementById('kanbanProjectFilter')
+  if (!sel) return
+  let chip = document.getElementById('prjKanbanChip')
+  const pid = typeof kanbanProjectFilter === 'string' ? kanbanProjectFilter : ''
+  const known = pid ? (window._projectNames || {})[pid] : null
+  if (!known) { if (chip) chip.remove(); return }
+  if (!chip) {
+    chip = document.createElement('button')
+    chip.type = 'button'
+    chip.id = 'prjKanbanChip'
+    chip.className = 'prj-back-chip'
+    sel.insertAdjacentElement('afterend', chip)
+  }
+  chip.setAttribute('data-prj-return', pid)
+  chip.textContent = t('projects.back_to_project', { name: known.name })
+}
+
+// ---- segedek ------------------------------------------------------------------
+
+function _prjT(key, params, fallback) {
+  const v = t(key, params || {})
+  return v === key ? (fallback !== undefined ? fallback : key) : v
+}
+
+async function _prjApi(method, url, body) {
+  const full = url + (url.indexOf('?') < 0 ? '?' : '&') + 'lang=' + encodeURIComponent(window._lang || 'hu')
+  try {
+    const opts = { method }
+    if (body !== undefined) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body) }
+    const res = await fetch(full, opts)
+    let data = null
+    try { data = await res.json() } catch { data = null }
+    if (!res.ok) {
+      return { ok: false, status: res.status, code: data && data.error, message: (data && data.message) || t('projects.err.http', { status: res.status }), data }
+    }
+    return { ok: true, status: res.status, data }
+  } catch {
+    return { ok: false, status: 0, code: 'network', message: t('projects.err.network') }
+  }
+}
+
+function _prjAgo(ms) {
+  if (!ms) return t('projects.ago.never')
+  const diff = Math.max(0, Date.now() - ms)
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return t('projects.ago.now')
+  if (min < 60) return t('projects.ago.min', { n: min })
+  const hr = Math.floor(min / 60)
+  if (hr < 24) return t('projects.ago.hour', { n: hr })
+  const day = Math.floor(hr / 24)
+  if (day < 8) return t('projects.ago.day', { n: day })
+  return _prjDate(ms)
+}
+
+function _prjDate(ms, withTime) {
+  if (!ms) return '-'
+  const opts = withTime
+    ? { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+    : { year: 'numeric', month: '2-digit', day: '2-digit' }
+  try { return new Date(ms).toLocaleString((window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU', opts) } catch { return new Date(ms).toISOString().slice(0, 16) }
+}
+
+function _prjStatusPill(status) {
+  return `<span class="prj-pill prj-pill-${escapeAttr(status)}">${escapeHtml(_prjT('kanban.status.' + status, null, status))}</span>`
+}
+
+function _prjCardLink(card) {
+  const label = (card.seq != null ? '#' + card.seq + ' ' : '') + (card.title || card.id)
+  return `<a href="#" class="prj-card-link" data-prj-card="${escapeAttr(card.id)}">${escapeHtml(label)}</a>`
+}
+
+/** Egy lefordított mondat, amibe egy KESZ HTML-darab (pl. kartya-link) kerul. */
+function _prjTHtml(key, params, htmlParams) {
+  const marks = {}
+  const p = Object.assign({}, params || {})
+  for (const k of Object.keys(htmlParams || {})) { p[k] = '\u0001' + k + '\u0001'; marks[k] = htmlParams[k] }
+  let out = escapeHtml(t(key, p))
+  for (const k of Object.keys(marks)) out = out.split('\u0001' + k + '\u0001').join(marks[k])
+  return out
+}
+
+function _prjOverlay(id) {
+  let ov = document.getElementById(id)
+  if (!ov) {
+    ov = document.createElement('div')
+    ov.className = 'modal-overlay'
+    ov.id = id
+    ov.addEventListener('click', (e) => { if (e.target === ov) closeModal(ov) })
+    document.body.appendChild(ov)
+  }
+  return ov
+}
+
+// ---- oldal-betolto ------------------------------------------------------------
+
+async function loadProjectsPage() {
+  const root = document.getElementById('projectsRoot')
+  if (!root) return
+  document.getElementById('prjIntezoChip')?.remove()
+  const openId = _prj.openOnLoad
+  _prj.openOnLoad = null
+  if (openId) { await _prjOpenProject(openId); return }
+  _prj.current = null
+  await _prjLoadList()
+}
+window.loadProjectsPage = loadProjectsPage
+
+async function _prjLoadList() {
+  const root = document.getElementById('projectsRoot')
+  if (!root) return
+  root.innerHTML = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  // Mindig az archivaltakkal egyutt: igy kulon tudjuk mondani, hogy "meg nincs
+  // projekted" vagy "minden projekted archivalt" -- a ketto nem ugyanaz.
+  const r = await _prjApi('GET', '/api/projects?archived=1')
+  if (_prj.current) return
+  if (!r.ok) {
+    root.innerHTML = _prjListHeadHtml() + `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: r.message }))}</div>`
+    _prjWireListHead()
+    return
+  }
+  _prj.all = r.data.projects || []
+  _prj.depotConfigured = !!(r.data.depot && r.data.depot.configured)
+  refreshProjectNames()
+  _prjRenderList()
+  _prjLoadMigration()
+}
+
+function _prjListHeadHtml() {
+  return `
+    <div class="page-header">
+      <div class="page-header-row">
+        <div>
+          <h1>${escapeHtml(t('projects.page_title'))}</h1>
+          <p class="subtitle">${escapeHtml(t('projects.page_subtitle'))}</p>
+        </div>
+        <div class="prj-head-actions">
+          ${_prj.all.length ? `<label class="prj-toggle"><input type="checkbox" id="prjShowArchived"${_prj.showArchived ? ' checked' : ''}> ${escapeHtml(t('projects.show_archived'))}</label>` : ''}
+          <button type="button" class="btn-primary" data-prj-act="new">${escapeHtml(t('projects.new_btn'))}</button>
+        </div>
+      </div>
+    </div>
+    <div id="prjMigrationBox"></div>`
+}
+
+function _prjWireListHead() {
+  document.getElementById('prjShowArchived')?.addEventListener('change', (e) => {
+    _prj.showArchived = !!e.target.checked
+    _prjRenderList()
+    _prjRenderMigration()
+  })
+}
+
+function _prjRenderList() {
+  const root = document.getElementById('projectsRoot')
+  if (!root || _prj.current) return
+  const all = _prj.all
+  const visible = _prj.showArchived ? all : all.filter((p) => !p.archived_at)
+  let body
+  if (!all.length) body = _prjEmptyHtml()
+  else if (!visible.length) {
+    body = `<div class="prj-empty prj-empty-small"><p>${escapeHtml(t('projects.all_archived', { n: all.length }))}</p>
+      <button type="button" class="btn-secondary" data-prj-act="show-archived">${escapeHtml(t('projects.show_archived'))}</button></div>`
+  } else body = `<div class="prj-grid">${visible.map(_prjTileHtml).join('')}</div>`
+  root.innerHTML = _prjListHeadHtml() + body
+  _prjWireListHead()
+}
+
+function _prjEmptyHtml() {
+  const steps = ['projects.empty.step1', 'projects.empty.step2', 'projects.empty.step3']
+  return `<div class="prj-empty">
+    <h2>${escapeHtml(t('projects.empty.title'))}</h2>
+    <p>${escapeHtml(t('projects.empty.lead'))}</p>
+    <ol class="prj-steps">${steps.map((k) => `<li>${escapeHtml(t(k))}</li>`).join('')}</ol>
+    ${_prj.depotConfigured ? '' : `<p class="prj-muted">${escapeHtml(t('projects.empty.no_depot'))}</p>`}
+    <button type="button" class="btn-primary" data-prj-act="new">${escapeHtml(t('projects.empty.cta'))}</button>
+  </div>`
+}
+
+function _prjTileHtml(p) {
+  const badge = p.archived_at
+    ? `<span class="prj-status prj-status-archived">${escapeHtml(t('projects.archived'))}</span>`
+    : `<span class="prj-status prj-status-${escapeAttr(p.status)}">${escapeHtml(_prjT('projects.status.' + p.status, null, p.status))}</span>`
+  return `<button type="button" class="prj-tile" data-prj-open="${escapeAttr(p.id)}">
+    <span class="prj-tile-head"><span class="prj-tile-name">${escapeHtml(p.name)}</span>${badge}</span>
+    ${p.description ? `<span class="prj-tile-desc">${escapeHtml(p.description)}</span>` : ''}
+    ${p.client ? `<span class="prj-tile-client">${escapeHtml(t('projects.client_line', { client: p.client }))}</span>` : ''}
+    <span class="prj-tile-meta">${escapeHtml(t('projects.tile.open_cards', { n: p.open_cards }))} · ${escapeHtml(t('projects.tile.last_activity', { when: _prjAgo((p.last_activity_at || 0) * 1000) }))}</span>
+  </button>`
+}
+
+// ---- projekt-oldal ------------------------------------------------------------
+
+async function _prjOpenProject(id) {
+  _prj.current = id
+  const root = document.getElementById('projectsRoot')
+  if (!root) return
+  if (!_prj.overview || _prj.overview.project.id !== id) root.innerHTML = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(id) + '/overview')
+  if (_prj.current !== id) return
+  if (!r.ok) {
+    if (r.status === 404) {
+      showToast(r.message)
+      _prj.current = null
+      _prj.overview = null
+      await _prjLoadList()
+      return
+    }
+    root.innerHTML = `<button type="button" class="prj-back-link" data-prj-act="back">${escapeHtml(t('projects.back_to_list'))}</button>
+      <div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: r.message }))}</div>`
+    return
+  }
+  _prj.overview = r.data
+  _prjRenderProject()
+}
+
+function _prjRenderProject() {
+  const root = document.getElementById('projectsRoot')
+  const ov = _prj.overview
+  if (!root || !ov) return
+  const p = ov.project
+  const status = `<span class="prj-status prj-status-${escapeAttr(p.status)}">${escapeHtml(_prjT('projects.status.' + p.status, null, p.status))}</span>`
+  root.innerHTML = `
+  <div class="prj-detail">
+    <button type="button" class="prj-back-link" data-prj-act="back">${escapeHtml(t('projects.back_to_list'))}</button>
+    ${p.archived_at ? `<div class="info-box prj-archived-box">${escapeHtml(t('projects.archived_banner'))}
+      <button type="button" class="btn-secondary btn-compact" data-prj-act="unarchive">${escapeHtml(t('projects.unarchive'))}</button></div>` : ''}
+    <div class="prj-head">
+      <div class="prj-head-main">
+        <h1>${escapeHtml(p.name)}</h1>
+        ${p.description ? `<p class="subtitle">${escapeHtml(p.description)}</p>` : ''}
+        ${p.client ? `<p class="prj-client">${escapeHtml(t('projects.client_line', { client: p.client }))}</p>` : ''}
+      </div>
+      <div class="prj-head-actions">
+        ${status}
+        <button type="button" class="btn-secondary" data-prj-act="refresh" title="${escapeAttr(t('projects.refresh_hint'))}">${escapeHtml(t('common.refresh'))}</button>
+        <button type="button" class="btn-secondary" data-prj-act="edit">${escapeHtml(t('projects.edit_btn'))}</button>
+      </div>
+    </div>
+    <div class="prj-tabs" role="tablist">
+      <button type="button" class="tab-btn active" role="tab" aria-selected="true">${escapeHtml(t('projects.tab.overview'))}</button>
+      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-act="kanban" title="${escapeAttr(t('projects.tab.kanban_hint'))}">${escapeHtml(t('projects.tab.kanban'))} ↗</button>
+      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-act="files" title="${escapeAttr(t('projects.tab.files_hint'))}">${escapeHtml(t('projects.tab.files'))} ↗</button>
+    </div>
+    <div id="prjFilesNote"></div>
+    ${_prjFactsHtml(ov)}
+    <div class="prj-sections">
+      <section class="prj-section">
+        <h2>${escapeHtml(t('projects.current.title'))}</h2>
+        <p class="prj-section-hint">${escapeHtml(t('projects.current.hint'))}</p>
+        ${_prjCurrentHtml(ov)}
+      </section>
+      <section class="prj-section">
+        <h2>${escapeHtml(t('projects.approvals.title'))}</h2>
+        <p class="prj-section-hint">${escapeHtml(t('projects.approvals.hint'))}</p>
+        ${_prjApprovalsHtml(ov)}
+      </section>
+      <section class="prj-section">
+        <h2>${escapeHtml(t('projects.next.title'))}</h2>
+        <p class="prj-section-hint">${escapeHtml(t('projects.next.hint'))}</p>
+        ${_prjNextHtml(ov)}
+      </section>
+      <section class="prj-section">
+        <h2>${escapeHtml(t('projects.activity.title'))}</h2>
+        <p class="prj-section-hint">${escapeHtml(t('projects.activity.hint'))}</p>
+        ${_prjActivityHtml(ov)}
+      </section>
+    </div>
+  </div>`
+}
+
+function _prjFactsHtml(ov) {
+  const f = ov.facts || {}
+  const items = [
+    ['open', f.openCards, false],
+    ['in_progress', f.inProgress, false],
+    ['waiting', f.waiting, false],
+    ['approvals', f.pendingApprovals, false],
+    ['overdue', f.overdue, true],
+    ['stale', f.staleOpenCards, true],
+  ]
+  return `<div class="prj-facts">${items.map(([k, n, warn]) => `
+    <div class="prj-fact${warn && n ? ' prj-fact-warn' : ''}" title="${escapeAttr(t('projects.fact.' + k + '_hint'))}">
+      <span class="prj-fact-n">${Number(n) || 0}</span><span class="prj-fact-l">${escapeHtml(t('projects.fact.' + k))}</span>
+    </div>`).join('')}</div>`
+}
+
+function _prjEmptyLine(key) {
+  return `<p class="prj-muted prj-section-empty">${escapeHtml(t(key))}</p>`
+}
+
+function _prjCurrentHtml(ov) {
+  const list = ov.currentWork || []
+  if (!list.length) return _prjEmptyLine('projects.current.empty')
+  return `<ul class="prj-list">${list.map((w) => {
+    const head = w.card
+      ? `${_prjCardLink(w.card)} ${_prjStatusPill(w.card.status)}`
+      : `<span class="prj-item-title">${escapeHtml(t('projects.current.cardless'))}</span>`
+    const subs = []
+    for (const c of w.claims || []) {
+      subs.push(escapeHtml(t('projects.current.claim', {
+        who: c.holder,
+        how: _prjT('projects.claim_kind.' + c.kind, null, c.kind),
+        since: _prjAgo(c.since),
+      })))
+    }
+    for (const ct of w.codeTasks || []) {
+      let line = t('projects.current.code_task', { alias: ct.alias, status: _prjT('projects.code_status.' + ct.status, null, ct.status) })
+      if (ct.excerpt) line += ' — ' + ct.excerpt.slice(0, 120)
+      subs.push(escapeHtml(line))
+    }
+    if (!(w.claims || []).length && !(w.codeTasks || []).length) {
+      subs.push(escapeHtml(w.card && w.card.assignee
+        ? t('projects.current.assignee_only', { who: w.card.assignee })
+        : t('projects.current.no_claim')))
+    }
+    return `<li class="prj-item"><div class="prj-item-head">${head}</div>${subs.map((s) => `<div class="prj-item-sub">${s}</div>`).join('')}</li>`
+  }).join('')}</ul>`
+}
+
+function _prjApprovalsHtml(ov) {
+  const list = ov.approvals || []
+  if (!list.length) return _prjEmptyLine('projects.approvals.empty')
+  return `<ul class="prj-list">${list.map((a) => `
+    <li class="prj-item">
+      <div class="prj-item-head">${_prjCardLink({ id: a.cardId, title: a.cardTitle })}</div>
+      ${a.description ? `<div class="prj-item-sub prj-clamp" title="${escapeAttr(a.description)}">${escapeHtml(a.description)}</div>` : ''}
+      <div class="prj-item-sub prj-muted">${escapeHtml(t('projects.approvals.requested', { who: a.agentId, when: _prjAgo(a.requestedAt) }))}</div>
+    </li>`).join('')}</ul>
+    <button type="button" class="btn-secondary btn-compact" data-prj-act="approvals">${escapeHtml(t('projects.approvals.open_page'))}</button>`
+}
+
+function _prjNextHtml(ov) {
+  const list = ov.nextSteps || []
+  if (!list.length) return _prjEmptyLine('projects.next.empty')
+  const more = (ov.nextStepsTotal || 0) - list.length
+  return `<ul class="prj-list">${list.map((c) => {
+    const bits = [escapeHtml(_prjT('kanban.priority.' + c.priority, null, c.priority))]
+    if (c.dueAt) bits.push(escapeHtml(t(c.dueAt < Date.now() ? 'projects.next.overdue' : 'projects.next.due', { date: _prjDate(c.dueAt) })))
+    if (c.assignee) bits.push(escapeHtml(c.assignee))
+    return `<li class="prj-item"><div class="prj-item-head">${_prjCardLink(c)} ${_prjStatusPill(c.status)}</div>
+      <div class="prj-item-sub prj-muted">${bits.join(' · ')}</div></li>`
+  }).join('')}</ul>
+  ${more > 0 ? `<button type="button" class="btn-secondary btn-compact" data-prj-act="kanban">${escapeHtml(t('projects.next.more', { n: more }))}</button>` : ''}`
+}
+
+function _prjActivityLine(a) {
+  const card = a.cardId ? _prjCardLink({ id: a.cardId, title: a.cardTitle || a.cardId }) : ''
+  const st = (s) => _prjT('kanban.status.' + s, null, s || '-')
+  switch (a.kind) {
+    case 'status':
+      return _prjTHtml(a.from ? 'projects.act.status' : 'projects.act.created', { from: st(a.from), to: st(a.to), who: a.actor || '-' }, { card })
+    case 'comment':
+      return _prjTHtml('projects.act.comment', { who: a.actor || '-' }, { card })
+        + (a.text ? `<div class="prj-item-sub">${escapeHtml(a.text.slice(0, 160))}</div>` : '')
+    case 'approval':
+      return _prjTHtml('projects.act.approval', { status: _prjT('approvals.status.' + a.to, null, a.to) }, { card })
+    case 'idea':
+      return escapeHtml(t('projects.act.idea', { name: a.name || '', to: a.to || '' }))
+    case 'code':
+      return (card
+        ? _prjTHtml('projects.act.code_card', { alias: a.actor || '', status: _prjT('projects.code_status.' + a.to, null, a.to) }, { card })
+        : escapeHtml(t('projects.act.code', { alias: a.actor || '', status: _prjT('projects.code_status.' + a.to, null, a.to) })))
+        + (a.text ? `<div class="prj-item-sub">${escapeHtml(a.text.slice(0, 160))}</div>` : '')
+    case 'file':
+      return escapeHtml(t('projects.act.file', { name: a.name || '' }))
+    default:
+      return escapeHtml(a.kind)
+  }
+}
+
+function _prjActivityHtml(ov) {
+  const list = ov.activity || []
+  if (!list.length) return _prjEmptyLine('projects.activity.empty')
+  return `<ul class="prj-list prj-timeline">${list.map((a) => `
+    <li class="prj-item"><span class="prj-when" title="${escapeAttr(_prjDate(a.at, true))}">${escapeHtml(_prjAgo(a.at))}</span>
+      <div class="prj-what">${_prjActivityLine(a)}</div></li>`).join('')}</ul>`
+}
+
+/** Fajlok ful: ha a mappa latszik, a meglevo Intezo nyilik meg ott. Ha nem,
+ *  megmondjuk, MIERT nem -- a "nincs mappa", a "nincs Raktar", az "eltunt a
+ *  mappa" es a "nem erem el" negy kulon helyzet, negy kulon teendovel. */
+function _prjFilesClick() {
+  const ov = _prj.overview
+  if (!ov) return
+  const st = ov.folder && ov.folder.state
+  if (st === 'ok') { _prjOpenFiles(ov.project); return }
+  const box = document.getElementById('prjFilesNote')
+  if (!box) return
+  const path = (ov.folder && ov.folder.path) || ''
+  let action = ''
+  if (st === 'no_depot') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="depot">${escapeHtml(t('projects.files.open_depot'))}</button>`
+  else if (st !== 'unreachable') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="edit">${escapeHtml(t('projects.files.set_folder'))}</button>`
+  box.innerHTML = `<div class="info-box${st === 'unreachable' || st === 'missing' ? ' depo-bad' : ''}">
+    ${escapeHtml(_prjT('projects.files.state.' + st, { path }, st))} ${action}</div>`
+}
+
+function _prjOpenFiles(p) {
+  if (!p || !p.folder_path) return
+  if (typeof _intezoClearSelection === 'function') _intezoClearSelection()
+  _intezoPath = p.folder_path
+  const page = document.getElementById('intezoPage')
+  if (page) {
+    let bar = document.getElementById('prjIntezoChip')
+    if (!bar) { bar = document.createElement('div'); bar.id = 'prjIntezoChip'; bar.className = 'prj-back-bar'; page.prepend(bar) }
+    bar.innerHTML = `<button type="button" class="prj-back-chip" data-prj-return="${escapeAttr(p.id)}">${escapeHtml(t('projects.back_to_project', { name: p.name }))}</button>
+      <span class="prj-muted">${escapeHtml(t('projects.files.intezo_note', { path: p.folder_path }))}</span>
+      <button type="button" class="prj-back-x" data-prj-chip-close title="${escapeAttr(t('common.close'))}" aria-label="${escapeAttr(t('common.close'))}">×</button>`
+  }
+  if (location.hash.slice(1) === 'intezo') switchPage('intezo')
+  else location.hash = 'intezo'
+}
+
+function _prjOpenKanban(id) {
+  kanbanProjectFilter = id
+  const sel = document.getElementById('kanbanProjectFilter')
+  if (sel) sel.value = id
+  setWorkspace('marvin', { page: 'kanban' })
+  if (location.hash.slice(1) === 'kanban') switchPage('kanban')
+  else location.hash = 'kanban'
+}
+
+function _prjReturnToProject(id) {
+  _prj.openOnLoad = id || null
+  document.getElementById('prjIntezoChip')?.remove()
+  setWorkspace('iroda', { page: 'projects' })
+  if (location.hash.slice(1) === 'projects') switchPage('projects')
+  else location.hash = 'projects'
+}
+
+// ---- letrehozas / szerkesztes ---------------------------------------------------
+
+async function _prjLabels() {
+  try {
+    const r = await fetch('/api/kanban/labels')
+    if (r.ok) return await r.json()
+  } catch { /* cimke nelkul is letrehozhato */ }
+  return []
+}
+
+async function _prjOpenForm(mode, project) {
+  const ov = _prjOverlay('prjModalOverlay')
+  const [fo, labels] = await Promise.all([_prjApi('GET', '/api/projects/folder-options'), _prjLabels()])
+  const folder = fo.ok ? fo.data : { depot: { configured: false }, parents: [], subfolders: [] }
+  const configured = !!(folder.depot && folder.depot.configured)
+  _prj.form = {
+    mode,
+    project: project || null,
+    folder,
+    folderErr: fo.ok ? null : fo.message,
+    labels: Array.isArray(labels) ? labels : [],
+    folderMode: mode === 'edit' ? 'keep' : (configured ? 'create' : 'none'),
+    folderNameEdited: false,
+    busy: false,
+  }
+  ov.innerHTML = _prjFormHtml()
+  _prjWireForm(ov)
+  openModal(ov)
+  _prjFolderPreview()
+  setTimeout(() => ov.querySelector('#prjName')?.focus(), 150)
+}
+
+function _prjFormHtml() {
+  const f = _prj.form
+  const p = f.project || {}
+  const edit = f.mode === 'edit'
+  const configured = !!(f.folder.depot && f.folder.depot.configured)
+  const parents = f.folder.parents || []
+  const parentOpts = parents.map((x) => `<option value="${escapeAttr(x.rel)}">${escapeHtml(x.label + (x.exists ? '' : ' ' + t('projects.form.parent_new')))}</option>`).join('')
+  const exParentOpts = `<option value="">${escapeHtml(t('projects.form.depot_root'))}</option>` + parents.filter((x) => x.exists)
+    .map((x) => `<option value="${escapeAttr(x.rel)}">${escapeHtml(x.label)}</option>`).join('')
+  const labelOpts = `<option value="">${escapeHtml(t('projects.form.no_label'))}</option>` + f.labels
+    .map((l) => `<option value="${escapeAttr(l.id)}"${p.default_label_id === l.id ? ' selected' : ''}>${escapeHtml(l.name)}</option>`).join('')
+  const subNames = (f.folder.subfolders || []).join(', ')
+  const radio = (val, key, hint) => `
+    <label class="prj-radio"><input type="radio" name="prjFolderMode" value="${val}"${f.folderMode === val ? ' checked' : ''}${!configured && (val === 'create' || val === 'existing') ? ' disabled' : ''}>
+      <span><strong>${escapeHtml(t(key))}</strong>${hint ? `<span class="prj-radio-hint">${escapeHtml(t(hint))}</span>` : ''}</span></label>`
+  return `
+  <div class="modal modal-wide prj-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h2>${escapeHtml(t(edit ? 'projects.form.title_edit' : 'projects.form.title_new'))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button>
+    </div>
+    <div class="modal-body prj-form">
+      ${edit ? '' : `<p class="prj-muted">${escapeHtml(t('projects.form.intro'))}</p>`}
+      <div class="form-group">
+        <label for="prjName">${escapeHtml(t('projects.form.name'))} *</label>
+        <input type="text" id="prjName" class="input" maxlength="120" value="${escapeAttr(p.name || '')}" placeholder="${escapeAttr(t('projects.form.name_ph'))}">
+      </div>
+      <div class="form-group">
+        <label for="prjDesc">${escapeHtml(t('projects.form.desc'))}</label>
+        <textarea id="prjDesc" class="input" rows="2" maxlength="2000" placeholder="${escapeAttr(t('projects.form.desc_ph'))}">${escapeHtml(p.description || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label for="prjClient">${escapeHtml(t('projects.form.client'))} <span class="hint">${escapeHtml(t('projects.form.optional'))}</span></label>
+        <input type="text" id="prjClient" class="input" maxlength="200" value="${escapeAttr(p.client || '')}" placeholder="${escapeAttr(t('projects.form.client_ph'))}">
+        <p class="prj-field-hint">${escapeHtml(t('projects.form.client_hint'))}</p>
+      </div>
+      ${edit ? `<div class="form-group">
+        <label for="prjStatus">${escapeHtml(t('projects.form.status'))}</label>
+        <select id="prjStatus" class="input">${['active', 'paused', 'closed'].map((s) => `<option value="${s}"${p.status === s ? ' selected' : ''}>${escapeHtml(t('projects.status.' + s))}</option>`).join('')}</select>
+      </div>` : ''}
+      <div class="form-group">
+        <label for="prjLabel">${escapeHtml(t('projects.form.label'))} <span class="hint">${escapeHtml(t('projects.form.optional'))}</span></label>
+        <select id="prjLabel" class="input">${labelOpts}</select>
+        <p class="prj-field-hint">${escapeHtml(t('projects.form.label_hint'))}</p>
+      </div>
+      <fieldset class="prj-folder">
+        <legend>${escapeHtml(t('projects.form.folder'))}</legend>
+        <p class="prj-field-hint">${escapeHtml(t('projects.form.folder_hint'))}</p>
+        ${f.folderErr ? `<div class="info-box depo-bad">${escapeHtml(f.folderErr)}</div>` : ''}
+        ${!configured && !f.folderErr ? `<div class="info-box">${escapeHtml(t('projects.form.no_depot'))}
+          <button type="button" class="btn-secondary btn-compact" data-prj-act="depot">${escapeHtml(t('projects.files.open_depot'))}</button></div>` : ''}
+        ${edit ? radio('keep', p.folder_path ? 'projects.form.folder_keep' : 'projects.form.folder_keep_none') : ''}
+        ${radio('create', 'projects.form.folder_create', 'projects.form.folder_create_hint')}
+        <div class="prj-folder-sub" data-for="create">
+          <label for="prjFolderParent">${escapeHtml(t('projects.form.folder_parent'))}</label>
+          <select id="prjFolderParent" class="input">${parentOpts}</select>
+          <label for="prjFolderName">${escapeHtml(t('projects.form.folder_name'))}</label>
+          <input type="text" id="prjFolderName" class="input" maxlength="120" value="${escapeAttr(p.name || '')}">
+          <label class="prj-check"><input type="checkbox" id="prjFolderSubs" checked> ${escapeHtml(t('projects.form.folder_subs', { names: subNames }))}</label>
+        </div>
+        ${radio('existing', 'projects.form.folder_existing', 'projects.form.folder_existing_hint')}
+        <div class="prj-folder-sub" data-for="existing">
+          <label for="prjExParent">${escapeHtml(t('projects.form.folder_where'))}</label>
+          <select id="prjExParent" class="input">${exParentOpts}</select>
+          <label for="prjExFolder">${escapeHtml(t('projects.form.folder_pick'))}</label>
+          <select id="prjExFolder" class="input"></select>
+        </div>
+        ${radio('none', edit ? 'projects.form.folder_none_edit' : 'projects.form.folder_none')}
+        <div id="prjFolderPreview" class="prj-preview" aria-live="polite"></div>
+      </fieldset>
+      <div id="prjFormError" class="info-box depo-bad" hidden></div>
+    </div>
+    <div class="modal-footer prj-modal-footer">
+      ${edit ? `<div class="prj-footer-left">
+        <button type="button" class="btn-secondary" data-prj-act="${p.archived_at ? 'unarchive' : 'archive'}">${escapeHtml(t(p.archived_at ? 'projects.unarchive' : 'projects.archive'))}</button>
+        <button type="button" class="btn-danger" data-prj-act="delete">${escapeHtml(t('projects.delete.btn'))}</button>
+      </div>` : ''}
+      <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.cancel'))}</button>
+      <button type="button" class="btn-primary" id="prjFormSave">${escapeHtml(t(edit ? 'common.save' : 'projects.form.create'))}</button>
+    </div>
+  </div>`
+}
+
+function _prjWireForm(ov) {
+  const f = _prj.form
+  const q = (sel) => ov.querySelector(sel)
+  const syncSubs = () => {
+    ov.querySelectorAll('.prj-folder-sub').forEach((el) => { el.hidden = el.getAttribute('data-for') !== f.folderMode })
+  }
+  syncSubs()
+  ov.querySelectorAll('input[name="prjFolderMode"]').forEach((r) => r.addEventListener('change', () => {
+    f.folderMode = r.value
+    syncSubs()
+    if (f.folderMode === 'existing') _prjLoadExisting()
+    _prjFolderPreview()
+  }))
+  q('#prjName')?.addEventListener('input', () => {
+    if (!f.folderNameEdited && q('#prjFolderName')) q('#prjFolderName').value = q('#prjName').value
+    _prjFolderPreview()
+  })
+  q('#prjFolderName')?.addEventListener('input', () => { f.folderNameEdited = true; _prjFolderPreview() })
+  q('#prjFolderParent')?.addEventListener('change', _prjFolderPreview)
+  q('#prjFolderSubs')?.addEventListener('change', _prjFolderPreview)
+  q('#prjExParent')?.addEventListener('change', _prjLoadExisting)
+  q('#prjExFolder')?.addEventListener('change', _prjFolderPreview)
+  q('#prjFormSave')?.addEventListener('click', _prjSubmitForm)
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  q('#prjName')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); _prjSubmitForm() } })
+}
+
+/** A "meglevo mappa" lista: a valasztott hely almappai, a meglevo Intezo
+ *  listazojabol. Elso sorban maga a hely is valaszthato. */
+async function _prjLoadExisting() {
+  const ov = document.getElementById('prjModalOverlay')
+  const sel = ov && ov.querySelector('#prjExFolder')
+  if (!sel) return
+  const parent = ov.querySelector('#prjExParent').value
+  sel.innerHTML = `<option value="">${escapeHtml(t('common.loading'))}</option>`
+  sel.disabled = true
+  let data = null
+  let err = null
+  try {
+    const r = await fetch('/api/life/list?lang=' + (window._lang || 'hu') + '&path=' + encodeURIComponent(parent))
+    data = await r.json().catch(() => null)
+    if (!r.ok) err = (data && (data.message || data.error)) || t('projects.err.http', { status: r.status })
+  } catch { err = t('projects.err.network') }
+  const opts = []
+  if (parent) opts.push(`<option value="${escapeAttr(parent)}">${escapeHtml(t('projects.form.folder_this', { name: parent.split('/').pop() }))}</option>`)
+  for (const d of (data && data.folders) || []) {
+    if (!d.isDir) continue
+    opts.push(`<option value="${escapeAttr(d.rel)}">${escapeHtml(d.displayName || d.name)}</option>`)
+  }
+  if (!opts.length) opts.push(`<option value="">${escapeHtml(err ? t('projects.form.folder_list_failed', { msg: err }) : t('projects.form.folder_list_empty'))}</option>`)
+  sel.innerHTML = opts.join('')
+  sel.disabled = false
+  _prjFolderPreview()
+}
+
+var _prjPreviewTimer = null
+function _prjFolderPreview() {
+  clearTimeout(_prjPreviewTimer)
+  _prjPreviewTimer = setTimeout(_prjFolderPreviewNow, 250)
+}
+
+async function _prjFolderPreviewNow() {
+  const ov = document.getElementById('prjModalOverlay')
+  const box = ov && ov.querySelector('#prjFolderPreview')
+  const f = _prj.form
+  if (!box || !f) return
+  const p = f.project || {}
+  const set = (html, bad) => { box.innerHTML = html; box.classList.toggle('prj-preview-bad', !!bad) }
+  if (f.folderMode === 'keep') {
+    set(escapeHtml(p.folder_path ? t('projects.form.preview_keep', { path: p.folder_path }) : t('projects.form.preview_keep_none')))
+    return
+  }
+  if (f.folderMode === 'none') {
+    set(escapeHtml(t(f.mode === 'edit' && p.folder_path ? 'projects.form.preview_unlink' : 'projects.form.preview_none')))
+    return
+  }
+  if (f.folderMode === 'existing') {
+    const rel = ov.querySelector('#prjExFolder')?.value || ''
+    if (!rel) { set(escapeHtml(t('projects.form.preview_pick')), true); return }
+    set(escapeHtml(t('projects.form.preview_existing', { path: rel })))
+    return
+  }
+  const name = (ov.querySelector('#prjFolderName')?.value || '').trim()
+  if (!name) { set(escapeHtml(t('projects.form.preview_need_name')), true); return }
+  const qs = '?mode=create&parent=' + encodeURIComponent(ov.querySelector('#prjFolderParent')?.value || '')
+    + '&name=' + encodeURIComponent(name) + '&subfolders=' + (ov.querySelector('#prjFolderSubs')?.checked ? '1' : '0')
+  const r = await _prjApi('GET', '/api/projects/folder-preview' + qs)
+  if (_prj.form !== f) return
+  if (!r.ok) { set(escapeHtml(r.message), true); return }
+  const list = (r.data.willCreate || []).map((x) => `<li><code>${escapeHtml(x)}</code></li>`).join('')
+  set(`${escapeHtml(t('projects.form.preview_create'))}<ul>${list}</ul>`)
+}
+
+function _prjFolderRequest() {
+  const ov = document.getElementById('prjModalOverlay')
+  const f = _prj.form
+  if (f.folderMode === 'keep') return undefined
+  if (f.folderMode === 'none') return { mode: 'none' }
+  if (f.folderMode === 'existing') return { mode: 'existing', path: ov.querySelector('#prjExFolder')?.value || '' }
+  return {
+    mode: 'create',
+    parent: ov.querySelector('#prjFolderParent')?.value || '',
+    name: (ov.querySelector('#prjFolderName')?.value || '').trim(),
+    subfolders: !!ov.querySelector('#prjFolderSubs')?.checked,
+  }
+}
+
+async function _prjSubmitForm() {
+  const ov = document.getElementById('prjModalOverlay')
+  const f = _prj.form
+  if (!ov || !f || f.busy) return
+  const errBox = ov.querySelector('#prjFormError')
+  const showErr = (msg) => { errBox.textContent = msg; errBox.hidden = false }
+  errBox.hidden = true
+  const name = (ov.querySelector('#prjName').value || '').trim()
+  if (!name) { showErr(t('projects.form.need_name')); ov.querySelector('#prjName').focus(); return }
+  const body = {
+    name,
+    description: ov.querySelector('#prjDesc').value,
+    client: ov.querySelector('#prjClient').value,
+    default_label_id: ov.querySelector('#prjLabel').value || null,
+  }
+  if (f.mode === 'edit') body.status = ov.querySelector('#prjStatus').value
+  const folder = _prjFolderRequest()
+  if (folder !== undefined) body.folder = folder
+  if (folder && folder.mode === 'existing' && !folder.path) { showErr(t('projects.form.preview_pick')); return }
+  const btn = ov.querySelector('#prjFormSave')
+  f.busy = true
+  btn.disabled = true
+  const r = f.mode === 'edit'
+    ? await _prjApi('PUT', '/api/projects/' + encodeURIComponent(f.project.id), body)
+    : await _prjApi('POST', '/api/projects', body)
+  f.busy = false
+  btn.disabled = false
+  if (!r.ok) { showErr(r.message); return }
+  closeModal(ov)
+  await refreshProjectNames()
+  showToast(t(f.mode === 'edit' ? 'projects.toast.saved' : 'projects.toast.created', { name: r.data.project.name }))
+  _prj.overview = null
+  await _prjOpenProject(r.data.project.id)
+}
+
+async function _prjSetArchived(id, archived) {
+  const r = await _prjApi('POST', '/api/projects/' + encodeURIComponent(id) + '/archive', { archived })
+  if (!r.ok) { showToast(r.message); return }
+  closeModal(_prjOverlay('prjModalOverlay'))
+  closeModal(_prjOverlay('prjDeleteOverlay'))
+  await refreshProjectNames()
+  showToast(t(archived ? 'projects.toast.archived' : 'projects.toast.unarchived', { name: r.data.project.name }))
+  _prj.overview = null
+  await _prjOpenProject(id)
+}
+
+// ---- torles: csak a kapcsolat bontasa, elonezettel ------------------------------------
+
+async function _prjOpenDelete(project) {
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(project.id) + '/delete-preview')
+  if (!r.ok) { showToast(r.message); return }
+  const d = r.data || {}
+  closeModal(_prjOverlay('prjModalOverlay'))
+  const ov = _prjOverlay('prjDeleteOverlay')
+  const keeps = [
+    t('projects.delete.keep_cards', { n: d.cards || 0, open: d.openCards || 0, archived: d.archivedCards || 0 }),
+    t('projects.delete.keep_ideas', { n: d.ideas || 0 }),
+    d.folderPath ? t('projects.delete.keep_folder', { path: d.folderPath }) : t('projects.delete.no_folder'),
+  ]
+  if ((d.codeAliases || []).length) keeps.push(t('projects.delete.keep_aliases', { list: d.codeAliases.join(', ') }))
+  ov.innerHTML = `
+  <div class="modal prj-modal" role="dialog" aria-modal="true">
+    <div class="modal-header">
+      <h2>${escapeHtml(t('projects.delete.title', { name: project.name }))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p>${escapeHtml(t('projects.delete.lead'))}</p>
+      <ul class="prj-keep-list">${keeps.map((k) => `<li>${escapeHtml(k)}</li>`).join('')}</ul>
+      <p class="prj-muted">${escapeHtml(t('projects.delete.archive_tip'))}</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.cancel'))}</button>
+      ${project.archived_at ? '' : `<button type="button" class="btn-secondary" id="prjDelArchive">${escapeHtml(t('projects.delete.archive_instead'))}</button>`}
+      <button type="button" class="btn-danger" id="prjDelConfirm">${escapeHtml(t('projects.delete.confirm_btn'))}</button>
+    </div>
+  </div>`
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  ov.querySelector('#prjDelArchive')?.addEventListener('click', () => _prjSetArchived(project.id, true))
+  ov.querySelector('#prjDelConfirm')?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true
+    const del = await _prjApi('DELETE', '/api/projects/' + encodeURIComponent(project.id) + '?confirm=1')
+    if (!del.ok) { e.currentTarget.disabled = false; showToast(del.message); return }
+    closeModal(ov)
+    await refreshProjectNames()
+    showToast(t('projects.toast.deleted', { name: project.name, n: del.data.unlinkedCards || 0 }))
+    _prj.current = null
+    _prj.overview = null
+    await _prjLoadList()
+  })
+  openModal(ov)
+}
+
+// ---- regi adatok atvetele (terv 1.1) ------------------------------------------------
+//
+// A kartyak `project` mezoje a Projektek elott szabad szoveg volt. Itt a
+// tulajdonos KIFEJEZETTEN eldonti, melyik regi ertek hova kerul. Ami nevegyezes
+// nelkul csak kovetkeztetes (a kod-hid aliasok egy resze), az ALAPBOL kotetlen
+// marad -- nincs vak osszevonas. Semmi nem irodik at a gomb es a megerosites
+// elott, es az atvetel visszavonhato.
+
+async function _prjLoadMigration() {
+  const r = await _prjApi('GET', '/api/projects/migration')
+  if (!r.ok) {
+    _prj.migData = { error: r.message }
+  } else {
+    _prj.migData = r.data
+    _prjMigDefaults()
+  }
+  _prjRenderMigration()
+}
+
+function _prjMigDefaults() {
+  const plan = _prj.migData.plan
+  const mig = { values: {}, aliases: {}, unassigned: { on: false, labels: new Set(), unlabeled: false, target: '' } }
+  for (const k of plan.kanban) {
+    mig.values[k.value] = {
+      action: k.proposal.action === 'existing' ? 'existing' : 'create',
+      name: k.proposal.action === 'create' ? k.proposal.name : k.value,
+      projectId: k.proposal.action === 'existing' ? k.proposal.projectId : '',
+      filterOn: false,
+      labels: new Set(),
+      unlabeled: false,
+    }
+  }
+  for (const a of plan.codeAliases) {
+    if (a.linkedProject) continue
+    let choice = 'skip'
+    if (!a.needsDecision) {
+      if (a.proposal.action === 'link') choice = 'value:' + a.proposal.value
+      else if (a.proposal.action === 'link_project') choice = 'project:' + a.proposal.projectId
+    }
+    mig.aliases[a.alias] = { choice, name: a.alias }
+  }
+  _prj.mig = mig
+}
+
+function _prjMigLabelIndex(sets) {
+  const idx = new Map()
+  for (const s of sets || []) {
+    s.ids.forEach((id, i) => {
+      const cur = idx.get(id) || { id, name: s.names[i] || id, cards: 0 }
+      cur.cards += s.cards
+      idx.set(id, cur)
+    })
+  }
+  return [...idx.values()].sort((a, b) => b.cards - a.cards)
+}
+
+function _prjMigCount(sets, labels, unlabeled) {
+  let n = 0
+  for (const s of sets || []) {
+    if (!s.ids.length) { if (unlabeled) n += s.cards; continue }
+    if (s.ids.some((id) => labels.has(id))) n += s.cards
+  }
+  return n
+}
+
+function _prjMigMoving(k) {
+  const st = _prj.mig.values[k.value]
+  if (!st || st.action === 'skip') return 0
+  return st.filterOn ? _prjMigCount(k.labelSets, st.labels, st.unlabeled) : k.cards
+}
+
+/** Hova mehet egy alias / a projekt nelkuli kartyak: a nem kihagyott regi
+ *  ertekek projektje, vagy egy mar letezo projekt. */
+function _prjMigTargets() {
+  const out = []
+  for (const k of _prj.migData.plan.kanban) {
+    const st = _prj.mig.values[k.value]
+    if (!st || st.action === 'skip') continue
+    const name = st.action === 'create' ? (st.name || k.value) : ((_prj.all.find((p) => p.id === st.projectId) || {}).name || '?')
+    out.push({ key: 'value:' + k.value, label: t('projects.mig.target_value', { value: k.value, name }) })
+  }
+  for (const p of _prj.all) out.push({ key: 'project:' + p.id, label: t('projects.mig.target_project', { name: p.name }) })
+  return out
+}
+
+function _prjRenderMigration() {
+  const box = document.getElementById('prjMigrationBox')
+  if (!box) return
+  const md = _prj.migData
+  if (!md) { box.innerHTML = ''; return }
+  if (md.error) { box.innerHTML = `<div class="info-box depo-bad">${escapeHtml(t('projects.mig.load_failed', { msg: md.error }))}</div>`; return }
+  const plan = md.plan
+  const history = md.history || []
+  const openAliases = plan.codeAliases.filter((a) => !a.linkedProject)
+  const hasWork = plan.kanban.length > 0 || openAliases.length > 0
+  if (!hasWork && !history.length) { box.innerHTML = ''; return }
+  const cards = plan.kanban.reduce((n, k) => n + k.cards, 0)
+  const summary = hasWork
+    ? t('projects.mig.summary', { values: plan.kanban.length, cards, aliases: openAliases.length })
+    : t('projects.mig.summary_done')
+  box.innerHTML = `
+  <details class="prj-mig"${_prj.migOpen ? ' open' : ''}>
+    <summary><strong>${escapeHtml(t('projects.mig.title'))}</strong> <span class="prj-muted">${escapeHtml(summary)}</span></summary>
+    <div class="prj-mig-body">
+      ${hasWork ? _prjMigFormHtml() : ''}
+      ${history.length ? _prjMigHistoryHtml(history) : ''}
+    </div>
+  </details>`
+  const det = box.querySelector('details')
+  det.addEventListener('toggle', () => { _prj.migOpen = det.open })
+  if (hasWork) _prjWireMigration(box)
+}
+
+function _prjMigFormHtml() {
+  const plan = _prj.migData.plan
+  const mig = _prj.mig
+  const existingOpts = (sel) => _prj.all.map((p) => `<option value="${escapeAttr(p.id)}"${sel === p.id ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')
+  const valueRows = plan.kanban.map((k) => {
+    const st = mig.values[k.value]
+    const labelIdx = _prjMigLabelIndex(k.labelSets)
+    const unlabeledN = (k.labelSets || []).filter((s) => !s.ids.length).reduce((n, s) => n + s.cards, 0)
+    const moving = _prjMigMoving(k)
+    return `
+    <div class="prj-mig-row" data-mig-value="${escapeAttr(k.value)}">
+      <div class="prj-mig-row-head"><code>${escapeHtml(k.value)}</code> — ${escapeHtml(t('projects.mig.value_cards', { n: k.cards, live: k.liveCards, archived: k.archivedCards }))}</div>
+      <div class="prj-mig-sub">${escapeHtml(t('projects.mig.labels_line', { list: labelIdx.map((l) => l.name + ' ×' + l.cards).join(', ') || '-' }))}</div>
+      <div class="prj-mig-sub">${escapeHtml(t('projects.mig.examples_line', { list: (k.sample || []).map((s) => '„' + s.title.slice(0, 50) + '”').join('; ') }))}</div>
+      <div class="prj-mig-controls">
+        <select class="input" data-mig="action">
+          <option value="create"${st.action === 'create' ? ' selected' : ''}>${escapeHtml(t('projects.mig.act_create'))}</option>
+          <option value="existing"${st.action === 'existing' ? ' selected' : ''}${_prj.all.length ? '' : ' disabled'}>${escapeHtml(t('projects.mig.act_existing'))}</option>
+          <option value="skip"${st.action === 'skip' ? ' selected' : ''}>${escapeHtml(t('projects.mig.act_skip'))}</option>
+        </select>
+        ${st.action === 'create' ? `<input type="text" class="input" data-mig="name" maxlength="120" value="${escapeAttr(st.name)}" placeholder="${escapeAttr(t('projects.form.name_ph'))}" aria-label="${escapeAttr(t('projects.form.name'))}">` : ''}
+        ${st.action === 'existing' ? `<select class="input" data-mig="project"><option value="">${escapeHtml(t('projects.mig.pick_project'))}</option>${existingOpts(st.projectId)}</select>` : ''}
+      </div>
+      ${st.action !== 'skip' ? `
+      <div class="prj-mig-filter">
+        <label class="prj-check"><input type="radio" name="migf-${escapeAttr(k.value)}" data-mig="filter-off"${st.filterOn ? '' : ' checked'}> ${escapeHtml(t('projects.mig.filter_all', { n: k.cards }))}</label>
+        <label class="prj-check"><input type="radio" name="migf-${escapeAttr(k.value)}" data-mig="filter-on"${st.filterOn ? ' checked' : ''}> ${escapeHtml(t('projects.mig.filter_some'))}</label>
+        ${st.filterOn ? `<div class="prj-mig-labels">
+          ${labelIdx.map((l) => `<label class="prj-check"><input type="checkbox" data-mig="label" value="${escapeAttr(l.id)}"${st.labels.has(l.id) ? ' checked' : ''}> ${escapeHtml(l.name)} (${l.cards})</label>`).join('')}
+          ${unlabeledN ? `<label class="prj-check"><input type="checkbox" data-mig="unlabeled"${st.unlabeled ? ' checked' : ''}> ${escapeHtml(t('projects.mig.unlabeled', { n: unlabeledN }))}</label>` : ''}
+        </div>` : ''}
+      </div>` : ''}
+      <div class="prj-mig-count">${escapeHtml(st.action === 'skip'
+        ? t('projects.mig.count_skip', { n: k.cards })
+        : t('projects.mig.count_move', { n: moving, rest: k.cards - moving }))}</div>
+    </div>`
+  }).join('')
+
+  const targets = _prjMigTargets()
+  const aliasRows = plan.codeAliases.filter((a) => !a.linkedProject).map((a) => {
+    const st = mig.aliases[a.alias]
+    const ws = (a.workspaces || []).slice(0, 2).map((w) => w.path + ' ×' + w.tasks).join('; ')
+    let proposal = t('projects.mig.alias_prop_none')
+    if (a.proposal.action === 'link') proposal = t(a.proposal.evidence === 'same_name' ? 'projects.mig.alias_prop_same' : 'projects.mig.alias_prop_refs', { value: a.proposal.value, n: a.proposal.refs || 0 })
+    else if (a.proposal.action === 'link_project') proposal = t('projects.mig.alias_prop_project', { name: a.proposal.name })
+    const opts = targets.map((x) => `<option value="${escapeAttr(x.key)}"${st.choice === x.key ? ' selected' : ''}>${escapeHtml(x.label)}</option>`).join('')
+    return `
+    <div class="prj-mig-row${a.needsDecision ? ' prj-mig-decide' : ''}" data-mig-alias="${escapeAttr(a.alias)}">
+      <div class="prj-mig-row-head"><code>${escapeHtml(a.alias)}</code> — ${escapeHtml(t('projects.mig.alias_tasks', { n: a.tasks, from: _prjDate(a.firstAt), to: _prjDate(a.lastAt) }))}
+        ${a.needsDecision ? `<span class="prj-decide-badge">${escapeHtml(t('projects.mig.decide'))}</span>` : ''}</div>
+      ${ws ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.alias_folders', { list: ws }))}</div>` : ''}
+      <div class="prj-mig-sub">${escapeHtml(proposal)}</div>
+      ${a.needsDecision ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.decide_hint'))}</div>` : ''}
+      <div class="prj-mig-controls">
+        <select class="input" data-mig="alias-choice">
+          ${opts}
+          <option value="create"${st.choice === 'create' ? ' selected' : ''}>${escapeHtml(t('projects.mig.alias_create'))}</option>
+          <option value="skip"${st.choice === 'skip' ? ' selected' : ''}>${escapeHtml(t('projects.mig.alias_skip'))}</option>
+        </select>
+        ${st.choice === 'create' ? `<input type="text" class="input" data-mig="alias-name" maxlength="120" value="${escapeAttr(st.name)}" aria-label="${escapeAttr(t('projects.form.name'))}">` : ''}
+      </div>
+    </div>`
+  }).join('')
+
+  const un = plan.unassignedCards
+  const ust = mig.unassigned
+  const unIdx = _prjMigLabelIndex(un.labelSets)
+  const unUnlabeled = (un.labelSets || []).filter((s) => !s.ids.length).reduce((n, s) => n + s.cards, 0)
+  const unRow = un.total ? `
+    <div class="prj-mig-row">
+      <div class="prj-mig-row-head">${escapeHtml(t('projects.mig.unassigned', { n: un.total, live: un.live, archived: un.archived }))}</div>
+      <label class="prj-check"><input type="checkbox" data-mig="un-on"${ust.on ? ' checked' : ''}> ${escapeHtml(t('projects.mig.unassigned_opt'))}</label>
+      ${ust.on ? `<div class="prj-mig-labels">
+        ${unIdx.map((l) => `<label class="prj-check"><input type="checkbox" data-mig="un-label" value="${escapeAttr(l.id)}"${ust.labels.has(l.id) ? ' checked' : ''}> ${escapeHtml(l.name)} (${l.cards})</label>`).join('')}
+        ${unUnlabeled ? `<label class="prj-check"><input type="checkbox" data-mig="un-unlabeled"${ust.unlabeled ? ' checked' : ''}> ${escapeHtml(t('projects.mig.unlabeled', { n: unUnlabeled }))}</label>` : ''}
+      </div>
+      <div class="prj-mig-controls"><select class="input" data-mig="un-target"><option value="">${escapeHtml(t('projects.mig.pick_target'))}</option>
+        ${targets.map((x) => `<option value="${escapeAttr(x.key)}"${ust.target === x.key ? ' selected' : ''}>${escapeHtml(x.label)}</option>`).join('')}</select></div>
+      <div class="prj-mig-count">${escapeHtml(t('projects.mig.count_unassigned', { n: _prjMigCount(un.labelSets, ust.labels, ust.unlabeled) }))}</div>` : ''}
+    </div>` : ''
+
+  return `
+    <p>${escapeHtml(t('projects.mig.intro'))}</p>
+    <h3>${escapeHtml(t('projects.mig.values_title'))}</h3>
+    ${valueRows || _prjEmptyLine('projects.mig.values_none')}
+    ${aliasRows ? `<h3>${escapeHtml(t('projects.mig.aliases_title'))}</h3><p class="prj-muted">${escapeHtml(t('projects.mig.aliases_intro'))}</p>${aliasRows}` : ''}
+    ${unRow ? `<h3>${escapeHtml(t('projects.mig.unassigned_title'))}</h3>${unRow}` : ''}
+    <div class="prj-mig-preview" id="prjMigPreview"></div>
+    <div class="prj-mig-actions"><button type="button" class="btn-primary" id="prjMigApply">${escapeHtml(t('projects.mig.apply'))}</button></div>`
+}
+
+/** A hozzarendeles a szervernek + az emberi osszefoglalo + az akadalyok. */
+function _prjMigBuild() {
+  const plan = _prj.migData.plan
+  const mig = _prj.mig
+  const mapping = { kanban: [], codeAliases: [] }
+  const lines = []
+  const problems = []
+  const projName = (id) => (_prj.all.find((p) => p.id === id) || {}).name || '?'
+  const valueTargetName = {}
+  for (const k of plan.kanban) {
+    const st = mig.values[k.value]
+    if (st.action === 'skip') {
+      mapping.kanban.push({ value: k.value, action: 'skip' })
+      lines.push(t('projects.mig.line_skip', { value: k.value, n: k.cards }))
+      continue
+    }
+    const e = { value: k.value, action: st.action }
+    let name
+    if (st.action === 'create') {
+      name = (st.name || '').trim()
+      if (!name) problems.push(t('projects.mig.problem_name', { value: k.value }))
+      e.name = name
+    } else {
+      if (!st.projectId) problems.push(t('projects.mig.problem_project', { value: k.value }))
+      e.projectId = st.projectId
+      name = projName(st.projectId)
+    }
+    valueTargetName[k.value] = name
+    if (st.filterOn) {
+      if (!st.labels.size && !st.unlabeled) problems.push(t('projects.mig.problem_labels', { value: k.value }))
+      e.labelFilter = { labelIds: [...st.labels], unlabeled: !!st.unlabeled }
+    }
+    mapping.kanban.push(e)
+    const moving = _prjMigMoving(k)
+    lines.push(t(st.action === 'create' ? 'projects.mig.line_create' : 'projects.mig.line_existing', { value: k.value, name, n: moving })
+      + (moving < k.cards ? ' ' + t('projects.mig.line_rest', { n: k.cards - moving }) : ''))
+  }
+  const targetOf = (key) => {
+    if (key.indexOf('value:') === 0) {
+      const v = key.slice(6)
+      if (!(v in valueTargetName)) return { bad: true }
+      return { entry: { value: v }, name: valueTargetName[v] }
+    }
+    const id = key.slice(8)
+    return { entry: { projectId: id }, name: projName(id) }
+  }
+  for (const a of plan.codeAliases) {
+    if (a.linkedProject) continue
+    const st = mig.aliases[a.alias]
+    if (st.choice === 'skip') {
+      mapping.codeAliases.push({ alias: a.alias, action: 'skip' })
+      lines.push(t('projects.mig.line_alias_skip', { alias: a.alias }))
+    } else if (st.choice === 'create') {
+      const name = (st.name || '').trim()
+      if (!name) problems.push(t('projects.mig.problem_name', { value: a.alias }))
+      mapping.codeAliases.push({ alias: a.alias, action: 'create', name })
+      lines.push(t('projects.mig.line_alias_create', { alias: a.alias, name }))
+    } else {
+      const tg = targetOf(st.choice)
+      if (tg.bad) { problems.push(t('projects.mig.problem_target', { value: a.alias })); continue }
+      mapping.codeAliases.push(Object.assign({ alias: a.alias, action: 'link' }, tg.entry))
+      lines.push(t('projects.mig.line_alias_link', { alias: a.alias, name: tg.name }))
+    }
+  }
+  const un = mig.unassigned
+  if (un.on) {
+    if (!un.labels.size && !un.unlabeled) problems.push(t('projects.mig.problem_labels', { value: '-' }))
+    if (!un.target) problems.push(t('projects.mig.problem_un_target'))
+    else {
+      const tg = targetOf(un.target)
+      if (tg.bad) problems.push(t('projects.mig.problem_un_target'))
+      else {
+        mapping.unassigned = Object.assign({ labelIds: [...un.labels], unlabeled: !!un.unlabeled }, tg.entry)
+        lines.push(t('projects.mig.line_unassigned', { n: _prjMigCount(plan.unassignedCards.labelSets, un.labels, un.unlabeled), name: tg.name }))
+      }
+    }
+  } else if (plan.unassignedCards.total) {
+    lines.push(t('projects.mig.line_unassigned_kept', { n: plan.unassignedCards.total }))
+  }
+  lines.push(t('projects.mig.line_code_kept'))
+  return { mapping, lines, problems }
+}
+
+function _prjMigUpdatePreview() {
+  const box = document.getElementById('prjMigPreview')
+  const btn = document.getElementById('prjMigApply')
+  if (!box || !btn) return
+  const b = _prjMigBuild()
+  box.innerHTML = `<strong>${escapeHtml(t('projects.mig.preview_title'))}</strong>
+    <ul>${b.lines.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>
+    ${b.problems.length ? `<div class="prj-preview-bad"><strong>${escapeHtml(t('projects.mig.problems_title'))}</strong><ul>${b.problems.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul></div>` : ''}`
+  btn.disabled = b.problems.length > 0
+}
+
+function _prjWireMigration(box) {
+  const rerender = () => { _prjRenderMigration() }
+  box.querySelectorAll('[data-mig-value]').forEach((row) => {
+    const st = _prj.mig.values[row.getAttribute('data-mig-value')]
+    row.querySelector('[data-mig="action"]')?.addEventListener('change', (e) => { st.action = e.target.value; rerender() })
+    row.querySelector('[data-mig="name"]')?.addEventListener('input', (e) => { st.name = e.target.value; _prjMigUpdatePreview() })
+    row.querySelector('[data-mig="project"]')?.addEventListener('change', (e) => { st.projectId = e.target.value; rerender() })
+    row.querySelector('[data-mig="filter-off"]')?.addEventListener('change', () => { st.filterOn = false; rerender() })
+    row.querySelector('[data-mig="filter-on"]')?.addEventListener('change', () => { st.filterOn = true; rerender() })
+    row.querySelectorAll('[data-mig="label"]').forEach((c) => c.addEventListener('change', () => {
+      if (c.checked) st.labels.add(c.value); else st.labels.delete(c.value)
+      rerender()
+    }))
+    row.querySelector('[data-mig="unlabeled"]')?.addEventListener('change', (e) => { st.unlabeled = e.target.checked; rerender() })
+  })
+  box.querySelectorAll('[data-mig-alias]').forEach((row) => {
+    const st = _prj.mig.aliases[row.getAttribute('data-mig-alias')]
+    row.querySelector('[data-mig="alias-choice"]')?.addEventListener('change', (e) => { st.choice = e.target.value; rerender() })
+    row.querySelector('[data-mig="alias-name"]')?.addEventListener('input', (e) => { st.name = e.target.value; _prjMigUpdatePreview() })
+  })
+  const un = _prj.mig.unassigned
+  box.querySelector('[data-mig="un-on"]')?.addEventListener('change', (e) => { un.on = e.target.checked; rerender() })
+  box.querySelectorAll('[data-mig="un-label"]').forEach((c) => c.addEventListener('change', () => {
+    if (c.checked) un.labels.add(c.value); else un.labels.delete(c.value)
+    rerender()
+  }))
+  box.querySelector('[data-mig="un-unlabeled"]')?.addEventListener('change', (e) => { un.unlabeled = e.target.checked; rerender() })
+  box.querySelector('[data-mig="un-target"]')?.addEventListener('change', (e) => { un.target = e.target.value; rerender() })
+  box.querySelector('#prjMigApply')?.addEventListener('click', _prjMigApply)
+  _prjMigUpdatePreview()
+}
+
+async function _prjMigApply() {
+  const b = _prjMigBuild()
+  if (b.problems.length) return
+  if (!window.confirm(t('projects.mig.confirm', { list: b.lines.map((l) => '• ' + l).join('\n') }))) return
+  const btn = document.getElementById('prjMigApply')
+  if (btn) btn.disabled = true
+  const r = await _prjApi('POST', '/api/projects/migration/apply', { mapping: b.mapping, confirm: true, actor: 'dashboard' })
+  if (!r.ok) {
+    if (btn) btn.disabled = false
+    showToast(r.message + (r.data && r.data.detail ? ' (' + r.data.detail + ')' : ''))
+    return
+  }
+  const res = r.data.result
+  const moved = (res.movedCards || []).reduce((n, m) => n + m.cards, 0)
+  showToast(t('projects.mig.done', { projects: res.createdProjects.length, cards: moved, aliases: res.linkedAliases.length }))
+  _prj.mig = null
+  await _prjLoadList()
+}
+
+function _prjMigHistoryHtml(history) {
+  return `<h3>${escapeHtml(t('projects.mig.history_title'))}</h3>
+  <ul class="prj-list">${history.map((h) => `
+    <li class="prj-item prj-mig-hist">
+      <span>${escapeHtml(t('projects.mig.history_line', { when: _prjDate(h.appliedAt * 1000, true), projects: h.createdProjects, cards: h.movedCards, aliases: h.linkedAliases }))}</span>
+      ${h.revertedAt
+        ? `<span class="prj-muted">${escapeHtml(t('projects.mig.reverted', { when: _prjDate(h.revertedAt * 1000, true) }))}</span>`
+        : `<button type="button" class="btn-secondary btn-compact" data-prj-revert="${escapeAttr(h.id)}">${escapeHtml(t('projects.mig.revert'))}</button>`}
+    </li>`).join('')}</ul>`
+}
+
+async function _prjMigRevert(id) {
+  if (!window.confirm(t('projects.mig.revert_confirm'))) return
+  const r = await _prjApi('POST', '/api/projects/migration/' + encodeURIComponent(id) + '/revert', { confirm: true })
+  if (!r.ok) { showToast(r.message); return }
+  showToast(t('projects.mig.revert_done', { cards: r.data.restoredCards || 0, removed: r.data.removedProjects || 0, kept: (r.data.keptProjects || []).length }))
+  await refreshProjectNames()
+  _prj.mig = null
+  await _prjLoadList()
+}
+
+// ---- esemenyek (egy delegalt figyelo az egesz funkcionak) ----------------------------
+
+document.addEventListener('click', (e) => {
+  const cardLink = e.target.closest('[data-prj-card]')
+  if (cardLink) {
+    e.preventDefault()
+    // A kartya a Kanbanban nyilik meg, ERRE a projektre szurve, es onnan a
+    // "vissza a projekthez" gomb hoz vissza.
+    const pid = _prj.current
+    if (pid) { kanbanProjectFilter = pid; const sel = document.getElementById('kanbanProjectFilter'); if (sel) sel.value = pid }
+    setWorkspace('marvin', { page: 'kanban' })
+    history.pushState(null, '', '#kanban')
+    _openKanbanCardFromApproval(cardLink.getAttribute('data-prj-card'))
+    return
+  }
+  const ret = e.target.closest('[data-prj-return]')
+  if (ret) { _prjReturnToProject(ret.getAttribute('data-prj-return')); return }
+  if (e.target.closest('[data-prj-chip-close]')) { document.getElementById('prjIntezoChip')?.remove(); return }
+  const rev = e.target.closest('[data-prj-revert]')
+  if (rev) { _prjMigRevert(rev.getAttribute('data-prj-revert')); return }
+  const open = e.target.closest('[data-prj-open]')
+  if (open) { _prjOpenProject(open.getAttribute('data-prj-open')); return }
+  const act = e.target.closest('[data-prj-act]')
+  if (!act) return
+  const a = act.getAttribute('data-prj-act')
+  const p = _prj.overview && _prj.overview.project
+  if (a === 'new') _prjOpenForm('create')
+  else if (a === 'show-archived') { _prj.showArchived = true; _prjRenderList(); _prjRenderMigration() }
+  else if (a === 'back') { _prj.current = null; _prj.overview = null; _prjLoadList() }
+  else if (a === 'refresh' && p) _prjOpenProject(p.id)
+  else if (a === 'edit' && p) { closeModal(_prjOverlay('prjDeleteOverlay')); _prjOpenForm('edit', p) }
+  else if (a === 'kanban' && p) _prjOpenKanban(p.id)
+  else if (a === 'files') _prjFilesClick()
+  else if (a === 'archive' && p) _prjSetArchived(p.id, true)
+  else if (a === 'unarchive' && p) _prjSetArchived(p.id, false)
+  else if (a === 'delete' && p) _prjOpenDelete(p)
+  else if (a === 'approvals') { setWorkspace('marvin', { page: 'approvals' }); location.hash = 'approvals' }
+  else if (a === 'depot') {
+    document.querySelectorAll('.modal-overlay.active').forEach((o) => closeModal(o))
+    setWorkspace('iroda', { page: 'irodaSettings' })
+    history.pushState(null, '', '#irodaSettings')
+    switchPage('depo')
+  }
+})
+
+document.addEventListener('DOMContentLoaded', () => { runLater(refreshProjectNames) })
