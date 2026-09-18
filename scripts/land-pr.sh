@@ -174,6 +174,7 @@ cleanup
 #   branch.main.merge = refs/heads/land/20260904-212327-ffd4403
 # A script sehol nem tamaszkodik a trackingre: minden git-refspec es minden gh
 # hivas (-R) explicit.
+PUSHED_SHA="$(git rev-parse HEAD)"
 git push origin "HEAD:refs/heads/$BRANCH" || die "a branch push nem sikerult (lasd a fenti kimenetet)."
 
 # --- 2. PR nyitasa (vagy meglevo ujrahasznalasa) -------------------------------
@@ -222,22 +223,50 @@ POLL_INTERVAL=15
 echo "land-pr: varakozas a CI-re (tipikusan ~2-3 perc; hatarido $(( CI_WAIT_MAX / 60 )) perc)..." >&2
 start="$(date +%s)"
 deadline=$(( start + CI_WAIT_MAX ))
+
+# A main KOTELEZO checkjei (branch protection). A rollup egy RESZHALMAZT is
+# mutathat: merve 2026-09-18, PR #184 -- a 6 masodperces kulcs-minta check mar
+# zold volt, a fo CI (es vele a kotelezo "ci-passed") meg nem is regisztralt, es
+# a land-pr ezt "a CI zold"-nek olvasta. Ha a kotelezo lista lekerheto, a PASS
+# csak akkor PASS, ha mind benne van a rollupban. Ha nem kerheto le (nincs jog,
+# nincs vedelem), azt KIMONDJUK, es a regi viselkedes marad.
+set +e
+REQUIRED_CHECKS="$(gh api "repos/$REPO/branches/main/protection/required_status_checks" --jq '.contexts[]' 2>/dev/null)"
+req_rc=$?
+set -e
+if [ "$req_rc" -ne 0 ] || [ -z "$REQUIRED_CHECKS" ]; then
+  echo "land-pr: a main kotelezo checkjeit nem tudtam lekerdezni -- a CI-t a regisztralt checkekbol itelem meg." >&2
+  REQUIRED_CHECKS=""
+fi
 ci_confirmed=0                  # 1, ha mar lattunk regisztralt futast
 gh_fail_streak=0
 
 while true; do
   set +e
-  roll="$(gh pr view "$PR_URL" -R "$REPO" --json statusCheckRollup --jq '.statusCheckRollup' 2>&1)"
+  # A rollup MINDIG a PR aktualis fejere vonatkozik -- de egy MAR NYITOTT PR-nel
+  # a push utan meg par masodpercig a REGI fej latszik, a regi, mar lefutott
+  # (zold vagy piros) CI-vel. Merve 2026-09-18, PR #184: a land-pr ezt "a CI
+  # zold"-nek olvasta, merge-elni probalt, es a GitHub utasitotta el, mert az uj
+  # commit checkjei meg futottak. Ezert csak akkor hisszuk el a rollupot, ha a
+  # fej MAR a most felnyomott commit.
+  head_and_roll="$(gh pr view "$PR_URL" -R "$REPO" --json headRefOid,statusCheckRollup --jq '.headRefOid + "\n" + (.statusCheckRollup | tojson)' 2>&1)"
   roll_rc=$?
   set -e
+  pr_head="$(printf '%s\n' "$head_and_roll" | head -n1)"
+  roll="$(printf '%s\n' "$head_and_roll" | tail -n +2)"
 
   if [ "$roll_rc" -ne 0 ]; then
     # (c) NEM LATOK ODA. Egy-ket atmeneti hiba belefer, tartos hiba nem.
     gh_fail_streak=$(( gh_fail_streak + 1 ))
     if [ "$gh_fail_streak" -ge "$GH_FAIL_MAX" ]; then
-      die "a 'gh pr view' egymas utan ${gh_fail_streak}x hibaval tert vissza, ezert NEM tudom, zold-e a CI (ez nem azt jelenti, hogy piros). A PR nyitva marad: $PR_URL. A gh utolso hibauzenete: $roll"
+      die "a 'gh pr view' egymas utan ${gh_fail_streak}x hibaval tert vissza, ezert NEM tudom, zold-e a CI (ez nem azt jelenti, hogy piros). A PR nyitva marad: $PR_URL. A gh utolso hibauzenete: $head_and_roll"
     fi
-    echo "land-pr: a 'gh pr view' hibat adott (${gh_fail_streak}/${GH_FAIL_MAX}), ujraprobalom -- $roll" >&2
+    echo "land-pr: a 'gh pr view' hibat adott (${gh_fail_streak}/${GH_FAIL_MAX}), ujraprobalom -- $head_and_roll" >&2
+    verdict="RETRY"
+  elif [ "$pr_head" != "$PUSHED_SHA" ]; then
+    # A GitHub meg a regi fejet mutatja: a rollup nem errol a commitrol szol.
+    gh_fail_streak=0
+    echo "land-pr: a PR feje meg nem a felnyomott commit (${pr_head:0:8} != ${PUSHED_SHA:0:8}), varok..." >&2
     verdict="RETRY"
   else
     gh_fail_streak=0
@@ -251,7 +280,22 @@ while true; do
 
   case "$verdict" in
     RETRY) : ;;
-    PASS) echo "land-pr: a CI zold." >&2; break ;;
+    PASS)
+      missing=""
+      if [ -n "$REQUIRED_CHECKS" ]; then
+        missing="$(REQ="$REQUIRED_CHECKS" node -e '
+          const roll = JSON.parse(require("fs").readFileSync(0, "utf8") || "[]")
+          const seen = new Set(roll.map((c) => c && (c.name || c.context)).filter(Boolean))
+          process.stdout.write(process.env.REQ.split("\n").filter((r) => r && !seen.has(r)).join(", "))
+        ' <<<"$roll")"
+      fi
+      if [ -n "$missing" ]; then
+        # nem break: a hatarido-ellenorzes es a varakozas lent ugyanugy lefut
+        ci_confirmed=1
+        echo "land-pr: a regisztralt checkek zoldek, de a kotelezo meg nem jelent meg ($missing), varok..." >&2
+      else
+        echo "land-pr: a CI zold." >&2; break
+      fi ;;
     FAIL) die "a CI NEM zold ezen a PR-en. A PR nyitva marad: $PR_URL -- javitsd a hibat es pushold ujra a branchet." ;;
     PENDING) ci_confirmed=1 ;;   # van regisztralt check -> biztos, hogy fut CI
     EMPTY)

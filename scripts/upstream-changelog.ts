@@ -9,8 +9,8 @@
  * commitokért hív modellt. Százhúsz tétel újrafordítása se pénzben, se időben
  * nem indokolt, és a szöveg sem lenne jobb tőle.
  *
- * A git-oldal ugyanaz a mérés, mint a scripts/upstream-divergence-check.sh-ban:
- * merge-base, majd base..upstream. A munkakönyvtárhoz nem nyúlunk (csak log és
+ * A git-oldal ugyanaz a mérés, mint az elv-kapué (src/upstream-refs.ts):
+ * upstream/HEAD vagy upstream/main, a visszavont behúzás előtti pontból. A munkakönyvtárhoz nem nyúlunk (csak log és
  * show), így akkor is biztonságos, amikor ügynökök dolgoznak a repóban.
  */
 import { execFileSync } from 'node:child_process'
@@ -21,8 +21,11 @@ import { getSecret } from '../src/web/vault.js'
 import {
   classifySubject, mergeHungarian, missingSummaryCount,
   buildSummaryPrompt, parseSummaryResponse, buildFileIndex, fileCounts,
-  type UpstreamCommit, type UpstreamChangelog,
+  type UpstreamCommit, type UpstreamChangelog, type PrincipleGateRun,
 } from '../src/upstream-changelog.js'
+import { resolveUpstreamRef, upstreamBase } from '../src/upstream-refs.js'
+import { runGate, parseDenylist, PRINCIPLES } from '../src/upstream-principle-gate.js'
+import { gatherCommits } from '../src/upstream-principle-gate-git.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(ROOT, 'store', 'upstream-changes.json')
@@ -39,55 +42,35 @@ function localRef(): string {
   return r === 'HEAD' ? 'main' : r
 }
 
-function upstreamRef(): string {
-  try {
-    const sym = git(['symbolic-ref', '-q', 'refs/remotes/upstream/HEAD']).trim()
-    if (sym) return sym.replace(/^refs\/remotes\//, '')
-  } catch { /* nincs beallitva -- lentebb esunk vissza */ }
-  return 'upstream/develop'
-}
+// The upstream ref and the comparison point come from src/upstream-refs.ts, the
+// same module the principle gate uses: the list and the gate must look at the
+// same commits (2026-09-18: they did not, and ~180 commits were never reviewed).
 
 /**
- * Honnan nezzuk az elterest.
- *
- * A `git revert -m 1` a TARTALMAT adja vissza, a historiat nem: a visszavont
- * behuzas merge commitja elozmeny marad, ezert a git ugy latja, hogy azokat a
- * commitokat mar behuztuk. Merve 2026-08-23-an: a lista 137 commit helyett
- * 1-et mutatott volna. A viszonyitasi pont ilyenkor a behuzas ELOTTI allapot.
- *
- * Nem talalgatunk: a `git revert` altal irt "This reverts commit <sha>" sorbol
- * olvassuk ki a celt, es csak akkor lepunk vissza, ha az valoban MERGE (ket
- * szulo), aminek a masodik szuloje az upstream aganak elozmenye. Egyszeru
- * commit visszavonasa nem mozditja a viszonyitasi pontot.
- *
- * Ugyanez a logika all a scripts/upstream-divergence-check.sh-ban -- a ket
- * mérésnek ugyanabbol a pontbol kell neznie, kulonben a kartya es a lista
- * mashogy szamolna ugyanazt.
+ * Attach the principle gate's per-commit verdict to the list, so the owner sees
+ * on the dashboard which change the gate would exclude or wants discussed.
+ * A failure is recorded as ok:false, never as "every commit is clean".
  */
-function compareFrom(local: string, upstream: string): string {
-  let from = local
-  // A --grep csak ELO-SZURO, szandekosan horgony nelkul: a kalap-horgony mukodne (merve
-  // 2026-08-23, a git soronkent horgonyoz), de finom szemantikara epulne --
-  // ha az valaha megvaltozik, a kereses NEMAN ures lesz. A valodi feltetel a
-  // soralapu /m regex es a merge-ellenorzes alabb.
-  const revs = git(['log', local, '--format=%H', '--grep=This reverts commit']).split('\n')
-  for (const rev of revs) {
-    if (!rev.trim()) continue
-    const body = git(['log', '-1', '--format=%B', rev.trim()])
-    const m = body.match(/^This reverts commit ([0-9a-f]{7,40})/m)
-    if (!m) continue
-    let parents: string[]
-    try {
-      parents = git(['log', '-1', '--format=%P', m[1]]).trim().split(/\s+/).filter(Boolean)
-    } catch { continue }
-    if (parents.length !== 2) continue          // nem merge -> nem erdekel
-    try {
-      git(['merge-base', '--is-ancestor', parents[1], upstream])
-    } catch { continue }                        // nem az upstreambol jott
-    from = git(['rev-parse', `${m[1]}^1`]).trim()
-    // A legREGEBBI ilyen visszavonas a helyes kiindulopont, ezert nem allunk meg.
+function applyPrincipleGate(commits: UpstreamCommit[], base: string, upstream: string): PrincipleGateRun {
+  try {
+    const denylist = parseDenylist(JSON.parse(readFileSync(join(ROOT, 'governance', 'upstream-exclusions.json'), 'utf8')))
+    const report = runGate(gatherCommits(git, base, upstream), denylist)
+    const title = new Map(PRINCIPLES.map(p => [p.id, p.title]))
+    const bySha = new Map([...report.exclude, ...report.discuss, ...report.allow].map(v => [v.sha, v]))
+    for (const c of commits) {
+      const v = bySha.get(c.sha)
+      if (!v) continue // merge commit: the gate reviews the commits it brings, not the merge itself
+      c.gate = {
+        verdict: v.verdict,
+        ...(v.principleId ? { principleId: v.principleId, title: title.get(v.principleId) } : {}),
+        ...(v.reason ? { reason: v.reason } : {}),
+        ...(v.evidence ? { evidence: v.evidence } : {}),
+      }
+    }
+    return { ok: true, exclude: report.exclude.length, discuss: report.discuss.length, allow: report.allow.length }
+  } catch (e) {
+    return { ok: false, error: (e as Error).message }
   }
-  return from
 }
 
 function conflictingFiles(): Set<string> {
@@ -189,10 +172,18 @@ async function translate(items: UpstreamCommit[], key: string): Promise<Record<s
 async function main(): Promise<void> {
   const noLlm = process.argv.includes('--no-llm')
   const local = localRef()
-  const upstream = upstreamRef()
-  const base = git(['merge-base', compareFrom(local, upstream), upstream]).trim()
+  const upstream = resolveUpstreamRef(git)
+  if (!upstream) {
+    // No upstream remote (or never fetched): say so, do not write an empty list
+    // that would read as "nothing changed upstream".
+    process.stderr.write("nincs 'upstream' ag (nincs upstream remote, vagy nem volt fetch) -- a lista nem keszult el\n")
+    process.exit(2)
+  }
+  const base = upstreamBase(git, local, upstream)
   const conflicts = conflictingFiles()
   let commits = collect(local, upstream, base, conflicts)
+  const principleGate = applyPrincipleGate(commits, base, upstream)
+  if (!principleGate.ok) process.stderr.write(`elv-kapu: NEM sikerult atnezni -- ${principleGate.error}\n`)
 
   const previous: UpstreamCommit[] = existsSync(OUT)
     ? (JSON.parse(readFileSync(OUT, 'utf8')) as UpstreamChangelog).commits ?? []
@@ -230,6 +221,7 @@ async function main(): Promise<void> {
       return c
     }),
     files,
+    principleGate,
   }
   const tmp = `${OUT}.tmp`
   writeFileSync(tmp, JSON.stringify(payload, null, 2))

@@ -21,25 +21,43 @@ any of those must not slip back in silently -- not here, and not on a fresh
 install of this fork elsewhere.
 
 ## What it is (baked in, travels with the repo)
+- **The unit is the COMMIT, not the file.** A shared file (`web/app.js`,
+  `routes/agents.ts`) is touched by dozens of upstream commits; a per-file
+  verdict either drops all of them or lets the bad one in with the rest. The
+  dashboard's "what changed upstream" list is per-commit for the same reason,
+  and it shows the gate's verdict as a badge on each change.
 - `src/upstream-principle-gate.ts` -- the baked principle list + classifier.
+  Content is scanned only in EXECUTABLE PRODUCT SOURCE: tests, fixtures, docs,
+  lock files, vendored code and comment lines are skipped (measured 2026-09-18:
+  19 of 20 automatic exclusions came from exactly those).
+- `src/upstream-refs.ts` -- which upstream ref and from which point. Shared by
+  the gate and the dashboard list, so both review the same commits: upstream/HEAD
+  if set, else `upstream/main`; measured from BEFORE any reverted upstream merge
+  (a `git revert -m 1` returns content, not history).
   The principles are code, not a per-machine file, so a FRESH install behaves
   exactly like the origin install. Identity is detected as a *pattern* (absolute
   home path, repo URL, long numeric chat id, `.service` literal), never a
   concrete name -- so the module itself passes `template-identity-hygiene`.
 - `governance/upstream-exclusions.json` -- a committed, git-tracked denylist of
   changes explicitly excluded from install. Keyed on a STABLE signature
-  (principle + normalized path glob OR content signature), NEVER a raw upstream
+  (principle + path glob, subject regex OR content signature), NEVER a raw upstream
   commit hash (hashes drift across forks/rebases). Empty `entries` = nothing
   excluded yet (valid on a fresh install); it does NOT mean the gate did not run.
 - `scripts/upstream-principle-gate.ts` -- the CLI you run before a merge.
 
 ## Two-tier decision (owner's wording)
-- **RED -> auto-exclude** (high confidence violation): agent-differentiation,
-  hardcoded host identity, forced context cap / proactive `/clear`, auto-done.
-  These are removed from install automatically.
-- **FLAG -> owner decides** (weaker signal): agent-parity/scaffold infrastructure
-  touch, a new non-protective gate/guard/approval, a UI-text file (bilingual
-  risk). Surface these to the owner on Telegram; do not decide alone.
+- **RED -> auto-exclude** (high confidence violation): a subject that says it
+  differentiates agents, an absolute home-path literal in product code, the
+  PROACTIVE context-guard family (guard armed by default, handoff, idle-flush,
+  proactive/auto `/clear`, waking the fresh session -- owner decision
+  2026-09-18), an automatic done-move in the subject. A RED drops a change the
+  owner never sees, so a RED detector must be high-confidence.
+- **FLAG -> owner decides** (weaker signal): a plain fix or settings UI of the
+  existing opt-in context guard, a repo URL literal, a change to
+  `agent-parity.ts`, a product line branching on the main agent for a
+  capability/grant/deny (not for where it lives), a new non-protective
+  gate/block feature, new visible UI text without both language files. Surface
+  these to the owner on Telegram; do not decide alone.
 - **GREEN -> allowed** (protective): wallet/keret/quota/budget guards and
   data/integrity guards (backup, homoglyph, provenance, audit, no-stray) are
   kept even though they are technically "guards" -- they protect, not restrict.
@@ -51,20 +69,26 @@ install of this fork elsewhere.
    tsx scripts/upstream-principle-gate.ts            # human report
    tsx scripts/upstream-principle-gate.ts --json     # machine report
    ```
-   Optional: `--upstream <ref>` (default `upstream/main`), `--base <ref>`
-   (default `merge-base HEAD upstream/main`), or `--changes <file.json>` to
-   review a hand-supplied list of `{path, subjects?, addedLines?}`.
+   Optional: `--upstream <ref>` and `--base <ref>`; the defaults come from
+   `src/upstream-refs.ts` (the same range the dashboard list shows). A flag
+   given without a value is an error (exit 2), not "use the default".
+   The report ends with the files touched by BOTH an excluded and a kept
+   commit: a plain merge cannot separate those, they need a hand-made cut.
 3. Read the exit code by MEANING, not just presence:
-   - `0` = reviewed, nothing excluded (there may still be DISCUSS items to raise).
+   - `0` = reviewed, fully clean (nothing excluded, nothing to discuss).
    - `1` = reviewed, at least one item EXCLUDED -- a merge step must stop / drop
      those paths.
-   - `2` = could NOT review (upstream ref missing, denylist unreadable/invalid).
-     This is NOT "0 exclusions". Fix the source (fetch upstream) and re-run.
+   - `2` = could NOT review (upstream ref missing, denylist unreadable/invalid,
+     bad argument, ANY crash). This is NOT "0 exclusions". Fix the source
+     (fetch upstream) and re-run.
+   - `3` = no exclusions, but there are items to DISCUSS -- the owner must decide
+     before merging. A pipeline that gates only on exit 0 will NOT auto-merge
+     these, which is the point: FLAG is not a green light.
 4. For every EXCLUDE: leave it out of the merge. If it is a NEW standing
    decision (not already covered by a red principle), record it in
    `governance/upstream-exclusions.json` with principle + stable signature +
    note + date + who decided, so a fresh install cannot install it either.
-5. For every DISCUSS: ask the owner on Telegram with the concrete path and which
+5. For every DISCUSS: ask the owner on Telegram with the concrete commit and which
    principle it touches, and A/B (take it / drop it). Do not guess.
 6. Proceed to merge only the ALLOW + owner-approved DISCUSS set.
 
@@ -85,13 +109,18 @@ install of this fork elsewhere.
   subjects + added lines + path role, so a change with a bland diff but a
   telling subject is still caught.
 
+- **Negation is judged per clause.** "daily-handoff trigger tier, and drop the
+  field that was never wired" still adds a proactive tier; a "never" later in
+  the subject must not rescue it.
+- **A pathPattern entry excludes every commit touching that file.** Prefer a
+  subjectPattern or contentSignature for a single change in a shared file.
+
 ## Verification
 ```bash
 npx vitest run src/__tests__/upstream-principle-gate.test.ts
 npx tsc --noEmit
 ```
-The test covers each RED principle (exclude), GREEN protective (allow), FLAG
-(discuss), neutral fix (allow), the committed denylist, denylist validation
-(unknown principle / missing signature throw, not silently-empty), stable
-content signature, and the fresh-install/empty-denylist + "zero means two
-things" cases.
+The test covers each RED principle (exclude), FLAG (discuss), GREEN protective
+(allow), the real-world false positives measured on upstream (lock files, test
+fixtures, comments), denylist validation, the git-log parser, the revert-aware
+base point, and the "a crash exits 2, never 1" contract.

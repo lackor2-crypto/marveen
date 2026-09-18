@@ -139,8 +139,13 @@ describe('Attekinto: upstream-szinkron doboz', () => {
     expect(sh).toContain('merge-base --is-ancestor')
     // A commit-lista ugyanabbol a pontbol keszul, kulonben a kartya es a
     // teteles lista mashogy szamolna ugyanazt.
+    // 2026-09-18 ota a pont egy kozos modulbol jon (src/upstream-refs.ts), amit
+    // az elv-kapu is hasznal: a lista es a kapu ugyanazokat a commitokat nezi.
     const cl = readFileSync(join(__dirname, '..', '..', 'scripts', 'upstream-changelog.ts'), 'utf8')
-    expect(cl).toContain('compareFrom(local, upstream)')
+    expect(cl).toContain('upstreamBase(git, local, upstream)')
+    const refs = readFileSync(join(__dirname, '..', 'upstream-refs.ts'), 'utf8')
+    expect(refs).toContain('This reverts commit')
+    expect(refs).toContain("'merge-base', '--is-ancestor'")
     // Es a doboz nem hagyhatja magyarazat nelkul, hogy a szam 1-rol 137-re ugrott.
     expect(code).toContain('upstreamSync.revertedMerge')
     expect(code).toContain('overview.upstream.reverted')

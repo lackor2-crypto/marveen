@@ -20338,10 +20338,31 @@ function upstreamChangeRow(c) {
   const hu = c.hu ? escapeHtml(c.hu) : `<em>${escapeHtml(t('upstream.changes.nohu'))}</em>`
   return `
     <div class="upstream-change">
-      <div class="upstream-change-text">${hu} ${conflict}</div>
+      <div class="upstream-change-text">${hu} ${conflict} ${upstreamGateBadge(c.gate)}</div>
       <div class="upstream-change-meta">${escapeHtml(meta)}</div>
       <div class="upstream-change-en" title="${escapeHtml(c.files.join('\n'))}">${escapeHtml(c.subject)}</div>
     </div>`
+}
+
+// Az elv-kapu dontese egy valtozasrol (src/upstream-principle-gate.ts). A
+// kizartat es a megbeszelendot jelvennyel mutatjuk, a mehetot nem: az a
+// tobbseg, es a csend ott a helyes jel. Az indok a jelveny sugojaban all.
+function upstreamGateBadge(g) {
+  if (!g || g.verdict === 'allow') return ''
+  const lang = window._lang === 'en' ? 'en' : 'hu'
+  const label = t(g.verdict === 'exclude' ? 'upstream.gate.exclude' : 'upstream.gate.discuss')
+  const tip = [g.title && g.title[lang], g.reason && g.reason[lang], g.evidence].filter(Boolean).join('\n')
+  const cls = g.verdict === 'exclude' ? 'upstream-gate-exclude' : 'upstream-gate-discuss'
+  return `<span class="upstream-gate-badge ${cls}" title="${escapeHtml(tip)}">${escapeHtml(label)}</span>`
+}
+
+// Egy mondat arrol, mit mondott az elv-kapu az egesz listarol. A hianyzo futas
+// (regebbi lista) es a sikertelen futas KULON mondat: egyik sem jelenti azt,
+// hogy minden valtozas mehet.
+function upstreamGateSummary(run) {
+  if (!run) return t('upstream.gate.notrun')
+  if (!run.ok) return t('upstream.gate.failed', { error: run.error || '?' })
+  return t('upstream.gate.summary', { x: run.exclude, d: run.discuss, a: run.allow })
 }
 
 // A fajl-nezet egy sora. Boss, 2026-08-20: "hol vanak leirva mind a 169 tetel
@@ -20475,7 +20496,7 @@ function renderUpstreamChanges(data, filter) {
       e: data.counts.egyeb,
       local: data.localRef || '?',
       upstream: data.upstreamRef || '?',
-    })
+    }) + ' ' + upstreamGateSummary(data.principleGate)
   }
 }
 
