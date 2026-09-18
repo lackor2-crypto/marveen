@@ -27,6 +27,7 @@ import { getEffectiveSettingValue } from '../../settings-store.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import type { RouteContext } from './types.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
+import { resolveProjectRef, listActiveProjectIds } from '../../projects.js'
 
 // A headless agent cannot "drag" a card to done, so the dispatch hands it the
 // exact curl commands to (1) post a short, human-readable result summary as a
@@ -229,7 +230,12 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   }
 
   if (path === '/api/kanban-projects' && method === 'GET') {
-    json(res, listKanbanProjects())
+    // A projektek (Iroda -> Projektek) akkor is a szurobe tartoznak, ha meg
+    // nincs kartyajuk -- kulonben egy friss projekt szurese "Mind"-re ugrana.
+    const values = listKanbanProjects()
+    const seen = new Set(values)
+    for (const pid of listActiveProjectIds()) if (!seen.has(pid)) values.push(pid)
+    json(res, values)
     return true
   }
 
@@ -291,6 +297,9 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       : existing.filter(c => alreadyLinked.includes(c.id))
 
     const { labels: _labels, labelId: _labelId, related: _related, ...cardFields } = data
+    // A `project` mezobe irt nev / rovid nev a projekt azonositojava oldodik
+    // (src/projects.ts). Ismeretlen szoveg valtozatlanul marad.
+    if (cardFields.project !== undefined) cardFields.project = resolveProjectRef(cardFields.project)
     // Write the link into THIS card, then into each of the others. Doing the
     // reverse direction here is the point: a caller that remembers one way and
     // forgets the other is exactly what happened in practice.
@@ -313,6 +322,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const id = decodeURIComponent(kanbanCardMatch[1])
     const body = await readBody(req)
     const data = JSON.parse(body.toString())
+    if (data.project !== undefined) data.project = resolveProjectRef(data.project)
     if (updateKanbanCard(id, data)) {
       if (data.status === 'waiting') ensureApprovalForWaitingCard(id, data.actor)
       // ...and the symmetric half: leaving waiting closes the request that

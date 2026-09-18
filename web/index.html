@@ -259,6 +259,13 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <span class="sb-label" data-i18n="nav.intezo">Intéző</span>
       </a>
+      <!-- PROJEKTEK (kanban #321): egy-egy munka kozos nezete -- a kartyai, a
+           jovahagyasai, a mappaja. Nem a Raktar ala tartozik: a Raktar azt
+           mondja meg, hol vannak a fajlok, a Projektek azt, min dolgozol. -->
+      <a href="#" class="sb-link" data-page="projects">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 13h20"/></svg>
+        <span class="sb-label" data-i18n="nav.projects">Projektek</span>
+      </a>
       <!-- RAKTAR = mappa, nem lap. Boss, 2026-08-27: "a depo mappa maradna az
            iroda alatt es bele tennenk a ket mappat, drive es fotok mappakat...
            igy kevesebb mappa lenne az elso sorban." A Raktar BEALLITASAI innen
@@ -3466,6 +3473,13 @@
       <div class="info-box" id="gitreposStateBox" hidden></div>
 
       <div id="gitreposList"></div>
+    </div>
+
+    <!-- === Projektek (Iroda) Page -- kanban #321 ===
+         A tartalmat a web/app.js "Iroda -> Projektek" blokkja rajzolja (lista,
+         projekt-oldal, urlapok), minden szoveg t()-n at. -->
+    <div class="page" id="projectsPage" hidden>
+      <div id="projectsRoot"></div>
     </div>
 
     <!-- === Debate (Vitaztatas) Page === -->
