@@ -261,3 +261,20 @@ print(json.dumps({k: data[k] for k in
 PY
 
 rm -f /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$
+
+# --- 10. A tetelesen lista (es rajta az elv-kapu dontese) ugyanebbol a
+# meresbol frissul. Eddig csak terminalbol keszult (npx tsx
+# scripts/upstream-changelog.ts), igy a feluleten az "Ujrameres" utan is a
+# regi lista allt, es a kapu-nezet orokre "meg nem futott"-at mondott.
+# --no-llm: csak git, masodpercek -- a mar meglevo magyar szovegeket
+# megtartja, uj tetelt nem fordit (az fizetos API-hivas, azt nem inditjuk
+# magunktol). A lista hibaja NEM rontja el a fenti merest: az mar ki van irva.
+if [ -z "${ERR}" ]; then
+  TSX="${REPO_ROOT}/node_modules/.bin/tsx"
+  if [ -x "${TSX}" ]; then
+    timeout 120 "${TSX}" "${REPO_ROOT}/scripts/upstream-changelog.ts" --no-llm \
+      || echo "upstream-changelog: a tetelesen lista NEM frissult (kilepokod $?) -- a regi lista maradt" >&2
+  else
+    echo "upstream-changelog: nincs ${TSX} (npm install hianyzik?) -- a tetelesen lista NEM frissult" >&2
+  fi
+fi
