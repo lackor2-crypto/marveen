@@ -20273,7 +20273,7 @@ async function renderOverviewConnections() {
   // pontosan igy volt: a Beallitasok pirosan mondta hogy nincs bejelentkezes,
   // ez a kartya meg zolden hogy minden rendben, ugyanarrol a gepallapotrol.
   const cok = health.find(h => h.id === 'claude_auth_ok')
-  if (cok) greenRows.push({ label: t('health.claude_auth_ok'), desc: t('health.claude_auth_ok_action') })
+  if (cok) greenRows.push({ label: t('health.claude_auth_ok', cok.params || {}), desc: t('health.claude_auth_ok_action', cok.params || {}) })
   // A mentes akkor is kap sort, ha rendben van: eppen az volt a baj, hogy
   // hetekig sikeresen futott, csak nem azt mentette, amit kellett volna --
   // egy nema "rendben" ott semmit nem arult volna el.
@@ -35219,34 +35219,75 @@ async function loadIntezoPage() {
     ibSug._intezoBound = 1
     ibSug.addEventListener('click', function (ev) {
       var b = ev.target.closest('[data-place-name]')
-      if (b) _inboxPlaceOne(b.getAttribute('data-place-name'))
+      if (b) { _inboxPlaceOne(b.getAttribute('data-place-name')); return }
+      var cf = ev.target.closest('[data-create-folder-name]')
+      if (cf) { _inboxCreateFolder(cf.getAttribute('data-create-folder-name')); return }
+      var row = ev.target.closest('[data-row-name]')
+      var sug = row && _inboxSug(row.getAttribute('data-row-name'))
+      if (!sug) return
+      var tog = ev.target.closest('[data-folder-toggle]')
+      if (tog) {
+        var picker = row.querySelector('.ib-picker')
+        if (!picker) return
+        picker.hidden = !picker.hidden
+        if (!picker.hidden) {
+          var f = picker.querySelector('.ib-folder-filter')
+          picker.querySelector('.ib-folder-list').innerHTML = _inboxFolderListHtml(sug, f ? f.value : '')
+          if (f) f.focus()
+        }
+        return
+      }
+      var opt = ev.target.closest('[data-folder-rel]')
+      if (opt) {
+        _inboxSetTarget(row, sug, opt.getAttribute('data-folder-rel'), false)
+        var pk = row.querySelector('.ib-picker')
+        if (pk) pk.hidden = true
+        return
+      }
+      var alt = ev.target.closest('[data-date-alt]')
+      if (alt) {
+        var di = row.querySelector('.ib-date')
+        if (di) di.value = alt.getAttribute('data-date-alt')
+        sug.date = Object.assign({}, sug.date, { value: alt.getAttribute('data-date-alt') })
+        sug._edited = sug._edited || {}
+        sug._edited.date = 1
+      }
+    })
+    // Every hand edit is written back to the suggestion, so a redraw (after
+    // placing another item, or when the AI answer arrives) never loses it.
+    ibSug.addEventListener('input', function (ev) {
+      var row = ev.target.closest('[data-row-name]')
+      var sug = row && _inboxSug(row.getAttribute('data-row-name'))
+      if (!sug) return
+      sug._edited = sug._edited || {}
+      if (ev.target.classList.contains('ib-folder-filter')) {
+        row.querySelector('.ib-folder-list').innerHTML = _inboxFolderListHtml(sug, ev.target.value)
+      } else if (ev.target.classList.contains('ib-target')) {
+        _inboxSetTarget(row, sug, ev.target.value.trim(), true)
+      } else if (ev.target.classList.contains('ib-name')) {
+        sug.suggestedName = ev.target.value
+        sug._edited.name = 1
+      } else if (ev.target.classList.contains('ib-date')) {
+        sug.date = Object.assign({}, sug.date, { value: ev.target.value })
+        sug._edited.date = 1
+      }
     })
     ibSug.addEventListener('change', function (ev) {
-      var pick = ev.target.closest('.ib-target-pick')
-      if (!pick || !pick.value) return
-      var row = pick.closest('[data-row-name]')
-      var input = row && row.querySelector('.ib-target')
-      if (input) input.value = pick.value
-      // A legordulobol valasztott mappa MAR letezik -- a letrehozas gombnak
-      // ilyenkor nincs dolga.
-      var cfBtn = row && row.querySelector('[data-create-folder-name]')
-      if (cfBtn) cfBtn.hidden = true
-    })
-    ibSug.addEventListener('click', function (ev) {
-      var cf = ev.target.closest('[data-create-folder-name]')
-      if (cf) _inboxCreateFolder(cf.getAttribute('data-create-folder-name'))
-    })
-    // Kezzel begepelt uj utvonalnal elo kell venni a gombot, ha az AKTUALIS
-    // ertek nem szerepel a mar ismert (letezo) mappak kozott.
-    ibSug.addEventListener('input', function (ev) {
-      var input = ev.target.closest('.ib-target')
-      if (!input) return
-      var row = input.closest('[data-row-name]')
-      var cfBtn = row && row.querySelector('[data-create-folder-name]')
-      if (!cfBtn) return
-      var val = input.value.trim()
-      var exists = _inboxKnownFolders.some(function (f) { return f.rel === val })
-      cfBtn.hidden = !val || exists
+      if (!ev.target.classList.contains('ib-owner')) return
+      var row = ev.target.closest('[data-row-name]')
+      var sug = row && _inboxSug(row.getAttribute('data-row-name'))
+      if (!sug) return
+      var prevName = sug.owner.name || ''
+      var next = (sug.owner.options || []).filter(function (o) { return o.id === ev.target.value })[0]
+      sug.owner = Object.assign({}, sug.owner, { personId: next ? next.id : '', name: next ? next.name : '' })
+      sug._edited = sug._edited || {}
+      sug._edited.owner = 1
+      // The same place under the new owner's own folder -- unless the user
+      // already chose the target by hand.
+      if (next && prevName && !sug._edited.target && sug.targetRel.indexOf(prevName + '/') === 0) {
+        _inboxSetTarget(row, sug, next.name + sug.targetRel.slice(prevName.length), false)
+        sug._edited.target = 0
+      }
     })
   }
 
@@ -35446,49 +35487,210 @@ function _inboxOwnerOptions(sug) {
   return out
 }
 
-function _inboxTargetOptions(sug) {
-  return '<option value="">' + escapeHtml(t('inbox.pick_folder')) + '</option>'
-    + _inboxKnownFolders.map(function (f) {
-      return '<option value="' + escapeAttr(f.rel) + '"' + (f.rel === sug.targetRel ? ' selected' : '') + '>'
-        + escapeHtml(f.display) + '</option>'
-    }).join('')
+/* A folder path as a wrapping breadcrumb -- never one long line that scrolls
+ * sideways (card 56530b08, Boss: "ne legyenek hosszu sorok amik oldalra
+ * gorgetnek"). */
+function _inboxCrumb(rel) {
+  if (!rel) return '<span class="ib-crumb-empty">' + escapeHtml(t('inbox.no_target_yet')) + '</span>'
+  return rel.split('/').map(function (seg) {
+    return '<span class="ib-crumb-seg">' + escapeHtml(seg) + '</span>'
+  }).join('<span class="ib-crumb-sep">›</span>')
+}
+
+function _inboxFold(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+var _INBOX_FOLDER_LIST_MAX = 40
+
+/* The searchable folder list: the owner's own folders first, shallow before
+ * deep; a typed filter matches any part of the path, accents ignored. */
+function _inboxFolderListHtml(sug, filter) {
+  var q = _inboxFold(filter).trim()
+  var ownerName = ''
+  ;(sug.owner.options || []).forEach(function (o) { if (o.id === sug.owner.personId) ownerName = o.name })
+  var list = _inboxKnownFolders.filter(function (f) {
+    if (!q) return true
+    return _inboxFold(f.rel).indexOf(q) >= 0
+  })
+  list.sort(function (a, b) {
+    var ao = ownerName && a.rel.indexOf(ownerName + '/') === 0 ? 0 : 1
+    var bo = ownerName && b.rel.indexOf(ownerName + '/') === 0 ? 0 : 1
+    if (ao !== bo) return ao - bo
+    var ad = a.rel.split('/').length, bd = b.rel.split('/').length
+    if (ad !== bd) return ad - bd
+    return a.rel.localeCompare(b.rel)
+  })
+  var more = list.length - _INBOX_FOLDER_LIST_MAX
+  var html = list.slice(0, _INBOX_FOLDER_LIST_MAX).map(function (f) {
+    return '<button type="button" class="ib-folder-opt' + (f.rel === sug.targetRel ? ' is-current' : '') + '"'
+      + ' data-folder-rel="' + escapeAttr(f.rel) + '">' + _inboxCrumb(f.rel) + '</button>'
+  }).join('')
+  if (!list.length) html = '<p class="subtitle">' + escapeHtml(t('inbox.folder_none')) + '</p>'
+  if (more > 0) html += '<p class="subtitle">' + escapeHtml(t('inbox.folder_more', { n: more })) + '</p>'
+  return html
+}
+
+function _inboxDateSourceLabel(src) {
+  var key = 'inbox.src_' + (src || 'none')
+  var s = t(key)
+  return s === key ? '' : s
+}
+
+function _inboxTargetExists(rel) {
+  return _inboxKnownFolders.some(function (f) { return f.rel === rel })
+}
+
+function _inboxCardHtml(sug) {
+  var nameAttr = escapeAttr(sug.name)
+  if (sug.credentialWarning) {
+    return '<div class="ib-card ib-locked" data-row-name="' + nameAttr + '">'
+      + '<div class="ib-head"><span class="ib-file">' + escapeHtml(sug.name) + '</span></div>'
+      + '<p class="ib-warn">🔒 ' + escapeHtml(sug.credentialWarning) + '</p></div>'
+  }
+  var ai = sug.ai || null
+  var head = '<div class="ib-head"><span class="ib-file">' + escapeHtml(sug.name) + '</span>'
+    + '<span class="ib-chip">' + escapeHtml(sug.type.label) + '</span>'
+    + (ai && ai.docType ? '<span class="ib-chip ib-chip-ai">' + escapeHtml(ai.docType) + '</span>' : '')
+    + (sug._aiPending ? '<span class="ib-chip ib-chip-wait">' + escapeHtml(t('inbox.ai_pending')) + '</span>' : '')
+    + '</div>'
+  var summary = ai && ai.summary ? '<p class="ib-summary">' + escapeHtml(ai.summary) + '</p>' : ''
+
+  var srcLabel = sug.date.value ? _inboxDateSourceLabel(sug.date.source) : ''
+  var alts = (sug.date.alternatives || []).filter(function (a) { return a.value && a.value !== sug.date.value })
+  var altHtml = alts.length
+    ? '<div class="ib-alts"><span class="subtitle">' + escapeHtml(t('inbox.date_other')) + '</span> '
+      + alts.slice(0, 4).map(function (a) {
+        var l = _inboxDateSourceLabel(a.source)
+        return '<button type="button" class="ib-alt" data-date-alt="' + escapeAttr(a.value) + '">'
+          + escapeHtml(a.value) + (l ? ' · ' + escapeHtml(l) : '') + '</button>'
+      }).join('') + '</div>'
+    : ''
+
+  var exists = !!sug.targetRel && _inboxTargetExists(sug.targetRel)
+  var isNew = !!sug.targetRel && !exists
+  var target = '<div class="ib-field ib-target-field"><span class="ib-label">' + escapeHtml(t('inbox.col_target')) + '</span>'
+    + '<div class="ib-crumb">' + _inboxCrumb(sug.targetRel) + '</div>'
+    + '<div class="ib-newfolder"' + (isNew ? '' : ' hidden') + '>'
+    + '<span>💡 ' + escapeHtml(t('inbox.new_folder_hint')) + '</span> '
+    + '<button type="button" class="btn-secondary btn-compact" data-create-folder-name="' + nameAttr + '">'
+    + escapeHtml(t('inbox.create_folder')) + '</button></div>'
+    + '<button type="button" class="ib-link" data-folder-toggle="1">' + escapeHtml(t('inbox.other_folder')) + '</button>'
+    + '<div class="ib-picker" hidden>'
+    + '<input type="search" class="ib-folder-filter" placeholder="' + escapeAttr(t('inbox.folder_search')) + '">'
+    + '<div class="ib-folder-list"></div>'
+    + '<label class="ib-label ib-manual">' + escapeHtml(t('inbox.target_manual'))
+    + '<input type="text" class="ib-target" value="' + escapeAttr(sug.targetRel || '') + '"'
+    + ' placeholder="' + escapeAttr(t('inbox.target_placeholder')) + '"></label>'
+    + '</div></div>'
+
+  var whyParts = []
+  if (ai && ai.reason) whyParts.push('<p>' + escapeHtml(ai.reason) + '</p>')
+  ;(sug.notes || []).forEach(function (n) { whyParts.push('<p>' + escapeHtml(n) + '</p>') })
+  var why = whyParts.length
+    ? '<details class="ib-why"><summary>' + escapeHtml(t('inbox.why')) + '</summary>' + whyParts.join('') + '</details>'
+    : ''
+
+  return '<div class="ib-card' + (sug.needsReview ? ' ib-review' : '') + '" data-row-name="' + nameAttr + '">'
+    + head + summary
+    + '<div class="ib-grid">'
+    + '<label class="ib-field"><span class="ib-label">' + escapeHtml(t('inbox.col_owner')) + '</span>'
+    + '<select class="ib-owner">' + _inboxOwnerOptions(sug) + '</select></label>'
+    + '<div class="ib-field"><span class="ib-label">' + escapeHtml(t('inbox.col_date')) + '</span>'
+    + '<input type="date" class="ib-date" value="' + escapeAttr(sug.date.value || '') + '">'
+    + (srcLabel ? '<span class="subtitle ib-src">' + escapeHtml(t('inbox.date_from', { src: srcLabel })) + '</span>' : '')
+    + altHtml + '</div>'
+    + '</div>'
+    + target
+    + '<label class="ib-field"><span class="ib-label">' + escapeHtml(t('inbox.col_name')) + '</span>'
+    + '<input type="text" class="ib-name" value="' + escapeAttr(sug.suggestedName || '') + '"></label>'
+    + why
+    + '<div class="ib-actions"><button class="btn-primary btn-compact" data-place-name="' + nameAttr + '">'
+    + escapeHtml(t('inbox.place')) + '</button></div>'
+    + '</div>'
 }
 
 function _inboxRenderSuggestions() {
-  return '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
-    + '<th>' + escapeHtml(t('inbox.col_item')) + '</th>'
-    + '<th>' + escapeHtml(t('inbox.col_type')) + '</th>'
-    + '<th>' + escapeHtml(t('inbox.col_owner')) + '</th>'
-    + '<th>' + escapeHtml(t('inbox.col_date')) + '</th>'
-    + '<th>' + escapeHtml(t('inbox.col_target')) + '</th>'
-    + '<th>' + escapeHtml(t('inbox.col_name')) + '</th>'
-    + '<th></th></tr></thead><tbody>'
-    + _inboxSuggestions.map(function (sug) {
-      if (sug.credentialWarning) {
-        return '<tr data-row-name="' + escapeAttr(sug.name) + '"><td>' + escapeHtml(sug.name) + '</td>'
-          + '<td colspan="5"><span style="color:var(--warning, #c77)">🔒 ' + escapeHtml(sug.credentialWarning) + '</span></td>'
-          + '<td></td></tr>'
+  return '<div class="ib-cards">' + _inboxSuggestions.map(_inboxCardHtml).join('') + '</div>'
+}
+
+function _inboxSug(name) {
+  return _inboxSuggestions.filter(function (s) { return s.name === name })[0] || null
+}
+
+/* Re-draw ONE card in place: the others keep their open pickers and focus. */
+function _inboxRedrawCard(sug) {
+  var row = _inboxRow(sug.name)
+  if (!row) return
+  var tmp = document.createElement('div')
+  tmp.innerHTML = _inboxCardHtml(sug)
+  row.replaceWith(tmp.firstChild)
+}
+
+/* Set the target of one card, from the picker, the manual field or an owner
+ * change -- the breadcrumb, the "new folder" line and the field follow. */
+function _inboxSetTarget(row, sug, rel, fromManual) {
+  sug.targetRel = rel
+  sug.targetExists = !!rel && _inboxTargetExists(rel)
+  sug._edited = sug._edited || {}
+  sug._edited.target = 1
+  var crumb = row.querySelector('.ib-crumb')
+  if (crumb) crumb.innerHTML = _inboxCrumb(rel)
+  var nf = row.querySelector('.ib-newfolder')
+  if (nf) nf.hidden = !rel || sug.targetExists
+  var input = row.querySelector('.ib-target')
+  if (input && !fromManual) input.value = rel
+}
+
+var _inboxAiRun = 0
+var _INBOX_AI_CHUNK = 4
+
+/* The AI round (card 56530b08): after the quick rule-based suggestion the
+ * documents go to the AI in small groups, so the cards fill in one by one and
+ * a slow local model still shows progress. What the user already changed by
+ * hand is never overwritten. */
+async function _inboxAiRound() {
+  var run = ++_inboxAiRun
+  var note = document.getElementById('inboxAiNote')
+  var names = _inboxSuggestions.filter(function (s) { return !s.credentialWarning }).map(function (s) { return s.name })
+  if (!names.length) return
+  names.forEach(function (n) { var s = _inboxSug(n); if (s) { s._aiPending = true; _inboxRedrawCard(s) } })
+  var done = 0
+  var lastNote = ''
+  for (var i = 0; i < names.length; i += _INBOX_AI_CHUNK) {
+    if (run !== _inboxAiRun) return
+    if (note) note.textContent = t('inbox.ai_working', { done: done, n: names.length })
+    var chunk = names.slice(i, i + _INBOX_AI_CHUNK)
+    var d = null
+    try {
+      d = await _depoPost('/api/life/inbox/ai-suggest?lang=' + (window._lang || 'hu'), { names: chunk })
+    } catch (e) {
+      lastNote = t('inbox.ai_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+    }
+    if (run !== _inboxAiRun) return
+    if (d && d.knownFolders) _inboxKnownFolders = d.knownFolders
+    if (d && d.ai && d.ai.note) lastNote = d.ai.note
+    chunk.forEach(function (n) {
+      var old = _inboxSug(n)
+      if (!old) return
+      var fresh = d && (d.suggestions || []).filter(function (s) { return s.name === n })[0]
+      var merged = old
+      if (fresh && fresh.ai) {
+        var ed = old._edited || {}
+        merged = Object.assign({}, fresh, { _edited: ed })
+        if (ed.owner) merged.owner = old.owner
+        if (ed.date) merged.date = old.date
+        if (ed.target) { merged.targetRel = old.targetRel; merged.targetExists = old.targetExists }
+        if (ed.name) merged.suggestedName = old.suggestedName
+        var idx = _inboxSuggestions.indexOf(old)
+        if (idx >= 0) _inboxSuggestions[idx] = merged
       }
-      var warnStyle = sug.needsReview ? ' style="background:var(--warning-bg, #fff8e6)"' : ''
-      var noteHtml = (sug.notes || []).length
-        ? '<br><span class="subtitle">' + sug.notes.map(escapeHtml).join('<br>') + '</span>' : ''
-      return '<tr data-row-name="' + escapeAttr(sug.name) + '"' + warnStyle + '>'
-        + '<td><strong>' + escapeHtml(sug.name) + '</strong>' + noteHtml + '</td>'
-        + '<td>' + escapeHtml(sug.type.label) + '</td>'
-        + '<td><select class="ib-owner">' + _inboxOwnerOptions(sug) + '</select></td>'
-        + '<td><input type="date" class="ib-date" value="' + escapeAttr(sug.date.value || '') + '"></td>'
-        + '<td><select class="ib-target-pick">' + _inboxTargetOptions(sug) + '</select>'
-        + '<input type="text" class="ib-target" value="' + escapeAttr(sug.targetRel || '') + '"'
-        + ' style="width:100%;margin-top:4px" placeholder="' + escapeAttr(t('inbox.target_placeholder')) + '">'
-        + '<button type="button" class="btn-secondary btn-compact" style="margin-top:4px;width:100%"'
-        + ' data-create-folder-name="' + escapeAttr(sug.name) + '"'
-        + (sug.targetRel && !sug.targetExists ? '' : ' hidden') + '>'
-        + escapeHtml(t('inbox.create_folder')) + '</button></td>'
-        + '<td><input type="text" class="ib-name" value="' + escapeAttr(sug.suggestedName || '') + '"></td>'
-        + '<td><button class="btn-primary btn-compact" data-place-name="' + escapeAttr(sug.name) + '">'
-        + escapeHtml(t('inbox.place')) + '</button></td></tr>'
-    }).join('')
-    + '</tbody></table></div>'
+      merged._aiPending = false
+      _inboxRedrawCard(merged)
+    })
+    done += chunk.length
+  }
+  if (note) note.textContent = lastNote
 }
 
 async function _inboxAnalyze() {
@@ -35496,6 +35698,7 @@ async function _inboxAnalyze() {
   var box = document.getElementById('inboxSuggestions')
   var allBtn = document.getElementById('inboxPlaceAllBtn')
   if (!box) return
+  _inboxAiRun++
   if (note) note.textContent = t('inbox.analyzing')
   var d = null
   try {
@@ -35510,14 +35713,15 @@ async function _inboxAnalyze() {
   _inboxKnownFolders = d.knownFolders || []
   var notes = []
   if (d.message) notes.push(escapeHtml(d.message))
-  // A hianyzo modell NEM nema elakadas: emberi mondat all a gomb alatt, es a
-  // sorok ettol meg tovabbra is kezzel kitolthetok (bizonytalansag != hiba).
+  // A hianyzo eszkoz NEM nema elakadas: emberi mondat all a gomb alatt, es a
+  // kartyak ettol meg tovabbra is kezzel kitolthetok (bizonytalansag != hiba).
   if (!d.ocrAvailable) notes.push(escapeHtml(t('inbox.ocr_missing')))
   if (!d.faceRecognitionAvailable) notes.push(escapeHtml(t('inbox.face_missing')))
-  if (note) note.innerHTML = notes.join('<br>')
+  if (note) note.innerHTML = notes.join('<br>') + '<br><span id="inboxAiNote"></span>'
   var placeable = _inboxSuggestions.filter(function (s) { return !s.credentialWarning })
   if (allBtn) allBtn.hidden = !placeable.length
   box.innerHTML = !_inboxSuggestions.length ? '' : _inboxRenderSuggestions()
+  if (placeable.length) _inboxAiRound()
 }
 
 async function _inboxPlaceOne(name) {

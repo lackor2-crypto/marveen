@@ -163,14 +163,18 @@ describe('analyzeInboxItem -- tartalombol datum + eletfa-kereszthivatkozas', () 
     expect(sug.notes.some((n) => n.includes('szövegében talált név'))).toBe(true)
   })
 
-  it('olvasható tartalom datum NELKUL: source none + kulon uzenet ("nem olvasasi hiba")', () => {
+  // Card 56530b08: with no date anywhere else, the file's own modification day
+  // is offered as a LAST resort (source 'filedate', lowest confidence) instead
+  // of an empty field -- the notes still say plainly that the text had none.
+  it('olvasható tartalom datum NELKUL: fajl-datum a vegso tartalek + kulon uzenet ("nem olvasasi hiba")', () => {
     const config = loadLifeConfig()
     const index = buildLearnedIndex(config)
     const item = writeInbox('jegyzet.txt', Buffer.from('Bevásárlólista: kenyér, tej, Korpás László telefonszáma', 'utf8'))
     const sug = analyzeInboxItem(item, config, index, 'hu')
 
-    expect(sug.date.value).toBe('')
-    expect(sug.date.source).toBe('none')
+    expect(sug.date.source).toBe('filedate')
+    expect(sug.date.value).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(sug.date.confidence).toBeLessThan(0.5)
     // Elolvastuk a szoveget -> a "nincs datum" agat mondjuk ki, NEM az OCR-hianyt.
     expect(sug.notes.some((n) => n.includes('nem találtam benne dátumot'))).toBe(true)
     expect(sug.notes.some((n) => n.includes('OCR'))).toBe(false)
@@ -184,7 +188,7 @@ describe('analyzeInboxItem -- tartalombol datum + eletfa-kereszthivatkozas', () 
     const item = writeInbox('szkennelt.pdf', makePdf('q 200 0 0 300 0 0 cm /Im0 Do Q'))
     const sug = analyzeInboxItem(item, config, index, 'hu')
 
-    expect(sug.date.source).toBe('none')
+    expect(sug.date.source).toBe('filedate')
     expect(sug.notes.some((n) => n.includes('szkennelt') || n.includes('OCR'))).toBe(true)
     expect(sug.notes.some((n) => n.includes('nem találtam benne dátumot'))).toBe(false)
   })

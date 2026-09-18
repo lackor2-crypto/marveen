@@ -40,7 +40,8 @@ import {
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
-import { analyzeInbox, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox-analyze.js'
+import { classifyWithAi, mergeAiIntoSuggestion } from '../../life-inbox-ai.js'
+import { analyzeInboxAsync, getOcrAdapter, getFaceAdapter, T } from '../../life-inbox-analyze.js'
 import { enrollFace } from '../../life-vision-adapter.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
@@ -780,7 +781,38 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/life/inbox/analyze' && method === 'POST') {
     const body = await readJson(req)
     const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : undefined
-    send(res, 200, analyzeInbox(names, uiLang(url)))
+    // Async: a scanned PDF needs a multi-second OCR, the dashboard must not
+    // freeze on it (card 56530b08). The prefetched texts stay in the
+    // analyzer's cache for the AI step; they are not sent to the browser.
+    const { prefetched: _prefetched, ...result } = await analyzeInboxAsync(names, uiLang(url))
+    send(res, 200, result)
+    return true
+  }
+
+  // AI-JAVASLAT, 2. kor (kartya 56530b08): a szabaly-alapu javaslat fole a
+  // Claude (vagy ha nincs, a helyi modell) olvassa el az iratot. Lassu (akar egy
+  // perc), ezert KULON hivas: a felulet elobb a gyors javaslatot mutatja, es ezt
+  // utana kero. Semmit nem mozgat -- az athelyezes tovabbra is a /place.
+  if (path === '/api/life/inbox/ai-suggest' && method === 'POST') {
+    const body = await readJson(req)
+    const names = Array.isArray(body?.names) ? body.names.map((n: any) => String(n)) : undefined
+    const lang = uiLang(url)
+    const { prefetched, ...result } = await analyzeInboxAsync(names, lang)
+    if (result.reason !== 'ok') {
+      send(res, 200, { ...result, ai: { engine: 'none', model: '', note: '' } })
+      return true
+    }
+    const config = loadLifeConfig()
+    const run = await classifyWithAi(
+      result.suggestions.map((s) => ({ suggestion: s, prefetched: prefetched.get(s.name) })),
+      config, result.knownFolders, lang,
+    )
+    const byName = new Map(run.results.map((r) => [r.name, r]))
+    const suggestions = result.suggestions.map((s) => {
+      const r = byName.get(s.name)
+      return r ? mergeAiIntoSuggestion(s, r, run, config) : s
+    })
+    send(res, 200, { ...result, suggestions, ai: { engine: run.engine, model: run.model, note: run.note } })
     return true
   }
 

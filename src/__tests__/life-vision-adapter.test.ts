@@ -133,6 +133,40 @@ describe('life-vision-adapter (telepitve, hibas alfolyamat)', () => {
 })
 
 describe('initVisionAdapters', () => {
+  // The system tesseract (card 56530b08) is preferred when it is on PATH. These
+  // tests must not depend on what the test machine has installed, so PATH is
+  // pointed at a controlled directory for each case.
+  const ORIGINAL_PATH = process.env.PATH
+  let binDir: string
+  beforeEach(async () => {
+    binDir = mkdtempSync(join(tmpdir(), 'marveen-bin-'))
+    process.env.PATH = binDir
+    const { resetToolCache } = await import('../life-inbox-systools.js')
+    resetToolCache()
+  })
+  afterEach(async () => {
+    process.env.PATH = ORIGINAL_PATH
+    rmSync(binDir, { recursive: true, force: true })
+    const { resetToolCache } = await import('../life-inbox-systools.js')
+    resetToolCache()
+  })
+
+  it('a rendszer tesseractjat koti be OCR-nek, ha a PATH-on van (a venv-nel is elobb)', async () => {
+    installFakeVision(workDir)
+    process.env.MARVEEN_VISION_DIR = workDir
+    const tess = join(binDir, 'tesseract')
+    writeFileSync(tess, '#!/bin/sh\nif [ "$1" = "--list-langs" ]; then printf "List of available languages:\\neng\\nhun\\n"; exit 0; fi\necho "SYSTEM_OCR"\n')
+    chmodSync(tess, 0o755)
+    const { initVisionAdapters, systemOcrAdapter } = await import('../life-vision-adapter.js')
+    const { getOcrAdapter } = await import('../life-inbox-analyze.js')
+    initVisionAdapters()
+    expect(getOcrAdapter()).toBe(systemOcrAdapter)
+    const img = join(workDir, 'kep.png')
+    writeFileSync(img, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+    expect(getOcrAdapter().extractText(img)).toContain('SYSTEM_OCR')
+    expect(await getOcrAdapter().extractTextAsync!(img)).toContain('SYSTEM_OCR')
+  })
+
   it('nem koti be az adaptereket, ha a venv nincs telepitve (marad az alapertelmezett)', async () => {
     process.env.MARVEEN_VISION_DIR = join(workDir, 'nem-letezik')
     const { initVisionAdapters } = await import('../life-vision-adapter.js')
