@@ -2,10 +2,10 @@
 // always the smartest model, and "ha nincs is claude fiok a gepen akkor ne
 // lepodjon meg es azzal csinalja ami van a gepen!" -- these tests pin the
 // fallback chain and, above all, that nothing the model invents gets through.
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   orderClaudeAccounts, parseAiAnswer, validNewFolder, pickOllamaModel,
-  classifyWithAi, mergeAiIntoSuggestion, setAiRunners, type ClaudeAccount,
+  classifyWithAi, mergeAiIntoSuggestion, setAiRunners, resetLimitCooldown, type ClaudeAccount,
 } from '../life-inbox-ai.js'
 import type { InboxSuggestion, KnownFolder } from '../life-inbox-analyze.js'
 
@@ -39,7 +39,7 @@ function suggestion(name: string, extra: Partial<InboxSuggestion> = {}): InboxSu
 const acc = (agent: string, model: string, pct: number | null, dir = agent): ClaudeAccount =>
   ({ agent, configDir: dir, model, fiveHourPct: pct, usageAt: pct === null ? null : Date.now() })
 
-afterEach(() => setAiRunners({ claude: null, ollama: null, accounts: null }))
+afterEach(() => { setAiRunners({ claude: null, ollama: null, accounts: null }); resetLimitCooldown() })
 
 describe('orderClaudeAccounts', () => {
   it('csak Claude-modellu, nem kimerult fiok; a legtobb szabad keret elol', () => {
@@ -50,6 +50,11 @@ describe('orderClaudeAccounts', () => {
       acc('friss', 'claude-opus-5', 10),
     ])
     expect(out.map((a) => a.agent)).toEqual(['friss', 'felig'])
+  })
+
+  it('a heti keretet tenylegesen kimerito fiokot kihagyja (az a hivast is megfogja)', () => {
+    const out = orderClaudeAccounts([{ ...acc('heti', 'claude-opus-5', 0), sevenDayPct: 100 }, acc('jo', 'claude-opus-5', 40)])
+    expect(out.map((a) => a.agent)).toEqual(['jo'])
   })
 
   it('egy bejelentkezest csak egyszer probal, akarhany agens osztozik rajta', () => {
@@ -163,6 +168,43 @@ describe('classifyWithAi -- a lanc', () => {
     expect(tried).toEqual(['a', 'b'])
     expect(run.engine).toBe('ollama')
     expect(run.note).toContain('a Claude most nem válaszolt')
+  })
+
+  it('a "limit" valaszu fiok utan a kovetkezot probalja, es a kovetkezo korben mar nem kerdezi', async () => {
+    // 2026-09-18, eles eset: a mentett szazalek elavult volt -- a "36%"-os
+    // fiok mar a munkamenet-keret vegen allt, a harmadik (jo) fiokot pedig a
+    // regi ket-probas korlat miatt senki nem kerdezte meg.
+    const tried: string[] = []
+    setAiRunners({
+      accounts: () => [acc('a', 'claude-opus-5', 0), acc('b', 'claude-opus-5', 36), acc('c', 'claude-opus-5', 44)],
+      claude: async (_s, _p, account) => { tried.push(account.agent); return account.agent === 'c' ? { text: good, model: 'claude-opus-5' } : 'limit' },
+      ollama: async () => { throw new Error('nem kellene ide jutni') },
+    })
+    const run1 = await classifyWithAi(inputs, config, folders, 'hu')
+    expect(run1.engine).toBe('claude')
+    expect(tried).toEqual(['a', 'b', 'c'])
+    tried.length = 0
+    await classifyWithAi(inputs, config, folders, 'hu')
+    expect(tried).toEqual(['c'])
+  })
+
+  it('a helyi modell egy kereson belul idokeretet tart, a maradek "pending" (a 300 s-os HTTP-korlat alatt)', async () => {
+    vi.useFakeTimers({ now: new Date('2026-09-18T10:00:00Z') })
+    try {
+      const many = ['a.pdf', 'b.pdf', 'c.pdf'].map((n) => ({ suggestion: suggestion(n), prefetched: undefined }))
+      setAiRunners({
+        accounts: () => [],
+        ollama: async () => {
+          vi.setSystemTime(Date.now() + 90_000)
+          return { text: JSON.stringify({ ownerId: 'p1' }), model: 'q' }
+        },
+      })
+      const run = await classifyWithAi(many, config, folders, 'hu')
+      expect(run.results.map((r) => r.name)).toEqual(['a.pdf', 'b.pdf'])
+      expect(run.pending).toEqual(['c.pdf'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('hitelesito adatot tartalmazo tetelt SOHA nem kuld el', async () => {
