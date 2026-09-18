@@ -505,3 +505,41 @@ export function mergeAiIntoSuggestion(s: InboxSuggestion, r: AiItemResult, run: 
   out.needsReview = out.owner.uncertain || !out.targetRel || !out.targetExists || r.confidence < 0.55
   return out
 }
+
+// ---------------------------------------------------------------------------
+// General one-shot question through the SAME chain (kanban #321: the project
+// summary). Same rules as the Inbox: the owner's own Claude subscription
+// first, then the local model, never a paid API -- and the caller validates
+// the answer. The answer is asked for as JSON so the local model's JSON mode
+// works too; `parse` turns the text into a value or null.
+// ---------------------------------------------------------------------------
+export interface AiAsk<V> {
+  engine: 'claude' | 'ollama' | 'none'
+  model: string
+  value: V | null
+  /** 'no_ai' = no usable Claude account and no local model; 'no_answer' = there was one, but no usable answer. */
+  reason: '' | 'no_ai' | 'no_answer'
+}
+
+export async function askAiJson<V>(system: string, prompt: string, parse: (json: any) => V | null): Promise<AiAsk<V>> {
+  const read = (text: string): V | null => {
+    try { return parse(extractJson(text)) } catch { return null }
+  }
+  const now = Date.now()
+  const accounts = accountLister().filter((a) => (limitedUntil.get(a.configDir) ?? 0) <= now)
+  let tried = 0
+  for (const account of accounts.slice(0, MAX_CLAUDE_ACCOUNTS)) {
+    if (Date.now() - now > REQUEST_BUDGET_MS) break
+    tried++
+    const ans = await claudeRunner(system, prompt, account).catch(() => null)
+    if (ans === 'limit') { limitedUntil.set(account.configDir, Date.now() + LIMIT_COOLDOWN_MS); continue }
+    const value = ans ? read(ans.text) : null
+    if (ans && value !== null) return { engine: 'claude', model: ans.model, value, reason: '' }
+  }
+  const local = await ollamaRunner(system, prompt).catch(() => null)
+  if (local && local !== 'missing') {
+    const value = read(local.text)
+    if (value !== null) return { engine: 'ollama', model: local.model, value, reason: '' }
+  }
+  return { engine: 'none', model: '', value: null, reason: !tried && local === 'missing' ? 'no_ai' : 'no_answer' }
+}
