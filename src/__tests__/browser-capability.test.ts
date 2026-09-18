@@ -100,13 +100,15 @@ describe('bekotes', () => {
     expect(web).toContain("import { tryHandleBrowser } from './web/routes/browser.js'")
     expect(web).toContain('if (await tryHandleBrowser(routeCtx)) return')
   })
-  it('az oldal elerheto a menubol es betoltodik', () => {
+  it('a lap letezik es betoltodik, de NINCS a bal oldali menuben (125447fe)', () => {
     const html = readFileSync(join(root, 'web/index.html'), 'utf8')
     const app = readFileSync(join(root, 'web/app.js'), 'utf8')
-    expect(html).toContain('data-page="browser"')
+    // A kepesseg megmarad: a lap es a betolto el, #browser hash-en/agenskent elerheto.
     expect(html).toContain('id="browserPage"')
     expect(app).toContain("if (pageId === 'browser') callPageLoader('loadBrowserPage')")
     expect(app).toContain('window.loadBrowserPage = loadBrowserPage')
+    // Boss keresere a bal oldali sav Bongeszo gombja ELTAVOLITVA (a usernek nem valo).
+    expect(html).not.toContain('data-page="browser"')
   })
   it('az ugynok-skill a seed-skills alatt van (a telepito azt masolja)', () => {
     const skill = readFileSync(join(root, 'seed-skills/browser-control/SKILL.md'), 'utf8')

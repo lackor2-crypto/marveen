@@ -143,10 +143,11 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <span class="sb-label" data-i18n="nav.research">Kutatás</span>
           </a>
-          <a href="#" class="sb-link" data-page="browser">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><circle cx="6.5" cy="6.5" r=".5"/><circle cx="9" cy="6.5" r=".5"/></svg>
-            <span class="sb-label" data-i18n="nav.browser">Böngésző</span>
-          </a>
+          <!-- Kartya 125447fe (Boss 2026-09-18): a Bongeszo menupont eltavolitva a
+               bal oldali savbol -- a usernek nem valo. A KEPESSEG megmarad: a
+               #browserPage lap, a loadBrowserPage es a /api/browser/* vegpontok
+               tovabbra is elnek, az agens hasznalja (API + #browser hash). Ha
+               ujra kellene a menugomb, ide jon vissza a bongeszo sidebar-link. -->
           <a href="#" class="sb-link" data-page="ideas">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
             <span class="sb-label">Ötletláda</span>
