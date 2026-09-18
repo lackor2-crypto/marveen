@@ -4423,6 +4423,8 @@ window._i18n.en = {
   "projects.act.code": "Code task (VS Code: {alias}) — {status}",
   "projects.act.code_card": "Code task: {card} (VS Code: {alias}) — {status}",
   "projects.act.file": "File changed: {name}",
+  "projects.act.card_created": "{card}: new card",
+  "projects.act.idea_created": "New idea: \"{name}\"",
   "projects.ago.never": "never",
   "projects.ago.now": "just now",
   "projects.ago.min": "{n} min ago",

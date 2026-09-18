@@ -63,7 +63,7 @@ export interface ApprovalItem {
   agentId: string
 }
 
-export type ActivityKind = 'status' | 'comment' | 'approval' | 'idea' | 'code' | 'file'
+export type ActivityKind = 'status' | 'comment' | 'approval' | 'idea' | 'code' | 'file' | 'card_created' | 'idea_created'
 export interface ActivityItem {
   at: number
   kind: ActivityKind
@@ -255,6 +255,13 @@ function loadActivity(project: ProjectRow, cards: OverviewCard[], aliases: strin
     for (const r of db.prepare(`SELECT id, title FROM kanban_cards WHERE id IN (${placeholders(allIds.length)})`).all(...allIds) as { id: string; title: string }[]) {
       titles.set(r.id, r.title)
     }
+    // A kartya SZULETESE nem allapotvaltas, ezert a kanban_card_events nem
+    // naplozza -- a sor sajat created_at-je viszont mert adat.
+    for (const r of db.prepare(
+      `SELECT id, title, created_at FROM kanban_cards WHERE id IN (${placeholders(allIds.length)}) ORDER BY created_at DESC LIMIT ${limit}`,
+    ).all(...allIds) as { id: string; title: string; created_at: number }[]) {
+      out.push({ at: toMs(r.created_at), kind: 'card_created', cardId: r.id, cardTitle: r.title })
+    }
   }
   for (const c of cards) titles.set(c.id, c.title)
   const per = limit
@@ -286,6 +293,13 @@ function loadActivity(project: ProjectRow, cards: OverviewCard[], aliases: strin
     }
   }
   const ideaIds = projectIdeaIds(project.id)
+  if (ideaIds.length && hasTable('idea_box')) {
+    for (const r of db.prepare(
+      `SELECT title, created_at FROM idea_box WHERE id IN (${placeholders(ideaIds.length)}) ORDER BY created_at DESC LIMIT ${limit}`,
+    ).all(...ideaIds) as { title: string; created_at: number }[]) {
+      out.push({ at: toMs(r.created_at), kind: 'idea_created', name: r.title })
+    }
+  }
   if (ideaIds.length && hasTable('idea_status_log')) {
     const ideaTitles = new Map<string, string>()
     if (hasTable('idea_box')) {

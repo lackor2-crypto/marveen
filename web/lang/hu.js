@@ -4499,6 +4499,8 @@ window._i18n.hu = {
   "projects.act.code": "Kódfeladat (VS Code: {alias}) — {status}",
   "projects.act.code_card": "Kódfeladat: {card} (VS Code: {alias}) — {status}",
   "projects.act.file": "Fájl módosult: {name}",
+  "projects.act.card_created": "{card}: új kártya",
+  "projects.act.idea_created": "Új ötlet: „{name}”",
   "projects.ago.never": "még soha",
   "projects.ago.now": "épp most",
   "projects.ago.min": "{n} perce",

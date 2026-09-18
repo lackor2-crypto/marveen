@@ -81,6 +81,8 @@ export function summaryFacts(p: ProjectRow, ov: ProjectOverview, lang: 'hu' | 'e
       : a.kind === 'approval' ? `approval for "${a.cardTitle ?? ''}": ${a.to}`
       : a.kind === 'idea' ? `idea "${a.name ?? ''}": ${a.to}`
       : a.kind === 'code' ? `code task ${a.to}${a.cardTitle ? ` for "${a.cardTitle}"` : ''}`
+      : a.kind === 'card_created' ? `new card "${a.cardTitle ?? ''}"`
+      : a.kind === 'idea_created' ? `new idea "${a.name ?? ''}"`
       : `file changed: ${a.name ?? ''}`
     L.push(`- ${isoDay(a.at)} ${what}`)
   }

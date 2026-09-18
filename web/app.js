@@ -40280,6 +40280,10 @@ function _prjActivityLine(a) {
         + (a.text ? `<div class="prj-item-sub">${escapeHtml(a.text.slice(0, 160))}</div>` : '')
     case 'file':
       return escapeHtml(t('projects.act.file', { name: a.name || '' }))
+    case 'card_created':
+      return _prjTHtml('projects.act.card_created', {}, { card })
+    case 'idea_created':
+      return escapeHtml(t('projects.act.idea_created', { name: a.name || '' }))
     default:
       return escapeHtml(a.kind)
   }

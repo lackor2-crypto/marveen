@@ -308,3 +308,20 @@ describe('az osszefoglalo datumai', () => {
     expect(summaryFacts(getProject(p.id)!, buildProjectOverview(p.id)!, 'hu', now)).toContain('Today: 2026-09-19')
   })
 })
+
+describe('aktivitas: a letrehozas is esemeny', () => {
+  it('az uj kartya es az uj otlet megjelenik az idovonalon, a tenyek szovegeben is a sajat nevukon', () => {
+    const p = mustProject({ name: 'Idovonal' })
+    createKanbanCard({ id: 'eeee0001', title: 'Friss kartya', status: 'planned', priority: 'normal', project: p.id } as any)
+    createIdea({ id: 'i-friss', title: 'Friss otlet', description: null, category: 'Egyéb', status: 'new', source: 'manual', kanban_id: null, impact: null, effort: null })
+    linkObject(p.id, 'idea', 'i-friss')
+    const ov = buildProjectOverview(p.id)!
+    const kinds = ov.activity.map((a) => [a.kind, a.cardTitle ?? a.name])
+    expect(kinds).toContainEqual(['card_created', 'Friss kartya'])
+    expect(kinds).toContainEqual(['idea_created', 'Friss otlet'])
+    const facts = summaryFacts(getProject(p.id)!, ov, 'en')
+    expect(facts).toContain('new card "Friss kartya"')
+    expect(facts).toContain('new idea "Friss otlet"')
+    expect(facts).not.toContain('file changed')
+  })
+})
