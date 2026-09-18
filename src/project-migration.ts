@@ -23,7 +23,9 @@
  *     kod-hid utvonal-kulcsai, atirasuk a futo kodfeladatok iranyitasat torne
  *     el. A kod-hid alias a projekthez egy `project_links` sorral kotodik.
  *   - nem nyul az ures (`NULL`) projektu kartyakhoz: a globalis kanbanban
- *     letrehozott kartya nem kerul magatol projektbe (spec 2. pont).
+ *     letrehozott kartya nem kerul magatol projektbe (spec 2. pont). Egyetlen
+ *     kivetel a KIFEJEZETT, cimke szerinti kulon lepes (`mapping.unassigned`),
+ *     amit a tulajdonos kulon valaszt ki.
  *   - nem dob el ismeretlen erteket: ami "kihagyas" jelolest kap, valtozatlan
  *     marad, es kesobb is atveheto.
  */
@@ -31,7 +33,7 @@ import { randomUUID } from 'node:crypto'
 import { getDb } from './db.js'
 import {
   ensureProjectTables, hasTable, getProject, createProject, linkObject, unlinkObject,
-  projectForObject, slugify, uniqueSlug,
+  projectForObject, slugify, uniqueSlug, projectIdsByName, projectNameTaken, nameKey,
 } from './projects.js'
 
 const nowSec = (): number => Math.floor(Date.now() / 1000)
@@ -43,6 +45,8 @@ export interface KanbanValueUsage {
   archivedCards: number
   /** cimkenev -> kartyaszam (a `(nincs)` kulcs a cimke nelkulieket szamolja). */
   labels: Record<string, number>
+  /** A cimke-kombinaciok (a cimke-szurt atvetel pontos elonezetehez). */
+  labelSets: LabelSet[]
   statuses: Record<string, number>
   firstAt: number | null
   lastAt: number | null
@@ -82,10 +86,37 @@ export interface MigrationPlan {
   existingProjects: number
   kanban: KanbanValueUsage[]
   /** Az ures projektu kartyak: ezekhez a migracio NEM nyul. */
-  unassignedCards: { total: number; live: number; archived: number; labels: Record<string, number> }
+  unassignedCards: { total: number; live: number; archived: number; labels: Record<string, number>; labelSets: LabelSet[] }
   codeAliases: CodeAliasUsage[]
   /** Van-e egyaltalan mit atvenni (a felulet csak ekkor mutatja a panelt). */
   pending: boolean
+}
+
+/** A kartyak cimke-KOMBINACIOI darabszammal. Ebbol a felulet PONTOSAN ki tudja
+ *  szamolni, hany kartya mozdul egy cimke-szuronel (egy kartyanak tobb cimkeje
+ *  is lehet, ezert a cimkenkenti darabszam osszege nem jo). Ures `ids` = a
+ *  cimke nelkuli kartyak. */
+export interface LabelSet { ids: string[]; names: string[]; cards: number }
+
+function labelSets(where: string, params: unknown[]): LabelSet[] {
+  const db = getDb()
+  if (!hasTable('kanban_card_labels') || !hasTable('labels')) {
+    const n = (db.prepare(`SELECT COUNT(*) n FROM kanban_cards k WHERE ${where}`).get(...params) as { n: number }).n
+    return n ? [{ ids: [], names: [], cards: n }] : []
+  }
+  const rows = db.prepare(
+    `SELECT COALESCE((SELECT GROUP_CONCAT(id, char(31)) FROM (SELECT lb.id FROM kanban_card_labels cl JOIN labels lb ON lb.id = cl.label_id WHERE cl.card_id = k.id ORDER BY lb.id)), '') AS ids
+       FROM kanban_cards k WHERE ${where}`,
+  ).all(...params) as { ids: string }[]
+  const names = new Map((db.prepare('SELECT id, name FROM labels').all() as { id: string; name: string }[]).map((l) => [l.id, l.name]))
+  const byKey = new Map<string, LabelSet>()
+  for (const r of rows) {
+    const set = byKey.get(r.ids)
+    if (set) { set.cards++; continue }
+    const ids = r.ids ? r.ids.split('\u001f') : []
+    byKey.set(r.ids, { ids, names: ids.map((id) => names.get(id) ?? id), cards: 1 })
+  }
+  return [...byKey.values()].sort((a, b) => b.cards - a.cards)
 }
 
 function labelCounts(where: string, params: unknown[]): Record<string, number> {
@@ -108,8 +139,8 @@ function projectMatchingValue(value: string): { id: string; name: string } | nul
   const db = getDb()
   const bySlug = db.prepare('SELECT id, name FROM projects WHERE slug = ? COLLATE NOCASE').get(slugify(value)) as { id: string; name: string } | undefined
   if (bySlug) return bySlug
-  const byName = db.prepare('SELECT id, name FROM projects WHERE name = ? COLLATE NOCASE').all(value) as { id: string; name: string }[]
-  return byName.length === 1 ? byName[0] : null
+  const byName = projectIdsByName(value)
+  return byName.length === 1 ? (db.prepare('SELECT id, name FROM projects WHERE id = ?').get(byName[0]) as { id: string; name: string }) : null
 }
 
 /**
@@ -126,7 +157,7 @@ export function planProjectMigration(): MigrationPlan {
   )
 
   const kanban: KanbanValueUsage[] = []
-  let unassigned = { total: 0, live: 0, archived: 0, labels: {} as Record<string, number> }
+  let unassigned = { total: 0, live: 0, archived: 0, labels: {} as Record<string, number>, labelSets: [] as LabelSet[] }
   if (hasTable('kanban_cards')) {
     const values = db.prepare(
       `SELECT project AS value, COUNT(*) AS cards,
@@ -152,6 +183,7 @@ export function planProjectMigration(): MigrationPlan {
         liveCards: v.live,
         archivedCards: v.cards - v.live,
         labels: labelCounts('k.project = ?', [v.value]),
+        labelSets: labelSets('k.project = ?', [v.value]),
         statuses,
         firstAt: v.first_at ?? null,
         lastAt: v.last_at ?? null,
@@ -171,6 +203,7 @@ export function planProjectMigration(): MigrationPlan {
       live: u.live ?? 0,
       archived: u.total - (u.live ?? 0),
       labels: labelCounts("k.project IS NULL OR TRIM(k.project) = ''", []),
+      labelSets: labelSets("k.project IS NULL OR TRIM(k.project) = ''", []),
     }
   }
 
@@ -263,6 +296,14 @@ export function planProjectMigration(): MigrationPlan {
 
 // ---- alkalmazas -------------------------------------------------------------
 
+/**
+ * Cimke-szuro egy atvetelhez: CSAK azok a kartyak mozdulnak, amiknek van a
+ * felsorolt cimkek kozul legalabb egy (`labelIds`), illetve -- ha `unlabeled` --
+ * a cimke nelkuliek. A tobbi kartya VALTOZATLAN marad (a regi szoveggel), es
+ * kesobb kulon atveheto. Hianyzo szuro = az ertek minden kartyaja.
+ */
+export interface LabelFilter { labelIds: string[]; unlabeled?: boolean }
+
 export interface KanbanMappingEntry {
   value: string
   action: 'create' | 'existing' | 'skip'
@@ -273,26 +314,45 @@ export interface KanbanMappingEntry {
   client?: string | null
   /** `existing`-nel: a cel-projekt. */
   projectId?: string
+  labelFilter?: LabelFilter | null
 }
 
 export interface CodeAliasMappingEntry {
   alias: string
-  action: 'link' | 'skip'
-  /** Ugyanahhoz a projekthez, amelyikbe ez a regi kanban-ertek kerul. */
+  action: 'link' | 'create' | 'skip'
+  /** `link`: ugyanahhoz a projekthez, amelyikbe ez a regi kanban-ertek kerul. */
   value?: string
-  /** VAGY egy mar letezo projekt. */
+  /** `link`: VAGY egy mar letezo projekt. */
+  projectId?: string
+  /** `create`: kulon, uj projekt ennek az aliasnak (a neve kotelezo). */
+  name?: string
+}
+
+/**
+ * OPCIONALIS, kulon lepes: projekt NELKULI kartyak atvetele cimke alapjan.
+ * Alapbol a migracio nem nyul hozzajuk (a globalis kanbanban letrehozott
+ * kartya nem kerul magatol projektbe) -- ezt csak kifejezett valasztassal.
+ */
+export interface UnassignedMappingEntry {
+  labelIds: string[]
+  unlabeled?: boolean
+  /** A cel: az a projekt, amelyikbe ez a regi ertek kerul... */
+  value?: string
+  /** ...vagy egy mar letezo projekt. */
   projectId?: string
 }
 
 export interface MigrationMapping {
   kanban: KanbanMappingEntry[]
   codeAliases: CodeAliasMappingEntry[]
+  unassigned?: UnassignedMappingEntry | null
 }
 
 export interface MigrationResult {
   id: string
   createdProjects: { id: string; name: string; slug: string; fromValue: string }[]
-  movedCards: { value: string; projectId: string; cards: number }[]
+  /** `value` = a regi szoveg, `null` = a projekt nelkuli kartyak. */
+  movedCards: { value: string | null; projectId: string; cards: number }[]
   linkedAliases: { alias: string; projectId: string; previous: string | null }[]
   skippedValues: string[]
   skippedAliases: string[]
@@ -301,8 +361,9 @@ export interface MigrationResult {
 export type ApplyOutcome = { ok: true; result: MigrationResult } | { ok: false; code: string; detail?: string }
 
 interface MigrationLog {
+  /** `fromValue`: regi kanban-ertek, vagy `alias:<nev>` az aliasnak letrehozottnal. */
   created: { id: string; fromValue: string }[]
-  moved: { value: string; projectId: string; cardIds: string[] }[]
+  moved: { value: string | null; projectId: string; cardIds: string[] }[]
   aliases: { alias: string; projectId: string; previous: string | null }[]
 }
 
@@ -317,6 +378,37 @@ function ensureMigrationTable(): void {
       reverted_at INTEGER
     )
   `)
+}
+
+function cleanLabelIds(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null
+  const out = v.map((x) => String(x ?? '').trim()).filter(Boolean)
+  return [...new Set(out)]
+}
+
+/** A kartyak kivalasztasa: `base` feltetel + opcionalis cimke-szuro. */
+function selectCardIds(baseWhere: string, params: unknown[], filter: LabelFilter | null | undefined): string[] {
+  const db = getDb()
+  if (!filter) {
+    return (db.prepare(`SELECT id FROM kanban_cards k WHERE ${baseWhere}`).all(...params) as { id: string }[]).map((r) => r.id)
+  }
+  const hasLabels = hasTable('kanban_card_labels')
+  const conds: string[] = []
+  const p: unknown[] = [...params]
+  if (filter.labelIds.length && hasLabels) {
+    conds.push(`EXISTS (SELECT 1 FROM kanban_card_labels cl WHERE cl.card_id = k.id AND cl.label_id IN (${filter.labelIds.map(() => '?').join(',')}))`)
+    p.push(...filter.labelIds)
+  }
+  if (filter.unlabeled) {
+    conds.push(hasLabels ? 'NOT EXISTS (SELECT 1 FROM kanban_card_labels cl WHERE cl.card_id = k.id)' : '1')
+  }
+  if (!conds.length) return []
+  return (db.prepare(`SELECT id FROM kanban_cards k WHERE (${baseWhere}) AND (${conds.join(' OR ')})`).all(...p) as { id: string }[]).map((r) => r.id)
+}
+
+function setCardsProject(cardIds: string[], projectId: string): void {
+  const upd = getDb().prepare('UPDATE kanban_cards SET project = ? WHERE id = ?')
+  for (const id of cardIds) upd.run(projectId, id)
 }
 
 /**
@@ -337,6 +429,13 @@ export function applyProjectMigration(mapping: MigrationMapping, actor?: string 
 
   // Elore ellenorzes, meg iras elott.
   const seenValues = new Set<string>()
+  const newNames = new Set<string>()
+  const nameFree = (name: string): boolean => {
+    const key = nameKey(name)
+    if (newNames.has(key)) return false
+    newNames.add(key)
+    return !projectNameTaken(name)
+  }
   for (const e of mapping.kanban) {
     if (!e || typeof e.value !== 'string') return { ok: false, code: 'bad_mapping' }
     if (seenValues.has(e.value)) return { ok: false, code: 'duplicate_value', detail: e.value }
@@ -344,27 +443,52 @@ export function applyProjectMigration(mapping: MigrationMapping, actor?: string 
     if (!planValues.has(e.value)) return { ok: false, code: 'unknown_value', detail: e.value }
     if (e.action === 'create') {
       if (!String(e.name ?? '').trim()) return { ok: false, code: 'name_required', detail: e.value }
+      if (!nameFree(String(e.name))) return { ok: false, code: 'name_taken', detail: String(e.name) }
     } else if (e.action === 'existing') {
       const p = e.projectId ? getProject(e.projectId) : undefined
       if (!p || p.id !== e.projectId) return { ok: false, code: 'unknown_project', detail: e.value }
     } else if (e.action !== 'skip') {
       return { ok: false, code: 'bad_action', detail: e.value }
     }
+    if (e.action !== 'skip' && e.labelFilter) {
+      const ids = cleanLabelIds(e.labelFilter.labelIds)
+      if (!ids || (!ids.length && !e.labelFilter.unlabeled)) return { ok: false, code: 'empty_label_filter', detail: e.value }
+      e.labelFilter = { labelIds: ids, unlabeled: !!e.labelFilter.unlabeled }
+    }
   }
+  const targetOk = (value: string | undefined, projectId: string | undefined, detail: string): ApplyOutcome | null => {
+    if (value !== undefined) {
+      const target = mapping.kanban.find((k) => k.value === value)
+      if (!target || target.action === 'skip') return { ok: false, code: 'alias_target_skipped', detail }
+      return null
+    }
+    const p = projectId ? getProject(projectId) : undefined
+    if (!p || p.id !== projectId) return { ok: false, code: 'unknown_project', detail }
+    return null
+  }
+  const seenAliases = new Set<string>()
   for (const a of mapping.codeAliases) {
     if (!a || typeof a.alias !== 'string') return { ok: false, code: 'bad_mapping' }
+    if (seenAliases.has(a.alias)) return { ok: false, code: 'duplicate_value', detail: a.alias }
+    seenAliases.add(a.alias)
     if (!planAliases.has(a.alias)) return { ok: false, code: 'unknown_alias', detail: a.alias }
     if (a.action === 'link') {
-      if (a.value !== undefined) {
-        const target = mapping.kanban.find((k) => k.value === a.value)
-        if (!target || target.action === 'skip') return { ok: false, code: 'alias_target_skipped', detail: a.alias }
-      } else {
-        const p = a.projectId ? getProject(a.projectId) : undefined
-        if (!p || p.id !== a.projectId) return { ok: false, code: 'unknown_project', detail: a.alias }
-      }
+      const bad = targetOk(a.value, a.projectId, a.alias)
+      if (bad) return bad
+    } else if (a.action === 'create') {
+      if (!String(a.name ?? '').trim()) return { ok: false, code: 'name_required', detail: a.alias }
+      if (!nameFree(String(a.name))) return { ok: false, code: 'name_taken', detail: String(a.name) }
     } else if (a.action !== 'skip') {
       return { ok: false, code: 'bad_action', detail: a.alias }
     }
+  }
+  let unassigned: (UnassignedMappingEntry & { labelIds: string[] }) | null = null
+  if (mapping.unassigned) {
+    const ids = cleanLabelIds(mapping.unassigned.labelIds)
+    if (!ids || (!ids.length && !mapping.unassigned.unlabeled)) return { ok: false, code: 'empty_label_filter', detail: '(unassigned)' }
+    const bad = targetOk(mapping.unassigned.value, mapping.unassigned.projectId, '(unassigned)')
+    if (bad) return bad
+    unassigned = { ...mapping.unassigned, labelIds: ids }
   }
 
   const id = randomUUID().slice(0, 8)
@@ -392,18 +516,34 @@ export function applyProjectMigration(mapping: MigrationMapping, actor?: string 
           projectId = e.projectId!
         }
         valueToProject.set(e.value, projectId)
-        const cardIds = (db.prepare('SELECT id FROM kanban_cards WHERE project = ?').all(e.value) as { id: string }[]).map((r) => r.id)
-        db.prepare('UPDATE kanban_cards SET project = ? WHERE project = ?').run(projectId, e.value)
+        const cardIds = selectCardIds('k.project = ?', [e.value], e.labelFilter)
+        setCardsProject(cardIds, projectId)
         result.movedCards.push({ value: e.value, projectId, cards: cardIds.length })
         log.moved.push({ value: e.value, projectId, cardIds })
       }
       for (const a of mapping.codeAliases) {
         if (a.action === 'skip') { result.skippedAliases.push(a.alias); continue }
-        const projectId = a.value !== undefined ? valueToProject.get(a.value)! : a.projectId!
+        let projectId: string
+        if (a.action === 'create') {
+          const made = createProject({ name: a.name, slug: uniqueSlug(a.name || a.alias) })
+          if (!made.ok) throw new Error(`create_failed:${made.code}`)
+          projectId = made.project.id
+          result.createdProjects.push({ id: projectId, name: made.project.name, slug: made.project.slug, fromValue: `alias:${a.alias}` })
+          log.created.push({ id: projectId, fromValue: `alias:${a.alias}` })
+        } else {
+          projectId = a.value !== undefined ? valueToProject.get(a.value)! : a.projectId!
+        }
         const previous = projectForObject('code_alias', a.alias)
         linkObject(projectId, 'code_alias', a.alias, actor ?? null)
         result.linkedAliases.push({ alias: a.alias, projectId, previous })
         log.aliases.push({ alias: a.alias, projectId, previous })
+      }
+      if (unassigned) {
+        const projectId = unassigned.value !== undefined ? valueToProject.get(unassigned.value)! : unassigned.projectId!
+        const cardIds = selectCardIds("k.project IS NULL OR TRIM(k.project) = ''", [], { labelIds: unassigned.labelIds, unlabeled: !!unassigned.unlabeled })
+        setCardsProject(cardIds, projectId)
+        result.movedCards.push({ value: null, projectId, cards: cardIds.length })
+        log.moved.push({ value: null, projectId, cardIds })
       }
       db.prepare('INSERT INTO project_migrations (id, applied_at, applied_by, mapping, log) VALUES (?, ?, ?, ?, ?)')
         .run(id, nowSec(), actor ?? null, JSON.stringify(mapping), JSON.stringify(log))
@@ -463,9 +603,11 @@ export function revertProjectMigration(id: string): { ok: true; restoredCards: n
   let removedProjects = 0
   const keptProjects: string[] = []
   db.transaction(() => {
+    // A regi ertek (a projekt nelkuli kartyaknal NULL) CSAK oda kerul vissza,
+    // ahol a kartya azota is ebben a projektben all.
+    const upd = db.prepare('UPDATE kanban_cards SET project = ? WHERE id = ? AND project = ?')
     for (const m of log.moved) {
-      const upd = db.prepare('UPDATE kanban_cards SET project = ? WHERE id = ? AND project = ?')
-      for (const cid of m.cardIds) restoredCards += upd.run(m.value, cid, m.projectId).changes
+      for (const cid of m.cardIds) restoredCards += upd.run(m.value ?? null, cid, m.projectId).changes
     }
     for (const a of log.aliases) {
       if (projectForObject('code_alias', a.alias) !== a.projectId) continue

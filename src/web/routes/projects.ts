@@ -27,7 +27,7 @@ import { loadLifeConfig, lifeName, safeLifeName } from '../../life-tree.js'
 import { writeBlockReason } from '../../git-guard.js'
 import {
   ensureProjectTables, listProjects, getProject, createProject, updateProject, setProjectArchived,
-  projectDeletePreview, deleteProject, projectNameMap, cleanFolderRel, validateProjectInput,
+  projectDeletePreview, deleteProject, projectNameMap, cleanFolderRel, validateProjectInput, projectNameTaken,
 } from '../../projects.js'
 import { buildProjectOverview } from '../../project-overview.js'
 import {
@@ -44,6 +44,8 @@ function uiLang(url: URL): 'hu' | 'en' {
 // Tartalek-mondatok (a felulet a sajat forditasat mutatja, ha ismeri a kodot).
 const MESSAGES: Record<string, { hu: string; en: string }> = {
   name_required: { hu: 'Adj nevet a projektnek.', en: 'Give the project a name.' },
+  name_taken: { hu: 'Már van ilyen nevű projekt. Adj neki más nevet.', en: 'A project with this name already exists. Pick another name.' },
+  empty_label_filter: { hu: 'Legalább egy címkét jelölj be, vagy válaszd a „mind” lehetőséget.', en: 'Tick at least one label, or choose "all".' },
   bad_status: { hu: 'Ismeretlen projekt-állapot.', en: 'Unknown project status.' },
   bad_folder: { hu: 'A mappa útvonala nem érvényes.', en: 'The folder path is not valid.' },
   bad_label: { hu: 'Ez a címke nem létezik (lehet, hogy közben törölték).', en: 'This label does not exist (it may have been deleted).' },
@@ -293,6 +295,10 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const patch: Record<string, unknown> = { ...body }
     delete patch.folder
+    // A mezok ellenorzese a mappa letrehozasa ELOTT (lasd a POST-ot).
+    const probe = validateProjectInput({ ...patch, folder_path: undefined }, true)
+    if (!probe.ok) return fail(res, 400, probe.code, lang)
+    if (probe.fields.name && projectNameTaken(probe.fields.name, id)) return fail(res, 400, 'name_taken', lang)
     if (body.folder !== undefined) {
       const fr = parseFolderRequest(body.folder)
       if (!fr) return fail(res, 400, 'bad_folder', lang)
@@ -339,5 +345,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
  *  hogy egy rossz mezo ne hagyjon maga utan felesleges mappat a lemezen. */
 function createProjectDryCheck(body: Record<string, unknown>): string | null {
   const v = validateProjectInput({ ...body, folder_path: undefined }, false)
-  return v.ok ? null : v.code
+  if (!v.ok) return v.code
+  if (v.fields.name && projectNameTaken(v.fields.name)) return 'name_taken'
+  return null
 }

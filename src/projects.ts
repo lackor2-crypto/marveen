@@ -195,8 +195,8 @@ export function resolveProjectRef(value: unknown): string | null | undefined {
   if (byId) return byId.id
   const bySlug = db.prepare('SELECT id FROM projects WHERE slug = ? COLLATE NOCASE').get(v) as { id: string } | undefined
   if (bySlug) return bySlug.id
-  const byName = db.prepare('SELECT id FROM projects WHERE name = ? COLLATE NOCASE').all(v) as { id: string }[]
-  if (byName.length === 1) return byName[0].id
+  const byName = projectIdsByName(v)
+  if (byName.length === 1) return byName[0]
   return v
 }
 
@@ -318,11 +318,37 @@ export function validateProjectInput(input: ProjectInput, partial: boolean): Pro
   return { ok: true, fields }
 }
 
+/** Foglalt-e mar ez a nev (kis-/nagybetutol fuggetlenul) egy MASIK projektnel.
+ *  A kanban a kartya "Projekt" mezojebe irt nevet a projektre oldja fel --
+ *  ket azonos nevu projektnel ez nem volna egyertelmu. */
+export function projectNameTaken(name: string, exceptId?: string): boolean {
+  return projectIdsByName(name).some((id) => id !== exceptId)
+}
+
+/** Nev-osszehasonlitasi kulcs. Az SQLite `COLLATE NOCASE` CSAK az ASCII
+ *  betuket hajtja ossze -- `É` es `é` nala kulonbozik, ezert a magyar nevek
+ *  miatt ez JS-ben tortenik. */
+export function nameKey(name: unknown): string {
+  return String(name ?? '').normalize('NFC').trim().toLocaleLowerCase('hu')
+}
+
+/** Minden projekt, aminek ez a neve (kis-/nagybetutol es ekezetes
+ *  nagybetutol fuggetlenul). A projektek szama kicsi -- egy teljes olvasas olcso. */
+export function projectIdsByName(name: unknown): string[] {
+  ensureProjectTables()
+  const key = nameKey(name)
+  if (!key) return []
+  return (getDb().prepare('SELECT id, name FROM projects').all() as { id: string; name: string }[])
+    .filter((r) => nameKey(r.name) === key)
+    .map((r) => r.id)
+}
+
 export function createProject(input: ProjectInput): { ok: true; project: ProjectRow } | { ok: false; code: string } {
   ensureProjectTables()
   const v = validateProjectInput(input, false)
   if (!v.ok) return v
   const f = v.fields
+  if (projectNameTaken(f.name!)) return { ok: false, code: 'name_taken' }
   const id = newProjectId()
   const slug = uniqueSlug(f.slug || f.name!, undefined)
   const now = nowSec()
@@ -341,6 +367,7 @@ export function updateProject(id: string, input: ProjectInput): { ok: true; proj
   const v = validateProjectInput(input, true)
   if (!v.ok) return v
   const f = { ...v.fields }
+  if (f.name !== undefined && projectNameTaken(f.name, id)) return { ok: false, code: 'name_taken' }
   if (f.slug !== undefined) f.slug = uniqueSlug(f.slug, id)
   const keys = Object.keys(f) as (keyof typeof f)[]
   if (!keys.length) return { ok: true, project: current }

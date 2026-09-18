@@ -34,8 +34,20 @@ describe('slug', () => {
   it('foglalt slug eseten utotagot kap', () => {
     mustCreate({ name: 'Weboldal' })
     expect(uniqueSlug('Weboldal')).toBe('weboldal-2')
-    const b = mustCreate({ name: 'Weboldal' })
+    // Mas nev, ugyanaz a rovid nev (az ekezet es a kisbetu kiesik).
+    const b = mustCreate({ name: 'WEBOLDAL!' })
     expect(b.slug).toBe('weboldal-2')
+  })
+
+  it('azonos nevu projekt nem lehet ket -- ekezetes nagybetuvel sem', () => {
+    const a = mustCreate({ name: 'Árvíztűrő' })
+    expect(createProject({ name: ' árvíztűrő ' })).toEqual({ ok: false, code: 'name_taken' })
+    const b = mustCreate({ name: 'Más' })
+    expect(updateProject(b.id, { name: 'ÁRVÍZTŰRŐ' })).toEqual({ ok: false, code: 'name_taken' })
+    // A sajat nevet megtarthatja.
+    expect(updateProject(a.id, { name: 'Árvíztűrő' }).ok).toBe(true)
+    // A kanban a nevet a projektre oldja fel, kis-/nagybetutol fuggetlenul.
+    expect(resolveProjectRef('ÁRVÍZTŰRŐ')).toBe(a.id)
   })
 })
 
