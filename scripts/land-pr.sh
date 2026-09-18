@@ -174,6 +174,7 @@ cleanup
 #   branch.main.merge = refs/heads/land/20260904-212327-ffd4403
 # A script sehol nem tamaszkodik a trackingre: minden git-refspec es minden gh
 # hivas (-R) explicit.
+PUSHED_SHA="$(git rev-parse HEAD)"
 git push origin "HEAD:refs/heads/$BRANCH" || die "a branch push nem sikerult (lasd a fenti kimenetet)."
 
 # --- 2. PR nyitasa (vagy meglevo ujrahasznalasa) -------------------------------
@@ -227,17 +228,30 @@ gh_fail_streak=0
 
 while true; do
   set +e
-  roll="$(gh pr view "$PR_URL" -R "$REPO" --json statusCheckRollup --jq '.statusCheckRollup' 2>&1)"
+  # A rollup MINDIG a PR aktualis fejere vonatkozik -- de egy MAR NYITOTT PR-nel
+  # a push utan meg par masodpercig a REGI fej latszik, a regi, mar lefutott
+  # (zold vagy piros) CI-vel. Merve 2026-09-18, PR #184: a land-pr ezt "a CI
+  # zold"-nek olvasta, merge-elni probalt, es a GitHub utasitotta el, mert az uj
+  # commit checkjei meg futottak. Ezert csak akkor hisszuk el a rollupot, ha a
+  # fej MAR a most felnyomott commit.
+  head_and_roll="$(gh pr view "$PR_URL" -R "$REPO" --json headRefOid,statusCheckRollup --jq '.headRefOid + "\n" + (.statusCheckRollup | tojson)' 2>&1)"
   roll_rc=$?
   set -e
+  pr_head="$(printf '%s\n' "$head_and_roll" | head -n1)"
+  roll="$(printf '%s\n' "$head_and_roll" | tail -n +2)"
 
   if [ "$roll_rc" -ne 0 ]; then
     # (c) NEM LATOK ODA. Egy-ket atmeneti hiba belefer, tartos hiba nem.
     gh_fail_streak=$(( gh_fail_streak + 1 ))
     if [ "$gh_fail_streak" -ge "$GH_FAIL_MAX" ]; then
-      die "a 'gh pr view' egymas utan ${gh_fail_streak}x hibaval tert vissza, ezert NEM tudom, zold-e a CI (ez nem azt jelenti, hogy piros). A PR nyitva marad: $PR_URL. A gh utolso hibauzenete: $roll"
+      die "a 'gh pr view' egymas utan ${gh_fail_streak}x hibaval tert vissza, ezert NEM tudom, zold-e a CI (ez nem azt jelenti, hogy piros). A PR nyitva marad: $PR_URL. A gh utolso hibauzenete: $head_and_roll"
     fi
-    echo "land-pr: a 'gh pr view' hibat adott (${gh_fail_streak}/${GH_FAIL_MAX}), ujraprobalom -- $roll" >&2
+    echo "land-pr: a 'gh pr view' hibat adott (${gh_fail_streak}/${GH_FAIL_MAX}), ujraprobalom -- $head_and_roll" >&2
+    verdict="RETRY"
+  elif [ "$pr_head" != "$PUSHED_SHA" ]; then
+    # A GitHub meg a regi fejet mutatja: a rollup nem errol a commitrol szol.
+    gh_fail_streak=0
+    echo "land-pr: a PR feje meg nem a felnyomott commit (${pr_head:0:8} != ${PUSHED_SHA:0:8}), varok..." >&2
     verdict="RETRY"
   else
     gh_fail_streak=0
