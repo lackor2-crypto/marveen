@@ -40152,7 +40152,9 @@ function _prjRenderProject() {
     <div id="prjFilesNote"></div>
     ${_prj.tab === 'ideas' ? _prjIdeasTabHtml() : _prjOverviewBodyHtml(ov)}
   </div>`
-  if (_prj.tab === 'ideas' && (!_prj.ideas || _prj.ideas.pid !== p.id)) _prjLoadIdeas()
+  // Az Otletek ful minden megjeleneskor friss adatot ker (kozben mashol is
+  // szulethetett otlet); addig a legutobbi lista latszik.
+  if (_prj.tab === 'ideas') _prjLoadIdeas()
 }
 
 function _prjOverviewBodyHtml(ov) {
@@ -41355,7 +41357,7 @@ function _prjFileHtml(p) {
   const subs = [`<option value="">${escapeHtml(t('projects.file.to_root', { name: p.folder_path.split('/').pop() }))}</option>`]
     .concat((info.subfolders || []).map((s) => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`)).join('')
   const mb = Math.round((info.maxBytes || 0) / (1024 * 1024))
-  return `<div class="modal prj-modal" role="dialog" aria-modal="true">${head}
+  return `<div class="modal modal-wide prj-modal" role="dialog" aria-modal="true">${head}
     <div class="modal-body prj-form">
       <p class="prj-muted">${escapeHtml(t('projects.file.intro', { path: info.path }))}</p>
       <div class="form-group">

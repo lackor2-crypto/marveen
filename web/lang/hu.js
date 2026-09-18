@@ -4484,7 +4484,7 @@ window._i18n.hu = {
   "projects.approvals.open_page": "Jóváhagyások megnyitása",
   "projects.next.title": "Következő lépések",
   "projects.next.hint": "A projekt nyitott kártyái — sorrend: prioritás, határidő, állapot. Nem gép találja ki őket.",
-  "projects.next.empty": "Nincs nyitott kártya ebben a projektben. Kártyát úgy teszel ide, hogy a Kanbanban a kártya „Projekt” mezőjébe beírod a projekt nevét.",
+  "projects.next.empty": "Nincs nyitott kártya ebben a projektben. Újat a jobb felső „+ Új” gombbal (Kanban-kártya) hozhatsz létre; egy meglévő kártyát úgy teszel ide, hogy a Kanbanban a kártya „Projekt” mezőjébe beírod a projekt nevét.",
   "projects.next.due": "határidő: {date}",
   "projects.next.overdue": "lejárt: {date}",
   "projects.next.more": "+ még {n} — megnyitás a Kanbanban",

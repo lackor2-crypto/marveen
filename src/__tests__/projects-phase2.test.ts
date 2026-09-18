@@ -299,3 +299,12 @@ describe('alapertelmezett cimke', () => {
     updateProject(p.id, { default_label_id: null })
   })
 })
+
+describe('az osszefoglalo datumai', () => {
+  it('a "ma" a gep helyi napja, nem az UTC-nap', () => {
+    const p = mustProject({ name: 'Datum' })
+    // Helyi ido szerint 2026-09-19 00:30 -- UTC-ben ez meg 09-18 lehet.
+    const now = new Date(2026, 8, 19, 0, 30).getTime()
+    expect(summaryFacts(getProject(p.id)!, buildProjectOverview(p.id)!, 'hu', now)).toContain('Today: 2026-09-19')
+  })
+})

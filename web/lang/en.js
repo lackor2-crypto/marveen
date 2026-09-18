@@ -4408,7 +4408,7 @@ window._i18n.en = {
   "projects.approvals.open_page": "Open Approvals",
   "projects.next.title": "Next steps",
   "projects.next.hint": "The project's open cards — ordered by priority, due date, status. Nothing here is made up by a machine.",
-  "projects.next.empty": "There are no open cards in this project. To add one, type the project name into a card's \"Project\" field in the Kanban.",
+  "projects.next.empty": "There are no open cards in this project. Make a new one with the \"+ New\" button at the top right (Kanban card); to move an existing card here, type the project name into its \"Project\" field in the Kanban.",
   "projects.next.due": "due: {date}",
   "projects.next.overdue": "overdue: {date}",
   "projects.next.more": "+ {n} more — open in Kanban",

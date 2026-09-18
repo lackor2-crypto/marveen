@@ -12092,6 +12092,15 @@ details.upstream-box > summary > h4 {
 .prj-link-row > label { font-size: 13px; font-weight: 600; }
 .prj-link-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
 .prj-link-controls .input { flex: 1 1 240px; width: auto; min-width: 0; }
+/* A .form-group-on kivuli mezok (mappa-almezok, jegyzet, otlet-kotes) ugyanazt a
+   keretet kapjak, mint az urlap tobbi mezoje -- kulonben nyers bongeszo-mezonek latszanak. */
+.prj-folder-sub .input, .prj-link-row .input {
+  padding: 8px 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 14px; font-family: inherit; color: var(--text); outline: none;
+}
+.prj-folder-sub .input { width: 100%; }
+.prj-folder-sub .input:focus, .prj-link-row .input:focus { border-color: var(--accent); }
+.prj-folder-sub input[type="file"] { font-size: 13px; max-width: 100%; }
 @media (max-width: 768px) {
   .prj-new-menu { right: auto; left: 0; }
   .prj-sections { grid-template-columns: 1fr; }

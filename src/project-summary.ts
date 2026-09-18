@@ -27,8 +27,13 @@ function line(label: string, value: string | null | undefined): string {
   return value ? `${label}: ${value}` : ''
 }
 
+/** A nap a GEP helyi idejeben (a tulajdonos ideje), nem UTC-ben: ejfel utan
+ *  a "ma" kulonben meg a tegnapi datum volna. */
 function isoDay(ms: number | null | undefined): string {
-  return ms ? new Date(ms).toISOString().slice(0, 10) : ''
+  if (!ms) return ''
+  const d = new Date(ms)
+  const p2 = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`
 }
 
 /** A modellnek atadott tenyek -- a mert Attekintesbol, szovegkent. Exportalva
