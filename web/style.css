@@ -11814,6 +11814,7 @@ details.upstream-box > summary > h4 {
   background: var(--bg);
   user-select: all;
   word-break: break-all;
+}
 /* === Git tarolok (Raktar) === */
 .gitrepos-lastrun { margin: 6px 0 0; font-size: 13px; color: var(--text-dim, #6b7280); }
 .gitrepos-account { margin-bottom: 14px; }
@@ -11932,3 +11933,39 @@ details.upstream-box > summary > h4 {
 @media (max-width: 640px) {
   .browser-row > * { flex: 1 1 100%; }
 }
+
+/* Inbox suggestion cards (card 56530b08): one card per item, every field
+   wraps -- no long row that scrolls sideways. */
+.ib-cards { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.ib-card { border: 1px solid var(--border); border-radius: var(--radius-sm, 8px); background: var(--bg-card); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ib-card.ib-review { border-left: 3px solid var(--warning, #d98e04); }
+.ib-card.ib-locked { opacity: .8; }
+.ib-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ib-file { font-weight: 600; overflow-wrap: anywhere; margin-right: 4px; }
+.ib-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--bg-input); color: var(--text-muted); }
+.ib-chip-ai { background: var(--accent-soft); color: var(--accent); }
+.ib-chip-wait { background: var(--info-soft); }
+.ib-summary { margin: 0; color: var(--text-muted); font-size: 13px; overflow-wrap: anywhere; }
+.ib-warn { margin: 0; }
+.ib-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.ib-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ib-label { font-size: 12px; color: var(--text-muted); }
+.ib-field select, .ib-field input[type="text"], .ib-field input[type="date"], .ib-field input[type="search"] { width: 100%; max-width: 100%; box-sizing: border-box; }
+.ib-src { font-size: 12px; }
+.ib-alts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; }
+.ib-alt, .ib-link { background: none; border: 1px dashed var(--border); border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; color: inherit; }
+.ib-link { align-self: flex-start; border-style: solid; color: var(--accent); }
+.ib-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; overflow-wrap: anywhere; }
+.ib-crumb-seg { background: var(--bg-input); border-radius: 4px; padding: 1px 6px; }
+.ib-crumb-sep { color: var(--text-muted); }
+.ib-crumb-empty { color: var(--text-muted); font-style: italic; }
+.ib-newfolder { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: var(--warning-soft); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+.ib-picker { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.ib-picker[hidden], .ib-newfolder[hidden] { display: none; }
+.ib-folder-list { max-height: 220px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; }
+.ib-folder-opt { text-align: left; background: none; border: 1px solid transparent; border-radius: 4px; padding: 4px 6px; cursor: pointer; color: inherit; font-size: 12px; }
+.ib-folder-opt:hover, .ib-folder-opt.is-current { border-color: var(--accent); background: var(--accent-soft); }
+.ib-manual { display: flex; flex-direction: column; gap: 4px; }
+.ib-why summary { cursor: pointer; font-size: 12px; color: var(--text-muted); }
+.ib-why p { margin: 4px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.ib-actions { display: flex; justify-content: flex-end; }
