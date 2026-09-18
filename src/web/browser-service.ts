@@ -3,8 +3,9 @@
 // bejelentkezett munkamenetek (storageState) a Vaultba kerulnek titkositva --
 // soha nem az eletfaba, soha nem sima fajlba.
 //
-// Alapbol KI: a felhasznalo kapcsolja be a feluletrol. Ha a Chromium nincs
-// letoltve, azt a status kulon mondja, es a felulet gombbal tolti le.
+// Alapbol BE (kartya 360da728, Boss 2026-09-18): fresh installon is bekapcsolva.
+// A felhasznalo a feluletrol tudja kikapcsolni. Ha a Chromium nincs letoltve,
+// azt a status kulon mondja, es a felulet gombbal tolti le.
 
 import { existsSync, readFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -15,7 +16,8 @@ import { setSecret, getSecret, deleteSecret, listSecrets } from './vault.js'
 import { logger } from '../logger.js'
 import {
   sessionHealthFromState, looksLikeLoginUrl, isIrreversibleClick,
-  sessionSlug, normalizeNavigateUrl, SESSION_VAULT_PREFIX, type SessionHealth,
+  sessionSlug, normalizeNavigateUrl, browserEnabledFromConfig,
+  SESSION_VAULT_PREFIX, type SessionHealth,
 } from '../browser-logic.js'
 
 const CONFIG_DIR = join(PROJECT_ROOT, 'store', 'browser')
@@ -26,11 +28,13 @@ const ACTION_TIMEOUT_MS = 20_000
 // ---------------------------------------------------------------- config
 
 export function isBrowserEnabled(): boolean {
-  try {
-    return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')).enabled === true
-  } catch {
-    return false
-  }
+  // Kartya 360da728: alapbol BE. A dontes a browserEnabledFromConfig tiszta
+  // fuggvenyben van (tesztelt); itt csak a fajlt olvassuk be (null = nincs / nem
+  // olvashato). A KIFEJEZETTEN kikapcsolt allapotot (enabled:false) tiszteletben
+  // tartjuk.
+  let raw: string | null = null
+  try { raw = readFileSync(CONFIG_PATH, 'utf-8') } catch { raw = null }
+  return browserEnabledFromConfig(raw)
 }
 
 export async function setBrowserEnabled(enabled: boolean): Promise<void> {
