@@ -14,11 +14,11 @@ on alsz! tehat eselyed sincs hogy dolgozz rajta ahogyan most allitja ez az
 uzenet ... ez bug, mert hazudik a telegram. ilyenkor nem ezt kelene kuldeni
 hogy dolgozom rajta, hanem azt hogy jelenleg kifogytam a tokenekbol, 100%-on
 vagyok, es nem tudom fogadni a kereseidet eddig es eddig." Before posting the
-placeholder, this hook now checks the agent's OWN 5-hour rate-limit snapshot
-(the same file rate-limit-guard.py reads, store/rate-limit-status/<agent>.json)
--- if it shows at/over the CRITICAL threshold (mirrors CRITICAL_THRESHOLD_PCT in
-rate-limit-guard.py / src/rate-limit-status.ts) with the window still open, it
-sends an honest status message with a concrete "X ora Y percig" ETA instead of
+placeholder, this hook now checks the agent's OWN rate-limit snapshot (the same
+file rate-limit-guard.py reads, store/rate-limit-status/<agent>.json) -- if a
+window is HARD-BLOCKED (usedPct at a full 100%, 5-hour OR weekly, with the window
+still open; see rate_limit_status_lib.HARD_BLOCK_PCT), it sends an honest status
+message with a concrete "X ora Y percig" ETA instead of
 the placeholder, and does NOT track it for the Stop-hook cleanup path (it is a
 real, permanent status message, not a "still working" placeholder to delete).
 A FRESH snapshot is trusted as-is; a STALE one is trusted ONLY when it is
@@ -180,12 +180,14 @@ def main():
         log(sd, "[submit] no token found")
         return
 
-    # Kanban 34f8f2dc: know BEFORE sending anything whether our own 5-hour
-    # frame is already critical -- if so, the placeholder would be a lie.
-    # Kanban c99bc49b (#316): this reads THIS agent's OWN snapshot file, and
-    # five_hour_state now trusts a STALE-but-critical reading (usedPct>=CRITICAL
-    # with the window still open), which is what catches a busy/limit-frozen
-    # agent (usalackor at 100%, Boss msg 5878) that the fresh-only check missed.
+    # Kanban 34f8f2dc: know BEFORE sending anything whether our own frame is
+    # already HARD-BLOCKED (a full 100%) -- if so, the placeholder would be a lie.
+    # Boss 2026-09-18 (msg 5911): only a full 100% counts; at 95-99% the account
+    # still answers, so the receipt must stay the normal "Dolgozom rajta" there.
+    # Kanban c99bc49b (#316): this reads THIS agent's OWN snapshot file, and it
+    # trusts a STALE-but-maxed reading (usedPct>=100 with the window still open),
+    # which is what catches a busy/limit-frozen agent (usalackor at 100%, Boss
+    # msg 5878) that the fresh-only check missed.
     # The old live-pane scraper that used to run here as a fallback was removed:
     # it read the whole tmux pane, so an agent's own prose quoting "5h 100%" /
     # "hit your session limit" made an AVAILABLE agent report as out of quota

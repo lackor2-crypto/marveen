@@ -32,25 +32,31 @@ import json
 import os
 import re
 
-CRITICAL_THRESHOLD_PCT = 95  # mirrors rate-limit-guard.py / src/rate-limit-status.ts
 STALE_AFTER_MS = 30 * 60_000
 
-# The 5-hour window and the weekly (7-day) window block on DIFFERENT thresholds,
-# and on purpose (Boss, Telegram 2026-09-18 16:37: "segedmunkas meg mindig
-# dolgozom rajta, mond" -- the Segedmunkas/lackor3 snapshot was fiveHour 0% but
-# sevenDay 100%, so a 5-hour-only check let the placeholder lie).
+# The out-of-quota ("kifogytam a token-keretemből") receipt is HONEST only when
+# the account is ACTUALLY hard-blocked right now: usedPct at a full 100% with the
+# window still open, for BOTH the 5-hour and the weekly (7-day) window. This is
+# the exact rule the TS side already uses (src/rate-limit-status.ts,
+# snapshotShowsQuotaExhausted: usedPct >= 100 for either window) -- this module
+# is now consistent with it.
 #
-#   * 5-hour: CRITICAL at 95%. It is a rolling window; at 95% the agent is
-#     within a hair of the cap and about to stop, so we already call it out of
-#     quota (this is the established behavior Boss accepted for the Szakerto).
-#   * weekly: blocks only at a full 100%. A weekly reading below 100% does NOT
-#     stop the account -- and treating e.g. 96% weekly as "out of quota" would
-#     both produce a false positive AND contradict the standing "only the
-#     5-hour window drives pacing" doctrine (rate-limit-guard.py: worst = five).
-#     Here we are answering a NARROWER question than pacing: "is this account
-#     hard-blocked RIGHT NOW so that 'dolgozom rajta' would be a lie?" The
-#     weekly cap answers yes only at 100%.
-WEEKLY_BLOCK_PCT = 100
+# Boss, Telegram 2026-09-18 (msg 5911): the Szakerto (usalackor) sent this
+# message at 95-96%, but at 95-99% the account is NOT stopped -- it still
+# answers. "csak 100%-on mondja ... Addig válaszoljon a kérésemre, addig ne ezt
+# az üzenetet adja." So the honesty gate fires ONLY at 100%; below it the normal
+# "Dolgozom rajta" receipt goes out. Applies to every agent and a fresh install
+# alike (this module is the single shared source both hook paths import).
+#
+# This is DELIBERATELY *not* the 95% pacing threshold (CRITICAL_THRESHOLD_PCT in
+# rate-limit-guard.py / src/rate-limit-status.ts). That 95% governs WHEN THE
+# AGENT STOPS CODING -- a work-pacing nudge to itself -- a different question
+# from "is the account hard-blocked so 'dolgozom rajta' would be a lie". The two
+# were wrongly conflated here before, which is why 95% leaked into a message to
+# Boss. The weekly window already required a full 100% (a sub-100% weekly reading
+# does not stop the account); now the 5-hour window uses the same 100% bar for
+# THIS honesty decision.
+HARD_BLOCK_PCT = 100
 
 
 # --- Rate-limit snapshot reading (mirrors rate-limit-guard.py) --------------
@@ -117,10 +123,10 @@ def window_state(snap, now_ms, window_key, trust_floor_pct):
     gate anything (recheck-before-restating doctrine).
 
     `window_key` is 'fiveHour' or 'sevenDay'; `trust_floor_pct` is the blocking
-    threshold for that window (95 for 5-hour, 100 for weekly -- see the module
-    constants for why they differ). This function does NOT itself decide the
-    window is blocking -- it returns the trustworthy reading and lets the caller
-    compare against the threshold."""
+    threshold for that window (HARD_BLOCK_PCT = 100 for both -- see the module
+    constant for why). This function does NOT itself decide the window is
+    blocking -- it returns the trustworthy reading and lets the caller compare
+    against the threshold."""
     if not isinstance(snap, dict):
         return None
     updated_at = snap.get('updatedAt')
@@ -144,26 +150,30 @@ def window_state(snap, now_ms, window_key, trust_floor_pct):
 
 
 def five_hour_state(snap, now_ms):
-    """Back-compat wrapper: the 5-hour window trusted at the CRITICAL floor."""
-    return window_state(snap, now_ms, 'fiveHour', CRITICAL_THRESHOLD_PCT)
+    """Back-compat wrapper: the 5-hour window trusted at the hard-block floor."""
+    return window_state(snap, now_ms, 'fiveHour', HARD_BLOCK_PCT)
 
 
 def blocked_window(snap, now_ms):
     """(window_key, used_pct, resets_at_ms) for the window that is HARD-BLOCKING
-    the agent right now -- 5-hour at/over CRITICAL, or weekly at/over
-    WEEKLY_BLOCK_PCT -- or None if neither is. When BOTH are maxed, returns the
-    one that resets LATER, because the agent can answer again only once every
-    blocking window has cleared: that later reset is the honest ETA to give.
+    the agent right now -- the 5-hour OR the weekly window at/over HARD_BLOCK_PCT
+    (100%) with the window still open -- or None if neither is. When BOTH are
+    maxed, returns the one that resets LATER, because the agent can answer again
+    only once every blocking window has cleared: that later reset is the honest
+    ETA to give.
+
+    Only a full 100% counts (Boss 2026-09-18): at 95-99% the account still
+    answers, so the honest out-of-quota receipt must NOT fire -- see HARD_BLOCK_PCT.
 
     This is the single decision both the main-agent hook (telegram_progress.py)
     and the sub-agent inbox drain (channel-inbox-drain.py) import, so 'am I out
     of quota?' is identical for every agent -- the parity Boss asked for."""
     candidates = []
-    fh = window_state(snap, now_ms, 'fiveHour', CRITICAL_THRESHOLD_PCT)
-    if fh is not None and fh[0] >= CRITICAL_THRESHOLD_PCT:
+    fh = window_state(snap, now_ms, 'fiveHour', HARD_BLOCK_PCT)
+    if fh is not None and fh[0] >= HARD_BLOCK_PCT:
         candidates.append(('fiveHour', fh[0], fh[1]))
-    wk = window_state(snap, now_ms, 'sevenDay', WEEKLY_BLOCK_PCT)
-    if wk is not None and wk[0] >= WEEKLY_BLOCK_PCT:
+    wk = window_state(snap, now_ms, 'sevenDay', HARD_BLOCK_PCT)
+    if wk is not None and wk[0] >= HARD_BLOCK_PCT:
         candidates.append(('sevenDay', wk[0], wk[1]))
     if not candidates:
         return None
@@ -316,8 +326,8 @@ def quota_honest_message(window_key, used_pct, resets_at_ms, now_ms, lang="hu", 
 
 def quota_status_message_if_critical(cwd, now_ms=None):
     """The honest out-of-quota text for the agent that owns `cwd` if its own
-    snapshot shows a HARD-BLOCKING window (5-hour at/over CRITICAL, or weekly at
-    100%) still open, else None (proceed with the normal working receipt). Reads
+    snapshot shows a HARD-BLOCKING window (5-hour OR weekly at/over 100%) still
+    open, else None (proceed with the normal working receipt). Reads
     STRICTLY that agent's own snapshot file, so it can never confuse one agent's
     quota for another's."""
     import time
@@ -367,12 +377,12 @@ def _self_test():
     check("fresh snapshot usable", st is not None, True)
     check("fresh snapshot pct", st[0] if st else None, 100)
 
-    # Stale + below critical -> unknown, do not gate.
+    # Stale + below the hard-block floor -> unknown, do not gate.
     stale_low = {"updatedAt": now - STALE_AFTER_MS - 1,
                  "fiveHour": {"usedPct": 40, "resetsAt": now + 3600_000}}
     check("stale low snapshot ignored", five_hour_state(stale_low, now), None)
 
-    # Stale + at/over critical + window open -> STILL trusted (#316).
+    # Stale + at/over the hard-block floor + window open -> STILL trusted (#316).
     stale_crit = {"updatedAt": now - STALE_AFTER_MS - 1,
                   "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000}}
     st = five_hour_state(stale_crit, now)
@@ -419,6 +429,20 @@ def _self_test():
                     "sevenDay": {"usedPct": 100, "resetsAt": now - 1000}}
     check("weekly 100% but reset -> None", blocked_window(week_expired, now), None)
 
+    # 5-hour window: THE fix (Boss 2026-09-18, msg 5911). The honest message must
+    # fire ONLY at a full 100% -- at 95-99% the account still answers, so a
+    # "kifogytam a token-keretemből" receipt there is a lie.
+    for pct in (95, 96, 99):
+        fh_high = {"updatedAt": now - 60_000,
+                   "fiveHour": {"usedPct": pct, "resetsAt": now + 3600_000}}
+        check("5-hour %d%% does NOT block (still working)" % pct,
+              blocked_window(fh_high, now), None)
+    fh_maxed = {"updatedAt": now - 60_000,
+                "fiveHour": {"usedPct": 100, "resetsAt": now + 3600_000}}
+    bw = blocked_window(fh_maxed, now)
+    check("5-hour 100% blocks", bw is not None, True)
+    check("5-hour block names 5-hour window", bw[0] if bw else None, "fiveHour")
+
     with tempfile.TemporaryDirectory() as d:
         os.makedirs(os.path.join(d, "store", "rate-limit-status"))
         os.environ.pop("SCHEDULER_TZ", None)
@@ -426,12 +450,18 @@ def _self_test():
         with open(os.path.join(d, ".env"), "w") as f:
             f.write("MAIN_AGENT_ID=main\n")
 
-        # Below critical -> no honest message.
+        # Below the hard block -> no honest message.
         with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
             json.dump({"updatedAt": now - 1000, "fiveHour": {"usedPct": 40, "resetsAt": now + 3600_000}}, f)
         check("below threshold -> None", quota_status_message_if_critical(d, now), None)
 
-        # Fresh critical -> honest message with ETA, HU by default.
+        # 5-hour at 96% (Boss's exact complaint 2026-09-18) -> normal receipt,
+        # NOT the out-of-quota message. This is the regression this fix guards.
+        with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
+            json.dump({"updatedAt": now - 1000, "fiveHour": {"usedPct": 96, "resetsAt": now + 3600_000}}, f)
+        check("5-hour 96% end-to-end -> None", quota_status_message_if_critical(d, now), None)
+
+        # Fresh hard-block (100%) -> honest message with ETA, HU by default.
         with open(os.path.join(d, "store", "rate-limit-status", "main.json"), "w") as f:
             json.dump(fresh, f)
         msg = quota_status_message_if_critical(d, now)
