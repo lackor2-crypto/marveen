@@ -11,6 +11,8 @@ import {
   UNTRUSTED_PREAMBLE,
   TRUSTED_PEER_PREAMBLE,
   CHANNEL_INBOUND_PREAMBLE,
+  wrapOwnerRequest,
+  OWNER_REQUEST_PREAMBLE,
   sanitizeAgentIdent,
   sanitizeOriginNote,
 } from '../prompt-safety.js'
@@ -26,7 +28,12 @@ import { parseQualifiedId, formatQualifiedId, federationSource } from './federat
 // never the attacker-influenceable from_agent string.
 const CHANNEL_COORDINATOR_AGENTS = new Set<string>([COORDINATOR_AGENT_ID])
 
-export type AgentMessageCategory = 'channel-inbound' | 'trusted-peer' | 'untrusted' | 'federated'
+// Reserved sender of owner requests typed into the dashboard. Only in-process
+// routes write it (createAgentMessage); POST /api/messages refuses it, the same
+// way it refuses the channel-coordinator id.
+export const OWNER_DASHBOARD_SENDER = 'dashboard-owner'
+
+export type AgentMessageCategory = 'channel-inbound' | 'owner-request' | 'trusted-peer' | 'untrusted' | 'federated'
 
 // Classify an inter-agent message's delivery category, in priority order on the
 // SANITIZED from-id. Returns null when the from_agent collapses to empty after
@@ -51,6 +58,7 @@ export function classifyAgentMessage(
   const safeFrom = sanitizeAgentIdent(fromAgent)
   if (!safeFrom) return null
   if (CHANNEL_COORDINATOR_AGENTS.has(safeFrom)) return { category: 'channel-inbound', safeFrom }
+  if (safeFrom === OWNER_DASHBOARD_SENDER) return { category: 'owner-request', safeFrom }
   if (isTrustedPeer(fromAgent, toAgent, { mainAgentId: MAIN_AGENT_ID, isKnownAgent, readAgentTeam })) {
     return { category: 'trusted-peer', safeFrom }
   }
@@ -87,6 +95,12 @@ export function wrapAgentMessageForDelivery(
   // otherwise forge a trusted-peer line and inject instructions cross-agent.
   const safeOrigin = sanitizeOriginNote(originNote)
   const originSuffix = safeOrigin ? `, self-tagged origin:"${safeOrigin}"` : ''
+  if (category === 'owner-request') {
+    return {
+      wrapped: wrapOwnerRequest('dashboard:owner', content),
+      prefix: `${OWNER_REQUEST_PREAMBLE}\n[Keres a tulajdonostol a dashboardrol${idSuffix}]: `,
+    }
+  }
   if (category === 'trusted-peer') {
     return {
       wrapped: wrapTrustedPeer(`agent:${safeFrom}`, content),

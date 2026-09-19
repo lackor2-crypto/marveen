@@ -54,6 +54,7 @@ import { classificationStatus, listCardSuggestions, startCardClassification, CON
 import type { RouteContext } from './types.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { createAgentMessage } from '../../db.js'
+import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import {
   createStarterCard, isRequestKind, projectRequestMessage, researchObjectId,
 } from '../../project-scope.js'
@@ -481,7 +482,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!isRequestKind(body.kind)) return fail(res, 400, 'bad_request_kind', lang)
     const text = String(body.text ?? '').trim().slice(0, 8000)
     if (!text) return fail(res, 400, 'request_text_required', lang)
-    const msg = createAgentMessage('system', MAIN_AGENT_ID, projectRequestMessage(project, body.kind, text, lang))
+    const msg = createAgentMessage(OWNER_DASHBOARD_SENDER, MAIN_AGENT_ID, projectRequestMessage(project, body.kind, text, lang))
     logger.info({ id, kind: body.kind, messageId: msg.id }, '[projects] keres a fo agensnek a projektbol')
     json(res, { ok: true, messageId: msg.id, agent: MAIN_AGENT_ID })
     return true

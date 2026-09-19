@@ -162,6 +162,13 @@ describe('/api/messages 403 guard -- behavior (router-symmetric normalization)',
       expect(status, `forged from=${JSON.stringify(forged)} must be blocked`).toBe(403)
     }
   })
+
+  it('blocks the dashboard-owner sender too (owner requests are delivered as instructions)', async () => {
+    for (const forged of ['dashboard-owner', '@dashboard-owner', 'dashboard-owner.']) {
+      const { status } = await postFrom(forged)
+      expect(status, `forged from=${JSON.stringify(forged)} must be blocked`).toBe(403)
+    }
+  })
 })
 
 describe('contrast: untrusted wrap still adds the wrapper (non-coordinator unchanged)', () => {

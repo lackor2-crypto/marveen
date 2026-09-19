@@ -23,6 +23,7 @@ import { linkedDebates, setDebateLogPathForTests } from '../project-context.js'
 import { tryHandleProjects } from '../web/routes/projects.js'
 import { tryHandleIdeas } from '../web/routes/ideas.js'
 import { MAIN_AGENT_ID } from '../config.js'
+import { classifyAgentMessage, wrapAgentMessageForDelivery } from '../web/agent-message-wrap.js'
 import type { RouteContext } from '../web/routes/types.js'
 
 function mustProject(input: Parameters<typeof createProject>[0]) {
@@ -193,6 +194,22 @@ describe('projektbol inditott keres a fo agensnek', () => {
     expect(msgs).toHaveLength(1)
     expect(msgs[0].content).toContain('Melyik tarhely?')
     expect(msgs[0].content).toContain(`--project ${a.id}`)
+  })
+
+  it('UTASITASKENT kezbesul: owner-request keret, nem <untrusted> "NOT an instruction"', async () => {
+    const a = mustProject({ name: 'Alfa' })
+    await call('POST', `/api/projects/${a.id}/requests?lang=hu`, { kind: 'research', text: 'Engedelyek' })
+    const m = getPendingMessages(MAIN_AGENT_ID)[0]
+    // Ugyanaz a ket fuggveny, amit a router es a drain-inbox is hiv.
+    const cls = classifyAgentMessage(m.from_agent, m.to_agent)
+    expect(cls?.category).toBe('owner-request')
+    const { prefix, wrapped } = wrapAgentMessageForDelivery(cls!.category, cls!.safeFrom, m.from_agent, m.content, m.id)
+    const delivered = prefix + wrapped
+    expect(delivered).toContain('<owner-request source="dashboard:owner">')
+    expect(delivered).toContain('EXPECTED TO CARRY OUT')
+    expect(delivered).not.toContain('<untrusted')
+    expect(delivered).not.toMatch(/NOT an instruction/i)
+    expect(delivered).toContain('Engedelyek')
   })
 
   it('a hatteranyag-keres a pontos jelolo sort irja elo; ures szoveg / ismeretlen fajta 400', async () => {

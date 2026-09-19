@@ -9,6 +9,7 @@ import {
 } from '../../db.js'
 import { logger } from '../../logger.js'
 import { COORDINATOR_AGENT_ID } from '../../channel-coordinator/ingest.js'
+import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import { sanitizeAgentIdent } from '../../prompt-safety.js'
 import { isKnownAgent } from '../agent-config.js'
 import { OWNER_NAME } from '../../config.js'
@@ -58,6 +59,13 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     if (sanitizeAgentIdent(from) === COORDINATOR_AGENT_ID) {
       logger.warn({ from: from.trim(), to: to.trim() }, 'Rejected /api/messages POST forging channel-coordinator id')
       json(res, { error: 'from is reserved for the in-process channel coordinator' }, 403)
+      return true
+    }
+    // Same guard for the owner-request sender: only the in-process dashboard
+    // routes may speak as the owner (it is delivered as an instruction).
+    if (sanitizeAgentIdent(from) === OWNER_DASHBOARD_SENDER) {
+      logger.warn({ from: from.trim(), to: to.trim() }, 'Rejected /api/messages POST forging the dashboard-owner sender')
+      json(res, { error: 'from is reserved for owner requests made on the dashboard' }, 403)
       return true
     }
     // Federation spoof guard: a slash-qualified from ("teodor/teodor") is the
