@@ -35725,7 +35725,12 @@ async function _inboxAnalyze() {
   if (note) note.textContent = t('inbox.analyzing')
   var d = null
   try {
-    d = await _depoPost('/api/life/inbox/analyze?lang=' + (window._lang || 'hu'), {})
+    // Csak a bejelolt teteleket elemezzuk, ha van kijeloles; ures kijelolesnel
+    // marad a "mind" (kenyelmi alap). A szerver (/api/life/inbox/analyze) mar
+    // szur a `names` listara; a 2. AI-kor a visszakapott javaslatokbol dolgozik,
+    // tehat automatikusan koveti a szukitett halmazt. (Kartya 5679a835)
+    var _sel = _inboxSelected()
+    d = await _depoPost('/api/life/inbox/analyze?lang=' + (window._lang || 'hu'), _sel.length ? { names: _sel } : {})
   } catch (e) {
     if (note) note.textContent = t('inbox.analyze_failed') + ' ' + ((e && e.message) ? e.message : String(e))
     box.innerHTML = ''
