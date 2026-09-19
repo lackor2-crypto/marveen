@@ -14,7 +14,7 @@ import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask,
   recordCodeWorkerSeen, listCodeWorkers, codeBridgeHealth, WORKER_STALE_MS,
 } from '../web/code-bridge-store.js'
-import { codeBridgeRows } from '../web/system-health.js'
+import { codeBridgeRows, workerCanSelfUpdate } from '../web/system-health.js'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { getSettingDefinition } from '../config-registry.js'
@@ -127,6 +127,38 @@ describe('self-check row', () => {
     expect(rows[0]!.params!['e']).toBe(naprakesz())
   })
 
+  // Boss, 2026-09-19: a sor kezi letoltest kert, holott a 2026-08-26.3 ota
+  // minden peldany MAGATOL frissul, amint nincs feladata. Az ujrainditas gomb
+  // a regi peldanyt inditotta ujra, a sor maradt, es nem volt vilagos, mit
+  // kell tenni. Onfrissito peldanynal a sor ezt mondja ki, nem kezi teendot.
+  it('az onfrissito peldanynal "frissul", nem kezi letoltes', () => {
+    for (const v of ['2026-08-26.3', '2026-09-16.1']) {
+      const rows = codeBridgeRows(Date.now(), health({ sessions: 3, workers: worker(v) }))
+      expect(rows[0]!.id, v).toBe('code_bridge_worker_updating')
+      expect(rows[0]!.status).toBe('warn')
+      expect(rows[0]!.params!['r']).toBe(v)
+      expect(rows[0]!.params!['e']).toBe(naprakesz())
+    }
+  })
+
+  it('a verzio sorszamat szamkent hasonlitja (.10 nem kerul a .3 ele)', () => {
+    expect(workerCanSelfUpdate('2026-08-26.2')).toBe(false)
+    expect(workerCanSelfUpdate('2026-08-26.3')).toBe(true)
+    expect(workerCanSelfUpdate('2026-08-26.10')).toBe(true)
+    expect(workerCanSelfUpdate('2026-08-25.9')).toBe(false)
+    expect(workerCanSelfUpdate('szemet')).toBe(false)
+  })
+
+  it('a frissulo sor szovege kimondja, hogy nincs teendo, es nem ker letoltest', () => {
+    const hu = readFileSync(join(process.cwd(), 'web', 'lang', 'hu.js'), 'utf8')
+    const en = readFileSync(join(process.cwd(), 'web', 'lang', 'en.js'), 'utf8')
+    const line = (src: string) => src.split('\n').find((l) => l.includes("'health.code_bridge_worker_updating_action'")) ?? ''
+    expect(line(hu)).toContain('Nem kell tenned semmit')
+    expect(line(en)).toContain('You do not need to do anything')
+    expect(line(hu)).not.toContain('töltsd le')
+    expect(line(en)).not.toContain('download')
+  })
+
   it('a felderites ELOTT nem kialt elavultsagot -- az meg "nem latok oda"', () => {
     // Merve 2026-08-23: a claim 3 masodpercenkent fut es nem visz verziot, a
     // felderites percenkent igen. A kettő kozott a sor nem allithatja, hogy
@@ -146,7 +178,8 @@ describe('self-check row', () => {
 
   it('every row id it can emit has both a label and an advice line, in both languages', () => {
     const ids = ['code_bridge_never', 'code_bridge_dead', 'code_bridge_ok',
-      'code_bridge_worker_stale', 'code_bridge_worker_unversioned', 'code_bridge_worker_unknown']
+      'code_bridge_worker_stale', 'code_bridge_worker_unversioned', 'code_bridge_worker_unknown',
+      'code_bridge_worker_updating']
     for (const lang of ['hu', 'en']) {
       const src = readFileSync(join(process.cwd(), 'web', 'lang', lang + '.js'), 'utf8')
       for (const id of ids) {

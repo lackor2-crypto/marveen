@@ -1172,6 +1172,22 @@ export function googleLiveRows(
   return rows
 }
 
+/** Az elso vegrehajto-valtozat, amelyik magatol frissul (Invoke-SelfUpdate,
+ *  commit 84d8c6e5). A verzio `EEEE-HH-NN.S` alaku; a sorszamot szamkent
+ *  hasonlitjuk, hogy a `.10` ne keruljon a `.3` ele. */
+export const WORKER_SELF_UPDATE_SINCE = '2026-08-26.3'
+
+export function workerCanSelfUpdate(version: string): boolean {
+  const parse = (v: string): [string, number] | null => {
+    const m = /^(\d{4}-\d{2}-\d{2})\.(\d+)$/.exec(v.trim())
+    return m && m[1] && m[2] ? [m[1], Number(m[2])] : null
+  }
+  const a = parse(version)
+  const b = parse(WORKER_SELF_UPDATE_SINCE)
+  if (!a || !b) return false
+  return a[0] > b[0] || (a[0] === b[0] && a[1] >= b[1])
+}
+
 /** A kod-hid EGYETLEN nema hibamodja: a Windows-vegrehajto megall. A feladatok
  *  ilyenkor szepen sorba allnak, a hid "be van kapcsolva", minden lap zolden
  *  mutat -- es egyetlen sor sincs sehol arrol, hogy semmi nem fut le. (Merve
@@ -1233,7 +1249,13 @@ export function codeBridgeRows(
     return [{ id: 'code_bridge_worker_unversioned', status: 'warn', params: { e: varhato } }]
   }
   if (jelentett !== varhato) {
-    return [{ id: 'code_bridge_worker_stale', status: 'warn', params: { r: jelentett, e: varhato } }]
+    // A 2026-08-26.3 ota minden peldany MAGATOL frissul, amint epp nincs
+    // feladata (Invoke-SelfUpdate a claim-korben). Ilyenkor a kezi letoltesre
+    // felszolito sor hamis volt: a tulajdonos ujrainditotta a regi peldanyt,
+    // a sor maradt, es nem tudta, mit nyomjon meg (Boss, 2026-09-19). Kezi
+    // teendo csak annal a regi peldanynal van, amelyik meg nem tud frissulni.
+    const id = workerCanSelfUpdate(jelentett) ? 'code_bridge_worker_updating' : 'code_bridge_worker_stale'
+    return [{ id, status: 'warn', params: { r: jelentett, e: varhato } }]
   }
   // Zold sor is kell: a hallgatas nem megkulonboztetheto a nem-futo
   // ellenorzestol -- pontosan ez a csapda vitte el az elozo ket hetet.

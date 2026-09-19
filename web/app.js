@@ -20216,6 +20216,7 @@ async function renderOverviewConnections() {
           // 2026-08-26: "miert a fiokokba visz amikor rakattintok?").
           : (h.id === 'code_bridge_dead' || h.id === 'code_bridge_never'
             || h.id === 'code_bridge_worker_stale' || h.id === 'code_bridge_worker_unversioned'
+            || h.id === 'code_bridge_worker_updating'
             || h.id === 'code_bridge_worker_unknown')
             ? "openCodeBridgeModal()"
             // A hitelesitesre varo MCP-kapcsolat sora a MEGNEVEZETT
