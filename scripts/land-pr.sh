@@ -462,15 +462,7 @@ if [ -n "$CARD_REF" ]; then
   CARD_STATUS=""
   if [ -r "$TOKF" ]; then
     CARD_STATUS="$(curl -s -m 5 -H "Authorization: Bearer $(cat "$TOKF")" "http://localhost:$PORT/api/kanban" 2>/dev/null \
-      | CARD="$CARD_REF" python3 -c 'import sys,json,os
-ref=os.environ.get("CARD","")
-try:
-    d=json.load(sys.stdin); cards=d if isinstance(d,list) else d.get("cards",[])
-    for c in cards:
-        if str(c.get("id",""))==ref or str(c.get("seq",""))==ref:
-            print(c.get("status","")); break
-except Exception:
-    pass' 2>/dev/null || true)"
+      | CARD="$CARD_REF" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const d=JSON.parse(s);const cards=Array.isArray(d)?d:(d.cards||[]);const ref=process.env.CARD||"";const c=cards.find(c=>String(c.id??"")===ref||String(c.seq??"")===ref);if(c)process.stdout.write(String(c.status||""))}catch{}})' 2>/dev/null || true)"
   fi
   if [ "$CARD_STATUS" = "waiting" ] || [ "$CARD_STATUS" = "done" ]; then
     : # mar a helyen van, nincs teendo
