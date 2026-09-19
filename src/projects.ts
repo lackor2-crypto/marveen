@@ -32,8 +32,11 @@ import { getDb } from './db.js'
 export const PROJECT_STATUSES = ['active', 'paused', 'closed'] as const
 export type ProjectStatus = typeof PROJECT_STATUSES[number]
 
-/** A `project_links` ismert objektum-fajtai. Uj fajta felvetele: ide + a hasznalo. */
-export const PROJECT_LINK_TYPES = ['idea', 'code_alias', 'debate', 'memory', 'schedule', 'skill'] as const
+/** A `project_links` ismert objektum-fajtai. Uj fajta felvetele: ide + a hasznalo.
+ *  `code_alias` = egy kod-hid munkamenet MINDEN (vagy a `since` utani) feladata;
+ *  `code_task`  = EGY konkret kodfeladat (`code_tasks.id`) -- ez erosebb az
+ *  aliasnal es a kartya-hivatkozasnal is (lasd `project-overview.ts`). */
+export const PROJECT_LINK_TYPES = ['idea', 'code_alias', 'code_task', 'debate', 'memory', 'schedule', 'skill'] as const
 export type ProjectLinkType = typeof PROJECT_LINK_TYPES[number]
 
 export interface ProjectRow {
@@ -70,6 +73,10 @@ export interface ProjectLinkRow {
   object_id: string
   created_at: number
   created_by: string | null
+  /** Csak `code_alias`-nal: az alias ettol (masodperc) kezdve szamit a
+   *  projekthez; a korabbi feladatai csak kulon, `code_task` kotessel. NULL =
+   *  az alias minden feladata. */
+  since: number | null
 }
 
 const nowSec = (): number => Math.floor(Date.now() / 1000)
@@ -112,6 +119,8 @@ export function ensureProjectTables(): void {
   // Kesobb felvett oszlop: a mar letezo tablaba is bekerul.
   const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name))
   if (!cols.has('summary_by')) db.exec('ALTER TABLE projects ADD COLUMN summary_by TEXT')
+  const linkCols = new Set((db.prepare('PRAGMA table_info(project_links)').all() as { name: string }[]).map((c) => c.name))
+  if (!linkCols.has('since')) db.exec('ALTER TABLE project_links ADD COLUMN since INTEGER')
   // A projekt-nezet minden lekerdezese ezen a mezon szur.
   if (hasTable('kanban_cards')) db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_project ON kanban_cards(project)')
   tablesDb = db
@@ -408,15 +417,23 @@ export function isLinkType(v: unknown): v is ProjectLinkType {
 }
 
 /** Egy objektum projekthez kotese. Ha mar masik projekthez tartozott, ATKERUL
- *  (egy objektum egyszerre egy projekt). */
-export function linkObject(projectId: string, type: ProjectLinkType, objectId: string, createdBy?: string | null): void {
+ *  (egy objektum egyszerre egy projekt). `since`: csak a `code_alias`-nal van
+ *  ertelme -- lasd `ProjectLinkRow.since`. */
+export function linkObject(projectId: string, type: ProjectLinkType, objectId: string, createdBy?: string | null, since: number | null = null): void {
   ensureProjectTables()
   getDb().prepare(
-    `INSERT INTO project_links (project_id, object_type, object_id, created_at, created_by)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO project_links (project_id, object_type, object_id, created_at, created_by, since)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(object_type, object_id) DO UPDATE SET project_id = excluded.project_id,
-       created_at = excluded.created_at, created_by = excluded.created_by`,
-  ).run(projectId, type, String(objectId), nowSec(), createdBy ?? null)
+       created_at = excluded.created_at, created_by = excluded.created_by, since = excluded.since`,
+  ).run(projectId, type, String(objectId), nowSec(), createdBy ?? null, since)
+}
+
+/** Egy kotes teljes sora (a visszavonas ezzel allitja vissza az elozot). */
+export function getObjectLink(type: ProjectLinkType, objectId: string): ProjectLinkRow | null {
+  ensureProjectTables()
+  return (getDb().prepare('SELECT * FROM project_links WHERE object_type = ? AND object_id = ?')
+    .get(type, String(objectId)) as ProjectLinkRow | undefined) ?? null
 }
 
 export function unlinkObject(type: ProjectLinkType, objectId: string): boolean {
@@ -452,6 +469,8 @@ export interface DeletePreview {
   archivedCards: number
   ideas: number
   codeAliases: string[]
+  /** Egyenkent a projekthez kotott kodfeladatok (`code_task`). */
+  codeTasks: number
   otherLinks: number
   folderPath: string | null
 }
@@ -479,7 +498,8 @@ export function projectDeletePreview(id: string): DeletePreview | null {
     archivedCards,
     ideas: projectIdeaIds(id).length,
     codeAliases: links.filter((l) => l.object_type === 'code_alias').map((l) => l.object_id),
-    otherLinks: links.filter((l) => l.object_type !== 'code_alias' && l.object_type !== 'idea').length,
+    codeTasks: links.filter((l) => l.object_type === 'code_task').length,
+    otherLinks: links.filter((l) => !['code_alias', 'code_task', 'idea'].includes(l.object_type)).length,
     folderPath: p.folder_path,
   }
 }

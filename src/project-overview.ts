@@ -10,8 +10,9 @@
  * Forrasok:
  *   - `kanban_cards` (project = a projekt id-je) -- a gerinc,
  *   - `card_work_claims` -- ki dolgozik EPPEN egy kartyan (ha van ilyen tabla),
- *   - `code_tasks` -- a kod-hid feladatai (kartya-hivatkozassal VAGY a projekthez
- *     kotott aliassal),
+ *   - `code_tasks` -- a kod-hid feladatai: az EGYENKENT a projekthez kotott
+ *     feladat (`code_task` kotes), kulonben a kartya-hivatkozas VAGY a projekthez
+ *     kotott alias (a kotes `since` idopontja utan) -- lasd `codeTaskMembership`,
  *   - `approvals` -- a kartyahoz kotott jovahagyas (`action_payload.kanban_card_id`),
  *   - `kanban_card_events`, `kanban_comments`, `idea_status_log` -- az idovonal,
  *   - a projektmappa -- a legutobb modositott fajlok.
@@ -162,17 +163,43 @@ function loadClaims(cardIds: string[], now: number): Map<string, WorkClaim[]> {
   return out
 }
 
-function loadCodeTasks(cardIds: string[], aliases: string[], where: string, limit: number): CodeTaskRef[] {
-  if (!hasTable('code_tasks') || (!cardIds.length && !aliases.length)) return []
-  const conds: string[] = []
-  const params: unknown[] = []
-  if (cardIds.length) { conds.push(`card_ref IN (${placeholders(cardIds.length)})`); params.push(...cardIds) }
-  if (aliases.length) { conds.push(`project IN (${placeholders(aliases.length)})`); params.push(...aliases) }
+/**
+ * Melyik kodfeladat tartozik a projekthez -- SQL-feltetelkent (`t` = code_tasks).
+ *
+ *   1. Az EGYENKENT kotott feladat (`code_task`) oda tartozik, ahova kotottek --
+ *      es SEHOVA mashova: ez erosebb a kartya-hivatkozasnal es az aliasnal is.
+ *      Igy tud egy regi alias-feladat a tartalma szerint mas projektbe kerulni,
+ *      mint amihez az alias a jovoben tartozik (kanban #321, migracio 2. pont).
+ *   2. Kulonben: a projekt kartyajara hivatkozik, VAGY a projekthez kotott
+ *      aliason fut -- az alias-kotes `since` idopontja utan (NULL = mindig).
+ *
+ * A kod-hid `created_at`-je ezredmasodperc, a kotes `since`-e masodperc.
+ */
+function codeTaskMembership(projectId: string, cardIds: string[]): { sql: string; params: unknown[] } {
+  const params: unknown[] = [projectId]
+  const loose: string[] = [
+    `EXISTS (SELECT 1 FROM project_links a WHERE a.object_type = 'code_alias' AND a.project_id = ?
+       AND a.object_id = t.project AND (a.since IS NULL OR t.created_at >= a.since * 1000))`,
+  ]
+  const looseParams: unknown[] = [projectId]
+  if (cardIds.length) { loose.push(`t.card_ref IN (${placeholders(cardIds.length)})`); looseParams.push(...cardIds) }
+  params.push(...looseParams)
+  return {
+    sql: `(EXISTS (SELECT 1 FROM project_links x WHERE x.object_type = 'code_task' AND x.object_id = t.id AND x.project_id = ?)
+      OR (NOT EXISTS (SELECT 1 FROM project_links y WHERE y.object_type = 'code_task' AND y.object_id = t.id)
+          AND (${loose.join(' OR ')})))`,
+    params,
+  }
+}
+
+function loadCodeTasks(projectId: string, cardIds: string[], where: string, limit: number): CodeTaskRef[] {
+  if (!hasTable('code_tasks') || !hasTable('project_links')) return []
+  const m = codeTaskMembership(projectId, cardIds)
   const rows = getDb().prepare(
-    `SELECT id, status, project, card_ref, substr(prompt, 1, 160) AS excerpt, created_at, started_at, finished_at
-       FROM code_tasks WHERE (${conds.join(' OR ')}) ${where}
-       ORDER BY created_at DESC LIMIT ${limit}`,
-  ).all(...params) as { id: string; status: string; project: string; card_ref: string | null; excerpt: string; created_at: number; started_at: number | null; finished_at: number | null }[]
+    `SELECT t.id, t.status, t.project, t.card_ref, substr(t.prompt, 1, 160) AS excerpt, t.created_at, t.started_at, t.finished_at
+       FROM code_tasks t WHERE ${m.sql} ${where}
+       ORDER BY t.created_at DESC LIMIT ${limit}`,
+  ).all(...m.params) as { id: string; status: string; project: string; card_ref: string | null; excerpt: string; created_at: number; started_at: number | null; finished_at: number | null }[]
   return rows.map((r) => ({
     id: r.id,
     status: r.status,
@@ -245,7 +272,7 @@ function recentFiles(project: ProjectRow, limit: number): { state: FolderState; 
   return { state: 'ok', files: files.slice(0, limit) }
 }
 
-function loadActivity(project: ProjectRow, cards: OverviewCard[], aliases: string[], files: { rel: string; name: string; at: number }[], limit: number): ActivityItem[] {
+function loadActivity(project: ProjectRow, cards: OverviewCard[], files: { rel: string; name: string; at: number }[], limit: number): ActivityItem[] {
   const db = getDb()
   const out: ActivityItem[] = []
   // Az archivalt kartyak esemenyei is a projekt tortenetehez tartoznak.
@@ -312,7 +339,7 @@ function loadActivity(project: ProjectRow, cards: OverviewCard[], aliases: strin
       out.push({ at: toMs(r.created_at), kind: 'idea', name: ideaTitles.get(r.idea_id) ?? r.idea_id, from: r.from_status, to: r.to_status, actor: r.actor })
     }
   }
-  for (const t of loadCodeTasks(allIds, aliases, '', per)) {
+  for (const t of loadCodeTasks(project.id, allIds, '', per)) {
     out.push({ at: t.at, kind: 'code', cardId: t.cardId, cardTitle: t.cardId ? titles.get(t.cardId) ?? null : null, to: t.status, text: t.excerpt, actor: t.alias })
   }
   for (const f of files) out.push({ at: f.at, kind: 'file', name: f.name, rel: f.rel })
@@ -327,7 +354,7 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
   const cardIds = cards.map((c) => c.id)
   const aliases = projectCodeAliases(project.id)
   const claims = loadClaims(cardIds, now)
-  const running = loadCodeTasks(cardIds, aliases, "AND status IN ('queued', 'running')", 50)
+  const running = loadCodeTasks(project.id, cardIds, "AND t.status IN ('queued', 'running')", 50)
 
   // AKTUALIS MUNKA: a folyamatban levo kartyak + minden kartya, amin EPPEN van
   // foglalas vagy futo kodfeladat (akkor is, ha a kartya meg "tervezett") +
@@ -354,12 +381,14 @@ export function buildProjectOverview(projectId: string, opts: { now?: number; ac
   const open = cards.filter((c) => OPEN_STATUSES.includes(c.status))
   const next = sortNextSteps(open)
   const folderScan = recentFiles(project, 5)
-  const activity = loadActivity(project, cards, aliases, folderScan.files, opts.activityLimit ?? 25)
+  const activity = loadActivity(project, cards, folderScan.files, opts.activityLimit ?? 25)
 
+  // Van-e a projektnek fejlesztesi munkaja: kotott alias, VAGY barmely (akar
+  // archivalt kartyan at, akar egyenkent kotott) kodfeladat.
   let hasDevWork = aliases.length > 0
-  if (!hasDevWork && hasTable('code_tasks') && cardIds.length) {
-    const ids = projectCardIds(project.id, { includeArchived: true })
-    hasDevWork = !!getDb().prepare(`SELECT 1 FROM code_tasks WHERE card_ref IN (${placeholders(ids.length)}) LIMIT 1`).get(...ids)
+  if (!hasDevWork && hasTable('code_tasks') && hasTable('project_links')) {
+    const m = codeTaskMembership(project.id, projectCardIds(project.id, { includeArchived: true }))
+    hasDevWork = !!getDb().prepare(`SELECT 1 FROM code_tasks t WHERE ${m.sql} LIMIT 1`).get(...m.params)
   }
 
   const staleCut = now - STALE_DAYS * 86400_000

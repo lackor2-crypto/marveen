@@ -3,7 +3,12 @@
 // A tulajdonos kikotesei, amiket ez a teszt orzi:
 //   - a dry-run SEMMIT nem ir at;
 //   - a `code_tasks.project` (a kod-hid utvonal-kulcsa) SOSEM irodik at;
-//   - az ures projektu kartyakhoz a migracio nem nyul;
+//   - az ures projektu kartyakhoz a migracio magatol nem nyul; csak a
+//     KARTYANKENT jovahagyott lista mozdul (a tartalom szerinti javaslatbol --
+//     a cimke csak jelzes, nem dontes);
+//   - egy alias regi feladatai FELADATONKENT, a tartalmuk szerint sorolhatok:
+//     a vezerlo/proba parancsok kotetlenul maradnak, az alias pedig csak a
+//     jovobeli feladataival tartozik a sajat projektjehez;
 //   - ismeretlen / kihagyott ertek nem veszhet el;
 //   - ket kulonbozo ertek NEM egyesul magatol: a nem nev-egyezesen alapulo
 //     javaslat kulon dontest ker;
@@ -11,17 +16,23 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { initDatabase, createKanbanCard, getKanbanCard, getDb, createLabel, addLabelToCard } from '../db.js'
 import { resetCodeBridgeTablesForTests, listCodeTasks } from '../web/code-bridge-store.js'
-import { createProject, projectForObject, getProject } from '../projects.js'
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createProject, projectForObject, getProject, getObjectLink, linkObject } from '../projects.js'
+import { buildProjectOverview } from '../project-overview.js'
 import {
   planProjectMigration, applyProjectMigration, revertProjectMigration, listProjectMigrations,
-  renderMigrationPlanMarkdown,
+  renderMigrationPlanMarkdown, isControlPrompt,
 } from '../project-migration.js'
 
-function addTask(id: string, alias: string, workspace: string, cardRef: string | null, prompt = 'feladat') {
+const WORK = 'Javitsd ki a bejelentkezo oldalt: a jelszo-mezo ures bekuldesnel hibat dob, es a hibauzenet angolul jelenik meg a magyar feluleten.'
+
+function addTask(id: string, alias: string, workspace: string, cardRef: string | null, prompt = WORK, createdAt = Date.now() - 60_000) {
   getDb().prepare(
     `INSERT INTO code_tasks (id, project, prompt, status, origin, workspace_path, card_ref, created_at)
      VALUES (?, ?, ?, 'done', 'dashboard', ?, ?, ?)`,
-  ).run(id, alias, prompt, workspace, cardRef, Date.now())
+  ).run(id, alias, prompt, workspace, cardRef, createdAt)
 }
 
 beforeEach(() => {
@@ -69,7 +80,9 @@ describe('dry-run', () => {
     expect(md).toContain('DRY-RUN')
     expect(md).toContain('ÚJ projekt: „Marvin fejlesztés”')
     expect(md).toContain('NEM íródik át')
-    expect(md).toContain('ezekhez a migráció NEM nyúl')
+    expect(md).toContain('ezekhez a migráció magától NEM nyúl')
+    // Az alias regi feladatai tartalom szerint: 1 munka, 1 vezerlo parancs.
+    expect(md).toContain('tartalom szerint: 1 munka-feladat, 1 vezérlés/próba ("/clear" x1)')
     expect(md).toContain('[DÖNTÉS KELL]')
     const en = renderMigrationPlanMarkdown(planProjectMigration(), 'en')
     expect(en).toContain('DRY RUN')
@@ -177,10 +190,8 @@ describe('a dontesi valtozatok', () => {
     const plan = planProjectMigration()
     const sets = plan.kanban[0].labelSets.map((x) => ({ ids: x.ids, n: x.cards })).sort((a, b) => a.ids.join().localeCompare(b.ids.join()))
     expect(sets).toEqual([{ ids: ['lf'], n: 1 }, { ids: ['li'], n: 1 }])
-    expect(plan.unassignedCards.labelSets).toEqual(expect.arrayContaining([
-      { ids: ['lf'], names: ['fejlesztes'], cards: 1 },
-      { ids: [], names: [], cards: 1 },
-    ]))
+    // A projekt nelkuli kartyak KARTYANKENT jonnek (cimkeik csak jelzeskent).
+    expect(plan.unassignedCards.cards.map((c) => [c.id, c.labels]).sort()).toEqual([['n1', ['fejlesztes']], ['n2', []]])
   })
 
   it('1B: csak a kivalasztott cimkeju kartyak mennek at, a tobbi a regi szoveggel marad', () => {
@@ -231,28 +242,137 @@ describe('a dontesi valtozatok', () => {
     expect(getKanbanCard('m1')?.project).toBe('marveen')
   })
 
-  it('4B: a projekt nelkuli kartyak KULON lepesben, cimke szerint; visszavonhato', () => {
+  it('4: a projekt nelkuli kartyak KARTYANKENT (a tartalom szerinti, jovahagyott lista); visszavonhato', () => {
     const out = applyProjectMigration({
       kanban: [{ value: 'marveen', action: 'create', name: 'Marvin fejlesztés' }],
       codeAliases: [],
-      unassigned: { labelIds: ['lf'], value: 'marveen' },
+      cards: [{ cardId: 'n2', value: 'marveen' }],
     })
     if (!out.ok) throw new Error(out.code)
     const pid = out.result.createdProjects[0].id
-    expect(getKanbanCard('n1')?.project).toBe(pid)
-    expect(getKanbanCard('n2')?.project).toBeNull()
+    // A cimke nem szamit: a CIMKE NELKULI n2 megy, a "fejlesztes" cimkeju n1 marad.
+    expect(getKanbanCard('n2')?.project).toBe(pid)
+    expect(getKanbanCard('n1')?.project).toBeNull()
     expect(out.result.movedCards).toContainEqual({ value: null, projectId: pid, cards: 1 })
     const rev = revertProjectMigration(out.result.id)
     expect(rev).toMatchObject({ ok: true, restoredCards: 3 })
-    expect(getKanbanCard('n1')?.project).toBeNull()
+    expect(getKanbanCard('n2')?.project).toBeNull()
     expect(getKanbanCard('m1')?.project).toBe('marveen')
   })
 
-  it('4B kihagyott celra nem mehet', () => {
+  it('4: kihagyott celra, projektet kozben kapott kartyara, vagy a regi cimke-szerinti alakkal nem mehet', () => {
     expect(applyProjectMigration({
       kanban: [{ value: 'marveen', action: 'skip' }], codeAliases: [],
-      unassigned: { labelIds: ['lf'], value: 'marveen' },
+      cards: [{ cardId: 'n1', value: 'marveen' }],
     })).toMatchObject({ ok: false, code: 'alias_target_skipped' })
+    expect(applyProjectMigration({
+      kanban: [{ value: 'marveen', action: 'create', name: 'M' }], codeAliases: [],
+      cards: [{ cardId: 'm1', value: 'marveen' }],
+    })).toMatchObject({ ok: false, code: 'card_not_unassigned', detail: 'm1' })
+    expect(applyProjectMigration({
+      kanban: [{ value: 'marveen', action: 'create', name: 'M' }], codeAliases: [],
+      unassigned: { labelIds: ['lf'], value: 'marveen' },
+    } as never)).toMatchObject({ ok: false, code: 'bad_mapping', detail: 'unassigned' })
     expect(getKanbanCard('n1')?.project).toBeNull()
+    expect(getKanbanCard('m1')?.project).toBe('marveen')
+  })
+})
+
+// Boss dontese (kartya-komment 1118, 2. pont): a `fejlesztes` alias regi
+// feladatai FELADATONKENT, a tartalmuk szerint; a vezerles/proba kotetlen; az
+// alias maga egy uj projektbe (a sajat mappajaval), a JOVOBELI munkaval.
+describe('alias regi feladatai tartalom szerint', () => {
+  it('a vezerlo/proba parancsot a szovegebol ismeri fel', () => {
+    for (const p of ['/clear', '/compact', 'hi', 'hello', 'proba. ellenorzes. atmegy e a iras a vscode ra.', 'folytathatod a munkat.', 'folytasd a felbehagyott munkadat!', '']) {
+      expect(isControlPrompt(p), p).toBe(true)
+    }
+    for (const p of [WORK, 'Folytasd: kanban #321 (c17e3a2d). Az előző futásod session-limitbe futott, a saját worktree-dből folytasd a 2. fázist.']) {
+      expect(isControlPrompt(p), p).toBe(false)
+    }
+  })
+
+  it('a regi munka egyenkent a tartalma szerinti projektbe, a vezerles kotetlen, az alias csak a jovoben', () => {
+    const plan = planProjectMigration()
+    const fej = plan.codeAliases.find((a) => a.alias === 'fejlesztes')!
+    expect(fej.history).toMatchObject({ total: 2, work: 1, alreadyLinked: 0 })
+    expect(fej.history.control.map((c) => c.id)).toEqual(['t4'])
+
+    const out = applyProjectMigration({
+      kanban: [{ value: 'marveen', action: 'create', name: 'Marvin fejlesztés' }],
+      codeAliases: [
+        { alias: 'marveen', action: 'link', value: 'marveen' },
+        { alias: 'fejlesztes', action: 'create', name: 'Tőzsde fejlesztés', history: { action: 'link', value: 'marveen' } },
+      ],
+    })
+    if (!out.ok) throw new Error(out.code + ' ' + out.detail)
+    const marvin = out.result.createdProjects.find((c) => c.fromValue === 'marveen')!.id
+    const tozsde = out.result.createdProjects.find((c) => c.fromValue === 'alias:fejlesztes')!.id
+    expect(projectForObject('code_task', 't3')).toBe(marvin)
+    expect(projectForObject('code_task', 't4')).toBeNull()
+    expect(getObjectLink('code_alias', 'fejlesztes')).toMatchObject({ project_id: tozsde })
+    expect(getObjectLink('code_alias', 'fejlesztes')!.since).toBeGreaterThan(0)
+    // A `marveen` alias egyszeru kotes: minden feladataval.
+    expect(getObjectLink('code_alias', 'marveen')).toMatchObject({ project_id: marvin, since: null })
+    expect(out.result.linkedTasks).toEqual([{ alias: 'fejlesztes', projectId: marvin, tasks: 1 }])
+
+    // Az Attekintes ugyanezt latja: a regi munka a Marvinnal, a proba sehol,
+    // az alias uj feladata mar a Tozsdenel.
+    addTask('t6', 'fejlesztes', 'F:/Masik/Mappa', null, WORK, Date.now() + 5_000)
+    const codeOf = (pid: string) => buildProjectOverview(pid)!.activity.filter((a) => a.kind === 'code').map((a) => a.text)
+    const marvinCode = buildProjectOverview(marvin)!.activity.filter((a) => a.kind === 'code')
+    expect(marvinCode.map((a) => a.actor).sort()).toEqual(['fejlesztes', 'marveen', 'marveen'])
+    expect(codeOf(tozsde)).toHaveLength(1)
+    expect(buildProjectOverview(tozsde)!.hasDevWork).toBe(true)
+    expect([...codeOf(marvin), ...codeOf(tozsde)]).not.toContain('/clear')
+
+    // Visszavonas: a feladat-kotesek es az alias-kotesek is eltunnek.
+    const rev = revertProjectMigration(out.result.id)
+    expect(rev).toMatchObject({ ok: true, removedProjects: 2 })
+    expect(projectForObject('code_task', 't3')).toBeNull()
+    expect(projectForObject('code_alias', 'fejlesztes')).toBeNull()
+  })
+
+  it('a kifejezetten visszavett vezerlo parancs is atkerul; a mar egyenkent kotott feladathoz nem nyul', () => {
+    const other = createProject({ name: 'Masik' })
+    if (!other.ok) throw new Error(other.code)
+    linkObject(other.project.id, 'code_task', 't3')
+    const out = applyProjectMigration({
+      kanban: [{ value: 'marveen', action: 'create', name: 'Marvin fejlesztés' }],
+      codeAliases: [{ alias: 'fejlesztes', action: 'link', value: 'marveen', history: { action: 'same', includeTaskIds: ['t4'] } }],
+    })
+    if (!out.ok) throw new Error(out.code)
+    const marvin = out.result.createdProjects[0].id
+    expect(projectForObject('code_task', 't4')).toBe(marvin)
+    expect(projectForObject('code_task', 't3')).toBe(other.project.id)
+  })
+
+  it('"ugyanoda" nem mehet, ha maga az alias kimarad', () => {
+    expect(applyProjectMigration({
+      kanban: [{ value: 'marveen', action: 'create', name: 'M' }],
+      codeAliases: [{ alias: 'fejlesztes', action: 'skip', history: { action: 'same' } }],
+    })).toMatchObject({ ok: false, code: 'history_target_skipped' })
+  })
+
+  it('az aliasnak letrehozott projekt a munkamenet Raktar-beli mappajat kaphatja', () => {
+    const depot = mkdtempSync(join(tmpdir(), 'prj-mig-depot-'))
+    const saved = process.env.MARVEEN_DEPOT
+    process.env.MARVEEN_DEPOT = depot
+    try {
+      mkdirSync(join(depot, 'Projektek', 'Tozsde', 'Fejlesztes'), { recursive: true })
+      addTask('t7', 'tozsde', join(depot, 'Projektek', 'Tozsde', 'Fejlesztes'), null)
+      const a = planProjectMigration().codeAliases.find((x) => x.alias === 'tozsde')!
+      expect(a.suggestedFolder).toBe('Projektek/Tozsde/Fejlesztes')
+      // A Raktaron kivuli mappa nem javaslat.
+      expect(planProjectMigration().codeAliases.find((x) => x.alias === 'fejlesztes')!.suggestedFolder).toBeNull()
+      const out = applyProjectMigration({
+        kanban: [], codeAliases: [{ alias: 'tozsde', action: 'create', name: 'Tőzsde fejlesztés', folderPath: a.suggestedFolder }],
+      })
+      if (!out.ok) throw new Error(out.code)
+      expect(getProject(out.result.createdProjects[0].id)!.folder_path).toBe('Projektek/Tozsde/Fejlesztes')
+    } finally {
+      if (saved === undefined) delete process.env.MARVEEN_DEPOT
+      else process.env.MARVEEN_DEPOT = saved
+      rmSync(depot, { recursive: true, force: true })
+    }
   })
 })

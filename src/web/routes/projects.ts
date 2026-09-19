@@ -8,6 +8,7 @@
 //   GET    /api/projects/migration           -- a regi adatok atvetelenek DRY-RUN terve + naplo
 //   POST   /api/projects/migration/apply     -- a jovahagyott hozzarendeles vegrehajtasa
 //   POST   /api/projects/migration/:id/revert -- egy atvetel visszavonasa
+//   POST   /api/projects/migration/classify  -- a projekt nelkuli kartyak besorolasi JAVASLATA a tartalmuk alapjan (hatterben)
 //   GET    /api/projects/:id                 -- egy projekt
 //   PUT    /api/projects/:id                 -- szerkesztes (+ mappa-csere)
 //   POST   /api/projects/:id/archive         -- archivalas / visszahozas
@@ -49,6 +50,7 @@ import {
   planProjectMigration, applyProjectMigration, listProjectMigrations, revertProjectMigration,
   type MigrationMapping,
 } from '../../project-migration.js'
+import { classificationStatus, listCardSuggestions, startCardClassification, CONFIDENT } from '../../project-card-classify.js'
 import type { RouteContext } from './types.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -83,6 +85,11 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   apply_failed: { hu: 'Az átvétel nem sikerült, semmi nem változott.', en: 'The migration failed; nothing was changed.' },
   already_reverted: { hu: 'Ezt az átvételt már visszavonták.', en: 'This migration was already reverted.' },
   bad_log: { hu: 'Az átvétel naplója sérült, nem vonható vissza automatikusan.', en: 'The migration log is damaged; it cannot be reverted automatically.' },
+  history_target_skipped: { hu: 'Egy alias régi feladatait „ugyanoda” küldted, de magát az aliast kihagyod. Válassz nekik célt.', en: 'You sent the old tasks of an alias to "the same place", but you skip the alias itself. Pick a target for them.' },
+  card_not_unassigned: { hu: 'Egy kártya közben projektet kapott -- frissítsd a listát.', en: 'A card got a project meanwhile -- refresh the list.' },
+  no_projects: { hu: 'Még nincs projekt, amibe a kártyákat sorolni lehetne. Előbb hozz létre egyet (vagy vedd át a régi adatokat).', en: 'There is no project yet to sort the cards into. Create one first (or take over the old data).' },
+  nothing_to_do: { hu: 'Nincs projekt nélküli kártya, amit be lehetne sorolni.', en: 'There is no card without a project to sort.' },
+  classify_busy: { hu: 'A besorolási javaslat már készül. Várd meg, amíg elkészül.', en: 'The sorting suggestion is already being made. Wait until it is done.' },
   no_ai: { hu: 'Ezen a gépen most nincs elérhető AI: se bejelentkezett Claude-fiók, se helyi modell.', en: 'No AI is available on this machine right now: no signed-in Claude account and no local model.' },
   no_answer: { hu: 'Az AI most nem adott használható választ. Próbáld újra pár perc múlva.', en: 'The AI gave no usable answer now. Try again in a few minutes.' },
   busy: { hu: 'Ehhez a projekthez már készül egy összefoglaló. Várd meg, amíg elkészül.', en: 'A summary for this project is already being made. Wait until it is done.' },
@@ -261,7 +268,22 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
 
   // --- regi adatok atvetele ---------------------------------------------------
   if (path === '/api/projects/migration' && method === 'GET') {
-    json(res, { plan: planProjectMigration(), history: listProjectMigrations() })
+    json(res, {
+      plan: planProjectMigration(),
+      history: listProjectMigrations(),
+      classification: { status: classificationStatus(), suggestions: listCardSuggestions(), confident: CONFIDENT },
+    })
+    return true
+  }
+
+  if (path === '/api/projects/migration/classify' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const ids = Array.isArray(body.cardIds) ? body.cardIds.map(String) : null
+    const out = startCardClassification(lang, ids)
+    if (!out.ok) return fail(res, out.code === 'busy' ? 409 : 400, out.code === 'busy' ? 'classify_busy' : out.code, lang, { status: out.status })
+    logger.info({ total: out.status.total }, '[projects] projekt nelkuli kartyak besorolasi javaslata indul')
+    json(res, { ok: true, status: out.status }, 202)
     return true
   }
 

@@ -24,16 +24,26 @@
  *     el. A kod-hid alias a projekthez egy `project_links` sorral kotodik.
  *   - nem nyul az ures (`NULL`) projektu kartyakhoz: a globalis kanbanban
  *     letrehozott kartya nem kerul magatol projektbe (spec 2. pont). Egyetlen
- *     kivetel a KIFEJEZETT, cimke szerinti kulon lepes (`mapping.unassigned`),
- *     amit a tulajdonos kulon valaszt ki.
+ *     kivetel a KIFEJEZETT, KARTYANKENTI lista (`mapping.cards`), amit a
+ *     tulajdonos a kartyak TARTALMA alapjan hagyott jova (a javaslatot a
+ *     `project-card-classify.ts` adja; a cimke csak jelzes, nem dontes).
+ *   - egy kod-hid alias regi feladatait nem viszi vakon egy helyre: kerheto,
+ *     hogy a regi feladatok FELADATONKENT (`code_task` kotes) keruljenek a
+ *     tartalmuk szerinti projektbe, a vezerlo/proba parancsok (`/clear`, `hi`,
+ *     ...) kotetlenul maradjanak, az alias pedig CSAK a jovobeli feladatokkal
+ *     tartozzon a sajat projektjehez (`since`).
  *   - nem dob el ismeretlen erteket: ami "kihagyas" jelolest kap, valtozatlan
  *     marad, es kesobb is atveheto.
  */
 import { randomUUID } from 'node:crypto'
+import { existsSync, statSync } from 'node:fs'
 import { getDb } from './db.js'
+import { explorerRoot, toLifeRel } from './life-explorer.js'
+import { toLocalWorkspacePath } from './web/code-bridge-workspace.js'
 import {
   ensureProjectTables, hasTable, getProject, createProject, linkObject, unlinkObject,
-  projectForObject, slugify, uniqueSlug, projectIdsByName, projectNameTaken, nameKey,
+  projectForObject, getObjectLink, slugify, uniqueSlug, projectIdsByName, projectNameTaken, nameKey,
+  cleanFolderRel,
 } from './projects.js'
 
 const nowSec = (): number => Math.floor(Date.now() / 1000)
@@ -71,8 +81,13 @@ export interface CodeAliasUsage {
   session: { workspacePath: string; pinned: boolean } | null
   /** A feladatok kartya-hivatkozasai: a hivatkozott kartya `project` erteke szerint. */
   cardRefs: { total: number; byValue: Record<string, number> }
-  /** Mar most is kotve van egy projekthez. */
-  linkedProject: { id: string; name: string } | null
+  /** Mar most is kotve van egy projekthez (`since`: csak az ota inditott feladatai). */
+  linkedProject: { id: string; name: string; since: number | null } | null
+  /** A regi feladatai TARTALOM szerint: valodi munka vagy csak vezerles/proba. */
+  history: AliasHistory
+  /** A munkamenet mappaja a Raktarban (Raktar-relativ, letezo mappa), ha ott
+   *  van -- egy uj projekt ezt kaphatja mappanak. NULL = nincs a Raktarban. */
+  suggestedFolder: string | null
   proposal:
     | { action: 'link'; value: string; evidence: 'same_name' | 'card_refs'; refs?: number }
     | { action: 'link_project'; projectId: string; name: string; evidence: 'same_name' }
@@ -81,12 +96,36 @@ export interface CodeAliasUsage {
   needsDecision: boolean
 }
 
+export interface ControlTask { id: string; prompt: string; createdAt: number; status: string }
+
+export interface AliasHistory {
+  total: number
+  /** Valodi munka-feladat (a szovege alapjan). */
+  work: number
+  /** Egyenkent mar valahova kotott feladat -- ezekhez az atvetel nem nyul. */
+  alreadyLinked: number
+  /** A vezerlo/proba parancsok (`/clear`, `hi`, `proba`, "folytasd"...) --
+   *  egyenkent, hogy a tulajdonos lassa, es egyet-egyet visszavehessen. */
+  control: ControlTask[]
+}
+
+export interface UnassignedCard {
+  id: string
+  seq: number | null
+  title: string
+  status: string
+  archived: boolean
+  /** A cimkek NEVE -- csak jelzes a tulajdonosnak, a besorolas nem ebbol dol el. */
+  labels: string[]
+}
+
 export interface MigrationPlan {
   generatedAt: number
   existingProjects: number
   kanban: KanbanValueUsage[]
-  /** Az ures projektu kartyak: ezekhez a migracio NEM nyul. */
-  unassignedCards: { total: number; live: number; archived: number; labels: Record<string, number>; labelSets: LabelSet[] }
+  /** Az ures projektu kartyak: ezekhez a migracio magatol NEM nyul; csak a
+   *  tulajdonos altal kartyankent jovahagyott lista mozdul (`mapping.cards`). */
+  unassignedCards: { total: number; live: number; archived: number; labels: Record<string, number>; cards: UnassignedCard[] }
   codeAliases: CodeAliasUsage[]
   /** Van-e egyaltalan mit atvenni (a felulet csak ekkor mutatja a panelt). */
   pending: boolean
@@ -143,6 +182,80 @@ function projectMatchingValue(value: string): { id: string; name: string } | nul
   return byName.length === 1 ? (db.prepare('SELECT id, name FROM projects WHERE id = ?').get(byName[0]) as { id: string; name: string }) : null
 }
 
+/** A vezerlo/proba szavak (ekezet nelkul, kisbetuvel). */
+const CONTROL_WORDS = new Set(['hi', 'hello', 'helo', 'hey', 'szia', 'sziasztok', 'hallo', 'proba', 'teszt', 'test', 'ping', 'ok', 'oke', 'mehet', 'continue', 'resume'])
+
+/**
+ * VEZERLES vagy PROBA, nem valodi munka? A kod-hid feladat szovegebol, gepi
+ * szaballyal (nincs AI, nincs tipp -- a tulajdonos a listat latja es felulbiralhatja):
+ *   - perjeles parancs (`/clear`, `/compact`, `/model opus`),
+ *   - nagyon rovid szoveg (legfeljebb 12 jel: `hi`, `hello`, `ok`),
+ *   - rovid (legfeljebb 80 jel) szoveg, amiben koszones / proba / "folytasd"
+ *     jellegu szo all (`proba. atmegy e...`, `folytathatod a munkat.`).
+ * Egy valodi feladat ennel hosszabb, es a munkat irja le.
+ */
+export function isControlPrompt(prompt: unknown): boolean {
+  const p = String(prompt ?? '').trim()
+  if (!p) return true
+  // Perjeles parancs (legfeljebb egy rovid argumentummal, egy sorban).
+  if (p.startsWith('/') && p.length <= 60 && !p.includes('\n')) return true
+  if (p.length <= 12) return true
+  if (p.length > 80) return false
+  const words = p.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+  return words.some((w) => CONTROL_WORDS.has(w) || w.startsWith('folyta'))
+}
+
+/** Egy kod-hid munkamenet mappaja a Raktarban (Raktar-relativ), ha ott van es
+ *  letezik. A munkamenet a Windows-oldali utat jelenti (`F:\\...`), ezt a
+ *  kod-hid sajat forditojaval visszuk at a helyi utra. */
+function depotFolderOf(workspacePath: string | null | undefined): string | null {
+  if (!workspacePath || !explorerRoot()) return null
+  const local = toLocalWorkspacePath(workspacePath)
+  if (!local) return null
+  try { if (!existsSync(local) || !statSync(local).isDirectory()) return null } catch { return null }
+  const rel = toLifeRel(local)
+  return rel ? cleanFolderRel(rel) : null
+}
+
+/** Egy alias regi feladatai, a szoveguk szerint szetvalogatva. */
+function aliasHistory(alias: string, linksExist: boolean): AliasHistory {
+  const rows = getDb().prepare(
+    `SELECT t.id, t.prompt, t.created_at, t.status${linksExist
+      ? `, EXISTS (SELECT 1 FROM project_links l WHERE l.object_type = 'code_task' AND l.object_id = t.id) AS linked`
+      : ', 0 AS linked'}
+       FROM code_tasks t WHERE t.project = ? ORDER BY t.created_at ASC`,
+  ).all(alias) as { id: string; prompt: string; created_at: number; status: string; linked: number }[]
+  const out: AliasHistory = { total: rows.length, work: 0, alreadyLinked: 0, control: [] }
+  for (const r of rows) {
+    if (r.linked) { out.alreadyLinked++; continue }
+    if (isControlPrompt(r.prompt)) {
+      out.control.push({ id: r.id, prompt: String(r.prompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 80), createdAt: r.created_at, status: r.status })
+    } else out.work++
+  }
+  return out
+}
+
+/** A projekt nelkuli kartyak (a legfrissebb elol), cimkeneveikkel. */
+function unassignedCardList(): UnassignedCard[] {
+  const db = getDb()
+  const rows = db.prepare(
+    `SELECT id, rowid AS seq, title, status, archived_at FROM kanban_cards
+      WHERE project IS NULL OR TRIM(project) = '' ORDER BY (archived_at IS NULL) DESC, updated_at DESC`,
+  ).all() as { id: string; seq: number | null; title: string; status: string; archived_at: number | null }[]
+  const labels = new Map<string, string[]>()
+  if (rows.length && hasTable('kanban_card_labels') && hasTable('labels')) {
+    for (const r of db.prepare(
+      `SELECT cl.card_id, lb.name FROM kanban_card_labels cl JOIN labels lb ON lb.id = cl.label_id
+         JOIN kanban_cards k ON k.id = cl.card_id WHERE k.project IS NULL OR TRIM(k.project) = '' ORDER BY lb.name`,
+    ).all() as { card_id: string; name: string }[]) {
+      const l = labels.get(r.card_id) ?? []
+      l.push(r.name)
+      labels.set(r.card_id, l)
+    }
+  }
+  return rows.map((r) => ({ id: r.id, seq: r.seq ?? null, title: r.title, status: r.status, archived: r.archived_at != null, labels: labels.get(r.id) ?? [] }))
+}
+
 /**
  * A DRY-RUN: felmeri a meglevo ertekeket, es javaslatot tesz. SEMMIT NEM IR --
  * a `projects` tablat is csak akkor olvassa, ha mar letezik (egy teljesen friss
@@ -157,7 +270,7 @@ export function planProjectMigration(): MigrationPlan {
   )
 
   const kanban: KanbanValueUsage[] = []
-  let unassigned = { total: 0, live: 0, archived: 0, labels: {} as Record<string, number>, labelSets: [] as LabelSet[] }
+  let unassigned: MigrationPlan['unassignedCards'] = { total: 0, live: 0, archived: 0, labels: {}, cards: [] }
   if (hasTable('kanban_cards')) {
     const values = db.prepare(
       `SELECT project AS value, COUNT(*) AS cards,
@@ -203,7 +316,7 @@ export function planProjectMigration(): MigrationPlan {
       live: u.live ?? 0,
       archived: u.total - (u.live ?? 0),
       labels: labelCounts("k.project IS NULL OR TRIM(k.project) = ''", []),
-      labelSets: labelSets("k.project IS NULL OR TRIM(k.project) = ''", []),
+      cards: unassignedCardList(),
     }
   }
 
@@ -239,10 +352,12 @@ export function planProjectMigration(): MigrationPlan {
         for (const r of refs) { byValue[r.value] = r.n; refTotal += r.n }
       }
       const linked = linksExist ? (() => {
-        const pid = projectForObject('code_alias', a.alias)
-        const p = pid ? getProject(pid) : undefined
-        return p ? { id: p.id, name: p.name } : null
+        const link = getObjectLink('code_alias', a.alias)
+        const p = link ? getProject(link.project_id) : undefined
+        return p ? { id: p.id, name: p.name, since: link!.since ?? null } : null
       })() : null
+      const history = aliasHistory(a.alias, linksExist)
+      const suggestedFolder = depotFolderOf(session?.workspacePath) ?? depotFolderOf(workspaces[0]?.path)
 
       // JAVASLAT, bizonyitekkal. Harom fokozat:
       //  1. Az alias ugyanaz a nev, mint egy regi kanban-ertek -> ugyanaz a projekt.
@@ -277,6 +392,8 @@ export function planProjectMigration(): MigrationPlan {
         session,
         cardRefs: { total: refTotal, byValue },
         linkedProject: linked,
+        history,
+        suggestedFolder,
         proposal,
         needsDecision,
       })
@@ -297,10 +414,10 @@ export function planProjectMigration(): MigrationPlan {
 // ---- alkalmazas -------------------------------------------------------------
 
 /**
- * Cimke-szuro egy atvetelhez: CSAK azok a kartyak mozdulnak, amiknek van a
- * felsorolt cimkek kozul legalabb egy (`labelIds`), illetve -- ha `unlabeled` --
- * a cimke nelkuliek. A tobbi kartya VALTOZATLAN marad (a regi szoveggel), es
- * kesobb kulon atveheto. Hianyzo szuro = az ertek minden kartyaja.
+ * Cimke-szuro egy regi kanban-ERTEK atvetelehez: CSAK azok a kartyak mozdulnak,
+ * amiknek van a felsorolt cimkek kozul legalabb egy (`labelIds`), illetve -- ha
+ * `unlabeled` -- a cimke nelkuliek. A tobbi kartya VALTOZATLAN marad (a regi
+ * szoveggel), es kesobb kulon atveheto. Hianyzo szuro = az ertek minden kartyaja.
  */
 export interface LabelFilter { labelIds: string[]; unlabeled?: boolean }
 
@@ -317,35 +434,40 @@ export interface KanbanMappingEntry {
   labelFilter?: LabelFilter | null
 }
 
+/** Hova: egy regi kanban-ertek projektjebe (`value`) VAGY egy letezo projektbe. */
+export interface MappingTarget { value?: string; projectId?: string }
+
 export interface CodeAliasMappingEntry {
   alias: string
+  /** Az ALIAS maga hova tartozzon (a `history` nelkul: az osszes feladataval). */
   action: 'link' | 'create' | 'skip'
-  /** `link`: ugyanahhoz a projekthez, amelyikbe ez a regi kanban-ertek kerul. */
+  /** `link`: ugyanahhoz a projekthez, amelyikbe ez a regi kanban-ertek kerul... */
   value?: string
-  /** `link`: VAGY egy mar letezo projekt. */
+  /** ...VAGY egy mar letezo projekt. */
   projectId?: string
-  /** `create`: kulon, uj projekt ennek az aliasnak (a neve kotelezo). */
+  /** `create`: kulon, uj projekt ennek az aliasnak (a neve kotelezo)... */
   name?: string
+  /** ...es opcionalisan a mappaja a Raktarban (Raktar-relativ). */
+  folderPath?: string | null
+  /**
+   * A regi feladatok KULON, a tartalmuk szerint. Ha meg van adva:
+   *   - az alias-kotes CSAK az atvetel utan inditott feladatokra ervenyes,
+   *   - a regi, valodi munka-feladatok EGYENKENT kerulnek a `history` celjaba
+   *     (`same` = oda, ahova az alias; `link` = a megadott cel; `skip` = sehova),
+   *   - a vezerlo/proba parancsok kotetlenul maradnak, kiveve az
+   *     `includeTaskIds`-ban kifejezetten visszavetteket.
+   */
+  history?: (MappingTarget & { action: 'same' | 'link' | 'skip'; includeTaskIds?: string[] }) | null
 }
 
-/**
- * OPCIONALIS, kulon lepes: projekt NELKULI kartyak atvetele cimke alapjan.
- * Alapbol a migracio nem nyul hozzajuk (a globalis kanbanban letrehozott
- * kartya nem kerul magatol projektbe) -- ezt csak kifejezett valasztassal.
- */
-export interface UnassignedMappingEntry {
-  labelIds: string[]
-  unlabeled?: boolean
-  /** A cel: az a projekt, amelyikbe ez a regi ertek kerul... */
-  value?: string
-  /** ...vagy egy mar letezo projekt. */
-  projectId?: string
-}
+/** Egy projekt nelkuli kartya, amit a tulajdonos a TARTALMA alapjan egy
+ *  projektbe sorolt (a javaslat forrasa: `project-card-classify.ts`). */
+export interface CardMappingEntry extends MappingTarget { cardId: string }
 
 export interface MigrationMapping {
   kanban: KanbanMappingEntry[]
   codeAliases: CodeAliasMappingEntry[]
-  unassigned?: UnassignedMappingEntry | null
+  cards?: CardMappingEntry[] | null
 }
 
 export interface MigrationResult {
@@ -353,18 +475,24 @@ export interface MigrationResult {
   createdProjects: { id: string; name: string; slug: string; fromValue: string }[]
   /** `value` = a regi szoveg, `null` = a projekt nelkuli kartyak. */
   movedCards: { value: string | null; projectId: string; cards: number }[]
-  linkedAliases: { alias: string; projectId: string; previous: string | null }[]
+  linkedAliases: { alias: string; projectId: string; previous: string | null; since: number | null }[]
+  /** Egyenkent kotott regi kodfeladatok, aliasonkent. */
+  linkedTasks: { alias: string; projectId: string; tasks: number }[]
   skippedValues: string[]
   skippedAliases: string[]
 }
 
 export type ApplyOutcome = { ok: true; result: MigrationResult } | { ok: false; code: string; detail?: string }
 
+interface PrevLink { projectId: string; since: number | null }
+
 interface MigrationLog {
   /** `fromValue`: regi kanban-ertek, vagy `alias:<nev>` az aliasnak letrehozottnal. */
   created: { id: string; fromValue: string }[]
   moved: { value: string | null; projectId: string; cardIds: string[] }[]
-  aliases: { alias: string; projectId: string; previous: string | null }[]
+  aliases: { alias: string; projectId: string; previous: string | null; previousSince?: number | null; since?: number | null }[]
+  /** Az egyenkent kotott kodfeladatok; `previous` = a korabbi egyedi kotes. */
+  tasks?: { taskId: string; projectId: string; previous: PrevLink | null }[]
 }
 
 function ensureMigrationTable(): void {
@@ -411,6 +539,17 @@ function setCardsProject(cardIds: string[], projectId: string): void {
   for (const id of cardIds) upd.run(projectId, id)
 }
 
+/** Egy alias meg egyenkent NEM kotott regi feladatai: a munka-feladatok, es a
+ *  kifejezetten visszavett vezerlo/proba parancsok. */
+function aliasHistoryTaskIds(alias: string, includeIds: Set<string>): string[] {
+  const rows = getDb().prepare(
+    `SELECT t.id, t.prompt FROM code_tasks t WHERE t.project = ?
+       AND NOT EXISTS (SELECT 1 FROM project_links l WHERE l.object_type = 'code_task' AND l.object_id = t.id)
+     ORDER BY t.created_at ASC`,
+  ).all(alias) as { id: string; prompt: string }[]
+  return rows.filter((r) => !isControlPrompt(r.prompt) || includeIds.has(r.id)).map((r) => r.id)
+}
+
 /**
  * A JOVAHAGYOTT hozzarendeles vegrehajtasa. Minden bejegyzest a MOSTANI
  * allapothoz mer: egy ertek, aminek kozben elfogytak a kartyai, hibat ad, nem
@@ -423,6 +562,11 @@ export function applyProjectMigration(mapping: MigrationMapping, actor?: string 
   if (!mapping || !Array.isArray(mapping.kanban) || !Array.isArray(mapping.codeAliases)) {
     return { ok: false, code: 'bad_mapping' }
   }
+  // A regi, CIMKE szerinti "projekt nelkuli kartyak" lepes megszunt: a
+  // besorolas kartyankent, a tartalom alapjan tortenik (`cards`). Egy regi
+  // hivo ne kapjon csendes "semmi sem tortent"-et.
+  if ((mapping as { unassigned?: unknown }).unassigned) return { ok: false, code: 'bad_mapping', detail: 'unassigned' }
+  if (mapping.cards != null && !Array.isArray(mapping.cards)) return { ok: false, code: 'bad_mapping', detail: 'cards' }
   const plan = planProjectMigration()
   const planValues = new Map(plan.kanban.map((k) => [k.value, k]))
   const planAliases = new Map(plan.codeAliases.map((a) => [a.alias, a]))
@@ -456,48 +600,78 @@ export function applyProjectMigration(mapping: MigrationMapping, actor?: string 
       e.labelFilter = { labelIds: ids, unlabeled: !!e.labelFilter.unlabeled }
     }
   }
-  const targetOk = (value: string | undefined, projectId: string | undefined, detail: string): ApplyOutcome | null => {
-    if (value !== undefined) {
-      const target = mapping.kanban.find((k) => k.value === value)
+  const targetOk = (t: MappingTarget, detail: string): ApplyOutcome | null => {
+    if (t.value !== undefined) {
+      const target = mapping.kanban.find((k) => k.value === t.value)
       if (!target || target.action === 'skip') return { ok: false, code: 'alias_target_skipped', detail }
       return null
     }
-    const p = projectId ? getProject(projectId) : undefined
-    if (!p || p.id !== projectId) return { ok: false, code: 'unknown_project', detail }
+    const p = t.projectId ? getProject(t.projectId) : undefined
+    if (!p || p.id !== t.projectId) return { ok: false, code: 'unknown_project', detail }
     return null
   }
   const seenAliases = new Set<string>()
+  const aliasFolders = new Map<string, string | null>()
   for (const a of mapping.codeAliases) {
     if (!a || typeof a.alias !== 'string') return { ok: false, code: 'bad_mapping' }
     if (seenAliases.has(a.alias)) return { ok: false, code: 'duplicate_value', detail: a.alias }
     seenAliases.add(a.alias)
     if (!planAliases.has(a.alias)) return { ok: false, code: 'unknown_alias', detail: a.alias }
     if (a.action === 'link') {
-      const bad = targetOk(a.value, a.projectId, a.alias)
+      const bad = targetOk(a, a.alias)
       if (bad) return bad
     } else if (a.action === 'create') {
       if (!String(a.name ?? '').trim()) return { ok: false, code: 'name_required', detail: a.alias }
       if (!nameFree(String(a.name))) return { ok: false, code: 'name_taken', detail: String(a.name) }
+      if (a.folderPath != null && String(a.folderPath).trim() !== '') {
+        const rel = cleanFolderRel(a.folderPath)
+        if (rel === null) return { ok: false, code: 'bad_folder', detail: a.alias }
+        aliasFolders.set(a.alias, rel)
+      }
     } else if (a.action !== 'skip') {
       return { ok: false, code: 'bad_action', detail: a.alias }
     }
+    const h = a.history
+    if (h) {
+      if (h.action === 'same') {
+        if (a.action === 'skip') return { ok: false, code: 'history_target_skipped', detail: a.alias }
+      } else if (h.action === 'link') {
+        const bad = targetOk(h, a.alias)
+        if (bad) return bad
+      } else if (h.action !== 'skip') {
+        return { ok: false, code: 'bad_action', detail: a.alias }
+      }
+      if (h.includeTaskIds != null && !Array.isArray(h.includeTaskIds)) return { ok: false, code: 'bad_mapping', detail: a.alias }
+    }
   }
-  let unassigned: (UnassignedMappingEntry & { labelIds: string[] }) | null = null
-  if (mapping.unassigned) {
-    const ids = cleanLabelIds(mapping.unassigned.labelIds)
-    if (!ids || (!ids.length && !mapping.unassigned.unlabeled)) return { ok: false, code: 'empty_label_filter', detail: '(unassigned)' }
-    const bad = targetOk(mapping.unassigned.value, mapping.unassigned.projectId, '(unassigned)')
-    if (bad) return bad
-    unassigned = { ...mapping.unassigned, labelIds: ids }
+  const cardEntries: CardMappingEntry[] = []
+  if (mapping.cards?.length) {
+    const seenCards = new Set<string>()
+    const isUnassigned = db.prepare("SELECT 1 FROM kanban_cards WHERE id = ? AND (project IS NULL OR TRIM(project) = '')")
+    for (const c of mapping.cards) {
+      if (!c || typeof c.cardId !== 'string' || !c.cardId) return { ok: false, code: 'bad_mapping', detail: 'cards' }
+      if (seenCards.has(c.cardId)) return { ok: false, code: 'duplicate_value', detail: c.cardId }
+      seenCards.add(c.cardId)
+      // A kartya azota kaphatott projektet (kezzel, a kartyan): akkor nem
+      // irjuk felul csendben -- a tulajdonos a friss allapotot lassa.
+      if (!isUnassigned.get(c.cardId)) return { ok: false, code: 'card_not_unassigned', detail: c.cardId }
+      const bad = targetOk(c, c.cardId)
+      if (bad) return bad
+      cardEntries.push(c)
+    }
   }
 
   const id = randomUUID().slice(0, 8)
-  const result: MigrationResult = { id, createdProjects: [], movedCards: [], linkedAliases: [], skippedValues: [], skippedAliases: [] }
-  const log: MigrationLog = { created: [], moved: [], aliases: [] }
+  const result: MigrationResult = { id, createdProjects: [], movedCards: [], linkedAliases: [], linkedTasks: [], skippedValues: [], skippedAliases: [] }
+  const log: MigrationLog = { created: [], moved: [], aliases: [], tasks: [] }
   const valueToProject = new Map<string, string>()
+  const resolveTarget = (t: MappingTarget): string => (t.value !== undefined ? valueToProject.get(t.value)! : t.projectId!)
 
   try {
     db.transaction(() => {
+      // A `since` az atvetel pillanata: ami ezutan indul az aliason, az az
+      // alias projektjehez tartozik; ami elotte, azt egyenkent kotjuk.
+      const since = nowSec()
       for (const e of mapping.kanban) {
         if (e.action === 'skip') { result.skippedValues.push(e.value); continue }
         let projectId: string
@@ -522,28 +696,47 @@ export function applyProjectMigration(mapping: MigrationMapping, actor?: string 
         log.moved.push({ value: e.value, projectId, cardIds })
       }
       for (const a of mapping.codeAliases) {
-        if (a.action === 'skip') { result.skippedAliases.push(a.alias); continue }
-        let projectId: string
-        if (a.action === 'create') {
-          const made = createProject({ name: a.name, slug: uniqueSlug(a.name || a.alias) })
-          if (!made.ok) throw new Error(`create_failed:${made.code}`)
-          projectId = made.project.id
-          result.createdProjects.push({ id: projectId, name: made.project.name, slug: made.project.slug, fromValue: `alias:${a.alias}` })
-          log.created.push({ id: projectId, fromValue: `alias:${a.alias}` })
-        } else {
-          projectId = a.value !== undefined ? valueToProject.get(a.value)! : a.projectId!
+        let aliasProject: string | null = null
+        if (a.action === 'skip') result.skippedAliases.push(a.alias)
+        else {
+          if (a.action === 'create') {
+            const made = createProject({ name: a.name, slug: uniqueSlug(a.name || a.alias), folder_path: aliasFolders.get(a.alias) ?? null })
+            if (!made.ok) throw new Error(`create_failed:${made.code}`)
+            aliasProject = made.project.id
+            result.createdProjects.push({ id: aliasProject, name: made.project.name, slug: made.project.slug, fromValue: `alias:${a.alias}` })
+            log.created.push({ id: aliasProject, fromValue: `alias:${a.alias}` })
+          } else {
+            aliasProject = resolveTarget(a)
+          }
+          const prev = getObjectLink('code_alias', a.alias)
+          const aliasSince = a.history ? since : null
+          linkObject(aliasProject, 'code_alias', a.alias, actor ?? null, aliasSince)
+          result.linkedAliases.push({ alias: a.alias, projectId: aliasProject, previous: prev?.project_id ?? null, since: aliasSince })
+          log.aliases.push({ alias: a.alias, projectId: aliasProject, previous: prev?.project_id ?? null, previousSince: prev?.since ?? null, since: aliasSince })
         }
-        const previous = projectForObject('code_alias', a.alias)
-        linkObject(projectId, 'code_alias', a.alias, actor ?? null)
-        result.linkedAliases.push({ alias: a.alias, projectId, previous })
-        log.aliases.push({ alias: a.alias, projectId, previous })
+        const h = a.history
+        if (!h || h.action === 'skip') continue
+        const histProject = h.action === 'same' ? aliasProject! : resolveTarget(h)
+        const taskIds = aliasHistoryTaskIds(a.alias, new Set((h.includeTaskIds ?? []).map(String)))
+        for (const taskId of taskIds) {
+          linkObject(histProject, 'code_task', taskId, actor ?? null)
+          log.tasks!.push({ taskId, projectId: histProject, previous: null })
+        }
+        result.linkedTasks.push({ alias: a.alias, projectId: histProject, tasks: taskIds.length })
       }
-      if (unassigned) {
-        const projectId = unassigned.value !== undefined ? valueToProject.get(unassigned.value)! : unassigned.projectId!
-        const cardIds = selectCardIds("k.project IS NULL OR TRIM(k.project) = ''", [], { labelIds: unassigned.labelIds, unlabeled: !!unassigned.unlabeled })
-        setCardsProject(cardIds, projectId)
-        result.movedCards.push({ value: null, projectId, cards: cardIds.length })
-        log.moved.push({ value: null, projectId, cardIds })
+      if (cardEntries.length) {
+        const byProject = new Map<string, string[]>()
+        for (const c of cardEntries) {
+          const pid = resolveTarget(c)
+          const l = byProject.get(pid) ?? []
+          l.push(c.cardId)
+          byProject.set(pid, l)
+        }
+        for (const [projectId, cardIds] of byProject) {
+          setCardsProject(cardIds, projectId)
+          result.movedCards.push({ value: null, projectId, cards: cardIds.length })
+          log.moved.push({ value: null, projectId, cardIds })
+        }
       }
       db.prepare('INSERT INTO project_migrations (id, applied_at, applied_by, mapping, log) VALUES (?, ?, ?, ?, ?)')
         .run(id, nowSec(), actor ?? null, JSON.stringify(mapping), JSON.stringify(log))
@@ -562,6 +755,7 @@ export interface MigrationHistoryEntry {
   createdProjects: number
   movedCards: number
   linkedAliases: number
+  linkedTasks: number
 }
 
 export function listProjectMigrations(): MigrationHistoryEntry[] {
@@ -579,6 +773,7 @@ export function listProjectMigrations(): MigrationHistoryEntry[] {
       createdProjects: log.created.length,
       movedCards: log.moved.reduce((n, m) => n + m.cardIds.length, 0),
       linkedAliases: log.aliases.length,
+      linkedTasks: (log.tasks ?? []).length,
     }
   })
 }
@@ -586,9 +781,10 @@ export function listProjectMigrations(): MigrationHistoryEntry[] {
 /**
  * VISSZAVONAS. A naplozott kartyak visszakapjak a regi szoveges erteket --
  * DE csak azok, amik azota is abban a projektben allnak (amit kozben kezzel
- * mashova tettek, azt nem rantjuk vissza). A kod-hid alias kotese visszaall az
- * elozore. A migracio altal letrehozott projekt csak akkor torlodik, ha mar
- * semmi nem tartozik hozza; kulonben megmarad, es ezt a valasz megmondja.
+ * mashova tettek, azt nem rantjuk vissza). A kod-hid alias es az egyenkent
+ * kotott kodfeladat kotese visszaall az elozore (ha azota sem kotottek at). A
+ * migracio altal letrehozott projekt csak akkor torlodik, ha mar semmi nem
+ * tartozik hozza; kulonben megmarad, es ezt a valasz megmondja.
  */
 export function revertProjectMigration(id: string): { ok: true; restoredCards: number; removedProjects: number; keptProjects: string[] } | { ok: false; code: string } {
   ensureProjectTables()
@@ -611,8 +807,13 @@ export function revertProjectMigration(id: string): { ok: true; restoredCards: n
     }
     for (const a of log.aliases) {
       if (projectForObject('code_alias', a.alias) !== a.projectId) continue
-      if (a.previous) linkObject(a.previous, 'code_alias', a.alias, null)
+      if (a.previous) linkObject(a.previous, 'code_alias', a.alias, null, a.previousSince ?? null)
       else unlinkObject('code_alias', a.alias)
+    }
+    for (const t of log.tasks ?? []) {
+      if (projectForObject('code_task', t.taskId) !== t.projectId) continue
+      if (t.previous) linkObject(t.previous.projectId, 'code_task', t.taskId, null)
+      else unlinkObject('code_task', t.taskId)
     }
     for (const c of log.created) {
       const cards = hasTable('kanban_cards') ? (db.prepare('SELECT COUNT(*) n FROM kanban_cards WHERE project = ?').get(c.id) as { n: number }).n : 0
@@ -665,8 +866,8 @@ export function renderMigrationPlanMarkdown(plan: MigrationPlan, lang: 'hu' | 'e
     L.push(`  - ${hu ? 'példák' : 'examples'}: ${k.sample.map((s) => `${s.id} „${s.title.slice(0, 60)}”`).join('; ')}`)
   }
   L.push(hu
-    ? `- Üres projektű kártya: ${plan.unassignedCards.total} (élő ${plan.unassignedCards.live}, archivált ${plan.unassignedCards.archived}; címkék: ${counts(plan.unassignedCards.labels, lang)}) -- ezekhez a migráció NEM nyúl.`
-    : `- Cards without a project: ${plan.unassignedCards.total} (live ${plan.unassignedCards.live}, archived ${plan.unassignedCards.archived}; labels: ${counts(plan.unassignedCards.labels, lang)}) -- the migration does NOT touch these.`)
+    ? `- Üres projektű kártya: ${plan.unassignedCards.total} (élő ${plan.unassignedCards.live}, archivált ${plan.unassignedCards.archived}; címkék: ${counts(plan.unassignedCards.labels, lang)}) -- ezekhez a migráció magától NEM nyúl; besorolni csak kártyánként, a tartalmuk alapján jóváhagyva lehet.`
+    : `- Cards without a project: ${plan.unassignedCards.total} (live ${plan.unassignedCards.live}, archived ${plan.unassignedCards.archived}; labels: ${counts(plan.unassignedCards.labels, lang)}) -- the migration does NOT touch these on its own; they can only be sorted card by card, approved by their content.`)
   L.push('')
   L.push(hu ? '### 2. Kód-híd feladatok (`code_tasks.project` = VS Code munkamenet-alias)' : '### 2. Code bridge tasks (`code_tasks.project` = VS Code session alias)')
   L.push(hu
@@ -675,7 +876,10 @@ export function renderMigrationPlanMarkdown(plan: MigrationPlan, lang: 'hu' | 'e
   if (!plan.codeAliases.length) L.push(hu ? '- Nincs kód-híd feladat.' : '- No code bridge tasks.')
   for (const a of plan.codeAliases) {
     let prop: string
-    if (a.linkedProject) prop = hu ? `már kötve: „${a.linkedProject.name}”` : `already linked: "${a.linkedProject.name}"`
+    if (a.linkedProject) {
+      prop = hu ? `már kötve: „${a.linkedProject.name}”` : `already linked: "${a.linkedProject.name}"`
+      if (a.linkedProject.since) prop += hu ? ` (${fmtDate(a.linkedProject.since, lang)} óta)` : ` (since ${fmtDate(a.linkedProject.since, lang)})`
+    }
     else if (a.proposal.action === 'link') {
       const tgt = names[a.proposal.value] ?? a.proposal.value
       prop = a.proposal.evidence === 'same_name'
@@ -688,6 +892,15 @@ export function renderMigrationPlanMarkdown(plan: MigrationPlan, lang: 'hu' | 'e
     L.push(`  - ${hu ? 'mappák' : 'folders'}: ${a.workspaces.slice(0, 3).map((w) => `${w.path} x${w.tasks}`).join('; ')}${a.workspaces.length > 3 ? (hu ? ` (+${a.workspaces.length - 3} további)` : ` (+${a.workspaces.length - 3} more)`) : ''}`)
     L.push(`  - ${hu ? 'kártya-hivatkozások' : 'card references'}: ${a.cardRefs.total} (${counts(a.cardRefs.byValue, lang)})`)
     if (a.session) L.push(`  - ${hu ? 'VS Code munkamenet' : 'VS Code session'}: ${a.session.workspacePath}${a.session.pinned ? (hu ? ' (kitűzve)' : ' (pinned)') : ''}`)
+    const h = a.history
+    if (h.total) {
+      const ctl = h.control.map((c) => c.prompt)
+      const byText = counts(Object.fromEntries([...new Set(ctl)].map((x) => [`"${x}"`, ctl.filter((y) => y === x).length])), lang)
+      L.push(hu
+        ? `  - tartalom szerint: ${h.work} munka-feladat, ${h.control.length} vezérlés/próba${h.control.length ? ` (${byText})` : ''}${h.alreadyLinked ? `, ${h.alreadyLinked} már egyenként kötve` : ''}`
+        : `  - by content: ${h.work} work tasks, ${h.control.length} control/probe${h.control.length ? ` (${byText})` : ''}${h.alreadyLinked ? `, ${h.alreadyLinked} already linked one by one` : ''}`)
+    }
+    if (a.suggestedFolder) L.push(`  - ${hu ? 'mappája a Raktárban' : 'its folder in the Depot'}: ${a.suggestedFolder}`)
   }
   return L.join('\n')
 }
