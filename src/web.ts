@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -775,6 +775,12 @@ export function startWebServer(port = 3420): http.Server {
         const completionReport = ensureCompletionReportSection(agentName)
         if (completionReport === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (completionReport === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es a "kesz kartya azonnal a varakozoba" szabaly (2026-09-19): a
+        // kesz munkat AZONNAL waiting-be kell tenni; hatszor is in_progress-ben
+        // ragadt kesz kartya, mert az agens elfelejtette tovabb mozgatni.
+        const waitingMove = ensureKanbanWaitingMoveSection(agentName)
+        if (waitingMove === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (waitingMove === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -789,6 +795,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalAgentIdentityRule()
       ensureGlobalNoLiveTreeRule()
       ensureGlobalCompletionReportRule()
+      ensureGlobalKanbanWaitingMoveRule()
       // Zero writes means two different things, so both are said out loud
       // rather than inferred from a count: 'no-file' agents are covered by the
       // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads

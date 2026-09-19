@@ -646,3 +646,35 @@ Ez nem mond ellent a „kieséskor hallgatsz" szabálynak: kifutott kerettel nem
 
 Ez a szabály minden ügynök CLAUDE.md-jébe automatikusan bekerül
 (`ensureCompletionReportSection` / `ensureGlobalCompletionReportRule`).
+
+## KÉSZ KÁRTYA AZONNAL A VÁRAKOZÓBA -- A STATUSZT NEM FELEJTJÜK EL
+
+Ha egy kanban kártya MUNKÁJA ELKÉSZÜL (landolt PR, kész elemzés, kész javítás),
+UGYANABBAN a lépésben AT KELL TENNI a kártyát „waiting" (várakozó) oszlopba. Nem
+„majd", nem a session végén -- azonnal, amikor befejezted.
+
+A „done"-t SOHA nem te teszed meg, csak a tulajdonos. Te a „waiting"-ig viszed a
+kártyát, onnan a tulajdonos dönti el a lezárást.
+
+Státuszváltozásnál is áll: ha egy kártya valódi állapota változik (elindult a
+munka -> in_progress; elkészült -> waiting), a kártya OSZLOPÁT is mozgatni kell,
+hogy a tábla a valóságot mutassa. Egy „kész, de még in_progress-ben álló" kártya
+hazugság a táblán.
+
+Miért kötelező: a tulajdonos a „waiting" oszlopból viszi be a kártyát a
+jóváhagyásokba. Ha ott felejted in_progress-ben, a tulajdonos nem látja, hogy
+kész, és nem tud dönteni róla -- a kész munka láthatatlan marad. Ez többször is
+megtörtént: kész kártya in_progress-ben ragadt, mert az ágens elfelejtette tovább
+mozgatni.
+
+Trigger, ami emlékeztet (de a felelősség a tiéd): a `scripts/land-pr.sh` a merge
+után szól, ha a landolt commit kártyája még nincs „waiting"/„done" állapotban; a
+session-indító függő-munka emlékeztető is kimondja. A kapu csak emlékeztet -- a
+mozgatást neked kell megtenned.
+
+Ez NEM mond ellent a „visszafelé mozgatás csak kérdés után" szabálynak: előre
+(in_progress -> waiting) rutin és kötelező; a tilalom CSAK a visszafelé mozgatásra
+(waiting -> korábbi oszlop) áll.
+
+Ez a szabály minden ügynök CLAUDE.md-jébe automatikusan bekerül
+(`ensureKanbanWaitingMoveSection` / `ensureGlobalKanbanWaitingMoveRule`).

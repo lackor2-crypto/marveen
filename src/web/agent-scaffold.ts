@@ -1044,6 +1044,12 @@ const COMPLETION_REPORT_BLOCK_RE = new RegExp(
   `${COMPLETION_REPORT_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${COMPLETION_REPORT_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+const KANBAN_WAITING_MOVE_BEGIN = '<!-- BEGIN GENERATED: kanban-waiting-move-rule (auto-generated, do not edit by hand) -->'
+const KANBAN_WAITING_MOVE_END = '<!-- END GENERATED: kanban-waiting-move-rule -->'
+const KANBAN_WAITING_MOVE_BLOCK_RE = new RegExp(
+  `${KANBAN_WAITING_MOVE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${KANBAN_WAITING_MOVE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 // Builds the text body that goes between the BEGIN/END markers.
 // Single source of truth -- called by both generateClaudeMd() (initial
 // generation) and ensureFleetRosterSection() (idempotent update on respawn).
@@ -2680,6 +2686,101 @@ export function ensureGlobalCompletionReportRule(): void {
 
   const updated = COMPLETION_REPORT_BLOCK_RE.test(existing)
     ? existing.replace(COMPLETION_REPORT_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+/** A "kesz kartya azonnal a varakozoba" doktrina szovege. Host-agnosztikus:
+ *  nem nevez meg tulajdonost es nem tartalmaz utvonalat (a template-identity
+ *  higiene-teszt ezt ki is kenyszeriti). */
+function buildKanbanWaitingMoveBody(): string {
+  return [
+    '## KESZ KARTYA AZONNAL A VARAKOZOBA -- A STATUSZT NEM FELEJTJUK EL',
+    '',
+    'Ha egy kanban kartya MUNKAJA ELKESZUL (landolt PR, kesz elemzes, kesz',
+    'javitas), UGYANABBAN a lepesben AT KELL TENNI a kartyat "waiting"',
+    '(varakozo) oszlopba. Nem "majd", nem a session vegen -- azonnal, amikor',
+    'befejezted.',
+    '',
+    'A "done"-t SOHA nem te teszed meg, csak a tulajdonos. Te a "waiting"-ig',
+    'viszed a kartyat, onnan a tulajdonos donti el a lezarast.',
+    '',
+    'Statuszvaltozasnal is all: ha egy kartya valodi allapota valtozik (elindult',
+    'a munka -> in_progress; elkeszult -> waiting), a kartya OSZLOPAT is mozgatni',
+    'kell, hogy a tabla a valosagot mutassa. Egy "kesz, de meg in_progress-ben',
+    'allo" kartya hazugsag a tablan.',
+    '',
+    'Miert kotelezo: a tulajdonos a "waiting" oszlopbol viszi be a kartyat a',
+    'jovahagyasokba. Ha ott felejted in_progress-ben, a tulajdonos nem latja,',
+    'hogy kesz, es nem tud donteni rola -- a kesz munka lathatatlan marad. Ez',
+    'tobbszor is megtortent: kesz kartya in_progress-ben ragadt, mert az agens',
+    'elfelejtette tovabb mozgatni.',
+    '',
+    'Trigger, ami emlekeztet (de a felelosseg a tied): a scripts/land-pr.sh a',
+    'merge utan szol, ha a landolt commit kartyaja meg nincs "waiting"/"done"',
+    'allapotban; a session-indito fuggo-munka emlekezteto is kimondja. A kapu',
+    'csak emlekeztet -- a mozgatast neked kell megtenned.',
+    '',
+    'Ez NEM mond ellent a "visszafele mozgatas csak kerdes utan" szabalynak:',
+    'elore (in_progress -> waiting) rutin es kotelezo; a tilalom CSAK a',
+    'visszafele mozgatasra (waiting -> korabbi oszlop) all.',
+  ].join('\n')
+}
+
+/** Beviszi a "kesz kartya azonnal a varakozoba" doktrinat egy agens sajat
+ *  CLAUDE.md-jebe. A fo agens ezt a gepszintu valtozatbol kapja
+ *  (ensureGlobalKanbanWaitingMoveRule), ugyanugy, mint a tobbi marker-blokkot. */
+export function ensureKanbanWaitingMoveSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${KANBAN_WAITING_MOVE_BEGIN}\n${buildKanbanWaitingMoveBody()}\n${KANBAN_WAITING_MOVE_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = KANBAN_WAITING_MOVE_BLOCK_RE.test(existing)
+    ? existing.replace(KANBAN_WAITING_MOVE_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat: a fo agens (es a worktree-ben dolgozo agensek) a
+ *  ~/.claude/CLAUDE.md-t olvassak, barhonnan is futnak. */
+export function ensureGlobalKanbanWaitingMoveRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${KANBAN_WAITING_MOVE_BEGIN}\n${buildKanbanWaitingMoveBody()}\n${KANBAN_WAITING_MOVE_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = KANBAN_WAITING_MOVE_BLOCK_RE.test(existing)
+    ? existing.replace(KANBAN_WAITING_MOVE_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'
