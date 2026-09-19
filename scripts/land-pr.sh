@@ -37,6 +37,7 @@ set -euo pipefail
 BASE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CI_VERDICT="$BASE/scripts/lib/ci-verdict.mjs"
 EMPTY_DIAG="$BASE/scripts/lib/empty-run-diagnosis.mjs"
+CARD_REMINDER="$BASE/scripts/lib/card-reminder.mjs"
 
 die() { echo "land-pr: HIBA -- $*" >&2; exit 1; }
 
@@ -459,18 +460,18 @@ if [ -n "$CARD_REF" ]; then
   TOKF="$MAIN_ROOT/store/.dashboard-token"
   PORT="$(grep -oE '^WEB_PORT=.*' "$MAIN_ROOT/.env" 2>/dev/null | head -n1 | cut -d= -f2 | tr -d '[:space:]' || true)"
   [ -z "$PORT" ] && PORT=3420
-  CARD_STATUS=""
-  if [ -r "$TOKF" ]; then
-    CARD_STATUS="$(curl -s -m 5 -H "Authorization: Bearer $(cat "$TOKF")" "http://localhost:$PORT/api/kanban" 2>/dev/null \
-      | CARD="$CARD_REF" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const d=JSON.parse(s);const cards=Array.isArray(d)?d:(d.cards||[]);const ref=process.env.CARD||"";const c=cards.find(c=>String(c.id??"")===ref||String(c.seq??"")===ref);if(c)process.stdout.write(String(c.status||""))}catch{}})' 2>/dev/null || true)"
-  fi
-  if [ "$CARD_STATUS" = "waiting" ] || [ "$CARD_STATUS" = "done" ]; then
-    : # mar a helyen van, nincs teendo
-  elif [ -n "$CARD_STATUS" ]; then
-    echo "land-pr: >>> EMLEKEZTETO: a #$CARD_REF kartya meg '$CARD_STATUS' -- a munka LANDOLT, tedd at 'waiting'-be (a 'done'-t a tulajdonos teszi). <<<" >&2
+  CARDS_JSON=""
+  LOOKUP_ERR=""
+  if [ ! -r "$TOKF" ]; then
+    LOOKUP_ERR="nincs olvashato dashboard-token"
   else
-    echo "land-pr: >>> EMLEKEZTETO: ha a #$CARD_REF kartya kesz, tedd at 'waiting'-be (a 'done'-t a tulajdonos teszi). <<<" >&2
+    # MINDEN kartya, az archivaltakat is beleertve: a /api/kanban szandekosan
+    # kihagyja az archivaltakat, es egy regen lezart kartyara hamisan riasztott.
+    CARDS_JSON="$(curl -s -m 5 -H "Authorization: Bearer $(cat "$TOKF")" "http://localhost:$PORT/api/kanban/card-ids" 2>/dev/null || true)"
+    [ -z "$CARDS_JSON" ] && LOOKUP_ERR="a dashboard nem valaszolt a localhost:$PORT cimen"
   fi
+  CARD_LINE="$(printf '%s' "$CARDS_JSON" | node "$CARD_REMINDER" "$TITLE" "$LOOKUP_ERR" 2>/dev/null || true)"
+  [ -n "$CARD_LINE" ] && echo "$CARD_LINE" >&2
 fi
 
 # --- 5. lokalis main frissitese ------------------------------------------------
