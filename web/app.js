@@ -2584,6 +2584,7 @@ function openNewCardModal(status) {
   document.getElementById('cardDue').value = ''
   document.getElementById('cardEditId').value = ''
   document.getElementById('cardEditStatus').value = status || 'planned'
+  _cardSimilarReset()
   populateAssigneeSelect('cardAssignee')
   renderNewCardLabelPicker()
   // Egy projektre szurt Kanbanon az uj kartya magatol abba a projektbe kerul.
@@ -2684,12 +2685,26 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
         return
       }
       data.labels = newCardLabels
+      // Ha a szerver hasonlo kartyakat talalt, a felhasznalo mar dontott rola
+      // (bepipalt kapcsolodok, vagy "nincs kapcsolat") -- ezt kuldjuk.
+      if (_cardSimilarPending) data.related = _cardSimilarChosen()
       const res = await fetch('/api/kanban', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || res.status) }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}))
+        // A tablan mar vannak hasonlo cimu kartyak: a szerver tudni akarja,
+        // kapcsolodnak-e. Ezt itt, az ablakban kerdezzuk meg -- a nyers,
+        // agensnek szolo hibaszoveg nem a felhasznalonak valo.
+        if (res.status === 400 && Array.isArray(e.similar) && e.similar.length && !_cardSimilarPending) {
+          _cardSimilarShow(e.similar)
+          return
+        }
+        throw new Error(e.error || res.status)
+      }
+      _cardSimilarReset()
       showToast(t('kanban.toast.card_created'))
       // Projekt nelkul mentett kartya: a besorolo javaslatot keszit ra a
       // hatterben (a kartya-ablak es a Projektek oldal mutatja, egy kattintassal
@@ -2705,6 +2720,42 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
     showToast(t('kanban.toast.save_error_msg', { msg: err.message }))
   }
 })
+
+// === Uj kartya: hasonlo kartyak a tablan (kapcsolodik-e?) ===
+let _cardSimilarPending = false
+
+function _cardSimilarReset() {
+  _cardSimilarPending = false
+  document.getElementById('cardSimilarBox')?.remove()
+}
+
+function _cardSimilarChosen() {
+  return [...document.querySelectorAll('#cardSimilarBox input[type=checkbox]:checked')].map((c) => c.value)
+}
+
+function _cardSimilarShow(similar) {
+  _cardSimilarPending = true
+  let box = document.getElementById('cardSimilarBox')
+  if (!box) {
+    box = document.createElement('div')
+    box.id = 'cardSimilarBox'
+    box.className = 'info-box card-similar-box'
+    // A Mentes gomb ELE: elobb latja a kerdest, aztan ment.
+    const save = document.getElementById('saveCardBtn')
+    const anchor = save && (save.closest('.modal-footer') || save)
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(box, anchor)
+    else document.querySelector('#cardModalOverlay .modal-body')?.appendChild(box)
+  }
+  box.innerHTML = `<p><strong>${escapeHtml(t('kanban.similar.title'))}</strong></p>
+    <p class="prj-muted">${escapeHtml(t('kanban.similar.hint'))}</p>
+    ${similar.map((c) => `<label class="card-similar-row"><input type="checkbox" value="${escapeAttr(c.id)}">
+      <span>${c.seq != null ? '#' + escapeHtml(String(c.seq)) + ' ' : ''}${escapeHtml(c.title || c.id)}</span>
+      <span class="prj-muted">${escapeHtml(t('kanban.status.' + c.status) || c.status || '')}</span></label>`).join('')}
+    <p class="prj-muted">${escapeHtml(t('kanban.similar.after'))}</p>`
+  const btn = document.getElementById('saveCardBtn')
+  box.scrollIntoView({ block: 'nearest' })
+  btn?.focus()
+}
 
 // === Card labels (in the detail modal) ===
 // Always re-fetches the card's own labels via the dedicated endpoint instead

@@ -12158,3 +12158,5 @@ details.upstream-box > summary > h4 {
 @media (max-width: 900px) {
   .prj-kb-cols { grid-template-columns: 1fr; }
 }
+.card-similar-box { margin-top: 12px; }
+.card-similar-row { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; overflow-wrap: anywhere; }
