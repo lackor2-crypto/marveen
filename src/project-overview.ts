@@ -235,7 +235,7 @@ function loadApprovals(cards: OverviewCard[]): ApprovalItem[] {
 
 /** A mappa legutobb modositott fajljai, korlatos bejarassal (melyseg + darabszam),
  *  hogy egy nagy mappa se lassitsa a lapot. */
-function recentFiles(project: ProjectRow, limit: number): { state: FolderState; files: { rel: string; name: string; at: number }[] } {
+export function recentFiles(project: ProjectRow, limit: number): { state: FolderState; files: { rel: string; name: string; at: number }[] } {
   // Raktar nelkul mappat sem lehet megadni -- ilyenkor az a kovetkezo lepes.
   if (!explorerRoot()) return { state: 'no_depot', files: [] }
   if (!project.folder_path) return { state: 'no_folder', files: [] }

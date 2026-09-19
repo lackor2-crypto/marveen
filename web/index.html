@@ -3840,8 +3840,8 @@
           </div>
           <div class="form-group form-half">
             <label for="cardProject" data-i18n="common.project">Projekt <span class="hint" data-i18n="common.optional_paren">(opcionális)</span></label>
-            <input type="text" id="cardProject" list="projectSuggestions" placeholder="pl. Dream Engine" autocomplete="off">
-            <datalist id="projectSuggestions"></datalist>
+            <select id="cardProject"><option value="" data-i18n="kanban.modal.no_project">Nincs projekt</option></select>
+            <div id="cardProjectSuggest" class="prj-card-suggest" hidden></div>
           </div>
         </div>
         <!-- Label is mandatory on a new card (the server rejects a card-create

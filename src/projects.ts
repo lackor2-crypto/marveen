@@ -35,8 +35,9 @@ export type ProjectStatus = typeof PROJECT_STATUSES[number]
 /** A `project_links` ismert objektum-fajtai. Uj fajta felvetele: ide + a hasznalo.
  *  `code_alias` = egy kod-hid munkamenet MINDEN (vagy a `since` utani) feladata;
  *  `code_task`  = EGY konkret kodfeladat (`code_tasks.id`) -- ez erosebb az
- *  aliasnal es a kartya-hivatkozasnal is (lasd `project-overview.ts`). */
-export const PROJECT_LINK_TYPES = ['idea', 'code_alias', 'code_task', 'debate', 'memory', 'schedule', 'skill'] as const
+ *  aliasnal es a kartya-hivatkozasnal is (lasd `project-overview.ts`).
+ *  `research`  = egy hatteranyag-fajl (`<agens>/<fajlnev>`, lasd `project-scope.ts`). */
+export const PROJECT_LINK_TYPES = ['idea', 'code_alias', 'code_task', 'debate', 'memory', 'schedule', 'skill', 'research'] as const
 export type ProjectLinkType = typeof PROJECT_LINK_TYPES[number]
 
 export interface ProjectRow {
@@ -116,6 +117,17 @@ export function ensureProjectTables(): void {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_project_links_project ON project_links(project_id, object_type)')
+  // Kifejezett "nincs projekt": a vitaztatas / hatteranyag a forrasban (naplo,
+  // fajl-jeloles) projektet visel, de a tulajdonos kezzel levalasztotta. Enelkul
+  // a levalasztas utan a jeloles visszahozna a projektbe (kanban #321, 3. pont).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_detached (
+      object_type TEXT NOT NULL,
+      object_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (object_type, object_id)
+    )
+  `)
   // Kesobb felvett oszlop: a mar letezo tablaba is bekerul.
   const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name))
   if (!cols.has('summary_by')) db.exec('ALTER TABLE projects ADD COLUMN summary_by TEXT')
@@ -427,6 +439,23 @@ export function linkObject(projectId: string, type: ProjectLinkType, objectId: s
      ON CONFLICT(object_type, object_id) DO UPDATE SET project_id = excluded.project_id,
        created_at = excluded.created_at, created_by = excluded.created_by, since = excluded.since`,
   ).run(projectId, type, String(objectId), nowSec(), createdBy ?? null, since)
+  // Egy uj kotes felulirja a korabbi "nincs projekt" dontest.
+  getDb().prepare('DELETE FROM project_detached WHERE object_type = ? AND object_id = ?').run(type, String(objectId))
+}
+
+/** Kezi "nincs projekt": a kotes torlodik, es a forras-jeloles sem hozza vissza. */
+export function detachObject(type: ProjectLinkType, objectId: string): void {
+  ensureProjectTables()
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare('DELETE FROM project_links WHERE object_type = ? AND object_id = ?').run(type, String(objectId))
+    db.prepare('INSERT OR REPLACE INTO project_detached (object_type, object_id, created_at) VALUES (?, ?, ?)').run(type, String(objectId), nowSec())
+  })()
+}
+
+export function isDetached(type: ProjectLinkType, objectId: string): boolean {
+  ensureProjectTables()
+  return !!getDb().prepare('SELECT 1 FROM project_detached WHERE object_type = ? AND object_id = ?').get(type, String(objectId))
 }
 
 /** Egy kotes teljes sora (a visszavonas ezzel allitja vissza az elozot). */

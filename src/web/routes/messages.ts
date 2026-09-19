@@ -9,7 +9,12 @@ import {
 } from '../../db.js'
 import { logger } from '../../logger.js'
 import { COORDINATOR_AGENT_ID } from '../../channel-coordinator/ingest.js'
+import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import { sanitizeAgentIdent } from '../../prompt-safety.js'
+
+/** Ids whose messages are trusted as instructions -- never spoofable as a
+ *  sender, directly or via the done-echo below. */
+const RESERVED_SENDERS = new Set([COORDINATOR_AGENT_ID, OWNER_DASHBOARD_SENDER])
 import { isKnownAgent } from '../agent-config.js'
 import { OWNER_NAME } from '../../config.js'
 import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
@@ -58,6 +63,22 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
     if (sanitizeAgentIdent(from) === COORDINATOR_AGENT_ID) {
       logger.warn({ from: from.trim(), to: to.trim() }, 'Rejected /api/messages POST forging channel-coordinator id')
       json(res, { error: 'from is reserved for the in-process channel coordinator' }, 403)
+      return true
+    }
+    // Same guard for the owner-request sender: only the in-process dashboard
+    // routes may speak as the owner (it is delivered as an instruction).
+    if (sanitizeAgentIdent(from) === OWNER_DASHBOARD_SENDER) {
+      logger.warn({ from: from.trim(), to: to.trim() }, 'Rejected /api/messages POST forging the dashboard-owner sender')
+      json(res, { error: 'from is reserved for owner requests made on the dashboard' }, 403)
+      return true
+    }
+    // Reserved RECIPIENTS: a message addressed to one of these ids and later
+    // marked done would echo back as "[Eredmény]" FROM that id -- i.e. as a
+    // channel-inbound / owner-request (executed as an instruction). Nobody
+    // legitimately writes TO them through this endpoint (kanban #321, 1139).
+    if (RESERVED_SENDERS.has(sanitizeAgentIdent(to))) {
+      logger.warn({ from: from.trim(), to: to.trim() }, 'Rejected /api/messages POST addressed to a reserved sender id')
+      json(res, { error: 'to is a reserved sender id and cannot receive agent messages' }, 403)
       return true
     }
     // Federation spoof guard: a slash-qualified from ("teodor/teodor") is the
@@ -240,7 +261,8 @@ export async function tryHandleMessages(ctx: RouteContext): Promise<boolean> {
       // ping-pong chains (the delegator might write back, which would trigger
       // markMessageDone on this notification; we skip creating ANOTHER notification
       // when the original content is already a completion report).
-      if (done && done.from_agent !== done.to_agent && !done.content.startsWith('[Eredmény]')) {
+      if (done && done.from_agent !== done.to_agent && !done.content.startsWith('[Eredmény]')
+        && !RESERVED_SENDERS.has(sanitizeAgentIdent(done.to_agent))) {
         const summary = result ? result.slice(0, 500) : '(nincs eredmény)'
         createAgentMessage(
           done.to_agent,

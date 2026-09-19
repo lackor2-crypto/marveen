@@ -38,11 +38,13 @@
 //
 // Subcommands:
 //
-//   ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>]
+//   ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>] [--project <id>]
 //     Fires the prompt at every model in parallel, prints their answers as
 //     JSON. Omit --session on round 1 -- a fresh id is generated and printed
 //     back; pass that same id on every later round of the same debate.
-//     --round defaults to 1.
+//     --round defaults to 1. --project <id> files the debate under a project
+//     (Iroda -> Projektek); the dashboard passes it when the debate was
+//     started from a project page.
 //
 //   conclude --session <id> --consensus true|false --summary "<text>"
 //     Appends a closing marker for the session (no model calls) -- the
@@ -96,13 +98,14 @@ async function trimLogIfNeeded() {
 }
 
 function parseAskArgs(argv) {
-  const args = { models: [], session: null, round: null, prompt: null }
+  const args = { models: [], session: null, round: null, prompt: null, project: null }
   const rest = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--models') { args.models = (argv[++i] || '').split(',').map(s => s.trim()).filter(Boolean); continue }
     if (a === '--session') { args.session = argv[++i]; continue }
     if (a === '--round') { args.round = parseInt(argv[++i], 10); continue }
+    if (a === '--project') { args.project = argv[++i] || null; continue }
     rest.push(a)
   }
   args.prompt = rest.join(' ')
@@ -242,7 +245,7 @@ async function loadApiKey() {
 async function runAsk(argv) {
   const args = parseAskArgs(argv)
   if (!args.prompt || !args.models.length) {
-    console.error('Usage: node scripts/debate.mjs ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>]')
+    console.error('Usage: node scripts/debate.mjs ask "<prompt>" --models id1,id2[,id3...] [--session <id>] [--round <n>] [--project <id>]')
     process.exit(1)
   }
   const apiKey = await loadApiKey()
@@ -258,6 +261,7 @@ async function runAsk(argv) {
       ts, session, round, type: 'round', prompt: args.prompt, model: r.model, ok: r.ok,
       text: r.ok ? r.text : null, tokensIn: r.tokensIn ?? null, tokensOut: r.tokensOut ?? null,
       error: r.ok ? null : r.error,
+      ...(args.project ? { project: args.project } : {}),
     })
     if (r.ok && (r.tokensIn || r.tokensOut)) await recordTokenUsage(session, ts, r.model, r.tokensIn, r.tokensOut)
   }

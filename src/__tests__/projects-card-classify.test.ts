@@ -14,7 +14,7 @@ import { createProject } from '../projects.js'
 import { setAiRunners, resetLimitCooldown, type ClaudeAccount } from '../life-inbox-ai.js'
 import {
   classifyPrompt, parseClassifyAnswer, startCardClassification, classificationStatus, listCardSuggestions,
-  resetClassificationForTests, runClassification,
+  resetClassificationForTests, runClassification, cardSuggestionIdle,
 } from '../project-card-classify.js'
 import { tryHandleProjects } from '../web/routes/projects.js'
 import type { RouteContext } from '../web/routes/types.js'
@@ -197,5 +197,45 @@ describe('a vegpont', () => {
     expect(got.body.classification.confident).toBeGreaterThan(0.5)
     expect(got.body.classification.suggestions).toEqual([expect.objectContaining({ cardId: 'c1', projectId: p.id })])
     expect(got.body.plan.unassignedCards.cards.map((c: { id: string }) => c.id)).toEqual(['c1'])
+  })
+})
+
+describe('kartyankenti javaslat (uj kartya mentese)', () => {
+  it('nem irja felul a nagy futas allapotat, es ha az fut, a kartya nem vesz el', async () => {
+    const p = mustProject('P')
+    for (const id of ['r1', 'r2']) createKanbanCard({ id, title: id, status: 'planned' })
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    setAiRunners({
+      accounts: () => [ACCOUNT],
+      claude: async (_s, prompt) => {
+        // A nagy futas addig all, amig el nem engedjuk -- kozben jon az uj kartya.
+        if (prompt.includes('id r1:')) await gate
+        const ids = [...prompt.matchAll(/id ([a-z0-9]+):/g)].map((m) => m[1]).filter((x) => x !== p.id)
+        return { text: JSON.stringify({ items: ids.map((id) => ({ id, project: p.id, confidence: 0.9, reason: 'ok' })) }), model: 'm' }
+      },
+      ollama: async () => 'missing',
+    })
+    expect(startCardClassification('hu').ok).toBe(true)
+    expect(classificationStatus()).toMatchObject({ state: 'running', total: 2 })
+    createKanbanCard({ id: 'uj', title: 'Uj kartya', status: 'planned' })
+    const r = await call('POST', '/api/projects/card-suggestion?lang=hu', { card: 'uj' })
+    expect(r.status).toBe(202)
+    await cardSuggestionIdle()
+    // A kartya javaslata megvan, pedig a nagy futas meg all...
+    expect(listCardSuggestions().find((x) => x.cardId === 'uj')).toMatchObject({ projectId: p.id })
+    // ...es a nagy futas allapota erintetlen (nem lett total=1).
+    expect(classificationStatus()).toMatchObject({ state: 'running', total: 2 })
+    release()
+    await settle()
+    expect(classificationStatus()).toMatchObject({ state: 'done', total: 2, done: 2 })
+  })
+
+  it('projekt nelkul / mar projektben levo kartyanal nem indul semmi', async () => {
+    createKanbanCard({ id: 'a', title: 'A', status: 'planned' })
+    expect((await call('POST', '/api/projects/card-suggestion', { card: 'a' })).body.state).toBe('no_projects')
+    const p = mustProject('P')
+    createKanbanCard({ id: 'b', title: 'B', status: 'planned', project: p.id })
+    expect((await call('POST', '/api/projects/card-suggestion', { card: 'b' })).body.state).toBe('not_unassigned')
   })
 })

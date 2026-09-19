@@ -8,7 +8,10 @@
 //   GET    /api/projects/migration           -- a regi adatok atvetelenek DRY-RUN terve + naplo
 //   POST   /api/projects/migration/apply     -- a jovahagyott hozzarendeles vegrehajtasa
 //   POST   /api/projects/migration/:id/revert -- egy atvetel visszavonasa
+//   POST   /api/projects/card-suggestion  -- egy uj kartya javaslata (kulon sor, a nagy futast nem erinti)
 //   POST   /api/projects/migration/classify  -- a projekt nelkuli kartyak besorolasi JAVASLATA a tartalmuk alapjan (hatterben)
+//   GET    /api/projects/scope-map?type=&ids= -- a Memoria/Utemezes/Skill/Jovahagyas/Uzenet elemek projektje (szureshez)
+//   GET    /api/projects/context?q=          -- "folytassuk a projektet": a projekt teljes kontextusa az agensnek
 //   GET    /api/projects/:id                 -- egy projekt
 //   PUT    /api/projects/:id                 -- szerkesztes (+ mappa-csere)
 //   POST   /api/projects/:id/archive         -- archivalas / visszahozas
@@ -21,6 +24,8 @@
 //   POST   /api/projects/:id/links           -- meglevo objektum (otlet) kotese a projekthez
 //   DELETE /api/projects/:id/links/:type/:objectId -- a kotes bontasa (az objektum marad)
 //   GET    /api/projects/:id/folders         -- a projektmappa almappai (hova keruljon az uj fajl)
+//   POST   /api/projects/:id/placement       -- javasolt hely egy uj fajlnak (a projekt almappai kozul, vagy uj mappa)
+//   POST   /api/projects/:id/mkdir           -- uj almappa (CSAK a 'Rendben' gombra)
 //   POST   /api/projects/:id/upload?name=&sub= -- fajl feltoltese a projektmappaba (nyers bajtok)
 //   POST   /api/projects/:id/note            -- uj szoveges jegyzet a projektmappaba
 //
@@ -37,12 +42,12 @@ import { writeBlockReason } from '../../git-guard.js'
 import {
   ensureProjectTables, listProjects, getProject, createProject, updateProject, setProjectArchived,
   projectDeletePreview, deleteProject, projectNameMap, cleanFolderRel, validateProjectInput, projectNameTaken,
-  listProjectIdeas, projectIdeaCandidates, linkObject, unlinkObject, projectForObject, isLinkType, hasTable,
+  listProjectIdeas, projectIdeaCandidates, linkObject, unlinkObject, detachObject, projectForObject, isLinkType, hasTable,
 } from '../../projects.js'
-import { buildProjectOverview } from '../../project-overview.js'
+import { buildProjectOverview, recentFiles } from '../../project-overview.js'
 import { summarizeProject } from '../../project-summary.js'
 import {
-  projectSubfolders, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
+  projectSubfolders, makeProjectFolder, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
 } from '../../project-files.js'
 import { createIdea, getDb } from '../../db.js'
 import { randomUUID } from 'node:crypto'
@@ -50,8 +55,19 @@ import {
   planProjectMigration, applyProjectMigration, listProjectMigrations, revertProjectMigration,
   type MigrationMapping,
 } from '../../project-migration.js'
-import { classificationStatus, listCardSuggestions, startCardClassification, CONFIDENT } from '../../project-card-classify.js'
+import { classificationStatus, listCardSuggestions, startCardClassification, queueCardSuggestion, CONFIDENT } from '../../project-card-classify.js'
 import type { RouteContext } from './types.js'
+import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
+import { createAgentMessage } from '../../db.js'
+import { suggestPlacement } from '../../project-file-placement.js'
+import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
+import { resolveCardRefs } from '../card-work-guard.js'
+import {
+  createStarterCard, isScopeType, projectScopeMap, isRequestKind, projectRequestMessage, researchObjectId,
+} from '../../project-scope.js'
+import { agentConfigRoot, listAgentNames } from '../agent-config.js'
+import { join as joinPath } from 'node:path'
+import { listDebateSessions, findProject, projectContext } from '../../project-context.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
   const v = url.searchParams.get('lang')
@@ -66,6 +82,8 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_status: { hu: 'Ismeretlen projekt-állapot.', en: 'Unknown project status.' },
   bad_folder: { hu: 'A mappa útvonala nem érvényes.', en: 'The folder path is not valid.' },
   bad_label: { hu: 'Ez a címke nem létezik (lehet, hogy közben törölték).', en: 'This label does not exist (it may have been deleted).' },
+  memory_missing: { hu: 'Ez a memória nem található (lehet, hogy közben törölték).', en: 'This memory was not found (it may have been deleted).' },
+  folder_name: { hu: 'A mappa neve nem jó: ne legyen üres, ne kezdődjön ponttal, és ne legyen benne \\ : * ? " < > | jel.', en: 'The folder name is not valid: it must not be empty, start with a dot, or contain \\ : * ? " < > |.' },
   not_found: { hu: 'Ez a projekt nem található (lehet, hogy közben törölték).', en: 'This project was not found (it may have been deleted).' },
   no_depot: { hu: 'Még nincs beállítva a Raktár (hol tárolja a Marveen a fájljaidat). Iroda -> Beállítások -> Raktár beállítások.', en: 'The Depot (where Marveen keeps your files) is not set up yet. Office -> Settings -> Depot settings.' },
   folder_outside: { hu: 'Ez a hely nincs a Raktár mappáján belül.', en: 'This place is not inside the Depot folder.' },
@@ -103,6 +121,12 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_name: { hu: 'Adj meg egy érvényes fájlnevet.', en: 'Give a valid file name.' },
   repo_inside: { hu: 'Ez a hely egy git-repó belseje, ide nem teszek fájlt.', en: 'This place is inside a git repository; no file is put here.' },
   write_failed: { hu: 'Nem sikerült menteni a fájlt.', en: 'Could not save the file.' },
+  starter_label_required: { hu: 'A kezdő kártyához címke kell: válassz alapértelmezett címkét, vagy vedd ki a pipát a „Kezdő kártya” elől.', en: 'The starter card needs a label: pick a default label, or untick "Starter card".' },
+  create_failed: { hu: 'A projektet nem sikerült létrehozni (semmi nem maradt félkész). Próbáld újra.', en: 'The project could not be created (nothing was left half-done). Please try again.' },
+  request_text_required: { hu: 'Írd le, miről szóljon.', en: 'Write down what it should be about.' },
+  bad_request_kind: { hu: 'Ismeretlen kérés-fajta.', en: 'Unknown request kind.' },
+  debate_missing: { hu: 'Ez a vitáztatás nem található.', en: 'This debate was not found.' },
+  research_missing: { hu: 'Ez a háttéranyag nem található.', en: 'This background material was not found.' },
   too_large: { hu: 'A fájl túl nagy a feltöltéshez (legfeljebb 50 MB). A nagyobbat húzd be közvetlenül a mappába a Windows Intézőben.', en: 'The file is too large to upload (50 MB at most). Drag a bigger one straight into the folder in Windows Explorer.' },
 }
 
@@ -276,6 +300,54 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Egy projekt nelkuli kartya besorolasi javaslata (a kartya-ablak mutatja,
+  // egy kattintassal elfogadhato). Nincs javaslat -> suggestion: null.
+  // "Folytassuk a X projektet": az agens EGY hivassal megkapja a projekt teljes
+  // kontextusat (src/project-context.ts). A projektet a tulajdonos szavaibol
+  // keresi; tobb talalatnal nem valaszt, hanem felsorolja (az agens visszakerdez).
+  if (path === '/api/projects/context' && method === 'GET') {
+    const found = findProject(url.searchParams.get('q') ?? '')
+    const brief = (p: { id: string; name: string }) => ({ id: p.id, name: p.name })
+    if (found.kind === 'found') {
+      const ctx = projectContext(found.project.id, lang)
+      if (!ctx) return fail(res, 404, 'not_found', lang)
+      json(res, { state: 'found', project: brief(ctx.project), text: ctx.text })
+    } else if (found.kind === 'ambiguous') {
+      json(res, { state: 'ambiguous', matches: found.matches.map(brief) })
+    } else {
+      json(res, { state: 'none', projects: found.projects.map(brief) })
+    }
+    return true
+  }
+
+  // Projekt-szures a bal menu tobbi oldalan (Memoria, Utemezesek, Skillek,
+  // Jovahagyasok, Uzenetek): melyik elem melyik projekte.
+  if (path === '/api/projects/scope-map' && method === 'GET') {
+    const type = url.searchParams.get('type')
+    if (!isScopeType(type)) return fail(res, 400, 'bad_link', lang)
+    const rawIds = url.searchParams.get('ids')
+    const ids = rawIds === null ? null : rawIds.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 1000)
+    json(res, { map: projectScopeMap(type, ids, resolveCardRefs) })
+    return true
+  }
+
+  if (path === '/api/projects/card-suggestion' && method === 'GET') {
+    const cardId = url.searchParams.get('card') || ''
+    const hit = listCardSuggestions().find((x) => x.cardId === cardId) ?? null
+    json(res, { suggestion: hit, confident: CONFIDENT, status: classificationStatus() })
+    return true
+  }
+
+  // Egy uj, projekt nelkul mentett kartya javaslata. Kulon sor: nem irja felul
+  // a nagy besorolo futas allapotat, es nem vesz el, ha az eppen fut.
+  if (path === '/api/projects/card-suggestion' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const out = queueCardSuggestion(String(body.card ?? ''), lang)
+    json(res, { ok: out === 'queued', state: out }, out === 'queued' ? 202 : 200)
+    return true
+  }
+
   if (path === '/api/projects/migration/classify' && method === 'POST') {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
@@ -318,11 +390,41 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     // egy felesleges mappat a lemezen.
     const probe = createProjectDryCheck(body)
     if (probe) return fail(res, 400, probe, lang)
+    // Uj projekt = egy kezdo kartya is (Boss 2026-09-19), hacsak a hivo kifejezetten
+    // nem keri, hogy ne. A cimke a projekt alapertelmezett cimkeje: ha a tablan
+    // kotelezo a cimke es nincs megadva, meg a mappa elott szolunk.
+    const wantStarter = body.starter_card !== false
+    let starterLabels: string[] = []
+    if (wantStarter) {
+      const lab = resolveCardLabels(body.default_label_id ? [String(body.default_label_id)] : [])
+      if (!lab.ok) return fail(res, 400, 'starter_label_required', lang)
+      starterLabels = lab.labelIds
+    }
     const folder = realizeFolder(fr, lang)
     if (!folder.ok) return fail(res, 400, folder.code, lang, folder.message ? { message: folder.message } : {})
-    const made = createProject({ ...body, folder_path: folder.rel })
+    // Projekt + kezdo kartya + cimkeje EGY tranzakcio: ha barmelyik elbukik,
+    // egyik sem marad meg (nincs kartya nelkuli "fel projekt").
+    let made: ReturnType<typeof createProject>
+    let starterCardId: string | null = null
+    try {
+      const out = getDb().transaction(() => {
+        const m = createProject({ ...body, folder_path: folder.rel })
+        if (!m.ok) return { made: m, starter: null }
+        let sid: string | null = null
+        if (wantStarter) {
+          sid = createStarterCard(m.project, lang)
+          applyCardLabels(sid, starterLabels)
+        }
+        return { made: m, starter: sid }
+      })()
+      made = out.made
+      starterCardId = out.starter
+    } catch (e) {
+      logger.error({ err: e }, '[projects] projekt + kezdo kartya letrehozasa elbukott, visszagorgetve')
+      return fail(res, 500, 'create_failed', lang)
+    }
     if (!made.ok) return fail(res, 400, made.code, lang)
-    json(res, { ok: true, project: made.project })
+    json(res, { ok: true, project: made.project, starterCardId })
     return true
   }
 
@@ -425,13 +527,39 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const type = body.type
     const objectId = String(body.id ?? '').trim()
-    // Egyelore csak otlet kotheto kezzel; a tobbi fajtat (vitaztatas, memoria)
-    // a sajat felulete koti majd.
-    if (type !== 'idea' || !objectId || !isLinkType(type)) return fail(res, 400, 'bad_link', lang)
-    if (!hasTable('idea_box') || !getDb().prepare('SELECT 1 FROM idea_box WHERE id = ?').get(objectId)) return fail(res, 404, 'idea_missing', lang)
-    const before = projectForObject('idea', objectId)
-    linkObject(id, 'idea', objectId, 'dashboard')
+    // Kezzel kotheto: otlet, vitaztatas, hatteranyag (`<agens>/<fajl>.md`).
+    if (!objectId || !isLinkType(type) || !['idea', 'debate', 'research', 'memory', 'schedule', 'skill'].includes(type)) return fail(res, 400, 'bad_link', lang)
+    if (type === 'memory' && (!hasTable('memories') || !getDb().prepare('SELECT 1 FROM memories WHERE id = ?').get(Number(objectId)))) return fail(res, 404, 'memory_missing', lang)
+    // Utemezes / skill: a nevuk (helyi skillnel `<agens>/<nev>`) -- csak biztonsagos jelek.
+    if ((type === 'schedule' || type === 'skill') && !/^[A-Za-z0-9._:/ -]{1,200}$/.test(objectId)) return fail(res, 400, 'bad_link', lang)
+    if (type === 'idea' && (!hasTable('idea_box') || !getDb().prepare('SELECT 1 FROM idea_box WHERE id = ?').get(objectId))) return fail(res, 404, 'idea_missing', lang)
+    if (type === 'debate' && !debateExists(objectId)) return fail(res, 404, 'debate_missing', lang)
+    if (type === 'research' && !researchExists(objectId)) return fail(res, 404, 'research_missing', lang)
+    const before = projectForObject(type, objectId)
+    linkObject(id, type, objectId, 'dashboard')
     json(res, { ok: true, movedFrom: before && before !== id ? before : null })
+    return true
+  }
+
+  // Projektbol inditott vitaztatas / hatteranyag-gyujtes: a fo agens vegzi, az
+  // uzenet megmondja, hogyan jelolje meg az eredmenyt (src/project-scope.ts).
+  if (sub === '/requests' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    if (!isRequestKind(body.kind)) return fail(res, 400, 'bad_request_kind', lang)
+    const text = String(body.text ?? '').trim().slice(0, 8000)
+    if (!text) return fail(res, 400, 'request_text_required', lang)
+    const msg = createAgentMessage(OWNER_DASHBOARD_SENDER, MAIN_AGENT_ID, projectRequestMessage(project, body.kind, text, lang))
+    logger.info({ id, kind: body.kind, messageId: msg.id }, '[projects] keres a fo agensnek a projektbol')
+    json(res, { ok: true, messageId: msg.id, agent: MAIN_AGENT_ID })
+    return true
+  }
+
+  // A projekt Fajlok fule: a mappa legutobb modositott fajljai (a projekt oldalan
+  // helyben, nem az Intezobe atugorva).
+  if (sub === '/files' && method === 'GET') {
+    const scan = recentFiles(project, 100)
+    json(res, { state: scan.state, path: project.folder_path, files: scan.files })
     return true
   }
 
@@ -440,6 +568,28 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     json(res, t.ok
       ? { state: 'ok', path: project.folder_path, subfolders: projectSubfolders(project), maxBytes: PROJECT_UPLOAD_MAX_BYTES }
       : { state: t.code, path: project.folder_path, subfolders: [], maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    return true
+  }
+
+  // A javasolt hely egy uj fajlnak (a fajtajabol es nevebol, a projekt SAJAT
+  // almappai kozul -- src/project-file-placement.ts). Semmit nem hoz letre.
+  if (sub === '/placement' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const t = projectFileTarget(project, '')
+    if (!t.ok) return fail(res, 400, t.code, lang)
+    json(res, { placement: suggestPlacement(String(body.name ?? ''), typeof body.mime === 'string' ? body.mime : null, projectSubfolders(project), lang) })
+    return true
+  }
+
+  // Uj almappa -- CSAK a felhasznalo "Rendben" gombjara (a javaslat elonezet volt).
+  if (sub === '/mkdir' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const out = makeProjectFolder(project, body.parent, body.name)
+    if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
+    if (out.created) logger.info({ id, sub: out.sub }, '[projects] uj almappa a projektben')
+    json(res, out)
     return true
   }
 
@@ -484,10 +634,34 @@ function tryUnlink(ctx: RouteContext, lang: 'hu' | 'en'): boolean {
   const type = m[2]
   const objectId = decodeURIComponent(m[3])
   if (!isLinkType(type)) return fail(res, 400, 'bad_link', lang)
-  if (projectForObject(type, objectId) !== id) return fail(res, 404, 'not_linked', lang)
+  const linked = projectForObject(type, objectId)
+  // Vitaztatas / hatteranyag: a projektje a forrasbol (naplo, fajl-jeloles) is
+  // johet. A "nincs projekt" valasztas itt TARTOS: a jeloles sem hozza vissza.
+  if (type === 'debate' || type === 'research') {
+    if (linked && linked !== id) return fail(res, 404, 'not_linked', lang)
+    detachObject(type, objectId)
+    json(res, { ok: true })
+    return true
+  }
+  if (linked !== id) return fail(res, 404, 'not_linked', lang)
   unlinkObject(type, objectId)
   json(res, { ok: true })
   return true
+}
+
+/** Van-e ilyen vitaztatas a naplóban (a kezi koteshez). */
+function debateExists(sessionId: string): boolean {
+  return listDebateSessions().some((d) => d.id === sessionId)
+}
+
+/** Van-e ilyen hatteranyag-fajl (`<agens>/<fajl>.md`) valamelyik agens research/ mappajaban. */
+function researchExists(objectId: string): boolean {
+  const m = objectId.match(/^([^/]+)\/([A-Za-z0-9._-]+\.md)$/)
+  if (!m) return false
+  if (![MAIN_AGENT_ID, ...listAgentNames()].includes(m[1])) return false
+  if (researchObjectId(m[1], m[2]) !== objectId) return false
+  const file = joinPath(agentConfigRoot(m[1]), 'research', m[2])
+  return existsSync(file) && statSync(file).isFile()
 }
 
 /** A mezok ellenorzese mappa-letrehozas ELOTT (nev kotelezo, allapot, cimke),

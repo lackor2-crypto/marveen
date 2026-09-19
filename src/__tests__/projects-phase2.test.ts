@@ -188,7 +188,9 @@ describe('otletek a projektben', () => {
     expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'idea', id: 'i-1' })).status).toBe(200)
     expect(listProjectIdeas(p.id).map((i) => i.id)).toEqual(['i-1'])
     expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'idea', id: 'nincs' })).body.error).toBe('idea_missing')
-    expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'memory', id: 'x' })).body.error).toBe('bad_link')
+    // Kezzel nem kotheto fajta: bad_link; kotheto, de nem letezo memoria: memory_missing.
+    expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'code_alias', id: 'x' })).body.error).toBe('bad_link')
+    expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'memory', id: 'x' })).body.error).toBe('memory_missing')
     const del = await call('DELETE', `/api/projects/${p.id}/links/idea/i-1`)
     expect(del.status).toBe(200)
     expect(listProjectIdeas(p.id)).toEqual([])
@@ -273,6 +275,10 @@ describe('uj fajl a projektmappaba', () => {
     expect(big.body.error).toBe('too_large')
     const folders = await call('GET', `/api/projects/${p.id}/folders`)
     expect(folders.body).toMatchObject({ state: 'ok', path: 'Projektek/Web', subfolders: [] })
+    // A Fajlok ful sajat listaja: a feltoltott fajl benne van.
+    const files = await call('GET', `/api/projects/${p.id}/files`)
+    expect(files.body.state).toBe('ok')
+    expect(files.body.files.map((f: { name: string }) => f.name)).toContain('Szerződés.pdf')
   })
 })
 
