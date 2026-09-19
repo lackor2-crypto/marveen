@@ -70,6 +70,10 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
       return projectScope === 'none' ? !pids : !!pids && pids.includes(projectScope)
     }
 
+    // A projekt-szures a LIMIT UTAN szur: szurve tobbet kerunk le, kulonben a
+    // projekt talalatai kieshetnek a limit mogul (1139), a vegen levagjuk.
+    const fetchLimit = scopeMap ? Math.max(limit, 2000) : limit
+
     let results: Memory[]
     if (scopeMap && projectScope !== 'none' && !q) {
       const ids = Object.keys(scopeMap).filter((id) => inScope(Number(id))).map(Number)
@@ -78,32 +82,32 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
           .all(...ids, ...(agentId ? [agentId] : []), limit) as Memory[]
         : []
     } else if (q && mode === 'hybrid') {
-      results = await hybridSearch(agentId || MAIN_AGENT_ID, q, limit)
+      results = await hybridSearch(agentId || MAIN_AGENT_ID, q, fetchLimit)
     } else if (q && agentId) {
-      results = searchAgentMemories(agentId, q, limit)
+      results = searchAgentMemories(agentId, q, fetchLimit)
       if (results.length === 0) {
         const db2 = getDb()
         results = db2.prepare("SELECT * FROM memories WHERE (agent_id = ? OR category = 'shared') AND (content LIKE ? OR keywords LIKE ?) ORDER BY accessed_at DESC LIMIT ?")
-          .all(agentId, `%${q}%`, `%${q}%`, limit) as Memory[]
+          .all(agentId, `%${q}%`, `%${q}%`, fetchLimit) as Memory[]
       }
     } else if (q) {
-      results = searchMemories(q, ALLOWED_CHAT_ID, limit)
+      results = searchMemories(q, ALLOWED_CHAT_ID, fetchLimit)
       if (results.length === 0) {
         const db2 = getDb()
-        results = db2.prepare('SELECT * FROM memories WHERE content LIKE ? ORDER BY accessed_at DESC LIMIT ?').all(`%${q}%`, limit) as Memory[]
+        results = db2.prepare('SELECT * FROM memories WHERE content LIKE ? ORDER BY accessed_at DESC LIMIT ?').all(`%${q}%`, fetchLimit) as Memory[]
       }
     } else if (agentId) {
       // Category goes into the query, not a post-filter: see getAgentMemories.
-      results = getAgentMemories(agentId, limit, tier || undefined)
+      results = getAgentMemories(agentId, fetchLimit, tier || undefined)
     } else {
-      results = getMemoriesForChat(ALLOWED_CHAT_ID, limit)
+      results = getMemoriesForChat(ALLOWED_CHAT_ID, fetchLimit)
     }
 
     // Still needed for the search branches above, which rank by relevance and
     // cannot push the category down into their own LIMIT. A no-op for the
     // plain agent listing, which already filtered in SQL.
     if (tier) results = results.filter(m => m.category === tier)
-    if (scopeMap) results = results.filter(m => inScope(m.id))
+    if (scopeMap) results = results.filter(m => inScope(m.id)).slice(0, limit)
 
     // A search query (q) is a genuine recall: stamp the surfaced memories as
     // just-accessed so accessed_at reflects real usage. Plain listing (no q,

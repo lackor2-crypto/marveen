@@ -12160,3 +12160,6 @@ details.upstream-box > summary > h4 {
 }
 .card-similar-box { margin-top: 12px; }
 .card-similar-row { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; cursor: pointer; overflow-wrap: anywhere; }
+/* Projekt: uj fajl javasolt helye (kanban #321) */
+.prj-place { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--bg-input); display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
+.prj-place p { margin: 0; }

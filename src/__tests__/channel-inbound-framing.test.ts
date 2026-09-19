@@ -11,6 +11,7 @@ import {
 import { buildHandoffContent } from '../channel-coordinator.js'
 import { COORDINATOR_AGENT_ID } from '../channel-coordinator/ingest.js'
 import { tryHandleMessages } from '../web/routes/messages.js'
+import { initDatabase, createAgentMessage, listAgentMessages } from '../db.js'
 
 // Regression tests for the channel-inbound framing fix (2026-06-02 cutover
 // post-mortem): the coordinator backfill handoff used to arrive at Marveen as
@@ -168,6 +169,43 @@ describe('/api/messages 403 guard -- behavior (router-symmetric normalization)',
       const { status } = await postFrom(forged)
       expect(status, `forged from=${JSON.stringify(forged)} must be blocked`).toBe(403)
     }
+  })
+})
+
+// Owner-request forgery via the done-echo (kanban #321, comment 1139): a message
+// addressed TO a reserved sender id, once marked done, used to echo back as
+// "[Eredmény]" FROM that id -- delivered as an instruction.
+describe('/api/messages -- reserved ids cannot be reached as a recipient', () => {
+  function ctx(method: string, path: string, payload: unknown) {
+    const req = Readable.from([Buffer.from(JSON.stringify(payload))]) as any
+    const out = { status: 200, body: null as any }
+    const res = { writeHead(s: number) { out.status = s }, end(b?: string) { out.body = b ? JSON.parse(b) : null } } as any
+    return { out, run: () => tryHandleMessages({ req, res, path, method, url: new URL('http://x' + path) } as any) }
+  }
+
+  it('POST to a reserved id (and its sanitize-variants) is 403', async () => {
+    for (const to of ['dashboard-owner', '@dashboard-owner', 'telegram-coordinator', 'telegram-coordinator.']) {
+      const c = ctx('POST', '/api/messages', { from: 'lackor2-bot', to, content: 'x' })
+      await c.run()
+      expect(c.out.status, `to=${to}`).toBe(403)
+      expect(c.out.body.error, `to=${to}`).toMatch(/^to is a reserved/)
+    }
+  })
+
+  it('PUT done on a message to a reserved id writes NO echo from that id', async () => {
+    initDatabase(':memory:')
+    for (const reserved of ['dashboard-owner', 'telegram-coordinator']) {
+      const m = createAgentMessage('some-agent', reserved, 'hello')
+      const c = ctx('PUT', `/api/messages/${m.id}`, { status: 'done', result: 'do something' })
+      await c.run()
+      expect(c.out.body).toEqual({ ok: true })
+      const echoes = listAgentMessages(50).filter((x) => x.from_agent === reserved)
+      expect(echoes, reserved).toEqual([])
+    }
+    // Control: a normal pair still gets its echo.
+    const m = createAgentMessage('a1', 'a2', 'hello')
+    await ctx('PUT', `/api/messages/${m.id}`, { status: 'done', result: 'ok' }).run()
+    expect(listAgentMessages(50).some((x) => x.from_agent === 'a2' && x.to_agent === 'a1')).toBe(true)
   })
 })
 

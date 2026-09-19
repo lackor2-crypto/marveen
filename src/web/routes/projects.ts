@@ -24,6 +24,8 @@
 //   POST   /api/projects/:id/links           -- meglevo objektum (otlet) kotese a projekthez
 //   DELETE /api/projects/:id/links/:type/:objectId -- a kotes bontasa (az objektum marad)
 //   GET    /api/projects/:id/folders         -- a projektmappa almappai (hova keruljon az uj fajl)
+//   POST   /api/projects/:id/placement       -- javasolt hely egy uj fajlnak (a projekt almappai kozul, vagy uj mappa)
+//   POST   /api/projects/:id/mkdir           -- uj almappa (CSAK a 'Rendben' gombra)
 //   POST   /api/projects/:id/upload?name=&sub= -- fajl feltoltese a projektmappaba (nyers bajtok)
 //   POST   /api/projects/:id/note            -- uj szoveges jegyzet a projektmappaba
 //
@@ -45,7 +47,7 @@ import {
 import { buildProjectOverview, recentFiles } from '../../project-overview.js'
 import { summarizeProject } from '../../project-summary.js'
 import {
-  projectSubfolders, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
+  projectSubfolders, makeProjectFolder, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
 } from '../../project-files.js'
 import { createIdea, getDb } from '../../db.js'
 import { randomUUID } from 'node:crypto'
@@ -57,6 +59,7 @@ import { classificationStatus, listCardSuggestions, startCardClassification, que
 import type { RouteContext } from './types.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { createAgentMessage } from '../../db.js'
+import { suggestPlacement } from '../../project-file-placement.js'
 import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import { resolveCardRefs } from '../card-work-guard.js'
 import {
@@ -80,6 +83,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_folder: { hu: 'A mappa útvonala nem érvényes.', en: 'The folder path is not valid.' },
   bad_label: { hu: 'Ez a címke nem létezik (lehet, hogy közben törölték).', en: 'This label does not exist (it may have been deleted).' },
   memory_missing: { hu: 'Ez a memória nem található (lehet, hogy közben törölték).', en: 'This memory was not found (it may have been deleted).' },
+  folder_name: { hu: 'A mappa neve nem jó: ne legyen üres, ne kezdődjön ponttal, és ne legyen benne \\ : * ? " < > | jel.', en: 'The folder name is not valid: it must not be empty, start with a dot, or contain \\ : * ? " < > |.' },
   not_found: { hu: 'Ez a projekt nem található (lehet, hogy közben törölték).', en: 'This project was not found (it may have been deleted).' },
   no_depot: { hu: 'Még nincs beállítva a Raktár (hol tárolja a Marveen a fájljaidat). Iroda -> Beállítások -> Raktár beállítások.', en: 'The Depot (where Marveen keeps your files) is not set up yet. Office -> Settings -> Depot settings.' },
   folder_outside: { hu: 'Ez a hely nincs a Raktár mappáján belül.', en: 'This place is not inside the Depot folder.' },
@@ -564,6 +568,28 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     json(res, t.ok
       ? { state: 'ok', path: project.folder_path, subfolders: projectSubfolders(project), maxBytes: PROJECT_UPLOAD_MAX_BYTES }
       : { state: t.code, path: project.folder_path, subfolders: [], maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    return true
+  }
+
+  // A javasolt hely egy uj fajlnak (a fajtajabol es nevebol, a projekt SAJAT
+  // almappai kozul -- src/project-file-placement.ts). Semmit nem hoz letre.
+  if (sub === '/placement' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const t = projectFileTarget(project, '')
+    if (!t.ok) return fail(res, 400, t.code, lang)
+    json(res, { placement: suggestPlacement(String(body.name ?? ''), typeof body.mime === 'string' ? body.mime : null, projectSubfolders(project), lang) })
+    return true
+  }
+
+  // Uj almappa -- CSAK a felhasznalo "Rendben" gombjara (a javaslat elonezet volt).
+  if (sub === '/mkdir' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const out = makeProjectFolder(project, body.parent, body.name)
+    if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
+    if (out.created) logger.info({ id, sub: out.sub }, '[projects] uj almappa a projektben')
+    json(res, out)
     return true
   }
 

@@ -41997,6 +41997,7 @@ function _prjFileHtml(p) {
       <div class="form-group">
         <label for="prjFileSub">${escapeHtml(t('projects.file.where'))}</label>
         <select id="prjFileSub" class="input">${subs}</select>
+        <div id="prjFilePlace" class="prj-place" aria-live="polite" hidden></div>
       </div>
       <label class="prj-radio"><input type="radio" name="prjFileMode" value="upload" checked>
         <span><strong>${escapeHtml(t('projects.file.mode_upload'))}</strong><span class="prj-radio-hint">${escapeHtml(t('projects.file.mode_upload_hint', { mb }))}</span></span></label>
@@ -42032,10 +42033,109 @@ function _prjWireFile(ov, p) {
   ov.querySelectorAll('input[name="prjFileMode"]').forEach((r) => r.addEventListener('change', () => {
     f.mode = r.value
     ov.querySelectorAll('.prj-folder-sub').forEach((el) => { el.hidden = el.getAttribute('data-for') !== f.mode })
-    const btn = ov.querySelector('#prjFileSave')
-    if (btn) btn.textContent = t(f.mode === 'note' ? 'projects.file.save_note' : 'projects.file.save_upload')
+    _prjRenderPlace(ov)
   }))
   ov.querySelector('#prjFileSave')?.addEventListener('click', () => _prjSubmitFile(ov, p))
+  // A javasolt hely: a kivalasztott fajl (vagy a jegyzet neve) alapjan.
+  ov.querySelector('#prjFileInput')?.addEventListener('change', () => {
+    const files = Array.from(ov.querySelector('#prjFileInput').files || [])
+    if (files.length) _prjSuggestPlace(ov, p, files[0].name, files[0].type, files.length)
+  })
+  let noteTimer = null
+  const noteSuggest = () => {
+    clearTimeout(noteTimer)
+    noteTimer = setTimeout(() => {
+      const n = ov.querySelector('#prjNoteName').value.trim()
+      if (n) _prjSuggestPlace(ov, p, n + '.' + ov.querySelector('#prjNoteExt').value, 'text/markdown', 1)
+    }, 400)
+  }
+  ov.querySelector('#prjNoteName')?.addEventListener('input', noteSuggest)
+  ov.querySelector('#prjNoteExt')?.addEventListener('change', noteSuggest)
+  ov.querySelector('#prjFileSub')?.addEventListener('change', () => _prjRenderPlace(ov))
+}
+
+// ---- a javasolt hely (Boss 2026-09-19, kommentek 1136-1138) ----
+// A szerver a fajl fajtajabol es nevebol a projekt SAJAT almappai kozul valaszt
+// (src/project-file-placement.ts). Ha nincs illo, uj mappat javasol -- nevvel
+// ES szulo-mappaval, mindketto atirhato --, de a mappa CSAK a "Rendben"
+// gombra jon letre. Semmi nem kerul csendben a fomappaba.
+
+const _PRJ_NEW_FOLDER = '__new__'
+
+async function _prjSuggestPlace(ov, p, name, mime, count) {
+  const f = _prj.file
+  if (!f) return
+  const r = await _prjApi('POST', '/api/projects/' + encodeURIComponent(p.id) + '/placement', { name, mime: mime || null })
+  if (!r.ok || !r.data || !r.data.placement || _prj.file !== f) return
+  const pl = r.data.placement
+  f.place = { ...pl, many: count > 1 }
+  const sel = ov.querySelector('#prjFileSub')
+  if (!sel) return
+  sel.querySelector(`option[value="${_PRJ_NEW_FOLDER}"]`)?.remove()
+  if (pl.type === 'existing') {
+    sel.value = pl.sub
+  } else {
+    const opt = document.createElement('option')
+    opt.value = _PRJ_NEW_FOLDER
+    opt.textContent = t('projects.file.place_new_option')
+    sel.appendChild(opt)
+    sel.value = _PRJ_NEW_FOLDER
+  }
+  _prjRenderPlace(ov)
+}
+
+function _prjRenderPlace(ov) {
+  const f = _prj.file
+  const box = ov.querySelector('#prjFilePlace')
+  const sel = ov.querySelector('#prjFileSub')
+  if (!f || !box || !sel) return
+  const pl = f.place
+  const btn = ov.querySelector('#prjFileSave')
+  const isNew = sel.value === _PRJ_NEW_FOLDER
+  if (btn) btn.textContent = isNew ? t('projects.file.save_new_folder') : t(f.mode === 'note' ? 'projects.file.save_note' : 'projects.file.save_upload')
+  if (!pl) { box.hidden = true; return }
+  const kind = t('projects.file.kind.' + pl.kind)
+  const many = pl.many ? ' ' + t('projects.file.place_first') : ''
+  if (isNew && pl.type === 'new') {
+    const parents = [`<option value="">${escapeHtml(t('projects.file.place_root'))}</option>`]
+      .concat(((f.info && f.info.subfolders) || []).map((x) => `<option value="${escapeAttr(x)}"${x === pl.parent ? ' selected' : ''}>${escapeHtml(x)}</option>`)).join('')
+    box.innerHTML = `<p>${escapeHtml(t('projects.file.place_new_intro', { kind }) + many)}</p>
+      <label for="prjNewFolderName">${escapeHtml(t('projects.file.place_new_name'))}</label>
+      <input type="text" id="prjNewFolderName" class="input" maxlength="200" value="${escapeAttr(pl.name)}">
+      <label for="prjNewFolderParent">${escapeHtml(t('projects.file.place_new_parent'))}</label>
+      <select id="prjNewFolderParent" class="input">${parents}</select>
+      <p class="prj-muted">${escapeHtml(t('projects.file.place_new_hint'))}</p>`
+  } else if (pl.type === 'existing' && sel.value === pl.sub) {
+    box.innerHTML = `<p>${escapeHtml(t('projects.file.place_existing', { kind, sub: pl.sub }) + many)}</p>`
+  } else {
+    box.innerHTML = `<p class="prj-muted">${escapeHtml(t('projects.file.place_manual'))}</p>`
+  }
+  box.hidden = false
+}
+
+/** "Rendben": ha uj mappa van kivalasztva, most jon letre -- utana ide kerul a fajl.
+ *  Visszaadja a cel-almappat, vagy null-t (hiba, mar kiirva). */
+async function _prjResolveTarget(ov, p, say) {
+  const sel = ov.querySelector('#prjFileSub')
+  if (sel.value !== _PRJ_NEW_FOLDER) return sel.value
+  const name = (ov.querySelector('#prjNewFolderName')?.value || '').trim()
+  const parent = ov.querySelector('#prjNewFolderParent')?.value || ''
+  if (!name) { say(escapeHtml(t('projects.file.place_need_name')), true); ov.querySelector('#prjNewFolderName')?.focus(); return null }
+  const r = await _prjApi('POST', '/api/projects/' + encodeURIComponent(p.id) + '/mkdir', { parent, name })
+  if (!r.ok) { say(escapeHtml(r.message), true); return null }
+  const sub = r.data.sub
+  // A letrejott (vagy mar meglevo) mappa ezutan a listaban all, kivalasztva.
+  const f = _prj.file
+  if (f && f.info) f.info.subfolders = Array.from(new Set([...(f.info.subfolders || []), ...sub.split('/').map((_, i, a) => a.slice(0, i + 1).join('/'))])).sort((a, b) => a.localeCompare(b, 'hu'))
+  sel.querySelector(`option[value="${_PRJ_NEW_FOLDER}"]`)?.remove()
+  if (!Array.from(sel.options).some((o) => o.value === sub)) {
+    const opt = document.createElement('option'); opt.value = sub; opt.textContent = sub; sel.appendChild(opt)
+  }
+  sel.value = sub
+  if (f) f.place = { type: 'existing', kind: f.place ? f.place.kind : 'other', sub }
+  _prjRenderPlace(ov)
+  if (r.data.created) showToast(t('projects.file.folder_created', { sub }))
+  return sub
 }
 
 async function _prjSubmitFile(ov, p) {
@@ -42043,7 +42143,6 @@ async function _prjSubmitFile(ov, p) {
   if (!f || f.busy) return
   const status = ov.querySelector('#prjFileStatus')
   const say = (html, bad) => { status.innerHTML = html; status.hidden = false; status.classList.toggle('prj-preview-bad', !!bad) }
-  const sub = ov.querySelector('#prjFileSub').value
   const base = '/api/projects/' + encodeURIComponent(p.id)
   const btn = ov.querySelector('#prjFileSave')
   const lines = []
@@ -42054,6 +42153,8 @@ async function _prjSubmitFile(ov, p) {
     const name = ov.querySelector('#prjNoteName').value.trim()
     if (!name) { say(escapeHtml(t('projects.file.need_name')), true); ov.querySelector('#prjNoteName').focus(); return }
     f.busy = true; btn.disabled = true
+    const sub = await _prjResolveTarget(ov, p, say)
+    if (sub === null) { f.busy = false; btn.disabled = false; return }
     const r = await _prjApi('POST', base + '/note', { sub, name, text: ov.querySelector('#prjNoteText').value, ext: ov.querySelector('#prjNoteExt').value })
     f.busy = false; btn.disabled = false
     if (!r.ok) { say(escapeHtml(r.message), true); return }
@@ -42067,6 +42168,8 @@ async function _prjSubmitFile(ov, p) {
   if (!files.length) { say(escapeHtml(t('projects.file.need_file')), true); return }
   const max = (f.info && f.info.maxBytes) || 0
   f.busy = true; btn.disabled = true
+  const sub = await _prjResolveTarget(ov, p, say)
+  if (sub === null) { f.busy = false; btn.disabled = false; return }
   let failed = 0
   for (let i = 0; i < files.length; i++) {
     const file = files[i]

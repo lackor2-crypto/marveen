@@ -14,7 +14,7 @@
  *   - meglevo fajlt SOHA nem irunk felul: ha a nev foglalt, `nev (2).ext` lesz,
  *     es a felulet megmondja, milyen neven mentettuk.
  */
-import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { extname, join, sep } from 'node:path'
 import { resolveLifePath, toLifeRel, explorerRoot } from './life-explorer.js'
 import { safeLifeName } from './life-tree.js'
@@ -50,19 +50,66 @@ export function projectFileTarget(p: ProjectRow, sub: unknown): FileTarget {
   return { ok: true, dirAbs: abs, dirRel: toLifeRel(abs) || (subRel ? `${p.folder_path}/${subRel}` : p.folder_path) }
 }
 
-/** A projekt mappajanak kozvetlen almappai (a "hova keruljon" valasztohoz).
- *  A rejtett mappak (`.git`, `.kuka`, ...) nem. */
+/** A projekt mappajanak almappai, a MELYEBBEK is ('Media/Fotok'), relativ
+ *  utkent -- a "hova keruljon" valasztohoz es a javasolt helyhez. Korlatos
+ *  bejaras (melyseg, darabszam). Kimarad: a rejtett mappa (`.git`, `.kuka`),
+ *  a `node_modules`, es a git-tarolo (abba nem irunk -- git-guard). */
+export const SUBFOLDER_MAX_DEPTH = 4
+export const SUBFOLDER_MAX = 400
+
 export function projectSubfolders(p: ProjectRow): string[] {
   const t = projectFileTarget(p, '')
   if (!t.ok) return []
-  try {
-    return readdirSync(t.dirAbs, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
-      .map((d) => d.name)
-      .sort((a, b) => a.localeCompare(b, 'hu'))
-  } catch {
-    return []
+  const out: string[] = []
+  const walk = (abs: string, rel: string, depth: number): void => {
+    if (depth > SUBFOLDER_MAX_DEPTH || out.length >= SUBFOLDER_MAX) return
+    let entries: import('node:fs').Dirent[]
+    try { entries = readdirSync(abs, { withFileTypes: true }) } catch { return }
+    const dirs = entries.filter((d) => d.isDirectory() && !d.name.startsWith('.') && d.name !== 'node_modules')
+      .sort((a, b) => a.name.localeCompare(b.name, 'hu'))
+    for (const d of dirs) {
+      if (out.length >= SUBFOLDER_MAX) return
+      const childAbs = join(abs, d.name)
+      if (existsSync(join(childAbs, '.git'))) continue
+      const childRel = rel ? `${rel}/${d.name}` : d.name
+      out.push(childRel)
+      walk(childAbs, childRel, depth + 1)
+    }
   }
+  walk(t.dirAbs, '', 1)
+  return out
+}
+
+export type MkdirOutcome = { ok: true; sub: string; created: boolean } | { ok: false; code: FileErrorCode | 'folder_name'; message?: string }
+
+/** Uj almappa a projektben -- CSAK a felhasznalo "Rendben" gombjara hivodik.
+ *  `parent`: meglevo almappa ('' = a projekt fomappaja); `name`: egy vagy tobb
+ *  szint ('Media/Fotok'). A projekt mappajan kivulre nem vezethet, git-taroloba
+ *  nem ir; ha mar letezik, azt hasznaljuk (nem hiba). */
+export function makeProjectFolder(p: ProjectRow, parent: unknown, name: unknown): MkdirOutcome {
+  const par = projectFileTarget(p, parent)
+  if (!par.ok) return par
+  const segs = String(name ?? '').replace(/\\/g, '/').split('/').map((x) => x.trim()).filter(Boolean)
+  if (!segs.length || segs.length > 4) return { ok: false, code: 'folder_name' }
+  const clean = segs.map((x) => safeLifeName(x))
+  if (clean.some((x, i) => !x || x === '_' || x.startsWith('.') || x.length > 120 || x !== segs[i])) return { ok: false, code: 'folder_name' }
+  const parentSub = parent === undefined || parent === null || String(parent).trim() === '' ? '' : (cleanFolderRel(parent) ?? '')
+  const sub = parentSub ? `${parentSub}/${clean.join('/')}` : clean.join('/')
+  const base = projectFileTarget(p, '')
+  if (!base.ok) return base
+  const abs = join(par.dirAbs, ...clean)
+  if (!abs.startsWith(base.dirAbs + sep)) return { ok: false, code: 'bad_folder' }
+  const rel = `${par.dirRel}/${clean.join('/')}`
+  const blocked = writeBlockReason(rel)
+  if (blocked) return { ok: false, code: 'repo_inside', message: blocked }
+  if (existsSync(abs)) {
+    try { if (!statSync(abs).isDirectory()) return { ok: false, code: 'bad_folder' } } catch { return { ok: false, code: 'unreachable' } }
+    return { ok: true, sub, created: false }
+  }
+  try { mkdirSync(abs, { recursive: true }) } catch (e) {
+    return { ok: false, code: 'write_failed', message: e instanceof Error ? e.message : String(e) }
+  }
+  return { ok: true, sub, created: true }
 }
 
 /** Biztonsagos fajlnev: a Windows tiltott jelei nelkul, a kiterjesztes marad. */
