@@ -133,6 +133,18 @@ LIMIT_BANNER_RE = re.compile(
     r"^you['\u2019]?ve\s+hit\s+your\s+([a-z0-9-]+)?\s*limit\b(.*)$", re.I)
 
 
+def claim_pending(path):
+    """Atomically take ownership of a pending file. Returns the claimed path, or
+    None if another sender (watchdog, second timer) already took it. rename() is
+    atomic on one filesystem, so exactly one concurrent caller wins."""
+    claimed = f"{path}.claimed.{os.getpid()}"
+    try:
+        os.rename(path, claimed)
+    except OSError:
+        return None
+    return claimed
+
+
 def limit_banner_key(text):
     """The outage this text is a bare platform limit banner for, else None.
 
@@ -223,20 +235,40 @@ def main():
         # quietly, and the next thing the owner hears is the wake bell.
         answer = ""
         log(sd, f"[enforce] bare limit banner dropped, owner told only on recovery key={limit_key}")
+    # Claim the pending file atomically BEFORE sending. The watchdog (and, on a
+    # host with two timers, a second watchdog) delivers the same file: whoever
+    # renames it first owns the delivery, everyone else stands down. Without
+    # this the owner got the same answer twice (card 40227dc9).
+    claimed = claim_pending(path)
+    if not claimed:
+        try:
+            os.remove(guard)
+        except Exception:
+            pass
+        log(sd, f"[enforce] pending already claimed by another sender sid={sid}")
+        return
+    try:
+        pend = json.load(open(claimed)) or pend
+    except Exception:
+        pass
     tok = token(sd)
     if tok:
+        sent_to = set()
         for p in pend:
             cid, mid = p.get("chat_id"), p.get("message_id")
-            if answer:
+            # One answer per chat: several placeholders of the same turn in the
+            # same chat must not each carry a copy of the answer.
+            if answer and str(cid) not in sent_to:
                 try:
                     api(tok, "sendMessage", {"chat_id": cid, "text": answer[:4000]})
+                    sent_to.add(str(cid))
                 except Exception as e:
                     log(sd, f"[enforce] fallback send failed: {e}")
             try:
                 api(tok, "deleteMessage", {"chat_id": cid, "message_id": mid})
             except Exception as e:
                 log(sd, f"[stop] delete failed: {e}")
-    for f in (path, guard):
+    for f in (claimed, guard):
         try:
             os.remove(f)
         except Exception:
