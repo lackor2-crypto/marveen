@@ -448,6 +448,31 @@ fi
 
 echo "land-pr: MERGE-ELVE. PR: $PR_URL" >&2
 
+# --- 4b. emlekezteto: a landolt kartyat tedd at 'waiting'-be (2026-09-19) ------
+# A kesz munka tobbszor in_progress-ben ragadt, mert az agens elfelejtette
+# tovabb mozgatni. A commit/PR cime hordozza a kartya-referenciat (pl.
+# "fix(#<id>): ..."); ha megtalaljuk es a kartya meg nem 'waiting'/'done',
+# hangosan szolunk. Best-effort: SOHA nem bukik el ettol a merge (|| true, -m 5).
+CARD_REF="$(printf '%s' "$TITLE" | grep -oiE '#[0-9a-f]{6,8}|#[0-9]+' | head -n1 | tr -d '#' || true)"
+if [ -n "$CARD_REF" ]; then
+  MAIN_ROOT="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
+  TOKF="$MAIN_ROOT/store/.dashboard-token"
+  PORT="$(grep -oE '^WEB_PORT=.*' "$MAIN_ROOT/.env" 2>/dev/null | head -n1 | cut -d= -f2 | tr -d '[:space:]' || true)"
+  [ -z "$PORT" ] && PORT=3420
+  CARD_STATUS=""
+  if [ -r "$TOKF" ]; then
+    CARD_STATUS="$(curl -s -m 5 -H "Authorization: Bearer $(cat "$TOKF")" "http://localhost:$PORT/api/kanban" 2>/dev/null \
+      | CARD="$CARD_REF" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const d=JSON.parse(s);const cards=Array.isArray(d)?d:(d.cards||[]);const ref=process.env.CARD||"";const c=cards.find(c=>String(c.id??"")===ref||String(c.seq??"")===ref);if(c)process.stdout.write(String(c.status||""))}catch{}})' 2>/dev/null || true)"
+  fi
+  if [ "$CARD_STATUS" = "waiting" ] || [ "$CARD_STATUS" = "done" ]; then
+    : # mar a helyen van, nincs teendo
+  elif [ -n "$CARD_STATUS" ]; then
+    echo "land-pr: >>> EMLEKEZTETO: a #$CARD_REF kartya meg '$CARD_STATUS' -- a munka LANDOLT, tedd at 'waiting'-be (a 'done'-t a tulajdonos teszi). <<<" >&2
+  else
+    echo "land-pr: >>> EMLEKEZTETO: ha a #$CARD_REF kartya kesz, tedd at 'waiting'-be (a 'done'-t a tulajdonos teszi). <<<" >&2
+  fi
+fi
+
 # --- 5. lokalis main frissitese ------------------------------------------------
 git fetch -q origin main && echo "land-pr: origin/main = $(git rev-parse --short "$MAIN_REF"). Frissitsd a lokalis checkoutod, ha kell." >&2
 echo "land-pr: KESZ. Az elo peldanyra a scripts/deploy-live.sh viszi ki (idozitve fut)." >&2
