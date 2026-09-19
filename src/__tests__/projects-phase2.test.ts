@@ -273,6 +273,10 @@ describe('uj fajl a projektmappaba', () => {
     expect(big.body.error).toBe('too_large')
     const folders = await call('GET', `/api/projects/${p.id}/folders`)
     expect(folders.body).toMatchObject({ state: 'ok', path: 'Projektek/Web', subfolders: [] })
+    // A Fajlok ful sajat listaja: a feltoltott fajl benne van.
+    const files = await call('GET', `/api/projects/${p.id}/files`)
+    expect(files.body.state).toBe('ok')
+    expect(files.body.files.map((f: { name: string }) => f.name)).toContain('Szerződés.pdf')
   })
 })
 

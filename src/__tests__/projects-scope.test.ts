@@ -90,6 +90,16 @@ describe('uj projekt -> kezdo kartya', () => {
     expect(getLabelsForCard(ok.body.starterCardId).map((l: { id: string }) => l.id)).toEqual(['lab-web'])
   })
 
+  it('ha a kezdo kartya irasa elbukik, a projekt sem marad meg (egy tranzakcio)', async () => {
+    getDb().exec("CREATE TRIGGER no_card BEFORE INSERT ON kanban_cards BEGIN SELECT RAISE(ABORT, 'teszt'); END")
+    const r = await call('POST', '/api/projects?lang=hu', { name: 'Felbemaradt' })
+    expect(r.status).toBe(500)
+    expect(r.body.error).toBe('create_failed')
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM projects').get()).toEqual({ n: 0 })
+    getDb().exec('DROP TRIGGER no_card')
+    expect((await call('POST', '/api/projects?lang=hu', { name: 'Felbemaradt' })).status).toBe(200)
+  })
+
   it('starter_card:false -> nincs kezdo kartya (es cimke sem kell)', async () => {
     createLabel({ id: 'lab-web', name: 'web', color: '#123456' })
     const r = await call('POST', '/api/projects', { name: 'Kartya nelkul', starter_card: false })
@@ -173,6 +183,27 @@ describe('vitaztatas es hatteranyag projektje', () => {
     expect(knownProjectId('')).toBeNull()
   })
 
+  it('kezi "nincs projekt" tartos: jeloles A + kotes B, majd levalasztas -> sehol (nem ugrik vissza A-ba)', async () => {
+    const a = mustProject({ name: 'Alfa' })
+    const b = mustProject({ name: 'Beta' })
+    const content = `# C\nproject: ${a.id}\n`
+    linkObject(b.id, 'research', 'marveen/x.md')
+    expect(researchProject('marveen', 'x.md', content)).toBe(b.id)
+    const r = await call('DELETE', `/api/projects/${b.id}/links/research/${encodeURIComponent('marveen/x.md')}`)
+    expect(r.status).toBe(200)
+    expect(researchProject('marveen', 'x.md', content)).toBeNull()
+    // Csak jelolesbol szarmazo vita is levalaszthato, es az is tartos.
+    expect(debateProject('s9', a.id)).toBe(a.id)
+    expect((await call('DELETE', `/api/projects/${a.id}/links/debate/s9`)).status).toBe(200)
+    expect(debateProject('s9', a.id)).toBeNull()
+    // Masik projekt kotesenek bontasa ezen a projekten at nem megy.
+    linkObject(b.id, 'debate', 's8')
+    expect((await call('DELETE', `/api/projects/${a.id}/links/debate/s8`)).status).toBe(404)
+    // Uj kotes felulirja a "nincs projekt" dontest.
+    linkObject(a.id, 'research', 'marveen/x.md')
+    expect(researchProject('marveen', 'x.md', content)).toBe(a.id)
+  })
+
   it('kezi kotes: nem letezo vita 404, ismeretlen fajta 400', async () => {
     const a = mustProject({ name: 'Alfa' })
     setDebateLogPathForTests(join(tmp, 'nincs.jsonl'))
@@ -221,6 +252,23 @@ describe('projektbol inditott keres a fo agensnek', () => {
     expect(researchProjectMark(`# Engedelyek\nproject: ${a.id}\n`)).toBe(a.id)
     expect((await call('POST', `/api/projects/${a.id}/requests`, { kind: 'research', text: '  ' })).status).toBe(400)
     expect((await call('POST', `/api/projects/${a.id}/requests`, { kind: 'mas', text: 'x' })).status).toBe(400)
+  })
+})
+
+describe('folytassuk a projektet (kontextus az agensnek)', () => {
+  it('nev-reszletbol megtalalja; tobb talalatnal nem valaszt; ismeretlennel felsorol', async () => {
+    const a = mustProject({ name: 'Kovács weboldal' })
+    mustProject({ name: 'Kovács logó' })
+    const one = await call('GET', '/api/projects/context?q=' + encodeURIComponent('kovacs weboldal') + '&lang=hu')
+    expect(one.body.state).toBe('found')
+    expect(one.body.project).toEqual({ id: a.id, name: 'Kovács weboldal' })
+    expect(one.body.text).toContain(`id ${a.id}`)
+    const two = await call('GET', '/api/projects/context?q=kovacs')
+    expect(two.body.state).toBe('ambiguous')
+    expect(two.body.matches).toHaveLength(2)
+    const none = await call('GET', '/api/projects/context?q=semmi')
+    expect(none.body.state).toBe('none')
+    expect(none.body.projects).toHaveLength(2)
   })
 })
 

@@ -222,48 +222,99 @@ export function startCardClassification(lang: 'hu' | 'en', cardIds?: string[] | 
   return { ok: true, status: classificationStatus() }
 }
 
-/** A futas maga. Exportalva a teszt miatt (ott megvarjuk). */
-export async function runClassification(runId: string, projects: ProjectBrief[], cards: CardBrief[], lang: 'hu' | 'en'): Promise<void> {
-  ensureSuggestionTable()
+/** Egy adag kartya kikerdezese es a javaslatok mentese. A globalis futas
+ *  allapotahoz NEM nyul -- azt a hivo vezeti (runClassification), a
+ *  kartyankenti javaslat (queueCardSuggestion) pedig egyaltalan nem. */
+async function classifyAndSave(projects: ProjectBrief[], batch: CardBrief[], lang: 'hu' | 'en', runId: string):
+  Promise<{ ok: true; engine: string } | { ok: false; noAi: boolean }> {
   const db = getDb()
   const projectIds = new Set(projects.map((p) => p.id))
+  const ids = new Set(batch.map((c) => c.id))
+  const ask = await askAiJson(SYSTEM, classifyPrompt(projects, batch, lang), (j) => parseClassifyAnswer(j, ids, projectIds))
+  if (ask.engine === 'none' || !ask.value) return { ok: false, noAi: ask.reason === 'no_ai' }
+  const engine = `${ask.engine}:${ask.model}`
   const save = db.prepare(
     `INSERT INTO project_card_suggestions (card_id, project_id, confidence, reason, engine, run_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(card_id) DO UPDATE SET project_id = excluded.project_id, confidence = excluded.confidence,
        reason = excluded.reason, engine = excluded.engine, run_id = excluded.run_id, created_at = excluded.created_at`,
   )
+  const answered = new Map(ask.value.map((x) => [x.id, x]))
+  const now = Math.floor(Date.now() / 1000)
+  db.transaction(() => {
+    for (const c of batch) {
+      const a = answered.get(c.id)
+      // A valaszbol kimaradt kartya "bizonytalan" -- nem vesz el, a tulajdonos latja.
+      save.run(c.id, a?.project ?? null, a?.confidence ?? 0, a?.reason ?? '', engine, runId, now)
+    }
+  })()
+  return { ok: true, engine }
+}
+
+/** A futas maga. Exportalva a teszt miatt (ott megvarjuk). */
+export async function runClassification(runId: string, projects: ProjectBrief[], cards: CardBrief[], lang: 'hu' | 'en'): Promise<void> {
+  ensureSuggestionTable()
   try {
     for (let i = 0; i < cards.length; i += CLASSIFY_BATCH) {
       if (status.runId !== runId) return
       const batch = cards.slice(i, i + CLASSIFY_BATCH)
-      const ids = new Set(batch.map((c) => c.id))
-      const ask = await askAiJson(SYSTEM, classifyPrompt(projects, batch, lang), (j) => parseClassifyAnswer(j, ids, projectIds))
+      const out = await classifyAndSave(projects, batch, lang, runId)
       if (status.runId !== runId) return
-      if (ask.engine === 'none' || !ask.value) {
+      if (!out.ok) {
         // Az elso kerdesnel derul ki, ha egyaltalan nincs AI: akkor nincs mit folytatni.
-        if (ask.reason === 'no_ai' && status.done === 0 && status.failed === 0) {
+        if (out.noAi && status.done === 0 && status.failed === 0) {
           Object.assign(status, { state: 'failed', error: 'no_ai', failed: cards.length, finishedAt: Date.now() })
           return
         }
         status.failed += batch.length
         continue
       }
-      const engine = `${ask.engine}:${ask.model}`
-      status.engine = engine
-      const answered = new Map(ask.value.map((x) => [x.id, x]))
-      const now = Math.floor(Date.now() / 1000)
-      db.transaction(() => {
-        for (const c of batch) {
-          const a = answered.get(c.id)
-          // A valaszbol kimaradt kartya "bizonytalan" -- nem vesz el, a tulajdonos latja.
-          save.run(c.id, a?.project ?? null, a?.confidence ?? 0, a?.reason ?? '', engine, runId, now)
-        }
-      })()
+      status.engine = out.engine
       status.done += batch.length
     }
     if (status.runId === runId) Object.assign(status, { state: 'done', finishedAt: Date.now() })
   } catch {
     if (status.runId === runId) Object.assign(status, { state: 'failed', finishedAt: Date.now(), failed: status.total - status.done })
+  }
+}
+
+// ---- kartyankenti javaslat (uj, projekt nelkul mentett kartya) ----
+// Kulon sor, kulon allapot: a nagy (Regi adatok atvetele) futas allapotat nem
+// irja felul, es ha az eppen fut, a kartya nem vesz el -- a sorban var, amig
+// az elozo kartyankenti keres vegez.
+
+const singleQueue = new Map<string, 'hu' | 'en'>()
+let singleRunning: Promise<void> | null = null
+
+export type QueueOutcome = 'queued' | 'no_projects' | 'not_unassigned'
+
+export function queueCardSuggestion(cardId: string, lang: 'hu' | 'en'): QueueOutcome {
+  ensureSuggestionTable()
+  if (!loadProjects().length) return 'no_projects'
+  if (!loadUnassigned().some((c) => c.id === cardId)) return 'not_unassigned'
+  singleQueue.set(cardId, lang)
+  if (!singleRunning) singleRunning = drainSingleQueue().finally(() => { singleRunning = null })
+  return 'queued'
+}
+
+/** A teszt megvarhatja a kartyankenti sort. */
+export function cardSuggestionIdle(): Promise<void> {
+  return singleRunning ?? Promise.resolve()
+}
+
+async function drainSingleQueue(): Promise<void> {
+  while (singleQueue.size) {
+    const entries = [...singleQueue.entries()]
+    singleQueue.clear()
+    const projects = loadProjects()
+    if (!projects.length) return
+    const unassigned = new Map(loadUnassigned().map((c) => [c.id, c]))
+    for (const [id, lang] of entries) {
+      const card = unassigned.get(id)
+      if (!card) continue
+      try {
+        await classifyAndSave(projects, [card], lang, 'card')
+      } catch { /* egy kartya javaslata elmaradhat; a kartya maga megvan */ }
+    }
   }
 }

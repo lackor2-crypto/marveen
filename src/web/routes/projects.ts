@@ -8,7 +8,9 @@
 //   GET    /api/projects/migration           -- a regi adatok atvetelenek DRY-RUN terve + naplo
 //   POST   /api/projects/migration/apply     -- a jovahagyott hozzarendeles vegrehajtasa
 //   POST   /api/projects/migration/:id/revert -- egy atvetel visszavonasa
+//   POST   /api/projects/card-suggestion  -- egy uj kartya javaslata (kulon sor, a nagy futast nem erinti)
 //   POST   /api/projects/migration/classify  -- a projekt nelkuli kartyak besorolasi JAVASLATA a tartalmuk alapjan (hatterben)
+//   GET    /api/projects/context?q=          -- "folytassuk a projektet": a projekt teljes kontextusa az agensnek
 //   GET    /api/projects/:id                 -- egy projekt
 //   PUT    /api/projects/:id                 -- szerkesztes (+ mappa-csere)
 //   POST   /api/projects/:id/archive         -- archivalas / visszahozas
@@ -37,9 +39,9 @@ import { writeBlockReason } from '../../git-guard.js'
 import {
   ensureProjectTables, listProjects, getProject, createProject, updateProject, setProjectArchived,
   projectDeletePreview, deleteProject, projectNameMap, cleanFolderRel, validateProjectInput, projectNameTaken,
-  listProjectIdeas, projectIdeaCandidates, linkObject, unlinkObject, projectForObject, isLinkType, hasTable,
+  listProjectIdeas, projectIdeaCandidates, linkObject, unlinkObject, detachObject, projectForObject, isLinkType, hasTable,
 } from '../../projects.js'
-import { buildProjectOverview } from '../../project-overview.js'
+import { buildProjectOverview, recentFiles } from '../../project-overview.js'
 import { summarizeProject } from '../../project-summary.js'
 import {
   projectSubfolders, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
@@ -50,7 +52,7 @@ import {
   planProjectMigration, applyProjectMigration, listProjectMigrations, revertProjectMigration,
   type MigrationMapping,
 } from '../../project-migration.js'
-import { classificationStatus, listCardSuggestions, startCardClassification, CONFIDENT } from '../../project-card-classify.js'
+import { classificationStatus, listCardSuggestions, startCardClassification, queueCardSuggestion, CONFIDENT } from '../../project-card-classify.js'
 import type { RouteContext } from './types.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { createAgentMessage } from '../../db.js'
@@ -60,7 +62,7 @@ import {
 } from '../../project-scope.js'
 import { agentConfigRoot, listAgentNames } from '../agent-config.js'
 import { join as joinPath } from 'node:path'
-import { listDebateSessions } from '../../project-context.js'
+import { listDebateSessions, findProject, projectContext } from '../../project-context.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
   const v = url.searchParams.get('lang')
@@ -113,6 +115,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   repo_inside: { hu: 'Ez a hely egy git-repó belseje, ide nem teszek fájlt.', en: 'This place is inside a git repository; no file is put here.' },
   write_failed: { hu: 'Nem sikerült menteni a fájlt.', en: 'Could not save the file.' },
   starter_label_required: { hu: 'A kezdő kártyához címke kell: válassz alapértelmezett címkét, vagy vedd ki a pipát a „Kezdő kártya” elől.', en: 'The starter card needs a label: pick a default label, or untick "Starter card".' },
+  create_failed: { hu: 'A projektet nem sikerült létrehozni (semmi nem maradt félkész). Próbáld újra.', en: 'The project could not be created (nothing was left half-done). Please try again.' },
   request_text_required: { hu: 'Írd le, miről szóljon.', en: 'Write down what it should be about.' },
   bad_request_kind: { hu: 'Ismeretlen kérés-fajta.', en: 'Unknown request kind.' },
   debate_missing: { hu: 'Ez a vitáztatás nem található.', en: 'This debate was not found.' },
@@ -292,10 +295,38 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
 
   // Egy projekt nelkuli kartya besorolasi javaslata (a kartya-ablak mutatja,
   // egy kattintassal elfogadhato). Nincs javaslat -> suggestion: null.
+  // "Folytassuk a X projektet": az agens EGY hivassal megkapja a projekt teljes
+  // kontextusat (src/project-context.ts). A projektet a tulajdonos szavaibol
+  // keresi; tobb talalatnal nem valaszt, hanem felsorolja (az agens visszakerdez).
+  if (path === '/api/projects/context' && method === 'GET') {
+    const found = findProject(url.searchParams.get('q') ?? '')
+    const brief = (p: { id: string; name: string }) => ({ id: p.id, name: p.name })
+    if (found.kind === 'found') {
+      const ctx = projectContext(found.project.id, lang)
+      if (!ctx) return fail(res, 404, 'not_found', lang)
+      json(res, { state: 'found', project: brief(ctx.project), text: ctx.text })
+    } else if (found.kind === 'ambiguous') {
+      json(res, { state: 'ambiguous', matches: found.matches.map(brief) })
+    } else {
+      json(res, { state: 'none', projects: found.projects.map(brief) })
+    }
+    return true
+  }
+
   if (path === '/api/projects/card-suggestion' && method === 'GET') {
     const cardId = url.searchParams.get('card') || ''
     const hit = listCardSuggestions().find((x) => x.cardId === cardId) ?? null
     json(res, { suggestion: hit, confident: CONFIDENT, status: classificationStatus() })
+    return true
+  }
+
+  // Egy uj, projekt nelkul mentett kartya javaslata. Kulon sor: nem irja felul
+  // a nagy besorolo futas allapotat, es nem vesz el, ha az eppen fut.
+  if (path === '/api/projects/card-suggestion' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const out = queueCardSuggestion(String(body.card ?? ''), lang)
+    json(res, { ok: out === 'queued', state: out }, out === 'queued' ? 202 : 200)
     return true
   }
 
@@ -353,13 +384,28 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     }
     const folder = realizeFolder(fr, lang)
     if (!folder.ok) return fail(res, 400, folder.code, lang, folder.message ? { message: folder.message } : {})
-    const made = createProject({ ...body, folder_path: folder.rel })
-    if (!made.ok) return fail(res, 400, made.code, lang)
+    // Projekt + kezdo kartya + cimkeje EGY tranzakcio: ha barmelyik elbukik,
+    // egyik sem marad meg (nincs kartya nelkuli "fel projekt").
+    let made: ReturnType<typeof createProject>
     let starterCardId: string | null = null
-    if (wantStarter) {
-      starterCardId = createStarterCard(made.project, lang)
-      applyCardLabels(starterCardId, starterLabels)
+    try {
+      const out = getDb().transaction(() => {
+        const m = createProject({ ...body, folder_path: folder.rel })
+        if (!m.ok) return { made: m, starter: null }
+        let sid: string | null = null
+        if (wantStarter) {
+          sid = createStarterCard(m.project, lang)
+          applyCardLabels(sid, starterLabels)
+        }
+        return { made: m, starter: sid }
+      })()
+      made = out.made
+      starterCardId = out.starter
+    } catch (e) {
+      logger.error({ err: e }, '[projects] projekt + kezdo kartya letrehozasa elbukott, visszagorgetve')
+      return fail(res, 500, 'create_failed', lang)
     }
+    if (!made.ok) return fail(res, 400, made.code, lang)
     json(res, { ok: true, project: made.project, starterCardId })
     return true
   }
@@ -488,6 +534,14 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // A projekt Fajlok fule: a mappa legutobb modositott fajljai (a projekt oldalan
+  // helyben, nem az Intezobe atugorva).
+  if (sub === '/files' && method === 'GET') {
+    const scan = recentFiles(project, 100)
+    json(res, { state: scan.state, path: project.folder_path, files: scan.files })
+    return true
+  }
+
   if (sub === '/folders' && method === 'GET') {
     const t = projectFileTarget(project, '')
     json(res, t.ok
@@ -537,7 +591,16 @@ function tryUnlink(ctx: RouteContext, lang: 'hu' | 'en'): boolean {
   const type = m[2]
   const objectId = decodeURIComponent(m[3])
   if (!isLinkType(type)) return fail(res, 400, 'bad_link', lang)
-  if (projectForObject(type, objectId) !== id) return fail(res, 404, 'not_linked', lang)
+  const linked = projectForObject(type, objectId)
+  // Vitaztatas / hatteranyag: a projektje a forrasbol (naplo, fajl-jeloles) is
+  // johet. A "nincs projekt" valasztas itt TARTOS: a jeloles sem hozza vissza.
+  if (type === 'debate' || type === 'research') {
+    if (linked && linked !== id) return fail(res, 404, 'not_linked', lang)
+    detachObject(type, objectId)
+    json(res, { ok: true })
+    return true
+  }
+  if (linked !== id) return fail(res, 404, 'not_linked', lang)
   unlinkObject(type, objectId)
   json(res, { ok: true })
   return true

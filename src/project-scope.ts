@@ -26,7 +26,7 @@ import { randomUUID } from 'node:crypto'
 import { BOT_NAME } from './config.js'
 import { createKanbanCard, getDb } from './db.js'
 import {
-  ensureProjectTables, getProject, hasTable, projectForObject, resolveProjectRef, type ProjectRow,
+  ensureProjectTables, getProject, hasTable, projectForObject, isDetached, resolveProjectRef, type ProjectRow,
 } from './projects.js'
 
 /** Csak letezo projekt-id jon vissza; ismeretlen szoveg -> null. */
@@ -65,6 +65,7 @@ export function debateProject(sessionId: string, logged: unknown): string | null
   ensureProjectTables()
   const linked = projectForObject('debate', sessionId)
   if (linked && getProject(linked)) return linked
+  if (isDetached('debate', sessionId)) return null
   return logged ? knownProjectId(logged) : null
 }
 
@@ -87,6 +88,7 @@ export function researchProject(agent: string, name: string, content: string): s
   ensureProjectTables()
   const linked = projectForObject('research', researchObjectId(agent, name))
   if (linked && getProject(linked)) return linked
+  if (isDetached('research', researchObjectId(agent, name))) return null
   const mark = researchProjectMark(content)
   return mark ? knownProjectId(mark) : null
 }
