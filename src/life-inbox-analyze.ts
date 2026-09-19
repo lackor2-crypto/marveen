@@ -1247,7 +1247,7 @@ export function analyzeInboxItem(
 }
 
 export interface AnalyzeResult {
-  reason: InboxReason | 'empty'
+  reason: InboxReason | 'empty' | 'selection-empty'
   message: string
   suggestions: InboxSuggestion[]
   knownFolders: KnownFolder[]
@@ -1273,6 +1273,22 @@ function inboxBatch(names: string[] | undefined, lang: string): InboxBatch {
   }
   const wanted = names && names.length ? new Set(names) : null
   const items = (wanted ? status.items.filter((i) => wanted.has(i.name)) : status.items).filter((i) => !i.isDir)
+  if (!items.length && wanted) {
+    // Card #327: the owner ticked items, but none of them is a file we can
+    // analyze (only folders ticked, or the ticked files were moved away
+    // meanwhile). Saying "the INBOX is empty" here would be a lie -- the
+    // inbox is visibly full -- and silently falling back to "analyze all"
+    // would ignore the selection, which is the very bug this card is about.
+    return {
+      items, base,
+      early: {
+        reason: 'selection-empty', suggestions: [], ...base,
+        message: T(lang,
+          'A kijelölt tételek közül egyik sem elemezhető fájl (mappát nem elemzünk, vagy a fájl közben elkerült innen). Jelölj ki legalább egy fájlt, vagy vedd ki a pipákat, és akkor mindent elemzünk.',
+          'None of the selected items is a file that can be analyzed (folders are not analyzed, or the file has since been moved). Select at least one file, or clear the ticks to analyze everything.'),
+      },
+    }
+  }
   if (!items.length) {
     return {
       items, base,

@@ -175,6 +175,33 @@ describe('POST /api/life/inbox/analyze es /api/life/inbox/place', () => {
     expect(sug.owner.personId).toBe('')
   })
 
+  // Kartya #327: a kijeloles NEM hagyhato figyelmen kivul. A `names` szurt
+  // elemzes pontosan a kijelolt tetelt adja vissza, es ha a kijelolesben nincs
+  // elemezheto fajl (csak mappa), azt mondja ki, NEM azt, hogy "ures".
+  it('kijeloles: names-szel CSAK a kijelolt tetelt elemzi', async () => {
+    writeFileSync(join(inbox, 'szamla.pdf'), 'x')
+    writeFileSync(join(inbox, 'level.txt'), 'x')
+    const { ctx, out } = ctxFor('/api/life/inbox/analyze', 'POST', { names: ['level.txt'] })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.suggestions.map((s: any) => s.name)).toEqual(['level.txt'])
+  })
+
+  it('kijeloles: csak mappa kijelolve -> selection-empty, nem "a BEERKEZO ures"', async () => {
+    writeFileSync(join(inbox, 'szamla.pdf'), 'x')
+    mkdirSync(join(inbox, 'Almappa'))
+    const { ctx, out } = ctxFor('/api/life/inbox/analyze?lang=hu', 'POST', { names: ['Almappa'] })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.reason).toBe('selection-empty')
+    expect(out.body.suggestions).toEqual([])
+    expect(out.body.message).not.toContain('üres')
+    expect(out.body.message).toContain('kijelölt')
+    const en = ctxFor('/api/life/inbox/analyze?lang=en', 'POST', { names: ['Almappa'] })
+    await tryHandleLife(en.ctx)
+    expect(en.out.body.message).toContain('selected')
+  })
+
   it('place: tetel nelkul emberi hibat ad, nem nyul a lemezhez', async () => {
     const { ctx, out } = ctxFor('/api/life/inbox/place', 'POST', { targetRel: 'X/Y' })
     expect(await tryHandleLife(ctx)).toBe(true)

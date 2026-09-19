@@ -880,10 +880,19 @@ export function lifeTreeStatus(cfg: LifeConfig = loadLifeConfig(), lang: string 
   return { root, exists: true, planned: plan.length, present, missing }
 }
 
-/** A BEÉRKEZŐ mappa teljes utvonala, vagy null, ha nincs depo. */
-export function inboxDir(lang: string = APP_LANG): string | null {
+/**
+ * A BEÉRKEZŐ mappa teljes utvonala, vagy null, ha nincs depo.
+ *
+ * The folder NAME on disk always follows the install language (APP_LANG), the
+ * same one `planLifeTree()` created it with -- never the UI language. The
+ * `lang` argument is accepted for the callers' convenience and deliberately
+ * ignored here: with it, an English UI on a Hungarian install looked for a
+ * non-existent "INBOX" folder and told the user to create the tree (found
+ * while fixing card #327).
+ */
+export function inboxDir(_lang: string = APP_LANG): string | null {
   const root = lifeRoot()
-  return root ? join(root, lifeName('inbox', lang)) : null
+  return root ? join(root, lifeName('inbox', APP_LANG)) : null
 }
 
 /** Hany tetel var a Beérkezoben? Hianyzo mappanal 0, nem hiba. */
