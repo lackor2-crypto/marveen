@@ -20,7 +20,7 @@
 // gepen fut a Claude Code, lecsatolt meghajto). Ezert ad ez a modul mindig
 // `reason`-t is, es a `reason` a TENYLEGES hibauzenet -- sosem tipp.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
@@ -140,6 +140,63 @@ export function locateLocalTranscript(sessionId: string, roots?: string[]): stri
     }
   }
   return null
+}
+
+/** What the card needs to know about a running conversation, measured from
+ *  the tail of its transcript: the same numbers the Windows worker reports
+ *  for a VS Code tab (context size, model, last real activity). Every field is
+ *  `null` when it cannot be measured -- never 0, never a guessed model. */
+export interface TranscriptTailMeta {
+  contextTokens: number | null
+  model: string | null
+  lastActivity: number | null
+  mtime: number | null
+}
+
+/** Only the tail is read: a long-running transcript can be many MB, and the
+ *  card polls. The last assistant turn is always near the end. */
+const TAIL_BYTES = 512 * 1024
+
+export function readTranscriptTailMeta(path: string): TranscriptTailMeta {
+  const out: TranscriptTailMeta = { contextTokens: null, model: null, lastActivity: null, mtime: null }
+  let fd: number | null = null
+  try {
+    const st = statSync(path)
+    out.mtime = st.mtimeMs
+    const len = Math.min(st.size, TAIL_BYTES)
+    const buf = Buffer.alloc(len)
+    fd = openSync(path, 'r')
+    readSync(fd, buf, 0, len, st.size - len)
+    const lines = buf.toString('utf8').split('\n')
+    // The first line may be cut in half by the tail window -- JSON.parse
+    // rejects it and it is skipped, which is the correct outcome.
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i]!.trim()
+      if (!line) continue
+      let row: Record<string, unknown>
+      try { row = JSON.parse(line) as Record<string, unknown> } catch { continue }
+      if (out.lastActivity === null && typeof row['timestamp'] === 'string') {
+        const ts = Date.parse(row['timestamp'] as string)
+        if (Number.isFinite(ts) && ts > 0) out.lastActivity = ts
+      }
+      if (row['type'] !== 'assistant') continue
+      const msg = row['message'] as Record<string, unknown> | undefined
+      const usage = msg?.['usage'] as Record<string, unknown> | undefined
+      if (!usage) continue
+      const n = (k: string): number => (typeof usage[k] === 'number' ? (usage[k] as number) : 0)
+      const total = n('input_tokens') + n('cache_creation_input_tokens') + n('cache_read_input_tokens')
+      if (total > 0) out.contextTokens = total
+      if (typeof msg?.['model'] === 'string' && (msg['model'] as string).trim() && msg['model'] !== '<synthetic>') {
+        out.model = (msg['model'] as string).trim().slice(0, 60)
+      }
+      break
+    }
+  } catch {
+    // Unreadable = not measured; the fields stay `null`.
+  } finally {
+    if (fd !== null) try { closeSync(fd) } catch { /* ignore */ }
+  }
+  return out
 }
 
 /** Egy eszkoz-hivas EGY SORBAN, emberi nyelven. Ugyanaz az elv, mint az

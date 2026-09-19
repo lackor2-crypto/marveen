@@ -746,7 +746,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const tokensBySession = new Map<string, number>()
     const modelBySession = new Map<string, string>()
     for (const g of tabs.projects) {
-      for (const tb of g.tabs) {
+      // closedTabs too: the marked conversation of a FINISHED run is no longer
+      // live, but its last measurement is still the right number for the card.
+      for (const tb of [...g.tabs, ...g.closedTabs]) {
         if (tb.contextTokens !== null) tokensBySession.set(tb.sessionId, tb.contextTokens)
         if (tb.model !== null) modelBySession.set(tb.sessionId, tb.model)
       }
@@ -807,7 +809,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // Ugyanabbol a modellbol, amit a kartya kiir: ha ismerjuk a $/M arat, a
       // felulet a "VS Code" jelveny melle teszi. `null` = ismeretlen/ingyenes
       // modell -> nincs ar-jelveny, nem talalunk ki egyet (Boss, 2026-09-14).
-      const modelForCost = modelBySession.get(p.sessionId) ?? null
+      // The card's context row belongs to the conversation the card MARKS
+      // (the running/last run), not to the bound one: Boss, 2026-09-19 saw
+      // "kontextus: nem latok ra" while the run was measurable. The bound
+      // session is only the fallback when the marked one was not measured.
+      const modelForCost = modelBySession.get(markSessionId) ?? modelBySession.get(p.sessionId) ?? null
       return {
       ...p,
       currentSource,
@@ -822,7 +828,7 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       closedTabs: (tabsByWorkspace.get(workspaceKey(p.workspacePath))?.closedTabs ?? []).map((tb) => tabRow(tb, markSessionId)),
       roleHolder: `vscode:${p.project}`,
       roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
-      contextTokens: tokensBySession.get(p.sessionId) ?? null,
+      contextTokens: tokensBySession.get(markSessionId) ?? tokensBySession.get(p.sessionId) ?? null,
       // A modell NEM fix: azt mutatjuk, amivel a beszelgetes eppen valaszolt
       // (Boss, 2026-08-23: "ne fix legyen hanem dinamikus attol fuggoen hogy
       // mi van kivalasztva a vscodban"). `null` = nem latunk oda -- kitalalt
