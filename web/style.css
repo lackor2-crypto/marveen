@@ -12070,6 +12070,21 @@ details.upstream-box > summary > h4 {
 .prj-mig-preview ul { margin: 4px 0 0 18px; }
 .prj-mig-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
 .prj-mig-hist { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+/* A regi kodfeladatok tartalom szerinti szetvalasztasa, es a projekt nelkuli kartyak kartyankent */
+.prj-mig-split { margin: 6px 0 0 20px; padding: 8px 10px; border-left: 2px solid var(--border); }
+.prj-mig-split p { margin: 0 0 6px; font-size: 12px; }
+.prj-mig-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.prj-mig-field .input { width: auto; min-width: 220px; max-width: 100%; }
+.prj-mig-control { flex-direction: column; margin-left: 0; }
+.prj-mig-control code { font-size: 12px; overflow-wrap: anywhere; }
+.prj-mig-cards { margin-top: 8px; }
+.prj-mig-cards > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.prj-mig-card-list { max-height: 460px; overflow-y: auto; margin-top: 6px; padding-right: 4px; }
+.prj-mig-card-list h4 { font-size: 13px; margin: 10px 0 4px; }
+.prj-mig-card { display: grid; grid-template-columns: 1fr minmax(180px, 260px); gap: 2px 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.prj-mig-card-title { font-size: 13px; overflow-wrap: anywhere; }
+.prj-mig-card .prj-mig-sub { grid-column: 1; }
+.prj-mig-card .input { grid-column: 2; grid-row: 1 / span 2; width: 100%; }
 /* 2. fazis: "+ Uj" menu, osszefoglalo, Otletek ful, uj fajl */
 .prj-new-wrap { position: relative; }
 .prj-new-menu {
@@ -12107,6 +12122,9 @@ details.upstream-box > summary > h4 {
   .prj-sections { grid-template-columns: 1fr; }
   .prj-head-actions { justify-content: flex-start; }
   .prj-mig-controls .input { min-width: 0; width: 100%; }
+  .prj-mig-field .input { min-width: 0; width: 100%; }
+  .prj-mig-card { grid-template-columns: 1fr; }
+  .prj-mig-card .input { grid-column: 1; grid-row: auto; }
   .prj-when { flex-basis: 56px; }
   .prj-back-chip { margin: 6px 0 0; }
 }

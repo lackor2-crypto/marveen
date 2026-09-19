@@ -39861,6 +39861,8 @@ var _prj = {
   mig: null,
   migData: null,
   migOpen: false,
+  migCardsOpen: false,
+  migPoll: null,
   // 2. fazis
   tab: 'overview',
   ideas: null,
@@ -40677,15 +40679,32 @@ async function _prjLoadMigration() {
   if (!r.ok) {
     _prj.migData = { error: r.message }
   } else {
+    const prev = _prj.migData && !_prj.migData.error ? _prj.migData : null
     _prj.migData = r.data
-    _prjMigDefaults()
+    // Ujratoltesnel (pl. a besorolasi javaslat haladasa) a mar beallitott
+    // valasztasok maradnak -- csak az uj javaslatok toltodnek be.
+    if (!_prj.mig || !prev) _prjMigDefaults()
+    else _prjMigMergeSuggestions()
   }
   _prjRenderMigration()
+  _prjMigSchedulePoll()
+}
+
+/** Amig a besorolasi javaslat keszul, par masodpercenkent frissitunk -- de
+ *  csak amig a Projektek lista latszik. */
+function _prjMigSchedulePoll() {
+  clearTimeout(_prj.migPoll)
+  const st = _prj.migData && _prj.migData.classification && _prj.migData.classification.status
+  if (!st || st.state !== 'running') return
+  _prj.migPoll = setTimeout(() => {
+    if (_prj.current || !document.getElementById('prjMigrationBox')) return
+    _prjLoadMigration()
+  }, 3000)
 }
 
 function _prjMigDefaults() {
   const plan = _prj.migData.plan
-  const mig = { values: {}, aliases: {}, unassigned: { on: false, labels: new Set(), unlabeled: false, target: '' } }
+  const mig = { values: {}, aliases: {}, cards: {}, seen: {} }
   for (const k of plan.kanban) {
     mig.values[k.value] = {
       action: k.proposal.action === 'existing' ? 'existing' : 'create',
@@ -40703,9 +40722,33 @@ function _prjMigDefaults() {
       if (a.proposal.action === 'link') choice = 'value:' + a.proposal.value
       else if (a.proposal.action === 'link_project') choice = 'project:' + a.proposal.projectId
     }
-    mig.aliases[a.alias] = { choice, name: a.alias }
+    mig.aliases[a.alias] = { choice, name: a.alias, useFolder: !!a.suggestedFolder, split: false, hist: 'same', include: new Set() }
   }
   _prj.mig = mig
+  _prjMigMergeSuggestions()
+}
+
+/** A tartalom szerinti javaslat -> a kartya alapertelmezett celja. CSAK a
+ *  magabiztos javaslat jelol ki projektet; a bizonytalan "marad projekt
+ *  nelkul". Amit a tulajdonos mar kezzel atallitott, azt nem irjuk felul. */
+function _prjMigMergeSuggestions() {
+  const cl = _prj.migData.classification || {}
+  const confident = typeof cl.confident === 'number' ? cl.confident : 0.75
+  const mig = _prj.mig
+  for (const s of cl.suggestions || []) {
+    const key = s.projectId && s.confidence >= confident ? 'project:' + s.projectId : ''
+    const cur = mig.seen[s.cardId]
+    if (cur && cur.touched) continue
+    if (!cur || cur.at !== s.createdAt) {
+      mig.cards[s.cardId] = key
+      mig.seen[s.cardId] = { at: s.createdAt, touched: false }
+    }
+  }
+}
+
+function _prjMigSuggestion(cardId) {
+  const cl = _prj.migData.classification || {}
+  return (cl.suggestions || []).find((s) => s.cardId === cardId) || null
 }
 
 function _prjMigLabelIndex(sets) {
@@ -40735,7 +40778,7 @@ function _prjMigMoving(k) {
   return st.filterOn ? _prjMigCount(k.labelSets, st.labels, st.unlabeled) : k.cards
 }
 
-/** Hova mehet egy alias / a projekt nelkuli kartyak: a nem kihagyott regi
+/** Hova mehet egy alias / a projekt nelkuli kartya: a nem kihagyott regi
  *  ertekek projektje, vagy egy mar letezo projekt. */
 function _prjMigTargets() {
   const out = []
@@ -40743,9 +40786,9 @@ function _prjMigTargets() {
     const st = _prj.mig.values[k.value]
     if (!st || st.action === 'skip') continue
     const name = st.action === 'create' ? (st.name || k.value) : ((_prj.all.find((p) => p.id === st.projectId) || {}).name || '?')
-    out.push({ key: 'value:' + k.value, label: t('projects.mig.target_value', { value: k.value, name }) })
+    out.push({ key: 'value:' + k.value, label: t('projects.mig.target_value', { value: k.value, name }), name })
   }
-  for (const p of _prj.all) out.push({ key: 'project:' + p.id, label: t('projects.mig.target_project', { name: p.name }) })
+  for (const p of _prj.all) out.push({ key: 'project:' + p.id, label: t('projects.mig.target_project', { name: p.name }), name: p.name })
   return out
 }
 
@@ -40759,25 +40802,136 @@ function _prjRenderMigration() {
   const history = md.history || []
   const openAliases = plan.codeAliases.filter((a) => !a.linkedProject)
   const hasWork = plan.kanban.length > 0 || openAliases.length > 0
+  // A panel CSAK ott jelenik meg, ahol volt mit atvenni (egy friss
+  // telepitesen nincs regi adat -- ott a globalis kartya globalis marad).
   if (!hasWork && !history.length) { box.innerHTML = ''; return }
+  const unTotal = plan.unassignedCards.total
   const cards = plan.kanban.reduce((n, k) => n + k.cards, 0)
   const summary = hasWork
     ? t('projects.mig.summary', { values: plan.kanban.length, cards, aliases: openAliases.length })
-    : t('projects.mig.summary_done')
+    : (unTotal ? t('projects.mig.summary_cards', { n: unTotal }) : t('projects.mig.summary_done'))
   box.innerHTML = `
   <details class="prj-mig"${_prj.migOpen ? ' open' : ''}>
     <summary><strong>${escapeHtml(t('projects.mig.title'))}</strong> <span class="prj-muted">${escapeHtml(summary)}</span></summary>
     <div class="prj-mig-body">
-      ${hasWork ? _prjMigFormHtml() : ''}
+      ${hasWork || unTotal ? _prjMigFormHtml(hasWork) : ''}
       ${history.length ? _prjMigHistoryHtml(history) : ''}
     </div>
   </details>`
   const det = box.querySelector('details')
   det.addEventListener('toggle', () => { _prj.migOpen = det.open })
-  if (hasWork) _prjWireMigration(box)
+  if (hasWork || unTotal) _prjWireMigration(box)
 }
 
-function _prjMigFormHtml() {
+function _prjMigAliasRowHtml(a, targets) {
+  const st = _prj.mig.aliases[a.alias]
+  const ws = (a.workspaces || []).slice(0, 2).map((w) => w.path + ' ×' + w.tasks).join('; ')
+  let proposal = t('projects.mig.alias_prop_none')
+  if (a.proposal.action === 'link') proposal = t(a.proposal.evidence === 'same_name' ? 'projects.mig.alias_prop_same' : 'projects.mig.alias_prop_refs', { value: a.proposal.value, n: a.proposal.refs || 0 })
+  else if (a.proposal.action === 'link_project') proposal = t('projects.mig.alias_prop_project', { name: a.proposal.name })
+  const opts = (sel) => targets.map((x) => `<option value="${escapeAttr(x.key)}"${sel === x.key ? ' selected' : ''}>${escapeHtml(x.label)}</option>`).join('')
+  const h = a.history || { total: 0, work: 0, alreadyLinked: 0, control: [] }
+  const hist = h.total ? `
+      <div class="prj-mig-sub">${escapeHtml(t(h.alreadyLinked ? 'projects.mig.hist_line_linked' : 'projects.mig.hist_line', { work: h.work, control: h.control.length, linked: h.alreadyLinked }))}</div>
+      <label class="prj-check"><input type="checkbox" data-mig="alias-split"${st.split ? ' checked' : ''}> ${escapeHtml(t('projects.mig.hist_split'))}</label>
+      ${st.split ? `<div class="prj-mig-split">
+        <p class="prj-muted">${escapeHtml(t('projects.mig.hist_split_hint'))}</p>
+        <label class="prj-mig-field">${escapeHtml(t('projects.mig.hist_target', { n: h.work }))}
+          <select class="input" data-mig="alias-hist">
+            <option value="same"${st.hist === 'same' ? ' selected' : ''}${st.choice === 'skip' ? ' disabled' : ''}>${escapeHtml(t('projects.mig.hist_same'))}</option>
+            ${opts(st.hist)}
+            <option value="skip"${st.hist === 'skip' ? ' selected' : ''}>${escapeHtml(t('projects.mig.hist_skip'))}</option>
+          </select></label>
+        ${h.control.length ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.hist_control', { n: h.control.length }))}</div>
+        <div class="prj-mig-labels prj-mig-control">
+          ${h.control.map((c) => `<label class="prj-check"><input type="checkbox" data-mig="alias-include" value="${escapeAttr(c.id)}"${st.include.has(c.id) ? ' checked' : ''}> <code>${escapeHtml(c.prompt || '—')}</code> <span class="prj-muted">${escapeHtml(_prjDate(c.createdAt))}</span></label>`).join('')}
+        </div>` : ''}
+      </div>` : ''}` : ''
+  return `
+    <div class="prj-mig-row${a.needsDecision ? ' prj-mig-decide' : ''}" data-mig-alias="${escapeAttr(a.alias)}">
+      <div class="prj-mig-row-head"><code>${escapeHtml(a.alias)}</code> — ${escapeHtml(t('projects.mig.alias_tasks', { n: a.tasks, from: _prjDate(a.firstAt), to: _prjDate(a.lastAt) }))}
+        ${a.needsDecision ? `<span class="prj-decide-badge">${escapeHtml(t('projects.mig.decide'))}</span>` : ''}</div>
+      ${ws ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.alias_folders', { list: ws }))}</div>` : ''}
+      <div class="prj-mig-sub">${escapeHtml(proposal)}</div>
+      ${a.needsDecision ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.decide_hint'))}</div>` : ''}
+      <div class="prj-mig-controls">
+        <select class="input" data-mig="alias-choice" aria-label="${escapeAttr(t('projects.mig.alias_choice_label', { alias: a.alias }))}">
+          ${opts(st.choice)}
+          <option value="create"${st.choice === 'create' ? ' selected' : ''}>${escapeHtml(t('projects.mig.alias_create'))}</option>
+          <option value="skip"${st.choice === 'skip' ? ' selected' : ''}>${escapeHtml(t('projects.mig.alias_skip'))}</option>
+        </select>
+        ${st.choice === 'create' ? `<input type="text" class="input" data-mig="alias-name" maxlength="120" value="${escapeAttr(st.name)}" aria-label="${escapeAttr(t('projects.form.name'))}">` : ''}
+      </div>
+      ${st.choice === 'create' && a.suggestedFolder ? `<label class="prj-check"><input type="checkbox" data-mig="alias-folder"${st.useFolder ? ' checked' : ''}> ${escapeHtml(t('projects.mig.alias_folder', { path: a.suggestedFolder }))}</label>` : ''}
+      ${hist}
+    </div>`
+}
+
+/** A projekt nelkuli kartyak: a tartalmuk szerinti javaslat + kartyankenti dontes. */
+function _prjMigCardsHtml(targets) {
+  const plan = _prj.migData.plan
+  const un = plan.unassignedCards
+  const cl = _prj.migData.classification || { status: { state: 'idle' }, suggestions: [] }
+  const st = cl.status || { state: 'idle' }
+  const running = st.state === 'running'
+  const haveProjects = _prj.all.some((p) => !p.archived_at)
+  let statusLine = ''
+  if (running) statusLine = t('projects.mig.cls_running', { done: st.done, total: st.total })
+  else if (st.state === 'done') statusLine = t(st.failed ? 'projects.mig.cls_done_partial' : 'projects.mig.cls_done', { when: _prjDate(st.finishedAt, true), failed: st.failed })
+  else if (st.state === 'failed') {
+    const errKey = { no_ai: 'projects.mig.cls_err_no_ai', no_projects: 'projects.mig.cls_err_no_projects', nothing_to_do: 'projects.mig.cls_err_nothing_to_do' }[st.error]
+    statusLine = errKey ? t(errKey) : t('projects.mig.cls_failed', { failed: st.failed })
+  }
+  else if ((cl.suggestions || []).length) statusLine = t('projects.mig.cls_saved', { n: cl.suggestions.length })
+  const sugg = new Map((cl.suggestions || []).map((s) => [s.cardId, s]))
+  const projName = (id) => (_prj.all.find((p) => p.id === id) || {}).name || '?'
+  // Csoportok: a javasolt projekt szerint, a vegen a bizonytalanok / javaslat nelkuliek.
+  const groups = new Map()
+  const rest = []
+  for (const c of un.cards) {
+    const s = sugg.get(c.id)
+    if (s && s.projectId && s.confidence >= (cl.confident || 0.75)) {
+      const g = groups.get(s.projectId) || []
+      g.push(c)
+      groups.set(s.projectId, g)
+    } else rest.push(c)
+  }
+  const optHtml = (sel) => `<option value=""${sel ? '' : ' selected'}>${escapeHtml(t('projects.mig.card_stay'))}</option>`
+    + targets.map((x) => `<option value="${escapeAttr(x.key)}"${sel === x.key ? ' selected' : ''}>${escapeHtml(x.name)}</option>`).join('')
+  const row = (c) => {
+    const s = sugg.get(c.id)
+    const key = _prj.mig.cards[c.id] || ''
+    const why = s ? (s.projectId
+      ? t('projects.mig.card_why', { name: projName(s.projectId), pct: Math.round(s.confidence * 100), reason: s.reason || '—' })
+      : t('projects.mig.card_why_none', { reason: s.reason || '—' })) : ''
+    return `<div class="prj-mig-card" data-mig-card="${escapeAttr(c.id)}">
+      <div class="prj-mig-card-title">${c.seq != null ? '#' + escapeHtml(String(c.seq)) + ' ' : ''}${escapeHtml(c.title)}
+        <span class="prj-muted">${escapeHtml(_prjT('kanban.status.' + c.status, null, c.status))}${c.archived ? ' · ' + escapeHtml(t('projects.mig.card_archived')) : ''}${c.labels.length ? ' · ' + escapeHtml(c.labels.join(', ')) : ''}</span></div>
+      ${why ? `<div class="prj-mig-sub">${escapeHtml(why)}</div>` : ''}
+      <select class="input" data-mig="card-target" aria-label="${escapeAttr(t('projects.mig.card_target_label', { title: c.title }))}">${optHtml(key)}</select>
+    </div>`
+  }
+  const groupHtml = [...groups.entries()].map(([pid, list]) => `
+      <h4>${escapeHtml(t('projects.mig.card_group', { name: projName(pid), n: list.length }))}</h4>${list.map(row).join('')}`).join('')
+  const restHtml = rest.length ? `<h4>${escapeHtml(t(sugg.size ? 'projects.mig.card_group_rest' : 'projects.mig.card_group_all', { n: rest.length }))}</h4>${rest.map(row).join('')}` : ''
+  return `
+    <h3>${escapeHtml(t('projects.mig.unassigned_title'))}</h3>
+    <div class="prj-mig-row">
+      <div class="prj-mig-row-head">${escapeHtml(t('projects.mig.unassigned', { n: un.total, live: un.live, archived: un.archived }))}</div>
+      <p class="prj-muted">${escapeHtml(t('projects.mig.cls_intro'))}</p>
+      <div class="prj-mig-controls">
+        <button type="button" class="btn-secondary" id="prjMigClassify"${running || !haveProjects ? ' disabled' : ''}>${escapeHtml(t((cl.suggestions || []).length ? 'projects.mig.cls_again' : 'projects.mig.cls_start'))}</button>
+        ${statusLine ? `<span class="prj-muted" role="status">${escapeHtml(statusLine)}</span>` : ''}
+      </div>
+      ${!haveProjects ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.cls_need_project'))}</div>` : ''}
+      <details class="prj-mig-cards"${_prj.migCardsOpen ? ' open' : ''}>
+        <summary>${escapeHtml(t('projects.mig.card_list', { n: un.total }))}</summary>
+        <div class="prj-mig-card-list">${groupHtml}${restHtml}</div>
+      </details>
+    </div>`
+}
+
+function _prjMigFormHtml(hasWork) {
   const plan = _prj.migData.plan
   const mig = _prj.mig
   const existingOpts = (sel) => _prj.all.map((p) => `<option value="${escapeAttr(p.id)}"${sel === p.id ? ' selected' : ''}>${escapeHtml(p.name)}</option>`).join('')
@@ -40816,54 +40970,14 @@ function _prjMigFormHtml() {
   }).join('')
 
   const targets = _prjMigTargets()
-  const aliasRows = plan.codeAliases.filter((a) => !a.linkedProject).map((a) => {
-    const st = mig.aliases[a.alias]
-    const ws = (a.workspaces || []).slice(0, 2).map((w) => w.path + ' ×' + w.tasks).join('; ')
-    let proposal = t('projects.mig.alias_prop_none')
-    if (a.proposal.action === 'link') proposal = t(a.proposal.evidence === 'same_name' ? 'projects.mig.alias_prop_same' : 'projects.mig.alias_prop_refs', { value: a.proposal.value, n: a.proposal.refs || 0 })
-    else if (a.proposal.action === 'link_project') proposal = t('projects.mig.alias_prop_project', { name: a.proposal.name })
-    const opts = targets.map((x) => `<option value="${escapeAttr(x.key)}"${st.choice === x.key ? ' selected' : ''}>${escapeHtml(x.label)}</option>`).join('')
-    return `
-    <div class="prj-mig-row${a.needsDecision ? ' prj-mig-decide' : ''}" data-mig-alias="${escapeAttr(a.alias)}">
-      <div class="prj-mig-row-head"><code>${escapeHtml(a.alias)}</code> — ${escapeHtml(t('projects.mig.alias_tasks', { n: a.tasks, from: _prjDate(a.firstAt), to: _prjDate(a.lastAt) }))}
-        ${a.needsDecision ? `<span class="prj-decide-badge">${escapeHtml(t('projects.mig.decide'))}</span>` : ''}</div>
-      ${ws ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.alias_folders', { list: ws }))}</div>` : ''}
-      <div class="prj-mig-sub">${escapeHtml(proposal)}</div>
-      ${a.needsDecision ? `<div class="prj-mig-sub">${escapeHtml(t('projects.mig.decide_hint'))}</div>` : ''}
-      <div class="prj-mig-controls">
-        <select class="input" data-mig="alias-choice">
-          ${opts}
-          <option value="create"${st.choice === 'create' ? ' selected' : ''}>${escapeHtml(t('projects.mig.alias_create'))}</option>
-          <option value="skip"${st.choice === 'skip' ? ' selected' : ''}>${escapeHtml(t('projects.mig.alias_skip'))}</option>
-        </select>
-        ${st.choice === 'create' ? `<input type="text" class="input" data-mig="alias-name" maxlength="120" value="${escapeAttr(st.name)}" aria-label="${escapeAttr(t('projects.form.name'))}">` : ''}
-      </div>
-    </div>`
-  }).join('')
-
-  const un = plan.unassignedCards
-  const ust = mig.unassigned
-  const unIdx = _prjMigLabelIndex(un.labelSets)
-  const unUnlabeled = (un.labelSets || []).filter((s) => !s.ids.length).reduce((n, s) => n + s.cards, 0)
-  const unRow = un.total ? `
-    <div class="prj-mig-row">
-      <div class="prj-mig-row-head">${escapeHtml(t('projects.mig.unassigned', { n: un.total, live: un.live, archived: un.archived }))}</div>
-      <label class="prj-check"><input type="checkbox" data-mig="un-on"${ust.on ? ' checked' : ''}> ${escapeHtml(t('projects.mig.unassigned_opt'))}</label>
-      ${ust.on ? `<div class="prj-mig-labels">
-        ${unIdx.map((l) => `<label class="prj-check"><input type="checkbox" data-mig="un-label" value="${escapeAttr(l.id)}"${ust.labels.has(l.id) ? ' checked' : ''}> ${escapeHtml(l.name)} (${l.cards})</label>`).join('')}
-        ${unUnlabeled ? `<label class="prj-check"><input type="checkbox" data-mig="un-unlabeled"${ust.unlabeled ? ' checked' : ''}> ${escapeHtml(t('projects.mig.unlabeled', { n: unUnlabeled }))}</label>` : ''}
-      </div>
-      <div class="prj-mig-controls"><select class="input" data-mig="un-target"><option value="">${escapeHtml(t('projects.mig.pick_target'))}</option>
-        ${targets.map((x) => `<option value="${escapeAttr(x.key)}"${ust.target === x.key ? ' selected' : ''}>${escapeHtml(x.label)}</option>`).join('')}</select></div>
-      <div class="prj-mig-count">${escapeHtml(t('projects.mig.count_unassigned', { n: _prjMigCount(un.labelSets, ust.labels, ust.unlabeled) }))}</div>` : ''}
-    </div>` : ''
+  const aliasRows = plan.codeAliases.filter((a) => !a.linkedProject).map((a) => _prjMigAliasRowHtml(a, targets)).join('')
 
   return `
     <p>${escapeHtml(t('projects.mig.intro'))}</p>
-    <h3>${escapeHtml(t('projects.mig.values_title'))}</h3>
-    ${valueRows || _prjEmptyLine('projects.mig.values_none')}
+    ${hasWork ? `<h3>${escapeHtml(t('projects.mig.values_title'))}</h3>
+    ${valueRows || _prjEmptyLine('projects.mig.values_none')}` : ''}
     ${aliasRows ? `<h3>${escapeHtml(t('projects.mig.aliases_title'))}</h3><p class="prj-muted">${escapeHtml(t('projects.mig.aliases_intro'))}</p>${aliasRows}` : ''}
-    ${unRow ? `<h3>${escapeHtml(t('projects.mig.unassigned_title'))}</h3>${unRow}` : ''}
+    ${plan.unassignedCards.total ? _prjMigCardsHtml(targets) : ''}
     <div class="prj-mig-preview" id="prjMigPreview"></div>
     <div class="prj-mig-actions"><button type="button" class="btn-primary" id="prjMigApply">${escapeHtml(t('projects.mig.apply'))}</button></div>`
 }
@@ -40872,9 +40986,10 @@ function _prjMigFormHtml() {
 function _prjMigBuild() {
   const plan = _prj.migData.plan
   const mig = _prj.mig
-  const mapping = { kanban: [], codeAliases: [] }
+  const mapping = { kanban: [], codeAliases: [], cards: [] }
   const lines = []
   const problems = []
+  let changes = 0
   const projName = (id) => (_prj.all.find((p) => p.id === id) || {}).name || '?'
   const valueTargetName = {}
   for (const k of plan.kanban) {
@@ -40884,6 +40999,7 @@ function _prjMigBuild() {
       lines.push(t('projects.mig.line_skip', { value: k.value, n: k.cards }))
       continue
     }
+    changes++
     const e = { value: k.value, action: st.action }
     let name
     if (st.action === 'create') {
@@ -40917,37 +41033,70 @@ function _prjMigBuild() {
   for (const a of plan.codeAliases) {
     if (a.linkedProject) continue
     const st = mig.aliases[a.alias]
+    let e
+    let aliasName = ''
     if (st.choice === 'skip') {
-      mapping.codeAliases.push({ alias: a.alias, action: 'skip' })
+      e = { alias: a.alias, action: 'skip' }
       lines.push(t('projects.mig.line_alias_skip', { alias: a.alias }))
     } else if (st.choice === 'create') {
-      const name = (st.name || '').trim()
-      if (!name) problems.push(t('projects.mig.problem_name', { value: a.alias }))
-      mapping.codeAliases.push({ alias: a.alias, action: 'create', name })
-      lines.push(t('projects.mig.line_alias_create', { alias: a.alias, name }))
+      aliasName = (st.name || '').trim()
+      if (!aliasName) problems.push(t('projects.mig.problem_name', { value: a.alias }))
+      e = { alias: a.alias, action: 'create', name: aliasName }
+      if (st.useFolder && a.suggestedFolder) e.folderPath = a.suggestedFolder
+      changes++
+      lines.push(t('projects.mig.line_alias_create', { alias: a.alias, name: aliasName })
+        + (e.folderPath ? ' ' + t('projects.mig.line_alias_folder', { path: e.folderPath }) : ''))
     } else {
       const tg = targetOf(st.choice)
       if (tg.bad) { problems.push(t('projects.mig.problem_target', { value: a.alias })); continue }
-      mapping.codeAliases.push(Object.assign({ alias: a.alias, action: 'link' }, tg.entry))
+      e = Object.assign({ alias: a.alias, action: 'link' }, tg.entry)
+      aliasName = tg.name
+      changes++
       lines.push(t('projects.mig.line_alias_link', { alias: a.alias, name: tg.name }))
     }
-  }
-  const un = mig.unassigned
-  if (un.on) {
-    if (!un.labels.size && !un.unlabeled) problems.push(t('projects.mig.problem_labels', { value: '-' }))
-    if (!un.target) problems.push(t('projects.mig.problem_un_target'))
-    else {
-      const tg = targetOf(un.target)
-      if (tg.bad) problems.push(t('projects.mig.problem_un_target'))
-      else {
-        mapping.unassigned = Object.assign({ labelIds: [...un.labels], unlabeled: !!un.unlabeled }, tg.entry)
-        lines.push(t('projects.mig.line_unassigned', { n: _prjMigCount(plan.unassignedCards.labelSets, un.labels, un.unlabeled), name: tg.name }))
+    const h = a.history || { total: 0, work: 0, control: [] }
+    if (st.split && h.total) {
+      const inc = [...st.include]
+      const n = h.work + inc.length
+      if (st.choice !== 'skip') lines.push(t('projects.mig.line_alias_future', { alias: a.alias }))
+      if (st.hist === 'skip') {
+        e.history = { action: 'skip' }
+        lines.push(t('projects.mig.line_hist_skip', { alias: a.alias, n: h.work }))
+      } else if (st.hist === 'same') {
+        if (st.choice === 'skip') problems.push(t('projects.mig.problem_hist', { value: a.alias }))
+        e.history = { action: 'same', includeTaskIds: inc }
+        changes++
+        lines.push(t('projects.mig.line_hist_link', { alias: a.alias, n, name: aliasName }))
+      } else {
+        const tg = targetOf(st.hist)
+        if (tg.bad) problems.push(t('projects.mig.problem_target', { value: a.alias }))
+        else {
+          e.history = Object.assign({ action: 'link', includeTaskIds: inc }, tg.entry)
+          changes++
+          lines.push(t('projects.mig.line_hist_link', { alias: a.alias, n, name: tg.name }))
+        }
       }
+      if (h.control.length - inc.length > 0) lines.push(t('projects.mig.line_hist_control', { alias: a.alias, n: h.control.length - inc.length }))
     }
-  } else if (plan.unassignedCards.total) {
-    lines.push(t('projects.mig.line_unassigned_kept', { n: plan.unassignedCards.total }))
+    mapping.codeAliases.push(e)
+  }
+  const un = plan.unassignedCards
+  if (un.total) {
+    const perTarget = new Map()
+    for (const c of un.cards) {
+      const key = mig.cards[c.id] || ''
+      if (!key) continue
+      const tg = targetOf(key)
+      if (tg.bad) { problems.push(t('projects.mig.problem_card', { title: c.title })); continue }
+      mapping.cards.push(Object.assign({ cardId: c.id }, tg.entry))
+      perTarget.set(tg.name, (perTarget.get(tg.name) || 0) + 1)
+    }
+    for (const [name, n] of perTarget) lines.push(t('projects.mig.line_cards', { n, name }))
+    if (mapping.cards.length) changes++
+    lines.push(t('projects.mig.line_cards_kept', { n: un.total - mapping.cards.length }))
   }
   lines.push(t('projects.mig.line_code_kept'))
+  if (!changes) problems.push(t('projects.mig.problem_nothing'))
   return { mapping, lines, problems }
 }
 
@@ -40979,19 +41128,43 @@ function _prjWireMigration(box) {
   })
   box.querySelectorAll('[data-mig-alias]').forEach((row) => {
     const st = _prj.mig.aliases[row.getAttribute('data-mig-alias')]
-    row.querySelector('[data-mig="alias-choice"]')?.addEventListener('change', (e) => { st.choice = e.target.value; rerender() })
+    row.querySelector('[data-mig="alias-choice"]')?.addEventListener('change', (e) => {
+      st.choice = e.target.value
+      if (st.choice === 'skip' && st.hist === 'same') st.hist = 'skip'
+      rerender()
+    })
     row.querySelector('[data-mig="alias-name"]')?.addEventListener('input', (e) => { st.name = e.target.value; _prjMigUpdatePreview() })
+    row.querySelector('[data-mig="alias-folder"]')?.addEventListener('change', (e) => { st.useFolder = e.target.checked; _prjMigUpdatePreview() })
+    row.querySelector('[data-mig="alias-split"]')?.addEventListener('change', (e) => { st.split = e.target.checked; rerender() })
+    row.querySelector('[data-mig="alias-hist"]')?.addEventListener('change', (e) => { st.hist = e.target.value; _prjMigUpdatePreview() })
+    row.querySelectorAll('[data-mig="alias-include"]').forEach((c) => c.addEventListener('change', () => {
+      if (c.checked) st.include.add(c.value); else st.include.delete(c.value)
+      _prjMigUpdatePreview()
+    }))
   })
-  const un = _prj.mig.unassigned
-  box.querySelector('[data-mig="un-on"]')?.addEventListener('change', (e) => { un.on = e.target.checked; rerender() })
-  box.querySelectorAll('[data-mig="un-label"]').forEach((c) => c.addEventListener('change', () => {
-    if (c.checked) un.labels.add(c.value); else un.labels.delete(c.value)
-    rerender()
-  }))
-  box.querySelector('[data-mig="un-unlabeled"]')?.addEventListener('change', (e) => { un.unlabeled = e.target.checked; rerender() })
-  box.querySelector('[data-mig="un-target"]')?.addEventListener('change', (e) => { un.target = e.target.value; rerender() })
+  box.querySelectorAll('[data-mig-card]').forEach((row) => {
+    const id = row.getAttribute('data-mig-card')
+    row.querySelector('[data-mig="card-target"]')?.addEventListener('change', (e) => {
+      _prj.mig.cards[id] = e.target.value
+      _prj.mig.seen[id] = Object.assign({}, _prj.mig.seen[id] || {}, { touched: true })
+      _prjMigUpdatePreview()
+    })
+  })
+  const cardsDet = box.querySelector('details.prj-mig-cards')
+  cardsDet?.addEventListener('toggle', () => { _prj.migCardsOpen = cardsDet.open })
+  box.querySelector('#prjMigClassify')?.addEventListener('click', _prjMigClassify)
   box.querySelector('#prjMigApply')?.addEventListener('click', _prjMigApply)
   _prjMigUpdatePreview()
+}
+
+async function _prjMigClassify() {
+  const btn = document.getElementById('prjMigClassify')
+  if (btn) btn.disabled = true
+  const r = await _prjApi('POST', '/api/projects/migration/classify', {})
+  // A szerver a felulet nyelven mondja meg, miert nem indult (lang= parameter).
+  if (!r.ok) showToast(r.message)
+  _prj.migCardsOpen = true
+  await _prjLoadMigration()
 }
 
 async function _prjMigApply() {
@@ -41008,7 +41181,9 @@ async function _prjMigApply() {
   }
   const res = r.data.result
   const moved = (res.movedCards || []).reduce((n, m) => n + m.cards, 0)
-  showToast(t('projects.mig.done', { projects: res.createdProjects.length, cards: moved, aliases: res.linkedAliases.length }))
+  const tasks = (res.linkedTasks || []).reduce((n, x) => n + x.tasks, 0)
+  showToast(t('projects.mig.done', { projects: res.createdProjects.length, cards: moved, aliases: res.linkedAliases.length })
+    + (tasks ? ' ' + t('projects.mig.done_tasks', { n: tasks }) : ''))
   _prj.mig = null
   await _prjLoadList()
 }
@@ -41017,7 +41192,8 @@ function _prjMigHistoryHtml(history) {
   return `<h3>${escapeHtml(t('projects.mig.history_title'))}</h3>
   <ul class="prj-list">${history.map((h) => `
     <li class="prj-item prj-mig-hist">
-      <span>${escapeHtml(t('projects.mig.history_line', { when: _prjDate(h.appliedAt * 1000, true), projects: h.createdProjects, cards: h.movedCards, aliases: h.linkedAliases }))}</span>
+      <span>${escapeHtml(t('projects.mig.history_line', { when: _prjDate(h.appliedAt * 1000, true), projects: h.createdProjects, cards: h.movedCards, aliases: h.linkedAliases })
+        + (h.linkedTasks ? ' ' + t('projects.mig.history_tasks', { n: h.linkedTasks }) : ''))}</span>
       ${h.revertedAt
         ? `<span class="prj-muted">${escapeHtml(t('projects.mig.reverted', { when: _prjDate(h.revertedAt * 1000, true) }))}</span>`
         : `<button type="button" class="btn-secondary btn-compact" data-prj-revert="${escapeAttr(h.id)}">${escapeHtml(t('projects.mig.revert'))}</button>`}
