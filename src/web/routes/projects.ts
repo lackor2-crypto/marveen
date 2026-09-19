@@ -578,7 +578,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const t = projectFileTarget(project, '')
     if (!t.ok) return fail(res, 400, t.code, lang)
-    json(res, { placement: suggestPlacement(String(body.name ?? ''), typeof body.mime === 'string' ? body.mime : null, projectSubfolders(project), lang) })
+    json(res, { placement: suggestPlacement(String(body.name ?? ''), typeof body.mime === 'string' ? body.mime : null, projectSubfolders(project)) })
     return true
   }
 

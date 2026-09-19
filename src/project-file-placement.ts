@@ -16,6 +16,8 @@
  * Tiszta fuggvenyek: fajlrendszert nem erintenek, igy unit-tesztelhetok.
  */
 
+import { APP_LANG } from './config.js'
+
 export type FileKind = 'photo' | 'video' | 'audio' | 'post' | 'web' | 'contract' | 'doc' | 'other'
 
 export type Placement =
@@ -106,7 +108,9 @@ export function fileKind(name: string, mime?: string | null): FileKind {
   const base = String(name || '')
   const words = base.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
   for (const [kind, hints] of NAME_HINTS) {
-    if (words.some((w) => hints.some((h) => w === h || w.startsWith(h)))) return kind
+    // Rovid tipp ('post', 'nda', 'jogi') csak PONTOS szokent: prefixkent a
+    // magyar szavakra is rarna ("posta-level.pdf" nem marketing-poszt).
+    if (words.some((w) => hints.some((h) => w === h || (h.length >= 5 && w.startsWith(h))))) return kind
   }
   const dot = base.lastIndexOf('.')
   const ext = dot > 0 ? base.slice(dot + 1).toLowerCase() : ''
@@ -130,7 +134,11 @@ const lastSeg = (rel: string): string => rel.split('/').pop() ?? rel
  * (pl. Media) ala, ha van; ha az sincs es a fajtanak van gyujtoje, a gyujto
  * is uj (pl. "Média/Fotók"), a fomappa ala.
  */
-export function suggestPlacement(name: string, mime: string | null | undefined, subfolders: string[], lang: 'hu' | 'en'): Placement {
+export function suggestPlacement(name: string, mime: string | null | undefined, subfolders: string[], diskLang: string = APP_LANG): Placement {
+  // Az UJ mappa a lemezre kerul: a nevet a TELEPITES nyelve adja (APP_LANG,
+  // src/config.ts), nem a felulete -- ket nyelven nezett telepites se
+  // kapjon ketfele nevu mappat ugyanarra a celra.
+  const lang: 'hu' | 'en' = diskLang === 'en' ? 'en' : 'hu'
   const kind = fileKind(name, mime)
   const rule = RULES[kind]
   const subs = subfolders.filter(Boolean)
