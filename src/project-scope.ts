@@ -177,3 +177,60 @@ export function projectRequestMessage(p: ProjectRow, kind: ProjectRequestKind, t
     langLine,
   ].join('\n')
 }
+
+// ---- projekt-szures a bal menu tobbi oldalan ----------------------------------------
+// Memoria / Utemezes / Skill: kifejezett kotes (`project_links`), a lista soraban
+// valaszthato. Jovahagyas: a kartyaja projektje (`action_payload.kanban_card_id`).
+// Uzenet: a benne hivatkozott kartyak projektjei (egy uzenet tobb projekte is lehet).
+
+export const SCOPE_TYPES = ['memory', 'schedule', 'skill', 'approval', 'message'] as const
+export type ScopeType = typeof SCOPE_TYPES[number]
+
+export function isScopeType(v: unknown): v is ScopeType {
+  return typeof v === 'string' && (SCOPE_TYPES as readonly string[]).includes(v)
+}
+
+/** objektum-azonosito -> a projektjei (csak letezo projektek). `ids`: csak ezekre
+ *  (a jovahagyasnal es az uzenetnel kotelezo -- azokat a felulet adja at). */
+export function projectScopeMap(type: ScopeType, ids: string[] | null, resolveRefs: (text: string) => { cardId: string }[]): Record<string, string[]> {
+  ensureProjectTables()
+  const db = getDb()
+  const out: Record<string, string[]> = {}
+  if (type === 'memory' || type === 'schedule' || type === 'skill') {
+    const rows = db.prepare(
+      `SELECT l.object_id AS id, l.project_id AS project FROM project_links l
+         JOIN projects p ON p.id = l.project_id WHERE l.object_type = ?`,
+    ).all(type) as { id: string; project: string }[]
+    const want = ids ? new Set(ids) : null
+    for (const r of rows) if (!want || want.has(r.id)) out[r.id] = [r.project]
+    return out
+  }
+  if (!ids || !ids.length || !hasTable('kanban_cards')) return out
+  const cardProject = db.prepare('SELECT k.project AS project FROM kanban_cards k JOIN projects p ON p.id = k.project WHERE k.id = ?')
+  if (type === 'approval') {
+    if (!hasTable('approvals')) return out
+    const q = db.prepare(
+      `SELECT CASE WHEN json_valid(action_payload) THEN json_extract(action_payload, '$.kanban_card_id') END AS card_id
+         FROM approvals WHERE id = ?`,
+    )
+    for (const id of ids) {
+      const r = q.get(id) as { card_id: string | null } | undefined
+      const pr = r?.card_id ? (cardProject.get(r.card_id) as { project: string } | undefined) : undefined
+      if (pr) out[id] = [pr.project]
+    }
+    return out
+  }
+  if (!hasTable('agent_messages')) return out
+  const q = db.prepare('SELECT content FROM agent_messages WHERE id = ?')
+  for (const id of ids) {
+    const r = q.get(Number(id)) as { content: string } | undefined
+    if (!r) continue
+    const projects = new Set<string>()
+    for (const ref of resolveRefs(r.content || '')) {
+      const pr = cardProject.get(ref.cardId) as { project: string } | undefined
+      if (pr) projects.add(pr.project)
+    }
+    if (projects.size) out[id] = [...projects]
+  }
+  return out
+}

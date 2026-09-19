@@ -188,7 +188,9 @@ describe('otletek a projektben', () => {
     expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'idea', id: 'i-1' })).status).toBe(200)
     expect(listProjectIdeas(p.id).map((i) => i.id)).toEqual(['i-1'])
     expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'idea', id: 'nincs' })).body.error).toBe('idea_missing')
-    expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'memory', id: 'x' })).body.error).toBe('bad_link')
+    // Kezzel nem kotheto fajta: bad_link; kotheto, de nem letezo memoria: memory_missing.
+    expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'code_alias', id: 'x' })).body.error).toBe('bad_link')
+    expect((await call('POST', `/api/projects/${p.id}/links`, { type: 'memory', id: 'x' })).body.error).toBe('memory_missing')
     const del = await call('DELETE', `/api/projects/${p.id}/links/idea/i-1`)
     expect(del.status).toBe(200)
     expect(listProjectIdeas(p.id)).toEqual([])

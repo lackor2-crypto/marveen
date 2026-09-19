@@ -22,7 +22,9 @@ import { debateProject, researchProject, researchProjectMark, ideaProjectMap, kn
 import { linkedDebates, setDebateLogPathForTests } from '../project-context.js'
 import { tryHandleProjects } from '../web/routes/projects.js'
 import { tryHandleIdeas } from '../web/routes/ideas.js'
-import { MAIN_AGENT_ID } from '../config.js'
+import { tryHandleMemories } from '../web/routes/memories.js'
+import { saveMemory, createApproval, createKanbanCard, createAgentMessage } from '../db.js'
+import { MAIN_AGENT_ID, ALLOWED_CHAT_ID } from '../config.js'
 import { classifyAgentMessage, wrapAgentMessageForDelivery } from '../web/agent-message-wrap.js'
 import type { RouteContext } from '../web/routes/types.js'
 
@@ -211,7 +213,7 @@ describe('vitaztatas es hatteranyag projektje', () => {
     expect(d.status).toBe(404)
     const r = await call('POST', `/api/projects/${a.id}/links`, { type: 'research', id: 'ismeretlen-agens/x.md' })
     expect(r.status).toBe(404)
-    const k = await call('POST', `/api/projects/${a.id}/links`, { type: 'memory', id: '1' })
+    const k = await call('POST', `/api/projects/${a.id}/links`, { type: 'code_task', id: '1' })
     expect(k.status).toBe(400)
   })
 })
@@ -269,6 +271,47 @@ describe('folytassuk a projektet (kontextus az agensnek)', () => {
     const none = await call('GET', '/api/projects/context?q=semmi')
     expect(none.body.state).toBe('none')
     expect(none.body.projects).toHaveLength(2)
+  })
+})
+
+describe('projekt-szures a tobbi oldalon (Memoria, Utemezesek, Skillek, Jovahagyasok, Uzenetek)', () => {
+  it('memoria / utemezes / skill: kezi kotes a listabol, a szuro-terkep es a memoria-lista ezt koveti', async () => {
+    const a = mustProject({ name: 'Alfa' })
+    for (let i = 0; i < 60; i++) saveMemory(ALLOWED_CHAT_ID, `emlek ${i}`, 'semantic')
+    const ids = (getDb().prepare('SELECT id FROM memories ORDER BY id').all() as { id: number }[]).map((r) => r.id)
+    // A legregebbi memoria: a sima 50-es lista vegerol lemaradna -- a szuro megis hozza.
+    expect((await call('POST', `/api/projects/${a.id}/links`, { type: 'memory', id: String(ids[0]) })).status).toBe(200)
+    expect((await call('POST', `/api/projects/${a.id}/links`, { type: 'memory', id: '999999' })).status).toBe(404)
+    expect((await call('POST', `/api/projects/${a.id}/links`, { type: 'schedule', id: 'napi-osszefoglalo' })).status).toBe(200)
+    expect((await call('POST', `/api/projects/${a.id}/links`, { type: 'skill', id: 'marveen/sajat-skill' })).status).toBe(200)
+    expect((await call('POST', `/api/projects/${a.id}/links`, { type: 'skill', id: '<script>' })).status).toBe(400)
+    expect((await call('GET', '/api/projects/scope-map?type=schedule')).body.map).toEqual({ 'napi-osszefoglalo': [a.id] })
+    expect((await call('GET', '/api/projects/scope-map?type=skill')).body.map).toEqual({ 'marveen/sajat-skill': [a.id] })
+    const inA = await call('GET', `/api/memories?project=${a.id}`, undefined, tryHandleMemories)
+    expect(inA.body.map((m: { id: number }) => m.id)).toEqual([ids[0]])
+    const none = await call('GET', '/api/memories?project=none&limit=200', undefined, tryHandleMemories)
+    expect(none.body.map((m: { id: number }) => m.id)).not.toContain(ids[0])
+    expect(none.body).toHaveLength(59)
+  })
+
+  it('jovahagyas: a kartyaja projektje; uzenet: a hivatkozott kartyak projektjei', async () => {
+    const a = mustProject({ name: 'Alfa' })
+    const b = mustProject({ name: 'Beta' })
+    createKanbanCard({ id: 'aaaa1111', title: 'A kartya', status: 'waiting', project: a.id })
+    createKanbanCard({ id: 'bbbb2222', title: 'B kartya', status: 'planned', project: b.id })
+    createKanbanCard({ id: 'cccc3333', title: 'Projekt nelkul', status: 'planned' })
+    createApproval({ id: 'ap1', agent_id: 'x', category: 'kanban_done', action_description: 'd', action_payload: JSON.stringify({ kanban_card_id: 'aaaa1111' }) })
+    createApproval({ id: 'ap2', agent_id: 'x', category: 'mas', action_description: 'd' })
+    const ap = await call('GET', '/api/projects/scope-map?type=approval&ids=ap1,ap2')
+    expect(ap.body.map).toEqual({ ap1: [a.id] })
+    const m1 = createAgentMessage('x', 'y', 'kesz az aaaa1111 es a bbbb2222 is')
+    const m2 = createAgentMessage('x', 'y', 'semmi kartya, csak cccc3333')
+    const msg = await call('GET', `/api/projects/scope-map?type=message&ids=${m1.id},${m2.id}`)
+    expect(msg.body.map[String(m1.id)].sort()).toEqual([a.id, b.id].sort())
+    expect(msg.body.map[String(m2.id)]).toBeUndefined()
+    // Ures adatbazison (friss telepites) sem hibazik.
+    expect((await call('GET', '/api/projects/scope-map?type=message&ids=')).body.map).toEqual({})
+    expect((await call('GET', '/api/projects/scope-map?type=mas')).status).toBe(400)
   })
 })
 

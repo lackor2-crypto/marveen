@@ -9386,6 +9386,8 @@ async function loadScheduleAgents() {
   }
 }
 
+let _prjScheduleMap = {}
+
 async function loadSchedules() {
   try {
     const [schedulesRes] = await Promise.all([
@@ -9393,8 +9395,12 @@ async function loadSchedules() {
       loadScheduleAgents(),
     ])
     schedules = await schedulesRes.json()
-    renderScheduleList(schedules)
-    if (currentScheduleView === 'timeline') renderTimeline(schedules)
+    _prjScopeBar('tasks', loadSchedules)
+    // A sor projekt-valasztojahoz mindig kell, melyik utemezes melyik projekte.
+    _prjScheduleMap = await _prjScopeMapLoad('schedule')
+    const shown = schedules.filter((s) => _prjInScope('tasks', _prjScheduleMap[s.name]))
+    renderScheduleList(shown)
+    if (currentScheduleView === 'timeline') renderTimeline(shown)
     loadPendingRetries()
   } catch (err) {
     console.error('Ütemezés betöltés hiba:', err)
@@ -9525,6 +9531,7 @@ function makeScheduleRow(task) {
           <span>${describeCron(task.schedule)}</span>
           <span class="schedule-agent-name">${task.type === 'command' ? t('tasks.badge.command_who') : escapeHtml(agent.label || agent.name)}</span>
         </div>
+        ${_prjAssignRowHtml('schedule', task.name, (_prjScheduleMap[task.name] || [])[0] || '')}
       </div>
       <div class="schedule-actions">
         <button class="btn-icon" data-action="run" title="${t('tasks.btn.run_now')}">
@@ -10331,6 +10338,8 @@ async function loadMemStats() {
   }
 }
 
+let _prjMemoryMap = {}
+
 async function loadMemories() {
   if (currentMemTier === 'log' || currentMemTier === 'graph') return
   const q = memSearchInput.value.trim()
@@ -10344,10 +10353,13 @@ async function loadMemories() {
   if (agent) params.set('agent', agent)
   if (currentMemTier) params.set('tier', currentMemTier)
   params.set('limit', '50')
+  if (_prjScope.memories) params.set('project', _prjScope.memories)
+  _prjScopeBar('memories', loadMemories)
 
   try {
-    const res = await fetch(`/api/memories?${params}`)
+    const [res, map] = await Promise.all([fetch(`/api/memories?${params}`), _prjScopeMapLoad('memory')])
     const memories = await res.json()
+    _prjMemoryMap = map
     renderMemories(memories)
   } catch (err) {
     console.error('Memória betöltés hiba:', err)
@@ -10388,6 +10400,7 @@ function renderMemories(memories) {
       <div class="mem-content-short">${linkifyKanbanRefs(shortContent)}</div>
       <div class="mem-content-full">${linkifyKanbanRefs(mem.content)}</div>
       ${keywordsHtml}
+      ${_prjAssignRowHtml('memory', String(mem.id), (_prjMemoryMap[String(mem.id)] || [])[0] || '')}
       <div class="mem-item-footer">
         <button class="btn-secondary" data-edit-memid="${mem.id}" style="padding:6px 14px; font-size:12px;">${t('common.btn.edit')}</button>
         <button class="btn-danger" data-memid="${mem.id}" style="padding:6px 14px; font-size:12px;">${t('common.btn.delete')}</button>
@@ -10396,7 +10409,7 @@ function renderMemories(memories) {
 
     // Toggle expand
     item.addEventListener('click', (e) => {
-      if (e.target.closest('.btn-danger') || e.target.closest('.btn-secondary')) return
+      if (e.target.closest('.btn-danger') || e.target.closest('.btn-secondary') || e.target.closest('.prj-assign-row')) return
       item.classList.toggle('expanded')
     })
 
@@ -16206,6 +16219,10 @@ if (skillsPageNewBtn) {
   })
 }
 
+let _prjSkillMap = {}
+/** A skill azonositoja a projekt-kotesben: globalnal a neve, helyinel `<agens>/<nev>`. */
+function _prjSkillKey(s, isLocal) { return isLocal ? (s.agentId || '') + '/' + s.name : s.name }
+
 async function loadGlobalSkills() {
   skillsGrid.innerHTML = `<div class="connector-loading"><span class="spinner"></span> ${t('skills.loading')}</div>`
   skillsStats.innerHTML = ''
@@ -16216,6 +16233,8 @@ async function loadGlobalSkills() {
     ])
     globalSkills = await globalRes.json()
     localAgentSkills = localRes.ok ? await localRes.json() : []
+    _prjScopeBar('skills', loadGlobalSkills)
+    _prjSkillMap = await _prjScopeMapLoad('skill')
     renderGlobalSkills()
   } catch (err) {
     console.error('Skills betoltes hiba:', err)
@@ -16352,6 +16371,10 @@ function renderGlobalSkillsGrid() {
     return haystack.includes(skillsSearchQuery)
   }) : []
 
+  const scopedGlobal = filteredGlobal.filter((s) => _prjInScope('skills', _prjSkillMap[_prjSkillKey(s, false)]))
+  const scopedLocal = filteredLocal.filter((s) => _prjInScope('skills', _prjSkillMap[_prjSkillKey(s, true)]))
+  filteredGlobal.length = 0; filteredGlobal.push(...scopedGlobal)
+  filteredLocal.length = 0; filteredLocal.push(...scopedLocal)
   const allFiltered = [...filteredGlobal, ...filteredLocal]
 
   if (allFiltered.length === 0) {
@@ -16402,8 +16425,12 @@ function renderGlobalSkillsGrid() {
         ${agentBadges}
         ${mtimeStr ? `<span class="skill-card-mtime" title="${t('skills.mtime.title')}">${escapeHtml(mtimeStr)}</span>` : ''}
       </div>` : ''}
+      ${_prjAssignRowHtml('skill', _prjSkillKey(skill, isLocal), (_prjSkillMap[_prjSkillKey(skill, isLocal)] || [])[0] || '')}
     `
-    card.addEventListener('click', () => openSkillDetail(skill.name, skill.label, skill.agentId || null))
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.prj-assign-row')) return
+      openSkillDetail(skill.name, skill.label, skill.agentId || null)
+    })
     skillsGrid.appendChild(card)
   }
 
@@ -16957,6 +16984,7 @@ async function ensureMarveenLoaded() {
 }
 
 async function loadMessagesPage() {
+  _prjScopeBar('messages', () => { if (chatThreadState.agent) loadChatThread(chatThreadState.agent) })
   await ensureMarveenLoaded()
   await loadChatAgentList()
 }
@@ -17238,21 +17266,24 @@ async function fetchChatPage(agentName, beforeId, limit, mode) {
     const res = await fetch(url)
     if (!res.ok) throw new Error('HTTP ' + res.status)
     const msgs = await res.json()
-    const sorted = Array.isArray(msgs) ? [...msgs].sort((a, b) => (a.created_at || 0) - (b.created_at || 0)) : []
+    const all = Array.isArray(msgs) ? [...msgs].sort((a, b) => (a.created_at || 0) - (b.created_at || 0)) : []
+    // Projekt-szuro: csak a projekt kartyaira hivatkozo uzenetek latszanak; a
+    // lapozas (minLoadedId, hasMore) tovabbra is a teljes oldalon megy.
+    const sorted = await _prjScopeFilterList('messages', 'message', all, (m) => String(m.id), true)
 
     if (mode === 'replace') {
       if (sorted.length === 0) {
-        container.innerHTML = '<p class="activity-empty">' + t('messages.empty_thread') + '</p>'
+        container.innerHTML = '<p class="activity-empty">' + escapeHtml(_prjScope.messages && all.length ? t('projects.scope.messages_none') : t('messages.empty_thread')) + '</p>'
       } else {
         container.innerHTML = '<div class="chat-loading-indicator" id="chatLoadingTop" style="display:none;text-align:center;padding:8px;font-size:11px;color:var(--text-muted)">' + t('messages.loading') + '</div>'
         container.insertAdjacentHTML('beforeend', sorted.map(buildBubbleHtml).join(''))
         container.scrollTop = container.scrollHeight
       }
-      if (sorted.length < limit) chatThreadState.hasMore = false
+      if (all.length < limit) chatThreadState.hasMore = false
     } else { // prepend
       if (loadingIndicator) loadingIndicator.style.display = 'none'
-      if (!sorted.length) { chatThreadState.hasMore = false; chatThreadState.loading = false; return }
-      if (sorted.length < limit) chatThreadState.hasMore = false
+      if (!all.length) { chatThreadState.hasMore = false; chatThreadState.loading = false; return }
+      if (all.length < limit) chatThreadState.hasMore = false
       const prevHeight = container.scrollHeight
       const indicator = document.getElementById('chatLoadingTop')
       const html = sorted.map(buildBubbleHtml).join('')
@@ -17265,8 +17296,8 @@ async function fetchChatPage(agentName, beforeId, limit, mode) {
       container.scrollTop = container.scrollHeight - prevHeight
     }
 
-    if (sorted.length > 0) {
-      const minId = Math.min(...sorted.map(m => m.id))
+    if (all.length > 0) {
+      const minId = Math.min(...all.map(m => m.id))
       if (chatThreadState.minLoadedId === null || minId < chatThreadState.minLoadedId) {
         chatThreadState.minLoadedId = minId
       }
@@ -23345,6 +23376,8 @@ let _approvalsAll = []
 // instead, for every approval (not just ones with a linked kanban card).
 const _approvalsExpanded = new Set()
 
+let _prjApprovalMap = {}
+
 async function loadApprovalsPage() {
   await ensureAgentsLoaded()   // kulonben az ellenorzes-oszlop nyers agens-id-t mutat
   const tbody = document.getElementById('approvalsTbody')
@@ -23358,6 +23391,8 @@ async function loadApprovalsPage() {
     const res = await fetch('/api/approvals?limit=500')
     if (!res.ok) throw new Error('HTTP ' + res.status)
     _approvalsAll = await res.json()
+    _prjScopeBar('approvals', loadApprovalsPage)
+    _prjApprovalMap = _prjScope.approvals ? await _prjScopeMapLoad('approval', _approvalsAll.map((a) => a.id)) : {}
     _syncApprovalFilterOptions()
     _renderApprovalsStats()
     _renderApprovalsTable()
@@ -23429,6 +23464,7 @@ function _renderApprovalsStats() {
 function _filterApprovals() {
   const { status, agent, category, search } = _approvalsState
   return _approvalsAll.filter(a => {
+    if (!_prjInScope('approvals', _prjApprovalMap[a.id])) return false
     if (status && a.status !== status) return false
     // The agent option carries a display NAME, and several ids can resolve to
     // it (see _approvalAgentLabel).
@@ -41926,7 +41962,35 @@ document.addEventListener('DOMContentLoaded', () => { runLater(refreshProjectNam
 // oldalon (vagy a projekt oldalarol) szuletik, az magatol a projekte. A szabaly,
 // hogy mi melyik projekte, a szerveren el (src/project-scope.ts).
 
-const _prjScope = { ideas: '', debate: '', research: '' }
+const _prjScope = { ideas: '', debate: '', research: '', tasks: '', memories: '', skills: '', approvals: '', messages: '' }
+const _PRJ_SCOPE_PAGE_EL = {
+  ideas: 'ideasPage', debate: 'debatePage', research: 'researchPage', tasks: 'tasksPage',
+  memories: 'memoriesPage', skills: 'skillsPage', approvals: 'approvalsPage', messages: 'messagesPage',
+}
+
+/** Melyik elem melyik projekte (Memoria/Utemezes/Skill: kezi kotes; Jovahagyas:
+ *  a kartyaja; Uzenet: a hivatkozott kartyai). Hiba eseten ures terkep + jelzes. */
+async function _prjScopeMapLoad(type, ids) {
+  const q = 'type=' + encodeURIComponent(type) + (ids ? '&ids=' + encodeURIComponent(ids.join(',')) : '')
+  const r = await _prjApi('GET', '/api/projects/scope-map?' + q)
+  if (!r.ok) { showToast(t('projects.scope.map_failed', { msg: r.message })); return {} }
+  return (r.data && r.data.map) || {}
+}
+
+/** Az elem latszik-e az oldal szurojevel ('' = mind, 'none' = projekt nelkuliek). */
+function _prjInScope(page, pids) {
+  const cur = _prjScope[page]
+  if (!cur) return true
+  if (cur === 'none') return !(pids && pids.length)
+  return !!pids && pids.includes(cur)
+}
+
+/** Egy lista szurese az oldal projekt-szurojevel. Szuro nelkul nem kerdez semmit. */
+async function _prjScopeFilterList(page, type, list, keyOf, withIds) {
+  if (!_prjScope[page]) return list
+  const map = await _prjScopeMapLoad(type, withIds ? list.map(keyOf) : null)
+  return list.filter((x) => _prjInScope(page, map[keyOf(x)]))
+}
 
 /** `project=...` a lista-keresbe, ha az oldal egy projektre (vagy a projekt nelkuliekre) szur. */
 function _prjScopeQuery(page) {
@@ -41964,7 +42028,7 @@ function _prjBadgeHtml(pid) {
 /** A szuro-sav az oldal tetejen: projekt-valaszto, "vissza a projekthez", es
  *  (Vitaztatas / Kutatas) az uj keres gombja. */
 async function _prjScopeBar(page, reload) {
-  const pageEl = document.getElementById(page === 'ideas' ? 'ideasPage' : page === 'debate' ? 'debatePage' : 'researchPage')
+  const pageEl = document.getElementById(_PRJ_SCOPE_PAGE_EL[page] || '')
   if (!pageEl) return
   if (!window._projectNames) await refreshProjectNames()
   let bar = document.getElementById('prjScope-' + page)
@@ -41984,7 +42048,7 @@ async function _prjScopeBar(page, reload) {
     <select id="prjScopeSel-${page}" class="input">${_prjProjectOptionsHtml(cur, { all: true, none: true })}</select>
     ${known ? `<button type="button" class="prj-back-chip" data-prj-return="${escapeAttr(cur)}">${escapeHtml(t('projects.back_to_project', { name: known.name }))}</button>` : ''}
     ${req ? `<button type="button" class="btn-primary btn-compact" data-prj-request="${req}">${escapeHtml(t('projects.request.' + req + '_btn'))}</button>` : ''}
-    <span class="prj-muted">${escapeHtml(page === 'ideas' ? t('projects.scope.hint_ideas') : page === 'debate' ? t('projects.scope.hint_debate') : t('projects.scope.hint_research'))}</span>`
+    <span class="prj-muted">${escapeHtml(_prjT('projects.scope.hint_' + page, null, ''))}</span>`
   const sel = bar.querySelector('select')
   sel.value = cur || ''
   sel.addEventListener('change', () => { _prjScope[page] = sel.value; reload() })
@@ -42079,6 +42143,10 @@ document.addEventListener('change', async (e) => {
   }
   row.setAttribute('data-prj-assign-cur', next)
   showToast(next ? t('projects.scope.linked', { name: projectLabel(next) }) : t('projects.scope.unlinked'))
+  // A sor-szintu terkep frissul, es ha az oldal projektre szur, a lista is.
+  if (type === 'schedule') { _prjScheduleMap[id] = next ? [next] : undefined; if (_prjScope.tasks) loadSchedules() }
+  else if (type === 'memory') { _prjMemoryMap[id] = next ? [next] : undefined; if (_prjScope.memories) loadMemories() }
+  else if (type === 'skill') { _prjSkillMap[id] = next ? [next] : undefined; if (_prjScope.skills) renderGlobalSkillsGrid() }
 })
 
 // ---- a kartya besorolasi javaslata ----

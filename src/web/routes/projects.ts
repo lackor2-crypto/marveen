@@ -10,6 +10,7 @@
 //   POST   /api/projects/migration/:id/revert -- egy atvetel visszavonasa
 //   POST   /api/projects/card-suggestion  -- egy uj kartya javaslata (kulon sor, a nagy futast nem erinti)
 //   POST   /api/projects/migration/classify  -- a projekt nelkuli kartyak besorolasi JAVASLATA a tartalmuk alapjan (hatterben)
+//   GET    /api/projects/scope-map?type=&ids= -- a Memoria/Utemezes/Skill/Jovahagyas/Uzenet elemek projektje (szureshez)
 //   GET    /api/projects/context?q=          -- "folytassuk a projektet": a projekt teljes kontextusa az agensnek
 //   GET    /api/projects/:id                 -- egy projekt
 //   PUT    /api/projects/:id                 -- szerkesztes (+ mappa-csere)
@@ -57,8 +58,9 @@ import type { RouteContext } from './types.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { createAgentMessage } from '../../db.js'
 import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
+import { resolveCardRefs } from '../card-work-guard.js'
 import {
-  createStarterCard, isRequestKind, projectRequestMessage, researchObjectId,
+  createStarterCard, isScopeType, projectScopeMap, isRequestKind, projectRequestMessage, researchObjectId,
 } from '../../project-scope.js'
 import { agentConfigRoot, listAgentNames } from '../agent-config.js'
 import { join as joinPath } from 'node:path'
@@ -77,6 +79,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_status: { hu: 'Ismeretlen projekt-állapot.', en: 'Unknown project status.' },
   bad_folder: { hu: 'A mappa útvonala nem érvényes.', en: 'The folder path is not valid.' },
   bad_label: { hu: 'Ez a címke nem létezik (lehet, hogy közben törölték).', en: 'This label does not exist (it may have been deleted).' },
+  memory_missing: { hu: 'Ez a memória nem található (lehet, hogy közben törölték).', en: 'This memory was not found (it may have been deleted).' },
   not_found: { hu: 'Ez a projekt nem található (lehet, hogy közben törölték).', en: 'This project was not found (it may have been deleted).' },
   no_depot: { hu: 'Még nincs beállítva a Raktár (hol tárolja a Marveen a fájljaidat). Iroda -> Beállítások -> Raktár beállítások.', en: 'The Depot (where Marveen keeps your files) is not set up yet. Office -> Settings -> Depot settings.' },
   folder_outside: { hu: 'Ez a hely nincs a Raktár mappáján belül.', en: 'This place is not inside the Depot folder.' },
@@ -313,6 +316,17 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // Projekt-szures a bal menu tobbi oldalan (Memoria, Utemezesek, Skillek,
+  // Jovahagyasok, Uzenetek): melyik elem melyik projekte.
+  if (path === '/api/projects/scope-map' && method === 'GET') {
+    const type = url.searchParams.get('type')
+    if (!isScopeType(type)) return fail(res, 400, 'bad_link', lang)
+    const rawIds = url.searchParams.get('ids')
+    const ids = rawIds === null ? null : rawIds.split(',').map((x) => x.trim()).filter(Boolean).slice(0, 1000)
+    json(res, { map: projectScopeMap(type, ids, resolveCardRefs) })
+    return true
+  }
+
   if (path === '/api/projects/card-suggestion' && method === 'GET') {
     const cardId = url.searchParams.get('card') || ''
     const hit = listCardSuggestions().find((x) => x.cardId === cardId) ?? null
@@ -510,7 +524,10 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     const type = body.type
     const objectId = String(body.id ?? '').trim()
     // Kezzel kotheto: otlet, vitaztatas, hatteranyag (`<agens>/<fajl>.md`).
-    if (!objectId || !isLinkType(type) || !['idea', 'debate', 'research'].includes(type)) return fail(res, 400, 'bad_link', lang)
+    if (!objectId || !isLinkType(type) || !['idea', 'debate', 'research', 'memory', 'schedule', 'skill'].includes(type)) return fail(res, 400, 'bad_link', lang)
+    if (type === 'memory' && (!hasTable('memories') || !getDb().prepare('SELECT 1 FROM memories WHERE id = ?').get(Number(objectId)))) return fail(res, 404, 'memory_missing', lang)
+    // Utemezes / skill: a nevuk (helyi skillnel `<agens>/<nev>`) -- csak biztonsagos jelek.
+    if ((type === 'schedule' || type === 'skill') && !/^[A-Za-z0-9._:/ -]{1,200}$/.test(objectId)) return fail(res, 400, 'bad_link', lang)
     if (type === 'idea' && (!hasTable('idea_box') || !getDb().prepare('SELECT 1 FROM idea_box WHERE id = ?').get(objectId))) return fail(res, 404, 'idea_missing', lang)
     if (type === 'debate' && !debateExists(objectId)) return fail(res, 404, 'debate_missing', lang)
     if (type === 'research' && !researchExists(objectId)) return fail(res, 404, 'research_missing', lang)

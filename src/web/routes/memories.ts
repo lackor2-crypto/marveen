@@ -11,6 +11,7 @@ import { readBody, json, jsonMaybeGzip } from '../http-helpers.js'
 import { containsSuspiciousContent } from '../content-safety.js'
 import { chooseCategorizeModel } from '../../ollama-model-choice.js'
 import type { RouteContext } from './types.js'
+import { projectScopeMap } from '../../project-scope.js'
 
 // Canonical memory categories. Kept in sync with the DB CHECK constraint in
 // src/db.ts so the API rejects bad values before they even reach SQLite.
@@ -58,8 +59,25 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '50', 10), 200)
     const mode = url.searchParams.get('mode') || 'fts'
 
+    // Projekt-szures (kanban #321): `project=<id>` csak a projekthez kotott
+    // memoriak, `project=none` a sehova nem kotottek. Kereses nelkul a kotottek
+    // kozvetlenul jonnek (kulonben a LIMIT elrejtene oket a tobbi mogott).
+    const projectScope = url.searchParams.get('project') || ''
+    const scopeMap = projectScope ? projectScopeMap('memory', null, () => []) : null
+    const inScope = (id: number): boolean => {
+      if (!scopeMap) return true
+      const pids = scopeMap[String(id)]
+      return projectScope === 'none' ? !pids : !!pids && pids.includes(projectScope)
+    }
+
     let results: Memory[]
-    if (q && mode === 'hybrid') {
+    if (scopeMap && projectScope !== 'none' && !q) {
+      const ids = Object.keys(scopeMap).filter((id) => inScope(Number(id))).map(Number)
+      results = ids.length
+        ? getDb().prepare(`SELECT * FROM memories WHERE id IN (${ids.map(() => '?').join(',')})${agentId ? ' AND agent_id = ?' : ''} ORDER BY created_at DESC LIMIT ?`)
+          .all(...ids, ...(agentId ? [agentId] : []), limit) as Memory[]
+        : []
+    } else if (q && mode === 'hybrid') {
       results = await hybridSearch(agentId || MAIN_AGENT_ID, q, limit)
     } else if (q && agentId) {
       results = searchAgentMemories(agentId, q, limit)
@@ -85,6 +103,7 @@ export async function tryHandleMemories(ctx: RouteContext): Promise<boolean> {
     // cannot push the category down into their own LIMIT. A no-op for the
     // plain agent listing, which already filtered in SQL.
     if (tier) results = results.filter(m => m.category === tier)
+    if (scopeMap) results = results.filter(m => inScope(m.id))
 
     // A search query (q) is a genuine recall: stamp the surfaced memories as
     // just-accessed so accessed_at reflects real usage. Plain listing (no q,
