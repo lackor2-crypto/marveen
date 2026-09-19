@@ -10,10 +10,13 @@
 //   - ures (friss) projektmappan is ad javaslatot;
 //   - a mappavalaszto a melyebb almappakat is kinalja, git-tarolo nelkul;
 //   - a mappa CSAK a mkdir-hivasra jon letre, projekten kivulre nem vezethet.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+// A telepites nyelve (a lemezen levo mappanevek nyelve) itt magyar,
+// fuggetlenul a futtato gep .lang fajljatol.
+vi.mock('../config.js', async (orig) => ({ ...(await orig<typeof import('../config.js')>()), APP_LANG: 'hu' }))
 import { initDatabase } from '../db.js'
 import { createProject } from '../projects.js'
 import { fileKind, suggestPlacement, placeKey } from '../project-file-placement.js'
@@ -34,6 +37,11 @@ describe('a fajl fajtaja', () => {
     expect(fileKind('tavaszi-poszt.png')).toBe('post')
     expect(fileKind('weboldal-szoveg.docx')).toBe('web')
     expect(fileKind('ismeretlen.xyz')).toBe('other')
+    // Rovid tipp nem prefix: posta/postas nem 'post', de a poszt marad.
+    expect(fileKind('posta-level.pdf')).toBe('doc')
+    expect(fileKind('postas.jpg')).toBe('photo')
+    expect(fileKind('poszt-tavasz.png')).toBe('post')
+    expect(fileKind('szerzodesek.pdf')).toBe('contract')
   })
 })
 
@@ -112,6 +120,9 @@ describe('mappak a lemezen', () => {
     const sug = await call('POST', `/api/projects/${p.id}/placement?lang=hu`, { name: 'kep.jpg', mime: 'image/jpeg' })
     expect(sug.body.placement).toEqual({ type: 'new', kind: 'photo', name: 'Média/Fotók', parent: '' })
     expect(existsSync(join(w, 'Média'))).toBe(false)
+    // Angol felulet + magyar telepites: a lemezre kerulo nev a telepitese.
+    const en = await call('POST', `/api/projects/${p.id}/placement?lang=en`, { name: 'kep.jpg', mime: 'image/jpeg' })
+    expect(en.body.placement).toEqual({ type: 'new', kind: 'photo', name: 'Média/Fotók', parent: '' })
     const made = await call('POST', `/api/projects/${p.id}/mkdir?lang=hu`, { parent: '', name: 'Média/Fotók' })
     expect(made.body).toEqual({ ok: true, sub: 'Média/Fotók', created: true })
     expect(existsSync(join(w, 'Média', 'Fotók'))).toBe(true)
