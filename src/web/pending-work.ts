@@ -166,7 +166,11 @@ export function buildPendingWorkContext(
       'FUGGO KANBAN KARTYAK (in_progress, neked cimezve):\n' +
         cards
           .map((c) => `  - ${c.seq != null ? `#${c.seq} ` : ''}(${c.id}) ${c.title} [${c.status}]`)
-          .join('\n'),
+          .join('\n') +
+        '\n\nHa barmelyik fenti kartya MUNKAJA valojaban MAR KESZ (landolt, ' +
+        'tesztelt), AZONNAL tedd at "waiting" (varakozo) oszlopba -- ne hagyd ' +
+        'in_progress-ben. A "done"-t csak a tulajdonos teszi; te a "waiting"-ig ' +
+        'viszed. (Elore mozgatas rutin; visszafele csak kerdes utan.)',
     )
   }
   if (memories.length) {
