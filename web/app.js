@@ -35519,11 +35519,18 @@ var _INBOX_FOLDER_LIST_MAX = 40
  * deep; a typed filter matches any part of the path, accents ignored. */
 function _inboxFolderListHtml(sug, filter) {
   var q = _inboxFold(filter).trim()
+  // A keresot szavakra bontjuk, es MINDEN szonak kulon kell illeszkednie
+  // (AND, sorrendfuggetlen). A szint-elvalaszto '/'-t szokozre csereljuk a
+  // keresett szovegben, kulonben a tobb szavas beiras (pl. "Korpas Laszlo H")
+  // nem talalna ra a "Korpas Laszlo/Hatosagok" perjelere -> 0 talalat.
+  // (Kartya 03791582)
+  var terms = q ? q.split(/\s+/) : []
   var ownerName = ''
   ;(sug.owner.options || []).forEach(function (o) { if (o.id === sug.owner.personId) ownerName = o.name })
   var list = _inboxKnownFolders.filter(function (f) {
-    if (!q) return true
-    return _inboxFold(f.rel).indexOf(q) >= 0
+    if (!terms.length) return true
+    var hay = _inboxFold(f.rel).replace(/\//g, ' ')
+    return terms.every(function (term) { return hay.indexOf(term) >= 0 })
   })
   list.sort(function (a, b) {
     var ao = ownerName && a.rel.indexOf(ownerName + '/') === 0 ? 0 : 1
