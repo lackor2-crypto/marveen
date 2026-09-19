@@ -39,6 +39,7 @@ import {
   type BrowseEntry, type BrowseResult,
 } from './code-folder-browse.js'
 import { randomUUID } from 'node:crypto'
+import { locateLocalTranscript, readTranscriptTailMeta } from './code-conversation.js'
 import { getDb } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
 import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
@@ -1899,6 +1900,68 @@ export function getFolderBrowse(id: string, now = Date.now()): BrowseResult | nu
   return { ...req, status: browseStatus(req, seenAt, now, WORKER_STALE_MS) }
 }
 
+/**
+ * The RUNNING task's conversation as a tab, measured by the dashboard itself.
+ *
+ * Boss, 2026-09-19: "a kartya feluleten is meg kene jelennie ennek a csetnek
+ * es a csetnek a cimenek" -- the card said "A futo beszelgetesek nem
+ * latszanak / kontextus: nem latok ra" while a task was visibly working. The
+ * tab list comes ONLY from the Windows worker's report, and the worker cannot
+ * report while it is blocked inside the task (single-threaded loop); a
+ * dashboard restart also empties the in-memory list. So exactly the one
+ * conversation the owner wants to watch was missing.
+ *
+ * When the task's transcript is readable from here (the run's Claude Code
+ * works in the same WSL home), it becomes a tab: title = the task's own
+ * prompt, context/model/activity measured from the transcript tail. A task
+ * whose transcript is NOT found stays absent -- a miss is never faked into a
+ * tab with invented numbers. Sessions the worker already reported are left
+ * alone: its measurement wins.
+ */
+export function runningTaskTabCandidates(reported: CodeCandidate[], locate: (sid: string) => string | null = locateLocalTranscript): CodeCandidate[] {
+  ensureTables()
+  const rows = getDb()
+    .prepare(`SELECT project, prompt, run_session_id, workspace_path, started_at FROM code_tasks WHERE status = 'running' AND run_session_id IS NOT NULL AND run_session_id != '' ORDER BY started_at DESC LIMIT 8`)
+    .all() as Array<Record<string, unknown>>
+  if (rows.length === 0) return []
+  const seen = new Set(reported.map((c) => c.sessionId.toLowerCase()))
+  const known = listCodeSessions()
+  const out: CodeCandidate[] = []
+  for (const r of rows) {
+    const sid = String(r['run_session_id'])
+    if (!RUN_SESSION_ID_RE.test(sid) || seen.has(sid.toLowerCase())) continue
+    const path = locate(sid)
+    if (!path) continue
+    // Grouped under the project's REGISTERED folder, not the task's own
+    // worktree -- the card looks the tabs up by the registered folder.
+    const reg = known.find((k) => k.project === String(r['project']))
+    const workspacePath = reg ? reg.workspacePath : (r['workspace_path'] == null ? '' : String(r['workspace_path']))
+    if (!workspacePath) continue
+    const meta = readTranscriptTailMeta(path)
+    const firstLine = String(r['prompt'] ?? '').split('\n').map((l) => l.trim()).find((l) => l.length > 0) ?? ''
+    seen.add(sid.toLowerCase())
+    out.push({
+      workspacePath,
+      sessionId: sid,
+      mtime: meta.mtime,
+      host: 'dashboard',
+      reportedAt: Date.now(),
+      title: firstLine ? firstLine.slice(0, 120) : null,
+      primary: false,
+      contextTokens: meta.contextTokens,
+      // The task row says it is running -- that IS the measurement of "live".
+      live: true,
+      lastActivity: meta.lastActivity,
+      model: meta.model,
+      // The dashboard does not know the Windows-side process; without a pid
+      // the card offers no close button, which is correct for a running task.
+      pid: null,
+      transcriptPath: path,
+    })
+  }
+  return out
+}
+
 /** A jelentett beszelgetesek projektenkent csoportositva -- ez all a
  *  `/api/code/tabs` es a `/tabs` Telegram-parancs mogott is, hogy a ket felulet
  *  ne kulon logikaval szamolja ki ugyanazt. */
@@ -1909,7 +1972,8 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   const known = listCodeSessions()
 
   const groups = new Map<string, CodeTabProject>()
-  for (const c of listCodeCandidates()) {
+  const reported = listCodeCandidates()
+  for (const c of [...reported, ...runningTaskTabCandidates(reported)]) {
     const key = workspaceKey(c.workspacePath)
     const registered = known.find((k) => workspaceKey(k.workspacePath) === key)
     let g = groups.get(key)
