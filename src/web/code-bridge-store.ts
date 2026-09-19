@@ -1188,6 +1188,25 @@ export function heartbeatCodeTask(id: string, host: string, now = Date.now(), ru
   return info.changes > 0
 }
 
+/** The RUNNING task whose fresh conversation this is (`run_session_id`), or
+ *  null. Used by the conversation view while the worker is busy: its loop is
+ *  blocked inside the task, so the fresh tab is not reported until the task
+ *  ends -- but the task itself already knows which conversation it runs in. */
+export function findRunningTaskByRunSession(sessionId: string): { id: string; project: string; workspacePath: string | null } | null {
+  const sid = (sessionId || '').trim()
+  if (!RUN_SESSION_ID_RE.test(sid)) return null
+  ensureTables()
+  const row = getDb()
+    .prepare(`SELECT id, project, workspace_path FROM code_tasks WHERE run_session_id = ? AND status = 'running' LIMIT 1`)
+    .get(sid) as Record<string, unknown> | undefined
+  if (!row) return null
+  return {
+    id: String(row['id']),
+    project: String(row['project']),
+    workspacePath: row['workspace_path'] == null ? null : String(row['workspace_path']),
+  }
+}
+
 export interface CompleteInput {
   ok: boolean
   result?: string | null

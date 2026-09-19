@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 # felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
 # kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
 # valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
-$script:WorkerVersion = '2026-09-16.1'
+$script:WorkerVersion = '2026-09-19.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -989,6 +989,14 @@ function Invoke-CodeTask {
     Write-Log ('heartbeat failed: ' + $_.Exception.Message) 'WARN'
   }
   $lastBeat = Get-Date
+  # A SESSION-JELENTES A FUTAS ALATT IS MEGY (Boss, 2026-09-19: "nem tudok
+  # belenezni a chat ablakba, hogy mit dolgozik"). A fo ciklus EBBEN a
+  # fuggvenyben all, amig a feladat fut, tehat eddig egy friss beszelgetes
+  # (`--session-id`) csak a feladat VEGEN kerult be a fulek koze -- a
+  # "dolgozik" gomb addig "nem latok oda"-t mutatott. Az elso jelentes ~10 mp
+  # mulva megy (addigra a napló atlepi a 2 KB-os also hatart), utana
+  # ugyanolyan surun, mint a fo ciklusban.
+  $lastPublish = (Get-Date).AddSeconds(10 - $DiscoverSeconds)
   $timedOut = $false
   while (-not $proc.HasExited) {
     Start-Sleep -Seconds 2
@@ -999,6 +1007,10 @@ function Invoke-CodeTask {
       } catch {
         Write-Log ('heartbeat failed: ' + $_.Exception.Message) 'WARN'
       }
+    }
+    if (((Get-Date) - $lastPublish).TotalSeconds -ge $DiscoverSeconds) {
+      $lastPublish = Get-Date
+      try { Publish-Sessions } catch { Write-Log ('session report during task failed: ' + $_.Exception.Message) 'WARN' }
     }
     if (((Get-Date) - $started).TotalSeconds -gt $TaskTimeoutSeconds) {
       $timedOut = $true
