@@ -20,8 +20,9 @@
 // gepen fut a Claude Code, lecsatolt meghajto). Ezert ad ez a modul mindig
 // `reason`-t is, es a `reason` a TENYLEGES hibauzenet -- sosem tipp.
 
-import { readFileSync, statSync } from 'node:fs'
-import { basename } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { basename, join } from 'node:path'
 import { toLocalWorkspacePath } from './code-bridge-workspace.js'
 
 /** Egy sor az idovonalon. */
@@ -101,6 +102,44 @@ export function isSafeTranscriptPath(path: string, sessionId: string): boolean {
   if (norm.includes('..')) return false
   if (basename(norm) !== `${sessionId}.jsonl`) return false
   return /(^|\/)\.claude\/projects\//i.test(norm)
+}
+
+/** Found transcript paths, per sessionId -- a hit never moves, so the live
+ *  follow (every 2.5 s) does not rescan the projects folder each round. */
+const localTranscriptCache = new Map<string, string>()
+
+/**
+ * THE TRANSCRIPT OF A RUNNING TASK, found on THIS machine.
+ *
+ * Why: the worker's loop is blocked inside a running task, so a task that
+ * starts a FRESH conversation (`--session-id <new>`) is not reported as a tab
+ * until it ends -- and the "dolgozik" button opened an empty "nem latok oda"
+ * window for exactly the work the owner wanted to watch (Boss, 2026-09-19).
+ * When the Claude Code runs in the same WSL/Linux home as the dashboard, the
+ * transcript is right here: `<home>/.claude/projects/<slug>/<sid>.jsonl`.
+ *
+ * MEASURED, NOT GUESSED: the slug is not computed; every project folder is
+ * checked for the exact file name. Not found = `null`, and the caller keeps
+ * saying "no-session" -- a miss is never turned into an empty conversation.
+ */
+export function locateLocalTranscript(sessionId: string, roots?: string[]): string | null {
+  if (!UUID_RE.test(sessionId || '')) return null
+  const cached = localTranscriptCache.get(sessionId)
+  if (cached && existsSync(cached)) return cached
+  const dirs = roots ?? [join(homedir(), '.claude', 'projects')]
+  const name = `${sessionId}.jsonl`
+  for (const root of dirs) {
+    let subs: string[]
+    try { subs = readdirSync(root) } catch { continue }
+    for (const sub of subs) {
+      const p = join(root, sub, name)
+      if (existsSync(p) && isSafeTranscriptPath(p, sessionId)) {
+        localTranscriptCache.set(sessionId, p)
+        return p
+      }
+    }
+  }
+  return null
 }
 
 /** Egy eszkoz-hivas EGY SORBAN, emberi nyelven. Ugyanaz az elv, mint az

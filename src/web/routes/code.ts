@@ -41,11 +41,11 @@ import {
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   sameWorkspace, workspaceKey,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
-  requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation,
+  requestCodeTabClose, takeCodeTabCloseRequests, findCodeTabLocation, findRunningTaskByRunSession,
   requestFolderBrowse, takeFolderBrowseRequests, recordFolderBrowseResult, getFolderBrowse,
   type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
 } from '../code-bridge-store.js'
-import { readCodeConversation, statCodeConversation } from '../code-conversation.js'
+import { readCodeConversation, statCodeConversation, locateLocalTranscript } from '../code-conversation.js'
 import { displayName } from '../code-folder-browse.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
@@ -665,6 +665,27 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // tehat nem kerul egy kerdessel sem tobbe -- es nem is csuszhatnak szet
     // attol, amit a nezet epp mutat.
     const loc = findCodeTabLocation(sessionId)
+    // A RUNNING TASK'S FRESH CONVERSATION. The worker cannot report it while
+    // the task runs (its loop is inside the task), so without this the
+    // "dolgozik" button opened "nem latok oda" for exactly the work in
+    // progress (Boss, 2026-09-19). The task row names the conversation; the
+    // transcript is looked up on this machine, by exact file name.
+    if (!loc) {
+      const run = findRunningTaskByRunSession(sessionId)
+      const runPath = run ? locateLocalTranscript(sessionId) : null
+      if (run && runPath) {
+        const base = {
+          sessionId, title: null, live: true, contextTokens: null, model: null,
+          project: run.project, workerOnline: codeBridgeHealth().workerOnline,
+        }
+        if (metaOnly) {
+          json(res, { ...base, meta: true, ...statCodeConversation(runPath, sessionId) })
+        } else {
+          json(res, { ...base, ...readCodeConversation(runPath, sessionId, { limit, offset }) })
+        }
+        return true
+      }
+    }
     if (!loc) {
       json(res, {
         sessionId, entries: [], total: 0, offset: 0, hasOlder: false,
