@@ -35529,9 +35529,19 @@ function _inboxFolderListHtml(sug, filter) {
     var ao = ownerName && a.rel.indexOf(ownerName + '/') === 0 ? 0 : 1
     var bo = ownerName && b.rel.indexOf(ownerName + '/') === 0 ? 0 : 1
     if (ao !== bo) return ao - bo
-    var ad = a.rel.split('/').length, bd = b.rel.split('/').length
-    if (ad !== bd) return ad - bd
-    return a.rel.localeCompare(b.rel)
+    // Hierarchikus (pre-order) sorrend: szegmensenkent hasonlitunk, igy minden
+    // szulo kozvetlenul a sajat almappai ELE kerul, es minden reszfa (pl.
+    // Hatosagok + Hatosagok/Magyarorszag/..., Projektek + gyerekei) osszefuggo
+    // marad. A korabbi melyseg-alapu rendezes szetszakitotta a szulot az
+    // almappaitol -- eloszor jott az OSSZES 1. szintu, aztan az OSSZES 2. szintu.
+    // (Kartya ddeea75c)
+    var as = a.rel.split('/'), bs = b.rel.split('/')
+    var n = as.length < bs.length ? as.length : bs.length
+    for (var i = 0; i < n; i++) {
+      var c = as[i].localeCompare(bs[i])
+      if (c !== 0) return c
+    }
+    return as.length - bs.length
   })
   var more = list.length - _INBOX_FOLDER_LIST_MAX
   var html = list.slice(0, _INBOX_FOLDER_LIST_MAX).map(function (f) {
