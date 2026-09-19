@@ -40630,6 +40630,7 @@ async function _prjOpenDelete(project) {
     d.folderPath ? t('projects.delete.keep_folder', { path: d.folderPath }) : t('projects.delete.no_folder'),
   ]
   if ((d.codeAliases || []).length) keeps.push(t('projects.delete.keep_aliases', { list: d.codeAliases.join(', ') }))
+  if (d.codeTasks) keeps.push(t('projects.delete.keep_code_tasks', { n: d.codeTasks }))
   ov.innerHTML = `
   <div class="modal prj-modal" role="dialog" aria-modal="true">
     <div class="modal-header">

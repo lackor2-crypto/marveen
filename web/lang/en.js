@@ -4498,6 +4498,7 @@ window._i18n.en = {
   "projects.delete.keep_folder": "the folder and all its files stay in the Depot: {path} (you can delete them in the Explorer, separately)",
   "projects.delete.no_folder": "the project has no folder",
   "projects.delete.keep_aliases": "the code bridge link is removed ({list}); the code tasks are kept",
+  "projects.delete.keep_code_tasks": "the link of {n} individually linked code tasks is removed; the tasks themselves are kept",
   "projects.delete.archive_tip": "If you only want to put it aside, archive it instead: everything stays in the project and you can restore it any time.",
   "projects.delete.archive_instead": "Archive instead",
   "projects.delete.confirm_btn": "Delete project",

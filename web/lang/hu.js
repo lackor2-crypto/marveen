@@ -4574,6 +4574,7 @@ window._i18n.hu = {
   "projects.delete.keep_folder": "a mappa és minden fájlja a Raktárban marad: {path} (fizikailag az Intézőben törölheted, külön)",
   "projects.delete.no_folder": "a projektnek nincs mappája",
   "projects.delete.keep_aliases": "a kód-híd kapcsolat megszűnik ({list}), a kódfeladatok megmaradnak",
+  "projects.delete.keep_code_tasks": "{n} egyenként ide kötött kódfeladat kapcsolata megszűnik, maguk a feladatok megmaradnak",
   "projects.delete.archive_tip": "Ha csak félre akarod tenni, válaszd inkább az archiválást: akkor minden a projektben marad, és bármikor visszahozhatod.",
   "projects.delete.archive_instead": "Inkább archiválom",
   "projects.delete.confirm_btn": "Projekt törlése",
