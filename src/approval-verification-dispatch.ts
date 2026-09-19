@@ -120,6 +120,28 @@ export const CARD_ID_HINT: readonly string[] = [
   `commitkent keresed, nem fogod megtalalni -- es ez onmagaban NEM hiba, tehat ne jelentsd annak. A`,
   `kartyahoz tartozo commitot a kartya kommentjeibol vagy a fo ag naplojabol keresd (git log --grep), a`,
   `kartyat magat pedig a GET /api/kanban vegponton. Ha igy sem talalod meg, azt ird meg -- ne talalgasd.`,
+  `A kartyat CSAK ezzel a 8 jegyu szammal keresd: a lentebbi curl-sorban allo hosszu UUID a JOVAHAGYAS`,
+  `azonositoja, nem kartyae -- azt a kanbanon sosem fogod megtalalni, es a hianya NEM hiba.`,
+]
+
+/**
+ * The UUID in the report curl is the APPROVAL id -- and nothing used to say so.
+ *
+ * Measured, 2026-09-20 (approval c6bcca8e…, card #335 / 3a0f62fa): the verifier
+ * took the only full-length identifier it could see -- the approval UUID out of
+ * the curl line -- looked it up on /api/kanban, did not find it, and reported
+ * the approval FAILED with "a megadott kártya azonosító a rendszerben nem
+ * létezik". The card existed, in `waiting`, with its work landed on main. A
+ * second false failure of the same shape as the 2026-09-06 commit-vs-card one,
+ * from the opposite direction: there the card id was read as a commit, here the
+ * approval id was read as a card.
+ *
+ * Unconditional, unlike CARD_ID_HINT: every prompt carries the UUID, so every
+ * prompt carries the trap -- there is no description to key it off.
+ */
+export const APPROVAL_ID_NOTE: readonly string[] = [
+  `A fenti URL-ben szereplo UUID a JOVAHAGYAS azonositoja -- NEM kanban-kartya es NEM git commit. Csak a`,
+  `jelentes visszakuldesere valo; ne keresd a kanbanon, es a "nem talalom" NEM ellenorzesi hiba.`,
 ]
 
 // --- Prompts ---------------------------------------------------------------
@@ -145,6 +167,8 @@ function reportBlock(i: VerificationPromptInput, passMeaning: string, failMeanin
     `  -H "Content-Type: application/json" \\`,
     `  -H "Authorization: Bearer $(cat ${i.tokenPath})" \\`,
     `  -d '{"agent":"${i.agent}","status":"pass","report":"rovid osszefoglalo"}'`,
+    ``,
+    ...APPROVAL_ID_NOTE,
     ``,
     `status "pass" = ${passMeaning}; status "fail" = ${failMeaning}. A report mezoben RÖVIDEN (max nehany`,
     `mondat) indokold.`,
