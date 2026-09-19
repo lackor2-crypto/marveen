@@ -35,8 +35,9 @@ export type ProjectStatus = typeof PROJECT_STATUSES[number]
 /** A `project_links` ismert objektum-fajtai. Uj fajta felvetele: ide + a hasznalo.
  *  `code_alias` = egy kod-hid munkamenet MINDEN (vagy a `since` utani) feladata;
  *  `code_task`  = EGY konkret kodfeladat (`code_tasks.id`) -- ez erosebb az
- *  aliasnal es a kartya-hivatkozasnal is (lasd `project-overview.ts`). */
-export const PROJECT_LINK_TYPES = ['idea', 'code_alias', 'code_task', 'debate', 'memory', 'schedule', 'skill'] as const
+ *  aliasnal es a kartya-hivatkozasnal is (lasd `project-overview.ts`).
+ *  `research`  = egy hatteranyag-fajl (`<agens>/<fajlnev>`, lasd `project-scope.ts`). */
+export const PROJECT_LINK_TYPES = ['idea', 'code_alias', 'code_task', 'debate', 'memory', 'schedule', 'skill', 'research'] as const
 export type ProjectLinkType = typeof PROJECT_LINK_TYPES[number]
 
 export interface ProjectRow {

@@ -7,11 +7,19 @@ import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { readBody, json } from '../http-helpers.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import type { RouteContext } from './types.js'
+import { ideaProjectMap, knownProjectId } from '../../project-scope.js'
+import { linkObject } from '../../projects.js'
 
 type IdeaRow = import('../../db.js').IdeaBoxRow
 
 function getIdea(id: string): IdeaRow | undefined {
   return getDb().prepare('SELECT * FROM idea_box WHERE id = ?').get(id) as IdeaRow | undefined
+}
+
+/** A kanbanra kerulo otlet kartyaja a projektjeben marad (Iroda -> Projektek);
+ *  projekt nelkuli otlet a regi gyujtohelyre megy. */
+function ideaCardProject(ideaId: string): string {
+  return ideaProjectMap().get(ideaId) ?? 'Fejlesztési ötletek'
 }
 
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent'])
@@ -28,7 +36,13 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/ideas' && method === 'GET') {
     const status = url.searchParams.get('status') || undefined
     const category = url.searchParams.get('category') || undefined
+    // ?project=<id> -> csak a projekt otletei; ?project=none -> a projekt nelkuliek
+    // (Iroda -> Projektek, src/project-scope.ts). Minden otlet megkapja a projektjet.
+    const projectFilter = url.searchParams.get('project') || ''
+    const byProject = ideaProjectMap()
     const ideas = listIdeas({ status, category })
+      .map(i => ({ ...i, project: byProject.get(i.id) ?? null }))
+      .filter(i => !projectFilter || (projectFilter === 'none' ? !i.project : i.project === projectFilter))
     const staleCutoff = Math.floor(Date.now() / 1000) - IDEA_STALE_DAYS * 86400
     json(res, ideas.map(i => ({ ...i, stale: i.status === 'new' && i.updated_at < staleCutoff })))
     return true
@@ -48,6 +62,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       source?: string
       impact?: number | null
       effort?: number | null
+      project?: string | null
     }
     if (!data.title) { json(res, { error: 'title required' }, 400); return true }
     // Same 1-5 validation as PUT -- previously POST silently dropped these fields
@@ -63,19 +78,26 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       if (!Number.isFinite(v) || v < 1 || v > 5) { json(res, { error: 'effort must be 1-5 or null' }, 400); return true }
       effort = v
     }
+    // A projekt (id / rovid nev / pontos nev) -- egy projektre szurt Otletladabol
+    // vagy a projekt oldalarol jon; ismeretlen ertek hibat ad, nem vesz el csendben.
+    const project = data.project ? knownProjectId(data.project) : null
+    if (data.project && !project) { json(res, { error: 'unknown project' }, 400); return true }
     const id = randomUUID().slice(0, 8)
-    createIdea({
-      id,
-      title: data.title,
-      description: data.description ?? null,
-      category: data.category ?? 'Egyéb',
-      status: 'new',
-      source: data.source ?? 'manual',
-      kanban_id: null,
-      impact,
-      effort,
-    })
-    json(res, { ok: true, id })
+    getDb().transaction(() => {
+      createIdea({
+        id,
+        title: data.title,
+        description: data.description ?? null,
+        category: data.category ?? 'Egyéb',
+        status: 'new',
+        source: data.source ?? 'manual',
+        kanban_id: null,
+        impact,
+        effort,
+      })
+      if (project) linkObject(project, 'idea', id, 'dashboard')
+    })()
+    json(res, { ok: true, id, project })
     return true
   }
 
@@ -171,7 +193,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       status,
       priority: 'normal',
       assignee: BOT_NAME,
-      project: 'Fejlesztési ötletek',
+      project: ideaCardProject(ideaId),
     })
     applyCardLabels(cardId, labels.labelIds)
     logIdeaStatusChange(ideaId, idea.status, 'kanban', MAIN_AGENT_ID, `promote:${phase}`)
@@ -230,7 +252,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       status: 'planned',
       priority: 'normal',
       assignee: BOT_NAME,
-      project: 'Fejlesztési ötletek',
+      project: ideaCardProject(ideaId),
     })
     applyCardLabels(parentId, labels.labelIds)
     const childIds: string[] = []
@@ -244,7 +266,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
         status: 'planned',
         priority: (st.priority && VALID_PRIORITIES.has(st.priority) ? st.priority : 'normal') as 'low' | 'normal' | 'high' | 'urgent',
         assignee: st.assignee || BOT_NAME,
-        project: 'Fejlesztési ötletek',
+        project: ideaCardProject(ideaId),
         parent_id: parentId,
       })
       applyCardLabels(childId, labels.labelIds)

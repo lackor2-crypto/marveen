@@ -13,6 +13,7 @@ import { json } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { PROJECT_ROOT } from '../../config.js'
 import type { RouteContext } from './types.js'
+import { debateProject } from '../../project-scope.js'
 
 const LOG_PATH = join(PROJECT_ROOT, 'store', 'debate-log.jsonl')
 
@@ -28,6 +29,8 @@ interface RoundEntry {
   tokensIn: number | null
   tokensOut: number | null
   error: string | null
+  /** `ask --project <id>` -- a projektbol inditott vita (src/project-scope.ts). */
+  project?: string
 }
 
 interface ConcludeEntry {
@@ -89,7 +92,7 @@ function deleteSession(sessionId: string): boolean {
 }
 
 export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
-  const { res, path, method } = ctx
+  const { res, path, method, url } = ctx
 
   if (path === '/api/debate/sessions' && method === 'GET') {
     try {
@@ -109,6 +112,7 @@ export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
         const lastAt = es.reduce((max, e) => Math.max(max, e.ts), 0)
         return {
           id,
+          project: debateProject(id, rounds.find(r => r.project)?.project),
           startedAt: Number.isFinite(startedAt) ? startedAt : lastAt,
           lastAt,
           rounds: roundCount,
@@ -119,7 +123,9 @@ export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
           concluded: !!conclude,
         }
       }).sort((a, b) => b.lastAt - a.lastAt)
-      json(res, { sessions })
+      // ?project=<id> / ?project=none -- a projektre szurt Vitaztatas-oldal.
+      const pf = url.searchParams.get('project') || ''
+      json(res, { sessions: pf ? sessions.filter(s => (pf === 'none' ? !s.project : s.project === pf)) : sessions })
     } catch (err) {
       logger.error({ err }, 'debate sessions list failed')
       json(res, { error: 'Failed to load debate sessions' }, 500)
@@ -164,6 +170,7 @@ export async function tryHandleDebate(ctx: RouteContext): Promise<boolean> {
 
       json(res, {
         id,
+        project: debateProject(id, rounds.find(r => r.project)?.project),
         rounds: roundsOut,
         consensus: conclude ? conclude.consensus : null,
         summary: conclude ? conclude.summary : null,

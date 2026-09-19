@@ -4,6 +4,7 @@ import { MAIN_AGENT_ID } from '../../config.js'
 import { agentConfigRoot, listAgentNames } from '../agent-config.js'
 import { json } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
+import { researchProject } from '../../project-scope.js'
 
 // Read-only viewer for each agent's research/ folder (agents/<name>/research/,
 // or the project root for the main agent). Mirrors routes/docs.ts: everything
@@ -21,10 +22,14 @@ function researchDir(agent: string): string {
 }
 
 export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
-  const { res, path, method } = ctx
+  const { res, path, method, url } = ctx
 
   if (path === '/api/research' && method === 'GET') {
     const agents = [MAIN_AGENT_ID, ...listAgentNames()]
+    // ?project=<id> / ?project=none -- a projektre szurt Kutatas-oldal. A fajl
+    // projektje: kifejezett kotes, kulonben a `project: ...` sor az elejen
+    // (src/project-scope.ts).
+    const pf = url.searchParams.get('project') || ''
     const result = agents.map(agent => {
       const dir = researchDir(agent)
       let files: string[] = []
@@ -39,17 +44,20 @@ export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
         .map(name => {
           let title = name
           let ms = 0
+          let content = ''
           try {
             const file = join(dir, name)
-            title = titleOf(readFileSync(file, 'utf-8'), name)
+            content = readFileSync(file, 'utf-8')
+            title = titleOf(content, name)
             ms = statSync(file).mtimeMs
           } catch {
             /* keep filename as title */
           }
-          return { name, title, ms }
+          return { name, title, ms, project: researchProject(agent, name, content) }
         })
+        .filter(d => !pf || (pf === 'none' ? !d.project : d.project === pf))
         .sort((a, b) => (b.ms - a.ms) || a.name.localeCompare(b.name))
-        .map(({ name, title, ms }) => ({ name, title, updated: new Date(ms).toISOString().slice(0, 10) }))
+        .map(({ name, title, ms, project }) => ({ name, title, project, updated: new Date(ms).toISOString().slice(0, 10) }))
       return { agent, docs }
     }).filter(a => a.docs.length > 0)
     json(res, result)
@@ -75,7 +83,7 @@ export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const content = readFileSync(file, 'utf-8')
-    json(res, { agent, name, title: titleOf(content, name), content })
+    json(res, { agent, name, title: titleOf(content, name), content, project: researchProject(agent, name, content) })
     return true
   }
 
