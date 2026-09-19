@@ -40,7 +40,7 @@ import {
 } from './code-folder-browse.js'
 import { randomUUID } from 'node:crypto'
 import { locateLocalTranscript, readTranscriptTailMeta } from './code-conversation.js'
-import { getDb } from '../db.js'
+import { getDb, getKanbanCard, listKanbanCards, moveKanbanCard, addKanbanComment, type KanbanCard } from '../db.js'
 import { CODE_BRIDGE_EXCLUDE, APP_TZ } from '../config.js'
 import { parseUsageLimitResetAt } from '../usage-limit-reset.js'
 import { logger } from '../logger.js'
@@ -1145,7 +1145,69 @@ export function claimNextCodeTask(host: string, now = Date.now()): CodeTask | nu
     }
     return null
   })
-  return claim()
+  const claimed = claim()
+  // Kanban #325: a task most lepett 'queued' -> 'running'. Ha van cardRef-je es a
+  // hivatkozott kartya meg 'planned', lepjen 'in_progress'-be, hogy a tabla a
+  // valosagot mutassa. A tranzakcion KIVUL fut, hogy a kartya-iras semmikeppen ne
+  // tudja megbuktatni a mar megtortent (es visszaadott) task-claim-et.
+  if (claimed) promoteCardOnClaim(claimed.cardRef, claimed.id)
+  return claimed
+}
+
+/**
+ * Kanban #325: amikor egy kod-hid feladat elindul es van cardRef-je, a
+ * hivatkozott kanban kartya -- HA 'planned' -- lepjen 'in_progress'-be, egy rovid
+ * gepi kommenttel (hogy legyen nyom, ki es mi mozgatta).
+ *
+ * Szigoruan FORWARD-ONLY: mast (in_progress/waiting/testing/done) SOHA nem
+ * mozgatunk. Kulonosen a 'waiting'-et nem: az szandekos, es a kimozgatasa
+ * visszavonna a tulaj fuggo jovahagyasat.
+ *
+ * Fresh-install-safe: ures/ismeretlen cardRef eseten CSENDBEN tovabb (a nulla itt
+ * "nem lattam oda / nincs ilyen kartya", nem hiba). Best-effort: sosem dob, hogy a
+ * task-claim-et ne buktassa.
+ */
+export function promoteCardOnClaim(cardRef: string | null, taskId: string): void {
+  try {
+    if (!cardRef) return
+    const card = resolveCardRefToCard(cardRef)
+    if (!card) return
+    if (card.status !== 'planned') return
+    moveKanbanCard(card.id, 'in_progress', card.sort_order, 'code-bridge')
+    addKanbanComment(
+      card.id,
+      'code-bridge',
+      `Auto: kod-hid feladat elindult (task ${taskId}) -> a kartya 'planned' -> 'in_progress'.`,
+    )
+  } catch (err) {
+    // A kartya-leptetes kenyelmi nyom, nem a claim resze: ha barmi elromlik,
+    // csak naplozunk, a task ettol fuggetlenul fut tovabb.
+    logger.warn(
+      { err, cardRef, task: taskId },
+      "code-bridge: a kartya auto-leptetese ('planned' -> 'in_progress') nem sikerult; a task-claim ettol fuggetlenul all",
+    )
+  }
+}
+
+/**
+ * A card_ref SZABAD SZOVEG: lehet 8 jegyu (vagy hosszabb) hexa kartya-id, vagy
+ * sorszam-alaku ('#325' / '325'). Ez a feloldas mindkettot kezeli; ismeretlen
+ * eseten undefined (a hivo csendben tovabb).
+ */
+function resolveCardRefToCard(cardRef: string): KanbanCard | undefined {
+  const ref = cardRef.trim()
+  if (!ref) return undefined
+  const findBySeq = (seq: number): KanbanCard | undefined =>
+    listKanbanCards().find((c) => c.seq === seq)
+  // '#325' -> egyertelmuen sorszam.
+  const hashMatch = ref.match(/^#(\d+)$/)
+  if (hashMatch) return findBySeq(Number(hashMatch[1]))
+  // A tipikus eset: a card_ref maga a kartya id-je.
+  const byId = getKanbanCard(ref)
+  if (byId) return byId
+  // '#' nelkuli tiszta szam -> sorszam (ha id-kent nem oldodott fel).
+  if (/^\d+$/.test(ref)) return findBySeq(Number(ref))
+  return undefined
 }
 
 /** How long a queued task may wait for its project's session to (re)appear
