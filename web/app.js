@@ -40023,6 +40023,9 @@ var _prj = {
   ideas: null,
   cards: null,
   files: null,
+  debates: null,
+  research: null,
+  counts: null,
   summaryBusy: {},
   summaryErr: null,
   file: null,
@@ -40243,7 +40246,7 @@ function _prjTileHtml(p) {
 // ---- projekt-oldal ------------------------------------------------------------
 
 async function _prjOpenProject(id) {
-  if (_prj.current !== id) { _prj.tab = 'overview'; _prj.ideas = null; _prj.cards = null; _prj.files = null }
+  if (_prj.current !== id) { _prj.tab = 'overview'; _prj.ideas = null; _prj.cards = null; _prj.files = null; _prj.debates = null; _prj.research = null; _prj.counts = null }
   _prj.current = id
   const root = document.getElementById('projectsRoot')
   if (!root) return
@@ -40293,11 +40296,10 @@ function _prjRenderProject() {
     <div class="prj-tabs" role="tablist">
       <button type="button" class="tab-btn${_prj.tab === 'overview' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'overview'}" data-prj-tab="overview">${escapeHtml(t('projects.tab.overview'))}</button>
       <button type="button" class="tab-btn${_prj.tab === 'kanban' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'kanban'}" data-prj-tab="kanban" title="${escapeAttr(t('projects.tab.kanban_hint'))}">${escapeHtml(t('projects.tab.kanban'))}</button>
-      <button type="button" class="tab-btn${_prj.tab === 'ideas' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'ideas'}" data-prj-tab="ideas" title="${escapeAttr(t('projects.tab.ideas_hint'))}">${escapeHtml(t('projects.tab.ideas'))}</button>
+      ${_prjTypeTabHtml('ideas', 'projects.tab.ideabox', 'projects.tab.ideabox_hint')}
+      ${_prjTypeTabHtml('debate', 'projects.tab.debate', 'projects.tab.debate_hint')}
+      ${_prjTypeTabHtml('research', 'projects.tab.research', 'projects.tab.research_hint')}
       <button type="button" class="tab-btn${_prj.tab === 'files' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'files'}" data-prj-tab="files" title="${escapeAttr(t('projects.tab.files_hint'))}">${escapeHtml(t('projects.tab.files'))}</button>
-      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-scoped="ideas" title="${escapeAttr(t('projects.tab.ideabox_hint'))}">${escapeHtml(t('projects.tab.ideabox'))} ↗</button>
-      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-scoped="debate" title="${escapeAttr(t('projects.tab.debate_hint'))}">${escapeHtml(t('projects.tab.debate'))} ↗</button>
-      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-scoped="research" title="${escapeAttr(t('projects.tab.research_hint'))}">${escapeHtml(t('projects.tab.research'))} ↗</button>
     </div>
     ${_prjTabBodyHtml(ov)}
   </div>`
@@ -40306,6 +40308,9 @@ function _prjRenderProject() {
   if (_prj.tab === 'ideas') _prjLoadIdeas()
   else if (_prj.tab === 'kanban') _prjLoadCards()
   else if (_prj.tab === 'files') _prjLoadFiles()
+  else if (_prj.tab === 'debate') _prjLoadDebates()
+  else if (_prj.tab === 'research') _prjLoadResearch()
+  if (!_prj.counts || _prj.counts.pid !== p.id) _prjLoadCounts()
 }
 
 function _prjOverviewBodyHtml(ov) {
@@ -40456,7 +40461,163 @@ function _prjTabBodyHtml(ov) {
   if (_prj.tab === 'ideas') return _prjIdeasTabHtml()
   if (_prj.tab === 'kanban') return _prjKanbanTabHtml()
   if (_prj.tab === 'files') return _prjFilesTabHtml()
+  if (_prj.tab === 'debate') return _prjDebateTabHtml()
+  if (_prj.tab === 'research') return _prjResearchTabHtml()
   return _prjOverviewBodyHtml(ov)
+}
+
+// ---- Otletlada / Vitaztatas / Hatteranyag ful: HELYBEN (Boss 2026-09-19, 1153) ----
+// Csak az a ful latszik, amelyik tipusbol a projektnek VAN valamije (Boss 5956,
+// 3. pont) -- es persze az, amelyik eppen nyitva van. Uj elemet a "+ Uj" menu hoz
+// letre; az magatol a projekte, es a fule onnantol megjelenik.
+
+function _prjTypeTabHtml(type, labelKey, hintKey) {
+  const active = _prj.tab === type
+  const c = _prj.counts
+  if (!active && !(c && c.pid === (_prj.overview && _prj.overview.project.id) && c[type] > 0)) return ''
+  const n = c && c[type] > 0 ? ` <span class="prj-muted">${c[type]}</span>` : ''
+  return `<button type="button" class="tab-btn${active ? ' active' : ''}" role="tab" aria-selected="${active}" data-prj-tab="${type}" title="${escapeAttr(t(hintKey))}">${escapeHtml(t(labelKey))}${n}</button>`
+}
+
+async function _prjFetchJson(url) {
+  try { const r = await fetch(url); return r.ok ? await r.json() : null } catch { return null }
+}
+
+/** Hany otlet / vita / hatteranyag tartozik a projekthez (a fulek lathatosagahoz). */
+async function _prjLoadCounts() {
+  const pid = _prj.current
+  if (!pid) return
+  const q = encodeURIComponent(pid)
+  const [ideas, debates, research] = await Promise.all([
+    _prjFetchJson('/api/projects/' + q + '/ideas'),
+    _prjFetchJson('/api/debate/sessions?project=' + q),
+    _prjFetchJson('/api/research?project=' + q),
+  ])
+  if (_prj.current !== pid) return
+  _prj.counts = {
+    pid,
+    ideas: ideas && Array.isArray(ideas.ideas) ? ideas.ideas.length : 0,
+    debate: debates && Array.isArray(debates.sessions) ? debates.sessions.length : 0,
+    research: Array.isArray(research) ? research.reduce((n, a) => n + (a.docs || []).length, 0) : 0,
+  }
+  const tabs = document.querySelector('#projectsRoot .prj-tabs')
+  if (tabs && !document.getElementById('projectsPage')?.hidden) _prjRenderProject()
+}
+
+async function _prjLoadDebates() {
+  const pid = _prj.current
+  if (!pid) return
+  const r = await _prjApi('GET', '/api/debate/sessions?project=' + encodeURIComponent(pid))
+  if (_prj.current !== pid) return
+  _prj.debates = r.ok ? { pid, list: r.data.sessions || [], err: null } : { pid, list: [], err: r.message }
+  const body = document.getElementById('prjDebateBody')
+  if (body && _prj.tab === 'debate') body.outerHTML = _prjDebateTabHtml()
+}
+
+function _prjDebateTabHtml() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return ''
+  const d = _prj.debates
+  let inner
+  if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
+  else if (!d.list.length) inner = _prjEmptyLine('projects.debate.empty')
+  else {
+    inner = `<ul class="prj-list">${d.list.map((s) => {
+      const verdict = s.concluded ? t(s.consensus ? 'debate.status.consensus' : 'debate.status.no_consensus') : t('projects.debate.running')
+      return `<li class="prj-item">
+        <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-debate="${escapeAttr(s.id)}">${escapeHtml(s.questionPreview || s.id)}</a> <span class="prj-pill">${escapeHtml(verdict)}</span></div>
+        <div class="prj-item-sub prj-muted">${escapeHtml(t('projects.debate.meta', { rounds: s.rounds || 0, models: (s.models || []).length }))} · ${escapeHtml(_prjAgo(s.lastAt || 0))}</div>
+      </li>`
+    }).join('')}</ul>`
+  }
+  return `<section class="prj-section" id="prjDebateBody">
+    <div class="prj-section-row">
+      <h2>${escapeHtml(t('projects.debate.title'))}</h2>
+      ${p.archived_at ? '' : `<button type="button" class="btn-primary btn-compact" data-prj-act="new-debate">${escapeHtml(t('projects.debate.new_btn'))}</button>`}
+    </div>
+    <p class="prj-section-hint">${escapeHtml(t('projects.debate.hint'))}</p>
+    ${inner}
+  </section>`
+}
+
+/** Egy vita reszletei a projekt oldalan, egy ablakban (nem visz at a Vitaztatas oldalra). */
+async function _prjOpenDebate(id) {
+  const ov = _prjOverlay('prjDebateOverlay')
+  ov.innerHTML = `<div class="modal prj-modal modal-wide" role="dialog" aria-modal="true">
+    <div class="modal-header"><h2>${escapeHtml(t('projects.debate.detail_title'))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button></div>
+    <div class="modal-body" id="prjDebateDetail"><p class="prj-muted">${escapeHtml(t('common.loading'))}</p></div></div>`
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  openModal(ov)
+  const r = await _prjApi('GET', '/api/debate/sessions/' + encodeURIComponent(id))
+  const box = ov.querySelector('#prjDebateDetail')
+  if (!box) return
+  if (!r.ok) { box.innerHTML = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: r.message }))}</div>`; return }
+  const sess = r.data
+  const rounds = (sess.rounds || []).map((rd) => `<div class="debate-round">
+      <div class="debate-round-title">${escapeHtml(t('debate.round_n', { n: rd.round }))}</div>
+      <div class="debate-round-prompt">${escapeHtml(rd.prompt)}</div>
+      <div class="debate-round-responses">${(rd.responses || []).map((x) => `<div class="debate-response-card">
+        <div class="debate-response-model">${escapeHtml(x.model)}</div>
+        ${x.ok ? `<div class="debate-response-text">${escapeHtml(x.text || '')}</div>` : `<div class="debate-response-error">${escapeHtml(x.error || t('debate.unknown_error'))}</div>`}
+      </div>`).join('')}</div></div>`).join('')
+  const summary = sess.summary ? `<div class="debate-summary ${sess.consensus ? 'debate-summary-consensus' : 'debate-summary-disagree'}">
+      <div class="debate-summary-title">${escapeHtml(sess.consensus ? t('debate.status.consensus') : t('debate.status.no_consensus'))}</div>
+      <div>${escapeHtml(sess.summary)}</div></div>` : ''
+  box.innerHTML = _prjAssignRowHtml('debate', sess.id, sess.project) + summary + rounds
+}
+
+async function _prjLoadResearch() {
+  const pid = _prj.current
+  if (!pid) return
+  const r = await _prjApi('GET', '/api/research?project=' + encodeURIComponent(pid))
+  if (_prj.current !== pid) return
+  const list = r.ok && Array.isArray(r.data) ? r.data.flatMap((a) => (a.docs || []).map((d) => ({ ...d, agent: a.agent }))) : []
+  _prj.research = { pid, list, err: r.ok ? null : r.message }
+  const body = document.getElementById('prjResearchBody')
+  if (body && _prj.tab === 'research') body.outerHTML = _prjResearchTabHtml()
+}
+
+function _prjResearchTabHtml() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return ''
+  const d = _prj.research
+  let inner
+  if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
+  else if (!d.list.length) inner = _prjEmptyLine('projects.research.empty')
+  else {
+    inner = `<ul class="prj-list">${d.list.map((doc) => `<li class="prj-item">
+      <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-research-agent="${escapeAttr(doc.agent)}" data-prj-research="${escapeAttr(doc.name)}">${escapeHtml(doc.title || doc.name)}</a></div>
+      <div class="prj-item-sub prj-muted">${escapeHtml(chatDisplayName(doc.agent))} · ${escapeHtml(doc.updated || '')}</div>
+    </li>`).join('')}</ul>`
+  }
+  return `<section class="prj-section" id="prjResearchBody">
+    <div class="prj-section-row">
+      <h2>${escapeHtml(t('projects.research.title'))}</h2>
+      ${p.archived_at ? '' : `<button type="button" class="btn-primary btn-compact" data-prj-act="new-research">${escapeHtml(t('projects.research.new_btn'))}</button>`}
+    </div>
+    <p class="prj-section-hint">${escapeHtml(t('projects.research.hint'))}</p>
+    ${inner}
+  </section>`
+}
+
+/** Egy hatteranyag a projekt oldalan, egy ablakban. */
+async function _prjOpenResearch(agent, name) {
+  const ov = _prjOverlay('prjResearchOverlay')
+  ov.innerHTML = `<div class="modal prj-modal modal-wide" role="dialog" aria-modal="true">
+    <div class="modal-header"><h2 id="prjResearchTitle">${escapeHtml(name)}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button></div>
+    <div class="modal-body" id="prjResearchDetail"><p class="prj-muted">${escapeHtml(t('common.loading'))}</p></div></div>`
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  openModal(ov)
+  const r = await _prjApi('GET', '/api/research/' + encodeURIComponent(agent) + '/' + encodeURIComponent(name))
+  const box = ov.querySelector('#prjResearchDetail')
+  if (!box) return
+  if (!r.ok) { box.innerHTML = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: r.message }))}</div>`; return }
+  box.innerHTML = _prjAssignRowHtml('research', agent + '/' + name, r.data.project) +
+    `<div class="docs-rendered markdown-body">${renderMarkdown(r.data.content || '')}</div>`
 }
 
 // ---- Kanban ful: a projekt kartyai HELYBEN (Boss 2026-09-19: "ne vigyel el sehova") ----
@@ -41676,6 +41837,7 @@ function _prjNewIdea() {
       category: ov.querySelector('#prjIdeaCat').value, status: 'new', via: 'link', kanban_id: null, updated_at: Math.floor(Date.now() / 1000) }
     const prev = _prj.ideas && _prj.ideas.pid === p.id ? _prj.ideas : { pid: p.id, ideas: [], candidates: [], err: null }
     _prj.ideas = { ...prev, err: null, ideas: [made, ...prev.ideas.filter((i) => i.id !== made.id)] }
+    if (_prj.counts && _prj.counts.pid === p.id) _prj.counts.ideas = _prj.ideas.ideas.length
     if (_prj.current === p.id) { _prj.tab = 'ideas'; _prjRenderProject() }
   }
   ov.querySelector('#prjIdeaSave').addEventListener('click', save)
@@ -41694,6 +41856,7 @@ async function _prjLoadIdeas() {
   _prj.ideas = r.ok
     ? { pid, ideas: r.data.ideas || [], candidates: r.data.candidates || [], err: null }
     : { pid, ideas: [], candidates: [], err: r.message }
+  if (r.ok && _prj.counts && _prj.counts.pid === pid) _prj.counts.ideas = _prj.ideas.ideas.length
   const body = document.getElementById('prjIdeasBody')
   if (body && _prj.tab === 'ideas') body.outerHTML = _prjIdeasTabHtml()
 }
@@ -41772,28 +41935,25 @@ async function _prjUnlinkIdea(ideaId) {
 /** Az otlet a meglevo Otletek oldalon nyilik meg, a reszleteivel -- onnan a
  *  "vissza a projekthez" gomb hoz vissza. */
 async function _prjOpenIdea(ideaId) {
-  const p = _prj.overview && _prj.overview.project
-  setWorkspace('marvin', { page: 'ideas' })
-  if (location.hash.slice(1) === 'ideas') switchPage('ideas')
-  else location.hash = 'ideas'
-  const page = document.getElementById('ideasPage')
-  if (page && p) {
-    let bar = document.getElementById('prjIdeasChip')
-    if (!bar) { bar = document.createElement('div'); bar.id = 'prjIdeasChip'; bar.className = 'prj-back-bar'; page.prepend(bar) }
-    bar.innerHTML = `<button type="button" class="prj-back-chip" data-prj-return="${escapeAttr(p.id)}">${escapeHtml(t('projects.back_to_project', { name: p.name }))}</button>
-      <button type="button" class="prj-back-x" data-prj-chip-close="prjIdeasChip" title="${escapeAttr(t('common.close'))}" aria-label="${escapeAttr(t('common.close'))}">×</button>`
-  }
-  await loadIdeasPage()
-  // Az Otletek oldal alapszuroje az aktiv otleteket mutatja; egy "Kanbanban"
-  // allapotu otlet ugyanugy megnyithato.
-  if (!ideas.find((i) => i.id === ideaId)) {
+  // HELYBEN: a megszokott otlet-ablak nyilik meg, a projekt oldalan maradva.
+  if (typeof ideas === 'undefined' || !Array.isArray(ideas) || !ideas.find((i) => i.id === ideaId)) {
     try {
       const all = await (await fetch('/api/ideas')).json()
       const hit = Array.isArray(all) ? all.find((i) => i.id === ideaId) : null
-      if (hit) ideas.push(hit)
-    } catch { /* ha nem erem el, a lista marad */ }
+      if (hit) { if (!Array.isArray(ideas)) ideas = []; ideas.push(hit) }
+    } catch { /* lent kezelve */ }
   }
-  openIdeaDetail(ideaId)
+  if (!ideas.find((i) => i.id === ideaId)) { showToast(t('projects.ideas.open_failed')); return }
+  await openIdeaDetail(ideaId)
+  const ov = document.getElementById('ideaDetailOverlay')
+  const pid = _prj.current
+  if (!ov || !pid) return
+  const obs = new MutationObserver(() => {
+    if (ov.classList.contains('active')) return
+    obs.disconnect()
+    if (_prj.current === pid && !document.getElementById('projectsPage')?.hidden) { _prj.counts = null; _prjRenderProject() }
+  })
+  obs.observe(ov, { attributes: true, attributeFilter: ['class'] })
 }
 
 // ---- uj fajl / jegyzet a projekt mappajaba ----
@@ -41961,8 +42121,10 @@ document.addEventListener('click', (e) => {
   if (ideaLink) { e.preventDefault(); _prjOpenIdea(ideaLink.getAttribute('data-prj-idea')); return }
   const unlinkIdea = e.target.closest('[data-prj-unlink-idea]')
   if (unlinkIdea) { _prjUnlinkIdea(unlinkIdea.getAttribute('data-prj-unlink-idea')); return }
-  const scoped = e.target.closest('[data-prj-scoped]')
-  if (scoped && _prj.current) { _prjOpenScoped(scoped.getAttribute('data-prj-scoped'), _prj.current); return }
+  const deb = e.target.closest('[data-prj-debate]')
+  if (deb) { e.preventDefault(); _prjOpenDebate(deb.getAttribute('data-prj-debate')); return }
+  const rs = e.target.closest('[data-prj-research]')
+  if (rs) { e.preventDefault(); _prjOpenResearch(rs.getAttribute('data-prj-research-agent'), rs.getAttribute('data-prj-research')); return }
   const tab = e.target.closest('[data-prj-tab]')
   if (tab) {
     const which = tab.getAttribute('data-prj-tab')
@@ -42105,14 +42267,6 @@ async function _prjScopeBar(page, reload) {
   sel.addEventListener('change', () => { _prjScope[page] = sel.value; reload() })
 }
 
-/** A projekt oldalarol: az Otletlada / Vitaztatas / Kutatas erre a projektre szurve. */
-function _prjOpenScoped(page, pid) {
-  _prjScope[page] = pid || ''
-  setWorkspace('marvin', { page })
-  if (location.hash.slice(1) === page) switchPage(page)
-  else location.hash = page
-}
-
 // ---- vitaztatas / hatteranyag-gyujtes inditasa egy projektbol ----
 
 function _prjOpenRequest(kind, pid) {
@@ -42198,6 +42352,11 @@ document.addEventListener('change', async (e) => {
   if (type === 'schedule') { _prjScheduleMap[id] = next ? [next] : undefined; if (_prjScope.tasks) loadSchedules() }
   else if (type === 'memory') { _prjMemoryMap[id] = next ? [next] : undefined; if (_prjScope.memories) loadMemories() }
   else if (type === 'skill') { _prjSkillMap[id] = next ? [next] : undefined; if (_prjScope.skills) renderGlobalSkillsGrid() }
+  // A projekt oldalan (vita / hatteranyag ablakabol) a fulek szama es listaja is frissul.
+  if ((type === 'debate' || type === 'research') && _prj.current && !document.getElementById('projectsPage')?.hidden) {
+    _prj.counts = null
+    _prjRenderProject()
+  }
 })
 
 // ---- a kartya besorolasi javaslata ----
