@@ -12145,3 +12145,16 @@ details.upstream-box > summary > h4 {
 @media (max-width: 640px) {
   .prj-scope-bar select.input, .prj-assign-row select.input { flex: 1 1 100%; min-width: 0; }
 }
+
+/* Projekt oldal -- Kanban ful helyben (kanban #321) */
+.prj-kb-cols { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.prj-kb-col { background: var(--bg-input); border-radius: var(--radius-sm); padding: 8px; min-width: 0; }
+.prj-kb-col h3 { font-size: 13px; margin: 0 0 8px; display: flex; justify-content: space-between; gap: 6px; }
+.prj-kb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.prj-kb-card { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg-card); color: var(--text); cursor: pointer; font: inherit; font-size: 13px; overflow-wrap: anywhere; }
+.prj-kb-card:hover, .prj-kb-card:focus-visible { border-color: var(--accent); }
+.prj-kb-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.prj-kb-none { margin: 0; }
+@media (max-width: 900px) {
+  .prj-kb-cols { grid-template-columns: 1fr; }
+}

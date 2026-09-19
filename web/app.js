@@ -30492,8 +30492,22 @@ async function saveIdea() {
   }
   const project = document.getElementById('ideaProjectInput')?.value || ''
   const origProject = document.getElementById('ideaProjectWrap')?.dataset.orig || ''
+  // A mentes valaszat megnezzuk: hiba eseten (pl. kozben torolt projekt) az
+  // ablak nyitva marad, a beirt szoveg nem vesz el, es a felhasznalo latja, miert.
+  const sendIdea = async (url, method, payload) => {
+    try {
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (res.ok) return true
+      let msg = ''
+      try { const j = await res.json(); msg = j.error === 'unknown project' ? t('ideas.toast.unknown_project') : (j.message || j.error || '') } catch { /* nem JSON */ }
+      showToast(t('ideas.toast.save_failed', { msg: msg || ('HTTP ' + res.status) }), 'error')
+    } catch (e) {
+      showToast(t('ideas.toast.save_failed', { msg: e && e.message ? e.message : String(e) }), 'error')
+    }
+    return false
+  }
   if (ideaEditId) {
-    await fetch(`/api/ideas/${ideaEditId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    if (!await sendIdea(`/api/ideas/${ideaEditId}`, 'PUT', body)) return
     if (project !== origProject) {
       const r = project
         ? await _prjApi('POST', '/api/projects/' + encodeURIComponent(project) + '/links', { type: 'idea', id: ideaEditId })
@@ -30502,7 +30516,7 @@ async function saveIdea() {
       if (!r.ok) showToast(r.code === 'not_linked' ? t('projects.scope.idea_via_card') : r.message)
     }
   } else {
-    await fetch('/api/ideas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, status: 'new', project: project || undefined }) })
+    if (!await sendIdea('/api/ideas', 'POST', { ...body, status: 'new', project: project || undefined })) return
   }
   closeModal(document.getElementById('ideaModalOverlay'))
   loadIdeasPage()
@@ -39920,6 +39934,8 @@ var _prj = {
   // 2. fazis
   tab: 'overview',
   ideas: null,
+  cards: null,
+  files: null,
   summaryBusy: {},
   summaryErr: null,
   file: null,
@@ -40140,7 +40156,7 @@ function _prjTileHtml(p) {
 // ---- projekt-oldal ------------------------------------------------------------
 
 async function _prjOpenProject(id) {
-  if (_prj.current !== id) { _prj.tab = 'overview'; _prj.ideas = null }
+  if (_prj.current !== id) { _prj.tab = 'overview'; _prj.ideas = null; _prj.cards = null; _prj.files = null }
   _prj.current = id
   const root = document.getElementById('projectsRoot')
   if (!root) return
@@ -40189,19 +40205,20 @@ function _prjRenderProject() {
     </div>
     <div class="prj-tabs" role="tablist">
       <button type="button" class="tab-btn${_prj.tab === 'overview' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'overview'}" data-prj-tab="overview">${escapeHtml(t('projects.tab.overview'))}</button>
-      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-act="kanban" title="${escapeAttr(t('projects.tab.kanban_hint'))}">${escapeHtml(t('projects.tab.kanban'))} ↗</button>
+      <button type="button" class="tab-btn${_prj.tab === 'kanban' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'kanban'}" data-prj-tab="kanban" title="${escapeAttr(t('projects.tab.kanban_hint'))}">${escapeHtml(t('projects.tab.kanban'))}</button>
       <button type="button" class="tab-btn${_prj.tab === 'ideas' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'ideas'}" data-prj-tab="ideas" title="${escapeAttr(t('projects.tab.ideas_hint'))}">${escapeHtml(t('projects.tab.ideas'))}</button>
-      <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-act="files" title="${escapeAttr(t('projects.tab.files_hint'))}">${escapeHtml(t('projects.tab.files'))} ↗</button>
+      <button type="button" class="tab-btn${_prj.tab === 'files' ? ' active' : ''}" role="tab" aria-selected="${_prj.tab === 'files'}" data-prj-tab="files" title="${escapeAttr(t('projects.tab.files_hint'))}">${escapeHtml(t('projects.tab.files'))}</button>
       <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-scoped="ideas" title="${escapeAttr(t('projects.tab.ideabox_hint'))}">${escapeHtml(t('projects.tab.ideabox'))} ↗</button>
       <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-scoped="debate" title="${escapeAttr(t('projects.tab.debate_hint'))}">${escapeHtml(t('projects.tab.debate'))} ↗</button>
       <button type="button" class="tab-btn" role="tab" aria-selected="false" data-prj-scoped="research" title="${escapeAttr(t('projects.tab.research_hint'))}">${escapeHtml(t('projects.tab.research'))} ↗</button>
     </div>
-    <div id="prjFilesNote"></div>
-    ${_prj.tab === 'ideas' ? _prjIdeasTabHtml() : _prjOverviewBodyHtml(ov)}
+    ${_prjTabBodyHtml(ov)}
   </div>`
-  // Az Otletek ful minden megjeleneskor friss adatot ker (kozben mashol is
-  // szulethetett otlet); addig a legutobbi lista latszik.
+  // A fulek minden megjeleneskor friss adatot kernek (kozben mashol is
+  // szulethetett otlet / kartya / fajl); addig a legutobbi lista latszik.
   if (_prj.tab === 'ideas') _prjLoadIdeas()
+  else if (_prj.tab === 'kanban') _prjLoadCards()
+  else if (_prj.tab === 'files') _prjLoadFiles()
 }
 
 function _prjOverviewBodyHtml(ov) {
@@ -40347,19 +40364,149 @@ function _prjActivityHtml(ov) {
 /** Fajlok ful: ha a mappa latszik, a meglevo Intezo nyilik meg ott. Ha nem,
  *  megmondjuk, MIERT nem -- a "nincs mappa", a "nincs Raktar", az "eltunt a
  *  mappa" es a "nem erem el" negy kulon helyzet, negy kulon teendovel. */
-function _prjFilesClick() {
-  const ov = _prj.overview
+/** A kivalasztott ful tartalma -- mindig CSAK az, egy masik ful tartalma nem latszik alatta. */
+function _prjTabBodyHtml(ov) {
+  if (_prj.tab === 'ideas') return _prjIdeasTabHtml()
+  if (_prj.tab === 'kanban') return _prjKanbanTabHtml()
+  if (_prj.tab === 'files') return _prjFilesTabHtml()
+  return _prjOverviewBodyHtml(ov)
+}
+
+// ---- Kanban ful: a projekt kartyai HELYBEN (Boss 2026-09-19: "ne vigyel el sehova") ----
+
+const _PRJ_KB_COLS = ['planned', 'in_progress', 'testing', 'waiting', 'done']
+
+async function _prjLoadCards() {
+  const pid = _prj.current
+  if (!pid) return
+  let data = null
+  let err = null
+  try {
+    const r = await fetch('/api/kanban')
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    data = await r.json()
+  } catch (e) { err = e && e.message ? e.message : String(e) }
+  if (_prj.current !== pid) return
+  _prj.cards = { pid, cards: Array.isArray(data) ? data.filter((c) => c.project === pid) : [], err }
+  const body = document.getElementById('prjKanbanBody')
+  if (body && _prj.tab === 'kanban') body.outerHTML = _prjKanbanTabHtml()
+}
+
+function _prjKanbanCardHtml(c) {
+  const who = c.assignee ? escapeHtml(c.assignee) : ''
+  const pr = c.priority && c.priority !== 'normal' ? `<span class="prj-pill">${escapeHtml(_prjT('kanban.priority.' + c.priority, null, c.priority))}</span>` : ''
+  return `<li><button type="button" class="prj-kb-card" data-prj-kb-card="${escapeAttr(c.id)}">
+    <span class="prj-kb-title">${c.seq != null ? `<span class="prj-muted">#${escapeHtml(String(c.seq))}</span> ` : ''}${escapeHtml(c.title || c.id)}</span>
+    ${who || pr ? `<span class="prj-kb-meta">${pr}${who ? `<span class="prj-muted">${who}</span>` : ''}</span>` : ''}
+  </button></li>`
+}
+
+function _prjKanbanTabHtml() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return ''
+  const d = _prj.cards
+  let inner
+  if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
+  else if (!d.cards.length) inner = _prjEmptyLine('projects.kanban.empty')
+  else {
+    inner = `<div class="prj-kb-cols">${_PRJ_KB_COLS.map((st) => {
+      const list = d.cards.filter((c) => c.status === st)
+      return `<section class="prj-kb-col" aria-label="${escapeAttr(t('kanban.col.' + st))}">
+        <h3>${escapeHtml(t('kanban.col.' + st))} <span class="prj-muted">${list.length}</span></h3>
+        ${list.length ? `<ul class="prj-kb-list">${list.map(_prjKanbanCardHtml).join('')}</ul>` : `<p class="prj-muted prj-kb-none">–</p>`}
+      </section>`
+    }).join('')}</div>`
+  }
+  return `<section class="prj-section" id="prjKanbanBody">
+    <div class="prj-section-row">
+      <h2>${escapeHtml(t('projects.kanban.title'))}</h2>
+      ${p.archived_at ? '' : `<button type="button" class="btn-primary btn-compact" data-prj-act="new-card">${escapeHtml(t('projects.kanban.new_btn'))}</button>`}
+    </div>
+    <p class="prj-section-hint">${escapeHtml(t('projects.kanban.hint'))}</p>
+    ${inner}
+  </section>`
+}
+
+/** Egy kartya a megszokott kartya-ablakban, a projekt oldalan maradva. Ha a
+ *  kartya nincs a tablan (pl. archivalt), a Kanban archivumaban nyilik meg. */
+async function _prjOpenCardHere(cardId) {
+  let card = _prj.cards && _prj.cards.cards.find((c) => c.id === cardId)
+  if (!card) {
+    try { const r = await fetch('/api/kanban'); if (r.ok) card = (await r.json()).find((c) => c.id === cardId) } catch { /* lent kezelve */ }
+  }
+  if (!card) {
+    setWorkspace('marvin', { page: 'kanban' })
+    history.pushState(null, '', '#kanban')
+    _openKanbanCardFromApproval(cardId)
+    return
+  }
+  await ensureKanbanLabelsLoaded()
+  if (!kanbanAssignees.length) {
+    try { kanbanAssignees = await (await fetch('/api/kanban/assignees')).json() } catch { /* felelos nelkul is megnyilik */ }
+  }
+  showCardDetail(card)
+  // Az ablak bezarasa utan (barmi valtozott is benne) a projekt oldala frissul.
+  const ov = document.getElementById('cardDetailOverlay')
   if (!ov) return
-  const st = ov.folder && ov.folder.state
-  if (st === 'ok') { _prjOpenFiles(ov.project); return }
-  const box = document.getElementById('prjFilesNote')
-  if (!box) return
-  const path = (ov.folder && ov.folder.path) || ''
-  let action = ''
-  if (st === 'no_depot') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="depot">${escapeHtml(t('projects.files.open_depot'))}</button>`
-  else if (st !== 'unreachable') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="edit">${escapeHtml(t('projects.files.set_folder'))}</button>`
-  box.innerHTML = `<div class="info-box${st === 'unreachable' || st === 'missing' ? ' depo-bad' : ''}">
-    ${escapeHtml(_prjT('projects.files.state.' + st, { path }, st))} ${action}</div>`
+  const pid = _prj.current
+  const obs = new MutationObserver(() => {
+    if (ov.classList.contains('active') || document.getElementById('cardModalOverlay')?.classList.contains('active')) return
+    obs.disconnect()
+    if (_prj.current === pid && !document.getElementById('projectsPage')?.hidden) _prjOpenProject(pid)
+  })
+  obs.observe(ov, { attributes: true, attributeFilter: ['class'] })
+}
+
+// ---- Fajlok ful: a projekt mappaja HELYBEN ----
+
+async function _prjLoadFiles() {
+  const pid = _prj.current
+  if (!pid) return
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/files')
+  if (_prj.current !== pid) return
+  _prj.files = r.ok ? { pid, ...r.data, err: null } : { pid, state: null, path: null, files: [], err: r.message }
+  const body = document.getElementById('prjFilesBody')
+  if (body && _prj.tab === 'files') body.outerHTML = _prjFilesTabHtml()
+}
+
+function _prjFilesTabHtml() {
+  const p = _prj.overview && _prj.overview.project
+  if (!p) return ''
+  const d = _prj.files
+  let inner
+  let actions = ''
+  if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
+  else if (d.state !== 'ok') {
+    const st = d.state
+    let action = ''
+    if (st === 'no_depot') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="depot">${escapeHtml(t('projects.files.open_depot'))}</button>`
+    else if (st !== 'unreachable') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="edit">${escapeHtml(t('projects.files.set_folder'))}</button>`
+    inner = `<div class="info-box${st === 'unreachable' || st === 'missing' ? ' depo-bad' : ''}">
+      ${escapeHtml(_prjT('projects.files.state.' + st, { path: d.path || '' }, st))} ${action}</div>`
+  } else {
+    actions = `${p.archived_at ? '' : `<button type="button" class="btn-primary btn-compact" data-prj-act="new-file">${escapeHtml(t('projects.files.add_btn'))}</button>`}
+      <button type="button" class="btn-secondary btn-compact" data-prj-act="open-intezo">${escapeHtml(t('projects.file.open_intezo'))}</button>`
+    const list = d.files.length
+      ? `<ul class="prj-list">${d.files.map((f) => {
+        const folder = f.rel.slice(0, Math.max(0, f.rel.length - f.name.length - 1))
+        return `<li class="prj-item">
+          <div class="prj-item-head">${escapeHtml(f.name)}</div>
+          <div class="prj-item-sub prj-muted">${escapeHtml(folder)} · ${escapeHtml(_prjAgo(f.at))}</div>
+        </li>`
+      }).join('')}</ul>`
+      : _prjEmptyLine('projects.files.empty')
+    inner = `<p class="prj-muted">${escapeHtml(t('projects.files.folder_line', { path: d.path || '' }))}</p>${list}`
+  }
+  return `<section class="prj-section" id="prjFilesBody">
+    <div class="prj-section-row">
+      <h2>${escapeHtml(t('projects.files.title'))}</h2>
+      <div class="prj-item-actions">${actions}</div>
+    </div>
+    <p class="prj-section-hint">${escapeHtml(t('projects.files.hint'))}</p>
+    ${inner}
+  </section>`
 }
 
 function _prjOpenFiles(p) {
@@ -40376,15 +40523,6 @@ function _prjOpenFiles(p) {
   }
   if (location.hash.slice(1) === 'intezo') switchPage('intezo')
   else location.hash = 'intezo'
-}
-
-function _prjOpenKanban(id) {
-  kanbanProjectFilter = id
-  const sel = document.getElementById('kanbanProjectFilter')
-  if (sel) sel.value = id
-  setWorkspace('marvin', { page: 'kanban' })
-  if (location.hash.slice(1) === 'kanban') switchPage('kanban')
-  else location.hash = 'kanban'
 }
 
 function _prjReturnToProject(id) {
@@ -41445,7 +41583,12 @@ function _prjNewIdea() {
     if (!r.ok) { errBox.textContent = r.message; errBox.hidden = false; return }
     closeModal(ov)
     showToast(t('projects.idea.created', { name: p.name }))
-    _prj.ideas = null
+    // Az uj otlet AZONNAL a lista elejen all (nem var a kovetkezo lekeresre);
+    // a friss lista a renderben erkezik, es a szerver szerinti allapotot hozza.
+    const made = { id: r.data.id, title, description: ov.querySelector('#prjIdeaDesc').value.trim() || null,
+      category: ov.querySelector('#prjIdeaCat').value, status: 'new', via: 'link', kanban_id: null, updated_at: Math.floor(Date.now() / 1000) }
+    const prev = _prj.ideas && _prj.ideas.pid === p.id ? _prj.ideas : { pid: p.id, ideas: [], candidates: [], err: null }
+    _prj.ideas = { ...prev, err: null, ideas: [made, ...prev.ideas.filter((i) => i.id !== made.id)] }
     if (_prj.current === p.id) { _prj.tab = 'ideas'; _prjRenderProject() }
   }
   ov.querySelector('#prjIdeaSave').addEventListener('click', save)
@@ -41629,7 +41772,7 @@ function _prjFileHtml(p) {
       <div id="prjFileStatus" class="prj-preview" aria-live="polite" hidden></div>
     </div>
     <div class="modal-footer prj-modal-footer">
-      <div class="prj-footer-left"><button type="button" class="btn-secondary" data-prj-act="files">${escapeHtml(t('projects.file.open_intezo'))}</button></div>
+      <div class="prj-footer-left"><button type="button" class="btn-secondary" data-prj-act="open-intezo">${escapeHtml(t('projects.file.open_intezo'))}</button></div>
       <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.close'))}</button>
       <button type="button" class="btn-primary" id="prjFileSave">${escapeHtml(t('projects.file.save_upload'))}</button>
     </div>
@@ -41711,15 +41854,12 @@ document.addEventListener('click', (e) => {
   const cardLink = e.target.closest('[data-prj-card]')
   if (cardLink) {
     e.preventDefault()
-    // A kartya a Kanbanban nyilik meg, ERRE a projektre szurve, es onnan a
-    // "vissza a projekthez" gomb hoz vissza.
-    const pid = _prj.current
-    if (pid) { kanbanProjectFilter = pid; const sel = document.getElementById('kanbanProjectFilter'); if (sel) sel.value = pid }
-    setWorkspace('marvin', { page: 'kanban' })
-    history.pushState(null, '', '#kanban')
-    _openKanbanCardFromApproval(cardLink.getAttribute('data-prj-card'))
+    // A projekt oldalan a kartya HELYBEN nyilik meg, a megszokott kartya-ablakban.
+    _prjOpenCardHere(cardLink.getAttribute('data-prj-card'))
     return
   }
+  const kbCard = e.target.closest('[data-prj-kb-card]')
+  if (kbCard) { _prjOpenCardHere(kbCard.getAttribute('data-prj-kb-card')); return }
   const ret = e.target.closest('[data-prj-return]')
   if (ret) { _prjReturnToProject(ret.getAttribute('data-prj-return')); return }
   const chipX = e.target.closest('[data-prj-chip-close]')
@@ -41747,7 +41887,7 @@ document.addEventListener('click', (e) => {
   const a = act.getAttribute('data-prj-act')
   const p = _prj.overview && _prj.overview.project
   // Az uj-fajl ablakbol inditott atlepes (Intezo, mappa megadasa) elott az ablak bezarul.
-  if ((a === 'files' || a === 'edit') && act.closest('#prjFileOverlay')) closeModal(_prjOverlay('prjFileOverlay'))
+  if ((a === 'files' || a === 'open-intezo' || a === 'edit') && act.closest('#prjFileOverlay')) closeModal(_prjOverlay('prjFileOverlay'))
   if (a === 'new') _prjOpenForm('create')
   else if (a === 'new-menu') _prjToggleNewMenu()
   else if (a === 'new-card') _prjNewCard()
@@ -41760,8 +41900,9 @@ document.addEventListener('click', (e) => {
   else if (a === 'back') { _prj.current = null; _prj.overview = null; _prjLoadList() }
   else if (a === 'refresh' && p) _prjOpenProject(p.id)
   else if (a === 'edit' && p) { closeModal(_prjOverlay('prjDeleteOverlay')); _prjOpenForm('edit', p) }
-  else if (a === 'kanban' && p) _prjOpenKanban(p.id)
-  else if (a === 'files') _prjFilesClick()
+  else if (a === 'kanban' && p) { _prj.tab = 'kanban'; _prjRenderProject() }
+  else if (a === 'files' && p) { _prj.tab = 'files'; _prjRenderProject() }
+  else if (a === 'open-intezo' && p) _prjOpenFiles(p)
   else if (a === 'archive' && p) _prjSetArchived(p.id, true)
   else if (a === 'unarchive' && p) _prjSetArchived(p.id, false)
   else if (a === 'delete' && p) _prjOpenDelete(p)
@@ -41944,7 +42085,9 @@ document.addEventListener('change', async (e) => {
 
 async function _prjSuggestForNewCard(cardId) {
   if (!_prjLiveProjects().length) return
-  await _prjApi('POST', '/api/projects/migration/classify', { cardIds: [cardId] })
+  // Kulon, kartyankenti sor: a nagy (Regi adatok atvetele) besorolas allapotat
+  // nem irja felul, es ha az eppen fut, ez a kartya akkor sem vesz el.
+  await _prjApi('POST', '/api/projects/card-suggestion', { card: cardId })
 }
 
 /** A kartya-ablakban: a besorolo javaslata egy projekt nelkuli kartyara. */
