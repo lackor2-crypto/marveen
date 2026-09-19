@@ -217,6 +217,25 @@ describe('the prompt says what the 8-hex identifier IS', () => {
     expect(p).not.toContain('KANBAN-KARTYA azonosito')
   })
 
+  // 2026-09-20, approval c6bcca8e… / card #335: the verifier read the approval
+  // UUID out of the curl line as if it were the card id, failed to find it on
+  // /api/kanban, and reported the approval FAILED -- while the card sat in
+  // `waiting` with its work landed. The prompt now names the UUID.
+  it('names the UUID in the report curl as the APPROVAL id, in BOTH modes', () => {
+    for (const mode of ['verify', 'fix'] as const) {
+      // Unconditional: no card-id token in the description, and it is still there.
+      const p = buildVerificationPrompt({ ...BASE, mode })
+      expect(p, `${mode} prompt`).toContain('a JOVAHAGYAS azonositoja')
+      expect(p, `${mode} prompt`).toMatch(/NEM kanban-kartya/)
+      expect(p, `${mode} prompt`).toMatch(/NEM ellenorzesi hiba/)
+    }
+  })
+
+  it('when a card id IS present, points at it as the only thing to look up', () => {
+    const p = buildVerificationPrompt({ ...withCard, mode: 'verify' })
+    expect(p).toContain('a lentebbi curl-sorban allo hosszu UUID a JOVAHAGYAS')
+  })
+
   it('the detector reads the description, and an empty one is not a match', () => {
     expect(descriptionMentionsCardId('Kártya (11da9dcb) kész')).toBe(true)
     expect(descriptionMentionsCardId('11DA9DCB')).toBe(true)
