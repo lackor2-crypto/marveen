@@ -17,6 +17,12 @@ function titleOf(content: string, fallback: string): string {
   return m ? m[1].trim() : fallback
 }
 
+/** A fajl projektje -- a lista a projekt-adatbazis nelkul is mukodjon (pl. egy
+ *  meg nem inicializalt DB mellett), ilyenkor egyszeruen nincs projekt. */
+function projectOf(agent: string, name: string, content: string): string | null {
+  try { return researchProject(agent, name, content) } catch { return null }
+}
+
 function researchDir(agent: string): string {
   return join(agentConfigRoot(agent), 'research')
 }
@@ -53,7 +59,7 @@ export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
           } catch {
             /* keep filename as title */
           }
-          return { name, title, ms, project: researchProject(agent, name, content) }
+          return { name, title, ms, project: projectOf(agent, name, content) }
         })
         .filter(d => !pf || (pf === 'none' ? !d.project : d.project === pf))
         .sort((a, b) => (b.ms - a.ms) || a.name.localeCompare(b.name))
@@ -83,7 +89,7 @@ export async function tryHandleResearch(ctx: RouteContext): Promise<boolean> {
       return true
     }
     const content = readFileSync(file, 'utf-8')
-    json(res, { agent, name, title: titleOf(content, name), content, project: researchProject(agent, name, content) })
+    json(res, { agent, name, title: titleOf(content, name), content, project: projectOf(agent, name, content) })
     return true
   }
 

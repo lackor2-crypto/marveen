@@ -41843,7 +41843,7 @@ async function _prjScopeBar(page, reload) {
     <select id="prjScopeSel-${page}" class="input">${_prjProjectOptionsHtml(cur, { all: true, none: true })}</select>
     ${known ? `<button type="button" class="prj-back-chip" data-prj-return="${escapeAttr(cur)}">${escapeHtml(t('projects.back_to_project', { name: known.name }))}</button>` : ''}
     ${req ? `<button type="button" class="btn-primary btn-compact" data-prj-request="${req}">${escapeHtml(t('projects.request.' + req + '_btn'))}</button>` : ''}
-    <span class="prj-muted">${escapeHtml(t('projects.scope.hint_' + page))}</span>`
+    <span class="prj-muted">${escapeHtml(page === 'ideas' ? t('projects.scope.hint_ideas') : page === 'debate' ? t('projects.scope.hint_debate') : t('projects.scope.hint_research'))}</span>`
   const sel = bar.querySelector('select')
   sel.value = cur || ''
   sel.addEventListener('change', () => { _prjScope[page] = sel.value; reload() })
