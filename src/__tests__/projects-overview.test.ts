@@ -108,7 +108,8 @@ describe('attekintes', () => {
     expect(ov.approvals.map((a) => a.id)).toEqual(['ap1'])
     expect(ov.approvals[0]).toMatchObject({ cardId: 'a', cardTitle: 'Szöveg' })
     const kinds = ov.activity.map((a) => a.kind).sort()
-    expect(kinds).toEqual(['approval', 'comment', 'status'])
+    // A kartya szuletese is esemeny (a sor sajat created_at-jebol).
+    expect(kinds).toEqual(['approval', 'card_created', 'comment', 'status'])
     expect(ov.activity.find((a) => a.kind === 'status')).toMatchObject({ cardId: 'a', from: 'planned', to: 'waiting', actor: 'agens' })
     expect(ov.facts).toMatchObject({ waiting: 1, pendingApprovals: 1 })
   })

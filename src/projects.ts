@@ -50,6 +50,8 @@ export interface ProjectRow {
   summary: string | null
   /** Mikor keszult az osszefoglalo (masodperc). */
   summary_at: number | null
+  /** Mi keszitette (pl. `claude:claude-opus-4-8`, `ollama:qwen2.5`). */
+  summary_by: string | null
   created_at: number
   updated_at: number
   archived_at: number | null
@@ -90,6 +92,7 @@ export function ensureProjectTables(): void {
       default_label_id TEXT,
       summary TEXT,
       summary_at INTEGER,
+      summary_by TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -106,6 +109,9 @@ export function ensureProjectTables(): void {
     )
   `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_project_links_project ON project_links(project_id, object_type)')
+  // Kesobb felvett oszlop: a mar letezo tablaba is bekerul.
+  const cols = new Set((db.prepare('PRAGMA table_info(projects)').all() as { name: string }[]).map((c) => c.name))
+  if (!cols.has('summary_by')) db.exec('ALTER TABLE projects ADD COLUMN summary_by TEXT')
   // A projekt-nezet minden lekerdezese ezen a mezon szur.
   if (hasTable('kanban_cards')) db.exec('CREATE INDEX IF NOT EXISTS idx_kanban_project ON kanban_cards(project)')
   tablesDb = db
@@ -386,11 +392,13 @@ export function setProjectArchived(id: string, archived: boolean): boolean {
     .run(archived ? now : null, now, id).changes > 0
 }
 
-export function setProjectSummary(id: string, summary: string): boolean {
+/** A kezzel kert osszefoglalo mentese. Az `updated_at`-hez NEM nyul: az
+ *  osszefoglalo nem a projekt modositasa, es a lista "utolso aktivitasa" se
+ *  ugorjon meg tole. */
+export function setProjectSummary(id: string, summary: string, by: string | null = null): boolean {
   ensureProjectTables()
-  const now = nowSec()
-  return getDb().prepare('UPDATE projects SET summary = ?, summary_at = ?, updated_at = ? WHERE id = ?')
-    .run(summary, now, now, id).changes > 0
+  return getDb().prepare('UPDATE projects SET summary = ?, summary_at = ?, summary_by = ? WHERE id = ?')
+    .run(summary, nowSec(), by, id).changes > 0
 }
 
 // ---- project_links ----------------------------------------------------------
@@ -528,4 +536,65 @@ export function projectIdeaIds(projectId: string): string[] {
     }
   }
   return [...ids]
+}
+
+export interface ProjectIdea {
+  id: string
+  title: string
+  description: string | null
+  category: string
+  status: string
+  kanban_id: string | null
+  created_at: number
+  updated_at: number
+  /** `link` = a projektbol hoztak letre / kifejezetten ide kotottek;
+   *  `card` = a hozza tartozo kartya van a projektben (levezetett kapcsolat). */
+  via: 'link' | 'card'
+}
+
+/** A projekt otletei, a legfrissebb elol -- a kapcsolat fajtajaval egyutt. */
+export function listProjectIdeas(projectId: string): ProjectIdea[] {
+  if (!hasTable('idea_box')) return []
+  const ids = projectIdeaIds(projectId)
+  if (!ids.length) return []
+  const linked = new Set(listProjectLinks(projectId, 'idea').map((l) => l.object_id))
+  const rows = getDb().prepare(
+    `SELECT id, title, description, category, status, kanban_id, created_at, updated_at
+       FROM idea_box WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY updated_at DESC`,
+  ).all(...ids) as Omit<ProjectIdea, 'via'>[]
+  return rows.map((r) => ({ ...r, via: linked.has(r.id) ? 'link' : 'card' }))
+}
+
+/** Az ertek (projekt-id / rovid nev / pontos nev) projektjenek alapertelmezett
+ *  cimkeje -- a projektbol letrehozott uj kartya ezt kapja, ha a keres nem
+ *  nevezett meg cimket (spec 5.). Torolt cimke nem jon vissza: az a kartya
+ *  letrehozasat akasztana meg. */
+export function projectDefaultLabel(value: unknown): string | undefined {
+  if (value === undefined || value === null || !String(value).trim()) return undefined
+  const ref = resolveProjectRef(value)
+  if (!ref) return undefined
+  const row = getDb().prepare('SELECT default_label_id FROM projects WHERE id = ?').get(ref) as { default_label_id: string | null } | undefined
+  const lid = row?.default_label_id
+  if (!lid) return undefined
+  if (hasTable('labels') && !getDb().prepare('SELECT 1 FROM labels WHERE id = ?').get(lid)) return undefined
+  return lid
+}
+
+export interface IdeaCandidate { id: string; title: string; status: string; category: string; updated_at: number }
+
+/** A MEG SEHOVA nem tartozo otletek (se kifejezett kotes, se projektbe sorolt
+ *  kartya) -- ezek kothetok a projekthez. Az elvetettek nem. */
+export function projectIdeaCandidates(limit = 200): IdeaCandidate[] {
+  ensureProjectTables()
+  if (!hasTable('idea_box')) return []
+  const viaCard = hasTable('kanban_cards')
+    ? `AND NOT EXISTS (SELECT 1 FROM kanban_cards k JOIN projects p ON p.id = k.project WHERE k.id = i.kanban_id)`
+    : ''
+  return getDb().prepare(
+    `SELECT i.id, i.title, i.status, i.category, i.updated_at FROM idea_box i
+      WHERE i.status != 'rejected'
+        AND NOT EXISTS (SELECT 1 FROM project_links l WHERE l.object_type = 'idea' AND l.object_id = i.id)
+        ${viaCard}
+      ORDER BY i.updated_at DESC LIMIT ?`,
+  ).all(limit) as IdeaCandidate[]
 }
