@@ -239,6 +239,26 @@ def deliver(tok, chat_id, message_id, answer, progress_dir):
     return "generic-error"
 
 
+def claim_pending(path):
+    """Atomically take ownership of a pending file. Returns the claimed path,
+    or None if another sender already took it (rename is atomic, so exactly one
+    concurrent caller wins)."""
+    claimed = f"{path}.claimed.{os.getpid()}"
+    try:
+        os.rename(path, claimed)
+    except OSError:
+        return None
+    return claimed
+
+
+def drop_placeholder(tok, chat_id, message_id, progress_dir):
+    try:
+        api(tok, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+    except Exception as e:
+        log(progress_dir, f"placeholder delete failed (mid={message_id}): {e}")
+    return "dropped-dup"
+
+
 def handle_dir(progress_dir):
     state_dir = os.path.dirname(progress_dir)           # .../telegram
     name = agent_name_from(progress_dir)
@@ -246,6 +266,13 @@ def handle_dir(progress_dir):
     now = time.time()
     # Sweep orphan dedup markers (normally removed by the Stop hook).
     for m in glob.glob(os.path.join(progress_dir, "seen-*.marker")):
+        try:
+            if now - os.path.getmtime(m) > 3600:
+                os.remove(m)
+        except Exception:
+            pass
+    # Sweep claimed files left behind by a sender that died mid-delivery.
+    for m in glob.glob(os.path.join(progress_dir, "*.json.claimed.*")):
         try:
             if now - os.path.getmtime(m) > 3600:
                 os.remove(m)
@@ -295,12 +322,35 @@ def handle_dir(progress_dir):
             tok = token(state_dir)
         if not tok:
             continue
-        modes = []
-        for p in pend:
-            modes.append(deliver(tok, p.get("chat_id"), p.get("message_id"),
-                                 answer, progress_dir))
+        # Claim the file atomically before delivering. Two watchdog instances
+        # (e.g. two systemd timers pointing at this same script) or the Stop
+        # hook's fallback may race for the same file; only the one whose
+        # rename succeeds delivers. Card 40227dc9: the owner got every orphan
+        # answer twice because two timers fired in the same second.
+        claimed = claim_pending(path)
+        if not claimed:
+            log(progress_dir, f"skip {os.path.basename(path)}: already claimed")
+            continue
         try:
-            os.remove(path)
+            pend = json.load(open(claimed)) or pend
+        except Exception:
+            pass
+        modes = []
+        sent_to = set()
+        for p in pend:
+            cid = p.get("chat_id")
+            # One real answer per chat; the other placeholders of the same
+            # chat are just dropped (answer=None -> delete only).
+            if answer and str(cid) in sent_to:
+                modes.append(drop_placeholder(tok, cid, p.get("message_id"),
+                                              progress_dir))
+                continue
+            mode = deliver(tok, cid, p.get("message_id"), answer, progress_dir)
+            if mode == "real-answer":
+                sent_to.add(str(cid))
+            modes.append(mode)
+        try:
+            os.remove(claimed)
         except Exception:
             pass
         log(progress_dir, f"orphan handled ({reason}): {os.path.basename(path)} "
