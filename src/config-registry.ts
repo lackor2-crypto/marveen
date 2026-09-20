@@ -530,6 +530,33 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
       'claude-haiku-4-5-20251001',
     ],
   },
+  // --- AI Munkapad (kanban #336, 2. fazis) --------------------------------
+  {
+    key: 'WORKBENCH_MODEL',
+    type: 'string',
+    default: '',
+    description: 'Melyik modellel dolgozzon az AI Munkapad ágense. Üresen hagyva a telepítés alapértelmezett modelljét használja (DEFAULT_AGENT_MODEL). A Munkapad ugyanazt a közös 5 órás Claude-keretet fogyasztja, mint a többi ügynök.',
+    module: 'munkapad',
+    secret: false,
+    requiresRestart: false,
+    valueSet: [
+      '',
+      'claude-opus-5',
+      'claude-sonnet-5',
+      'claude-fable-5',
+      'claude-opus-4-8[1m]',
+      'claude-haiku-4-5-20251001',
+    ],
+  },
+  {
+    key: 'WORKBENCH_ANTHROPIC_API_KEY',
+    type: 'string',
+    default: '',
+    description: 'NEM KÖTELEZŐ. Fizetős Anthropic API-kulcs a Munkapadhoz. Üresen hagyva (ez az alapértelmezés) a Munkapad a gépen bejelentkezett Claude-előfizetést használja, ugyanúgy, mint a többi ügynök — így a közös 5 órás keretből gazdálkodik. Kulcsot CSAK akkor adj meg, ha kifejezetten az előfizetéstől függetlenül, külön számlára akarod futtatni. A kulcs kizárólag a szerveren tárolódik: sosem kerül a böngészőbe, a beszélgetésbe vagy egy munkadarabba.',
+    module: 'munkapad',
+    secret: true,
+    requiresRestart: false,
+  },
   // Boss, 2026-08-16: "a beallitas agent alatt a sonett 5 van beallitva.
   // marvinnak. akkor miert meg mindig a haiku van?"
   //

@@ -2057,6 +2057,7 @@ window._i18n.en = {
   'winset.confirm.undo':         'Bring back the state from BEFORE the last restore? Explorer will restart.',
   'settings.module.security':    'Security',
   'settings.module.debate':      'Debate',
+  'settings.module.munkapad':   'AI Workbench',
   'settings.col.key':            'Key',
   'settings.col.value':          'Value',
   'settings.col.description':    'Description',
