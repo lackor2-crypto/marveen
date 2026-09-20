@@ -166,13 +166,11 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     try {
       const result = ensureLifeTree()
       logger.info({ created: result.created.length }, '[eletfa] fa letrehozva/kiegeszitve')
-      send(res, 200, {
-        ...result,
-        ok: true,
-        message: result.created.length
-          ? `Kész: ${result.created.length} mappa jött létre.`
-          : 'A könyvtárszerkezet már teljes volt, nem kellett létrehozni semmit.',
-      })
+      // A sajat uzenetet NEM irjuk felul: az `ensureLifeTree` az egyetlen hely,
+      // ahol latszik, hogy a `created === 0` mellett hany elemet hagytunk
+      // szandekosan bekenhagyva (eldobott mappa/kiseroirat). Egy itt gyartott
+      // "mar teljes volt" szoveg pont ezt a kulonbseget tuntetne el.
+      send(res, 200, { ...result, ok: true })
     } catch (err: any) {
       send(res, 500, { error: 'failed', message: `Nem sikerült létrehozni a mappákat: ${String(err?.message || err)}` })
     }

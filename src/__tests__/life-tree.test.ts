@@ -4,7 +4,7 @@
 // eszrevenni: egy kilepes a fabol csendben mukodik, egy felulirt irat pedig
 // egyszeruen eltunik. Ezert ezek a tesztek nem a "szep esetet" nezik.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -241,6 +241,43 @@ describe('a felhasznalo torlese vegleges (elhagyott mappak)', () => {
     expect(r.created).toContain('Beérkező')
     expect(existsSync(join(depot, 'Beérkező'))).toBe(true)
     expect(lifeTreeStatus(cfg, 'hu').abandoned).not.toContain('Beérkező')
+  })
+
+  // FELREVEZETO KIJELZES: a `created === 0` ket dolgot jelenthet -- "a fa
+  // tenyleg teljes" es "szandekosan bekenhagytam N eldobott elemet". A
+  // felhasznalo a toastbol csak ezt az egy mondatot latja.
+  it('az ensure uzenete kimondja, hogy mit hagyott bekenhagyva', () => {
+    rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
+    rmSync(join(depot, 'Archív'), { recursive: true, force: true })
+    const r = ensureLifeTree(cfg, 'hu')
+    expect(r.created).toEqual([])
+    expect(r.abandoned.length).toBeGreaterThanOrEqual(2)
+    expect(r.message).not.toContain('Az életfa már teljes')
+    expect(r.message).toContain(String(r.abandoned.length))
+    expect(r.message).toContain('kitörölted')
+  })
+
+  it('teljes fanal marad a regi, egyszeru uzenet', () => {
+    const r = ensureLifeTree(cfg, 'hu')
+    expect(r.abandoned).toEqual([])
+    expect(r.message).toContain('Az életfa már teljes')
+  })
+
+  // A KISEROIRATNAK IS VAN UTJA VISSZA -- kulonben egy elutes veglegesen
+  // elvenne, ugy hogy a felulet meg sem mutatja, hogy eltunt.
+  it('a kitorolt kiseroirat megjelenik az eldobottak kozott', () => {
+    rmSync(join(depot, 'OLVASS_EL.md'), { force: true })
+    expect(lifeTreeStatus(cfg, 'hu').abandoned).toContain('OLVASS_EL.md')
+    expect(ensureLifeTree(cfg, 'hu').abandoned).toContain('OLVASS_EL.md')
+  })
+
+  it('a kiseroirat egy kattintassal visszakerheto', () => {
+    rmSync(join(depot, 'OLVASS_EL.md'), { force: true })
+    const r = restoreLifeFolders([], cfg, 'hu')
+    expect(r.created).toContain('OLVASS_EL.md')
+    expect(existsSync(join(depot, 'OLVASS_EL.md'))).toBe(true)
+    expect(readFileSync(join(depot, 'OLVASS_EL.md'), 'utf8').length).toBeGreaterThan(0)
+    expect(lifeTreeStatus(cfg, 'hu').abandoned).not.toContain('OLVASS_EL.md')
   })
 
   it('a visszahozas CSAK a tervben szereplo utvonalat csinalja meg', () => {

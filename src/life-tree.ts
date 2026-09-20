@@ -713,6 +713,23 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
  * folott, ne pedig egy fekete doboz". Ha valakinek ket ev mulva a kezebe kerul
  * ez a lemez, ebbol a fajlbol megerti, mit lat -- program nelkul.
  */
+export function lifeReadmeRel(lang: string = APP_LANG): string {
+  return lang === 'hu' ? 'OLVASS_EL.md' : 'READ_ME_FIRST.md'
+}
+
+/**
+ * ELDOBOTT-E A KISEROIRAT?
+ *
+ * A mappakkal azonos szabaly: amit a felhasznalo kitorolt, azt nem irjuk
+ * vissza -- de latnia kell, hogy eltunt, es kernie kell tudnia vissza.
+ * Enelkul a kiseroirat aszimmetrikus volt: vegleges torles, ut nelkul.
+ */
+function readmeAbandoned(root: string, split: PlanSplit, lang: string): boolean {
+  const rel = lifeReadmeRel(lang)
+  if (!split.trusted || !split.seen.has(rel)) return false
+  try { return !existsSync(join(root, rel)) } catch { return false }
+}
+
 function readmeText(cfg: LifeConfig, lang: string): string {
   const nl = (hu: string, en: string) => (lang === 'hu' ? hu : en)
   const lines: string[] = []
@@ -853,7 +870,7 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
 
   // A kiseroirat. Csak ha meg nincs -- amit a felhasznalo beleirt, az az ove,
   // es amit KITOROLT, azt sem irjuk vissza (ugyanaz a szabaly, mint a mappaknal).
-  const readmeRel = lang === 'hu' ? 'OLVASS_EL.md' : 'READ_ME_FIRST.md'
+  const readmeRel = lifeReadmeRel(lang)
   const readme = join(root, readmeRel)
   if (existsSync(readme)) {
     rememberLifeCreated(root, [readmeRel])
@@ -864,17 +881,31 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
     } catch { /* a fa ettol meg all */ }
   }
 
-  const message = failed.length
+  // AMIT A FELHASZNALO KITOROLT, AZT KI IS KELL MONDANI.
+  //
+  // A NULLA KET DOLGOT JELENTHET: a `created === 0` jelentheti azt, hogy a fa
+  // tenyleg teljes, ES azt is, hogy szandekosan bekenhagytunk N eldobott
+  // mappat. A ketto kozott a felhasznalo nem tud kulonbseget tenni, ha
+  // ugyanazt az uzenetet latja -- ezert mondjuk meg kulon.
+  const abandoned = [...split.abandoned]
+  if (readmeAbandoned(root, split, lang)) abandoned.push(readmeRel)
+  const elhagyott = abandoned.length
+    ? ` ${abandoned.length} elemet szándékosan nem hoztam vissza, mert korábban kitörölted `
+      + '-- ha mégis kellenek, az Intéző "Visszahozom ezeket" gombjával kérheted vissza őket.'
+    : ''
+  const message = (failed.length
     ? `Az életfa elkészült, de ${failed.length} mappát nem sikerült létrehozni. Nézd meg a mappa jogosultságait.`
     : created.length
       ? `Kész: ${created.length} új mappa készült el az életfában.`
-      : 'Az életfa már teljes, nem kellett újat létrehozni.'
+      : abandoned.length
+        ? 'Nem kellett új mappát létrehozni.'
+        : 'Az életfa már teljes, nem kellett újat létrehozni.') + elhagyott
 
   logger.info(
     { created: created.length, existed, failed: failed.length, abandoned: split.abandoned.length },
     '[eletfa] vazszerkezet ellenorizve',
   )
-  return { ok: failed.length === 0, root, created, existed, failed, abandoned: split.abandoned, message }
+  return { ok: failed.length === 0, root, created, existed, failed, abandoned, message }
 }
 
 /**
@@ -973,9 +1004,14 @@ export function restoreLifeFolders(
     }
   }
   const plan = planLifeTree(cfg, lang)
-  const planned = new Set(plan.map((n) => n.rel))
+  // A kiseroirat ugyanugy visszakerheto, mint egy mappa: a torlese vegleges,
+  // tehat kell hozza ut visszafele is (kulonben aszimmetrikus a szabaly).
+  const readmeRel = lifeReadmeRel(lang)
+  const planned = new Set([...plan.map((n) => n.rel), readmeRel])
   const split = splitPlanned(root, plan)
-  const kert = rels.length ? rels : split.abandoned
+  const alap = [...split.abandoned]
+  if (readmeAbandoned(root, split, lang)) alap.push(readmeRel)
+  const kert = rels.length ? rels : alap
   const unknown = kert.filter((r) => !planned.has(r))
   const created: string[] = []
   const failed: Array<{ rel: string; error: string }> = []
@@ -984,7 +1020,8 @@ export function restoreLifeFolders(
     const full = join(root, ...rel.split('/'))
     if (existsSync(full)) continue
     try {
-      mkdirSync(full, { recursive: true })
+      if (rel === readmeRel) writeFileSync(full, readmeText(cfg, lang), 'utf8')
+      else mkdirSync(full, { recursive: true })
       created.push(rel)
     } catch (err: any) {
       failed.push({ rel, error: String(err?.code || err?.message || err) })
@@ -993,10 +1030,10 @@ export function restoreLifeFolders(
   if (created.length) rememberLifeCreated(root, created)
   const message = failed.length
     ? (hu
-      ? `${created.length} mappa visszakerült, ${failed.length} nem. Nézd meg a mappa jogosultságait.`
-      : `${created.length} folders are back, ${failed.length} failed. Check the folder permissions.`)
+      ? `${created.length} elem visszakerült, ${failed.length} nem. Nézd meg a mappa jogosultságait.`
+      : `${created.length} items are back, ${failed.length} failed. Check the folder permissions.`)
     : created.length
-      ? (hu ? `Kész: ${created.length} mappa visszakerült a fába.` : `Done: ${created.length} folders are back in the tree.`)
+      ? (hu ? `Kész: ${created.length} elem visszakerült a fába.` : `Done: ${created.length} items are back in the tree.`)
       : (hu ? 'Nem volt mit visszahozni.' : 'There was nothing to restore.')
   logger.info({ created: created.length, failed: failed.length, unknown: unknown.length }, '[eletfa] eldobott mappak visszahozva')
   return { ok: failed.length === 0, root, created, failed, unknown, message }
@@ -1024,15 +1061,17 @@ export function lifeTreeStatus(cfg: LifeConfig = loadLifeConfig(), lang: string 
   const split = splitPlanned(root, plan)
   // A kiseroirat is bekerul a naploba, amig all: kulonben az elso torlese utan
   // az `ensure` meg egyszer visszairna (a naplo nem tudna, hogy letezett).
-  const readmeRel = lang === 'hu' ? 'OLVASS_EL.md' : 'READ_ME_FIRST.md'
+  const readmeRel = lifeReadmeRel(lang)
   try { if (existsSync(join(root, readmeRel))) rememberLifeCreated(root, [readmeRel]) } catch { /* nem baj */ }
+  const abandoned = [...split.abandoned]
+  if (readmeAbandoned(root, split, lang)) abandoned.push(readmeRel)
   return {
     root,
     exists: true,
     planned: plan.length,
     present: split.present.length,
     missing: split.missing,
-    abandoned: split.abandoned,
+    abandoned,
   }
 }
 
