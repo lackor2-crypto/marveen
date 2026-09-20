@@ -40295,6 +40295,9 @@ function _prjRenderProject() {
   const root = document.getElementById('projectsRoot')
   const ov = _prj.overview
   if (!root || !ov) return
+  // Ha kozben megnyilt a Munkapad (#336), az ul ugyanezen a helyen: egy
+  // kesve beerkezo projekt-betoltes nem rajzolhatja felul.
+  if (window.MarvinWorkbench && window.MarvinWorkbench.isOpen()) return
   const p = ov.project
   const status = `<span class="prj-status prj-status-${escapeAttr(p.status)}">${escapeHtml(_prjT('projects.status.' + p.status, null, p.status))}</span>`
   root.innerHTML = `
@@ -40312,6 +40315,7 @@ function _prjRenderProject() {
         ${status}
         <button type="button" class="btn-secondary" data-prj-act="refresh" title="${escapeAttr(t('projects.refresh_hint'))}">${escapeHtml(t('common.refresh'))}</button>
         <button type="button" class="btn-secondary" data-prj-act="edit">${escapeHtml(t('projects.edit_btn'))}</button>
+        <button type="button" class="btn-primary" data-wb-open="${escapeAttr(p.id)}" data-wb-open-name="${escapeAttr(p.name)}" title="${escapeAttr(t('workbench.open_hint'))}">${escapeHtml(t('workbench.open'))}</button>
         ${p.archived_at ? '' : _prjNewMenuHtml()}
       </div>
     </div>
@@ -42223,6 +42227,10 @@ async function _prjSubmitFile(ov, p) {
 // ---- esemenyek (egy delegalt figyelo az egesz funkcionak) ----------------------------
 
 document.addEventListener('click', (e) => {
+  // A Munkapad (#336) sajat fajlbol jon. Ha az valamiert nem toltodott be, a
+  // gomb ne legyen nema halott gomb -- mondja meg, mi a teendo.
+  const wbOpen = e.target.closest('[data-wb-open]')
+  if (wbOpen && !window.MarvinWorkbench) { showToast(t('workbench.err.not_loaded')); return }
   const cardLink = e.target.closest('[data-prj-card]')
   if (cardLink) {
     e.preventDefault()
