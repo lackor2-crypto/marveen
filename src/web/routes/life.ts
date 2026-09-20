@@ -152,7 +152,9 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   if (!explorerRoot() && path !== '/api/life/sources') {
     send(res, 400, {
       error: 'no_depot',
-      message: 'Még nincs beállítva, hol tárolja a Marveen a fájljaidat. Nyisd meg a Depó oldalt, és válaszd ki a mappát (például D:\\Marveen).',
+      message: T(uiLang(url),
+        'Még nincs beállítva, hol tárolja a Marveen a fájljaidat. Nyisd meg a Raktár oldalt, és válaszd ki a mappát (például D:\\Marveen).',
+        'There is no storage folder set up for Marveen yet. Open the Depot page and pick the folder (for example D:\\Marveen).'),
     })
     return true
   }
@@ -164,15 +166,26 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/ensure' && method === 'POST') {
     try {
-      const result = ensureLifeTree()
-      logger.info({ created: result.created.length }, '[eletfa] fa letrehozva/kiegeszitve')
-      // A sajat uzenetet NEM irjuk felul: az `ensureLifeTree` az egyetlen hely,
-      // ahol latszik, hogy a `created === 0` mellett hany elemet hagytunk
-      // szandekosan bekenhagyva (eldobott mappa/kiseroirat). Egy itt gyartott
-      // "mar teljes volt" szoveg pont ezt a kulonbseget tuntetne el.
-      send(res, 200, { ...result, ok: true })
+      // A MAPPANEV a telepites nyelven keszul (APP_LANG -- a nev a lemezen all),
+      // az UZENET viszont a feluletet koveti. Most, hogy a route nem irja felul
+      // a motor mondatat, ez az EGYETLEN szoveg, amit a felhasznalo lat: angol
+      // feluletre nem mehet ki magyar toast.
+      const result = ensureLifeTree(loadLifeConfig(), APP_LANG, uiLang(url))
+      logger.info(
+        { created: result.created.length, failed: result.failed.length, abandoned: result.abandoned.length },
+        '[eletfa] fa letrehozva/kiegeszitve',
+      )
+      // Es az `ok` sem lehet fix `true`: ha egy mappa jogosultsag miatt nem jott
+      // letre, azt nem nevezzuk sikernek -- a motor mar kiszamolta
+      // (`failed.length === 0`), csak at kell engedni.
+      send(res, 200, result)
     } catch (err: any) {
-      send(res, 500, { error: 'failed', message: `Nem sikerült létrehozni a mappákat: ${String(err?.message || err)}` })
+      send(res, 500, {
+        error: 'failed',
+        message: T(uiLang(url),
+          `Nem sikerült létrehozni a mappákat: ${String(err?.message || err)}`,
+          `The folders could not be created: ${String(err?.message || err)}`),
+      })
     }
     return true
   }
@@ -189,13 +202,19 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       ? body.rels.filter((r: unknown): r is string => typeof r === 'string')
       : []
     try {
-      // A terv nyelve MINDIG a telepites nyelve (APP_LANG), nem a feluleti nyelv:
-      // a mappanevek a lemezen allnak. Ezert nem adunk at itt `uiLang`-ot.
-      const result = restoreLifeFolders(rels)
+      // A terv nyelve (a letrejovo mappak NEVE) MINDIG a telepites nyelve
+      // (APP_LANG), mert a nev a lemezen all; a VALASZ szovege viszont a
+      // feluletet koveti -- ezert kap kulon `uiLang(url)` msgLang-ot.
+      const result = restoreLifeFolders(rels, loadLifeConfig(), APP_LANG, uiLang(url))
       logger.info({ created: result.created.length, failed: result.failed.length }, '[eletfa] eldobott mappak visszahozva')
       send(res, 200, { ...result, status: lifeTreeStatus() })
     } catch (err: any) {
-      send(res, 500, { error: 'failed', message: `Nem sikerült visszahozni a mappákat: ${String(err?.message || err)}` })
+      send(res, 500, {
+        error: 'failed',
+        message: T(uiLang(url),
+          `Nem sikerült visszahozni a mappákat: ${String(err?.message || err)}`,
+          `They could not be restored: ${String(err?.message || err)}`),
+      })
     }
     return true
   }

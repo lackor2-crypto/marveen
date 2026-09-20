@@ -827,13 +827,26 @@ export interface EnsureLifeTreeResult {
  * nincs. Egy hiba (jogosultsag, lecsatolt lemez) nem allitja meg a tobbit: a
  * lista vegen kimondjuk, mi nem sikerult.
  */
-export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string = APP_LANG): EnsureLifeTreeResult {
+export function ensureLifeTree(
+  cfg: LifeConfig = loadLifeConfig(),
+  lang: string = APP_LANG,
+  msgLang: string = lang,
+): EnsureLifeTreeResult {
+  // A MAPPANEVET a telepites nyelve donti el (`lang`, mert a nev a lemezen all),
+  // az UZENETET viszont a FELULET nyelve (`msgLang`). A ketto kulonbozhet, es
+  // amig a route felulirta ezt a szoveget, a kulonbseg nem latszott; most, hogy
+  // ez az egyetlen mondat, amit a felhasznalo lat, egy angol feluleten nem
+  // mehet ki magyar toast.
+  const hu = msgLang !== 'en'
   const root = lifeRoot()
   if (!root) {
     return {
       ok: false, root: null, created: [], existed: 0, failed: [], abandoned: [],
-      message: 'Nincs raktár beállítva, ezért nincs hol létrehozni az életfát. '
-        + 'Előbb a Raktár oldalon add meg, melyik mappában legyen a Marveen tárhelye.',
+      message: hu
+        ? 'Nincs raktár beállítva, ezért nincs hol létrehozni az életfát. '
+          + 'Előbb a Raktár oldalon add meg, melyik mappában legyen a Marveen tárhelye.'
+        : 'No depot is configured, so there is nowhere to create the life tree. '
+          + 'Set the folder for the Marveen storage on the Depot page first.',
     }
   }
   // A gyokernek mar allnia kell. Enelkul egy lecsatolt lemeznel a
@@ -845,8 +858,11 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   if (!rootOk) {
     return {
       ok: false, root, created: [], existed: 0, failed: [], abandoned: [],
-      message: `A raktár mappája most nem érhető el: ${root}. `
-        + 'Ha külső lemezen van, csatlakoztasd. Amíg nem érhető el, nem hozok létre semmit.',
+      message: hu
+        ? `A raktár mappája most nem érhető el: ${root}. `
+          + 'Ha külső lemezen van, csatlakoztasd. Amíg nem érhető el, nem hozok létre semmit.'
+        : `The depot folder cannot be reached right now: ${root}. `
+          + 'If it lives on an external disk, plug it in. Nothing will be created until it is back.',
     }
   }
 
@@ -889,17 +905,27 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   // ugyanazt az uzenetet latja -- ezert mondjuk meg kulon.
   const abandoned = [...split.abandoned]
   if (readmeAbandoned(root, split, lang)) abandoned.push(readmeRel)
-  const elhagyott = abandoned.length
-    ? ` ${abandoned.length} elemet szándékosan nem hoztam vissza, mert korábban kitörölted `
-      + '-- ha mégis kellenek, az Intéző "Visszahozom ezeket" gombjával kérheted vissza őket.'
+  const n = abandoned.length
+  const elhagyott = n
+    ? (hu
+      ? ` ${n} elemet szándékosan nem hoztam vissza, mert korábban kitörölted `
+        + '-- ha mégis kellenek, az Intéző "Visszahozom ezeket" gombjával kérheted vissza őket.'
+      : ` ${n} item${n === 1 ? '' : 's'} were deliberately left out because you deleted them earlier `
+        + '-- if you need them after all, use the "Bring these back" button in the Explorer.')
     : ''
   const message = (failed.length
-    ? `Az életfa elkészült, de ${failed.length} mappát nem sikerült létrehozni. Nézd meg a mappa jogosultságait.`
+    ? (hu
+      ? `Az életfa elkészült, de ${failed.length} mappát nem sikerült létrehozni. Nézd meg a mappa jogosultságait.`
+      : `The life tree is ready, but ${failed.length} folder${failed.length === 1 ? '' : 's'} could not be created. Check the folder permissions.`)
     : created.length
-      ? `Kész: ${created.length} új mappa készült el az életfában.`
-      : abandoned.length
-        ? 'Nem kellett új mappát létrehozni.'
-        : 'Az életfa már teljes, nem kellett újat létrehozni.') + elhagyott
+      ? (hu
+        ? `Kész: ${created.length} új mappa készült el az életfában.`
+        : `Done: ${created.length} new folder${created.length === 1 ? '' : 's'} created in the life tree.`)
+      : n
+        ? (hu ? 'Nem kellett új mappát létrehozni.' : 'No new folder had to be created.')
+        : (hu
+          ? 'Az életfa már teljes, nem kellett újat létrehozni.'
+          : 'The life tree is already complete, nothing new had to be created.')) + elhagyott
 
   logger.info(
     { created: created.length, existed, failed: failed.length, abandoned: split.abandoned.length },
@@ -982,8 +1008,10 @@ export function restoreLifeFolders(
   rels: string[] = [],
   cfg: LifeConfig = loadLifeConfig(),
   lang: string = APP_LANG,
+  msgLang: string = lang,
 ): RestoreLifeFoldersResult {
-  const hu = lang !== 'en'
+  // `lang` = a mappanev nyelve a lemezen, `msgLang` = a valasz nyelve.
+  const hu = msgLang !== 'en'
   const root = lifeRoot()
   if (!root) {
     return {
