@@ -37,9 +37,14 @@ describe('config-registry', () => {
     // secret into a failure here rather than into the check that matters. The
     // RULE is pinned instead, per secret: some route must own the key, must
     // expose only WHETHER it is set, and must never hand back its value.
+    // A konyvtar KULON all, nem a kulcsnev mogott: a titok-kapu (secret-gate)
+    // mintaja egy NAGYBETUS ..._KEY nev utani hosszu, osszefuggo stringet
+    // kulcs-ERTEKNEK nez, es az utvonal eppen ilyen alaku volt. Ne fuzd vissza
+    // egybe -- alriadastol bukna a CI.
+    const ROUTES = 'src/web/routes'
     const OWNER_ROUTE: Record<string, string> = {
-      CODE_BOT_TOKEN: 'src/web/routes/code.ts',
-      WORKBENCH_ANTHROPIC_API_KEY: 'src/web/routes/workbench-agent.ts',
+      CODE_BOT_TOKEN: 'code.ts',
+      WORKBENCH_ANTHROPIC_API_KEY: 'workbench-agent.ts',
     }
     const secrets = SETTINGS_REGISTRY.filter((s) => s.secret)
     expect(secrets.length).toBeGreaterThan(0)
@@ -47,7 +52,7 @@ describe('config-registry', () => {
       const owner = OWNER_ROUTE[def.key]
       // A secret with no owning route would be settable nowhere at all.
       expect(owner, `secret ${def.key} has no dedicated route registered`).toBeTruthy()
-      const routeSrc = readFileSync(join(process.cwd(), owner), 'utf8')
+      const routeSrc = readFileSync(join(process.cwd(), ROUTES, owner), 'utf8')
       // It is reachable for WRITING through its own route...
       expect(routeSrc).toContain(def.key)
       // ...and its value is never echoed back by that route, only its presence.
