@@ -35320,6 +35320,7 @@ async function loadIntezoPage() {
   bind('intezoRefreshBtn', 'click', () => _intezoOpen(_intezoPath))
   bind('intezoUpBtn', 'click', () => _intezoUp())
   bind('intezoEnsureBtn', 'click', () => _intezoEnsure())
+  bind('intezoRestoreBtn', 'click', () => _intezoRestore())
   bind('intezoMkdirBtn', 'click', () => _intezoMkdir())
   bind('intezoMoveBtn', 'click', () => _intezoStartPick('move'))
   // A lefixalt fejlec muveletsava. Delegalt kezelo: a gombok ujrarajzolasa
@@ -36051,9 +36052,12 @@ async function _intezoStatus() {
   const txt = document.getElementById('intezoSetupText')
   const ensure = document.getElementById('intezoEnsureBtn')
   const toDepo = document.getElementById('intezoToDepoBtn')
+  const abandoned = document.getElementById('intezoAbandonedBox')
+  if (abandoned) abandoned.hidden = true
   if (!box) return
   try {
     const st = await _intezoGet('/api/life/status')
+    _intezoAbandonedBox(st)
     if (!st.root) {
       box.hidden = false
       txt.textContent = t('intezo.no_depot')
@@ -36075,6 +36079,35 @@ async function _intezoStatus() {
     box.hidden = false
     if (txt) txt.textContent = (e && e.message) ? e.message : t('intezo.tree_check_failed')
     if (ensure) ensure.hidden = true
+  }
+}
+
+/** AMIT A FELHASZNALO KITOROLT -- es amit ezert NEM hozunk vissza magunktol.
+ *  Nem hibajelzes: semleges doboz, benne az egyetlen ut visszafele. */
+function _intezoAbandonedBox(st) {
+  const box = document.getElementById('intezoAbandonedBox')
+  const txt = document.getElementById('intezoAbandonedText')
+  const list = document.getElementById('intezoAbandonedList')
+  if (!box) return
+  const rels = (st && st.abandoned) || []
+  if (!rels.length) { box.hidden = true; return }
+  box.hidden = false
+  if (txt) txt.textContent = t('intezo.abandoned_n', { n: rels.length })
+  if (list) list.innerHTML = rels.map((r) => escapeHtml(r)).join('<br>')
+}
+
+async function _intezoRestore() {
+  const btn = document.getElementById('intezoRestoreBtn')
+  if (btn) btn.disabled = true
+  try {
+    const r = await _depoPost('/api/life/restore-abandoned', {})
+    showToast(t('intezo.restore_done', { n: (r.created || []).length }))
+    await _intezoStatus()
+    await _intezoOpen(_intezoPath)
+  } catch (e) {
+    showToast((e && e.message) ? e.message : t('intezo.restore_failed'))
+  } finally {
+    if (btn) btn.disabled = false
   }
 }
 

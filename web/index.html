@@ -3083,6 +3083,20 @@
         </div>
       </div>
 
+      <!-- AMIT A FELHASZNALO KITOROLT. Ez NEM hibajelzes es nem piros: az o
+           dontese. Csak azert all itt, hogy egy elutes utan legyen ut
+           visszafele -- a lista magabol a sablonbol jon. -->
+      <div class="info-box" id="intezoAbandonedBox" hidden>
+        <p id="intezoAbandonedText"></p>
+        <details style="margin-top:6px">
+          <summary data-i18n="intezo.abandoned_open">Melyik mappákról van szó?</summary>
+          <div class="help-body" id="intezoAbandonedList"></div>
+        </details>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn-secondary" id="intezoRestoreBtn" data-i18n="intezo.restore_abandoned">Visszahozom ezeket a mappákat</button>
+        </div>
+      </div>
+
       <!-- KI SZEREPELJEN A FABAN? -- ez teszi a rendszert telepitesfuggetlenne.
            A kodban NINCS egyetlen valodi nev sem: a fa vazat a kod adja, a
            neveket kizarolag ez a szerkeszto. Egy frissen telepitett Marveenben
