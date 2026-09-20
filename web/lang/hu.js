@@ -2880,6 +2880,7 @@ window._i18n.hu = {
   'winset.confirm.undo':         'Visszahozod azt az állapotot, ami a legutóbbi visszaállítás ELŐTT volt? A Fájlkezelő újraindul.',
   'settings.module.security':    'Biztonság',
   'settings.module.debate':      'Vitáztatás',
+  'settings.module.munkapad':   'AI Munkapad',
   'settings.col.key':            'Kulcs',
   'settings.col.value':          'Érték',
   'settings.col.description':    'Leírás',
