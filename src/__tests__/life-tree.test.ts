@@ -224,6 +224,17 @@ describe('a felhasznalo torlese vegleges (elhagyott mappak)', () => {
     expect(existsSync(join(depot, 'OLVASS_EL.md'))).toBe(false)
   })
 
+  it('frissites utan (naplo nelkul) is felismeri a kiseroirat torlesét', () => {
+    // A naplo nelkuli, MAR ALLO fa: ezen a gepen pontosan ez az allapot allt
+    // elo a frissiteskor. Eleg egyetlen allapot-lekerdezes, hogy a naplo
+    // megjegyezze, mi all mar a lemezen -- telepitoi lepes nelkul.
+    rmSync(join(store, 'life-tree-created.json'), { force: true })
+    lifeTreeStatus(cfg, 'hu')
+    rmSync(join(depot, 'OLVASS_EL.md'), { force: true })
+    ensureLifeTree(cfg, 'hu')
+    expect(existsSync(join(depot, 'OLVASS_EL.md'))).toBe(false)
+  })
+
   it('a felhasznalo egy kattintassal visszakerheti', () => {
     rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
     const r = restoreLifeFolders([], cfg, 'hu')

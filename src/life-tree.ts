@@ -1021,6 +1021,10 @@ export function lifeTreeStatus(cfg: LifeConfig = loadLifeConfig(), lang: string 
   // A HIANYZO es az ELHAGYOTT ket kulon halmaz: az elso hibajelzes (meg nincs
   // meg, letrehozhato), a masodik a felhasznalo dontese (ne jelezzuk hibanak).
   const split = splitPlanned(root, plan)
+  // A kiseroirat is bekerul a naploba, amig all: kulonben az elso torlese utan
+  // az `ensure` meg egyszer visszairna (a naplo nem tudna, hogy letezett).
+  const readmeRel = lang === 'hu' ? 'OLVASS_EL.md' : 'READ_ME_FIRST.md'
+  try { if (existsSync(join(root, readmeRel))) rememberLifeCreated(root, [readmeRel]) } catch { /* nem baj */ }
   return {
     root,
     exists: true,
