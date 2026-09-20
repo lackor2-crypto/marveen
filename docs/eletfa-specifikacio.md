@@ -127,6 +127,7 @@ KORPÁS LÁSZLÓ
 ├── Jogi
 ├── Hatóságok
 ├── Otthon
+├── Jármű
 ├── Munka
 ├── Projektek
 ├── Egészség
@@ -135,6 +136,16 @@ KORPÁS LÁSZLÓ
 
 Az **ország nem kerül a gyökér alá**, csak ott jelenik meg, ahol értelme van:
 `Jogi / Pénzügy / Hatóságok` alatt.
+
+> **BOSS KIEGÉSZÍTÉSE (2026-09-20) – a `Jármű` ág:** az autóhoz tartozó iratok
+> (forgalmi engedély, műszaki vizsga, kötelező és casco biztosítás,
+> szervizszámlák) **egyetlen korábbi kategóriába sem fértek bele** – se a
+> hatósági, se a jogi, se a munka, se az otthon, se a pénzügy nem a helyük, és
+> szétszórva sem maradhatnak. Boss szava: „itt egyik sehova se illik".
+> Ezért a lista **13 elemre bővült**. Járművenként egy mappa áll benne
+> (`Jármű / <jármű megnevezése>`), a jármű pedig annak a személynek az ága alá
+> kerül, aki **használja** – nem feltétlenül azé, akinek a nevén van;
+> a tulajdonos a kísérőiratba kerül.
 
 > **BOSS KIEGÉSZÍTÉSE (2026-08-21):** ez a struktúra **minden felvett személynél
 > teljesen kiépül** – Bakos Évánál is ugyanúgy, mint Korpás Lászlónál –, **akkor
@@ -382,7 +393,7 @@ Az ember azt kérdezi: „Hol vannak Laci fotói?" – nem azt, hogy „melyik D
 ```text
 F:\Marveen
 ├── KORPÁS LÁSZLÓ
-│   ├── Identitás / Személyes / Család / Otthon / Munka / Egészség / Digitális
+│   ├── Identitás / Személyes / Család / Otthon / Jármű / Munka / Egészség / Digitális
 │   ├── Jogi       → Magyarország, Németország, USA
 │   ├── Pénzügy    → Magyarország, Németország, USA
 │   ├── Hatóságok  → Magyarország, Németország, USA

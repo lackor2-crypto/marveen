@@ -1,4 +1,6 @@
-// Kanban #167 (9588db41): nevadasi es ikon-konvenciok EGY helyen.
+// Kanban #167 (9588db41): nevadasi konvenciok EGY helyen. (Az ikon-konvencio
+// 2026-09-20-an kikerult: Boss szerint a mappanev elotti emoji "nem mond semmit",
+// csak elcsunyitja a listat -- lasd a 'nincs emoji a mappanevek elott' tesztet.)
 //
 // A kartya lenyege Botond Peter mondatabol jon: "Aztan ha valami ujat csinal,
 // akkor azok alapjan hozza letre." Vagyis a szabaly nem attol er valamit, hogy
@@ -9,8 +11,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
   namingZone, slugify, checkName, checkNameForPath,
-  iconForKey, iconForFolderName, keysWithoutIcon, iconTable,
-  DEFAULT_FOLDER_ICON, MACHINE_ZONE_DIR,
+  MACHINE_ZONE_DIR,
 } from '../naming-conventions.js'
 import { lifeName, lifeNameKeys } from '../life-tree.js'
 
@@ -114,29 +115,6 @@ describe('ketnyelvuseg: a mondat a felulet nyelven all', () => {
   })
 })
 
-describe('ikon-konvencio: uj mappa nem szulethet ikon nelkul', () => {
-  it('MINDEN fa-kulcshoz tartozik ikon', () => {
-    // Ez a kartya 2. pontja. A tabla a fa sajat kulcsaira megy, tehat ha
-    // valaki uj mappat vesz fel a life-tree NAMES tablajaba, ez a teszt
-    // megbuktatja, amig nem ad hozza ikont is.
-    expect(keysWithoutIcon(), `ikon nelkuli fa-kulcsok: ${keysWithoutIcon().join(', ')}`).toEqual([])
-    expect(Object.keys(iconTable()).length).toBeGreaterThanOrEqual(lifeNameKeys().length)
-  })
-
-  it('ismeretlen kulcsra nem talalunk ki ikont, hanem a sima mappa jon', () => {
-    expect(iconForKey('nincs-ilyen-kulcs')).toBe(DEFAULT_FOLDER_ICON)
-  })
-
-  it('a lemezen levo mappanevbol is megvan az ikon, MINDKET nyelven', () => {
-    // A lemezre kerulo nev nyelvfuggo (`Jogi` / `Legal`), ezert nevre kotni
-    // nem lehet -- a kulcs a gepi nev. Ezt meri ez a sor.
-    const huName = lifeName('legal', 'hu')
-    const enName = lifeName('legal', 'en')
-    expect(iconForFolderName(huName)).toBe(iconForKey('legal'))
-    expect(iconForFolderName(enName)).toBe(iconForKey('legal'))
-    expect(iconForFolderName('Valami saját mappa')).toBe(DEFAULT_FOLDER_ICON)
-  })
-})
 
 // ---------------------------------------------------------------------------
 // DRIFT: a szabaly ott van-e, ahol az ugynok ES a felhasznalo tenylegesen
@@ -179,9 +157,6 @@ describe('a konvencio el is jut oda, ahol dontenek', () => {
     // negyediket ir, ez a szam megbuktatja, es kiderul, hogy ott kimaradt.
     expect(app.match(/await _intezoNevTanacs\(r\)/g) ?? []).toHaveLength(3)
     expect(app).toContain("t('intezo.name_advice_ask'")
-    // Az ikon a szerver tablajabol jon, nem a frontendbol.
-    expect(app).toContain('function _faIkon(')
-    expect(app).toContain('_faIkonok')
   })
 
   it('a mondat MINDKET nyelven megvan', () => {

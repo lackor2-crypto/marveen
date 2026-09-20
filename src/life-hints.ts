@@ -96,6 +96,10 @@ const HINTS: Record<string, Hint> = {
     hu: 'a lakáshoz tartozó papírok: adásvételi vagy bérleti szerződés, közüzemi számlák, biztosítás, felújítás, garancialevelek',
     en: 'papers belonging to your home: purchase or rental contract, utility bills, insurance, renovation, warranty letters',
   },
+  vehicles: {
+    hu: 'a járműveidhez tartozó papírok: forgalmi engedély, törzskönyv, adásvételi, műszaki vizsga, kötelező és casco biztosítás, szervizszámlák',
+    en: 'papers belonging to your vehicles: registration certificate, title, bill of sale, roadworthiness test, liability and comprehensive insurance, service invoices',
+  },
   work: {
     hu: 'a munkaviszony papírjai: munkaszerződés, bérjegyzékek, munkáltatói igazolások, továbbképzések, referenciák',
     en: 'papers of your employment: employment contract, payslips, employer certificates, training, references',
