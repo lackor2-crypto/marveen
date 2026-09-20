@@ -29,6 +29,7 @@ import { enqueueCodeTask, getCodeSession } from '../code-bridge-store.js'
 import { CODE_BRIDGE_ENABLED } from '../../config.js'
 import type { RouteContext } from './types.js'
 import { fireCodeSessionCloseNotice } from '../code-session-close-notice.js'
+import { applyVerificationFinding, AUTO_TESTING_MARKER } from '../approval-finding.js'
 
 const AUTONOMY_CONFIG_PATH = join(PROJECT_ROOT, 'store', 'autonomy-config.json')
 
@@ -272,7 +273,7 @@ export function ensureApprovalForWaitingCard(
       category: 'kanban_done',
       action_description: descriptionOverride?.trim()
         || `${autoApprovalCardLabel(card)} -- várakozóba került, tehát a munka elkészült rajta. `
-        + 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: '
+        + AUTO_TESTING_MARKER
         + `a felelős ágens egészítse ki, mielőtt ${currentOwnerName()} dönt.`,
       action_payload: JSON.stringify({ kanban_card_id: card.id }),
       timeout_at: getTimeoutAt('kanban_done'),
@@ -893,19 +894,20 @@ export async function tryHandleApprovals(ctx: RouteContext): Promise<boolean> {
     if (!updated) { json(res, { error: 'No pending verification for this approval/agent -- was it dispatched via /verify?' }, 404); return true }
     logger.info({ approvalId, agent, status }, 'Approval verification resolved')
 
-    // Update the approval description to include the verification result, so
-    // the text "még nincs benne, mi lett tesztelve" gets replaced with the
-    // actual finding once it is reported.
+    // The description must always carry the LATEST finding. Kanban a2d2470e
+    // (#334): this used to splice the finding in by replacing the
+    // auto-generated "még nincs benne, mi lett tesztelve" marker, so a SECOND
+    // report (the common fail -> pass sequence) found no marker and left the
+    // first, stale finding standing -- the owner then decided on an outdated
+    // result. applyVerificationFinding() replaces an earlier finding block too,
+    // and appends one even when the description was written by an agent and
+    // never had the marker at all.
     const approvalBefore = getApproval(approvalId)
     if (approvalBefore) {
-      const icon = status === 'pass' ? '✅' : '❌'
-      const desc = approvalBefore.action_description || ''
-      // Replace the auto-generated "még nincs benne..." part with the actual finding.
-      const testingMarker = 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: a felelős ágens egészítse ki, mielőtt'
-      const oldDesc = desc.includes(testingMarker)
-        ? desc.substring(0, desc.indexOf(testingMarker)) + `Tesztelve: ${icon} ${agent.trim()} -- ${reportText || '(nincs indoklás)'}`
-        : desc
-      updateApprovalDescription(approvalId, oldDesc)
+      updateApprovalDescription(
+        approvalId,
+        applyVerificationFinding(approvalBefore.action_description, agent.trim(), status, reportText),
+      )
     }
 
     // Boss 2026-08-08: "el is lehetne azt is tárolni, hogy mit talált, és a
