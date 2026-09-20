@@ -177,7 +177,7 @@ async function resolveCostPerMInput(model: string): Promise<number | null> {
 }
 import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
-import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID } from '../code-bridge-store.js'
+import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, codeBridgeDisplayState, CODE_BRIDGE_ACTIVITY_ID } from '../code-bridge-store.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
 
 // AZ ELAVULT KEPERNYOSZOVEG NE JELENTSEN KIESEST.
@@ -882,7 +882,7 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const modeOf = (running: boolean, pane: string | null): string | null =>
       running && pane !== null ? detectPermissionMode(pane) : null
 
-    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null }> = []
+    const entries: Array<{ name: string; displayName: string; isMain: boolean; running: boolean; state: string; mode: string | null; tail: string[]; model?: string; compacting?: boolean; contextTokens?: number | null; kind?: string; codeSessionId?: string | null; codeLabel?: string | null; queued?: number; queuedOnly?: boolean }> = []
 
     // A compaction the dashboard itself started (gate or card button). The pane
     // shows none of the usual busy signals while it runs, so without this the
@@ -1009,11 +1009,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
         // reszhalmaz friss aktivitasa szamit, a `liveSessions` altalanos
         // listaja (a farok-szoveghez / "Elo nezet" linkhez) valtozatlan
         // marad. Reszletek: `CodeBridgeActivity.liveMarvinOwnedActive`.
-        const state = act.quotaBlocked
-          ? 'limited'
-          : (act.running.length > 0 || act.liveMarvinOwnedActive
-              ? 'working'
-              : (act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped'))
+        //
+        // A KIADOTT MUNKA IS MUNKA, MAR A SORBAN ALLAS ALATT (kartya 5603b3d4,
+        // Boss 2026-09-20). A dontes egy kulon, tisztan tesztelheto fuggvenyben
+        // all (`codeBridgeDisplayState`), mert a szoveg-egyeztetes egy
+        // route-fajlon nem latja, mi tortenik FUTASKOR.
+        const { state, queuedOnly } = codeBridgeDisplayState(act, CODE_BRIDGE_ENABLED)
         entries.push({
           name: CODE_BRIDGE_ACTIVITY_ID,
           // Termeknev, mindket nyelven ugyanaz -- nem forditando szoveg.
@@ -1029,6 +1030,16 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           // mert ez a beadott feladat sajat szovege.
           tail: [
             ...act.running.map((r) => {
+              const line = (r.prompt.split('\n').find((l) => l.trim().length > 0) ?? '').trim()
+              const short = line.length > 160 ? line.slice(0, 157) + '...' : line
+              return short ? `${r.project} · ${short}` : r.project
+            }),
+            // A SORBAN ALLO feladat is megjelenik, ugyanabban az alakban: enelkul
+            // a zold jelzes melle semmi nem magyarazta, MI az a munka, ami ki van
+            // adva. A `queued` szo nem kerul bele: a sor a feladat SAJAT szovege
+            // (nem forditunk rajta), a "kiadva, indulasra var" allapotot a
+            // jelzo cimkeje mondja ki, a felulet nyelven.
+            ...act.queuedTasks.map((r) => {
               const line = (r.prompt.split('\n').find((l) => l.trim().length > 0) ?? '').trim()
               const short = line.length > 160 ? line.slice(0, 157) + '...' : line
               return short ? `${r.project} · ${short}` : r.project
@@ -1051,6 +1062,8 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
           // zolden. `null` = nem latjuk a fulet: a jelzo latszik, de nem nyit.
           codeSessionId: first ? first.sessionId : (liveFirst?.sessionId ?? null),
           codeLabel: first?.project ?? liveFirst?.project ?? null,
+          queued: act.queued,
+          queuedOnly,
         })
       }
     }

@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path'
 import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, recordCodeWorkerSeen,
-  recordCodeCandidates, _resetCodeCandidates, codeBridgeActivity,
+  recordCodeCandidates, _resetCodeCandidates, codeBridgeActivity, codeBridgeDisplayState,
 } from '../web/code-bridge-store.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -139,9 +139,19 @@ describe('/api/agents/activity: ebbol lesz zold az "Elo nezet"', () => {
     // Boss SAJAT, nem Marvin-nyitotta fulje (pl. MetaTrader-elemzes) mar nem.
     // Lasd `CodeBridgeActivity.liveMarvinOwnedActive`. Az altalanos `liveSessions`
     // lista (lentebb, az "Elo nezet" linkhez) ettol fuggetlenul valtozatlan.
-    expect(route).toMatch(
-      /act\.running\.length > 0 \|\| act\.liveMarvinOwnedActive\s*\n?\s*\? 'working'/
-    )
+    // Kartya 5603b3d4 (2026-09-20): a dontes egy kulon fuggvenyben all, es
+    // FUTASKOR ellenorizzuk -- a route-fajl szoveg-egyeztetese nem latta, mi
+    // tortenik valojaban.
+    expect(route).toContain('codeBridgeDisplayState(act, CODE_BRIDGE_ENABLED)')
+    upsertCodeSession({ project: 'marvin', workspacePath: WS_PATH, sessionId: SID_A, marvinOwned: true })
+    recordCodeWorkerSeen('windows', 'discovery', 1)
+    recordCodeCandidates('windows', [
+      { workspacePath: WS_PATH, sessionId: SID_A, live: true, primary: true, lastActivity: Date.now() },
+    ])
+    const act = codeBridgeActivity()
+    expect(act.running).toEqual([])
+    expect(act.liveMarvinOwnedActive).toBe(true)
+    expect(codeBridgeDisplayState(act, true)).toEqual({ state: 'working', queuedOnly: false })
   })
 
   it('a megnyithato beszelgetes: futo feladatnal annak a fule, kulonben az ELO ful', () => {

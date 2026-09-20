@@ -2262,6 +2262,19 @@ export interface CodeBridgeActivity {
   present: boolean
   workerOnline: boolean
   queued: number
+  /** A KIADOTT, DE MEG EL NEM INDULT feladatok (status='queued'), a legregebbi
+   *  eloszor -- ugyanabban az alakban, mint a `running`, mert a felulet ugyanazt
+   *  a farok-sort irja ki beloluk.
+   *
+   *  Miert kell kulon a `queued` SZAM melle: a "dolgozik" jelzes eddig csak a
+   *  `running` sorokat nezte, ezert a kiadott munka a sorban allas ideje alatt
+   *  LATHATATLAN volt. Merve 2026-09-20 (kartya 5603b3d4): a #337 javitasi
+   *  feladat (cac4fcd2) 15:39:24-kor lett kiadva es csak 15:49:24-kor indult el;
+   *  a kozben lefutott masik feladat vege (15:46:58) es az indulas kozott a hid
+   *  szurken allt. Boss 15:48:23-kor pont ezt latta, ezert adta ki UGYANAZT a
+   *  munkat meg egyszer egy masik agensnek. A kiadott munka nincs kesz, nincs
+   *  lefagyva es nincs keret-hianyban, tehat a jelzesnek zoldnek kell lennie. */
+  queuedTasks: Array<{ project: string; prompt: string }>
   /** A MOST futo feladatok, a legregebbi eloszor. Felso hatar, mert ez egy
    *  3 masodperces vegpont: a lista a felulet farok-sorait tolti, nem konyvel. */
   running: Array<{ project: string; prompt: string; sessionId: string | null }>
@@ -2433,6 +2446,12 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
   const queued = Number(
     (db.prepare(`SELECT COUNT(*) AS n FROM code_tasks WHERE status = 'queued'`).get() as Record<string, unknown> | undefined)?.['n'] ?? 0,
   )
+  // A SORBAN ALLO feladatok sorai is kellenek, nem csak a darabszam: ezekbol lesz
+  // a "mit csinal epp" farok-sor, amig a feladat az inditasra var. Ugyanaz a
+  // felso hatar, mint a `running`-nal -- ez egy 3 masodperces vegpont.
+  const queuedRows = db
+    .prepare(`SELECT project, prompt FROM code_tasks WHERE status = 'queued' ORDER BY created_at LIMIT 8`)
+    .all() as Array<Record<string, unknown>>
   const rows = db
     .prepare(`SELECT project, prompt, session_id, run_session_id, start_fresh FROM code_tasks WHERE status = 'running' ORDER BY started_at LIMIT 8`)
     .all() as Array<Record<string, unknown>>
@@ -2522,6 +2541,10 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     present: lastSeen > 0 || sessions > 0,
     workerOnline: lastSeen > 0 && now - lastSeen <= WORKER_STALE_MS,
     queued,
+    queuedTasks: queuedRows.map((r) => ({
+      project: String(r['project'] ?? ''),
+      prompt: String(r['prompt'] ?? ''),
+    })),
     running: rows.map((r) => ({
       project: String(r['project'] ?? ''),
       prompt: String(r['prompt'] ?? ''),
@@ -2539,6 +2562,51 @@ export function codeBridgeActivity(now = Date.now()): CodeBridgeActivity {
     liveRecentlyActive,
     liveMarvinOwnedActive,
   }
+}
+
+/** MI LATSZIK A KOD-HID (VS Code) KARTYAJAN ES A TEVEKENYSEG LAPON: a mert
+ *  allapotbol EGY helyen keszul a kijelzett allapot, hogy a felulet minden
+ *  fogyasztoja (Agensek lap zold jelzoje, Tevekenyseg lap, bal menu szamlaloja,
+ *  "mindent ujraindit" megerosites) ugyanazt lassa -- ez az agens-paritas
+ *  szabalya a meresre alkalmazva.
+ *
+ *  KULON FUGGVENY, mert a dontes szabalyait eddig csak SZOVEG-EGYEZTETESSEL
+ *  lehetett tesztelni a route-fajlon, az pedig nem latja, mi tortenik futaskor.
+ *
+ *  A SORREND maga a szabaly (Boss, 2026-09-20: a zold csak akkor alszik el, ha
+ *  "mar keszen van a munka, vagy eppen lefagyott, vagy eppen megallt a keret
+ *  hianya miatt"):
+ *   1. `limited` -- kvota-blokk. Barmilyen elo ful mellett is ez nyer.
+ *   2. `stopped` -- nincs online worker, vagy a hid ki van kapcsolva: a kiadott
+ *      munkat SENKI nem viszi. Ez a "lefagyott" eset, nem a zold.
+ *   3. `working` -- van futo VAGY KIADOTT (sorban allo) feladat, vagy frissen
+ *      aktiv marvinOwned beszelgetes. A sorban allas is munka: ki van adva,
+ *      nincs kesz. Kartya 5603b3d4, merve 2026-09-20: a #337 javitasi feladat
+ *      15:39:24-kor lett kiadva es 15:49:24-kor indult el; kozben a hid szurken
+ *      allt, Boss ezert adta ki UGYANAZT a munkat meg egy agensnek.
+ *   4. `unknown` -- nincs semmi jel, ES a jeloltlistat ebben a folyamatban meg
+ *      nem mertuk (`liveMeasured === false`). A lista MEMORIABAN el, a
+ *      szivveres a lemezen: minden dashboard-ujrainditas (deploy) kiuriti, es a
+ *      worker csak 60 masodpercenkent kuld felderitest. A nem mert nullat nem
+ *      mondjuk "varakozik"-nak.
+ *   5. `idle` -- mertunk, es tenyleg nincs munka.
+ *
+ *  `queuedOnly`: a zoldet EGYEDUL a sor adja (meg nem indult el). A szin marad
+ *  zold, de a felulet cimkeje kimondja, hogy a munka inditasra var -- igy a
+ *  zold nem allit tobbet, mint amit mertunk. */
+export function codeBridgeDisplayState(
+  act: CodeBridgeActivity,
+  bridgeEnabled: boolean,
+): { state: 'limited' | 'stopped' | 'working' | 'unknown' | 'idle'; queuedOnly: boolean } {
+  if (act.quotaBlocked) return { state: 'limited', queuedOnly: false }
+  if (!(act.workerOnline && bridgeEnabled)) return { state: 'stopped', queuedOnly: false }
+  const running = act.running.length > 0
+  const queued = act.queued > 0
+  if (running || queued || act.liveMarvinOwnedActive) {
+    return { state: 'working', queuedOnly: queued && !running && !act.liveMarvinOwnedActive }
+  }
+  if (!act.liveMeasured) return { state: 'unknown', queuedOnly: false }
+  return { state: 'idle', queuedOnly: false }
 }
 
 export function codeBridgeHealth(now = Date.now()): CodeBridgeHealth {
