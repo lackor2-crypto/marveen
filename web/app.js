@@ -1327,6 +1327,13 @@ function renderActivity(entries) {
       label: typeof metaRaw.label === 'function' ? metaRaw.label() : metaRaw.label,
       tip: typeof metaRaw.tip === 'function' ? metaRaw.tip() : metaRaw.tip,
     }
+    // Kiadott, de meg el nem indult munka: a SZIN marad zold (a munka ki van
+    // adva, nincs kesz -- kartya 5603b3d4), a CIMKE viszont kimondja, hogy meg
+    // nem kezdodott el. Igy a zold nem allit tobbet, mint amit mertunk.
+    if (a.queuedOnly) {
+      meta.label = t('activity.state.working_queued')
+      meta.tip = t('activity.state_tip.working_queued')
+    }
     const tail = (a.tail || []).map((l) => linkifyKanbanRefs(l)).join('\n')
     const mainBadge = a.isMain ? '<span class="act-main-badge">' + t('activity.badge.main') + '</span>' : ''
     // Permission-mode chip. Shown for every mode EXCEPT the ones that let the
@@ -5690,6 +5697,13 @@ async function refreshAgentTerminalBusy() {
     const cbWorking = !!cbEntry && cbEntry.state === 'working'
     agentsGrid.querySelectorAll('.code-bridge-agent-card [data-cb-busy]').forEach((el) => {
       el.hidden = !cbWorking
+      // A CIMKE is ugyanabbol a meresbol jon, mint a Tevekenyseg lapon: ha a
+      // zoldet egyedul a SOR adja (kiadva, de meg nem indult el -- kartya
+      // 5603b3d4), a jelzo ezt kimondja, nem "dolgozik"-ot allit.
+      if (cbWorking) {
+        el.textContent = cbEntry.queuedOnly ? t('activity.state.working_queued') : t('activity.state.working')
+        el.title = cbEntry.queuedOnly ? t('activity.state_tip.working_queued') : t('cb.card.busy_help')
+      }
       // A beszelgetes azonositoja a jelzon ul: enelkul a kattintas nem tudna,
       // MIT nyisson. Ha nincs (regi kiszolgalo, vagy nem tudjuk, hol fut), a
       // jelzo latszik, de nem nyit semmit -- nem igerunk olyan ablakot,
@@ -6450,7 +6464,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
              belsejeben all, ezert IDEZOJEL-BACKTICK NEM KERULHET bele -- a backtick
              kilep a sablonbol, es a szoveg kozepe kifejezeskent ertekelodik ki
              (ReferenceError: dot is not defined). -->
-        <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${codeBridgeCards.running > 0 ? '' : ' hidden'}>${escapeHtml(t('activity.state.working'))}</button>
+        <button type="button" class="activity-badge act-working" data-cb-busy title="${escapeAttr(t('cb.card.busy_help'))}"${(codeBridgeCards.running > 0 || (codeBridgeCards.queued > 0 && codeBridgeCards.workerOnline)) ? '' : ' hidden'}>${escapeHtml(codeBridgeCards.running > 0 ? t('activity.state.working') : t('activity.state.working_queued'))}</button>
         <span class="process-indicator" title="${escapeAttr(cbRunTip())}"><span class="process-dot ${cbRunDotClass()}"></span>${escapeHtml(cbRunLabel())}</span>
         <span class="tg-status"><span class="tg-dot ${e.online ? 'connected' : 'disconnected'}"></span> ${escapeHtml(e.note)}</span>
       </div>

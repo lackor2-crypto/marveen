@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path'
 import { initDatabase } from '../db.js'
 import {
   resetCodeBridgeTablesForTests, upsertCodeSession, enqueueCodeTask, claimNextCodeTask, heartbeatCodeTask,
-  recordCodeWorkerSeen, codeBridgeActivity, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
+  recordCodeWorkerSeen, codeBridgeActivity, codeBridgeDisplayState, CODE_BRIDGE_ACTIVITY_ID, WORKER_STALE_MS,
   completeCodeTask, recordCodeCandidates, _resetCodeCandidates, isCodeUsageLimitMessage, QUOTA_BLOCK_FALLBACK_MS,
   LIVE_SESSION_STALE_MS, getCodeSession,
 } from '../web/code-bridge-store.js'
@@ -81,13 +81,24 @@ describe('codeBridgeActivity: mit csinal epp', () => {
     expect(codeBridgeActivity().running[0]?.sessionId).toBe(runIn)
   })
 
-  it('a sorban allo feladat NEM szamit dolgozasnak', () => {
+  it('a sorban allo feladat nem `running`, de a KIJELZESBEN dolgozik (kartya 5603b3d4)', () => {
+    // A MERES ketteválasztva marad: a sorban allo feladat nincs a `running`
+    // listaban, mert a worker meg nem kezdte el. A KIJELZETT allapot viszont
+    // 'working', mert a munka KI VAN ADVA -- nincs kesz, nincs lefagyva, nincs
+    // keret-hianyban. Boss, 2026-09-20: "nem kene leallitani azt a zold gombot,
+    // csak akkor, amikor mar keszen van a munka, vagy eppen lefagyott, vagy
+    // eppen megallt a keret hianya miatt."
     upsertCodeSession(WS)
     recordCodeWorkerSeen('windows', 'discovery', 1)
     enqueueCodeTask({ project: 'marvin', prompt: 'meg nem indult el', origin: 'api' })
     const act = codeBridgeActivity()
     expect(act.queued).toBe(1)
     expect(act.running).toEqual([])
+    // A sor SORAI is kimennek, hogy a zold melle odakerulhessen, MI az a munka.
+    expect(act.queuedTasks).toHaveLength(1)
+    expect(act.queuedTasks[0]?.project).toBe('marvin')
+    expect(act.queuedTasks[0]?.prompt).toContain('meg nem indult el')
+    expect(codeBridgeDisplayState(act, true)).toEqual({ state: 'working', queuedOnly: true })
   })
 
   it('elnemult worker: a hid letezik, de nem online', () => {
@@ -124,10 +135,32 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     // NYITOTT, friss beszelgetes). Boss SAJAT kezzel hasznalt masik fulje (pl.
     // MetaTrader-elemzes) mar nem szamit "dolgozik"-nak. Lasd
     // `CodeBridgeActivity.liveMarvinOwnedActive`.
-    expect(route).toMatch(
-      /act\.running\.length > 0 \|\| act\.liveMarvinOwnedActive\s*\n?\s*\? 'working'/
-    )
-    expect(route).toContain("(act.workerOnline && CODE_BRIDGE_ENABLED ? 'idle' : 'stopped')")
+    // Kartya 5603b3d4 (2026-09-20): a dontes atkerult egy kulon, FUTASKOR
+    // tesztelheto fuggvenybe (`codeBridgeDisplayState`) -- a route-fajl
+    // szoveg-egyeztetese nem latta, mi tortenik valojaban. A szabaly maga
+    // valtozatlan: a puszta "be van kapcsolva es online" nem "dolgozik".
+    expect(route).toContain('codeBridgeDisplayState(act, CODE_BRIDGE_ENABLED)')
+    const alap = codeBridgeActivity()
+    const tetlen = { ...alap, present: true, workerOnline: true, liveMeasured: true }
+    expect(codeBridgeDisplayState(tetlen, true)).toEqual({ state: 'idle', queuedOnly: false })
+    // Marvin-sajat, frissen aktiv beszelgetes: dolgozik, kiosztott feladat nelkul is.
+    expect(codeBridgeDisplayState({ ...tetlen, liveMarvinOwnedActive: true }, true))
+      .toEqual({ state: 'working', queuedOnly: false })
+    // Kikapcsolt hid vagy elnemult worker: a kiadott munkat senki nem viszi.
+    expect(codeBridgeDisplayState({ ...tetlen, queued: 1 }, false).state).toBe('stopped')
+    expect(codeBridgeDisplayState({ ...tetlen, workerOnline: false, queued: 1 }, true).state).toBe('stopped')
+  })
+
+  it('a NEM MERT nulla nem "varakozik", hanem ismeretlen (kartya 5603b3d4)', () => {
+    // A jeloltlista memoriaban el, a szivveres a lemezen: minden dashboard-
+    // ujrainditas (deploy) kiuriti, es a worker csak 60 masodpercenkent kuld
+    // felderitest. Addig a worker online, a lista megis ures -- ezt eddig
+    // 'idle'-nek (varakozik) mondtuk, vagyis egy nem mert allapotrol
+    // allitottuk, hogy nem dolgozik.
+    const alap = codeBridgeActivity()
+    const meresElott = { ...alap, present: true, workerOnline: true, liveMeasured: false }
+    expect(codeBridgeDisplayState(meresElott, true)).toEqual({ state: 'unknown', queuedOnly: false })
+    expect(codeBridgeDisplayState({ ...meresElott, liveMeasured: true }, true).state).toBe('idle')
   })
 
   it('a keret-kimerult hid LIMITED-et mutat, nem "dolgozik" (a kvota elol)', () => {
@@ -135,7 +168,13 @@ describe('/api/agents/activity: a kod-hid is flotta-tag', () => {
     // a fiokja heti limitbe futott tegnap este. A `live === true` csak azt
     // jelenti, hogy a folyamat cimezheto, nem azt, hogy general -- ezert a
     // tartos kvota-jel elol all, ugyanugy, mint a tmux-agenseknel.
-    expect(route).toMatch(/act\.quotaBlocked\s*\n?\s*\? 'limited'/)
+    const alap = codeBridgeActivity()
+    // A kvota-blokk MINDEN mas jel elott all: futo feladat, sorban allo feladat
+    // es frissen aktiv beszelgetes mellett is 'limited'.
+    expect(codeBridgeDisplayState(
+      { ...alap, present: true, workerOnline: true, liveMeasured: true, quotaBlocked: true, queued: 2, liveMarvinOwnedActive: true },
+      true,
+    )).toEqual({ state: 'limited', queuedOnly: false })
   })
 
   it('nevutkozes eseten a valodi ugynok az erosebb', () => {
