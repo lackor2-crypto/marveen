@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { initDatabase, createApproval, createKanbanCard, getKanbanComments, resolveApproval } from '../db.js'
+import { initDatabase, createApproval, createKanbanCard, getKanbanComments, resolveApproval, getApproval } from '../db.js'
 
 vi.mock('../config.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../config.js')>()
@@ -192,6 +192,37 @@ describe('approval verifications', () => {
     expect(comments[0].author).toBe('gemma')
     expect(comments[0].content).toContain('drag-and-drop is broken')
     expect(comments[0].content).toContain('❌')
+  })
+
+  it('a SECOND finding replaces the first one in the approval description', async () => {
+    // Kanban a2d2470e (#334). Real case 2026-09-19: card #321 was reported
+    // fail, then pass, and the owner kept seeing the fail -- the splice only
+    // knew the auto-generated marker, which the first finding had already
+    // overwritten. Measured end to end, because the bug was silent: the second
+    // call answered ok and changed nothing.
+    createKanbanCard({ id: 'card334', title: 'Projekt-oldal', status: 'waiting' })
+    const approval = createApproval({
+      id: 'a334', agent_id: 'lackor2-bot', category: 'kanban_done',
+      action_description: 'Kártya #321 -- várakozóba került, tehát a munka elkészült rajta. '
+        + 'Ezt a kérést a kártya mozgatása hozta létre automatikusan, ezért még nincs benne, mi lett tesztelve: '
+        + 'a felelős ágens egészítse ki, mielőtt Boss dönt.',
+      action_payload: JSON.stringify({ kanban_card_id: 'card334' }),
+    })
+
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify-result`, { agent: 'gemma', status: 'fail', report: 'Javaslat: Boss varjon a landolasra' }).ctx)
+    expect(getApproval(approval.id)?.action_description).toContain('❌ gemma -- Javaslat: Boss varjon a landolasra')
+
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify`, { agents: ['gemma'] }).ctx)
+    await tryHandleApprovals(fakeReq('POST', `/api/approvals/${approval.id}/verify-result`, { agent: 'gemma', status: 'pass', report: 'Landolt: PR #206' }).ctx)
+
+    const desc = getApproval(approval.id)?.action_description ?? ''
+    expect(desc).toContain('✅ gemma -- Landolt: PR #206')
+    expect(desc).not.toContain('Javaslat: Boss varjon a landolasra')
+    expect(desc).toContain('Kártya #321')
+    // Both findings stay on the card as comments -- the history belongs there,
+    // the decision text only ever shows the current state.
+    expect(getKanbanComments('card334')).toHaveLength(2)
   })
 
   it('refuses to dispatch when the linked card has left the waiting column', async () => {
