@@ -10,7 +10,7 @@
 // A unit-tesztek ezt NEM fogtak meg, mert azok a modulokat kozvetlenul hivjak,
 // a HTTP-reteget kihagyva. Ezert megy ez a teszt a VALODI utvonalkezelon at.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -350,5 +350,114 @@ describe('POST /api/life/inbox/create-target-folder', () => {
     expect(out.status).toBe(400)
     expect(out.body.ok).toBe(false)
     expect(existsSync(join(depot, '..', 'kiszoktem'))).toBe(false)
+  })
+})
+
+// A MOTOR UZENETE ER KI A FELULETRE -- HTTP-szinten mérve.
+//
+// A #337 ket defektjenek a javitasa a `src/life-tree.ts`-ben ul, de a
+// felhasznalo NEM azt latja: o a route valaszat latja. Ket ok, amiert ezt itt
+// is meg kell merni:
+//
+// (1) A route KORABBAN felulirta a motor mondatat (`{ ...result, ok: true }` +
+//     sajat "mar teljes" szoveg). Egy unit-teszt a motoron zold volt, mikozben
+//     a kepernyore a regi, felrevezeto mondat ment ki -- a ket veg kulon-kulon
+//     tesztelve volt, a szal kozottuk nem.
+// (2) A mappa NEVE a telepites nyelvet koveti (APP_LANG, mert a lemezen all),
+//     az UZENET viszont a FELULET nyelvet -- ezt csak a `?lang=` lekerdezessel
+//     lehet ellenorizni, tehat csak itt.
+describe('POST /api/life/ensure -- a motor uzenete er ki a feluletre', () => {
+  const PERSON2 = 'Proba Peter'
+
+  async function frissFa() {
+    rmSync(join(store, 'life-tree-created.json'), { force: true })
+    const { ctx: c1 } = ctxFor('/api/life/config', 'POST', {
+      persons: [{ name: PERSON2, role: 'owner', countries: [], mediaGroups: [] }],
+      companies: [],
+    })
+    await tryHandleLife(c1)
+    const { ctx, out } = ctxFor('/api/life/ensure', 'POST', {})
+    await tryHandleLife(ctx)
+    return out
+  }
+
+  it('a felhasznalo altal kitorolt ag utan NEM azt allitja, hogy mar teljes volt', async () => {
+    const elso = await frissFa()
+    expect(elso.status).toBe(200)
+    expect(elso.body.created.length).toBeGreaterThan(0)
+
+    // A felhasznalo kitorol egy mappat, amit MI hoztunk letre.
+    rmSync(join(depot, elso.body.created[0]), { recursive: true, force: true })
+
+    const { ctx, out } = ctxFor('/api/life/ensure', 'POST', {})
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.abandoned.length).toBeGreaterThanOrEqual(1)
+    // A nulla ket dolgot jelenthet: "tenyleg teljes" vagy "N elem hianyzik,
+    // mert te torolted". A toastbol ez a kulonbseg latszodjon.
+    expect(out.body.message).not.toContain('már teljes')
+    expect(out.body.message).toContain(String(out.body.abandoned.length))
+  })
+
+  it('ha egy mappat nem sikerul letrehozni, az `ok` HAMIS -- nem fix igaz', async () => {
+    // A route korabban `{ ...result, ok: true }`-t kuldott, tehat a sikertelen
+    // letrehozast is sikernek nevezte. Itt szandekosan elrontjuk egy ag utjat:
+    // FAJL all ott, ahova mappa kellene, ezert a mkdir elbukik.
+    rmSync(join(store, 'life-tree-created.json'), { force: true })
+    const { ctx: c1 } = ctxFor('/api/life/config', 'POST', {
+      persons: [{ name: PERSON2, role: 'owner', countries: [], mediaGroups: [] }],
+      companies: [],
+    })
+    await tryHandleLife(c1)
+    const { ctx: cs, out: st } = ctxFor('/api/life/status', 'GET')
+    await tryHandleLife(cs)
+    const felsoSzint = (st.body.missing as string[]).find((r) => !r.includes('/'))
+    expect(felsoSzint).toBeTruthy()
+    rmSync(join(depot, felsoSzint as string), { recursive: true, force: true })
+    writeFileSync(join(depot, felsoSzint as string), 'nem mappa, hanem fajl')
+
+    const { ctx, out } = ctxFor('/api/life/ensure', 'POST', {})
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.failed.length).toBeGreaterThan(0)
+    expect(out.body.ok).toBe(false)
+
+    rmSync(join(depot, felsoSzint as string), { force: true })
+  })
+
+  it('?lang=en mellett az uzenet ANGOL, akkor is ha a mappanevek magyarok', async () => {
+    await frissFa()
+    const { ctx, out } = ctxFor('/api/life/ensure?lang=en', 'POST', {})
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(typeof out.body.message).toBe('string')
+    expect(out.body.message.length).toBeGreaterThan(0)
+    // Nem szolistat egyeztetunk (az torekeny), hanem azt merjuk, hogy a mondat
+    // nem MAGYAR: magyar ekezetes betu nincs benne.
+    expect(out.body.message).not.toMatch(/[őűáéíóöúüÁÉÍÓÖŐÚÜŰ]/)
+  })
+
+  it('a kitorolt kiseroirat megjelenik az eldobottak kozt, es visszakerheto', async () => {
+    await frissFa()
+    const kiseroirat = readdirSync(depot).find((n) => n.endsWith('.md'))
+    expect(kiseroirat).toBeTruthy()
+    rmSync(join(depot, kiseroirat as string), { force: true })
+
+    const { ctx: cs, out: st } = ctxFor('/api/life/status', 'GET')
+    expect(await tryHandleLife(cs)).toBe(true)
+    expect(st.body.abandoned).toContain(kiseroirat)
+
+    // ... es az `ensure` szandekosan NEM hozza vissza magatol.
+    const { ctx: ce } = ctxFor('/api/life/ensure', 'POST', {})
+    await tryHandleLife(ce)
+    expect(existsSync(join(depot, kiseroirat as string))).toBe(false)
+
+    // A felhasznalo kifejezett kerese hozza vissza, tartalommal.
+    const { ctx, out } = ctxFor('/api/life/restore-abandoned?lang=en', 'POST', { rels: [kiseroirat] })
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(out.status).toBe(200)
+    expect(out.body.created).toContain(kiseroirat)
+    expect(readFileSync(join(depot, kiseroirat as string), 'utf-8').length).toBeGreaterThan(0)
+    expect(out.body.message).not.toMatch(/[őűáéíóöúüÁÉÍÓÖŐÚÜŰ]/)
   })
 })
