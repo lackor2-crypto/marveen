@@ -79,6 +79,7 @@ const NAMES: NameTable = {
   legal:       { hu: 'Jogi',        en: 'Legal' },
   authorities: { hu: 'Hatóságok',   en: 'Authorities' },
   home:        { hu: 'Otthon',      en: 'Home' },
+  vehicles:    { hu: 'Jármű',       en: 'Vehicles' },
   work:        { hu: 'Munka',       en: 'Work' },
   projects:    { hu: 'Projektek',   en: 'Projects' },
   health:      { hu: 'Egészség',    en: 'Health' },
@@ -228,7 +229,7 @@ export function defaultMediaGroups(lang: string = APP_LANG): string[] {
 /** Egy szemely kategoriai, sorrendben (specifikacio 11. pont). */
 export const PERSON_CATEGORIES = [
   'identity', 'personal', 'family', 'finance', 'legal', 'authorities',
-  'home', 'work', 'projects', 'media', 'health', 'digital',
+  'home', 'vehicles', 'work', 'projects', 'media', 'health', 'digital',
 ]
 
 /**

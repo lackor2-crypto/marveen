@@ -36251,8 +36251,6 @@ function _intezoPlaceInfoCard() {
  * marad fenn, amelyiket epp nezik.
  */
 let _faSugok = null
-/** IKON-TABLA a szerverrol (kanban #167). A kulcs a lemezen levo mappanev. */
-let _faIkonok = null
 async function _faSugokBetolt() {
   if (_faSugok) return _faSugok
   try {
@@ -36260,8 +36258,7 @@ async function _faSugokBetolt() {
     // a zárójeles magyarázat viszont a felület nyelvét követi.
     const r = await _intezoGet('/api/life/hints?lang=' + (window._lang || 'hu'))
     _faSugok = (r && r.hints) ? r.hints : {}
-    _faIkonok = (r && r.icons) ? r.icons : {}
-  } catch (e) { _faSugok = {}; _faIkonok = {} }
+  } catch (e) { _faSugok = {} }
   return _faSugok
 }
 
@@ -36270,23 +36267,6 @@ function _faSugo(entry) {
   if (entry && entry.hint) return entry.hint
   const nev = (entry && entry.name) ? entry.name : String(entry || '')
   return (_faSugok && _faSugok[nev]) ? _faSugok[nev] : ''
-}
-
-/**
- * Egy mappa IKONJA (kanban #167).
- *
- * Az ikon nem itt talalodik ki: a szabaly egy helyen all (a szerver
- * `naming-conventions.ts` tablaja), es a `/api/life/hints` hozza. A helyi
- * agak azok, amiket a lista MAR tud, es a tabla nem tudhat: a git-terulet
- * (piros, nem piszkalando) es a BEERKEZO. Amire nincs szabaly, az a semleges
- * mappa-ikon -- kitalalt ikon nincs.
- */
-function _faIkon(entry) {
-  if (entry && entry.caution) return '📛 '
-  if (_faBeerkezo(entry)) return '📥 '
-  const nev = (entry && entry.name) ? entry.name : String(entry || '')
-  const ikon = (_faIkonok && _faIkonok[nev]) ? _faIkonok[nev] : ''
-  return ikon ? (ikon + ' ') : '📁 '
 }
 
 /** A BEERKEZO-e ez a mappa. A nevet a szerver adja, nyelvfuggo. */
@@ -36348,7 +36328,6 @@ function _intezoRender() {
       // A MEGJELENITETT nev (ha van, store/life-labels.json) elsobbseget elvez a
       // lemez-nev elott -- a navigacio viszont vegig a data-open=rel-en megy,
       // tehat az ut es a szinkron valtozatlan. A cimen a valodi nev buborekban.
-      + (e.isDir ? _faIkon(e) : '')
       + (e.displayName
           ? '<span title="' + escapeHtml(t('intezo.real_name', { name: e.name })) + '">' + escapeHtml(e.displayName) + '</span>'
           : escapeHtml(e.name))
@@ -36508,7 +36487,7 @@ function _intezoOpenFolderPicker(mode) {
       // A git-repok itt is jelolve vannak: aki ide tallozik, lassa elore,
       // hogy oda nem fog tudni bepakolni.
       const sugo = _faSugo(f)
-      b.textContent = _faIkon(f) + f.name
+      b.textContent = f.name
         + (f.caution ? '  (git — ide nem)' : (sugo ? '  (' + sugo + ')' : ''))
       if (f.caution) b.title = f.caution
       b.addEventListener('click', () => { here = f.rel; draw() })

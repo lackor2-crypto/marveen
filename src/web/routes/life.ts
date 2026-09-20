@@ -46,7 +46,7 @@ import { enrollFace } from '../../life-vision-adapter.js'
 import { listLifeTemplates, findLifeTemplate } from '../../life-templates.js'
 import { lifeHints } from '../../life-hints.js'
 import { setDisplayLabel } from '../../life-labels.js'
-import { checkNameForPath, MACHINE_ZONE_DIR, iconTable } from '../../naming-conventions.js'
+import { checkNameForPath, MACHINE_ZONE_DIR } from '../../naming-conventions.js'
 import {
   lockRepoReadOnly, unlockRepoReadOnly, isRepoReadOnly, setReadOnlyException,
 } from '../../git-accounts.js'
@@ -577,15 +577,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     for (const [key, szoveg] of Object.entries(lifeHints(hintLang))) {
       out[lifeName(key, APP_LANG)] = szoveg
     }
-    // IKON-KONVENCIO (kanban #167) ugyanabbol a hivasbol: a kulcs itt is a
-    // lemezen levo mappanev, kulonben a felulet nem tudna, melyik sorhoz
-    // tartozik. Igy az ikon nem a frontendben talalodik ki -- egy helyen all a
-    // szabaly, es a szerver mondja meg.
-    const icons: Record<string, string> = {}
-    for (const [key, ikon] of Object.entries(iconTable())) {
-      icons[lifeName(key, APP_LANG)] = ikon
-    }
-    send(res, 200, { hints: out, icons })
+    send(res, 200, { hints: out })
     return true
   }
 
