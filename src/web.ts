@@ -107,6 +107,7 @@ import { tryHandleDebate } from './web/routes/debate.js'
 import { tryHandleOpenRouterOverview } from './web/routes/openrouter-overview.js'
 import { tryHandleIdeas } from './web/routes/ideas.js'
 import { tryHandleProjects } from './web/routes/projects.js'
+import { tryHandleWorkbench } from './web/routes/workbench.js'
 import { tryHandleEmail, warmEmailCaches } from './web/routes/email.js'
 import { tryHandleToolLog } from './web/routes/tool-log.js'
 import { tryHandleSpans } from './web/routes/spans.js'
@@ -286,6 +287,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleOpenRouterOverview(routeCtx)) return
       if (await tryHandleIdeas(routeCtx)) return
       if (await tryHandleProjects(routeCtx)) return
+      if (await tryHandleWorkbench(routeCtx)) return
       if (await tryHandleEmail(routeCtx)) return
       if (await tryHandleSpans(routeCtx)) return
       if (await tryHandleToolLog(routeCtx)) return

@@ -49,6 +49,8 @@ export function appShellVersion(webDir: string): string {
     assetVersion(webDir, 'style.css'),
     assetVersion(webDir, 'lang/hu.js'),
     assetVersion(webDir, 'lang/en.js'),
+    assetVersion(webDir, 'workbench.js'),
+    assetVersion(webDir, 'workbench.css'),
   ].join('-')
 }
 
@@ -88,7 +90,7 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
     // szerkesztése is érvénytelenítse a gyorsítótárazott index.html-t --
     // hiányukban assetVersion konstans '0'-t ad, tehát fresh installon ez a
     // két tag nem változtatja meg a viselkedést, csak egy fix "-0-0" toldalékot ad.
-    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}"`
+    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}-${assetVersion(webDir, 'workbench.js')}-${assetVersion(webDir, 'workbench.css')}"`
     const ifNoneMatch = req.headers['if-none-match']
     if (ifNoneMatch === etag) {
       res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' })
@@ -116,6 +118,16 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
       .replace(
         /(<script\s+src=")\/lang\/en\.js(")/,
         `$1/lang/en.js?v=${assetVersion(webDir, 'lang/en.js')}$2`,
+      )
+      // AI Munkapad (#336): ugyanaz a ?v= cache-bustolas, mint az app.js-nel --
+      // enelkul egy nyitva hagyott lap a regi Munkapad-kodot futtatna.
+      .replace(
+        /(<script\s+src=")\/workbench\.js(")/,
+        `$1/workbench.js?v=${assetVersion(webDir, 'workbench.js')}$2`,
+      )
+      .replace(
+        /(<link\s+rel="stylesheet"\s+href=")\/workbench\.css(")/,
+        `$1/workbench.css?v=${assetVersion(webDir, 'workbench.css')}$2`,
       )
       // Bake the iOS home-screen label into apple-mobile-web-app-title so an
       // installed PWA shows the configured main-agent name (BRAND_NAME), not the
@@ -175,6 +187,9 @@ export async function tryHandleStatic(ctx: RouteContext, webDir: string): Promis
   // a new URL. index.html itself stays no-cache.
   if (path === '/style.css') { serveFile(req, res, join(webDir, 'style.css'), { cacheSeconds: 86400 }); return true }
   if (path === '/app.js') { serveFile(req, res, join(webDir, 'app.js'), { cacheSeconds: 86400 }); return true }
+  // AI Munkapad (#336): sajat, verziozott eszkozei -- ugyanaz a hosszu max-age.
+  if (path === '/workbench.js') { serveFile(req, res, join(webDir, 'workbench.js'), { cacheSeconds: 86400 }); return true }
+  if (path === '/workbench.css') { serveFile(req, res, join(webDir, 'workbench.css'), { cacheSeconds: 86400 }); return true }
   // Felülíró réteg (kártya #67): gitignore-olt, opcionális fájlok. Csak akkor
   // kerülnek 200-at adva kiszolgálásra, ha ténylegesen léteznek -- fresh
   // installon (nincs custom.css/js) ez a két ág 404-et ad, de az index.html

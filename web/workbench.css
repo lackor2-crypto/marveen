@@ -1,0 +1,146 @@
+/* AI Munkapad (kanban #336, 740b432a, 1. fazis).
+ *
+ * Kulon stiluslap, hogy a web/style.css-t ne kelljen bovitani (fork-barat).
+ * A szinek a meglevo temavaltozokbol jonnek -- semmi beegetett palett. */
+
+.wb-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wb-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.wb-head h1 {
+  margin: 0;
+  font-size: 1.3rem;
+  flex: 1 1 auto;
+}
+
+.wb-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) minmax(280px, 2.2fr) minmax(200px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.wb-panel {
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--card-bg, transparent);
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wb-panel-title {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
+/* Asztalin mind a harom panel latszik, a fuleknek nincs dolguk. */
+.wb-panel-tabs { display: none; }
+
+.wb-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.wb-item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.wb-item:hover { border-color: var(--accent, #2563eb); }
+.wb-item-active { border-color: var(--accent, #2563eb); font-weight: 600; }
+.wb-item-title { word-break: break-word; }
+.wb-item-meta { font-size: 0.8rem; opacity: 0.7; }
+
+.wb-empty {
+  border: 1px dashed var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+}
+
+.wb-empty-title { margin: 0 0 6px; font-weight: 600; }
+.wb-muted { opacity: 0.7; }
+.wb-center { text-align: center; }
+.wb-hint { font-size: 0.8rem; opacity: 0.7; margin: 4px 0 0; }
+.wb-new-btn { align-self: flex-start; }
+
+.wb-form { display: flex; flex-direction: column; gap: 6px; }
+.wb-label { font-size: 0.85rem; font-weight: 600; }
+.wb-input { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 6px; border: 1px solid var(--border, #d0d7de); background: inherit; color: inherit; }
+.wb-form-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+.wb-editor-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-editor-head h3 { margin: 0; }
+
+.wb-pill {
+  font-size: 0.75rem;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 999px;
+  padding: 1px 8px;
+  opacity: 0.85;
+}
+
+.wb-soon {
+  border: 1px dashed var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 24px 12px;
+  text-align: center;
+  opacity: 0.75;
+}
+
+.wb-ctx-block { border-top: 1px solid var(--border, #d0d7de); padding-top: 8px; }
+.wb-ctx-block:first-of-type { border-top: 0; padding-top: 0; }
+.wb-ctx-block h3 { margin: 0 0 4px; font-size: 0.85rem; }
+.wb-ctx-block p { margin: 0 0 2px; word-break: break-word; }
+.wb-versions { margin: 0; padding-left: 18px; font-size: 0.9rem; }
+
+.wb-chat {
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 8px;
+  padding: 10px 12px;
+  opacity: 0.75;
+}
+
+.wb-chat-label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 6px; }
+.wb-chat-row { display: flex; gap: 8px; }
+.wb-chat-row .wb-input { flex: 1 1 auto; }
+
+/* MOBIL: egymas ala nem fer el harom panel ugy, hogy barmelyik hasznalhato
+ * legyen, ezert telefonon egyszerre EGY panel latszik, es a fulek valtanak
+ * kozottuk (mobile-parity-check). */
+@media (max-width: 900px) {
+  .wb-grid { grid-template-columns: 1fr; }
+  .wb-panel-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .wb-panel { display: none; }
+  .wb-panel-current { display: flex; }
+  .wb-head h1 { font-size: 1.1rem; flex-basis: 100%; }
+}
