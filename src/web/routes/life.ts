@@ -32,7 +32,7 @@
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
-  ensureLifeTree, lifeTreeStatus, loadLifeConfig, saveLifeConfig,
+  ensureLifeTree, lifeTreeStatus, restoreLifeFolders, loadLifeConfig, saveLifeConfig,
   inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists, inboxDir,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
@@ -175,6 +175,29 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       })
     } catch (err: any) {
       send(res, 500, { error: 'failed', message: `Nem sikerült létrehozni a mappákat: ${String(err?.message || err)}` })
+    }
+    return true
+  }
+
+  // AMIT A FELHASZNALO KITOROLT, AZT O KERI VISSZA.
+  //
+  // Az `ensure` szandekosan NEM hozza vissza az eldobott mappat (Boss,
+  // 2026-09-20: "Mi az, hogy ellent mondunk a usernek?"). Ezert kell egy
+  // KULON, a felhasznalo altal inditott ut visszafele -- kulonben egy elutes
+  // veglegesen elvenne a sablon egy agat. Ures `rels` = mindet vissza.
+  if (path === '/api/life/restore-abandoned' && method === 'POST') {
+    const body = await readJson(req)
+    const rels = Array.isArray(body?.rels)
+      ? body.rels.filter((r: unknown): r is string => typeof r === 'string')
+      : []
+    try {
+      // A terv nyelve MINDIG a telepites nyelve (APP_LANG), nem a feluleti nyelv:
+      // a mappanevek a lemezen allnak. Ezert nem adunk at itt `uiLang`-ot.
+      const result = restoreLifeFolders(rels)
+      logger.info({ created: result.created.length, failed: result.failed.length }, '[eletfa] eldobott mappak visszahozva')
+      send(res, 200, { ...result, status: lifeTreeStatus() })
+    } catch (err: any) {
+      send(res, 500, { error: 'failed', message: `Nem sikerült visszahozni a mappákat: ${String(err?.message || err)}` })
     }
     return true
   }

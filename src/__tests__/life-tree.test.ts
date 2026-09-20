@@ -21,7 +21,7 @@ vi.mock('../config.js', async () => {
 })
 
 const {
-  safeLifeName, planLifeTree, ensureLifeTree, lifeTreeStatus, saveLifeConfig,
+  safeLifeName, planLifeTree, ensureLifeTree, lifeTreeStatus, restoreLifeFolders, saveLifeConfig,
   defaultCountrySplit, defaultMediaKinds, MEDIA_COUNTRY_KEY,
   sanitizeCustodianIds, resolveFilingPerson,
 } = await import('../life-tree.js')
@@ -172,11 +172,87 @@ describe('ensureLifeTree', () => {
     expect(existsSync(doc)).toBe(true)
   })
 
-  it('a status megmondja, mi hianyzik', () => {
-    ensureLifeTree(cfg, 'hu')
+  it('a status megmondja, mi hianyzik -- ha MEG SOHA nem letezett', () => {
+    // Friss fa: naplo nelkul minden nem letezo tervezett mappa "hianyzik".
+    rmSync(join(store, 'life-tree-created.json'), { force: true })
     rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
     const st = lifeTreeStatus(cfg, 'hu')
     expect(st.missing).toContain('Beérkező')
+    expect(st.abandoned).not.toContain('Beérkező')
+  })
+})
+
+// AMIT A FELHASZNALO KITOROLT, AZT NEM IRJUK VISSZA.
+//
+// Boss, 2026-09-20: "ha a user azt akarja, hogy onnan torlodjon ki es kitorli
+// kezzel, akkor azt ne hozza mar vissza... Mi az, hogy ellent mondunk a
+// usernek?" A regi viselkedes: a torolt mappa "hianyzik" lett, a kovetkezo
+// ensure pedig visszahuzta -- a torles nem volt tartos, csak egy hibajelzest
+// csinalt. Ezek a tesztek pontosan ezt a ket dolgot fogjak meg.
+describe('a felhasznalo torlese vegleges (elhagyott mappak)', () => {
+  beforeEach(() => {
+    for (const n of ['Teszt Elek', 'Példa-Kovács Anna', 'Cégek', 'Média', 'Tudás',
+      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer', 'OLVASS_EL.md']) {
+      rmSync(join(depot, n), { recursive: true, force: true })
+    }
+    rmSync(join(store, 'life-tree-created.json'), { force: true })
+    ensureLifeTree(cfg, 'hu')
+  })
+
+  it('a kitorolt mappa nem "hianyzik", hanem "elhagyott"', () => {
+    rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
+    const st = lifeTreeStatus(cfg, 'hu')
+    expect(st.abandoned).toContain('Beérkező')
+    expect(st.missing).not.toContain('Beérkező')
+  })
+
+  it('az ensure NEM hozza vissza a kitorolt mappat', () => {
+    rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
+    const r = ensureLifeTree(cfg, 'hu')
+    expect(r.created).not.toContain('Beérkező')
+    expect(r.abandoned).toContain('Beérkező')
+    expect(existsSync(join(depot, 'Beérkező'))).toBe(false)
+    // Masodszor, harmadszor sem: nem "egyszer atengedjuk, aztan visszairjuk".
+    ensureLifeTree(cfg, 'hu')
+    expect(existsSync(join(depot, 'Beérkező'))).toBe(false)
+  })
+
+  it('a kiseroiratot sem irja vissza, ha a felhasznalo kitorolte', () => {
+    expect(existsSync(join(depot, 'OLVASS_EL.md'))).toBe(true)
+    rmSync(join(depot, 'OLVASS_EL.md'), { force: true })
+    ensureLifeTree(cfg, 'hu')
+    expect(existsSync(join(depot, 'OLVASS_EL.md'))).toBe(false)
+  })
+
+  it('a felhasznalo egy kattintassal visszakerheti', () => {
+    rmSync(join(depot, 'Beérkező'), { recursive: true, force: true })
+    const r = restoreLifeFolders([], cfg, 'hu')
+    expect(r.created).toContain('Beérkező')
+    expect(existsSync(join(depot, 'Beérkező'))).toBe(true)
+    expect(lifeTreeStatus(cfg, 'hu').abandoned).not.toContain('Beérkező')
+  })
+
+  it('a visszahozas CSAK a tervben szereplo utvonalat csinalja meg', () => {
+    // Kulonben ez a vegpont egy "hozz letre barmit" kapu lenne a depoban.
+    const r = restoreLifeFolders(['../kilepes', 'Teszt Elek/SajatKitalalt'], cfg, 'hu')
+    expect(r.created).toEqual([])
+    expect(r.unknown.length).toBe(2)
+    expect(existsSync(join(depot, 'Teszt Elek', 'SajatKitalalt'))).toBe(false)
+  })
+
+  it('ha EGYETLEN tervezett mappa sem latszik, nem mond semmit elhagyottnak', () => {
+    // A NULLA KET DOLGOT JELENTHET: "a user mindent kitorolt" vagy "ures/masik
+    // lemez all ugyanazon az utvonalon". A masodikban a csendes "nem hozok
+    // vissza semmit" karosabb, ezert ilyenkor a naplonak nem hiszunk.
+    for (const n of ['Teszt Elek', 'Példa-Kovács Anna', 'Cégek', 'Média', 'Tudás',
+      'Digitális', 'Beérkező', 'Megosztott', 'Archív', 'Rendszer']) {
+      rmSync(join(depot, n), { recursive: true, force: true })
+    }
+    const st = lifeTreeStatus(cfg, 'hu')
+    expect(st.abandoned).toEqual([])
+    expect(st.missing.length).toBe(st.planned)
+    // Es a letrehozas ilyenkor tenylegesen fel is epiti a fat.
+    expect(ensureLifeTree(cfg, 'hu').created.length).toBeGreaterThan(10)
   })
 })
 

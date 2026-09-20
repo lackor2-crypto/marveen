@@ -34,9 +34,17 @@
 // Amit ez a modul NEM csinal: nem torol, nem nevez at, es nem ir felul semmit.
 // Csak HIANYZO mappat hoz letre. Egy mar meglevo fan igy tobbszor is
 // vegigfuthat kar nelkul.
+//
+// ES AMIT KULON NEM CSINAL (Boss, 2026-09-20): amit a FELHASZNALO kitorolt, azt
+// NEM hozza vissza. Egy hianyzo tervezett mappa ket dolgot jelenthet -- "meg
+// soha nem letezett" (letrehozzuk) vagy "a felhasznalo eldobta" (bekenhagyjuk),
+// es a kettot a `life-tree-ledger.ts` naploja valasztja szet. Az elhagyott
+// mappa nem hibajelzes: a feluleten kulon listaban all, es egy kattintassal
+// visszakerheto.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { APP_LANG, STORE_DIR, currentOwnerName } from './config.js'
+import { lifeLedgerSeen, rememberLifeCreated } from './life-tree-ledger.js'
 import { depotRoot } from './depot.js'
 import { logger } from './logger.js'
 
@@ -788,6 +796,8 @@ export interface EnsureLifeTreeResult {
   existed: number
   /** Amit nem sikerult: relativ utvonal + ok. */
   failed: Array<{ rel: string; error: string }>
+  /** Amit a felhasznalo kitorolt, ezert SZANDEKOSAN nem hoztunk vissza. */
+  abandoned: string[]
   message: string
 }
 
@@ -803,7 +813,7 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   const root = lifeRoot()
   if (!root) {
     return {
-      ok: false, root: null, created: [], existed: 0, failed: [],
+      ok: false, root: null, created: [], existed: 0, failed: [], abandoned: [],
       message: 'Nincs raktár beállítva, ezért nincs hol létrehozni az életfát. '
         + 'Előbb a Raktár oldalon add meg, melyik mappában legyen a Marveen tárhelye.',
     }
@@ -816,7 +826,7 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
   try { rootOk = existsSync(root) && statSync(root).isDirectory() } catch { rootOk = false }
   if (!rootOk) {
     return {
-      ok: false, root, created: [], existed: 0, failed: [],
+      ok: false, root, created: [], existed: 0, failed: [], abandoned: [],
       message: `A raktár mappája most nem érhető el: ${root}. `
         + 'Ha külső lemezen van, csatlakoztasd. Amíg nem érhető el, nem hozok létre semmit.',
     }
@@ -824,23 +834,33 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
 
   const created: string[] = []
   const failed: Array<{ rel: string; error: string }> = []
-  let existed = 0
+  const split = splitPlanned(root, planLifeTree(cfg, lang))
+  const existed = split.present.length
 
-  for (const node of planLifeTree(cfg, lang)) {
-    const full = join(root, ...node.rel.split('/'))
-    if (existsSync(full)) { existed++; continue }
+  // CSAK azt hozzuk letre, ami MEG SOHA nem letezett. Amit a felhasznalo
+  // kitorolt (`split.abandoned`), azt bekenhagyjuk -- ez a lenyege.
+  for (const rel of split.missing) {
+    const full = join(root, ...rel.split('/'))
     try {
       mkdirSync(full, { recursive: true })
-      created.push(node.rel)
+      created.push(rel)
     } catch (err: any) {
-      failed.push({ rel: node.rel, error: String(err?.code || err?.message || err) })
+      failed.push({ rel, error: String(err?.code || err?.message || err) })
     }
   }
+  if (created.length) rememberLifeCreated(root, created)
 
-  // A kiseroirat. Csak ha meg nincs -- amit a felhasznalo beleirt, az az ove.
-  const readme = join(root, lang === 'hu' ? 'OLVASS_EL.md' : 'READ_ME_FIRST.md')
-  if (!existsSync(readme)) {
-    try { writeFileSync(readme, readmeText(cfg, lang), 'utf8') } catch { /* a fa ettol meg all */ }
+  // A kiseroirat. Csak ha meg nincs -- amit a felhasznalo beleirt, az az ove,
+  // es amit KITOROLT, azt sem irjuk vissza (ugyanaz a szabaly, mint a mappaknal).
+  const readmeRel = lang === 'hu' ? 'OLVASS_EL.md' : 'READ_ME_FIRST.md'
+  const readme = join(root, readmeRel)
+  if (existsSync(readme)) {
+    rememberLifeCreated(root, [readmeRel])
+  } else if (!(split.trusted && split.seen.has(readmeRel))) {
+    try {
+      writeFileSync(readme, readmeText(cfg, lang), 'utf8')
+      rememberLifeCreated(root, [readmeRel])
+    } catch { /* a fa ettol meg all */ }
   }
 
   const message = failed.length
@@ -849,8 +869,136 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
       ? `Kész: ${created.length} új mappa készült el az életfában.`
       : 'Az életfa már teljes, nem kellett újat létrehozni.'
 
-  logger.info({ created: created.length, existed, failed: failed.length }, '[eletfa] vazszerkezet ellenorizve')
-  return { ok: failed.length === 0, root, created, existed, failed, message }
+  logger.info(
+    { created: created.length, existed, failed: failed.length, abandoned: split.abandoned.length },
+    '[eletfa] vazszerkezet ellenorizve',
+  )
+  return { ok: failed.length === 0, root, created, existed, failed, abandoned: split.abandoned, message }
+}
+
+/**
+ * A tervezett mappak harom halmaza: MEGVAN / HIANYZIK / ELHAGYOTT.
+ *
+ * A harmadik halmaz a lenyeg. A lemezen a "nincs ott" ket, egymassal
+ * ellentetes dolgot jelent, es a kettot a naplo (`life-tree-ledger.ts`)
+ * valasztja szet: amit mar lattunk egyszer es most nincs, azt a felhasznalo
+ * torolte ki -- azt nem hozzuk vissza, es nem is jelezzuk hibanak.
+ *
+ * A NULLA KET DOLGOT JELENTHET (CLAUDE.md). Ha a gyoker all, de EGYETLEN
+ * tervezett mappat sem latunk, az nem az, hogy a felhasznalo az egesz fat
+ * kitorolte: sokkal inkabb egy ures vagy kicserelt lemez ugyanazon az
+ * utvonalon, egy felig felcsatolt halozati mappa, vagy egy megszakadt WSL-
+ * atjaro. Ilyenkor a naplonak NEM hiszunk: marad a regi, ovatos olvasat
+ * ("hianyzik, letrehozhato"), mert egy csendes "nem hozok vissza semmit"
+ * ott sokkal karosabb, mint egy felajanlott letrehozas.
+ */
+interface PlanSplit {
+  present: string[]
+  missing: string[]
+  abandoned: string[]
+  /** Hihetunk-e most a naplonak? */
+  trusted: boolean
+  seen: Set<string>
+}
+
+function splitPlanned(root: string, plan: LifeNode[]): PlanSplit {
+  const seen = lifeLedgerSeen(root)
+  const present: string[] = []
+  const gone: string[] = []
+  for (const n of plan) {
+    let ok = false
+    try { ok = existsSync(join(root, ...n.rel.split('/'))) } catch { ok = false }
+    if (ok) present.push(n.rel)
+    else gone.push(n.rel)
+  }
+  const trusted = present.length > 0 && seen.size > 0
+  // Amit MOST lattunk, azt a naplo is lassa: igy egy mar allo fan (frissites
+  // utan, ahol meg nincs naplo) is mukodik a kesobbi torles felismerese --
+  // telepitoi lepes es migracio nelkul.
+  if (present.length) rememberLifeCreated(root, present)
+  return {
+    present,
+    missing: trusted ? gone.filter((r) => !seen.has(r)) : gone,
+    abandoned: trusted ? gone.filter((r) => seen.has(r)) : [],
+    trusted,
+    seen,
+  }
+}
+
+export interface RestoreLifeFoldersResult {
+  ok: boolean
+  root: string | null
+  /** Amit most visszahoztunk. */
+  created: string[]
+  failed: Array<{ rel: string; error: string }>
+  /** Ami nincs a tervben -- nem hozunk letre akarmit egy kulso keresre. */
+  unknown: string[]
+  message: string
+}
+
+/**
+ * A felhasznalo VISSZAKER egy eldobott mappat.
+ *
+ * Ez a masik fele a szabalynak: ha a torles vegleges, akkor kell egy ut
+ * visszafele is, kulonben a felhasznalo egy elutessel veglegesen elveszitene a
+ * sablon egy agat. A listat a terv adja (`planLifeTree`), tehat ez a fuggveny
+ * nem valik "hozz letre barmilyen mappat" kapuva.
+ *
+ * Ures lista = az OSSZES eldobott mappa vissza.
+ */
+export function restoreLifeFolders(
+  rels: string[] = [],
+  cfg: LifeConfig = loadLifeConfig(),
+  lang: string = APP_LANG,
+): RestoreLifeFoldersResult {
+  const hu = lang !== 'en'
+  const root = lifeRoot()
+  if (!root) {
+    return {
+      ok: false, root: null, created: [], failed: [], unknown: [],
+      message: hu
+        ? 'Nincs raktár beállítva, ezért nincs hol visszahozni a mappákat.'
+        : 'No depot is configured, so there is nowhere to restore the folders.',
+    }
+  }
+  let rootOk = false
+  try { rootOk = existsSync(root) && statSync(root).isDirectory() } catch { rootOk = false }
+  if (!rootOk) {
+    return {
+      ok: false, root, created: [], failed: [], unknown: [],
+      message: hu
+        ? `A raktár mappája most nem érhető el: ${root}. Amíg nem érhető el, nem hozok létre semmit.`
+        : `The depot folder cannot be reached right now: ${root}. Nothing will be created until it is back.`,
+    }
+  }
+  const plan = planLifeTree(cfg, lang)
+  const planned = new Set(plan.map((n) => n.rel))
+  const split = splitPlanned(root, plan)
+  const kert = rels.length ? rels : split.abandoned
+  const unknown = kert.filter((r) => !planned.has(r))
+  const created: string[] = []
+  const failed: Array<{ rel: string; error: string }> = []
+  for (const rel of kert) {
+    if (!planned.has(rel)) continue
+    const full = join(root, ...rel.split('/'))
+    if (existsSync(full)) continue
+    try {
+      mkdirSync(full, { recursive: true })
+      created.push(rel)
+    } catch (err: any) {
+      failed.push({ rel, error: String(err?.code || err?.message || err) })
+    }
+  }
+  if (created.length) rememberLifeCreated(root, created)
+  const message = failed.length
+    ? (hu
+      ? `${created.length} mappa visszakerült, ${failed.length} nem. Nézd meg a mappa jogosultságait.`
+      : `${created.length} folders are back, ${failed.length} failed. Check the folder permissions.`)
+    : created.length
+      ? (hu ? `Kész: ${created.length} mappa visszakerült a fába.` : `Done: ${created.length} folders are back in the tree.`)
+      : (hu ? 'Nem volt mit visszahozni.' : 'There was nothing to restore.')
+  logger.info({ created: created.length, failed: failed.length, unknown: unknown.length }, '[eletfa] eldobott mappak visszahozva')
+  return { ok: failed.length === 0, root, created, failed, unknown, message }
 }
 
 /**
@@ -861,23 +1009,26 @@ export function ensureLifeTree(cfg: LifeConfig = loadLifeConfig(), lang: string 
  * latszik keszen -- a felulet meg tudja mondani, hogy hianyzik belole valami.
  */
 export function lifeTreeStatus(cfg: LifeConfig = loadLifeConfig(), lang: string = APP_LANG): {
-  root: string | null; exists: boolean; planned: number; present: number; missing: string[]
+  root: string | null; exists: boolean; planned: number; present: number; missing: string[]; abandoned: string[]
 } {
   const root = lifeRoot()
   const plan = planLifeTree(cfg, lang)
-  if (!root) return { root: null, exists: false, planned: plan.length, present: 0, missing: plan.map((n) => n.rel) }
+  const semmi = { planned: plan.length, present: 0, missing: plan.map((n) => n.rel), abandoned: [] as string[] }
+  if (!root) return { root: null, exists: false, ...semmi }
   let exists = false
   try { exists = existsSync(root) && statSync(root).isDirectory() } catch { exists = false }
-  if (!exists) return { root, exists: false, planned: plan.length, present: 0, missing: plan.map((n) => n.rel) }
-  const missing: string[] = []
-  let present = 0
-  for (const n of plan) {
-    try {
-      if (existsSync(join(root, ...n.rel.split('/')))) present++
-      else missing.push(n.rel)
-    } catch { missing.push(n.rel) }
+  if (!exists) return { root, exists: false, ...semmi }
+  // A HIANYZO es az ELHAGYOTT ket kulon halmaz: az elso hibajelzes (meg nincs
+  // meg, letrehozhato), a masodik a felhasznalo dontese (ne jelezzuk hibanak).
+  const split = splitPlanned(root, plan)
+  return {
+    root,
+    exists: true,
+    planned: plan.length,
+    present: split.present.length,
+    missing: split.missing,
+    abandoned: split.abandoned,
   }
-  return { root, exists: true, planned: plan.length, present, missing }
 }
 
 /**
