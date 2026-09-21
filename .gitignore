@@ -131,3 +131,8 @@ __pycache__/
 
 # munkafajlok (merokod, egyszeri szkriptek)
 _munka/
+
+# hatteranyag-gyujtes: a fo agens research/ mappaja user-tartalom (a dashboard
+# a lemezrol olvassa), nem forras -- ne kerüljon a repoba/GitHubra. A sub-
+# agensek research-e az agents/ alatt van, az mar ignore-olt.
+/research/
