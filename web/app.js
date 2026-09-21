@@ -20348,6 +20348,10 @@ async function renderOverviewConnections() {
               // oldalra ahol meg kel tennem a bejelentkezest").
               : h.id === 'drive_sync_backup_brake'
                 ? "switchPage('drive')"
+                // A megtelt Drive NEM bejelentkezesi hiba: a teendo a helyfelszabaditas,
+                // ami a Raktar oldalon van, nem a Fiokokon (az ujralogin nem segit).
+                : h.id === 'drive_sync_quota_full'
+                  ? "switchPage('drive')"
                 : h.id === 'drive_sync_auth_stuck'
                   ? "switchPage('accounts')"
               // Minden mas onellenorzes-sor (mentes, upstream, git-lehuzas,
