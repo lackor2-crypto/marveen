@@ -4857,7 +4857,7 @@ window._i18n.hu = {
   // --- AI Munkapad (kanban #336, 1. fazis: vaz + adatmodell) ---
   "workbench.open": "Munkapad megnyitása",
   "workbench.open_hint": "A Munkapad a projekt munkavégző nézete: itt készülnek a dokumentumok, képek, grafikák és videók.",
-  "workbench.title": "Munkapad — {project}",
+  "workbench.title": "{project} — Munkapad",
   "workbench.back_to_project": "\u2190 Vissza a projekthez",
   "workbench.loading": "Betöltés...",
   "workbench.panel.items": "Munkadarabok",

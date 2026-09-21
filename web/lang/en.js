@@ -4781,7 +4781,7 @@ window._i18n.en = {
   // --- AI Workbench (kanban #336, phase 1: skeleton + data model) ---
   "workbench.open": "Open Workbench",
   "workbench.open_hint": "The Workbench is the project's working view: documents, images, graphics and videos are made here.",
-  "workbench.title": "Workbench — {project}",
+  "workbench.title": "{project} — Workbench",
   "workbench.back_to_project": "\u2190 Back to the project",
   "workbench.loading": "Loading...",
   "workbench.panel.items": "Work items",
