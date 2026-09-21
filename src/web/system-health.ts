@@ -1852,6 +1852,30 @@ export function keySlotRows(
   }
   return [{ id: 'key_slot_ok', status: 'ok', params: { n: parok.length } }]
 }
+
+// A beszed-szoveg atiro (STT) foldi igazsaga. Ugyanaz a ket fajl, amit a valodi
+// atiro-pipeline nez (src/web/routes/voice.ts isVoiceInstalled): a venv Python-ja
+// es a _vtools.py. A self-check EZT olvassa, nem egy kezi szkript kimenetet --
+// pontosan azert, mert egy rosszul futtatott kezi proba egyszer mar hamisan
+// "nincs telepitve"-t jelentett (Boss, 2026-09-21, uzenet 1125: "az is hiba, hogy
+// te tevesztettel ... kuszoboljuk ki"). Igy a statusz a FELULETROL, a rendszer
+// sajat utjarol latszik. Host-fuggetlen (homedir), nincs beegetett ut.
+const VOICE_VENV_PY = join(homedir(), '.local', 'share', 'marveen-voice', 'venv', 'bin', 'python')
+const VOICE_VTOOLS_PY = join(homedir(), '.local', 'share', 'marveen-voice', '_vtools.py')
+
+export function voiceRows(
+  venvPy: string = VOICE_VENV_PY,
+  vtoolsPy: string = VOICE_VTOOLS_PY,
+): HealthRow[] {
+  const installed = existsSync(venvPy) && existsSync(vtoolsPy)
+  // Ajanlott komponens, nem alap: nelkule minden mas mukodik, csak a
+  // hanguzeneteket nem irja le. Ezert hianyzas eseten 'warn' (narancs), SOHA nem
+  // 'bad' (piros) -- egy kenyelmi/ajanlott funkcio hianya nem veszjelzes.
+  return [installed
+    ? { id: 'voice_stt_ok', status: 'ok' }
+    : { id: 'voice_stt_missing', status: 'warn' }]
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -1878,6 +1902,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...codeBridgeRows(now),
     ...skillSeedRows(),
     ...skillScopeReviewRows(),
+    ...voiceRows(),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

@@ -20430,6 +20430,11 @@ async function renderOverviewConnections() {
   // pontosan ez a kulonbseg futott ki ket hetig eszrevetlenul.
   const cbok = health.find(h => h.id === 'code_bridge_ok')
   if (cbok) greenRows.push({ label: t('health.code_bridge_ok', cbok.params || {}), desc: t('health.code_bridge_ok_action'), onclick: "openCodeBridgeModal()" })
+  // A beszed-szoveg atiro zold sora. A "telepitve van-e" kerdes a rendszer sajat
+  // foldi igazsagabol jon (voiceRows), nem egy kezi probabol -- pont ez a tevesztes
+  // (Boss uzenet 1125) kikuszobolese: a statusz itt, a feluleten latszik.
+  const vok = health.find(h => h.id === 'voice_stt_ok')
+  if (vok) greenRows.push({ label: t('health.voice_stt_ok'), desc: t('health.voice_stt_ok_action') })
   paint(TONES.ok, greenRows)
 }
 
