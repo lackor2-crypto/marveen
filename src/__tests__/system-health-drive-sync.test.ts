@@ -179,4 +179,66 @@ describe('a Drive-mentes megall vagy megcsonkul, es errol szolni kell', () => {
     expect(app).toContain("h.id === 'drive_sync_auth_stuck'")
     expect(app).toContain("switchPage('accounts')")
   })
+
+  // MEGTELT DRIVE (403 storage quota) -- NEM bejelentkezesi hiba (Boss, 2026-09-21:
+  // canadalackor megtelt, 321 fajl 403 "storage quota exceeded", kozben a fiok
+  // elesben belepett; a felulet tevesen ujralogint tanacsolt).
+  it('a megtelt Drive (quota 403) SAJAT sort kap, NEM az auth "jelentkezz be ujra" sort', () => {
+    const parok = rendben([
+      { account: 'canadalackor', name: 'A teljes raktár', backup: true, lastRunAt: napokkalEzelott(0), lastResult: '321 fájl nem ment fel', lastPending: 474 },
+    ])
+    const kvota = { account: 'canadalackor', at: napokkalEzelott(0) }
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null, kvota)
+    const sor = r.find((x) => x.id === 'drive_sync_quota_full')
+    expect(sor?.status).toBe('bad')
+    expect(sor?.params).toMatchObject({ account: 'canadalackor', f: 474 })
+    // NEM az auth-sor (az ujralogin nem segit) es NEM a megnyugtato incomplete.
+    expect(r.find((x) => x.id === 'drive_sync_auth_stuck')).toBeFalsy()
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')).toBeFalsy()
+  })
+
+  it('ugyanarra a fiokra a quota ELVISZI az autot: nem lesz ket ellentetes sor', () => {
+    const parok = rendben([
+      { account: 'canadalackor', lastRunAt: napokkalEzelott(0), lastResult: 'hiba', lastPending: 100 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true,
+      { account: 'canadalackor', at: napokkalEzelott(0) },
+      { account: 'canadalackor', at: napokkalEzelott(0) })
+    expect(r.find((x) => x.id === 'drive_sync_quota_full')).toBeTruthy()
+    expect(r.find((x) => x.id === 'drive_sync_auth_stuck')).toBeFalsy()
+  })
+
+  it('egy MASIK egeszseges fiok varakozoi kulon incomplete sorba mennek, nem a megtelt melle', () => {
+    const parok = rendben([
+      { account: 'canadalackor', lastRunAt: napokkalEzelott(0), lastResult: 'hiba', lastPending: 474 },
+      { account: 'usalackor', lastRunAt: napokkalEzelott(0), lastResult: 'kész', lastPending: 30 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null, { account: 'canadalackor', at: napokkalEzelott(0) })
+    expect(r.find((x) => x.id === 'drive_sync_quota_full')?.params).toMatchObject({ account: 'canadalackor', f: 474 })
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')?.params).toMatchObject({ names: 'usalackor', f: 30 })
+  })
+
+  it('elavult quota-jel (regebbi mint a legutobbi futas - 1 nap) NEM ragaszt quota sort', () => {
+    const parok = rendben([
+      { account: 'canadalackor', lastRunAt: napokkalEzelott(0), lastResult: 'kész', lastPending: 474 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true, null, { account: 'canadalackor', at: napokkalEzelott(5) })
+    expect(r.find((x) => x.id === 'drive_sync_quota_full')).toBeFalsy()
+    expect(r.find((x) => x.id === 'drive_sync_incomplete')).toBeTruthy()
+  })
+
+  it('a felulet a megtelt-Drive sort a Raktarra vezeti (nem a Fiokokra)', () => {
+    const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf-8')
+    expect(app).toContain("h.id === 'drive_sync_quota_full'")
+    const idx = app.indexOf("h.id === 'drive_sync_quota_full'")
+    expect(app.slice(idx, idx + 120)).toContain("switchPage('drive')")
+  })
+
+  it('a megtelt-Drive sornak van magyar ES angol felirata + teendo', () => {
+    for (const nyelv of ['hu', 'en']) {
+      const forras = readFileSync(join(process.cwd(), 'web/lang', nyelv + '.js'), 'utf-8')
+      expect(forras).toContain("'health.drive_sync_quota_full'")
+      expect(forras).toContain("'health.drive_sync_quota_full_action'")
+    }
+  })
 })
