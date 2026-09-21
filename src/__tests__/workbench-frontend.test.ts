@@ -289,4 +289,30 @@ describe('a Projektek oldalba illeszkedes', () => {
   it('ha a Munkapad-fajl nem toltodott be, a gomb nem nema halott gomb', () => {
     expect(app).toContain("if (wbOpen && !window.MarvinWorkbench) { showToast(t('workbench.err.not_loaded')); return }")
   })
+
+  // A rajzolas-gat (isOpen -> korai visszateres) csak akkor helyes, ha a
+  // "nyitva" jelzo NEM eli tul az oldalvaltast: kulonben a projekt-oldal
+  // nemán megall, es a felhasznalo ures dobozban ragad.
+  it('a Projektek oldal betoltese alaphelyzetbe teszi a Munkapadot', () => {
+    expect(app).toContain('window.MarvinWorkbench?.reset?.()')
+  })
+
+  it('a reset nem rajzol es nem visz vissza a projekt-oldalra', () => {
+    h.respond(() => ({ status: 200, body: itemsBody([]) }))
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    expect(h.win.MarvinWorkbench.isOpen()).toBe(true)
+    h.rootEl.innerHTML = 'MAS RAJZOLTA'
+    h.win.MarvinWorkbench.reset()
+    expect(h.win.MarvinWorkbench.isOpen()).toBe(false)
+    expect(h.rootEl.innerHTML).toBe('MAS RAJZOLTA')
+  })
+
+  // Boss 2026-09-21: ures projektben eltunt mind a harom ful, tehat a
+  // feluletrol nem lehetett letrehozni az ELSO otletet/vitat/hatteranyagot.
+  it('az Otletlada / Vitaztatas / Kutatas ful darabszam nelkul is megjelenik', () => {
+    const fn = app.slice(app.indexOf('function _prjTypeTabHtml'))
+    const body = fn.slice(0, fn.indexOf('\n}\n'))
+    expect(body).not.toContain("return ''")
+    expect(body).toContain('data-prj-tab="${type}"')
+  })
 })

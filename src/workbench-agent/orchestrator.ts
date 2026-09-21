@@ -29,14 +29,14 @@ import { MAIN_AGENT_ID } from '../config.js'
 import { logger } from '../logger.js'
 import { getProject } from '../projects.js'
 import { getWorkItem } from '../workbench.js'
-import { createApproval, createAgentMessage, listApprovals } from '../db.js'
+import { createApproval, createAgentMessage, getApproval, listApprovals } from '../db.js'
 import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
 import { executeTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import { pickAIProvider, type AIMessage, type AIProvider } from './provider.js'
 import {
-  addAgentMessage, finishToolCall, listAgentMessages, openSessionForWorkItem, startToolCall,
+  addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, openSessionForWorkItem, startToolCall,
   type AgentSessionRow,
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
@@ -161,12 +161,29 @@ export function requestToolApproval(params: {
   return id
 }
 
-/** Van-e MAR jovahagyott jegy ehhez a toolhoz -- igy a tulajdonos "igen"-je
- *  utan a kovetkezo keres tenylegesen lefut, ujabb kerdes nelkul. */
-export function approvedApprovalFor(tool: string, projectId: string): string | null {
+/**
+ * Van-e MAR jovahagyott jegy ehhez a toolhoz -- igy a tulajdonos "igen"-je
+ * utan a kovetkezo keres tenylegesen lefut, ujabb kerdes nelkul.
+ *
+ * ELOSZOR a SAJAT beszelgetes tool-hivasait nezzuk meg: ott a jegy azonositoja
+ * BE VAN IRVA (`approval_id`), tehat pontosan, egy lekerdezessel eldol. A
+ * projekt-szintu vegigolvasas csak tartalek, es az MERETKORLATOS -- egy regi
+ * jovahagyas kieshet a listabol, ha kozben sok ujabb szuletett. Enelkul a
+ * sajat beszelgetesben mar megadott engedely a keszulo jegyek szamatol
+ * fuggoen hol ervenyesult, hol nem.
+ */
+export function approvedApprovalFor(tool: string, projectId: string, sessionId?: string | null): string | null {
+  if (sessionId) {
+    try {
+      for (const call of listToolCalls(sessionId)) {
+        if (call.tool_name !== tool || !call.approval_id) continue
+        if (getApproval(call.approval_id)?.status === 'approved') return call.approval_id
+      }
+    } catch { /* nincs meg tabla: nincs jog, de ez nem hiba */ }
+  }
   let rows: { id: string; action_payload: string | null }[]
   try {
-    rows = listApprovals({ status: 'approved', limit: 50 }) as { id: string; action_payload: string | null }[]
+    rows = listApprovals({ status: 'approved', limit: 500 }) as { id: string; action_payload: string | null }[]
   } catch {
     // Nincs meg approvals tabla (friss telepites): nincs jog, de ez nem hiba.
     return null
@@ -343,7 +360,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         continue
       }
       if (decision.kind === 'approval') {
-        const already = approvedApprovalFor(tool.name, project.id)
+        const already = approvedApprovalFor(tool.name, project.id, session.id)
         if (!already) {
           const approvalId = requestToolApproval({
             tool: tool.name, category: decision.category, actor: input.actor,

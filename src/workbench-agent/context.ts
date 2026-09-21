@@ -142,5 +142,26 @@ export function historyMessages(rows: AgentMessageRow[]): AIMessage[] {
     out.unshift({ role: r.role === 'assistant' ? 'assistant' : 'user', content: c })
     total += c.length
   }
+  return mergeSameRole(out)
+}
+
+/**
+ * Egymas utan allo AZONOS szerepu uzenetek osszevonasa.
+ *
+ * A rendszer-uzeneteket kiszurjuk (`historyMessages`), es egy sikertelen
+ * fordulo (nincs szolgaltato, betelt keret) utan az asszisztens valasza NEM
+ * kerul a naploba -- ilyenkor ket `user` uzenet all egymas mellett. Ez nem
+ * ervenyes beszelgetes: a szolgaltatok valtakozo szerepeket varnak, es a
+ * modell szamara is osszefolyik, hol er veget az egyik keres. Egy uresen
+ * maradt tartalom sem mehet ki, ezert a szures is itt van.
+ */
+function mergeSameRole(list: AIMessage[]): AIMessage[] {
+  const out: AIMessage[] = []
+  for (const m of list) {
+    if (!m.content.trim()) continue
+    const last = out[out.length - 1]
+    if (last && last.role === m.role) last.content = `${last.content}\n\n${m.content}`
+    else out.push({ ...m })
+  }
   return out
 }
