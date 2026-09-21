@@ -290,6 +290,30 @@ describe('kontextus-epites', () => {
     expect(historyMessages(rows).map((m) => m.content)).toEqual(['kérdés'])
   })
 
+  // Egy sikertelen fordulo (nincs szolgaltato / betelt keret) utan az
+  // asszisztens valasza nem kerul a naploba, a rendszer-uzenetet pedig
+  // kiszurjuk -- igy ket `user` uzenet allna egymas mellett.
+  it('ket egymas utani user-uzenet egybe kerul (valtakozo szerepek)', () => {
+    const rows: AgentMessageRow[] = [
+      { id: '1', session_id: 's', role: 'user', content: 'elso kérdés', created_at: 1 },
+      { id: '2', session_id: 's', role: 'system', content: 'betelt a keret', created_at: 2 },
+      { id: '3', session_id: 's', role: 'user', content: 'masodik kérdés', created_at: 3 },
+    ]
+    const out = historyMessages(rows)
+    expect(out.map((m) => m.role)).toEqual(['user'])
+    expect(out[0].content).toContain('elso kérdés')
+    expect(out[0].content).toContain('masodik kérdés')
+  })
+
+  it('a szerepek a valodi beszelgetesben valtakoznak', () => {
+    const rows: AgentMessageRow[] = [
+      { id: '1', session_id: 's', role: 'user', content: 'a', created_at: 1 },
+      { id: '2', session_id: 's', role: 'assistant', content: 'b', created_at: 2 },
+      { id: '3', session_id: 's', role: 'user', content: 'c', created_at: 3 },
+    ]
+    expect(historyMessages(rows).map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
+  })
+
   it('egy tulsagosan hosszu uzenet sem viszi el a keretet', () => {
     const rows: AgentMessageRow[] = [{ id: '1', session_id: 's', role: 'user', content: 'x'.repeat(50_000), created_at: 1 }]
     const out = historyMessages(rows)

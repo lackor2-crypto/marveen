@@ -299,9 +299,26 @@
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
   })
 
+  /** Alaphelyzet RAJZOLAS NELKUL: az oldal-betolto hivja, amikor a Projektek
+   *  oldal ujraindul. A `closeWorkbench()` visszavinne a projekt-oldalra --
+   *  itt eppen az a dolgunk, hogy ne szoljunk bele abba, amit a hivo rajzol. */
+  function resetWorkbench() {
+    WB.open = false
+    WB.projectId = null
+    WB.project = null
+    WB.items = null
+    WB.detail = null
+    WB.selectedId = null
+    WB.formOpen = false
+    WB.busy = false
+    WB.error = null
+    WB.panel = 'items'
+  }
+
   window.MarvinWorkbench = {
     open: openWorkbench,
     close: closeWorkbench,
+    reset: resetWorkbench,
     isOpen: function () { return WB.open },
   }
 })()
