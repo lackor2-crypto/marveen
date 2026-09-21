@@ -40172,6 +40172,12 @@ function _prjOverlay(id) {
 async function loadProjectsPage() {
   const root = document.getElementById('projectsRoot')
   if (!root) return
+  // A Munkapad (#336) ugyanebben a dobozban ul, es a sajat "nyitva" jelzoje
+  // TULELTE az oldalvaltast: nyitva felejtett Munkapad utan a projekt-oldal
+  // rajzolasa nemán megallt (a _prjRenderProject korai visszaterese miatt), es
+  // a felhasznalo egy ures dobozban ragadt, amig ujra nem toltotte a lapot.
+  // Az oldal betoltese ezert mindig alaphelyzetbe teszi.
+  window.MarvinWorkbench?.reset?.()
   document.getElementById('prjIntezoChip')?.remove()
   document.getElementById('prjIdeasChip')?.remove()
   const openId = _prj.openOnLoad
@@ -40493,15 +40499,17 @@ function _prjTabBodyHtml(ov) {
 }
 
 // ---- Otletlada / Vitaztatas / Hatteranyag ful: HELYBEN (Boss 2026-09-19, 1153) ----
-// Csak az a ful latszik, amelyik tipusbol a projektnek VAN valamije (Boss 5956,
-// 3. pont) -- es persze az, amelyik eppen nyitva van. Uj elemet a "+ Uj" menu hoz
-// letre; az magatol a projekte, es a fule onnantol megjelenik.
+// A harom ful MINDIG latszik. Korabban csak akkor jelent meg, ha a projekthez
+// mar tartozott legalabb egy otlet/vita/hatteranyag -- ez tyuk-tojas volt: ures
+// projektben a ful eltunt, tehat a feluletrol nem lehetett letrehozni az ELSOT
+// (Boss 2026-09-21). A darabszam-jelveny marad feltételes: szam csak ott all,
+// ahol tenyleg van mit szamolni; a ful teste ures allapotban maga ajanlja fel
+// az elso letrehozasat.
 
 function _prjTypeTabHtml(type, labelKey, hintKey) {
   const active = _prj.tab === type
   const c = _prj.counts
-  if (!active && !(c && c.pid === (_prj.overview && _prj.overview.project.id) && c[type] > 0)) return ''
-  const n = c && c[type] > 0 ? ` <span class="prj-muted">${c[type]}</span>` : ''
+  const n = c && c.pid === (_prj.overview && _prj.overview.project.id) && c[type] > 0 ? ` <span class="prj-muted">${c[type]}</span>` : ''
   return `<button type="button" class="tab-btn${active ? ' active' : ''}" role="tab" aria-selected="${active}" data-prj-tab="${type}" title="${escapeAttr(t(hintKey))}">${escapeHtml(t(labelKey))}${n}</button>`
 }
 

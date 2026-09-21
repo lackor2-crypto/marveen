@@ -11,7 +11,7 @@
 //   5. a kozos 5 oras keret kimerulesenel nem indul hivas;
 //   6. minden lepes nyomot hagy a KOZOS auditban.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { initDatabase, listApprovals } from '../db.js'
+import { initDatabase, createApproval, listApprovals, resolveApproval } from '../db.js'
 import { createProject } from '../projects.js'
 import { createWorkItem, listWorkItems } from '../workbench.js'
 import { runTurn, validateTurn, parseToolCall, mayBeToolCall, resetRunningForTest, MESSAGE_MAX_CHARS } from '../workbench-agent/orchestrator.js'
@@ -230,6 +230,33 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
     expect(listToolCalls(session.id).at(-1)).toMatchObject({ tool_name: 'workItem.create', status: 'needs_approval' })
     expect(listWorkItems(projectId)).toHaveLength(1)
     expect(audit.some((a) => a.op === 'approval-request')).toBe(true)
+  })
+
+  // A tulajdonos "igen"-je utan a kovetkezo keres tenylegesen fusson le -- es
+  // ne a kozben szuletett tobbi jegy szamatol fuggjon, hogy eszrevesszuk-e.
+  it('a mar JOVAHAGYOTT jegy utan a tool lefut, ujabb kerdes nelkul', async () => {
+    setAutonomyLoaderForTest(configWith(2))
+    await turn('Csinálj egy új ajánlatot', fakeProvider([
+      '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}',
+      'Kértem rá jóváhagyást.',
+    ]))
+    const ticket = listApprovals({ status: 'pending', limit: 10 })[0]
+    resolveApproval(ticket.id, 'approved', 'teszt')
+    // Zaj: sok ujabb jegy, hogy a meretkorlatos lista ne szamitson.
+    for (let i = 0; i < 60; i++) {
+      const id = `zaj-${i}`
+      createApproval({ id, agent_id: 'mas', category: 'marveen_selfdev', action_description: 'zaj', action_payload: '{}' })
+      resolveApproval(id, 'approved', 'teszt')
+    }
+
+    const evs = await turn('Akkor csináld meg', fakeProvider([
+      '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}',
+      'Kész, létrehoztam.',
+    ]))
+    expect((evs.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('ok')
+    expect(listWorkItems(projectId)).toHaveLength(2)
+    // Ujabb kerdes NEM szuletett.
+    expect(listApprovals({ status: 'pending', limit: 10 })).toHaveLength(0)
   })
 
   it('3-as szinten a tool onalloan fut, jegy nelkul', async () => {
