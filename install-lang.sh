@@ -80,8 +80,6 @@ _t() {
     hu:warn_openrouter_empty) echo "Kulcs nem lett megadva, kihagyas." ;;
     en:next_steps.4_openrouter) echo "  4. Optional: OpenRouter / other API keys on the dashboard's Vault page" ;;
     hu:next_steps.4_openrouter) echo "  4. Opcionalis: OpenRouter/egyeb API-kulcsok a dashboard Vault oldalan" ;;
-    en:prompt_whisper) echo "  Would you like to install Whisper? (y/n) [n]: " ;;
-    hu:prompt_whisper) echo "  Szeretnéd telepíteni a Whisper-t? (i/n) [n]: " ;;
     en:prompt_swap) echo "  Create a 2 GB swap file? (y/n) [y]: " ;;
     hu:prompt_swap) echo "  Létrehozzak 2 GB swap fájlt? (i/n) [i]: " ;;
     en:prompt_vps_continue) echo "  Continue installation? (y/n) [y]: " ;;
