@@ -1514,21 +1514,34 @@ ollama_pull() {
 ollama_pull "nomic-embed-text" "~274 MB"
 fi  # command -v ollama
 
-# --- Whisper (opcionalis) ---
+# --- Beszed-szoveg atiro (STT) + hang (TTS): a flotta valodi hangkomponensei ---
+# Boss (2026-09-21, uzenet 1117): "Ezt az osszes agentnek meg kellene, hogy kapja
+# alapbol. Tehat egess be a magunkba. Uj telepitesnel is jo legyen." Ezert ALAPBOL
+# telepitjuk (nem opt-in), es a VALODI stacket: scripts/install-voice.sh
+# (faster-whisper + piper venv a ~/.local/share/marveen-voice alatt), amit a
+# Telegram hanguzenet-atiro pipeline (src/web/routes/voice.ts -> transcribeVoiceFile)
+# tenylegesen hasznal. A regi opt-in "openai-whisper" (pipx) mas stack volt, amit a
+# pipeline SOSEM hivott -- egy friss telepites igy mukodokepes atiro nelkul maradt.
 echo ""
-echo -e "  Whisper telepites (beszed -> szoveg leirat, opcionalis)..."
-if command -v whisper &>/dev/null; then
-  ok "whisper mar telepitve"
-else
-  read -rp "$(_t prompt_whisper)" DO_WHISPER
-  DO_WHISPER=${DO_WHISPER:-n}
-  if [ "$DO_WHISPER" = "i" ]; then
-    pipx install openai-whisper 2>/dev/null &&
-      ok "openai-whisper telepitve" ||
-      warn "whisper telepites sikertelen (kezzel: pipx install openai-whisper)"
+echo -e "  Beszed-szoveg atiro + hang telepitese (STT/TTS, a flotta hasznalja)..."
+# Az install-voice.sh sajat apt-lepese sudo NELKUL fut, ezert a rendszerfuggoseget
+# (itt csak a python3-venv hianyozhat -- ffmpeg mar fentebb telepult) a fo telepito
+# sajat sudo-apt utjan biztositjuk, es SKIP_SYSTEM_DEPS=1-gyel adjuk at.
+if [ "$PKG_MANAGER" = "apt" ] && ! python3 -m venv --help &>/dev/null; then
+  wait_for_apt_lock
+  apt_run install -y python3-venv -qq || warn "python3-venv telepitese sikertelen -- a hang-telepito emiatt kimaradhat"
+  hash -r
+fi
+if python3 -m venv --help &>/dev/null && command -v ffmpeg &>/dev/null; then
+  # `if <cmd>; then` alatt a set -e nem all meg cmd bukasan: a hang-komponens
+  # hibaja NE allitsa le a fo telepitest, csak figyelmeztessunk.
+  if SKIP_SYSTEM_DEPS=1 bash "$INSTALL_DIR/scripts/install-voice.sh"; then
+    ok "beszed-szoveg atiro + hang telepitve (~/.local/share/marveen-voice)"
   else
-    echo -e "  ${DIM}Kihagyva. Kesobb: pipx install openai-whisper${NC}"
+    warn "hang-komponens telepites sikertelen -- kesobb: bash \"$INSTALL_DIR/scripts/install-voice.sh\""
   fi
+else
+  warn "python3-venv vagy ffmpeg hianyzik -- hang-komponens kihagyva; kesobb: bash \"$INSTALL_DIR/scripts/install-voice.sh\""
 fi
 
 INSTALL_STEP="bumblebee"
