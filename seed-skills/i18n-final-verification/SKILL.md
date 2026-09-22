@@ -92,6 +92,15 @@ marad, de a mellette álló magyarázat angolul áll.
   `i18n-no-hardcoded-hu` fogja meg. A kettő EGYÜTT véd, külön-külön nem.
 - Az angol szöveget ne a magyar átmásolásával „fordítsd": az `en.js`-t külön
   teszt őrzi, magyar ékezet nem lehet benne.
+- **A `health.<id>` névtér SOROKNAK van fenntartva.** A
+  `src/__tests__/selfcheck-guide-ui.test.ts` minden `health.<id>` kulcshoz
+  KÖVETELI a `health.<id>_action` (teendő) párját -- különben a sor panaszkodik,
+  de nem mondja meg, mit kezdjen vele a felhasználó. Egy beillesztendő
+  szövegtöredéknek (mérés-mondat, „nincs indoklás") nincs és nem is lehet
+  teendője, ezért az MÁS névtérbe való (pl. `drive.quota_meres`). 2026-09-22-én
+  pontosan ezen bukott el a CI első köre, pedig lokálisan a `lang-parity` és az
+  `i18n-no-hardcoded-hu` is zöld volt -- ez a harmadik kapu, amit külön kell
+  futtatni felületi munkánál.
 
 ## Ellenőrzés
 
