@@ -2,20 +2,34 @@
 //
 //   GET  /api/workbench/items?project=<id>  -- egy projekt munkadarabjai
 //   POST /api/workbench/items               -- uj munkadarab (+ magatol egy v1 verzio)
-//   GET  /api/workbench/items/:id           -- egy munkadarab + a verzioi
+//   GET  /api/workbench/items/:id           -- egy munkadarab + a verzioi + a reszei
+//
+// 3. fazis -- VEGYES (kompozit) munkadarab: egy munkadarab tobb RESZBOL allhat
+// (szoveg-blokk es kep egyszerre, pl. Facebook-poszt).
+//
+//   POST   /api/workbench/items/:id/parts            -- uj resz (szoveg vagy mar
+//                                                      meglevo kep utja)
+//   POST   /api/workbench/items/:id/parts/image?name= -- kep FELTOLTESE a projekt
+//                                                      mappajaba + kep-resz (nyers bajtok)
+//   PATCH  /api/workbench/items/:id/parts/:partId    -- szoveg/felirat javitasa
+//   POST   /api/workbench/items/:id/parts/:partId/move -- fel/le mozgatas
+//   DELETE /api/workbench/items/:id/parts/:partId    -- a resz kivetele (a KEP
+//                                                      FAJLJA a mappaban marad)
 //
 // A Munkapad NEM uj projekt-fogalom: minden vegpont egy LETEZO projekthez
 // kotott (`/api/projects`, #321). Ismeretlen projektre 404 jon, nem ures lista.
 //
 // Minden hiba `{ error: <kod>, message: <emberi mondat> }` alaku, a `message`
 // a keres nyelven (HU/EN) -- gepi kod sosem kerul a kepernyore onmagaban.
-import { json, readBody } from '../http-helpers.js'
+import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG } from '../../config.js'
 import { getProject } from '../../projects.js'
 import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions,
-  WORK_ITEM_TYPES, WORK_ITEM_STATUSES, TITLE_MAX,
+  listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
+  WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
+import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import type { RouteContext } from './types.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -27,6 +41,10 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   project_required: {
     hu: 'Nincs megadva, melyik projekt Munkapadját nyitod meg.',
     en: 'It is not given which project\'s Workbench you are opening.',
+  },
+  project_archived: {
+    hu: 'Ez a projekt archiválva van, ezért csak olvasható. Ha dolgozni akarsz benne, előbb állítsd vissza a Projektek oldalon.',
+    en: 'This project is archived, so it is read-only. To work in it, restore it first on the Projects page.',
   },
   project_not_found: {
     hu: 'Ez a projekt nem található (lehet, hogy közben törölték).',
@@ -55,6 +73,74 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_status: {
     hu: 'Ismeretlen munkadarab-állapot.',
     en: 'Unknown work item state.',
+  },
+  bad_kind: {
+    hu: 'Ismeretlen résztípus. Egy rész vagy szöveg, vagy kép.',
+    en: 'Unknown part kind. A part is either text or an image.',
+  },
+  text_required: {
+    hu: 'Írj valamit a szöveges részbe (üresen nem tudom hozzáadni).',
+    en: 'Write something into the text part (an empty one cannot be added).',
+  },
+  text_too_long: {
+    hu: `Ez a szöveg túl hosszú (legfeljebb ${PART_TEXT_MAX} karakter). Bontsd több szöveges részre.`,
+    en: `This text is too long (${PART_TEXT_MAX} characters at most). Split it into several text parts.`,
+  },
+  asset_required: {
+    hu: 'Nincs megadva, melyik kép kerüljön a munkadarabba.',
+    en: 'It is not given which image should go into the work item.',
+  },
+  caption_too_long: {
+    hu: `A felirat túl hosszú (legfeljebb ${PART_CAPTION_MAX} karakter).`,
+    en: `The caption is too long (${PART_CAPTION_MAX} characters at most).`,
+  },
+  part_not_found: {
+    hu: 'Ez a rész már nincs meg (lehet, hogy közben törölték).',
+    en: 'This part is gone (it may have been deleted meanwhile).',
+  },
+  bad_move: {
+    hu: 'Nem értem, merre mozgassam a részt (fel vagy le).',
+    en: 'It is unclear which way to move the part (up or down).',
+  },
+  too_large: {
+    hu: `Ez a kép túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába, és onnan vedd fel.`,
+    en: `This image is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder and add it from there.`,
+  },
+  bad_name: {
+    hu: 'Ez a fájlnév nem használható. Adj neki egyszerű nevet (például: kep.jpg).',
+    en: 'This file name cannot be used. Give it a simple name (for example: photo.jpg).',
+  },
+  empty_file: {
+    hu: 'A feltöltött kép üres volt (nulla bájt). Próbáld újra.',
+    en: 'The uploaded image was empty (zero bytes). Try again.',
+  },
+  no_depot: {
+    hu: 'Nincs beállítva Raktár, ezért a kép nem tud hova kerülni. Beállítások → Raktár.',
+    en: 'No Depot is configured, so the image has nowhere to go. Settings → Depot.',
+  },
+  no_folder: {
+    hu: 'Ehhez a projekthez nincs mappa, ezért a kép nem tud hova kerülni. Nyisd meg a projektet, és adj neki mappát.',
+    en: 'This project has no folder, so the image has nowhere to go. Open the project and give it a folder.',
+  },
+  missing: {
+    hu: 'A projekt mappája nincs meg a lemezen. Nyisd meg a projektet, és nézd meg a mappáját.',
+    en: 'The project folder is missing from the disk. Open the project and check its folder.',
+  },
+  unreachable: {
+    hu: 'A projekt mappáját most nem érem el (lehet, hogy a meghajtó nincs csatlakoztatva).',
+    en: 'The project folder cannot be reached right now (the drive may be disconnected).',
+  },
+  bad_folder: {
+    hu: 'A megadott almappa nem használható.',
+    en: 'The given subfolder cannot be used.',
+  },
+  repo_inside: {
+    hu: 'Ide nem írhatok: a mappa egy git tároló belseje.',
+    en: 'I cannot write here: this folder is inside a git repository.',
+  },
+  write_failed: {
+    hu: 'A képet nem sikerült kiírni a projekt mappájába.',
+    en: 'The image could not be written into the project folder.',
   },
 }
 
@@ -113,6 +199,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!pid) return fail(res, 400, 'project_required', lang)
     const project = getProject(pid)
     if (!project) return fail(res, 404, 'project_not_found', lang)
+    if (project.archived_at != null) return fail(res, 409, 'project_archived', lang)
     const r = createWorkItem({
       project_id: project.id,
       type: body.type,
@@ -127,19 +214,116 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
-  if (path.startsWith('/api/workbench/items/') && method === 'GET') {
-    const raw = path.slice('/api/workbench/items/'.length)
+  if (!path.startsWith('/api/workbench/items/')) return false
+
+  // .../items/<id>[/parts[/<partId>[/move]]]
+  const segs = path.slice('/api/workbench/items/'.length).split('/').map((sg) => {
     // Rosszul kodolt url nem dobhat 500-at: ilyenkor egyszeruen nincs ilyen darab.
-    let id = raw
-    try { id = decodeURIComponent(raw) } catch { id = raw }
-    const item = getWorkItem(id)
-    if (!item) return fail(res, 404, 'not_found', lang)
+    try { return decodeURIComponent(sg) } catch { return sg }
+  })
+  const item = getWorkItem(segs[0] || '')
+  if (!item) return fail(res, 404, 'not_found', lang)
+
+  if (segs.length === 1 && method === 'GET') {
     const project = getProject(item.project_id)
     json(res, {
       item,
       versions: listWorkItemVersions(item.id),
+      parts: listWorkItemParts(item.id),
+      part_kinds: WORK_ITEM_PART_KINDS,
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
+    return true
+  }
+
+  // Archivalt projekt = CSAK OLVASHATO. Az olvasas (GET) marad, minden iras
+  // ugyanazt az EMBERI mondatot kapja -- a felulet el is rejti a gombokat, de a
+  // szabalyt a szerver tartja be, nem a kepernyo.
+  if (method !== 'GET') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+  }
+
+  if (segs[1] !== 'parts') return false
+
+  // Uj resz: szoveg-blokk, vagy egy MAR meglevo kep utja a Raktarban.
+  if (segs.length === 2 && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = addWorkItemPart({
+      work_item_id: item.id,
+      kind: body.kind,
+      text: body.text,
+      asset_path: body.asset_path,
+      mime_type: body.mime_type,
+      size: body.size,
+      caption: body.caption,
+      created_by: actor(ctx),
+    })
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id) }, 201)
+    return true
+  }
+
+  // Kep feltoltese a feluletrol: a fajl a PROJEKT mappajaba kerul (ott keresi a
+  // felhasznalo, es a mentes is viszi), a munkadarab csak az utjat orzi.
+  if (segs.length === 3 && segs[2] === 'image' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'empty_file', lang)
+    const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
+    // A hibakodot a FAJLRENDSZER mondja meg (nincs Raktar / nincs mappa / nem
+    // erem el / git-tarolo) -- nem talalgatjuk, mindegyiknek sajat mondata van.
+    if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)
+    const r = addWorkItemPart({
+      work_item_id: item.id,
+      kind: 'image',
+      asset_path: out.rel,
+      mime_type: url.searchParams.get('type') || null,
+      size: out.bytes,
+      caption: url.searchParams.get('caption'),
+      created_by: actor(ctx),
+    })
+    if (!r.ok) return fail(res, 400, r.code, lang)
+    json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id), file: out }, 201)
+    return true
+  }
+
+  const partId = segs[2] || ''
+
+  if (segs.length === 3 && (method === 'PATCH' || method === 'PUT')) {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = updateWorkItemPart(partId, { text: body.text, caption: body.caption })
+    if (!r.ok) return fail(res, r.code === 'part_not_found' ? 404 : 400, r.code, lang)
+    json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id) })
+    return true
+  }
+
+  if (segs.length === 3 && method === 'DELETE') {
+    const r = removeWorkItemPart(partId)
+    if (!r.ok) return fail(res, 404, r.code, lang)
+    json(res, { ok: true, removed: r.part, parts: listWorkItemParts(item.id) })
+    return true
+  }
+
+  if (segs.length === 4 && segs[3] === 'move' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const dir = String(body.dir ?? '')
+    if (dir !== 'up' && dir !== 'down') return fail(res, 400, 'bad_move', lang)
+    const r = moveWorkItemPart(partId, dir)
+    if (!r.ok) return fail(res, 404, r.code, lang)
+    json(res, { ok: true, parts: r.parts })
     return true
   }
 

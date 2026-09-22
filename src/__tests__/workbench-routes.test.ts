@@ -7,9 +7,10 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { Readable } from 'node:stream'
 import { initDatabase } from '../db.js'
-import { createProject } from '../projects.js'
+import { createProject, setProjectArchived } from '../projects.js'
 import type { RouteContext } from '../web/routes/types.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
+import { createWorkItem, addWorkItemPart } from '../workbench.js'
 
 function ctxFor(path: string, method: string, body?: unknown) {
   const out: { status: number; body: any } = { status: 200, body: null }
@@ -149,5 +150,110 @@ describe('GET /api/workbench/items/:id', () => {
     expect(r.status).toBe(404)
     expect(r.body.error).toBe('not_found')
     expect(r.body.message.length).toBeGreaterThan(10)
+  })
+})
+
+// --- VEGYES munkadarab: a reszek vegpontjai (3. fazis) ----------------------
+describe('reszek (vegyes munkadarab)', () => {
+  let itemId = ''
+
+  beforeEach(async () => {
+    const r = await call('/api/workbench/items', 'POST', { project_id: projectId, title: 'Facebook-poszt', type: 'composite' })
+    itemId = r.body.item.id
+  })
+
+  it('a munkadarab lekerdezese a RESZEKET is hozza (ures munkadarabnal ures listat)', async () => {
+    const r = await call(`/api/workbench/items/${itemId}`, 'GET')
+    expect(r.status).toBe(200)
+    expect(r.body.parts).toEqual([])
+    expect(r.body.part_kinds).toEqual(['text', 'image'])
+  })
+
+  it('szoveg-resz felvetele, majd a lista frissen jon vissza', async () => {
+    const r = await call(`/api/workbench/items/${itemId}/parts`, 'POST', { kind: 'text', text: 'Elkészült a felújítás.' })
+    expect(r.status).toBe(201)
+    expect(r.body.part.kind).toBe('text')
+    expect(r.body.parts).toHaveLength(1)
+  })
+
+  it('ures szovegre emberi mondat jon, nem gepi kod', async () => {
+    const r = await call(`/api/workbench/items/${itemId}/parts`, 'POST', { kind: 'text', text: '   ' })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('text_required')
+    expect(r.body.message).toMatch(/[a-zíűáéúőóüö]/i)
+    expect(r.body.message).not.toBe(r.body.error)
+  })
+
+  it('a felirat javitasa nem torli a kep utjat', async () => {
+    const add = await call(`/api/workbench/items/${itemId}/parts`, 'POST', { kind: 'image', asset_path: 'Projektek/foto.jpg' })
+    const partId = add.body.part.id
+    const r = await call(`/api/workbench/items/${itemId}/parts/${partId}`, 'PATCH', { caption: 'A bejárat' })
+    expect(r.status).toBe(200)
+    expect(r.body.part.caption).toBe('A bejárat')
+    expect(r.body.part.asset_path).toBe('Projektek/foto.jpg')
+  })
+
+  it('mozgatas: a sorrend a valaszban jon vissza, rossz iranyra emberi hiba', async () => {
+    const a = await call(`/api/workbench/items/${itemId}/parts`, 'POST', { kind: 'text', text: 'egy' })
+    await call(`/api/workbench/items/${itemId}/parts`, 'POST', { kind: 'text', text: 'ketto' })
+    const r = await call(`/api/workbench/items/${itemId}/parts/${a.body.part.id}/move`, 'POST', { dir: 'down' })
+    expect(r.status).toBe(200)
+    expect(r.body.parts.map((p: any) => p.text)).toEqual(['ketto', 'egy'])
+    const bad = await call(`/api/workbench/items/${itemId}/parts/${a.body.part.id}/move`, 'POST', { dir: 'oldalra' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('bad_move')
+  })
+
+  it('a resz kivetele 200-at ad, ismeretlen reszre 404-et (nem csendes sikert)', async () => {
+    const a = await call(`/api/workbench/items/${itemId}/parts`, 'POST', { kind: 'text', text: 'egy' })
+    const r = await call(`/api/workbench/items/${itemId}/parts/${a.body.part.id}`, 'DELETE')
+    expect(r.status).toBe(200)
+    expect(r.body.parts).toEqual([])
+    const nincs = await call(`/api/workbench/items/${itemId}/parts/nincs-ilyen`, 'DELETE')
+    expect(nincs.status).toBe(404)
+    expect(nincs.body.error).toBe('part_not_found')
+  })
+
+  it('kep-feltoltes mappa NELKULI projektben: megmondja, mi hianyzik es hol kell beallitani', async () => {
+    // Friss telepites: a projektnek nincs mappaja. A valasz NEM gepi kod, es
+    // nem is csendes siker -- megmondja a teendot.
+    const { ctx, out } = ctxFor(`/api/workbench/items/${itemId}/parts/image?name=kep.jpg`, 'POST', 'BINARIS')
+    await tryHandleWorkbench(ctx)
+    expect(out.status).toBe(400)
+    expect(['no_folder', 'no_depot']).toContain(out.body.error)
+    expect(out.body.message.length).toBeGreaterThan(20)
+  })
+})
+
+describe('archivalt projekt: CSAK OLVASHATO (a szerver tartja be, nem a kepernyo)', () => {
+  it('archivalt projektben nem jon letre se munkadarab, se resz -- emberi mondattal', async () => {
+    const item = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!item.ok) throw new Error('munkadarab')
+    if (!setProjectArchived(projectId, true)) throw new Error('archivalas')
+
+    const created = await call('/api/workbench/items', 'POST', { project_id: projectId, title: 'Új', type: 'note' })
+    expect(created.status).toBe(409)
+    expect(created.body.error).toBe('project_archived')
+    expect(String(created.body.message)).toMatch(/archiválva/)
+
+    const part = await call(`/api/workbench/items/${item.item.id}/parts`, 'POST', { kind: 'text', text: 'szöveg' })
+    expect(part.status).toBe(409)
+    expect(part.body.error).toBe('project_archived')
+
+    const del = await call(`/api/workbench/items/${item.item.id}/parts/akarmi`, 'DELETE')
+    expect(del.status).toBe(409)
+  })
+
+  it('az OLVASAS viszont megy: a meglevo reszeket latni kell', async () => {
+    const item = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!item.ok) throw new Error('munkadarab')
+    const p = addWorkItemPart({ work_item_id: item.item.id, kind: 'text', text: 'A poszt szövege' })
+    if (!p.ok) throw new Error('resz')
+    if (!setProjectArchived(projectId, true)) throw new Error('archivalas')
+
+    const r = await call(`/api/workbench/items/${item.item.id}`, 'GET')
+    expect(r.status).toBe(200)
+    expect(r.body.parts).toHaveLength(1)
+    expect(r.body.project.archived).toBe(true)
   })
 })

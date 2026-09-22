@@ -40,6 +40,10 @@
     chatSetupOpen: false,
     chatSetupBusy: false,
     chatConfig: null,
+    // --- reszek (vegyes munkadarab, 3. fazis) ---
+    partEdit: null,
+    partNewOpen: false,
+    partBusy: false,
   }
 
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
@@ -147,6 +151,95 @@
       + '</div></form>'
   }
 
+  // ---- reszek: VEGYES munkadarab (3. fazis) ---------------------------------
+  //
+  // Boss, 2026-09-21: "egy munkadarabban lehet egyszerre kep ES szoveg (pl.
+  // Facebook-poszt: foto + iras)". A jovahagyott irany a kompozit modell: a
+  // munkadarab KONTENER, a tartalom RESZEKBOL all. A fajta csak cimke.
+
+  function partsOf() { return (WB.detail && WB.detail.parts) || [] }
+
+  /** A kep megjelenitese a MEGLEVO fajl-kiszolgalon at (Intezo, #164) -- nem
+   *  masoljuk be a bajtokat sehova. */
+  function partImageSrc(part) {
+    return '/api/life/file?path=' + encodeURIComponent(part.asset_path || '')
+  }
+
+  function partBodyHtml(part) {
+    if (WB.partEdit === part.id) {
+      var value = part.kind === 'text' ? (part.text || '') : (part.caption || '')
+      return '<form class="wb-part-form" id="wbPartForm">'
+        + (part.kind === 'image'
+          ? '<label class="wb-label" for="wbPartText">' + esc(t('workbench.parts.caption_label')) + '</label>'
+          : '')
+        + '<textarea class="wb-input wb-part-input" id="wbPartText" rows="' + (part.kind === 'text' ? 6 : 2) + '"'
+        + ' placeholder="' + escA(t(part.kind === 'text' ? 'workbench.parts.text_placeholder' : 'workbench.parts.caption_placeholder')) + '">'
+        + esc(value) + '</textarea>'
+        + '<div class="wb-form-actions">'
+        + '<button type="submit" class="btn-primary" data-wb-act="part-save" data-wb-part="' + escA(part.id) + '"' + (WB.partBusy ? ' disabled' : '') + '>'
+        + esc(WB.partBusy ? t('workbench.parts.saving') : t('workbench.parts.save')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="part-cancel">' + esc(t('common.cancel')) + '</button>'
+        + '</div></form>'
+    }
+    if (part.kind === 'image') {
+      return '<img class="wb-part-image" src="' + escA(partImageSrc(part)) + '" alt="' + escA(part.caption || t('workbench.parts.image_alt')) + '">'
+        + '<p class="' + (part.caption ? 'wb-part-caption' : 'wb-muted') + '">'
+        + esc(part.caption || t('workbench.parts.no_caption')) + '</p>'
+    }
+    return '<p class="wb-part-text">' + esc(part.text || '') + '</p>'
+  }
+
+  function partHtml(part, index, total) {
+    // Archivalt projekt = CSAK OLVASHATO: a szerkeszto gombok el sem keszulnek,
+    // hogy ne kinaljunk olyat, amit a szerver ugyis visszautasit.
+    var tools = archived() ? '' : ('<span class="wb-part-tools">'
+      + '<button type="button" class="wb-part-btn" data-wb-act="part-up" data-wb-part="' + escA(part.id) + '"'
+      + (index === 0 ? ' disabled' : '') + ' title="' + escA(t('workbench.parts.up')) + '">&uarr;</button>'
+      + '<button type="button" class="wb-part-btn" data-wb-act="part-down" data-wb-part="' + escA(part.id) + '"'
+      + (index === total - 1 ? ' disabled' : '') + ' title="' + escA(t('workbench.parts.down')) + '">&darr;</button>'
+      + '<button type="button" class="wb-part-btn" data-wb-act="part-edit" data-wb-part="' + escA(part.id) + '">'
+      + esc(t('workbench.parts.edit')) + '</button>'
+      + '<button type="button" class="wb-part-btn wb-part-btn-bad" data-wb-act="part-remove" data-wb-part="' + escA(part.id) + '">'
+      + esc(t('workbench.parts.remove')) + '</button>'
+      + '</span>')
+    return '<li class="wb-part" data-wb-part-row="' + escA(part.id) + '">'
+      + '<div class="wb-part-head">'
+      + '<span class="wb-pill">' + esc(t(part.kind === 'image' ? 'workbench.parts.image_kind' : 'workbench.parts.text_kind')) + '</span>'
+      + tools + '</div>'
+      + partBodyHtml(part)
+      + '</li>'
+  }
+
+  function partsHtml() {
+    var parts = partsOf()
+    var list = parts.length
+      ? '<ul class="wb-parts">' + parts.map(function (p, i) { return partHtml(p, i, parts.length) }).join('') + '</ul>'
+      : '<p class="wb-muted wb-parts-empty">' + esc(t('workbench.parts.empty')) + '</p>'
+    var adder = WB.partNewOpen
+      ? '<form class="wb-part-form" id="wbPartNewForm">'
+        + '<textarea class="wb-input wb-part-input" id="wbPartNewText" rows="5" placeholder="'
+        + escA(t('workbench.parts.text_placeholder')) + '"></textarea>'
+        + '<div class="wb-form-actions">'
+        + '<button type="submit" class="btn-primary" data-wb-act="part-add-text"' + (WB.partBusy ? ' disabled' : '') + '>'
+        + esc(WB.partBusy ? t('workbench.parts.saving') : t('workbench.parts.save')) + '</button>'
+        + '<button type="button" class="btn-secondary" data-wb-act="part-cancel">' + esc(t('common.cancel')) + '</button>'
+        + '</div></form>'
+      : ''
+    return '<div class="wb-parts-block">'
+      + '<h4 class="wb-parts-title">' + esc(t('workbench.parts.title'))
+      + (parts.length ? ' <span class="wb-muted">(' + esc(parts.length === 1 ? t('workbench.parts.count_one') : t('workbench.parts.count', { n: parts.length })) + ')</span>' : '')
+      + '</h4>'
+      + list
+      + adder
+      + (archived() ? '' : '<div class="wb-part-actions">'
+        + '<button type="button" class="btn-secondary" data-wb-act="part-new-text">' + esc(t('workbench.parts.add_text')) + '</button>'
+        + '<label class="btn-secondary wb-part-upload" for="wbPartImage">' + esc(WB.partBusy ? t('workbench.parts.uploading') : t('workbench.parts.add_image')) + '</label>'
+        + '<input type="file" id="wbPartImage" accept="image/*" class="wb-file-input">'
+        + '</div>'
+        + '<p class="wb-hint">' + esc(t('workbench.parts.image_hint')) + '</p>')
+      + '</div>'
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
@@ -158,7 +251,7 @@
       inner = '<div class="wb-editor-head"><h3>' + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
-        + '<div class="wb-soon">' + esc(t('workbench.editor.soon', { kind: typeLabel(it.type) })) + '</div>'
+        + partsHtml()
     }
     return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor">'
       + '<h2 class="wb-panel-title">' + esc(t('workbench.panel.editor')) + '</h2>'
@@ -587,6 +680,106 @@
     })
   }
 
+  // ---- reszek: muveletek ----------------------------------------------------
+
+  /** A valasz minden resz-muveletnel a TELJES, friss reszlistat hozza -- igy a
+   *  felulet nem a sajat feltetelezeseibol epiti ujra a sorrendet. */
+  function applyParts(data) {
+    if (!WB.detail || !data) return
+    if (data.parts) WB.detail.parts = data.parts
+    WB.partBusy = false
+    render()
+  }
+
+  function partsUrl(tail) {
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/parts' + (tail || '')
+  }
+
+  function addTextPart() {
+    var el = document.getElementById('wbPartNewText')
+    var text = el && typeof el.value === 'string' ? el.value : ''
+    if (!text.trim() || WB.partBusy) return
+    WB.partBusy = true
+    render()
+    api('POST', partsUrl(), { kind: 'text', text: text }).then(function (r) {
+      WB.partBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.partNewOpen = false
+      applyParts(r.data)
+      window.showToast(t('workbench.parts.added'))
+    })
+  }
+
+  function savePart(partId) {
+    var el = document.getElementById('wbPartText')
+    var value = el && typeof el.value === 'string' ? el.value : ''
+    var part = partsOf().filter(function (p) { return p.id === partId })[0]
+    if (!part || WB.partBusy) return
+    WB.partBusy = true
+    render()
+    var body = part.kind === 'image' ? { caption: value } : { text: value }
+    api('PATCH', partsUrl('/' + encodeURIComponent(partId)), body).then(function (r) {
+      WB.partBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      WB.partEdit = null
+      applyParts(r.data)
+      window.showToast(t('workbench.parts.saved'))
+    })
+  }
+
+  function movePart(partId, dir) {
+    if (WB.partBusy) return
+    api('POST', partsUrl('/' + encodeURIComponent(partId) + '/move'), { dir: dir }).then(function (r) {
+      if (!r.ok) { window.showToast(r.message); return }
+      applyParts(r.data)
+    })
+  }
+
+  /** Kivetel a munkadarabbol. A KEP FAJLJA marad -- ezt a kerdes is kimondja,
+   *  mert a "torles" szo mast igerne, mint ami tortenik. */
+  function removePart(partId) {
+    if (WB.partBusy) return
+    if (typeof window.confirm === 'function' && !window.confirm(t('workbench.parts.remove_confirm'))) return
+    WB.partBusy = true
+    render()
+    api('DELETE', partsUrl('/' + encodeURIComponent(partId))).then(function (r) {
+      WB.partBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      if (WB.partEdit === partId) WB.partEdit = null
+      applyParts(r.data)
+      window.showToast(t('workbench.parts.removed'))
+    })
+  }
+
+  /** Kep feltoltese: a nyers bajtok mennek, a nev a query-ben -- igy az
+   *  ekezetes fajlnev sem torik el (ugyanaz a mod, mint a projekt-feltoltesnel). */
+  function uploadImagePart(file) {
+    if (!file || !WB.selectedId || WB.partBusy) return
+    WB.partBusy = true
+    render()
+    var url = partsUrl('/image')
+      + '?name=' + encodeURIComponent(file.name || 'kep.jpg')
+      + '&type=' + encodeURIComponent(file.type || '')
+      + '&lang=' + encodeURIComponent(window._lang || 'hu')
+    fetch(url, { method: 'POST', body: file }).then(function (res) {
+      return res.json().catch(function () { return null }).then(function (data) {
+        WB.partBusy = false
+        if (!res.ok) {
+          render()
+          // A szerver EMBERI mondatot kuld (a gepi kod csak tartalek).
+          window.showToast((data && data.message) || t('workbench.err.http', { status: res.status }))
+          return
+        }
+        applyParts(data)
+        window.showToast(t('workbench.parts.added'))
+      })
+    }).catch(function () {
+      WB.partBusy = false
+      render()
+      window.showToast(t('workbench.err.network'))
+    })
+  }
+
   function openWorkbench(projectId, projectName) {
     if (!projectId) return
     WB.open = true
@@ -607,6 +800,9 @@
     WB.chatSetupOpen = false
     WB.chatSetupBusy = false
     WB.chatConfig = null
+    WB.partEdit = null
+    WB.partNewOpen = false
+    WB.partBusy = false
     render()
     load(projectId)
     loadChatStatus()
@@ -637,6 +833,9 @@
     if (itemBtn) {
       WB.selectedId = itemBtn.getAttribute('data-wb-item')
       WB.panel = 'editor'
+      // Mas munkadarab: a felig nyitott resz-szerkesztes nem szivaroghat at.
+      WB.partEdit = null
+      WB.partNewOpen = false
       loadDetail(WB.selectedId)
       // Mas munkadarab = MAS beszelgetes: a hozza tartozot toltjuk be.
       loadChatHistory()
@@ -650,6 +849,14 @@
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; render() }
     else if (a === 'create') { e.preventDefault(); create() }
+    else if (a === 'part-new-text') { if (!archived()) { WB.partNewOpen = true; WB.partEdit = null; render() } }
+    else if (a === 'part-cancel') { WB.partNewOpen = false; WB.partEdit = null; render() }
+    else if (a === 'part-add-text') { e.preventDefault(); addTextPart() }
+    else if (a === 'part-edit') { WB.partEdit = act.getAttribute('data-wb-part'); WB.partNewOpen = false; render() }
+    else if (a === 'part-save') { e.preventDefault(); savePart(act.getAttribute('data-wb-part')) }
+    else if (a === 'part-up') movePart(act.getAttribute('data-wb-part'), 'up')
+    else if (a === 'part-down') movePart(act.getAttribute('data-wb-part'), 'down')
+    else if (a === 'part-remove') removePart(act.getAttribute('data-wb-part'))
     else if (a === 'chat-send') sendChat()
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-setup') openChatSetup()
@@ -674,9 +881,17 @@
     }
   })
 
+  document.addEventListener('change', function (e) {
+    if (!WB.open || !e.target || e.target.id !== 'wbPartImage') return
+    var files = e.target.files
+    if (files && files.length) uploadImagePart(files[0])
+  })
+
   document.addEventListener('submit', function (e) {
     if (!WB.open) return
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
+    if (e.target && e.target.id === 'wbPartNewForm') { e.preventDefault(); addTextPart() }
+    if (e.target && e.target.id === 'wbPartForm') { e.preventDefault(); savePart(WB.partEdit) }
     if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
   })
 
@@ -704,6 +919,9 @@
     WB.chatSetupOpen = false
     WB.chatSetupBusy = false
     WB.chatConfig = null
+    WB.partEdit = null
+    WB.partNewOpen = false
+    WB.partBusy = false
   }
 
   window.MarvinWorkbench = {

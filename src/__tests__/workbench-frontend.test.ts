@@ -23,6 +23,8 @@ interface Harness {
   win: Record<string, any>
   rootEl: { innerHTML: string }
   click: (attrs: Record<string, string>) => void
+  /** Fajlvalaszto: a VALODI `change`-figyelot szolaltatja meg. */
+  change: (id: string, files: unknown[]) => void
   fetchCalls: { url: string; init?: RequestInit }[]
   toasts: string[]
   inputs: Record<string, { value: string; focus: () => void }>
@@ -44,6 +46,7 @@ function eventFor(attrs: Record<string, string>) {
 function harness(): Harness {
   const clickHandlers: Handler[] = []
   const submitHandlers: Handler[] = []
+  const changeHandlers: Handler[] = []
   const rootEl = { innerHTML: '' }
   const inputs: Record<string, { value: string; focus: () => void }> = {}
   const toasts: string[] = []
@@ -55,6 +58,7 @@ function harness(): Harness {
     addEventListener(type: string, fn: Handler) {
       if (type === 'click') clickHandlers.push(fn)
       if (type === 'submit') submitHandlers.push(fn)
+      if (type === 'change') changeHandlers.push(fn)
     },
     getElementById(id: string) {
       if (id === 'projectsRoot') return rootEl
@@ -98,6 +102,10 @@ function harness(): Harness {
     fetchCalls,
     respond(fn) { responder = fn },
     click(attrs) { for (const h of clickHandlers) h(eventFor(attrs)) },
+    change(id, files) {
+      const e = { target: { id, files, value: '' }, preventDefault() {} }
+      for (const h of changeHandlers) h(e)
+    },
   }
 }
 
@@ -490,5 +498,141 @@ describe('a Projektek oldalba illeszkedes', () => {
     const body = fn.slice(0, fn.indexOf('\n}\n'))
     expect(body).not.toContain("return ''")
     expect(body).toContain('data-prj-tab="${type}"')
+  })
+})
+
+// --- 3. fazis: VEGYES munkadarab (kep ES szoveg EGY munkadarabban) ----------
+
+const MIXED = { id: 'w1', title: 'Poszt', type: 'composite', status: 'draft' }
+
+function detailBody(parts: unknown[]) {
+  return {
+    item: MIXED,
+    versions: [],
+    parts,
+    part_kinds: ['text', 'image'],
+    project: PROJECT,
+  }
+}
+
+const TEXT_PART = { id: 'pt1', kind: 'text', position: 1, text: 'A poszt szövege' }
+const IMAGE_PART = { id: 'pi1', kind: 'image', position: 2, asset_path: 'Projektek/teszt/foto.jpg', caption: 'A fotó' }
+
+async function openMixed(parts: unknown[]) {
+  h.respond((url) => {
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: detailBody(parts) }
+    return { status: 200, body: itemsBody([MIXED]) }
+  })
+  h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+  await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+  h.click({ 'data-wb-item': 'w1' })
+  await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.parts.title'))
+}
+
+describe('vegyes munkadarab -- kep ES szoveg EGY munkadarabban', () => {
+  it('a szoveg es a kep EGYUTT jelenik meg, a kep a projektmappabol', async () => {
+    await openMixed([TEXT_PART, IMAGE_PART])
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('A poszt szövege')
+    expect(html).toContain('<img class="wb-part-image"')
+    expect(html).toContain('/api/life/file?path=' + encodeURIComponent('Projektek/teszt/foto.jpg'))
+    expect(html).toContain('A fotó')
+    // Mindketto UGYANABBAN a munkadarabban van: egy reszlista, ket sor.
+    expect((html.match(/data-wb-part-row=/g) || []).length).toBe(2)
+  })
+
+  it('ures reszlista: baratsagos mondat, nem hibauzenet (a NULLA nem hiba)', async () => {
+    await openMixed([])
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.parts.empty')
+    expect(html).not.toContain('depo-bad')
+    // A felvetel utja OTT van a feluleten: terminal nem kell hozza.
+    expect(html).toContain('data-wb-act="part-new-text"')
+    expect(html).toContain('id="wbPartImage"')
+  })
+
+  it('szoveg-resz felvetele vegigmegy A FELULETROL', async () => {
+    await openMixed([])
+    h.click({ 'data-wb-act': 'part-new-text' })
+    expect(h.rootEl.innerHTML).toContain('wbPartNewForm')
+
+    h.inputs.wbPartNewText = { value: 'Új bekezdés', focus() {} }
+    h.respond(() => ({ status: 200, body: { ok: true, parts: [{ id: 'pt9', kind: 'text', position: 1, text: 'Új bekezdés' }] } }))
+    h.click({ 'data-wb-act': 'part-add-text' })
+
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Új bekezdés'))
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/api/workbench/items/w1/parts')
+    expect(JSON.parse(String(post!.init!.body))).toEqual({ kind: 'text', text: 'Új bekezdés' })
+    expect(h.toasts.join(' ')).toContain('workbench.parts.added')
+  })
+
+  it('kep feltoltese a mappat NEM a felhasznalora bizza: nyers bajtok POST-tal', async () => {
+    await openMixed([])
+    h.respond(() => ({ status: 200, body: { ok: true, parts: [IMAGE_PART] } }))
+    h.change('wbPartImage', [{ name: 'foto.jpg', type: 'image/jpeg', size: 1024 }])
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-part-image'))
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/api/workbench/items/w1/parts/image')
+    expect(post!.url).toContain('name=foto.jpg')
+    expect(post!.url).toContain('lang=hu')
+  })
+
+  it('a kep-feltoltes szerver-hibajanal AZ A mondat megy ki, amit a szerver kuldott', async () => {
+    await openMixed([])
+    h.respond(() => ({ status: 400, body: { error: 'no_folder', message: 'Ehhez a projekthez még nincs mappa kiválasztva.' } }))
+    h.change('wbPartImage', [{ name: 'foto.jpg', type: 'image/jpeg', size: 1024 }])
+    await vi.waitFor(() => expect(h.toasts).toContain('Ehhez a projekthez még nincs mappa kiválasztva.'))
+  })
+
+  it('torlesnel megkerdezi, es kimondja, hogy a KEPFAJL a helyen marad', async () => {
+    await openMixed([TEXT_PART, IMAGE_PART])
+    const asked: string[] = []
+    h.win.confirm = (m: string) => { asked.push(m); return true }
+    h.respond(() => ({ status: 200, body: { ok: true, parts: [TEXT_PART] } }))
+    h.click({ 'data-wb-act': 'part-remove', 'data-wb-part': 'pi1' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.parts.removed'))
+    expect(asked).toContain('⟦workbench.parts.remove_confirm⟧')
+    const del = h.fetchCalls.filter((c) => c.init && c.init.method === 'DELETE').pop()
+    expect(del!.url).toContain('/api/workbench/items/w1/parts/pi1')
+  })
+
+  it('a NEM-re nem torol semmit', async () => {
+    await openMixed([TEXT_PART, IMAGE_PART])
+    h.win.confirm = () => false
+    const before = h.fetchCalls.length
+    h.click({ 'data-wb-act': 'part-remove', 'data-wb-part': 'pi1' })
+    expect(h.fetchCalls.length).toBe(before)
+  })
+
+  it('a sorrend a szerverrol jon vissza, nem a felulet talalja ki', async () => {
+    await openMixed([TEXT_PART, IMAGE_PART])
+    h.respond(() => ({ status: 200, body: { ok: true, parts: [IMAGE_PART, TEXT_PART] } }))
+    h.click({ 'data-wb-act': 'part-up', 'data-wb-part': 'pi1' })
+    await vi.waitFor(() => {
+      const html = h.rootEl.innerHTML
+      expect(html.indexOf('data-wb-part-row="pi1"')).toBeLessThan(html.indexOf('data-wb-part-row="pt1"'))
+    })
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/parts/pi1/move')
+    expect(JSON.parse(String(post!.init!.body))).toEqual({ dir: 'up' })
+  })
+
+  it('archivalt projektben nincs se felvetel, se torles-gomb', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/items/') === 0) {
+        return { status: 200, body: { ...detailBody([TEXT_PART]), project: { ...PROJECT, archived: true } } }
+      }
+      return { status: 200, body: { ...itemsBody([MIXED]), project: { ...PROJECT, archived: true } } }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.parts.title'))
+    const html = h.rootEl.innerHTML
+    expect(html).not.toContain('data-wb-act="part-new-text"')
+    expect(html).not.toContain('data-wb-act="part-remove"')
+    // A meglevo tartalmat viszont tovabbra is latja.
+    expect(html).toContain('A poszt szövege')
   })
 })

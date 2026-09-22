@@ -95,13 +95,31 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'workItem.create',
     description: 'Create a new work item in the project (a first version is created with it).',
-    input: 'title: the name of the work item; type: one of document, image, graphic, video, note',
+    input: 'title: the name of the work item; type: one of document, image, graphic, video, note, composite (pick composite when it will hold text AND images together). The type is only a label: parts can be added to any work item.',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
   {
     name: 'workItem.update',
     description: 'Change the title or the status of an existing work item.',
     input: 'id: the work item id; title (optional); status (optional): draft, in_progress, review or done',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'workItem.listParts',
+    description: 'List the parts of a work item (text blocks and images, in order). A work item may mix both, for example a social post with a photo and a caption.',
+    input: 'id: the work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'workItem.addPart',
+    description: 'Add a part to a work item: a text block, or an image that already exists in the project folder. This is how one work item can hold text AND a picture at the same time.',
+    input: 'id: the work item id (optional, defaults to the open one); kind: text or image; text: the text (for a text part); path: the image file inside the project folder (for an image part); caption (optional)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
+  },
+  {
+    name: 'kanban.create',
+    description: 'Open a kanban card. Code fixes and development tasks are NOT work items: they belong on the kanban board. The card is always bound to THIS project, whatever the request says.',
+    input: 'title: the card title; description (optional); priority (optional): low, normal, high or urgent; related (optional): the ids of cards this one relates to, or an empty list if there is none',
     destructive: false, reversible: true, external_effect: false, autonomyCategory: 'marveen_selfdev',
   },
 ]

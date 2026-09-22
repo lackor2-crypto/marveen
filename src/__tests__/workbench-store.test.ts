@@ -12,6 +12,7 @@ import { initDatabase, getDb } from '../db.js'
 import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions,
   countWorkItems, EDITOR_BY_TYPE, TITLE_MAX,
+  addWorkItemPart, listWorkItemParts, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart, countWorkItemParts,
 } from '../workbench.js'
 
 beforeEach(() => {
@@ -128,5 +129,97 @@ describe('lista -- projektre szurve', () => {
     expect(getWorkItem('nincsilyen')).toBeUndefined()
     expect(getWorkItem('')).toBeUndefined()
     expect(listWorkItemVersions('nincsilyen')).toEqual([])
+  })
+})
+
+// --- VEGYES (kompozit) munkadarab: reszek (3. fazis) -------------------------
+//
+// Boss, 2026-09-21: "egy munkadarabban lehet egyszerre kep ES szoveg (pl.
+// Facebook-poszt: foto + iras)". Amit ez a blokk oriz: a ketto TENYLEG egy
+// munkadarabban all, sorrendben, es a resz kivetele nem tunteti el a kep
+// fajljat.
+describe('vegyes munkadarab: reszek', () => {
+  function ujDarab(): string {
+    const r = createWorkItem({ project_id: 'p-vegyes', title: 'Facebook-poszt', type: 'composite' })
+    if (!r.ok) throw new Error('a munkadarab nem jott letre: ' + r.code)
+    return r.item.id
+  }
+
+  it('a `composite` fajta letezik, es vegyes tartalomnak indul', () => {
+    const r = createWorkItem({ project_id: 'p-vegyes', title: 'Poszt', type: 'composite' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.item.type).toBe('composite')
+  })
+
+  it('egy munkadarabban egyszerre all a KEP es a SZOVEG, sorrendben', () => {
+    const id = ujDarab()
+    const a = addWorkItemPart({ work_item_id: id, kind: 'image', asset_path: 'Projektek/Poszt/foto.jpg', caption: 'A bejárat' })
+    const b = addWorkItemPart({ work_item_id: id, kind: 'text', text: 'Elkészült a felújítás.' })
+    expect(a.ok && b.ok).toBe(true)
+    const parts = listWorkItemParts(id)
+    expect(parts.map((p) => p.kind)).toEqual(['image', 'text'])
+    expect(parts.map((p) => p.position)).toEqual([1, 2])
+    expect(countWorkItemParts(id)).toBe(2)
+  })
+
+  it('a szoveg-blokk nem lehet ures, a kep-resz nem lehet ut nelkul', () => {
+    const id = ujDarab()
+    expect(addWorkItemPart({ work_item_id: id, kind: 'text', text: '   ' })).toEqual({ ok: false, code: 'text_required' })
+    expect(addWorkItemPart({ work_item_id: id, kind: 'image' })).toEqual({ ok: false, code: 'asset_required' })
+    expect(addWorkItemPart({ work_item_id: id, kind: 'hang' })).toEqual({ ok: false, code: 'bad_kind' })
+  })
+
+  it('a resz javitasa: ami nincs a bemenetben, az valtozatlan marad', () => {
+    const id = ujDarab()
+    const a = addWorkItemPart({ work_item_id: id, kind: 'image', asset_path: 'x/foto.jpg', caption: 'Elso felirat' })
+    if (!a.ok) throw new Error('nem jott letre')
+    const r = updateWorkItemPart(a.part.id, { caption: 'Masodik felirat' })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.part.caption).toBe('Masodik felirat')
+      // A kep utja NEM veszett el attol, hogy csak a feliratot irtuk at.
+      expect(r.part.asset_path).toBe('x/foto.jpg')
+    }
+  })
+
+  it('a mozgatas sorszamai 1..n-ig folytonosak maradnak', () => {
+    const id = ujDarab()
+    const a = addWorkItemPart({ work_item_id: id, kind: 'text', text: 'egy' })
+    addWorkItemPart({ work_item_id: id, kind: 'text', text: 'ketto' })
+    addWorkItemPart({ work_item_id: id, kind: 'text', text: 'harom' })
+    if (!a.ok) throw new Error('nem jott letre')
+    const r = moveWorkItemPart(a.part.id, 'down')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.parts.map((p) => p.text)).toEqual(['ketto', 'egy', 'harom'])
+      expect(r.parts.map((p) => p.position)).toEqual([1, 2, 3])
+    }
+  })
+
+  it('a legfelso reszt nem lehet meg feljebb tolni -- es ettol nem lesz hiba', () => {
+    const id = ujDarab()
+    const a = addWorkItemPart({ work_item_id: id, kind: 'text', text: 'egy' })
+    addWorkItemPart({ work_item_id: id, kind: 'text', text: 'ketto' })
+    if (!a.ok) throw new Error('nem jott letre')
+    const r = moveWorkItemPart(a.part.id, 'up')
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.parts.map((p) => p.text)).toEqual(['egy', 'ketto'])
+  })
+
+  it('a resz kivetele UTAN is folytonos a sorrend, es ismeretlen resz 404-es kodot ad', () => {
+    const id = ujDarab()
+    const a = addWorkItemPart({ work_item_id: id, kind: 'text', text: 'egy' })
+    addWorkItemPart({ work_item_id: id, kind: 'text', text: 'ketto' })
+    addWorkItemPart({ work_item_id: id, kind: 'text', text: 'harom' })
+    if (!a.ok) throw new Error('nem jott letre')
+    const r = removeWorkItemPart(a.part.id)
+    expect(r.ok).toBe(true)
+    expect(listWorkItemParts(id).map((p) => p.position)).toEqual([1, 2])
+    expect(removeWorkItemPart('nincs-ilyen')).toEqual({ ok: false, code: 'part_not_found' })
+  })
+
+  it('ismeretlen munkadarabra ures a reszlista -- a hivo dolga eldonteni, letezik-e', () => {
+    expect(listWorkItemParts('nincs-ilyen')).toEqual([])
+    expect(countWorkItemParts('')).toBe(0)
   })
 })

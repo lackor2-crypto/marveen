@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { initDatabase } from '../db.js'
+import { initDatabase, getKanbanCard, createLabel } from '../db.js'
 import { createProject, updateProject, type ProjectRow, getProject } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItems } from '../workbench.js'
 import { TOOLS, getTool, decideTool, toolsForPrompt, setAutonomyLoaderForTest } from '../workbench-agent/tools.js'
@@ -318,5 +318,100 @@ describe('kontextus-epites', () => {
     const rows: AgentMessageRow[] = [{ id: '1', session_id: 's', role: 'user', content: 'x'.repeat(50_000), created_at: 1 }]
     const out = historyMessages(rows)
     expect(out[0].content.length).toBeLessThan(5000)
+  })
+})
+
+// --- 3. fazis: vegyes munkadarab + kod-javitas = KANBAN KARTYA --------------
+
+describe('workItem.addPart / listParts -- vegyes munkadarab', () => {
+  let depot = ''
+
+  beforeEach(() => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-parts-'))
+    process.env['MARVEEN_DEPOT'] = depot
+    mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'foto.jpg'), 'KEP', 'utf-8')
+    writeFileSync(join(depot, 'kintrol.jpg'), 'A MAPPÁN KÍVÜL', 'utf-8')
+    const up = updateProject(projectId, { folder_path: 'Projektek/teszt' })
+    if (!up.ok) throw new Error('a projektmappa beallitasa nem sikerult: ' + up.code)
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  it('egy munkadarabba bekerul a KEP es a SZOVEG is -- ez a vegyes tartalom', () => {
+    expect(executeTool('workItem.addPart', { kind: 'text', text: 'A poszt szövege' }, ctx()).ok).toBe(true)
+    expect(executeTool('workItem.addPart', { kind: 'image', path: 'foto.jpg' }, ctx()).ok).toBe(true)
+    const r = executeTool('workItem.listParts', {}, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).count).toBe(2)
+      expect((r.data as any).parts.map((p: any) => p.kind)).toEqual(['text', 'image'])
+    }
+  })
+
+  it('a kep NEM johet a projektmappan kivulrol', () => {
+    for (const bad of ['../kintrol.jpg', '/etc/passwd']) {
+      const r = executeTool('workItem.addPart', { kind: 'image', path: bad }, ctx())
+      expect(r.ok, `nem szabadott volna felvenni: ${bad}`).toBe(false)
+      if (!r.ok) expect(JSON.stringify(r)).not.toContain('MAPPÁN KÍVÜL')
+    }
+  })
+
+  it('nem letezo kepre a TENYLEGES hibauzenet megy vissza, nem talalgatas', () => {
+    const r = executeTool('workItem.addPart', { kind: 'image', path: 'nincs-ilyen.jpg' }, ctx())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.detail).toMatch(/ENOENT|no such file/i)
+  })
+
+  it('ures reszlista NEM nema: kimondja, hogy a munkadarab letezik es ures', () => {
+    const r = executeTool('workItem.listParts', {}, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).count).toBe(0)
+      expect((r.data as any).note).toMatch(/no parts yet/i)
+    }
+  })
+})
+
+describe('kanban.create -- a kod-javitas kartya, es MINDIG ehhez a projekthez kotodik', () => {
+  it('a kartya a JELENLEGI projekthez kotodik, akkor is, ha a modell mast ir', () => {
+    const other = createProject({ name: 'Idegen projekt' })
+    if (!other.ok) throw new Error('projekt')
+    const r = executeTool(
+      'kanban.create',
+      { title: 'A Munkapad gombja nem reagál', project: other.project.id, related: [] },
+      ctx(),
+    )
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).project).toBe(projectId)
+      const card = getKanbanCard((r.data as any).id)
+      expect(card?.project).toBe(projectId)
+    }
+  })
+
+  it('cim nelkul nem szuletik kartya', () => {
+    const r = executeTool('kanban.create', { title: '  ' }, ctx())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('bad_input')
+  })
+
+  it('ha vannak cimkek, cimke nelkul NEM jon letre kartya (a meglevo szabaly)', () => {
+    createLabel({ id: 'lab1', name: 'marveen_fejlesztese', color: '#fff' })
+    const r = executeTool('kanban.create', { title: 'Egy teljesen új dolog', related: [] }, ctx())
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.detail).toMatch(/[Cc]ímke/)
+  })
+
+  it('a projekt alapertelmezett cimkeje magatol rakerul', () => {
+    createLabel({ id: 'lab1', name: 'iroda_fejlesztese', color: '#fff' })
+    const up = updateProject(projectId, { default_label_id: 'lab1' })
+    if (!up.ok) throw new Error('cimke')
+    const r = executeTool('kanban.create', { title: 'Egy teljesen új dolog', related: [] }, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) expect((r.data as any).labels).toEqual(['lab1'])
   })
 })

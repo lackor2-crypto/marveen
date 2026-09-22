@@ -169,3 +169,38 @@
   .wb-panel-current { display: flex; }
   .wb-head h1 { font-size: 1.1rem; flex-basis: 100%; }
 }
+
+/* --- reszek: vegyes munkadarab (3. fazis) --------------------------------- */
+
+.wb-parts-block { margin-top: 12px; }
+.wb-parts-title { margin: 0 0 8px; font-size: 0.95rem; }
+.wb-parts { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wb-part {
+  border: 1px solid var(--border, #d7d7db);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--card-bg, rgba(127, 127, 127, 0.06));
+}
+.wb-part-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.wb-part-tools { display: flex; gap: 4px; flex-wrap: wrap; }
+.wb-part-btn {
+  border: 1px solid var(--border, #d7d7db);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.wb-part-btn[disabled] { opacity: 0.4; cursor: default; }
+.wb-part-btn-bad { color: var(--bad, #b3261e); }
+.wb-part-text { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.wb-part-image { max-width: 100%; height: auto; border-radius: 6px; display: block; }
+.wb-part-caption { margin: 6px 0 0; font-size: 0.9rem; }
+.wb-part-input { width: 100%; box-sizing: border-box; resize: vertical; }
+.wb-part-form { display: flex; flex-direction: column; gap: 6px; }
+.wb-part-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wb-part-upload { cursor: pointer; display: inline-flex; align-items: center; }
+/* A fajlvalaszto a cimke mogott all: a gomb latszik, a nyers mezo nem. */
+.wb-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.wb-parts-empty { margin: 0 0 12px; }
