@@ -41,6 +41,23 @@ beforeEach(() => {
 })
 
 describe('mappa-tartalom meres (#341)', () => {
+  it('aki NEM mutat darabszamot, az ne is fizessen erte (content: false)', () => {
+    // A Beerkezo besorolo lanca csak nevet/utat olvas. Ha a meres ott is
+    // lefutna, egy hideg halozati meghajton masodperceket varna a felhasznalo
+    // egy olyan adatert, amit a kepernyon senki nem lat.
+    mkdirSync(join(root, 'tele', 'egy'), { recursive: true })
+    writeFileSync(join(root, 'tele', 'a.txt'), 'x')
+
+    const nelkul = listLife('', { lang: 'hu', content: false })
+    const f1 = nelkul.folders.find((x) => x.name === 'tele')
+    expect(f1).toBeTruthy()
+    expect(f1?.content).toBeUndefined()
+
+    // Az alapertelmezes valtozatlan: aki nem mond semmit, meri.
+    const vel = listLife('', { lang: 'hu' })
+    expect(vel.folders.find((x) => x.name === 'tele')?.content?.state).toBe('has')
+  })
+
   it('URES mappa: bizonyitottan ures, nulla darabszammal', () => {
     mkdirSync(join(root, 'ures'))
     const f = folder('', 'ures')

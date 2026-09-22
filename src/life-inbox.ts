@@ -212,7 +212,10 @@ function chainQuestion(depth: number, lang: string): string {
 export function inboxChainStep(rel: string, lang: string = APP_LANG): ChainStep {
   const tiszta = String(rel || '').replace(/^[\\/]+|[\\/]+$/g, '')
   const depth = tiszta ? tiszta.split('/').filter(Boolean).length : 0
-  const listing = listLife(tiszta, { lang })
+  // `content: false`: a lanc CSAK nevet, utat es sugot mutat -- a mappak
+  // tartalmi meresere itt nincs szukseg, es egy lassu meghajton csak varakozast
+  // okozna.
+  const listing = listLife(tiszta, { lang, content: false })
   // A BEERKEZO onmagaba nem sorolhato be: kivesszuk a valaszthato celok kozul.
   const inbox = inboxDir(lang)
   const inboxRel = inbox ? toLifeRel(inbox) : ''
