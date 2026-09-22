@@ -54,9 +54,12 @@ import {
 import type { RouteContext } from './types.js'
 import { getQueueItem, loadDeleteQueue, removePairFromQueue, removeQueueItem, syncQueueForPair } from '../../drive-delete-queue.js'
 import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
+import { driveErrorKind } from '../../drive-error-kind.js'
+import { parseStorageQuota, recordDriveQuota } from '../../drive-quota.js'
 
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
+const DRIVE_ABOUT_URL = 'https://www.googleapis.com/drive/v3/about'
 const CONFIG_PATH = join(PROJECT_ROOT, 'store', 'drive-sync.json')
 /**
  * Egy futasban legfeljebb ennyi mappat jarunk be -- vegtelen melyseg ellen.
@@ -761,7 +764,19 @@ async function downloadTo(url: string, token: TokenForras, dest: string): Promis
   if (res.status === 401 && typeof token !== 'string') {
     res = await fetch(url, { headers: { Authorization: `Bearer ${await tokenErteke(token, true)}` } })
   }
-  if (!res.ok || !res.body) throw new Error(`Drive ${res.status}`)
+  // A GOOGLE SAJAT MONDATA KELL, nem a puszta szamkod. A csupasz "Drive 403"
+  // harom, gyokeresen kulonbozo dolgot takarhat (lejart hozzaferes, megtelt
+  // tarhely, kartekonynak jelolt fajl), es a teendo mindharomnal mas -- a
+  // valaszbol kiolvasva viszont egyertelmu. Valos kar (Boss, 2026-09-22): hat
+  // .exe/.rar fajl `cannotDownloadAbusiveFile` hibaja "a Google-fiok nem tud
+  // belepni" sorkent jelent meg a felulten, holott a fiok belep, es az
+  // ujralogin semmit nem old meg. A feltoltes (`putBytes`) mar igy naplozott;
+  // csak a letoltes dobta el az indoklast.
+  if (!res.ok || !res.body) {
+    let szoveg = ''
+    try { szoveg = (await res.text()).slice(0, 200) } catch { /* torzs nelkul is van szamkod */ }
+    throw new Error(szoveg ? `Drive ${res.status}: ${szoveg}` : `Drive ${res.status}`)
+  }
   mkdirSync(dirname(dest), { recursive: true })
   const tmp = `${dest}.part`
   try {
@@ -873,6 +888,30 @@ function gond(a: {
   if (!job) return
   if (a.failed) job.failed++
   if (job.errors.length < 20) job.errors.push(`${a.localPath || a.driveName || pairLabel(a.pair)}: ${a.reason}`)
+}
+
+/**
+ * Mennyi hely van a fiokon? A Google sajat valasza, lemezre teve.
+ *
+ * Futasonkent es fiokonkent EGYSZER kerdezunk: egy megtelt Drive-nal szazaval
+ * erkezik ugyanaz a hiba, es ertelmetlen lenne mindegyiknel ujra merni. A
+ * meres SOSE dobhat: a mentesnek attol meg mennie kell tovabb, hogy a
+ * tarhely-lekerdezes nem sikerult -- ilyenkor egyszeruen nincs szamunk, es a
+ * kepernyo szam nelkul, de oszinten beszel.
+ */
+const kvotaMerve = new Set<string>()
+
+async function merdAKvotat(account: string, token: TokenForras): Promise<void> {
+  const kulcs = `${job?.runId || 'futás-azonosító-nélkül'}|${account}`
+  if (kvotaMerve.has(kulcs)) return
+  kvotaMerve.add(kulcs)
+  try {
+    const body = await driveJson(`${DRIVE_ABOUT_URL}?fields=storageQuota`, token)
+    const meres = parseStorageQuota(account, body)
+    if (meres) recordDriveQuota(meres)
+  } catch (err: any) {
+    logger.warn({ err: err?.message, account }, '[drive-sync] a tárhely-mérés nem sikerült')
+  }
 }
 
 /**
@@ -1398,11 +1437,18 @@ async function uploadPhase(a: {
       // megszakadt futas sem kuldi fel megegyszer.
       kozbenMentes()
     } catch (err: any) {
+      const indok = String(err?.message || err).slice(0, 200)
       gond({
         pair, phase: 'feltöltés', failed: true,
         localPath: abs, driveName: basename(teljes), driveId: meglevoId || '',
-        reason: String(err?.message || err).slice(0, 200),
+        reason: indok,
       })
+      // "Megtelt a Drive" -- de MENNYIRE? A szam nelkuli allitast joggal nem
+      // hiszi el senki (Boss, 2026-09-22: "mellesleg van hely rajtuk. mi az
+      // hogy nincs hely?"). A Google EBBEN a pillanatban meg tudja mondani,
+      // ezert itt kerdezzuk meg -- futasonkent es fiokonkent egyszer --, es a
+      // kepernyo mar egy mert szambol beszel, nem sejtesbol.
+      if (driveErrorKind(indok) === 'quota') await merdAKvotat(pair.account, token)
     }
   }
 

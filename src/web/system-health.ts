@@ -61,6 +61,8 @@ import { resolveClaudePlans, CLAUDE_PLANS_PATH } from './claude-plans.js'
 import type { ClaudePlan } from './claude-plans.js'
 import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identity.js'
 import { syncFailureRuns, loadSyncFailures } from '../drive-sync-failures.js'
+import { driveErrorKind, driveHibaUzenet, DRIVE_ELUTASITAS_RE, type DriveErrorKind } from '../drive-error-kind.js'
+import { loadDriveQuotas } from '../drive-quota.js'
 import { resolveMainAgentConfigDir } from './agent-config.js'
 // EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
 // oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
@@ -1521,48 +1523,111 @@ export function varakozoFajlok(p: DriveSyncParos): number {
  * (a NULLA-elv): ha a LEGUTOBBI futas hibai kozott van auth-hiba, akkor beragadt.
  * Ha nincs hibanaplo (friss telepites), null -- nincs sor, es ez helyes csend.
  */
-// A Google 403-at KET, gyokeresen kulonbozo ok valthatja ki, es a teendo is mas:
-//  (1) HITELESITES (nincs jogosultsag / lejart token) -> ujra be kell jelentkezni;
-//  (2) TELE A DRIVE (storage quota exceeded) -> a bejelentkezes JO, helyet kell
-//      felszabaditani vagy tarhelyet bovíteni; az ujralogin NEM segit.
-// A `\b403\b` mindkettore illik, ezert a kvota-hibat KI kell zarni az auth-bol,
-// kulonben a felulet hazugsagot tanacsol ("jelentkezz be ujra"), holott a fiok
-// belep, csak megtelt (valos eset: canadalackor, 2026-09-21 -- 321 fajl 403
-// "storage quota exceeded", kozben a fiok elesben listazta a Drive-jat).
-const DRIVE_KVOTA_RE = /storage ?quota|storagequotaexceeded|quota (has been )?exceeded|exceeded.*quota|elfogyott a tarhely/i
-const DRIVE_AUTH_RE = /\b401\b|\b403\b|invalid authentication|unauthorized|insufficient permission|invalid_grant|invalid credentials/i
+// A Google 403-at TOBB, gyokeresen kulonbozo ok valthatja ki, es a teendo
+// mindegyiknel MAS. Az osztalyozas egy helyen el (`drive-error-kind.ts`),
+// hogy a szinkron es a kepernyo ugyanazt a szabalyt hasznalja.
+//
+// Valos kar (Boss, 2026-09-22): a csupasz `\b403\b` minta auth-hibanak vett
+// hat `cannotDownloadAbusiveFile` hibat, es a felulet azt tanacsolta, hogy
+// jelentkeztessuk be ujra a fiokot -- miközben a fiok belep (4,82 GB / 15 GB,
+// merve), es az ujralogin semmit nem old meg. Elotte ugyanez tortent a
+// megtelt Drive-val (#2a268b42). A tanulsag mindketto utan ugyanaz: a
+// szamkodbol nem lehet teendot vezetni, csak a Google SAJAT mondatabol.
 
-export function utolsoFutasAuthHibas(
-  runs: Array<{ runId: string; at: string; count: number }> = syncFailureRuns(),
-): { account: string; at?: string } | null {
-  const utolso = runs[0]
-  if (!utolso || !utolso.runId) return null
-  const hibak = loadSyncFailures({ runId: utolso.runId })
-  // A kvota-403 NEM auth: kizarjuk, kulonben a "jelentkezz be ujra" sor hazudik.
-  const authHibak = hibak.filter((f) => DRIVE_AUTH_RE.test(f.reason) && !DRIVE_KVOTA_RE.test(f.reason))
-  if (!authHibak.length) return null
-  const account = authHibak.find((f) => f.account)?.account || ''
-  return { account, at: utolso.at }
+/** Egy akadas a legutobbi futasbol, okonkent es fiokonkent osszevonva. */
+export interface DriveAkadas {
+  kind: DriveErrorKind
+  account: string
+  /** Hany fajl akadt el EBBOL az okbol, EBBEN a fiokban, a legutobbi futasban. */
+  files: number
+  /** Nehany erintett fajlnev -- enelkul egy "6 fajl" sorral nem lehet mit kezdeni. */
+  names: string
+  /** A Google sajat mondata (ha megvan). Ures: nem talaljuk ki helyette. */
+  message: string
+  at?: string
 }
 
 /**
- * Beragadt-e a mentes azert, mert MEGTELT a Drive (403 storage quota exceeded)?
+ * A LEGUTOBBI futas akadasai, okonkent/fiokonkent.
  *
- * Ez NEM hitelesitesi hiba: a fiok belep, csak nincs tobb hely. A teendo a
- * helyfelszabaditas / tarhely-bovites, ezert sajat, oszinte sort kap -- nem a
- * "jelentkezz be ujra" auth-sort (Boss, 2026-09-21). A jelet a FORRASBOL vesszuk
- * (hibanaplo), nem a varakozo-szambol kovetkeztetve.
+ * A jelet a FORRASBOL vesszuk (hibanaplo), nem a varakozo-szambol
+ * kovetkeztetve (a NULLA-elv). Ha nincs hibanaplo (friss telepites), ures
+ * tomb -- nincs sor, es ez helyes csend.
+ *
+ * A SZANDEKOS kihagyasok (`kihagyva`: tul nagy fajl, nevutkozes) nem akadasok:
+ * azoknak sajat helyuk van a Raktar "Mi maradt ki?" listajaban, es egy
+ * ijeszto piros sort nem erdemelnek.
  */
+export function utolsoFutasAkadasai(
+  runs: Array<{ runId: string; at: string; count: number }> = syncFailureRuns(),
+  hibakBetoltese: (runId: string) => Array<{ account: string; phase: string; reason: string; driveName: string }>
+    = (runId) => loadSyncFailures({ runId }) as any,
+): DriveAkadas[] {
+  const utolso = runs[0]
+  if (!utolso || !utolso.runId) return []
+  const hibak = hibakBetoltese(utolso.runId).filter((f) => f.phase !== 'kihagyva')
+  const csoportok = new Map<string, DriveAkadas>()
+  for (const f of hibak) {
+    const kind = driveErrorKind(f.reason)
+    // A besorolatlan hibak kozul CSAK azt mutatjuk, amit a Google tenylegesen
+    // elutasitott (van benne HTTP hibakod). Egy halozati kimaradas vagy egy
+    // helyi olvasasi gond nem tartozik ide -- arrol mas sor szol.
+    if (kind === 'other' && !DRIVE_ELUTASITAS_RE.test(f.reason)) continue
+    const account = String(f.account || '')
+    const kulcs = `${kind}|${account}`
+    const e = csoportok.get(kulcs)
+    const nev = String(f.driveName || '').trim()
+    if (e) {
+      e.files++
+      if (nev && e.names.split(', ').length < 3 && !e.names.includes(nev)) {
+        e.names = e.names ? `${e.names}, ${nev}` : nev
+      }
+      if (!e.message) e.message = driveHibaUzenet(f.reason)
+    } else {
+      csoportok.set(kulcs, {
+        kind, account, files: 1, names: nev,
+        message: driveHibaUzenet(f.reason), at: utolso.at,
+      })
+    }
+  }
+  return [...csoportok.values()]
+}
+
+/**
+ * VISSZAFELE KOMPATIBILIS kapu: van-e valodi hitelesitesi akadas?
+ *
+ * Megmaradt, mert mas hivok (es a tesztek) ezt a format varjak. A tartalmat
+ * mar az uj osztalyozas adja: egy `cannotDownloadAbusiveFile` NEM auth.
+ */
+export function utolsoFutasAuthHibas(
+  runs: Array<{ runId: string; at: string; count: number }> = syncFailureRuns(),
+): { account: string; at?: string } | null {
+  const a = utolsoFutasAkadasai(runs).find((x) => x.kind === 'auth')
+  return a ? { account: a.account, at: a.at } : null
+}
+
+/** Ugyanaz a kapu a megtelt Drive-ra. */
 export function utolsoFutasKvotaHibas(
   runs: Array<{ runId: string; at: string; count: number }> = syncFailureRuns(),
 ): { account: string; at?: string } | null {
-  const utolso = runs[0]
-  if (!utolso || !utolso.runId) return null
-  const hibak = loadSyncFailures({ runId: utolso.runId })
-  const kvotaHibak = hibak.filter((f) => DRIVE_KVOTA_RE.test(f.reason))
-  if (!kvotaHibak.length) return null
-  const account = kvotaHibak.find((f) => f.account)?.account || ''
-  return { account, at: utolso.at }
+  const a = utolsoFutasAkadasai(runs).find((x) => x.kind === 'quota')
+  return a ? { account: a.account, at: a.at } : null
+}
+
+/**
+ * A megtelt Drive szamai -- MERVE, nem allitva.
+ *
+ * Boss, 2026-09-22: "mellesleg van hely rajtuk. mi az hogy nincs hely?" Egy
+ * szam nelkuli "megtelt" allitast joggal nem hisz el senki. Ha van meresunk
+ * (a szinkron irja a kvota-hiba pillanataban), a sor kiirja a foglalt/teljes
+ * parost ES a Kukaban allo reszt -- utobbi a leggyorsabban felszabadithato
+ * hely. Ha NINCS meresunk, a sor szam nelkul, de oszinten beszel: nem talal
+ * ki adatot.
+ */
+export function kvotaParamok(account: string, quotas = loadDriveQuotas()): Record<string, any> {
+  const q = quotas[account]
+  if (!q || !q.limit) return {}
+  return { usedB: q.usage, limitB: q.limit, trashB: q.trash, freeB: Math.max(0, q.limit - q.usage) }
 }
 
 /**
@@ -1576,8 +1641,8 @@ export function driveSyncRows(
   allapot = driveSyncAllapot(join(STORE_DIR, DRIVE_SYNC_FILE)),
   kartya: { letezik: boolean; bekapcsolva: boolean } = driveSyncKartya(),
   depoIrhato: boolean | null = null,
-  authBeragadas: { account: string; at?: string } | null = utolsoFutasAuthHibas(),
-  kvotaBeragadas: { account: string; at?: string } | null = utolsoFutasKvotaHibas(),
+  akadasok: DriveAkadas[] = utolsoFutasAkadasai(),
+  quotas: Record<string, { limit: number; usage: number; trash: number }> = loadDriveQuotas(),
 ): HealthRow[] {
   // Olvashatatlan beallitas: a mentes ilyenkor NEM fut. A leghangosabb sor.
   if (allapot.fajta === 'olvashatatlan') return [{ id: 'drive_sync_unreadable', status: 'bad' }]
@@ -1634,52 +1699,74 @@ export function driveSyncRows(
   // a varakozo szama nala nem "magatol halad", hanem all -- ket ellentetes
   // uzenetet adna egy parosra.
   const varakozok = allapot.parok.filter((p) => varakozoFajlok(p) > 0 && !veszfekesek.includes(p))
-  if (varakozok.length) {
-    // A varakozo fajlok HAROMFELE allapotban lehetnek, es a teendo mindnel MAS:
-    //  - MEGTELT a Drive (403 storage quota): a fiok belep, HELYET kell felszabaditani;
-    //  - HITELESITESI hiba (401/403 auth): a fiokot ujra be kell JELENTKEZTETNI;
-    //  - egyik sem: magatol halad, csak meg nem ert a vegere (incomplete, `warn`).
-    // A ketto (quota vs auth) osszemosasa hazugsag: a megtelt Drive-nal az
-    // "jelentkezz be ujra" NEM segit (Boss, 2026-09-21). A hibanaplo a HIBAS
-    // futasokat tartalmazza; ha azota egy hibatlan futas lement, a "legutobbi"
-    // bejegyzes elavult. Egy futas naponta egyszer megy, ezert a bejegyzes akkor
-    // friss, ha legfeljebb egy nappal regebbi a legutobbi futasnal.
-    const legutobbiFutas = Math.max(-Infinity, ...allapot.parok
-      .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
-      .filter((t) => Number.isFinite(t)))
-    const friss = (at?: string): boolean => {
-      const t = at ? Date.parse(at) : NaN
-      return !Number.isFinite(legutobbiFutas) || !Number.isFinite(t) || t >= legutobbiFutas - 86_400_000
-    }
-    // A megtelt-Drive fiok elveszi magat az auth-tol is: ha ugyanaz a fiok egyszerre
-    // adna quota- es auth-jelet, a KONKRETABB (megtelt) a helyes teendo.
-    const kvotaAcct = (kvotaBeragadas && friss(kvotaBeragadas.at)) ? String(kvotaBeragadas.account || '') : ''
-    const authAcct = (authBeragadas && friss(authBeragadas.at) && String(authBeragadas.account || '') !== kvotaAcct)
-      ? String(authBeragadas.account || '') : ''
-    const acctOf = (p: DriveSyncParos): string => String(p.account || '')
-    const osszeg = (ps: DriveSyncParos[]): number => ps.reduce((sum, p) => sum + varakozoFajlok(p), 0)
-    if (kvotaAcct || authAcct) {
-      // A beragadt fiok sajat fajljait a SAJAT parosaibol szamoljuk (akar 0),
-      // hogy egy MASIK, egeszseges fiok magatol halado feltoltese NE keveredjen
-      // ide (valos eset 2026-09-16: egy 401-es fiok neve melle egy masik, epp
-      // toltogeto fiok 1125 varakozoja kerult). A sort a JELZES letezese adja,
-      // nem a >0 fajl: egy megtelt/kilepett fiokrol akkor is szolni kell, ha epp
-      // nincs sajat varakozoja (a teendo a helyfelszabaditas / ujra-bejelentkezes).
-      const fajlokAccountnak = (acct: string): number => osszeg(allapot.parok.filter((p) => acctOf(p) === acct))
-      if (kvotaAcct) {
-        rows.push({ id: 'drive_sync_quota_full', status: 'bad', params: { f: fajlokAccountnak(kvotaAcct), account: kvotaAcct } })
-      }
-      if (authAcct) {
-        rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: fajlokAccountnak(authAcct), account: authAcct } })
-      }
-      // A tobbi fiok varakozoi NEM ragadtak be: sajat, megnyugtato incomplete sor.
-      const tobbiek = varakozok.filter((p) => acctOf(p) !== kvotaAcct && acctOf(p) !== authAcct)
-      if (tobbiek.length) {
-        rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: tobbiek.length, f: osszeg(tobbiek), names: fiokNevek(tobbiek) } })
-      }
-    } else {
-      rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: varakozok.length, f: osszeg(varakozok), names: fiokNevek(varakozok) } })
-    }
+
+  // A legutobbi futas AKADASAI -- a Google sajat indoklasa szerint szetvalasztva.
+  // A hibanaplo a HIBAS futasokat tartalmazza; ha azota egy hibatlan futas
+  // lement, a "legutobbi" bejegyzes elavult. Egy futas naponta egyszer megy,
+  // ezert a bejegyzes akkor friss, ha legfeljebb egy nappal regebbi a
+  // legutobbi futasnal.
+  const legutobbiFutas = Math.max(-Infinity, ...allapot.parok
+    .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
+    .filter((t) => Number.isFinite(t)))
+  const friss = (at?: string): boolean => {
+    const t = at ? Date.parse(at) : NaN
+    return !Number.isFinite(legutobbiFutas) || !Number.isFinite(t) || t >= legutobbiFutas - 86_400_000
+  }
+  const frissek = (akadasok || []).filter((a) => friss(a.at) && a.files > 0)
+  const elso = (kind: DriveErrorKind): DriveAkadas | undefined => frissek.find((a) => a.kind === kind)
+
+  // A megtelt-Drive fiok elveszi magat az auth-tol is: ha ugyanaz a fiok
+  // egyszerre adna kvota- es auth-jelet, a KONKRETABB (megtelt) a helyes teendo.
+  const kvota = elso('quota')
+  const kvotaAcct = kvota ? kvota.account : ''
+  const auth = frissek.find((a) => a.kind === 'auth' && a.account !== kvotaAcct)
+  const authAcct = auth ? auth.account : ''
+
+  // MEGTELT A DRIVE. A fiok belep, csak nincs tobb hely -- a szamokat MERJUK
+  // (a szinkron irta ki a hiba pillanataban), nem allitjuk.
+  if (kvota) {
+    rows.push({
+      id: 'drive_sync_quota_full',
+      status: 'bad',
+      params: { f: kvota.files, account: kvotaAcct, ...kvotaParamok(kvotaAcct, quotas as any) },
+    })
+  }
+  // VALODI HITELESITESI HIBA. Csak ide vezet az "jelentkezz be ujra" teendo.
+  if (auth) {
+    rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: auth.files, account: authAcct } })
+  }
+  // KARTEKONYNAK JELOLT FAJL. Se az ujralogin, se a helyfelszabaditas nem
+  // segit: a Google egyetlen programnak sem adja oda. Sajat, oszinte sor --
+  // `warn`, mert nem all tole a mentes tobbi resze.
+  for (const a of frissek.filter((x) => x.kind === 'abusive')) {
+    rows.push({
+      id: 'drive_sync_abusive',
+      status: 'warn',
+      params: { f: a.files, account: a.account, names: a.names },
+    })
+  }
+  // BESOROLATLAN ELUTASITAS. Nem talalunk ki okot: kiirjuk, amit a Google
+  // mondott. Ha meg azt sem tudjuk, azt is kimondjuk (`msg` ures).
+  for (const a of frissek.filter((x) => x.kind === 'other')) {
+    rows.push({
+      id: 'drive_sync_refused',
+      status: 'warn',
+      params: { f: a.files, account: a.account, names: a.names, msg: a.message },
+    })
+  }
+
+  // MEG NEM ERT A VEGERE. Nem csonka masolat (a kep teljes volt), csak a
+  // feltoltes fer bele reszletekben -- de ettol meg nem szabad zold sort
+  // mutatni. `warn`: magatol halad, teendo csak akkor van, ha nem fogy.
+  // A KVOTA/AUTH miatt beragadt fiokokat ITT KIVESSZUK: azoknal a varakozo
+  // szam nem "magatol halad", hanem all -- ket ellentetes uzenetet adna egy
+  // fiokra. Az abuziv/besorolatlan eset viszont EGY-EGY fajlrol szol, nem
+  // allitja meg a fiok tobbi feltolteset, ezert az nem zarja ki.
+  const acctOf = (p: DriveSyncParos): string => String(p.account || '')
+  const osszeg = (ps: DriveSyncParos[]): number => ps.reduce((sum, p) => sum + varakozoFajlok(p), 0)
+  const tobbiek = varakozok.filter((p) => acctOf(p) !== kvotaAcct && acctOf(p) !== authAcct)
+  if (tobbiek.length) {
+    rows.push({ id: 'drive_sync_incomplete', status: 'warn', params: { n: tobbiek.length, f: osszeg(tobbiek), names: fiokNevek(tobbiek) } })
   }
 
   // Mikor futott utoljara BARMELYIK paros?
