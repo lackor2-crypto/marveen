@@ -1,0 +1,81 @@
+// MIERT utasitott el a Google -- egy helyen, mindenkinek ugyanaz.
+//
+// A Drive HAROM, gyokeresen kulonbozo dolgot mond ugyanazzal a szamkoddal
+// (403), es a teendo mindharomnal mas:
+//   - `quota`   : megtelt a tarhely. A fiok BELEP, helyet kell felszabaditani.
+//   - `abusive` : a Google kartekonynak/spamnek jelolte a fajlt, es NEM adja
+//                 oda egyetlen programnak sem. Se az ujralogin, se a
+//                 helyfelszabaditas nem segit rajta.
+//   - `auth`    : tenyleg nincs (mar) jogosultsag -> ujra be kell jelentkezni.
+// Minden mas: `other` -- es ezt KI KELL MONDANI, nem beleeroltetni a harom
+// kozul a legkozelebbibe.
+//
+// Valos kar, amiert ez kulon modul lett (Boss, 2026-09-22): a csupasz
+// `\b403\b` mintat auth-hibanak vettuk, ezert hat kartekonynak jelolt .exe/.rar
+// fajl 403-a "a Google-fiok (nyalomapuncidma) nem tud belepni" sorkent jelent
+// meg -- miközben a fiok 4,82 GB / 15 GB-tal, elesben listazta a Drive-jat. A
+// felulet olyan teendot tanacsolt (ujralogin), ami semmit nem old meg.
+
+export type DriveErrorKind = 'quota' | 'abusive' | 'auth' | 'other'
+
+/** Megtelt tarhely. A Google tobbfele szoveggel mondja, de a "quota" mindben ott van. */
+export const DRIVE_KVOTA_RE = /storage ?quota|storagequotaexceeded|quota (has been )?exceeded|exceeded.*quota|elfogyott a tarhely/i
+
+/** Kartekonynak/spamnek jelolt fajl -- a Google nem adja oda gepi letoltesre. */
+export const DRIVE_ABUZIV_RE = /cannotdownloadabusivefile|identified as malware or spam/i
+
+/**
+ * VALODI hitelesitesi hiba.
+ *
+ * A 401 mindig az. A 403 viszont CSAK akkor, ha a Google szavai is azt
+ * mondjak (`insufficientPermissions`, `authError`, lejart/visszavont
+ * hozzajarulas). Egy 403, aminek nem ismerjuk az indoklasat, NEM auth --
+ * inkabb legyen "ismeretlen elutasitas" oszinten, mint egy hamis teendo.
+ */
+export const DRIVE_AUTH_RE = /\b401\b|invalid authentication|unauthorized|invalid_grant|invalid credentials|insufficient permission|insufficientpermissions|autherror|access_denied|forbidden.*(token|credential)|the request is missing a valid api key|request had insufficient authentication scopes|no refresh token|nincs access_token|token .*(lejart|expired|revoked)/i
+
+/**
+ * Egy feljegyzett hiba-indok besorolasa.
+ *
+ * A sorrend szamit: a kvota es az abuziv eset KONKRETABB, mint az auth, es
+ * mindketto 403-mal erkezik -- eloszor azokat kell kizarni.
+ */
+export function driveErrorKind(reason: string): DriveErrorKind {
+  const sz = String(reason || '')
+  if (!sz.trim()) return 'other'
+  if (DRIVE_KVOTA_RE.test(sz)) return 'quota'
+  if (DRIVE_ABUZIV_RE.test(sz)) return 'abusive'
+  if (DRIVE_AUTH_RE.test(sz)) return 'auth'
+  return 'other'
+}
+
+/**
+ * Elutasitas-e egyaltalan (van-e benne HTTP hibakod vagy ismert hibaszoveg)?
+ *
+ * Ebbol tudja a kepernyo, hogy egy `other` besorolas "a Google elutasitotta,
+ * de nem tudjuk miert" (errol szolni kell), vagy csak egy halozati/helyi gond.
+ */
+export const DRIVE_ELUTASITAS_RE = /\b(40[0-9]|41[0-9]|42[0-9]|50[0-9])\b/
+
+/**
+ * A Google emberi mondata a nyers valasz-torzsbol.
+ *
+ * A naplo sora `Drive 403: {"error":{"message":"..."}}` alaku (csonkolva, ezert
+ * a JSON gyakran nem is ertelmezheto). Ezert eloszor tisztessegesen probalunk
+ * JSON-t olvasni, es csak utana esunk vissza szovegmintara. Ha egyik sem megy,
+ * ures sztring -- a kepernyo ilyenkor NEM talal ki magyarazatot.
+ */
+export function driveHibaUzenet(reason: string): string {
+  const sz = String(reason || '')
+  const kezdet = sz.indexOf('{')
+  if (kezdet >= 0) {
+    try {
+      const o = JSON.parse(sz.slice(kezdet))
+      const m = o?.error?.message || o?.error?.errors?.[0]?.message
+      if (m) return String(m)
+    } catch { /* csonkolt torzs: jon a szovegminta */ }
+  }
+  const m = /"message"\s*:\s*"([^"]{3,200})/.exec(sz)
+  if (m) return m[1]
+  return ''
+}

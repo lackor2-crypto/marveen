@@ -20301,6 +20301,12 @@ async function renderOverviewConnections() {
   // hosszu lenne akkor is, amikor semmi teendo nincs.
   for (const h of health) {
     if (h.status === 'ok') continue
+    // A bajtban erkezo meresekbol EMBERI szam lesz, a felulet nyelven. A
+    // szerver szandekosan nyers bajtot kuld: a "15,0 GB" magyarul vesszovel,
+    // angolul ponttal helyes, es ezt csak itt, a nyelv ismereteben lehet
+    // eldonteni. Ahol nincs meres, ott NEM keletkezik mezo -- a szoveg ilyenkor
+    // szam nelkul, de oszinten beszel (Boss, 2026-09-22: "mi az hogy nincs hely?").
+    bajtParamok(h.params)
     // A "nem el a Google-hozzaferes" sor MEGNEVEZI a fiokokat -- azokat kell
     // egyesevel ujracsatlakoztatni, es a vegigvezeto ezt HELYBEN elvegzi.
     // Boss, 2026-08-22: "es ha most ez problema akkor az onnellenorzes
@@ -20351,6 +20357,12 @@ async function renderOverviewConnections() {
                 // A megtelt Drive NEM bejelentkezesi hiba: a teendo a helyfelszabaditas,
                 // ami a Raktar oldalon van, nem a Fiokokon (az ujralogin nem segit).
                 : h.id === 'drive_sync_quota_full'
+                  ? "switchPage('drive')"
+                // A kartekonynak jelolt fajl es a besorolatlan elutasitas NEM
+                // bejelentkezesi gond: a fiokok oldalan semmit nem lehetne
+                // kezdeni veluk. A teendo (kezi lementes / a fajl megnezese) a
+                // Raktar oldalon van.
+                : (h.id === 'drive_sync_abusive' || h.id === 'drive_sync_refused')
                   ? "switchPage('drive')"
                 : h.id === 'drive_sync_auth_stuck'
                   ? "switchPage('accounts')"
@@ -33407,6 +33419,46 @@ function _depoBytes(n) {
   let v = n
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
   return v.toFixed(v >= 10 || i === 0 ? 0 : 1) + ' ' + u[i]
+}
+
+/**
+ * A `...B` vegu, bajtban erkezo onellenorzes-parameterekbol emberi szoveg.
+ *
+ * `usedB` -> `used`, `limitB` -> `limit`, es igy tovabb. A mezot HELYBEN adja
+ * hozza, es csak azt, ami tenylegesen megerkezett: egy hianyzo meresbol nem
+ * lesz "0 B", mert a nulla ket dolgot jelenthetne (nincs hely / nem mertuk).
+ */
+function bajtParamok(p) {
+  if (!p || typeof p !== 'object') return p
+  for (const kulcs of Object.keys(p)) {
+    if (!kulcs.endsWith('B')) continue
+    const n = Number(p[kulcs])
+    if (!Number.isFinite(n)) continue
+    p[kulcs.slice(0, -1)] = _emberiBajt(n)
+  }
+  // A mert szamok EGY mondatba, es csak akkor, ha tenyleg van meresunk. Egy
+  // hianyzo parameter `{used}`-kent jelenne meg a kepernyon, ezert a mezo
+  // MINDIG letezik -- meres nelkul ures sztringkent.
+  if ('usedB' in p) p.meres = window.t('health.drive_quota_meres', p)
+  else if (p.meres == null) p.meres = ''
+  // A besorolatlan elutasitasnal a Google mondata hianyozhat (regi naplo). Ezt
+  // KIMONDJUK, nem talalunk ki helyette indokot.
+  if ('msg' in p && !String(p.msg || '').trim()) p.msg = window.t('health.drive_refused_no_msg')
+  return p
+}
+
+/** Bajt -> "15,0 GB" (magyarul) / "15.0 GB" (angolul). */
+function _emberiBajt(n) {
+  const u = ['B', 'KB', 'MB', 'GB', 'TB']
+  let i = 0
+  let v = Math.max(0, Number(n) || 0)
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  const tizedes = (v >= 10 || i === 0) ? 0 : 1
+  const nyelv = (window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU'
+  let szam
+  try { szam = v.toLocaleString(nyelv, { minimumFractionDigits: tizedes, maximumFractionDigits: tizedes }) }
+  catch { szam = v.toFixed(tizedes) }
+  return szam + ' ' + u[i]
 }
 
 // ===========================================================================

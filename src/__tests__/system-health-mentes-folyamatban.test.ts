@@ -17,6 +17,13 @@ const napokkalEzelott = (n: number) => new Date(MOST - n * 86_400_000).toISOStri
 const kartya = { letezik: true, bekapcsolva: true }
 const rendben = (parok: Array<Record<string, unknown>>) => ({ fajta: 'rendben' as const, parok })
 
+/**
+ * Egy akadas a legutobbi futasbol. A `files` a MERT hibaszam: hany fajl akadt
+ * el EBBOL az okbol, EBBEN a fiokban -- nem a globalis varakozo-szam.
+ */
+const akadas = (kind: 'quota' | 'abusive' | 'auth' | 'other', account: string, files: number, at = napokkalEzelott(0), extra: Partial<{ names: string; message: string }> = {}) =>
+  ({ kind, account, files, names: extra.names || '', message: extra.message || '', at })
+
 describe('a felig felment mentes nem mutathat zold sort', () => {
   it('varakozo fajloknal SARGA sor jon, a fajlok szamaval', () => {
     const r = driveSyncRows(MOST, rendben([
@@ -67,11 +74,10 @@ describe('a felig felment mentes nem mutathat zold sort', () => {
 })
 
 describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () => {
-  const authStuck = { account: 'nyalomapuncidma' }
   it('auth-beragadasnal PIROS auth-sor jon, nem a megnyugtato incomplete', () => {
     const r = driveSyncRows(MOST, rendben([
       { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastPending: 518 },
-    ]), kartya, true, authStuck)
+    ]), kartya, true, [akadas('auth', 'nyalomapuncidma', 518)])
     const sor = r.find((x) => x.id === 'drive_sync_auth_stuck')
     expect(sor?.status).toBe('bad')
     expect(sor?.params).toMatchObject({ f: 518, account: 'nyalomapuncidma' })
@@ -82,7 +88,7 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
   it('elavult auth-naplo (azota hibatlan futas volt) nem ad hamis piros sort', () => {
     const r = driveSyncRows(MOST, rendben([
       { account: 'a', lastRunAt: napokkalEzelott(0), lastPending: 10 },
-    ]), kartya, true, { account: 'a', at: napokkalEzelott(3) })
+    ]), kartya, true, [akadas('auth', 'a', 10, napokkalEzelott(3))])
     expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
     expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(true)
   })
@@ -90,7 +96,7 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
   it('auth-hiba nelkul (null) a regi incomplete viselkedes marad', () => {
     const r = driveSyncRows(MOST, rendben([
       { account: 'a', lastRunAt: napokkalEzelott(0), lastPending: 10 },
-    ]), kartya, true, null)
+    ]), kartya, true, [])
     expect(r.some((x) => x.id === 'drive_sync_incomplete')).toBe(true)
     expect(r.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
   })
@@ -104,7 +110,7 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
       { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastPending: 30 },
       // Egy MASIK, egeszseges fiok: 1125 fajlt tolt fel, magatol halad.
       { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastPending: 1125 },
-    ]), kartya, true, { account: 'nyalomapuncidma' })
+    ]), kartya, true, [akadas('auth', 'nyalomapuncidma', 30)])
     const auth = r.find((x) => x.id === 'drive_sync_auth_stuck')
     // NEM 1155 (30+1125), csak a hibas fiok sajat 30-a.
     expect(auth?.params).toMatchObject({ f: 30, account: 'nyalomapuncidma' })
@@ -114,16 +120,25 @@ describe('hitelesitesi hibanal a "magatol folytatja" sor NEM jelenhet meg', () =
     expect(inc?.params).toMatchObject({ n: 1, f: 1125 })
   })
 
-  it('ha az auth-hibas fioknak nincs sajat varakozoja, az auth-sor 0-t mond, a masik fiok fajljai kulon sorba', () => {
+  // Boss, 2026-09-22: a kepernyon ez allt: "0 fajl beragadt, mert a Google-fiok
+  // (nyalomapuncidma) nem tud belepni". Egy nulla darabszamu riasztas
+  // onellentmondas -- es raadasul hamis is volt (a fiok belep). A sor szama
+  // mostantol a MERT hibakbol jon, ezert soha nem lehet nulla: ha nincs mert
+  // hiba, nincs sor sem.
+  it('a sor SOHA nem allithatja, hogy "0 fajl beragadt"', () => {
     const r = driveSyncRows(MOST, rendben([
-      // Az auth-hibas fioknak nincs varakozo fajlja (0), megis be van ragadva a bejelentkezes.
+      // A fiokban nincs varakozo fajl, megis van auth-hiba a naploban.
       { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastResult: 'rendben', lastPending: 0 },
       { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastPending: 1125 },
-    ]), kartya, true, { account: 'nyalomapuncidma' })
-    // Az auth-hiba tovabbra is latszik (a fiok ujra-bejelentkeztetese teendo), de 0 sajat fajllal.
-    expect(r.find((x) => x.id === 'drive_sync_auth_stuck')?.params).toMatchObject({ f: 0, account: 'nyalomapuncidma' })
-    // A 1125 a masik fioke -- soha nem az auth-hibas fiokra fogva.
+    ]), kartya, true, [akadas('auth', 'nyalomapuncidma', 6)])
+    // A mert 6 hibas fajl -- nem a 0 varakozo, es nem a masik fiok 1125-e.
+    expect(r.find((x) => x.id === 'drive_sync_auth_stuck')?.params).toMatchObject({ f: 6, account: 'nyalomapuncidma' })
     expect(r.find((x) => x.id === 'drive_sync_incomplete')?.params).toMatchObject({ n: 1, f: 1125 })
+    // Nulla mert hiba eseten egyaltalan nincs sor (a nulla nem riasztas).
+    const nulla = driveSyncRows(MOST, rendben([
+      { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastResult: 'rendben', lastPending: 0 },
+    ]), kartya, true, [akadas('auth', 'nyalomapuncidma', 0)])
+    expect(nulla.some((x) => x.id === 'drive_sync_auth_stuck')).toBe(false)
   })
 
   it('utolsoFutasAuthHibas: csak a LEGUTOBBI futas auth-hibaja szamit', async () => {
