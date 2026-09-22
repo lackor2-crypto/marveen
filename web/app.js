@@ -36267,6 +36267,64 @@ function _intezoBadge(entry) {
 }
 
 /**
+ * A mappa TARTALMANAK szoveges osszefoglaloja (a meret-oszlopba).
+ *
+ * Kartya #341 -- Boss: "ne kelljen a mappaba belepni ahhoz, hogy kiderüljon,
+ * ures." A szerver harom allapotot kuld (`content.state`), es a NULLA KET
+ * DOLGOT JELENTHET: "nincs benne semmi" vagy "nem lattam bele". Ezert a
+ * `unknown` NEM ures: sajat felirata van, es a buborekban a valodi ok all.
+ */
+function _intezoCountText(e) {
+  const c = e && e.content
+  if (!e.isDir || !c) return ''
+  // "Meg merem" NEM ugyanaz, mint "nem tudom": az elsore jon valasz, a masodikra nem.
+  if (c.pending) return t('intezo.count_measuring')
+  if (c.state === 'unknown') return t('intezo.count_unmeasured')
+  if (c.state === 'empty') return t('intezo.count_empty')
+  const parts = []
+  if (c.folders > 0) {
+    // "3 mappa, mind ures": a fajdalmas eset (Media > Audio / Fotok / Szkennek
+    // / Videok) -- latszolag van tartalom, valojaban sehol egy fajl sem.
+    parts.push(c.files === 0 && c.deep === 'empty'
+      ? t('intezo.count_folders_all_empty', { n: c.folders })
+      : t('intezo.count_folders', { n: c.folders }))
+  }
+  if (c.files > 0) parts.push(t('intezo.count_files', { n: c.files }))
+  return parts.join(' · ')
+}
+
+/**
+ * A tartalom-JELZES a nev elott (pont / ures kor / kerdojel).
+ *
+ * Azert a NEV MELLE kerul es nem csak a szam-oszlopba: keskeny (mobil)
+ * kepernyon a jobb szelso oszlop konnyen lecsuszik a latoterbol, a nev viszont
+ * mindig latszik. A szin csak rasegit -- a jel maga is megkulonboztetheto.
+ */
+function _intezoContentMark(e) {
+  const c = e && e.content
+  if (!e.isDir || !c) return ''
+  let sym = '?'
+  let color = 'var(--warning,#b45309)'
+  let tip = c.reason || t('intezo.content_unmeasured')
+  if (c.pending) {
+    sym = '…'
+    color = 'var(--muted,#9ca3af)'
+    tip = c.reason || t('intezo.count_measuring')
+  } else if (c.state === 'has') {
+    sym = '●'
+    color = 'var(--accent,#2563eb)'
+    const cnt = _intezoCountText(e)
+    tip = t('intezo.content_has') + (cnt ? ' ' + cnt : '')
+  } else if (c.state === 'empty') {
+    sym = '○'
+    color = 'var(--muted,#9ca3af)'
+    tip = t('intezo.content_empty') + ' ' + t('intezo.content_empty_deep')
+  }
+  return '<span class="intezo-content-mark" aria-label="' + escapeHtml(tip) + '" title="' + escapeHtml(tip)
+    + '" style="color:' + color + ';margin-right:5px;font-size:11px">' + sym + '</span>'
+}
+
+/**
  * A reszletes panel VISSZAKOLTOZIK az allando helyere.
  *
  * Minden lista-ujrarajzolas elott le kell valasztani a sorrol: a listat
@@ -36394,7 +36452,7 @@ function _intezoRender() {
           : (_faBeerkezo(e) ? ' style="background:rgba(255,179,0,.14)"' : ''))
       + '>'
       + '<td style="padding:2px 8px;white-space:nowrap">' + _intezoBadge(e) + '</td>'
-      + '<td style="padding:2px 8px"><a href="#" data-open="' + escapeHtml(e.rel) + '"'
+      + '<td style="padding:2px 8px">' + _intezoContentMark(e) + '<a href="#" data-open="' + escapeHtml(e.rel) + '"'
       // Git-terulet: PIROS nev es lakat-jelzes. Nem tiltas -- minden muvelet
       // mukodik --, csak figyelemfelkeltes (Boss, 2026-08-21): "az egy fontos
       // mappa. jobb nem piszkalni".
@@ -36416,7 +36474,9 @@ function _intezoRender() {
       + (e.physical ? ' <span title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')
       + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="' + escapeHtml(t('intezo.badge_mounted')) + '">→ '
           + escapeHtml(e.mounted) + '</span>' : '') + '</td>'
-      + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap">' + escapeHtml(e.sizeHuman) + '</td>'
+      + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap"'
+      + (e.isDir && e.content && e.content.reason ? ' title="' + escapeHtml(e.content.reason) + '"' : '')
+      + '>' + escapeHtml(e.isDir ? _intezoCountText(e) : e.sizeHuman) + '</td>'
       + '<td style="padding:0 8px;white-space:nowrap"><button class="btn-secondary" '
       + 'style="padding:1px 7px;font-size:11px;line-height:1.5;min-height:0;height:auto" '
       + 'data-info="' + escapeHtml(e.rel) + '">Info</button></td>'
@@ -36472,7 +36532,42 @@ function _intezoRender() {
     })
   })
 
+  _intezoScheduleContentRefresh(rows)
   _intezoPlaceInfoCard()
+}
+
+/**
+ * CSENDES UJRAKERES, amig van meg nem mert mappa.
+ *
+ * A szerver a lassu (halozati, atjaro) meghajtokon nem varakoztatja a listat:
+ * amit nem tudott idoben megmerni, azt `pending` jelzessel kuldi, es a hatterben
+ * meri meg. Ezert kerjuk ujra a listat -- de KORLATOZOTTAN (hat probalkozas),
+ * hogy egy tartosan elerhetetlen meghajto miatt ne porogjon a felulet orokke.
+ * Utana a "nem mert" felirat marad, ami igaz -- es nem "ures", ami hazugsag volna.
+ */
+let _intezoContentTimer = null
+let _intezoContentTries = 0
+function _intezoScheduleContentRefresh(rows) {
+  if (_intezoContentTimer) { clearTimeout(_intezoContentTimer); _intezoContentTimer = null }
+  const varakozo = (rows || []).some((e) => e && e.content && e.content.pending)
+  if (!varakozo) { _intezoContentTries = 0; return }
+  if (_intezoContentTries >= 6) return
+  _intezoContentTries++
+  const ut = _intezoPath
+  _intezoContentTimer = setTimeout(async () => {
+    _intezoContentTimer = null
+    // Kozben mashova leptunk vagy keresunk: ez a valasz mar nem ide szol.
+    if (ut !== _intezoPath) return
+    const lista = document.getElementById('intezoList')
+    if (!lista || !lista.offsetParent) return
+    try {
+      const friss = await _intezoGet('/api/life/list?lang=' + (window._lang || 'hu')
+        + '&path=' + encodeURIComponent(ut))
+      if (ut !== _intezoPath) return
+      _intezoListing = friss
+      _intezoRender()
+    } catch (e) { /* a kovetkezo megnyitas ujra probalja */ }
+  }, 1500)
 }
 
 /**
@@ -36562,8 +36657,12 @@ function _intezoOpenFolderPicker(mode) {
       // A git-repok itt is jelolve vannak: aki ide tallozik, lassa elore,
       // hogy oda nem fog tudni bepakolni.
       const sugo = _faSugo(f)
+      // A darabszam ITT IS latszik: aki celmappat valaszt, ne kelljen belepnie
+      // ahhoz, hogy kiderüljon, ures-e (#341).
+      const db = _intezoCountText(f)
       b.textContent = f.name
         + (f.caution ? '  (git — ide nem)' : (sugo ? '  (' + sugo + ')' : ''))
+        + (db ? '  · ' + db : '')
       if (f.caution) b.title = f.caution
       b.addEventListener('click', () => { here = f.rel; draw() })
       list.appendChild(b)

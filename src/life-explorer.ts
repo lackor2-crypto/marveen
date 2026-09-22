@@ -19,7 +19,7 @@
 //     birosagi vegzes visszaallithatatlan -- egy hibauzenet nem az.
 import {
   existsSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync,
-  copyFileSync, rmSync, type Stats,
+  copyFileSync, rmSync, type Stats, type Dirent,
 } from 'node:fs'
 import { join, dirname, basename, resolve, sep } from 'node:path'
 import { APP_LANG } from './config.js'
@@ -139,6 +139,53 @@ export interface LifeEntry {
    * Ures, ha nincs mire figyelmeztetni.
    */
   caution?: string
+  /**
+   * MAPPAKNAL: van-e alatta barmi, es mennyi. Fajloknal hianyzik.
+   *
+   * Azert kell, hogy ne kelljen egy ures mappaba BELEPNI ahhoz, hogy kiderüljön:
+   * ures. Lasd `measureContent` -- ott all, miert HAROM allapot van, es miert
+   * nem szabad a nullat magatol "ures"-nek olvasni.
+   */
+  content?: LifeContent
+}
+
+/**
+ * Egy mappa tartalmanak merese -- HAROM allapottal, nem kettovel.
+ *
+ * A NULLA KET DOLGOT JELENTHET: "nincs benne semmi" vagy "nem lattam bele".
+ * Ezert nem egy darabszamot adunk vissza, hanem egy allapotot is:
+ *
+ *   - `has`     -- bizonyitottan van benne valami (fajl vagy mappa),
+ *   - `empty`   -- bizonyitottan ures (a beolvasas SIKERULT, es nulla tetel jott),
+ *   - `unknown` -- NEM tudtuk megmerni (jogosultsag, eltunt mappa, idokorlat).
+ *
+ * Az `unknown` SOSE latszik uresnek a feluleten: a `reason` mezoben ott all a
+ * VALODI ok (a hiba kodjaval egyutt), nem egy talalgatas.
+ */
+export interface LifeContent {
+  state: 'has' | 'empty' | 'unknown'
+  /** Kozvetlen almappak szama, vagy `null`, ha nem volt merheto. */
+  folders: number | null
+  /** Kozvetlen fajlok szama, vagy `null`, ha nem volt merheto. */
+  files: number | null
+  /**
+   * AZ EGESZ AG: van-e barhol lent fajl.
+   *
+   * `empty` csak akkor, ha a teljes agat vegigjartuk a koltsegkereten belul,
+   * es sehol nem volt fajl (tehat "csak ures mappak"). Ha a keret elfogyott,
+   * `unknown` -- akkor sem hazudunk uresnek, ha kozvetlenul semmit nem lattunk.
+   */
+  deep: 'has' | 'empty' | 'unknown'
+  /** Miert nem sikerult a meres. Ures, ha sikerult. Ember-olvashato, ket nyelven. */
+  reason: string
+  /**
+   * Igaz, ha a meres MEG FOLYIK a hatterben (a keresre nem fert bele).
+   *
+   * Ez NEM ugyanaz, mint a `unknown` vegallapot: itt lesz valasz, csak kesobb.
+   * A felulet ebbol tudja, hogy erdemes ujra elkernie a listat -- es addig sem
+   * ir ki uresat arra, amit meg nem mert meg senki.
+   */
+  pending?: boolean
 }
 
 export interface LifeListing {
@@ -230,7 +277,218 @@ export function humanSize(n: number): string {
   return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
-function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: boolean, lang = APP_LANG): LifeEntry {
+/**
+ * A mar megmert mappak gyorsitotara -- MERT ADATBOL, nem becslesbol.
+ *
+ * Miert kell: a fa egy resze halozati/atjaro meghajton (WSL `drvfs`, NAS) all,
+ * ahol a HIDEG elso beolvasas merhetoen lassu. Sajat meres 2026-09-23-an az
+ * elo fan: a gyoker 11 mappajanak beolvasasa elsore 6247 ms, masodszor 45 ms.
+ * Gyorsitotar nelkul minden lista-megnyitas ujra megfizetne az elso arat.
+ *
+ * A kulcsban benne a NYELV is: az emberi indoklas (`reason`) nyelvfuggo, es egy
+ * magyar mondat egy angol feluleten hiba volna.
+ */
+const contentCache = new Map<string, { content: LifeContent; at: number }>()
+
+/** Meddig ervenyes egy meres. Rovid: a felhasznalo epp most rendezget a faban. */
+const CONTENT_TTL_MS = 15_000
+
+function cacheKey(abs: string, lang: string): string { return `${lang}\u0000${abs}` }
+
+/**
+ * A gyorsitotar eldobasa.
+ *
+ * Minden olyan muvelet utan meg kell hivni, ami a fa tartalmat valtoztatja
+ * (uj mappa, athelyezes, atnevezes, kukazas, vegleges torles) -- kulonben a
+ * felulet a MUVELET ELOTTI darabszamot mutatna, es a felhasznalo azt hinne,
+ * nem tortent meg, amit kert.
+ */
+export function clearContentCache(): void { contentCache.clear() }
+
+/** Hany mappa varhat merese a hatterben. Efolott nem gyujtunk tovabb. */
+const PENDING_MAX = 500
+
+const pendingQueue: Array<{ abs: string; lang: string }> = []
+let pendingTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * A HATTER-MERES: ami a keresbe nem fert bele, azt utana megmerjuk.
+ *
+ * Kikotes: innen SOHA nem kerul vissza tetel a sorba. Ha a hatter-meres sem
+ * birt vele, a vegeredmeny egy oszinte `unknown` a gyorsitotarban -- inkabb
+ * lassa a felhasznalo, hogy nem tudjuk, mint hogy a felulet orokke porogjon.
+ */
+function drainPending(): void {
+  pendingTimer = null
+  const job = pendingQueue.shift()
+  if (!job) return
+  // Sajat, bosegesebb keret: itt mar nem var ra senki a vonal masik vegen.
+  const budget: MeasureBudget = { dirs: 20_000, deadline: Date.now() + 8_000 }
+  try {
+    const c = measureContent(job.abs, job.lang, budget)
+    contentCache.set(cacheKey(job.abs, job.lang), { content: c, at: Date.now() })
+  } catch (e) {
+    logger.warn(`life-explorer: hatter-meres elhasalt (${job.abs}): ${String(e)}`)
+  }
+  if (pendingQueue.length) {
+    pendingTimer = setTimeout(drainPending, 10)
+    if (typeof pendingTimer.unref === 'function') pendingTimer.unref()
+  }
+}
+
+function enqueueMeasure(abs: string, lang: string): void {
+  if (pendingQueue.length >= PENDING_MAX) return
+  if (pendingQueue.some((j) => j.abs === abs && j.lang === lang)) return
+  pendingQueue.push({ abs, lang })
+  if (!pendingTimer) {
+    pendingTimer = setTimeout(drainPending, 10)
+    // `unref`: a meres SOHA ne tartsa eletben a folyamatot (tesztben sem).
+    if (typeof pendingTimer.unref === 'function') pendingTimer.unref()
+  }
+}
+
+/**
+ * A lista szamara: gyorsitotarbol, vagy meres, vagy "meg merem".
+ *
+ * A harmadik ag a lenyeg: ha a keret elfogyott, NEM mondunk uresat. A mappa
+ * `pending` jelzest kap, a meres a hatterben lefut, es a kovetkezo lekeres mar
+ * a valodi szamokat hozza.
+ */
+function contentFor(abs: string, lang: string, budget: MeasureBudget): LifeContent {
+  const key = cacheKey(abs, lang)
+  const hit = contentCache.get(key)
+  if (hit && Date.now() - hit.at < CONTENT_TTL_MS) return hit.content
+  if (budget.dirs <= 0 || Date.now() > budget.deadline) {
+    enqueueMeasure(abs, lang)
+    return {
+      state: 'unknown', folders: null, files: null, deep: 'unknown', pending: true,
+      reason: T(lang, 'Még mérem, mi van benne — egy pillanat.', 'Still measuring what is inside — one moment.'),
+    }
+  }
+  const c = measureContent(abs, lang, budget)
+  contentCache.set(key, { content: c, at: Date.now() })
+  return c
+}
+
+/**
+ * Rejtett vagy rendszer-tetel-e. EGY helyen, mert KET helyen kell ugyanaz:
+ * a lista es a darabszam-meres kulonben mast mondana ("3 mappa", majd egy
+ * latszolag ures lista).
+ */
+function isHiddenEntry(name: string): boolean {
+  return name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information'
+}
+
+/**
+ * A meres KOLTSEGKERETE -- egy listazasra egy keret.
+ *
+ * Miert kell: a fa alatt halozati meghajto (Drive-tukor, NAS) is allhat, ahol
+ * egyetlen mappa beolvasasa masodpercekig tarthat. A keret nelkul egy nagy
+ * mappa megnyitasa megallitana a feluletet. Ha a keret elfogy, a meg nem mert
+ * mappak `unknown` allapotot kapnak -- NEM uresat.
+ */
+interface MeasureBudget {
+  /** Hany mappa-beolvasas maradt. */
+  dirs: number
+  /** Meddig merhetunk (epoch ms). */
+  deadline: number
+}
+
+/** Egy listazas kerete: 3000 mappa-beolvasas, legfeljebb 2 masodperc. */
+function newMeasureBudget(): MeasureBudget {
+  // Rovid hatarido SZANDEKOSAN: a lista NE varjon a meresre. Ami nem fer bele,
+  // azt a hatter meri meg (`enqueueMeasure`), es a kovetkezo lekeresre kesz.
+  return { dirs: 3000, deadline: Date.now() + 800 }
+}
+
+/** Meddig megyunk le az agban a "van-e barhol lent fajl" kerdesnel. */
+const MEASURE_MAX_DEPTH = 6
+
+/**
+ * A beolvasas hibajanak EMBERI mondata -- a VALODI hibabol, nem talalgatva.
+ *
+ * A hibakodot (`EACCES`, `ENOENT`, ...) is kiirjuk: ha egy ismeretlen eset jon,
+ * a felhasznalo legalabb azt latja, MI allt a rendszer utjaba -- a "valami
+ * hiba tortent" semmit nem er.
+ */
+function readErrorText(err: unknown, lang: string): string {
+  const code = (err as NodeJS.ErrnoException)?.code || ''
+  if (code === 'EACCES' || code === 'EPERM') {
+    return T(lang, `Nincs betekintési jogom ebbe a mappába (${code}).`, `I have no permission to look inside this folder (${code}).`)
+  }
+  if (code === 'ENOENT') {
+    return T(lang, 'Ez a mappa időközben eltűnt (ENOENT).', 'This folder has disappeared in the meantime (ENOENT).')
+  }
+  if (code === 'ENOTDIR') {
+    return T(lang, 'Ez nem mappa (ENOTDIR).', 'This is not a folder (ENOTDIR).')
+  }
+  const msg = (err as Error)?.message || String(err)
+  return T(lang, `Nem tudtam belenézni: ${code || msg}`, `Could not look inside: ${code || msg}`)
+}
+
+/** A koltsegkeret kimerult -- emberi mondat. */
+function budgetText(lang: string): string {
+  return T(lang,
+    'Ezt a mappát most nem mértem meg (sok a tétel vagy lassú a meghajtó). Nyisd meg, és látni fogod.',
+    'I did not measure this folder now (too many entries or a slow drive). Open it and you will see.')
+}
+
+/**
+ * Egy mappa tartalmanak merese: kozvetlen darabszamok + "van-e barhol lent fajl".
+ *
+ * A kozvetlen szamok EGY beolvasasbol jonnek. A melysegi kerdesre csak akkor
+ * megyunk le, ha kozvetlenul nincs fajl, de van almappa -- eppen ez a fajdalmas
+ * eset ("Média > Audio / Fotók / Szkennek / Videók": negy mappa, mindegyik ures).
+ *
+ * SOSE mondunk uresat olyanra, amit nem lattunk: hibanal es kimerult keretnel
+ * `unknown` jon, a `reason`-ben a valodi okkal.
+ */
+function measureContent(abs: string, lang: string, budget: MeasureBudget, depth = 0): LifeContent {
+  const unknown = (reason: string): LifeContent =>
+    ({ state: 'unknown', folders: null, files: null, deep: 'unknown', reason })
+
+  if (budget.dirs <= 0 || Date.now() > budget.deadline) return unknown(budgetText(lang))
+
+  let items: Dirent[]
+  budget.dirs--
+  try { items = readdirSync(abs, { withFileTypes: true }) } catch (e) { return unknown(readErrorText(e, lang)) }
+
+  let folders = 0
+  let files = 0
+  const subdirs: string[] = []
+  for (const it of items) {
+    if (isHiddenEntry(it.name)) continue
+    let isDir = it.isDirectory()
+    // Jelkapcsolatnal a CELT nezzuk -- ugyanugy, ahogy a lista (`statSync`).
+    // Ha a cel nem elerheto, fajlkent szamoljuk: az egy tetel, ami ott van.
+    if (!isDir && it.isSymbolicLink()) {
+      try { isDir = statSync(join(abs, it.name)).isDirectory() } catch { isDir = false }
+    }
+    if (isDir) { folders++; subdirs.push(it.name) } else files++
+  }
+
+  const state: LifeContent['state'] = (folders + files) > 0 ? 'has' : 'empty'
+
+  // Melysegi valasz. Fajl kozvetlenul -> kesz. Almappa sincs -> bizonyitottan ures.
+  if (files > 0) return { state, folders, files, deep: 'has', reason: '' }
+  if (folders === 0) return { state, folders, files, deep: 'empty', reason: '' }
+  if (depth >= MEASURE_MAX_DEPTH) {
+    return { state, folders, files, deep: 'unknown', reason: T(lang,
+      'Az ág mélyebb, mint ameddig lenéztem -- lehet lent tartalom.',
+      'The branch is deeper than I looked -- there may be content below.') }
+  }
+
+  let sawUnknown = ''
+  for (const sub of subdirs) {
+    const child = measureContent(join(abs, sub), lang, budget, depth + 1)
+    if (child.deep === 'has') return { state, folders, files, deep: 'has', reason: '' }
+    if (child.deep === 'unknown' && !sawUnknown) sawUnknown = child.reason
+  }
+  if (sawUnknown) return { state, folders, files, deep: 'unknown', reason: sawUnknown }
+  return { state, folders, files, deep: 'empty', reason: '' }
+}
+
+function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: boolean, lang = APP_LANG, budget?: MeasureBudget): LifeEntry {
   const rel = rootRel ? `${rootRel}/${name}` : name
   const isDir = st.isDirectory()
   const src: SourceInfo = detectSource(abs, isDir, deep && isDir)
@@ -252,6 +510,10 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     physical: getPhysical(rel).physical,
     mounted: '',
     caution: cautionFor(rel, name, abs, isDir, lang),
+    // Mappaknal: van-e alatta barmi. Keret nelkul (pl. egyedi hivas) nem merunk:
+    // a mezo ilyenkor hianyzik, es a felulet nem ir ki rola semmit -- ez tisztabb,
+    // mint egy meg nem mert nulla.
+    ...(isDir && budget ? { content: contentFor(abs, lang, budget) } : {}),
   }
 }
 
@@ -343,11 +605,14 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
 
   const folders: LifeEntry[] = []
   const files: LifeEntry[] = []
+  // EGY koltsegkeret az egesz listazasra: a mappak tartalmi meresere. Lasd
+  // `newMeasureBudget` -- a keret vedi meg a feluletet a lassu meghajtoktol.
+  const budget = newMeasureBudget()
   let seen = 0
   for (const name of names) {
     // A rejtett es rendszer-tetelek csak zajt visznek a listaba. A `.git`
     // SZANDEKOSAN nem latszik: a git-jelveny amugy is kimondja, hogy repo.
-    if (name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information') continue
+    if (isHiddenEntry(name)) continue
     if (++seen > MAX_ENTRIES) { base.truncated = true; break }
     const full = join(abs, name)
     let cst: Stats
@@ -355,7 +620,7 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
     // Drive-bekotes) ugy viselkedjen, mint amire mutat. A KILEPEST nem ez
     // vedi, hanem a `resolveLifePath` -- ott derül ki, ha kifele visz.
     try { cst = statSync(full) } catch { continue }
-    const e = entryFrom(full, name, cst, base.rel, deep, lang)
+    const e = entryFrom(full, name, cst, base.rel, deep, lang, budget)
     if (e.isDir) folders.push(e)
     else files.push(e)
   }
@@ -369,7 +634,7 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
     if (!mAbs) continue
     let mst: Stats
     try { mst = statSync(mAbs) } catch { continue }
-    const e = entryFrom(mAbs, name, mst, base.rel, deep, lang)
+    const e = entryFrom(mAbs, name, mst, base.rel, deep, lang, budget)
     e.rel = m.rel
     e.mounted = m.label
     // A bekotesi pont MAJDNEM MINDIG egy mar letezo fa-mappa (`Média/Fotók`),
@@ -633,6 +898,9 @@ export interface MoveResult {
  * maradna.)
  */
 export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): MoveResult {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const from = resolveLifePath(fromRel)
   const toDir = resolveLifePath(toDirRel)
   if (!from || !toDir) {
@@ -708,6 +976,9 @@ function withNameAdvice(result: MoveResult, advice: NameAdvice): MoveResult {
 
 /** Uj mappa a fan belul. A nev nem lehet utvonal -- csak nev. */
 export function mkdirLife(parentRel: string, name: string, lang = APP_LANG): MoveResult {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const clean = safeLifeName(name)
   if (!clean || clean === '_') {
     return { ok: false, rel: '', code: 'bad_name', message: T(lang, 'Adj meg egy nevet a mappának.', 'Give the folder a name.') }
@@ -744,6 +1015,9 @@ export function mkdirLife(parentRel: string, name: string, lang = APP_LANG): Mov
  * szint mar letezik, azt csendben kihagyjuk -- nem hiba.
  */
 export function mkdirLifePath(rel: string, lang = APP_LANG): MoveResult {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const parts = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').split('/').filter(Boolean)
   if (!parts.length) {
     return { ok: false, rel: '', code: 'bad_name', message: T(lang, 'Adj meg egy célmappát.', 'Give a target folder.') }
@@ -772,6 +1046,9 @@ export function mkdirLifePath(rel: string, lang = APP_LANG): MoveResult {
  * is mas („mar van ilyen nevu itt" vs. „a celmappaban mar van ilyen").
  */
 export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveResult {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const abs = resolveLifePath(rel)
   if (!abs) {
     return { ok: false, rel: '', code: 'outside', message: T(lang, 'Ez a hely nincs a Marveen mappáján belül, ezért nem nyúlok hozzá.', 'This place is not inside the Marveen folder, so I will not touch it.') }
@@ -840,6 +1117,9 @@ function szabadNev(dir: string, name: string): string {
 }
 
 export function trashLife(rel: string, lang = APP_LANG): MoveResult {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const root = explorerRoot()
   const abs = resolveLifePath(rel)
   if (!root || !abs) {
@@ -906,6 +1186,9 @@ export function trashLife(rel: string, lang = APP_LANG): MoveResult {
  * torlodik, csak kiurul -- kell a hely a kovetkezo kukazasnak.
  */
 export function purgeLife(rel: string, lang = APP_LANG): MoveResult {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const root = explorerRoot()
   const abs = resolveLifePath(rel)
   if (!root || !abs) {
@@ -978,6 +1261,9 @@ const KUKA_BELYEG = /^(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})$/
  * `days <= 0` esetén meg sem mozdulunk: az a „soha" beallitas.
  */
 export function autoPurgeTrash(days: number, most = Date.now()): { torolt: number; nevek: string[] } {
+  // A fa TARTALMA valtozik: a darabszam-gyorsitotar innentol hazudna.
+  clearContentCache()
+
   const nevek: string[] = []
   if (!Number.isFinite(days) || days <= 0) return { torolt: 0, nevek }
   const kukaRel = lifeName('system', APP_LANG) + '/' + lifeName('trash', APP_LANG)

@@ -58,6 +58,7 @@ import { pipeline } from 'node:stream/promises'
 import { APP_LANG } from '../../config.js'
 import {
   listLife, lifeInfo, moveLife, mkdirLife, mkdirLifePath, renameLife, trashLife, purgeLife, searchLife, explorerRoot,
+  clearContentCache,
   resolveLifePath,
 } from '../../life-explorer.js'
 import { contentDispositionHeader } from './drive-browser.js'
@@ -146,6 +147,12 @@ function lifeFileKind(name: string): { mime: string | null; previewable: boolean
 export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
   if (!path.startsWith('/api/life/')) return false
+
+  // MINDEN iras eldobja a mappa-darabszamok gyorsitotarat (#341). Egy helyen,
+  // a bejaratnal: igy egy kesobb hozzaadott iro vegpont sem felejtheti el, es
+  // a felulet nem mutathat a MUVELET ELOTTI darabszamot. Olvasasra nem nyulunk
+  // hozza -- ott eppen a gyorsitotar a lenyeg.
+  if (method !== 'GET' && method !== 'HEAD') clearContentCache()
 
   // Depo nelkul egyetlen vegpontnak sincs ertelme -- es ez nem hiba, hanem egy
   // meg el nem vegzett beallitas. Ezert mondjuk meg, HOVA menjen erte.
