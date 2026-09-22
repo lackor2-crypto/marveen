@@ -27,6 +27,19 @@
     error: null,
     // Mobilon egyszerre egy panel latszik; asztalin mind a harom.
     panel: 'items',
+    // --- agent-chat (3. fazis) ---
+    // Beszelgetesek KULCS szerint: a kivalasztott munkadarabe kulon, a
+    // munkadarab nelkuli (projekt-szintu) kulon. Igy a valtogatas nem keveri
+    // ossze oket, es nem is vesz el semmi.
+    chat: {},
+    chatStatus: null,
+    chatStatusError: null,
+    chatStreaming: false,
+    chatAbort: null,
+    chatDraft: '',
+    chatSetupOpen: false,
+    chatSetupBusy: false,
+    chatConfig: null,
   }
 
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
@@ -183,15 +196,347 @@
       + rows.join('') + '</section>'
   }
 
-  function chatBarHtml() {
-    return '<div class="wb-chat" aria-disabled="true">'
+  // ---- agent-chat (3. fazis) -------------------------------------------------
+  //
+  // A chat SOSE szurke. Boss, 2026-09-21: "Agent-chat NE legyen szurke/letiltva,
+  // meg akkor sem, ha nincs munkadarab kivalasztva." Ezert a bevitel MINDIG
+  // eleheto: ha nincs szolgaltato beallitva, nem a mezot tiltjuk le, hanem a
+  // valaszban mondjuk meg emberi mondattal, hogy mi hianyzik es hol lehet
+  // megadni -- ugyanabbol a feluletbol, terminal nelkul.
+
+  /** Melyik beszelgetes: a kivalasztott munkadarabe, vagy a projekte. */
+  function chatKey() { return WB.selectedId || ('project:' + WB.projectId) }
+
+  function chatState() {
+    if (!WB.chat[chatKey()]) {
+      WB.chat[chatKey()] = { turns: [], loaded: false, loading: false, error: null, sessionId: null }
+    }
+    return WB.chat[chatKey()]
+  }
+
+  /** A szolgaltato + keret allapota. Nem talalgat: amit a szerver mond, az megy ki. */
+  function loadChatStatus() {
+    if (!WB.projectId) return
+    WB.chatStatus = null
+    WB.chatStatusError = null
+    api('GET', '/api/workbench/agent/status?project=' + encodeURIComponent(WB.projectId)).then(function (r) {
+      if (!WB.open) return
+      if (r.ok) { WB.chatStatus = r.data; WB.chatStatusError = null }
+      else { WB.chatStatus = null; WB.chatStatusError = r.message }
+      renderChat()
+    })
+  }
+
+  /** A mar lezajlott beszelgetes visszaolvasasa. URES LISTA NEM UGYANAZ, mint a
+   *  "nem latok oda": a hibat kulon mondjuk ki. */
+  function loadChatHistory() {
+    var st = chatState()
+    if (st.loaded || st.loading || !WB.projectId) return
+    st.loading = true
+    var url = WB.selectedId
+      ? '/api/workbench/agent/session?workItem=' + encodeURIComponent(WB.selectedId)
+      : '/api/workbench/agent/session?project=' + encodeURIComponent(WB.projectId)
+    api('GET', url).then(function (r) {
+      st.loading = false
+      if (!r.ok) { st.error = r.message; renderChat(); return }
+      st.loaded = true
+      st.error = null
+      st.sessionId = r.data.session ? r.data.session.id : null
+      var regi = (r.data.messages || []).filter(function (m) { return m.role !== 'tool' }).map(function (m) {
+        return { role: m.role === 'user' ? 'user' : 'agent', text: m.content || '', tools: [], notices: [], error: null, done: true }
+      })
+      // ELE fuzzuk, nem felulirjuk. A betoltes kozben a felhasznalo mar
+      // irhatott (eppen azert nem szurke a mezo); a kesve beerkezo elozmeny
+      // nem torolheti le a kepernyorol a sajat mondatat es a valaszt.
+      st.turns = regi.concat(st.turns)
+      renderChat()
+    })
+  }
+
+  function chatStatusHtml() {
+    if (WB.chatStatusError) {
+      return '<span class="wb-chat-state wb-chat-state-bad">' + esc(WB.chatStatusError) + '</span>'
+    }
+    if (!WB.chatStatus) {
+      return '<span class="wb-chat-state wb-muted">' + esc(t('workbench.chat.status_loading')) + '</span>'
+    }
+    var s = WB.chatStatus
+    var bits = []
+    if (s.provider && s.provider.available) {
+      bits.push(esc(t('workbench.chat.provider_on', { model: s.provider.model || '-' })))
+    } else {
+      bits.push('<span class="wb-chat-state-bad">' + esc((s.provider && s.provider.message) || t('workbench.chat.provider_off')) + '</span>')
+    }
+    if (s.usage) {
+      // A MERETLEN keret NEM nulla szazalek.
+      bits.push(s.usage.measured
+        ? esc(t('workbench.chat.usage', { pct: s.usage.usedPct }))
+        : esc(s.usage.message || t('workbench.chat.usage_unknown')))
+    }
+    if (s.allowed === false && s.blockedReason) {
+      bits.push('<span class="wb-chat-state-bad">' + esc(s.blockedReason) + '</span>')
+    }
+    return '<span class="wb-chat-state">' + bits.join(' · ') + '</span>'
+  }
+
+  /** A kulcs/modell beallitasa UGYANEBBOL a feluletbol -- terminal nelkul. */
+  function chatSetupHtml() {
+    var cfg = WB.chatConfig || { WORKBENCH_MODEL: '', keyConfigured: false }
+    return '<form class="wb-chat-setup" id="wbChatSetup">'
+      + '<p class="wb-hint">' + esc(t('workbench.chat.setup_intro')) + '</p>'
+      + '<label class="wb-label" for="wbChatKey">' + esc(t('workbench.chat.setup_key_label')) + '</label>'
+      + '<input class="wb-input" id="wbChatKey" type="password" autocomplete="off" placeholder="'
+      + escA(cfg.keyConfigured ? t('workbench.chat.setup_key_set') : t('workbench.chat.setup_key_placeholder')) + '">'
+      + '<p class="wb-hint">' + esc(t('workbench.chat.setup_key_hint')) + ' '
+      + '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a></p>'
+      + '<label class="wb-label" for="wbChatModel">' + esc(t('workbench.chat.setup_model_label')) + '</label>'
+      + '<input class="wb-input" id="wbChatModel" type="text" autocomplete="off" value="' + escA(cfg.WORKBENCH_MODEL || '') + '" placeholder="'
+      + escA(t('workbench.chat.setup_model_placeholder')) + '">'
+      + '<p class="wb-hint">' + esc(t('workbench.chat.setup_model_hint')) + '</p>'
+      + '<div class="wb-form-actions">'
+      + '<button type="submit" class="btn-primary" data-wb-act="chat-setup-save"' + (WB.chatSetupBusy ? ' disabled' : '') + '>'
+      + esc(WB.chatSetupBusy ? t('workbench.chat.setup_saving') : t('workbench.chat.setup_save')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="chat-setup-close">' + esc(t('common.cancel')) + '</button>'
+      + '</div></form>'
+  }
+
+  function toolLineHtml(tool) {
+    var cls = tool.status === 'error' || tool.status === 'blocked' ? ' wb-tool-bad'
+      : tool.status === 'needs_approval' ? ' wb-tool-wait' : ''
+    return '<div class="wb-tool' + cls + '">'
+      + '<span class="wb-tool-name">' + esc(tool.name) + '</span> '
+      + esc(t('workbench.chat.tool_' + tool.status))
+      + (tool.detail ? ' <span class="wb-muted">' + esc(tool.detail) + '</span>' : '')
+      + (tool.approvalId ? ' <span class="wb-muted">' + esc(t('workbench.chat.approval_id', { id: tool.approvalId })) + '</span>' : '')
+      + '</div>'
+  }
+
+  function turnHtml(turn) {
+    var who = turn.role === 'user' ? t('workbench.chat.you') : t('workbench.chat.agent')
+    var body = ''
+    if (turn.text) body += '<div class="wb-turn-text">' + esc(turn.text) + '</div>'
+    if (turn.tools && turn.tools.length) body += turn.tools.map(toolLineHtml).join('')
+    if (turn.notices && turn.notices.length) {
+      body += turn.notices.map(function (n) { return '<div class="wb-turn-notice">' + esc(n) + '</div>' }).join('')
+    }
+    if (turn.error) body += '<div class="info-box depo-bad">' + esc(turn.error) + '</div>'
+    if (turn.aborted) body += '<div class="wb-turn-notice">' + esc(t('workbench.chat.stopped')) + '</div>'
+    if (!body && turn.role === 'agent') body = '<div class="wb-turn-text wb-muted">' + esc(t('workbench.chat.thinking')) + '</div>'
+    return '<div class="wb-turn wb-turn-' + (turn.role === 'user' ? 'user' : 'agent') + '">'
+      + '<div class="wb-turn-who">' + esc(who) + '</div>' + body + '</div>'
+  }
+
+  function chatLogHtml() {
+    var st = chatState()
+    if (st.error) return '<div class="info-box depo-bad">' + esc(st.error) + '</div>'
+    if (!st.loaded && st.loading) return '<p class="wb-muted">' + esc(t('workbench.loading')) + '</p>'
+    if (!st.turns.length) {
+      return '<p class="wb-muted wb-chat-hello">' + esc(WB.selectedId
+        ? t('workbench.chat.hello_item')
+        : t('workbench.chat.hello_project')) + '</p>'
+    }
+    return st.turns.map(turnHtml).join('')
+  }
+
+  function chatInnerHtml() {
+    var streaming = WB.chatStreaming
+    var max = (WB.chatStatus && WB.chatStatus.maxMessageChars) || 8000
+    return '<div class="wb-chat-head">'
       + '<label class="wb-chat-label" for="wbChatInput">' + esc(t('workbench.chat.title')) + '</label>'
+      + chatStatusHtml()
+      + '<button type="button" class="btn-secondary wb-chat-setup-btn" data-wb-act="chat-setup">' + esc(t('workbench.chat.setup')) + '</button>'
+      + '</div>'
+      + (WB.chatSetupOpen ? chatSetupHtml() : '')
+      + '<div class="wb-chat-log" id="wbChatLog">' + chatLogHtml() + '</div>'
       + '<div class="wb-chat-row">'
-      + '<input class="wb-input" id="wbChatInput" type="text" disabled placeholder="' + escA(t('workbench.chat.placeholder')) + '">'
-      + '<button type="button" class="btn-primary" disabled>' + esc(t('workbench.chat.send')) + '</button>'
+      + '<textarea class="wb-input wb-chat-input" id="wbChatInput" rows="2" maxlength="' + max + '" placeholder="'
+      + escA(t('workbench.chat.placeholder')) + '">' + esc(WB.chatDraft) + '</textarea>'
+      + (streaming
+        ? '<button type="button" class="btn-secondary" data-wb-act="chat-stop">' + esc(t('workbench.chat.stop')) + '</button>'
+        : '<button type="button" class="btn-primary" data-wb-act="chat-send">' + esc(t('workbench.chat.send')) + '</button>')
       + '</div>'
-      + '<p class="wb-hint">' + esc(t('workbench.chat.soon')) + '</p>'
-      + '</div>'
+      + '<p class="wb-hint">' + esc(WB.selectedId && WB.detail
+        ? t('workbench.chat.target_item', { title: WB.detail.item.title })
+        : t('workbench.chat.target_project')) + '</p>'
+  }
+
+  function chatBarHtml() {
+    return '<div class="wb-chat" id="wbChat">' + chatInnerHtml() + '</div>'
+  }
+
+  /** CSAK a chat-sav ujrarajzolasa: streameles kozben a teljes oldal ujraepitese
+   *  elvenne a fokuszt es a gorgetest. Ha a sav nincs a DOM-ban (meg nem
+   *  rajzoltunk), a teljes rajzolas lep a helyebe. */
+  function renderChat() {
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbChat') : null
+    if (!el || typeof el.innerHTML !== 'string') { render(); return }
+    var focused = false
+    try { focused = !!(document.activeElement && document.activeElement.id === 'wbChatInput') } catch (_e) { focused = false }
+    el.innerHTML = chatInnerHtml()
+    var log = document.getElementById('wbChatLog')
+    if (log && typeof log.scrollHeight === 'number') log.scrollTop = log.scrollHeight
+    if (focused) {
+      var input = document.getElementById('wbChatInput')
+      if (input && typeof input.focus === 'function') {
+        input.focus()
+        try { input.selectionStart = input.selectionEnd = input.value.length } catch (_e2) { /* nem baj */ }
+      }
+    }
+  }
+
+  /** Egy SSE-keret (`event: x\ndata: {...}`) feldolgozasa. */
+  function applyChatEvent(turn, ev) {
+    if (!ev || !ev.type) return
+    if (ev.type === 'session') { chatState().sessionId = ev.sessionId; return }
+    if (ev.type === 'text') { turn.text += ev.text || ''; return }
+    if (ev.type === 'tool') {
+      var found = null
+      for (var i = turn.tools.length - 1; i >= 0; i--) {
+        if (turn.tools[i].name === ev.name && turn.tools[i].status === 'running') { found = turn.tools[i]; break }
+      }
+      if (found) { found.status = ev.status; found.detail = ev.detail || found.detail; found.approvalId = ev.approvalId || found.approvalId }
+      else turn.tools.push({ name: ev.name, status: ev.status, detail: ev.detail || '', approvalId: ev.approvalId || '' })
+      return
+    }
+    if (ev.type === 'notice') { turn.notices.push(ev.message || ev.code); return }
+    if (ev.type === 'error') { turn.error = ev.message || ev.code; return }
+    if (ev.type === 'done') { turn.done = true; turn.model = ev.model || null }
+  }
+
+  function parseSseChunk(turn, chunk) {
+    var lines = String(chunk).split('\n')
+    var data = ''
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].indexOf('data:') === 0) data += lines[i].slice(5).trim()
+    }
+    if (!data) return
+    try { applyChatEvent(turn, JSON.parse(data)) } catch (_e) { /* fel-keret: eldobjuk */ }
+  }
+
+  function finishChatTurn(turn) {
+    WB.chatStreaming = false
+    WB.chatAbort = null
+    if (!turn.done) turn.done = true
+    renderChat()
+    // Ha az agens MUNKADARABOT hozott letre vagy valtoztatott (Boss 2. keres:
+    // "az agent-chatbol lehessen uj munkadarabot letrehozni"), a lista ne
+    // maradjon a regi allapoton. Ujratoltjuk -- nem talalgatunk, a szerver
+    // mondja meg, mi lett belole.
+    var valtozott = (turn.tools || []).some(function (x) {
+      return x.status === 'ok' && String(x.name || '').indexOf('workItem.') === 0
+    })
+    if (valtozott && WB.projectId) {
+      load(WB.projectId)
+      if (WB.selectedId) loadDetail(WB.selectedId)
+    }
+    // A keret allapota a fordulo utan mar mas: ujramerjuk, nem emlekezetbol irjuk.
+    loadChatStatus()
+  }
+
+  function sendChat() {
+    if (WB.chatStreaming) return
+    // A mezo TENYLEGES tartalma a forras -- az `input` esemenyre epiteni
+    // onmagaban keves (beillesztes, IME, automatikus kitoltes utan elmaradhat).
+    var el = typeof document.getElementById === 'function' ? document.getElementById('wbChatInput') : null
+    if (el && typeof el.value === 'string') WB.chatDraft = el.value
+    var text = String(WB.chatDraft || '').trim()
+    if (!text) return
+    var st = chatState()
+    st.turns.push({ role: 'user', text: text, tools: [], notices: [], error: null, done: true })
+    var turn = { role: 'agent', text: '', tools: [], notices: [], error: null, done: false }
+    st.turns.push(turn)
+    WB.chatDraft = ''
+    WB.chatStreaming = true
+    renderChat()
+
+    var body = { project_id: WB.projectId, work_item_id: WB.selectedId || null, message: text }
+    var opts = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify(body),
+    }
+    if (typeof AbortController === 'function') {
+      WB.chatAbort = new AbortController()
+      opts.signal = WB.chatAbort.signal
+    }
+    var url = '/api/workbench/agent/message?lang=' + encodeURIComponent(window._lang || 'hu')
+    fetch(url, opts).then(function (res) {
+      if (!res.ok) {
+        // A streameles MEGKEZDESE ELOTTI hiba rendes JSON -- azt a mondatot irjuk ki.
+        return (res.json ? res.json() : Promise.resolve(null)).catch(function () { return null }).then(function (d) {
+          turn.error = (d && d.message) || t('workbench.err.http', { status: res.status })
+          finishChatTurn(turn)
+        })
+      }
+      if (res.body && typeof res.body.getReader === 'function' && typeof TextDecoder === 'function') {
+        var reader = res.body.getReader()
+        var dec = new TextDecoder()
+        var buf = ''
+        var pump = function () {
+          return reader.read().then(function (r) {
+            if (r.done) { if (buf.trim()) parseSseChunk(turn, buf); finishChatTurn(turn); return null }
+            buf += dec.decode(r.value, { stream: true })
+            var parts = buf.split('\n\n')
+            buf = parts.pop()
+            for (var i = 0; i < parts.length; i++) parseSseChunk(turn, parts[i])
+            renderChat()
+            return pump()
+          })
+        }
+        return pump()
+      }
+      // Nincs streamelheto test (regi bongeszo): egyben olvassuk be. A valasz
+      // ugyanaz, csak nem gepelve jelenik meg.
+      if (typeof res.text === 'function') {
+        return res.text().then(function (txt) {
+          var parts = String(txt).split('\n\n')
+          for (var i = 0; i < parts.length; i++) parseSseChunk(turn, parts[i])
+          finishChatTurn(turn)
+        })
+      }
+      turn.error = t('workbench.chat.no_stream')
+      finishChatTurn(turn)
+      return null
+    }).catch(function (e) {
+      if (e && e.name === 'AbortError') turn.aborted = true
+      else turn.error = t('workbench.err.network')
+      finishChatTurn(turn)
+    })
+  }
+
+  function stopChat() {
+    if (WB.chatAbort && typeof WB.chatAbort.abort === 'function') WB.chatAbort.abort()
+    else { WB.chatStreaming = false; renderChat() }
+  }
+
+  function openChatSetup() {
+    WB.chatSetupOpen = true
+    renderChat()
+    api('GET', '/api/workbench/agent/config').then(function (r) {
+      if (r.ok) WB.chatConfig = r.data
+      renderChat()
+    })
+  }
+
+  function saveChatSetup() {
+    if (WB.chatSetupBusy) return
+    var keyEl = document.getElementById('wbChatKey')
+    var modelEl = document.getElementById('wbChatModel')
+    var body = {}
+    // URES kulcs-mezo NEM torles: a felulet sosem kapja meg a meglevo kulcsot.
+    if (keyEl && String(keyEl.value || '').trim()) body.WORKBENCH_ANTHROPIC_API_KEY = String(keyEl.value).trim()
+    if (modelEl) body.WORKBENCH_MODEL = String(modelEl.value || '').trim()
+    if (!Object.keys(body).length) { WB.chatSetupOpen = false; renderChat(); return }
+    WB.chatSetupBusy = true
+    renderChat()
+    api('POST', '/api/workbench/agent/config', body).then(function (r) {
+      WB.chatSetupBusy = false
+      if (!r.ok) { renderChat(); window.showToast(r.message); return }
+      WB.chatSetupOpen = false
+      window.showToast(t('workbench.chat.setup_saved'))
+      loadChatStatus()
+      renderChat()
+    })
   }
 
   function panelTabsHtml() {
@@ -253,8 +598,19 @@
     WB.formOpen = false
     WB.error = null
     WB.panel = 'items'
+    WB.chat = {}
+    WB.chatStatus = null
+    WB.chatStatusError = null
+    WB.chatStreaming = false
+    WB.chatAbort = null
+    WB.chatDraft = ''
+    WB.chatSetupOpen = false
+    WB.chatSetupBusy = false
+    WB.chatConfig = null
     render()
     load(projectId)
+    loadChatStatus()
+    loadChatHistory()
   }
 
   function closeWorkbench() {
@@ -282,6 +638,8 @@
       WB.selectedId = itemBtn.getAttribute('data-wb-item')
       WB.panel = 'editor'
       loadDetail(WB.selectedId)
+      // Mas munkadarab = MAS beszelgetes: a hozza tartozot toltjuk be.
+      loadChatHistory()
       return
     }
     var act = e.target.closest('[data-wb-act]')
@@ -292,11 +650,34 @@
     else if (a === 'new') { if (!archived()) { WB.formOpen = true; render() } }
     else if (a === 'cancel-new') { WB.formOpen = false; render() }
     else if (a === 'create') { e.preventDefault(); create() }
+    else if (a === 'chat-send') sendChat()
+    else if (a === 'chat-stop') stopChat()
+    else if (a === 'chat-setup') openChatSetup()
+    else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
+    else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }
+  })
+
+  // A bevitel erteket allapotban tartjuk: a chat-sav ujrarajzolasa (streameles
+  // kozben soronkent) kulonben eltorolne a felig beirt mondatot.
+  document.addEventListener('input', function (e) {
+    if (!WB.open || !e.target) return
+    if (e.target.id === 'wbChatInput') WB.chatDraft = e.target.value
+  })
+
+  // Enter kuld, Shift+Enter uj sort ir. (Telefonon a gomb marad a fo ut.)
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || !e.target || e.target.id !== 'wbChatInput') return
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (typeof e.preventDefault === 'function') e.preventDefault()
+      WB.chatDraft = e.target.value
+      sendChat()
+    }
   })
 
   document.addEventListener('submit', function (e) {
     if (!WB.open) return
     if (e.target && e.target.id === 'wbNewForm') { e.preventDefault(); create() }
+    if (e.target && e.target.id === 'wbChatSetup') { e.preventDefault(); saveChatSetup() }
   })
 
   /** Alaphelyzet RAJZOLAS NELKUL: az oldal-betolto hivja, amikor a Projektek
@@ -313,6 +694,16 @@
     WB.busy = false
     WB.error = null
     WB.panel = 'items'
+    WB.chat = {}
+    WB.chatStatus = null
+    WB.chatStatusError = null
+    WB.chatStreaming = false
+    if (WB.chatAbort && typeof WB.chatAbort.abort === 'function') WB.chatAbort.abort()
+    WB.chatAbort = null
+    WB.chatDraft = ''
+    WB.chatSetupOpen = false
+    WB.chatSetupBusy = false
+    WB.chatConfig = null
   }
 
   window.MarvinWorkbench = {

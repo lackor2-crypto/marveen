@@ -266,4 +266,32 @@ describe('GET /api/workbench/agent/session', () => {
     expect(r.body.messages.map((m: any) => m.role)).toEqual(['user', 'assistant'])
     expect(r.body.messages[0].content).toBe('Kérdés?')
   })
+
+  // A MUNKADARAB NELKULI beszelgetes (3. fazis): a Munkapadon akkor is lehet
+  // irni, ha meg nincs munkadarab -- eppen abbol szuletik az elso. Ezt is
+  // vissza kell tudni olvasni, kulonben egy oldalfrissites utan a mar
+  // lefolytatott beszelgetes URESNEK latszana, holott ott all az adatbazisban.
+  it('projekt-szintu beszelgetes: ures, de nem hiba', async () => {
+    const r = await call(`/api/workbench/agent/session?project=${projectId}`, 'GET')
+    expect(r.status).toBe(200)
+    expect(r.body.messages).toEqual([])
+    expect(r.body.session.project_id).toBe(projectId)
+  })
+
+  it('projekt-szintu fordulo utan UGYANAZ a beszelgetes jon vissza', async () => {
+    registerAIProvider(fakeProvider('Rendben.'))
+    await call('/api/workbench/agent/message', 'POST', { project_id: projectId, work_item_id: null, message: 'Csinálj egy posztot.' })
+    const r = await call(`/api/workbench/agent/session?project=${projectId}`, 'GET')
+    expect(r.body.messages.map((m: any) => m.role)).toEqual(['user', 'assistant'])
+    expect(r.body.messages[0].content).toBe('Csinálj egy posztot.')
+    // ...es NEM keveredik ossze a munkadarabehoz tartozoval.
+    const item = await call(`/api/workbench/agent/session?workItem=${workItemId}`, 'GET')
+    expect(item.body.messages).toEqual([])
+  })
+
+  it('ismeretlen projekt: 404, nem ures beszelgetes', async () => {
+    const r = await call('/api/workbench/agent/session?project=nincsilyen', 'GET')
+    expect(r.status).toBe(404)
+    expect(r.body.error).toBe('project_not_found')
+  })
 })

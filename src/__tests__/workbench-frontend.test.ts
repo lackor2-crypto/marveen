@@ -76,10 +76,13 @@ function harness(): Harness {
   const fakeFetch = (url: string, init?: RequestInit) => {
     fetchCalls.push({ url, init })
     const r = responder(url, init)
+    // Ha a valasz SZOVEG, akkor SSE-folyam (agent-chat): a `text()` adja vissza.
+    const isText = typeof r.body === 'string'
     return Promise.resolve({
       ok: r.status < 400,
       status: r.status,
-      json: () => Promise.resolve(r.body),
+      json: () => (isText ? Promise.reject(new Error('not json')) : Promise.resolve(r.body)),
+      text: () => Promise.resolve(isText ? (r.body as string) : JSON.stringify(r.body)),
     })
   }
 
@@ -142,11 +145,18 @@ describe('harom paneles vaz', () => {
     expect(html).toContain('wb-chat')
   })
 
-  it('a chat-sav LE VAN TILTVA es kiirja, hogy hamarosan jon', () => {
+  it('a chat SOHA nem szurke: munkadarab nelkul is lehet bele irni', () => {
+    // Boss, 2026-09-21: "Agent-chat NE legyen szurke/letiltva, meg akkor sem, ha
+    // nincs munkadarab kivalasztva." Ez a teszt pontosan ezt orzi.
     const html = h.rootEl.innerHTML
-    expect(html).toContain('workbench.chat.soon')
-    // A bevitel es a gomb is tiltott -- ne lehessen bele irni es elkuldeni.
-    expect(html.match(/disabled/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(html).toContain('id="wbChatInput"')
+    expect(html).toContain('data-wb-act="chat-send"')
+    expect(html).not.toContain('aria-disabled="true"')
+    expect(html).not.toContain('workbench.chat.soon')
+    // A bevitel-mezo es a kuldes-gomb kozul EGYIK sem tiltott.
+    const chat = html.slice(html.indexOf('id="wbChat"'))
+    expect(chat).not.toMatch(/<textarea[^>]*disabled/)
+    expect(chat).not.toMatch(/<button[^>]*data-wb-act="chat-send"[^>]*disabled/)
   })
 
   it('ures allapot: baratsagos mondat es "uj munkadarab" gomb, nem hiba', () => {
@@ -238,14 +248,180 @@ describe('ketnyelvuseg', () => {
     // A statikus kulcsok + a ket ossze-fuzott csalad ('workbench.type.' + type,
     // 'workbench.status.' + status), amit a regex nem lat vegig.
     const used = [...SRC.matchAll(/\bt\('((?:workbench|common)\.[a-z_.]*[a-z_])'/g)].map((m) => m[1])
-      .filter((k) => !k.endsWith('.'))
+      // A csonkok ('workbench.status.', 'workbench.chat.tool_') nem kulcsok:
+      // ezeket a lenti `concat`-ok soroljak fel teljesen.
+      .filter((k) => !k.endsWith('.') && !k.endsWith('_'))
       .concat(['document', 'image', 'graphic', 'video', 'note'].map((ty) => 'workbench.type.' + ty))
       .concat(['draft', 'in_progress', 'review', 'done'].map((st) => 'workbench.status.' + st))
+      // A tool-allapot kulcsai ossze vannak fuzve ('workbench.chat.tool_' + status).
+      .concat(['running', 'ok', 'error', 'needs_approval', 'blocked'].map((st) => 'workbench.chat.tool_' + st))
     expect(used.length).toBeGreaterThan(20)
     const missingHu = used.filter((k) => !(k in i18n.hu))
     const missingEn = used.filter((k) => !(k in i18n.en))
     expect(missingHu, 'hianyzo kulcsok a hu.js-bol').toEqual([])
     expect(missingEn, 'hianyzo kulcsok az en.js-bol').toEqual([])
+  })
+})
+
+describe('agent-chat (3. fazis)', () => {
+  function sse(events: unknown[]): string {
+    return events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join('')
+  }
+
+  async function openChat(): Promise<void> {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) {
+        return { status: 200, body: { provider: { id: 'anthropic', model: 'claude-sonnet-5', available: true }, usage: { usedPct: 12, measured: true }, allowed: true, maxMessageChars: 8000 } }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatInput"'))
+  }
+
+  it('a projekt-szintu beszelgetest is VISSZAOLVASSA (nem csak a munkadarabet)', async () => {
+    await openChat()
+    // A NULLA ket dolgot jelenthet: ha nem kerdeznenk meg a szervert, egy mar
+    // lefolytatott beszelgetes ugy latszana, mintha sosem lett volna.
+    const urls = h.fetchCalls.map((c) => c.url)
+    expect(urls.some((u) => u.indexOf('/api/workbench/agent/session?project=p1') >= 0)).toBe(true)
+  })
+
+  it('a mar meglevo uzenetek megjelennek a naploban', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/session') >= 0) {
+        return { status: 200, body: { session: { id: 's1' }, messages: [{ role: 'user', content: 'szia' }, { role: 'assistant', content: 'szia, itt vagyok' }], toolCalls: [] } }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: false, message: 'Nincs beállítva AI-szolgáltató.' }, usage: { usedPct: null, measured: false, message: 'nem mérhető' }, allowed: true } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('szia, itt vagyok'))
+  })
+
+  it('a MERETLEN keret nem nulla szazalek, es a hianyzo szolgaltato kiirodik', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/status') >= 0) {
+        return { status: 200, body: { provider: { available: false, message: 'Nincs beállítva AI-szolgáltató.' }, usage: { usedPct: null, measured: false, message: 'A keret állapotát most nem tudom megmérni.' }, allowed: true } }
+      }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Nincs beállítva AI-szolgáltató.'))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('A keret állapotát most nem tudom megmérni.')
+    expect(html).not.toContain('0%')
+    // ...es a beallitas UGYANINNEN elerheto, terminal nelkul.
+    expect(html).toContain('data-wb-act="chat-setup"')
+  })
+
+  it('kuldes: POST a /agent/message-re, munkadarab nelkul is (work_item_id: null)', async () => {
+    await openChat()
+    h.inputs.wbChatInput = { value: 'csinálj egy posztot', focus() {} }
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([{ type: 'session', sessionId: 's1' }, { type: 'text', text: 'Rendben, ' }, { type: 'text', text: 'megcsinálom.' }, { type: 'done', model: 'claude-sonnet-5' }]) }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('megcsinálom.'))
+    const call = h.fetchCalls.find((c) => c.url.indexOf('/api/workbench/agent/message') >= 0)
+    expect(call).toBeTruthy()
+    const body = JSON.parse(String(call?.init?.body))
+    expect(body.project_id).toBe('p1')
+    expect(body.work_item_id).toBe(null)
+    expect(body.message).toBe('csinálj egy posztot')
+    // A sajat uzenet is ott marad a naploban.
+    expect(h.rootEl.innerHTML).toContain('csinálj egy posztot')
+  })
+
+  it('a jovahagyasra varo tool-hivas LATSZIK, a jegy azonositojaval', async () => {
+    await openChat()
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([
+          { type: 'tool', name: 'workItem.create', status: 'running' },
+          { type: 'tool', name: 'workItem.create', status: 'needs_approval', detail: 'jóváhagyás kell', approvalId: 'ap-7' },
+          { type: 'done', model: 'm' },
+        ]) }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.inputs.wbChatInput = { value: 'hozz létre egy munkadarabot', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workItem.create'))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.chat.tool_needs_approval')
+    expect(html).toContain('ap-7')
+    // Egy tool-hivas EGY sor: a "fut..." nem marad ott a vegleges allapot mellett.
+    expect(html).not.toContain('workbench.chat.tool_running')
+  })
+
+  it('ha az agens munkadarabot hozott letre, a LISTA is frissul', async () => {
+    await openChat()
+    var listazas = 0
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) {
+        return { status: 200, body: sse([
+          { type: 'tool', name: 'workItem.create', status: 'running' },
+          { type: 'tool', name: 'workItem.create', status: 'ok' },
+          { type: 'text', text: 'Elkészült.' },
+          { type: 'done', model: 'm' },
+        ]) }
+      }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 1, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      listazas++
+      return { status: 200, body: itemsBody([{ id: 'w9', title: 'Facebook-poszt', type: 'document', status: 'draft' }]) }
+    })
+    h.inputs.wbChatInput = { value: 'csinálj egy Facebook-posztot', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    // A lista a szervertol jon ujra -- nem a chat talalgatja ki, mi keletkezett.
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Facebook-poszt'))
+    expect(listazas).toBeGreaterThan(0)
+  })
+
+  it('szerver-hiba eseten AZT a mondatot mutatja, amit a szerver kuldott', async () => {
+    await openChat()
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/message') >= 0) return { status: 429, body: { error: 'quota', message: 'Most nincs szabad keret.' } }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: true, model: 'm' }, usage: { usedPct: 99, measured: true }, allowed: true } }
+      if (url.indexOf('/api/workbench/agent/session') >= 0) return { status: 200, body: { session: { id: 's1' }, messages: [], toolCalls: [] } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.inputs.wbChatInput = { value: 'szia', focus() {} }
+    h.click({ 'data-wb-act': 'chat-send' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Most nincs szabad keret.'))
+  })
+
+  it('a kulcs-beallito urlap a feluletrol menti a kulcsot, es nem visszhangozza', async () => {
+    await openChat()
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/agent/config') >= 0) return { status: 200, body: { WORKBENCH_MODEL: '', keyConfigured: false } }
+      if (url.indexOf('/api/workbench/agent/status') >= 0) return { status: 200, body: { provider: { available: false, message: 'Nincs beállítva AI-szolgáltató.' }, usage: { usedPct: null, measured: false }, allowed: true } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.click({ 'data-wb-act': 'chat-setup' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('id="wbChatSetup"'))
+    // A kulcs mezo URES: a meglevo kulcs sosem jon vissza a feluletre.
+    expect(h.rootEl.innerHTML).toMatch(/id="wbChatKey"[^>]*type="password"/)
+    expect(h.rootEl.innerHTML).not.toContain('sk-ant-valodi')
+
+    h.inputs.wbChatKey = { value: 'sk-ant-uj-kulcs', focus() {} }
+    h.inputs.wbChatModel = { value: 'claude-sonnet-5', focus() {} }
+    h.click({ 'data-wb-act': 'chat-setup-save' })
+    await vi.waitFor(() => {
+      const post = h.fetchCalls.find((c) => c.url.indexOf('/api/workbench/agent/config') >= 0 && c.init && c.init.method === 'POST')
+      expect(post).toBeTruthy()
+      expect(JSON.parse(String(post?.init?.body)).WORKBENCH_ANTHROPIC_API_KEY).toBe('sk-ant-uj-kulcs')
+    })
   })
 })
 

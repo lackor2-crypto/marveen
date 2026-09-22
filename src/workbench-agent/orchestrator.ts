@@ -36,7 +36,8 @@ import { executeTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import { pickAIProvider, type AIMessage, type AIProvider } from './provider.js'
 import {
-  addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, openSessionForWorkItem, startToolCall,
+  addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, openSessionForWorkItem,
+  projectSessionKey, startToolCall,
   type AgentSessionRow,
 } from './sessions.js'
 import { decideTool, getTool } from './tools.js'
@@ -228,7 +229,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
   try {
     session = workItem
       ? openSessionForWorkItem(project.id, workItem.id, lang)
-      : openSessionForWorkItem(project.id, `project:${project.id}`, lang)
+      : openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
     yield { type: 'session', sessionId: session.id }
 
     addAgentMessage(session.id, 'user', input.message.trim())

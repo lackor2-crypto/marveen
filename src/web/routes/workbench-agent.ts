@@ -22,7 +22,7 @@ import { pickAIProvider } from '../../workbench-agent/provider.js'
 import { getRemaining } from '../../workbench-agent/usage-manager.js'
 import { runTurn, validateTurn, MESSAGE_MAX_CHARS } from '../../workbench-agent/orchestrator.js'
 import {
-  ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem,
+  ensureAgentTables, listAgentMessages, listToolCalls, openSessionForWorkItem, projectSessionKey,
 } from '../../workbench-agent/sessions.js'
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
@@ -158,8 +158,27 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
   }
 
   // --- egy beszelgetes eddigi tartalma --------------------------------------
+  //
+  // KET beszelgetes-fajta van, es mindkettot vissza kell tudni olvasni:
+  //   ?workItem=<id>  -- egy munkadarabhoz tartozo beszelgetes
+  //   ?project=<id>   -- a munkadarab NELKULI, projekt-szintu beszelgetes
+  // A masodik nelkul az oldal ujratoltese utan a mar lefolytatott beszelgetes
+  // URESNEK latszana, holott ott all az adatbazisban -- vagyis a felulet a
+  // "meg nincs semmi"-t es a "nem latok oda"-t osszemosna.
   if (path === '/api/workbench/agent/session' && method === 'GET') {
     const workItemId = (url.searchParams.get('workItem') || '').trim()
+    const projectId = (url.searchParams.get('project') || '').trim()
+    if (!workItemId && projectId) {
+      const project = getProject(projectId)
+      if (!project) return fail(res, 404, 'project_not_found', lang)
+      const session = openSessionForWorkItem(project.id, projectSessionKey(project.id), lang)
+      json(res, {
+        session,
+        messages: listAgentMessages(session.id),
+        toolCalls: listToolCalls(session.id),
+      })
+      return true
+    }
     if (!workItemId) return fail(res, 400, 'work_item_required', lang)
     const item = getWorkItem(workItemId)
     if (!item) return fail(res, 404, 'work_item_not_found', lang, msg('work_item_not_found', lang))

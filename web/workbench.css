@@ -123,16 +123,41 @@
 .wb-ctx-block p { margin: 0 0 2px; word-break: break-word; }
 .wb-versions { margin: 0; padding-left: 18px; font-size: 0.9rem; }
 
+/* AGENT-CHAT (3. fazis). Az `opacity` SZANDEKOSAN nincs itt: a chat nem
+ * "hamarosan jon" allapotu doboz tobbe, hanem a Munkapad fo bemenete. */
 .wb-chat {
   border: 1px solid var(--border, #d0d7de);
   border-radius: 8px;
   padding: 10px 12px;
-  opacity: 0.75;
 }
 
-.wb-chat-label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 6px; }
-.wb-chat-row { display: flex; gap: 8px; }
+.wb-chat-label { font-size: 0.85rem; font-weight: 600; }
+.wb-chat-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.wb-chat-state { font-size: 0.8rem; color: var(--muted, #6b7280); }
+.wb-chat-state-bad { color: var(--danger, #d33); }
+.wb-chat-setup-btn { margin-left: auto; }
+.wb-chat-setup { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.wb-chat-log {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.wb-chat-hello { margin: 4px 0; }
+.wb-turn { font-size: 0.9rem; }
+.wb-turn-who { font-size: 0.75rem; font-weight: 600; color: var(--muted, #6b7280); margin-bottom: 2px; }
+.wb-turn-text { white-space: pre-wrap; word-break: break-word; }
+.wb-turn-user .wb-turn-text { background: var(--panel-alt, #f3f4f6); border-radius: 8px; padding: 6px 8px; }
+.wb-turn-notice { font-size: 0.82rem; color: var(--muted, #6b7280); margin-top: 4px; }
+.wb-tool { font-size: 0.82rem; margin-top: 4px; }
+.wb-tool-name { font-family: ui-monospace, Menlo, Consolas, monospace; }
+.wb-tool-bad { color: var(--danger, #d33); }
+.wb-tool-wait { color: var(--warning, #b45309); }
+.wb-chat-row { display: flex; gap: 8px; align-items: flex-end; }
 .wb-chat-row .wb-input { flex: 1 1 auto; }
+.wb-chat-input { resize: vertical; min-height: 44px; font-family: inherit; }
 
 /* MOBIL: egymas ala nem fer el harom panel ugy, hogy barmelyik hasznalhato
  * legyen, ezert telefonon egyszerre EGY panel latszik, es a fulek valtanak
