@@ -33439,11 +33439,11 @@ function bajtParamok(p) {
   // A mert szamok EGY mondatba, es csak akkor, ha tenyleg van meresunk. Egy
   // hianyzo parameter `{used}`-kent jelenne meg a kepernyon, ezert a mezo
   // MINDIG letezik -- meres nelkul ures sztringkent.
-  if ('usedB' in p) p.meres = window.t('health.drive_quota_meres', p)
+  if ('usedB' in p) p.meres = window.t('drive.quota_meres', p)
   else if (p.meres == null) p.meres = ''
   // A besorolatlan elutasitasnal a Google mondata hianyozhat (regi naplo). Ezt
   // KIMONDJUK, nem talalunk ki helyette indokot.
-  if ('msg' in p && !String(p.msg || '').trim()) p.msg = window.t('health.drive_refused_no_msg')
+  if ('msg' in p && !String(p.msg || '').trim()) p.msg = window.t('drive.refused_no_msg')
   return p
 }
 

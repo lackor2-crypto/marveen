@@ -176,11 +176,21 @@ describe('a naplo megorzi a Google indoklasat, a felulet pedig ket nyelven besze
     for (const k of [
       'health.drive_sync_abusive', 'health.drive_sync_abusive_action',
       'health.drive_sync_refused', 'health.drive_sync_refused_action',
-      'health.drive_quota_meres', 'health.drive_refused_no_msg',
+      'drive.quota_meres', 'drive.refused_no_msg',
     ]) {
       expect(hu).toContain(`'${k}':`)
       expect(en).toContain(`'${k}':`)
     }
+  })
+
+  it('a szovegtoredek NEM a `health.` nevterbe megy', () => {
+    // A `health.<id>` kulcs egy SOR az onellenorzesen, es a selfcheck-guide-ui
+    // teszt minden ilyenhez kovetel `_action` parjat. A beillesztendo darabnak
+    // (meres-mondat, hianyzo indoklas) nincs es nem is lehet teendoje -- ezert
+    // a `drive.` nevterben all. Ez a CI-n 2026-09-22-en meg is bukott egyszer.
+    const hu = readFileSync(join(gyoker, 'web/lang/hu.js'), 'utf-8')
+    expect(hu).not.toContain("'health.drive_quota_meres':")
+    expect(hu).not.toContain("'health.drive_refused_no_msg':")
   })
 
   it('a bajtbol a felulet nyelven lesz emberi szam, es a sorok a Raktarra visznek', () => {
