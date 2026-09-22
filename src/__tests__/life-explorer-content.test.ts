@@ -163,3 +163,34 @@ describe('gyorsitotar (#341)', () => {
     expect(megegyszer).toEqual(egyszer)
   })
 })
+
+describe('koltsegkeret (#341 bugkereses)', () => {
+  it('a keret miatt felbehagyott meres NEM ragad be "nem mert"-kent', async () => {
+    // Melyen agazo fa: a bejaras biztosan tobb lepes, mint amennyit egy
+    // kimerult keret enged. A lenyeg: a valasz vagy kesz szamokat hoz, vagy
+    // BEVALLJA, hogy meg merik -- de sosem hazudik uresat.
+    let hely = join(root, 'melyfa')
+    for (let i = 0; i < 5; i++) { hely = join(hely, 'szint' + i) }
+    mkdirSync(hely, { recursive: true })
+    writeFileSync(join(hely, 'lent.txt'), 'x')
+    const f = folder('', 'melyfa')
+    expect(f.content?.state === 'has' || f.content?.pending === true).toBe(true)
+    if (f.content?.state === 'has') expect(f.content?.folders).toBe(1)
+    // Ures SOHA nem lehet: van alatta tartalom.
+    expect(f.content?.state).not.toBe('empty')
+  })
+
+  it('a "meg merem" allapot MASIK dolog, mint a "nem tudom" -- es sosem ures', () => {
+    mkdirSync(join(root, 'akarmi'))
+    const c = folder('', 'akarmi').content
+    if (c?.pending) {
+      // Ha meg merjuk: nincs kitalalt darabszam.
+      expect(c.folders).toBe(null)
+      expect(c.files).toBe(null)
+      expect(c.state).toBe('unknown')
+      expect(c.reason).not.toBe('')
+    } else {
+      expect(c?.state).toBe('empty')
+    }
+  })
+})
