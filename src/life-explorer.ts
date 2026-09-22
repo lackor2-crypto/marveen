@@ -577,7 +577,7 @@ function cautionFor(rel: string, name: string, abs: string, isDir: boolean, lang
  * lenyeg -- "ha egy mappa vegyes tartalmu, akkor ne hazudjon a rendszer" --,
  * de nagy mappaknal a hivo kikapcsolhatja.
  */
-export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = {}): LifeListing {
+export function listLife(rel: string, opts: { deep?: boolean; lang?: string; content?: boolean } = {}): LifeListing {
   const deep = opts.deep !== false
   // A SUGO NYELVE a feluletet koveti, nem a telepitest. A mappa NEVE a
   // lemezen all (azt atnevezni adatvesztes volna), a zarojeles magyarazat
@@ -624,7 +624,12 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string } = 
   const files: LifeEntry[] = []
   // EGY koltsegkeret az egesz listazasra: a mappak tartalmi meresere. Lasd
   // `newMeasureBudget` -- a keret vedi meg a feluletet a lassu meghajtoktol.
-  const budget = newMeasureBudget()
+  //
+  // Aki NEM mutatja a darabszamot (pl. a Beerkezo besorolo lanca, ami csak
+  // nevet + utat olvas), az `content: false`-szal kerje a listat: a meres egy
+  // hideg halozati meghajton 6,2 masodperc is lehet, es egy olyan adatert
+  // fizetni, amit senki nem lat, tiszta veszteseg.
+  const budget = opts.content === false ? undefined : newMeasureBudget()
   let seen = 0
   for (const name of names) {
     // A rejtett es rendszer-tetelek csak zajt visznek a listaba. A `.git`
