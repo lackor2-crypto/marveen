@@ -326,7 +326,11 @@ function drainPending(): void {
   const budget: MeasureBudget = { dirs: 20_000, deadline: Date.now() + 8_000 }
   try {
     const c = measureContent(job.abs, job.lang, budget)
-    contentCache.set(cacheKey(job.abs, job.lang), { content: c, at: Date.now() })
+    // A hatter-meres a VEGSO szo. Ha meg ezzel a bosegesebb kerettel sem
+    // sikerult, az oszinte "nem mertem meg" kerul a tarba -- NEM a "meg merem",
+    // kulonben a felulet a vilag vegeig varna egy valaszra, ami nem jon.
+    const vegso: LifeContent = c.pending ? { ...c, pending: false } : c
+    contentCache.set(cacheKey(job.abs, job.lang), { content: vegso, at: Date.now() })
   } catch (e) {
     logger.warn(`life-explorer: hatter-meres elhasalt (${job.abs}): ${String(e)}`)
   }
@@ -366,6 +370,9 @@ function contentFor(abs: string, lang: string, budget: MeasureBudget): LifeConte
     }
   }
   const c = measureContent(abs, lang, budget)
+  // Ha a keret MERES KOZBEN fogyott el, a valasz felkesz: nem tesszuk el, mert
+  // akkor 15 masodpercig egy felbehagyott meres latszana vegleges "nem mert"-nek.
+  if (c.pending) { enqueueMeasure(abs, lang); return c }
   contentCache.set(key, { content: c, at: Date.now() })
   return c
 }
@@ -447,7 +454,9 @@ function measureContent(abs: string, lang: string, budget: MeasureBudget, depth 
   const unknown = (reason: string): LifeContent =>
     ({ state: 'unknown', folders: null, files: null, deep: 'unknown', reason })
 
-  if (budget.dirs <= 0 || Date.now() > budget.deadline) return unknown(budgetText(lang))
+  // A keret-kimerules NEM vegallapot: ebbol lesz a hatter-meres. A `pending`
+  // jelzi, hogy ezt az eredmenyt TILOS eltenni a gyorsitotarba.
+  if (budget.dirs <= 0 || Date.now() > budget.deadline) return { ...unknown(budgetText(lang)), pending: true }
 
   let items: Dirent[]
   budget.dirs--
@@ -479,12 +488,20 @@ function measureContent(abs: string, lang: string, budget: MeasureBudget, depth 
   }
 
   let sawUnknown = ''
+  let sawPending = false
   for (const sub of subdirs) {
     const child = measureContent(join(abs, sub), lang, budget, depth + 1)
     if (child.deep === 'has') return { state, folders, files, deep: 'has', reason: '' }
-    if (child.deep === 'unknown' && !sawUnknown) sawUnknown = child.reason
+    if (child.deep === 'unknown' && !sawUnknown) {
+      sawUnknown = child.reason
+      // A keret miatt felbehagyott AG is ujramerendo -- kulonben a "mind ures"
+      // kerdes 15 masodpercig egy felbehagyott bejarasbol szuletne.
+      sawPending = child.pending === true
+    }
   }
-  if (sawUnknown) return { state, folders, files, deep: 'unknown', reason: sawUnknown }
+  if (sawUnknown) {
+    return { state, folders, files, deep: 'unknown', reason: sawUnknown, ...(sawPending ? { pending: true } : {}) }
+  }
   return { state, folders, files, deep: 'empty', reason: '' }
 }
 
