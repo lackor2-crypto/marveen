@@ -133,6 +133,20 @@ export function getAgentSession(id: string): AgentSessionRow | undefined {
 }
 
 /**
+ * A MUNKADARAB NELKULI (projekt-szintu) beszelgetes kulcsa.
+ *
+ * A Munkapadon akkor is lehet beszelgetni, ha meg egyetlen munkadarab sincs
+ * kivalasztva -- eppen abbol szuletik az elso. Az ilyen beszelgetes ugyanabban
+ * a tablaban lakik, egy SZINTETIKUS `work_item_id`-val. Azert EGY helyen all
+ * ez a kulcs, mert ket helyrol kell ugyanaz: a fordulo-futtato (ide MENT) es a
+ * visszaolvaso vegpont (innen OLVAS). Ha a ketto elcsuszna, a beszelgetes ugy
+ * tunne el, mintha sosem lett volna -- pedig ott allna az adatbazisban.
+ */
+export function projectSessionKey(projectId: string): string {
+  return `project:${projectId}`
+}
+
+/**
  * A work item ELO beszelgetese, vagy egy uj.
  *
  * Egy munkadarabhoz egy folyo beszelgetes tartozik: a felhasznalo a
