@@ -117,6 +117,18 @@ gh pr close N --comment "Rebased and landed via #<uj-PR> due to conflict with <p
 
 - **A `stop.sh` UNLOAD-olja a launchd jobot → a KeepAlive NEM hozza vissza automatikusan.** A `com.<slug>.dashboard.plist`-ben `KeepAlive=true`, DE a `stop.sh` `launchctl unload`-dal áll le. Az unload SZÁNDÉKOS leállítás, a KeepAlive csak CRASH-re indít újra, unload-ra NEM. Ezért stop.sh után a fő-agent lent marad, amíg `launchctl load` (start.sh) vissza nem tölti. TANULSÁG: ha manuálisan `stop.sh`-zol update közben, MINDIG futtass utána `start.sh`-t magadtól, ne várj az operátorra. FONTOS: a `stop.sh` SZÁNDÉKOSAN NEM állítja le a sub-agenteket (csak a `${SLUG}-channels` fő-session-t — explicit komment a scriptben). Ha update után a sub-agentek mégis lent vannak, az NEM a stop.sh miatt van, vizsgáld külön; helyreállítás egyenként: `POST /api/agents/<name>/start` (Bearer token) + `tmux has-session -t agent-<name>` ellenőrzés.
 
+- **2026-09-23: a `gh` a ROSSZ repot valaszolja meg, ha nincs default beallitva es tobb remote van.**
+  A Marveen checkoutban ket remote all (`origin` = a sajat fork, `upstream` = az eredeti repo),
+  es `gh repo set-default` nincs beallitva (`gh repo set-default --view` -> "No default remote
+  repository has been set"). Ilyenkor a `gh pr view 250` es a `gh pr checks 250` az UPSTREAM
+  repo #250-es PR-jet valaszolta meg: egy teljesen mas, mar MERGE-ELT PR-t, mas head branch-csel
+  (`gh pr checks` meg egy harmadik branch nevet irta ki). Ez a legveszelyesebb fajta hiba, mert
+  nem hibauzenetet ad, hanem egy hihetoen kinezo, de mas repora vonatkozo valaszt -- majdnem
+  "a PR mergelve, keszen vagyunk"-ot olvastam ki belole.
+  **Teendo:** PR-allapotot MINDIG `-R <owner>/<repo>`-val kerdezz le, vagy a `land-pr.sh` altal
+  kiirt TELJES URL-lel -- puszta PR-szammal soha. Ellenorzes, hogy a valasz tenyleg a tied: a
+  `headRefName` egyezzen a sajat branchedvel.
+
 ## Ellenőrzés
 
 - Minden PR után: `gh pr view <N> --json state,mergedAt` -> MERGED vagy CLOSED

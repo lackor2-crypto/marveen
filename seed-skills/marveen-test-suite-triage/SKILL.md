@@ -81,6 +81,23 @@ scope: global
 - Több hibázó teszt egyetlen futtatásból könnyen egy jelenségnek tűnik --
   mindig nézd meg az egyedi hibaüzeneteket, nem csak a piros számot.
 
+- **2026-09-23: egy konstans athelyezese NEMAN NaN-na valtoztat egy forrasszoveget grepelo tesztet.**
+  A `drive-sync-teljes.test.ts` a `src/web/routes/drive-sync.ts` SZOVEGEBOL regexelte ki a
+  `const MAX_FOLDERS = ([\d_]+)` erteket. Amikor a ket bejarasi korlat atkerult egy kozos
+  modulba (`src/drive-sync-limits.ts`), a regex nem talalt, a `Number(undefined)` `NaN` lett,
+  es a CI ezt mondta: `AssertionError: expected NaN to be greater than or equal to 1000` --
+  ami semmit nem arul el arrol, hogy a konstans elkoltozott. Lokalisan zold volt, a CI-n
+  bukott, mert a teszt idokozben keszult el a fo agon.
+  **Teendo, MIELOTT egy konstanst kiemelsz egy fajlbol:**
+  `grep -rn "<KONSTANS_NEVE>" --include=*.ts --include=*.js . | grep -v node_modules` -- a
+  TESZTEKET is nezd at, ne csak a hivasi helyeket. Ahol a teszt a forrasszoveget grepelte,
+  ott importaljon az uj kozos modulbol, es ket allitas maradjon helyette: az ertek a kozos
+  forrasbol jon (`expect(MAX_FOLDERS).toBeGreaterThanOrEqual(...)`) ES a regi fajl mar nem
+  definialja ujra (`expect(route).not.toMatch(/const MAX_FOLDERS\s*=/)`).
+- **Egy `NaN`-os assertion szinte mindig hianyzo vagy elmozdult FORRAST jelent, nem rossz
+  erteket.** Ha `expected NaN to be ...`-t latsz, ne az erteket keresd, hanem azt, hogy a
+  teszt honnan probalta kiolvasni -- es ott van-e meg.
+
 ## Ellenőrzés
 
 - A jelentésben szerepel: teljes hibaszám, fájlonkénti/okonkénti csoportosítás,
