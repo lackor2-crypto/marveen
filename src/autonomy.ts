@@ -215,3 +215,56 @@ export function setAgentAdminOverride(
   config.agent_admin_overrides = overrides
   return config
 }
+
+export const AUTONOMY_SEED_PATH = join(PROJECT_ROOT, 'seed-config', 'autonomy-config.json')
+
+export interface EnsureCategoriesResult {
+  /** Which category keys were added to the owner's config. */
+  added: string[]
+  /** Why nothing was done, when nothing was done. Never guessed: the actual
+   *  reason (missing file, unreadable JSON, nothing missing). */
+  reason: 'ok' | 'no_store_config' | 'no_seed_config' | 'unreadable' | 'nothing_missing'
+  detail?: string
+}
+
+/**
+ * NEW categories the shipped catalog has but this installation does not.
+ *
+ * Why this exists (kanban #336, 6. fazis): a tool in the Workbench Tool
+ * Registry maps onto an autonomy category. If the category is missing from
+ * `store/autonomy-config.json`, `decideTool` is right to give no permission --
+ * but then the owner ALSO never sees it on the Settings / Autonomy page, so
+ * there is no way to grant it from the interface. That is the "fresh install
+ * usable" rule failing in the quiet direction.
+ *
+ * So: whatever `seed-config/autonomy-config.json` (the shipped catalog) has
+ * and the installation does not, gets COPIED IN with the shipped default.
+ * What is already there is NEVER touched -- not the level, not the lock, not
+ * the ceiling. This can only ever make a missing switch visible; it cannot
+ * change a decision the owner already made.
+ */
+export function ensureAutonomyCategories(
+  storePath = AUTONOMY_CONFIG_PATH,
+  seedPath = AUTONOMY_SEED_PATH,
+): EnsureCategoriesResult {
+  if (!existsSync(storePath)) return { added: [], reason: 'no_store_config' }
+  if (!existsSync(seedPath)) return { added: [], reason: 'no_seed_config' }
+  let config: AutonomyConfig
+  let seed: AutonomyConfig
+  try {
+    config = JSON.parse(readFileSync(storePath, 'utf-8')) as AutonomyConfig
+    seed = JSON.parse(readFileSync(seedPath, 'utf-8')) as AutonomyConfig
+  } catch (e) {
+    // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
+    return { added: [], reason: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
+  }
+  if (!Array.isArray(config.categories) || !Array.isArray(seed.categories)) {
+    return { added: [], reason: 'unreadable', detail: 'categories is not a list' }
+  }
+  const have = new Set(config.categories.map((c) => c && c.key))
+  const missing = seed.categories.filter((c) => c && c.key && !have.has(c.key))
+  if (!missing.length) return { added: [], reason: 'nothing_missing' }
+  config.categories = config.categories.concat(missing.map((c) => ({ ...c })))
+  saveAutonomyConfig(config, storePath)
+  return { added: missing.map((c) => c.key), reason: 'ok' }
+}

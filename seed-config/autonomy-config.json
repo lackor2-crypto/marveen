@@ -204,6 +204,14 @@
       "locked": false,
       "maxLevel": 2,
       "timeout_minutes": 60
+    },
+    {
+      "key": "workbench_file_write",
+      "label": "Munkapad: fajl irasa a projekt mappajaba (masolas, athelyezes, atnevezes) -- sosem ir felul",
+      "level": 2,
+      "locked": false,
+      "maxLevel": 3,
+      "timeout_minutes": 60
     }
   ]
 }
