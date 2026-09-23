@@ -1802,7 +1802,27 @@ export function driveSyncRows(
 
   // MEGTELT A DRIVE. A fiok belep, csak nincs tobb hely -- a szamokat MERJUK
   // (a szinkron irta ki a hiba pillanataban), nem allitjuk.
-  if (kvota) {
+  //
+  // ONKORREKCIO (Boss, 2026-09-23, kepernyofotoval): ha az ELUTASITAS ota
+  // MERTUNK, es a meres szabad helyet mutat, akkor a felszabaditas megtortent,
+  // es a sornak NINCS TOBB DOLGA. A regi valtozat ezt nem tudta: a hibanaplo
+  // bejegyzese orokre ott maradt, a meres pedig csak a hiba pillanataban
+  // frissult -- vagyis hiba nelkul sosem. Igy allt a kepernyon 14,65 GB
+  // foglalt, mikozben a Google sajat felulete 13,1 GB-ot mutatott.
+  // A meres mostantol minden futas elejen megy (drive-sync.ts), es kezzel is
+  // kerheto a Raktar oldalrol -- tehat ez az ag valoban be tud kovetkezni.
+  const kvotaMeres = kvota ? (quotas[kvotaAcct] || null) : null
+  const meresIdeje = kvotaMeres?.at ? Date.parse(kvotaMeres.at) : NaN
+  const hibaIdeje = kvota?.at ? Date.parse(kvota.at) : NaN
+  const szabadMost = kvotaMeres && kvotaMeres.limit
+    ? Math.max(0, kvotaMeres.limit - kvotaMeres.usage)
+    : NaN
+  // Csak akkor vonjuk vissza a sort, ha MINDHAROM megvan: friss meres, regebbi
+  // elutasitas, es tenylegesen szabad hely. Barmelyik hianyzik -> a sor marad,
+  // mert a "nem latok oda" nem ugyanaz, mint a "rendben van".
+  const kvotaFelszabadult = Number.isFinite(meresIdeje) && Number.isFinite(hibaIdeje)
+    && meresIdeje > hibaIdeje && Number.isFinite(szabadMost) && szabadMost > 0
+  if (kvota && !kvotaFelszabadult) {
     rows.push({
       id: 'drive_sync_quota_full',
       status: 'bad',
@@ -1817,25 +1837,32 @@ export function driveSyncRows(
   if (auth) {
     rows.push({ id: 'drive_sync_auth_stuck', status: 'bad', params: { f: auth.files, account: authAcct } })
   }
-  // KARTEKONYNAK JELOLT FAJL. Se az ujralogin, se a helyfelszabaditas nem
-  // segit: a Google egyetlen programnak sem adja oda. Sajat, oszinte sor --
-  // `warn`, mert nem all tole a mentes tobbi resze.
-  for (const a of frissek.filter((x) => x.kind === 'abusive')) {
-    rows.push({
-      id: 'drive_sync_abusive',
-      status: 'warn',
-      params: { f: a.files, account: a.account, names: a.names },
-    })
-  }
-  // BESOROLATLAN ELUTASITAS. Nem talalunk ki okot: kiirjuk, amit a Google
-  // mondott. Ha meg azt sem tudjuk, azt is kimondjuk (`msg` ures).
-  for (const a of frissek.filter((x) => x.kind === 'other')) {
-    rows.push({
-      id: 'drive_sync_refused',
-      status: 'warn',
-      params: { f: a.files, account: a.account, names: a.names, msg: a.message },
-    })
-  }
+  // KARTEKONYNAK JELOLT FAJL: EZ NEM PROBLEMA, ezert NINCS SORA itt.
+  //
+  // Boss, 2026-09-23: "ha valami olyasmi tortenik, amit nem tud letolteni ...
+  // csak azert, mert a Google nem engedi ... akkor is ezeket tegye be egy
+  // listaba, es viszont ne irja ki azt az osszeonellenorzesnel, hogy ez egy
+  // problema. Nincs itt semmi problema, azt nem engedi a Google letolteni,
+  // oke, az nem problema, akkor ne jelentsen hibat, meg ezt a sarga feliratot."
+  //
+  // Ez NEM elrejtes: a Raktar oldal "Amit a Google nem ad ki" doboza NEVEN
+  // NEVEZI mindet (teljes helyi ut + Drive-link), es onnan egy gombbal ujra is
+  // probalhato. A kulonbseg az, hogy nem TEENDOKENT all egy sarga sorban, amin
+  // a felhasznalonak amugy sincs mit tennie: se az ujralogin, se a
+  // helyfelszabaditas nem segit rajta, a Google egyetlen programnak sem adja oda.
+  // A szinkron tobbi resze ettol rendben lemegy -- pont ez az, amit a sarga sor
+  // az ellenkezojere forditott.
+  // BESOROLATLAN ELUTASITAS: EZ SEM PROBLEMA, ezert NINCS SORA itt.
+  //
+  // Boss, 2026-09-23: "Ez is keruljon ki az onellenorzesbol, a Raktar-listaba
+  // -- mint a kartekony fajlok. Minden Google-elutasitas egyforman, kevesebb
+  // sarga." Ugyanaz az ervelés all ra, mint a kartekony fajlra: a felhasznalo
+  // nem tud vele mit kezdeni, es a szinkron tobbi resze rendben lemegy.
+  //
+  // A fajl NEM tunik el: a Raktar "Amit a Google nem ad ki" doboza neven nevezi
+  // (teljes helyi ut + a Google sajat mondata), es egy gombbal ujra probalhato.
+  // Az atmeneti (5xx) hibak nem kerulnek a listara -- azok magatol elmulnak, es
+  // a kovetkezo futas ujra megprobalja oket.
 
   // MEG NEM ERT A VEGERE. Nem csonka masolat (a kep teljes volt), csak a
   // feltoltes fer bele reszletekben -- de ettol meg nem szabad zold sort
