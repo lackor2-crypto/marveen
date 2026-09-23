@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -723,6 +723,7 @@ export function startWebServer(port = 3420): http.Server {
       const egressPatched: string[] = []
       const strayPatched: string[] = []
       const govPatched: string[] = []
+      const statusLinePatched: string[] = []
       const skillsLinked: string[] = []
       const pruned: string[] = []
       const askBackWritten: string[] = []
@@ -745,6 +746,9 @@ export function startWebServer(port = 3420): http.Server {
         // a repo gyokerebe irt probaszkript ugyanolyan szemet barkitol.
         if (ensureStrayFileGate(agentName)) strayPatched.push(agentName)
         if (ensureGovernanceGatesRemoved(agentName)) govPatched.push(agentName)
+        // The rate-limit snapshot producer: without it rate-limit-guard and the
+        // Overview keret widget have nothing to read (fresh-install audit f97acc32).
+        if (ensureStatusLine(agentName)) statusLinePatched.push(agentName)
         // Same knowledge for everyone, not just the supervisor (CLAUDE.md,
         // agens-paritas): link the agent at the shared skill library.
         if (ensureAgentSkills(agentName)) skillsLinked.push(agentName)
@@ -856,6 +860,7 @@ export function startWebServer(port = 3420): http.Server {
       if (egressPatched.length) logger.info({ patched: egressPatched }, 'egress-gate WebFetch hook backfilled into agent settings.json')
       if (strayPatched.length) logger.info({ agents: strayPatched }, 'no-stray-files gate wired into agent settings')
       if (govPatched.length) logger.info({ patched: govPatched }, 'legacy governance hard-gates (email-send + self-pace) stripped from agent settings.json')
+      if (statusLinePatched.length) logger.info({ patched: statusLinePatched }, 'statusLine (rate-limit snapshot) wired into agent settings.json')
       if (skillsLinked.length) logger.info({ linked: skillsLinked }, 'shared skill library linked into agent .claude/skills')
       // Every agent has just been brought up to the template; anything the main
       // agent has BEYOND it means the fleet is drifting apart again (Boss,
