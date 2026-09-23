@@ -126,7 +126,12 @@ describe('a felületen tényleg ott a két gomb', () => {
     expect(fn).not.toBe('')
     expect(fn).toContain("sel.value = 'key:' + vaultId")
     expect(fn).toContain('_claudeAuthSyncServiceUi()')
-    expect(fn).toContain('details.open = true')
+    // A hozzaado resz ki is nyilik, es a Claude-ulapra all (2026-09-23 ota
+    // negy valasztogomb mogott van, nem egymas alatt).
+    expect(fn).toContain("_accAddReveal('claude')")
+    const reveal = APP_JS.match(/function _accAddReveal\([\s\S]*?\n}/)?.[0] ?? ''
+    expect(reveal).toContain('det.open = true')
+    expect(reveal).toContain('_accAddChoose(kind)')
   })
 })
 

@@ -18580,8 +18580,7 @@ function _accKeyLogin(vaultId, slotId, label, mode) {
   _accKeySlotTarget = (slotId && slotId !== vaultId)
     ? { serviceId: vaultId, slotId, label: label || slotId, mode: mode === 'replace' ? 'replace' : 'add' }
     : null
-  const details = document.getElementById('accountsAddDetails')
-  if (details) details.open = true
+  _accAddReveal('claude')
   const sel = document.getElementById('claudeAuthService')
   if (!sel) return
   sel.value = 'key:' + vaultId
@@ -18693,7 +18692,11 @@ async function _accKeyLogout(vaultId, label) {
 let _hubClaude = []
 let _hubGoogle = []
 let _hubMcp = []
-const _hubSeen = { claude: false, google: false, mcp: false }
+// MEGA fiokok (kanban e67bf278). Boss, 2026-09-23: a MEGA ne a hozzaado
+// reszben legyen felsorolva, hanem annak az e-mail cimnek a kartyajan, amihez
+// tartozik -- ugyanugy, mint a level, a naptar es a Drive.
+let _hubMega = []
+const _hubSeen = { claude: false, google: false, mcp: false, mega: false }
 
 function _hubEmailKey(email) { return String(email || '').trim().toLowerCase() }
 
@@ -18708,13 +18711,13 @@ function _hubEmailKey(email) { return String(email || '').trim().toLowerCase() }
  *
  * Pure on purpose: no DOM, no t(), so the merge rules can be tested directly.
  */
-function _accHubMerge(claudeAccounts, googleAccounts, mcpAccounts) {
+function _accHubMerge(claudeAccounts, googleAccounts, mcpAccounts, megaAccounts) {
   const cards = []
   const byKey = new Map()
   const card = (key, title) => {
     let c = byKey.get(key)
     if (!c) {
-      c = { key, title: title || '', email: '', isDefault: false, claude: [], google: [], mcp: [] }
+      c = { key, title: title || '', email: '', isDefault: false, claude: [], google: [], mcp: [], mega: [] }
       byKey.set(key, c)
       cards.push(c)
     }
@@ -18778,9 +18781,42 @@ function _accHubMerge(claudeAccounts, googleAccounts, mcpAccounts) {
     c.mcp.push(m)
   }
 
+  // A MEGA-fiok az e-mail cimevel all be: ha ugyanez a cim mar kartyat kapott
+  // (Google vagy Claude reven), oda kerul; ha nem, sajat kartyat kap. Cim
+  // nelkul nincs MEGA-fiok, de a biztonsag kedveert a sajat neve a tartalek.
+  for (const a of megaAccounts || []) {
+    const email = _hubEmailKey(a.email)
+    const c = card(email || 'mega:' + (a.name || ''), a.email || a.name || '')
+    if (!c.email && a.email) c.email = a.email
+    c.mega.push(a)
+  }
+
   // Default first: that is the one Marveen uses when you do not say which.
   cards.sort((a, b) => (b.isDefault ? 1 : 0) - (a.isDefault ? 1 : 0))
   return cards
+}
+
+function _accHubMegaPart(rows) {
+  const when = (ms) => new Date(ms).toLocaleString((window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU')
+  const body = rows.map(a => {
+    const q = a.quota
+    // A nem mert tarhely nem hiba: semleges sor, nem piros.
+    const note = !q
+      ? `<span class="conn-note">${escapeHtml(t('mega.quota_unmeasured'))}</span>`
+      : q.error
+        ? `<span class="conn-note conn-note-bad">${escapeHtml(t('mega.quota_failed', { when: when(q.measuredAt) }) + ' — ' + q.error)}</span>`
+        : `<span class="conn-note">${escapeHtml(t('mega.quota', { free: _depoBytes(q.free), total: _depoBytes(q.total), when: when(q.measuredAt) }))}</span>`
+    const name = escapeAttr(a.name)
+    return `<div class="conn-row">
+      <div class="conn-row-main"></div>
+      <div class="conn-row-chips">${note}</div>
+      <div class="conn-row-actions">
+        <button class="btn-secondary btn-compact" data-mega-measure="${name}">${escapeHtml(t('mega.measure'))}</button>
+        <button class="btn-secondary btn-compact" data-mega-remove="${name}" data-mega-email="${escapeAttr(a.email)}">${escapeHtml(t('mega.remove'))}</button>
+      </div>
+    </div>`
+  }).join('')
+  return _accHubPart('acchub.part_mega', body)
 }
 
 function _accHubPart(labelKey, body) {
@@ -18808,6 +18844,8 @@ function _claudeAuthMoveFlowTo(host) {
     host.appendChild(box)
   } else if (_claudeAuthHome.parent) {
     _claudeAuthHome.parent.insertBefore(box, _claudeAuthHome.next)
+    // A sajat helyen a doboz a Claude-urlapban all: az latsszon.
+    _accAddReveal('claude')
   }
   return target ? box : box
 }
@@ -19136,6 +19174,7 @@ function _accHubCardHtml(c) {
   if (c.claude.length) parts.push(_accHubClaudePart(c.claude))
   if (c.google.length) parts.push(_accHubGooglePart(c.google, title))
   if (c.mcp.length) parts.push(_accHubMcpPart(c.mcp))
+  if (c.mega.length) parts.push(_accHubMegaPart(c.mega))
   // `conn-account` + `conn-account-name` are not decoration: the connector flow
   // reads the account's name out of the card it was clicked in
   // (closest('.conn-account')), so the title of "authorize Drive for WHICH
@@ -19169,21 +19208,59 @@ function _accHubSyncAddOpen(cardCount) {
     det.addEventListener('toggle', () => { det.dataset.userTouched = '1' })
   }
   if (det.dataset.userTouched === '1') return
-  const answered = _hubSeen.claude || _hubSeen.google || _hubSeen.mcp
+  const answered = _hubSeen.claude || _hubSeen.google || _hubSeen.mcp || _hubSeen.mega
   if (!answered) return
   det.open = cardCount === 0
+}
+
+// Boss, 2026-09-23: "itt csak hozza lehessen adni". A negy hozzaado urlap
+// eddig egymas alatt allt, egy hosszu, egybefolyo lapon. Most egy sor gomb
+// valaszt, es csak a valasztott urlap latszik.
+const _ACC_ADD_KINDS = ['claude', 'google', 'github', 'mega']
+
+function _accAddChoose(kind) {
+  if (!_ACC_ADD_KINDS.includes(kind)) kind = 'claude'
+  for (const b of document.querySelectorAll('[data-acc-add]')) {
+    const on = b.dataset.accAdd === kind
+    b.classList.toggle('active', on)
+    b.setAttribute('aria-selected', on ? 'true' : 'false')
+  }
+  for (const pane of document.querySelectorAll('[data-acc-add-pane]')) {
+    pane.hidden = pane.dataset.accAddPane !== kind
+  }
+}
+
+// Egy folyamat (pl. egy kartya "ujra bejelentkezes" gombja) a hozzaado
+// reszben levo dobozt hasznalja. Ha az urlap be van csukva vagy egy masik
+// fulon all, a doboz lathatatlan maradna -- ezert elotte kinyitjuk es odaallunk.
+function _accAddReveal(kind) {
+  const det = document.getElementById('accountsAddDetails')
+  if (det && !det.open) det.open = true
+  _accAddChoose(kind)
+}
+
+function _accAddWire() {
+  const bar = document.getElementById('accountsAddChooser')
+  if (!bar || bar.dataset.wired === '1') return
+  bar.dataset.wired = '1'
+  bar.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-acc-add]')
+    if (b) _accAddChoose(b.dataset.accAdd)
+  })
+  _accAddChoose('claude')
 }
 
 function renderAccountsHub() {
   _accHubRenderKeys()
   const el = document.getElementById('accountsHubList')
   if (!el) return
-  const cards = _accHubMerge(_hubClaude, _hubGoogle, _hubMcp)
+  _accAddWire()
+  const cards = _accHubMerge(_hubClaude, _hubGoogle, _hubMcp, _hubMega)
   if (!cards.length) {
     // Two different states, two different sentences: "still loading" is not the
     // same as "nothing is connected", and saying the second one during the first
     // makes the operator think everything was lost.
-    const loading = !_hubSeen.claude && !_hubSeen.google && !_hubSeen.mcp
+    const loading = !_hubSeen.claude && !_hubSeen.google && !_hubSeen.mcp && !_hubSeen.mega
     el.innerHTML = `<div class="conn-empty">${escapeHtml(t(loading ? 'acchub.loading' : 'acchub.empty'))}</div>`
     _accHubSyncAddOpen(0)
     return
@@ -19195,6 +19272,7 @@ function renderAccountsHub() {
   if (el.dataset.wired !== '1') {
     el.dataset.wired = '1'
     el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-mega-measure],[data-mega-remove]')) { _megaListClick(e); return }
       const out = e.target.closest('.acc-claude-logout')
       if (out) { _claudeAuthLogout(out.dataset.plan || '', out.dataset.who || ''); return }
       const back = e.target.closest('.acc-claude-relogin')
@@ -19758,6 +19836,7 @@ async function _gconnStartAuth(name, force) {
   // Ugyanaz, mint a Fotok oldalon: a regi link torlese MEGELOZI a doboz
   // megjeleniteset, kulonben egy korabbi folyamat linkjere lehetne kattintani.
   _setConsentLink('gconnLink', '')
+  _accAddReveal('google')
   if (flowBox) flowBox.hidden = false
   _connSetState('gconnState', t('gconn.state_starting'), null)
   try {
@@ -20021,27 +20100,10 @@ function _megaRender(data) {
     if (!inst) _connSetState('megaRcloneState', t('mega.rclone_missing'), null)
   }
   if (btn) btn.disabled = !inst
-  const list = document.getElementById('megaAccountList')
-  if (!list) return
-  const accs = (data && data.accounts) || []
-  if (!accs.length) {
-    list.innerHTML = '<p class="claude-auth-warn">' + escapeHtml(t('mega.none')) + '</p>'
-    return
-  }
-  const when = (ms) => new Date(ms).toLocaleString((window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU')
-  list.innerHTML = accs.map(a => {
-    const q = a.quota
-    let qt
-    if (!q) qt = t('mega.quota_unmeasured')
-    else if (q.error) qt = t('mega.quota_failed', { when: when(q.measuredAt) }) + ' — ' + q.error
-    else qt = t('mega.quota', { free: _depoBytes(q.free), total: _depoBytes(q.total), when: when(q.measuredAt) })
-    return '<div class="claude-auth-actions" style="align-items:center;gap:8px">'
-      + '<strong>' + escapeHtml(a.email) + '</strong>'
-      + '<span class="claude-auth-warn" style="margin:0">' + escapeHtml(qt) + '</span>'
-      + '<button class="btn-secondary" data-mega-measure="' + escapeHtml(a.name) + '">' + escapeHtml(t('mega.measure')) + '</button>'
-      + '<button class="btn-secondary" data-mega-remove="' + escapeHtml(a.name) + '" data-mega-email="' + escapeHtml(a.email) + '">' + escapeHtml(t('mega.remove')) + '</button>'
-      + '</div>'
-  }).join('')
+  // A lista a fiok-kartyakon jelenik meg (renderAccountsHub), nem itt.
+  _hubMega = (data && data.accounts) || []
+  _hubSeen.mega = true
+  renderAccountsHub()
 }
 
 async function _megaCall(url, body) {
@@ -20087,19 +20149,19 @@ async function _megaListClick(ev) {
   const m = ev.target.closest('[data-mega-measure]')
   const rm = ev.target.closest('[data-mega-remove]')
   if (m) {
+    // A kartya a merés alatt ujrarajzolodhat; az allapot ezert toast, nem sor.
     m.disabled = true
-    _connSetState('megaAddState', t('mega.measuring'), null)
+    m.textContent = t('mega.measuring')
     const r = await _megaCall('/api/mega/measure', { name: m.dataset.megaMeasure }).catch(() => null)
-    _connSetState('megaAddState', '', null)
     if (r && r.ok) _megaRender(r.data)
-    else _connSetState('megaAddState', _megaErrText(r && r.data && r.data.error), 'bad')
+    else { showToast(_megaErrText(r && r.data && r.data.error), 8000, true); _megaLoad() }
     return
   }
   if (rm) {
     if (!confirm(t('mega.remove_confirm', { email: rm.dataset.megaEmail }))) return
     const r = await _megaCall('/api/mega/remove', { name: rm.dataset.megaRemove }).catch(() => null)
-    if (r && r.ok) { _megaRender(r.data); _connSetState('megaAddState', t('mega.removed'), null) }
-    else _connSetState('megaAddState', _megaErrText(r && r.data && r.data.error), 'bad')
+    if (r && r.ok) { _megaRender(r.data); showToast(t('mega.removed'), 6000) }
+    else showToast(_megaErrText(r && r.data && r.data.error), 8000, true)
   }
 }
 
@@ -20117,7 +20179,6 @@ function renderConnectionsPanel() {
   if (megasec && megasec.dataset.wired !== '1') {
     megasec.dataset.wired = '1'
     document.getElementById('megaAddBtn').addEventListener('click', _megaAdd)
-    document.getElementById('megaAccountList').addEventListener('click', _megaListClick)
   }
   if (megasec) _megaLoad()
   if (!gsec || !msec) return
