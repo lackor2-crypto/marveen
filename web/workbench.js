@@ -68,7 +68,9 @@
     return fetch(full, opts).then(function (res) {
       return res.json().catch(function () { return null }).then(function (data) {
         if (!res.ok) {
-          return { ok: false, status: res.status, code: data && data.error, message: (data && data.message) || t('workbench.err.http', { status: res.status }) }
+          // A test HIBANAL is kell: a szerver ott adja a reszleteket (a VALODI
+          // hibauzenetet), es azt meg kell tudnunk mutatni.
+          return { ok: false, status: res.status, code: data && data.error, data: data, message: (data && data.message) || t('workbench.err.http', { status: res.status }) }
         }
         return { ok: true, status: res.status, data: data }
       })
@@ -259,6 +261,8 @@
   // nincs projektmappa, eltunt a fajl), mint arra, ha "meg nincs semmi".
   function loadPreview(itemId, versionId) {
     WB.preview = null
+    // Az elozo munkadarab atalakitasi hibaja NEM tartozik ehhez: toroljuk.
+    WB.convertError = null
     var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/preview'
       + (versionId ? '?version=' + encodeURIComponent(versionId) + '&' : '?')
       + 'lang=' + encodeURIComponent(window._lang || 'hu')
@@ -291,6 +295,19 @@
   }
 
   function previewBodyHtml(p) {
+    // IRODAI DOKUMENTUM (7. fazis): amit latsz, az a belole keszult PDF -- ezt
+    // KI IS MONDJUK, hogy senki ne higgye, hogy a .docx-et szerkeszti itt.
+    if (p.kind === 'office') {
+      return '<iframe class="wb-preview-frame" src="' + escA(p.url) + '" title="' + escA(p.name || t('workbench.preview.title')) + '"></iframe>'
+        + '<p class="wb-hint">' + esc(t('workbench.preview.office_from_pdf')) + '</p>'
+        + '<p class="wb-hint"><a href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">'
+        + esc(t('workbench.preview.office_download_pdf')) + '</a>'
+        + (p.rel
+          ? ' &middot; <a href="/api/life/file?rel=' + escA(encodeURIComponent(p.rel)) + '&download=1" target="_blank" rel="noopener">'
+            + esc(t('workbench.preview.office_download_source')) + '</a>'
+          : '')
+        + '</p>'
+    }
     if (p.kind === 'pdf') {
       return '<iframe class="wb-preview-frame" src="' + escA(p.url) + '" title="' + escA(p.name || t('workbench.preview.title')) + '"></iframe>'
         + '<p class="wb-hint"><a href="' + escA(p.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a></p>'
@@ -319,6 +336,26 @@
     var head = '<div class="wb-preview-head"><h4>' + esc(t('workbench.preview.title')) + '</h4>'
       + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
       + previewVersionPickerHtml() + '</div>'
+    if (!p.available && p.reason === 'needs_conversion') {
+      // NEM HIBA, hanem TEENDO: ebbol a dokumentumbol tudunk elonezetet
+      // csinalni. A gomb mellett ott a letoltes is -- ha a gepen nincs meg a
+      // LibreOffice, a felhasznalo attol meg hozzafer a sajat fajljahoz.
+      return '<div class="wb-preview">' + head
+        + '<p class="wb-muted">' + esc(p.message || t('workbench.preview.none')) + '</p>'
+        + '<p><button type="button" class="btn-primary" data-wb-act="preview-convert"' + (WB.convertBusy ? ' disabled' : '') + '>'
+        + esc(WB.convertBusy ? t('workbench.preview.converting') : t('workbench.preview.convert')) + '</button></p>'
+        + (WB.convertError
+          ? '<p class="wb-preview-bad">' + esc(WB.convertError.message || '') + '</p>'
+            + (WB.convertError.detail ? '<p class="wb-hint">' + esc(WB.convertError.detail) + '</p>' : '')
+            + '<p><button type="button" class="wb-btn" data-wb-act="preview-convert-retry"' + (WB.convertBusy ? ' disabled' : '') + '>'
+            + esc(t('workbench.preview.convert_retry')) + '</button></p>'
+          : '')
+        + (p.rel
+          ? '<p class="wb-hint"><a href="/api/life/file?rel=' + escA(encodeURIComponent(p.rel)) + '&download=1" target="_blank" rel="noopener">'
+            + esc(t('workbench.preview.download')) + '</a></p>'
+          : '')
+        + '</div>'
+    }
     if (!p.available) {
       // A "nem latok oda" fajtak hangosak, a "meg nincs semmi" baratsagos.
       var loud = p.reason && p.reason !== 'no_source' && p.reason !== 'unsupported'
@@ -382,6 +419,12 @@
           : '<p class="wb-muted">' + esc(t('workbench.context.no_versions')) + '</p>')
         + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="version-new">'
           + esc(t('workbench.versions.save_new')) + '</button></p>')
+        // A KOR BEZARASA (spec 8): letoltod, megszerkeszted a sajat gepeden,
+        // visszatoltod -- es UJ VERZIO lesz belole. A regi megmarad.
+        + (ro ? '' : '<p><label class="wb-btn wb-part-upload" for="wbDocUpload">'
+          + esc(WB.docBusy ? t('workbench.versions.uploading') : t('workbench.versions.upload_document')) + '</label>'
+          + '<input type="file" id="wbDocUpload" class="wb-file-input"></p>'
+          + '<p class="wb-hint">' + esc(t('workbench.versions.upload_document_hint')) + '</p>')
         + '<p class="wb-hint">' + esc(t('workbench.versions.hint')) + '</p>'
         + '</div>')
     } else {
@@ -933,6 +976,80 @@
     })
   }
 
+  // DOKUMENTUM VISSZATOLTESE UJ VERZIOKENT (7. fazis, spec 8). Semmi nem
+  // irodik felul: a fajl foglalt nevnel uj nevet kap (es azt KI IS mondjuk), a
+  // munkadarab pedig uj verziot -- a regi verzio erintetlen marad.
+  function uploadDocumentVersion(file) {
+    if (!file || !WB.selectedId || WB.docBusy) return
+    var itemId = WB.selectedId
+    WB.docBusy = true
+    render()
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/document'
+      + '?name=' + encodeURIComponent(file.name || 'dokumentum.docx')
+      + '&lang=' + encodeURIComponent(window._lang || 'hu')
+    fetch(url, { method: 'POST', body: file }).then(function (res) {
+      return res.json().catch(function () { return null }).then(function (data) {
+        WB.docBusy = false
+        if (!res.ok) {
+          render()
+          window.showToast((data && data.message) || t('workbench.err.http', { status: res.status }))
+          return
+        }
+        if (WB.detail && data && data.item) { WB.detail.item = data.item; WB.detail.versions = data.versions || WB.detail.versions }
+        loadPreview(itemId, null)
+        WB.previewVersion = null
+        render()
+        // Ha a nev foglalt volt, a fajl MAS neven all -- ezt nem hallgatjuk el.
+        window.showToast(data && data.renamed
+          ? t('workbench.versions.uploaded_renamed', { name: (data.file && data.file.name) || data.name })
+          : t('workbench.versions.uploaded'))
+      })
+    }).catch(function () {
+      WB.docBusy = false
+      render()
+      window.showToast(t('workbench.err.network'))
+    })
+  }
+
+  // PDF-ELONEZET KESZITESE irodai dokumentumbol (7. fazis). A fajlhoz nem
+  // nyulunk hozza: a PDF szarmaztatott, es barmikor ujra eloallithato.
+  //
+  // Ha nincs a gepen LibreOffice, a szerver EMBERI mondatot kuld arrol, mi
+  // hianyzik es hogyan szerezheto be -- azt mutatjuk, nem gepi kodot. A
+  // "megegyszer" ujra MEGMERI az allapotot (force), tehat telepites utan
+  // azonnal jo valaszt ad: nem a korabbi meresbol beszel.
+  function convertPreview(force) {
+    if (!WB.selectedId || WB.convertBusy) return
+    var itemId = WB.selectedId
+    WB.convertBusy = true
+    WB.convertError = null
+    render()
+    var go = function () {
+      var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/convert'
+        + (WB.previewVersion ? '?version=' + encodeURIComponent(WB.previewVersion) : '')
+      return api('POST', url).then(function (r) {
+        if (WB.selectedId !== itemId) return
+        WB.convertBusy = false
+        if (!r.ok) {
+          WB.convertError = { message: r.message, detail: (r.data && r.data.detail) || null }
+          render()
+          return
+        }
+        WB.convertError = null
+        loadPreview(itemId, WB.previewVersion)
+        window.showToast(t('workbench.preview.converted'))
+      })
+    }
+    // Ujraprobalasnal elobb ujra megmerjuk, van-e mar LibreOffice.
+    if (force) {
+      fetch('/api/workbench/capabilities?force=1&lang=' + encodeURIComponent(window._lang || 'hu'))
+        .then(function () { return go() })
+        .catch(function () { return go() })
+      return
+    }
+    go()
+  }
+
   function openWorkbench(projectId, projectName) {
     if (!projectId) return
     WB.open = true
@@ -1010,6 +1127,8 @@
     else if (a === 'part-up') movePart(act.getAttribute('data-wb-part'), 'up')
     else if (a === 'part-down') movePart(act.getAttribute('data-wb-part'), 'down')
     else if (a === 'part-remove') removePart(act.getAttribute('data-wb-part'))
+    else if (a === 'preview-convert') convertPreview(false)
+    else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()
     else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') sendChat()
@@ -1038,6 +1157,11 @@
 
   document.addEventListener('change', function (e) {
     if (!WB.open || !e.target) return
+    if (e.target.id === 'wbDocUpload') {
+      var docs = e.target.files
+      if (docs && docs.length) uploadDocumentVersion(docs[0])
+      return
+    }
     if (e.target.id === 'wbPartImage') {
       var files = e.target.files
       if (files && files.length) uploadImagePart(files[0])

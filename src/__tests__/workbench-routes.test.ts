@@ -5,8 +5,8 @@
 // 404 jon (nem ures lista -- "a nulla ket dolgot jelenthet"), es hogy MINDEN
 // hiba ember-nyelvu mondatot visz magaval, a keres nyelven.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { Readable } from 'node:stream'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { Readable, Writable } from 'node:stream'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
@@ -15,18 +15,26 @@ import type { RouteContext } from '../web/routes/types.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import { createWorkItem, addWorkItemPart, listWorkItemParts, updateWorkItemPart } from '../workbench.js'
 import { PREVIEW_TEXT_MAX } from '../workbench-preview.js'
+import { resetLibreOfficeProbe } from '../office-convert.js'
 
+// A valasz VALODI irhato folyam, nem objektum-mock: a kesz PDF-et a vegpont
+// `createReadStream(...).pipe(res)`-szel adja ki, amihez a `pipe` igazi
+// Writable-t var. Igy ugyanaz a harness meri a JSON-valaszokat es a bajtokat.
 function ctxFor(path: string, method: string, body?: unknown, headers?: Record<string, string>) {
-  const out: { status: number; body: any; headers: Record<string, string> } = { status: 200, body: null, headers: {} }
-  const res: any = {
-    writeHead(status: number, hdrs?: Record<string, string>) {
-      out.status = status
-      if (hdrs) out.headers = { ...out.headers, ...hdrs }
-      return res
-    },
-    setHeader() { return res },
-    end(chunk?: string) { if (chunk) out.body = JSON.parse(chunk) },
+  const chunks: Buffer[] = []
+  const out: { status: number; body: any; raw: Buffer; headers: Record<string, string>; done: Promise<void> } = {
+    status: 200, body: null, raw: Buffer.alloc(0), headers: {}, done: Promise.resolve(),
   }
+  const res: any = new Writable({
+    write(chunk: Buffer, _enc: string, cb: () => void) { chunks.push(Buffer.from(chunk)); cb() },
+  })
+  out.done = new Promise<void>((resolve) => { res.on('finish', () => resolve()) })
+  res.writeHead = (status: number, hdrs?: Record<string, string>) => {
+    out.status = status
+    if (hdrs) out.headers = { ...out.headers, ...hdrs }
+    return res
+  }
+  res.setHeader = (k: string, v: unknown) => { out.headers[k] = String(v); return res }
   const raw = body === undefined ? '' : (typeof body === 'string' ? body : JSON.stringify(body))
   const req: any = Readable.from([Buffer.from(raw, 'utf-8')])
   req.headers = { 'content-type': 'application/json', ...(headers || {}) }
@@ -37,13 +45,24 @@ function ctxFor(path: string, method: string, body?: unknown, headers?: Record<s
       auth: { kind: 'session' as const, user: 'teszt' },
     } as unknown as RouteContext,
     out,
+    collect() {
+      out.raw = Buffer.concat(chunks)
+      const s = out.raw.toString('utf-8')
+      // Nem minden valasz JSON (a kesz PDF bajtjai nem azok) -- ilyenkor a
+      // `body` marad null, es a teszt a `raw`-ot nezi.
+      try { out.body = s ? JSON.parse(s) : null } catch { out.body = null }
+    },
   }
 }
 
 async function call(path: string, method: string, body?: unknown, headers?: Record<string, string>) {
-  const { ctx, out } = ctxFor(path, method, body, headers)
+  const { ctx, out, collect } = ctxFor(path, method, body, headers)
   const handled = await tryHandleWorkbench(ctx)
-  return { handled, ...out }
+  // Ha a vegpont hozza sem nyult az uthoz, a valasz sosem zarodik le -- akkor
+  // nincs mire varni.
+  if (handled) await out.done
+  collect()
+  return { handled, status: out.status, body: out.body, raw: out.raw, headers: out.headers }
 }
 
 let projectId = ''
@@ -225,11 +244,10 @@ describe('reszek (vegyes munkadarab)', () => {
   it('kep-feltoltes mappa NELKULI projektben: megmondja, mi hianyzik es hol kell beallitani', async () => {
     // Friss telepites: a projektnek nincs mappaja. A valasz NEM gepi kod, es
     // nem is csendes siker -- megmondja a teendot.
-    const { ctx, out } = ctxFor(`/api/workbench/items/${itemId}/parts/image?name=kep.jpg`, 'POST', 'BINARIS')
-    await tryHandleWorkbench(ctx)
-    expect(out.status).toBe(400)
-    expect(['no_folder', 'no_depot']).toContain(out.body.error)
-    expect(out.body.message.length).toBeGreaterThan(20)
+    const r = await call(`/api/workbench/items/${itemId}/parts/image?name=kep.jpg`, 'POST', 'BINARIS')
+    expect(r.status).toBe(400)
+    expect(['no_folder', 'no_depot']).toContain(r.body.error)
+    expect(r.body.message.length).toBeGreaterThan(20)
   })
 })
 
@@ -278,6 +296,9 @@ describe('GET /api/workbench/items/:id/preview', () => {
   beforeEach(() => {
     depot = mkdtempSync(join(tmpdir(), 'marveen-wb-prev-'))
     mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+    // Az atalakitott PDF gyorsitotara SOHA ne a valodi `store/`-ba keruljon.
+    process.env['MARVEEN_RENDER_CACHE'] = join(depot, 'render-cache')
+    resetLibreOfficeProbe()
     const w = createWorkItem({ project_id: projectId, title: 'Ajánlat', type: 'document' })
     if (!w.ok) throw new Error('munkadarab')
     itemId = w.item.id
@@ -286,6 +307,8 @@ describe('GET /api/workbench/items/:id/preview', () => {
   afterEach(() => {
     rmSync(depot, { recursive: true, force: true })
     delete process.env['MARVEEN_DEPOT']
+    delete process.env['MARVEEN_RENDER_CACHE']
+    resetLibreOfficeProbe()
   })
 
   function useDepot() {
@@ -347,15 +370,30 @@ describe('GET /api/workbench/items/:id/preview', () => {
     expect(String(r.body.message)).toMatch(/Raktár/)
   })
 
-  it('amit a bongeszo nem tud megmutatni (docx), arra SAJAT mondat jon', async () => {
+  it('a docx-et a bongeszo nem tudja, DE atalakithato -- sajat, teendot mondo allapot', async () => {
     useDepot()
     writeFileSync(join(depot, 'Projektek', 'teszt', 'szerzodes.docx'), 'PK teszt')
     const w = createWorkItem({ project_id: projectId, title: 'DOCX', type: 'document', source_path: 'szerzodes.docx' })
     if (!w.ok) throw new Error('munkadarab')
     const r = await call(`/api/workbench/items/${w.item.id}/preview`, 'GET')
     expect(r.body.available).toBe(false)
-    expect(r.body.reason).toBe('unsupported')
+    // Ez NEM "unsupported": van teendo (atalakitas), es a felulet gombot ad ra.
+    expect(r.body.reason).toBe('needs_conversion')
+    expect(r.body.kind).toBe('office')
+    expect(r.body.office).toEqual({ ext: 'docx', ready: false })
     expect(r.body.rel).toContain('szerzodes.docx')
+    expect(String(r.body.message)).toMatch(/PDF/i)
+  })
+
+  it('amit tenyleg nem lehet megmutatni (zip), arra tovabbra is "unsupported" jon', async () => {
+    useDepot()
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'mentes.zip'), 'PK teszt')
+    const w = createWorkItem({ project_id: projectId, title: 'ZIP', type: 'document', source_path: 'mentes.zip' })
+    if (!w.ok) throw new Error('munkadarab')
+    const r = await call(`/api/workbench/items/${w.item.id}/preview`, 'GET')
+    expect(r.body.available).toBe(false)
+    expect(r.body.reason).toBe('unsupported')
+    expect(r.body.office).toBe(null)
   })
 
   it('szoveg: a tartalom jon vissza, hosszunal levagva es KIMONDVA', async () => {
@@ -472,5 +510,238 @@ describe('verziozas vegpontok', () => {
     expect(old.body.available).toBe(true)
     expect(old.body.kind).toBe('parts')
     expect(old.body.version_no).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// KEPESSEGEK es PDF-ATALAKITAS (7. fazis, spec 8 + 24)
+//
+// Amit ez oriz: a "nincs telepitve LibreOffice" es a "nem tudtam megkerdezni"
+// KET KULON valasz, ket kulon teendovel -- es EGYIK sem latszik sikernek. A
+// teszt sajat, hamis `soffice`-szal dolgozik, tehat ugyanazt meri azon a gepen
+// is, ahol van LibreOffice, es azon is, ahol nincs.
+
+describe('Munkapad: kepessegek es atalakitas PDF-re (7. fazis)', () => {
+  let depot = ''
+  let docxItemId = ''
+  const savedEnv: Record<string, string | undefined> = {}
+
+  /** A `--version` valaszol, a `--convert-to` pedig a kert mappaba ir egy PDF-et. */
+  const WORKING = `
+if [ "$1" = "--version" ]; then echo "LibreOffice 7.4.7.2 tesztpeldany"; exit 0; fi
+out=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--outdir" ]; then out="$a"; fi
+  prev="$a"
+done
+printf '%%PDF-1.4 teszt' > "$out/atalakitott.pdf"
+exit 0
+`
+
+  function fakeSoffice(body: string): string {
+    const f = join(depot, `fake-soffice-${Math.random().toString(36).slice(2)}.sh`)
+    writeFileSync(f, `#!/bin/sh\n${body}\n`, 'utf-8')
+    chmodSync(f, 0o755)
+    process.env['MARVEEN_SOFFICE'] = f
+    resetLibreOfficeProbe()
+    return f
+  }
+
+  beforeEach(() => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-conv-'))
+    mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'szerzodes.docx'), 'PK teszt')
+    for (const k of ['MARVEEN_DEPOT', 'MARVEEN_SOFFICE', 'MARVEEN_RENDER_CACHE']) savedEnv[k] = process.env[k]
+    process.env['MARVEEN_DEPOT'] = depot
+    process.env['MARVEEN_RENDER_CACHE'] = join(depot, 'render-cache')
+    // Alapbol: a beallitott ut NEM letezik -- igy a teszt sosem a gep sajat
+    // LibreOffice-at meri, es a "nincs meg" ut is vegigjarhato.
+    process.env['MARVEEN_SOFFICE'] = join(depot, 'nincs-ilyen-soffice')
+    resetLibreOfficeProbe()
+    const up = updateProject(projectId, { folder_path: 'Projektek/teszt' })
+    if (!up.ok) throw new Error('projektmappa: ' + up.code)
+    const w = createWorkItem({ project_id: projectId, title: 'Szerződés', type: 'document', source_path: 'szerzodes.docx' })
+    if (!w.ok) throw new Error('munkadarab')
+    docxItemId = w.item.id
+  })
+
+  afterEach(() => {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    resetLibreOfficeProbe()
+    rmSync(depot, { recursive: true, force: true })
+  })
+
+  describe('GET /api/workbench/capabilities', () => {
+    it('ha nem tudtam megkerdezni, az NEM "nincs telepitve" -- sajat allapot, valodi hibauzenettel', async () => {
+      const r = await call('/api/workbench/capabilities', 'GET')
+      expect(r.status).toBe(200)
+      const cap = r.body.capabilities[0]
+      expect(cap.key).toBe('office_to_pdf')
+      expect(cap.available).toBe(false)
+      expect(cap.state).toBe('check_failed')
+      // A `detail` a VALODI hibauzenet, nem talalgatas -- es megnevezi a beallitast.
+      expect(String(cap.detail)).toContain('MARVEEN_SOFFICE=')
+      expect(String(cap.message)).toMatch(/nem jelenti|nem biztos|nem tudtam/i)
+      expect(cap.extensions).toContain('docx')
+      // Nem alapfunkcio: a hianya nem veszjelzes.
+      expect(cap.optional).toBe(true)
+    })
+
+    it('ha ott van, kiirja a valodi verziot es az utat', async () => {
+      const f = fakeSoffice(WORKING)
+      const r = await call('/api/workbench/capabilities', 'GET')
+      const cap = r.body.capabilities[0]
+      expect(cap.available).toBe(true)
+      expect(cap.state).toBe('ok')
+      expect(String(cap.version)).toContain('LibreOffice')
+      expect(cap.path).toBe(f)
+      expect(String(cap.message)).toMatch(/elérhető/i)
+    })
+
+    it('a valasz a keres nyelven szol (en)', async () => {
+      const r = await call('/api/workbench/capabilities?lang=en', 'GET')
+      const cap = r.body.capabilities[0]
+      expect(String(cap.title)).toMatch(/preview/i)
+      expect(String(cap.required_by)).toMatch(/Workbench/)
+    })
+  })
+
+  describe('POST /api/workbench/items/:id/convert', () => {
+    it('LibreOffice nelkul NEM siker: 501, ember-nyelvu mondat + a valodi hibauzenet', async () => {
+      const r = await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      expect(r.status).toBe(501)
+      expect(r.body.error).toBe('convert_check_failed')
+      expect(String(r.body.message).length).toBeGreaterThan(20)
+      expect(String(r.body.detail)).toContain('MARVEEN_SOFFICE=')
+      expect(r.body.capability.state).toBe('check_failed')
+    })
+
+    it('ha nincs telepitve, a mondat megmondja MIT es HOGYAN kell telepiteni', async () => {
+      delete process.env['MARVEEN_SOFFICE']
+      resetLibreOfficeProbe()
+      // Ezen a gepen lehet, hogy VAN LibreOffice -- akkor ez az ut nem
+      // ertelmezheto, es a teszt nem allit semmit rola.
+      const cap = (await call('/api/workbench/capabilities', 'GET')).body.capabilities[0]
+      if (cap.available) return
+      const r = await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      expect(r.status).toBe(501)
+      expect(String(r.body.message)).toMatch(/libreoffice/i)
+      expect(String(r.body.message)).toMatch(/apt|install/i)
+    })
+
+    it('atalakit, masodszor mar a gyorsitotarbol veszi', async () => {
+      fakeSoffice(WORKING)
+      const first = await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      expect(first.status).toBe(200)
+      expect(first.body.ok).toBe(true)
+      expect(first.body.cached).toBe(false)
+      expect(first.body.ext).toBe('docx')
+      expect(String(first.body.url)).toContain(`/api/workbench/items/${docxItemId}/converted`)
+
+      const second = await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      expect(second.status).toBe(200)
+      expect(second.body.cached).toBe(true)
+      // Nem maradhat ideiglenes mappa a gyorsitotarban.
+      expect(readdirSync(join(depot, 'render-cache')).filter((n) => n.startsWith('tmp-'))).toEqual([])
+    })
+
+    it('ami nem irodai dokumentum, arra nem is indul atalakitas', async () => {
+      writeFileSync(join(depot, 'Projektek', 'teszt', 'jegyzet.txt'), 'szia')
+      const w = createWorkItem({ project_id: projectId, title: 'Jegyzet', type: 'note', source_path: 'jegyzet.txt' })
+      if (!w.ok) throw new Error('munkadarab')
+      const r = await call(`/api/workbench/items/${w.item.id}/convert`, 'POST', {})
+      expect(r.status).toBe(400)
+      expect(r.body.error).toBe('convert_unsupported')
+    })
+
+    it('ARCHIVALT projektben is megnezheto a dokumentum (az elonezet olvasas, nem iras)', async () => {
+      fakeSoffice(WORKING)
+      setProjectArchived(projectId, true)
+      const r = await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      expect(r.status).toBe(200)
+      expect(r.body.ok).toBe(true)
+    })
+  })
+
+  describe('GET /api/workbench/items/:id/converted', () => {
+    it('amig nincs kesz: 409 + a teendot mondo mondat, nem ures valasz', async () => {
+      const r = await call(`/api/workbench/items/${docxItemId}/converted`, 'GET')
+      expect(r.status).toBe(409)
+      expect(r.body.error).toBe('convert_not_ready')
+      expect(String(r.body.message).length).toBeGreaterThan(10)
+    })
+
+    it('ha kesz: a PDF BAJTJAI jonnek, eltarolas nelkul', async () => {
+      fakeSoffice(WORKING)
+      await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      const r = await call(`/api/workbench/items/${docxItemId}/converted`, 'GET')
+      expect(r.status).toBe(200)
+      expect(r.headers['Content-Type']).toBe('application/pdf')
+      expect(r.headers['Cache-Control']).toBe('private, no-store')
+      expect(r.raw.toString('utf-8')).toContain('%PDF')
+      expect(Number(r.headers['Content-Length'])).toBe(r.raw.length)
+      expect(String(r.headers['Content-Disposition'])).toContain('inline')
+    })
+
+    it('letolteskor a fajlnev a dokumentume, .pdf vegzodessel', async () => {
+      fakeSoffice(WORKING)
+      await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      const r = await call(`/api/workbench/items/${docxItemId}/converted?download=1`, 'GET')
+      expect(r.status).toBe(200)
+      const cd = String(r.headers['Content-Disposition'])
+      expect(cd).toContain('attachment')
+      expect(decodeURIComponent(cd)).toContain('szerzodes.pdf')
+    })
+
+    it('a forras valtozasa utan NEM a regi PDF jon vissza', async () => {
+      fakeSoffice(WORKING)
+      await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
+      // A dokumentum megvaltozott: a gyorsitotar kulcsa a forras allapotabol jon.
+      writeFileSync(join(depot, 'Projektek', 'teszt', 'szerzodes.docx'), 'PK teszt -- MASODIK valtozat')
+      const r = await call(`/api/workbench/items/${docxItemId}/converted`, 'GET')
+      expect(r.status).toBe(409)
+      expect(r.body.error).toBe('convert_not_ready')
+    })
+  })
+
+  describe('POST /api/workbench/items/:id/document', () => {
+    it('visszatoltott dokumentum = UJ VERZIO, a regi megmarad', async () => {
+      const r = await call(
+        `/api/workbench/items/${docxItemId}/document?name=szerzodes-javitott.docx&prompt=${encodeURIComponent('kézi javítás')}`,
+        'POST', 'PK ujabb tartalom')
+      expect(r.status).toBe(201)
+      expect(r.body.ok).toBe(true)
+      expect(r.body.renamed).toBe(false)
+      expect(r.body.name).toBe('szerzodes-javitott.docx')
+      expect(r.body.item.current_version_id).toBe(r.body.version.id)
+      expect(r.body.version.source_path).toContain('szerzodes-javitott.docx')
+      expect(r.body.versions.length).toBeGreaterThanOrEqual(2)
+    })
+
+    it('foglalt nevnel ATNEVEZ, es KIMONDJA az uj nevet -- semmit nem ir felul', async () => {
+      const r = await call(`/api/workbench/items/${docxItemId}/document?name=szerzodes.docx`, 'POST', 'PK masik')
+      expect(r.status).toBe(201)
+      expect(r.body.renamed).toBe(true)
+      expect(r.body.name).not.toBe('szerzodes.docx')
+      // Az eredeti bajtjai valtozatlanok maradtak.
+      expect(readdirSync(join(depot, 'Projektek', 'teszt'))).toContain('szerzodes.docx')
+    })
+
+    it('ures fajlra emberi hiba jon, nem ures verzio', async () => {
+      const r = await call(`/api/workbench/items/${docxItemId}/document?name=ures.docx`, 'POST', '')
+      expect(r.status).toBe(400)
+      expect(r.body.error).toBe('empty_file')
+    })
+
+    it('ARCHIVALT projektbe nem lehet visszatolteni (a szerver mondja ki)', async () => {
+      setProjectArchived(projectId, true)
+      const r = await call(`/api/workbench/items/${docxItemId}/document?name=uj.docx`, 'POST', 'PK')
+      expect(r.status).toBe(409)
+      expect(r.body.error).toBe('project_archived')
+    })
   })
 })

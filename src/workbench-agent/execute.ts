@@ -20,6 +20,7 @@ import { projectFileTarget, writeProjectFile, safeFileName } from '../project-fi
 import { recentFiles, buildProjectOverview } from '../project-overview.js'
 import { moveLife, renameLife, trashLife } from '../life-explorer.js'
 import { fileKind } from '../file-kind.js'
+import { convertOfficeToPdf, isOfficeConvertible } from '../office-convert.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
@@ -94,6 +95,50 @@ function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code
     return { ok: true, size: st.size }
   } catch (e) {
     return { ok: false, code: 'not_found', detail: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** IDOT IGENYLO eszkozok (7. fazis). A tobbseg azonnal valaszol, es marad a
+ *  szinkron `executeTool`; egy dokumentum PDF-fe alakitasa viszont masodpercek,
+ *  es egy kulso folyamat futasa -- azt nem lehet a szal blokkolasaval megoldani.
+ *
+ *  Ezert EGY belepesi pont van a hivoknak: `runTool`. Az azonnali eszkozoket
+ *  valtozatlanul a `executeTool` vegzi (nincs ketszer megirva semmi), a lassukat
+ *  pedig ez a fuggveny -- igy a hivonak nem kell tudnia, melyik melyik. */
+export async function runTool(name: string, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+  if (name !== 'document.toPdf') return executeTool(name, input, ctx)
+
+  const project = getProject(ctx.projectId)
+  if (!project) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
+  const ref = projectFileRef(project, input.path)
+  if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+  const st = mustBeFile(ref.abs)
+  if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+  if (!isOfficeConvertible(ref.name)) {
+    return { ok: false, code: 'unsupported', detail: `${ref.name} is not an office document, so no PDF can be made from it` }
+  }
+  const out = await convertOfficeToPdf(ref.abs)
+  if (!out.ok) {
+    // A HIBA OKAT az atalakito mondja meg (nincs telepitve / nem tudtam
+    // megkerdezni / idotullepes / a sajat hibauzenete). Nem talalgatunk, es a
+    // "nem tudtam megkerdezni" SOSE valik "nincs"-cse.
+    // A `detail` sosem maradhat ures: ha az atalakito nem mondott tobbet, akkor
+    // azt mondjuk el, AMIT TUDUNK -- es nem talalunk ki ehelyett okot.
+    const fallback = out.code === 'not_installed'
+      ? 'LibreOffice is not installed on this machine, so office documents cannot be turned into PDF here'
+      : out.code === 'no_output'
+        ? 'the converter ran but produced no PDF (a damaged or password-protected document does this)'
+        : 'the converter gave no further information'
+    return { ok: false, code: out.code, detail: out.detail || fallback }
+  }
+  return {
+    ok: true,
+    data: {
+      path: ref.rel, ready: true, cached: out.cached,
+      note: out.cached
+        ? 'the PDF preview was already made earlier, it is ready'
+        : 'the PDF preview has been made; the original document was not changed',
+    },
   }
 }
 
