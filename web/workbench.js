@@ -60,6 +60,9 @@
     canvasBusy: false,
     canvasEdit: null,
     canvasStamp: null,
+    // Melyik elemet jelolte ki a felhasznalo a vasznon (huzogatas, kartya
+    // d4b05d82). Csak a KIEMELEST jelenti, a szerkeszto urlapot nem nyitja.
+    canvasSel: null,
     // --- PDF-nezegeto (kartya f7d423e7) ---
     // A kirajzolt lapok DOM-csomopontja TULELI a render()-t, ezert itt all,
     // nem a felulet HTML-jeben. A `pdfLib === null` = meg nem kertuk le a
@@ -124,6 +127,8 @@
     WB.canvas = null
     WB.canvasError = null
     WB.canvasEdit = null
+    // Mas munkadarab = mas vaszon: a kijeloles nem szivaroghat at.
+    WB.canvasSel = null
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -289,8 +294,14 @@
   // es nincs uj csomag-fuggoseg. Ami nem mutathato meg, arra EMBERI mondat jon
   // a szervertol -- es kulon mondat arra, ha "nem latok oda" (nincs Raktar,
   // nincs projektmappa, eltunt a fajl), mint arra, ha "meg nincs semmi".
-  function loadPreview(itemId, versionId) {
-    WB.preview = null
+  /** `keep === true`: a MOSTANI elonezet a helyen marad, amig az uj meg nem
+   *  jon. Ez akkor helyes, ha UGYANARROL a munkadarabrol kerunk friss adatot
+   *  (pl. a vaszon egy muvelete utan): kulonben a kep es a huzogato reteg
+   *  minden mozdulat utan eltunne egy pillanatra, es a masodik huzast mar nem
+   *  lehetne elkezdeni. Munkadarab- vagy verzio-valtasnal NEM szabad megtartani:
+   *  ott a regi kep MAS dolgot mutatna, mint amit a felhasznalo kert. */
+  function loadPreview(itemId, versionId, keep) {
+    if (!keep) WB.preview = null
     // Az elozo munkadarab atalakitasi hibaja NEM tartozik ehhez: toroljuk.
     WB.convertError = null
     var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/preview'
@@ -345,8 +356,10 @@
     }
     if (p.kind === 'canvas') {
       // A rajzot a SZERVER rajzolja ki SVG-be: a bongeszonek nem kell hozza
-      // semmilyen kulso konyvtar, es a letoltott kep ugyanez a kep.
-      return '<img class="wb-preview-image" src="' + escA(canvasSvgUrl(WB.selectedId, false)) + '" alt="' + escA(p.name || t('workbench.preview.title')) + '">'
+      // semmilyen kulso konyvtar, es a letoltott kep ugyanez a kep. A
+      // huzogatashoz csak egy ATLATSZO doboz-reteg kerul fole -- a kepet
+      // tovabbra sem a bongeszo rajzolja.
+      return canvasStageHtml(p.name || t('workbench.preview.title'))
         + '<p class="wb-hint"><a href="' + escA(canvasSvgUrl(WB.selectedId, true)) + '" target="_blank" rel="noopener">'
         + esc(t('workbench.canvas.download')) + '</a></p>'
     }
@@ -869,8 +882,9 @@
       window.showToast(r.data.renamed
         ? t('workbench.canvas.renamed', { name: r.data.name })
         : (r.data.message || t('workbench.canvas.saved')))
-      // A kozepso panel elonezete is a vaszonrol szol: ujra kell kerni.
-      loadPreview(WB.selectedId, null)
+      // A kozepso panel elonezete is a vaszonrol szol: ujra kell kerni -- de a
+      // mostani kep a helyen marad, amig az uj meg nem jon (nincs villogas).
+      loadPreview(WB.selectedId, null, true)
       render()
     })
   }
@@ -988,6 +1002,89 @@
     if (!id || WB.canvasBusy) return
     if (typeof window.confirm === 'function' && !window.confirm(t('workbench.canvas.remove_confirm'))) return
     canvasOps([{ op: 'remove', id: id }])
+  }
+
+  // ---- huzogatos szerkesztes: a doboz-reteg (kartya d4b05d82) ---------------
+  //
+  // A KEPET tovabbra is a szerver rajzolja SVG-be -- ezert egyezik a letoltott
+  // kep a latottal. A huzogatashoz csak egy ATLATSZO reteg kerul a kep fole:
+  // elemenkent egy doboz, szazalekban megadott helyen, igy a kep barmilyen
+  // meretben jelenhet meg, a dobozok vele egyutt mozdulnak.
+
+  /** Az objektum-doboz also/felso hatara VASZON-egysegben. A szerver 1 es
+   *  8000 kozott fogadja el (CANVAS_MAX_SIZE); 8 alatt nincs mit megfogni. */
+  var CANVAS_OBJ_MIN = 8
+  var CANVAS_OBJ_MAX = 8000
+  var CANVAS_GRIPS = ['nw', 'ne', 'sw', 'se']
+
+  /** A huzas UJ dobozat szamolja ki. Tiszta fuggveny: `dx`/`dy` mar
+   *  VASZON-egysegben ertendo, es a kimenet kerekitett egesz. Atmeretezesnel a
+   *  megfogott sarok ATELLENES pontja marad helyben -- ez az, amit a kez var. */
+  function canvasDragBox(from, mode, dx, dy) {
+    var x = from.x, y = from.y, w = from.width, h = from.height
+    if (mode === 'move') {
+      x = from.x + dx
+      y = from.y + dy
+    } else {
+      var west = mode === 'nw' || mode === 'sw'
+      var north = mode === 'nw' || mode === 'ne'
+      w = west ? from.width - dx : from.width + dx
+      h = north ? from.height - dy : from.height + dy
+      if (w < CANVAS_OBJ_MIN) w = CANVAS_OBJ_MIN
+      if (h < CANVAS_OBJ_MIN) h = CANVAS_OBJ_MIN
+      if (w > CANVAS_OBJ_MAX) w = CANVAS_OBJ_MAX
+      if (h > CANVAS_OBJ_MAX) h = CANVAS_OBJ_MAX
+      if (west) x = from.x + from.width - w
+      if (north) y = from.y + from.height - h
+    }
+    return { x: Math.round(x), y: Math.round(y), width: Math.round(w), height: Math.round(h) }
+  }
+
+  /** A doboz helye SZAZALEKBAN: a kep kicsinyitve is jo helyen all, es nem
+   *  kell megmernunk a kepernyon elfoglalt meretet a kirajzolashoz. */
+  function canvasBoxStyle(box, doc) {
+    var pct = function (v, total) { return (Math.round((10000 * v) / total) / 100) + '%' }
+    return 'left:' + pct(box.x, doc.width) + ';top:' + pct(box.y, doc.height)
+      + ';width:' + pct(box.width, doc.width) + ';height:' + pct(box.height, doc.height)
+  }
+
+  function canvasBoxHtml(o, doc) {
+    return '<div class="wb-can-box' + (WB.canvasSel === o.id ? ' wb-can-box-sel' : '') + '"'
+      + ' data-wb-box="' + escA(o.id) + '" tabindex="0" role="button"'
+      + ' title="' + escA(canvasObjectLabel(o)) + '"'
+      + ' aria-label="' + escA(t('workbench.canvas.drag_aria', { name: canvasObjectLabel(o) })) + '"'
+      + ' style="' + escA(canvasBoxStyle(o, doc)) + '">'
+      + CANVAS_GRIPS.map(function (g) {
+        return '<span class="wb-can-grip wb-can-grip-' + g + '" data-wb-grip="' + g + '" aria-hidden="true"></span>'
+      }).join('')
+      + '</div>'
+  }
+
+  /** A vaszon elonezete: a szerver rajzolta kep + (ha lehet) a huzogato reteg.
+   *  Amikor a reteg NEM jelenik meg, azt KIMONDJUK, es megmondjuk, mi helyette
+   *  az ut -- a nema hianyzas a legrosszabb valasz. */
+  function canvasStageHtml(name) {
+    var img = '<img class="wb-preview-image" src="' + escA(canvasSvgUrl(WB.selectedId, false)) + '"'
+      + ' alt="' + escA(name) + '">'
+    // A NULLA itt ket dolgot jelenthet: "meg nem toltottuk be a rajz adatait"
+    // (nem tudunk dobozt rajzolni) vagy "ures a vaszon" (van reteg, nincs
+    // benne doboz). A kettot KULON kezeljuk.
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!doc) {
+      return '<div class="wb-can-stage">' + img + '</div>'
+        + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_unavailable')) + '</p>'
+    }
+    if (archived()) {
+      return '<div class="wb-can-stage">' + img + '</div>'
+        + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_archived')) + '</p>'
+    }
+    return '<div class="wb-can-stage" data-wb-stage="1">' + img
+      + '<div class="wb-can-layer">'
+      + canvasObjects().map(function (o) { return canvasBoxHtml(o, doc) }).join('')
+      + '</div>'
+      + '<span class="wb-can-live" id="wbCanLive" aria-live="polite"></span>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.canvas.drag_hint')) + '</p>'
   }
 
   function canvasFormHtml(o) {
@@ -2058,6 +2155,133 @@
     else if (a === 'chat-setup') openChatSetup()
     else if (a === 'chat-setup-close') { WB.chatSetupOpen = false; renderChat() }
     else if (a === 'chat-setup-save') { e.preventDefault(); saveChatSetup() }
+  })
+
+  // ---- huzogatos szerkesztes: az esemenyek (kartya d4b05d82) ----------------
+  //
+  // EGY Pointer Events-figyelo lefedi az egeret ES az erintokepernyot is, tehat
+  // telefonon ugyanugy mukodik. A huzas KOZBEN nem megy halozati keres: a doboz
+  // helyben mozog, es csak az ELENGEDESKOR megy EGY `update` muvelet -- ugyanaz,
+  // amit a szamokat kero urlap es az agent is kuldene, tehat a ket ut nem
+  // csuszhat szet.
+
+  var canvasDrag = null
+
+  function canvasDragStyle(el, box, doc) {
+    if (!el || !el.style) return
+    el.style.left = (Math.round((10000 * box.x) / doc.width) / 100) + '%'
+    el.style.top = (Math.round((10000 * box.y) / doc.height) / 100) + '%'
+    el.style.width = (Math.round((10000 * box.width) / doc.width) / 100) + '%'
+    el.style.height = (Math.round((10000 * box.height) / doc.height) / 100) + '%'
+  }
+
+  /** Huzas kozben a SZAMOK is latszanak: a felhasznalonak ne kelljen kitalalnia,
+   *  hova kerult az elem. Ugyanazok az ertekek, mint a szerkeszto urlapon. */
+  function canvasDragLive(box) {
+    var el = document.getElementById('wbCanLive')
+    if (!el) return
+    var text = t('workbench.canvas.drag_live', { x: box.x, y: box.y, w: box.width, h: box.height })
+    if ('textContent' in el) el.textContent = text
+  }
+
+  function canvasDragHighlight(stage, boxEl) {
+    if (!stage || typeof stage.querySelectorAll !== 'function') return
+    var all = stage.querySelectorAll('[data-wb-box]')
+    for (var i = 0; i < all.length; i++) {
+      all[i].className = 'wb-can-box' + (all[i] === boxEl ? ' wb-can-box-sel' : '')
+    }
+  }
+
+  document.addEventListener('pointerdown', function (e) {
+    if (!WB.open || WB.canvasBusy || archived()) return
+    var target = e.target
+    if (!target || typeof target.closest !== 'function') return
+    var boxEl = target.closest('[data-wb-box]')
+    if (!boxEl) return
+    var doc = (WB.canvas && WB.canvas.exists && WB.canvas.canvas) || null
+    if (!doc) return
+    var o = canvasObject(boxEl.getAttribute('data-wb-box'))
+    if (!o) return
+    var stage = target.closest('[data-wb-stage]')
+    var rect = stage && typeof stage.getBoundingClientRect === 'function' ? stage.getBoundingClientRect() : null
+    // Meret nelkul nem tudunk kepernyo-pixelbol vaszon-egyseget szamolni.
+    // Ilyenkor INKABB nem mozdulunk, mint hogy talalgassunk: az urlap
+    // (X, Y, Szelesseg, Magassag) tovabbra is ott van.
+    if (!rect || !rect.width || !rect.height) return
+    var gripEl = target.closest('[data-wb-grip]')
+    var from = { x: o.x, y: o.y, width: o.width, height: o.height }
+    canvasDrag = {
+      id: o.id,
+      mode: gripEl ? gripEl.getAttribute('data-wb-grip') : 'move',
+      from: from,
+      box: from,
+      startX: e.clientX,
+      startY: e.clientY,
+      kx: doc.width / rect.width,
+      ky: doc.height / rect.height,
+      doc: doc,
+      el: boxEl,
+      moved: false,
+    }
+    WB.canvasSel = o.id
+    canvasDragHighlight(stage, boxEl)
+    // A mutato "hozzaragad" a dobozhoz: ha a kez kifut a kepbol, a huzas akkor
+    // sem szakad meg.
+    if (typeof boxEl.setPointerCapture === 'function' && e.pointerId != null) {
+      try { boxEl.setPointerCapture(e.pointerId) } catch (err) { /* nem all meg tole a huzas */ }
+    }
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+  })
+
+  document.addEventListener('pointermove', function (e) {
+    var d = canvasDrag
+    if (!d) return
+    var sx = e.clientX - d.startX
+    var sy = e.clientY - d.startY
+    // Par pixel meg nem huzas, hanem kattintas (kijelolés). Kulonben minden
+    // erintes elmozditana az elemet.
+    if (!d.moved && Math.abs(sx) < 3 && Math.abs(sy) < 3) return
+    d.moved = true
+    d.box = canvasDragBox(d.from, d.mode, sx * d.kx, sy * d.ky)
+    canvasDragStyle(d.el, d.box, d.doc)
+    canvasDragLive(d.box)
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+  })
+
+  /** A huzas vege. `commit === false` (megszakitas) eseten NEM mentunk: a
+   *  kovetkezo rajzolas visszateszi az elemet oda, ahol a szerveren all. */
+  function canvasDragFinish(commit) {
+    var d = canvasDrag
+    if (!d) return
+    canvasDrag = null
+    var b = d.box
+    var f = d.from
+    var same = b.x === f.x && b.y === f.y && b.width === f.width && b.height === f.height
+    if (!commit || !d.moved || same) { render(); return }
+    canvasOps([{ op: 'update', id: d.id, patch: { x: b.x, y: b.y, width: b.width, height: b.height } }])
+  }
+
+  document.addEventListener('pointerup', function () { canvasDragFinish(true) })
+  document.addEventListener('pointercancel', function () { canvasDragFinish(false) })
+
+  // Nyilbillentyuk: eger nelkul is mozgathato az elem (Shift = nagyobb lepes).
+  // Ez ugyanaz a `move` muvelet, amit az agent is kuldene.
+  document.addEventListener('keydown', function (e) {
+    if (!WB.open || WB.canvasBusy || archived() || !e.target) return
+    if (typeof e.target.closest !== 'function') return
+    var boxEl = e.target.closest('[data-wb-box]')
+    if (!boxEl) return
+    var step = e.shiftKey ? 50 : 10
+    var dx = 0
+    var dy = 0
+    if (e.key === 'ArrowLeft') dx = -step
+    else if (e.key === 'ArrowRight') dx = step
+    else if (e.key === 'ArrowUp') dy = -step
+    else if (e.key === 'ArrowDown') dy = step
+    else return
+    if (typeof e.preventDefault === 'function') e.preventDefault()
+    WB.canvasSel = boxEl.getAttribute('data-wb-box')
+    canvasOps([{ op: 'move', id: WB.canvasSel, dx: dx, dy: dy }])
   })
 
   // A bevitel erteket allapotban tartjuk: a chat-sav ujrarajzolasa (streameles

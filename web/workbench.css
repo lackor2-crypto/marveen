@@ -295,6 +295,73 @@
   .wb-can-pick { max-width: 100%; }
 }
 
+/* --- Huzogatos szerkesztes a vasznon (kartya d4b05d82) ----------------------
+ * A KEPET tovabbra is a szerver rajzolja (SVG), ezert egyezik a letoltott kep a
+ * latottal. Itt csak egy ATLATSZO reteg ul a kep folott: elemenkent egy doboz,
+ * szazalekos helyen, tehat a kep barmilyen meretben jelenhet meg.
+ * A `touch-action: none` KELL: nelkule a telefon gorgetne a huzas helyett.
+ */
+.wb-can-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.wb-can-layer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; pointer-events: none; }
+.wb-can-box {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+  min-width: 4px;
+  min-height: 4px;
+  border: 1px dashed rgba(37, 99, 235, 0.85);
+  background: rgba(37, 99, 235, 0.06);
+  border-radius: 4px;
+  cursor: move;
+  touch-action: none;
+}
+.wb-can-box:hover { background: rgba(37, 99, 235, 0.16); }
+.wb-can-box:focus { outline: none; background: rgba(37, 99, 235, 0.16); }
+.wb-can-box:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.wb-can-box-sel { border: 2px solid #2563eb; background: rgba(37, 99, 235, 0.18); }
+.wb-can-grip {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  border-radius: 3px;
+  box-sizing: border-box;
+  touch-action: none;
+}
+/* Az UJJNAK nagyobb celpont kell, mint a szemnek: a lathato pont 12px, a
+ * megfoghato terulet 32px. */
+.wb-can-grip::after { content: ""; position: absolute; left: -10px; top: -10px; right: -10px; bottom: -10px; }
+/* A fogantyuk a doboz BELSO oldalan ulnek, nem a keretere lognak: a vaszon
+ * szelehez tapado elem (pl. egy x=0-nal allo cim) sarkai igy sem vagodnak le. */
+.wb-can-grip-nw { left: 0; top: 0; cursor: nwse-resize; }
+.wb-can-grip-ne { right: 0; top: 0; cursor: nesw-resize; }
+.wb-can-grip-sw { left: 0; bottom: 0; cursor: nesw-resize; }
+.wb-can-grip-se { right: 0; bottom: 0; cursor: nwse-resize; }
+.wb-can-live {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(17, 24, 39, 0.82);
+  color: #ffffff;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.wb-can-live:empty { display: none; }
+@media (max-width: 720px) {
+  .wb-can-grip { width: 16px; height: 16px; }
+}
+
 /* --- PDF-nezegeto (pdf.js, kartya f7d423e7) ---------------------------------
  * A lapokat a bongeszo sajat PDF-nezegeteje helyett mi rajzoljuk ki, hogy
  * minden bongeszoben UGYANAZ legyen a kep es a kezelofelulet. A szinek
