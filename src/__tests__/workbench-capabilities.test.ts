@@ -184,3 +184,21 @@ describe('amit a felhasznalo lat', () => {
     expect(row.setting).toBe(null)
   })
 })
+
+// #336 atvizsgalas: a `soffice` burkolo-szkript; idotullepeskor eddig csak a
+// kozvetlen gyerek halt meg, az unoka (`soffice.bin`) arvakent tovabb futott,
+// es fogta a kozos LibreOffice-profilt.
+describe('runVersion idotullepes: az egesz folyamatcsoport leall', () => {
+  it.skipIf(process.platform === 'win32')('az unoka-folyamat sem marad arvakent', async () => {
+    const { runVersion } = await import('../capability-probe.js')
+    const { execFileSync } = await import('node:child_process')
+    const marker = `31.${process.pid}${Math.floor(Math.random() * 1000)}`
+    const r = await runVersion('sh', ['-c', `sleep ${marker} & wait`], 300)
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.code).toBe('timeout')
+    await new Promise((res) => setTimeout(res, 200))
+    let left = ''
+    try { left = execFileSync('pgrep', ['-f', `sleep ${marker}`], { encoding: 'utf8' }).trim() } catch { left = '' }
+    expect(left).toBe('')
+  })
+})

@@ -2273,6 +2273,7 @@ export function ensureGlobalLandingRule(): void {
 }
 
 // --- EGY HIBA = EGY KARTYA doktrina (Boss, 2026-09-07) ---
+// + 6. pont: EGY PROJEKT = EGY KARTYA (Boss, 2026-09-23, a #336 szabdalasa utan).
 // Sajat markeres-blokk, mint a tobbi doktrina (ask-back, recheck, landing), hogy
 // minden agens CLAUDE.md-jebe ES a gepszintu ~/.claude/CLAUDE.md-be is eljusson,
 // visszamenoleg is -- nem csak telepiteskor. Boss panasza (2026-09-07): a
@@ -2317,11 +2318,23 @@ function buildOneCardOneFixBody(): string {
     '   mozgatas szabalynak: waiting-bol korabbi oszlopba mozgatni tovabbra is CSAK',
     '   kulon kerdes utan szabad -- de a munka ELVEGZESET a waiting statusz nem',
     '   blokkolja.',
+    '6. **EGY PROJEKT = EGY KARTYA.** A tulajdonos (2026-09-23): "Egy projekt,',
+    '   egy kanban kartya. ... le kell tiltani azt, hogy masik kanban kartyat',
+    '   nyisson, amikor egy reszfeladat keszen van, vagy uj feladat jon hozza, de',
+    '   hozzatartozik ahhoz a munkahoz." Ha egy munka (reszfeladat, kovetkezo',
+    '   fazis, uj hiba, kiegeszites) egy MEG NYITOTT kartya projektjehez tartozik,',
+    '   NEM nyitsz neki uj kartyat: kommentet irsz arra a kartyara, vagy',
+    '   alfeladatkent (`parent_id`) veszed fel. Egy projektet TILOS tobb',
+    '   kartyara szabdalni. A szerver ki is kenyszeriti: nyitott kartyahoz',
+    '   kapcsolodo uj kartyat `same_project` (409) hibaval elutasit; kulon',
+    '   kartya csak kimondott `separate_project` indokkal jon letre, es az indok',
+    '   a kartya leirasaba kerul.',
     '',
     'Ez NEM mond ellent a "kapcsolodo kartya belinkelese" szabalynak: valodi',
-    'kapcsolatot tovabbra is jelezni kell. A tilalom a hiba SZETDARABOLASAra es',
-    'MASIK kartya ala tolasara vonatkozik, es arra, hogy egy kartyat felbehagyj,',
-    'mert egy masikra varsz.',
+    'kapcsolatot tovabbra is jelezni kell -- de a belinkeles LEZART kartyara,',
+    'vagy tenyleg ONALLO projektre valo. A tilalom a hiba es a projekt',
+    'SZETDARABOLASAra es MASIK kartya ala tolasara vonatkozik, es arra, hogy egy',
+    'kartyat felbehagyj, mert egy masikra varsz.',
   ].join('\n')
 }
 

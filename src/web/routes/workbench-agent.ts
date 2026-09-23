@@ -27,6 +27,9 @@ import {
 import { TOOLS } from '../../workbench-agent/tools.js'
 import type { RouteContext } from './types.js'
 
+/** Egy agens-fordulo leghosszabb ideje (tobb tool-korrel egyutt). */
+const TURN_MAX_MS = 15 * 60 * 1000
+
 function uiLang(url: URL): Lang {
   const v = url.searchParams.get('lang')
   return v === 'en' || v === 'hu' ? v : (APP_LANG === 'en' ? 'en' : 'hu')
@@ -227,6 +230,9 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
     const stop = (): void => { if (!closed) { closed = true; ac.abort() } }
     req.on('close', stop)
     req.on('error', stop)
+    // Felso korlat egy fordulora: ha a szolgaltato kapcsolata megakad, de a
+    // bongeszo nyitva marad, a "fut mar" zar eddig orokre fogta a munkadarabot.
+    const turnCap = setTimeout(() => ac.abort(), TURN_MAX_MS)
 
     const send = (event: string, data: unknown): void => {
       if (closed) return
@@ -242,6 +248,7 @@ export async function tryHandleWorkbenchAgent(ctx: RouteContext): Promise<boolea
       // SOSE talalgatjuk az okot: a tenyleges hiba megy ki.
       send('error', { type: 'error', code: 'internal', message: msg('provider_failed', lang, { detail: e instanceof Error ? e.message : String(e) }) })
     }
+    clearTimeout(turnCap)
     if (!closed) { try { res.end() } catch { /* mar lezarult */ } }
     return true
   }

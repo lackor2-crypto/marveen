@@ -12,7 +12,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getKanbanCard, createLabel } from '../db.js'
-import { createProject, updateProject, type ProjectRow, getProject } from '../projects.js'
+import { createProject, updateProject, type ProjectRow, getProject, setProjectArchived } from '../projects.js'
 import { createWorkItem, getWorkItem, listWorkItems } from '../workbench.js'
 import { TOOLS, getTool, decideTool, toolsForPrompt, setAutonomyLoaderForTest } from '../workbench-agent/tools.js'
 import { executeTool, FILE_READ_MAX_CHARS } from '../workbench-agent/execute.js'
@@ -197,6 +197,34 @@ describe('vegrehajtas -- iro eszkozok', () => {
   })
 })
 
+// #336 atvizsgalas: a felulet es a REST-utak az archivalt projektet
+// csak-olvashatonak tartjak, az ugynok iro toolja viszont eddig atirta.
+describe('archivalt projekt -- az ugynok sem ir bele', () => {
+  it('iro tool elutasitva, emberi okkal; olvaso tool tovabbra is megy', () => {
+    if (!setProjectArchived(projectId, true)) throw new Error('archivalas')
+    const w = executeTool('workItem.create', { title: 'Nem lesz', type: 'note' }, ctx())
+    expect(w.ok).toBe(false)
+    if (!w.ok) {
+      expect(w.code).toBe('project_archived')
+      expect(w.detail).toMatch(/archived/)
+    }
+    const u = executeTool('workItem.update', { id: workItemId, status: 'review' }, ctx())
+    expect(u.ok).toBe(false)
+    expect(getWorkItem(workItemId)?.status).toBe('draft')
+    expect(listWorkItems(projectId)).toHaveLength(1)
+    expect(executeTool('project.get', {}, ctx()).ok).toBe(true)
+  })
+
+  it('minden NEM-olvaso tool ugyanigy elutasitva (nincs kimaradt iro ut)', () => {
+    if (!setProjectArchived(projectId, true)) throw new Error('archivalas')
+    for (const t of TOOLS.filter((x) => x.autonomyCategory !== null)) {
+      const r = executeTool(t.name, {}, ctx())
+      expect(r.ok, t.name).toBe(false)
+      if (!r.ok) expect(r.code, t.name).toBe('project_archived')
+    }
+  })
+})
+
 describe('file.read -- a projektmappa hatara', () => {
   let depot = ''
 
@@ -233,6 +261,18 @@ describe('file.read -- a projektmappa hatara', () => {
     if (r.ok) {
       expect((r.data as any).truncated).toBe(true)
       expect((r.data as any).text.length).toBe(FILE_READ_MAX_CHARS)
+    }
+  })
+
+  it('egy OSZTAS kozepen levagott tobbajtos karakter nem lesz szemet a vegen', () => {
+    // A korlatos olvasas bajt-hatarnal vag: a felbevagott 'á' nem lehet csere-karakter.
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'nagy.txt'), 'á'.repeat(FILE_READ_MAX_CHARS * 4), 'utf-8')
+    const r = executeTool('file.read', { path: 'nagy.txt' }, ctx())
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect((r.data as any).truncated).toBe(true)
+      expect((r.data as any).text).not.toContain('\uFFFD')
+      expect((r.data as any).size).toBe(FILE_READ_MAX_CHARS * 8)
     }
   })
 

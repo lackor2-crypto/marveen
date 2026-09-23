@@ -216,3 +216,11 @@ export function listToolCalls(sessionId: string): AgentToolCallRow[] {
   if (!v) return []
   return getDb().prepare('SELECT * FROM workbench_agent_tool_calls WHERE session_id = ? ORDER BY started_at, rowid').all(v) as AgentToolCallRow[]
 }
+
+/** Egy jovahagyas-jegy mar egy SIKERES futast fedezett-e (egyszer hasznalhato). */
+export function isApprovalConsumed(approvalId: string): boolean {
+  ensureAgentTables()
+  const v = String(approvalId || '').trim()
+  if (!v) return false
+  return !!getDb().prepare("SELECT 1 FROM workbench_agent_tool_calls WHERE approval_id = ? AND status = 'ok' LIMIT 1").get(v)
+}

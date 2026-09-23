@@ -13,7 +13,7 @@
  *                       "nincs telepitve"-nek mutatni: mas a teendo.
  * A `detail` mindig a VALODI hibauzenet -- sosem talalgatott ok.
  */
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 
 export type ProbeReason = 'ok' | 'not_installed' | 'check_failed'
 
@@ -59,15 +59,61 @@ export interface ProbeOptions {
   timeoutMs?: number
 }
 
+/**
+ * Egy program futtatasa idokorlattal.
+ *
+ * Idotullepeskor a TELJES folyamatcsoportot lojuk le, nem csak a kozvetlen
+ * gyereket: a `soffice` egy burkolo szkript, ami a `soffice.bin`-t inditja --
+ * a gyerek megolese utan az unoka arvakent tovabb futott, fogta a kozos
+ * LibreOffice-profilt, es minden kovetkezo atalakitas is elakadt rajta.
+ */
 export function runVersion(cmd: string, args: string[], timeoutMs: number): Promise<{ ok: true; stdout: string } | { ok: false; code: 'not_found' | 'timeout' | 'failed'; detail: string }> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: timeoutMs, windowsHide: true }, (err, stdout, stderr) => {
-      if (!err) return resolve({ ok: true, stdout: String(stdout || '') })
-      const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string }
-      const detail = String(stderr || '').trim() || e.message || String(err)
-      if (e.code === 'ENOENT') return resolve({ ok: false, code: 'not_found', detail })
-      if (e.killed || e.signal === 'SIGTERM') return resolve({ ok: false, code: 'timeout', detail })
-      resolve({ ok: false, code: 'failed', detail })
+    // `spawn`, nem `execFile`: az utobbi a `detached` kapcsolot csendben
+    // eldobja, igy nem lenne sajat folyamatcsoport, amit egyben lelohetunk.
+    const group = process.platform !== 'win32'
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn(cmd, args, { windowsHide: true, detached: group, stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      return resolve({ ok: false, code: (e as NodeJS.ErrnoException).code === 'ENOENT' ? 'not_found' : 'failed', detail })
+    }
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    let timedOut = false
+    const cap = 1024 * 1024
+    child.stdout?.on('data', (d: Buffer) => { if (stdout.length < cap) stdout += d.toString('utf8') })
+    child.stderr?.on('data', (d: Buffer) => { if (stderr.length < cap) stderr += d.toString('utf8') })
+    const finish = (r: Parameters<typeof resolve>[0]): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(r)
+    }
+    const killAll = (): void => {
+      try {
+        if (group && child.pid) process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch {
+        try { child.kill('SIGKILL') } catch { /* mar kilepett */ }
+      }
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      killAll()
+      // Ha egy unoka megis nyitva tartana a csovet, akkor se varjunk orokke.
+      setTimeout(() => finish({ ok: false, code: 'timeout', detail: stderr.trim() || `timed out after ${timeoutMs} ms` }), 2000).unref?.()
+    }, timeoutMs)
+    child.on('error', (e: NodeJS.ErrnoException) => {
+      const detail = stderr.trim() || e.message
+      finish({ ok: false, code: e.code === 'ENOENT' ? 'not_found' : 'failed', detail })
+    })
+    child.on('close', (code, signal) => {
+      if (timedOut) return finish({ ok: false, code: 'timeout', detail: stderr.trim() || `timed out after ${timeoutMs} ms` })
+      if (code === 0) return finish({ ok: true, stdout })
+      finish({ ok: false, code: 'failed', detail: stderr.trim() || `exited with ${code ?? signal}` })
     })
   })
 }

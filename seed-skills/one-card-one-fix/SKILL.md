@@ -1,6 +1,6 @@
 ---
 name: one-card-one-fix
-description: Egy hiba = egy kártya, azonnal és teljesen készre. Egy hibát nem szabdalunk szét több kártyára és nem tolunk át másik kártya alá; a kártyát félbehagyni tilos; ha a javítás közben új hiba jön elő, azt azonnal javítani kell, mintha a tulajdonos kérte volna. Fusd át minden kártya-munka elején.
+description: Egy hiba = egy kártya, és EGY PROJEKT = EGY KÁRTYA, azonnal és teljesen készre. Egy hibát nem szabdalunk szét több kártyára és nem tolunk át másik kártya alá; a kártyát félbehagyni tilos; ha a javítás közben új hiba jön elő, azt azonnal javítani kell, mintha a tulajdonos kérte volna. Fusd át minden kártya-munka elején.
 scope: global
 ---
 
@@ -15,7 +15,7 @@ kártyát. ... ha új hibák jönnek elő azt azonnal javítani kell! ... ha egy
 bug javításánál előjön másik új hiba azt úgy kell venni hogy az user kérte annak
 is a javítását."
 
-## Öt pont
+## Hat pont
 
 1. **Egy hiba = egy kártya.** A kártya önmagában áll. Ne hivatkozgass kártyáról
    kártyára, és ne szabdald szét egy hibát több kártyára. Az egymásra
@@ -36,11 +36,36 @@ is a javítását."
    már waiting, ezt már nem csinálom meg". A befejezés a kártya MOZGATÁSA NÉLKÜL
    is megy: komment a kártyára + a munka izolált worktree-ben, a kártya közben
    maradhat „várakozó"-ban.
+6. **EGY PROJEKT = EGY KÁRTYA (2026-09-23, {{OWNER_NAME}}).** „Egy projekt, egy
+   kanban kártya. ... le kell tiltani azt, hogy másik kanban kártyát nyisson,
+   amikor egy részfeladat készen van, vagy új feladat jön hozzá, de hozzátartozik
+   ahhoz a munkához." Részfeladat, következő fázis, új hiba, kiegészítés egy MÉG
+   NYITOTT kártya projektjéhez: **komment arra a kártyára** (vagy alfeladat
+   `parent_id`-val), SOHA új felső szintű kártya. A valós eset: a Munkapad
+   (#336) hét kártyára szabdalva állt, {{OWNER_NAME}}-nak kellett összeszednie.
+
+## Gép is kikényszeríti
+
+A `POST /api/kanban` (és a Munkapad `kanban.create` eszköze) egy NYITOTT
+kártyához kapcsolódó új kártyát `409 same_project` hibával elutasít -- a
+válasz megnevezi, melyik kártyán folytasd. Kapcsolódónak számít, amit a
+`related` mezőben megadsz, ÉS amire a címben/leírásban hivatkozol (8 jegyű
+azonosító vagy `#sorszám`).
+
+Ha a munka TÉNYLEG önálló projekt (más ügyfél, más cél, külön lezárható),
+küldd újra `"separate_project": "<miért önálló, legalább 15 karakter>"`
+mezővel; az indok bekerül a kártya leírásába. Ezt ne használd kiskapunak: ha
+kétséges, kérdezd meg {{OWNER_NAME}}-t.
+
+Lezárt (`done`) vagy archivált kártyához kapcsolódó új munka szabadon
+létrejöhet -- az már nem ugyanaz a nyitott projekt.
 
 ## Mit NE csinálj
 
 - Ne nyiss új kártyát egy már folyó kártya közben felmerült hibának azzal, hogy
   „majd külön". Javítsd ugyanabban a munkában.
+- Ne nyiss új kártyát egy nyitott projekt következő fázisának, részfeladatának
+  vagy kiegészítésének. Kommentként megy a meglévő kártyára.
 - Ne mozgasd a hibát egyik kártyáról a másikra.
 - Ne hagyd félbe a kártyát, mert egy másikra vársz.
 - Ne hagyj ott egy félkész kártyát azzal, hogy „ez már a várakozóban van".
@@ -49,8 +74,9 @@ is a javítását."
 ## Mi NEM sérül
 
 Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
-kapcsolatot továbbra is jelezni kell. A tilalom a hiba szétdarabolására, másik
-kártya alá tolására, és a félbehagyásra vonatkozik.
+kapcsolatot továbbra is jelezni kell -- de belinkelni LEZÁRT kártyát, vagy
+tényleg ÖNÁLLÓ projektet lehet. A tilalom a hiba és a projekt szétdarabolására,
+másik kártya alá tolására, és a félbehagyásra vonatkozik.
 
 Ez NEM mond ellent a visszafelé-mozgatás tilalmának sem: egy kártyát a
 `waiting`-ből korábbi oszlopba mozgatni továbbra is CSAK külön kérdés után
@@ -63,4 +89,5 @@ kérdéshez.
 - A kártya készen van-e ténylegesen (nem félig)?
 - A munka közben felmerült minden hiba javítva lett-e ugyanitt?
 - Nem toltál-e át semmit másik kártya alá?
+- Nem nyitottál-e új kártyát egy még nyitott projekt részének?
 - Nem hagytál-e ott egy félkész kártyát csak azért, mert a várakozóban áll?
