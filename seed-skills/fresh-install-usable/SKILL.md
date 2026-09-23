@@ -27,7 +27,7 @@ csinálni, amit most megépítettél, kizárólag kattintgatással?**
 Ha bármelyik lépésnél „hát ehhez előbb be kell írni a JSON-ba" / „ehhez kell egy
 curl" / „ezt Claude állítja be neki" a válasz — a munka nincs kész.
 
-## A négy tipikus bukás
+## Az öt tipikus bukás
 
 1. **Nincs felület a beállításhoz.** A háttér (API) kész, ellenőriz, hibát is
    mond — de a felületről nem lehet elérni, csak `POST`-tal. A felhasználó nem
@@ -42,6 +42,26 @@ curl" / „ezt Claude állítja be neki" a válasz — a munka nincs kész.
    hogy „nincs adat" vagy `no_depot`.
 4. **A hibaüzenet gépi kód.** `bad_config`, `EACCES`, `no_depot` — a
    felhasználónak magyar mondat kell, ami megmondja a **következő lépést**.
+5. **A mérés csak a hiba pillanatában fut, ezért soha nem tud magától
+   megjavulni.** Ez a legalattomosabb, mert a szám nem hiányzik és nem is
+   nulla: **elavult**, és pontosan úgy néz ki, mint egy friss adat.
+   *Valós eset, 2026-09-23:* a Drive tárhely-mérését (`recordDriveQuota`)
+   EGYETLEN helyről hívtuk, a „megtelt a tárhely" hiba kezelőjéből. Amíg van
+   hiba, van mérés — de amint {{OWNER_NAME}} helyet szabadított fel, a hiba
+   megszűnt, tehát **semmi nem mért újra**, a régi hiba viszont a naplóban
+   maradt. A képernyő a végtelenségig ismételte a hajnali számot: a tárolt
+   mérés 03:30-as volt (14,65 GB), miközben a Google saját felülete 13:28-kor
+   már 13,1 GB-ot mutatott. A felhasználó jogosan mondta: „van hely rajtuk.
+   mi az hogy nincs hely?"
+
+   **A szabály:** ha egy mért szám csak a hibaágon frissül, akkor a hiba
+   megszűnése után **strukturálisan képtelen** helyesre fordulni. A mérésnek
+   a NORMÁL úton is futnia kell (a futás elején, ütemezetten, vagy egy kézi
+   „Mérd meg most" gombról), és a rá épülő jelzésnek **önmagát kell tudnia
+   visszavonni**: ha a friss mérés újabb a hibánál és ellentmond neki, a
+   **friss mérés nyer**, a sor eltűnik. Kötelező kérdés minden mérésre:
+   *„mi hozza vissza zöldre ezt a sort, ha a felhasználó megoldotta a
+   problémát?"* Ha nincs rá válasz, a mérés hibás.
 
 ## Amit kötelező megépíteni minden új funkcióhoz
 
@@ -66,6 +86,9 @@ curl" / „ezt Claude állítja be neki" a válasz — a munka nincs kész.
    meghajtóbetű)? Ha találtál, kivezetted beállításba?
 6. **Minden nulla/üres eredménynél meg tudod különböztetni a „még nincs"-et a
    „nem látok oda"-tól?** Ha nem, a mérés hibás — lásd alább.
+7. **Ha a felhasználó megoldja a problémát, mi viszi vissza zöldre a jelzést?**
+   Nevezd meg a konkrét utat. Ha csak a hibaágon mérsz, nincs ilyen út, és a
+   sor örökre ott marad — lásd az 5. bukást.
 
 ## ⛔ A NULLA KÉT DOLGOT JELENTHET (2026-08-23)
 
