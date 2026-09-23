@@ -579,11 +579,27 @@ javítását."
    maradhat „várakozó"-ban. Ez NEM mond ellent a visszafelé-mozgatás szabálynak:
    waiting-ből korábbi oszlopba mozgatni továbbra is CSAK külön kérdés után
    szabad -- de a munka ELVÉGZÉSÉT a waiting státusz nem blokkolja.
+6. **EGY PROJEKT = EGY KÁRTYA (2026-09-23).** {{OWNER_NAME}}: „Egy projekt, egy
+   kanban kártya. ... le kell tiltani azt, hogy másik kanban kártyát nyisson,
+   amikor egy részfeladat készen van, vagy új feladat jön hozzá, de hozzátartozik
+   ahhoz a munkához." Ha egy munka (részfeladat, következő fázis, új hiba,
+   kiegészítés) egy MÉG NYITOTT kártya projektjéhez tartozik, NEM nyitsz neki új
+   kártyát: kommentet írsz arra a kártyára, vagy alfeladatként (`parent_id`)
+   veszed fel. Egy projektet TILOS több kártyára szabdalni.
+   **A valós eset:** a Munkapad-projekt (#336) hét kártyára szabdalva állt a
+   táblán (PDF-néző, rajzvászon, spec-mentés, jóváhagyás-kötés ...), és
+   {{OWNER_NAME}}-nak kellett kézzel összeszednie.
+   **Gép is kikényszeríti:** a `POST /api/kanban` (és a Munkapad ügynökének
+   `kanban.create` eszköze) egy nyitott kártyához kapcsolódó új kártyát
+   `same_project` (409) hibával elutasít. Külön kártya csak kimondott
+   `separate_project` indokkal (legalább 15 karakter) jön létre, és az indok a
+   kártya leírásába kerül, hogy látsszon.
 
 Ez NEM mond ellent a „kapcsolódó kártya belinkelése" szabálynak: valódi
-kapcsolatot továbbra is jelezni kell. A tilalom a hiba SZÉTDARABOLÁSÁRA és MÁSIK
-kártya alá tolására vonatkozik, és arra, hogy egy kártyát félbehagyj, mert egy
-másikra vársz.
+kapcsolatot továbbra is jelezni kell -- de a belinkelés LEZÁRT kártyára, vagy
+tényleg ÖNÁLLÓ projektre való. A tilalom a hiba és a projekt SZÉTDARABOLÁSÁRA és
+MÁSIK kártya alá tolására vonatkozik, és arra, hogy egy kártyát félbehagyj, mert
+egy másikra vársz.
 
 ## ⛔ AZONOSÍTÁS ELŐTT KÖTELEZŐ ELLENŐRIZNI, NEM TALÁLGATNI (2026-09-08, {{OWNER_NAME}})
 

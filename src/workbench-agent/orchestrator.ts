@@ -36,7 +36,7 @@ import { runTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import { pickAIProvider, type AIMessage, type AIProvider } from './provider.js'
 import {
-  addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, openSessionForWorkItem,
+  addAgentMessage, finishToolCall, listAgentMessages, listToolCalls, isApprovalConsumed, openSessionForWorkItem,
   projectSessionKey, startToolCall,
   type AgentSessionRow,
 } from './sessions.js'
@@ -163,22 +163,50 @@ export function requestToolApproval(params: {
 }
 
 /**
- * Van-e MAR jovahagyott jegy ehhez a toolhoz -- igy a tulajdonos "igen"-je
- * utan a kovetkezo keres tenylegesen lefut, ujabb kerdes nelkul.
+ * A tool-bemenet kanonikus alakja (kulcs-sorrend fuggetlen), hogy egy
+ * jovahagyas PONTOSAN arra a bemenetre szoljon, amit a tulajdonos latott.
+ */
+export function canonicalToolInput(v: unknown): string {
+  const norm = (x: unknown): unknown => {
+    if (Array.isArray(x)) return x.map(norm)
+    if (x && typeof x === 'object') {
+      const o: Record<string, unknown> = {}
+      for (const k of Object.keys(x as Record<string, unknown>).sort()) o[k] = norm((x as Record<string, unknown>)[k])
+      return o
+    }
+    return x
+  }
+  return JSON.stringify(norm(v ?? {}))
+}
+
+/**
+ * Van-e MAR jovahagyott, MEG FEL NEM HASZNALT jegy PONTOSAN erre a
+ * tool-hivasra (tool + bemenet) -- igy a tulajdonos "igen"-je utan a
+ * kovetkezo keres tenylegesen lefut, ujabb kerdes nelkul.
+ *
+ * A jegy a bemenethez kotott es EGYSZER hasznalhato: egy "igen" egy
+ * konkret "Uj ajanlat" letrehozasara korabban a projekt osszes jovobeli
+ * azonos nevu tool-hivasat engedte (barmilyen bemenettel, idokorlat nelkul)
+ * -- egy torlesre adott igen igy barmelyik masik fajl torleset is fedte.
  *
  * ELOSZOR a SAJAT beszelgetes tool-hivasait nezzuk meg: ott a jegy azonositoja
  * BE VAN IRVA (`approval_id`), tehat pontosan, egy lekerdezessel eldol. A
- * projekt-szintu vegigolvasas csak tartalek, es az MERETKORLATOS -- egy regi
- * jovahagyas kieshet a listabol, ha kozben sok ujabb szuletett. Enelkul a
- * sajat beszelgetesben mar megadott engedely a keszulo jegyek szamatol
- * fuggoen hol ervenyesult, hol nem.
+ * projekt-szintu vegigolvasas csak tartalek, es az MERETKORLATOS.
  */
-export function approvedApprovalFor(tool: string, projectId: string, sessionId?: string | null): string | null {
+export function approvedApprovalFor(tool: string, projectId: string, sessionId?: string | null, input?: unknown): string | null {
+  const want = canonicalToolInput(input)
+  const usable = (id: string): boolean => {
+    if (getApproval(id)?.status !== 'approved') return false
+    try { return !isApprovalConsumed(id) } catch { return true }
+  }
   if (sessionId) {
     try {
       for (const call of listToolCalls(sessionId)) {
-        if (call.tool_name !== tool || !call.approval_id) continue
-        if (getApproval(call.approval_id)?.status === 'approved') return call.approval_id
+        if (call.tool_name !== tool || !call.approval_id || call.status !== 'needs_approval') continue
+        let got: unknown = {}
+        try { got = JSON.parse(call.input_json || '{}') } catch { continue }
+        if (canonicalToolInput(got) !== want) continue
+        if (usable(call.approval_id)) return call.approval_id
       }
     } catch { /* nincs meg tabla: nincs jog, de ez nem hiba */ }
   }
@@ -192,7 +220,8 @@ export function approvedApprovalFor(tool: string, projectId: string, sessionId?:
   for (const a of rows) {
     try {
       const p = JSON.parse(a.action_payload || '{}')
-      if (p.source === 'workbench' && p.tool === tool && p.project === projectId) return a.id
+      if (p.source === 'workbench' && p.tool === tool && p.project === projectId
+        && canonicalToolInput(p.input) === want && usable(a.id)) return a.id
     } catch { /* egy serult payload nem ad jogot */ }
   }
   return null
@@ -361,7 +390,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         continue
       }
       if (decision.kind === 'approval') {
-        const already = approvedApprovalFor(tool.name, project.id, session.id)
+        const already = approvedApprovalFor(tool.name, project.id, session.id, call.input)
         if (!already) {
           const approvalId = requestToolApproval({
             tool: tool.name, category: decision.category, actor: input.actor,
@@ -377,9 +406,12 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         }
       }
 
+      // A felhasznalt jegyet a futas soraba irjuk: igy egy "igen" EGY futast
+      // enged (isApprovalConsumed), nem a kovetkezoket is.
+      const usedApproval = decision.kind === 'approval' ? approvedApprovalFor(tool.name, project.id, session.id, call.input) : null
       const result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang })
       if (result.ok) {
-        finishToolCall(row.id, 'ok', result.data)
+        finishToolCall(row.id, 'ok', result.data, usedApproval)
         auditWorkbench({ agent: input.actor, tool: tool.name, op: tool.destructive ? 'write' : 'read', target: workItem?.id || project.id, cwd: project.id })
         yield { type: 'tool', name: tool.name, status: 'ok' }
         // 12-13: verzio + preview -- KESOBBI FAZIS. A hely itt van; a 2.

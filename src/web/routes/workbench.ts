@@ -816,14 +816,14 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (segs.length === 3 && (method === 'PATCH' || method === 'PUT')) {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
-    const r = updateWorkItemPart(partId, { text: body.text, caption: body.caption })
+    const r = updateWorkItemPart(partId, { text: body.text, caption: body.caption }, item.id)
     if (!r.ok) return fail(res, r.code === 'part_not_found' ? 404 : 400, r.code, lang)
     json(res, { ok: true, part: r.part, parts: listWorkItemParts(item.id) })
     return true
   }
 
   if (segs.length === 3 && method === 'DELETE') {
-    const r = removeWorkItemPart(partId)
+    const r = removeWorkItemPart(partId, item.id)
     if (!r.ok) return fail(res, 404, r.code, lang)
     json(res, { ok: true, removed: r.part, parts: listWorkItemParts(item.id) })
     return true
@@ -834,7 +834,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     if (!body) return fail(res, 400, 'bad_json', lang)
     const dir = String(body.dir ?? '')
     if (dir !== 'up' && dir !== 'down') return fail(res, 400, 'bad_move', lang)
-    const r = moveWorkItemPart(partId, dir)
+    const r = moveWorkItemPart(partId, dir, item.id)
     if (!r.ok) return fail(res, 404, r.code, lang)
     json(res, { ok: true, parts: r.parts })
     return true

@@ -376,6 +376,24 @@ export function getWorkItemPart(id: string): WorkItemPartRow | undefined {
   return getDb().prepare('SELECT * FROM work_item_parts WHERE id = ?').get(v) as WorkItemPartRow | undefined
 }
 
+/**
+ * Egy SZERKESZTHETO resz: az adott munkadarabe (ha meg van adva) es ELO
+ * (a jelenlegi verzioe, vagy verziozas elotti). Egy regebbi verzio
+ * pillanatkepe SOSE irhato at, es egy masik munkadarab resze sem erheto el
+ * egy idegen munkadarab URL-jen at -- az megkerulte az archiv-vedelmet es a
+ * verzio-tortenetet is.
+ */
+function editablePart(id: string, workItemId?: string): WorkItemPartRow | undefined {
+  const part = getWorkItemPart(id)
+  if (!part) return undefined
+  if (workItemId !== undefined && part.work_item_id !== workItemId) return undefined
+  if (part.version_id != null) {
+    const item = getWorkItem(part.work_item_id)
+    if (!item || item.current_version_id !== part.version_id) return undefined
+  }
+  return part
+}
+
 export interface AddWorkItemPartInput {
   work_item_id: string
   kind?: unknown
@@ -452,9 +470,9 @@ export type UpdateWorkItemPartResult =
 
 /** Egy resz szovegenek vagy feliratanak javitasa. Ami nincs a bemenetben, az
  *  valtozatlan marad (az ures mezo "nem valtozott", nem "torold"). */
-export function updateWorkItemPart(id: string, input: UpdateWorkItemPartInput): UpdateWorkItemPartResult {
+export function updateWorkItemPart(id: string, input: UpdateWorkItemPartInput, workItemId?: string): UpdateWorkItemPartResult {
   ensureWorkbenchTables()
-  const part = getWorkItemPart(id)
+  const part = editablePart(id, workItemId)
   if (!part) return { ok: false, code: 'part_not_found' }
   let text = part.text
   if (input.text !== undefined) {
@@ -481,9 +499,9 @@ export function updateWorkItemPart(id: string, input: UpdateWorkItemPartInput): 
 }
 
 /** Egy resz elmozgatasa fel/le. A sorszamok utana 1..n-ig folytonosak. */
-export function moveWorkItemPart(id: string, dir: 'up' | 'down'): { ok: true; parts: WorkItemPartRow[] } | { ok: false; code: PartErrorCode } {
+export function moveWorkItemPart(id: string, dir: 'up' | 'down', workItemId?: string): { ok: true; parts: WorkItemPartRow[] } | { ok: false; code: PartErrorCode } {
   ensureWorkbenchTables()
-  const part = getWorkItemPart(id)
+  const part = editablePart(id, workItemId)
   if (!part) return { ok: false, code: 'part_not_found' }
   const parts = listWorkItemParts(part.work_item_id)
   const at = parts.findIndex((p) => p.id === part.id)
@@ -510,9 +528,9 @@ export function moveWorkItemPart(id: string, dir: 'up' | 'down'): { ok: true; pa
  * keresi. Egy resz kivetele a munkadarabbol nem ugyanaz, mint egy fajl
  * torlese a gepen -- az utobbi visszafordithatatlan, es nem a Munkapad dolga.
  */
-export function removeWorkItemPart(id: string): { ok: true; part: WorkItemPartRow } | { ok: false; code: PartErrorCode } {
+export function removeWorkItemPart(id: string, workItemId?: string): { ok: true; part: WorkItemPartRow } | { ok: false; code: PartErrorCode } {
   ensureWorkbenchTables()
-  const part = getWorkItemPart(id)
+  const part = editablePart(id, workItemId)
   if (!part) return { ok: false, code: 'part_not_found' }
   const ts = nowSec()
   const db = getDb()

@@ -43,6 +43,9 @@ describe('ensureOneCardOneFixSection', () => {
     // Point 5 (Boss, 2026-09-16): a waiting-but-unfinished card is still to be
     // finished, not treated as hands-off.
     expect(out).toContain('waiting, ezt mar nem csinalom meg')
+    // Point 6 (2026-09-23): one project = one card, enforced at creation.
+    expect(out).toContain('EGY PROJEKT = EGY KARTYA')
+    expect(out).toContain('same_project')
     expect(out).toContain('Sajat tartalom.')
     // Host-agnostic: the generated block names no owner and no agent literal.
     expect(out).not.toContain('Boss')

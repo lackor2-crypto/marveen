@@ -17,6 +17,15 @@
  *      jelolteket, es ujra kell kuldenie `related`-del (akar ures listaval).
  *   3. PROJEKT-KOTES -- a `project` mezo mindig valodi projekt-azonositova
  *      oldodik.
+ *   4. EGY PROJEKT = EGY KARTYA (Boss, 2026-09-23) -- ha az uj kartya egy
+ *      MEG NYITOTT kartyahoz kapcsolodik, az ugyanaz a munka: a kartya NEM
+ *      jon letre, a hivo azt kapja vissza, hogy azon a kartyan dolgozzon
+ *      tovabb (komment, vagy alfeladat `parent_id`-val). Csak kimondott
+ *      indokkal (`separate_project`) nyithato mellette kulon kartya, es az
+ *      indok a kartya leirasaba kerul, hogy latsszon.
+ *      Miert: a #336 Munkapad-projekt het kartyara szabdalva allt a tablan
+ *      (PDF-nezo, rajzvaszon, spec-mentes, jovahagyas-kotes ...), es a
+ *      tulajdonosnak kellett kezzel osszeszednie.
  */
 import { randomUUID } from 'node:crypto'
 import { createKanbanCard, getKanbanCard, listKanbanCards, updateKanbanCard, type KanbanCard } from './db.js'
@@ -30,6 +39,7 @@ export type CreateCardOutcome =
   | { ok: true; id: string; labels: string[]; linked: string[] }
   | { ok: false; code: 'label_error'; error: string }
   | { ok: false; code: 'related_required'; error: string; similar: CardCandidate[] }
+  | { ok: false; code: 'same_project'; error: string; cards: CardCandidate[] }
 
 export interface CreateCardRequest {
   title?: unknown
@@ -44,12 +54,31 @@ export interface CreateCardRequest {
   labelId?: unknown
   /** A kapcsolodo kartyak (id vagy #sorszam). Ures tomb = "megneztem, nincs". */
   related?: unknown
+  /** Miert ONALLO projekt ez, holott egy nyitott kartyahoz kapcsolodik.
+   *  Enelkul egy nyitott kartyahoz kapcsolodo uj kartya nem jon letre. */
+  separate_project?: unknown
 }
+
+/** Egy kartya meg NYITOTT munka-e (nem kesz, nem archivalt). */
+const OPEN_STATUSES = new Set(['planned', 'in_progress', 'waiting', 'testing'])
+
+/** Az onallosag indokanak legrovidebb hossza: egy "mas" vagy "x" nem indok. */
+export const SEPARATE_PROJECT_MIN_CHARS = 15
 
 export const RELATED_REQUIRED_MESSAGE =
   'Kapcsolodo kartyak lehetnek -- linkeld be oket, vagy jelezd hogy nincs kapcsolat. '
   + 'Kuldd ujra a "related" mezovel: related: ["<id>", ...] a kapcsolodokkal, vagy related: [] ha tenyleg nincs kapcsolat. '
-  + 'A szerver mindket iranyba beirja a hivatkozast.'
+  + 'A szerver mindket iranyba beirja a hivatkozast. '
+  + 'FIGYELEM: EGY PROJEKT = EGY KARTYA. Ha ez ugyanannak a munkanak a resze (reszfeladat, uj hiba, kovetkezo fazis), '
+  + 'NE nyiss uj kartyat: irj kommentet a meglevo kartyara (POST /api/kanban/<id>/comments).'
+
+export function sameProjectMessage(cards: CardCandidate[]): string {
+  const list = cards.map((c) => (c.seq != null ? `#${c.seq}` : c.id) + ` (${c.id}) ${c.title}`).join('; ')
+  return 'EGY PROJEKT = EGY KARTYA: ez az uj kartya egy MEG NYITOTT kartyahoz kapcsolodik, tehat ugyanaz a munka -- '
+    + `a kartya NEM jott letre. Nyitott kartya: ${list}. `
+    + 'Teendo: irj kommentet arra a kartyara (POST /api/kanban/<id>/comments), vagy vedd fel alfeladatkent (parent_id). '
+    + `Ha ez TENYLEG onallo projekt, kuldd ujra "separate_project": "<miert onallo, legalabb ${SEPARATE_PROJECT_MIN_CHARS} karakter>" mezovel.`
+}
 
 /**
  * Egy uj kanban kartya, a fenti harom szabállyal. A visszateres SOSE dob: a
@@ -87,10 +116,27 @@ export function createCardWithRules(data: CreateCardRequest): CreateCardOutcome 
     }))
     : existing.filter((c) => alreadyLinked.includes(c.id))
 
-  const { labels: _labels, labelId: _labelId, related: _related, ...rest } = data
+  // EGY PROJEKT = EGY KARTYA: nyitott kartyahoz kapcsolodo uj felso szintu
+  // kartya csak kimondott indokkal. Az alfeladat (`parent_id`) a szulo
+  // kartyaban jelenik meg, az nem szabdalas.
+  const separateReason = String(data.separate_project ?? '').trim()
+  const openRelated = parentId ? [] : relatedCards.filter((c) => {
+    if (!OPEN_STATUSES.has(c.status)) return false
+    const card = getKanbanCard(c.id)
+    return !!card && card.archived_at == null
+  })
+  if (openRelated.length > 0 && separateReason.length < SEPARATE_PROJECT_MIN_CHARS) {
+    return { ok: false, code: 'same_project', error: sameProjectMessage(openRelated), cards: openRelated }
+  }
+
+  const { labels: _labels, labelId: _labelId, related: _related, separate_project: _separate, ...rest } = data
   const cardFields = rest as Record<string, unknown>
   if (cardFields.project !== undefined) cardFields.project = resolveProjectRef(cardFields.project)
-  cardFields.description = withCrossLink(String(cardFields.description ?? ''), relatedCards)
+  let description = String(cardFields.description ?? '')
+  if (openRelated.length > 0) {
+    description = `${description}${description.trim() ? '\n\n' : ''}Onallo projekt, mert: ${separateReason}`
+  }
+  cardFields.description = withCrossLink(description, relatedCards)
 
   createKanbanCard({ id, ...(cardFields as unknown as { title: string }) })
   applyCardLabels(id, labels.labelIds)

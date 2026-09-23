@@ -12,7 +12,8 @@
  *      ilyen" vagy "nem latok oda" -- a tool SOSE ad vissza ures listat
  *      magyarazat nelkul.
  */
-import { readFileSync, statSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
+import { getTool } from './tools.js'
 import { join } from 'node:path'
 import { getProject, type ProjectRow } from '../projects.js'
 import { projectContext } from '../project-context.js'
@@ -147,6 +148,12 @@ export async function runTool(name: string, input: Record<string, unknown>, ctx:
 export function executeTool(name: string, input: Record<string, unknown>, ctx: ToolContext): ToolResult {
   const project = getProject(ctx.projectId)
   if (!project) return { ok: false, code: 'project_not_found', detail: 'the project was not found (it may have been deleted)' }
+  // Az archivalt projekt CSAK OLVASHATO -- a felulet is igy mutatja, es a
+  // REST-utak is elutasitjak. Az ugynok iro toolja eddig ezt megkerulte.
+  const def = getTool(name)
+  if (def && def.autonomyCategory !== null && project.archived_at != null) {
+    return { ok: false, code: 'project_archived', detail: 'the project is archived, so it is read-only; the owner can restore it on the Projects page first' }
+  }
 
   switch (name) {
     case 'project.get':
@@ -184,14 +191,24 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
       const st = mustBeFile(ref.abs)
       if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      // Csak a szukseges eleje kerul memoriaba: egy tobb GB-os fajl egesze
+      // eddig beolvasodott, hogy utana 8000 karakterre vagjuk.
       let text: string
+      let partial = false
       try {
-        text = readFileSync(ref.abs, 'utf-8')
+        const cap = FILE_READ_MAX_CHARS * 4 + 4
+        const buf = Buffer.alloc(Math.min(cap, Math.max(0, st.size)))
+        const fd = openSync(ref.abs, 'r')
+        let n = 0
+        try { n = readSync(fd, buf, 0, buf.length, 0) } finally { closeSync(fd) }
+        text = buf.subarray(0, n).toString('utf-8')
+        partial = st.size > n
+        if (partial && text.endsWith('\uFFFD')) text = text.replace(/\uFFFD+$/, '')
       } catch (e) {
         // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
         return { ok: false, code: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
       }
-      const truncated = text.length > FILE_READ_MAX_CHARS
+      const truncated = text.length > FILE_READ_MAX_CHARS || partial
       return { ok: true, data: { path: asString(input.path), size: st.size, truncated, text: truncated ? text.slice(0, FILE_READ_MAX_CHARS) : text } }
     }
 
@@ -559,6 +576,7 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         status: 'planned',
         project: project.id,
         related: input.related,
+        separate_project: input.separate_project,
       })
       if (!out.ok) {
         return {

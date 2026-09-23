@@ -36,6 +36,14 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
 
 ## Eljárás -- MINDEN kártyánál, kivétel nélkül
 
+0. **Kell-e egyáltalán új kártya? EGY PROJEKT = EGY KÁRTYA** (2026-09-23,
+   {{OWNER_NAME}}). Nézd meg, van-e MÉG NYITOTT kártya, amelyik projektjéhez ez a
+   munka tartozik (részfeladat, következő fázis, új hiba, kiegészítés). Ha
+   van: NE hozz létre kártyát -- írj kommentet arra a kártyára
+   (`POST /api/kanban/<id>/comments`), vagy alfeladatként vedd fel
+   (`parent_id`). A szerver ezt ki is kényszeríti: nyitott kártyához
+   kapcsolódó új kártyára `409 same_project` a válasz. Részletek:
+   `one-card-one-fix` skill, 6. pont.
 1. Állítsd össze a kártya adatait (title, description, priority, project).
 2. **Döntsd el a címkét, MIELŐTT létrehoznád a kártyát.** A négy
    (vagy {{OWNER_NAME}} által bővített) címke közül válassz:
@@ -72,6 +80,11 @@ a megépítéséhez. Lásd lent a döntési szempontokat.
    kártya címkéit örökli rá.
 
 ## Kapcsolódó kártyák felderítése -- KÖTELEZŐ, a létrehozás UTOLSÓ lépése
+
+> **2026-09-23 óta:** ha a kapcsolódó kártya MÉG NYITOTT, az nem „kapcsolódó",
+> hanem UGYANAZ a projekt -- oda kommentelsz, nem új kártyát nyitsz (0. lépés).
+> A belinkelés lezárt kártyára, vagy kimondottan önálló projektre
+> (`separate_project` indokkal) való.
 
 {{OWNER_NAME}} 2026-08-10: "amikor létrehoz egy kártyát, az első vagy az utolsó pont,
 és csak akkor lehet lezárni, ha ezek megvannak". Egy kártya sem hagyható

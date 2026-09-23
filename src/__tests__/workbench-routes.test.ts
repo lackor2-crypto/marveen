@@ -292,6 +292,50 @@ describe('archivalt projekt: CSAK OLVASHATO (a szerver tartja be, nem a kepernyo
 // A legfontosabb, amit oriz: az ures elonezet MINDIG megmondja, MIERT ures --
 // "meg nincs semmi" es "nem latok oda" KET kulon mondat, nem ugyanaz a csend.
 
+// #336 atvizsgalas: a resz-vegpontok eddig csak a resz azonositojat neztek.
+// Egy MASIK munkadarab URL-jen at (akar egy archivalt projekte) at lehetett
+// irni, es egy REGI verzio pillanatkepe is szerkesztheto/torolheto volt.
+describe('reszek: csak a SAJAT munkadarab ELO resze irhato', () => {
+  it('masik munkadarab reszet nem lehet a sajat URL-en at irni, mozgatni, torolni', async () => {
+    const a = createWorkItem({ project_id: otherId, title: 'Idegen', type: 'composite' })
+    const b = createWorkItem({ project_id: projectId, title: 'Sajat', type: 'composite' })
+    if (!a.ok || !b.ok) throw new Error('munkadarab')
+    const p = addWorkItemPart({ work_item_id: a.item.id, kind: 'text', text: 'idegen szoveg' })
+    if (!p.ok) throw new Error('resz')
+    setProjectArchived(otherId, true)
+
+    const patch = await call(`/api/workbench/items/${b.item.id}/parts/${p.part.id}`, 'PATCH', { text: 'feltort' })
+    expect(patch.status).toBe(404)
+    const move = await call(`/api/workbench/items/${b.item.id}/parts/${p.part.id}/move`, 'POST', { dir: 'up' })
+    expect(move.status).toBe(404)
+    const del = await call(`/api/workbench/items/${b.item.id}/parts/${p.part.id}`, 'DELETE')
+    expect(del.status).toBe(404)
+    expect(listWorkItemParts(a.item.id).map((x) => x.text)).toEqual(['idegen szoveg'])
+  })
+
+  it('egy REGI verzio resze nem irhato at es nem torolheto -- a tortenet valtozatlan', async () => {
+    const w = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!w.ok) throw new Error('munkadarab')
+    const p = addWorkItemPart({ work_item_id: w.item.id, kind: 'text', text: 'elso' })
+    if (!p.ok) throw new Error('resz')
+    await call(`/api/workbench/items/${w.item.id}/versions`, 'POST', {})
+    const old = listWorkItemParts(w.item.id, w.version.id)
+    expect(old).toHaveLength(1)
+    const oldId = old[0]!.id
+
+    const patch = await call(`/api/workbench/items/${w.item.id}/parts/${oldId}`, 'PATCH', { text: 'atirt tortenet' })
+    expect(patch.status).toBe(404)
+    const del = await call(`/api/workbench/items/${w.item.id}/parts/${oldId}`, 'DELETE')
+    expect(del.status).toBe(404)
+    expect(listWorkItemParts(w.item.id, w.version.id).map((x) => x.text)).toEqual(['elso'])
+
+    // Az ELO resz tovabbra is szerkesztheto.
+    const live = listWorkItemParts(w.item.id)
+    const ok = await call(`/api/workbench/items/${w.item.id}/parts/${live[0]!.id}`, 'PATCH', { text: 'masodik' })
+    expect(ok.status).toBe(200)
+  })
+})
+
 describe('GET /api/workbench/items/:id/preview', () => {
   let depot = ''
   let itemId = ''

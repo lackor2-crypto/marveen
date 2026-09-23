@@ -2695,11 +2695,28 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
       // Ha a szerver hasonlo kartyakat talalt, a felhasznalo mar dontott rola
       // (bepipalt kapcsolodok, vagy "nincs kapcsolat") -- ezt kuldjuk.
       if (_cardSimilarPending) data.related = _cardSimilarChosen()
-      const res = await fetch('/api/kanban', {
+      const postCard = () => fetch('/api/kanban', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
+      let res = await postCard()
+      // EGY PROJEKT = EGY KARTYA: egy MEG NYITOTT kartyahoz kapcsolodo uj
+      // kartyat a szerver nem hoz letre. Megmondjuk, melyik kartyan
+      // folytassa; kulon kartya csak kimondott indokkal jon letre.
+      if (res.status === 409) {
+        const e = await res.clone().json().catch(() => ({}))
+        if (e.code === 'same_project' && Array.isArray(e.cards) && e.cards.length) {
+          const list = e.cards.map((c) => `  ${c.seq != null ? '#' + c.seq : c.id} ${c.title}`).join('\n')
+          const reason = prompt(`${t('kanban.same_project.intro')}\n\n${list}\n\n${t('kanban.same_project.ask')}`, '')
+          if (!reason || reason.trim().length < 15) {
+            showToast(t('kanban.same_project.use_existing'))
+            return
+          }
+          data.separate_project = reason.trim()
+          res = await postCard()
+        }
+      }
       if (!res.ok) {
         const e = await res.json().catch(() => ({}))
         // A tablan mar vannak hasonlo cimu kartyak: a szerver tudni akarja,

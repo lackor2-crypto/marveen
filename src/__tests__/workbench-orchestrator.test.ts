@@ -259,6 +259,42 @@ describe('jovahagyas -- a MEGLEVO rendszeren at', () => {
     expect(listApprovals({ status: 'pending', limit: 10 })).toHaveLength(0)
   })
 
+  // #336 atvizsgalas: egy "igen" eddig a projekt MINDEN kesobbi azonos nevu
+  // tool-hivasat engedte, barmilyen bemenettel es idokorlat nelkul.
+  it('a jovahagyas a PONTOS bemenethez kotott: mas bemenet uj kerdest kap', async () => {
+    setAutonomyLoaderForTest(configWith(2))
+    await turn('Csinálj egy új ajánlatot', fakeProvider([
+      '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}',
+      'Kértem rá jóváhagyást.',
+    ]))
+    resolveApproval(listApprovals({ status: 'pending', limit: 10 })[0].id, 'approved', 'teszt')
+
+    const evs = await turn('Csinálj egy másikat', fakeProvider([
+      '{"tool":"workItem.create","input":{"title":"Egészen más","type":"document"}}',
+      'Kértem rá jóváhagyást.',
+    ]))
+    expect((evs.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('needs_approval')
+    expect(listWorkItems(projectId)).toHaveLength(1)
+  })
+
+  it('a jovahagyas EGYSZER hasznalhato: a masodik azonos keres ujra kerdez', async () => {
+    setAutonomyLoaderForTest(configWith(2))
+    const create = '{"tool":"workItem.create","input":{"type":"document","title":"Új ajánlat"}}'
+    await turn('Csinálj egy új ajánlatot', fakeProvider([create, 'Kértem rá jóváhagyást.']))
+    resolveApproval(listApprovals({ status: 'pending', limit: 10 })[0].id, 'approved', 'teszt')
+
+    // Kulcs-sorrend nem szamit: ugyanaz a bemenet.
+    const ok = await turn('Akkor csináld meg', fakeProvider([
+      '{"tool":"workItem.create","input":{"title":"Új ajánlat","type":"document"}}', 'Kész.',
+    ]))
+    expect((ok.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('ok')
+    expect(listWorkItems(projectId)).toHaveLength(2)
+
+    const again = await turn('Még egyszer', fakeProvider([create, 'Kértem rá jóváhagyást.']))
+    expect((again.filter((e) => e.type === 'tool').at(-1) as any).status).toBe('needs_approval')
+    expect(listWorkItems(projectId)).toHaveLength(2)
+  })
+
   it('3-as szinten a tool onalloan fut, jegy nelkul', async () => {
     setAutonomyLoaderForTest(configWith(3))
     const p = fakeProvider([
