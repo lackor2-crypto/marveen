@@ -30,6 +30,21 @@ interface Harness {
   toasts: string[]
   inputs: Record<string, { value: string; focus: () => void }>
   respond: (fn: (url: string, init?: RequestInit) => { status: number; body: unknown }) => void
+  /** Huzas a vaszon egyik elemen: lenyomas -> mozgatas -> elengedes.
+   *  A `grip` nelkul MOZGATAS, `grip`-pel (nw/ne/sw/se) ATMERETEZES.
+   *  A visszaadott `box.style` az, amit a huzas KOZBEN latna a felhasznalo. */
+  drag: (id: string, dx: number, dy: number, opts?: { grip?: string; cancel?: boolean; steps?: number }) => DragProbe
+  /** Nyilbillentyu egy kijelolt vaszon-elemen. */
+  arrow: (id: string, key: string, shift?: boolean) => void
+  /** MINDEN kirajzolas, idorendben. Igy az is merheto, mit latott a
+   *  felhasznalo KOZBEN -- nem csak a vegallapot. */
+  renders: string[]
+}
+
+interface DragProbe {
+  box: { style: Record<string, string>; className: string }
+  stageWidth: number
+  stageHeight: number
 }
 
 /** Egy kattintas-esemeny: a `closest()` a megadott attributumokbol valaszol. */
@@ -44,11 +59,56 @@ function eventFor(attrs: Record<string, string>) {
   return { target, preventDefault() {} }
 }
 
+/** A vaszon kepernyon elfoglalt merete a probaban. A vaszon 1000x800
+ *  egyseg, tehat 1 kepernyo-pixel = 2 vaszon-egyseg vizszintesen. */
+const STAGE_W = 500
+const STAGE_H = 400
+
+/** Egy vaszon-elem doboza es a kepe, ugy ahogy a bongeszo adna: a `closest()`
+ *  a dobozt, a szinpadot es (ha van) a megfogott sarkot adja vissza. */
+function dragTargetFor(id: string, grip?: string) {
+  const box = {
+    style: {} as Record<string, string>,
+    className: 'wb-can-box',
+    getAttribute: (a: string) => (a === 'data-wb-box' ? id : null),
+    setPointerCapture() {},
+  }
+  const stage = {
+    getBoundingClientRect: () => ({ width: STAGE_W, height: STAGE_H, left: 0, top: 0 }),
+    querySelectorAll: () => [box],
+  }
+  const gripEl = grip ? { getAttribute: () => grip } : null
+  const target = {
+    closest(sel: string) {
+      if (sel === '[data-wb-box]') return box
+      if (sel === '[data-wb-stage]') return stage
+      if (sel === '[data-wb-grip]') return gripEl
+      return null
+    },
+  }
+  return {
+    box,
+    event(dx: number, dy: number) {
+      return { target, clientX: 100 + dx, clientY: 100 + dy, preventDefault() {} }
+    },
+  }
+}
+
 function harness(): Harness {
   const clickHandlers: Handler[] = []
   const submitHandlers: Handler[] = []
   const changeHandlers: Handler[] = []
-  const rootEl = { innerHTML: '' }
+  const downHandlers: Handler[] = []
+  const moveHandlers: Handler[] = []
+  const upHandlers: Handler[] = []
+  const cancelHandlers: Handler[] = []
+  const keyHandlers: Handler[] = []
+  const renders: string[] = []
+  const rootEl = {
+    _html: '',
+    get innerHTML() { return this._html },
+    set innerHTML(v: string) { this._html = v; renders.push(v) },
+  }
   const inputs: Record<string, { value: string; focus: () => void }> = {}
   const toasts: string[] = []
   const fetchCalls: { url: string; init?: RequestInit }[] = []
@@ -60,6 +120,11 @@ function harness(): Harness {
       if (type === 'click') clickHandlers.push(fn)
       if (type === 'submit') submitHandlers.push(fn)
       if (type === 'change') changeHandlers.push(fn)
+      if (type === 'pointerdown') downHandlers.push(fn)
+      if (type === 'pointermove') moveHandlers.push(fn)
+      if (type === 'pointerup') upHandlers.push(fn)
+      if (type === 'pointercancel') cancelHandlers.push(fn)
+      if (type === 'keydown') keyHandlers.push(fn)
     },
     getElementById(id: string) {
       if (id === 'projectsRoot') return rootEl
@@ -101,8 +166,25 @@ function harness(): Harness {
     inputs,
     toasts,
     fetchCalls,
+    renders,
     respond(fn) { responder = fn },
     click(attrs) { for (const h of clickHandlers) h(eventFor(attrs)) },
+    drag(id, dx, dy, opts = {}) {
+      const probe = dragTargetFor(id, opts.grip)
+      for (const fn of downHandlers) fn({ ...probe.event(0, 0), pointerId: 1 })
+      const steps = opts.steps ?? 2
+      for (let i = 1; i <= steps; i++) {
+        const f = i / steps
+        for (const fn of moveHandlers) fn(probe.event(dx * f, dy * f))
+      }
+      const enders = opts.cancel ? cancelHandlers : upHandlers
+      for (const fn of enders) fn(probe.event(dx, dy))
+      return { box: probe.box, stageWidth: STAGE_W, stageHeight: STAGE_H }
+    },
+    arrow(id, key, shift = false) {
+      const probe = dragTargetFor(id)
+      for (const fn of keyHandlers) fn({ ...probe.event(0, 0), key, shiftKey: shift })
+    },
     change(id, files, value = '') {
       const e = { target: { id, files, value }, preventDefault() {} }
       for (const h of changeHandlers) h(e)
@@ -1432,6 +1514,207 @@ describe('rajzvaszon a feluletrol (9. fazis)', () => {
     await openCanvas()
     const html = h.rootEl.innerHTML
     for (const key of ['workbench.canvas.title', 'workbench.canvas.intro', 'workbench.canvas.download', 'workbench.canvas.add_text', 'workbench.canvas.center']) {
+      expect(html).toContain(key)
+    }
+  })
+})
+
+// ============================================================================
+// HUZOGATOS SZERKESZTES A VASZNON (kartya d4b05d82)
+//
+// A tulajdonos szava: "kell a huzogatos!". Amit itt merunk: a kep FOLOTT all
+// egy doboz-reteg (a kepet tovabbra is a SZERVER rajzolja, tehat a letoltott
+// kep = a latott kep), a huzas KOZBEN nincs halozati keres, az elengedeskor
+// PONTOSAN EGY `update` muvelet megy, es ha a reteg NEM jelenik meg, azt
+// kimondjuk -- a nema hianyzas a legrosszabb valasz.
+// ============================================================================
+describe('huzogatos szerkesztes a vasznon (kartya d4b05d82)', () => {
+  const GRAPHIC = { id: 'w1', title: 'Nyári plakát', type: 'graphic', status: 'draft' }
+  const DOC = {
+    version: 1, width: 1000, height: 800, background: '#ffffff',
+    objects: [
+      { id: 'headline', type: 'text', x: 0, y: 0, width: 800, height: 120, fontSize: 72, text: 'Ride for less', color: '#111111', align: 'left', font: 'sans' },
+      { id: 'keret', type: 'rect', x: 10, y: 10, width: 200, height: 100, fill: '#eeeeee', radius: 0 },
+    ],
+  }
+  const CANVAS_OK = {
+    canvas: DOC, exists: true, rel: 'Projektek/teszt/nyari-plakat.canvas.json',
+    name: 'nyari-plakat.canvas.json', version_id: 'v2', version_no: 2,
+    limits: { max_objects: 200, text_max: 2000 }, summary: '2 elem',
+  }
+
+  /** A `canvas` a rajz vegpont valasza, a `project` a projekt (archivalashoz). */
+  async function open(canvas: unknown = CANVAS_OK, status = 200, project: unknown = PROJECT) {
+    h.respond((url) => {
+      if (url.indexOf('/canvas/ops') > 0) {
+        return { status: 201, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], message: 'Mentve' } }
+      }
+      if (url.indexOf('/canvas') > 0) return { status, body: canvas }
+      if (url.indexOf('/preview') > 0) {
+        return { status: 200, body: { available: true, kind: 'canvas', mime: 'image/svg+xml', name: 'nyari-plakat.canvas.json', rel: 'Projektek/teszt/nyari-plakat.canvas.json', reason: null, message: null, url: null } }
+      }
+      if (url.indexOf('/api/workbench/items/') === 0) {
+        return { status: 200, body: { item: GRAPHIC, versions: [], parts: [], part_kinds: ['text', 'image'], project } }
+      }
+      return { status: 200, body: { project, items: [GRAPHIC], types: ['graphic'], statuses: ['draft'] } }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-can-objs'))
+  }
+
+  function opsCalls() {
+    return h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0)
+  }
+
+  function lastOps() {
+    const calls = opsCalls()
+    return JSON.parse(String(calls[calls.length - 1].init!.body)).ops
+  }
+
+  it('a kep FOLOTT elemenkent egy doboz all, szazalekos helyen', async () => {
+    await open()
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('class="wb-can-stage" data-wb-stage="1"')
+    expect(html).toContain('data-wb-box="headline"')
+    expect(html).toContain('data-wb-box="keret"')
+    // 800/1000 = 80% szeles, 120/800 = 15% magas -- a kep barmekkora lehet.
+    expect(html).toContain('left:0%;top:0%;width:80%;height:15%')
+    // A KEPET tovabbra is a szerver rajzolja: ez a huzogatas ARA nem lehet.
+    expect(html).toContain('/api/workbench/items/w1/canvas.svg')
+    // Mind a negy sarok megfoghato.
+    for (const g of ['nw', 'ne', 'sw', 'se']) expect(html).toContain('data-wb-grip="' + g + '"')
+  })
+
+  it('HUZAS: kozben NINCS halozati keres, elengedeskor PONTOSAN EGY update megy', async () => {
+    await open()
+    const before = opsCalls().length
+    // 25 kepernyo-pixel jobbra, 10 le. A vaszon 1000x800, a kep 500x400:
+    // minden kepernyo-pixel KET vaszon-egyseg.
+    const probe = h.drag('headline', 25, 10, { steps: 4 })
+    // A doboz MAR huzas kozben is a helyen van -- de ez csak a kepernyon.
+    expect(probe.box.style.left).toBe('5%')
+    await vi.waitFor(() => expect(opsCalls().length).toBe(before + 1))
+    expect(lastOps()).toEqual([{ op: 'update', id: 'headline', patch: { x: 50, y: 20, width: 800, height: 120 } }])
+  })
+
+  it('SAROK: atmeretezeskor az ATELLENES sarok helyben marad', async () => {
+    await open()
+    // Bal felso sarok befele: a jobb also sarok (800,120) NEM mozdulhat.
+    h.drag('headline', 25, 10, { grip: 'nw', steps: 3 })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(1))
+    const patch = lastOps()[0].patch
+    expect(patch).toEqual({ x: 50, y: 20, width: 750, height: 100 })
+    expect(patch.x + patch.width).toBe(800)
+    expect(patch.y + patch.height).toBe(120)
+  })
+
+  it('SAROK: a jobb also sarokkal nagyobbra huzva a bal felso marad helyben', async () => {
+    await open()
+    h.drag('headline', 25, 10, { grip: 'se', steps: 3 })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(1))
+    expect(lastOps()[0].patch).toEqual({ x: 0, y: 0, width: 850, height: 140 })
+  })
+
+  it('a doboz nem tunhet el: nagyon kicsire huzva is marad belole valami', async () => {
+    await open()
+    h.drag('keret', -300, -300, { grip: 'se', steps: 3 })
+    await vi.waitFor(() => expect(opsCalls().length).toBe(1))
+    const patch = lastOps()[0].patch
+    expect(patch.width).toBe(8)
+    expect(patch.height).toBe(8)
+    // A megfogott sarokkal szembeni pont helyben maradt.
+    expect(patch.x).toBe(10)
+    expect(patch.y).toBe(10)
+  })
+
+  it('KATTINTAS huzas nelkul csak kijelol -- nem kuld muveletet', async () => {
+    await open()
+    h.drag('keret', 0, 0)
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-can-box-sel'))
+    expect(opsCalls()).toHaveLength(0)
+    expect(h.rootEl.innerHTML).toContain('data-wb-box="keret"')
+  })
+
+  it('MEGSZAKITOTT huzas (pointercancel) NEM ment', async () => {
+    await open()
+    h.drag('headline', 40, 40, { cancel: true })
+    expect(opsCalls()).toHaveLength(0)
+  })
+
+  it('NYILBILLENTYU: eger nelkul is mozdul, Shift-tel nagyobbat', async () => {
+    await open()
+    h.arrow('headline', 'ArrowRight')
+    await vi.waitFor(() => expect(opsCalls().length).toBe(1))
+    expect(lastOps()).toEqual([{ op: 'move', id: 'headline', dx: 10, dy: 0 }])
+  })
+
+  it('NYILBILLENTYU Shift-tel: nagyobb lepes', async () => {
+    await open()
+    h.arrow('keret', 'ArrowUp', true)
+    await vi.waitFor(() => expect(opsCalls().length).toBe(1))
+    expect(lastOps()).toEqual([{ op: 'move', id: 'keret', dx: 0, dy: -50 }])
+  })
+
+  it('ARCHIVALT projekt: nincs doboz, es KIMONDJUK, miert', async () => {
+    await open(CANVAS_OK, 200, { ...PROJECT, archived: 1 })
+    const html = h.rootEl.innerHTML
+    expect(html).not.toContain('data-wb-box=')
+    expect(html).toContain('workbench.canvas.drag_archived')
+    // A kep tovabbra is latszik.
+    expect(html).toContain('/api/workbench/items/w1/canvas.svg')
+  })
+
+  it('ha a rajz adatai NEM toltodtek be, nincs doboz -- es megmondjuk a MASIK utat', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/canvas') > 0) {
+        return { status: 409, body: { error: 'canvas_no_depot', message: 'A rajz fájljához nem látok oda.', detail: 'x' } }
+      }
+      if (url.indexOf('/preview') > 0) {
+        return { status: 200, body: { available: true, kind: 'canvas', mime: 'image/svg+xml', name: 'x.canvas.json', rel: 'x', reason: null, message: null, url: null } }
+      }
+      if (url.indexOf('/api/workbench/items/') === 0) {
+        return { status: 200, body: { item: GRAPHIC, versions: [], parts: [], part_kinds: [], project: PROJECT } }
+      }
+      return { status: 200, body: { project: PROJECT, items: [GRAPHIC], types: ['graphic'], statuses: ['draft'] } }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.canvas.drag_unavailable'))
+    const html = h.rootEl.innerHTML
+    expect(html).not.toContain('data-wb-box=')
+    // A kep attol meg ott van, es a hiba oka is ki van mondva.
+    expect(html).toContain('/api/workbench/items/w1/canvas.svg')
+    expect(html).toContain('A rajz fájljához nem látok oda.')
+  })
+
+  it('a huzas utan a kep egy pillanatra sem tunik el (nincs villogas)', async () => {
+    await open()
+    const mark = h.renders.length
+    h.drag('keret', 30, 20)
+    await vi.waitFor(() => expect(opsCalls().length).toBe(1))
+    // Megvarjuk a TELJES kort: mentes kozbeni rajzolas, mentes utani rajzolas,
+    // majd a friss elonezet rajzolasa.
+    await vi.waitFor(() => expect(h.renders.length - mark).toBeGreaterThanOrEqual(3))
+    const after = h.renders.slice(mark)
+    // Tobbszor is ujrarajzolunk (mentes kozben, mentes utan) -- de a kep MINDEN
+    // kozbenso allapotban ott van. Kulonben a masodik huzast el sem lehetne
+    // kezdeni, mert a doboz eltunne a kez alol.
+    expect(after.length).toBeGreaterThan(1)
+    // A KEP es a rajta ulo doboz-reteg is vegig a helyen van. (A vaszon-doboz
+    // letoltes-linkje is tartalmazza a kep cimet, ezert a SZINPADRA merunk.)
+    for (const html of after) {
+      expect(html).toContain('data-wb-stage="1"')
+      expect(html).toContain('data-wb-box="keret"')
+    }
+  })
+
+  it('minden uj kepernyo-szoveg a t()-n megy at (HU/EN)', async () => {
+    await open()
+    const html = h.rootEl.innerHTML
+    for (const key of ['workbench.canvas.drag_hint', 'workbench.canvas.drag_aria']) {
       expect(html).toContain(key)
     }
   })
