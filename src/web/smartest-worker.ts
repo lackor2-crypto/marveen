@@ -42,19 +42,29 @@ export interface WorkerPick {
  *
  * A Claude-csalad megbizhatoan hasznal eszkozoket, ezert MINDEN Claude-szint a
  * nem-Claude (ingyenes OpenRouter / egyeb) modellek fole kerul. Csaladon belul:
- * Opus > Sonnet > Haiku, a verzio pedig a masodlagos rendezo -- igy az
+ * Fable > Opus > Sonnet > Haiku, a verzio pedig a masodlagos rendezo -- igy az
  * "opus-5" megelozi az "opus-4-8"-at, az pedig a "sonnet-5"-ot es a "haiku"-t.
+ *
+ * A FABLE CSALAD 2026-09-23-ig KIMARADT INNEN, es ez merheto kart okozott: a
+ * minta csak az `opus|sonnet|haiku`-t ismerte, ezert a `claude-fable-5-1` a
+ * NEM-CLAUDE agra esett, es 105-ot kapott -- kevesebbet, mint a Haiku 4.5
+ * (245), es alig tobbet, mint egy ingyenes OpenRouter modell (103). Vagyis a
+ * legerosebb modellen futo agens volt a legutolso a valasztasban. A csalad
+ * alapszama 500, mert a gyarto sajat leirasa szerint a Fable a legerosebb
+ * ("most capable for your hardest and longest-running tasks").
  *
  * Tiszta, determinisztikus fuggveny (nincs I/O, nincs ido).
  */
 export function rankModelTier(model: string): number {
   const m = String(model || '').toLowerCase()
-  const claude = m.match(/claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/)
+  const claude = m.match(/claude-(fable|opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/)
   if (claude) {
-    const familyBase = claude[1] === 'opus' ? 400 : claude[1] === 'sonnet' ? 300 : 200
+    const familyBase =
+      claude[1] === 'fable' ? 500 : claude[1] === 'opus' ? 400 : claude[1] === 'sonnet' ? 300 : 200
     const major = Number(claude[2]) || 0
     const minor = claude[3] ? Number(claude[3]) : 0
-    // opus-5 => 450, opus-4-8 => 448, sonnet-5 => 350, haiku-4-5 => 245
+    // fable-5-1 => 551, opus-5-5 => 455, opus-5 => 450, opus-4-8 => 448,
+    // sonnet-5 => 350, haiku-4-5 => 245
     return familyBase + major * 10 + Math.min(minor, 9)
   }
   // Nem-Claude (ingyenes OpenRouter, z-ai, stb.): jóval megbizhatatlanabbul

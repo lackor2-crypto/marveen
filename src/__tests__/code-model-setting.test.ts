@@ -91,7 +91,12 @@ describe('a beallitas vegig megy: sema -> API -> worker -> CLI', () => {
 describe('a felulet: valaszthato, es kimondja, mi NEM ez', () => {
   it('van valaszto a kod-hid beallitasai kozott', () => {
     expect(INDEX).toContain('id="cbModel"')
-    expect(INDEX).toContain('value="claude-opus-5"')
+    // A Claude-opciok MAR NEM statikusak a HTML-ben: a szerver listajabol
+    // tolti fel oket az app (egyetlen forras: src/claude-models.ts). Egy
+    // beegetett `value="claude-opus-5"` pontosan az a szetcsuszas volt, ami
+    // miatt az uj modell nem jelent meg (Boss, 2026-09-23).
+    expect(INDEX).toContain('id="cbModelClaudeGroup"')
+    expect(INDEX).not.toMatch(/id="cbModel"[\s\S]{0,800}?<option value="claude-/)
   })
 
   it('az app betolti es menti', () => {
