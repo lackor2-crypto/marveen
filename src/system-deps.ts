@@ -181,6 +181,18 @@ export const SYSTEM_DEPS: SystemDep[] = [
     commands: ['ollama'], versionArgs: ['--version'],
   },
   {
+    id: 'rclone', name: 'rclone', tier: 'extra',
+    what_for: { hu: 'MEGA fiókok bekötése: a Tárolók alatt a MEGA mappa és a tárhely-mérés.', en: 'Connecting MEGA accounts: the MEGA folder under Storages and its space measurement.' },
+    affects: { hu: 'MEGA fiókot nem lehet hozzáadni. A Drive, a Fotók és a Git ettől függetlenül működik.', en: 'MEGA accounts cannot be added. Drive, Photos and Git work regardless.' },
+    apt: [], dnf: [], brew: ['rclone'],
+    manual: {
+      hu: 'A Marveen telepítője magától letölti a ~/.local/bin mappába (rendszergazdai jog nélkül). Ha utólag kell: futtasd újra a telepítőt, vagy töltsd le a letöltési oldalról.',
+      en: 'The Marveen installer downloads it into ~/.local/bin by itself (no admin rights needed). To add it later: run the installer again, or download it from its download page.',
+    },
+    url: 'https://rclone.org/downloads/',
+    commands: [localBin('rclone'), 'rclone'], versionArgs: ['version'],
+  },
+  {
     id: 'tailscale', name: 'Tailscale', tier: 'extra',
     what_for: { hu: 'A Marveen felülete elérhető a telefonodról is, otthonon kívülről.', en: 'Reaching the Marveen dashboard from your phone, away from home.' },
     affects: { hu: 'Csak erről a gépről (és a helyi hálózatról) érhető el a felület.', en: 'The dashboard is reachable only from this machine (and the local network).' },

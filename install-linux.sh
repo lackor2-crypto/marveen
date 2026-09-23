@@ -518,6 +518,39 @@ else
   install_himalaya || true
 fi
 
+# rclone (MEGA fiokok bekotese -- kanban e67bf278): extra, a hianya semmit nem
+# allit meg. A disztrok csomagja gyakran evekkel regebbi, ezert a hivatalos
+# aktualis kiadast toltjuk le a ~/.local/bin ala, sudo nelkul, a kiado sajat
+# SHA256SUMS listajaval ellenorizve. Verziot NEM egetunk be: a version.txt mondja meg.
+install_rclone() {
+  local arch ver tmp zip
+  case "$(uname -m)" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *) warn "rclone: ismeretlen processzor ($(uname -m)), kihagyva. Kezzel: https://rclone.org/downloads/"; return 0 ;;
+  esac
+  ver="$(curl -fsSL https://downloads.rclone.org/version.txt 2>/dev/null | awk '{print $2}')"
+  case "$ver" in v[0-9]*) ;; *) warn "rclone: a verzio nem kerdezheto le, kihagyva. Kezzel: https://rclone.org/downloads/"; return 0 ;; esac
+  tmp="$(mktemp -d)" || return 1
+  zip="rclone-${ver}-linux-${arch}.zip"
+  if curl -fsSL "https://downloads.rclone.org/${ver}/${zip}" -o "$tmp/$zip" \
+     && curl -fsSL "https://downloads.rclone.org/${ver}/SHA256SUMS" -o "$tmp/SHA256SUMS" \
+     && (cd "$tmp" && grep " ${zip}\$" SHA256SUMS | sha256sum -c --status -) \
+     && unzip -q -j "$tmp/$zip" "rclone-${ver}-linux-${arch}/rclone" -d "$tmp" \
+     && mkdir -p "$HOME/.local/bin" \
+     && install -m 0755 "$tmp/rclone" "$HOME/.local/bin/rclone"; then
+    ok "rclone ${ver} -> ~/.local/bin/rclone"
+  else
+    warn "rclone letoltese/ellenorzese nem sikerult (a MEGA fiokokhoz kell, mashoz nem). Kezzel: https://rclone.org/downloads/"
+  fi
+  rm -rf "$tmp"
+}
+if command -v rclone &>/dev/null || [ -x "$HOME/.local/bin/rclone" ]; then
+  ok "rclone mar telepitve"
+else
+  install_rclone || true
+fi
+
 # ─────────────────────────────────────────────
 # Repo bootstrap
 # ─────────────────────────────────────────────

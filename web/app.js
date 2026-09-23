@@ -19994,6 +19994,115 @@ async function _ghAccountsAdd() {
   loadAccountsPage()
 }
 
+// --- MEGA-fiokok (Fiokok oldal, kanban e67bf278) -----------------------------
+//
+// A belepest az rclone vegzi a szerveren (src/mega.ts). A fiok CSAK sikeres
+// belepes utan kerul a listara -- rossz jelszonal a MEGA sajat uzenete jon
+// vissza, nem egy zold sor, ami mogott semmi nem mukodik. A jelszo a mezobol
+// egyenesen a szerverre megy, es a gomb utan azonnal toroljuk a mezobol.
+
+function _megaErrText(code, detail) {
+  const keys = {
+    bad_email: 'mega.err_bad_email', no_password: 'mega.err_no_password', rclone_missing: 'mega.err_rclone_missing',
+    exists: 'mega.err_exists', login_failed: 'mega.err_login_failed', twofa: 'mega.err_twofa',
+    not_activated: 'mega.err_not_activated', network: 'mega.err_network', transfer_quota: 'mega.err_transfer_quota',
+    not_found: 'mega.err_not_found',
+  }
+  const base = t(keys[code] || 'mega.err_unknown')
+  return detail ? base + ' (' + t('mega.err_detail') + ': ' + detail + ')' : base
+}
+
+function _megaRender(data) {
+  const rs = document.getElementById('megaRcloneState')
+  const btn = document.getElementById('megaAddBtn')
+  const inst = !!(data && data.rclone && data.rclone.installed)
+  if (rs) {
+    rs.hidden = inst
+    if (!inst) _connSetState('megaRcloneState', t('mega.rclone_missing'), null)
+  }
+  if (btn) btn.disabled = !inst
+  const list = document.getElementById('megaAccountList')
+  if (!list) return
+  const accs = (data && data.accounts) || []
+  if (!accs.length) {
+    list.innerHTML = '<p class="claude-auth-warn">' + escapeHtml(t('mega.none')) + '</p>'
+    return
+  }
+  const when = (ms) => new Date(ms).toLocaleString((window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU')
+  list.innerHTML = accs.map(a => {
+    const q = a.quota
+    let qt
+    if (!q) qt = t('mega.quota_unmeasured')
+    else if (q.error) qt = t('mega.quota_failed', { when: when(q.measuredAt) }) + ' — ' + q.error
+    else qt = t('mega.quota', { free: _depoBytes(q.free), total: _depoBytes(q.total), when: when(q.measuredAt) })
+    return '<div class="claude-auth-actions" style="align-items:center;gap:8px">'
+      + '<strong>' + escapeHtml(a.email) + '</strong>'
+      + '<span class="claude-auth-warn" style="margin:0">' + escapeHtml(qt) + '</span>'
+      + '<button class="btn-secondary" data-mega-measure="' + escapeHtml(a.name) + '">' + escapeHtml(t('mega.measure')) + '</button>'
+      + '<button class="btn-secondary" data-mega-remove="' + escapeHtml(a.name) + '" data-mega-email="' + escapeHtml(a.email) + '">' + escapeHtml(t('mega.remove')) + '</button>'
+      + '</div>'
+  }).join('')
+}
+
+async function _megaCall(url, body) {
+  const res = await fetch(url, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+  const data = await res.json().catch(() => ({}))
+  return { ok: res.ok, data }
+}
+
+async function _megaLoad() {
+  try {
+    const r = await _megaCall('/api/mega')
+    if (r.ok) _megaRender(r.data)
+  } catch { /* a blokk ures marad, a tobbi fiok-kartya ettol megy */ }
+}
+
+async function _megaAdd() {
+  const em = document.getElementById('megaEmail')
+  const pw = document.getElementById('megaPassword')
+  const email = em ? em.value.trim() : ''
+  const password = pw ? pw.value : ''
+  if (!email) { _connSetState('megaAddState', t('mega.err_bad_email'), 'bad'); return }
+  if (!password) { _connSetState('megaAddState', t('mega.err_no_password'), 'bad'); return }
+  const btn = document.getElementById('megaAddBtn')
+  if (btn) btn.disabled = true
+  _connSetState('megaAddState', t('mega.checking'), null)
+  try {
+    const r = await _megaCall('/api/mega/accounts', { email, password })
+    if (pw) pw.value = ''
+    if (!r.ok) { _connSetState('megaAddState', _megaErrText(r.data.error, r.data.detail), 'bad'); return }
+    if (em) em.value = ''
+    _connSetState('megaAddState', t('mega.added', { email }), null)
+    _megaRender(r.data)
+  } catch (err) {
+    _connSetState('megaAddState', t('mega.err_unknown') + ' ' + (err.message || ''), 'bad')
+  } finally {
+    if (btn) btn.disabled = false
+  }
+}
+
+async function _megaListClick(ev) {
+  const m = ev.target.closest('[data-mega-measure]')
+  const rm = ev.target.closest('[data-mega-remove]')
+  if (m) {
+    m.disabled = true
+    _connSetState('megaAddState', t('mega.measuring'), null)
+    const r = await _megaCall('/api/mega/measure', { name: m.dataset.megaMeasure }).catch(() => null)
+    _connSetState('megaAddState', '', null)
+    if (r && r.ok) _megaRender(r.data)
+    else _connSetState('megaAddState', _megaErrText(r && r.data && r.data.error), 'bad')
+    return
+  }
+  if (rm) {
+    if (!confirm(t('mega.remove_confirm', { email: rm.dataset.megaEmail }))) return
+    const r = await _megaCall('/api/mega/remove', { name: rm.dataset.megaRemove }).catch(() => null)
+    if (r && r.ok) { _megaRender(r.data); _connSetState('megaAddState', t('mega.removed'), null) }
+    else _connSetState('megaAddState', _megaErrText(r && r.data && r.data.error), 'bad')
+  }
+}
+
 // --- wiring ------------------------------------------------------------------
 
 function renderConnectionsPanel() {
@@ -20004,6 +20113,13 @@ function renderConnectionsPanel() {
     ghsec.dataset.wired = '1'
     document.getElementById('ghAddBtn').addEventListener('click', _ghAccountsAdd)
   }
+  const megasec = document.getElementById('megaConnSection')
+  if (megasec && megasec.dataset.wired !== '1') {
+    megasec.dataset.wired = '1'
+    document.getElementById('megaAddBtn').addEventListener('click', _megaAdd)
+    document.getElementById('megaAccountList').addEventListener('click', _megaListClick)
+  }
+  if (megasec) _megaLoad()
   if (!gsec || !msec) return
 
   if (gsec.dataset.wired !== '1') {
@@ -35151,6 +35267,7 @@ var _storagesLoading = false
 var _STORAGE_KINDS = {
   drive: { label: 'Google Drive', icon: '☁' },
   photos: { label: 'Google Fotók', icon: '📷' },
+  mega: { label: 'MEGA', icon: 'Ⓜ' },
   git: { label: 'Git', icon: '🔀' },
 }
 

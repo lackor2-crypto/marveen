@@ -117,6 +117,13 @@ export const DEPOT_PHOTOS = `${DEPOT_STORAGES}/GOOGLE_PHOTOS`
  * A TAROLOK ala tartozik -- lasd a `DEPOT_PHOTOS` megjegyzeset.
  */
 export const DEPOT_DRIVE = `${DEPOT_STORAGES}/Drive`
+/**
+ * A MEGA fiokok, fiokonkent almappaban (rclone-nal kotve, lasd `mega.ts`).
+ *
+ * A TAROLOK ala tartozik, a Drive melle -- a tulajdonos (2026-09-23): "ott van
+ * hogy Drive, Fotok, Gittarolok es a Mega, azt is oda tehetnenk".
+ */
+export const DEPOT_MEGA = `${DEPOT_STORAGES}/MEGA`
 
 /**
  * A REGI, lapos nevek ugyanezekre. KELLENEK, mert ket helyen a mappa NEVE a
@@ -441,7 +448,7 @@ export function ensureDepotSkeleton(): { created: string[]; health: DepotHealth 
   const created: string[] = []
   // A fajta van felul, a fiok alatta (`.../DRIVE/lackor2`), ezert a vazban is
   // itt a helyuk -- igy egy ures depoban is latszik, mi hova fog kerulni.
-  for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM]) {
+  for (const d of [DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_MEGA, DEPOT_PROJECTS, DEPOT_WORK, DEPOT_BACKUPS, DEPOT_SYSTEM]) {
     const p = join(health.root, d)
     if (existsSync(p)) continue
     try { mkdirSync(p, { recursive: true }); created.push(d) } catch { /* a tobbi meg keszuljon el */ }

@@ -83,6 +83,7 @@ import { depotRoot } from '../depot.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
+import { readMegaAccounts, readMegaQuota, rcloneBin, type MegaAccount, type MegaQuota } from '../mega.js'
 import { systemDepsSnapshot, systemDepsMonitorStartedAt, type DepsSnapshot } from '../system-deps.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
@@ -2108,6 +2109,30 @@ export function systemDepRows(
   return rows
 }
 
+/**
+ * MEGA fiokok (kanban e67bf278). EXTRA funkcio: amig nincs bekotott fiok, CSEND
+ * (friss telepites), es sosem piros. A NULLA ket dolog itt is: "nincs fiok" =
+ * csend, de "van fiok, es nem tudom megmerni" = sarga sor, nem "minden rendben".
+ * A MEGA hibaszovege a Fiokok oldalon latszik, ide csak a darabszam kerul.
+ */
+export function megaRows(
+  accounts: MegaAccount[] = readMegaAccounts(),
+  quota: Record<string, MegaQuota> = readMegaQuota(),
+  hasRclone: boolean = rcloneBin() !== null,
+): HealthRow[] {
+  if (accounts.length === 0) return []
+  if (!hasRclone) return [{ id: 'mega_rclone_missing', status: 'warn', params: { n: accounts.length } }]
+  const rows: HealthRow[] = []
+  const failed = accounts.filter((a) => quota[a.name]?.error).length
+  if (failed) rows.push({ id: 'mega_quota_failed', status: 'warn', params: { n: failed } })
+  const full = accounts.filter((a) => {
+    const q = quota[a.name]
+    return q && !q.error && q.total && q.free !== null && q.free / q.total < 0.05
+  }).length
+  if (full) rows.push({ id: 'mega_quota_full', status: 'warn', params: { n: full } })
+  return rows
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -2136,6 +2161,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...skillScopeReviewRows(),
     ...voiceRows(),
     ...systemDepRows(),
+    ...megaRows(),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {
