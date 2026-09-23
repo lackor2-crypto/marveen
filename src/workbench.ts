@@ -9,6 +9,8 @@
  *                              jegyzet) egy projekten belul;
  *   - `work_item_versions`  -- a munkadarab verzioi (v1, v2, ...). Letrehozaskor
  *                              magatol szuletik egy v1.
+ *   - `work_item_parts`     -- a munkadarab RESZEI (3. fazis): szoveg-blokk es
+ *                              kep egy munkadarabon belul, sorrendben.
  *
  * A tobbi spec-tabla (`work_item_assets`, `agent_sessions`, `agent_messages`,
  * `agent_tool_calls`, `render_jobs`) KESOBBI fazisoke -- itt szandekosan nincs
@@ -25,8 +27,14 @@ import { getDb } from './db.js'
 
 /** Munkadarab-fajtak. A spec 3. szakasza a bal panelen Dokumentum / Kep /
  *  Grafika / Video kategoriakat sorol; a `note` a szoveges jegyzet, ami AI
- *  nelkul is ertelmes kezdopont. Uj fajta felvetele: ide + `EDITOR_BY_TYPE`. */
-export const WORK_ITEM_TYPES = ['document', 'image', 'graphic', 'video', 'note'] as const
+ *  nelkul is ertelmes kezdopont. Uj fajta felvetele: ide + `EDITOR_BY_TYPE`.
+ *
+ *  A `composite` a VEGYES munkadarab (Boss, 2026-09-21: "egy munkadarabban
+ *  lehet egyszerre kep ES szoveg, pl. Facebook-poszt"). A jovahagyott irany
+ *  (komment 1222/1223) szerint a fajta CSAK CIMKE, nem korlat: RESZEKET
+ *  (`work_item_parts`) barmelyik fajta alá lehet tenni -- a `composite` csak
+ *  azt mondja, hogy eleve vegyes tartalomnak indult. */
+export const WORK_ITEM_TYPES = ['document', 'image', 'graphic', 'video', 'note', 'composite'] as const
 export type WorkItemType = typeof WORK_ITEM_TYPES[number]
 
 /** Munkadarab-allapotok. Szandekosan keves: a kanban-statuszoktol fuggetlen,
@@ -42,6 +50,7 @@ export const EDITOR_BY_TYPE: Record<WorkItemType, string> = {
   graphic: 'graphic',
   video: 'video',
   note: 'text',
+  composite: 'composite',
 }
 
 export interface WorkItemRow {
@@ -109,8 +118,26 @@ export function ensureWorkbenchTables(): void {
       metadata_json TEXT
     )
   `)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS work_item_parts (
+      id TEXT PRIMARY KEY,
+      work_item_id TEXT NOT NULL,
+      version_id TEXT,
+      position INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      text TEXT,
+      asset_path TEXT,
+      mime_type TEXT,
+      size INTEGER,
+      caption TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      created_by TEXT
+    )
+  `)
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, updated_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
+  db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')
   tablesDb = db
 }
 
@@ -238,5 +265,228 @@ export function countWorkItems(projectId: string): number {
   const pid = String(projectId || '').trim()
   if (!pid) return 0
   const row = getDb().prepare('SELECT COUNT(*) AS n FROM work_items WHERE project_id = ?').get(pid) as { n: number }
+  return row.n
+}
+
+// ---------------------------------------------------------------------------
+// VEGYES (KOMPOZIT) MUNKADARAB -- reszek (kanban #336, 3. fazis)
+//
+// Boss, 2026-09-21: "egy munkadarabban lehet egyszerre kep ES szoveg (pl.
+// Facebook-poszt: foto + iras)". A jovahagyott irany a szakma szerinti
+// KOMPOZIT / modularis modell: a munkadarab KONTENER, ami tobb reszt tart --
+// szoveg-blokkot es kepet --, mindegyiket sajat sorrenddel es felirattal.
+//
+// Ket dolgot szandekosan NEM csinalunk:
+//   - nem korlatozzuk fajtara: reszt BARMELYIK munkadarab alá lehet tenni (a
+//     fajta cimke, nem korlat);
+//   - nem masoljuk be a kep bajtjait az adatbazisba: a kep a projekt mappajaban
+//     marad, es a resz csak a Raktaron beluli UTJAT (`asset_path`) orzi. Igy a
+//     fajl ott van, ahol a felhasznalo keresi, es a mentes is viszi.
+// ---------------------------------------------------------------------------
+
+/** Egy resz fajtaja. `text` = szoveg-blokk, `image` = kep a projekt mappajabol. */
+export const WORK_ITEM_PART_KINDS = ['text', 'image'] as const
+export type WorkItemPartKind = typeof WORK_ITEM_PART_KINDS[number]
+
+/** Egy szoveg-blokk felso hatara. Egy poszt, nem egy konyv. */
+export const PART_TEXT_MAX = 20_000
+/** A felirat egy sor. */
+export const PART_CAPTION_MAX = 500
+
+export interface WorkItemPartRow {
+  id: string
+  work_item_id: string
+  version_id: string | null
+  position: number
+  kind: WorkItemPartKind
+  text: string | null
+  /** A kep utja a Raktaron belul (ugyanaz a fajta ut, amit az Intezo hasznal). */
+  asset_path: string | null
+  mime_type: string | null
+  size: number | null
+  caption: string | null
+  created_at: number
+  updated_at: number
+  created_by: string | null
+}
+
+export function isWorkItemPartKind(v: unknown): v is WorkItemPartKind {
+  return typeof v === 'string' && (WORK_ITEM_PART_KINDS as readonly string[]).includes(v)
+}
+
+/** Egy munkadarab reszei, sorrendben. Ismeretlen munkadarabra ures lista -- a
+ *  hivo dolga eldonteni, letezik-e a munkadarab (a NULLA ket dolgot jelenthet). */
+export function listWorkItemParts(workItemId: string): WorkItemPartRow[] {
+  ensureWorkbenchTables()
+  const id = String(workItemId || '').trim()
+  if (!id) return []
+  return getDb()
+    .prepare('SELECT * FROM work_item_parts WHERE work_item_id = ? ORDER BY position ASC, created_at ASC')
+    .all(id) as WorkItemPartRow[]
+}
+
+export function getWorkItemPart(id: string): WorkItemPartRow | undefined {
+  ensureWorkbenchTables()
+  const v = String(id || '').trim()
+  if (!v) return undefined
+  return getDb().prepare('SELECT * FROM work_item_parts WHERE id = ?').get(v) as WorkItemPartRow | undefined
+}
+
+export interface AddWorkItemPartInput {
+  work_item_id: string
+  kind?: unknown
+  text?: unknown
+  asset_path?: unknown
+  mime_type?: unknown
+  size?: unknown
+  caption?: unknown
+  created_by?: string | null
+}
+
+export type PartErrorCode =
+  | 'bad_kind' | 'text_required' | 'text_too_long' | 'asset_required' | 'caption_too_long' | 'part_not_found'
+
+export type AddWorkItemPartResult =
+  | { ok: true; part: WorkItemPartRow }
+  | { ok: false; code: PartErrorCode }
+
+function touchWorkItem(id: string, ts: number): void {
+  getDb().prepare('UPDATE work_items SET updated_at = ? WHERE id = ?').run(ts, id)
+}
+
+/** Uj resz a munkadarab vegere. A hivo mar ellenorizte, hogy a munkadarab letezik. */
+export function addWorkItemPart(input: AddWorkItemPartInput): AddWorkItemPartResult {
+  ensureWorkbenchTables()
+  const rawKind = input.kind === undefined || input.kind === null || input.kind === '' ? 'text' : input.kind
+  if (!isWorkItemPartKind(rawKind)) return { ok: false, code: 'bad_kind' }
+  const kind: WorkItemPartKind = rawKind
+  const text = input.text === undefined || input.text === null ? '' : String(input.text)
+  const caption = String(input.caption ?? '').trim()
+  if (caption.length > PART_CAPTION_MAX) return { ok: false, code: 'caption_too_long' }
+  const assetPath = String(input.asset_path ?? '').trim()
+  if (kind === 'text') {
+    if (!text.trim()) return { ok: false, code: 'text_required' }
+    if (text.length > PART_TEXT_MAX) return { ok: false, code: 'text_too_long' }
+  } else if (!assetPath) {
+    return { ok: false, code: 'asset_required' }
+  }
+
+  const db = getDb()
+  const ts = nowSec()
+  const id = randomUUID()
+  const item = getWorkItem(input.work_item_id)
+  const row = db.prepare('SELECT COALESCE(MAX(position), 0) AS p FROM work_item_parts WHERE work_item_id = ?')
+    .get(input.work_item_id) as { p: number }
+  const size = Number.isFinite(Number(input.size)) && Number(input.size) >= 0 ? Math.floor(Number(input.size)) : null
+  db.transaction(() => {
+    db.prepare(`INSERT INTO work_item_parts
+      (id, work_item_id, version_id, position, kind, text, asset_path, mime_type, size, caption, created_at, updated_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        id, input.work_item_id, item ? item.current_version_id : null, row.p + 1, kind,
+        kind === 'text' ? text : (text.trim() || null),
+        kind === 'image' ? assetPath : (assetPath || null),
+        String(input.mime_type ?? '').trim() || null,
+        size, caption || null, ts, ts, input.created_by ?? null,
+      )
+    touchWorkItem(input.work_item_id, ts)
+  })()
+  const part = getWorkItemPart(id)
+  // A sor most kelt: ha megsem olvashato vissza, az nem "ures", hanem hiba.
+  if (!part) throw new Error('work item part was created but could not be read back')
+  return { ok: true, part }
+}
+
+export interface UpdateWorkItemPartInput {
+  text?: unknown
+  caption?: unknown
+}
+
+export type UpdateWorkItemPartResult =
+  | { ok: true; part: WorkItemPartRow }
+  | { ok: false; code: PartErrorCode }
+
+/** Egy resz szovegenek vagy feliratanak javitasa. Ami nincs a bemenetben, az
+ *  valtozatlan marad (az ures mezo "nem valtozott", nem "torold"). */
+export function updateWorkItemPart(id: string, input: UpdateWorkItemPartInput): UpdateWorkItemPartResult {
+  ensureWorkbenchTables()
+  const part = getWorkItemPart(id)
+  if (!part) return { ok: false, code: 'part_not_found' }
+  let text = part.text
+  if (input.text !== undefined) {
+    const v = String(input.text ?? '')
+    if (part.kind === 'text' && !v.trim()) return { ok: false, code: 'text_required' }
+    if (v.length > PART_TEXT_MAX) return { ok: false, code: 'text_too_long' }
+    text = part.kind === 'text' ? v : (v.trim() || null)
+  }
+  let caption = part.caption
+  if (input.caption !== undefined) {
+    const v = String(input.caption ?? '').trim()
+    if (v.length > PART_CAPTION_MAX) return { ok: false, code: 'caption_too_long' }
+    caption = v || null
+  }
+  const ts = nowSec()
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare('UPDATE work_item_parts SET text = ?, caption = ?, updated_at = ? WHERE id = ?').run(text, caption, ts, id)
+    touchWorkItem(part.work_item_id, ts)
+  })()
+  const after = getWorkItemPart(id)
+  if (!after) throw new Error('work item part vanished while it was being updated')
+  return { ok: true, part: after }
+}
+
+/** Egy resz elmozgatasa fel/le. A sorszamok utana 1..n-ig folytonosak. */
+export function moveWorkItemPart(id: string, dir: 'up' | 'down'): { ok: true; parts: WorkItemPartRow[] } | { ok: false; code: PartErrorCode } {
+  ensureWorkbenchTables()
+  const part = getWorkItemPart(id)
+  if (!part) return { ok: false, code: 'part_not_found' }
+  const parts = listWorkItemParts(part.work_item_id)
+  const at = parts.findIndex((p) => p.id === part.id)
+  const to = dir === 'up' ? at - 1 : at + 1
+  if (at >= 0 && to >= 0 && to < parts.length) {
+    const reordered = parts.slice()
+    reordered.splice(to, 0, reordered.splice(at, 1)[0])
+    const ts = nowSec()
+    const db = getDb()
+    db.transaction(() => {
+      reordered.forEach((p, i) => {
+        db.prepare('UPDATE work_item_parts SET position = ?, updated_at = ? WHERE id = ?').run(i + 1, ts, p.id)
+      })
+      touchWorkItem(part.work_item_id, ts)
+    })()
+  }
+  return { ok: true, parts: listWorkItemParts(part.work_item_id) }
+}
+
+/**
+ * Egy resz eltavolitasa a munkadarabbol.
+ *
+ * A KEP FAJLJAT NEM torli: az a projekt mappajaban marad, ahol a felhasznalo
+ * keresi. Egy resz kivetele a munkadarabbol nem ugyanaz, mint egy fajl
+ * torlese a gepen -- az utobbi visszafordithatatlan, es nem a Munkapad dolga.
+ */
+export function removeWorkItemPart(id: string): { ok: true; part: WorkItemPartRow } | { ok: false; code: PartErrorCode } {
+  ensureWorkbenchTables()
+  const part = getWorkItemPart(id)
+  if (!part) return { ok: false, code: 'part_not_found' }
+  const ts = nowSec()
+  const db = getDb()
+  db.transaction(() => {
+    db.prepare('DELETE FROM work_item_parts WHERE id = ?').run(id)
+    listWorkItemParts(part.work_item_id).forEach((p, i) => {
+      db.prepare('UPDATE work_item_parts SET position = ? WHERE id = ?').run(i + 1, p.id)
+    })
+    touchWorkItem(part.work_item_id, ts)
+  })()
+  return { ok: true, part }
+}
+
+/** Hany resz van a munkadarabban (a lista-sor jelolesehez). */
+export function countWorkItemParts(workItemId: string): number {
+  ensureWorkbenchTables()
+  const id = String(workItemId || '').trim()
+  if (!id) return 0
+  const row = getDb().prepare('SELECT COUNT(*) AS n FROM work_item_parts WHERE work_item_id = ?').get(id) as { n: number }
   return row.n
 }

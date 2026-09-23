@@ -18,7 +18,11 @@ import { getProject } from '../projects.js'
 import { projectContext } from '../project-context.js'
 import { projectFileTarget } from '../project-files.js'
 import { recentFiles } from '../project-overview.js'
-import { createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus, type WorkItemRow } from '../workbench.js'
+import {
+  createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
+  listWorkItemParts, addWorkItemPart, type WorkItemRow,
+} from '../workbench.js'
+import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
 
@@ -169,6 +173,100 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
         'UPDATE work_items SET title = COALESCE(?, title), status = COALESCE(?, status), updated_at = ? WHERE id = ?',
       ).run(title, status, now, item.id)
       return { ok: true, data: getWorkItem(item.id) as WorkItemRow }
+    }
+
+    case 'workItem.listParts': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const parts = listWorkItemParts(item.id)
+      return {
+        ok: true,
+        data: {
+          count: parts.length,
+          // Ures lista != hiba: kimondjuk, hogy a munkadarab LATSZIK es ures.
+          note: parts.length ? '' : 'this work item exists and has no parts yet',
+          parts: parts.map((p) => ({
+            id: p.id, position: p.position, kind: p.kind,
+            text: p.text, path: p.asset_path, caption: p.caption,
+          })),
+        },
+      }
+    }
+
+    case 'workItem.addPart': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const kind = asString(input.kind) || (asString(input.path) ? 'image' : 'text')
+      let assetPath = ''
+      if (kind === 'image') {
+        // A kep a PROJEKT mappajabol jon -- a meglevo, projektmappan beluli
+        // ellenorzesen at. Kitalalt ut nem kerulhet be a munkadarabba.
+        const rel = asString(input.path)
+        if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required for an image part' }
+        const segments = rel.split('/').filter(Boolean)
+        const fileName = segments.pop() || ''
+        if (!fileName || fileName === '.' || fileName === '..') {
+          return { ok: false, code: 'bad_input', detail: 'path does not name a file' }
+        }
+        const target = projectFileTarget(project, segments.join('/'))
+        if (!target.ok) return { ok: false, code: target.code, detail: folderStateDetail(target.code) }
+        const abs = join(target.dirAbs, fileName)
+        if (!abs.startsWith(target.dirAbs)) {
+          return { ok: false, code: 'bad_input', detail: 'path leads outside the project folder' }
+        }
+        try {
+          if (statSync(abs).isDirectory()) return { ok: false, code: 'not_a_file', detail: 'this is a folder, not a file' }
+        } catch (e) {
+          // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
+          return { ok: false, code: 'not_found', detail: e instanceof Error ? e.message : String(e) }
+        }
+        assetPath = `${target.dirRel}/${fileName}`
+      }
+      const r = addWorkItemPart({
+        work_item_id: item.id,
+        kind,
+        text: input.text,
+        asset_path: assetPath,
+        caption: input.caption,
+        created_by: 'workbench-agent',
+      })
+      if (!r.ok) return { ok: false, code: r.code, detail: `the part was not added: ${r.code}` }
+      return { ok: true, data: { part: r.part, count: listWorkItemParts(item.id).length } }
+    }
+
+    case 'kanban.create': {
+      const title = asString(input.title)
+      if (!title) return { ok: false, code: 'bad_input', detail: 'title is required' }
+      // A KARTYA MINDIG EHHEZ A PROJEKTHEZ KOTODIK (Boss, 2026-09-21: "ha az
+      // agenttol kanban kartyat kerunk egy projekt Munkapad-feluleten, a
+      // kartyat MINDIG az ADOTT projekthez kell kotni"). Amit a modell a
+      // `project` mezobe irna, azt szandekosan NEM vesszuk figyelembe.
+      const out = createCardWithRules({
+        title,
+        description: asString(input.description) || undefined,
+        priority: asString(input.priority) || undefined,
+        status: 'planned',
+        project: project.id,
+        related: input.related,
+      })
+      if (!out.ok) {
+        return {
+          ok: false,
+          code: out.code,
+          detail: out.code === 'related_required'
+            ? `${out.error} Candidates: ${out.similar.map((c) => `${c.id} (${c.title})`).join('; ')}`
+            : out.error,
+        }
+      }
+      return { ok: true, data: { id: out.id, project: project.id, projectName: project.name, labels: out.labels, linked: out.linked } }
     }
 
     default:
