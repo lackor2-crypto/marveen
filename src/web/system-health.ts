@@ -63,6 +63,7 @@ import { readMainExpectedEmail, mainAccountVerdict } from './main-account-identi
 import { syncFailureRuns, loadSyncFailures } from '../drive-sync-failures.js'
 import { driveErrorKind, driveHibaUzenet, DRIVE_ELUTASITAS_RE, type DriveErrorKind } from '../drive-error-kind.js'
 import { loadDriveQuotas } from '../drive-quota.js'
+import { MAX_FOLDERS, MAX_FILES } from '../drive-sync-limits.js'
 import { resolveMainAgentConfigDir } from './agent-config.js'
 // EGY forras dontse el, mi az "ezt az agens inditja, es ez nem hiba": a Fiokok
 // oldal es az Attekintes onellenorzese kulonben ugyanarrol a kapcsolatrol
@@ -1457,6 +1458,46 @@ export function reszlegesEredmeny(s: string | undefined): boolean {
   return typeof s === 'string' && s.toLowerCase().startsWith('részleges')
 }
 
+/** A csonka masolat MERT oka -- nem talalgatva, a paros sajat eredmeny-sorabol. */
+export type CsonkaOsztaly = 'plafon' | 'olvashatatlan' | 'ismeretlen'
+
+/**
+ * MIERT lett csonka a masolat?
+ *
+ * Boss, 2026-09-23: "nezd at ezeket a hibakat. jelzeseket. ezek nem veletlenul
+ * vanak." A kepernyo eddig EGYETLEN okot allitott minden csonka mentesre: hogy
+ * a bejaras belefutott a felso hatarba, es azt tanacsolta, szukitsd a bekotest.
+ * MERVE 2026-09-23 (nyalomapuncidma): a paros sajat eredmeny-sora
+ * "egy vagy több mappát nem tudtam kiolvasni a Drive-ról" volt -- 7 mappanal
+ * `fetch failed` a naplóban --, vagyis atmeneti olvasasi hiba, nem plafon. A
+ * felajanlott teendo ezen nem segitett volna semmit.
+ *
+ * A szoveget MI irjuk (`csonkoltSzoveg` a drive-sync.ts-ben), harom darabbol
+ * rakjuk ossze, tehat itt nem a felhasznalo szabad szoveget elemezzuk. Amit
+ * nem ismerunk fel, az `ismeretlen` -- a sor ilyenkor KIIRJA a mert indokot,
+ * es NEM talal ki helyette okot.
+ */
+export function csonkaOsztaly(s: string | undefined): CsonkaOsztaly {
+  const t = String(s ?? '')
+  const plafon = /felső határt/i.test(t)
+  const olvashatatlan = /nem tudtam kiolvasni/i.test(t)
+  // A vegyes eset (mindketto egyszerre) is `ismeretlen`: ket kulonbozo teendo
+  // tartozna hozza, es egyiket sem szabad a masik helyett allitani.
+  if (plafon && !olvashatatlan) return 'plafon'
+  if (olvashatatlan && !plafon) return 'olvashatatlan'
+  return 'ismeretlen'
+}
+
+/**
+ * A mert indok a "részleges: " prefix nelkul, a kepernyore idezheto alakban.
+ * Ures sztring, ha nincs mit idezni -- a hianyzo idezet nem hazugsag.
+ */
+export function csonkaIndok(s: string | undefined): string {
+  const t = String(s ?? '').trim()
+  if (!reszlegesEredmeny(t)) return ''
+  return t.replace(/^részleges:\s*/i, '').trim()
+}
+
 /**
  * BERAGADT-e a mentes a torles-vészféken?
  *
@@ -1627,7 +1668,17 @@ export function utolsoFutasKvotaHibas(
 export function kvotaParamok(account: string, quotas = loadDriveQuotas()): Record<string, any> {
   const q = quotas[account]
   if (!q || !q.limit) return {}
-  return { usedB: q.usage, limitB: q.limit, trashB: q.trash, freeB: Math.max(0, q.limit - q.usage) }
+  // A meres IDOPONTJA is kimegy. Enelkul a sor ket szamot allit egymas mellett
+  // (a Google elutasitasat es a szabad helyet), es nem derul ki, hogy a ketto
+  // KULONBOZO pillanatbol valo -- pont ez tette a sort ellentmondasossa
+  // (merve 2026-09-23: meres 01:30, elutasitas 01:44; kanban 284044a2).
+  return {
+    usedB: q.usage,
+    limitB: q.limit,
+    trashB: q.trash,
+    freeB: Math.max(0, q.limit - q.usage),
+    meresAt: q.at || '',
+  }
 }
 
 /**
@@ -1642,7 +1693,7 @@ export function driveSyncRows(
   kartya: { letezik: boolean; bekapcsolva: boolean } = driveSyncKartya(),
   depoIrhato: boolean | null = null,
   akadasok: DriveAkadas[] = utolsoFutasAkadasai(),
-  quotas: Record<string, { limit: number; usage: number; trash: number }> = loadDriveQuotas(),
+  quotas: Record<string, { limit: number; usage: number; trash: number; at?: string }> = loadDriveQuotas(),
 ): HealthRow[] {
   // Olvashatatlan beallitas: a mentes ilyenkor NEM fut. A leghangosabb sor.
   if (allapot.fajta === 'olvashatatlan') return [{ id: 'drive_sync_unreadable', status: 'bad' }]
@@ -1666,9 +1717,36 @@ export function driveSyncRows(
   // CSONKA MASOLAT. Ez a legalattomosabb allapot: a lista "lefutott"-at mutat,
   // a masolat viszont hianyos. Ezert `bad`, nem `warn` -- es megnevezi, melyik
   // fiokrol van szo, kulonben tiz paros kozott nem talalhato meg.
+  //
+  // A sor az OKA szerint valik szet (`csonkaOsztaly`), mert KET kulonbozo
+  // teendo tartozik hozzajuk, es eddig mindketto helyett a plafon-teendo
+  // (`szukitsd a bekotest`) ment ki -- olyan parosnal is, ahol a mert indok
+  // olvasasi hiba volt. Amit nem ismerunk fel, azt IDEZZUK, es nem talalunk ki
+  // helyette okot (Boss, 2026-09-23; kanban 284044a2).
   const csonkak = allapot.parok.filter((p) => reszlegesEredmeny(p.lastResult))
-  if (csonkak.length) {
-    rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: fiokNevek(csonkak) } })
+  const csonkaId: Record<CsonkaOsztaly, string> = {
+    plafon: 'drive_sync_partial',
+    olvashatatlan: 'drive_sync_partial_unread',
+    ismeretlen: 'drive_sync_partial_unknown',
+  }
+  for (const osztaly of ['plafon', 'olvashatatlan', 'ismeretlen'] as CsonkaOsztaly[]) {
+    const ide = csonkak.filter((p) => csonkaOsztaly(p.lastResult) === osztaly)
+    if (!ide.length) continue
+    // Az indokot az ELSO parosbol idezzuk, de csak akkor, ha mindegyik ugyanazt
+    // mondja -- kulonben egy fiok indoka latszana mindegyike helyett.
+    const indokok = [...new Set(ide.map((p) => csonkaIndok(p.lastResult)).filter(Boolean))]
+    rows.push({
+      id: csonkaId[osztaly],
+      status: 'bad',
+      params: {
+        n: ide.length,
+        all: db,
+        names: fiokNevek(ide),
+        indok: indokok.length === 1 ? indokok[0] : indokok.join(' | '),
+        maxF: MAX_FOLDERS,
+        maxFiles: MAX_FILES,
+      },
+    })
   }
 
   // TORLES-VESZFEK (barmely parosnal). A vészfék akkor lep be, ha
@@ -1728,7 +1806,11 @@ export function driveSyncRows(
     rows.push({
       id: 'drive_sync_quota_full',
       status: 'bad',
-      params: { f: kvota.files, account: kvotaAcct, ...kvotaParamok(kvotaAcct, quotas as any) },
+      // A `hibaAt` az ELUTASITAS ideje, a `meresAt` a szabad hely meresenek
+      // ideje. A kettot a kepernyo egymas melle teszi, mert ha elternek, az
+      // maga a valasz Boss kerdesere ("van hely rajtuk. mi az hogy nincs
+      // hely?"): nem hazudik egyik szam sem, csak mas pillanatbol valok.
+      params: { f: kvota.files, account: kvotaAcct, hibaAt: kvota.at || '', ...kvotaParamok(kvotaAcct, quotas as any) },
     })
   }
   // VALODI HITELESITESI HIBA. Csak ide vezet az "jelentkezz be ujra" teendo.

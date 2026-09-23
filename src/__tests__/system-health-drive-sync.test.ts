@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { driveSyncRows, reszlegesEredmeny, DRIVE_SYNC_STALE_DAYS } from '../web/system-health.js'
+import { driveSyncRows, reszlegesEredmeny, csonkaOsztaly, csonkaIndok, kvotaParamok, DRIVE_SYNC_STALE_DAYS } from '../web/system-health.js'
+import { MAX_FOLDERS, MAX_FILES } from '../drive-sync-limits.js'
 
 /**
  * A Drive-mentes NEMA hibai.
@@ -248,5 +249,160 @@ describe('a Drive-mentes megall vagy megcsonkul, es errol szolni kell', () => {
       expect(forras).toContain("'health.drive_sync_quota_full'")
       expect(forras).toContain("'health.drive_sync_quota_full_action'")
     }
+  })
+})
+
+/**
+ * A JELZES NE TALALJON KI OKOT (kanban 284044a2).
+ *
+ * Boss, 2026-09-23: "nezd at ezeket a hibakat. jelzeseket. ezek nem veletlenul
+ * vanak. valami hiba van. [...] es mellesleg van hely rajtuk. mi az hogy nincs
+ * hely? hiba van az tuti."
+ *
+ * Harom MERT hiba volt a kepernyon:
+ *  1. a csonka mentes sora EGYETLEN okot allitott (bejarasi plafon), holott a
+ *     paros sajat mert indoka "nem tudtam kiolvasni" volt (7 mappa `fetch
+ *     failed`, nyalomapuncidma, runId mudebqo6-jhcg2z);
+ *  2. ugyanez a szoveg a REGI hatarszamokat irta ki (500 / 5000), mikozben a
+ *     kod mar 5000-nel es 50 000-nel jart;
+ *  3. a "megtelt" sor ugyanabban a mondatban allitotta, hogy megtelt ES hogy
+ *     359 MB szabad, es egy 0 bajtos Kuka uriteset tanacsolta.
+ */
+describe('a Drive-jelzes a MERT okot mondja, nem talal ki egyet', () => {
+  it('a csonka ok osztalyozasa a szinkron sajat harom mondatat koveti', () => {
+    expect(csonkaOsztaly('részleges: elértük a(z) 5000 mappás felső határt – a többi kimaradt')).toBe('plafon')
+    expect(csonkaOsztaly('részleges: elértük a(z) 50000 fájlos felső határt – a többi kimaradt')).toBe('plafon')
+    expect(csonkaOsztaly('részleges: egy vagy több mappát nem tudtam kiolvasni a Drive-ról – a többi kimaradt')).toBe('olvashatatlan')
+    // Vegyes: KET teendo tartozna hozza, tehat egyiket sem allitjuk a masik helyett.
+    expect(csonkaOsztaly('részleges: elértük a(z) 5000 mappás felső határt; egy vagy több mappát nem tudtam kiolvasni a Drive-ról')).toBe('ismeretlen')
+    expect(csonkaOsztaly('részleges: valami egészen más')).toBe('ismeretlen')
+    expect(csonkaOsztaly(undefined)).toBe('ismeretlen')
+  })
+
+  it('az idezheto indok a "részleges:" prefix nelkul jon, es nem talal ki szoveget', () => {
+    expect(csonkaIndok('részleges: egy vagy több mappát nem tudtam kiolvasni a Drive-ról – a többi kimaradt'))
+      .toBe('egy vagy több mappát nem tudtam kiolvasni a Drive-ról – a többi kimaradt')
+    expect(csonkaIndok('kész')).toBe('')
+    expect(csonkaIndok(undefined)).toBe('')
+  })
+
+  // A MERT ESET: a nyalomapuncidma paros eredmeny-sora szo szerint ez volt.
+  it('ki nem olvashato mappanal NEM a plafon-sor jon, es a plafon-teendo nem jelenik meg', () => {
+    const parok = [
+      { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastResult: 'részleges: egy vagy több mappát nem tudtam kiolvasni a Drive-ról – a többi kimaradt' },
+    ]
+    const r = driveSyncRows(MOST, rendben(parok), kartya(true), true)
+    expect(r.find((x) => x.id === 'drive_sync_partial')).toBeFalsy()
+    const sor = r.find((x) => x.id === 'drive_sync_partial_unread')
+    expect(sor?.status).toBe('bad')
+    expect(sor?.params).toMatchObject({ n: 1, all: 1, names: 'nyalomapuncidma' })
+    expect(String(sor?.params?.indok)).toContain('nem tudtam kiolvasni')
+  })
+
+  it('a plafon-sor a KODBOL veszi a hatarszamokat, nem a szovegbe egetve', () => {
+    const parok = [
+      { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastResult: `részleges: elértük a(z) ${MAX_FOLDERS} mappás felső határt – a többi kimaradt` },
+    ]
+    const sor = driveSyncRows(MOST, rendben(parok), kartya(true), true).find((x) => x.id === 'drive_sync_partial')
+    expect(sor?.params).toMatchObject({ maxF: MAX_FOLDERS, maxFiles: MAX_FILES })
+    // A regi, elavult szamok nem allhatnak a felulet szovegeben.
+    for (const nyelv of ['hu', 'en']) {
+      const forras = readFileSync(join(process.cwd(), 'web/lang', nyelv + '.js'), 'utf-8')
+      const sorok = forras.split('\n').filter((l) => l.includes('drive_sync_partial'))
+      expect(sorok.length).toBeGreaterThan(0)
+      expect(sorok.join('\n')).not.toContain('500 mappa')
+      expect(sorok.join('\n')).not.toContain('500 folders')
+    }
+  })
+
+  it('vegyes/ismeretlen indoknal a sor IDEZ, es nem valaszt okot helyettunk', () => {
+    const parok = [
+      { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastResult: 'részleges: elértük a(z) 5000 mappás felső határt; egy vagy több mappát nem tudtam kiolvasni a Drive-ról' },
+    ]
+    const sor = driveSyncRows(MOST, rendben(parok), kartya(true), true).find((x) => x.id === 'drive_sync_partial_unknown')
+    expect(sor?.status).toBe('bad')
+    expect(String(sor?.params?.indok)).toContain('felső határt')
+    expect(String(sor?.params?.indok)).toContain('nem tudtam kiolvasni')
+  })
+
+  it('kulonbozo okok KULON sorba mennek, nem egy sorba osszemosva', () => {
+    const parok = [
+      { account: 'lackor2', lastRunAt: napokkalEzelott(0), lastResult: 'részleges: elértük a(z) 5000 mappás felső határt' },
+      { account: 'nyalomapuncidma', lastRunAt: napokkalEzelott(0), lastResult: 'részleges: egy vagy több mappát nem tudtam kiolvasni a Drive-ról' },
+    ]
+    const r = driveSyncRows(MOST, rendben(parok), kartya(true), true)
+    expect(r.find((x) => x.id === 'drive_sync_partial')?.params).toMatchObject({ names: 'lackor2', n: 1 })
+    expect(r.find((x) => x.id === 'drive_sync_partial_unread')?.params).toMatchObject({ names: 'nyalomapuncidma', n: 1 })
+  })
+
+  it('mindharom csonka-sornak van magyar ES angol felirata + teendo', () => {
+    for (const nyelv of ['hu', 'en']) {
+      const forras = readFileSync(join(process.cwd(), 'web/lang', nyelv + '.js'), 'utf-8')
+      for (const id of ['drive_sync_partial', 'drive_sync_partial_unread', 'drive_sync_partial_unknown']) {
+        expect(forras).toContain("'health." + id + "'")
+        expect(forras).toContain("'health." + id + "_action'")
+      }
+    }
+  })
+
+  // ---- A MEGTELT-SOR ELLENTMONDASA ----
+  it('a kvota-parameterek kozott ott a meres IDOPONTJA is', () => {
+    const p = kvotaParamok('canadalackor', {
+      canadalackor: { limit: 16106127360, usage: 15730067146, trash: 0, at: '2026-09-23T01:30:44.512Z', account: 'canadalackor' },
+    } as any)
+    expect(p).toMatchObject({ limitB: 16106127360, trashB: 0, freeB: 376060214, meresAt: '2026-09-23T01:30:44.512Z' })
+    expect(p.usedB).toBe(15730067146)
+  })
+
+  it('meres nelkul NEM keletkezik kitalalt szam', () => {
+    expect(kvotaParamok('canadalackor', {} as any)).toEqual({})
+  })
+
+  it('a megtelt-sor viszi magaval az ELUTASITAS idejet is (a ket idopont kulon van)', () => {
+    const parok = rendben([
+      { account: 'canadalackor', lastRunAt: napokkalEzelott(0), lastResult: 'hiba', lastPending: 92 },
+    ])
+    const r = driveSyncRows(MOST, parok, kartya(true), true,
+      [akadas('quota', 'canadalackor', 92, '2026-08-27T01:44:40.363Z')],
+      { canadalackor: { limit: 16106127360, usage: 15730067146, trash: 0, at: '2026-08-27T01:30:44.512Z' } } as any)
+    const sor = r.find((x) => x.id === 'drive_sync_quota_full')
+    expect(sor?.params).toMatchObject({
+      account: 'canadalackor', f: 92, trashB: 0, freeB: 376060214,
+      meresAt: '2026-08-27T01:30:44.512Z', hibaAt: '2026-08-27T01:44:40.363Z',
+    })
+  })
+
+  it('a felulet a Kuka-teendot a MERT Kuka-merettol teszi fuggove (0 bajtnal nem azzal kezd)', () => {
+    const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf-8')
+    expect(app).toContain("drive.quota_teendo_kuka")
+    expect(app).toContain("drive.quota_teendo_nincs_kuka")
+    expect(app).toContain("Number(p.trashB) > 0")
+    // A megtelt-sor teendo-szovege a Kukat mar nem allitja fixen: a
+    // `{teendo}` helyorzon keresztul jon, es a 0 bajtos Kukat kimondja.
+    const hu = readFileSync(join(process.cwd(), 'web/lang/hu.js'), 'utf-8')
+    const teendoSor = hu.split('\n').find((l) => l.includes("'health.drive_sync_quota_full_action'")) || ''
+    expect(teendoSor).toContain('{teendo}')
+    expect(teendoSor).not.toContain('ÜRÍTSD A KUKÁT')
+  })
+
+  it('ha maradt szabad hely, a sor KIMONDJA az ellentmondast, nem hallgatja el', () => {
+    const app = readFileSync(join(process.cwd(), 'web/app.js'), 'utf-8')
+    expect(app).toContain("Number(p.freeB) > 0")
+    expect(app).toContain("drive.quota_ellentmondas")
+    for (const nyelv of ['hu', 'en']) {
+      const forras = readFileSync(join(process.cwd(), 'web/lang', nyelv + '.js'), 'utf-8')
+      expect(forras).toContain("'drive.quota_ellentmondas'")
+      expect(forras).toContain("'drive.quota_ellentmondas_ido'")
+      expect(forras).toContain("'drive.quota_meres_mikor'")
+      expect(forras).toContain("'drive.quota_teendo_nincs_meres'")
+    }
+  })
+
+  it('a ket bejarasi hatar EGY helyrol jon (a szinkron es az onellenorzes ugyanazt mondja)', () => {
+    const forras = readFileSync(join(process.cwd(), 'src/web/routes/drive-sync.ts'), 'utf-8')
+    expect(forras).toContain("from '../../drive-sync-limits.js'")
+    // Nem all vissza ket kulon definicio.
+    expect(forras).not.toMatch(/^const MAX_FOLDERS = /m)
+    expect(forras).not.toMatch(/^const MAX_FILES = /m)
   })
 })

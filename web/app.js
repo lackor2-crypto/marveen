@@ -33439,12 +33439,51 @@ function bajtParamok(p) {
   // A mert szamok EGY mondatba, es csak akkor, ha tenyleg van meresunk. Egy
   // hianyzo parameter `{used}`-kent jelenne meg a kepernyon, ezert a mezo
   // MINDIG letezik -- meres nelkul ures sztringkent.
-  if ('usedB' in p) p.meres = window.t('drive.quota_meres', p)
-  else if (p.meres == null) p.meres = ''
+  // Az IDOPONTOK is emberi alakra jonnek. A mezo csak akkor keletkezik, ha van
+  // idobelyegunk -- ures ertekbol nem talalunk ki datumot.
+  if (p.meresAt) p.mikor = _emberiIdo(p.meresAt)
+  if (p.hibaAt) p.hibakor = _emberiIdo(p.hibaAt)
+  if ('usedB' in p) {
+    p.meres = window.t(p.mikor ? 'drive.quota_meres_mikor' : 'drive.quota_meres', p)
+    // A KUKA-TEENDO a mert szamtol fugg. Eddig a sor akkor is a Kuka uritesevel
+    // kezdte, amikor a Kukaban 0 bajt allt -- az a tanacs semmit nem szabaditott
+    // volna fel (merve 2026-09-23: canadalackor, trash = 0; kanban 284044a2).
+    p.teendo = window.t(Number(p.trashB) > 0 ? 'drive.quota_teendo_kuka' : 'drive.quota_teendo_nincs_kuka', p)
+    // ES az ELLENTMONDAS kimondva. Ha a meres szerint MARADT szabad hely, de a
+    // Google megis elutasitott, a sor ezt NEM hallgatja el es NEM talal ki ra
+    // magyarazatot: kiirja mindket idopontot, es a felhasznalo lat mindent,
+    // amit mi latunk. Boss, 2026-09-23: "van hely rajtuk. mi az hogy nincs hely?"
+    p.ellentmondas = Number(p.freeB) > 0
+      ? window.t(p.mikor && p.hibakor ? 'drive.quota_ellentmondas_ido' : 'drive.quota_ellentmondas', p)
+      : ''
+  } else if (p.meres == null) {
+    // NINCS meresunk. A sor ettol nem nemul el es nem talal ki szamot: a
+    // teendo a meres nelkul is elmondhato resz marad (a NULLA ket dolgot
+    // jelenthet -- itt a "nem lattam oda" agon vagyunk).
+    p.meres = ''
+    p.ellentmondas = ''
+    p.teendo = p.account ? window.t('drive.quota_teendo_nincs_meres', p) : ''
+  }
   // A besorolatlan elutasitasnal a Google mondata hianyozhat (regi naplo). Ezt
   // KIMONDJUK, nem talalunk ki helyette indokot.
   if ('msg' in p && !String(p.msg || '').trim()) p.msg = window.t('drive.refused_no_msg')
   return p
+}
+
+/**
+ * ISO idobelyeg -> "09. 23. 03:30" a felulet nyelven.
+ *
+ * Ures sztring, ha nincs mit formazni: egy hianyzo idopont nem lehet kitalalt
+ * idopont. A nyelvet ugyanugy koveti, mint `_emberiBajt` -- a felulet nem
+ * valt magyarrol angolra egyetlen mezo kedveert.
+ */
+function _emberiIdo(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const nyelv = (window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU'
+  try { return d.toLocaleString(nyelv, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) }
+  catch { return iso }
 }
 
 /** Bajt -> "15,0 GB" (magyarul) / "15.0 GB" (angolul). */
@@ -33453,7 +33492,13 @@ function _emberiBajt(n) {
   let i = 0
   let v = Math.max(0, Number(n) || 0)
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
-  const tizedes = (v >= 10 || i === 0) ? 0 : 1
+  // GB-tol FELFELE mindig egy tizedes. A regi szabaly (10 folott egesz szam)
+  // pont ott mosta el a kulonbseget, ahol a szam a vita targya: 14,65 GB es
+  // 15,0 GB egyarant "15 GB"-kent jelent meg, vagyis a sor 100%-osan telinek
+  // mutatta a fiokot, holott 359 MB meg szabad volt (Boss, 2026-09-23: "van
+  // hely rajtuk. mi az hogy nincs hely?"; kanban 284044a2). Bajtnal, KB-nal es
+  // MB-nal a tizedes csak zaj, ott marad a regi szabaly.
+  const tizedes = i >= 3 ? 1 : ((v >= 10 || i === 0) ? 0 : 1)
   const nyelv = (window._lang || 'hu') === 'en' ? 'en-GB' : 'hu-HU'
   let szam
   try { szam = v.toLocaleString(nyelv, { minimumFractionDigits: tizedes, maximumFractionDigits: tizedes }) }
