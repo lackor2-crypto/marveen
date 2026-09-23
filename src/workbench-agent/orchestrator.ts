@@ -12,7 +12,7 @@
  *   7. terv                         -> a modell valasza (prozai vagy tool-hivas)
  *   8. tool kivalasztasa            -> `getTool`
  *   9. approval ellenorzes          -> `decideTool` + a MEGLEVO /api/approvals
- *  10. tool vegrehajtas             -> `executeTool`
+ *  10. tool vegrehajtas             -> `runTool` (az azonnaliakat `executeTool`)
  *  11. eredmeny ellenorzese         -> a tool sajat `ok`/`code`/`detail`-je
  *  12. verzio                       -> KESOBBI FAZIS (a hook helye jelolve)
  *  13. preview                      -> KESOBBI FAZIS
@@ -32,7 +32,7 @@ import { getWorkItem } from '../workbench.js'
 import { createApproval, createAgentMessage, getApproval, listApprovals } from '../db.js'
 import { buildContext, historyMessages } from './context.js'
 import { auditWorkbench } from './audit.js'
-import { executeTool } from './execute.js'
+import { runTool } from './execute.js'
 import { msg, type Lang } from './messages.js'
 import { pickAIProvider, type AIMessage, type AIProvider } from './provider.js'
 import {
@@ -377,7 +377,7 @@ export async function* runTurn(input: TurnInput, providerOverride?: AIProvider):
         }
       }
 
-      const result = executeTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang })
+      const result = await runTool(tool.name, call.input, { projectId: project.id, workItemId: workItem?.id ?? null, lang })
       if (result.ok) {
         finishToolCall(row.id, 'ok', result.data)
         auditWorkbench({ agent: input.actor, tool: tool.name, op: tool.destructive ? 'write' : 'read', target: workItem?.id || project.id, cwd: project.id })

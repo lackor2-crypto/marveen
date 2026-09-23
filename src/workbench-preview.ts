@@ -11,15 +11,18 @@
  * Ezert a forrast KULON kerdezzuk meg (van-e Raktar, van-e mappa, ott van-e a
  * fajl), es sosem a talalatok szamabol kovetkeztetunk.
  *
- * Amit NEM csinal: nem alakit at semmit. A PDF-et a bongeszo maga jeleniti meg
- * (nincs uj csomag-fuggoseg, es friss telepitesen, halozat nelkul is mukodik);
- * a DOCX-fele atalakitas a 7. fazis, es addig SAJAT, emberi mondatot kap.
+ * A PDF-et a bongeszo maga jeleniti meg (nincs uj csomag-fuggoseg, es friss
+ * telepitesen, halozat nelkul is mukodik). A DOCX-fele irodai dokumentum
+ * (7. fazis) EGY PDF-fe alakul (LibreOffice headless), es utana ugyanezen az
+ * uton latszik -- ez a modul csak azt mondja meg, hogy AT KELL-e alakitani, es
+ * hogy KESZ van-e mar; maga az atalakitas a `office-convert.ts` dolga.
  */
 import { statSync, readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { resolveLifePath, explorerRoot } from './life-explorer.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { fileKind, type PreviewKind } from './file-kind.js'
+import { isOfficeConvertible, officeExt, cachedPdfFor } from './office-convert.js'
 import {
   getWorkItem, listWorkItemVersions, listWorkItemParts,
   type WorkItemRow, type WorkItemVersionRow,
@@ -33,11 +36,15 @@ export const PREVIEW_MAX_BYTES = 200 * 1024 * 1024
 export type PreviewReason =
   | 'no_source' | 'no_depot' | 'no_folder' | 'missing' | 'unreachable'
   | 'unsupported' | 'too_large' | 'unreadable'
+  /** Irodai dokumentum (docx/xlsx/...): meg tudom mutatni, de elobb PDF-fe
+   *  kell alakitani. Ez NEM hiba -- teendo. */
+  | 'needs_conversion'
 
 export interface PreviewResult {
   available: boolean
-  /** 'parts' = a munkadarab sajat reszei (szoveg + kep) a tartalom. */
-  kind: PreviewKind | 'parts' | null
+  /** 'parts' = a munkadarab sajat reszei (szoveg + kep) a tartalom.
+   *  'office' = irodai dokumentum, amibol PDF-et kell keszitenunk. */
+  kind: PreviewKind | 'parts' | 'office' | null
   version_id: string | null
   version_no: number | null
   rel: string | null
@@ -52,13 +59,16 @@ export interface PreviewResult {
   reason: PreviewReason | null
   /** Gepi kodbol emberi mondat -- a hivo (HTTP-reteg) forditja le. */
   detail: string | null
+  /** Csak irodai dokumentumnal: MI ez, es KESZ van-e mar a PDF valtozata.
+   *  Kulonben `null` -- nem kell atalakitani semmit. */
+  office: { ext: string; ready: boolean } | null
 }
 
 function empty(reason: PreviewReason, extra: Partial<PreviewResult> = {}): PreviewResult {
   return {
     available: false, kind: null, version_id: null, version_no: null, rel: null,
     name: null, mime: null, size: null, text: null, truncated: false, etag: null,
-    reason, detail: null, ...extra,
+    reason, detail: null, office: null, ...extra,
   }
 }
 
@@ -141,10 +151,33 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
   const name = basename(abs)
   const k = fileKind(name)
   const base = { ...vIds, rel, name, mime: k.mime, size: st.size }
-  if (!k.previewable) return { ...empty('unsupported', base) }
+  const etag = `${version ? version.id : item.id}-${Math.floor(st.mtimeMs)}-${st.size}`
+
+  // A tul nagy fajlt NEM kezdjuk el mutatni -- es atalakitani sem. Ez a sor
+  // szandekosan all az irodai ag ELOTT: egy 300 MB-os .docx-bol sem indul el
+  // egy perceken at futo konverzio.
   if (st.size > PREVIEW_MAX_BYTES) return { ...empty('too_large', base) }
 
-  const etag = `${version ? version.id : item.id}-${Math.floor(st.mtimeMs)}-${st.size}`
+  // IRODAI DOKUMENTUM (7. fazis): a bongeszo nem mutatja meg magatol, de EGY
+  // PDF-fe alakithato. Ket allapot van, es a ketto MAS mondat a kepernyon:
+  //   - mar keszen all a PDF  -> azt mutatjuk, ugyanugy, mint barmelyik PDF-et
+  //   - meg nincs meg         -> nem hiba, hanem TEENDO ("keszitsek elonezetet?")
+  // Azt, hogy kesz van-e, a LEMEZTOL kerdezzuk meg (van-e ott a gyorsitotar
+  // fajlja), nem abbol kovetkeztetjuk, hogy korabban probaltuk-e mar.
+  if (!k.previewable && isOfficeConvertible(name)) {
+    const ext = officeExt(name) as string
+    const ready = cachedPdfFor(abs) !== null
+    if (ready) {
+      return {
+        available: true, kind: 'office', ...base, mime: 'application/pdf', etag,
+        text: null, truncated: false, reason: null, detail: null, office: { ext, ready: true },
+      }
+    }
+    return { ...empty('needs_conversion', base), kind: 'office', office: { ext, ready: false } }
+  }
+
+  if (!k.previewable) return { ...empty('unsupported', base) }
+
   if (k.kind === 'text') {
     let text = ''
     try { text = readFileSync(abs, 'utf-8') } catch (e: any) {
@@ -154,11 +187,11 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
     return {
       available: true, kind: 'text', ...base, etag,
       text: truncated ? text.slice(0, PREVIEW_TEXT_MAX) : text,
-      truncated, reason: null, detail: null,
+      truncated, reason: null, detail: null, office: null,
     }
   }
   return {
     available: true, kind: k.kind, ...base, etag,
-    text: null, truncated: false, reason: null, detail: null,
+    text: null, truncated: false, reason: null, detail: null, office: null,
   }
 }

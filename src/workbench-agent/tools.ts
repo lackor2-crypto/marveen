@@ -123,6 +123,12 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'document.toPdf',
+    description: 'Make a PDF from an office document (docx, xlsx, pptx, odt, ...) of the project folder, so it can be shown to the owner. The original file is NOT touched; the PDF goes into a derived cache. If LibreOffice is not installed on this machine, the answer says exactly that -- then tell the owner what is missing instead of guessing.',
+    input: 'path: the document inside the project folder',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
     name: 'file.write',
     description: 'Write a text file into the project folder. It NEVER overwrites: if the name is taken, the file is saved under a free name and the answer says so.',
     input: 'path: the file path relative to the project folder (subfolders allowed); text: the content',

@@ -16,6 +16,19 @@
 //   DELETE /api/workbench/items/:id/parts/:partId    -- a resz kivetele (a KEP
 //                                                      FAJLJA a mappaban marad)
 //
+// 7. fazis -- IRODAI DOKUMENTUM (DOCX) elonezete. A bongeszo a .docx-et nem
+// mutatja meg; a spec (8., 24.) szerinti konnyu ut a LibreOffice headless
+// konverzio EGY PDF-fe, amit utana ugyanaz az elonezet mutat.
+//
+//   GET  /api/workbench/capabilities        -- mi all rendelkezesre a gepen
+//   POST /api/workbench/items/:id/convert   -- PDF keszitese (gyorsitotarazva)
+//   GET  /api/workbench/items/:id/converted -- a kesz PDF bajtjai (+ letoltes)
+//
+// A LibreOffice NEM kotelezo: ha nincs, a Munkapad tovabbra is mukodik (a fajl
+// letoltheto, a munkadarab szerkesztheto), csak a beagyazott elonezet marad el
+// -- es a felhasznalo megkapja, MI hianyzik es HOGYAN szerezheto be. Magatol
+// SEMMIT nem telepitunk: a csomagtelepites a tulajdonos dontese.
+//
 // A Munkapad NEM uj projekt-fogalom: minden vegpont egy LETEZO projekthez
 // kotott (`/api/projects`, #321). Ismeretlen projektre 404 jon, nem ures lista.
 //
@@ -32,6 +45,11 @@ import {
 } from '../../workbench.js'
 import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
 import { buildPreview } from '../../workbench-preview.js'
+import {
+  convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
+} from '../../office-convert.js'
+import { resolveLifePath } from '../../life-explorer.js'
+import { createReadStream, statSync } from 'node:fs'
 import type { RouteContext } from './types.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -184,6 +202,48 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'A képet nem sikerült kiírni a projekt mappájába.',
     en: 'The image could not be written into the project folder.',
   },
+
+  // --- 7. fazis: irodai dokumentum -> PDF ---
+  preview_needs_conversion: {
+    hu: 'Ezt a dokumentumot a böngésző magától nem tudja megmutatni, de tudok belőle PDF-előnézetet készíteni. Kattints az „Előnézet készítése” gombra -- a fájlhoz nem nyúlok hozzá, az eredeti marad.',
+    en: 'The browser cannot show this document on its own, but a PDF preview can be made from it. Click "Create preview" -- the file itself is left untouched.',
+  },
+  convert_unsupported: {
+    hu: 'Ebből a fájlból nem tudok PDF-előnézetet készíteni. Töltsd le, és nyisd meg a saját gépeden.',
+    en: 'A PDF preview cannot be made from this file. Download it and open it on your own computer.',
+  },
+  convert_missing_source: {
+    hu: 'A dokumentum fájlja nincs meg a lemezen, ezért nincs miből előnézetet készíteni. Nézd meg a projekt mappáját.',
+    en: 'The document file is missing from the disk, so there is nothing to build a preview from. Check the project folder.',
+  },
+  convert_not_installed: {
+    hu: 'Az előnézethez a LibreOffice kellene, és az ezen a gépen nincs telepítve. Enélkül minden más működik: a dokumentum letölthető és szerkeszthető, csak itt, beágyazva nem látszik. Ha szeretnéd: Linuxon „sudo apt install libreoffice-writer”, Windowson/macOS-en a libreoffice.org oldaláról telepíthető -- utána nyomj a „Mégegyszer” gombra. Ha máshova telepítetted, add meg az útvonalát a MARVEEN_SOFFICE beállításban.',
+    en: 'The preview needs LibreOffice, and it is not installed on this machine. Everything else still works: the document can be downloaded and edited, it just cannot be shown embedded here. If you want it: on Linux "sudo apt install libreoffice-writer", on Windows/macOS from libreoffice.org -- then press "Try again". If you installed it elsewhere, give its path in the MARVEEN_SOFFICE setting.',
+  },
+  convert_check_failed: {
+    hu: 'Nem tudtam megállapítani, van-e LibreOffice ezen a gépen -- tehát ez NEM azt jelenti, hogy nincs. A pontos hibaüzenet a részleteknél olvasható; ha a MARVEEN_SOFFICE beállításban adtál meg útvonalat, ellenőrizd, hogy jó-e.',
+    en: 'It could not be determined whether LibreOffice is on this machine -- so this does NOT mean it is missing. The exact error is in the details; if you set a path in MARVEEN_SOFFICE, check that it is correct.',
+  },
+  convert_timeout: {
+    hu: 'Az átalakítás túl sokáig tartott, ezért leállítottam. Nagy vagy sérült dokumentumnál fordul elő. Próbáld újra, vagy nyisd meg a fájlt a saját gépeden.',
+    en: 'The conversion took too long, so it was stopped. This happens with very large or damaged documents. Try again, or open the file on your own computer.',
+  },
+  convert_failed: {
+    hu: 'Az átalakítás nem sikerült. A pontos hibaüzenet a részleteknél olvasható -- nem találgatok helyette okot.',
+    en: 'The conversion failed. The exact error is in the details -- no cause is guessed in its place.',
+  },
+  convert_no_output: {
+    hu: 'Az átalakító lefutott, de nem keletkezett PDF. Ez általában sérült vagy jelszóval védett dokumentumnál fordul elő.',
+    en: 'The converter ran but produced no PDF. This usually happens with a damaged or password-protected document.',
+  },
+  document_too_large: {
+    hu: `Ez a dokumentum túl nagy (legfeljebb ${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB). Másold be a projekt mappájába, és onnan vedd fel.`,
+    en: `This document is too large (${Math.floor(PROJECT_UPLOAD_MAX_BYTES / (1024 * 1024))} MB at most). Copy it into the project folder and add it from there.`,
+  },
+  convert_not_ready: {
+    hu: 'Ennek a dokumentumnak még nincs kész PDF-előnézete. Nyomj az „Előnézet készítése” gombra.',
+    en: 'This document has no PDF preview yet. Press "Create preview".',
+  },
 }
 
 /** Gepi kod -> EMBERI mondat. Ismeretlen kodnal a kodot adjuk vissza, hogy
@@ -223,9 +283,41 @@ function actor(ctx: RouteContext): string | null {
 
 export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method, url } = ctx
-  if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
+  if (!path.startsWith('/api/workbench/')) return false
   const lang = uiLang(url)
   ensureWorkbenchTables()
+
+  // MI ALL RENDELKEZESRE EZEN A GEPEN (spec 1). Friss telepitesen a valasz
+  // tobbnyire "nincs meg" -- es az NEM hiba: a valasz megmondja, mire hat, es
+  // hogyan szerezheto be. A "nem tudtam megkerdezni" KULON allapot: azt sosem
+  // mondjuk "nincs"-nek. (A teljes Capability Manager felulet a 8. fazis; ez
+  // a vegpont az, amire az ra fog epulni.)
+  if (path === '/api/workbench/capabilities' && method === 'GET') {
+    const probe = await probeLibreOffice({ force: url.searchParams.get('force') === '1' })
+    json(res, {
+      capabilities: [{
+        key: 'office_to_pdf',
+        title: lang === 'en' ? 'Office document preview (DOCX, XLSX, PPTX)' : 'Irodai dokumentum előnézete (DOCX, XLSX, PPTX)',
+        required_by: lang === 'en'
+          ? 'Embedded preview of Word/Excel/PowerPoint documents in the Workbench.'
+          : 'Word/Excel/PowerPoint dokumentumok beágyazott előnézete a Munkapadon.',
+        optional: true,
+        available: probe.available,
+        state: probe.reason,
+        version: probe.version,
+        path: probe.path,
+        detail: probe.detail,
+        checked_at: probe.checked_at,
+        message: probe.available
+          ? (lang === 'en' ? 'Available.' : 'Elérhető.')
+          : msg(probe.reason === 'check_failed' ? 'convert_check_failed' : 'convert_not_installed', lang),
+        extensions: Object.keys(OFFICE_CONVERTIBLE),
+      }],
+    })
+    return true
+  }
+
+  if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false
 
   if (path === '/api/workbench/items' && method === 'GET') {
     const pid = (url.searchParams.get('project') || '').trim()
@@ -335,11 +427,82 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       ...p,
       message,
       // Keszre epitett cim -- a felulet ne rakjon ossze sajat utvonalat.
-      url: p.available && p.rel && p.kind !== 'parts' && p.kind !== 'text'
-        ? `/api/life/file?rel=${encodeURIComponent(p.rel)}&lang=${lang}`
-        : null,
+      // Keszre epitett cim. A sajat fajlt a MEGLEVO fajl-kiszolgalo adja; az
+      // ATALAKITOTT PDF viszont nem a Raktarban all (szarmaztatott adat), ezert
+      // annak sajat, szuk vegpontja van -- de ugyanugy egyetlen ut, nem harom.
+      url: p.available && p.kind === 'office'
+        ? `/api/workbench/items/${encodeURIComponent(item.id)}/converted?lang=${lang}`
+          + (p.version_id ? `&version=${encodeURIComponent(p.version_id)}` : '')
+        : p.available && p.rel && p.kind !== 'parts' && p.kind !== 'text'
+          ? `/api/life/file?rel=${encodeURIComponent(p.rel)}&lang=${lang}`
+          : null,
       versions: listWorkItemVersionsView(item.id),
     }, 200, cacheHeaders)
+    return true
+  }
+
+  // PDF KESZITESE irodai dokumentumbol (7. fazis). Nem ir felul semmit: az
+  // eredeti fajlhoz hozza sem nyulunk, a PDF a `store/` alatti gyorsitotarba
+  // kerul, es a forras valtozasara magatol elavul (a kulcs a forras allapota).
+  //
+  // SZANDEKOSAN az "archivalt projekt = csak olvashato" sor ELOTT all: az
+  // elonezet keszitese OLVASAS a felhasznalo adatain (a sajat fajljabol semmi
+  // nem valtozik), ezert egy archivalt projekt dokumentumat is meg lehet nezni.
+  if (segs.length === 2 && segs[1] === 'convert' && method === 'POST') {
+    const p = buildPreview(item.id, url.searchParams.get('version'))
+    if (p.kind !== 'office' || !p.rel) return fail(res, 400, 'convert_unsupported', lang)
+    const abs = resolveLifePath(p.rel)
+    if (!abs) return fail(res, 404, 'convert_missing_source', lang)
+    const r = await convertOfficeToPdf(abs)
+    if (!r.ok) {
+      // A kodot az ATALAKITO mondja meg (nincs telepitve / nem tudtam
+      // megkerdezni / idotullepes / hibauzenet), nem mi talaljuk ki. A `detail`
+      // a VALODI hibauzenet, hogy a felhasznalo tovabb tudjon lepni.
+      const status = r.code === 'not_installed' || r.code === 'check_failed' ? 501
+        : r.code === 'timeout' ? 504
+        : r.code === 'missing_source' ? 404
+        : r.code === 'unsupported' ? 400 : 500
+      const code = 'convert_' + r.code
+      json(res, {
+        error: code, message: msg(code, lang), detail: r.detail,
+        capability: r.probe ? { key: 'office_to_pdf', state: r.probe.reason, checked_at: r.probe.checked_at } : null,
+      }, status)
+      return true
+    }
+    json(res, {
+      ok: true, ready: true, cached: r.cached,
+      ext: officeExt(p.name) || null,
+      url: `/api/workbench/items/${encodeURIComponent(item.id)}/converted?lang=${lang}`
+        + (p.version_id ? `&version=${encodeURIComponent(p.version_id)}` : ''),
+    })
+    return true
+  }
+
+  // A KESZ PDF bajtjai. Kulon vegpont, mert ez a fajl NEM a Raktarban all --
+  // barmikor eldobhato, ujra eloallithato szarmaztatott adat.
+  if (segs.length === 2 && segs[1] === 'converted' && method === 'GET') {
+    const p = buildPreview(item.id, url.searchParams.get('version'))
+    if (p.kind !== 'office' || !p.rel) return fail(res, 400, 'convert_unsupported', lang)
+    const abs = resolveLifePath(p.rel)
+    if (!abs) return fail(res, 404, 'convert_missing_source', lang)
+    const pdf = cachedPdfFor(abs)
+    if (!pdf) return fail(res, 409, 'convert_not_ready', lang)
+    let size = 0
+    try { size = statSync(pdf).size } catch {
+      // A gyorsitotar-fajl a ket lepes kozott eltunhetett (takaritas). Ez nem
+      // 500: ugyanaz a teendo, mint ha meg nem lett volna kesz.
+      return fail(res, 409, 'convert_not_ready', lang)
+    }
+    const name = String(p.name || 'dokumentum').replace(/\.[^.]+$/, '') + '.pdf'
+    const download = url.searchParams.get('download') === '1'
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Length': String(size),
+      // Szarmaztatott, de szemelyes tartalom: a bongeszo ne tarolja el.
+      'Cache-Control': 'private, no-store',
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    })
+    createReadStream(pdf).pipe(res)
     return true
   }
 
@@ -349,6 +512,43 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   if (method !== 'GET') {
     const owner = getProject(item.project_id)
     if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+  }
+
+  // DOKUMENTUM FELTOLTESE (7. fazis, spec 8: "letoltes / modositas /
+  // ujrafeltoltes; verziozas"). Ez zarja be a kort: a felhasznalo letolti a
+  // .docx-et, megszerkeszti a sajat gepen, visszatolti -- es UJ VERZIO lesz
+  // belole. A regi SOHA nem irodik felul: sem a verzio (uj sor keletkezik),
+  // sem a fajl (a `writeProjectFile` atnevez, ha a nev foglalt).
+  if (segs.length === 2 && segs[1] === 'document' && method === 'POST') {
+    const project = getProject(item.project_id)
+    if (!project) return fail(res, 404, 'project_not_found', lang)
+    const declared = Number(req.headers['content-length'] || 0)
+    if (declared > PROJECT_UPLOAD_MAX_BYTES) return fail(res, 413, 'document_too_large', lang)
+    let data: Buffer
+    try {
+      data = await readBody(req, { maxBytes: PROJECT_UPLOAD_MAX_BYTES })
+    } catch (e) {
+      if (e instanceof RequestBodyTooLargeError) return fail(res, 413, 'document_too_large', lang)
+      throw e
+    }
+    if (!data.length) return fail(res, 400, 'empty_file', lang)
+    const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
+    if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang)
+    const r = createWorkItemVersion(item.id, {
+      source_path: out.rel,
+      prompt: url.searchParams.get('prompt'),
+      created_by: actor(ctx),
+    })
+    if (!r.ok) return fail(res, 404, r.code, lang)
+    json(res, {
+      ok: true, item: r.item, version: r.version,
+      versions: listWorkItemVersionsView(item.id),
+      file: out,
+      // Ha a nev foglalt volt, a felulet MONDJA MEG, mi lett a fajl neve --
+      // ne csak csendben mas neven alljon ott.
+      renamed: out.renamed, name: out.name,
+    }, 201)
+    return true
   }
 
   if (segs[1] !== 'parts') return false

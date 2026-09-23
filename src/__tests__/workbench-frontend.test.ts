@@ -857,3 +857,191 @@ describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
     expect(html).not.toContain('data-wb-act="version-new"')
   })
 })
+
+// ---------------------------------------------------------------------------
+// IRODAI DOKUMENTUM -> PDF, es a KOR BEZARASA (7. fazis, spec 8 + 24)
+//
+// Amit ez oriz: a ".docx-et nem tudom megmutatni" NEM zsakutca. Van gomb ra, a
+// hiba EMBERI mondat + a VALODI reszlet (nem gepi kod), az "ujra" pedig UJRA
+// MEGMERI a gepet -- telepites utan azonnal jo valaszt ad, nem a regibol
+// beszel. A fajlhoz kozben soha nem nyulunk hozza: letoltheto vegig.
+
+describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
+  const OFFICE_NEEDS = {
+    available: false, kind: 'office', reason: 'needs_conversion', name: 'szerzodes.docx',
+    rel: 'Projektek/teszt/szerzodes.docx', url: null,
+    office: { ext: 'docx', ready: false },
+    message: 'Ezt a dokumentumot PDF-fé alakítva tudom megmutatni.',
+  }
+
+  it('kesz PDF: iframe + KIMONDJUK, hogy ez a belole keszult PDF, es mindketto letoltheto', async () => {
+    await openPreview({
+      available: true, kind: 'office', mime: 'application/pdf', name: 'szerzodes.docx',
+      rel: 'Projektek/teszt/szerzodes.docx', reason: null, message: null,
+      office: { ext: 'docx', ready: true },
+      url: '/api/workbench/items/w1/converted?lang=hu',
+    })
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('<iframe class="wb-preview-frame"')
+    expect(html).toContain('/api/workbench/items/w1/converted?lang=hu')
+    // Nem hallgatjuk el, hogy ez mar az atalakitott valtozat.
+    expect(html).toContain('workbench.preview.office_from_pdf')
+    expect(html).toContain('workbench.preview.office_download_pdf')
+    // Az EREDETI fajl ugyanugy elerheto marad.
+    expect(html).toContain('workbench.preview.office_download_source')
+    expect(html).toContain('/api/life/file?rel=')
+  })
+
+  it('meg nincs atalakitva: TEENDO-gomb + a szerver mondata, nem veszjelzes', async () => {
+    await openPreview(OFFICE_NEEDS)
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('Ezt a dokumentumot PDF-fé alakítva tudom megmutatni.')
+    expect(html).toContain('data-wb-act="preview-convert"')
+    expect(html).toContain('workbench.preview.convert')
+    // A sajat fajljahoz atalakitas nelkul is hozzafer.
+    expect(html).toContain('workbench.preview.download')
+    // Ez nem hiba: nincs vesz-szinu doboz, es nincs gepi kod a kepernyon.
+    expect(html).not.toContain('wb-preview-bad')
+    expect(html).not.toContain('needs_conversion<')
+  })
+
+  it('a gombra kattintva ATALAKIT, es utana ujratolti az elonezetet', async () => {
+    await openPreview(OFFICE_NEEDS)
+    let converted = false
+    h.respond((url, init) => {
+      if (url.indexOf('/convert') > 0 && init && init.method === 'POST') {
+        converted = true
+        return { status: 200, body: { ok: true, ready: true, cached: false, ext: 'docx', url: '/api/workbench/items/w1/converted?lang=hu' } }
+      }
+      if (url.indexOf('/preview') > 0) {
+        return {
+          status: 200,
+          body: converted
+            ? { available: true, kind: 'office', mime: 'application/pdf', name: 'szerzodes.docx', rel: OFFICE_NEEDS.rel, reason: null, message: null, office: { ext: 'docx', ready: true }, url: '/api/workbench/items/w1/converted?lang=hu' }
+            : OFFICE_NEEDS,
+        }
+      }
+      return { status: 200, body: previewDetail([]) }
+    })
+    h.click({ 'data-wb-act': 'preview-convert' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<iframe class="wb-preview-frame"'))
+    expect(h.toasts.join(' ')).toContain('workbench.preview.converted')
+    expect(h.fetchCalls.some((c) => c.url.indexOf('/convert') > 0)).toBe(true)
+  })
+
+  it('ha nincs LibreOffice: a SZERVER mondata + a VALODI reszlet latszik, nem gepi kod', async () => {
+    await openPreview(OFFICE_NEEDS)
+    h.respond((url, init) => {
+      if (url.indexOf('/convert') > 0 && init && init.method === 'POST') {
+        return {
+          status: 501,
+          body: {
+            error: 'convert_not_installed',
+            message: 'Ehhez a LibreOffice kellene a gépre. Linuxon: sudo apt install libreoffice.',
+            detail: 'spawn soffice ENOENT',
+          },
+        }
+      }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: OFFICE_NEEDS }
+      return { status: 200, body: previewDetail([]) }
+    })
+    h.click({ 'data-wb-act': 'preview-convert' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('apt install libreoffice'))
+    const html = h.rootEl.innerHTML
+    // A valodi hibauzenet is ott van -- nem talalgatunk helyette okot.
+    expect(html).toContain('spawn soffice ENOENT')
+    expect(html).not.toContain('convert_not_installed')
+    // Van tovabblepes: ujraprobalas, es a fajl letoltese.
+    expect(html).toContain('data-wb-act="preview-convert-retry"')
+    expect(html).toContain('workbench.preview.download')
+  })
+
+  it('az "ujra" ELOSZOR UJRA MEGMERI a gepet (force), nem a regi meresbol valaszol', async () => {
+    await openPreview(OFFICE_NEEDS)
+    h.respond((url, init) => {
+      if (url.indexOf('/capabilities') > 0) return { status: 200, body: { capabilities: [{ key: 'office_to_pdf', available: true, state: 'ok' }] } }
+      if (url.indexOf('/convert') > 0 && init && init.method === 'POST') {
+        return { status: 200, body: { ok: true, ready: true, cached: false, ext: 'docx', url: '/api/workbench/items/w1/converted?lang=hu' } }
+      }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: OFFICE_NEEDS }
+      return { status: 200, body: previewDetail([]) }
+    })
+    h.click({ 'data-wb-act': 'preview-convert-retry' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/convert') > 0)).toBe(true))
+    const cap = h.fetchCalls.find((c) => c.url.indexOf('/capabilities') > 0)
+    expect(cap).toBeTruthy()
+    expect(String(cap!.url)).toContain('force=1')
+    // A sorrend szamit: eloszor meres, aztan atalakitas.
+    const capAt = h.fetchCalls.findIndex((c) => c.url.indexOf('/capabilities') > 0)
+    const convAt = h.fetchCalls.findIndex((c) => c.url.indexOf('/convert') > 0)
+    expect(capAt).toBeLessThan(convAt)
+  })
+
+  it('visszatoltott dokumentum UJ VERZIO lesz -- a feluletrol, terminal nelkul', async () => {
+    await openPreview(OFFICE_NEEDS)
+    expect(h.rootEl.innerHTML).toContain('id="wbDocUpload"')
+    expect(h.rootEl.innerHTML).toContain('workbench.versions.upload_document')
+
+    h.respond((url, init) => {
+      if (url.indexOf('/document') > 0 && init && init.method === 'POST') {
+        return {
+          status: 201,
+          body: {
+            ok: true, renamed: false, name: 'szerzodes.docx',
+            item: { ...PREV_ITEM, current_version_id: 'v2' },
+            version: { id: 'v2', version_no: 2, created_at: 2 },
+            versions: [{ id: 'v1', version_no: 1, created_at: 1 }, { id: 'v2', version_no: 2, created_at: 2 }],
+            file: { name: 'szerzodes.docx', rel: 'Projektek/teszt/szerzodes.docx' },
+          },
+        }
+      }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: OFFICE_NEEDS }
+      return { status: 200, body: previewDetail([]) }
+    })
+    h.change('wbDocUpload', [{ name: 'szerzodes.docx' }])
+    await vi.waitFor(() => expect(h.toasts.length).toBeGreaterThan(0))
+    const sent = h.fetchCalls.find((c) => c.url.indexOf('/document') > 0)
+    expect(sent).toBeTruthy()
+    expect(String(sent!.url)).toContain('name=szerzodes.docx')
+    expect(h.toasts.join(' ')).toContain('workbench.versions.uploaded')
+  })
+
+  it('ha a nev foglalt volt, a felulet KIMONDJA az uj nevet -- nem csendben mas neven all', async () => {
+    await openPreview(OFFICE_NEEDS)
+    h.respond((url, init) => {
+      if (url.indexOf('/document') > 0 && init && init.method === 'POST') {
+        return {
+          status: 201,
+          body: {
+            ok: true, renamed: true, name: 'szerzodes (2).docx',
+            item: { ...PREV_ITEM, current_version_id: 'v2' },
+            version: { id: 'v2', version_no: 2, created_at: 2 },
+            versions: [],
+            file: { name: 'szerzodes (2).docx', rel: 'Projektek/teszt/szerzodes (2).docx' },
+          },
+        }
+      }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: OFFICE_NEEDS }
+      return { status: 200, body: previewDetail([]) }
+    })
+    h.change('wbDocUpload', [{ name: 'szerzodes.docx' }])
+    await vi.waitFor(() => expect(h.toasts.length).toBeGreaterThan(0))
+    expect(h.toasts.join(' ')).toContain('workbench.versions.uploaded_renamed')
+    expect(h.toasts.join(' ')).toContain('szerzodes (2).docx')
+  })
+
+  it('feltoltesi hibanal a SZERVER mondata jon, nem allapotkod', async () => {
+    await openPreview(OFFICE_NEEDS)
+    h.respond((url, init) => {
+      if (url.indexOf('/document') > 0 && init && init.method === 'POST') {
+        return { status: 413, body: { error: 'document_too_large', message: 'Ez a fájl nagyobb, mint amit fel lehet tölteni.' } }
+      }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: OFFICE_NEEDS }
+      return { status: 200, body: previewDetail([]) }
+    })
+    h.change('wbDocUpload', [{ name: 'nagy.docx' }])
+    await vi.waitFor(() => expect(h.toasts.length).toBeGreaterThan(0))
+    expect(h.toasts.join(' ')).toContain('Ez a fájl nagyobb')
+    expect(h.toasts.join(' ')).not.toContain('document_too_large')
+  })
+})
