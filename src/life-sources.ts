@@ -26,7 +26,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, dirname, sep } from 'node:path'
 import { PROJECT_ROOT } from './config.js'
-import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS } from './depot.js'
+import { depotRoot, DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_MEGA } from './depot.js'
 import { toDisplayPath } from './depot-browse.js'
 import { storageAt, storageMissText, type StorageMissReason } from './storage-index.js'
 
@@ -234,6 +234,36 @@ function driveProvider(): SourceProvider {
 }
 
 // ---------------------------------------------------------------------------
+// MEGA (kanban e67bf278) -- rclone-nal kotott fiokok a Tarolok/MEGA alatt
+// ---------------------------------------------------------------------------
+
+function megaProvider(): SourceProvider {
+  return {
+    id: 'mega',
+    priority: 70,
+    label: 'MEGA', short: 'MEGA', icon: 'Ⓜ️',
+    detect(abs) {
+      const root = depotRoot()
+      if (!root) return null
+      const base = join(root, DEPOT_MEGA)
+      if (!isUnder(abs, base)) return null
+      const account = firstSegmentUnder(abs, base)
+      return {
+        kind: 'mega',
+        label: 'MEGA',
+        short: 'MEGA',
+        icon: 'Ⓜ️',
+        details: [
+          { label: 'Forrás', value: 'MEGA' },
+          ...(account ? [{ label: 'Fiók', value: account }] : []),
+          { label: 'Helyi útvonal', value: toDisplayPath(abs) },
+        ],
+      }
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Git
 // ---------------------------------------------------------------------------
 
@@ -375,6 +405,7 @@ function localProvider(): SourceProvider {
 function registerBuiltinProviders(): void {
   registerSourceProvider(photosProvider())
   registerSourceProvider(driveProvider())
+  registerSourceProvider(megaProvider())
   registerSourceProvider(gitProvider())
   registerSourceProvider(localProvider())
 }

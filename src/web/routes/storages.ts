@@ -27,6 +27,7 @@ import {
   type StorageKind,
 } from '../../storages.js'
 import { googleAccountNames } from './accounts.js'
+import { megaAccountNames } from '../../mega.js'
 import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
 import { syncAllRepos, lastSyncState, scanReposNeedingCommitPush } from '../../git-sync.js'
 import { dispatchCommitPush, readLastDispatch } from '../commit-push-job.js'
@@ -60,15 +61,15 @@ async function readJson(req: RouteContext['req']): Promise<any> {
  * mindkettot tudja. Ezert nincs kulon "fotos fiok" fogalom -- ha valakinek
  * nincs Fotok-engedelye, az a sor `present:false`-kent latszik, nem tunik el.
  */
-function accountSources(): { drive: string[]; photos: string[] } {
+function accountSources(): { drive: string[]; photos: string[]; mega: string[] } {
   const g = googleAccountNames()
-  return { drive: g.accounts, photos: g.accounts }
+  return { drive: g.accounts, photos: g.accounts, mega: megaAccountNames() }
 }
 
 /** A lista + a kiosztott azonositok lemezre irasa, ha uj sor keletkezett. */
 function currentRows() {
   const src = accountSources()
-  const r = listStorages({ driveAccounts: src.drive, photosAccounts: src.photos })
+  const r = listStorages({ driveAccounts: src.drive, photosAccounts: src.photos, megaAccounts: src.mega })
   // A kiosztas CSAK akkor kerul lemezre, ha tenyleg uj szam szuletett. Igy egy
   // sima oldalbetoltes nem ir a lemezre feleslegesen.
   if (r.changed) {

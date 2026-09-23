@@ -225,6 +225,9 @@ fi
 if command -v brew &>/dev/null; then
   brew install jq sqlite poppler tesseract tesseract-lang himalaya 2>/dev/null \
     || echo -e "  ${ORANGE}!${NC} brew install jq sqlite poppler tesseract tesseract-lang himalaya"
+  # rclone: MEGA fiokok (extra, kanban e67bf278)
+  command -v rclone &>/dev/null || brew install rclone 2>/dev/null \
+    || echo -e "  ${ORANGE}!${NC} brew install rclone"
   [ -d "/Applications/LibreOffice.app" ] || brew install --cask libreoffice 2>/dev/null \
     || echo -e "  ${ORANGE}!${NC} brew install --cask libreoffice"
 fi

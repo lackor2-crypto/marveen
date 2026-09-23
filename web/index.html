@@ -2471,6 +2471,30 @@
           <p class="claude-auth-state" id="ghAddState"></p>
           </div>
 
+          <!-- MEGA fiokok (kanban e67bf278). Boss, 2026-09-23: "a fiokok alatt
+               pedig ennek a Meganak a bejelentkezesi lehetoseget". rclone-nal
+               kotve (src/mega.ts); a jelszo sose jon vissza a szerverrol. -->
+          <div class="acc-block" id="megaConnSection">
+            <div class="acc-block-title" data-i18n="mega.title">MEGA-fiók hozzáadása (felhő-tárhely)</div>
+            <p class="claude-auth-warn" data-i18n="mega.desc">Egy ingyenes MEGA-fiók 20 GB tárhelyet ad. Ha itt bekötöd, a Raktárban a Tárolók alatt megjelenik a MEGA mappa, és látod, mennyi hely van még rajta. Extra funkció: nélküle is működik minden.</p>
+            <ol class="claude-auth-warn" style="margin:4px 0 8px 18px;padding:0">
+              <li data-i18n-html="mega.step1">Ha még nincs fiókod: <a href="https://mega.io/register" target="_blank" rel="noopener">regisztrálj itt</a>, és erősítsd meg az emailben kapott linket.</li>
+              <li data-i18n="mega.step2">Lépj be egyszer a böngészőben a mega.io oldalon — enélkül a Marveen nem tud belépni.</li>
+              <li data-i18n="mega.step3">NE kapcsold be a kétlépcsős azonosítást (2FA) ezen a fiókon: azzal a Marveen nem tud belépni.</li>
+              <li data-i18n="mega.step4">Írd be lent a fiók email-címét és jelszavát, és nyomd meg a gombot.</li>
+            </ol>
+            <p class="claude-auth-state" id="megaRcloneState" hidden></p>
+            <div class="claude-auth-actions" id="megaAddRow">
+              <input class="input-sm" type="email" id="megaEmail" autocomplete="off" style="min-width:220px"
+                     data-i18n-placeholder="mega.email_ph" placeholder="pl. nev@gmail.com">
+              <input class="input-sm" type="password" id="megaPassword" autocomplete="new-password" style="min-width:180px"
+                     data-i18n-placeholder="mega.password_ph" placeholder="a MEGA-fiók jelszava">
+              <button class="btn-secondary" id="megaAddBtn" data-i18n="mega.add">MEGA-fiók hozzáadása</button>
+            </div>
+            <p class="claude-auth-state" id="megaAddState"></p>
+            <div id="megaAccountList"></div>
+          </div>
+
           </details>
 
           <div class="acc-hub" id="accountsHubList"></div>

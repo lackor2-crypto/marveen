@@ -25,18 +25,19 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { atomicWriteFileSync } from './web/atomic-write.js'
-import { depotRoot, safeDepotName, DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_PROJECTS } from './depot.js'
+import { depotRoot, safeDepotName, DEPOT_DRIVE, DEPOT_PHOTOS, DEPOT_MEGA, DEPOT_PROJECTS } from './depot.js'
 import { PROJECT_ROOT } from './config.js'
 
 /** A harom tarolo-fajta. Kulcs, nem megjelenitendo nev (29. pont). */
-export type StorageKind = 'drive' | 'photos' | 'git'
+export type StorageKind = 'drive' | 'photos' | 'mega' | 'git'
 
-export const STORAGE_KINDS: StorageKind[] = ['drive', 'photos', 'git']
+export const STORAGE_KINDS: StorageKind[] = ['drive', 'photos', 'mega', 'git']
 
 /** Az azonosito elotagja fajtankent (`DRIVE_01`, `PHOTOS_01`, `GIT_01`). */
 const ID_PREFIX: Record<StorageKind, string> = {
   drive: 'DRIVE',
   photos: 'PHOTOS',
+  mega: 'MEGA',
   git: 'GIT',
 }
 
@@ -44,6 +45,7 @@ const ID_PREFIX: Record<StorageKind, string> = {
 export function storageKindRoot(kind: StorageKind): string {
   if (kind === 'drive') return DEPOT_DRIVE
   if (kind === 'photos') return DEPOT_PHOTOS
+  if (kind === 'mega') return DEPOT_MEGA
   return DEPOT_PROJECTS
 }
 
@@ -197,6 +199,8 @@ export function storageId(kind: StorageKind, n: number): string {
 export function listStorages(opts: {
   driveAccounts: string[]
   photosAccounts: string[]
+  /** A bekotott MEGA fiokok (`mega.ts`). Hianyzik = nincs egy sem. */
+  megaAccounts?: string[]
   root?: string | null
   registry?: StorageRegistryFile
 }): { rows: StorageRow[]; registry: StorageRegistryFile; changed: boolean } {
@@ -207,6 +211,7 @@ export function listStorages(opts: {
   const connectedBy: Record<StorageKind, string[]> = {
     drive: opts.driveAccounts,
     photos: opts.photosAccounts,
+    mega: opts.megaAccounts ?? [],
     git: reg.gitAccounts,
   }
 

@@ -89,6 +89,7 @@ import { tryHandleGithubBrowser } from './web/routes/github-browser.js'
 import { tryHandleDepot } from './web/routes/depot.js'
 import { tryHandleLife } from './web/routes/life.js'
 import { tryHandleStorages } from './web/routes/storages.js'
+import { tryHandleMega } from './web/routes/mega.js'
 import { tryHandleDriveSync } from './web/routes/drive-sync.js'
 import { tryHandlePhotosPicker } from './web/routes/photos-picker.js'
 import { tryHandleSystemRestart } from './web/routes/system-restart.js'
@@ -277,6 +278,7 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleDepot(routeCtx)) return
       if (await tryHandleLife(routeCtx)) return
       if (await tryHandleStorages(routeCtx)) return
+      if (await tryHandleMega(routeCtx)) return
       if (await tryHandleSystemRestart(routeCtx)) return
       if (await tryHandleUpdates(routeCtx)) return
       if (await tryHandleOnboarding(routeCtx)) return
