@@ -13,7 +13,7 @@ import { initDatabase } from '../db.js'
 import { createProject, setProjectArchived, updateProject } from '../projects.js'
 import type { RouteContext } from '../web/routes/types.js'
 import { tryHandleWorkbench } from '../web/routes/workbench.js'
-import { createWorkItem, addWorkItemPart } from '../workbench.js'
+import { createWorkItem, addWorkItemPart, listWorkItemParts, updateWorkItemPart } from '../workbench.js'
 import { PREVIEW_TEXT_MAX } from '../workbench-preview.js'
 
 function ctxFor(path: string, method: string, body?: unknown, headers?: Record<string, string>) {
@@ -393,5 +393,84 @@ describe('GET /api/workbench/items/:id/preview', () => {
     useDepot()
     const r = await call(`/api/workbench/items/${itemId}/preview?lang=en`, 'GET')
     expect(String(r.body.message)).toMatch(/nothing to show/i)
+  })
+})
+
+// --- 5. fazis: VERZIOZAS a vegpontokon --------------------------------------
+
+describe('verziozas vegpontok', () => {
+  it('POST /versions: uj verzio, es a lista a frissel ter vissza', async () => {
+    const w = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!w.ok) throw new Error('munkadarab')
+    const r = await call(`/api/workbench/items/${w.item.id}/versions`, 'POST', {})
+    expect(r.status).toBe(201)
+    expect(r.body.version.version_no).toBe(2)
+    expect(r.body.versions.length).toBe(2)
+    expect(r.body.item.current_version_id).toBe(r.body.version.id)
+  })
+
+  it('POST /versions/:id/restore: UJ verzio lesz, a kozbensok megmaradnak', async () => {
+    const w = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!w.ok) throw new Error('munkadarab')
+    const p = addWorkItemPart({ work_item_id: w.item.id, kind: 'text', text: 'elso' })
+    if (!p.ok) throw new Error('resz')
+    await call(`/api/workbench/items/${w.item.id}/versions`, 'POST', {})
+    const live = listWorkItemParts(w.item.id)
+    updateWorkItemPart(live[0]!.id, { text: 'masodik' })
+
+    const r = await call(`/api/workbench/items/${w.item.id}/versions/${w.version.id}/restore`, 'POST', {})
+    expect(r.status).toBe(201)
+    expect(r.body.version.version_no).toBe(3)
+    expect(r.body.versions.length).toBe(3)
+    expect(r.body.parts[0].text).toBe('elso')
+    // A felulet szamot lat arrol, mibol allt vissza.
+    expect(r.body.versions[0].restored_from_no).toBe(1)
+  })
+
+  it('MASIK munkadarab verzioja: sajat, EMBERI mondat -- nem "nem talalom"', async () => {
+    const a = createWorkItem({ project_id: projectId, title: 'A' })
+    const b = createWorkItem({ project_id: projectId, title: 'B' })
+    if (!a.ok || !b.ok) throw new Error('munkadarab')
+    const r = await call(`/api/workbench/items/${b.item.id}/versions/${a.version.id}/restore`, 'POST', {})
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('version_mismatch')
+    expect(String(r.body.message)).toMatch(/nem ehhez a munkadarabhoz/i)
+  })
+
+  it('ismeretlen verzio: 404 es emberi mondat, nem ures valasz', async () => {
+    const w = createWorkItem({ project_id: projectId, title: 'A' })
+    if (!w.ok) throw new Error('munkadarab')
+    const r = await call(`/api/workbench/items/${w.item.id}/versions/nincs-ilyen/restore`, 'POST', {})
+    expect(r.status).toBe(404)
+    expect(r.body.error).toBe('version_not_found')
+    expect(String(r.body.message)).toMatch(/nincs meg/i)
+  })
+
+  it('archivalt projekt: a verziozas is csak-olvashato (a szerver mondja ki)', async () => {
+    const w = createWorkItem({ project_id: projectId, title: 'A' })
+    if (!w.ok) throw new Error('munkadarab')
+    setProjectArchived(projectId, true)
+    const a = await call(`/api/workbench/items/${w.item.id}/versions`, 'POST', {})
+    expect(a.status).toBe(409)
+    expect(a.body.error).toBe('project_archived')
+    const b = await call(`/api/workbench/items/${w.item.id}/versions/${w.version.id}/restore`, 'POST', {})
+    expect(b.status).toBe(409)
+  })
+
+  it('az elonezet a KERT regi verzio pillanatkepet mutatja, nem az elot', async () => {
+    const w = createWorkItem({ project_id: projectId, title: 'Poszt', type: 'composite' })
+    if (!w.ok) throw new Error('munkadarab')
+    const p = addWorkItemPart({ work_item_id: w.item.id, kind: 'text', text: 'elso' })
+    if (!p.ok) throw new Error('resz')
+    await call(`/api/workbench/items/${w.item.id}/versions`, 'POST', {})
+    const live = listWorkItemParts(w.item.id)
+    updateWorkItemPart(live[0]!.id, { text: 'masodik' })
+
+    const now = await call(`/api/workbench/items/${w.item.id}/preview`, 'GET')
+    expect(now.body.kind).toBe('parts')
+    const old = await call(`/api/workbench/items/${w.item.id}/preview?version=${w.version.id}`, 'GET')
+    expect(old.body.available).toBe(true)
+    expect(old.body.kind).toBe('parts')
+    expect(old.body.version_no).toBe(1)
   })
 })

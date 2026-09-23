@@ -47,6 +47,7 @@
     // --- elonezet (4. fazis) ---
     preview: null,
     previewVersion: null,
+    versionBusy: false,
   }
 
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
@@ -94,6 +95,7 @@
     WB.detail = null
     WB.preview = null
     WB.previewVersion = null
+    WB.versionBusy = false
     render()
     loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
@@ -362,14 +364,25 @@
         + '<p class="wb-muted">' + esc(t('workbench.context.created', { when: when(it.created_at) })) + '</p>'
         + '<p class="wb-muted">' + esc(t('workbench.context.updated', { when: when(it.updated_at) })) + '</p></div>')
       var versions = WB.detail.versions || []
+      var ro = archived() || WB.versionBusy
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.versions')) + '</h3>'
         + (versions.length
           ? '<ul class="wb-versions">' + versions.map(function (v) {
+            var current = v.id === it.current_version_id
+            // A JELENLEGIT nincs mire visszaallitani; a regihez ott a gomb, es a
+            // kattintas elott KIMONDJUK, hogy a kesobbi verziok megmaradnak.
+            var back = (current || ro) ? '' : (' <button type="button" class="wb-linklike" data-wb-act="version-restore"'
+              + ' data-wb-version="' + escA(v.id) + '">' + esc(t('workbench.versions.restore')) + '</button>')
             return '<li>' + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) }))
-              + (v.id === it.current_version_id ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
-              + '</li>'
+              + (current ? ' <span class="wb-pill">' + esc(t('workbench.versions.current')) + '</span>' : '')
+              + (v.restored_from_no ? ' <span class="wb-muted">'
+                + esc(t('workbench.versions.restored_from', { n: v.restored_from_no })) + '</span>' : '')
+              + back + '</li>'
           }).join('') + '</ul>'
           : '<p class="wb-muted">' + esc(t('workbench.context.no_versions')) + '</p>')
+        + (ro ? '' : '<p><button type="button" class="wb-btn" data-wb-act="version-new">'
+          + esc(t('workbench.versions.save_new')) + '</button></p>')
+        + '<p class="wb-hint">' + esc(t('workbench.versions.hint')) + '</p>'
         + '</div>')
     } else {
       rows.push('<div class="wb-ctx-block"><h3>' + esc(t('workbench.context.work_item')) + '</h3>'
@@ -786,6 +799,51 @@
     if (WB.selectedId) loadPreview(WB.selectedId, WB.previewVersion)
   }
 
+  // --- VERZIOZAS (5. fazis) ------------------------------------------------
+  // "Az eredeti automatikusan nem irhato felul": a mentes UJ verziot ir, a
+  // visszaallitas pedig a regi allapotbol csinal UJ verziot -- torles nincs.
+  function versionsUrl(tail) {
+    return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/versions' + (tail || '')
+  }
+
+  function applyVersions(data) {
+    if (!WB.detail || !data) return
+    if (data.versions) WB.detail.versions = data.versions
+    if (data.item) WB.detail.item = data.item
+    if (data.parts) WB.detail.parts = data.parts
+    WB.versionBusy = false
+    // A mutatott verzio a friss lett: a valaszto ne egy regire alljon.
+    WB.previewVersion = null
+    render()
+    if (WB.selectedId) loadPreview(WB.selectedId, null)
+    load(WB.projectId)
+  }
+
+  function newVersion() {
+    if (!WB.selectedId || WB.versionBusy || archived()) return
+    WB.versionBusy = true
+    render()
+    api('POST', versionsUrl(), {}).then(function (r) {
+      WB.versionBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      applyVersions(r.data)
+      window.showToast(t('workbench.versions.saved', { n: r.data && r.data.version ? r.data.version.version_no : '' }))
+    })
+  }
+
+  function restoreVersion(versionId) {
+    if (!versionId || !WB.selectedId || WB.versionBusy || archived()) return
+    if (typeof window.confirm === 'function' && !window.confirm(t('workbench.versions.restore_confirm'))) return
+    WB.versionBusy = true
+    render()
+    api('POST', versionsUrl('/' + encodeURIComponent(versionId) + '/restore'), {}).then(function (r) {
+      WB.versionBusy = false
+      if (!r.ok) { render(); window.showToast(r.message); return }
+      applyVersions(r.data)
+      window.showToast(t('workbench.versions.restored', { n: r.data && r.data.version ? r.data.version.version_no : '' }))
+    })
+  }
+
   function partsUrl(tail) {
     return '/api/workbench/items/' + encodeURIComponent(WB.selectedId) + '/parts' + (tail || '')
   }
@@ -952,6 +1010,8 @@
     else if (a === 'part-up') movePart(act.getAttribute('data-wb-part'), 'up')
     else if (a === 'part-down') movePart(act.getAttribute('data-wb-part'), 'down')
     else if (a === 'part-remove') removePart(act.getAttribute('data-wb-part'))
+    else if (a === 'version-new') newVersion()
+    else if (a === 'version-restore') restoreVersion(act.getAttribute('data-wb-version'))
     else if (a === 'chat-send') sendChat()
     else if (a === 'chat-stop') stopChat()
     else if (a === 'chat-setup') openChatSetup()

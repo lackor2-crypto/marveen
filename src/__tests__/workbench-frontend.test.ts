@@ -757,3 +757,103 @@ describe('elonezet -- a kozepso panel (4. fazis)', () => {
     expect(asked!.url).toContain('lang=hu')
   })
 })
+
+// --- 5. fazis: VERZIOZAS a feluleten ---------------------------------------
+//
+// Spec 12: "az eredeti automatikusan nem irhato felul", a visszaallitas UJ
+// verziot csinal, a kesobbiek megmaradnak. A felulet ezt MONDJA IS KI, mielott
+// a felhasznalo rakattint.
+
+const V2 = { id: 'v2', version_no: 2, created_at: 2, restored_from_no: null }
+const V1 = { id: 'v1', version_no: 1, created_at: 1, restored_from_no: null }
+
+async function openVersions(versions: unknown[], item = { ...PREV_ITEM, current_version_id: 'v2' }) {
+  h.respond((url) => {
+    if (url.indexOf('/preview') > 0) return { status: 200, body: { available: false, reason: 'no_source', kind: null, rel: null, url: null, message: 'x', versions } }
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: { item, versions, parts: [], part_kinds: ['text', 'image'], project: PROJECT } }
+    return { status: 200, body: itemsBody([item]) }
+  })
+  h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+  await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+  h.click({ 'data-wb-item': 'w1' })
+  await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.context.versions'))
+}
+
+describe('verziozas -- a feluletrol, terminal nelkul (5. fazis)', () => {
+  it('a JELENLEGI verziohoz nincs visszaallitas, a regihez van', async () => {
+    await openVersions([V2, V1])
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('data-wb-act="version-restore"')
+    expect(html).toContain('data-wb-version="v1"')
+    // A mostanit nincs mire visszaallitani.
+    expect(html).not.toContain('data-wb-version="v2"')
+    // A mentes utja is ott van, es a szabaly ki van irva.
+    expect(html).toContain('data-wb-act="version-new"')
+    expect(html).toContain('workbench.versions.hint')
+  })
+
+  it('visszaallitas elott MEGKERDEZI, es kimondja, hogy semmi nem vesz el', async () => {
+    await openVersions([V2, V1])
+    const asked: string[] = []
+    h.win.confirm = (m: string) => { asked.push(m); return true }
+    h.respond(() => ({
+      status: 201,
+      body: { ok: true, item: { ...PREV_ITEM, current_version_id: 'v3' }, version: { id: 'v3', version_no: 3 }, versions: [{ id: 'v3', version_no: 3, created_at: 3, restored_from_no: 1 }, V2, V1], parts: [] },
+    }))
+    h.click({ 'data-wb-act': 'version-restore', 'data-wb-version': 'v1' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.versions.restored'))
+    expect(asked).toContain('⟦workbench.versions.restore_confirm⟧')
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/api/workbench/items/w1/versions/v1/restore')
+    // A visszaallitas utan a lista a frisset mutatja, es KIIRJA, mibol allt vissza.
+    expect(h.rootEl.innerHTML).toContain('workbench.versions.restored_from')
+  })
+
+  it('a "nem" valasz tenyleg nem csinal semmit', async () => {
+    await openVersions([V2, V1])
+    h.win.confirm = () => false
+    const before = h.fetchCalls.length
+    h.click({ 'data-wb-act': 'version-restore', 'data-wb-version': 'v1' })
+    expect(h.fetchCalls.length).toBe(before)
+  })
+
+  it('mentes uj verziokent: POST a /versions-re, es szol rola', async () => {
+    await openVersions([V2, V1])
+    h.respond(() => ({
+      status: 201,
+      body: { ok: true, item: { ...PREV_ITEM, current_version_id: 'v3' }, version: { id: 'v3', version_no: 3 }, versions: [{ id: 'v3', version_no: 3, created_at: 3 }, V2, V1] },
+    }))
+    h.click({ 'data-wb-act': 'version-new' })
+    await vi.waitFor(() => expect(h.toasts.join(' ')).toContain('workbench.versions.saved'))
+    const post = h.fetchCalls.filter((c) => c.init && c.init.method === 'POST').pop()
+    expect(post!.url).toContain('/api/workbench/items/w1/versions')
+    expect(post!.url).not.toContain('/restore')
+  })
+
+  it('a szerver hibajanal AZ A mondat megy ki, amit a szerver kuldott', async () => {
+    await openVersions([V2, V1])
+    h.win.confirm = () => true
+    h.respond(() => ({ status: 409, body: { error: 'project_archived', message: 'Ez a projekt archivált, ezért csak olvasható.' } }))
+    h.click({ 'data-wb-act': 'version-restore', 'data-wb-version': 'v1' })
+    await vi.waitFor(() => expect(h.toasts).toContain('Ez a projekt archivált, ezért csak olvasható.'))
+  })
+
+  it('archivalt projektben nincs se visszaallitas, se uj verzio gomb', async () => {
+    const item = { ...PREV_ITEM, current_version_id: 'v2' }
+    const versions = [V2, V1]
+    h.respond((url) => {
+      if (url.indexOf('/preview') > 0) return { status: 200, body: { available: false, reason: 'no_source', kind: null, rel: null, url: null, message: 'x', versions } }
+      if (url.indexOf('/api/workbench/items/') === 0) {
+        return { status: 200, body: { item, versions, parts: [], part_kinds: ['text', 'image'], project: { ...PROJECT, archived: true } } }
+      }
+      return { status: 200, body: { ...itemsBody([item]), project: { ...PROJECT, archived: true } } }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('workbench.context.versions'))
+    const html = h.rootEl.innerHTML
+    expect(html).not.toContain('data-wb-act="version-restore"')
+    expect(html).not.toContain('data-wb-act="version-new"')
+  })
+})

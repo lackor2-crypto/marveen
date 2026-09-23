@@ -13,6 +13,7 @@ import {
   ensureWorkbenchTables, createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions,
   countWorkItems, EDITOR_BY_TYPE, TITLE_MAX,
   addWorkItemPart, listWorkItemParts, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart, countWorkItemParts,
+  createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
 } from '../workbench.js'
 
 beforeEach(() => {
@@ -221,5 +222,94 @@ describe('vegyes munkadarab: reszek', () => {
   it('ismeretlen munkadarabra ures a reszlista -- a hivo dolga eldonteni, letezik-e', () => {
     expect(listWorkItemParts('nincs-ilyen')).toEqual([])
     expect(countWorkItemParts('')).toBe(0)
+  })
+})
+
+// --- 5. fazis: VERZIOZAS + VISSZAALLITAS (spec 12) ---------------------------
+
+describe('verziozas', () => {
+  function withParts() {
+    const w = mustCreate({ project_id: 'p1', title: 'Poszt', type: 'composite', source_path: 'v1.txt' })
+    const a = addWorkItemPart({ work_item_id: w.item.id, kind: 'text', text: 'elso' })
+    if (!a.ok) throw new Error('resz: ' + a.code)
+    return w
+  }
+
+  it('uj verzio: a szam no, a szulo a korabbi, es a munkadarab arra mutat', () => {
+    const w = withParts()
+    const r = createWorkItemVersion(w.item.id, { prompt: 'atirtam' })
+    if (!r.ok) throw new Error('verzio: ' + r.code)
+    expect(r.version.version_no).toBe(2)
+    expect(r.version.parent_version_id).toBe(w.version.id)
+    expect(r.item.current_version_id).toBe(r.version.id)
+    expect(listWorkItemVersions(w.item.id).length).toBe(2)
+  })
+
+  it('a REGI verzio valtozatlan marad: sajat resz-sorai vannak', () => {
+    const w = withParts()
+    const v2 = createWorkItemVersion(w.item.id)
+    if (!v2.ok) throw new Error('verzio')
+    // Az uj verzioban modositunk: a v1 pillanatkepe NEM valtozhat tole.
+    const live = listWorkItemParts(w.item.id)
+    expect(live.length).toBe(1)
+    const up = updateWorkItemPart(live[0]!.id, { text: 'masodik' })
+    expect(up.ok).toBe(true)
+    expect(listWorkItemParts(w.item.id)[0]!.text).toBe('masodik')
+    expect(listWorkItemParts(w.item.id, w.version.id)[0]!.text).toBe('elso')
+  })
+
+  it('visszaallitas: UJ verzio lesz belole, a kozbensok MEGMARADNAK', () => {
+    const w = withParts()
+    const v2 = createWorkItemVersion(w.item.id)
+    if (!v2.ok) throw new Error('v2')
+    const live = listWorkItemParts(w.item.id)
+    updateWorkItemPart(live[0]!.id, { text: 'masodik' })
+
+    const r = restoreWorkItemVersion(w.version.id)
+    if (!r.ok) throw new Error('restore: ' + r.code)
+    // v3 keletkezett, nem tunt el se a v1, se a v2.
+    expect(r.version.version_no).toBe(3)
+    expect(listWorkItemVersions(w.item.id).map((v) => v.version_no)).toEqual([3, 2, 1])
+    // es a tartalom a v1-e.
+    expect(listWorkItemParts(w.item.id)[0]!.text).toBe('elso')
+    expect(r.item.current_version_id).toBe(r.version.id)
+  })
+
+  it('a visszaallitas a FORRASFAJLT is visszahozza', () => {
+    const w = mustCreate({ project_id: 'p1', title: 'Ajanlat', type: 'document', source_path: 'ajanlat-v1.pdf' })
+    const v2 = createWorkItemVersion(w.item.id, { source_path: 'ajanlat-v2.pdf' })
+    if (!v2.ok) throw new Error('v2')
+    expect(v2.item.source_path).toBe('ajanlat-v2.pdf')
+    const r = restoreWorkItemVersion(w.version.id)
+    if (!r.ok) throw new Error('restore')
+    expect(r.item.source_path).toBe('ajanlat-v1.pdf')
+  })
+
+  it('a felulet szamot lat arrol, MIBOL allt vissza -- nem nyers JSON-t', () => {
+    const w = withParts()
+    const r = restoreWorkItemVersion(w.version.id)
+    if (!r.ok) throw new Error('restore')
+    const view = listWorkItemVersionsView(w.item.id)
+    expect(view[0]!.restored_from_no).toBe(1)
+    expect(view[0]!.restored_from).toBe(w.version.id)
+    // A tobbi verzional ez nem "nulla", hanem NINCS ilyen adat.
+    expect(view[1]!.restored_from_no).toBe(null)
+  })
+
+  it('ismeretlen verzio/munkadarab: HIBAKOD jon, nem csendes semmittevés', () => {
+    expect(createWorkItemVersion('nincs-ilyen')).toEqual({ ok: false, code: 'item_not_found' })
+    expect(restoreWorkItemVersion('nincs-ilyen')).toEqual({ ok: false, code: 'version_not_found' })
+    const a = mustCreate({ project_id: 'p1', title: 'A' })
+    const b = mustCreate({ project_id: 'p1', title: 'B' })
+    // Masik munkadarab verzioja: ez OSSZEKEVERES, nem "nem talalom".
+    expect(restoreWorkItemVersion(a.version.id, { work_item_id: b.item.id }))
+      .toEqual({ ok: false, code: 'version_mismatch' })
+  })
+
+  it('a szamlalo csak az ELO reszeket szamolja, a pillanatkepeket nem', () => {
+    const w = withParts()
+    createWorkItemVersion(w.item.id)
+    createWorkItemVersion(w.item.id)
+    expect(countWorkItemParts(w.item.id)).toBe(1)
   })
 })
