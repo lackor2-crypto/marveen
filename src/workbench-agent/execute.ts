@@ -14,13 +14,16 @@
  */
 import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { getProject } from '../projects.js'
+import { getProject, type ProjectRow } from '../projects.js'
 import { projectContext } from '../project-context.js'
-import { projectFileTarget } from '../project-files.js'
-import { recentFiles } from '../project-overview.js'
+import { projectFileTarget, writeProjectFile, safeFileName } from '../project-files.js'
+import { recentFiles, buildProjectOverview } from '../project-overview.js'
+import { moveLife, renameLife, trashLife } from '../life-explorer.js'
+import { fileKind } from '../file-kind.js'
 import {
   createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions, isWorkItemStatus,
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
+  createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
 } from '../workbench.js'
 import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
@@ -53,6 +56,44 @@ function folderStateDetail(state: string): string {
     case 'missing': return 'the project folder was not found (it may have been renamed or moved)'
     case 'unreachable': return 'the project folder cannot be reached right now'
     default: return state
+  }
+}
+
+
+/**
+ * EGY hely, ahol egy projekten beluli fajl-ut feloldodik.
+ *
+ * Eddig a `file.read` es a `workItem.addPart` kulon-kulon csinalta ugyanezt a
+ * hat sort; a 6. fazis hat tovabbi fajl-toolt hoz, es hat masolat garantaltan
+ * szetcsuszna. A hatar-ellenorzes tovabbra is a MEGLEVO `projectFileTarget()`,
+ * ami a Raktaron es a projektmappan kivuli utat elutasitja.
+ */
+type FileRef =
+  | { ok: true; dirAbs: string; dirRel: string; name: string; abs: string; rel: string }
+  | { ok: false; code: string; detail: string }
+
+function projectFileRef(project: ProjectRow, raw: unknown): FileRef {
+  const rel = asString(raw)
+  if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required' }
+  const segments = rel.split('/').filter(Boolean)
+  const name = segments.pop() || ''
+  if (!name || name === '.' || name === '..') return { ok: false, code: 'bad_input', detail: 'path does not name a file' }
+  const target = projectFileTarget(project, segments.join('/'))
+  if (!target.ok) return { ok: false, code: target.code, detail: folderStateDetail(target.code) }
+  const abs = join(target.dirAbs, name)
+  // A join utan is ellenorizzuk: egy `..`-t tartalmazo fajlnev nem vihet ki.
+  if (!abs.startsWith(target.dirAbs)) return { ok: false, code: 'bad_input', detail: 'path leads outside the project folder' }
+  return { ok: true, dirAbs: target.dirAbs, dirRel: target.dirRel, name, abs, rel: `${target.dirRel}/${name}` }
+}
+
+/** Letezik-e, es fajl-e. A hibauzenetet SOSE talaljuk ki: az eredeti megy tovabb. */
+function mustBeFile(abs: string): { ok: true; size: number } | { ok: false; code: string; detail: string } {
+  try {
+    const st = statSync(abs)
+    if (st.isDirectory()) return { ok: false, code: 'not_a_file', detail: 'this is a folder, not a file' }
+    return { ok: true, size: st.size }
+  } catch (e) {
+    return { ok: false, code: 'not_found', detail: e instanceof Error ? e.message : String(e) }
   }
 }
 
@@ -92,35 +133,19 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
     }
 
     case 'file.read': {
-      const rel = asString(input.path)
-      if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required' }
-      // Az utolso szegmens a fajlnev, a tobbi az almappa -- a mappa-resz a
-      // meglevo, projektmappan beluli ellenorzesen megy at.
-      const parts = rel.split('/').filter(Boolean)
-      const fileName = parts.pop() || ''
-      if (!fileName || fileName === '.' || fileName === '..') return { ok: false, code: 'bad_input', detail: 'path does not name a file' }
-      const target = projectFileTarget(project, parts.join('/'))
-      if (!target.ok) return { ok: false, code: target.code, detail: folderStateDetail(target.code) }
-      const abs = join(target.dirAbs, fileName)
-      // A join utan is ellenorizzuk: egy `..`-t tartalmazo fajlnev nem vihet ki.
-      if (!abs.startsWith(target.dirAbs)) return { ok: false, code: 'bad_input', detail: 'path leads outside the project folder' }
-      let size = 0
-      try {
-        const st = statSync(abs)
-        if (st.isDirectory()) return { ok: false, code: 'not_a_file', detail: 'this is a folder, not a file' }
-        size = st.size
-      } catch (e) {
-        // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
-        return { ok: false, code: 'not_found', detail: e instanceof Error ? e.message : String(e) }
-      }
+      const ref = projectFileRef(project, input.path)
+      if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+      const st = mustBeFile(ref.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
       let text: string
       try {
-        text = readFileSync(abs, 'utf-8')
+        text = readFileSync(ref.abs, 'utf-8')
       } catch (e) {
+        // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
         return { ok: false, code: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
       }
       const truncated = text.length > FILE_READ_MAX_CHARS
-      return { ok: true, data: { path: rel, size, truncated, text: truncated ? text.slice(0, FILE_READ_MAX_CHARS) : text } }
+      return { ok: true, data: { path: asString(input.path), size: st.size, truncated, text: truncated ? text.slice(0, FILE_READ_MAX_CHARS) : text } }
     }
 
     case 'workItem.open': {
@@ -209,26 +234,12 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       if (kind === 'image') {
         // A kep a PROJEKT mappajabol jon -- a meglevo, projektmappan beluli
         // ellenorzesen at. Kitalalt ut nem kerulhet be a munkadarabba.
-        const rel = asString(input.path)
-        if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required for an image part' }
-        const segments = rel.split('/').filter(Boolean)
-        const fileName = segments.pop() || ''
-        if (!fileName || fileName === '.' || fileName === '..') {
-          return { ok: false, code: 'bad_input', detail: 'path does not name a file' }
-        }
-        const target = projectFileTarget(project, segments.join('/'))
-        if (!target.ok) return { ok: false, code: target.code, detail: folderStateDetail(target.code) }
-        const abs = join(target.dirAbs, fileName)
-        if (!abs.startsWith(target.dirAbs)) {
-          return { ok: false, code: 'bad_input', detail: 'path leads outside the project folder' }
-        }
-        try {
-          if (statSync(abs).isDirectory()) return { ok: false, code: 'not_a_file', detail: 'this is a folder, not a file' }
-        } catch (e) {
-          // SOSE talalgatjuk az okot: a tenyleges hibauzenet megy tovabb.
-          return { ok: false, code: 'not_found', detail: e instanceof Error ? e.message : String(e) }
-        }
-        assetPath = `${target.dirRel}/${fileName}`
+        if (!asString(input.path)) return { ok: false, code: 'bad_input', detail: 'path is required for an image part' }
+        const ref = projectFileRef(project, input.path)
+        if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+        const st = mustBeFile(ref.abs)
+        if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+        assetPath = ref.rel
       }
       const r = addWorkItemPart({
         work_item_id: item.id,
@@ -240,6 +251,203 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
       })
       if (!r.ok) return { ok: false, code: r.code, detail: `the part was not added: ${r.code}` }
       return { ok: true, data: { part: r.part, count: listWorkItemParts(item.id).length } }
+    }
+
+    case 'file.preview': {
+      const ref = projectFileRef(project, input.path)
+      if (!ref.ok) return { ok: false, code: ref.code, detail: ref.detail }
+      const st = mustBeFile(ref.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      const k = fileKind(ref.name)
+      return {
+        ok: true,
+        data: {
+          path: ref.rel, size: st.size, kind: k.kind, mime: k.mime, previewable: k.previewable,
+          // A "nem" is valasz, es megmondja MIERT nem -- nem ures mezo.
+          note: k.previewable ? '' : 'the browser cannot show this file type on its own; it can only be downloaded or converted',
+        },
+      }
+    }
+
+    case 'file.write': {
+      const rel = asString(input.path)
+      if (!rel) return { ok: false, code: 'bad_input', detail: 'path is required' }
+      const segments = rel.split('/').filter(Boolean)
+      const wanted = segments.pop() || ''
+      if (!safeFileName(wanted)) return { ok: false, code: 'bad_name', detail: 'this file name cannot be used' }
+      // A meglevo iro fuggveny: SOSE ir felul, foglalt nevnel `nev (2).ext`.
+      const out = writeProjectFile(project, segments.join('/'), wanted, Buffer.from(String(input.text ?? ''), 'utf-8'))
+      if (!out.ok) return { ok: false, code: out.code, detail: out.message || folderStateDetail(out.code) }
+      return {
+        ok: true,
+        data: {
+          path: out.rel, name: out.name, bytes: out.bytes, renamed: out.renamed,
+          // A nev-valtast KI KELL MONDANI, kulonben a modell a kert nevrol beszelne tovabb.
+          note: out.renamed ? `the name was taken, so the file was saved as ${out.name}` : '',
+        },
+      }
+    }
+
+    case 'file.copy': {
+      const from = projectFileRef(project, input.path)
+      if (!from.ok) return { ok: false, code: from.code, detail: from.detail }
+      const st = mustBeFile(from.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      const toRel = asString(input.to)
+      if (!toRel) return { ok: false, code: 'bad_input', detail: 'to is required (the target file path)' }
+      const toSegments = toRel.split('/').filter(Boolean)
+      const toName = toSegments.pop() || ''
+      if (!safeFileName(toName)) return { ok: false, code: 'bad_name', detail: 'this target file name cannot be used' }
+      let bytes: Buffer
+      try {
+        bytes = readFileSync(from.abs)
+      } catch (e) {
+        return { ok: false, code: 'unreadable', detail: e instanceof Error ? e.message : String(e) }
+      }
+      const out = writeProjectFile(project, toSegments.join('/'), toName, bytes)
+      if (!out.ok) return { ok: false, code: out.code, detail: out.message || folderStateDetail(out.code) }
+      return {
+        ok: true,
+        data: {
+          from: from.rel, path: out.rel, name: out.name, bytes: out.bytes, renamed: out.renamed,
+          note: out.renamed ? `the name was taken, so the copy was saved as ${out.name}` : '',
+        },
+      }
+    }
+
+    case 'file.move': {
+      const from = projectFileRef(project, input.path)
+      if (!from.ok) return { ok: false, code: from.code, detail: from.detail }
+      const st = mustBeFile(from.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      // A CEL is a projektmappan belul kell legyen -- ezt ugyanaz a hatar dönti el.
+      const target = projectFileTarget(project, asString(input.to))
+      if (!target.ok) return { ok: false, code: target.code, detail: folderStateDetail(target.code) }
+      const r = moveLife(from.rel, target.dirRel, ctx.lang)
+      if (!r.ok) return { ok: false, code: r.code || 'move_failed', detail: r.message }
+      return { ok: true, data: { from: from.rel, path: r.rel, note: r.notice || '' } }
+    }
+
+    case 'file.rename': {
+      const from = projectFileRef(project, input.path)
+      if (!from.ok) return { ok: false, code: from.code, detail: from.detail }
+      const st = mustBeFile(from.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      const newName = asString(input.name)
+      if (!newName) return { ok: false, code: 'bad_input', detail: 'name is required' }
+      if (!safeFileName(newName)) return { ok: false, code: 'bad_name', detail: 'this file name cannot be used' }
+      const r = renameLife(from.rel, newName, ctx.lang)
+      if (!r.ok) return { ok: false, code: r.code || 'rename_failed', detail: r.message }
+      return { ok: true, data: { from: from.rel, path: r.rel, note: r.notice || '' } }
+    }
+
+    case 'file.delete': {
+      const from = projectFileRef(project, input.path)
+      if (!from.ok) return { ok: false, code: from.code, detail: from.detail }
+      const st = mustBeFile(from.abs)
+      if (!st.ok) return { ok: false, code: st.code, detail: st.detail }
+      // NEM torles: a Raktar Kukajaba kerul, ahonnan a tulajdonos visszaveheti.
+      const r = trashLife(from.rel, ctx.lang)
+      if (!r.ok) return { ok: false, code: r.code || 'trash_failed', detail: r.message }
+      return { ok: true, data: { from: from.rel, path: r.rel, trashed: true, note: 'the file was moved to the Trash, not erased' } }
+    }
+
+    case 'project.listWorkItems': {
+      const items = listWorkItems(project.id)
+      return {
+        ok: true,
+        data: {
+          count: items.length,
+          // Ures lista != hiba: a projekt LATSZIK es nincs benne munkadarab.
+          note: items.length ? '' : 'this project exists and has no work items yet',
+          items: items.map((i) => ({ id: i.id, title: i.title, type: i.type, status: i.status, version: i.current_version_id })),
+        },
+      }
+    }
+
+    case 'project.listKanban': {
+      const overview = buildProjectOverview(project.id)
+      if (!overview) return { ok: false, code: 'project_not_found', detail: 'the project was not found' }
+      const cards = overview.nextSteps
+      return {
+        ok: true,
+        data: {
+          count: overview.nextStepsTotal,
+          shown: cards.length,
+          note: overview.nextStepsTotal ? '' : 'this project has no open kanban card',
+          cards: cards.map((c) => ({ id: c.id, seq: c.seq, title: c.title, status: c.status, priority: c.priority })),
+        },
+      }
+    }
+
+    case 'workItem.createVersion': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const r = createWorkItemVersion(item.id, { created_by: 'workbench-agent' })
+      if (!r.ok) return { ok: false, code: r.code, detail: `the version was not created: ${r.code}` }
+      return { ok: true, data: { version: r.version, versions: listWorkItemVersionsView(item.id).length } }
+    }
+
+    case 'workItem.restoreVersion': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const versionId = asString(input.version)
+      if (!versionId) return { ok: false, code: 'bad_input', detail: 'version is required' }
+      const r = restoreWorkItemVersion(versionId, { created_by: 'workbench-agent', work_item_id: item.id })
+      if (!r.ok) return { ok: false, code: r.code, detail: `the version was not restored: ${r.code}` }
+      return {
+        ok: true,
+        data: {
+          version: r.version,
+          note: 'the restore wrote a NEW version; the earlier version and the later ones are all kept',
+        },
+      }
+    }
+
+    case 'workItem.compareVersions': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const known = listWorkItemVersionsView(item.id)
+      const fromId = asString(input.from)
+      const toId = asString(input.to)
+      if (!fromId || !toId) return { ok: false, code: 'bad_input', detail: 'from and to are required (two version ids)' }
+      const fromV = known.find((v) => v.id === fromId)
+      const toV = known.find((v) => v.id === toId)
+      // KULON mondjuk meg, MELYIK nem talalhato -- a "nem talalom" onmagaban semmit nem er.
+      if (!fromV) return { ok: false, code: 'version_not_found', detail: `no version ${fromId} on this work item` }
+      if (!toV) return { ok: false, code: 'version_not_found', detail: `no version ${toId} on this work item` }
+      const snapshot = (v: { id: string }) => listWorkItemParts(item.id, v.id === item.current_version_id ? null : v.id)
+      const a = snapshot(fromV)
+      const b = snapshot(toV)
+      const sig = (p: { kind: string; text: string | null; asset_path: string | null; caption: string | null }) =>
+        `${p.kind}|${p.text || ''}|${p.asset_path || ''}|${p.caption || ''}`
+      const aSigs = a.map(sig)
+      const bSigs = b.map(sig)
+      const added = b.filter((_, i) => !aSigs.includes(bSigs[i]))
+      const removed = a.filter((_, i) => !bSigs.includes(aSigs[i]))
+      return {
+        ok: true,
+        data: {
+          from: { id: fromV.id, version_no: fromV.version_no, parts: a.length },
+          to: { id: toV.id, version_no: toV.version_no, parts: b.length },
+          added: added.map((p) => ({ kind: p.kind, text: p.text, path: p.asset_path, caption: p.caption })),
+          removed: removed.map((p) => ({ kind: p.kind, text: p.text, path: p.asset_path, caption: p.caption })),
+          // Ket azonos verzio nem hiba: kimondjuk, hogy NINCS kulonbseg.
+          note: added.length || removed.length ? '' : 'the two versions hold exactly the same parts',
+        },
+      }
     }
 
     case 'kanban.create': {

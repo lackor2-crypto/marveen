@@ -36,6 +36,7 @@ import { startModelFallbackRunner } from './web/model-fallback-runner.js'
 import { startContextGuardRunner } from './web/context-guard-runner.js'
 import { startContextRestartGateRunner } from './web/context-restart-gate-runner.js'
 import { collectTokenUsage } from './web/token-usage.js'
+import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
 import { initVisionAdapters } from './life-vision-adapter.js'
@@ -800,6 +801,19 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalNoLiveTreeRule()
       ensureGlobalCompletionReportRule()
       ensureGlobalKanbanWaitingMoveRule()
+      // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).
+      // Amit a telepites configja nem ismer, azt a rendszer "nincs jog"-nak
+      // veszi -- helyesen --, DE akkor a tulajdonos a Beallitasok / Onallosag
+      // lapon sem latja, tehat a feluletrol nem is tudna megadni. A hianyzot
+      // ezert atmasoljuk a szallitott alapertekkel; a meglevot SOSE bantjuk.
+      const autonomyAdded = ensureAutonomyCategories()
+      if (autonomyAdded.added.length) {
+        logger.info({ categories: autonomyAdded.added }, 'autonomy: missing categories copied from the shipped catalog')
+      } else if (autonomyAdded.reason !== 'nothing_missing') {
+        // A NULLA KET DOLGOT JELENT: "nincs mit potolni" csendes, de a "nem
+        // lattam oda" (hianyzo vagy olvashatatlan fajl) kimondando.
+        logger.warn({ reason: autonomyAdded.reason, detail: autonomyAdded.detail }, 'autonomy: categories could NOT be checked')
+      }
       // Zero writes means two different things, so both are said out loud
       // rather than inferred from a count: 'no-file' agents are covered by the
       // machine-wide ~/.claude/CLAUDE.md (a worktree-based agent never loads

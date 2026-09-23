@@ -8,7 +8,7 @@
 //   3. minden eredmeny megkulonbozteti a "nincs semmi"-t a "nem latok oda"-tol;
 //   4. a kontextus meretkorlatos, es kimondja, ahol nincs adata.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase, getKanbanCard, createLabel } from '../db.js'
@@ -47,10 +47,31 @@ describe('tool registry', () => {
     }
   })
 
-  it('a 2. fazisban EGYETLEN eszkoznek sincs kulso hatasa es egyik sem destruktiv', () => {
-    // Ez a fazis kimondott igerete: csak olvasas es sajat, projekten beluli adat.
-    expect(TOOLS.filter((t) => t.external_effect)).toEqual([])
-    expect(TOOLS.filter((t) => t.destructive)).toEqual([])
+  it('EGYETLEN eszkoznek sincs kulso hatasa', () => {
+    // A Munkapad nem kuld semmit kifele: se email, se publikalas, se uzenet.
+    expect(TOOLS.filter((t) => t.external_effect).map((t) => t.name)).toEqual([])
+  })
+
+  it('ami destruktiv, az SOSE mehet magatol -- van autonomy-kategoriaja', () => {
+    // A 6. fazis hozta be az elso destruktiv eszkozt (file.delete). A szabaly
+    // nem az, hogy nincs ilyen, hanem hogy egyik sem csuszhat at kategoria
+    // nelkul -- kategoria nelkul ugyanis a `decideTool` mindig engedne.
+    const destructive = TOOLS.filter((t) => t.destructive)
+    expect(destructive.length).toBeGreaterThan(0)
+    for (const t of destructive) expect(t.autonomyCategory).toBeTruthy()
+  })
+
+  it('a fajl-iro eszkozok a sajat kategoriajukra kepzodnek, a torles a data_delete-re', () => {
+    expect(getTool('file.write')!.autonomyCategory).toBe('workbench_file_write')
+    expect(getTool('file.copy')!.autonomyCategory).toBe('workbench_file_write')
+    expect(getTool('file.move')!.autonomyCategory).toBe('workbench_file_write')
+    expect(getTool('file.rename')!.autonomyCategory).toBe('workbench_file_write')
+    expect(getTool('file.delete')!.autonomyCategory).toBe('data_delete')
+    // A torles a Kukaba visz, tehat visszafordithato -- ezt a regiszter is allitja.
+    expect(getTool('file.delete')!.reversible).toBe(true)
+    // Az olvasok maradnak kategoria nelkul.
+    expect(getTool('file.read')!.autonomyCategory).toBeNull()
+    expect(getTool('file.preview')!.autonomyCategory).toBeNull()
   })
 
   it('a kesobbi fazisok eszkozei (dokumentum/kep/video) MEG NINCSENEK benne', () => {
@@ -413,5 +434,176 @@ describe('kanban.create -- a kod-javitas kartya, es MINDIG ehhez a projekthez ko
     const r = executeTool('kanban.create', { title: 'Egy teljesen új dolog', related: [] }, ctx())
     expect(r.ok).toBe(true)
     if (r.ok) expect((r.data as any).labels).toEqual(['lab1'])
+  })
+})
+
+// --- 6. fazis: FAJLMUVELETEK -----------------------------------------------
+//
+// Amit oriz:
+//   1. egyik iro muvelet sem lat ki a projektmappabol;
+//   2. SEMMI nem irodik felul csendben -- foglalt nevnel uj nev szuletik, es
+//      a valasz KIMONDJA;
+//   3. a torles nem torles: a Raktar Kukajaba visz, tehat visszaforditható;
+//   4. minden eredmeny megkulonbozteti a "nincs semmi"-t a "nem latok oda"-tol.
+describe('fajlmuveletek -- a projektmappa hatarain belul (6. fazis)', () => {
+  let depot = ''
+
+  beforeEach(() => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-fs-'))
+    process.env['MARVEEN_DEPOT'] = depot
+    mkdirSync(join(depot, 'Projektek', 'teszt', 'alkonyvtar'), { recursive: true })
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.txt'), 'Első változat.', 'utf-8')
+    writeFileSync(join(depot, 'titok.txt'), 'EZ A MAPPÁN KÍVÜL VAN', 'utf-8')
+    const up = updateProject(projectId, { folder_path: 'Projektek/teszt' })
+    if (!up.ok) throw new Error('a projektmappa beallitasa nem sikerult: ' + up.code)
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  const data = (r: ReturnType<typeof executeTool>) => {
+    if (!r.ok) throw new Error(`a muvelet elbukott: ${r.code} -- ${r.detail}`)
+    return r.data as Record<string, unknown>
+  }
+
+  it('file.write uj fajlt ir a projektmappaba', () => {
+    const d = data(executeTool('file.write', { path: 'uj.md', text: '# Cím' }, ctx()))
+    expect(d.path).toBe('Projektek/teszt/uj.md')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'uj.md'), 'utf-8')).toBe('# Cím')
+    expect(d.renamed).toBe(false)
+  })
+
+  it('file.write SOSE ir felul: foglalt nevnel uj nevet ad, es KIMONDJA', () => {
+    const d = data(executeTool('file.write', { path: 'ajanlat.txt', text: 'Második változat.' }, ctx()))
+    expect(d.renamed).toBe(true)
+    expect(String(d.note)).toContain('ajanlat (2).txt')
+    // Az eredeti erintetlen maradt -- ez a lenyeg.
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.txt'), 'utf-8')).toBe('Első változat.')
+  })
+
+  it('file.write a mappan KIVULRE nem ir', () => {
+    const r = executeTool('file.write', { path: '../../titok.txt', text: 'x' }, ctx())
+    expect(r.ok).toBe(false)
+    expect(readFileSync(join(depot, 'titok.txt'), 'utf-8')).toBe('EZ A MAPPÁN KÍVÜL VAN')
+  })
+
+  it('file.copy masolatot keszit, az eredetit nem bantja', () => {
+    const d = data(executeTool('file.copy', { path: 'ajanlat.txt', to: 'alkonyvtar/masolat.txt' }, ctx()))
+    expect(d.path).toBe('Projektek/teszt/alkonyvtar/masolat.txt')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'alkonyvtar', 'masolat.txt'), 'utf-8')).toBe('Első változat.')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.txt'), 'utf-8')).toBe('Első változat.')
+  })
+
+  it('file.copy nem letezo forrasnal a TENYLEGES hibauzenetet adja vissza', () => {
+    const r = executeTool('file.copy', { path: 'nincs-ilyen.txt', to: 'masolat.txt' }, ctx())
+    expect(r.ok).toBe(false)
+    if (r.ok) throw new Error('nem szabadna sikerulnie')
+    expect(r.code).toBe('not_found')
+    // Nem talalgatott ok, hanem az eredeti uzenet.
+    expect(r.detail).toContain('nincs-ilyen.txt')
+  })
+
+  it('file.move athelyez a projektmappan belul', () => {
+    const d = data(executeTool('file.move', { path: 'ajanlat.txt', to: 'alkonyvtar' }, ctx()))
+    expect(d.path).toBe('Projektek/teszt/alkonyvtar/ajanlat.txt')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'alkonyvtar', 'ajanlat.txt'), 'utf-8')).toBe('Első változat.')
+  })
+
+  it('file.rename atnevez, a mappa marad', () => {
+    const d = data(executeTool('file.rename', { path: 'ajanlat.txt', name: 'ajanlat-vegleges.txt' }, ctx()))
+    expect(d.path).toBe('Projektek/teszt/ajanlat-vegleges.txt')
+    expect(readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat-vegleges.txt'), 'utf-8')).toBe('Első változat.')
+  })
+
+  it('file.delete NEM torol: a Kukaba visz, es ezt ki is mondja', () => {
+    const d = data(executeTool('file.delete', { path: 'ajanlat.txt' }, ctx()))
+    expect(d.trashed).toBe(true)
+    expect(String(d.note)).toContain('Trash')
+    // A fajl nincs mar a projektmappaban, de a lemezrol nem tunt el: az uj
+    // utvonal a valaszban all, es oda tenyleg odakerult.
+    expect(() => readFileSync(join(depot, 'Projektek', 'teszt', 'ajanlat.txt'), 'utf-8')).toThrow()
+    expect(String(d.path).length).toBeGreaterThan(0)
+  })
+
+  it('file.preview megmondja, MIT tud megmutatni a bongeszo -- es mit nem, MIERT', () => {
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'terv.docx'), 'x', 'utf-8')
+    const jo = data(executeTool('file.preview', { path: 'ajanlat.txt' }, ctx()))
+    expect(jo.previewable).toBe(true)
+    expect(jo.kind).toBe('text')
+    const nem = data(executeTool('file.preview', { path: 'terv.docx' }, ctx()))
+    expect(nem.previewable).toBe(false)
+    expect(nem.kind).toBeNull()
+    // A "nem" nem ures mezo: megmondja az okot.
+    expect(String(nem.note).length).toBeGreaterThan(10)
+  })
+})
+
+describe('projekt- es verzio-eszkozok (6. fazis)', () => {
+  const data = (r: ReturnType<typeof executeTool>) => {
+    if (!r.ok) throw new Error(`a muvelet elbukott: ${r.code} -- ${r.detail}`)
+    return r.data as Record<string, unknown>
+  }
+
+  it('project.listWorkItems: az ures lista NEM hiba, ki is mondja', () => {
+    const d = data(executeTool('project.listWorkItems', {}, ctx()))
+    expect(d.count).toBe(1)
+    expect(d.note).toBe('')
+    const masik = createProject({ name: 'Ures projekt' })
+    if (!masik.ok) throw new Error('projekt')
+    const ures = data(executeTool('project.listWorkItems', { ...ctx(), projectId: masik.project.id }, { projectId: masik.project.id, workItemId: null, lang: 'hu' }))
+    expect(ures.count).toBe(0)
+    expect(String(ures.note)).toContain('no work items yet')
+  })
+
+  it('project.listKanban: nulla kartyanal kimondja, hogy nincs -- nem hallgat', () => {
+    const d = data(executeTool('project.listKanban', {}, ctx()))
+    expect(d.count).toBe(0)
+    expect(String(d.note)).toContain('no open kanban card')
+  })
+
+  it('workItem.createVersion uj verziot ment', () => {
+    const d = data(executeTool('workItem.createVersion', { id: workItemId }, ctx()))
+    expect((d.version as { version_no: number }).version_no).toBe(2)
+    expect(d.versions).toBe(2)
+  })
+
+  it('workItem.restoreVersion UJ verziot ir, es ezt kimondja', () => {
+    const v1 = getWorkItem(workItemId)!.current_version_id as string
+    executeTool('workItem.createVersion', { id: workItemId }, ctx())
+    const d = data(executeTool('workItem.restoreVersion', { id: workItemId, version: v1 }, ctx()))
+    expect((d.version as { version_no: number }).version_no).toBe(3)
+    expect(String(d.note)).toContain('NEW version')
+    // A regi verzio megmaradt: harom verzio van, nem egy felulirt.
+    const lista = data(executeTool('workItem.listVersions', { id: workItemId }, ctx()))
+    expect(lista.count).toBe(3)
+  })
+
+  it('workItem.restoreVersion IDEGEN verziot nem allit vissza', () => {
+    const masik = createWorkItem({ project_id: projectId, title: 'Másik', type: 'note' })
+    if (!masik.ok) throw new Error('munkadarab')
+    const r = executeTool('workItem.restoreVersion', { id: workItemId, version: masik.version.id }, ctx())
+    expect(r.ok).toBe(false)
+    if (r.ok) throw new Error('nem szabadna sikerulnie')
+    expect(r.code).toBe('version_mismatch')
+  })
+
+  it('workItem.compareVersions: azonos verzioknal KIMONDJA, hogy nincs kulonbseg', () => {
+    const v1 = getWorkItem(workItemId)!.current_version_id as string
+    const v2 = data(executeTool('workItem.createVersion', { id: workItemId }, ctx())).version as { id: string }
+    const d = data(executeTool('workItem.compareVersions', { id: workItemId, from: v1, to: v2.id }, ctx()))
+    expect(d.added).toEqual([])
+    expect(d.removed).toEqual([])
+    expect(String(d.note)).toContain('exactly the same')
+  })
+
+  it('workItem.compareVersions: ismeretlen verzional MEGMONDJA, MELYIK hianyzik', () => {
+    const v1 = getWorkItem(workItemId)!.current_version_id as string
+    const r = executeTool('workItem.compareVersions', { id: workItemId, from: v1, to: 'nincs-ilyen' }, ctx())
+    expect(r.ok).toBe(false)
+    if (r.ok) throw new Error('nem szabadna sikerulnie')
+    expect(r.code).toBe('version_not_found')
+    expect(r.detail).toContain('nincs-ilyen')
   })
 })
