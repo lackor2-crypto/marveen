@@ -2004,6 +2004,14 @@ if pidof systemd >/dev/null 2>&1 && systemctl --user status >/dev/null 2>&1; the
     echo -e "  ${DIM}    ${DASH_UNIT} ${CHAN_UNIT} \\${NC}"
     echo -e "  ${DIM}    ${MORN_UNIT}.timer ${DEPLOY_UNIT}.timer ${SERVICE_ID}-host-watchdog.service${NC}"
   fi
+  # The independent guards (backup, dashboard/channel watchdogs, rate-limit
+  # alert, sub-agent retry...). On the reference install they were hand-made
+  # timers no installer created, so a fresh install silently had none of them
+  # (audit f97acc32). The helper never overwrites an existing unit.
+  if [ -f "$INSTALL_DIR/scripts/install-guard-units.sh" ]; then
+    bash "$INSTALL_DIR/scripts/install-guard-units.sh" \
+      || warn "Az orszem-idozitok egy resze nem jott letre. Kezzel: bash scripts/install-guard-units.sh"
+  fi
   # Start the deploy timer now too: `enable` only adds the WantedBy symlink, so
   # on an already-running user manager the timer would not tick until the next
   # boot. --now starts it immediately so a fresh install auto-deploys from the
