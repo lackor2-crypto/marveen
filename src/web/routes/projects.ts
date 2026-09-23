@@ -37,7 +37,7 @@ import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import { APP_LANG, MAIN_AGENT_ID } from '../../config.js'
 import { explorerRoot, resolveLifePath, mkdirLife, mkdirLifePath, toLifeRel } from '../../life-explorer.js'
-import { loadLifeConfig, lifeName, safeLifeName } from '../../life-tree.js'
+import { loadLifeConfig, lifeName, safeLifeName, personRel } from '../../life-tree.js'
 import { writeBlockReason } from '../../git-guard.js'
 import {
   ensureProjectTables, listProjects, getProject, createProject, updateProject, setProjectArchived,
@@ -160,7 +160,7 @@ function folderParents(lang: 'hu' | 'en'): { rel: string; label: string; kind: '
   let cfg: ReturnType<typeof loadLifeConfig> | null = null
   try { cfg = loadLifeConfig() } catch { cfg = null }
   for (const p of cfg?.persons ?? []) {
-    const rel = `${safeLifeName(p.name)}/${projectsDir}`
+    const rel = `${personRel(cfg, p.name)}/${projectsDir}`
     out.push({ rel, label: `${p.name} / ${projectsDir}`, kind: 'person', exists: exists(rel) })
   }
   for (const c of cfg?.companies ?? []) {

@@ -461,3 +461,49 @@ describe('POST /api/life/ensure -- a motor uzenete er ki a feluletre', () => {
     expect(out.body.message).not.toMatch(/[őűáéíóöúüÁÉÍÓÖŐÚÜŰ]/)
   })
 })
+
+describe('POST /api/life/config -- a szemelyek kozos mappaja (Csalad)', () => {
+  beforeEach(() => {
+    rmSync(join(store, 'life-tree.json'), { force: true })
+    for (const n of readdirSync(depot)) rmSync(join(depot, n), { recursive: true, force: true })
+  })
+
+  const post = async (body: unknown) => {
+    const { ctx, out } = ctxFor('/api/life/config', 'POST', body)
+    expect(await tryHandleLife(ctx)).toBe(true)
+    return out
+  }
+
+  it('meglevo mappaknal NEM ment csendben: elobb a lista, csak megerosites utan mozgat', async () => {
+    expect((await post({ persons: [owner], companies: [] })).status).toBe(200)
+    mkdirSync(join(depot, 'Teszt Elek'), { recursive: true })
+    const first = await post({ persons: [owner], companies: [], personsGroup: 'Család' })
+    expect(first.status).toBe(200)
+    expect(first.body.needsConfirm).toBe('personsGroup')
+    expect(first.body.moves).toEqual([{ from: 'Teszt Elek', to: 'Család/Teszt Elek', conflict: false }])
+    expect(existsSync(join(depot, 'Teszt Elek'))).toBe(true)
+    expect(JSON.parse(readFileSync(join(store, 'life-tree.json'), 'utf8')).personsGroup || '').toBe('')
+
+    const ok = await post({ persons: [owner], companies: [], personsGroup: 'Család', confirmGroupMove: true })
+    expect(ok.status).toBe(200)
+    expect(ok.body.config.personsGroup).toBe('Család')
+    expect(existsSync(join(depot, 'Család', 'Teszt Elek'))).toBe(true)
+    expect(existsSync(join(depot, 'Teszt Elek'))).toBe(false)
+  })
+
+  it('foglalt celnal 409, emberi mondattal, es semmi nem mozdul', async () => {
+    expect((await post({ persons: [owner], companies: [] })).status).toBe(200)
+    mkdirSync(join(depot, 'Teszt Elek'), { recursive: true })
+    mkdirSync(join(depot, 'Család', 'Teszt Elek'), { recursive: true })
+    const r = await post({ persons: [owner], companies: [], personsGroup: 'Család', confirmGroupMove: true })
+    expect(r.status).toBe(409)
+    expect(r.body.message).toContain('Család/Teszt Elek')
+    expect(existsSync(join(depot, 'Teszt Elek'))).toBe(true)
+  })
+
+  it('fix ag nevet (Archív) nem enged kozos mappanak', async () => {
+    const r = await post({ persons: [owner], companies: [], personsGroup: 'Archív' })
+    expect(r.status).toBe(400)
+    expect(r.body.message).toContain('Archív')
+  })
+})

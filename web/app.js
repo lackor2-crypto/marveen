@@ -33783,7 +33783,9 @@ async function _depoPost(url, body) {
     body: JSON.stringify(body || {}),
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || data.message || ('hiba: ' + res.status))
+  // The human sentence first: `error` is a machine code (`bad_config`) the
+  // user cannot act on.
+  if (!res.ok) throw new Error(data.message || data.error || ('hiba: ' + res.status))
   return data
 }
 
@@ -38572,6 +38574,14 @@ function _intezoCfgRender() {
   const cs = document.getElementById('intezoCompanies')
   if (!ps || !cs || !_intezoCfg) return
 
+  // The persons' common folder ("Család"). Written back to the model on every
+  // keystroke, like the other fields, so a re-render does not drop it.
+  const grp = document.getElementById('intezoPersonsGroup')
+  if (grp) {
+    grp.value = _intezoCfg.personsGroup || ''
+    grp.oninput = () => { _intezoCfg.personsGroup = grp.value }
+  }
+
   ps.innerHTML = _intezoCfg.persons.map((p, i) =>
     '<div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:8px">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
@@ -38692,7 +38702,21 @@ async function _intezoCfgSave() {
   const msg = document.getElementById('intezoCfgMsg')
   const prev = document.getElementById('intezoCfgPreview')
   try {
-    const r = await _depoPost('/api/life/config', _intezoCfg)
+    let r = await _depoPost('/api/life/config', _intezoCfg)
+    // The persons' common folder changed and folders already exist: the
+    // server lists what would move where, and moves NOTHING until the user
+    // says yes to exactly that list.
+    if (r && r.needsConfirm === 'personsGroup') {
+      const moves = r.moves || []
+      const list = moves.slice(0, 40).map((m) => m.from + '  →  ' + m.to).join('\n')
+        + (moves.length > 40 ? '\n' + t('intezo.cfg_preview_more', { n: moves.length - 40 }) : '')
+      if (!confirm(t('intezo.cfg_group_confirm', { n: moves.length }) + '\n\n' + list)) {
+        if (msg) { msg.hidden = false; msg.textContent = t('intezo.cfg_group_cancelled') }
+        return
+      }
+      r = await _depoPost('/api/life/config', Object.assign({}, _intezoCfg, { confirmGroupMove: true }))
+      showToast(t('intezo.cfg_group_moved', { n: moves.length }))
+    }
     _intezoCfg = r.config || _intezoCfg
     if (msg) { msg.hidden = true; msg.textContent = '' }
     _intezoCfgRender()

@@ -260,3 +260,24 @@ export function mountsInside(rel: string): LifeMount[] {
     return !m.rel.slice(prefix.length).includes('/')
   })
 }
+
+/**
+ * A folder moved: the mounts inside it follow it (only the `rel` -- where it
+ * shows in the tree -- changes; the target stays). Returns how many moved.
+ * Refuses on a corrupt store: rewriting a half-read file would lose mounts.
+ */
+export function moveMountsPrefix(fromRel: string, toRel: string): number {
+  const from = norm(fromRel)
+  const to = norm(toRel)
+  if (!from || !to || from === to) return 0
+  const store = load()
+  if (store.corrupt) return 0
+  let moved = 0
+  for (const m of store.mounts) {
+    if (m.rel !== from && !m.rel.startsWith(from + '/')) continue
+    m.rel = to + m.rel.slice(from.length)
+    moved++
+  }
+  if (moved) save(store)
+  return moved
+}

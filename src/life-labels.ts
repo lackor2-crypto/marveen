@@ -96,3 +96,25 @@ export function setDisplayLabel(rel: string, name: string): SetLabelResult {
   save(map)
   return { ok: true, message: `A mappa mostantol "${trimmed}" neven latszik.` }
 }
+
+/**
+ * A folder moved (or was renamed): its labels -- and those of everything
+ * under it -- follow it. Without this a moved folder silently loses its
+ * display name, and a stray entry stays behind on a path that no longer
+ * exists. Returns how many labels moved.
+ */
+export function moveDisplayLabels(fromRel: string, toRel: string): number {
+  const from = normRel(fromRel)
+  const to = normRel(toRel)
+  if (!from || !to || from === to) return 0
+  const map = { ...load() }
+  let moved = 0
+  for (const key of Object.keys(map)) {
+    if (key !== from && !key.startsWith(from + '/')) continue
+    map[to + key.slice(from.length)] = map[key]
+    delete map[key]
+    moved++
+  }
+  if (moved) save(map)
+  return moved
+}

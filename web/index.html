@@ -3221,6 +3221,17 @@
           MINDENKI teljesen megkapja — akkor is, ha ma még üres —, mert egy
           hiányzó mappa miatt az irat a rossz helyre kerül.
         </p>
+        <div style="border:1px solid var(--border,#3336);border-radius:8px;padding:10px;margin-bottom:10px">
+          <label for="intezoPersonsGroup" style="font-weight:600" data-i18n="intezo.cfg_group_label">Közös mappa a személyeknek (nem kötelező)</label>
+          <input type="text" id="intezoPersonsGroup" style="width:100%;margin-top:6px"
+                 data-i18n-placeholder="intezo.cfg_group_ph" placeholder="például: Család">
+          <p class="subtitle" style="margin-top:6px" data-i18n="intezo.cfg_group_hint">
+            Ha ide beírsz egy nevet (például „Család"), minden személy mappája ez alá kerül, és a
+            gyökérben csak egy mappa lesz helyettük. Ha üresen hagyod, a személyek közvetlenül a
+            gyökérben állnak. Ha már vannak mappáid, mentés előtt megmutatom, mi hova költözik, és
+            csak a jóváhagyásod után mozgatok. Semmi nem törlődik.
+          </p>
+        </div>
         <div id="intezoPersons"></div>
         <button class="btn-secondary" id="intezoAddPersonBtn" data-i18n="intezo.cfg_add_person">+ Személy</button>
 

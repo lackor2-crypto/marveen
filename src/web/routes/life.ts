@@ -37,7 +37,7 @@ import {
   inboxCount, safeLifeName, newLifeId, lifeName, lifeConfigExists, inboxDir,
   PERSON_CATEGORIES, COMPANY_CATEGORIES, MEDIA_COUNTRY_KEY, MEDIA_KINDS,
   defaultCountrySplit, defaultCompanyCountrySplit, defaultMediaKinds, defaultMediaGroups,
-  sanitizeCustodianIds,
+  sanitizeCustodianIds, personRel,
   type LifeConfig, type LifePerson, type LifeCompany, type LifeProject,
 } from '../../life-tree.js'
 import { inboxStatus, inboxChainStep, inboxPreview, inboxFile } from '../../life-inbox.js'
@@ -68,6 +68,7 @@ import { listMounts, addMount, removeMount, mountsOverview, updateMountNote } fr
 import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
+import { planPersonsGroupMove, applyPersonsGroupMove } from '../../life-persons-group.js'
 import type { RouteContext } from './types.js'
 
 // A valasz nyelve a FELULETET koveti (`?lang=`), nem a telepitest. A lemezen
@@ -236,10 +237,53 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/life/config' && method === 'POST') {
     const body = await readJson(req)
-    const parsed = parseConfig(body)
+    const lang = uiLang(url)
+    const parsed = parseConfig(body, lang)
     if (typeof parsed === 'string') {
       send(res, 400, { error: 'bad_config', message: parsed })
       return true
+    }
+    // THE PERSONS' COMMON FOLDER CHANGED: the existing person folders must move
+    // with it, or the next build makes a second, empty tree beside them. Never
+    // silently: first the list (what moves where), and only an explicit
+    // `confirmGroupMove` from the user moves anything.
+    const current = loadLifeConfig()
+    const groupPlan = planPersonsGroupMove(current, parsed)
+    if (groupPlan.moves.length) {
+      const conflicts = groupPlan.moves.filter((m) => m.conflict)
+      if (conflicts.length) {
+        send(res, 409, {
+          error: 'group_move_conflict',
+          moves: groupPlan.moves,
+          message: T(lang,
+            `Nem költöztetek, mert a célhelyen már van ilyen nevű mappa: ${conflicts.map((m) => m.to).join(', ')}. Nézd meg, mi van benne, és nevezd át vagy tedd át kézzel -- nem írok felül semmit.`,
+            `I will not move anything: a folder with that name already exists at the target: ${conflicts.map((m) => m.to).join(', ')}. Check what is inside and rename or move it by hand -- I never overwrite.`),
+        })
+        return true
+      }
+      if (body?.confirmGroupMove !== true) {
+        send(res, 200, {
+          ok: false,
+          needsConfirm: 'personsGroup',
+          moves: groupPlan.moves,
+          message: T(lang,
+            `Ehhez ${groupPlan.moves.length} mappát kell átköltöztetnem, a tartalmukkal együtt. Semmi nem törlődik, csak a helyük változik.`,
+            `This needs ${groupPlan.moves.length} folders moved, with their contents. Nothing is deleted, only their place changes.`),
+        })
+        return true
+      }
+      const moved = applyPersonsGroupMove(groupPlan)
+      if (!moved.ok) {
+        const f = moved.failed[0]
+        send(res, 500, {
+          error: 'group_move_failed',
+          failed: moved.failed,
+          message: T(lang,
+            `Nem sikerült átköltöztetni: ${f?.from} -> ${f?.to} (${f?.error}). ${moved.rolledBack ? 'A már áthelyezett mappákat visszatettem, minden a régi helyén van.' : 'Semmi nem mozdult.'} A beállítást nem mentettem el.`,
+            `Could not move ${f?.from} -> ${f?.to} (${f?.error}). ${moved.rolledBack ? 'The folders already moved were put back, everything is where it was.' : 'Nothing moved.'} The setting was not saved.`),
+        })
+        return true
+      }
     }
     saveLifeConfig(parsed)
     // Szandekosan NEM hozzuk letre automatikusan az uj mappakat: a felhasznalo
@@ -943,7 +987,7 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
  * baj vele. Azert szigoru, mert ezekbol a nevekbol MAPPAK lesznek a lemezen: a
  * hibat itt olcso megfogni, egy felig letrehozott fanal mar nem az.
  */
-function parseConfig(body: any): LifeConfig | string {
+function parseConfig(body: any, lang: string = APP_LANG): LifeConfig | string {
   if (!body || typeof body !== 'object') return 'Nem érkezett adat.'
   const personsIn = Array.isArray(body.persons) ? body.persons : null
   const companiesIn = Array.isArray(body.companies) ? body.companies : []
@@ -1002,7 +1046,27 @@ function parseConfig(body: any): LifeConfig | string {
     seen.add(key)
   }
 
-  return { persons, companies }
+  // The persons' common folder ("Család"). Empty = the persons stay at the
+  // root. It becomes a real folder at the root, so it may not take the name
+  // of a fixed branch (Cégek, Archív, ...) or of a person/company -- the
+  // persons would land inside that branch.
+  const groupRaw = String(body.personsGroup ?? '').trim()
+  let personsGroup = ''
+  if (groupRaw) {
+    if (/[\\/]/.test(groupRaw)) return T(lang, 'A közös mappa neve nem tartalmazhat per-jelet.', 'The common folder name cannot contain a slash.')
+    personsGroup = safeLifeName(groupRaw)
+    if (personsGroup === '_') return T(lang, `Ez a név nem használható mappanévnek: ${groupRaw}`, `This name cannot be used as a folder name: ${groupRaw}`)
+    const fixed = ['companies', 'knowledge', 'digital', 'inbox', 'shared', 'archive', 'system']
+      .flatMap((k) => [lifeName(k, APP_LANG), lifeName(k, lang)])
+      .map((x) => x.toLowerCase())
+    if (fixed.includes(personsGroup.toLowerCase()) || seen.has(personsGroup.toLowerCase())) {
+      return T(lang,
+        `A közös mappa neve nem lehet „${personsGroup}", mert már van ilyen nevű ág vagy személy. Válassz másikat, például „Család".`,
+        `The common folder cannot be called "${personsGroup}": a branch or person already has that name. Pick another, for example "Family".`)
+    }
+  }
+
+  return { persons, companies, personsGroup }
 }
 
 /**
