@@ -12,8 +12,9 @@
 #
 # This guard is the missing "deploy" step, run on a timer: fetch origin/main,
 # and IF it advanced past what is materialized on disk (or dist/ is older than
-# the sources), materialize the new tree, rebuild, and restart the dashboard
-# through systemd -- then verify the app actually answers.
+# the sources, or node_modules is older than the lockfile), materialize the new
+# tree, install dependencies, rebuild, and restart the dashboard through
+# systemd -- then verify the app actually answers.
 #
 # Deliberately conservative, in the spirit of dashboard-health-guard.sh:
 #   - Never touches the working tree if it has LOCAL edits to tracked files:
@@ -21,6 +22,9 @@
 #     clobbered by an automatic pull. It logs loudly and skips instead.
 #   - Only ever fast-forwards to origin/main. It does not merge, rebase, force,
 #     or move to any other ref.
+#   - Installs dependencies when the lockfile moved, BEFORE building: `npm run
+#     build` installs nothing, so a commit that adds a package used to go live
+#     with that package missing from node_modules.
 #   - Builds BEFORE restarting. A broken build leaves the old, working dist/ and
 #     the running service untouched -- a bad commit cannot take the app down.
 #   - Single-flight (flock): overlapping timer ticks, or a tick during a manual
@@ -152,11 +156,37 @@ elif [ -n "$(find "$ROOT/src" -name '*.ts' -newer "$ROOT/dist/index.js" -print -
   NEED_BUILD=1
 fi
 
+# Dependency staleness. `npm run build` does NOT install anything, so a commit
+# that ADDS a dependency used to land, build and restart while the package was
+# missing from node_modules -- the feature then 404'd/threw at runtime on the
+# live install only, with a green deploy log. (Found while landing pdfjs-dist,
+# kanban f7d423e7: the browser asked /vendor/pdfjs/... and got "not installed".)
+#
+# The measure is the INSTALLED state, not a recorded sha: npm writes
+# node_modules/.package-lock.json on every successful install, mirroring what is
+# actually on disk. If the lockfile is newer than that mirror (or the mirror is
+# missing), the install did not happen yet -- and it STAYS true until an install
+# succeeds, so a failed tick retries instead of being forgotten. Same idiom as
+# the dist/ staleness check above.
+#
+# Only meaningful where there is a package.json at all; an install without one
+# is not a thing, and we must not invent work for a repo that has no npm side.
+deps_stale() {
+  [ -f "$ROOT/package.json" ] || return 1
+  [ -d "$ROOT/node_modules" ] || return 0
+  [ -f "$ROOT/node_modules/.package-lock.json" ] || return 0
+  [ -f "$ROOT/package-lock.json" ] || return 1
+  [ "$ROOT/package-lock.json" -nt "$ROOT/node_modules/.package-lock.json" ] && return 0
+  return 1
+}
+NEED_INSTALL=0
+deps_stale && NEED_INSTALL=1
+
 # --- Nothing to build or restart? -------------------------------------------
 # If the disk already matches origin/main AND dist/ is fresh, the running app is
 # current -- do not restart it. Just record the baseline sha (so a first run, or
 # one after a manual deploy like this host's, does not churn on the next tick).
-if [ -z "$TREE_DIFF" ] && [ "$NEED_BUILD" = "0" ]; then
+if [ -z "$TREE_DIFF" ] && [ "$NEED_BUILD" = "0" ] && [ "$NEED_INSTALL" = "0" ]; then
   if [ "$TARGET" != "$DEPLOYED" ]; then
     printf '%s\n' "$TARGET" > "$SHA_FILE" 2>/dev/null || true
     log "already current at $SHORT (disk matches origin/main, dist fresh) -- recorded baseline, no restart."
@@ -212,7 +242,7 @@ fi
 
 # --- 3. Materialize origin/main onto the live checkout. ---------------------
 IS_BARE="$(git --git-dir="$GIT_DIR" config --get core.bare 2>/dev/null || echo false)"
-log "deploying $DEPLOYED..$SHORT (bare=$IS_BARE, tree_diff=$([ -n "$TREE_DIFF" ] && echo yes || echo no), need_build=$NEED_BUILD)"
+log "deploying $DEPLOYED..$SHORT (bare=$IS_BARE, tree_diff=$([ -n "$TREE_DIFF" ] && echo yes || echo no), need_build=$NEED_BUILD, need_install=$NEED_INSTALL)"
 
 if [ "$IS_BARE" = "true" ]; then
   # Bare top-level that hosts .worktrees/: flipping core.bare would evict the
@@ -231,7 +261,23 @@ else
   fi
 fi
 
-# --- 4. Build BEFORE restart. A broken build must not take the app down. ----
+# --- 4. Install dependencies BEFORE the build, if the lockfile moved. -------
+# Re-measured AFTER materializing, because the new package-lock.json only exists
+# on disk now. `npm install` (not `npm ci`) on purpose: ci wipes node_modules,
+# and on a host whose agent worktrees symlink into it that is a much bigger
+# hammer than the job needs. A failed install aborts BEFORE the build, so the
+# previous working dist/ and the running service stay untouched.
+INSTALL_CMD="${MARVEEN_DEPLOY_INSTALL_CMD:-npm install --no-audit --no-fund}"
+if deps_stale; then
+  log "dependencies are stale (package-lock.json newer than node_modules) -- running: $INSTALL_CMD"
+  if ! ( cd "$ROOT" && bash -c "$INSTALL_CMD" ) >>"$LOG" 2>&1; then
+    log "DEPENDENCY INSTALL FAILED for $SHORT -- NOT building or restarting; the previous working dist/ stays live."
+    alert "Marveen deploy: a fuggosegek telepitese elbukott a(z) $SHORT commitnal, a regi build fut tovabb. Nezd meg: store/deploy.log."
+    exit 0
+  fi
+fi
+
+# --- 5. Build BEFORE restart. A broken build must not take the app down. ----
 # Build and restart commands are overridable so tests can exercise the git and
 # decision logic without npm/systemd; the defaults are the real thing.
 BUILD_CMD="${MARVEEN_DEPLOY_BUILD_CMD:-npm run build}"
@@ -246,14 +292,14 @@ fi
 # retries next time instead of marking a half-deploy as done.
 printf '%s\n' "$TARGET" > "$SHA_FILE" 2>/dev/null || true
 
-# --- 5. Restart through systemd (never a hand-rolled node process). ---------
+# --- 6. Restart through systemd (never a hand-rolled node process). ---------
 if ! bash -c "$RESTART_CMD" 2>>"$LOG"; then
   log "restart FAILED for $SHORT ($RESTART_CMD)."
   alert "Marveen deploy: a $UNIT ujrainditasa nem sikerult ($SHORT). store/deploy.log."
   exit 0
 fi
 
-# --- 6. Verify the app actually came back. ----------------------------------
+# --- 7. Verify the app actually came back. ----------------------------------
 if [ "${MARVEEN_DEPLOY_SKIP_HEALTH:-0}" = "1" ]; then
   log "DEPLOYED $SHORT (health check skipped by MARVEEN_DEPLOY_SKIP_HEALTH)."
   exit 0

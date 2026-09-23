@@ -272,6 +272,37 @@ describe('ketnyelvuseg', () => {
   })
 })
 
+describe('PDF-nezegeto -- sajat gepbol, nem CDN-rol (kartya f7d423e7)', () => {
+  it('a konyvtar es minden futasideju adata a SAJAT kiszolgalonkrol jon', () => {
+    // Friss, HALOZAT NELKULI telepitesen a CDN-es megoldas uresen hagyna az
+    // elonezetet -- ezert egyetlen kulso gazdagepre mutato ut sem lehet benne.
+    const pdfPart = SRC.slice(SRC.indexOf('PDFJS_LIB_URL'), SRC.indexOf('rajzvaszon (9. fazis, spec 9)'))
+    expect(pdfPart).toContain("'/vendor/pdfjs/build/pdf.min.mjs'")
+    expect(pdfPart).toContain("'/vendor/pdfjs/build/pdf.worker.min.mjs'")
+    expect(pdfPart).not.toMatch(/https?:\/\//)
+    expect(pdfPart).not.toMatch(/cdn|unpkg|jsdelivr|cloudflare/i)
+    // A menet kozben toltodo adatok (karakterkeszlet-terkep, betutipus, wasm,
+    // szinprofil) is a sajat vegpontrol -- ezek nelkul ures folt lenne a helyuk.
+    for (const opt of ['cMapUrl', 'standardFontDataUrl', 'wasmUrl', 'iccUrl']) {
+      expect(pdfPart).toContain(opt)
+    }
+  })
+
+  it('a betoltes-hiba okat MEGKERDEZI a kiszolgalotol, nem talalja ki', () => {
+    expect(SRC).toContain('pdfWhyLibFailed')
+    // A 404 torzsebol olvassa ki az ember altal olvashato mondatot.
+    expect(SRC).toMatch(/body && body\.message/)
+    // Es ha a kiszolgalot sem eri el, AZT mondja ki, nem gyart okot.
+    expect(SRC).toContain('workbench.pdf.failed_offline')
+  })
+
+  it('a konyvtar csak keresre toltodik be (amig nem nezel PDF-et, nulla bajt)', () => {
+    // Nincs felso szintu import: a betoltes a pdfLoadLib()-ben, dinamikusan tortenik.
+    expect(SRC).not.toMatch(/^\s*import\s/m)
+    expect(SRC).toContain('import(PDFJS_LIB_URL)')
+  })
+})
+
 describe('agent-chat (3. fazis)', () => {
   function sse(events: unknown[]): string {
     return events.map((e) => `event: ${(e as { type: string }).type}\ndata: ${JSON.stringify(e)}\n\n`).join('')
@@ -666,17 +697,26 @@ async function openPreview(preview: Record<string, unknown>, versions: unknown[]
 }
 
 describe('elonezet -- a kozepso panel (4. fazis)', () => {
-  it('PDF: a bongeszo maga mutatja meg (iframe), es van "uj lapon" ut is', async () => {
+  it('PDF: a SAJAT nezegetonk helye all ott (nem a bongesze), es van "uj lapon" ut is', async () => {
     await openPreview({
       available: true, kind: 'pdf', mime: 'application/pdf', name: 'ajanlat.pdf',
       rel: 'Projektek/teszt/ajanlat.pdf', reason: null, message: null,
       url: '/api/life/file?rel=Projektek%2Fteszt%2Fajanlat.pdf&lang=hu',
     })
     const html = h.rootEl.innerHTML
-    expect(html).toContain('<iframe class="wb-preview-frame"')
+    // A nezegeto HELYE kerul a HTML-be; a lapokat a render() utan futo
+    // pdfMount() teszi bele, mert a kirajzolt lapoknak TUL kell elniuk az
+    // ujrarajzolast. Iframe (a bongeszo sajat nezegetoje) tobbe nincs: az
+    // bongeszonkent maskepp nezett ki (kartya f7d423e7).
+    expect(html).toContain('class="wb-pdf-slot"')
+    expect(html).not.toContain('<iframe')
+    expect(html).toContain('data-wb-pdf="/api/life/file?rel=')
     // A bajtokat a MEGLEVO fajl-kiszolgalo adja: nincs masodik fajl-ut.
     expect(html).toContain('/api/life/file?rel=')
     expect(html).toContain('workbench.preview.open_new_tab')
+    // A letoltes-ut megmarad: ha a nezegeto barmiert nem indul, a fajlhoz
+    // a felhasznalo akkor is hozzafer.
+    expect(html).toContain('workbench.preview.download')
     expect(html).toContain('ajanlat.pdf')
   })
 
@@ -874,7 +914,7 @@ describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
     message: 'Ezt a dokumentumot PDF-fé alakítva tudom megmutatni.',
   }
 
-  it('kesz PDF: iframe + KIMONDJUK, hogy ez a belole keszult PDF, es mindketto letoltheto', async () => {
+  it('kesz PDF: a sajat nezegetonk + KIMONDJUK, hogy ez a belole keszult PDF, es mindketto letoltheto', async () => {
     await openPreview({
       available: true, kind: 'office', mime: 'application/pdf', name: 'szerzodes.docx',
       rel: 'Projektek/teszt/szerzodes.docx', reason: null, message: null,
@@ -882,7 +922,8 @@ describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
       url: '/api/workbench/items/w1/converted?lang=hu',
     })
     const html = h.rootEl.innerHTML
-    expect(html).toContain('<iframe class="wb-preview-frame"')
+    expect(html).toContain('class="wb-pdf-slot"')
+    expect(html).not.toContain('<iframe')
     expect(html).toContain('/api/workbench/items/w1/converted?lang=hu')
     // Nem hallgatjuk el, hogy ez mar az atalakitott valtozat.
     expect(html).toContain('workbench.preview.office_from_pdf')
@@ -924,7 +965,7 @@ describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
       return { status: 200, body: previewDetail([]) }
     })
     h.click({ 'data-wb-act': 'preview-convert' })
-    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<iframe class="wb-preview-frame"'))
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('class="wb-pdf-slot"'))
     expect(h.toasts.join(' ')).toContain('workbench.preview.converted')
     expect(h.fetchCalls.some((c) => c.url.indexOf('/convert') > 0)).toBe(true)
   })

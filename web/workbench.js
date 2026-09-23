@@ -60,6 +60,13 @@
     canvasBusy: false,
     canvasEdit: null,
     canvasStamp: null,
+    // --- PDF-nezegeto (kartya f7d423e7) ---
+    // A kirajzolt lapok DOM-csomopontja TULELI a render()-t, ezert itt all,
+    // nem a felulet HTML-jeben. A `pdfLib === null` = meg nem kertuk le a
+    // konyvtarat; a betoltes HIBAJA kulon, a `pdf.error`-ban latszik.
+    pdf: null,
+    pdfLib: null,
+    pdfLibPromise: null,
     // --- elonezet (4. fazis) ---
     preview: null,
     previewVersion: null,
@@ -321,7 +328,7 @@
     // IRODAI DOKUMENTUM (7. fazis): amit latsz, az a belole keszult PDF -- ezt
     // KI IS MONDJUK, hogy senki ne higgye, hogy a .docx-et szerkeszti itt.
     if (p.kind === 'office') {
-      return '<iframe class="wb-preview-frame" src="' + escA(p.url) + '" title="' + escA(p.name || t('workbench.preview.title')) + '"></iframe>'
+      return pdfSlotHtml(p.url)
         + '<p class="wb-hint">' + esc(t('workbench.preview.office_from_pdf')) + '</p>'
         + '<p class="wb-hint"><a href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">'
         + esc(t('workbench.preview.office_download_pdf')) + '</a>'
@@ -332,8 +339,9 @@
         + '</p>'
     }
     if (p.kind === 'pdf') {
-      return '<iframe class="wb-preview-frame" src="' + escA(p.url) + '" title="' + escA(p.name || t('workbench.preview.title')) + '"></iframe>'
-        + '<p class="wb-hint"><a href="' + escA(p.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a></p>'
+      return pdfSlotHtml(p.url)
+        + '<p class="wb-hint"><a href="' + escA(p.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a>'
+        + ' &middot; <a href="' + escA(p.url) + '&download=1" target="_blank" rel="noopener">' + esc(t('workbench.preview.download')) + '</a></p>'
     }
     if (p.kind === 'canvas') {
       // A rajzot a SZERVER rajzolja ki SVG-be: a bongeszonek nem kell hozza
@@ -399,6 +407,375 @@
         + '</div>'
     }
     return '<div class="wb-preview">' + head + previewBodyHtml(p) + '</div>'
+  }
+
+
+  // ---- PDF-NEZEGETO (kartya f7d423e7) ---------------------------------------
+  //
+  // MIERT NEM A BONGESZO SAJAT NEZEGETOJE (a korabbi `<iframe>`): minden
+  // bongeszo mast mutat -- mas eszkozsav, mas gorgetes, van, amelyik le se
+  // rajzolja, csak letoltest ajanl. A tulajdonos EGYSEGES nezetet kert, ezert a
+  // lapokat mi magunk rajzoljuk ki a pdf.js-sel.
+  //
+  // MIERT NEM CDN-ROL: a pdf.js a SAJAT kiszolgalonkrol jon (`/vendor/pdfjs/`,
+  // a `pdfjs-dist` csomagbol), igy egy frissen telepitett, halozat nelkuli
+  // gepen is mukodik. Ha a csomag nincs fent, azt KIMONDJUK a potlo paranccsal
+  // egyutt -- a szerver 404-enek a TORZSEBOL olvassuk ki az okot, nem
+  // talalgatunk.
+  //
+  // MIERT KULON DOM-CSOMOPONT: a `render()` az egesz felulet innerHTML-jet
+  // ujraepiti (egy gepelés a chatben is ujrarajzol). Ha a kirajzolt lapok abban
+  // ulnenek, minden billentyuleutesnel ujra kellene rajzolni oket. Ezert a
+  // nezegeto sajat, TARTOS csomopontban el, amit a render() utan egyszeruen
+  // visszateszunk a helyere.
+
+  /** A nezegeto HELYE a felulet HTML-jeben. Ures marad: a tartalmat a
+   *  render() utan futo `pdfMount()` teszi bele, mert a kirajzolt lapoknak
+   *  TUL kell elniuk az ujrarajzolast. */
+  function pdfSlotHtml(url) {
+    return '<div class="wb-pdf-slot" data-wb-pdf="' + escA(url) + '"></div>'
+  }
+
+  var PDFJS_LIB_URL = '/vendor/pdfjs/build/pdf.min.mjs'
+  var PDFJS_WORKER_URL = '/vendor/pdfjs/build/pdf.worker.min.mjs'
+  var PDFJS_VENDOR_BASE = '/vendor/pdfjs/'
+  /** Nagyitas-fokozatok. A "lapszelesseg" (fit) kulon allapot, nem fokozat. */
+  var PDF_ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
+  /** Ennel tobb lapot nem rajzolunk ki egyszerre elore, ha nincs
+   *  IntersectionObserver: egy 900 oldalas PDF kulonben megfogna a bongeszot. */
+  var PDF_EAGER_PAGES = 5
+
+  /** Van-e annyi DOM, amennyi a nezegetohoz kell. A teszt-kornyezet (es egy
+   *  nagyon regi bongeszo) keveset ad: ott a nezegeto NEM indul el, es a
+   *  felulet tobbi resze valtozatlanul mukodik. */
+  function pdfDomOk() {
+    return !!(typeof document !== 'undefined' && document.createElement && document.querySelector)
+  }
+
+  /** A pdf.js konyvtar betoltese -- egyszer, keresre. Amig nem nezel PDF-et,
+   *  egyetlen bajt sem toltodik le belole. */
+  function pdfLoadLib() {
+    if (WB.pdfLib) return Promise.resolve(WB.pdfLib)
+    if (WB.pdfLibPromise) return WB.pdfLibPromise
+    WB.pdfLibPromise = import(PDFJS_LIB_URL).then(function (mod) {
+      var lib = (mod && mod.getDocument) ? mod : (mod && mod.default) || mod
+      if (!lib || !lib.getDocument) throw new Error('pdfjs_shape')
+      lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL
+      WB.pdfLib = lib
+      return lib
+    }).catch(function (err) {
+      // A kovetkezo probalkozas induljon tisztan.
+      WB.pdfLibPromise = null
+      // NEM TALALGATUNK: megkerdezzuk magat a forrast, mi a baj.
+      return pdfWhyLibFailed().then(function (why) { throw why })
+    })
+    return WB.pdfLibPromise
+  }
+
+  /** A betoltes-hiba VALODI oka. A kiszolgalo 404-e JSON-t ad, benne az ember
+   *  altal olvashato mondattal (nincs telepitve a csomag -> potlo parancs). Ha
+   *  ezt sem erjuk el, azt mondjuk ki, hogy nem tudjuk -- nem gyartunk okot. */
+  function pdfWhyLibFailed() {
+    var url = PDFJS_LIB_URL + '?lang=' + encodeURIComponent(window._lang || 'hu')
+    return fetch(url).then(function (res) {
+      if (res.status === 404) {
+        return res.json().then(function (body) {
+          return {
+            message: (body && body.message) || t('workbench.pdf.failed'),
+            detail: (body && body.detail) || '',
+          }
+        }).catch(function () {
+          return { message: t('workbench.pdf.failed'), detail: '' }
+        })
+      }
+      return { message: t('workbench.pdf.failed'), detail: t('workbench.pdf.failed_http', { status: res.status }) }
+    }).catch(function () {
+      return { message: t('workbench.pdf.failed'), detail: t('workbench.pdf.failed_offline') }
+    })
+  }
+
+  function pdfState() {
+    if (!WB.pdf) {
+      WB.pdf = {
+        url: null, host: null, pagesEl: null, doc: null, pages: 0,
+        zoom: 1, fit: true, error: null, detail: null, loading: false, seq: 0,
+        rendered: null, observer: null, current: 1,
+      }
+    }
+    return WB.pdf
+  }
+
+  /** Mindent elenged, ami az elozo dokumentumhoz tartozott. */
+  function pdfReset() {
+    var s = pdfState()
+    s.seq += 1
+    if (s.observer && s.observer.disconnect) { try { s.observer.disconnect() } catch (e) {} }
+    if (s.doc && s.doc.destroy) { try { s.doc.destroy() } catch (e) {} }
+    s.url = null; s.host = null; s.pagesEl = null; s.doc = null; s.pages = 0
+    s.error = null; s.detail = null; s.loading = false; s.rendered = null
+    s.observer = null; s.current = 1
+  }
+
+  /** A `render()` utan: a helyorzobe visszatesszuk a tartos nezegetot, vagy
+   *  (uj dokumentumnal) elindítjuk a betoltest. */
+  function pdfMount() {
+    if (!pdfDomOk()) return
+    var slot = document.querySelector('[data-wb-pdf]')
+    if (!slot) {
+      // Nincs PDF a kepernyon: a memoriat sem tartjuk feleslegesen.
+      if (WB.pdf && WB.pdf.url) pdfReset()
+      return
+    }
+    var url = slot.getAttribute('data-wb-pdf')
+    var s = pdfState()
+    if (s.url !== url) { pdfReset(); s = pdfState(); s.url = url; pdfBuildHost(); pdfOpen(url) }
+    if (s.host && s.host.parentNode !== slot) slot.appendChild(s.host)
+  }
+
+  /** A tartos csomopont: eszkozsav + lapok. Egyszer epul fel, utana csak a
+   *  tartalma valtozik -- ezert nem vesznek el a mar kirajzolt lapok. */
+  function pdfBuildHost() {
+    var s = pdfState()
+    var host = document.createElement('div')
+    host.className = 'wb-pdf'
+    var bar = document.createElement('div')
+    bar.className = 'wb-pdf-bar'
+    bar.innerHTML = '<button type="button" class="wb-pdf-btn" data-pdf="prev" title="' + escA(t('workbench.pdf.prev')) + '">&#8249;</button>'
+      + '<span class="wb-pdf-pos" data-pdf-pos></span>'
+      + '<button type="button" class="wb-pdf-btn" data-pdf="next" title="' + escA(t('workbench.pdf.next')) + '">&#8250;</button>'
+      + '<span class="wb-pdf-sep"></span>'
+      + '<button type="button" class="wb-pdf-btn" data-pdf="out" title="' + escA(t('workbench.pdf.zoom_out')) + '">&minus;</button>'
+      + '<span class="wb-pdf-zoom" data-pdf-zoom></span>'
+      + '<button type="button" class="wb-pdf-btn" data-pdf="in" title="' + escA(t('workbench.pdf.zoom_in')) + '">+</button>'
+      + '<button type="button" class="wb-pdf-btn" data-pdf="fit">' + esc(t('workbench.pdf.fit_width')) + '</button>'
+    var pages = document.createElement('div')
+    pages.className = 'wb-pdf-pages'
+    host.appendChild(bar)
+    host.appendChild(pages)
+    // Sajat figyelo: a nagyitas NE rajzolja ujra az egesz Munkapadot.
+    bar.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-pdf]') : null
+      if (!btn) return
+      pdfToolbarAction(btn.getAttribute('data-pdf'))
+    })
+    // A gorgetes mondja meg, hanyadik lapot latod eppen.
+    pages.addEventListener('scroll', function () { pdfSyncPosition() })
+    s.host = host
+    s.pagesEl = pages
+    s.barEl = bar
+  }
+
+  function pdfToolbarAction(what) {
+    var s = pdfState()
+    if (!s.doc) return
+    if (what === 'prev') { pdfGoTo(s.current - 1); return }
+    if (what === 'next') { pdfGoTo(s.current + 1); return }
+    if (what === 'fit') { s.fit = true; pdfRelayout(); return }
+    var i = PDF_ZOOMS.indexOf(s.zoom)
+    if (i < 0) i = PDF_ZOOMS.indexOf(1)
+    if (what === 'in') i = Math.min(PDF_ZOOMS.length - 1, i + 1)
+    if (what === 'out') i = Math.max(0, i - 1)
+    s.fit = false
+    s.zoom = PDF_ZOOMS[i]
+    pdfRelayout()
+  }
+
+  function pdfGoTo(n) {
+    var s = pdfState()
+    if (!s.pagesEl || n < 1 || n > s.pages) return
+    var el = s.pagesEl.querySelector('[data-pdf-page="' + n + '"]')
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' })
+    s.current = n
+    pdfUpdateBar()
+  }
+
+  /** Melyik lap van a nezet tetejen. A gorgetesbol szamoljuk, nem tippelunk. */
+  function pdfSyncPosition() {
+    var s = pdfState()
+    if (!s.pagesEl) return
+    var kids = s.pagesEl.children
+    var top = s.pagesEl.scrollTop
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].offsetTop + kids[i].offsetHeight > top + 8) {
+        var n = parseInt(kids[i].getAttribute('data-pdf-page'), 10)
+        if (n && n !== s.current) { s.current = n; pdfUpdateBar() }
+        return
+      }
+    }
+  }
+
+  function pdfUpdateBar() {
+    var s = pdfState()
+    if (!s.barEl) return
+    var pos = s.barEl.querySelector('[data-pdf-pos]')
+    var zoom = s.barEl.querySelector('[data-pdf-zoom]')
+    if (pos) pos.textContent = s.pages ? t('workbench.pdf.page_of', { n: s.current, total: s.pages }) : ''
+    if (zoom) zoom.textContent = s.fit ? t('workbench.pdf.fit_short') : Math.round(s.zoom * 100) + '%'
+  }
+
+  /** A dokumentum megnyitasa. Hiba eseten a nezegeto helyen EMBERI mondat all,
+   *  es ott a letoltes-ut is: a fajljahoz a felhasznalo akkor is hozzafer. */
+  function pdfOpen(url) {
+    var s = pdfState()
+    var mySeq = s.seq
+    s.loading = true
+    pdfShowMessage(t('workbench.pdf.loading'), '')
+    pdfLoadLib().then(function (lib) {
+      if (s.seq !== mySeq) return null
+      return lib.getDocument({
+        url: url,
+        // A pdf.js ezekbol tolti be a karakterkeszlet-terkepeket, a beepitett
+        // betutipusokat es a kep-dekodereket. Enelkul a keleti szoveg es a
+        // be nem agyazott betutipus helyen ures folt lenne.
+        cMapUrl: PDFJS_VENDOR_BASE + 'cmaps/',
+        cMapPacked: true,
+        standardFontDataUrl: PDFJS_VENDOR_BASE + 'standard_fonts/',
+        wasmUrl: PDFJS_VENDOR_BASE + 'wasm/',
+        iccUrl: PDFJS_VENDOR_BASE + 'iccs/',
+      }).promise
+    }).then(function (doc) {
+      if (!doc || s.seq !== mySeq) return
+      s.doc = doc
+      s.pages = doc.numPages
+      s.loading = false
+      s.error = null
+      pdfBuildPages()
+    }).catch(function (err) {
+      if (s.seq !== mySeq) return
+      s.loading = false
+      s.error = (err && err.message) || t('workbench.pdf.failed')
+      s.detail = (err && err.detail) || ''
+      pdfShowMessage(s.error, s.detail)
+    })
+  }
+
+  function pdfShowMessage(message, detail) {
+    var s = pdfState()
+    if (!s.pagesEl) return
+    s.pagesEl.innerHTML = '<p class="wb-pdf-msg">' + esc(message) + '</p>'
+      + (detail ? '<p class="wb-pdf-detail">' + esc(detail) + '</p>' : '')
+    pdfUpdateBar()
+  }
+
+  /** Lap-helyek letrehozasa a VALODI meretekkel, majd a lathato lapok
+   *  kirajzolasa. A helyorzo azert kap pontos meretet, hogy a gorgeto ne
+   *  ugraljon, amikor egy lap elkeszul. */
+  function pdfBuildPages() {
+    var s = pdfState()
+    if (!s.doc || !s.pagesEl) return
+    s.rendered = {}
+    s.pagesEl.innerHTML = ''
+    var mySeq = s.seq
+    s.doc.getPage(1).then(function (page) {
+      if (s.seq !== mySeq) return
+      var base = page.getViewport({ scale: 1 })
+      s.baseW = base.width
+      s.baseH = base.height
+      for (var n = 1; n <= s.pages; n++) {
+        var d = document.createElement('div')
+        d.className = 'wb-pdf-page'
+        d.setAttribute('data-pdf-page', String(n))
+        s.pagesEl.appendChild(d)
+      }
+      pdfRelayout()
+    }).catch(function (err) {
+      if (s.seq !== mySeq) return
+      pdfShowMessage(t('workbench.pdf.failed'), (err && err.message) || '')
+    })
+  }
+
+  /** A megjelenitendo meretarany. "Lapszelesseg" eseten a panel szelessegehez
+   *  igazodik -- ha a panel szelesseget meg nem tudjuk (0), akkor 1-es
+   *  aranyt hasznalunk, es nem talalgatunk kepernyomeretet. */
+  function pdfScale() {
+    var s = pdfState()
+    if (!s.fit) return s.zoom
+    var w = s.pagesEl ? s.pagesEl.clientWidth : 0
+    if (!w || !s.baseW) return 1
+    return Math.max(0.2, (w - 24) / s.baseW)
+  }
+
+  /** Ujrameretezes: a mar kirajzolt lapokat eldobjuk, es a lathatokat ujra
+   *  rajzoljuk. Igy a nagyitas eles marad, nem felnagyitott kep. */
+  function pdfRelayout() {
+    var s = pdfState()
+    if (!s.pagesEl || !s.doc) return
+    var scale = pdfScale()
+    s.rendered = {}
+    var kids = s.pagesEl.children
+    for (var i = 0; i < kids.length; i++) {
+      kids[i].innerHTML = ''
+      kids[i].style.width = Math.round(s.baseW * scale) + 'px'
+      kids[i].style.height = Math.round(s.baseH * scale) + 'px'
+    }
+    pdfObserve()
+    pdfUpdateBar()
+  }
+
+  /** Csak azt rajzoljuk ki, ami lathato (vagy kozel van hozza). Ha a bongeszo
+   *  nem tud IntersectionObservert, az elso par lap jon, es gorgetesre a tobbi
+   *  -- nem marad ures a kepernyo. */
+  function pdfObserve() {
+    var s = pdfState()
+    if (s.observer && s.observer.disconnect) { try { s.observer.disconnect() } catch (e) {} }
+    s.observer = null
+    var kids = s.pagesEl.children
+    if (typeof IntersectionObserver === 'function') {
+      s.observer = new IntersectionObserver(function (entries) {
+        for (var i = 0; i < entries.length; i++) {
+          if (entries[i].isIntersecting) pdfDrawPage(parseInt(entries[i].target.getAttribute('data-pdf-page'), 10))
+        }
+      }, { root: s.pagesEl, rootMargin: '200px 0px' })
+      for (var j = 0; j < kids.length; j++) s.observer.observe(kids[j])
+      return
+    }
+    for (var k = 0; k < Math.min(kids.length, PDF_EAGER_PAGES); k++) pdfDrawPage(k + 1)
+    s.pagesEl.addEventListener('scroll', pdfDrawNearby)
+  }
+
+  function pdfDrawNearby() {
+    var s = pdfState()
+    if (!s.pagesEl) return
+    var kids = s.pagesEl.children
+    var top = s.pagesEl.scrollTop
+    var bottom = top + s.pagesEl.clientHeight + 400
+    for (var i = 0; i < kids.length; i++) {
+      if (kids[i].offsetTop + kids[i].offsetHeight >= top && kids[i].offsetTop <= bottom) {
+        pdfDrawPage(parseInt(kids[i].getAttribute('data-pdf-page'), 10))
+      }
+    }
+  }
+
+  function pdfDrawPage(n) {
+    var s = pdfState()
+    if (!n || !s.doc || !s.rendered || s.rendered[n]) return
+    s.rendered[n] = true
+    var mySeq = s.seq
+    var scale = pdfScale()
+    s.doc.getPage(n).then(function (page) {
+      if (s.seq !== mySeq) return
+      var holder = s.pagesEl.querySelector('[data-pdf-page="' + n + '"]')
+      if (!holder) return
+      // A kepernyo sursege (retina) nelkul a szoveg elmosodna.
+      var dpr = (window.devicePixelRatio || 1)
+      var viewport = page.getViewport({ scale: scale * dpr })
+      var canvas = document.createElement('canvas')
+      canvas.width = Math.round(viewport.width)
+      canvas.height = Math.round(viewport.height)
+      canvas.style.width = Math.round(viewport.width / dpr) + 'px'
+      canvas.style.height = Math.round(viewport.height / dpr) + 'px'
+      holder.innerHTML = ''
+      holder.appendChild(canvas)
+      return page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise
+    }).catch(function (err) {
+      if (s.seq !== mySeq) return
+      // EGY lap hibaja nem doli el az egesz dokumentumot: csak azt a lapot
+      // jelezzuk, a tobbi marad olvashato.
+      s.rendered[n] = false
+      var holder = s.pagesEl && s.pagesEl.querySelector('[data-pdf-page="' + n + '"]')
+      if (holder) holder.innerHTML = '<p class="wb-pdf-msg">' + esc(t('workbench.pdf.page_failed', { n: n })) + '</p>'
+        + '<p class="wb-pdf-detail">' + esc((err && err.message) || '') + '</p>'
+    })
   }
 
 
@@ -1333,6 +1710,9 @@
       var input = document.getElementById('wbNewTitle')
       if (input) input.focus()
     }
+    // A PDF-nezegeto csomopontja tulelte az ujrarajzolast: visszatesszuk a
+    // helyere (vagy uj dokumentumnal elinditjuk a betoltest).
+    pdfMount()
   }
 
   // ---- muveletek ------------------------------------------------------------

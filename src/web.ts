@@ -118,6 +118,7 @@ import { tryHandleSettings } from './web/routes/settings.js'
 import { tryHandleAuditLog } from './web/routes/audit-log.js'
 import { tryHandleFleetQ } from './web/routes/fleet-q.js'
 import { tryHandleStatic } from './web/routes/static.js'
+import { tryHandleVendor } from './web/routes/vendor.js'
 import { tryHandleVoice } from './web/routes/voice.js'
 import { tryHandleAutofill, isExtensionOrigin } from './web/routes/autofill.js'
 import { tryHandleVaultSsh } from './web/routes/vault-ssh.js'
@@ -304,6 +305,9 @@ export function startWebServer(port = 3420): http.Server {
       if (await tryHandleCode(routeCtx)) return
       if (await tryHandleFleet(routeCtx)) return
       if (await tryHandleBrowser(routeCtx)) return
+      // Harmadik feles bongeszo-eszkoz (pdf.js) a sajat kiszolgalonkrol --
+      // nem CDN-rol, hogy halozat nelkuli friss telepitesen is mukodjon.
+      if (tryHandleVendor(routeCtx)) return
       if (await tryHandleStatic(routeCtx, WEB_DIR)) return
 
       res.writeHead(404)
