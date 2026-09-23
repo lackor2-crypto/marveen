@@ -51,6 +51,11 @@ import {
 import {
   describeAllCapabilities, describeCapability, getCapability,
 } from '../../workbench-capabilities.js'
+import {
+  parseCanvas, applyCanvasOps, canvasSummary, canvasFileName,
+  CANVAS_MAX_OBJECTS, CANVAS_TEXT_MAX, CANVAS_MAX_SIZE,
+} from '../../workbench-graphic.js'
+import { readCanvas, saveCanvas, renderCanvasForItem } from '../../workbench-canvas-store.js'
 import { setOverride } from '../../settings-store.js'
 import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
@@ -257,6 +262,62 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ehhez a képességhez nem tartozik beállítható érték, így nincs mit menteni.',
     en: 'This capability has no value to set, so there is nothing to save.',
   },
+  canvas_bad_json: {
+    hu: 'A rajz fájlja sérült: nem értelmezhető adat áll benne. A korábbi verziók érintetlenek, azokból vissza lehet állni.',
+    en: 'The drawing file is damaged: it does not hold readable data. The earlier versions are untouched, you can go back to one of them.',
+  },
+  canvas_bad_shape: {
+    hu: 'Ez nem rajzvászon: szélesség, magasság és elem-lista kellene bele.',
+    en: 'This is not a canvas: it needs a width, a height and a list of objects.',
+  },
+  canvas_bad_object: {
+    hu: 'A vászon egyik eleme értelmezhetetlen. Elem csak szöveg, téglalap vagy kép lehet.',
+    en: 'One element of the canvas cannot be read. An element can only be a text, a rectangle or a picture.',
+  },
+  canvas_text_too_long: {
+    hu: 'Ez a szöveg túl hosszú egy rajz-elemhez. Vágd rövidebbre, vagy tedd több elembe.',
+    en: 'This text is too long for a drawing element. Make it shorter, or split it into several elements.',
+  },
+  canvas_too_many: {
+    hu: 'Túl sok elem van a vásznon. Törölj néhányat, vagy bontsd szét több rajzra.',
+    en: 'There are too many elements on the canvas. Remove some, or split it into several drawings.',
+  },
+  canvas_bad_ops: {
+    hu: 'Ezt a módosítást nem tudom értelmezni. A részletek megmondják, melyik lépéssel van a baj.',
+    en: 'I cannot read this change. The details say which step is the problem.',
+  },
+  canvas_object_not_found: {
+    hu: 'Nincs ilyen elem a vásznon. A részletek felsorolják, mi van rajta.',
+    en: 'There is no such element on the canvas. The details list what is on it.',
+  },
+  canvas_no_depot: {
+    hu: 'A rajz fájljához nem látok oda: nincs beállítva a Raktár ezen a gépen. Ez NEM azt jelenti, hogy a rajz elveszett: a Beállításoknál add meg a Raktár helyét.',
+    en: 'I cannot see the drawing file: the Depot is not set up on this machine. This does NOT mean the drawing is lost -- set the Depot folder in Settings.',
+  },
+  canvas_no_folder: {
+    hu: 'A rajz fájljához nem látok oda: ennek a projektnek még nincs mappája. A projekt adatlapján lehet mappát választani.',
+    en: 'I cannot see the drawing file: this project has no folder yet. You can pick one on the project page.',
+  },
+  canvas_missing: {
+    hu: 'A rajz fájlja nincs a helyén (átnevezés vagy áthelyezés után ez történik). A korábbi verziók megvannak.',
+    en: 'The drawing file is not where it should be (this happens after a rename or a move). The earlier versions are still there.',
+  },
+  canvas_unreachable: {
+    hu: 'A rajz fájlja most nem érhető el. Ez nem azt jelenti, hogy nincs meg: próbáld újra.',
+    en: 'The drawing file cannot be reached right now. That does not mean it is gone -- try again.',
+  },
+  canvas_unreadable: {
+    hu: 'A rajz fájlját nem sikerült beolvasni. A részletek a rendszer saját hibaüzenetét mutatják.',
+    en: 'The drawing file could not be read. The details show the system message itself.',
+  },
+  canvas_too_large: {
+    hu: 'A rajz fájlja túl nagy ahhoz, hogy megnyissam.',
+    en: 'The drawing file is too large to open.',
+  },
+  canvas_saved: {
+    hu: 'Mentve, új verzióként. A korábbi állapot megmaradt.',
+    en: 'Saved as a new version. The earlier state is kept.',
+  },
   capability_saved: {
     hu: 'Elmentve, és azonnal újra megmértem.',
     en: 'Saved, and measured again right away.',
@@ -273,6 +334,15 @@ function msg(code: string, lang: 'hu' | 'en'): string {
 function fail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en'): true {
   const m = MESSAGES[code]
   json(res, { error: code, message: m ? m[lang] : code }, status)
+  return true
+}
+
+/** Ugyanaz, mint a `fail`, de VISZI a rendszer sajat hibauzenetet is. A
+ *  `message` az EMBERI mondat, a `detail` a MERT tenyeknek a helye -- igy a
+ *  felhasznalo ertheto mondatot lat, es kozben nem tunik el, MI tortent
+ *  valojaban (a hiba okat sosem talaljuk ki helyette). */
+function failDetail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en', detail: string | null): true {
+  json(res, { error: code, message: msg(code, lang), detail: detail || null }, status)
   return true
 }
 
@@ -597,6 +667,92 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       // Ha a nev foglalt volt, a felulet MONDJA MEG, mi lett a fajl neve --
       // ne csak csendben mas neven alljon ott.
       renamed: out.renamed, name: out.name,
+    }, 201)
+    return true
+  }
+
+
+  // ============================================================================
+  // GRAFIKA / RAJZVASZON (9. fazis, spec 9)
+  //
+  //   GET  .../canvas       -- a vaszon adata (meg nincs rajz => URES vaszon,
+  //                            ami NEM hiba: ez a kezdoallapot)
+  //   PUT  .../canvas       -- a teljes vaszon mentese  -> UJ VERZIO
+  //   POST .../canvas/ops   -- STRUKTURALT modositas    -> UJ VERZIO
+  //   GET  .../canvas.svg   -- a vaszon KEPE (elonezet es letoltes)
+  //
+  // A strukturalt muveleteket ugyanaz a modul vegzi, amit az agent toolja hiv
+  // (`applyCanvasOps`), tehat a "tedd a cimet 30%-kal nagyobbra es kozepre"
+  // pontosan ugyanazt csinalja gombbal es agenssel.
+  // ============================================================================
+  if (segs.length === 2 && segs[1] === 'canvas' && method === 'GET') {
+    const r = readCanvas(item.id, url.searchParams.get('version'))
+    if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 409, r.code, lang, r.detail)
+    json(res, {
+      canvas: r.doc,
+      // A KET NULLA KULON: "meg nincs rajz" (exists=false) sosem keveredik
+      // ossze azzal, hogy "nem tudtam megnezni" (az fentebb hiba).
+      exists: r.exists,
+      rel: r.rel, name: r.name,
+      version_id: r.version_id, version_no: r.version_no,
+      limits: { max_objects: CANVAS_MAX_OBJECTS, text_max: CANVAS_TEXT_MAX, max_size: CANVAS_MAX_SIZE },
+      summary: canvasSummary(r.doc),
+    })
+    return true
+  }
+
+  if (segs.length === 2 && segs[1] === 'canvas.svg' && method === 'GET') {
+    const r = readCanvas(item.id, url.searchParams.get('version'))
+    if (!r.ok) return failDetail(res, r.code === 'not_found' ? 404 : 409, r.code, lang, r.detail)
+    const svg = renderCanvasForItem(item, r.doc)
+    const name = (r.name || canvasFileName(item.title)).replace(/\.canvas\.json$/i, '') + '.svg'
+    const download = url.searchParams.get('download') === '1'
+    res.writeHead(200, {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Content-Length': String(Buffer.byteLength(svg, 'utf-8')),
+      // Szemelyes tartalom: a bongeszo ne tarolja el. A kep a vaszonnal egyutt
+      // valtozik, egy elavult kep pont a most elvegzett modositast rejtene el.
+      'Cache-Control': 'private, no-store',
+      'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    })
+    res.end(svg)
+    return true
+  }
+
+  if (segs.length === 2 && segs[1] === 'canvas' && (method === 'PUT' || method === 'POST')) {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const parsed = parseCanvas('canvas' in body ? body['canvas'] : body)
+    if (!parsed.ok) return failDetail(res, 400, parsed.code, lang, parsed.detail)
+    const saved = saveCanvas(item, parsed.doc, {
+      prompt: body['prompt'], createdBy: actor(ctx), sub: body['sub'], name: body['name'],
+    })
+    if (!saved.ok) return failDetail(res, saved.code === 'project_not_found' ? 404 : 400, saved.code, lang, saved.detail)
+    json(res, {
+      ok: true, canvas: parsed.doc, item: saved.item, version: saved.version,
+      versions: listWorkItemVersionsView(item.id),
+      rel: saved.rel, name: saved.name, renamed: saved.renamed,
+      message: msg('canvas_saved', lang),
+    }, 201)
+    return true
+  }
+
+  if (segs.length === 3 && segs[1] === 'canvas' && segs[2] === 'ops' && method === 'POST') {
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const current = readCanvas(item.id, body['version'])
+    if (!current.ok) return failDetail(res, current.code === 'not_found' ? 404 : 409, current.code, lang, current.detail)
+    const applied = applyCanvasOps(current.doc, body['ops'])
+    if (!applied.ok) return failDetail(res, 400, applied.code, lang, applied.detail)
+    const saved = saveCanvas(item, applied.doc, {
+      prompt: body['prompt'], createdBy: actor(ctx), sub: body['sub'], name: current.name,
+    })
+    if (!saved.ok) return failDetail(res, saved.code === 'project_not_found' ? 404 : 400, saved.code, lang, saved.detail)
+    json(res, {
+      ok: true, canvas: applied.doc, applied: applied.applied,
+      item: saved.item, version: saved.version, versions: listWorkItemVersionsView(item.id),
+      rel: saved.rel, name: saved.name, renamed: saved.renamed,
+      message: msg('canvas_saved', lang),
     }, 201)
     return true
   }
