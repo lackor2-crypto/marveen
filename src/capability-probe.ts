@@ -67,7 +67,7 @@ export interface ProbeOptions {
  * a gyerek megolese utan az unoka arvakent tovabb futott, fogta a kozos
  * LibreOffice-profilt, es minden kovetkezo atalakitas is elakadt rajta.
  */
-export function runVersion(cmd: string, args: string[], timeoutMs: number): Promise<{ ok: true; stdout: string } | { ok: false; code: 'not_found' | 'timeout' | 'failed'; detail: string }> {
+export function runVersion(cmd: string, args: string[], timeoutMs: number): Promise<{ ok: true; stdout: string; stderr: string } | { ok: false; code: 'not_found' | 'timeout' | 'failed'; detail: string }> {
   return new Promise((resolve) => {
     // `spawn`, nem `execFile`: az utobbi a `detached` kapcsolot csendben
     // eldobja, igy nem lenne sajat folyamatcsoport, amit egyben lelohetunk.
@@ -112,7 +112,7 @@ export function runVersion(cmd: string, args: string[], timeoutMs: number): Prom
     })
     child.on('close', (code, signal) => {
       if (timedOut) return finish({ ok: false, code: 'timeout', detail: stderr.trim() || `timed out after ${timeoutMs} ms` })
-      if (code === 0) return finish({ ok: true, stdout })
+      if (code === 0) return finish({ ok: true, stdout, stderr })
       finish({ ok: false, code: 'failed', detail: stderr.trim() || `exited with ${code ?? signal}` })
     })
   })
@@ -144,7 +144,7 @@ export async function probeCommand(spec: ProbeSpec, opts: ProbeOptions = {}): Pr
     if (!opts.candidates && spec.configured && spec.configured.path) {
       const c = spec.configured
       const r = await runVersion(c.path, spec.versionArgs, timeoutMs)
-      if (r.ok) return ok(c.path, r.stdout)
+      if (r.ok) return ok(c.path, r.stdout, r.stderr)
       return {
         available: false, path: null, version: null, reason: 'check_failed',
         detail: `${c.source}=${c.path}: ${r.detail}`, checked_at: Date.now(),
@@ -153,7 +153,7 @@ export async function probeCommand(spec: ProbeSpec, opts: ProbeOptions = {}): Pr
     let lastFailure: { detail: string; cmd: string } | null = null
     for (const cmd of (opts.candidates || spec.candidates)) {
       const r = await runVersion(cmd, spec.versionArgs, timeoutMs)
-      if (r.ok) return ok(cmd, r.stdout)
+      if (r.ok) return ok(cmd, r.stdout, r.stderr)
       // A "nincs ilyen parancs" nem hiba: megyunk a kovetkezo jeloltre.
       if (r.code !== 'not_found') lastFailure = { detail: r.detail, cmd }
     }
@@ -175,10 +175,18 @@ export async function probeCommand(spec: ProbeSpec, opts: ProbeOptions = {}): Pr
   }
 }
 
-function ok(path: string, stdout: string): CommandProbe {
+// Nehany program (lsof -v, pdftotext -v) a verziojat a hibakimenetre irja,
+// sikeres kilepessel: ilyenkor onnan olvassuk, kulonben ures maradna.
+function ok(path: string, stdout: string, stderr = ''): CommandProbe {
+  // Az elso szamot tartalmazo sor ("lsof version information:" utan jon a
+  // "revision: 4.95.0"); ha egyik sorban sincs szam, az elso nem ures sor.
+  const firstLine = (s: string): string => {
+    const lines = s.split('\n').map(l => l.trim()).filter(Boolean)
+    return lines.find(l => /\d/.test(l)) ?? lines[0] ?? ''
+  }
   return {
     available: true, path,
-    version: stdout.split('\n')[0]?.trim() || null,
+    version: firstLine(stdout) || firstLine(stderr) || null,
     reason: 'ok', detail: null, checked_at: Date.now(),
   }
 }

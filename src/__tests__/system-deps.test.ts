@@ -163,3 +163,16 @@ describe('ttsBodyCommand: a hangvalasz jq nelkul is mukodik', () => {
     expect(cmd).not.toMatch(/\bjq\b/)
   })
 })
+
+describe('verzio a hibakimenetrol is (lsof -v, pdftotext -v)', () => {
+  it('ha a program a verziot stderr-re irja, azt olvassuk ki', async () => {
+    const fake: SystemDep[] = [{
+      id: 'stderr-ver', name: 'x', tier: 'recommended', what_for: { hu: 'a', en: 'a' }, affects: { hu: 'a', en: 'a' },
+      apt: [], dnf: [], brew: [], url: 'https://example.org',
+      commands: [process.execPath],
+      versionArgs: ['-e', 'process.stderr.write("tool version information:\\n    revision: 4.95.0\\n")'],
+    }]
+    const s = await measureSystemDeps(true, fake)
+    expect(s.items[0]).toMatchObject({ state: 'ok', version: 'revision: 4.95.0' })
+  })
+})
