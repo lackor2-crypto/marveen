@@ -10776,6 +10776,28 @@ body {
 .acc-add-choice:hover { border-color: var(--accent); }
 .acc-add-choice.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .acc-zone-list .acc-hub { margin-top: 10px; }
+/* Boss, 2026-09-23: "a lackor2 es az usalackor kozott nincs elvalaszto ...
+   halvany dobozba latszik ez is, az is, majdnem, hogy egybefugg". Minden
+   fiok-kartya egy onallo, eros keretes lap: vastag bal szegely, arnyek, nagy
+   hezag, es a fejlec vonallal valik el a tartalomtol. */
+.acc-zone-list .acc-hub { gap: 26px; }
+.acc-zone-list .acc-card {
+  border: 2px solid var(--border);
+  border-left: 6px solid var(--info);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  padding: 14px 16px;
+}
+.acc-zone-list .acc-card-head {
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+.acc-zone-list .acc-card .conn-account-name { font-size: 17px; font-weight: 700; }
+.acc-card-has { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.acc-card-has .conn-chip { font-weight: 600; }
+.acc-part-mega .acc-part-label { color: var(--text); }
 
 /* === Per-agent context controls (kanban dbe5bcce + 14a1d048) ===
    Sits at the bottom of an agent card, under the action buttons, separated the

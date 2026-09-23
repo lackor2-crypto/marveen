@@ -484,6 +484,19 @@ describe('MEGA a fiok-kartyan, a hozzaadas kulon', () => {
     expect(extractFn(app, '_accHubCardHtml')).toContain('_accHubMegaPart(c.mega)')
   })
 
+  it('a MEGA a Claude Code lista ELOTT all, es a fejlec kiirja, mi van bekotve', () => {
+    // Boss nem talalta meg a kartya aljan, a hosszu kapcsolat-lista alatt.
+    const card = extractFn(app, '_accHubCardHtml')
+    expect(card.indexOf('_accHubMegaPart(c.mega)')).toBeLessThan(card.indexOf('_accHubMcpPart(c.mcp)'))
+    expect(card).toContain('acc-card-has')
+    expect(card).toContain("c.mega.length ? 'MEGA'")
+  })
+
+  it('a fiok-kartyak jol lathatoan elvalnak egymastol', () => {
+    expect(css).toMatch(/\.acc-zone-list \.acc-card \{[^}]*border-left: 6px solid/)
+    expect(css).toMatch(/\.acc-zone-list \.acc-hub \{ gap: 26px; \}/)
+  })
+
   it('minden hozzaado urlapnak van valaszto gombja, es alapbol csak egy latszik', () => {
     const add = html.slice(html.indexOf('id="accountsAddDetails"'), html.indexOf('id="accountsHubList"'))
     const panes = [...add.matchAll(/data-acc-add-pane="([a-z]+)"( hidden)?/g)]
