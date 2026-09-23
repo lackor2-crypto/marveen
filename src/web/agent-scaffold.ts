@@ -2801,3 +2801,48 @@ export function ensureGlobalKanbanWaitingMoveRule(): void {
   if (updated === existing) return
   atomicWriteFileSync(path, updated)
 }
+
+// --- statusLine: the rate-limit snapshot producer ---------------------------
+//
+// scripts/hooks/statusline.py is what writes store/rate-limit-status/<agent>.json;
+// rate-limit-guard.py (wired from the template) and the Overview keret widget
+// only READ that file. Until this existed the statusLine key was set by hand or
+// by scripts/install-statusline.sh, which no installer calls -- so on a fresh
+// install the guard never saw a number and stayed silent, and the widget showed
+// nothing (audit f97acc32, 2026-09-23).
+//
+// The identity is passed explicitly (--agent / --project-root) instead of
+// derived from cwd: an agent working inside a worktree would otherwise report
+// under the wrong name, and the settings file this lands in is per-agent anyway.
+export function statusLineCommand(name: string): string {
+  const script = join(PROJECT_ROOT, 'scripts', 'hooks', 'statusline.py')
+  // Same fail-open shape as the python hooks: a missing script prints nothing
+  // and exits 0, never a broken status line.
+  return `bash -c '[ -f "${script}" ] && exec python3 "${script}" --agent "${name}" --project-root "${PROJECT_ROOT}"; exit 0'`
+}
+
+/** A statusLine this module may manage: absent, or already a statusline.py of
+ *  ours (any older path/shape). A custom statusline the owner set is left alone. */
+function isManagedStatusLine(v: unknown): boolean {
+  if (v === undefined || v === null) return true
+  if (typeof v !== 'object') return false
+  const cmd = (v as { command?: unknown }).command
+  return typeof cmd === 'string' && cmd.includes('statusline.py')
+}
+
+export function ensureStatusLine(name: string): boolean {
+  const settingsPath = agentSettingsPath(name)
+  let settings: Record<string, unknown> = {}
+  if (existsSync(settingsPath)) {
+    try { settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) } catch { return false }
+  }
+  if (!isManagedStatusLine(settings.statusLine)) return false
+  const desired = { type: 'command', command: statusLineCommand(name), padding: 0 }
+  if (JSON.stringify(settings.statusLine) === JSON.stringify(desired)) return false
+  if (isUnsafeHookCommand(desired.command)) return false
+  settings.statusLine = desired
+  if (name !== MAIN_AGENT_ID) mkdirSync(join(agentDir(name), '.claude'), { recursive: true })
+  else mkdirSync(dirname(settingsPath), { recursive: true })
+  atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2))
+  return true
+}

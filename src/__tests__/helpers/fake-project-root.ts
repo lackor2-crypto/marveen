@@ -35,6 +35,7 @@ const FAKE_ROOT = join(homedir(), '.marveen-test-fixtures-project-root')
 // keep in sync with the join(PROJECT_ROOT, ...) calls in agent-scaffold.ts.
 const MIRRORED_SCRIPTS = [
   ['scripts', 'hooks', 'egress-gate.mjs'],
+  ['scripts', 'hooks', 'statusline.py'],
 ]
 
 export function buildFakeProjectRootConfig(actual: Record<string, unknown>): Record<string, unknown> {
