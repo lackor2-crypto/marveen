@@ -26,6 +26,7 @@ import { buildSetupSummary, writableEnvKeys } from '../setup-wizard-registry.js'
 import { claudeAuthPresent, channelConfigured, paired } from './onboarding.js'
 import { connectedGoogleAccountCount } from '../google-auth-runner.js'
 import { existsSync } from 'node:fs'
+import { measureSystemDeps, systemDepsSnapshot, installCommand, type DepsSnapshot } from '../../system-deps.js'
 import type { RouteContext } from './types.js'
 
 const ENV_FILE = join(PROJECT_ROOT, '.env')
@@ -57,7 +58,15 @@ function externalState(): Record<string, boolean> {
     // Configured = at least one address is actually connected. The client file
     // above only makes the sign-in possible; on its own it delivers nothing.
     'google-accounts': connectedGoogleAccountCount() > 0,
+    // Kulso programok (kanban d7acdd75): "beallitva" = minden ALAP es AJANLOTT
+    // program megvan. Meres nelkul NEM mondjuk ra, hogy rendben van.
+    'system-programs': systemProgramsComplete(systemDepsSnapshot()),
   }
+}
+
+export function systemProgramsComplete(snap: DepsSnapshot | null): boolean {
+  if (!snap) return false
+  return snap.items.every(i => i.tier === 'extra' || i.state === 'ok')
 }
 
 export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> {
@@ -77,6 +86,17 @@ export async function tryHandleSetupWizard(ctx: RouteContext): Promise<boolean> 
     summary.missingRequired = summary.items.filter(i => i.required && !i.configured).length
     summary.availableUnused = summary.items.filter(i => !i.required && !i.configured).length
     json(res, summary)
+    return true
+  }
+
+  // GET /api/system-deps -- a gepre telepitendo kulso programok, mindegyik
+  // allapotaval, es egy bemasolhato telepito-sorral. `?force=1` ujramer (a
+  // felulet "Ellenorzes most" gombja, telepites utan).
+  if (path === '/api/system-deps' && method === 'GET') {
+    const force = ctx.url.searchParams.get('force') === '1'
+    const cached = systemDepsSnapshot()
+    const snap = force || !cached ? await measureSystemDeps(force) : cached
+    json(res, { ...snap, install_cmd: installCommand(snap.items, snap.pkg_manager) })
     return true
   }
 

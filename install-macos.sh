@@ -220,6 +220,15 @@ if [ "$MISSING" -eq 1 ]; then
   echo -e "${GREEN}$(_t macos.deps_installed)${NC}"
 fi
 
+# Recommended programs (optional; the full list lives in src/system-deps.ts and
+# the dashboard self-check + wizard measure the same list). Never fatal.
+if command -v brew &>/dev/null; then
+  brew install jq sqlite poppler tesseract tesseract-lang himalaya 2>/dev/null \
+    || echo -e "  ${ORANGE}!${NC} brew install jq sqlite poppler tesseract tesseract-lang himalaya"
+  [ -d "/Applications/LibreOffice.app" ] || brew install --cask libreoffice 2>/dev/null \
+    || echo -e "  ${ORANGE}!${NC} brew install --cask libreoffice"
+fi
+
 # Bun (required by Telegram channels plugin)
 export PATH="$HOME/.bun/bin:$PATH"
 if ! command -v bun &>/dev/null; then

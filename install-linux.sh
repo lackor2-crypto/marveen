@@ -464,6 +464,61 @@ ok "tmux $(tmux -V | awk '{print $2}')"
 ok "unzip" $(unzip -v | awk 'NR==1 {print $2}')
 
 # ─────────────────────────────────────────────
+# Ajanlott programok (nem kotelezo, de nelkuluk egy-egy funkcio nem megy)
+# ─────────────────────────────────────────────
+# A teljes lista es a funkciok, amiket erintenek: src/system-deps.ts. A
+# dashboard onellenorzese es a varazslo "Rendszer-programok" lepese ugyanezt
+# a listat meri, tehat ami itt kimarad, azt a felulet is kiirja. Egy bukas
+# itt SOHA nem allitja meg a telepitest: a Marveen alapfunkcioi nelkuluk is
+# mukodnek. Ha a src/system-deps.ts-be uj program kerul, ide is fel kell venni
+# (src/__tests__/system-deps.test.ts ellenorzi).
+if [ "$PKG_MANAGER" = "apt" ]; then
+  RECOMMENDED_PKGS="jq sqlite3 poppler-utils tesseract-ocr tesseract-ocr-hun tesseract-ocr-eng libreoffice-writer libreoffice-calc libreoffice-impress"
+else
+  RECOMMENDED_PKGS="jq sqlite poppler-utils tesseract tesseract-langpack-hun libreoffice-writer libreoffice-calc libreoffice-impress"
+fi
+echo "  Ajanlott programok (PDF, OCR, Office-atalakitas, email)..."
+if [ "$PKG_MANAGER" = "apt" ]; then
+  # shellcheck disable=SC2086
+  apt_run install -y --no-install-recommends $RECOMMENDED_PKGS -qq \
+    && ok "ajanlott programok: $RECOMMENDED_PKGS" \
+    || warn "Az ajanlott programok egy resze nem telepult. Kezzel: sudo apt-get install $RECOMMENDED_PKGS"
+else
+  # shellcheck disable=SC2086
+  pkg_install_noninteractive $RECOMMENDED_PKGS \
+    && ok "ajanlott programok: $RECOMMENDED_PKGS" \
+    || warn "Az ajanlott programok egy resze nem telepult. Kezzel: sudo $PKG_MANAGER install $RECOMMENDED_PKGS"
+fi
+
+# himalaya (email-kliens a level-olvasashoz): a disztrok nem csomagoljak,
+# ezert rogzitett verziot toltunk le, ellenorzott ellenorzo-osszeggel.
+HIMALAYA_VERSION="v2.0.0"
+install_himalaya() {
+  local arch sha tmp
+  case "$(uname -m)" in
+    x86_64|amd64) arch="x86_64"; sha="2c4184b43787b789de121e17b255d479b8cb03fc91b49fecc5197a2b7772bcf3" ;;
+    aarch64|arm64) arch="aarch64"; sha="c395e87cef819fb16249adeb631c216424d61fdd99365842517585ef8f9c2a70" ;;
+    *) warn "himalaya: ismeretlen processzor ($(uname -m)), kihagyva. Kezzel: https://github.com/pimalaya/himalaya/releases"; return 0 ;;
+  esac
+  tmp="$(mktemp -d)" || return 1
+  if curl -fsSL "https://github.com/pimalaya/himalaya/releases/download/${HIMALAYA_VERSION}/himalaya.${arch}-linux.tgz" -o "$tmp/h.tgz" \
+     && echo "$sha  $tmp/h.tgz" | sha256sum -c --status - \
+     && tar -xzf "$tmp/h.tgz" -C "$tmp" himalaya \
+     && mkdir -p "$HOME/.local/bin" \
+     && install -m 0755 "$tmp/himalaya" "$HOME/.local/bin/himalaya"; then
+    ok "himalaya ${HIMALAYA_VERSION} -> ~/.local/bin/himalaya"
+  else
+    warn "himalaya letoltese/ellenorzese nem sikerult. Kezzel: https://github.com/pimalaya/himalaya/releases"
+  fi
+  rm -rf "$tmp"
+}
+if command -v himalaya &>/dev/null || [ -x "$HOME/.local/bin/himalaya" ]; then
+  ok "himalaya mar telepitve"
+else
+  install_himalaya || true
+fi
+
+# ─────────────────────────────────────────────
 # Repo bootstrap
 # ─────────────────────────────────────────────
 # Ha a scriptet onmagaban toltottek le (curl|bash, `bash install-linux.sh`

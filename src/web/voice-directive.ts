@@ -38,6 +38,18 @@ export function inboundIsAudio(kind: string | null | undefined, fileId: string |
   return AUDIO_KINDS.has(String(kind ?? '').trim().toLowerCase())
 }
 
+// The shell prefix that prints the TTS request body; the reply text is its one
+// argument. Built with `node`, not `jq`: jq is not on every install (it was
+// missing on the reference machine, so every voice reply command failed with
+// "jq: command not found" -- kanban d7acdd75), while node is guaranteed because
+// Marveen itself runs on it. The fixed fields are baked in as JSON literals and
+// the whole script is single-quoted for the shell, escaping any single quote.
+export function ttsBodyCommand(chatId: string, stateDir: string, voiceModel: string): string {
+  const fixed = JSON.stringify({ chat_id: chatId, state_dir: stateDir, voice_model: voiceModel })
+  const script = `process.stdout.write(JSON.stringify(Object.assign({text:process.argv[1]},${fixed})))`
+  return `node -e '${script.replace(/'/g, "'\\''")}'`
+}
+
 // Build a ready-to-run TTS directive block injected after the STT transcript.
 // Returns null if the dashboard token cannot be read.
 export function buildTtsDirective(opts: {
@@ -50,13 +62,12 @@ export function buildTtsDirective(opts: {
     if (!existsSync(tokenPath)) return null
     const token = readFileSync(tokenPath, 'utf-8').trim()
     const { chatId, stateDir, voiceModel } = opts
-    // Escape stateDir for embedding in a jq string argument
-    const escapedStateDir = stateDir.replace(/'/g, "'\\''")
+    const bodyCmd = ttsBodyCommand(chatId, stateDir, voiceModel)
     return (
       `\n\n[Hang válasz direktíva]: A fenti hangüzenetre HANGBAN válaszolj. ` +
-      `Amikor megvan a válaszod szövege, futtasd le ezt a parancsot (a szöveget JSON-escape-elve add meg a --arg-ban):\n` +
+      `Amikor megvan a válaszod szövege, futtasd le ezt a parancsot (a szöveget idézőjelben add meg, a JSON-escape-et a node elvégzi):\n` +
       `\`\`\`bash\n` +
-      `jq -n --arg t "A_VÁLASZOD_SZÖVEGE" '{"text":$t,"chat_id":"${chatId}","state_dir":"${escapedStateDir}","voice_model":"${voiceModel}"}' | ` +
+      `${bodyCmd} "A_VÁLASZOD_SZÖVEGE" | ` +
       `curl -s -X POST http://localhost:${WEB_PORT}/api/voice/tts -H "Content-Type: application/json" -H "Authorization: Bearer ${token}" -d @-\n` +
       `\`\`\`\n` +
       `Szöveges választ NE küldj -- CSAK a fenti curl-t futtasd le a hangküldéshez.`

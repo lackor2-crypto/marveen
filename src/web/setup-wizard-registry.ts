@@ -94,7 +94,7 @@ export interface SetupItem {
    * megjelennie hanem az autorizacios panelnak". A link plus a terminal command
    * is not a walkthrough; a step that CAN be done on the page must be.
    */
-  flowId?: 'claude-login'
+  flowId?: 'claude-login' | 'system-deps'
 }
 
 /**
@@ -235,6 +235,15 @@ export const SETUP_ITEMS: SetupItem[] = [
     labelKey: 'wizard.item.main_model', descKey: 'wizard.item.main_model_desc',
     helpKey: 'wizard.item.main_model_help', exampleKey: 'wizard.item.main_model_example',
     required: false, tier: 'extra', placeholder: 'claude-opus-5',
+  },
+  {
+    // A gepre telepitendo kulso programok (LibreOffice, FFmpeg, ...), kanban
+    // d7acdd75. A lepes HELYBEN mutatja, mi van meg es mi hianyzik, egy
+    // bemasolhato telepito-sorral -- a lista a src/system-deps.ts-ben van.
+    id: 'system-programs', group: 'maintenance', kind: 'external', flowId: 'system-deps',
+    labelKey: 'wizard.item.system_programs', descKey: 'wizard.item.system_programs_desc',
+    helpKey: 'wizard.item.system_programs_help',
+    required: false, tier: 'recommended',
   },
   {
     id: 'ollama-url', group: 'models', kind: 'env', envKey: 'OLLAMA_URL',
