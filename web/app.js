@@ -18808,7 +18808,7 @@ function _accHubMegaPart(rows) {
         : `<span class="conn-note">${escapeHtml(t('mega.quota', { free: _depoBytes(q.free), total: _depoBytes(q.total), when: when(q.measuredAt) }))}</span>`
     const name = escapeAttr(a.name)
     return `<div class="conn-row">
-      <div class="conn-row-main"></div>
+      <div class="conn-row-main"><span class="conn-row-name">MEGA</span></div>
       <div class="conn-row-chips">${note}</div>
       <div class="conn-row-actions">
         <button class="btn-secondary btn-compact" data-mega-measure="${name}">${escapeHtml(t('mega.measure'))}</button>
@@ -18816,7 +18816,7 @@ function _accHubMegaPart(rows) {
       </div>
     </div>`
   }).join('')
-  return _accHubPart('acchub.part_mega', body)
+  return _accHubPart('acchub.part_mega', body).replace('<div class="acc-part">', '<div class="acc-part acc-part-mega">')
 }
 
 function _accHubPart(labelKey, body) {
@@ -19173,8 +19173,14 @@ function _accHubCardHtml(c) {
   const parts = []
   if (c.claude.length) parts.push(_accHubClaudePart(c.claude))
   if (c.google.length) parts.push(_accHubGooglePart(c.google, title))
-  if (c.mcp.length) parts.push(_accHubMcpPart(c.mcp))
+  // A MEGA a rovid reszek kozott all, a hosszu Claude Code lista ELOTT: a
+  // kartya aljan, a kapcsolatok alatt Boss nem talalta meg (2026-09-23).
   if (c.mega.length) parts.push(_accHubMegaPart(c.mega))
+  if (c.mcp.length) parts.push(_accHubMcpPart(c.mcp))
+  // A fejlec egy pillantasra megmondja, mi van ezen a cimen bekotve.
+  const has = [
+    c.claude.length ? 'Claude' : '', c.google.length ? 'Google' : '', c.mega.length ? 'MEGA' : '',
+  ].filter(Boolean)
   // `conn-account` + `conn-account-name` are not decoration: the connector flow
   // reads the account's name out of the card it was clicked in
   // (closest('.conn-account')), so the title of "authorize Drive for WHICH
@@ -19184,6 +19190,7 @@ function _accHubCardHtml(c) {
       <span class="conn-account-name">${escapeHtml(title)}</span>
       ${c.isDefault ? `<span class="conn-badge">${escapeHtml(t('gconn.default_badge'))}</span>` : ''}
       ${c.email && c.email !== title ? `<span class="conn-row-sub">${escapeHtml(c.email)}</span>` : ''}
+      ${has.length ? `<span class="acc-card-has">${has.map(h => `<span class="conn-chip conn-chip-on">${escapeHtml(h)}</span>`).join('')}</span>` : ''}
     </div>
     ${parts.join('')}
   </div>`
