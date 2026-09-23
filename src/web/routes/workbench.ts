@@ -48,6 +48,11 @@ import { buildPreview } from '../../workbench-preview.js'
 import {
   convertOfficeToPdf, probeLibreOffice, cachedPdfFor, OFFICE_CONVERTIBLE, officeExt,
 } from '../../office-convert.js'
+import {
+  describeAllCapabilities, describeCapability, getCapability,
+} from '../../workbench-capabilities.js'
+import { setOverride } from '../../settings-store.js'
+import { getSettingDefinition } from '../../config-registry.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import { createReadStream, statSync } from 'node:fs'
 import type { RouteContext } from './types.js'
@@ -244,6 +249,18 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
     hu: 'Ennek a dokumentumnak még nincs kész PDF-előnézete. Nyomj az „Előnézet készítése” gombra.',
     en: 'This document has no PDF preview yet. Press "Create preview".',
   },
+  capability_unknown: {
+    hu: 'Nincs ilyen képesség. A lista a Munkapad „Mi működik ezen a gépen?” paneljén látható.',
+    en: 'There is no such capability. The list is on the Workbench "What works on this machine?" panel.',
+  },
+  capability_no_setting: {
+    hu: 'Ehhez a képességhez nem tartozik beállítható érték, így nincs mit menteni.',
+    en: 'This capability has no value to set, so there is nothing to save.',
+  },
+  capability_saved: {
+    hu: 'Elmentve, és azonnal újra megmértem.',
+    en: 'Saved, and measured again right away.',
+  },
 }
 
 /** Gepi kod -> EMBERI mondat. Ismeretlen kodnal a kodot adjuk vissza, hogy
@@ -287,34 +304,67 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
   const lang = uiLang(url)
   ensureWorkbenchTables()
 
-  // MI ALL RENDELKEZESRE EZEN A GEPEN (spec 1). Friss telepitesen a valasz
-  // tobbnyire "nincs meg" -- es az NEM hiba: a valasz megmondja, mire hat, es
-  // hogyan szerezheto be. A "nem tudtam megkerdezni" KULON allapot: azt sosem
-  // mondjuk "nincs"-nek. (A teljes Capability Manager felulet a 8. fazis; ez
-  // a vegpont az, amire az ra fog epulni.)
+  // MI ALL RENDELKEZESRE EZEN A GEPEN (spec 1-2), es ami nem, azzal MI A
+  // TEENDO. Friss telepitesen a valasz tobbnyire "nincs meg" -- es az NEM
+  // hiba: minden sor megmondja, mire hat, es hogyan szerezheto be. A "nem
+  // tudtam megkerdezni" KULON allapot: azt sosem mondjuk "nincs"-nek.
+  //
+  //   GET  /api/workbench/capabilities            -- a teljes lista (?force=1: ujramer)
+  //   POST /api/workbench/capabilities/:key/test  -- EGY kepesseg ujramerese
+  //   POST /api/workbench/capabilities/:key/setting -- a hozza tartozo beallitas
+  //
+  // A beallitas-iras SZUK: csak az a kulcs irhato, amit a kepesseg leirasa
+  // megnevez (`writableSettingKeys`) -- ez a vegpont nem altalanos config-iro.
   if (path === '/api/workbench/capabilities' && method === 'GET') {
-    const probe = await probeLibreOffice({ force: url.searchParams.get('force') === '1' })
-    json(res, {
-      capabilities: [{
-        key: 'office_to_pdf',
-        title: lang === 'en' ? 'Office document preview (DOCX, XLSX, PPTX)' : 'Irodai dokumentum előnézete (DOCX, XLSX, PPTX)',
-        required_by: lang === 'en'
-          ? 'Embedded preview of Word/Excel/PowerPoint documents in the Workbench.'
-          : 'Word/Excel/PowerPoint dokumentumok beágyazott előnézete a Munkapadon.',
-        optional: true,
-        available: probe.available,
-        state: probe.reason,
-        version: probe.version,
-        path: probe.path,
-        detail: probe.detail,
-        checked_at: probe.checked_at,
-        message: probe.available
-          ? (lang === 'en' ? 'Available.' : 'Elérhető.')
-          : msg(probe.reason === 'check_failed' ? 'convert_check_failed' : 'convert_not_installed', lang),
-        extensions: Object.keys(OFFICE_CONVERTIBLE),
-      }],
-    })
+    const force = url.searchParams.get('force') === '1'
+    json(res, { capabilities: await describeAllCapabilities(lang, force) })
     return true
+  }
+
+  if (path.startsWith('/api/workbench/capabilities/') && method === 'POST') {
+    const rest = path.slice('/api/workbench/capabilities/'.length).split('/')
+    const cap = getCapability(decodeURIComponent(rest[0] || ''))
+    if (!cap) return fail(res, 404, 'capability_unknown', lang)
+    const action = rest[1] || ''
+
+    if (action === 'test') {
+      // Az "Ellenorzes most" MINDIG ujramer: telepites vagy beallitas utan a
+      // regi meresbol valaszolni pont azt a hibat okozna, amit javitani akart.
+      json(res, { capability: await describeCapability(cap, lang, true) })
+      return true
+    }
+
+    if (action === 'setting') {
+      if (!cap.setting_key) return fail(res, 400, 'capability_no_setting', lang)
+      const body = await readJson(req)
+      if (!body) return fail(res, 400, 'bad_json', lang)
+      const def = getSettingDefinition(cap.setting_key)
+      const secret = def?.secret === true
+      const raw = body['value']
+      // TITOKNAL: az ures mezo azt jelenti, hogy NEM nyulunk hozza (kulonben
+      // a mentes torolne a kulcsot, amit a bongeszo sosem latott). A `null`
+      // a kimondott torles. Nem titoknal az ures ertek ervenyes ertek: "keresd
+      // meg magadtol".
+      const skip = secret && typeof raw === 'string' && raw.trim() === ''
+      if (!skip) {
+        const value = raw === null ? '' : String(raw ?? '').trim()
+        const r = setOverride(cap.setting_key, value)
+        // A VALODI hibauzenetet adjuk vissza (a registry validalasa mondja ki),
+        // nem egy talalgatott okot.
+        if (!r.ok) {
+          json(res, { error: 'setting_invalid', message: r.error || msg('capability_no_setting', lang) }, 400)
+          return true
+        }
+      }
+      json(res, {
+        capability: await describeCapability(cap, lang, true),
+        saved: !skip,
+        message: msg('capability_saved', lang),
+      })
+      return true
+    }
+
+    return fail(res, 404, 'not_found', lang)
   }
 
   if (path !== '/api/workbench/items' && !path.startsWith('/api/workbench/items/')) return false

@@ -1,0 +1,186 @@
+// AI Munkapad (kanban #336, 8. fazis): KEPESSEGEK ES FUGGOSEGEK.
+//
+// Amit ez a fajl oriz -- mind a negy a CLAUDE.md-bol, nem izlesbol:
+//   1. A NULLA KET DOLGOT JELENTHET: `not_installed` (nincs) es `check_failed`
+//      (nem lattam oda) KULON allapot, kulon mondattal.
+//   2. SOSE TALALGATUNK OKOT: a `detail` a valodi hibauzenet.
+//   3. AZ EXTRA HIANYA NEM VESZJELZES: a `tier` megvan minden soron.
+//   4. FRISS TELEPITESEN IS VEGIGMEGY: amihez ut kell, ahhoz FELULETROL irhato
+//      beallitas tartozik, es a TITOK sosem kerul a bongeszobe.
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  CAPABILITIES, getCapability, writableSettingKeys, describeCapability,
+  describeAllCapabilities, resetCapabilityProbes, probeFfmpeg, ffmpegCandidates, ffmpegConfigured,
+} from '../workbench-capabilities.js'
+import { getSettingDefinition } from '../config-registry.js'
+
+let dir: string
+const SAVED = { soffice: process.env['MARVEEN_SOFFICE'], ffmpeg: process.env['MARVEEN_FFMPEG'] }
+
+beforeEach(() => {
+  dir = mkdtempSync(join(tmpdir(), 'wb-caps-'))
+  // Alapbol NEM a gep sajat telepiteset merjuk: igy a teszt ugyanazt mondja
+  // minden gepen (van LibreOffice/FFmpeg, nincs -- mindegy).
+  process.env['MARVEEN_SOFFICE'] = join(dir, 'nincs-ilyen-soffice')
+  process.env['MARVEEN_FFMPEG'] = join(dir, 'nincs-ilyen-ffmpeg')
+  resetCapabilityProbes()
+})
+
+afterEach(() => {
+  if (SAVED.soffice === undefined) delete process.env['MARVEEN_SOFFICE']; else process.env['MARVEEN_SOFFICE'] = SAVED.soffice
+  if (SAVED.ffmpeg === undefined) delete process.env['MARVEEN_FFMPEG']; else process.env['MARVEEN_FFMPEG'] = SAVED.ffmpeg
+  resetCapabilityProbes()
+  rmSync(dir, { recursive: true, force: true })
+})
+
+/** Egy mukodo programot utanzo szkript -- igy nem a gep telepiteset merjuk. */
+function fakeBin(name: string, out: string): string {
+  const p = join(dir, name)
+  writeFileSync(p, `#!/bin/sh\necho "${out}"\n`)
+  chmodSync(p, 0o755)
+  return p
+}
+
+describe('a lista maga', () => {
+  it('minden sornak van kulcsa, szintje es KETNYELVU szovege', () => {
+    expect(CAPABILITIES.length).toBeGreaterThan(3)
+    for (const c of CAPABILITIES) {
+      expect(c.key).toMatch(/^[a-z0-9_]+$/)
+      expect(['core', 'recommended', 'extra']).toContain(c.tier)
+      for (const field of [c.title, c.what_for, c.affects]) {
+        expect(field.hu.length).toBeGreaterThan(3)
+        expect(field.en.length).toBeGreaterThan(3)
+      }
+      expect(Array.isArray(c.how_to.hu)).toBe(true)
+      expect(c.how_to.hu.length).toBe(c.how_to.en.length)
+    }
+  })
+
+  it('minden megnevezett beallitas LETEZIK a registryben (nem elgepelt kulcs)', () => {
+    for (const key of writableSettingKeys()) {
+      expect(getSettingDefinition(key), key).toBeTruthy()
+    }
+  })
+
+  it('amihez ut vagy cim kell, ahhoz van FELULETROL irhato beallitas', () => {
+    // Friss telepites: terminal es .env-szerkesztes nelkul is beallithato.
+    for (const key of ['office_to_pdf', 'video_render', 'office_embedded_edit']) {
+      expect(getCapability(key)!.setting_key, key).toBeTruthy()
+    }
+  })
+})
+
+describe('a NULLA ket dolgot jelenthet', () => {
+  it('hibas MEGADOTT ut = "nem tudtam megkerdezni", NEM "nincs telepitve"', async () => {
+    const row = await describeCapability(getCapability('office_to_pdf')!, 'hu', true)
+    expect(row.state).toBe('check_failed')
+    expect(row.available).toBe(false)
+    // A VALODI hibauzenet, es megnevezi, MELYIK beallitast kell javitani.
+    expect(String(row.detail)).toContain('MARVEEN_SOFFICE=')
+    expect(row.message).toMatch(/nem azt jelenti/i)
+  })
+
+  it('ha egyik jelolt sem letezik: "nincs telepitve" -- csendes, varhato allapot', async () => {
+    delete process.env['MARVEEN_FFMPEG']
+    resetCapabilityProbes()
+    const p = await probeFfmpeg({ force: true, candidates: [join(dir, 'a'), join(dir, 'b')] })
+    expect(p.reason).toBe('not_installed')
+    expect(p.detail).toBe(null)
+  })
+
+  it('ha ott van, a VALODI verziot es utat mondja', async () => {
+    const bin = fakeBin('ffmpeg', 'ffmpeg version 7.1 Copyright (c)')
+    process.env['MARVEEN_FFMPEG'] = bin
+    resetCapabilityProbes()
+    const row = await describeCapability(getCapability('video_render')!, 'hu', true)
+    expect(row.state).toBe('ok')
+    expect(row.available).toBe(true)
+    expect(String(row.version)).toContain('ffmpeg version 7.1')
+    expect(row.path).toBe(bin)
+    expect(row.message).toMatch(/elérhető/i)
+  })
+
+  it('a megadott ut ELSObbseget elvez: nem hasznalunk csendben masik peldanyt', () => {
+    process.env['MARVEEN_FFMPEG'] = '/sajat/ffmpeg'
+    expect(ffmpegCandidates()).toEqual(['/sajat/ffmpeg'])
+    expect(ffmpegConfigured()).toEqual({ path: '/sajat/ffmpeg', source: 'MARVEEN_FFMPEG' })
+  })
+
+  it('ha kozben ATALLITOTTAK az utat, NEM a regi meresbol valaszolunk', async () => {
+    // A felhasznalo a Beallitasok lapjan is atirhatja az utat, nem csak a
+    // Munkapadon -- olyankor nincs `force`, megis friss valasz kell.
+    process.env['MARVEEN_FFMPEG'] = join(dir, 'meg-nincs-itt')
+    resetCapabilityProbes()
+    const first = await probeFfmpeg()
+    expect(first.reason).toBe('check_failed')
+    const bin = fakeBin('ffmpeg2', 'ffmpeg version 5.0')
+    process.env['MARVEEN_FFMPEG'] = bin
+    const second = await probeFfmpeg()
+    expect(second.reason).toBe('ok')
+    expect(second.path).toBe(bin)
+  })
+
+  it('ha a meres maga dol el, az is check_failed -- a valodi hibauzenettel', async () => {
+    const broken = {
+      ...getCapability('video_render')!,
+      async measure(): Promise<never> { throw new Error('a merese eldolt: EACCES') },
+    }
+    const row = await describeCapability(broken, 'hu', true)
+    expect(row.state).toBe('check_failed')
+    expect(String(row.detail)).toContain('EACCES')
+  })
+})
+
+describe('amit a felhasznalo lat', () => {
+  it('a hianyzo EXTRA-t nem alapfunkciokent soroljuk be (nem veszjelzes)', async () => {
+    const rows = await describeAllCapabilities('hu', true)
+    const video = rows.find((r) => r.key === 'video_render')!
+    expect(video.tier).toBe('extra')
+    expect(video.optional).toBe(true)
+    // Es megmondja, hogy enelkul is mukodik minden mas.
+    expect(video.affects).toMatch(/működik/i)
+  })
+
+  it('amihez nincs megvalositasunk, azt KIMONDJUK -- nem igerunk varazslot', async () => {
+    const rows = await describeAllCapabilities('hu', true)
+    for (const key of ['image_gen', 'video_gen', 'tts']) {
+      const row = rows.find((r) => r.key === key)!
+      expect(row.state).toBe('not_implemented')
+      expect(row.setting).toBe(null)
+      expect(row.testable).toBe(false)
+      expect(row.message).toMatch(/nincs bekötve/i)
+    }
+  })
+
+  it('a szoveg a keres nyelven jon (HU es EN is)', async () => {
+    const hu = await describeCapability(getCapability('video_render')!, 'hu', true)
+    const en = await describeCapability(getCapability('video_render')!, 'en', true)
+    expect(hu.title).not.toBe(en.title)
+    expect(en.how_to.join(' ')).toMatch(/ffmpeg/i)
+    expect(en.message).toMatch(/[A-Za-z]/)
+  })
+
+  it('a lepesek KONKRETAK: parancs vagy pelda-utvonal, nem "lasd a leirast"', async () => {
+    const row = await describeCapability(getCapability('office_to_pdf')!, 'hu', true)
+    expect(row.how_to.join(' ')).toMatch(/apt install libreoffice/)
+    expect(row.obtain_url).toMatch(/^https:\/\//)
+  })
+
+  it('TITOK sosem kerul a bongeszobe -- csak az, hogy van-e beallitva', async () => {
+    const row = await describeCapability(getCapability('ai_agent')!, 'hu', true)
+    expect(row.setting!.key).toBe('WORKBENCH_ANTHROPIC_API_KEY')
+    expect(row.setting!.secret).toBe(true)
+    expect(row.setting!.value).toBe(null)
+    expect(typeof row.setting!.configured).toBe('boolean')
+  })
+
+  it('a PDF-elonezet alapfunkcio, es mindig mukodik (nincs mit telepiteni)', async () => {
+    const row = await describeCapability(getCapability('pdf_preview')!, 'hu', true)
+    expect(row.tier).toBe('core')
+    expect(row.state).toBe('ok')
+    expect(row.setting).toBe(null)
+  })
+})

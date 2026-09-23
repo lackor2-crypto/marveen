@@ -19,12 +19,13 @@
  * A ketto MAS teendo, ezert SOHA nem mossuk ossze, es a `detail` mindig a
  * VALODI hibauzenetet viszi -- nem talalgatunk okot.
  */
-import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { STORE_DIR } from './config.js'
+import { probeCommand, resetProbeCache, runVersion, type CommandProbe, type ConfiguredPath, type ProbeReason } from './capability-probe.js'
+import { getEffectiveSettingValue } from './settings-store.js'
 
 /** Amit a LibreOffice at tud alakitani, es amit a bongeszo magatol NEM mutat
  *  meg. Kiterjesztes -> emberi megnevezes (HU/EN), hogy a felulet ne egy
@@ -60,28 +61,38 @@ export function renderCacheDir(): string {
   return override || join(STORE_DIR, 'workbench-render')
 }
 
-export type ProbeReason = 'ok' | 'not_installed' | 'check_failed'
+export type { ProbeReason }
+/** A 8. fazis ota a mereset a kozos `capability-probe` vegzi (ugyanaz kell az
+ *  FFmpeg-hez is). Ez a nev marad, hogy a hivo oldalak ne toredezzenek szet. */
+export type SofficeProbe = CommandProbe
 
-export interface SofficeProbe {
-  available: boolean
-  /** A mukodo parancs (ut vagy nev), ha van. */
-  path: string | null
-  /** A `--version` elso sora, ha meg tudtuk kerdezni. */
-  version: string | null
-  reason: ProbeReason
-  /** A VALODI hibauzenet, ha nem sikerult -- sosem talalgatott ok. */
-  detail: string | null
-  /** Mikor mertuk (epoch ms). A felulet igy ki tudja irni, mikori az allitas. */
-  checked_at: number
+/** A MEGADOTT ut. Ketfelol johet, es a sorrend szandekos:
+ *   1. `MARVEEN_SOFFICE` kornyezeti valtozo -- uzemeltetesi/teszt-fogas,
+ *      adatbazis nelkul is mukodik.
+ *   2. `WORKBENCH_LIBREOFFICE_PATH` beallitas -- EZT tudja a felhasznalo a
+ *      FELULETROL megadni, tehat egy friss telepitesen ez az igazi ut:
+ *      terminal es .env-szerkesztes nelkul.
+ *  Ha egyik sincs: `null`, es a szokasos helyeken keressuk.
+ *  A `source` azert utazik vele, hogy a hibauzenet meg tudja nevezni, MELYIK
+ *  beallitast kell javitani -- ne a felhasznalo talalgassa. */
+export function configuredSoffice(): ConfiguredPath | null {
+  const env = (process.env['MARVEEN_SOFFICE'] || '').trim()
+  if (env) return { path: env, source: 'MARVEEN_SOFFICE' }
+  let setting = ''
+  // A beallitas-tar hianya (friss telepites, nincs meg tabla) NEM hiba:
+  // olyankor egyszeruen nincs megadott ut, es a szokasos helyeken keresunk.
+  try { setting = String(getEffectiveSettingValue('WORKBENCH_LIBREOFFICE_PATH') ?? '').trim() } catch { setting = '' }
+  if (setting) return { path: setting, source: 'WORKBENCH_LIBREOFFICE_PATH' }
+  return null
 }
 
-/** Hol keressuk. Ha a felhasznalo MEGMONDTA (`MARVEEN_SOFFICE`), akkor CSAK
- *  ott -- ha az az ut rossz, azt meg kell tudnia, nem pedig csendben egy masik
- *  peldanyt hasznalni. Kulonben a PATH, majd a szokasos telepitesi helyek.
- *  Ezek NEM ennek a gepnek az azonositoi, hanem a LibreOffice sajat helyei. */
+/** Hol keressuk. Ha a felhasznalo MEGMONDTA, akkor CSAK ott -- ha az az ut
+ *  rossz, azt meg kell tudnia, nem pedig csendben egy masik peldanyt hasznalni.
+ *  Kulonben a PATH, majd a szokasos telepitesi helyek. Ezek NEM ennek a gepnek
+ *  az azonositoi, hanem a LibreOffice sajat helyei. */
 export function sofficeCandidates(): string[] {
-  const configured = (process.env['MARVEEN_SOFFICE'] || '').trim()
-  if (configured) return [configured]
+  const configured = configuredSoffice()
+  if (configured) return [configured.path]
   return [
     'soffice',
     'libreoffice',
@@ -93,85 +104,20 @@ export function sofficeCandidates(): string[] {
   ]
 }
 
-function run(cmd: string, args: string[], timeoutMs: number): Promise<{ ok: true; stdout: string } | { ok: false; code: string; detail: string }> {
-  return new Promise((resolve) => {
-    execFile(cmd, args, { timeout: timeoutMs, windowsHide: true }, (err, stdout, stderr) => {
-      if (!err) return resolve({ ok: true, stdout: String(stdout || '') })
-      const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string }
-      const detail = String(stderr || '').trim() || e.message || String(err)
-      if (e.code === 'ENOENT') return resolve({ ok: false, code: 'not_found', detail })
-      if (e.killed || e.signal === 'SIGTERM') return resolve({ ok: false, code: 'timeout', detail })
-      resolve({ ok: false, code: 'failed', detail })
-    })
-  })
-}
-
-const PROBE_TTL_MS = 5 * 60 * 1000
-let probeCache: SofficeProbe | null = null
-let probeInFlight: Promise<SofficeProbe> | null = null
-
-/** Van-e LibreOffice ezen a gepen? Az eredmenyt 5 percig megjegyezzuk (a
- *  valasz ritkan valtozik, a kerdes viszont draga), de a `force` mindig ujra
- *  meri -- a "Beallitas" gomb utan azonnal a friss allapot kell. */
+/** Van-e LibreOffice ezen a gepen? */
 export async function probeLibreOffice(opts: { force?: boolean; timeoutMs?: number; candidates?: string[] } = {}): Promise<SofficeProbe> {
-  if (!opts.force && probeCache && Date.now() - probeCache.checked_at < PROBE_TTL_MS) return probeCache
-  if (!opts.force && probeInFlight) return probeInFlight
-  const timeoutMs = opts.timeoutMs ?? 20_000
-  probeInFlight = (async (): Promise<SofficeProbe> => {
-    // A felhasznalo altal MEGADOTT ut kulon eset: ha az nem jo, az nem
-    // "nincs telepitve", hanem "amit megadtal, nem mukodik" -- mas a teendo.
-    const configured = (process.env['MARVEEN_SOFFICE'] || '').trim()
-    if (!opts.candidates && configured) {
-      const r = await run(configured, ['--version'], timeoutMs)
-      if (r.ok) {
-        return {
-          available: true, path: configured,
-          version: r.stdout.split('\n')[0]?.trim() || null,
-          reason: 'ok', detail: null, checked_at: Date.now(),
-        }
-      }
-      return {
-        available: false, path: null, version: null, reason: 'check_failed',
-        detail: `MARVEEN_SOFFICE=${configured}: ${r.detail}`, checked_at: Date.now(),
-      }
-    }
-    let lastFailure: { code: string; detail: string; cmd: string } | null = null
-    for (const cmd of (opts.candidates || sofficeCandidates())) {
-      const r = await run(cmd, ['--version'], timeoutMs)
-      if (r.ok) {
-        return {
-          available: true, path: cmd,
-          version: r.stdout.split('\n')[0]?.trim() || null,
-          reason: 'ok', detail: null, checked_at: Date.now(),
-        }
-      }
-      // A "nincs ilyen parancs" nem hiba: megyunk a kovetkezo jeloltre.
-      if (r.code !== 'not_found') lastFailure = { code: r.code, detail: r.detail, cmd }
-    }
-    if (lastFailure) {
-      return {
-        available: false, path: null, version: null, reason: 'check_failed',
-        detail: `${lastFailure.cmd}: ${lastFailure.detail}`, checked_at: Date.now(),
-      }
-    }
-    return {
-      available: false, path: null, version: null, reason: 'not_installed',
-      detail: null, checked_at: Date.now(),
-    }
-  })()
-  try {
-    const out = await probeInFlight
-    probeCache = out
-    return out
-  } finally {
-    probeInFlight = null
-  }
+  return probeCommand({
+    id: 'soffice',
+    configured: configuredSoffice(),
+    candidates: sofficeCandidates(),
+    versionArgs: ['--version'],
+    timeoutMs: 20_000,
+  }, opts)
 }
 
 /** Csak tesztnek/„mert allitottal rajta" esetre: felejtse el a mert allapotot. */
 export function resetLibreOfficeProbe(): void {
-  probeCache = null
-  probeInFlight = null
+  resetProbeCache('soffice')
 }
 
 /** A gyorsitotar HATARAI. Szarmaztatott adat: barmikor ujra eloallithato,
@@ -280,7 +226,7 @@ export async function convertOfficeToPdf(abs: string, opts: { timeoutMs?: number
       return { ok: false, code: 'convert_failed', detail: e instanceof Error ? e.message : String(e) }
     }
     try {
-      const r = await run(probe.path as string, [
+      const r = await runVersion(probe.path as string, [
         '--headless', '--norestore', '--nolockcheck', '--nodefault',
         `-env:UserInstallation=${pathToFileURL(profile).href}`,
         '--convert-to', 'pdf', '--outdir', outDir, abs,
