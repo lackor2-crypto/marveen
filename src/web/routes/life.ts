@@ -29,6 +29,7 @@
 //
 // Minden hibauzenet MAGYAR MONDAT, es azt mondja meg, mit tegyen a
 // felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
+import { fileKind } from '../../file-kind.js'
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
@@ -113,35 +114,16 @@ function send(res: RouteContext['res'], status: number, data: unknown): void {
 }
 
 // A bongeszoben KOZVETLENUL megjelenithetp fajltipusok (kartya #164, 1. fazis).
-// Ami nincs itt (docx/xlsx/exe/stb.), az a mostani fazisban CSAK letoltheto --
-// a szerkesztheto-dokumentum-elonezet (PDF-konverzio) es a natives megnyitas
-// kesobbi fazis, ebbe a kartyaba szandekosan NEM tartozik bele.
-const LIFE_PREVIEW_MIME: Record<string, string> = {
-  pdf: 'application/pdf',
-  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
-  mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
-  txt: 'text/plain; charset=utf-8', md: 'text/markdown; charset=utf-8',
-  js: 'text/plain; charset=utf-8', mjs: 'text/plain; charset=utf-8', cjs: 'text/plain; charset=utf-8',
-  ts: 'text/plain; charset=utf-8', tsx: 'text/plain; charset=utf-8', jsx: 'text/plain; charset=utf-8',
-  json: 'text/plain; charset=utf-8', css: 'text/plain; charset=utf-8',
-  html: 'text/plain; charset=utf-8', htm: 'text/plain; charset=utf-8',
-  py: 'text/plain; charset=utf-8', sh: 'text/plain; charset=utf-8', bash: 'text/plain; charset=utf-8',
-  yml: 'text/plain; charset=utf-8', yaml: 'text/plain; charset=utf-8', csv: 'text/plain; charset=utf-8',
-  xml: 'text/plain; charset=utf-8', c: 'text/plain; charset=utf-8', cpp: 'text/plain; charset=utf-8',
-  h: 'text/plain; charset=utf-8', hpp: 'text/plain; charset=utf-8', java: 'text/plain; charset=utf-8',
-  go: 'text/plain; charset=utf-8', rs: 'text/plain; charset=utf-8', php: 'text/plain; charset=utf-8',
-  rb: 'text/plain; charset=utf-8', sql: 'text/plain; charset=utf-8', ini: 'text/plain; charset=utf-8',
-  toml: 'text/plain; charset=utf-8', log: 'text/plain; charset=utf-8',
-}
+// A TABLA a `src/file-kind.ts`-ben all: a Munkapad elonezete (#336, 4. fazis)
+// ugyanazt a kerdest teszi fel, es ket masolat elobb-utobb szetcsuszna.
+// Ami nincs benne (docx/xlsx/exe/stb.), az CSAK letoltheto.
 
 // Meret-korlat, amin tul mar NEM ajanlunk elonezetet (csak letoltest) egy
 // nem-video fajlnal -- lasd a hasznalati helyen levo magyarazatot.
 const MAX_LIFE_PREVIEW_BYTES = 200 * 1024 * 1024 // 200 MB
 
 function lifeFileKind(name: string): { mime: string | null; previewable: boolean } {
-  const ext = pathExtname(name).slice(1).toLowerCase()
-  const mime = LIFE_PREVIEW_MIME[ext] || null
-  return { mime, previewable: mime !== null }
+  return fileKind(name)
 }
 
 export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {

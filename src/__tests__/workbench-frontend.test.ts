@@ -23,8 +23,9 @@ interface Harness {
   win: Record<string, any>
   rootEl: { innerHTML: string }
   click: (attrs: Record<string, string>) => void
-  /** Fajlvalaszto: a VALODI `change`-figyelot szolaltatja meg. */
-  change: (id: string, files: unknown[]) => void
+  /** Fajlvalaszto / legordulo: a VALODI `change`-figyelot szolaltatja meg.
+   *  A `value` a legordulonel szamit (verzio-valaszto), a fajlvalasztonal ures. */
+  change: (id: string, files: unknown[], value?: string) => void
   fetchCalls: { url: string; init?: RequestInit }[]
   toasts: string[]
   inputs: Record<string, { value: string; focus: () => void }>
@@ -102,8 +103,8 @@ function harness(): Harness {
     fetchCalls,
     respond(fn) { responder = fn },
     click(attrs) { for (const h of clickHandlers) h(eventFor(attrs)) },
-    change(id, files) {
-      const e = { target: { id, files, value: '' }, preventDefault() {} }
+    change(id, files, value = '') {
+      const e = { target: { id, files, value }, preventDefault() {} }
       for (const h of changeHandlers) h(e)
     },
   }
@@ -535,7 +536,8 @@ describe('vegyes munkadarab -- kep ES szoveg EGY munkadarabban', () => {
     const html = h.rootEl.innerHTML
     expect(html).toContain('A poszt szövege')
     expect(html).toContain('<img class="wb-part-image"')
-    expect(html).toContain('/api/life/file?path=' + encodeURIComponent('Projektek/teszt/foto.jpg'))
+    // A parameter neve `rel` -- a `/api/life/file` EZT olvassa (`path`-szal 404).
+    expect(html).toContain('/api/life/file?rel=' + encodeURIComponent('Projektek/teszt/foto.jpg'))
     expect(html).toContain('A fotó')
     // Mindketto UGYANABBAN a munkadarabban van: egy reszlista, ket sor.
     expect((html.match(/data-wb-part-row=/g) || []).length).toBe(2)
@@ -634,5 +636,124 @@ describe('vegyes munkadarab -- kep ES szoveg EGY munkadarabban', () => {
     expect(html).not.toContain('data-wb-act="part-remove"')
     // A meglevo tartalmat viszont tovabbra is latja.
     expect(html).toContain('A poszt szövege')
+  })
+})
+
+// --- 4. fazis: ELONEZET (a kozepso panel) ----------------------------------
+//
+// A kerdes, amit ez a blokk orzi: "mit LAT a felhasznalo, es ha nem lat
+// semmit, megmondjuk-e, MIERT?" A NULLA ket dolgot jelenthet -- a "meg nincs
+// semmi" baratsagos, a "nem latok oda" HANGOS, es a ketto nem nezhet ki
+// ugyanugy.
+
+const PREV_ITEM = { id: 'w1', title: 'Ajánlat', type: 'document', status: 'draft' }
+
+function previewDetail(versions: unknown[] = []) {
+  return { item: PREV_ITEM, versions, parts: [], part_kinds: ['text', 'image'], project: PROJECT }
+}
+
+/** Megnyit egy munkadarabot, es a /preview vegpont EZT a valaszt adja. */
+async function openPreview(preview: Record<string, unknown>, versions: unknown[] = []) {
+  h.respond((url) => {
+    if (url.indexOf('/preview') > 0) return { status: 200, body: preview }
+    if (url.indexOf('/api/workbench/items/') === 0) return { status: 200, body: previewDetail(versions) }
+    return { status: 200, body: itemsBody([PREV_ITEM]) }
+  })
+  h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+  await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+  h.click({ 'data-wb-item': 'w1' })
+  await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-preview'))
+}
+
+describe('elonezet -- a kozepso panel (4. fazis)', () => {
+  it('PDF: a bongeszo maga mutatja meg (iframe), es van "uj lapon" ut is', async () => {
+    await openPreview({
+      available: true, kind: 'pdf', mime: 'application/pdf', name: 'ajanlat.pdf',
+      rel: 'Projektek/teszt/ajanlat.pdf', reason: null, message: null,
+      url: '/api/life/file?rel=Projektek%2Fteszt%2Fajanlat.pdf&lang=hu',
+    })
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('<iframe class="wb-preview-frame"')
+    // A bajtokat a MEGLEVO fajl-kiszolgalo adja: nincs masodik fajl-ut.
+    expect(html).toContain('/api/life/file?rel=')
+    expect(html).toContain('workbench.preview.open_new_tab')
+    expect(html).toContain('ajanlat.pdf')
+  })
+
+  it('kep: kepkent latszik, nem letoltendo fajlkent', async () => {
+    await openPreview({
+      available: true, kind: 'image', mime: 'image/jpeg', name: 'foto.jpg',
+      rel: 'Projektek/teszt/foto.jpg', reason: null, message: null,
+      url: '/api/life/file?rel=Projektek%2Fteszt%2Ffoto.jpg&lang=hu',
+    })
+    expect(h.rootEl.innerHTML).toContain('<img class="wb-preview-image"')
+  })
+
+  it('szoveg: a tartalom latszik, es a levagast KIMONDJA', async () => {
+    await openPreview({
+      available: true, kind: 'text', mime: 'text/plain', name: 'jegyzet.txt',
+      rel: 'Projektek/teszt/jegyzet.txt', reason: null, message: null,
+      text: 'Az első bekezdés', truncated: true, url: null,
+    })
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('Az első bekezdés')
+    expect(html).toContain('workbench.preview.truncated')
+  })
+
+  it('amit a bongeszo nem tud (docx): A SZERVER mondata + letoltes, NEM vesz-szinu', async () => {
+    await openPreview({
+      available: false, kind: null, reason: 'unsupported', name: 'szerzodes.docx',
+      rel: 'Projektek/teszt/szerzodes.docx', url: null,
+      message: 'Ezt a fájltípust a böngésző nem tudja megmutatni.',
+    })
+    const html = h.rootEl.innerHTML
+    // A gepi kod HELYETT emberi mondat -- pontosan az, amit a szerver kuldott.
+    expect(html).toContain('Ezt a fájltípust a böngésző nem tudja megmutatni.')
+    expect(html).not.toContain('unsupported<')
+    expect(html).toContain('workbench.preview.download')
+    // Ez nem hiba: nincs veszjelzes.
+    expect(html).not.toContain('wb-preview-bad')
+  })
+
+  it('a NULLA ket dolgot jelent: az "ures" halk, a "nem latok oda" HANGOS', async () => {
+    await openPreview({
+      available: false, kind: null, reason: 'no_source', name: null, rel: null, url: null,
+      message: 'Ehhez a munkadarabhoz még nincs megjeleníthető tartalom.',
+    })
+    const quiet = h.rootEl.innerHTML
+    expect(quiet).toContain('Ehhez a munkadarabhoz még nincs megjeleníthető tartalom.')
+    expect(quiet).not.toContain('wb-preview-bad')
+
+    h = harness()
+    await openPreview({
+      available: false, kind: null, reason: 'no_depot', name: 'ajanlat.pdf',
+      rel: 'ajanlat.pdf', url: null,
+      message: 'Nincs beállítva Raktár, ezért a fájlhoz nem látok oda.',
+    })
+    const loud = h.rootEl.innerHTML
+    expect(loud).toContain('wb-preview-bad')
+    expect(loud).toContain('Raktár')
+  })
+
+  it('egy verzional nincs valaszto; tobbnel van, es valtasra UJ kerest indit', async () => {
+    const one = [{ id: 'v1', version_no: 1, created_at: 1 }]
+    await openPreview({ available: false, reason: 'no_source', kind: null, rel: null, url: null, message: 'x', versions: one }, one)
+    expect(h.rootEl.innerHTML).not.toContain('id="wbPreviewVersion"')
+
+    h = harness()
+    const two = [{ id: 'v2', version_no: 2, created_at: 2 }, { id: 'v1', version_no: 1, created_at: 1 }]
+    await openPreview({ available: false, reason: 'no_source', kind: null, rel: null, url: null, message: 'x', version_id: 'v2', versions: two }, two)
+    expect(h.rootEl.innerHTML).toContain('id="wbPreviewVersion"')
+
+  })
+
+  it('verzio-valtas: a kert verzio azonositoja MEGY A KERESBEN', async () => {
+    const two = [{ id: 'v2', version_no: 2, created_at: 2 }, { id: 'v1', version_no: 1, created_at: 1 }]
+    await openPreview({ available: false, reason: 'no_source', kind: null, rel: null, url: null, message: 'x', version_id: 'v2', versions: two }, two)
+    h.change('wbPreviewVersion', [], 'v1')
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('version=v1') > 0)).toBe(true))
+    const asked = h.fetchCalls.filter((c) => c.url.indexOf('/preview') > 0).pop()
+    expect(asked!.url).toContain('version=v1')
+    expect(asked!.url).toContain('lang=hu')
   })
 })

@@ -69,6 +69,14 @@ describe('GET /api/life/file -- utvonal-vedelem (a legfontosabb szabaly)', () =>
     expect(res.text()).toBe('szia vilag')
   })
 
+  it('a parameter neve `rel` -- a `path=` NEM ad ki fajlt (a Munkapad kep-elonezete ezen bukott)', async () => {
+    // 2026-09-23: a Munkapad resz-kepei `path=`-szal keszultek, es a felhasznalo
+    // torott kepet latott volna. A szerzodes itt van rogzitve: `rel`.
+    const { ctx, res } = ctxFor('/api/life/file?path=' + encodeURIComponent('Dokumentumok/proba.txt'))
+    expect(await tryHandleLife(ctx)).toBe(true)
+    expect(res.statusCode).not.toBe(200)
+  })
+
   it('klasszikus "../"-lancolas NEM lep ki a fabol -- nem adja ki a titkos fajlt', async () => {
     // A depo es a titkos fajl konyvtaranak kozos ose a rendszer temp-mappaja,
     // tehat eleg sok "../"-t felfele menni ahhoz, hogy oda erjunk.

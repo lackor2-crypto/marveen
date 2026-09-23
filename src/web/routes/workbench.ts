@@ -30,6 +30,7 @@ import {
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
 import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
+import { buildPreview } from '../../workbench-preview.js'
 import type { RouteContext } from './types.js'
 
 function uiLang(url: URL): 'hu' | 'en' {
@@ -41,6 +42,38 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   project_required: {
     hu: 'Nincs megadva, melyik projekt Munkapadját nyitod meg.',
     en: 'It is not given which project\'s Workbench you are opening.',
+  },
+  preview_no_source: {
+    hu: 'Ehhez a munkadarabhoz még nincs megjeleníthető tartalom. Írj bele egy szöveg-részt, vagy tölts fel egy képet -- és itt azonnal látni fogod.',
+    en: 'There is nothing to show for this work item yet. Add a text part or upload an image, and it will appear here right away.',
+  },
+  preview_no_depot: {
+    hu: 'Nincs még beállítva, hol tárolja a Marveen a fájlokat, ezért az előnézetet sem tudom megmutatni. Nyisd meg a Raktár oldalt, és válaszd ki a mappát.',
+    en: 'There is no storage folder set up for Marveen yet, so the preview cannot be shown. Open the Depot page and pick the folder.',
+  },
+  preview_no_folder: {
+    hu: 'Ehhez a projekthez még nincs mappa kiválasztva, ezért a fájlt nem találom. Válaszd ki a projekt mappáját a projekt adatlapján.',
+    en: 'This project has no folder selected yet, so the file cannot be found. Choose the project folder on the project page.',
+  },
+  preview_missing: {
+    hu: 'A fájl neve ismert, de a lemezen nincs ott. Lehet, hogy átnevezték vagy áthelyezték.',
+    en: 'The file name is known, but the file is not on disk. It may have been renamed or moved.',
+  },
+  preview_unreachable: {
+    hu: 'Ezt a helyet most nem érem el (lecsatolt meghajtó vagy hálózati mappa). Ez NEM azt jelenti, hogy nincs ott a fájl.',
+    en: 'This location cannot be reached right now (an unmounted drive or a network folder). This does NOT mean the file is gone.',
+  },
+  preview_unsupported: {
+    hu: 'Ezt a formátumot a böngésző magától nem mutatja meg. Töltsd le, vagy nyisd meg a saját programoddal.',
+    en: 'The browser cannot show this format on its own. Download it, or open it with your own program.',
+  },
+  preview_too_large: {
+    hu: 'Ez a fájl túl nagy ahhoz, hogy itt megmutassam. Töltsd le, és nyisd meg a gépeden.',
+    en: 'This file is too large to show here. Download it and open it on your computer.',
+  },
+  preview_unreadable: {
+    hu: 'A fájl ott van, de nem tudtam elolvasni. A pontos hibát a részletek mutatják.',
+    en: 'The file is there, but it could not be read. The details show the exact error.',
   },
   project_archived: {
     hu: 'Ez a projekt archiválva van, ezért csak olvasható. Ha dolgozni akarsz benne, előbb állítsd vissza a Projektek oldalon.',
@@ -144,6 +177,13 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   },
 }
 
+/** Gepi kod -> EMBERI mondat. Ismeretlen kodnal a kodot adjuk vissza, hogy
+ *  soha ne legyen ures a mondat (az ures uzenet rosszabb a nyers kodnal). */
+function msg(code: string, lang: 'hu' | 'en'): string {
+  const m = MESSAGES[code]
+  return m ? m[lang] : code
+}
+
 function fail(res: RouteContext['res'], status: number, code: string, lang: 'hu' | 'en'): true {
   const m = MESSAGES[code]
   json(res, { error: code, message: m ? m[lang] : code }, status)
@@ -233,6 +273,36 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       part_kinds: WORK_ITEM_PART_KINDS,
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
+    return true
+  }
+
+  // ELONEZET (4. fazis): mit lehet megmutatni a kozepso panelen, es ha semmit,
+  // MIERT nem. A bajtokat a MEGLEVO fajl-kiszolgalo adja (`/api/life/file?rel=`),
+  // ez a vegpont csak megmondja, MIT kell kerni -- nincs masodik fajl-ut.
+  if (segs.length === 2 && segs[1] === 'preview' && method === 'GET') {
+    const p = buildPreview(item.id, url.searchParams.get('version'))
+    const message = p.reason ? msg('preview_' + p.reason, lang) : null
+    // GYORSITOTAR (spec: "verziohoz kotve, cache"): a jelzes a VERZIOHOZ es a
+    // fajl allapotahoz kotodik, tehat valtozasra magatol elavul. `no-cache` =
+    // eltarolhato, de MINDIG vissza kell kerdezni -- igy a nagy szoveges
+    // elonezet nem megy at ujra a droton, de elavult tartalmat sem latni.
+    // A nyelv is beleszamit: mas nyelven MAS mondat jon.
+    const tag = p.etag ? `W/"${p.etag}-${lang}"` : null
+    const cacheHeaders = tag ? { ETag: tag, 'Cache-Control': 'private, no-cache' } : undefined
+    if (tag && req.headers['if-none-match'] === tag) {
+      res.writeHead(304, cacheHeaders)
+      res.end()
+      return true
+    }
+    json(res, {
+      ...p,
+      message,
+      // Keszre epitett cim -- a felulet ne rakjon ossze sajat utvonalat.
+      url: p.available && p.rel && p.kind !== 'parts' && p.kind !== 'text'
+        ? `/api/life/file?rel=${encodeURIComponent(p.rel)}&lang=${lang}`
+        : null,
+      versions: listWorkItemVersions(item.id),
+    }, 200, cacheHeaders)
     return true
   }
 

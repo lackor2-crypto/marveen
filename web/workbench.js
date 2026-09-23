@@ -44,6 +44,9 @@
     partEdit: null,
     partNewOpen: false,
     partBusy: false,
+    // --- elonezet (4. fazis) ---
+    preview: null,
+    previewVersion: null,
   }
 
   function esc(s) { return window.escapeHtml(s == null ? '' : String(s)) }
@@ -89,7 +92,10 @@
 
   function loadDetail(id) {
     WB.detail = null
+    WB.preview = null
+    WB.previewVersion = null
     render()
+    loadPreview(id, null)
     return api('GET', '/api/workbench/items/' + encodeURIComponent(id)).then(function (r) {
       if (WB.selectedId !== id) return
       if (!r.ok) { window.showToast(r.message); return }
@@ -160,9 +166,11 @@
   function partsOf() { return (WB.detail && WB.detail.parts) || [] }
 
   /** A kep megjelenitese a MEGLEVO fajl-kiszolgalon at (Intezo, #164) -- nem
-   *  masoljuk be a bajtokat sehova. */
+   *  masoljuk be a bajtokat sehova. A parameter neve `rel` (NEM `path`): a
+   *  `/api/life/file` ezt olvassa, a `path`-szal 404-et adna vissza. */
   function partImageSrc(part) {
-    return '/api/life/file?path=' + encodeURIComponent(part.asset_path || '')
+    return '/api/life/file?rel=' + encodeURIComponent(part.asset_path || '')
+      + '&lang=' + encodeURIComponent(window._lang || 'hu')
   }
 
   function partBodyHtml(part) {
@@ -240,6 +248,90 @@
       + '</div>'
   }
 
+  // ---- elonezet (4. fazis) ---------------------------------------------------
+  //
+  // A bajtokat a MEGLEVO fajl-kiszolgalo adja (`/api/life/file?rel=`), a PDF-et
+  // maga a bongeszo jeleniti meg: igy friss telepitesen, halozat nelkul is megy,
+  // es nincs uj csomag-fuggoseg. Ami nem mutathato meg, arra EMBERI mondat jon
+  // a szervertol -- es kulon mondat arra, ha "nem latok oda" (nincs Raktar,
+  // nincs projektmappa, eltunt a fajl), mint arra, ha "meg nincs semmi".
+  function loadPreview(itemId, versionId) {
+    WB.preview = null
+    var url = '/api/workbench/items/' + encodeURIComponent(itemId) + '/preview'
+      + (versionId ? '?version=' + encodeURIComponent(versionId) + '&' : '?')
+      + 'lang=' + encodeURIComponent(window._lang || 'hu')
+    fetch(url).then(function (res) {
+      return res.json().catch(function () { return null }).then(function (data) {
+        // Kozben mashova kattintott: a regi valasz nem irhatja felul a kepernyot.
+        if (WB.selectedId !== itemId) return
+        WB.preview = data && typeof data === 'object'
+          ? data
+          : { available: false, message: t('workbench.err.http', { status: res.status }) }
+        render()
+      })
+    }).catch(function () {
+      if (WB.selectedId !== itemId) return
+      WB.preview = { available: false, message: t('workbench.err.network') }
+      render()
+    })
+  }
+
+  function previewVersionPickerHtml() {
+    var versions = (WB.preview && WB.preview.versions) || (WB.detail && WB.detail.versions) || []
+    if (versions.length < 2) return ''
+    var cur = WB.previewVersion || (WB.preview && WB.preview.version_id) || ''
+    return '<label class="wb-label" for="wbPreviewVersion">' + esc(t('workbench.preview.version_label')) + '</label>'
+      + '<select class="wb-input wb-preview-version" id="wbPreviewVersion" data-wb-act="preview-version">'
+      + versions.map(function (v) {
+        return '<option value="' + escA(v.id) + '"' + (v.id === cur ? ' selected' : '') + '>'
+          + esc(t('workbench.versions.line', { n: v.version_no, when: when(v.created_at) })) + '</option>'
+      }).join('') + '</select>'
+  }
+
+  function previewBodyHtml(p) {
+    if (p.kind === 'pdf') {
+      return '<iframe class="wb-preview-frame" src="' + escA(p.url) + '" title="' + escA(p.name || t('workbench.preview.title')) + '"></iframe>'
+        + '<p class="wb-hint"><a href="' + escA(p.url) + '" target="_blank" rel="noopener">' + esc(t('workbench.preview.open_new_tab')) + '</a></p>'
+    }
+    if (p.kind === 'image') {
+      return '<img class="wb-preview-image" src="' + escA(p.url) + '" alt="' + escA(p.name || t('workbench.preview.title')) + '">'
+    }
+    if (p.kind === 'video') {
+      return '<video class="wb-preview-video" src="' + escA(p.url) + '" controls></video>'
+    }
+    if (p.kind === 'audio') {
+      return '<audio class="wb-preview-audio" src="' + escA(p.url) + '" controls></audio>'
+    }
+    if (p.kind === 'text') {
+      return '<pre class="wb-preview-text">' + esc(p.text || '') + '</pre>'
+        + (p.truncated ? '<p class="wb-hint">' + esc(t('workbench.preview.truncated')) + '</p>' : '')
+    }
+    return ''
+  }
+
+  function previewHtml() {
+    var p = WB.preview
+    if (!p) return '<div class="wb-preview"><p class="wb-muted">' + esc(t('workbench.loading')) + '</p></div>'
+    // A sajat reszeit (szoveg + kep) a reszlista mutatja: nem duplazzuk meg.
+    if (p.available && p.kind === 'parts') return ''
+    var head = '<div class="wb-preview-head"><h4>' + esc(t('workbench.preview.title')) + '</h4>'
+      + (p.name ? '<span class="wb-muted">' + esc(p.name) + '</span>' : '')
+      + previewVersionPickerHtml() + '</div>'
+    if (!p.available) {
+      // A "nem latok oda" fajtak hangosak, a "meg nincs semmi" baratsagos.
+      var loud = p.reason && p.reason !== 'no_source' && p.reason !== 'unsupported'
+      return '<div class="wb-preview">' + head
+        + '<p class="' + (loud ? 'wb-preview-bad' : 'wb-muted') + '">' + esc(p.message || t('workbench.preview.none')) + '</p>'
+        + (p.reason === 'unsupported' && p.rel
+          ? '<p class="wb-hint"><a href="/api/life/file?rel=' + escA(encodeURIComponent(p.rel)) + '&download=1" target="_blank" rel="noopener">'
+            + esc(t('workbench.preview.download')) + '</a></p>'
+          : '')
+        + (p.detail ? '<p class="wb-hint">' + esc(p.detail) + '</p>' : '')
+        + '</div>'
+    }
+    return '<div class="wb-preview">' + head + previewBodyHtml(p) + '</div>'
+  }
+
   function editorPanelHtml() {
     var inner
     if (!WB.selectedId) {
@@ -251,6 +343,7 @@
       inner = '<div class="wb-editor-head"><h3>' + esc(it.title) + '</h3>'
         + '<span class="wb-pill">' + esc(typeLabel(it.type)) + '</span>'
         + '<span class="wb-pill">' + esc(statusLabel(it.status)) + '</span></div>'
+        + previewHtml()
         + partsHtml()
     }
     return '<section class="wb-panel wb-panel-editor' + (WB.panel === 'editor' ? ' wb-panel-current' : '') + '" data-wb-panel-body="editor">'
@@ -689,6 +782,8 @@
     if (data.parts) WB.detail.parts = data.parts
     WB.partBusy = false
     render()
+    // A reszek a munkadarab TARTALMA: valtozasuk utan az elonezet sem a regi.
+    if (WB.selectedId) loadPreview(WB.selectedId, WB.previewVersion)
   }
 
   function partsUrl(tail) {
@@ -882,9 +977,17 @@
   })
 
   document.addEventListener('change', function (e) {
-    if (!WB.open || !e.target || e.target.id !== 'wbPartImage') return
-    var files = e.target.files
-    if (files && files.length) uploadImagePart(files[0])
+    if (!WB.open || !e.target) return
+    if (e.target.id === 'wbPartImage') {
+      var files = e.target.files
+      if (files && files.length) uploadImagePart(files[0])
+      return
+    }
+    // Verzio-valaszto az elonezethez: a REGI verziot is meg lehet nezni.
+    if (e.target.id === 'wbPreviewVersion' && WB.selectedId) {
+      WB.previewVersion = e.target.value || null
+      loadPreview(WB.selectedId, WB.previewVersion)
+    }
   })
 
   document.addEventListener('submit', function (e) {
@@ -922,6 +1025,8 @@
     WB.partEdit = null
     WB.partNewOpen = false
     WB.partBusy = false
+    WB.preview = null
+    WB.previewVersion = null
   }
 
   window.MarvinWorkbench = {
