@@ -7289,15 +7289,83 @@ async function loadOllamaModels() {
   }
 }
 
+// A szerver valaszanak eltett masolata. A modell-legordulokbe ket helyrol
+// erkezik keres (az Ugynokok oldal es a Kod-hid oldal), es nem kell miatta
+// ketszer lekerdezni ugyanazt.
+let _elerhetoModellek = null
+let _elerhetoModellekNyelv = ''
+
+// Feltolti a Claude-legordulokat a szerver listajabol. KORABBAN ezek statikus
+// <option> elemek voltak a web/index.html-ben, es pont ez volt a bug, amirol
+// Boss szolt (2026-09-23): a Cloud kiadta az Opus 5.5-ot, a HTML-ben allo lista
+// viszont nem frissult, mert semmi nem frissitette. Most egyetlen forras van
+// (src/claude-models.ts), es a lista onnan jon.
+function fillClaudeModelGroups(data) {
+  const claude = Array.isArray(data.claude) ? data.claude : []
+  const ujak = Array.isArray(data.claudeUj) ? data.claudeUj : []
+  const fo = ['agentModelClaudeGroup', 'claudeModelGroup', 'cbModelClaudeGroup']
+  const uj = ['agentModelClaudeNewGroup', 'claudeNewModelGroup', 'cbModelClaudeNewGroup']
+  for (const id of fo) {
+    const g = document.getElementById(id)
+    if (!g) continue
+    g.innerHTML = ''
+    for (const m of claude) {
+      const o = document.createElement('option')
+      o.value = m.id
+      o.textContent = m.label
+      g.appendChild(o)
+    }
+    // A NULLA KET DOLGOT JELENTHET. Ha nem lattunk oda a telepitett Claude
+    // programhoz, azt KI KELL MONDANI -- kulonben a felhasznalo azt hiszi,
+    // hogy nincs ujabb modell, holott csak nem merte meg senki.
+    if (data.claudeCliSeen === false) {
+      const o = document.createElement('option')
+      o.disabled = true
+      o.textContent = t('agents.model.claude_cli_unseen').replace('{reason}', data.claudeCliReason || '')
+      g.appendChild(o)
+    }
+  }
+  for (const id of uj) {
+    const g = document.getElementById(id)
+    if (!g) continue
+    g.innerHTML = ''
+    if (ujak.length === 0) { g.style.display = 'none'; continue }
+    g.style.display = ''
+    for (const m of ujak) {
+      const o = document.createElement('option')
+      o.value = m.id
+      o.textContent = m.label
+      g.appendChild(o)
+    }
+  }
+}
+
+// Megvarja, hogy a Claude-opciok tenylegesen ott legyenek a legorduloben.
+// Ez a sorrend szamit: egy <select>.value ertekadas NEM ragad meg, ha az az
+// opcio meg nem letezik -- a mezo nemán az elso opciora ugrana vissza.
+async function ensureClaudeModelOptions() {
+  // A cimkek nyelvfuggoek, ezert a nyelv a gyorsitotar resze: nyelvvaltas utan
+  // ujra le kell kerni, kulonben magyar cimkek allnanak az angol feluleten.
+  if (_elerhetoModellek && _elerhetoModellekNyelv === (window._lang || 'hu')) {
+    fillClaudeModelGroups(_elerhetoModellek)
+    return _elerhetoModellek
+  }
+  await loadAvailableModels()
+  return _elerhetoModellek
+}
+
 // Populates the DeepSeek optgroups in both the wizard and the agent edit
 // panel. Backend gates the list behind a vault entry, so an empty array
 // here means the operator has not configured an API key yet -- in that
 // case we hide the optgroup and surface a hint pointing to the Vault page.
 async function loadAvailableModels() {
   try {
-    const res = await fetch('/api/models/available')
+    const res = await fetch('/api/models/available?lang=' + encodeURIComponent(window._lang || 'hu'))
     if (!res.ok) return
     const data = await res.json()
+    _elerhetoModellek = data
+    _elerhetoModellekNyelv = window._lang || 'hu'
+    fillClaudeModelGroups(data)
     const deepseekModels = Array.isArray(data.deepseek) ? data.deepseek : []
     const editGroup = document.getElementById('deepseekModelGroup')
     const wizardGroup = document.getElementById('agentModelDeepseekGroup')
@@ -39125,7 +39193,8 @@ async function _intezoCfgSave() {
     // Ures ertek = "amit a VS Code hasznal". Ez ERVENYES valasztas, nem hianyzo
     // adat, ezert nincs mogotte alapertelmezes-behelyettesites.
     const model = document.getElementById('cbModel')
-    if (model) model.value = cfg.CODE_MODEL || ''
+    // ELOSZOR az opciok, CSAK AZUTAN az ertek -- lasd ensureClaudeModelOptions().
+    if (model) { await ensureClaudeModelOptions(); model.value = cfg.CODE_MODEL || '' }
     const excl = document.getElementById('cbExclude')
     if (excl) excl.value = cfg.CODE_BRIDGE_EXCLUDE || ''
     _cbSavedExclude = cbNormList(cfg.CODE_BRIDGE_EXCLUDE, true).split(',').filter(function (x) { return x })

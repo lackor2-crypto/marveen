@@ -9,6 +9,14 @@
 // array is how a future setting becomes editable from the UI -- no route or
 // frontend change needed beyond what already reads the registry.
 
+// A Claude-modellek listaja NEM itt all: az egyetlen forras a `claude-models.ts`
+// (maga is import nelkuli modul, tehat ez a fajl import-mentes marad a gyakorlati
+// ertelemben: nincs mellekhatasa, nincs korkoros fuggese). Korabban harom
+// kulon `valueSet` sorolta fel kezzel ugyanazt a listat, es mind a harombol
+// hianyzott a `claude-sonnet-4-6` -- pontosan az a csendes szetcsuszas, amirol
+// Boss szolt (2026-09-23).
+import { CLAUDE_MODEL_IDS } from './claude-models.js'
+
 // The model a fresh install runs when DEFAULT_AGENT_MODEL is unset. Kept here
 // (a zero-import module) so the registry default and the boot-time constant in
 // config.ts cannot drift apart -- bumping the distribution default is a
@@ -522,13 +530,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: true,
     restartTarget: 'dashboard',
-    valueSet: [
-      'claude-opus-5',
-      'claude-sonnet-5',
-      'claude-fable-5',
-      'claude-opus-4-8[1m]',
-      'claude-haiku-4-5-20251001',
-    ],
+    valueSet: [...CLAUDE_MODEL_IDS],
   },
   // --- AI Munkapad (kanban #336, 2. fazis) --------------------------------
   {
@@ -539,14 +541,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     module: 'munkapad',
     secret: false,
     requiresRestart: false,
-    valueSet: [
-      '',
-      'claude-opus-5',
-      'claude-sonnet-5',
-      'claude-fable-5',
-      'claude-opus-4-8[1m]',
-      'claude-haiku-4-5-20251001',
-    ],
+    valueSet: ['', ...CLAUDE_MODEL_IDS],
   },
   {
     key: 'WORKBENCH_LIBREOFFICE_PATH',
@@ -607,14 +602,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: true,
     restartTarget: 'main-agent',
-    valueSet: [
-      '',
-      'claude-opus-5',
-      'claude-sonnet-5',
-      'claude-fable-5',
-      'claude-opus-4-8[1m]',
-      'claude-haiku-4-5-20251001',
-    ],
+    valueSet: ['', ...CLAUDE_MODEL_IDS],
   },
   // --- Debate module (multi-model cross-check via scripts/debate.mjs) ---
   // Neither entry needs requiresRestart: debate.mjs is a one-shot CLI the
@@ -745,7 +733,7 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     key: 'CODE_MODEL',
     type: 'string',
     default: '',
-    valueSet: ['', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-fable-5-1'],
+    valueSet: ['', ...CLAUDE_MODEL_IDS],
     description: 'Melyik modellel fusson a kod-hidon KIADOTT feladat. Uresen hagyva a Claude Code sajat valasztasa marad ervenyben (a projekt beallitasa, illetve amit a VS Code-ban /model-lel allitottal) -- ez az alapertek, mert igy a Marveen nem ir felul olyat, amirol nem kerdeztek meg. FIGYELEM: ez a KIADOTT MUNKARA vonatkozik, nem arra, amit a kartya MUTAT: a kartyan latszo modell meres (a beszelgetes naploja mondja meg, mivel valaszolt utoljara), azt beallitani nem lehet, csak leolvasni.',
     module: 'kodhid',
     secret: false,
@@ -799,13 +787,48 @@ export interface SettingValidationResult {
   value?: string | number
 }
 
+// A telepitett Claude programban MEGTALALT, de a gondozott listankban meg nem
+// szereplo modellek. A `claude-model-discovery` merese tolti fel induláskor.
+//
+// Miert kell: a `valueSet` dolga a gepelesi hiba kiszurese, nem az, hogy egy
+// FRISSEBB modellt megtiltson. E nelkul a felulet felkinalna az uj modellt (a
+// meres latja), a mentes viszont "Ervenytelen ertek"-kel visszadobna -- vagyis
+// pont az a fal allna vissza, ami miatt a lista eddig sem frissult.
+let felfedezettClaudeModellek: string[] = []
+
+/** A meres eredmenye: ezek is valaszthatoak lesznek a modell-kulcsoknal. */
+export function registerDiscoveredClaudeModels(ids: string[]): void {
+  felfedezettClaudeModellek = Array.from(new Set((ids || []).map((x) => String(x || '')).filter(Boolean)))
+}
+
+export function getDiscoveredClaudeModels(): string[] {
+  return [...felfedezettClaudeModellek]
+}
+
+/**
+ * A ténylegesen megengedett ertekek: a regiszterben rogzitett halmaz + a
+ * felfedezett Claude-modellek, HA ez a kulcs egyaltalan Claude-modellt var.
+ * Ezt olvassa a felulet ES a mentes -- igy a ketto nem tud szetcsuszni.
+ */
+export function effectiveValueSet(def: SettingDefinition): string[] | undefined {
+  if (!def.valueSet || def.valueSet.length === 0) return def.valueSet
+  if (felfedezettClaudeModellek.length === 0) return def.valueSet
+  // Csak ott bovitunk, ahol a lista tenylegesen Claude-modelleket sorol fel.
+  const claudeKulcs = def.valueSet.some((v) => v.startsWith('claude-'))
+  if (!claudeKulcs) return def.valueSet
+  const ki = [...def.valueSet]
+  for (const id of felfedezettClaudeModellek) if (!ki.includes(id)) ki.push(id)
+  return ki
+}
+
 // Pure validation against a single registry entry. No I/O, no DB -- callers
 // (the /api/settings route, tests) decide what happens with the result.
 export function validateSettingValue(def: SettingDefinition, raw: unknown): SettingValidationResult {
-  if (def.valueSet && def.valueSet.length > 0) {
+  const megengedett = effectiveValueSet(def)
+  if (megengedett && megengedett.length > 0) {
     const str = String(raw)
-    if (!def.valueSet.includes(str)) {
-      return { ok: false, error: `Érvénytelen érték. Megengedett: ${def.valueSet.join(', ')}` }
+    if (!megengedett.includes(str)) {
+      return { ok: false, error: `Érvénytelen érték. Megengedett: ${megengedett.join(', ')}` }
     }
     return { ok: true, value: str }
   }

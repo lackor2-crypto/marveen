@@ -39,6 +39,8 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { scanInstalledClaude } from './claude-model-discovery.js'
+import { registerDiscoveredClaudeModels } from './config-registry.js'
 import { initVisionAdapters } from './life-vision-adapter.js'
 import { tryHandleAuth } from './web/routes/auth.js'
 import { tryHandleSecurity } from './web/routes/security.js'
@@ -634,6 +636,23 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // A telepitett Claude program modell-kinalatanak megmerese. Ez az, ami eddig
+  // HIANYZOTT: a Claude-lista ot helyen allt kezzel beirva, es SEMMI nem merte
+  // ujra -- Boss (2026-09-23): "ez egy bug, nem frissiti a listat".
+  //
+  // A meres a CLI verziojahoz kotve gyorsitotarazott, tehat a Claude
+  // frissitesekor MAGATOL megujul; nincs hozza sem idozito, sem kezi gomb. Az
+  // itt megtalalt, nalunk meg nem szereplo azonositokat a Beallitasok is
+  // elfogadja (registerDiscoveredClaudeModels) -- kulonben a felulet felkinalna
+  // oket, a mentes viszont visszadobna.
+  scanInstalledClaude()
+    .then((r) => {
+      registerDiscoveredClaudeModels(r.models.map((m) => m.id))
+      if (!r.cliSeen) logger.info({ reason: r.reason }, 'Claude modell-meres: nem lattunk oda a telepitett programhoz')
+      else if (r.models.length) logger.info({ models: r.models.map((m) => m.id) }, 'Claude modell-meres: a telepitett program ujabb modelleket ismer')
+    })
+    .catch((err) => logger.warn({ err }, 'Claude modell-meres nem futott le'))
 
   // Ha a helyi OCR/arcfelismero venv telepitve van (Boss level-2 jovahagyasa
   // utan, `scripts/install-vision.sh`), koti be a valodi adaptereket -- ha

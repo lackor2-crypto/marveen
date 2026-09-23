@@ -179,6 +179,8 @@ import { getTokenSummary } from '../token-usage.js'
 import { listScheduledTasks } from '../scheduled-tasks-io.js'
 import { listCodeSessions, codeBridgeHealth, codeBridgeActivity, codeBridgeDisplayState, CODE_BRIDGE_ACTIVITY_ID } from '../code-bridge-store.js'
 import { resolveCodeBotIdentity } from '../code-bridge-telegram.js'
+import { claudeModelOptions } from '../../claude-models.js'
+import { scanInstalledClaude } from '../../claude-model-discovery.js'
 
 // AZ ELAVULT KEPERNYOSZOVEG NE JELENTSEN KIESEST.
 //
@@ -736,18 +738,29 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
   const { req, res, path, method } = ctx
 
   // Lists every model the dashboard is willing to serve up to an agent.
-  // Claude IDs are static. DeepSeek is gated behind a vault secret because
-  // the agent-process launcher reads the key from there at start time --
-  // surfacing the option in the UI without the key would let the operator
-  // pick a model that 401s on first prompt.
   //
-  // NOTE: loadAvailableModels() in web/app.js consumes only `deepseek`, `glm`
-  // and `openrouter` from this payload -- the Claude options are static <option>
-  // elements in web/index.html (wizard + edit panel). The `claude` array is
-  // therefore an API-only listing today; keep it in sync with those options so
-  // a client that does read it (or a future refactor that drops the static
-  // markup) does not silently offer a stale set.
+  // A Claude-lista MAR NEM itt all kezzel beirva: az egyetlen forras a
+  // `src/claude-models.ts`. Ez a bekezdes korabban azt kerte, hogy "keep it in
+  // sync" a HTML-ben allo statikus <option>-okkel -- a kezi szinkron pontosan
+  // ugy bukott meg, ahogy varhato volt (Boss, 2026-09-23: "ez egy bug, nem
+  // frissiti a listat"). Most a HTML-ben nincs statikus Claude-option: a
+  // `loadAvailableModels()` innen tolti fel oket, tehat a ket hely nem tud
+  // szetcsuszni.
+  //
+  // A `claudeUj` a telepitett Claude programbol MERT, nalunk meg nem szereplo
+  // ujabb modell. A `claudeCliSeen` kulon mezo, mert a NULLA ket dolgot
+  // jelenthet: "nincs ujabb modell" vagy "nem lattunk oda a programhoz". A
+  // felulet ezt a mezot olvassa, nem a lista hosszabol kovetkeztet.
+  //
+  // DeepSeek is gated behind a vault secret because the agent-process launcher
+  // reads the key from there at start time -- surfacing the option in the UI
+  // without the key would let the operator pick a model that 401s on first
+  // prompt.
   if (path === '/api/models/available' && method === 'GET') {
+    const nyelv = new URL(req.url || '/', 'http://x').searchParams.get('lang') === 'en' ? 'en' : 'hu'
+    // A meres gyorsitotarazott (a CLI verziojahoz kotve), tehat ez nem indit
+    // ujra-olvasast minden legordulo-nyitasnal.
+    const mertClaude = await scanInstalledClaude()
     const hasDeepseek = getSecret('DEEPSEEK_API_KEY') !== null
     // OpenRouter is gated behind the vault key, same as DeepSeek: surfacing the
     // options without the key would let the operator pick a model that 401s.
@@ -759,14 +772,12 @@ export async function tryHandleAgents(ctx: RouteContext, webDir: string): Promis
     const hasGlm = getSecret(GLM_VAULT_KEY) !== null
     const orCatalog = loadOpenRouterCatalog()
     json(res, {
-      claude: [
-        { id: 'claude-opus-5', label: 'Opus 5 (legújabb Opus)' },
-        { id: 'claude-sonnet-5', label: 'Sonnet 5' },
-        { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-        { id: 'claude-fable-5', label: 'Fable 5' },
-        { id: 'claude-opus-4-8[1m]', label: 'Opus 4.8 (1M kontextus)' },
-        { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5 (leggyorsabb)' },
-      ],
+      claude: claudeModelOptions(nyelv),
+      // A meres eredmenye. Ures lista + cliSeen:false = "nem lattam oda".
+      claudeUj: mertClaude.models.map((m) => ({ id: m.id, label: m.name })),
+      claudeCliSeen: mertClaude.cliSeen,
+      claudeCliReason: mertClaude.reason,
+      claudeCliVersion: mertClaude.cliVersion,
       deepseek: hasDeepseek
         ? [
             { id: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro (1M kontextus, erősebb)' },
