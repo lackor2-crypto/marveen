@@ -607,3 +607,114 @@ describe('projekt- es verzio-eszkozok (6. fazis)', () => {
     expect(r.detail).toContain('nincs-ilyen')
   })
 })
+
+// ============================================================================
+// 9. FAZIS -- A RAJZ AZ AGENS KEZEBEN
+//
+// A spec 9. pontja azt keri, hogy az agens STRUKTURALTAN tudjon szerkeszteni:
+// "a cimet tedd 30%-kal nagyobbra es kozepre" -- ehhez az elemeknek allando
+// NEVE (azonositoja) kell. Amit itt merunk: ugyanaz az ut, amit a felulet
+// gombjai hasznalnak, es minden mentes UJ verzio.
+// ============================================================================
+describe('rajzvaszon-eszkozok (9. fazis)', () => {
+  let depot = ''
+  let rajzId = ''
+
+  beforeEach(() => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-canvas-tool-'))
+    process.env['MARVEEN_DEPOT'] = depot
+    mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+    const up = updateProject(projectId, { folder_path: 'Projektek/teszt' })
+    if (!up.ok) throw new Error('a projektmappa beallitasa nem sikerult: ' + up.code)
+    const w = createWorkItem({ project_id: projectId, title: 'Nyári plakát', type: 'graphic' })
+    if (!w.ok) throw new Error('munkadarab')
+    rajzId = w.item.id
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  const data = (r: ReturnType<typeof executeTool>) => {
+    if (!r.ok) throw new Error(`a muvelet elbukott: ${r.code} -- ${r.detail}`)
+    return r.data as Record<string, unknown>
+  }
+  const c = () => ({ projectId, workItemId: rajzId, lang: 'hu' as const })
+
+  it('a ket eszkoz be van jegyezve, es a MEGLEVO autonomy-kategoriara kepez', () => {
+    expect(getTool('canvas.get')!.autonomyCategory).toBeNull()
+    expect(getTool('canvas.edit')!.autonomyCategory).toBe('workbench_file_write')
+    // A rajzolas nem kuld semmit kifele, es a mentes visszafordithato (uj verzio).
+    expect(getTool('canvas.edit')!.external_effect).toBe(false)
+    expect(getTool('canvas.edit')!.reversible).toBe(true)
+    expect(getTool('canvas.edit')!.destructive).toBe(false)
+  })
+
+  it('canvas.get meg nincs rajznal: URES vaszon + KIMONDJA, hogy meg nincs (nem hiba)', () => {
+    const d = data(executeTool('canvas.get', { id: rajzId }, c()))
+    expect(d.exists).toBe(false)
+    expect((d.canvas as { objects: unknown[] }).objects).toEqual([])
+    expect(String(d.note)).toMatch(/no drawing yet/i)
+  })
+
+  it('"a cimet tedd 30%-kal nagyobbra es kozepre": EGY hivas, es a rajz UJ verzio lesz', () => {
+    data(executeTool('canvas.edit', {
+      id: rajzId,
+      ops: [{ op: 'canvas', width: 1000, height: 800 },
+        { op: 'add', type: 'text', id: 'headline', text: 'Ride for less', x: 0, y: 0, width: 800, height: 120, fontSize: 72 }],
+    }, c()))
+    const d = data(executeTool('canvas.edit', {
+      id: rajzId,
+      ops: [{ op: 'scale', id: 'headline', factor: 1.3 }, { op: 'center', id: 'headline', axis: 'both' }],
+    }, c()))
+    const obj = (d.canvas as { objects: { id: string; fontSize: number; x: number }[] }).objects[0]
+    expect(obj.id).toBe('headline')
+    expect(obj.fontSize).toBeCloseTo(93.6, 1)
+    // Uj verzio keletkezett, tehat a korabbi allapot megvan.
+    expect(Number(d.version)).toBeGreaterThan(1)
+  })
+
+  it('nem letezo elemnel MEGMONDJA, mi van a vaszonon -- nem talalgat', () => {
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'add', type: 'text', id: 'headline', text: 'x' }] }, c()))
+    const r = executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'center', id: 'cim' }] }, c())
+    expect(r.ok).toBe(false)
+    if (r.ok) throw new Error('nem szabadna sikerulnie')
+    expect(r.code).toBe('canvas_object_not_found')
+    expect(r.detail).toContain('headline')
+  })
+
+  it('egy rossz muvelet az EGESZ koteget visszagorgeti -- nincs fel-elvegzett rajz', () => {
+    data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'add', type: 'text', id: 'a', text: 'elso' }] }, c()))
+    const r = executeTool('canvas.edit', {
+      id: rajzId,
+      ops: [{ op: 'update', id: 'a', text: 'masodik' }, { op: 'center', id: 'nincs-ilyen' }],
+    }, c())
+    expect(r.ok).toBe(false)
+    const d = data(executeTool('canvas.get', { id: rajzId }, c()))
+    expect((d.canvas as { objects: { text: string }[] }).objects[0].text).toBe('elso')
+  })
+
+  it('a rajz a PROJEKT mappajaban all, es a felulet ugyanezt a fajlt latja', () => {
+    const d = data(executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'add', type: 'rect', id: 'keret' }] }, c()))
+    expect(String(d.path)).toContain('Projektek/teszt/')
+    expect(readFileSync(join(depot, String(d.path)), 'utf-8')).toContain('keret')
+  })
+
+  it('ismeretlen muvelet-nev: megmondja, MI hasznalhato helyette', () => {
+    const r = executeTool('canvas.edit', { id: rajzId, ops: [{ op: 'forgatás', id: 'a' }] }, c())
+    expect(r.ok).toBe(false)
+    if (r.ok) throw new Error('nem szabadna sikerulnie')
+    expect(r.detail).toContain('add')
+    expect(r.detail).toContain('center')
+  })
+
+  it('IDEGEN projekt munkadarabjahoz nem nyul', () => {
+    const masik = createProject({ name: 'Másik projekt' })
+    if (!masik.ok) throw new Error('projekt')
+    const w = createWorkItem({ project_id: masik.project.id, title: 'Idegen', type: 'graphic' })
+    if (!w.ok) throw new Error('munkadarab')
+    const r = executeTool('canvas.edit', { id: w.item.id, ops: [{ op: 'add', type: 'rect' }] }, c())
+    expect(r.ok).toBe(false)
+  })
+})

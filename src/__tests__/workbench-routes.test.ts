@@ -869,3 +869,189 @@ describe('Munkapad: kepesseg-kezelo (8. fazis)', () => {
     expect(getEffectiveSettingValue('MAIN_AGENT_MODEL')).not.toBe('/tmp/x')
   })
 })
+
+// ============================================================================
+// 9. FAZIS -- GRAFIKA / RAJZVASZON (spec 9)
+//
+// Amit itt merunk: a rajz STRUKTURALT (stabil azonositok), minden mentes UJ
+// VERZIO (a regi nem vesz el), a kep fuggoseg nelkul elkeszul, es a KET NULLA
+// kulon valasz: "meg nincs rajz" (kezdoallapot) vs "nem latok oda" (hiba).
+// ============================================================================
+describe('Munkapad: rajzvaszon (9. fazis)', () => {
+  let depot = ''
+  let itemId = ''
+
+  beforeEach(() => {
+    depot = mkdtempSync(join(tmpdir(), 'marveen-wb-canvas-'))
+    mkdirSync(join(depot, 'Projektek', 'teszt'), { recursive: true })
+    process.env['MARVEEN_DEPOT'] = depot
+    const up = updateProject(projectId, { folder_path: 'Projektek/teszt' })
+    if (!up.ok) throw new Error('projektmappa: ' + up.code)
+    const w = createWorkItem({ project_id: projectId, title: 'Nyári plakát', type: 'graphic' })
+    if (!w.ok) throw new Error('munkadarab')
+    itemId = w.item.id
+  })
+
+  afterEach(() => {
+    rmSync(depot, { recursive: true, force: true })
+    delete process.env['MARVEEN_DEPOT']
+  })
+
+  const url = (suffix: string) => `/api/workbench/items/${itemId}/canvas${suffix}`
+
+  it('meg nincs rajz: URES vaszon jon, es KIMONDJA, hogy meg nincs (nem hiba)', async () => {
+    const r = await call(url(''), 'GET')
+    expect(r.status).toBe(200)
+    expect(r.body.exists).toBe(false)
+    expect(r.body.canvas.objects).toEqual([])
+    expect(r.body.canvas.width).toBeGreaterThan(0)
+  })
+
+  it('mentes: fajl keletkezik a PROJEKT mappajaban, es UJ VERZIO lesz belole', async () => {
+    const r = await call(url(''), 'PUT', {
+      canvas: {
+        width: 1000, height: 800,
+        objects: [{ id: 'headline', type: 'text', x: 100, y: 100, width: 800, height: 120, fontSize: 72, text: 'Ride for less' }],
+      },
+    })
+    expect(r.status).toBe(201)
+    expect(r.body.ok).toBe(true)
+    expect(r.body.name).toMatch(/\.canvas\.json$/)
+    expect(r.body.version.version_no).toBeGreaterThanOrEqual(1)
+    // A fajl VALOBAN ott van a lemezen, nem csak az adatbazisban.
+    const files = readdirSync(join(depot, 'Projektek', 'teszt'))
+    expect(files.some((f) => f.endsWith('.canvas.json'))).toBe(true)
+    // ...es visszaolvasva ugyanaz all benne.
+    const back = await call(url(''), 'GET')
+    expect(back.body.exists).toBe(true)
+    expect(back.body.canvas.objects[0].id).toBe('headline')
+  })
+
+  it('"30%-kal nagyobbra es kozepre": a strukturalt muvelet UJ VERZIOT ir, a regi megmarad', async () => {
+    await call(url(''), 'PUT', {
+      canvas: { width: 1000, height: 800, objects: [{ id: 'headline', type: 'text', x: 0, y: 0, width: 800, height: 120, fontSize: 72, text: 'Ride for less' }] },
+    })
+    const before = (await call(`/api/workbench/items/${itemId}`, 'GET')).body.versions.length
+    const r = await call(url('/ops'), 'POST', {
+      ops: [{ op: 'scale', id: 'headline', factor: 1.3 }, { op: 'center', id: 'headline', axis: 'both' }],
+    })
+    expect(r.status).toBe(201)
+    expect(r.body.canvas.objects[0].fontSize).toBeCloseTo(93.6, 1)
+    expect(r.body.applied).toHaveLength(2)
+    expect(r.body.versions.length).toBe(before + 1)
+    // A regi verzio meg mindig a REGI allapotot mutatja: semmi nem irodott felul.
+    // Az 1. verzio a munkadarab sajat kezdo verzioja (meg nincs benne fajl), a
+    // rajz elso mentese a 2. -- AZT kell visszaolvasni.
+    const firstDrawing = r.body.versions.find((v: { version_no: number }) => v.version_no === 2)
+    const old = await call(url(`?version=${encodeURIComponent(firstDrawing.id)}`), 'GET')
+    expect(old.body.canvas.objects[0].fontSize).toBe(72)
+  })
+
+  it('MASODIK mentes: az atnevezett fajl (nev (2).json) is rajz marad, nem tunik el', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'text', text: 'elso' }] } })
+    const second = await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'text', text: 'masodik' }] } })
+    expect(second.body.renamed).toBe(true)
+    expect(second.body.name).toMatch(/\(2\)/)
+    // A LENYEG: visszaolvasva tovabbra is RAJZ, nem "meg nincs rajz".
+    const back = await call(url(''), 'GET')
+    expect(back.body.exists).toBe(true)
+    expect(back.body.canvas.objects[0].text).toBe('masodik')
+    // ...es az elonezet is kep marad.
+    const p = await call(`/api/workbench/items/${itemId}/preview`, 'GET')
+    expect(p.body.kind).toBe('canvas')
+  })
+
+  it('nem letezo elemre hivatkozo modositas: 400, es FELSOROLJA, mi van a vaszonon', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'headline', type: 'text', text: 'x' }] } })
+    const r = await call(url('/ops'), 'POST', { ops: [{ op: 'center', id: 'cim' }] })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('canvas_object_not_found')
+    // EMBERI mondat a kepernyore, MERT tenyek a reszletekbe.
+    expect(String(r.body.message).length).toBeGreaterThan(20)
+    expect(String(r.body.detail)).toMatch(/headline/)
+  })
+
+  it('a kep SVG-kent all elo, fuggoseg nelkul, es letoltheto', async () => {
+    await call(url(''), 'PUT', {
+      canvas: { width: 600, height: 400, objects: [{ id: 'headline', type: 'text', text: 'Ride for less', fontSize: 40 }] },
+    })
+    const r = await call(url('.svg'), 'GET')
+    expect(r.status).toBe(200)
+    expect(r.headers['Content-Type']).toMatch(/image\/svg\+xml/)
+    const svg = r.raw.toString('utf-8')
+    expect(svg).toMatch(/^<svg /)
+    expect(svg).toContain('Ride for less')
+    const dl = await call(url('.svg?download=1'), 'GET')
+    expect(String(dl.headers['Content-Disposition'])).toMatch(/attachment/)
+  })
+
+  it('a vaszonra tett KEP beagyazva megy a kivitt kepbe (a letoltott fajl mashol is mukodik)', async () => {
+    // 1x1 png, hogy legyen VALODI kep a lemezen.
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+    writeFileSync(join(depot, 'Projektek', 'teszt', 'logo.png'), png)
+    await call(url(''), 'PUT', {
+      canvas: { objects: [{ id: 'logo', type: 'image', src: 'Projektek/teszt/logo.png', width: 100, height: 100 }] },
+    })
+    const svg = (await call(url('.svg'), 'GET')).raw.toString('utf-8')
+    expect(svg).toContain('data:image/png;base64,')
+  })
+
+  it('HIANYZO kep: a helyen lathato tabla all, nem tunik el csendben', async () => {
+    await call(url(''), 'PUT', {
+      canvas: { objects: [{ id: 'logo', type: 'image', src: 'Projektek/teszt/nincs-ilyen.png', width: 100, height: 100 }] },
+    })
+    const svg = (await call(url('.svg'), 'GET')).raw.toString('utf-8')
+    expect(svg).toContain('nincs-ilyen.png')
+    expect(svg).toMatch(/not found/i)
+  })
+
+  it('a romlott vaszon-fajl NEM "ures rajz": sajat hibakod, es a korabbi verziok emlitese', async () => {
+    const save = await call(url(''), 'PUT', { canvas: { objects: [] } })
+    writeFileSync(join(depot, 'Projektek', 'teszt', save.body.name), '{ ez nem json')
+    const r = await call(url(''), 'GET')
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('canvas_bad_json')
+    // A rendszer sajat hibauzenete megy tovabb -- nem talalgatjuk az okot.
+    expect(String(r.body.detail).length).toBeGreaterThan(5)
+  })
+
+  it('nincs Raktar: "nem latok oda" -- KULON mondat, nem "meg nincs rajz"', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'rect' }] } })
+    delete process.env['MARVEEN_DEPOT']
+    const r = await call(url(''), 'GET')
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('canvas_no_depot')
+    expect(String(r.body.message)).toMatch(/Raktár/i)
+    // Es KIMONDJA, hogy ez NEM azt jelenti, hogy elveszett.
+    expect(String(r.body.message)).toMatch(/nem azt jelenti/i)
+  })
+
+  it('ertelmezhetetlen elem: 400, emberi mondat + a MERT reszlet', async () => {
+    const r = await call(url(''), 'PUT', { canvas: { objects: [{ type: 'hologram' }] } })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('canvas_bad_object')
+    expect(String(r.body.detail)).toMatch(/hologram/)
+  })
+
+  it('ARCHIVALT projektben a rajz olvashato, de nem irhato', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [] } })
+    setProjectArchived(projectId, true)
+    expect((await call(url(''), 'GET')).status).toBe(200)
+    const w = await call(url('/ops'), 'POST', { ops: [{ op: 'canvas', width: 400 }] })
+    expect(w.status).toBe(409)
+    expect(w.body.error).toBe('project_archived')
+  })
+
+  it('a rajz ELONEZETE kep, nem nyers JSON (a felhasznalo a KEPET latja)', async () => {
+    await call(url(''), 'PUT', { canvas: { objects: [{ id: 'a', type: 'text', text: 'Szia' }] } })
+    const p = await call(`/api/workbench/items/${itemId}/preview`, 'GET')
+    expect(p.body.available).toBe(true)
+    expect(p.body.kind).toBe('canvas')
+    expect(p.body.text).toBeNull()
+  })
+
+  it('ismeretlen munkadarab: 404, nem ures vaszon', async () => {
+    const r = await call('/api/workbench/items/nincs-ilyen/canvas', 'GET')
+    expect(r.status).toBe(404)
+  })
+})

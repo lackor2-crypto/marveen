@@ -26,6 +26,8 @@ import {
   listWorkItemParts, addWorkItemPart, type WorkItemRow,
   createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
 } from '../workbench.js'
+import { applyCanvasOps, canvasSummary } from '../workbench-graphic.js'
+import { readCanvas, saveCanvas } from '../workbench-canvas-store.js'
 import { createCardWithRules } from '../kanban-create.js'
 import { getDb } from '../db.js'
 import { ensureWorkbenchTables } from '../workbench.js'
@@ -421,6 +423,54 @@ export function executeTool(name: string, input: Record<string, unknown>, ctx: T
           shown: cards.length,
           note: overview.nextStepsTotal ? '' : 'this project has no open kanban card',
           cards: cards.map((c) => ({ id: c.id, seq: c.seq, title: c.title, status: c.status, priority: c.priority })),
+        },
+      }
+    }
+
+    // GRAFIKA (9. fazis, spec 9): a rajz STRUKTURALT -- az objektumoknak stabil
+    // ID-juk van, ezert az agent nevvel hivatkozhat rajuk, es nem kell ujra
+    // felrajzolnia az egeszet egy apro modositas miatt.
+    case 'canvas.get': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const r = readCanvas(item.id)
+      // A "nem latok oda" NEM valik "ures rajz"-za: a hibakod es a rendszer
+      // sajat uzenete megy vissza, hogy a modell ne talalgasson helyette.
+      if (!r.ok) return { ok: false, code: r.code, detail: r.detail || r.code }
+      return {
+        ok: true,
+        data: {
+          canvas: r.doc, exists: r.exists, summary: canvasSummary(r.doc),
+          note: r.exists ? '' : 'there is no drawing yet on this work item; this is an empty canvas to start from',
+        },
+      }
+    }
+
+    case 'canvas.edit': {
+      const id = asString(input.id) || ctx.workItemId || ''
+      if (!id) return { ok: false, code: 'bad_input', detail: 'id is required' }
+      const item = getWorkItem(id)
+      if (!item || item.project_id !== project.id) {
+        return { ok: false, code: 'not_found', detail: 'no work item with this id in this project' }
+      }
+      const current = readCanvas(item.id)
+      if (!current.ok) return { ok: false, code: current.code, detail: current.detail || current.code }
+      const applied = applyCanvasOps(current.doc, input.ops)
+      if (!applied.ok) return { ok: false, code: applied.code, detail: applied.detail }
+      const saved = saveCanvas(item, applied.doc, { createdBy: 'workbench-agent', name: current.name })
+      if (!saved.ok) return { ok: false, code: saved.code, detail: saved.detail || folderStateDetail(saved.code) }
+      return {
+        ok: true,
+        data: {
+          canvas: applied.doc, applied: applied.applied, summary: canvasSummary(applied.doc),
+          path: saved.rel, version: saved.version.version_no,
+          note: saved.renamed
+            ? `saved as a new version; the file name was taken, so it was written as ${saved.name}`
+            : 'saved as a new version; nothing was overwritten',
         },
       }
     }

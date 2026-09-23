@@ -1202,3 +1202,196 @@ describe('kepesseg-panel (8. fazis)', () => {
     }
   })
 })
+
+// ============================================================================
+// 9. FAZIS -- RAJZVASZON A FELULETEN
+//
+// A felhasznalo NEM programozo: nem JSON-t szerkeszt, hanem gombokat nyom
+// ("Kozepre", "Nagyobb"). Amit itt merunk: a KEPET latja (nem nyers adatot),
+// a "meg nincs rajz" barátságos kezdoallapot (nem hibauzenet), a "nem latok
+// oda" HANGOS, es minden kepernyore kerulo szoveg a t()-n megy at.
+// ============================================================================
+describe('rajzvaszon a feluletrol (9. fazis)', () => {
+  const GRAPHIC = { id: 'w1', title: 'Nyári plakát', type: 'graphic', status: 'draft' }
+  const DOC = {
+    version: 1, width: 1000, height: 800, background: '#ffffff',
+    objects: [
+      { id: 'headline', type: 'text', x: 0, y: 0, width: 800, height: 120, fontSize: 72, text: 'Ride for less', color: '#111111', align: 'left', font: 'sans', weight: 'bold' },
+      { id: 'keret', type: 'rect', x: 10, y: 10, width: 200, height: 100, fill: '#eeeeee', stroke: 'none', radius: 0 },
+    ],
+  }
+  const CANVAS_OK = {
+    canvas: DOC, exists: true, rel: 'Projektek/teszt/nyari-plakat.canvas.json',
+    name: 'nyari-plakat.canvas.json', version_id: 'v2', version_no: 2,
+    limits: { max_objects: 200, text_max: 2000 }, summary: '2 elem',
+  }
+  const CANVAS_EMPTY = {
+    canvas: { version: 1, width: 1080, height: 1080, background: '#ffffff', objects: [] },
+    exists: false, rel: null, name: null, version_id: 'v1', version_no: 1,
+    limits: { max_objects: 200, text_max: 2000 }, summary: '',
+  }
+
+  /** Megnyit egy GRAFIKA munkadarabot, a /canvas vegpont EZT adja vissza.
+   *  Az `until` a BETOLTOTT allapot jelolője: a vaszon-doboz eloszor "toltes"
+   *  allapotban jelenik meg, es enelkul a teszt AZT merne. */
+  async function openCanvas(canvas: unknown = CANVAS_OK, status = 200, until = 'wb-can-objs') {
+    h.respond((url) => {
+      if (url.indexOf('/canvas') > 0) return { status, body: canvas }
+      if (url.indexOf('/preview') > 0) {
+        return { status: 200, body: { available: true, kind: 'canvas', mime: 'image/svg+xml', name: 'nyari-plakat.canvas.json', rel: 'Projektek/teszt/nyari-plakat.canvas.json', reason: null, message: null, url: null } }
+      }
+      if (url.indexOf('/api/workbench/items/') === 0) {
+        return { status: 200, body: { item: GRAPHIC, versions: [], parts: [], part_kinds: ['text', 'image'], project: PROJECT } }
+      }
+      return { status: 200, body: itemsBody([GRAPHIC]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain(until))
+  }
+
+  it('meg nincs rajz: BARATSAGOS kezdoallapot + "Kezdjunk egy vasznat" gomb, nem hibauzenet', async () => {
+    await openCanvas(CANVAS_EMPTY, 200, 'data-wb-act="canvas-start"')
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('workbench.canvas.none_title')
+    expect(html).toContain('data-wb-act="canvas-start"')
+    // Ez NEM hiba: nincs vesz-szinu doboz es nincs gepi kod a kepernyon.
+    expect(html).not.toContain('wb-preview-bad')
+    expect(html).not.toContain('canvas_missing')
+  })
+
+  it('"nem latok oda": HANGOS doboz, a szerver mondataval ES a VALODI reszlettel', async () => {
+    await openCanvas({ error: 'canvas_no_depot', message: 'A rajz fájljához nem látok oda: nincs beállítva a Raktár ezen a gépen.', detail: 'Projektek/teszt/nyari-plakat.canvas.json' }, 409, 'data-wb-act="canvas-refresh"')
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('wb-preview-bad')
+    expect(html).toContain('A rajz fájljához nem látok oda')
+    expect(html).toContain('Projektek/teszt/nyari-plakat.canvas.json')
+    // A "nem latok oda" SOHA nem lesz "meg nincs rajz".
+    expect(html).not.toContain('data-wb-act="canvas-start"')
+  })
+
+  it('a KEPET mutatja (SVG), nem a nyers adatot, es le is lehet tolteni', async () => {
+    await openCanvas()
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('/api/workbench/items/w1/canvas.svg')
+    expect(html).toContain('download=1')
+    expect(html).toContain('workbench.canvas.download')
+    // A felhasznalo SOSE lat JSON-t.
+    expect(html).not.toContain('"objects"')
+  })
+
+  it('a kep URL-je a mentes utan VALTOZIK (nem a gyorsitotarbol jon a regi kep)', async () => {
+    await openCanvas()
+    const first = /canvas\.svg[^"]*v=([\d-]+)/.exec(h.rootEl.innerHTML)
+    expect(first).not.toBeNull()
+    h.respond((url) => {
+      if (url.indexOf('/canvas/ops') > 0) {
+        return { status: 201, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [{ op: 'center', id: 'headline' }], versions: [], message: 'Mentve' } }
+      }
+      if (url.indexOf('/canvas') > 0) return { status: 200, body: CANVAS_OK }
+      return { status: 200, body: { item: GRAPHIC, versions: [], parts: [], part_kinds: [], project: PROJECT } }
+    })
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'center', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => {
+      const now = /canvas\.svg[^"]*v=([\d-]+)/.exec(h.rootEl.innerHTML)
+      expect(now && now[1]).not.toBe(first && first[1])
+    })
+  })
+
+  it('minden elem SAJAT nevvel (azonositoval) all a listan -- errol tud beszelni az agent is', async () => {
+    await openCanvas()
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('headline')
+    expect(html).toContain('keret')
+    expect(html).toContain('data-wb-act="canvas-edit"')
+  })
+
+  it('"Kozepre" gomb: STRUKTURALT muveletet kuld, nem koordinatat irat be a userrel', async () => {
+    await openCanvas()
+    h.fetchCalls.length = 0
+    h.respond((url) => {
+      if (url.indexOf('/canvas/ops') > 0) return { status: 201, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], message: 'Mentve' } }
+      return { status: 200, body: CANVAS_OK }
+    })
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'center', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/canvas/ops') > 0)).toBe(true))
+    const call = h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0)[0]
+    const sent = JSON.parse(String(call.init && call.init.body))
+    expect(sent.ops[0].op).toBe('center')
+    expect(sent.ops[0].id).toBe('headline')
+  })
+
+  it('"Nagyobb": 1.3-as szorzo megy ki -- a user nem szamol betumeretet', async () => {
+    await openCanvas()
+    h.fetchCalls.length = 0
+    h.respond(() => ({ status: 201, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], message: 'Mentve' } }))
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'bigger', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/canvas/ops') > 0)).toBe(true))
+    const sent = JSON.parse(String(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0)[0].init!.body))
+    expect(sent.ops[0].op).toBe('scale')
+    expect(sent.ops[0].factor).toBeGreaterThan(1)
+  })
+
+  it('a szerkesztes UGYANAZON az uton megy, mint az agent (egy `update` muvelet)', async () => {
+    await openCanvas()
+    h.click({ 'data-wb-act': 'canvas-edit', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-act="canvas-save"'))
+    h.inputs['wbCanText'] = { value: 'Új cím', focus() {} }
+    h.fetchCalls.length = 0
+    h.respond(() => ({ status: 201, body: { ok: true, canvas: DOC, item: GRAPHIC, applied: [], versions: [], message: 'Mentve' } }))
+    h.click({ 'data-wb-act': 'canvas-save', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('/canvas/ops') > 0)).toBe(true))
+    const sent = JSON.parse(String(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0)[0].init!.body))
+    expect(sent.ops[0].op).toBe('update')
+    expect(sent.ops[0].id).toBe('headline')
+  })
+
+  it('torles elott MEGKERDEZI (visszafordithatatlan lepes), es a "nem" tenyleg nem csinal semmit', async () => {
+    await openCanvas()
+    h.win.confirm = () => false
+    h.fetchCalls.length = 0
+    h.click({ 'data-wb-act': 'canvas-remove', 'data-wb-obj': 'keret' })
+    expect(h.fetchCalls.filter((c) => c.url.indexOf('/canvas/ops') > 0)).toHaveLength(0)
+  })
+
+  it('a szerver hibajanal AZ A mondat megy ki, amit a szerver kuldott (nem talalgatas)', async () => {
+    await openCanvas()
+    h.respond((url) => {
+      if (url.indexOf('/canvas/ops') > 0) {
+        return { status: 400, body: { error: 'canvas_object_not_found', message: 'Nincs ilyen elem a vásznon.', detail: 'no object "cim". Objects: headline, keret' } }
+      }
+      return { status: 200, body: CANVAS_OK }
+    })
+    h.click({ 'data-wb-act': 'canvas-op', 'data-wb-op': 'center', 'data-wb-obj': 'headline' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Nincs ilyen elem a vásznon.'))
+    // A MERT is latszik, nem csak az emberi mondat.
+    expect(h.rootEl.innerHTML).toContain('no object "cim"')
+  })
+
+  it('ARCHIVALT projektben a rajz latszik, de nincs szerkeszto gomb', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/canvas') > 0) return { status: 200, body: CANVAS_OK }
+      if (url.indexOf('/preview') > 0) return { status: 200, body: { available: true, kind: 'canvas', name: 'x.canvas.json', rel: 'Projektek/teszt/x.canvas.json', reason: null, message: null, url: null } }
+      if (url.indexOf('/api/workbench/items/') === 0) {
+        return { status: 200, body: { item: GRAPHIC, versions: [], parts: [], part_kinds: [], project: { ...PROJECT, archived: 1 } } }
+      }
+      return { status: 200, body: { project: { ...PROJECT, archived: 1 }, items: [GRAPHIC], types: ['graphic'], statuses: ['draft'] } }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('data-wb-item="w1"'))
+    h.click({ 'data-wb-item': 'w1' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-can-objs'))
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('/api/workbench/items/w1/canvas.svg')
+    expect(html).not.toContain('data-wb-act="canvas-add-text"')
+  })
+
+  it('minden kepernyore kerulo sajat szoveg a t()-n megy at (HU/EN)', async () => {
+    await openCanvas()
+    const html = h.rootEl.innerHTML
+    for (const key of ['workbench.canvas.title', 'workbench.canvas.intro', 'workbench.canvas.download', 'workbench.canvas.add_text', 'workbench.canvas.center']) {
+      expect(html).toContain(key)
+    }
+  })
+})

@@ -22,6 +22,7 @@ import { basename } from 'node:path'
 import { resolveLifePath, explorerRoot } from './life-explorer.js'
 import { getProject, type ProjectRow } from './projects.js'
 import { fileKind, type PreviewKind } from './file-kind.js'
+import { isCanvasFile } from './workbench-graphic.js'
 import { isOfficeConvertible, officeExt, cachedPdfFor } from './office-convert.js'
 import {
   getWorkItem, listWorkItemVersions, listWorkItemParts,
@@ -44,7 +45,9 @@ export interface PreviewResult {
   available: boolean
   /** 'parts' = a munkadarab sajat reszei (szoveg + kep) a tartalom.
    *  'office' = irodai dokumentum, amibol PDF-et kell keszitenunk. */
-  kind: PreviewKind | 'parts' | 'office' | null
+  /** 'canvas' = strukturalt rajz (9. fazis): a kepet a szerver rajzolja ki
+   *  SVG-be, tehat a bongeszonek nem kell hozza semmi. */
+  kind: PreviewKind | 'parts' | 'office' | 'canvas' | null
   version_id: string | null
   version_no: number | null
   rel: string | null
@@ -97,7 +100,13 @@ function existsRel(rel: string): boolean {
 /** A megmutatando fajl UTJA (Raktar-relativ), vagy `null`, ha nincs ilyen.
  *  Sorrend: a verzio elonezet-fajlja -> a munkadarab forrasfajlja. */
 function sourceRel(item: WorkItemRow, version: WorkItemVersionRow | null, project: ProjectRow | null): string | null {
-  const candidates = [version?.preview_path, item.source_path]
+  // Sorrend: a verzio SAJAT fajlja nyer. A `preview_path` a kifejezetten
+  // elonezetnek keszult valtozat, a `source_path` a verzio forrasa; a
+  // munkadarab sajat `source_path`-ja csak a VEGSO tartalek. Enelkul egy REGI
+  // verzio a LEGUJABB fajlt mutatta (a fajl-iro sose ir felul, tehat minden
+  // mentes uj nevre megy), vagyis a "a regi nem vesz el" igeret serult:
+  // visszalepve is az uj allapot latszott (kanban #336, 9. fazis).
+  const candidates = [version?.preview_path, version?.source_path, item.source_path]
   for (const c of candidates) {
     const raw = String(c ?? '').trim()
     if (!raw) continue
@@ -152,6 +161,16 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
   const k = fileKind(name)
   const base = { ...vIds, rel, name, mime: k.mime, size: st.size }
   const etag = `${version ? version.id : item.id}-${Math.floor(st.mtimeMs)}-${st.size}`
+
+  // STRUKTURALT RAJZ (9. fazis): a `.canvas.json` technikailag szoveges fajl,
+  // de a felhasznalonak NEM a JSON-t kell latnia, hanem a KEPET. Ez a sor a
+  // szoveges ag ELOTT all, kulonben nyers adat kerulne a kepernyore.
+  if (isCanvasFile(name)) {
+    return {
+      available: true, kind: 'canvas', ...base, mime: 'image/svg+xml', etag,
+      text: null, truncated: false, reason: null, detail: null, office: null,
+    }
+  }
 
   // A tul nagy fajlt NEM kezdjuk el mutatni -- es atalakitani sem. Ez a sor
   // szandekosan all az irodai ag ELOTT: egy 300 MB-os .docx-bol sem indul el

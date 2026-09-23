@@ -189,6 +189,18 @@ export const TOOLS: ToolDef[] = [
     destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
   },
   {
+    name: 'canvas.get',
+    description: 'Read the structured drawing (canvas) of a work item: its size and every object on it with its stable id. If there is no drawing yet, the answer says so and gives an empty canvas -- that is a starting point, not an error.',
+    input: 'id: the work item id (optional, defaults to the open one)',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: null,
+  },
+  {
+    name: 'canvas.edit',
+    description: 'Change the structured drawing (canvas) of a work item with a list of operations, and save the result as a NEW version (nothing is overwritten). Objects are addressed by their stable id, so "make the headline 30% bigger and centre it" is two operations on the same id. Read the canvas first with canvas.get to learn the ids.',
+    input: 'id: the work item id (optional, defaults to the open one); ops: the list of operations. Each one is an object: {op:"add", object:{type:"text"|"rect"|"image", ...}}, {op:"update", id, patch:{...}}, {op:"remove", id}, {op:"move", id, dx, dy}, {op:"center", id, axis:"x"|"y"|"both"}, {op:"scale", id, factor} (1.3 = 30% bigger), {op:"order", id, to:"front"|"back"|"up"|"down"}, or {op:"canvas", width, height, background}. A text object has text, fontSize, color (#rrggbb), align, bold, italic; a rect has fill and radius; an image has src (a picture inside the project folder).',
+    destructive: false, reversible: true, external_effect: false, autonomyCategory: 'workbench_file_write',
+  },
+  {
     name: 'kanban.create',
     description: 'Open a kanban card. Code fixes and development tasks are NOT work items: they belong on the kanban board. The card is always bound to THIS project, whatever the request says.',
     input: 'title: the card title; description (optional); priority (optional): low, normal, high or urgent; related (optional): the ids of cards this one relates to, or an empty list if there is none',
