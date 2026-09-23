@@ -68,7 +68,7 @@ import { listMounts, addMount, removeMount, mountsOverview, updateMountNote } fr
 import { repoAt, reposInside, repoStatus, deleteRepo, writeBlockReason } from '../../git-guard.js'
 import { mountCandidates } from '../../life-mount-candidates.js'
 import { getPhysical, setPhysical, listPhysical } from '../../life-documents.js'
-import { planPersonsGroupMove, applyPersonsGroupMove } from '../../life-persons-group.js'
+import { planPersonsGroupMove, applyPersonsGroupMove, isLockError } from '../../life-persons-group.js'
 import type { RouteContext } from './types.js'
 
 // A valasz nyelve a FELULETET koveti (`?lang=`), nem a telepitest. A lemezen
@@ -275,12 +275,13 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       const moved = applyPersonsGroupMove(groupPlan)
       if (!moved.ok) {
         const f = moved.failed[0]
+        const lock = isLockError(String(f?.error || ''))
         send(res, 500, {
           error: 'group_move_failed',
           failed: moved.failed,
           message: T(lang,
-            `Nem sikerült átköltöztetni: ${f?.from} -> ${f?.to} (${f?.error}). ${moved.rolledBack ? 'A már áthelyezett mappákat visszatettem, minden a régi helyén van.' : 'Semmi nem mozdult.'} A beállítást nem mentettem el.`,
-            `Could not move ${f?.from} -> ${f?.to} (${f?.error}). ${moved.rolledBack ? 'The folders already moved were put back, everything is where it was.' : 'Nothing moved.'} The setting was not saved.`),
+            `Nem sikerült átköltöztetni: ${f?.from} -> ${f?.to} (${f?.error}). ${lock ? 'A gép nem engedte: valamelyik program nyitva tart egy fájlt vagy mappát ebben a mappában (például egy szerkesztő, a VS Code, egy Intéző-ablak vagy egy futó program). Zárd be, és próbáld újra. ' : ''}${moved.rolledBack ? 'A már áthelyezett mappákat visszatettem, minden a régi helyén van.' : 'Semmi nem mozdult.'} A beállítást nem mentettem el.`,
+            `Could not move ${f?.from} -> ${f?.to} (${f?.error}). ${lock ? 'The computer refused: a program keeps a file or folder open inside it (an editor, VS Code, an Explorer window or a running program). Close it and try again. ' : ''}${moved.rolledBack ? 'The folders already moved were put back, everything is where it was.' : 'Nothing moved.'} The setting was not saved.`),
         })
         return true
       }

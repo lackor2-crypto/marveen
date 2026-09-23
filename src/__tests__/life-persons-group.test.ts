@@ -123,6 +123,25 @@ describe('moving existing folders into the group', () => {
     expect(readFileSync(join(depot, 'Család', 'Teszt Anna', 'mas.txt'), 'utf8')).toBe('y')
   })
 
+  it('a failed move leaves no empty group folder behind, but keeps one with content', () => {
+    ensureLifeTree(flat, 'hu')
+    mkdirSync(join(depot, 'Archív', 'Család', 'Teszt Anna'), { recursive: true })
+    writeFileSync(join(depot, 'Archív', 'Család', 'Teszt Anna', 'mas.txt'), 'y', 'utf8')
+    const r = applyPersonsGroupMove(planPersonsGroupMove(normalizeLifeConfig(flat), normalizeLifeConfig(grouped), 'hu'))
+    expect(r.ok).toBe(false)
+    expect(r.rolledBack).toBe(true)
+    expect(existsSync(join(depot, 'Család'))).toBe(false)
+    expect(existsSync(join(depot, 'Teszt Elek'))).toBe(true)
+    expect(readFileSync(join(depot, 'Archív', 'Család', 'Teszt Anna', 'mas.txt'), 'utf8')).toBe('y')
+  })
+
+  it('lock errors are recognised (the message tells the user to close the program)', async () => {
+    const { isLockError } = await import('../life-persons-group.js')
+    expect(isLockError('EACCES')).toBe(true)
+    expect(isLockError('EBUSY')).toBe(true)
+    expect(isLockError('ENOENT')).toBe(false)
+  })
+
   it('same group: nothing to move', () => {
     ensureLifeTree(grouped, 'hu')
     expect(planPersonsGroupMove(normalizeLifeConfig(grouped), normalizeLifeConfig(grouped), 'hu').moves).toEqual([])
