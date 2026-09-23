@@ -38,6 +38,16 @@ The user is not a programmer. They will not misdescribe what was on their screen
 - **A "last value" reader can be stale.** A number read from the newest usage
   entry does not reflect an operation that has not yet produced a new entry
   (e.g. a compaction on an idle session). Account for boundary/marker records.
+- **"I don't see it" can mean "it is there but unfindable".** 2026-09-23: the
+  owner said the MEGA accounts were shown nowhere. They WERE rendered -- at the
+  bottom of each card, under a long connector list, with a tiny grey label and
+  no "MEGA" word in the row. A headless check that counts DOM nodes passes;
+  the fix was placement + a header summary. Take a screenshot and look at it
+  as the user would, don't only count elements.
+- **Don't offer a cause before measuring it.** Same day, I first told the owner
+  "browser cache" -- but the assets are served on versioned URLs (?v=mtime),
+  so that could not be it; one `curl /` would have shown it. Measure, then
+  say; if you already said a guess, correct it in the next message.
 - **Don't argue with the user to save tokens.** Back-and-forth costs more than
   one proper investigation. Investigate first, explain after.
 - **One symptom, several independent causes -- keep digging past the first.**
