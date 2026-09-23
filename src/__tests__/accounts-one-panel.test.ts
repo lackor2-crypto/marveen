@@ -53,8 +53,9 @@ interface Card {
   claude: { id: string }[]
   google: { id: string }[]
   mcp: { accountId: string | null }[]
+  mega?: { name: string; email: string }[]
 }
-type Merge = (c: unknown[], g: unknown[], m: unknown[]) => Card[]
+type Merge = (c: unknown[], g: unknown[], m: unknown[], mega?: unknown[]) => Card[]
 
 const merge = new Function(
   `${extractFn(app, '_hubEmailKey')}\n${extractFn(app, '_accHubMerge')}\nreturn _accHubMerge`,
@@ -449,5 +450,53 @@ describe('the new classes obey the [hidden] contract', () => {
     for (const cls of ['.acc-hub', '.acc-card', '.acc-part', '.acc-block']) {
       expect(css, `${cls}[hidden]`).toContain(`${cls}[hidden]`)
     }
+  })
+})
+
+// Boss, 2026-09-23: "a megjelenites ott lentebb kene lennie ... a lackor3gmail.com
+// e-mail cimmel, meg itt van a mega is". A MEGA az e-mail cime kartyajan all,
+// a hozzaado reszben nincs lista; a hozzaado resz csak hozzaad.
+describe('MEGA a fiok-kartyan, a hozzaadas kulon', () => {
+  const megaAcct = (name: string, email: string) => ({ name, email, quota: null })
+
+  it('a MEGA-fiok arra a kartyara kerul, amelyiknek ugyanaz az e-mail cime', () => {
+    const cards = merge(
+      [cAcct('x', { identity: { loggedIn: true, email: 'Boss@Gmail.com' } })],
+      [gAcct('boss', { email: 'boss@gmail.com' })],
+      [],
+      [megaAcct('mega_boss', 'BOSS@gmail.com')],
+    )
+    expect(cards).toHaveLength(1)
+    expect(cards[0].mega!.map(m => m.name)).toEqual(['mega_boss'])
+  })
+
+  it('ha a cimnek nincs mas fiokja, a MEGA sajat kartyat kap -- es semmi nem vesz el', () => {
+    const cards = merge([], [gAcct('a', { email: 'a@gmail.com' })], [],
+      [megaAcct('m1', 'a@gmail.com'), megaAcct('m2', 'only-mega@gmail.com')])
+    expect(cards).toHaveLength(2)
+    expect(cards.flatMap(c => c.mega || []).map(m => m.name).sort()).toEqual(['m1', 'm2'])
+    expect(cards.find(c => c.email === 'only-mega@gmail.com')!.mega!.map(m => m.name)).toEqual(['m2'])
+  })
+
+  it('a MEGA-lista kikerult a hozzaado reszbol', () => {
+    expect(html).not.toContain('id="megaAccountList"')
+    expect(app).not.toContain('megaAccountList')
+    expect(extractFn(app, '_accHubCardHtml')).toContain('_accHubMegaPart(c.mega)')
+  })
+
+  it('minden hozzaado urlapnak van valaszto gombja, es alapbol csak egy latszik', () => {
+    const add = html.slice(html.indexOf('id="accountsAddDetails"'), html.indexOf('id="accountsHubList"'))
+    const panes = [...add.matchAll(/data-acc-add-pane="([a-z]+)"( hidden)?/g)]
+    const buttons = [...add.matchAll(/data-acc-add="([a-z]+)"/g)].map(m => m[1])
+    expect(panes.map(p => p[1]).sort()).toEqual(buttons.slice().sort())
+    expect(panes.filter(p => !p[2])).toHaveLength(1)
+  })
+
+  it('a kartyarol inditott folyamat kinyitja a hozzaadot es odaall', () => {
+    // A bejelentkezes-dobozok a hozzaado urlapokban laknak: becsukva vagy masik
+    // fulon allva a folyamat lathatatlanul futna.
+    expect(extractFn(app, '_gconnStartAuth')).toContain("_accAddReveal('google')")
+    expect(extractFn(app, '_claudeAuthMoveFlowTo')).toContain("_accAddReveal('claude')")
+    expect(extractFn(app, '_accKeyLogin')).toContain("_accAddReveal('claude')")
   })
 })

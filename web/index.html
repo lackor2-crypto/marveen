@@ -2289,12 +2289,24 @@
                tiz fiokkal jon ellenorizni, ne gorgessen at egy urlapon minden
                alkalommal. Ha meg egy kartya sincs, a JS magatol kinyitja
                (renderAccountsHub) -- ott ez az egyetlen ertelmes teendo. -->
+          <!-- Boss, 2026-09-23: "ez egy nagy fos ez az oldal ... egybefolyik
+               minden". A lap harom, jol elkulonulo zonara oszlik: (1) fent CSAK
+               a hozzaadas, (2) alatta a bekotott fiokok, e-mail cimenkent egy
+               kartyan (a MEGA is), (3) legalul az ellenorzes es az extrak.
+               Mind ugyanazon az EGY panelen belul (accounts-one-panel.test.ts). -->
+          <div class="acc-zone acc-zone-add">
           <details class="acc-add-details" id="accountsAddDetails">
-            <summary class="acc-add-summary" data-i18n="acchub.add_toggle">Új fiók hozzáadása (Claude, Google vagy GitHub)</summary>
+            <summary class="acc-add-summary" data-i18n="acchub.add_toggle">Új fiók hozzáadása (Claude, Google, GitHub vagy MEGA)</summary>
+            <div class="acc-add-chooser" id="accountsAddChooser" role="tablist">
+              <button type="button" class="acc-add-choice active" data-acc-add="claude" role="tab" aria-selected="true" data-i18n="acchub.choose_claude">Claude</button>
+              <button type="button" class="acc-add-choice" data-acc-add="google" role="tab" aria-selected="false" data-i18n="acchub.choose_google">Google</button>
+              <button type="button" class="acc-add-choice" data-acc-add="github" role="tab" aria-selected="false" data-i18n="acchub.choose_github">GitHub</button>
+              <button type="button" class="acc-add-choice" data-acc-add="mega" role="tab" aria-selected="false" data-i18n="acchub.choose_mega">MEGA</button>
+            </div>
           <!-- Innentol lefele mar nem "mi van bekotve", hanem "hogyan kotok be
                ujat": harom kulon folyamat, de mind az EGY panelen belul, es a
                listajukat egyik sem ismetli meg -- azt a kartyak mutatjak. -->
-          <div class="acc-block" id="claudeAccountPanel">
+          <div class="acc-block" id="claudeAccountPanel" data-acc-add-pane="claude">
             <div class="acc-block-title" data-i18n="acchub.add_claude">Új Claude-fiók vagy kulcs hozzáadása</div>
             <p class="claude-auth-warn" data-i18n="claudeauth.lead">Több fiók lehet egyszerre bent, és mindegyik megmarad: az új bejelentkezés a meglévőket nem bántja. Válaszd ki, melyik szolgáltatóhoz adsz újat.</p>
 
@@ -2375,7 +2387,7 @@
                egyszerre, mindegyiknel Gmail + Drive + Naptar. Eddig csak
                terminalbol lehetett bekotni -- ez a szakasz hozza be a feluletre.
                A LISTAJA feljebb, a kartyakon van; itt csak a bekotes maradt. -->
-          <div class="acc-block" id="googleConnSection">
+          <div class="acc-block" id="googleConnSection" data-acc-add-pane="google" hidden>
             <div class="acc-block-title" data-i18n="acchub.add_google">Google-fiók bekötése (levél, Drive, naptár)</div>
             <p class="claude-auth-warn" data-i18n="gconn.lead">Ide annyi Google-címet köthetsz be, amennyit szeretnél — akár tízet is. Mind egyszerre él, egyik sem szorítja ki a másikat, és mindegyiknél megvan a levél, a Drive és a naptár. Az „alapértelmezett" az, amelyiket a Marveen magától használja, ha nem mondod meg, melyiket.</p>
 
@@ -2458,7 +2470,7 @@
                (src/git-accounts.ts, _storagesAskToken) -- ez a blokk nem
                masolja le, csak UGYANAZT a modal-t es vegpontokat hivja innen
                is, hogy a fiok ezen a lapon is felveheto legyen, ne csak ott. -->
-          <div class="acc-block" id="githubConnSection">
+          <div class="acc-block" id="githubConnSection" data-acc-add-pane="github" hidden>
             <div class="acc-block-title" data-i18n="acchub.add_github">GitHub-fiók hozzáadása (repók eléréséhez)</div>
             <p class="claude-auth-warn" data-i18n="accounts.github.desc">Repók elérése és letöltése egy hozzáférési kulccsal (token). Egy gombbal hozzáadható, a kulcsot a GitHub oldalán kell elkészíteni.</p>
 
@@ -2474,7 +2486,7 @@
           <!-- MEGA fiokok (kanban e67bf278). Boss, 2026-09-23: "a fiokok alatt
                pedig ennek a Meganak a bejelentkezesi lehetoseget". rclone-nal
                kotve (src/mega.ts); a jelszo sose jon vissza a szerverrol. -->
-          <div class="acc-block" id="megaConnSection">
+          <div class="acc-block" id="megaConnSection" data-acc-add-pane="mega" hidden>
             <div class="acc-block-title" data-i18n="mega.title">MEGA-fiók hozzáadása (felhő-tárhely)</div>
             <p class="claude-auth-warn" data-i18n="mega.desc">Egy ingyenes MEGA-fiók 20 GB tárhelyet ad. Ha itt bekötöd, a Raktárban a Tárolók alatt megjelenik a MEGA mappa, és látod, mennyi hely van még rajta. Extra funkció: nélküle is működik minden.</p>
             <ol class="claude-auth-warn" style="margin:4px 0 8px 18px;padding:0">
@@ -2492,11 +2504,14 @@
               <button class="btn-secondary" id="megaAddBtn" data-i18n="mega.add">MEGA-fiók hozzáadása</button>
             </div>
             <p class="claude-auth-state" id="megaAddState"></p>
-            <div id="megaAccountList"></div>
           </div>
 
           </details>
+          </div>
 
+          <div class="acc-zone acc-zone-list">
+          <div class="acc-zone-title" data-i18n="acchub.zone_list">Bekötött fiókok</div>
+          <p class="claude-auth-warn" data-i18n="acchub.zone_list_lead">E-mail címenként egy kártya: rajta minden, ami ahhoz a címhez tartozik (Claude, levél, naptár, Drive, MEGA, Claude Code kapcsolatok).</p>
           <div class="acc-hub" id="accountsHubList"></div>
 
           <div class="acc-block">
@@ -2507,6 +2522,10 @@
             <p class="claude-auth-warn"><a href="#" id="claudeAuthVaultLink" data-i18n="claudeauth.other_link">Ugrás a Vaultra</a></p>
           </div>
 
+          </div>
+
+          <div class="acc-zone acc-zone-extra">
+          <div class="acc-zone-title" data-i18n="acchub.zone_extra">Ellenőrzés és extrák</div>
           <!-- Claude Code kapcsolatok. A MERT: a claude.ai-on bekapcsolt kapcsolat
                (Drive, Gmail...) meg NEM jelenti, hogy az ugynok latja is -- az
                engedelyezes GEPENKENT es CLAUDE-FIOKONKENT kulon kell. Eddig ehhez
@@ -2606,6 +2625,7 @@
             <div class="acc-block-title" data-i18n="autofill.log_title">Mi történt</div>
             <p class="claude-auth-warn" data-i18n="autofill.log_lead">Minden kiadott és minden megtagadott jelszó bekerül ide, a legutóbbi legfelül. A jelszó maga sehol nem szerepel, csak az, melyik kártyából, melyik oldalra ment.</p>
             <div class="claude-auth-list" id="autofillEventList"></div>
+          </div>
           </div>
         </div>
       </div>
