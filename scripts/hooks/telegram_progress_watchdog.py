@@ -40,7 +40,11 @@ import os, glob, json, time, subprocess, urllib.request
 
 # State dirs to scan: per-agent dirs under the fleet, plus the default dir.
 # No hardcoded user paths -- derive from $HOME (override with MARVEEN_ROOT).
-FLEET_ROOT = os.environ.get("MARVEEN_ROOT") or os.path.expanduser("~/marveen")
+# The repo root is two levels above this file (scripts/hooks/). ~/marveen was
+# the old default and silently scanned nothing on any install living elsewhere.
+_HERE_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+FLEET_ROOT = os.environ.get("MARVEEN_ROOT") or (
+    _HERE_ROOT if os.path.isdir(os.path.join(_HERE_ROOT, "agents")) else os.path.expanduser("~/marveen"))
 SCAN_GLOBS = [
     os.path.join(FLEET_ROOT, "agents", "*", ".claude", "channels", "telegram", "progress"),
     os.path.expanduser("~/.claude/channels/telegram/progress"),

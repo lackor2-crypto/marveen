@@ -1238,6 +1238,13 @@ else
   echo -e "    ${DIM}Ellenorzes: launchctl print gui/$(id -u)/${CHANNELS_PLIST} | grep -E 'state|pid'${NC}"
 fi
 
+# The independent guards as launchd agents (backup, rate-limit alert, sub-agent
+# retry...) -- audit f97acc32. Never overwrites an existing plist.
+if [ -f "$INSTALL_DIR/scripts/install-guard-units.sh" ]; then
+  bash "$INSTALL_DIR/scripts/install-guard-units.sh" \
+    || warn "Az orszem-idozitok egy resze nem jott letre. Kezzel: bash scripts/install-guard-units.sh"
+fi
+
 # Verify channel plugin is working
 sleep 3
 echo ""

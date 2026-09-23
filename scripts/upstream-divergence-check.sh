@@ -33,6 +33,15 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# macOS has no `timeout` out of the box (coreutils ships it as gtimeout). A
+# missing binary made every fetch fail there with "command not found", read as
+# an upstream error. Fall back to running without a limit rather than not at all.
+run_timeout() {
+  if command -v timeout >/dev/null 2>&1; then timeout "$@"
+  elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$@"
+  else shift; "$@"; fi
+}
 cd "${REPO_ROOT}" || exit 1
 OUT="${REPO_ROOT}/store/upstream-sync-status.json"
 RUN_TYPE="${1:-scheduled}"
@@ -73,7 +82,7 @@ fi
 FETCH_OK=false
 FETCH_ERR=""
 if [ -z "${ERR}" ]; then
-  FETCH_OUT="$(timeout 180 git fetch --quiet --prune upstream 2>&1)"
+  FETCH_OUT="$(run_timeout 180 git fetch --quiet --prune upstream 2>&1)"
   FETCH_RC=$?
   if [ "${FETCH_RC}" -eq 0 ]; then
     FETCH_OK=true
@@ -272,7 +281,7 @@ rm -f /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$
 if [ -z "${ERR}" ]; then
   TSX="${REPO_ROOT}/node_modules/.bin/tsx"
   if [ -x "${TSX}" ]; then
-    timeout 120 "${TSX}" "${REPO_ROOT}/scripts/upstream-changelog.ts" --no-llm \
+    run_timeout 120 "${TSX}" "${REPO_ROOT}/scripts/upstream-changelog.ts" --no-llm \
       || echo "upstream-changelog: a tetelesen lista NEM frissult (kilepokod $?) -- a regi lista maradt" >&2
   else
     echo "upstream-changelog: nincs ${TSX} (npm install hianyzik?) -- a tetelesen lista NEM frissult" >&2
