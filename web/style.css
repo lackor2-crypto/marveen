@@ -5481,14 +5481,18 @@ main.email-active .page-header { flex-shrink: 0; }
 }
 .vault-search:focus { border-color: var(--accent); }
 .vault-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px;
-  /* Each card keeps its own height. Without this the grid's default
-     align-items: stretch makes every card in a row grow to match the tallest,
-     so opening one card's edit form stretched its two row-mates down into empty
-     boxes (Boss 2026-08-10: "minek nyilik ki az osszes kartya lefele"). */
-  align-items: start;
+  /* Columns, not grid rows (Boss 2026-09-23, kanban 91b0d989: "mi ez a nagy
+     res ... egymas utan kovetkezzenek folyamatosan"). A grid row is as tall as
+     its tallest card, so one 20-field card left a big empty hole under its
+     row-mates. In columns every card sits right under the previous one.
+     Each card still keeps its own height (Boss 2026-08-10: "minek nyilik ki
+     az osszes kartya lefele") -- columns never stretch a card. */
+  column-width: 340px;
+  column-gap: 12px;
+}
+.vault-grid > .vault-card {
+  break-inside: avoid;
+  margin-bottom: 12px;
 }
 .vault-card {
   display: flex;
