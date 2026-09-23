@@ -75,6 +75,8 @@ export interface WorkItemVersionRow {
   parent_version_id: string | null
   manifest_path: string | null
   preview_path: string | null
+  /** Melyik fajlra mutatott a munkadarab EBBEN a verzioban. NULL = nem mutatott. */
+  source_path: string | null
   prompt: string | null
   created_by: string | null
   created_at: number
@@ -135,6 +137,11 @@ export function ensureWorkbenchTables(): void {
       created_by TEXT
     )
   `)
+  // Kesobb felvett oszlop: a mar letezo tablaba is bekerul. A verzio igy tudja,
+  // MELYIK fajlra mutatott a munkadarab akkor -- e nelkul a visszaallitas csak
+  // a reszeket hozna vissza, a forrasfajlt nem.
+  const vCols = new Set((db.prepare('PRAGMA table_info(work_item_versions)').all() as { name: string }[]).map((c) => c.name))
+  if (!vCols.has('source_path')) db.exec('ALTER TABLE work_item_versions ADD COLUMN source_path TEXT')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, updated_at DESC)')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_work_item_versions_no ON work_item_versions(work_item_id, version_no)')
   db.exec('CREATE INDEX IF NOT EXISTS idx_work_item_parts_item ON work_item_parts(work_item_id, position)')
@@ -211,9 +218,9 @@ export function createWorkItem(input: CreateWorkItemInput): CreateWorkItemResult
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, input.project_id, type, title, status, sourcePath, EDITOR_BY_TYPE[type], versionId, ts, ts, createdBy)
     db.prepare(`INSERT INTO work_item_versions
-      (id, work_item_id, version_no, parent_version_id, manifest_path, preview_path, prompt, created_by, created_at, metadata_json)
-      VALUES (?, ?, 1, NULL, NULL, NULL, ?, ?, ?, NULL)`)
-      .run(versionId, id, prompt, createdBy, ts)
+      (id, work_item_id, version_no, parent_version_id, manifest_path, preview_path, source_path, prompt, created_by, created_at, metadata_json)
+      VALUES (?, ?, 1, NULL, NULL, NULL, ?, ?, ?, ?, NULL)`)
+      .run(versionId, id, sourcePath, prompt, createdBy, ts)
   })()
 
   const item = getWorkItem(id)
@@ -257,6 +264,29 @@ export function listWorkItemVersions(workItemId: string): WorkItemVersionRow[] {
   return getDb()
     .prepare('SELECT * FROM work_item_versions WHERE work_item_id = ? ORDER BY version_no DESC')
     .all(id) as WorkItemVersionRow[]
+}
+
+/** A verziok UGY, ahogy a felulet latja: a "melyik verziobol allt vissza" a
+ *  `metadata_json`-ben all, de a kepernyore szamkent kell. Rosszul tarolt JSON
+ *  nem dobhat hibat -- olyankor egyszeruen nincs ilyen adat (nem "nulla"). */
+export interface WorkItemVersionView extends WorkItemVersionRow {
+  restored_from: string | null
+  restored_from_no: number | null
+}
+
+export function listWorkItemVersionsView(workItemId: string): WorkItemVersionView[] {
+  return listWorkItemVersions(workItemId).map((v) => {
+    let from: string | null = null
+    let fromNo: number | null = null
+    if (v.metadata_json) {
+      try {
+        const meta = JSON.parse(v.metadata_json) as Record<string, unknown>
+        if (typeof meta['restored_from'] === 'string') from = meta['restored_from']
+        if (typeof meta['restored_from_no'] === 'number') fromNo = meta['restored_from_no']
+      } catch { /* rossz JSON: nincs adat, nem hiba */ }
+    }
+    return { ...v, restored_from: from, restored_from_no: fromNo }
+  })
 }
 
 /** Hany munkadarab van a projektben (a belepesi pont szamlaloja). */
@@ -315,14 +345,28 @@ export function isWorkItemPartKind(v: unknown): v is WorkItemPartKind {
 }
 
 /** Egy munkadarab reszei, sorrendben. Ismeretlen munkadarabra ures lista -- a
- *  hivo dolga eldonteni, letezik-e a munkadarab (a NULLA ket dolgot jelenthet). */
-export function listWorkItemParts(workItemId: string): WorkItemPartRow[] {
+ *  hivo dolga eldonteni, letezik-e a munkadarab (a NULLA ket dolgot jelenthet).
+ *
+ *  `versionId` nelkul az ELO reszek jonnek (a jelenlegi verzioe); megadva egy
+ *  REGEBBI verzio pillanatkepe. Igy a regi verzio valoban valtozatlan marad:
+ *  minden verzionak sajat resz-sorai vannak. A `version_id IS NULL` sorok a
+ *  verziozas elott keletkezett adatot fogjak -- azok is elok. */
+export function listWorkItemParts(workItemId: string, versionId?: string | null): WorkItemPartRow[] {
   ensureWorkbenchTables()
   const id = String(workItemId || '').trim()
   if (!id) return []
-  return getDb()
-    .prepare('SELECT * FROM work_item_parts WHERE work_item_id = ? ORDER BY position ASC, created_at ASC')
-    .all(id) as WorkItemPartRow[]
+  const db = getDb()
+  const wanted = String(versionId ?? '').trim()
+  if (wanted) {
+    return db.prepare('SELECT * FROM work_item_parts WHERE work_item_id = ? AND version_id = ? ORDER BY position ASC, created_at ASC')
+      .all(id, wanted) as WorkItemPartRow[]
+  }
+  const item = getWorkItem(id)
+  const cur = item ? item.current_version_id : null
+  return db.prepare(`SELECT * FROM work_item_parts
+      WHERE work_item_id = ? AND (version_id IS NULL OR version_id = ?)
+      ORDER BY position ASC, created_at ASC`)
+    .all(id, cur) as WorkItemPartRow[]
 }
 
 export function getWorkItemPart(id: string): WorkItemPartRow | undefined {
@@ -487,6 +531,144 @@ export function countWorkItemParts(workItemId: string): number {
   ensureWorkbenchTables()
   const id = String(workItemId || '').trim()
   if (!id) return 0
-  const row = getDb().prepare('SELECT COUNT(*) AS n FROM work_item_parts WHERE work_item_id = ?').get(id) as { n: number }
+  // Csak az ELO reszek szamitanak: a regi verziok pillanatkepei nem duplaznak.
+  const item = getWorkItem(id)
+  const cur = item ? item.current_version_id : null
+  const row = getDb().prepare(
+    'SELECT COUNT(*) AS n FROM work_item_parts WHERE work_item_id = ? AND (version_id IS NULL OR version_id = ?)',
+  ).get(id, cur) as { n: number }
   return row.n
+}
+
+// --- VERZIOZAS (kanban #336, 5. fazis; spec 12) ------------------------------
+//
+// "Minden jelentos modositas uj verzio. Az eredeti automatikusan nem irhato
+// felul. Restore v2 -> v5 = v2 allapotanak UJ verzioja. A kesobbi verziok nem
+// torlodnek."
+//
+// Ezert: egy verzio PILLANATKEP. Minden verzionak sajat resz-sorai vannak, a
+// munkadarab `source_path`-ja is beleirodik -- igy a visszaallitas nem csak a
+// szoveget/kepeket hozza vissza, hanem azt is, MELYIK fajlra mutatott akkor.
+// Torles SEHOL nincs: a visszaallitas is UJ verziot ir, a regieket nem bantja.
+
+export interface CreateWorkItemVersionInput {
+  prompt?: unknown
+  created_by?: string | null
+  /** Ha megadod, a munkadarab forrasfajlja is EZ lesz mostantol. */
+  source_path?: unknown
+  manifest_path?: unknown
+  preview_path?: unknown
+  metadata_json?: unknown
+}
+
+export type VersionErrorCode = 'item_not_found' | 'version_not_found' | 'version_mismatch'
+
+export type CreateWorkItemVersionResult =
+  | { ok: true; item: WorkItemRow; version: WorkItemVersionRow }
+  | { ok: false; code: VersionErrorCode }
+
+/** A verzio-sorok ES a hozzajuk tartozo resz-masolatok egy helyen: ezt hasznalja
+ *  az "uj verzio" es a "visszaallitas" is, hogy ne lehessen ketfele viselkedes. */
+function insertVersion(
+  itemId: string,
+  from: { parent: string | null; source_path: string | null; manifest_path: string | null; preview_path: string | null },
+  copyPartsOfVersion: string | null,
+  extra: { prompt: string | null; created_by: string | null; metadata_json: string | null },
+): WorkItemVersionRow {
+  const db = getDb()
+  const ts = nowSec()
+  const versionId = randomUUID()
+  const noRow = db.prepare('SELECT COALESCE(MAX(version_no), 0) AS n FROM work_item_versions WHERE work_item_id = ?')
+    .get(itemId) as { n: number }
+  db.transaction(() => {
+    db.prepare(`INSERT INTO work_item_versions
+      (id, work_item_id, version_no, parent_version_id, manifest_path, preview_path, source_path, prompt, created_by, created_at, metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(
+        versionId, itemId, noRow.n + 1, from.parent, from.manifest_path, from.preview_path,
+        from.source_path, extra.prompt, extra.created_by, ts, extra.metadata_json,
+      )
+    // A reszek MASOLODNAK: a regi verzio sorai erintetlenul maradnak.
+    const source = copyPartsOfVersion === null
+      ? db.prepare(`SELECT * FROM work_item_parts WHERE work_item_id = ? AND version_id IS NULL ORDER BY position ASC, created_at ASC`).all(itemId)
+      : db.prepare(`SELECT * FROM work_item_parts WHERE work_item_id = ? AND version_id = ? ORDER BY position ASC, created_at ASC`).all(itemId, copyPartsOfVersion)
+    const ins = db.prepare(`INSERT INTO work_item_parts
+      (id, work_item_id, version_id, position, kind, text, asset_path, mime_type, size, caption, created_at, updated_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    for (const raw of source as WorkItemPartRow[]) {
+      ins.run(
+        randomUUID(), itemId, versionId, raw.position, raw.kind, raw.text, raw.asset_path,
+        raw.mime_type, raw.size, raw.caption, ts, ts, raw.created_by,
+      )
+    }
+    db.prepare('UPDATE work_items SET current_version_id = ?, source_path = ?, updated_at = ? WHERE id = ?')
+      .run(versionId, from.source_path, ts, itemId)
+  })()
+  const version = getWorkItemVersion(versionId)
+  if (!version) throw new Error('work item version was created but could not be read back')
+  return version
+}
+
+/** Uj verzio a munkadarab MOSTANI allapotarol. A regi verzio valtozatlan marad. */
+export function createWorkItemVersion(workItemId: string, input: CreateWorkItemVersionInput = {}): CreateWorkItemVersionResult {
+  ensureWorkbenchTables()
+  const item = getWorkItem(workItemId)
+  if (!item) return { ok: false, code: 'item_not_found' }
+  const sourcePath = input.source_path === undefined
+    ? item.source_path
+    : (String(input.source_path ?? '').trim() || null)
+  const version = insertVersion(
+    item.id,
+    {
+      parent: item.current_version_id,
+      source_path: sourcePath,
+      manifest_path: String(input.manifest_path ?? '').trim() || null,
+      preview_path: String(input.preview_path ?? '').trim() || null,
+    },
+    item.current_version_id,
+    {
+      prompt: String(input.prompt ?? '').trim() || null,
+      created_by: input.created_by ?? null,
+      metadata_json: input.metadata_json === undefined || input.metadata_json === null
+        ? null
+        : String(input.metadata_json),
+    },
+  )
+  const fresh = getWorkItem(item.id)
+  if (!fresh) throw new Error('work item disappeared while creating a version')
+  return { ok: true, item: fresh, version }
+}
+
+/** Egy REGI verzio visszaallitasa. Nem ir felul semmit: UJ verzio keletkezik,
+ *  aminek a tartalma a regie -- a kozben keletkezett verziok megmaradnak. */
+export function restoreWorkItemVersion(
+  versionId: string,
+  opts: { created_by?: string | null; work_item_id?: string } = {},
+): CreateWorkItemVersionResult {
+  ensureWorkbenchTables()
+  const target = getWorkItemVersion(versionId)
+  if (!target) return { ok: false, code: 'version_not_found' }
+  // A hivo megmondhatja, MELYIK munkadarabrol beszel -- ha nem egyezik, az nem
+  // "nem talalom", hanem osszekeveres, es kulon valaszt erdemel.
+  if (opts.work_item_id && opts.work_item_id !== target.work_item_id) return { ok: false, code: 'version_mismatch' }
+  const item = getWorkItem(target.work_item_id)
+  if (!item) return { ok: false, code: 'item_not_found' }
+  const version = insertVersion(
+    item.id,
+    {
+      parent: target.id,
+      source_path: target.source_path,
+      manifest_path: target.manifest_path,
+      preview_path: target.preview_path,
+    },
+    target.id,
+    {
+      prompt: target.prompt,
+      created_by: opts.created_by ?? null,
+      metadata_json: JSON.stringify({ restored_from: target.id, restored_from_no: target.version_no }),
+    },
+  )
+  const fresh = getWorkItem(item.id)
+  if (!fresh) throw new Error('work item disappeared while restoring a version')
+  return { ok: true, item: fresh, version }
 }

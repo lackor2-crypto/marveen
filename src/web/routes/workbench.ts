@@ -25,8 +25,9 @@ import { json, readBody, RequestBodyTooLargeError } from '../http-helpers.js'
 import { APP_LANG } from '../../config.js'
 import { getProject } from '../../projects.js'
 import {
-  ensureWorkbenchTables, createWorkItem, getWorkItem, listWorkItems, listWorkItemVersions,
+  ensureWorkbenchTables, createWorkItem, getWorkItem, listWorkItems,
   listWorkItemParts, addWorkItemPart, updateWorkItemPart, moveWorkItemPart, removeWorkItemPart,
+  createWorkItemVersion, restoreWorkItemVersion, listWorkItemVersionsView,
   WORK_ITEM_TYPES, WORK_ITEM_STATUSES, WORK_ITEM_PART_KINDS, TITLE_MAX, PART_TEXT_MAX, PART_CAPTION_MAX,
 } from '../../workbench.js'
 import { writeProjectFile, PROJECT_UPLOAD_MAX_BYTES } from '../../project-files.js'
@@ -42,6 +43,14 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   project_required: {
     hu: 'Nincs megadva, melyik projekt Munkapadját nyitod meg.',
     en: 'It is not given which project\'s Workbench you are opening.',
+  },
+  version_not_found: {
+    hu: 'Ez a verzió nincs meg. Lehet, hogy közben törölted a munkadarabot, vagy egy régi lapot néztél -- frissítsd az oldalt.',
+    en: 'That version does not exist. The work item may have been deleted, or you are looking at a stale page -- reload it.',
+  },
+  version_mismatch: {
+    hu: 'Ez a verzió nem ehhez a munkadarabhoz tartozik, ezért nem állítom vissza.',
+    en: 'That version belongs to a different work item, so it will not be restored.',
   },
   preview_no_source: {
     hu: 'Ehhez a munkadarabhoz még nincs megjeleníthető tartalom. Írj bele egy szöveg-részt, vagy tölts fel egy képet -- és itt azonnal látni fogod.',
@@ -268,11 +277,39 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
     const project = getProject(item.project_id)
     json(res, {
       item,
-      versions: listWorkItemVersions(item.id),
+      versions: listWorkItemVersionsView(item.id),
       parts: listWorkItemParts(item.id),
       part_kinds: WORK_ITEM_PART_KINDS,
       project: project ? { id: project.id, name: project.name, archived: project.archived_at != null } : null,
     })
+    return true
+  }
+
+  // VERZIOZAS (5. fazis; spec 12): minden jelentos modositas UJ verzio, es a
+  // regi SOHA nem irodik felul. A visszaallitas sem ir felul semmit: a regi
+  // allapotbol UJ verzio lesz, a kozben keletkezettek megmaradnak.
+  if (segs.length === 2 && segs[1] === 'versions' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const body = await readJson(req)
+    if (!body) return fail(res, 400, 'bad_json', lang)
+    const r = createWorkItemVersion(item.id, {
+      prompt: body['prompt'],
+      // A `source_path` csak akkor valtozik, ha a hivo KIMONDJA -- kulonben marad.
+      ...('source_path' in body ? { source_path: body['source_path'] } : {}),
+      created_by: actor(ctx),
+    })
+    if (!r.ok) return fail(res, 404, r.code, lang)
+    json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id) }, 201)
+    return true
+  }
+
+  if (segs.length === 4 && segs[1] === 'versions' && segs[3] === 'restore' && method === 'POST') {
+    const owner = getProject(item.project_id)
+    if (owner && owner.archived_at != null) return fail(res, 409, 'project_archived', lang)
+    const r = restoreWorkItemVersion(segs[2] || '', { created_by: actor(ctx), work_item_id: item.id })
+    if (!r.ok) return fail(res, r.code === 'version_mismatch' ? 409 : 404, r.code, lang)
+    json(res, { ok: true, item: r.item, version: r.version, versions: listWorkItemVersionsView(item.id), parts: listWorkItemParts(item.id) }, 201)
     return true
   }
 
@@ -301,7 +338,7 @@ export async function tryHandleWorkbench(ctx: RouteContext): Promise<boolean> {
       url: p.available && p.rel && p.kind !== 'parts' && p.kind !== 'text'
         ? `/api/life/file?rel=${encodeURIComponent(p.rel)}&lang=${lang}`
         : null,
-      versions: listWorkItemVersions(item.id),
+      versions: listWorkItemVersionsView(item.id),
     }, 200, cacheHeaders)
     return true
   }

@@ -116,7 +116,10 @@ export function buildPreview(itemId: string, wantedVersion?: unknown): PreviewRe
   if (!rel) {
     // Nincs FAJL. Ez nem feltetlenul ures: a vegyes munkadarab tartalma a sajat
     // reszeiben (szoveg + kep) all, azt a felulet maga rajzolja ki.
-    const parts = listWorkItemParts(item.id)
+    // A KERT verzio pillanatkepe: egy regi verzio a sajat resz-sorait mutatja,
+    // a jelenlegi az eloket. (5. fazis: minden verzionak sajat resz-sorai vannak.)
+    const snapshot = version && version.id !== item.current_version_id ? version.id : null
+    const parts = listWorkItemParts(item.id, snapshot)
     if (parts.length) {
       return { ...empty('no_source', vIds), available: true, kind: 'parts' }
     }
