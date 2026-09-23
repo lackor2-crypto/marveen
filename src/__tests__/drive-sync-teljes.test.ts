@@ -18,6 +18,7 @@
  *   4. A teljes Drive a kepernyon nem ures cellakent latszik.
  */
 import { describe, it, expect } from 'vitest'
+import { MAX_FOLDERS, MAX_FILES } from '../drive-sync-limits.js'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -188,10 +189,18 @@ describe('a korlatokat ki kell mondani', () => {
     // eves Drive-nal MENET KOZBEN vagja el a mentest. A teszt ezert nem a
     // KONKRET szamot orzi (az valtozhat), hanem azt, hogy (a) van felso hatar,
     // (b) tobb ezres nagysagrendu, (c) az elerese KIMONDOTT hiba lesz.
-    const folders = Number((route.match(/const MAX_FOLDERS = ([\d_]+)/) || [])[1]?.replace(/_/g, ''))
-    const files = Number((route.match(/const MAX_FILES = ([\d_]+)/) || [])[1]?.replace(/_/g, ''))
-    expect(folders).toBeGreaterThanOrEqual(1000)
-    expect(files).toBeGreaterThanOrEqual(10_000)
+    //
+    // 2026-09-23 (kanban 284044a2): a ket szam mar NEM ebben a fajlban all,
+    // hanem a `src/drive-sync-limits.ts` egyetlen forrasaban -- azert, mert
+    // amig ket helyen allt, a kepernyo a REGI erteket mondta (500/5000),
+    // mikozben a kod mar 5000/50000-nel jart. A teszt ezert a KOZOS forrast
+    // meri, es kulon azt, hogy az utvonal tenyleg onnan veszi ES nem ir be
+    // sajat szamot helyette.
+    expect(MAX_FOLDERS).toBeGreaterThanOrEqual(1000)
+    expect(MAX_FILES).toBeGreaterThanOrEqual(10_000)
+    expect(route).toMatch(/import \{[^}]*MAX_FOLDERS[^}]*MAX_FILES[^}]*\} from '\.\.\/\.\.\/drive-sync-limits\.js'/)
+    expect(route).not.toMatch(/const MAX_FOLDERS\s*=/)
+    expect(route).not.toMatch(/const MAX_FILES\s*=/)
     // A hatar elerese nem csendes: sajat okot kap, a szamot is kiirva.
     expect(route).toContain('mappás felső határ elérve')
     expect(route).toContain('fájlos felső határ elérve')

@@ -56,33 +56,15 @@ import { getQueueItem, loadDeleteQueue, removePairFromQueue, removeQueueItem, sy
 import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
 import { driveErrorKind } from '../../drive-error-kind.js'
 import { parseStorageQuota, recordDriveQuota } from '../../drive-quota.js'
+import { MAX_FOLDERS, MAX_FILES } from '../../drive-sync-limits.js'
 
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
 const DRIVE_UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files'
 const DRIVE_ABOUT_URL = 'https://www.googleapis.com/drive/v3/about'
 const CONFIG_PATH = join(PROJECT_ROOT, 'store', 'drive-sync.json')
-/**
- * Egy futasban legfeljebb ennyi mappat jarunk be -- vegtelen melyseg ellen.
- *
- * MERVE 2026-08-16, mind a 10 csatolt fiokon (`files.list`, `trashed=false`):
- * a legnagyobb 293 mappa (nyalomapuncidma), utana 75 (usalackor) es 73
- * (lackor2). A regi 500-as hatart tehat EGYIK Drive sem erte el -- vagyis a
- * lackor2-n latott "reszleges" uzenet NEM a korlatbol jott (a kepernyo hazudott
- * rola, lasd `csonkoltSzoveg`), hanem egy ki nem olvashato mappabol.
- * A hatar megis felmegy: nem a mai meret a kerdes, hanem hogy a novekedes ne
- * fusson bele, es kozben maradjon fek egy elszabadult bejaras ellen.
- */
-const MAX_FOLDERS = 5_000
-/**
- * Egy futasban legfeljebb ennyi fajlt hozunk le.
- *
- * MERVE 2026-08-16: a legnagyobb Drive 3179 fajl (lackor2), utana 2178
- * (nyalomapuncidma). A regi 5000-es hatar tehat 64%-on allt -- meg nem fajt, de
- * mar lathatoan a kozeleben jart. Ennel a hatarnal az egesz felmeno ag is
- * kimarad (`csonkolt`), vagyis eleg lett volna par ezer uj fajl ahhoz, hogy a
- * szinkron csendben FELIG mukodjon.
- */
-const MAX_FILES = 50_000
+// A ket bejarasi felso hatar a `drive-sync-limits.ts`-bol jon: az
+// onellenorzes UGYANEZEKET a szamokat irja ki a kepernyore, es ket
+// helyen karbantartva szetcsusztak (kanban 284044a2).
 /**
  * Egy futasban legfeljebb ennyi fajlt kuldunk FEL.
  *
