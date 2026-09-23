@@ -75,6 +75,14 @@ curl" / „ezt Claude állítja be neki" a válasz — a munka nincs kész.
   `message` mezőjét mutassa, ne az `error` kódot.
 - **Semmi fixen beírt azonosító** — lásd a `host-agnostic-development` skillt.
   A kód a VÁZAT ismerje, a konkrét neveket a felhasználó adja.
+- **Ha a funkció egy külső programot hív** (LibreOffice, ffmpeg, pdftotext,
+  tesseract, himalaya, ...), vedd fel a `src/system-deps.ts` listájába
+  (szint: alap / ajánlott / extra, mire kell, csomagnév apt/dnf/brew alatt), és
+  a csomagot az `install-linux.sh` ajánlott-programok szakaszába is. Ettől
+  kapja meg a friss telepítés, és ettől látja az önellenőrzés és a varázsló
+  „Rendszer-programok" lépése, ha hiányzik. A `system-deps.test.ts` elbukik,
+  ha a lista és a telepítő elválik. (Kanban d7acdd75: a LibreOffice úgy
+  hiányzott, hogy semmi nem szólt érte.)
 
 ## A záró önellenőrzés (írd is le a válaszodban)
 

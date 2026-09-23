@@ -83,6 +83,7 @@ import { depotRoot } from '../depot.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
 import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
+import { systemDepsSnapshot, systemDepsMonitorStartedAt, type DepsSnapshot } from '../system-deps.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
 
@@ -2072,6 +2073,41 @@ export function voiceRows(
     : { id: 'voice_stt_missing', status: 'warn' }]
 }
 
+// A gepre telepitendo kulso programok (kanban d7acdd75). A lista es a meres a
+// src/system-deps.ts-ben van; ez csak kiolvassa a hatterben mert pillanatkepet
+// (a meres folyamat-inditas, az onellenorzes pedig szinkron).
+//
+// A NULLA KET DOLGOT JELENTHET: ha meg nincs pillanatkep, az NEM "minden
+// rendben". Az elso par percben a meres meg fut -- akkor csendben varunk; ha
+// utana sincs, azt kimondjuk ("nem tudtam megmerni"), nem hallgatunk rola.
+// Az EXTRA programok hianya SOHA nem kerul ide: azok a Varazsloban latszanak,
+// sargat nem erdemelnek (CLAUDE.md, 2026-08-11).
+export const SYSTEM_DEPS_GRACE_MS = 3 * 60 * 1000
+
+export function systemDepRows(
+  snap: DepsSnapshot | null = systemDepsSnapshot(),
+  startedAt: number | null = systemDepsMonitorStartedAt(),
+  now: number = Date.now(),
+): HealthRow[] {
+  if (!snap) {
+    if (startedAt !== null && now - startedAt < SYSTEM_DEPS_GRACE_MS) return []
+    return [{ id: 'system_deps_unmeasured', status: 'warn' }]
+  }
+  const names = (tier: string, state: string): string[] =>
+    snap.items.filter(i => i.tier === tier && i.state === state).map(i => i.name)
+  const rows: HealthRow[] = []
+  const coreMissing = names('core', 'not_installed')
+  const recMissing = names('recommended', 'not_installed')
+  const failed = snap.items.filter(i => i.tier !== 'extra' && i.state === 'check_failed').map(i => i.name)
+  if (coreMissing.length) rows.push({ id: 'system_deps_core_missing', status: 'bad', params: { n: coreMissing.length, names: coreMissing.join(', ') } })
+  if (recMissing.length) rows.push({ id: 'system_deps_missing', status: 'warn', params: { n: recMissing.length, names: recMissing.join(', ') } })
+  if (failed.length) rows.push({ id: 'system_deps_check_failed', status: 'warn', params: { n: failed.length, names: failed.join(', ') } })
+  if (rows.length === 0) {
+    rows.push({ id: 'system_deps_ok', status: 'ok', params: { n: snap.items.filter(i => i.tier !== 'extra').length } })
+  }
+  return rows
+}
+
 export function systemHealth(now: number = Date.now()): HealthRow[] {
   const rows: HealthRow[] = [
     claudeAuthRow(),
@@ -2099,6 +2135,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...skillSeedRows(),
     ...skillScopeReviewRows(),
     ...voiceRows(),
+    ...systemDepRows(),
   ]
   const leaks = secretsInLogs()
   if (leaks.length > 0) {

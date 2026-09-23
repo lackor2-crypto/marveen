@@ -39,6 +39,7 @@ import { collectTokenUsage } from './web/token-usage.js'
 import { ensureAutonomyCategories } from './autonomy.js'
 import { logger } from './logger.js'
 import { startGlobalSkillSeeder } from './web/skill-scope.js'
+import { startSystemDepsMonitor } from './system-deps.js'
 import { scanInstalledClaude } from './claude-model-discovery.js'
 import { registerDiscoveredClaudeModels } from './config-registry.js'
 import { initVisionAdapters } from './life-vision-adapter.js'
@@ -636,6 +637,10 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // A gepre telepitendo kulso programok (LibreOffice, FFmpeg, ...) hatter-merese:
+  // az onellenorzes es a Varazslo ebbol a pillanatkepbol olvas (kanban d7acdd75).
+  startSystemDepsMonitor()
 
   // A telepitett Claude program modell-kinalatanak megmerese. Ez az, ami eddig
   // HIANYZOTT: a Claude-lista ot helyen allt kezzel beirva, es SEMMI nem merte

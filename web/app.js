@@ -20408,6 +20408,10 @@ async function renderOverviewConnections() {
       // itt helyben lefuttatjuk a merest.
       onclick: h.id.startsWith('claude_auth_')
         ? 'openClaudeLoginStep()'
+        // A hianyzo kulso programok sora a Varazslo "Kulso programok"
+        // lepesere visz: ott all a lista es a bemasolhato telepito-sor.
+        : h.id.startsWith('system_deps_')
+        ? 'openSystemDepsStep()'
         : (h.id === 'google_live_never' || h.id === 'google_live_stale')
           ? 'runGoogleLiveCheckNow()'
           // Az allo vegrehajto sora a KOD-HID lapra visz, mert ott all a
@@ -25999,6 +26003,106 @@ async function openClaudeLoginStep() {
   if (idx >= 0) { _wizardStepIdx = idx; renderWizardStep(host) }
 }
 
+// KULSO PROGRAMOK (kanban d7acdd75). Boss, 2026-09-23: "a varazsloba ezt
+// betenni, hogy erzekelje ... ha nincs, akkor mondja, hogy ezt telepiteni kell".
+// A lista es a meres a szerveren van (src/system-deps.ts); ez csak megmutatja:
+// mi van meg, mi hianyzik, mire kell, es egy bemasolhato telepito-sort.
+async function openSystemDepsStep() {
+  switchPage('settings')
+  activateSettingsTab('wizard')
+  const host = document.getElementById('setupWizardPanel')
+  if (!host) return
+  await renderSetupWizardPanel(host)
+  const todo = (_wizardData?.items || []).filter(i => !i.configured)
+  const idx = todo.findIndex(i => i.flowId === 'system-deps')
+  if (idx >= 0) { _wizardStepIdx = idx; renderWizardStep(host); return }
+  // Ha minden megvan, a lepes nincs a teendok kozott -- a listat ettol meg
+  // meg lehet nezni (pl. az extrakat), ezert kulon dobozban mutatjuk.
+  host.innerHTML = `<div class="card">
+      <h3 style="margin:0 0 8px">${escapeHtml(t('wizard.item.system_programs'))}</h3>
+      <p style="margin:0 0 10px;font-size:13px;line-height:1.55">${escapeHtml(t('wizard.item.system_programs_help'))}</p>
+      ${wizardSystemDepsHtml()}
+      <div style="margin-top:16px"><button class="btn-secondary" id="sysDepsBackBtn">${escapeHtml(t('wizard.list_view'))}</button></div>
+    </div>`
+  document.getElementById('sysDepsBackBtn').addEventListener('click', () => renderSetupWizardPanel(host))
+  void loadWizardSystemDeps(false)
+}
+
+function wizardSystemDepsHtml() {
+  return `<div id="wizSysDeps" style="margin-top:10px;font-size:13px">${escapeHtml(t('sysdeps.loading'))}</div>`
+}
+
+const SYSDEP_TIER_COLOR = { core: '#ef4444', recommended: '#f59e0b', extra: 'var(--text-muted)' }
+
+async function loadWizardSystemDeps(force) {
+  const box = document.getElementById('wizSysDeps')
+  if (!box) return
+  if (force) box.innerHTML = escapeHtml(t('sysdeps.checking'))
+  let data
+  try {
+    const res = await fetch('/api/system-deps' + (force ? '?force=1' : ''))
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    data = await res.json()
+  } catch (e) {
+    // Nem "minden rendben" es nem "semmi sincs": nem tudtuk megkerdezni.
+    box.innerHTML = `<p class="c-danger">${escapeHtml(t('sysdeps.load_failed', { err: String(e && e.message || e) }))}</p>`
+    return
+  }
+  const lang = window._lang === 'en' ? 'en' : 'hu'
+  const row = (i) => {
+    const icon = i.state === 'ok' ? '✅' : i.state === 'check_failed' ? '⚠️' : (i.tier === 'extra' ? '➖' : '❌')
+    const stateTxt = i.state === 'ok'
+      ? t('sysdeps.state_ok', { v: i.version || '' })
+      : i.state === 'check_failed' ? t('sysdeps.state_failed', { err: i.detail || '' }) : t('sysdeps.state_missing')
+    const how = i.state === 'ok' ? '' : `
+      <div style="margin-top:4px;font-size:12px;color:var(--text-muted);line-height:1.5">
+        ${escapeHtml(t('sysdeps.without', { what: i.affects[lang] }))}
+        ${i.manual ? `<br>${escapeHtml(i.manual[lang])}` : ''}
+        ${i.packages.length ? `<br>${escapeHtml(t('sysdeps.packages'))}: <code>${escapeHtml(i.packages.join(' '))}</code>` : ''}
+        <br><a href="${escapeAttr(i.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('sysdeps.download_page'))} &#8599;</a>
+      </div>`
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+        <span>${icon}</span><strong>${escapeHtml(i.name)}</strong>
+        <span class="agent-account-badge" style="background:${SYSDEP_TIER_COLOR[i.tier]};color:${i.tier === 'extra' ? 'var(--bg)' : '#fff'}">${escapeHtml(t('sysdeps.tier.' + i.tier))}</span>
+        <span style="font-size:12px;color:var(--text-muted)">${escapeHtml(stateTxt)}</span>
+      </div>
+      <div style="font-size:12px;line-height:1.5;margin-top:2px">${escapeHtml(i.what_for[lang])}</div>
+      ${how}
+    </div>`
+  }
+  const missing = data.items.filter(i => i.state !== 'ok' && i.tier !== 'extra')
+  const cmdBox = data.install_cmd ? `
+    <div style="margin:10px 0;padding:10px;border:1px solid var(--border);border-radius:8px">
+      <p style="margin:0 0 6px;font-weight:600">${escapeHtml(t('sysdeps.cmd_title', { n: missing.length }))}</p>
+      <ol style="margin:0 0 8px;padding-left:20px;font-size:12px;line-height:1.55">
+        <li>${escapeHtml(t('sysdeps.cmd_step1'))}</li>
+        <li>${escapeHtml(t('sysdeps.cmd_step2'))}</li>
+        <li>${escapeHtml(t('sysdeps.cmd_step3'))}</li>
+      </ol>
+      <code id="wizSysDepsCmd" style="display:block;white-space:pre-wrap;word-break:break-all;padding:8px;background:var(--bg-secondary,rgba(127,127,127,.12));border-radius:6px">${escapeHtml(data.install_cmd)}</code>
+      <button class="btn-secondary btn-compact" id="wizSysDepsCopy" style="margin-top:6px">${escapeHtml(t('sysdeps.copy'))}</button>
+    </div>`
+    : missing.length === 0
+      ? `<p style="margin:8px 0;color:var(--success,#22c55e)">${escapeHtml(t('sysdeps.all_ok'))}</p>`
+      : `<p style="margin:8px 0">${escapeHtml(t('sysdeps.no_pkg_manager'))}</p>`
+  const byTier = (tier) => data.items.filter(i => i.tier === tier).map(row).join('')
+  const when = new Date(data.measured_at).toLocaleString(lang === 'en' ? 'en-GB' : 'hu-HU')
+  box.innerHTML = `${cmdBox}
+    <p style="margin:12px 0 2px;font-weight:600">${escapeHtml(t('sysdeps.tier.core'))}</p>${byTier('core')}
+    <p style="margin:12px 0 2px;font-weight:600">${escapeHtml(t('sysdeps.tier.recommended'))}</p>${byTier('recommended')}
+    <p style="margin:12px 0 2px;font-weight:600">${escapeHtml(t('sysdeps.tier.extra'))}</p>
+    <p style="margin:0 0 4px;font-size:12px;color:var(--text-muted)">${escapeHtml(t('sysdeps.extra_note'))}</p>${byTier('extra')}
+    <p style="margin:10px 0 0;font-size:12px;color:var(--text-muted)">${escapeHtml(t('sysdeps.measured_at', { when }))}</p>
+    <button class="btn-secondary btn-compact" id="wizSysDepsRecheck" style="margin-top:6px">${escapeHtml(t('sysdeps.recheck'))}</button>`
+  const copy = document.getElementById('wizSysDepsCopy')
+  if (copy) copy.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(data.install_cmd); showToast(t('sysdeps.copied')) }
+    catch { showToast(t('sysdeps.copy_failed')) }
+  })
+  document.getElementById('wizSysDepsRecheck').addEventListener('click', () => loadWizardSystemDeps(true))
+}
+
 // One capability per screen: what it is, why you might want it, what to click,
 // where to go, what to type. That is the difference between a wizard and a
 // settings list with a wizard label on top of it.
@@ -26025,7 +26129,8 @@ function renderWizardStep(host) {
 
   // Egy lepes, amit a felulten VEGIG lehet csinalni, ne kuldjon senkit
   // terminalba. Ez a doboz maga a folyamat, nem a leirasa.
-  const flow = item.flowId === 'claude-login' ? wizardClaudeLoginHtml() : ''
+  const flow = item.flowId === 'claude-login' ? wizardClaudeLoginHtml()
+    : item.flowId === 'system-deps' ? wizardSystemDepsHtml() : ''
 
   const example = item.exampleKey ? t(item.exampleKey) : (item.placeholder || '')
   const field = item.kind === 'external' ? '' : `
@@ -26073,7 +26178,8 @@ function renderWizardStep(host) {
       else delete _wizardPending[item.envKey]
     }
   }
-  if (flow) wireWizardClaudeLogin()
+  if (item.flowId === 'claude-login') wireWizardClaudeLogin()
+  if (item.flowId === 'system-deps') void loadWizardSystemDeps(false)
   const leaveStep = () => _wizClaudeStopPoll()
   const back = document.getElementById('wizardBackBtn')
   if (back) back.addEventListener('click', () => { leaveStep(); stash(); _wizardStepIdx--; renderWizardStep(host) })
@@ -26120,6 +26226,8 @@ function wizardRowHtml(item) {
   // link, ne a regisztraciora.
   const links = item.flowId === 'claude-login'
     ? `<a href="#" onclick="openClaudeLoginStep();return false" style="font-size:12px;margin-right:10px">${escapeHtml(t('wizrow.claude_login'))} &#8594;</a>`
+    : item.flowId === 'system-deps'
+    ? `<a href="#" onclick="openSystemDepsStep();return false" style="font-size:12px;margin-right:10px">${escapeHtml(t('sysdeps.open'))} &#8594;</a>`
     : (item.links || []).map(l =>
       `<a href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;margin-right:10px">${escapeHtml(t(l.labelKey))} &#8599;</a>`).join('')
 
