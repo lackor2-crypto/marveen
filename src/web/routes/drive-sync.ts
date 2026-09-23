@@ -53,6 +53,9 @@ import {
 } from '../../external-delete-guard.js'
 import type { RouteContext } from './types.js'
 import { getQueueItem, loadDeleteQueue, removePairFromQueue, removeQueueItem, syncQueueForPair } from '../../drive-delete-queue.js'
+import { brakeAlertText, planRemoteDeletions } from '../../drive-remote-delete.js'
+import { sendMarveenAlert } from '../telegram.js'
+import { notifyLang } from '../code-bridge-notify.js'
 import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
 import { driveErrorKind, driveHibaUzenet, driveVeglegesenElutasitva } from '../../drive-error-kind.js'
 import { DRIVE_QUOTA_PATH, loadDriveQuotas, parseStorageQuota, recordDriveQuota } from '../../drive-quota.js'
@@ -187,6 +190,12 @@ export interface SyncFileState {
    * felkuldene), csak csendben feljegyezzuk a mostani erteket.
    */
   localMtimeMs?: number
+  /**
+   * MENTES-PAROS: fent toroltek, a gepen megvan. Amig ez all, a felmeno ag NEM
+   * tolti vissza -- a tulajdonos donti el a megerosito sorban (torold itt is /
+   * toltsd vissza / maradjon csak itt). Lasd `drive-remote-delete.ts`.
+   */
+  remoteDeleted?: boolean
   /**
    * Google sajat formatuma (Docs/Sheets/Slides), amit exportalva hoztunk le.
    *
@@ -1262,6 +1271,26 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
       const sor = syncQueueForPair(pair.id, 'down', lefele)
       if (job) job.pendingDeletes = (job.pendingDeletes || 0) + sor.total
     }
+  } else {
+    // MENTES-PAROS: fent torolt, lent meglevo fajl (a tulajdonos "A" dontese,
+    // 2026-09-23). Se itt nem toroljuk, se vissza nem toltjuk: a sorba kerul.
+    const terv = planRemoteDeletions(state, latottIdk, csonkolt.length === 0, (rel) => existsSync(join(base, rel)))
+    for (const id of terv.cleared) delete state[id].remoteDeleted
+    for (const id of terv.dropped) delete state[id]
+    for (const id of terv.newlyMarked) state[id].remoteDeleted = true
+    if (csonkolt.length === 0) {
+      const sor = syncQueueForPair(pair.id, 'down', terv.queue.map((q) => ({
+        pairLabel: pairLabel(pair), account: pair.account, driveId: q.driveId,
+        relPath: q.relPath, localPath: join(base, q.relPath), size: q.size, backup: true as const,
+      })))
+      if (job) job.pendingDeletes = (job.pendingDeletes || 0) + sor.total
+    }
+    if (terv.brake) {
+      // Tomeges eltunes: lehet feltores. A gepen semmi nem valtozott -- ezt
+      // es a visszatoltes lehetoseget mondjuk meg, a csatornan, nem csak logban.
+      job?.errors.push(`VÉSZFÉK: ${terv.newlyMarked.length} fájl tűnt el egyszerre fent (${pairLabel(pair)}) – semmit nem töröltem, semmit nem töltöttem vissza`)
+      void sendMarveenAlert(brakeAlertText(notifyLang(), terv.newlyMarked.length, pairLabel(pair)))
+    }
   }
   const felmeno = await uploadPhase({ pair, cfg, state, token, base, gyoker, gyokerAbs, folderIds, csonkolt, utkozoIdk, driveUtak })
   return { csonkolt, brake: felmeno.brake, maradt: felmeno.maradt }
@@ -1434,6 +1463,9 @@ async function uploadPhase(a: {
     try { st = statSync(abs) } catch { continue }   // kozben eltunt
     const meglevoId = utrolId.get(teljes)
     const known = meglevoId ? state[meglevoId] : undefined
+    // Fent toroltek, a tulajdonos meg nem kerte vissza: NEM toltjuk fel ujra.
+    // (Enelkul minden futas visszatoltotte, amit fent kitorolt -- vegtelen kor.)
+    if (known?.remoteDeleted) continue
     // Google-natív fajl, amit a Drive NEM vesz vissza (Rajz, Apps Script):
     // ezeknel a helyi szerkesztes nem tud felmenni. Merve, nem feltetelezve:
     // egy PNG visszairasa a rajzra 400-zal all meg.
@@ -1668,10 +1700,11 @@ async function runSync(pairs: SyncPair[]): Promise<void> {
  * Futo szinkron kozben nem dontunk -- a futas a sajat nyilvantartasat irja,
  * es a ketto felulirna egymast.
  */
-export async function decideDeletion(id: string, approve: boolean): Promise<{ status: number; body: any }> {
+export async function decideDeletion(id: string, approve: boolean, reupload = false): Promise<{ status: number; body: any }> {
   const item = getQueueItem(id)
   if (!item) return { status: 404, body: { error: 'not_found', code: 'not_found' } }
   if (job?.running) return { status: 409, body: { error: 'running', code: 'running' } }
+  if (reupload) return reuploadItems([item])
   if (!approve) {
     removeQueueItem(id, true)
     return { status: 200, body: { ok: true, done: 'kept' } }
@@ -1712,6 +1745,30 @@ export async function decideDeletion(id: string, approve: boolean): Promise<{ st
   saveSyncConfig(cfg)
   removeQueueItem(id)
   return { status: 200, body: { ok: true, done: item.direction === 'up' ? 'drive_trash' : 'local_trash' } }
+}
+
+/**
+ * VISSZATOLTES (mentes-paros, fent torolt fajl). A nyilvantartasbol kivesszuk a
+ * fent mar nem letezo bejegyzest, igy a kovetkezo futas ujkent tolti fel. A
+ * fajlhoz itt nem nyulunk; a feltoltest a szokasos futas vegzi.
+ */
+function reuploadItems(items: Array<{ id: string; pairId: string; driveId: string; backup?: true; direction: string }>): { status: number; body: any } {
+  if (job?.running) return { status: 409, body: { error: 'running', code: 'running' } }
+  const cfg = loadSyncConfig()
+  if (cfg.corrupt) return { status: 409, body: { error: 'config_broken', code: 'config_broken' } }
+  let n = 0
+  for (const item of items) {
+    // Csak mentes-paros lefele tetele toltheto vissza: egy Drive-masolat
+    // parosnal a Drive az igazsag, ott a visszatoltes idegen tartalmat irna fel.
+    if (!item.backup || item.direction !== 'down') continue
+    const state = cfg.state[item.pairId]
+    if (state) delete state[item.driveId]
+    removeQueueItem(item.id)
+    n++
+  }
+  if (!n) return { status: 400, body: { error: 'not_backup', code: 'not_backup' } }
+  saveSyncConfig(cfg)
+  return { status: 200, body: { ok: true, done: 'reupload', count: n } }
 }
 
 export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
@@ -2120,7 +2177,19 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/drive/sync/deletions/decide' && method === 'POST') {
     const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
-    const r = await decideDeletion(String(data.id || ''), data.approve === true)
+    const r = await decideDeletion(String(data.id || ''), data.approve === true, data.action === 'reupload')
+    json(res, r.body, r.status)
+    return true
+  }
+
+  // Egy mentes-paros MINDEN fent torolt tetelenek visszatoltese egy lepesben
+  // (a veszfek utani "toltsd vissza mindet"). A felulet megerosittet elotte.
+  if (path === '/api/drive/sync/deletions/reupload-pair' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const pairId = String(data.pairId || '')
+    const items = loadDeleteQueue().items.filter((i) => i.pairId === pairId && i.backup && i.direction === 'down')
+    if (!items.length) { json(res, { error: 'not_found', code: 'not_found' }, 404); return true }
+    const r = reuploadItems(items)
     json(res, r.body, r.status)
     return true
   }

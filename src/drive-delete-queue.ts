@@ -46,6 +46,11 @@ export interface DeleteQueueItem {
   /** A teljes helyi ut -- ezt latja a felhasznalo. */
   localPath: string
   size?: number
+  /**
+   * MENTES-PAROS tetele: fent toroltek, a gepen megvan. Itt harmadik valasztas
+   * is van -- a visszatoltes --, es a "nem" azt jelenti: maradjon csak a gepen.
+   */
+  backup?: true
   /** Mikor vettuk eszre eloszor. */
   detectedAt: string
 }

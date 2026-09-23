@@ -34487,20 +34487,37 @@ async function _depoDelQueueRefresh() {
   if (!items.length) { box.style.display = 'none'; list.innerHTML = ''; return }
   box.style.display = ''
   if (note) note.textContent = d.running ? t('ddel.running') : t('ddel.count', { n: items.length })
-  list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+  // MENTES-PAROS: ha egy parosbol tobb fajl tunt el fent, egy gombbal mind
+  // visszatoltheto (a veszfek utani eset).
+  var backupPairs = {}
+  items.forEach(function (it) {
+    if (!it.backup || it.direction !== 'down') return
+    var b = backupPairs[it.pairId] || (backupPairs[it.pairId] = { label: it.pairLabel || '', n: 0 })
+    b.n++
+  })
+  var bulk = Object.keys(backupPairs).filter(function (k) { return backupPairs[k].n > 1 }).map(function (k) {
+    return '<button class="btn-secondary btn-compact" data-ddel-bulk="' + escapeHtml(k) + '"' + (d.running ? ' disabled' : '') + '>'
+      + escapeHtml(t('ddel.reupload_all', { n: backupPairs[k].n, pair: backupPairs[k].label })) + '</button>'
+  }).join(' ')
+  list.innerHTML = (bulk ? '<div style="margin-bottom:8px">' + bulk + '</div>' : '') + '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
     + '<th>' + escapeHtml(t('ddel.col_file')) + '</th>'
     + '<th>' + escapeHtml(t('ddel.col_what')) + '</th>'
     + '<th>' + escapeHtml(t('ddel.col_since')) + '</th>'
     + '<th></th></tr></thead><tbody>'
     + items.map(function (it) {
-      var mi = it.direction === 'up' ? t('ddel.up_what') : t('ddel.down_what')
+      var mi = it.direction === 'up' ? t('ddel.up_what') : (it.backup ? t('ddel.backup_what') : t('ddel.down_what'))
+      var dis = d.running ? ' disabled' : ''
       return '<tr><td>★ <code>' + escapeHtml(it.localPath || it.relPath || '') + '</code>'
         + '<br><span class="subtitle">' + escapeHtml(it.pairLabel || '') + '</span></td>'
         + '<td>' + escapeHtml(mi) + '</td>'
         + '<td>' + escapeHtml(String(it.detectedAt || '').slice(0, 16).replace('T', ' ')) + '</td>'
         + '<td style="white-space:nowrap">'
-        + '<button class="btn-primary btn-compact" data-ddel-yes="' + escapeHtml(it.id) + '"' + (d.running ? ' disabled' : '') + '>' + escapeHtml(t('ddel.yes')) + '</button> '
-        + '<button class="btn-secondary btn-compact" data-ddel-no="' + escapeHtml(it.id) + '"' + (d.running ? ' disabled' : '') + '>' + escapeHtml(t('ddel.no')) + '</button>'
+        + (it.backup
+          ? '<button class="btn-primary btn-compact" data-ddel-re="' + escapeHtml(it.id) + '"' + dis + '>' + escapeHtml(t('ddel.reupload')) + '</button> '
+            + '<button class="btn-secondary btn-compact" data-ddel-no="' + escapeHtml(it.id) + '"' + dis + '>' + escapeHtml(t('ddel.keep_local')) + '</button> '
+            + '<button class="btn-secondary btn-compact" data-ddel-yes="' + escapeHtml(it.id) + '"' + dis + '>' + escapeHtml(t('ddel.delete_here')) + '</button>'
+          : '<button class="btn-primary btn-compact" data-ddel-yes="' + escapeHtml(it.id) + '"' + dis + '>' + escapeHtml(t('ddel.yes')) + '</button> '
+            + '<button class="btn-secondary btn-compact" data-ddel-no="' + escapeHtml(it.id) + '"' + dis + '>' + escapeHtml(t('ddel.no')) + '</button>')
         + '</td></tr>'
     }).join('')
     + '</tbody></table></div>'
@@ -34512,11 +34529,41 @@ async function _depoDelQueueRefresh() {
     var it = items.find(function (x) { return x.id === b.getAttribute('data-ddel-no') })
     b.addEventListener('click', function () { _depoDelDecide(it, false) })
   })
+  list.querySelectorAll('[data-ddel-re]').forEach(function (b) {
+    var it = items.find(function (x) { return x.id === b.getAttribute('data-ddel-re') })
+    b.addEventListener('click', function () { _depoDelDecide(it, false, true) })
+  })
+  list.querySelectorAll('[data-ddel-bulk]').forEach(function (b) {
+    var pid = b.getAttribute('data-ddel-bulk')
+    b.addEventListener('click', function () { _depoDelReuploadPair(pid, backupPairs[pid]) })
+  })
 }
 
-async function _depoDelDecide(it, approve) {
+async function _depoDelReuploadPair(pairId, info) {
+  if (!info) return
+  if (!confirm(t('ddel.confirm_reupload_all', { n: info.n, pair: info.label }))) return
+  try {
+    var r = await _depoPost('/api/drive/sync/deletions/reupload-pair', { pairId: pairId })
+    showToast(t('ddel.done_reupload_all', { n: (r && r.count) || info.n }))
+  } catch (e) {
+    alert(_depoDelErr((e && e.message) ? e.message : String(e)))
+  }
+  await _depoDelQueueRefresh()
+}
+
+async function _depoDelDecide(it, approve, reupload) {
   if (!it) return
   // ELONEZET a lepes elott: pontosan mi tortenik, melyik fajllal.
+  if (reupload) {
+    try {
+      await _depoPost('/api/drive/sync/deletions/decide', { id: it.id, action: 'reupload' })
+      showToast(t('ddel.done_reupload'))
+    } catch (e) {
+      alert(_depoDelErr((e && e.message) ? e.message : String(e)))
+    }
+    await _depoDelQueueRefresh()
+    return
+  }
   if (approve) {
     var msg = it.direction === 'up'
       ? t('ddel.confirm_up', { file: it.localPath || it.relPath })
@@ -34525,7 +34572,7 @@ async function _depoDelDecide(it, approve) {
   }
   try {
     var r = await _depoPost('/api/drive/sync/deletions/decide', { id: it.id, approve: !!approve })
-    showToast(!approve ? t('ddel.kept') : (r && r.done === 'drive_trash' ? t('ddel.done_up') : t('ddel.done_down')))
+    showToast(!approve ? (it.backup ? t('ddel.kept_local') : t('ddel.kept')) : (r && r.done === 'drive_trash' ? t('ddel.done_up') : t('ddel.done_down')))
   } catch (e) {
     alert(_depoDelErr((e && e.message) ? e.message : String(e)))
   }
