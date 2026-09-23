@@ -250,6 +250,10 @@ const SPECIAL: Record<string, Hint> = {
     hu: 'PÉLDA — így néz ki egy családtag ága; nevezd át egy hozzátartozódra, vagy töröld nyugodtan',
     en: 'EXAMPLE — this is what a family member branch looks like; rename it to a relative of yours, or just delete it',
   },
+  personsGroup: {
+    hu: 'a családtagjaid (és a saját) mappái egy helyen — mindenkinek külön ága van alatta',
+    en: 'the folders of your family members (and your own) in one place — everyone has their own branch below',
+  },
   sampleCompany: {
     hu: 'PÉLDA — így néz ki egy cég ága; nevezd át a saját cégedre, vagy töröld nyugodtan',
     en: 'EXAMPLE — this is what a company branch looks like; rename it to your own company, or just delete it',
@@ -293,3 +297,4 @@ export const devKnowledgeHint = (lang: string = APP_LANG) => specialHint('devKno
 export const devMoreHint = (lang: string = APP_LANG) => specialHint('devMore', lang)
 export const samplePersonHint = (lang: string = APP_LANG) => specialHint('samplePerson', lang)
 export const sampleCompanyHint = (lang: string = APP_LANG) => specialHint('sampleCompany', lang)
+export const personsGroupHint = (lang: string = APP_LANG) => specialHint('personsGroup', lang)

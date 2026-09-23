@@ -29,14 +29,14 @@ import { detectSource, type SourceInfo } from './life-sources.js'
 import { storageMissText } from './storage-index.js'
 import { getPhysical, movePhysical, forgetPhysical, type PhysicalRecord } from './life-documents.js'
 import {
-  lifeName, lifeKeyForName, loadLifeConfig, safeLifeName,
+  lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, personsGroupRel,
   SAMPLE_PERSON, SAMPLE_COMPANY, type LifeConfig,
 } from './life-tree.js'
 import { resolveMount, unresolveMount, mountsInside, mountsOverview } from './life-mounts.js'
-import { displayLabelFor } from './life-labels.js'
+import { displayLabelFor, moveDisplayLabels } from './life-labels.js'
 import { checkNameForPath, MACHINE_ZONE_DIR, type NameAdvice } from './naming-conventions.js'
 import { logger } from './logger.js'
-import { lifeHint, personHint, companyHint, samplePersonHint, sampleCompanyHint,
+import { lifeHint, personHint, personsGroupHint, companyHint, samplePersonHint, sampleCompanyHint,
   devKnowledgeHint, devMoreHint, projectHint } from './life-hints.js'
 
 /**
@@ -690,7 +690,10 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
   }
 
   // A beallitott szemelynevek: a sugohoz kell, meg a rendezes elott.
-  const cfgPersons = loadLifeConfig().persons.map((p) => safeLifeName(p.name))
+  const cfgNow = loadLifeConfig()
+  const cfgPersons = cfgNow.persons.map((p) => safeLifeName(p.name))
+  // Where the persons stand: the root, or the common group folder ("Család").
+  const groupDir = personsGroupRel(cfgNow)
 
   // A SUGO rakotese. A mappa neve alapjan keressuk vissza a gepi kulcsot, igy
   // a szemely alatti `Otthon` es a ceg alatti `Fejlesztes` is megkapja a
@@ -721,7 +724,8 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
     // A helyuk viszont elarulja, mik: a gyokerben szemely, a Cegek alatt ceg.
     if (f.name === SAMPLE_PERSON) f.hint = samplePersonHint(lang)
     else if (f.name === SAMPLE_COMPANY) f.hint = sampleCompanyHint(lang)
-    else if (!base.rel && cfgPersons.includes(f.name)) f.hint = personHint(lang)
+    else if (groupDir && !base.rel && f.name === groupDir) f.hint = personsGroupHint(lang)
+    else if (base.rel === groupDir && cfgPersons.includes(f.name)) f.hint = personHint(lang)
     else if (base.rel === lifeName('companies', APP_LANG)) f.hint = companyHint(lang)
   }
 
@@ -730,7 +734,8 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
   if (!base.rel) {
     const order = topOrder(APP_LANG)
     // A szemelyek elore, a beallitas sorrendjeben -- a gazda a legelso.
-    const persons = loadLifeConfig().persons.map((p) => safeLifeName(p.name))
+    // With a group folder, the group takes the persons' place at the top.
+    const persons = groupDir ? [groupDir] : cfgPersons
     // A BEERKEZO a LEGELSO -- meg a gazda ele is.
     //
     // Boss: „A beerkezo mappat azt tedd legelore! legfelulre. […] mert azon
@@ -747,6 +752,11 @@ export function listLife(rel: string, opts: { deep?: boolean; lang?: string; con
       // be: a vegere kerulnek, ott viszont beturendben.
       return persons.length + (i < 0 ? order.length : i)
     }
+    folders.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'hu'))
+  } else if (groupDir && base.rel === groupDir) {
+    // Inside the group: the persons in config order (owner first), the rest
+    // alphabetically after them.
+    const rank = (n: string) => { const i = cfgPersons.indexOf(n); return i < 0 ? cfgPersons.length : i }
     folders.sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'hu'))
   } else {
     folders.sort((a, b) => a.name.localeCompare(b.name, 'hu'))
@@ -847,7 +857,12 @@ function ownerOf(rel: string, cfg: LifeConfig): string {
   // szintu ag, hanem minden szemely es ceg sajat kategoriaja -- ott tehat az
   // elso szakasz mar maga a tulajdonos.)
   const nested = parts[0] === companiesDir || parts[0] === archiveDir
-  const candidate = nested ? parts[1] : parts[0]
+  let at = nested ? 1 : 0
+  // With a `personsGroup` the name is one level deeper: `Család/<név>`,
+  // `Archív/Család/<név>`.
+  const groupDir = personsGroupRel(cfg)
+  if (groupDir && parts[at] === groupDir) at++
+  const candidate = parts[at]
   if (!candidate) return ''
   const person = cfg.persons.find((p) => safeLifeName(p.name) === candidate)
   if (person) return person.name
@@ -996,6 +1011,7 @@ export function moveLife(fromRel: string, toDirRel: string, lang = APP_LANG): Mo
   // A papir-nyilvantartas kovesse a fajlt, kulonben a fizikai peldany
   // informacioja a regi utvonalon maradna, vagyis a semmin.
   movePhysical(fromRel, newRel)
+  moveDisplayLabels(fromRel, newRel)
   logger.info({ from: fromRel, to: newRel }, '[intezo] athelyezve')
   return { ok: true, rel: newRel, message: T(lang, `Áthelyezve ide: ${humanLocation(newRel)}`, `Moved here: ${humanLocation(newRel)}`) }
 }
@@ -1119,6 +1135,7 @@ export function renameLife(rel: string, newName: string, lang = APP_LANG): MoveR
   }
   const newRel = toLifeRel(target)
   movePhysical(rel, newRel)
+  moveDisplayLabels(rel, newRel)
   logger.info({ from: rel, to: newRel }, '[intezo] atnevezve')
   return withNameAdvice(
     { ok: true, rel: newRel, message: T(lang, `Új neve: ${clean}`, `Its new name: ${clean}`) },

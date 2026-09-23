@@ -106,3 +106,28 @@ export function rememberLifeCreated(root: string, rels: string[]): { added: numb
   }
   return { added, total: base.size }
 }
+
+/**
+ * A folder was moved BY US (e.g. the persons into a `personsGroup`): the
+ * ledger follows it. Otherwise every sub-folder the user had deleted earlier
+ * would look "never existed" at its new path, and `ensureLifeTree` would
+ * bring it back -- exactly what the ledger exists to prevent.
+ */
+export function moveLifeLedgerPrefix(root: string, fromRel: string, toRel: string): number {
+  const led = loadLifeLedger()
+  if (!led || !sameRoot(led.root, root) || !fromRel || !toRel || fromRel === toRel) return 0
+  let moved = 0
+  const next = led.created.map((r) => {
+    if (r !== fromRel && !r.startsWith(fromRel + '/')) return r
+    moved++
+    return toRel + r.slice(fromRel.length)
+  })
+  if (!moved) return 0
+  try {
+    mkdirSync(STORE_DIR, { recursive: true })
+    writeFileSync(lifeLedgerPath(), JSON.stringify({ root: led.root, created: [...new Set(next)].sort(), updatedAt: new Date().toISOString() }, null, 2), 'utf8')
+  } catch (err: any) {
+    logger.warn({ err: String(err?.message || err) }, '[eletfa] a naplot nem sikerult kiirni')
+  }
+  return moved
+}

@@ -209,6 +209,34 @@ export interface LifeCompany {
 export interface LifeConfig {
   persons: LifePerson[]
   companies: LifeCompany[]
+  /**
+   * Optional common parent folder for ALL persons (e.g. "Család" / "Family").
+   * Empty or missing = the persons stand at the tree root, as before -- an
+   * older saved config therefore keeps its layout unchanged. The owner
+   * (2026-09-24): the family members belong under one "Család" folder, not
+   * scattered at the root next to Cégek, Tudás, Archív.
+   */
+  personsGroup?: string
+}
+
+/**
+ * The relative path of a person's own folder, honouring `personsGroup`.
+ * EVERY place that builds a person path must go through this -- if one
+ * place still joins the bare name, it looks for the person at the root and
+ * silently finds nothing.
+ */
+export function personRel(cfg: Pick<LifeConfig, 'personsGroup'> | null | undefined, name: string): string {
+  const group = personsGroupRel(cfg)
+  const base = safeLifeName(name)
+  return group ? `${group}/${base}` : base
+}
+
+/** The persons' common parent folder ('' = the tree root). */
+export function personsGroupRel(cfg: Pick<LifeConfig, 'personsGroup'> | null | undefined): string {
+  const raw = String(cfg?.personsGroup ?? '').trim()
+  if (!raw) return ''
+  const safe = safeLifeName(raw)
+  return safe === '_' ? '' : safe
 }
 
 /**
@@ -470,7 +498,12 @@ export function normalizeLifeConfig(raw: any): LifeConfig {
       countrySplit: keyList(c.countrySplit, COMPANY_CATEGORIES, defaultCompanyCountrySplit()),
     }))
     : []
-  return { persons, companies }
+  // `safeLifeName('')` is '_' (a usable folder name), so the empty case must
+  // be caught BEFORE it: empty = no group, not a folder called "_".
+  const groupIn = typeof raw?.personsGroup === 'string' ? raw.personsGroup.trim() : ''
+  const groupSafe = groupIn ? safeLifeName(groupIn) : ''
+  const personsGroup = groupSafe === '_' ? '' : groupSafe
+  return { persons, companies, personsGroup }
 }
 
 /**
@@ -515,11 +548,11 @@ export function loadLifeConfig(): LifeConfig {
   try {
     if (!existsSync(CONFIG_PATH)) return defaultLifeConfig()
     const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'))
-    const { persons, companies } = normalizeLifeConfig(raw)
+    const { persons, companies, personsGroup } = normalizeLifeConfig(raw)
     // Egy szemely nelkul a fanak nincs erteme: ilyenkor visszaesunk a
     // tulajdonosra, kulonben az elso "Fa letrehozasa" gomb ures mappat csinalna.
-    if (!persons.length) return { persons: defaultLifeConfig().persons, companies }
-    return { persons, companies }
+    if (!persons.length) return { persons: defaultLifeConfig().persons, companies, personsGroup }
+    return { persons, companies, personsGroup }
   } catch (err: any) {
     logger.warn({ err: err?.message }, '[eletfa] serult life-tree.json, alapertelmezessel indulok')
     return defaultLifeConfig()
@@ -590,8 +623,11 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
   //    alatt: a specifikacioban is igy van, es egy kattintassal kevesebb.
   //    MINDEN szemely ugyanazt a teljes szerkezetet kapja -- nincs "csokkentett"
   //    ag egy csaladtagnak.
+  // The optional common parent ("Család"): one level above the persons.
+  const groupDir = personsGroupRel(cfg)
+  if (groupDir) add(groupDir, 'top', 'personsGroup')
   for (const p of cfg.persons) {
-    const base = safeLifeName(p.name)
+    const base = personRel(cfg, p.name)
     add(base, 'person', null, p.id)
     for (const key of PERSON_CATEGORIES) {
       const cat = `${base}/${lifeName(key, lang)}`
@@ -690,7 +726,9 @@ export function planLifeTree(input: LifeConfig = loadLifeConfig(), lang: string 
   // ARCHIV: a lezart anyagoke, ugyanazzal a felosztassal (specifikacio 25.).
   const archiveDir = lifeName('archive', lang)
   add(archiveDir, 'top', 'archive')
-  for (const p of cfg.persons) add(`${archiveDir}/${safeLifeName(p.name)}`, 'person', null, p.id)
+  // The archive mirrors the live layout: with a group, `Archív/Család/<name>`.
+  if (groupDir) add(`${archiveDir}/${groupDir}`, 'top', 'personsGroup')
+  for (const p of cfg.persons) add(`${archiveDir}/${personRel(cfg, p.name)}`, 'person', null, p.id)
   if (cfg.companies.length) add(`${archiveDir}/${companiesDir}`, 'top', 'companies')
 
   // 5. RENDSZER: a technikai reteg (specifikacio 4. pont). A felhasznalo NEM
@@ -776,7 +814,8 @@ function readmeText(cfg: LifeConfig, lang: string): string {
   ))
   lines.push('')
   const first = cfg.persons[0]?.name || nl('Név', 'Name')
-  lines.push(`  ${first} / ${lifeName('legal', lang)} / ...`)
+  const firstPath = personRel(cfg, first).split('/').join(' / ')
+  lines.push(`  ${firstPath} / ${lifeName('legal', lang)} / ...`)
   lines.push('')
   lines.push(nl(
     'akkor a papír is ott van, ugyanezen a néven. Ennyi az egész.',

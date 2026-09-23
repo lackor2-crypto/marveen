@@ -24,6 +24,7 @@ import {
   lifeName, lifeKeyForName, loadLifeConfig, safeLifeName, inboxDir,
   resolveFilingPerson,
   type LifeConfig,
+  personRel,
 } from './life-tree.js'
 import { explorerRoot, humanLocation } from './life-explorer.js'
 import { inboxStatus, credentialRisk, type InboxItem, type InboxReason } from './life-inbox.js'
@@ -304,7 +305,6 @@ export function buildLearnedIndex(config: LifeConfig): LearnedIndex {
   const idx: LearnedIndex = { personTokens: new Map(), categoryTokens: new Map(), sampleCount: 0 }
   const root = explorerRoot()
   if (!root) return idx
-  const personByName = new Map(config.persons.map((p) => [p.name, p]))
   let scanned = 0
 
   function walk(absDir: string, depth: number, ownerPersonId: string | null, categoryKey: string | null): void {
@@ -322,11 +322,7 @@ export function buildLearnedIndex(config: LifeConfig): LearnedIndex {
       if (st.isDirectory()) {
         let nextOwner = ownerPersonId
         let nextCategory = categoryKey
-        if (depth === 0) {
-          const person = personByName.get(entry)
-          if (!person) continue // egyeb gyoker-ag (peldaul egy meg fel nem vett szemely) -- kihagyjuk
-          nextOwner = person.id
-        } else if (depth === 1 && ownerPersonId) {
+        if (depth === 1 && ownerPersonId) {
           const key = lifeKeyForName(entry)
           if (key) nextCategory = key
         }
@@ -341,7 +337,9 @@ export function buildLearnedIndex(config: LifeConfig): LearnedIndex {
       }
     }
   }
-  walk(root, 0, null, null)
+  // Each person's folder is walked from its own place (with a `personsGroup`
+  // it is `Család/<név>`, not the root) -- depth 1 is the category level.
+  for (const p of config.persons) walk(join(root, ...personRel(config, p.name).split('/')), 1, p.id, null)
   return idx
 }
 
@@ -1125,9 +1123,10 @@ export function buildKnownFolders(config: LifeConfig, lang: string = APP_LANG): 
   if (!root) return []
   const out: KnownFolder[] = []
   for (const person of config.persons) {
-    const personAbs = join(root, person.name)
+    const personPath = personRel(config, person.name)
+    const personAbs = join(root, ...personPath.split('/'))
     if (!existsSync(personAbs)) continue
-    walkKnownFolders(personAbs, person.name, person.id, out, 0)
+    walkKnownFolders(personAbs, personPath, person.id, out, 0)
   }
   return out
 }
@@ -1216,7 +1215,7 @@ export function analyzeInboxItem(
 
   const ownerPerson = config.persons.find((p) => p.id === ownerGuess.personId)
   const categoryLabel = categoryGuess.key ? lifeName(categoryGuess.key, lang) : ''
-  const targetRel = ownerPerson && categoryGuess.key ? `${ownerPerson.name}/${categoryLabel}` : ''
+  const targetRel = ownerPerson && categoryGuess.key ? `${personRel(config, ownerPerson.name)}/${categoryLabel}` : ''
   const targetAbs = targetRel ? join(explorerRoot() || '', ...targetRel.split('/')) : ''
   const targetExists = targetAbs ? existsSync(targetAbs) : false
   // A megjelenites AKKOR IS all, ha a mappa meg nem letezik -- kulonben a
