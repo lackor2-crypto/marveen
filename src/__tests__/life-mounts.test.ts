@@ -198,3 +198,39 @@ describe('bekotes megjegyzes + allapot (#168)', () => {
     expect(updateMountNote(MEDIA_PHOTOS, { note: 'x' }).code).toBe('corrupt')
   })
 })
+
+// Boss, 2026-09-23: a GIT_REPOS a lemezen ures, a repok BEKOTESKENT allnak
+// alatta. A lista mutatta oket, a darabszam viszont "ures"-t irt, a kereso nem
+// talalta, a jelveny "Helyi gep" volt. Mind a negy ugyanazt kell lassa.
+describe('bekotes egy lemezen URES mappa alatt (GIT_REPOS-eset)', () => {
+  const PARENT = 'Teszt Elek/Ureskent-latszo'
+  const MOUNT = `${PARENT}/repo`
+  beforeEach(async () => {
+    rmSync(join(depot, ...PARENT.split('/')), { recursive: true, force: true })
+    mkdirSync(join(depot, ...PARENT.split('/')), { recursive: true })
+    const { clearContentCache } = await import('../life-explorer.js')
+    clearContentCache()
+  })
+
+  it('a szulo darabszama a bekotest is szamolja -- nem "ures"', () => {
+    expect(addMount({ rel: MOUNT, target: `${DEPOT_PHOTOS}/teszt-fiok` }).ok).toBe(true)
+    const l = listLife('Teszt Elek', { deep: false })
+    const e = l.folders.find((f) => f.name === 'Ureskent-latszo')!
+    expect(e.content?.state).toBe('has')
+    expect(e.content?.folders).toBe(1)
+    expect(e.content?.deep).toBe('has')
+  })
+
+  it('bekotes nelkul tovabbra is bizonyitottan ures', () => {
+    const l = listLife('Teszt Elek', { deep: false })
+    const e = l.folders.find((f) => f.name === 'Ureskent-latszo')!
+    expect(e.content?.state).toBe('empty')
+  })
+
+  it('a kereso a bekotesen at is talal, a FA szerinti utvonallal', async () => {
+    const { searchLife } = await import('../life-explorer.js')
+    addMount({ rel: MOUNT, target: `${DEPOT_PHOTOS}/teszt-fiok` })
+    const r = searchLife('Teszt Elek', 'nyaralas')
+    expect(r.entries.map((e) => e.rel)).toContain(`${MOUNT}/nyaralas.jpg`)
+  })
+})

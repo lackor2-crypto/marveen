@@ -406,9 +406,20 @@ export function mixedSource(kinds: SourceKind[]): SourceInfo {
  * nem ar. Amit igy mondunk, az igaz -- csak nem a legmelyebb igazsag --, es a
  * felhasznalo egy kattintassal amugy is lejjebb megy.
  */
-export function detectSource(abs: string, isDir: boolean, deep = false): SourceInfo {
+export function detectSource(abs: string, isDir: boolean, deep = false, mountedChildren: string[] = []): SourceInfo {
   const own = firstMatch(abs, isDir)
   if (!deep || !isDir) return own
+
+  // BEKOTOTT gyerekek (a felulet ide tukrozott mappai, pl. a GIT_REPOS alatt a
+  // repok): a lemezen nincsenek itt, a felhasznalo megis itt latja oket. A
+  // jelveny ugyanazt mondja, amit a lista mutat.
+  const mountKinds = new Map<SourceKind, SourceInfo>()
+  for (const m of mountedChildren) {
+    let mIsDir = false
+    try { mIsDir = statSync(m).isDirectory() } catch { continue }
+    const info = firstMatch(m, mIsDir)
+    if (!mountKinds.has(info.kind)) mountKinds.set(info.kind, info)
+  }
 
   let names: string[] = []
   try { names = readdirSync(abs).filter((n) => !n.startsWith('.')) } catch { return own }
@@ -421,6 +432,13 @@ export function detectSource(abs: string, isDir: boolean, deep = false): SourceI
     try { childIsDir = statSync(child).isDirectory() } catch { continue }
     kinds.add(firstMatch(child, childIsDir).kind)
     if (kinds.size > 1) break
+  }
+  for (const k of mountKinds.keys()) kinds.add(k)
+  // Csak bekotott tartalom, egyfele forrasbol, es az mas, mint a mappa sajat
+  // helye: a mappa a bekotes forrasat viseli (a GIT_REPOS "Git", nem "Helyi").
+  if (kinds.size === 1 && mountKinds.size === 1 && !kinds.has(own.kind)) {
+    const only = [...mountKinds.values()][0]
+    return { ...only, physicalPath: toDisplayPath(abs) }
   }
   if (kinds.size <= 1) return own
   // VEGYES mappa: NINCS egy tarolo-azonositoja, es ez nem hianyzo adat, hanem

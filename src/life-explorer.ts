@@ -293,7 +293,9 @@ const contentCache = new Map<string, { content: LifeContent; at: number }>()
 /** Meddig ervenyes egy meres. Rovid: a felhasznalo epp most rendezget a faban. */
 const CONTENT_TTL_MS = 15_000
 
-function cacheKey(abs: string, lang: string): string { return `${lang}\u0000${abs}` }
+// A `rel` is a kulcsban: ugyanaz a lemez-mappa mas fa-helyen mas bekoteseket
+// lathat maga alatt (a bekotesek fa-utvonalhoz kotottek, nem lemez-mappahoz).
+function cacheKey(abs: string, lang: string, rel = ''): string { return `${lang}\u0000${abs}\u0000${rel}` }
 
 /**
  * A gyorsitotar eldobasa.
@@ -308,7 +310,7 @@ export function clearContentCache(): void { contentCache.clear() }
 /** Hany mappa varhat merese a hatterben. Efolott nem gyujtunk tovabb. */
 const PENDING_MAX = 500
 
-const pendingQueue: Array<{ abs: string; lang: string }> = []
+const pendingQueue: Array<{ abs: string; lang: string; rel: string }> = []
 let pendingTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
@@ -325,12 +327,12 @@ function drainPending(): void {
   // Sajat, bosegesebb keret: itt mar nem var ra senki a vonal masik vegen.
   const budget: MeasureBudget = { dirs: 20_000, deadline: Date.now() + 8_000 }
   try {
-    const c = measureContent(job.abs, job.lang, budget)
+    const c = measureContent(job.abs, job.lang, budget, 0, job.rel)
     // A hatter-meres a VEGSO szo. Ha meg ezzel a bosegesebb kerettel sem
     // sikerult, az oszinte "nem mertem meg" kerul a tarba -- NEM a "meg merem",
     // kulonben a felulet a vilag vegeig varna egy valaszra, ami nem jon.
     const vegso: LifeContent = c.pending ? { ...c, pending: false } : c
-    contentCache.set(cacheKey(job.abs, job.lang), { content: vegso, at: Date.now() })
+    contentCache.set(cacheKey(job.abs, job.lang, job.rel), { content: vegso, at: Date.now() })
   } catch (e) {
     logger.warn(`life-explorer: hatter-meres elhasalt (${job.abs}): ${String(e)}`)
   }
@@ -340,10 +342,10 @@ function drainPending(): void {
   }
 }
 
-function enqueueMeasure(abs: string, lang: string): void {
+function enqueueMeasure(abs: string, lang: string, rel = ''): void {
   if (pendingQueue.length >= PENDING_MAX) return
-  if (pendingQueue.some((j) => j.abs === abs && j.lang === lang)) return
-  pendingQueue.push({ abs, lang })
+  if (pendingQueue.some((j) => j.abs === abs && j.lang === lang && j.rel === rel)) return
+  pendingQueue.push({ abs, lang, rel })
   if (!pendingTimer) {
     pendingTimer = setTimeout(drainPending, 10)
     // `unref`: a meres SOHA ne tartsa eletben a folyamatot (tesztben sem).
@@ -358,21 +360,21 @@ function enqueueMeasure(abs: string, lang: string): void {
  * `pending` jelzest kap, a meres a hatterben lefut, es a kovetkezo lekeres mar
  * a valodi szamokat hozza.
  */
-function contentFor(abs: string, lang: string, budget: MeasureBudget): LifeContent {
-  const key = cacheKey(abs, lang)
+function contentFor(abs: string, lang: string, budget: MeasureBudget, rel = ''): LifeContent {
+  const key = cacheKey(abs, lang, rel)
   const hit = contentCache.get(key)
   if (hit && Date.now() - hit.at < CONTENT_TTL_MS) return hit.content
   if (budget.dirs <= 0 || Date.now() > budget.deadline) {
-    enqueueMeasure(abs, lang)
+    enqueueMeasure(abs, lang, rel)
     return {
       state: 'unknown', folders: null, files: null, deep: 'unknown', pending: true,
       reason: T(lang, 'Még mérem, mi van benne — egy pillanat.', 'Still measuring what is inside — one moment.'),
     }
   }
-  const c = measureContent(abs, lang, budget)
+  const c = measureContent(abs, lang, budget, 0, rel)
   // Ha a keret MERES KOZBEN fogyott el, a valasz felkesz: nem tesszuk el, mert
   // akkor 15 masodpercig egy felbehagyott meres latszana vegleges "nem mert"-nek.
-  if (c.pending) { enqueueMeasure(abs, lang); return c }
+  if (c.pending) { enqueueMeasure(abs, lang, rel); return c }
   contentCache.set(key, { content: c, at: Date.now() })
   return c
 }
@@ -450,7 +452,7 @@ function budgetText(lang: string): string {
  * SOSE mondunk uresat olyanra, amit nem lattunk: hibanal es kimerult keretnel
  * `unknown` jon, a `reason`-ben a valodi okkal.
  */
-function measureContent(abs: string, lang: string, budget: MeasureBudget, depth = 0): LifeContent {
+function measureContent(abs: string, lang: string, budget: MeasureBudget, depth = 0, rel = ''): LifeContent {
   const unknown = (reason: string): LifeContent =>
     ({ state: 'unknown', folders: null, files: null, deep: 'unknown', reason })
 
@@ -464,7 +466,8 @@ function measureContent(abs: string, lang: string, budget: MeasureBudget, depth 
 
   let folders = 0
   let files = 0
-  const subdirs: string[] = []
+  const subdirs: Array<{ abs: string; rel: string }> = []
+  const childRel = (name: string): string => (rel ? `${rel}/${name}` : name)
   for (const it of items) {
     if (isHiddenEntry(it.name)) continue
     let isDir = it.isDirectory()
@@ -473,7 +476,21 @@ function measureContent(abs: string, lang: string, budget: MeasureBudget, depth 
     if (!isDir && it.isSymbolicLink()) {
       try { isDir = statSync(join(abs, it.name)).isDirectory() } catch { isDir = false }
     }
-    if (isDir) { folders++; subdirs.push(it.name) } else files++
+    if (isDir) { folders++; subdirs.push({ abs: join(abs, it.name), rel: childRel(it.name) }) } else files++
+  }
+
+  // BEKOTESEK: a lista (listLife) a bekotott mappakat ugy mutatja, mintha itt
+  // allnanak -- a szamlalonak ugyanazt kell latnia. Enelkul a GIT_REPOS a
+  // lemezen ures, a felulet "ures"-t ir ra, mikozben megnyitva ott a repo
+  // (Boss, 2026-09-23). A meglevo azonos nevu mappat LECSERELI, mint a lista.
+  for (const m of mountsInside(rel)) {
+    const name = m.rel.split('/').pop() as string
+    const mAbs = resolveLifePath(m.rel)
+    if (!mAbs) continue
+    try { if (!statSync(mAbs).isDirectory()) continue } catch { continue }
+    const at = subdirs.findIndex((d) => d.rel === m.rel)
+    if (at >= 0) subdirs[at] = { abs: mAbs, rel: m.rel }
+    else { folders++; subdirs.push({ abs: mAbs, rel: m.rel }) }
   }
 
   const state: LifeContent['state'] = (folders + files) > 0 ? 'has' : 'empty'
@@ -490,7 +507,7 @@ function measureContent(abs: string, lang: string, budget: MeasureBudget, depth 
   let sawUnknown = ''
   let sawPending = false
   for (const sub of subdirs) {
-    const child = measureContent(join(abs, sub), lang, budget, depth + 1)
+    const child = measureContent(sub.abs, lang, budget, depth + 1, sub.rel)
     if (child.deep === 'has') return { state, folders, files, deep: 'has', reason: '' }
     if (child.deep === 'unknown' && !sawUnknown) {
       sawUnknown = child.reason
@@ -508,7 +525,10 @@ function measureContent(abs: string, lang: string, budget: MeasureBudget, depth 
 function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: boolean, lang = APP_LANG, budget?: MeasureBudget): LifeEntry {
   const rel = rootRel ? `${rootRel}/${name}` : name
   const isDir = st.isDirectory()
-  const src: SourceInfo = detectSource(abs, isDir, deep && isDir)
+  const mountedKids = isDir && deep
+    ? mountsInside(rel).map((m) => resolveLifePath(m.rel)).filter((p): p is string => !!p)
+    : []
+  const src: SourceInfo = detectSource(abs, isDir, deep && isDir, mountedKids)
   return {
     name,
     displayName: displayLabelFor(rel),
@@ -530,7 +550,7 @@ function entryFrom(abs: string, name: string, st: Stats, rootRel: string, deep: 
     // Mappaknal: van-e alatta barmi. Keret nelkul (pl. egyedi hivas) nem merunk:
     // a mezo ilyenkor hianyzik, es a felulet nem ir ki rola semmit -- ez tisztabb,
     // mint egy meg nem mert nulla.
-    ...(isDir && budget ? { content: contentFor(abs, lang, budget) } : {}),
+    ...(isDir && budget ? { content: contentFor(abs, lang, budget, rel) } : {}),
   }
 }
 
@@ -1334,24 +1354,39 @@ export function searchLife(rel: string, query: string, limit = 200, lang = APP_L
   // Szelessegi bejaras, felso hatarral: egy nagyon melyre agazo fanal a
   // melysegi bejaras egyetlen agban veszne el, es a felhasznalo azt latna,
   // hogy "nincs talalat" -- holott csak nem jutottunk el a szomszed agig.
-  const queue: string[] = [startAbs]
+  // A sor a FA-beli utvonalat is viszi (nem csak a lemezit): a bekotesek
+  // (GIT_REPOS alatt a repok, Media/Fotok mogott a fotok) a fa-utvonalhoz
+  // kotottek, es a talalat `rel`-je is annak kell legyen, amit a lista mutat.
+  const startRel = String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  const queue: Array<{ abs: string; rel: string }> = [{ abs: startAbs, rel: startRel }]
   let visited = 0
   while (queue.length && entries.length < limit && visited < 20000) {
     const dir = queue.shift()!
     let names: string[]
-    try { names = readdirSync(dir) } catch { continue }
-    for (const name of names) {
-      if (name.startsWith('.')) continue
+    try { names = readdirSync(dir.abs) } catch { names = [] }
+    const kids: Array<{ name: string; abs: string }> = names
+      .filter((n) => !n.startsWith('.'))
+      .map((n) => ({ name: n, abs: join(dir.abs, n) }))
+    // Ugyanaz a csere, mint a listaban: a bekotes a meglevo azonos nevu mappat
+    // lecsereli, kulonben uj mappakent all be.
+    for (const m of mountsInside(dir.rel)) {
+      const name = m.rel.split('/').pop() as string
+      const mAbs = resolveLifePath(m.rel)
+      if (!mAbs) continue
+      const at = kids.findIndex((k) => k.name === name)
+      if (at >= 0) kids[at] = { name, abs: mAbs }
+      else kids.push({ name, abs: mAbs })
+    }
+    for (const { name, abs: full } of kids) {
       visited++
-      const full = join(dir, name)
       let st: Stats
       try { st = statSync(full) } catch { continue }
+      const childRel = dir.rel ? `${dir.rel}/${name}` : name
       if (name.toLowerCase().includes(q)) {
-        const parentRel = toLifeRel(dir)
         if (entries.length >= limit) { truncated = true; break }
-        entries.push(entryFrom(full, name, st, parentRel, false, lang))
+        entries.push(entryFrom(full, name, st, dir.rel, false, lang))
       }
-      if (st.isDirectory()) queue.push(full)
+      if (st.isDirectory()) queue.push({ abs: full, rel: childRel })
     }
   }
   return { entries, truncated: truncated || queue.length > 0 }
