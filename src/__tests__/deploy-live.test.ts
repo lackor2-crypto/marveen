@@ -298,3 +298,87 @@ describe('deploy-live.sh', () => {
     expect(readFileSync(join(root, 'src', 'a.ts'), 'utf8')).toMatch(/kezi bootstrap edit/)
   })
 })
+
+// --- fuggoseg-telepites (kartya f7d423e7) ------------------------------------
+//
+// `npm run build` SEMMIT nem telepit. Amig a deploy csak buildelt, egy uj npm
+// csomagot hozo commit ugy ment elesbe, hogy a csomag NEM volt a node_modules-ban:
+// a funkcio csak az elo telepitesen halt el, zold deploy-naplo mellett.
+describe('deploy-live.sh -- fuggosegek telepitese', () => {
+  const installed = () => existsSync(join(markers, 'install'))
+  const INSTALL_ENV = () => ({ MARVEEN_DEPLOY_INSTALL_CMD: `touch '${markers}/install'` })
+
+  /** A gyokerben allo "mar telepitett" allapot: node_modules + npm tukre, a
+   *  lockfile-nal UJABB idobelyeggel (pontosan ezt meri a deploy). */
+  function markInstalled() {
+    mkdirSync(join(root, 'node_modules'), { recursive: true })
+    writeFileSync(join(root, 'node_modules', '.package-lock.json'), '{}\n', 'utf8')
+    execFileSync('touch', [join(root, 'node_modules', '.package-lock.json')])
+  }
+
+  /** npm-oldalt is tartalmazo repo: package.json + lockfile a fan es originban. */
+  function seedNpm() {
+    advanceOrigin('package.json', '{"name":"x","version":"1.0.0"}\n', 'add package.json')
+    advanceOrigin('package-lock.json', '{"lockfileVersion":3,"packages":{}}\n', 'add lock v1')
+    runDeploy(INSTALL_ENV())
+    rmSync(join(markers, 'build')); rmSync(join(markers, 'restart'))
+    if (installed()) rmSync(join(markers, 'install'))
+    markInstalled()
+  }
+
+  it('package.json nelkuli repot nem piszkal (nem talal ki telepitesi munkat)', () => {
+    advanceOrigin('src/b.ts', 'export const b = 2\n', 'add b')
+    runDeploy(INSTALL_ENV())
+    expect(built()).toBe(true)
+    expect(installed()).toBe(false)
+  })
+
+  it('hianyzo node_modules eseten telepit', () => {
+    advanceOrigin('package.json', '{"name":"x","version":"1.0.0"}\n', 'add package.json')
+    runDeploy(INSTALL_ENV())
+    expect(installed()).toBe(true)
+    expect(built()).toBe(true)
+  })
+
+  it('valtozo lockfile -> telepit, MEG AKKOR IS, ha a build amugy nem lenne esedekes', () => {
+    seedNpm()
+    // CSAK a lockfile valtozik: a fa ettol elorelep, de a src erintetlen.
+    advanceOrigin('package-lock.json', '{"lockfileVersion":3,"packages":{"node_modules/pdfjs-dist":{}}}\n', 'lock v2')
+    runDeploy(INSTALL_ENV())
+    expect(installed()).toBe(true)
+    expect(built()).toBe(true)
+    expect(restarted()).toBe(true)
+    expect(deployLog()).toMatch(/dependencies are stale/)
+  })
+
+  it('valtozatlan lockfile mellett NEM telepit ujra', () => {
+    seedNpm()
+    advanceOrigin('src/b.ts', 'export const b = 2\n', 'add b')
+    runDeploy(INSTALL_ENV())
+    expect(built()).toBe(true)
+    expect(installed()).toBe(false)
+  })
+
+  it('elbukott telepites utan NEM buildel, NEM indit ujra, es nem rogziti a sha-t', () => {
+    seedNpm()
+    advanceOrigin('package-lock.json', '{"lockfileVersion":3,"packages":{"a":{}}}\n', 'lock v2')
+    const shaBefore = readFileSync(join(store, '.deployed-sha'), 'utf8').trim()
+    runDeploy({ MARVEEN_DEPLOY_INSTALL_CMD: 'exit 1' })
+    expect(built()).toBe(false)
+    expect(restarted()).toBe(false)
+    expect(readFileSync(join(store, '.deployed-sha'), 'utf8').trim()).toBe(shaBefore)
+    expect(deployLog()).toMatch(/DEPENDENCY INSTALL FAILED/)
+  })
+
+  it('elbukott telepitest a KOVETKEZO tick ujraprobalja (a fa mar naprakesz, megsem felejti el)', () => {
+    seedNpm()
+    advanceOrigin('package-lock.json', '{"lockfileVersion":3,"packages":{"a":{}}}\n', 'lock v2')
+    runDeploy({ MARVEEN_DEPLOY_INSTALL_CMD: 'exit 1' })
+    // A fa mar a target-en all es a src valtozatlan -> a "naprakesz" korai
+    // kilepes elnyelne a telepitest, ha csak a fa-kulonbseget neznenk.
+    runDeploy(INSTALL_ENV())
+    expect(installed()).toBe(true)
+    expect(built()).toBe(true)
+    expect(restarted()).toBe(true)
+  })
+})

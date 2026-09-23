@@ -13,6 +13,13 @@ export const MIME: Record<string, string> = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  // ES-modul: a bongeszo CSAK akkor tolti be `import()`-tel, ha a tipus
+  // javascript -- octet-stream eseten nema hibaval elszall (pdf.js, vendor.ts).
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.bcmap': 'application/octet-stream',
+  '.pfb': 'application/octet-stream',
+  '.icc': 'application/octet-stream',
 }
 
 // Default upper bound on a request body the dashboard will buffer in RAM.
@@ -76,7 +83,7 @@ export function json(
 
 // Compression only pays for itself on text formats above ~1KB; images are
 // already compressed and tiny payloads cost more in CPU than they save.
-const GZIP_EXTENSIONS = new Set(['.html', '.css', '.js', '.json', '.svg'])
+const GZIP_EXTENSIONS = new Set(['.html', '.css', '.js', '.json', '.svg', '.mjs'])
 const GZIP_MIN_BYTES = 1024
 
 function acceptsGzip(req: http.IncomingMessage): boolean {
