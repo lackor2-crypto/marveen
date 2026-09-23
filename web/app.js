@@ -20358,12 +20358,10 @@ async function renderOverviewConnections() {
                 // ami a Raktar oldalon van, nem a Fiokokon (az ujralogin nem segit).
                 : h.id === 'drive_sync_quota_full'
                   ? "switchPage('drive')"
-                // A kartekonynak jelolt fajl es a besorolatlan elutasitas NEM
-                // bejelentkezesi gond: a fiokok oldalan semmit nem lehetne
-                // kezdeni veluk. A teendo (kezi lementes / a fajl megnezese) a
-                // Raktar oldalon van.
-                : (h.id === 'drive_sync_abusive' || h.id === 'drive_sync_refused')
-                  ? "switchPage('drive')"
+                // Amit a Google nem ad ki (kartekonynak jelolt fajl VAGY
+                // besorolatlan elutasitas), annak itt MAR NINCS SORA: a Raktar
+                // oldal "Amit a Google nem ad ki" doboza sorolja fel oket
+                // (Boss, 2026-09-23). Ezert innen mar nem is kell odavinni.
                 : h.id === 'drive_sync_auth_stuck'
                   ? "switchPage('accounts')"
               // Minden mas onellenorzes-sor (mentes, upstream, git-lehuzas,
@@ -34245,6 +34243,8 @@ async function loadDepoPage() {
     }
   })
   // KULSO TORLES ELLENI VEDELEM (6. pont).
+  bind('depoBlockedRetryBtn', () => _depoBlockedRetry(''))
+  bind('depoQuotaMeasureBtn', () => _depoQuotaMeasure())
   bind('depoGuardRefreshBtn', () => _depoGuardRefresh())
   bind('depoGuardClearBtn', () => _depoGuardClear())
   var grd = document.getElementById('depoGuardEnabled')
@@ -34385,6 +34385,160 @@ async function _depoGuardRefresh() {
         + '<td>' + escapeHtml(c.note || '') + '</td></tr>'
     }).join('')
     + '</tbody></table></div>'
+}
+
+/* ===== AMIT A GOOGLE NEM AD KI =====================================
+ *
+ * Boss, 2026-09-23: "azt nem engedi a Google letolteni, oke, az nem problema,
+ * akkor ne jelentsen hibat, meg ezt a sarga feliratot ... ott a drive-nal ...
+ * kell jelezni ... hogy a szinkronizalas kesz, befejezodott, a Google ezt meg
+ * ezt meg ezt nem engedte letolteni, kesz."
+ *
+ * A NULLA KET DOLGOT JELENTHET, ezert a kiszolgalo kulon megmondja
+ * (`fileExists`), letezik-e mar a lista: nincs meg = meg egy szinkron sem
+ * futott (friss telepites, helyes csend); megvan es ures = futott, es a Google
+ * mindent kiadott. A ket mondat NEM ugyanaz, es nem szabad osszemosni.
+ */
+async function _depoBlockedRefresh() {
+  var ures = document.getElementById('depoBlockedEmpty')
+  var list = document.getElementById('depoBlockedList')
+  var btn = document.getElementById('depoBlockedRetryBtn')
+  if (!ures && !list) return
+  var d = null
+  try {
+    d = await _depoGet('/api/drive/sync/skiplist')
+  } catch (e) {
+    // A TENYLEGES hibauzenet megy ki, nem tippelt ok.
+    if (ures) ures.textContent = t('drive.blocked_load_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+    if (list) list.innerHTML = ''
+    if (btn) btn.style.display = 'none'
+    return
+  }
+  var sorok = (d && d.items) || []
+  if (btn) btn.style.display = sorok.length ? '' : 'none'
+  if (!sorok.length) {
+    if (ures) ures.textContent = (d && d.fileExists) ? t('drive.blocked_empty') : t('drive.blocked_never')
+    if (list) list.innerHTML = ''
+    return
+  }
+  if (ures) ures.textContent = t('drive.blocked_count', { n: sorok.length })
+  if (!list) return
+  list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('drive.blocked_col_file')) + '</th>'
+    + '<th>' + escapeHtml(t('drive.blocked_col_account')) + '</th>'
+    + '<th>' + escapeHtml(t('drive.blocked_col_reason')) + '</th>'
+    + '<th>' + escapeHtml(t('drive.blocked_col_when')) + '</th>'
+    + '<th></th></tr></thead><tbody>'
+    + sorok.map(function (c) {
+      // A Drive-link kozvetlenul a fajlra visz: onnan KEZZEL letoltheto, amit
+      // a program nem kap meg. A teljes helyi ut is ott van, mert oda kerulne.
+      var nev = c.driveId
+        ? '<a href="https://drive.google.com/file/d/' + encodeURIComponent(c.driveId) + '/view"'
+          + ' target="_blank" rel="noopener">' + escapeHtml(c.driveName || c.driveId) + '</a>'
+        : escapeHtml(c.driveName || '')
+      return '<tr><td>' + nev
+        + (c.localPath ? '<br><code class="subtitle">' + escapeHtml(c.localPath) + '</code>' : '')
+        + '</td>'
+        + '<td>' + escapeHtml(c.account || '') + '</td>'
+        + '<td class="subtitle">' + escapeHtml(c.reason || '') + '</td>'
+        + '<td class="subtitle">' + escapeHtml(String(c.at || '').slice(0, 16).replace('T', ' ')) + '</td>'
+        + '<td><button class="btn-secondary btn-compact" data-depo-unblock="' + escapeHtml(c.key || '') + '">'
+        + escapeHtml(t('drive.blocked_retry_one')) + '</button></td></tr>'
+    }).join('')
+    + '</tbody></table></div>'
+  list.querySelectorAll('[data-depo-unblock]').forEach(function (b) {
+    b.addEventListener('click', function () { _depoBlockedRetry(b.getAttribute('data-depo-unblock')) })
+  })
+}
+
+/**
+ * Ujra megprobaljuk: egy tetelt vagy az egeszet.
+ *
+ * A "nem probaljuk ujra" nem jelentheti azt, hogy "elfelejtettuk" -- ha a
+ * Google kozben feloldotta a jelolest, ezzel a gombbal a kovetkezo szinkron
+ * megint nekifut. Kulcs nelkul az EGESZ listat uriti, ezert arra rakerdezunk:
+ * tomeges muvelet, es a felhasznalonak latnia kell, mennyirol van szo.
+ */
+async function _depoBlockedRetry(key) {
+  var st = document.getElementById('depoBlockedStatus')
+  if (!key && !confirm(t('drive.blocked_retry_confirm'))) return
+  if (st) st.textContent = t('drive.blocked_working')
+  try {
+    await _depoPost('/api/drive/sync/skiplist/clear', key ? { key: key } : {})
+    if (st) st.textContent = t('drive.blocked_retry_done')
+  } catch (e) {
+    if (st) st.textContent = t('drive.blocked_retry_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+  }
+  await _depoBlockedRefresh()
+}
+
+/* ===== MENNYI HELY VAN A FIOKON -- MOST ============================
+ *
+ * Boss kepernyofotoja (2026-09-23 13:22): a Google sajat felulete 13,1 GB /
+ * 15 GB-ot mutatott, a Marveen tarolt merese viszont 03:30-as volt (14,65 GB
+ * foglalt), mert a meres KIZAROLAG a kvota-hiba pillanataban frissult -- hiba
+ * nelkul tehat sosem. Mostantol a szinkron minden futas elejen mer, es ez a
+ * gomb kezzel is elinditja.
+ */
+function _depoQuotaSor(acct, q) {
+  var limit = Number(q && q.limit) || 0
+  var usage = Number(q && q.usage) || 0
+  var trash = Number(q && q.trash) || 0
+  // Limit nelkul (korlatlan tarhely) NEM talalunk ki hanyadost.
+  var hanyad = limit ? '<strong>' + escapeHtml(_emberiBajt(usage)) + '</strong> / ' + escapeHtml(_emberiBajt(limit))
+    + ' &middot; ' + escapeHtml(t('drive.quota_free', { b: _emberiBajt(Math.max(0, limit - usage)) }))
+    : escapeHtml(t('drive.quota_no_limit', { b: _emberiBajt(usage) }))
+  return '<tr><td>' + escapeHtml(acct) + '</td>'
+    + '<td>' + hanyad + '</td>'
+    + '<td class="subtitle">' + escapeHtml(t('drive.quota_trash', { b: _emberiBajt(trash) })) + '</td>'
+    + '<td class="subtitle">' + escapeHtml(String((q && q.at) || '').slice(0, 16).replace('T', ' ')) + '</td></tr>'
+}
+
+async function _depoQuotaRefresh() {
+  var list = document.getElementById('depoQuotaList')
+  var st = document.getElementById('depoQuotaStatus')
+  if (!list) return
+  var d = null
+  try {
+    d = await _depoGet('/api/drive/quota')
+  } catch (e) {
+    list.innerHTML = ''
+    if (st) st.textContent = t('drive.quota_load_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+    return
+  }
+  var q = (d && d.quotas) || {}
+  var nevek = Object.keys(q)
+  if (!nevek.length) {
+    // Ures = meg nem mertunk. NEM azt jelenti, hogy "nincs hely" vagy "rendben".
+    list.innerHTML = '<p class="subtitle" style="margin:0">' + escapeHtml(t('drive.quota_never')) + '</p>'
+    return
+  }
+  list.innerHTML = '<div class="ssh-table-wrap"><table class="ssh-table"><thead><tr>'
+    + '<th>' + escapeHtml(t('drive.quota_col_account')) + '</th>'
+    + '<th>' + escapeHtml(t('drive.quota_col_used')) + '</th>'
+    + '<th>' + escapeHtml(t('drive.quota_col_trash')) + '</th>'
+    + '<th>' + escapeHtml(t('drive.quota_col_when')) + '</th></tr></thead><tbody>'
+    + nevek.sort().map(function (a) { return _depoQuotaSor(a, q[a]) }).join('')
+    + '</tbody></table></div>'
+}
+
+async function _depoQuotaMeasure() {
+  var st = document.getElementById('depoQuotaStatus')
+  if (st) st.textContent = t('drive.quota_measuring')
+  try {
+    var r = await _depoPost('/api/drive/quota/measure', {})
+    var hibak = (r && r.errors) || []
+    // A GOOGLE SAJAT MONDATA megy ki, nem tippelt ok.
+    if (st) {
+      st.textContent = hibak.length
+        ? t('drive.quota_measure_partial', { n: (r.measured || []).length })
+          + ' ' + hibak.map(function (h) { return h.account + ': ' + h.message }).join(' | ')
+        : t('drive.quota_measure_done', { n: (r.measured || []).length })
+    }
+  } catch (e) {
+    if (st) st.textContent = t('drive.quota_measure_failed') + ' ' + ((e && e.message) ? e.message : String(e))
+  }
+  await _depoQuotaRefresh()
 }
 
 async function _depoGuardToggle(enabled) {
@@ -34769,6 +34923,10 @@ async function _depoRefresh() {
   // KULON tolt, a `s`-tol fuggetlenul: ha a `/api/drive/sync` elhasal, a
   // vedelem allapotat akkor is latni kell -- eppen olyankor a legfontosabb.
   await _depoGuardRefresh()
+  // KULON tolt, sajat vegponttal: ha barmelyik masik lekerdezes elhasal, ez a
+  // ket doboz akkor is megjelenik -- eppen olyankor a legfontosabb.
+  await _depoBlockedRefresh()
+  await _depoQuotaRefresh()
   await _depoDelQueueRefresh()
   // Serult beallitas-fajl: a lista ilyenkor URESEN all. Magyarazat nelkul ez ugy
   // nez ki, mintha a felhasznalo maga valasztotta volna le a mappait. Ez a

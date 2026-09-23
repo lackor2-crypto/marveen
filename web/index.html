@@ -2021,6 +2021,52 @@
            style="display:none;margin-top:10px;padding:10px;border-radius:6px;
                   border:1px solid var(--warning, #c77);background:rgba(200,120,60,.12)"></p>
 
+        <!-- AMIT A GOOGLE NEM AD KI + MI MARADT KI (Boss, 2026-09-23).
+             "ott a drive-nal ... kell jelezni ... hogy a szinkronizalas kesz,
+             befejezodott, a Google ezt meg ezt meg ezt nem engedte letolteni,
+             kesz." Ezek a tetelek KIKERULTEK az onellenorzesbol: ott sarga
+             sorkent alltak, holott a felhasznalonak nincs veluk dolga. Itt
+             viszont NEVEN vannak nevezve, teljes helyi uttal es Drive-linkkel.
+             A `/api/drive/sync/failures` vegpont 2026-08-16 ota letezett, de
+             felulet SOHA nem keszult hozza -- a sarga sor egy nem letezo
+             listahoz kuldte a felhasznalot. -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border, #333)">
+          <h3 style="margin:0 0 6px;font-size:14px" data-i18n="drive.blocked_title">Amit a Google nem ad ki</h3>
+          <p class="subtitle" style="margin:0 0 10px" data-i18n="drive.blocked_intro">
+            Ezek nem hibák, és nincs velük teendőd: a Google saját szabályból nem
+            adja oda ezeket a fájlokat egyetlen programnak sem. A szinkron a többivel
+            rendben lefut. Ha egy fájl mégis kell, nyisd meg a Drive-ot böngészőben,
+            és kézzel töltsd le — úgy megkapod.
+          </p>
+          <p id="depoBlockedEmpty" class="subtitle" style="margin:0 0 10px"></p>
+          <div id="depoBlockedList"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <button class="btn-secondary btn-compact" id="depoBlockedRetryBtn"
+                    data-i18n="drive.blocked_retry_all">Próbáld újra mindet</button>
+            <span id="depoBlockedStatus" class="subtitle"></span>
+          </div>
+        </div>
+
+        <!-- MENNYI HELY VAN A FIOKON -- MOST, nem a legutobbi hibakor.
+             Boss kepernyofotoja (2026-09-23): a Google sajat felulete 13,1 GB-ot
+             mutatott, a Marveen tarolt merese 14,65 GB-ot, mert a meres CSAK a
+             kvota-hiba pillanataban frissult. Ez a gomb ket masodperc alatt
+             eldonti a kerdest -- nem kell a kovetkezo ejszakai futasra varni. -->
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border, #333)">
+          <h3 style="margin:0 0 6px;font-size:14px" data-i18n="drive.quota_title">Mennyi hely van a Google-fiókjaidon</h3>
+          <p class="subtitle" style="margin:0 0 10px" data-i18n="drive.quota_what">
+            A Marveen a szinkron elején méri meg. Ha most szabadítottál fel helyet,
+            ezzel a gombbal azonnal frissítheted — enélkül a következő szinkronig a
+            korábbi számot látnád.
+          </p>
+          <div id="depoQuotaList"></div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <button class="btn-secondary btn-compact" id="depoQuotaMeasureBtn"
+                    data-i18n="drive.quota_measure_now">Mérd meg most</button>
+            <span id="depoQuotaStatus" class="subtitle"></span>
+          </div>
+        </div>
+
         <!-- KULSO TORLES ELLENI VEDELEM (a specifikacio 6. pontja).
              Boss: "ha valaki feltori a drivomat akkor a gepemrol ne tudjon
              torolni." A lefele menetben nincs es nem is lesz torles; ez a doboz

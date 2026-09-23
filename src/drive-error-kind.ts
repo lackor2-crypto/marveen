@@ -79,3 +79,29 @@ export function driveHibaUzenet(reason: string): string {
   if (m) return m[1]
   return ''
 }
+
+/**
+ * VEGLEGES elutasitas-e -- vagyis van-e ertelme holnap ujra megprobalni?
+ *
+ * Boss, 2026-09-23: "Minden Google-elutasitas egyformán, kevesebb sárga."
+ * Ezert a kartekony fajl mellett az ISMERETLEN INDOKU elutasitas is a
+ * kihagyando-listara kerul -- de CSAK a 4xx. Az az, amikor a Google a
+ * KERESRE mond nemet: holnap is ugyanaz lenne a valasz.
+ *
+ * Az 5xx SZANDEKOSAN kimarad: az a Google sajat atmeneti uzemzavara, nem
+ * elutasitas. Egy 503-at veglegesen kihagyni annyi, mint egy tokeletesen
+ * jo fajlt csendben orokre kihagyni a szinkronbol -- pont az a nema kar,
+ * amit a NULLA-elv tilt. Az ilyen fajl a kovetkezo futasban ujra sorra kerul.
+ *
+ * A `quota` es az `auth` sem kerul ide: azok nem EGY fajlrol szolnak, hanem
+ * az egesz fiokrol, es van ertelmes teendojuk (helyfelszabaditas, ujralogin),
+ * ezert sajat, valodi sort kapnak az onellenorzesben.
+ */
+export const DRIVE_VEGLEGES_ELUTASITAS_RE = /\b(40[0-9]|41[0-9]|42[0-9])\b/
+
+export function driveVeglegesenElutasitva(reason: string): boolean {
+  const kind = driveErrorKind(reason)
+  if (kind === 'abusive') return true
+  if (kind === 'quota' || kind === 'auth') return false
+  return DRIVE_VEGLEGES_ELUTASITAS_RE.test(String(reason || ''))
+}

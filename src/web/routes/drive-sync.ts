@@ -54,8 +54,12 @@ import {
 import type { RouteContext } from './types.js'
 import { getQueueItem, loadDeleteQueue, removePairFromQueue, removeQueueItem, syncQueueForPair } from '../../drive-delete-queue.js'
 import { resolveLifePath, toLifeRel, trashLife } from '../../life-explorer.js'
-import { driveErrorKind } from '../../drive-error-kind.js'
-import { parseStorageQuota, recordDriveQuota } from '../../drive-quota.js'
+import { driveErrorKind, driveHibaUzenet, driveVeglegesenElutasitva } from '../../drive-error-kind.js'
+import { DRIVE_QUOTA_PATH, loadDriveQuotas, parseStorageQuota, recordDriveQuota } from '../../drive-quota.js'
+import {
+  clearDriveSkiplist, DRIVE_SKIPLIST_PATH, driveSkiplistItems, isDriveSkipped,
+  loadDriveSkiplist, recordDriveSkip, removeDriveSkip,
+} from '../../drive-skiplist.js'
 import { MAX_FOLDERS, MAX_FILES } from '../../drive-sync-limits.js'
 
 const DRIVE_FILES_URL = 'https://www.googleapis.com/drive/v3/files'
@@ -882,11 +886,28 @@ function gond(a: {
  * kepernyo szam nelkul, de oszinten beszel.
  */
 const kvotaMerve = new Set<string>()
+// MELYIK futashoz tartozik a fenti halmaz. Amig a kulcs maga hordozta a
+// futas-azonositot, a halmaz SOHA nem urult: minden futas hozzatett egy
+// bejegyzest fiokonkent, es a folyamat elettartama alatt csak nott. Igy egy
+// mezot tartunk, es futas-valtaskor eldobjuk a regit -- ugyanaz a viselkedes,
+// hatarolt memoriaval.
+let kvotaMerveFutas = ''
 
 async function merdAKvotat(account: string, token: TokenForras): Promise<void> {
-  const kulcs = `${job?.runId || 'futás-azonosító-nélkül'}|${account}`
-  if (kvotaMerve.has(kulcs)) return
-  kvotaMerve.add(kulcs)
+  const futas = job?.runId || 'futás-azonosító-nélkül'
+  if (futas !== kvotaMerveFutas) {
+    kvotaMerve.clear()
+    kvotaMerveFutas = futas
+  }
+  if (kvotaMerve.has(account)) return
+  kvotaMerve.add(account)
+  // A MERES FRISSESSEGE MAGA IS ADAT. Amig ez csak a kvota-hiba pillanataban
+  // futott, egy felszabaditas utan SEMMI nem mert ujra: hiba nelkul nincs
+  // meres, a regi hiba viszont a naplo­ban marad, tehat a kepernyo a
+  // vegtelensegig ugyanazt a szamot ismetelte. Merve 2026-09-23 13:28-kor: a
+  // tarolt meres 03:30-as volt (14,65 GB foglalt), mikozben a Google sajat
+  // felulete mar 13,1 GB-ot mutatott -- Boss kepernyofotoja bizonyitotta.
+  // Ezert a futas ELEJEN is merunk, fiokonkent egyszer.
   try {
     const body = await driveJson(`${DRIVE_ABOUT_URL}?fields=storageQuota`, token)
     const meres = parseStorageQuota(account, body)
@@ -920,6 +941,14 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
   const token = tokenSzolgaltato(pair.account)
   // Fail-fast: ha a hozzaferes MOST sincs meg, ne a 3000. fajlnal deruljon ki.
   await token()
+  // A TARHELY MERESE A FUTAS ELEJEN. Nem csak hibanal (lasd `merdAKvotat`):
+  // egy felszabaditas utan epp az a helyzet, hogy NINCS hiba -- es addig a
+  // kepernyo a regi szamot ismetelte. Egy `about?fields=storageQuota` hivas
+  // fiokonkent, a bejaras elott.
+  await merdAKvotat(pair.account, token)
+  // A KIHAGYANDO-LISTA egyszer, a bejaras elott. Fajlonkent olvasni a lemezt
+  // ezer fajlnal ezer olvasas lenne; a lista egy futas alatt nem valtozik.
+  const kihagyando = loadDriveSkiplist()
   const state = cfg.state[pair.id] || {}
   cfg.state[pair.id] = state
   // Szelessegi bejaras: mappa + a hozza tartozo HELYI utvonal.
@@ -1133,6 +1162,23 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
         }
         continue
       }
+      // AMIT A GOOGLE SZABALYBOL NEM AD KI, AZT NEM PROBALJUK UJRA.
+      // Boss, 2026-09-23: "innentol kezdve azt nem is probalja meg
+      // leszinkronizalni." A tetel NEM tunik el: `kihagyva` fazissal a "Mi
+      // maradt ki?" listaba kerul, es a Raktar oldalon kulon dobozban all,
+      // ahonnan egy gombbal ujra megprobalhato. A `kihagyva` szandekosan NEM
+      // szamit hibanak (`failed` nincs beallitva), ezert az onellenorzes sem
+      // csinal belole sarga sort.
+      if (isDriveSkipped(pair.account, f.id, kihagyando)) {
+        const tetel = kihagyando[`${pair.account}|${f.id}`]
+        gond({
+          pair, phase: 'kihagyva',
+          localPath: dest, driveName: f.name || seg, driveId: f.id,
+          reason: `a Google nem adja ki (korábban ezt válaszolta: ${tetel?.reason || 'ismeretlen ok'}) – a kihagyandó-listán van, ezért meg sem próbáltam`,
+        })
+        if (job) job.skipped++
+        continue
+      }
       try {
         const size = await downloadTo(plan.url, token, dest)
         state[f.id] = {
@@ -1147,11 +1193,35 @@ async function syncPair(pair: SyncPair, cfg: SyncConfig): Promise<{
       } catch (err: any) {
         // EZ a "N nem sikerult" szam forrasa. A nev es a teljes helyi ut most
         // mar lemezre is kerul -- ebbol tudja a Boss, mit kell kezzel lementenie.
+        const indok = String(err?.message || err).slice(0, 200)
         gond({
           pair, phase: 'letöltés', failed: true,
           localPath: dest, driveName: f.name || seg, driveId: f.id,
-          reason: String(err?.message || err).slice(0, 200),
+          reason: indok,
         })
+        // AMIT A GOOGLE VEGLEGESEN NEM AD KI: ez nem atmeneti hiba. Akar
+        // kartekonynak jelolt fajl ("This file has been identified as malware
+        // or spam and cannot be downloaded"), akar egy masik 4xx elutasitas --
+        // a holnapi futas pontosan ide erne. Feljegyezzuk, es tobbet nem
+        // probaljuk. Az 5xx (a Google sajat uzemzavara) SZANDEKOSAN nem kerul
+        // ide: az magatol elmulik, es a kovetkezo futas ujra megprobalja.
+        if (driveVeglegesenElutasitva(indok)) {
+          recordDriveSkip({
+            account: pair.account, driveId: f.id, driveName: f.name || seg,
+            localPath: dest, pair: pairLabel(pair),
+            reason: driveHibaUzenet(indok) || indok,
+            at: new Date().toISOString(),
+          })
+          kihagyando[`${pair.account}|${f.id}`] = {
+            account: pair.account, driveId: f.id, driveName: f.name || seg,
+            localPath: dest, pair: pairLabel(pair),
+            reason: driveHibaUzenet(indok) || indok,
+            at: new Date().toISOString(),
+          }
+        }
+        // A KVOTA-HIBA A LEFELE AGON IS ELOFORDUL (exportalt Google-fajlnal a
+        // masolat helyet foglal). Ugyanaz a meres jar neki, mint a felmenonel.
+        if (driveErrorKind(indok) === 'quota') await merdAKvotat(pair.account, token)
       }
     }
   }
@@ -1969,6 +2039,74 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/drive/sync/failures/clear' && method === 'POST') {
     clearSyncFailures()
     json(res, { ok: true })
+    return true
+  }
+
+  // AMIT A GOOGLE SZABALYBOL NEM AD KI -- a kihagyando-lista.
+  //
+  // Boss, 2026-09-23: "ne irja ki azt az onellenorzesnel, hogy ez egy problema.
+  // Nincs itt semmi problema ... ott a drive-nal ... kell jelezni ... hogy a
+  // szinkronizalas kesz, befejezodott, a Google ezt meg ezt meg ezt nem
+  // engedte letolteni, kesz."
+  //
+  // A NULLA KET DOLGOT JELENTHET, ezert a valasz kulon kimondja, letezik-e mar
+  // a fajl: ures lista + `fileExists:false` = meg egy szinkron sem futott
+  // (friss telepites, helyes csend); ures lista + `fileExists:true` = futott,
+  // es a Google mindent kiadott.
+  if (path === '/api/drive/sync/skiplist' && method === 'GET') {
+    const items = driveSkiplistItems()
+    json(res, { items, count: items.length, fileExists: existsSync(DRIVE_SKIPLIST_PATH) })
+    return true
+  }
+
+  // Ujra megprobaljuk: egy tetelt vagy az egeszet. A "nem probaljuk ujra" nem
+  // jelentheti azt, hogy "elfelejtettuk" -- a felhasznalo barmikor visszavonhatja.
+  if (path === '/api/drive/sync/skiplist/clear' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const key = String(data.key || '')
+    if (key) { json(res, { ok: removeDriveSkip(key), key }); return true }
+    const volt = driveSkiplistItems().length
+    clearDriveSkiplist()
+    json(res, { ok: true, removed: volt })
+    return true
+  }
+
+  // MERD MEG MOST a tarhelyet -- a felulet gombjara.
+  //
+  // Enelkul a szam csak akkor frissult, ha a szinkron belefutott a kvota-hibaba,
+  // tehat egy felszabaditas utan sosem. Merve 2026-09-23 13:28-kor: a tarolt
+  // meres 03:30-as volt (14,65 GB foglalt), a Google sajat felulete kozben mar
+  // 13,1 GB-ot mutatott. Ez a gomb ket masodperc alatt eldonti a kerdest, es
+  // nem kell a kovetkezo ejszakai futasra varni.
+  if (path === '/api/drive/quota' && method === 'GET') {
+    json(res, { quotas: loadDriveQuotas(), fileExists: existsSync(DRIVE_QUOTA_PATH) })
+    return true
+  }
+
+  if (path === '/api/drive/quota/measure' && method === 'POST') {
+    const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
+    const kert = String(data.account || '')
+    // Fiok nelkul MINDEN bekotott fiokot megmerunk: a felulet gombja igy egy
+    // kattintassal frissiti az egesz kepet.
+    const fiokok = kert ? [kert] : [...new Set(loadSyncConfig().pairs.map((p) => String(p.account || '')).filter(Boolean))]
+    if (!fiokok.length) {
+      json(res, { error: 'Nincs bekötött Drive-mappa, ezért nincs mit megmérni.', code: 'no_pairs' }, 400)
+      return true
+    }
+    const merve: string[] = []
+    const hibak: Array<{ account: string; message: string }> = []
+    for (const account of fiokok) {
+      try {
+        const body = await driveJson(`${DRIVE_ABOUT_URL}?fields=storageQuota`, tokenSzolgaltato(account))
+        const meres = parseStorageQuota(account, body)
+        if (meres) { recordDriveQuota(meres); merve.push(account) }
+        else hibak.push({ account, message: 'a Google nem küldött tárhely-adatot' })
+      } catch (err: any) {
+        // SOSE TALALGATJUK AZ OKOT: a Google sajat mondata megy ki.
+        hibak.push({ account, message: String(err?.message || err).slice(0, 200) })
+      }
+    }
+    json(res, { ok: merve.length > 0, measured: merve, errors: hibak, quotas: loadDriveQuotas() })
     return true
   }
 
