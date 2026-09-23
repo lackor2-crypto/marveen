@@ -44,6 +44,13 @@
     partEdit: null,
     partNewOpen: false,
     partBusy: false,
+    // --- kepessegek / fuggosegek (8. fazis) ---
+    // `caps === null` NEM azt jelenti, hogy nincs egy kepesseg sem: azt, hogy
+    // meg nem kerdeztuk meg. A ketto kulon latszik a kepernyon is.
+    capsOpen: false,
+    caps: null,
+    capsError: null,
+    capsBusy: null,
     // --- elonezet (4. fazis) ---
     preview: null,
     previewVersion: null,
@@ -781,6 +788,136 @@
     })
   }
 
+  // ---- kepessegek: mi mukodik ezen a gepen? (8. fazis, spec 1-2) ------------
+  //
+  // Harom dolgot kell egyszerre tudnia: (a) MI hianyzik, (b) MIRE hat, es (c)
+  // MIT tegyen a felhasznalo. Aki nem programozo, annak a "not_installed" szo
+  // semmit nem mond -- ezert allapot-cimke + emberi mondat + szamozott lepesek
+  // + LINK jar minden sorhoz, es ahol ut vagy cim kell, ott egy mezo is,
+  // amibe be tudja irni. Terminal nelkul, friss telepitesen is.
+  //
+  // Az EXTRA hianya SOHA nem piros (CLAUDE.md, 2026-08-11): a felhasznalo
+  // nyugodjon meg attol, amit lat, ne ijedjen meg tole.
+  function capStateClass(cap) {
+    if (cap.state === 'ok') return 'wb-cap-ok'
+    if (cap.state === 'check_failed') return 'wb-cap-warn'
+    if (cap.tier === 'core') return 'wb-cap-warn'
+    return 'wb-cap-neutral'
+  }
+
+  function capSettingHtml(cap) {
+    var st = cap.setting
+    if (!st) return ''
+    var id = 'wbCapSet-' + st.key
+    var hint = ''
+    if (st.secret) hint = st.configured ? t('workbench.caps.secret_set') : t('workbench.caps.secret_empty')
+    return '<div class="wb-cap-setting">'
+      + '<label class="wb-label" for="' + escA(id) + '">' + esc(st.label) + '</label>'
+      + '<input class="wb-input" id="' + escA(id) + '" type="' + (st.secret ? 'password' : 'text') + '" autocomplete="off"'
+      + ' value="' + escA(st.secret ? '' : (st.value || '')) + '" placeholder="' + escA(st.placeholder || '') + '">'
+      + (hint ? '<p class="wb-hint">' + esc(hint) + '</p>' : '')
+      + '<button type="button" class="btn-secondary" data-wb-act="cap-save" data-wb-cap="' + escA(cap.key) + '"'
+      + (WB.capsBusy === cap.key ? ' disabled' : '') + '>'
+      + esc(WB.capsBusy === cap.key ? t('workbench.caps.saving') : t('workbench.caps.save')) + '</button>'
+      + '</div>'
+  }
+
+  function capHtml(cap) {
+    var steps = (cap.how_to || []).map(function (line) { return '<li>' + esc(line) + '</li>' }).join('')
+    return '<li class="wb-cap ' + capStateClass(cap) + '">'
+      + '<div class="wb-cap-head">'
+      + '<strong>' + esc(cap.title) + '</strong>'
+      + '<span class="wb-cap-badge">' + esc(t('workbench.caps.state.' + cap.state)) + '</span>'
+      + '<span class="wb-cap-tier">' + esc(t('workbench.caps.tier.' + cap.tier)) + '</span>'
+      + '</div>'
+      + '<p class="wb-cap-what">' + esc(cap.what_for) + '</p>'
+      + '<p class="wb-cap-msg">' + esc(cap.message) + '</p>'
+      // A VALODI hibauzenet: kiirjuk, de nem helyette, hanem az emberi mondat
+      // MELLE -- igy a felhasznalo tudja, mi a teendo, a hibakereso meg azt,
+      // mi tortent pontosan.
+      + (cap.detail ? '<p class="wb-cap-detail"><span>' + esc(t('workbench.caps.detail')) + '</span> <code>' + esc(cap.detail) + '</code></p>' : '')
+      + (steps ? '<p class="wb-cap-howto">' + esc(t('workbench.caps.howto')) + '</p><ol class="wb-cap-steps">' + steps + '</ol>' : '')
+      + (cap.obtain_url ? '<p><a href="' + escA(cap.obtain_url) + '" target="_blank" rel="noopener">' + esc(t('workbench.caps.obtain')) + '</a></p>' : '')
+      + capSettingHtml(cap)
+      + '<div class="wb-cap-actions">'
+      + (cap.testable
+        ? '<button type="button" class="btn-secondary" data-wb-act="cap-test" data-wb-cap="' + escA(cap.key) + '"'
+          + (WB.capsBusy === cap.key ? ' disabled' : '') + '>'
+          + esc(WB.capsBusy === cap.key ? t('workbench.caps.testing') : t('workbench.caps.test')) + '</button>'
+        : '')
+      + '<span class="wb-cap-when">' + esc(t('workbench.caps.checked_at', { when: when(Math.floor((cap.checked_at || 0) / 1000)) })) + '</span>'
+      + '</div>'
+      + '</li>'
+  }
+
+  function capsPanelHtml() {
+    if (!WB.capsOpen) return ''
+    var body
+    if (WB.capsError) body = '<p class="wb-error">' + esc(WB.capsError) + '</p>'
+    // A NULLA KET DOLGOT JELENTHET: a `null` = "meg nem mertuk" (toltes), az
+    // ures tomb = "tenyleg nincs egy sor sem". Nem ugyanaz, nem is igy latszik.
+    else if (WB.caps === null) body = '<p class="wb-hint">' + esc(t('workbench.caps.loading')) + '</p>'
+    else body = '<ul class="wb-caps">' + WB.caps.map(capHtml).join('') + '</ul>'
+    return '<section class="wb-caps-panel" id="wbCapsPanel">'
+      + '<div class="wb-caps-head">'
+      + '<h2>' + esc(t('workbench.caps.title')) + '</h2>'
+      + '<button type="button" class="btn-secondary" data-wb-act="caps-refresh">' + esc(t('workbench.caps.refresh')) + '</button>'
+      + '<button type="button" class="btn-secondary" data-wb-act="caps-close">' + esc(t('workbench.caps.close')) + '</button>'
+      + '</div>'
+      + '<p class="wb-hint">' + esc(t('workbench.caps.intro')) + '</p>'
+      + body
+      + '</section>'
+  }
+
+  function loadCaps(force) {
+    WB.capsError = null
+    if (force) WB.caps = null
+    render()
+    api('GET', '/api/workbench/capabilities' + (force ? '?force=1' : '')).then(function (r) {
+      if (!r.ok) {
+        // Nem allitjuk, hogy "nincs egy kepesseg sem" -- azt mondjuk, hogy
+        // NEM LATTUNK ODA. A ketto nem ugyanaz.
+        WB.capsError = r.message || t('workbench.caps.error')
+        WB.caps = null
+      } else {
+        WB.caps = (r.data && r.data.capabilities) || []
+      }
+      render()
+    })
+  }
+
+  function testCap(key) {
+    WB.capsBusy = key
+    render()
+    api('POST', '/api/workbench/capabilities/' + encodeURIComponent(key) + '/test', {}).then(function (r) {
+      WB.capsBusy = null
+      if (!r.ok) { WB.capsError = r.message; render(); return }
+      applyCap(r.data && r.data.capability)
+      render()
+    })
+  }
+
+  function saveCapSetting(key) {
+    var cap = (WB.caps || []).filter(function (c) { return c.key === key })[0]
+    if (!cap || !cap.setting) return
+    var el = document.getElementById('wbCapSet-' + cap.setting.key)
+    var value = el ? el.value : ''
+    WB.capsBusy = key
+    render()
+    api('POST', '/api/workbench/capabilities/' + encodeURIComponent(key) + '/setting', { value: value }).then(function (r) {
+      WB.capsBusy = null
+      if (!r.ok) { WB.capsError = r.message; render(); return }
+      applyCap(r.data && r.data.capability)
+      render()
+      if (r.data && r.data.message) window.showToast(r.data.message)
+    })
+  }
+
+  function applyCap(cap) {
+    if (!cap || !WB.caps) return
+    WB.caps = WB.caps.map(function (c) { return c.key === cap.key ? cap : c })
+  }
+
   function panelTabsHtml() {
     var tabs = [['items', 'workbench.panel.items'], ['editor', 'workbench.panel.editor'], ['context', 'workbench.panel.context']]
     return '<div class="wb-panel-tabs" role="tablist">' + tabs.map(function (p) {
@@ -796,8 +933,10 @@
       + '<div class="wb-head">'
       + '<button type="button" class="prj-back-link" data-wb-act="back">' + esc(t('workbench.back_to_project')) + '</button>'
       + '<h1>' + esc(t('workbench.title', { project: WB.project ? WB.project.name : '' })) + '</h1>'
+      + '<button type="button" class="btn-secondary" data-wb-act="caps-open">' + esc(t('workbench.caps.open')) + '</button>'
       + '<button type="button" class="btn-secondary" data-wb-act="refresh">' + esc(t('common.refresh')) + '</button>'
       + '</div>'
+      + capsPanelHtml()
       + panelTabsHtml()
       + '<div class="wb-grid">' + itemsPanelHtml() + editorPanelHtml() + contextPanelHtml() + '</div>'
       + chatBarHtml()
@@ -1127,6 +1266,11 @@
     else if (a === 'part-up') movePart(act.getAttribute('data-wb-part'), 'up')
     else if (a === 'part-down') movePart(act.getAttribute('data-wb-part'), 'down')
     else if (a === 'part-remove') removePart(act.getAttribute('data-wb-part'))
+    else if (a === 'caps-open') { WB.capsOpen = true; if (WB.caps === null) loadCaps(false); else render() }
+    else if (a === 'caps-close') { WB.capsOpen = false; render() }
+    else if (a === 'caps-refresh') loadCaps(true)
+    else if (a === 'cap-test') testCap(act.getAttribute('data-wb-cap'))
+    else if (a === 'cap-save') saveCapSetting(act.getAttribute('data-wb-cap'))
     else if (a === 'preview-convert') convertPreview(false)
     else if (a === 'preview-convert-retry') convertPreview(true)
     else if (a === 'version-new') newVersion()

@@ -1045,3 +1045,160 @@ describe('irodai dokumentum: atalakitas es visszatoltes (7. fazis)', () => {
     expect(h.toasts.join(' ')).not.toContain('document_too_large')
   })
 })
+
+// ---------------------------------------------------------------------------
+// 8. FAZIS -- "Mi mukodik ezen a gepen?" panel. A felhasznalo nem programozo:
+// allapot-cimke + emberi mondat + SZAMOZOTT lepesek + LINK + beiro mezo, es
+// egy gomb, amivel azonnal ujra meri. Terminal nelkul, friss telepitesen is.
+// ---------------------------------------------------------------------------
+describe('kepesseg-panel (8. fazis)', () => {
+  const CAPS = [
+    {
+      key: 'office_to_pdf', tier: 'recommended', title: 'Irodai dokumentum előnézete',
+      what_for: 'A böngésző nem mutatja a Word-fájlt.', affects: 'Enélkül is minden működik.',
+      how_to: ['Linux: sudo apt install libreoffice', 'Írd be alább a teljes útvonalat.'],
+      obtain_url: 'https://www.libreoffice.org/download/download-libreoffice/',
+      optional: true, available: false, state: 'check_failed',
+      message: 'Nem sikerült megállapítani, hogy elérhető-e -- ez NEM azt jelenti, hogy hiányzik.',
+      detail: 'MARVEEN_SOFFICE=/rossz/ut: spawn EACCES', version: null, path: null,
+      checked_at: 1758600000000, testable: true,
+      setting: { key: 'WORKBENCH_LIBREOFFICE_PATH', value: '', secret: false, configured: false, label: 'A LibreOffice teljes útvonala', placeholder: '/usr/bin/soffice' },
+    },
+    {
+      key: 'video_render', tier: 'extra', title: 'Videóműveletek (FFmpeg)',
+      what_for: 'Videó vágása, átalakítása.', affects: 'A Munkapad többi része enélkül is működik.',
+      how_to: ['Linux: sudo apt install ffmpeg'], obtain_url: 'https://ffmpeg.org/download.html',
+      optional: true, available: false, state: 'not_installed',
+      message: 'Nincs telepítve ezen a gépen.', detail: null, version: null, path: null,
+      checked_at: 1758600000000, testable: true,
+      setting: { key: 'WORKBENCH_FFMPEG_PATH', value: '', secret: false, configured: false, label: 'Az FFmpeg teljes útvonala', placeholder: '/usr/bin/ffmpeg' },
+    },
+    {
+      key: 'ai_agent', tier: 'core', title: 'Munkapad-ügynök',
+      what_for: 'Ő írja a munkadarabot.', affects: 'Enélkül kézi szerkesztőként működik.',
+      how_to: ['Alapesetben nincs teendőd.'], obtain_url: null,
+      optional: false, available: true, state: 'ok', message: 'Elérhető (claude-opus-5).',
+      detail: null, version: 'claude-opus-5', path: 'anthropic', checked_at: 1758600000000, testable: true,
+      setting: { key: 'WORKBENCH_ANTHROPIC_API_KEY', value: null, secret: true, configured: false, label: 'Saját Anthropic API-kulcs', placeholder: 'sk-ant-...' },
+    },
+    {
+      key: 'tts', tier: 'extra', title: 'Felolvasás (ElevenLabs)',
+      what_for: 'Szöveg felolvasása.', affects: 'A Munkapad többi része működik.',
+      how_to: ['Ebben a verzióban még nincs bekötve.'], obtain_url: null,
+      optional: true, available: false, state: 'not_implemented', message: 'Ebben a verzióban még nincs bekötve.',
+      detail: null, version: null, path: null, checked_at: 1758600000000, testable: false, setting: null,
+    },
+  ]
+
+  async function openPanel(caps: unknown = CAPS) {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/capabilities') >= 0) return { status: 200, body: { capabilities: caps } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-panel-context'))
+    h.click({ 'data-wb-act': 'caps-open' })
+    // A panel elobb "meres folyamatban" allapotban jelenik meg -- a sorokra
+    // varunk, kulonben a toltes-allapotot merne a teszt.
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('<ul class="wb-caps">'))
+  }
+
+  it('a gomb megnyitja, es a lista a szerver EMBERI mondatait mutatja', async () => {
+    await openPanel()
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('Irodai dokumentum előnézete')
+    expect(html).toContain('Nincs telepítve ezen a gépen.')
+    // Szamozott lepesek ES kattinthato link -- nem "lasd a leirast".
+    expect(html).toContain('sudo apt install libreoffice')
+    expect(html).toContain('https://www.libreoffice.org/download/download-libreoffice/')
+  })
+
+  it('a "nem tudtam megkerdezni" a VALODI hibauzenetet is kiirja', async () => {
+    await openPanel()
+    expect(h.rootEl.innerHTML).toContain('MARVEEN_SOFFICE=/rossz/ut: spawn EACCES')
+    expect(h.rootEl.innerHTML).toContain('workbench.caps.state.check_failed')
+  })
+
+  it('EXTRA hianya SOHA nem veszjelzes: nem kap piros jelolest', async () => {
+    await openPanel()
+    const html = h.rootEl.innerHTML
+    const ffmpegRow = html.slice(html.indexOf('Videóműveletek'))
+    expect(html.indexOf('wb-cap wb-cap-neutral')).toBeGreaterThan(-1)
+    // A hozza tartozo sor a semleges osztalyt kapja, nem a figyelmeztetot.
+    const rowStart = html.lastIndexOf('<li class="wb-cap', html.indexOf('Videóműveletek'))
+    expect(html.slice(rowStart, rowStart + 60)).toContain('wb-cap-neutral')
+    expect(ffmpegRow.slice(0, 200)).not.toContain('wb-cap-warn')
+  })
+
+  it('amihez nincs megvalositas: nincs beallito mezo es nincs ellenorzes-gomb', async () => {
+    await openPanel()
+    const html = h.rootEl.innerHTML
+    const row = html.slice(html.indexOf('Felolvasás (ElevenLabs)'))
+    expect(row).not.toContain('data-wb-act="cap-test" data-wb-cap="tts"')
+    expect(row).not.toContain('wbCapSet-')
+  })
+
+  it('TITOKNAL jelszo-mezo all, ures ertekkel -- a kulcs sosem kerul a kepernyore', async () => {
+    await openPanel()
+    const html = h.rootEl.innerHTML
+    expect(html).toContain('id="wbCapSet-WORKBENCH_ANTHROPIC_API_KEY" type="password"')
+    expect(html).toContain('workbench.caps.secret_empty')
+  })
+
+  it('"Ellenorzes most" ujramer, es a sor AZONNAL az uj allapotot mutatja', async () => {
+    await openPanel()
+    h.respond((url) => {
+      if (url.indexOf('/capabilities/video_render/test') >= 0) {
+        return { status: 200, body: { capability: { ...CAPS[1], state: 'ok', available: true, message: 'Elérhető (ffmpeg version 7.1).', version: 'ffmpeg version 7.1' } } }
+      }
+      return { status: 200, body: { capabilities: CAPS } }
+    })
+    h.click({ 'data-wb-act': 'cap-test', 'data-wb-cap': 'video_render' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Elérhető (ffmpeg version 7.1).'))
+    expect(h.fetchCalls.some((c) => c.url.indexOf('/capabilities/video_render/test') >= 0)).toBe(true)
+  })
+
+  it('az utat be lehet irni a FELULETROL, es a valasz az uj meres + visszajelzes', async () => {
+    await openPanel()
+    h.inputs['wbCapSet-WORKBENCH_FFMPEG_PATH'] = { value: '/opt/ffmpeg/bin/ffmpeg', focus() {} }
+    h.respond((url) => {
+      if (url.indexOf('/capabilities/video_render/setting') >= 0) {
+        return { status: 200, body: { saved: true, message: 'Elmentve, és azonnal újra megmértem.', capability: { ...CAPS[1], state: 'ok', available: true, message: 'Elérhető (ffmpeg version 6.0).', path: '/opt/ffmpeg/bin/ffmpeg' } } }
+      }
+      return { status: 200, body: { capabilities: CAPS } }
+    })
+    h.click({ 'data-wb-act': 'cap-save', 'data-wb-cap': 'video_render' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('Elérhető (ffmpeg version 6.0).'))
+    const call = h.fetchCalls.find((c) => c.url.indexOf('/capabilities/video_render/setting') >= 0)!
+    expect(JSON.parse(String(call.init!.body))).toEqual({ value: '/opt/ffmpeg/bin/ffmpeg' })
+    expect(h.toasts.join(' ')).toContain('Elmentve')
+  })
+
+  it('ha a lekerdezes elbukik: "nem lattam oda" -- SOHA nem "nincs egy kepesseg sem"', async () => {
+    h.respond((url) => {
+      if (url.indexOf('/api/workbench/capabilities') >= 0) return { status: 500, body: { error: 'boom', message: 'A mérés most nem sikerült.' } }
+      return { status: 200, body: itemsBody([]) }
+    })
+    h.win.MarvinWorkbench.open('p1', 'Kovács weboldal')
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('wb-panel-context'))
+    h.click({ 'data-wb-act': 'caps-open' })
+    await vi.waitFor(() => expect(h.rootEl.innerHTML).toContain('A mérés most nem sikerült.'))
+    // Nem allitjuk, hogy ures a lista.
+    expect(h.rootEl.innerHTML).not.toContain('<ul class="wb-caps"></ul>')
+  })
+
+  it('a "Mindet ujramerem" gomb FORCE-szal kerdez -- nem a regi meresbol valaszol', async () => {
+    await openPanel()
+    h.fetchCalls.length = 0
+    h.click({ 'data-wb-act': 'caps-refresh' })
+    await vi.waitFor(() => expect(h.fetchCalls.some((c) => c.url.indexOf('force=1') >= 0)).toBe(true))
+  })
+
+  it('minden kepernyore kerulo sajat szoveg a t()-n megy at (HU/EN)', async () => {
+    await openPanel()
+    const html = h.rootEl.innerHTML
+    for (const key of ['workbench.caps.title', 'workbench.caps.intro', 'workbench.caps.howto', 'workbench.caps.test', 'workbench.caps.save']) {
+      expect(html).toContain(key)
+    }
+  })
+})

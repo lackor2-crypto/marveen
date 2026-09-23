@@ -6,7 +6,7 @@
 // hiba ember-nyelvu mondatot visz magaval, a keres nyelven.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { Readable, Writable } from 'node:stream'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync, readdirSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { initDatabase } from '../db.js'
@@ -16,6 +16,9 @@ import { tryHandleWorkbench } from '../web/routes/workbench.js'
 import { createWorkItem, addWorkItemPart, listWorkItemParts, updateWorkItemPart } from '../workbench.js'
 import { PREVIEW_TEXT_MAX } from '../workbench-preview.js'
 import { resetLibreOfficeProbe } from '../office-convert.js'
+import { resetCapabilityProbes } from '../workbench-capabilities.js'
+import { getEffectiveSettingValue, reloadOverridesForTest } from '../settings-store.js'
+import { PROJECT_ROOT } from '../config.js'
 
 // A valasz VALODI irhato folyam, nem objektum-mock: a kesz PDF-et a vegpont
 // `createReadStream(...).pipe(res)`-szel adja ki, amihez a `pipe` igazi
@@ -575,17 +578,23 @@ exit 0
     rmSync(depot, { recursive: true, force: true })
   })
 
+  /** A lista tobb kepesseget ad vissza (8. fazis), ezert KULCS szerint
+   *  keresunk -- a sorrendre epiteni torekeny volna. */
+  function capOf(body: any, key: string): any {
+    return (body.capabilities || []).find((c: any) => c.key === key)
+  }
+
   describe('GET /api/workbench/capabilities', () => {
     it('ha nem tudtam megkerdezni, az NEM "nincs telepitve" -- sajat allapot, valodi hibauzenettel', async () => {
       const r = await call('/api/workbench/capabilities', 'GET')
       expect(r.status).toBe(200)
-      const cap = r.body.capabilities[0]
+      const cap = capOf(r.body, 'office_to_pdf')
       expect(cap.key).toBe('office_to_pdf')
       expect(cap.available).toBe(false)
       expect(cap.state).toBe('check_failed')
       // A `detail` a VALODI hibauzenet, nem talalgatas -- es megnevezi a beallitast.
       expect(String(cap.detail)).toContain('MARVEEN_SOFFICE=')
-      expect(String(cap.message)).toMatch(/nem jelenti|nem biztos|nem tudtam/i)
+      expect(String(cap.message)).toMatch(/nem azt jelenti|nem tudtam|nem sikerült/i)
       expect(cap.extensions).toContain('docx')
       // Nem alapfunkcio: a hianya nem veszjelzes.
       expect(cap.optional).toBe(true)
@@ -594,7 +603,7 @@ exit 0
     it('ha ott van, kiirja a valodi verziot es az utat', async () => {
       const f = fakeSoffice(WORKING)
       const r = await call('/api/workbench/capabilities', 'GET')
-      const cap = r.body.capabilities[0]
+      const cap = capOf(r.body, 'office_to_pdf')
       expect(cap.available).toBe(true)
       expect(cap.state).toBe('ok')
       expect(String(cap.version)).toContain('LibreOffice')
@@ -604,9 +613,9 @@ exit 0
 
     it('a valasz a keres nyelven szol (en)', async () => {
       const r = await call('/api/workbench/capabilities?lang=en', 'GET')
-      const cap = r.body.capabilities[0]
+      const cap = capOf(r.body, 'office_to_pdf')
       expect(String(cap.title)).toMatch(/preview/i)
-      expect(String(cap.required_by)).toMatch(/Workbench/)
+      expect(String(cap.what_for)).toMatch(/Workbench/)
     })
   })
 
@@ -625,7 +634,7 @@ exit 0
       resetLibreOfficeProbe()
       // Ezen a gepen lehet, hogy VAN LibreOffice -- akkor ez az ut nem
       // ertelmezheto, es a teszt nem allit semmit rola.
-      const cap = (await call('/api/workbench/capabilities', 'GET')).body.capabilities[0]
+      const cap = capOf((await call('/api/workbench/capabilities', 'GET')).body, 'office_to_pdf')
       if (cap.available) return
       const r = await call(`/api/workbench/items/${docxItemId}/convert`, 'POST', {})
       expect(r.status).toBe(501)
@@ -743,5 +752,120 @@ exit 0
       expect(r.status).toBe(409)
       expect(r.body.error).toBe('project_archived')
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 8. FAZIS -- KEPESSEG-KEZELO: mi mukodik ezen a gepen, es mi a teendo azzal,
+// ami nem. A lenyeg: a felhasznalo a FELULETROL vegig tudja csinalni (utat
+// beir, ujramer), es a "nem lattam oda" sosem latszik "nincs"-nek.
+// ---------------------------------------------------------------------------
+describe('Munkapad: kepesseg-kezelo (8. fazis)', () => {
+  const OVERRIDES = join(PROJECT_ROOT, 'store', 'config-overrides.json')
+  let before: string | null = null
+  const SAVED = { soffice: process.env['MARVEEN_SOFFICE'], ffmpeg: process.env['MARVEEN_FFMPEG'] }
+
+  beforeEach(() => {
+    // A beallitas-fajl allapotat visszaadjuk a teszt utan: nyomtalan munka.
+    before = existsSync(OVERRIDES) ? readFileSync(OVERRIDES, 'utf8') : null
+    process.env['MARVEEN_SOFFICE'] = join(tmpdir(), 'nincs-ilyen-soffice-' + Date.now())
+    process.env['MARVEEN_FFMPEG'] = join(tmpdir(), 'nincs-ilyen-ffmpeg-' + Date.now())
+    resetCapabilityProbes()
+  })
+
+  afterEach(() => {
+    if (before === null) rmSync(OVERRIDES, { force: true })
+    else writeFileSync(OVERRIDES, before)
+    reloadOverridesForTest()
+    if (SAVED.soffice === undefined) delete process.env['MARVEEN_SOFFICE']; else process.env['MARVEEN_SOFFICE'] = SAVED.soffice
+    if (SAVED.ffmpeg === undefined) delete process.env['MARVEEN_FFMPEG']; else process.env['MARVEEN_FFMPEG'] = SAVED.ffmpeg
+    resetCapabilityProbes()
+  })
+
+  function capOf2(body: any, key: string): any {
+    return (body.capabilities || []).find((c: any) => c.key === key)
+  }
+
+  it('a lista TOBB kepesseget ad, mindegyik emberi mondattal es szinttel', async () => {
+    const r = await call('/api/workbench/capabilities', 'GET')
+    expect(r.status).toBe(200)
+    const keys = r.body.capabilities.map((c: any) => c.key)
+    expect(keys).toContain('office_to_pdf')
+    expect(keys).toContain('video_render')
+    expect(keys).toContain('ai_agent')
+    for (const c of r.body.capabilities) {
+      expect(String(c.message).length).toBeGreaterThan(5)
+      expect(['core', 'recommended', 'extra']).toContain(c.tier)
+    }
+  })
+
+  it('"Ellenorzes most": UJRA mer -- a regi meresbol valaszolni pont a javitast rejtene el', async () => {
+    const bad = await call('/api/workbench/capabilities/video_render/test', 'POST', {})
+    expect(bad.status).toBe(200)
+    expect(bad.body.capability.state).toBe('check_failed')
+    // Most "telepitjuk" -- es az ellenorzes AZONNAL az uj allapotot mondja.
+    const dir = mkdtempSync(join(tmpdir(), 'wb-ff-'))
+    const bin = join(dir, 'ffmpeg')
+    writeFileSync(bin, '#!/bin/sh\necho "ffmpeg version 7.1"\n')
+    chmodSync(bin, 0o755)
+    process.env['MARVEEN_FFMPEG'] = bin
+    const ok = await call('/api/workbench/capabilities/video_render/test', 'POST', {})
+    expect(ok.body.capability.state).toBe('ok')
+    expect(String(ok.body.capability.version)).toContain('ffmpeg version 7.1')
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('az utat a FELULETROL be lehet irni, es a valasz rogton az uj meres', async () => {
+    delete process.env['MARVEEN_FFMPEG']
+    resetCapabilityProbes()
+    const dir = mkdtempSync(join(tmpdir(), 'wb-ff2-'))
+    const bin = join(dir, 'ffmpeg')
+    writeFileSync(bin, '#!/bin/sh\necho "ffmpeg version 6.0"\n')
+    chmodSync(bin, 0o755)
+    const r = await call('/api/workbench/capabilities/video_render/setting', 'POST', { value: bin })
+    expect(r.status).toBe(200)
+    expect(r.body.saved).toBe(true)
+    expect(r.body.capability.state).toBe('ok')
+    expect(r.body.capability.path).toBe(bin)
+    expect(r.body.capability.setting.value).toBe(bin)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('rossz ut eseten a VALODI hibauzenet jon, es megnevezi a beallitast', async () => {
+    delete process.env['MARVEEN_FFMPEG']
+    resetCapabilityProbes()
+    const r = await call('/api/workbench/capabilities/video_render/setting', 'POST', { value: '/nincs/ilyen/ffmpeg' })
+    expect(r.body.capability.state).toBe('check_failed')
+    expect(String(r.body.capability.detail)).toContain('WORKBENCH_FFMPEG_PATH=/nincs/ilyen/ffmpeg')
+  })
+
+  it('TITOKNAL az ures mezo NEM torol: azt jelenti, hogy nem nyultal hozza', async () => {
+    const r = await call('/api/workbench/capabilities/ai_agent/setting', 'POST', { value: '' })
+    expect(r.status).toBe(200)
+    expect(r.body.saved).toBe(false)
+    // A kulcs SOSE megy vissza a bongeszobe.
+    expect(r.body.capability.setting.value).toBe(null)
+  })
+
+  it('ismeretlen kepesseg: 404 emberi mondattal, nem ures valasz', async () => {
+    const r = await call('/api/workbench/capabilities/nincs-ilyen/test', 'POST', {})
+    expect(r.status).toBe(404)
+    expect(r.body.error).toBe('capability_unknown')
+    expect(String(r.body.message).length).toBeGreaterThan(20)
+  })
+
+  it('amihez nem tartozik beallitas, oda nem lehet erteket irni', async () => {
+    const r = await call('/api/workbench/capabilities/pdf_preview/setting', 'POST', { value: 'x' })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('capability_no_setting')
+  })
+
+  it('a vegpont NEM altalanos config-iro: csak a kepesseg sajat kulcsat irja', async () => {
+    // Ha valaki mas kulcsot kuld a testben, az nem szamit -- a kulcsot a
+    // kepesseg leirasa adja, nem a keres.
+    const r = await call('/api/workbench/capabilities/video_render/setting', 'POST', { value: '/tmp/x', key: 'MAIN_AGENT_MODEL' })
+    expect(r.status).toBe(200)
+    expect(r.body.capability.setting.key).toBe('WORKBENCH_FFMPEG_PATH')
+    expect(getEffectiveSettingValue('MAIN_AGENT_MODEL')).not.toBe('/tmp/x')
   })
 })
