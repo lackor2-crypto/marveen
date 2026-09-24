@@ -6147,7 +6147,7 @@ function renderCodeBridgeAgentCards(agentsGrid, addBtn) {
         </div>
       </div>
       <div class="agent-card-footer">
-        <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model || t('cb.card.model_unknown'))}</span>
+        <span class="agent-model-badge ${escapeHtml(e.model || '')}" title="${escapeAttr(e.model ? t('cb.card.model_help') : t('cb.card.model_unknown_help'))}">${escapeHtml(e.model ? cbModelDisplayName(e.model) : t('cb.card.model_unknown'))}</span>
         <!-- Tulajdonosi kikotes, 2026-08-23: a modell-magyarazat NEM a kartyan van, hanem a
              reszletes ablak MODELL csempeje alatt (web/index.html,
              #cbTileModelNote) -- a kartyan mar eleg informacio all, ott az
@@ -15024,6 +15024,30 @@ function escapeHtml(str) {
   // renderers interpolate escapeHtml() output into data-*/title/value="..."
   // attributes, where a surviving " would allow an attribute breakout.
   return d.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
+// Model id -> ember-olvashato nev (Boss, 2026-09-14, #281): a nyers
+// `claude-sonnet-5` a felhasznalonak semmit nem mond -- a legordulo mar
+// "Sonnet 5"-kent mutatja, a kartyakon is ugyanezt lassa. Prefix-illesztes,
+// mert a mert id hordozhat kontextus-jelolot (pl. `claude-opus-4-8[1m]`).
+// Ismeretlen id-nel a nyers erteket adjuk vissza (nem talalgatunk).
+function cbModelDisplayName(id) {
+  const raw = (id == null) ? '' : String(id).trim()
+  if (!raw) return ''
+  const low = raw.toLowerCase()
+  const table = [
+    ['claude-opus-5', 'Opus 5'],
+    ['claude-sonnet-5', 'Sonnet 5'],
+    ['claude-haiku-4-5', 'Haiku 4.5'],
+    ['claude-fable-5-1', 'Fable 5.1'],
+    ['claude-opus-4-8', 'Opus 4.8'],
+    ['claude-opus-4-1', 'Opus 4.1'],
+    ['claude-sonnet-4-5', 'Sonnet 4.5'],
+  ]
+  for (const pair of table) {
+    if (low === pair[0] || low.indexOf(pair[0]) === 0) return pair[1]
+  }
+  return raw
 }
 
 // Card ids as they REALLY appear in text. Measured on live data (2026-08-10):
@@ -37828,6 +37852,17 @@ async function _intezoCfgSave() {
     // Kartyankent kulon: a bot-token mentese utan nem kell azt allitani, hogy
     // a Mukodes-kartya is ujrainditasra var -- es forditva.
     const live = cfg.live || {}
+
+    // "Kiadott modell" csempe: a BEALLITOTT dispatch-modellt mutatja (live.model),
+    // ember-olvashato neven -- ez az, amit a tulaj a legordulon valaszt, es ami a
+    // kiadott munkan fut. Ures ertek ERVENYES valasztas (a Claude Code dont),
+    // nem torott badge: "nincs beallitva" != "nem tudom megmerni". Mentes utan a
+    // cbLoadConfig ujrafut, igy a kijelzo azonnal frissul, restart nelkul.
+    const dispatchTile = document.getElementById('cbTileModel')
+    if (dispatchTile) {
+      const dm = (typeof live.model === 'string') ? live.model.trim() : ''
+      dispatchTile.textContent = dm ? cbModelDisplayName(dm) : t('cb.tile.dispatch_default')
+    }
     const botPending =
       Boolean(cfg.botConfigured) !== Boolean(live.botConfigured) ||
       cbNormList(cfg.CODE_BOT_ALLOWED_CHAT_IDS, false) !== cbNormList(live.allowedChatIds, false)
@@ -37957,17 +37992,12 @@ async function _intezoCfgSave() {
       const el = document.getElementById(id)
       if (el) el.textContent = text
     }
-    // Modell: amivel a beszelgetesek eppen valaszoltak. Tobbfele is lehet.
-    const models = []
-    for (const p of _cbProjects) {
-      const m = (p && typeof p.model === 'string') ? p.model.trim() : ''
-      if (m && models.indexOf(m) === -1) models.push(m)
-    }
-    set('cbTileModel', models.length ? models.join(', ') : t('cb.card.model_unknown'))
-    // A modellt a VS Code-ban valasztjak (/model). Ez ITT, a csempe alatt all
-    // ki -- a kartyan mar eleg informacio van. A teljes mondat a tooltipben.
-    const modelNote = document.getElementById('cbTileModelNote')
-    if (modelNote) modelNote.title = t('cb.card.model_where_help')
+    // A "Kiadott modell" csempet a cbLoadConfig tolti a BEALLITOTT dispatch-
+    // modellel (live.model), NEM meressel -- kulonben a tulaj ujra a merest
+    // latna a beallitasa helyett (ez volt a #281 kiindulopontja: "kivalasztottam
+    // a Sonettet, de kint csak Opus 4-8 latszik"). A beszelgetesenkenti MERES a
+    // session-kartyak agent-model-badge-en all. A csempe alatti jegyzet
+    // szoveget es tooltipjet a data-i18n(-title) adja (cb.tile.dispatch_note).
 
     // Csatorna: a kod-bot. A nev is kiirodik, ha tudjuk -- azt keresi a szem.
     const bot = health && health.codeBot
