@@ -1,0 +1,11 @@
+{
+  "schedule": "0 10 * * 0",
+  "agent": "any",
+  "enabled": true,
+  "type": "task",
+  "skipIfBusy": false,
+  "forceSend": false,
+  "description": "Heti Windows karbantartas: hibak+lassulas atnezese, biztonsagos javitas/tisztitas, meghajto-optimalizalas, riport. Kockazatos/admin/reboot csak jovahagyassal.",
+  "requires": { "platform": "wsl" },
+  "createdAt": 0
+}
