@@ -41860,7 +41860,7 @@ async function _prjLoadCounts() {
 async function _prjLoadDebates() {
   const pid = _prj.current
   if (!pid) return
-  const r = await _prjApi('GET', '/api/debate/sessions?project=' + encodeURIComponent(pid))
+  const [r] = await Promise.all([_prjApi('GET', '/api/debate/sessions?project=' + encodeURIComponent(pid)), _prjLoadVf('debate', pid)])
   if (_prj.current !== pid) return
   _prj.debates = r.ok ? { pid, list: r.data.sessions || [], err: null } : { pid, list: [], err: r.message }
   const body = document.getElementById('prjDebateBody')
@@ -41875,15 +41875,7 @@ function _prjDebateTabHtml() {
   if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
   else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
   else if (!d.list.length) inner = _prjEmptyLine('projects.debate.empty')
-  else {
-    inner = `<ul class="prj-list">${d.list.map((s) => {
-      const verdict = s.concluded ? t(s.consensus ? 'debate.status.consensus' : 'debate.status.no_consensus') : t('projects.debate.running')
-      return `<li class="prj-item">
-        <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-debate="${escapeAttr(s.id)}">${escapeHtml(s.questionPreview || s.id)}</a> <span class="prj-pill">${escapeHtml(verdict)}</span></div>
-        <div class="prj-item-sub prj-muted">${escapeHtml(t('projects.debate.meta', { rounds: s.rounds || 0, models: (s.models || []).length }))} · ${escapeHtml(_prjAgo(s.lastAt || 0))}</div>
-      </li>`
-    }).join('')}</ul>`
-  }
+  else inner = _prjVfListHtml('debate', d.list, (s) => s.id, _prjDebateRowHtml, !p.archived_at)
   return `<section class="prj-section" id="prjDebateBody">
     <div class="prj-section-row">
       <h2>${escapeHtml(t('projects.debate.title'))}</h2>
@@ -41892,6 +41884,15 @@ function _prjDebateTabHtml() {
     <p class="prj-section-hint">${escapeHtml(t('projects.debate.hint'))}</p>
     ${inner}
   </section>`
+}
+
+function _prjDebateRowHtml(s, extra) {
+  const verdict = s.concluded ? t(s.consensus ? 'debate.status.consensus' : 'debate.status.no_consensus') : t('projects.debate.running')
+  return `<li class="prj-item">
+    <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-debate="${escapeAttr(s.id)}">${escapeHtml(s.questionPreview || s.id)}</a> <span class="prj-pill">${escapeHtml(verdict)}</span></div>
+    <div class="prj-item-sub prj-muted">${escapeHtml(t('projects.debate.meta', { rounds: s.rounds || 0, models: (s.models || []).length }))} · ${escapeHtml(_prjAgo(s.lastAt || 0))}</div>
+    ${extra}
+  </li>`
 }
 
 /** Egy vita reszletei a projekt oldalan, egy ablakban (nem visz at a Vitaztatas oldalra). */
@@ -41924,7 +41925,7 @@ async function _prjOpenDebate(id) {
 async function _prjLoadResearch() {
   const pid = _prj.current
   if (!pid) return
-  const r = await _prjApi('GET', '/api/research?project=' + encodeURIComponent(pid))
+  const [r] = await Promise.all([_prjApi('GET', '/api/research?project=' + encodeURIComponent(pid)), _prjLoadVf('research', pid)])
   if (_prj.current !== pid) return
   const list = r.ok && Array.isArray(r.data) ? r.data.flatMap((a) => (a.docs || []).map((d) => ({ ...d, agent: a.agent }))) : []
   _prj.research = { pid, list, err: r.ok ? null : r.message }
@@ -41940,12 +41941,7 @@ function _prjResearchTabHtml() {
   if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
   else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
   else if (!d.list.length) inner = _prjEmptyLine('projects.research.empty')
-  else {
-    inner = `<ul class="prj-list">${d.list.map((doc) => `<li class="prj-item">
-      <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-research-agent="${escapeAttr(doc.agent)}" data-prj-research="${escapeAttr(doc.name)}">${escapeHtml(doc.title || doc.name)}</a></div>
-      <div class="prj-item-sub prj-muted">${escapeHtml(chatDisplayName(doc.agent))} · ${escapeHtml(doc.updated || '')}</div>
-    </li>`).join('')}</ul>`
-  }
+  else inner = _prjVfListHtml('research', d.list, (doc) => doc.agent + '/' + doc.name, _prjResearchRowHtml, !p.archived_at)
   return `<section class="prj-section" id="prjResearchBody">
     <div class="prj-section-row">
       <h2>${escapeHtml(t('projects.research.title'))}</h2>
@@ -41954,6 +41950,14 @@ function _prjResearchTabHtml() {
     <p class="prj-section-hint">${escapeHtml(t('projects.research.hint'))}</p>
     ${inner}
   </section>`
+}
+
+function _prjResearchRowHtml(doc, extra) {
+  return `<li class="prj-item">
+    <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-research-agent="${escapeAttr(doc.agent)}" data-prj-research="${escapeAttr(doc.name)}">${escapeHtml(doc.title || doc.name)}</a></div>
+    <div class="prj-item-sub prj-muted">${escapeHtml(chatDisplayName(doc.agent))} · ${escapeHtml(doc.updated || '')}</div>
+    ${extra}
+  </li>`
 }
 
 /** Egy hatteranyag a projekt oldalan, egy ablakban. */
@@ -41972,6 +41976,208 @@ async function _prjOpenResearch(agent, name) {
   box.innerHTML = _prjAssignRowHtml('research', agent + '/' + name, r.data.project) +
     `<div class="docs-rendered markdown-body">${renderMarkdown(r.data.content || '')}</div>`
 }
+
+// ---- Virtualis mappak: Otletlada / Vitaztatas / Hatteranyag (#359) ----
+// A tulajdonos dontese (2026-09-24): a harom ful elemei mappakba rendezhetok
+// (pl. "Tozsdei fejlesztesi otletek", "Bunteto", "Valoper"). A mappa virtualis:
+// csak a projektben el, az elem maga nem mozdul. A besorolast az AI JAVASOLJA,
+// elonezetben; csak a kipipalt sorok kerulnek at.
+
+const _PRJ_VF_TAB = { idea: 'ideas', debate: 'debate', research: 'research' }
+
+async function _prjLoadVf(kind, pid) {
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/vfolders?kind=' + kind)
+  if (_prj.current !== pid) return
+  if (!_prj.vf) _prj.vf = {}
+  _prj.vf[kind] = r.ok ? { pid, folders: r.data.folders || [], items: r.data.items || {}, err: null } : { pid, folders: [], items: {}, err: r.message }
+}
+
+/** A ful ujrarajzolasa a mappa-muvelet utan (az elemlistat nem kell ujra kerni). */
+async function _prjVfReload(kind) {
+  const pid = _prj.current
+  if (!pid) return
+  await _prjLoadVf(kind, pid)
+  if (kind === 'idea') { const b = document.getElementById('prjIdeasBody'); if (b && _prj.tab === 'ideas') b.outerHTML = _prjIdeasTabHtml() }
+  if (kind === 'debate') { const b = document.getElementById('prjDebateBody'); if (b && _prj.tab === 'debate') b.outerHTML = _prjDebateTabHtml() }
+  if (kind === 'research') { const b = document.getElementById('prjResearchBody'); if (b && _prj.tab === 'research') b.outerHTML = _prjResearchTabHtml() }
+}
+
+function _prjVfState(kind) {
+  const pid = _prj.overview && _prj.overview.project && _prj.overview.project.id
+  const st = _prj.vf && _prj.vf[kind]
+  return st && st.pid === pid ? st : null
+}
+
+function _prjVfSorted(folders) {
+  return folders.slice().sort((a, b) => a.name.localeCompare(b.name, 'hu', { numeric: true, sensitivity: 'base' }))
+}
+
+/** Az elemek mappankent csoportositva. Mappa nelkul (vagy amig a mappak nem
+ *  toltodtek be) sima lista marad, a mappa-sav felette. */
+function _prjVfListHtml(kind, list, idOf, rowFn, canEdit) {
+  const st = _prjVfState(kind)
+  if (!st) return `<ul class="prj-list">${list.map((x) => rowFn(x, '')).join('')}</ul>`
+  const folders = _prjVfSorted(st.folders)
+  const known = new Set(folders.map((f) => f.id))
+  const where = (x) => { const f = st.items[idOf(x)]; return f && known.has(f) ? f : '' }
+  const unsorted = list.filter((x) => !where(x))
+  const moveSel = (x) => {
+    if (!canEdit || !folders.length) return ''
+    const cur = where(x)
+    return `<div class="prj-vf-move-row"><label class="prj-muted">${escapeHtml(t('projects.vf.move_label'))}
+      <select class="input prj-vf-move" data-prj-vf-move="${escapeAttr(kind)}" data-prj-vf-id="${escapeAttr(idOf(x))}">
+        <option value=""${cur ? '' : ' selected'}>${escapeHtml(t('projects.vf.unsorted'))}</option>
+        ${folders.map((f) => `<option value="${escapeAttr(f.id)}"${cur === f.id ? ' selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
+      </select></label></div>`
+  }
+  const bar = canEdit ? `<div class="prj-vf-bar">
+      <button type="button" class="btn-secondary btn-compact" data-prj-act="vf-new" data-prj-vf-kind="${escapeAttr(kind)}">${escapeHtml(t('projects.vf.new_btn'))}</button>
+      ${unsorted.length ? `<button type="button" class="btn-secondary btn-compact" data-prj-act="vf-suggest" data-prj-vf-kind="${escapeAttr(kind)}" title="${escapeAttr(t('projects.vf.suggest_hint'))}">${escapeHtml(t('projects.vf.suggest_btn'))}</button>` : ''}
+    </div>` : ''
+  const err = st.err ? `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: st.err }))}</div>` : ''
+  if (!folders.length) return err + bar + `<ul class="prj-list">${list.map((x) => rowFn(x, '')).join('')}</ul>`
+  const closed = _prj.vfClosed || (_prj.vfClosed = new Set())
+  const group = (key, name, items, folder) => {
+    const open = !closed.has(kind + ':' + key)
+    const tools = folder && canEdit ? `<span class="prj-vf-tools">
+        <button type="button" class="btn-secondary btn-compact" data-prj-act="vf-rename" data-prj-vf-kind="${escapeAttr(kind)}" data-prj-vf-fid="${escapeAttr(folder.id)}">${escapeHtml(t('projects.vf.rename'))}</button>
+        <button type="button" class="btn-secondary btn-compact" data-prj-act="vf-delete" data-prj-vf-kind="${escapeAttr(kind)}" data-prj-vf-fid="${escapeAttr(folder.id)}">${escapeHtml(t('projects.vf.delete'))}</button>
+      </span>` : ''
+    return `<div class="prj-vf-group${folder ? '' : ' is-unsorted'}">
+      <div class="prj-vf-head">
+        <button type="button" class="prj-vf-toggle" data-prj-vf-toggle="${escapeAttr(kind + ':' + key)}" aria-expanded="${open}">
+          <span class="prj-tree-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <span aria-hidden="true">${folder ? '📁' : '📥'}</span>
+          <span class="prj-vf-name">${escapeHtml(name)}</span>
+          <span class="prj-muted">${items.length}</span>
+        </button>${tools}
+      </div>
+      ${open ? (items.length ? `<ul class="prj-list">${items.map((x) => rowFn(x, moveSel(x))).join('')}</ul>` : `<p class="prj-muted prj-vf-empty">${escapeHtml(t('projects.vf.folder_empty'))}</p>`) : ''}
+    </div>`
+  }
+  return err + bar + folders.map((f) => group(f.id, f.name, list.filter((x) => where(x) === f.id), f)).join('') +
+    (unsorted.length ? group('', t('projects.vf.unsorted'), unsorted, null) : '')
+}
+
+function _prjVfBase(kind) {
+  const p = _prj.overview && _prj.overview.project
+  return p ? '/api/projects/' + encodeURIComponent(p.id) + '/vfolders' : null
+}
+
+async function _prjVfNew(kind) {
+  const base = _prjVfBase(kind)
+  if (!base) return
+  const name = window.prompt(t('projects.vf.new_prompt'), '')
+  if (name === null || !name.trim()) return
+  const r = await _prjApi('POST', base, { kind, name })
+  if (!r.ok) { showToast(r.message); return }
+  showToast(t('projects.vf.created', { name: r.data.folder.name }))
+  await _prjVfReload(kind)
+}
+
+async function _prjVfRename(kind, fid) {
+  const base = _prjVfBase(kind)
+  const st = _prjVfState(kind)
+  const f = st && st.folders.find((x) => x.id === fid)
+  if (!base || !f) return
+  const name = window.prompt(t('projects.vf.rename_prompt'), f.name)
+  if (name === null || !name.trim() || name.trim() === f.name) return
+  const r = await _prjApi('PUT', base + '/' + encodeURIComponent(fid), { kind, name })
+  if (!r.ok) { showToast(r.message); return }
+  await _prjVfReload(kind)
+}
+
+async function _prjVfDelete(kind, fid) {
+  const base = _prjVfBase(kind)
+  const st = _prjVfState(kind)
+  const f = st && st.folders.find((x) => x.id === fid)
+  if (!base || !f) return
+  const n = Object.values(st.items).filter((x) => x === fid).length
+  if (!window.confirm(t('projects.vf.delete_confirm', { name: f.name, n }))) return
+  const r = await _prjApi('DELETE', base + '/' + encodeURIComponent(fid) + '?kind=' + kind)
+  if (!r.ok) { showToast(r.message); return }
+  showToast(t('projects.vf.deleted', { name: f.name }))
+  await _prjVfReload(kind)
+}
+
+async function _prjVfMove(kind, id, folder) {
+  const base = _prjVfBase(kind)
+  if (!base) return
+  const r = await _prjApi('POST', base + '/assign', { kind, id, folder: folder || null })
+  if (!r.ok) showToast(r.message)
+  await _prjVfReload(kind)
+}
+
+/** A ful elemei a javaslathoz: azonosito + cim + rovid tartalmi jelzes. */
+function _prjVfItems(kind) {
+  if (kind === 'idea') return ((_prj.ideas && _prj.ideas.ideas) || []).map((i) => ({ id: i.id, title: i.title || i.id, hint: (i.description || '').slice(0, 240) }))
+  if (kind === 'debate') return ((_prj.debates && _prj.debates.list) || []).map((s) => ({ id: s.id, title: s.questionPreview || s.id, hint: (s.summary || '').slice(0, 240) }))
+  return ((_prj.research && _prj.research.list) || []).map((d) => ({ id: d.agent + '/' + d.name, title: d.title || d.name, hint: '' }))
+}
+
+async function _prjVfSuggest(kind) {
+  const base = _prjVfBase(kind)
+  if (!base) return
+  const items = _prjVfItems(kind)
+  const titles = new Map(items.map((i) => [i.id, i.title]))
+  const ov = _prjOverlay('prjVfOverlay')
+  ov.innerHTML = `<div class="modal prj-modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="prjVfTitle">
+    <div class="modal-header"><h2 id="prjVfTitle">${escapeHtml(t('projects.vf.suggest_title'))}</h2>
+      <button type="button" class="modal-close" data-prj-close aria-label="${escapeAttr(t('common.close'))}">&times;</button></div>
+    <div class="modal-body" id="prjVfBody"><p class="prj-muted">${escapeHtml(t('projects.vf.suggest_running'))}</p></div></div>`
+  ov.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  openModal(ov)
+  const r = await _prjApi('POST', base + '/suggest', { kind, items })
+  const box = ov.querySelector('#prjVfBody')
+  if (!box) return
+  if (!r.ok) {
+    box.innerHTML = `<div class="info-box depo-bad">${escapeHtml(r.message)}</div>
+      <p class="prj-field-hint">${escapeHtml(t('projects.vf.suggest_manual'))}</p>`
+    return
+  }
+  const plan = r.data.plan || []
+  const skipped = items.length - plan.length
+  if (!plan.length) {
+    box.innerHTML = `<p>${escapeHtml(t('projects.vf.suggest_none'))}</p>`
+    return
+  }
+  box.innerHTML = `<p class="prj-section-hint">${escapeHtml(t('projects.vf.suggest_intro'))}</p>
+    <ul class="prj-list prj-vf-plan">${plan.map((row, n) => `<li class="prj-item">
+      <label class="prj-vf-plan-row">
+        <input type="checkbox" data-prj-vf-plan="${n}" checked>
+        <span><strong>${escapeHtml(titles.get(row.id) || row.id)}</strong><br>
+        <span class="prj-muted">→ 📁 ${escapeHtml(row.folder)}${row.isNew ? ` <span class="prj-pill">${escapeHtml(t('projects.vf.new_folder_pill'))}</span>` : ''}${row.reason ? ' · ' + escapeHtml(row.reason) : ''}</span></span>
+      </label></li>`).join('')}</ul>
+    ${skipped > 0 ? `<p class="prj-field-hint">${escapeHtml(t('projects.vf.suggest_skipped', { n: skipped }))}</p>` : ''}
+    <div class="modal-footer">
+      <button type="button" class="btn-secondary" data-prj-close>${escapeHtml(t('common.cancel'))}</button>
+      <button type="button" class="btn-primary" id="prjVfApply">${escapeHtml(t('projects.vf.apply_btn'))}</button>
+    </div>`
+  box.querySelectorAll('[data-prj-close]').forEach((b) => b.addEventListener('click', () => closeModal(ov)))
+  box.querySelector('#prjVfApply').addEventListener('click', async () => {
+    const rows = plan.filter((_, n) => box.querySelector(`[data-prj-vf-plan="${n}"]`)?.checked).map((x) => ({ id: x.id, folder: x.folder }))
+    if (!rows.length) { showToast(t('projects.vf.apply_none')); return }
+    const a = await _prjApi('POST', base + '/apply', { kind, rows })
+    if (!a.ok) { showToast(a.message); return }
+    closeModal(ov)
+    showToast(t('projects.vf.applied', { n: a.data.moved, f: a.data.created }))
+    await _prjVfReload(kind)
+  })
+}
+
+document.addEventListener('change', (e) => {
+  const sel = e.target && e.target.closest && e.target.closest('[data-prj-vf-move]')
+  if (sel) _prjVfMove(sel.getAttribute('data-prj-vf-move'), sel.getAttribute('data-prj-vf-id'), sel.value)
+})
+
+document.addEventListener('click', (e) => {
+  const tg = e.target.closest('[data-prj-vf-toggle]')
+  if (!tg) return
+  const key = tg.getAttribute('data-prj-vf-toggle')
+  const closed = _prj.vfClosed || (_prj.vfClosed = new Set())
+  if (closed.has(key)) closed.delete(key); else closed.add(key)
+  _prjVfReload(key.split(':')[0])
+})
 
 // ---- Kanban ful: a projekt kartyai HELYBEN (Boss 2026-09-19: "ne vigyel el sehova") ----
 
@@ -43337,7 +43543,7 @@ function _prjNewIdea() {
 async function _prjLoadIdeas() {
   const pid = _prj.current
   if (!pid) return
-  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/ideas')
+  const [r] = await Promise.all([_prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/ideas'), _prjLoadVf('idea', pid)])
   if (_prj.current !== pid) return
   _prj.ideas = r.ok
     ? { pid, ideas: r.data.ideas || [], candidates: r.data.candidates || [], err: null }
@@ -43351,6 +43557,20 @@ function _prjIdeaStatus(s) {
   return `<span class="prj-pill">${escapeHtml(_prjT('ideas.status.' + s, null, s))}</span>`
 }
 
+function _prjIdeaRowHtml(i, extra) {
+  const meta = [escapeHtml(i.category || ''), escapeHtml(t(i.via === 'link' ? 'projects.ideas.via_link' : 'projects.ideas.via_card')), escapeHtml(_prjAgo((i.updated_at || 0) * 1000))]
+  return `<li class="prj-item">
+    <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-idea="${escapeAttr(i.id)}">${escapeHtml(i.title)}</a> ${_prjIdeaStatus(i.status)}</div>
+    ${i.description ? `<div class="prj-item-sub prj-clamp">${escapeHtml(i.description)}</div>` : ''}
+    <div class="prj-item-sub prj-muted">${meta.filter(Boolean).join(' · ')}</div>
+    <div class="prj-item-actions">
+      ${i.kanban_id ? _prjCardLink({ id: i.kanban_id, title: t('projects.ideas.open_card') }) : ''}
+      ${i.via === 'link' ? `<button type="button" class="btn-secondary btn-compact" data-prj-unlink-idea="${escapeAttr(i.id)}">${escapeHtml(t('projects.ideas.unlink'))}</button>` : ''}
+    </div>
+    ${extra}
+  </li>`
+}
+
 function _prjIdeasTabHtml() {
   const p = _prj.overview && _prj.overview.project
   const d = _prj.ideas
@@ -43361,18 +43581,7 @@ function _prjIdeasTabHtml() {
   else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
   else {
     const list = d.ideas.length
-      ? `<ul class="prj-list">${d.ideas.map((i) => {
-        const meta = [escapeHtml(i.category || ''), escapeHtml(t(i.via === 'link' ? 'projects.ideas.via_link' : 'projects.ideas.via_card')), escapeHtml(_prjAgo((i.updated_at || 0) * 1000))]
-        return `<li class="prj-item">
-          <div class="prj-item-head"><a href="#" class="prj-card-link" data-prj-idea="${escapeAttr(i.id)}">${escapeHtml(i.title)}</a> ${_prjIdeaStatus(i.status)}</div>
-          ${i.description ? `<div class="prj-item-sub prj-clamp">${escapeHtml(i.description)}</div>` : ''}
-          <div class="prj-item-sub prj-muted">${meta.filter(Boolean).join(' · ')}</div>
-          <div class="prj-item-actions">
-            ${i.kanban_id ? _prjCardLink({ id: i.kanban_id, title: t('projects.ideas.open_card') }) : ''}
-            ${i.via === 'link' ? `<button type="button" class="btn-secondary btn-compact" data-prj-unlink-idea="${escapeAttr(i.id)}">${escapeHtml(t('projects.ideas.unlink'))}</button>` : ''}
-          </div>
-        </li>`
-      }).join('')}</ul>`
+      ? _prjVfListHtml('idea', d.ideas, (i) => i.id, _prjIdeaRowHtml, canAdd)
       : _prjEmptyLine('projects.ideas.empty')
     const pick = canAdd && d.candidates.length
       ? `<div class="prj-link-row">
@@ -43738,6 +43947,10 @@ document.addEventListener('click', (e) => {
   else if ((a === 'new-debate' || a === 'new-research') && p) _prjOpenRequest(a.slice(4), p.id)
   else if (a === 'summary') _prjRunSummary()
   else if (a === 'link-idea') _prjLinkIdea()
+  else if (a === 'vf-new') _prjVfNew(act.getAttribute('data-prj-vf-kind'))
+  else if (a === 'vf-suggest') _prjVfSuggest(act.getAttribute('data-prj-vf-kind'))
+  else if (a === 'vf-rename') _prjVfRename(act.getAttribute('data-prj-vf-kind'), act.getAttribute('data-prj-vf-fid'))
+  else if (a === 'vf-delete') _prjVfDelete(act.getAttribute('data-prj-vf-kind'), act.getAttribute('data-prj-vf-fid'))
   else if (a === 'show-archived') { _prj.showArchived = true; _prjRenderList(); _prjRenderMigration() }
   else if (a === 'back') { _prj.current = null; _prj.overview = null; _prjLoadList() }
   else if (a === 'refresh' && p) _prjOpenProject(p.id)

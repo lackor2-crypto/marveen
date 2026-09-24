@@ -61,6 +61,7 @@ import type { RouteContext } from './types.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
 import { createAgentMessage } from '../../db.js'
 import { suggestPlacement } from '../../project-file-placement.js'
+import { isVFolderKind, listVFolders, createVFolder, renameVFolder, deleteVFolder, assignVFolder, suggestVFolders, applyVFolderPlan, forgetProjectVFolders } from '../../project-vfolders.js'
 import { OWNER_DASHBOARD_SENDER } from '../agent-message-wrap.js'
 import { resolveCardRefs } from '../card-work-guard.js'
 import {
@@ -129,6 +130,12 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   bad_request_kind: { hu: 'Ismeretlen kérés-fajta.', en: 'Unknown request kind.' },
   debate_missing: { hu: 'Ez a vitáztatás nem található.', en: 'This debate was not found.' },
   research_missing: { hu: 'Ez a háttéranyag nem található.', en: 'This background material was not found.' },
+  bad_kind: { hu: 'Ismeretlen fül (ötlet, vita vagy háttéranyag lehet).', en: 'Unknown tab (it can be idea, debate or background material).' },
+  vfolder_name_required: { hu: 'Adj nevet a mappának.', en: 'Give the folder a name.' },
+  vfolder_exists: { hu: 'Már van ilyen nevű mappa ezen a fülön.', en: 'There is already a folder with this name on this tab.' },
+  vfolder_missing: { hu: 'Ez a mappa nem található (lehet, hogy közben törölték). Frissítsd a listát.', en: 'This folder was not found (it may have been deleted). Refresh the list.' },
+  vfolder_limit: { hu: 'Ezen a fülön már 100 mappa van, többet nem lehet létrehozni.', en: 'This tab already has 100 folders; no more can be created.' },
+  nothing_to_sort: { hu: 'Minden elem mappában van, nincs mit besorolni.', en: 'Every item is in a folder; there is nothing to sort.' },
   too_large: { hu: 'A fájl túl nagy a feltöltéshez (legfeljebb 50 MB). A nagyobbat húzd be közvetlenül a mappába a Windows Intézőben.', en: 'The file is too large to upload (50 MB at most). Drag a bigger one straight into the folder in Windows Explorer.' },
 }
 
@@ -432,6 +439,15 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
 
   if (tryUnlink(ctx, lang)) return true
 
+  const vfMatch = path.match(/^\/api\/projects\/([^/]+)(\/vfolders(?:\/[^/]+)?)$/)
+  if (vfMatch) {
+    const vid = decodeURIComponent(vfMatch[1])
+    const vproject = getProject(vid)
+    if (!vproject || vproject.id !== vid) return fail(res, 404, 'not_found', lang)
+    if (await handleVFolders(ctx, vid, vproject.name, vfMatch[2], lang)) return true
+    return false
+  }
+
   const idMatch = path.match(/^\/api\/projects\/([^/]+)(\/[a-z-]+)?$/)
   if (!idMatch) return false
   const id = decodeURIComponent(idMatch[1])
@@ -482,6 +498,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   if (sub === '' && method === 'DELETE') {
     if (url.searchParams.get('confirm') !== '1') return fail(res, 400, 'confirm_required', lang)
     const out = deleteProject(id)
+    forgetProjectVFolders(id)
     logger.info({ id, name: project.name, ...out, by: MAIN_AGENT_ID }, '[projects] projekt torolve (csak a kapcsolat)')
     json(res, out)
     return true
@@ -643,6 +660,70 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  return false
+}
+
+/**
+ *   GET    /api/projects/:id/vfolders?kind=        -- a ful mappai + melyik elem hol van
+ *   POST   /api/projects/:id/vfolders              -- uj mappa {kind, name}
+ *   PUT    /api/projects/:id/vfolders/:fid         -- atnevezes {kind, name}
+ *   DELETE /api/projects/:id/vfolders/:fid?kind=   -- a mappa torlese (az elemek "Nincs mappaban" lesznek)
+ *   POST   /api/projects/:id/vfolders/assign       -- elem athelyezese {kind, id, folder: fid|null}
+ *   POST   /api/projects/:id/vfolders/suggest      -- besorolasi JAVASLAT {kind, items:[{id,title,hint}]} (nem ment)
+ *   POST   /api/projects/:id/vfolders/apply        -- a kipipalt javaslat {kind, rows:[{id, folder}]}
+ */
+async function handleVFolders(ctx: RouteContext, id: string, projectName: string, sub: string, lang: 'hu' | 'en'): Promise<boolean> {
+  const { req, res, url, method } = ctx
+  if (sub === '/vfolders' && method === 'GET') {
+    const kind = url.searchParams.get('kind')
+    if (!isVFolderKind(kind)) return fail(res, 400, 'bad_kind', lang)
+    json(res, listVFolders(id, kind))
+    return true
+  }
+  if (method !== 'POST' && method !== 'PUT' && method !== 'DELETE') return false
+  const m = sub.match(/^\/vfolders(?:\/([^/]+))?$/)
+  if (!m) return false
+  const action = m[1] ? decodeURIComponent(m[1]) : ''
+  let body: Record<string, unknown> = {}
+  if (method !== 'DELETE') {
+    const b = await readJson(req)
+    if (!b) return fail(res, 400, 'bad_json', lang)
+    body = b
+  }
+  const kind = method === 'DELETE' ? url.searchParams.get('kind') : body.kind
+  if (!isVFolderKind(kind)) return fail(res, 400, 'bad_kind', lang)
+  const done = (out: { ok: boolean; code?: string } & Record<string, unknown>): true => {
+    if (!out.ok) return fail(res, out.code === 'vfolder_missing' ? 404 : out.code === 'vfolder_exists' ? 409 : 400, String(out.code), lang)
+    json(res, out)
+    return true
+  }
+  if (method === 'POST' && action === '') return done(createVFolder(id, kind, body.name))
+  if (method === 'POST' && action === 'assign') {
+    const objectId = typeof body.id === 'string' ? body.id.trim() : ''
+    if (!objectId) return fail(res, 400, 'bad_json', lang)
+    const folder = typeof body.folder === 'string' && body.folder ? body.folder : null
+    return done(assignVFolder(id, kind, objectId, folder))
+  }
+  if (method === 'POST' && action === 'suggest') {
+    const raw = Array.isArray(body.items) ? body.items : []
+    const items = raw
+      .map((it: any) => ({ id: typeof it?.id === 'string' ? it.id.trim() : '', title: typeof it?.title === 'string' ? it.title : '', hint: typeof it?.hint === 'string' ? it.hint : '' }))
+      .filter((it) => it.id && it.title)
+    const out = await suggestVFolders(id, projectName, kind, items, lang)
+    if (!out.ok) return fail(res, out.code === 'nothing_to_sort' ? 400 : 503, out.code, lang)
+    logger.info({ id, kind, rows: out.plan.length, engine: out.engine }, '[projects] mappa-besorolasi javaslat')
+    json(res, out)
+    return true
+  }
+  if (method === 'POST' && action === 'apply') {
+    const rows = Array.isArray(body.rows) ? body.rows as { id: string; folder: string }[] : []
+    const out = applyVFolderPlan(id, kind, rows)
+    logger.info({ id, kind, ...out }, '[projects] mappa-besorolas alkalmazva')
+    json(res, out)
+    return true
+  }
+  if (method === 'PUT' && action) return done(renameVFolder(id, kind, action, body.name))
+  if (method === 'DELETE' && action) return done(deleteVFolder(id, kind, action))
   return false
 }
 
