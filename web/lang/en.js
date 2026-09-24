@@ -2600,6 +2600,7 @@ window._i18n.en = {
   'ideas.modal.cancel_btn':      'Cancel',
   'ideas.promote.title':         'Send to Kanban',
   'ideas.promote.question':      'Which stage?',
+  'ideas.promote.project_label': 'Project',
   'ideas.promote.detail':        'Detail elaboration (Waiting)',
   'ideas.promote.plan':          'Plan (Planned)',
   'ideas.toast.save_error':      'Error saving',

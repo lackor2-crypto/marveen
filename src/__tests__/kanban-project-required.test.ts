@@ -83,6 +83,31 @@ describe('projekt kotelezo a kartya letrehozasakor', () => {
     expect(r.ok).toBe(false)
   })
 
+  it('ismeretlen ertek indokkal: a kartya letrejon, de a project null, nem a nyers ertek (#374 HIANY 2)', () => {
+    const p = createProject({ name: 'Iroda fejlesztese' })
+    if (!p.ok) throw new Error('project')
+    const r = createCardWithRules({ ...base, title: 'Modellcsere', project: 'system-dev', no_project_reason: 'x'.repeat(NO_PROJECT_MIN_CHARS) })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(getKanbanCard(r.id)?.project ?? null).toBeNull()
+  })
+
+  it('ismeretlen ertek ures telepitesen (nincs aktiv projekt): sem marad a kartyan', () => {
+    const r = createCardWithRules({ ...base, title: 'Elso', project: 'nincs-ilyen-projekt' })
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(getKanbanCard(r.id)?.project ?? null).toBeNull()
+  })
+
+  it('ismert projekt + indok: a projekt nyer, az indok nem kerul a leirasba', () => {
+    const p = createProject({ name: 'Rendszer' })
+    if (!p.ok) throw new Error('project')
+    const r = createCardWithRules({ ...base, title: 'X', project: p.project.id, no_project_reason: 'y'.repeat(NO_PROJECT_MIN_CHARS) })
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(getKanbanCard(r.id)?.project).toBe(p.project.id)
+      expect(getKanbanCard(r.id)?.description ?? '').not.toContain('Projekt nelkul')
+    }
+  })
+
   it('ures telepitesen (egy projekt sincs) nem kovetelheto', () => {
     const r = createCardWithRules({ ...base, title: 'Elso kartya' })
     expect(r.ok).toBe(true)

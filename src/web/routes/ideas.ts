@@ -4,7 +4,8 @@ import { listIdeas, createIdea, updateIdea, deleteIdea, listIdeaCategories, crea
 import { generateBreakdown } from '../llm-breakdown.js'
 import { logger } from '../../logger.js'
 import { resolveCardLabels, applyCardLabels } from '../kanban-labels.js'
-import { readBody, json } from '../http-helpers.js'
+import { readBody, json, reqLang, L } from '../http-helpers.js'
+import { checkCardProject, type ProjectCheck } from '../../kanban-create.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import type { RouteContext } from './types.js'
 import { ideaProjectMap, knownProjectId } from '../../project-scope.js'
@@ -16,10 +17,27 @@ function getIdea(id: string): IdeaRow | undefined {
   return getDb().prepare('SELECT * FROM idea_box WHERE id = ?').get(id) as IdeaRow | undefined
 }
 
-/** A kanbanra kerulo otlet kartyaja a projektjeben marad (Iroda -> Projektek);
- *  projekt nelkuli otlet a regi gyujtohelyre megy. */
-function ideaCardProject(ideaId: string): string {
-  return ideaProjectMap().get(ideaId) ?? 'Fejlesztési ötletek'
+/**
+ * A kanbanra kerulo otlet kartyajanak projektje -- ugyanazon a kapun at, mint
+ * minden mas kartya (src/kanban-create.ts checkCardProject, #374). A felulet
+ * valasztasa (`project` / `no_project_reason`) dont; ha nem kuldott, az otlet
+ * sajat projektje. Kitalalt gyujtohely-nev nincs: projekt nelkul csak
+ * kimondott indokkal, kulonben project_required.
+ */
+function ideaCardProject(ideaId: string, data: { project?: unknown; no_project_reason?: unknown }): ProjectCheck {
+  const requested = data.project !== undefined && data.project !== null && String(data.project).trim() !== ''
+  const ref = requested ? data.project : (data.no_project_reason ? null : ideaProjectMap().get(ideaId) ?? null)
+  return checkCardProject(ref, data.no_project_reason)
+}
+
+function projectRequiredReply(lang: 'hu' | 'en', check: Extract<ProjectCheck, { ok: false }>) {
+  return {
+    error: L(lang,
+      'Válassz projektet a kártyának: projekt nélküli kártya nem jöhet létre. A kártya NEM jött létre.',
+      'Pick a project for the card: a card without a project cannot be created. The card was NOT created.'),
+    code: 'project_required',
+    projects: check.projects,
+  }
 }
 
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent'])
@@ -172,7 +190,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
   if (promoteMatch && method === 'POST') {
     const ideaId = decodeURIComponent(promoteMatch[1])
     const body = await readBody(req)
-    const data = JSON.parse(body.toString()) as { phase?: 'detail' | 'plan'; labels?: unknown }
+    const data = JSON.parse(body.toString()) as { phase?: 'detail' | 'plan'; labels?: unknown; project?: unknown; no_project_reason?: unknown }
     const phase = data.phase ?? 'detail'
 
     const idea = (getDb().prepare('SELECT * FROM idea_box WHERE id = ?').get(ideaId) as import('../../db.js').IdeaBoxRow | undefined)
@@ -182,6 +200,11 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     // label like any other -- see src/web/kanban-labels.ts.
     const labels = resolveCardLabels(data.labels)
     if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
+    const projectCheck = ideaCardProject(ideaId, data)
+    if (!projectCheck.ok) { json(res, projectRequiredReply(reqLang(req, url), projectCheck), 400); return true }
+    const promoteDesc = projectCheck.noProjectReason
+      ? `${idea.description ?? ''}${(idea.description ?? '').trim() ? '\n\n' : ''}Projekt nelkul, mert: ${projectCheck.noProjectReason}`
+      : idea.description ?? ''
 
     const cardId = randomUUID().slice(0, 8)
     const status = phase === 'plan' ? 'planned' : 'waiting'
@@ -189,11 +212,11 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     createKanbanCard({
       id: cardId,
       title,
-      description: idea.description ?? '',
+      description: promoteDesc,
       status,
       priority: 'normal',
       assignee: BOT_NAME,
-      project: ideaCardProject(ideaId),
+      project: projectCheck.project ?? undefined,
     })
     applyCardLabels(cardId, labels.labelIds)
     logIdeaStatusChange(ideaId, idea.status, 'kanban', MAIN_AGENT_ID, `promote:${phase}`)
@@ -227,11 +250,14 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     const idea = getIdea(ideaId)
     if (!idea) { json(res, { error: 'Ötlet nem található' }, 404); return true }
     const body = await readBody(req)
-    const { subtasks, success_criteria, labels: requestedLabels } = JSON.parse(body.toString()) as {
+    const breakdownData = JSON.parse(body.toString()) as {
       subtasks: Array<{ title: string; description?: string; assignee?: string | null; priority?: string }>
       success_criteria?: string
       labels?: unknown
+      project?: unknown
+      no_project_reason?: unknown
     }
+    const { subtasks, success_criteria, labels: requestedLabels } = breakdownData
     if (!Array.isArray(subtasks) || subtasks.length === 0) {
       json(res, { error: 'Legalább egy jóváhagyott alfeladat kötelező' }, 400)
       return true
@@ -240,10 +266,15 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
     // inherit the parent's, so only the parent needs a choice.
     const labels = resolveCardLabels(requestedLabels)
     if (!labels.ok) { json(res, { error: labels.error }, 400); return true }
+    const projectCheck = ideaCardProject(ideaId, breakdownData)
+    if (!projectCheck.ok) { json(res, projectRequiredReply(reqLang(req, url), projectCheck), 400); return true }
     const baseDesc = idea.description ?? ''
-    const parentDesc = success_criteria?.trim()
+    let parentDesc = success_criteria?.trim()
       ? `${baseDesc}\n\n## Siker-kritérium\n${success_criteria.trim()}`.trimStart()
       : baseDesc
+    if (projectCheck.noProjectReason) {
+      parentDesc = `${parentDesc}${parentDesc.trim() ? '\n\n' : ''}Projekt nelkul, mert: ${projectCheck.noProjectReason}`
+    }
     const parentId = randomUUID().slice(0, 8)
     createKanbanCard({
       id: parentId,
@@ -252,7 +283,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
       status: 'planned',
       priority: 'normal',
       assignee: BOT_NAME,
-      project: ideaCardProject(ideaId),
+      project: projectCheck.project ?? undefined,
     })
     applyCardLabels(parentId, labels.labelIds)
     const childIds: string[] = []
@@ -266,7 +297,7 @@ export async function tryHandleIdeas(ctx: RouteContext): Promise<boolean> {
         status: 'planned',
         priority: (st.priority && VALID_PRIORITIES.has(st.priority) ? st.priority : 'normal') as 'low' | 'normal' | 'high' | 'urgent',
         assignee: st.assignee || BOT_NAME,
-        project: ideaCardProject(ideaId),
+        project: projectCheck.project ?? undefined,
         parent_id: parentId,
       })
       applyCardLabels(childId, labels.labelIds)
