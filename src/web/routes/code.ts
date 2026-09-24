@@ -20,6 +20,7 @@ import { probeWorkspace } from '../code-bridge-workspace.js'
 import { generateSkillMd } from '../agent-scaffold.js'
 import { atomicWriteFileSync } from '../atomic-write.js'
 import { logger } from '../../logger.js'
+import { expectedWorkerVersion } from '../code-worker-version.js'
 import {
   CODE_BRIDGE_ENABLED, CODE_PERMISSION_MODE, PROJECT_ROOT,
   CODE_BOT_TOKEN, CODE_BOT_ALLOWED_CHAT_IDS, CODE_BRIDGE_EXCLUDE,
@@ -35,8 +36,10 @@ import {
   listCodeCandidates,
   aliasFromWorkspacePath, normalizeAlias, isExcludedProject,
   recordCodeWorkerSeen, codeBridgeHealth, WORKER_STALE_MS, listCodeTabs,
-  type CodeTaskStatus, type CodeTaskOrigin,
+  requestCodeTabClose, takeCodeTabCloseRequests, findCodeTab,
+  type CodeTaskStatus, type CodeTaskOrigin, type CodeTab,
 } from '../code-bridge-store.js'
+import { readCodeConversation } from '../code-conversation.js'
 import { readFileSync, existsSync, mkdirSync, unlinkSync, writeFileSync, copyFileSync, readdirSync, statSync, rmSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { getEffectiveSettingValue, setOverride } from '../../settings-store.js'
@@ -230,6 +233,13 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       avatar: findCodeBridgeAvatar() !== null,
       staleAfterMs: WORKER_STALE_MS,
       enabled: CODE_BRIDGE_ENABLED,
+      // ★ A MENTETT ertek, a futo mellett. A ketto eltérhet: a hid a
+      // beallitast INDULASKOR olvassa be, tehat egy "Leallitas" utan a mentett
+      // mar 0, a futo meg 1. Enelkul a kartya a kattintas utan is azt mutatta,
+      // hogy "Fut" -- a felhasznalo szamara ez ugy nezett ki, mintha a gomb
+      // nem mukodne (Boss, 2026-08-23: "rakattintottam a leallitas gombra. de
+      // nem allt le"). A kulonbseget a KARTYAN KIVUL is ki kell mondani.
+      savedEnabled: String(getEffectiveSettingValue('CODE_BRIDGE_ENABLED')) === '1',
       permissionMode: CODE_PERMISSION_MODE,
       // The token itself is NEVER returned -- only whether one is configured.
       botConfigured: CODE_BOT_TOKEN.length > 0,
@@ -546,6 +556,46 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     return true
   }
 
+  // EGY BESZELGETES TARTALMA, olvashatoan.
+  //
+  // Boss, 2026-08-28: "miert csk mondja hogy megvan de nem mutatja meg?" -- a
+  // kartya eddig kiirta a beszelgetes nevet es a kontextus-tokenszamat, de a
+  // tartalmahoz nem volt ut. Ez az a vegpont.
+  //
+  // A NULLA KET DOLGOT JELENTHET, ezert a valasz MINDIG mondja meg, miert
+  // ures: `no-session` (ilyet nem jelentett senki), `no-path` (regi worker,
+  // meg nem kuldi a napló utjat), vagy maga a rendszer hibauzenete. A
+  // felulet ezekbol kulon-kulon mondatot csinal -- tippelt okot egyik sem tud.
+  if (path === '/api/code/conversation' && method === 'GET') {
+    const sessionId = (url.searchParams.get('session') ?? '').trim()
+    if (!sessionId) { json(res, { error: 'session is required' }, 400); return true }
+    const limitRaw = Number(url.searchParams.get('limit'))
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 2000) : 400
+    const offsetRaw = Number(url.searchParams.get('offset'))
+    const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.floor(offsetRaw) : 0
+
+    const tab = findCodeTab(sessionId)
+    if (!tab) {
+      json(res, {
+        sessionId, entries: [], total: 0, offset: 0, hasOlder: false,
+        title: null, live: null, transcriptPath: null, mtime: null,
+        // Nem "ures a beszelgetes": ilyen sessiont EGYETLEN worker sem jelentett.
+        reason: 'no-session',
+      })
+      return true
+    }
+    const conv = readCodeConversation(tab.transcriptPath, sessionId, { limit, offset })
+    json(res, {
+      sessionId,
+      title: tab.title,
+      live: tab.live,
+      contextTokens: tab.contextTokens,
+      model: tab.model,
+      ...conv,
+    })
+    return true
+  }
+
   if (path === '/api/code/projects' && method === 'GET') {
     // A szerepek (tervezo / megvalosito / ellenorzo) ITT mennek ki, nem csak a
     // feluleten: enelkul Marvin nem tudna, mit szabad ennek a vegrehajtonak
@@ -578,17 +628,40 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // uressege ket dolgot jelenthet, ezert megy ki a `tabsReason` is.
     const tabsByWorkspace = new Map<string, typeof tabs.projects[number]>()
     for (const g of tabs.projects) tabsByWorkspace.set(g.workspacePath.toLowerCase(), g)
+    // Ugyanaz a sor-alak a futo es a nem futo beszelgetesekhez: a felulet
+    // ugyanazt tudja roluk megmutatni, csak mas helyen es mas jelolessel.
+    const tabRow = (tb: CodeTab, currentSessionId: string): {
+      sessionId: string; shortId: string; title: string | null; live: boolean | null
+      current: boolean; contextTokens: number | null; model: string | null
+      pid: number | null; mtime: number | null; hasTranscript: boolean
+    } => ({
+      sessionId: tb.sessionId,
+      shortId: tb.shortId,
+      title: tb.title,
+      live: tb.live,
+      current: tb.sessionId === currentSessionId,
+      contextTokens: tb.contextTokens,
+      model: tb.model,
+      // A bezaras-gombhoz: van-e egyaltalan mit leallitani. `null` = nem
+      // latunk oda (regi worker) -- olyankor a gomb sem jelenik meg.
+      pid: tb.pid,
+      // Mikor irt utoljara a beszelgetes. Ebbol latszik a "fule mar nincs
+      // sehol, a folyamat meg el" eset: elo ful, de orak ota nema.
+      mtime: tb.mtime,
+      // Meg tudjuk-e nyitni a TARTALMAT. Maga az ut nem megy ki a felületre
+      // (a bongeszonek semmit nem mondana, es fajlrendszer-reszlet), de azt
+      // tudnia kell, hogy van-e ertelme a gombnak: regi worker mellett nincs.
+      hasTranscript: typeof tb.transcriptPath === 'string' && tb.transcriptPath.length > 0,
+    })
     const projects = listCodeSessions().map((p) => ({
       ...p,
-      tabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.tabs ?? []).map((tb) => ({
-        sessionId: tb.sessionId,
-        shortId: tb.shortId,
-        title: tb.title,
-        live: tb.live,
-        current: tb.sessionId === p.sessionId,
-        contextTokens: tb.contextTokens,
-        model: tb.model,
-      })),
+      tabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.tabs ?? []).map((tb) => tabRow(tb, p.sessionId)),
+      // A mappa TOBBI beszelgetese: nyitva lehetnek a VS Code panelen, de a
+      // folyamatuk mar nem fut (Boss, 2026-08-28: "a kartyan csak eg chat van
+      // megjelenitve, most, de a vscode ban van vagy 3 beszelgetes"). A fo
+      // listaba nem valok -- oda a cimezheto, futo beszelgetesek mennek --, de
+      // a tartalmuk ugyanugy megnyithato.
+      closedTabs: (tabsByWorkspace.get(p.workspacePath.toLowerCase())?.closedTabs ?? []).map((tb) => tabRow(tb, p.sessionId)),
       roleHolder: `vscode:${p.project}`,
       roles: BROKER_ROLE_IDS.filter((id) => roleCfg[id] === `vscode:${p.project}`),
       contextTokens: tokensBySession.get(p.sessionId) ?? null,
@@ -687,8 +760,12 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       contextTokens?: number
       /** Melyik modell felel a beszelgetesben (a transcript utolso soraból). */
       model?: string
+      /** A napló TELJES utja a Claude Code gepen. Ebbol tudja a vezerlopult
+       *  megnyitni a beszelgetes tartalmat. Regi worker nem kuldi -> nincs
+       *  gomb, mert nem lenne mit megnyitni (nem pedig ures beszelgetes). */
+      transcriptPath?: string
     }
-    const body = await parseJsonBody<{ host?: string; sessions?: ReportedSession | ReportedSession[] }>(ctx)
+    const body = await parseJsonBody<{ host?: string; workerVersion?: string; sessions?: ReportedSession | ReportedSession[] }>(ctx)
     // A single session may arrive as a bare object rather than a one-element
     // array: PowerShell's ConvertTo-Json flattens `@(x)` to `x`. Rejecting that
     // would break exactly the machines with one project -- the smallest, most
@@ -705,7 +782,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     // difference between "the executor is gone" and "it runs but finds nothing"
     // is the whole diagnosis. Stamping only on success would have reported the
     // running-but-empty worker of 2026-08-20 as dead.
-    recordCodeWorkerSeen(body.host ?? 'windows', 'discovery', reported.length)
+    // A verziot a felderitesi kor hozza. Regi peldany nem kuld semmit -> `null`
+    // marad, es a Attekintes onellenorzese pont ezt teszi szova.
+    recordCodeWorkerSeen(body.host ?? 'windows', 'discovery', reported.length, Date.now(), body.workerVersion ?? null)
     // A NYERS lista is eltevodik, mielott a kizaras vagy a regisztracio szurne:
     // a felulet ebbol tud valaszthato listat kinalni ahelyett, hogy utvonalat
     // es UUID-t kellene begepelni.
@@ -713,6 +792,21 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
 
     const known = listCodeSessions()
     const registered: string[] = []
+    /** Az athelyezett projektek, hogy a naplo megmondja, MI tortent es MIERT. */
+    const athelyezve: { project: string; rol: string; ra: string }[] = []
+
+    // MELYIK BESZELGETES VAN TENYLEG NYITVA A VS CODE-BAN.
+    //
+    // Ket kulon dolgot kell tudni, es a kettot nem szabad osszemosni:
+    //  - `nyitottak`: amit a worker ELO PID-del latott (mert);
+    //  - `latunkOda`: kuldott-e egyaltalan barmilyen `live` merest. Regi
+    //    worker nem kuld, es olyankor `nyitottak` URES lenne -- amibol
+    //    "minden ful zarva"-t olvasni sulyos tevedes volna, es minden
+    //    kituzott projektet athelyezne. A nulla itt is ket dolgot jelenthet.
+    const nyitottak = new Set(
+      reported.filter((r) => r.live === true && r.sessionId).map((r) => r.sessionId as string),
+    )
+    const latunkOda = reported.some((r) => typeof r.live === "boolean")
     // Egy REGI worker egyetlen `primary` mezot sem kuld: olyankor MINDEN sor
     // projektnek szamit, ahogy 2026-08-23 elott. Ha viszont a worker jeloli az
     // elsodleges fulet, csak azt regisztraljuk -- a tobbi ful jeloltkent mar
@@ -735,6 +829,25 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       // is latszanak (igy vissza tudja hozni), projektkent viszont nem kotjuk
       // be ujra.
       if (isDismissedWorkspace(s.workspacePath)) continue
+      // ELAVULT-E A BEKOTES?
+      //
+      // A kituzott sor alapbol erinthetetlen. Egyetlen kivetel van, es azt
+      // MERNI kell, nem felteteleznii: a bekotott beszelgetes mar nincs nyitva
+      // a VS Code-ban, ES a most jelentett helyette nyitva VAN. Ez pontosan az
+      // az eset, amikor a feladat egy bezart beszelgetesbe menne.
+      //
+      // Mind a harom feltetel kell. Ha nem latunk oda (`latunkOda === false`),
+      // a tu MARAD: a "nem tudom" nem ok az atallitasra. Ha egyik ful sem
+      // nyitott, szinten marad -- nincs hova atallni, es a talalgatas
+      // rosszabb a semminel.
+      const meglevo = getCodeSession(alias)
+      const elavultBekotes =
+        !!meglevo &&
+        meglevo.pinned &&
+        latunkOda &&
+        !nyitottak.has(meglevo.sessionId) &&
+        s.live === true &&
+        meglevo.sessionId !== s.sessionId
       try {
         const row = upsertCodeSession(
           {
@@ -745,8 +858,11 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
             host: body.host ?? null,
             transcriptMtime: s.mtime ?? null,
           },
-          { fromDiscovery: true },
+          { fromDiscovery: true, repointStale: elavultBekotes },
         )
+        if (elavultBekotes && meglevo) {
+          athelyezve.push({ project: row.project, rol: meglevo.sessionId, ra: row.sessionId })
+        }
         registered.push(row.project)
       } catch (err) {
         logger.warn({ err, workspace: s.workspacePath }, 'code-bridge: session report rejected')
@@ -754,9 +870,47 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     }
     // A jelentes a hitelesek listaja erre a gepre: ami kimaradt belole, annak
     // a workspace-e mar nincs meg (a worker eleve nem jelenti a nem letezot).
+    if (athelyezve.length > 0) {
+      logger.info(
+        { host: body.host, athelyezve },
+        'code-bridge: a bekotott beszelgetes mar nem volt nyitva -- atallitva a nyitott fulre',
+      )
+    }
     const pruned = pruneUnreportedCodeSessions(body.host ?? 'windows', registered)
     if (pruned.length > 0) logger.info({ host: body.host, pruned }, 'code-bridge: dropped sessions no longer reported')
-    json(res, { registered, pruned, projects: listCodeSessions() })
+    // A valasz VISZI a bezaras-kereseket: a worker nem tud bejovo hivast
+    // fogadni (nincs nyitott portja), a jelentes viszont percenkent megy.
+    // Igy a "Bezaras" gomb egy jelentesi korön belul hat.
+    json(res, {
+      registered,
+      pruned,
+      projects: listCodeSessions(),
+      closeSessions: takeCodeTabCloseRequests(),
+    })
+    return true
+  }
+
+  // Egy beszelgetes BEZARASA. Nem torol transcriptet: a futo Claude Code
+  // folyamatot allitja le, azt, amelyiknek a fulet a VS Code-ban mar nem talalod
+  // (Boss, 2026-08-23: "nem tudom bezarni. mert nem latok ott semmit").
+  //
+  // A leallitast a WORKER vegzi, mert a folyamat a Windows-oldalon fut; ide csak
+  // a szandek kerul be, es a worker kovetkezo jelentesenel megy at. Ezert a
+  // valasz nem azt allitja, hogy "kesz", hanem azt, hogy atvettuk -- a
+  // tenylegesen bezarult ful a kovetkezo jelentesbol tunik el a listarol.
+  if (path.startsWith('/api/code/tabs/') && path.endsWith('/close') && method === 'POST') {
+    const sessionId = decodeURIComponent(path.slice('/api/code/tabs/'.length, -'/close'.length))
+    if (!sessionId) { json(res, { error: 'sessionId required' }, 400); return true }
+    const tab = listCodeTabs().projects.flatMap((p) => p.tabs).find((t) => t.sessionId === sessionId)
+    if (!tab) { json(res, { error: 'unknown session' }, 404); return true }
+    // A NULLA ket dolgot jelenthet: ha nincs PID, akkor NEM azt mondjuk, hogy
+    // nincs mit bezarni, hanem hogy nem latunk oda -- kulonben a felhasznalo
+    // azt hinne, mar nem fut.
+    if (tab.pid === null) { json(res, { error: 'no-pid' }, 409); return true }
+    const health = codeBridgeHealth()
+    if (!health.workerOnline) { json(res, { error: 'worker-offline' }, 409); return true }
+    requestCodeTabClose(sessionId)
+    json(res, { accepted: true, sessionId, pid: tab.pid })
     return true
   }
 
@@ -817,9 +971,20 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
     const host = (body.host ?? '').trim() || 'unknown-worker'
     recordCodeWorkerSeen(host, 'claim')
     const task = claimNextCodeTask(host)
-    if (!task) { json(res, { task: null }); return true }
+    // A VART verzio minden valaszban ott van, mert a worker maga nem tudhatja,
+    // hogy elavult: a sajat verziojat eddig csak KULDTE. Enelkul a csere
+    // egyetlen szereploje a tulajdonos volt -- kezzel, terminalbol (Boss,
+    // 2026-08-26: "miert kell ezt a usernek eljatszania?").
+    //
+    // null = ebben a telepitesben nincs meg a szkript, tehat nem tudjuk, mi
+    // a friss. Ilyenkor a mezot KI IS HAGYJUK: egy null vagy egy ures string
+    // a worker oldalan "nem egyezik"-nek latszana, es vegtelen
+    // frissitesi korbe kergetne. A "nem latok oda" nem "elavult".
+    const expect = expectedWorkerVersion()
+    const extra = expect === null ? {} : { expectedWorkerVersion: expect }
+    if (!task) { json(res, { task: null, ...extra }); return true }
     logger.info({ task: task.id, project: task.project, session: task.sessionId, host }, 'code-bridge: task claimed')
-    json(res, { task, permissionMode: CODE_PERMISSION_MODE })
+    json(res, { task, permissionMode: CODE_PERMISSION_MODE, ...extra })
     return true
   }
 
@@ -846,6 +1011,9 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
       if (!isLoopback(ctx.req.socket.remoteAddress)) { json(res, { error: 'loopback only' }, 403); return true }
       const body = await parseJsonBody<{
         ok?: boolean; result?: string; error?: string; costUsd?: number; durationMs?: number; numTurns?: number; host?: string
+        /** A futas VEGEN ervenyes beszelgetes-azonosito (a CLI sajat jelentese).
+         *  Regi worker nem kuldi -- olyankor nem allitunk at semmit. */
+        resultSessionId?: string
       }>(ctx)
       if (!body) { json(res, { error: 'invalid JSON' }, 400); return true }
       // Reporting a result IS a sign of life -- and the one worker call that
@@ -869,6 +1037,37 @@ export async function tryHandleCode(ctx: RouteContext): Promise<boolean> {
         logger.warn({ task: updated.id, outcome, status: updated.status }, 'code-bridge: late result not applied')
         json(res, { ...updated, lateResult: outcome })
         return true
+      }
+      // A `/clear` UJ, URES BESZELGETEST NYIT -- es eddig senki nem allt at ra.
+      //
+      // Merve 2026-08-26: a `-p --resume <id> "/clear"` hibatlanul lefutott, uj
+      // beszelgetest nyitott, a projekt viszont a REGIN maradt, mert az uj
+      // transcript ~1,8 KB, a worker mappa-bejarasa pedig 2 KB alatt mindent
+      // kiszur (abortalt futasnak latszik). A kovetkezo feladat igy megint a regi
+      // beszelgetesbe ment: a gomb sikert jelentett, es semmit nem ert el.
+      //
+      // A CLI viszont MEGMONDJA, hol vegzodott a futas. Folytatasnal ez ugyanaz
+      // az azonosito (merve), tehat a lenti feltetel csak valodi valtasnal tuzel
+      // -- nem talalgatunk, es a rendes feladatok nem mozgatjak a bekotest.
+      //
+      // A tu (`pinned`) nem serul: ez nem felderites, a mappa nem valtozik, csak
+      // a beszelgetes -- ugyanaz, amit a tulaj a gombbal keresen kert.
+      const endedIn = (body.resultSessionId ?? '').trim()
+      if (endedIn && updated.sessionId && endedIn !== updated.sessionId) {
+        const cur = getCodeSession(updated.project)
+        if (!cur) {
+          // A NULLA KET DOLGOT JELENTHET: nincs bekotott sor -> nincs mit
+          // atallitani, es TALALGATNI sem szabad, hol van a mappa.
+          logger.warn({ task: updated.id, project: updated.project, endedIn }, 'code-bridge: session switched but the project has no bound row -- not repointed')
+        } else {
+          upsertCodeSession({
+            project: updated.project,
+            workspacePath: cur.workspacePath,
+            sessionId: endedIn,
+            host: cur.host,
+          })
+          logger.info({ task: updated.id, project: updated.project, from: updated.sessionId, to: endedIn }, 'code-bridge: project repointed to the conversation the run ended in')
+        }
       }
       logger.info({ task: updated.id, status: updated.status }, 'code-bridge: task finished')
       // Not awaited: the worker must be free to pick up the next task even if

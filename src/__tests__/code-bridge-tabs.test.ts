@@ -113,11 +113,31 @@ describe('chat fulek: a NULLA ket dolgot jelenthet', () => {
     expect(view.note).toMatch(/NEM azt jelenti/)
   })
 
+  // Ez a teszt eddig CSAK szivverest rogzitett, es "empty"-t vart. Az meg nem
+  // "megnezte es nincs semmi", hanem "el, de meg nem jelentett" -- a ketto
+  // kulonbsege pont az, amirol ez a describe szol. Ezert a jelentes mostantol
+  // kifejezetten megtortenik, ures listaval: a worker MEGNEZTE, es nincs semmi.
   it('ha a worker EL es tenyleg nincs beszelgetes, az MAS uzenet', () => {
     recordCodeWorkerSeen('WINPC', 'discovery', 0)
+    recordCodeCandidates('WINPC', [])
     const view = listCodeTabs()
     expect(view.reason).toBe('empty')
     expect(view.workerOnline).toBe(true)
+  })
+
+  // A MERT ESET (2026-08-26). A jeloltlista a folyamat MEMORIAJABAN el, a
+  // szivveres viszont a lemezen. Egy dashboard-ujrainditas utan tehat a worker
+  // "online" (60 masodperce jelentett), a lista megis ures -- es a lap ebbol azt
+  // irta ki, hogy "a vegrehajto fut, de egyetlen beszelgetest sem talalt". Ez a
+  // felhasznalot a sajat nyitott fulei ellen forditja, epp ujrainditas utan,
+  // amikor amugy is gyanakszik.
+  it('ujrainditas utan "meg nem jelentett", NEM "nincs semmi"', () => {
+    recordCodeWorkerSeen('WINPC', 'discovery', 2)
+    const view = listCodeTabs()
+    expect(view.workerOnline).toBe(true)
+    expect(view.projects).toHaveLength(0)
+    expect(view.reason).toBe('not-reported-yet')
+    expect(view.note).toMatch(/NEM azt jelenti/)
   })
 
   it('ha a worker regen jelentkezett, a lista ELAVULT lehet -- es ezt kimondja', () => {
@@ -377,5 +397,64 @@ describe('kartya levetele', () => {
       sessions: [{ workspacePath: WS, sessionId: NEW, mtime: 4000, primary: true, live: true }],
     })
     expect(report.body.registered).toEqual(['tozsde'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ELAVULT BEKOTES: a bekotott ful bezarult, a feladat halott beszelgetesbe menne.
+//
+// Boss, 2026-08-26: "a marveen ba beallitott chat fulek nem azonosak a vscode
+// ban levo chat fulekkel. az gaz."
+//
+// A MERT ESET. A `fejlesztes` projekt egy 31 oraja nem frissult sorral a
+// `d34fac5b` beszelgetesre mutatott, mikozben a VS Code-ban ket EGESZEN MAS
+// ful volt nyitva. Az ok nem a tu letezese: a `POST /api/code/projects`
+// ALAPBOL kituz, vagyis ezt MINDENKI megkapja, amint a feluletrol bekot egy
+// mappat -- friss telepitesen az elso napon.
+//
+// A tulaj dontese: amig a bekotott ful nyitva van, senki nem nyul hozza;
+// atallni CSAK akkor szabad, ha megmertuk, hogy bezarult. Ez a harom teszt a
+// dontes ket oldalat orzi -- az atallast ES a ket eset, amikor tilos.
+describe('elavult bekotes: atall, de csak mert alapon', () => {
+  it('a bezart bekotesrol ATALL a nyitott fulre', async () => {
+    await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: OLD })
+    await call('POST', '/api/code/sessions', {
+      host: 'WINPC',
+      sessions: [
+        { workspacePath: WS, sessionId: OLD, mtime: 1000, primary: false, live: false },
+        { workspacePath: WS, sessionId: NEW, mtime: 2000, primary: true, live: true },
+      ],
+    })
+    expect(listCodeSessions().find((x) => x.project === 'tozsde')!.sessionId).toBe(NEW)
+  })
+
+  // A NULLA KET DOLGOT JELENTHET. Egy regi worker nem kuld `live` mezot, ezert
+  // a "nyitott fulek" halmaza URES -- ebbol "minden ful bezarult"-at olvasni
+  // annyit tenne, hogy egy verziofrissites elott jaro gepen MINDEN kituzott
+  // projektet elrangatnank. A "nem tudom" sosem ok az atallitasra.
+  it('REGI WORKER (nincs live meres) mellett a bekotes MARAD', async () => {
+    await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: OLD })
+    await call('POST', '/api/code/sessions', {
+      host: 'WINPC',
+      sessions: [
+        { workspacePath: WS, sessionId: OLD, mtime: 1000, primary: false },
+        { workspacePath: WS, sessionId: NEW, mtime: 2000, primary: true },
+      ],
+    })
+    expect(listCodeSessions().find((x) => x.project === 'tozsde')!.sessionId).toBe(OLD)
+  })
+
+  // Ha egyetlen ful sincs nyitva (a VS Code be van zarva), nincs HOVA atallni.
+  // Olyankor a regi bekotes a legjobb tudasunk -- a talalgatas rosszabb volna.
+  it('ha egyetlen ful sincs nyitva, a bekotes MARAD', async () => {
+    await call('POST', '/api/code/projects', { project: 'tozsde', workspacePath: WS, sessionId: OLD })
+    await call('POST', '/api/code/sessions', {
+      host: 'WINPC',
+      sessions: [
+        { workspacePath: WS, sessionId: OLD, mtime: 1000, primary: false, live: false },
+        { workspacePath: WS, sessionId: NEW, mtime: 2000, primary: true, live: false },
+      ],
+    })
+    expect(listCodeSessions().find((x) => x.project === 'tozsde')!.sessionId).toBe(OLD)
   })
 })

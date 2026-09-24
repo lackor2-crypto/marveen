@@ -164,9 +164,17 @@ function ensureTables(): void {
       host TEXT PRIMARY KEY,
       last_seen_at INTEGER NOT NULL,
       last_action TEXT,
-      sessions_reported INTEGER
+      sessions_reported INTEGER,
+      worker_version TEXT
     )
   `)
+  // Meglevo telepites: az oszlop utolag kerul be. A `duplicate column` az
+  // EGYETLEN hiba, amit itt le szabad nyelni -- barmi mas szoljon.
+  try {
+    db.exec(`ALTER TABLE code_workers ADD COLUMN worker_version TEXT`)
+  } catch (err) {
+    if (!/duplicate column/i.test(String((err as Error)?.message ?? ''))) throw err
+  }
   ensured = true
 }
 
@@ -327,7 +335,22 @@ export interface UpsertSessionInput {
  * keeps its session_id until the owner explicitly repins, so a long-running
  * conversation cannot be swapped out from under a queued task.
  */
-export function upsertCodeSession(input: UpsertSessionInput, opts: { fromDiscovery?: boolean } = {}): CodeSession {
+export function upsertCodeSession(
+  input: UpsertSessionInput,
+  opts: {
+    fromDiscovery?: boolean
+    /**
+     * A hivo MEGMERTE, hogy a jelenleg bekotott beszelgetes mar nincs nyitva a
+     * VS Code-ban, ES hogy a most erkezo helyette nyitva VAN. Csak ilyenkor
+     * szabad egy kituzott sort masik beszelgetesre allitani.
+     *
+     * Szandekosan nem alapertelmezett: ha a hivo nem latott oda (nincs
+     * `~/.claude/sessions` mappa, regi worker), a tu marad. A "nem tudom"
+     * soha nem lehet ok az atallitasra.
+     */
+    repointStale?: boolean
+  } = {},
+): CodeSession {
   ensureTables()
   const project = normalizeAlias(input.project)
   if (!project) throw new Error('project alias is empty after normalization')
@@ -338,10 +361,34 @@ export function upsertCodeSession(input: UpsertSessionInput, opts: { fromDiscove
   const now = Date.now()
 
   if (existing && opts.fromDiscovery) {
-    // Discovery never overrides a pin, and never moves a project to a DIFFERENT
-    // workspace -- an alias collision across two folders must be resolved by the
-    // owner, not by whichever worker reported last.
-    if (existing.pinned) return existing
+    // A TU A MAPPARA VONATKOZIK, A BESZELGETESRE CSAK AMIG AZ ELETBEN VAN.
+    //
+    // A MERT ESET (2026-08-26). A `fejlesztes` projekt a
+    // `d34fac5b-523b-4d3e-8c8d-0e4df9ab0ea1` beszelgeteshez volt szogezve, es a sora
+    // 31 oraja nem frissult -- kozben a VS Code-ban ket EGESZEN MAS ful volt
+    // nyitva. Minden odakuldott feladat egy bezart beszelgetesbe ment. Boss:
+    // "a marveen ba beallitott chat fulek nem azonosak a vscode ban levo chat
+    // fulekkel. az gaz."
+    //
+    // Az ok nem a tu letezese, hanem hogy KET dolgot jelentett egyszerre. A
+    // `POST /api/code/projects` alapbol kituz (`pinned: body.pinned ?? true`),
+    // vagyis MINDENKI ezt kapja, amint a feluletrol bekot egy mappat -- friss
+    // telepitesen az elso napon. A tu SZANDEKA az volt, hogy a felderites ne
+    // vigye at az aliast egy masik MAPPARA. A beszelgetes-azonosito viszont
+    // termeszetenel fogva mulando: minden `/clear`, minden uj ful es minden
+    // VS Code-ujrainditas ujat csinal.
+    //
+    // A TULAJ DONTESE (2026-08-26): amig a bekotott ful NYITVA van, senki nem
+    // nyul hozza -- a kezi bekotes akkor is ur, ha regebbi fulre mutat. Amint
+    // a VS Code-ban bezarul ES van helyette nyitott ful ugyanabban a mappaban,
+    // a felderites atall ra. Ha egyik ful sem nyitott, MARAD a regi: olyankor
+    // nem tudjuk, hova kellene atallni, es a talalgatas rosszabb a semminel.
+    //
+    // Azt, hogy a bekotott ful el-e, EZ A FUGGVENY NEM TUDJA -- a nyitott
+    // fulek listaja a jelentesben erkezik. Ezert dontesi jog helyett egy
+    // KIMONDOTT engedelyt kap a hivotol (`repointStale`), es a route szamolja
+    // ki. Igy a szabaly egy helyen van, es tesztelheto.
+    if (existing.pinned && !opts.repointStale) return existing
     if (existing.workspacePath.toLowerCase() !== input.workspacePath.toLowerCase()) return existing
     // Older transcript than the one we already have: ignore (out-of-order report).
     if (
@@ -932,6 +979,11 @@ export interface CodeWorker {
   lastSeenAt: number
   lastAction: string | null
   sessionsReported: number | null
+  /** A Windows-oldali szkript verzioja, ahogy MAGA jelenti.
+   *  `null` = nem kuldott verziot -> a telepitett peldany REGEBBI annal, mint
+   *  amikor a verziojeloles bekerult. Ez NEM ugyanaz, mint a "nem latok oda":
+   *  a jelentes megerkezett, csak verzio nelkul. */
+  version: string | null
 }
 
 /** A worker that has not called in for this long is treated as DOWN. It polls
@@ -949,19 +1001,35 @@ export function recordCodeWorkerSeen(
   action: string,
   sessionsReported?: number,
   now = Date.now(),
+  version?: string | null,
 ): void {
   ensureTables()
   const id = (host || 'windows').trim().slice(0, 120) || 'windows'
+  const ver = typeof version === 'string' && version.trim() ? version.trim().slice(0, 40) : null
   getDb().prepare(
-    `INSERT INTO code_workers (host, last_seen_at, last_action, sessions_reported)
-     VALUES (@host, @now, @action, @reported)
+    `INSERT INTO code_workers (host, last_seen_at, last_action, sessions_reported, worker_version)
+     VALUES (@host, @now, @action, @reported, @version)
      ON CONFLICT(host) DO UPDATE SET
        last_seen_at = excluded.last_seen_at,
        last_action = excluded.last_action,
        -- Only a discovery round knows the session count; a claim/heartbeat must
        -- not blank out what the last discovery reported.
-       sessions_reported = COALESCE(excluded.sessions_reported, code_workers.sessions_reported)`,
-  ).run({ host: id, now, action: action.slice(0, 40), reported: sessionsReported ?? null })
+       sessions_reported = COALESCE(excluded.sessions_reported, code_workers.sessions_reported),
+       -- A verziot CSAK a felderitesi kor irja: az visz verziot. A claim
+       -- 3 masodpercenkent fut, es ha az is irna, NULL-t tenne a helyere --
+       -- merve 2026-08-23: a mezo ezert maradt ures a friss workernel is.
+       -- A felderites viszont FELULIR (a COALESCE elrejtene, ha valaki egy
+       -- regi peldanyt allit vissza), es a verziotlan regi peldany ott is
+       -- NULL-t ir, tehat az elavultsag latszik.
+       worker_version = CASE WHEN @isDiscovery = 1 THEN excluded.worker_version ELSE code_workers.worker_version END`,
+  ).run({
+    host: id,
+    now,
+    action: action.slice(0, 40),
+    reported: sessionsReported ?? null,
+    version: ver,
+    isDiscovery: action === 'discovery' ? 1 : 0,
+  })
 }
 
 /** Amit a worker a LEGUTOBBI felderitesi koreben a gepen talalt -- nyersen,
@@ -1013,12 +1081,38 @@ export interface CodeCandidate {
    *  transcript utolso assistant-sorabol jon, ugyanabbol, ahonnan a kontextus.
    *  `null` = nem latunk oda -- olyankor a felulet sem talalhat ki egyet. */
   model: string | null
+  /** A beszelgetest futtato Claude Code folyamat azonositoja, ugyanabbol a
+   *  `~/.claude/sessions/<pid>.json` fajlbol, amibol a `live` jon.
+   *
+   *  Miert kell: Boss, 2026-08-23 -- "a vscode ban nem tudom bezarni. mert nem
+   *  latok ott semmit. tehat bezarni sem tudok semmit mar." Egy olyan
+   *  beszelgetes, aminek a fule mar nincs sehol, de a folyamata el, CSAK igy
+   *  zarhato be a feluletrol. `null` = nem latunk oda (regi worker). */
+  pid: number | null
+  /** A beszelgetes naplojanak TELJES utja a Claude Code gepen. A worker kuldi,
+   *  mert O tudja: Marveen a WSL-ben fut, a napló a Windowson van, es a
+   *  projekt-mappa neve egy slug -- azt kitalalni tippeles volna.
+   *
+   *  Miert kell: Boss, 2026-08-28 -- "ha me van a bekototte, akor miert nem
+   *  jeleniti meg a chat beszelgetest a kartyan???". Enelkul a kartya tud a
+   *  beszelgetesrol (nev, token), de a TARTALMAT nem tudja megnyitni.
+   *
+   *  `null` = nem latunk oda (regi worker, ami meg nem kuldi ezt a mezot). */
+  transcriptPath: string | null
 }
 
 /** Egy gepen ennyi projekt folott a lista amugy is athatolhatatlan lenne, es
  *  a memoriat sem hagyjuk korlatlanul nőni egy kulso jelentes nyoman. */
 const MAX_CANDIDATES = 200
 let codeCandidates: CodeCandidate[] = []
+/**
+ * Kaptunk-e EBBEN a folyamatban legalabb egy jelentest.
+ *
+ * A jeloltlista memoriaban el, a szivveres viszont a lemezen -- ujrainditas
+ * utan tehat a worker online, a lista megis ures. E nelkul a mezo nelkul ezt
+ * nem lehet megkulonboztetni attol, hogy tenyleg nincs nyitott beszelgetes.
+ */
+let candidatesEverReported = false
 
 export function recordCodeCandidates(
   host: string,
@@ -1031,6 +1125,8 @@ export function recordCodeCandidates(
     contextTokens?: number
     live?: boolean | null
     model?: string
+    pid?: number
+    transcriptPath?: string
   }[],
   now = Date.now(),
 ): void {
@@ -1065,10 +1161,23 @@ export function recordCodeCandidates(
       // mezo, regi worker) azt jelenti: nem latunk oda.
       live: typeof s.live === 'boolean' ? s.live : null,
       model: typeof s.model === 'string' && s.model.trim() ? s.model.trim().slice(0, 60) : null,
+      // Csak ervenyes, pozitiv folyamatazonositot fogadunk el: barmi mas azt
+      // jelenti, hogy nem latunk oda -- olyankor a bezaras-gomb sem jelenhet
+      // meg, mert nem lenne mit bezarni.
+      pid: typeof s.pid === 'number' && Number.isInteger(s.pid) && s.pid > 0 ? s.pid : null,
+      // A napló utja KULSO bemenet: egy `.jsonl` fajlnev kell, aminek a neve
+      // maga a sessionId -- barmi mas nem "furcsa ut", hanem olyasmi, amit
+      // sosem szabad megnyitni. A szigoru ellenorzes a beolvasasnal (a
+      // `code-conversation.ts`-ben) is megvan; ez itt az elso szuro.
+      transcriptPath:
+        typeof s.transcriptPath === 'string' && s.transcriptPath.trim().length > 0 && s.transcriptPath.length <= 4096
+          ? s.transcriptPath.trim()
+          : null,
     })
     if (mine.length >= MAX_CANDIDATES) break
   }
   codeCandidates = [...others, ...mine].slice(-MAX_CANDIDATES)
+  candidatesEverReported = true
 }
 
 export function listCodeCandidates(): CodeCandidate[] {
@@ -1078,6 +1187,7 @@ export function listCodeCandidates(): CodeCandidate[] {
 /** Csak teszthez: a modul-szintu lista kiurítese ket eset kozott. */
 export function _resetCodeCandidates(): void {
   codeCandidates = []
+  candidatesEverReported = false
 }
 
 export function listCodeWorkers(): CodeWorker[] {
@@ -1090,6 +1200,7 @@ export function listCodeWorkers(): CodeWorker[] {
     lastSeenAt: row['last_seen_at'] as number,
     lastAction: (row['last_action'] as string | null) ?? null,
     sessionsReported: (row['sessions_reported'] as number | null) ?? null,
+    version: (row['worker_version'] as string | null) ?? null,
   }))
 }
 
@@ -1111,6 +1222,15 @@ export interface CodeTab {
   live: boolean | null
   /** A beszelgetesben eppen felelo modell, vagy `null` = nem latunk oda. */
   model: string | null
+  /** A futo Claude Code folyamat azonositoja; `null` = nem latunk oda.
+   *  Reszletek a `CodeCandidate.pid`-nel. */
+  pid: number | null
+  /** A beszelgetes naplojanak TELJES utja azon a gepen, ahol a Claude Code fut
+   *  (`C:\Users\...\.claude\projects\<slug>\<sessionId>.jsonl`). Ebbol tudja a
+   *  vezerlopult megmutatni a beszelgetes TARTALMAT is, nem csak a nevet es a
+   *  tokenszamot. `null` = nem latunk oda (regi worker, ami meg nem kuldi) --
+   *  olyankor a felulet a gombot sem kinalja, mert nem lenne mit megnyitnia. */
+  transcriptPath: string | null
 }
 
 export interface CodeTabProject {
@@ -1120,6 +1240,13 @@ export interface CodeTabProject {
   workspacePath: string
   currentSessionId: string | null
   tabs: CodeTab[]
+  /** Amit a nyitottsag-szuro KIDOBOTT a `tabs`-bol: a mappahoz tartozo tobbi
+   *  beszelgetes, aminek a folyamata mar nem fut. Nem szemet, es nem is
+   *  "nincs": a VS Code panelen ezek a fulek nyitva lehetnek (Boss,
+   *  2026-08-28: "a kartyan csak eg chat van megjelenitve, most, de a vscode
+   *  ban van vagy 3 beszelgetes"). A fo listaba nem valok -- oda a cimezheto,
+   *  futo beszelgetesek mennek --, de elerhetonek KELL lenniuk. */
+  closedTabs: CodeTab[]
 }
 
 export interface CodeTabsView {
@@ -1136,8 +1263,11 @@ export interface CodeTabsView {
    *   - `ok`            : van mit mutatni
    *   - `empty`         : a vegrehajto el, es TENYLEG nincs beszelgetes
    *   - `worker-never`  : a vegrehajto meg egyszer sem jelentkezett
+   *   - `not-reported-yet`: a vegrehajto el, de EZ a folyamat (dashboard-
+   *     ujrainditas ota) meg nem kapott tole jelentest -- a lista nem ures,
+   *     hanem meg nem erkezett meg
    *   - `worker-stale`  : jelentkezett mar, de most nem valaszol */
-  reason: 'ok' | 'empty' | 'worker-never' | 'worker-stale'
+  reason: 'ok' | 'empty' | 'not-reported-yet' | 'worker-never' | 'worker-stale'
   window: { maxTabsPerProject: number; maxAgeDays: number }
 }
 
@@ -1147,6 +1277,45 @@ export interface CodeTabsView {
  *  hogy a felulet meg tudja mondani, MIT nem lat a listaban. */
 export const TABS_MAX_PER_PROJECT = 10
 export const TABS_MAX_AGE_DAYS = 21
+
+// ---- BEZARAS-KERESEK ------------------------------------------------------
+//
+// Boss, 2026-08-23: "a vscode ban nem tudom bezarni. mert nem latok ott semmit.
+// tehat bezarni sem tudok semmit mar. valamiert az a rendszerben maradt."
+//
+// Merve ugyanaznap: hat elo `claude` folyamat futott, mind ugyanannak az EGY VS
+// Code ablaknak a gyereke, kozben a felulet ket beszelgetest listazott. A
+// folyamat tehat tullep a fulen -- es amit a VS Code mar nem mutat, azt ott
+// bezarni sem lehet. A Marveen viszont latja (PID-je van), tehat itt kell hogy
+// legyen gomb ra.
+//
+// A kerest MEMORIABAN tartjuk, nem adatbazisban: ez egy MOSTANI szandek, aminek
+// egy ujraindult vezerlopult utan mar nincs ertelme (a folyamat kozben barmi
+// lehet). A worker a kovetkezo jelentesenel viszi el.
+const codeTabCloseRequests = new Map<string, number>()
+/** Ennyi ideig var egy kilepetlen keres a workerre. Ha ennyi alatt nem vitte
+ *  el, akkor nem is fogja (all a worker) -- a keres elavul, hogy egy kesobb
+ *  induló worker ne csukjon be valamit napokkal a kattintas utan. */
+export const CLOSE_REQUEST_TTL_MS = 10 * 60 * 1000
+
+/** Csak teszthez. */
+export function _resetCodeTabCloseRequests(): void { codeTabCloseRequests.clear() }
+
+export function requestCodeTabClose(sessionId: string, now = Date.now()): void {
+  const id = (sessionId || '').trim()
+  if (!id) return
+  codeTabCloseRequests.set(id, now)
+}
+
+/** A worker jelentesekor: elviszi a kereseket. A lejartakat NEM adjuk ki. */
+export function takeCodeTabCloseRequests(now = Date.now()): string[] {
+  const out: string[] = []
+  for (const [id, at] of codeTabCloseRequests) {
+    if (now - at <= CLOSE_REQUEST_TTL_MS) out.push(id)
+    codeTabCloseRequests.delete(id)
+  }
+  return out
+}
 
 /** A jelentett beszelgetesek projektenkent csoportositva -- ez all a
  *  `/api/code/tabs` es a `/tabs` Telegram-parancs mogott is, hogy a ket felulet
@@ -1168,6 +1337,9 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
         workspacePath: c.workspacePath,
         currentSessionId: registered ? registered.sessionId : null,
         tabs: [],
+        // A szetvalogatas lentebb tortenik (a nyitottsag-szuro utan); itt meg
+        // minden ful egy listaban gyulik.
+        closedTabs: [],
       }
       groups.set(key, g)
     }
@@ -1183,6 +1355,8 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
       contextTokens: c.contextTokens,
       live: c.live,
       model: c.model,
+      pid: c.pid,
+      transcriptPath: c.transcriptPath,
     })
   }
 
@@ -1200,13 +1374,32 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
     return kept.length > 0 ? kept : tabs.filter((t) => t.current)
   }
 
+  // A KIDOBOTT sorok NEM tunnek el nyomtalanul: kulon listaba mennek.
+  //
+  // Boss, 2026-08-28: "a kartyan csak eg chat van megjelenitve, most, de a
+  // vscode ban van vagy 3 beszelgetes." Mert allapot: a masik ketto NYITVA van
+  // a VS Code panelen, de a folyamata mar nem fut (ma egy sort sem irtak),
+  // ezert `live === false`. A ket allitas nem mond ellent egymasnak -- a
+  // "nyitott ful" es a "futo folyamat" KET KULONBOZO dolog --, de a felulet
+  // eddig csak az egyiket ismerte, es a masikat nyomtalanul eldobta.
+  //
+  // A `tabs` ezert valtozatlan marad (a fo lista tiszta, ahogy 2026-08-23-ban
+  // kerted), a tobbi beszelgetes pedig a `closedTabs`-ban erheto el -- ott,
+  // ahol keresed oket, es nem ott, ahol utban vannak.
   const projects = [...groups.values()]
-    .map((g) => ({ ...g, tabs: filterLive(g.tabs).sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0)) }))
+    .map((g) => {
+      const byTime = (a: CodeTab, b: CodeTab): number => (b.mtime ?? 0) - (a.mtime ?? 0)
+      const shown = filterLive(g.tabs).sort(byTime)
+      const shownIds = new Set(shown.map((t) => t.sessionId))
+      return { ...g, tabs: shown, closedTabs: g.tabs.filter((t) => !shownIds.has(t.sessionId)).sort(byTime) }
+    })
     .sort((a, b) => (b.tabs[0]?.mtime ?? 0) - (a.tabs[0]?.mtime ?? 0))
 
   const reason: CodeTabsView['reason'] = workerOnline
     ? projects.length === 0
-      ? 'empty'
+      ? candidatesEverReported
+        ? 'empty'
+        : 'not-reported-yet'
       : 'ok'
     : lastSeenAt === null
       ? 'worker-never'
@@ -1215,7 +1408,9 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
   const note =
     reason === 'ok'
       ? null
-      : reason === 'empty'
+      : reason === 'not-reported-yet'
+        ? 'A vegrehajto el, de a Marveen ujrainditasa ota meg nem kuldott jelentest -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes. Egy percen belul megjon.'
+        : reason === 'empty'
         ? 'A vegrehajto el, de egyetlen beszelgetest sem talalt: nyiss meg egy projektet VS Code-ban, es irj bele valamit.'
         : reason === 'worker-never'
           ? 'A vegrehajto (Windows worker) meg egyszer sem jelentkezett -- ez a lista NEM azt jelenti, hogy nincs nyitott beszelgetes.'
@@ -1229,6 +1424,24 @@ export function listCodeTabs(now = Date.now()): CodeTabsView {
     reason,
     window: { maxTabsPerProject: TABS_MAX_PER_PROJECT, maxAgeDays: TABS_MAX_AGE_DAYS },
   }
+}
+
+/** Egy beszelgetes a jelentett fulek kozul -- futo ES nem futo egyarant.
+ *
+ *  A beszelgetes-nezet ezen keresztul jut el a naplo utjahoz. Kifejezetten a
+ *  `closedTabs`-ot IS nezi: a nem futo beszelgetes tartalma ugyanugy olvashato
+ *  kell hogy legyen, kulonben a nezet pont azt nem mutatna meg, amiert
+ *  keszult. `null` = ilyen sessiont egyetlen worker sem jelentett -- ami mas,
+ *  mint hogy "ures a beszelgetes". */
+export function findCodeTab(sessionId: string, now = Date.now()): CodeTab | null {
+  const id = (sessionId || '').trim()
+  if (!id) return null
+  for (const g of listCodeTabs(now).projects) {
+    for (const tb of [...g.tabs, ...g.closedTabs]) {
+      if (tb.sessionId === id) return tb
+    }
+  }
+  return null
 }
 
 export interface CodeBridgeHealth {

@@ -36,6 +36,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# A SAJAT verzioja. A szkript a felhasznalo gepen egy MASOLATBAN fut, es egy
+# elavult masolat nem hibazik: nemaan regi adatot kuld. Ezert megy fel minden
+# felderitesi korrel, es ezert veti ossze Marveen a repoban levo fajlbol
+# kiolvasott vart verzioval (src/web/code-worker-version.ts). Ha itt valtozik
+# valami, amit a szervernek is tudnia kell, EZT A SORT is emelni kell.
+$script:WorkerVersion = '2026-08-28.1'
 $script:HostId = $env:COMPUTERNAME
 if (-not $script:HostId) { $script:HostId = 'windows' }
 
@@ -121,7 +127,13 @@ function Read-TranscriptInfo {
           if ($obj.cwd) { $info.cwd = [string]$obj.cwd }
         } catch { }
       }
-      if (-not $info.title -and $line -match '"ai-title"') {
+      # A LEGUTOLSO cim nyer, nem az elso. Boss, 2026-08-23: "mellesleg a neve
+      # sem egyezik! mert nezd meg a marvinban az van hogy ... a vscode ugynok
+      # kartya tesztelese. es a vscode ban pedig csak vscode ugynok tesztelese."
+      # Merve ugyanabban a transcriptben: a 12. sor "VS Code ugynok kartya
+      # tesztelese", a 13. sortol vegig "VS Code ugynok tesztelese" -- a
+      # beszelgetes ATNEVEZODOTT, es a regi kod az ELSO cimnel megallt.
+      if ($line -match '"ai-title"') {
         try {
           $obj = $line | ConvertFrom-Json
           if ($obj.aiTitle) { $info.title = [string]$obj.aiTitle }
@@ -141,9 +153,11 @@ function Read-TranscriptInfo {
           }
         } catch { }
       }
-      # cwd + title is everything this pass needs; the rest of a 7 MB transcript
-      # is not worth reading once a minute, for every tab, on every pass.
-      if ($info.cwd -and $info.title) { break }
+      # A cwd az elso sorokban megvan, a cim viszont KESOBB is valtozhat, ezert
+      # itt mar nem lepunk ki -- a $MaxLines sor vegigolvasasa a hatar. Az
+      # atnevezes tipikusan a beszelgetes elejen tortenik (a Claude Code az
+      # elso valaszok utan cimez), a kesobbi atnevezest a farok-olvasas fogja.
+      if ($info.cwd -and $info.title -and $i -ge 60) { break }
     }
     if (-not $info.title -and $firstUser) {
       $info.title = if ($firstUser.Length -gt 80) { $firstUser.Substring(0, 80).TrimEnd() + '...' } else { $firstUser }
@@ -153,6 +167,28 @@ function Read-TranscriptInfo {
   } finally {
     if ($reader) { $reader.Dispose() }
   }
+  # A beszelgetes a KESOBBIEKBEN is atnevezodhet, azt pedig az elso par szaz sor
+  # nem arulja el. A fajl VEGET olvassuk meg hozza -- egy 15 MB-os transcriptbol
+  # az utolso 256 KB-ot, nem az egeszet: percenkent, minden fulre az egesz fajl
+  # vegigolvasasa mar merheto terheles lenne.
+  try {
+    $fs = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+      $tailBytes = 262144
+      if ($fs.Length -gt $tailBytes) { [void]$fs.Seek(-$tailBytes, 'End') }
+      $sr = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+      # Az elso sor a seek utan csonka lehet -- eldobjuk.
+      if ($fs.Length -gt $tailBytes) { [void]$sr.ReadLine() }
+      while ($null -ne ($line = $sr.ReadLine())) {
+        if ($line -match '"ai-title"') {
+          try {
+            $obj = $line | ConvertFrom-Json
+            if ($obj.aiTitle) { $info.title = [string]$obj.aiTitle }
+          } catch { }
+        }
+      }
+    } finally { $fs.Dispose() }
+  } catch { }
   return $info
 }
 
@@ -240,7 +276,10 @@ function Get-OpenSessionIds {
     $p = Get-Process -Id ([int]$o.pid) -ErrorAction SilentlyContinue
     if (-not $p) { continue }
     if ($p.ProcessName -notmatch '^(node|claude)$') { continue }
-    $open[[string]$o.sessionId] = $true
+    # A PID-et is megjegyezzuk, nem csak azt, hogy nyitva van: enelkul a
+    # feluletrol nem lehetne bezarni egy olyan beszelgetest, aminek a fulet a
+    # VS Code-ban mar nem talalod (Boss, 2026-08-23).
+    $open[[string]$o.sessionId] = [int]$o.pid
   }
   return $open
 }
@@ -343,7 +382,11 @@ function Get-LocalSessions {
       # $null = nem tudtuk megnezni (nincs sessions mappa). A `$false` ezzel
       # szemben MERES: a ful nincs nyitva a VS Code-ban.
       $live = $null
-      if ($null -ne $open) { $live = [bool]$open.ContainsKey($sid) }
+      $sidPid = $null
+      if ($null -ne $open) {
+        $live = [bool]$open.ContainsKey($sid)
+        if ($live) { $sidPid = [int]$open[$sid] }
+      }
       $usage = Read-TranscriptUsage -Path $f.FullName
       [void]$out.Add(@{
         workspacePath = $info.cwd
@@ -354,6 +397,13 @@ function Get-LocalSessions {
         primary       = $isPrimary
         contextTokens = $usage.tokens
         model         = $usage.model
+        pid           = $sidPid
+        # A NAPLO TELJES UTJA. Enelkul a vezerlopult nem tudna megmutatni a
+        # beszelgetes TARTALMAT: Marveen a WSL-ben fut, a `.jsonl` a Windowson
+        # van, es a projekt-mappa neve egy slug, amit kitalalni tippeles volna
+        # (Boss, 2026-08-28: "miert csk mondja hogy megvan de nem mutatja
+        # meg?"). Amit a gep MAR TUD, azt ne kelljen kikovetkeztetni.
+        transcriptPath = $f.FullName
       })
       $kept++
       $isPrimary = $false
@@ -371,7 +421,7 @@ function Publish-Sessions {
     # session count of the last successful pass (COALESCE keeps it), so the
     # page would still claim "3 projects" while the executor found none.
     Write-Log 'no local Claude Code sessions found -- reporting empty list' 'WARN'
-    $emptyBody = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"sessions":[]}'
+    $emptyBody = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"workerVersion":' + ($script:WorkerVersion | ConvertTo-Json -Compress) + ',"sessions":[]}'
     try {
       Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $emptyBody | Out-Null
     } catch {
@@ -385,9 +435,49 @@ function Publish-Sessions {
   # the count is. (The server tolerates both now, but the client should not be
   # the one relying on that.)
   $sessionsJson = '[' + (($sessions | ForEach-Object { $_ | ConvertTo-Json -Depth 6 -Compress }) -join ',') + ']'
-  $body = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"sessions":' + $sessionsJson + '}'
+  $body = '{"host":' + ($script:HostId | ConvertTo-Json -Compress) + ',"workerVersion":' + ($script:WorkerVersion | ConvertTo-Json -Compress) + ',"sessions":' + $sessionsJson + '}'
   $resp = Invoke-Bridge -Path '/api/code/sessions' -Method 'POST' -RawBody $body
   Write-Log ('sessions reported: ' + ($resp.registered -join ', '))
+  Close-RequestedSessions -Requested $resp.closeSessions -Sessions $sessions
+}
+
+# EGY BESZELGETES BEZARASA a vezerlopultrol.
+#
+# Boss, 2026-08-23: "a vscode ban nem tudom bezarni. mert nem latok ott semmit.
+# tehat bezarni sem tudok semmit mar. valamiert az a rendszerben maradt."
+#
+# A szerver nem tud minket hivni (nincs nyitott portunk), ezert a kerest a
+# jelentes VALASZA hozza. Amit leallitunk, azt a PID alapjan azonositjuk, es
+# elotte MEGGYOZODUNK rola, hogy tenyleg az a beszelgetes fut alatta -- a PID
+# ujrahasznosul, es egy tevedesbol kilott idegen folyamat sokkal rosszabb, mint
+# egy vegre nem hajtott kattintas.
+function Close-RequestedSessions {
+  param($Requested, $Sessions)
+  if (-not $Requested) { return }
+  foreach ($sid in @($Requested)) {
+    $sid = [string]$sid
+    if (-not $sid) { continue }
+    $row = @($Sessions | Where-Object { $_.sessionId -eq $sid }) | Select-Object -First 1
+    if (-not $row -or -not $row.pid) {
+      Write-Log ('close requested for ' + $sid + ' but no live pid is known') 'WARN'
+      continue
+    }
+    $p = Get-Process -Id ([int]$row.pid) -ErrorAction SilentlyContinue
+    if (-not $p) {
+      Write-Log ('close requested for ' + $sid + ': process ' + $row.pid + ' already gone')
+      continue
+    }
+    if ($p.ProcessName -notmatch '^(node|claude)$') {
+      Write-Log ('close requested for ' + $sid + ' but pid ' + $row.pid + ' is ' + $p.ProcessName + ' -- refusing') 'WARN'
+      continue
+    }
+    try {
+      Stop-Process -Id $p.Id -ErrorAction Stop
+      Write-Log ('closed session ' + $sid + ' (pid ' + $p.Id + ')')
+    } catch {
+      Write-Log ('closing ' + $sid + ' failed: ' + $_.Exception.Message) 'WARN'
+    }
+  }
 }
 
 # ---- executing one task --------------------------------------------------
@@ -502,6 +592,20 @@ function Invoke-CodeTask {
     }
     if ($parsed.PSObject.Properties.Name -contains 'total_cost_usd') { $payload.costUsd = [double]$parsed.total_cost_usd }
     if ($parsed.PSObject.Properties.Name -contains 'num_turns') { $payload.numTurns = [int]$parsed.num_turns }
+    # MELYIK BESZELGETESBEN VEGZODOTT A FUTAS.
+    #
+    # Merve 2026-08-26-an, ket futassal ugyanabban a mappaban:
+    #   `-p --resume <id> "Mondd: korte"` -> session_id UGYANAZ (folytatas)
+    #   `-p --resume <id> "/clear"`       -> session_id UJ      (uj, ures beszelgetes)
+    # A kimenet session_id-je pontosan akkor valtozik, amikor a beszelgetes
+    # tenylegesen atvaltott -- ez nem kovetkeztetes, hanem a CLI sajat jelentese.
+    #
+    # Enelkul a Torles gomb SEMMIT nem ert el: uj, ures beszelgetest nyitott,
+    # de arrol csak a mappa-bejarasbol lehetett tudni, azt viszont a 2 KB-os also
+    # hatar (lasd fentebb) kiszurte -- egy frissen kiuritett beszelgetes ~1,8 KB.
+    # Igy a projekt a REGI beszelgetesen maradt, a kovetkezo feladat is oda ment,
+    # a felulet kozben sikert jelentett.
+    if ($parsed.PSObject.Properties.Name -contains 'session_id') { $payload.resultSessionId = [string]$parsed.session_id }
   } else {
     # No parsable JSON: report the raw tail so the failure is diagnosable from
     # Telegram instead of silently coming back empty.
@@ -518,6 +622,90 @@ function Invoke-CodeTask {
   return $payload
 }
 
+# ---- onfrissites ---------------------------------------------------------
+#
+# Boss, 2026-08-26: "miert kell ezt a usernek eljatszania? miert nem lehet ezt
+# automatan megcsinalni?"
+#
+# A PowerShell az INDULASKOR beolvasott kodot futtatja: a fajl felulirasa egy
+# mar futo peldanyra nincs semmilyen hatassal. Ezert volt eddig ket kezi lepes
+# egy frissites (letoltes + ujrainditas), es amig a masodik el nem hangzott, a
+# regi peldany nemaan regi adatot kuldott -- 2026-08-23-an pontosan ez adta a
+# rossz beszelgetes-cimeket. A rendszer TUDTA a hibat es ki is irta, csak a
+# javitas egyetlen szereploje a tulajdonos volt.
+#
+# Amit ez a fuggveny NEM tesz meg, szandekosan:
+#  - nem cserel futo feladat kozben: a hivo csak akkor hivja, ha nem kapott
+#    taskot, tehat a csere soha nem szakit felbe egy futo Claude-hivast;
+#  - nem hisz el barmit: a szkriptet a sajat Marveenjetol tolti (loopback +
+#    token), es CSAK akkor cserel, ha a letoltott szovegben allo verziojeloles
+#    pontosan az, amit a szerver vart. Egy csonka vagy felresiklott letoltes
+#    igy nem tudja lecserelni a mukodo peldanyt.
+#
+# A visszateres $true = "lecsereltem a fajlt, ki kell lepni". Maga a kilepes es
+# az ujrainditas NEM itt tortenik: a mutexet eloszor el kell engedni, kulonben
+# az uj peldany azonnal masodiknak latszik es kilep. Ezert csak jelzunk.
+function Invoke-SelfUpdate {
+  param([string]$Expected)
+
+  # Ures/hianyzo vart verzio = "nem latok oda" (ebben a telepitesben nincs meg
+  # a szkript, amibol a szerver olvasna). Ez NEM ugyanaz, mint "elavult", es
+  # nem szabad frissitesnek olvasni: abbol vegtelen kor lenne.
+  if ([string]::IsNullOrWhiteSpace($Expected)) { return $false }
+  if ($Expected -eq $script:WorkerVersion) { return $false }
+
+  $self = $PSCommandPath
+  if ([string]::IsNullOrWhiteSpace($self)) {
+    Write-Log 'self-update: nem tudom, melyik fajlbol futok, ezert nem cserelek' 'ERROR'
+    return $false
+  }
+
+  Write-Log ("self-update: a futo peldany {0}, a hid {1}-t var -- frissitek" -f $script:WorkerVersion, $Expected) 'WARN'
+
+  try {
+    $fresh = [string](Invoke-Bridge -Path '/api/code/worker-script?file=ps1')
+  } catch {
+    # A halo: ha a letoltes nem megy, MARADUNK a regin. Egy elavult, de futo
+    # worker tobbet er egy nem letezonel -- es a dashboard sora tovabbra is
+    # szol rola.
+    Write-Log ('self-update: a letoltes nem sikerult, maradok a regin: ' + $_.Exception.Message) 'ERROR'
+    return $false
+  }
+
+  # Ket fuggetlen ellenorzes, mert a ketto mas hibat fog meg: a hossz a csonka
+  # valaszt (proxy, megszakadt kapcsolat), a verziojeloles pedig azt, hogy
+  # tenyleg AZT kaptuk, amit a szerver igert.
+  if ($fresh.Length -lt 5000) {
+    Write-Log ('self-update: a letoltott szkript gyanusan rovid ({0} karakter), nem cserelek' -f $fresh.Length) 'ERROR'
+    return $false
+  }
+  $pattern = 'WorkerVersion\s*=\s*''([^'']{1,40})'''
+  $m = [regex]::Match($fresh, $pattern)
+  if (-not $m.Success -or $m.Groups[1].Value -ne $Expected) {
+    $got = if ($m.Success) { $m.Groups[1].Value } else { '(nincs benne verziojeloles)' }
+    Write-Log ("self-update: a letoltott szkript {0}, de {1}-t vartam -- nem cserelek" -f $got, $Expected) 'ERROR'
+    return $false
+  }
+
+  try {
+    # A regi peldany megmarad egy masolatban. Nem a visszaallashoz kell (azt az
+    # ujratoltes elvegzi), hanem ahhoz, hogy egy elrontott frissites utan
+    # legyen mit MEGNEZNI -- mi ment el.
+    Copy-Item -Force -LiteralPath $self -Destination ($self + '.bak-selfupdate')
+    # Eloszor melle irunk, aztan egy lepesben a helyere mozgatunk: ha az iras
+    # kozben all meg a gep, a MUKODO fajl marad a helyen, nem egy fel szkript.
+    $tmp = $self + '.new'
+    [System.IO.File]::WriteAllText($tmp, $fresh, (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -Force -LiteralPath $tmp -Destination $self
+  } catch {
+    Write-Log ('self-update: a fajlcsere nem sikerult, maradok a regin: ' + $_.Exception.Message) 'ERROR'
+    return $false
+  }
+
+  Write-Log ("self-update: {0} kiirva, kilepek es ujraindulok" -f $Expected) 'WARN'
+  return $true
+}
+
 # ---- main loop -----------------------------------------------------------
 
 function Start-WorkerLoop {
@@ -530,6 +718,15 @@ function Start-WorkerLoop {
       }
 
       $claim = Invoke-Bridge -Path '/api/code/tasks/claim' -Method 'POST' -Body @{ host = $script:HostId }
+      # A csere pillanata: van kapcsolat a hiddal, es epp NINCS futo feladat.
+      # Ha most cserelunk, semmi nem szakad felbe. Ha van task, a frissites var
+      # a kovetkezo ures korre -- harom masodperc mulva ujra itt vagyunk.
+      if ($claim -and -not $claim.task) {
+        if (Invoke-SelfUpdate -Expected ([string]$claim.expectedWorkerVersion)) {
+          $script:RestartAfterExit = $true
+          return
+        }
+      }
       if ($claim -and $claim.task) {
         $mode = 'acceptEdits'
         if ($claim.permissionMode) { $mode = [string]$claim.permissionMode }
@@ -576,14 +773,45 @@ if ($DiscoverOnly) {
 
 # One worker per machine: two would both claim tasks and run two CLIs against
 # the same session at once.
+#
+# A MASODIK PELDANY KILEPESE NEM HIBA -- ES 2026-08-26 OTA NEM IS RITKASAG.
+# Az utemezett feladat mostantol otpercenkent ujraindit (`/sc minute /mo 5`),
+# hogy egy elhalt worker magatol visszajojjon; a mutex teszi artalmatlanna.
+# Vagyis a TIPIKUS nap ugy nez ki, hogy 287 inditas azonnal kilep itt, es egy
+# fut. WARN-kent naplozva ez naponta 287 riasztonak latszo sor lenne, ami
+# pontosan azt fedne el, amiert a naplo van. Ezert ez az ag NEMA.
+#
+# Amit ezzel nem vesztunk el: hogy fut-e worker, nem ebbol tudjuk, hanem a
+# szivverésbol -- a dashboard `code_bridge_dead` jelzese a WORKER_STALE_MS
+# alapjan meri. A csend itt tehat "minden rendben", nem "nem latok oda".
 $mutex = New-Object System.Threading.Mutex($false, 'Global\MarvinCodeWorker')
 if (-not $mutex.WaitOne(0)) {
-  Write-Log 'another worker instance is already running -- exiting' 'WARN'
   return
 }
+$script:RestartAfterExit = $false
 try {
   Start-WorkerLoop
 } finally {
   $mutex.ReleaseMutex()
   $mutex.Dispose()
+}
+
+# Az uj peldany indulasa CSAK a mutex elengedese utan johet: elotte azonnal
+# masodiknak latszana, es szo nelkul kilepne -- pont az a nema ag, ami fentebb
+# artalmatlan, itt viszont ott hagyna a gepet worker nelkul.
+#
+# Ha az inditas barmiert nem sikerul, nem maradunk worker nelkul: a
+# `MarvinCodeWorker` utemezett feladat otpercenkent ujraindit (merve
+# 2026-08-26: LastRun 16:38:38 -> NextRun 16:43:43), es akkor mar a FRISS
+# fajlt inditja el. Az azonnali inditas tehat csak azert van, hogy ne kelljen
+# ot percet varni ra.
+if ($script:RestartAfterExit) {
+  try {
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Minimized -ArgumentList @(
+      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath
+    )
+    Write-Log 'self-update: az uj peldany elindult' 'WARN'
+  } catch {
+    Write-Log ('self-update: az azonnali ujrainditas nem sikerult, az utemezett feladat ot percen belul visszahoz: ' + $_.Exception.Message) 'ERROR'
+  }
 }

@@ -66,6 +66,9 @@ describe('session map', () => {
     if ('error' in bad) expect(bad.candidates).toEqual(['tradingbot', 'tradingdesk'])
   })
 
+  // A tu ALAPBOL feltetlen: a felderites nem irhatja felul. Az EGYETLEN kivetel
+  // a `repointStale` engedely, amit a route szamol ki merve (lasd lentebb) --
+  // ez a teszt szandekosan NEM adja meg, ezert itt a regi viselkedes az igaz.
   it('discovery refreshes a session id but a PIN is never overwritten', () => {
     upsertCodeSession({ ...TRADING, pinned: true })
     upsertCodeSession(
@@ -398,5 +401,55 @@ describe('formatDuration', () => {
     expect(formatDuration(8_099)).toBe('8s')
     expect(formatDuration(72_000)).toBe('1m 12s')
     expect(formatDuration(null)).toBe('?')
+  })
+})
+
+/**
+ * ELAVULT BEKOTES: a tu tullelte a beszelgetest.
+ *
+ * A MERT ESET (2026-08-26). A `fejlesztes` projekt a
+ * `d34fac5b-523b-4d3e-8c8d-0e4df9ab0ea1` beszelgeteshez volt szogezve; a sora 31
+ * oraja nem frissult, mikozben a VS Code-ban ket EGESZEN MAS ful volt nyitva.
+ * Minden odakuldott feladat egy bezart beszelgetesbe ment volna. Boss: "a
+ * marveen ba beallitott chat fulek nem azonosak a vscode ban levo chat
+ * fulekkel. az gaz."
+ *
+ * A tulaj dontese: atalljon, DE csak ha a bekotott ful tenyleg bezarult. A
+ * harom teszt a harom hatart rogziti -- ha barmelyik eldol, vagy a feladat megy
+ * megint halott fulbe, vagy a rendszer elhuzza a tulajt a sajat valasztasarol.
+ */
+describe('elavult bekotes: a tu tulelte a beszelgetest', () => {
+  const WS = 'C:\\ws\\TradingBot'
+
+  it('a bezart fulrol ATALL a nyitottra -- ez a javitas lenyege', () => {
+    upsertCodeSession({ project: 'p', workspacePath: WS, sessionId: 'bezart', pinned: true })
+    upsertCodeSession(
+      { project: 'p', workspacePath: WS, sessionId: 'nyitott' },
+      { fromDiscovery: true, repointStale: true },
+    )
+    expect(getCodeSession('p')!.sessionId).toBe('nyitott')
+  })
+
+  it('a TU MEGMARAD az atallas utan is -- nem szedjuk le nemaan', () => {
+    // Ha az atallas mellekesen leszedne a tut, a kovetkezo felderites mar
+    // szabadon rangatna a projektet. Az atallas EGY dontes, nem a zar vege.
+    upsertCodeSession({ project: 'p', workspacePath: WS, sessionId: 'bezart', pinned: true })
+    upsertCodeSession(
+      { project: 'p', workspacePath: WS, sessionId: 'nyitott' },
+      { fromDiscovery: true, repointStale: true },
+    )
+    expect(getCodeSession('p')!.pinned).toBe(true)
+  })
+
+  it('MASIK MAPPARA meg engedellyel sem all at -- a mappa-zar erosebb', () => {
+    // Az engedely arrol szol, hogy a BESZELGETES halott, nem arrol, hogy a
+    // mappa rossz. Egy alias-utkozest tovabbra is a tulaj rendez el.
+    upsertCodeSession({ project: 'p', workspacePath: WS, sessionId: 'bezart', pinned: true })
+    upsertCodeSession(
+      { project: 'p', workspacePath: 'C:\\ws\\Masik', sessionId: 'idegen' },
+      { fromDiscovery: true, repointStale: true },
+    )
+    expect(getCodeSession('p')!.sessionId).toBe('bezart')
+    expect(getCodeSession('p')!.workspacePath).toBe(WS)
   })
 })

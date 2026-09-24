@@ -52,6 +52,7 @@ import { statfsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { PROJECT_ROOT, STORE_DIR } from '../config.js'
+import { lastWakeAt } from '../wake-detect.js'
 import { readUpstreamSyncStatus, STALE_AFTER_DAYS } from './upstream-sync-status-io.js'
 import { claudeAuthState } from './claude-auth-presence.js'
 import { defaultLoginDependents, unaffectedByDefaultLogin } from './default-login-dependents.js'
@@ -59,7 +60,9 @@ import type { UpstreamSyncStatus } from './upstream-sync-status-io.js'
 import { homedir } from 'node:os'
 import { GIT_PULL_TASK } from '../git-sync.js'
 import { SCHEDULED_TASKS_DIR } from './scheduled-tasks-io.js'
+import { depotRoot } from '../depot.js'
 import { codeBridgeHealth, WORKER_STALE_MS } from './code-bridge-store.js'
+import { expectedWorkerVersion } from './code-worker-version.js'
 import { CODE_BRIDGE_ENABLED } from '../config.js'
 
 export type HealthStatus = 'ok' | 'warn' | 'bad'
@@ -358,6 +361,22 @@ export const COMMAND_HEALTH_FILE = 'command-task-health.json'
 /** Ennyi nap utan a napi lehuzas mar nem "kesik", hanem all. */
 export const GIT_PULL_STALE_DAYS = 3
 
+/**
+ * Meddig CSENDES a halozat-hiany, es mikortol hangos?
+ *
+ * Boss, 2026-08-26 dontese: ``csendben ujraprobal, 6 ora utan szol``. A ket
+ * hatar ket kulonbozo allitast valaszt szet:
+ *
+ *  - 6 ora alatt: a gep valoszinuleg most ebredt, vagy a halozat percekre
+ *    elment. A rendszer magatol ujraprobal, es a felulet ZOLD marad -- de a
+ *    sor akkor is ott van, tehat nem hallgatunk, csak nem riasztunk.
+ *  - 6 ora felett: ennyi ido alatt egy atmeneti zavar helyreallt volna. Ha
+ *    meg mindig nincs halozat, a tarolok tenylegesen elavulnak.
+ *  - 24 ora felett: egy egesz nap kimaradt. Ez mar piros.
+ */
+export const GIT_PULL_OFFLINE_LOUD_H = 6
+export const GIT_PULL_OFFLINE_DEAD_H = 24
+
 function olvasJson<T>(path: string): T | null {
   try { return JSON.parse(readFileSync(path, 'utf-8')) as T } catch { return null }
 }
@@ -378,6 +397,11 @@ interface GitSyncAllapot {
   finishedAt?: string
   results?: unknown[]
   errors?: number
+  /** Halozat hianyaban el nem ert tarolok szama -- NEM hiba. Regi
+   *  allapotfajlban hianyzik, ezert opcionalis: ilyenkor 0-nak szamit. */
+  offline?: number
+  /** Mikor kezdodott a mostani halozat-hianyos idoszak (ISO). */
+  offlineSince?: string | null
   rootError?: string
 }
 
@@ -482,10 +506,25 @@ export function gitPullRows(
     const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
     rows.push({ id, status: 'bad', params: { n: hiba, all: db, names: lista } })
   }
+  // HALOZAT-HIANY. Kulon sor, kulon hangero -- nem a hibak kozott.
+  //
+  // Ez a sor a 2026-08-26-i reggel miatt letezik: het tarolo elhasalt
+  // `Could not resolve host: github.com`-mal, mert a lehuzas ebredes utan
+  // azonnal futott. Egy oraval kesobb minden mukodott, de a piros sor ott
+  // maradt egesz napra, es azt sugallta, hogy a tarolok elromlottak.
+  // Nem romlottak el: nem lattunk oda.
+  const offline = Number(run && run.offline) || 0
+  if (offline > 0) {
+    const ota = run && run.offlineSince ? Date.parse(run.offlineSince) : NaN
+    const oraja = Number.isFinite(ota) ? Math.max(0, Math.floor((now - ota) / 3_600_000)) : 0
+    const status: HealthRow['status'] =
+      oraja >= GIT_PULL_OFFLINE_DEAD_H ? 'bad' : oraja >= GIT_PULL_OFFLINE_LOUD_H ? 'warn' : 'ok'
+    rows.push({ id: 'git_pull_offline', status, params: { n: offline, all: db, h: oraja } })
+  }
   if (napja > GIT_PULL_STALE_DAYS) {
     // Nehany kihagyott nap keses; ket het mar allo utemezes.
     rows.push({ id: 'git_pull_stale', status: napja > 14 ? 'bad' : 'warn', params: { d: napja } })
-  } else if (hiba === 0) {
+  } else if (hiba === 0 && offline === 0) {
     rows.push({ id: 'git_pull_ok', status: 'ok', params: { n: db, d: napja } })
   }
   return rows
@@ -583,6 +622,16 @@ export function mcpAuthRows(
 export const GOOGLE_LIVE_FILE = '.google-live-check.json'
 /** Oranként fut; harom kihagyott kor mar allo ellenorzo, nem zaj. */
 export const GOOGLE_LIVE_STALE_MS = 3 * 60 * 60 * 1000
+
+/**
+ * Ebredes utan ennyi ideig nem panaszkodunk az elavult meresre.
+ *
+ * Tiz perc: a potlo kor ket perccel az ebredes utan indul, tiz fiok
+ * vegigkerdezese percekig tarthat, es a halozat is most all a labara. Ha
+ * tiz perc alatt sem lett friss meres, akkor mar tenyleg van valami baj --
+ * es akkor a sor megjelenik.
+ */
+export const WAKE_GRACE_MS = 10 * 60 * 1000
 const GOOGLE_LIVE_DEAD_MS = 24 * 60 * 60 * 1000
 
 interface GoogleLiveAllapot {
@@ -648,6 +697,15 @@ export function googleLiveRows(
   now: number = Date.now(),
   data: GoogleLiveAllapot | null = olvasJson<GoogleLiveAllapot>(join(STORE_DIR, GOOGLE_LIVE_FILE)),
   bekotott: number = googleAccountCount(),
+  /**
+   * Mikor ebredt utoljara a gep (vagy indult a folyamat).
+   *
+   * Azert PARAMETER es nem globalis olvasas, mert enelkul a turelmi ido
+   * nem tesztelheto: minden teszt a sajat folyamat-inditasat latna
+   * ebredesnek, es a turelem MINDIG aktiv lenne. Egy nem tesztelheto
+   * elnemitas ugyanolyan nema hiba, mint amit ez a modul kiszur.
+   */
+  ebredt: number = lastWakeAt(),
 ): HealthRow[] {
   if (bekotott === 0) return []
   if (!data || typeof data.checkedAt !== 'number' || !Array.isArray(data.accounts)) {
@@ -658,7 +716,17 @@ export function googleLiveRows(
   const rows: HealthRow[] = []
   const kora = Math.max(0, now - data.checkedAt)
   const oraja = Math.floor(kora / (60 * 60 * 1000))
-  if (kora > GOOGLE_LIVE_STALE_MS) {
+  // EBREDES-TURES.
+  //
+  // Ha a gep az imént ebredt, az ``N oraja nem futott`` NEM hiba: az ora allt,
+  // mert a folyamat nem futott. A potlo kor mar uton van (lasd
+  // `google-live-check.ts` onWake-bekotese), es ket percen belul lefut.
+  // Amig ez tart, nem riasztunk -- kulonben minden reggel sargat kapnank
+  // egy ejszakai alvasert. Ha a potlas megsem sikerul, a turelmi ido
+  // lejarta utan a sor ugyanugy megjelenik: nem nemitunk el semmit.
+  const ebredesOta = Math.max(0, now - ebredt)
+  const eppenPotol = ebredesOta < WAKE_GRACE_MS
+  if (kora > GOOGLE_LIVE_STALE_MS && !eppenPotol) {
     // Az allo ellenorzo a legalattomosabb eset: a lenti sorok ilyenkor egy REGI
     // pillanatrol szolnanak, magabiztosan.
     rows.push({ id: 'google_live_stale', status: kora > GOOGLE_LIVE_DEAD_MS ? 'bad' : 'warn', params: { h: oraja } })
@@ -673,7 +741,7 @@ export function googleLiveRows(
       status: 'bad',
       params: { n: rossz.length, all: data.accounts.length, names: rossz.join(', ') },
     })
-  } else if (kora <= GOOGLE_LIVE_STALE_MS) {
+  } else if (kora <= GOOGLE_LIVE_STALE_MS || eppenPotol) {
     // Zold sor is kell: a Boss szabalya szerint a "minden rendben"-t is ki kell
     // mondani, kulonben a hallgatas nem megkulonboztetheto a nem-futo
     // ellenorzestol -- pontosan ez volt a mai hiba alakja.
@@ -719,9 +787,178 @@ export function codeBridgeRows(
       params: { p: Math.floor(kora / 60000), n: d.queued + d.running },
     }]
   }
+  // A TELEPITETT Windows-peldany elavulhat anelkul, hogy barmi szolna: a
+  // szkript a sajat gepen egy masolatban fut, es egy regi masolat nem hibazik,
+  // csak nemaan regi adatot kuld. (2026-08-23: a rossz beszelgetes-cimek.)
+  const varhato = expectedWorkerVersion()
+  const jelentett = d.workers[0]?.version ?? null
+  if (varhato === null) {
+    // NEM LATUNK ODA: nincs meg a szkript ebben a telepitesben, vagy nincs
+    // benne verziojeloles. Ez nem ugyanaz, mint hogy elavult.
+    return [{ id: 'code_bridge_worker_unknown', status: 'warn', params: { n: d.sessions } }]
+  }
+  if (jelentett === null && (d.workers[0]?.sessionsReported ?? null) === null) {
+    // A verziot a FELDERITESI kor hozza (merve 2026-08-23: a claim 3
+    // masodpercenkent fut, a felderites percenkent). Amig az elso felderites
+    // le nem futott, nem tudjuk, hanyadik peldany fut -- ez "nem latok oda",
+    // nem "elavult". Enelkul minden friss telepites egy percig hamis
+    // figyelmeztetessel indulna.
+    return [{ id: 'code_bridge_worker_unknown', status: 'warn', params: { n: d.sessions } }]
+  }
+  if (jelentett === null) {
+    // A FELDERITES megjott, csak verzio nelkul -> a telepitett peldany regebbi
+    // annal, mint amikor a verziojeloles bekerult.
+    return [{ id: 'code_bridge_worker_unversioned', status: 'warn', params: { e: varhato } }]
+  }
+  if (jelentett !== varhato) {
+    return [{ id: 'code_bridge_worker_stale', status: 'warn', params: { r: jelentett, e: varhato } }]
+  }
   // Zold sor is kell: a hallgatas nem megkulonboztetheto a nem-futo
   // ellenorzestol -- pontosan ez a csapda vitte el az elozo ket hetet.
   return [{ id: 'code_bridge_ok', status: 'ok', params: { n: d.sessions, p: Math.floor(kora / 60000) } }]
+}
+
+/**
+ * Elerheto-e a depo? Olcso valasz: letezik-e a mappa.
+ *
+ * SZANDEKOSAN nem a `depotHealth()`-et hivjuk: az ir egy probafajlt a lemezre,
+ * ez a modul pedig minden Attekintes-betoltesnel lefut. A kulonbseg, ami itt
+ * szamit -- "van depo, de nem latok oda" -- ebbol is kiderul.
+ *
+ * `null`, ha nincs beallitva depo: ilyenkor nem a depo a kerdes.
+ */
+function depotIrhato(): boolean | null {
+  const root = depotRoot()
+  if (!root) return null
+  try { return statSync(root).isDirectory() } catch { return false }
+}
+
+
+// --- DRIVE-MENTES ---------------------------------------------------------
+//
+// Miert van ez a sor: 2026-08-27-en a #47 kartya vizsgalatakor derult ki, hogy
+// a Drive-mentes UTOLJARA 11 NAPPAL KORABBAN futott, es a fo fiok masolata
+// "reszleges" volt (elertuk a bejarasi korlatot, a tobbi kimaradt). Egyik sem
+// latszott sehol: a Depo oldalon egy szurke sorban allt, az Attekintesen semmi.
+// Egy biztonsagi mentes, amirol senki nem szol, hogy all -- nem mentes.
+//
+// A NULLA KET DOLGOT JELENTHET. Nulla bekotott mappa lehet friss telepites
+// (ilyenkor CSEND a helyes valasz), es lehet olvashatatlan beallitas-fajl
+// (ilyenkor a leghangosabb sor kell). A kettot NEM a szambol dontjuk el, hanem
+// magatol a forrastol kerdezzuk meg: letezik-e a fajl, es ertelmezheto-e.
+
+/** A mentes beallitas-fajlja a store-ban. */
+export const DRIVE_SYNC_FILE = 'drive-sync.json'
+/** Az utemezett kartya neve -- enelkul a mentes csak kezi gombnyomasra fut. */
+export const DRIVE_SYNC_TASK = 'drive-mentes'
+/** Ennyi nap utan a napi mentes mar nem "kesik", hanem all. */
+export const DRIVE_SYNC_STALE_DAYS = 3
+
+interface DriveSyncParos {
+  account?: string
+  lastRunAt?: string
+  lastResult?: string
+}
+
+/**
+ * A beallitas-fajl allapota -- HAROM eset, nem ketto.
+ *
+ * `hianyzik`: meg soha nem kotott be senki Drive-mappat. Friss telepites: csend.
+ * `olvashatatlan`: ott a fajl, de nem ertelmezheto. Ilyenkor a mentes NEM fut,
+ *   es errol hangosan szolni kell -- kulonben pont ugy nezne ki, mint a csend.
+ * `rendben`: van ertelmezheto lista (akar ures is).
+ */
+function driveSyncAllapot(path: string): { fajta: 'hianyzik' | 'olvashatatlan' | 'rendben'; parok: DriveSyncParos[] } {
+  let nyers: string
+  try {
+    nyers = readFileSync(path, 'utf-8')
+  } catch {
+    return { fajta: 'hianyzik', parok: [] }
+  }
+  try {
+    const d = JSON.parse(nyers) as { pairs?: DriveSyncParos[] }
+    return { fajta: 'rendben', parok: Array.isArray(d.pairs) ? d.pairs : [] }
+  } catch {
+    return { fajta: 'olvashatatlan', parok: [] }
+  }
+}
+
+/** Utemezve van-e egyaltalan a mentes? (Ugyanaz a minta, mint a git-lehuzasnal.) */
+function driveSyncKartya(): { letezik: boolean; bekapcsolva: boolean } {
+  const d = olvasJson<{ enabled?: boolean }>(join(SCHEDULED_TASKS_DIR, DRIVE_SYNC_TASK, 'task-config.json'))
+  if (!d) return { letezik: false, bekapcsolva: false }
+  return { letezik: true, bekapcsolva: d.enabled !== false }
+}
+
+/**
+ * "Reszleges" -e egy futas eredmenye?
+ *
+ * A szoveget a szinkron irja (`csonkoltSzoveg`), es mindig ezzel a szoval
+ * kezdodik. Nem a hiba OKAT talalgatjuk belole -- azt a sor a fajl sajat
+ * szovegebol sem mondja meg; itt csak azt allapitjuk meg, hogy CSONKA-e.
+ */
+export function reszlegesEredmeny(s: string | undefined): boolean {
+  return typeof s === 'string' && s.toLowerCase().startsWith('részleges')
+}
+
+/**
+ * A Drive-mentes allapota az Attekintesen.
+ *
+ * @param depoIrhato a depo elerheto-e. Elerhetetlen depoval a mentes nem tud
+ *   futni, es ez FONTOSABB, mint a "hany napja" -- ezert all elol.
+ */
+export function driveSyncRows(
+  now: number = Date.now(),
+  allapot = driveSyncAllapot(join(STORE_DIR, DRIVE_SYNC_FILE)),
+  kartya: { letezik: boolean; bekapcsolva: boolean } = driveSyncKartya(),
+  depoIrhato: boolean | null = null,
+): HealthRow[] {
+  // Olvashatatlan beallitas: a mentes ilyenkor NEM fut. A leghangosabb sor.
+  if (allapot.fajta === 'olvashatatlan') return [{ id: 'drive_sync_unreadable', status: 'bad' }]
+  // Nincs bekotve egyetlen Drive-mappa sem: nincs mit menteni, nincs mirol
+  // szolni. Ez a friss telepites csendje.
+  if (allapot.fajta === 'hianyzik' || allapot.parok.length === 0) return []
+
+  const db = allapot.parok.length
+
+  // A depo elerhetetlen: a mentesnek nincs hova irnia. Ez elozi a tobbit.
+  if (depoIrhato === false) return [{ id: 'drive_sync_depot_unreachable', status: 'bad', params: { n: db } }]
+
+  const rows: HealthRow[] = []
+
+  // Utemezes: bekotott mappak mellett a kikapcsolt kartya adatvesztes-kozeli.
+  // A hianyzo kartya ugyanaz, mas okbol -- egy regi telepitesen egyszeruen
+  // nincs meg. Mindketto ugyanazt jelenti: csak kezzel fut.
+  if (!kartya.letezik) rows.push({ id: 'drive_sync_no_task', status: 'warn', params: { n: db } })
+  else if (!kartya.bekapcsolva) rows.push({ id: 'drive_sync_task_disabled', status: 'bad', params: { n: db } })
+
+  // CSONKA MASOLAT. Ez a legalattomosabb allapot: a lista "lefutott"-at mutat,
+  // a masolat viszont hianyos. Ezert `bad`, nem `warn` -- es megnevezi, melyik
+  // fiokrol van szo, kulonben tiz paros kozott nem talalhato meg.
+  const csonkak = allapot.parok.filter((p) => reszlegesEredmeny(p.lastResult))
+  if (csonkak.length) {
+    const nevek = csonkak.map((p) => String(p.account || '')).filter(Boolean)
+    const lista = nevek.length > 4 ? nevek.slice(0, 4).join(', ') + ', +' + (nevek.length - 4) : nevek.join(', ')
+    rows.push({ id: 'drive_sync_partial', status: 'bad', params: { n: csonkak.length, all: db, names: lista } })
+  }
+
+  // Mikor futott utoljara BARMELYIK paros?
+  const idok = allapot.parok
+    .map((p) => (p.lastRunAt ? Date.parse(p.lastRunAt) : NaN))
+    .filter((t) => Number.isFinite(t))
+  if (idok.length === 0) {
+    rows.push({ id: 'drive_sync_never', status: 'warn', params: { n: db } })
+    return rows
+  }
+  const napja = Math.max(0, Math.floor((now - Math.max(...idok)) / 86_400_000))
+  if (napja > DRIVE_SYNC_STALE_DAYS) {
+    rows.push({ id: 'drive_sync_stale', status: napja > 14 ? 'bad' : 'warn', params: { d: napja, n: db } })
+  } else if (rows.length === 0) {
+    // Zold sor is kell: a hallgatas nem megkulonboztetheto a nem-futo
+    // ellenorzestol.
+    rows.push({ id: 'drive_sync_ok', status: 'ok', params: { n: db, d: napja } })
+  }
+  return rows
 }
 
 export function systemHealth(now: number = Date.now()): HealthRow[] {
@@ -730,6 +967,7 @@ export function systemHealth(now: number = Date.now()): HealthRow[] {
     ...backupRows(now),
     ...upstreamRows(now),
     ...gitPullRows(now),
+    ...driveSyncRows(now, undefined, undefined, depotIrhato()),
     ...commandTaskRows(),
     ...mcpAuthRows(now),
     ...googleLiveRows(now),
