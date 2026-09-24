@@ -42,7 +42,7 @@ export interface SystemDep {
   what_for: Text
   /** Mi marad el nelkule. */
   affects: Text
-  /** Debian/Ubuntu csomagok. Ures, ha nem apt-bol jon (pl. himalaya). */
+  /** Debian/Ubuntu csomagok. Ures, ha nem apt-bol jon (pl. himalaya, bun). */
   apt: string[]
   /** Fedora/RHEL csomagok. */
   dnf: string[]
@@ -145,6 +145,19 @@ export const SYSTEM_DEPS: SystemDep[] = [
     },
     url: 'https://github.com/pimalaya/himalaya/releases',
     commands: [localBin('himalaya'), 'himalaya'], versionArgs: ['--version'],
+  },
+  {
+    id: 'bun', name: 'Bun', tier: 'recommended',
+    what_for: { hu: 'Ezen fut a Telegram-csatorna: ezen keresztül írsz az ágenseknek és ők neked.', en: 'The Telegram channel runs on it: this is how you message the agents and they message you.' },
+    affects: { hu: 'Az ágensek nem kapják meg a Telegram-üzeneteidet és nem tudnak ott válaszolni.', en: 'The agents do not receive your Telegram messages and cannot reply there.' },
+    apt: [], dnf: [], brew: [],
+    manual: {
+      hu: 'Nincs hozzá rendszercsomag: a Marveen telepítője magától letölti a ~/.bun mappába. Ha utólag kell: futtasd újra a telepítőt, vagy ezt az egy sort: curl -fsSL https://bun.sh/install | bash',
+      en: 'There is no system package for it: the Marveen installer downloads it into ~/.bun by itself. To add it later: run the installer again, or this one line: curl -fsSL https://bun.sh/install | bash',
+    },
+    url: 'https://bun.sh/docs/installation',
+    // agent-process.ts a Telegram-plugint a ~/.bun/bin/bun-nal inditja.
+    commands: [join(homedir(), '.bun', 'bin', 'bun'), 'bun'], versionArgs: ['--version'],
   },
   {
     id: 'jq', name: 'jq', tier: 'recommended',
