@@ -99,6 +99,44 @@ function rankedTranscripts(dir: string): string[] {
     .map(f => f.path)
 }
 
+// Walk a transcript's lines from the END backwards, reading it in chunks, and
+// stop as soon as `visit` returns true (#377). Every caller only wants the
+// newest matching entry, but used to readFileSync the whole file: a 48 MB
+// transcript was read and split on every /api/agents poll, which alone cost
+// ~0.3 s per call. Splitting on the 0x0A byte is UTF-8 safe (it never occurs
+// inside a multi-byte sequence), so a chunk boundary cannot corrupt a line.
+// Lines are trimmed and blank ones skipped, exactly like the old
+// `content.split('\n')` reverse loop.
+const BACKWARD_CHUNK_BYTES = 256 * 1024
+
+export function scanLinesBackward(path: string, visit: (line: string) => boolean): void {
+  const fd = openSync(path, 'r')
+  try {
+    let pos = statSync(path).size
+    let carry: Buffer = Buffer.alloc(0)
+    while (pos > 0) {
+      const len = Math.min(BACKWARD_CHUNK_BYTES, pos)
+      pos -= len
+      const buf = Buffer.alloc(len)
+      const read = readSync(fd, buf, 0, len, pos)
+      let data = carry.length ? Buffer.concat([buf.subarray(0, read), carry]) : buf.subarray(0, read)
+      let end = data.length
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] !== 0x0a) continue
+        const line = data.subarray(i + 1, end).toString('utf-8').trim()
+        end = i
+        if (line && visit(line)) return
+      }
+      // Bytes before the first newline of this chunk belong to a line that
+      // starts in an earlier chunk (or is the file's first line).
+      carry = Buffer.from(data.subarray(0, end))
+      data = Buffer.alloc(0)
+    }
+    const first = carry.toString('utf-8').trim()
+    if (first) visit(first)
+  } finally { closeSync(fd) }
+}
+
 function newestTranscript(dir: string): string | null {
   return rankedTranscripts(dir)[0] ?? null
 }
@@ -120,26 +158,22 @@ export function readActiveModelFromProjectDir(workingDir: string, sinceUnixSec?:
     // model-less transcript look like "we cannot tell", which is a different
     // and much more alarming statement than the truth.
     for (const transcript of rankedTranscripts(dir)) {
-      const content = readFileSync(transcript, 'utf-8')
-      const lines = content.split('\n')
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i].trim()
-        if (!line) continue
+      scanLinesBackward(transcript, (line) => {
         try {
           const entry = JSON.parse(line)
           const msg = entry?.message
           const model = msg?.model
-          if (typeof model !== 'string' || model.startsWith('<')) continue
+          if (typeof model !== 'string' || model.startsWith('<')) return false
           if (sinceUnixSec !== undefined) {
             const ts = entry?.timestamp
-            if (typeof ts !== 'string') continue
+            if (typeof ts !== 'string') return false
             const lineUnix = Math.floor(new Date(ts).getTime() / 1000)
-            if (!Number.isFinite(lineUnix) || lineUnix < sinceUnixSec) continue
+            if (!Number.isFinite(lineUnix) || lineUnix < sinceUnixSec) return false
           }
           value = model
-          break
-        } catch { /* skip malformed JSON line */ }
-      }
+          return true
+        } catch { return false /* skip malformed JSON line */ }
+      })
       if (value !== null) break
     }
   } catch { /* fall through */ }
@@ -279,8 +313,6 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
     if (existsSync(dir)) {
       const transcript = newestTranscript(dir)
       if (transcript !== null) {
-        const content = readFileSync(transcript, 'utf-8')
-        const lines = content.split('\n')
         // The transcript is there and readable; from here on the only question
         // is whether it carries a number, so anything short of that is 'fresh'
         // (a live session with no API accounting), never 'unknown'.
@@ -290,9 +322,7 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
         // ago and has been answering since is not blocked now.
         let quota: ContextQuotaBlock | null = null
         let quotaRunBroken = false
-        for (let i = lines.length - 1; i >= 0; i--) {
-          const line = lines[i].trim()
-          if (!line) continue
+        scanLinesBackward(transcript, (line) => {
           try {
             const entry = JSON.parse(line)
             // A turn happened here even if it carries no numbers: distinguishes
@@ -311,10 +341,10 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
             // authoritative current size is the boundary's postTokens.
             if (entry?.type === 'system' && entry?.subtype === 'compact_boundary') {
               const post = Number(entry?.compactMetadata?.postTokens)
-              if (Number.isFinite(post) && post > 0) { reading = { tokens: post, state: 'measured' }; break }
+              if (Number.isFinite(post) && post > 0) reading = { tokens: post, state: 'measured' }
               // Boundary without a usable postTokens: treat as fresh (empty),
               // never fall through to the stale pre-compaction usage below.
-              break
+              return true
             }
             const u = entry?.message?.usage
             if (u && typeof u === 'object') {
@@ -322,10 +352,11 @@ export function readContextReadingFromProjectDir(workingDir: string, configDir?:
               const cr = Number(u.cache_read_input_tokens) || 0
               const cc = Number(u.cache_creation_input_tokens) || 0
               const total = inp + cr + cc
-              if (total > 0) { reading = { tokens: total, state: 'measured' }; break }
+              if (total > 0) { reading = { tokens: total, state: 'measured' }; return true }
             }
           } catch { /* skip malformed JSON line */ }
-        }
+          return false
+        })
         // Zero usage AND the file says why -> name the real cause. Without this
         // the caller only learns "unmeasurable", which is also what a healthy
         // brand-new session reports.

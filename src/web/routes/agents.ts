@@ -101,6 +101,7 @@ import {
   stopAgentProcess,
   restartAgentProcess,
   getAgentRunningSince,
+  localSessionStartTimes,
   getAgentProcessInfo,
   agentSessionName,
   sendPromptToSession,
@@ -347,6 +348,12 @@ const remotePaneCache = new RemoteStatusCache<string | null>(3000)
 // the forks off the request path -- the numbers the owner sees are at most one
 // poll old, which is what they already were.
 const localPaneCache = new BackgroundCache<string | null>(2500)
+
+function summaryPane(name: string, host: string | null): string | null {
+  return host
+    ? remotePaneCache.getOrRefresh(name, Date.now(), () => capturePane(agentSessionName(name), host), null)
+    : localPaneCache.getWithin(name, Date.now(), 5000, () => capturePane(agentSessionName(name)))
+}
 
 // Resolve an agent's run state, cached for remote agents to avoid blocking on
 // ssh. `isRemote` is passed by the caller (it already read the remote config).
@@ -599,7 +606,9 @@ interface AgentDetail extends AgentSummary {
   hasApiKey: boolean
 }
 
-async function getAgentSummary(name: string): Promise<AgentSummary> {
+// `sessionStarts` is the whole fleet's tmux start times from ONE list-sessions
+// call (#377): the list endpoint used to fork a `display-message` per agent.
+async function getAgentSummary(name: string, sessionStarts?: Map<string, number>): Promise<AgentSummary> {
   const dir = agentDir(name)
   const configRoot = agentConfigRoot(name)
   const claudeMd = readFileOr(join(configRoot, 'CLAUDE.md'), '')
@@ -624,7 +633,10 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
   const runState = agentRunStateCached(name, remote.host != null)
   const running = runState === 'running'
   const session = running ? agentSessionName(name) : undefined
-  const runningSince = running ? getAgentRunningSince(name) : null
+  const startedMs = !remote.host ? sessionStarts?.get(agentSessionName(name)) : undefined
+  const runningSince = running
+    ? (startedMs !== undefined ? Math.floor(startedMs / 1000) : getAgentRunningSince(name))
+    : null
 
   // Reauth badge: only meaningful for a running session (a stopped agent has
   // no pane to inspect). One capture-pane per running agent on the list poll.
@@ -634,7 +646,11 @@ async function getAgentSummary(name: string): Promise<AgentSummary> {
   const authMode = readAgentAuthMode(name)
   const reauth = reconcileReauthWithDisk(
     name,
-    running ? detectReauthNeeded(capturePane(agentSessionName(name))) : { needsReauth: false },
+    // Through the same pane caches as /api/agents/activity (#377): while that
+    // poll runs (every 3 s) the list reuses its capture instead of forking one
+    // per agent; an entry older than 5 s is re-captured, so a badge never
+    // rests on an old screen. Remote panes no longer wait on ssh here.
+    running ? detectReauthNeeded(summaryPane(name, remote.host)) : { needsReauth: false },
     authMode,
   )
 
@@ -727,7 +743,8 @@ async function getAgentDetail(name: string): Promise<AgentDetail> {
 }
 
 function listAgentSummaries(): Promise<AgentSummary[]> {
-  return Promise.all(listAgentNames().map(getAgentSummary))
+  const starts = localSessionStartTimes()
+  return Promise.all(listAgentNames().map((n) => getAgentSummary(n, starts)))
 }
 
 // Max inter-agent messages a single main-agent inbox drain returns. The rest

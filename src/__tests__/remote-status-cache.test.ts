@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { RemoteStatusCache } from '../web/remote-status-cache.js'
+import { RemoteStatusCache, BackgroundCache } from '../web/remote-status-cache.js'
 
 describe('RemoteStatusCache', () => {
   it('calls the fetcher on a cold miss and caches the value', () => {
@@ -43,5 +43,25 @@ describe('RemoteStatusCache', () => {
     // warm it, then a later throwing refresh returns the last-known value
     cache.getOrRefresh('a', 5000, () => 'running')
     expect(cache.getOrRefresh('a', 9001, boom, 'unreachable')).toBe('running')
+  })
+})
+
+// #377: /api/agents reuses the activity poll's pane capture, but only while it
+// is fresh -- a hidden dashboard stops that poll, and an hours-old pane must
+// not decide the reauth badge.
+describe('BackgroundCache.getWithin', () => {
+  it('reuses a young entry and re-fetches an old one synchronously', () => {
+    const c = new BackgroundCache<string>(2500)
+    let n = 0
+    const fetchNow = () => `v${++n}`
+    expect(c.getWithin('a', 1000, 5000, fetchNow)).toBe('v1')
+    expect(c.getWithin('a', 5999, 5000, fetchNow)).toBe('v1')
+    expect(c.getWithin('a', 6000, 5000, fetchNow)).toBe('v2')
+    expect(n).toBe(2)
+  })
+
+  it('a throwing fetch stores undefined instead of propagating', () => {
+    const c = new BackgroundCache<string | null>(2500)
+    expect(c.getWithin('b', 0, 5000, () => { throw new Error('tmux gone') })).toBeUndefined()
   })
 })
