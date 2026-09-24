@@ -499,10 +499,52 @@ describe('telegram command surface', () => {
   // vissza..."): in its OWN private chat the bot must never sit silent on
   // something it cannot act on; in a group it must, or it doubles Marvin's bot.
   describe('replyForInbound', () => {
-    it('answers a plain (non-command) message in a private chat with the command list', () => {
+    // Boss, 2026-09-24 ("kiadtam neki egy parancsot, es nem csinalja"): a plain
+    // sentence in the bot's own chat is a TASK, not a reason to print the help.
+    it('a plain message with no project yet says so, never silently drops it', () => {
       const r = replyForInbound('szia', '1', 'owner', true)
-      expect(r).not.toBeNull()
-      expect(r).toMatch(/\/code/)
+      expect(r).toMatch(/nincs regisztralt projekt/)
+      expect(listCodeTasks({}).length).toBe(0)
+    })
+
+    it('a plain message goes to the single PINNED project as a task', () => {
+      seedThree()
+      upsertCodeSession({ ...TRADING, pinned: true })
+      const r = replyForInbound('javitsd a kerekitest', '1', 'owner', true)!
+      expect(r).toMatch(/Atadva: tradingbot/)
+      const tasks = listCodeTasks({})
+      expect(tasks).toHaveLength(1)
+      expect(tasks[0]!.project).toBe('tradingbot')
+      expect(tasks[0]!.prompt).toBe('javitsd a kerekitest')
+    })
+
+    it('a plain message with one project and no pin goes to that project', () => {
+      upsertCodeSession(MARVIN)
+      expect(replyForInbound('nezd at', '1', 'owner', true)).toMatch(/Atadva: marvin/)
+    })
+
+    it('ambiguous (several projects, no single pin): asks with the list, enqueues nothing', () => {
+      seedThree()
+      const r = replyForInbound('nezd at', '1', 'owner', true)!
+      expect(r).toMatch(/Melyik projektnek/)
+      expect(r).toMatch(/tradingbot/)
+      expect(listCodeTasks({}).length).toBe(0)
+    })
+
+    it('the poller transcribes a voice note instead of dropping it, and answers any other media', async () => {
+      const { readFileSync } = await import('node:fs')
+      const src = readFileSync(new URL('../web/code-bridge-telegram.ts', import.meta.url), 'utf8')
+      expect(src).toContain('transcribeWithBotToken(voiceId, CODE_BOT_TOKEN)')
+      expect(src).toMatch(/not_installed/)
+      expect(src).toMatch(/Csak szoveget vagy hang/)
+      const voice = readFileSync(new URL('../web/routes/voice.ts', import.meta.url), 'utf8')
+      expect(voice).toMatch(/resolved === CODE_BOT_STT_DIR\) return true/)
+    })
+
+    it('a "#hex"-looking sentence is not misparsed as a tab address', () => {
+      upsertCodeSession(MARVIN)
+      replyForInbound('#abcdef12 legyen piros', '1', 'owner', true)
+      expect(listCodeTasks({})[0]!.prompt).toBe('#abcdef12 legyen piros')
     })
 
     it('stays silent on a plain message in a group chat (would double Marvin)', () => {

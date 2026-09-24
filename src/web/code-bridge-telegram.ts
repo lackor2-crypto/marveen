@@ -24,8 +24,10 @@ import {
   enqueueCodeTask, listCodeSessions, listCodeTasks, latestCodeTaskForProject,
   getCodeTaskByPrefix, getCodeTask, cancelCodeTask, formatDuration, normalizeAlias,
   listCodeTabs,
+  isExcludedProject,
 } from './code-bridge-store.js'
 import { shortId, chunkMessage } from './code-bridge-notify.js'
+import { transcribeWithBotToken } from './routes/voice.js'
 
 // Re-exported for callers/tests that historically imported it from here --
 // it now lives in code-bridge-notify.ts (see that file for why).
@@ -299,25 +301,7 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
     case 'code': {
       const split = splitProjectAndPrompt(cmd.args)
       if (!split) return `Hasznalat: /code <projekt> <feladat>\n\n${HELP}`
-      const out = enqueueCodeTask({
-        project: split.project,
-        prompt: split.prompt,
-        // Ha a tulaj nem valasztott fulet, minden a regi marad: a projekt
-        // bekotott (legfrissebb) beszelgetese kapja a feladatot.
-        sessionId: split.tab,
-        origin: 'telegram',
-        requestedBy: from,
-        chatId,
-      })
-      if ('error' in out) {
-        const cand = out.candidates?.length ? `\nProjektek: ${out.candidates.join(', ')}` : ''
-        return `⚠️ ${out.error}${cand}`
-      }
-      // Ha ful volt cimezve, a visszaigazolas MONDJA IS KI, melyikbe ment --
-      // kulonben a tulaj csak akkor venne eszre a rossz fulet, amikor a valasz
-      // mar egy masik beszelgetesben all.
-      const into = out.task.targetSessionId ? ` -> ${tabTitle(out.task.targetSessionId)}` : ''
-      return `⏳ Atadva: ${out.task.project}${into} (${shortId(out.task.id)})`
+      return enqueueFromTelegram(split.project, split.tab, split.prompt, chatId, from)
     }
 
     case 'status': {
@@ -384,6 +368,63 @@ export function handleCodeCommand(cmd: ParsedCommand, chatId: string, from: stri
   }
 }
 
+/** Enqueue one task for a Telegram sender and phrase the receipt. Shared by
+ *  `/code` and by a plain sentence / voice note (see replyForInbound). */
+function enqueueFromTelegram(project: string, tab: string | null, prompt: string, chatId: string, from: string): string {
+  const out = enqueueCodeTask({
+    project,
+    prompt,
+    // Ha a tulaj nem valasztott fulet, minden a regi marad: a projekt
+    // bekotott (legfrissebb) beszelgetese kapja a feladatot.
+    sessionId: tab,
+    origin: 'telegram',
+    requestedBy: from,
+    chatId,
+  })
+  if ('error' in out) {
+    const cand = out.candidates?.length ? `\nProjektek: ${out.candidates.join(', ')}` : ''
+    return `⚠️ ${out.error}${cand}`
+  }
+  // Ha ful volt cimezve, a visszaigazolas MONDJA IS KI, melyikbe ment --
+  // kulonben a tulaj csak akkor venne eszre a rossz fulet, amikor a valasz
+  // mar egy masik beszelgetesben all.
+  const into = out.task.targetSessionId ? ` -> ${tabTitle(out.task.targetSessionId)}` : ''
+  return `⏳ Atadva: ${out.task.project}${into} (${shortId(out.task.id)})`
+}
+
+/**
+ * Which project a plain sentence (no `/code <projekt>`) goes to.
+ *
+ * Boss, 2026-09-24: "kiadtam neki egy parancsot, es nem csinalja" -- a plain
+ * message in the bot's own chat only drew the command list back, and a voice
+ * note was dropped without a word. The owner is not a programmer; the `/code
+ * <projekt>` syntax is not something to expect. So a plain message IS a task,
+ * for the project the owner PINNED (📌 -- their own choice, not our guess).
+ * No pin but a single project: that one. Anything else is ambiguous, and then
+ * we ask with the list instead of picking.
+ */
+export function defaultProjectForPlainText(
+  sessions: Array<{ project: string; pinned: boolean }>,
+): { project: string } | { ask: string[] } {
+  const projects = [...new Set(sessions.map((x) => x.project))]
+  const pinned = [...new Set(sessions.filter((x) => x.pinned).map((x) => x.project))]
+  if (pinned.length === 1) return { project: pinned[0]! }
+  if (pinned.length === 0 && projects.length === 1) return { project: projects[0]! }
+  return { ask: pinned.length > 1 ? pinned : projects }
+}
+
+/** A plain sentence (or a voice transcript) in the private chat -> a task. */
+export function plainTextTask(text: string, chatId: string, from: string): string {
+  const pick = defaultProjectForPlainText(listCodeSessions().filter((x) => !isExcludedProject(x.project)))
+  if ('project' in pick) return enqueueFromTelegram(pick.project, null, text, chatId, from)
+  if (pick.ask.length === 0) return 'Meg nincs regisztralt projekt, ezert nincs kinek atadnom. Indul a Windows worker (VS Code)?'
+  return [
+    'Melyik projektnek adjam at? Ird igy:',
+    `/code <projekt> ${text.length > 60 ? text.slice(0, 60) + '...' : text}`,
+    `Projektek: ${pick.ask.join(', ')}`,
+  ].join('\n')
+}
+
 /** The reply for ONE inbound message, or null to stay silent.
  *
  *  Boss, 2026-09-18 ("a vscode nal telegramot hasznalok. Telegrammon irjon
@@ -405,9 +446,15 @@ export function replyForInbound(
   isPrivate: boolean,
 ): string | null {
   const cmd = parseCommand(text)
-  const answer = cmd ? handleCodeCommand(cmd, chatId, from) : null
-  if (answer) return answer
-  return isPrivate ? HELP : null
+  if (cmd) {
+    const answer = handleCodeCommand(cmd, chatId, from)
+    if (answer) return answer
+    return isPrivate ? HELP : null
+  }
+  // A plain sentence in the bot's own chat is a task (defaultProjectForPlainText).
+  // In a group it stays silent: Marvin's bot reads the same lines.
+  if (!isPrivate || !text.trim()) return null
+  return plainTextTask(text.trim(), chatId, from)
 }
 
 // ---- transport ----------------------------------------------------------
@@ -429,6 +476,10 @@ interface TgUpdate {
     chat?: { id?: number; type?: string }
     from?: { username?: string; first_name?: string }
     text?: string
+    caption?: string
+    voice?: { file_id?: string }
+    audio?: { file_id?: string }
+    video_note?: { file_id?: string }
   }
 }
 
@@ -457,8 +508,7 @@ async function pollOnce(): Promise<void> {
     writeOffset(update.update_id + 1)
     const msg = update.message
     const chatId = msg?.chat?.id !== undefined ? String(msg.chat.id) : null
-    const text = msg?.text
-    if (!chatId || !text) continue
+    if (!chatId) continue
     if (!isAllowedChat(chatId, CODE_BOT_ALLOWED_CHAT_IDS, ownerChat)) {
       logger.warn({ chatId }, 'code-bot: message from a chat that is not allowlisted -- ignored')
       continue
@@ -467,6 +517,28 @@ async function pollOnce(): Promise<void> {
     // can never draw a reply into a shared group (see replyForInbound).
     const isPrivate = msg?.chat?.type === 'private'
     const from = msg?.from?.username ?? msg?.from?.first_name ?? 'owner'
+    let text = msg?.text
+    if (!text) {
+      // Not a text message. It used to be dropped without a word -- a voice
+      // note to the bot simply vanished (Boss, 2026-09-24). In a group we
+      // still stay out of it; in the bot's own chat we always answer.
+      if (!isPrivate) continue
+      const voiceId = msg?.voice?.file_id ?? msg?.audio?.file_id ?? msg?.video_note?.file_id
+      if (!voiceId) {
+        await reply(chatId, `Csak szoveget vagy hangüzenetet ertek.\n\n${HELP}`)
+        continue
+      }
+      const heard = await transcribeWithBotToken(voiceId, CODE_BOT_TOKEN)
+      if ('error' in heard) {
+        await reply(chatId, heard.error === 'not_installed'
+          ? '⚠️ A hangüzenetet nem tudom leirni: a hangfelismero nincs telepitve ezen a gepen (Beallitasok / Kulso programok). Ird le szovegben, es atadom.'
+          : '⚠️ A hangüzenetet nem sikerult leirni (a hangfelismero hibat adott). Ird le szovegben, vagy kuldd ujra.')
+        continue
+      }
+      await reply(chatId, `🎙 Ezt ertettem: ${heard.text}`)
+      text = heard.text
+      if (msg?.caption) text = `${msg.caption}\n${text}`
+    }
     let answer: string | null
     try {
       answer = replyForInbound(text, chatId, from, isPrivate)
