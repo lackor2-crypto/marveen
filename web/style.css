@@ -12318,3 +12318,19 @@ span.intezo-tree-tw { cursor: default; }
 .prj-tree-meta { flex: none; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 .prj-tree-note { padding: 4px 8px 4px calc(26px + var(--d, 0) * 18px); font-size: 13px; }
 @media (max-width: 600px) { .prj-tree-meta { display: none; } }
+
+/* Projekt: virtualis mappak az Otletlada / Vitaztatas / Hatteranyag fulon (#359) */
+.prj-vf-bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+.prj-vf-group { border: 1px solid var(--border); border-radius: 8px; margin: 0 0 8px; padding: 4px 8px; }
+.prj-vf-group.is-unsorted { border-style: dashed; }
+.prj-vf-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prj-vf-toggle { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; background: none; border: 0; padding: 6px 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.prj-vf-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.prj-vf-tools { display: flex; gap: 6px; }
+.prj-vf-group > .prj-list { margin: 4px 0 8px; }
+.prj-vf-empty { margin: 2px 0 8px 18px; }
+.prj-vf-move-row { margin-top: 6px; }
+.prj-vf-move-row label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 0.85em; }
+.prj-vf-move { max-width: 100%; width: auto; padding: 2px 6px; }
+.prj-vf-plan-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.prj-vf-plan-row input { margin-top: 3px; flex: none; }
