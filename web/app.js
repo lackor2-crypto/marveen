@@ -42051,11 +42051,130 @@ async function _prjOpenCardHere(cardId) {
 async function _prjLoadFiles() {
   const pid = _prj.current
   if (!pid) return
-  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/files')
+  // Mapparendszer (#359): a gyoker-szint most, a tobbi lenyitaskor jon.
+  _prj.files = { pid, state: null, path: null, err: null, dirs: {}, open: new Set(), loading: new Set() }
+  _prj.fileFind = null
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/tree')
   if (_prj.current !== pid) return
-  _prj.files = r.ok ? { pid, ...r.data, err: null } : { pid, state: null, path: null, files: [], err: r.message }
+  const d = r.data || {}
+  if (!r.ok && !d.state) _prj.files.err = r.message
+  else {
+    _prj.files.state = d.state
+    _prj.files.path = d.path
+    if (d.state === 'ok') _prj.files.dirs[''] = { entries: d.entries || [], truncated: !!d.truncated }
+  }
+  _prjRefreshFilesTab()
+}
+
+function _prjRefreshFilesTab() {
   const body = document.getElementById('prjFilesBody')
   if (body && _prj.tab === 'files') body.outerHTML = _prjFilesTabHtml()
+}
+
+async function _prjToggleDir(sub) {
+  const f = _prj.files
+  if (!f || f.state !== 'ok') return
+  if (f.open.has(sub)) { f.open.delete(sub); _prjRefreshTree(); return }
+  f.open.add(sub)
+  if (f.dirs[sub] || f.loading.has(sub)) { _prjRefreshTree(); return }
+  f.loading.add(sub)
+  _prjRefreshTree()
+  const pid = f.pid
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(pid) + '/tree?dir=' + encodeURIComponent(sub))
+  if (_prj.files !== f) return
+  f.loading.delete(sub)
+  f.dirs[sub] = r.ok && r.data && r.data.state === 'ok'
+    ? { entries: r.data.entries || [], truncated: !!r.data.truncated }
+    : { entries: [], truncated: false, err: (r.data && r.data.message) || r.message || t('projects.files.tree_err') }
+  _prjRefreshTree()
+}
+
+function _prjRefreshTree() {
+  const el = document.getElementById('prjFileTree')
+  if (el) el.innerHTML = _prjTreeHtml('', 0)
+}
+
+function _prjFileMeta(e) {
+  const when = _prjAgo(e.at)
+  if (e.kind === 'dir') return t('projects.files.dir_count', { n: e.children || 0 }) + ' · ' + when
+  return _depoBytes(e.size || 0) + ' · ' + when
+}
+
+function _prjTreeHtml(sub, depth) {
+  const f = _prj.files
+  const level = f.dirs[sub]
+  if (!level) return ''
+  if (level.err) return `<div class="prj-tree-note depo-bad" style="--d:${depth}">${escapeHtml(level.err)}</div>`
+  if (!level.entries.length) return `<div class="prj-tree-note prj-muted" style="--d:${depth}">${escapeHtml(t(depth ? 'projects.files.dir_empty' : 'projects.files.empty'))}</div>`
+  let out = ''
+  for (const e of level.entries) {
+    if (e.kind === 'dir') {
+      const open = f.open.has(e.sub)
+      out += `<button type="button" class="prj-tree-row is-dir" style="--d:${depth}" data-prj-dir="${escapeAttr(e.sub)}" aria-expanded="${open}">
+        <span class="prj-tree-caret" aria-hidden="true">${open ? '▾' : '▸'}</span><span class="prj-tree-ico" aria-hidden="true">📁</span>
+        <span class="prj-tree-name">${escapeHtml(e.name)}</span><span class="prj-tree-meta">${escapeHtml(_prjFileMeta(e))}</span></button>`
+      if (open) {
+        out += f.loading.has(e.sub)
+          ? `<div class="prj-tree-note prj-muted" style="--d:${depth + 1}">${escapeHtml(t('common.loading'))}</div>`
+          : _prjTreeHtml(e.sub, depth + 1)
+      }
+    } else {
+      out += _prjFileRowHtml(e, depth, false)
+    }
+  }
+  if (level.truncated) out += `<div class="prj-tree-note prj-muted" style="--d:${depth}">${escapeHtml(t('projects.files.dir_truncated'))}</div>`
+  return out
+}
+
+function _prjFileRowHtml(e, depth, withPath) {
+  const slash = e.sub.lastIndexOf('/')
+  const folder = slash > 0 ? e.sub.slice(0, slash) : ''
+  const where = withPath ? `<span class="prj-tree-path">${escapeHtml(folder || t('projects.files.root_folder'))}</span>` : ''
+  const ico = e.kind === 'dir' ? '📁' : '📄'
+  return `<button type="button" class="prj-tree-row is-file" style="--d:${depth}" data-prj-reveal="${escapeAttr(e.kind === 'dir' ? e.sub : folder)}" title="${escapeAttr(t('projects.files.reveal_hint'))}">
+    <span class="prj-tree-caret" aria-hidden="true"></span><span class="prj-tree-ico" aria-hidden="true">${ico}</span>
+    <span class="prj-tree-name">${escapeHtml(e.name)}${where}</span><span class="prj-tree-meta">${escapeHtml(e.kind === 'dir' ? _prjAgo(e.at) : _prjFileMeta(e))}</span></button>`
+}
+
+let _prjFindTimer = null
+function _prjFindInput(q) {
+  clearTimeout(_prjFindTimer)
+  const query = String(q || '').trim()
+  if (query.length < 2) {
+    _prj.fileFind = null
+    _prjRenderFind()
+    return
+  }
+  _prjFindTimer = setTimeout(() => _prjRunFind(query), 300)
+}
+
+async function _prjRunFind(query) {
+  const f = _prj.files
+  if (!f || f.state !== 'ok') return
+  _prj.fileFind = { q: query, loading: true, hits: [], truncated: false, err: null }
+  _prjRenderFind()
+  const r = await _prjApi('GET', '/api/projects/' + encodeURIComponent(f.pid) + '/find?q=' + encodeURIComponent(query))
+  if (_prj.files !== f || !_prj.fileFind || _prj.fileFind.q !== query) return
+  _prj.fileFind = r.ok
+    ? { q: query, loading: false, hits: r.data.hits || [], truncated: !!r.data.truncated, err: null }
+    : { q: query, loading: false, hits: [], truncated: false, err: r.message }
+  _prjRenderFind()
+}
+
+function _prjRenderFind() {
+  const out = document.getElementById('prjFindOut')
+  const tree = document.getElementById('prjFileTree')
+  if (!out || !tree) return
+  const ff = _prj.fileFind
+  tree.hidden = !!ff
+  if (!ff) { out.innerHTML = ''; return }
+  if (ff.loading) { out.innerHTML = `<p class="prj-muted">${escapeHtml(t('projects.files.find_running'))}</p>`; return }
+  if (ff.err) { out.innerHTML = `<div class="info-box depo-bad">${escapeHtml(ff.err)}</div>`; return }
+  const head = ff.hits.length
+    ? t('projects.files.find_count', { n: ff.hits.length, q: ff.q })
+    : t('projects.files.find_none', { q: ff.q })
+  const more = ff.truncated ? `<p class="prj-muted">${escapeHtml(t('projects.files.find_truncated'))}</p>` : ''
+  out.innerHTML = `<p class="prj-muted">${escapeHtml(head)}</p><div class="prj-tree">${ff.hits.map((e) => _prjFileRowHtml(e, 0, true)).join('')}</div>${more}`
 }
 
 function _prjFilesTabHtml() {
@@ -42064,28 +42183,24 @@ function _prjFilesTabHtml() {
   const d = _prj.files
   let inner
   let actions = ''
-  if (!d || d.pid !== p.id) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
+  if (!d || d.pid !== p.id || (!d.state && !d.err)) inner = `<p class="prj-muted">${escapeHtml(t('common.loading'))}</p>`
   else if (d.err) inner = `<div class="info-box depo-bad">${escapeHtml(t('projects.err.load', { msg: d.err }))}</div>`
   else if (d.state !== 'ok') {
     const st = d.state
     let action = ''
     if (st === 'no_depot') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="depot">${escapeHtml(t('projects.files.open_depot'))}</button>`
     else if (st !== 'unreachable') action = `<button type="button" class="btn-secondary btn-compact" data-prj-act="edit">${escapeHtml(t('projects.files.set_folder'))}</button>`
-    inner = `<div class="info-box${st === 'unreachable' || st === 'missing' ? ' depo-bad' : ''}">
+    inner = `<div class="info-box${st === 'unreachable' || st === 'missing' || st === 'bad_folder' ? ' depo-bad' : ''}">
       ${escapeHtml(_prjT('projects.files.state.' + st, { path: d.path || '' }, st))} ${action}</div>`
   } else {
     actions = `${p.archived_at ? '' : `<button type="button" class="btn-primary btn-compact" data-prj-act="new-file">${escapeHtml(t('projects.files.add_btn'))}</button>`}
       <button type="button" class="btn-secondary btn-compact" data-prj-act="open-intezo">${escapeHtml(t('projects.file.open_intezo'))}</button>`
-    const list = d.files.length
-      ? `<ul class="prj-list">${d.files.map((f) => {
-        const folder = f.rel.slice(0, Math.max(0, f.rel.length - f.name.length - 1))
-        return `<li class="prj-item">
-          <div class="prj-item-head">${escapeHtml(f.name)}</div>
-          <div class="prj-item-sub prj-muted">${escapeHtml(folder)} · ${escapeHtml(_prjAgo(f.at))}</div>
-        </li>`
-      }).join('')}</ul>`
-      : _prjEmptyLine('projects.files.empty')
-    inner = `<p class="prj-muted">${escapeHtml(t('projects.files.folder_line', { path: d.path || '' }))}</p>${list}`
+    const q = _prj.fileFind ? _prj.fileFind.q : ''
+    inner = `<p class="prj-muted">${escapeHtml(t('projects.files.folder_line', { path: d.path || '' }))}</p>
+      <input type="search" class="prj-find-input" id="prjFindInput" value="${escapeAttr(q)}"
+        placeholder="${escapeAttr(t('projects.files.find_placeholder'))}" aria-label="${escapeAttr(t('projects.files.find_placeholder'))}">
+      <div id="prjFindOut"></div>
+      <div class="prj-tree" id="prjFileTree">${_prjTreeHtml('', 0)}</div>`
   }
   return `<section class="prj-section" id="prjFilesBody">
     <div class="prj-section-row">
@@ -42097,10 +42212,24 @@ function _prjFilesTabHtml() {
   </section>`
 }
 
-function _prjOpenFiles(p) {
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'prjFindInput') _prjFindInput(e.target.value)
+})
+
+document.addEventListener('click', (e) => {
+  const dir = e.target.closest('[data-prj-dir]')
+  if (dir && dir.closest('#prjFilesBody')) { _prjToggleDir(dir.getAttribute('data-prj-dir')); return }
+  const rev = e.target.closest('[data-prj-reveal]')
+  if (rev && rev.closest('#prjFilesBody')) {
+    const p = _prj.overview && _prj.overview.project
+    if (p) _prjOpenFiles(p, rev.getAttribute('data-prj-reveal'))
+  }
+})
+
+function _prjOpenFiles(p, sub) {
   if (!p || !p.folder_path) return
   if (typeof _intezoClearSelection === 'function') _intezoClearSelection()
-  _intezoPath = p.folder_path
+  _intezoPath = sub ? p.folder_path + '/' + sub : p.folder_path
   const page = document.getElementById('intezoPage')
   if (page) {
     let bar = document.getElementById('prjIntezoChip')

@@ -48,6 +48,7 @@ import { buildProjectOverview, recentFiles } from '../../project-overview.js'
 import { summarizeProject } from '../../project-summary.js'
 import {
   projectSubfolders, makeProjectFolder, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
+  listProjectDir, findProjectFiles,
 } from '../../project-files.js'
 import { createIdea, getDb } from '../../db.js'
 import { randomUUID } from 'node:crypto'
@@ -81,6 +82,7 @@ const MESSAGES: Record<string, { hu: string; en: string }> = {
   empty_label_filter: { hu: 'Legalább egy címkét jelölj be, vagy válaszd a „mind” lehetőséget.', en: 'Tick at least one label, or choose "all".' },
   bad_status: { hu: 'Ismeretlen projekt-állapot.', en: 'Unknown project status.' },
   bad_folder: { hu: 'A mappa útvonala nem érvényes.', en: 'The folder path is not valid.' },
+  query_short: { hu: 'Legalább két betűt írj a keresőbe.', en: 'Type at least two letters to search.' },
   bad_label: { hu: 'Ez a címke nem létezik (lehet, hogy közben törölték).', en: 'This label does not exist (it may have been deleted).' },
   memory_missing: { hu: 'Ez a memória nem található (lehet, hogy közben törölték).', en: 'This memory was not found (it may have been deleted).' },
   folder_name: { hu: 'A mappa neve nem jó: ne legyen üres, ne kezdődjön ponttal, és ne legyen benne \\ : * ? " < > | jel.', en: 'The folder name is not valid: it must not be empty, start with a dot, or contain \\ : * ? " < > |.' },
@@ -560,6 +562,22 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   if (sub === '/files' && method === 'GET') {
     const scan = recentFiles(project, 100)
     json(res, { state: scan.state, path: project.folder_path, files: scan.files })
+    return true
+  }
+
+  // Fajlok ful, mapparendszer (#359): a projekt mappajanak EGY szintje.
+  if (sub === '/tree' && method === 'GET') {
+    const out = listProjectDir(project, url.searchParams.get('dir'))
+    if (!out.ok) return fail(res, out.code === 'bad_folder' ? 400 : 200, out.code, lang, { state: out.code, path: project.folder_path })
+    json(res, { state: 'ok', path: project.folder_path, dir: out.sub, entries: out.entries, truncated: out.truncated })
+    return true
+  }
+
+  // Fajlok ful, kereso (#359): CSAK a projekt mappajaban.
+  if (sub === '/find' && method === 'GET') {
+    const out = findProjectFiles(project, url.searchParams.get('q'))
+    if (!out.ok) return fail(res, 400, out.code, lang)
+    json(res, { q: out.q, hits: out.hits, truncated: out.truncated })
     return true
   }
 
