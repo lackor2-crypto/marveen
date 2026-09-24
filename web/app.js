@@ -37095,7 +37095,9 @@ function _intezoRender() {
   list.innerHTML = '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
     + rows.map((e, i) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
-      + ' title="' + escapeHtml(t('intezo.row_title')) + '"'
+      // The folder's explanation is the FIRST line of the row tooltip (owner,
+      // 2026-09-24: inline it wrapped long rows and made them uneven).
+      + ' title="' + escapeHtml((_faSugo(e) ? _faSugo(e) + '\n\n' : '') + t('intezo.row_title')) + '"'
       + ' data-pick="1"'
       + (_intezoSelected && _intezoSelected.rel === e.rel
           ? ' style="background:rgba(127,127,127,.15)"'
@@ -37115,19 +37117,20 @@ function _intezoRender() {
       // Git-terulet: PIROS nev es lakat-jelzes. Nem tiltas -- minden muvelet
       // mukodik --, csak figyelemfelkeltes (Boss, 2026-08-21): "az egy fontos
       // mappa. jobb nem piszkalni".
-      + (e.caution ? ' style="color:var(--danger,#d33)" title="' + escapeHtml(e.caution) + '"' : '')
+      + (e.caution ? ' style="color:var(--danger,#d33)"' : '')
+      + ((_faSugo(e) || e.caution)
+          ? ' title="' + escapeHtml([_faSugo(e), e.caution].filter(Boolean).join('\n')) + '"' : '')
       + '>'
       // A MEGJELENITETT nev (ha van, store/life-labels.json) elsobbseget elvez a
       // lemez-nev elott -- a navigacio viszont vegig a data-open=rel-en megy,
       // tehat az ut es a szinkron valtozatlan. A cimen a valodi nev buborekban.
       + (e.displayName
-          ? '<span title="' + escapeHtml(t('intezo.real_name', { name: e.name })) + '">' + escapeHtml(e.displayName) + '</span>'
+          ? '<span title="' + escapeHtml([t('intezo.real_name', { name: e.name }), _faSugo(e)].filter(Boolean).join('\n')) + '">' + escapeHtml(e.displayName) + '</span>'
           : escapeHtml(e.name))
       + '</a>'
-      // A magyarazat: halvanyabb es kisebb, hogy a NEV maradjon a fo informacio.
-      // Aki mar tudja, hova tesz, annak ne alljon utban; aki nem tudja, annak
-      // ott legyen ugyanabban a sorban.
-      + (_faSugo(e) ? ' <span style="opacity:.6;font-size:12px">(' + escapeHtml(_faSugo(e)) + ')</span>' : '')
+      // The explanation is NOT written next to the name any more (owner,
+      // 2026-09-24): a long one wrapped and made that row taller than the rest.
+      // It lives in the tooltip of the row and of the name (see above).
       + (e.caution ? ' <span style="color:var(--danger,#d33);font-size:12px" title="'
           + escapeHtml(e.caution) + '">⚠ ' + escapeHtml(t('intezo.caution_badge')) + '</span>' : '')
       + (e.physical ? ' <span title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')

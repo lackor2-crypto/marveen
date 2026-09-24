@@ -86,3 +86,10 @@ describe('Intezo content list: folder vs file', () => {
     }
   })
 })
+
+describe('Intezo content list: folder explanation in the tooltip', () => {
+  it('the hint is not printed next to the name, it is in the row / name tooltip', () => {
+    expect(app).not.toContain(`' <span style="opacity:.6;font-size:12px">(' + escapeHtml(_faSugo(e))`)
+    expect(app).toContain(`escapeHtml((_faSugo(e) ? _faSugo(e) + '\\n\\n' : '') + t('intezo.row_title'))`)
+  })
+})
