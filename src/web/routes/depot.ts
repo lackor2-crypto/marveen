@@ -14,7 +14,7 @@
 // koltoztetesnek nem maradt dolga, es a kodja is elment.
 import { existsSync, readdirSync, statSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { json, readBody } from '../http-helpers.js'
+import { json, readBody, reqLang, L } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
   depotHealth, depotRoot, ensureDepotSkeleton, depotAccountDir,
@@ -73,6 +73,7 @@ function countPlain(dir: string): { count: number; bytes: number } {
 
 export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
+  const lang = reqLang(req, ctx.url)
 
   // ONJAVITAS. Alapbol KI, es kikapcsolva a Marveen SOHA nem futtat sudo-t.
   //
@@ -89,7 +90,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
     const terv = health.repair
     if (!terv) {
       json(res, {
-        error: 'A raktár nem Windows-meghajtón van, itt az újracsatolás nem a megoldás.',
+        error: L(lang, 'A raktár nem Windows-meghajtón van, itt az újracsatolás nem a megoldás.', 'The depot is not on a Windows drive, so remounting will not help here.'),
         code: 'not_applicable',
       }, 409)
       return true
@@ -98,7 +99,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
     const sudoers = remountSudoersLine(terv, user)
     if (String(getEffectiveSettingValue('DEPOT_AUTO_REMOUNT')) !== '1') {
       json(res, {
-        error: 'Az önjavítás ki van kapcsolva.',
+        error: L(lang, 'Az önjavítás ki van kapcsolva.', 'Self-repair is turned off.'),
         code: 'disabled',
         command: terv.command,
         sudoers,
@@ -213,16 +214,16 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
       const name = String(body.name ?? '').trim()
       // A mappaneve NEM utvonal: aki `..`-ot vagy per-jelet ir be, az nem uj
       // mappat keszit, hanem mashova mutat -- ezt kimondjuk, nem javitgatjuk.
-      if (!name) { json(res, { error: 'Add meg a mappa nevét.', code: 'no_name' }, 400); return true }
+      if (!name) { json(res, { error: L(lang, 'Add meg a mappa nevét.', 'Enter the folder name.'), code: 'no_name' }, 400); return true }
       if (/[\\/]/.test(name) || name === '.' || name === '..') {
-        json(res, { error: 'A mappa neve nem tartalmazhat per-jelet. Csak a nevét írd be, pl. Marveen.', code: 'bad_name' }, 400)
+        json(res, { error: L(lang, 'A mappa neve nem tartalmazhat per-jelet. Csak a nevét írd be, pl. Marveen.', 'The folder name cannot contain a slash. Type just the name, e.g. Marveen.'), code: 'bad_name' }, 400)
         return true
       }
       target = join(parent, name)
     } else if (typeof body.path === 'string' && body.path.trim()) {
       target = fromDisplayPath(body.path)
     } else {
-      json(res, { error: 'Nem érkezett mappa.', code: 'no_path' }, 400)
+      json(res, { error: L(lang, 'Nem érkezett mappa.', 'No folder was given.'), code: 'no_path' }, 400)
       return true
     }
 
@@ -235,7 +236,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
     try { parentOk = existsSync(parentDir) && statSync(parentDir).isDirectory() } catch { parentOk = false }
     if (!parentOk) {
       json(res, {
-        error: `Ez a hely nem érhető el: ${toDisplayPath(parentDir)}. Ha külső lemezről van szó, csatlakoztasd, és próbáld újra.`,
+        error: L(lang, `Ez a hely nem érhető el: ${toDisplayPath(parentDir)}. Ha külső lemezről van szó, csatlakoztasd, és próbáld újra.`, `This location is not reachable: ${toDisplayPath(parentDir)}. If it is an external drive, connect it and try again.`),
         code: 'parent_missing',
       }, 400)
       return true
@@ -251,7 +252,7 @@ export async function tryHandleDepot(ctx: RouteContext): Promise<boolean> {
       rmSync(probe, { force: true })
     } catch (err: any) {
       json(res, {
-        error: `Ide nem tudok írni: ${toDisplayPath(target)} (${String(err?.code || err?.message || err)}). Válassz másik helyet.`,
+        error: L(lang, `Ide nem tudok írni: ${toDisplayPath(target)} (${String(err?.code || err?.message || err)}). Válassz másik helyet.`, `I cannot write here: ${toDisplayPath(target)} (${String(err?.code || err?.message || err)}). Choose another location.`),
         code: 'not_writable',
       }, 400)
       return true

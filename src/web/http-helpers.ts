@@ -2,6 +2,7 @@ import http from 'node:http'
 import { readFileSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import { gzipSync } from 'node:zlib'
+import { APP_LANG } from '../config.js'
 
 export const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -36,6 +37,26 @@ export class RequestBodyTooLargeError extends Error {
     this.name = 'RequestBodyTooLargeError'
     this.limit = limit
   }
+}
+
+/**
+ * The language of the UI that sent this request (#376). `?lang=` wins, then the
+ * `X-Ui-Lang` header the dashboard's fetch wrapper adds to every API call, then
+ * the install language. Server messages that reach the screen follow this, so
+ * an English UI never gets a Hungarian-only error.
+ */
+export function reqLang(req: http.IncomingMessage, url?: URL): 'hu' | 'en' {
+  const q = url?.searchParams.get('lang')
+  if (q === 'en' || q === 'hu') return q
+  const h = req.headers['x-ui-lang']
+  const v = Array.isArray(h) ? h[0] : h
+  if (v === 'en' || v === 'hu') return v
+  return APP_LANG === 'en' ? 'en' : 'hu'
+}
+
+/** Pick the Hungarian or English sentence for `lang`. */
+export function L(lang: string, hu: string, en: string): string {
+  return lang === 'en' ? en : hu
 }
 
 export function readBody(
