@@ -211,3 +211,26 @@ describe('koltsegkeret (#341 bugkereses)', () => {
     }
   })
 })
+
+describe('pont csak valodi fajlnal (#370)', () => {
+  it('csupa ures mappabol allo ag: deep = empty (ures kor), fajl melyen: deep = has', () => {
+    mkdirSync(join(root, 'Media', 'Fotok'), { recursive: true })
+    mkdirSync(join(root, 'Media', 'Videok'), { recursive: true })
+    mkdirSync(join(root, 'Teli', 'a', 'b'), { recursive: true })
+    writeFileSync(join(root, 'Teli', 'a', 'b', 'x.pdf'), 'x')
+
+    expect(folder('', 'Media').content).toMatchObject({ state: 'has', files: 0, deep: 'empty' })
+    expect(folder('', 'Teli').content).toMatchObject({ state: 'has', files: 0, deep: 'has' })
+  })
+
+  it('a Windows mappa-ikon (desktop.ini) es Thumbs.db NEM valodi fajl', () => {
+    mkdirSync(join(root, 'Ikonos', 'Ures'), { recursive: true })
+    writeFileSync(join(root, 'Ikonos', 'desktop.ini'), '[.ShellClassInfo]')
+    writeFileSync(join(root, 'Ikonos', 'Ures', 'Thumbs.db'), 'x')
+    writeFileSync(join(root, 'Ikonos', 'Ures', 'DESKTOP.INI'), 'x')
+
+    expect(folder('', 'Ikonos').content).toMatchObject({ files: 0, folders: 1, deep: 'empty' })
+    // A lista is ugyanazt mondja, mint a szamlalo: a kiserofajl nem latszik.
+    expect(listLife('Ikonos', { lang: 'hu' }).files.map((f) => f.name)).toEqual([])
+  })
+})

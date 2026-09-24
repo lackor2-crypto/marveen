@@ -391,7 +391,12 @@ function contentFor(abs: string, lang: string, budget: MeasureBudget, rel = ''):
  * latszolag ures lista).
  */
 function isHiddenEntry(name: string): boolean {
-  return name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information'
+  if (name.startsWith('.') || name === '$RECYCLE.BIN' || name === 'System Volume Information') return true
+  // Kartya #370: a Windows sajat mappa-kiserofajljai (mappa-ikon, belyegkep-
+  // gyorsitotar) nem "valodi fajl" -- az Intezo is elrejti oket. Enelkul egy
+  // ikonnal ellatott, csupa ures mappabol allo ag pontot kapna.
+  const lower = name.toLowerCase()
+  return lower === 'desktop.ini' || lower === 'thumbs.db'
 }
 
 /**
