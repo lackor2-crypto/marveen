@@ -48,7 +48,7 @@ export class RequestBodyTooLargeError extends Error {
 export function reqLang(req: http.IncomingMessage, url?: URL): 'hu' | 'en' {
   const q = url?.searchParams.get('lang')
   if (q === 'en' || q === 'hu') return q
-  const h = req.headers['x-ui-lang']
+  const h = req?.headers?.['x-ui-lang']
   const v = Array.isArray(h) ? h[0] : h
   if (v === 'en' || v === 'hu') return v
   return APP_LANG === 'en' ? 'en' : 'hu'

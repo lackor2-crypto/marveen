@@ -21,6 +21,9 @@ describe('reqLang', () => {
   it('ignores unknown values and falls back to hu or en', () => {
     expect(['hu', 'en']).toContain(reqLang(req({ 'x-ui-lang': 'de' })))
   })
+  it('does not throw on a request without headers (route tests pass bare mocks)', () => {
+    expect(['hu', 'en']).toContain(reqLang({} as unknown as http.IncomingMessage))
+  })
   it('L picks the sentence for the language', () => {
     expect(L('en', 'magyar', 'english')).toBe('english')
     expect(L('hu', 'magyar', 'english')).toBe('magyar')
