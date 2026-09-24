@@ -1677,6 +1677,8 @@ function renderKanbanColumnChips() {
 // letezo projektek kozul, nem szabad szoveg -- igy nem lehet elirni vagy
 // elfelejteni a nevet. Egy regi, szabad szoveges ertek (vagy archivalt projekt)
 // a sajat kartyajanal megmarad valaszthatonak, hogy mentesnel ne vesszen el.
+const NO_PROJECT_VALUE = '__none__'
+
 function populateProjectSuggestions(current) {
   const sel = document.getElementById('cardProject')
   if (!sel || sel.tagName !== 'SELECT') return
@@ -1684,9 +1686,12 @@ function populateProjectSuggestions(current) {
   const names = window._projectNames || {}
   const live = Object.keys(names).filter((id) => !names[id].archived)
     .sort((a, b) => String(names[a].name).localeCompare(String(names[b].name), window._lang || 'hu'))
-  let html = `<option value="">${escapeHtml(t('kanban.modal.no_project'))}</option>`
+  // PROJEKT KOTELEZO (#374): az ures ertek "meg nem valasztott", a projekt
+  // nelkuliseg kulon, kifejezett valasztas (NO_PROJECT_VALUE).
+  let html = `<option value="">${escapeHtml(t(live.length ? 'kanban.modal.pick_project' : 'kanban.modal.no_project'))}</option>`
   html += live.map((id) => `<option value="${escapeAttr(id)}">${escapeHtml(names[id].name)}</option>`).join('')
-  if (keep && !live.includes(keep)) html += `<option value="${escapeAttr(keep)}">${escapeHtml(projectLabel(keep))}</option>`
+  if (keep && keep !== NO_PROJECT_VALUE && !live.includes(keep)) html += `<option value="${escapeAttr(keep)}">${escapeHtml(projectLabel(keep))}</option>`
+  if (live.length) html += `<option value="${NO_PROJECT_VALUE}">${escapeHtml(t('kanban.modal.no_project_explicit'))}</option>`
   sel.innerHTML = html
   sel.value = keep
 }
@@ -2668,7 +2673,7 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
     description: document.getElementById('cardDesc').value.trim() || null,
     assignee: document.getElementById('cardAssignee').value || null,
     priority: document.getElementById('cardPriority').value,
-    project: document.getElementById('cardProject').value || null,
+    project: (() => { const v = document.getElementById('cardProject').value; return v && v !== NO_PROJECT_VALUE ? v : null })(),
     due_date: document.getElementById('cardDue').value
       ? Math.floor(new Date(document.getElementById('cardDue').value).getTime() / 1000)
       : null,
@@ -2692,6 +2697,17 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
         return
       }
       data.labels = newCardLabels
+      // PROJEKT KOTELEZO (#374): ha van projekt, valasztani kell; a "nincs
+      // projekt" csak kifejezett valasztas, es a szerver az indokot kapja.
+      const projSel = document.getElementById('cardProject')
+      const projChoice = projSel ? projSel.value : ''
+      const hasLiveProjects = Object.values(window._projectNames || {}).some((p) => !p.archived)
+      if (hasLiveProjects && !projChoice) {
+        showToast(t('kanban.toast.project_required'))
+        projSel?.focus()
+        return
+      }
+      if (projChoice === NO_PROJECT_VALUE) data.no_project_reason = t('kanban.modal.no_project_reason')
       // Ha a szerver hasonlo kartyakat talalt, a felhasznalo mar dontott rola
       // (bepipalt kapcsolodok, vagy "nincs kapcsolat") -- ezt kuldjuk.
       if (_cardSimilarPending) data.related = _cardSimilarChosen()
@@ -2724,6 +2740,11 @@ document.getElementById('saveCardBtn').addEventListener('click', async () => {
         // agensnek szolo hibaszoveg nem a felhasznalonak valo.
         if (res.status === 400 && Array.isArray(e.similar) && e.similar.length && !_cardSimilarPending) {
           _cardSimilarShow(e.similar)
+          return
+        }
+        if (e.code === 'project_required') {
+          showToast(t('kanban.toast.project_required'))
+          document.getElementById('cardProject')?.focus()
           return
         }
         throw new Error(e.error || res.status)
@@ -7883,6 +7904,11 @@ document.getElementById('analyzeAllModelsBtn').addEventListener('click', async (
                 // Cards about the fleet's own models are Marveen development.
                 // Sent by NAME: label ids are per-install, the name is not.
                 labels: ['marveen_fejlesztese'],
+                // PROJEKT KOTELEZO (#374): a flotta sajat modelljei a rendszer
+                // fejlesztese -- az alap-projekt allando slugja. Ha azt a user
+                // torolte, a kartya indokkal projekt nelkul jon letre.
+                project: 'system-dev',
+                no_project_reason: t('agents.model.card_no_project_reason'),
               }),
             })
             created++

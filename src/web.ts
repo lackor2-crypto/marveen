@@ -1,10 +1,11 @@
 import { healProjectFoldersForPersonsGroup } from './project-folder-follow.js'
+import { seedDefaultProjects } from './project-defaults.js'
 import http from 'node:http'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execSync, execFileSync } from 'node:child_process'
-import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID } from './config.js'
+import { PROJECT_ROOT, WEB_HOST, DASHBOARD_PUBLIC_URL, DASHBOARD_ALLOWED_ORIGINS, MAIN_AGENT_ID, STORE_DIR, APP_LANG, currentBrandName } from './config.js'
 import { loadOrCreateDashboardToken } from './web/dashboard-auth.js'
 import { resolveAuth, requiresAuth, isFederationWireEndpoint, isAutofillWireEndpoint, type AuthResult } from './web/auth-gate.js'
 import { sweepExpiredSessions } from './web/auth-sessions.js'
@@ -644,6 +645,13 @@ export function startWebServer(port = 3420): http.Server {
   // A projektek mappa-utja a szemelyek gyujtomappaja (Csalad) utan: ami a
   // koltoztetes elott a regi helyre mutatott, az inditaskor az ujra kerul (#359).
   try { healProjectFoldersForPersonsGroup() } catch (err) { logger.warn({ err }, '[projects] mappa-ut javitas sikertelen') }
+
+  // Friss telepitesen a ket alap-projekt (rendszer + Iroda fejlesztese): a
+  // kartya-kapu projektet kovetel, projekt nelkul nem volna mihez kotni (#374).
+  try {
+    const seed = seedDefaultProjects({ markerDir: STORE_DIR, brand: currentBrandName(), lang: APP_LANG })
+    if (seed.seeded.length) logger.info({ seeded: seed.seeded }, '[projects] alap-projektek letrehozva (friss telepites)')
+  } catch (err) { logger.warn({ err }, '[projects] alap-projektek letrehozasa sikertelen') }
 
   // A gepre telepitendo kulso programok (LibreOffice, FFmpeg, ...) hatter-merese:
   // az onellenorzes es a Varazslo ebbol a pillanatkepbol olvas (kanban d7acdd75).

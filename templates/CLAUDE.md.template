@@ -151,6 +151,35 @@ Státuszok: planned, in_progress, waiting, done
 Prioritások: low, normal, high, urgent
 Ha {{OWNER_NAME}} ad feladatot Telegramon, vedd fel a kanban táblára is.
 
+### ⛔ PROJEKT NÉLKÜLI KÁRTYA NINCS ({{OWNER_NAME}}, 2026-09-21, #374)
+
+{{OWNER_NAME}}: „projekt nélküli kanbankártyát tilos létrehozni. […] Ha nem tudja
+az agent megítélni, hogy milyen projekthez adja hozzá, akkor megkérdezi a
+júzert. Kötelező megkérdezni a júzert."
+
+Minden új kártya egy projekthez tartozik. A projektet a kártyával EGY hívásban
+add meg (`"project": "<id vagy pontos név>"`). Iránytű:
+
+- ami a felület egy menüpontját fejleszti/javítja, az ahhoz a projekthez
+  tartozik, amelyik alatt a menüpont van: az **Iroda** alatti menüpontok
+  (Intéző, Projektek, Raktár, Drive, Fotók, …) -> **Iroda fejlesztése**; a
+  rendszer saját menüpontjai, ágensei, szabályai -> a **rendszer fejlesztési
+  projektje**;
+- ügyfél- vagy magánügy -> annak a saját projektje;
+- ha **nem egyértelmű**, NE tippelj: kérdezd meg a usert a csatornáján, és várd
+  meg a választ.
+
+Projekt nélkül CSAK akkor jöhet létre kártya, ha a user kifejezetten így
+döntött; ilyenkor a `"no_project_reason"` mezőbe írd az indokot (legalább 15
+karakter), és az a kártya leírásába kerül. Az alfeladat (`parent_id`) a szülő
+projektjét örökli.
+
+**Gép is kikényszeríti:** a `POST /api/kanban` (és a Munkapad ágense) 400
+`project_required` hibával utasítja vissza a projekt nélküli kártyát, és
+felsorolja az aktív projekteket. Friss telepítésen a két alapprojekt
+(`system-dev`, `office-dev` slug) indításkor magától létrejön. Teszt:
+`src/__tests__/kanban-project-required.test.ts`.
+
 ### Minden merge kötelező kanban kártyával
 
 Akár upstreamből, akár saját mellékágból mergelsz a fő ágba, KÖTELEZŐ előbb

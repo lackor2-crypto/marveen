@@ -260,6 +260,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     if (!out.ok) {
       if (out.code === 'related_required') { json(res, { error: out.error, similar: out.similar }, 400); return true }
       if (out.code === 'same_project') { json(res, { error: out.error, code: 'same_project', cards: out.cards }, 409); return true }
+      if (out.code === 'project_required') { json(res, { error: out.error, code: 'project_required', projects: out.projects }, 400); return true }
       json(res, { error: out.error }, 400)
       return true
     }
