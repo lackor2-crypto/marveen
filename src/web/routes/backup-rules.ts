@@ -2,13 +2,26 @@
 //
 //   GET  /api/backup-rules        -- every rule + the accounts a rule can point to
 //   POST /api/backup-rules/set    -- {path, action: 'target'|'none'|'inherit', kind?, account?}
+//   POST /api/backup-rules/exclude -- {path, exclude}: what this folder's backup leaves out
+//   POST /api/backup-rules/mega/preview -- {path}: what an upload WOULD do (uploads nothing)
+//   POST /api/backup-rules/mega/run     -- {path}: upload exactly the last preview's list
+//   GET  /api/backup-rules/mega/status  -- the running / last upload
+//   GET  /api/backup-rules/mega/deletes -- files gone from the machine, waiting for yes/no
+//   POST /api/backup-rules/mega/deletes/decide -- {id, yes}
 //
 // Setting a rule NEVER uploads anything (Boss, 2026-09-24: "de még ne töltsd
 // fel semmit"). It only records where a folder SHOULD go.
 import { json, readBody, reqLang, L } from '../http-helpers.js'
-import { loadBackupRules, setBackupRule, normRulePath, type BackupKind } from '../../backup-rules.js'
+import { loadBackupRules, setBackupRule, setBackupExclude, normRulePath, childExclusions, type BackupKind, type BackupRule } from '../../backup-rules.js'
 import { loadDriveQuotas } from '../../drive-quota.js'
-import { readMegaAccounts, readMegaQuota } from '../../mega.js'
+import { readMegaAccounts, readMegaQuota, measureMegaQuota, rcloneBin, defaultRunner } from '../../mega.js'
+import { excludeRules, normalizeExcludes } from '../../backup-exclude.js'
+import {
+  walkForMega, loadMegaState, listMegaRemote, megaRemoteDir, planMegaBackup, runMegaUpload,
+  forgetMegaFiles, syncMegaDeleteQueue, loadMegaDeleteQueue, decideMegaDelete, longRunner,
+  type LocalFile,
+} from '../../mega-backup.js'
+import { logger } from '../../logger.js'
 import { loadSyncConfig } from './drive-sync.js'
 import { resolveLifePath } from '../../life-explorer.js'
 import type { RouteContext } from './types.js'
@@ -50,6 +63,142 @@ export function backupAccounts(): BackupAccount[] {
   return out
 }
 
+// ---- MEGA upload (card #350) --------------------------------------------
+
+/** The last preview per rule: the run uploads exactly this list, nothing else. */
+const previews = new Map<string, { at: number; account: string; base: string; files: LocalFile[] }>()
+const PREVIEW_TTL_MS = 15 * 60_000
+
+interface MegaJob {
+  path: string; account: string; running: boolean
+  startedAt: string; finishedAt: string | null
+  total: number; uploaded: number; failed: number; error: string | null
+}
+/** One upload at a time: a free MEGA account has a per-IP transfer quota. */
+let megaJob: MegaJob | null = null
+
+function megaRuleFor(path: string): { rule: BackupRule | null; rules: BackupRule[]; broken: string | null } {
+  const { rules, broken } = loadBackupRules()
+  return { rule: rules.find((r) => r.path === path) ?? null, rules, broken }
+}
+
+function megaErrorText(lang: 'hu' | 'en', code: string, raw = ''): string {
+  const tail = raw ? ` (${raw})` : ''
+  switch (code) {
+    case 'no_rule': return L(lang, 'Ennek a mappának nincs saját MEGA-mentési szabálya. Jobb klikk a mappán → Mentés beállítása…, és válassz egy MEGA-fiókot.', 'This folder has no MEGA backup rule of its own. Right-click the folder → Backup setting…, and pick a MEGA account.')
+    case 'no_account': return L(lang, 'A szabályban megadott MEGA-fiók már nincs bekötve. A Raktár lapon veheted fel újra.', 'The MEGA account in the rule is not connected any more. Add it again on the Depot page.')
+    case 'rclone_missing': return L(lang, 'A MEGA-hoz szükséges rclone program nincs telepítve ezen a gépen. A Raktár lap MEGA részén látod, hogyan kell feltenni.', 'The rclone program MEGA needs is not installed on this machine. The MEGA section of the Depot page shows how to install it.')
+    case 'no_dir': return L(lang, 'A mentendő mappa most nem érhető el a gépen (lecsatolt lemez?). Amíg nem látom, semmit nem töltök fel és semmit nem jelölök töröltnek.', 'The folder to back up is not reachable right now (disconnected disk?). Until it is, nothing is uploaded and nothing is marked deleted.')
+    case 'state_broken': return L(lang, `A mentés nyilvántartása nem olvasható, ezért most nem töltök fel (különben a MEGA-n törölt fájlokat is újra feltölteném)${tail}.`, `The backup record cannot be read, so nothing is uploaded now (otherwise files deleted on MEGA would be uploaded again)${tail}.`)
+    case 'remote_failed': return L(lang, `Nem tudtam megnézni, mi van már fent a MEGA-n${tail}.`, `Could not check what is already on MEGA${tail}.`)
+    case 'no_preview': return L(lang, 'Előbb nézd meg az előnézetet: a feltöltés pontosan azt viszi fel, amit ott láttál.', 'Look at the preview first: the upload takes exactly what you saw there.')
+    case 'busy': return L(lang, 'Már fut egy MEGA-feltöltés. Megvárom, amíg véget ér.', 'A MEGA upload is already running. Wait until it ends.')
+    case 'not_found': return L(lang, 'Ez a tétel már nincs a listában.', 'This item is not in the list any more.')
+    default: return L(lang, `A MEGA hibát jelzett${tail}.`, `MEGA reported an error${tail}.`)
+  }
+}
+
+async function readJson(ctx: RouteContext): Promise<any> {
+  try { return JSON.parse((await readBody(ctx.req)).toString('utf-8') || '{}') } catch { return {} }
+}
+
+async function handleMega(ctx: RouteContext, lang: 'hu' | 'en'): Promise<boolean> {
+  const { res, path, method } = ctx
+  const fail = (code: string, status: number, raw = '') => { json(res, { error: megaErrorText(lang, code, raw), code }, status); return true }
+
+  if (path === '/api/backup-rules/mega/status' && method === 'GET') {
+    json(res, { job: megaJob })
+    return true
+  }
+
+  if (path === '/api/backup-rules/mega/deletes' && method === 'GET') {
+    const { items, broken } = loadMegaDeleteQueue()
+    json(res, { items, ...(broken ? { error: megaErrorText(lang, 'state_broken', broken), code: 'queue_broken' } : {}) })
+    return true
+  }
+
+  if (path === '/api/backup-rules/mega/deletes/decide' && method === 'POST') {
+    const data = await readJson(ctx)
+    const accounts = readMegaAccounts()
+    const r = await decideMegaDelete({
+      id: String(data.id || ''), yes: data.yes === true, bin: rcloneBin(),
+      remoteOf: (a) => accounts.find((x) => x.name === a)?.remote ?? null, run: defaultRunner,
+    })
+    if (!r.ok) return fail(['not_found', 'no_account', 'rclone_missing'].includes(r.error) ? r.error : 'remote_failed', r.error === 'not_found' ? 404 : 502, r.error)
+    json(res, { ok: true })
+    return true
+  }
+
+  if ((path === '/api/backup-rules/mega/preview' || path === '/api/backup-rules/mega/run') && method === 'POST') {
+    const data = await readJson(ctx)
+    const rel = normRulePath(String(data.path ?? ''))
+    const { rule, rules, broken } = megaRuleFor(rel)
+    if (broken) return fail('state_broken', 500, broken)
+    if (!rule || !rule.target || rule.target.kind !== 'mega') return fail('no_rule', 400)
+    const account = readMegaAccounts().find((a) => a.name === rule.target!.account)
+    if (!account) return fail('no_account', 400)
+    const bin = rcloneBin()
+    if (!bin) return fail('rclone_missing', 400)
+
+    if (path === '/api/backup-rules/mega/run') {
+      if (megaJob?.running) return fail('busy', 409)
+      const pv = previews.get(rel)
+      if (!pv || pv.account !== account.name || Date.now() - pv.at > PREVIEW_TTL_MS) return fail('no_preview', 409)
+      previews.delete(rel)
+      megaJob = { path: rel, account: account.name, running: true, startedAt: new Date().toISOString(), finishedAt: null, total: pv.files.length, uploaded: 0, failed: 0, error: null }
+      const job = megaJob
+      void runMegaUpload({ bin, remote: account.remote, account: account.name, path: rel, base: pv.base, files: pv.files, run: longRunner })
+        .then((r) => { job.uploaded = r.uploaded; job.failed = r.failed.length; job.error = r.error })
+        .catch((e) => { job.error = String(e?.message || e); job.failed = job.total })
+        .finally(() => {
+          job.running = false
+          job.finishedAt = new Date().toISOString()
+          logger.info({ path: rel, account: job.account, uploaded: job.uploaded, failed: job.failed }, '[mega-backup] upload finished')
+          void measureMegaQuota(account.name).catch(() => undefined)
+        })
+      json(res, { ok: true, job })
+      return true
+    }
+
+    // --- preview: uploads nothing ---
+    const base = resolveLifePath(rel)
+    if (!base) return fail('no_dir', 404)
+    const loaded = loadMegaState(account.name, rel)
+    if (loaded.broken) return fail('state_broken', 500, loaded.broken)
+    const ex = excludeRules([...(rule.exclude || []), ...childExclusions(rules, rel)])
+    const walk = walkForMega(base, ex)
+    if (walk.unreachable) return fail('no_dir', 404)
+    const remote = await listMegaRemote(bin, megaRemoteDir(account.remote, rel), defaultRunner)
+    if (!remote.ok) return fail('remote_failed', 502, remote.error)
+    const plan = planMegaBackup(walk, loaded.state, remote.files, ex)
+    forgetMegaFiles(account.name, rel, plan.forget)
+    // Brakes 2 and 3: from a truncated walk or a mass disappearance the queue
+    // is not touched at all -- a disconnected disk must not flood it.
+    let queued: number | null = null
+    if (!plan.truncated && !plan.brake) queued = syncMegaDeleteQueue(account.name, rel, plan.wouldDelete)
+    const quota = await measureMegaQuota(account.name).catch(() => null)
+    const free = quota && typeof quota.free === 'number' ? quota.free : null
+    previews.set(rel, { at: Date.now(), account: account.name, base, files: plan.upload })
+    json(res, {
+      files: plan.upload.length,
+      bytes: plan.uploadBytes,
+      remoteDeleted: plan.remoteDeleted.length,
+      wouldDelete: plan.wouldDelete.length,
+      queued,
+      brake: plan.brake,
+      tracked: plan.tracked,
+      truncated: plan.truncated,
+      free,
+      fits: free === null ? null : plan.uploadBytes <= free,
+      quotaError: quota?.error || null,
+      exclude: rule.exclude || [],
+      children: childExclusions(rules, rel),
+    })
+    return true
+  }
+  return false
+}
+
 export async function tryHandleBackupRules(ctx: RouteContext): Promise<boolean> {
   const { req, res, path, method } = ctx
   if (path !== '/api/backup-rules' && !path.startsWith('/api/backup-rules/')) return false
@@ -67,6 +216,34 @@ export async function tryHandleBackupRules(ctx: RouteContext): Promise<boolean> 
         code: 'rules_unreadable',
       } : {}),
     })
+    return true
+  }
+
+  if (path.startsWith('/api/backup-rules/mega/')) return handleMega(ctx, lang)
+
+  if (path === '/api/backup-rules/exclude' && method === 'POST') {
+    const data = await readJson(ctx)
+    const { list, invalid } = normalizeExcludes(data.exclude)
+    if (invalid.length) {
+      json(res, {
+        error: L(lang,
+          `Ezeket a sorokat nem értem: ${invalid.join(', ')}. Egy sor vagy egy almappa (például Projektek/Régi), vagy egy fájltípus (például *.fxt).`,
+          `These lines are not understood: ${invalid.join(', ')}. A line is either a sub-folder (for example Projects/Old) or a file type (for example *.fxt).`),
+        code: 'bad_exclude', invalid,
+      }, 400)
+      return true
+    }
+    try {
+      json(res, { ok: true, rules: setBackupExclude(String(data.path ?? ''), list) })
+    } catch (e: any) {
+      const noRule = String(e?.message || e) === 'no_own_target'
+      json(res, {
+        error: noRule
+          ? L(lang, 'Kihagyást csak olyan mappánál lehet megadni, amelynek saját mentési célja van.', 'Exclusions can only be set on a folder that has its own backup target.')
+          : L(lang, `A kihagyásokat nem tudtam elmenteni: ${String(e?.message || e)}`, `Could not save the exclusions: ${String(e?.message || e)}`),
+        code: noRule ? 'no_rule' : 'save_failed',
+      }, noRule ? 400 : 500)
+    }
     return true
   }
 

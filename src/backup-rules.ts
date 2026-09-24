@@ -29,6 +29,11 @@ export interface BackupRule {
   /** `null` = "do not back up this folder (and what is under it)". */
   target: BackupTarget | null
   setAt: string
+  /**
+   * What this folder's backup leaves out (backup-exclude.ts entries: a
+   * sub-folder `Projektek/Axxa` or a file type `*.fxt`). Absent = nothing.
+   */
+  exclude?: string[]
 }
 
 export interface EffectiveRule {
@@ -65,7 +70,8 @@ export function loadBackupRules(): { rules: BackupRule[]; broken: string | null 
       const t = r.target
       const target: BackupTarget | null = t && (t.kind === 'drive' || t.kind === 'mega') && typeof t.account === 'string' && t.account
         ? { kind: t.kind, account: t.account } : null
-      rules.push({ path: normRulePath(r.path), target, setAt: String(r.setAt || '') })
+      const exclude = Array.isArray(r.exclude) ? r.exclude.filter((x: unknown) => typeof x === 'string' && x) : []
+      rules.push({ path: normRulePath(r.path), target, setAt: String(r.setAt || ''), ...(exclude.length ? { exclude } : {}) })
     }
     return { rules, broken: null }
   } catch (e: any) {
@@ -111,7 +117,9 @@ export function setBackupRule(input: SetRuleInput, now = new Date()): BackupRule
   const rest = loaded.rules.filter((r) => r.path !== path)
   if (input.action === 'inherit') { saveBackupRules(rest); return rest }
   const target = input.action === 'target' ? { kind: input.target.kind, account: input.target.account } : null
-  const next = [...rest, { path, target, setAt: now.toISOString() }]
+  // Changing where a folder goes keeps what it leaves out.
+  const prev = loaded.rules.find((r) => r.path === path)
+  const next = [...rest, { path, target, setAt: now.toISOString(), ...(prev?.exclude?.length ? { exclude: prev.exclude } : {}) }]
   saveBackupRules(next)
   return next
 }
@@ -130,4 +138,23 @@ export function childExclusions(rules: readonly BackupRule[], path: string): str
     .map((r) => r.path.slice(prefix.length))
     .filter(Boolean)
     .sort()
+}
+
+/**
+ * Set what one folder's backup leaves out. Only a folder with its OWN rule
+ * pointing somewhere has a backup to leave things out of.
+ */
+export function setBackupExclude(path: string, exclude: string[]): BackupRule[] {
+  const loaded = loadBackupRules()
+  if (loaded.broken) throw new Error(`backup-rules.json is unreadable: ${loaded.broken}`)
+  const p = normRulePath(path)
+  const rule = loaded.rules.find((r) => r.path === p)
+  if (!rule || !rule.target) throw new Error('no_own_target')
+  const next = loaded.rules.map((r) => {
+    if (r.path !== p) return r
+    const { exclude: _old, ...rest } = r
+    return exclude.length ? { ...rest, exclude: [...exclude] } : rest
+  })
+  saveBackupRules(next)
+  return next
 }

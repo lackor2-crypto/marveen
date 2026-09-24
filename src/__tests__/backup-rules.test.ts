@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  setBackupRulesFileForTests, loadBackupRules, setBackupRule, effectiveRule, childExclusions,
+  setBackupRulesFileForTests, loadBackupRules, setBackupRule, setBackupExclude, effectiveRule, childExclusions,
 } from '../backup-rules.js'
 import { normalizeExcludes, excludeRules, isExcludedDir, isExcludedFile } from '../backup-exclude.js'
 
@@ -103,5 +103,24 @@ describe('exclude engine', () => {
     expect(isExcludedFile(r, 'Projektek/a.pdf')).toBe(false)
     expect(isExcludedFile(r, 'noext')).toBe(false)
     expect(isExcludedFile(excludeRules([]), 'x.fxt')).toBe(false)
+  })
+})
+
+describe('per-rule exclusions (MEGA / Drive backup)', () => {
+  it('are saved on a folder with its own target, and survive a target change', () => {
+    setBackupRule({ path: 'A', action: 'target', target: { kind: 'mega', account: 'm1' } })
+    setBackupExclude('A', ['*.fxt', 'Old'])
+    setBackupRule({ path: 'A', action: 'target', target: { kind: 'mega', account: 'm2' } })
+    const r = loadBackupRules().rules.find((x) => x.path === 'A')!
+    expect(r.target).toEqual({ kind: 'mega', account: 'm2' })
+    expect(r.exclude).toEqual(['*.fxt', 'Old'])
+    setBackupExclude('A', [])
+    expect(loadBackupRules().rules.find((x) => x.path === 'A')!.exclude).toBeUndefined()
+  })
+
+  it('are refused where there is no own target to leave things out of', () => {
+    expect(() => setBackupExclude('Nope', ['*.fxt'])).toThrow('no_own_target')
+    setBackupRule({ path: 'B', action: 'none' })
+    expect(() => setBackupExclude('B', ['*.fxt'])).toThrow('no_own_target')
   })
 })
