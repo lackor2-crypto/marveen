@@ -9,8 +9,7 @@ import {
   writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { runLsof } from './lsof.js'
+import { execFileSync, execSync } from 'node:child_process'
 import type { Server as HttpServer } from 'node:http'
 import { PROJECT_ROOT, STORE_DIR, PID_FILENAME, WEB_PORT, MAIN_AGENT_ID, RESPAWN_ENABLED, HEARTBEAT_AGENT_ENABLED, BRAND_NAME } from './config.js'
 import { resolveOwnerChatId } from './owner-chat.js'
@@ -18,11 +17,9 @@ import { initDatabase, runEmbeddingBackfill } from './db.js'
 import { migrateLegacyAliases } from './web/code-bridge-store.js'
 import { readBrokerConfig, writeBrokerConfig } from './web/context-broker-store.js'
 import { runDecaySweep, runDailyDigest } from './memory.js'
-import { DECAY_SWEEP_INTERVAL_MS } from './db.js'
-import { initHeartbeat, stopHeartbeat, ensureHeartbeatWorkerHidden } from './heartbeat.js'
+import { initHeartbeat, stopHeartbeat } from './heartbeat.js'
 import { ensureHeartbeatAgent, shouldBootHeartbeatAgent, HEARTBEAT_AGENT_NAME } from './web/heartbeat-agent-scaffold.js'
 import { startAgentProcess } from './web/agent-process.js'
-import { runLogRotationSweep, LOG_ROTATION_SWEEP_MS } from './web/log-rotation.js'
 import { renameSharedCredentialsIfSafe, fleetTokenBootPass } from './web/claude-credentials-guard.js'
 import { startWebServer } from './web.js'
 import { logger } from './logger.js'
@@ -86,12 +83,13 @@ function processCwd(pid: number): string | null {
     // Linux: cheap and exact.
     return readlinkSync(`/proc/${pid}/cwd`)
   } catch { /* not Linux or no access; try lsof (macOS) */ }
-  // Resolved-path lsof (LSOFPATH805): a bare `lsof` was command-not-found under
-  // the launchd PATH and silently returned null on the live box.
-  const raw = runLsof(['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], 2000)
-  if (raw == null) return null
-  const line = raw.split('\n').find((l) => l.startsWith('n'))
-  return line ? line.slice(1) : null
+  try {
+    const raw = execSync(`lsof -a -p ${pid} -d cwd -Fn 2>/dev/null || true`, { timeout: 2000, encoding: 'utf-8' })
+    const line = raw.split('\n').find((l) => l.startsWith('n'))
+    return line ? line.slice(1) : null
+  } catch {
+    return null
+  }
 }
 
 function argvBelongsToThisInstall(argv: string, pid: number): boolean {
@@ -107,9 +105,7 @@ function argvBelongsToThisInstall(argv: string, pid: number): boolean {
 function buildProcessLockContext(): ProcessLockContext {
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
   // realpath so this compares equal against /proc/<pid>/cwd, which the
-  // kernel always reports fully symlink-resolved -- an un-resolved
-  // PROJECT_ROOT (e.g. reached via a symlinked path) would otherwise never
-  // match even for our own genuine predecessor.
+  // kernel always reports fully symlink-resolved (upstream process-lock).
   let selfProjectRoot: string | null
   try {
     selfProjectRoot = realpathSync(PROJECT_ROOT)
@@ -121,14 +117,6 @@ function buildProcessLockContext(): ProcessLockContext {
     uid,
     selfProjectRoot,
     getProcessCwd(pid: number): string | null {
-      // Resolve the PID's cwd on BOTH platforms via the shared processCwd
-      // helper: /proc on Linux, `lsof -a -p <pid> -d cwd` on macOS. A previous
-      // version was /proc-only, which returned null for every pid on macOS (no
-      // /proc) and silently disabled the byBinary single-instance reclaim on
-      // the production platform. realpath the result so it compares equal to
-      // selfProjectRoot (also realpath'd) -- two different-looking paths to the
-      // same directory (symlink / bind mount) must still match. If the path is
-      // gone by the time we realpath, fall back to the raw value.
       const cwd = processCwd(pid)
       if (cwd == null) return null
       try {
@@ -138,14 +126,13 @@ function buildProcessLockContext(): ProcessLockContext {
       }
     },
     listPortHolders(port: number): number[] {
-      // Resolved-path lsof (LSOFPATH805): under the launchd PATH the old bare
-      // `lsof -ti` was command-not-found and silently returned [], so this
-      // port-holder probe -- which the single-instance reclaim depends on --
-      // found no one on the live box. runLsof resolves an absolute lsof and
-      // warns loudly if none exists rather than returning a silent empty.
-      const raw = (runLsof(['-ti', `:${port}`], 3000) ?? '').trim()
-      if (!raw) return []
-      return raw.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      try {
+        const raw = execSync(`lsof -ti :${port} 2>/dev/null || true`, { timeout: 3000, encoding: 'utf-8' }).trim()
+        if (!raw) return []
+        return raw.split('\n').map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n) && n > 0)
+      } catch {
+        return []
+      }
     },
     listOwnProcessesMatching(pattern: RegExp): number[] {
       // `ps -A -o pid=,uid=,args=` emits `<pid> <uid> <full argv>` per row.
@@ -409,7 +396,6 @@ let googleLiveInterval: NodeJS.Timeout | null = null
 let decayInterval: NodeJS.Timeout | null = null
 let digestTimer: NodeJS.Timeout | null = null
 let digestInterval: NodeJS.Timeout | null = null
-let logRotationInterval: NodeJS.Timeout | null = null
 let heartbeatStarted = false
 let webServer: HttpServer | null = null
 let shuttingDown = false
@@ -432,7 +418,6 @@ const shutdown = (): void => {
     if (decayInterval) clearInterval(decayInterval)
     if (digestTimer) clearTimeout(digestTimer)
     if (digestInterval) clearInterval(digestInterval)
-    if (logRotationInterval) clearInterval(logRotationInterval)
 
     const hardKill = setTimeout(() => {
       logger.warn({ timeoutMs: SHUTDOWN_HARD_KILL_MS }, 'Graceful shutdown timeout, hard exit')
@@ -538,14 +523,8 @@ async function main(): Promise<void> {
 
   // Memory decay (24h cycle)
   runDecaySweep()
-  decayInterval = setInterval(runDecaySweep, DECAY_SWEEP_INTERVAL_MS)
+  decayInterval = setInterval(runDecaySweep, 24 * 60 * 60 * 1000)
   logger.info('Memoria leepulesi ciklus beallitva (24 oras)')
-
-  // Log rotation (LOGROTATE910): copytruncate on the launcher-redirected
-  // logs, size-capped, hourly check. Runs inside the dashboard so every
-  // platform gets it without launchd/systemd/cron wiring.
-  runLogRotationSweep()
-  logRotationInterval = setInterval(runLogRotationSweep, LOG_ROTATION_SWEEP_MS)
 
   // Daily digest at 23:00. Timer handles kept so shutdown can drop them.
   function scheduleDailyDigest() {
@@ -613,7 +592,7 @@ async function main(): Promise<void> {
   if (shouldBootHeartbeatAgent({ respawnEnabled: RESPAWN_ENABLED, agentEnabled: HEARTBEAT_AGENT_ENABLED })) {
     ensureHeartbeatAgent()
     logger.info({ agent: HEARTBEAT_AGENT_NAME }, 'Heartbeat agent scaffold ensured (channel-less, dashboard-hidden)')
-    const heartbeatStart = await startAgentProcess(HEARTBEAT_AGENT_NAME)
+    const heartbeatStart = startAgentProcess(HEARTBEAT_AGENT_NAME)
     if (heartbeatStart.ok) {
       logger.info({ agent: HEARTBEAT_AGENT_NAME }, 'Heartbeat agent started')
     } else if (heartbeatStart.error === 'Agent is already running') {
@@ -622,10 +601,6 @@ async function main(): Promise<void> {
       logger.warn({ error: heartbeatStart.error }, 'Heartbeat agent failed to start (legacy native heartbeat is NOT a fallback any more)')
     }
   } else {
-    // Even with the feature off, keep the isolation sandbox out of the agent
-    // list: agents/heartbeat-worker is a cwd, not an agent, and without the
-    // sentinel the dashboard offers it as a startable agent (2026-08-25).
-    ensureHeartbeatWorkerHidden()
     logger.info('Heartbeat agent boot-start skipped (set HEARTBEAT_AGENT_ENABLED=1 on the respawn host to enable)')
   }
 

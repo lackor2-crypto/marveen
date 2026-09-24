@@ -17,7 +17,6 @@ import { runAgent } from './agent.js'
 import { notifyTelegram } from './notify.js'
 import { logger } from './logger.js'
 import { wrapUntrusted, UNTRUSTED_PREAMBLE } from './prompt-safety.js'
-import { getMainParkedState } from './web/agent-process.js'
 import { CHANNEL_PLUGIN_IDS } from './web/plugin-ids.js'
 
 // Isolation cwd for the heartbeat sub-agent. Keep this OUT of PROJECT_ROOT
@@ -74,35 +73,11 @@ interface ClaudeSettings {
 // our enabledPlugins:{} override. .DS_Store / lock files are just noise.
 const HEARTBEAT_CONFIG_SKIP = new Set(['settings.json', '.DS_Store', '.lock'])
 
-/**
- * Mark the isolation-sandbox dir as hidden from the dashboard's agent list.
- *
- * MUST be callable independently of whether the heartbeat feature is enabled:
- * agents/heartbeat-worker is a plain cwd, not an agent, but listAgentNames()
- * cannot tell the difference without this sentinel. Before 2026-08-25 the
- * write lived only at the END of ensureHeartbeatWorkerCwd(), which runs solely
- * from executeHeartbeat() -- so on any install with HEARTBEAT_AGENT_ENABLED
- * unset (the default) the sentinel was never created, the sandbox showed up as
- * a real agent, and could be started as one. Observed in the wild.
- */
-export function ensureHeartbeatWorkerHidden(): void {
-  try {
-    if (!existsSync(HEARTBEAT_AGENT_CWD)) return
-    const sentinelPath = join(HEARTBEAT_AGENT_CWD, '.hidden-from-dashboard')
-    if (!existsSync(sentinelPath)) writeFileSync(sentinelPath, '')
-  } catch (err) {
-    logger.warn({ err }, 'Heartbeat: failed to write the dashboard-hide sentinel')
-  }
-}
-
 function ensureHeartbeatWorkerCwd(): void {
   try {
     if (!existsSync(HEARTBEAT_AGENT_CWD)) {
       mkdirSync(HEARTBEAT_AGENT_CWD, { recursive: true })
     }
-    // Write the hide-sentinel FIRST, right after the dir exists: if any later
-    // step throws, the dir must still not masquerade as an agent.
-    ensureHeartbeatWorkerHidden()
     // Project-scope empty MCP list (defense in depth -- the load-bearing
     // gates are the enabledPlugins override + CLAUDE_CONFIG_DIR).
     const mcpPath = join(HEARTBEAT_AGENT_CWD, '.mcp.json')
@@ -232,8 +207,13 @@ function ensureHeartbeatWorkerCwd(): void {
       logger.warn({ err }, 'Heartbeat: failed to materialise .claude.json into isolated config dir (sub-agent will lack project MCPs)')
     }
 
-    // (The dashboard-hide sentinel is written at the top of this function --
-    // see ensureHeartbeatWorkerHidden.)
+    // Dashboard-hide sentinel: Szabi 2026-06-02 asked that this technical
+    // worker NOT show up as a real agent on the dashboard. listAgentNames()
+    // filters out any subdir of agents/ that contains this sentinel file.
+    const sentinelPath = join(HEARTBEAT_AGENT_CWD, '.hidden-from-dashboard')
+    if (!existsSync(sentinelPath)) {
+      writeFileSync(sentinelPath, '')
+    }
   } catch (err) {
     logger.warn({ err, cwd: HEARTBEAT_AGENT_CWD }, 'Heartbeat: failed to ensure isolated worker cwd, falling back to PROJECT_ROOT')
   }
@@ -304,24 +284,13 @@ function readClaudeCodeOauthJson(): string | null {
 // --- Data types ---
 
 interface SystemInfo {
-  // null = could not measure. Never 0: the metric is a growth signal, and a
-  // false zero reads as calm, not as failure (HBDBMERET822).
-  dbSizeMB: number | null
+  dbSizeMB: number
   dbWarning: boolean
 }
 
-// 5E0A32B0 #1159 review: a discriminated result, not a bare array. The old
-// contract collapsed "queried, calendar free" and "could not query" into the
-// same empty list, so a failed fetch rendered as "Nincs kozelgo esemeny." in
-// the prompt and read as a quiet morning -- the same lie the metrics
-// instrument was just cured of, one file over, in the same process.
-export type HeartbeatCalendarResult =
-  | { ok: true; events: CalendarEvent[] }
-  | { ok: false; error: string }
-
 interface HeartbeatData {
   timestamp: Date
-  calendar: HeartbeatCalendarResult
+  calendar: CalendarEvent[]
   kanban: { urgent: number; in_progress: number; waiting: number; urgentLabels: string[]; waitingLabels: string[] }
   system: SystemInfo
   tasks: { count: number; nextRun: number | null }
@@ -329,14 +298,14 @@ interface HeartbeatData {
 
 // --- Data collection ---
 
-async function collectCalendar(): Promise<HeartbeatCalendarResult> {
+async function collectCalendar(): Promise<CalendarEvent[]> {
   try {
     const now = new Date()
     const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000)
-    return { ok: true, events: await getCalendarEvents(HEARTBEAT_CALENDAR_ID, now, twoHoursLater) }
+    return await getCalendarEvents(HEARTBEAT_CALENDAR_ID, now, twoHoursLater)
   } catch (err) {
     logger.error({ err }, 'Heartbeat: calendar fetch failed')
-    return { ok: false, error: String((err as Error)?.message ?? err).slice(0, 200) }
+    return []
   }
 }
 
@@ -373,9 +342,8 @@ function collectSystem(): SystemInfo {
     const dbPath = join(STORE_DIR, DB_FILENAME)
     const dbSize = statSync(dbPath).size / (1024 * 1024)
     return { dbSizeMB: Math.round(dbSize * 10) / 10, dbWarning: dbSize > 100 }
-  } catch (err) {
-    logger.warn({ err }, 'Heartbeat: DB size stat failed; reporting null, not 0')
-    return { dbSizeMB: null, dbWarning: false }
+  } catch {
+    return { dbSizeMB: 0, dbWarning: false }
   }
 }
 
@@ -403,16 +371,6 @@ function shouldNotify(data: HeartbeatData): boolean {
   // a felhasznalot.
   if (hour >= 22) return false
 
-  // 5E0A32B0 fail-open on the NOTIFICATION side: a failed calendar QUERY is
-  // itself notify-worthy. Before this, an expired token emptied the list,
-  // shouldNotify saw nothing calendar-shaped, and on a quiet weekday the
-  // heartbeat simply did not fire -- the failure presented as SILENCE, which
-  // is the one presentation nobody investigates. Placed after the 22:00
-  // curfew (that window stays dbWarning-only by design: a broken token can
-  // wait until morning) but before the evening/weekend urgent-only filters,
-  // so a broken calendar surfaces on the next non-curfew round.
-  if (!data.calendar.ok) return true
-
   if (hour >= 21) {
     return data.kanban.urgent > 0
   }
@@ -421,7 +379,7 @@ function shouldNotify(data: HeartbeatData): boolean {
     return data.kanban.urgent > 0
   }
 
-  if (data.calendar.events.length > 0) return true
+  if (data.calendar.length > 0) return true
   if (data.kanban.urgent > 0) return true
   if (data.kanban.waiting > 2) return true
 
@@ -429,23 +387,6 @@ function shouldNotify(data: HeartbeatData): boolean {
 }
 
 // --- Agent prompt ---
-
-// MAINBOXPARK816: pure formatter, exported for tests. The parked preview is
-// wrapped as untrusted (it is whatever text sits in the box). Empty string when
-// there is nothing to report, so the prompt stays byte-identical in the normal
-// case.
-export function formatMainParkedSection(
-  state: { preview: string; fails: number; approxMinutes: number } | null,
-): string {
-  if (!state) return ''
-  return (
-    `## ⚠️ FO-AGENS INPUT-BOX PARKOLT (~${state.approxMinutes} perce)\n` +
-    `A fo agens input-mezojeben parkolt sor all, a csatorna emiatt nem dolgoz fel bejovo uzenetet. ` +
-    `A boxhoz NEM szabad nyulni (guard vedi); a te dolgod: jelezd EXPLICIT a gazda fele az osszefoglalod ELEJEN, ` +
-    `es ha ${OWNER_NAME} mar kapott kulon riasztast (owner-fok), eleg roviden megerositeni. ` +
-    `Parkolt sor eleje (untrusted adat): ${wrapUntrusted('main-parked-input', state.preview)}\n\n`
-  )
-}
 
 function buildAgentPrompt(data: HeartbeatData): string {
   const timeStr = data.timestamp.toLocaleString('hu-HU', { timeZone: APP_TZ })
@@ -458,25 +399,13 @@ function buildAgentPrompt(data: HeartbeatData): string {
   prompt += `FONTOS: Nezd meg az emaileket is MCP-n keresztul (search_emails, utolso 2 ora, olvasatlanok).\n`
   prompt += `Hasznald a HEARTBEAT.md formatumot.\n\n`
 
-  // MAINBOXPARK816 stage 1: a parked main-agent input box silences the channel
-  // unsupervised, and the alert cannot travel the inter-agent queue (it would
-  // strand behind the very text it reports) -- so the heartbeat round is the
-  // first escalation surface. Same-process read, no queue involved.
-  prompt += formatMainParkedSection(getMainParkedState())
-
   // Calendar -- event summaries and attendee names come from whoever sent the
   // invite, so every one is wrapped individually as untrusted data.
   prompt += `## Naptar (kovetkezo 2 ora)\n`
-  if (!data.calendar.ok) {
-    // 5E0A32B0: a failed query must never wear the free-calendar sentence.
-    // The error text is our own thrown message (google-api.ts), not remote
-    // content, but it stays inside this labelled line either way.
-    prompt += `NAPTAR-LEKERDEZES HIBARA FUTOTT: ${data.calendar.error}\n` +
-      `Ez NEM ures naptar -- a lekerdezes bukott. Jelezd a gazdanak, hogy a naptar-forras hibas (pl. lejart token), es hogy a naptari kep emiatt ISMERETLEN.\n\n`
-  } else if (data.calendar.events.length === 0) {
+  if (data.calendar.length === 0) {
     prompt += `Nincs kozelgo esemeny.\n\n`
   } else {
-    for (const ev of data.calendar.events) {
+    for (const ev of data.calendar) {
       const start = ev.start?.dateTime
         ? new Date(ev.start.dateTime).toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', timeZone: APP_TZ })
         : 'egesz napos'
@@ -506,7 +435,7 @@ function buildAgentPrompt(data: HeartbeatData): string {
 
   // System -- trusted (our own metrics, no external input).
   prompt += `## Rendszer\n`
-  prompt += `- DB meret: ${data.system.dbSizeMB === null ? 'nincs adat (stat hiba)' : `${data.system.dbSizeMB} MB${data.system.dbWarning ? ' WARNING >100MB!' : ''}`}\n`
+  prompt += `- DB meret: ${data.system.dbSizeMB} MB${data.system.dbWarning ? ' WARNING >100MB!' : ''}\n`
   prompt += `- Aktiv utemezett feladatok: ${data.tasks.count}\n`
   if (data.tasks.nextRun) {
     const nextDate = new Date(data.tasks.nextRun * 1000)

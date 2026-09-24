@@ -8,7 +8,6 @@ import { listAgentNames, readAgentRemoteHost } from './agent-config.js'
 import {
   agentSessionName,
   isSessionReadyForPrompt,
-  clearFeedbackModalAndRecheck,
   sendPromptToSession,
   sessionExistsOnHost,
 } from './agent-process.js'
@@ -322,12 +321,7 @@ export async function maybeWakeSubAgentsForTelegram(now: number): Promise<void> 
       // isSessionReadyForPrompt already reports a widget-over-idle ('unknown')
       // pane as NOT ready, so a TodoWrite-widget session is conservatively left
       // alone rather than nudged mid-widget -- the safe default for injection.
-      // A feedback-draft modal reads as not-ready here too, and this branch
-      // never reaches the send path where the pre-flight dismissal lives --
-      // so clear it once and re-read before treating the pane as busy.
-      const sessionIdle = sessionExists
-        && ((await isSessionReadyForPrompt(session, host))
-          || (await clearFeedbackModalAndRecheck(session, host)))
+      const sessionIdle = sessionExists && await isSessionReadyForPrompt(session, host)
       // Remember a busy pane so the next few ticks skip the probe entirely; a
       // pane that came back idle clears the throttle.
       if (sessionExists && !sessionIdle) state.lastBusyProbeAt = now
