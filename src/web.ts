@@ -1,3 +1,4 @@
+import { healProjectFoldersForPersonsGroup } from './project-folder-follow.js'
 import http from 'node:http'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -639,6 +640,10 @@ export function startWebServer(port = 3420): http.Server {
   // ~/.claude/skills/ ala; ezt a sopres viszi at a seed-skills ala, hogy egy
   // friss telepites is megkapja. Nem ir felul meglevot.
   const skillSeederInterval = startGlobalSkillSeeder()
+
+  // A projektek mappa-utja a szemelyek gyujtomappaja (Csalad) utan: ami a
+  // koltoztetes elott a regi helyre mutatott, az inditaskor az ujra kerul (#359).
+  try { healProjectFoldersForPersonsGroup() } catch (err) { logger.warn({ err }, '[projects] mappa-ut javitas sikertelen') }
 
   // A gepre telepitendo kulso programok (LibreOffice, FFmpeg, ...) hatter-merese:
   // az onellenorzes es a Varazslo ebbol a pillanatkepbol olvas (kanban d7acdd75).
