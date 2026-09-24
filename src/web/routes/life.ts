@@ -428,7 +428,11 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
     if (!r.ok) {
       const messages: Record<string, [string, string]> = {
         not_media: ['Ehhez a fájlhoz nincs előnézeti kép: nem kép és nem videó.', 'There is no preview picture for this file: it is not a photo or a video.'],
-        no_ffmpeg: ['Ehhez az előnézethez az FFmpeg nevű ingyenes program kell. A Munkapad beállításainál tudod megadni; addig a fájl ikonja látszik.', 'This preview needs the free FFmpeg program. You can set it up in the Workbench settings; until then the file icon is shown.'],
+        // The installer puts FFmpeg on every machine (install-linux.sh core
+        // package list, install-macos.sh brew). This is the case where it went
+        // missing -- the self-check row (system-deps, tier recommended) gives
+        // the install command, so the sentence points THERE.
+        no_ffmpeg: ['Ehhez az előnézethez az FFmpeg nevű ingyenes program kell. A telepítő alapból felteszi; ha nálad hiányzik, az Áttekintés önellenőrzése jelzi, és ad hozzá bemásolható telepítő parancsot. Addig a fájl ikonja látszik.', 'This preview needs the free FFmpeg program. The installer sets it up by default; if it is missing here, the self-check on the Overview shows it and gives you a command to paste. Until then the file icon is shown.'],
         too_big: ['A kép túl nagy ahhoz, hogy FFmpeg nélkül előnézetet készítsünk belőle.', 'The photo is too large to preview without FFmpeg.'],
         failed: ['Ebből a fájlból nem sikerült előnézeti képet készíteni (lehet, hogy sérült, vagy ismeretlen a formátuma).', 'Could not make a preview picture from this file (it may be damaged, or its format is unknown).'],
       }

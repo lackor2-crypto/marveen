@@ -162,7 +162,10 @@ describe('GET /api/life/thumb', () => {
     expect(bodyHu.message).toContain('FFmpeg')
     const en = ctxFor('/api/life/thumb?lang=en&rel=' + encodeURIComponent(f.rel))
     await tryHandleLife(en.ctx)
-    expect(JSON.parse(en.res.text()).message).toMatch(/Workbench/)
+    // It points to where the fix really is: the self-check row with the
+    // install command (not the Workbench, which only takes a path).
+    expect(bodyHu.message).toContain('önellenőrzés')
+    expect(JSON.parse(en.res.text()).message).toMatch(/self-check/)
   })
 
   it('never leaves the depot', async () => {
