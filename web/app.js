@@ -36457,6 +36457,8 @@ async function loadIntezoPage() {
   const mode = _intezoBadgeMode()
   const active = document.querySelector('input[name="intezoBadge"][value="' + mode + '"]')
   if (active) active.checked = true
+  // #350: the backup map (every folder rule in one list).
+  bind('intezoBackupMapBtn', 'click', () => { void _bkOpenMap() })
   const viewSel = document.getElementById('intezoViewMode')
   if (viewSel) {
     viewSel.value = _intezoViewMode()
@@ -37249,6 +37251,8 @@ async function _intezoOpen(rel) {
   if (search) search.value = ''
   try {
     await _faSugokBetolt()
+    // #350: the backup marks next to folder names. Never blocks the listing.
+    void _bkLoad().then(() => { if (_intezoListing) _intezoRender() })
     _intezoListing = await _intezoGet('/api/life/list?lang=' + (window._lang || 'hu')
       + '&path=' + encodeURIComponent(_intezoPath))
   } catch (e) {
@@ -37645,7 +37649,7 @@ function _intezoRender() {
           + escapeHtml(e.caution) + '">⚠ ' + escapeHtml(t('intezo.caution_badge')) + '</span>' : '')
       + (e.physical ? ' <span title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')
       + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="' + escapeHtml(t('intezo.badge_mounted')) + '">→ '
-          + escapeHtml(e.mounted) + '</span>' : '') + '</td>'
+          + escapeHtml(e.mounted) + '</span>' : '') + _bkBadge(e) + '</td>'
       + '<td class="intezo-col-date" style="padding:2px 8px;opacity:.7;white-space:nowrap">' + escapeHtml(_intezoDateText(e)) + '</td>'
       + '<td class="intezo-col-type" style="padding:2px 8px;opacity:.7;white-space:nowrap">' + escapeHtml(_intezoTypeText(e)) + '</td>'
       + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap"'
@@ -38799,6 +38803,236 @@ async function _intezoSavePhysical() {
  * A jobb klikk KIJELOLI a sort is, mielott a menu megjelenik -- kulonben a
  * „mappa bekotese" azt kerdezne, mit kotunk be.
  */
+// === BACKUP RULES IN THE INTEZO (card #350) ===
+// Boss, 2026-09-24: "kristálytisztán látnom kéne az intézőből, hogy mi hova
+// van felszinkronizálva". One rule per folder -- "back up to <account>",
+// "do not back up", or none (then the parent's applies). Every folder shows
+// its EFFECTIVE target next to its name: strong when it is the folder's own
+// rule, faint when inherited. No rule anywhere above = no mark at all, so a
+// fresh install is not cluttered. Setting a rule uploads NOTHING.
+let _bkRules = null
+let _bkAccounts = []
+let _bkError = ''
+let _bkLoading = null
+
+async function _bkLoad() {
+  if (_bkLoading) return _bkLoading
+  _bkLoading = (async () => {
+    try {
+      const d = await _intezoGet('/api/backup-rules?lang=' + (window._lang || 'hu'))
+      _bkRules = Array.isArray(d.rules) ? d.rules : []
+      _bkAccounts = Array.isArray(d.accounts) ? d.accounts : []
+      _bkError = d.error || ''
+    } catch (e) {
+      // "Could not ask" is not "there are no rules": keep it apart.
+      _bkRules = _bkRules || []
+      _bkError = (e && e.message) || t('backup.load_failed')
+    } finally { _bkLoading = null }
+  })()
+  return _bkLoading
+}
+
+function _bkNorm(p) { return String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '') }
+
+/** Same rule as src/backup-rules.ts effectiveRule(): own, else nearest ancestor. */
+function _bkEffective(rel) {
+  const by = new Map((_bkRules || []).map((r) => [r.path, r]))
+  let p = _bkNorm(rel)
+  let own = true
+  for (;;) {
+    const r = by.get(p)
+    if (r) return { target: r.target || null, from: p, own: own }
+    if (!p) return { target: null, from: null, own: false }
+    own = false
+    const i = p.lastIndexOf('/')
+    p = i > -1 ? p.slice(0, i) : ''
+  }
+}
+
+function _bkTargetText(tg) {
+  if (!tg) return t('backup.none')
+  return (tg.kind === 'mega' ? 'MEGA' : 'Drive') + ' · ' + tg.account
+}
+
+function _bkFromText(from) { return from ? from : t('backup.root') }
+
+/** The mark next to a folder's name. Empty when no rule reaches the folder. */
+function _bkBadge(e) {
+  if (!e || !e.isDir || !_bkRules) return ''
+  const eff = _bkEffective(e.rel)
+  if (eff.from === null) return ''
+  const txt = eff.target ? '☁ ' + _bkTargetText(eff.target) : '⊘ ' + t('backup.none')
+  const tip = eff.own ? t('backup.tip_own', { target: _bkTargetText(eff.target) })
+    : t('backup.tip_inherited', { target: _bkTargetText(eff.target), from: _bkFromText(eff.from) })
+  const color = eff.target ? (eff.target.kind === 'mega' ? '#c2410c' : '#2563eb') : 'var(--text-muted,#888)'
+  return ' <span class="intezo-backup' + (eff.own ? ' own' : '') + '" title="' + escapeHtml(tip) + '"'
+    + ' style="font-size:11px;white-space:nowrap;margin-left:6px;color:' + color
+    + ';opacity:' + (eff.own ? '1' : '.5') + (eff.own ? ';font-weight:600' : '') + '">'
+    + escapeHtml(txt) + '</span>'
+}
+
+function _bkGb(bytes) { return (bytes / 1e9).toFixed(1) }
+
+function _bkPanel(titleText) {
+  document.querySelectorAll('.bk-panel-backdrop').forEach((el) => el.remove())
+  const back = document.createElement('div')
+  back.className = 'bk-panel-backdrop'
+  back.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.35);display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px'
+  const box = document.createElement('div')
+  box.style.cssText = 'background:var(--bg-modal);color:var(--text);border:1px solid var(--border);border-radius:10px;'
+    + 'box-shadow:0 12px 36px rgba(0,0,0,.25);width:min(560px,100%);max-height:84vh;overflow:auto;padding:16px 18px'
+  const h = document.createElement('h3')
+  h.style.cssText = 'margin:0 0 10px;font-size:16px'
+  h.textContent = titleText
+  box.appendChild(h)
+  back.appendChild(box)
+  back.addEventListener('click', (ev) => { if (ev.target === back) back.remove() })
+  document.addEventListener('keydown', function esc(ev) { if (ev.key === 'Escape') { back.remove(); document.removeEventListener('keydown', esc) } })
+  document.body.appendChild(back)
+  return { back, box }
+}
+
+function _bkButton(label, sub, onClick) {
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'btn-secondary'
+  b.style.cssText = 'display:block;width:100%;text-align:left;margin:4px 0;padding:7px 10px;font-size:13px'
+  b.innerHTML = escapeHtml(label) + (sub ? '<br><span style="opacity:.65;font-size:12px">' + escapeHtml(sub) + '</span>' : '')
+  b.addEventListener('click', onClick)
+  return b
+}
+
+async function _bkSet(rel, body) {
+  const res = await fetch('/api/backup-rules/set?lang=' + (window._lang || 'hu'), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ path: rel }, body)),
+  })
+  let d = {}
+  try { d = await res.json() } catch (e) { d = {} }
+  if (!res.ok) throw new Error(d.message || d.error || ('HTTP ' + res.status))
+  _bkRules = Array.isArray(d.rules) ? d.rules : _bkRules
+}
+
+/** Right-click -> "Backup setting...": pick where this folder goes. */
+async function _bkOpenPicker(entry) {
+  await _bkLoad()
+  const name = entry.displayName || entry.name || entry.rel
+  const { back, box } = _bkPanel(t('backup.pick_title', { name: name }))
+  const eff = _bkEffective(entry.rel)
+  const now = document.createElement('p')
+  now.style.cssText = 'margin:0 0 8px;font-size:13px'
+  now.textContent = eff.from === null ? t('backup.pick_now_none')
+    : eff.own ? t('backup.pick_now_own', { target: _bkTargetText(eff.target) })
+    : t('backup.pick_now_inherited', { target: _bkTargetText(eff.target), from: _bkFromText(eff.from) })
+  box.appendChild(now)
+  const note = document.createElement('p')
+  note.style.cssText = 'margin:0 0 10px;font-size:12px;opacity:.75'
+  note.textContent = t('backup.pick_note')
+  box.appendChild(note)
+  if (_bkError) {
+    const er = document.createElement('p')
+    er.style.cssText = 'color:var(--danger);font-size:12px'
+    er.textContent = _bkError
+    box.appendChild(er)
+  }
+  const choose = (body) => async () => {
+    try {
+      await _bkSet(entry.rel, body)
+      back.remove()
+      _intezoRender()
+    } catch (e) {
+      showToast(t('backup.save_failed', { msg: (e && e.message) || '' }))
+    }
+  }
+  if (!_bkAccounts.length) {
+    const p = document.createElement('p')
+    p.style.cssText = 'font-size:13px'
+    p.textContent = t('backup.no_accounts')
+    box.appendChild(p)
+  }
+  for (const kind of ['drive', 'mega']) {
+    const list = _bkAccounts.filter((a) => a.kind === kind)
+    if (!list.length) continue
+    const g = document.createElement('div')
+    g.style.cssText = 'font-size:12px;font-weight:600;margin:10px 0 2px;opacity:.8'
+    g.textContent = kind === 'mega' ? t('backup.group_mega') : t('backup.group_drive')
+    box.appendChild(g)
+    for (const a of list) {
+      const free = typeof a.free === 'number' ? t('backup.free', { n: _bkGb(a.free) }) : t('backup.free_unknown')
+      const mine = eff.own && eff.target && eff.target.kind === a.kind && eff.target.account === a.account
+      box.appendChild(_bkButton((mine ? '✓ ' : '') + (kind === 'mega' ? 'MEGA' : 'Drive') + ' · ' + a.account, free,
+        choose({ action: 'target', kind: a.kind, account: a.account })))
+    }
+  }
+  const sep = document.createElement('div')
+  sep.style.cssText = 'height:1px;background:var(--border);margin:10px 0'
+  box.appendChild(sep)
+  box.appendChild(_bkButton('⊘ ' + t('backup.opt_none'), '', choose({ action: 'none' })))
+  if (eff.own) {
+    const parent = _bkNorm(entry.rel).split('/').slice(0, -1).join('/')
+    const pe = _bkNorm(entry.rel) ? _bkEffective(parent) : { target: null, from: null }
+    const pstate = pe.from === null ? t('backup.no_rule') : _bkTargetText(pe.target)
+    box.appendChild(_bkButton('↩ ' + t('backup.opt_inherit', { state: pstate }), '', choose({ action: 'inherit' })))
+  }
+  box.appendChild(_bkButton(t('backup.cancel'), '', () => back.remove()))
+}
+
+/** "Backup map": every rule in one list, and what points at each account. */
+async function _bkOpenMap() {
+  await _bkLoad()
+  const { back, box } = _bkPanel(t('backup.map_title'))
+  const note = document.createElement('p')
+  note.style.cssText = 'margin:0 0 10px;font-size:12px;opacity:.75'
+  note.textContent = t('backup.pick_note')
+  box.appendChild(note)
+  if (_bkError) {
+    const er = document.createElement('p')
+    er.style.cssText = 'color:var(--danger);font-size:13px'
+    er.textContent = _bkError
+    box.appendChild(er)
+  }
+  const rules = (_bkRules || []).slice().sort((a, b) => a.path.localeCompare(b.path))
+  if (!rules.length) {
+    const p = document.createElement('p')
+    p.style.cssText = 'font-size:13px'
+    p.textContent = t('backup.map_empty')
+    box.appendChild(p)
+  } else {
+    const tbl = document.createElement('table')
+    tbl.style.cssText = 'width:100%;font-size:13px;border-collapse:collapse'
+    tbl.innerHTML = '<thead><tr><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_folder'))
+      + '</th><th style="text-align:left;padding:3px 6px">' + escapeHtml(t('backup.map_col_target')) + '</th><th></th></tr></thead><tbody>'
+      + rules.map((r) => '<tr><td style="padding:3px 6px;word-break:break-word">' + escapeHtml(_bkFromText(r.path))
+        + '</td><td style="padding:3px 6px;white-space:nowrap">' + escapeHtml(r.target ? '☁ ' + _bkTargetText(r.target) : '⊘ ' + t('backup.none'))
+        + '</td><td style="padding:3px 6px;text-align:right"><a href="#" data-bk-go="' + escapeHtml(r.path) + '">'
+        + escapeHtml(t('backup.map_open')) + '</a></td></tr>').join('') + '</tbody>'
+    box.appendChild(tbl)
+    tbl.querySelectorAll('a[data-bk-go]').forEach((a) => a.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      back.remove()
+      const p = a.getAttribute('data-bk-go') || ''
+      _intezoOpen(p.split('/').slice(0, -1).join('/'))
+    }))
+    const sum = document.createElement('div')
+    sum.style.cssText = 'margin-top:12px;font-size:13px'
+    const counts = new Map()
+    for (const r of rules) if (r.target) {
+      const k = r.target.kind + '\u0000' + r.target.account
+      counts.set(k, (counts.get(k) || 0) + 1)
+    }
+    const lines = []
+    for (const [k, n] of counts) {
+      const [kind, account] = k.split('\u0000')
+      const a = _bkAccounts.find((x) => x.kind === kind && x.account === account)
+      const free = a && typeof a.free === 'number' ? t('backup.free', { n: _bkGb(a.free) }) : t('backup.free_unknown')
+      lines.push('<li>' + escapeHtml(t('backup.map_account_line', { target: _bkTargetText({ kind, account }), n: n, free: free })) + '</li>')
+    }
+    if (lines.length) sum.innerHTML = '<b>' + escapeHtml(t('backup.map_accounts')) + '</b><ul style="margin:4px 0 0 18px;padding:0">' + lines.join('') + '</ul>'
+    box.appendChild(sum)
+  }
+  box.appendChild(_bkButton(t('backup.close'), '', () => back.remove()))
+}
+
 let _intezoMenuEl = null
 /**
  * Hanyadik menunyitas tart eppen.
@@ -38911,6 +39145,7 @@ async function _intezoOpenMenu(ev, entry) {
         if (sel && !sel.disabled) sel.focus()
       }))
     }
+    if (entry.isDir) m.appendChild(_intezoMenuItem('☁  ' + t('backup.menu_set'), () => _bkOpenPicker(entry)))
     m.appendChild(_intezoMenuItem('🗂  ' + t('intezo.menu_paper'), () => _intezoJumpTo('intezoPhysTitle')))
     m.appendChild(_intezoMenuItem('ℹ️  ' + t('intezo.menu_info'), async () => {
       await _intezoInfo(entry.rel)
