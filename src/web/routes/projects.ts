@@ -48,7 +48,7 @@ import { buildProjectOverview, recentFiles } from '../../project-overview.js'
 import { summarizeProject } from '../../project-summary.js'
 import {
   projectSubfolders, makeProjectFolder, writeProjectFile, writeProjectNote, projectFileTarget, PROJECT_UPLOAD_MAX_BYTES,
-  listProjectDir, findProjectFiles,
+  listProjectDir, findProjectFiles, warmProjectNameIndex, forgetProjectNameIndex,
 } from '../../project-files.js'
 import { createIdea, getDb } from '../../db.js'
 import { randomUUID } from 'node:crypto'
@@ -569,15 +569,16 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
   if (sub === '/tree' && method === 'GET') {
     const out = listProjectDir(project, url.searchParams.get('dir'))
     if (!out.ok) return fail(res, out.code === 'bad_folder' ? 400 : 200, out.code, lang, { state: out.code, path: project.folder_path })
+    if (!out.sub) warmProjectNameIndex(project)
     json(res, { state: 'ok', path: project.folder_path, dir: out.sub, entries: out.entries, truncated: out.truncated })
     return true
   }
 
   // Fajlok ful, kereso (#359): CSAK a projekt mappajaban.
   if (sub === '/find' && method === 'GET') {
-    const out = findProjectFiles(project, url.searchParams.get('q'))
+    const out = await findProjectFiles(project, url.searchParams.get('q'))
     if (!out.ok) return fail(res, 400, out.code, lang)
-    json(res, { q: out.q, hits: out.hits, truncated: out.truncated })
+    json(res, { q: out.q, hits: out.hits, truncated: out.truncated, indexing: out.indexing, more: out.more, capped: out.capped })
     return true
   }
 
@@ -605,6 +606,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const out = makeProjectFolder(project, body.parent, body.name)
+    forgetProjectNameIndex(project)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
     if (out.created) logger.info({ id, sub: out.sub }, '[projects] uj almappa a projektben')
     json(res, out)
@@ -624,6 +626,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
       throw e
     }
     const out = writeProjectFile(project, url.searchParams.get('sub'), url.searchParams.get('name'), data)
+    forgetProjectNameIndex(project)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
     logger.info({ id, rel: out.rel, bytes: out.bytes }, '[projects] fajl feltoltve a projektmappaba')
     json(res, out)
@@ -634,6 +637,7 @@ export async function tryHandleProjects(ctx: RouteContext): Promise<boolean> {
     const body = await readJson(req)
     if (!body) return fail(res, 400, 'bad_json', lang)
     const out = writeProjectNote(project, body.sub, body.name, body.text, body.ext)
+    forgetProjectNameIndex(project)
     if (!out.ok) return fail(res, out.code === 'write_failed' ? 500 : 400, out.code, lang, out.message ? { detail: out.message } : {})
     json(res, out)
     return true
