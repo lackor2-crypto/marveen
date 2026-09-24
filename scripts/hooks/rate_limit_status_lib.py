@@ -32,25 +32,27 @@ import json
 import os
 import re
 
-CRITICAL_THRESHOLD_PCT = 95  # mirrors rate-limit-guard.py / src/rate-limit-status.ts
+CRITICAL_THRESHOLD_PCT = 95  # PACING ONLY: mirrors rate-limit-guard.py's
+# delegation threshold / src/rate-limit-status.ts. This is NOT the "kifogytam"
+# Telegram receipt trigger -- see OUT_OF_QUOTA_PCT below.
 STALE_AFTER_MS = 30 * 60_000
 
-# The 5-hour window and the weekly (7-day) window block on DIFFERENT thresholds,
-# and on purpose (Boss, Telegram 2026-09-18 16:37: "segedmunkas meg mindig
-# dolgozom rajta, mond" -- the Segedmunkas/lackor3 snapshot was fiveHour 0% but
-# sevenDay 100%, so a 5-hour-only check let the placeholder lie).
+# The honest "kifogytam a token-keretemből" Telegram receipt fires ONLY when a
+# window is at a FULL 100% with the window still open -- for BOTH the 5-hour and
+# the weekly window.
 #
-#   * 5-hour: CRITICAL at 95%. It is a rolling window; at 95% the agent is
-#     within a hair of the cap and about to stop, so we already call it out of
-#     quota (this is the established behavior Boss accepted for the Szakerto).
-#   * weekly: blocks only at a full 100%. A weekly reading below 100% does NOT
-#     stop the account -- and treating e.g. 96% weekly as "out of quota" would
-#     both produce a false positive AND contradict the standing "only the
-#     5-hour window drives pacing" doctrine (rate-limit-guard.py: worst = five).
-#     Here we are answering a NARROWER question than pacing: "is this account
-#     hard-blocked RIGHT NOW so that 'dolgozom rajta' would be a lie?" The
-#     weekly cap answers yes only at 100%.
-WEEKLY_BLOCK_PCT = 100
+# Boss, Telegram 2026-09-18 21:41 (msg 5911): the Szakerto (usalackor) sent the
+# banner at 5h 96% ("meg nem fogyott ki... 96%-on van"), and Boss: "csak
+# 100%-on mondja. Addig valaszoljon a keresemre... csak hogyha mar tenyleg
+# fullban nem tud dolgozni 100%, akkor kapjam ezt az uzenetet." At 95-99% the
+# account can still answer, so the agent must ANSWER, not send the banner.
+#
+# This is a NARROWER question than pacing: rate-limit-guard.py stops DELEGATING
+# at 95% (CRITICAL_THRESHOLD_PCT, unchanged -- that is voluntary throttling);
+# here we claim "cannot answer AT ALL", which is only true at a full 100%.
+# Boss (2026-09-18 16:37) established the same 100% rule for the weekly window
+# (the Segedmunkas case); this makes both windows identical.
+OUT_OF_QUOTA_PCT = 100
 
 
 # --- Rate-limit snapshot reading (mirrors rate-limit-guard.py) --------------
