@@ -3,8 +3,8 @@
   "agent": "{{MAIN_AGENT_ID}}",
   "enabled": true,
   "type": "command",
-  "description": "Drive-mentés — naponta egyszer végigmegy a Raktár oldalon bekötött Drive-mappákon, és egyezteti őket a felhővel. Enélkül a mentés csak akkor futott, ha valaki rákattintott a gombra: egy éles telepítésen így 11 napig egyetlen új fájl sem került biztonságba. Nem foglal ügynököt és nem fogyaszt keretet — ez egy gépi parancs, nem beszélgetés. Ha a raktár éppen nem érhető el, a futás hibával kilép, és a Áttekintés önellenőrzése kimondja.",
-  "command": "T=$(cat '{{INSTALL_DIR}}/store/.dashboard-token' 2>/dev/null); [ -n \"$T\" ] || { echo 'nincs vezerlopult-token' >&2; exit 1; }; curl -sS -f --max-time 60 -X POST -H \"Authorization: Bearer $T\" -H 'Content-Type: application/json' -d '{}' 'http://127.0.0.1:{{WEB_PORT}}/api/drive/sync/run' >/dev/null",
+  "description": "Drive-mentés — naponta egyszer végigmegy a Raktár oldalon bekötött Drive-mappákon, és egyezteti őket a felhővel. Enélkül a mentés csak akkor futott, ha valaki rákattintott a gombra: egy éles telepítésen így 11 napig egyetlen új fájl sem került biztonságba. Nem foglal ügynököt és nem fogyaszt keretet — ez egy gépi parancs, nem beszélgetés. Ha még nincs bekötött Drive-mappa (friss telepítés), a futás csendben sikeresnek számít: nincs mit menteni, ez nem hiba. Ha a raktár éppen nem érhető el, a futás hibával kilép, és az Áttekintés önellenőrzése kimondja.",
+  "command": "T=$(cat '{{INSTALL_DIR}}/store/.dashboard-token' 2>/dev/null); [ -n \"$T\" ] || { echo 'nincs vezerlopult-token' >&2; exit 1; }; R=$(curl -sS --max-time 60 -w '\\n%{http_code}' -X POST -H \"Authorization: Bearer $T\" -H 'Content-Type: application/json' -d '{}' 'http://127.0.0.1:{{WEB_PORT}}/api/drive/sync/run') || exit 1; C=${R##*$'\\n'}; case \"$C\" in 2??) exit 0 ;; esac; case \"$R\" in *'\"code\":\"no_pairs\"'*|*'\"code\":\"already_running\"'*) exit 0 ;; esac; printf 'HTTP %s: %s\\n' \"$C\" \"${R%$'\\n'*}\" | head -c 300 >&2; exit 1",
   "timeoutMs": 90000,
   "failThreshold": 2,
   "createdAt": 0
