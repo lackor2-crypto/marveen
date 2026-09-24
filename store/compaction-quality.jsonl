@@ -1,0 +1,5 @@
+{"ts": 1789912341, "agent": "vitest-compaction-probe", "trigger": "auto", "summaryChars": 67, "checkpoint": true, "missing": {}, "nextActionLost": false}
+{"ts": 1789912341, "agent": "vitest-compaction-probe", "trigger": "auto", "summaryChars": 40, "checkpoint": true, "missing": {"kotott kovetelmeny (amit a felhasznalo kikotott)": ["ne nyulj a semahoz"]}, "nextActionLost": true}
+{"ts": 1789912342, "agent": "vitest-compaction-probe", "trigger": "auto", "summaryChars": 33, "checkpoint": true, "missing": {"pontos ertek (szam / utvonal / verzio)": ["timeout=37 mp"]}, "nextActionLost": false}
+{"ts": 1789912343, "agent": "vitest-compaction-probe", "trigger": "auto", "summaryChars": 36, "checkpoint": true, "missing": {}, "nextActionLost": false}
+{"ts": 1789912343, "agent": "vitest-compaction-probe", "trigger": "auto", "summaryChars": 23, "checkpoint": false}
