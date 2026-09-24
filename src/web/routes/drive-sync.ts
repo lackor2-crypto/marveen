@@ -33,6 +33,7 @@
 //      "ez mar nincs meg" kovetkeztetest levonni.
 //   3. Ha a torlendok aranya atlepi a vészfék-küszöböt, EGY sem megy fel.
 // Fék nélkül a kerest funkcio a sajat mentesedet torolne le az elso hibanal.
+import { excludeRules, isExcludedDir, isExcludedFile, normalizeExcludes, type ExcludeRules } from '../../backup-exclude.js'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -161,6 +162,13 @@ export interface SyncPair {
    * hogy mentes-parosrol van-e szo, azt a `backup` mondja meg.
    */
   localPath?: string
+  /**
+   * MENTES-PAROS: amit a mentes KIHAGY (#350). Almappa a mentett aghoz kepest
+   * (`Projektek/Axxa`) vagy fajltipus (`*.fxt`). Lasd `src/backup-exclude.ts`.
+   * A kihagyott fajl NEM LATOTT, nem torolt: a torles-atvitel sem hoz rola
+   * donteset.
+   */
+  exclude?: string[]
   addedAt: string
   lastRunAt?: string
   lastResult?: string
@@ -669,6 +677,8 @@ export async function merjMentendot(
   base: string,
   max = MAX_LOCAL_FILES,
   kihagy: Set<string> = new Set(),
+  /** A mentes sajat kihagyasi listaja (#350). */
+  rules: ExcludeRules = excludeRules([]),
 ): Promise<{ files: number; bytes: number; tooBig: number; unreadable: number; csonkolt: boolean }> {
   // IDO-alapu, nem darabszam-alapu. A darabszam nem mond semmit arrol, mennyi
   // ideig tart: SSD-n 500 fajl 2 ms, halozati vagy 9p mappan 3 masodperc
@@ -698,11 +708,12 @@ export async function merjMentendot(
       await lelegzet()
       const child = rel ? join(rel, e.name) : e.name
       if (e.dir) {
-        if (kihagy.has(child)) continue
+        if (kihagy.has(child) || isExcludedDir(rules, child)) continue
         queue.push(child)
         continue
       }
       if (e.name.endsWith('.part')) continue
+      if (isExcludedFile(rules, child)) continue
       if (files >= max) { csonkolt = true; return { files, bytes, tooBig, unreadable, csonkolt } }
       files++
       try {
@@ -724,6 +735,8 @@ export function walkLocalFiles(
   max = MAX_LOCAL_FILES,
   /** Ezeket az AL-MAPPAKAT (a `base`-hez kepesti uttal) at sem lepjuk. */
   kihagy: Set<string> = new Set(),
+  /** A mentes sajat kihagyasi listaja (#350): almappak es fajltipusok. */
+  rules: ExcludeRules = excludeRules([]),
 ): { files: string[]; dirs: string[]; csonkolt: boolean } {
   const files: string[] = []
   const dirs: string[] = []
@@ -742,11 +755,12 @@ export function walkLocalFiles(
       if (e.dir) {
         // Kihagyott ag: se a listaba, se a sorba. Nem "ures mappa" lesz belole,
         // hanem NEM LATOTT -- ezert a torles-atvitel sem hozhat rola dontest.
-        if (kihagy.has(child)) continue
+        if (kihagy.has(child) || isExcludedDir(rules, child)) continue
         dirs.push(child); queue.push(child); continue
       }
       // A `.part` egy eppen zajlo letoltes fele fajlja -- sose kuldjuk fel.
       if (e.name.endsWith('.part')) continue
+      if (isExcludedFile(rules, child)) continue
       if (files.length >= max) { csonkolt = true; return { files, dirs, csonkolt } }
       files.push(child)
     }
@@ -1390,7 +1404,7 @@ async function uploadPhase(a: {
     return semmi
   }
 
-  const { files: helyiek, csonkolt: helyiCsonkolt } = walkLocalFiles(gyokerAbs, MAX_LOCAL_FILES, mentesKihagy(pair))
+  const { files: helyiek, csonkolt: helyiCsonkolt } = walkLocalFiles(gyokerAbs, MAX_LOCAL_FILES, mentesKihagy(pair), excludeRules(pair.backup ? pair.exclude : []))
   if (helyiCsonkolt) {
     gond({
       pair, phase: 'kihagyva', localPath: gyokerAbs, driveName: pairLabel(pair),
@@ -1550,7 +1564,12 @@ async function uploadPhase(a: {
   // A torles a Google-natív fajlokra IS vonatkozik -- ott nincs "bajtok
   // egyezese" kerdes, csak annyi: a gepen mar nincs meg. A Rajz/Script is
   // ideszamit, noha a TARTALMUK nem tud felmenni: a torles nem konvertalas.
-  const torlendok = Object.entries(state).filter(([id, s]) => !utkozoIdk.has(id) && !helyiSet.has(s.path))
+  // A kihagyott (#350) fajl NEM LATOTT, nem torolt: ha egy kesobb felvett
+  // kihagyas mar felment fajlt fed, az fent marad, es nem kerul a torlendok koze.
+  const kihagyas = excludeRules(pair.backup ? pair.exclude : [])
+  const parosRel = (p: string) => (gyoker && p.startsWith(gyoker + '/') ? p.slice(gyoker.length + 1) : p)
+  const torlendok = Object.entries(state).filter(([id, s]) => !utkozoIdk.has(id) && !helyiSet.has(s.path)
+    && !isExcludedFile(kihagyas, parosRel(s.path)))
   const tracked = Object.keys(state).length
   // 3. FEK: tomeges torles megallitasa. Par fajl torlese hetkoznapi, a
   // nyilvantartas nagy hanyada viszont majdnem biztosan hiba (rossz mappa,
