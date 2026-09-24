@@ -903,6 +903,8 @@ window._i18n.hu = {
   'intezo.no_hits': 'Nincs találat erre: {q}',
   'intezo.search_failed': 'A keresés nem sikerült.',
   'intezo.row_title': 'Kattints a sorra a kijelöléshez, a névre a megnyitáshoz — jobb gombbal a menü',
+  'intezo.kind_folder': 'Mappa',
+  'intezo.kind_file': 'Fájl',
   'intezo.caution_badge': 'jobb nem piszkálni',
   'intezo.badge_paper': 'Papíron is megvan',
   'intezo.archive_title': 'Archiválás: a helyén marad, csak szürke lesz és a lista végére kerül',
