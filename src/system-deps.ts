@@ -101,8 +101,8 @@ export const SYSTEM_DEPS: SystemDep[] = [
   },
   {
     id: 'ffmpeg', name: 'FFmpeg', tier: 'recommended',
-    what_for: { hu: 'Hangüzenetek átalakítása (beszéd ↔ szöveg) és a videók előnézete a Munkapadon.', en: 'Converting voice messages (speech ↔ text) and video previews in the Workbench.' },
-    affects: { hu: 'A hangüzeneteket nem tudom leírni és hangban válaszolni; a videók nem látszanak.', en: 'Voice messages cannot be transcribed or answered by voice; videos do not preview.' },
+    what_for: { hu: 'Hangüzenetek átalakítása (beszéd ↔ szöveg), a videók előnézete a Munkapadon, és a fotók / videók kis képei az Intézőben és a Fotóknál.', en: 'Converting voice messages (speech ↔ text), video previews in the Workbench, and the small pictures of photos / videos in the Explorer and in Photos.' },
+    affects: { hu: 'A hangüzeneteket nem tudom leírni és hangban válaszolni; a videóknak nincs előnézete, az Intézőben a videók helyén csak ikon látszik.', en: 'Voice messages cannot be transcribed or answered by voice; videos have no preview, and the Explorer shows only an icon for videos.' },
     apt: ['ffmpeg'], dnf: ['ffmpeg'], brew: ['ffmpeg'], url: 'https://ffmpeg.org/download.html',
     commands: ['ffmpeg'], versionArgs: ['-version'],
     // Lusta import: a workbench-capabilities sok modult huz be, es az
