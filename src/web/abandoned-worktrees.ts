@@ -73,6 +73,23 @@ export interface AbandonedResult {
   olvashatatlan: boolean
 }
 
+/**
+ * How long the SessionStart route waits for the scan. The hook gives the whole
+ * answer 12 s (pending-work-replay.py) and that answer also carries the wake
+ * greeting and the pending-work replay: a slow scan (dozens of worktrees on a
+ * loaded host) must cost only its own line, never the rest.
+ */
+export const SCAN_BUDGET_MS = 6_000
+
+/** `scan`, or -- if it has not answered within `ms` -- "could not look". Never "nothing abandoned". */
+export function withScanBudget(scan: Promise<AbandonedResult>, ms: number = SCAN_BUDGET_MS): Promise<AbandonedResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<AbandonedResult>((res) => {
+    timer = setTimeout(() => res({ items: [], unowned: [], olvashatatlan: true }), ms)
+  })
+  return Promise.race([scan, late]).finally(() => clearTimeout(timer))
+}
+
 /** `git worktree list --porcelain` -> worktrees, the main checkout and bare entries left out. */
 export function parseWorktreeList(porcelain: string, mainRoot: string): WorktreeRef[] {
   const out: WorktreeRef[] = []
