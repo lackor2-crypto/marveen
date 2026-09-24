@@ -2067,13 +2067,18 @@ export async function tryHandleDriveSync(ctx: RouteContext): Promise<boolean> {
 
   if (path === '/api/drive/sync/run' && method === 'POST') {
     if (job?.running) { json(res, { error: L(lang, 'A szinkronizálás már fut.', 'The sync is already running.'), code: 'already_running', job }, 409); return true }
-    const health = depotHealth()
-    if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
+    // "No folder to sync" is checked FIRST (#358, fresh install): the seeded
+    // nightly drive-mentes task treats code=no_pairs as "nothing to do". If
+    // the depot check came first, a fresh install with no Drive folders and
+    // a not-yet-reachable depot got a red "not responding" alarm every night
+    // for a backup it never asked for.
     const data = JSON.parse((await readBody(req)).toString('utf-8') || '{}')
     const only = String(data.id || '')
     const cfg = loadSyncConfig()
     const pairs = only ? cfg.pairs.filter((p) => p.id === only) : cfg.pairs
     if (!pairs.length) { json(res, { error: L(lang, 'nincs szinkronizálandó mappa', 'there is no folder to sync'), code: 'no_pairs' }, 400); return true }
+    const health = depotHealth()
+    if (!health.writable) { json(res, { error: health.message, code: 'depot_unreachable' }, 409); return true }
     job = {
       running: true,
       runId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
