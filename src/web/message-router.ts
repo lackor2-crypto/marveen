@@ -12,6 +12,7 @@ import {
   createAgentMessage,
   stampMessageTrace,
   upsertOtelSpan,
+  onAgentMessageCreated,
   type AgentMessage,
 } from '../db.js'
 import { isQualifiedId } from './federation/address.js'
@@ -274,18 +275,52 @@ export async function deliverFederatedBatch(federated: AgentMessage[], now: numb
   }
 }
 
+// Immediate delivery (#377). The 5 s poll alone made every message wait
+// 2.5 s on average (measured: median 4 s from queue to delivery) before
+// anything even looked at it. A newly queued message now kicks a tick after a
+// short debounce, so a burst of messages still shares one pass. Kicked ticks
+// are spaced at least KICK_MIN_GAP_MS apart, so a tick that itself queues a
+// message (failure notice, backlog summary) cannot spin the router; the 5 s
+// poll stays as the safety net for retries and busy targets.
+const KICK_DEBOUNCE_MS = 150
+const KICK_MIN_GAP_MS = 1000
+let _routerStarted = false
+let _kickTimer: NodeJS.Timeout | null = null
+let _kickWhileRunning = false
+let _lastKickedTickAt = 0
+
+export function kickMessageRouter(): void {
+  if (!_routerStarted || _kickTimer) return
+  const wait = Math.max(KICK_DEBOUNCE_MS, _lastKickedTickAt + KICK_MIN_GAP_MS - Date.now())
+  _kickTimer = setTimeout(() => {
+    _kickTimer = null
+    if (_tickRunning) { _kickWhileRunning = true; return }
+    _lastKickedTickAt = Date.now()
+    void guardedTick().catch((err) => { logger.warn({ err }, 'message-router: kicked tick failed') })
+  }, wait)
+  _kickTimer.unref?.()
+}
+
+async function guardedTick(): Promise<void> {
+  // Re-entrancy guard: STT can hold a tick for up to 65s; skip new ticks
+  // while the previous one is still in flight to prevent double-delivery.
+  if (_tickRunning) return
+  _tickRunning = true
+  try {
+    await runMessageRouterTick()
+  } finally {
+    _tickRunning = false
+    // A message queued mid-tick may have missed this pass's pending snapshot.
+    if (_kickWhileRunning) { _kickWhileRunning = false; kickMessageRouter() }
+  }
+}
+
 export function startMessageRouter(): NodeJS.Timeout {
-  return setInterval(async () => {
-    // Re-entrancy guard: STT can hold a tick for up to 65s; skip new ticks
-    // while the previous one is still in flight to prevent double-delivery.
-    if (_tickRunning) return
-    _tickRunning = true
-    try {
-      await runMessageRouterTick()
-    } finally {
-      _tickRunning = false
-    }
-  }, 5000)
+  if (!_routerStarted) {
+    _routerStarted = true
+    onAgentMessageCreated(() => kickMessageRouter())
+  }
+  return setInterval(guardedTick, 5000)
 }
 
 // Per-receiver batched-message-id set for the CURRENT tick. Built by the

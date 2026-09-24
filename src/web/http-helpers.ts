@@ -107,7 +107,7 @@ export function json(
 const GZIP_EXTENSIONS = new Set(['.html', '.css', '.js', '.json', '.svg', '.mjs'])
 const GZIP_MIN_BYTES = 1024
 
-function acceptsGzip(req: http.IncomingMessage): boolean {
+export function acceptsGzip(req: http.IncomingMessage): boolean {
   const raw = req.headers['accept-encoding']
   const value = Array.isArray(raw) ? raw.join(', ') : raw
   if (!value) return false
@@ -150,7 +150,7 @@ export function jsonMaybeGzip(
 const gzipMemo = new Map<string, Buffer>()
 const GZIP_MEMO_MAX_ENTRIES = 20
 
-function gzipFileCached(filePath: string, etag: string, data: Buffer): Buffer {
+export function gzipFileCached(filePath: string, etag: string, data: Buffer): Buffer {
   const key = `${filePath}:${etag}`
   const hit = gzipMemo.get(key)
   if (hit) return hit

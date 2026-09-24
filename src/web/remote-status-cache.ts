@@ -86,6 +86,21 @@ export class BackgroundCache<T> {
     return entry.value
   }
 
+  /**
+   * The cached value only if it is younger than `maxAgeMs`; otherwise fetch
+   * synchronously now and store that. For callers that may reuse a value the
+   * background poll keeps warm, but must never act on an old one when that
+   * poll is not running (e.g. every dashboard tab hidden).
+   */
+  getWithin(key: string, nowMs: number, maxAgeMs: number, fetchNow: () => T): T {
+    const entry = this.store.get(key)
+    if (entry && nowMs - entry.at < maxAgeMs) return entry.value
+    let value: T
+    try { value = fetchNow() } catch { value = undefined as T }
+    this.store.set(key, { value, at: nowMs })
+    return value
+  }
+
   invalidate(key: string): void {
     this.store.delete(key)
   }

@@ -63,10 +63,44 @@ export async function fetchRealDailyCostUSD(apiKey: string): Promise<number | nu
 // regular runtime key the fleet uses for completions returns limit=null
 // here and cannot answer "how much money is left". Optional -- if no
 // management key is in the vault, the overview route just omits this field.
-export async function fetchOpenRouterCredits(managementKey: string): Promise<{ totalCredits: number; totalUsage: number } | null> {
+// The balance used to be fetched live, with no timeout, on EVERY Overview
+// load (#377) -- a network round-trip on the page's critical path, and a hung
+// OpenRouter would hang the whole page. Now: stale-while-revalidate for
+// CREDITS_TTL_MS, and a hard timeout on the fetch itself. The number is a
+// balance, not a live meter; a minute old is what the page shows anyway.
+type Credits = { totalCredits: number; totalUsage: number }
+const CREDITS_TTL_MS = 60_000
+const CREDITS_TIMEOUT_MS = 5_000
+const creditsCache = new Map<string, { value: Credits | null; at: number }>()
+const creditsInFlight = new Set<string>()
+
+export async function fetchOpenRouterCredits(managementKey: string): Promise<Credits | null> {
+  const hit = creditsCache.get(managementKey)
+  if (hit) {
+    if (Date.now() - hit.at >= CREDITS_TTL_MS && !creditsInFlight.has(managementKey)) {
+      creditsInFlight.add(managementKey)
+      void fetchOpenRouterCreditsLive(managementKey)
+        .then(value => { creditsCache.set(managementKey, { value, at: Date.now() }) })
+        .finally(() => { creditsInFlight.delete(managementKey) })
+    }
+    return hit.value
+  }
+  const value = await fetchOpenRouterCreditsLive(managementKey)
+  creditsCache.set(managementKey, { value, at: Date.now() })
+  return value
+}
+
+/** Test-only: forget cached balances. */
+export function resetOpenRouterCreditsCacheForTest(): void {
+  creditsCache.clear()
+  creditsInFlight.clear()
+}
+
+async function fetchOpenRouterCreditsLive(managementKey: string): Promise<Credits | null> {
   try {
     const resp = await fetch('https://openrouter.ai/api/v1/credits', {
       headers: { Authorization: `Bearer ${managementKey}` },
+      signal: AbortSignal.timeout(CREDITS_TIMEOUT_MS),
     })
     if (!resp.ok) return null
     const data = await resp.json() as { data?: { total_credits?: number; total_usage?: number } }

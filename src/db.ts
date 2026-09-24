@@ -2247,6 +2247,17 @@ export interface AgentMessage {
   parent_span_id: string | null
 }
 
+// Listeners told about every freshly queued inter-agent message (#377). The
+// router registers one so a new message is delivered right away instead of
+// waiting up to a full poll interval. A throwing listener never fails the
+// insert: the row is already committed, and the poll delivers it regardless.
+const agentMessageListeners = new Set<(msg: AgentMessage) => void>()
+
+export function onAgentMessageCreated(listener: (msg: AgentMessage) => void): () => void {
+  agentMessageListeners.add(listener)
+  return () => { agentMessageListeners.delete(listener) }
+}
+
 export function createAgentMessage(
   from: string,
   to: string,
@@ -2258,7 +2269,7 @@ export function createAgentMessage(
   const info = db.prepare(
     'INSERT INTO agent_messages (from_agent, to_agent, content, status, created_at, origin_note, trace_id, span_id, parent_span_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(from, to, content, 'pending', now, originNote ?? null, traceCtx?.trace_id ?? null, traceCtx?.span_id ?? null, traceCtx?.parent_span_id ?? null)
-  return {
+  const msg: AgentMessage = {
     id: Number(info.lastInsertRowid),
     from_agent: from, to_agent: to, content, status: 'pending',
     result: null, created_at: now, delivered_at: null, completed_at: null,
@@ -2267,6 +2278,10 @@ export function createAgentMessage(
     span_id: traceCtx?.span_id ?? null,
     parent_span_id: traceCtx?.parent_span_id ?? null,
   }
+  for (const listener of agentMessageListeners) {
+    try { listener(msg) } catch { /* the poll still delivers it */ }
+  }
+  return msg
 }
 
 export function getPendingMessages(toAgent?: string): AgentMessage[] {

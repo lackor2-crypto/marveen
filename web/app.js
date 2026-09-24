@@ -5696,7 +5696,12 @@ function stopAgentsDataRefresh() {
 function startGlobalActivityPoll() {
   if (globalActivityTimer) return
   refreshAgentTerminalBusy()
-  globalActivityTimer = setInterval(refreshAgentTerminalBusy, 3000)
+  // A hidden tab skips the poll (#377): every pass captures every agent's
+  // pane on the server, and a forgotten background tab kept doing that
+  // 20 times a minute, forever. Coming back refreshes at once, so the badge
+  // is never a poll behind when someone actually looks at it.
+  globalActivityTimer = setInterval(() => { if (!document.hidden) refreshAgentTerminalBusy() }, 3000)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAgentTerminalBusy() })
 }
 async function refreshAgentTerminalBusy() {
   let entries

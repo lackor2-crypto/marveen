@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { serveFile, MIME } from '../http-helpers.js'
+import { serveFile, MIME, acceptsGzip, gzipFileCached, etagMatches } from '../http-helpers.js'
 import { PROJECT_ROOT, BRAND_NAME } from '../../config.js'
 import type { RouteContext } from './types.js'
 
@@ -90,10 +90,15 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
     // szerkesztése is érvénytelenítse a gyorsítótárazott index.html-t --
     // hiányukban assetVersion konstans '0'-t ad, tehát fresh installon ez a
     // két tag nem változtatja meg a viselkedést, csak egy fix "-0-0" toldalékot ad.
-    const etag = `"${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}-${assetVersion(webDir, 'workbench.js')}-${assetVersion(webDir, 'workbench.css')}"`
-    const ifNoneMatch = req.headers['if-none-match']
-    if (ifNoneMatch === etag) {
-      res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' })
+    // index.html is ~380KB of markup and was sent uncompressed on every full
+    // load (#377); gzip shrinks it ~8x. The gzip variant gets its own "-gz"
+    // ETag (same scheme as serveFile) so a cache never hands a gzipped body to
+    // a client that did not ask for one.
+    const wantGzip = acceptsGzip(req)
+    const baseTag = `${s.mtimeMs}-${s.size}-${assetVersion(webDir, 'app.js')}-${assetVersion(webDir, 'style.css')}-${assetVersion(webDir, 'lang/hu.js')}-${assetVersion(webDir, 'lang/en.js')}-${assetVersion(webDir, 'custom.css')}-${assetVersion(webDir, 'custom.js')}-${assetVersion(webDir, 'workbench.js')}-${assetVersion(webDir, 'workbench.css')}`
+    const etag = wantGzip ? `"${baseTag}-gz"` : `"${baseTag}"`
+    if (etagMatches(req.headers['if-none-match'], etag)) {
+      res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache', Vary: 'Accept-Encoding' })
       res.end()
       return
     }
@@ -138,12 +143,15 @@ function serveIndexHtml(ctx: RouteContext, webDir: string): void {
         `$1${escapeAttr(BRAND_NAME)}$2`,
       )
     const html2 = injectCustomOverrides(html, webDir)
+    const body = wantGzip ? gzipFileCached(filePath, etag, Buffer.from(html2, 'utf-8')) : html2
     res.writeHead(200, {
       'Content-Type': MIME['.html'],
       ETag: etag,
       'Cache-Control': 'no-cache',
+      Vary: 'Accept-Encoding',
+      ...(wantGzip ? { 'Content-Encoding': 'gzip' } : {}),
     })
-    res.end(html2)
+    res.end(body)
   } catch {
     res.writeHead(404); res.end('Not found')
   }
