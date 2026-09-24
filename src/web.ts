@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureStatusLine } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -736,6 +736,10 @@ export function startWebServer(port = 3420): http.Server {
       // the isolated dir since #290, else ~/.claude) alongside existing hooks
       // (e.g. telegram_progress.py). Before this the writers hardcoded ~/.claude,
       // which the isolated main agent no longer reads, so NO hook reached it.
+      // The owner's own interactive Claude Code settings (VS Code, terminal):
+      // fill permissions.defaultMode from the template when it was never set.
+      // Once, not per agent -- see ensureUserPermissionMode for why.
+      if (ensureUserPermissionMode()) logger.info('permissions.defaultMode backfilled into ~/.claude/settings.json')
       for (const agentName of [MAIN_AGENT_ID, ...listAgentNames()]) {
         // Self-heal FIRST: drop entries this app previously wrote whose script
         // file no longer exists (e.g. a deleted worktree instance's paths), so
