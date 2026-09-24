@@ -1117,6 +1117,12 @@ const KANBAN_WAITING_MOVE_BLOCK_RE = new RegExp(
   `${KANBAN_WAITING_MOVE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${KANBAN_WAITING_MOVE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
 )
 
+const CARD_REFERENCE_BEGIN = '<!-- BEGIN GENERATED: card-reference-by-number-rule (auto-generated, do not edit by hand) -->'
+const CARD_REFERENCE_END = '<!-- END GENERATED: card-reference-by-number-rule -->'
+const CARD_REFERENCE_BLOCK_RE = new RegExp(
+  `${CARD_REFERENCE_BEGIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?${CARD_REFERENCE_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+)
+
 // Builds the text body that goes between the BEGIN/END markers.
 // Single source of truth -- called by both generateClaudeMd() (initial
 // generation) and ensureFleetRosterSection() (idempotent update on respawn).
@@ -2867,6 +2873,90 @@ export function ensureGlobalKanbanWaitingMoveRule(): void {
 
   const updated = KANBAN_WAITING_MOVE_BLOCK_RE.test(existing)
     ? existing.replace(KANBAN_WAITING_MOVE_BLOCK_RE, block)
+    : existing.trim() === ''
+      ? block + '\n'
+      : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return
+  atomicWriteFileSync(path, updated)
+}
+
+/** A "kartyara a SORSZAMAVAL hivatkozunk" doktrina szovege (kanban #369).
+ *  Host-agnosztikus: nem nevez meg tulajdonost es nem tartalmaz utvonalat. */
+function buildCardReferenceBody(): string {
+  return [
+    '## KARTYARA MINDIG A SORSZAMAVAL HIVATKOZZ (#N)',
+    '',
+    'Ha egy kanban kartyat megnevezel -- Telegramon, kommentben, commit-',
+    'uzenetben, PR-ben, jelentesben, masik agensnek --, MINDIG a kartya',
+    'SORSZAMAT ird: `#369`. A tulajdonos a tablan ezt a szamot latja, erre',
+    'tud rakeresni. A 8 karakteres belso azonosito (pl. `27410f1b`) neki',
+    'semmit nem mond.',
+    '',
+    'A sorszam a kartya `seq` mezoje az API-ban (`GET /api/kanban`), az',
+    'adatbazisban a `kanban_cards.rowid`. Ha csak a belso azonositod van,',
+    'ELOBB kerdezd le a sorszamot, es azt ird ki.',
+    '',
+    'A belso azonosito CSAK zarojelben, a sorszam UTAN allhat, ha egy masik',
+    'agensnek vagy egy parancsnak kell: `#369 (27410f1b)`. Egymagaban, a',
+    'sorszam nelkul SOHA.',
+    '',
+    'Miert: a tulajdonos szava szerint "ezt senki nem tudja, hogy micsoda" --',
+    'a csupasz belso azonosito miatt nem talalta meg, melyik kartyarol van',
+    'szo. Ugyanaz a hiba, mint a commit-hash a kanban-keresoben: a rossz',
+    'szamot a rossz helyre irja be.',
+  ].join('\n')
+}
+
+/** Beviszi a "kartyara a sorszamaval" doktrinat egy agens sajat CLAUDE.md-
+ *  jebe. A fo agens a gepszintu valtozatbol es a sablonbol kapja. */
+export function ensureCardReferenceSection(name: string): LandingOutcome {
+  if (name === MAIN_AGENT_ID) return 'skipped-main'
+  const claudeMdPath = join(agentDir(name), 'CLAUDE.md')
+  if (!existsSync(claudeMdPath)) return 'no-file'
+
+  const block = `${CARD_REFERENCE_BEGIN}\n${buildCardReferenceBody()}\n${CARD_REFERENCE_END}`
+
+  let existing: string
+  try {
+    existing = readFileSync(claudeMdPath, 'utf-8')
+  } catch {
+    return 'unreadable'
+  }
+
+  const updated = CARD_REFERENCE_BLOCK_RE.test(existing)
+    ? existing.replace(CARD_REFERENCE_BLOCK_RE, block)
+    : existing.trimEnd() + '\n\n' + block + '\n'
+
+  if (updated === existing) return 'current'
+  atomicWriteFileSync(claudeMdPath, updated)
+  return 'written'
+}
+
+/** Gepszintu valtozat (~/.claude/CLAUDE.md): a worktree-ben futo es a fo
+ *  agens is ezt olvassa, barhonnan indul. */
+export function ensureGlobalCardReferenceRule(): void {
+  const dir = join(homedir(), '.claude')
+  const path = join(dir, 'CLAUDE.md')
+  const block = `${CARD_REFERENCE_BEGIN}\n${buildCardReferenceBody()}\n${CARD_REFERENCE_END}`
+
+  let existing = ''
+  if (existsSync(path)) {
+    try {
+      existing = readFileSync(path, 'utf-8')
+    } catch {
+      return
+    }
+  } else {
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      return
+    }
+  }
+
+  const updated = CARD_REFERENCE_BLOCK_RE.test(existing)
+    ? existing.replace(CARD_REFERENCE_BLOCK_RE, block)
     : existing.trim() === ''
       ? block + '\n'
       : existing.trimEnd() + '\n\n' + block + '\n'

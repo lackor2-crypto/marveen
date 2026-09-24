@@ -14,7 +14,7 @@ import { isBlockedCrossOriginWrite, originMatchesServedHost } from './web/csrf-o
 import { json } from './web/http-helpers.js'
 import { detectLanIp, detectTailscaleServeUrl } from './web/network-info.js'
 import { AGENTS_BASE_DIR, listAgentNames } from './web/agent-config.js'
-import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureStatusLine } from './web/agent-scaffold.js'
+import { ensureAgentHooks, ensureUserPermissionMode, ensureAgentStalenessHook, ensureEgressGate, ensureGovernanceGatesRemoved, ensureQuarantineReader, ensureDefaultScheduledTasks, agentSettingsPath, ensureAutonomySection, ensureAgentSkills, ensureAskBackSection, ensureGlobalAskBackRule, ensureRecheckSection, ensureGlobalRecheckRule, ensureWakeGreetingSection, ensureGlobalWakeGreetingRule, ensureDelegateCheckSection, ensureGlobalDelegateCheckRule, ensureStrayFileGate, ensureNoStrayFilesSection, ensureGlobalNoStrayFilesRule, ensureLandingSection, ensureGlobalLandingRule, ensureOneCardOneFixSection, ensureGlobalOneCardOneFixRule, ensureAgentIdentitySection, ensureGlobalAgentIdentityRule, ensureNoLiveTreeSection, ensureGlobalNoLiveTreeRule, ensureCompletionReportSection, ensureGlobalCompletionReportRule, ensureKanbanWaitingMoveSection, ensureGlobalKanbanWaitingMoveRule, ensureCardReferenceSection, ensureGlobalCardReferenceRule, ensureStatusLine } from './web/agent-scaffold.js'
 import { shouldRegisterHooks, pruneStaleHooksFromSettingsFile } from './web/hook-registration-guard.js'
 import { refreshMarveenBotUsername } from './web/telegram.js'
 import { startMessageRouter } from './web/message-router.js'
@@ -824,6 +824,11 @@ export function startWebServer(port = 3420): http.Server {
         const waitingMove = ensureKanbanWaitingMoveSection(agentName)
         if (waitingMove === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
         if (waitingMove === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
+        // ...es a "kartyara a sorszamaval hivatkozz" szabaly (kanban #369): a
+        // tulajdonos a tablan a sorszamot latja, a 8 karakteres azonositot nem.
+        const cardRef = ensureCardReferenceSection(agentName)
+        if (cardRef === 'written' && !askBackWritten.includes(agentName)) askBackWritten.push(agentName)
+        if (cardRef === 'unreadable' && !askBackUnreadable.includes(agentName)) askBackUnreadable.push(agentName)
       }
       // ...and once machine-wide. An agent whose working directory is a git
       // worktree never loads agents/<name>/CLAUDE.md; ~/.claude/CLAUDE.md is
@@ -839,6 +844,7 @@ export function startWebServer(port = 3420): http.Server {
       ensureGlobalNoLiveTreeRule()
       ensureGlobalCompletionReportRule()
       ensureGlobalKanbanWaitingMoveRule()
+      ensureGlobalCardReferenceRule()
       // A szallitott autonomy-katalogus uj kategoriai (kanban #336, 6. fazis).
       // Amit a telepites configja nem ismer, azt a rendszer "nincs jog"-nak
       // veszi -- helyesen --, DE akkor a tulajdonos a Beallitasok / Onallosag
