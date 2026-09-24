@@ -37090,6 +37090,30 @@ function _intezoCountText(e) {
 }
 
 /**
+ * "Modositas datuma" oszlop (kartya #371): a felulet nyelvenek megfelelo
+ * datum + ora:perc. Ha a szerver nem kuldott datumot, ures -- kitalalni tilos.
+ */
+function _intezoDateText(e) {
+  const d = e && e.mtime ? new Date(e.mtime) : null
+  if (!d || isNaN(d.getTime())) return ''
+  return d.toLocaleString(window._lang === 'en' ? 'en-GB' : 'hu-HU',
+    { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * "Tipus" oszlop (kartya #371): mappa -> "Fajlmappa", fajl -> a kiterjesztes
+ * nagybetuvel + "fajl" (pl. "PDF fajl"), kiterjesztes nelkul -> "Fajl".
+ */
+function _intezoTypeText(e) {
+  if (!e) return ''
+  if (e.isDir) return t('intezo.type_folder')
+  const name = String(e.name || '')
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 && dot < name.length - 1 ? name.slice(dot + 1) : ''
+  return ext && ext.length <= 10 ? t('intezo.type_file_ext', { ext: ext.toUpperCase() }) : t('intezo.type_file')
+}
+
+/**
  * A tartalom-JELZES a nev elott (pont / ures kor / kerdojel).
  *
  * Azert a NEV MELLE kerul es nem csak a szam-oszlopba: keskeny (mobil)
@@ -37160,7 +37184,7 @@ function _intezoPlaceInfoCard() {
   const tr = document.createElement('tr')
   tr.id = 'intezoInlineRow'
   const td = document.createElement('td')
-  td.colSpan = 4
+  td.colSpan = 6
   td.style.cssText = 'padding:0 0 10px'
   tr.appendChild(td)
   host.parentNode.insertBefore(tr, host.nextSibling)
@@ -37239,7 +37263,19 @@ function _intezoRender() {
   // intezo-list: every other row gets a darker background (zebra), so a long
   // listing can be read along the row (owner, 2026-09-24). CSS in style.css;
   // the selected / inbox rows keep their own inline background on top.
-  list.innerHTML = '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse"><tbody>'
+  // COLUMNS WITH A HEADER (card #371, owner: "Név, Módosítás dátuma, Típus,
+  // Méret" -- like the Windows Explorer). The badge column and the button
+  // column stay, without a caption. The date and type columns drop on a
+  // narrow (phone) screen via CSS, the name and the size stay.
+  list.innerHTML = '<table class="intezo-list" style="width:100%;font-size:14px;border-collapse:collapse">'
+    + '<thead><tr class="intezo-head">'
+    + '<th></th>'
+    + '<th>' + escapeHtml(t('intezo.col_name')) + '</th>'
+    + '<th class="intezo-col-date">' + escapeHtml(t('intezo.col_modified')) + '</th>'
+    + '<th class="intezo-col-type">' + escapeHtml(t('intezo.col_type')) + '</th>'
+    + '<th style="text-align:right">' + escapeHtml(t('intezo.col_size')) + '</th>'
+    + '<th></th>'
+    + '</tr></thead><tbody>'
     + rows.map((e, i) =>
       '<tr data-rel="' + escapeHtml(e.rel) + '" data-dir="' + (e.isDir ? '1' : '') + '"'
       // The folder's explanation is the FIRST line of the row tooltip (owner,
@@ -37283,6 +37319,8 @@ function _intezoRender() {
       + (e.physical ? ' <span title="' + escapeHtml(t('intezo.badge_paper')) + '">🗂</span>' : '')
       + (e.mounted ? ' <span style="opacity:.65;font-size:12px" title="' + escapeHtml(t('intezo.badge_mounted')) + '">→ '
           + escapeHtml(e.mounted) + '</span>' : '') + '</td>'
+      + '<td class="intezo-col-date" style="padding:2px 8px;opacity:.7;white-space:nowrap">' + escapeHtml(_intezoDateText(e)) + '</td>'
+      + '<td class="intezo-col-type" style="padding:2px 8px;opacity:.7;white-space:nowrap">' + escapeHtml(_intezoTypeText(e)) + '</td>'
       + '<td style="padding:2px 8px;text-align:right;opacity:.7;white-space:nowrap"'
       + (e.isDir && e.content && e.content.reason ? ' title="' + escapeHtml(e.content.reason) + '"' : '')
       + '>' + escapeHtml(e.isDir ? _intezoCountText(e) : e.sizeHuman) + '</td>'
