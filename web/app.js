@@ -21102,17 +21102,9 @@ function labelUpstreamViewTabs(data) {
   }
 }
 
-/** A harmadik gomb: ugyanaz a lista, egybol a kapu-nezetben. */
-function openUpstreamGate() {
-  setUpstreamChangesView('kapu')
-  openUpstreamChanges()
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('overviewUpstreamChangesBtn')
   if (btn) btn.addEventListener('click', () => { setUpstreamChangesView('valtozas'); openUpstreamChanges() })
-  const gateBtn = document.getElementById('overviewUpstreamGateBtn')
-  if (gateBtn) gateBtn.addEventListener('click', openUpstreamGate)
   const measureBtn = document.getElementById('overviewUpstreamMeasureBtn')
   if (measureBtn) measureBtn.addEventListener('click', startUpstreamMeasure)
   // Egy meres futhat MASHOL is: egy masik bongeszofulon, vagy a heti idozitobol.
@@ -22007,15 +21999,13 @@ function renderOverviewUpstreamSync(upstreamSync) {
   // A "mi valtozott?" gomb mindig ott van, ha van mit mutatni. Boss: "ezert egy
   // lista kellene [...] es mind a 169-re egy rovid par soros leiras hogy mit
   // javitottak vagy fejlesztettek."
+  // EGY gomb, nem ketto (Boss, 2026-09-24): a kulon "Kizart es dontesre varo"
+  // gomb ugyanazt a haromfules ablakot nyitotta, csak masik fulon -- a kapu-
+  // nezet az ablak harmadik fule.
   const changesBtn = document.getElementById('overviewUpstreamChangesBtn')
   if (changesBtn) {
     changesBtn.hidden = false
     changesBtn.textContent = t('upstream.changes.open')
-  }
-  const gateBtn = document.getElementById('overviewUpstreamGateBtn')
-  if (gateBtn) {
-    gateBtn.hidden = false
-    gateBtn.textContent = t('upstream.gate.open')
   }
   // A "Letoltes es ujrameres" gomb MINDIG ott van, amikor a doboz latszik --
   // az elhasalt meresnel a leginkabb, hiszen ott az ujraprobalas az egyetlen
@@ -22052,7 +22042,6 @@ function renderOverviewUpstreamSync(upstreamSync) {
     // Nincs friss lista, amit megnyithatnank -- de a MERES ujraindithato, es
     // ez az egyetlen ertelmes kovetkezo lepes, ezert a gomb marad.
     if (changesBtn) changesBtn.hidden = true
-    if (gateBtn) gateBtn.hidden = true
     return
   }
   // ★ A KOMMIT-TAVOLSAG HAZUDIK EGY VISSZAVONT BEHUZAS UTAN, es ezt a mero
@@ -22086,7 +22075,6 @@ function renderOverviewUpstreamSync(upstreamSync) {
       + (pairHtml(upstreamSync) || '')
     // Nincs mit felsorolni: a "Mi valtozott?" gomb ilyenkor ures listara nyilna.
     if (changesBtn) changesBtn.hidden = true
-    if (gateBtn) gateBtn.hidden = true
     return
   }
   // A harmadik szam MERT ertek, nem szamtani trukk.

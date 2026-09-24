@@ -11130,12 +11130,11 @@ body {
 .upstream-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 /* "Mi valtozott az upstreamben?" -- tetelas lista */
-/* A harom gomb egy sorban, egy magassagban (Boss, 2026-09-18: "nincs egy
+/* A gombok egy sorban, egy magassagban (Boss, 2026-09-18: "nincs egy
    sorban a gombok"): a felso tavolsag a sore, nem a gomboke -- a gombonkenti
    margo miatt csusztak el egymastol. */
 .upstream-actions { margin-top: 10px; }
 .upstream-changes-btn,
-.upstream-gate-btn,
 .upstream-measure-btn { font-size: 13px; margin: 0; }
 .upstream-measure-btn[disabled] { opacity: .6; cursor: progress; }
 

@@ -4018,13 +4018,12 @@ window._i18n.hu = {
   // fájlokat. A címkékben ott a "fájl", különben a doboz úgy néz ki, mintha
   // mindhárom szám ugyanabból a fajtából volna, és kivonhatók lennének egymásból.
   'upstream.changes.title':   'Mi változott az upstreamben?',
-  'upstream.changes.open':    'Mi változott? — tételes lista',
+  'upstream.changes.open':    'Részletek (változások, fájlok, kizártak)',
   'upstream.changes.intro':   '{n} változás vár ránk: {f} javítás, {u} fejlesztés, {e} egyéb. A lista egysége a változás (commit) — egy fájlt önmagában nem lehet áthúzni. Összevetve: {local} ↔ {upstream}.',
   'upstream.changes.fixes':   'Javítások ({n}) — ezek valószínűleg mind kellenek',
   'upstream.changes.feats':   'Fejlesztések ({n}) — itt érdemes válogatni',
   'upstream.changes.other':   'Egyéb ({n}) — dokumentáció, karbantartás, teszt',
   'upstream.changes.files':   '{n} fájl',
-  'upstream.gate.open': 'Kizárt és döntésre váró tételek',
   'upstream.gate.group_exclude': 'Elv miatt kizárva ({n}) -- ezek nem kerülnek be',
   'upstream.gate.group_discuss': 'Döntésre vár ({n}) -- ezekről neked kell döntened',
   'upstream.gate.none': 'Nincs kizárt és döntésre váró tétel: az elv-ellenőrzés szerint minden változás mehet.',
