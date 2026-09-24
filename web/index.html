@@ -1850,7 +1850,10 @@
             Amiben helyi módosítás vagy fel nem töltött commit van, azt
             <b>kihagyja</b> — a szinkron soha nem ír felül helyi munkát.
             <button class="btn-secondary btn-compact" id="storagesGitSyncBtn" style="margin-left:6px">🔄 Szinkron most</button>
+            <button class="btn-secondary btn-compact" id="storagesGitCommitPushBtn" style="margin-left:6px" data-i18n="storages.git.commitpush_btn">📤 Commit és Push Most</button>
           </p>
+          <p style="margin:6px 0 0;font-size:13px;opacity:.85" data-i18n="storages.git.commitpush_help">A „Commit és Push Most" felméri a kimaradt tárolókat (ahol commit vagy push hiányzik), és a legokosabb elérhető ágenssel elvégezteti az elmaradt commitokat és pusholásokat. Amikor kész, jelez, és utána a Szinkron mindent lehoz.</p>
+          <p style="margin:6px 0 0;font-size:13px" id="storagesGitCommitPushState"></p>
           <p style="margin:6px 0 0;font-size:13px" id="storagesGitSyncState"></p>
           <p style="margin:6px 0 0;font-size:12px;opacity:.75">
             A hozzáférési kulcs a Marveen zárt tárolójában marad: nem kerül az

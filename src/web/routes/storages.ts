@@ -27,6 +27,7 @@ import {
 import { googleAccountNames } from './accounts.js'
 import { setGitToken, removeGitToken, gitTokenInfo, pullGitAccount, listRemoteRepos, deleteGitAccount } from '../../git-accounts.js'
 import { syncAllRepos, lastSyncState } from '../../git-sync.js'
+import { dispatchCommitPush } from '../commit-push-dispatch.js'
 import { displayLabelFor } from '../../life-labels.js'
 
 /**
@@ -240,6 +241,16 @@ export async function tryHandleStorages(ctx: RouteContext): Promise<boolean> {
   if (path === '/api/storages/git-sync' && method === 'POST') {
     const run = await syncAllRepos()
     json(res, { ok: true, last: withDisplayNames(run), message: `${run.results.length} repót néztem át: ${run.updated} frissült, ${run.skipped} kimaradt, ${run.errors} hibázott.` })
+    return true
+  }
+
+  // Kartya acc07213: "Commit es Push Most" -- felmeri az elmaradt tarolókat, es
+  // kiadja a legokosabb ELO, token-nel biro agensnek (vagy a fo agensnek, ha nincs
+  // mas). Az agens commitol+pushol es Telegramon jelez, ha kesz.
+  if (path === '/api/storages/git-commit-push' && method === 'POST') {
+    const b = await readJson(req)
+    const result = await dispatchCommitPush({ confirm: b?.confirm === true })
+    json(res, result, result.ok ? 200 : 500)
     return true
   }
 

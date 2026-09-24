@@ -290,6 +290,45 @@ export async function syncRepo(abs: string): Promise<SyncResult> {
 }
 
 /** Az utolso futas allapota, vagy `null`, ha meg sose futott. */
+/** Kartya acc07213: egy tarolo, amiben commit VAGY push hianyzik -- pont amit a
+ *  syncRepo "Commit es push hianya miatt kimaradt"-tal kihagy. A "Commit es Push
+ *  Most" gomb ezeket adja ki egy agensnek. */
+export interface OutstandingRepo {
+  rel: string
+  account: string
+  abs: string
+  /** Helyben modositott (commitolatlan) fajlok szama. */
+  dirty: number
+  /** Fel nem toltott (unpushed) commitok szama. */
+  ahead: number
+  hasUpstream: boolean
+}
+
+/** Vegigjarja a fa tarolóit, es visszaadja azokat, ahol commit vagy push hianyzik.
+ *  Csak OLVAS (status, rev-list) -- nem ir, nem commitol. A tenyleges commit+push
+ *  a kivalasztott agens dolga. */
+export async function findOutstandingRepos(): Promise<OutstandingRepo[]> {
+  const repos = await findRepos()
+  const out: OutstandingRepo[] = []
+  for (const abs of repos) {
+    try {
+      const up = await git(abs, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
+      const hasUpstream = up.ok && !!up.out
+      const st = await git(abs, ['status', '--porcelain'])
+      const dirty = st.out ? st.out.split('\n').filter((l) => l.trim()).length : 0
+      let ahead = 0
+      if (hasUpstream) {
+        const a = await git(abs, ['rev-list', '--count', '@{upstream}..HEAD'])
+        ahead = Number(a.out) || 0
+      }
+      if (dirty > 0 || ahead > 0) {
+        out.push({ rel: toLifeRel(abs), account: accountOfPath(abs) || await accountFromRemote(abs), abs, dirty, ahead, hasUpstream })
+      }
+    } catch { /* olvashatatlan repo -- kihagyjuk, nem talalgatunk */ }
+  }
+  return out
+}
+
 export function lastSyncRun(): SyncRun | null {
   try { return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as SyncRun } catch { return null }
 }

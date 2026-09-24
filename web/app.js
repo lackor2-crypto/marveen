@@ -33845,6 +33845,7 @@ async function loadDepoPage() {
   })
   bind('storagesGitAddBtn', () => _storagesAddGit())
   bind('storagesGitSyncBtn', () => _storagesGitSync())
+  bind('storagesGitCommitPushBtn', () => _storagesGitCommitPush())
   // A tablazat gombjai delegalva: a sorok minden frissiteskor ujra keszulnek,
   // soronkent felkotott kezelo eseten az ujrarajzolas utan nemak lennenek.
   const storTbl = document.getElementById('storagesTable')
@@ -34638,6 +34639,43 @@ function _storagesAskToken(account) {
       if (e.key === 'Enter' && e.target === inp) close(inp.value)
     }
   })
+}
+
+// Kartya acc07213: "Commit es Push Most" -- kiadja az elmaradt commit+push-t a
+// legokosabb elerheto agensnek. Csak KIADJA; a tenyleges munka az agens
+// sessionjeben fut, es o jelez Telegramon, ha kesz.
+async function _storagesGitCommitPush() {
+  var el = document.getElementById('storagesGitCommitPushState')
+  var btn = document.getElementById('storagesGitCommitPushBtn')
+  if (btn) btn.disabled = true
+  if (el) el.textContent = t('storages.git.commitpush_working')
+  try {
+    // 1) ELONEZET: mit tenne, ki csinalna -- kiadas nelkul.
+    var p = await _depoPost('/api/storages/git-commit-push', {})
+    if (!p || !p.needsConfirm) {
+      // nincs elmaradt munka (vagy kesz uzenet) -- csak kiirjuk
+      if (el) el.textContent = (p && p.message) ? p.message : t('storages.git.commitpush_done')
+      return
+    }
+    // 2) A repok listaja + megerosites a visszafordithatatlan kiadas elott.
+    var lista = (p.repos || []).map(function (r) {
+      var mit = []
+      if (r.dirty) mit.push(t('storages.git.cp_dirty', { n: r.dirty }))
+      if (r.ahead) mit.push(t('storages.git.cp_ahead', { n: r.ahead }))
+      return '• ' + r.rel + ' (' + mit.join(', ') + ')'
+    }).join('\n')
+    if (!confirm((p.message || '') + '\n\n' + lista)) {
+      if (el) el.textContent = ''
+      return
+    }
+    // 3) KIADAS.
+    var r = await _depoPost('/api/storages/git-commit-push', { confirm: true })
+    if (el) el.textContent = (r && r.message) ? r.message : t('storages.git.commitpush_done')
+  } catch (e) {
+    if (el) el.textContent = t('storages.git.commitpush_failed', { err: (e && e.message ? e.message : e) })
+  } finally {
+    if (btn) btn.disabled = false
+  }
 }
 
 async function _storagesGitSync() {

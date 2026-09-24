@@ -3054,6 +3054,11 @@ window._i18n.en = {
   'ddel.err_trash_failed':			'I could not move it to the Trash (the file stayed where it was).',
   'dsync.brake_warn':			'⚠ Emergency brake: {n} of {tracked} files are missing from your computer. I will not delete that many on the Drive on my own — check that the disk holding the depot is in place, then start it again.',
   'storages.lead':			'Every account whose files live on your computer: your <strong>Google Drive</strong> and <strong>Google Photos</strong> accounts, and your <strong>Git</strong> accounts. Each one works inside its own folder in the depot, so the contents of two accounts can never get mixed up. The id (<code>DRIVE_01</code>) stays with that account even if you rename it — renaming does not move the folder.',
+  'storages.git.commitpush_btn':      '📤 Commit and Push Now',
+  'storages.git.commitpush_help':     '"Commit and Push Now" scans the repos that were skipped (missing commit or push) and has the smartest available agent do the outstanding commits and pushes. When done, it reports back, and then Sync can pull everything.',
+  'storages.git.commitpush_working':  'Scanning the skipped repos and dispatching to the smartest available agent…',
+  'storages.git.commitpush_done':     'Dispatched.',
+  'storages.git.commitpush_failed':   'Failed: {err}',
   'dsync.upload_label':			'Changes I make on my computer should go up to the Drive',
   'dsync.delete_up_label':			'What I delete on my computer should go to the Drive Bin too',
 

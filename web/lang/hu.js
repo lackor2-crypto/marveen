@@ -2537,6 +2537,13 @@ window._i18n.hu = {
   'ddel.err_trash_failed': 'Nem sikerült a Kukába tenni (a fájl a helyén maradt).',
   'dsync.brake_warn':            '⚠ Vészfék: {n} fájl hiányzik a gépedről a {tracked}-ból. Ennyit nem törlök a Drive-on magamtól — ellenőrizd, hogy a raktár lemeze a helyén van-e, aztán indítsd újra.',
   'storages.lead':               'Minden fiókod, aminek fájljai a gépeden vannak: a <strong>Google Drive</strong> és a <strong>Google Fotók</strong> fiókjai, valamint a <strong>Git</strong>-fiókjaid. Mindegyik a saját mappájába dolgozik a raktáron belül, így két fiók tartalma soha nem keveredik össze. Az azonosító (<code>DRIVE_01</code>) azé a fióké marad akkor is, ha átnevezed — a mappát az átnevezés nem mozdítja meg.',
+  'storages.git.commitpush_btn':      '📤 Commit és Push Most',
+  'storages.git.commitpush_help':     'A „Commit és Push Most" felméri a kimaradt tárolókat (ahol commit vagy push hiányzik), és a legokosabb elérhető ágenssel elvégezteti az elmaradt commitokat és pusholásokat. Amikor kész, jelez, és utána a Szinkron mindent lehoz.',
+  'storages.git.commitpush_working':  'Felmérem a kimaradt tárolókat és kiadom a legokosabb elérhető ágensnek…',
+  'storages.git.commitpush_done':     'Kiadva.',
+  'storages.git.commitpush_failed':   'Nem sikerült: {err}',
+  'storages.git.cp_dirty':            '{n} commitolatlan',
+  'storages.git.cp_ahead':            '{n} fel nem töltött',
   // A ket veszelyes kapcsolo. Azt mondjuk el, MI TORTENIK, nem azt, hogy mi a
   // funkcio neve: a felmeno ag ir a Drive-ra, a torles-atvitel torol odafent.
   'dsync.upload_label':          'A gépemen készült változás menjen fel a Drive-ra',
