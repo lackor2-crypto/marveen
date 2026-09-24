@@ -23,7 +23,21 @@ export interface UpstreamSyncStatus {
   behindCount: number | null
   conflictingFiles: string[]
   conflictCount: number | null
+  // Since #375: only the files that are STILL to be pulled -- the ones we
+  // already have byte-for-byte (absorbedCount) and the ones deliberately left
+  // out (skippedCount) are not in it. An older snapshot has no split: then the
+  // two fields below are null and this is the old, unsplit number.
   cleanFileCount: number | null
+  // Upstream-changed files that are already identical here. Null = not split.
+  absorbedCount: number | null
+  // Files left out on purpose (governance/upstream-skipped-files.json). Null =
+  // not split; 0 = nothing is left out (a fresh install has no list).
+  skippedCount: number | null
+  // Of skippedCount, the ones only postponed (kind=deferred in the list): not a
+  // final decision, they will be looked at again. Null = not measured.
+  skippedDeferredCount: number | null
+  // The skip list could not be read: its own error text, never guessed.
+  skipListError: string | null
   // ★ Hany fajl tartalma ter el a ket fa kozott. A commit-tavolsag (behindCount)
   // egy VISSZAVONT behuzas utan nullahoz kozeli marad, mert a merge commit os
   // marad -- 2026-08-23-an "1 commit / 2 fajl" allt a dobozban, kozben 681 fajl
@@ -103,6 +117,10 @@ export function readUpstreamSyncStatus(now: number = Date.now()): UpstreamSyncSt
       conflictingFiles: files,
       conflictCount: num(o.conflictCount) ?? files.length,
       cleanFileCount: num(o.cleanFileCount),
+      absorbedCount: num(o.absorbedCount),
+      skippedCount: num(o.skippedCount),
+      skippedDeferredCount: num(o.skippedDeferredCount),
+      skipListError: str(o.skipListError),
       contentDiffCount: num(o.contentDiffCount),
       revertedMerge: str(o.revertedMerge),
       localRef: str(o.localRef),
