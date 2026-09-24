@@ -34,6 +34,7 @@ import {
   SCHEDULED_TASKS_DIR,
   claimScheduleOwnership,
   type ScheduledTask,
+  platformSatisfied,
 } from './scheduled-tasks-io.js'
 import { listAgentNames, readFileOr, readAgentRemoteHost, agentDir } from './agent-config.js'
 import { channelStateDir } from '../channel-provider.js'
@@ -1252,7 +1253,7 @@ export function startScheduleRunner(): NodeJS.Timeout {
       // Honor the operator's disable action: if the task was toggled off
       // while the retry sat in the queue, drop the retry so a long-stuck
       // task doesn't surprise-fire the moment the session frees up.
-      if (!taskDef.enabled) {
+      if (!taskDef.enabled || !platformSatisfied(taskDef)) {
         deletePendingTaskRetry(row.task_name, row.agent_name)
         continue
       }
@@ -1325,6 +1326,8 @@ export function startScheduleRunner(): NodeJS.Timeout {
     tasks.sort((a, b) => taskInjectionRank(a) - taskInjectionRank(b))
     for (const task of tasks) {
       if (!task.enabled) continue
+      // Platform-bound task (e.g. Windows-host upkeep from WSL): silent elsewhere.
+      if (!platformSatisfied(task)) continue
       const occurrenceMs = cronPrevOccurrence(task.schedule, fromMs, now)
       if (occurrenceMs == null) continue
 

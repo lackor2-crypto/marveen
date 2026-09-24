@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, release } from 'node:os'
 import { atomicWriteFileSync } from './atomic-write.js'
 
 export const SCHEDULED_TASKS_DIR = join(homedir(), '.claude', 'scheduled-tasks')
@@ -70,7 +70,7 @@ export interface ScheduledTask {
   // runner pre-checks each named MCP server has a live process under the
   // target session before injecting the prompt; a dead server defers the task
   // with a reasoned alert instead of a silent runtime failure.
-  requires?: { mcp_servers?: string[] }
+  requires?: { mcp_servers?: string[]; platform?: 'wsl' }
 }
 
 function readFileOr(path: string, fallback: string): string {
@@ -103,7 +103,7 @@ export function readScheduledTask(taskName: string): ScheduledTask | null {
   const skillContent = hasSkill ? readFileOr(skillPath, '') : ''
   const { name, description, body } = parseSkillMdFrontmatter(skillContent)
 
-  let config: { schedule?: string; agent?: string; enabled?: boolean; createdAt?: number; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; description?: string; command?: string; timeoutMs?: number; failThreshold?: number; preCheck?: string; catchUpMaxAgeMinutes?: unknown; stuckAfterMinutes?: unknown; requires?: { mcp_servers?: unknown } } = {}
+  let config: { schedule?: string; agent?: string; enabled?: boolean; createdAt?: number; type?: string; skipIfBusy?: boolean; forceSend?: boolean; targetSession?: string; description?: string; command?: string; timeoutMs?: number; failThreshold?: number; preCheck?: string; catchUpMaxAgeMinutes?: unknown; stuckAfterMinutes?: unknown; requires?: { mcp_servers?: unknown; platform?: unknown } } = {}
   try {
     config = JSON.parse(readFileOr(configPath, '{}'))
   } catch { /* use defaults */ }
@@ -149,10 +149,32 @@ export function parseCatchUpMaxAge(raw: unknown): number | undefined {
 
 // Accept only a string array for requires.mcp_servers; anything else is
 // treated as absent so a malformed config cannot wedge the runner.
-export function parseRequires(raw: { mcp_servers?: unknown } | undefined): ScheduledTask['requires'] {
-  if (!raw || !Array.isArray(raw.mcp_servers)) return undefined
-  const servers = raw.mcp_servers.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-  return servers.length ? { mcp_servers: servers } : undefined
+export function parseRequires(raw: { mcp_servers?: unknown; platform?: unknown } | undefined): ScheduledTask['requires'] {
+  if (!raw) return undefined
+  const out: NonNullable<ScheduledTask['requires']> = {}
+  if (Array.isArray(raw.mcp_servers)) {
+    const servers = raw.mcp_servers.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+    if (servers.length) out.mcp_servers = servers
+  }
+  if (raw.platform === 'wsl') out.platform = 'wsl'
+  return Object.keys(out).length ? out : undefined
+}
+
+/** Is this a WSL box (Linux under a Windows host)? Asked from the kernel, not guessed. */
+export function isWsl(): boolean {
+  if (process.platform !== 'linux') return false
+  if (existsSync('/proc/sys/fs/binfmt_misc/WSLInterop')) return true
+  return /microsoft/i.test(release())
+}
+
+/**
+ * A task that only makes sense on one platform (weekly-system-maintenance cares
+ * for the WINDOWS host from WSL) never fires elsewhere -- it is seeded on every
+ * install, so a Mac or a plain Linux box must not spend a run on it.
+ * Audit f97acc32 G.
+ */
+export function platformSatisfied(task: Pick<ScheduledTask, 'requires'>, wsl: () => boolean = isWsl): boolean {
+  return task.requires?.platform !== 'wsl' || wsl()
 }
 
 export function listScheduledTasks(): ScheduledTask[] {
