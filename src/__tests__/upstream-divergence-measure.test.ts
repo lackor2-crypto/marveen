@@ -366,7 +366,9 @@ describe('az onellenorzes eszreveszi, ha a meres elromlik', () => {
 // ===========================================================================
 describe('a kartya nem kever ossze ket mertekegyseget', () => {
   it('az elso szam a fajlok OSSZEGE, nem a commit-szam', () => {
-    expect(app).toContain('const total = cleanKnown ? String(conflicts + cleanNum)')
+    // #375 ota az osszegben a mar behuzott es a szandekosan kihagyott fajlok is
+    // benne vannak (ha a meres szetbontotta) -- tovabbra is FAJL-osszeg.
+    expect(app).toContain('String(conflicts + cleanNum + (split ? absorbedNum + skippedNum : 0))')
     const sor = app.slice(app.indexOf('<div class="upstream-sync-row">'))
     const eleje = sor.slice(0, sor.indexOf('</div>'))
     expect(eleje.indexOf('${total}'), 'nem a vegosszeg all elol').toBeLessThan(eleje.indexOf('${conflicts}'))

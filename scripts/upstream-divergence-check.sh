@@ -126,7 +126,10 @@ if [ -z "${ERR}" ]; then
   git rev-parse --verify -q "${UPSTREAM_REF}^{commit}" >/dev/null 2>&1 || ERR="no-upstream-branch"
 fi
 
-AHEAD=""; BEHIND=""; CLEAN=""; CONFLICTS=""; CONFLICT_LIST=""; CONTENT=""
+AHEAD=""; BEHIND=""; CLEAN=""; CONFLICTS=""; CONFLICT_LIST=""; CONTENT=""; SPLIT_FILES=""
+# A szandekosan kihagyott upstream-fajlok nyilvantartasa (kanban #375). A repo
+# resze, mert a dontes is az: a fork sajat valasztasa, nem gepi allapot.
+SKIP_LIST="${REPO_ROOT}/governance/upstream-skipped-files.json"
 REVERTED_MERGE=""; COMPARE_FROM=""
 if [ -z "${ERR}" ]; then
   # --- 5/b. VISSZAVONT BEHUZAS: hol allunk VALOJABAN? --------------------
@@ -223,8 +226,20 @@ EOF
       # A "tisztan athuzhato" halmaz-kulonbseg, nem kivonas: ha egy utkozes
       # olyan utvonalon jelenne meg, amit az upstream-diff nem tartalmaz
       # (atnevezes/torles), a kivonas alameroe.
-      CLEAN="$(comm -23 /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$ | grep -c .)"
+      comm -23 /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$ > /tmp/uds-clean.$$
+      CLEAN="$(grep -c . /tmp/uds-clean.$$)"
       CONFLICT_LIST="/tmp/uds-conflicts.$$"
+      # --- 8/b. MI VAN MEG TENYLEG HATRA? (kanban #375) ------------------
+      # A fenti halmaz MINDEN fajlt tartalmaz, amit az upstream a kozos os
+      # ota megvaltoztatott -- azt is, ami nalunk MAR byte-ra ugyanaz (mert
+      # behuztuk), es azt is, amit SZANDEKOSAN kihagytunk. Merve 2026-09-24:
+      # a #375 behuzasa utan is 723 "tisztan athuzhato" allt a dobozban, mert
+      # ebbol 302 mar egyezett, a tobbi nagy resze pedig dontessel maradt ki.
+      # A behuzastol ez a szam SOSEM csokkent volna. A python-blokk ezert
+      # harom reszre bontja: mar behuzva / szandekosan kihagyva / meg hatra.
+      git diff --name-only "${LOCAL_REF}" "${UPSTREAM_REF}" 2>/dev/null | sort -u > /tmp/uds-differ.$$
+      git ls-tree -r --full-tree "${UPSTREAM_REF}" 2>/dev/null > /tmp/uds-uptree.$$
+      SPLIT_FILES="/tmp/uds-clean.$$:/tmp/uds-differ.$$:/tmp/uds-uptree.$$"
     fi
   fi
 fi
@@ -233,11 +248,12 @@ fi
 # idezojel/backslash ne tudja elrontani a formatumot.
 python3 - "${OUT}" "${LOCAL_REF}" "${UPSTREAM_REF}" "${AHEAD}" "${BEHIND}" \
          "${CONFLICTS}" "${CLEAN}" "${CONFLICT_LIST}" "${FETCH_OK}" "${ERR}" "${RUN_TYPE}" \
-         "${CONTENT}" "${REVERTED_MERGE}" "${UPSTREAM_REPO}" "${FETCH_ERR}" <<'PY'
+         "${CONTENT}" "${REVERTED_MERGE}" "${UPSTREAM_REPO}" "${FETCH_ERR}" \
+         "${SPLIT_FILES}" "${SKIP_LIST}" <<'PY'
 import json, os, sys, datetime
 
 (out, local_ref, up_ref, ahead, behind, conflicts, clean, clist, fetch_ok, err,
- run_type, content, reverted, up_repo, fetch_err) = sys.argv[1:16]
+ run_type, content, reverted, up_repo, fetch_err, split_files, skip_list) = sys.argv[1:18]
 
 def num(s):
     try:
@@ -251,13 +267,89 @@ if clist and os.path.exists(clist):
         files = [l.rstrip('\n') for l in f if l.strip()]
     os.unlink(clist)
 
+def lines(path):
+    with open(path, encoding='utf-8') as f:
+        return [l.rstrip('\n') for l in f if l.strip()]
+
+# --- A "tisztan athuzhato" halmaz szetbontasa (kanban #375) ---------------
+#   absorbed = nalunk mar byte-ra ugyanaz, mint az upstreamben (behuzva)
+#   skipped  = SZANDEKOSAN kihagyva: a governance/upstream-skipped-files.json
+#              sorolja fel, az upstream AKKORI blob-azonositojaval. Ha az
+#              upstream azota ujra modositotta a fajlt, a regi dontes nem
+#              ervenyes ra -> ujra "hatra van" lesz, uj dontes kell.
+#              kind=deferred: halasztva (kesobb elovesszuk), kind=decided:
+#              vegleges dontes.
+#   clean    = ami ezek utan TENYLEG hatra van.
+# Hianyzo lista = friss telepites, nincs kihagyas: 0, nem hiba. Olvashatatlan
+# lista viszont NEM ures: a mezok null-ok maradnak, es a hiba kiirodik.
+absorbed = skipped = deferred = None
+skip_error = None
+if split_files and clean:
+    clean_path, differ_path, uptree_path = split_files.split(':')
+    try:
+        clean_set = lines(clean_path)
+        differ = set(lines(differ_path))
+        uptree = {}
+        for l in lines(uptree_path):
+            meta, _, name = l.partition('\t')
+            parts = meta.split()
+            if len(parts) >= 3:
+                uptree[name] = parts[2]
+        decided = {}
+        if os.path.exists(skip_list):
+            try:
+                with open(skip_list, encoding='utf-8') as f:
+                    raw = json.load(f)
+                entries = raw.get('files') if isinstance(raw, dict) else None
+                if not isinstance(entries, dict):
+                    raise ValueError('a "files" mezo nem objektum')
+                decided = entries
+            except Exception as e:
+                skip_error = ('governance/upstream-skipped-files.json: %s' % e)[:300]
+        if skip_error is None:
+            absorbed = skipped = deferred = 0
+            remaining = 0
+            for path in clean_set:
+                if path not in differ:
+                    absorbed += 1
+                    continue
+                d = decided.get(path)
+                if isinstance(d, dict) and d.get('blob', '') == uptree.get(path):
+                    skipped += 1
+                    # "deferred" = kihagyva, de NEM vegleg (pl. kevert fajl,
+                    # kesobb kezi valogatas) -- kulon szamoljuk, hogy a
+                    # doboz ne mutassa lezart dontesnek.
+                    if d.get('kind') == 'deferred':
+                        deferred += 1
+                    continue
+                remaining += 1
+            clean = str(remaining)
+    except Exception as e:
+        skip_error = ('split: %s' % e)[:300]
+    for pth in split_files.split(':'):
+        try:
+            os.unlink(pth)
+        except OSError:
+            pass
+
 data = {
     'checkedAt': datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
     'aheadCount': num(ahead),
     'behindCount': num(behind),
     'conflictingFiles': files,
     'conflictCount': num(conflicts),
+    # MEG HATRA LEVO, utkozes nelkul athuzhato fajlok (kanban #375 ota: a mar
+    # behuzott es a szandekosan kihagyott fajlok NINCSENEK benne).
     'cleanFileCount': num(clean),
+    # Az upstream altal valtoztatott, nalunk MAR ugyanolyan fajlok.
+    'absorbedCount': absorbed,
+    # Dontessel kihagyott fajlok (governance/upstream-skipped-files.json).
+    'skippedCount': skipped,
+    # Ebbol halasztott (kind=deferred): kesobb meg elovesszuk.
+    'skippedDeferredCount': deferred,
+    # A kihagyas-lista TENYLEGES olvasasi hibaja. Ilyenkor a fenti ket szam
+    # null, es a cleanFileCount a szetbontas nelkuli, regi ertelmu szam.
+    'skipListError': skip_error,
     'contentDiffCount': num(content),
     # Melyik visszavont behuzas miatt nem a HEAD a viszonyitasi pont. Ures =
     # nincs ilyen, a szamok a jelenlegi agrol szolnak.
@@ -279,11 +371,13 @@ with open(tmp, 'w', encoding='utf-8') as f:
     f.write('\n')
 os.replace(tmp, out)
 print(json.dumps({k: data[k] for k in
-      ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'contentDiffCount', 'revertedMerge',
+      ('behindCount', 'aheadCount', 'conflictCount', 'cleanFileCount', 'absorbedCount', 'skippedCount',
+       'skippedDeferredCount',
+       'skipListError', 'contentDiffCount', 'revertedMerge',
        'upstreamRef', 'upstreamRepo', 'fetchOk', 'fetchError', 'error')}, ensure_ascii=False))
 PY
 
-rm -f /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$
+rm -f /tmp/uds-upstream-files.$$ /tmp/uds-conflicts.$$ /tmp/uds-clean.$$ /tmp/uds-differ.$$ /tmp/uds-uptree.$$
 
 # --- 10. A tetelesen lista (es rajta az elv-kapu dontese) ugyanebbol a
 # meresbol frissul. Eddig csak terminalbol keszult (npx tsx

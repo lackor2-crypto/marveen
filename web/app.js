@@ -22132,16 +22132,53 @@ function renderOverviewUpstreamSync(upstreamSync) {
         c: behind, f: conflicts + cleanNum, x: conflicts, k: cleanNum,
       }))}</div>`
     : ''
-  const total = cleanKnown ? String(conflicts + cleanNum) : '\u2013'
+  // #375: a tiszta szam szetbontva. Elotte a "tisztan athuzhato" azokat a
+  // fajlokat is szamolta, amik nalunk MAR pontosan ugyanolyanok (behuzva), es
+  // azokat is, amikrol mar dontottunk, hogy kimaradnak -- igy a doboz szinkron
+  // utan is 723-at mutatott, mintha semmi nem tortent volna. Ha a meres
+  // szetbontotta (mindket szam nem-null), negy szamot mutatunk; a regi
+  // pillanatkep (split nelkul) a regi harom szammal jelenik meg.
+  const absorbedNum = Number(upstreamSync.absorbedCount)
+  const skippedNum = Number(upstreamSync.skippedCount)
+  const split = cleanKnown
+    && upstreamSync.absorbedCount !== null && upstreamSync.absorbedCount !== undefined
+    && upstreamSync.skippedCount !== null && upstreamSync.skippedCount !== undefined
+    && Number.isFinite(absorbedNum) && Number.isFinite(skippedNum)
+  const total = cleanKnown
+    ? String(conflicts + cleanNum + (split ? absorbedNum + skippedNum : 0))
+    : '\u2013'
+  const explainHtml = split
+    ? `<div class="upstream-sync-explain">${escapeHtml(t('overview.upstream.explain_split', {
+        c: behind, f: conflicts + cleanNum + absorbedNum + skippedNum,
+        a: absorbedNum, s: skippedNum, x: conflicts, k: cleanNum,
+      }))}</div>`
+    : explain
+  // A lista olvashatatlan: ezt KI kell mondani, kulonben a split nelkuli regi
+  // nezet ugy nez ki, mintha nem is lenne kihagyasi lista.
+  const skipErr = (typeof upstreamSync.skipListError === 'string' && upstreamSync.skipListError)
+    ? `<div class="upstream-sync-offline">${escapeHtml(t('overview.upstream.skiplist_error', { why: upstreamSync.skipListError }))}</div>`
+    : ''
+  const splitStats = split
+    ? `<span class="upstream-stat" title="${escapeAttr(t('overview.upstream.skipped_tip'))}"><strong>${skippedNum}</strong> ${escapeHtml(t('overview.upstream.skipped'))}</span>
+      <span class="upstream-stat" title="${escapeAttr(t('overview.upstream.absorbed_tip'))}"><strong>${absorbedNum}</strong> ${escapeHtml(t('overview.upstream.absorbed'))}</span>`
+    : ''
+  const deferredNum = Number(upstreamSync.skippedDeferredCount)
+  const deferredNote = (split && Number.isFinite(deferredNum) && deferredNum > 0)
+    ? `<div class="upstream-sync-explain">${escapeHtml(t('overview.upstream.skipped_deferred', { n: deferredNum }))}</div>`
+    : ''
+  const cleanLabel = split ? t('overview.upstream.clean_left') : t('overview.upstream.clean')
   const commitLine = `<div class="upstream-sync-commits">${escapeHtml(t('overview.upstream.commits', { c: behind }))}</div>`
   body.innerHTML = `
     <div class="upstream-sync-row">
       <span class="upstream-stat"${cleanTitle}><strong>${total}</strong> ${escapeHtml(t('overview.upstream.total'))}</span>
       <span class="upstream-stat ${badgeClass}"${conflictTitle}><strong>${conflicts}</strong> ${escapeHtml(t('overview.upstream.conflicts'))}</span>
-      <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(t('overview.upstream.clean'))}</span>
+      <span class="upstream-stat"${cleanTitle}><strong>${clean}</strong> ${escapeHtml(cleanLabel)}</span>
+      ${splitStats}
     </div>
     ${commitLine}
-    ${explain}
+    ${explainHtml}
+    ${deferredNote}
+    ${skipErr}
     ${revertedNote}
     ${upstreamRepoHtml(upstreamSync)}
     ${pair}

@@ -1,0 +1,1091 @@
+{
+  "_comment": "Upstream files left out ON PURPOSE (kanban #375). An entry is valid only while the upstream blob still matches: if upstream changes the file again, it counts as still to pull and needs a new decision. blob=null means upstream deleted the file. kind=deferred: postponed, not final; kind=decided: final. Read by scripts/upstream-divergence-check.sh.",
+  "files": {
+    "docs/telegram-live-progress.md": {
+      "blob": "b96738adb914e2020c3c1bb762df6dca51c0f385",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "docs/telegram-progress-indicator.md": {
+      "blob": "584919777094df2a1b392c76ef8e179d58c89241",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/channel-process-gate.test.py": {
+      "blob": "9a393c1c46c005973775f028670795393a326192",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/email-approval-gate.test.py": {
+      "blob": "2f4403e48a996ecf31c7c5bbbe79445a92e6ceaa",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/install-telegram-progress-hook.test.sh": {
+      "blob": "1cbcfd7f1036d4fe8748ad1f89a86c2f37b1f555",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/kartya-ertesites-felado.test.py": {
+      "blob": "5c3bcfb2f9845dbdd133d4cf56d31ae1ba042682",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/kartya-mezomozgatas.test.py": {
+      "blob": "ec3233236c211c2ac28e317a24442fbb2dac3b32",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/memory-index-gate-linkcheck.test.sh": {
+      "blob": "5df09673120e2888af877e22256e5cee1174a95d",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/memory-index-gate-max-seen.test.sh": {
+      "blob": "a452a788fd425bb27d790ee12f37af21e3efe81e",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/telegram-live-progress.test.py": {
+      "blob": "ff0920a4adcf2942a6113a335f369dd293a5ee8c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/__tests__/telegram-watchdog-wedged.test.sh": {
+      "blob": "27facd308d86db8fa8bda32590e6fefdb7ce1f18",
+      "kind": "decided",
+      "reason": "Tests upstream watchdog behaviour we did not take.",
+      "card": "#375"
+    },
+    "scripts/__tests__/vault-alak-scan.test.py": {
+      "blob": "e2801511ca78cc65e14e74c13160f05a12281d00",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/context-restart-gate-doctor.mjs": {
+      "blob": "05253ae9b03337e0d991a60528a119aa49c370d3",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/garmin_run_gate.py": {
+      "blob": "e3105110d92ca3a97d5505e099b05392d08f2a2f",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/hooks/channel-process-gate.py": {
+      "blob": "da1d9844ebb9cf244c2459e98495b091f8136a67",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/hooks/egress-gate.mjs": {
+      "blob": "644f54bea5833a05bd0f65ad67b6f50088a533fe",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/hooks/email-approval-gate.py": {
+      "blob": "c1be41d0ae8aee461516cad6d90611ef36203c86",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/hooks/ledger-replay.py": {
+      "blob": "cdd0a94c8c54452b8c3a54c0682519c548064231",
+      "kind": "decided",
+      "reason": "Excluded by the principle gate: would overwrite our own behaviour.",
+      "card": "#375"
+    },
+    "scripts/hooks/memory-frontmatter-gate.py": {
+      "blob": "9cc027a14048325752e1bc304cb874f430548995",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/hooks/mio-orszem-precheck.sh": {
+      "blob": "079455afce107ba5bb526f38edb30b66f8f7563f",
+      "kind": "decided",
+      "reason": "Hard-coded /Users path, not host-agnostic.",
+      "card": "#375"
+    },
+    "scripts/hooks/outgoing-copy-gate.py": {
+      "blob": "da2c1bc73c4c1423de77a456d75a4af168812eb6",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/install-telegram-progress-hook.sh": {
+      "blob": "9642c56a3b1151a176f03fda3e358d67ca6d2942",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/kanban-write-gate.mjs": {
+      "blob": "90e84882b31309d73c11ee3881d0044b380ef032",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/kartya-es-ertesites.py": {
+      "blob": "d1032f0e200ffbe96b3e81608d28758ff45cbb91",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/memoria_heartbeat_gate.py": {
+      "blob": "b4dfcd4af6a83c812751564ccb6dac3c41bec6e2",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/memory-index-gate.sh": {
+      "blob": "7e58bfeb16dc405388a53f836661d50ef2417da0",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/memory-index-linkcheck.py": {
+      "blob": "e902a0f8bb55f4df2b125d7203e629d0661aec99",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/progress-mode.sh": {
+      "blob": "4caad0c75613aa12968280487f3c37b2e80f1ed7",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/recipient-ledger.mjs": {
+      "blob": "15c19099568d047a6f9777253d295972dc335bf1",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/rembrandt.sh": {
+      "blob": "99ba360b963facca132af26a981b5b4f769340f3",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/skill.ts": {
+      "blob": "e2dea2f12fb8dc9f01447c9e37c46a2009156b49",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/telegram-live-progress.py": {
+      "blob": "3a8fa9b2ec6bfc47251e39c8e956da83d327a153",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/test_garmin_run_gate.py": {
+      "blob": "b526e61ba0332b2559557f0f2644c8923944933e",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/test_memoria_heartbeat_gate.py": {
+      "blob": "979c08c2e0fa4586dd870f3362d86a1380b0650f",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/vault-alak-scan.py": {
+      "blob": "c1afb45a1e2cc56fccbfbaa577abc24d19b16980",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "scripts/worker-tail.sh": {
+      "blob": "eca5f07d8d13b1a31b119172ebe7c4fb80c151b7",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "seed-skills/bridge-szolgaltatas-lapok/SKILL.md": {
+      "blob": "ecc3f04200dce4f093c8557c0a31d209eabec028",
+      "kind": "decided",
+      "reason": "Skill for the excluded Bridge service.",
+      "card": "#375"
+    },
+    "seed-skills/fleet-helper/SKILL.md": {
+      "blob": "fe30ae966b3a04b65d73acebacbfdcb550c4ddd4",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "seed-skills/fleet-helper/scripts/fleet.py": {
+      "blob": "652f2af7de66f0a05cd40e1c51e412bbc5d5e1c5",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-identity-setup.test.ts": {
+      "blob": "edbfb9669d7341cf44e430c2d31d61267431cce3",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-put-fields.test.ts": {
+      "blob": "7d2231e2f0a4eedf341d4c31dd1451dd46d791c8",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-scaffold-claude-md-prompt.test.ts": {
+      "blob": "6d7426d1b2c6c27c66d9515bdab1b3ab0306ff8a",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-scaffold-dashboard-origin.test.ts": {
+      "blob": "d531266526ffb65a0e97f19b134df2074ff2a175",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-scaffold-evidence-rule.test.ts": {
+      "blob": "f6974b4c8c4504557c57b5f6313f37edf6474c7f",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/agent-taskstate.test.ts": {
+      "blob": "82dc411aa813d66c0800e7f8007dfdcd2a42e43f",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/approvals-delivery.test.ts": {
+      "blob": "5933db9c35f5200b9f925e2d654b720100d2e825",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/approvals.test.ts": {
+      "blob": "3fabdcec7e32771b978620c4e856860f2d6f14cd",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/auto-restart.test.ts": {
+      "blob": "8b7bd6a8ec3f68e30e8f4cf4d8683dbefc8b5313",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-mcp-reconnect.test.ts": {
+      "blob": "756e5e6d036de77d37a7dad512a3a6b421bdc517",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-monitor-session-recreate.test.ts": {
+      "blob": "da3f721cb42b52eb39a1962d8e01732d96622989",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-provider.test.ts": {
+      "blob": "7930cfb9c0aa62155c7416f92a4f6e6e1710dc89",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/channel-stability-contract.test.ts": {
+      "blob": "4725f7123d3d092f78d85b68a23017839ec115d3",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/channels-unit-restart-policy.test.ts": {
+      "blob": "807e4fc7a4408f5e807e2f00567c42b231455bf3",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/completion-notification.test.ts": {
+      "blob": "2cacb7c852d3d7a99a5e2f33b3f2a5909a1a694d",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-daily-tier.test.ts": {
+      "blob": "b950c45a6a1835b8cf0f51cd21943e9a3f33f950",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-handoff-prompt-tone.test.ts": {
+      "blob": "f3b12797419d6f743cb13cba332a5d10464e0536",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-hidden-worker.test.ts": {
+      "blob": "30231d37e6d80e3196224bf103645bb4ab27c2bc",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-main-transcript-root.test.ts": {
+      "blob": "d962b0affae243a121ecd60561c3c1f51f6df898",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-new-agent-default.test.ts": {
+      "blob": "68c8f8b302368e2e80aae850df3d09457ea7e726",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-reconcile-race.test.ts": {
+      "blob": "968d5392770d3c2985e4ecaee943c3320acc0edb",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-resume-prompt.test.ts": {
+      "blob": "1393303733b31b260063a219558f9a8f39d809a9",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard-saturation-mismatch.test.ts": {
+      "blob": "df15aedeb0042dab4c855eda9d713233bff79d83",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-guard.test.ts": {
+      "blob": "c6ef2e8db76c1747f14bc8ca394aaea2250e9535",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/context-restart-gate-main-transcript-root.test.ts": {
+      "blob": "bcf8b1cd2ef5cbd55830874fffa6ab3144db20aa",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/conversation-ledger-schema.test.ts": {
+      "blob": "ee53800ea2b0d98b6d9b52ecaf90602a1aef4d34",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/db.test.ts": {
+      "blob": "64d5ac066811e9864dfde08eadeb340de32e09c2",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/default-agent-model.test.ts": {
+      "blob": "333eb5091fc55ed8a11f9b59a65c4aa22355a956",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/egress-gate.test.ts": {
+      "blob": "ed87c7eabab4e55cb9c20c9a5e45fafcc5949b1e",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/email-approval-gate.test.ts": {
+      "blob": "ae40109872a2b6fd20dd4e1fa2cb6611ad621440",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/email-gate-matcher-drift.test.ts": {
+      "blob": "8cdd8f60cc4201c19df06f332d6b0866147ff716",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/email-thread-reply-gate.test.ts": {
+      "blob": "cd2027b12f8d35edd29be25730ba10c31331fb63",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/attestation-vectors.json": {
+      "blob": "a5d56f1cba9792deb373f8e7c1ac97cf25a1eaa4",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/01-ignore-previous.expected.json": {
+      "blob": "1b149cb28fac6a357963a0da65971ef4f07f8803",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/01-ignore-previous.md": {
+      "blob": "a78a22d88248a9841bbd12d722adf6c1fcdedded",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/02-ignore-previous-hu.expected.json": {
+      "blob": "f98174a2ac09aeb7730cf9765c82481aa5827876",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/02-ignore-previous-hu.md": {
+      "blob": "78fbe00e3bc5a7ba76bf41c51044e8436edd49ed",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/02b-felejtsd-el-hu.expected.json": {
+      "blob": "5a9783706de9581d31b76f97630b332e284bb2b2",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/02b-felejtsd-el-hu.md": {
+      "blob": "ad7da49679ffc443d53df3af9ccecc9f87ba3565",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/03-role-reassignment.expected.json": {
+      "blob": "c82e3760f52ccdf9abddeca0ec40862cc9a8228d",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/03-role-reassignment.md": {
+      "blob": "0acaf1d58b558037a9dab6be9c659b762a082d8d",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/04-system-prompt-probe.expected.json": {
+      "blob": "f6b8580f147f154cb9ea3f53634bd9a6e94d154a",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/04-system-prompt-probe.md": {
+      "blob": "63f23321bd7dbc21da748c1b7c56df0b0f5d1310",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/05-fake-system-tag.expected.json": {
+      "blob": "2033d69cc6f262bb51ed5c485c3db91a85dc346a",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/05-fake-system-tag.md": {
+      "blob": "f160cada7515d1277017ec73fdd9b8db23d65b7c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/06-imperative-html-comment.expected.json": {
+      "blob": "73c23190b4a9f48cd7126868d33a1e9d095727d4",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/06-imperative-html-comment.md": {
+      "blob": "4002ee932d92428756ec2ebe3fbe8e61fe844b04",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/07-pipe-to-shell.expected.json": {
+      "blob": "44cdbdd50a1a7e512140681e52e0c5c6bcd78d82",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/07-pipe-to-shell.md": {
+      "blob": "dcca1bb776b26c37a5aa6dc62f6bb090de4c0b70",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/08-exfiltrate.expected.json": {
+      "blob": "6dfd5b77e49507b4c3251fe97de6c1409629c453",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/08-exfiltrate.md": {
+      "blob": "fc4557b9f99ae521733c6c16a00bc36a164af182",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/09-tool-bait.expected.json": {
+      "blob": "9ad021974f3185c6b48ad7d87802ea7eddaf2a69",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/09-tool-bait.md": {
+      "blob": "b192a71bc7bf151b4f631f7598f10d3c3344f0c6",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/10-base64-blob.expected.json": {
+      "blob": "49e2cc97a12886a3c895519cb6b11d05bde069da",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/10-base64-blob.md": {
+      "blob": "77f43e537b296aeefe3b76d066551bb6a1fc20ca",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/11-email.expected.json": {
+      "blob": "4fc1eae4959c008bd7701eacc9065345f45faab9",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/11-email.md": {
+      "blob": "6fad46d9a5473c89ecd4aea5610dc4924eee1b2c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/12-hu-phone.expected.json": {
+      "blob": "711049ec6af99308e8cf807230273834a1a8860c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/12-hu-phone.md": {
+      "blob": "e7f0b0385e0d18d04245082e810f96fcd27c9c14",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/13-card-shaped.expected.json": {
+      "blob": "b4b68f0909fca7174f9e0a68eb9c52e4fe727488",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/13-card-shaped.md": {
+      "blob": "e1b0fe6fc07f7c7627f96eee03111e96582f6746",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/14-api-key-shaped.expected.json": {
+      "blob": "34698b813018ae00f356ffdf484bfa7eac76be0a",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/14-api-key-shaped.md": {
+      "blob": "4944363e6a781b675e2d96746bf494d27172392f",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/15-bearer.expected.json": {
+      "blob": "c1a6528272cead823c0dd375901298860baf20f2",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/15-bearer.md": {
+      "blob": "4dfee23034dc73634b9a838b9d25801907e199cb",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/16-hu-taj.expected.json": {
+      "blob": "d32744cbde6d65cf4c694daac6afafca733cde63",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/16-hu-taj.md": {
+      "blob": "efce98046e8d14e5e9fe9ca491833b1a6d08d5df",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/17-secret-assignment.expected.json": {
+      "blob": "c05aa9cd6f5edc61b8ac4c1dfac53177ff663f4e",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/17-secret-assignment.md": {
+      "blob": "1cc2103910a37451995d0e5741ecca3e7a80861e",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/20-akcentus-hatar.expected.json": {
+      "blob": "2c72a0f40b7102c16d76191ec4f5ec1b50ce1889",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/20-akcentus-hatar.md": {
+      "blob": "8872d9dac05d27423f4be0cf9de1083fd6053f9f",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/21-emoji-csonkitas.expected.json": {
+      "blob": "1930493bb1fa70a82041bb0bf8e696f8694c1e20",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/21-emoji-csonkitas.md": {
+      "blob": "963de82c01f82bc82476c7e4c766d1904e639c5c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/22-unicode-szamjegy.expected.json": {
+      "blob": "64b938dd4279cb30130342b94039cc8eb37d46e9",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/22-unicode-szamjegy.md": {
+      "blob": "87ea0078605d264de83c48cdf49a2716826eaf96",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/23-tobbszoros-atfedes.expected.json": {
+      "blob": "3fe022fef6b306596b611b4db3e9da897a56c36c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/23-tobbszoros-atfedes.md": {
+      "blob": "74a9020a4392e35c3ef8760911f504a620a541e0",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/24-tiszta.expected.json": {
+      "blob": "92ffc575f366d578add1a315fc4baf8007fa2369",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/24-tiszta.md": {
+      "blob": "351be7602fa59bb475c19dd98e2fcce93e5d68d0",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/25-ures.expected.json": {
+      "blob": "92ffc575f366d578add1a315fc4baf8007fa2369",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/25-ures.md": {
+      "blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/26-crlf-es-sorszamok.expected.json": {
+      "blob": "ed7c5716bd967dc44b6057e9eba8d3720f7f7a75",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/26-crlf-es-sorszamok.md": {
+      "blob": "63617217cd18b0c8b1000fdbdd6c7f374a687d17",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/27-unicode-szohatar.expected.json": {
+      "blob": "152d46b68ffc5d17b30d69b51a7c4d0525eced8a",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/27-unicode-szohatar.md": {
+      "blob": "7fc3fdbbcc5530b00ff1f82c6485a8d7e7712c6d",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/28-emoji-a-talalat-elott.expected.json": {
+      "blob": "b27b8b105d885d8ecfcba681ec7d78f5ed2c3dd4",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/fixtures/skill-scan/28-emoji-a-talalat-elott.md": {
+      "blob": "96ed44dc351fbf61e3296642747495a7d4954dff",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/ghost-suggestion-strip.test.ts": {
+      "blob": "ccf7722ab6904ed050f0407f7131a42ab3528638",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/heartbeat-agent-scaffold.test.ts": {
+      "blob": "7fafbf18f8cddd0d43b28bacc93674b5b705fae7",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/hook-exit-code-invariant.test.ts": {
+      "blob": "43be6cf2258a568023230a987728f10373a384d2",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/hook-registration-completeness.test.ts": {
+      "blob": "25987aef7e58f34a50c1d72fd598bcba73a76933",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/hook-scope-main-refusal.test.ts": {
+      "blob": "13d233d578005621148e40f52ccf3ade7c46e9cf",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/isolated-channel-config.test.ts": {
+      "blob": "95a2575f8ed72a1c0e8714aa1098653c0be98f36",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/isolated-config-hook-strip.test.ts": {
+      "blob": "5d9deaab2d08d5d3dda6034937aa4132119e4709",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/isolated-config-mcp-reconcile.test.ts": {
+      "blob": "41cf32e96074fa36826c1f15eaa1cd1da0095ae6",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-dispatch-instructions.test.ts": {
+      "blob": "a2fa813001ded68d91f6d6da567ca4e0a419f7a1",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-modal-overlay-click-data-loss.test.ts": {
+      "blob": "3962a523601d711d1c63f0a0f5b338fe42b4d9ce",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-title-gate-trigger.test.ts": {
+      "blob": "367aa7b11a1f51c7b4fb7ecad7b944d66279e319",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/kanban-write-gate.test.ts": {
+      "blob": "7bdb6ef9f6bba7fdcfac2ea41162c4c559283306",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/main-agent-isolated-config.test.ts": {
+      "blob": "3516f1cbdd849e80fa013aa557bb95aee3697266",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/memory-frontmatter-gate.test.ts": {
+      "blob": "df08d5e0f2617de467e737f664cf846f9a7cc3e3",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/model-fallback.test.ts": {
+      "blob": "09bc3bf772d195be0980f4bec929eed4ecfadc67",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/parked-machine-input.test.ts": {
+      "blob": "ded1a517e9e2cf0b4c4557d70fd1e0bebc167028",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/process-lock.test.ts": {
+      "blob": "ec2f0bb254c11a419f6dc2f1296ba996b03bd29e",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/project-settings-hook-anchor.test.ts": {
+      "blob": "f37775bca5daba6deb0ca9ae951c2559973b3d8c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/quarantine-allowlist-render.test.ts": {
+      "blob": "a9908f54184ab15f145d9f57e908813cab5d3e61",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/renderagents-no-main-duplicate.test.ts": {
+      "blob": "059e1faa63f4d338a3fd7aa09972f574b664d714",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/rescue-failure-alert.test.ts": {
+      "blob": "38f9b686fad41f704299cf5ec4f96537c98061ed",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/research-routes.test.ts": {
+      "blob": "dcf4afdb1bb4667ab933992519df1b9afce07d30",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/restart-race-lock.test.ts": {
+      "blob": "2fe574d6b7d911924916c64c009cafa4a18d1767",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-catchup.test.ts": {
+      "blob": "6b6a931f6ad31c6dfe9cf1aff060886d67d8136f",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-runner-bound-chatid.test.ts": {
+      "blob": "faf84bad8f055b08752bd828066866793bb98b58",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-runner-injection-priority.test.ts": {
+      "blob": "1e3bb91fc730ff8bfa38965f75286bdc6a2a90b2",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-runner-precheck.test.ts": {
+      "blob": "10848a7ff8e07a1d4496eeba0de7ef90d79a5d7f",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-runner-resubmit-escalation.test.ts": {
+      "blob": "8b11887d121c5a0193323f6d3a9bf603fa5293f9",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/schedule-task-timeout.test.ts": {
+      "blob": "ffe7183b2976dcfcaf9539e2ad53bf7644e29151",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/send-prompt-force-send-gate.test.ts": {
+      "blob": "1f28b02e390885569eb617fa3091ed1401781b92",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/skill-cli-core.test.ts": {
+      "blob": "52f1bbc1958633cd49d76466f93836a6931d94db",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/skill-cli-fs.test.ts": {
+      "blob": "1c23c4c6c5e91b92279b94f669bc2c16e7f077c8",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/skill-cli-upload.test.ts": {
+      "blob": "1e24023f19de5c2beef72129f322770867f56fea",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/skill-scan-parity.test.ts": {
+      "blob": "5148ed0bba6fbe091fdef66bbd4a659c09b1705e",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/__tests__/ssh-tmux.test.ts": {
+      "blob": "fbe9a18271bdd9499e0b41e7a1739a5d35b52e1b",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/stuck-input-action.test.ts": {
+      "blob": "0532c2659fe3fdcafa43b30f1b77b9540153924b",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/stuck-tool-call.test.ts": {
+      "blob": "64cdb766f506c0f01c2f5fb3a85fb22e8e0a949c",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/template-identity-hygiene.test.ts": {
+      "blob": "54d86bce1aa82ccdf2361e4d7c9d5c11256c4f15",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/token-usage.test.ts": {
+      "blob": "387783047a9631c41b9cb4ad9c202a39ae73e8e3",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/update-checker-branch.test.ts": {
+      "blob": "517c85905023c900f85dc33d6027ee427d339279",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/__tests__/welcome-screen-recovery.test.ts": {
+      "blob": "fe11f74f7dcaa455b2440cb81b9fa98056873431",
+      "kind": "decided",
+      "reason": "Our own test, rewritten upstream; restored to our version.",
+      "card": "#375"
+    },
+    "src/auto-restart.ts": {
+      "blob": "839eac8dc278d6005170f61acf1fcbf789cbf0eb",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/channel-provider.ts": {
+      "blob": "4c7272f58259de1525fc42373dc9ec397b915d91",
+      "kind": "decided",
+      "reason": "Would overwrite our own channel behaviour (principle gate).",
+      "card": "#375"
+    },
+    "src/context-guard.ts": {
+      "blob": "737ed020b74360dac7d4c23eda5e5fcd42fb7c0d",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/skill-cli-core.ts": {
+      "blob": "8fe3b8f27caf416ae473a36a048aeb1244c2d9cd",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/skill-cli-fs.ts": {
+      "blob": "64f27b96cd55239f8d9d7c0b25f58a584b67e5ef",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/skill-scan.ts": {
+      "blob": "2bd960f0126e22b99e72c94a188a156e5e592ca4",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/active-model.ts": {
+      "blob": "33899f4ba5045f00c4e9e1e820d9bcc5295aed74",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/agent-config.ts": {
+      "blob": "d08920a20fad7964c5b8a836f238cf61aea6ca97",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/agent-put-fields.ts": {
+      "blob": "69ce01fdd32899cf93f68071e045d4c32e10e0ae",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/auto-restart-runner.ts": {
+      "blob": "12cb41d9bbc0c3b519545028f8bdc6d7ae31319b",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/context-guard-store.ts": {
+      "blob": "0593a081cc624a6e8770cd630e85da9c3402b929",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/heartbeat-agent-scaffold.ts": {
+      "blob": "d21fef6b856c207b1023d1f1376bf94ea3beb721",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/main-transcript-root.ts": {
+      "blob": "5f7bd1b29c37c5ae422477e2b46f323b07030a1c",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    },
+    "src/web/rescue-failure-tracker.ts": {
+      "blob": "2b5639da7fa7c39ac8eda7492842881e60e0eb01",
+      "kind": "deferred",
+      "reason": "Mixed file: good upstream change tangled with a change the principle gate excludes. Owner decision A (2026-09-24): left out for now, to be sorted by hand later.",
+      "card": "#375"
+    }
+  }
+}
