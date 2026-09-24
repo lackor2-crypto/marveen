@@ -3266,6 +3266,9 @@
                  style="min-width:180px" data-i18n-placeholder="intezo.search_ph">
           <button class="btn-secondary" id="intezoMkdirBtn" data-i18n="intezo.new_folder">Új mappa</button>
           <button class="btn-secondary" id="intezoConfigBtn2" data-i18n="intezo.cfg_open">Kik szerepeljenek a fában?</button>
+          <button class="btn-secondary" id="intezoTreeBtn" aria-pressed="true"
+                  data-i18n="intezo.tree_toggle" data-i18n-title="intezo.tree_toggle_title"
+                  title="Bal oldali mappafa mutatása vagy elrejtése">Mappafa</button>
         </div>
 
         <!-- FORRASJELVENY-MOD. Alapertelmezes az IKONOS -- Boss valasztasa.
@@ -3296,12 +3299,20 @@
         </div>
         </div>
 
+        <!-- KET PANEL, mint a Windows Intezo (kartya adf4d1c5). Boss, 2026-09-24:
+             "BALRA a mappafa, JOBBRA nagyobb panelen a kijelolt mappa tartalma."
+             A fa csak mappakat mutat; kattintas = a jobb panel azt nyitja meg. -->
+        <div class="intezo-split">
+        <nav id="intezoTree" class="intezo-tree" data-i18n-aria-label="intezo.tree_aria" aria-label="Mappafa"></nav>
+        <div class="intezo-main">
         <div id="intezoMessage" class="info-box" hidden></div>
         <div id="intezoPath" style="font-size:12px;opacity:.7;margin-bottom:6px"></div>
         <div id="intezoList"></div>
         <p id="intezoTruncated" style="font-size:13px;opacity:.8" hidden data-i18n="intezo.truncated">
           Ebben a mappában nagyon sok fájl van, ezért csak az első 2000 látszik. Használd a keresőt.
         </p>
+        </div>
+        </div>
       </div>
 
       <!-- A panel "otthona". A panel kijeloleskor ATKOLTOZIK a kijelolt sor ALA
