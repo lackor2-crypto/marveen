@@ -3943,13 +3943,12 @@ window._i18n.en = {
   // FILES. Saying "files" keeps the box from reading like three numbers of the
   // same kind that could be subtracted from one another.
   'upstream.changes.title':   'What changed upstream?',
-  'upstream.changes.open':    'What changed? — itemised list',
+  'upstream.changes.open':    'Details (changes, files, excluded)',
   'upstream.changes.intro':   '{n} changes are waiting: {f} fixes, {u} features, {e} other. The unit is the change (commit) — a single file cannot be pulled across on its own. Compared: {local} ↔ {upstream}.',
   'upstream.changes.fixes':   'Fixes ({n}) — you probably want all of these',
   'upstream.changes.feats':   'Features ({n}) — worth picking from',
   'upstream.changes.other':   'Other ({n}) — docs, chores, tests',
   'upstream.changes.files':   '{n} files',
-  'upstream.gate.open': 'Excluded and to-decide items',
   'upstream.gate.group_exclude': 'Excluded by principle ({n}) -- these will not come in',
   'upstream.gate.group_discuss': 'Needs your decision ({n}) -- you decide on these',
   'upstream.gate.none': 'Nothing excluded and nothing to decide: the principle check lets every change through.',

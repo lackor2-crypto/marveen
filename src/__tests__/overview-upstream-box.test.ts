@@ -180,17 +180,13 @@ describe('upstream elv-kapu gomb es nezet', () => {
   const start = app.indexOf('function renderUpstreamGate(')
   const view = app.slice(start, app.indexOf('\nfunction ', start + 1))
 
-  it('a gomb es a fül letezik, es a kapu-nezetet nyitja', () => {
-    expect(html).toContain('id="overviewUpstreamGateBtn"')
+  it('EGY gomb nyitja a listat; a kapu-nezet a harmadik ful, nem kulon gomb', () => {
+    // Boss, 2026-09-24: a kulon "Kizart es dontesre varo" gomb ugyanazt a
+    // haromfules ablakot nyitotta, mint a tetelesen lista gombja.
+    expect(html).not.toContain('overviewUpstreamGateBtn')
+    expect(app).not.toContain('openUpstreamGate')
     expect(html).toContain('id="upstreamViewGate"')
-    expect(app).toMatch(/function openUpstreamGate\(\)\s*\{\s*setUpstreamChangesView\('kapu'\)/)
-  })
-
-  it('a gomb ott tunik el, ahol a tetelesen lista gombja', () => {
-    // Ha a lista gombja elrejtodik (nincs meres / nincs uj valtozas), a kapu
-    // gombja se mutasson egy nem letezo listara.
-    const hides = app.match(/if \(changesBtn\) changesBtn\.hidden = true\n\s*if \(gateBtn\) gateBtn\.hidden = true/g) || []
-    expect(hides.length).toBe(2)
+    expect(html.match(/<button[^>]*upstream-changes-btn/g) || []).toHaveLength(1)
   })
 
   it('mindket csoportot mutatja, az indokkal lathatoan', () => {
@@ -202,7 +198,7 @@ describe('upstream elv-kapu gomb es nezet', () => {
   it('a harom ures allapot kulon mondat: nem futott / nem sikerult / tenyleg nincs', () => {
     expect(view).toMatch(/if \(!run \|\| !run\.ok\)/)
     expect(view).toContain('upstream.gate.none')
-    for (const k of ['upstream.gate.open', 'upstream.gate.group_exclude', 'upstream.gate.group_discuss',
+    for (const k of ['upstream.changes.open', 'upstream.gate.group_exclude', 'upstream.gate.group_discuss',
       'upstream.gate.none', 'upstream.gate.where', 'upstream.gate.summary_view', 'upstream.view.gate', 'upstream.view.gate_unknown']) {
       for (const lang of [hu, en]) expect(lang).toContain(`'${k}'`)
     }
@@ -229,8 +225,8 @@ describe('ujrameres frissiti a tetelesen listat', () => {
 // margin-top miatt az uj gomb (amin nem volt) kilogott a sorbol.
 describe('az upstream gombok egy magassagban', () => {
   const css = readFileSync(join(WEB, 'style.css'), 'utf8')
-  it('a harom gomb kozos szabalyt kap, gombonkenti felso margo nelkul', () => {
-    expect(css).toMatch(/\.upstream-changes-btn,\s*\.upstream-gate-btn,\s*\.upstream-measure-btn \{[^}]*margin: 0/)
+  it('a gombok kozos szabalyt kapnak, gombonkenti felso margo nelkul', () => {
+    expect(css).toMatch(/\.upstream-changes-btn,\s*\.upstream-measure-btn \{[^}]*margin: 0/)
     expect(css).not.toMatch(/\.upstream-(?:changes|gate|measure)-btn \{[^}]*margin-top/)
   })
 })
