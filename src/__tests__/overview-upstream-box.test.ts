@@ -14,10 +14,27 @@
 // A kartya munkaja teszt nelkul kerult a varakozo oszlopba: ez a fajl potolja.
 // A rogzitett szabaly: a harmadik szam vagy MERT (cleanFileCount), vagy nincs.
 
-import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, chmodSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+
+// #379: a status-fajl olvasasat es az egyszeri ujramerest valodi fajlokon
+// mérjuk, egy eldobhato PROJECT_ROOT alatt (az elo store-hoz nem nyulunk).
+const TMP = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require('node:fs') as typeof import('node:fs')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const os = require('node:os') as typeof import('node:os')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require('node:path') as typeof import('node:path')
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'upstream-split-stale-'))
+})
+vi.mock('../config.js', async (orig) => ({
+  ...(await orig<typeof import('../config.js')>()),
+  PROJECT_ROOT: TMP,
+  STORE_DIR: join(TMP, 'store'),
+}))
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const WEB = join(__dirname, '..', '..', 'web')
@@ -269,8 +286,9 @@ describe('Reszletek ablak: Mar behuzva / Szandekosan kihagyva ful (#379)', () =>
 
   it('friss telepites: ures lista nyugodt mondat; nem mert lista kulon mondat', () => {
     for (const name of ['renderUpstreamSkipped', 'renderUpstreamAbsorbed']) {
-      expect(fnBody(name)).toContain('upstream.split.unmeasured')
+      expect(fnBody(name)).toContain('upstreamSplitUnmeasuredHtml(data)')
     }
+    expect(fnBody('upstreamSplitUnmeasuredHtml')).toContain('upstream.split.unmeasured')
     expect(fnBody('renderUpstreamSkipped')).toContain('upstream.skipped.none')
     expect(fnBody('renderUpstreamAbsorbed')).toContain('upstream.absorbed.none')
     expect(hu).toMatch(/'upstream\.skipped\.none':\s*'Nincs szándékosan kihagyott fájl/)
@@ -287,5 +305,80 @@ describe('Reszletek ablak: Mar behuzva / Szandekosan kihagyva ful (#379)', () =>
     expect(r.indexOf("'kihagyva'")).toBeLessThan(r.indexOf('!data.available'))
     const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'overview.ts'), 'utf8')
     expect(route).toContain('{ available: false, split }')
+  })
+})
+
+// #379, 2026-09-24: a "Mar behuzva" es a "Szandekosan kihagyva" ful uresen
+// allt, mert a store-ban egy #379 ELOTTI szkript irta a pillanatkepet: a
+// darabszamok benne voltak, a fajllistak nem. A lista magatol sosem jott meg.
+describe('regi pillanatkep: a szerver egyszer ujramer, a ful alatt gomb van', () => {
+  // a fuggveny sajat teste, a zaro `}`-ig -- a kovetkezo fuggvenyt NEM szamolja bele
+  const fnBody = (name: string): string => {
+    const m = app.match(new RegExp(`\\n(?:async )?function ${name}\\(`))
+    expect(m, `${name} nincs a web/app.js-ben`).toBeTruthy()
+    const start = m!.index!
+    return app.slice(start, app.indexOf('\n}\n', start) + 2)
+  }
+  const statusPath = join(TMP, 'store', 'upstream-sync-status.json')
+  const runsLog = join(TMP, 'runs.log')
+
+  afterAll(() => rmSync(TMP, { recursive: true, force: true }))
+
+  beforeEach(() => {
+    rmSync(join(TMP, 'store'), { recursive: true, force: true })
+    mkdirSync(join(TMP, 'store'), { recursive: true })
+    rmSync(runsLog, { force: true })
+  })
+
+  it('darabszam van, lista nincs -> stale; lista van vagy szam sincs -> nem stale', async () => {
+    const { readUpstreamSplitFiles } = await import('../web/upstream-sync-status-io.js')
+    // friss telepites: nincs fajl -> nem mert, de NEM stale (nincs mit ujramerni)
+    expect(readUpstreamSplitFiles()).toEqual({ absorbed: null, skipped: null, stale: false })
+    writeFileSync(statusPath, JSON.stringify({ absorbedCount: 331, skippedCount: 468 }))
+    expect(readUpstreamSplitFiles()).toEqual({ absorbed: null, skipped: null, stale: true })
+    writeFileSync(statusPath, JSON.stringify({ absorbedCount: 1, skippedCount: 0, absorbedFiles: ['a.ts'], skippedFiles: [] }))
+    expect(readUpstreamSplitFiles()).toEqual({ absorbed: ['a.ts'], skipped: [], stale: false })
+    // nincs upstream remote / olvashatatlan kihagyas-lista: a szamok null-ok
+    writeFileSync(statusPath, JSON.stringify({ absorbedCount: null, skippedCount: null }))
+    expect(readUpstreamSplitFiles().stale).toBe(false)
+  })
+
+  it('az ujrameres EGYSZER indul, nem hurokban', async () => {
+    mkdirSync(join(TMP, 'scripts'), { recursive: true })
+    const script = join(TMP, 'scripts', 'upstream-divergence-check.sh')
+    writeFileSync(script, `#!/bin/bash\necho run >> '${runsLog}'\n`)
+    chmodSync(script, 0o755)
+    const runner = await import('../web/upstream-measure-runner.js')
+    runner._resetStaleRemeasureForTest()
+    expect(runner.remeasureStaleSnapshotOnce()).toBe(true)
+    const deadline = Date.now() + 10_000
+    while ((!existsSync(runsLog) || runner.measureState().running) && Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 50))
+    }
+    expect(runner.measureState().running).toBe(false)
+    // a meres lefutott, de a pillanatkep tovabbra is regi: NEM indul ujra
+    expect(runner.remeasureStaleSnapshotOnce()).toBe(false)
+    expect(runner.remeasureStaleSnapshotOnce()).toBe(false)
+    expect(readFileSync(runsLog, 'utf8').trim().split('\n')).toEqual(['run'])
+  })
+
+  it('az API regi pillanatkepnel ujramer, es a felulet ezt jelzi', () => {
+    const route = readFileSync(join(__dirname, '..', 'web', 'routes', 'overview.ts'), 'utf8')
+    expect(route).toContain('read.stale ? remeasureStaleSnapshotOnce() : measureState().running')
+  })
+
+  it('a nem mert ful alatt ott a gomb; futo meresnel a "folyamatban" szoveg', () => {
+    const h = fnBody('upstreamSplitUnmeasuredHtml')
+    expect(h).toContain('startUpstreamSplitRemeasure()')
+    expect(h).toContain('upstream.split.remeasure_btn')
+    expect(h).toContain('split.remeasuring')
+    expect(h).toContain('upstream.split.remeasuring')
+    expect(h).toContain('_pollUpstreamMeasure(')
+    expect(fnBody('startUpstreamSplitRemeasure')).toContain('startUpstreamMeasure()')
+    // a meres vegen a nyitott ablak a friss listat tolti be
+    expect(fnBody('_pollUpstreamMeasure')).toContain('openUpstreamChanges()')
+    for (const k of ['upstream.split.remeasure_btn', 'upstream.split.remeasuring']) {
+      for (const lang of [hu, en]) expect(lang).toContain(`'${k}'`)
+    }
   })
 })

@@ -13,7 +13,7 @@
       "WebFetch(*)",
       "WebSearch(*)",
       "Read(${HOME}/.claude/skills/**)",
-      "Bash(${PROJECT_ROOT}/scripts/agent-post.sh:*)",
+      "Bash(${PROJECT_ROOT}/scripts/agent-msg.sh:*)",
       "Bash(${PROJECT_ROOT}/scripts/notify.sh:*)"
     ],
     "deny": [
