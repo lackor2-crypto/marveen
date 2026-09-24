@@ -130,7 +130,9 @@ describe('jobb klikk az Intezo ures reszen', () => {
   it('a sorok es a beviteli mezok kimaradnak', () => {
     // A soroknak sajat (a tetelre vonatkozo) menujuk van; a mezokon es
     // gombokon pedig a bongeszo sajatja a hasznos (masolas, beillesztes).
-    expect(bind).toContain("t.closest('tr[data-rel]')")
+    // Card #373: the icon view's tiles are rows too -- their own menu, not
+    // the empty-area one on top of it.
+    expect(bind).toContain("t.closest('tr[data-rel], .intezo-tile[data-rel]')")
     expect(bind).toContain("input,textarea,select,a,button")
   })
 })

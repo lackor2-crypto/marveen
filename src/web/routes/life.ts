@@ -7,6 +7,7 @@
 //   GET  /api/life/list       -- egy mappa tartalma, forrasjelvenyekkel
 //   GET  /api/life/info       -- a reszletes informacios panel egy tetelrol
 //   GET  /api/life/file       -- egy fajl BAJTJAI (elonezet/letoltes, kartya #164)
+//   GET  /api/life/thumb      -- kep/video belyegkepe az ikon-nezethez (kartya #373)
 //   GET  /api/life/search     -- nev szerinti kereses a fan belul
 //   GET  /api/life/name-check -- LETREHOZAS ELOTT: rendben van-e ez a nev
 //   POST /api/life/mkdir      -- uj mappa
@@ -30,6 +31,7 @@
 // Minden hibauzenet MAGYAR MONDAT, es azt mondja meg, mit tegyen a
 // felhasznalo -- nem azt, hogy melyik fuggveny hasalt el.
 import { fileKind } from '../../file-kind.js'
+import { lifeThumb } from '../../life-thumbs.js'
 import { json, readBody } from '../http-helpers.js'
 import { logger } from '../../logger.js'
 import {
@@ -404,6 +406,54 @@ export async function tryHandleLife(ctx: RouteContext): Promise<boolean> {
       // A bongeszo elnavigalt/megszakitotta a letoltest -- ez a leggyakoribb
       // eset, es NEM hiba. A valasz feje mar elment, uzenetet mar nem kuldhetunk.
       logger.debug({ err: err?.message }, '[eletfa] a fajl kuldese felbeszakadt')
+      res.destroy()
+    }
+    return true
+  }
+
+  // BELYEGKEP az ikon-nezethez (kartya #373). Ugyanaz a hatar, mint a
+  // /api/life/file-nal: csak arra ad bajtot, amit a resolveLifePath() a fa
+  // belsejenek itel. Ha nincs kep, a valasz KIMONDJA, miert (nem ures kep).
+  if (path === '/api/life/thumb' && method === 'GET') {
+    const lang = uiLang(url)
+    const rel = url.searchParams.get('rel') || ''
+    const abs = resolveLifePath(rel)
+    if (!abs) {
+      send(res, 404, { error: 'outside', message: T(lang,
+        'Ez a hely nincs a Marveen mappáján belül.',
+        'This location is outside the Marveen folder.') })
+      return true
+    }
+    const r = await lifeThumb(abs, pathBasename(abs))
+    if (!r.ok) {
+      const messages: Record<string, [string, string]> = {
+        not_media: ['Ehhez a fájlhoz nincs előnézeti kép: nem kép és nem videó.', 'There is no preview picture for this file: it is not a photo or a video.'],
+        no_ffmpeg: ['Ehhez az előnézethez az FFmpeg nevű ingyenes program kell. A Munkapad beállításainál tudod megadni; addig a fájl ikonja látszik.', 'This preview needs the free FFmpeg program. You can set it up in the Workbench settings; until then the file icon is shown.'],
+        too_big: ['A kép túl nagy ahhoz, hogy FFmpeg nélkül előnézetet készítsünk belőle.', 'The photo is too large to preview without FFmpeg.'],
+        failed: ['Ebből a fájlból nem sikerült előnézeti képet készíteni (lehet, hogy sérült, vagy ismeretlen a formátuma).', 'Could not make a preview picture from this file (it may be damaged, or its format is unknown).'],
+      }
+      const [hu, en] = messages[r.reason] || messages.failed
+      send(res, 404, { error: 'no_thumb', reason: r.reason, message: T(lang, hu, en) })
+      return true
+    }
+    const etag = `"${r.etag}"`
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { ETag: etag, 'Cache-Control': 'private, max-age=86400' })
+      res.end()
+      return true
+    }
+    let size = 0
+    try { size = statSync(r.path).size } catch { size = 0 }
+    res.writeHead(200, {
+      'Content-Type': r.kind === 'thumb' ? 'image/jpeg' : r.mime,
+      'Content-Length': size,
+      ETag: etag,
+      'Cache-Control': 'private, max-age=86400',
+    })
+    try {
+      await pipeline(createReadStream(r.path), res)
+    } catch (err: any) {
+      logger.debug({ err: err?.message }, '[eletfa] a belyegkep kuldese felbeszakadt')
       res.destroy()
     }
     return true

@@ -12250,6 +12250,31 @@ tr.intezo-archived > td { opacity: .45; }
 tr.intezo-archived > td:last-child { opacity: 1; }
 tr.intezo-archived a[data-open] { text-decoration: line-through; text-decoration-color: rgba(127,127,127,.5); }
 
+/* INTEZO IKONRACS (card #373): small / medium icons with thumbnails, like the
+   Depot -> Photos grid. The thumbnail is a server-side 320px JPEG, scaled here. */
+.intezo-grid { display: grid; gap: 8px; align-items: start; }
+.intezo-grid-small { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.intezo-grid-medium { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.intezo-tile { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 8px; cursor: pointer; min-width: 0; border: 1px solid transparent; }
+.intezo-tile:hover { background: rgba(127, 127, 127, .12); }
+.intezo-tile.intezo-tile-selected { background: rgba(127, 127, 127, .2); border-color: var(--border, rgba(127,127,127,.45)); }
+.intezo-tile.intezo-tile-inbox { background: rgba(255, 179, 0, .14); }
+.intezo-tile-thumb { position: relative; width: 100%; aspect-ratio: 1 / 1; border-radius: 6px; background: rgba(127, 127, 127, .1); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.intezo-tile-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.intezo-tile-thumb.has-thumb .intezo-tile-icon { visibility: hidden; }
+.intezo-tile-icon { font-size: 40px; line-height: 1; }
+.intezo-grid-medium .intezo-tile-icon { font-size: 64px; }
+.intezo-tile-play { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 32px; height: 32px; border-radius: 50%; background: rgba(0, 0, 0, .55); color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: center; pointer-events: none; z-index: 1; }
+.intezo-tile-corner { position: absolute; right: 4px; top: 4px; font-size: 14px; z-index: 1; }
+.intezo-tile-name { font-size: 12px; line-height: 1.3; text-align: center; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; }
+.intezo-grid-medium .intezo-tile-name { font-size: 13px; }
+.intezo-tile.intezo-dir .intezo-tile-name a { font-weight: 600; }
+.intezo-tile-btns { display: flex; gap: 4px; justify-content: center; }
+.intezo-tile-btns button { padding: 1px 6px; font-size: 11px; line-height: 1.5; min-height: 0; height: auto; }
+.intezo-tile-btns .intezo-archive-toggle[aria-pressed="false"] { opacity: .55; }
+.intezo-tile.intezo-archived .intezo-tile-thumb, .intezo-tile.intezo-archived .intezo-tile-name { opacity: .45; }
+.intezo-tile.intezo-archived .intezo-tile-name a { text-decoration: line-through; text-decoration-color: rgba(127,127,127,.5); }
+
 /* ===========================================================================
    INTEZO -- two panes (card adf4d1c5): folder tree left, content right,
    like Windows Explorer. On a phone the tree goes above the list.
